@@ -68,6 +68,7 @@ import bpy
 from mathutils import Matrix
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from sprites_retired import refuse_sprite_output  # noqa: E402
 from render_vehicle import (  # noqa: E402
     FACINGS,
     SIZE,
@@ -234,6 +235,7 @@ def render_legacy(spec, cfg, yaw):
         (spec.out_hull, hull, turret, spec.hull_unit, None),
         (spec.out_turr, turret, hull, spec.turret_unit, "turret"),
     ):
+        refuse_sprite_output(out_dir)
         os.makedirs(out_dir, exist_ok=True)
         for o in show:
             o.hide_render = False

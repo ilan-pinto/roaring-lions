@@ -1,4 +1,14 @@
 /**
+ * The renderer -- the only one since WP-A3.3 (2026-10-04) retired the Pixi
+ * backend and, with it, every BILLBOARD path in this file: the unit and
+ * structure sprite instancers (`units/instances.ts`, `units/structures.ts`,
+ * `units/atlas.ts`), `loadSprites`/`loadStructureSprite`, the billboard
+ * death fade and sprite wrecks, and the 2D falling-building collapse. Every
+ * unit and structure draws a mesh; a unit whose GLB failed to load draws a
+ * proxy box (`units/proxy-box.ts`). The phase history below, and the many
+ * "ported from `renderer.ts`" notes through this file, are kept as history:
+ * `renderer.ts` was Pixi's backend and no longer exists.
+ *
  * The three.js backend. Phase B1 got it on screen with nothing but the clear
  * colour; Phase B2.4 adds the first drawn geometry -- terrain, built lazily
  * from `buildGround` (see `rebuildTerrain` below) and uploaded once per
@@ -110,7 +120,6 @@ import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project'
 import { QUALITY_PRESETS } from '../quality';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
 import { SIM_HZ } from '../anim';
-import { parseManifest, parseStructureManifest, clipOrFallback, type SheetSpec } from '../sheet';
 import { resolveClip, cadenceScale, type UnitAnimInput } from '../clip';
 import {
   updateDimetricCamera,
@@ -245,9 +254,7 @@ import { isTexturedDecorKey } from './terrain/textured-decor';
 import { prepareTexturedMap } from './world-materials';
 import { dirtyForStructureHit, dirtyForStructureDestroyed } from './terrain/dirty';
 import { isGrindingHit } from '../grind';
-import { packSheet, buildUnitTexture } from './units/atlas';
-import { entityFrame, assignRoofSlots, AIR_LIFT_PX, type EntityFrameInput, type EntityFrame } from './units/frame-state';
-import { UnitInstancer, TURRET_RENDER_ORDER, HULL_RENDER_ORDER } from './units/instances';
+import { AIR_LIFT_PX } from './units/frame-state';
 import { pickUnit as pickUnitPure, unitsInScreenRect as unitsInScreenRectPure } from './units/pick';
 import { stepTracers, spawnTracer, type TracerModel } from './units/tracers';
 import {
@@ -299,27 +306,14 @@ import {
 } from './units/vehicle-weight';
 import { conformHull, type HullConform, type HullConformInput } from './units/vehicle-conform';
 import { vehicleWeightParamsFor } from './units/vehicle-weight-params';
+import { footprintCentre } from './units/footprint';
 import {
-  StructureInstancer,
-  loadStructureFrame,
-  structureBillboardGeometry,
-  collapseBillboardGeometry,
-  billboardDrawSize,
-  createCollapseMaterial,
-  collapseFrame,
-  liveStructurePlacements,
-  deadStructurePlacements,
-  footprintCentre,
-  structureAliveAlpha,
-  resolveRoofPx,
-} from './units/structures';
-import {
-  STRUCTURE_RENDER_ORDER,
   FX_RENDER_ORDER,
   DECAL_PERSISTENT_RENDER_ORDER,
   DECAL_FADING_RENDER_ORDER,
 } from './units/render-order';
 import { unitIsObserved } from './units/observed';
+import { ProxyBoxBatch, proxyBoxDims, type ProxyBoxEntry } from './units/proxy-box';
 import {
   SILHOUETTE_COLOR_KEY_BY_SIDE,
   SILHOUETTE_FALLBACK_HEX_BY_SIDE,
@@ -452,7 +446,6 @@ import {
   OBJECTIVE_ZONE_FILL_ALPHA,
   OBJECTIVE_ZONE_STROKE_INSET_TILES,
   AIR_SHADOW_COLOR_KEY,
-  WRECK_MARKER_COLOR_KEY,
   MOBILITY_KILL_COLOR_KEY,
   FIREPOWER_KILL_COLOR_KEY,
   FIREPOWER_KILL_FALLBACK_COLOR,
@@ -486,57 +479,8 @@ import {
 import { SelectionRingBatch } from './units/selection-ring';
 import { CONTACT_MARK, contactHaloTriangles, contactScale, contactShapeOf, contactTriangles } from './units/contact-marks';
 
-/** Where a unit type's sheets live, as the app named them. */
-interface SpriteSheetRequest {
-  basePath: string;
-  turretPath?: string;
-}
 
-/** One unit mid-death-fade -- ThreeRenderer.stepDeaths' own tracking,
- *  mirroring PixiRenderer's identically-shaped `dying` entry (renderer.ts,
- *  `stepDeaths`'s own doc comment). Position, facing and typeId are captured
- *  at the moment of death, not read live off `Sim`, because the entity slot
- *  may be reused by a later spawn before the fade finishes. */
-interface DyingUnit {
-  x: number;
-  y: number;
-  facing: number;
-  typeId: string;
-  t: number;
-  /** Whose it was. Carried only so the synthetic `EntityFrame` this becomes
-   *  can be team-coloured by the occlusion silhouette (`units/silhouette.ts`)
-   *  -- a corpse fading behind a building is drawn through the same
-   *  `UnitInstancer` a living unit is, and therefore through the same
-   *  silhouette mesh, so it needs the same one fact the art does not carry.
-   *  Nothing else reads it. */
-  side: number;
-}
 
-/**
- * One permanent BILLBOARD-path unit wreck -- the counterpart of Pixi's own
- * `wrecks` entry (`renderer.ts:485-487`, `{ x, y, spr, shown }`) and of
- * `mesh-death.ts`'s `MeshWreck` for the mesh path. Pushed unconditionally
- * once a dying unit's fade finishes (`ThreeRenderer.addWreck`), whether or
- * not this type's sheet declares a real `wreck` clip -- `stepDeaths`'s own
- * per-frame draw loop resolves that per entry (real art through the SAME
- * `UnitInstancer` a living unit of that type draws through, or Pixi's own
- * grey cross-marker fallback via `updateOverlays`), the identical split
- * Pixi's own nullable `spr` field encodes. `facing`/`typeId` are captured at
- * the moment of death, not read live off `Sim`, for the same reason
- * `DyingUnit` above already gives.
- */
-interface UnitWreck {
-  x: number;
-  y: number;
-  facing: number;
-  typeId: string;
-  /** Whose it was -- see `DyingUnit.side` for why a corpse carries one. */
-  side: number;
-  /** Sticky reveal: latches true once the tile has ever been explored, and
-   *  never back to false -- `renderer.ts:1200`'s "Never goes back to false",
-   *  identical to `mesh-death.ts`'s own `MeshWreck.shown`. */
-  shown: boolean;
-}
 
 /** Recoil/flinch decay durations, seconds -- redeclared from `renderer.ts`'s
  *  own `RECOIL_SECONDS`/`FLINCH_SECONDS` (private, unexported) rather than
@@ -645,17 +589,6 @@ const MESH_TURRET_MUZZLE_TILES = 0.5;
  * sprite-scale render and is not what this constant is trying to reproduce.
  */
 const ROTOR_SPIN_RAD_PER_SEC = Math.PI * 2;
-/** Seconds a dying unit spends fading before it is dropped -- mirrors
- *  `PixiRenderer.DEATH_SECONDS` (renderer.ts:1209). See `stepDeaths`'s own
- *  doc comment for what happens once that fade ends (a permanent
- *  `UnitWreck` is pushed, `addWreck` below). */
-const DEATH_SECONDS = 0.4;
-/** Permanent billboard-path wreckage needs a ceiling the same way
- *  `PixiRenderer.MAX_WRECKS` (`renderer.ts:1211`) and `mesh-death.ts`'s own
- *  `MAX_MESH_WRECKS` do -- oldest evicted first (`addWreck`). Kept at the
- *  identical value: nothing about which draw path a corpse takes changes
- *  how many are expected to litter a long mission. */
-const MAX_UNIT_WRECKS = 256;
 
 /**
  * Particle draw layers -- mirrors `renderer.ts`'s own private
@@ -910,14 +843,9 @@ export class ThreeRenderer implements Renderer {
    * One bag rather than several fields on purpose: it keeps what B2/B3/B4
    * inherit visible at a glance. Terrain (`decor`, `elevation`) is read by
    * `rebuildTerrain` below whenever `terrainDirty` is set; the tutorial focus
-   * ring is still B3's own retained-only state. `unitSheets` stays
-   * retained-only too (`loadSprites` builds its `UnitInstancer` straight from
-   * its own arguments, never reads this map back). `structureSheets`
-   * graduated out of "retained only" in Task B3.7: `loadStructureSprite` now
-   * builds real `StructureInstancer`s from it (`structureIdle`/
-   * `structureWreck` below); the map itself survives only as the bookkeeping
-   * `loadStructureSprite` already kept before that task, unread by anything
-   * new.
+   * ring is still B3's own retained-only state. (`unitSheets` and
+   * `structureSheets`, the sprite-sheet bookkeeping, went with the billboard
+   * path, WP-A3.3.)
    *
    * The emitter list and its palette resolver used to live here too
    * (`emitters`, `resolveColor`), retained-only, until B3.13 wired them into
@@ -943,8 +871,6 @@ export class ThreeRenderer implements Renderer {
      * `rebuildTerrain` that redraws it.
      */
     elevation: null as TerrainSurface | null,
-    unitSheets: new Map<string, SpriteSheetRequest>(),
-    structureSheets: new Map<string, string>(),
     tutorialFocus: null as { x: number; y: number; radius: number } | null,
   };
 
@@ -994,10 +920,9 @@ export class ThreeRenderer implements Renderer {
    * decor change, or a structure's death); rebuilt ONE ENTRY AT A TIME by
    * `applyStructureHit`, which is the whole point -- `buildBuildings`'s
    * `tiles` restriction (this task) turns that into an O(footprint) call
-   * instead of an O(map area) one. An arted structure never gets an entry
-   * here at all: `StructureInstancer` (`structureIdle`/`structureWreck`
-   * above) draws it instead, reading live `Sim` state every frame already
-   * (`updateStructures`), which is why it needs no invalidation of its own.
+   * instead of an O(map area) one. A structure whose type has a building
+   * MESH never gets an entry here (`composeTerrain`'s `hasArt` skip): the
+   * mesh draws it. (Until WP-A3.3 a structure-sprite billboard could too.)
    */
   private readonly structureBoxes = new Map<number, THREE.Mesh<THREE.BufferGeometry, THREE.Material>>();
   /**
@@ -1068,75 +993,6 @@ export class ThreeRenderer implements Renderer {
    * `structureWear` above.
    */
   private readonly structPuffTick = new Map<number, number>();
-  /**
-   * Task B4.4: a CONTINUOUS alpha cache, one float per
-   * structure, lazily grown to `sim.structureCount` exactly like
-   * `structureWear` above but holding the real `structureAliveAlpha` value
-   * this backend last actually drew for that structure, refreshed every
-   * frame by `cacheStructureAlpha` (called from `updateStructures`) for
-   * every LIVE, arted structure. `-1` is the "never cached" sentinel
-   * (`structureAliveAlpha`'s own range is `[0.55, 1]`, so `-1` cannot be a
-   * real value), read by `beginCollapse` as "assume full" -- the identical
-   * default Pixi's own `structureWear` uses for a structure that never took
-   * a `structureHit` event (`renderer.ts:298`, `0xff` clamped to the
-   * maximum band).
-   *
-   * This is a continuous cache rather than Pixi's own eight-step quantised
-   * one because `updateStructures` already recomputes an arted structure's
-   * displayed alpha from live `Sim` state EVERY frame, unconditionally (see
-   * that method's own doc comment) -- unlike Pixi, which only redraws a
-   * structure's sprite on a `terrainDirty` rebuild, so quantising into eight
-   * bands there is what keeps a rifle plinking a wall from redrawing every
-   * round. Nothing here redraws on account of this cache; it exists purely
-   * so `beginCollapse` can read back "what was on screen a moment ago"
-   * instead of `hp`/`maxHp`, which `Sim.destroyStructure` has already
-   * zeroed by the time a `structureDestroyed` event reaches this class
-   * (`packages/sim/src/sim.ts:4092-4095`).
-   *
-   * This is a DELIBERATE divergence from what Pixi actually ships, not
-   * merely this backend's own path to the identical result --
-   * `structureAliveAlpha`'s own doc comment has the full reasoning: Pixi's
-   * `bumpStructureWear` also reads live (already-zeroed) `hp` for a combat
-   * kill's own `structureHit` event, so Pixi's `alpha0` is `0.55` -- fully
-   * battered -- for every combat kill, gradual or one-shot alike. This
-   * cache instead captures true pre-kill integrity, so a building felled by
-   * a single overwhelming hit from near-full health starts its fall near
-   * `1` here, where Pixi's event-ordering floors it to `0.55` regardless.
-   */
-  private structureLastAlpha: Float32Array | null = null;
-  /**
-   * Task B4.4: the manifest facts `collapseBillboardGeometry` needs to
-   * rebuild a BASE-anchored quad matching the live idle sprite's own size --
-   * captured once at `loadStructureSprite` time (`spec.scale`, the decoded
-   * idle frame's own pixel dimensions), the identical facts
-   * `structureBillboardGeometry` was already called with for the live,
-   * CENTRED quad that draws every frame. Absent for a structure type with no
-   * loaded sheet, exactly like `structureIdle` itself -- `beginCollapse`
-   * checks both together.
-   */
-  private readonly structureCollapseArt = new Map<
-    string,
-    { scale: number; textureWidth: number; textureHeight: number }
-  >();
-  /**
-   * Buildings on their way down -- the three.js counterpart to
-   * `PixiRenderer`'s own `collapsing` field (`renderer.ts:459-478`). Each
-   * entry owns a real, individually-positioned `THREE.Mesh` (never a member
-   * of `structureIdle`/`structureWreck`'s instancers, and never added to
-   * `structureBoxes`), added to `scene` directly by `beginCollapse` and
-   * removed only by `stepCollapses` once its own fall finishes -- see
-   * `beginCollapse`'s own doc comment for why `updateStructures`' per-frame
-   * idle/wreck swap cannot delete it out from under the animation.
-   */
-  private readonly collapsing: {
-    mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
-    /** Seconds elapsed since the fall began. */
-    t: number;
-    /** Alpha the building was last actually drawn at, so the fall continues
-     *  from what the player is already looking at rather than flashing back
-     *  to full -- mirrors Pixi's own `alpha0` field exactly. */
-    alpha0: number;
-  }[] = [];
   /** Reused across rebuilds -- one lit, vertex-coloured material carries no
    *  per-terrain state, so there is nothing a fresh instance would buy. */
   private readonly terrainMat: THREE.MeshStandardMaterial = vertexColorMaterial();
@@ -1593,12 +1449,6 @@ export class ThreeRenderer implements Renderer {
   private readonly killerX: Float64Array;
   private readonly killerY: Float64Array;
   private readonly entitySpeed: Float64Array;
-  /** Persisted per-entity animation phase state `entityFrame` mutates in
-   *  place -- `frame-state.ts`'s own `EntityFrameInput.entityAnimFrame`/
-   *  `animSeeded` doc comment: "owned and persisted by the caller across
-   *  frames." Mirrors Pixi's identically-named fields. */
-  private readonly entityAnimFrame: Float64Array;
-  private readonly animSeeded: Uint8Array;
   /**
    * Task B3.14: event-driven presentation timers, one-shot latches set from
    * `onEvents` and drained toward 0 by `drainTimers` at the top of every
@@ -1700,19 +1550,6 @@ export class ThreeRenderer implements Renderer {
    *  `updateVehicleMeshes` wrote. */
   private readonly scratchHullEuler = new THREE.Euler();
   /**
-   * Task B3.6: the TURRET's own one-shot firing latch -- deliberately a
-   * SEPARATE timer from `firingTimer` above, not a second read of it. Every
-   * shipped hull sheet with turret art (TNK/EITAN/NAMER/GUNTRUCK/TECH)
-   * declares no `fire` clip of its own, so `firingTimer` (latched from the
-   * HULL's fire-clip duration in `onFire` below) never fires for a turreted
-   * vehicle at all -- reusing it here would leave every turret's own `fire`
-   * clip permanently unreachable, exactly the "16 recoil frames stay dead
-   * art" failure this task exists to close, just moved one layer past the
-   * loadSprites fix that made them loadable. Latched off the TURRET sheet's
-   * OWN fire-clip duration instead, independent of what the hull has.
-   */
-  private readonly turretFiringTimer: Float64Array;
-  /**
    * Vehicle-only ambient FX state -- `updateVehicleAmbientFx`'s own doc
    * comment has the full account. `vehicleMoving` is the hysteresis latch
    * `nextVehicleMoving` (`units/vehicle-fx.ts`) reads and writes each frame;
@@ -1727,26 +1564,7 @@ export class ThreeRenderer implements Renderer {
   private readonly vehicleMoving: Uint8Array;
   private readonly vehicleDustAccumMs: Float64Array;
   private readonly vehicleExhaustAccumMs: Float64Array;
-  /** Units mid-death-fade -- see `stepDeaths`'s own doc comment. */
-  private readonly dying: DyingUnit[] = [];
-  /** Permanent billboard-path wreckage -- the counterpart of `renderer.ts`'s
-   *  `wrecks`/`wreckLayer` for a unit type NOT drawn through the mesh path
-   *  (see `UnitWreck`'s own doc comment for the full picture, and this
-   *  file's `meshWrecks` field for the mesh-path sibling). Bounded by
-   *  `MAX_UNIT_WRECKS`, oldest evicted first (`addWreck`). */
-  private readonly wrecks: UnitWreck[] = [];
 
-  /** One `UnitInstancer` per unit type with a loaded sheet, keyed by the
-   *  unit type id `loadSprites` was called with. */
-  private readonly unitInstancers = new Map<string, UnitInstancer>();
-  /**
-   * Task B3.6: one SECOND `UnitInstancer` per unit type whose `loadSprites`
-   * call carried a `turretPath` -- composited above its hull instancer's
-   * own mesh, updated via `UnitInstancer.updateTurret` rather than `update`.
-   * Absent entries mean "this type has no turret art", the same "doubles as
-   * the has-a-turret gate" shape `EntityFrameInput.turretSheet` uses.
-   */
-  private readonly turretInstancers = new Map<string, UnitInstancer>();
 
   /**
    * Mesh units (task: "the runtime that draws mesh units"). The
@@ -1797,6 +1615,17 @@ export class ThreeRenderer implements Renderer {
    * fog for the same entity.
    */
   private unitsDebugHidden = false;
+  /**
+   * Unit types whose GLB FAILED to load, with the URL that failed (WP-A3.3,
+   * ruling 2). A type here with no template draws `proxyBoxes` instead of
+   * nothing -- see `units/proxy-box.ts`. A type merely not loaded YET (a
+   * deferred buildable in flight) is not here and draws nothing.
+   */
+  private readonly meshFailures = new Map<string, string>();
+  /** Built on the first failure, never before: a boot where every GLB lands
+   *  adds nothing to the scene. */
+  private proxyBoxes: ProxyBoxBatch | null = null;
+  private readonly proxyEntries: ProxyBoxEntry[] = [];
   private readonly meshUnitEntities = new Map<number, MeshUnitEntity>();
   /** Mesh units mid-death-fade, not keyed by entity id -- see
    *  `meshUnitEntities`'s own doc comment for why an id-keyed collection
@@ -1922,62 +1751,7 @@ export class ThreeRenderer implements Renderer {
   private readonly buildingDamageBand = new Map<number, number>();
   private readonly buildingBurning = new Map<number, { accumMs: number; remainingMs: number }>();
 
-  /**
-   * Task B3.7: one `StructureInstancer` per structure TYPE with a loaded
-   * idle sheet, keyed by the structure type id `loadStructureSprite` was
-   * called with -- the same key `structureAtlas.has(stype.id)` gates on in
-   * Pixi (`renderer.ts:1488`). Presence in this map is exactly "does this
-   * type have art" for every purpose that question matters here:
-   * `composeTerrain`'s `hasArt` callback (skip that structure's own box
-   * entirely, Task B3.9 -- previously a `maskArtedStructures` call inside
-   * `rebuildTerrain` itself, before buildings stopped being one merged
-   * mesh), and `updateStructures` below (draw the billboard instead).
-   */
-  private readonly structureIdle = new Map<string, StructureInstancer>();
-  /**
-   * A SECOND `StructureInstancer` per structure type whose sheet declared a
-   * `wreckFile` -- absent for a type with none (`BLD_WALL` today), matching
-   * Pixi's own `if (!art?.wreckTexture) continue` in `drawWreckedStructures`.
-   * Drawn from live `Sim` state every frame by `updateStructures`, not from
-   * the `terrainDirty`-gated terrain mesh -- see that method's own doc
-   * comment for why this stays true even after Task B3.10 wired
-   * `structureDestroyed` into `onEvents`: `applyStructureDestroyed` (Task
-   * B3.9) only ever touches `structureBoxes`/`structureFootprintTiles`,
-   * which an ARTED structure -- the only kind this map draws -- never has
-   * an entry in (`composeTerrain`'s `hasArt` skip). So the call is a true
-   * no-op for every structure this map cares about, and this per-frame path
-   * remains the only thing that ever tells one of ITS wrecks to appear.
-   */
-  private readonly structureWreck = new Map<string, StructureInstancer>();
-  /**
-   * `roofTopPx`/`badgeTopPx` per structure type with a loaded idle sheet --
-   * what `updateUnits`'s garrison `roofPx` now prefers over the type's own,
-   * squatter `heightPx`, closing the gap B3.3's review measured (see
-   * `resolveRoofPx`'s own doc comment in `units/structures.ts`). A type with
-   * no entry here falls back to `heightPx` exactly as it did before this
-   * task -- `resolveRoofPx(undefined, heightPx)`.
-   */
-  private readonly structureRoofArt = new Map<string, { roofTopPx: number | null; badgeTopPx: number | null }>();
 
-  /** Reused across frames (`.length = 0` each `frame()`, not reallocated) --
-   *  every living entity's `EntityFrame` this tick, grouped by its unit
-   *  type id, the shape `UnitInstancer.update` consumes. `stepDeaths` also
-   *  appends a synthetic `EntityFrame` per still-fading dying unit into the
-   *  same per-type arrays, for the same instancers to draw. */
-  private readonly framesByType = new Map<string, EntityFrame[]>();
-  /**
-   * Task B3.6: the LIVING-ONLY subset of `framesByType`, for unit types with
-   * a turret instancer -- populated in the same per-entity loop that builds
-   * `framesByType`, but never appended to by `stepDeaths`. A dying unit's
-   * synthetic `EntityFrame` (`stepDeaths`'s own doc comment) still draws its
-   * hull's death-fade pose, but Pixi's own `stepDeaths` never draws a turret
-   * sprite for one at all (`turretSprites[i].visible` stays `false` for the
-   * whole fade, since dying entities never re-enter the main per-entity
-   * loop that would show one) -- matched here by simply never handing a
-   * dying frame to a turret instancer, rather than by a per-frame flag
-   * `writeTurretInstances` would have to additionally check.
-   */
-  private readonly turretFramesByType = new Map<string, EntityFrame[]>();
 
   /**
    * Task B3.13/B3.14: combat feedback's draw path. `emitterLibrary` and
@@ -2105,16 +1879,6 @@ export class ThreeRenderer implements Renderer {
    *  for a constructor-body assignment rather than a field initializer.
    *  See `units/overlays.ts`'s own `ChevronBatch` doc comment. */
   private readonly chevronBatch: ChevronBatch;
-  /**
-   * The three occlusion-silhouette team colours (`units/silhouette.ts`),
-   * indexed by `silhouetteSideIndex`, resolved once at construction.
-   * `silhouetteTeamColors` feeds every billboard `UnitInstancer`'s own
-   * per-instance shader; `silhouetteMeshMaterials` is the mesh path's
-   * equivalent -- three `MeshBasicMaterial`s shared by every mesh unit and
-   * mesh vehicle on the map, so the whole feature adds three materials, not
-   * one per unit.
-   */
-  private readonly silhouetteTeamColors: THREE.Color[];
   private readonly silhouetteMeshMaterials: THREE.MeshBasicMaterial[];
   /** Frame counter Pixi's own pulsing overlays (`Math.sin(this.frameN *
    *  k)`) are keyed off -- `PixiRenderer.frameN` (`renderer.ts:1881`,
@@ -2282,8 +2046,6 @@ export class ThreeRenderer implements Renderer {
     this.killerX = new Float64Array(n).fill(NaN);
     this.killerY = new Float64Array(n).fill(NaN);
     this.entitySpeed = new Float64Array(n);
-    this.entityAnimFrame = new Float64Array(n);
-    this.animSeeded = new Uint8Array(n);
     this.firingTimer = new Float64Array(n);
     this.recoilT = new Float64Array(n);
     this.recoilDir = new Float64Array(n);
@@ -2316,7 +2078,6 @@ export class ThreeRenderer implements Renderer {
         lagTiles: 0,
       },
     };
-    this.turretFiringTimer = new Float64Array(n);
     this.vehicleMoving = new Uint8Array(n);
     this.vehicleDustAccumMs = new Float64Array(n);
     this.vehicleExhaustAccumMs = new Float64Array(n);
@@ -2459,9 +2220,6 @@ export class ThreeRenderer implements Renderer {
     // `silhouetteSideIndex` -- see `units/silhouette.ts` for the mechanism
     // and for why the colour is "whose unit is that" rather than anything
     // about the unit's own art.
-    this.silhouetteTeamColors = SILHOUETTE_COLOR_KEY_BY_SIDE.map(
-      (key, slot) => new THREE.Color(this.overlayColor(key, SILHOUETTE_FALLBACK_HEX_BY_SIDE[slot]))
-    );
     this.silhouetteMeshMaterials = SILHOUETTE_COLOR_KEY_BY_SIDE.map((key, slot) =>
       createMeshSilhouetteMaterial(this.overlayColor(key, SILHOUETTE_FALLBACK_HEX_BY_SIDE[slot]))
     );
@@ -2782,31 +2540,7 @@ export class ThreeRenderer implements Renderer {
     this.fogTick = 0;
     this.snapshot();
     this.snapshot();
-    this.fitStructureInstancers();
     this.terrainDirty = true;
-  }
-
-  /**
-   * Give every loaded structure instancer room for every structure of its
-   * type the sim holds now. `loadStructureSprite` sizes each one at load,
-   * which on a mission is BEFORE `runtime.start()` raises the mission's own
-   * buildings -- so without this, `writeStructureInstances` dropped the
-   * newcomer every frame (on `&nomesh`, measured: one billboard each on
-   * `wadi_halam_2_laager` and `qarn_hadid_2_foothold`; with the mesh path
-   * on, a building mesh draws instead and the billboard is empty anyway).
-   * A no-op at `init`, which runs before any sheet has loaded, and for any
-   * type whose count did not grow.
-   */
-  private fitStructureInstancers(): void {
-    for (const byType of [this.structureIdle, this.structureWreck]) {
-      for (const [id, instancer] of byType) {
-        const fitted = instancer.grow(this.structureTypeCapacity(id));
-        if (fitted === instancer) continue;
-        this.scene.remove(instancer.mesh);
-        this.scene.add(fitted.mesh);
-        byType.set(id, fitted);
-      }
-    }
   }
 
   /**
@@ -2866,6 +2600,8 @@ export class ThreeRenderer implements Renderer {
     this.residualMesh?.geometry.dispose();
     for (const mesh of this.structureBoxes.values()) mesh.geometry.dispose();
     this.structureBoxes.clear();
+    this.proxyBoxes?.dispose();
+    this.proxyBoxes = null;
     // Task 6: the batch itself (per-rebuild geometry/material, disposed by
     // `disposeDecorMesh` the same way `rebuildTerrain` already does on every
     // rebuild) plus the SOURCE geometry clones `loadDecorMeshes` owns
@@ -2888,14 +2624,8 @@ export class ThreeRenderer implements Renderer {
     this.controlTex = null;
     this.controlInputs = null;
     this.macroTex.dispose();
-    for (const instancer of this.unitInstancers.values()) instancer.dispose();
-    this.unitInstancers.clear();
-    for (const instancer of this.turretInstancers.values()) instancer.dispose();
-    this.turretInstancers.clear();
-    // Mesh units: unlike the instancers above (added once, left for the
-    // life of the renderer), every `MeshUnitEntity` is added and removed
-    // dynamically across a mission (`updateMeshUnits`), so -- like
-    // `collapsing` below -- each one gets an explicit `scene.remove` here as
+    // Mesh units: every `MeshUnitEntity` is added and removed
+    // dynamically across a mission (`updateMeshUnits`), so each one gets an explicit `scene.remove` here as
     // well as its `.dispose()`, so the scene graph does not keep a torn-down
     // entity reachable. Entities first (they share the templates'
     // geometries/materials by reference -- `MeshUnitTemplate`'s own doc
@@ -2992,19 +2722,6 @@ export class ThreeRenderer implements Renderer {
     this.buildingMeshIdleTemplates.clear();
     for (const template of this.buildingMeshWreckTemplates.values()) disposeBuildingMeshTemplate(template);
     this.buildingMeshWreckTemplates.clear();
-    for (const instancer of this.structureIdle.values()) instancer.dispose();
-    this.structureIdle.clear();
-    for (const instancer of this.structureWreck.values()) instancer.dispose();
-    this.structureWreck.clear();
-    // Task B4.4: each collapse owns its own geometry/material (the texture
-    // is borrowed from `structureIdle`, disposed above -- not here, see
-    // `StructureInstancer.spriteTexture`'s own doc comment).
-    for (const c of this.collapsing) {
-      this.scene.remove(c.mesh);
-      c.mesh.geometry.dispose();
-      c.mesh.material.dispose();
-    }
-    this.collapsing.length = 0;
     this.particleInstancerBelow.dispose();
     this.particleInstancerAbove.dispose();
     this.particleInstancerBelowAdditive.dispose();
@@ -3205,11 +2922,10 @@ export class ThreeRenderer implements Renderer {
     // before any frame has run, and the showcase must still be stamped by
     // the next frame rather than lost to whichever caller built first.
     if (this.showcasePending) this.stampDecalShowcase();
-    this.updateUnits(alpha, dtMs);
     this.updateMeshUnits(alpha, dtMs);
     this.updateVehicleMeshes(alpha, dtMs);
+    this.updateProxyBoxes(alpha);
     this.updateVehicleAmbientFx(dtMs);
-    this.updateStructures();
     // BEFORE `updateBuildingMeshes`, not after: the hold this drains is read
     // by that method, so draining afterwards would spend every hold one
     // frame late and hand the last frame of it to a swap that already ran.
@@ -3217,7 +2933,6 @@ export class ThreeRenderer implements Renderer {
     this.updateBuildingMeshes();
     this.stepBuildingMeshSettle(this.frameDtSeconds(dtMs));
     this.stepBuildingBurning(dtMs);
-    this.stepCollapses(this.frameDtSeconds(dtMs));
     this.updateFx(dtMs);
     this.fireLinkClockS += this.frameDtSeconds(dtMs);
     this.stepFireLinkFlashes();
@@ -3349,23 +3064,18 @@ export class ThreeRenderer implements Renderer {
           visible,
           ...this.structureBoxes.values(),
           ...this.buildingMeshIdleEntities.values(),
-          ...this.buildingMeshWreckEntities.values(),
-          ...[...this.structureIdle.values()].map((i) => i.mesh),
-          ...[...this.structureWreck.values()].map((i) => i.mesh)
+          ...this.buildingMeshWreckEntities.values()
         );
       case 'units':
         // The one layer that CANNOT be done with `setObjectsVisible`, because
         // the per-frame path would undo it on the very next repaint -- see
-        // `unitsDebugHidden`. The flag is set first so the billboard
-        // instancers and the mesh entities go dark on the SAME repaint.
+        // `unitsDebugHidden`. The flag is set first so the proxy boxes and
+        // the mesh entities go dark on the SAME repaint.
         this.unitsDebugHidden = !visible;
+        if (this.proxyBoxes) this.proxyBoxes.mesh.visible = visible;
         for (const entity of this.meshUnitEntities.values()) entity.root.visible = visible;
         for (const entity of this.vehicleMeshEntities.values()) entity.root.visible = visible;
-        return (
-          this.meshUnitEntities.size +
-          this.vehicleMeshEntities.size +
-          setObjectsVisible(visible, ...[...this.unitInstancers.values()].map((i) => i.mesh))
-        );
+        return this.meshUnitEntities.size + this.vehicleMeshEntities.size + (this.proxyBoxes ? 1 : 0);
       case 'vignette':
         // A `Pass.enabled` rather than an `Object3D.visible`, and nothing in
         // `frame()` re-asserts it -- the chain is rebuilt only by the three
@@ -3849,11 +3559,6 @@ export class ThreeRenderer implements Renderer {
     const n = this.snapshottedCount;
     for (let i = 0; i < n; i++) {
       if (this.firingTimer[i] > 0) this.firingTimer[i] = Math.max(0, this.firingTimer[i] - dtSeconds);
-      // Task B3.6: same shape as firingTimer -- counts down its own
-      // remaining seconds, not a normalised 0..1 decay.
-      if (this.turretFiringTimer[i] > 0) {
-        this.turretFiringTimer[i] = Math.max(0, this.turretFiringTimer[i] - dtSeconds);
-      }
       if (this.recoilT[i] > 0) this.recoilT[i] = Math.max(0, this.recoilT[i] - dtSeconds / RECOIL_SECONDS);
       if (this.flinchT[i] > 0) this.flinchT[i] = Math.max(0, this.flinchT[i] - dtSeconds / FLINCH_SECONDS);
     }
@@ -4108,26 +3813,6 @@ export class ThreeRenderer implements Renderer {
         this.killerX[e.entity] = e.by >= 0 ? this.curX[e.by] : NaN;
         this.killerY[e.entity] = e.by >= 0 ? this.curY[e.by] : NaN;
         const deadType = this.sim.unitTypes[st.typeIdx[e.entity]];
-        // The BILLBOARD death fade -- the intact sprite dimming in place --
-        // is skipped for exactly the types `addWreck` steps aside for: one
-        // whose vehicle template carries the `wreck` clip, whose 3D mesh is
-        // at this moment being handed to `beginVehicleDeath` by
-        // `updateVehicleMeshes`' own prune loop. Without this the player
-        // sees a flat sprite of the INTACT vehicle fade on top of its own
-        // slumping mesh -- the first of the three art styles CLAUDE.md
-        // records, and the one a wreck mesh cannot hide. Every other type,
-        // mesh infantry included, pushes exactly as before: `stepDeaths` is
-        // also what calls `addWreck`, which owns its own exclusions.
-        if (this.vehicleMeshTemplates.get(deadType.id)?.hasWreck !== true) {
-          this.dying.push({
-            x: this.curX[e.entity],
-            y: this.curY[e.entity],
-            facing: fx.toNumber(st.facing[e.entity]),
-            typeId: deadType.id,
-            t: 0,
-            side: st.side[e.entity],
-          });
-        }
         // A hard-target kill (a vehicle) reuses the SAME pooled
         // explosion-burst mesh `structureDestroyed` already draws below --
         // "reuse the pooled mesh path... do not add a second one", per this
@@ -4268,12 +3953,6 @@ export class ThreeRenderer implements Renderer {
         // own doc comment) is the deliberate asymmetry with `structureHit`
         // above, not an oversight.
         this.applyStructureDestroyed(e.structure);
-        // Task B4.4, ported from `renderer.ts:272-303`. Starts the falling
-        // sprite -- a separate, one-off mesh from the idle/wreck instancers
-        // `updateStructures` already swaps every frame -- see
-        // `beginCollapse`'s own doc comment for the ordering argument
-        // against that swap.
-        this.beginCollapse(e.structure);
         // Task B4.3, ported from `renderer.ts:880-901`. Masonry and a dust
         // bloom, authored in `data/vfx/structure_collapse.json`; falls back to
         // flat puffs when no emitter set is loaded, exactly like
@@ -4394,17 +4073,6 @@ export class ThreeRenderer implements Renderer {
     const latch = this.fireLatchSeconds(type.id);
     if (latch !== null) this.firingTimer[e.shooter] = latch;
 
-    // Task B3.6: the turret's OWN fire-clip duration, latched independently
-    // of the hull's `firingTimer` above -- see `turretFiringTimer`'s own
-    // field doc comment for why reusing `firingTimer` would leave every
-    // shipped turret's `fire` clip unreachable (no hull sheet with turret
-    // art declares one of its own).
-    const turretInstancer = this.turretInstancers.get(type.id);
-    const turretFireClip = turretInstancer?.sheet.clips.fire;
-    if (turretFireClip && turretFireClip.fps > 0) {
-      this.turretFiringTimer[e.shooter] = turretFireClip.frames / turretFireClip.fps;
-    }
-
     // Turret facing when this unit type has turret art loaded -- BILLBOARD
     // art (`turretInstancer`) or a mesh vehicle's own `turret_pivot`
     // (`meshTurretPivot`) -- hull facing otherwise. `this.turretFacing
@@ -4426,7 +4094,7 @@ export class ThreeRenderer implements Renderer {
     // backend.
     const meshVehicle = this.vehicleMeshEntities.get(e.shooter);
     const meshTurretPivot = meshVehicle?.turretPivot ?? null;
-    const facingRad = turretInstancer || meshTurretPivot
+    const facingRad = meshTurretPivot
       ? this.turretFacing[e.shooter] * Math.PI * 2
       : fx.toNumber(st.facing[e.shooter]) * Math.PI * 2;
     const barrelLen = type.isSoft ? 0.4 : 0.8;
@@ -4664,10 +4332,6 @@ export class ThreeRenderer implements Renderer {
    * never authored `fire` (`at_team`, `atgm_cell`, `digger_crew`,
    * `mortar_crew` today), where `applyMeshClip` resolves the pose to `idle`
    * regardless and the latch value is unobservable.
-   *
-   * The turret's own latch (`turretFiringTimer`, set separately in `onFire`)
-   * is deliberately NOT routed through here -- see its field doc comment for
-   * why it is a second timer rather than a second read of this one.
    */
   private fireLatchSeconds(unitTypeId: string): number | null {
     // Variant 0 stands for the whole type. The latch is a per-TYPE duration
@@ -4685,9 +4349,6 @@ export class ThreeRenderer implements Renderer {
     // (which would mean "never firing"): treat it like an absent one and
     // fall through, the same leniency `fps > 0` already gives the sprite.
     if (meshFire && meshFire.duration > 0) return meshFire.duration;
-
-    const spriteFire = this.unitInstancers.get(unitTypeId)?.sheet.clips.fire;
-    if (spriteFire && spriteFire.fps > 0) return spriteFire.frames / spriteFire.fps;
 
     return null;
   }
@@ -5207,107 +4868,6 @@ export class ThreeRenderer implements Renderer {
     this.missileFx.setLook(this.emitterLibrary.byName(MISSILE_TRAIL_EMITTER_ID), resolve);
   }
   /**
-   * Load a unit type's sprite sheet and build the `THREE.InstancedMesh`
-   * (`UnitInstancer`) it draws through -- one draw call for however many of
-   * this type end up alive, per Ruling 1.
-   *
-   * Task B3.6: `opts.turretPath`, when given, is now ALSO loaded and built
-   * into a second `UnitInstancer` (`turretInstancers`), the same generic
-   * `packSheet`/`buildUnitTexture`/`UnitInstancer` pipeline the hull sheet
-   * goes through -- a turret sheet is shaped exactly like a hull sheet
-   * (`SheetSpec`), so nothing here is turret-specific except which map the
-   * result lands in and which mesh the caller (`updateUnits`) later calls
-   * `updateTurret` rather than `update` on. `packSheet`/`buildUnitTexture`
-   * already pack and load EVERY clip a sheet declares (not merely `idle`),
-   * so the gun truck's 16 recoil-frame `fire` clip is loaded here exactly
-   * like `idle` is -- there is no separate "load every clip" step to add,
-   * unlike the bug `renderer.ts`'s own `loadSprites` comment records
-   * needing a fix for.
-   *
-   * Errors propagate rather than being swallowed: `main.ts` already wraps
-   * every `loadSprites` call in its own `.catch` per unit type (so one
-   * missing sheet does not stop the rest of the roster from loading), which
-   * is exactly Pixi's own failure mode for the identical call. A turret
-   * sheet that fails to load fails the WHOLE call (hull included), matching
-   * Pixi: `PixiRenderer.loadSprites` `await`s its own turret load inline,
-   * with nothing to catch a rejection there either.
-   */
-  async loadSprites(
-    unitTypeId: string,
-    basePath: string,
-    opts?: { turretPath?: string }
-  ): Promise<void> {
-    this.retained.unitSheets.set(unitTypeId, { basePath, turretPath: opts?.turretPath });
-    const res = await fetch(`${basePath}manifest.json`);
-    if (!res.ok) throw new Error(`sheet manifest ${res.status} at ${basePath}`);
-    const sheet: SheetSpec = parseManifest(await res.json());
-    const packing = packSheet(sheet);
-    const texture = await buildUnitTexture(basePath, sheet, packing);
-    const instancer = new UnitInstancer(
-      sheet,
-      texture,
-      packing,
-      this.sim.capacity,
-      HULL_RENDER_ORDER,
-      this.silhouetteTeamColors
-    );
-    // A re-load (unlikely, but `loadSprites` carries no such guarantee
-    // against it) must not leak the mesh/material/texture it replaces.
-    const previous = this.unitInstancers.get(unitTypeId);
-    if (previous) {
-      this.scene.remove(previous.mesh);
-      if (previous.silhouette) this.scene.remove(previous.silhouette);
-      previous.dispose();
-    }
-    this.unitInstancers.set(unitTypeId, instancer);
-    this.scene.add(instancer.mesh);
-    if (instancer.silhouette) this.scene.add(instancer.silhouette);
-
-    if (opts?.turretPath) {
-      const turretRes = await fetch(`${opts.turretPath}manifest.json`);
-      if (!turretRes.ok) throw new Error(`turret sheet manifest ${turretRes.status} at ${opts.turretPath}`);
-      const turretSheet: SheetSpec = parseManifest(await turretRes.json());
-      const turretPacking = packSheet(turretSheet);
-      const turretTexture = await buildUnitTexture(opts.turretPath, turretSheet, turretPacking);
-      const turretInstancer = new UnitInstancer(
-        turretSheet,
-        turretTexture,
-        turretPacking,
-        this.sim.capacity,
-        // Explicit, tested render-order split (instances.ts's own doc
-        // comment) -- draws above its hull at every co-located, identical-
-        // depth instance, not merely by construction-order accident.
-        TURRET_RENDER_ORDER,
-        // A turret gets its own silhouette for the same reason it gets its
-        // own mesh: without it, an occluded tank would show a hull-shaped
-        // cut-out with a hole where its turret is.
-        this.silhouetteTeamColors
-      );
-      const previousTurret = this.turretInstancers.get(unitTypeId);
-      if (previousTurret) {
-        this.scene.remove(previousTurret.mesh);
-        if (previousTurret.silhouette) this.scene.remove(previousTurret.silhouette);
-        previousTurret.dispose();
-      }
-      this.turretInstancers.set(unitTypeId, turretInstancer);
-      this.scene.add(turretInstancer.mesh);
-      if (turretInstancer.silhouette) this.scene.add(turretInstancer.silhouette);
-    } else {
-      // A re-load that DROPS a previously-declared turretPath (not exercised
-      // by any real caller today -- `main.ts`'s SPRITE_MAP is static -- but
-      // `loadSprites` carries no guarantee against it) must not leave a
-      // stale turret mesh drawing for a hull that no longer declares one.
-      const stale = this.turretInstancers.get(unitTypeId);
-      if (stale) {
-        this.scene.remove(stale.mesh);
-        if (stale.silhouette) this.scene.remove(stale.silhouette);
-        stale.dispose();
-        this.turretInstancers.delete(unitTypeId);
-      }
-    }
-  }
-
-  /**
    * The mesh-unit flag itself: loads `glbUrl` (`art/meshes/<team_id>.glb`
    * per `mesh-unit-contract.md`) -- or SEVERAL, one per variant of the same
    * unit type -- builds a `MeshUnitTemplate` each
@@ -5348,7 +4908,12 @@ export class ThreeRenderer implements Renderer {
     // Computed once, like `loadVehicleMesh`'s: see `units/textured-infantry.ts`.
     const allowTextured = TEXTURED_INFANTRY_TYPES.has(unitTypeId);
     const templates = await Promise.all(
-      urls.map((url) => loadMeshUnitTemplate(url, faction, allowTextured))
+      urls.map((url) =>
+        loadMeshUnitTemplate(url, faction, allowTextured).catch((err: unknown) => {
+          this.noteMeshFailure(unitTypeId, url, err);
+          throw err;
+        })
+      )
     );
 
     const previous = this.meshUnitTemplates.get(unitTypeId);
@@ -5388,7 +4953,26 @@ export class ThreeRenderer implements Renderer {
    */
   async loadVehicleMesh(unitTypeId: string, glbUrl: string): Promise<void> {
     const allowTextured = TEXTURED_VEHICLE_TYPES.has(unitTypeId);
-    const template = await loadVehicleMeshTemplate(glbUrl, unitTypeId, allowTextured);
+    const template = await loadVehicleMeshTemplate(glbUrl, unitTypeId, allowTextured).catch((err: unknown) => {
+      this.noteMeshFailure(unitTypeId, glbUrl, err);
+      throw err;
+    });
+    // Every vehicle GLB must carry the `wreck` clip `pnpm wreck:meshes`
+    // writes (WP-A3.3). Until the billboard path was retired, a GLB without
+    // one fell back to its sheet's 2D wreck sprite -- the "do NOT add
+    // `vehicleMeshTemplates` to the `addWreck` guard unconditionally" trap.
+    // There is no sprite left to fall back to, so a wreck-less GLB is refused
+    // here, by name, the same shape as `TEXTURED_MESH_EXEMPT`'s throw, and
+    // the type draws a proxy box like any other failed mesh.
+    // `tools/src/mesh_roster.test.ts` keeps one from shipping.
+    if (!template.hasWreck) {
+      disposeVehicleMeshTemplate(template);
+      const err = new Error(
+        `loadVehicleMesh: ${glbUrl} (${unitTypeId}) carries no \`wreck\` clip -- run \`pnpm wreck:meshes\` on it`
+      );
+      this.noteMeshFailure(unitTypeId, glbUrl, err);
+      throw err;
+    }
 
     const previous = this.vehicleMeshTemplates.get(unitTypeId);
     if (previous) {
@@ -5411,6 +4995,69 @@ export class ThreeRenderer implements Renderer {
     // wreck recipe displaces those parts OUTWARD, so measuring the whole
     // clone would size the shroud from scattered debris.
     this.vehicleMeshBounds.set(unitTypeId, vehicleShroudBounds(template.root));
+  }
+
+  /**
+   * The unit types whose GLB failed to load (WP-A3.3, ruling 2). Read by
+   * tests and by anything that wants to say which models are proxies.
+   */
+  failedMeshTypes(): ReadonlySet<string> {
+    return new Set(this.meshFailures.keys());
+  }
+
+  /** Records a failed unit GLB and says so loudly, once per (type, url). The
+   *  caller still sees the rejection; this only makes sure the unit draws a
+   *  proxy box rather than nothing, and that the console names the file. */
+  private noteMeshFailure(unitTypeId: string, url: string, err: unknown): void {
+    if (this.meshFailures.get(unitTypeId) === url) return;
+    this.meshFailures.set(unitTypeId, url);
+    console.error(
+      `[lions] unit mesh FAILED for ${unitTypeId} (${url}) -- drawing a proxy box in its place`,
+      err
+    );
+  }
+
+  /**
+   * The proxy boxes for every living, observed unit of a FAILED type that has
+   * no template (a later successful reload supersedes the failure). Called
+   * every frame after the two mesh loops; costs one map lookup when nothing
+   * has failed.
+   */
+  private updateProxyBoxes(alpha: number): void {
+    if (this.meshFailures.size === 0) return;
+    const st = this.sim.state;
+    const n = this.snapshottedCount;
+    const entries = this.proxyEntries;
+    entries.length = 0;
+    for (let i = 0; i < n; i++) {
+      if (st.alive[i] === 0) continue;
+      const type = this.sim.unitTypes[st.typeIdx[i]];
+      if (!this.meshFailures.has(type.id)) continue;
+      if (this.meshUnitTemplates.has(type.id) || this.vehicleMeshTemplates.has(type.id)) continue;
+      const x = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
+      const z = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
+      if (this.unitsDebugHidden || !unitIsObserved(st.side[i], x, z, this.fogVisibleAt)) continue;
+      const cls = RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type);
+      const lift = type.isAir ? AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL : 0;
+      const facing = fx.toNumber(st.facing[i]);
+      const dims = proxyBoxDims(type.id, cls);
+      // Centred on the hull, not the origin: game facing `f` points along
+      // (cos 2*pi*f, sin 2*pi*f) on world X/Z, the same convention the turret
+      // spring's goal angle uses.
+      const bx = x + Math.cos(facing * Math.PI * 2) * dims.offsetAlong;
+      const bz = z + Math.sin(facing * Math.PI * 2) * dims.offsetAlong;
+      entries.push({
+        x: bx,
+        z: bz,
+        groundY: groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, bx, bz) + lift,
+        yaw: meshYawFromFacing(facing),
+        dims,
+        side: st.side[i],
+      });
+    }
+    if (entries.length === 0 && this.proxyBoxes === null) return;
+    if (this.proxyBoxes === null) this.proxyBoxes = new ProxyBoxBatch(this.scene, this.opts.teamColors);
+    this.proxyBoxes.update(entries);
   }
 
   /**
@@ -5828,126 +5475,6 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
-   * Task C5: how many structures of ONE type -- alive or dead -- the sim
-   * holds, right now. `loadStructureSprite` uses this as its capacity bound
-   * for that type's `StructureInstancer`(s), rather than `sim.structureCount`
-   * (every structure of every type): sizing each of the seven shipped
-   * structure types' instancers to the map's TOTAL structure count wasted
-   * six types' worth of unused `Float32Array` slots on every type that is
-   * not the single most common one. Just as no living-plus-dead unit count
-   * of ONE unit type can ever exceed `sim.capacity` (the bound
-   * `UnitInstancer` already gets for free), no living-plus-dead structure
-   * count of ONE structure type can ever exceed this type's own count --
-   * but `Sim` has no per-type structure count to read directly the way it
-   * does for units, so this counts by a linear walk instead. Called once per
-   * structure type at load time (at most seven times today, per `main.ts`'s
-   * `STRUCTURE_SPRITES`) and once per loaded type and sheet by `reseed()`
-   * (`fitStructureInstancers`), never per frame, so an O(structureCount)
-   * scan here costs nothing worth avoiding.
-   */
-  private structureTypeCapacity(structureId: string): number {
-    const st = this.sim.structures;
-    let count = 0;
-    for (let s = 0; s < this.sim.structureCount; s++) {
-      if (this.sim.structureTypes[st.typeIdx[s]].id === structureId) count++;
-    }
-    return count;
-  }
-
-  /**
-   * Task B3.7: load a structure type's idle sprite (and its wreck sprite,
-   * when the sheet declares one) and build the `StructureInstancer`(s) they
-   * draw through. Mirrors `PixiRenderer.loadStructureSprite` (`renderer.ts:
-   * 654-668`) in what it fetches and what it derives from the manifest, but
-   * builds real GPU objects rather than a single `structureAtlas` entry --
-   * `structureIdle`/`structureWreck` (one `InstancedMesh` each) are this
-   * backend's equivalent, per Ruling 1 (one draw call per type).
-   *
-   * `terrainDirty = true` at the end matters here in a way it does not for
-   * `loadSprites`: `rebuildTerrain`'s own `composeTerrain` call reads its
-   * `hasArt` callback (`this.structureIdle.has(id)`) to decide which
-   * structures' tiles `buildBuildings` should skip, so a structure's FIRST
-   * successful art load has to trigger a rebuild or its footprint would keep
-   * drawing a box underneath (or beside) the sprite this method just added
-   * to the scene. A LATER re-load (not exercised by any real caller --
-   * `main.ts`'s `STRUCTURE_SPRITES` is static, same as `loadSprites`'s own
-   * `SPRITE_MAP`) sets it again harmlessly: `hasArt` would evaluate to the
-   * identical result.
-   *
-   * Errors propagate rather than being swallowed, matching `loadSprites`:
-   * `main.ts` already wraps every `loadStructureSprite` call in its own
-   * `.catch` per structure type, and a type whose art fails to load simply
-   * never gains an entry in `structureIdle` -- `composeTerrain`'s `hasArt`
-   * predicate (`this.structureIdle.has(id)`) is exactly "art actually
-   * loaded", not "art was attempted", so a failed load correctly keeps the
-   * procedural box for that type rather than silently drawing neither a box
-   * nor a sprite.
-   */
-  async loadStructureSprite(structureId: string, basePath: string): Promise<void> {
-    this.retained.structureSheets.set(structureId, basePath);
-    const res = await fetch(`${basePath}manifest.json`);
-    if (!res.ok) throw new Error(`structure manifest ${res.status} at ${basePath}`);
-    const spec = parseStructureManifest(await res.json());
-
-    const idleFrame = await loadStructureFrame(basePath, spec.file);
-    const idleGeometry = structureBillboardGeometry(spec.scale, idleFrame.width, idleFrame.height);
-    // Every structure of THIS TYPE, alive or dead, is a safe capacity bound
-    // for either instancer AS OF NOW. It is not final: `main.ts` adds every
-    // map structure before kicking off any art load, but a mission's own
-    // arrive with `runtime.start()` after the deploy screen, which is after
-    // this. `reseed()` grows the instancer then (`fitStructureInstancers`).
-    // Sized per-type rather than to the flat `sim.structureCount`: seven
-    // shipped structure types (Task C5) each allocating the map's TOTAL
-    // structure count would waste six types' worth of `Float32Array` slots
-    // on every type that is not the single most common one.
-    const capacity = this.structureTypeCapacity(structureId);
-    const idleInstancer = new StructureInstancer(idleFrame.texture, idleGeometry, capacity);
-    const previousIdle = this.structureIdle.get(structureId);
-    if (previousIdle) {
-      this.scene.remove(previousIdle.mesh);
-      previousIdle.dispose();
-    }
-    this.structureIdle.set(structureId, idleInstancer);
-    this.scene.add(idleInstancer.mesh);
-
-    if (spec.wreckFile) {
-      const wreckFrame = await loadStructureFrame(basePath, spec.wreckFile);
-      const wreckGeometry = structureBillboardGeometry(spec.scale, wreckFrame.width, wreckFrame.height);
-      const wreckInstancer = new StructureInstancer(wreckFrame.texture, wreckGeometry, capacity);
-      const previousWreck = this.structureWreck.get(structureId);
-      if (previousWreck) {
-        this.scene.remove(previousWreck.mesh);
-        previousWreck.dispose();
-      }
-      this.structureWreck.set(structureId, wreckInstancer);
-      this.scene.add(wreckInstancer.mesh);
-    } else {
-      // A re-load that DROPS a previously-declared wreckFile (not exercised
-      // by any real caller today) must not leave a stale wreck mesh drawing
-      // for a type that no longer declares one -- same guard `loadSprites`
-      // applies to a dropped `turretPath`.
-      const staleWreck = this.structureWreck.get(structureId);
-      if (staleWreck) {
-        this.scene.remove(staleWreck.mesh);
-        staleWreck.dispose();
-        this.structureWreck.delete(structureId);
-      }
-    }
-
-    this.structureRoofArt.set(structureId, { roofTopPx: spec.roofTopPx, badgeTopPx: spec.badgeTopPx });
-    // Task B4.4: the exact inputs `collapseBillboardGeometry` needs to build
-    // a base-anchored quad matching `idleGeometry` above -- captured once
-    // here rather than re-derived at collapse time, since neither `spec` nor
-    // `idleFrame` survive past this method.
-    this.structureCollapseArt.set(structureId, {
-      scale: spec.scale,
-      textureWidth: idleFrame.width,
-      textureHeight: idleFrame.height,
-    });
-    this.terrainDirty = true;
-  }
-
-  /**
    * A one-shot: a marker blooms at the ordered point and fades -- Pixi's own
    * `this.orderMarkers.push({ x, y, ttl: 80 })` (`renderer.ts`'s
    * `addOrderMarker`). Phase C: `this.orderMarkers` graduates out of the
@@ -6111,197 +5638,6 @@ export class ThreeRenderer implements Renderer {
       return { x: fx.toNumber(this.sim.structures.cx[struct]), y: fx.toNumber(this.sim.structures.cy[struct]) };
     }
     return { x: null, y: null };
-  }
-
-  /**
-   * Builds this frame's `EntityFrame` for every living entity whose unit
-   * type has a loaded `UnitInstancer`, grouped by type, and hands each
-   * group to its instancer's `update`. The per-entity work ported from
-   * Pixi's own unit loop (`renderer.ts:1919` onward) is exactly what
-   * `entityFrame` (`frame-state.ts`) already decides -- this method's own
-   * job is assembling its input from `Sim` and this class's own tracking
-   * arrays, nothing more.
-   *
-   * `assignRoofSlots` runs once, over every entity, before any single one is
-   * decided -- `frame-state.ts`'s own doc comment on why: it is a
-   * cross-entity pre-pass, not a per-entity decision, "so the spread is
-   * stable rather than flickering only because of that ordering."
-   *
-   * A unit type with no loaded `UnitInstancer` (a sheet still loading, or
-   * one that never will) is silently skipped, matching this class's own
-   * "no mesh units, no placeholder shape" scope line -- see the class-level
-   * doc comment's "What B3.5 deliberately does not draw" section.
-   *
-   * Task B4.2: a non-player unit is now skipped entirely unless
-   * `isVisible()` says the player currently observes its own (interpolated)
-   * position -- mirroring `PixiRenderer`'s own unit loop (`renderer.ts:1930-
-   * 1934`, "Anyone who isn't ours is only drawn while actually observed --
-   * fog hides them, and losing sight loses the contact") for the first time.
-   * Before this task `isVisible()` was an unconditional `true`, so this
-   * branch was dead code with a guaranteed-true condition; it is live now
-   * that `./fog.ts` backs it with real data.
-   */
-  private updateUnits(alpha: number, dtMs: number): void {
-    if (this.unitInstancers.size === 0) return;
-
-    const dtSeconds = this.frameDtSeconds(dtMs);
-    const st = this.sim.state;
-    const n = this.snapshottedCount;
-    const roofSlots = assignRoofSlots(st.garrisonedIn, st.alive, n);
-
-    for (const frames of this.framesByType.values()) frames.length = 0;
-    for (const frames of this.turretFramesByType.values()) frames.length = 0;
-
-    for (let i = 0; i < n; i++) {
-      if (st.alive[i] === 0) continue;
-      const side = st.side[i];
-      if (side !== 0) {
-        // The INTERPOLATED position -- this frame's actual screen position,
-        // not last tick's raw curX/curY -- matching exactly what Pixi's own
-        // check tests (`renderer.ts:1930-1934` computes `x`/`y` this same
-        // way, from `prevX`/`curX`/`alpha`, before its own `isVisible` call).
-        const ix = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
-        const iy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
-        // `units/observed.ts` owns this rule for every draw path in this
-        // backend, silhouettes included -- see that module's own top comment
-        // for why it is one function rather than the three copies of
-        // `side === 0 || isVisible(...)` that used to live here, in
-        // `updateMeshUnits` and in `updateVehicleMeshes`.
-        if (!unitIsObserved(side, ix, iy, this.fogVisibleAt)) continue;
-      }
-      const type = this.sim.unitTypes[st.typeIdx[i]];
-      // A type drawn through the mesh-unit path (`updateMeshUnits`, called
-      // separately from `frame()`) must not ALSO build a billboard frame for
-      // it -- "mesh wins" whenever a GLB is loaded for a type, whether it is
-      // the skinned infantry path (`meshUnitTemplates`) or the rigid vehicle
-      // one (`vehicleMeshTemplates`, `updateVehicleMeshes`). A type present
-      // in neither takes this `continue` never, exactly the "additive,
-      // billboard unaffected until something loads a GLB for it" contract
-      // both paths share.
-      if (this.meshUnitTemplates.has(type.id) || this.vehicleMeshTemplates.has(type.id)) continue;
-      const instancer = this.unitInstancers.get(type.id);
-      if (!instancer) continue;
-      // Task B3.6: absent when this type has no turret art -- doubles as
-      // the has-a-turret gate `EntityFrameInput.turretSheet` documents.
-      const turretInstancer = this.turretInstancers.get(type.id);
-
-      // Contact-level fade only applies to what is observed through
-      // contact; the player's own units (side 0) are always full alpha, and
-      // `entityFrame` ignores `contactLevel` for them regardless -- no need
-      // to pay for the query.
-      const contactLevel = side !== 0 ? this.sim.contactLevel(0, i) : 0;
-
-      const inside = st.garrisonedIn[i];
-      let roofPx = 0;
-      if (inside >= 0) {
-        // Task B3.7: the roof plane, not the top of the art -- and now the
-        // sheet's own `roofTopPx`/`badgeTopPx` when this structure type has
-        // loaded art, exactly like Pixi's `sArt?.roofTopPx ?? sArt?.badgeTopPx
-        // ?? stype.heightPx` (`renderer.ts:1948-1950`). `structureRoofArt` has
-        // no entry for a type with no loaded sheet (or one that failed to
-        // load), so `resolveRoofPx` falls back to `terrain/buildings.ts`'s
-        // own extrusion height, `heightPx`, exactly as this backend's only
-        // answer used to be unconditionally. Closes the gap B3.3's review
-        // measured (house +2.81, apartment +3.92, mosque +1.79, warehouse
-        // +0.94, wall +0.43 world units of unwanted lift) -- see
-        // `resolveRoofPx`'s own doc comment in `units/structures.ts`.
-        const sType = this.sim.structureTypes[this.sim.structures.typeIdx[inside]];
-        roofPx = resolveRoofPx(this.structureRoofArt.get(sType.id), sType.heightPx);
-      }
-
-      // Task B3.6: turret aim target -- only computed when this type
-      // actually has turret art, the same "no need to pay for the query"
-      // precedent `contactLevel` above already follows. `null` means "no
-      // live target", and `entityFrame` reads that as "spring back to the
-      // hull's own heading" (`EntityFrameInput.turretTargetX`/`turretTargetY`'s
-      // own doc comment). Extracted to `resolveTurretTarget` so
-      // `updateVehicleMeshes` can resolve the identical target for a mesh
-      // vehicle's own turret pivot, off the SAME `curTarget`/`curStructure`
-      // read -- one implementation, two callers.
-      const turretTarget = turretInstancer ? this.resolveTurretTarget(i) : { x: null, y: null };
-      const turretTargetX = turretTarget.x;
-      const turretTargetY = turretTarget.y;
-
-      const anim: UnitAnimInput = {
-        alive: st.alive[i],
-        routed: st.routed[i],
-        pinned: st.pinned[i],
-        speed: this.entitySpeed[i],
-        // Latched by onEvents' `fire` case (Task B3.14), drained once a
-        // frame by drainTimers -- mirrors Pixi's own `this.firingTimer[i] >
-        // 0` exactly (renderer.ts:2004).
-        firing: this.firingTimer[i] > 0,
-        working: this.sim.tunnelChargeProgress(i) > 0,
-      };
-
-      const input: EntityFrameInput = {
-        entityId: i,
-        prevX: this.prevX[i],
-        prevY: this.prevY[i],
-        curX: this.curX[i],
-        curY: this.curY[i],
-        alpha,
-        elevation: this.retained.elevation,
-        mapWidth: this.sim.width,
-        mapHeight: this.sim.height,
-        side,
-        contactLevel,
-        isAir: type.isAir,
-        roofSlot: inside >= 0 ? roofSlots[i] : -1,
-        roofPx,
-        sheet: instancer.sheet,
-        anim,
-        dtSeconds,
-        entityAnimFrame: this.entityAnimFrame,
-        animSeeded: this.animSeeded,
-        facing: st.facing[i],
-        recoilT: this.recoilT[i],
-        recoilDir: this.recoilDir[i],
-        recoilPower: this.recoilPower[i],
-        flinchT: this.flinchT[i],
-        flinchDir: this.flinchDir[i],
-        turretSheet: turretInstancer?.sheet ?? null,
-        turretTargetX,
-        turretTargetY,
-        // Latched by onEvents' `fire` case (Task B3.6), independent of the
-        // hull's own `firingTimer` above -- see `turretFiringTimer`'s own
-        // doc comment for why the two cannot be the same signal.
-        turretFiring: this.turretFiringTimer[i] > 0,
-        turretFacing: this.turretFacing,
-        turretVel: this.turretVel,
-        turretSeeded: this.turretSeeded,
-      };
-
-      let list = this.framesByType.get(type.id);
-      if (!list) {
-        list = [];
-        this.framesByType.set(type.id, list);
-      }
-      const frame = entityFrame(input);
-      list.push(frame);
-
-      if (turretInstancer) {
-        // LIVING only -- `turretFramesByType` deliberately never receives a
-        // `stepDeaths` synthetic frame; see this class's own field doc
-        // comment on `turretFramesByType` for why.
-        let turretList = this.turretFramesByType.get(type.id);
-        if (!turretList) {
-          turretList = [];
-          this.turretFramesByType.set(type.id, turretList);
-        }
-        turretList.push(frame);
-      }
-    }
-
-    this.stepDeaths(dtSeconds);
-
-    for (const [typeId, instancer] of this.unitInstancers) {
-      instancer.update(this.framesByType.get(typeId) ?? []);
-      const turretInstancer = this.turretInstancers.get(typeId);
-      if (turretInstancer) {
-        turretInstancer.updateTurret(this.turretFramesByType.get(typeId) ?? [], instancer.sheet);
-      }
-    }
   }
 
   /**
@@ -7485,203 +6821,6 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
-   * Advances every unit mid-death-fade and, while still fading, appends a
-   * synthetic `EntityFrame` for it into `framesByType` -- so the SAME
-   * `UnitInstancer` a living unit of that type draws through also draws its
-   * corpse, no separate mesh needed. Ported from Pixi's `stepDeaths`
-   * (`renderer.ts:1230-1275`), NOW INCLUDING the permanent-wreckage half
-   * (`unitWreckMissingInThree`, `tools/src/golden-diff/expected-differences.ts`
-   * -- catalogued as a real defect, not a deliberate divergence, since this
-   * method's own doc comment used to name the gap outright).
-   *
-   * Facing and `typeId` are captured at the moment of death (`onEvents`'s
-   * `destroyed` case), not read live off `Sim` here, because the entity slot
-   * may be reused by a later spawn before the fade finishes -- Pixi's own
-   * comment on its `dying.push`, ported verbatim in spirit.
-   *
-   * One thing Pixi does that this method still deliberately does NOT:
-   * **rotation and squash** (`spr.rotation = p * 0.14`, the scale-Y settle).
-   * `writeUnitInstances`/`UnitInstancer` (out of bounds for this task, same
-   * as the fade's own) only ever TRANSLATE an instance -- there is no
-   * rotation or non-uniform-scale attribute to write into, and adding one
-   * would mean editing a forbidden file. The fade keeps the alpha dim and a
-   * small downward `worldY` settle (below) but the body does not tip over.
-   *
-   * **Permanent wreckage, ported now**: once a fade closes (`d.t >=
-   * DEATH_SECONDS`), `addWreck` below pushes a `UnitWreck` -- Pixi's own
-   * `addWreck`/`wreckLayer`/`MAX_WRECKS` (`renderer.ts:1211`,
-   * `:1277-1295`). The loop at the TOP of this method (before the fade loop,
-   * mirroring Pixi's own ordering: `stepDeaths`'s wreck-reveal pass runs
-   * before its fade pass in `renderer.ts` too) does two things per wreck,
-   * per frame: (1) latches `shown` true once `isExplored` says yes -- "you
-   * never witness a kill you did not observe, but a burnt-out position you
-   * HAVE seen stays on the map after the fog closes over it"
-   * (`renderer.ts:1224-1228`), and (2) for a `shown` wreck whose type has a
-   * REAL `wreck` clip (`clipOrFallback(sheet, 'wreck') === 'wreck'`, not a
-   * fallback to idle), appends a second synthetic `EntityFrame` -- alpha 1,
-   * clip `'wreck'` -- into the SAME `framesByType` list the fade above
-   * already writes into, so it draws through the identical `UnitInstancer`.
-   * A `shown` wreck whose type has NO real `wreck` clip (`mbt_lavi`'s
-   * `TNK_HULL`/`TNK_TURR` among them -- see `UnitWreck`'s own doc comment)
-   * draws NOTHING here: `updateOverlays`'s own fallback covers it instead,
-   * Pixi's identical split (`!wk.spr` -> the grey cross-marker, drawn into
-   * `unitsG` rather than `wreckLayer` -- `renderer.ts:1236-1242`).
-   *
-   * A unit type with no loaded `UnitInstancer` is silently skipped for BOTH
-   * the fade and the wreck, matching this class's own "no mesh units" scope
-   * line -- and, since that also governs `updateUnits`'s own early return, a
-   * dying entry's timer only advances while at least one sheet is loaded; a
-   * mission where every unit dies before any sheet finishes loading is the
-   * one case that stalls it, and it stalls harmlessly (nothing would have
-   * been visible to fade or wreck regardless).
-   */
-  private stepDeaths(dtSeconds: number): void {
-    // Permanent wreckage: reveal, then draw real art where this type has
-    // any -- see this method's own top comment for the fog-gate and the
-    // real-art-vs-cross-marker split. A rigged mesh type (one with a
-    // `meshUnitTemplates` entry -- the default for every such type on
-    // `three`; only `&nomesh` leaves that map empty) is skipped here
-    // entirely: `addWreck` below never pushes one, because `mesh-death.ts`'s
-    // own `MeshWreck` already owns that type's wreckage end to end. Its
-    // billboard sheet used to be loaded unconditionally beside the mesh
-    // (`main.ts`'s `SPRITE_MAP` loop had no mesh branch); since the
-    // roster-driven `spriteSheetPlan` (2026-09-07) a fielded rigged type's
-    // sheet is not loaded at all, but a deferred KDF buildable's sheet still
-    // arrives after the first frame as its billboard fallback and stays
-    // loaded once its mesh lands, so without that exclusion such a unit
-    // with a billboard `wreck` clip (`inf_squad`'s `INF_SQUAD` sheet among
-    // them) would draw a second, redundant wreck underneath its own mesh one.
-    for (const wk of this.wrecks) {
-      if (!wk.shown && this.isExplored(wk.x, wk.y)) wk.shown = true;
-      if (!wk.shown) continue;
-      const instancer = this.unitInstancers.get(wk.typeId);
-      if (!instancer || clipOrFallback(instancer.sheet, 'wreck') !== 'wreck') continue;
-      const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, wk.x, wk.y);
-      const frame: EntityFrame = {
-        wx: wk.x,
-        wy: wk.y,
-        worldY,
-        side: wk.side,
-        clip: 'wreck',
-        frame: 0,
-        facing: wk.facing,
-        // Wreckage draws at full opacity, matching Pixi's own `addWreck`,
-        // which never touches `spr.alpha` (`renderer.ts:1283`).
-        alpha: 1,
-        roofDx: 0,
-        roofDy: 0,
-        visible: true,
-        turretFacing: wk.facing,
-        turretClip: 'idle',
-        turretFrame: 0,
-      };
-      let wreckList = this.framesByType.get(wk.typeId);
-      if (!wreckList) {
-        wreckList = [];
-        this.framesByType.set(wk.typeId, wreckList);
-      }
-      wreckList.push(frame);
-    }
-
-    for (let k = this.dying.length - 1; k >= 0; k--) {
-      const d = this.dying[k];
-      d.t += dtSeconds;
-      const p = Math.min(1, d.t / DEATH_SECONDS);
-      const instancer = this.unitInstancers.get(d.typeId);
-      if (instancer) {
-        const clip = clipOrFallback(instancer.sheet, 'down');
-        // Sink slightly as it settles -- Pixi's own `isoY(...) + p * 3`
-        // (renderer.ts:1263), reproduced as a small downward WORLD-height
-        // settle rather than a screen-space nudge, since there is no
-        // post-projection position here to nudge (the same reasoning
-        // `frame-state.ts`'s recoil/flinch doc comment gives, in reverse:
-        // there it is a screen delta converted to world; here Pixi's own
-        // "sink into the ground" reads most naturally as a real height
-        // change, not a lateral one).
-        const worldY =
-          groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, d.x, d.y) -
-          p * 3 * WORLD_Y_PER_LIFT_PIXEL;
-        const frame: EntityFrame = {
-          wx: d.x,
-          wy: d.y,
-          worldY,
-          side: d.side,
-          clip,
-          frame: 0,
-          facing: d.facing,
-          // Fades toward half, never to nothing -- matches Pixi's own
-          // `1 - p * 0.5` (renderer.ts:1264) exactly.
-          alpha: 1 - p * 0.5,
-          roofDx: 0,
-          roofDy: 0,
-          visible: true,
-          // Task B3.6: never drawn -- this synthetic frame only ever
-          // reaches `framesByType` (the hull mesh), never
-          // `turretFramesByType`, matching Pixi's own `stepDeaths`, which
-          // draws no turret sprite for a dying unit at all (see
-          // `turretFramesByType`'s own field doc comment). Still a
-          // well-defined value rather than a sentinel, per `EntityFrame
-          // .turretFacing`'s own contract.
-          turretFacing: d.facing,
-          turretClip: 'idle',
-          turretFrame: 0,
-        };
-        let list = this.framesByType.get(d.typeId);
-        if (!list) {
-          list = [];
-          this.framesByType.set(d.typeId, list);
-        }
-        list.push(frame);
-      }
-      if (d.t >= DEATH_SECONDS) {
-        this.dying.splice(k, 1);
-        this.addWreck(d.x, d.y, d.facing, d.typeId, d.side);
-      }
-    }
-  }
-
-  /**
-   * Pushes a permanent `UnitWreck` once a dying unit's fade finishes --
-   * Pixi's own `addWreck` (`renderer.ts:1278-1295`). Pushed unconditionally,
-   * whether or not this type's sheet declares a real `wreck` clip: which
-   * draw path (if any) the entry takes is resolved every frame by
-   * `stepDeaths`'s own wreck loop, not at push time -- the identical split
-   * Pixi's own nullable `spr` field encodes (see `UnitWreck`'s own doc
-   * comment).
-   *
-   * Skips a rigged mesh type entirely (`meshUnitTemplates.has(typeId)` --
-   * populated for every such type by default on `three`, and empty only
-   * under `&nomesh`): `mesh-death.ts`'s own `MeshWreck` system already owns
-   * that type's permanent wreckage end to end (`stepMeshDeaths` above). The
-   * billboard sheet this guards against used to load unconditionally beside
-   * the mesh (`main.ts`'s `SPRITE_MAP` loop); since the roster-driven
-   * `spriteSheetPlan` (2026-09-07) a fielded rigged type's sheet is never
-   * loaded on the mesh path, and the case that keeps this exclusion live is
-   * a deferred KDF buildable, whose sheet arrives after the first frame as
-   * its billboard fallback and stays loaded once its mesh lands -- without
-   * this exclusion such a unit whose billboard sheet ALSO declares a `wreck`
-   * clip would draw a second, redundant wreck underneath its own mesh one.
-   * A mesh VEHICLE (`vehicleMeshTemplates`) is deliberately NOT excluded:
-   * its GLB carries no wreck, so its sheet's `wreck` sprite is the only
-   * wreck it has (the mesh-vehicle death debt in CLAUDE.md). Pixi has no
-   * such case to exclude: it has no mesh path at all, so every destroyed
-   * entity there is a billboard one by construction.
-   */
-  private addWreck(x: number, y: number, facing: number, typeId: string, side: number): void {
-    if (this.meshUnitTemplates.has(typeId)) return;
-    // The vehicle half of the same exclusion, and note what it is NOT: a
-    // plain `vehicleMeshTemplates.has(typeId)`. CLAUDE.md records that exact
-    // trap -- excluding every mesh vehicle unconditionally deletes the sprite
-    // wreck and leaves nothing behind, which is strictly worse than the
-    // three-art-styles sequence it was meant to fix. Only a type whose own
-    // GLB carries the `wreck` clip has a `MeshWreck` coming
-    // (`stepVehicleDeaths`), and only that type steps aside here.
-    if (this.vehicleMeshTemplates.get(typeId)?.hasWreck === true) return;
-    this.wrecks.push({ x, y, facing, typeId, side, shown: this.isExplored(x, y) });
-    while (this.wrecks.length > MAX_UNIT_WRECKS) this.wrecks.shift();
-  }
-
-  /**
    * Task B3.13/B3.14: ages and draws every live particle and tracer, every
    * frame, unconditionally -- mirrors `PixiRenderer.frame()`'s own `if
    * (this.particles) this.particles.step(dtSeconds)` (`renderer.ts:1902`)
@@ -8210,8 +7349,6 @@ export class ThreeRenderer implements Renderer {
       ];
       if (w) w.value *= HIT_FLASH_WIDTH_SCALE;
     }
-    for (const instancer of this.unitInstancers.values()) instancer.setOutlineZoom(zoom);
-    for (const instancer of this.turretInstancers.values()) instancer.setOutlineZoom(zoom);
   }
 
   /**
@@ -8280,8 +7417,10 @@ export class ThreeRenderer implements Renderer {
       const inside = st.garrisonedIn[i];
       if (inside >= 0) {
         const sType = this.sim.structureTypes[this.sim.structures.typeIdx[inside]];
-        const roofPx = resolveRoofPx(this.structureRoofArt.get(sType.id), sType.heightPx);
-        groundY += roofPx * WORLD_Y_PER_LIFT_PIXEL;
+        // The type's own roof height: the per-sheet `roofTopPx` that could
+        // override it went with the structure sprites (WP-A3.3), and was
+        // never loaded on the mesh path anyway.
+        groundY += sType.heightPx * WORLD_Y_PER_LIFT_PIXEL;
       }
       const anchor: [number, number, number] = [ix, groundY, iy];
 
@@ -8460,11 +7599,10 @@ export class ThreeRenderer implements Renderer {
         const { fx: scx, fy: scy } = footprintCentre(this.sim, s);
         const groundYs = groundWorldY(elevation, width, height, scx, scy);
         const structAnchor: [number, number, number] = [scx, groundYs, scy];
-        // renderer.ts: `art?.badgeTopPx ?? stype.heightPx` -- the mosque's
-        // own comment there: `heightPx` (the procedural extrusion's height)
-        // is right only for a structure with no sprite; `badgeTopPx` is the
-        // topmost opaque row of its real art.
-        const badgeTopPx = this.structureRoofArt.get(stype.id)?.badgeTopPx ?? stype.heightPx;
+        // The type's own `heightPx`. A sheet's `badgeTopPx` used to override
+        // it; the structure sprites are retired (WP-A3.3), and on the mesh
+        // path it was never loaded.
+        const badgeTopPx = stype.heightPx;
         const topUp = badgeTopPx + 12; // Pixi's `top = by - badgeTopPx - 12`
 
         // Integrity bar -- renderer.ts: `g.rect(bx - 16, top, 32, 4)` (bg)
@@ -8684,31 +7822,6 @@ export class ThreeRenderer implements Renderer {
     // muzzle flashes carried the fire itself.
     this.drawFireLinkOverlays(alpha);
 
-    // Permanent-wreck fallback: a unit type with no real `wreck` clip
-    // (`clipOrFallback(sheet, 'wreck') !== 'wreck'`, `mbt_lavi`'s
-    // `TNK_HULL`/`TNK_TURR` among them) or no loaded `UnitInstancer` at all
-    // gets Pixi's own grey X cross-marker instead of real art
-    // (`renderer.ts:1236-1242`, drawn into `unitsG` -- the identical overlay
-    // tier this method already builds, not `wreckLayer`). `stepDeaths`'s own
-    // wreck loop already drew every wreck WITH real art through
-    // `framesByType`/`UnitInstancer` this same frame -- this pass only
-    // covers what that one deliberately skipped, so a wreck never gets both.
-    if (this.wrecks.length > 0) {
-      const wreckMarkerColor = this.overlayColor(WRECK_MARKER_COLOR_KEY, '#5C625F');
-      for (const wk of this.wrecks) {
-        if (!wk.shown) continue;
-        const instancer = this.unitInstancers.get(wk.typeId);
-        if (instancer && clipOrFallback(instancer.sheet, 'wreck') === 'wreck') continue;
-        const wreckGroundY = groundWorldY(elevation, width, height, wk.x, wk.y);
-        const wreckAnchor: [number, number, number] = [wk.x, wreckGroundY, wk.y];
-        // Two crossing strokes, Pixi's own literal geometry verbatim:
-        // `g.moveTo(sx-7,sy-5).lineTo(sx+7,sy+5)` and
-        // `g.moveTo(sx-7,sy+5).lineTo(sx+7,sy-5)`, both `stroke({width: 3})`.
-        this.overlayBatch.line(wreckAnchor, -7, -5, 7, 5, 3, wreckMarkerColor, 1);
-        this.overlayBatch.line(wreckAnchor, -7, 5, 7, -5, 3, wreckMarkerColor, 1);
-      }
-    }
-
     // Queued route for the selection -- renderer.ts's own "the path you
     // drew, in order": a stroke per leg from the unit through its current
     // goal and every Shift-queued waypoint, a filled node at each leg's end.
@@ -8864,11 +7977,8 @@ export class ThreeRenderer implements Renderer {
       const { fx: cxTile, fy: cyTile } = footprintCentre(this.sim, s);
       const groundYs = groundWorldY(elevation, width, height, cxTile, cyTile);
       const structAnchor: [number, number, number] = [cxTile, groundYs, cyTile];
-      // renderer.ts: `art?.badgeTopPx ?? stype.heightPx` -- NOT
-      // resolveRoofPx's roofTopPx-preferring chain above (that one answers
-      // "how tall does a garrisoned occupant stand", a different question
-      // from "where does this building's own badge/affordance UI hang").
-      const badgeTopPx = this.structureRoofArt.get(stype.id)?.badgeTopPx ?? stype.heightPx;
+      // The type's own `heightPx` -- see the integrity bar's note above.
+      const badgeTopPx = stype.heightPx;
       const hyUp = badgeTopPx + 12 + 34; // top = anchor_up(badgeTopPx + 12); hy = top - 34 (Pixi y-down)
       const hAnchor = billboardPoint(structAnchor, 0, hyUp);
       const pulse = 0.55 + 0.45 * Math.sin(this.frameN * 0.12);
@@ -8972,7 +8082,7 @@ export class ThreeRenderer implements Renderer {
       // their own surface from it, so that both routes to the surface start
       // from the same two arrays. `surface.test.ts` pins that they agree.
       this.retained.elevationLevels,
-      (id) => this.structureIdle.has(id) || this.buildingMeshIdleTemplates.has(id),
+      (id) => this.buildingMeshIdleTemplates.has(id),
       this.opts.terrainTones,
       this.opts.resolveColor,
       this.opts.background
@@ -9112,22 +8222,6 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
-   * Task B4.4: the lazy-grow counterpart of `ensureStructureWear` above, for
-   * `structureLastAlpha` -- same shape, `-1` as the "never cached" sentinel
-   * instead of `0xff` (see that field's own doc comment for why a float
-   * cache rather than a wear-step one).
-   */
-  private ensureStructureLastAlpha(): Float32Array {
-    const current = this.structureLastAlpha;
-    if (current && current.length >= this.sim.structureCount) return current;
-    const next = new Float32Array(this.sim.structureCount);
-    next.fill(-1);
-    if (current) next.set(current);
-    this.structureLastAlpha = next;
-    return next;
-  }
-
-  /**
    * Task B3.9: the incremental half of `structureHit` -- recomputes ONLY
    * the hit structure's own box geometry, and only when `dirty.ts`'s
    * eight-step wear quantisation says the hit actually crossed a visible
@@ -9236,185 +8330,6 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
-   * Task B3.7: per-frame idle/wreck billboard placement for every structure
-   * type with a loaded sheet -- the sprite counterpart to `updateUnits`, and
-   * deliberately driven off LIVE `Sim` state every frame rather than the
-   * `terrainDirty`-gated box/ground mesh `rebuildTerrain` owns.
-   *
-   * That is load-bearing, not merely convenient: even now that `onEvents`
-   * calls `applyStructureHit`/`applyStructureDestroyed` for real
-   * `structureHit`/`structureDestroyed` events (Task B3.10), neither ever
-   * touches an ARTED structure -- the only kind this method draws --
-   * because both key off `structureBoxes`/`structureFootprintTiles`, which
-   * `composeTerrain`'s `hasArt` skip never populates for one (see
-   * `structureWreck`'s own field doc comment for the same point made about
-   * that map specifically). If a structure's wreck sprite only ever
-   * refreshed on `terrainDirty`, it would never appear at all during a real
-   * mission -- nothing sets `terrainDirty` for an arted structure, wired
-   * events included. Reading `Sim` fresh here instead means a living
-   * structure's battle-damage alpha darkens in real time and its wreck
-   * appears the instant `Sim` marks it dead, without touching the terrain
-   * mesh at all -- and it is, in this one respect, MORE responsive than
-   * Pixi, which only refreshes either at the same `terrainDirty`-style
-   * granularity (`drawTerrain` calls `drawWreckedStructures` itself, at the
-   * very end).
-   *
-   * Task B3.9's own review flagged this method by name and asked whether it
-   * still composes with the new incremental invalidation, rather than
-   * quietly duplicating it. It does compose, and stays exactly as written:
-   * this path draws ARTED structures only (`structureIdle`/`structureWreck`,
-   * keyed by structure TYPE); `applyStructureHit`/`applyStructureDestroyed`
-   * touch `structureBoxes`, keyed by structure INDEX, and only for UN-ARTED
-   * structures (`composeTerrain`'s `hasArt` skip) -- two disjoint sets, never
-   * the same structure twice. Now that Task B3.10 has wired `onEvents`, this
-   * scan is the ONLY thing still doing per-frame, per-structure work for its
-   * own set (idempotent, and already known-cheap at today's counts -- an O(types x
-   * structureCount) live-state pull each frame, up to 13 scans and one
-   * object per structure per type today; ~4,000 probes / 18,000 objects a
-   * second at the GDD's 300-structure target, GC-visible but not wired to
-   * anything expensive downstream). Made redundant in the narrow sense that
-   * an EVENT-DRIVEN update for arted structures would no longer strictly
-   * need to poll every frame, but not wrong, and folding it into
-   * event-driven invalidation is explicitly not this task's job -- the
-   * right time is when detection's own O(N^2) staggering lands (`CLAUDE.md`'s
-   * "Known scaling debts"), which already needs to touch per-frame structure
-   * scanning for the same reason.
-   *
-   * Called unconditionally, like `updateUnits`/`updateFx` -- both maps start
-   * empty and simply have nothing to iterate before any sheet has loaded.
-   */
-  private updateStructures(): void {
-    if (this.structureIdle.size === 0 && this.structureWreck.size === 0) return;
-    const elevation = this.retained.elevation;
-    for (const [id, instancer] of this.structureIdle) {
-      // "Mesh wins": a structure type with a loaded building mesh
-      // (`updateBuildingMeshes`) must not ALSO draw its billboard --
-      // matching `updateUnits`'s own `vehicleMeshTemplates.has(type.id)`
-      // guard. Forced to an EMPTY placement list rather than skipped
-      // outright, so `mesh.count` is actively zeroed even if a mesh loads
-      // for a type whose billboard previously had a non-zero count.
-      instancer.update(this.buildingMeshIdleTemplates.has(id) ? [] : liveStructurePlacements(this.sim, id, elevation));
-    }
-    for (const [id, instancer] of this.structureWreck) {
-      instancer.update(
-        this.buildingMeshWreckTemplates.has(id) ? [] : deadStructurePlacements(this.sim, id, elevation)
-      );
-    }
-    this.cacheStructureAlpha();
-  }
-
-  /**
-   * Task B4.4: snapshot every LIVE, arted structure's current billboard
-   * alpha into `structureLastAlpha` -- see that field's own doc comment for
-   * why `beginCollapse` needs a cache rather than a live read at the moment
-   * of death. A plain O(structureCount) scan, cheaper than the O(types x
-   * structureCount) work `updateStructures` already pays above (that
-   * method's own doc comment already accepts that shape at the GDD's
-   * 300-structure target).
-   */
-  private cacheStructureAlpha(): void {
-    const st = this.sim.structures;
-    const cache = this.ensureStructureLastAlpha();
-    for (let s = 0; s < this.sim.structureCount; s++) {
-      if (st.alive[s] !== 1) continue;
-      const type = this.sim.structureTypes[st.typeIdx[s]];
-      if (!this.structureIdle.has(type.id)) continue; // un-arted: structureBoxes' concern, not this cache's
-      cache[s] = structureAliveAlpha(st.hp[s], st.maxHp[s]);
-    }
-  }
-
-  /**
-   * Task B4.4: start a building falling -- the three.js counterpart to
-   * `PixiRenderer.beginCollapse` (`renderer.ts:272-303`).
-   *
-   * `updateStructures` swaps the idle billboard for the wreck one the
-   * instant `sim.alive` flips, every frame (see that method's own doc
-   * comment for why it has to poll live state rather than wait for a
-   * `terrainDirty` rebuild) -- this method adds a SEPARATE, one-off
-   * `THREE.Mesh` on top of that swap, exactly the way `structureBoxes`
-   * already gives an un-arted structure its own per-structure mesh outside
-   * the bulk-rebuilt terrain mesh. `updateStructures` cannot delete this
-   * mesh out from under the fall because it never touches it: that method
-   * only ever writes into `structureIdle`/`structureWreck`'s OWN instance
-   * buffers, keyed by structure TYPE, and this mesh is not a member of
-   * either -- it is tracked solely by `this.collapsing`, added to `scene`
-   * directly, and removed only by `stepCollapses` once its own fall
-   * finishes. The wreck billboard is therefore already sitting underneath,
-   * visible the instant `sim.alive` flips, exactly as Pixi's own comment on
-   * `beginCollapse` describes ("The wreck is already going down underneath
-   * on this rebuild, so all this adds is the intact sprite on top").
-   *
-   * Bails silently for a structure type with no loaded idle sheet -- the
-   * un-arted, procedurally-extruded case (`structureBoxes`) has no
-   * billboard to fell, matching Pixi's own `if (!art) return`
-   * (`renderer.ts:277`). Every shipped structure type has art today
-   * (`main.ts`'s `STRUCTURE_SPRITES`), so this branch is not reachable on
-   * any real mission, same as Pixi's.
-   *
-   * Also bails for a structure type with a loaded building MESH (GH #143) --
-   * the same "mesh wins" guard `updateStructures` already applies to the
-   * ordinary idle/wreck billboard swap (`this.buildingMeshIdleTemplates.has(id)`
-   * above), missing here until now. `main.ts`'s `STRUCTURE_SPRITES` and
-   * `MESH_BUILDINGS` overlap on all seven billboard-arted types, so every
-   * structure that reaches this method with `idle`/`art` both present ALSO
-   * had a mesh loaded, on every real mission -- without this guard, a dying
-   * building's mesh swaps to its wreck instantly (`updateBuildingMeshes`)
-   * while this method ALSO span up a mis-scaled falling ghost of the
-   * standing billboard on top of it. `?renderer=pixi` builds a wholly
-   * separate `PixiRenderer` with no `buildingMeshIdleTemplates` field at
-   * all, so that backend's own `beginCollapse` (`renderer.ts:272-303`) is
-   * untouched by this and keeps playing its collapse for every arted
-   * structure, mesh or not -- there is no mesh path there to prefer.
-   *
-   * Anchored at the BASE, not the footprint's centred ground point every
-   * OTHER structure billboard uses -- `collapseBillboardGeometry` builds
-   * that separately; see its own doc comment for why a base anchor is what
-   * makes shrinking `mesh.scale.y` bring the roof down while the footprint
-   * stays exactly where it was, and for the `worldY - halfHeight`
-   * translation below.
-   *
-   * `alpha0` continues from `structureLastAlpha`'s cache rather than
-   * recomputing from `hp`/`maxHp` fresh -- see that field's own doc comment
-   * for why a fresh read at this exact moment would always answer "fully
-   * battered" (`0.55`), and for why that is a deliberate departure from
-   * what Pixi itself actually shows for a combat kill, not merely a
-   * different route to the same number.
-   */
-  private beginCollapse(structure: number): void {
-    const st = this.sim.structures;
-    const type = this.sim.structureTypes[st.typeIdx[structure]];
-    const idle = this.structureIdle.get(type.id);
-    const art = this.structureCollapseArt.get(type.id);
-    if (!idle || !art || this.buildingMeshIdleTemplates.has(type.id)) return;
-
-    const { fx: footX, fy: footY } = footprintCentre(this.sim, structure);
-    const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, footX, footY);
-    const cache = this.structureLastAlpha;
-    const cached = cache && structure < cache.length ? cache[structure] : -1;
-    const alpha0 = cached >= 0 ? cached : 1;
-
-    const geometry = collapseBillboardGeometry(art.scale, art.textureWidth, art.textureHeight);
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(geometry.positions, 3));
-    geo.setAttribute('uv', new THREE.BufferAttribute(geometry.uvs, 2));
-    geo.setIndex(new THREE.BufferAttribute(geometry.indices, 1));
-
-    const material = createCollapseMaterial(idle.spriteTexture, alpha0);
-    const mesh = new THREE.Mesh(geo, material);
-    // Base-anchored: local up runs 0..drawHeightPx (collapseBillboardGeometry),
-    // so translating to worldY - halfHeight lands the mesh's own local origin
-    // at the exact world point the CENTRED idle sprite's own bottom edge
-    // already sat at -- the fall begins with no visible pop, "covering the
-    // same ground the centred sprite did."
-    const halfHeightWorld = (geometry.drawHeightPx / 2) * WORLD_Y_PER_LIFT_PIXEL;
-    mesh.position.set(footX, worldY - halfHeightWorld, footY);
-    mesh.renderOrder = STRUCTURE_RENDER_ORDER;
-
-    this.scene.add(mesh);
-    this.collapsing.push({ mesh, t: 0, alpha0 });
-  }
-
-  /**
    * Throws the collapse shroud over a structure that has just died, and
    * starts the standing-mesh hold that lets the wreck swap happen inside it
    * (`units/collapse-shroud.ts`'s own top comment is the whole argument;
@@ -9459,13 +8374,7 @@ export class ThreeRenderer implements Renderer {
     const footprintD = st.maxY[structure] - st.minY[structure] + 1;
     const width = bounds ? Math.max(footprintW, bounds.x) : footprintW;
     const depth = bounds ? Math.max(footprintD, bounds.z) : footprintD;
-    const art = this.structureCollapseArt.get(type.id);
-    const height = bounds
-      ? bounds.y
-      : art
-        ? billboardDrawSize(art.scale, art.textureWidth, art.textureHeight).drawHeightPx *
-          WORLD_Y_PER_LIFT_PIXEL
-        : type.heightPx * WORLD_Y_PER_LIFT_PIXEL;
+    const height = bounds ? bounds.y : type.heightPx * WORLD_Y_PER_LIFT_PIXEL;
     const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, cx, cy);
     // `structure` as the scatter seed: stable across a replay, never a clock,
     // never sim state that could feed back -- the same presentation-hash rule
@@ -9535,31 +8444,6 @@ export class ThreeRenderer implements Renderer {
     }
   }
 
-  /**
-   * Bring the falling buildings down one frame -- the three.js counterpart
-   * to `PixiRenderer.stepCollapses` (`renderer.ts:311-325`), identical
-   * squared easing via `collapseFrame` (see that function's own doc
-   * comment). `scale.y` needs no `scaleY0` multiplier the way Pixi's own
-   * sprite does: `collapseBillboardGeometry`'s quad is already sized to its
-   * final world extent (the same convention every other billboard in this
-   * backend uses), so three.js's rest scale is simply `1` -- `collapseFrame`
-   * already returns that ratio directly.
-   */
-  private stepCollapses(dtSeconds: number): void {
-    for (let i = this.collapsing.length - 1; i >= 0; i--) {
-      const c = this.collapsing[i];
-      c.t += dtSeconds;
-      const result = collapseFrame(c.t, c.alpha0);
-      c.mesh.scale.y = result.scaleY;
-      c.mesh.material.opacity = result.alpha;
-      if (result.done) {
-        this.scene.remove(c.mesh);
-        c.mesh.geometry.dispose();
-        c.mesh.material.dispose();
-        this.collapsing.splice(i, 1);
-      }
-    }
-  }
 }
 
 /** `StructureFootprint` plus the one fact `buildBuildings` itself does not

@@ -1261,7 +1261,7 @@ describe('unit art the pipeline has not produced', () => {
     expect(art.tagName).toBe('DIV');
     expect(art.dataset.nosprite).toBe('1');
     expect(art.querySelector('svg')).not.toBeNull();
-    expect(art.title).toContain('no sprite sheet');
+    expect(art.title).toContain('no portrait');
     expect(r.host.querySelector('.rl-card__art img')).toBeNull();
   });
 

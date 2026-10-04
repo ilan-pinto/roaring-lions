@@ -3,10 +3,9 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "PixiJS renderer and VFX. Imports @lions/sim types read-only; subscribes to sim events and never writes back.",
+  "description": "The three.js renderer, VFX and audio. Imports @lions/sim types read-only; subscribes to sim events and never writes back.",
   "exports": {
     ".": "./src/index.ts",
-    "./pixi": "./src/pixi.ts",
     "./three": "./src/three/ThreeRenderer.ts",
     "./three-campaign": "./src/three/campaign/world-view.ts",
     "./three-front": "./src/three/front/scene-host.ts",
@@ -14,12 +13,10 @@
     "./terrain": "./src/three/terrain/index.ts",
     "./project": "./src/project.ts",
     "./three-camera": "./src/three/camera.ts",
-    "./three-spike": "./src/three/spike/rig-scene.ts",
     "./three-soldier": "./src/three/spike/soldier-view.ts"
   },
   "dependencies": {
     "@lions/sim": "workspace:*",
-    "pixi.js": "^8.6.6",
     "three": "^0.170.0"
   },
   "devDependencies": {

@@ -1907,11 +1907,10 @@ export class Hud {
    *
    * The stand-in is the commander portrait's hatch with the role mark on it —
    * the same "reserved, not broken" language the briefing bar already uses —
-   * and never an empty box. `civilians` is the one shipped type with no sheet
-   * in `SPRITE_MAP`, and it is reachable: a left click picks any unit, not only
-   * your own. A boot where a sheet failed to fetch lands here too, which is the
-   * case worth drawing honestly: the HUD says "no picture for this type", and
-   * the failed-art notice says which.
+   * and never an empty box. `civilians` is the one shipped type with no
+   * portrait, and it is reachable: a left click picks any unit, not only your
+   * own. (Until WP-A3.3 a sprite sheet that failed to fetch landed here too;
+   * the sheets are retired and portraits come from the bundle.)
    */
   private artHtml(
     typeId: string,
@@ -1923,7 +1922,7 @@ export class Hud {
     const src = this.deps.portrait?.(typeId, slot) ?? null;
     if (src === null) {
       // Same wording as the brigade screen's own art gap (`brigade.art.noSprite`
-      // -- `{id} — no sprite sheet`, `en.json`): one sentence for "this type
+      // -- `{id} — no portrait`, `en.json`): one sentence for "this type
       // has no picture", wherever it is drawn.
       return (
         `<div class="${cls}" data-nosprite="1" title="${escapeHtml(t('brigade.art.noSprite', { id: typeId }))}">` +

@@ -174,13 +174,11 @@
  * ground unit is. Recorded in the task report from an actual look at the
  * drone and the helicopter plates, not assumed.
  *
- * `attack_drone`/`recon_drone` also carry no GLB at all (`hasUnitMesh`
- * false, checked directly against `mesh-catalogue.ts`) and the roster-driven
- * sprite loader only ever queues a billboard sheet for a type the BOOT-TIME
- * force already fields -- so spawning either one cold drew nothing but a
- * stray VFX blur on empty ground. Fixed by calling `renderer.loadSprites` on
- * their own `SPRITE_MAP` paths (`main.ts:580`, `main.ts:647`) directly
- * before the first spawn.
+ * `attack_drone`/`recon_drone` once carried no GLB and were loaded here as
+ * billboard sheets through `renderer.loadSprites`. Both have GLBs since B0a
+ * (2026-09-30), and the sprite loaders are retired (WP-A3.3): a type the
+ * boot roster did not field is picked up by `main.ts`'s 1 Hz mesh sweep, and
+ * the pre-warm below waits long enough for it.
  */
 import { chromium, type Browser, type Page } from 'playwright';
 import { spawn as spawnProcess } from 'node:child_process';
@@ -241,7 +239,6 @@ interface LionsWindow {
       setDebugLayerVisible(name: string, visible: boolean): number;
       frame(alpha: number, dtMs: number): void;
       worldToScreen(wx: number, wy: number): { x: number; y: number };
-      loadSprites(unitTypeId: string, basePath: string): Promise<void>;
     };
   };
 }
@@ -620,22 +617,6 @@ async function runCapture(): Promise<void> {
     const remove = async (entity: number): Promise<void> => {
       await page.evaluate((e) => (window as unknown as LionsWindow).__lions.sim.removeFromPlay(e), entity);
     };
-
-    // Two KDF types carry no GLB at all -- see this file's own top comment
-    // ("Aircraft") for the fix and why it is needed.
-    const NO_MESH_SPRITE_PATHS: Readonly<Record<string, string>> = {
-      attack_drone: '/sprites/DRONE_ATTACK/',
-      recon_drone: '/sprites/DRONE_RECON/',
-    };
-    for (const id of wanted) {
-      const spritePath = NO_MESH_SPRITE_PATHS[id];
-      if (spritePath === undefined) continue;
-      console.log(`[${TAG}] ${id} has no mesh -- loading its billboard sheet directly (${spritePath})`);
-      await page.evaluate(
-        ([unitId, base]) => (window as unknown as LionsWindow).__lions.renderer.loadSprites(unitId, base),
-        [id, spritePath] as [string, string]
-      );
-    }
 
     // --- pre-warm: see this file's own top comment for why this is not in
     // the brief's literal sequence and why it changes no measured pixel.

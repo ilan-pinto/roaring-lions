@@ -72,6 +72,15 @@ export interface ProductionOptions {
    * is where the balance goes rather than repeated beside every price.
    */
   credits?: number;
+  /**
+   * True while a unit type's model is still downloading (WP-A3.3, the lead's
+   * ruling 1). A deferred KDF buildable's GLB is fetched after the mission
+   * starts, and with the sprite placeholder retired a unit deployed before it
+   * lands draws nothing until it does -- so once the player has bought one,
+   * its tile says "deploying" rather than leaving an empty patch of ground
+   * unexplained. Absent reads as never pending.
+   */
+  meshPending?: (unitId: string) => boolean;
 }
 
 /** The two fire-support calls, as the dock draws them. `word`/`name`/`blurb`
@@ -121,6 +130,8 @@ interface UnitTile {
   left: HTMLElement;
   bar: HTMLElement;
   lock: HTMLElement;
+  /** The "deploying" chip -- see `ProductionOptions.meshPending`. */
+  deploying: HTMLElement;
 }
 
 interface SupportTile {
@@ -133,6 +144,9 @@ export class ReinforcementDock {
   private readonly el: HTMLDivElement;
   private readonly unitTiles: UnitTile[] = [];
   private readonly supportTiles: SupportTile[] = [];
+  /** Types the player has bought this mission -- the deploying chip shows
+   *  only for one of these, never for a tile nobody has touched. */
+  private readonly bought = new Set<string>();
   private armed: SupportKind | null = null;
   /** Every `bindTip` disposer this dock registered, so `destroy()` has one
    *  list to release rather than a hand-kept count of tiles. `bindTip` itself
@@ -287,7 +301,11 @@ export class ReinforcementDock {
     const lock = document.createElement('span');
     lock.className = 'rl-tile__lock';
 
-    el.append(cost, left, bar, lock);
+    const deploying = document.createElement('span');
+    deploying.className = 'rl-tile__deploying';
+    deploying.textContent = t('dock.tile.deploying');
+
+    el.append(cost, left, bar, lock, deploying);
 
     el.addEventListener('click', () => {
       // I1: route through `tileState`, the same app-side sentence the
@@ -309,6 +327,7 @@ export class ReinforcementDock {
         return;
       }
       if (this.opts.runtime.requestBuild(unit.id)) {
+        this.bought.add(unit.id);
         this.opts.onBought?.(unit.id);
         this.opts.note(t('dock.note.building', { name }), 'info');
       } else {
@@ -322,7 +341,7 @@ export class ReinforcementDock {
     // top of the row above it (`tooltip.ts`'s `computeTipPosition`).
     this.tipDisposers.push(bindTip(el, () => this.unitTipHtml(unit), { host: this.el, clear: this.el }));
 
-    this.unitTiles.push({ el, unit, cost, left, bar, lock });
+    this.unitTiles.push({ el, unit, cost, left, bar, lock, deploying });
     return el;
   }
 
@@ -432,6 +451,9 @@ export class ReinforcementDock {
       // "expensive", and dimming it twice would say two things at once.
       tile.el.dataset.poor = state.lock === null && !state.affordable ? '1' : '0';
       tile.el.dataset.queued = state.queue === null ? '0' : '1';
+      // Ruling 1 (WP-A3.3): bought, and its model has not landed yet.
+      const pending = this.bought.has(tile.unit.id) && (this.opts.meshPending?.(tile.unit.id) ?? false);
+      tile.el.dataset.meshPending = pending ? '1' : '0';
 
       tile.lock.textContent = state.lock?.short ?? '';
       tile.left.textContent = state.queue === null ? '' : `${state.queue.secs}s`;

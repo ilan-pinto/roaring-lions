@@ -31,7 +31,8 @@ export interface MissionTelemetry {
 }
 
 export interface Telemetry {
-  sessionStart(screen: TelemetryScreen, renderer: 'three' | 'pixi'): void;
+  /** `renderer` is always 'three' now (WP-A3.3); kept for row continuity. */
+  sessionStart(screen: TelemetryScreen, renderer: 'three'): void;
   tutorialStep(step: number, steps: number, id?: string): void;
   missionStarted(mission: string, replay: boolean, view: () => RuntimeView, loadout?: Loadout): MissionTelemetry;
   campaignProgress(mission: string, missionsWon: number): void;

@@ -212,10 +212,42 @@ describe('worldMap', () => {
     expect(g.getAttribute('data-hover')).toBe(null);
   });
 
+  // This used to compare `window.localStorage.length` before and after -- and
+  // this vitest jsdom configuration supplies a bare `{}`, so both sides were
+  // `undefined` and the spec could not fail (CLAUDE.md, "The campaign
+  // board"). It installs a real Map-backed storage now and counts writes.
   it('does not write to localStorage — the map is a view, not a save', () => {
-    const before = window.localStorage.length;
-    render({});
-    expect(window.localStorage.length).toBe(before);
+    const box = new Map<string, string>();
+    let writes = 0;
+    const real = Object.getOwnPropertyDescriptor(window, 'localStorage');
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (k: string) => box.get(k) ?? null,
+        setItem: (k: string, v: string) => {
+          writes++;
+          box.set(k, v);
+        },
+        removeItem: (k: string) => {
+          writes++;
+          box.delete(k);
+        },
+        clear: () => {
+          writes++;
+          box.clear();
+        },
+        get length() {
+          return box.size;
+        },
+      },
+    });
+    try {
+      render({});
+      expect(writes).toBe(0);
+      expect(window.localStorage.length).toBe(0);
+    } finally {
+      if (real) Object.defineProperty(window, 'localStorage', real);
+    }
   });
 });
 

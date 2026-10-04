@@ -35,7 +35,6 @@ export const CREDITS = {
   people: ['Ilan Pinto and the Roaring Lions contributors'],
   libraries: [
     { name: 'three', version: '0.170', licence: 'MIT', url: 'https://threejs.org' },
-    { name: 'pixi.js', version: '8.19', licence: 'MIT', url: 'https://pixijs.com' },
   ],
   fonts: [
     { family: 'Big Shoulders Display', licenceFile: 'OFL-BigShouldersDisplay.txt', holder: 'The Big Shoulders Project Authors' },

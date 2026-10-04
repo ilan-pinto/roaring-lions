@@ -180,6 +180,9 @@ function bodyValid(e: Rec, type: TelemetryEventType): boolean {
     case 'session_start':
       return (
         (TELEMETRY_SCREENS as readonly unknown[]).includes(e.screen) &&
+        // 'pixi' stays accepted after the backend's retirement (WP-A3.3): a
+        // build cached before it can still post one, and old rows carry it.
+        // The app itself sends 'three' only (`app/src/telemetry/events.ts`).
         (e.renderer === 'three' || e.renderer === 'pixi') &&
         Array.isArray(e.viewport) &&
         e.viewport.length === 2 &&

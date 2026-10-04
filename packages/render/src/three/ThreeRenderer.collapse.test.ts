@@ -1,34 +1,22 @@
 /**
- * GH #143: the legacy billboard collapse (`beginCollapse`) is gated on the
- * structure-type sprite maps (`structureIdle`/`structureCollapseArt`), which
- * `loadStructureSprite` populates unconditionally for the same seven building
- * types that also ship a mesh (`main.ts`'s `STRUCTURE_SPRITES` and
- * `MESH_BUILDINGS` overlap on all seven). So a structure whose type has a
- * loaded building mesh (`updateBuildingMeshes` swaps it to a wreck instantly)
- * ALSO span a mis-scaled 2D falling-sprite ghost of the standing billboard on
- * top of it -- `updateStructures` already guards the ordinary idle/wreck
- * billboard swap against this exact case ("Mesh wins", `ThreeRenderer.ts`);
- * `beginCollapse` did not carry the same guard.
+ * Building collapse on the mesh path: the wreck-mesh settle, the collapse
+ * shroud and its swap hold, and the deferred wreck template.
+ *
+ * Until WP-A3.3 this file also pinned GH #143's guard on the legacy
+ * BILLBOARD collapse (`beginCollapse`, a 2D falling sprite that must not fire
+ * on a type with a building mesh). The structure billboards are retired, and
+ * that collapse with them, so its two specs went too.
  *
  * Reaches into private state the same way `ThreeRenderer.test.ts` already
- * does for `shroud`/`smokeMesh` (`fogMesh` until 2026-09-14, when fog became
- * a post pass) -- there is no public seam for either the
- * sprite maps `loadStructureSprite` would populate (that path needs a real
- * `fetch` + `createImageBitmap`) or the mesh map `loadBuildingMesh` would
- * populate (a real GLB fetch), so both are armed directly with the minimal
- * headless-safe objects `beginCollapse` actually reads from them --
- * `StructureInstancer.spriteTexture` and the `{scale, textureWidth,
- * textureHeight}` triple `structureCollapseArt` stores. `buildingMeshIdleTemplates`
- * only needs a KEY to exist for the guard under test; `beginCollapse` never
- * reads through the stored value itself, so an empty stand-in object is
- * honest, not merely convenient.
+ * does: there is no public seam for the mesh map `loadBuildingMesh` would
+ * populate (a real GLB fetch), so it is armed directly with minimal
+ * headless-safe stand-ins.
  */
 import { describe, it, expect, vi } from 'vitest';
 import * as THREE from 'three';
 import { Sim } from '@lions/sim';
 import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
-import { StructureInstancer, structureBillboardGeometry } from './units/structures';
 import { MESH_SCALE } from './units/mesh-anim';
 import { BUILDING_SETTLE_SECONDS, type BuildingMeshTemplate } from './units/mesh-building';
 import { COLLAPSE_SHROUD_SWAP_DELAY_MS } from './units/collapse-shroud';
@@ -90,56 +78,6 @@ function buildSim(): { sim: Sim; structureIdx: number } {
   const structureIdx = sim.addStructure(type, [0]);
   return { sim, structureIdx };
 }
-
-/** The private surface this suite drives directly -- see this file's top
- *  comment for why there is no public seam for either half. */
-interface Private {
-  structureIdle: Map<string, StructureInstancer>;
-  structureCollapseArt: Map<string, { scale: number; textureWidth: number; textureHeight: number }>;
-  buildingMeshIdleTemplates: Map<string, unknown>;
-  collapsing: readonly unknown[];
-  beginCollapse(structure: number): void;
-}
-
-/** Arms `structureIdle`/`structureCollapseArt` for `typeId` -- the state
- *  `loadStructureSprite` would have left behind for a type with shipped
- *  billboard art, built here without the real fetch/image-decode that method
- *  needs (see this file's top comment). */
-function armBillboardArt(renderer: ThreeRenderer, typeId: string): void {
-  const priv = renderer as unknown as Private;
-  const geometry = structureBillboardGeometry(1, 64, 64);
-  const instancer = new StructureInstancer(new THREE.Texture(), geometry, 1);
-  priv.structureIdle.set(typeId, instancer);
-  priv.structureCollapseArt.set(typeId, { scale: 1, textureWidth: 64, textureHeight: 64 });
-}
-
-describe('ThreeRenderer.beginCollapse / building meshes (GH #143)', () => {
-  it('plays the billboard collapse for a structure type with NO mesh loaded -- the inverse case that must keep working', () => {
-    const { sim, structureIdx } = buildSim();
-    const renderer = new ThreeRenderer(sim, makeOpts());
-    armBillboardArt(renderer, 'shanty');
-    const priv = renderer as unknown as Private;
-
-    priv.beginCollapse(structureIdx);
-
-    expect(priv.collapsing.length).toBe(1);
-  });
-
-  it('does NOT play the billboard collapse for a structure type with a mesh loaded -- the double-fire GH #143 reports', () => {
-    const { sim, structureIdx } = buildSim();
-    const renderer = new ThreeRenderer(sim, makeOpts());
-    armBillboardArt(renderer, 'shanty');
-    const priv = renderer as unknown as Private;
-    // The exact state `loadBuildingMesh('shanty', ...)` leaves behind for
-    // this guard's purposes -- `beginCollapse` only ever needs to know the
-    // KEY is present, never anything the stored template itself carries.
-    priv.buildingMeshIdleTemplates.set('shanty', {});
-
-    priv.beginCollapse(structureIdx);
-
-    expect(priv.collapsing.length).toBe(0);
-  });
-});
 
 /** A minimal, headless-safe `BuildingMeshTemplate` -- a plain `THREE.Group`
  *  scaled the same way `buildBuildingMeshTemplate` leaves a real one
@@ -405,60 +343,19 @@ describe('ThreeRenderer collapse shroud: the swap is held until the smoke hides 
  * `beit_sahwan_outskirts` that is 9.62 MiB of a 47.0 MiB level, and the
  * earliest a building can fall is minutes of play away.
  *
- * The deferral is only safe because of two properties this class already
- * had, and neither was pinned. Both are asserted here through the same
- * private surface the suites above use -- there is no public seam for
- * either map without a real GLB fetch.
+ * The deferral rests on `updateBuildingMeshes` revisiting every dead
+ * structure each frame, asserted below through the same private surface the
+ * suites above use. (A second property, the billboard wreck standing in
+ * while the template was in flight, went with the structure billboards in
+ * WP-A3.3: on the mesh path that instancer was never loaded, so a building
+ * felled in the first two frames shows its rubble decals until the wreck
+ * mesh lands -- unchanged by the retirement.)
  */
-interface DeferredWreckPrivate extends BuildingMeshPrivate {
-  structureIdle: Map<string, StructureInstancer>;
-  structureWreck: Map<string, StructureInstancer>;
-  updateStructures(): void;
-}
-
-/** Arms the BILLBOARD wreck instancer for `typeId` and returns a spy on the
- *  one call `updateStructures` makes into it, so a test can read what the
- *  renderer decided to draw rather than inspecting instance matrices. */
-function armWreckInstancer(renderer: ThreeRenderer, typeId: string): ReturnType<typeof vi.fn> {
-  const priv = renderer as unknown as DeferredWreckPrivate;
-  const geometry = structureBillboardGeometry(1, 64, 64);
-  const instancer = new StructureInstancer(new THREE.Texture(), geometry, 1);
-  const update = vi.fn();
-  (instancer as unknown as { update: unknown }).update = update;
-  priv.structureWreck.set(typeId, instancer);
-  return update;
-}
+type DeferredWreckPrivate = BuildingMeshPrivate;
 
 describe('a building wreck mesh that has not arrived yet (level load time, step 3)', () => {
-  it('keeps drawing the procedural wreck while the mesh template is missing, and stops the moment it lands', () => {
-    // THE property the deferral rests on. `updateStructures` forces the
-    // billboard instancer to an EMPTY placement list once the mesh template
-    // exists ("mesh wins") -- so for as long as it does not, the type must
-    // still be fed its real dead placements or a building destroyed in the
-    // first two frames would draw NOTHING at all.
-    const { sim, structureIdx } = buildSim();
-    const renderer = new ThreeRenderer(sim, makeOpts());
-    const priv = renderer as unknown as DeferredWreckPrivate;
-    priv.buildingMeshIdleTemplates.set('shanty', fakeBuildingMeshTemplate());
-    const update = armWreckInstancer(renderer, 'shanty');
-
-    sim.structures.alive[structureIdx] = 0;
-    priv.updateStructures();
-
-    // In flight: the procedural wreck is drawn.
-    expect(update).toHaveBeenCalledTimes(1);
-    expect((update.mock.calls[0][0] as unknown[]).length).toBeGreaterThan(0);
-
-    // Arrived: the same call now gets nothing, because the mesh draws it.
-    priv.buildingMeshWreckTemplates.set('shanty', fakeBuildingMeshTemplate());
-    priv.updateStructures();
-
-    expect(update).toHaveBeenCalledTimes(2);
-    expect(update.mock.calls[1][0]).toEqual([]);
-  });
-
   it('stands the mesh wreck up on a later frame for a structure that died before the template arrived', () => {
-    // The second property: `updateBuildingMeshes` revisits every dead
+    // `updateBuildingMeshes` revisits every dead
     // structure each frame rather than acting once at the moment of death,
     // so a template that lands afterwards is still picked up. Without this
     // the deferral would leave a permanent procedural wreck on anything

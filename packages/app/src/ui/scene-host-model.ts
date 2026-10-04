@@ -9,8 +9,6 @@
  * row of `hostStep`'s table here, with a test, rather than a branch buried in
  * promise callbacks there.
  */
-import type { RendererChoice } from '../renderer-choice';
-
 /** Mount to reveal, past which the plate stays for good and the load is
  *  aborted (spec §3.3 (8), §10): ~3x the 20 Mbit/s reveal, ~9x CI's
  *  rasteriser. */
@@ -35,7 +33,6 @@ export const PARALLAX_SETTLE_EPS = 0.001;
 const MAX_FRAME_MS = 100;
 
 export interface HostInputs {
-  readonly renderer: RendererChoice;
   readonly reducedMotion: boolean;
   readonly saveData: boolean;
   /** `window.innerWidth`, CSS px. */
@@ -49,7 +46,7 @@ export interface HostInputs {
 
 /** Why a host shows the plate: the four decided at mount, and the two the
  *  live path can end in. */
-export type PlateReason = 'pixi' | 'reduced-motion' | 'save-data' | 'no-webgl2' | 'load-failed' | 'deadline';
+export type PlateReason = 'reduced-motion' | 'save-data' | 'no-webgl2' | 'load-failed' | 'deadline';
 
 export type HostPath =
   | { readonly path: 'live' }
@@ -58,16 +55,16 @@ export type HostPath =
 
 /**
  * Spec §3.4, in its order. Narrow comes first because on a phone there is no
- * picture to choose between. The WebGL2 probe comes LAST, so a Pixi,
- * reduced-motion or save-data player never creates even a throwaway context --
- * the campaign board's rule.
+ * picture to choose between. The WebGL2 probe comes LAST, so a reduced-motion
+ * or save-data player never creates even a throwaway context -- the campaign
+ * board's rule. (A `pixi` reason sat second until the Pixi backend was
+ * retired, WP-A3.3: there is one renderer now, and no player choice of it.)
  */
 export function hostPath(i: HostInputs): HostPath {
   // `!(w > 0)` rather than `w <= 0`: a NaN width is narrow too, never live.
   if (!(i.viewportWidth > 0) || i.columnWidth / i.viewportWidth > NARROW_COLUMN_SHARE) {
     return { path: 'off', reason: 'narrow' };
   }
-  if (i.renderer === 'pixi') return { path: 'plate', reason: 'pixi' };
   if (i.reducedMotion) return { path: 'plate', reason: 'reduced-motion' };
   if (i.saveData) return { path: 'plate', reason: 'save-data' };
   if (!i.webgl2()) return { path: 'plate', reason: 'no-webgl2' };

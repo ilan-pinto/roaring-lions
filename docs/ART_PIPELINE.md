@@ -52,7 +52,7 @@ What changed and why, because the rule this replaces was load-bearing for a year
 
 What did NOT change:
 
-- **The sprite gate is untouched.** `tools/validate_assets.py` still quantises and checks every sheet in `assets/sprites/` against this file, reserved bands included, and `pnpm validate:meshes` still palette-checks every kit-built GLB. A contributor's `.blend` meets exactly the same bar it did.
+- **The art gate still holds authored colour to this file.** `pnpm validate:meshes` palette-checks every kit-built GLB's render, reserved bands included. (Until WP-A3.3 the sprite gate, `tools/validate_assets.py`, did the same for every sheet in `assets/sprites/`; the sheets are retired, and its checks survive as the library the mesh gate imports.)
 - **`pnpm validate:ui` is untouched.** No colour literal in UI source, no allowlist.
 - The named exemptions (`TEXTURED_BUILDING_TYPES`, `TEXTURED_DECOR_FAMILIES`, the campaign board, and terrain's albedo half) are all still named, and still say what they cover.
 
@@ -85,12 +85,11 @@ Team-color regions are authored as pure magenta `#FF00FF` in the source material
 
 Headless Blender. Builds camera, sun, fill, and world **in code**, so the rig cannot drift between contributions.
 
-```bash
-blender -b -P tools/render_rig.py -- \
-    --input art/src/mbt_lavi.blend \
-    --out   assets/sprites/mbt_lavi \
-    --facings 16 --size 512
-```
+The rig is what `render_mesh_gate.py` (the mesh gate), `render_unit_portraits.py`
+(the HUD portraits) and `render_clip_pose.py` render through. It also produced
+the 16-facing sprite sheets under `assets/sprites/` until those were retired in
+WP-A3.3; the sprite renderers built on it now refuse to write there
+(`tools/sprites_retired.py`).
 
 Invariants worth stating explicitly because breaking them is subtle:
 
@@ -102,9 +101,11 @@ Invariants worth stating explicitly because breaking them is subtle:
 
 ---
 
-## 4. CI gate — `tools/validate_assets.py`
+## 4. CI gate — `pnpm validate:meshes` (checks from `tools/validate_assets.py`)
 
-Runs on every PR touching `assets/sprites/`. All four checks fail the build.
+Every GLB under `art/meshes/` is rendered headlessly through the rig and held to
+these four checks; any failure fails the build. (They ran on the sprite sheets
+as `pnpm validate:assets` until WP-A3.3 retired the sheets and that gate.)
 
 | Check | Rule | Why |
 |---|---|---|
@@ -274,7 +275,8 @@ Sound follows the same logic as sprites: mechanical gates, not taste. Emitters a
 art/src/            *.blend sources (required, never optional)
 assets/audio/       battle SFX, declared in data/audio.json
 data/audio.json     audio manifest + per-clip licensing
-assets/sprites/     rendered output + manifest.json, CI-generated
+art/meshes/         unit, vehicle, building, decor and prop GLBs (the source of record)
+assets/meshes/      the Draco-compressed copies that ship (`pnpm encode:meshes`)
 data/palette.json   locked 36-colour palette
 data/vfx/           emitter definitions
 data/schemas/       JSON Schema for all data-driven content

@@ -1,9 +1,10 @@
-// The browser-driving half of the golden-image harness, shared by both gates:
-// `ci/three-baseline-gate.ts` (the pass/fail gate) and `ci/golden-diff-gate.ts`
-// (the cross-backend diagnostic). Extracted when the second gate arrived --
-// every function here was already written once inside the first one, and a
-// capture protocol that drifts between two callers is a way to compare two
-// pictures that were never taken the same way.
+// The browser-driving half of the golden-image harness: `ci/three-baseline-
+// gate.ts` (the pass/fail gate) and the perf capture harnesses that reuse its
+// dev-server and capture helpers. It was extracted when a second gate, the
+// cross-backend diagnostic `ci/golden-diff-gate.ts`, arrived; that one went
+// with the Pixi backend (WP-A3.3). A capture protocol that drifts between two
+// callers is a way to compare two pictures that were never taken the same
+// way, which is why the helpers stay shared.
 //
 // Nothing here decides anything. It boots a dev server if one is not already
 // answering, drives a page through this app's own boot sequence, and hands back

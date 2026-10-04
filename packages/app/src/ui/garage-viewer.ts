@@ -8,9 +8,6 @@
 // warned by name, as the campaign board does -- whenever the model cannot be
 // drawn:
 //
-//   * `?renderer=pixi`. Not a failure, and not warned: the player chose the
-//     escape hatch, and the campaign board's rule is that it never downloads
-//     three behind their back for a menu.
 //   * The unit has no mesh.
 //   * No WebGL2, probed BEFORE the dynamic import (`webgl-probe.ts`), so a
 //     browser that cannot draw it never fetches three.
@@ -42,7 +39,6 @@
 // host's soft-leave rule, and `pnpm ui:routes` checks it.
 import { t } from '../i18n/t';
 import type { MeshFactionName } from '../mesh-catalogue';
-import type { RendererChoice } from '../renderer-choice';
 import { DRAG_DEG_PER_PX, KEY_STEP_DEG, PAGE_STEP_DEG, TurnController } from './garage-turn';
 import { webgl2Available } from './webgl-probe';
 
@@ -101,7 +97,6 @@ async function loadDoor(): Promise<MountGarageView> {
 export interface GarageModelDeps {
   /** The unit's GLB, or `null` for a unit with none. */
   readonly source: (typeId: string) => ModelSource | null;
-  readonly renderer: RendererChoice;
   readonly dracoDecoderPath: string;
   readonly groundTextureUrl: string;
   readonly colors: GarageColors;
@@ -117,8 +112,9 @@ export interface GarageModelDeps {
   readonly clearTimer?: (id: number) => void;
 }
 
-/** Why a bay kept its plate. `pixi` is a choice, every other one a fault. */
-export type PlateReason = 'pixi' | 'no-mesh' | 'no-webgl2' | 'load-failed' | 'context-lost';
+/** Why a bay kept its plate -- every one a fault. (A `pixi` reason, the one
+ *  that was a choice, went with the Pixi backend, WP-A3.3.) */
+export type PlateReason = 'no-mesh' | 'no-webgl2' | 'load-failed' | 'context-lost';
 
 export interface GarageModelHandle {
   /** The focusable control the canvas lives in. */
@@ -202,21 +198,16 @@ export function garageModel(
   let wakeEarly: (() => void) | null = null;
 
   const keepPlate = (reason: PlateReason, err?: unknown): { shown: 'plate'; reason: PlateReason } => {
-    if (reason === 'pixi') {
-      // A choice, not a fault: said once, at `info`, never as a warning.
-      console.info(`garage model: ?renderer=pixi -- showing ${unit.id}'s plate, not its three.js model`);
-    } else {
-      const why =
-        reason === 'no-mesh'
-          ? `${unit.id} has no mesh`
-          : reason === 'no-webgl2'
-            ? 'this browser has no WebGL2'
-            : reason === 'context-lost'
-              ? `the WebGL context drawing ${unit.id} was lost`
-              : `could not draw ${unit.id}'s model`;
-      if (err !== undefined) console.warn(`garage model: ${why} -- showing its plate`, err);
-      else console.warn(`garage model: ${why} -- showing its plate`);
-    }
+    const why =
+      reason === 'no-mesh'
+        ? `${unit.id} has no mesh`
+        : reason === 'no-webgl2'
+          ? 'this browser has no WebGL2'
+          : reason === 'context-lost'
+            ? `the WebGL context drawing ${unit.id} was lost`
+            : `could not draw ${unit.id}'s model`;
+    if (err !== undefined) console.warn(`garage model: ${why} -- showing its plate`, err);
+    else console.warn(`garage model: ${why} -- showing its plate`);
     teardown();
     state = 'plate';
     plateReason = reason;
@@ -376,7 +367,6 @@ export function garageModel(
   }
 
   const ready = (async (): Promise<{ shown: 'model' | 'plate'; reason?: PlateReason }> => {
-    if (deps.renderer === 'pixi') return keepPlate('pixi');
     const source = deps.source(unit.id);
     if (source === null) return keepPlate('no-mesh');
     if (!(deps.webgl ?? webgl2Once)()) return keepPlate('no-webgl2');

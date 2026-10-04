@@ -6,7 +6,12 @@
  * and thirteen properties (two optional), counted when `reseed` was added --
  * and that smallness is the whole reason replacing the backend is tractable.
  *
- * Types only. No implementation, no imports from Pixi or three.
+ * Types only. No implementation, no import from three.
+ *
+ * It was extracted for a second backend, Pixi, which shipped beside three
+ * until WP-A3.3 (2026-10-04). Pixi is deleted; the seam stays, because it is
+ * still what keeps `app` off backend-only members (the compiler, not a grep).
+ * Every "Pixi ignores it" / "`renderer.ts`" note below is history.
  */
 import type { MissionEvent, SimEvent } from '@lions/sim';
 import type { Camera } from './project';
@@ -353,12 +358,10 @@ export interface Renderer {
    * that distinguishes them, and invariant 4 permits exactly this shape:
    * events out, never the renderer inferring a sim conclusion from geometry.
    *
-   * OPTIONAL, unlike `onEvents`, and that is deliberate rather than lazy. A
-   * backend is free to have nothing that mission events could change -- Pixi
-   * draws no civilians at all (no mesh path, and `civilians` is absent from
-   * `SPRITE_MAP`), so an implementation there would be dead code in a file
-   * that is under a freeze. `main.ts` calls it as `?.()`, so the compiler,
-   * not a grep, keeps the app honest about that.
+   * OPTIONAL, unlike `onEvents`: it was made optional for the Pixi backend,
+   * which drew no civilians and was under a freeze. Pixi is retired (WP-A3.3)
+   * and `ThreeRenderer` implements it; making it required is a free tidy-up
+   * nobody has needed yet. `main.ts` calls it as `?.()`.
    */
   onMissionEvents?(events: readonly MissionEvent[]): void;
 
@@ -372,15 +375,11 @@ export interface Renderer {
    * three missions strands three WebGL contexts, and a browser hands out a
    * bounded number of them.
    *
-   * OPTIONAL for the same reason `onMissionEvents` is, and the precedent is
-   * deliberate: `ThreeRenderer` implements it, and PixiRenderer's file is
-   * under a freeze (CLAUDE.md, "renderer.ts must stay byte-identical to
-   * main"), so declaring it as required would either break the build or force
-   * an edit this task has no mandate for. `main.ts` calls it as `?.()`, so the
-   * compiler rather than a grep keeps the app honest -- and a Pixi battlefield
-   * therefore still leaks its context on a soft leave. Recorded rather than
-   * hidden; closing it means unfreezing that file, which is someone's
-   * deliberate call to make.
+   * OPTIONAL for the same historical reason as `onMissionEvents`: the frozen
+   * Pixi backend implemented nothing, and leaked its context on a soft leave
+   * (G0 #4, D-25). That backend is deleted (WP-A3.3), so the leak is closed by
+   * deletion; `ThreeRenderer` implements this and `main.ts` calls it as
+   * `?.()`.
    */
   dispose?(): void;
 
@@ -459,10 +458,10 @@ export interface Renderer {
   setDecor(decor: Uint8Array): void;
   useEmitters(list: EmitterSpec[], resolve: (key: string) => string): void;
 
-  // --- art. Paths and ids only: what a sheet becomes -- textures, materials,
-  //     meshes -- is the backend's business, and the app never sees it.
-  loadSprites(unitTypeId: string, basePath: string, opts?: { turretPath?: string }): Promise<void>;
-  loadStructureSprite(structureId: string, basePath: string): Promise<void>;
+  // --- art. The sprite loaders (`loadSprites`, `loadStructureSprite`) were
+  //     here until WP-A3.3 retired the billboard path; every unit and
+  //     structure draws a mesh, loaded through the backend's own mesh
+  //     loaders, which `main.ts` reaches through the concrete class.
 
   // --- presentation state the app drives
   readonly camera: Camera;

@@ -30,12 +30,11 @@
  * them meaning; this module only names them.
  *
  * **What is deliberately NOT behind this door (R-9).** `lions.settings`
- * (`settings.ts`) and `lions.renderer` (`renderer-choice.ts`, `ui/menu.ts`),
- * plus the hint line's `lions.seen` (`ui/hint-model.ts`). Those are facts about
- * the PERSON and the DEVICE, not about the campaign: ST6 moves a save to a
- * server, it does not move somebody's `--ui-scale`, and a renderer choice that
- * needed a network round trip before the menu could draw would be a
- * regression. `main.ts` keeps its own `safeStorage()` for exactly those two.
+ * (`settings.ts`) and the hint line's `lions.seen` (`ui/hint-model.ts`), plus
+ * `retired-keys.ts`'s one-time removal of the retired `lions.renderer` (the
+ * Pixi choice, WP-A3.3). Those are facts about the PERSON and the DEVICE, not
+ * about the campaign: ST6 moves a save to a server, it does not move
+ * somebody's `--ui-scale`. `main.ts` keeps its own `safeStorage()` for them.
  * Do not "finish the job" by moving them here.
  *
  * **Why the interface is eleven methods and not nine.** `clearLedger` and

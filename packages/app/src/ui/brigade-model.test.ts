@@ -61,7 +61,6 @@ function setup() {
     reducedMotion: () => true,
     model: {
       source: (id) => (id === 'mbt_lavi' ? { kind: 'vehicle', url: '/m/lavi.glb' } : { kind: 'rigged', url: '/m/inf.glb', faction: 'kdf' }),
-      renderer: 'three',
       dracoDecoderPath: '/draco/',
       groundTextureUrl: '/t/sand.jpg',
       colors: { key: 'k', fill: 'f', sky: 's', bounce: 'b', ground: 'g' },

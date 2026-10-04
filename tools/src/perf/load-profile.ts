@@ -4,6 +4,7 @@
 //   pnpm perf:load -- --sandbox=tel_marum --mbps=20            # throttled to a 20 Mbit/s downlink
 //   pnpm perf:load -- --mission=tel_marum_2_foothold --serve=preview   # the production build in dist/
 //   pnpm perf:load -- --mission=... --warm                     # HTTP cache AND service worker ON (a second visit)
+//   pnpm perf:load -- --mission=... --tail=5000                # keep counting 5 s past first-frame (late loads)
 //
 // Loads one mission or sandbox in headless Chromium with the HTTP cache
 // DISABLED (a first visit, or a visit after GitHub Pages' 10-minute max-age
@@ -21,7 +22,7 @@
 //   first-frame      `window.__lions` exists after the click: the sim and
 //                    renderer are up and the first frame has been asked for.
 //
-// Bytes are grouped by what they are (mesh / sprite / code / data / audio /
+// Bytes are grouped by what they are (mesh / sprite sheet / image / code / data / audio /
 // video / texture / font / other) so the answer to "what should we make
 // smaller or lazier first" is a table, not an impression. Sizes are
 // `Network.loadingFinished.encodedDataLength` -- what crossed the wire, which
@@ -52,6 +53,9 @@ type Args = {
   warm: boolean;
   runs: number;
   timeoutMs: number;
+  /** Keep counting this long after first-frame, so the after-first-frame
+   *  loads (wreck sheets, deferred buildables) are on the bill too. */
+  tailMs: number;
 };
 
 function parseArgs(argv: string[]): Args {
@@ -74,10 +78,11 @@ function parseArgs(argv: string[]): Args {
     warm: has('warm'),
     runs: Number(get('runs') ?? 1),
     timeoutMs: Number(get('timeout') ?? 180_000),
+    tailMs: Number(get('tail') ?? 0),
   };
 }
 
-type Category = 'mesh' | 'sprite' | 'code' | 'data' | 'audio' | 'video' | 'texture' | 'font' | 'other';
+type Category = 'mesh' | 'sprite' | 'image' | 'code' | 'data' | 'audio' | 'video' | 'texture' | 'font' | 'other';
 
 function categorise(url: string, mimeType: string): Category {
   const p = url.split('?')[0];
@@ -89,7 +94,9 @@ function categorise(url: string, mimeType: string): Category {
   if (/\/fonts\//.test(p) || /\.woff2?$/i.test(p)) return 'font';
   if (/\.(js|mjs|ts|css|html)$/i.test(p) || /@vite|@fs.*\.ts|node_modules/.test(p) || /javascript|css|html/.test(mimeType)) return 'code';
   if (/\.json$/i.test(p) || /json/.test(mimeType)) return 'data';
-  if (/\.(png|jpe?g|webp)$/i.test(p)) return 'sprite';
+  // `sprite` is a sheet under /sprites/ and nothing else; every other picture
+  // (portraits, plates, UI art) is `image`, so the sheet count reads alone.
+  if (/\.(png|jpe?g|webp)$/i.test(p)) return 'image';
   return 'other';
 }
 
@@ -163,7 +170,11 @@ async function drive(page: Page, url: string, timeoutMs: number): Promise<Milest
       return {
         now: performance.now(),
         loading: wrap !== null,
-        sheetsDone: match !== null && match[1] === match[2] && Number(match[2]) > 0,
+        // A boot with no sheet to load reads 'meshes only' (`ui/loading.ts`,
+        // since 2026-09-07) -- a full bar. Until this matched it too, every
+        // mesh-only mission stalled here forever with the deploy button
+        // working, and the tool timed out on main (found 2026-10-04, A3.3).
+        sheetsDone: (match !== null && match[1] === match[2] && Number(match[2]) > 0) || count.trim() === 'meshes only',
         deploy: deploy !== null,
         lions: typeof (window as unknown as { __lions?: unknown }).__lions !== 'undefined',
         bootError,
@@ -228,7 +239,8 @@ async function main(): Promise<void> {
   console.log(
     `[${TAG}] ${url}  serve=${args.serve}  ` +
       `cache=${args.warm ? 'ON, service worker ON (warm -- a returning player)' : 'OFF, service worker BYPASSED (cold -- a first visit)'}  ` +
-      `${args.mbps ? `downlink ${args.mbps} Mbit/s, 20 ms latency` : 'unthrottled'}  runs=${args.runs}`
+      `${args.mbps ? `downlink ${args.mbps} Mbit/s, 20 ms latency` : 'unthrottled'}  runs=${args.runs}` +
+      (args.tailMs > 0 ? `  tail=${args.tailMs} ms after first-frame` : '')
   );
   // **The real GPU, and printing which one.** This harness measures SPEED, and
   // a player never runs on a software rasteriser -- so it takes the same
@@ -269,6 +281,7 @@ async function main(): Promise<void> {
       const cdp = await context.newCDPSession(page);
       const requests = await attachNetwork(cdp, args.warm, args.mbps);
       const m = await drive(page, url, args.timeoutMs);
+      if (args.tailMs > 0 && m.firstFrame !== null) await page.waitForTimeout(args.tailMs);
       const reqs = requests();
       await context.close();
 

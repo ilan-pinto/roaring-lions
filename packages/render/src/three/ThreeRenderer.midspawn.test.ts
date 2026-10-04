@@ -20,9 +20,11 @@
  * each of (b)'s bounds has an observer of its own: a tank through a real
  * mesh-vehicle template built from the rigid fixture (the shape
  * `ThreeRenderer.vehicle-weight.test.ts` uses), a rifle squad through a
- * real skinned mesh-unit template, and a second rifle type through a real
- * `UnitInstancer` over the shipped INF_SQUAD sheet (the billboard path,
- * the shape `ThreeRenderer.fire-latch.test.ts` uses). The real dust and
+ * real skinned mesh-unit template, and a second rifle type whose GLB FAILED,
+ * so it draws through the proxy boxes (`units/proxy-box.ts`). That third
+ * observer was a real billboard `UnitInstancer` until the billboard path was
+ * retired (WP-A3.3); the proxy batch is the draw path that replaced it for
+ * a type with no template, and it is bounded the same way. The real dust and
  * exhaust emitters are wired through the public `useEmitters` seam.
  * Watched going red (recorded in the commit bodies of 4d6d2ede and the
  * round-2 fix): with (a) removed, (ii) and the pause test; with (b)
@@ -41,12 +43,8 @@ import { buildVehicleMeshTemplate, type VehicleMeshEntity, type VehicleMeshTempl
 import { buildMeshUnitTemplate, type MeshUnitEntity, type MeshUnitTemplate } from './units/mesh-unit';
 import { parseRigidFixture } from './units/rigid-mesh-fixture';
 import { parseFixture } from './units/mesh-fixture';
-import { packSheet } from './units/atlas';
-import { UnitInstancer } from './units/instances';
-import type { EntityFrame } from './units/frame-state';
+import type { ProxyBoxBatch } from './units/proxy-box';
 import type { OverlayBatch } from './units/overlays';
-import { parseManifest } from '../sheet';
-import infSquadManifest from '../../../../assets/sprites/INF_SQUAD/manifest.json';
 import type { EmitterSpec } from '../vfx/emitters';
 import vehicleDust from '../../../../data/vfx/vehicle_dust.json';
 import vehicleExhaust from '../../../../data/vfx/vehicle_exhaust.json';
@@ -105,8 +103,8 @@ interface Priv {
   vehicleMeshTemplates: Map<string, VehicleMeshTemplate>;
   meshUnitTemplates: Map<string, readonly MeshUnitTemplate[]>;
   meshUnitEntities: Map<number, MeshUnitEntity>;
-  unitInstancers: Map<string, UnitInstancer>;
-  framesByType: Map<string, EntityFrame[]>;
+  meshFailures: Map<string, string>;
+  proxyBoxes: ProxyBoxBatch | null;
   overlayBatch: OverlayBatch;
   vehicleMeshBounds: Map<string, THREE.Vector3>;
   vehicleMeshEntities: Map<number, VehicleMeshEntity>;
@@ -129,7 +127,7 @@ const RESIDENT_AT: [number, number] = [20.5, 3.5];
 const SPAWN_AT: [number, number] = [15.5, 17.5];
 /** The infantry newcomers, also far from the origin and from each other. */
 const INFANTRY_AT: [number, number] = [12.5, 20.5];
-const BILLBOARD_AT: [number, number] = [18.5, 14.5];
+const PROXY_AT: [number, number] = [18.5, 14.5];
 
 /** A rifle squad drawn through the skinned mesh-unit path. */
 const MESH_INF: UnitTypeJson = {
@@ -139,9 +137,9 @@ const MESH_INF: UnitTypeJson = {
   mobility: { speed_tiles_s: 1.2 },
   sensors: { optics: 1, sight_tiles: 12, signature: 0.6 },
 };
-/** The same squad under another id, which gets a billboard sheet and never a
- *  mesh -- `updateUnits` skips any type with a mesh template. */
-const SPRITE_INF: UnitTypeJson = { ...MESH_INF, id: 'midspawn_sprite_inf' };
+/** The same squad under another id, whose GLB failed -- it draws a proxy
+ *  box (`updateProxyBoxes`), which skips any type with a mesh template. */
+const PROXY_INF: UnitTypeJson = { ...MESH_INF, id: 'midspawn_proxy_inf' };
 
 interface World {
   sim: Sim;
@@ -149,9 +147,9 @@ interface World {
   priv: Priv;
   /** The tank `runtime.step` spawned after this tick's snapshot. */
   newcomer: number;
-  /** Spawned in the same step: a mesh-drawn squad and a billboard squad. */
+  /** Spawned in the same step: a mesh-drawn squad and a proxy-box squad. */
   infantry: number;
-  billboard: number;
+  proxy: number;
   /** Every particle spawn since the newcomer arrived: where, and whether it
    *  was a dust layer. */
   particles: { x: number; y: number; dust: boolean }[];
@@ -166,7 +164,7 @@ async function midMissionSpawn(): Promise<World> {
   const sim = new Sim({ seed: 1, width: 24, height: 24, capacity: 8 });
   const tank = sim.addUnitType(unitJson('mbt_lavi'));
   const meshInf = sim.addUnitType(MESH_INF);
-  const spriteInf = sim.addUnitType(SPRITE_INF);
+  const proxyInf = sim.addUnitType(PROXY_INF);
   const resident = sim.spawn(tank, 0, fx.from(RESIDENT_AT[0]), fx.from(RESIDENT_AT[1]));
   // A4 (GH-186): an HP bar draws only for a damaged, selected or hovered unit,
   // and this test's anti-vacuity asserts the resident's bar WAS drawn. One raw
@@ -184,10 +182,8 @@ async function midMissionSpawn(): Promise<World> {
   priv.vehicleMeshBounds.set('mbt_lavi', new THREE.Vector3(2, 0.8, 1.2));
   const skinned = await parseFixture({ roleName: 'uniform', clipName: ['idle'] });
   priv.meshUnitTemplates.set(MESH_INF.id, [buildMeshUnitTemplate(skinned, 'kdf')]);
-  // A real instancer over the shipped sheet; only the texture is a stand-in.
-  const sheet = parseManifest(infSquadManifest);
-  const texture = new THREE.DataArrayTexture(new Uint8Array(4), 1, 1, 1);
-  priv.unitInstancers.set(SPRITE_INF.id, new UnitInstancer(sheet, texture, packSheet(sheet), sim.capacity));
+  // The state a 404 on its GLB leaves (`noteMeshFailure`), without the fetch.
+  priv.meshFailures.set(PROXY_INF.id, '/meshes/midspawn_proxy_inf.glb');
 
   // `init()`'s seeding, then a first frame.
   renderer.reseed();
@@ -198,11 +194,11 @@ async function midMissionSpawn(): Promise<World> {
   renderer.snapshot();
   const newcomer = sim.spawn(tank, 0, fx.from(SPAWN_AT[0]), fx.from(SPAWN_AT[1]));
   const infantry = sim.spawn(meshInf, 0, fx.from(INFANTRY_AT[0]), fx.from(INFANTRY_AT[1]));
-  const billboard = sim.spawn(spriteInf, 0, fx.from(BILLBOARD_AT[0]), fx.from(BILLBOARD_AT[1]));
+  const proxy = sim.spawn(proxyInf, 0, fx.from(PROXY_AT[0]), fx.from(PROXY_AT[1]));
   // Damaged for the same reason as the resident: the control asserts each
   // newcomer's overlay draws where it stands, and the same damage is what
   // would draw a bar at the origin if `updateOverlays`' bound were removed.
-  for (const id of [newcomer, infantry, billboard]) sim.state.hp[id] -= 1;
+  for (const id of [newcomer, infantry, proxy]) sim.state.hp[id] -= 1;
 
   const particles: World['particles'] = [];
   const system = priv.particleSystem;
@@ -213,7 +209,7 @@ async function midMissionSpawn(): Promise<World> {
     particles.push({ x: Number(args[1]), y: Number(args[2]), dust: dustLayers.has(args[0]) });
     inner(...args);
   };
-  return { sim, renderer, priv, newcomer, infantry, billboard, particles };
+  return { sim, renderer, priv, newcomer, infantry, proxy, particles };
 }
 
 /** The three 60 fps frames the app draws across one tick, alpha walking it,
@@ -253,9 +249,9 @@ const nearOrigin = (p: [number, number] | null): boolean => p !== null && Math.h
 describe('a unit spawned after this tick snapshot', () => {
   it('premise: the newcomers are inside the live entity count before the renderer has a copy of them', async () => {
     const w = await midMissionSpawn();
-    expect([w.newcomer, w.infantry, w.billboard]).toEqual([1, 2, 3]);
+    expect([w.newcomer, w.infantry, w.proxy]).toEqual([1, 2, 3]);
     expect(w.sim.entityCount).toBe(4);
-    for (const id of [w.newcomer, w.infantry, w.billboard]) {
+    for (const id of [w.newcomer, w.infantry, w.proxy]) {
       expect([w.priv.curX[id], w.priv.curY[id]]).toEqual([0, 0]);
     }
   });
@@ -279,16 +275,16 @@ describe('a unit spawned after this tick snapshot', () => {
     expect(drawn).toEqual([false, false, false]);
   });
 
-  it('(i) the billboard infantry gets no instance frame before the next snapshot (updateUnits)', async () => {
+  it('(i) the proxy-box infantry gets no box before the next snapshot (updateProxyBoxes)', async () => {
     const w = await midMissionSpawn();
-    const perFrame: number[][][] = [];
+    const perFrame: number[] = [];
     for (const alpha of [1 / 3, 2 / 3, 1]) {
       w.renderer.frame(alpha, FRAME_MS);
-      perFrame.push((w.priv.framesByType.get(SPRITE_INF.id) ?? []).map((f) => [f.wx, f.wy]));
+      perFrame.push(w.priv.proxyBoxes?.count ?? 0);
     }
-    // The billboard newcomer is the only unit of its type, so any frame at
-    // all for this type is a frame for it -- and it would sit at (0, 0).
-    expect(perFrame, `billboard frames: ${JSON.stringify(perFrame)}`).toEqual([[], [], []]);
+    // The proxy newcomer is the only unit of a failed type, so any box at
+    // all is a box for it -- and it would sit at (0, 0).
+    expect(perFrame).toEqual([0, 0, 0]);
   });
 
   it('(i) no overlay (HP bar, ring, badge) is anchored at world (0, 0) before the next snapshot (updateOverlays)', async () => {
@@ -307,7 +303,7 @@ describe('a unit spawned after this tick snapshot', () => {
     w.renderer.camera.x = 0;
     w.renderer.camera.y = 0;
     const boxed = w.renderer.unitsInScreenRect(0, 0, w.renderer.width, w.renderer.height);
-    expect(boxed.filter((id) => id === w.newcomer || id === w.infantry || id === w.billboard)).toEqual([]);
+    expect(boxed.filter((id) => id === w.newcomer || id === w.infantry || id === w.proxy)).toEqual([]);
   });
 
   it('(i) cannot be picked at world (0, 0), and a selected newcomer draws no range envelope', async () => {
@@ -335,15 +331,17 @@ describe('a unit spawned after this tick snapshot', () => {
     expect(tank && near([tank.x, tank.z], SPAWN_AT)).toBe(true);
     const squad = w.priv.meshUnitEntities.get(w.infantry)?.root.position;
     expect(squad && near([squad.x, squad.z], INFANTRY_AT)).toBe(true);
-    const billboards = (w.priv.framesByType.get(SPRITE_INF.id) ?? []).map((f) => [f.wx, f.wy]);
-    expect(billboards).toHaveLength(1);
-    expect(near(billboards[0], BILLBOARD_AT)).toBe(true);
-    for (const at of [SPAWN_AT, INFANTRY_AT, BILLBOARD_AT]) {
+    expect(w.priv.proxyBoxes?.count).toBe(1);
+    const m = new THREE.Matrix4();
+    w.priv.proxyBoxes?.mesh.getMatrixAt(0, m);
+    const box = new THREE.Vector3().setFromMatrixPosition(m);
+    expect(near([box.x, box.z], PROXY_AT)).toBe(true);
+    for (const at of [SPAWN_AT, INFANTRY_AT, PROXY_AT]) {
       expect(anchors.some((a) => Math.hypot(a[0] - at[0], a[1] - at[1]) < 2), `no overlay at ${at}`).toBe(true);
     }
-    w.renderer.camera.x = BILLBOARD_AT[0];
-    w.renderer.camera.y = BILLBOARD_AT[1];
-    expect(w.renderer.unitsInScreenRect(0, 0, w.renderer.width, w.renderer.height)).toContain(w.billboard);
+    w.renderer.camera.x = PROXY_AT[0];
+    w.renderer.camera.y = PROXY_AT[1];
+    expect(w.renderer.unitsInScreenRect(0, 0, w.renderer.width, w.renderer.height)).toContain(w.proxy);
     expect(w.renderer.pickUnit(SPAWN_AT[0], SPAWN_AT[1])).toBe(w.newcomer);
   });
 

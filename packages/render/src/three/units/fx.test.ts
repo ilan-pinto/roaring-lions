@@ -17,9 +17,7 @@ import type { ParticleSpec } from '../../vfx';
 import { isoX, isoY, WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import { hexToLinear, screenOffsetToWorld, WORLD_PER_LEVEL } from '../terrain/shared';
 import { groundWorldY } from '../ground-height';
-import type { SheetSpec } from '../../sheet';
-import { packSheet } from './atlas';
-import { UnitInstancer, HULL_RENDER_ORDER, TURRET_RENDER_ORDER } from './instances';
+import { HULL_RENDER_ORDER, TURRET_RENDER_ORDER } from './render-order';
 import { spawnTracer, type TracerModel } from './tracers';
 import {
   spawnShell,
@@ -56,19 +54,6 @@ import {
   type ParticleInstanceBuffers,
   type TracerInstanceBuffers,
 } from './fx';
-
-/** A tiny, easy-to-hand-check sheet, matching `instances.test.ts`'s own --
- *  used ONLY for the cross-module renderOrder invariant tests below, which
- *  need a real `UnitInstancer` (hull and turret both) to assert against, not
- *  for anything about units themselves. */
-const tinySheet: SheetSpec = {
-  facings: 4,
-  facingOffset: 0,
-  facingReverse: false,
-  scale: 1,
-  layout: 'clip',
-  clips: { idle: { frames: 1, fps: 0, loop: true, fileOffset: 0 } },
-};
 
 function makeSpec(overrides: Partial<ParticleSpec> = {}): ParticleSpec {
   return {
@@ -527,8 +512,10 @@ describe('ParticleInstancer construction', () => {
     // silently, with no test anywhere catching it. Pinning UnitInstancer's
     // own side of the comparison here, alongside the FX side, rather than
     // trusting the two files to agree by construction.
-    const sheet = tinySheet;
-    const units = new UnitInstancer(sheet, new THREE.DataArrayTexture(), packSheet(sheet), 4);
+    // The unit side of the comparison is the band constant itself since the
+    // billboard `UnitInstancer` was retired (WP-A3.3): mesh hulls draw at
+    // `HULL_RENDER_ORDER`, three.js's own default.
+    const units = { mesh: { renderOrder: HULL_RENDER_ORDER } };
     const below = new ParticleInstancer(4, 0, true);
     const above = new ParticleInstancer(4, 1, false);
     const tracers = new TracerBatch(4);
@@ -555,10 +542,8 @@ describe('ParticleInstancer construction', () => {
     // pass (`../fog-pass.ts`) running after the whole scene is drawn, so it
     // has no renderOrder to lose and no object to be ordered against. The
     // chain below is the four bands that remain.
-    const sheet = tinySheet;
-    const packing = packSheet(sheet);
-    const hull = new UnitInstancer(sheet, new THREE.DataArrayTexture(), packing, 4);
-    const turret = new UnitInstancer(sheet, new THREE.DataArrayTexture(), packing, 4, TURRET_RENDER_ORDER);
+    const hull = { mesh: { renderOrder: HULL_RENDER_ORDER } };
+    const turret = { mesh: { renderOrder: TURRET_RENDER_ORDER } };
     const below = new ParticleInstancer(4, 0, true);
     const above = new ParticleInstancer(4, 1, false);
     const tracers = new TracerBatch(4);

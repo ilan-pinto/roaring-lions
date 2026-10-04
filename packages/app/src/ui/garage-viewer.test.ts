@@ -87,7 +87,6 @@ function plate(): HTMLElement {
 function deps(over: Partial<GarageModelDeps> = {}): GarageModelDeps {
   return {
     source: (id) => (id === 'inf_squad' ? { kind: 'rigged', url: '/meshes/inf_squad.glb', faction: 'kdf' } : null),
-    renderer: 'three',
     dracoDecoderPath: '/draco/',
     groundTextureUrl: '/textures/desert_sand_tile.jpg',
     colors: { key: 'k', fill: 'f', sky: 's', bounce: 'b', ground: 'g' },
@@ -118,22 +117,6 @@ afterEach(() => {
 });
 
 describe('garageModel: the plate fallback paths', () => {
-  it('keeps the plate on ?renderer=pixi -- one info line saying why, no warning -- and never mounts', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
-    const mount = vi.fn<MountGarageView>();
-    const p = plate();
-    const h = garageModel(p, UNIT, deps({ renderer: 'pixi', mount }));
-    expect(await h.ready).toEqual({ shown: 'plate', reason: 'pixi' });
-    expect(mount).not.toHaveBeenCalled();
-    expect(warn).not.toHaveBeenCalled();
-    expect(info).toHaveBeenCalledTimes(1);
-    expect(String(info.mock.calls[0][0])).toContain('?renderer=pixi');
-    expect(p.dataset.model).toBe('plate');
-    expect(p.querySelector('.rl-garage__model')).toBeNull();
-    expect(p.querySelector('.rl-garage__plate-img')).not.toBeNull();
-  });
-
   it('keeps the plate for a unit with no mesh, and says which unit', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const mount = vi.fn<MountGarageView>();

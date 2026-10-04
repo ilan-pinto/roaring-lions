@@ -178,9 +178,11 @@ export default tseslint.config(
   },
 
   // Bundle regression guard (CLAUDE.md's "standing bundle rule"): three.js
-  // must never reach the default Pixi player's main chunk. That happened
-  // once already, live through all of Phase B1, and cost 464 kB -- every
-  // player on the Pixi default downloading a second renderer. Nothing but
+  // must never reach the main chunk. That happened once already, live
+  // through all of Phase B1 while Pixi was the default, and cost 464 kB --
+  // every player downloading a second renderer. With Pixi retired (WP-A3.3)
+  // three is the only renderer, and it still loads lazily so the menu and
+  // the shell paint before ~600 kB of it arrives. Nothing but
   // convention stopped `packages/app/src` production code from statically
   // importing one of the three doors that reach three.js
   // (`@lions/render/three`, `/terrain`, `/three-camera`) and putting the
@@ -195,10 +197,9 @@ export default tseslint.config(
   // -- is untouched by this rule while a static import of the same
   // specifier is not.
   //
-  // Test files are exempt: `terrain-parity.test.ts` legitimately imports
-  // `@lions/render/terrain` and `@lions/render/three-camera` statically, to
-  // build real geometry against shipped map data in `environment: 'node'`
-  // (see that file's own doc comment) -- tests never ship in the
+  // Test files are exempt: a spec may import `@lions/render/terrain` or
+  // `@lions/render/three-camera` statically to build real geometry against
+  // shipped map data in `environment: 'node'` -- tests never ship in the
   // player-facing bundle, so a static import there carries none of the
   // bundle risk this rule exists to prevent.
   {
@@ -213,22 +214,14 @@ export default tseslint.config(
               name: '@lions/render/three',
               message:
                 'ThreeRenderer must reach packages/app only via a dynamic import() (see main.ts) -- a static ' +
-                'import puts three.js in the default Pixi player\'s main chunk. See CLAUDE.md\'s standing bundle rule.',
-            },
-            {
-              name: '@lions/render/pixi',
-              message:
-                'PixiRenderer must reach packages/app only via a dynamic import() (see main.ts) -- a static ' +
-                'import puts pixi.js in the main chunk for every player, including one who chose ' +
-                '?renderer=three. Symmetric with the @lions/render/three rule above: neither backend is ' +
-                'privileged, so neither may be imported statically.',
+                'import puts three.js in the main chunk. See CLAUDE.md\'s standing bundle rule.',
             },
             {
               name: '@lions/render/three-campaign',
               message:
                 'The campaign board is three.js. It must reach packages/app via a dynamic import() ' +
                 '(see ui/worldmap3d.ts) -- a static one puts three.js in the main chunk for every ' +
-                'player, including one on ?renderer=pixi who is served the flat PNG board instead ' +
+                'player, including one with no WebGL2 who is served the flat PNG board instead ' +
                 'and will never draw it. Same rule as @lions/render/three above.',
             },
             {
@@ -236,19 +229,19 @@ export default tseslint.config(
               message:
                 'The scene host is three.js. It must reach packages/app via a dynamic import() ' +
                 '(see ui/scene-host.ts) -- a static one puts three.js in the main chunk for every ' +
-                'player, including one on ?renderer=pixi who is shown the plate instead.',
+                'player, including one with reduced motion who is shown the plate instead.',
             },
             {
               name: '@lions/render/three-garage',
               message:
                 'The garage\'s turnable model is three.js. It must reach packages/app via a dynamic import() ' +
                 '(see ui/garage-viewer.ts) -- a static one puts three.js in the main chunk for every ' +
-                'player, including one on ?renderer=pixi who is shown the plate instead.',
+                'player, including one who never opens the brigade screen.',
             },
             {
               name: '@lions/render/terrain',
               message:
-                'The terrain barrel exists for terrain-parity.test.ts (and packages/render\'s own test suite) to ' +
+                'The terrain barrel exists for specs (packages/render\'s own test suite above all) to ' +
                 'build real geometry from shipped map data -- production app code has no use for the pure ' +
                 'builders directly, and this path is also how ../camera and its three.js import used to leak in.',
             },
@@ -270,8 +263,9 @@ export default tseslint.config(
   // The rule above stops `packages/app` from taking a three.js door. This one
   // stops a three.js door from being opened somewhere it does not belong: only
   // `packages/render/src/three/**` may import three.js at all. Everything else
-  // under `packages/render/src` -- `renderer.ts` above all, which Pixi's own
-  // chunk is built from -- must stay three-free.
+  // under `packages/render/src` -- the barrel, audio, the shared projection
+  // and VFX modules -- must stay three-free, or importing the barrel would
+  // put three.js in the main chunk.
   //
   // This is the exact leak Phase B2's final review found: `ground.ts` imported
   // one constant from `three/camera.ts`, and `camera.ts` imports all of three,
@@ -291,9 +285,9 @@ export default tseslint.config(
             {
               name: 'three',
               message:
-                'Only packages/render/src/three/** may import three.js. Pixi\'s renderer and the shared ' +
-                'projection code must stay three-free, or three.js lands in the default player\'s chunk. ' +
-                'A pure constant both backends need belongs in project.ts (see ELEV_STEP, WORLD_Y_PER_LIFT_PIXEL).',
+                'Only packages/render/src/three/** may import three.js. The barrel and the shared ' +
+                'projection code must stay three-free, or three.js lands in the main chunk. ' +
+                'A pure constant the shared code needs belongs in project.ts (see ELEV_STEP, WORLD_Y_PER_LIFT_PIXEL).',
             },
           ],
         },

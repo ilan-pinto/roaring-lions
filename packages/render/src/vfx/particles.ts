@@ -1,4 +1,3 @@
-import type { Graphics } from 'pixi.js';
 import type { ParticleSpec, Range } from './emitters';
 
 function pick(r: Range | undefined, fallback: number): number {
@@ -39,9 +38,7 @@ export function sampleLerp(curve: number[] | undefined, t: number, fallback: num
  *
  * This is presentation vocabulary, not a new schema field: it is DERIVED
  * from the `sprite` every emitter already authors, so no `data/vfx/*.json`
- * had to change to opt in and none can opt in by accident. A backend is
- * free to ignore it (Pixi does -- `draw()` below passes it to nothing);
- * `three`'s `createParticleMaterial` reads it to feather the particle's own
+ * had to change to opt in and none can opt in by accident. `three`'s `createParticleMaterial` reads it to feather the particle's own
  * edge instead of stamping the hard-edged filled circle every sprite used
  * to get. See that function's own doc comment for what the hard circle
  * looked like at collapse scale and why a *shape* fix was needed rather
@@ -118,7 +115,7 @@ export class ParticleSystem {
   private readonly layerIdx: Uint8Array;
   /** 1 when this particle's authored `sprite` names a cloud rather than a
    *  solid (`isSoftParticleSprite`). Read back through `forEachLive` and
-   *  used by the three.js backend alone; Pixi's `draw()` ignores it. */
+   *  used by the three.js backend's particle material. */
   private readonly soft: Uint8Array;
   /** Resolved hex colours per particle, one ramp step per frame of life. */
   private readonly colors: string[][] = [];
@@ -325,27 +322,22 @@ export class ParticleSystem {
    * signature (plain numbers and a string), so a three.js caller can build
    * instance-buffer writes directly from it.
    *
-   * This applies the exact same skips `draw()` used to apply inline: a slot
-   * that is not `alive`, or not on the requested `layerIdx`, is never
+   * A slot that is not `alive`, or not on the requested `layerIdx`, is never
    * visited; one whose sampled radius or alpha has collapsed to zero or
-   * below is visited by neither this nor `draw()` -- `sampleStep`/
-   * `sampleLerp` are the one place curve sampling happens, so the two
-   * backends cannot sample a palette-quantised colour or an alpha ramp
-   * differently.
+   * below is skipped -- `sampleStep`/`sampleLerp` are the one place curve
+   * sampling happens. (This was the backend-agnostic half of a pair; Pixi's
+   * `draw(g: Graphics)` was the other, and went with that backend, WP-A3.3.)
    *
    * Callback takes flat arguments rather than an object: this method runs
    * over up to `capacity` particles a frame (weapon fire is the
    * highest-frequency effect in the game), and the class-level contract
    * above -- "allocates nothing per particle per frame" -- has to hold for
-   * this accessor exactly as it holds for `spawn`/`step`, or a three.js
-   * caller adopting it inherits a GC-pressure regression `draw()` never had.
+   * this accessor exactly as it holds for `spawn`/`step`, or the three.js
+   * caller inherits a GC-pressure regression.
    *
    * The trailing `soft` argument is `isSoftParticleSprite(spec.sprite)`,
    * latched at spawn -- a sixth flat argument rather than a widened options
    * object for exactly the no-allocation reason the paragraph above gives.
-   * It is deliberately LAST so every existing caller keeps working
-   * unchanged: `draw()` below declares five parameters and JavaScript drops
-   * the sixth, which is what keeps the frozen Pixi path byte-identical.
    */
   forEachLive(
     layerIdx: number,
@@ -361,23 +353,5 @@ export class ParticleSystem {
       if (r <= 0 || alpha <= 0) continue;
       cb(this.x[i], this.y[i], color, alpha, r, this.soft[i] === 1);
     }
-  }
-
-  /** Draws only particles spawned with the matching `layerIdx`, so callers
-   *  can render below-unit and above-unit effects onto separate Graphics
-   *  in the correct order relative to unit sprites.
-   *
-   *  Expressed entirely in terms of `forEachLive` -- there is no second copy
-   *  of the curve-sampling or skip logic here, so this and the read path
-   *  cannot diverge. */
-  draw(
-    g: Graphics,
-    isoX: (x: number, y: number) => number,
-    isoY: (x: number, y: number) => number,
-    layerIdx: number
-  ): void {
-    this.forEachLive(layerIdx, (x, y, color, alpha, r) => {
-      g.circle(isoX(x, y), isoY(x, y) - 3, r).fill({ color, alpha });
-    });
   }
 }

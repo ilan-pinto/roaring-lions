@@ -7,7 +7,6 @@ import {
 } from './scene-host-model';
 
 const base = (over: Partial<HostInputs> = {}): HostInputs => ({
-  renderer: 'three',
   reducedMotion: false,
   saveData: false,
   viewportWidth: 1920,
@@ -24,13 +23,6 @@ describe('hostPath', () => {
     expect(hostPath(base({ viewportWidth: 390, columnWidth: 358.8 }))).toEqual({ path: 'off', reason: 'narrow' });
     expect(hostPath(base({ viewportWidth: 1000, columnWidth: 700 })).path).toBe('live'); // exactly 70% still has flanks
   });
-  // The campaign board's rule: a Pixi player never creates even a throwaway
-  // WebGL context on this screen, and never downloads three.
-  it('Pixi gets the plate and never probes WebGL2', () => {
-    const probe = vi.fn(() => true);
-    expect(hostPath(base({ renderer: 'pixi', webgl2: probe }))).toEqual({ path: 'plate', reason: 'pixi' });
-    expect(probe).not.toHaveBeenCalled();
-  });
   it('reduced motion gets the plate and never probes WebGL2', () => {
     const probe = vi.fn(() => true);
     expect(hostPath(base({ reducedMotion: true, webgl2: probe }))).toEqual({ path: 'plate', reason: 'reduced-motion' });
@@ -43,7 +35,7 @@ describe('hostPath', () => {
     expect(hostPath(base({ webgl2: () => false }))).toEqual({ path: 'plate', reason: 'no-webgl2' });
   });
   it('narrow wins over every other reason: there is no picture to choose', () => {
-    expect(hostPath(base({ renderer: 'pixi', viewportWidth: 390, columnWidth: 358.8 })).path).toBe('off');
+    expect(hostPath(base({ reducedMotion: true, saveData: true, viewportWidth: 390, columnWidth: 358.8 })).path).toBe('off');
   });
   it('a zero-width viewport is narrow, never NaN', () => {
     expect(hostPath(base({ viewportWidth: 0 })).path).toBe('off');

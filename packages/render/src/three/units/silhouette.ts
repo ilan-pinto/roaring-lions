@@ -159,22 +159,15 @@
  * five, and it is carried rather than 2 because a posed limb's expansion is
  * not exactly the sole's.
  *
- * **The billboard path's artefact is the ground-clipped QUAD**, and that is
- * fixed in world units, not in pixels: the silhouette shares the body's own
- * quad (the outline is a UV dilation, not an expanded hull), `ground-clip.ts`
- * clamps its sunk lower band to the instance's ground-contact depth, and a
- * sprite's world size does not change with zoom. Scaling THAT with the
- * outline width is simply wrong, and it was measured wrong: at 2.5 widths a
- * billboard rifleman on open flat ground grows 5-126 false pixels at his
- * feet, where the constant below gives zero. So the billboard path keeps
- * `SILHOUETTE_BILLBOARD_DEPTH_BIAS_WORLD`, sized for the quad it guards.
- *
- * Only the GLSL is shared between them, so the two cannot drift on the
- * MECHANISM while differing, correctly, on the number.
+ * (A billboard path stood beside this until WP-A3.3, with a fixed 0.75
+ * world-unit bias sized for its ground-clipped quad. It drew 75-432 false
+ * silhouette pixels along a billboard Lavi's hull base on open ground, a
+ * known pre-existing defect; that defect is retired because its path is
+ * gone, not because it was fixed.)
  *
  * ### What the mesh path's old constant cost
  *
- * The mesh path used the billboard's 0.75 until the boulder field on
+ * The mesh path used the billboard's old 0.75 until the boulder field on
  * `tel_marum` was walked -- it had simply never been resized for the
  * geometry it actually guards. 0.75 is 5.4x the ring it guards at zoom 1,
  * and it silently swallowed every occluder nearer than three quarters of a
@@ -196,11 +189,6 @@
  * therefore stays a clump rather than becoming a field of flat patches,
  * which is the better of the two outcomes anyway.
  *
- * It is three-only. `?renderer=pixi` has no depth buffer at all -- Pixi's
- * whole occlusion model is `zIndex` painting order, and there is no
- * "already lost the depth test" set for a silhouette to be drawn into. No
- * half-wiring is attempted there; see this task's report.
- *
  * ## Fog: the one rule this must never break
  *
  * A silhouette must never reveal a unit the player cannot already see.
@@ -212,13 +200,9 @@
  *  - a mesh unit's silhouette is a CHILD of the unit's own `Object3D`
  *    subtree (`attachMeshSilhouette` below), so `WebGLRenderer`'s own
  *    traversal (`projectObject`, which prunes on `Object3D.visible`) cannot
- *    reach the silhouette without reaching the body;
- *  - a billboard unit's silhouette is a second `InstancedMesh` sharing the
- *    hull's own `instanceMatrix` object and `count` (`instances.ts`), so it
- *    draws the same instances or none.
+ *    reach the silhouette without reaching the body.
  *
- * Both are asserted directly in `silhouette.test.ts` rather than argued
- * here.
+ * Asserted directly in `silhouette.test.ts` rather than argued here.
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -308,33 +292,6 @@ export const SILHOUETTE_OUTLINE_UNIFORM_KEY = 'rl_silhouette_outline_width';
 export const SILHOUETTE_MESH_DEPTH_BIAS_OUTLINE_WIDTHS = 2.5;
 
 /**
- * The BILLBOARD path's depth bias, in world units (one unit is one tile) --
- * a constant, because the artefact it guards is one. See this file's top
- * comment for why the two paths differ and what happens if this one is made
- * proportional instead.
- *
- * Sized from the ground-clipped lower half of a billboard unit's quad.
- * `ground-clip.ts` clamps a sunk vertex to the depth of the instance's own
- * ground-contact point, and the terrain drawn in FRONT of that point is
- * nearer still, by at most the quad's own half-height projected along
- * `VIEW_DIRECTION` -- for the tallest shipped sheet (TNK_HULL, `half` ~ 63
- * screen px, about a third of a tile) that is well under one world unit.
- *
- * **It is not quite enough for a tank, and that is a known, PRE-EXISTING
- * defect of this path, not a consequence of the mesh split.** Measured on
- * `tel_marum` with `&nomesh`: an `mbt_lavi` standing on open flat ground
- * draws 75-432 false silhouette pixels along its own hull base at this
- * value, at every zoom -- photographed, and reproduced by forcing this
- * exact number. A billboard rifleman draws zero. Raising it far enough to
- * clear the tank (about 1.1 world units at zoom 1) would start swallowing
- * genuine occluders a tile and a half away, so it is left as it is and
- * recorded rather than traded blind. `&nomesh` is the escape hatch, not the
- * default, and it draws no decor at all -- so the boulder case that
- * motivated the mesh split cannot arise on this path.
- */
-export const SILHOUETTE_BILLBOARD_DEPTH_BIAS_WORLD = 0.75;
-
-/**
  * `Material.userData` key holding a silhouette material's live depth-bias
  * uniform object -- the twin of `SILHOUETTE_OUTLINE_UNIFORM_KEY`, and for
  * the same reason: a `MeshBasicMaterial` has no `.uniforms` of its own for
@@ -345,7 +302,7 @@ export const SILHOUETTE_DEPTH_BIAS_UNIFORM_KEY = 'rl_silhouette_depth_bias';
 /**
  * The MESH path's depth bias in WORLD units (one unit is one tile) at
  * `zoom` -- what a mesh silhouette's `uSilhouetteDepthBias` is set to, once
- * per frame. The billboard path uses the constant above and never retunes.
+ * per frame.
  *
  * Expressed through `silhouetteOutlineWorldWidth` rather than as its own
  * arithmetic so the two cannot drift: changing the outline's thickness
@@ -389,8 +346,7 @@ export const SILHOUETTE_FALLBACK_HEX_BY_SIDE = ['#2F6FD9', '#D93A2B', '#E8C33A']
  * `contactLevel` short-circuit uses the same test), 2 is civilians
  * (`mission.ts`'s own civilian side), and everything else -- including any
  * side the sim grows later -- is hostile. Shared by the palette-key lookup
- * below and by `instances.ts`'s per-instance `aSide` attribute, so the
- * billboard shader is a colour LOOKUP with no policy of its own.
+ * below (and, until WP-A3.3, by the billboard path's per-instance `aSide`).
  */
 export function silhouetteSideIndex(side: number): number {
   if (side === 0) return 0;
@@ -411,17 +367,15 @@ export function silhouetteFallbackHex(side: number): string {
 
 // ---------------------------------------------------------------------------
 // THREE.* below this line. Everything above is plain arithmetic and policy,
-// testable under `environment: 'node'` with no GPU -- the same split
-// `instances.ts`, `structures.ts` and the `terrain/` builders already draw.
+// testable under `environment: 'node'` with no GPU -- the same split the
+// `terrain/` builders draw.
 // ---------------------------------------------------------------------------
 
 /**
  * The view-space depth push, as a GLSL fragment to be appended immediately
  * after a vertex shader has assigned `gl_Position = projectionMatrix *
- * mvPosition;` while `mvPosition` is still in scope. Shared verbatim between
- * the mesh path's `onBeforeCompile` patch and the billboard path's own
- * hand-written vertex shader (`instances.ts`), so the two cannot drift --
- * the same reason `ground-clip.ts` exists.
+ * mvPosition;` while `mvPosition` is still in scope -- the mesh path's
+ * `onBeforeCompile` patch. (The retired billboard shader shared it too.)
  *
  * `+=` moves toward the camera: this renderer's view space looks down -Z, so
  * a larger `z` is nearer.
@@ -459,21 +413,21 @@ export const SILHOUETTE_OUTLINE_EXPAND_GLSL = /* glsl */ `
         transformed += aExpand * uOutlineWidth;
 `;
 
-/** The flags that ARE the mechanism -- see this file's top comment. Shared
- *  verbatim by both silhouette materials (the mesh path's below, and
- *  `instances.ts`'s billboard one) so neither can be built with half of it:
- *  the inverted depth comparison WITHOUT the stencil test is the
- *  blue-blob build that shipped for ten minutes and was measured. */
+/** The flags that ARE the mechanism -- see this file's top comment. The
+ *  mesh silhouette material below is built from them verbatim (bar `side`),
+ *  so it cannot be built with half of it: the inverted depth comparison
+ *  WITHOUT the stencil test is the blue-blob build that shipped for ten
+ *  minutes and was measured. */
 export const SILHOUETTE_MATERIAL_FLAGS = {
   transparent: true,
   depthTest: true,
   depthWrite: false,
   depthFunc: THREE.GreaterDepth,
-  // The BILLBOARD path's facing. A billboard is one camera-facing quad, wound
-  // to face this camera (`instances.ts`'s own winding proof), so `BackSide`
-  // there draws nothing at all. The MESH path overrides this -- see
-  // `SILHOUETTE_MESH_SIDE`, which is not a preference but the difference
-  // between an outline and a handful of fragments.
+  // three.js's default facing, kept as the shared flag set's. It was the
+  // retired billboard path's (a camera-facing quad, where `BackSide` draws
+  // nothing). The MESH material overrides it -- see `SILHOUETTE_MESH_SIDE`,
+  // which is not a preference but the difference between an outline and a
+  // handful of fragments.
   side: THREE.FrontSide,
   // `stencilWrite` is three.js's switch for `gl.enable(STENCIL_TEST)`, not
   // merely for writing -- every op below is `Keep`, so this material reads
@@ -492,9 +446,9 @@ export const SILHOUETTE_MATERIAL_FLAGS = {
  * wherever this material is RASTERISED -- won the depth test or lost it --
  * it stamps `SILHOUETTE_STENCIL_REF`, and no silhouette draws there.
  *
- * Called from the two places that CREATE a silhouette -- `attachMeshSilhouette`
- * below, and `UnitInstancer`'s constructor -- rather than from the material
- * factories themselves. That keeps the pairing local: a body gets the mask
+ * Called from the place that CREATES a silhouette -- `attachMeshSilhouette`
+ * below (until WP-A3.3, `UnitInstancer`'s constructor too) -- rather than
+ * from the material factories themselves. That keeps the pairing local: a body gets the mask
  * exactly when something is going to read it, and a material this module
  * never gave a silhouette to is left with the stencil test disabled
  * entirely (three.js's own default), costing nothing.
@@ -584,9 +538,7 @@ export function createMeshSilhouetteMaterial(color: string): THREE.MeshBasicMate
     shader.uniforms.uOutlineWidth = outlineWidth;
     shader.uniforms.uSilhouetteDepthBias = depthBias;
     // three.js's own generated prefix defines `attribute` as `in` under
-    // GLSL ES 3.00, so this one declaration is correct on both targets --
-    // the same reason `instances.ts` declares `aLayer`/`aAlpha`/`aSide`
-    // plainly in its hand-written `ShaderMaterial`.
+    // GLSL ES 3.00, so this one declaration is correct on both targets.
     shader.vertexShader =
       `attribute vec3 ${SILHOUETTE_EXPAND_ATTRIBUTE};\nuniform float uOutlineWidth;\n` +
       SILHOUETTE_DEPTH_BIAS_UNIFORM_GLSL +
@@ -617,8 +569,7 @@ export function createMeshSilhouetteMaterial(color: string): THREE.MeshBasicMate
  * Both, in one call, deliberately: the bias is a multiple of the width (see
  * this file's top comment), so a caller able to update one without the
  * other is a caller able to re-open the ring artefact or start swallowing
- * occluders. `instances.ts`'s `setOutlineZoom` is the billboard path's
- * counterpart and updates the same pair.
+ * occluders.
  *
  * Deliberately a write on the SHARED uniform objects rather than anything
  * per-unit: the outline's thickness is a property of the camera, not of the
