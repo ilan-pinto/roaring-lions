@@ -459,10 +459,10 @@ export interface Renderer {
   setDecor(decor: Uint8Array): void;
   useEmitters(list: EmitterSpec[], resolve: (key: string) => string): void;
 
-  // --- art. Paths and ids only: what a sheet becomes -- textures, materials,
-  //     meshes -- is the backend's business, and the app never sees it.
-  loadSprites(unitTypeId: string, basePath: string, opts?: { turretPath?: string }): Promise<void>;
-  loadStructureSprite(structureId: string, basePath: string): Promise<void>;
+  // --- art. The sprite loaders (`loadSprites`, `loadStructureSprite`) were
+  //     here until WP-A3.3 retired the billboard path; every unit and
+  //     structure draws a mesh, loaded through the backend's own mesh
+  //     loaders, which `main.ts` reaches through the concrete class.
 
   // --- presentation state the app drives
   readonly camera: Camera;

@@ -316,25 +316,11 @@ describe('ThreeRenderer.dispose releases the WebGL context', () => {
   });
 });
 
-describe('ThreeRenderer.onEvents removed', () => {
-  it('never enters the billboard death-fade queue for a "removed" entity -- only "destroyed" does', () => {
-    // The billboard path's whole death sequence (`stepDeaths`, `addWreck`)
-    // is driven exclusively by `this.dying`, which `onEvents` populates from
-    // exactly one SimEvent kind: `destroyed`. `Sim.removeFromPlay` (GDD §11,
-    // a mission `remove` trigger -- the enemy's act, never a death) sets
-    // `alive` the same way `destroy()` does but never emits `destroyed`
-    // (`removeFromPlay`'s own doc comment), so a removed entity's normal
-    // per-tick frame loop (`updateUnits`'s own `if (st.alive[i] === 0)
-    // continue`) simply stops drawing it -- no fork needed on this path at
-    // all. This is a negative assertion on the exact mechanism, not a full
-    // `updateUnits` rig (which needs a loaded sheet/atlas this file does not
-    // otherwise build): no entity need ever be spawned for it.
-    const renderer = new ThreeRenderer(makeSim(), makeOpts());
-    const priv = renderer as unknown as { dying: unknown[] };
-    renderer.onEvents([{ kind: 'removed', tick: 0, entity: 0, side: 0 }]);
-    expect(priv.dying).toHaveLength(0);
-  });
-});
+// `ThreeRenderer.onEvents removed` lived here: a negative assertion that a
+// `removed` entity never entered the BILLBOARD death-fade queue (`dying`).
+// That queue went with the billboard path (WP-A3.3). The mesh paths' own
+// abduction forks are pinned in `ThreeRenderer.vehicle-mesh-death.test.ts`
+// ("prunes a REMOVED vehicle immediately") and the mesh-death suite.
 
 describe('the chevron fallback colour', () => {
   // `makeOpts()` supplies no `resolveColor`, which is the one caller shape that

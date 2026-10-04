@@ -173,7 +173,6 @@ import {
   meshUrl,
   missionUnitTypes,
   hasUnitMesh,
-  spriteSheetPlan,
   meshPlanFor,
   meshManifestFor,
   dracoDecoderPath,
@@ -1798,13 +1797,6 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // Registered where it is set, not with the runtime below: a boot abandoned
   // before the runtime exists must not leave the next screen ticking.
   onDispose(() => audio.setVoicePlaceholder(false));
-  // Structure types this map actually stands, plus anything the mission
-  // places itself (`camp` is the only one that arrives that way). Kept
-  // independently of `meshPlanFor` below -- `spritePlan` further down needs
-  // the raw set of standing types, not the mesh-only subset `MeshPlan.buildings`
-  // filters down to.
-  const meshStructures = new Set(map.structures.map((b) => b.type));
-  for (const s of mission?.structures ?? []) meshStructures.add(s.type);
   // `./mesh-catalogue`'s `meshPlanFor` (Task 2 of the scene-host plan): which
   // meshes this roster and this map's own buildings actually need, so the
   // menu's own diorama can ask the same question about its own roster.
@@ -1839,7 +1831,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  asked of the renderer: `ThreeRenderer` exposes no "is this loaded" read,
    *  and this file is the only thing that calls the loaders. */
   const meshLoaded = new Set<string>([...meshPlan.rigged, ...meshPlan.vehicles]);
-  /** Type ids whose deferred mesh failed, surfaced beside `failedArt`. */
+  /** Unit type ids whose mesh failed (boot or deferred), for the HUD note. */
   const failedMesh: string[] = [];
   /** Unit types whose mesh has LANDED (template built). A deferred buildable
    *  is "pending" until it appears here -- the dock's deploying chip reads
@@ -1941,7 +1933,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // -- nothing here needs to know it.
     //
     // `null` for the wreck, deliberately: it is fetched after the first
-    // frame instead (below, beside `spritePlan.after`). Level load time,
+    // frame instead (below, `afterFirstFrame`). Level load time,
     // step 3 -- on `beit_sahwan_outskirts` the five wreck GLBs are 9.62
     // MiB of a 47.0 MiB level and `hall_wreck` alone is 3.77, while the
     // earliest a building can fall is minutes of play away.
@@ -2124,89 +2116,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   if (req.signal.aborted) abandon('left while the renderer was starting');
   renderer.useEmitters(vfxEmitters as EmitterSpec[], paletteColor);
 
-  // Load sprite sheets for unit types that have rendered art (non-blocking).
-  // `SPRITE_MAP` itself is declared at module scope, above `main()`, because
-  // the brigade screen is its other reader: the roster resolves a portrait
-  // through the same table, so a unit's picture cannot differ between the
-  // HUD's card and that screen.
-  // Structures with art. A building has one sprite, not sixteen: it is placed
-  // with a fixed orientation under a fixed camera and never turns. Types without
-  // a sheet keep the procedural extrusion, so art lands one building at a time.
-  // Every type in data/structures.json has art, and the Marj perimeter places
-  // both '#' (concrete) and '=' (wall). `wall` is per_tile: its one sprite is
-  // stamped on every tile of the run rather than once per footprint.
-  const STRUCTURE_SPRITES: Record<string, string> = {
-    shanty: `${BASE}sprites/BLD_SHANTY/`,
-    house: `${BASE}sprites/BLD_HOUSE/`,
-    warehouse: `${BASE}sprites/BLD_WAREHOUSE/`,
-    apartment: `${BASE}sprites/BLD_APARTMENT/`,
-    concrete: `${BASE}sprites/BLD_CONCRETE/`,
-    wall: `${BASE}sprites/BLD_WALL/`,
-  };
-  // Every sheet is fetched in parallel, but the mission does not start until
-  // all of them have settled — see the gate below.
+  // No sprite sheets load any more (WP-A3.3): every unit and structure draws
+  // a mesh, loaded above. The loading bar has nothing to count and reads
+  // 'meshes only' (`ui/loading.ts`). The only fetches left in this stretch
+  // are the HUD portraits below.
+  loading.total(0);
+  // Portrait manifests are fetched in parallel; the mission does not start
+  // until all of them have settled -- see the gate below.
   const artJobs: Promise<unknown>[] = [];
-  // Every id whose art failed to load, surfaced once the HUD exists (below)
-  // rather than left as a console.warn a completed loading bar buries. On
-  // Pixi a failed load still leaves the unit visible — its procedural
-  // placeholder, the pre-existing fallback for un-authored art. The three.js
-  // backend has no such fallback: a unit type whose sheet failed to load is
-  // not drawn at all, so a swallowed failure there means an entire unit type
-  // is silently invisible on the battlefield, differently on each reload
-  // (the underlying fetch race is nondeterministic). console.warn stays for
-  // developers reading the console; this array is what makes the same
-  // failure unmissable to a player.
-  const failedArt: string[] = [];
-  // Which sheets THIS boot needs, and when -- `spriteSheetPlan`'s own doc
-  // comment has the rules and the measurement behind them (61 MiB and 3,665
-  // requests of a 115 MiB level were sheets for types the mesh path draws
-  // as models). Portrait manifests are still read for every type below,
-  // because the HUD shows a face for a type whose sheet is not loaded.
-  const spritePlan = spriteSheetPlan({
-    roster: meshRoster,
-    spriteTypes: new Set(Object.keys(SPRITE_MAP)),
-    structureTypes: meshStructures,
-    structureSprites: new Set(Object.keys(STRUCTURE_SPRITES)),
-  });
-  console.log(
-    `[lions] sheets: ${spritePlan.before.size} before deploy` +
-      (spritePlan.before.size ? ` (${[...spritePlan.before].join(', ')})` : '') +
-      `, ${spritePlan.after.size} after the first frame` +
-      (spritePlan.after.size ? ` (${[...spritePlan.after].join(', ')})` : '') +
-      `, ${spritePlan.structures.size} structure sprite(s)`
-  );
-  // The bar counts SHEETS, so it counts what this boot actually loads --
-  // not the 2 KB portrait manifests, which would read "29 / 29 sheets" over
-  // one real sheet. A mesh-only boot reads 'meshes only' (`ui/loading.ts`).
-  loading.total(spritePlan.structures.size + spritePlan.before.size);
-
-  for (const id of spritePlan.structures) {
-    artJobs.push(
-      renderer
-        .loadStructureSprite(id, STRUCTURE_SPRITES[id])
-        .catch((err) => {
-          console.warn(`[lions] structure sprite FAILED for ${id}:`, err);
-          failedArt.push(id);
-        })
-        .then(() => loading.step())
-    );
-  }
-
-  /** One unit sheet, its own failure swallowed into `failedArt` -- shared by
-   *  the deploy-gating loop below and the after-first-frame loads. */
-  const loadUnitSheet = (id: string): Promise<void> => {
-    // The deferred half of the sheet plan runs through here two frames after
-    // deploy, so this can be called -- and can resolve -- after the player has
-    // left. `loadSprites` decodes into the renderer's atlases, which is exactly
-    // the kind of touch the third rule at the top of this function names.
-    if (disposed) return Promise.resolve();
-    const { path, ...rest } = SPRITE_MAP[id];
-    return renderer.loadSprites(id, path, rest).catch((err) => {
-      if (disposed) return;
-      console.warn(`[lions] sprites FAILED for ${id}:`, err);
-      failedArt.push(id);
-    });
-  };
 
   /**
    * The frame each unit type shows in the HUD's selection cluster (GH-153).
@@ -2253,51 +2170,35 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       portraits[id] = icon.url;
       portraitIcons.add(id);
     }
+    // Its own fetch and its own failure: a manifest that 404s costs the HUD
+    // a picture, not the battlefield a unit, so it never holds up the gate
+    // on its own. Skipped entirely once an icon already answered.
+    if (icon !== null) continue;
     artJobs.push(
-      Promise.all([
-        spritePlan.before.has(id) ? loadUnitSheet(id) : Promise.resolve(),
-        // Its own fetch and its own failure: a manifest that 404s costs the HUD
-        // a picture, not the battlefield a unit, so it must not push onto
-        // `failedArt` and must not hold up the art gate on its own. For a type
-        // whose sheet loads, the renderer has just fetched the same URL and
-        // this is a cache hit; for the rest it is the 2 KB the portrait needs.
-        // Skipped entirely once an icon already answered the question above.
-        icon !== null
-          ? Promise.resolve()
-          : fetch(`${path}manifest.json`)
-              .then((r) => (r.ok ? (r.json() as Promise<SheetManifest>) : null))
-              .then((m) => {
-                const url = m === null ? null : portraitUrl(path, m);
-                if (url !== null) portraits[id] = url;
-              })
-              .catch((err: unknown) => {
-                console.warn(`[lions] portrait manifest FAILED for ${id}:`, err);
-              }),
-      ]).then(() => {
-        if (spritePlan.before.has(id)) loading.step();
-      })
+      fetch(`${path}manifest.json`)
+        .then((r) => (r.ok ? (r.json() as Promise<SheetManifest>) : null))
+        .then((m) => {
+          const url = m === null ? null : portraitUrl(path, m);
+          if (url !== null) portraits[id] = url;
+        })
+        .catch((err: unknown) => {
+          console.warn(`[lions] portrait manifest FAILED for ${id}:`, err);
+        })
     );
   }
 
-  // The art gate. Nothing below this line — the HUD, the mission title card,
-  // the first tick — happens until the sheets are in, so the opening seconds
-  // of a mission are the real art rather than the procedural fallback that
-  // stands in for units whose sheets were never authored.
-  //
-  // Each job swallows its own rejection above, so this waits for every fetch
-  // to be *decided*, not to succeed. A sheet that 404s still lets the player
-  // in — that unit falls back to its placeholder on Pixi, or (on three.js)
-  // to not being drawn — either way far better than a permanent loading
-  // screen, and now also reported to the player once the HUD exists, via
-  // `failedArt` above.
+  // The portrait gate. Each job swallows its own rejection above, so this
+  // waits for every fetch to be *decided*, not to succeed: a missing
+  // portrait costs the HUD a picture, never the player a mission. (This was
+  // the sprite-sheet art gate until WP-A3.3 retired the sheets.)
   await Promise.all(artJobs);
   // The buildables, now that the art gate is behind us. Deliberately NOT
   // awaited: these are meshes for units the player MIGHT build, and the whole
   // point of deferring them is that the mission starts without them.
   //
   // This line sits BETWEEN the two waits on purpose. Started any earlier it
-  // would compete with the sprite sheets for the gate above and delay the
-  // mission for everyone, including a player who never builds anything.
+  // would compete with the blocking meshes and delay the mission for
+  // everyone, including a player who never builds anything.
   // Started any later it would begin only when `loading.done()` returns, which
   // for a mission with a briefing is the moment the player clicks Begin --
   // throwing away the one stretch of wall-clock time in the whole boot where
@@ -2421,17 +2322,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // two waits like the deferred unit meshes: a briefing is read for seconds
   // and a wreck is minutes away, so nothing is lost by waiting.
   //
-  // Both halves fail soft and neither can draw a hole. A sheet that never
-  // arrives leaves its type on the mesh it already has; a wreck mesh that is
-  // still in flight leaves `buildingMeshWreckTemplates` without the type,
+  // It fails soft and cannot draw a hole: a wreck mesh that is still in
+  // flight leaves `buildingMeshWreckTemplates` without the type,
   // which is exactly the state in which `updateStructures` keeps drawing the
   // procedural wreck -- see `loadBuildingWreckMesh`'s own doc comment.
   const afterFirstFrame: Array<() => void> = [];
-  if (spritePlan.after.size > 0) {
-    afterFirstFrame.push(() => {
-      for (const id of spritePlan.after) void loadUnitSheet(id);
-    });
-  }
   afterFirstFrame.push(() => {
     for (const id of meshPlan.buildings) wreckMeshLoader(id);
   });
@@ -3094,18 +2989,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   });
   // Also on the body, and it carries its own pointer listeners and canvas.
   onDispose(() => minimap.destroy());
-  // Loud, not a console.warn behind a completed loading bar: `failedArt`
-  // (collected above, before the HUD existed to report through) names every
-  // structure or unit type whose art never loaded. One notice for the whole
-  // batch — a burst of individually-failed fetches is one incident, not one
-  // per id.
-  if (failedArt.length > 0) {
-    hud.note(t('main.note.artFailed', { n: failedArt.length, ids: failedArt.join(', ') }), 'bad');
-  }
-  /** The same notice for a mesh that arrived late and failed. Separate from
-   *  `failedArt` because it can happen minutes into a mission, long after that
-   *  one batch was decided -- a mesh load started by `ensureUnitMesh` has no
-   *  gate to be counted at. Reported once per type. */
+  /** A unit mesh that failed -- at boot or arriving late -- as a HUD note,
+   *  once per type, from the 1 Hz sweep. Loud beside the renderer's own
+   *  console.error and the proxy box it draws (WP-A3.3, ruling 2). (A
+   *  `failedArt` batch note for sprite sheets stood beside this until the
+   *  sheets were retired.) */
   const reportedMeshFailures = new Set<string>();
   const reportMeshFailures = (): void => {
     for (const id of failedMesh) {

@@ -56,7 +56,6 @@ import {
   propKindsFor,
   missionUnitTypes,
   hasUnitMesh,
-  spriteSheetPlan,
   meshPlanFor,
   meshManifestFor,
   meshUrl,
@@ -337,70 +336,6 @@ describe('mesh catalogue: what has a mesh at all', () => {
       boulder: 3,
       ditch: 1,
     });
-  });
-});
-
-describe('sprite sheet plan (level load time, step 1)', () => {
-  const spriteTypes = new Set(['inf_squad', 'mbt_lavi', 'gun_truck', 'billboard_only', 'heli_peten', 'sarim_rifles']);
-  const structureSprites = new Set(['house', 'wall', 'kiosk']);
-
-  it('only a fielded type with no mesh gates deploy', () => {
-    const plan = spriteSheetPlan({
-      // `billboard_only` is a stand-in: B2 gave `gun_truck` a mesh and B0a
-      // `recon_drone` (both 2026-09-30), leaving no shipped meshless type.
-      roster: new Set(['inf_squad', 'mbt_lavi', 'billboard_only', 'sarim_rifles']),
-      spriteTypes,
-      structureTypes: new Set(['house', 'wall']),
-      structureSprites,
-    });
-    expect([...plan.before].sort()).toEqual(['billboard_only']);
-    // A mesh vehicle still needs its wreck sprite. A rigged type does not,
-    // and a deferred buildable no longer gets a sheet at all (WP-A3.3,
-    // ruling 1: it draws nothing until its GLB lands).
-    expect([...plan.after].sort()).toEqual(['mbt_lavi']);
-    expect(plan.after.has('heli_peten')).toBe(false);
-    expect(plan.after.has('inf_squad')).toBe(false);
-    expect(plan.after.has('sarim_rifles')).toBe(false);
-    // Nothing standing on this map lacks a building mesh.
-    expect([...plan.structures]).toEqual([]);
-  });
-
-  it('a fielded type that is not in the plan is not loaded at all', () => {
-    const plan = spriteSheetPlan({
-      roster: new Set(['inf_squad']),
-      spriteTypes,
-      structureTypes: new Set(),
-      structureSprites,
-    });
-    expect(plan.before.size).toBe(0);
-    expect(plan.after.size).toBe(0);
-    // An unfielded no-mesh type is not loaded either: the roster decides.
-    expect(plan.before.has('billboard_only')).toBe(false);
-  });
-
-  it('a standing structure type with no building mesh still gets its sprite', () => {
-    const plan = spriteSheetPlan({
-      roster: new Set(),
-      spriteTypes,
-      structureTypes: new Set(['kiosk', 'house']),
-      structureSprites,
-    });
-    expect([...plan.structures]).toEqual(['kiosk']);
-  });
-
-  it('every shipped mission gates deploy only on types with no mesh', () => {
-    const unitIds = new Set(Object.keys(units));
-    for (const [id, mission] of Object.entries(missions as Record<string, MissionJson>)) {
-      const roster = missionUnitTypes(mission, unitIds);
-      const plan = spriteSheetPlan({
-          roster,
-        spriteTypes: unitIds,
-        structureTypes: new Set(),
-        structureSprites: new Set(),
-      });
-      for (const t of plan.before) expect(hasUnitMesh(t), `${id}: ${t} gates deploy but has a mesh`).toBe(false);
-      for (const t of roster) if (!hasUnitMesh(t)) expect(plan.before.has(t), `${id}: ${t} has no mesh and is not loaded`).toBe(true);
-    }
   });
 });
 

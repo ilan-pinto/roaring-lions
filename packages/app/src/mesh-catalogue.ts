@@ -585,55 +585,6 @@ export function meshManifestFor(plan: MeshPlan): MeshManifest {
 }
 
 /**
- * Which sprite sheets a boot needs, and WHEN -- step 1 of
- * `docs/superpowers/specs/2026-09-07-level-load-time-design.md`.
- *
- * Measured before this existed (production build, cold, beit_sahwan_1_recon):
- * every sheet in `SPRITE_MAP` loaded before deploy, 3,665 requests and 61 MiB
- * of a 115 MiB level, on a renderer that draws all but six of those types as
- * meshes and never reads their sheets. The mesh phase had been roster-driven
- * since `missionUnitTypes`; the sheets had not.
- *
- * The mesh path is the only path since WP-A3.3 (`&nomesh` and Pixi are
- * retired), so:
- *  - `before` deploy: a fielded type with NO mesh -- none ships today (B0a
- *    gave the two KDF drones theirs, B2 the last enemy types, 2026-09-30;
- *    `tools/src/mesh_roster.test.ts` holds every unit to a GLB on disk).
- *  - `after` the first frame: a fielded mesh VEHICLE (its death can still
- *    fall back to the sheet's `wreck` sprite -- `ThreeRenderer.addWreck`
- *    excludes rigged types only). Never gates deploy.
- *  - never: a fielded rigged type (its mesh carries `down`/`wreck`), and a
- *    deferred KDF buildable -- it draws nothing until its GLB lands (WP-A3.3,
- *    the lead's ruling 1), with the dock tile's deploying chip meanwhile.
- *  - `structures` before deploy: a standing structure type with no building
- *    mesh -- none today, every `STRUCTURE_SPRITES` type has one.
- */
-export interface SpriteSheetPlan {
-  readonly before: ReadonlySet<string>;
-  readonly after: ReadonlySet<string>;
-  readonly structures: ReadonlySet<string>;
-}
-
-export function spriteSheetPlan(input: {
-  roster: ReadonlySet<string>;
-  spriteTypes: ReadonlySet<string>;
-  structureTypes: ReadonlySet<string>;
-  structureSprites: ReadonlySet<string>;
-}): SpriteSheetPlan {
-  const before = new Set<string>();
-  const after = new Set<string>();
-  for (const id of input.spriteTypes) {
-    if (input.roster.has(id) && !hasUnitMesh(id)) before.add(id);
-    else if (input.roster.has(id) && id in VEHICLE_UNIT_MESHES) after.add(id);
-  }
-  const structures = new Set<string>();
-  for (const id of input.structureTypes) {
-    if (input.structureSprites.has(id) && !(id in BUILDING_MESHES)) structures.add(id);
-  }
-  return { before, after, structures };
-}
-
-/**
  * Every unit type id a mission can put on the field.
  *
  * A RECURSIVE WALK of the mission JSON rather than a list of the fields that
