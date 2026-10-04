@@ -1353,3 +1353,65 @@ The stationary figure matches what was measured in fix round 1 for 14 selected u
   - It is met on relief while the selection is stationary.
 - **Moving on relief** costs about 0.9 ms at 100 rings, up from 0.8 before the 7×7 tier. The lead accepted the moving relief cost on 29 Sep, and fix round 2's tier was ruled with it.
 - **Next step, should it matter later:** the lift lattice is already coarse (2, not 4). What would help next is caching `decalGroundY` per tile corner, or sampling the ground mesh's own vertices instead of the bicubic.
+
+---
+
+## Retiring the sprite sheets (WP-A3.3, 2026-10-04)
+
+The Pixi backend, the `&nomesh` billboard path and the 43 sheets under
+`assets/sprites/` were deleted on `feat/retire-pixi` (GH-189). On the default
+path the sheets were no longer drawn by anything a player could see -- every
+unit already drew a mesh -- but a mission still FETCHED some after its first
+frame: each fielded mesh vehicle's sheet (for a sprite wreck no shipped vehicle
+reached any more, since all 18 vehicle GLBs carry a `wreck` clip) and, on a
+`resources` mission, every deferred KDF buildable's sheet (a billboard
+placeholder until its GLB landed). This measures what that cost.
+
+**Conditions.** `pnpm perf:load -- --mission=<id> --serve=preview --runs=3
+--tail=5000`, a production build served by `vite preview` from `dist/`,
+headless Chromium with the HTTP cache and the service worker bypassed (a cold
+first visit), unthrottled localhost, ANGLE/Metal on an M3 Pro (the harness
+prints the renderer). `--tail=5000` keeps counting five seconds past
+first-frame -- without it the harness stops at first-frame and every one of
+these sheet requests is invisible, which is why it was added. Before: base
+`f818eb7b`. After: the branch head. The harness itself had to be fixed first:
+it waited for "N / N sheets" and a mesh-only boot reads "meshes only", so on
+`main` every run timed out at 180 s without clicking Deploy.
+
+| mission | requests before | requests after | MiB before | MiB after | sheet requests / MiB before | first-frame ms before | after |
+|---|---|---|---|---|---|---|---|
+| `beit_sahwan_1_recon` | 465 ×3 | 116 ×3 | 29.91 ×3 | 24.08-24.09 | 346 / 5.82 | 2166 / 1397 / 1214 | 1781 / 1472 / 1305 |
+| `tel_marum_2_foothold` | 1163 ×3 | 151 ×3 | 42.64 ×3 | 27.29 ×3 | 1009 / 15.33 | 1542 / 1177 / 1198 | 1455 / 1181 / 1316 |
+| `wadi_halam_2_laager` | 1300 / 732 / 884 | 172 ×3 | 52.10 / 43.34 / 45.83 | 34.68 ×3 | 1125 / 557 / 709 -- 17.41 / 8.65 / 11.14 | 2002 / 1394 / 1694 | 1619 / 1406 / 1486 |
+
+Reading it:
+
+- **Sheet requests go to zero on every run**, and nothing else moved: meshes are
+  57 / 61 / 68 requests and 20.27 / 20.26 / 30.78 MiB before and after.
+- **The saving is 5.8 / 15.4 / 11.2-17.4 MiB and 349 / 1,012 / 560-1,128
+  requests per mission load.** `wadi_halam_2_laager`'s before-numbers vary
+  because its sheets were still loading when the five-second tail closed; the
+  run with the longest tail-end read 17.41 MiB of sheets, so the real figure is
+  at least that.
+- **Time to first frame did not change**, and should not have: every sheet in
+  question loaded AFTER the first frame. What the player got back is bandwidth
+  and request count in the first seconds of play, not a faster deploy.
+- `dist/` went from **195,364 KiB to 120,896 KiB** (-74,468 KiB, -38%): the
+  sheets (72 MiB) plus the ten Pixi chunks (592.1 kB raw). The tracked
+  `assets/` tree went from 154.2 MiB to 90.4 MiB. Clone size does not shrink
+  -- history keeps the PNGs, and rewriting it is not a goal (the plan's risk
+  12).
+
+The deferred-buildable option the plan left to the lead (load every buildable
+GLB before deploy) was NOT taken: the lead's ruling was to keep them invisible
+until their GLB lands, with a "deploying" chip on the dock tile. So
+time-to-deploy is unchanged by this work, and the cost of the alternative was
+not measured.
+
+**The all-mesh backend curve** (`backend-curve-gate.ts --only=three-mesh`, same
+machine, ANGLE/Metal): with every one of the 20 roster types drawing its real
+GLB -- where the old "three, meshes" curve swapped a quarter of the roster over
+a billboard majority -- render p95 is 10.8 / 17.8 / 30.0 / 39.7 ms at 65 / 143
+/ 266 / 320 living units (tick p95 0.30 / 1.20 / 2.20 / 3.40 ms). That is a new
+number, not a regression: it is the shipped default since the mesh flip, now
+measured for the first time.
