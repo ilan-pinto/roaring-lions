@@ -1,0 +1,20 @@
+{
+  "id": "rotor_wash",
+  "trigger": "vehicle_move",
+  "layer": "below_units",
+  "budget_priority": 1,
+  "particles": [
+    {
+      "sprite": "smoke_puff",
+      "count": [9, 13],
+      "lifetime_ms": [380, 600],
+      "speed_tiles_s": [1.2, 2.6],
+      "cone_deg": 360,
+      "drag": 1.0,
+      "size_px": [5, 9],
+      "size_over_life": [0.5, 1.0, 1.5],
+      "color_over_life": ["dust.2", "dust.3", "dust.4"],
+      "alpha_over_life": [0.6, 0.38, 0.0]
+    }
+  ]
+}
