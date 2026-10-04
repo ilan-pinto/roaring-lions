@@ -25,7 +25,6 @@
     "ground:capture": "pnpm --filter @lions/tools ground:capture",
     "golden-baseline": "pnpm --filter @lions/tools golden-baseline",
     "golden-baseline:bless": "pnpm --filter @lions/tools golden-baseline:bless",
-    "golden-diff:compare": "pnpm --filter @lions/tools golden-diff:compare",
     "gen:luts": "node tools/gen_luts.mjs",
     "encode:meshes": "pnpm --filter @lions/tools encode:meshes",
     "wreck:meshes": "pnpm --filter @lions/tools wreck:meshes",

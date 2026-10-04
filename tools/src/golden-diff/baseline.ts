@@ -8,6 +8,9 @@
 // Why this exists at all: cross-backend could not see the bug it was built for
 // ============================================================================
 //
+// (History: the Pixi backend and that harness were deleted in WP-A3.3. The
+// reasoning below is kept because it is why this gate is shaped as it is.)
+//
 // `golden-diff-gate.ts` compared the Pixi capture against the three capture and
 // failed the build on the difference. Since the mesh flip (`362bde7`) that
 // comparison measures a divergence the project chose on purpose -- Pixi has no
@@ -257,7 +260,7 @@ export interface BaselineSpec {
  *  Every threshold is calibrated against THIS scenario's own measured
  *  run-to-run noise on a fixed capture environment, never against another
  *  scenario's number and never widened to clear a failing run -- the same rule
- *  `golden-diff-gate.ts`'s `SCENARIO_BUDGETS` already stated and the same rule
+ *  the retired `golden-diff-gate.ts`'s `SCENARIO_BUDGETS` stated and the same rule
  *  `tuning.ts` follows. The measurements are in
  *  `.superpowers/queue/golden-three-report.md`; the short form is in each
  *  `rationale`. */

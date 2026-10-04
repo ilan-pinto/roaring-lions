@@ -79,7 +79,7 @@ function summary(over: Partial<DiffSummary>): DiffSummary {
 
 describe('BASELINES', () => {
   it('covers every scenario the gate captures, since a missing entry throws', () => {
-    // Mirrors golden-diff-gate.ts's own rule: a scenario with no calibrated
+    // The retired golden-diff-gate.ts's rule too: a scenario with no calibrated
     // entry must not pass silently.
     //
     // THE ASSERTION READS `SCENARIOS`, NOT A HAND-WRITTEN LIST. What was here

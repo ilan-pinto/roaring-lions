@@ -1,32 +1,33 @@
 // The browser-driving half of tools/src/perf/three-units.ts. That file's own
 // top comment names two execution modes -- a Node CLI (sim tick cost only)
 // and a browser mode ("dynamically imported from a page the real Vite dev
-// server is serving... from the console of a tab") -- and documents the
-// second one as a manual, by-hand protocol, the same gap
-// tools/src/ci/golden-diff-gate.ts closed for the golden-image diff. This
-// file is that closure for the perf harness: it drives a real headless
-// Chromium (Playwright, same dependency golden-diff-gate.ts already added)
-// against a real Vite dev server, runs `measurePixi`/`measureThree`/
-// `measureThreeMesh`/`measureSkinnedInfantry` inside it, and prints a
+// server is serving") -- and this file drives the second one: a real
+// headless Chromium (Playwright) against a real Vite dev server, running
+// `measureThreeMesh`/`measureSkinnedInfantry` inside it and printing a
 // reproducible report -- so "re-run this" is a command, not a transcription
 // of a session's console output.
+//
+// Until WP-A3.3 it also ran `measurePixi` and a billboard-only
+// `measureThree`; both backends' billboard paths are deleted, and their
+// recorded curves are history in `docs/PERFORMANCE.md`. The name stays so
+// every doc line that cites it still resolves.
 //
 // ============================================================================
 // Why navigate to `/` and not a `?sandbox=...` URL
 // ============================================================================
 //
-// `golden-diff-gate.ts` navigates to a sandbox/mission URL because it needs
-// the real app's own renderer on screen to screenshot. This harness needs
-// the OPPOSITE: `measureThree`/`measurePixi`/`measureThreeMesh` build their
+// The visual gate navigates to a sandbox/mission URL because it needs the
+// real app's own renderer on screen to screenshot. This harness needs the
+// OPPOSITE: `measureThreeMesh` builds its
 // own independent `Sim` + `Renderer` entirely inside the imported module
 // (`buildWorld`, `runBackendCurve`) -- they do not touch `window.__lions` at
 // all. Navigating to a `?sandbox=` URL would boot `main.ts`'s OWN renderer
 // in the same tab, running its own rAF loop concurrently with this harness's
 // renderer for the whole measurement -- exactly the "sharing a tab with a
-// live renderer" contamination `three-units.ts`'s own `measureThree` doc
-// comment quantifies (a co-resident Pixi renderer inflated bare `sim.tick()`
-// cost 5-8x in that investigation). The bare `/` route renders the campaign
-// menu only -- confirmed live (`document.body.innerText` shows "ROARING
+// live renderer" contamination `docs/PERFORMANCE.md` quantifies (a
+// co-resident Pixi renderer inflated bare `sim.tick()` cost 5-8x in that
+// investigation, before Pixi was retired). The bare `/` route renders the
+// campaign menu only -- confirmed live (`document.body.innerText` shows "ROARING
 // LIONS" / "CAMPAIGN", `window.__lions` stays `undefined`) -- so this
 // harness's own renderer is the ONLY renderer running in the tab for the
 // whole measurement. A cross-origin `about:blank` + absolute-URL dynamic
@@ -38,14 +39,9 @@
 // One fresh page per measurement function
 // ============================================================================
 //
-// `runBackendCurve`'s own doc comment explains it disposes a `ThreeRenderer`
-// at the end of its run but explicitly does NOT dispose a `PixiRenderer`
-// ("Pixi's own `Application` is torn down with the page"). Running
-// `measurePixi()` then `measureThree()` then `measureThreeMesh()` in the
-// SAME page would therefore leak the first two backends' GL/canvas
-// resources into the next measurement. Each measurement function below gets
-// its own fresh `page.goto('/')`, so every run starts from a clean tab with
-// nothing else resident.
+// Each measurement function gets its own fresh `page.goto('/')`, so every
+// run starts from a clean tab with nothing else resident -- the skinned
+// stand-in never shares GL state with the backend curve.
 //
 // ============================================================================
 // Why the GPU string is printed, and why `--only` exists
@@ -62,14 +58,13 @@
 // anything, and says loudly when it reads SwiftShader; the same thing
 // `render-frame-cost.ts` already does.
 //
-// `--only` exists because the four measurement functions answer different
+// `--only` exists because the measurement functions answer different
 // questions and a ladder step (spec 2026-09-14 section 11) re-measures ONE of
-// them repeatedly. Running all four to re-read one rung wastes ~4 minutes
-// per rung, most of it in `measurePixi`, which no lighting change can move.
+// them repeatedly.
 //
 // Usage: npx tsx tools/src/perf/backend-curve-gate.ts [--port=5190]
 //   [--host=localhost] [--out=path.json] [--skip-skinned]
-//   [--only=three,three-mesh,skinned]
+//   [--only=three-mesh,skinned]
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -89,7 +84,7 @@ const MODULE_PATH = `/@fs${REPO_ROOT}/tools/src/perf/three-units.ts`;
 /** The measurement functions `--only` can select, in run order. `all` is the
  *  default and is what every recorded curve in `docs/PERFORMANCE.md` was
  *  taken with. */
-const MEASUREMENTS = ['three', 'three-mesh', 'skinned'] as const;
+const MEASUREMENTS = ['three-mesh', 'skinned'] as const;
 type Measurement = (typeof MEASUREMENTS)[number];
 
 interface Args {
@@ -150,8 +145,8 @@ async function waitForServer(origin: string, timeoutMs: number): Promise<void> {
   throw new Error(`backend-curve-gate: dev server at ${origin} did not come up within ${timeoutMs}ms`);
 }
 
-/** Same "never kill a server this process did not start" rule
- *  `golden-diff-gate.ts` follows -- reused verbatim rather than re-derived,
+/** Same "never kill a server this process did not start" rule the visual
+ *  gate follows (`golden-diff/browser.ts`) -- reused verbatim rather than re-derived,
  *  because getting this wrong is the one mistake CLAUDE.md explicitly warns
  *  a subagent has made repeatedly (killing a shared `pnpm dev`). */
 async function ensureDevServer(origin: string, port: number): Promise<ChildProcess | null> {
@@ -219,8 +214,8 @@ function printCurve(label: string, report: BackendReport): void {
   }
 }
 
-/** Runs one exported measurement function (`measurePixi`, `measureThree`,
- *  `measureThreeMesh`, `measureSkinnedInfantry`) inside a fresh page,
+/** Runs one exported measurement function (`measureThreeMesh`,
+ *  `measureSkinnedInfantry`) inside a fresh page,
  *  serialising its result back to Node as JSON. The `onProgress` callback
  *  passed to the in-page function is a plain in-page closure (not a Node
  *  function threaded across the CDP boundary) that just `console.log`s --
@@ -277,15 +272,6 @@ async function main(): Promise<void> {
         '[backend-curve-gate] WARNING: this is the SOFTWARE rasteriser. Every number below is ' +
           'incomparable to a hardware run -- see docs/PERFORMANCE.md capture conditions.'
       );
-    }
-
-    if (only.has('three')) {
-      console.log('\n[backend-curve-gate] === measureThree (billboard) ===');
-      const page = await freshPage(browser, origin);
-      const r = await runInPage<BackendReport>(page, 'measureThree');
-      report.three = r;
-      printCurve('three (billboards)', r);
-      await page.close();
     }
 
     if (only.has('three-mesh')) {

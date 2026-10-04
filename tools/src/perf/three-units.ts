@@ -18,7 +18,7 @@
 //      is serving, e.g. `import('/@fs/<abs path to this file>')` from the
 //      console of a tab navigated to the app): builds the identical world
 //      (same seed, same pure spawn/placement functions) against a REAL
-//      `ThreeRenderer` or `PixiRenderer` -- `ThreeRenderer` cannot be
+//      `ThreeRenderer` (with every roster type's real GLB) -- it cannot be
 //      constructed under `environment: 'node'`, per the brief, which is
 //      exactly why mode 1 does not attempt it. `runBackendCurve` is the
 //      browser entry point; it also re-times `sim.tick()` locally as a
@@ -31,8 +31,8 @@
 // `measureTicks`) so the two processes' numbers describe the same world
 // rather than two different ones that happen to share a unit count.
 //
-// Nothing here touches `ThreeRenderer.ts`, `terrain/dirty.ts` or
-// `renderer.ts` -- it only imports from them (relative paths, since
+// Nothing here touches `ThreeRenderer.ts` or `terrain/dirty.ts` -- it only
+// imports from them (relative paths, since
 // `@lions/render` is not a declared dependency of `@lions/tools` and adding
 // one was judged not worth the package.json churn for a perf tool; Node's
 // module resolution does not care how a file is reached, only what is at the
@@ -60,13 +60,7 @@ import {
 // Renderer-side imports are all relative paths INTO packages/render/src --
 // never through `@lions/render`'s package specifier (tools/ does not depend
 // on it) and never through a barrel `ThreeRenderer` is required to stay out
-// of. `sheet.ts`/`three/units/atlas.ts` are pure (no DOM, no `three` import
-// of their own beyond atlas.ts's types) and already unit-tested; reused
-// unchanged here for the texture-memory calculation, exactly as the brief's
-// Ruling 2 requires for animation -- the same principle applies to "how many
-// bytes does a sheet cost", which is `packSheet` and `packSheet` alone.
-import { parseManifest, type SheetSpec } from '../../../packages/render/src/sheet';
-import { packSheet, FRAME_PX } from '../../../packages/render/src/three/units/atlas';
+// of.
 import type { Renderer, RendererOptions, TerrainTones } from '../../../packages/render/src/api';
 import type { EmitterSpec } from '../../../packages/render/src/vfx';
 
@@ -74,8 +68,7 @@ import type { EmitterSpec } from '../../../packages/render/src/vfx';
 // World construction -- pure enough to run in Node, reused by the browser.
 // ============================================================================
 
-/** Fixed so every run (Node tick pass, three.js browser pass, Pixi browser
- *  pass) spawns the identical world. Not a determinism guarantee across
+/** Fixed so every run (Node tick pass, three.js browser pass) spawns the identical world. Not a determinism guarantee across
  *  processes (RNG streams are per-entity but nothing here reads them before
  *  combat starts) -- just a fixed starting point so "same N" means the same
  *  roster in the same places every time this file runs. */
@@ -180,11 +173,9 @@ export function* ringTiles(
   }
 }
 
-/** Type ids only -- every one of these already has real art wired in
- *  `main.ts`'s `SPRITE_MAP` (`SPRITE_MAP_PATHS` below is a literal copy of
- *  the paths for exactly this subset), so "load sprites" here exercises the
- *  identical fetch/decode/pack path a real mission does, not a placeholder.
- *  This is the SAME 20-type roster the app's own `?sandbox` already spawns
+/** Type ids only -- every one of these has a shipped GLB
+ *  (`tools/src/mesh_roster.test.ts`), so the browser half loads the same
+ *  meshes a real mission does, not a placeholder. This is the SAME 20-type roster the app's own `?sandbox` already spawns
  *  (`SANDBOX_KDF`/`SANDBOX_ENEMY` in `main.ts`, deduplicated to unique
  *  types) -- deliberately not invented for this harness, so "a 300-unit
  *  fight fields more types than a small mission" is measured against
@@ -322,8 +313,8 @@ export function measureTicks(sim: Sim, ticks: number): SampleStats {
 // ============================================================================
 // Node CLI -- tick cost only, no renderer, no browser, no GPU.
 //
-// Task B4.4: this mode is the half of the three-vs-Pixi perf claim that CAN
-// join CI, because it is the half with no browser/GPU in it -- `measureTicks`
+// Task B4.4: this mode is the half of the renderer perf claim (then
+// three-vs-Pixi; Pixi is retired, WP-A3.3) that CAN join CI, because it is the half with no browser/GPU in it -- `measureTicks`
 // times `sim.tick()` alone, and `sim.tick()` runs identically under `tsx` in
 // a GitHub Actions runner as it does in a real browser tab. So this mode now
 // ASSERTS a budget per checkpoint and sets a non-zero exit code on breach,
@@ -433,7 +424,7 @@ async function runNodeCli(): Promise<void> {
 }
 
 // ============================================================================
-// Browser harness -- real ThreeRenderer/PixiRenderer, real sprite sheets.
+// Browser harness -- a real ThreeRenderer, every roster type's real GLB.
 //
 // Not imported at module scope: the browser-only imports below (`three`'s
 // two doors, and DOM types) only resolve, and only execute, when this
@@ -441,49 +432,12 @@ async function runNodeCli(): Promise<void> {
 // is the only thing that runs -- the functions below are still parsed
 // (harmless) but never called, so `new THREE.WebGLRenderer(...)` (inside
 // `ThreeRenderer`'s own constructor, not this file) never executes.
+//
+// Until WP-A3.3 this half also drove `PixiRenderer` and a billboard-only
+// three curve, through a literal copy of `main.ts`'s `SPRITE_MAP`. Both
+// backends' billboard paths are deleted, so the curve is meshes only; the
+// historical curves are in `docs/PERFORMANCE.md`.
 // ============================================================================
-
-interface SpriteSpec {
-  path: string;
-  turretPath?: string;
-}
-
-/** Literal copy of the relevant subset of `main.ts`'s `SPRITE_MAP` -- paths
- *  only (data, not code), without the `${BASE}` prefix so this object stays
- *  free of any `import.meta.env` access at module scope. `resolveSpritePath`
- *  below prepends the base at call time, in the browser-only functions. */
-const SPRITE_MAP: Record<string, SpriteSpec> = {
-  mbt_lavi: { path: 'sprites/TNK_HULL/', turretPath: 'sprites/TNK_TURR/' },
-  ifv_namer: { path: 'sprites/NAMER_HULL/', turretPath: 'sprites/NAMER_TURR/' },
-  apc_eitan: { path: 'sprites/EITAN_HULL/', turretPath: 'sprites/EITAN_TURR/' },
-  inf_squad: { path: 'sprites/INF_SQUAD/' },
-  at_team: { path: 'sprites/INF_AT/' },
-  mortar_team: { path: 'sprites/INF_MORTAR/' },
-  jeep_shoded: { path: 'sprites/JEEP_HULL/' },
-  recon_drone: { path: 'sprites/DRONE_RECON/' },
-  dozer_d9: { path: 'sprites/D9_HULL/' },
-  heli_peten: { path: 'sprites/APACHE_HULL/' },
-  militia_cell: { path: 'sprites/INF_MILITIA/' },
-  rpg_team: { path: 'sprites/INF_RPG/' },
-  atgm_cell: { path: 'sprites/INF_ATGM/' },
-  technical: { path: 'sprites/TECH_HULL/', turretPath: 'sprites/TECH_TURR/' },
-  mortar_crew: { path: 'sprites/INF_MORTAR_E/' },
-  gun_truck: { path: 'sprites/GUNTRUCK_HULL/', turretPath: 'sprites/GUNTRUCK_TURR/' },
-  charge_squad: { path: 'sprites/INF_CHARGE/' },
-  loiter_drone: { path: 'sprites/DRONE_LOITER/' },
-  moto_rpg: { path: 'sprites/MOTO_RPG/' },
-  paramotor: { path: 'sprites/PARA_MOTOR/' },
-};
-
-/** Literal copy of `main.ts`'s `STRUCTURE_SPRITES`. */
-const STRUCTURE_SPRITES: Record<string, string> = {
-  shanty: 'sprites/BLD_SHANTY/',
-  house: 'sprites/BLD_HOUSE/',
-  warehouse: 'sprites/BLD_WAREHOUSE/',
-  apartment: 'sprites/BLD_APARTMENT/',
-  concrete: 'sprites/BLD_CONCRETE/',
-  wall: 'sprites/BLD_WALL/',
-};
 
 /** `TERRAIN_THEMES.arid` from `packages/app/src/terrain-themes.ts`, copied
  *  rather than imported: `MAP_ID` (`beit_sahwan_outskirts`) defaults to the
@@ -557,80 +511,60 @@ function createHost(): HTMLElement {
   return host;
 }
 
-/** Bytes one sheet's `DataArrayTexture` costs at RGBA8, no mipmaps:
- *  `packSheet(sheet).layers * FRAME_PX * FRAME_PX * 4` -- the exact formula
- *  `atlas.ts`'s own top comment documents ("272 layers x 256x256 x 4 bytes")
- *  and the one `buildUnitTexture` actually uploads. Computed independently
- *  of `ThreeRenderer` (which exposes no memory stats and whose private
- *  `THREE.WebGLRenderer` is deliberately not reached into) by re-running the
- *  same pure `packSheet` the renderer itself calls, against the identical
- *  manifest fetch. */
-function sheetBytes(sheet: SheetSpec): number {
-  return packSheet(sheet).layers * FRAME_PX * FRAME_PX * 4;
+/** Where a unit type's GLB lives, by the `art/meshes` layout
+ *  `mesh-catalogue.ts` also follows: a rigged team at `<id>.glb`, a vehicle
+ *  at `vehicles/<id>.glb`. Every roster type has one
+ *  (`tools/src/mesh_roster.test.ts` holds that against the disk). */
+const VEHICLE_ROSTER = new Set([
+  'mbt_lavi',
+  'ifv_namer',
+  'apc_eitan',
+  'jeep_shoded',
+  'recon_drone',
+  'dozer_d9',
+  'heli_peten',
+  'technical',
+  'gun_truck',
+  'loiter_drone',
+  'paramotor',
+]);
+
+interface MeshCapableRenderer {
+  loadMeshUnit(unitTypeId: string, glbUrl: string, faction: 'kdf' | 'enemy'): Promise<void>;
+  loadVehicleMesh(unitTypeId: string, glbUrl: string): Promise<void>;
+  loadBuildingMesh(structureId: string, idleUrl: string, wreckUrl: string | null): Promise<void>;
 }
 
-interface TextureBudget {
-  perType: { typeId: string; hullBytes: number; turretBytes: number; totalBytes: number }[];
-  totalBytes: number;
-}
-
-/** Fetches every spawned unit type's manifest(s) and sums the bytes their
- *  `DataArrayTexture`(s) cost -- hull and turret are separate textures (see
- *  `ThreeRenderer.loadSprites`, which builds one of each when `turretPath`
- *  is given). Structure textures are deliberately excluded: they are a
- *  single flat `THREE.Texture` per type (`loadStructureSprite` calls
- *  `loadStructureFrame`, never `packSheet`/`buildUnitTexture`), not a
- *  256-layer array, so their contribution is a low single-digit MB at most
- *  against the roster's hundreds of MB -- not worth the extra fetch/decode
- *  machinery for a number this task's VRAM finding does not turn on. */
-async function computeTextureBudget(base: string, typeIds: readonly string[]): Promise<TextureBudget> {
-  const perType: TextureBudget['perType'] = [];
-  let totalBytes = 0;
-  for (const typeId of typeIds) {
-    const spec = SPRITE_MAP[typeId];
-    if (!spec) continue;
-    const hullRes = await fetch(`${base}${spec.path}manifest.json`);
-    if (!hullRes.ok) throw new Error(`manifest ${hullRes.status} at ${spec.path}`);
-    const hullSheet = parseManifest(await hullRes.json());
-    const hullBytes = sheetBytes(hullSheet);
-    let turretBytes = 0;
-    if (spec.turretPath) {
-      const turretRes = await fetch(`${base}${spec.turretPath}manifest.json`);
-      if (!turretRes.ok) throw new Error(`manifest ${turretRes.status} at ${spec.turretPath}`);
-      const turretSheet = parseManifest(await turretRes.json());
-      turretBytes = sheetBytes(turretSheet);
-    }
-    const totalForType = hullBytes + turretBytes;
-    perType.push({ typeId, hullBytes, turretBytes, totalBytes: totalForType });
-    totalBytes += totalForType;
-  }
-  return { perType, totalBytes };
-}
-
-/** Loads every roster type's sprites (hull + turret) and every structure
- *  type the map actually places, through the real `Renderer.loadSprites`/
- *  `loadStructureSprite` -- identical to what `main.ts` does for a live
- *  mission, so the GPU state during measurement (real textures, real
- *  instancer geometry) is the state a player would actually see, not a
- *  placeholder. Runs once per backend, BEFORE any unit is spawned, so
- *  fetch/decode latency (thousands of individual PNGs -- see this file's
- *  top comment) never lands inside a timed phase. */
-async function loadAllSprites(renderer: Renderer, map: ParsedMap, base: string): Promise<void> {
-  const allTypes = [...FRIENDLY_ROSTER, ...HOSTILE_ROSTER];
+/** Loads every roster type's GLB, and every structure type the map places,
+ *  onto a `ThreeRenderer` the way `main.ts` does -- through a structural
+ *  cast, because the mesh loaders are backend-only members the `Renderer`
+ *  interface deliberately does not name. Runs once, BEFORE any unit is
+ *  spawned, so fetch/parse latency never lands inside a timed phase.
+ *
+ *  URLs go through Vite dev's `/@fs/` (the same convention
+ *  `measureSkinnedInfantry`'s `SPIKE_GLB_PATH` uses): `art/meshes/` is not
+ *  under `vite.config.ts`'s `publicDir`, and this file does not share
+ *  `main.ts`'s module location, so `new URL(relative, import.meta.url)`
+ *  would resolve somewhere else. */
+async function loadAllMeshes(renderer: Renderer, map: ParsedMap): Promise<void> {
+  const meshBase = `/@fs${repoRootFromModuleUrl()}/art/meshes/`;
+  const r = renderer as unknown as MeshCapableRenderer;
   await Promise.all(
-    allTypes.map(async (typeId) => {
-      const spec = SPRITE_MAP[typeId];
-      if (!spec) throw new Error(`no sprite spec for ${typeId}`);
-      await renderer.loadSprites(typeId, `${base}${spec.path}`, { turretPath: spec.turretPath });
+    [...FRIENDLY_ROSTER, ...HOSTILE_ROSTER].map((typeId) => {
+      if (VEHICLE_ROSTER.has(typeId)) return r.loadVehicleMesh(typeId, `${meshBase}vehicles/${typeId}.glb`);
+      // The mesh ramp pair is KDF or enemy (`mesh-catalogue.ts`'s
+      // `MeshFactionName`); every hostile faction (ashwar, rif, sarim) wears
+      // the enemy ramps.
+      const faction = (units as Record<string, { faction: string } | undefined>)[typeId]?.faction;
+      if (faction === undefined || faction === 'civilian') throw new Error(`no fighting faction for roster type ${typeId}`);
+      return r.loadMeshUnit(typeId, `${meshBase}${typeId}.glb`, faction === 'kdf' ? 'kdf' : 'enemy');
     })
   );
   const structureTypes = new Set(map.structures.map((s) => s.type));
   await Promise.all(
-    [...structureTypes].map(async (typeId) => {
-      const path = STRUCTURE_SPRITES[typeId];
-      if (!path) return; // no art for this type -- procedural fallback, same as a live mission
-      await renderer.loadStructureSprite(typeId, `${base}${path}`);
-    })
+    [...structureTypes].map((typeId) =>
+      r.loadBuildingMesh(typeId, `${meshBase}buildings/${typeId}.glb`, `${meshBase}buildings/${typeId}_wreck.glb`)
+    )
   );
 }
 
@@ -691,28 +625,23 @@ async function measureCheckpoint(renderer: Renderer, sim: Sim, target: number): 
 }
 
 export interface BackendReport {
-  backend: 'three' | 'pixi';
+  backend: 'three';
   checkpoints: CheckpointReport[];
-  textureBudget: TextureBudget;
 }
 
-/** Runs the full curve for one backend: one world, one renderer, one sprite
- *  load, `CHECKPOINTS.length` measured checkpoints, then dispose. Reusing
+/** Runs the full curve: one world, one renderer, one mesh load, `CHECKPOINTS.length` measured checkpoints, then dispose. Reusing
  *  one `Sim`/`Renderer` pair across all four checkpoints (rather than
- *  rebuilding at each N) means sprite loading -- the expensive part, by far
- *  -- happens exactly once per backend rather than once per (backend,
- *  count) pair, and it means unit count grows the way a real mission's
+ *  rebuilding at each N) means mesh loading -- the expensive part, by far
+ *  -- happens exactly once rather than once per count, and it means unit count grows the way a real mission's
  *  does (reinforcement, not reset-and-replay). `capacity` is sized for the
  *  top checkpoint plus headroom for whatever combat attrition costs between
  *  checkpoints (`spawn` never reuses a dead slot, so a top-up after losses
  *  consumes fresh capacity). */
 export async function runBackendCurve(
-  backend: 'three' | 'pixi',
   makeRenderer: (sim: Sim, opts: RendererOptions) => Renderer,
-  base: string,
-  onProgress?: (msg: string) => void,
-  afterSprites?: (renderer: Renderer) => Promise<void>
+  onProgress?: (msg: string) => void
 ): Promise<BackendReport> {
+  const backend = 'three' as const;
   const capacity = CHECKPOINTS[CHECKPOINTS.length - 1] + 150;
   const { sim, map, typeOf } = buildWorld(capacity);
   const opts = buildRendererOptions();
@@ -724,12 +653,8 @@ export async function runBackendCurve(
   await renderer.init(host);
   renderer.useEmitters(vfxEmitters as EmitterSpec[], paletteColor);
 
-  onProgress?.(`[${backend}] loading sprites (roster + map structures)...`);
-  await loadAllSprites(renderer, map, base);
-  if (afterSprites) {
-    onProgress?.(`[${backend}] loading mesh variants...`);
-    await afterSprites(renderer);
-  }
+  onProgress?.(`[${backend}] loading meshes (roster + map structures)...`);
+  await loadAllMeshes(renderer, map);
 
   const anchors = computeAnchors(map);
   const spawner = createSpawner(sim, typeOf, anchors.friendly, anchors.hostile);
@@ -744,25 +669,10 @@ export async function runBackendCurve(
     checkpoints.push(report);
   }
 
-  onProgress?.(`[${backend}] computing texture budget...`);
-  const textureBudget = await computeTextureBudget(base, [...FRIENDLY_ROSTER, ...HOSTILE_ROSTER]);
-
-  disposeRenderer(backend, renderer);
+  (renderer as unknown as { dispose(): void }).dispose();
   host.remove();
 
-  return { backend, checkpoints, textureBudget };
-}
-
-/** `Renderer` (`api.ts`) deliberately does not declare `dispose()` -- Pixi's
- *  own `Application` is torn down with the page, and only `ThreeRenderer`
- *  exposes an explicit one (it forces WebGL context loss; Pixi's canvas
- *  needs no equivalent to free its context on navigation). This harness
- *  runs each backend in its own tab (see this file's top comment), so
- *  skipping Pixi here is not a leak across the measurement -- the tab goes
- *  away regardless. */
-function disposeRenderer(backend: 'three' | 'pixi', renderer: Renderer): void {
-  if (backend !== 'three') return;
-  (renderer as unknown as { dispose(): void }).dispose();
+  return { backend, checkpoints };
 }
 
 /** Convenience entry point for the browser console: dynamically import this
@@ -771,136 +681,19 @@ function disposeRenderer(backend: 'three' | 'pixi', renderer: Renderer): void {
  *  `packages/render/node_modules`), then:
  *
  *    const mod = await import('/@fs/<absolute path>/tools/src/perf/three-units.ts');
- *    const report = await mod.measureThree();
+ *    const report = await mod.measureThreeMesh();
  *
  *  Kept as a named export rather than auto-run on import so a stray dynamic
  *  import (e.g. from a devtools autocomplete probe) cannot kick off a
- *  multi-minute sprite-loading run by accident.
+ *  multi-minute mesh-loading run by accident.
  *
- *  EXPECT A WIDE RANGE ON PIXI'S NUMBERS, NOT A SINGLE POINT. Two fix-rounds
- *  on task B4.4 chased this down. Round 1 measured Pixi's render cost 5-25x
- *  lower than an independent re-run and blamed it on the automation tab's
- *  `document.visibilityState === 'hidden'` (never composited to a screen) --
- *  round 2 refuted that directly: the independent re-run's tab was ALSO
- *  `hidden:true`/`hasFocus:false`, in the exact same automation tab group,
- *  so tab-visibility cannot be what separated the two measurements. That
- *  hypothesis is TESTED AND REFUTED -- do not re-chase it.
- *
- *  What actually separates the runs is ambient CPU load, and it hits the two
- *  backends asymmetrically. The evidence is this file's OWN renderer-free
- *  `sim.tick()` -- the exact code the Node CLI above times -- read in three
- *  conditions:
- *
- *    - no tab, no renderer at all (the Node CLI):   1.6-2.9ms
- *    - loaded, in a tab also driving THREE:         2.5-3.5ms
- *    - loaded, in a tab also driving PIXI:         12.0-14.5ms
- *
- *  Ambient load here means another process at ~30-60% CPU, not induced by
- *  this harness. Beside three, sharing a tab with a live renderer under load
- *  costs the sim roughly what running it bare costs; beside Pixi it costs
- *  4-6x that, on code that does not know which renderer shares its tab.
- *
- *  Be careful reading those three numbers: only the second and third are a
- *  controlled comparison. The Node CLI figure is the no-renderer floor, NOT
- *  a light-load three-tab measurement -- no such measurement exists, because
- *  the quiet run and the loaded run were taken by different agents and only
- *  the loaded one recorded per-tab tick cost. Do not quote it as three's
- *  light-load tab cost. That is a genuine load-SENSITIVITY difference between the backends
- *  (Pixi's CPU-bound batching degrades under contention; three's instanced
- *  draws largely do not), not a measurement artefact of either run being
- *  "wrong". Report Pixi's render/tick cost as a RANGE bounded by a quiet-ish
- *  run and a loaded run, and note which end is closer to what a real player
- *  has running (a loaded machine, if anything, closer to the high end) --
- *  never as one clean number. three's numbers stay tight across load levels
- *  and don't need the same treatment. */
-export async function measureThree(
-  onProgress?: (msg: string) => void
-): Promise<BackendReport> {
+ *  The name is kept from when a billboard curve (`measureThree`) and a Pixi
+ *  curve (`measurePixi`) stood beside it (WP-A3.3 deleted both). Their
+ *  numbers, and the finding that Pixi's render/tick cost was strongly
+ *  load-sensitive where three's was not, stay in `docs/PERFORMANCE.md`. */
+export async function measureThreeMesh(onProgress?: (msg: string) => void): Promise<BackendReport> {
   const { ThreeRenderer } = await import('../../../packages/render/src/three/ThreeRenderer');
-  const base = resolveBase();
-  return runBackendCurve('three', (sim, opts) => new ThreeRenderer(sim, opts), base, onProgress);
-}
-
-/** The subset of `main.ts`'s real `&mesh` wiring that overlaps this
- *  harness's own fixed roster (`FRIENDLY_ROSTER`/`HOSTILE_ROSTER` above):
- *  `inf_squad` (the shipped Meshy soldier, faction `kdf`) and four vehicle
- *  types (`apc_eitan`, `dozer_d9`, `mbt_lavi`, `technical`). Every other
- *  roster type (`ifv_namer`, `at_team`, `mortar_team`, `jeep_shoded`,
- *  `recon_drone`, `heli_peten`, `militia_cell`, `rpg_team`, `atgm_cell`,
- *  `mortar_crew`, `gun_truck`, `charge_squad`, `loiter_drone`, `moto_rpg`,
- *  `paramotor`) has no shipped GLB and keeps its billboard regardless -- the
- *  same "a type absent from the mesh list stays a billboard" rule `main.ts`
- *  documents for `&mesh`. That gives every checkpoint a REAL, roster-typical
- *  mixed scene (roughly 4/10 friendly types + 1/10 hostile types become
- *  mesh -- not a synthetic all-mesh scene, which no real mission has), not
- *  an isolated single-unit-type stand-in. Paths are literal copies of
- *  `main.ts`'s own `new URL(...)` targets, not re-derived, so a missing
- *  asset here is a missing asset there too, never a divergence introduced by
- *  this harness. */
-const MESH_VEHICLE_TYPES = ['apc_eitan', 'dozer_d9', 'mbt_lavi', 'technical'] as const;
-
-interface MeshCapableRenderer {
-  loadMeshUnit(unitTypeId: string, glbUrl: string, faction: 'kdf' | 'enemy'): Promise<void>;
-  loadVehicleMesh(unitTypeId: string, glbUrl: string): Promise<void>;
-}
-
-/** Loads the real shipped mesh GLBs onto a `ThreeRenderer` the same way
- *  `&mesh` does in `main.ts` -- reached through a structural cast rather
- *  than a `ThreeRenderer` import, because this file (like `main.ts`'s own
- *  eslint-enforced rule) keeps `three`-backend-only members off the
- *  `Renderer` interface type; `runBackendCurve`'s `afterSprites` hook is
- *  three-only by construction (never passed to `measurePixi`), so the cast
- *  is safe at the one call site that uses it.
- *
- *  URLs are built the SAME way `measureSkinnedInfantry`'s `SPIKE_GLB_PATH`
- *  already is (`/@fs<absolute repo root>/...`), via this file's own
- *  `repoRootFromModuleUrl()`, rather than `main.ts`'s
- *  `new URL(relative, import.meta.url)` convention -- that convention
- *  resolves relative to `main.ts`'s own module location (`packages/app/
- *  src/`), which this file does not share, and `art/meshes/` is NOT under
- *  `vite.config.ts`'s `publicDir` (that is `assets/` only), so a
- *  root-relative guess (`/art/meshes/...`) would 404. `/@fs/` is Vite dev's
- *  own mechanism for serving an arbitrary absolute filesystem path,
- *  independent of which module asks for it. */
-async function loadMeshVariants(renderer: Renderer): Promise<void> {
-  const root = repoRootFromModuleUrl();
-  const meshBase = `/@fs${root}/art/meshes/`;
-  const r = renderer as unknown as MeshCapableRenderer;
-  await Promise.all([
-    r.loadMeshUnit('inf_squad', `${meshBase}inf_squad.glb`, 'kdf'),
-    ...MESH_VEHICLE_TYPES.map((id) => r.loadVehicleMesh(id, `${meshBase}vehicles/${id}.glb`)),
-  ]);
-}
-
-/** Same curve as `measureThree`, on the identical roster/checkpoints, with
- *  the real shipped mesh GLBs loaded for the types that have one -- so the
- *  `measureThree()` vs `measureThreeMesh()` delta at each checkpoint is a
- *  real, apples-to-apples "what does swapping these billboards for meshes
- *  cost" number, not a comparison against a synthetic all-mesh scene or
- *  R0's throwaway spike (see `measureSkinnedInfantry` above for why that
- *  section is a deliberately separate, coarser stand-in). */
-export async function measureThreeMesh(
-  onProgress?: (msg: string) => void
-): Promise<BackendReport> {
-  const { ThreeRenderer } = await import('../../../packages/render/src/three/ThreeRenderer');
-  const base = resolveBase();
-  return runBackendCurve(
-    'three',
-    (sim, opts) => new ThreeRenderer(sim, opts),
-    base,
-    onProgress,
-    (renderer) => loadMeshVariants(renderer)
-  );
-}
-
-/** `assets/` is served at the app's own root by `vite.config.ts`'s
- *  `publicDir`, so a dev-server base of `/` is correct for every context
- *  this harness runs in (it is a local dev tool, never a GitHub Pages
- *  build). Reading `import.meta.env.BASE_URL` would need `vite/client`'s
- *  ambient types, which this package does not declare and should not have
- *  to for one constant. */
-function resolveBase(): string {
-  return '/';
+  return runBackendCurve((sim, opts) => new ThreeRenderer(sim, opts), onProgress);
 }
 
 // ============================================================================
@@ -909,8 +702,8 @@ function resolveBase(): string {
 // (InstancedMesh and skinning do not compose), so this is a SEPARATE cost
 // shape from `runBackendCurve` above -- N independent draw calls, N
 // AnimationMixers, N bone-matrix computations -- rather than the flat,
-// instanced billboard cost that function measures. Reuses this file's own
-// `summarize`/`SampleStats`/`createHost`/`resolveBase` rather than a second
+// shared-template mesh cost that function measures. Reuses this file's own
+// `summarize`/`SampleStats`/`createHost` rather than a second
 // timing utility, per the task's "do not write a second harness" instruction.
 //
 // STAND-IN, stated plainly: no Phase F team GLB exists yet (`art/meshes/` is
@@ -990,7 +783,7 @@ const SPIKE_GLB_PATH = 'art/spike/inf_squad_rigged.glb';
  *  number this task happens to ask about. */
 const FIGURE_CHECKPOINTS: readonly number[] = [100, 300, 600, 900, 1350];
 const SKIN_WARMUP_FRAMES = 10;
-// 90 (1.5s at 60fps), shorter than the billboard harness's 180: N independent
+// 90 (1.5s at 60fps), shorter than the backend curve's 180: N independent
 // draw calls and N mixer updates per frame is far more GC/driver-noise-prone
 // than one instanced draw call, and this measures FOUR isolated phases per
 // checkpoint rather than one, so the manual-run wall-clock budget is shared
@@ -1547,8 +1340,8 @@ export async function measureSkinnedInfantry(
 // effect caused the first time this was tried. The browser has no `process`
 // global at all, so this stays false there unconditionally regardless --
 // nothing above runs `new THREE.WebGLRenderer(...)` (or even imports the
-// module that would) unless `measureThree`/`measurePixi` is explicitly
-// called, which only the browser console path above does.
+// module that would) unless `measureThreeMesh`/`measureSkinnedInfantry` is
+// explicitly called, which only the browser console path above does.
 const isNodeCli =
   typeof process !== 'undefined' &&
   typeof process.versions?.node === 'string' &&

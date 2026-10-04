@@ -12,7 +12,6 @@
     "perf:load": "tsx src/perf/load-profile.ts",
     "ground:capture": "tsx src/perf/ground-captures.ts",
     "golden-diff": "tsx src/golden-diff/diff.ts",
-    "golden-diff:compare": "tsx src/ci/golden-diff-gate.ts",
     "golden-baseline": "tsx src/ci/three-baseline-gate.ts",
     "golden-baseline:bless": "tsx src/ci/three-baseline-gate.ts --bless",
     "encode:meshes": "tsx src/meshes/encode-meshes.ts",

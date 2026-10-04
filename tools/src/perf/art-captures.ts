@@ -1,5 +1,6 @@
 /**
- * The nine captures the 2026-09-14 art review was argued from, repeatable:
+ * The captures the 2026-09-14 art review was argued from, repeatable (eight
+ * of its nine; 06, the billboard shot, went with the billboard path):
  *   npx tsx tools/src/perf/art-captures.ts http://127.0.0.1:5178 out/dir
  * Headless Chromium, SwiftShader, 1440x900, device pixel ratio 1.
  */
@@ -69,9 +70,8 @@ await cam(27, 22, 2.5);
 await shot('04-fight-closeup');
 await cam(31, 21, 2.0);
 await shot('05-town-fog-blocks');
-await boot('/?sandbox=beit_sahwan_outskirts&nomesh');
-await cam(5, 22, 2.5);
-await shot('06-nomesh-billboards');
+// 06 was `06-nomesh-billboards`; the billboard path is deleted (WP-A3.3).
+// The other numbers are kept so a capture set stays comparable by name.
 await boot('/?sandbox=tel_marum&tunnel&sur&roe&civ');
 await cam(20, 18, 0.55);
 await shot('07-tel-marum-fog');

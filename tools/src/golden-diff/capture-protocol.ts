@@ -7,80 +7,57 @@
 // wall and answers it the same way this file does: run inside a real
 // browser tab pointed at the app's own Vite dev server, not a synthetic DOM.
 //
-// This file is NOT a script you execute -- `pixiUrl`/`threeUrl`/`captureScript`
-// build what a browser-driving caller needs, so the browser-driving half (a
-// human in devtools, or an agent with browser automation tools, or
-// `tools/src/ci/golden-diff-gate.ts` driving Playwright) has one source of
-// truth for "what counts as an identical scenario" rather than several
-// copies that can drift. Read this file top to bottom before capturing; the
-// protocol below is what was actually run to produce
-// `.superpowers/d-golden-diff-report.md`'s numbers, generalised afterward
-// (Phase D item #20/#8) to more than the one scenario it started with.
+// This file is NOT a script you execute -- `threeUrl`/`captureScript` build
+// what a browser-driving caller needs, so every caller
+// (`ci/three-baseline-gate.ts` driving Playwright, the perf capture
+// harnesses, or a human in devtools) has one source of truth for "what
+// counts as an identical scenario" rather than several copies that can
+// drift.
+//
+// It was written for the cross-backend diff (`ci/golden-diff-gate.ts`,
+// Pixi against three, report-only from 2026-09-02) and kept `pixiUrl` for
+// it; that harness, `pixiUrl` and `expected-differences.ts` went with the
+// Pixi backend (WP-A3.3). The visual gate was always three against a
+// committed three baseline, and that is all this file serves now.
 //
 // ============================================================================
 // Scenarios
 // ============================================================================
 //
-// A `Scenario` is everything needed to put both backends into an identical,
+// A `Scenario` is everything needed to put the renderer into a fixed,
 // comparable state: which map, where the camera looks, how far to
-// fast-forward the sim, and (optionally) a camera zoom. Each scenario is its
-// own gate in `golden-diff-gate.ts`, with its own budget -- see that file's
-// top comment for why a single global threshold across scenes with
-// genuinely different content is the wrong instrument.
+// fast-forward the sim, and (optionally) a camera zoom. Each scenario has
+// its own budget in `baseline.ts` -- a single global threshold across scenes
+// with genuinely different content is the wrong instrument.
 //
-// `QUIET_SCENARIO` is the original, and the only one measured by a real
-// GPU-accelerated Chrome by hand (`.superpowers/d-golden-diff-report.md`):
-// a static, order-free sandbox scan with no vehicle, no combat, no open
-// ground at zoom. It stayed the CI default while it was the only scenario
-// that existed; it is NOT representative of the whole game -- see
-// `.superpowers/d-readiness-audit.md` item "The 0.143% scene has exactly one
-// unit in frame."
+// `QUIET_SCENARIO` is the original: a static, order-free sandbox scan with
+// no vehicle, no combat, no open ground at zoom. It is NOT representative
+// of the whole game -- see `.superpowers/d-readiness-audit.md` item "The
+// 0.143% scene has exactly one unit in frame."
 //
 // `OPEN_GROUND_SCENARIO` closes the gap the quiet scenario cannot see by
 // construction: it never frames open ground at zoom, which is exactly where
 // `.superpowers/d-scatter-report.md` found three's dominant stone-grain mark
 // silently invisible on 4 of 5 shipped maps. Parameters below (map, marker,
-// ticks, zoom) match that report's own manual walk exactly, since that walk
-// already proved out where the defect is visible and confirmed a real
-// `pnpm dev` capture at those settings shows it -- re-deriving different
-// parameters from scratch would only risk missing the framing that is known
-// to work.
+// ticks, zoom) match that report's own manual walk exactly.
 //
 // ============================================================================
-// Protocol
+// Protocol (by hand; the gate automates the same steps)
 // ============================================================================
 //
 // 1. Have a Vite dev server for THIS worktree running (check with `lsof` or
 //    similar that its cwd is this checkout -- CLAUDE.md's hard constraint:
 //    never kill someone else's `pnpm dev`, never assume port 5173 is yours).
-//    If none is running, start your own on a different port
-//    (`pnpm --filter @lions/app dev` with `PORT=<port>` set -- vite.config.ts
-//    reads `PORT`, defaulting to 5173).
 //
-// 2. Open ONE browser tab (real Chrome, via any automation surface that can
-//    navigate, eval JS, and screenshot a CSS-pixel region -- e.g.
-//    claude-in-chrome's `navigate` / `javascript_tool` / `computer{zoom}`, or
-//    Playwright as `golden-diff-gate.ts` does). Resize its window ONCE to a
-//    fixed size and reuse the SAME tab/window for both captures of a given
-//    scenario, so window chrome and any DPR quirks cancel out identically.
-//    Record whatever canvas rect you actually get; do not assume a number.
+// 2. Open ONE browser tab at a fixed window size and reuse it, so window
+//    chrome and any DPR quirks cancel out. Record the canvas rect you get.
 //
-// 3. For EACH backend (pixi first, then three), in the SAME tab:
-//    a. navigate to that backend's URL for the scenario (see
-//       `pixiUrl`/`threeUrl` below)
-//    b. wait for boot (~2-3s is enough on a warm dev-server cache; poll
-//       `typeof window.__lions !== 'undefined'` if you want a real gate
-//       rather than a fixed sleep)
-//    c. run `captureScript(scenario)` and keep its returned
-//       `{camera, rect}` -- diff it against the OTHER backend's returned
-//       value before trusting the screenshots. They must match exactly (a
-//       mismatch means the two captures are not comparable at all --
-//       different framing, not a rendering difference).
-//    d. screenshot exactly `rect` (not the whole viewport -- HUD chrome
-//       outside the canvas is identical DOM/CSS on both backends and only
-//       adds noise) and save it to disk.
+// 3. Navigate to `threeUrl(port, scenario)`, wait for boot (poll
+//    `typeof window.__lions !== 'undefined'`), run `captureScript(scenario)`
+//    and keep its returned `{camera, rect}`, then screenshot exactly `rect`
+//    (HUD chrome outside the canvas only adds noise).
 //
-// 4. Run `diff.ts` on the two saved PNGs.
+// 4. Run `diff.ts` on the saved PNG and the reference.
 //
 // Why a real compositor screenshot, not `canvas.toDataURL()`/`readPixels`:
 // CLAUDE.md is explicit that `preserveDrawingBuffer` stays OFF in shipping
@@ -137,9 +114,9 @@ export interface Scenario {
   /** One line: what this scenario frames and why it exists. */
   description: string;
   /** Exactly one of `sandboxMap`/`mission` must be set -- `captureScript`
-   *  and `pixiUrl`/`threeUrl` throw if neither is, or both are. A `mission`
+   *  and `threeUrl` throw if neither is, or both are. A `mission`
    *  scenario gates behind the loading screen's deploy click (see `orders`'
-   *  own comment and `capture()` in `golden-diff-gate.ts`), which a
+   *  own comment and the gate's own capture loop), which a
    *  `sandboxMap` scenario never does (`main.ts`'s `showLoading` only holds
    *  deployment for a mission's own briefing -- `briefingHoldsDeployment`,
    *  `ui/loading.ts` -- and the sandbox passes no briefing at all). */
@@ -645,8 +622,8 @@ export const DUSK_SCENARIO: Scenario = {
   targetTick: QUIET_SCENARIO.targetTick,
 };
 
-/** Every scenario this harness knows about. `golden-diff-gate.ts` runs all of
- *  them, each against its own budget. Add a new one here rather than
+/** Every scenario this harness knows about. `three-baseline-gate.ts` runs
+ *  all of them, each against its own budget. Add a new one here rather than
  *  building another ad-hoc scenario by hand.
  *
  *  Adding one here and forgetting its `BASELINES` entry is caught by
@@ -689,21 +666,10 @@ function sceneParam(scenario: Scenario): string {
   throw new Error(`scenario "${scenario.id}" sets neither sandboxMap nor mission`);
 }
 
-export function pixiUrl(port = 5173, scenario: Scenario = QUIET_SCENARIO): string {
-  // Explicit `&renderer=pixi`, not just the absence of `&renderer=three`.
-  // `renderer-choice.ts` falls back to whatever `localStorage['lions.renderer']`
-  // last held when the query param is absent, and that storage is per-ORIGIN
-  // (CLAUDE.md, "The three.js backend"'s last bullet) -- shared across every tab
-  // and every capture ever run against this dev server, this harness's own three
-  // capture included. Without this, a "pixi" capture taken on an origin whose
-  // storage was last set to 'three' silently boots three too, and the two
-  // screenshots come back byte-identical: a real trap this file hit once,
-  // caught only by both PNGs being suspiciously the same size and MD5.
-  return `${baseUrl(port)}/?${sceneParam(scenario)}&renderer=pixi`;
-}
-
+/** The scenario's URL. It carried `&renderer=three` until WP-A3.3, when
+ *  the backend choice was retired (`?renderer=` is accepted and ignored). */
 export function threeUrl(port = 5173, scenario: Scenario = QUIET_SCENARIO): string {
-  return `${baseUrl(port)}/?${sceneParam(scenario)}&renderer=three`;
+  return `${baseUrl(port)}/?${sceneParam(scenario)}`;
 }
 
 /** Statements (not an expression) that stop the app's own rAF frame loop.
