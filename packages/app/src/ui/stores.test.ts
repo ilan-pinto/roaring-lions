@@ -102,8 +102,10 @@ describe('the Stores preview: no Buy is ever enabled', () => {
     expect(kipod?.textContent).not.toMatch(/you have|co-op|Open in the brigade/);
     expect(kipod?.querySelector('.rl-stores__path')?.textContent).toMatch(/^Free in ~\d+ missions?$/);
     expect(kipod?.querySelectorAll('button')).toHaveLength(1);
-    expect(host.querySelector('[data-item="heli_peten_gunship"]')).toBeNull();
-    expect(host.querySelector('.rl-stores__offsale-count')?.textContent).toMatch(/^1 item is not on sale yet/);
+    // GH-330: a new campaign pays again, so the gunship (8,000, past one
+    // campaign's pay) is a card like any other and nothing is off sale.
+    expect(host.querySelector('[data-item="heli_peten_gunship"]')?.getAttribute('data-state')).toBe('locked');
+    expect(host.querySelector('.rl-stores__offsale-count')).toBeNull();
     // The co-op/skirmish rule is said once, in the shelf's intro.
     expect(host.querySelectorAll('.rl-stores__lede')).toHaveLength(1);
     expect((host.textContent ?? '').match(/co-op and skirmish/g)).toHaveLength(1);
@@ -190,7 +192,7 @@ describe('the Stores with a TEST wallet (?testcoins)', () => {
     const buy = (k: string): HTMLButtonElement | null => host.querySelector<HTMLButtonElement>(`button[data-buy="${k}"]`);
     expect(buy('unit:apc_kipod')?.disabled).toBe(false); // 320 <= 400
     expect(buy('unit:recon_zikit')?.disabled).toBe(true); // 425 > 400
-    expect(buy('unit:heli_peten_gunship')).toBeNull(); // G1: off sale
+    expect(buy('unit:heli_peten_gunship')?.disabled).toBe(true); // 800 > 400; on sale since GH-330 (G1)
     expect(buy('tier:apc_kipod.armour.1')).toBeNull(); // unit not open yet: nothing to buy
     expect(buy('tier:inf_squad.armour.1')?.disabled).toBe(false);
     const packs = [...host.querySelectorAll<HTMLButtonElement>('button[data-buy^="pack:"]')];

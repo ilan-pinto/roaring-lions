@@ -4,7 +4,7 @@ import type { LedgerData, MissionResult, UnlockGate } from '@lions/sim';
 import {
   COIN_PACKS,
   buyEnabled,
-  LIFETIME_CREDITS,
+  CAMPAIGN_CREDITS,
   coinPrice,
   meanPay,
   packBonusPercent,
@@ -156,10 +156,14 @@ describe('item states', () => {
     expect(item?.honest).toEqual({ kind: 'stars', missions: 16, have: 12, need: 44 });
   });
 
-  it('off sale (G1): a bought-only unit priced past a lifetime of pay', () => {
-    const gunship = byId(input({ credits: 9000 }), 'heli_peten_gunship');
-    expect(gunship?.state).toBe('offSale');
-    expect(gunship?.honest).toEqual({ kind: 'unreachable', lifetime: LIFETIME_CREDITS });
+  // GH-330: a new campaign pays again, so a bought-only unit priced past one
+  // campaign's pay is reachable across campaigns and is NOT off sale (G1).
+  it('G1: a bought-only unit priced past one campaign of pay stays on the shelf', () => {
+    expect(8000).toBeGreaterThan(CAMPAIGN_CREDITS); // the case this spec exists for
+    const gunship = byId(input({ credits: 0 }), 'heli_peten_gunship');
+    expect(gunship?.state).toBe('locked');
+    expect(gunship?.honest).toEqual({ kind: 'pay', missions: Math.ceil(8000 / meanPay(undefined)) });
+    expect(byId(input({ credits: 9000 }), 'heli_peten_gunship')?.state).toBe('affordable');
     // ...while a bought-only unit play CAN reach stays on the shelf.
     const zikit = byId(input({ credits: 0 }), 'recon_zikit');
     expect(zikit?.state).toBe('locked');
