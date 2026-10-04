@@ -35,6 +35,12 @@ export interface SaveSlot {
 export interface SlotMeta { id: string; name: string; savedAt: number; build: string; missions: number; credits: number }
 export interface ActiveState { ledger: LedgerData; account: BrigadeAccount; tutorialDone: boolean }
 
+/** A slot ledger's completed missions, for `migrateAccount`. */
+function slotCompleted(ledger: unknown): ReadonlySet<string> {
+  const done = isRecord(ledger) ? ledger['campaign.completed_missions'] : undefined;
+  return new Set(Array.isArray(done) ? done.filter((m): m is string => typeof m === 'string') : []);
+}
+
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 export function readActive(store: LedgerStore): ActiveState {
@@ -162,7 +168,9 @@ export function importSlot(json: string): SaveSlot {
     savedAt: typeof v.savedAt === 'number' ? v.savedAt : 0,
     build: typeof v.build === 'string' ? v.build : '',
     ledger: v.ledger as LedgerData,
-    account: migrateAccount(v.account),
+    // A version-1 slot's per-campaign record (GH-330) is derived against the
+    // slot's OWN ledger, the campaign it was saved in, not the active one.
+    account: migrateAccount(v.account, slotCompleted(v.ledger)),
     tutorialDone: v.tutorialDone === true,
   };
 }

@@ -39,6 +39,7 @@ export const GARAGE_SEED_ACCOUNT: BrigadeAccount = {
   balance: 2400,
   earned_total: 0,
   paid: {},
+  campaign_paid: {},
   unlocks: ['mbt_lavi'],
   upgrades: {
     inf_squad: { armour: 2, sensors: 1 },
