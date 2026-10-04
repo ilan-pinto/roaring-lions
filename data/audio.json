@@ -525,6 +525,55 @@
           }
         ]
       }
+    },
+    "announcements": {
+      "$comment": "GH-110 announcement lines: objective, deadline, loss, reinforcement and contact calls. Each carries an i18n caption key and an `audio` key that must exist in voices.lines (empty until recorded, ElevenLabs licence D5 unconfirmed): empty or unrecorded means caption only. Priority high > normal > low; a lower one stays quiet for hold_s after a higher one spoke.",
+      "hold_s": 3,
+      "caption_s": 3.5,
+      "events": {
+        "objective_active": {
+          "caption": "announce.objective.active",
+          "audio": "",
+          "cooldown_s": 2,
+          "priority": "high"
+        },
+        "objective_complete": {
+          "caption": "announce.objective.complete",
+          "audio": "",
+          "cooldown_s": 2,
+          "priority": "high"
+        },
+        "objective_failed": {
+          "caption": "announce.objective.failed",
+          "audio": "",
+          "cooldown_s": 2,
+          "priority": "high"
+        },
+        "deadline": {
+          "caption": "announce.deadline",
+          "audio": "",
+          "cooldown_s": 10,
+          "priority": "high"
+        },
+        "wave": {
+          "caption": "announce.wave",
+          "audio": "",
+          "cooldown_s": 20,
+          "priority": "normal"
+        },
+        "reinforcements": {
+          "caption": "announce.reinforcements",
+          "audio": "",
+          "cooldown_s": 8,
+          "priority": "normal"
+        },
+        "unit_lost": {
+          "caption": "announce.unitLost",
+          "audio": "",
+          "cooldown_s": 6,
+          "priority": "low"
+        }
+      }
     }
   }
 }

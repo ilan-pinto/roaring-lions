@@ -50,6 +50,10 @@ export interface VoiceCue {
    *  the mixer answers `missing`/`placeholder` for this cue. Only the pinned
    *  cue carries one today. */
   caption?: string;
+  /** GH-110: ICU params for `caption`, and how long to hold it. Only an
+   *  announcement sets them; the pinned cue's caption has neither. */
+  captionParams?: Readonly<Record<string, string | number>>;
+  captionSeconds?: number;
 }
 
 /** One player gesture: every intent it produced, and whether the pointer

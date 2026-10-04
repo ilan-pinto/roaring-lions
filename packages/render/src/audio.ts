@@ -77,6 +77,28 @@ export interface VoiceManifest {
   /** Faction -> language code. */
   languages?: Record<string, string>;
   lines?: Record<string, VoiceLine>;
+  /** GH-110: the announcement table (`app`'s `voice/announce.ts` reads it). */
+  announcements?: AnnouncementManifest;
+}
+
+/** One announcement (GH-110): a caption key now, an audio line key later. */
+export interface AnnouncementDef {
+  /** An i18n key, never text. */
+  caption: string;
+  /** A key in `voices.lines`, or empty while nothing is recorded (D5). */
+  audio: string;
+  /** Seconds before THIS announcement may speak again. */
+  cooldown_s: number;
+  /** high outranks normal outranks low. */
+  priority: 'high' | 'normal' | 'low';
+}
+
+export interface AnnouncementManifest {
+  /** Seconds a lower-priority announcement waits after a higher one spoke. */
+  hold_s: number;
+  /** Seconds a caption stays up. */
+  caption_s: number;
+  events: Record<string, AnnouncementDef>;
 }
 
 export interface AudioManifest {
@@ -88,9 +110,9 @@ export interface AudioManifest {
 }
 
 /** Who wins a voice slot (N5): an order, then a KDF death, then an enemy death. */
-export type VoicePriority = 'order' | 'kdf_death' | 'enemy_death';
+export type VoicePriority = 'announce' | 'order' | 'kdf_death' | 'enemy_death';
 /** N5's ranking as numbers; higher wins. */
-export const VOICE_RANK: Readonly<Record<VoicePriority, number>> = { order: 3, kdf_death: 2, enemy_death: 1 };
+export const VOICE_RANK: Readonly<Record<VoicePriority, number>> = { announce: 4, order: 3, kdf_death: 2, enemy_death: 1 };
 
 /** A request to speak one line. `at` places it in the world; absent means the
  *  radio net, heard through the radio band (N13). */

@@ -114,6 +114,45 @@ def check_licensed_file(entry, failures, max_bytes, roles=("file", "alt"), licen
             failures.append(f"{rel}: {kb} KB exceeds the {max_bytes // 1024} KB ceiling")
 
 
+ANNOUNCE_PRIORITIES = ("high", "normal", "low")
+EN_JSON = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "app", "src", "i18n", "en.json")
+
+
+def check_announcements(voices, failures, captions=None):
+    """GH-110: the announcement table. A caption is an i18n key that must exist
+    in en.json (`captions`, a set; read from EN_JSON when None); `audio` is empty
+    until a line is recorded, else a key declared in voices.lines."""
+    table = voices.get("announcements")
+    if table is None:
+        return
+    if captions is None:
+        with open(EN_JSON) as fh:
+            captions = set(json.load(fh))
+    for field in ("hold_s", "caption_s"):
+        v = table.get(field)
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
+            failures.append(f"announcements: {field} {v!r} is not a non-negative number")
+    events = table.get("events", {})
+    if not events:
+        failures.append("announcements: no events declared")
+    lines = voices.get("lines", {})
+    for name, ev in events.items():
+        if not ev.get("caption"):
+            failures.append(f"announcements '{name}': no caption key -- the caption is the fallback and the only line today")
+        elif ev["caption"] not in captions:
+            failures.append(f"announcements '{name}': caption key '{ev['caption']}' is not in en.json")
+        audio = ev.get("audio")
+        if not isinstance(audio, str):
+            failures.append(f"announcements '{name}': audio must be a string ('' until recorded)")
+        elif audio != "" and audio not in lines:
+            failures.append(f"announcements '{name}': audio '{audio}' is not declared in voices.lines")
+        cd = ev.get("cooldown_s")
+        if isinstance(cd, bool) or not isinstance(cd, (int, float)) or cd < 0:
+            failures.append(f"announcements '{name}': cooldown_s {cd!r} is not a non-negative number")
+        if ev.get("priority") not in ANNOUNCE_PRIORITIES:
+            failures.append(f"announcements '{name}': priority {ev.get('priority')!r} is not one of {ANNOUNCE_PRIORITIES}")
+
+
 def check_voices(voices, failures, factions, audio_dir=AUDIO_DIR):
     """The `voices` section (WP-AU1 §6). Returns every file it declares, for
     the undeclared-file sweep. Key COMPLETENESS is a vitest (lines.test.ts,
@@ -134,6 +173,7 @@ def check_voices(voices, failures, factions, audio_dir=AUDIO_DIR):
             failures.append(f"voices: language for unknown faction '{faction}'")
         if not re.fullmatch(r"[a-z]{2}", str(lang)):
             failures.append(f"voices: faction '{faction}' maps to '{lang}', not a two-letter language")
+    check_announcements(voices, failures)
     spoken = set(langs.values())
     for key, line in voices.get("lines", {}).items():
         m = VOICE_KEY.match(key)

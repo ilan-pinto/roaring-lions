@@ -2981,8 +2981,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       if (req.settings.get().accessibility.captions) hud.caption(text, seconds);
     },
     info: import.meta.env.DEV ? (m) => console.info(m) : () => {},
-    text: (k) => t(k),
+    text: (k, params) => t(k, params),
     noted: voiceNoted,
+    // GH-110: the EVA half. The radio net speaks the player faction's
+    // language; captions carry it until a line is recorded (D5).
+    announcements: (audioManifest as AudioManifest).voices?.announcements,
+    announceLang: voiceLangs['kdf'] ?? 'he',
+    labelOf: (id) => mission?.objectives.find((o) => o.id === id)?.text ?? id,
   });
   onDispose(() => {
     voice.dispose();
@@ -4105,6 +4110,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // Optional on the interface (`api.ts`) -- Pixi draws no civilians at all
       // and implements nothing.
       renderer.onMissionEvents?.(missionEvents);
+      voice.onMission(missionEvents);
 
       // The alert layer (spec acceptance (a)): one classification of the tick,
       // four consequences, all in one place so a line, a cue and a mark can
@@ -4624,15 +4630,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       }
       reportMeshFailures();
     }
-    // PR 361: a deadline that loses the mission warns once, a minute out.
-    // No voice line exists for it (data/audio.json's voices are unit barks),
-    // so it takes the alert chime the feed's other warnings use.
+    // PR 361: a deadline that loses the mission warns once, a minute out,
+    // with the alert chime the feed's other warnings use. GH-110 adds its
+    // announcement (caption now, audio once recorded).
     if (runtime && runtime.result === 'ongoing' && sim.tickCount % 5 === 0) {
       const due = deadlineWarnings(liveObjectives(), deadlinesWarned);
       deadlinesWarned = due.warned;
       for (const row of due.warn) {
         hud.note(escapeHtml(deadlineWarningLine(row)), 'warn');
         audio.playUi('ui_alert');
+        voice.onMission([], [{ event: 'deadline', params: { label: row.text } }]);
       }
     }
     // Show the ground a timed objective is about, and how it is going.

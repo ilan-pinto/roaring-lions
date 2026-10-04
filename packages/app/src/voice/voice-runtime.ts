@@ -31,9 +31,10 @@
  * flush is already queued finds the flag and drops out, and a later tick or
  * intent is ignored.
  */
-import type { SimEvent } from '@lions/sim';
-import type { VoiceResult, VoiceStatus } from '@lions/render';
+import type { MissionEvent, SimEvent } from '@lions/sim';
+import type { AnnouncementManifest, VoiceResult, VoiceStatus } from '@lions/render';
 import type { PlayerIntent } from '../input/intents';
+import { INITIAL_ANNOUNCE, announceInputsOf, decideAnnouncements, type AnnounceInput, type AnnounceState, type AnnounceWhy } from './announce';
 import {
   INITIAL_DIRECTOR,
   decideDeaths,
@@ -59,23 +60,29 @@ export interface VoiceRuntimeDeps {
   caption(text: string, seconds: number): void;
   /** i18n lookup (`t` in the app, identity in tests). GH-262: used to render
    *  a cue's `caption` key when the mixer has no take to caption itself. */
-  text(key: string): string;
+  text(key: string, params?: Readonly<Record<string, string | number>>): string;
   /** `console.info` in a dev build, a no-op in production. */
   info(message: string): void;
   /** The keys already noted as missing. The app passes ONE set for the whole
    *  document, so a second battlefield boot does not note a key again; left
    *  out, the runtime keeps its own. */
   noted?: Set<string>;
+  /** GH-110: the manifest's announcement table. Absent, nothing announces. */
+  announcements?: AnnouncementManifest;
+  /** The language the radio net speaks (the player faction's). */
+  announceLang?: string;
+  /** An objective's label by id, for the caption. */
+  labelOf?(objectiveId: string): string;
 }
 
 /** One voiced decision, silent ones included. `status` is the mixer's answer,
  *  or `null` when the director chose silence and nothing was handed over. */
 export interface VoiceLogEntry {
   at: number;
-  source: 'order' | 'death';
+  source: 'order' | 'death' | 'announce';
   trigger: string | null;
   key: string | null;
-  why: Why;
+  why: Why | AnnounceWhy;
   status: VoiceStatus | null;
 }
 
@@ -89,6 +96,7 @@ export const PINNED_CAPTION_S = 1.5;
 export class VoiceRuntime {
   private readonly deps: VoiceRuntimeDeps;
   private state: DirectorState = INITIAL_DIRECTOR;
+  private announceState: AnnounceState = INITIAL_ANNOUNCE;
   private pending: PlayerIntent[] = [];
   private hostile = false;
   private scheduled = false;
@@ -124,6 +132,19 @@ export class VoiceRuntime {
     for (const note of notes) this.speak(at, 'death', 'death', note.cue, note.why);
   }
 
+  /** GH-110: the tick's mission events, plus any announcement the app raises
+   *  itself (a deadline warning), become at most one announcement. */
+  onMission(events: readonly MissionEvent[], extra: readonly AnnounceInput[] = []): void {
+    if (this.disposed || !this.deps.announcements) return;
+    const labelOf = this.deps.labelOf ?? ((id: string) => id);
+    const inputs = [...announceInputsOf(events, labelOf), ...extra];
+    if (inputs.length === 0) return;
+    const at = this.deps.now();
+    const d = decideAnnouncements(this.announceState, inputs, this.deps.announcements, this.deps.announceLang ?? 'he', at);
+    this.announceState = d.state;
+    for (const note of d.notes) this.speak(at, 'announce', note.event, note.cue, note.why);
+  }
+
   /** Copies of the ring, oldest first. */
   log(): VoiceLogEntry[] {
     return this.entries.map((e) => ({ ...e }));
@@ -157,9 +178,19 @@ export class VoiceRuntime {
     this.speak(at, 'order', d.trigger, d.cue, d.why);
   }
 
-  private speak(at: number, source: VoiceLogEntry['source'], trigger: string | null, cue: VoiceCue | null, why: Why): void {
+  private speak(at: number, source: VoiceLogEntry['source'], trigger: string | null, cue: VoiceCue | null, why: Why | AnnounceWhy): void {
     let status: VoiceStatus | null = null;
-    if (cue) {
+    if (cue && cue.trigger === 'announce') {
+      // GH-110: caption always, from the cue's own i18n key -- the line's
+      // wording is the house's, and the take (when one exists) only adds
+      // sound. An empty audio key is "not recorded": nothing is handed to the
+      // mixer at all and the status stays null. A key the mixer cannot play
+      // (missing, still decoding, muted) leaves the caption standing alone.
+      if (cue.key !== '') status = this.deps.play(cue).status;
+      if (cue.caption !== undefined) {
+        this.deps.caption(this.deps.text(cue.caption, cue.captionParams), cue.captionSeconds ?? PINNED_CAPTION_S);
+      }
+    } else if (cue) {
       const r = this.deps.play(cue);
       status = r.status;
       if (r.status === 'missing' && !this.noted.has(cue.key)) {
