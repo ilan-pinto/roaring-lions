@@ -199,6 +199,12 @@ export interface MissionJson {
   /** A short cinematic for the deploy screen, as a path under assets/
    *  (`video/<id>.mp4`). The sim never reads it; carried for the app. */
   briefing_video?: string;
+  /** Named sections of `briefing` and an image slot for the deploy screen
+   *  (GH-119). The sim never reads either; carried for the app, like
+   *  `briefing_video`. `id` is a plain string because a JSON module types it
+   *  so -- the app's `briefingSections` narrows it. */
+  briefing_sections?: { id: string; text: string; image?: string }[];
+  briefing_image?: string | string[];
   /** Story voice (GDD §11), shown before the mission starts alongside the
    *  title. The sim never reads these three -- they are carried on the
    *  mission object purely so the app can, off the same JSON it already

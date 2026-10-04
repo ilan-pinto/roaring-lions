@@ -11,6 +11,12 @@
     }
   },
   "briefing": "Nothing here is contested yet. The battalion has given you a corner of the training area, one rifle squad, and a drone over the far side of the range to spot for you. The rest arrives a piece at a time as you get to it. Learn what each of them is for. Nothing you lose here comes off the roster, and nothing you learn here is free later. Work through it at your own pace; nothing out here is trying to beat the clock.",
+  "briefing_sections": [
+    {"id": "situation", "text": "Nothing here is contested yet. The battalion has given you a corner of the training area, one rifle squad, and a drone over the far side of the range to spot for you."},
+    {"id": "mission", "text": "The rest arrives a piece at a time as you get to it. Learn what each of them is for."},
+    {"id": "notes", "text": "Nothing you lose here comes off the roster, and nothing you learn here is free later. Work through it at your own pace; nothing out here is trying to beat the clock."}
+  ],
+  "briefing_image": "ui/plates/units/inf_squad.jpg",
   "map": {
     "file": "tutorial_ground",
     "time_of_day": "day",

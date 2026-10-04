@@ -321,6 +321,10 @@
   "deploy.slots": "{n} left to assign",
   "deploy.slots.full": "Force assigned",
   "deploy.map": "Ground",
+  "briefing.section.situation": "Situation",
+  "briefing.section.mission": "Mission",
+  "briefing.section.execution": "Execution",
+  "briefing.section.notes": "Notes",
 
   "world.card.locked": "locked",
   "world.card.noOps": "no operations authored yet",

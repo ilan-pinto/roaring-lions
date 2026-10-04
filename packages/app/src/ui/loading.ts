@@ -22,6 +22,7 @@ import { drawFromPool, type DeployEntry, type DeployRosterView } from './deploy-
 import { defaultSelection, isComplete, slotsLeft, toggleEntry, type DeploySelection } from './deploy-select';
 import { paintMapTerrain, type PreviewMap, type PreviewTones } from './map-preview';
 import { objectivesPanel, type ObjectiveRow } from './objectives';
+import type { BriefingSection } from './briefing-sections';
 
 /**
  * Does this screen wait for the player before handing over the field?
@@ -72,6 +73,19 @@ export function briefingBeats(text: string): string[] {
   }
   flush();
   return beats;
+}
+
+/** An `<img>` with no alt text -- every picture on the deploy screen is
+ *  decoration beside orders that are all in the text -- that takes itself out
+ *  when its URL fails to load rather than leaving a broken box. */
+function decorativeImage(className: string, src: string): HTMLImageElement {
+  const img = document.createElement('img');
+  img.className = className;
+  img.alt = '';
+  img.decoding = 'async';
+  img.addEventListener('error', () => img.remove());
+  img.src = src;
+  return img;
 }
 
 export interface BroughtPanel {
@@ -411,7 +425,12 @@ export function showLoading(
   /** The ground the orders are about, painted one pixel per tile beside the
    *  force. Gated on `holds`; dropped, not thrown on, where the canvas has no
    *  2D context. */
-  preview?: GroundPreview
+  preview?: GroundPreview,
+  /** Named sections and the image slot (GH-119). `sections` comes from
+   *  `briefingSections`, so null means "draw the plain beats"; every image
+   *  here is already the RESOLVED URL, like `briefingVideo`. Gated on `holds`
+   *  like everything else conditional on this screen. */
+  layout?: { sections: readonly BriefingSection[] | null; image?: string }
 ): LoadingScreen {
   const wrap = document.createElement('div');
   wrap.className = 'rl-loading';
@@ -489,21 +508,58 @@ export function showLoading(
   // "Deploy never leaves the screen" contract is untouched.
   const orders = document.createElement('div');
   orders.className = 'rl-loading__brief';
-  if (holds) {
-    for (const [i, beat] of briefingBeats(briefing as string).entries()) {
-      const p = document.createElement('p');
-      p.className = 'rl-loading__beat';
-      p.textContent = beat;
-      // `--i` is the same per-child stagger property `motion.ts`'s `stagger()`
-      // sets for the menu entrance (`.rl-stagger`) -- reused here rather than
-      // a new custom property, and read at a different pace by
-      // `.rl-loading__beat`'s own animation-delay in theme.css. `data-index`
-      // is the redundant, assertable half: jsdom does not run CSS animations
-      // at all (see loading.test.ts), so the test reads this, not `--i`.
-      p.style.setProperty('--i', String(i));
-      p.dataset.index = String(i);
-      orders.appendChild(p);
+  const beatEl = (beat: string, i: number): HTMLParagraphElement => {
+    const p = document.createElement('p');
+    p.className = 'rl-loading__beat';
+    p.textContent = beat;
+    // `--i` is the same per-child stagger property `motion.ts`'s `stagger()`
+    // sets for the menu entrance (`.rl-stagger`) -- reused here rather than
+    // a new custom property, and read at a different pace by
+    // `.rl-loading__beat`'s own animation-delay in theme.css. `data-index`
+    // is the redundant, assertable half: jsdom does not run CSS animations
+    // at all (see loading.test.ts), so the test reads this, not `--i`.
+    p.style.setProperty('--i', String(i));
+    p.dataset.index = String(i);
+    return p;
+  };
+  const sections = holds ? (layout?.sections ?? null) : null;
+  if (sections) {
+    // Named sections (GH-119): one `<section>` per block of the order, each a
+    // tab stop labelled by its own heading, so Tab walks the orders a block at
+    // a time and the scrolling container follows focus. The beats inside keep
+    // their class and a running index, so a beat is still a beat.
+    orders.classList.add('rl-loading__brief--sections');
+    let i = 0;
+    for (const section of sections) {
+      const el = document.createElement('section');
+      el.className = 'rl-loading__section';
+      el.dataset.section = section.id;
+      el.tabIndex = 0;
+      const head = document.createElement('h3');
+      head.className = 'rl-loading__section-head';
+      head.id = `rl-brief-${section.id}`;
+      head.textContent = t(`briefing.section.${section.id}`);
+      el.setAttribute('aria-labelledby', head.id);
+      el.appendChild(head);
+      if (section.image !== undefined) el.appendChild(decorativeImage('rl-loading__section-img', section.image));
+      for (const beat of section.beats) el.appendChild(beatEl(beat, i++));
+      orders.appendChild(el);
     }
+  } else if (holds) {
+    for (const [i, beat] of briefingBeats(briefing as string).entries()) orders.appendChild(beatEl(beat, i));
+  }
+
+  // The mission's image slot (GH-119): a figure, decorative like every picture
+  // on this screen -- the orders are all in the text. Placed in the right-hand
+  // column when the spread is drawn, otherwise above the orders.
+  let imageEl: HTMLElement | null = null;
+  if (holds && layout?.image !== undefined) {
+    imageEl = document.createElement('figure');
+    imageEl.className = 'rl-loading__image';
+    const holder = imageEl;
+    const img = decorativeImage('rl-loading__image-img', layout.image);
+    img.addEventListener('error', () => holder.remove());
+    imageEl.appendChild(img);
   }
 
   // Whether the force is CHOSEN on this screen (Task 3) rather than listed.
@@ -658,6 +714,7 @@ export function showLoading(
       left.className = 'rl-loading__orders';
     }
     if (commander) left.append(commanderHead);
+    if (imageEl && left === box) left.append(imageEl);
     left.append(orders);
     // Task 5 (R-7: one component, three mounts): the full objective list,
     // read once, before deploying. A sibling of the beats -- appended here,
@@ -675,6 +732,7 @@ export function showLoading(
     if (left !== box) {
       const right = document.createElement('div');
       right.className = 'rl-loading__force';
+      if (imageEl) right.append(imageEl);
       if (spreadEl) right.append(spreadEl);
       if (groundEl) right.append(groundEl);
       box.append(left, right);

@@ -11,6 +11,13 @@
     }
   },
   "briefing": "Before anything moves on Beit Sahwan, Idit needs the picture: six garrison positions, and the ATGM cell that overlooks the east road. An identification takes eyes held on a position, not a glance. The battalion has attached one of everything it owns \u2014 armor, an IFV, mortars, scouts and a drone \u2014 so use this approach to learn your tools. Push the drone east, keep the heavy metal back as a screen, and do not get decisively engaged. The mortar does not care who is under it. What you find and who you bring home is what the brigade fights with next week.",
+  "briefing_sections": [
+    {"id": "situation", "text": "Before anything moves on Beit Sahwan, Idit needs the picture: six garrison positions, and the ATGM cell that overlooks the east road. An identification takes eyes held on a position, not a glance.", "image": "ui/portraits/idit_zohar.png"},
+    {"id": "mission", "text": "The battalion has attached one of everything it owns — armor, an IFV, mortars, scouts and a drone — so use this approach to learn your tools."},
+    {"id": "execution", "text": "Push the drone east, keep the heavy metal back as a screen, and do not get decisively engaged."},
+    {"id": "notes", "text": "The mortar does not care who is under it. What you find and who you bring home is what the brigade fights with next week."}
+  ],
+  "briefing_image": ["ui/plates/units/mbt_lavi.jpg", "ui/plates/units/ifv_namer.jpg", "ui/plates/units/mortar_team.jpg", "ui/plates/units/recon_drone.jpg", "ui/plates/units/apc_eitan.jpg", "ui/plates/units/at_team.jpg"],
   "map": {
     "file": "beit_sahwan_outskirts",
     "player_start": [
