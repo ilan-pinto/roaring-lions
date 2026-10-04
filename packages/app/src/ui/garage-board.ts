@@ -22,6 +22,7 @@
 // applies), carrying its full text as a `title` a mouse can still reach, and
 // -- for a FUTURE rung only, and only once the widest layout has room to
 // spare -- a one-line gist.
+import { emblemSvg } from './kit-emblems';
 import { nextTierPrice, type UpgradableUnit, type UpgradeTrack } from '@lions/data';
 import { t } from '../i18n/t';
 import { previewDeltas } from './garage-stats';
@@ -202,7 +203,9 @@ export function trackEl(trackName: string, track: UpgradeTrack, deps: TrackDeps)
   // underscored `fire_control` fixture's case -- draws the reserved hatch
   // alone, the same "reserved, not broken" language the rail's card art and
   // the bay's plate already speak for a unit with no picture.
-  if (isKitTrack(trackName)) glyph.innerHTML = kitSymbolSvg(trackName, 40);
+  const headEmblem = emblemSvg(trackName);
+  if (headEmblem !== null) glyph.innerHTML = headEmblem;
+  else if (isKitTrack(trackName)) glyph.innerHTML = kitSymbolSvg(trackName, 40);
   head.appendChild(glyph);
 
   const headLine = el('span', 'rl-garage__track-line');
@@ -249,6 +252,12 @@ export function trackEl(trackName: string, track: UpgradeTrack, deps: TrackDeps)
     rung.tabIndex = -1;
 
     const rungHead = el('div', 'rl-garage__rung-head');
+    const tierEmblem = emblemSvg(trackName, tier);
+    if (tierEmblem !== null) {
+      const mark = el('span', 'rl-garage__rung-emblem');
+      mark.innerHTML = tierEmblem;
+      rungHead.appendChild(mark);
+    }
     rungHead.appendChild(el('span', 'rl-garage__rung-tier', t('garage.rung.tier', { tier })));
     rungHead.appendChild(el('span', 'rl-garage__rung-price', String(track.tiers[tier - 1].price)));
     if (owned) rungHead.appendChild(el('span', 'rl-garage__rung-owned', t('garage.rung.owned')));

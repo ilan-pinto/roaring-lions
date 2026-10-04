@@ -162,3 +162,23 @@ describe('trackEl — locked (F7)', () => {
     expect(el.querySelector('.rl-garage__buy-tier')).toBeNull();
   });
 });
+
+describe('trackEl emblems (GH-238)', () => {
+  it('draws its own tier emblem on every rung, in owned, next and future states', () => {
+    for (const name of ['armour', 'sensors', 'firepower']) {
+      const el = trackEl(name, track('mbt_lavi', name), deps()); // owned 1: owned/next/future
+      const rungs = [...el.querySelectorAll<HTMLElement>('.rl-garage__rung')];
+      expect(rungs.map((r) => r.dataset.state).sort()).toEqual(['future', 'next', 'owned']);
+      for (const r of rungs) {
+        const svgs = r.querySelectorAll('.rl-garage__rung-head .rl-garage__rung-emblem svg');
+        expect(svgs, `${name} tier ${r.dataset.tier}`).toHaveLength(1);
+      }
+      const markup = rungs.map((r) => r.querySelector('.rl-garage__rung-emblem')?.innerHTML);
+      expect(new Set(markup).size).toBe(3);
+    }
+  });
+  it('draws the head emblem from the kit set', () => {
+    const el = trackEl('sensors', track('mbt_lavi', 'sensors'), deps());
+    expect(el.querySelector('.rl-garage__track-glyph svg path')).not.toBeNull();
+  });
+});
