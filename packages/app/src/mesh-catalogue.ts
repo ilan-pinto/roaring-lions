@@ -10,8 +10,9 @@
  * 40.04 MiB, identical for every mission and every sandbox**. `tel_marum_1_
  * recon` fields nine unit types and downloaded all thirty.
  *
- * THE FAILURE MODE THIS FILE MUST NOT REPRODUCE. `SPRITE_MAP` in `main.ts` is
- * a hand-kept list of which sheets to load, and art has shipped complete,
+ * THE FAILURE MODE THIS FILE MUST NOT REPRODUCE. `SPRITE_MAP` in `main.ts` was
+ * a hand-kept list of which sheets to load (retired with the sheets, WP-A3.3),
+ * and art shipped complete,
  * gate-passing and drawing NOTHING six times on this branch because someone
  * added the asset and never the list entry. No gate catches it. A per-roster
  * mesh loader is the same shape of hazard twice over -- a file nothing claims,
@@ -197,10 +198,9 @@ export const RIGGED_UNIT_MESHES: Readonly<Record<string, RiggedMeshEntry>> = {
   // target, which is precisely what `roe.civilian_casualty_penalty` deducts
   // for.
   //
-  // `civilians` is ALSO the one unit type with no `SPRITE_MAP` entry, so it
-  // has no billboard to fall back to: on `three` a civilian with no loaded
-  // mesh draws literally nothing, which is what eleven of them did before
-  // GH-149. It is therefore the one type that must never be deferred, and
+  // `civilians` was the first type with no billboard to fall back to (every
+  // type is in that position since WP-A3.3): a civilian with no loaded mesh
+  // draws literally nothing, which is what eleven of them did before GH-149. It is therefore the one type that must never be deferred, and
   // `missionUnitTypes` finds it the ordinary way -- `mission.schema.json`
   // makes `civilians.groups` required and every group a `placement`, so a
   // mission with civilians always names the type in a `unit` field.

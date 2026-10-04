@@ -69,7 +69,7 @@ import './ui/theme.css';
 import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type Tone } from './ui/hud';
 import { hintFor, loadSeen, markSeen } from './ui/hint-model';
 import { createShownTimer, loadHintsSeen, markHintSeen, owedRule, type HintContext } from './ui/hint-rules';
-import { portraitIds, portraitUrl, unitIcon, unitPlate, type SheetManifest } from './ui/portrait';
+import { portraitIds, unitIcon, unitPlate } from './ui/portrait';
 import { Minimap, MINIMAP_SIZE, flipRows, objectivePoint } from './ui/minimap';
 import { alertsForTick, initAlertState, type AlertWorld } from './ui/alerts';
 import { CivFlightWatch, type CivObservation } from './ui/civ-flight';
@@ -637,140 +637,18 @@ function purgeCampaign(): void {
   ledgerStore.setTutorialDone(false);
 }
 
-// Which sheet a unit uses -- facing convention, frame counts, clip list and
-// draw scale all come from the sheet's own manifest, written by the rig that
-// produced the files. At module scope rather than inside a screen, because
-// two of them read it: the brigade roster (for its portraits, with no map, sim
-// or renderer of its own to have loaded a sheet through) and the battlefield.
-type SpriteSpec = { path: string; turretPath?: string };
-const TANK: SpriteSpec = {
-  path: `${BASE}sprites/TNK_HULL/`,
-  turretPath: `${BASE}sprites/TNK_TURR/`,
-};
-const EITAN: SpriteSpec = {
-  path: `${BASE}sprites/EITAN_HULL/`,
-  turretPath: `${BASE}sprites/EITAN_TURR/`,
-};
-const NAMER: SpriteSpec = {
-  path: `${BASE}sprites/NAMER_HULL/`,
-  turretPath: `${BASE}sprites/NAMER_TURR/`,
-};
-// Hull only: the model carries no separately modelled weapon station, so
-// there is no turret sheet to composite.
-const JEEP: SpriteSpec = { path: `${BASE}sprites/JEEP_HULL/` };
-// The enemy's armed pickup. Its turret manifest carries `turretAxisPx`, which
-// no other sheet does: a pintle gun on a bed sits well off the model's centre,
-// and without that the renderer would swing it off the truck while tracking.
-const TECHNICAL: SpriteSpec = {
-  path: `${BASE}sprites/TECH_HULL/`,
-  turretPath: `${BASE}sprites/TECH_TURR/`,
-};
-// No shared infantry sheet. Seven types used to point at one directory, which
-// meant a rifle squad and an enemy militia cell were the same PNG and the
-// silhouette gate could never compare them -- it cannot compare a file with
-// itself. Each type now names its own sheet, so a sheet that fails to load is
-// a visible gap rather than something masked by an alias.
-// The only animated sheet: four frames of hover per facing, looping. Nothing
-// here says so -- the frame count, rate and loop flag all come from the
-// sheet's own manifest, same as every other property of every other sheet.
-const DRONE: SpriteSpec = { path: `${BASE}sprites/DRONE_RECON/` };
-const SPRITE_MAP: Record<string, SpriteSpec> = {
-  mbt_lavi: TANK,
-  apc_eitan: EITAN,
-  ifv_namer: NAMER,
-  jeep_shoded: JEEP,
-  technical: TECHNICAL,
-  recon_drone: DRONE,
-  dozer_d9: { path: `${BASE}sprites/D9_HULL/` },
-  heli_peten: { path: `${BASE}sprites/APACHE_HULL/` },
-  // The two star-gated vehicles (docs/campaign/special_units/design.md
-  // §4-5). Hull only, like the jeep: each carries a fixed gun, not a
-  // traversing station. Rendered from the same kit-authored sources their
-  // GLBs were exported from, so the billboard, the portrait and the mesh
-  // agree; the sheet is what gives a dead one a wreck instead of the grey
-  // cross, since a mesh vehicle's death falls back to its sheet.
-  scout_shachaf: { path: `${BASE}sprites/SHACHAF_HULL/` },
-  apc_kipod: { path: `${BASE}sprites/KIPOD_HULL/` },
-  // One sheet per infantry type, composed from tools/units/kit.py. Each is a
-  // distinct silhouette rather than a distinct texture: posture, weapon axis
-  // and figure count are what survive downsampling to a 64px black shape.
-  inf_squad: { path: `${BASE}sprites/INF_SQUAD/` },
-  demo_squad: { path: `${BASE}sprites/INF_DEMO/` },
-  at_team: { path: `${BASE}sprites/INF_AT/` },
-  mortar_team: { path: `${BASE}sprites/INF_MORTAR/` },
-  sniper_team: { path: `${BASE}sprites/INF_SNIPER/` },
-  // The Yahalom sheet is the one carrying a `work` clip — what resolveClip
-  // shows for the whole of a tunnel charge.
-  yahalom_squad: { path: `${BASE}sprites/INF_YAHALOM/` },
-  // The star-gated Tzinah team (design.md §3): the upright shield is its
-  // silhouette, the same kit the mesh was exported from.
-  breach_team: { path: `${BASE}sprites/INF_BREACH/` },
-  militia_cell: { path: `${BASE}sprites/INF_MILITIA/` },
-  rpg_team: { path: `${BASE}sprites/INF_RPG/` },
-  atgm_cell: { path: `${BASE}sprites/INF_ATGM/` },
-  mortar_crew: { path: `${BASE}sprites/INF_MORTAR_E/` },
-  // The Sarim set. These three shipped complete, gate-passing sheets and
-  // still drew NOTHING, because art existing and art being LOADED are
-  // different things and only the first has a gate.
-  sarim_rifles: { path: `${BASE}sprites/INF_SARIM/` },
-  recoilless_team: { path: `${BASE}sprites/INF_RECOILLESS/` },
-  manpad_team: { path: `${BASE}sprites/INF_MANPAD/` },
-  // The raider set. Like the technical, the gun truck's turret manifest
-  // carries `turretAxisPx`: its cannon sits 1.65 m behind the model centre,
-  // so without the correction the renderer swings it off the bed while
-  // tracking.
-  gun_truck: {
-    path: `${BASE}sprites/GUNTRUCK_HULL/`,
-    turretPath: `${BASE}sprites/GUNTRUCK_TURR/`,
-  },
-  charge_squad: { path: `${BASE}sprites/INF_CHARGE/` },
-  moto_rpg: { path: `${BASE}sprites/MOTO_RPG/` },
-  digger_crew: { path: `${BASE}sprites/INF_DIGGER/` },
-  // Hull only: the rack is fixed to the bed, not a separately traversing
-  // weapon station, so there is no turret sheet to composite -- same shape
-  // as dozer_d9 above.
-  rocket_battery: { path: `${BASE}sprites/ROCKETBATTERY_HULL/` },
-  // Two air sheets whose flight is presentational: the sim has no altitude,
-  // so these move on the ground plane like anything else. The paramotor's
-  // `down` clip is its landed state, authored against a land-and-dismount
-  // behaviour that does not exist yet.
-  paramotor: { path: `${BASE}sprites/PARA_MOTOR/` },
-  loiter_drone: { path: `${BASE}sprites/DRONE_LOITER/` },
-  // attack_drone shares loiter_drone's shape of unit -- KDF's own loitering
-  // munition -- but not its source: reusing loitering_munition.blend would
-  // have been an identical silhouette (IoU ~= 1.0, guaranteed, not merely a
-  // risk), so it renders from its own hull, art/src/drones/attack_drone.blend.
-  attack_drone: { path: `${BASE}sprites/DRONE_ATTACK/` },
-};
-
 /**
- * A unit type's portrait, resolved the same way the mission HUD resolves one
- * for its card (`portraits[typeId]`: the unit's Blender portrait via
- * `unitIcon` or, failing that, its sheet manifest via `portraitUrl`) --
- * fetched fresh here because the brigade screen has no
- * running renderer to have already fetched it for. A type absent from
- * `SPRITE_MAP`, or whose manifest 404s with no icon either, resolves to
- * `null`; the caller draws the reserved hatch for that, same as the HUD's
- * card does. `isIcon` tells the caller which of the two pictures it got, so
- * it can set `data-icon` the same way the mission HUD does.
+ * A unit type's portrait for the brigade screen: its Blender portrait
+ * (`unitIcon`, GH-153), whole team -- every brigade slot is larger than a
+ * chip -- or `null`, for which the caller draws the reserved hatch, as the
+ * HUD's card does (`civilians` is the one shipped type with none). Until
+ * WP-A3.3 a type with no portrait fell back to a frame of its sprite sheet,
+ * through `SPRITE_MAP`; the sheets are retired, and every unit with a mesh
+ * has a portrait (`portrait.test.ts`, "unit portrait coverage").
  */
-const loadBrigadePortrait = async (id: string): Promise<{ url: string; isIcon: boolean } | null> => {
-  const spec = SPRITE_MAP[id] as SpriteSpec | undefined;
-  // The Blender portrait first (GH-153), whole team -- every brigade slot is
-  // larger than a chip -- and it needs no sprite sheet at all.
+const loadBrigadePortrait = (id: string): { url: string; isIcon: boolean } | null => {
   const icon = unitIcon(id, 'full');
-  if (icon !== null) return { url: icon.url, isIcon: true };
-  if (!spec) return null;
-  try {
-    const res = await fetch(`${spec.path}manifest.json`);
-    if (!res.ok) return null;
-    const manifest = (await res.json()) as SheetManifest;
-    const url = portraitUrl(spec.path, manifest);
-    return url === null ? null : { url, isIcon: false };
-  } catch (err) {
-    console.warn(`[lions] portrait manifest FAILED for ${id}:`, err);
-    return null;
-  }
+  return icon === null ? null : { url: icon.url, isIcon: true };
 };
 
 async function main(): Promise<void> {
@@ -2118,28 +1996,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
 
   // No sprite sheets load any more (WP-A3.3): every unit and structure draws
   // a mesh, loaded above. The loading bar has nothing to count and reads
-  // 'meshes only' (`ui/loading.ts`). The only fetches left in this stretch
-  // are the HUD portraits below.
+  // 'meshes only' (`ui/loading.ts`).
   loading.total(0);
-  // Portrait manifests are fetched in parallel; the mission does not start
-  // until all of them have settled -- see the gate below.
-  const artJobs: Promise<unknown>[] = [];
 
   /**
-   * The frame each unit type shows in the HUD's selection cluster (GH-153).
-   *
-   * `unitIcon` first -- the cropped icon needs no fetch at all, it is already
-   * in the bundle -- and only when a sheet has none does this fall back to
-   * fetching that sheet's own manifest and picking a frame from it the way it
-   * always has. Resolving from the manifest rather than from a filename
-   * template matters for exactly that fallback: there are already two naming
-   * conventions in `assets/sprites/` (`idle_f03_000.png` where the sheet
-   * declares clips, a bare `f03_000.png` where it does not) and a hand-kept map
-   * of which sheet is which is the `SPRITE_MAP` failure mode all over again.
-   *
-   * A type absent from here has no picture and the HUD draws its role mark on
-   * the reserved hatch instead — `civilians` is the one shipped type in that
-   * position, and a click-select can reach it.
+   * The picture each unit type shows in the HUD's selection cluster, card and
+   * dock (GH-153): its Blender portrait (`unitIcon`), resolved from the
+   * bundle with no fetch. A type with none has no picture and the HUD draws
+   * its role mark on the reserved hatch -- `civilians` is the one shipped
+   * type in that position, and a click-select can reach it. (A sprite-sheet
+   * frame was the fallback until the sheets were retired, WP-A3.3.)
    */
   const portraits: Record<string, string> = {};
   /** Which ids in `portraits` above came from `unitIcon` (a Blender portrait
@@ -2151,9 +2017,6 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  <= 48 px a team shows one man). Every larger slot reads `portraits`. */
   const chipPortraits: Record<string, string> = {};
 
-  // A type with a portrait but no sprite sheet (`recon_zikit`,
-  // `heli_peten_gunship`, `dozer_d9`) gets its picture here; the sheet loop
-  // below never sees it.
   for (const id of portraitIds()) {
     const full = unitIcon(id, 'full');
     if (full === null) continue;
@@ -2163,36 +2026,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     if (chip !== null && chip.url !== full.url) chipPortraits[id] = chip.url;
   }
 
-  for (const [id, spec] of Object.entries(SPRITE_MAP)) {
-    const { path } = spec;
-    const icon = unitIcon(id, 'full');
-    if (icon !== null) {
-      portraits[id] = icon.url;
-      portraitIcons.add(id);
-    }
-    // Its own fetch and its own failure: a manifest that 404s costs the HUD
-    // a picture, not the battlefield a unit, so it never holds up the gate
-    // on its own. Skipped entirely once an icon already answered.
-    if (icon !== null) continue;
-    artJobs.push(
-      fetch(`${path}manifest.json`)
-        .then((r) => (r.ok ? (r.json() as Promise<SheetManifest>) : null))
-        .then((m) => {
-          const url = m === null ? null : portraitUrl(path, m);
-          if (url !== null) portraits[id] = url;
-        })
-        .catch((err: unknown) => {
-          console.warn(`[lions] portrait manifest FAILED for ${id}:`, err);
-        })
-    );
-  }
-
-  // The portrait gate. Each job swallows its own rejection above, so this
-  // waits for every fetch to be *decided*, not to succeed: a missing
-  // portrait costs the HUD a picture, never the player a mission. (This was
-  // the sprite-sheet art gate until WP-A3.3 retired the sheets.)
-  await Promise.all(artJobs);
-  // The buildables, now that the art gate is behind us. Deliberately NOT
+  // The buildables, now that the blocking meshes are in. Deliberately NOT
   // awaited: these are meshes for units the player MIGHT build, and the whole
   // point of deferring them is that the mission starts without them.
   //

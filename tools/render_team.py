@@ -42,6 +42,7 @@ from mathutils import Matrix, Vector
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+from sprites_retired import refuse_sprite_output  # noqa: E402
 sys.path.insert(0, os.path.join(HERE, "units"))
 
 import teams  # noqa: E402
@@ -385,6 +386,7 @@ def render_team(team_id, probe=False):
     # would not make that measurement better.
     clips = {"idle": {**all_clips["idle"], "frames": 1}} if probe else all_clips
     facings = 1 if probe else FACINGS
+    refuse_sprite_output(out_dir)
     os.makedirs(out_dir, exist_ok=True)
     files = []
     for clip, spec in clips.items():

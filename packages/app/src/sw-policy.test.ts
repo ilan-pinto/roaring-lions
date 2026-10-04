@@ -94,7 +94,6 @@ describe.each(DEPLOYMENTS)('the service worker policy ($name)', ({ sw, base }) =
       'meshes/inf_squad.glb',
       'meshes/vehicles/mbt_lavi.glb',
       'textures/desert_sand_tile.jpg',
-      'sprites/INF_RIFLE.png',
       'fonts/inter.woff2',
       'audio/ui_click.ogg',
       'ui/portraits/shai.png',
@@ -103,6 +102,12 @@ describe.each(DEPLOYMENTS)('the service worker policy ($name)', ({ sw, base }) =
     ]) {
       expect(strategyFor(at(p), GET), p).toBe('swr');
     }
+  });
+
+  // `sprites/` left PUBLIC_DIRS with the sheets (WP-A3.3); a stale request
+  // for one is the network's to answer, never the cache's.
+  it('no longer caches the retired sprite sheets', () => {
+    expect(strategyFor(at('sprites/INF_SQUAD/idle_f03_000.png'), GET)).not.toBe('swr');
   });
 
   it('never touches the briefing videos', () => {

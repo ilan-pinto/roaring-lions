@@ -137,7 +137,7 @@
   "outcome.failed.force": "FAILED — every unit lost · {at}",
   "outcome.failed.conduct": "FAILED — Conduct fell below the floor · {at}",
 
-  "brigade.art.noSprite": "{id} — no sprite sheet",
+  "brigade.art.noSprite": "{id} — no portrait",
 
   "garage.title": "The garage",
   "garage.stars": "{n, plural, one {# of {m} star} other {# of {m} stars}}",
@@ -155,7 +155,7 @@
   "garage.bucket.gunship": "Air",
   "garage.bucket.kamikaze": "Loitering",
   "garage.chip.locked": "Locked · {why}",
-  "garage.card.noSprite": "{id} — no sprite sheet",
+  "garage.card.noSprite": "{id} — no portrait",
   "garage.plate.none": "{id} — no plate photographed",
   "garage.model.label": "{name}, turn with arrow keys",
   "garage.model.hint": "Drag or use the arrow keys to turn",

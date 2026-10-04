@@ -153,7 +153,9 @@ SPECS = {
         unit_id="apc_eitan",
         src=os.path.join(REPO, "art", "src", "vehicles", "eitan_apc.blend"),
         turret_prefixes=("turret_", "mgun_coax", "aps_radar_"),
-        sprite_manifest=os.path.join(REPO, "assets", "sprites", "EITAN_HULL", "manifest.json"),
+        # The `realMetres` EITAN_HULL's manifest carried, copied when the sprite
+        # sheets were retired (WP-A3.3) -- there is no manifest left to read.
+        real_metres=7.129,
         credit="8x8 APC -- authored from primitives for this repository, CC BY-SA 4.0",
         mesh_owner=(
             "tools/vehicles/export_meshy_eitan.py -- art/meshes/vehicles/apc_eitan.glb "
@@ -174,7 +176,8 @@ SPECS = {
         # -- exercising the mesh contract's hull-only branch for the first
         # time (apc_eitan always had a turret).
         turret_prefixes=(),
-        sprite_manifest=os.path.join(REPO, "assets", "sprites", "D9_HULL", "manifest.json"),
+        # D9_HULL's `realMetres`, copied at the sheets' retirement (WP-A3.3).
+        real_metres=6.832,
         credit="D9 armoured dozer -- authored from primitives for this repository, CC BY-SA 4.0",
         mesh_owner=(
             "tools/vehicles/export_meshy_ramp.py (since 2026-09-30, GH-185: a Meshy "
@@ -196,13 +199,10 @@ SPECS = {
         # turret -- the same hull-only branch dozer_d9 takes, and for the
         # same reason: nothing in this hull needs to traverse independently.
         turret_prefixes=(),
-        # Read from the sheet since 2026-09-14, when SHACHAF_HULL landed
-        # (tools/render_scout_shachaf.py, real_metres 4.6 -- hull length,
-        # the model's longest axis, per author_scout_shachaf.py). This spec
-        # carried a `real_metres=4.6` literal while the unit shipped
-        # mesh-only; a literal here and another in the render script is the
-        # drift `sprite_manifest` exists to make impossible.
-        sprite_manifest=os.path.join(REPO, "assets", "sprites", "SHACHAF_HULL", "manifest.json"),
+        # Hull length, the model's longest axis (author_scout_shachaf.py). Read
+        # from SHACHAF_HULL's manifest from 2026-09-14 until the sheets were
+        # retired (WP-A3.3); a literal again now, the same 4.6.
+        real_metres=4.6,
         credit="Light scout car -- authored from primitives for this repository, CC BY-SA 4.0",
         mesh_owner=(
             "tools/vehicles/export_meshy_ramp.py -- art/meshes/vehicles/scout_shachaf.glb "
@@ -218,9 +218,9 @@ SPECS = {
         src=os.path.join(REPO, "art", "src", "vehicles", "apc_kipod.blend"),
         # Its own remote_mg is fixed, same reasoning as scout_shachaf above.
         turret_prefixes=(),
-        # KIPOD_HULL's manifest (tools/render_apc_kipod.py, real_metres 7.2),
-        # for the reason given on scout_shachaf above.
-        sprite_manifest=os.path.join(REPO, "assets", "sprites", "KIPOD_HULL", "manifest.json"),
+        # KIPOD_HULL's `realMetres` (tools/render_apc_kipod.py's 7.2), a literal
+        # since the sheets were retired (WP-A3.3).
+        real_metres=7.2,
         credit="Screen carrier APC -- authored from primitives for this repository, CC BY-SA 4.0",
         mesh_owner=(
             "tools/vehicles/export_meshy_kipod.py -- art/meshes/vehicles/apc_kipod.glb "

@@ -43,21 +43,21 @@ Safe sources: Kenney.nl (CC0), Quaternius, Poly Pizza, OpenGameArt filtered to C
 
 **Disclosure is required** in the PR description wherever generative tools were used.
 
-**The gates do not care where art came from.** Every sprite faces the same four CI
-checks — exact palette match, binary alpha, minimum silhouette fill, and pairwise
-silhouette distinctness — plus the redistribution-rights requirement that applies to
+**The gates do not care where art came from.** Every unit mesh faces the same CI
+checks (`pnpm validate:meshes`) — palette match on its render, binary alpha, minimum
+silhouette fill, and pairwise silhouette distinctness — plus the redistribution-rights requirement that applies to
 any asset entering this repository (`docs/ART_PIPELINE.md` §7). Generated art that
 passes is as welcome as rendered art that passes; generated art that fails is
 rejected for the same reasons anything else would be.
 
 ### What to expect in practice
 
-Unit sprites are the hard case, and it is worth knowing before you spend an evening
-on it: a unit needs 16 consistent facings of the same object plus damage states,
-all under one locked lighting rig. Generative tools tend to lose object identity
-between views — the output looks right in isolation and falls apart the moment the
-unit rotates. `tools/render_rig.py` exists because rendering a model solves that
-problem by construction. Concept art, terrain textures, and UI backgrounds have no
+Units are the hard case, and it is worth knowing before you spend an evening on it:
+a unit is a rigged or rigid GLB under `art/meshes/` that has to hold up from the one
+fixed dimetric camera, carry its clips (`idle`, `move`, and `down`/`wreck`; a vehicle
+needs `idle` and `wreck`, written by `pnpm wreck:meshes`), and read as itself at
+gameplay zoom. Generated models often need a Blender pass before they do. (The
+16-facing sprite sheets this paragraph used to describe were retired in WP-A3.3.) Concept art, terrain textures, and UI backgrounds have no
 such constraint.
 
 Disclosure is not a warning label. It is so reviewers know which questions to ask,
@@ -70,9 +70,9 @@ and so the licence trail stays legible.
 1. Stats JSON in `data/units/`, valid against `data/schemas/unit.schema.json`
 2. `pnpm validate:data` passes
 3. `python tools/validate_balance.py` passes — your unit must sit within the cost-curve tolerance band
-4. Source `.blend` in `art/src/`, single object named `UNIT`, team-colour regions in pure magenta `#FF00FF`
-5. Renders cleanly through `tools/render_rig.py` at 16 facings
-6. `pnpm validate:assets` passes, **including the silhouette check** — your unit must be distinguishable from every existing unit as a pure black shape at gameplay zoom
+4. A GLB under `art/meshes/` (rigged team at `<id>.glb`, vehicle at `vehicles/<id>.glb`) with its source in `art/src/` or `art/blend/`, plus its entry in `packages/app/src/mesh-catalogue.ts`
+5. A Blender portrait from `tools/render_unit_portraits.py` (the HUD and garage picture)
+6. `pnpm validate:meshes` passes, **including the silhouette check** — your unit must be distinguishable from every existing unit as a pure black shape at gameplay zoom — and `tools/src/mesh_roster.test.ts` (in `pnpm test`) finds its mesh and clips
 7. Damage states authored: clean / scarred / burning
 
 The balance gate is a heuristic and you are allowed to argue with it. If you think your unit is correctly priced and the curve is wrong, say so in the PR and make the case.

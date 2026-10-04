@@ -1,6 +1,6 @@
 # Roaring Lions
 
-A source-available real-time strategy game in the Command & Conquer tradition: 2:1 dimetric, TypeScript + three.js, a lit renderer drawing rigged 3D meshes. (PixiJS remains as an unlit, sprite-only fallback via `?renderer=pixi`, slated for retirement.) Its distinguishing claim is that combat **simulates real engagement odds** instead of trading hit points. Fights resolve through a detect → hit → penetrate → component-damage chain, and suppression, not damage, is the dominant battlefield force. Single-player today; the sim is deterministic and command-driven so that multiplayer can follow.
+A source-available real-time strategy game in the Command & Conquer tradition: 2:1 dimetric, TypeScript + three.js, a lit renderer drawing rigged 3D meshes. (The PixiJS sprite fallback was retired in WP-A3.3.) Its distinguishing claim is that combat **simulates real engagement odds** instead of trading hit points. Fights resolve through a detect → hit → penetrate → component-damage chain, and suppression, not damage, is the dominant battlefield force. Single-player today; the sim is deterministic and command-driven so that multiplayer can follow.
 
 All geography and factions are fictional. Enemy forces are defined by military doctrine — tunnels and ambush, standoff fires, mobile raiding — never by ethnicity, nationality, or faith.
 
@@ -10,7 +10,7 @@ All geography and factions are fictional. Enemy forces are defined by military d
 
 ## Play it
 
-**<https://roaring-lions.pint12.workers.dev>** — the current build, served by a Cloudflare Worker built from `main`. It needs a WebGL2-capable browser; the Pixi fallback is a manual switch, not an automatic one. Source and issues: <https://github.com/ilan-pinto/roaring-lions>.
+**<https://roaring-lions.pint12.workers.dev>** — the current build, served by a Cloudflare Worker built from `main`. It needs a WebGL2-capable browser; without one, the campaign board falls back to its flat map, and missions need WebGL2. Source and issues: <https://github.com/ilan-pinto/roaring-lions>.
 
 The menu leads with where the campaign stands — Start or Continue and the mission's name — then Campaign, Brigade, the tutorial (*Beit Sahwan 0 — Working Up*, 14 steps), Free play, Saves, Settings, New campaign, sound and Credits. Free play walks any shipped map with a full task force and optional extras: civilians and a refuge, a pre-dug tunnel and sappers to collapse it, the Sarim roster, an anti-tank ditch, no-fire ground, and three diagnostic toggles.
 
@@ -40,7 +40,7 @@ The live build sends play telemetry to `/api/events` on the same origin — sess
 
 **Command.** Control groups with a group bar, attack-move that sweeps toward last contact, garrisoning, mount/dismount, smoke screens, demolition, field production and reinforcement from a dock, and intel sinks — a satellite sweep and a precision strike. Around the fight: an alert feed, an objectives tracker, a minimap showing only the enemies you are observing, a pause menu with settings, and save slots. A deploy screen picks which veterans fill a mission's slots, and the debrief lists Conduct deductions by reason, losses by name and the credit payout.
 
-**Presentation.** Lit three.js since v0.63.0, with `high`/`medium`/`low` quality presets. Units, vehicles and buildings are rigged meshes: 89 GLBs, Draco-encoded to 27 MiB. Infantry crossfade between clips and die on screen; vehicles pitch, settle and leave a 3D wreck. The ground is a smooth splat surface with roads, decals, scatter, trees, haze and time of day. Mortar bombs and rockets arc, tank rounds fly as bolts, the Spike dives onto the roof, and a vehicle kill is a blast with light, shake and hit-stop. `data/palette.json` still supplies colour as a lighting input; the per-pixel guarantee is retired. Sprite sheets still ship for the six GLB-less unit types and for `?renderer=pixi`.
+**Presentation.** Lit three.js since v0.63.0, with `high`/`medium`/`low` quality presets. Units, vehicles and buildings are rigged meshes: 89 GLBs, Draco-encoded to 27 MiB. Infantry crossfade between clips and die on screen; vehicles pitch, settle and leave a 3D wreck. The ground is a smooth splat surface with roads, decals, scatter, trees, haze and time of day. Mortar bombs and rockets arc, tank rounds fly as bolts, the Spike dives onto the roof, and a vehicle kill is a blast with light, shake and hit-stop. `data/palette.json` still supplies colour as a lighting input; the per-pixel guarantee is retired. The sprite sheets are retired too (WP-A3.3): every unit and building is a mesh, and a unit whose GLB fails to load draws as a team-coloured box rather than nothing.
 
 **Audio.** Music, SFX and voice lines are declared in `data/audio.json`, gated by `pnpm validate:audio`. A voice director degrades repeats line → acknowledgement → silence; the brigade speaks Hebrew, Ashwar, Sarim and Rif speak Arabic, civilians are silent. Ten Hebrew voice files ship so far and no Arabic ones; a line with no recording plays nothing. Unplaced lines pass through a 300–3400 Hz radio band and a walkie-talkie effect applied at playback; a captions setting prints the English text.
 
@@ -61,7 +61,7 @@ Done: the combat model, the Beit Sahwan arc with its ledger and Conduct scoring,
 
 ## Quickstart
 
-Node 22 (what CI runs) and pnpm 11.17.0 (the `packageManager` pin in `package.json`). The sprite gate needs Python 3 with `numpy` and `pillow`, the audio gate `numpy` alone. The mesh gate needs both plus Blender (CI installs 5.2.0), found through `BLENDER_BIN`, `blender` on `PATH`, `/Applications/Blender.app` or `--blender`. The visual gate and the UI tools need Playwright Chromium.
+Node 22 (what CI runs) and pnpm 11.17.0 (the `packageManager` pin in `package.json`). The audio gate needs Python 3 with `numpy`. The mesh gate needs `numpy`, `pillow` and Blender (CI installs 5.2.0), found through `BLENDER_BIN`, `blender` on `PATH`, `/Applications/Blender.app` or `--blender`. The visual gate and the UI tools need Playwright Chromium.
 
 ```bash
 pnpm install
@@ -77,8 +77,7 @@ On any battlefield, `o` opens the debug overlay (off by default): a status pane 
 | `pnpm typecheck` | `tsc --noEmit` across the workspace | — |
 | `pnpm lint` | eslint; inside `@lions/sim` it bans `Math`, `Date`, wall-clock APIs, `crypto`, float literals and non-relative imports, and it pins the `app → render → sim` direction | — |
 | `pnpm validate:data` | JSON Schema gate on every content file — units, missions, VFX, maps, tutorial, campaign, menu diorama — plus palette, structure and cross-reference checks | — |
-| `pnpm validate:assets` | sprite gate: palette and reserved-band colours, binary alpha, framing, sheet completeness, silhouette fill and pairwise-silhouette IoU on every sheet in `assets/sprites/` | Python 3, `numpy`, `pillow` |
-| `pnpm validate:meshes` | the same checks on every unit, building and vehicle GLB under `art/meshes/`, rendered headlessly through Blender, plus the building-facing gate and the vehicle wreck contract | Python 3, Blender 5.2, `numpy`, `pillow` |
+| `pnpm validate:meshes` | the art gate: palette and reserved-band colours, binary alpha, framing, silhouette fill and pairwise-silhouette IoU on every unit, building and vehicle GLB under `art/meshes/`, rendered headlessly through Blender, plus the building-facing gate and the vehicle wreck contract (the sprite gate, `validate:assets`, was retired with the sheets) | Python 3, Blender 5.2, `numpy`, `pillow` |
 | `pnpm validate:ui` | UI source gate: no colour literals or unresolved tokens, no raw `--rl-*` outside `theme.css`, no untagged layout `px`, no retired dingbats, no bare chrome strings | — |
 | `pnpm validate:audio` | licence, source, format, size and gain gate on every clip and voice line | Python 3, `numpy` |
 | `pnpm balance` | the six backtest cases above, base and max-tier rosters; exits 1 on any miss | — |
@@ -103,7 +102,7 @@ pnpm --filter @lions/tools exec tsx src/walk_carryover.ts                       
 
 ## Architecture
 
-pnpm workspace with a one-way dependency direction: `app → render → sim`, with `data` a leaf that `app`, `tools` and `worker` also import. `tools` may import only `sim` and `data`; `packages/worker`, the Cloudflare Worker serving the build and the telemetry endpoints (`/api/events` into D1, `/stats`), imports only `data`. Lint enforces the direction for `sim`, `render`, `data` and `tools`. The renderer is behind one interface (`packages/render/src/api.ts`), and both backends arrive by dynamic import, so a player downloads only the one they run. Content is JSON validated against `data/schemas/`; a new unit is JSON plus art, and the sim never changes for it, though the app's asset tables (`mesh-catalogue.ts`, `SPRITE_MAP`) need an entry.
+pnpm workspace with a one-way dependency direction: `app → render → sim`, with `data` a leaf that `app`, `tools` and `worker` also import. `tools` may import only `sim` and `data`; `packages/worker`, the Cloudflare Worker serving the build and the telemetry endpoints (`/api/events` into D1, `/stats`), imports only `data`. Lint enforces the direction for `sim`, `render`, `data` and `tools`. The renderer is behind one interface (`packages/render/src/api.ts`), and three.js arrives by dynamic import, so the shell paints before it loads. Content is JSON validated against `data/schemas/`; a new unit is JSON plus art, and the sim never changes for it, though the app's mesh table (`mesh-catalogue.ts`) needs an entry.
 
 Four load-bearing invariants (see `CLAUDE.md`):
 
@@ -114,7 +113,7 @@ Four load-bearing invariants (see `CLAUDE.md`):
 
 ## Contributing
 
-Read `CONTRIBUTING.md` first. Units, missions, VFX and maps are JSON gated by validators; missions target 5–7 minutes, and the schema is the authority where `CONTRIBUTING.md` still says 12–20. `python tools/validate_balance.py` holds every non-civilian unit to within ±18% of the fitted cost curve. Sprites go through the locked render rig and `pnpm validate:assets`; meshes go through `pnpm validate:meshes`. A mesh style bible (`docs/art/style-bible.md`) awaits the lead's approval — guidance, not a gate. AI-generated art is permitted, including for shipping assets, provided the PR discloses it. Contributions are accepted under `CLA.md` with a DCO sign-off (`git commit -s`).
+Read `CONTRIBUTING.md` first. Units, missions, VFX and maps are JSON gated by validators; missions target 5–7 minutes, and the schema is the authority where `CONTRIBUTING.md` still says 12–20. `python tools/validate_balance.py` holds every non-civilian unit to within ±18% of the fitted cost curve. Meshes go through `pnpm validate:meshes`. A mesh style bible (`docs/art/style-bible.md`) awaits the lead's approval — guidance, not a gate. AI-generated art is permitted, including for shipping assets, provided the PR discloses it. Contributions are accepted under `CLA.md` with a DCO sign-off (`git commit -s`).
 
 ## Documents
 

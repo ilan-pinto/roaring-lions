@@ -211,7 +211,7 @@ describe('showBrigade — the header and the rail', () => {
     expect(art?.getAttribute('data-nosprite')).toBe('1');
     expect(art?.querySelector('svg')).not.toBeNull();
     // Named, so "reserved" cannot be mistaken for "this build is broken".
-    expect(art?.getAttribute('title')).toBe('breach_team — no sprite sheet');
+    expect(art?.getAttribute('title')).toBe('breach_team — no portrait');
   });
 
   // The whole point of the short form: two units held by the same KIND of gate

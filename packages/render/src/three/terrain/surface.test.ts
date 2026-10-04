@@ -224,8 +224,10 @@ describe('SURFACE_SHADING_EXEMPTION', () => {
   it("agrees with TERRAIN_PALETTE_EXEMPTION in tools/validate_assets.py", () => {
     // The exemption has to be visible on a GATE's passing path, not only in a
     // doc comment -- the shape the three exemptions before it established.
-    // `tools/validate_assets.py` is the palette gate, and it prints this on
-    // success; nothing in that script can CHECK the ground (terrain is
+    // The text lives in `tools/validate_assets.py` (now the palette LIBRARY;
+    // its sprite gate is retired, WP-A3.3) and the mesh gate,
+    // `validate_mesh_assets.py`, prints it on success; nothing there can
+    // CHECK the ground (terrain is
     // generated at runtime, not shipped as a PNG), so what it does instead is
     // tell a reader of the art gate's output exactly how far the exemption
     // goes.

@@ -13,8 +13,6 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "validate:data": "node tools/validate_data.mjs",
-    "validate:assets": "python3 tools/validate_assets.py",
-    "icons:units": "python3 tools/crop_unit_icons.py",
     "validate:meshes": "python3 tools/validate_mesh_assets.py",
     "validate:ui": "node tools/validate_ui_palette.mjs && node tools/validate_i18n.mjs",
     "validate:audio": "python3 tools/validate_audio.py && python3 tools/test_gen_audio_args.py && python3 tools/test_validate_audio_voices.py",
