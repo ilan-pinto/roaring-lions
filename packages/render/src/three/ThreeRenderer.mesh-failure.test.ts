@@ -15,6 +15,7 @@ import { Sim, fx, type UnitTypeJson } from '@lions/sim';
 import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
 import type { ProxyBoxBatch } from './units/proxy-box';
+import { buildRigidFixtureGlb } from './units/rigid-mesh-fixture';
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>();
@@ -96,11 +97,14 @@ afterEach(() => {
 
 describe('a unit whose GLB failed to load', () => {
   it('rejects, names the GLB in a console.error, and draws a proxy box where the unit stands', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('missing', { status: 404, statusText: 'Not Found' })));
+    const fetch404 = vi.fn(async () => new Response('missing', { status: 404, statusText: 'Not Found' }));
+    vi.stubGlobal('fetch', fetch404);
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { renderer, priv } = setUp();
 
-    await expect(renderer.loadVehicleMesh('mbt_lavi', '/meshes/vehicles/mbt_lavi.glb')).rejects.toBeDefined();
+    await expect(renderer.loadVehicleMesh('mbt_lavi', 'http://localhost/meshes/vehicles/mbt_lavi.glb')).rejects.toBeDefined();
+    // The 404 is what failed it, not something before the request.
+    expect(fetch404).toHaveBeenCalledTimes(1);
 
     // Loud: one error, naming the type and the file.
     expect(error).toHaveBeenCalledTimes(1);
@@ -125,7 +129,7 @@ describe('a unit whose GLB failed to load', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { renderer, priv } = setUp();
 
-    await expect(renderer.loadMeshUnit('inf_squad', '/meshes/inf_squad.glb', 'kdf')).rejects.toBeDefined();
+    await expect(renderer.loadMeshUnit('inf_squad', 'http://localhost/meshes/inf_squad.glb', 'kdf')).rejects.toBeDefined();
     expect(String(error.mock.calls[0]?.[0])).toContain('/meshes/inf_squad.glb');
     priv.updateProxyBoxes(1);
     expect(priv.proxyBoxes?.count).toBe(1);
@@ -135,7 +139,7 @@ describe('a unit whose GLB failed to load', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('missing', { status: 404 })));
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const { sim, renderer, priv, tank } = setUp();
-    await expect(renderer.loadVehicleMesh('mbt_lavi', '/x.glb')).rejects.toBeDefined();
+    await expect(renderer.loadVehicleMesh('mbt_lavi', 'http://localhost/x.glb')).rejects.toBeDefined();
     sim.debugKill(tank);
     priv.updateProxyBoxes(1);
     expect(priv.proxyBoxes?.count ?? 0).toBe(0);
@@ -143,6 +147,57 @@ describe('a unit whose GLB failed to load', () => {
 
   it('with nothing failed there is no proxy batch at all', () => {
     const { priv } = setUp();
+    priv.updateProxyBoxes(1);
+    expect(priv.proxyBoxes?.count ?? 0).toBe(0);
+  });
+});
+
+// WP-A3.3 Task 7: a vehicle GLB with no `wreck` clip used to fall back to its
+// sheet's 2D wreck sprite. There is no sprite now, so it is refused at load,
+// by name, and draws a proxy box like any other failed mesh.
+describe('a vehicle GLB with no wreck clip', () => {
+  const glbResponse = (clipNames: string[], deathRoot: boolean) => {
+    const bytes = buildRigidFixtureGlb({
+      parts: [{ nodeName: 'hull_hull', extrasRole: 'hull' }],
+      clipNames,
+      ...(deathRoot ? { deathRoot: { parts: ['hull_hull'] } } : {}),
+    });
+    // three's FileLoader reports progress with `new ProgressEvent(...)` while
+    // it streams the body; Node has no ProgressEvent, and the throw inside
+    // the stream pump is swallowed into a hang. A minimal stand-in.
+    vi.stubGlobal(
+      'ProgressEvent',
+      class {
+        constructor(
+          readonly type: string,
+          init: Record<string, unknown> = {}
+        ) {
+          Object.assign(this, init);
+        }
+      }
+    );
+    return vi.fn(async () => new Response(bytes, { status: 200 }));
+  };
+
+  it('is refused at load, naming the GLB and the missing clip, and drawn as a proxy box', async () => {
+    vi.stubGlobal('fetch', glbResponse(['idle'], false));
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { renderer, priv } = setUp();
+    await expect(renderer.loadVehicleMesh('mbt_lavi', 'http://localhost/meshes/vehicles/mbt_lavi.glb')).rejects.toThrow(/wreck/);
+    const msg = String(error.mock.calls[0]?.[0]);
+    expect(msg).toContain('/meshes/vehicles/mbt_lavi.glb');
+    expect(renderer.failedMeshTypes().has('mbt_lavi')).toBe(true);
+    priv.updateProxyBoxes(1);
+    expect(priv.proxyBoxes?.count).toBe(1);
+  });
+
+  it('loads cleanly when the wreck pass has run (idle + wreck + death root)', async () => {
+    vi.stubGlobal('fetch', glbResponse(['idle', 'wreck'], true));
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { renderer, priv } = setUp();
+    await renderer.loadVehicleMesh('mbt_lavi', 'http://localhost/meshes/vehicles/mbt_lavi.glb');
+    expect(error).not.toHaveBeenCalled();
+    expect(renderer.failedMeshTypes().size).toBe(0);
     priv.updateProxyBoxes(1);
     expect(priv.proxyBoxes?.count ?? 0).toBe(0);
   });

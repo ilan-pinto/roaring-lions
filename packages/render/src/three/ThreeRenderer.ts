@@ -4957,6 +4957,22 @@ export class ThreeRenderer implements Renderer {
       this.noteMeshFailure(unitTypeId, glbUrl, err);
       throw err;
     });
+    // Every vehicle GLB must carry the `wreck` clip `pnpm wreck:meshes`
+    // writes (WP-A3.3). Until the billboard path was retired, a GLB without
+    // one fell back to its sheet's 2D wreck sprite -- the "do NOT add
+    // `vehicleMeshTemplates` to the `addWreck` guard unconditionally" trap.
+    // There is no sprite left to fall back to, so a wreck-less GLB is refused
+    // here, by name, the same shape as `TEXTURED_MESH_EXEMPT`'s throw, and
+    // the type draws a proxy box like any other failed mesh.
+    // `tools/src/mesh_roster.test.ts` keeps one from shipping.
+    if (!template.hasWreck) {
+      disposeVehicleMeshTemplate(template);
+      const err = new Error(
+        `loadVehicleMesh: ${glbUrl} (${unitTypeId}) carries no \`wreck\` clip -- run \`pnpm wreck:meshes\` on it`
+      );
+      this.noteMeshFailure(unitTypeId, glbUrl, err);
+      throw err;
+    }
 
     const previous = this.vehicleMeshTemplates.get(unitTypeId);
     if (previous) {

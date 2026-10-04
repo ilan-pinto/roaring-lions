@@ -85,11 +85,12 @@
  * extremes named in the table.
  *
  * NOTE ON `structureTypes[...].heightPx`: it is NOT the height used here, and
- * must not be. It is the BILLBOARD's drawn wall height -- the mosque declares
+ * must not be. It is the procedural box's wall height -- the mosque declares
  * 34, which through `WORLD_Y_PER_LIFT_PIXEL` is 0.867 world units against a
  * mesh that measures 3.317. Sizing a mesh-path effect from it would under-
- * cover by 3.8x. It stays the fallback for the billboard path alone
- * (`&nomesh`), where it is the correct number by construction.
+ * cover by 3.8x. It is only the last resort for a structure with no
+ * building mesh at all (the billboard sheet's drawn height sat between the
+ * two until the structure sprites were retired, WP-A3.3).
  *
  * ## Why geometry rather than the particle pool
  *
