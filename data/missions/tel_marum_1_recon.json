@@ -25,6 +25,7 @@
   "briefing_image": "ui/plates/units/recon_drone.jpg",
   "map": {
     "file": "tel_marum_1",
+    "time_of_day": "dusk",
     "player_start": [24, 44]
   },
   "ledger": {

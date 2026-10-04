@@ -26,6 +26,7 @@
   "briefing_image": "ui/plates/units/yahalom_squad.jpg",
   "map": {
     "file": "beit_sahwan_4",
+    "time_of_day": "dusk",
     "player_start": [26, 34]
   },
   "ledger": {

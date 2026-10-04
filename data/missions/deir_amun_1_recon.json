@@ -4,7 +4,7 @@
   "town": "deir_amun",
   "phase": "recon",
   "target_minutes": 6,
-  "map": { "file": "deir_amun", "player_start": [24, 44] },
+  "map": { "file": "deir_amun", "time_of_day": "dawn", "player_start": [24, 44] },
   "ledger": {
     "requires": ["roster.surviving_units", "intel.marked_positions"],
     "produces": ["roster.surviving_units", "roe.mission_ratings", "campaign.completed_missions", "campaign.mission_results", "intel.marked_positions"]
