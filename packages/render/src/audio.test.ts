@@ -691,6 +691,11 @@ describe('admitVoice (N4, N5)', () => {
     expect(admitVoice([v(1, 'order')], 'order')).toEqual({ play: true, cut: [1] });
     expect(admitVoice([v(1, 'order'), v(2, 'kdf_death')], 'order')).toEqual({ play: true, cut: [1] });
   });
+  it('an announcement outranks every bark and is never cut by one (GH-110)', () => {
+    expect(admitVoice([v(1, 'order'), v(2, 'kdf_death')], 'announce')).toEqual({ play: true, cut: [2] });
+    expect(admitVoice([v(1, 'announce'), v(2, 'announce')], 'order')).toEqual({ play: false, cut: [] });
+    expect(admitVoice([v(1, 'announce'), v(2, 'order')], 'kdf_death')).toEqual({ play: false, cut: [] });
+  });
   it('full: the lowest-ranked voice goes, oldest first; a tie or a loser is dropped, not queued (N5)', () => {
     expect(admitVoice([v(1, 'kdf_death'), v(2, 'kdf_death')], 'order')).toEqual({ play: true, cut: [1] });
     expect(admitVoice([v(1, 'kdf_death'), v(2, 'enemy_death')], 'order')).toEqual({ play: true, cut: [2] });

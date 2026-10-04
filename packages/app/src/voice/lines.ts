@@ -21,7 +21,7 @@ export type CommonVerb = (typeof COMMON_VERBS)[number];
  *  reading of the world, never a rung `winningVerb` ranks for a gesture. */
 export const COMMON_CALLS = ['pinned'] as const;
 export type CommonCall = (typeof COMMON_CALLS)[number];
-export type LineTrigger = 'move' | 'attack' | 'death' | 'task' | 'ack' | CommonVerb | CommonCall;
+export type LineTrigger = 'move' | 'attack' | 'death' | 'task' | 'ack' | 'announce' | CommonVerb | CommonCall;
 
 /** `<lang>.common.pinned` (GH-262 §2.4): the one key the pinned branch asks
  *  data/audio.json for, in every language. */

@@ -57,6 +57,8 @@ export {
   type AudioSet,
   type AudioVariant,
   type VoiceManifest,
+  type AnnouncementDef,
+  type AnnouncementManifest,
   type VoicePlay,
   type VoicePriority,
   type VoiceResult,

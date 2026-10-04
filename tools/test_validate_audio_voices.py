@@ -61,6 +61,27 @@ def main():
         if not ok:
             bad.append(label)
 
+    # GH-110: the announcement table.
+    def ann(**over):
+        ev = {"caption": "announce.objective.complete", "audio": "", "cooldown_s": 2, "priority": "high"}
+        ev.update(over)
+        sec = voices({"he.common.announce_x": {"variants": []}})
+        sec["announcements"] = {"hold_s": 3, "caption_s": 3.5, "events": {"objective_complete": ev}}
+        return sec
+
+    def run_ann(sec, captions=("announce.objective.complete",)):
+        failures = []
+        mod.check_announcements(sec, failures, set(captions))
+        return failures, None
+
+    check("an announcement with a caption and no audio passes", run_ann(ann())[0], None)
+    check("an announcement whose audio names a declared line passes", run_ann(ann(audio="he.common.announce_x"))[0], None)
+    check("an announcement with no caption fails", run_ann(ann(caption=""))[0], "no caption key")
+    check("a caption key missing from en.json fails", run_ann(ann(caption="announce.nope"))[0], "not in en.json")
+    check("audio naming an undeclared line fails", run_ann(ann(audio="he.common.nope"))[0], "not declared in voices.lines")
+    check("a bad priority fails", run_ann(ann(priority="urgent"))[0], "priority")
+    check("a negative cooldown fails", run_ann(ann(cooldown_s=-1))[0], "cooldown_s")
+
     good = variant()
     f, declared = run(mod, voices({"he.infantry.move": {"variants": [good]}}), [good["file"]])
     check("an owned, sourced, scripted line passes", f, None)
