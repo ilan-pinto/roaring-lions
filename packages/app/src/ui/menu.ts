@@ -132,12 +132,12 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
   }
   // The war itself lives on its own page: the menu stays a landing, the map a
   // destination you can always come back to.
-  add(t('menu.nav.campaign'), routes.campaign(), 'campaign');
-  add(t('menu.nav.brigade'), routes.brigade(), 'brigade');
+  add(t('menu.nav.campaign'), routes.campaign(), 'secondary');
+  add(t('menu.nav.brigade'), routes.brigade(), 'secondary');
   wrap.appendChild(nav);
 
   const aside = document.createElement('nav');
-  aside.className = 'rl-menu__nav';
+  aside.className = 'rl-menu__nav rl-menu__nav--grid';
   const addAside = (label: string, href: string): void => {
     const a = document.createElement('a');
     a.textContent = label;

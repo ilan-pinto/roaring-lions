@@ -3171,17 +3171,41 @@ body {
 }
 /* The sandbox and the ledger reset are instruments, not missions — they should
    not read as the fourth and fifth chapters of the campaign. */
-.rl-menu__item[data-kind='aside'] {
-  font-family: var(--font-mono);
-  font-size: var(--t-s);
-  font-weight: 400;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--ink-dim);
-  padding: var(--s1) var(--s3);
+/* GH-381: one tile family. Rank is FILL, not typeface -- primary is green,
+   secondary the neutral ink variant, utilities (aside) the dim one. All three
+   share .rl-menu__item's display face, uppercase and tracking. */
+.rl-menu__item[data-kind='secondary'] {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ink) 30%, transparent);
 }
-/* The audio toggle is the one <button> in that list; a button does not fill
-   its row the way a block <a> does, and would sit as a pill among rules. */
+.rl-menu__item[data-kind='aside'] {
+  font-size: var(--t-m);
+  text-align: center;
+  color: var(--ink-dim);
+  background: color-mix(in srgb, var(--ink-dim) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ink-dim) 30%, transparent);
+  padding: var(--s2);
+}
+.rl-menu__item[data-kind='secondary']:hover,
+.rl-menu__item[data-kind='secondary']:focus-visible,
+.rl-menu__item[data-kind='aside']:hover,
+.rl-menu__item[data-kind='aside']:focus-visible {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+/* The utilities: a 2-column grid; one column on a very narrow phone. */
+.rl-menu__nav--grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s1);
+}
+@media (max-width: 22.5rem) {
+  .rl-menu__nav--grid {
+    grid-template-columns: 1fr;
+  }
+}
+/* A button does not fill its cell the way a block <a> does. */
 button.rl-menu__item[data-kind='aside'] {
   width: 100%;
 }
