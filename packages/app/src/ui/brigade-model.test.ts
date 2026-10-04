@@ -80,6 +80,114 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
+/** A mount whose promises the test resolves by hand, in any order. The fake
+ *  puts its canvas into the host the moment it resolves, as the real door
+ *  does just before its promise settles. */
+function deferredSetup() {
+  const pending = new Map<string, () => void>();
+  const views: Fake[] = [];
+  const mount = vi.fn<MountGarageView>(
+    (host, o) =>
+      new Promise((resolve) => {
+        pending.set(o.typeId, () => {
+          const v: Fake = {
+            typeId: o.typeId,
+            canvas: document.createElement('canvas'),
+            info: { pose: 'idle0', figures: 0 },
+            disposed: 0,
+            stats: () => ({ frames: 1, calls: 0, triangles: 0 }),
+            draw: () => {},
+            resize: () => {},
+            dispose: () => {
+              v.disposed += 1;
+              v.canvas.remove();
+            },
+          };
+          v.canvas.dataset.unit = o.typeId;
+          host.appendChild(v.canvas);
+          views.push(v);
+          resolve(v);
+        });
+      })
+  );
+  const host = document.createElement('div');
+  document.body.appendChild(host);
+  const opts: BrigadeOptions = {
+    units: UNITS,
+    ledger: {},
+    missionName: () => undefined,
+    baseOf: (id) => BASE[id] ?? { id },
+    possibleStars: 78,
+    credits: 999,
+    owned: {},
+    reducedMotion: () => true,
+    plate: (id) => ({ url: `/plates/${id}.jpg`, size: [1800, 1200], extent: [400, 400] }),
+    model: {
+      source: (id) => (id === 'mbt_lavi' ? { kind: 'vehicle', url: '/m/lavi.glb' } : { kind: 'rigged', url: '/m/inf.glb', faction: 'kdf' }),
+      dracoDecoderPath: '/draco/',
+      groundTextureUrl: '/t/sand.jpg',
+      colors: { key: 'k', fill: 'f', sky: 's', bounce: 'b', ground: 'g' },
+      webgl: () => true,
+      mountDelayMs: 0,
+      mount,
+    },
+  };
+  const dispose = showBrigade(host, opts);
+  const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+  const select = (id: string): void => host.querySelector<HTMLButtonElement>(`.rl-garage__card[data-unit="${id}"]`)?.click();
+  const plate = (): HTMLElement | null => host.querySelector('.rl-garage__plate');
+  const shownCanvases = (): string[] => [...document.querySelectorAll('canvas')].map((c) => (c as HTMLElement).dataset.unit ?? '?');
+  const resolveLoad = (id: string): void => {
+    const go = pending.get(id);
+    if (!go) throw new Error(`no load pending for ${id}`);
+    pending.delete(id);
+    go();
+  };
+  return { host, views, mount, dispose, settle, select, plate, shownCanvases, resolveLoad };
+}
+
+describe('switching units while a model loads (the stale-image glitch)', () => {
+  it('hides the old screenshot plate while the next model loads, and shows the loading disk instead', async () => {
+    const s = deferredSetup();
+    await s.settle();
+    const img = s.plate()?.querySelector<HTMLImageElement>('.rl-garage__plate-img');
+    expect(s.plate()?.dataset.model).toBe('pending');
+    expect(img?.hidden).toBe(true);
+    s.resolveLoad('inf_squad');
+    await s.settle();
+    expect(s.plate()?.dataset.model).toBe('live');
+    s.select('mbt_lavi');
+    await s.settle();
+    // The new bay: no old model, and no old plate photograph either.
+    expect(s.plate()?.dataset.model).toBe('pending');
+    expect(s.plate()?.querySelector<HTMLImageElement>('.rl-garage__plate-img')?.hidden).toBe(true);
+    expect(s.shownCanvases()).toEqual([]);
+    s.dispose();
+  });
+
+  it('A then B, with A landing AFTER B: A is never shown and its context is given back', async () => {
+    const s = deferredSetup();
+    await s.settle();
+    // A (inf_squad) is loading; the player pages to B before it lands.
+    s.select('mbt_lavi');
+    await s.settle();
+    s.resolveLoad('mbt_lavi');
+    await s.settle();
+    expect(s.plate()?.dataset.model).toBe('live');
+    expect(s.shownCanvases()).toEqual(['mbt_lavi']);
+    // Now A's slow load finishes.
+    s.resolveLoad('inf_squad');
+    await s.settle();
+    const a = s.views.find((v) => v.typeId === 'inf_squad');
+    expect(a?.disposed).toBe(1);
+    expect(s.shownCanvases()).toEqual(['mbt_lavi']);
+    expect(s.plate()?.dataset.model).toBe('live');
+    expect(s.host.querySelector('.rl-garage__name')?.textContent).toBe('Lavi MBT');
+    s.dispose();
+  });
+
+});
+
 describe('the garage bay and its model', () => {
   it('mounts the selected unit, and gives the old one back when the player pages on', async () => {
     const s = setup();

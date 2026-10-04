@@ -3,8 +3,10 @@
 // The bay used to show a screenshot plate (`pnpm plates:units`). It now shows
 // the unit's own GLB, drawn by `@lions/render/three-garage`, turned by drag
 // and by the arrow keys, and turning itself slowly after five quiet seconds.
-// The plate is still built first and stays the picture until the model's
-// first frame is ready, and it is what the bay keeps -- with the reason
+// The plate is still built first, but its picture is HIDDEN while the model
+// loads -- the bay shows an empty disk and a spinner instead, so paging
+// between units never flashes an old screenshot -- and it is what the bay
+// keeps -- with the reason
 // warned by name, as the campaign board does -- whenever the model cannot be
 // drawn:
 //
@@ -184,6 +186,14 @@ export function garageModel(
   const mark = (): void => {
     host.dataset.model = state;
     if (plateReason !== null) host.dataset.modelReason = plateReason;
+    // The plate's own picture -- the screenshot JPEG, or the role badge of a
+    // unit with none -- shows ONLY when the plate is what the bay keeps.
+    // While the model loads it is hidden and the bay draws an empty disk
+    // (`data-model="pending"` in theme.css): showing it there flashed an old
+    // top-down capture between every two models (the lead's 5 Oct report).
+    for (const pic of host.querySelectorAll(':scope > .rl-garage__plate-img, :scope > svg')) {
+      pic.toggleAttribute('hidden', state !== 'plate');
+    }
   };
   mark();
 

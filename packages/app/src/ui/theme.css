@@ -4963,8 +4963,52 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__plate[data-model='live'] > .rl-garage__model {
   opacity: 1;
 }
-.rl-garage__plate[data-model='live'] > .rl-garage__plate-img {
-  visibility: hidden;
+/* The plate's own picture shows only when the plate is what the bay keeps:
+   `garage-viewer.ts` stamps `hidden` on it while the model loads and while
+   it is live. It used to show while loading, and every unit switch flashed
+   the old top-down screenshot before the 3D model (the lead, 5 Oct). An
+   SVG role badge has no UA `[hidden]` rule, hence `display` here. */
+.rl-garage__plate > [hidden] {
+  display: none;
+}
+/* Loading: an empty disk where the unit will stand, and a quiet spinner on
+   it. Reduced motion collapses the turn to one frame (the global rule
+   above), leaving a still arc -- still a "loading" mark, never a picture of
+   the wrong unit. */
+.rl-garage__plate[data-model='pending']::before {
+  content: '';
+  position: absolute;
+  left: 22%;
+  right: 22%;
+  top: 62%;
+  bottom: 14%;
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse at 50% 50%,
+    color-mix(in srgb, var(--ink) 22%, transparent) 0%,
+    color-mix(in srgb, var(--ink) 8%, transparent) 60%,
+    transparent 72%
+  );
+  pointer-events: none;
+}
+.rl-garage__plate[data-model='pending']::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 2rem;
+  height: 2rem;
+  margin: -1rem 0 0 -1rem;
+  border-radius: 50%;
+  border: 0.15rem solid color-mix(in srgb, var(--ink) 18%, transparent);
+  border-top-color: color-mix(in srgb, var(--ink) 70%, transparent);
+  animation: rl-garage-wait 0.9s linear infinite;
+  pointer-events: none;
+}
+@keyframes rl-garage-wait {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .rl-garage__model[data-dragging='1'] {
   cursor: grabbing;
