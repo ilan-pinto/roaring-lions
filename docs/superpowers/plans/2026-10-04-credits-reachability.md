@@ -31,6 +31,18 @@ campaign's values, which are unchanged). This corrects the Stage 4 order, which 
 - The Stage 4 order `docs/superpowers/plans/2026-10-04-stage4-order.md` (#373).
 - `tools/src/backtest/playtest.ts`: `LADDER_CREDITS` (5736), the max-tier replay pass.
 
+**Status (5 Oct): implemented on `docs/credits-reach-plan`** after the lead's rulings: D3 accept the
+openers loop (G-B not built), D6 land in October outside Lane C, G-A stays. Deviations from the text
+below, each recorded in its commit:
+- Tasks 1 and 2 landed as one commit (they share every file).
+- D4 reads `campaign.completed_missions` (what `campaign.ts` calls done), not `campaign.mission_results`.
+- Task 4 extracted `newCampaign(store)` into `ledger-store.ts`, so the purge is unit-tested; the
+  button-to-purge wiring is pre-existing and was driven in the browser instead of in `ui:routes`.
+- Task 5 kept the existing computed "About N missions of pay" line for a bought-only unit above one
+  campaign's pay, not a new "N campaigns" line.
+- Task 7's `CLAUDE.md` edit is left to the lead (the brigade-account paragraph's "improvement over
+  what that mission paid before" now means "in this campaign").
+
 **Base:** read against `main` `434cad99` (v0.117.0). (M) is measured by the throwaway probe below;
 (R) is reasoned.
 
@@ -106,7 +118,7 @@ guard (G-A, Task 3).** The openers loop is a smaller edge and is the lead's call
   one payout per round and costs a player who restarts mid-campaign nothing they have today. Task 4
   carries G-B behind a flag only if the lead picks it.
 - **D4. Existing saves: no back-pay.** Version 1 → 2. `campaign_paid` starts as `paid` restricted
-  to the missions done in the CURRENT ledger (`campaign.mission_results`). A mission won in this
+  to the missions done in the CURRENT ledger (`campaign.completed_missions`). A mission won in this
   campaign therefore pays nothing extra, and a mission not yet won in this campaign pays in full when
   it is won. Campaigns a player abandoned before this ships are not repaid.
 - **D5. G1 for credit items retires its "unreachable" branch**: every credit price is finite and is
