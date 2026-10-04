@@ -266,7 +266,7 @@ describe('showMenu', () => {
   it('is a landing, not the map: Campaign leads to the map page', () => {
     const stage = mount(false);
     expect(stage.querySelector('.rl-world')).toBe(null);
-    const campaign = stage.querySelector('[data-kind="campaign"]') as HTMLAnchorElement;
+    const campaign = stage.querySelector('a[data-kind="secondary"]') as HTMLAnchorElement;
     expect(campaign.getAttribute('href')).toBe('/campaign');
     // The tutorial teaches the mouse, not the war, so it sits beside Campaign.
     const tut = stage.querySelector('[data-kind="tutorial"]') as HTMLAnchorElement;
