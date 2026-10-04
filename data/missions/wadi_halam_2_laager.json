@@ -4,11 +4,11 @@
   "town": "wadi_halam",
   "phase": "foothold",
   "target_minutes": 7,
-  "briefing": "Push through to the pasture and dig in while the engineers lay the crossing behind you. The ground is terraced — bunds run across the pasture in bands, real cover if you hold it, and the Rif know the ground as well as you do. Technicals and motorcycles will come at the pump house from every direction in waves. Accumulate five minutes of uncontested pasture and the corridor is yours. There is a shed on the pasture's western edge and it is his forward store — it comes down inside the same five minutes.",
+  "briefing": "Push through to the pasture and dig in while the engineers lay the crossing behind you. It is open grazing, crossed by long earth bunds in bands — real cover if you hold it, and the Rif know the ground as well as you do. Technicals and motorcycles will come at the pump house off the north, south and east edges in waves, and a short tree line in the north-west corner is the only ford; keep a watch on it. Accumulate five minutes of uncontested pasture and the corridor is yours. There is a shed on the pasture's western edge and it is his forward store — it comes down inside the same five minutes, and the pump house with it.",
   "briefing_sections": [
     {"id": "mission", "text": "Push through to the pasture and dig in while the engineers lay the crossing behind you."},
-    {"id": "execution", "text": "The ground is terraced — bunds run across the pasture in bands, real cover if you hold it, and the Rif know the ground as well as you do. Technicals and motorcycles will come at the pump house from every direction in waves. Accumulate five minutes of uncontested pasture and the corridor is yours."},
-    {"id": "notes", "text": "There is a shed on the pasture's western edge and it is his forward store — it comes down inside the same five minutes."}
+    {"id": "execution", "text": "It is open grazing, crossed by long earth bunds in bands — real cover if you hold it, and the Rif know the ground as well as you do. Technicals and motorcycles will come at the pump house off the north, south and east edges in waves, and a short tree line in the north-west corner is the only ford; keep a watch on it. Accumulate five minutes of uncontested pasture and the corridor is yours."},
+    {"id": "notes", "text": "There is a shed on the pasture's western edge and it is his forward store — it comes down inside the same five minutes, and the pump house with it."}
   ],
   "briefing_image": "ui/plates/units/inf_squad.jpg",
   "debrief": {
@@ -115,7 +115,7 @@
       "primary": true,
       "target": "pasture",
       "seconds": 300,
-      "text": "Burn the forward store at the pump house inside five minutes",
+      "text": "Burn the forward store and the pump house inside five minutes",
       "say": { "speaker": "idit", "text": "The shed was a forward store — fuel, crates, a manifest. Half of what was in it was routed on to Sur. This ground is not the end of his road; it is the middle of it." },
       "say_on_fail": { "speaker": "shai", "text": "The shed is standing and the pasture is ours. One of those was the mission." }
     }
@@ -124,7 +124,7 @@
     "enabled": true
   },
   "structures": [
-    { "type": "pump_house", "at": [16, 19], "size": [2, 2] }
+    { "type": "pump_house", "at": [18, 22], "size": [2, 2] }
   ],
   "enemy": {
     "faction": "rif",
@@ -134,8 +134,8 @@
         "unit": "gun_truck",
         "count": 1,
         "at": [
-          44.5,
-          20.5
+          42.5,
+          22.5
         ],
         "facing_deg": 270,
         "group": "raiders",
@@ -147,7 +147,7 @@
       {
         "unit": "militia_cell",
         "count": 1,
-        "at": [16.5, 18.5],
+        "at": [17.5, 21.5],
         "facing_deg": 180,
         "stance": { "kind": "hold_position" }
       }
@@ -173,12 +173,12 @@
               "kind": "patrol",
               "waypoints": [
                 [
-                  44.5,
-                  9.5
+                  38.5,
+                  1.5
                 ],
                 [
-                  17.5,
-                  20.5
+                  20.5,
+                  24.5
                 ]
               ]
             }
@@ -205,12 +205,12 @@
               "kind": "patrol",
               "waypoints": [
                 [
-                  44.5,
-                  39.5
+                  38.5,
+                  46.5
                 ],
                 [
-                  17.5,
-                  20.5
+                  20.5,
+                  24.5
                 ]
               ]
             }
@@ -224,12 +224,12 @@
               "kind": "patrol",
               "waypoints": [
                 [
-                  44.5,
-                  39.5
+                  38.5,
+                  46.5
                 ],
                 [
-                  17.5,
-                  20.5
+                  20.5,
+                  24.5
                 ]
               ]
             }
@@ -256,12 +256,12 @@
               "kind": "patrol",
               "waypoints": [
                 [
-                  44.5,
+                  46.5,
                   24.5
                 ],
                 [
-                  17.5,
-                  20.5
+                  20.5,
+                  24.5
                 ]
               ]
             }
@@ -289,12 +289,12 @@
               "kind": "patrol",
               "waypoints": [
                 [
-                  44.5,
-                  39.5
+                  38.5,
+                  46.5
                 ],
                 [
-                  17.5,
-                  20.5
+                  20.5,
+                  24.5
                 ]
               ]
             }

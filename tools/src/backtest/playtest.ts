@@ -198,7 +198,8 @@ function run(
   const map = parseMap(maps[mission.map.file as keyof typeof maps]);
   // Matches the app. `spawn` never reuses a dead slot, so this is a budget for
   // everyone who ever appears, not for how many stand at once.
-  const sim = new Sim({ seed: 424242, width: map.width, height: map.height, capacity: 256 });
+  // PT_SEED: the ladder re-measure runs the scripted plans over many seeds (GH-382); unset it is 424242.
+  const sim = new Sim({ seed: Number(process.env.PT_SEED ?? 424242), width: map.width, height: map.height, capacity: 256 });
   applyTerrain(map, sim);
   // Buildings are entities, exactly as the app raises them.
   const structIdx = new Map<string, number>();
@@ -765,17 +766,33 @@ const wh2 = run(
   'wadi_halam_2_laager',
   (sim, rt, ids, at) => {
     const engineers = new Set(ids('demo_squad'));
+    // GH-382: the ford watch is in the NW corner now, off the line to the pasture, so one
+    // team stands on it for the whole mission (and is kept out of the anchor sweep).
+    const picket = new Set(ids('at_team'));
+    const kept = new Set([...engineers, ...picket]);
     const anchor = (): void => {
       const all: number[] = [];
       for (let i = 0; i < sim.entityCount; i++)
-        if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !engineers.has(i)) all.push(i);
-      sim.queueCommand({ kind: 'attackMove', ids: all, ...M(18, 21) });
+        if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !kept.has(i)) all.push(i);
+      sim.queueCommand({ kind: 'attackMove', ids: all, ...M(21, 25) });
+    };
+    // Two structures stand inside the pasture zone now: the pump house in the field and the
+    // forward store on its western edge. The engineers take whichever is still standing.
+    const burn = (): void => {
+      for (const [tx, ty] of [[18, 22], [13, 25]] as const) {
+        const s = sim.structureAt(tx, ty);
+        if (s >= 0) {
+          sim.queueCommand({ kind: 'demolish', ids: [...engineers], structure: s });
+          return;
+        }
+      }
     };
     at(0, () => {
-      const shed = sim.structureAt(16, 19);
-      if (shed >= 0) sim.queueCommand({ kind: 'demolish', ids: [...engineers], structure: shed });
+      burn();
+      sim.queueCommand({ kind: 'attackMove', ids: [...picket], ...M(9, 9) });
     });
     at(1, anchor);
+    for (let when = 15; when <= 300; when += 15) at(when, burn);
     for (let when = 45; when <= 700; when += 45) at(when, anchor);
     for (let when = 90; when <= 700; when += 60) {
       at(when, () => void rt.requestBuild('inf_squad'));
@@ -799,18 +816,30 @@ const wh3 = run(
   'wadi_halam_3_counterraid',
   (sim, _rt, ids, at) => {
     const chase = [...ids('jeep_shoded'), ...ids('apc_eitan')];
+    // GH-382: the herd stands on the lane's lower bend now, 10 tiles above the refuge on the
+    // stream bed, and civilians break for the refuge only when a soldier reaches them. One
+    // rifle squad walks out to them (infantry carry nobody, so they go on foot, and a hull
+    // with free seats near them would take them aboard and strand them in it) and rejoins.
+    const shepherd = ids('inf_squad').slice(0, 1);
+    const kept = new Set(shepherd);
     const anchor = (): void => {
       const cur: number[] = [];
-      for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0 && sim.state.alive[i] === 1) cur.push(i);
-      sim.queueCommand({ kind: 'attackMove', ids: cur, ...M(18, 21) });
+      for (let i = 0; i < sim.entityCount; i++)
+        if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !kept.has(i)) cur.push(i);
+      sim.queueCommand({ kind: 'attackMove', ids: cur, ...M(21, 22) });
     };
     at(0, () => {
-      sim.queueCommand({ kind: 'attackMove', ids: chase, ...M(22, 10) });
+      sim.queueCommand({ kind: 'attackMove', ids: chase, ...M(25, 7) });
       sim.queueCommand({
         kind: 'attackMove',
-        ids: [...ids('ifv_namer'), ...ids('inf_squad'), ...ids('at_team')],
-        ...M(18, 21),
+        ids: [...ids('ifv_namer'), ...ids('inf_squad').slice(1), ...ids('at_team')],
+        ...M(21, 22),
       });
+      sim.queueCommand({ kind: 'move', ids: shepherd, ...M(25, 32) });
+    });
+    at(75, () => {
+      kept.clear();
+      sim.queueCommand({ kind: 'attackMove', ids: shepherd, ...M(21, 22) });
     });
     for (let when = 60; when <= 700; when += 45) at(when, anchor);
   },
@@ -852,20 +881,46 @@ const wadiHalam4Plan: Plan = (sim, _rt, ids, at) => {
   // sequential demolitions by gunfire, and splitting the force across two
   // corners halves the rate on both.
   const guns = [...apc, ...infantry];
+  // GH-382: the four garrisoned houses are NW (17,12), NE (29,12), SW (19,30) and the cache
+  // house SE (38,25), the families wait around the hall and by the south road, and the refuge
+  // is on the road WEST (3,17): the shepherd's last leg is the long one now.
+  //
+  // The sweep is no longer on a fixed clock. A garrisoned house is levelled by fire from a
+  // few tiles and crawls at the 6-7 tiles an `attackMove` halts at (measured: 17 hp/s into
+  // the NW house from there, against a 3,120 hp house), so each stage `move`s up to a firing
+  // step 2-3 tiles off the house's face and the next stage starts when that house is down.
   at(0, () => {
-    sim.queueCommand({ kind: 'attackMove', ids: guns, ...M(27, 19) });
-    sim.queueCommand({ kind: 'move', ids: ifv, ...M(28, 21) });
+    sim.queueCommand({ kind: 'move', ids: guns, ...M(19, 16) });
+    sim.queueCommand({ kind: 'move', ids: ifv, ...M(28, 22) });
   });
-  at(20, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(25, 23) }));
+  at(22, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(25, 23) }));
   at(40, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(29, 28) }));
-  at(60, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(22, 36) }));
-  // The IFV's autocannon is the heaviest thing here, so it joins the sweep
-  // the moment its circuit is done rather than parking on the objective.
-  at(105, () => sim.queueCommand({ kind: 'attackMove', ids: [...guns, ...ifv], ...M(32, 19) }));
-  at(210, () => sim.queueCommand({ kind: 'attackMove', ids: [...guns, ...ifv], ...M(27, 30) }));
-  at(300, () => sim.queueCommand({ kind: 'attackMove', ids: [...guns, ...ifv], ...M(32, 30) }));
-  // Consolidate on the centre for the capture clock once the corners are down.
-  at(390, () => sim.queueCommand({ kind: 'attackMove', ids: [...guns, ...ifv], ...M(29, 26) }));
+  at(60, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(3, 17) }));
+  const stages: { house: [number, number]; stand: [number, number] }[] = [
+    { house: [17, 12], stand: [19, 16] },
+    { house: [19, 30], stand: [20, 28] },
+    { house: [38, 25], stand: [36, 25] },
+  ];
+  let stage = 0;
+  let finished = false;
+  for (let when = 10; when <= 800; when += 5) {
+    at(when, () => {
+      const cur = stages[stage];
+      if (cur && sim.structureAt(cur.house[0], cur.house[1]) < 0) {
+        stage++;
+        const next = stages[stage];
+        // The IFV's autocannon is the heaviest thing here, so it joins the sweep once its
+        // circuit is done (60 s + the run west).
+        const all = when >= 110 ? [...guns, ...ifv] : guns;
+        if (next) sim.queueCommand({ kind: 'move', ids: all, ...M(next.stand[0], next.stand[1]) });
+      }
+      if (stage >= stages.length && !finished) {
+        finished = true;
+        // Consolidate for the capture clock once the corners are down.
+        sim.queueCommand({ kind: 'attackMove', ids: [...guns, ...ifv], ...M(34, 24) });
+      }
+    });
+  }
 };
 
 const wh4 = run('wadi_halam_4_village', wadiHalam4Plan, wh3);
@@ -931,14 +986,16 @@ const wadiHalam5Plan: Plan = (sim, _rt, ids, at) => {
   // go down the D9 (slower alone, but unkillable by anything in this
   // mission's roster) picks up what is left instead of three buildings
   // simply never coming down.
+  // GH-382: the depot is on the embankment now (walls x28-41, y4-17; the yard is zone
+  // [29,5,12,12]) and its seven structures stand where the map puts them.
   const targets: [number, number][] = [
-    [36, 18],
-    [40, 18],
-    [36, 21],
-    [40, 21],
-    [36, 24],
-    [39, 24],
-    [37, 27],
+    [30, 6],
+    [34, 6],
+    [37, 6],
+    [30, 10],
+    [35, 10],
+    [38, 11],
+    [36, 14],
   ];
   // Checked against the live structure table so a target already down is
   // skipped. Scanned from opposite ends of the shared list so that, when
@@ -955,8 +1012,8 @@ const wadiHalam5Plan: Plan = (sim, _rt, ids, at) => {
     }
   };
   at(0, () => {
-    sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(34, 24) });
-    sim.queueCommand({ kind: 'move', ids: jeep, ...M(30, 24) });
+    sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(33, 20) });
+    sim.queueCommand({ kind: 'move', ids: jeep, ...M(32, 27) });
     orderNext(dozer, true);
     orderNext(engineers, false);
   });
@@ -975,12 +1032,12 @@ const wadiHalam5Plan: Plan = (sim, _rt, ids, at) => {
   // the same reason II and III need it: attackMove does not mean "stand
   // here", and a wave that breaks and runs pulls a pursuing force out past
   // the zone edge.
-  at(40, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(38, 22) }));
+  at(40, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(33, 12) }));
   for (let when = 85; when <= 400; when += 45) {
     at(when, () => {
       const cur: number[] = [];
       for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0 && sim.state.alive[i] === 1) cur.push(i);
-      sim.queueCommand({ kind: 'attackMove', ids: cur, ...M(38, 22) });
+      sim.queueCommand({ kind: 'attackMove', ids: cur, ...M(33, 12) });
     });
   }
 };
@@ -3058,7 +3115,9 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // beit_sahwan_3_clearance 280 -> 254 (ROE 100 -> 94 as well),
 // beit_sahwan_4_subterranean 188 -> 178. -57 - 10 - 10 - 26 - 10 = -113.
 // `GATES` does not move: no mission's star count changed.
-const LADDER_CREDITS = 5736;
+// GH-382 moved Wadi Halam II-V onto new ground: 5736 -> 5701 (-35), every term on the Wadi
+// Halam chain and nothing else (II 188 -> 186, III 190 -> 170, IV 187 -> 182, V 159 -> 151).
+const LADDER_CREDITS = 5701;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);

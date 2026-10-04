@@ -4,11 +4,11 @@
   "town": "wadi_halam",
   "phase": "clearance",
   "target_minutes": 7,
-  "briefing": "The village is inhabited and the civic hall is under protection — heavy ordnance reaches further across open ground than it does between walls, so mind what you call in. A cache guard and three cells hold the houses; a pair of technicals waiting at the south hide will run for the village the moment you make contact. Take and hold the village. Hold means no enemy within six tiles of your people inside it; whatever is left outside that falls back, and you will not be asked to chase it. Kill or capture whoever is guarding the cache, and get the families out to the refuge before the fighting closes the road.",
+  "briefing": "The village is inhabited and the civic hall is under protection — heavy ordnance reaches further across open ground than it does between walls, so mind what you call in. A cache guard and three cells hold the houses; the village steps down a slope to a stony stream with a single ford, and a pair of technicals waiting at the south hide, beyond it, will run for the village the moment you make contact — across the ford, not down a road. Take and hold the village. Hold means no enemy within six tiles of your people inside it; whatever is left outside that falls back, and you will not be asked to chase it. Kill or capture whoever is guarding the cache, and get the families out to the refuge on the road west before the fighting closes it.",
   "briefing_sections": [
-    {"id": "situation", "text": "The village is inhabited and the civic hall is under protection — heavy ordnance reaches further across open ground than it does between walls, so mind what you call in. A cache guard and three cells hold the houses; a pair of technicals waiting at the south hide will run for the village the moment you make contact."},
+    {"id": "situation", "text": "The village is inhabited and the civic hall is under protection — heavy ordnance reaches further across open ground than it does between walls, so mind what you call in. A cache guard and three cells hold the houses; the village steps down a slope to a stony stream with a single ford, and a pair of technicals waiting at the south hide, beyond it, will run for the village the moment you make contact — across the ford, not down a road."},
     {"id": "mission", "text": "Take and hold the village. Hold means no enemy within six tiles of your people inside it; whatever is left outside that falls back, and you will not be asked to chase it."},
-    {"id": "execution", "text": "Kill or capture whoever is guarding the cache, and get the families out to the refuge before the fighting closes the road."}
+    {"id": "execution", "text": "Kill or capture whoever is guarding the cache, and get the families out to the refuge on the road west before the fighting closes it."}
   ],
   "briefing_image": "ui/plates/units/inf_squad.jpg",
   "debrief": {
@@ -165,15 +165,15 @@
         "unit": "militia_cell",
         "count": 1,
         "at": [
-          26.5,
-          19.5
+          19.5,
+          15.5
         ],
         "facing_deg": 0,
         "stance": {
           "kind": "garrison",
           "building": [
-            26,
-            17
+            17,
+            12
           ]
         },
         "tag": "wh_cell_nw"
@@ -182,15 +182,15 @@
         "unit": "militia_cell",
         "count": 1,
         "at": [
-          31.5,
-          19.5
+          30.5,
+          15.5
         ],
         "facing_deg": 0,
         "stance": {
           "kind": "garrison",
           "building": [
-            31,
-            17
+            29,
+            12
           ]
         },
         "tag": "wh_cell_ne"
@@ -199,15 +199,15 @@
         "unit": "militia_cell",
         "count": 1,
         "at": [
-          26.5,
-          30.5
+          20.5,
+          33.5
         ],
         "facing_deg": 0,
         "stance": {
           "kind": "garrison",
           "building": [
-            26,
-            28
+            19,
+            30
           ]
         },
         "tag": "wh_cell_sw"
@@ -216,15 +216,15 @@
         "unit": "rpg_team",
         "count": 1,
         "at": [
-          31.5,
-          30.5
+          39.5,
+          28.5
         ],
         "facing_deg": 0,
         "stance": {
           "kind": "garrison",
           "building": [
-            31,
-            28
+            38,
+            25
           ]
         },
         "tag": "wh_hvt_cache"
