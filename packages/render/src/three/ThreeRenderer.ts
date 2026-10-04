@@ -5039,12 +5039,19 @@ export class ThreeRenderer implements Renderer {
       if (this.unitsDebugHidden || !unitIsObserved(st.side[i], x, z, this.fogVisibleAt)) continue;
       const cls = RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type);
       const lift = type.isAir ? AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL : 0;
+      const facing = fx.toNumber(st.facing[i]);
+      const dims = proxyBoxDims(type.id, cls);
+      // Centred on the hull, not the origin: game facing `f` points along
+      // (cos 2*pi*f, sin 2*pi*f) on world X/Z, the same convention the turret
+      // spring's goal angle uses.
+      const bx = x + Math.cos(facing * Math.PI * 2) * dims.offsetAlong;
+      const bz = z + Math.sin(facing * Math.PI * 2) * dims.offsetAlong;
       entries.push({
-        x,
-        z,
-        groundY: groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, z) + lift,
-        yaw: meshYawFromFacing(fx.toNumber(st.facing[i])),
-        dims: proxyBoxDims(type.id, cls),
+        x: bx,
+        z: bz,
+        groundY: groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, bx, bz) + lift,
+        yaw: meshYawFromFacing(facing),
+        dims,
         side: st.side[i],
       });
     }

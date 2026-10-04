@@ -33,6 +33,9 @@ export interface ProxyBoxDims {
   readonly halfAlong: number;
   readonly halfAcross: number;
   readonly height: number;
+  /** Where the hull's centre sits along the heading from the unit's origin
+   *  (the ring ellipse's own `offsetAlong`), so the box covers the hull. */
+  readonly offsetAlong: number;
 }
 
 /** A man is ~1.8 m and a tile 3 m; a hull roughly 2.4 m. Air keeps the hull
@@ -49,10 +52,11 @@ export function proxyBoxDims(typeId: string, cls: RingClass): ProxyBoxDims {
       halfAlong: Math.max(0.15, e.along - ELLIPSE_PAD_TILES),
       halfAcross: Math.max(0.15, e.across - ELLIPSE_PAD_TILES),
       height,
+      offsetAlong: e.offsetAlong,
     };
   }
   const half = Math.max(0.15, ringRadiusFor(typeId, cls) * 0.7);
-  return { halfAlong: half, halfAcross: half, height };
+  return { halfAlong: half, halfAcross: half, height, offsetAlong: 0 };
 }
 
 /** One proxy this frame. `yaw` is radians about +Y, the mesh yaw a vehicle

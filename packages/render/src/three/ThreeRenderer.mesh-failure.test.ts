@@ -16,6 +16,7 @@ import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
 import type { ProxyBoxBatch } from './units/proxy-box';
 import { buildRigidFixtureGlb } from './units/rigid-mesh-fixture';
+import { ELLIPSE_BY_TYPE } from './units/readability';
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>();
@@ -120,7 +121,9 @@ describe('a unit whose GLB failed to load', () => {
     const m = new THREE.Matrix4();
     priv.proxyBoxes?.mesh.getMatrixAt(0, m);
     const p = new THREE.Vector3().setFromMatrixPosition(m);
-    expect(p.x).toBeCloseTo(9.5, 5);
+    // On the hull's centre: the unit's tile, moved along its heading (facing
+    // 0, +X) by the hull's own measured offset.
+    expect(p.x).toBeCloseTo(9.5 + ELLIPSE_BY_TYPE.mbt_lavi.offsetAlong, 5);
     expect(p.z).toBeCloseTo(11.5, 5);
   });
 
