@@ -16,6 +16,12 @@
   },
   "dispatch": "Beit Sahwan, before dawn. Nadir Sahim spent four years digging under the Marj and one morning spending it — every approach at once, and four villages left outside the wire. The senior officer still inside was a captain.",
   "briefing": "They came at dawn, out of the Marj, across every approach at once. What is left of the company is inside the compound on the Beit Sahwan road: two gates, both on the road, and two blind faces they will cut straight through rather than walk round. Two things matter this morning. Hold the yard until the relief column reaches us, five minutes out. And the villages are outside the wire: the families in them have nowhere else to go, so get at least two inside before the ring closes, because nobody is coming back for them afterwards. Take something fast: a family runs for the compound once one of ours is within four tiles, or under fire.",
+  "briefing_sections": [
+    {"id": "situation", "text": "They came at dawn, out of the Marj, across every approach at once. What is left of the company is inside the compound on the Beit Sahwan road: two gates, both on the road, and two blind faces they will cut straight through rather than walk round."},
+    {"id": "mission", "text": "Two things matter this morning. Hold the yard until the relief column reaches us, five minutes out. And the villages are outside the wire: the families in them have nowhere else to go, so get at least two inside before the ring closes, because nobody is coming back for them afterwards."},
+    {"id": "notes", "text": "Take something fast: a family runs for the compound once one of ours is within four tiles, or under fire."}
+  ],
+  "briefing_image": "ui/plates/units/inf_squad.jpg",
   "map": {
     "file": "marj_perimeter",
     "player_start": [

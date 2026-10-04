@@ -5,6 +5,12 @@
   "phase": "clearance",
   "target_minutes": 7,
   "briefing": "The village is inhabited and the civic hall is under protection — heavy ordnance reaches further across open ground than it does between walls, so mind what you call in. A cache guard and three cells hold the houses; a pair of technicals waiting at the south hide will run for the village the moment you make contact. Take and hold the village. Hold means no enemy within six tiles of your people inside it; whatever is left outside that falls back, and you will not be asked to chase it. Kill or capture whoever is guarding the cache, and get the families out to the refuge before the fighting closes the road.",
+  "briefing_sections": [
+    {"id": "situation", "text": "The village is inhabited and the civic hall is under protection — heavy ordnance reaches further across open ground than it does between walls, so mind what you call in. A cache guard and three cells hold the houses; a pair of technicals waiting at the south hide will run for the village the moment you make contact."},
+    {"id": "mission", "text": "Take and hold the village. Hold means no enemy within six tiles of your people inside it; whatever is left outside that falls back, and you will not be asked to chase it."},
+    {"id": "execution", "text": "Kill or capture whoever is guarding the cache, and get the families out to the refuge before the fighting closes the road."}
+  ],
+  "briefing_image": "ui/plates/units/inf_squad.jpg",
   "debrief": {
     "victory": {
       "speaker": "shai",

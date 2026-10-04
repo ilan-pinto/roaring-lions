@@ -15,6 +15,13 @@
     }
   },
   "briefing": "The high gate is shut. Four tiles of poured concrete across the shoulder gap at the crest — the drone brought back men, not masonry, so it was never on the board. The infantry crosses low, then, and it crosses alone. The notch is open on foot from the first second and it is covered end to end from the cover above it, so they are seen the whole way through. That concrete was poured before the brigade was in Sur. He did not garrison this pass — he priced it, and he set a different price for men and for vehicles. Engineers take the revetment down inside five minutes or this is over. Until it comes down nothing on wheels or tracks goes north of the wall at all, and the camp behind you is the only place anything new comes from. Buy accordingly: a Namer bought at two minutes cannot use a road the engineers have not opened yet. Then hold both gates for three minutes. Nothing crossing the notch can be supported from the shoulder, or the other way round. Send them anyway, and know how long they are alone.",
+  "briefing_sections": [
+    {"id": "situation", "text": "The high gate is shut. Four tiles of poured concrete across the shoulder gap at the crest — the drone brought back men, not masonry, so it was never on the board. The infantry crosses low, then, and it crosses alone. The notch is open on foot from the first second and it is covered end to end from the cover above it, so they are seen the whole way through. That concrete was poured before the brigade was in Sur. He did not garrison this pass — he priced it, and he set a different price for men and for vehicles."},
+    {"id": "mission", "text": "Engineers take the revetment down inside five minutes or this is over."},
+    {"id": "execution", "text": "Until it comes down nothing on wheels or tracks goes north of the wall at all, and the camp behind you is the only place anything new comes from. Buy accordingly: a Namer bought at two minutes cannot use a road the engineers have not opened yet. Then hold both gates for three minutes. Nothing crossing the notch can be supported from the shoulder, or the other way round."},
+    {"id": "notes", "text": "Send them anyway, and know how long they are alone."}
+  ],
+  "briefing_image": "ui/plates/units/yahalom_squad.jpg",
   "map": {
     "file": "qarn_hadid",
     "player_start": [24, 42]
