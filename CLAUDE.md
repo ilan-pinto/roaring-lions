@@ -1022,9 +1022,9 @@ yours; each one records what the next phase inherits.
   the defect's own 0.0493 signal. A missing baseline for the current
   environment is **exit 3**, a distinct code, never a silent pass. A baseline
   still has to be blessed per environment, and CI's must be created by the
-  `visual-baseline-bless` workflow, which **commits to `main` directly** — it
-  opened a review PR until 2026-09-02, so nothing now looks at the picture
-  before it becomes the reference — but the reason is no longer "we do not
+  `visual-baseline-bless` workflow, which **opens a review PR by default** since
+  2026-10-04 (it committed to `main` directly from 2026-09-02 to then; `direct: true`
+  restores that) — but the reason is no longer "we do not
   know whether a capture even works there". **Cross-OS CAPTURE is measured now
   and it works**, which retires the "unmeasured" this line used to carry: on
   `ubuntu-latest` (run 33591712714, 2026-09-02) all four gated scenarios
@@ -1308,23 +1308,23 @@ yours; each one records what the next phase inherits.
   exits in 10.9 s.
   **Accepting an intended change** is `pnpm golden-baseline:bless -- --reason="..."`,
   which refuses to run without the reason and writes it into `manifest.json`;
-  on CI it is the `visual-baseline-bless` `workflow_dispatch`, which since
-  2026-09-02 **commits the new PNGs straight to `main`** (the lead's call:
-  "instead of PR merge to main and push"). Nobody sees the picture unless
-  whoever dispatched it downloads the `visual-baseline-bless-captures`
-  artifact and looks — so do that, every time. Do not widen a threshold to
-  clear a red run.
-  **The PR route this paragraph used to describe is retired.** The workflow no
-  longer calls `gh pr create`, so the repo setting that used to block it
-  (`can_approve_pull_request_reviews: false`, Settings → Actions → General →
-  Workflow permissions) no longer matters to it; the first Linux baseline
-  (`linux-x64-swiftshader`, run 33596042795) landed under the old route as
-  PR #150. Two consequences of the bot commit, both met on 2026-09-15: **its
-  push triggers NO `ci.yml` run** (GitHub never runs workflows for a
-  `GITHUB_TOKEN` push), so after a bless `main`'s `visual` status stays
-  whatever the last real push left it and the `version` job waits for the next
-  real push; and a bless dispatched while `main` is moving retries its push
-  three times before giving up.
+  on CI it is the `visual-baseline-bless` `workflow_dispatch`.
+  **Since 2026-10-04 (the lead's G2 call, #166) it pushes the new PNGs to
+  `visual-bless/<run id>` and opens a PR to `main`**, its body naming the reason,
+  the scenarios that changed and the captures artifact
+  (`visual-baseline-bless-captures`), so the picture is seen before it becomes
+  the reference — look at it, every time. That needs the repo setting
+  "Allow GitHub Actions to create and approve pull requests" (Settings →
+  Actions → General → Workflow permissions); with it off, PR creation fails, the
+  job prints the `pull/new/<branch>` URL, names the setting and exits 0, and a
+  human opens the PR by hand (as with PR #150, the first Linux baseline). The
+  `direct` input (default false) keeps the old straight-to-`main` commit, with
+  its three-try push retry, for when speed matters; nobody sees the picture on
+  that path. Both paths keep the `git status --porcelain -uall` guard. A bot
+  push or PR from `GITHUB_TOKEN` triggers NO `ci.yml` run, so the PR's `visual`
+  check does not appear by itself (push an empty commit or close and reopen it),
+  and after a direct bless `main`'s `visual` status stays whatever the last real
+  push left it. Do not widen a threshold to clear a red run.
 - **The cross-backend Pixi-vs-three diff is gone** (`golden-diff-gate.ts`,
   `expected-differences.ts`, `pnpm golden-diff:compare`, deleted in WP-A3.3).
   It was report-only from 2026-09-02, when the lead retired its pass/fail
