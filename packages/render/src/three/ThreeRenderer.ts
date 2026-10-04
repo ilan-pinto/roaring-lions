@@ -294,6 +294,11 @@ import {
   SHELL_CAPACITY,
   BOLT_CAPACITY,
 } from './units/fx';
+import {
+  ROTOR_WASH_INTERVAL_MS,
+  ROTOR_WASH_MIN_STRENGTH,
+  rotorWashStrength,
+} from './units/rotor-wash';
 import { nextVehicleMoving, vehicleDustIntervalMs, vehicleDustMagnitude, vehicleFxAnchor } from './units/vehicle-fx';
 import {
   makeVehicleWeightArrays,
@@ -4610,7 +4615,8 @@ export class ThreeRenderer implements Renderer {
     if (!this.particleSystem) return;
     const dust = this.emitterLibrary.byName('vehicle_dust');
     const exhaust = this.emitterLibrary.byName('vehicle_exhaust');
-    if (!dust && !exhaust) return;
+    const wash = this.emitterLibrary.byName('rotor_wash');
+    if (!dust && !exhaust && !wash) return;
 
     const st = this.sim.state;
     const n = this.snapshottedCount;
@@ -4624,6 +4630,34 @@ export class ThreeRenderer implements Renderer {
       if (type.isSoft) continue;
 
       const speed = this.entitySpeed[i];
+
+      // An air unit throws rotor wash instead of road dust and idle
+      // exhaust, from the DRAWN height above the drawn ground. Same clamped
+      // `dt` and one-spawn-per-call rule as dust, so a zero-time repaint
+      // spawns nothing.
+      if (wash && type.isAir) {
+        this.vehicleExhaustAccumMs[i] = 0;
+        const drawn = this.vehicleMeshEntities.get(i)?.root.position;
+        const wx = drawn ? drawn.x : this.curX[i];
+        const wy = drawn ? drawn.z : this.curY[i];
+        const groundY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, wx, wy);
+        const height = drawn ? drawn.y - groundY : AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL;
+        const strength = rotorWashStrength(height, speed);
+        if (strength < ROTOR_WASH_MIN_STRENGTH) {
+          this.vehicleDustAccumMs[i] = 0;
+          continue;
+        }
+        this.vehicleDustAccumMs[i] += dt;
+        if (dt <= 0 || this.vehicleDustAccumMs[i] < ROTOR_WASH_INTERVAL_MS) continue;
+        this.vehicleDustAccumMs[i] = (this.vehicleDustAccumMs[i] - ROTOR_WASH_INTERVAL_MS) % ROTOR_WASH_INTERVAL_MS;
+        const prio = wash.budget_priority ?? 1;
+        for (const layer of wash.particles) {
+          const fxLayer = fxLayerIndex(wash.layer, layer.additive ?? false);
+          this.particleSystem.spawn(layer, wx, wy, 0, strength, prio, fxLayer);
+        }
+        continue;
+      }
+
       const moving = nextVehicleMoving(this.vehicleMoving[i] === 1, speed);
       this.vehicleMoving[i] = moving ? 1 : 0;
       const facingNorm = fx.toNumber(st.facing[i]);

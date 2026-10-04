@@ -145,6 +145,7 @@ import shellImpact from '../../../data/vfx/shell_impact.json';
 import structureBurning from '../../../data/vfx/structure_burning.json';
 import structureCollapse from '../../../data/vfx/structure_collapse.json';
 import tunnelCollapse from '../../../data/vfx/tunnel_collapse.json';
+import rotorWash from '../../../data/vfx/rotor_wash.json';
 import vehicleDust from '../../../data/vfx/vehicle_dust.json';
 import vehicleExhaust from '../../../data/vfx/vehicle_exhaust.json';
 
@@ -420,6 +421,7 @@ export const vfxEmitters = [
   tunnelCollapse,
   vehicleDust,
   vehicleExhaust,
+  rotorWash,
 ];
 
 /** Resolve a palette key like "vfx.fire" or "dust.2" to its hex colour. */
