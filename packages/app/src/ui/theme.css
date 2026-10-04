@@ -2782,6 +2782,26 @@ body {
      by a pixel or two, but it must never wrap onto the art. */
   white-space: nowrap;
 }
+/* WP-A3.3, ruling 1: a bought unit whose model is still downloading draws
+   nothing on the map until it lands, so its tile says so. Top edge, where the
+   countdown sits, because it is the same kind of fact: something on its way. */
+.rl-tile__deploying {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 1px;
+  text-align: center;
+  font-size: var(--t-s);
+  color: var(--live);
+  text-shadow: 0 0 3px var(--well);
+  white-space: nowrap;
+}
+.rl-tile[data-mesh-pending='1'] .rl-tile__left {
+  display: none;
+}
+.rl-tile:not([data-mesh-pending='1']) .rl-tile__deploying {
+  display: none;
+}
 /* The price is not the answer when the campaign is the answer. */
 .rl-tile[data-locked='0'] .rl-tile__lock,
 .rl-tile[data-locked='1'] .rl-tile__cost {

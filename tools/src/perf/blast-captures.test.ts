@@ -73,7 +73,11 @@ describe('sheetIndex', () => {
   });
 });
 
-describe('the subject list, after the relief and &nomesh subjects landed', () => {
+describe('the subject list, after the relief subjects landed (and the &nomesh one retired)', () => {
+  it('carries no billboard-path subject', () => {
+    for (const s of BLAST_SUBJECTS) expect(s.flags ?? [], `subject "${s.id}"`).not.toContain('nomesh');
+  });
+
   // The three comparison subjects parade on rows 0-7 of
   // beit_sahwan_outskirts, which are open ground end to end -- the same band
   // wreck-captures.ts parades on, and the reason it does. The four the AFTER

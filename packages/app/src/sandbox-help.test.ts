@@ -173,18 +173,16 @@ describe('the mesh flip', () => {
     for (const f of SANDBOX_FLAGS) expect(f.blurb).not.toContain('inf_squad');
   });
 
-  // Meshes became the default, so the live flag is the opt-OUT. These three
-  // pin the whole flip: absent means on, `&nomesh` means off, and the old
-  // opt-in spelling is still ACCEPTED so that every bookmark, CLAUDE.md line
-  // and finger-habit carrying `&mesh` is not reported as a typo by
-  // `unknownParams` -- which is the one thing that would make a silent no-op
-  // look like a broken feature.
-  it('draws meshes when nothing is asked for', () => {
-    expect(readFlags(new URLSearchParams('?sandbox')).nomesh).toBe(false);
-  });
-
-  it('turns them off for &nomesh', () => {
-    expect(readFlags(new URLSearchParams('?sandbox&nomesh')).nomesh).toBe(true);
+  // Meshes became the default, and since WP-A3.3 the only path: `&nomesh`
+  // (the billboard opt-out) is accepted and does nothing, exactly like the old
+  // opt-in `&mesh`, so neither is reported as a typo by `unknownParams` --
+  // which is what would make a silent no-op look like a broken feature.
+  it('accepts a stale &nomesh without calling it unknown, and offers no checkbox for it', () => {
+    expect(unknownParams(new URLSearchParams('?sandbox&nomesh'))).toEqual([]);
+    expect(SANDBOX_FLAGS.map((f) => f.name as string)).not.toContain('nomesh');
+    expect('nomesh' in readFlags(new URLSearchParams('?sandbox&nomesh'))).toBe(false);
+    const blurb = KNOWN_PARAMS.find((p) => p.name === 'nomesh')?.blurb ?? '';
+    expect(blurb).toMatch(/no effect/);
   });
 
   it('still accepts a stale &mesh without calling it unknown', () => {
@@ -200,7 +198,8 @@ describe('the mesh flip', () => {
 // menu.ts), not just printed to the console like KNOWN_PARAMS's -- the
 // `tunnel` flag's blurb named `yahalom_squad` verbatim, the exact
 // "enemy reacts (<id>)" shape the whole phase exists to remove, right next
-// to the `nomesh` blurb above that was deliberately written to avoid it.
+// to the (since retired) `nomesh` blurb that was deliberately written to
+// avoid it.
 describe('I4: no raw snake_case id in a rendered blurb', () => {
   // A generic shape check, not just the one instance that was found: any
   // future flag whose blurb names a unit/map/mission id by its JSON key

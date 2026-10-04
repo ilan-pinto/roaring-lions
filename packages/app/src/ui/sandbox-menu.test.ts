@@ -144,7 +144,7 @@ describe('the launch URL', () => {
     // that agrees with itself.
     const stage = render();
     toggle(stage, 'roe');
-    toggle(stage, 'nomesh');
+    toggle(stage, 'kit');
     const url = new URL(hrefOf(stage, 'wadi_halam_basin'), 'http://localhost:3000');
     expect(matchPath('/free-play/:map', stripBase('/', url.pathname))).toEqual({
       map: 'wadi_halam_basin',
@@ -156,9 +156,8 @@ describe('the launch URL', () => {
       sur: false,
       civ: false,
       ditch: false,
-      nomesh: true,
       decals: false,
-      kit: false,
+      kit: true,
     });
     expect(unknownParams(params)).toEqual([]);
   });

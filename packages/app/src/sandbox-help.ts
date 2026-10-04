@@ -16,7 +16,7 @@
  * Pure: a URLSearchParams and some ids in, strings out. No DOM, no console.
  */
 
-export type SandboxFlagName = 'roe' | 'tunnel' | 'sur' | 'civ' | 'ditch' | 'nomesh' | 'decals' | 'kit';
+export type SandboxFlagName = 'roe' | 'tunnel' | 'sur' | 'civ' | 'ditch' | 'decals' | 'kit';
 
 export interface UrlParam {
   name: string;
@@ -36,16 +36,6 @@ export const SANDBOX_FLAGS: readonly { name: SandboxFlagName; blurb: string }[] 
   {
     name: 'ditch',
     blurb: 'an anti-tank ditch cut across the axis between the two forces',
-  },
-  {
-    name: 'nomesh',
-    // No `&`-prefixed flag name in this string: SANDBOX_FLAGS's blurbs are
-    // rendered as visible DOM text on the Free play screen (`showSandbox`),
-    // unlike KNOWN_PARAMS's (console-only, via `sandboxHelp`) -- so naming
-    // the RETIRED opt-in flag this replaced has to be done without spelling
-    // out its URL syntax.
-    blurb:
-      'draw billboards instead of meshes — the diagnostic half of the old mesh-opt-in switch',
   },
   {
     name: 'decals',
@@ -97,7 +87,16 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
     // being reported as a typo. It is deliberately NOT in SANDBOX_FLAGS: the
     // banner should list what still changes something, and this no longer
     // does. `&nomesh` is the live flag now.
-    blurb: 'accepted, no effect — meshes are the default; use &nomesh to turn them off',
+    blurb: 'accepted, no effect — meshes are the only render path',
+  },
+  {
+    name: 'nomesh',
+    // Accepted and does nothing, like `mesh` above (WP-A3.3). It drew the
+    // billboards instead of meshes until the billboard path was retired;
+    // meshes are the only path now. Known so a bookmark carrying it is not
+    // reported as a typo, and NOT in SANDBOX_FLAGS, so the Free play screen
+    // stops offering a checkbox that does nothing.
+    blurb: 'accepted, no effect — meshes are the only render path since the billboards were retired',
   },
   {
     name: 'nosw',

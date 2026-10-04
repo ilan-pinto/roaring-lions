@@ -574,6 +574,7 @@
   "dock.note.armed": "<b>{name} armed</b> — click the map to place it",
   "dock.note.cancelled": "support call cancelled",
   "dock.tip.intelCost": "{n} intel",
+  "dock.tile.deploying": "deploying",
   "dock.tile.queuedSuffix": " — {n} building, next in {secs}s",
   "dock.tile.title": "{name} — {logistics} logistics{queued}",
   "dock.tile.titleLocked": "{name} — {reason}",

@@ -594,22 +594,19 @@ export function meshManifestFor(plan: MeshPlan): MeshManifest {
  * meshes and never reads their sheets. The mesh phase had been roster-driven
  * since `missionUnitTypes`; the sheets had not.
  *
- * With the mesh path on:
- *  - `before` deploy: a fielded type with NO mesh -- `attack_drone` and
- *    `recon_drone` today (B0a pending; `gun_truck`, `loiter_drone`,
- *    `manpad_team` and `recoilless_team` got theirs in B2, 2026-09-30).
- *    Their sheet IS how they draw.
- *  - `after` the first frame: a fielded mesh VEHICLE (its death still falls
- *    back to the sheet's `wreck` sprite -- `ThreeRenderer.addWreck` excludes
- *    rigged types only) and every deferred KDF buildable (drawn as a
- *    billboard until its own mesh lands). Neither gates deploy; a missing
- *    sheet costs a wreck picture or a few frames of a placeholder, and
- *    `updateUnits` skips a type with no instancer rather than throwing.
- *  - never: a fielded rigged type. Its mesh carries `down`/`wreck` clips.
+ * The mesh path is the only path since WP-A3.3 (`&nomesh` and Pixi are
+ * retired), so:
+ *  - `before` deploy: a fielded type with NO mesh -- none ships today (B0a
+ *    gave the two KDF drones theirs, B2 the last enemy types, 2026-09-30;
+ *    `tools/src/mesh_roster.test.ts` holds every unit to a GLB on disk).
+ *  - `after` the first frame: a fielded mesh VEHICLE (its death can still
+ *    fall back to the sheet's `wreck` sprite -- `ThreeRenderer.addWreck`
+ *    excludes rigged types only). Never gates deploy.
+ *  - never: a fielded rigged type (its mesh carries `down`/`wreck`), and a
+ *    deferred KDF buildable -- it draws nothing until its GLB lands (WP-A3.3,
+ *    the lead's ruling 1), with the dock tile's deploying chip meanwhile.
  *  - `structures` before deploy: a standing structure type with no building
  *    mesh -- none today, every `STRUCTURE_SPRITES` type has one.
- * Without the mesh path (Pixi, `&nomesh`) everything loads before deploy,
- * exactly as before: those renderers draw from the sheets.
  */
 export interface SpriteSheetPlan {
   readonly before: ReadonlySet<string>;
@@ -618,21 +615,16 @@ export interface SpriteSheetPlan {
 }
 
 export function spriteSheetPlan(input: {
-  meshPath: boolean;
   roster: ReadonlySet<string>;
-  deferred: ReadonlySet<string>;
   spriteTypes: ReadonlySet<string>;
   structureTypes: ReadonlySet<string>;
   structureSprites: ReadonlySet<string>;
 }): SpriteSheetPlan {
-  if (!input.meshPath) {
-    return { before: new Set(input.spriteTypes), after: new Set(), structures: new Set(input.structureSprites) };
-  }
   const before = new Set<string>();
   const after = new Set<string>();
   for (const id of input.spriteTypes) {
     if (input.roster.has(id) && !hasUnitMesh(id)) before.add(id);
-    else if ((input.roster.has(id) && id in VEHICLE_UNIT_MESHES) || input.deferred.has(id)) after.add(id);
+    else if (input.roster.has(id) && id in VEHICLE_UNIT_MESHES) after.add(id);
   }
   const structures = new Set<string>();
   for (const id of input.structureTypes) {

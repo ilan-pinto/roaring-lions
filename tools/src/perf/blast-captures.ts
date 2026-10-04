@@ -159,7 +159,7 @@ export interface BlastSubject {
    *  (`beit_sahwan_outskirts`), which is every subject the before-set carries,
    *  so the comparison half of this sheet is untouched by the relief half. */
   readonly map?: string;
-  /** Sandbox flags appended to this subject's own page URL (`nomesh`, ...).
+  /** Sandbox flags appended to this subject's own page URL.
    *  Absent means none. Subjects are grouped by (map, flags, isolation) and
    *  one page is booted per group, so a flag costs one page load and never
    *  leaks into another subject's frame. */
@@ -218,7 +218,8 @@ export interface BlastSubject {
 }
 
 /**
- * The relief and `&nomesh` subjects' ladder: the fireball, the wreck swap, and
+ * The relief subjects' ladder (and the retired `&nomesh` one's): the fireball,
+ * the wreck swap, and
  * the settled mark. Seven rungs, not fifty -- these subjects answer a question
  * about a mark on the ground and a shroud that is or is not there, both of
  * which have stopped moving inside two seconds.
@@ -366,24 +367,12 @@ export const BLAST_SUBJECTS: readonly BlastSubject[] = [
       'shake-to-camera-to-screen-pixel path can be read live, at both ends of the zoom clamp, ' +
       'and the one place the freeze can be seen holding a frame',
   },
-  {
-    id: 'blast_nomesh',
-    typeId: 'mbt_lavi',
-    mode: 'kill',
-    x: 6,
-    y: 3,
-    flags: ['nomesh'],
-    ladderMs: SHORT_LADDER_MS,
-    why:
-      "Task 7 removed the vehicle-kill branch's outer mesh-readiness guard, so a blast fires on " +
-      'the billboard path now -- light, shake, hit-stop and scorch, and NO shroud, because a ' +
-      'shroud is sized from measured mesh bounds there are none of here. Also the STRONGEST ' +
-      '`decals` witness in the set, and the subject that proved the pixel count is the wrong ' +
-      'metric for this layer: nothing covers the mark here (the fireball and the plume are both ' +
-      'GLBs `&nomesh` never fetches), hiding it moves 65293 pixels by up to 30/255, and ' +
-      "pixelmatch at its 0.1 perceptual threshold counts **0** of them. That is the gate's own " +
-      'documented blind spot -- a wide area moving by one palette step -- met head on',
-  },
+  // `blast_nomesh` stood here: the same Lavi kill on the billboard path
+  // (`&nomesh`), the strongest `decals` witness and the proof that a pixel
+  // count is the wrong metric for that layer (65293 px moved, pixelmatch
+  // counted 0). The billboard path is retired (WP-A3.3), so the subject went
+  // with it; the `decals` and `blast-light` floors stand on the mesh subjects,
+  // which already carried them (see `LAYER_FLOORS`).
 ];
 
 /** One photograph, and every condition it was taken under. */
@@ -505,9 +494,10 @@ export const LAYER_FLOORS = {
     // here over 3 runs at the 2000 ms rung, `mbt_lavi` reads 0 px / 0.5818 and
     // `apc_eitan` 0 px / 0.2092-0.2273 while both move a WIDE area by a modest
     // amount -- the mark sits under a wreck, and pixelmatch's 0.1 perceptual
-    // threshold discards the whole of it. `blast_nomesh` is the proof by
-    // extreme: the largest, least obstructed mark in the set moves 65293
-    // pixels by up to 30/255 and pixelmatch counts 0. The magnitude IS the
+    // threshold discards the whole of it. `blast_nomesh` (retired with the
+    // billboard path, WP-A3.3) was the proof by extreme: the largest, least
+    // obstructed mark in the set moved 65293 pixels by up to 30/255 and
+    // pixelmatch counted 0. The magnitude IS the
     // check for this layer, exactly as it is there, and the falsification is
     // unaffected -- a stamp that stops writing reads 0.0000.
     minDiffPixels: 0,
@@ -1381,11 +1371,9 @@ async function spawnSubjects(
  *  in `meshUnitEntities` with its clips bound. Steps ticks while it waits,
  *  which is safe precisely because no hostile is on the field yet. */
 async function waitForMeshes(page: import('playwright').Page, placed: readonly Placed[], notes: string[]): Promise<void> {
-  // `&nomesh` skips the GLB downloads entirely (CLAUDE.md, "Mesh units"), so
-  // there is nothing to wait FOR -- waiting would spend the whole 300 s
-  // deadline proving the flag works and then note a mesh that was never meant
-  // to arrive.
-  const meshy = placed.filter((p) => !(p.subject.flags ?? []).includes('nomesh'));
+  // Every subject is on the mesh path since the `&nomesh` subject was retired
+  // (WP-A3.3), so every placed body is waited for.
+  const meshy = placed;
   if (meshy.length === 0) return;
   const want = meshy.map((p) => ({ id: p.entity >= 0 ? p.entity : p.shooter, vehicle: p.entity >= 0 }));
   const deadline = Date.now() + MESH_WAIT_MS;

@@ -320,6 +320,7 @@ import {
   DECAL_FADING_RENDER_ORDER,
 } from './units/render-order';
 import { unitIsObserved } from './units/observed';
+import { ProxyBoxBatch, proxyBoxDims, type ProxyBoxEntry } from './units/proxy-box';
 import {
   SILHOUETTE_COLOR_KEY_BY_SIDE,
   SILHOUETTE_FALLBACK_HEX_BY_SIDE,
@@ -1797,6 +1798,17 @@ export class ThreeRenderer implements Renderer {
    * fog for the same entity.
    */
   private unitsDebugHidden = false;
+  /**
+   * Unit types whose GLB FAILED to load, with the URL that failed (WP-A3.3,
+   * ruling 2). A type here with no template draws `proxyBoxes` instead of
+   * nothing -- see `units/proxy-box.ts`. A type merely not loaded YET (a
+   * deferred buildable in flight) is not here and draws nothing.
+   */
+  private readonly meshFailures = new Map<string, string>();
+  /** Built on the first failure, never before: a boot where every GLB lands
+   *  adds nothing to the scene. */
+  private proxyBoxes: ProxyBoxBatch | null = null;
+  private readonly proxyEntries: ProxyBoxEntry[] = [];
   private readonly meshUnitEntities = new Map<number, MeshUnitEntity>();
   /** Mesh units mid-death-fade, not keyed by entity id -- see
    *  `meshUnitEntities`'s own doc comment for why an id-keyed collection
@@ -2866,6 +2878,8 @@ export class ThreeRenderer implements Renderer {
     this.residualMesh?.geometry.dispose();
     for (const mesh of this.structureBoxes.values()) mesh.geometry.dispose();
     this.structureBoxes.clear();
+    this.proxyBoxes?.dispose();
+    this.proxyBoxes = null;
     // Task 6: the batch itself (per-rebuild geometry/material, disposed by
     // `disposeDecorMesh` the same way `rebuildTerrain` already does on every
     // rebuild) plus the SOURCE geometry clones `loadDecorMeshes` owns
@@ -3208,6 +3222,7 @@ export class ThreeRenderer implements Renderer {
     this.updateUnits(alpha, dtMs);
     this.updateMeshUnits(alpha, dtMs);
     this.updateVehicleMeshes(alpha, dtMs);
+    this.updateProxyBoxes(alpha);
     this.updateVehicleAmbientFx(dtMs);
     this.updateStructures();
     // BEFORE `updateBuildingMeshes`, not after: the hold this drains is read
@@ -3359,6 +3374,7 @@ export class ThreeRenderer implements Renderer {
         // `unitsDebugHidden`. The flag is set first so the billboard
         // instancers and the mesh entities go dark on the SAME repaint.
         this.unitsDebugHidden = !visible;
+        if (this.proxyBoxes) this.proxyBoxes.mesh.visible = visible;
         for (const entity of this.meshUnitEntities.values()) entity.root.visible = visible;
         for (const entity of this.vehicleMeshEntities.values()) entity.root.visible = visible;
         return (
@@ -5348,7 +5364,12 @@ export class ThreeRenderer implements Renderer {
     // Computed once, like `loadVehicleMesh`'s: see `units/textured-infantry.ts`.
     const allowTextured = TEXTURED_INFANTRY_TYPES.has(unitTypeId);
     const templates = await Promise.all(
-      urls.map((url) => loadMeshUnitTemplate(url, faction, allowTextured))
+      urls.map((url) =>
+        loadMeshUnitTemplate(url, faction, allowTextured).catch((err: unknown) => {
+          this.noteMeshFailure(unitTypeId, url, err);
+          throw err;
+        })
+      )
     );
 
     const previous = this.meshUnitTemplates.get(unitTypeId);
@@ -5388,7 +5409,10 @@ export class ThreeRenderer implements Renderer {
    */
   async loadVehicleMesh(unitTypeId: string, glbUrl: string): Promise<void> {
     const allowTextured = TEXTURED_VEHICLE_TYPES.has(unitTypeId);
-    const template = await loadVehicleMeshTemplate(glbUrl, unitTypeId, allowTextured);
+    const template = await loadVehicleMeshTemplate(glbUrl, unitTypeId, allowTextured).catch((err: unknown) => {
+      this.noteMeshFailure(unitTypeId, glbUrl, err);
+      throw err;
+    });
 
     const previous = this.vehicleMeshTemplates.get(unitTypeId);
     if (previous) {
@@ -5411,6 +5435,62 @@ export class ThreeRenderer implements Renderer {
     // wreck recipe displaces those parts OUTWARD, so measuring the whole
     // clone would size the shroud from scattered debris.
     this.vehicleMeshBounds.set(unitTypeId, vehicleShroudBounds(template.root));
+  }
+
+  /**
+   * The unit types whose GLB failed to load (WP-A3.3, ruling 2). Read by
+   * tests and by anything that wants to say which models are proxies.
+   */
+  failedMeshTypes(): ReadonlySet<string> {
+    return new Set(this.meshFailures.keys());
+  }
+
+  /** Records a failed unit GLB and says so loudly, once per (type, url). The
+   *  caller still sees the rejection; this only makes sure the unit draws a
+   *  proxy box rather than nothing, and that the console names the file. */
+  private noteMeshFailure(unitTypeId: string, url: string, err: unknown): void {
+    if (this.meshFailures.get(unitTypeId) === url) return;
+    this.meshFailures.set(unitTypeId, url);
+    console.error(
+      `[lions] unit mesh FAILED for ${unitTypeId} (${url}) -- drawing a proxy box in its place`,
+      err
+    );
+  }
+
+  /**
+   * The proxy boxes for every living, observed unit of a FAILED type that has
+   * no template (a later successful reload supersedes the failure). Called
+   * every frame after the two mesh loops; costs one map lookup when nothing
+   * has failed.
+   */
+  private updateProxyBoxes(alpha: number): void {
+    if (this.meshFailures.size === 0) return;
+    const st = this.sim.state;
+    const n = this.snapshottedCount;
+    const entries = this.proxyEntries;
+    entries.length = 0;
+    for (let i = 0; i < n; i++) {
+      if (st.alive[i] === 0) continue;
+      const type = this.sim.unitTypes[st.typeIdx[i]];
+      if (!this.meshFailures.has(type.id)) continue;
+      if (this.meshUnitTemplates.has(type.id) || this.vehicleMeshTemplates.has(type.id)) continue;
+      const x = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
+      const z = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
+      if (this.unitsDebugHidden || !unitIsObserved(st.side[i], x, z, this.fogVisibleAt)) continue;
+      const cls = RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type);
+      const lift = type.isAir ? AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL : 0;
+      entries.push({
+        x,
+        z,
+        groundY: groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, z) + lift,
+        yaw: meshYawFromFacing(fx.toNumber(st.facing[i])),
+        dims: proxyBoxDims(type.id, cls),
+        side: st.side[i],
+      });
+    }
+    if (entries.length === 0 && this.proxyBoxes === null) return;
+    if (this.proxyBoxes === null) this.proxyBoxes = new ProxyBoxBatch(this.scene, this.opts.teamColors);
+    this.proxyBoxes.update(entries);
   }
 
   /**

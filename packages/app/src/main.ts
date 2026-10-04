@@ -1548,12 +1548,6 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // the friendly anchor. Sandbox-only and three-only, like every flag beside
   // it -- a real mission's ground must remember only its own battle.
   const wantDecals = flags.decals;
-  // Meshes are what the game looks like now, so they load unless asked not to.
-  // This was `flags.mesh` -- an opt-IN that `ui/menu.ts` never appended to any
-  // link it builds, so no player reached by the menu ever saw a mesh. The
-  // escape hatch inverts rather than disappearing: `&nomesh` still walks the
-  // billboard path on `three`, and `?renderer=pixi` has no mesh path at all.
-  const wantMesh = !flags.nomesh;
   // A misspelled flag (`&tunel`) otherwise does nothing at all, silently,
   // which reads as a broken feature rather than as a typo.
   // Level load time step 5. Fire-and-forget and deliberately NOT awaited: the
@@ -1790,9 +1784,6 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // This is the roster that replaces it. `./mesh-catalogue` owns the tables and
   // the arithmetic; what is decided HERE is only which roster to ask about.
   //
-  // Computed unconditionally, outside the renderer branch, so a change to it
-  // is not hidden inside a backend the reader may not be looking at. On Pixi
-  // and under `&nomesh` it is simply never read.
   const meshRoster = mission
     ? missionUnitTypes(mission, new Set(Object.keys(units)))
     : sandboxUnitTypes({ tunnel: wantTunnel, sur: wantSur, civ: wantCiv });
@@ -1830,10 +1821,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    * has unlocked, so its true roster is "what it fields" plus "the whole KDF
    * catalogue" -- which on `beit_sahwan_3_clearance` is most of the library
    * again and would give the change back. They are deferred instead: a build
-   * takes seconds of game time to deploy, `updateUnits` draws a
-   * mesh-less type as its BILLBOARD in the meantime, and every KDF buildable
-   * has a `SPRITE_MAP` entry, so the worst case is a sprite that becomes a
-   * model rather than a unit that is missing.
+   * takes seconds of game time to deploy, and the GLB is fetched from the
+   * moment the art gate clears. A unit deployed before its GLB lands draws
+   * NOTHING until it does -- no sprite placeholder since WP-A3.3 (the lead's
+   * ruling 1) -- and its dock tile shows a "deploying" chip meanwhile
+   * (`meshReady`). Measuring the alternative (loading every buildable before
+   * deploy) is in the PR for the lead.
    */
   const meshDeferred = mission?.resources
     ? new Set(
@@ -1848,21 +1841,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const meshLoaded = new Set<string>([...meshPlan.rigged, ...meshPlan.vehicles]);
   /** Type ids whose deferred mesh failed, surfaced beside `failedArt`. */
   const failedMesh: string[] = [];
-  /** Starts one structure type's WRECK mesh, or null on a backend with no
-   *  mesh path. Assigned in the three branch beside `ensureUnitMesh`, for
-   *  the same reason: `three` is in scope only there, and this file is the
-   *  only thing that calls the loaders. Deferred to after the first frame --
-   *  see the call site below `loading.done()`. */
-  let wreckMeshLoader: ((structureId: string) => void) | null = null;
-  /** Load one unit type's mesh if it has one and has not been asked for yet.
-   *  Assigned only on the three backend with meshes on; a no-op on Pixi and
-   *  under `&nomesh`, where `meshPathActive` keeps the sweep off entirely. */
-  let ensureUnitMesh: (typeId: string) => void = () => {};
-  /** Whether anything on screen is drawing a mesh at all. Gates the
-   *  living-unit sweep below: with the mesh path off, EVERY type is
-   *  legitimately mesh-less and the sweep would warn about all of them once a
-   *  second forever. */
-  let meshPathActive = false;
+  /** Unit types whose mesh has LANDED (template built). A deferred buildable
+   *  is "pending" until it appears here -- the dock's deploying chip reads
+   *  it (WP-A3.3, ruling 1). Failed types never appear: they draw a proxy box
+   *  (`units/proxy-box.ts`) and are reported through `failedMesh`. */
+  const meshReady = new Set<string>([...meshPlan.rigged, ...meshPlan.vehicles]);
 
   // The map's decor layer goes to the renderer as `TERRAIN_DECOR` indices, and
   // the two enums are declared separately because @lions/render must not import
@@ -1915,131 +1898,127 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     three.dispose();
     three.canvas.remove();
   });
-  if (wantMesh) {
-    // ROSTER-DRIVEN, not the whole library. Everything below is driven by
-    // `meshPlan` above: this branch loads the meshes for the unit types this
-    // mission or sandbox can actually field, the buildings its map actually
-    // stands, and the decor families its terrain can actually place.
+  // ROSTER-DRIVEN, not the whole library. Everything below is driven by
+  // `meshPlan` above: this branch loads the meshes for the unit types this
+  // mission or sandbox can actually field, the buildings its map actually
+  // stands, and the decor families its terrain can actually place.
+  //
+  // Before this, the block here was ~300 lines of hand-written calls that
+  // ran for every mission alike -- measured, in a production build served
+  // from disk, at 65 GLB fetches and 40.04 MiB regardless of what was on
+  // the map. `tel_marum_1_recon` fields nine unit types and downloaded all
+  // thirty. The catalogue those calls became is `./mesh-catalogue`, whose
+  // header carries the reasoning that used to live here: which faction
+  // each rigged mesh is shaded through and why that is a design call
+  // rather than a naming heuristic, why five Meshy assets cannot share the
+  // "team id == unit type id == file basename" convention, why civilians
+  // are four variants of one type in a fixed order, and which three
+  // shipped GLBs are deliberately never loaded.
+  //
+  // `meshUrl` keeps the `new URL(..., import.meta.url)` template form Vite
+  // rewrites into a glob, so `vite-plugin-asset-watch.ts` (GH-147) still
+  // finds and watches all six mesh directories.
+  //
+  // A UNIT mesh that fails does not fail the boot (WP-A3.3, ruling 2): the
+  // renderer logs a console.error naming the GLB and draws that type as a
+  // team-coloured proxy box at its footprint (`units/proxy-box.ts`), and
+  // `failedMesh` puts it in front of the player as a HUD note. Before the
+  // billboard path was retired, the same failure quietly drew the sprite.
+  // Every OTHER asset here still propagates, as it always did -- after the
+  // teardown, like the other awaits below that can throw: a registered
+  // disposer is no use to a boot that throws past it.
+  // The renderer has already named the GLB in its own console.error.
+  const unitMeshFailed = (id: string) => (): void => {
+    meshReady.delete(id);
+    failedMesh.push(id);
+  };
+  await Promise.all([
+    ...meshManifest.rigged.map((m) => three.loadMeshUnit(m.id, m.urls, m.faction).catch(unitMeshFailed(m.id))),
+    ...meshManifest.vehicles.map((m) => three.loadVehicleMesh(m.id, m.url).catch(unitMeshFailed(m.id))),
+    // Building meshes: the STANDING state only, for the structure types
+    // this map actually stands. `colour_key`/`wallColorKey` is resolved
+    // inside `loadBuildingMesh` itself off `Sim.structureTypes[...].color`
+    // -- nothing here needs to know it.
     //
-    // Before this, the block here was ~300 lines of hand-written calls that
-    // ran for every mission alike -- measured, in a production build served
-    // from disk, at 65 GLB fetches and 40.04 MiB regardless of what was on
-    // the map. `tel_marum_1_recon` fields nine unit types and downloaded all
-    // thirty. The catalogue those calls became is `./mesh-catalogue`, whose
-    // header carries the reasoning that used to live here: which faction
-    // each rigged mesh is shaded through and why that is a design call
-    // rather than a naming heuristic, why five Meshy assets cannot share the
-    // "team id == unit type id == file basename" convention, why civilians
-    // are four variants of one type in a fixed order, and which three
-    // shipped GLBs are deliberately never loaded.
-    //
-    // `meshUrl` keeps the `new URL(..., import.meta.url)` template form Vite
-    // rewrites into a glob, so `vite-plugin-asset-watch.ts` (GH-147) still
-    // finds and watches all six mesh directories.
-    //
-    // Errors propagate, as they did before: `loadMeshUnit`'s own doc comment
-    // says a missing or malformed GLB fails loudly for this caller to
-    // report, and swallowing it would leave a unit type silently absent.
-    // After the teardown, like the other awaits below that can throw: a
-    // registered disposer is no use to a boot that throws past it, and
-    // this one used to leave the context alive until GC.
-    await Promise.all([
-      ...meshManifest.rigged.map((m) => three.loadMeshUnit(m.id, m.urls, m.faction)),
-      ...meshManifest.vehicles.map((m) => three.loadVehicleMesh(m.id, m.url)),
-      // Building meshes: the STANDING state only, for the structure types
-      // this map actually stands. `colour_key`/`wallColorKey` is resolved
-      // inside `loadBuildingMesh` itself off `Sim.structureTypes[...].color`
-      // -- nothing here needs to know it.
-      //
-      // `null` for the wreck, deliberately: it is fetched after the first
-      // frame instead (below, beside `spritePlan.after`). Level load time,
-      // step 3 -- on `beit_sahwan_outskirts` the five wreck GLBs are 9.62
-      // MiB of a 47.0 MiB level and `hall_wreck` alone is 3.77, while the
-      // earliest a building can fall is minutes of play away.
-      ...meshManifest.buildings.map((m) => three.loadBuildingMesh(m.id, m.url, null)),
-      // The three shared VFX meshes (`units/muzzle-flash.ts`,
-      // `units/explosion-burst.ts`, `units/smoke-plume.ts`). Not keyed by
-      // anything and wanted by every mission -- 0.46 MiB for the set, so
-      // there is nothing to gain by making them conditional. Each falls back
-      // to its authored particle layer until it resolves.
-      three.loadMuzzleFlashMesh(meshUrl(VFX_MESHES.muzzleFlash)),
-      three.loadExplosionBurstMesh(meshUrl(VFX_MESHES.explosionBurst)),
-      three.loadSmokePlumeMesh(meshUrl(VFX_MESHES.smokePlume)),
-      // Decor: one call for the whole set, so it is one entry rather than a
-      // spread. `<family>_<variant>` keys, not unit type ids -- nothing in
-      // the sim has a "bush", which is the point.
-      three.loadDecorMeshes(meshManifest.decor),
-      // Props (ground plan 2): one call for the kit, keyed by kind. Empty on
-      // a map with no road and no building tile (`propKindsFor`), which
-      // loads nothing and places nothing.
-      three.loadPropMeshes(meshManifest.props),
-    ]).catch((err: unknown) => {
-      teardown();
-      throw err;
-    });
+    // `null` for the wreck, deliberately: it is fetched after the first
+    // frame instead (below, beside `spritePlan.after`). Level load time,
+    // step 3 -- on `beit_sahwan_outskirts` the five wreck GLBs are 9.62
+    // MiB of a 47.0 MiB level and `hall_wreck` alone is 3.77, while the
+    // earliest a building can fall is minutes of play away.
+    ...meshManifest.buildings.map((m) => three.loadBuildingMesh(m.id, m.url, null)),
+    // The three shared VFX meshes (`units/muzzle-flash.ts`,
+    // `units/explosion-burst.ts`, `units/smoke-plume.ts`). Not keyed by
+    // anything and wanted by every mission -- 0.46 MiB for the set, so
+    // there is nothing to gain by making them conditional. Each falls back
+    // to its authored particle layer until it resolves.
+    three.loadMuzzleFlashMesh(meshUrl(VFX_MESHES.muzzleFlash)),
+    three.loadExplosionBurstMesh(meshUrl(VFX_MESHES.explosionBurst)),
+    three.loadSmokePlumeMesh(meshUrl(VFX_MESHES.smokePlume)),
+    // Decor: one call for the whole set, so it is one entry rather than a
+    // spread. `<family>_<variant>` keys, not unit type ids -- nothing in
+    // the sim has a "bush", which is the point.
+    three.loadDecorMeshes(meshManifest.decor),
+    // Props (ground plan 2): one call for the kit, keyed by kind. Empty on
+    // a map with no road and no building tile (`propKindsFor`), which
+    // loads nothing and places nothing.
+    three.loadPropMeshes(meshManifest.props),
+  ]).catch((err: unknown) => {
+    teardown();
+    throw err;
+  });
 
-    // The late arrivals. `loadMeshUnit`/`loadVehicleMesh` are safe to call
-    // after the first frame -- both replace a template and tear down every
-    // live clone of it first -- and `updateUnits`' own
-    // `meshUnitTemplates.has(type.id)` guard means a type with no template
-    // yet draws its BILLBOARD rather than nothing, so a mesh arriving late
-    // is a sprite becoming a model, never a hole in the battlefield. The one
-    // type that has no billboard is `civilians`, and it is never deferred:
-    // `missionUnitTypes` puts it in the blocking set above whenever a
-    // mission fields any.
-    meshPathActive = true;
-    ensureUnitMesh = (typeId: string): void => {
-      // A mesh started before the player left would otherwise be handed to a
-      // disposed renderer whenever it lands. Guarded at the start AND in the
-      // handler: `loadMeshUnit` is a fetch plus a GLTF parse, so the window
-      // between the two is seconds wide on a cold cache.
-      if (disposed || !hasUnitMesh(typeId) || meshLoaded.has(typeId)) return;
-      meshLoaded.add(typeId);
-      const rigged = RIGGED_UNIT_MESHES[typeId];
-      const job = rigged
-        ? three.loadMeshUnit(typeId, rigged.files.map(meshUrl), rigged.faction)
-        : three.loadVehicleMesh(typeId, meshUrl(VEHICLE_UNIT_MESHES[typeId]));
-      job.catch((err: unknown) => {
+  // The late arrivals. `loadMeshUnit`/`loadVehicleMesh` are safe to call
+  // after the first frame -- both replace a template and tear down every
+  // live clone of it first. Until one lands, a unit of that type draws
+  // NOTHING (WP-A3.3, ruling 1: no sprite placeholder any more); the dock
+  // tile carries a "deploying" chip meanwhile (`meshReady`, below). If it
+  // FAILS, the renderer draws a proxy box and `failedMesh` reports it.
+  // `civilians` is never deferred: `missionUnitTypes` puts it in the
+  // blocking set above whenever a mission fields any.
+  const ensureUnitMesh = (typeId: string): void => {
+    // A mesh started before the player left would otherwise be handed to a
+    // disposed renderer whenever it lands. Guarded at the start AND in the
+    // handler: `loadMeshUnit` is a fetch plus a GLTF parse, so the window
+    // between the two is seconds wide on a cold cache.
+    if (disposed || !hasUnitMesh(typeId) || meshLoaded.has(typeId)) return;
+    meshLoaded.add(typeId);
+    const rigged = RIGGED_UNIT_MESHES[typeId];
+    const job = rigged
+      ? three.loadMeshUnit(typeId, rigged.files.map(meshUrl), rigged.faction)
+      : three.loadVehicleMesh(typeId, meshUrl(VEHICLE_UNIT_MESHES[typeId]));
+    job.then(
+      () => {
+        if (!disposed) meshReady.add(typeId);
+      },
+      () => {
+        // The renderer has already named the GLB in a console.error.
         if (disposed) return;
-        console.warn(`[lions] mesh FAILED for ${typeId}:`, err);
         failedMesh.push(typeId);
-      });
-    };
-    // The wreck half of every building this map stands, started after the
-    // first frame. Failing is survivable in the strongest sense available
-    // here: the type simply keeps the procedural wreck `updateStructures`
-    // is already drawing for it, so the warning is the whole cost.
-    wreckMeshLoader = (structureId: string): void => {
-      const files = BUILDING_MESHES[structureId];
-      // The longest-latency load in the boot -- 9.6 MiB of collapsed masonry
-      // that nobody is waiting for -- and therefore the one most likely to
-      // land after a leave.
-      if (disposed || !files) return;
-      three.loadBuildingWreckMesh(structureId, meshUrl(files.wreck)).catch((err: unknown) => {
-        if (disposed) return;
-        console.warn(`[lions] building wreck mesh FAILED for ${structureId}:`, err);
-        failedMesh.push(`${structureId}_wreck`);
-      });
-    };
-  }
+      }
+    );
+  };
+  // The wreck half of every building this map stands, started after the
+  // first frame. Failing is survivable in the strongest sense available
+  // here: the type simply keeps the procedural wreck `updateStructures`
+  // is already drawing for it, so the warning is the whole cost.
+  const wreckMeshLoader = (structureId: string): void => {
+    const files = BUILDING_MESHES[structureId];
+    // The longest-latency load in the boot -- 9.6 MiB of collapsed masonry
+    // that nobody is waiting for -- and therefore the one most likely to
+    // land after a leave.
+    if (disposed || !files) return;
+    three.loadBuildingWreckMesh(structureId, meshUrl(files.wreck)).catch((err: unknown) => {
+      if (disposed) return;
+      console.warn(`[lions] building wreck mesh FAILED for ${structureId}:`, err);
+      failedMesh.push(`${structureId}_wreck`);
+    });
+  };
   // Left during the mesh download (or the backend's import). Everything
   // below until the next abandon check -- the loading screen, `init()` --
   // would otherwise run for a screen the player has gone from: measured,
   // `init()` appended the battlefield's canvas into the NEXT screen's stage
   // and fetched five ground textures before that check tore it down.
   if (req.signal.aborted) abandon('left while the meshes were downloading');
-  // The same lesson again, for the one unit type with no billboard to fall
-  // back on. `civilians` is absent from `SPRITE_MAP` by design (the four
-  // figures are mesh-only), so on Pixi or under `&nomesh` the crowd is spawned,
-  // walks, is shot at and evacuates while drawing NOTHING -- which reads as
-  // `&civ` being broken rather than as the wrong backend. The flag still does
-  // everything else it says: this warns, it does not refuse.
-  if (wantCiv && !meshPathActive) {
-    console.warn(
-      '&civ draws nothing without the mesh path — civilians have no billboard ' +
-        '(no SPRITE_MAP entry). Use ?renderer=three without &nomesh to see them.'
-    );
-  }
 
   // The map's decor layer -- road, olive grove, rocky knoll -- goes straight to
   // the renderer. It deliberately does NOT travel through the sim: whether a tile
@@ -2184,9 +2163,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // as models). Portrait manifests are still read for every type below,
   // because the HUD shows a face for a type whose sheet is not loaded.
   const spritePlan = spriteSheetPlan({
-    meshPath: meshPathActive,
     roster: meshRoster,
-    deferred: meshDeferred,
     spriteTypes: new Set(Object.keys(SPRITE_MAP)),
     structureTypes: meshStructures,
     structureSprites: new Set(Object.keys(STRUCTURE_SPRITES)),
@@ -2196,8 +2173,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       (spritePlan.before.size ? ` (${[...spritePlan.before].join(', ')})` : '') +
       `, ${spritePlan.after.size} after the first frame` +
       (spritePlan.after.size ? ` (${[...spritePlan.after].join(', ')})` : '') +
-      `, ${spritePlan.structures.size} structure sprite(s)` +
-      (meshPathActive ? '' : ' -- no mesh path, everything loads up front')
+      `, ${spritePlan.structures.size} structure sprite(s)`
   );
   // The bar counts SHEETS, so it counts what this boot actually loads --
   // not the 2 KB portrait manifests, which would read "29 / 29 sheets" over
@@ -2364,8 +2340,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // (`renderer.reseed()`), and that is not optional: `renderer.init()` above
   // ran on a sim with no units in it yet, and without it the whole force drew
   // at world (0, 0) until tick 1, every vehicle threw a dust burst as it
-  // lerped out, the map stayed under full shroud until tick 3, and on
-  // `&nomesh` a mission's own structure could go undrawn. The sandbox branch
+  // lerped out, and the map stayed under full shroud until tick 3. The sandbox branch
   // spawns before `init()` and needs none of this.
   //
   // Wrapped like the await above it: this used to throw before the renderer
@@ -2457,12 +2432,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       for (const id of spritePlan.after) void loadUnitSheet(id);
     });
   }
-  if (meshPathActive && wreckMeshLoader) {
-    const loadWreck = wreckMeshLoader;
-    afterFirstFrame.push(() => {
-      for (const id of meshPlan.buildings) loadWreck(id);
-    });
-  }
+  afterFirstFrame.push(() => {
+    for (const id of meshPlan.buildings) wreckMeshLoader(id);
+  });
   if (afterFirstFrame.length > 0) {
     // Guarded at BOTH hops, and neither is the frame loop. These two callbacks
     // are scheduled on their own, are not the `rafId` the disposer cancels, and
@@ -3185,6 +3157,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   if (runtime && mission?.resources) {
     production = new ReinforcementDock(document.body, {
       onBought: (id) => missionTelemetry?.onBought(id),
+      // Ruling 1 (WP-A3.3): a deferred buildable whose GLB has not landed --
+      // or not been asked for yet -- draws nothing, so its tile says
+      // "deploying" once bought. A FAILED type is not pending: it draws a
+      // proxy box and has its own HUD note.
+      meshPending: (id) => hasUnitMesh(id) && !meshReady.has(id) && !failedMesh.includes(id),
       units: Object.values(units)
         .filter((u) => u.faction === 'kdf')
         .map((u) => {
@@ -4554,7 +4531,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // Bounded by `sim.entityCount`, the same scan `__lions.units()` does, at
     // 1 Hz against a 20 Hz tick. `ensureUnitMesh` returns immediately for a
     // type already asked for, so the steady-state cost is the loop itself.
-    if (meshPathActive && sim.tickCount % TICKS_PER_SECOND === 0) {
+    if (sim.tickCount % TICKS_PER_SECOND === 0) {
       for (let i = 0; i < sim.entityCount; i++) {
         if (sim.state.alive[i] !== 1) continue;
         const typeId = sim.unitTypes[sim.state.typeIdx[i]].id;
