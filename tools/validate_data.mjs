@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import AjvModule from 'ajv/dist/2020.js';
 import { elevationFailures } from './validate_map_grid.mjs';
 import { regionBiomeFailures } from './validate_biome.mjs';
+import { briefingFailures } from './validate_briefing.mjs';
 import {
   commanderRankFailures,
   narrativeTextFailures,
@@ -1074,6 +1075,9 @@ const garrisonableSymbols = new Set(
           failures.push(`data/missions/${m}.json: briefing_video "${mission.briefing_video}" not found at assets/${mission.briefing_video}`);
         }
       }
+      // Named sections must still spell the briefing, and every image they or
+      // the mission name must be on disk (GH-119; validate_briefing.mjs).
+      failures.push(...briefingFailures(m, mission, (p) => existsSync(join(ROOT, 'assets', p))));
     }
 
     // Every mission must be reachable from the map, or it is unplayable content. The

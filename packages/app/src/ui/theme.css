@@ -3734,6 +3734,63 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-loading__beat:last-child {
   margin-bottom: 0;
 }
+/* Named briefing sections (GH-119): a block of the order under a tracked-caps
+   heading in the same label ink the rank/plate line wears, with a hairline
+   between blocks. Each section is a tab stop (the global ring marks it), and
+   the brief's own scroll follows focus. */
+.rl-loading__section {
+  padding: var(--s2) 0 var(--s3);
+  border-top: 1px solid var(--panel-frame);
+}
+.rl-loading__section:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.rl-loading__section::after {
+  content: '';
+  display: block;
+  clear: both;
+}
+.rl-loading__section-head {
+  margin: 0 0 var(--s2);
+  font-family: var(--font-display);
+  font-size: var(--t-s);
+  font-weight: 600;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+/* A section's picture: a small framed thumbnail the prose wraps beside, so a
+   picture never costs the orders their reading measure. */
+.rl-loading__section-img {
+  float: right;
+  width: 5.5rem;
+  height: 6.875rem;
+  margin: 0 0 var(--s2) var(--s3);
+  object-fit: cover;
+  border: 1px solid var(--panel-frame);
+  background: var(--panel-bg);
+}
+/* The mission's image slot: one framed picture, at the top of the right-hand
+   column on the spread, otherwise above the orders. Width-capped like the
+   ground preview beside it and height-capped so Deploy keeps its place on a
+   45rem-tall screen; never cropped, because a plate cut to its middle is sand,
+   and sized to the picture so the frame hugs it. */
+.rl-loading__image {
+  margin: var(--s3) 0 var(--s2);
+}
+.rl-loading__image-img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: min(100%, 22rem);
+  max-height: min(24vh, 13.75rem);
+  border: 1px solid var(--panel-frame);
+  background: var(--panel-bg);
+}
+.rl-loading__force .rl-loading__image {
+  margin-top: 0;
+}
 /* "What you brought" (Task 11): a sibling of the beats, between the orders and
    Deploy -- never a beat itself. The left rule borrows `--commend`, the same
    token the world-map star line uses, so a carry-over reads as an earned

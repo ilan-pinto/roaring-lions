@@ -104,6 +104,7 @@ import { buyUnlock, buyUpgrade, payMission } from './brigade-account';
 import { tierLine } from './ui/grade-copy';
 import { clocklessObjectives, speakerPlate, speakerPortrait, withoutHiddenClocks } from './ui/hud-model';
 import { briefingBeats, broughtFor, showLoading } from './ui/loading';
+import { briefingSections, pickBriefingImage } from './ui/briefing-sections';
 import { deployRosterView } from './ui/deploy-roster';
 import { deployedLedger, type DeploySelection } from './ui/deploy-select';
 import { startMission } from './mission-start';
@@ -235,6 +236,18 @@ import { pseudo } from './i18n/pseudo';
 /** Deploy base ('/' locally, '/<repo>/' on GitHub Pages) — every asset URL
  *  is built from it so the same bundle works in both places. */
 const BASE = import.meta.env.BASE_URL;
+
+/** The deploy screen's sections and image, with every path resolved against
+ *  BASE (GH-119). A pool picks once, here, at mount. */
+function briefingLayout(
+  mission: MissionJson | undefined
+): { sections: ReturnType<typeof briefingSections>; image?: string } | undefined {
+  if (mission === undefined) return undefined;
+  const sections = briefingSections(mission.briefing, mission.briefing_sections);
+  const resolved = sections?.map((s) => (s.image !== undefined ? { ...s, image: `${BASE}${s.image}` } : s)) ?? null;
+  const image = pickBriefingImage(mission.briefing_image);
+  return image !== undefined ? { sections: resolved, image: `${BASE}${image}` } : { sections: resolved };
+}
 
 const MS_PER_TICK = 1000 / TICKS_PER_SECOND;
 
@@ -2166,7 +2179,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // same resolved tones the minimap paints with. The screen draws it only
     // when there are orders to read, and goes without it where the canvas has
     // no 2D context.
-    { map, tones: opts.terrainTones }
+    { map, tones: opts.terrainTones },
+    // Named sections and the image slot (GH-119). `briefingSections` returns
+    // null -- the plain beats -- unless the sections still spell the briefing,
+    // which a locale overlay translating `briefing` alone breaks on purpose.
+    briefingLayout(mission)
   );
   onDispose(() => loading.dispose());
   // The one teardown that cannot wait for this function to return.

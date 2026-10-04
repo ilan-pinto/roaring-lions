@@ -83,6 +83,31 @@
     "briefing": {
       "type": "string"
     },
+    "briefing_sections": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "text"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "enum": ["situation", "mission", "execution", "notes"],
+            "description": "Which block of the order this is. A closed set, in this order; a section may be skipped, never repeated or reordered (validate_data.mjs)."
+          },
+          "text": { "type": "string", "minLength": 1 },
+          "image": { "$ref": "#/$defs/briefingImagePath" }
+        }
+      },
+      "description": "Optional named sections of the briefing (GH-119, docs/superpowers/specs/2026-10-04-briefing-sections.md). The texts joined with one space must spell `briefing` exactly -- validate_data.mjs refuses drift, and the deploy screen falls back to the unsectioned beats whenever they do not (a locale overlay that translates `briefing`)."
+    },
+    "briefing_image": {
+      "oneOf": [
+        { "$ref": "#/$defs/briefingImagePath" },
+        { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/briefingImagePath" } }
+      ],
+      "description": "An image for the deploy screen, as a path under assets/. An array is a pool: the deploy screen picks one at mount. validate_data.mjs checks every file exists."
+    },
     "briefing_video": {
       "type": "string",
       "pattern": "^video/[a-z0-9_]+\\.(mp4|webm)$",
@@ -657,6 +682,11 @@
     }
   },
   "$defs": {
+    "briefingImagePath": {
+      "type": "string",
+      "pattern": "^ui/(portraits|plates)/[a-z0-9_/]+\\.(png|jpg|webp)$",
+      "description": "A shipped image under assets/: a commander portrait or a garage plate. No new art -- the pool is what already ships with its rights recorded."
+    },
     "hudElement": {
       "enum": ["minimap", "card", "orders", "hint", "feed", "fire", "status", "objective", "objectives", "clock", "conduct", "logistics", "intel", "speed", "mute", "radio", "dock", "groups"],
       "description": "One HUD surface (packages/app/src/ui/hud-elements.ts's HUD_ELEMENTS)."
