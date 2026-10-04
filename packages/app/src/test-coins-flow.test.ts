@@ -95,9 +95,11 @@ describe('buying with TEST coins', () => {
     expect(accountView(store).ownedTiers).toEqual({ apc_kipod: { armour: 1 } });
   });
 
-  it('refuses what the screen would not offer: off sale, short, earned, out of order, unopened', () => {
+  it('refuses what the screen would not offer: short, earned, out of order, unopened', () => {
+    // GH-330: a new campaign pays again, so the gunship (8,000 credits, past one
+    // campaign's pay) is reachable by play and G1 lets coins sell it.
+    expect(buy(seeded(100000), { kind: 'unit', unitId: 'heli_peten_gunship' }).ok).toBe(true); // G1, since GH-330
     const store = seeded(100000);
-    expect(buy(store, { kind: 'unit', unitId: 'heli_peten_gunship' }).ok).toBe(false); // G1
     expect(buy(store, { kind: 'unit', unitId: 'inf_squad' }).ok).toBe(false); // no price: starting roster
     expect(buy(store, { kind: 'tier', unitId: 'apc_kipod', track: 'armour', tier: 1 }).ok).toBe(false); // unit not open
     expect(buy(store, { kind: 'tier', unitId: 'inf_squad', track: 'armour', tier: 2 }).ok).toBe(false); // skips tier 1
