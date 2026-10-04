@@ -474,9 +474,8 @@ re-scripted plans and the difficulty re-measure.
 | 6 | **Beit Sahwan** | 3 | 70–91% feature. Moves the `combat` report-only capture. | Medium: BS IV's four routes |
 | 7 | **Tel Marum** | 3 | The least alike (78–79% feature), but all three move, and TM III's corridor is the most measured ground in the game. | High: re-proving the saddle facts |
 
-**Alternative order:** KR first, as the pipeline pilot (smallest, flat, no
-tunnels), then strictly by numbers. Recommended if `mission-author` has not built
-a map from scratch since Qarn Hadid.
+**Ruled (§14.7):** Wadi Halam first. The Khan Rafid pilot alternative is
+dropped.
 
 **Before arc 1:** the distinctness spec (report-only) and the light rotation (§10).
 
@@ -535,30 +534,18 @@ optimal plan.
 
 ---
 
-## 14. Open decisions for the lead
+## 14. Decisions (the lead, 2026-10-04)
 
-1. **Mission 1 keeps its base map** (BS, KR, DA, QH, UZ, WH), so 19 new maps and
-   not 25. The bases anchor golden scenarios, the menu diorama and doctrine
-   tests. *Recommended: yes.*
-2. **The distinctness gate measures feature identity at 35%**, not raw identity
-   at 70%. Raw 70% would fail the breach against the tutorial (87%) and pass
-   nothing useful. *Recommended: feature 35%, eight orientations, plus
-   elevation.*
-3. **Briefing numbers.** Ground honours the numbers the decision rests on (TM
-   III's ten-tile detour, QH III's 17 vs 23, UZ III's scree against glacis);
-   `narrative-designer` re-briefs the rest. *Alternative:* re-brief all of them
-   and design the ground freely.
-4. **`night` or `dusk`** for the three "tonight" missions (BS II, TM I, WH I). `night` renders as dusk today and would change when a
-   real night preset lands. *Recommended: author `dusk`, so nothing changes under
-   a later renderer PR.*
-5. **Should the 19 new maps appear in `/free-play`?** Today every shipped map
-   does. Twenty-six sandboxes would bury the six that are built for it.
-   *Recommended: list base maps only (a picker filter, not a data change).*
-6. **`d` as an irrigation cut in Naharin** (WH II if needed) draws as an
-   anti-tank ditch. *Recommended: use bunds (`1`) and the stony bed (`b`) only,
-   and keep `d` for the places a ditch was dug on purpose.*
-7. **Build order:** worst numbers first (WH, UZ, ...) or Khan Rafid as the
-   pipeline pilot. *Recommended: KR pilot if the author is new to from-scratch
-   maps; otherwise WH first.*
-8. **Light rotation first?** It is 16 one-line JSON edits with no map, and it
-   lands the most visible change soonest. *Recommended: yes, as its own PR.*
+All eight questions are settled. Where a ruling differs from the recommendation,
+it says so.
+
+| # | question | ruling |
+|---|---|---|
+| 1 | Mission-1 base maps | **Keep them.** 19 new maps. |
+| 2 | Distinctness metric | **Non-open-tile (feature) identity, gate at 35%**, over all four rotations and their mirrors (§9). |
+| 3 | Briefing numbers | **The ground keeps the distances** for Tel Marum III, Qarn Hadid III and Umm Zeitoun III, measured through `FlowField`. `narrative-designer` re-briefs every other number that moves. |
+| 4 | `night` or `dusk` | **`dusk`** for the "tonight" missions (BS II, TM I, WH I). |
+| 5 | `/free-play` listing | **No change.** It lists every shipped map, new ones included, as today. The base-only filter was declined. |
+| 6 | `d` in Naharin | **Keep `d` out of Naharin.** Bunds (`1`) and the stony bed (`b`) only. (Coordinator's ruling, per the recommendation.) |
+| 7 | First arc | **Wadi Halam first**, then the §11 order. The Khan Rafid pilot alternative is dropped. |
+| 8 | Light rotation | **Lands first, as its own PR** (`data/light-rotation`): the 16 `time_of_day` edits in §10. |
