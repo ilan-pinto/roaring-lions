@@ -6,10 +6,8 @@ import worldJson from '../../../../data/campaign/world.json';
 import countriesJson from '../../../../data/campaign/countries.json';
 import { parseCountries, parseWorld } from '../campaign';
 import { t } from '../i18n/t';
-import { RENDERER_STORAGE_KEY } from '../renderer-choice';
 import { showCampaign } from './menu';
 import {
-  campaignBoard,
   worldMap3d,
   type MountWorldView,
   type MountedView,
@@ -118,10 +116,9 @@ const mountScreen = (
  * A real Storage API on `window`.
  *
  * This vitest jsdom configuration supplies `window.localStorage` as a bare
- * `{}` -- no `getItem`, no `setItem`, no `length`. Two things follow.
- * `showCampaign` must survive that (it does, see `readStoredRenderer` in
- * `renderer-choice.ts`), and a test that wants to steer the renderer choice has to
- * provide storage itself. Map-backed rather than a spy: the shape a browser
+ * `{}` -- no `getItem`, no `setItem`, no `length`. `showCampaign` must
+ * survive that, and a test that wants to plant a stale key has to provide
+ * storage itself. Map-backed rather than a spy: the shape a browser
  * really hands over, so nothing here passes against an API the app could
  * never meet.
  */
@@ -148,17 +145,6 @@ const tone = (el: HTMLElement): string =>
 beforeEach(installStorage);
 afterEach(() => {
   document.body.innerHTML = '';
-});
-
-describe('campaignBoard', () => {
-  // The whole reason the flat board stays. A Pixi player who got 'diorama'
-  // here gets a blank rectangle: that backend has no mesh path at all.
-  it('gives a Pixi player the flat board', () => {
-    expect(campaignBoard('pixi')).toBe('flat');
-  });
-  it('gives a three player the diorama', () => {
-    expect(campaignBoard('three')).toBe('diorama');
-  });
 });
 
 describe('the 3D board reads the ledger the same way the flat one does', () => {
@@ -649,6 +635,14 @@ describe('nobody gets a blank screen', () => {
     expect(s.el.querySelector('.rl-world__flatstub')).not.toBe(null);
   });
 
+  // The third named cause: the GLB parsed, but `world-scene.ts` found no node
+  // the campaign contract requires and threw by name.
+  it('falls back when the scene graph fails the campaign contract', async () => {
+    const s = mountScreen({}, { mount: () => Promise.reject(new Error('world scene: no node named region_marj')) });
+    expect(await s.ready).toBe('flat');
+    expect(s.el.querySelector('.rl-world__flatstub')).not.toBe(null);
+  });
+
   it('takes the hint line down with the board it belonged to', async () => {
     // The sentence is the canvas's only voice. Left standing over a flat
     // board it tells a player to drag something that does not turn.
@@ -665,39 +659,48 @@ describe('nobody gets a blank screen', () => {
   });
 });
 
-describe('showCampaign picks the board from the renderer the player chose', () => {
+// The flat board is the FALLBACK since the Pixi backend was retired (WP-A3.3),
+// never a player's choice: the diorama by default, the flat board when the
+// world has no diorama to draw. The other three causes (no WebGL2, a GLB that
+// will not load, a scene that fails the contract) are `worldMap3d`'s own and
+// are pinned in 'nobody gets a blank screen' above.
+describe('showCampaign picks the board', () => {
   // Every fallback here is announced by `worldmap3d.ts` with one
   // `campaign board: ...` console.warn: expected on these paths, so it is
   // silenced rather than printed into CI logs.
   beforeEach(() => void vi.spyOn(console, 'warn').mockImplementation(() => {}));
   afterEach(() => vi.mocked(console.warn).mockRestore());
-  const mount = (): HTMLElement => {
+  const mount = (w = world): HTMLElement => {
     const stage = document.createElement('div');
-    showCampaign(stage, { base: '/', world, countries, ledger: {} });
+    showCampaign(stage, { base: '/', world: w, countries, ledger: {} });
     document.body.appendChild(stage);
     return stage;
   };
+  const noDiorama = { ...world, id: 'no_such_world' };
 
-  it('draws the flat board on Pixi', () => {
-    window.localStorage.setItem(RENDERER_STORAGE_KEY, 'pixi');
-    const stage = mount();
-    expect(stage.querySelector('.rl-world--3d')).toBe(null);
-    expect(stage.querySelector('.rl-world__board')).not.toBe(null);
-  });
-
-  it('draws the diorama on three', () => {
-    window.localStorage.setItem(RENDERER_STORAGE_KEY, 'three');
+  it('draws the diorama by default', () => {
     const stage = mount();
     expect(stage.querySelector('.rl-world--3d')).not.toBe(null);
   });
 
+  it('ignores a remembered ?renderer=pixi -- that choice no longer exists', () => {
+    window.localStorage.setItem('lions.renderer', 'pixi');
+    const stage = mount();
+    expect(stage.querySelector('.rl-world--3d')).not.toBe(null);
+  });
+
+  it('draws the flat board for a world with no diorama GLB', () => {
+    const stage = mount(noDiorama);
+    expect(stage.querySelector('.rl-world--3d')).toBe(null);
+    expect(stage.querySelector('.rl-world__board')).not.toBe(null);
+  });
+
   it('keeps the way back to the menu on both', () => {
-    for (const choice of ['pixi', 'three'] as const) {
-      window.localStorage.setItem(RENDERER_STORAGE_KEY, choice);
-      const stage = mount();
+    for (const [label, w] of [['diorama', world], ['flat', noDiorama]] as const) {
+      const stage = mount(w);
       const back = stage.querySelector('[data-kind="back"]') as HTMLAnchorElement;
-      expect(back.getAttribute('href'), choice).toBe('/');
-      expect(stage.querySelector('[data-town="beit_sahwan"]'), choice).not.toBe(null);
+      expect(back.getAttribute('href'), label).toBe('/');
+      expect(stage.querySelector('[data-town="beit_sahwan"]'), label).not.toBe(null);
     }
   });
 });

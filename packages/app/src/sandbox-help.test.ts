@@ -139,32 +139,27 @@ describe('unknownParams', () => {
   });
 });
 
-describe('KNOWN_PARAMS renderer blurb', () => {
-  // Twice now this blurb has hardcoded a phase name and a capability list
-  // for the three.js backend ("terrain only, Phase B2; no units/fog yet"),
-  // and gone stale the moment the next phase shipped -- SANDBOX_FLAGS being
-  // "the single source" only proves a flag is parsed and listed, not that
-  // prose about a DIFFERENT package (packages/render) still describes that
-  // package's current state. Nothing under packages/app runs when
-  // packages/render changes, so a capability claim here has no way to be
-  // kept honest. The fix is to not make one: point at CLAUDE.md, which
-  // backend work actually does keep current, instead of restating facts
-  // that live there.
+describe('?renderer= after the Pixi retirement (WP-A3.3)', () => {
+  // Accepted and ignored, like `&mesh`: old bookmarks and doc links carrying
+  // `?renderer=pixi` must not be reported as a typo, and nothing may claim the
+  // choice still exists.
   const renderer = KNOWN_PARAMS.find((p) => p.name === 'renderer');
 
-  it('exists', () => {
+  it('is still a known parameter, so old links do not warn', () => {
     expect(renderer).toBeDefined();
+    expect(unknownParams(new URLSearchParams('?mission=beit_sahwan_1_recon&renderer=pixi'))).toEqual([]);
+    expect(unknownParams(new URLSearchParams('?sandbox=tel_marum&renderer=three'))).toEqual([]);
   });
 
-  it('does not name a phase or restate a capability list that will outlive it', () => {
+  it('says it has no effect, and offers no pixi value', () => {
     const text = renderer?.blurb ?? '';
-    for (const stale of ['Phase B', 'Phase C', 'Phase D', 'no units', 'no fog', 'terrain only']) {
-      expect(text).not.toContain(stale);
-    }
+    expect(text).toMatch(/no effect/);
+    expect(text).not.toMatch(/\|\s*pixi/);
+    expect(text).not.toMatch(/persists/);
   });
 
-  it('points at the doc that is actually kept current instead', () => {
-    expect(renderer?.blurb ?? '').toContain('CLAUDE.md');
+  it('is not a sandbox flag (nothing to tick on /free-play)', () => {
+    expect(SANDBOX_FLAGS.map((f) => f.name as string)).not.toContain('renderer');
   });
 });
 

@@ -83,21 +83,11 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
   { name: 'tutorial', blurb: 'replay the tutorial' },
   {
     name: 'renderer',
-    // This blurb used to name a phase and a capability list ("terrain only,
-    // Phase B2; no units/fog yet"), and went stale the moment the next
-    // phase shipped -- twice. SANDBOX_FLAGS/KNOWN_PARAMS being "the single
-    // source" only guarantees a flag is parsed and listed; it says nothing
-    // about whether prose describing a DIFFERENT package (packages/render's
-    // three backend) still matches that package's current state, and
-    // nothing under packages/app runs when packages/render changes. So this
-    // no longer states a capability list at all -- it points at the file
-    // that actually is kept current in the same commit as backend work
-    // (CLAUDE.md's "The three.js backend" section), which is the only
-    // durable fix short of importing render internals this package is not
-    // allowed to import.
-    blurb:
-      'three (default) | pixi — which backend draws; an explicit choice persists ' +
-      'across missions (see CLAUDE.md "The three.js backend" for current parity)',
+    // Accepted and does nothing, the way `mesh` is (WP-A3.3). It chose the
+    // backend until the Pixi one was deleted; there is one renderer now, and
+    // keeping the key known stops every bookmark and old doc link carrying
+    // `?renderer=pixi` or `=three` from tripping `unknownParams` as a typo.
+    blurb: 'accepted, no effect — three.js is the only renderer since the Pixi backend was retired',
   },
   {
     name: 'mesh',
@@ -129,7 +119,7 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
   },
   {
     name: 'tod',
-    // A value flag like `renderer`/`lang`, not a SANDBOX_FLAGS boolean --
+    // A value flag like `lang`, not a SANDBOX_FLAGS boolean --
     // `dawn | day | dusk | night` are values, not an on/off switch, so
     // `readFlags`'s `.has()` shape does not fit it. `time-of-day.ts`'s
     // `timeOfDayOf` reads it directly off `params`. A mission never reads

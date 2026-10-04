@@ -5,25 +5,16 @@
  * ## Two boards, and why both stay
  *
  * `worldmap.ts` draws the flat PNG board and is unchanged. This is the
- * three.js one. Which a player gets is `campaignBoard()` below, and the
- * answer is the renderer they already chose -- **the flat board IS the Pixi
- * path.**
- *
- * Forcing three for this one screen was the alternative and it is worse than
- * it sounds: the renderer choice persists per ORIGIN
- * (`localStorage['lions.renderer']`, see `renderer-choice.ts`) and survives
- * every link `menu.ts` builds, so a player who deliberately typed
- * `?renderer=pixi` -- the escape hatch someone reaches for precisely when
- * three has failed them -- would have three loaded behind their back for a
- * menu, and be handed back to Pixi for the mission. The 3D board is additive
- * and three-only, exactly as mesh units are, and `?renderer=pixi` having no
- * mesh path is a permanent property of that backend rather than a gap.
- *
- * It falls back to the flat board for three more reasons besides Pixi: no
- * WebGL2 at all, a GLB that will not fetch or parse, and a scene graph that
- * does not carry the campaign contract (`world-scene.ts` throws by node
- * name). None of those should cost a player their campaign screen, and each
- * warns by name in the console rather than silently degrading.
+ * three.js one, and it is what every player gets -- unless it cannot be
+ * drawn. The flat board is the FALLBACK, for exactly three causes: no WebGL2
+ * at all (probed with a throwaway canvas before the dynamic import, so such a
+ * browser never downloads three), a GLB that will not fetch or parse, and a
+ * scene graph that does not carry the campaign contract (`world-scene.ts`
+ * throws by node name). None of those should cost a player their campaign
+ * screen, and each warns by name in the console rather than silently
+ * degrading. (Until WP-A3.3 the flat board was also the whole of the Pixi
+ * path; `?renderer=pixi` is accepted and ignored now, and that backend is
+ * deleted.)
  *
  * ## What is DOM and what is canvas, and why the split is where it is
  *
@@ -70,25 +61,12 @@ import { nudgeLabels, type LabelBox } from './label-layout';
 // Whether this browser can draw the board at all, probed before the dynamic
 // import -- shared with the scene host behind the menu; see that file.
 import { webgl2Available } from './webgl-probe';
-import type { RendererChoice } from '../renderer-choice';
 import { ledgerLine, regionCard } from './worldmap';
 import { hoverLine, pickOutcome, type PinStatus } from './pin-hover';
 import { symbolSvg } from './symbol';
 
-/** Which board the campaign screen draws. */
+/** Which board the campaign screen ended up drawing. */
 export type CampaignBoardKind = 'diorama' | 'flat';
-
-/**
- * The board this player gets.
- *
- * One line, named and tested rather than inlined, because the failure it
- * prevents is the one the brief called out: a Pixi player looking at a blank
- * rectangle. The flat board is not a degraded mode here -- it is the Pixi
- * path, and it is the only campaign screen `?renderer=pixi` has ever had.
- */
-export function campaignBoard(renderer: RendererChoice): CampaignBoardKind {
-  return renderer === 'three' ? 'diorama' : 'flat';
-}
 
 /** Where one town marker landed on the canvas, in CSS pixels. */
 export interface TownPin {

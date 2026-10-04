@@ -59,8 +59,8 @@
 // constructor: the renderer's own photograph of the lit, textured ground
 // (`Renderer.captureGroundAlbedo`, 210px, smoothed) where the backend can
 // take one, and otherwise `paintTerrain`'s one-pixel-per-tile reconstruction
-// from `blocked`/`boulder`/`cover` (48px, unsmoothed) -- which is what
-// `?renderer=pixi` gets, and what shipped.
+// from `blocked`/`boulder`/`cover` (48px, unsmoothed) -- what shipped first,
+// and what a renderer that cannot photograph yet (or a test) still gets.
 // Per redraw the work is one `drawImage`, four
 // `screenToWorld` calls, one pass over living entities, and a handful of
 // diamonds -- and the whole thing happens at 4 Hz, on the HUD's own cadence.
@@ -182,11 +182,11 @@ export interface MinimapDeps {
    * still lit, shaded and elevation-correct, just not the one the player is
    * looking at.
    *
-   * Optional, and `null` is a first-class answer rather than a failure:
-   * `?renderer=pixi` has no ground mesh to photograph and implements
-   * nothing, so it falls back to `paintTerrain` -- which is not a
-   * degradation, it is exactly what shipped. Every test that predates this
-   * mounts without it and takes that same path.
+   * Optional, and `null` is a first-class answer rather than a failure: a
+   * renderer that has no photograph to give falls back to `paintTerrain` --
+   * which is not a degradation, it is exactly what shipped. (Pixi answered
+   * null forever until it was retired, WP-A3.3.) Every test that predates
+   * this mounts without it and takes that same path.
    */
   groundImage?: () => ImageData | null;
 }
@@ -643,8 +643,8 @@ export class Minimap {
    *  object until its own picture changes. */
   private terrainFrom: ImageData | null = null;
   /** The painted fallback, built at most once and kept. Without it a mission
-   *  on `?renderer=pixi` -- where every ask answers null -- would repaint
-   *  2,304 tiles four times a second for a picture that cannot change. */
+   *  whose renderer keeps answering null would repaint 2,304 tiles four times
+   *  a second for a picture that cannot change. */
   private painted: HTMLCanvasElement | null = null;
   private readonly proj: MinimapProjection;
   private readonly chrome: ChromeColors;
@@ -947,8 +947,8 @@ export class Minimap {
    * promises it (`Renderer.captureGroundAlbedo`): the same `ImageData` comes
    * back until the terrain is rebuilt or a ground texture lands, so the
    * steady-state cost of asking four times a second is a reference compare.
-   * `null === null` short-circuits the same way, so a Pixi mission -- which
-   * answers null forever -- never re-enters `groundFor` at all.
+   * `null === null` short-circuits the same way, so a renderer that keeps
+   * answering null never re-enters `groundFor` at all.
    *
    * A null answer AFTER a photograph deliberately falls back rather than
    * keeping the last picture: null means the backend cannot photograph this

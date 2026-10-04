@@ -195,7 +195,9 @@ export function screenFor(pathname: string, base: string, tutorialId: string): T
 export const sessionStart = (
   env: TelemetryEnvelope,
   screen: TelemetryScreen,
-  renderer: 'three' | 'pixi',
+  // Always 'three' since the Pixi backend was retired (WP-A3.3). The field
+  // stays so old D1 rows and `packages/worker/QUERIES.sql` still group alike.
+  renderer: 'three',
   viewport: [number, number],
   returning: boolean
 ): TelemetryEvent => ({ ...env, type: 'session_start', screen, renderer, viewport: [int(viewport[0]), int(viewport[1])], returning });

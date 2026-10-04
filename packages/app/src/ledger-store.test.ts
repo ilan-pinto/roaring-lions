@@ -295,17 +295,16 @@ describe('the three campaign keys have one door', () => {
       // The door itself, and the module whose header explains the guard it moved.
       'ledger-store.ts',
       'main-keys.ts',
-      // R-9: the renderer choice and the settings/hint stores are facts about
-      // the person and the device, and stay on their own guarded access.
-      // `ui/menu.ts` left this list when its guarded renderer read/write
-      // moved into `renderer-choice.ts` (scene-host plan, Task 6).
+      // R-9: the settings/hint stores are facts about the person and the
+      // device, and stay on their own guarded access. `renderer-choice.ts`
+      // left this list with the Pixi backend (WP-A3.3); `retired-keys.ts`
+      // removes its stale key once at boot.
       'main.ts',
-      'renderer-choice.ts',
+      'retired-keys.ts',
       'shell/router.ts',
       // WP-T1: telemetry initializes the player identity from localStorage via safeStorage guard.
       'telemetry/index.ts',
       'ui/saves.ts',
-      'ui/worldmap3d.ts',
     ]);
   });
 });

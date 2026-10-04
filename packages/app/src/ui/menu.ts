@@ -11,7 +11,6 @@ import type { CommanderData, ParsedWorld, WorldCountry } from '../campaign';
 import { t } from '../i18n/t';
 import { symbolLabel } from './symbol';
 import { CAMPAIGN_MESHES, dracoDecoderPath, meshUrl } from '../mesh-catalogue';
-import { readStoredRenderer, rememberRenderer, resolveRendererChoice } from '../renderer-choice';
 import { SANDBOX_FLAGS, type SandboxFlagName } from '../sandbox-help';
 import { routes } from '../shell/links';
 import type { Disposer } from '../shell/router';
@@ -21,7 +20,7 @@ import { stagger } from './motion';
 import { markSvg, wordmark } from './mark';
 import { worldMap } from './worldmap';
 import { withdrewLine } from './withdrew';
-import { campaignBoard, worldMap3d } from './worldmap3d';
+import { worldMap3d } from './worldmap3d';
 
 export interface MenuOptions {
   /** Deploy base ('/' locally, '/<repo>/' on Pages). */
@@ -75,12 +74,6 @@ export interface CampaignOptions {
   /** Resolves a villain's bare portrait file name to a URL, threaded to both
    *  boards -- neither builds a `portraits/...` path itself. */
   portraitUrl?: (file: string) => string | undefined;
-  /** This navigation's `?renderer=` value, or null. Read by the SHELL and
-   *  handed in: this screen used to reach into `window.location.search` for
-   *  it, and no screen reads `window.location` now that the router owns the
-   *  URL. `undefined` and `null` both mean "not asked for", which is what a
-   *  test that does not care passes. */
-  renderer?: string | null;
   /** Soft navigation for the 3D board's ground clicks, threaded down to
    *  `worldMap3d`. Absent means a real page load, which is that function's
    *  own default -- the flat board's town pins are anchors and go through the
@@ -254,20 +247,10 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
   theatre.className = 'rl-menu__theatre';
   theatre.textContent = opts.world.name;
 
-  // Which board: the Sahar Basin diorama on three, the flat PNG on Pixi.
-  // `worldmap3d.ts`'s own header has the argument for not forcing three here
-  // -- in short, `?renderer=pixi` is the hatch a player reaches for when
-  // three has failed them, and loading three behind that choice for one menu
-  // is not a fallback, it is ignoring them.
-  //
-  // The query VALUE arrives from the shell (`CampaignOptions.renderer`); the
-  // decision is still resolved and persisted HERE, through the same pure
-  // function and the same storage key `main.ts` uses for a mission, so an
-  // explicit `?renderer=pixi` survives into every mission link this screen
-  // builds exactly as it does elsewhere. Reading `window.location.search`
-  // directly is the one thing the router took away from every screen.
-  const decision = resolveRendererChoice(opts.renderer ?? null, readStoredRenderer());
-  if (decision.persist) rememberRenderer(decision.persist);
+  // Which board: the Sahar Basin diorama, falling back to the flat PNG for
+  // the three causes `worldmap3d.ts`'s header names (no WebGL2, a GLB that
+  // will not load, a scene that fails the campaign contract) plus the one
+  // decided here -- a world with no diorama GLB at all.
   const href = (id: string): string => routes.mission(id);
   const flat = (): HTMLElement =>
     worldMap({
@@ -295,7 +278,7 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
     }
   }
   const boardEl: HTMLElement =
-    boardUrl === null || campaignBoard(decision.choice) === 'flat'
+    boardUrl === null
       ? flat()
       : worldMap3d({
           world: opts.world,
