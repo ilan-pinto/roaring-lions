@@ -295,6 +295,7 @@ import {
   BOLT_CAPACITY,
 } from './units/fx';
 import { rotorSpinPhase } from './units/rotor-spin';
+import { exhaustRand, exhaustSlotAgeSec, exhaustSlotsDue } from './units/exhaust-slots';
 import {
   ROTOR_WASH_MIN_STRENGTH,
   rotorWashStrength,
@@ -1574,9 +1575,10 @@ export class ThreeRenderer implements Renderer {
   private readonly vehicleDustAccumMs: Float64Array;
   /** Last rotor-wash emission slot per entity, -1 = none (sim-clocked, GH-391). */
   private readonly rotorWashSlot: Int32Array;
+  /** Last idle-exhaust slot per entity, -1 = none (sim-clocked, GH-391). */
+  private readonly exhaustSlot: Int32Array;
   /** Presentation sim time at the last `updateFx`, null before the first. */
   private lastFxSimMs: number | null = null;
-  private readonly vehicleExhaustAccumMs: Float64Array;
 
 
   /**
@@ -2094,7 +2096,7 @@ export class ThreeRenderer implements Renderer {
     this.vehicleMoving = new Uint8Array(n);
     this.vehicleDustAccumMs = new Float64Array(n);
     this.rotorWashSlot = new Int32Array(n).fill(-1);
-    this.vehicleExhaustAccumMs = new Float64Array(n);
+    this.exhaustSlot = new Int32Array(n).fill(-1);
     this.vehicleTrackAccumTiles = new Float64Array(n);
     this.vehicleTrackSeeded = new Uint8Array(n);
     this.fog = new Uint8Array(sim.width * sim.height);
@@ -4643,7 +4645,7 @@ export class ThreeRenderer implements Renderer {
       // An air unit throws rotor wash instead of road dust and idle exhaust;
       // `updateRotorWash` emits it, after the particle step (see there).
       if (wash && type.isAir) {
-        this.vehicleExhaustAccumMs[i] = 0;
+        this.exhaustSlot[i] = -1;
         this.vehicleDustAccumMs[i] = 0;
         continue;
       }
@@ -4658,7 +4660,7 @@ export class ThreeRenderer implements Renderer {
         // the one below are mutually exclusive per entity per frame, so
         // this is strictly resetting a clock the idle branch will not run
         // this frame, not racing it.
-        this.vehicleExhaustAccumMs[i] = 0;
+        this.exhaustSlot[i] = -1;
         if (!dust) continue;
         this.vehicleDustAccumMs[i] += dt;
         const interval = vehicleDustIntervalMs(speed, this.vehicleWeightAccel[i]);
@@ -4680,32 +4682,8 @@ export class ThreeRenderer implements Renderer {
           this.particleSystem.spawn(layer, anchor.x, anchor.y, anchor.dirTurns, magnitude, prio, fxLayer);
         }
       } else {
+        // Idle exhaust is emitted by `updateIdleExhaust`, on the sim clock.
         this.vehicleDustAccumMs[i] = 0;
-        if (!exhaust) continue;
-        this.vehicleExhaustAccumMs[i] += dt;
-        if (this.vehicleExhaustAccumMs[i] < VEHICLE_EXHAUST_INTERVAL_MS) continue;
-        this.vehicleExhaustAccumMs[i] -= VEHICLE_EXHAUST_INTERVAL_MS;
-
-        const drawn = this.vehicleMeshEntities.get(i)?.root.position;
-        const anchor = vehicleFxAnchor(
-          drawn ? drawn.x : this.curX[i],
-          drawn ? drawn.z : this.curY[i],
-          facingNorm,
-          VEHICLE_EXHAUST_OFFSET_TILES
-        );
-        const prio = exhaust.budget_priority ?? 1;
-        for (const layer of exhaust.particles) {
-          const fxLayer = fxLayerIndex(exhaust.layer, layer.additive ?? false);
-          this.particleSystem.spawn(
-            layer,
-            anchor.x,
-            anchor.y,
-            anchor.dirTurns,
-            VEHICLE_EXHAUST_MAGNITUDE,
-            prio,
-            fxLayer
-          );
-        }
       }
     }
   }
@@ -6847,6 +6825,56 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
+   * Idle exhaust, dated off the SIM clock exactly as rotor wash is (GH-391;
+   * `units/exhaust-slots.ts`): 500 ms windows, rolls seeded by (entity, slot),
+   * the trickle dated inside `ParticleSystem.spawn`, puffs aged by sim time.
+   * After the particle step, for the reason `updateRotorWash` gives. A vehicle
+   * that is moving, or an air unit with a rotor-wash emitter, has none.
+   */
+  private updateIdleExhaust(alpha: number): void {
+    if (!this.particleSystem) return;
+    const exhaust = this.emitterLibrary.byName('vehicle_exhaust');
+    if (!exhaust) return;
+    const hasWash = this.emitterLibrary.byName('rotor_wash') !== null;
+    const st = this.sim.state;
+    const n = this.snapshottedCount;
+    const nowMs = presentationSimMs(this.sim.tickCount, alpha);
+    const interval = VEHICLE_EXHAUST_INTERVAL_MS;
+    let maxLifeMs = 0;
+    let emitOverMs = 0;
+    for (const layer of exhaust.particles) {
+      const l = layer.lifetime_ms;
+      maxLifeMs = Math.max(maxLifeMs, typeof l === 'number' ? l : l ? l[1] : 0);
+      emitOverMs = Math.max(emitOverMs, layer.emit_over_ms ?? 0);
+    }
+    for (let i = 0; i < n; i++) {
+      if (st.alive[i] === 0) continue;
+      const type = this.sim.unitTypes[st.typeIdx[i]];
+      if (type.isSoft || (hasWash && type.isAir)) continue;
+      if (this.vehicleMoving[i] === 1) continue;
+      const [first, last] = exhaustSlotsDue(this.exhaustSlot[i], nowMs, interval, emitOverMs, maxLifeMs);
+      if (last < first) continue;
+      const drawn = this.vehicleMeshEntities.get(i)?.root.position;
+      const anchor = vehicleFxAnchor(
+        drawn ? drawn.x : this.curX[i],
+        drawn ? drawn.z : this.curY[i],
+        fx.toNumber(st.facing[i]),
+        VEHICLE_EXHAUST_OFFSET_TILES
+      );
+      const prio = exhaust.budget_priority ?? 1;
+      for (let slot = first; slot <= last; slot++) {
+        const rand = exhaustRand(i, slot);
+        const ageSec = exhaustSlotAgeSec(slot, nowMs, interval);
+        for (const layer of exhaust.particles) {
+          const fxLayer = fxLayerIndex(exhaust.layer, layer.additive ?? false);
+          this.particleSystem.spawn(layer, anchor.x, anchor.y, anchor.dirTurns, VEHICLE_EXHAUST_MAGNITUDE, prio, fxLayer, 0, 0, { rand, ageSec });
+        }
+      }
+      this.exhaustSlot[i] = last;
+    }
+  }
+
+  /**
    * Rotor wash, from the DRAWN height above the drawn ground, dated off the
    * SIM clock (GH-391; `units/rotor-wash.ts`). Runs AFTER `particleSystem.step`
    * and BEFORE the instancers read the pool, on purpose: a puff is born with
@@ -6948,7 +6976,10 @@ export class ThreeRenderer implements Renderer {
       this.lastFxSimMs = nowMs;
     }
     this.particleSystem?.step(dtSeconds, simDtSeconds);
-    if (alpha !== undefined) this.updateRotorWash(alpha);
+    if (alpha !== undefined) {
+      this.updateRotorWash(alpha);
+      this.updateIdleExhaust(alpha);
+    }
     const elevation = this.retained.elevation;
     this.particleInstancerBelow.update(this.particleSystem, elevation, this.sim.width, this.sim.height);
     this.particleInstancerAbove.update(this.particleSystem, elevation, this.sim.width, this.sim.height);

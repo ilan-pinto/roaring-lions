@@ -141,27 +141,8 @@ function setUp(): { renderer: ThreeRenderer; priv: Privates; id: number; spawns:
 }
 
 describe('vehicle ambient FX emit on elapsed time, not on frame count', () => {
-  it('still emits exhaust at an ordinary cadence -- the anti-vacuity control', () => {
-    const { priv, spawns } = setUp();
-    // 600 ms of real time at 60 fps, against a 500 ms exhaust interval.
-    for (let i = 0; i < 36; i++) priv.updateVehicleAmbientFx(16.67);
-    expect(spawns()).toBeGreaterThan(0);
-  });
-
-  it('a zero-time repaint after a very long frame spawns no exhaust at all', () => {
-    const { priv, spawns } = setUp();
-    // The real shape of the bug's input: one frame that waited ten seconds on
-    // a cold GLB load. Clamped, it is worth 100 ms -- less than one interval,
-    // so it banks nothing a later frame can spend.
-    priv.updateVehicleAmbientFx(10_000);
-    const afterLongFrame = spawns();
-    for (let i = 0; i < 10; i++) priv.updateVehicleAmbientFx(0);
-    // No elapsed time, no emission. With the raw `dtMs` this reads
-    // `afterLongFrame + 10`.
-    expect(spawns()).toBe(afterLongFrame);
-    // And the long frame itself bought at most one puff's worth, not twenty.
-    expect(afterLongFrame).toBeLessThanOrEqual(vehicleExhaust.particles.length);
-  });
+  // Idle exhaust moved onto the sim clock (GH-391); its specs live in
+  // `ThreeRenderer.exhaust-clock.test.ts`.
 
   it('still emits dust at an ordinary cadence -- the anti-vacuity control', () => {
     const { priv, id, spawns } = setUp();

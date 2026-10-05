@@ -234,6 +234,19 @@ export class ParticleSystem {
     // The first particle always lands now, burst or sustained alike -- a
     // sustained emitter with a 900ms window must not read as "nothing for
     // the first frame".
+    if (det !== undefined && emitOverMs > 0) {
+      // Dated trickle: particle `j` is born `emitOverMs * j / n` after the
+      // window opens, so it is `ageSec` minus that old. The caller emits a
+      // window only once its whole trickle has elapsed; one not yet born is
+      // skipped rather than left to a frame-clock `pending` entry.
+      for (let j = 0; j < n; j++) {
+        const a = ageSec - (emitOverMs * j) / n / 1000;
+        if (a < 0) continue;
+        this.spawnOne(spec, x, y, dirRad, coneRad, scale, resolved, priority, layerIdx, velX, velY, rand, a, true);
+      }
+      return;
+    }
+
     this.spawnOne(spec, x, y, dirRad, coneRad, scale, resolved, priority, layerIdx, velX, velY, rand, ageSec, dated);
 
     if (emitOverMs <= 0 || n <= 1) {
