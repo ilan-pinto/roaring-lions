@@ -11,7 +11,7 @@
     "crew": 2,
     "suppression_resistance": 0.5
   },
-  "mobility": { "speed_tiles_s": 0.75 },
+  "mobility": { "speed_tiles_s": 0.75, "halts_to_fire": true },
   "sensors": {
     "optics": 1.2,
     "sight_tiles": 12,

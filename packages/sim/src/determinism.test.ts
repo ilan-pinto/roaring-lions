@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
-import { Sim, type SimEvent, type UnitTypeJson } from './sim';
+import { BRACE_DROPPING, BRACE_KNEELING, BRACE_RISING, Sim, type SimEvent, type UnitTypeJson } from './sim';
 
 // The canary for invariants 2 and 3 (CLAUDE.md): replay 1000 ticks from a
 // fixed seed and assert the state hash is stable. Must pass before any
@@ -8,6 +8,12 @@ import { Sim, type SimEvent, type UnitTypeJson } from './sim';
 
 const RIFLES: UnitTypeJson = {
   id: 'd_rifles',
+  // `role: 'infantry'` makes these HALT TO FIRE (spec
+  // 2026-10-05-infantry-halt-to-fire): armed and on foot. Added 2026-10-05,
+  // because without a role the type derives as wheeled, and the replay held no
+  // unit at all that kneels -- the brace columns were all zero and the pinned
+  // number guarded nothing of that mechanic. See the pin below.
+  role: 'infantry',
   // `garrison` is required for the garrison order below to be accepted at all;
   // without it the order is silently refused and the shed stays empty, which is
   // how a first pass at this ended up hashing structure columns that no
@@ -181,7 +187,13 @@ const VENT_GUARD: UnitTypeJson = {
 };
 
 /** A full little battle: walls, mixed forces, mid-run orders both sides. */
-function run(seed: number, ticks: number, extraIdleUnit = false, onEvent?: (e: SimEvent) => void): Sim {
+function run(
+  seed: number,
+  ticks: number,
+  extraIdleUnit = false,
+  onEvent?: (e: SimEvent) => void,
+  onTick?: (sim: Sim, events: SimEvent[]) => void
+): Sim {
   const sim = new Sim({ seed, width: 48, height: 48, capacity: 128 });
   const rifles = sim.addUnitType(RIFLES);
   const tank = sim.addUnitType(TANK);
@@ -261,6 +273,7 @@ function run(seed: number, ticks: number, extraIdleUnit = false, onEvent?: (e: S
     if (t === 5) sim.queueCommand({ kind: 'move', ids: [scout], x: fx.from(27.5), y: fx.from(45.5) });
     const events = sim.tick();
     if (onEvent) for (const e of events) onEvent(e);
+    if (onTick) onTick(sim, events);
   }
   return sim;
 }
@@ -391,7 +404,48 @@ describe('determinism (1000-tick replay)', () => {
     // random number. Re-pinned in the commit that wired formation.ts into
     // the move branch, and the relief replay below moved for the same reason.
     // Was 3160666129.
-    expect(a.hash()).toBe(2109596329);
+    //
+    // 2026-10-05: infantry halt and kneel to fire (spec
+    // 2026-10-05-infantry-halt-to-fire). Two reasons, one deliberate move.
+    // First, hash() gained the three brace columns (brace, braceTicks,
+    // braceClock). Measured on their own they moved this number with NO
+    // behaviour behind it: this replay's riflemen had no `role`, derived as
+    // wheeled, and not one of them ever left BRACE_NONE -- with the three
+    // lines removed from hash() the old 2109596329 came back exactly. That is
+    // the same admission the demolish column made above. So, second, d_rifles
+    // now carries `role: 'infantry'`: they halt to fire, and the replay walks
+    // them through the drop, the knee, the bound and the rise (asserted by
+    // "the replay actually exercises halt to fire" below). Was 2109596329.
+    expect(a.hash()).toBe(2118781669);
+  });
+
+  it('the replay actually exercises halt to fire', () => {
+    // Same admission as the structure and tunnel fronts: until 2026-10-05 the
+    // replay's riflemen had no `role`, derived as wheeled, and nobody in it
+    // ever knelt -- the brace columns were zero for all 1000 ticks and the pin
+    // moved only because they were folded in. This asserts the riflemen now
+    // really go down, fire from the knee, and get up again inside the pin.
+    const seen = new Set<number>();
+    let kneelingShots = 0;
+    let standingShots = 0;
+    run(0x1310_0001, 1000, false, undefined, (sim, events) => {
+      for (let i = 0; i < sim.entityCount; i++) seen.add(sim.state.brace[i]);
+      for (const e of events) {
+        if (e.kind !== 'fire' || e.shooter < 0) continue;
+        if (sim.unitTypes[sim.state.typeIdx[e.shooter]].id !== 'd_rifles') continue;
+        if (sim.state.garrisonedIn[e.shooter] >= 0) continue; // fights from a window
+        // Read after the tick: the shed's holder fires from its window and dies
+        // in the collapse on the same tick (117), which clears its garrison.
+        if (sim.state.alive[e.shooter] === 0) continue;
+        if (sim.state.brace[e.shooter] === BRACE_KNEELING) kneelingShots++;
+        else standingShots++;
+      }
+    });
+    expect(seen.has(BRACE_DROPPING)).toBe(true);
+    expect(seen.has(BRACE_KNEELING)).toBe(true);
+    expect(seen.has(BRACE_RISING)).toBe(true);
+    expect(kneelingShots).toBeGreaterThan(100);
+    expect(standingShots).toBe(0);
   });
 
   it('the replay actually exercises the structure paths', () => {
@@ -651,7 +705,11 @@ describe('determinism over relief (900-tick replay round a hill)', () => {
     // there, because the flow field is keyed on the slot TILE and is
     // identical either way, so only a unit that actually closes the last
     // tile can tell them apart.
-    expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(1425295494);
+    //
+    // 2026-10-05: moved by halt to fire, for both reasons given at the flat
+    // replay's pin -- the brace columns joined hash(), and d_rifles (which this
+    // replay fields too) now kneels to fire. Was 1425295494.
+    expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(3739556491);
   });
 
   it('the relief changes the route, not merely the hash', () => {

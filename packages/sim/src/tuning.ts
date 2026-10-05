@@ -156,6 +156,41 @@ export const DEFAULT_TURN_DEG_S = 360;
  *  `UnitType.bodyAimed` ones (soft AND isotropic), and `resolveHit` returns
  *  before it ever reads a soft target's facing. */
 export const AIM_OFF_HEADING_MAX = 8192; // 0.125 turns = 45°
+/** Ticks a unit that halts to fire (`UnitType.haltsToFire`: the foot units
+ *  that shoot) spends getting down before its first shot: 0.3 s. The first
+ *  shot is fired exactly this many ticks after the tick the unit first wanted
+ *  to be down, and it does not move in between (spec
+ *  `2026-10-05-infantry-halt-to-fire.md` §2).
+ *
+ *  Measured, not just reasoned (spec §6). The realism-only first pick was 12
+ *  (0.6 s, a deliberate kneel); at 240 seeds it held a smoked 2:1 urban
+ *  assault to 69% / 68% (base / max tier) against the smoke step's 90% floor,
+ *  because in this model the side that shoots first at close range pins the
+ *  other, and the attacker coming out of the smoke is always the one getting
+ *  down. 6 reads 99% / 86%; 4 reads 100% / 82%, so going shorter buys nothing
+ *  more and 6 -- a fast drop to a knee, which is what a trained rifleman does
+ *  under fire -- is the longest that holds the base step. The cost this buys
+ *  is TIME, and nothing else: kneeling adds no cover, accuracy or signature of
+ *  its own (see `Sim.isEffectivelyMoving`). */
+export const KNEEL_DROP_TICKS = 6;
+/** Ticks a kneeling unit spends getting up before it moves again: 0.3 s. The
+ *  unit moves again exactly this many ticks after the tick it started to
+ *  rise. Same measurement as the drop: at 10 the smoked 2:1 assault read 80%
+ *  even with a 1-tick drop, because a man getting up neither fires nor moves
+ *  and the rise is paid every time a target dies or a bound ends. */
+export const KNEEL_RISE_TICKS = 6;
+/** Attack-move with a target only in the band between effective and maximum
+ *  range: a unit that halts to fire advances by bounds -- down and firing for
+ *  BOUND_FIRE_TICKS, then up and moving for BOUND_MOVE_TICKS -- instead of
+ *  either walking in silent (measured: the max-tier 3:1 urban assault fell to
+ *  ~60%, no suppression on the approach) or halting at maximum range for good
+ *  (measured: carried a 2:1 urban assault ~95% of the time, two ratio steps).
+ *  Inside effective range it stops for good, as attack-movers always have.
+ *  2 s each: long enough for a rifle squad's burst to count, short enough that
+ *  the approach still closes. 60/20, 20/40 and 30/30 were measured and moved
+ *  nothing outside noise. */
+export const BOUND_FIRE_TICKS = 40;
+export const BOUND_MOVE_TICKS = 40;
 /** Speed right-shift while pinned. Calibrated to 6 (÷64 — effectively
  *  halted): together with pinned-units-hold-fire this is what makes fire
  *  superiority decisive and the urban 3:1 ratio emerge in the backtest.

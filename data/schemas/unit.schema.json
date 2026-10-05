@@ -279,6 +279,10 @@
           "type": "boolean",
           "description": "Rides on wheels or tracks, so a boulder field (map symbol `b`) stops it where infantry walk through. Absent means derived from `role`: everything outside the dismounted set (infantry, at_team, artillery, engineer, sniper, support) is wheeled. The derivation is wrong for exactly one unit and that is why this field exists -- `rocket_battery` is a Grad on a 6x6 truck and declares role \"artillery\" exactly as `mortar_team`, four men and a tube, does. Set it only where the default gets a unit wrong."
         },
+        "halts_to_fire": {
+          "type": "boolean",
+          "description": "Fires only from a halt: the unit stops, kneels (KNEEL_DROP_TICKS) before its first shot, fires while down, and gets up (KNEEL_RISE_TICKS) before it moves on; it never fires while its feet move. Absent means derived: armed, not wheeled, not air, not a kamikaze -- every foot unit that shoots, and no vehicle, aircraft or charge squad. Set it only where the derivation gets a unit wrong. Spec docs/superpowers/specs/2026-10-05-infantry-halt-to-fire.md."
+        },
         "domain": {
           "type": "string",
           "enum": [

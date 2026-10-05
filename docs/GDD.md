@@ -135,6 +135,8 @@ P(hit) = base_accuracy
 
 `range_falloff` is per weapon class: guided weapons (ATGM) use k ≈ 0.25 — inside the envelope, accuracy is launch-condition-dominated, not range-dominated. This is what makes ATGM Pk ≈ 0.7 real rather than aspirational.
 
+**Foot units halt to fire** (2026-10-05, spec `docs/superpowers/specs/2026-10-05-infantry-halt-to-fire.md`). Vehicles fire on the move; infantry, AT and mortar teams never do. They stop, take a knee (0.3 s) before the first shot, fire kneeling, and get up (0.3 s) before moving on. An attack-move closes by bounds — 2 s down and firing, 2 s up and moving — until a target is inside effective range, then stops for good; a plain move runs through holding fire; a man who has stopped takes a knee. Kneeling changes *when* a man shoots and moves, never how hard he is to hit: a bound's kneel is the `short-halt` stance above and is priced like `moving`, a halt for good like `stationary`.
+
 ### 5.3 Penetration
 
 A probability curve, not a threshold. This single change is most of what separates a simulation from a hit-point exchange.

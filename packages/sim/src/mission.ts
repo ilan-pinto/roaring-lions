@@ -1528,6 +1528,26 @@ export class MissionRuntime {
       // the patrol resumed from an arbitrary leg when the route vented — and
       // queued one dead command per tick for the whole mission meanwhile.
       if (this.sim.state.tunnelIn[p.id] >= 0) continue;
+      // Contact. A patroller that halts to fire walks its beat on a plain
+      // move, and a plain move never stops to shoot (spec
+      // 2026-10-05-infantry-halt-to-fire §3) -- so without this it would walk
+      // straight past the enemy holding its fire, and the tick it reached a
+      // waypoint it would be sent on before it could get down. A patrol that
+      // makes contact stops and fights: halt it, keep the interrupted leg, and
+      // resume the beat from that leg once the target is gone. A vehicle
+      // patroller fires on the move and is left exactly as it was.
+      const st = this.sim.state;
+      if (
+        (st.curTarget[p.id] >= 0 || st.curStructure[p.id] >= 0) &&
+        this.sim.unitTypes[st.typeIdx[p.id]].haltsToFire
+      ) {
+        if (st.moving[p.id] === 1) {
+          this.sim.queueCommand({ kind: 'halt', ids: [p.id] });
+          const n = p.waypoints.length;
+          p.idx = (p.idx + n - 1) % n;
+        }
+        continue;
+      }
       if (this.sim.state.moving[p.id] === 1) continue;
       const [wx, wy] = p.waypoints[p.idx];
       p.idx = (p.idx + 1) % p.waypoints.length;
