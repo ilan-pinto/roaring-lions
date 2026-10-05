@@ -2701,10 +2701,15 @@ function boughtProbe(
 // the apron (30,17) and died there, and at the crossroads and the lane. It goes to the east
 // of the clinic yard instead (42,28), outside the rubble and clear of every post, where it looks in on
 // the clinic's mouth and identifies the two it surfaces.
+// 2026-10-05, infantry halt to fire: (42,28) read nothing at all -- 0 rounds, 0 contacts, 0 routes
+// over the whole run -- once the foot units on both sides stopped firing on the move and the
+// campaign chain's ledger fielded a third rifle squad here. Four tiles north, (42,24), it
+// identifies a route and fires no round; (40,26) and (36,26) also identify one but get into a
+// fight (36-39 rounds), and (38,28) and (34,30) still read nothing. Measured, one run each.
 boughtProbe('beit_sahwan_4_subterranean', bs4Plan, led4In, 'recon_zikit', 30, 'sees', (mine) => ({
   kind: 'move',
   ids: mine,
-  ...M(42, 28),
+  ...M(42, 24),
 }));
 // The Gunship is built on the first tick (50 s) and joins the `raze` approach: an
 // attack-move to the stockpile the depot escort is already walking to.
@@ -3294,7 +3299,9 @@ for (const [label, got, want] of [
  *  instrument honestly knows. */
 // GH-382: 30 -> 32, still at umm_zeitoun_4_clearance (its escort and parties survive the shelf in numbers).
 // GH-382 (Tel Marum): 32 -> 33, same mission: the new Tel Marum III plan loses no unit, so one more reaches the end of the chain.
-const ROSTER_MAX = 33;
+// 2026-10-05, infantry halt to fire: 33 -> 31, same mission. Foot units no longer fire on the move
+// and kneel before the first shot, so two fewer of the chain's units reach the end of it.
+const ROSTER_MAX = 31;
 console.log(`roster maximum: ${rosterMax} at ${rosterMaxMissionId}`);
 if (rosterMax !== ROSTER_MAX) {
   console.error(`roster maximum: FAILED — expected ${ROSTER_MAX}, got ${rosterMax} at ${rosterMaxMissionId}`);

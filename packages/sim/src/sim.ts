@@ -5199,8 +5199,17 @@ export class Sim {
           this.lastSeenValid[k] = 0;
           continue;
         }
-        // Currently identified enemies are the combat step's problem.
-        if (this.contactState[k] === 2) continue;
+        // Currently identified enemies are the combat step's problem -- but
+        // only while combat can shoot them. This loop runs only for a unit
+        // with no target at all (the curTarget guard above), so an enemy it
+        // has identified and is not shooting is out of its range or out of
+        // its sight line. Skipping that one too was a stall: an attack-mover
+        // with more sight than reach (the `inf_squad` sensor upgrade buys 13
+        // tiles of sight for an 8-tile rifle) knelt and watched it for the
+        // rest of the mission. Walk to it instead -- unless no weapon this
+        // unit carries could engage it (a rifle squad does not chase a
+        // helicopter), or it is inside something selectTarget refuses.
+        if (this.contactState[k] === 2 && !this.couldEngage(i, t)) continue;
         const d = distSqFx(
           fx.sub(this.lastSeenX[k], this.posX[i]),
           fx.sub(this.lastSeenY[k], this.posY[i])
@@ -5224,6 +5233,19 @@ export class Sim {
       this.fieldRef[i] = this.fieldFor(fx.toInt(gx), fx.toInt(gy), this.domainOf(i));
       this.moving[i] = 1;
     }
+  }
+
+  /** Could any of `i`'s weapons ever be aimed at `t`, range and sight aside?
+   *  The domain and containment half of selectTarget's filter, for stepSweep:
+   *  worth walking toward only if, once there, combat could take the shot. */
+  private couldEngage(i: number, t: number): boolean {
+    if (this.garrisonedIn[t] >= 0 || this.carriedBy[t] >= 0 || this.tunnelIn[t] >= 0) return false;
+    const air = this.unitTypes[this.typeIdx[t]].isAir;
+    const weapons = this.unitTypes[this.typeIdx[i]].weapons;
+    for (let s = 0; s < weapons.length && s < 2; s++) {
+      if (air ? weapons[s].canTargetAir : weapons[s].canTargetGround) return true;
+    }
+    return false;
   }
 
   // ----------------------------------------------------------------- movement
