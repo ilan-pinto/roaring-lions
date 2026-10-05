@@ -14,16 +14,16 @@
       "text": "The concrete is still across the shoulder. Everything we sent through the low gate is on the wrong side of a wall we never opened."
     }
   },
-  "briefing": "The high gate is shut. Four tiles of poured concrete across the shoulder gap at the crest — the drone brought back men, not masonry, so it was never on the board. The infantry crosses low, then, and it crosses alone. The notch is open on foot from the first second and it is covered end to end from the cover above it, so they are seen the whole way through. That concrete was poured before the brigade was in Sur. He did not garrison this pass — he priced it, and he set a different price for men and for vehicles. Engineers take the revetment down inside five minutes or this is over. Until it comes down nothing on wheels or tracks goes north of the wall at all, and the camp behind you is the only place anything new comes from. Buy accordingly: a Namer bought at two minutes cannot use a road the engineers have not opened yet. Then hold both gates for three minutes. Nothing crossing the notch can be supported from the shoulder, or the other way round. Send them anyway, and know how long they are alone.",
+  "briefing": "The high gate is shut. Four tiles of poured concrete across the crest of the shoulder — the drone brought back men, not masonry, so it was never on the board. The road to it is three legs of switchback cut into the rock, each leg walled off from the next, and nothing on one leg can see the next. The infantry crosses low, then, and it crosses alone. The notch is a straight cutting sixteen tiles through the wall, open on foot from the first second and covered from its north mouth end to end, so they are seen the whole way through. That concrete was poured before the brigade was in Sur. He did not garrison this pass — he priced it, and he set a different price for men and for vehicles. Engineers take the revetment down inside five minutes or this is over. Until it comes down nothing on wheels or tracks goes north of the wall at all, and the camp behind you is the only place anything new comes from. Buy accordingly: a Namer bought at two minutes cannot use a road the engineers have not opened yet. Then hold both gates for three minutes. Nothing crossing the notch can be supported from the shoulder, or the other way round. Send them anyway, and know how long they are alone.",
   "briefing_sections": [
-    {"id": "situation", "text": "The high gate is shut. Four tiles of poured concrete across the shoulder gap at the crest — the drone brought back men, not masonry, so it was never on the board. The infantry crosses low, then, and it crosses alone. The notch is open on foot from the first second and it is covered end to end from the cover above it, so they are seen the whole way through. That concrete was poured before the brigade was in Sur. He did not garrison this pass — he priced it, and he set a different price for men and for vehicles."},
+    {"id": "situation", "text": "The high gate is shut. Four tiles of poured concrete across the crest of the shoulder — the drone brought back men, not masonry, so it was never on the board. The road to it is three legs of switchback cut into the rock, each leg walled off from the next, and nothing on one leg can see the next. The infantry crosses low, then, and it crosses alone. The notch is a straight cutting sixteen tiles through the wall, open on foot from the first second and covered from its north mouth end to end, so they are seen the whole way through. That concrete was poured before the brigade was in Sur. He did not garrison this pass — he priced it, and he set a different price for men and for vehicles."},
     {"id": "mission", "text": "Engineers take the revetment down inside five minutes or this is over."},
     {"id": "execution", "text": "Until it comes down nothing on wheels or tracks goes north of the wall at all, and the camp behind you is the only place anything new comes from. Buy accordingly: a Namer bought at two minutes cannot use a road the engineers have not opened yet. Then hold both gates for three minutes. Nothing crossing the notch can be supported from the shoulder, or the other way round."},
     {"id": "notes", "text": "Send them anyway, and know how long they are alone."}
   ],
   "briefing_image": "ui/plates/units/yahalom_squad.jpg",
   "map": {
-    "file": "qarn_hadid",
+    "file": "qarn_hadid_2",
     "time_of_day": "dusk",
     "player_start": [24, 42]
   },
@@ -48,7 +48,7 @@
   ],
   "resources": { "logistics_start": 500, "logistics_rate_per_min": 130 },
   "structures": [
-    { "type": "concrete", "at": [18, 19], "size": [4, 1] },
+    { "type": "concrete", "at": [13, 13], "size": [4, 1] },
     { "type": "camp", "at": [25, 34], "size": [2, 2] }
   ],
   "objectives": [
@@ -71,16 +71,16 @@
     "faction": "sarim",
     "doctrine_profile": "standoff overwatch",
     "garrison": [
-      { "unit": "sarim_rifles", "count": 1, "at": [19, 19], "group": "gate",
-        "stance": { "kind": "garrison", "building": [19, 19] } },
-      { "unit": "sarim_rifles", "count": 1, "at": [21, 17], "group": "gate" },
-      { "unit": "atgm_cell", "count": 1, "at": [19, 16], "group": "gate" },
-      { "unit": "sarim_rifles", "count": 1, "at": [32, 15], "tag": "qh_watch_notch" },
-      { "unit": "atgm_cell", "count": 1, "at": [33, 16], "tag": "qh_atgm_saddle", "stance": { "kind": "ambush", "tiles": 6 } },
-      { "unit": "recoilless_team", "count": 1, "at": [33, 26], "tag": "qh_watch_bench", "stance": { "kind": "ambush", "tiles": 4 } },
-      { "unit": "manpad_team", "count": 1, "at": [40, 30], "tag": "qh_manpad_scree" },
-      { "unit": "sarim_rifles", "count": 1, "at": [38, 38] },
-      { "unit": "rocket_battery", "count": 1, "at": [26, 13], "group": "tube", "tag": "qh_hvt_tube" }
+      { "unit": "sarim_rifles", "count": 1, "at": [14, 13], "group": "gate",
+        "stance": { "kind": "garrison", "building": [14, 13] } },
+      { "unit": "sarim_rifles", "count": 1, "at": [15, 10], "group": "gate" },
+      { "unit": "atgm_cell", "count": 1, "at": [13, 9], "group": "gate" },
+      { "unit": "sarim_rifles", "count": 1, "at": [34, 10], "tag": "qh_watch_notch" },
+      { "unit": "atgm_cell", "count": 1, "at": [35, 10], "tag": "qh_atgm_saddle", "stance": { "kind": "ambush", "tiles": 6 } },
+      { "unit": "recoilless_team", "count": 1, "at": [39, 29], "tag": "qh_watch_bench", "stance": { "kind": "ambush", "tiles": 4 } },
+      { "unit": "manpad_team", "count": 1, "at": [45, 29], "tag": "qh_manpad_scree" },
+      { "unit": "sarim_rifles", "count": 1, "at": [39, 38] },
+      { "unit": "rocket_battery", "count": 1, "at": [26, 9], "group": "tube", "tag": "qh_hvt_tube" }
     ],
     "waves": [
       { "at_seconds": 120, "to": "shoulder_gate",

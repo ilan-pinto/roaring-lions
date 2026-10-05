@@ -22,7 +22,7 @@
   ],
   "briefing_image": "ui/plates/units/ifv_namer.jpg",
   "map": {
-    "file": "qarn_hadid",
+    "file": "qarn_hadid_3",
     "time_of_day": "dawn",
     "player_start": [24, 42]
   },
@@ -38,16 +38,16 @@
     ]
   },
   "starting_force": [
-    { "unit": "inf_squad", "count": 3, "at": [24, 43], "from_ledger": true },
-    { "unit": "at_team", "count": 1, "at": [26, 43], "from_ledger": true },
-    { "unit": "mortar_team", "count": 1, "at": [23, 44], "from_ledger": true },
-    { "unit": "demo_squad", "count": 1, "at": [22, 43], "from_ledger": true },
-    { "unit": "mbt_lavi", "count": 1, "at": [26, 44] },
-    { "unit": "ifv_namer", "count": 1, "at": [20, 44] },
-    { "unit": "apc_eitan", "count": 2, "at": [25, 44] },
-    { "unit": "sniper_team", "count": 1, "at": [23, 43] },
-    { "unit": "recon_drone", "count": 1, "at": [24, 41] },
-    { "unit": "jeep_shoded", "count": 1, "at": [23, 42], "upgrades_to": "scout_shachaf", "gate_only": true }
+    { "unit": "inf_squad", "count": 3, "at": [24, 41], "from_ledger": true },
+    { "unit": "at_team", "count": 1, "at": [26, 40], "from_ledger": true },
+    { "unit": "mortar_team", "count": 1, "at": [23, 42], "from_ledger": true },
+    { "unit": "demo_squad", "count": 1, "at": [21, 41], "from_ledger": true },
+    { "unit": "mbt_lavi", "count": 1, "at": [27, 43] },
+    { "unit": "ifv_namer", "count": 1, "at": [20, 43] },
+    { "unit": "apc_eitan", "count": 2, "at": [24, 43] },
+    { "unit": "sniper_team", "count": 1, "at": [22, 42] },
+    { "unit": "recon_drone", "count": 1, "at": [24, 39] },
+    { "unit": "jeep_shoded", "count": 1, "at": [25, 39], "upgrades_to": "scout_shachaf", "gate_only": true }
   ],
   "resources": { "logistics_start": 400, "logistics_rate_per_min": 80 },
   "objectives": [
@@ -72,24 +72,24 @@
   "civilians": {
     "refuge": "clinic_yard",
     "groups": [
-      { "unit": "civilians", "count": 3, "at": [22, 1] },
-      { "unit": "civilians", "count": 2, "at": [22, 5] }
+      { "unit": "civilians", "count": 3, "at": [22, 3] },
+      { "unit": "civilians", "count": 2, "at": [28, 4] }
     ]
   },
   "enemy": {
     "faction": "sarim",
     "doctrine_profile": "standoff overwatch",
     "garrison": [
-      { "unit": "sarim_rifles", "count": 1, "at": [10, 9], "tag": "qh_hvt_relay", "group": "relay", "stance": { "kind": "ambush", "tiles": 2 } },
-      { "unit": "sarim_rifles", "count": 1, "at": [11, 10], "tag": "qh_hvt_relay", "group": "relay", "stance": { "kind": "ambush", "tiles": 2 } },
-      { "unit": "sarim_rifles", "count": 1, "at": [15, 8] },
-      { "unit": "atgm_cell", "count": 1, "at": [14, 12], "tag": "qh_atgm_ditch", "stance": { "kind": "ambush", "tiles": 6 } },
-      { "unit": "sarim_rifles", "count": 1, "at": [22, 3], "group": "village", "stance": { "kind": "garrison", "building": [22, 3] } },
-      { "unit": "sarim_rifles", "count": 1, "at": [27, 3], "group": "village", "stance": { "kind": "garrison", "building": [27, 3] } },
-      { "unit": "recoilless_team", "count": 1, "at": [34, 7], "group": "village", "stance": { "kind": "ambush", "tiles": 5 } },
-      { "unit": "sarim_rifles", "count": 1, "at": [39, 13], "tag": "qh_watch_grove" },
-      { "unit": "sarim_rifles", "count": 1, "at": [32, 15], "tag": "qh_watch_notch" },
-      { "unit": "manpad_team", "count": 1, "at": [36, 12], "tag": "qh_manpad_north" }
+      { "unit": "sarim_rifles", "count": 1, "at": [9, 15], "tag": "qh_hvt_relay", "group": "relay", "stance": { "kind": "ambush", "tiles": 2 } },
+      { "unit": "sarim_rifles", "count": 1, "at": [10, 16], "tag": "qh_hvt_relay", "group": "relay", "stance": { "kind": "ambush", "tiles": 2 } },
+      { "unit": "sarim_rifles", "count": 1, "at": [15, 14] },
+      { "unit": "atgm_cell", "count": 1, "at": [16, 20], "tag": "qh_atgm_ditch", "stance": { "kind": "ambush", "tiles": 6 } },
+      { "unit": "sarim_rifles", "count": 1, "at": [21, 12], "group": "village", "stance": { "kind": "garrison", "building": [21, 12] } },
+      { "unit": "sarim_rifles", "count": 1, "at": [27, 6], "group": "village", "stance": { "kind": "garrison", "building": [27, 6] } },
+      { "unit": "recoilless_team", "count": 1, "at": [36, 8], "group": "village", "stance": { "kind": "ambush", "tiles": 5 } },
+      { "unit": "sarim_rifles", "count": 1, "at": [39, 19], "tag": "qh_watch_grove" },
+      { "unit": "sarim_rifles", "count": 1, "at": [33, 15], "tag": "qh_watch_notch" },
+      { "unit": "manpad_team", "count": 1, "at": [37, 10], "tag": "qh_manpad_north" }
     ],
     "waves": [
       { "at_seconds": 120, "to": "north_junction",
