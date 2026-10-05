@@ -396,3 +396,47 @@ Contact sheet: `docs/art/sheets/a31-parts-rerolls.png` (same renderer, four yaws
 
 Stage 2 of the re-rolls stops here: nothing refined, nothing remeshed, pending the
 lead's word on each of the three.
+
+## The lead's rulings on the re-rolls (5 Oct)
+
+- **6 v2 `atgm_post`: refine (`--tex 8k`) and remesh at 600.** The tube's front is
+  flattened to a cap in Blender.
+- **8 v2 `recoilless_rifle`: refine and remesh at 600.** The dirt-and-grass base is
+  cut in Blender by connectivity.
+- **11 `loiter_drone`: the re-make is DROPPED at 0 more credits.** The shipped B1
+  delta (`vehicles/loiter_drone.glb`, 630 tris, palette-painted) stays, and it is
+  **the one untextured exception on the roster, by the lead's ruling** — two text
+  rolls produced a fuselage-and-wings aircraft, and the delta the lead accepted in B1
+  is the silhouette the gate reads. The two v1/v2 previews (`01a10c42…`, `01a10c43…`
+  is the attack drone; `01a10c4d…`) stay in the ledger as spent, 40 credits.
+
+Stage 2 is therefore 7 + 2 = 9 refine-and-remesh pairs (180) + 3 re-rolls (60) =
+**240 of the ~260 approved**; expected balance after the batch **2,605**.
+
+## Sent — stage 2 (2026-10-05): nine refine-and-remesh pairs, 180 credits
+
+Every refine at `--tex 8k` (15 credits), every remesh 5 credits; ids from
+`art/meshy/ledger.jsonl` (refines are `kind: text`, `mode: refine`). The 8k
+downloads and the 8k-carrying remesh `model.glb`s stay uncommitted (bible §15);
+each is downscaled into its team's atlas or the vehicle's own texture at export.
+The day's ledger total is 440 credits: stage 1's ten previews (200), the three
+re-rolls (60) and these 180 -- 260 of the ~260 approved.
+
+| # | `--name` | preview | refine (8k) | remesh | credits | ships in |
+|---|---|---|---|---|---|---|
+| 1 | `sarim_rifle` | `01a10c2d-a7b5-750e-a603-6e4030a645a3` | `01a10c51-668c-7167-989e-f821fbb74854` | `01a10c53-aa02-7283-933d-a36bb3e1103a` | 20 | `militia_cell` ×2, `sarim_rifles` ×3, `rpg_team` loader (339 tris a copy) |
+| 2 | `recon_drone` | `01a10c2f-177b-768e-aeb2-690b70446bb2` | `01a10c57-cf0b-75ce-92c0-9574434b8631` | `01a10c59-eede-7009-82ba-125e709bbe8e` | 20 | `vehicles/recon_drone.glb` (1,890 tris) |
+| 3 | `spike_launcher` | `01a10c30-4ca3-74b9-befa-ba935597d8b7` | `01a10c5d-97ab-777d-98c9-1775e9c5348d` | `01a10c61-808f-7626-9ebd-8abddc4e01b6` | 20 | `at_team` (350 tris, extended bipod cut) |
+| 7 | `moto_rpg` | `01a10c31-ea45-70f1-bef0-b06f3d51d4e2` | `01a10c65-0225-775d-8dfd-e5f11040b216` | `01a10c69-8fc1-740c-acb1-1e25cd415d57` | 20 | `moto_rpg` bike (team file 8,926 tris) |
+| 9 | `kdf_carbine` | `01a10c40-aa15-7125-9c3b-2fc18e0a0224` | `01a10c6d-dee5-73ab-bab3-2246e541f8c1` | `01a10c6f-fd2f-71bb-9da3-6955d73f2a16` | 20 | `mortar_team` No.3, `yahalom_squad` yah_b, `breach_team` ×2 (315 tris, sling cut) |
+| 10 | `manpad_tube` | `01a10c41-a7cc-7653-a8d8-d549bec79b17` | `01a10c73-d0c2-7786-9026-53fc1dd45155` | `01a10c75-f46e-7277-b9bb-03d72a1f13da` | 20 | `manpad_team` (354 tris, nose capped flat, strap cut) |
+| 12 | `attack_drone` | `01a10c43-ae9f-7219-b923-62eb52ac13fb` | `01a10c79-b7bf-7749-aaa8-1be09178f0f5` | `01a10c7c-2354-70e0-be0e-d47776620bb6` | 20 | `vehicles/attack_drone.glb` (948 tris) |
+| 6 v2 | `atgm_post` | `01a10c4f-a611-776f-9bca-d720f1b947b2` | `01a10c80-1c2d-72be-9217-621d55e07b6a` | `01a10c82-1470-7159-8a6a-d25809fb6c95` | 20 | `atgm_cell` on `prop` (611 tris, front capped flat) |
+| 8 v2 | `recoilless_rifle` | `01a10c4c-319f-710d-9d1d-12d43c8955ce` | `01a10c86-56c3-7145-b9a0-dea4f527b0d8` | `01a10c88-87de-7586-8a66-47c0c2997c3a` | 20 | `recoilless_team` (dirt patch and tufts dropped, rounds laid by the loader, front leg and its remnant cut, orange band re-painted olive) |
+
+Not sent: 11 `loiter_drone` (dropped, the lead's ruling above) and 4, the RPG-7
+(0 credits, Blender only from the on-disk textured source).
+
+In-game review: `docs/art/sheets/a31-parts/ingame-sheet.png` (13 rows, close-up
+beside gameplay); the orange bike against a render-only dusty tan,
+`docs/art/sheets/a31-parts/moto_rpg-muted.png`.
