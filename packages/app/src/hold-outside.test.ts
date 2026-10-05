@@ -142,19 +142,20 @@ function parkedOn(row: number) {
  * each: the zone took in that row, and a force short of the zone is named.
  */
 describe('Umm Zeitoun II: the crest line', () => {
-  it('counts the row an APC parks on in front of the crest (y = 42)', () => {
-    const { map, hold, clock, rowsStood } = parkedOn(42);
-    expect(map.zones.crest_line).toEqual([18, 40, 13, 3]);
-    expect(rowsStood).toEqual([42, 42, 42, 42, 42]);
+  it('counts the row an APC parks on at the lip of the crest (y = 32, the last of its three rows)', () => {
+    const { map, hold, clock, rowsStood } = parkedOn(32);
+    // GH-382: the line moved with the ground, [18,40,13,3] -> [18,30,13,3] on umm_zeitoun_2.
+    expect(map.zones.crest_line).toEqual([18, 30, 13, 3]);
+    expect(rowsStood).toEqual([32, 32, 32, 32, 32]);
     expect(hold?.paused).toBeUndefined();
     expect(clock?.text).not.toMatch(/NOBODY/);
   });
 
-  it('two rows short (y = 44) reads unheld, and the clock names the units just outside', () => {
-    const { hold, clock, rowsStood } = parkedOn(44);
+  it('two rows short (y = 34) reads unheld, and the clock names the units just outside', () => {
+    const { hold, clock, rowsStood } = parkedOn(34);
     // Every one of them short of the zone (a crowded tile can shove one
     // a row either way; what matters is that none stands inside).
-    for (const r of rowsStood) expect(r).toBeGreaterThanOrEqual(43);
+    for (const r of rowsStood) expect(r).toBeGreaterThanOrEqual(33);
     expect(hold?.paused).toBe('unheld');
     expect(clock?.id).toBe('hold_the_crest_line');
     expect(clock?.text).toMatch(/NOBODY INSIDE · [5-9] UNITS JUST OUTSIDE$/);

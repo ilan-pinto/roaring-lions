@@ -2346,25 +2346,32 @@ const ledUZ2 = run(
     const strike = [...ids('apc_eitan'), ...ids('mbt_lavi'), ...ids('mortar_team'), ...ids('at_team'), ...ids('inf_squad')];
     at(1, () => {
       // Everyone but the demo squad clears the ground around the shed first.
-      sim.queueCommand({ kind: 'attackMove', ids: strike, ...M(23, 33) });
-      // The demo squad follows under its own orders and starts charges the
-      // moment it is within 2 tiles and the ground around it is unshaken --
-      // it does not need the knoll clear to begin walking there.
-      sim.queueCommand({ kind: 'demolish', ids: demo, structure: sim.structureAt(21, 33) });
+      sim.queueCommand({ kind: 'attackMove', ids: strike, ...M(24, 24) });
+      // GH-382: the knoll is 22 tiles up the slope now, and a demo squad that walks it unescorted
+      // arrives under the picket's rifle ahead of everyone (three seeds of twelve lost the post
+      // that way). It waits on the crest line and is sent when the ground is being cleared.
+      sim.queueCommand({ kind: 'move', ids: demo, ...M(24, 33) });
     });
+    // Starts charges the moment it is within 2 tiles and the ground around it is unshaken; re-sent
+    // every 25 s until the shed is down, because a squad that halts to fight drops the order.
+    for (let when = 30; when <= 290; when += 25)
+      at(when, () => {
+        const shed = sim.structureAt(22, 23);
+        if (shed >= 0) sim.queueCommand({ kind: 'demolish', ids: demo, structure: shed });
+      });
     // Once the knoll is down, the whole strike force pulls back onto the
     // crest line and digs in for the hold. Re-anchored periodically after
     // that: attackMove does not mean "stand here", and the 180s/300s waves
     // both march straight into the zone (`rim_crest` sits inside
     // `crest_line`).
-    at(70, () => sim.queueCommand({ kind: 'attackMove', ids: strike, ...M(24, 41) }));
-    for (let when = 110; when <= 350; when += 40) {
+    at(100, () => sim.queueCommand({ kind: 'attackMove', ids: strike, ...M(24, 31) }));
+    for (let when = 140; when <= 420; when += 40) {
       at(when, () => {
         const cur: number[] = [];
         for (let i = 0; i < sim.entityCount; i++) {
           if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !demo.includes(i)) cur.push(i);
         }
-        sim.queueCommand({ kind: 'attackMove', ids: cur, ...M(24, 41) });
+        sim.queueCommand({ kind: 'attackMove', ids: cur, ...M(24, 31) });
       });
     }
   },
@@ -2390,7 +2397,7 @@ const ledUZ2In = { ...ledUZ1, ...ledUZ2 };
 // the three failable objective types).
 run('umm_zeitoun_3_clearance', () => {}, {}, 'defeat', 'umm_zeitoun_3_clearance (no orders)');
 
-const ummZeitoun3Plan: Plan = (sim, _rt, ids, at) => {
+const ummZeitoun3Plan: Plan = (sim, rt, ids, at) => {
   // `inf_squad` is `from_ledger`, so this may be 1-3 bodies depending on
   // what UZ II's fight left in the roster -- never hard-indexed. The
   // hamlet group is the one that actually loses the mission if it is
@@ -2424,26 +2431,44 @@ const ummZeitoun3Plan: Plan = (sim, _rt, ids, at) => {
   // is already closing on that post regardless.
   const drone = ids('recon_drone');
   at(1, () => {
-    sim.queueCommand({ kind: 'attackMove', ids: west, ...M(12, 24) });
-    sim.queueCommand({ kind: 'attackMove', ids: east, ...M(35, 24) });
+    sim.queueCommand({ kind: 'attackMove', ids: west, ...M(8, 25) });
+    sim.queueCommand({ kind: 'attackMove', ids: east, ...M(40, 25) });
     // Straight into the hamlet: `zone_entered` fires `the_house_was_the_section`
     // the moment either body crosses in, walking both garrisoned riflemen
     // out of their houses and into the open street at `hamlet_square`.
     sim.queueCommand({ kind: 'attackMove', ids: hamlet, ...M(24, 26) });
-    sim.queueCommand({ kind: 'move', ids: drone, ...M(10, 40) });
+    sim.queueCommand({ kind: 'move', ids: drone, ...M(11, 28) });
   });
-  at(15, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(3, 25) }));
-  at(30, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(4, 6) }));
+  // Families that board the second Eitan ride wherever it goes, so it is ordered to the wadi once
+  // they are aboard (a `move`, which does not chase) instead of being left on its attackMove.
+  at(25, () => sim.queueCommand({ kind: 'move', ids: apcs.slice(1), ...M(23, 37) }));
+  // GH-382: a flank that has lost its party is not left to the clock. Whatever still stands, the drone
+  // aside, is sent to the post still alive (one seed of twelve left the west horn standing for twenty
+  // minutes when its four bodies died and nobody was told).
+  for (let when = 150; when <= 280; when += 30)
+    at(when, () => {
+      for (const [obj, to] of [['kill_the_west_horn', [6, 25]], ['kill_the_east_horn', [42, 25]]] as const) {
+        if (rt.objectiveList.find((o) => o.id === obj)?.status === 'complete') continue;
+        const cur: number[] = [];
+        for (let i = 0; i < sim.entityCount; i++)
+          if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !drone.includes(i)) cur.push(i);
+        sim.queueCommand({ kind: 'attackMove', ids: cur.filter((_, k) => k % 2 === (obj === 'kill_the_west_horn' ? 0 : 1)), ...M(to[0], to[1]) });
+      }
+    });
+  // The street squad is held on the square: an attackMove runs on after whatever it is shooting at, and
+  // the first version of this plan followed a retreating picket out of the north gate.
+  for (let when = 30; when <= 250; when += 25) at(when, () => sim.queueCommand({ kind: 'attackMove', ids: hamletInfantry, ...M(24, 26) }));
+  at(10, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(11, 17) }));
   // Re-press both flanks once the first contact clears -- attackMove halts
   // on a live fight rather than closing the last few tiles to the post
   // itself.
   at(60, () => {
-    sim.queueCommand({ kind: 'attackMove', ids: west, ...M(10, 23) });
-    sim.queueCommand({ kind: 'attackMove', ids: east, ...M(37, 23) });
+    sim.queueCommand({ kind: 'attackMove', ids: west, ...M(6, 25) });
+    sim.queueCommand({ kind: 'attackMove', ids: east, ...M(42, 25) });
   });
   at(120, () => {
-    sim.queueCommand({ kind: 'attackMove', ids: west, ...M(10, 23) });
-    sim.queueCommand({ kind: 'attackMove', ids: east, ...M(37, 23) });
+    sim.queueCommand({ kind: 'attackMove', ids: west, ...M(6, 25) });
+    sim.queueCommand({ kind: 'attackMove', ids: east, ...M(42, 25) });
   });
 };
 
@@ -2510,24 +2535,29 @@ const uz4Plan: Plan = (sim, _rt, ids, at) => {
     // The drone's own presence is enough to start the porters fleeing
     // (CivilianFlight does not filter by domain) well before any charge is
     // set near their ground.
-    sim.queueCommand({ kind: 'move', ids: drone, ...M(29.5, 9.5) });
-    sim.queueCommand({ kind: 'attackMove', ids: depotEscort, ...M(32, 8) });
+    sim.queueCommand({ kind: 'attackMove', ids: depotEscort, ...M(33, 8) });
   });
-  at(45, () => {
-    sim.queueCommand({ kind: 'demolish', ids: [demo[0]], structure: sim.structureAt(29, 5) });
-    sim.queueCommand({ kind: 'demolish', ids: [demo[1]], structure: sim.structureAt(33, 5) });
-  });
-  // The shanty is the last of the three. Nothing has to name it: once a
-  // squad's own explicit order is fulfilled, `demolishOrder` clears and
-  // `stepDemolition`'s automatic search picks the nearest unprotected,
-  // non-fenced structure on its own initiative -- measured this session,
-  // both `w` and `#` finish first (~t=98s, well inside the 45s head start
-  // this plan gives the escort plus the ~48s walk from the player's own
-  // start line) and the freed squad retargets the shanty unordered. This
-  // is a backstop only, timed comfortably past that: if a future ledger
-  // ever leaves both squads still working their first door this late,
-  // it re-points BOTH at the shanty rather than let the mission stall.
-  at(180, () => sim.queueCommand({ kind: 'demolish', ids: demo, structure: sim.structureAt(33, 8) }));
+  // GH-382: the spur's eye covers the ramp, so a drone sent at t=1 is shot down on the way up; it
+  // follows the escort in once the spur is clear.
+  at(50, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(33.5, 8.5) }));
+  // GH-382: each party takes the first of its own list still standing, re-sent every 15 s, so a party
+  // that dies on the shelf hands its door to the other instead of leaving it standing at the deadline.
+  const doors: [number, number][][] = [
+    [[30, 4], [36, 3], [34, 9]],
+    [[36, 3], [30, 4], [34, 9]],
+  ];
+  for (let when = 45; when <= 285; when += 15)
+    at(when, () => {
+      demo.forEach((u, k) => {
+        if (sim.state.alive[u] !== 1) return;
+        const door = (doors[k] ?? doors[0]).find(([x, y]) => sim.structureAt(x, y) >= 0);
+        if (door) sim.queueCommand({ kind: 'demolish', ids: [u], structure: sim.structureAt(door[0], door[1]) });
+      });
+    });
+  // The escort holds the depot: an attackMove does not stop at its destination while a contact is
+  // still ahead, and a Lavi that has chased a picket off the shelf leaves the parties under the
+  // first wave. Re-anchored on the yard every 30 s.
+  for (let when = 60; when <= 280; when += 30) at(when, () => sim.queueCommand({ kind: 'attackMove', ids: depotEscort, ...M(33, 8) }));
   // Adhal carries no deadline of his own, so a second, dedicated push for
   // him only needs to exist at all -- it does not need to race the depot.
   // Held back this long on purpose: sent at t=1 alongside the escort, it
@@ -2536,7 +2566,7 @@ const uz4Plan: Plan = (sim, _rt, ids, at) => {
     sim.queueCommand({
       kind: 'attackMove',
       ids: [...ids('at_team'), ...ids('mortar_team'), ...ids('sniper_team'), ...ids('inf_squad'), ...ids('ifv_namer')],
-      ...M(14, 7),
+      ...M(17, 7),
     });
   });
 };
@@ -2667,10 +2697,15 @@ boughtProbe('beit_sahwan_4_subterranean', bs4Plan, led4In, 'recon_zikit', 30, 's
 }));
 // The Gunship is built on the first tick (50 s) and joins the `raze` approach: an
 // attack-move to the stockpile the depot escort is already walking to.
+// GH-382: the depot is on a shelf now, and the yard holds the four porters. A gunship sent into it
+// shot a recoilless team standing two tiles from them, and `heavy ordnance danger-close to civilians`
+// walked ROE from 100 to 43 in two seconds -- under the floor of 45, a defeat. It is sent to the
+// summit side of the ravine instead, where the picket and the manpad it has to answer for are, and
+// stays 13 tiles from the yard.
 boughtProbe('umm_zeitoun_4_clearance', uz4Plan, ledUZ3, 'heli_peten_gunship', 55, 'fires', (mine) => ({
   kind: 'attackMove',
   ids: mine,
-  ...M(32, 8),
+  ...M(20, 18),
 }));
 
 // --- Brigade economy Task 5: every optimal plan holds at max tier ----------
@@ -3102,9 +3137,13 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // `GATES` does not move: no mission's star count changed.
 // GH-382 moved Wadi Halam II-V onto new ground: 5736 -> 5689 (-47), every term on the Wadi
 // Halam chain and nothing else (II 188 -> 186, III 190 -> 170, IV 187 -> 170, V 159 -> 151).
-// GH-382 moved Khan Rafid II-III onto new ground: 5689 -> 5733 (+44), every term on the Khan
-// Rafid chain and nothing else (II 220 -> 225, III 216 -> 255).
-const LADDER_CREDITS = 5733;
+// GH-382 moved Umm Zeitoun II-IV onto new ground: 5689 -> 5757 (+68), every term on the Umm Zeitoun
+// chain and nothing else (II 218 -> 228, III 232 -> 280, IV 237 -> 247). III's +48 is its three
+// stars: the drone now reaches its overlook before the posts fall, and the families are ferried.
+// GH-382 moved Khan Rafid II-III onto new ground: 5757 -> 5801 (+44), every term on the Khan Rafid
+// chain and nothing else (II 220 -> 225, III 216 -> 255); recomputed on the merge with the Umm
+// Zeitoun arc, not summed: 5689 + 68 + 44 = 5801 and the ladder printed 5801.
+const LADDER_CREDITS = 5801;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
@@ -3227,7 +3266,8 @@ for (const [label, got, want] of [
  *  `missionStars`' own comment above), so no run here ever accumulates a whole
  *  campaign's roster. It is the largest SINGLE CHAIN, which is the most the
  *  instrument honestly knows. */
-const ROSTER_MAX = 30;
+// GH-382: 30 -> 32, still at umm_zeitoun_4_clearance (its escort and parties survive the shelf in numbers).
+const ROSTER_MAX = 32;
 console.log(`roster maximum: ${rosterMax} at ${rosterMaxMissionId}`);
 if (rosterMax !== ROSTER_MAX) {
   console.error(`roster maximum: FAILED — expected ${ROSTER_MAX}, got ${rosterMax} at ${rosterMaxMissionId}`);

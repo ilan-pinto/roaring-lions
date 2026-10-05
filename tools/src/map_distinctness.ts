@@ -180,7 +180,6 @@ export const PENDING_ARCS: readonly { town: string; todo: string }[] = [
   { town: 'deir_amun', todo: 'TODO(#382): Deir Amun arc not yet rebuilt onto new ground' },
   { town: 'tel_marum', todo: 'TODO(#382): Tel Marum arc not yet rebuilt onto new ground' },
   { town: 'qarn_hadid', todo: 'TODO(#382): Qarn Hadid arc not yet rebuilt onto new ground' },
-  { town: 'umm_zeitoun', todo: 'TODO(#382): Umm Zeitoun arc not yet rebuilt onto new ground' },
 ];
 
 export function excused(r: PairRow, pending: readonly { town: string }[] = PENDING_ARCS): boolean {

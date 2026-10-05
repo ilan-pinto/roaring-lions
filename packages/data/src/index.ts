@@ -48,6 +48,7 @@ import ummZeitoun from '../../../data/maps/umm_zeitoun.json';
 // `post_stone` and `hamlet` contents -- obstacles bent around them per
 // mission. The base file is untouched; I and II stay on it (the basin's
 // "no wall, no gate, crossable anywhere" briefing is the point of both).
+import ummZeitoun2 from '../../../data/maps/umm_zeitoun_2.json';
 import ummZeitoun3 from '../../../data/maps/umm_zeitoun_3.json';
 import ummZeitoun4 from '../../../data/maps/umm_zeitoun_4.json';
 import wadiHalamBasin from '../../../data/maps/wadi_halam_basin.json';
@@ -218,6 +219,7 @@ export const maps = {
   tile_scrub: tileScrub,
   tutorial_ground: tutorialGround,
   umm_zeitoun: ummZeitoun,
+  umm_zeitoun_2: ummZeitoun2,
   umm_zeitoun_3: ummZeitoun3,
   umm_zeitoun_4: ummZeitoun4,
   wadi_halam_basin: wadiHalamBasin,
