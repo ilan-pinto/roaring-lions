@@ -135,24 +135,24 @@
         "unit": "civilians",
         "count": 2,
         "at": [
-          28.5,
-          20.5
+          31.5,
+          22.5
         ]
       },
       {
         "unit": "civilians",
         "count": 1,
         "at": [
-          29.5,
-          28.5
+          36.5,
+          22.5
         ]
       },
       {
         "unit": "civilians",
         "count": 1,
         "at": [
-          25.5,
-          23.5
+          27.5,
+          26.5
         ]
       }
     ]
@@ -165,15 +165,15 @@
         "unit": "militia_cell",
         "count": 1,
         "at": [
-          19.5,
-          15.5
+          16.5,
+          14.5
         ],
         "facing_deg": 0,
         "stance": {
           "kind": "garrison",
           "building": [
-            17,
-            12
+            15,
+            11
           ]
         },
         "tag": "wh_cell_nw"
@@ -182,32 +182,32 @@
         "unit": "militia_cell",
         "count": 1,
         "at": [
-          30.5,
-          15.5
+          34.5,
+          27.5
         ],
         "facing_deg": 0,
         "stance": {
           "kind": "garrison",
           "building": [
-            29,
-            12
+            33,
+            25
           ]
         },
-        "tag": "wh_cell_ne"
+        "tag": "wh_cell_se"
       },
       {
         "unit": "militia_cell",
         "count": 1,
         "at": [
           20.5,
-          33.5
+          26.5
         ],
         "facing_deg": 0,
         "stance": {
           "kind": "garrison",
           "building": [
             19,
-            30
+            24
           ]
         },
         "tag": "wh_cell_sw"
@@ -216,18 +216,69 @@
         "unit": "rpg_team",
         "count": 1,
         "at": [
-          39.5,
+          44.5,
+          23.5
+        ],
+        "facing_deg": 0,
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            43,
+            20
+          ]
+        },
+        "tag": "wh_hvt_cache"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          38.5,
+          10.5
+        ],
+        "facing_deg": 0,
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            37,
+            7
+          ]
+        },
+        "tag": "wh_cell_ne"
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          43.5,
           28.5
         ],
         "facing_deg": 0,
         "stance": {
           "kind": "garrison",
           "building": [
-            38,
+            42,
+            26
+          ]
+        },
+        "tag": "wh_cell_far"
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          38.5,
+          27.5
+        ],
+        "facing_deg": 0,
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            37,
             25
           ]
         },
-        "tag": "wh_hvt_cache"
+        "tag": "wh_cell_mid"
       },
       {
         "unit": "technical",

@@ -881,25 +881,30 @@ const wadiHalam4Plan: Plan = (sim, _rt, ids, at) => {
   // sequential demolitions by gunfire, and splitting the force across two
   // corners halves the rate on both.
   const guns = [...apc, ...infantry];
-  // GH-382: the four garrisoned houses are NW (17,12), NE (29,12), SW (19,30) and the cache
-  // house SE (38,25), the families wait around the hall and by the south road, and the refuge
-  // is on the road WEST (3,17): the shepherd's last leg is the long one now.
+  // GH-382: seven garrisoned houses strung along the terraced street. NW (15,11) on the upper
+  // terrace, the middle-terrace SW (19,24), SE (33,25), the far east pair (42,26) and the cache
+  // house (43,20), and NE (37,7) on the top lane. The families wait by the hall (31,22), the east
+  // end of the street (40,23) and the plaza (27,26); the refuge is on the road WEST (3,24), the
+  // longest walk in the mission.
   //
-  // The sweep is no longer on a fixed clock. A garrisoned house is levelled by fire from a
-  // few tiles and crawls at the 6-7 tiles an `attackMove` halts at (measured: 17 hp/s into
-  // the NW house from there, against a 3,120 hp house), so each stage `move`s up to a firing
-  // step 2-3 tiles off the house's face and the next stage starts when that house is down.
+  // The sweep is not on a fixed clock. A garrisoned house is levelled by fire from a few tiles
+  // (an `attackMove` halts at 6-7 tiles and crawls: measured 17 hp/s into a 3,120 hp house), so
+  // each stage `move`s up to a firing step 2-3 tiles off the house's face and the next stage
+  // starts when that house is down. The cache house is the one the mission needs; the rest are
+  // what stands between the column and the capture clock.
   at(0, () => {
-    sim.queueCommand({ kind: 'move', ids: guns, ...M(19, 16) });
-    sim.queueCommand({ kind: 'move', ids: ifv, ...M(28, 22) });
+    sim.queueCommand({ kind: 'move', ids: guns, ...M(20, 27) });
+    sim.queueCommand({ kind: 'move', ids: ifv, ...M(31, 23) });
   });
-  at(22, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(25, 23) }));
-  at(40, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(29, 28) }));
-  at(60, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(3, 17) }));
+  at(30, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(36, 23) }));
+  at(55, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(27, 27) }));
+  at(80, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(3, 24) }));
   const stages: { house: [number, number]; stand: [number, number] }[] = [
-    { house: [17, 12], stand: [19, 16] },
-    { house: [19, 30], stand: [20, 28] },
-    { house: [38, 25], stand: [36, 25] },
+    { house: [19, 24], stand: [20, 27] },
+    { house: [33, 25], stand: [34, 28] },
+    { house: [37, 25], stand: [38, 28] },
+    { house: [42, 26], stand: [43, 29] },
+    { house: [43, 20], stand: [44, 23] },
   ];
   let stage = 0;
   let finished = false;
@@ -910,13 +915,13 @@ const wadiHalam4Plan: Plan = (sim, _rt, ids, at) => {
         stage++;
         const next = stages[stage];
         // The IFV's autocannon is the heaviest thing here, so it joins the sweep once its
-        // circuit is done (60 s + the run west).
-        const all = when >= 110 ? [...guns, ...ifv] : guns;
+        // circuit is done (80 s + the run west + the run back).
+        const all = when >= 170 ? [...guns, ...ifv] : guns;
         if (next) sim.queueCommand({ kind: 'move', ids: all, ...M(next.stand[0], next.stand[1]) });
       }
       if (stage >= stages.length && !finished) {
         finished = true;
-        // Consolidate for the capture clock once the corners are down.
+        // Consolidate for the capture clock once the houses are down.
         sim.queueCommand({ kind: 'attackMove', ids: [...guns, ...ifv], ...M(34, 24) });
       }
     });
@@ -3115,9 +3120,9 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // beit_sahwan_3_clearance 280 -> 254 (ROE 100 -> 94 as well),
 // beit_sahwan_4_subterranean 188 -> 178. -57 - 10 - 10 - 26 - 10 = -113.
 // `GATES` does not move: no mission's star count changed.
-// GH-382 moved Wadi Halam II-V onto new ground: 5736 -> 5701 (-35), every term on the Wadi
-// Halam chain and nothing else (II 188 -> 186, III 190 -> 170, IV 187 -> 182, V 159 -> 151).
-const LADDER_CREDITS = 5701;
+// GH-382 moved Wadi Halam II-V onto new ground: 5736 -> 5689 (-47), every term on the Wadi
+// Halam chain and nothing else (II 188 -> 186, III 190 -> 170, IV 187 -> 170, V 159 -> 151).
+const LADDER_CREDITS = 5689;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);

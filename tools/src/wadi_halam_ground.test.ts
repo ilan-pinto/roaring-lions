@@ -96,8 +96,24 @@ describe('II: the bunded pasture', () => {
     expect(rows[6].slice(0, 18)).toBe('oooooooorroooooooo');
     expect(rows[7].slice(0, 18)).toBe('oooooooorroooooooo');
   });
-  it('is flat: no elevation grid (a one-level bund neither hides troops nor reorders a route)', () => {
-    expect(J('wadi_halam_2').elevation).toBeUndefined();
+  it('the bunds are raised banks: each bund tile stands 2 levels over the open ground a tile either side', () => {
+    const m = J('wadi_halam_2');
+    const e = (x: number, y: number) => Number(m.elevation![y][x]);
+    let banks = 0;
+    for (const [y, x0, x1] of [[16, 14, 25], [19, 17, 28], [25, 16, 27], [28, 13, 24]] as const)
+      for (let x = x0; x <= x1; x++) {
+        expect(m.rows[y][x]).toBe('1');
+        expect(e(x, y) - e(x, y - 2), `bund (${x},${y}) over its north side`).toBeGreaterThanOrEqual(1);
+        expect(e(x, y) - e(x, y + 2), `bund (${x},${y}) over its south side`).toBeGreaterThanOrEqual(1);
+        banks++;
+      }
+    expect(banks).toBeGreaterThan(40);
+  });
+  it('has sheepfolds (cover-2 rings), a cistern, a well and scattered cover', () => {
+    const rows = J('wadi_halam_2').rows.join('');
+    expect([...rows].filter((c) => c === '2').length).toBeGreaterThan(40);
+    expect(rows.includes('#')).toBe(true);
+    expect(J('wadi_halam_2').rows[36][23]).toBe('p');
   });
 });
 
@@ -157,16 +173,19 @@ describe('IV: the terraced village and its one ford', () => {
   });
   it('the slope: the village steps down to the stream (north terrace higher than the bed)', () => {
     const e = (x: number, y: number) => Number(m.elevation![y][x]);
-    expect(e(24, 13)).toBeGreaterThan(e(24, 30));
-    expect(e(24, 13) - e(24, 36)).toBeGreaterThanOrEqual(2);
+    expect(e(24, 8)).toBeGreaterThan(e(24, 20));
+    expect(e(24, 20)).toBeGreaterThan(e(24, 30));
+    expect(e(24, 8) - e(24, 36)).toBeGreaterThanOrEqual(3);
   });
   it('the refuge is on the road out to the west and every family can walk to it', () => {
     const refuge = mk(m, 'civ_refuge');
     expect(refuge[0]).toBeLessThan(8);
-    for (const from of [[28, 20], [29, 28], [25, 23]] as Pt[]) expect(path(m, 'foot', from, refuge), String(from)).not.toBeNull();
+    // the longest walk in the arc: the families are 25-35 tiles from it
+    expect(path(m, 'foot', [36, 22], refuge)!.length).toBeGreaterThan(30);
+    for (const from of [[31, 22], [36, 22], [27, 26]] as Pt[]) expect(path(m, 'foot', from, refuge), String(from)).not.toBeNull();
   });
   it('the four garrisoned houses are houses', () => {
-    for (const [x, y] of [[17, 12], [29, 12], [19, 30], [38, 25]]) expect(m.rows[y][x]).toBe('h');
+    for (const [x, y] of [[15, 11], [19, 24], [33, 25], [37, 25], [42, 26], [43, 20], [37, 7]]) expect(m.rows[y][x]).toBe('h');
   });
 });
 
