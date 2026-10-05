@@ -1787,18 +1787,14 @@ run(
 // unable to complete any of the four; only genuine recon of the wall and
 // the battery can.
 //
-// The approach at (24,25) still gives three of the four for free (sight 16
-// reaches both ATGM pockets and the spotter from there, ~9-10 tiles out).
-// `find_battery` costs the sweep: the battery sits 18.6 tiles from the
-// approach, past sight 16, and the straight route north runs through the
-// wide pass at x=22-26 -- exactly what tm_picket_wide (sarim_rifles, weapon
-// range 8) is posted to cover, which is what killed the drone at 44.5s in
-// an earlier attempt that went straight up the middle. The shipped route
-// goes around instead: south and west off the wall's engagement envelope
-// entirely, up the narrow saddle at x=11 (nothing in this garrison reaches
-// that column), then east to a standoff point that sees the battery at
-// range 10.6 -- outside both rifle squads' weapon range and sight the whole
-// way, checked leg by leg, not just at the endpoints.
+// The approach at (24,25), on the floor of the long valley (GH-382: `tel_marum_1`), gives three
+// of the four for the price of waiting: sight 16 reaches both Kornet spurs and the west lip from
+// there, but the spotter on the lip is 12.7 tiles out and the slowest to read, so the drone
+// lingers 30 s. `find_battery` costs the sweep: the tube sits behind a six-row rock band, and the
+// only floor line to it runs up the notch inside tm_picket_wide's rifles (weapon range 8, and
+// air-capable -- the Kornets are ground-only). The west flank is covered by the lip's rifles; the
+// EAST flank has nothing that shoots at air, so the shipped route goes round the east spur, up
+// the open slope behind the band and stands off the plateau at range 11.
 //
 // Control: a player who gives no orders never moves the drone, so none of
 // the four primaries can complete on their own -- and now, unlike round 1,
@@ -1833,27 +1829,21 @@ run(
       // Screen forward to the hollow and stop there — out of the envelope.
       sim.queueCommand({ kind: 'move', ids: screen, ...M(24, 30) });
       sim.queueCommand({ kind: 'move', ids: foot, ...M(23, 31) });
-      // The drone alone goes into the envelope. From the approach alone,
-      // sight 16 already reaches both ATGM pockets and the spotter (all
-      // three complete by ~t=16s, well before the next order below fires).
+      // The drone alone goes into the envelope. From the approach, on the floor of the long
+      // valley, sight 16 reaches both spurs and the west lip -- but the spotter on the lip sits
+      // 12.7 tiles out and is the slowest to read, so the drone lingers for 30 s while the herders,
+      // who break for the start line when it passes, walk out behind it.
       sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 25) });
     });
-    // find_battery is the one the approach cannot give for free: the battery
-    // sits 18.6 tiles out from there, past sight 16. The straight route north
-    // runs through the wide pass at x=22-26, which is exactly what
-    // tm_picket_wide (sarim_rifles, weapon range 8) is posted to cover --
-    // closing on it is what killed the drone at 44.5s in the round-2 replay.
-    // So the drone goes around: south and west off the wall's engagement
-    // envelope entirely, up the UNGUARDED narrow saddle at x=11 (nothing in
-    // this garrison can reach that column), then east to a standoff point
-    // north of the wall that sees the battery at range 10.6 -- outside both
-    // rifle squads' weapon range (8) and sight (9) throughout, by margins of
-    // 1-7.5 tiles at every leg (checked against both tm_picket_wide and
-    // tm_spotter_west along the full path, not just the endpoints).
-    at(20, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(16, 27) }));
-    at(28, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(11, 22) }));
-    at(35, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(11, 12) }));
-    at(44, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(15, 8) }));
+    // find_battery is the one the floor cannot give: the tube sits behind the rock band and the
+    // only floor line to it runs up the notch under tm_picket_wide's rifles (range 8, and air-capable).
+    // The WEST flank is no better -- the spotter's rifles cover it. The EAST flank has nothing
+    // that shoots at air: the Kornet pockets are ground-only, so the drone rounds the east
+    // spur, climbs the open slope behind the band and stands off the plateau at range 11.
+    at(34, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(38, 28) }));
+    at(44, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(45, 22) }));
+    at(50, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(45, 10) }));
+    at(58, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(36, 5) }));
   },
   {},
   'victory',
