@@ -2135,12 +2135,12 @@ const ledQH2 = run(
     const demo = ids('demo_squad');
     const drone = ids('recon_drone');
     at(1, () => {
-      sim.queueCommand({ kind: 'move', ids: [...tank, ...namer, ...armour], ...M(20, 20) });
-      sim.queueCommand({ kind: 'attackMove', ids: [...foot, ...at_], ...M(38, 38) });
-      sim.queueCommand({ kind: 'move', ids: mortar, ...M(26, 30) });
+      sim.queueCommand({ kind: 'move', ids: [...tank, ...namer, ...armour], ...M(14, 15) });
+      sim.queueCommand({ kind: 'attackMove', ids: [...foot, ...at_], ...M(39, 38) });
+      sim.queueCommand({ kind: 'move', ids: mortar, ...M(26, 32) });
       sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 30) });
     });
-    at(100, () => sim.queueCommand({ kind: 'move', ids: demo, ...M(20, 20) }));
+    at(100, () => sim.queueCommand({ kind: 'move', ids: demo, ...M(14, 15) }));
   },
   ledQH1,
   'victory',
@@ -2219,12 +2219,12 @@ const qarnHadid3Plan: Plan = (sim, _rt, ids, at) => {
   const civTeam = [...foot.slice(1, 2), ...at_];
   const main = [...tank, ...namer, ...armour, ...foot.slice(2), ...demo, ...mortar, ...sniper];
   at(1, () => {
-    sim.queueCommand({ kind: 'attackMove', ids: west, ...M(10, 9) });
-    sim.queueCommand({ kind: 'move', ids: civTeam, ...M(21, 2) });
+    sim.queueCommand({ kind: 'attackMove', ids: west, ...M(9, 15) });
     sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 30) });
   });
-  at(60, () => sim.queueCommand({ kind: 'attackMove', ids: main, ...M(20, 9) }));
-  at(160, () => sim.queueCommand({ kind: 'attackMove', ids: main, ...M(28, 5) }));
+  at(60, () => sim.queueCommand({ kind: 'attackMove', ids: main, ...M(19, 16) }));
+  at(160, () => sim.queueCommand({ kind: 'attackMove', ids: main, ...M(28, 11) }));
+  at(130, () => sim.queueCommand({ kind: 'move', ids: civTeam, ...M(23, 3) }));
 };
 
 run(
@@ -3181,7 +3181,11 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // GH-382 moved Deir Amun II-III onto new ground: 5801 -> 5828 (+27, recomputed on the merge with Khan Rafid), every term on the Deir Amun
 // chain and nothing else (II 225 -> 247, III 240 -> 245). II's +22 is ROE: the yard on its spur
 // takes less contact in the flagged hamlet (97 against 70-75); III's +5 is the same, 90 against 85.
-const LADDER_CREDITS = 5828;
+// GH-382 moved Qarn Hadid II-III onto new ground: 5828 -> 5801 (-27, recomputed on the merge with Deir
+// Amun, not summed), every term on the Qarn Hadid chain and nothing else (II 227 -> 197, III 212 -> 215).
+// II's -30 is fewer survivors handed on (16 out against 19) at the same two stars and ROE 97; III's +3 is
+// ROE 100 against 77, the same two stars.
+const LADDER_CREDITS = 5801;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
