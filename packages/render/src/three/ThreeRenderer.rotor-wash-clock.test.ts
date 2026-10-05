@@ -60,7 +60,7 @@ const HELI: UnitTypeJson = {
 };
 
 interface ParticleReader {
-  step(dt: number): void;
+  step(dt: number, simDt?: number): void;
   forEachLive(layer: number, cb: (x: number, y: number, c: string, a: number, r: number) => void): void;
 }
 interface Privates {
