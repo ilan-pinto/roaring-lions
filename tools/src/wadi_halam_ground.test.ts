@@ -109,9 +109,9 @@ describe('II: the bunded pasture', () => {
       }
     expect(banks).toBeGreaterThan(40);
   });
-  it('has sheepfolds (cover-2 rings), a cistern, a well and scattered cover', () => {
+  it('has sheepfolds (stone-wall rings), a cistern, a well and scattered cover', () => {
     const rows = J('wadi_halam_2').rows.join('');
-    expect([...rows].filter((c) => c === '2').length).toBeGreaterThan(40);
+    expect([...rows].filter((c) => c === '=').length).toBeGreaterThan(40);
     expect(rows.includes('#')).toBe(true);
     expect(J('wadi_halam_2').rows[36][23]).toBe('p');
   });
