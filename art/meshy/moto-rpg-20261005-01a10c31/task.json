@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready rugged off-road motorcycle with knobbly tyres and a long two-person saddle, a civilian vehicle crudely converted for war, sun-faded dusty paint, welded plates. At rest, level, no rider. Spoked wheels with deep-tread tyres, long front forks with a high mudguard, an exposed single-cylinder engine with a dented exhaust, a tube frame with welded crash bars, a round headlamp, a welded rear rack with two canvas panniers, a bedroll and a jerry can behind the empty saddle. Chipped paint, rust at the welds, mud on the tyres. Real-world scale, 2.2 metres long. Faded tan paint, gunmetal, black rubber. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "negative_prompt": "rider, person, sidecar, road bike, chrome",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a10c31-ea45-70f1-bef0-b06f3d51d4e2",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 1337092042,
+    "prompt": "A single low-poly game-ready rugged off-road motorcycle with knobbly tyres and a long two-person saddle, a civilian vehicle crudely converted for war, sun-faded dusty paint, welded plates. At rest, level, no rider. Spoked wheels with deep-tread tyres, long front forks with a high mudguard, an exposed single-cylinder engine with a dented exhaust, a tube frame with welded crash bars, a round headlamp, a welded rear rack with two canvas panniers, a bedroll and a jerry can behind the empty saddle. Chipped paint, rust at the welds, mud on the tyres. Real-world scale, 2.2 metres long. Faded tan paint, gunmetal, black rubber. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1791205962469,
+    "progress": 100,
+    "started_at": 1791205962478,
+    "finished_at": 1791206036558,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10c31-ea45-70f1-bef0-b06f3d51d4e2/output/model.glb?Expires=4944758400&Signature=JN8OqGKdO6jbdMORwYMw6AD-mENkVraT89QOiXb9acLO3u3YpJN9udGlHEYOMgT3d6xvauUBzzHwoSaSVyxZ3yoQvN1Zjp3snvlAzMMyENcyJLrLFh8rfGnKI9UgNFtq9wpibFKuUjtqrTuf9XzG4LIIIpilXeXeSGLJ40urfJ9H0ZqWKJalm9tMwwW6CqUuiHsv18cUOy0rSc92sdPFJiOCh3s2nEaHNQZjXJw3IN~wvKuYg4dSCWP1AtcQDbPxNyswB0sPJERJ0sJB4M8I~Tngku2BoawTqpMaTnDMbG3MebGvMmzjaClcBPHAF-TktNxJcPvIWBGx5DqNptqYPQ__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10c31-ea45-70f1-bef0-b06f3d51d4e2/output/preview.png?Expires=4944758400&Signature=YzrVlfEIL5872F5UMJuI0Cva7rDlIt1hEP03KfhgubNiAxYHGq2J06EN3uLVmqbp1AhVwzMgVQPzM7G1FsFPOLAJ5oAReGTBEfBwchwjy-YRvOxMJLXHqyBlco-hBpmPX7YIaF7Gw80uHwDi55MywxCNto0LzU2H57IQiAK7gaoX3pLsiUBWO4KJk9vwOw8a8uLso0zxLlgpbEE7eQPJvMDh0duJ2nnZH~AtKKY1QqIQqfwUEXF4Re0CDRcQlcN07SCR9-vdsN3oqbZ0ahI9L-2wUWkSkvXqcffHY3UsDKp8GtnHx40JhIKcWhTAeuTPNr0tkr~nCRHcdD1c5ZloRg__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1791205962469,
+    "started_at": 1791205962478,
+    "finished_at": 1791206036558
+  },
+  "usd_estimated": 0.4
+}

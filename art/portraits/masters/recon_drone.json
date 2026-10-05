@@ -1,7 +1,8 @@
 {
   "unit": "recon_drone",
+  "variant": "team",
   "source": "assets/meshes/vehicles/recon_drone.glb",
-  "source_sha256": "4f5e14fe25d52f8112028e4b95b831d84c26ed782daa62f487227044b4b88567",
+  "source_sha256": "289da7f88da6b7dfc63f2e03568a2a04cc35d36861978ba84909336b97314e7a",
   "yaw_deg": -125.0,
   "elevation_deg": 18.0,
   "fov_deg": 30.0,
@@ -12,11 +13,11 @@
   "ndc_box": [
     0.04,
     0.96,
-    0.3131,
-    0.6869
+    0.2954,
+    0.7046
   ],
   "materials": {
-    "baked": 0,
-    "flat": 3
+    "baked": 3,
+    "flat": 0
   }
 }

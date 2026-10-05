@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready assault rifle, a weapon of an irregular militia, worn and field-repaired, scratched gunmetal under sun-faded paint, grips wrapped in tape. At rest, level, lying flat. A stamped-steel receiver with a long gas tube above the barrel, a slanted muzzle brake, a curved thirty-round box magazine, a ribbed wooden handguard, a wooden pistol grip and a fixed wooden stock with a steel butt plate, a canvas sling hanging slack. Worn blued steel rubbed bright at the edges, scuffed varnished wood, dust in the seams. Real-world scale, 0.88 metres long. Gunmetal, dark varnished wood, tan canvas. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a10c2d-a7b5-750e-a603-6e4030a645a3",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 52804767,
+    "prompt": "A single low-poly game-ready assault rifle, a weapon of an irregular militia, worn and field-repaired, scratched gunmetal under sun-faded paint, grips wrapped in tape. At rest, level, lying flat. A stamped-steel receiver with a long gas tube above the barrel, a slanted muzzle brake, a curved thirty-round box magazine, a ribbed wooden handguard, a wooden pistol grip and a fixed wooden stock with a steel butt plate, a canvas sling hanging slack. Worn blued steel rubbed bright at the edges, scuffed varnished wood, dust in the seams. Real-world scale, 0.88 metres long. Gunmetal, dark varnished wood, tan canvas. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1791205682707,
+    "progress": 100,
+    "started_at": 1791205682718,
+    "finished_at": 1791205768619,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10c2d-a7b5-750e-a603-6e4030a645a3/output/model.glb?Expires=4944758400&Signature=TTx78dFfZP-mG8G3uK8y7VCLIRmIp0i-yWQLPzOYCLz0pv5qiAFRmCrzEyfYJB~AIY4-uXNMHE4H86Lx2mPHhZeuRpkYeGHFF8OigmxkWfqWe8j~UXjbKuTZwxR5BxBUDSkzWVFXShFuup4Gyqkvn41A9PwRp4F7xGHR~HHBKq7LGFrgIMS96YoIMZZHzyDuvs~Z0yLTE7RDijCbCYI7~cLGQ-~o0I9Lt11EpGXzb6V4VLEoktjSfLeWEq1hts2-umGP9i~ghlmSwXpH~rjnV6L1Gyqs~dpHRjXSM1Z1dmcdeBrYzMZ6No2MUYach8-TIhy4AfUKZLP08sRbMbbwRw__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10c2d-a7b5-750e-a603-6e4030a645a3/output/preview.png?Expires=4944758400&Signature=k24RGXfikTW8Lnj4I~flOrPDu7NRhWj46AxZsDlxwhrYnkwmCzw1xmpRVqDOL2YtJBZ9pKM17SaiDJQkchJIeOc8wLVTlkXKJHWK5Htw8YVe8k5OWu~XaJdHruNiZHvSuYgp3ki9EB6puAcy1J9ZNeGhlgNe~D9lVXXM0TXxrnoRdQR2gCGK3L24PrI4B1wbOrDKqdAu0J8oI9OF-L5fS6pLARgpWjjWdcnK-fmpJWomJ5zV88l3HQqX0KPS7pGa2OttNUCwGMkmOrUrMoFfugVb5742Um1yEmO80l13pirhru9mbp~I1c3dRiIHdKp1088oi73ZHAVEHqbIGUohCQ__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1791205682707,
+    "started_at": 1791205682718,
+    "finished_at": 1791205768619
+  },
+  "usd_estimated": 0.4
+}

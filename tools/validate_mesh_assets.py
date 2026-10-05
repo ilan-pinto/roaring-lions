@@ -243,6 +243,11 @@ TEXTURED_VEHICLE_EXEMPT = {
     # RWS parts carry no material and take the palette, as the gate repaints.
     # Held until E6 wires the unit.
     "demo_tzav",
+    # A3.1 stage 2 (GH-179, 2026-10-05): the KDF drones ship their remesh's own
+    # bake (tools/drones/export_meshy_drones.py); their rotor guards and fill
+    # faces carry a uv into it, so nothing in the file is palette-painted.
+    "attack_drone",
+    "recon_drone",
 }
 
 # Rigged INFANTRY teams that ship their own Meshy `base_color` bake (GH-286,

@@ -1038,7 +1038,14 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   'sniper_team.glb move': 332, // B7: Meshy boots on the standing walker
   // B3 (2026-09-30): Meshy figures -- one 2,000-tri remesh cut into rig.py
   // parts, so the boot mesh is the figure's own boots, not kit's.
-  'militia_cell.glb move': 582,
+  // A3.1 stage 2 (2026-10-05): re-pinned when the three files were rebuilt
+  // for their Meshy hand weapons. The drift is NOT the new part: the
+  // importer at HEAD, untouched, rebuilds militia_cell with the same boot
+  // 704 (uniform 14,431) -- the shipped bytes predated a later importer/
+  // Blender change, and a rebuild picks it up. Same on breach_team
+  // (396 -> 518) and atgm_cell (234 -> 328). The gait declarations
+  // re-measured unchanged.
+  'militia_cell.glb move': 704,
   'rpg_team.glb move': 640, // 528 until the arm re-seat (2026-10-02) re-exported it through B7's bisected cut
   'charge_squad.glb move': 444, // B4: Meshy boots
   'inf_squad.glb move': 729, // B7: Meshy boots, three men, rig.py gait; the source is bisected at its cut planes (B7 review), so every boot count below moved once more
@@ -1049,14 +1056,14 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   'manpad_team.glb move': 711, // B7: re-remeshed from the refined B2 preview
   'recoilless_team.glb move': 518, // B7: re-remeshed from the refined B2 preview
   // B5 (2026-10-01): the Meshy breach figure, boot = below 0.09 H, two men.
-  'breach_team.glb move': 396,
+  'breach_team.glb move': 518, // A3.1: see militia_cell's note
   // E5 (2026-10-01): the Meshy recon figure, boot = below 0.09 H, three men.
   'recon_zikit.glb move': 332,
   'civilians/civilian_woman.glb move': 328,
   'civilians/office_worker.glb move': 346,
   'civilians/farm_worker.glb move': 279,
   'civilians/civilian_child.glb move': 284,
-  'atgm_cell.glb move': 234, // B3: a 1,100-tri Meshy remesh's boots on the D6 walker
+  'atgm_cell.glb move': 328, // B3: a 1,100-tri Meshy remesh's boots on the D6 walker; A3.1: see militia_cell's note
   'mortar_crew.glb move': 300, // B4: a 1,100-tri Meshy remesh's boots on the D6 walker
   'digger_crew.glb move': 205, // B4: Meshy boots on the D6 walker
 };
@@ -1909,8 +1916,12 @@ const WEAPON_IDLE_ELEVATION_DEG: Readonly<Record<string, number>> = {
   'sarim_rifles.glb sar0_forearm_R': 2.48,
   'sarim_rifles.glb sar1_forearm_R': 2.48,
   'sarim_rifles.glb sar2_forearm_R': 2.48,
-  'mortar_team.glb mtr_no3_forearm_R': 2.48,
-  'yahalom_squad.glb yah_b_forearm_R': 2.48,
+  // A3.1 stage 2 (2026-10-05): the Meshy KDF carbine in place of the kit
+  // rifle, bore level at the same anchor and yaw; its tall stock and its
+  // magazine hang below the bore at opposite ends, which turns the cloud's
+  // principal axis 5.3 deg nose-up. Red at the old 2.48 (read 7.80).
+  'mortar_team.glb mtr_no3_forearm_R': 7.8,
+  'yahalom_squad.glb yah_b_forearm_R': 7.8,
   'manpad_team.glb mpd_fire_forearm_R': 80.29, // [78.39, 82.39] the 1.30 m tube at 78 deg, gripstock below the shoulder
   // Pitch 0 as before; the pistol grip and support handle hang under the
   // front half of a short fat tube and tilt its cloud's axis 5.2 deg down.

@@ -48,7 +48,7 @@
       "file": "attack_drone.png",
       "extent": [
         181,
-        123
+        121
       ]
     },
     "breach_team": {
@@ -229,7 +229,7 @@
     "moto_rpg": {
       "file": "moto_rpg.png",
       "extent": [
-        120,
+        114,
         174
       ]
     },
@@ -258,7 +258,7 @@
       "file": "recon_drone.png",
       "extent": [
         182,
-        77
+        84
       ]
     },
     "recon_zikit": {

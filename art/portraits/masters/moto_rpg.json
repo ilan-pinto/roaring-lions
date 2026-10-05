@@ -2,7 +2,7 @@
   "unit": "moto_rpg",
   "variant": "team",
   "source": "assets/meshes/moto_rpg.glb",
-  "source_sha256": "1ba63c0040d5bf67066675dbf613175fe22722bbc435f18d38dab46af55ef3d6",
+  "source_sha256": "769b094dc3e74e6b3410204fa31fcbcc38b1c3d56cf31b5b5bf0ce0fbe13bcad",
   "yaw_deg": -125.0,
   "elevation_deg": 12.0,
   "fov_deg": 30.0,
@@ -11,13 +11,13 @@
     0.88
   ],
   "ndc_box": [
-    0.2008,
-    0.7992,
+    0.2151,
+    0.7849,
     0.06,
     0.94
   ],
   "materials": {
-    "baked": 4,
-    "flat": 3
+    "baked": 5,
+    "flat": 1
   }
 }

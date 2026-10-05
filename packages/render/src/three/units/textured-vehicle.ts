@@ -82,4 +82,9 @@ export const TEXTURED_VEHICLE_TYPES: ReadonlySet<string> = new Set([
   // and draws through `rampForVehicleRole`, per mesh, like the Eitan's.
   // HELD in mesh-catalogue.ts until E6 wires the unit.
   'demo_tzav',
+  // A3.1 stage 2 (GH-179, 2026-10-05): the KDF drones are Meshy text-to-3D
+  // remeshes shipping their own bake (tools/drones/export_meshy_drones.py), no
+  // longer palette-painted B0a exports.
+  'attack_drone',
+  'recon_drone',
 ]);
