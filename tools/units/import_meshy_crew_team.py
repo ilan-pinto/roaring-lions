@@ -418,6 +418,17 @@ CORPSE_SHIN_DEG = 42.0                            # right shin further out, abou
 CORPSE_HEAD_DEG = 65.0                            # head turned, about the neck
 CORPSE_ROLL_DEG = 12.0                            # body rolled about its own long axis
 CORPSE_DECIMATE = 0.5
+#: A3.1 (5 Oct): the Meshy hand weapons put two teams over the bible's 8,000
+#: team cap (militia_cell 9,510, atgm_cell 9,725 glTF tris). The parts are the
+#: thing being bought, so the FIGURE pays: the prone corpse, drawn only lying
+#: face down after a death, is decimated harder on those two.
+CORPSE_DECIMATE_BY_TEAM = {"militia_cell": 0.2, "atgm_cell": 0.2}
+#: atgm_cell draws each man three times (kneeling, the D6 standing walker,
+#: the corpse), so the corpse alone does not bring it under: its WALKERS --
+#: drawn only in `move`, when the post is packed -- also lose triangles on
+#: their `uniform` parts (boots, face and head untouched: the gait and facing
+#: gates read those).
+WALKER_DECIMATE_BY_TEAM = {"atgm_cell": 0.6}
 
 # --- height fractions of the figure's own H --------------------------------
 ANKLE_F, BOOT_TOP_F, KNEE_F, CROTCH_FALLBACK_F = 0.045, 0.09, 0.285, 0.47
@@ -1436,7 +1447,7 @@ def _death_parts_posed(src, height, prefix, x, y, add_kef=False):
     bm.free()
     mod = body.modifiers.new("dec", type="DECIMATE")
     mod.decimate_type = "COLLAPSE"
-    mod.ratio = CORPSE_DECIMATE
+    mod.ratio = CORPSE_DECIMATE_BY_TEAM.get(_TEAM.get("id"), CORPSE_DECIMATE)
     bpy.context.view_layer.objects.active = body
     bpy.ops.object.modifier_apply(modifier=mod.name)
     log(f"{prefix}: posed corpse, {len(body.data.polygons)} polys, "
@@ -2522,6 +2533,39 @@ def _scaled_pixels(img, w, h):
     return px
 
 
+def _retexel_orange(team_id, name, px):
+    """Re-paint the bake's safety-orange texels (`ORANGE_HUE`/`ORANGE_SAT`,
+    dilated `ORANGE_DILATE`) with the median of the part's OTHER texels -- the
+    tube's own olive -- scaled to each texel's own brightness, so the grain
+    survives and the band does not. Refuses if it finds nothing to paint."""
+    rgb = px[..., :3]
+    mx, mn = rgb.max(axis=2), rgb.min(axis=2)
+    d = np.where(mx - mn > 1e-6, mx - mn, 1.0)
+    r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+    hue = np.where(mx == r, ((g - b) / d) % 6.0, np.where(mx == g, (b - r) / d + 2.0, (r - g) / d + 4.0)) * 60.0
+    hue = np.where(mx - mn > 1e-6, hue, 0.0)
+    sat = np.where(mx > 1e-6, (mx - mn) / np.where(mx > 1e-6, mx, 1.0), 0.0)
+    mask = (hue >= ORANGE_HUE[0]) & (hue <= ORANGE_HUE[1]) & (sat > ORANGE_SAT) & (mx > ORANGE_VAL)
+    core = int(mask.sum())
+    if not core:
+        raise SystemExit(f"{team_id}: {name}: no orange texels to re-paint -- the bake changed; look at it")
+    for _ in range(ORANGE_DILATE):
+        m = mask.copy()
+        m[1:, :] |= mask[:-1, :]
+        m[:-1, :] |= mask[1:, :]
+        m[:, 1:] |= mask[:, :-1]
+        m[:, :-1] |= mask[:, 1:]
+        mask = m & (mx > ORANGE_VAL)
+    keep = (~mask) & (mx > ORANGE_VAL)
+    olive = np.median(rgb[keep], axis=0)
+    gain = (mx[mask] / max(float(olive.max()), 1e-6))[:, None]
+    out = px.copy()
+    out[..., :3][mask] = np.clip(olive[None, :] * gain, 0.0, 1.0)
+    log(f"{team_id}: {name}: {core} orange texel(s) (+{int(mask.sum()) - core} edge) re-painted "
+        f"olive {tuple(round(float(v), 3) for v in olive)} at their own brightness")
+    return out
+
+
 def _compose_atlas(team_id, src, slots):
     """One `base_color` of (1 + n) * TEXTURE_PX x TEXTURE_PX: the figure's bake
     in the first slot, each part's in the next ones, left to right, in the
@@ -2537,6 +2581,8 @@ def _compose_atlas(team_id, src, slots):
     ch = tiles[0].shape[2]
     for _ob, img in slots:
         px = _scaled_pixels(img, TEXTURE_PX, TEXTURE_PX)
+        if img.name.startswith("part_color_") and img.name[len("part_color_"):] in ORANGE_RETEXEL:
+            px = _retexel_orange(team_id, img.name[len("part_color_"):], px)
         if px.shape[2] != ch:
             rgba = np.ones((TEXTURE_PX, TEXTURE_PX, ch), dtype=np.float32)
             k = min(ch, px.shape[2])
@@ -2806,6 +2852,18 @@ ATGM_ANCHOR_SLIDE = tuple(round(0.02 * k, 2) for k in range(0, 16))   # m forwar
 RCL_BASE_DZ = 0.04               # source units: the recoilless preview's dirt patch
 RCL_ROUNDS_MIN_FACES = 20
 RCL_LEG_BELOW = 0.08
+RCL_REMNANT_X = 0.60             # of the length: the leg bracket's rear edge sits at ~0.64
+RCL_BARREL_REF_F = 0.88          # of the length: the muzzle end, where the barrel's bottom is read
+RCL_REMNANT_SLACK = 0.01         # m under that bottom before a face counts as hanging
+#: Parts whose bake carries a stray safety-orange band (the recoilless's
+#: ring at the housing's front and its strap stubs: hue ~32 deg, sat ~0.65,
+#: where the tube is olive at ~66 deg): those texels are re-painted with the
+#: tube's own olive at their own brightness, in the part's atlas slot.
+ORANGE_RETEXEL = {"recoilless_rifle"}
+ORANGE_HUE = (8.0, 44.0)         # degrees
+ORANGE_SAT = 0.40
+ORANGE_VAL = 0.12
+ORANGE_DILATE = 2                # texels, at the slot's TEXTURE_PX: the band's blended edge
 SPIKE_BIPOD_WINDOW = (0.66, 0.80)  # of the length from the rear: where the preview's bipod hangs
 SPIKE_BIPOD_BELOW = 0.03        # m under the canister's bottom
 GRIP_BELOW = 0.04               # m below the bore's bottom that counts as a grip
@@ -3223,6 +3281,27 @@ def _cut_recoilless_leg(team_id, name, ob, r):
     L = PART_SPECS[name]["length_m"]
     _cut_faces(team_id, name, ob, lambda c: not (c[0] > 0.55 * L and c[2] < -RCL_LEG_BELOW),
                f"the front leg (x > 0.55 of the length, more than {RCL_LEG_BELOW} m under the bore)")
+    # The leg's REMNANT: the cut above stops at RCL_LEG_BELOW under the bore,
+    # but the bore band (0.60-0.85 of L) itself takes in the leg's bracket, so
+    # the "bore" centre sits under the real barrel and a bracket and a spike
+    # 0.1 m long survived under it (photographed, 5 Oct review). The barrel's
+    # own bottom is measured at the muzzle end, where no leg ever hung, and
+    # everything forward of RCL_REMNANT_X under it goes.
+    co = _coords(ob)
+    muzzle = co[co[:, 0] > RCL_BARREL_REF_F * float(co[:, 0].max())]
+    floor = float(muzzle[:, 2].min()) - RCL_REMNANT_SLACK
+    # By its LOWEST vertex, not its centroid: the remnant's barb is long thin
+    # triangles whose centroids sit at the barrel's own height (a centroid
+    # cut left it, photographed).
+    co = _coords(ob)
+    idx = set()
+    for poly in ob.data.polygons:
+        v = co[list(poly.vertices)]
+        if float(v[:, 0].mean()) > RCL_REMNANT_X * L and float(v[:, 2].min()) < floor:
+            idx.add(poly.index)
+    _cut_faces(team_id, name, ob, None, drop_idx=idx,
+               why=f"the leg's remnant (x > {RCL_REMNANT_X} of the length, a vertex under the barrel's own "
+                   f"bottom {floor + RCL_REMNANT_SLACK:+.3f} - {RCL_REMNANT_SLACK} m, read at the muzzle end)")
 
 
 def _cut_spike_bipod(team_id, name, ob, r):
@@ -3392,6 +3471,20 @@ def _figure(src, height, spec, kneel):
         wparts, wjoints = cut_figure(src, height, wp)
         bones += standing_bones(wp, wjoints, x, y)
         _place(wparts, x, y)
+        ratio = WALKER_DECIMATE_BY_TEAM.get(_TEAM["id"])
+        if ratio is not None:
+            before = after = 0
+            for wob in wparts.values():
+                if wob.get("rl_role") != "uniform":
+                    continue
+                before += len(wob.data.polygons)
+                mod = wob.modifiers.new("dec", type="DECIMATE")
+                mod.decimate_type = "COLLAPSE"
+                mod.ratio = ratio
+                bpy.context.view_layer.objects.active = wob
+                bpy.ops.object.modifier_apply(modifier=mod.name)
+                after += len(wob.data.polygons)
+            log(f"{wp}: walker uniform decimated x{ratio}: {before} -> {after} polys")
         parts.update({f"w_{k}": v for k, v in wparts.items()})
     if "carbine" in parts:
         forced[parts["carbine"]] = f"{prefix}_spine"   # WEAPON_ON_SPINE
