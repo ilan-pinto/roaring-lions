@@ -101,6 +101,7 @@ const REVETMENT = [{ type: 'concrete', at: [13, 13] as Pt, size: [4, 1] as Pt }]
 describe('every wave route on II (on foot) and III (on wheels) reaches its target', () => {
   for (const [mid, file] of [
     ['qarn_hadid_2_foothold', 'qarn_hadid_2'],
+    ['qarn_hadid_3_clearance', 'qarn_hadid_3'],
   ] as const) {
     for (const w of missionOf(mid).enemy?.waves ?? [])
       for (const u of w.units)
@@ -112,6 +113,7 @@ describe('every wave route on II (on foot) and III (on wheels) reaches its targe
   }
   it('both missions start on their own map file', () => {
     expect(missionOf('qarn_hadid_2_foothold').map.file).toBe('qarn_hadid_2');
+    expect(missionOf('qarn_hadid_3_clearance').map.file).toBe('qarn_hadid_3');
   });
 });
 
@@ -183,5 +185,106 @@ describe('II: the shoulder and the notch', () => {
     expect(steps(path(m, 'foot', [40, 34], [40, 29]))).toBe(5);
     const flat = edited(m, Array.from({ length: 4 }, (_, j) => Array.from({ length: 10 }, (_, i) => [37 + i, 28 + j, '.'] as const)).flat());
     expect(path(flat, 'vehicle', [40, 34], [40, 29])).not.toBeNull();
+  });
+});
+
+describe('III: the village fields', () => {
+  const m = J('qarn_hadid_3');
+  const elev = (x: number, y: number) => Number(m.elevation![y][x]);
+  const square = mk(m, 'village_square');
+  const west = mk(m, 'ditch_west');
+  const east = mk(m, 'ditch_east');
+  const junction = mk(m, 'north_junction');
+  const refuge = mk(m, 'civ_refuge');
+  /** The seven tiles of the west road that lie on the seven rows from the ditch down: y 17..23. */
+  const ROAD7: Pt[] = (() => {
+    const r = path(m, 'vehicle', west, square) as Pt[];
+    return r.filter(([, y]) => y >= 17 && y <= 23);
+  })();
+  const countSeen = (sight: number, from: Pt, to: readonly Pt[], json: MapJson = m) => to.filter((t) => sees(json, sight, from, t)).length;
+
+  it('the wall is the south edge behind you: four rows of rock the whole width, one road gap, and no other rock wall on the map', () => {
+    for (let y = 44; y <= 47; y++) for (const x of [0, 10, 21, 27, 40, 47]) expect(m.rows[y][x], `(${x},${y})`).toBe('^');
+    for (let y = 44; y <= 47; y++) expect(m.rows[y].slice(22, 27), `gap row ${y}`).toBe('..r..');
+    for (let y = 0; y < 44; y++) for (const x of [28, 31, 45]) expect(m.rows[y][x], `(${x},${y})`).not.toBe('^');
+    expect(elev(10, 46) - elev(10, 40)).toBeGreaterThanOrEqual(3);
+    expect(mk(m, 'shoulder_gate')).toEqual([24, 44]);
+  });
+  it('the ditch is twenty-one tiles across the fields; with it filled the two ways round are no longer the road', () => {
+    expect(m.rows[17].slice(20, 41)).toBe('d'.repeat(21));
+    const filled = edited(m, Array.from({ length: 21 }, (_, i) => [20 + i, 17, '.'] as const));
+    expect(steps(path(filled, 'vehicle', west, square))).toBeLessThan(17);
+    expect(steps(path(filled, 'vehicle', east, square))).toBeLessThan(23);
+  });
+  it('the way round the west end is 17 tiles, the way round the east end is 23 (the briefing), and the ditch is crossed at its ends', () => {
+    const w = path(m, 'vehicle', west, square) as Pt[];
+    const e = path(m, 'vehicle', east, square) as Pt[];
+    expect(w.length - 1).toBe(17);
+    expect(e.length - 1).toBe(23);
+    expect(Math.min(...w.filter(([, y]) => y === 17).map(([x]) => x))).toBeLessThan(20);
+    expect(Math.min(...e.filter(([, y]) => y === 17).map(([x]) => x))).toBeGreaterThan(40);
+    // control: close the west gap and the west road is the east road, longer than 17
+    const shut = edited(m, [14, 15, 16, 17, 18, 19].map((x) => [x, 17, 'd'] as const));
+    expect(steps(path(shut, 'vehicle', west, square))).toBeGreaterThan(23);
+  });
+  it('on foot the same two legs are 14 and 15: the ditch is no obstacle to a rifleman, who walks straight over it', () => {
+    expect(steps(path(m, 'foot', west, square))).toBe(14);
+    expect(steps(path(m, 'foot', east, square))).toBe(15);
+  });
+  it('from the junction by the road a Namer takes the west way, and with the west gap shut the east way costs more', () => {
+    const open = steps(path(m, 'vehicle', junction, square)) as number;
+    const shut = steps(path(edited(m, [14, 15, 16, 17, 18, 19].map((x) => [x, 17, 'd'] as const)), 'vehicle', junction, square)) as number;
+    expect(open).toBe(27);
+    expect(shut).toBeGreaterThan(open);
+  });
+  it('the east way runs through the thorn grove: its route tiles at the ditch row are grove', () => {
+    const e = path(m, 'vehicle', east, square) as Pt[];
+    const grove = e.filter(([x, y]) => x >= 35 && y >= 12 && y <= 26).filter(([x, y]) => m.rows[y][x] === 'o');
+    expect(grove.length).toBeGreaterThanOrEqual(1);
+    expect(m.rows.join('').split('o').length - 1).toBeGreaterThan(100);
+  });
+  it('a post on the knoll shoulder sees four of the seven tiles of the west road, and the Kornet below it sees all seven', () => {
+    expect(ROAD7).toHaveLength(7);
+    expect(countSeen(8, [15, 14], ROAD7)).toBe(4);
+    expect(countSeen(8, [16, 20], ROAD7)).toBe(7);
+    // control: the Kornet behind the cliff of the knoll's own rim sees fewer
+    expect(countSeen(8, [14, 20], ROAD7)).toBeLessThan(7);
+  });
+  it('the mast on the knoll sees the shoulder gate behind you and nothing of the village or the junction; flatten the ground and it sees both', () => {
+    const top = mk(m, 'knoll_top');
+    expect(sees(m, 48, top, mk(m, 'shoulder_gate'))).toBe(true);
+    expect(sees(m, 48, top, square)).toBe(false);
+    expect(sees(m, 48, top, junction)).toBe(false);
+    // control: level the ground and the rock, and clear the houses on the village's west edge -- then it sees the square
+    const flat = { ...m, elevation: undefined, rows: m.rows.map((r) => r.replace(/[\^hsawm]/g, '.')) } as unknown as MapJson;
+    expect(sees(flat, 48, top, square)).toBe(true);
+  });
+  it('the village stands on a rise four levels over the fields, stepping down by terraces', () => {
+    expect(elev(square[0], square[1])).toBe(4);
+    expect(elev(28, 30)).toBe(1);
+    expect(elev(28, 5)).toBe(3);
+    expect(elev(square[0], square[1]) - elev(28, 30)).toBeGreaterThanOrEqual(3);
+    // buildings on the terraces: houses, shanties, apartments, warehouses and a hall
+    const kinds = new Set(m.rows.slice(0, 17).join('').replace(/[^hsawm]/g, ''));
+    expect([...kinds].sort().join('')).toBe('ahmsw');
+  });
+  it('the knoll is terraced: levels 2, 3 and 5 stepping up to a rock-cored top, with a rim wall on its east face', () => {
+    expect(elev(3, 15)).toBe(2);
+    expect(elev(4, 15)).toBe(3);
+    expect(elev(9, 15)).toBe(5);
+    expect(m.rows[14][8]).toBe('^');
+    expect(m.rows[16][13]).toBe('^');
+    expect(elev(13, 16) - elev(16, 16)).toBeGreaterThanOrEqual(3);
+  });
+  it('the clinic is a walled yard east of the village with two gates; the refuge is inside it, and families walk to it in 23 and 17 tiles', () => {
+    const z = m.zones!.clinic;
+    expect(gaps(m, z).sort()).toEqual([[41, 9], [44, 11]]);
+    const groups = missionOf('qarn_hadid_3_clearance').civilians!.groups.map((g) => g.at);
+    expect(groups.map((g) => steps(path(m, 'foot', g, refuge)))).toEqual([23, 17]);
+    // control: shut both gates and no one reaches the yard
+    expect(path(edited(m, [[41, 9, '='], [44, 11, '=']]), 'foot', groups[0], refuge)).toBeNull();
+  });
+  it('the structure count leaves room to build', () => {
+    expect(parseMap(m).structures.length).toBeLessThanOrEqual(226);
   });
 });

@@ -26,6 +26,7 @@ import deirAmunMap from '../../../data/maps/deir_amun.json';
 import marjPerimeter from '../../../data/maps/marj_perimeter.json';
 import qarnHadid from '../../../data/maps/qarn_hadid.json';
 import qarnHadid2Map from '../../../data/maps/qarn_hadid_2.json';
+import qarnHadid3Map from '../../../data/maps/qarn_hadid_3.json';
 import telMarum from '../../../data/maps/tel_marum.json';
 // Tel Marum's per-mission variants (docs/campaign/map-variants-design.md):
 // same 48x48 frame, same markers/zones, same rows 12-17 (the wall), obstacles
@@ -210,6 +211,7 @@ export const maps = {
   marj_perimeter: marjPerimeter,
   qarn_hadid: qarnHadid,
   qarn_hadid_2: qarnHadid2Map,
+  qarn_hadid_3: qarnHadid3Map,
   tel_marum: telMarum,
   tel_marum_1: telMarum1,
   tel_marum_2: telMarum2,

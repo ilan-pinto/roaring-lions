@@ -2186,12 +2186,12 @@ const qarnHadid3Plan: Plan = (sim, _rt, ids, at) => {
   const civTeam = [...foot.slice(1, 2), ...at_];
   const main = [...tank, ...namer, ...armour, ...foot.slice(2), ...demo, ...mortar, ...sniper];
   at(1, () => {
-    sim.queueCommand({ kind: 'attackMove', ids: west, ...M(10, 9) });
-    sim.queueCommand({ kind: 'move', ids: civTeam, ...M(21, 2) });
+    sim.queueCommand({ kind: 'attackMove', ids: west, ...M(9, 15) });
     sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 30) });
   });
-  at(60, () => sim.queueCommand({ kind: 'attackMove', ids: main, ...M(20, 9) }));
-  at(160, () => sim.queueCommand({ kind: 'attackMove', ids: main, ...M(28, 5) }));
+  at(60, () => sim.queueCommand({ kind: 'attackMove', ids: main, ...M(19, 16) }));
+  at(160, () => sim.queueCommand({ kind: 'attackMove', ids: main, ...M(28, 11) }));
+  at(130, () => sim.queueCommand({ kind: 'move', ids: civTeam, ...M(23, 3) }));
 };
 
 run(

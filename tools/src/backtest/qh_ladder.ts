@@ -93,7 +93,8 @@ function run(id: string, tier: Tier, seed: number): { result: string; mins: numb
         // no explicit `demolish`: its snap tile is on the far side of the concrete, so the order routes the party round by the notch
         if (s === 150) go(footII, mk('saddle_gate'));
       } else {
-        if (t === 1) { go(west, mk('knoll_top')); walk(civTeam, civAt[0] ? [civAt[0][0] - 1, civAt[0][1] + 1] : mk('village_square')); walk([...drone], mk('shoulder_gate')); }
+        if (t === 1) { go(west, mk('knoll_top')); walk([...drone], mk('shoulder_gate')); }
+        if (s === 130) walk(civTeam, civAt[0] ? [civAt[0][0] + 1, civAt[0][1]] : mk('village_square'));
         if (s === 60) go(rest(), mk('north_junction'));
         if (s === 160) go(rest(), mk('village_square'));
         if (s >= 220 && t % (45 * TICKS_PER_SECOND) === 0) go(rest(), mk('village_square'));
