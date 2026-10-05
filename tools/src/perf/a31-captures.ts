@@ -47,6 +47,8 @@ const DEFAULT_TYPES = [
   'yahalom_squad',
   'breach_team',
   'manpad_team',
+  'atgm_cell',
+  'recoilless_team',
   'recon_drone',
   'attack_drone',
 ];
@@ -102,7 +104,7 @@ try {
         try {
           window.localStorage.setItem(
             'lions.settings',
-            JSON.stringify({ audio: { master: 1, music: 0, sfx: 0, voice: 0, radio: false } })
+            JSON.stringify({ version: 1, audio: { master: 1, music: 0, sfx: 0, voice: 0, radio: false } })
           );
         } catch {
           /* storage blocked: the page still boots, with sound */
