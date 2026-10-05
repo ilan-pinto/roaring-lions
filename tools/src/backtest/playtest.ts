@@ -3214,7 +3214,10 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // Amun, not summed), every term on the Qarn Hadid chain and nothing else (II 227 -> 197, III 212 -> 215).
 // II's -30 is fewer survivors handed on (16 out against 19) at the same two stars and ROE 97; III's +3 is
 // ROE 100 against 77, the same two stars.
-const LADDER_CREDITS = 5801;
+// GH-382 moved Beit Sahwan II-IV onto new ground: 5801 -> 5816 (+15, recomputed on the merge with Qarn Hadid),
+// every term on the Beit Sahwan chain and nothing else (II 170 -> 190, III 254 -> 247, IV 178 -> 180;
+// III's ROE is 87 against 94 -- the old town has a house on every side of a shot).
+const LADDER_CREDITS = 5816;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
