@@ -335,3 +335,64 @@ prompt asked for — so real size is set at import, as every batch before.
 Stage 1 stops here. Nothing has been refined; no remesh has run. Stage 2 waits on
 the lead's word per item: approve, cut in Blender, or re-roll (20 each, inside the
 audit's 720 ceiling).
+
+---
+
+# Stage 2 — the lead's rulings of 5 Oct (~260 credits approved)
+
+- **Refine now** (`--tex 8k` 15 + remesh 5): 1 `sarim_rifle`, 2 `recon_drone` (rotor
+  guard rings added in Blender, as B0a), 3 `spike_launcher`, 7 `moto_rpg`, 9 `kdf_carbine`.
+- **Refine, then fix in Blender:** 10 `manpad_tube` (the pointed nose cut to a flat
+  cap), 12 `attack_drone` (the straight wing cut, as B0a).
+- **Re-roll previews only, 20 each, then STOP for approval:** 8, 11, 6 below.
+- **RPG (4):** Blender-only, from the TEXTURED 4k source on disk, because every
+  infantry team is in `TEXTURED_INFANTRY_TYPES` now.
+
+Planned: 7 × 20 + 3 × 20 = **200** of the ~260.
+
+## 8 v2. `recoilless_rifle` — re-roll
+
+The first roll heard "rifle" and built one. The word is gone; the bore, the venturi
+and the absent stock are named; the negative prompt lists what a rifle has.
+
+| negative prompt | "rifle, assault rifle, stock, scope, thin barrel, magazine, bayonet" |
+|---|---|
+
+```
+A single low-poly game-ready shoulder-fired recoilless anti-tank launcher with two spare rounds beside it, a weapon of an irregular militia, worn and field-repaired, scratched gunmetal under sun-faded paint. At rest, level, on the ground as one object. A short fat steel tube of wide bore, open at both ends, a wide cone-shaped venturi nozzle flaring at the rear, a hinged breech ring, a periscope sight on one side, a pistol grip, a shoulder rest, no stock; beside it two finned rounds with blunt warheads. Scratched steel, chipped paint. Real-world scale, 1.1 metre tube, 0.11 metre bore. Gunmetal, faded green-grey paint, tan tape. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
+```
+
+## 11 v2. `loiter_drone` — re-roll
+
+A flying wing with no fuselage and no booms, which the first roll added on its own.
+
+| negative prompt | "straight wing, twin boom, tail boom, fuselage, aeroplane, quadcopter, rotors, pods" |
+|---|---|
+
+```
+A single low-poly game-ready flying-wing loitering munition drone, a crude workshop-built machine of an irregular militia in sun-faded dusty paint with rough welded seams. At rest, level. One flat swept delta flying wing of foam and plywood, no separate fuselage, a short blunt seeker nose at the centre of the leading edge with a camera window, a two-blade pusher propeller on a small engine at the centre of the trailing edge, a small vertical fin at each wingtip, exposed wiring and a strapped battery on top. Patchy paint, bare plywood, tape. Real-world scale, 1.6 metres wingspan. Dusty tan paint, bare plywood, black propeller. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
+```
+
+## 6 v2. `atgm_post` — re-roll
+
+Squat and low, flat-capped: the kit's "low triangle, the opposite of the mortar".
+
+| negative prompt | "missile nose cone, pointed tip, fins, tall tripod, long legs, camera tripod, telescope" |
+|---|---|
+
+```
+A single low-poly game-ready tripod-mounted anti-tank guided missile launcher, a weapon of an irregular militia, worn and field-repaired, scratched gunmetal under sun-faded paint. At rest, level, tube horizontal. A long plain cylindrical launch tube with flat sealed caps at both ends, in a cradle on a squat low tripod with short widely splayed legs and spiked feet, only knee height off the ground, a boxy thermal sight beside the tube, a traverse hand wheel under the cradle, a coiled cable. Chipped paint, bare metal. Real-world scale, 1.2 metre tube, 0.7 metres tall. Faded green-grey paint, gunmetal, black rubber. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
+```
+
+## Sent 2026-10-05 — three re-roll previews, 60 credits; STOPPED for the lead
+
+Contact sheet: `docs/art/sheets/a31-parts-rerolls.png` (same renderer, four yaws).
+
+| # | `--name` | v2 preview task | tris | reads as asked? | what to look at |
+|---|---|---|---|---|---|
+| 6 v2 | `atgm_post` | `01a10c4f-a611-776f-9bca-d720f1b947b2` | 342k | **yes** | a squat splayed tripod with spiked feet, a cradle, a boxy sight, a coiled cable, the tube knee-high and level; one tube end is still slightly rounded (a cut to a flat cap in Blender, 0 credits). Recommend: refine |
+| 8 v2 | `recoilless_rifle` | `01a10c4c-319f-710d-9d1d-12d43c8955ce` | 491k | yes, on a base | the right weapon this time — a fat open tube with a flared venturi, breech ring, periscope sight, two finned rounds beside — but Meshy put the lot on a DIRT PATCH with tufts of grass, which "no ground, no base" did not stop. The patch is one flat island under the pieces and separates by connectivity (the B8 sniper-kit `_separate_islands` path); the tufts go with it. Recommend: refine, cut the base in Blender |
+| 11 v2 | `loiter_drone` | `01a10c4d-c19c-7086-a1bb-0043ff6e1603` | 136k | **no** | a conventional small aircraft again: a pod fuselage, tapered straight wings, a tail with fins and a pusher prop — not a flying wing, and the negative prompt ("straight wing, fuselage, aeroplane") was ignored twice. Two misses on this item. Options for the lead: (a) accept it as a small fixed-wing UAV — it is still unlike the quad and the finned cylinder, which is the silhouette gate's whole question; (b) keep the shipped B1 delta (palette, 630 tris) and drop the textured re-make; (c) one more roll by `image` (image-to-3D from a drawn delta reference), which is a different generator path from the one that has failed twice |
+
+Stage 2 of the re-rolls stops here: nothing refined, nothing remeshed, pending the
+lead's word on each of the three.
