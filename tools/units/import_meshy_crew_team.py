@@ -3514,7 +3514,14 @@ def _figure(src, height, spec, kneel):
         log(f"{prefix}: work kneeler {kp}, mast {length:.2f} m from hand {tuple(round(v, 2) for v in wr)} "
             f"at {math.degrees(pitch):.0f} deg")
     dy_death = CORPSE_Y_OFFSET.get(_TEAM["id"], {}).get(prefix, 0.0)
-    death = _death_parts_posed(src, height, prefix, x, y + dy_death, add_kef=ADD_KEFFIYEH[_TEAM["id"]])
+    # A CAPTURED team (tools/units/mocap.py) dies on its living body -- the
+    # capture's own fall, and a wreck that is its last frame -- so the posed
+    # corpse would never be drawn: 2.7-4.3k triangles a team scaled to zero
+    # in every clip. Its `death_root` bone stays (the visibility contract
+    # keys it in every clip), bound to nothing.
+    import mocap   # noqa: E402 -- imports rig, which this module already has
+    death = ([] if _TEAM["id"] in mocap.CAPTURED else
+             _death_parts_posed(src, height, prefix, x, y + dy_death, add_kef=ADD_KEFFIYEH[_TEAM["id"]]))
     death_bone = rig._death_root_bone(prefix, x, y + dy_death)
     bones.append(death_bone)
     for ob in death:

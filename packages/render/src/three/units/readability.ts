@@ -98,7 +98,10 @@ export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   // B7 (GH-179, 2026-10-01): re-measured from the Meshy figures that replaced the
   // supplied bipeds -- three men in kit's line read narrower than the supplied
   // rifleman, the prone sniper pair wider than the sculpt.
-  inf_squad: 0.47, mortar_team: 0.55, sniper_team: 0.62, sarim_rifles: 0.57,
+  // 2026-10-05: inf_squad 0.47 -> 0.49 and sarim_rifles 0.57 -> 0.60, re-measured
+  // when their `idle` became the retargeted capture (tools/units/mocap.py): the
+  // soldier's low ready and the Sarim's bladed stance stand wider than rig.py's.
+  inf_squad: 0.49, mortar_team: 0.55, sniper_team: 0.62, sarim_rifles: 0.6,
   // `at_team` 0.5 since the Meshy Spike landed (A3.1 stage 2, 2026-10-05): a 1.2 m
   // canister reaching further forward of the kneeling gunner than the 1.16 m kit tube.
   at_team: 0.5, demo_squad: 0.45, yahalom_squad: 0.54, breach_team: 0.45, militia_cell: 0.45,

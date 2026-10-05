@@ -39,6 +39,7 @@ import {
   measureRoleTravel,
   measureRoleTravelByFigure,
   measureRootTravel,
+  measureUpperBodyMotion,
   measureWeaponAxis,
   readGlb,
   rotationDeltaDeg,
@@ -60,9 +61,19 @@ import {
   GAIT_TIME_SCALE_MIN,
   gaitTimeScale,
   parseGaitExtras,
+  isLocomotionClip,
+  isMeshClipName,
+  meshClipOrFallback,
+  resolveMeshMotionClip,
   type GaitMetrics,
   type LocomotionClip,
 } from '../../packages/render/src/three/units/mesh-anim';
+// The same reach, for the same reason: the walk-and-fire gate below resolves
+// a moving shot through the renderer's OWN chain (`resolveClip` ->
+// `resolveMeshMotionClip` -> `meshClipOrFallback`), not a restatement of it.
+// `clip.ts` imports only a type.
+import { resolveClip } from '../../packages/render/src/clip';
+import type { ClipName } from '../../packages/render/src/sheet';
 
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
 const MESHES = `${REPO}art/meshes/`;
@@ -768,7 +779,9 @@ const CADENCE_STEPS_PER_S_CEILING = 6.0;
  *  grow. */
 // 7.46 on the kit figure; 7.94 on B4's Meshy figure, the GAIT_MULTIPLIER
 // entry above times the same 0.6667 s cycle.
-const CADENCE_OUTLIERS: Readonly<Record<string, number>> = { charge_squad: 7.94 };
+// 8.041 on its `moveFire` (2026-10-05): the same legs leaned 4 deg further by
+// the FIRE_ROOT_LEAN brace, which shortens the measured stride 1.3%.
+const CADENCE_OUTLIERS: Readonly<Record<string, number>> = { charge_squad: 8.05 };
 
 describe('mesh unit gait -- the sweep over every rigged type', () => {
   const gaited = RIGS.filter((r) => !(r.typeId in GAIT_EXEMPT));
@@ -946,10 +959,10 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
         checked++;
       }
     }
-    // Eighteen types over twenty-one files (E5's recon_zikit included); since
-    // B7 (2026-10-01) none declares `moveFire` (the two supplied bipeds that
-    // did are replaced).
-    expect(checked).toBe(21);
+    // Eighteen types over twenty-one files (E5's recon_zikit included), and
+    // since 2026-10-05 sixteen of them declare a `moveFire` beside `move`
+    // (every armed walker; see the locomotion-pair block below): 21 + 16.
+    expect(checked).toBe(37);
   });
 });
 
@@ -1013,6 +1026,11 @@ export const STILL_FIGURES: Readonly<Record<string, string>> = {
   // ground while the two riflemen walk (import_meshy_zikit_team.py, `zk_spot`).
   'recon_zikit.glb move zk_spot_root':
     'import_meshy_zikit_team.py: the kneeling spotter behind the tripod stays planted while two riflemen walk',
+  // 2026-10-05: `moveFire` is `move`'s legs (`rig.build_move_fire_clip`), so
+  // the same three men stay deployed in it, for the same three reasons.
+  'demo_squad.glb moveFire demo_a_root': 'as its `move`: rig.py builds moveFire from the same walkers',
+  'at_team.glb moveFire at_fire_root': 'as its `move`: rig.py builds moveFire from the same walkers',
+  'recon_zikit.glb moveFire zk_spot_root': 'as its `move`: rig.py builds moveFire from the same walkers',
 };
 
 /** A figure in `STILL_FIGURES` must measure this still, in metres of forward
@@ -1066,6 +1084,25 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   'atgm_cell.glb move': 328, // B3: a 1,100-tri Meshy remesh's boots on the D6 walker; A3.1: see militia_cell's note
   'mortar_crew.glb move': 300, // B4: a 1,100-tri Meshy remesh's boots on the D6 walker
   'digger_crew.glb move': 205, // B4: Meshy boots on the D6 walker
+  // 2026-10-05: every armed walker's `moveFire` -- the same boots on the
+  // same legs as its `move` (rig.py's `build_move_fire_clip`, or the
+  // captured run under the three captured teams' aim), so the same count.
+  'demo_squad.glb moveFire': 214,
+  'at_team.glb moveFire': 257,
+  'sniper_team.glb moveFire': 332,
+  'militia_cell.glb moveFire': 704,
+  'rpg_team.glb moveFire': 640,
+  'charge_squad.glb moveFire': 444,
+  'inf_squad.glb moveFire': 729,
+  'sarim_rifles.glb moveFire': 1078,
+  'mortar_team.glb moveFire': 590,
+  'yahalom_squad.glb moveFire': 508,
+  'manpad_team.glb moveFire': 711,
+  'recoilless_team.glb moveFire': 518,
+  'breach_team.glb moveFire': 518,
+  'recon_zikit.glb moveFire': 332,
+  'atgm_cell.glb moveFire': 328,
+  'mortar_crew.glb moveFire': 300,
 };
 
 /**
@@ -1161,6 +1198,9 @@ const SWING_LIFT_OUTLIERS: Readonly<Record<string, number>> = {
   // (the digger above was already the smallest of the three crews on kit).
   // Pinned, not explained, as the digger's own entry is.
   'mortar_crew.glb move': 0.043,
+  // 2026-10-05: the same two walkers' `moveFire`, the same legs as `move`.
+  'sniper_team.glb moveFire': -0.012,
+  'mortar_crew.glb moveFire': 0.043,
 };
 
 describe('mesh unit gait -- per figure, not per file', () => {
@@ -1173,7 +1213,8 @@ describe('mesh unit gait -- per figure, not per file', () => {
     // B7 (2026-10-01): 21 clips, 41 figures -- the two supplied `moveFire`
     // clips went with their bipeds; inf_squad/sarim/mortar_team are three
     // men each on rig.py's gait, and E5's recon_zikit walks three.
-    expect(rows).toHaveLength(21);
+    // 2026-10-05: + 16 `moveFire` clips, every armed walker's.
+    expect(rows).toHaveLength(37);
     const live = rows.flatMap((r) => r.live.map((f) => `${r.file} ${r.clip} ${f.root}`));
     // 40 visible figures over 20 clips: two each on the six original
     // `kit.py` teams and `yahalom_engineer`, three each on `meshy_soldier`
@@ -1185,7 +1226,7 @@ describe('mesh unit gait -- per figure, not per file', () => {
     // mortar-team precedent) are not in it.
     // B2's two crews add four: the MANPAD gunner and the spotter's walker, and
     // both recoilless walkers.
-    expect(live).toHaveLength(41);
+    expect(live).toHaveLength(77); // 2026-10-05: + 36 on the sixteen `moveFire` clips
     // Both directions, the way GAIT_EXEMPT is: every named still figure must
     // be a figure that really exists and really is still, and every figure
     // that is still must be named.
@@ -1331,13 +1372,43 @@ describe('mesh unit gait -- one file’s locomotion clips against each other', (
     return move && moveFire ? [[r.file, move, moveFire] as const] : [];
   });
 
-  it('no file carries both locomotion clips any more', () => {
-    // B7 (2026-10-01): the two supplied bipeds that shipped a `moveFire`
-    // (`meshy_soldier.glb`, `sarim_rifles.glb`) are replaced by rig.py
-    // figures, which build `move` and `fire` only;
-    // `resolveMeshMotionClip` falls back to `fire`. The pairwise check
-    // below stays for the day a rig ships both again.
-    expect(both.map(([file]) => file)).toEqual([]);
+  it('every armed walker carries both locomotion clips again', () => {
+    // INVERTED 2026-10-05 from B7's re-pin "no file carries both locomotion
+    // clips any more" -- which pinned the regression itself: with no
+    // `moveFire` anywhere, `resolveMeshMotionClip` handed every unit that
+    // fired on the move the standing `fire` brace, and it slid. Every file
+    // here now ships one: rig.py's `build_move_fire_clip` (the gait's legs,
+    // `fire`'s upper body), and on the three captured teams the captured run
+    // under an aim (`tools/units/mocap.py`). The files WITHOUT one are named
+    // too, by what they lack: no weapon in their unit JSON (digger_crew, the
+    // four civilians), or no gaited `move` (moto_rpg, a machine).
+    expect(both.map(([file]) => file).sort()).toEqual([
+      'at_team.glb',
+      'atgm_cell.glb',
+      'breach_team.glb',
+      'charge_squad.glb',
+      'demo_squad.glb',
+      'inf_squad.glb',
+      'manpad_team.glb',
+      'militia_cell.glb',
+      'mortar_crew.glb',
+      'mortar_team.glb',
+      'recoilless_team.glb',
+      'recon_zikit.glb',
+      'rpg_team.glb',
+      'sarim_rifles.glb',
+      'sniper_team.glb',
+      'yahalom_squad.glb',
+    ]);
+    const without = RIGS.filter((r) => !both.some(([file]) => file === r.file)).map((r) => r.file);
+    expect(without.sort()).toEqual([
+      'civilians/civilian_child.glb',
+      'civilians/civilian_woman.glb',
+      'civilians/farm_worker.glb',
+      'civilians/office_worker.glb',
+      'digger_crew.glb',
+      'moto_rpg.glb',
+    ]);
   });
 
   it.each(both)('%s walks and walks-firing at speeds within a small factor', (file, move, moveFire) => {
@@ -1524,7 +1595,10 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     // and a review while every caller's `for` loop passed in 0 ms.
     // B2 (2026-09-30) adds twelve: manpad_team six, recoilless_team six.
     // E5 (2026-10-01) adds nine: recon_zikit's three heads over idle, fire and move.
-    expect(rows).toHaveLength(114); // B7: 21 GLBs, every one with a face mesh now
+    // 2026-10-05: + 36, every visible head of the sixteen new `moveFire` clips;
+    // + 8 more on `down`, where the three captured teams crouch on their
+    // living bodies (the capture's own `down`) instead of the corpse.
+    expect(rows).toHaveLength(158); // B7: 21 GLBs, every one with a face mesh now
     // WHICH files, by name -- not `not.toContain('sniper_team.glb')`, which
     // could never fail: an un-exempted `sniper_team` makes `measureFacing`
     // THROW rather than produce a row, so the absence it asserts is
@@ -1598,6 +1672,8 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'atgm_cell.glb idle',
       'atgm_cell.glb move',
       'atgm_cell.glb move',
+      'atgm_cell.glb moveFire',
+      'atgm_cell.glb moveFire',
       'breach_team.glb down',
       'breach_team.glb down',
       'charge_squad.glb down',
@@ -1608,15 +1684,13 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'digger_crew.glb down',
       'digger_crew.glb idle',
       'digger_crew.glb move',
-      'inf_squad.glb down',
-      'inf_squad.glb down',
-      'inf_squad.glb down',
       'manpad_team.glb down',
       'manpad_team.glb down',
       'manpad_team.glb down',
       'manpad_team.glb fire',
       'manpad_team.glb idle',
       'manpad_team.glb move',
+      'manpad_team.glb moveFire',
       'militia_cell.glb down',
       'militia_cell.glb down',
       'mortar_crew.glb down',
@@ -1627,6 +1701,8 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'mortar_crew.glb idle',
       'mortar_crew.glb move',
       'mortar_crew.glb move',
+      'mortar_crew.glb moveFire',
+      'mortar_crew.glb moveFire',
       'mortar_team.glb down',
       'mortar_team.glb down',
       'mortar_team.glb down',
@@ -1638,6 +1714,8 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'mortar_team.glb idle',
       'mortar_team.glb move',
       'mortar_team.glb move',
+      'mortar_team.glb moveFire',
+      'mortar_team.glb moveFire',
       'recoilless_team.glb down',
       'recoilless_team.glb down',
       'recoilless_team.glb down',
@@ -1648,26 +1726,27 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'recoilless_team.glb idle',
       'recoilless_team.glb move',
       'recoilless_team.glb move',
+      'recoilless_team.glb moveFire',
+      'recoilless_team.glb moveFire',
       'recon_zikit.glb down',
       'recon_zikit.glb down',
       'recon_zikit.glb down',
       'rpg_team.glb down',
       'rpg_team.glb down',
-      'sarim_rifles.glb down',
-      'sarim_rifles.glb down',
-      'sarim_rifles.glb down',
       'sniper_team.glb down',
       'sniper_team.glb down',
       'sniper_team.glb fire',
       'sniper_team.glb fire',
       'sniper_team.glb idle',
       'sniper_team.glb idle',
-      'yahalom_squad.glb down',
-      'yahalom_squad.glb down',
+      // 2026-10-05: inf_squad, sarim_rifles and yah_a/yah_b are no longer
+      // hidden on `down` -- they crouch there alive (the capture's `down`);
+      // only yahalom's `work` kneeler (yah_ak) still is.
       'yahalom_squad.glb down',
       'yahalom_squad.glb fire',
       'yahalom_squad.glb idle',
       'yahalom_squad.glb move',
+      'yahalom_squad.glb moveFire',
       'yahalom_squad.glb work',
     ]);
   });
@@ -1708,26 +1787,34 @@ const WEAPON_RIGS: readonly {
   readonly figures: number;
   readonly clips: readonly string[];
 }[] = [
-  { file: 'demo_squad.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire'] },
-  { file: 'militia_cell.glb', role: 'weapon', joint: /_forearm_R$/, figures: 2, clips: ['fire'] },
-  { file: 'rpg_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 2, clips: ['fire'] },
+  // 2026-10-05: `moveFire` joins `fire` on every file whose shooter walks --
+  // walk-and-fire is an aimed clip too, and its weapon must point and hold
+  // its elevation exactly as `fire`'s does (rig.py's `build_move_fire_clip`
+  // and `tools/units/mocap.py` both key `fire`'s arms on it). Measured: every
+  // `moveFire` reads its own file's `fire` bearing and elevation to 0.01 deg.
+  { file: 'demo_squad.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire', 'moveFire'] },
+  { file: 'militia_cell.glb', role: 'weapon', joint: /_forearm_R$/, figures: 2, clips: ['fire', 'moveFire'] },
+  { file: 'rpg_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 2, clips: ['fire', 'moveFire'] },
   // One armed figure: `at_fire` holds the Spike, `at_spot` holds binoculars
   // bound to his HEAD, so only one `_forearm_R` owns any `weapon` vertex.
   // This file was in `WEAPON_EXEMPT` until it gained a `fire` clip.
-  { file: 'at_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire'] },
+  { file: 'at_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire', 'moveFire'] },
   // B2 (2026-09-30): one armed figure each. The MANPAD spotter holds
   // binoculars on his head; the recoilless loader's two spare rounds are
   // `weapon` on the static `prop` bone, not on any forearm.
-  { file: 'manpad_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire'] },
+  { file: 'manpad_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire', 'moveFire'] },
+  // Not `moveFire`: the gunner walks on his D6 standing walker, and the
+  // tube rides the kneeling body that walker stands in for -- scaled out of
+  // every moving clip (measured: bearing 0.0, elevation 0.00, hidden).
   { file: 'recoilless_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire'] },
   // B7 (2026-10-01): the two supplied bipeds (`uniform`-on-`RightHand`,
   // `moveFire`) are rig.py figures with kit rifles on `forearm_R` now, like
   // militia_cell; mortar_team's No.3 and yahalom's rifleman join them.
-  { file: 'sarim_rifles.glb', role: 'weapon', joint: /_forearm_R$/, figures: 3, clips: ['fire'] },
-  { file: 'mortar_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire'] },
+  { file: 'sarim_rifles.glb', role: 'weapon', joint: /_forearm_R$/, figures: 3, clips: ['fire', 'moveFire'] },
+  { file: 'mortar_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire', 'moveFire'] },
   // yahalom: yah_b's rifle alone -- the masts are `metal`, not weapons.
-  { file: 'yahalom_squad.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire'] },
-  { file: 'recon_zikit.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire'] },
+  { file: 'yahalom_squad.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire', 'moveFire'] },
+  { file: 'recon_zikit.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire', 'moveFire'] },
 ];
 
 /**
@@ -1913,9 +2000,13 @@ const WEAPON_IDLE_ELEVATION_DEG: Readonly<Record<string, number>> = {
   // 78-deg MANPAD tube on the gunner's shoulder, and the recoilless tube level.
   // B7 (2026-10-01): the three replaced teams' kit rifles at the hung hand
   // (`_rifle_at_hand`, the militia carry) and yah_a's level mast.
-  'sarim_rifles.glb sar0_forearm_R': 2.48,
-  'sarim_rifles.glb sar1_forearm_R': 2.48,
-  'sarim_rifles.glb sar2_forearm_R': 2.48,
+  // 2026-10-05: the three Sarim riflemen breathe on their CAPTURED idle now
+  // (tools/units/mocap.py): the rifle arm takes 0.35 of the capture's own arm
+  // sway, which lifts each carry's mean by 1.7-3.6 deg from rig.py's 2.48
+  // and differently per man (each plays his own source figure).
+  'sarim_rifles.glb sar0_forearm_R': 4.89,
+  'sarim_rifles.glb sar1_forearm_R': 6.03,
+  'sarim_rifles.glb sar2_forearm_R': 4.16,
   // A3.1 stage 2 (2026-10-05): the Meshy KDF carbine in place of the kit
   // rifle, bore level at the same anchor and yaw; its tall stock and its
   // magazine hang below the bore at opposite ends, which turns the cloud's
@@ -2271,12 +2362,15 @@ describe('mesh unit death -- the fall clips (design D3, gate 3)', () => {
   // B7 (2026-10-01): no shipped rig carries an authored fall any more -- the
   // three supplied bipeds that did are replaced by rig.py figures, which
   // topple per figure (D5). The gate stays armed for the day one returns.
-  const FALL_FILES: string[] = [];
-  const FALL_ALT_FILES: string[] = [];
+  // 2026-10-05: the captured falls are back, retargeted onto the three teams
+  // that replaced those bipeds (tools/units/mocap.py) -- their `wreck`/
+  // `wreckAlt` is the fall's own last frame, on the living body.
+  const FALL_FILES: string[] = ['inf_squad.glb', 'sarim_rifles.glb', 'yahalom_squad.glb'];
+  const FALL_ALT_FILES: string[] = ['sarim_rifles.glb', 'yahalom_squad.glb'];
   const withFall = RIGS.filter((r) => r.clips.includes('fall'));
   const withFallAlt = RIGS.filter((r) => r.clips.includes('fallAlt'));
 
-  it('no shipped rig carries fall or fallAlt (the Meshy bipeds that did are replaced)', () => {
+  it('exactly the captured teams carry fall and fallAlt', () => {
     expect(withFall.map((r) => r.file).sort()).toEqual(FALL_FILES);
     expect(withFallAlt.map((r) => r.file).sort()).toEqual(FALL_ALT_FILES);
   });
@@ -2355,6 +2449,159 @@ describe('mesh unit death -- the fall clips (design D3, gate 3)', () => {
     for (const r of RIGS) {
       if (FALL_FILES.includes(r.file)) continue;
       for (const c of r.clips) expect(FALL_CLIPS.has(c), `${r.file} ${c}`).toBe(false);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2026-10-05 -- walk-and-fire, and the captured upper body (the B7 regression).
+// ---------------------------------------------------------------------------
+
+/** The unit JSON's own `weapons`, read the way `riggedFiles` reads its speed. */
+function unitWeapons(typeId: string): readonly unknown[] {
+  const hits = ['kdf/', 'enemy/', '']
+    .map((dir) => `${REPO}data/units/${dir}${typeId}.json`)
+    .filter((p) => existsSync(p));
+  expect(hits, `${typeId}: exactly one unit JSON`).toHaveLength(1);
+  const doc = JSON.parse(readFileSync(hits[0], 'utf8')) as { weapons?: unknown[] };
+  return doc.weapons ?? [];
+}
+
+/**
+ * Rigged types that are NOT asked to walk and fire, each with the fact that
+ * puts it outside the gate. Asserted against the data and the bytes both
+ * ways below (the DEMOTION half): a type here that gains a weapon and a
+ * gaited `move` is no longer exempt, and the line says so.
+ */
+export const WALK_AND_FIRE_EXEMPT: Readonly<Record<string, string>> = {
+  digger_crew: 'no weapon in its unit JSON: it digs, it never fires',
+  civilians: 'no weapon in its unit JSON (and `FORBIDDEN_ROLES` bans a `weapon` role)',
+  moto_rpg: 'no gaited `move`: a machine whose riders sit (GAIT_EXEMPT)',
+};
+
+describe('mesh unit walk-and-fire -- a moving shot plays a locomotion clip', () => {
+  // B7 (#335/#337, 2 Oct) removed the only two `moveFire` clips in the tree,
+  // and from then every unit that fired while it moved played `fire` -- a
+  // standing brace, legs still -- while the sim carried it at full speed:
+  // the slide GH-145 was raised against, on every armed unit. Nothing caught
+  // it because nothing asked which clip a MOVING SHOT resolves to.
+  const armedGaited = RIGS.filter((r) => unitWeapons(r.typeId).length > 0 && r.declared?.has('move'));
+
+  it('covers every armed, gaited rigged type, and names the rest', () => {
+    const covered = new Set(armedGaited.map((r) => r.typeId));
+    for (const typeId of Object.keys(RIGGED_UNIT_MESHES)) {
+      if (covered.has(typeId)) {
+        expect(WALK_AND_FIRE_EXEMPT[typeId], `${typeId}: gated, so not exempt`).toBeUndefined();
+        continue;
+      }
+      expect(WALK_AND_FIRE_EXEMPT[typeId], `${typeId}: neither gated nor named`).toBeDefined();
+    }
+    // Demotion: every exemption's stated fact must still be true.
+    for (const typeId of Object.keys(WALK_AND_FIRE_EXEMPT)) {
+      const rigs = RIGS.filter((r) => r.typeId === typeId);
+      expect(rigs.length, `${typeId}: a real rigged type`).toBeGreaterThan(0);
+      const armed = unitWeapons(typeId).length > 0;
+      const gaited = rigs.some((r) => r.declared?.has('move'));
+      expect(
+        armed && gaited,
+        `${typeId}: now armed AND gaited -- delete its WALK_AND_FIRE_EXEMPT entry, it must walk and fire`
+      ).toBe(false);
+    }
+    // A literal, so a catalogue that loses half its rigs cannot pass by
+    // iterating less: sixteen armed, gaited files, one per type.
+    expect(armedGaited.map((r) => r.file).sort()).toEqual([
+      'at_team.glb',
+      'atgm_cell.glb',
+      'breach_team.glb',
+      'charge_squad.glb',
+      'demo_squad.glb',
+      'inf_squad.glb',
+      'manpad_team.glb',
+      'militia_cell.glb',
+      'mortar_crew.glb',
+      'mortar_team.glb',
+      'recoilless_team.glb',
+      'recon_zikit.glb',
+      'rpg_team.glb',
+      'sarim_rifles.glb',
+      'sniper_team.glb',
+      'yahalom_squad.glb',
+    ]);
+  });
+
+  it.each(armedGaited.map((r) => [r.file, r] as const))(
+    '%s: moving and firing resolves to a clip whose legs walk',
+    (file, rig) => {
+      const available = new Set(rig.clips.filter(isMeshClipName)) as Set<ClipName>;
+      const anim = { alive: 1, routed: 0, pinned: 0, speed: rig.speedTilesPerSecond, firing: true, working: false };
+      // The renderer's own three steps, in its own order
+      // (`ThreeRenderer`'s mesh loop, then `applyMeshClip`).
+      const desired = resolveMeshMotionClip(resolveClip(anim), anim.speed > 0, available.has('moveFire'));
+      const played = meshClipOrFallback(available, desired);
+      expect(played, `${file}: a moving shot plays "${played}" (clips: ${rig.clips.join(', ')})`).toSatisfy(
+        (c: string) => isLocomotionClip(c)
+      );
+      // ...and that clip is declared, so the renderer rate-matches it to the
+      // ground rather than playing it at 1x.
+      expect(rig.declared?.has(played as LocomotionClip), `${file}: ${played} declares rl_gait`).toBe(true);
+    }
+  );
+});
+
+/**
+ * Per figure, in `move`: the least the body ABOVE THE BELT must move over one
+ * cycle -- the pelvis-to-head line's pitch range, or the head's sway about the
+ * pelvis (`measureUpperBodyMotion`). Either clears it.
+ *
+ * LITERAL thresholds, calibrated on the bytes 2026-10-05:
+ *
+ *                                     lean range     head sway
+ *   pre-B7 captured (e31ebdf3)
+ *     meshy_soldier.glb  f0..f2       5.04-5.31 deg  0.054-0.056 m
+ *     sarim_rifles.glb   f0..f2       4.72-4.76      0.048
+ *     yahalom_engineer   f0, f1       4.11-4.12      0.073
+ *   B7, rig.py's locked torso (the regression)
+ *     inf_squad          f0..f2       0.09           0.027
+ *     sarim_rifles       sar0..sar2   0.50-0.51      0.022-0.023
+ *     yahalom_squad      yah_a, yah_b 0.09           0.025
+ *   the retarget (tools/units/mocap.py)
+ *     inf_squad          f0..f2       4.98-5.14      0.075-0.079
+ *     sarim_rifles       sar0..sar2   6.24-6.71      0.086-0.091
+ *     yahalom_squad      yah_a, yah_b 5.09-5.13      0.078-0.079
+ *
+ * 2 deg is 2.1x under the lowest capture and 3.9x over the highest locked
+ * torso; 0.04 m is 1.2x under the lowest capture and 1.5x over the highest
+ * locked one. Scoped to the CAPTURED teams by name -- every other rig.py team
+ * still walks on the procedural gait and reads 0.3-0.5 deg (militia_cell
+ * 0.50 / 0.024 m), which is the state of the art this gate does not claim to
+ * have fixed. The list is pinned against `tools/units/mocap.py`'s own
+ * `CAPTURED` so the two cannot drift.
+ */
+const UPPER_BODY_LEAN_RANGE_FLOOR_DEG = 2.0;
+const UPPER_BODY_HEAD_SWAY_FLOOR_M = 0.04;
+const CAPTURED_MOTION_FILES: Readonly<Record<string, string>> = {
+  inf_squad: 'inf_squad.glb',
+  sarim_rifles: 'sarim_rifles.glb',
+  yahalom_squad: 'yahalom_squad.glb',
+};
+
+describe('mesh unit upper body -- the captured teams move above the belt', () => {
+  it('names exactly the teams tools/units/mocap.py retargets', () => {
+    const src = readFileSync(`${REPO}tools/units/mocap.py`, 'utf8');
+    const block = /^CAPTURED = \{([\s\S]*?)^\}/m.exec(src)?.[1] ?? '';
+    const teams = [...block.matchAll(/^ {4}"(\w+)": dict\(/gm)].map((m) => m[1]);
+    expect(teams.sort()).toEqual(Object.keys(CAPTURED_MOTION_FILES).sort());
+  });
+
+  it.each(Object.entries(CAPTURED_MOTION_FILES))('%s: every visible figure moves above the belt in move', (_t, file) => {
+    const figs = measureUpperBodyMotion(`${MESHES}${file}`, 'move').filter((f) => !f.hiddenInClip);
+    expect(figs.length, `${file}: visible figures`).toBeGreaterThan(1);
+    for (const f of figs) {
+      const moves = f.leanRangeDeg >= UPPER_BODY_LEAN_RANGE_FLOOR_DEG || f.headSwayM >= UPPER_BODY_HEAD_SWAY_FLOOR_M;
+      expect(
+        moves,
+        `${file} ${f.figure}: lean range ${f.leanRangeDeg.toFixed(2)} deg, head sway ${f.headSwayM.toFixed(3)} m -- a locked torso`
+      ).toBe(true);
     }
   });
 });

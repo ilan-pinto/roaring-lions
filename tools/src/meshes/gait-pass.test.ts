@@ -98,9 +98,11 @@ describe('measureGait over every shipped rigged mesh', () => {
 
     expect(skipped.sort()).toEqual(['moto_rpg.glb']);
     expect(declared.length).toBe(21); // E5's recon_zikit joined
-    // B7 (2026-10-01): no shipped rig carries moveFire -- the two supplied
-    // bipeds that did are replaced by rig.py figures.
-    expect(moveFireCount).toBe(0);
+    // 2026-10-05: every armed walker carries a `moveFire` again -- rig.py's
+    // `build_move_fire_clip`, or the captured run under an aim on the three
+    // captured teams (B7 had removed both of the only two). 16 of the 21:
+    // not digger_crew (unarmed) nor the four civilians.
+    expect(moveFireCount).toBe(16);
   });
 
   it.each(EXPECTED_SKIP_TYPES)('%s is a named skip, and really is degenerate', (type) => {

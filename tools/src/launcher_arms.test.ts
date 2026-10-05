@@ -32,9 +32,12 @@ const MESHES = fileURLToPath(new URL('../../art/meshes/', import.meta.url));
 
 /** file -> the gunner, and each drawn clip's ceiling (arm vertices inside). */
 const GUNNERS: readonly (readonly [string, string, Readonly<Record<string, number>>])[] = [
-  ['at_team.glb', 'at_fire', { idle: 148, fire: 150, move: 148 }],
-  ['rpg_team.glb', 'rpg_fire', { idle: 223, fire: 223, move: 281 }],
-  ['manpad_team.glb', 'mpd_fire', { idle: 196, fire: 196, move: 207 }],
+  // `moveFire` (2026-10-05) takes its `move` ceiling: the same walking torso,
+  // with `fire`'s arms held against its lean. Read on the new bytes: at_team
+  // 148, rpg 229, manpad 200.
+  ['at_team.glb', 'at_fire', { idle: 148, fire: 150, move: 148, moveFire: 148 }],
+  ['rpg_team.glb', 'rpg_fire', { idle: 223, fire: 223, move: 281, moveFire: 281 }],
+  ['manpad_team.glb', 'mpd_fire', { idle: 196, fire: 196, move: 207, moveFire: 207 }],
   // The kneeling gunner and his tube are scaled out of `move` (D6 walker).
   ['recoilless_team.glb', 'rcl_fire', { idle: 144, fire: 152 }],
 ];
