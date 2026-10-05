@@ -206,13 +206,19 @@ describe('III: the village fields', () => {
   it('the wall is the south edge behind you: four rows of rock the whole width, one road gap, and no other rock wall on the map', () => {
     for (let y = 44; y <= 47; y++) for (const x of [0, 10, 21, 27, 40, 47]) expect(m.rows[y][x], `(${x},${y})`).toBe('^');
     for (let y = 44; y <= 47; y++) expect(m.rows[y].slice(22, 27), `gap row ${y}`).toBe('..r..');
-    for (let y = 0; y < 44; y++) for (const x of [28, 31, 45]) expect(m.rows[y][x], `(${x},${y})`).not.toBe('^');
+    for (let y = 0; y < 44; y++) for (const x of [28, 31, 45]) if (y !== 16) expect(m.rows[y][x], `(${x},${y})`).not.toBe('^');
     expect(elev(10, 46) - elev(10, 40)).toBeGreaterThanOrEqual(3);
     expect(mk(m, 'shoulder_gate')).toEqual([24, 44]);
   });
-  it('the ditch is twenty-one tiles across the fields; with it filled the two ways round are no longer the road', () => {
+  it('the village stands behind a retaining ledge of rock five levels high, open only at its two lanes', () => {
+    for (let x = 20; x <= 38; x++) expect(m.rows[16][x], `x=${x}`).toBe(x === 24 || x === 33 ? 'r' : '^');
+    expect(elev(28, 16)).toBe(5);
+    expect(elev(28, 16) - elev(28, 22)).toBeGreaterThanOrEqual(3);
+  });
+  it('the ditch is two rows by twenty-one tiles across the fields; with it filled the two ways round are no longer the road', () => {
     expect(m.rows[17].slice(20, 41)).toBe('d'.repeat(21));
-    const filled = edited(m, Array.from({ length: 21 }, (_, i) => [20 + i, 17, '.'] as const));
+    expect(m.rows[18].slice(20, 41)).toBe('d'.repeat(21));
+    const filled = edited(m, Array.from({ length: 42 }, (_, i) => [20 + (i % 21), 17 + Math.floor(i / 21), '.'] as const));
     expect(steps(path(filled, 'vehicle', west, square))).toBeLessThan(17);
     expect(steps(path(filled, 'vehicle', east, square))).toBeLessThan(23);
   });
@@ -227,14 +233,14 @@ describe('III: the village fields', () => {
     const shut = edited(m, [14, 15, 16, 17, 18, 19].map((x) => [x, 17, 'd'] as const));
     expect(steps(path(shut, 'vehicle', west, square))).toBeGreaterThan(23);
   });
-  it('on foot the same two legs are 14 and 15: the ditch is no obstacle to a rifleman, who walks straight over it', () => {
-    expect(steps(path(m, 'foot', west, square))).toBe(14);
-    expect(steps(path(m, 'foot', east, square))).toBe(15);
+  it('on foot the same two legs are 13 and 16: the ditch is no obstacle to a rifleman, who walks straight over it to a lane through the ledge', () => {
+    expect(steps(path(m, 'foot', west, square))).toBe(13);
+    expect(steps(path(m, 'foot', east, square))).toBe(16);
   });
   it('from the junction by the road a Namer takes the west way, and with the west gap shut the east way costs more', () => {
     const open = steps(path(m, 'vehicle', junction, square)) as number;
     const shut = steps(path(edited(m, [14, 15, 16, 17, 18, 19].map((x) => [x, 17, 'd'] as const)), 'vehicle', junction, square)) as number;
-    expect(open).toBe(27);
+    expect(open).toBe(28);
     expect(shut).toBeGreaterThan(open);
   });
   it('the east way runs through the thorn grove: its route tiles at the ditch row are grove', () => {
@@ -275,6 +281,14 @@ describe('III: the village fields', () => {
     expect(m.rows[14][8]).toBe('^');
     expect(m.rows[16][13]).toBe('^');
     expect(elev(13, 16) - elev(16, 16)).toBeGreaterThanOrEqual(3);
+  });
+  it('the terraces are two broken arcs of rock standing three or more levels over the ground they hold, with the ramp left open', () => {
+    const rock = m.rows.slice(5, 28).map((r) => r.slice(0, 16)).join('').split('^').length - 1;
+    expect(rock).toBeGreaterThan(50);
+    expect(m.rows[10].slice(4, 11)).toBe('^^^^^^^');
+    expect(elev(6, 10) - elev(6, 9)).toBeGreaterThanOrEqual(3);
+    // the knoll is walkable on foot from the field by its open side
+    expect(path(m, 'foot', [18, 16], mk(m, 'knoll_top'))).not.toBeNull();
   });
   it('the clinic is a walled yard east of the village with two gates; the refuge is inside it, and families walk to it in 23 and 17 tiles', () => {
     const z = m.zones!.clinic;
