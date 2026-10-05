@@ -17,6 +17,9 @@
 //     III one rifle squad climbs the terraces, a second with the AT team walks out to the families
 //         and on to the clinic, the rest take the village.
 //
+// (A raze zone is not walked by an explicit `demolish`: its snap tile is on the far side of the
+// revetment, so the order routes the party round by the notch. II moves the party up behind the
+// armour and lets `stepDemolition` find the concrete itself.)
 // A fresh ledger, no purchases, no `upgrades_to` gates open, 12 minute cap.
 import { fx } from '../../../packages/sim/src/fixed';
 import { TICKS_PER_SECOND } from '../../../packages/sim/src/sim';
@@ -55,22 +58,7 @@ function run(id: string, tier: Tier, seed: number): { result: string; mins: numb
     const live = ids.filter((i) => sim.state.alive[i] === 1);
     if (live.length) sim.queueCommand({ kind: 'move', ids: live, ...M(p[0], p[1]) });
   };
-  const structsIn = (zone: string): number[] => {
-    const z = map.zones[zone] as number[];
-    const seen = new Set<number>();
-    for (let y = z[1]; y < z[1] + z[3]; y++) for (let x = z[0]; x < z[0] + z[2]; x++) { const s = sim.structureAt(x, y); if (s >= 0) seen.add(s); }
-    return [...seen];
-  };
-  const razeZone: string | undefined = m.objectives.find((o: any) => o.type === 'raze' && o.primary)?.target;
-  const demolishAll = () => {
-    if (!razeZone) return;
-    const list = structsIn(razeZone);
-    const live = [...demo].filter((i) => sim.state.alive[i] === 1);
-    live.forEach((u, k) => { if (list.length) sim.queueCommand({ kind: 'demolish', ids: [u], structure: list[(k * 2) % list.length] }); });
-  };
-
   const focus: [number, number] = kind === 'II' ? zc('the_gates') : mk('village_square');
-  const main = () => own().filter((i) => !demo.has(i) && !drone.has(i));
   const inf = ofType('inf_squad');
   // II groups
   const armourII = [...ofType('mbt_lavi', 'ifv_namer', 'apc_eitan', 'mortar_team')];
@@ -105,7 +93,6 @@ function run(id: string, tier: Tier, seed: number): { result: string; mins: numb
     if (runtime.result !== 'ongoing') break;
   }
   if (process.env.LADDER_V) console.log(`    ${id} ${tier} seed ${seed}: ${runtime.result} ${runtime.objectiveList.map((o) => `${o.id}=${o.status[0]}`).join(' ')}`);
-  if (process.env.LADDER_V === '2') console.log(`      demo alive ${[...demo].filter((i) => sim.state.alive[i] === 1).length}/${demo.size}; structures in raze zone ${razeZone ? structsIn(razeZone).length : '-'}; own ${own().length}/${start0}`);
   return { result: runtime.result, mins: t / TICKS_PER_SECOND / 60, lost: start0 - own().length, roe: runtime.roeScore };
 }
 
