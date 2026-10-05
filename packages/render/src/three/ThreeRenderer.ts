@@ -294,6 +294,7 @@ import {
   SHELL_CAPACITY,
   BOLT_CAPACITY,
 } from './units/fx';
+import { rotorSpinPhase } from './units/rotor-spin';
 import {
   ROTOR_WASH_INTERVAL_MS,
   ROTOR_WASH_MIN_STRENGTH,
@@ -6285,7 +6286,9 @@ export class ThreeRenderer implements Renderer {
       // stops or redirects this spin the way the turret spring tracks a
       // moving contact.
       if (entity.rotorPivot) {
-        this.rotorPhase[i] = (this.rotorPhase[i] + ROTOR_SPIN_RAD_PER_SEC * dtSeconds) % (Math.PI * 2);
+        // SIM clock, not an accumulator of frame deltas (GH-391): a frozen
+        // gate frame photographs the same blade angle on every run.
+        this.rotorPhase[i] = rotorSpinPhase(presentationSimMs(this.sim.tickCount, alpha), ROTOR_SPIN_RAD_PER_SEC);
         entity.rotorPivot.rotation.y = this.rotorPhase[i];
       }
 
