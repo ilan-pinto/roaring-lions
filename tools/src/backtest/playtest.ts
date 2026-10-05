@@ -2366,25 +2366,25 @@ const ledUZ2 = run(
     const strike = [...ids('apc_eitan'), ...ids('mbt_lavi'), ...ids('mortar_team'), ...ids('at_team'), ...ids('inf_squad')];
     at(1, () => {
       // Everyone but the demo squad clears the ground around the shed first.
-      sim.queueCommand({ kind: 'attackMove', ids: strike, ...M(23, 33) });
+      sim.queueCommand({ kind: 'attackMove', ids: strike, ...M(24, 24) });
       // The demo squad follows under its own orders and starts charges the
       // moment it is within 2 tiles and the ground around it is unshaken --
       // it does not need the knoll clear to begin walking there.
-      sim.queueCommand({ kind: 'demolish', ids: demo, structure: sim.structureAt(21, 33) });
+      sim.queueCommand({ kind: 'demolish', ids: demo, structure: sim.structureAt(22, 23) });
     });
     // Once the knoll is down, the whole strike force pulls back onto the
     // crest line and digs in for the hold. Re-anchored periodically after
     // that: attackMove does not mean "stand here", and the 180s/300s waves
     // both march straight into the zone (`rim_crest` sits inside
     // `crest_line`).
-    at(70, () => sim.queueCommand({ kind: 'attackMove', ids: strike, ...M(24, 41) }));
-    for (let when = 110; when <= 350; when += 40) {
+    at(100, () => sim.queueCommand({ kind: 'attackMove', ids: strike, ...M(24, 31) }));
+    for (let when = 140; when <= 420; when += 40) {
       at(when, () => {
         const cur: number[] = [];
         for (let i = 0; i < sim.entityCount; i++) {
           if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !demo.includes(i)) cur.push(i);
         }
-        sim.queueCommand({ kind: 'attackMove', ids: cur, ...M(24, 41) });
+        sim.queueCommand({ kind: 'attackMove', ids: cur, ...M(24, 31) });
       });
     }
   },
@@ -2444,26 +2444,29 @@ const ummZeitoun3Plan: Plan = (sim, _rt, ids, at) => {
   // is already closing on that post regardless.
   const drone = ids('recon_drone');
   at(1, () => {
-    sim.queueCommand({ kind: 'attackMove', ids: west, ...M(12, 24) });
-    sim.queueCommand({ kind: 'attackMove', ids: east, ...M(35, 24) });
+    sim.queueCommand({ kind: 'attackMove', ids: west, ...M(8, 25) });
+    sim.queueCommand({ kind: 'attackMove', ids: east, ...M(40, 25) });
     // Straight into the hamlet: `zone_entered` fires `the_house_was_the_section`
     // the moment either body crosses in, walking both garrisoned riflemen
     // out of their houses and into the open street at `hamlet_square`.
     sim.queueCommand({ kind: 'attackMove', ids: hamlet, ...M(24, 26) });
-    sim.queueCommand({ kind: 'move', ids: drone, ...M(10, 40) });
+    sim.queueCommand({ kind: 'move', ids: drone, ...M(12, 40) });
   });
-  at(15, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(3, 25) }));
-  at(30, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(4, 6) }));
+  // Families that board the second Eitan ride wherever it goes, so it is ordered to the wadi once
+  // they are aboard (a `move`, which does not chase) instead of being left on its attackMove.
+  at(25, () => sim.queueCommand({ kind: 'move', ids: apcs.slice(1), ...M(23, 37) }));
+  at(15, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(11, 27) }));
+  at(30, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(13, 14) }));
   // Re-press both flanks once the first contact clears -- attackMove halts
   // on a live fight rather than closing the last few tiles to the post
   // itself.
   at(60, () => {
-    sim.queueCommand({ kind: 'attackMove', ids: west, ...M(10, 23) });
-    sim.queueCommand({ kind: 'attackMove', ids: east, ...M(37, 23) });
+    sim.queueCommand({ kind: 'attackMove', ids: west, ...M(6, 25) });
+    sim.queueCommand({ kind: 'attackMove', ids: east, ...M(42, 25) });
   });
   at(120, () => {
-    sim.queueCommand({ kind: 'attackMove', ids: west, ...M(10, 23) });
-    sim.queueCommand({ kind: 'attackMove', ids: east, ...M(37, 23) });
+    sim.queueCommand({ kind: 'attackMove', ids: west, ...M(6, 25) });
+    sim.queueCommand({ kind: 'attackMove', ids: east, ...M(42, 25) });
   });
 };
 
@@ -2530,12 +2533,12 @@ const uz4Plan: Plan = (sim, _rt, ids, at) => {
     // The drone's own presence is enough to start the porters fleeing
     // (CivilianFlight does not filter by domain) well before any charge is
     // set near their ground.
-    sim.queueCommand({ kind: 'move', ids: drone, ...M(29.5, 9.5) });
-    sim.queueCommand({ kind: 'attackMove', ids: depotEscort, ...M(32, 8) });
+    sim.queueCommand({ kind: 'move', ids: drone, ...M(33.5, 8.5) });
+    sim.queueCommand({ kind: 'attackMove', ids: depotEscort, ...M(33, 8) });
   });
   at(45, () => {
-    sim.queueCommand({ kind: 'demolish', ids: [demo[0]], structure: sim.structureAt(29, 5) });
-    sim.queueCommand({ kind: 'demolish', ids: [demo[1]], structure: sim.structureAt(33, 5) });
+    sim.queueCommand({ kind: 'demolish', ids: [demo[0]], structure: sim.structureAt(30, 4) });
+    sim.queueCommand({ kind: 'demolish', ids: [demo[1]], structure: sim.structureAt(36, 3) });
   });
   // The shanty is the last of the three. Nothing has to name it: once a
   // squad's own explicit order is fulfilled, `demolishOrder` clears and
@@ -2547,7 +2550,7 @@ const uz4Plan: Plan = (sim, _rt, ids, at) => {
   // is a backstop only, timed comfortably past that: if a future ledger
   // ever leaves both squads still working their first door this late,
   // it re-points BOTH at the shanty rather than let the mission stall.
-  at(180, () => sim.queueCommand({ kind: 'demolish', ids: demo, structure: sim.structureAt(33, 8) }));
+  at(180, () => sim.queueCommand({ kind: 'demolish', ids: demo, structure: sim.structureAt(32, 9) }));
   // Adhal carries no deadline of his own, so a second, dedicated push for
   // him only needs to exist at all -- it does not need to race the depot.
   // Held back this long on purpose: sent at t=1 alongside the escort, it
@@ -2556,7 +2559,7 @@ const uz4Plan: Plan = (sim, _rt, ids, at) => {
     sim.queueCommand({
       kind: 'attackMove',
       ids: [...ids('at_team'), ...ids('mortar_team'), ...ids('sniper_team'), ...ids('inf_squad'), ...ids('ifv_namer')],
-      ...M(14, 7),
+      ...M(17, 7),
     });
   });
 };

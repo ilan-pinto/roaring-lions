@@ -129,7 +129,7 @@
   "civilians": {
     "refuge": "civ_north",
     "groups": [
-      { "unit": "civilians", "count": 4, "at": [29.5, 9.5], "group": "porters" }
+      { "unit": "civilians", "count": 4, "at": [32.5, 7.5], "group": "porters" }
     ]
   },
   "enemy": {
@@ -139,33 +139,33 @@
       {
         "unit": "sarim_rifles",
         "count": 1,
-        "at": [13.5, 6.5],
+        "at": [17.5, 7.5],
         "tag": "uz_hvt_lantern",
         "group": "lantern"
       },
       {
         "unit": "sarim_rifles",
         "count": 1,
-        "at": [15.5, 5.5],
+        "at": [18.5, 6.5],
         "tag": "uz_lantern_guard",
         "group": "lantern"
       },
       {
         "unit": "sarim_rifles",
         "count": 1,
-        "at": [14.5, 7.5],
+        "at": [16.5, 8.5],
         "tag": "uz_eye_crest"
       },
       {
         "unit": "sarim_rifles",
         "count": 1,
-        "at": [31.5, 12.5],
+        "at": [32.5, 12.5],
         "tag": "uz_eye_depot"
       },
       {
         "unit": "manpad_team",
         "count": 1,
-        "at": [20.5, 12.5],
+        "at": [20.5, 10.5],
         "tag": "uz_manpad_north"
       },
       {
@@ -178,7 +178,7 @@
       {
         "unit": "atgm_cell",
         "count": 1,
-        "at": [27.5, 10.5],
+        "at": [29.5, 11.5],
         "tag": "uz_atgm_north",
         "stance": { "kind": "ambush", "tiles": 10 }
       },
@@ -187,7 +187,7 @@
         "count": 1,
         "at": [30.5, 6.5],
         "tag": "uz_wh_garrison",
-        "stance": { "kind": "garrison", "building": [30, 6] }
+        "stance": { "kind": "garrison", "building": [30, 4] }
       },
       {
         "unit": "rocket_battery",
