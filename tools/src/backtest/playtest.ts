@@ -1640,6 +1640,11 @@ run('deir_amun_2_foothold', () => {}, {}, 'defeat', 'deir_amun_2_foothold (passi
 // deductions over eight minutes of contact -- comfortably clear of the 40
 // floor, but the highest cost of any plan in the arc, matching the design's
 // own read that this is the arc's most attrition-heavy foothold).
+// GH-382 re-homed it onto deir_amun_2 (the pump yard on its spur in the bend): the plan is the
+// same shape on new coordinates -- the hold force stands on the gate tile (15,32) and the yard
+// floor behind it, both Yahalom teams walk to the mouth (14,28) and charge it at t=35s, and the
+// vent they are defusing is in the bed behind the wall. Measured over 12 seeds: VICTORY 12/12 in
+// 5.7-6.1 min (before: 4.8-6.4), ROE 97 (before 70), stars 2.
 const deirAmun2Plan: Plan = (sim, rt, ids, at) => {
   const yahalom = ids('yahalom_squad');
   const inf = ids('inf_squad');
@@ -1650,21 +1655,21 @@ const deirAmun2Plan: Plan = (sim, rt, ids, at) => {
   const drone = ids('recon_drone');
 
   const holdForce = [...inf, ...eitan, ...namer];
-  at(0, () => sim.queueCommand({ kind: 'attackMove', ids: holdForce, ...M(15, 27) }));
-  at(0, () => sim.queueCommand({ kind: 'move', ids: yahalom, ...M(16, 26) }));
-  at(25, () => sim.queueCommand({ kind: 'chargeTunnel', ids: yahalom, tunnel: 1 }));
-  at(40, () => sim.queueCommand({ kind: 'move', ids: yahalom, ...M(24, 40) }));
+  at(0, () => sim.queueCommand({ kind: 'attackMove', ids: holdForce, ...M(15, 31) }));
+  at(0, () => sim.queueCommand({ kind: 'move', ids: yahalom, ...M(14, 29) }));
+  at(35, () => sim.queueCommand({ kind: 'chargeTunnel', ids: yahalom, tunnel: 0 }));
+  at(50, () => sim.queueCommand({ kind: 'move', ids: yahalom, ...M(24, 40) }));
 
   // Once the door is down, split the holding force: two at the gate, the
   // rest at the interior, so one kamikaze cannot reach everyone at once.
-  at(45, () => {
-    sim.queueCommand({ kind: 'move', ids: [inf[0], eitan[0]], ...M(15, 28) });
-    sim.queueCommand({ kind: 'move', ids: [inf[1], inf[2], eitan[1], ...namer], ...M(16, 25) });
+  at(55, () => {
+    sim.queueCommand({ kind: 'move', ids: [inf[0], eitan[0]], ...M(15, 31) });
+    sim.queueCommand({ kind: 'move', ids: [inf[1], inf[2], eitan[1], ...namer], ...M(15, 28) });
   });
 
-  at(0, () => sim.queueCommand({ kind: 'move', ids: at_team, ...M(17, 27) }));
+  at(0, () => sim.queueCommand({ kind: 'move', ids: at_team, ...M(14, 30) }));
   at(0, () => sim.queueCommand({ kind: 'move', ids: mortar, ...M(24, 40) }));
-  at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(15, 27) }));
+  at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(15, 31) }));
 
   // Spend logistics as it lands, once the camp is producing.
   for (let when = 60; when <= 420; when += 40) {
@@ -1710,6 +1715,13 @@ run('deir_amun_3_subterranean', () => {}, {}, 'defeat', 'deir_amun_3_subterranea
 // trace: all four routes down by t=87s. The heavy force (Namer, Lavi, AT
 // team) takes the spoil field directly, since the chief never leaves it.
 // Measured: VICTORY in 1.45 min, ROE 85.
+// GH-382 re-homed it onto deir_amun_3, where the force starts on the plateau and comes down a
+// ravine whose foot is a stocked vent (the north route's in the west chute, the east route's on
+// the road). Fixed charge times won 5 of 12 seeds there, because a crew that reaches a mouth
+// late, or dead, never charges; each pair now walks to its mouth behind an escort that goes
+// 20 s ahead, charges once it stands within two and a half tiles, and moves to its second mouth
+// when the first route is down. Route indices are the map's own order: lane 0, yard 1, north 2,
+// east 3.
 run(
   'deir_amun_3_subterranean',
   (sim, _rt, ids, at) => {
@@ -1728,30 +1740,51 @@ run(
     const eastEscort = [inf[2], inf[3], eitan[1]];
     const chiefForce = [...namer, ...lavi, ...at_team];
 
-    // West pair: da_tn_lane (mouth [20,23] = route 2), then da_tn_yard
-    // (mouth [25,26] = route 3).
-    at(0, () => sim.queueCommand({ kind: 'attackMove', ids: westEscort, ...M(20, 23) }));
-    at(0, () => sim.queueCommand({ kind: 'move', ids: west, ...M(20, 23) }));
-    at(20, () => sim.queueCommand({ kind: 'chargeTunnel', ids: west, tunnel: 2 }));
-    at(35, () => sim.queueCommand({ kind: 'attackMove', ids: westEscort, ...M(25, 26) }));
-    at(35, () => sim.queueCommand({ kind: 'move', ids: west, ...M(25, 26) }));
-    at(50, () => sim.queueCommand({ kind: 'chargeTunnel', ids: west, tunnel: 3 }));
-
-    // East pair: da_tn_north (mouth [30,22] = route 4), then da_tn_east
-    // (mouth [33,25] = route 5) -- held later than the west pair's schedule
-    // on purpose; see the comment above.
-    at(0, () => sim.queueCommand({ kind: 'attackMove', ids: eastEscort, ...M(30, 22) }));
-    at(0, () => sim.queueCommand({ kind: 'move', ids: east, ...M(30, 22) }));
-    at(20, () => sim.queueCommand({ kind: 'chargeTunnel', ids: east, tunnel: 4 }));
-    at(60, () => sim.queueCommand({ kind: 'attackMove', ids: eastEscort, ...M(33, 25) }));
-    at(60, () => sim.queueCommand({ kind: 'move', ids: east, ...M(33, 25) }));
-    at(75, () => sim.queueCommand({ kind: 'chargeTunnel', ids: east, tunnel: 5 }));
+    // Both pairs start on the plateau, so a fixed charge time is a coin flip on the new
+    // ground (5 of 12 seeds won with one): the crew walks to each mouth, charges once it
+    // stands within two and a half tiles, and moves on when the route is down. West pair:
+    // da_tn_lane (mouth [23,24] = route 0) then da_tn_yard ([26,27] = route 1); east pair:
+    // da_tn_north ([24,22] = route 2) then da_tn_east ([30,24] = route 3). GH-382.
+    const LEAD = 20;
+    const crew = (team: number[], escort: number[], legs: { tunnel: number; mouth: [number, number] }[]) => {
+      let k = 0;
+      let phase: 'go' | 'charge' = 'go';
+      let since = 0;
+      for (let s = 0; s <= 280; s++) {
+        at(s, () => {
+          const live = team.filter((i) => sim.state.alive[i] === 1);
+          const leg = legs[k];
+          if (!leg || live.length === 0) return;
+          if (phase === 'go') {
+            if (s === since || s % 10 === 0) {
+              sim.queueCommand({ kind: 'attackMove', ids: escort, ...M(leg.mouth[0], leg.mouth[1]) });
+              // The foot of each ravine is a stocked vent (the north route's in the west chute, the
+              // east route's on the road): the escort goes down first and the charge crew follows.
+              if (k > 0 || s >= LEAD) sim.queueCommand({ kind: 'move', ids: live, ...M(leg.mouth[0], leg.mouth[1]) });
+            }
+            const px = Number(sim.state.posX[live[0]]) / 65536;
+            const py = Number(sim.state.posY[live[0]]) / 65536;
+            if (Math.hypot(px - leg.mouth[0], py - leg.mouth[1]) <= 2.5 || s - since > 90) {
+              sim.queueCommand({ kind: 'chargeTunnel', ids: live, tunnel: leg.tunnel });
+              phase = 'charge';
+              since = s;
+            }
+          } else if (sim.tnAlive[leg.tunnel] === 0 || s - since > 60) {
+            k++;
+            phase = 'go';
+            since = s;
+          }
+        });
+      }
+    };
+    crew(west, westEscort, [{ tunnel: 0, mouth: [23, 24] }, { tunnel: 1, mouth: [26, 27] }]);
+    crew(east, eastEscort, [{ tunnel: 2, mouth: [24, 22] }, { tunnel: 3, mouth: [30, 24] }]);
 
     // Heavy force takes the spoil field and kills the chief.
-    at(0, () => sim.queueCommand({ kind: 'attackMove', ids: chiefForce, ...M(28, 17) }));
+    at(0, () => sim.queueCommand({ kind: 'attackMove', ids: chiefForce, ...M(28, 35) }));
 
-    at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(28, 17) }));
-    at(0, () => sim.queueCommand({ kind: 'move', ids: mortar, ...M(22, 40) }));
+    at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(28, 30) }));
+    at(0, () => sim.queueCommand({ kind: 'move', ids: mortar, ...M(22, 6) }));
   },
   {},
   'victory',
@@ -3160,7 +3193,10 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // GH-382 moved Umm Zeitoun II-IV onto new ground: 5689 -> 5757 (+68), every term on the Umm Zeitoun
 // chain and nothing else (II 218 -> 228, III 232 -> 280, IV 237 -> 247). III's +48 is its three
 // stars: the drone now reaches its overlook before the posts fall, and the families are ferried.
-const LADDER_CREDITS = 5757;
+// GH-382 moved Deir Amun II-III onto new ground: 5757 -> 5784 (+27), every term on the Deir Amun
+// chain and nothing else (II 225 -> 247, III 240 -> 245). II's +22 is ROE: the yard on its spur
+// takes less contact in the flagged hamlet (97 against 70-75); III's +5 is the same, 90 against 85.
+const LADDER_CREDITS = 5784;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);

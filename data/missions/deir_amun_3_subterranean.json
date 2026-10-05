@@ -4,27 +4,27 @@
   "town": "deir_amun",
   "phase": "subterranean",
   "target_minutes": 7,
-  "map": { "file": "deir_amun", "player_start": [24, 44] },
+  "map": { "file": "deir_amun_3", "player_start": [24, 4] },
   "ledger": {
     "requires": ["roster.surviving_units", "intel.marked_positions"],
     "produces": ["roster.surviving_units", "roe.mission_ratings", "campaign.completed_missions", "campaign.mission_results", "intel.marked_positions"]
   },
-  "briefing": "There are four routes under this village and every one was finished before the war, so none of them throws spoil. The only thing that can find them is a man with a detector and a clear line to the ground they run under. You cannot hold all four at once. Contact goes cold about sixteen seconds after the last eye leaves it, and the drone is a pointer rather than a scout, blind behind a building exactly like a rifleman. Work them in an order and mean it. Bringing one down kills whoever is stocked in it, so what you drop first decides which of the rest comes up behind you. One of them surfaces on your own road east. Whatever you leave standing there is standing under your armour. The chief is on the spoil field north of the village, a level above everything around it, on ground his own crews raised. He does not go underground and he will not leave it. The Lavi's gun and the mortar are billed by the ten seconds in that village and there is nothing in it worth the money. Rifles and the Eitan's fifty are free. Bring all four down inside five minutes, and take the chief off that spoil.",
+  "briefing": "There are four routes under this village and every one was finished before the war, so none of them throws spoil. The only thing that can find them is a man with a detector and a clear line to the ground they run under. You cannot hold all four at once. Contact goes cold about sixteen seconds after the last eye leaves it, and the drone is a pointer rather than a scout, blind behind a building exactly like a rifleman. Work them in an order and mean it. Bringing one down kills whoever is stocked in it, so what you drop first decides which of the rest comes up behind you. One of them surfaces on your own road east. Whatever you leave standing there is standing under your armour. The village sits on the lip below the plateau and you come down at it through two ravines, so the chief is behind it for once: on the spoil field south of the village, a level above the ground around it, on ground his own crews raised. He does not go underground and he will not leave it. The Lavi's gun and the mortar are billed by the ten seconds in that village and there is nothing in it worth the money. Rifles and the Eitan's fifty are free. Bring all four down inside five minutes, and take the chief off that spoil.",
   "briefing_sections": [
     {"id": "situation", "text": "There are four routes under this village and every one was finished before the war, so none of them throws spoil. The only thing that can find them is a man with a detector and a clear line to the ground they run under. You cannot hold all four at once."},
-    {"id": "execution", "text": "Contact goes cold about sixteen seconds after the last eye leaves it, and the drone is a pointer rather than a scout, blind behind a building exactly like a rifleman. Work them in an order and mean it. Bringing one down kills whoever is stocked in it, so what you drop first decides which of the rest comes up behind you. One of them surfaces on your own road east. Whatever you leave standing there is standing under your armour. The chief is on the spoil field north of the village, a level above everything around it, on ground his own crews raised. He does not go underground and he will not leave it. The Lavi's gun and the mortar are billed by the ten seconds in that village and there is nothing in it worth the money. Rifles and the Eitan's fifty are free."},
+    {"id": "execution", "text": "Contact goes cold about sixteen seconds after the last eye leaves it, and the drone is a pointer rather than a scout, blind behind a building exactly like a rifleman. Work them in an order and mean it. Bringing one down kills whoever is stocked in it, so what you drop first decides which of the rest comes up behind you. One of them surfaces on your own road east. Whatever you leave standing there is standing under your armour. The village sits on the lip below the plateau and you come down at it through two ravines, so the chief is behind it for once: on the spoil field south of the village, a level above the ground around it, on ground his own crews raised. He does not go underground and he will not leave it. The Lavi's gun and the mortar are billed by the ten seconds in that village and there is nothing in it worth the money. Rifles and the Eitan's fifty are free."},
     {"id": "notes", "text": "Bring all four down inside five minutes, and take the chief off that spoil."}
   ],
   "briefing_image": "ui/plates/units/recon_drone.jpg",
   "starting_force": [
-    { "unit": "yahalom_squad", "count": 2, "at": [26, 45] },
-    { "unit": "inf_squad", "count": 4, "at": [24, 46], "from_ledger": true },
-    { "unit": "at_team", "count": 1, "at": [28, 46], "from_ledger": true },
-    { "unit": "mortar_team", "count": 1, "at": [20, 46], "from_ledger": true },
-    { "unit": "apc_eitan", "count": 2, "at": [28, 44] },
-    { "unit": "ifv_namer", "count": 1, "at": [30, 45] },
-    { "unit": "mbt_lavi", "count": 1, "at": [24, 45] },
-    { "unit": "recon_drone", "count": 1, "at": [24, 43] }
+    { "unit": "yahalom_squad", "count": 2, "at": [26, 2] },
+    { "unit": "inf_squad", "count": 4, "at": [24, 1], "from_ledger": true },
+    { "unit": "at_team", "count": 1, "at": [28, 1], "from_ledger": true },
+    { "unit": "mortar_team", "count": 1, "at": [20, 1], "from_ledger": true },
+    { "unit": "apc_eitan", "count": 2, "at": [28, 3] },
+    { "unit": "ifv_namer", "count": 1, "at": [30, 2] },
+    { "unit": "mbt_lavi", "count": 1, "at": [24, 2] },
+    { "unit": "recon_drone", "count": 1, "at": [24, 4] }
   ],
   "resources": { "logistics_start": 500, "logistics_rate_per_min": 90 },
   "objectives": [
@@ -46,27 +46,27 @@
     "faction": "ashwar",
     "doctrine_profile": "the network beneath",
     "garrison": [
-      { "unit": "digger_crew", "count": 1, "at": [28, 17], "tag": "da_hvt_engineer", "group": "chief" },
-      { "unit": "militia_cell", "count": 1, "at": [26, 18], "group": "chief" },
-      { "unit": "militia_cell", "count": 1, "at": [31, 18], "group": "chief" },
-      { "unit": "militia_cell", "count": 1, "at": [19, 21], "group": "hamlet", "stance": { "kind": "garrison", "building": [19, 21] } },
-      { "unit": "militia_cell", "count": 1, "at": [26, 20], "group": "hamlet", "stance": { "kind": "garrison", "building": [26, 20] } },
-      { "unit": "rpg_team", "count": 1, "at": [25, 22], "group": "hamlet", "stance": { "kind": "ambush", "tiles": 3 } },
-      { "unit": "rpg_team", "count": 1, "at": [33, 24], "group": "hamlet", "stance": { "kind": "ambush", "tiles": 3 } },
-      { "unit": "rpg_team", "count": 2, "at": [27, 18], "in_tunnel": "da_tn_lane" },
-      { "unit": "militia_cell", "count": 2, "at": [33, 21], "in_tunnel": "da_tn_yard" },
-      { "unit": "rpg_team", "count": 1, "at": [34, 13], "in_tunnel": "da_tn_north" },
-      { "unit": "militia_cell", "count": 1, "at": [34, 13], "in_tunnel": "da_tn_north" },
-      { "unit": "militia_cell", "count": 2, "at": [41, 19], "in_tunnel": "da_tn_east" },
-      { "unit": "charge_squad", "count": 1, "at": [28, 20], "stance": { "kind": "ambush", "tiles": 2 } },
-      { "unit": "mortar_crew", "count": 1, "at": [24, 2] },
-      { "unit": "atgm_cell", "count": 1, "at": [41, 14], "stance": { "kind": "ambush", "tiles": 6 } }
+      { "unit": "digger_crew", "count": 1, "at": [28, 35], "tag": "da_hvt_engineer", "group": "chief" },
+      { "unit": "militia_cell", "count": 1, "at": [26, 35], "group": "chief" },
+      { "unit": "militia_cell", "count": 1, "at": [31, 35], "group": "chief" },
+      { "unit": "militia_cell", "count": 1, "at": [20, 21], "group": "hamlet", "stance": { "kind": "garrison", "building": [20, 21] } },
+      { "unit": "militia_cell", "count": 1, "at": [28, 21], "group": "hamlet", "stance": { "kind": "garrison", "building": [28, 21] } },
+      { "unit": "rpg_team", "count": 1, "at": [24, 28], "group": "hamlet", "stance": { "kind": "ambush", "tiles": 3 } },
+      { "unit": "rpg_team", "count": 1, "at": [34, 24], "group": "hamlet", "stance": { "kind": "ambush", "tiles": 3 } },
+      { "unit": "rpg_team", "count": 2, "at": [27, 34], "in_tunnel": "da_tn_lane" },
+      { "unit": "militia_cell", "count": 2, "at": [33, 30], "in_tunnel": "da_tn_yard" },
+      { "unit": "rpg_team", "count": 1, "at": [10, 19], "in_tunnel": "da_tn_north" },
+      { "unit": "militia_cell", "count": 1, "at": [10, 19], "in_tunnel": "da_tn_north" },
+      { "unit": "militia_cell", "count": 2, "at": [40, 21], "in_tunnel": "da_tn_east" },
+      { "unit": "charge_squad", "count": 1, "at": [25, 24], "stance": { "kind": "ambush", "tiles": 2 } },
+      { "unit": "mortar_crew", "count": 1, "at": [20, 38] },
+      { "unit": "atgm_cell", "count": 1, "at": [43, 26], "stance": { "kind": "ambush", "tiles": 6 } }
     ],
     "waves": [
-      { "at_seconds": 120, "to": "hamlet_north", "units": [{ "unit": "militia_cell", "count": 2, "from": "gap_east" }] },
+      { "at_seconds": 120, "to": "hamlet_north", "units": [{ "unit": "militia_cell", "count": 2, "from": "flank_east" }] },
       { "at_seconds": 250, "to": "hamlet_lane",
-        "units": [{ "unit": "rpg_team", "count": 1, "from": "gap_west" }, { "unit": "technical", "count": 1, "from": "gap_west" }],
-        "say": { "speaker": "idit", "text": "One rocket team and a technical through the west gap. That is the last of what the plateau can send; after this he is spending what is underground." } }
+        "units": [{ "unit": "rpg_team", "count": 1, "from": "flank_west" }, { "unit": "technical", "count": 1, "from": "flank_west" }],
+        "say": { "speaker": "idit", "text": "One rocket team and a technical up the west flank road. That is the last of what the flanks can send; after this he is spending what is underground." } }
     ]
   },
   "triggers": [
@@ -79,7 +79,7 @@
       "label": "Chief falls back onto the spoil",
       "on": { "kind": "casualties_pct", "value": 50 },
       "do": { "kind": "withdraw_to", "group": "chief", "to": "spoil_field_centre" },
-      "say": { "speaker": "idit", "text": "He has gone back onto the spoil field. It is the only high ground on this map and his own crews built it out of the routes you are here to bring down." } },
+      "say": { "speaker": "idit", "text": "He has gone back onto the spoil field. It is the one raised ground below the lip and his own crews built it out of the routes you are here to bring down." } },
     { "id": "a_charge_squad_comes_for_the_engineers",
       "label": "Charge squad targets the engineers",
       "on": { "kind": "timer_s", "value": 210 },
