@@ -660,10 +660,19 @@ def _one_material_per_role(merged):
 def build():
     bpy.ops.wm.read_factory_settings(use_empty=True)
     crew._TEX["material"] = None
+    crew._TEX.pop("atlas", None)
     crew._TEAM["id"] = TEAM
     crew._BLOB_KW_ACTIVE.clear()
     crew._BLOB_KW_ACTIVE.update(crew.BLOB_KW.get(TEAM, {}))
     fig, height = crew._load_figure(TEAM)          # the rider figure, textured
+    # A3.1 stage 2 (the RPG): the textured Meshy RPG-7 (`export_meshy_rpg.py`,
+    # `crew.PART_SPECS["rpg_launcher"]`) composed into the RIDERS' atlas --
+    # figure left, RPG right, one material -- exactly as rpg_team does.
+    rpg, rpg_img = crew._load_hand_part(TEAM, "rpg_launcher")
+    crew._normalise_part(TEAM, "rpg_launcher", rpg)
+    crew._compose_atlas(TEAM, fig, [(rpg, rpg_img)])
+    crew._HAND.clear()
+    crew._HAND["rpg_launcher"] = rpg
     bike, info = _load_bike()
 
     parts, forced = [], {}
@@ -682,8 +691,23 @@ def build():
     parts += pas
 
     launcher_at = (RIDER_X["pas"] - LAUNCHER_BACK, LAUNCHER_Y, pas_shoulder_z + LAUNCHER_ABOVE_SHOULDER)
-    launcher = kit.launcher("pas_rpg", launcher_at, yaw=math.pi, pitch=rig.MOTO_LAUNCH_PITCH,
-                            length=1.18, radius=0.075)
+    # The Meshy RPG along the axis kit's tube drew: from the kit bell's rear
+    # face (`at` - 0.5856 L-units back along the pitched bore) to its muzzle
+    # (the tube centre 0.20 behind `at`, plus half its 1.18 m), bell rear on
+    # the bell rear, muzzle toward the kit muzzle, the bore's up toward +z.
+    p_, c_ = rig.MOTO_LAUNCH_PITCH, math.cos(math.pi)
+    D = Vector((math.cos(p_) * c_, 0.0, math.sin(p_)))
+    at_v = Vector(launcher_at)
+    rear = at_v - D * (0.42 * 1.18 + 0.09)
+    front = at_v + Vector((0.20 * c_, 0.0, 0.0)) + D * (1.18 / 2.0)
+    d = (front - rear).normalized()
+    w = (Vector((0.0, 0.0, 1.0)) - d * d.z).normalized()
+    v = w.cross(d)
+    launcher = [crew._part_copy("rpg_launcher", "pas_rpg")]
+    M = Matrix(((d.x, v.x, w.x, rear.x), (d.y, v.y, w.y, rear.y), (d.z, v.z, w.z, rear.z), (0.0, 0.0, 0.0, 1.0)))
+    _transform(launcher[0], M)
+    bpy.data.objects.remove(rpg, do_unlink=True)
+    crew._HAND.clear()
     forced.update({ob: "m_launcher" for ob in launcher})
     parts += launcher
     log(f"launcher at {tuple(round(c, 3) for c in launcher_at)} (pillion shoulder z {pas_shoulder_z:.3f})")
@@ -718,8 +742,9 @@ def build():
     rig.build_clips(arm_obj, TEAM)
     img = bpy.data.images["base_color"]
     before = tuple(img.size)
-    if img.size[0] > crew.TEXTURE_PX or img.size[1] > crew.TEXTURE_PX:
-        img.scale(min(img.size[0], crew.TEXTURE_PX), min(img.size[1], crew.TEXTURE_PX))
+    cap_w, cap_h = crew._TEX.get("atlas") or (crew.TEXTURE_PX, crew.TEXTURE_PX)   # the riders' + RPG atlas
+    if img.size[0] > cap_w or img.size[1] > cap_h:
+        img.scale(min(img.size[0], cap_w), min(img.size[1], cap_h))
     bike_img = bpy.data.images[BIKE_IMAGE]
     bike_before = tuple(bike_img.size)
     if bike_img.size[0] > BIKE_TEXTURE_PX or bike_img.size[1] > BIKE_TEXTURE_PX:

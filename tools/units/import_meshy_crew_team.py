@@ -2752,14 +2752,16 @@ PART_SPECS = {
     # where the procedural gripstock hung -- at 78 deg a grip above the
     # shoulder puts both hands beside the face. The seat search still slides
     # the fat tube 0.3 m up its bore to clear the head, which lifts both
-    # hands: the support hand closes on the tube just BELOW the pistol grip
-    # (`support_ahead` < 0) and may sit `hand_rise` above its shoulder (at
-    # 0.10 every seat was refused: hand 0.30 m above it, measured).
+    # hands: the support hand closes on the tube just ahead of the pistol
+    # grip and may sit `hand_rise` above its shoulder (at 0.10 every seat was
+    # refused: hand 0.30 m above it, measured). `launcher_arms.test.ts`
+    # (ceiling 196/196/207) read idle/fire/move -- support_ahead -0.20:
+    # 229/234/246; -0.10: 203/208/207; -0.05: 187/192/197; +0.02: 170/175/186.
     # The lead's ruling: its pointed missile nose is cut off where the tube
     # ends and the hole capped flat (`_cut_manpad`), and the shipped length
     # -- after that cut -- is the 1.4 m. The strap that hangs off it goes.
     "manpad_tube": dict(kind="launcher", length_m=1.4, src_roll=90.0, src_muzzle=-1, bore_band=(0.50, 0.75),
-                        cut=lambda *a: _cut_manpad(*a), grip_run="deepest", support_ahead=-0.10, hand_rise=0.25,
+                        cut=lambda *a: _cut_manpad(*a), grip_run="deepest", support_ahead=0.02, hand_rise=0.30,
                         rest_behind_grip=-0.20,
                         # 2 cm seat samples (the final clearance check still
                         # samples every 1 cm): at 1 cm its widened search
