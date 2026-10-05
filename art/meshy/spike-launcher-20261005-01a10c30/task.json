@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready shoulder-fired guided anti-tank missile launcher, a weapon of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level. A long square-section missile canister with a sealed front cap and flat rear cover, clipped onto a boxy command launch unit with a thermal sight, rubber eyecup and folding display hood, a pistol grip and a padded shoulder rest underneath, a short folded bipod at the front, a carrying strap. Matte paint worn at the corners, rubber bumpers. Real-world scale, 1.2 metres long. Olive paint, gunmetal, black rubber. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a10c30-4ca3-74b9-befa-ba935597d8b7",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 3803403188,
+    "prompt": "A single low-poly game-ready shoulder-fired guided anti-tank missile launcher, a weapon of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level. A long square-section missile canister with a sealed front cap and flat rear cover, clipped onto a boxy command launch unit with a thermal sight, rubber eyecup and folding display hood, a pistol grip and a padded shoulder rest underneath, a short folded bipod at the front, a carrying strap. Matte paint worn at the corners, rubber bumpers. Real-world scale, 1.2 metres long. Olive paint, gunmetal, black rubber. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1791205856873,
+    "progress": 100,
+    "started_at": 1791205856880,
+    "finished_at": 1791205899521,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10c30-4ca3-74b9-befa-ba935597d8b7/output/model.glb?Expires=4944758400&Signature=Ns754dkOEX7vmfdmb9gihF0w3OJjAHEcx5ghp1fiOFwSXAHSH0307ln~WJjIGJgFFnsDRVosdfMFCB7rX4IjRpT5O4x43giFpr5XZSjI1FbsZ-KB6LOAjqNkMWFuDM3Cy~ANo27GNxYDlFpPFboZF75T02ONo~K9rWa~U6mdXcNeI6xBZ2YZV79mL-C0lAqDAkBKvdjRSsUdCy6WMdVcI8-9nSmGje12DWtc1Bbk5BdEaM36QCBtdhEyOQT40gGC2wwCsjYkDjSvV1xQKH0aai~DIt-eENCoxTksOT~aJ5yLQwmiu5cTjhDk2dM7wSsNzxayjoCzbym4NKsWqoQ6yg__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10c30-4ca3-74b9-befa-ba935597d8b7/output/preview.png?Expires=4944758400&Signature=d2D9Xe022KPEfH9KNS-M14ou3TBhIC~MblwPOFj-JHU22TqJiUMW6t-t2q32fTFWvCXea1pRFbUZvEb59gsGJshDb4YqdzrtIc13giIZZ9FTr4m1NhR8r8XclZ6Wl0hSmBYT0VrSwUyyAU-rotTre8Og4BwuhakXxpNDkWjpbdDC6iTpLZM1ApeQT0OOibsxPSB-wl~PyInfmr1vLUglOut3tjpZtETaezNM6WKw28z~ALp4wkYd0nA34Eec6hE7d3BmwM5uf5zGTVy4rsov0esZJqmIJjxvEU6by5jH6GWq-o4rWFXstN2USO1o9ZdPsAvZCNseehdC7Bja3pOIHA__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1791205856873,
+    "started_at": 1791205856880,
+    "finished_at": 1791205899521
+  },
+  "usd_estimated": 0.4
+}

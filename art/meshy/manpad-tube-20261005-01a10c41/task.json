@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready shoulder-fired surface-to-air missile launcher, a weapon of an irregular militia, worn and field-repaired, scratched gunmetal under sun-faded paint, grips wrapped in tape. At rest, level, lying flat. A slim launch tube with a flared front cap and an open rear, a bulbous gripstock under the front third with a pistol grip and a trigger, a small battery coolant cylinder screwed into the gripstock, a folding open sight on top, a shoulder strap, rubber end bands. Faded paint rubbed through to metal, dust. Real-world scale, 1.4 metres long. Faded olive paint, gunmetal, tan canvas strap. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a10c41-a7cc-7653-a8d8-d549bec79b17",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 206574525,
+    "prompt": "A single low-poly game-ready shoulder-fired surface-to-air missile launcher, a weapon of an irregular militia, worn and field-repaired, scratched gunmetal under sun-faded paint, grips wrapped in tape. At rest, level, lying flat. A slim launch tube with a flared front cap and an open rear, a bulbous gripstock under the front third with a pistol grip and a trigger, a small battery coolant cylinder screwed into the gripstock, a folding open sight on top, a shoulder strap, rubber end bands. Faded paint rubbed through to metal, dust. Real-world scale, 1.4 metres long. Faded olive paint, gunmetal, tan canvas strap. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1791206994272,
+    "progress": 100,
+    "started_at": 1791206994277,
+    "finished_at": 1791207044624,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10c41-a7cc-7653-a8d8-d549bec79b17/output/model.glb?Expires=4944758400&Signature=ZXFDpse~RPKwPAY1fH~oPe~t5FIkYwZAm2g8U8D1~SWUZbziwUx0x0TcRpmSBq9U1tsjkvW02dhvQsxxk51GRyeOjXqQ6ovbpiIMJmO274bziaAi0ujiRtfteqyJD2CH1Xjxfyo7Erc3fSw9Z2Wp2-ZujBkyMbzghAkBnSK-3nVdy-VYCq7Kol9yOlnlPYdpwG~qDvi1-MgG6MrdDkw4iWG8OOlc8s-Ii9rZtR2ALZ3bvSi3g3NWYWMvvhnlU2IT4ou5o2~EFYz7DIy-D-sMk-NiILYDs3HEsuS0F7YdB0XHbq1SGII7Z20uq8K56rIk~WYZ7hwraqTC3CeDRrpaPg__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10c41-a7cc-7653-a8d8-d549bec79b17/output/preview.png?Expires=4944758400&Signature=DiR5s51yNn6Pa84vLwP4IdR6iUYClilFoRi8AncTs-VhXaN7DCvmuXK~kVZG0d8Hpe6heC16l38Q964ffCKdq3uw6K4QbyCR2I3cacDGdWeTWxNU~chgSS3Mek6B6KFY-MnCG-pnAngT-746xN0Ms4jE0XZMpbx5fnrKHHs5zWhLx6os8caJ4pzohMuifEsWqngtL0mCkHMb8XxB9mlciCoSi-JOeGmqorxbF9XZOkmdX6EZXHVvs8oVcR-emRybr7FK-VVv9EDIzfxKmL1WlforP~1HNU3MKMB6tf7ruTy1nRFhwbvlQHBI08hLKgx~Ru~C738STdTkhRUhiF-kRQ__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1791206994272,
+    "started_at": 1791206994277,
+    "finished_at": 1791207044624
+  },
+  "usd_estimated": 0.4
+}
