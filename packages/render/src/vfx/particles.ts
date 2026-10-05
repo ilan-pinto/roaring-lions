@@ -1,10 +1,25 @@
 import type { ParticleSpec, Range } from './emitters';
 
-function pick(r: Range | undefined, fallback: number): number {
+function pick(r: Range | undefined, fallback: number, rand: () => number = Math.random): number {
   if (r === undefined) return fallback;
   if (typeof r === 'number') return r;
-  return r[0] + Math.random() * (r[1] - r[0]);
+  return r[0] + rand() * (r[1] - r[0]);
 }
+
+/**
+ * Optional determinism for one `spawn()` call (GH-391). `rand` replaces
+ * `Math.random` for every roll of that call, and `ageSec` places the
+ * particles as if they had been emitted that long ago -- both exist so a
+ * caller can date an emission off the SIM clock and make the frozen frame a
+ * pure function of sim time. Absent, `spawn` is exactly what it always was.
+ * Burst path only: an `emit_over_ms` trickle keeps its own clock.
+ */
+export interface SpawnDeterminism {
+  rand: () => number;
+  ageSec: number;
+}
+
+const AGE_SUBSTEP_SEC = 0.05;
 
 /** Sample a stepped curve. Stepped, not interpolated: interpolating palette
  *  colours would generate off-palette values the art gate rejects. */
@@ -109,6 +124,9 @@ export class ParticleSystem {
   private readonly drag: Float64Array;
   private readonly priority: Uint8Array;
   private readonly alive: Uint8Array;
+  /** 1 when this particle ages on the SIM clock (`step`'s `simDt`) rather than
+   *  the frame's -- set by `spawn`'s `SpawnDeterminism`. */
+  private readonly simDated: Uint8Array;
   /** Which draw layer a particle belongs to (0 = below units, 1 = above
    *  units). One shared pool, so priority-based eviction still competes
    *  across both layers rather than reserving capacity per layer. */
@@ -142,6 +160,7 @@ export class ParticleSystem {
     this.drag = new Float64Array(capacity);
     this.priority = new Uint8Array(capacity);
     this.alive = new Uint8Array(capacity);
+    this.simDated = new Uint8Array(capacity);
     this.layerIdx = new Uint8Array(capacity);
     this.soft = new Uint8Array(capacity);
     this.colors.length = capacity;
@@ -199,10 +218,14 @@ export class ParticleSystem {
     priority: number,
     layerIdx: number,
     velX = 0,
-    velY = 0
+    velY = 0,
+    det?: SpawnDeterminism
   ): void {
+    const rand = det?.rand ?? Math.random;
+    const ageSec = det?.ageSec ?? 0;
+    const dated = det !== undefined;
     const scale = 0.75 + magnitude * 1.25;
-    const n = Math.max(1, Math.round(pick(spec.count, 1) * (0.5 + magnitude * 0.9)));
+    const n = Math.max(1, Math.round(pick(spec.count, 1, rand) * (0.5 + magnitude * 0.9)));
     const coneRad = ((spec.cone_deg ?? 360) * Math.PI) / 180;
     const dirRad = dirTurns * Math.PI * 2;
     const resolved = spec.color_over_life.map((k) => this.resolve(k));
@@ -211,13 +234,13 @@ export class ParticleSystem {
     // The first particle always lands now, burst or sustained alike -- a
     // sustained emitter with a 900ms window must not read as "nothing for
     // the first frame".
-    this.spawnOne(spec, x, y, dirRad, coneRad, scale, resolved, priority, layerIdx, velX, velY);
+    this.spawnOne(spec, x, y, dirRad, coneRad, scale, resolved, priority, layerIdx, velX, velY, rand, ageSec, dated);
 
     if (emitOverMs <= 0 || n <= 1) {
       // Burst path, byte-for-byte the loop this always was: same per-particle
       // work (spawnOne), same order, same count.
       for (let k = 1; k < n; k++) {
-        this.spawnOne(spec, x, y, dirRad, coneRad, scale, resolved, priority, layerIdx, velX, velY);
+        this.spawnOne(spec, x, y, dirRad, coneRad, scale, resolved, priority, layerIdx, velX, velY, rand, ageSec, dated);
       }
       return;
     }
@@ -256,40 +279,50 @@ export class ParticleSystem {
     priority: number,
     layerIdx: number,
     velX: number,
-    velY: number
+    velY: number,
+    rand: () => number = Math.random,
+    ageSec = 0,
+    dated = false
   ): void {
     const i = this.freeSlot(priority);
     if (i < 0) return;
     if (this.alive[i] === 0) this.liveCount++;
-    const a = dirRad + (Math.random() - 0.5) * coneRad;
-    const speed = pick(spec.speed_tiles_s, 0);
+    const a = dirRad + (rand() - 0.5) * coneRad;
+    const speed = pick(spec.speed_tiles_s, 0, rand);
     const inherit = spec.inherit_velocity ?? 0;
     this.x[i] = x;
     this.y[i] = y;
     this.vx[i] = Math.cos(a) * speed + velX * inherit;
     this.vy[i] = Math.sin(a) * speed + velY * inherit;
     this.age[i] = 0;
-    this.life[i] = pick(spec.lifetime_ms, 200) / 1000;
-    this.size[i] = pick(spec.size_px, 6) * scale;
+    this.life[i] = pick(spec.lifetime_ms, 200, rand) / 1000;
+    this.size[i] = pick(spec.size_px, 6, rand) * scale;
     this.gravity[i] = spec.gravity_tiles_s2 ?? 0;
     this.drag[i] = spec.drag ?? 0;
     this.priority[i] = priority;
     this.layerIdx[i] = layerIdx;
     this.soft[i] = isSoftParticleSprite(spec.sprite) ? 1 : 0;
     this.alive[i] = 1;
+    this.simDated[i] = dated ? 1 : 0;
     this.colors[i] = resolved;
     this.alphaCurve[i] = spec.alpha_over_life;
     this.sizeCurve[i] = spec.size_over_life;
+    if (ageSec > 0) this.advance(i, ageSec);
   }
 
-  step(dt: number): void {
-    for (let i = 0; i < this.capacity; i++) {
-      if (this.alive[i] === 0) continue;
+  /** Ages one particle by `sec` in the same fixed sub-steps `step` would
+   *  have used, or kills it if that outlives it. Only for a particle that
+   *  is born already old (`SpawnDeterminism.ageSec`). */
+  private advance(i: number, sec: number): void {
+    let left = sec;
+    while (left > 0) {
+      const dt = Math.min(AGE_SUBSTEP_SEC, left);
+      left -= dt;
       this.age[i] += dt;
       if (this.age[i] >= this.life[i]) {
         this.alive[i] = 0;
         this.liveCount--;
-        continue;
+        return;
       }
       const d = 1 - this.drag[i] * dt;
       this.vx[i] *= d;
@@ -297,6 +330,33 @@ export class ParticleSystem {
       this.vy[i] += this.gravity[i] * dt;
       this.x[i] += this.vx[i] * dt;
       this.y[i] += this.vy[i] * dt;
+    }
+  }
+
+  /**
+   * Ages every particle by `dt` seconds of frame time -- except those born
+   * with `SpawnDeterminism`, which age by `simDt`, the sim time this frame
+   * presents beyond the last. A frozen gate frame (sim time jumped, however
+   * long the frame was) then holds exactly the particles sim time says are
+   * alive. `simDt` defaults to `dt`, so every other caller is unchanged.
+   */
+  step(frameDt: number, simDt: number = frameDt): void {
+    const dt = frameDt;
+    for (let i = 0; i < this.capacity; i++) {
+      if (this.alive[i] === 0) continue;
+      const pdt = this.simDated[i] === 1 ? simDt : frameDt;
+      this.age[i] += pdt;
+      if (this.age[i] >= this.life[i]) {
+        this.alive[i] = 0;
+        this.liveCount--;
+        continue;
+      }
+      const d = 1 - this.drag[i] * pdt;
+      this.vx[i] *= d;
+      this.vy[i] *= d;
+      this.vy[i] += this.gravity[i] * pdt;
+      this.x[i] += this.vx[i] * pdt;
+      this.y[i] += this.vy[i] * pdt;
     }
 
     // Trickle sustained emissions. Iterated back-to-front so a finished
