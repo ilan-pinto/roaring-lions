@@ -2102,12 +2102,12 @@ const ledQH2 = run(
     const demo = ids('demo_squad');
     const drone = ids('recon_drone');
     at(1, () => {
-      sim.queueCommand({ kind: 'move', ids: [...tank, ...namer, ...armour], ...M(20, 20) });
-      sim.queueCommand({ kind: 'attackMove', ids: [...foot, ...at_], ...M(38, 38) });
-      sim.queueCommand({ kind: 'move', ids: mortar, ...M(26, 30) });
+      sim.queueCommand({ kind: 'move', ids: [...tank, ...namer, ...armour], ...M(14, 15) });
+      sim.queueCommand({ kind: 'attackMove', ids: [...foot, ...at_], ...M(39, 38) });
+      sim.queueCommand({ kind: 'move', ids: mortar, ...M(26, 32) });
       sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 30) });
     });
-    at(100, () => sim.queueCommand({ kind: 'move', ids: demo, ...M(20, 20) }));
+    at(100, () => sim.queueCommand({ kind: 'move', ids: demo, ...M(14, 15) }));
   },
   ledQH1,
   'victory',
