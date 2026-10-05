@@ -87,3 +87,10 @@ art/blend/
 # wanted in git, and it accumulates just from running `wrangler dev`.
 .wrangler/
 art/portraits/.roles.json
+# A3.1 stage 2's 8k Meshy remesh sources (46-72 MB each): kept on disk, never
+# committed, as B7/B8's 8k sources were not. Named by path rather than a
+# blanket `art/meshy/*/model.glb`, because 28 smaller remesh sources ARE
+# tracked by precedent and a blanket rule would hide the next one.
+art/meshy/recon-drone-20261005-01a10c59/model.glb
+art/meshy/attack-drone-20261005-01a10c7c/model.glb
+art/meshy/moto-rpg-20261005-01a10c69/model.glb
