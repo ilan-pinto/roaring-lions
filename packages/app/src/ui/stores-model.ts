@@ -60,7 +60,7 @@ export function packBonusPercent(pack: CoinPack, base: CoinPack = COIN_PACKS[0])
  *  a finite number of campaigns, and guard G1 (spec §1.7) keeps no credit item
  *  off sale. (It was `LIFETIME_CREDITS = 5849`, stale since GH-345 moved the
  *  ladder, with nothing pinning it.) */
-export const CAMPAIGN_CREDITS = 5784;
+export const CAMPAIGN_CREDITS = 5828;
 /** The same ladder's mission count, for a mean pay a fresh account can quote
  *  before it has been paid for anything. */
 export const LADDER_MISSIONS = 26;

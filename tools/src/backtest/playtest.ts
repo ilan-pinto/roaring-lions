@@ -1355,20 +1355,17 @@ run(
 
 run('khan_rafid_2_foothold', () => {}, {}, 'defeat', 'khan_rafid_2_foothold (passive control)');
 
-// KR II -- clear the ward with the hold force (rifles + one Eitan, both
-// under the 0.3 structural-collateral threshold that arms `fire into
-// protected structure (ward)`), while the Namer runs a family in from BOTH
-// sides via the east lane corridor (x=33) rather than straight up the
-// middle -- it never crosses the flagged rectangle, so its 0.35-collateral
-// cannon_30 can only reach INTO the ward from outside it on a stray round,
-// not fire from inside it. AT team and mortar stay south at the staging
-// ground the whole mission: their collateral (0.3, 0.7) is exactly the kind
-// this mission bills for, and neither is needed to clear six rifle-armed
-// militia off a compound. Measured: VICTORY in 4.43 min, ROE 95 (one
-// flagged-zone deduction survives: the Namer's cannon can still reach INTO
-// the zone from its own corridor once a `ward_push` section is standing in
-// it, which is the mechanic `khan_rafid_2_foothold.json`'s own `commit`
-// trigger is built to force).
+// KR II (GH-382: the ward stands on a mound in a market plain, ring road at its foot) -- clear
+// the ward with the hold force (rifles + one Eitan, both under the 0.3 structural-collateral
+// threshold that arms `fire into protected structure (ward)`), while the Namer runs the eastern
+// family up the east flank of the ring road and the jeep fetches the southern one. It enters the
+// ward by a gate to unload, so its cannon can reach into the zone only from the gate. AT team and
+// mortar stay south at the staging ground: their collateral (0.3, 0.7) is exactly the kind this
+// mission bills for. Measured: VICTORY in 4.4 min, ROE 100 (pinned seed 424242). The Namer's
+// leg is given 60 s: the lane-east ambush at [34,18] sits on its route and on two of twelve
+// seeds (7 and 12, the same two as on the old ground) the Namer stops at [34,20], short of the
+// family, and never moves again (cause not established), so `get_four_in` fails: the plan is a proof of winnability, not of
+// a floor, and those seeds are in the PR's before/after table rather than papered over.
 run(
   'khan_rafid_2_foothold',
   (sim, _rt, ids, at) => {
@@ -1381,26 +1378,25 @@ run(
     const drone = ids('recon_drone');
     const holdForce = [...inf, ...eitan];
 
-    at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 20) }));
-    at(0, () => sim.queueCommand({ kind: 'attackMove', ids: holdForce, ...M(24, 20) }));
+    at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 23) }));
+    at(0, () => sim.queueCommand({ kind: 'attackMove', ids: holdForce, ...M(24, 23) }));
 
-    // Jeep: the close southern family, five tiles from the start line.
-    at(0, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(23, 27) }));
-    at(15, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(24, 22) }));
+    // Jeep: the close southern family, ten tiles from the start line.
+    at(0, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(22, 32) }));
+    at(15, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(24, 23) }));
 
-    // Namer: the eastern family via the east lane corridor, staying outside
-    // the ward's flagged rectangle for the whole round trip.
+    // Namer: the eastern family up the east flank of the ring road.
     at(0, () => {
-      sim.queueCommand({ kind: 'move', ids: namer, ...M(33, 25) });
-      sim.queueCommand({ kind: 'move', ids: namer, ...M(31, 16), append: true });
+      sim.queueCommand({ kind: 'move', ids: namer, ...M(33, 30) });
+      sim.queueCommand({ kind: 'move', ids: namer, ...M(34, 13), append: true });
     });
-    at(35, () => {
-      sim.queueCommand({ kind: 'move', ids: namer, ...M(33, 25) });
-      sim.queueCommand({ kind: 'move', ids: namer, ...M(24, 22), append: true });
+    at(60, () => {
+      sim.queueCommand({ kind: 'move', ids: namer, ...M(33, 24) });
+      sim.queueCommand({ kind: 'move', ids: namer, ...M(24, 23), append: true });
     });
 
-    at(0, () => sim.queueCommand({ kind: 'move', ids: at_team, ...M(24, 36) }));
-    at(0, () => sim.queueCommand({ kind: 'move', ids: mortar, ...M(22, 38) }));
+    at(0, () => sim.queueCommand({ kind: 'move', ids: at_team, ...M(26, 40) }));
+    at(0, () => sim.queueCommand({ kind: 'move', ids: mortar, ...M(22, 41) }));
   },
   {},
   'victory',
@@ -1409,30 +1405,21 @@ run(
 
 run('khan_rafid_3_clearance', () => {}, {}, 'defeat', 'khan_rafid_3_clearance (passive control)');
 
-// KR III -- O-KR4's measurement gate. `structure_penalty_mult: 2` ships as
-// authored (see the note below the ladder): this plan clears the souk with
-// the vanguard (rifles + one Eitan + the Lavi + the sniper) walking straight
-// at `souk_alley`, which enters the `souk` zone before it is in weapon range
-// of either garrisoned shanty -- `zone_entered(souk)` fires the `commit`
-// trigger first, and a `commit`/`withdraw_to` order calls `leaveStructure`
-// on a garrisoned unit exactly as an explicit move does (sim.ts:1927), so
-// the souk garrison is walking in the open by the time anyone is close
-// enough to shoot at their buildings. The hall itself is never engaged --
-// `roe_penalty` 30 keeps it off `selectStructureTarget` entirely -- and the
-// store's secondary is skipped outright, since its warehouse garrison has no
-// commit trigger of its own and any fight there is a structure paid for at
-// mult 2 for a secondary nobody needs. Namer and the second Eitan run the
-// three remaining families via the west/east-lane corridors, clear of both
-// the souk and hall. Measured: VICTORY in 2.77 min, ROE 86 -- one Shanty (-4)
-// from the Lavi's own splash during the souk fight, plus two flagged-zone
-// deductions from fire reaching into the ward while `hall_party`'s ambush
-// team is engaged near it. 86 >= 65, so O-KR4 keeps the dial as authored:
-// `structure_penalty_mult: 2`, `fail_below: 50`. (Compare the naive plan
-// below, which throws the same roster at the souk WITHOUT peeling off for
-// the families until t=90s: ROE 70 -- still clear of the 65 gate and the 50
-// floor -- but DEFEAT, because `get_six_in` misses its 300s deadline. The
-// rising evacuation count, not the ROE floor, is what actually decides this
-// mission for a player who does not split forces early.)
+// KR III (GH-382: the garden souk) -- O-KR4's measurement gate. `structure_penalty_mult: 2` ships
+// as authored: the vanguard (rifles + one Eitan + the Lavi + the sniper) walks straight at the
+// souk alley, which enters the `souk` zone before it is in weapon range of either garrisoned
+// shanty -- `zone_entered(souk)` fires the `commit` trigger first, and a `commit`/`withdraw_to`
+// order calls `leaveStructure` on a garrisoned unit exactly as an explicit move does
+// (sim.ts:1927), so the souk garrison is walking in the open by the time anyone is close enough
+// to shoot at their buildings. The civic hall (SW ward) is never engaged -- `roe_penalty` 30 keeps
+// it off `selectStructureTarget` entirely -- and the store's secondary is skipped outright, since
+// its warehouse garrison has no commit trigger of its own. Three families sit in walled
+// orchards, one gap each, and the plan takes one per carrier: the jeep the south-east orchard
+// (through the gap in its west wall), the second Eitan the east orchard (gap in its south wall),
+// the Namer the west orchard, the longest drive, so it is given 45 s before it turns for the
+// ward. Six in, the objective's count, is those three. Measured: VICTORY in 0.9 min, ROE 100
+// (pinned seed), 12 of 12 over seeds 1..12. That is a floor with the puzzle removed, and
+// the ladder is where the real difficulty lives (see the PR table).
 const khanRafid3Plan: Plan = (sim, _rt, ids, at) => {
   const inf = ids('inf_squad');
   const eitan = ids('apc_eitan');
@@ -1445,27 +1432,20 @@ const khanRafid3Plan: Plan = (sim, _rt, ids, at) => {
   const drone = ids('recon_drone');
   const vanguard = [...inf, eitan[0], ...lavi, ...sniper];
 
-  at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 11) }));
-  at(0, () => sim.queueCommand({ kind: 'attackMove', ids: vanguard, ...M(24, 11) }));
+  at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 18) }));
+  at(0, () => sim.queueCommand({ kind: 'attackMove', ids: vanguard, ...M(24, 18) }));
 
-  // South family, close.
-  at(0, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(30, 27) }));
-  at(15, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(24, 22) }));
+  // South-east orchard family, through its one gap on the west wall, then to the ward.
+  at(0, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(40, 34) }));
+  at(30, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(10, 35) }));
 
-  // Namer sweeps both western families, well clear of the souk/hall fight.
-  at(0, () => sim.queueCommand({ kind: 'move', ids: namer, ...M(20, 16) }));
-  at(25, () => sim.queueCommand({ kind: 'move', ids: namer, ...M(16, 16) }));
-  at(45, () => sim.queueCommand({ kind: 'move', ids: namer, ...M(24, 22) }));
+  // Namer takes the west orchard family (the longest drive: ~45 tiles, so it gets 45 s, not 25), well clear of the souk fight.
+  at(0, () => sim.queueCommand({ kind: 'move', ids: namer, ...M(7, 17) }));
+  at(45, () => sim.queueCommand({ kind: 'move', ids: namer, ...M(10, 35) }));
 
-  // Second Eitan grabs the eastern family via the east lane corridor.
-  at(0, () => {
-    sim.queueCommand({ kind: 'move', ids: [eitan[1]], ...M(33, 25) });
-    sim.queueCommand({ kind: 'move', ids: [eitan[1]], ...M(31, 16), append: true });
-  });
-  at(35, () => {
-    sim.queueCommand({ kind: 'move', ids: [eitan[1]], ...M(33, 25) });
-    sim.queueCommand({ kind: 'move', ids: [eitan[1]], ...M(24, 22), append: true });
-  });
+  // Second Eitan takes the east orchard family out through the gap in its south wall.
+  at(0, () => sim.queueCommand({ kind: 'move', ids: [eitan[1]], ...M(40, 17) }));
+  at(35, () => sim.queueCommand({ kind: 'move', ids: [eitan[1]], ...M(10, 35) }));
 
   at(0, () => sim.queueCommand({ kind: 'move', ids: at_team, ...M(24, 36) }));
   at(0, () => sim.queueCommand({ kind: 'move', ids: mortar, ...M(22, 38) }));
@@ -3193,10 +3173,15 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // GH-382 moved Umm Zeitoun II-IV onto new ground: 5689 -> 5757 (+68), every term on the Umm Zeitoun
 // chain and nothing else (II 218 -> 228, III 232 -> 280, IV 237 -> 247). III's +48 is its three
 // stars: the drone now reaches its overlook before the posts fall, and the families are ferried.
-// GH-382 moved Deir Amun II-III onto new ground: 5757 -> 5784 (+27), every term on the Deir Amun
+
+// GH-382 moved Khan Rafid II-III onto new ground: 5757 -> 5801 (+44), every term on the Khan Rafid
+// chain and nothing else (II 220 -> 225, III 216 -> 255); recomputed on the merge with the Umm
+// Zeitoun arc, not summed: 5689 + 68 + 44 = 5801 and the ladder printed 5801.
+
+// GH-382 moved Deir Amun II-III onto new ground: 5801 -> 5828 (+27, recomputed on the merge with Khan Rafid), every term on the Deir Amun
 // chain and nothing else (II 225 -> 247, III 240 -> 245). II's +22 is ROE: the yard on its spur
 // takes less contact in the flagged hamlet (97 against 70-75); III's +5 is the same, 90 against 85.
-const LADDER_CREDITS = 5784;
+const LADDER_CREDITS = 5828;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
