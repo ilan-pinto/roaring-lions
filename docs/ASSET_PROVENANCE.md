@@ -1169,3 +1169,29 @@ Meshy for 0 credits inside its three-day window; the same rule applies to them.
 
 **Portraits re-rendered** for `mortar_team` and `sniper_team` (`tools/render_unit_portraits.py --only`).
 
+
+---
+
+## WP-A3.1 stage 2 — the drones and the bike, textured (GH-179), 2026-10-05
+
+Three units re-made through `pnpm meshy` (text-to-3D preview, refine at **8k**,
+remesh at the bible's target), shipping each remesh's own bake instead of the
+palette: 20 credits a unit for the refine and remesh (60), on top of the stage-1
+previews. **AI-generated (Meshy)** and disclosed per `CONTRIBUTING.md`; every
+spend and prompt is a line in `art/meshy/ledger.jsonl`. Committed for each: the
+refine and remesh `task.json` and `thumbnail.png`, and the remesh `model.glb`
+(never a preview's). Every model at maximum detail, simplified only to the
+measured triangle caps (the lead's rule, 2 Oct).
+
+| File | Draws as | Preview task id | Refine task id (8k) | Remesh task id (shipped) | Notes |
+|---|---|---|---|---|---|
+| `art/meshes/vehicles/recon_drone.glb` | `recon_drone` (KDF recon drone) | `01a10c2f-177b-768e-aeb2-690b70446bb2` | `01a10c57-cf0b-75ce-92c0-9574434b8631` | `01a10c59-eede-7009-82ba-125e709bbe8e` at 800 (801 arrived) | Arrived a HEXACOPTER (six arms); six flat rotor-guard rings added in Blender (uv into the motor-cap texel), **945 tris** of the 1,000 cap. 0.9 m real, **drawn 1.35 m** (`SIZE_CLASS["air"]` x1.5). Bake kept at 2,048 (base colour, metallic-roughness, normal). Replaces B0a's palette v2 (`01a0f2aa`). |
+| `art/meshes/vehicles/attack_drone.glb` | `attack_drone` (KDF loitering munition) | `01a10c43-ae9f-7219-b923-62eb52ac13fb` | `01a10c79-b7bf-7749-aaa8-1be09178f0f5` | `01a10c7c-2354-70e0-be0e-d47776620bb6` at 800 (789 arrived) | Arrived with a STRAIGHT WING the prompt forbade; cut in Blender (309 faces) on the lead's ruling, slit closed, the four stray store pieces (16 faces) dropped: **474 tris**. Re-measured after the cut: 1.575 m long (1.05 m real x1.5), 0.85 m across the propeller disc, 0.62 m tall. The teal bake (hue ~190) turned onto olive in code (`_teal_to_olive`, 66% of texels). Replaces B0a's palette remesh (`01a0f26d`). |
+| `art/meshes/moto_rpg.glb` (the bike) | `moto_rpg` (Armed Motorcycle, enemy) | `01a10c31-ea45-70f1-bef0-b06f3d51d4e2` | `01a10c65-0225-775d-8dfd-e5f11040b216` | `01a10c69-8fc1-740c-acb1-1e25cd415d57` at 1,500 (1,440 arrived) | The bike body rebuilt from the remesh with its OWN material and bake (`bike_material` / `bike_color`, 2,048), not a share of the riders' atlas (see the importer's "THE BIKE'S BAKE"). A stray second front wheel (155 faces), the rear-wheel island and a bedroll on the saddle (45 faces) deleted; both wheels are kit tubes textured from the bike's tyre texel (the remesh's hoops are poor and the front one is welded to a yawed fork). Riders unchanged: B3's `rpg_team` figure. **7,903 tris** of the 8,000 cap. Replaces B6's palette bike (`01a0f631`). |
+
+Through `tools/drones/export_meshy_drones.py` (now the textured path, after
+`export_meshy_ramp.py`) and `tools/units/import_meshy_moto_rpg.py`; both drones
+join `TEXTURED_VEHICLE_TYPES` / `TEXTURED_VEHICLE_EXEMPT`. Idle stills at 1,400 px
+in `docs/art/sheets/a31-parts/<id>-idle.png` (`tools/render_baked_pose.py`, the
+bake-keeping twin of `render_clip_pose.py`). **Portraits re-rendered** for all
+three (`tools/render_unit_portraits.py --only`).

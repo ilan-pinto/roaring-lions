@@ -1,7 +1,8 @@
 {
   "unit": "attack_drone",
+  "variant": "team",
   "source": "assets/meshes/vehicles/attack_drone.glb",
-  "source_sha256": "762d60410c6454f6e85fdce4345013b20eb0867746c84a009504d0d1691e09e5",
+  "source_sha256": "8ae25410a9f2223cc6a2e76f0c296de8cecf027ef7ed2839362d4f34a8f4c35c",
   "yaw_deg": -125.0,
   "elevation_deg": 18.0,
   "fov_deg": 30.0,
@@ -12,11 +13,11 @@
   "ndc_box": [
     0.04,
     0.96,
-    0.1933,
-    0.8067
+    0.1949,
+    0.8051
   ],
   "materials": {
-    "baked": 0,
-    "flat": 3
+    "baked": 3,
+    "flat": 0
   }
 }
