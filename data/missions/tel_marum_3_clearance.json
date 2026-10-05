@@ -107,35 +107,35 @@
       {
         "unit": "atgm_cell",
         "count": 1,
-        "at": [19.5, 16.5],
+        "at": [31.5, 12.5],
         "facing_deg": 180,
         "tag": "tm_pocket_west"
       },
       {
         "unit": "atgm_cell",
         "count": 1,
-        "at": [28.5, 16.5],
+        "at": [35.5, 12.5],
         "facing_deg": 180,
         "tag": "tm_pocket_east"
       },
       {
         "unit": "sarim_rifles",
         "count": 1,
-        "at": [20.5, 16.5],
+        "at": [30.5, 11.5],
         "facing_deg": 180,
         "tag": "tm_spotter_west"
       },
       {
         "unit": "sarim_rifles",
         "count": 1,
-        "at": [12.5, 4.5],
+        "at": [10.5, 11.5],
         "facing_deg": 180,
         "tag": "tm_spotter_narrow"
       },
       {
         "unit": "recoilless_team",
         "count": 1,
-        "at": [26.5, 16.5],
+        "at": [34.5, 10.5],
         "facing_deg": 180,
         "stance": { "kind": "ambush", "tiles": 4 },
         "tag": "tm_bay_lip"
@@ -143,7 +143,7 @@
       {
         "unit": "sarim_rifles",
         "count": 1,
-        "at": [24.5, 13.5],
+        "at": [33.5, 8.5],
         "facing_deg": 180,
         "tag": "tm_picket_wide"
       },

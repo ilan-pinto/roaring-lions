@@ -79,3 +79,17 @@ describe('a real roster lands on distinct tiles (tel_marum_2_foothold)', () => {
     expect(grown).toBeLessThanOrEqual(ids.length);
   });
 });
+
+describe('a real roster lands on distinct tiles (tel_marum_3_clearance)', () => {
+  it('the foot units into the defile at (10,16) form a column', () => {
+    const { stacked, ids, sim } = settle('tel_marum_3_clearance', onFoot, 10, 16, 200);
+    expect(stacked, `stacked: ${JSON.stringify(stacked)}`).toHaveLength(0);
+    // Every team is inside the defile (x 10..11, y 13..21) or in the bend below it
+    // -- nowhere else is reachable within the walk bound.
+    for (const id of ids) {
+      const x = fx.toInt(sim.state.posX[id]);
+      const y = fx.toInt(sim.state.posY[id]);
+      expect(x >= 8 && x <= 13 && y >= 12 && y <= 24, `${x},${y}`).toBe(true);
+    }
+  });
+});

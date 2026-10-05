@@ -130,6 +130,7 @@ describe('every mission starts on its own map file and every wave route reaches 
   for (const [mid, file] of [
     ['tel_marum_1_recon', 'tel_marum_1'],
     ['tel_marum_2_foothold', 'tel_marum_2'],
+    ['tel_marum_3_clearance', 'tel_marum_3'],
   ] as const) {
     it(`${mid} plays on ${file}`, () => {
       expect(missionOf(mid).map.file).toBe(file);
@@ -140,7 +141,8 @@ describe('every mission starts on its own map file and every wave route reaches 
           it(`${mid}: ${u.from} -> ${w.to} (on foot, and on wheels where the ground allows it)`, () => {
             const m = J(file);
             expect(path(m, 'foot', mk(m, u.from as string), mk(m, w.to))).not.toBeNull();
-            expect(path(m, 'vehicle', mk(m, u.from as string), mk(m, w.to))).not.toBeNull();
+            if (file !== 'tel_marum_3' || w.to !== 'saddle_narrow')
+              expect(path(m, 'vehicle', mk(m, u.from as string), mk(m, w.to))).not.toBeNull();
           });
   }
   it('the base map carries no mission', () => {
@@ -368,5 +370,120 @@ describe('II: the terraced slope', () => {
   });
   it('the second terrace is out of everyone\'s sight, and the mortar stands on it', () => {
     for (const p of [post(MID, 'tm_spotter_west'), post(MID, 'tm_pocket_west'), post(MID, 'tm_pocket_east')]) expect(sees(m, 16, p, [22, 33]), `${p}`).toBe(false);
+  });
+});
+
+describe('III: the massif', () => {
+  const m = J('tel_marum_3');
+  const elev = (x: number, y: number) => Number(m.elevation![y][x]);
+  const MID = 'tel_marum_3_clearance';
+  const start = missionOf(MID).map.player_start;
+  const battery = mk(m, 'battery_position');
+  const narrow = mk(m, 'saddle_narrow');
+  const pass = mk(m, 'pass');
+  const approach = mk(m, 'approach');
+  const defile = tilesOf(m, 'b');
+
+  it('is twenty rows of rock across the whole width, standing five levels over the plain and three over the plateau and every leg of the road', () => {
+    for (let y = 14; y <= 33; y++) for (const x of [0, 47]) expect(m.rows[y][x], `(${x},${y})`).toBe('^');
+    expect(tilesOf(m, '^').filter(([, y]) => y >= 14 && y <= 33).length).toBeGreaterThan(500);
+    expect(elev(25, 22) - elev(24, 40)).toBeGreaterThanOrEqual(5);
+    expect(elev(25, 22) - elev(24, 10)).toBeGreaterThanOrEqual(3);
+    // (road tile, rock tile beside it): the approach, the first leg, the hairpin, the second leg, the exit
+    for (const [x, y, rx, ry] of [[31, 30, 29, 30], [25, 27, 25, 25], [20, 22, 18, 22], [25, 19, 25, 21], [33, 16, 31, 16]] as const)
+      expect(elev(rx, ry) - elev(x, y), `(${x},${y})`).toBeGreaterThanOrEqual(3);
+  });
+  it('the saddle is a Z of three legs, each walled from the next by a five-row rib; a Lavi drives it in 49 tiles', () => {
+    const r = path(m, 'vehicle', start, pass) as Pt[];
+    expect(steps(r)).toBe(49);
+    expect(r.some(([x, y]) => x <= 21 && y >= 26 && y <= 28)).toBe(true); // west end of the first leg
+    expect(r.some(([x, y]) => x >= 31 && y >= 18 && y <= 20)).toBe(true); // east end of the second
+    for (const y of [21, 22, 23, 24, 25]) expect(m.rows[y].slice(22, 36)).toBe('^'.repeat(14));
+    expect(elev(31, 31)).toBe(2);
+    expect(elev(20, 22)).toBe(3);
+    expect(elev(33, 16)).toBe(4);
+    // control: shut the exit column and wheels have no way north of the massif at all
+    expect(path(edited(m, rect(32, 14, 34, 14, '^')), 'vehicle', start, battery)).toBeNull();
+  });
+  it('the defile is a foot-only bed of boulders, two wide and winding west; a vehicle has no route into it', () => {
+    expect(defile).toHaveLength(72);
+    expect(defile.every(([x]) => x <= 12)).toBe(true);
+    expect(Math.min(...defile.map((p) => p[1]))).toBe(13);
+    expect(Math.max(...defile.map((p) => p[1]))).toBe(35);
+    expect(path(m, 'vehicle', start, narrow)).toBeNull();
+    expect(steps(path(m, 'foot', start, narrow))).toBe(47);
+    // control: the same ground with the boulders cleared is a road
+    const plain = { ...m, rows: m.rows.map((r) => r.replace(/b/g, '.')) } as MapJson;
+    expect(steps(path(plain, 'vehicle', start, narrow))).toBe(47);
+  });
+  it('the flank is ten tiles longer: 54 through the pass, 64 through the defile, and the shortest route to the battery never touches it', () => {
+    const direct = path(m, 'foot', start, battery) as Pt[];
+    const via = (steps(path(m, 'foot', start, narrow)) as number) + (steps(path(m, 'foot', narrow, battery)) as number);
+    expect(direct.length - 1).toBe(54);
+    expect(via).toBe(64);
+    expect(via - (direct.length - 1)).toBe(10);
+    expect(direct.some(([x, y]) => x >= 32 && x <= 34 && y >= 14 && y <= 20)).toBe(true);
+    expect(direct.some(([x, y]) => x <= 12 && y >= 14 && y <= 35)).toBe(false);
+    // control: shut the road's exit column and the foot goes through the defile instead, at the longer price
+    const shut = path(edited(m, rect(32, 14, 34, 14, '^')), 'foot', start, battery) as Pt[];
+    expect(shut.length - 1).toBe(64);
+    expect(shut.some(([x, y]) => x <= 12 && y >= 14 && y <= 35)).toBe(true);
+  });
+  it('the Grad reaches the defile at seventeen tiles and no Kornet reaches it at all', () => {
+    expect(dist(battery, narrow)).toBe(17);
+    expect(narrow).toEqual([10, 14]);
+    expect(m.rows[narrow[1]][narrow[0]]).toBe('b');
+    const inReach = defile.filter((t) => dist(t, battery) <= 20).length;
+    const nearer = defile.filter((t) => dist(t, battery) <= 17).length;
+    expect(inReach).toBe(15);
+    expect(nearer).toBe(5);
+    expect(inReach).toBeLessThan(defile.length / 3);
+    const pockets = [post(MID, 'tm_pocket_west'), post(MID, 'tm_pocket_east')];
+    expect(Math.min(...pockets.flatMap((p) => defile.map((t) => dist(p, t))))).toBeGreaterThan(20);
+  });
+  it('the only Sarim eyes over the defile sit at its northern mouth, and most of it is out of their sight', () => {
+    const eyes = post(MID, 'tm_spotter_narrow');
+    expect(eyes).toEqual([10, 11]);
+    const seenBy = (s: number, json: MapJson = m) => defile.filter((t) => sees(json, s, eyes, t)).length;
+    expect(seenBy(9)).toBe(15);
+    // the winding hides it: even a watcher with sight 48 reads only 20 of its 72 tiles
+    expect(seenBy(48)).toBe(20);
+    // control: level the massif and he reads all of it
+    const open = { ...levelled(m, [0, 0, 47, 47], 2), rows: m.rows.map((r) => r.replace(/\^/g, '.')) } as MapJson;
+    expect(seenBy(48, open)).toBe(72);
+  });
+  it('both pockets cover the exit column and neither reads the leg below it', () => {
+    const col: Pt[] = [14, 15, 16, 17, 18, 19, 20].map((y) => [33, y]);
+    for (const tag of ['tm_pocket_west', 'tm_pocket_east']) {
+      const p = post(MID, tag);
+      expect(col.filter((t) => sees(m, 10, p, t)).length, tag).toBe(6);
+      for (const t of [[30, 19], [26, 19], [22, 19]] as Pt[]) expect(sees(m, 10, p, t), `${tag} -> ${t}`).toBe(false);
+    }
+  });
+  it('the column stages in the second leg behind the rib: nothing on the plateau sees it, and with the rock levelled everything does', () => {
+    const stage: Pt = [28, 19];
+    const posts = ['tm_pocket_west', 'tm_pocket_east', 'tm_spotter_west', 'tm_picket_wide', 'tm_bay_lip'].map((t) => post(MID, t));
+    for (const p of posts) expect(sees(m, 16, p, stage), `${p}`).toBe(false);
+    const open = { ...levelled(m, [0, 0, 47, 47], 2), rows: m.rows.map((r) => r.replace(/\^/g, '.')) } as MapJson;
+    expect(posts.some((p) => sees(open, 16, p, stage))).toBe(true);
+  });
+  it('the block stands two tiles from the battery, which stands on the plateau under the town', () => {
+    const [bx, by] = post(MID, 'tm_hvt_battery');
+    expect([bx, by]).toEqual([25, 6]);
+    expect(m.rows[3].slice(24, 27)).toBe('###');
+    expect(m.rows[4].slice(24, 27)).toBe('###');
+    expect(by - 4).toBe(2);
+    expect(m.zones!.town_block).toEqual([24, 3, 3, 2]);
+  });
+  it('the families walk to the approach in 47 tiles, a minute of a 300 s clock; the interior meadows are sealed', () => {
+    const civ = missionOf(MID).civilians!.groups[0].at;
+    const s = steps(path(m, 'foot', [Math.floor(civ[0]), Math.floor(civ[1])], approach)) as number;
+    expect(s).toBe(47);
+    expect(s / 0.8).toBeLessThan(120);
+    // the two high bowls are walled in on every side
+    expect(path(m, 'foot', start, [15, 24])).toBeNull();
+    expect(path(m, 'foot', start, [40, 23])).toBeNull();
+    expect(m.rows[24][15]).toBe('.');
+    expect(m.rows[23][40]).toBe('.');
   });
 });

@@ -1916,18 +1916,14 @@ run(
 
 // Tel Marum III — the pass, taken the expensive way on purpose.
 //
-// The plan takes the WIDE saddle. That is the costly route and it is chosen
-// deliberately: the narrow saddle is nine tiles longer, and while the Grad
-// reaches it at 17 tiles, measurement showed the observer at [12,4] does not
-// change that price -- narrow-with-spotter-alive (5.2 min) and
-// narrow-with-spotter-dead (5.1 min) are the same run (see the Tel Marum
-// saddle bullet in CLAUDE.md). The narrow route's real cost is
-// force-splitting, not this observer. A scripted proof should demonstrate
-// the mission is winnable by the obvious line, not by the clever one.
-//
-// Mortars kill the west pocket's observer from the hollow first, because every
-// tile of the wide saddle is inside the Grad's reach and being seen there is
-// what makes it lethal rather than merely defended.
+// The plan takes the switchback road (GH-382: `tel_marum_3`). That is the costly route and it is
+// chosen deliberately: the defile is ten tiles longer (64 against 54, measured), foot-only and
+// reached by the Grad at seventeen, and the scripted proof should demonstrate the mission is
+// winnable by the obvious line, not by the clever one. The column stages in the second leg, behind
+// the rib, where no post on the plateau can see it; two Lavis alone go up the exit column and onto
+// the plateau, because they outrange both Kornet pockets, and the rest follow once the pass is
+// quiet. One Eitan goes for the families -- and only one: a civilian boards the nearest hull with a
+// free seat, and a Namer parked in the pass would keep them -- and drives them to the approach.
 //
 // Control: primaries `capture` (take_pass) and `eliminate_hvt`
 // (kill_battery) are still not among the three objective types `checkEnd`
@@ -1956,54 +1952,27 @@ const ledTelMarum3 = run(
     const foot = ids('inf_squad');
     const at_ = ids('at_team');
     const mortar = ids('mortar_team');
-    at(3, () => {
-      // Mortar into the hollow — 18 tiles of reach onto the wall, out of the
-      // Grad's 20-tile circle at 23.
-      sim.queueCommand({ kind: 'move', ids: mortar, ...M(24, 29) });
-      sim.queueCommand({ kind: 'move', ids: at_, ...M(25, 28) });
-      sim.queueCommand({ kind: 'move', ids: foot, ...M(23, 27) });
+    // The column stages in the L2 leg, behind the rib: nothing on the plateau sees it (the rock
+    // rim blocks every line), and the exit column is the only way up for wheels.
+    at(2, () => {
+      sim.queueCommand({ kind: 'move', ids: [...tanks, ...namer, ...armour], ...M(28, 19) });
+      sim.queueCommand({ kind: 'move', ids: [...foot, ...at_], ...M(27, 19) });
+      sim.queueCommand({ kind: 'move', ids: mortar, ...M(26, 19) });
     });
-    at(30, () => {
-      // Kill the west observer before anything crosses the approach.
-      sim.queueCommand({ kind: 'attackMove', ids: mortar, ...M(20, 16) });
+    // Two Lavis alone go up the column and onto the plateau: they outrange both pockets.
+    at(40, () => sim.queueCommand({ kind: 'attackMove', ids: tanks, ...M(33, 16) }));
+    at(62, () => sim.queueCommand({ kind: 'move', ids: tanks, ...M(33, 11) }));
+    at(80, () => {
+      sim.queueCommand({ kind: 'move', ids: armour, ...M(33, 14) });
+      sim.queueCommand({ kind: 'move', ids: [...foot, ...at_], ...M(33, 17) });
     });
-    at(85, () => {
-      // Armour forward through the approach to the wide saddle mouth.
-      sim.queueCommand({ kind: 'move', ids: armour, ...M(23, 22) });
-      sim.queueCommand({ kind: 'move', ids: tanks, ...M(25, 22) });
-      sim.queueCommand({ kind: 'move', ids: namer, ...M(24, 23) });
+    at(100, () => {
+      sim.queueCommand({ kind: 'move', ids: [...foot, ...at_], ...M(33, 11) });
+      // One Eitan to the families, and only one: a civilian boards the nearest hull with a free
+      // seat, and a Namer parked in the pass would keep them.
+      sim.queueCommand({ kind: 'move', ids: armour, ...M(28, 6) });
     });
-    // Split into east/west arms -- map-variants-design.md §3.1's
-    // `tel_marum_3` write-up: the crater belt (rows 20-21) now gates the
-    // approach to x<=19 (west) and x>=29 (east), so a single attackMove to
-    // each of [28,16]/[20,16] would have both arms converge on the SAME gate
-    // before diverging, arriving as a column instead of abreast. Waypoint
-    // each arm through its own gate first, then the attackMove target
-    // `append`ed onto the same order -- queued behind the first leg
-    // (`sim.ts`'s "appending to a unit already under way queues the point
-    // instead of overriding it"), not timed by guesswork the way a second
-    // `at()` call would be. A guessed 15s gap here (tried first) delayed the
-    // advance enough to fail `get_the_block_out`'s 300s evacuation clock --
-    // the append fast-path costs no extra wall-clock at all, since both
-    // commands land in the same tick's queue and the second only ever
-    // widens the unit's own path.
-    at(130, () => {
-      sim.queueCommand({ kind: 'move', ids: tanks, ...M(30, 20) });
-      sim.queueCommand({ kind: 'attackMove', ids: tanks, ...M(28, 16), append: true });
-      sim.queueCommand({ kind: 'move', ids: namer, ...M(18, 20) });
-      sim.queueCommand({ kind: 'attackMove', ids: namer, ...M(20, 16), append: true });
-    });
-    at(190, () => {
-      sim.queueCommand({ kind: 'move', ids: tanks, ...M(24, 13) });
-      sim.queueCommand({ kind: 'move', ids: armour, ...M(24, 14) });
-      sim.queueCommand({ kind: 'move', ids: foot, ...M(24, 15) });
-    });
-    at(240, () => {
-      // Into the pass zone, then the battery beyond it.
-      sim.queueCommand({ kind: 'move', ids: foot, ...M(24, 12) });
-      sim.queueCommand({ kind: 'move', ids: armour, ...M(23, 12) });
-      sim.queueCommand({ kind: 'attackMove', ids: tanks, ...M(25, 6) });
-    });
+    at(115, () => sim.queueCommand({ kind: 'move', ids: armour, ...M(29, 36) }));
   },
   {},
   'victory',
