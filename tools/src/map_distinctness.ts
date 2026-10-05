@@ -169,24 +169,16 @@ export function allPairs(missions: readonly CampaignMission[], load: (id: string
 }
 
 /**
- * Arcs not yet rebuilt under GH-382. A pair is excused ONLY when BOTH missions belong to the
- * same pending town, which is where the repeats are; a pair across towns is never excused, so
- * a new map that copies another town's ground still goes red. Delete an entry when its arc
- * lands; the spec then holds every pair in that town to the gate. When the list is empty the
- * check is a gate on the whole campaign.
+ * There is no allowlist. GH-382 rebuilt every campaign arc onto its own ground, and the gate that
+ * used to excuse an arc not yet rebuilt (`PENDING_ARCS`, a same-town pair excused while its town's
+ * TODO stood) was deleted with the last one, not left empty: an escape hatch that excuses nothing is
+ * a standing invitation to excuse something, and a future town that copies a map should go red.
  */
-export const PENDING_ARCS: readonly { town: string; todo: string }[] = [
-  { town: 'tel_marum', todo: 'TODO(#382): Tel Marum arc not yet rebuilt onto new ground' },
-];
 
-export function excused(r: PairRow, pending: readonly { town: string }[] = PENDING_ARCS): boolean {
-  return r.a.town === r.b.town && pending.some((p) => p.town === r.a.town);
-}
-
-export function report(rows: readonly PairRow[], pending: readonly { town: string }[] = PENDING_ARCS): string {
+export function report(rows: readonly PairRow[]): string {
   const lines: string[] = [];
   for (const r of rows.filter((x) => x.fails)) {
-    const tag = excused(r, pending) ? 'pending' : 'FAIL   ';
+    const tag = 'FAIL   ';
     lines.push(
       `${tag} ${r.a.mission} (${r.a.map}) ~ ${r.b.mission} (${r.b.map}): feature ${(r.cmp.feature * 100).toFixed(0)}% ` +
         `raw ${(r.cmp.raw * 100).toFixed(0)}% orientation ${r.cmp.orientation}` +

@@ -1810,18 +1810,14 @@ run(
 // unable to complete any of the four; only genuine recon of the wall and
 // the battery can.
 //
-// The approach at (24,25) still gives three of the four for free (sight 16
-// reaches both ATGM pockets and the spotter from there, ~9-10 tiles out).
-// `find_battery` costs the sweep: the battery sits 18.6 tiles from the
-// approach, past sight 16, and the straight route north runs through the
-// wide pass at x=22-26 -- exactly what tm_picket_wide (sarim_rifles, weapon
-// range 8) is posted to cover, which is what killed the drone at 44.5s in
-// an earlier attempt that went straight up the middle. The shipped route
-// goes around instead: south and west off the wall's engagement envelope
-// entirely, up the narrow saddle at x=11 (nothing in this garrison reaches
-// that column), then east to a standoff point that sees the battery at
-// range 10.6 -- outside both rifle squads' weapon range and sight the whole
-// way, checked leg by leg, not just at the endpoints.
+// The approach at (24,25), on the floor of the long valley (GH-382: `tel_marum_1`), gives three
+// of the four for the price of waiting: sight 16 reaches both Kornet spurs and the west lip from
+// there, but the spotter on the lip is 12.7 tiles out and the slowest to read, so the drone
+// lingers 30 s. `find_battery` costs the sweep: the tube sits behind a six-row rock band, and the
+// only floor line to it runs up the notch inside tm_picket_wide's rifles (weapon range 8, and
+// air-capable -- the Kornets are ground-only). The west flank is covered by the lip's rifles; the
+// EAST flank has nothing that shoots at air, so the shipped route goes round the east spur, up
+// the open slope behind the band and stands off the plateau at range 11.
 //
 // Control: a player who gives no orders never moves the drone, so none of
 // the four primaries can complete on their own -- and now, unlike round 1,
@@ -1856,27 +1852,21 @@ run(
       // Screen forward to the hollow and stop there — out of the envelope.
       sim.queueCommand({ kind: 'move', ids: screen, ...M(24, 30) });
       sim.queueCommand({ kind: 'move', ids: foot, ...M(23, 31) });
-      // The drone alone goes into the envelope. From the approach alone,
-      // sight 16 already reaches both ATGM pockets and the spotter (all
-      // three complete by ~t=16s, well before the next order below fires).
+      // The drone alone goes into the envelope. From the approach, on the floor of the long
+      // valley, sight 16 reaches both spurs and the west lip -- but the spotter on the lip sits
+      // 12.7 tiles out and is the slowest to read, so the drone lingers for 30 s while the herders,
+      // who break for the start line when it passes, walk out behind it.
       sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 25) });
     });
-    // find_battery is the one the approach cannot give for free: the battery
-    // sits 18.6 tiles out from there, past sight 16. The straight route north
-    // runs through the wide pass at x=22-26, which is exactly what
-    // tm_picket_wide (sarim_rifles, weapon range 8) is posted to cover --
-    // closing on it is what killed the drone at 44.5s in the round-2 replay.
-    // So the drone goes around: south and west off the wall's engagement
-    // envelope entirely, up the UNGUARDED narrow saddle at x=11 (nothing in
-    // this garrison can reach that column), then east to a standoff point
-    // north of the wall that sees the battery at range 10.6 -- outside both
-    // rifle squads' weapon range (8) and sight (9) throughout, by margins of
-    // 1-7.5 tiles at every leg (checked against both tm_picket_wide and
-    // tm_spotter_west along the full path, not just the endpoints).
-    at(20, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(16, 27) }));
-    at(28, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(11, 22) }));
-    at(35, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(11, 12) }));
-    at(44, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(15, 8) }));
+    // find_battery is the one the floor cannot give: the tube sits behind the rock band and the
+    // only floor line to it runs up the notch under tm_picket_wide's rifles (range 8, and air-capable).
+    // The WEST flank is no better -- the spotter's rifles cover it. The EAST flank has nothing
+    // that shoots at air: the Kornet pockets are ground-only, so the drone rounds the east
+    // spur, climbs the open slope behind the band and stands off the plateau at range 11.
+    at(34, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(38, 28) }));
+    at(44, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(45, 22) }));
+    at(50, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(45, 10) }));
+    at(58, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(36, 5) }));
   },
   {},
   'victory',
@@ -1885,17 +1875,16 @@ run(
 
 // Tel Marum II — the start line, and the man who calls the fire.
 //
-// The approach is 35 tiles. The design doc's 18-of-35 figure came from the
-// doctrine test's 48-sight OBSERVER, walking terrain, not from the garrison
-// unit actually posted there: `tm_spotter_west` is sarim_rifles, sight 9. At
-// that sight the real count is smaller, roughly 15 — approximate, not
-// re-measured through the real Sim here. The plan takes the southern edge of
-// the zone, which counts for the hold and is the cheapest ground in it, then
-// sends infantry up the west side of the bay to kill the observer. Killing
-// him removes one contact feeding the battery, but `sim.ts:2073` identifies
-// per side, not per unit — other garrison Sarim can still hand the Grad eyes
-// on the zone, so the hold is not proven uncontested by this kill alone (see
-// mission II's own briefing, which already carries this caveat).
+// The approach is 35 tiles on the third terrace of a slope that climbs in risers (GH-382:
+// `tel_marum_2`). The posts watch part of it: the observer on the west shelf reads 12 of the 35
+// tiles, the west pocket 17, the east pocket none, 17 between them -- measured through the real
+// Sim in `tel_marum_ground.test.ts`, not estimated. The plan takes the whole column up the three
+// ramps to the zone's south edge, which counts for the hold and is the cheapest ground in it,
+// then sends the infantry up the west terraces to the shelf to kill the observer. Killing him
+// removes one contact feeding the battery, but `sim.ts:2073` identifies per side, not per unit --
+// other garrison Sarim can still hand the Grad eyes on the zone, so the hold is not proven
+// uncontested by this kill alone (see mission II's own briefing, which already carries this
+// caveat). The demolition party waits below the draw and goes up it when the Lavi has the head.
 //
 // Control: a player who gives no orders never enters the approach, so
 // hold_for never starts and kill_spotter never fires, and `hold_for`/
@@ -1921,36 +1910,27 @@ run(
     const at_ = ids('at_team');
     const mortar = ids('mortar_team');
     const demo = ids('demo_squad');
-    // `at(3)` moved to `at(1)` -- map-variants-design.md §3.1's `tel_marum_2`
-    // write-up: the ditch/crossing terrain costs the vehicle route at most
-    // 1 tile (measured: start_line -> approach still 20, -> hollow 15 -> 16),
-    // and this mission runs 0.87 of target with only 1.1 minutes above its
-    // 240s floor -- no reason to spend that margin on travel.
     at(1, () => {
-      // Into the southern edge of the approach zone — inside it for the hold,
-      // furthest from the battery.
-      sim.queueCommand({ kind: 'move', ids: armour, ...M(23, 26) });
-      sim.queueCommand({ kind: 'move', ids: tank, ...M(26, 26) });
-      sim.queueCommand({ kind: 'move', ids: at_, ...M(25, 26) });
-      // Mortar stays in the hollow: 18 tiles of reach covers the bay lip from
-      // ground the Grad cannot touch.
-      sim.queueCommand({ kind: 'move', ids: mortar, ...M(24, 29) });
-      // The demo squad moves on the ammo cache in the draw. Within 2 tiles
-      // of the shanty's footprint it self-targets and burns it with no
-      // explicit `demolish` order needed (`stepDemolition`'s automatic
-      // branch, sim.ts:4335) -- script-losable.md §1/§2.
-      sim.queueCommand({ kind: 'move', ids: demo, ...M(23, 28) });
+      // Up the terraces by the ramps: the Eitans and the Lavi stop on the third terrace, inside
+      // the approach zone and out of the pockets' reach; the mortar stays on the second, where
+      // the riser hides it from everything on the shelf.
+      sim.queueCommand({ kind: 'move', ids: armour, ...M(21, 28) });
+      sim.queueCommand({ kind: 'move', ids: tank, ...M(24, 28) });
+      sim.queueCommand({ kind: 'move', ids: at_, ...M(22, 29) });
+      sim.queueCommand({ kind: 'move', ids: mortar, ...M(22, 33) });
+      // The demolition party waits below the gully's mouth on the second terrace. Within 2 tiles
+      // of the shanty's footprint it self-targets and burns it with no explicit `demolish`
+      // order (`stepDemolition`'s automatic branch) -- script-losable.md section 1/2.
+      sim.queueCommand({ kind: 'move', ids: demo, ...M(34, 34) });
     });
     at(20, () => {
-      // Infantry up the west side toward the pocket.
-      sim.queueCommand({ kind: 'move', ids: foot, ...M(20, 22) });
+      // Infantry climb the west terraces to the shelf and take the observer.
+      sim.queueCommand({ kind: 'move', ids: foot, ...M(16, 26) });
     });
-    at(70, () => {
-      sim.queueCommand({ kind: 'move', ids: foot, ...M(20, 17) });
-    });
-    at(110, () => {
-      sim.queueCommand({ kind: 'attackMove', ids: foot, ...M(20, 16) });
-    });
+    at(60, () => sim.queueCommand({ kind: 'attackMove', ids: foot, ...M(15, 20) }));
+    at(100, () => sim.queueCommand({ kind: 'attackMove', ids: tank, ...M(29, 27) }));
+    // Up the gully, one level below its banks, to the cache at its head.
+    at(130, () => sim.queueCommand({ kind: 'move', ids: demo, ...M(28, 23) }));
   },
   {},
   'victory',
@@ -1959,18 +1939,14 @@ run(
 
 // Tel Marum III — the pass, taken the expensive way on purpose.
 //
-// The plan takes the WIDE saddle. That is the costly route and it is chosen
-// deliberately: the narrow saddle is nine tiles longer, and while the Grad
-// reaches it at 17 tiles, measurement showed the observer at [12,4] does not
-// change that price -- narrow-with-spotter-alive (5.2 min) and
-// narrow-with-spotter-dead (5.1 min) are the same run (see the Tel Marum
-// saddle bullet in CLAUDE.md). The narrow route's real cost is
-// force-splitting, not this observer. A scripted proof should demonstrate
-// the mission is winnable by the obvious line, not by the clever one.
-//
-// Mortars kill the west pocket's observer from the hollow first, because every
-// tile of the wide saddle is inside the Grad's reach and being seen there is
-// what makes it lethal rather than merely defended.
+// The plan takes the switchback road (GH-382: `tel_marum_3`). That is the costly route and it is
+// chosen deliberately: the defile is ten tiles longer (64 against 54, measured), foot-only and
+// reached by the Grad at seventeen, and the scripted proof should demonstrate the mission is
+// winnable by the obvious line, not by the clever one. The column stages in the second leg, behind
+// the rib, where no post on the plateau can see it; two Lavis alone go up the exit column and onto
+// the plateau, because they outrange both Kornet pockets, and the rest follow once the pass is
+// quiet. One Eitan goes for the families -- and only one: a civilian boards the nearest hull with a
+// free seat, and a Namer parked in the pass would keep them -- and drives them to the approach.
 //
 // Control: primaries `capture` (take_pass) and `eliminate_hvt`
 // (kill_battery) are still not among the three objective types `checkEnd`
@@ -1999,54 +1975,27 @@ const ledTelMarum3 = run(
     const foot = ids('inf_squad');
     const at_ = ids('at_team');
     const mortar = ids('mortar_team');
-    at(3, () => {
-      // Mortar into the hollow — 18 tiles of reach onto the wall, out of the
-      // Grad's 20-tile circle at 23.
-      sim.queueCommand({ kind: 'move', ids: mortar, ...M(24, 29) });
-      sim.queueCommand({ kind: 'move', ids: at_, ...M(25, 28) });
-      sim.queueCommand({ kind: 'move', ids: foot, ...M(23, 27) });
+    // The column stages in the L2 leg, behind the rib: nothing on the plateau sees it (the rock
+    // rim blocks every line), and the exit column is the only way up for wheels.
+    at(2, () => {
+      sim.queueCommand({ kind: 'move', ids: [...tanks, ...namer, ...armour], ...M(28, 19) });
+      sim.queueCommand({ kind: 'move', ids: [...foot, ...at_], ...M(27, 19) });
+      sim.queueCommand({ kind: 'move', ids: mortar, ...M(26, 19) });
     });
-    at(30, () => {
-      // Kill the west observer before anything crosses the approach.
-      sim.queueCommand({ kind: 'attackMove', ids: mortar, ...M(20, 16) });
+    // Two Lavis alone go up the column and onto the plateau: they outrange both pockets.
+    at(40, () => sim.queueCommand({ kind: 'attackMove', ids: tanks, ...M(33, 16) }));
+    at(62, () => sim.queueCommand({ kind: 'move', ids: tanks, ...M(33, 11) }));
+    at(80, () => {
+      sim.queueCommand({ kind: 'move', ids: armour, ...M(33, 14) });
+      sim.queueCommand({ kind: 'move', ids: [...foot, ...at_], ...M(33, 17) });
     });
-    at(85, () => {
-      // Armour forward through the approach to the wide saddle mouth.
-      sim.queueCommand({ kind: 'move', ids: armour, ...M(23, 22) });
-      sim.queueCommand({ kind: 'move', ids: tanks, ...M(25, 22) });
-      sim.queueCommand({ kind: 'move', ids: namer, ...M(24, 23) });
+    at(100, () => {
+      sim.queueCommand({ kind: 'move', ids: [...foot, ...at_], ...M(33, 11) });
+      // One Eitan to the families, and only one: a civilian boards the nearest hull with a free
+      // seat, and a Namer parked in the pass would keep them.
+      sim.queueCommand({ kind: 'move', ids: armour, ...M(28, 6) });
     });
-    // Split into east/west arms -- map-variants-design.md §3.1's
-    // `tel_marum_3` write-up: the crater belt (rows 20-21) now gates the
-    // approach to x<=19 (west) and x>=29 (east), so a single attackMove to
-    // each of [28,16]/[20,16] would have both arms converge on the SAME gate
-    // before diverging, arriving as a column instead of abreast. Waypoint
-    // each arm through its own gate first, then the attackMove target
-    // `append`ed onto the same order -- queued behind the first leg
-    // (`sim.ts`'s "appending to a unit already under way queues the point
-    // instead of overriding it"), not timed by guesswork the way a second
-    // `at()` call would be. A guessed 15s gap here (tried first) delayed the
-    // advance enough to fail `get_the_block_out`'s 300s evacuation clock --
-    // the append fast-path costs no extra wall-clock at all, since both
-    // commands land in the same tick's queue and the second only ever
-    // widens the unit's own path.
-    at(130, () => {
-      sim.queueCommand({ kind: 'move', ids: tanks, ...M(30, 20) });
-      sim.queueCommand({ kind: 'attackMove', ids: tanks, ...M(28, 16), append: true });
-      sim.queueCommand({ kind: 'move', ids: namer, ...M(18, 20) });
-      sim.queueCommand({ kind: 'attackMove', ids: namer, ...M(20, 16), append: true });
-    });
-    at(190, () => {
-      sim.queueCommand({ kind: 'move', ids: tanks, ...M(24, 13) });
-      sim.queueCommand({ kind: 'move', ids: armour, ...M(24, 14) });
-      sim.queueCommand({ kind: 'move', ids: foot, ...M(24, 15) });
-    });
-    at(240, () => {
-      // Into the pass zone, then the battery beyond it.
-      sim.queueCommand({ kind: 'move', ids: foot, ...M(24, 12) });
-      sim.queueCommand({ kind: 'move', ids: armour, ...M(23, 12) });
-      sim.queueCommand({ kind: 'attackMove', ids: tanks, ...M(25, 6) });
-    });
+    at(115, () => sim.queueCommand({ kind: 'move', ids: armour, ...M(29, 36) }));
   },
   {},
   'victory',
@@ -3217,7 +3166,10 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // GH-382 moved Beit Sahwan II-IV onto new ground: 5801 -> 5846 (+45, recomputed on the merge with Qarn Hadid),
 // every term on the Beit Sahwan chain and nothing else (II 170 -> 200, III 254 -> 247, IV 178 -> 200;
 // III's ROE is 87 against 94 -- the old town has a house on every side of a shot).
-const LADDER_CREDITS = 5846;
+// GH-382 Tel Marum I-III onto new ground, recomputed on the merge with Beit Sahwan (5846 -> 5844, -2, read
+// off the printed per-mission credits, not summed): II 198 -> 196, III 230 -> 245 (ROE 100 against 98),
+// and Umm Zeitoun III 280 -> 265, which inherits the roster Tel Marum III hands on.
+const LADDER_CREDITS = 5844;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
@@ -3341,7 +3293,8 @@ for (const [label, got, want] of [
  *  campaign's roster. It is the largest SINGLE CHAIN, which is the most the
  *  instrument honestly knows. */
 // GH-382: 30 -> 32, still at umm_zeitoun_4_clearance (its escort and parties survive the shelf in numbers).
-const ROSTER_MAX = 32;
+// GH-382 (Tel Marum): 32 -> 33, same mission: the new Tel Marum III plan loses no unit, so one more reaches the end of the chain.
+const ROSTER_MAX = 33;
 console.log(`roster maximum: ${rosterMax} at ${rosterMaxMissionId}`);
 if (rosterMax !== ROSTER_MAX) {
   console.error(`roster maximum: FAILED — expected ${ROSTER_MAX}, got ${rosterMax} at ${rosterMaxMissionId}`);

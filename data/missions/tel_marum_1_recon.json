@@ -15,11 +15,11 @@
       "text": "We came back with part of it. The part we did not get is the part that has been killing people."
     }
   },
-  "briefing": "Sur begins at the pass, and the pass is watched. Rockets have been falling on the north for a week and nobody can say from where, so tonight you find out. Push the drone up the valley and build the picture — two ATGM pockets on the wall, a Grad section behind it, and whoever is feeding them targets. Keep the metal in the hollow: the valley floor south of it is out of the battery's reach, and everything north of it is not. Herders are grazing that floor north of the hollow — get them south to the muster ground inside five minutes, before the battery finds the range. Bring back the picture, not casualties.",
+  "briefing": "Sur begins at the pass, and the pass is watched. Rockets have been falling on the north for a week and nobody can say from where, so tonight you find out. Push the drone up the valley and build the picture — two ATGM pockets on the flank spurs, a Grad section behind the rock at the head of the valley, and whoever is feeding them targets. Keep the metal in the hollow behind the knoll line: the valley floor south of it is out of the battery's reach, and everything north of it is not. Herders are grazing that floor north of the hollow — get them south to the muster ground inside five minutes, before the battery finds the range. Bring back the picture, not casualties.",
   "briefing_sections": [
     {"id": "situation", "text": "Sur begins at the pass, and the pass is watched. Rockets have been falling on the north for a week and nobody can say from where, so tonight you find out."},
-    {"id": "mission", "text": "Push the drone up the valley and build the picture — two ATGM pockets on the wall, a Grad section behind it, and whoever is feeding them targets."},
-    {"id": "execution", "text": "Keep the metal in the hollow: the valley floor south of it is out of the battery's reach, and everything north of it is not. Herders are grazing that floor north of the hollow — get them south to the muster ground inside five minutes, before the battery finds the range."},
+    {"id": "mission", "text": "Push the drone up the valley and build the picture — two ATGM pockets on the flank spurs, a Grad section behind the rock at the head of the valley, and whoever is feeding them targets."},
+    {"id": "execution", "text": "Keep the metal in the hollow behind the knoll line: the valley floor south of it is out of the battery's reach, and everything north of it is not. Herders are grazing that floor north of the hollow — get them south to the muster ground inside five minutes, before the battery finds the range."},
     {"id": "notes", "text": "Bring back the picture, not casualties."}
   ],
   "briefing_image": "ui/plates/units/recon_drone.jpg",
@@ -83,7 +83,7 @@
       "text": "Find the Grad section behind the wall",
       "say": {
         "speaker": "idit",
-        "text": "The tube is behind the wall, thirty-eight tiles from your start line. Sight six — it has never once seen the thing it was firing at."
+        "text": "The tube is behind the rock band, thirty-eight tiles from your start line. Sight six — it has never once seen the thing it was firing at."
       }
     },
     {
@@ -121,21 +121,21 @@
       {
         "unit": "atgm_cell",
         "count": 1,
-        "at": [28.5, 16.5],
+        "at": [33.5, 16.5],
         "facing_deg": 180,
         "tag": "tm_pocket_east"
       },
       {
         "unit": "atgm_cell",
         "count": 1,
-        "at": [19.5, 16.5],
+        "at": [15.5, 19.5],
         "facing_deg": 180,
         "tag": "tm_pocket_west"
       },
       {
         "unit": "sarim_rifles",
         "count": 1,
-        "at": [20.5, 16.5],
+        "at": [11.5, 22.5],
         "facing_deg": 180,
         "tag": "tm_spotter_west"
       },
@@ -149,7 +149,7 @@
       {
         "unit": "recoilless_team",
         "count": 1,
-        "at": [26.5, 16.5],
+        "at": [27.5, 16.5],
         "facing_deg": 180,
         "stance": { "kind": "ambush", "tiles": 4 },
         "tag": "tm_bay_lip"

@@ -6,8 +6,11 @@ import { idsOf, makeWorld } from './walk_world';
 /**
  * A real map and a real roster, which no unit test has: tel_marum_2_foothold
  * fields 3 inf_squad, at_team, mortar_team, demo_squad, 2 apc_eitan and an
- * mbt_lavi from [21..27, 44..46] (its starting_force), on the one map with a
- * two-wide walled corridor (`b` at x=10-11, y=12-17, ridge either side).
+ * mbt_lavi from [21..27, 44..46] (its starting_force), on a terraced slope; and
+ * tel_marum_3_clearance fields 3 inf_squad, at_team and mortar_team on foot,
+ * which walk the massif's two-wide, rock-walled defile (`b`, x 10-11, y 13-20).
+ * (Both missions' maps are new ground since GH-382: the corridor this file used
+ * to walk was the base map's, copied into II.)
  */
 function settle(
   missionId: string,
@@ -51,7 +54,7 @@ const onFoot = (sim: Sim, id: number): boolean => {
 };
 
 describe('a real roster lands on distinct tiles (tel_marum_2_foothold)', () => {
-  it('the whole force into the open basin at (24,30)', () => {
+  it('the whole force onto the third terrace at (24,30)', () => {
     const { stacked, tiles, ids, sim, fieldsBefore, fieldsAfter } = settle(
       'tel_marum_2_foothold',
       everyone,
@@ -75,15 +78,18 @@ describe('a real roster lands on distinct tiles (tel_marum_2_foothold)', () => {
     console.log(`flow fields: ${fieldsBefore} -> ${fieldsAfter} (+${grown} for ${ids.length} units)`);
     expect(grown).toBeLessThanOrEqual(ids.length);
   });
-  it('the foot units into the boulder corridor at (10,13) form a column', () => {
-    const { stacked, ids, sim } = settle('tel_marum_2_foothold', onFoot, 10, 13, 120);
+});
+
+describe('a real roster lands on distinct tiles (tel_marum_3_clearance)', () => {
+  it('the foot units into the defile at (10,16) form a column', () => {
+    const { stacked, ids, sim } = settle('tel_marum_3_clearance', onFoot, 10, 16, 200);
     expect(stacked, `stacked: ${JSON.stringify(stacked)}`).toHaveLength(0);
-    // Every team is inside the corridor (x 10..11, y 12..17) or on the scree
-    // south of its mouth — nowhere else is reachable within the walk bound.
+    // Every team is inside the defile (x 10..11, y 13..21) or in the bend below it
+    // -- nowhere else is reachable within the walk bound.
     for (const id of ids) {
       const x = fx.toInt(sim.state.posX[id]);
       const y = fx.toInt(sim.state.posY[id]);
-      expect(x >= 8 && x <= 13 && y >= 12 && y <= 20, `${x},${y}`).toBe(true);
+      expect(x >= 8 && x <= 13 && y >= 12 && y <= 24, `${x},${y}`).toBe(true);
     }
   });
 });

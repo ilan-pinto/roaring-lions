@@ -25,7 +25,8 @@
  * empty under both. Measured by removing one branch of the fix at a time:
  * every `tel_marum` flag is a corner over its `^` ridge, every `deir_amun`
  * flag a corner off its raised edge. By this definition RAW also flags
- * `qarn_hadid` (54), `tel_marum_1..3` (131, 133, 122) and the three
+ * `qarn_hadid` (54), the old `tel_marum_1..3` copies of the base (131, 133, 122; those files are
+ * new ground now) and the three
  * `umm_zeitoun` maps (7 each).
  * The shipped sampler must flag NONE, on any map.
  *
