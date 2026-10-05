@@ -177,7 +177,6 @@ export function allPairs(missions: readonly CampaignMission[], load: (id: string
  */
 export const PENDING_ARCS: readonly { town: string; todo: string }[] = [
   { town: 'beit_sahwan', todo: 'TODO(#382): Beit Sahwan arc not yet rebuilt onto new ground' },
-  { town: 'deir_amun', todo: 'TODO(#382): Deir Amun arc not yet rebuilt onto new ground' },
   { town: 'tel_marum', todo: 'TODO(#382): Tel Marum arc not yet rebuilt onto new ground' },
 ];
 

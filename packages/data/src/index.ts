@@ -23,6 +23,8 @@ import khanRafidMap from '../../../data/maps/khan_rafid.json';
 import khanRafid2Map from '../../../data/maps/khan_rafid_2.json';
 import khanRafid3Map from '../../../data/maps/khan_rafid_3.json';
 import deirAmunMap from '../../../data/maps/deir_amun.json';
+import deirAmun2Map from '../../../data/maps/deir_amun_2.json';
+import deirAmun3Map from '../../../data/maps/deir_amun_3.json';
 import marjPerimeter from '../../../data/maps/marj_perimeter.json';
 import qarnHadid from '../../../data/maps/qarn_hadid.json';
 import qarnHadid2Map from '../../../data/maps/qarn_hadid_2.json';
@@ -208,6 +210,8 @@ export const maps = {
   khan_rafid_2: khanRafid2Map,
   khan_rafid_3: khanRafid3Map,
   deir_amun: deirAmunMap,
+  deir_amun_2: deirAmun2Map,
+  deir_amun_3: deirAmun3Map,
   marj_perimeter: marjPerimeter,
   qarn_hadid: qarnHadid,
   qarn_hadid_2: qarnHadid2Map,
