@@ -93,6 +93,7 @@ function gaps(json: MapJson, [x, y, w, h]: readonly number[]): Pt[] {
 describe('every ground-unit wave route on II and III reaches its target on wheels', () => {
   for (const [mid, file] of [
     ['khan_rafid_2_foothold', 'khan_rafid_2'],
+    ['khan_rafid_3_clearance', 'khan_rafid_3'],
   ] as const) {
     for (const w of missionOf(mid).enemy?.waves ?? [])
       for (const u of w.units)
@@ -102,6 +103,7 @@ describe('every ground-unit wave route on II and III reaches its target on wheel
   }
   it('both missions start on their own map file', () => {
     expect(missionOf('khan_rafid_2_foothold').map.file).toBe('khan_rafid_2');
+    expect(missionOf('khan_rafid_3_clearance').map.file).toBe('khan_rafid_3');
   });
 });
 
@@ -200,5 +202,68 @@ describe('II: the ward on the mound', () => {
     expect(distinct.size).toBe(band.length);
     const kinds = new Set(band.join('').replace(/[^hasw]/g, ''));
     expect(kinds.size).toBe(4);
+  });
+});
+
+describe('III: the garden souk', () => {
+  const m = J('khan_rafid_3');
+  const refuge = mk(m, 'civ_refuge');
+  const ORCHARDS: [string, Pt, Pt][] = [
+    ['orchard_west', [7, 17], [11, 17]],
+    ['orchard_east', [40, 17], [40, 21]],
+    ['orchard_south', [40, 34], [36, 34]],
+  ];
+  it('every orchard is a room with exactly one gap in its wall, and trees in it', () => {
+    for (const [zone, , gap] of ORCHARDS) {
+      const z = m.zones![zone];
+      expect(gaps(m, z), zone).toEqual([gap]);
+      const inside = m.rows.slice(z[1] + 1, z[1] + z[3] - 1).map((r) => r.slice(z[0] + 1, z[0] + z[2] - 1)).join('');
+      expect([...inside].filter((c) => c === 'o').length, zone).toBeGreaterThan(25);
+    }
+  });
+  it('a family in an orchard walks out through the gap: seal the gap and they cannot reach the refuge', () => {
+    const groups = missionOf('khan_rafid_3_clearance').civilians!.groups.map((g) => g.at);
+    expect(groups.map((g) => steps(path(m, 'foot', g, refuge)))).toEqual([23, 18, 35, 30]);
+    for (const [, from, gap] of ORCHARDS) {
+      expect(steps(path(m, 'foot', from, refuge))).not.toBeNull();
+      expect(path(edited(m, [[gap[0], gap[1], '=']]), 'foot', from, refuge), `sealed ${gap}`).toBeNull();
+    }
+  });
+  it('an orchard is a room for wheels too: the Eitan drives in through the gap, and not over the wall', () => {
+    for (const [, from, gap] of ORCHARDS) {
+      expect(path(m, 'vehicle', [24, 45], from)).not.toBeNull();
+      expect(path(edited(m, [[gap[0], gap[1], '=']]), 'vehicle', [24, 45], from)).toBeNull();
+    }
+  });
+  it('the store is a walled yard on the north edge with one gate, and nothing reaches it with the gate shut', () => {
+    const z = m.zones!.store;
+    expect(z[1]).toBe(1);
+    expect(gaps(m, z)).toEqual([[14, 7]]);
+    expect(path(m, 'foot', [24, 45], [14, 4])).not.toBeNull();
+    expect(path(edited(m, [[14, 7, '=']]), 'foot', [24, 45], [14, 4])).toBeNull();
+    // the garrisoned warehouse is in the yard
+    expect(m.rows[3][19]).toBe('w');
+  });
+  it('the ward stands south-west, its civic hall holds the commander, and it has two gates', () => {
+    const z = m.zones!.ward;
+    expect(gaps(m, z).sort()).toEqual([[10, 29], [14, 33]]);
+    expect(m.rows[32][6]).toBe('m');
+    expect(z[0] + z[2]).toBeLessThan(17);
+    const hall = missionOf('khan_rafid_3_clearance');
+    expect(hall).toBeDefined();
+    expect(steps(path(m, 'vehicle', [24, 45], refuge))).toBe(17);
+  });
+  it('the souk is the core: no wall stands inside its zone, and its alley meets the road at the centre', () => {
+    const [x, y, w, h] = m.zones!.souk;
+    expect(m.rows.slice(y, y + h).map((r) => r.slice(x, x + w)).join('')).not.toContain('=');
+    expect(mk(m, 'souk_alley')).toEqual([24, 18]);
+  });
+  it('the town is flat: no elevation grid, the walls and the gardens are the obstacle', () => {
+    expect(m.elevation).toBeUndefined();
+    expect(m.grove).toBe('olive');
+  });
+  it('the structure count leaves room to build: under the sim cap of 256 by at least 30', () => {
+    expect(parseMap(m).structures.length).toBeLessThanOrEqual(226);
+    expect(parseMap(J('khan_rafid_2')).structures.length).toBeLessThanOrEqual(226);
   });
 });
