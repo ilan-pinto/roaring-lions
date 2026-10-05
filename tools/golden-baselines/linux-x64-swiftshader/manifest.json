@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "63a9acc520a91633530bcb3b2b8afd0dcb989bd6",
-  "blessedAt": "2026-10-03T20:05:05.432Z",
-  "reason": "#354 bigger team rings + contact marks (and #357/#359 riding along; neither moves a gated frame): vehicle rings (286-1218,346-677, 3933 px); open-ground a vehicle team ring entering the crop (153-394,274-360, 520 px); quiet a contact mark on the hall (391-418,190-226, 121 px); relief a ring (485-532,517-542, 83 px); aftermath a ring at its left edge (0-7,220-246, 146 px); main run 37147910355",
+  "commit": "f69c9a8cd3b211364ac6cd6b316eec82515dfc9b",
+  "blessedAt": "2026-10-05T17:44:06.813Z",
+  "reason": "GH-391 (#397): rotor phase, rotor-wash dust, idle exhaust and mesh-unit mixers now on the sim clock; vehicle 1489 px and quiet 92 px read identically on two CI runs; clusters on heli_peten (rotor + dust), parked-vehicle exhaust, and one occluded rifleman's outline behind the hall",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "0f7f9f6d9a78727e7f104dccfe488e8cc9737367dda49584e34d240b1252696f"
+      "sha256": "62323b044c0d712870eaacbedcc75dadcd00d123949fe4e16300b9a69a4b222b"
     },
     "open-ground": {
       "tick": 60,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "24c312f61ec7b4dfab56015e2f4219defd08324d1f8e740441add369e66ae23f"
+      "sha256": "fe2dcebcf53d3bb9d7f2746ad927923d74ec1266062f33eb08528e76ee07831e"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "b6ecddd7bf75b82a11ab0048a47f95fbb50428d1232d15675f7a08a1da7f63d2"
+      "sha256": "a311a1d2e9f8d6a1871a586e94de2746c0e7505a402c2334e0cc824e3f04da82"
     },
     "relief": {
       "tick": 500,
@@ -81,7 +81,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "e5f6cc9bd85a16352228c0f75dc84986bde2f4f74470bff43dcc3d685f9923d8"
+      "sha256": "a68d997bf034655200f71a7c61a5ff8dd57fdee533ba052cf6340415a94ec0ea"
     }
   }
 }
