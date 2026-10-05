@@ -1578,7 +1578,16 @@ export class ThreeRenderer implements Renderer {
   /** Last idle-exhaust slot per entity, -1 = none (sim-clocked, GH-391). */
   private readonly exhaustSlot: Int32Array;
   /** Presentation sim time at the last `updateFx`, null before the first. */
-  private lastFxSimMs: number | null = null;
+  /** Presentation sim time at the last `frame()`, null before the first. */
+  private lastFrameSimMs: number | null = null;
+  /**
+   * Sim seconds the current `frame()` presents beyond the previous one --
+   * what skinned-mesh clocks and sim-dated particles advance by (GH-391).
+   * Frame time would make a frozen gate frame a function of how many frames,
+   * of what length, were drawn on the way. Null until `frame()` has run, so a
+   * direct call to a stepping method (a spec) keeps frame time.
+   */
+  private frameSimDtSeconds: number | null = null;
 
 
   /**
@@ -2924,6 +2933,7 @@ export class ThreeRenderer implements Renderer {
     // through a hit-stop would spend a sixth of its own life during the
     // frames it is not being drawn on.
     this.shakeState = stepShake(this.shakeState, dtMs);
+    this.beginFrameSimClock(alpha, dtMs);
     this.drainTimers(this.frameDtSeconds(dtMs));
     if (this.terrainDirty) {
       this.rebuildTerrain();
@@ -5597,6 +5607,14 @@ export class ThreeRenderer implements Renderer {
     };
   }
 
+  /** Sets `frameSimDtSeconds` for this frame -- see that field. */
+  private beginFrameSimClock(alpha: number, dtMs: number): void {
+    const nowSimMs = presentationSimMs(this.sim.tickCount, alpha);
+    this.frameSimDtSeconds =
+      this.lastFrameSimMs === null ? this.frameDtSeconds(dtMs) : Math.max(0, nowSimMs - this.lastFrameSimMs) / 1000;
+    this.lastFrameSimMs = nowSimMs;
+  }
+
   /** Wall-clock MILLISECONDS since the previous frame, clamped exactly the
    *  way `PixiRenderer.frame()` clamps its own `dtSeconds`
    *  (`renderer.ts:1880`): a `FRAME_DT_CEILING_MS` ceiling so a tab
@@ -5741,8 +5759,10 @@ export class ThreeRenderer implements Renderer {
       // -- see `applyGaitRate`'s own doc comment -- so its legs are not
       // rate-matched at all.
       this.applyGaitRate(entity, template, anim, st.carriedBy[i] >= 0);
-      advanceMeshClipFades(entity, dtSeconds);
-      entity.mixer.update(dtSeconds);
+      // SIM time, not frame time (GH-391): a frozen gate frame then holds the
+      // pose sim time says, whatever frames were drawn on the way.
+      advanceMeshClipFades(entity, this.frameSimDtSeconds ?? dtSeconds);
+      entity.mixer.update(this.frameSimDtSeconds ?? dtSeconds);
     }
 
     // Hand off entities no longer alive to the death sequence instead of
@@ -6965,16 +6985,11 @@ export class ThreeRenderer implements Renderer {
    */
   private updateFx(dtMs: number, alpha?: number): void {
     const dtSeconds = this.frameDtSeconds(dtMs);
-    // Sim-dated particles (rotor wash) age by the sim time this frame
-    // presents beyond the last frame's -- zero on a repaint, the whole jump
-    // when the gate steps ticks without frames. Held under a hit-stop with
-    // `alpha`, like every other sim-clocked reader.
-    let simDtSeconds = dtSeconds;
-    if (alpha !== undefined) {
-      const nowMs = presentationSimMs(this.sim.tickCount, alpha);
-      if (this.lastFxSimMs !== null) simDtSeconds = Math.max(0, nowMs - this.lastFxSimMs) / 1000;
-      this.lastFxSimMs = nowMs;
-    }
+    // Sim-dated particles (rotor wash, idle exhaust) age by the sim time this
+    // frame presents beyond the last frame's (`frameSimDtSeconds`, set at the
+    // top of `frame()`) -- zero on a repaint, the whole jump when the gate
+    // steps ticks without frames. A direct call with no `alpha` keeps frame time.
+    const simDtSeconds = alpha !== undefined && this.frameSimDtSeconds !== null ? this.frameSimDtSeconds : dtSeconds;
     this.particleSystem?.step(dtSeconds, simDtSeconds);
     if (alpha !== undefined) {
       this.updateRotorWash(alpha);
