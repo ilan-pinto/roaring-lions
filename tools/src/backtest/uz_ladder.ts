@@ -90,7 +90,10 @@ function run(id: string, tier: Tier, seed: number): { result: string; mins: numb
         if (s >= 70 && t % (40 * TICKS_PER_SECOND) === 0) go(main(), mk('rim_crest'));
       } else if (kind === 'III') {
         if (t === 1) { go(west, mk('horn_west')); go(east, mk('horn_east')); go(hamlet, mk('hamlet_square')); }
-        if (s >= 60 && t % (45 * TICKS_PER_SECOND) === 0) { go(west, mk('horn_west')); go(east, mk('horn_east')); go(hamlet, mk('hamlet_square')); }
+        // The second Eitan ferries the families it picks up: ordered to the refuge once, and kept off the re-anchor
+        // (an attackMove would send them wherever the fight goes).
+        if (s === 25) sim.queueCommand({ kind: 'move', ids: ofType('apc_eitan').slice(1), ...M(mk('civ_refuge')[0], mk('civ_refuge')[1]) });
+        if (s >= 60 && t % (45 * TICKS_PER_SECOND) === 0) { go(west, mk('horn_west')); go(east, mk('horn_east')); go(inf.slice(0, 1), mk('hamlet_square')); }
         if (t === 1) sim.queueCommand({ kind: 'move', ids: [...drone], ...M(mk('crest')[0], mk('crest')[1] + 3) });
       } else {
         if (t === 1) go(escort, mk('stockpile_yard'));

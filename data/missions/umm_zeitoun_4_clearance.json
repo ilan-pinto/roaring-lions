@@ -4,11 +4,11 @@
   "town": "umm_zeitoun",
   "phase": "clearance",
   "target_minutes": 7,
-  "briefing": "The depot is three buildings on the northern shelf, seven and a half thousand between them, and there is an eye on the spur beside it that sees the yard at five tiles. What that eye sees, the tube shells. Bring all of it down inside five minutes. There is no dozer in Sur — that is two demolition parties, five seconds of charges at a time, standing still within two tiles of what they are dropping. The man every post in this basin has been reporting to is on the crest, sixteen tiles the other way. Idit has had his voice for two towns and never once his ground. You cannot do both of those slowly. Buy a third party with the logistics if you want the depot and the crest inside the same seven minutes. Four porters are on the depot ground and the shelf behind it is five tiles from them. Charges do not care who is beside the wall: set one within two tiles of them and you are billed for it, and the party will level whatever else it halts beside.",
+  "briefing": "The depot is three buildings on the high northern shelf, seven and a half thousand between them. One ramp climbs to it from the south, and there is an eye on the spur beside the ramp that sees the yard at five tiles. What that eye sees, the tube shells. Bring all of it down inside five minutes. There is no dozer in Sur — that is two demolition parties, five seconds of charges at a time, standing still within two tiles of what they are dropping. The man every post in this basin has been reporting to is on the summit across the ravine, sixteen tiles the other way, and the ground falls away between you and him: a track climbs to him on the west side, and nothing wheeled crosses the ravine from the depot. Idit has had his voice for two towns and never once his ground. You cannot do both of those slowly. Buy a third party with the logistics if you want the depot and the crest inside the same seven minutes. Four porters are on the depot ground and the shelf behind it is five tiles from them. Charges do not care who is beside the wall: set one within two tiles of them and you are billed for it, and the party will level whatever else it halts beside.",
   "briefing_sections": [
-    {"id": "situation", "text": "The depot is three buildings on the northern shelf, seven and a half thousand between them, and there is an eye on the spur beside it that sees the yard at five tiles. What that eye sees, the tube shells."},
+    {"id": "situation", "text": "The depot is three buildings on the high northern shelf, seven and a half thousand between them. One ramp climbs to it from the south, and there is an eye on the spur beside the ramp that sees the yard at five tiles. What that eye sees, the tube shells."},
     {"id": "mission", "text": "Bring all of it down inside five minutes."},
-    {"id": "execution", "text": "There is no dozer in Sur — that is two demolition parties, five seconds of charges at a time, standing still within two tiles of what they are dropping. The man every post in this basin has been reporting to is on the crest, sixteen tiles the other way. Idit has had his voice for two towns and never once his ground. You cannot do both of those slowly. Buy a third party with the logistics if you want the depot and the crest inside the same seven minutes. Four porters are on the depot ground and the shelf behind it is five tiles from them."},
+    {"id": "execution", "text": "There is no dozer in Sur — that is two demolition parties, five seconds of charges at a time, standing still within two tiles of what they are dropping. The man every post in this basin has been reporting to is on the summit across the ravine, sixteen tiles the other way, and the ground falls away between you and him: a track climbs to him on the west side, and nothing wheeled crosses the ravine from the depot. Idit has had his voice for two towns and never once his ground. You cannot do both of those slowly. Buy a third party with the logistics if you want the depot and the crest inside the same seven minutes. Four porters are on the depot ground and the shelf behind it is five tiles from them."},
     {"id": "notes", "text": "Charges do not care who is beside the wall: set one within two tiles of them and you are billed for it, and the party will level whatever else it halts beside."}
   ],
   "briefing_image": "ui/plates/units/demo_squad.jpg",
@@ -158,6 +158,26 @@
       },
       {
         "unit": "sarim_rifles",
+        "count": 3,
+        "at": [17.5, 9.5],
+        "tag": "uz_crest_picket",
+        "group": "lantern"
+      },
+      {
+        "unit": "recoilless_team",
+        "count": 1,
+        "at": [15.5, 9.5],
+        "tag": "uz_rcl_crest",
+        "stance": { "kind": "ambush", "tiles": 6 }
+      },
+      {
+        "unit": "sarim_rifles",
+        "count": 3,
+        "at": [34.5, 11.5],
+        "tag": "uz_depot_picket"
+      },
+      {
+        "unit": "sarim_rifles",
         "count": 1,
         "at": [32.5, 12.5],
         "tag": "uz_eye_depot"
@@ -185,7 +205,7 @@
       {
         "unit": "sarim_rifles",
         "count": 1,
-        "at": [30.5, 6.5],
+        "at": [29.5, 6.5],
         "tag": "uz_wh_garrison",
         "stance": { "kind": "garrison", "building": [30, 4] }
       },

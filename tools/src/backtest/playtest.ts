@@ -2367,11 +2367,18 @@ const ledUZ2 = run(
     at(1, () => {
       // Everyone but the demo squad clears the ground around the shed first.
       sim.queueCommand({ kind: 'attackMove', ids: strike, ...M(24, 24) });
-      // The demo squad follows under its own orders and starts charges the
-      // moment it is within 2 tiles and the ground around it is unshaken --
-      // it does not need the knoll clear to begin walking there.
-      sim.queueCommand({ kind: 'demolish', ids: demo, structure: sim.structureAt(22, 23) });
+      // GH-382: the knoll is 22 tiles up the slope now, and a demo squad that walks it unescorted
+      // arrives under the picket's rifle ahead of everyone (three seeds of twelve lost the post
+      // that way). It waits on the crest line and is sent when the ground is being cleared.
+      sim.queueCommand({ kind: 'move', ids: demo, ...M(24, 33) });
     });
+    // Starts charges the moment it is within 2 tiles and the ground around it is unshaken; re-sent
+    // every 25 s until the shed is down, because a squad that halts to fight drops the order.
+    for (let when = 30; when <= 290; when += 25)
+      at(when, () => {
+        const shed = sim.structureAt(22, 23);
+        if (shed >= 0) sim.queueCommand({ kind: 'demolish', ids: demo, structure: shed });
+      });
     // Once the knoll is down, the whole strike force pulls back onto the
     // crest line and digs in for the hold. Re-anchored periodically after
     // that: attackMove does not mean "stand here", and the 180s/300s waves
@@ -2450,13 +2457,15 @@ const ummZeitoun3Plan: Plan = (sim, _rt, ids, at) => {
     // the moment either body crosses in, walking both garrisoned riflemen
     // out of their houses and into the open street at `hamlet_square`.
     sim.queueCommand({ kind: 'attackMove', ids: hamlet, ...M(24, 26) });
-    sim.queueCommand({ kind: 'move', ids: drone, ...M(12, 40) });
+    sim.queueCommand({ kind: 'move', ids: drone, ...M(11, 28) });
   });
   // Families that board the second Eitan ride wherever it goes, so it is ordered to the wadi once
   // they are aboard (a `move`, which does not chase) instead of being left on its attackMove.
   at(25, () => sim.queueCommand({ kind: 'move', ids: apcs.slice(1), ...M(23, 37) }));
-  at(15, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(11, 27) }));
-  at(30, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(13, 14) }));
+  // The street squad is held on the square: an attackMove runs on after whatever it is shooting at, and
+  // the first version of this plan followed a retreating picket out of the north gate.
+  for (let when = 30; when <= 250; when += 25) at(when, () => sim.queueCommand({ kind: 'attackMove', ids: hamletInfantry, ...M(24, 26) }));
+  at(10, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(11, 17) }));
   // Re-press both flanks once the first contact clears -- attackMove halts
   // on a live fight rather than closing the last few tiles to the post
   // itself.
@@ -2533,9 +2542,11 @@ const uz4Plan: Plan = (sim, _rt, ids, at) => {
     // The drone's own presence is enough to start the porters fleeing
     // (CivilianFlight does not filter by domain) well before any charge is
     // set near their ground.
-    sim.queueCommand({ kind: 'move', ids: drone, ...M(33.5, 8.5) });
     sim.queueCommand({ kind: 'attackMove', ids: depotEscort, ...M(33, 8) });
   });
+  // GH-382: the spur's eye covers the ramp, so a drone sent at t=1 is shot down on the way up; it
+  // follows the escort in once the spur is clear.
+  at(50, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(33.5, 8.5) }));
   at(45, () => {
     sim.queueCommand({ kind: 'demolish', ids: [demo[0]], structure: sim.structureAt(30, 4) });
     sim.queueCommand({ kind: 'demolish', ids: [demo[1]], structure: sim.structureAt(36, 3) });
@@ -2550,7 +2561,11 @@ const uz4Plan: Plan = (sim, _rt, ids, at) => {
   // is a backstop only, timed comfortably past that: if a future ledger
   // ever leaves both squads still working their first door this late,
   // it re-points BOTH at the shanty rather than let the mission stall.
-  at(180, () => sim.queueCommand({ kind: 'demolish', ids: demo, structure: sim.structureAt(32, 9) }));
+  at(180, () => sim.queueCommand({ kind: 'demolish', ids: demo, structure: sim.structureAt(34, 9) }));
+  // The escort holds the depot: an attackMove does not stop at its destination while a contact is
+  // still ahead, and a Lavi that has chased a picket off the shelf leaves the parties under the
+  // first wave. Re-anchored on the yard every 30 s.
+  for (let when = 60; when <= 280; when += 30) at(when, () => sim.queueCommand({ kind: 'attackMove', ids: depotEscort, ...M(33, 8) }));
   // Adhal carries no deadline of his own, so a second, dedicated push for
   // him only needs to exist at all -- it does not need to race the depot.
   // Held back this long on purpose: sent at t=1 alongside the escort, it
@@ -2690,10 +2705,15 @@ boughtProbe('beit_sahwan_4_subterranean', bs4Plan, led4In, 'recon_zikit', 30, 's
 }));
 // The Gunship is built on the first tick (50 s) and joins the `raze` approach: an
 // attack-move to the stockpile the depot escort is already walking to.
+// GH-382: the depot is on a shelf now, and the yard holds the four porters. A gunship sent into it
+// shot a recoilless team standing two tiles from them, and `heavy ordnance danger-close to civilians`
+// walked ROE from 100 to 43 in two seconds -- under the floor of 45, a defeat. It is sent to the
+// summit side of the ravine instead, where the picket and the manpad it has to answer for are, and
+// stays 13 tiles from the yard.
 boughtProbe('umm_zeitoun_4_clearance', uz4Plan, ledUZ3, 'heli_peten_gunship', 55, 'fires', (mine) => ({
   kind: 'attackMove',
   ids: mine,
-  ...M(32, 8),
+  ...M(20, 18),
 }));
 
 // --- Brigade economy Task 5: every optimal plan holds at max tier ----------

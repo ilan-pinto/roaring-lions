@@ -81,7 +81,7 @@ describe('the region biome check', () => {
         .flatMap((r) => r.towns.flatMap((t) => t.missions))
         .map((m) => (ms.get(m) as { map: { file: string } }).map.file)
     );
-    // qarn_hadid, tel_marum_1-3, umm_zeitoun, umm_zeitoun_3-4 (tel_marum
+    // qarn_hadid, tel_marum_1-3, umm_zeitoun, umm_zeitoun_2-4 (tel_marum
     // itself is the sandbox map, used by no mission, and declares highland
     // on its own).
     expect([...surMaps].sort()).toEqual([
@@ -90,6 +90,7 @@ describe('the region biome check', () => {
       'tel_marum_2',
       'tel_marum_3',
       'umm_zeitoun',
+      'umm_zeitoun_2',
       'umm_zeitoun_3',
       'umm_zeitoun_4',
     ]);

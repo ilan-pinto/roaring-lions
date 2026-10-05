@@ -4,11 +4,11 @@
   "town": "umm_zeitoun",
   "phase": "buildup",
   "target_minutes": 7,
-  "briefing": "Sur has more than one tube: this one is south of the basin, and from there it reaches the crest line at twelve tiles. Idit has an observer marked on the stone knoll, eight tiles off that same ground. Hold the crest line for four minutes while the engineers work behind you. It is the highest ground on this half of the basin and the one piece of it he can both see and shell. The camp ground in the bowl is dead to every position on this map — nothing up there can see what you are putting on it. What they can see is the line. Supply is coming forward and the corridor behind it is open, so spend it as it arrives. Level the post above the knoll inside five minutes, with charges or with fire while the observer is still inside the shed. Break a third of what is in front of you and the tube pulls north, out of reach of the line entirely. Everything you buy to make that happen is not standing on the crest while it happens.",
+  "briefing": "Sur has more than one tube: this one is south of the basin, and from there it reaches the crest line at twelve tiles. Idit has an observer marked on the stone knoll, eight tiles forward of that same line. Hold the crest line for four minutes while the engineers work behind you. It is the highest ground on this half of the basin and the one piece of it he can both see and shell; everything in front of it falls away downhill, and seeing him means standing on the skyline. The camp ground in the bowl, below the olive terraces on the reverse slope, is dead to every position on this map — the crest stands between it and anything up there that can see. What they can see is the line. Supply is coming forward and the corridor behind it is open, so spend it as it arrives. Level the post on the knoll inside five minutes, with charges or with fire while the observer is still inside the shed. Break a third of what is in front of you and the tube pulls north, out of reach of the line entirely. Everything you buy to make that happen is not standing on the crest while it happens.",
   "briefing_sections": [
-    {"id": "situation", "text": "Sur has more than one tube: this one is south of the basin, and from there it reaches the crest line at twelve tiles. Idit has an observer marked on the stone knoll, eight tiles off that same ground."},
+    {"id": "situation", "text": "Sur has more than one tube: this one is south of the basin, and from there it reaches the crest line at twelve tiles. Idit has an observer marked on the stone knoll, eight tiles forward of that same line."},
     {"id": "mission", "text": "Hold the crest line for four minutes while the engineers work behind you."},
-    {"id": "execution", "text": "It is the highest ground on this half of the basin and the one piece of it he can both see and shell. The camp ground in the bowl is dead to every position on this map — nothing up there can see what you are putting on it. What they can see is the line. Supply is coming forward and the corridor behind it is open, so spend it as it arrives. Level the post above the knoll inside five minutes, with charges or with fire while the observer is still inside the shed. Break a third of what is in front of you and the tube pulls north, out of reach of the line entirely."},
+    {"id": "execution", "text": "It is the highest ground on this half of the basin and the one piece of it he can both see and shell; everything in front of it falls away downhill, and seeing him means standing on the skyline. The camp ground in the bowl, below the olive terraces on the reverse slope, is dead to every position on this map — the crest stands between it and anything up there that can see. What they can see is the line. Supply is coming forward and the corridor behind it is open, so spend it as it arrives. Level the post on the knoll inside five minutes, with charges or with fire while the observer is still inside the shed. Break a third of what is in front of you and the tube pulls north, out of reach of the line entirely."},
     {"id": "notes", "text": "Everything you buy to make that happen is not standing on the crest while it happens."}
   ],
   "briefing_image": "ui/plates/units/yahalom_squad.jpg",
@@ -73,7 +73,7 @@
       "primary": true,
       "target": "post_stone",
       "seconds": 300,
-      "text": "Level the post above the stone knoll inside five minutes",
+      "text": "Level the post on the stone knoll inside five minutes",
       "say": {
         "speaker": "shai",
         "text": "Post is down. Nobody replaces an observer on a heap of blocks — they replace him on the next hill."
