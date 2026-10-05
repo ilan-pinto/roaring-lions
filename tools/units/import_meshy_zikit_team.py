@@ -113,6 +113,10 @@ def log(msg):
 
 
 def _staged_speed():
+    # The unit landed in data/units (E5 landing); the staged copy this read
+    # first is gone from docs/, so the landed JSON is the one to read.
+    if not os.path.exists(STAGED_JSON):
+        return rig.unit_speed_tiles_s(TEAM)
     with open(STAGED_JSON) as fh:
         return float(json.load(fh)["mobility"]["speed_tiles_s"])
 
@@ -222,6 +226,7 @@ def build_team():
     rig.build_idle_clip(arm_obj, FIGURES)
     rig.build_move_clip(arm_obj, FIGURES, gait)
     rig.build_fire_clip(arm_obj, FIGURES, None)
+    rig.build_move_fire_clip(arm_obj, FIGURES, gait)   # walk-and-fire (2026-10-05)
     for clip_name in ("down", "wreck"):
         rig._new_action(arm_obj, clip_name)
         rig._key_death_visibility(arm_obj.pose.bones, FIGURES, "prop" in arm_obj.pose.bones, alive=False)

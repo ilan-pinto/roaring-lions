@@ -1463,6 +1463,22 @@ same rule, as `pnpm wreck:meshes` for vehicles.
   0.823–0.985 across the seventeen declarations and is rig-dependent, so no
   constant downstream could have corrected it. Fixing it moved every
   declaration down by 1.47%–17.70%.
+- **Every armed walker ships a `moveFire`, and three teams play captured
+  motion again** (2026-10-05, the B7 regression). B7 replaced the three
+  motion-captured Meshy bipeds with rig.py figures and the only two `moveFire`
+  clips went with them, so every unit that fired on the move played `fire` and
+  slid. `rig.build_move_fire_clip` is `move`'s legs from the same gait dict
+  under `fire`'s arms (held against the lean), and `tools/units/mocap.py`
+  retargets the captured clips -- extracted once by `extract_mocap.py` from
+  `e31ebdf3` into `art/mocap/*.json` -- onto `inf_squad`, `sarim_rifles` and
+  `yahalom_squad`'s rig.py bones: world-rotation deltas, mirrored (the capture
+  is a right-handed shooter, every target holds its weapon on `forearm_R` at
+  +Y), feet planted on the capture's own contact frames, falls ending in their
+  own wreck. `mesh_gait.test.ts` gates both: a moving shot must resolve
+  (through the renderer's own chain) to a locomotion clip, and the captured
+  teams' torsos must move. `charge_squad` and `mortar_crew` got theirs from
+  `tools/src/meshes/move-fire-splice.ts`, not a re-export: their importer has
+  moved on since B4 and a re-export changes their geometry.
 - **`tools/src/mesh_gait.test.ts` is the gait and facing gate, and it is
   tree-wide.** It measured `mortar_team` ALONE until 2026-09-16 — the one file
   GH-145 was raised against — which is how fourteen sliding rigs shipped

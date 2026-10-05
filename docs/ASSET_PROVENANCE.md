@@ -1233,3 +1233,19 @@ the new file does (see `mesh_gait.test.ts`'s note). The atlases: 2048x1024 (figu
 one part) on militia_cell, sarim_rifles, yahalom_squad, breach_team, at_team,
 manpad_team, atgm_cell, recoilless_team, moto_rpg's riders; 3072x1024 (figure, RPG,
 rifle) on rpg_team and (figure, mortar, carbine) on mortar_team.
+
+## The captured clips, restored (the B7 motion regression), 2026-10-05
+
+`art/mocap/meshy_soldier.json`, `art/mocap/sarim_rifles.json` and
+`art/mocap/yahalom_engineer.json` are the bone rotations (and hip path) of the
+supplied Meshy bipeds' own animation clips -- `idle`, `move`, `fire`,
+`moveFire`, `fall`, `fallAlt`, `down`, `wreck`, `wreckAlt` where each file had
+them -- read by `tools/units/extract_mocap.py` straight out of git at
+`e31ebdf3` (`git show e31ebdf3:art/meshes/<name>.glb`, blobs `e496063a`,
+`ea16d2f8`, `bcdd9106`), the last commit before B7 (#335/#337) deleted or
+replaced those GLBs. No geometry, no texture: rotations only. They come from
+the same supplied Meshy rig and animation library as those files (see the
+`meshy_soldier.glb` row above), AI-generated and disclosed per
+CONTRIBUTING.md, and `tools/units/mocap.py` retargets them onto the B7
+textured figures of `inf_squad`, `sarim_rifles` and `yahalom_squad`. No new
+Meshy task, 0 credits.

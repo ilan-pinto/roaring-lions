@@ -183,6 +183,11 @@ describe('which death path each shipped rig takes', () => {
     // sniper's prone living pose on `death_root` still keys the same scale
     // signature as its wreck, so it still takes the already-down path.
     sniper_team: 'settling',
+    // 2026-10-05: the captured falls are back on the three teams that
+    // replaced the supplied bipeds (tools/units/mocap.py) -- D3's `falling`.
+    inf_squad: 'falling',
+    sarim_rifles: 'falling',
+    yahalom_squad: 'falling',
   };
 
   it.each(shippedTeams())('%s', async (team) => {

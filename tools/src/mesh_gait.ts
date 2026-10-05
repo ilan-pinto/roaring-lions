@@ -607,24 +607,35 @@ function skinRoots(glb: GlbFile): number[] {
 }
 
 /** Where each figure's root joint goes over `clip`: the fall gate's
- *  "no horizontal root motion, starts standing, ends prone" instrument. */
+ *  "no horizontal root motion, starts standing, ends prone" instrument.
+ *
+ *  On a supplied Meshy biped the skin root IS the hips. On a rig.py figure
+ *  it is `<p>_root`, a ground-level bone whose height says nothing about
+ *  standing or lying, so the HIPS are read from its `<p>_pelvis` child
+ *  (2026-10-05, when the captured falls came back onto rig.py figures; the
+ *  hidden/live classification still reads the root, whose scale is the
+ *  switch). */
 export function measureRootTravel(path: string, clip: string): RootTravel[] {
   const glb = readGlb(path);
   const nodes = glb.json.nodes ?? [];
   const { tracks, start, end } = readClip(glb, clip);
   const roots = skinRoots(glb);
+  const hips = roots.map((r) => {
+    const pelvis = (nodes[r]?.children ?? []).find((c) => /_pelvis$/.test(nodes[c]?.name ?? ''));
+    return pelvis ?? r;
+  });
   const first = nodeWorlds(glb, tracks, start);
-  const out = roots.map((r) => ({
+  const out = roots.map((r, i) => ({
     root: nodes[r]?.name ?? `node${r}`,
-    x0: first[r][12], y0: first[r][13], z0: first[r][14],
+    x0: first[hips[i]][12], y0: first[hips[i]][13], z0: first[hips[i]][14],
     liveAtStart: jointScale(first[r]) > HIDDEN_SCALE,
-    horizontalM: 0, endY: first[r][13],
+    horizontalM: 0, endY: first[hips[i]][13],
   }));
   for (let s = 1; s <= SAMPLES; s++) {
     const t = start + ((end - start) * s) / SAMPLES;
     const worlds = nodeWorlds(glb, tracks, t);
-    roots.forEach((r, i) => {
-      const m = worlds[r];
+    roots.forEach((_r, i) => {
+      const m = worlds[hips[i]];
       const o = out[i];
       o.horizontalM = Math.max(o.horizontalM, Math.hypot(m[12] - o.x0, m[14] - o.z0));
       o.endY = m[13];
@@ -1926,4 +1937,68 @@ export function measureArmInBody(path: string, clip: string, figure: string): Ar
     worst = Math.max(worst, inside);
   }
   return { samples: armCount, instants, worstInside: worst };
+}
+
+/**
+ * How much a figure's UPPER BODY moves over a clip, measured off the bytes:
+ * the B7 regression's instrument (2026-10-05).
+ *
+ * B7 replaced three motion-captured bipeds with rig.py figures whose `move`
+ * locks the torso to the pelvis -- legs and arms swing, the body above the
+ * belt rides along rigid. Nothing gated that: every gait check reads boots.
+ * Two numbers per figure, both from the pelvis joint and the head joint alone
+ * (rig.py's `<p>_pelvis`/`<p>_head`, or a supplied biped's `<p>_Hips`/
+ * `<p>_Head`, so the same instrument reads the pre-B7 files it is calibrated
+ * on):
+ *
+ *  - `leanRangeDeg`: the peak-to-peak swing of the pelvis-to-head line's
+ *    angle from vertical in the forward plane (+X forward, +Y up) -- the
+ *    torso pitching through the stride;
+ *  - `headSwayM`: the head's horizontal excursion RELATIVE TO THE PELVIS
+ *    (the hypotenuse of its forward and lateral peak-to-peak), so the root's
+ *    own travel and bob do not count.
+ *
+ * A figure whose pelvis is scaled out of the clip (a corpse, a hidden walker
+ * or kneeler) is reported `hiddenInClip` and its numbers are zero.
+ */
+export interface UpperBodyMotion {
+  readonly figure: string;
+  readonly hiddenInClip: boolean;
+  readonly leanRangeDeg: number;
+  readonly headSwayM: number;
+}
+
+export function measureUpperBodyMotion(path: string, clip: string): UpperBodyMotion[] {
+  const glb = readGlb(path);
+  const nodes = glb.json.nodes ?? [];
+  const names = nodes.map((n) => n.name ?? '');
+  const { tracks, start, end } = readClip(glb, clip);
+  const figures: { figure: string; pelvis: number; head: number }[] = [];
+  for (let i = 0; i < names.length; i++) {
+    const m = /^(.+)_(pelvis|Hips)$/.exec(names[i]);
+    if (!m) continue;
+    const head = names.findIndex((n) => n === `${m[1]}_${m[2] === 'Hips' ? 'Head' : 'head'}`);
+    if (head >= 0) figures.push({ figure: m[1], pelvis: i, head });
+  }
+  if (figures.length === 0) throw new Error(`${path}: no pelvis/head joint pair -- measureUpperBodyMotion needs one per figure`);
+  const range = (a: number[]): number => Math.max(...a) - Math.min(...a);
+  return figures.map(({ figure, pelvis, head }) => {
+    const lean: number[] = [];
+    const fx: number[] = [];
+    const fz: number[] = [];
+    let hidden = true;
+    for (let s = 0; s <= SAMPLES; s++) {
+      const w = nodeWorlds(glb, tracks, start + ((end - start) * s) / SAMPLES);
+      if (jointScale(w[pelvis]) <= HIDDEN_SCALE) continue;
+      hidden = false;
+      const dx = w[head][12] - w[pelvis][12];
+      const dy = w[head][13] - w[pelvis][13];
+      const dz = w[head][14] - w[pelvis][14];
+      lean.push((Math.atan2(dx, dy) * 180) / Math.PI);
+      fx.push(dx);
+      fz.push(dz);
+    }
+    if (hidden) return { figure, hiddenInClip: true, leanRangeDeg: 0, headSwayM: 0 };
+    return { figure, hiddenInClip: false, leanRangeDeg: range(lean), headSwayM: Math.hypot(range(fx), range(fz)) };
+  });
 }

@@ -754,6 +754,18 @@ def unit_speed_tiles_s(team_id):
     return float(speed)
 
 
+def unit_has_weapons(team_id):
+    """True when the team's OWN unit JSON lists any weapon -- the sim lets
+    every armed unit fire while it moves, so every armed walker needs a
+    `moveFire` (see `build_move_fire_clip`). Read the same way, and with the
+    same refusal, as `unit_speed_tiles_s`."""
+    hits = sorted(glob.glob(os.path.join(DATA_UNITS_DIR, "**", f"{team_id}.json"), recursive=True))
+    if len(hits) != 1:
+        raise RuntimeError(f"{team_id}: expected exactly one unit JSON under {DATA_UNITS_DIR}, found {hits}")
+    with open(hits[0], encoding="utf-8") as fh:
+        return bool(json.load(fh).get("weapons"))
+
+
 def move_seconds():
     """`move`'s own length in seconds -- `MOVE_FRAMES` at the SCENE's frame
     rate, read back rather than assumed, because the ratio this whole block
@@ -2127,7 +2139,7 @@ def build_idle_clip(arm_obj, figures):
             key(pbones[f"{prefix}_pelvis"], bones[f"{prefix}_pelvis"], AXIS_X, sway, f)
 
 
-def build_move_clip(arm_obj, figures, gait):
+def build_move_clip(arm_obj, figures, gait, clip_name="move", firing=False, extra_root_lean=None):
     """Full gait -- thigh/shin/arm swing, weight transfer, settle, head
     stabilisation, vertical bob -- for every figure that walks
     (`spec["animates"]`), PLUS -- since design D6 -- every kneeling figure's
@@ -2171,8 +2183,14 @@ def build_move_clip(arm_obj, figures, gait):
     from the same dict rather than from a second copy. What is left here is
     the RIGGING -- one bone per entry -- which is the half that really is
     specific to `_BASE_BONES`.
+
+    `clip_name="moveFire", firing=True` is `build_move_fire_clip`: the SAME
+    legs, hips, pelvis and bob from the SAME `gait` dict -- so `pnpm
+    gait:meshes` declares `rl_gait.moveFire` at `move`'s own stride -- with
+    every shooter's upper body taken from `build_fire_clip` instead of the
+    swing. See that function.
     """
-    _new_action(arm_obj, "move")
+    _new_action(arm_obj, clip_name)
     bones = arm_obj.data.bones
     pbones = arm_obj.pose.bones
     _key_death_visibility(pbones, figures, "prop" in pbones, alive=True, moving=True)
@@ -2192,8 +2210,12 @@ def build_move_clip(arm_obj, figures, gait):
         f"predicted boot travel={BASE_BOOT_TRAVEL_M * gait['scale']:.3f} m"
     )
     root_bob_dir = local_offset_for_world_axis(bones[f"{walkers[0]['prefix']}_root"], AXIS_Z)
+    leaners = (extra_root_lean or {}) if firing else {}
     for f in range(0, MOVE_FRAMES + 1):
         base_phase = 2.0 * math.pi * f / MOVE_FRAMES
+        # One shot per gait cycle: `fire`'s own rise-and-settle impulse,
+        # resampled over the cycle, zero at both ends so the loop closes.
+        kick = _recoil_curve(f / MOVE_FRAMES)
         for i, spec in enumerate(walkers):
             prefix = spec["prefix"]
             phase = base_phase + gait_phase(i)
@@ -2202,6 +2224,35 @@ def build_move_clip(arm_obj, figures, gait):
             key(pbones[f"{prefix}_thigh_R"], bones[f"{prefix}_thigh_R"], AXIS_Y, p["thigh_r"], f)
             key(pbones[f"{prefix}_shin_L"], bones[f"{prefix}_shin_L"], AXIS_Y, p["shin_l"], f)
             key(pbones[f"{prefix}_shin_R"], bones[f"{prefix}_shin_R"], AXIS_Y, p["shin_r"], f)
+            weapon = spec.get("weapon") if firing else None
+            if weapon in ("rifle", "launcher"):
+                # Walk-and-fire: the upper body is `build_fire_clip`'s, keyed
+                # on the same joints with the same constants, and the torso
+                # holds the facing -- the spine cancels the hips' own twist
+                # rather than adding a shoulder twist, so the weapon stays on
+                # the aim while the legs walk under it. No arm swing, no head
+                # counter-rotation (there is no shoulder twist to counter).
+                if weapon == "rifle":
+                    sh, el, sp = (FIRE_SHOULDER + RECOIL_SHOULDER * kick, FIRE_ELBOW + RECOIL_ELBOW * kick,
+                                  RECOIL_SPINE * kick)
+                else:
+                    sh, el, sp = LAUNCH_SHOULDER * kick, LAUNCH_ELBOW * kick, LAUNCH_SPINE * kick
+                # Both arms take the gait's forward lean back off, so the
+                # weapon stays at `fire`'s own elevation rather than dipping
+                # by the lean (measured before this: 11-13 deg nose-down
+                # against `idle`, past mesh_gait.test.ts's 12).
+                key(pbones[f"{prefix}_upperarm_R"], bones[f"{prefix}_upperarm_R"], AXIS_Y, sh - p["lean"], f)
+                key(pbones[f"{prefix}_forearm_R"], bones[f"{prefix}_forearm_R"], AXIS_Y, el, f)
+                key(pbones[f"{prefix}_upperarm_L"], bones[f"{prefix}_upperarm_L"], AXIS_Y, -p["lean"], f)
+                key(pbones[f"{prefix}_hip_L"], bones[f"{prefix}_hip_L"], AXIS_Y, p["hip_l"], f)
+                key(pbones[f"{prefix}_hip_R"], bones[f"{prefix}_hip_R"], AXIS_Y, p["hip_r"], f)
+                key_axes(pbones[f"{prefix}_spine"], bones[f"{prefix}_spine"],
+                         [(AXIS_Y, p["lean"] + sp), (AXIS_Z, -p["hip_twist"])], f)
+                key(pbones[f"{prefix}_pelvis"], bones[f"{prefix}_pelvis"], AXIS_Z, p["hip_twist"], f)
+                pb_root = pbones[f"{prefix}_root"]
+                pb_root.location = root_bob_dir * p["bob"]
+                pb_root.keyframe_insert(data_path="location", frame=f)
+                continue
             # A walking launcher carrier (`rpg_fire`, `mpd_fire`) keeps both
             # hands where the rest pose seats them -- on the launcher's grips
             # (`import_meshy_crew_team._seat_launcher`) -- instead of swinging
@@ -2222,6 +2273,28 @@ def build_move_clip(arm_obj, figures, gait):
             pb_root = pbones[f"{prefix}_root"]
             pb_root.location = root_bob_dir * p["bob"]
             pb_root.keyframe_insert(data_path="location", frame=f)
+            if prefix in leaners:
+                # A FIRE_ROOT_LEAN team (its weapon rides the torso, so its
+                # `fire` is a brace): the same flat lean on the walking root.
+                key(pb_root, bones[f"{prefix}_root"], AXIS_Y, leaners[prefix], f)
+
+
+def build_move_fire_clip(arm_obj, figures, gait, extra_root_lean=None):
+    """`moveFire` -- walk and fire (the lead's ruling, 2026-10-05).
+
+    Until this clip existed, a rig.py unit that fired while it moved played
+    `fire` -- a standing brace, legs still -- and slid across the ground at
+    its full speed: `resolveMeshMotionClip` only routes a moving shot to
+    `moveFire` when the GLB carries one, and nothing this module builds did.
+    The legs, hips, pelvis and bob here are `build_move_clip`'s, from the same
+    `gait` dict, so the gait pass reads the same stride off it; every shooter
+    takes `build_fire_clip`'s upper body, one shot per cycle; a figure with no
+    hand-bound weapon (a launcher crew's walker, a FIRE_ROOT_LEAN brace team)
+    walks exactly as in `move`, the brace teams leaning on their root as their
+    `fire` does.
+    """
+    build_move_clip(arm_obj, figures, gait, clip_name="moveFire", firing=True,
+                    extra_root_lean=extra_root_lean)
 
 
 def _recoil_curve(p):
@@ -2376,6 +2449,9 @@ def build_sniper_clips(arm_obj, gait):
     figures = [dict(prefix=s["prefix"], animates=True) for s in SNIPER_SPECS]
 
     build_move_clip(arm_obj, figures, gait)
+    # The rifle is slung on the standing walker (or lies with the prone
+    # body), so a sniper that fires on the move walks exactly as in `move`.
+    build_move_fire_clip(arm_obj, figures, gait)
 
     bones = arm_obj.data.bones
     delta = SNIPER_CLOSE_DOWN - SNIPER_CLOSE_IDLE
@@ -2500,8 +2576,20 @@ def build_clips(arm_obj, team_id):
         build_moto_clips(arm_obj)
         return
     figures = TEAM_FIGURES[team_id]
+    import mocap   # noqa: E402 -- tools/units/mocap.py imports this module
+    if team_id in mocap.CAPTURED:
+        # The three teams that replaced the supplied mocap bipeds (B7) play
+        # those bipeds' own captured clips again, retargeted onto these bones.
+        built = mocap.build_captured_clips(arm_obj, team_id)
+        for clip_name in ("down", "wreck"):
+            if clip_name not in built:
+                build_death_clip(arm_obj, team_id, clip_name)
+        if any(s.get("work_posture") == "kneeling" for s in figures):
+            build_work_clip(arm_obj, figures)
+        return
+    gait = gait_for_team(team_id)
     build_idle_clip(arm_obj, figures)
-    build_move_clip(arm_obj, figures, gait_for_team(team_id))
+    build_move_clip(arm_obj, figures, gait)
     # Any hand-bound weapon, rifle or launcher -- see `build_fire_clip`. This
     # condition read `== "rifle"` until this pass, which is why `at_team`
     # shipped four clips where every other team ships five.
@@ -2509,6 +2597,9 @@ def build_clips(arm_obj, team_id):
     leaners = FIRE_ROOT_LEAN.get(team_id)
     if armed or leaners:
         build_fire_clip(arm_obj, figures, leaners)
+    walkers = [s for s in figures if s["animates"]] + _walker_specs(figures)
+    if walkers and unit_has_weapons(team_id):
+        build_move_fire_clip(arm_obj, figures, gait, leaners)
     build_death_clip(arm_obj, team_id, "down")
     build_death_clip(arm_obj, team_id, "wreck")
     # `work`: `teams.TEAM_CLIP_ADD` scopes it to yahalom_squad; since B7 a
