@@ -389,7 +389,10 @@ describe('a unit spawned after this tick snapshot', () => {
     w.sim.tick();
     w.renderer.snapshot();
     pause();
-    for (let t = 0; t < 3; t++) {
+    // Exhaust is dated off the SIM clock (GH-391) and a window is emitted once
+    // its 500 ms trickle has elapsed, so the newcomer needs 10+ ticks of sim
+    // time, not frames, before it has puffed at all.
+    for (let t = 0; t < 14; t++) {
       w.sim.tick();
       w.renderer.snapshot();
       drawTick(w);
