@@ -1355,20 +1355,17 @@ run(
 
 run('khan_rafid_2_foothold', () => {}, {}, 'defeat', 'khan_rafid_2_foothold (passive control)');
 
-// KR II -- clear the ward with the hold force (rifles + one Eitan, both
-// under the 0.3 structural-collateral threshold that arms `fire into
-// protected structure (ward)`), while the Namer runs a family in from BOTH
-// sides via the east lane corridor (x=33) rather than straight up the
-// middle -- it never crosses the flagged rectangle, so its 0.35-collateral
-// cannon_30 can only reach INTO the ward from outside it on a stray round,
-// not fire from inside it. AT team and mortar stay south at the staging
-// ground the whole mission: their collateral (0.3, 0.7) is exactly the kind
-// this mission bills for, and neither is needed to clear six rifle-armed
-// militia off a compound. Measured: VICTORY in 4.43 min, ROE 95 (one
-// flagged-zone deduction survives: the Namer's cannon can still reach INTO
-// the zone from its own corridor once a `ward_push` section is standing in
-// it, which is the mechanic `khan_rafid_2_foothold.json`'s own `commit`
-// trigger is built to force).
+// KR II (GH-382: the ward stands on a mound in a market plain, ring road at its foot) -- clear
+// the ward with the hold force (rifles + one Eitan, both under the 0.3 structural-collateral
+// threshold that arms `fire into protected structure (ward)`), while the Namer runs the eastern
+// family up the east flank of the ring road and the jeep fetches the southern one. It enters the
+// ward by a gate to unload, so its cannon can reach into the zone only from the gate. AT team and
+// mortar stay south at the staging ground: their collateral (0.3, 0.7) is exactly the kind this
+// mission bills for. Measured: VICTORY in 4.4 min, ROE 100 (pinned seed 424242). The Namer's
+// leg is given 60 s: the lane-east ambush at [34,18] sits on its route and on two of twelve
+// seeds (7 and 12, the same two as on the old ground) the Namer stops at [34,20], short of the
+// family, and never moves again (cause not established), so `get_four_in` fails: the plan is a proof of winnability, not of
+// a floor, and those seeds are in the PR's before/after table rather than papered over.
 run(
   'khan_rafid_2_foothold',
   (sim, _rt, ids, at) => {
@@ -1381,26 +1378,25 @@ run(
     const drone = ids('recon_drone');
     const holdForce = [...inf, ...eitan];
 
-    at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 20) }));
-    at(0, () => sim.queueCommand({ kind: 'attackMove', ids: holdForce, ...M(24, 20) }));
+    at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 23) }));
+    at(0, () => sim.queueCommand({ kind: 'attackMove', ids: holdForce, ...M(24, 23) }));
 
-    // Jeep: the close southern family, five tiles from the start line.
-    at(0, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(23, 27) }));
-    at(15, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(24, 22) }));
+    // Jeep: the close southern family, ten tiles from the start line.
+    at(0, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(22, 32) }));
+    at(15, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(24, 23) }));
 
-    // Namer: the eastern family via the east lane corridor, staying outside
-    // the ward's flagged rectangle for the whole round trip.
+    // Namer: the eastern family up the east flank of the ring road.
     at(0, () => {
-      sim.queueCommand({ kind: 'move', ids: namer, ...M(33, 25) });
-      sim.queueCommand({ kind: 'move', ids: namer, ...M(31, 16), append: true });
+      sim.queueCommand({ kind: 'move', ids: namer, ...M(33, 30) });
+      sim.queueCommand({ kind: 'move', ids: namer, ...M(34, 13), append: true });
     });
-    at(35, () => {
-      sim.queueCommand({ kind: 'move', ids: namer, ...M(33, 25) });
-      sim.queueCommand({ kind: 'move', ids: namer, ...M(24, 22), append: true });
+    at(60, () => {
+      sim.queueCommand({ kind: 'move', ids: namer, ...M(33, 24) });
+      sim.queueCommand({ kind: 'move', ids: namer, ...M(24, 23), append: true });
     });
 
-    at(0, () => sim.queueCommand({ kind: 'move', ids: at_team, ...M(24, 36) }));
-    at(0, () => sim.queueCommand({ kind: 'move', ids: mortar, ...M(22, 38) }));
+    at(0, () => sim.queueCommand({ kind: 'move', ids: at_team, ...M(26, 40) }));
+    at(0, () => sim.queueCommand({ kind: 'move', ids: mortar, ...M(22, 41) }));
   },
   {},
   'victory',
@@ -3122,7 +3118,9 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // `GATES` does not move: no mission's star count changed.
 // GH-382 moved Wadi Halam II-V onto new ground: 5736 -> 5689 (-47), every term on the Wadi
 // Halam chain and nothing else (II 188 -> 186, III 190 -> 170, IV 187 -> 170, V 159 -> 151).
-const LADDER_CREDITS = 5689;
+// GH-382 moved Khan Rafid II onto new ground: 5689 -> 5694 (+5), every term on the Khan
+// Rafid chain and nothing else (II 220 -> 225).
+const LADDER_CREDITS = 5694;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
