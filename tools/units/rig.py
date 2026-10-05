@@ -1029,8 +1029,6 @@ FIRE_ROOT_LEAN = {
     "charge_squad": {"chg0": math.radians(4.0), "chg1": math.radians(4.0)},
     # B5: breach_team's fire is a brace -- see TEAM_FIGURES' breach entry.
     "breach_team": {"brc_point": math.radians(3.0), "brc_cover": math.radians(3.0)},
-    # B7: the rifleman's carbine is baked across his chest (see TEAM_FIGURES).
-    "inf_squad": {"f0": math.radians(3.0), "f1": math.radians(3.0), "f2": math.radians(3.0)},
 }
 
 
@@ -1121,16 +1119,14 @@ SNIPER_SPECS = (
 
 
 TEAM_FIGURES = {
-    # B7 (GH-179, 2026-10-01): `weapon=None` since the Meshy figure landed --
-    # its carbine is baked into the torso, held across the chest in both
-    # hands, and ships as a `weapon` piece on `spine`
-    # (import_meshy_crew_team.py's WEAPON_ON_SPINE); the fire clip is the
-    # FIRE_ROOT_LEAN brace, as breach_team's. The kit build of this team is
-    # superseded (it would lose its kit rifles with this).
+    # Motion pass (5 Oct): a new empty-handed Meshy rifleman, so every man
+    # carries the kdf_carbine part on his hand like any rifleman
+    # (import_meshy_crew_team.py's HAND_PARTS). B7's figure had its carbine
+    # baked across the chest and fired with a FIRE_ROOT_LEAN brace.
     "inf_squad": [
-        _f("f0", 0.0, -0.78),
-        _f("f1", 0.20, 0.0, leader=True),
-        _f("f2", 0.0, 0.78),
+        _f("f0", 0.0, -0.78, weapon="rifle"),
+        _f("f1", 0.20, 0.0, leader=True, weapon="rifle"),
+        _f("f2", 0.0, 0.78, weapon="rifle"),
     ],
     "militia_cell": [
         _f("mil0", 0.0, -0.24, headgear="keffiyeh", loadout="irregular", leader=True, weapon="rifle"),

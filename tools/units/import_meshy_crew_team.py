@@ -198,7 +198,11 @@ SOURCES = {
     # B7 (GH-179, 2026-10-01): the five supplied Meshy teams replaced on this
     # path -- numbers in `docs/art/meshy-prompts-units.md` §19-23, task ids in
     # docs/ASSET_PROVENANCE.md. Each file reclaims its team id's own name.
-    "inf_squad": (os.path.join(REPO, "art", "meshy", "inf-squad-*-01a0f89c", "model.glb"), 1.78),
+    # Motion pass (5 Oct): a NEW A-pose rifleman, arms clear and no weapon
+    # fused, so the kdf_carbine part goes in his hands (HAND_PARTS) instead of
+    # the B7 preview's carbine baked across the chest. Preview 01a10dc6-457d,
+    # 8k refine 01a10dd8, remesh 01a10ddb at 1,500 tris.
+    "inf_squad": (os.path.join(REPO, "art", "meshy", "inf-squad-*-01a10ddb", "model.glb"), 1.78),
     # Same ruling: the B7 Sarim rifleman preview (sarim-rifles-*-01a0f89e,
     # unused now) read as KDF; the team is the militia_cell body three times.
     "sarim_rifles": (os.path.join(REPO, "art", "meshy", "militia-cell-*-01a0f30b", "model.glb"), 1.70),
@@ -332,12 +336,6 @@ ARMS_FORWARD = {"digger_crew"}
 #: synthetic hanging joints and no arm parts; `_bend_forearms`,
 #: `_death_parts_posed` and the deltoid/elbow blobs all skip it.
 ARMS_ON_TORSO = {"digger_crew": {0, 1}, "breach_team": {0},
-                 # B7: the rifleman preview came holding its carbine across
-                 # the chest in BOTH hands (the subject noun beat the pose
-                 # line, as on breach_team) -- both arms stay on the torso,
-                 # the baked carbine is the rifle (WEAPON_ON_SPINE), and the
-                 # fire clip is a FIRE_ROOT_LEAN brace. No kit rifle.
-                 "inf_squad": {0, 1},
                  # B7: the sniper preview came AIMING its carbine -- both arms
                  # up on the gun, no A-pose, no ghillie hood. Kept rather than
                  # re-rolled: laid on its chest with the carbine turned to run
@@ -355,10 +353,6 @@ ARMS_ON_TORSO = {"digger_crew": {0, 1}, "breach_team": {0},
 #: rifle, no hand-bound weapon, and `rig.TEAM_FIGURES` declares
 #: `weapon=None` with a `FIRE_ROOT_LEAN` brace for the fire clip.
 WEAPON_ON_SPINE = {"breach_team": dict(x_min=0.06, y=(-0.16, 0.08), z=(0.50, 0.74)),
-                   # B7: the carbine runs diagonally across the chest from the
-                   # right hip to the left shoulder; the box is wide enough
-                   # for the barrel and the magazine, measured on the remesh.
-                   "inf_squad": dict(x_min=0.07, y=(-0.20, 0.16), z=(0.44, 0.78)),
                    # B7: the sniper's carbine is held out ahead of the chest at
                    # shoulder height, barrel forward.
                    "sniper_team": dict(x_min=0.10, y=(-0.22, 0.22), z=(0.56, 0.88))}
@@ -435,6 +429,16 @@ ANKLE_F, BOOT_TOP_F, KNEE_F, CROTCH_FALLBACK_F = 0.045, 0.09, 0.285, 0.47
 NECK_F, CHIN_F, FACE_LO_F, FACE_HI_F = 0.83, 0.87, 0.88, 0.955
 FACE_HALF_W = 0.07
 ARM_ROOT_FALLBACK_F = 0.105    # torso half-width at the armpit: both B2 figures measure 0.20/1.90 src
+#: Per team, the height (fraction of H) above which the hand's lateral reach
+#: is read -- see `_arm_axis`. Default 0.62.
+ARM_REACH_Z_F = {"inf_squad": 0.5}
+#: The motion pass's rifleman (5 Oct) hangs straight arms with open hands
+#: down to 0.48 H, and his sleeves and gloves are fuller than the B-batch
+#: figures': below the default 0.5 H floor, or outside the default reach of
+#: the arm's axis, a glove or a cuff stayed with the torso and floated at
+#: the old A-pose hand once the arm was hung.
+ARM_FLOOR_Z_F = {"inf_squad": 0.40}
+R_ARM_BY_TEAM = {"inf_squad": 0.075}
 ARM_BAND_Z_F = 0.15            # a |y| band spanning less than this in z (above 0.62 H) is arm, not torso
 WRIST_IN_F, HAND_F = 0.07, 0.035 # the wrist band, measured inward from the fingertips along |y|
 HAND_PAST_WRIST = 0.24         # how far past the wrist band the forearm segment still claims faces
@@ -878,7 +882,12 @@ def _arm_axis(co, height, side):
     sgn = -1.0 if side == 0 else 1.0
     y = co[:, 1] * sgn
     upper = co[:, 2] > 0.62 * height
-    ymax = float(y[upper].max())
+    # The fingertips' reach: above 0.62 H on every earlier figure, whose
+    # A-pose hands stay at chest height. The motion pass's rifleman hangs his
+    # straight arms lower, hands at 0.53 H, so on him the reach is read from
+    # 0.5 H (ARM_REACH_Z_F) or the "wrist" lands at the elbow.
+    reach = co[:, 2] > ARM_REACH_Z_F.get(_TEAM.get("id"), 0.62) * height
+    ymax = float(y[reach].max())
     step = 0.02
     w_arm = None
     for lo in np.arange(0.09 * height, ymax - 0.05, step):
@@ -919,6 +928,14 @@ def _arm_axis(co, height, side):
         if best is None or c[2] < best[2]:
             best = c
     elbow = Vector(best) if best is not None else shoulder.lerp(wrist, 0.45)
+    # Motion pass (5 Oct): the new inf_squad rifleman holds his arms STRAIGHT,
+    # 55 deg from vertical. On a straight arm the lowest band centroid in the
+    # window sits at the window's outer end, which on this figure is 3 cm from
+    # the wrist -- a 0.03 m forearm, and no hand to put on a rifle. An elbow
+    # that close to the wrist is not an elbow: take the arm's midpoint, where
+    # upper arm and forearm are equal (they are within 10% on a person).
+    if (wrist - elbow).length < 0.35 * (wrist - shoulder).length:
+        elbow = shoulder.lerp(wrist, 0.5)
     return shoulder, elbow, wrist, w_arm
 
 
@@ -1017,7 +1034,7 @@ def cut_figure(src, height, prefix, blobs=True):
         the torso and stuck out as a spike once the arm was hung (a 6 cm
         triangle reaches 6 cm past its own centroid); and it required the
         axis test alone, which left a third of a thick forearm behind."""
-        if axes is None or abs(y_out) <= w_arm or p[2] < 0.5 * H:
+        if axes is None or abs(y_out) <= w_arm or p[2] < ARM_FLOOR_Z_F.get(_TEAM["id"], 0.5) * H:
             return None
         side = 0 if y_out < 0 else 1
         if axes[side] is None:
@@ -1034,7 +1051,7 @@ def cut_figure(src, height, prefix, blobs=True):
             axis = (b - a).normalized()
             d = pv - a
             along = d.dot(axis)
-            if -0.05 <= along <= (b - a).length + past and (d - axis * along).length < R_ARM_F * H:
+            if -0.05 <= along <= (b - a).length + past and (d - axis * along).length < R_ARM_BY_TEAM.get(_TEAM["id"], R_ARM_F) * H:
                 return side
         return None
 
@@ -2774,6 +2791,8 @@ HAND_PARTS = {
     "sarim_rifles": ("sarim_rifle",),
     "rpg_team": ("rpg_launcher", "sarim_rifle"),
     "mortar_team": ("kdf_carbine",),
+    # Motion pass (5 Oct): the new rifleman is empty-handed, so he carries it.
+    "inf_squad": ("kdf_carbine",),
     "yahalom_squad": ("kdf_carbine",),
     "breach_team": ("kdf_carbine",),
     "manpad_team": ("manpad_tube",),
@@ -3758,9 +3777,12 @@ def build_team(team_id):
                 forced[ob] = "brc_point_spine"
         parts += props
     elif team_id == "inf_squad":
-        # B7: no kit rifle -- each man's own baked carbine is on his torso
-        # (WEAPON_ON_SPINE, ARMS_ON_TORSO), exactly breach_team's shape.
-        pass
+        # Motion pass (5 Oct): the kdf_carbine part at each man's hand, as
+        # sarim_rifles does with its own rifle part.
+        for spec in figures:
+            w = _hand_rifle(spec["prefix"], hands[spec["prefix"]], spec["x"], spec["y"])
+            forced.update({ob: f"{spec['prefix']}_forearm_R" for ob in w})
+            parts += w
     elif team_id == "sarim_rifles":
         # B7: three riflemen, grip on each man's own bent right hand --
         # militia_cell's rule, three times.
