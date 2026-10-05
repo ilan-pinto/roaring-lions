@@ -92,7 +92,6 @@ const edited = (json: MapJson, f: (rows: string[][], elev: string[][] | null) =>
 };
 const replaceAll = (json: MapJson, from: string, to: string): MapJson =>
   edited(json, (rows) => rows.forEach((r) => r.forEach((c, x) => { if (c === from) r[x] = to; })));
-const flat = (json: MapJson): MapJson => ({ ...json, elevation: json.elevation?.map((r) => r.replace(/./g, '0')) }) as MapJson;
 const missionOf = (id: string) =>
   (missions as unknown as Record<string, { map: { file: string }; enemy?: { garrison?: { at?: Pt; marker?: string; tag?: string }[] } }>)[id];
 const structureAreas = (json: MapJson, zone: string) => {

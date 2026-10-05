@@ -24,11 +24,11 @@ const view = (objectives: ObjectiveView[], result: MissionView['result'] = 'ongo
 describe('1. failureReason: a lost mission names the primary that lost it, and when', () => {
   const objs = [
     { id: 'hold_the_crest_line', text: 'Hold the crest line for four minutes' },
-    { id: 'level_the_stone_post', text: 'Level the post above the stone knoll inside five minutes' },
+    { id: 'level_the_stone_post', text: 'Level the post on the stone knoll inside five minutes' },
   ];
   it('a failed objective', () => {
     expect(failureReason({ objective: 'level_the_stone_post' }, objs, 300 * S)).toBe(
-      'FAILED — Level the post above the stone knoll inside five minutes · 5:00'
+      'FAILED — Level the post on the stone knoll inside five minutes · 5:00'
     );
   });
   it('a wiped force and a Conduct collapse', () => {
@@ -79,7 +79,7 @@ describe('1. failureReason: a lost mission names the primary that lost it, and w
     }
     expect(rt.result).toBe('defeat');
     expect(failureReason(rt.defeatCause, rt.objectiveList, end)).toBe(
-      'FAILED — Level the post above the stone knoll inside five minutes · 5:00'
+      'FAILED — Level the post on the stone knoll inside five minutes · 5:00'
     );
   });
 });

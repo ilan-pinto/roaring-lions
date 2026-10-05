@@ -14,7 +14,7 @@
  * real ledger and a control or probe is excluded by the same `label === id`
  * guard `missionStars` uses.
  *
- * Measured 2026-09-20 at a567b892: **30**, at `umm_zeitoun_4_clearance`. Per
+ * Measured 2026-09-20 at a567b892: **30**, at `umm_zeitoun_4_clearance` (32 since GH-382 put it on new ground). Per
  * chain: Beit Sahwan 25 / Wadi Halam 14 / Khan Rafid 11 / Deir Amun 12 /
  * Tel Marum 10 / Qarn Hadid 24 / Umm Zeitoun 30. `tools/src/backtest/
  * playtest.ts` pins this as `ROSTER_MAX` beside `LADDER_CREDITS` and goes red
