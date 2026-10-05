@@ -3134,7 +3134,12 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // Amun, not summed), every term on the Qarn Hadid chain and nothing else (II 227 -> 197, III 212 -> 215).
 // II's -30 is fewer survivors handed on (16 out against 19) at the same two stars and ROE 97; III's +3 is
 // ROE 100 against 77, the same two stars.
-const LADDER_CREDITS = 5801;
+// GH-382 moved Tel Marum I-III onto new ground: 5801 -> 5799 (-2), read off the printed per-mission
+// credits before and after: II 198 -> 196, III 230 -> 245 (ROE 100 against 98, two stars both times),
+// and Umm Zeitoun III 280 -> 265, which is not Tel Marum's own term: it inherits the roster Tel Marum
+// III hands on (the Eitan that ferries the families, the two Lavis that never took a hit), and that
+// roster is a different set of units from the one the old plan left with.
+const LADDER_CREDITS = 5799;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
@@ -3258,7 +3263,8 @@ for (const [label, got, want] of [
  *  campaign's roster. It is the largest SINGLE CHAIN, which is the most the
  *  instrument honestly knows. */
 // GH-382: 30 -> 32, still at umm_zeitoun_4_clearance (its escort and parties survive the shelf in numbers).
-const ROSTER_MAX = 32;
+// GH-382 (Tel Marum): 32 -> 33, same mission: the new Tel Marum III plan loses no unit, so one more reaches the end of the chain.
+const ROSTER_MAX = 33;
 console.log(`roster maximum: ${rosterMax} at ${rosterMaxMissionId}`);
 if (rosterMax !== ROSTER_MAX) {
   console.error(`roster maximum: FAILED — expected ${ROSTER_MAX}, got ${rosterMax} at ${rosterMaxMissionId}`);
