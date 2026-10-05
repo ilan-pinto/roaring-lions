@@ -500,6 +500,9 @@ const led1 = run('beit_sahwan_1_recon', (sim, _rt, ids, at) => {
 }, led0, 'victory', 'beit_sahwan_1_recon', 3);
 
 // II — Foothold: dig in on the assembly area, buy a squad when affordable.
+// GH-382 moved it onto beit_sahwan_2 (the western terraces): the plan is unchanged -- the whole force
+// attack-moves to (8,23), the crest of the top terrace behind the wall, and a squad is bought at 120 s.
+// Measured over 12 seeds, VICTORY 12/12 in 5.7 min (before: 12/12 in 5.9), ROE 100, stars 2.
 const led2 = run(
   'beit_sahwan_2_foothold',
   (sim, rt, _ids, at) => {
@@ -610,6 +613,14 @@ const led2 = run(
 // the LEDGER ARGUMENT does go red (`credit ladder: FAILED -- expected 5490, got
 // 5531`), and that is the falsification Task 1's commit was seen to fail on --
 // it is not reproducible on HEAD, whose credit ladder now reads 5849.
+// GH-382 re-homed III onto beit_sahwan_3 (the old town): the clinic is the walled yard south-west of the
+// crossing, the north block is the house at (36,12), and the ATGM cell is the nook at (40,23). Same
+// plan on the new geometry -- the armour holds the north boulevard (29,13) and swings east along the
+// main boulevard to the cell, the infantry take the square from the south side, the drone flies to
+// (32,18) -- with every coordinate moved (before -> after): armour (30,12) -> (29,13), infantry
+// (28,26) -> (28,24), engineers (27,25) -> (27,24), AT team (30,14) -> (29,15), armour east (38,16) ->
+// (36,21), centre (31,22) -> (28,21), cell (38,22) -> (39,22). Measured: VICTORY 1.8 min, ROE 87 (was
+// 94: the old town has a house on every side of a shot), stars 3.
 const led3 = run(
   'beit_sahwan_3_clearance',
   (sim, _rt, ids, at) => {
@@ -618,22 +629,22 @@ const led3 = run(
       // North block only. Nothing above the collateral threshold is given a
       // reason to look south into the clinic.
       const armor = [...ids('mbt_lavi'), ...ids('ifv_namer')];
-      sim.queueCommand({ kind: 'attackMove', ids: armor, ...M(30, 12) });
+      sim.queueCommand({ kind: 'attackMove', ids: armor, ...M(29, 13) });
       // The Eitan goes with the infantry rather than with the armour: its RWS
       // is under the threshold, so it is the one vehicle that can support a
       // fight inside the zone without being charged for it.
       sim.queueCommand({
         kind: 'attackMove',
         ids: [...ids('inf_squad'), ...ids('apc_eitan')],
-        ...M(28, 26),
+        ...M(28, 24),
       });
       // Engineers follow the infantry: held houses come down by charge, which
       // costs the house and nothing else — shelling them scatters rounds into
       // the clinic block next door.
-      sim.queueCommand({ kind: 'attackMove', ids: ids('demo_squad'), ...M(27, 25) });
+      sim.queueCommand({ kind: 'attackMove', ids: ids('demo_squad'), ...M(27, 24) });
       // The AT team stays north with the armour. Spike also arms the zone
       // penalty, and its business is the technical and the gun truck anyway.
-      sim.queueCommand({ kind: 'attackMove', ids: ids('at_team'), ...M(30, 14) });
+      sim.queueCommand({ kind: 'attackMove', ids: ids('at_team'), ...M(29, 15) });
     });
     // Armour's own move east was retimed from t=140 to t=85 for the
     // map-variants slice (docs/campaign/map-variants-design.md,
@@ -653,18 +664,18 @@ const led3 = run(
       const armor = [...ids('mbt_lavi'), ...ids('ifv_namer')];
       // East along the northern edge to the ATGM at (38.5,22.5) — approaching
       // on y=16 keeps the gun line clear of the clinic the whole way.
-      sim.queueCommand({ kind: 'attackMove', ids: armor, ...M(38, 16) });
+      sim.queueCommand({ kind: 'attackMove', ids: armor, ...M(36, 21) });
     });
     at(140, () => {
       sim.queueCommand({
         kind: 'attackMove',
         ids: [...ids('inf_squad'), ...ids('apc_eitan')],
-        ...M(31, 22),
+        ...M(28, 21),
       });
     });
     at(260, () => {
       const armor = [...ids('mbt_lavi'), ...ids('ifv_namer')];
-      sim.queueCommand({ kind: 'attackMove', ids: armor, ...M(38, 22) });
+      sim.queueCommand({ kind: 'attackMove', ids: armor, ...M(39, 22) });
     });
   },
   // The app's persistent merge, not `led2` alone -- see the block above.
@@ -1186,86 +1197,98 @@ const bs4Plan: Plan = (sim, _rt, ids, at) => {
   const east = teams.slice(1, 2);
   const drone = ids('recon_drone');
   const rescueVehicle = ids('ifv_namer');
-  const holdForce = [...ids('inf_squad'), ...ids('apc_eitan')];
-  // The Namer never joins this group -- see above. It has nothing to gain at
-  // the crossroads and an irreplaceable rescue vehicle to lose there.
-  const escort = [...ids('inf_squad'), ...ids('apc_eitan')];
+  const inf = ids('inf_squad');
+  const eitan = ids('apc_eitan');
+  const escort = [...inf, ...eitan];
 
-  // The escort goes out FIRST and alone. bs4_charge_crossroads -- a kamikaze
-  // charge_squad, not one of the two tags this mission inherits pre-revealed
-  // -- sits directly on the ground south of the district and rushes whoever
-  // reaches it first. Sending the escort ahead means an inf_squad trades with
-  // it instead of a Yahalom team: a rifle squad is replaceable, a charge team
-  // eaten by one kamikaze hit (420 damage against 380 HP) is not. The same
-  // attackMove clears bs_ambush_market_lane (already identified from the
-  // inherited ledger) on the same pass.
-  at(0, () => sim.queueCommand({ kind: 'attackMove', ids: escort, ...M(27, 25) }));
+  if (process.env.BSDBG) {
+    console.log(`BS4 roster inf ${inf.length} eitan ${eitan.length} namer ${rescueVehicle.length} yahalom ${teams.length} drone ${drone.length}`);
+    for (let s = 0; s <= 300; s += Number(process.env.BSSTEP ?? 10))
+      at(s, () => {
+        const p = (i: number) => `${(Number(sim.state.posX[i]) / 65536).toFixed(0)},${(Number(sim.state.posY[i]) / 65536).toFixed(0)}${sim.state.alive[i] ? '(' + (Number(sim.state.hp[i]) / 65536).toFixed(0) + ')' : 'X'}`;
+        console.log(`t=${s} W ${west.map(p)} E ${east.map(p)} inf ${inf.map(p).join(' ')} eitan ${eitan.map(p)} namer ${rescueVehicle.map(p)} tn ${[0, 1, 2, 3].map((r) => sim.tnAlive[r]).join('')}`);
+        if (process.env.BSDBG === '2') { const en: string[] = []; for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 1 && sim.state.alive[i] === 1) en.push(`${i}@${p(i)}`); console.log('   enemy ' + en.join(' ')); }
+      });
+  }
 
-  // The Namer peels off immediately instead of following. It spawns at
-  // [28,34], already within CivilianFlight's four-tile shepherd radius of the
-  // two southern civilians at (24.5,33.5), so they flee and board within the
-  // first couple of ticks purely from it EXISTING there -- no detour needed.
-  // Sending it straight to collection_point banks those two evacuees inside
-  // 20 seconds and keeps this 2200 HP hull out of range of every ambush in
-  // the district for the rest of the mission.
+  // GH-382 re-homed this plan onto beit_sahwan_4, the rubble quarter. Everything the old comments
+  // say about WHO to send where still holds; what moved is the ground:
+  //   - the start yard opens on ONE lane (x 26-27) up to the main road, so the escort runs the lane
+  //     (a plain `move`, not an attackMove) instead of standing in the yard trading shots with
+  //     bs4_cell_souk, which is garrisoned in a building rifles cannot reach: an attackMove from the
+  //     yard measured 2 squads dead at 36 s and the mission lost;
+  //   - the clinic and souk routes are near the start, as before, and the west route runs along the
+  //     main road with nobody stocked in it;
+  //   - the north route is the pit's: its mouth is inside the shaft-head collar and its vent on the
+  //     pit floor, so a charge there has to be made INSIDE the quarry, behind the escort. Foot
+  //     crosses the scree slope on the south side (about a tile a second, two levels of climb); the
+  //     Eitan is wheeled, scree stops it, and it goes round by the haul ramp on the east side.
+  const holdForce = escort;
+  const infOnly = inf;
+
+  // Escort out of the yard along the lane, then clear the crossroads: the kamikaze
+  // (bs4_charge_crossroads) and the pre-revealed market-lane RPG both sit at its head.
+  at(0, () => sim.queueCommand({ kind: 'move', ids: escort, ...M(27, 28) }));
+  at(8, () => sim.queueCommand({ kind: 'attackMove', ids: escort, ...M(27, 26) }));
+  // ...and stand there: an attackMove left running chases the rocket team at the west mouth ten tiles
+  // east, and an infantry squad on its own in that fight dies (seed 1).
+  at(28, () => sim.queueCommand({ kind: 'move', ids: escort, ...M(27, 27) }));
+
+  // The Namer peels off at once to the collection point, banking the two southern civilians inside
+  // twenty seconds and staying out of every ambush for the rest of the mission.
   at(1, () => sim.queueCommand({ kind: 'move', ids: rescueVehicle, ...M(29, 33) }));
 
-  // The drone scouts toward bs_tn_north -- the one route nothing has found
-  // yet, its mouth over 20 tiles from every player spawn -- from a stand-off
-  // point outside any occupant's weapon range of the vent, so it does not
-  // trigger a surfacing volley by walking up on its own.
+  // The drone scouts toward the pit from a stand-off outside any occupant's weapon range.
   at(2, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(28, 20) }));
 
-  // West waits for the escort to clear the crossroads, then charges
-  // bs_tn_souk. Ordered while the team is still at its spawn: the nearest
-  // tile on souk's own polyline from there is on the MOUTH side (~7 tiles),
-  // not the vent (~11) -- so the team never comes within the stocked
-  // militia_cell pair's weapon range of the vent, and the charge collapses
-  // both of them still buried, no fight needed.
+  // West: souk first (the nearest tile on its line from the yard is the mouth side, away from the
+  // vent where the stocked pair surfaces), then the west route down the main road, uncontested.
   at(12, () => sim.queueCommand({ kind: 'chargeTunnel', ids: west, tunnel: 2 }));
-
-  // East charges bs_tn_clinic immediately. Its stocked rpg_team + militia_cell
-  // pair does surface -- clinic's line runs through contested ground either
-  // way -- but Yahalom's own carbines are enough to drop both before the
-  // charge completes.
-  at(2, () => sim.queueCommand({ kind: 'chargeTunnel', ids: east, tunnel: 3 }));
-
-  // Once each team's first route is down, retarget to the second.
-  // bs_tn_west has no stocked occupants at all -- the digger_crew reworking
-  // it live is 20 tiles north, out of this fight -- so west's second charge
-  // is uncontested.
   at(45, () => sim.queueCommand({ kind: 'chargeTunnel', ids: west, tunnel: 0 }));
 
-  // bs_tn_north is the hardest of the four: two rpg_team occupants (300
-  // damage, penetration 550) plus a garrisoned militia_cell dug in at the
-  // mouth. East HOLDS at the clinic vent -- safe, and far from bs_tn_north's
-  // stocked occupants -- rather than soloing north the moment clinic is down.
-  // t=68 was reached by re-running the scratch harness until east's approach
-  // and escort's arrival at the vent overlap, so the two buried teams split
-  // their fire against a group already there instead of concentrating both
-  // rounds on one 380 HP team alone.
-  at(68, () => sim.queueCommand({ kind: 'chargeTunnel', ids: east, tunnel: 1 }));
-  at(50, () => sim.queueCommand({ kind: 'attackMove', ids: escort, ...M(30, 17) }));
+  // East: the clinic route at once; its stocked pair surfaces and Yahalom's carbines drop both.
+  at(2, () => sim.queueCommand({ kind: 'chargeTunnel', ids: east, tunnel: 3 }));
 
-  // Once the mouth fight at bs_tn_north is in hand, push the whole escort
-  // further north-west into the shaft head itself. bs4_hvt_spade holds it
-  // directly -- a `capture` cannot complete while he does, since contest
-  // resets the whole ten-second clock rather than merely pausing it -- and
-  // spade_guard's ambush and bs_track_north sit right against the same
-  // ground. The four hostages and the two shipped civilians at [28.5,14.5]
-  // stand within a couple of tiles of it too, so the same push that clears
-  // the ground suppresses them into fleeing on foot toward civ_collection:
-  // CivilianFlight walks anyone with no transport within four tiles, no extra
-  // order needed, and the ~19-tile walk from here still lands well inside
-  // get_them_out's 240s.
-  at(80, () => sim.queueCommand({ kind: 'attackMove', ids: escort, ...M(26, 14) }));
-
-  // Escort holds the shaft head rather than following anyone south.
-  // `capture`'s contest check resets `holdTicks` to zero on ANY living enemy
-  // inside the zone, so a unit left to chase a runner beyond it would restart
-  // the whole ten-second count -- ordering it to a fixed interior point once
-  // the ground is cleared is what keeps it held rather than merely visited.
-  at(115, () => sim.queueCommand({ kind: 'move', ids: holdForce, ...M(26, 13) }));
+  // The escort goes up onto the apron south of the quarry and shoots down into the pit: the floor
+  // cannot see the apron (the rim is two levels over it), so the pit's ambushers hold their fire
+  // while the infantry whittle them. Both charge teams wait beside it. Only when nothing is left
+  // standing on the pit floor but what rifles cannot reach (the digger, the garrison in the house, the
+  // buried pair) -- or at 110 s, whichever is first -- do the infantry go down the scree and the
+  // teams charge the north route behind them. A fixed time lost seven seeds of twelve: a team that
+  // goes down before the pit is quiet dies on the floor.
+  // The north route now runs out of the pit under the scree and vents on the apron at (33,19), where
+  // its stocked pair surfaces in the open, so it is charged from the apron with the escort beside the
+  // team and nobody goes down into the pit until it is down. Once the three southern and western
+  // routes are down (or at 70 s) the escort and both teams gather at the crossroads, the infantry go to
+  // the vent first and the teams follow ten seconds behind.
+  let phaseB = -1;
+  for (let sec = 40; sec <= 290; sec++) {
+    at(sec, () => {
+      if (phaseB < 0) {
+        if ((sim.tnAlive[0] === 0 && sim.tnAlive[2] === 0 && sim.tnAlive[3] === 0) || sec >= 70) {
+          phaseB = sec;
+          // by the lane and the crossroads, not across the east: bs4_ambush_mouth_west sits at (37,22)
+          sim.queueCommand({ kind: 'move', ids: [...west, ...east], ...M(28, 22) });
+          sim.queueCommand({ kind: 'attackMove', ids: infOnly, ...M(33, 20) });
+          sim.queueCommand({ kind: 'move', ids: eitan, ...M(37, 12) });
+          for (const d of [14, 22, 34, 50]) at(sec + d, () => { if (sim.tnAlive[1] === 1) sim.queueCommand({ kind: 'chargeTunnel', ids: [...east, ...west], tunnel: 1 }); });
+          // With the route down the escort takes the pit: the infantry down the scree, the Eitan round by
+          // the ramp, then both hold the shaft head (`capture` resets its clock on ANY living enemy inside
+          // the zone, so they stand on a fixed point rather than chasing anything out of it).
+          for (const d of [30, 50]) at(sec + d, () => {
+            if (sim.tnAlive[1] === 0) {
+              // the crest of the scree (28,16), not the floor: the rim is two levels over it, so the pit's
+              // ambushers cannot see a rifleman there and he can shoot the guard, the track party and
+              // Sahim's post from it (3.5, 4.7 and 6.3 tiles)
+              sim.queueCommand({ kind: 'attackMove', ids: [...infOnly, ...west, ...east], ...M(28, 16) });
+              sim.queueCommand({ kind: 'attackMove', ids: eitan, ...M(31, 11) });
+            }
+          });
+          for (const d of [75, 95, 115, 135, 155]) at(sec + d, () => { if (sim.tnAlive[1] === 0) sim.queueCommand({ kind: 'move', ids: [...holdForce, ...west, ...east], ...M(26, 9) }); });
+        }
+      }
+    });
+  }
 };
 run('beit_sahwan_4_subterranean', bs4Plan, led4In);
 
@@ -2723,10 +2746,16 @@ function boughtProbe(
 
 // The Zikit is built on the first tick (22 s), then walks to (28,27): from there its sight
 // of 14 holds the souk and clinic vents in view behind the escort's push.
+// GH-382: the quarter's rubble hides most of what the old open fields showed (8 units and a route from
+// (28,27) on the old ground; here (28,27) reads 1 unit). Everywhere the Zikit can see anything on the
+// new ground is inside somebody's weapons, and a unit that dies reads as a failed probe -- it stood on
+// the apron (30,17) and died there, and at the crossroads and the lane. It goes to the east
+// of the clinic yard instead (42,28), outside the rubble and clear of every post, where it looks in on
+// the clinic's mouth and identifies the two it surfaces.
 boughtProbe('beit_sahwan_4_subterranean', bs4Plan, led4In, 'recon_zikit', 30, 'sees', (mine) => ({
   kind: 'move',
   ids: mine,
-  ...M(28, 27),
+  ...M(42, 28),
 }));
 // The Gunship is built on the first tick (50 s) and joins the `raze` approach: an
 // attack-move to the stockpile the depot escort is already walking to.
@@ -3185,7 +3214,10 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // Amun, not summed), every term on the Qarn Hadid chain and nothing else (II 227 -> 197, III 212 -> 215).
 // II's -30 is fewer survivors handed on (16 out against 19) at the same two stars and ROE 97; III's +3 is
 // ROE 100 against 77, the same two stars.
-const LADDER_CREDITS = 5801;
+// GH-382 moved Beit Sahwan II-IV onto new ground: 5801 -> 5846 (+45, recomputed on the merge with Qarn Hadid),
+// every term on the Beit Sahwan chain and nothing else (II 170 -> 200, III 254 -> 247, IV 178 -> 200;
+// III's ROE is 87 against 94 -- the old town has a house on every side of a shot).
+const LADDER_CREDITS = 5846;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
