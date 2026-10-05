@@ -129,6 +129,7 @@ const tilesOf = (json: MapJson, ch: string): Pt[] => {
 describe('every mission starts on its own map file and every wave route reaches its target', () => {
   for (const [mid, file] of [
     ['tel_marum_1_recon', 'tel_marum_1'],
+    ['tel_marum_2_foothold', 'tel_marum_2'],
   ] as const) {
     it(`${mid} plays on ${file}`, () => {
       expect(missionOf(mid).map.file).toBe(file);
@@ -253,5 +254,119 @@ describe('I: the long valley', () => {
     const s = steps(path(m, 'foot', [Math.floor(herders[0]), Math.floor(herders[1])], start)) as number;
     expect(s).toBe(20);
     expect(s / 0.8).toBeLessThan(300);
+  });
+});
+
+describe('II: the terraced slope', () => {
+  const m = J('tel_marum_2');
+  const elev = (x: number, y: number) => Number(m.elevation![y][x]);
+  const MID = 'tel_marum_2_foothold';
+  const start = missionOf(MID).map.player_start;
+  const approach = mk(m, 'approach');
+  const saddle = mk(m, 'saddle_wide');
+  const SHANTY: Extra = [{ type: 'shanty', at: [28, 21], size: [2, 2] }];
+
+  it('climbs by three terraces and a wall: each riser stands three levels over the ground it holds', () => {
+    // (column, riser row, level of the ground behind it, riser's own level)
+    for (const [x, y, behind, own] of [
+      [5, 40, 2, 5],
+      [15, 41, 2, 5],
+      [15, 32, 4, 7],
+      [24, 24, 5, 8],
+      [38, 25, 5, 8],
+    ] as const) {
+      expect(m.rows[y][x], `(${x},${y})`).toBe('^');
+      expect(elev(x, y)).toBe(own);
+      expect(elev(x, y) - behind).toBeGreaterThanOrEqual(3);
+    }
+    expect(elev(24, 44)).toBe(0);
+    expect(elev(20, 36)).toBe(2);
+    expect(elev(20, 28)).toBe(4);
+    expect(elev(20, 21)).toBe(5);
+    for (let y = 12; y <= 17; y++) expect(m.rows[y].slice(0, 27)).toBe('^'.repeat(27));
+    expect(elev(10, 14) - elev(10, 20)).toBeGreaterThanOrEqual(3);
+  });
+  it('the risers are staggered: the ramps are at the centre, the west and the centre-west, the saddle in the east', () => {
+    const r = path(m, 'vehicle', start, saddle) as Pt[];
+    const cross = (y: number) => r.filter((p) => p[1] === y).map((p) => p[0]);
+    expect(steps(r)).toBe(31);
+    const within = (xs: number[], lo: number, hi: number) => xs.length > 0 && xs.every((x) => x >= lo && x <= hi);
+    expect(within(cross(41), 22, 26)).toBe(true);
+    expect(within(cross(32), 11, 14)).toBe(true);
+    expect(within(cross(24), 13, 22)).toBe(true);
+    expect(cross(14).every((x) => x >= 27 && x <= 32)).toBe(true);
+    // order along the route: R1 first, then R2, then R3
+    const at = (y: number) => r.findIndex((p) => p[1] === y);
+    expect(at(41)).toBeLessThan(at(32));
+    expect(at(32)).toBeLessThan(at(24));
+  });
+  it('shut any one ramp and wheels have no way north of it; the foot still climbs the gully past the second and third', () => {
+    const R1 = edited(m, rect(22, 41, 26, 41, '^'));
+    const R2 = edited(m, rect(11, 32, 14, 32, '^'));
+    const R3 = edited(m, rect(13, 24, 22, 24, '^'));
+    expect(path(R1, 'vehicle', start, approach)).toBeNull();
+    expect(path(R1, 'foot', start, saddle)).toBeNull();
+    expect(path(R2, 'vehicle', start, approach)).toBeNull();
+    expect(steps(path(R2, 'foot', start, saddle))).toBe(31);
+    expect(steps(path(R3, 'vehicle', start, approach))).toBe(20);
+    expect(path(R3, 'vehicle', start, saddle)).toBeNull();
+    expect(steps(path(R3, 'foot', start, saddle))).toBe(31);
+  });
+  it('the approach is 20 tiles from the start line for wheels and for feet', () => {
+    expect(steps(path(m, 'vehicle', start, approach))).toBe(20);
+    expect(steps(path(m, 'foot', start, approach))).toBe(20);
+  });
+  it('the draw is a three-wide boulder gully cut diagonally up through two risers, two levels under its banks, shut to wheels', () => {
+    const draw = tilesOf(m, 'b');
+    expect(draw.length).toBe(44);
+    expect(Math.min(...draw.map((p) => p[1]))).toBe(21);
+    expect(Math.max(...draw.map((p) => p[1]))).toBe(34);
+    expect(Math.max(...draw.map((p) => p[0])) - Math.min(...draw.map((p) => p[0]))).toBeGreaterThanOrEqual(8);
+    expect(elev(32, 28)).toBe(2);
+    expect(elev(30, 28)).toBe(4);
+    expect(elev(32, 28)).toBeLessThanOrEqual(elev(30, 28) - 2);
+    const head: Pt = [28, 23];
+    // wheels reach the head only from the terrace above, round by the third ramp; feet go straight up the draw
+    expect(steps(path(m, 'vehicle', start, head, SHANTY))).toBe(28);
+    expect(steps(path(m, 'foot', start, head, SHANTY))).toBe(24);
+    // control: the same ground with the boulders cleared is 24 for a vehicle too
+    const plain = { ...m, rows: m.rows.map((r) => r.replace(/b/g, '.')) } as MapJson;
+    expect(steps(path(plain, 'vehicle', start, head, SHANTY))).toBe(24);
+    // the mission's shanty stands on boulder tiles at the draw's head
+    for (const [x, y] of rect(28, 21, 29, 22, 'b')) expect(m.rows[y][x]).toBe('b');
+  });
+  it('the cache is in dead ground: the east pocket, the picket and the lip observer cannot see it over the draw\'s edge', () => {
+    const cache: Pt = [28, 21];
+    expect(sees(m, 10, post(MID, 'tm_pocket_east'), cache)).toBe(false);
+    expect(sees(m, 9, post(MID, 'tm_picket_wide'), cache)).toBe(false);
+    expect(sees(m, 9, post(MID, 'tm_spotter_west'), cache)).toBe(false);
+    // control: fill the draw's head level with the terrace and they all see it
+    const filled = levelled(m, [26, 18, 31, 24], 5);
+    expect(sees(filled, 10, post(MID, 'tm_pocket_east'), cache)).toBe(true);
+    expect(sees(filled, 9, post(MID, 'tm_picket_wide'), cache)).toBe(true);
+  });
+  it('a riser is dead ground to the one above it: behind the third, nothing on the fourth terrace sees the third', () => {
+    expect(sees(m, 16, [24, 22], [24, 28])).toBe(false);
+    const open = levelled(m, [0, 24, 47, 25], 5, '.');
+    expect(sees(open, 16, [24, 22], [24, 28])).toBe(true);
+  });
+  it('the approach is watched in part: the lip observer sees 12 of its 35 tiles, the west pocket 17, the east pocket none; 17 stay in view of someone and 18 do not', () => {
+    const z = m.zones!.approach;
+    expect(z[2] * z[3]).toBe(35);
+    const tiles: Pt[] = [];
+    for (let y = z[1]; y < z[1] + z[3]; y++) for (let x = z[0]; x < z[0] + z[2]; x++) tiles.push([x, y]);
+    const sp = post(MID, 'tm_spotter_west');
+    const pw = post(MID, 'tm_pocket_west');
+    const pe = post(MID, 'tm_pocket_east');
+    const seen = (p: Pt, s: number) => tiles.filter((t) => sees(m, s, p, t));
+    expect(seen(sp, 9)).toHaveLength(12);
+    expect(seen(pw, 10)).toHaveLength(17);
+    expect(seen(pe, 10)).toHaveLength(0);
+    expect(tiles.filter((t) => sees(m, 9, sp, t) || sees(m, 10, pw, t) || sees(m, 10, pe, t))).toHaveLength(17);
+    // the observer is on a shelf two levels over the approach
+    expect(elev(sp[0], sp[1]) - elev(z[0] + 3, z[1] + 2)).toBeGreaterThanOrEqual(2);
+  });
+  it('the second terrace is out of everyone\'s sight, and the mortar stands on it', () => {
+    for (const p of [post(MID, 'tm_spotter_west'), post(MID, 'tm_pocket_west'), post(MID, 'tm_pocket_east')]) expect(sees(m, 16, p, [22, 33]), `${p}`).toBe(false);
   });
 });

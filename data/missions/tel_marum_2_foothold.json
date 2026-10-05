@@ -15,11 +15,11 @@
     }
   },
   "briefing_video": "video/tel_marum_2_briefing.mp4",
-  "briefing": "The picture says the Grad cannot see past the wall — it doesn't have to. It fires wherever the Sarim line can see, and the best eyes on that ground belong to the man in the west pocket. Take the approach and hold it for four minutes while the engineers mark the start line behind you. Kill him and the shelling slackens — he is not the only pair of eyes on that ground, so do not expect it to stop. The pockets on the wall shoot from an ammunition cache in the draw below it: burn it inside five minutes, or they fight the whole night on what it holds. Not every tile of the approach is watched: pick your ground before you are made to.",
+  "briefing": "The picture says the Grad cannot see past the wall — it doesn't have to. It fires wherever the Sarim line can see, and the best eyes on that ground belong to the man on the west shelf. Take the approach and hold it for four minutes while the engineers mark the start line behind you. Kill him and the shelling slackens — he is not the only pair of eyes on that ground, so do not expect it to stop. The pockets on the wall shoot from an ammunition cache in the draw below it: burn it inside five minutes, or they fight the whole night on what it holds. The slope climbs in three terraces, and each riser hides the ground at its foot from the one above it: not every tile of the approach is watched. Pick your ground before you are made to.",
   "briefing_sections": [
-    {"id": "situation", "text": "The picture says the Grad cannot see past the wall — it doesn't have to. It fires wherever the Sarim line can see, and the best eyes on that ground belong to the man in the west pocket."},
+    {"id": "situation", "text": "The picture says the Grad cannot see past the wall — it doesn't have to. It fires wherever the Sarim line can see, and the best eyes on that ground belong to the man on the west shelf."},
     {"id": "mission", "text": "Take the approach and hold it for four minutes while the engineers mark the start line behind you. Kill him and the shelling slackens — he is not the only pair of eyes on that ground, so do not expect it to stop. The pockets on the wall shoot from an ammunition cache in the draw below it: burn it inside five minutes, or they fight the whole night on what it holds."},
-    {"id": "execution", "text": "Not every tile of the approach is watched: pick your ground before you are made to."}
+    {"id": "execution", "text": "The slope climbs in three terraces, and each riser hides the ground at its foot from the one above it: not every tile of the approach is watched. Pick your ground before you are made to."}
   ],
   "briefing_image": "ui/plates/units/inf_squad.jpg",
   "map": {
@@ -47,7 +47,7 @@
     "logistics_start": 400,
     "logistics_rate_per_min": 120
   },
-  "structures": [{ "type": "shanty", "at": [22, 27], "size": [2, 2] }],
+  "structures": [{ "type": "shanty", "at": [28, 21], "size": [2, 2] }],
   "objectives": [
     {
       "id": "hold_approach",
@@ -66,7 +66,7 @@
       "type": "eliminate_hvt",
       "primary": true,
       "target": "tm_spotter_west",
-      "text": "Kill the observer in the west pocket — the shelling will ease, not stop",
+      "text": "Kill the observer on the west shelf — the shelling will ease, not stop",
       "say": {
         "speaker": "shai",
         "text": "Eyes off that lip. Count the next thirty seconds — anything that still lands is being called by somebody else."
@@ -99,28 +99,28 @@
       {
         "unit": "sarim_rifles",
         "count": 1,
-        "at": [20.5, 16.5],
+        "at": [15.5, 20.5],
         "facing_deg": 180,
         "tag": "tm_spotter_west"
       },
       {
         "unit": "atgm_cell",
         "count": 1,
-        "at": [19.5, 16.5],
+        "at": [16.5, 19.5],
         "facing_deg": 180,
         "tag": "tm_pocket_west"
       },
       {
         "unit": "atgm_cell",
         "count": 1,
-        "at": [28.5, 16.5],
+        "at": [36.5, 19.5],
         "facing_deg": 180,
         "tag": "tm_pocket_east"
       },
       {
         "unit": "recoilless_team",
         "count": 1,
-        "at": [26.5, 16.5],
+        "at": [23.5, 21.5],
         "facing_deg": 180,
         "stance": { "kind": "ambush", "tiles": 4 },
         "tag": "tm_bay_lip"
@@ -128,7 +128,7 @@
       {
         "unit": "sarim_rifles",
         "count": 1,
-        "at": [24.5, 13.5],
+        "at": [29.5, 14.5],
         "facing_deg": 180,
         "tag": "tm_picket_wide"
       },
@@ -142,7 +142,7 @@
       {
         "unit": "sarim_rifles",
         "count": 1,
-        "at": [22.5, 26.5],
+        "at": [27.5, 23.5],
         "facing_deg": 180,
         "tag": "tm_ammo_guard",
         "stance": { "kind": "hold_position" }

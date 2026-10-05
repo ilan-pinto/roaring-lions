@@ -1852,17 +1852,16 @@ run(
 
 // Tel Marum II — the start line, and the man who calls the fire.
 //
-// The approach is 35 tiles. The design doc's 18-of-35 figure came from the
-// doctrine test's 48-sight OBSERVER, walking terrain, not from the garrison
-// unit actually posted there: `tm_spotter_west` is sarim_rifles, sight 9. At
-// that sight the real count is smaller, roughly 15 — approximate, not
-// re-measured through the real Sim here. The plan takes the southern edge of
-// the zone, which counts for the hold and is the cheapest ground in it, then
-// sends infantry up the west side of the bay to kill the observer. Killing
-// him removes one contact feeding the battery, but `sim.ts:2073` identifies
-// per side, not per unit — other garrison Sarim can still hand the Grad eyes
-// on the zone, so the hold is not proven uncontested by this kill alone (see
-// mission II's own briefing, which already carries this caveat).
+// The approach is 35 tiles on the third terrace of a slope that climbs in risers (GH-382:
+// `tel_marum_2`). The posts watch part of it: the observer on the west shelf reads 12 of the 35
+// tiles, the west pocket 17, the east pocket none, 17 between them -- measured through the real
+// Sim in `tel_marum_ground.test.ts`, not estimated. The plan takes the whole column up the three
+// ramps to the zone's south edge, which counts for the hold and is the cheapest ground in it,
+// then sends the infantry up the west terraces to the shelf to kill the observer. Killing him
+// removes one contact feeding the battery, but `sim.ts:2073` identifies per side, not per unit --
+// other garrison Sarim can still hand the Grad eyes on the zone, so the hold is not proven
+// uncontested by this kill alone (see mission II's own briefing, which already carries this
+// caveat). The demolition party waits below the draw and goes up it when the Lavi has the head.
 //
 // Control: a player who gives no orders never enters the approach, so
 // hold_for never starts and kill_spotter never fires, and `hold_for`/
@@ -1888,36 +1887,27 @@ run(
     const at_ = ids('at_team');
     const mortar = ids('mortar_team');
     const demo = ids('demo_squad');
-    // `at(3)` moved to `at(1)` -- map-variants-design.md §3.1's `tel_marum_2`
-    // write-up: the ditch/crossing terrain costs the vehicle route at most
-    // 1 tile (measured: start_line -> approach still 20, -> hollow 15 -> 16),
-    // and this mission runs 0.87 of target with only 1.1 minutes above its
-    // 240s floor -- no reason to spend that margin on travel.
     at(1, () => {
-      // Into the southern edge of the approach zone — inside it for the hold,
-      // furthest from the battery.
-      sim.queueCommand({ kind: 'move', ids: armour, ...M(23, 26) });
-      sim.queueCommand({ kind: 'move', ids: tank, ...M(26, 26) });
-      sim.queueCommand({ kind: 'move', ids: at_, ...M(25, 26) });
-      // Mortar stays in the hollow: 18 tiles of reach covers the bay lip from
-      // ground the Grad cannot touch.
-      sim.queueCommand({ kind: 'move', ids: mortar, ...M(24, 29) });
-      // The demo squad moves on the ammo cache in the draw. Within 2 tiles
-      // of the shanty's footprint it self-targets and burns it with no
-      // explicit `demolish` order needed (`stepDemolition`'s automatic
-      // branch, sim.ts:4335) -- script-losable.md §1/§2.
-      sim.queueCommand({ kind: 'move', ids: demo, ...M(23, 28) });
+      // Up the terraces by the ramps: the Eitans and the Lavi stop on the third terrace, inside
+      // the approach zone and out of the pockets' reach; the mortar stays on the second, where
+      // the riser hides it from everything on the shelf.
+      sim.queueCommand({ kind: 'move', ids: armour, ...M(21, 28) });
+      sim.queueCommand({ kind: 'move', ids: tank, ...M(24, 28) });
+      sim.queueCommand({ kind: 'move', ids: at_, ...M(22, 29) });
+      sim.queueCommand({ kind: 'move', ids: mortar, ...M(22, 33) });
+      // The demolition party waits below the gully's mouth on the second terrace. Within 2 tiles
+      // of the shanty's footprint it self-targets and burns it with no explicit `demolish`
+      // order (`stepDemolition`'s automatic branch) -- script-losable.md section 1/2.
+      sim.queueCommand({ kind: 'move', ids: demo, ...M(34, 34) });
     });
     at(20, () => {
-      // Infantry up the west side toward the pocket.
-      sim.queueCommand({ kind: 'move', ids: foot, ...M(20, 22) });
+      // Infantry climb the west terraces to the shelf and take the observer.
+      sim.queueCommand({ kind: 'move', ids: foot, ...M(16, 26) });
     });
-    at(70, () => {
-      sim.queueCommand({ kind: 'move', ids: foot, ...M(20, 17) });
-    });
-    at(110, () => {
-      sim.queueCommand({ kind: 'attackMove', ids: foot, ...M(20, 16) });
-    });
+    at(60, () => sim.queueCommand({ kind: 'attackMove', ids: foot, ...M(15, 20) }));
+    at(100, () => sim.queueCommand({ kind: 'attackMove', ids: tank, ...M(29, 27) }));
+    // Up the gully, one level below its banks, to the cache at its head.
+    at(130, () => sim.queueCommand({ kind: 'move', ids: demo, ...M(28, 23) }));
   },
   {},
   'victory',
