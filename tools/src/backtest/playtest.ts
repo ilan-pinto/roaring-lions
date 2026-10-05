@@ -2749,13 +2749,13 @@ function boughtProbe(
 // GH-382: the quarter's rubble hides most of what the old open fields showed (8 units and a route from
 // (28,27) on the old ground; here (28,27) reads 1 unit). Everywhere the Zikit can see anything on the
 // new ground is inside somebody's weapons, and a unit that dies reads as a failed probe -- it stood on
-// the apron (30,17) and died there, and at the crossroads and the lane. It goes to the south-east
-// corner of the quarter instead (40,33), outside the rubble and clear of every post, where it looks in on
-// the clinic's vent and identifies the two it surfaces.
+// the apron (30,17) and died there, and at the crossroads and the lane. It goes to the east
+// of the clinic yard instead (42,28), outside the rubble and clear of every post, where it looks in on
+// the clinic's mouth and identifies the two it surfaces.
 boughtProbe('beit_sahwan_4_subterranean', bs4Plan, led4In, 'recon_zikit', 30, 'sees', (mine) => ({
   kind: 'move',
   ids: mine,
-  ...M(40, 33),
+  ...M(42, 28),
 }));
 // The Gunship is built on the first tick (50 s) and joins the `raze` approach: an
 // attack-move to the stockpile the depot escort is already walking to.
@@ -3214,10 +3214,10 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // Amun, not summed), every term on the Qarn Hadid chain and nothing else (II 227 -> 197, III 212 -> 215).
 // II's -30 is fewer survivors handed on (16 out against 19) at the same two stars and ROE 97; III's +3 is
 // ROE 100 against 77, the same two stars.
-// GH-382 moved Beit Sahwan II-IV onto new ground: 5801 -> 5816 (+15, recomputed on the merge with Qarn Hadid),
-// every term on the Beit Sahwan chain and nothing else (II 170 -> 190, III 254 -> 247, IV 178 -> 180;
+// GH-382 moved Beit Sahwan II-IV onto new ground: 5801 -> 5846 (+45, recomputed on the merge with Qarn Hadid),
+// every term on the Beit Sahwan chain and nothing else (II 170 -> 200, III 254 -> 247, IV 178 -> 200;
 // III's ROE is 87 against 94 -- the old town has a house on every side of a shot).
-const LADDER_CREDITS = 5816;
+const LADDER_CREDITS = 5846;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);

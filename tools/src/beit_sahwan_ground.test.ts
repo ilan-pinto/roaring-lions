@@ -249,8 +249,8 @@ describe('II: the western terraces', () => {
     expect(gates).toContain(through[0]);
     expect(p.length - 1).toBeGreaterThan(10);
   });
-  it('control: take the wall down and the same walk is the ten steps it looks like', () => {
-    const noWall = edited(m, (rows) => { for (let y = 11; y <= 35; y++) rows[y][9] = '.'; });
+  it('control: take the two terrace walls (x=9 and x=13) down and the same walk is the ten steps it looks like', () => {
+    const noWall = edited(m, (rows) => { for (let y = 11; y <= 35; y++) { rows[y][9] = '.'; rows[y][13] = '.'; } });
     expect(route(noWall, 'foot', [14, 25], [4, 25])).toBe(10);
     expect(route(m, 'foot', [14, 25], [4, 25])!).toBeGreaterThan(10);
   });
@@ -304,7 +304,9 @@ describe('II: the western terraces', () => {
     expect(strip.length).toBeGreaterThanOrEqual(25);
     expect(new Set(strip.map((s) => s.type)).size).toBeGreaterThanOrEqual(4);
     const houses = strip.filter((s) => s.type === 'house');
-    expect(new Set(houses.map((s) => footprint(s, map.width))).size).toBeGreaterThanOrEqual(4);
+    expect(new Set(houses.map((s) => footprint(s, map.width))).size).toBeGreaterThanOrEqual(3);
+    // low town: one apartment block and nothing taller, so the terraces stay the subject
+    expect(strip.filter((s) => s.type === 'apartment' || s.type === 'warehouse').length).toBeLessThanOrEqual(1);
     expect(map.structures.filter((s) => s.tiles.some((t) => t % map.width < 16 && s.type !== 'wall' && s.type !== 'shanty'))).toHaveLength(0);
   });
 });
@@ -483,10 +485,10 @@ describe('IV: the rubble quarter', () => {
   });
   it('you look down into the pit and they cannot look up: a watcher on the apron sees the shaft head floor, one on the floor cannot see the road above it, and flattened both can', () => {
     expect(elevAt(m, 30, 18)).toBe(2);
-    expect(elevAt(m, 28, 12)).toBe(0);
+    expect(elevAt(m, 30, 12)).toBe(0);
     expect(sees(m, [30, 18], [30, 10])).toBe(true);
-    expect(sees(m, [28, 12], [28, 22])).toBe(false);
-    expect(sees(flatten(m), [28, 12], [28, 22])).toBe(true);
+    expect(sees(m, [30, 12], [30, 22])).toBe(false);
+    expect(sees(flatten(m), [30, 12], [30, 22])).toBe(true);
   });
   it('the west route runs along the main road: a two-wide road the whole width of the map, the mouth and the vent on it, and every point of the line on its rows', () => {
     for (let x = 0; x < 48; x++) for (const y of [22, 23]) expect(tile(m, x, y), `(${x},${y})`).toBe('r');
