@@ -14,11 +14,11 @@
       "text": "Conduct went under forty at the clinic block. That is the mission, and it is also the next three."
     }
   },
-  "briefing": "Idit's picture comes with you: at least one AT position dug in along the western approach, and the ATGM cell overlooking the eastern road. The fire plan is Nadir Sahim's; her section files him as SPADE. A company minus probes the town outskirts. Identify the garrison before committing armour, destroy that cell before the follow-on convoy can move, then take the town centre and hold it. Hold means no enemy within six tiles of your people inside it; whatever is left outside that falls back, and you will not be asked to chase it. The district is not empty: residents shelter among the buildings and the clinic on the southern block is protected. Sahim knows it: he holds a position inside the clinic block itself, on the doorstep of the town centre you have to take. Heavy ordnance near either will be judged: rifles and the Eitan's remote gun may work in there. Autocannon and tank fire may not — bring them near it and you will be billed for every second they can see it. Engineers are attached: they can bring a held building down around its defenders, but they must stand beside it long enough to set the charges. The militia hold the houses themselves: rounds will not reach them through masonry, so each building must come down or be cleared. Mind what you level — the civic hall is not a target.",
+  "briefing": "Idit's picture comes with you: at least one AT position dug in along the western approach, and the ATGM cell overlooking the eastern road. The fire plan is Nadir Sahim's; her section files him as SPADE. A company minus probes the old town. Identify the garrison before committing armour, destroy that cell before the follow-on convoy can move, then take the town centre and hold it. Hold means no enemy within six tiles of your people inside it; whatever is left outside that falls back, and you will not be asked to chase it. The district is not empty: residents shelter among the buildings and the clinic on the southern block is protected. Sahim knows it: he holds a position inside the clinic block itself, on the doorstep of the town centre you have to take. The old town is blocks of masonry with rubble in every alley. Only infantry can use those lanes, so armour lives on the two boulevards and nothing sees further than three to five tiles. Heavy ordnance near either will be judged: rifles and the Eitan's remote gun may work in there. Autocannon and tank fire may not — bring them near it and you will be billed for every second they can see it. Engineers are attached: they can bring a held building down around its defenders, but they must stand beside it long enough to set the charges. The militia hold the houses themselves: rounds will not reach them through masonry, so each building must come down or be cleared. Mind what you level — the civic hall is not a target.",
   "briefing_sections": [
     {"id": "situation", "text": "Idit's picture comes with you: at least one AT position dug in along the western approach, and the ATGM cell overlooking the eastern road. The fire plan is Nadir Sahim's; her section files him as SPADE."},
-    {"id": "mission", "text": "A company minus probes the town outskirts. Identify the garrison before committing armour, destroy that cell before the follow-on convoy can move, then take the town centre and hold it. Hold means no enemy within six tiles of your people inside it; whatever is left outside that falls back, and you will not be asked to chase it."},
-    {"id": "execution", "text": "The district is not empty: residents shelter among the buildings and the clinic on the southern block is protected. Sahim knows it: he holds a position inside the clinic block itself, on the doorstep of the town centre you have to take. Heavy ordnance near either will be judged: rifles and the Eitan's remote gun may work in there. Autocannon and tank fire may not — bring them near it and you will be billed for every second they can see it. Engineers are attached: they can bring a held building down around its defenders, but they must stand beside it long enough to set the charges. The militia hold the houses themselves: rounds will not reach them through masonry, so each building must come down or be cleared."},
+    {"id": "mission", "text": "A company minus probes the old town. Identify the garrison before committing armour, destroy that cell before the follow-on convoy can move, then take the town centre and hold it. Hold means no enemy within six tiles of your people inside it; whatever is left outside that falls back, and you will not be asked to chase it."},
+    {"id": "execution", "text": "The district is not empty: residents shelter among the buildings and the clinic on the southern block is protected. Sahim knows it: he holds a position inside the clinic block itself, on the doorstep of the town centre you have to take. The old town is blocks of masonry with rubble in every alley. Only infantry can use those lanes, so armour lives on the two boulevards and nothing sees further than three to five tiles. Heavy ordnance near either will be judged: rifles and the Eitan's remote gun may work in there. Autocannon and tank fire may not — bring them near it and you will be billed for every second they can see it. Engineers are attached: they can bring a held building down around its defenders, but they must stand beside it long enough to set the charges. The militia hold the houses themselves: rounds will not reach them through masonry, so each building must come down or be cleared."},
     {"id": "notes", "text": "Mind what you level — the civic hall is not a target."}
   ],
   "briefing_image": "ui/plates/units/yahalom_squad.jpg",
@@ -156,14 +156,14 @@
         "unit": "militia_cell",
         "count": 1,
         "at": [
-          27.5,
+          36.5,
           12.5
         ],
         "facing_deg": 180,
         "stance": {
           "kind": "garrison",
           "building": [
-            28,
+            36,
             12
           ]
         },
@@ -173,8 +173,8 @@
         "unit": "militia_cell",
         "count": 1,
         "at": [
-          33.5,
-          15.5
+          35.5,
+          17.5
         ],
         "facing_deg": 180,
         "tag": "bs_cell_north_east"
@@ -183,8 +183,8 @@
         "unit": "militia_cell",
         "count": 1,
         "at": [
-          29.5,
-          25.5
+          25.5,
+          26.5
         ],
         "facing_deg": 180,
         "tag": "bs_cell_centre"
@@ -221,8 +221,8 @@
         "unit": "atgm_cell",
         "count": 1,
         "at": [
-          38.5,
-          22.5
+          40.5,
+          23.5
         ],
         "facing_deg": 180,
         "tag": "bs_hvt_atgm"
@@ -364,7 +364,7 @@
         "unit": "civilians",
         "count": 1,
         "at": [
-          27.5,
+          28.5,
           35.5
         ]
       }

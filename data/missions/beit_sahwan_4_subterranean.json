@@ -16,11 +16,11 @@
     }
   },
   "aftermath": "Four routes under Beit Sahwan, and the man who dug them came up out of the last one with his hands empty. Brigade took the file and said nothing else about it. The perimeter is ours. The enclave is not.",
-  "briefing": "The town is ours and the fighting has not stopped. Rounds come from empty ground, the shooters are gone before the echo, and the reason is under your feet. Nadir Sahim mined this district years before we reached it and he has not left it. He holds the north shaft head, with four people beside him who have been out of reach since the first morning. The collection point is three tiles from your start line, and they are counted the moment they reach it. Four minutes for the people and five for the routes; the second does not wait for the first. Idit has four routes under the town, and one is being reopened right now: spoil creeping west along the main road. Disturbed earth is something any soldier can read. A rocket team stands over the four; the Namer's cannon answers that and loses you the mission. Nothing heavy inside two tiles of them. Only the drone or the engineers can tell you where the other three run, and only while somebody is looking. Yahalom must stand still in the open beside a route to set the charge, so whether they live is a decision you make with everything else you have. Get the people out, take the ground he stands on, then bring all four down.",
+  "briefing": "The town is ours and the fighting has not stopped. Rounds come from empty ground, the shooters are gone before the echo, and the reason is under your feet. Nadir Sahim mined this district years before we reached it and he has not left it. He holds the north shaft head on the floor of the old limestone quarry, with four people beside him who have been out of reach since the first morning. The collection point is three tiles from your start line, and they are counted the moment they reach it. Four minutes for the people and five for the routes; the second does not wait for the first. Idit has four routes under the town, and one is being reopened right now: spoil creeping west along the main road. Rubble stops the Namer and the Eitan everywhere but the main road, the scree down the quarry's south side is foot-only, and the haul ramp in its east wall is the only way in for wheels. The pit cannot see up over its own rim, and you can see down into it. Disturbed earth is something any soldier can read. A rocket team stands over the four; the Namer's cannon answers that and loses you the mission. Nothing heavy inside two tiles of them. Only the drone or the engineers can tell you where the other three run, and only while somebody is looking. Yahalom must stand still in the open beside a route to set the charge, so whether they live is a decision you make with everything else you have. Get the people out, take the ground he stands on, then bring all four down.",
   "briefing_sections": [
-    {"id": "situation", "text": "The town is ours and the fighting has not stopped. Rounds come from empty ground, the shooters are gone before the echo, and the reason is under your feet. Nadir Sahim mined this district years before we reached it and he has not left it. He holds the north shaft head, with four people beside him who have been out of reach since the first morning."},
+    {"id": "situation", "text": "The town is ours and the fighting has not stopped. Rounds come from empty ground, the shooters are gone before the echo, and the reason is under your feet. Nadir Sahim mined this district years before we reached it and he has not left it. He holds the north shaft head on the floor of the old limestone quarry, with four people beside him who have been out of reach since the first morning."},
     {"id": "mission", "text": "The collection point is three tiles from your start line, and they are counted the moment they reach it. Four minutes for the people and five for the routes; the second does not wait for the first."},
-    {"id": "execution", "text": "Idit has four routes under the town, and one is being reopened right now: spoil creeping west along the main road. Disturbed earth is something any soldier can read. A rocket team stands over the four; the Namer's cannon answers that and loses you the mission. Nothing heavy inside two tiles of them. Only the drone or the engineers can tell you where the other three run, and only while somebody is looking. Yahalom must stand still in the open beside a route to set the charge, so whether they live is a decision you make with everything else you have."},
+    {"id": "execution", "text": "Idit has four routes under the town, and one is being reopened right now: spoil creeping west along the main road. Rubble stops the Namer and the Eitan everywhere but the main road, the scree down the quarry's south side is foot-only, and the haul ramp in its east wall is the only way in for wheels. The pit cannot see up over its own rim, and you can see down into it. Disturbed earth is something any soldier can read. A rocket team stands over the four; the Namer's cannon answers that and loses you the mission. Nothing heavy inside two tiles of them. Only the drone or the engineers can tell you where the other three run, and only while somebody is looking. Yahalom must stand still in the open beside a route to set the charge, so whether they live is a decision you make with everything else you have."},
     {"id": "notes", "text": "Get the people out, take the ground he stands on, then bring all four down."}
   ],
   "briefing_image": "ui/plates/units/yahalom_squad.jpg",
@@ -112,17 +112,17 @@
       {
         "unit": "militia_cell",
         "count": 1,
-        "at": [23.5, 31.5],
+        "at": [17.5, 29.5],
         "facing_deg": 180,
-        "stance": { "kind": "garrison", "building": [23, 31] },
+        "stance": { "kind": "garrison", "building": [17, 29] },
         "tag": "bs4_cell_souk"
       },
       {
         "unit": "militia_cell",
         "count": 1,
-        "at": [27.5, 12.5],
+        "at": [30.5, 6.5],
         "facing_deg": 180,
-        "stance": { "kind": "garrison", "building": [28, 12] },
+        "stance": { "kind": "garrison", "building": [30, 6] },
         "tag": "bs_cell_north_block"
       },
       {
@@ -151,19 +151,19 @@
       {
         "unit": "rpg_team",
         "count": 1,
-        "at": [31.5, 23.5],
+        "at": [37.5, 22.5],
         "facing_deg": 270,
         "stance": { "kind": "ambush", "tiles": 4 },
         "tag": "bs4_ambush_mouth_west"
       },
-      { "unit": "rpg_team", "count": 2, "at": [27.5, 13.5], "in_tunnel": "bs_tn_north" },
-      { "unit": "militia_cell", "count": 2, "at": [22.5, 29.5], "in_tunnel": "bs_tn_souk" },
-      { "unit": "rpg_team", "count": 1, "at": [35.5, 26.5], "in_tunnel": "bs_tn_clinic" },
-      { "unit": "militia_cell", "count": 1, "at": [35.5, 26.5], "in_tunnel": "bs_tn_clinic" },
+      { "unit": "rpg_team", "count": 2, "at": [26.5, 9.5], "in_tunnel": "bs_tn_north" },
+      { "unit": "militia_cell", "count": 2, "at": [19.5, 28.5], "in_tunnel": "bs_tn_souk" },
+      { "unit": "rpg_team", "count": 1, "at": [38.5, 28.5], "in_tunnel": "bs_tn_clinic" },
+      { "unit": "militia_cell", "count": 1, "at": [38.5, 28.5], "in_tunnel": "bs_tn_clinic" },
       {
         "unit": "militia_cell",
         "count": 1,
-        "at": [25.5, 13.5],
+        "at": [25.5, 9.5],
         "group": "spade_party",
         "tag": "bs4_hvt_spade",
         "stance": { "kind": "hold_position" }
@@ -171,14 +171,14 @@
       {
         "unit": "rpg_team",
         "count": 1,
-        "at": [27.5, 15.5],
+        "at": [27.5, 12.5],
         "group": "spade_party",
         "stance": { "kind": "ambush", "tiles": 3 }
       },
       {
         "unit": "militia_cell",
         "count": 1,
-        "at": [26.5, 16.5],
+        "at": [29.5, 11.5],
         "tag": "bs_track_north",
         "stance": { "kind": "ambush", "tiles": 3 }
       }
@@ -203,9 +203,9 @@
   "civilians": {
     "refuge": "civ_collection",
     "groups": [
-      { "unit": "civilians", "count": 2, "at": [28.5, 14.5] },
+      { "unit": "civilians", "count": 2, "at": [29.5, 9.5] },
       { "unit": "civilians", "count": 2, "at": [24.5, 33.5] },
-      { "unit": "civilians", "count": 4, "at": [24.5, 14.5], "group": "hostages" }
+      { "unit": "civilians", "count": 4, "at": [22.5, 9.5], "group": "hostages" }
     ]
   }
 }

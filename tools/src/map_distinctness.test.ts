@@ -1,13 +1,11 @@
 // GH-382: every campaign mission is played on its own ground. See map_distinctness.ts for the
-// metric (feature identity over all eight orientations, plus elevation) and the allowlist.
+// metric (feature identity over all eight orientations, plus elevation); there is no allowlist.
 import { describe, expect, it } from 'vitest';
 import {
   FEATURE_GATE,
-  PENDING_ARCS,
   allPairs,
   campaignMissions,
   compare,
-  excused,
   orientations,
   report,
   tooAlike,
@@ -25,31 +23,17 @@ const mk = (rows: string[], elevation?: string[]): GridMap => ({
 const SAMPLE = ['..h.......', '..h..oo...', '.......b..', '1111......', '.....rrrrr', '..........', '.mmm......', '.mmm..#...', '..........', '.........f'];
 
 describe('map distinctness', () => {
-  it('every pair of missions is distinct, except the arcs still pending under #382', () => {
+  it('every pair of missions is distinct: the gate holds the whole campaign, with no allowlist', () => {
     const rows = allPairs(campaignMissions());
-    const bad = rows.filter((r) => r.fails && !excused(r));
+    const bad = rows.filter((r) => r.fails);
     expect(report(bad)).toBe('');
     expect(bad).toEqual([]);
   });
 
-  it('names its pending arcs, each pointing at #382, and none of them is Wadi Halam', () => {
-    expect(PENDING_ARCS.length).toBeGreaterThan(0);
-    for (const p of PENDING_ARCS) expect(p.todo).toMatch(/#382/);
-    expect(PENDING_ARCS.map((p) => p.town)).not.toContain('wadi_halam');
-  });
-
-  it('holds every pending arc to what it fails today (an arc that now passes must leave the list)', () => {
-    const rows = allPairs(campaignMissions());
-    for (const p of PENDING_ARCS) {
-      const mine = rows.filter((r) => r.a.town === p.town && r.b.town === p.town);
-      // one-mission towns have no pair; every other pending town must still be failing
-      if (mine.length > 0) expect(mine.some((r) => r.fails), `${p.town} passes now: remove it from PENDING_ARCS`).toBe(true);
-    }
-  });
-
-  it('a pair across two towns is never excused', () => {
-    const rows = allPairs(campaignMissions());
-    for (const r of rows.filter((x) => x.a.town !== x.b.town)) expect(excused(r)).toBe(false);
+  it('there is nothing to excuse: two towns, or one, playing on one map file both fail', () => {
+    const copy = (mission: string, town: string) => ({ mission, town, map: 'qarn_hadid_2' });
+    expect(allPairs([copy('a', 'x'), copy('b', 'y')]).every((r) => r.fails)).toBe(true);
+    expect(allPairs([copy('a', 'x'), copy('b', 'x')]).every((r) => r.fails)).toBe(true);
   });
 
   describe('falsification: the check goes red on copies', () => {
