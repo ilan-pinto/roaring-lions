@@ -114,8 +114,24 @@ faction-specific thing in the cut is the head: a KDF helmet and neck are
 props are `rig._breach_extras`' own shield (on `brc_point_forearm_L`) and
 pole (on `brc_cover_spine`), through `PART_BONE`'s fallback as in the kit.
 
-After this: `pnpm gait:meshes -- --id=<team>`, `pnpm validate:meshes`,
-`pnpm encode:meshes`.
+## A3.1 stage 2 (GH-179, 2026-10-05): Meshy hand weapons
+
+Every kit rifle and procedural launcher left on these figures is replaced by
+a Meshy PART composed into the team's atlas (see the section above
+`HAND_PARTS`): `sarim_rifle` (militia_cell, sarim_rifles, rpg_team's loader),
+`kdf_carbine` (mortar_team No.3, yahalom_squad yah_b, and breach_team, where
+it replaces the figure's BAKED carbine on the spine), `rpg_launcher` (the
+textured on-disk RPG-7 through `export_meshy_rpg.py`; rpg_team and, through
+`import_meshy_moto_rpg.py`, the moto_rpg pillion), `manpad_tube`
+(manpad_team: its pointed nose cut and capped flat, the lead's ruling),
+`atgm_post` (atgm_cell, on `prop`) and `recoilless_rifle` (recoilless_team:
+the dirt patch the preview stood on dropped, its two spare rounds split off
+and laid by the loader). The Spike (`spike_launcher`, at_team) goes through
+the same loader from `import_meshy_kdf_team.py`. AI-generated (Meshy),
+disclosed per CONTRIBUTING.md; task ids in docs/ASSET_PROVENANCE.md.
+
+After this: `pnpm gait:meshes -- --id=<team>`, `pnpm encode:meshes` (that
+order), `pnpm validate:meshes`.
 """
 import glob
 import math
@@ -1290,16 +1306,9 @@ def _bend_forearms(parts, joints, prefix):
 def _rifle_at_hand(prefix, joints, dx, dy):
     """`rig._weapon_parts`' seven-part rifle with its grip on the right
     hand: the anchor is solved from the bent right wrist rather than taken
-    from kit's chest-height formula, and the rifle is yawed across the front."""
-    a = joints["arm"][1]
-    elbow, wrist = Vector(a["elbow"]), Vector(a["wrist"])
-    hand = wrist + (wrist - elbow).normalized() * HAND_REACH
-    yaw = math.radians(RIFLE_YAW_DEG)
-    c, s = math.cos(yaw), math.sin(yaw)
-    # grip centre = anchor + R(yaw)(-0.03, 0) + (0, 0, -0.065); anchor = at + (reach c, reach s, z_kit)
-    gx, gy, gz = hand.x - (-0.03 * c), hand.y - (-0.03 * s), hand.z + 0.065
-    reach, z_kit = 0.16, kit.POSTURE_EYE["standing"] * kit.FIGURE_H - 0.16
-    at = (gx - reach * c + dx, gy - reach * s + dy, gz - z_kit)
+    from kit's chest-height formula, and the rifle is yawed across the front
+    (`_rifle_frame`). A team in `HAND_PARTS` gets its Meshy rifle instead."""
+    at, yaw = _rifle_frame(prefix, joints, dx, dy)
     return rig._weapon_parts(prefix, at, yaw=yaw, posture="standing", aim=False)
 
 
@@ -1608,6 +1617,27 @@ LAUNCH_REACH_USE = 0.97        # of an arm's shoulder->wrist length (PR #325's R
 HANDLE_GAP = 0.04              # the support handle's clearance: twice SEAT_GAP, for the fire recoil
 LAUNCH_FIRE_POLE = (0.0, 0.5, -1.0)      # firing elbow: down and outboard (PR #325)
 LAUNCH_SUPPORT_POLE = (0.4, -0.6, -1.0)  # support elbow: down, outboard, forward (PR #325)
+#: A3.1: a Meshy launcher's shoulder point, behind its own pistol grip (m)
+#: -- a real RPG-7 rests on the heat shield just behind the grip. A
+#: trade measured on the RPG-7 (declared value: support wrist short of the
+#: longest handle / `launcher_arms.test.ts`'s idle count, ceiling 223):
+#: 0.05: 0 cm / 223; 0.08: 0 / 216; 0.10: 0 / 222; 0.12: 0 / 205;
+#: 0.15: 0 / 230; 0.20: 17.3 cm / 186; 0.25: 17.5 cm / 137. 0.12 is the one
+#: where the hand reaches with the most room under the ceiling.
+PART_REST_BEHIND_GRIP = 0.12
+#: A3.1: a Meshy launcher's support HANDLE. These figures' arms (0.45-0.5 m
+#: shoulder ring to fingertips) cannot reach a part's own forward grip across
+#: the chest -- measured on the RPG-7: the left wrist 29 cm short of it with
+#: 200 arm vertices in his chest, and 5 cm short at best, 303 inside, even
+#: with the hand slid back along the tube's underside behind the pistol grip.
+#: So the forward grip is EXTENDED: PR #325's solved handle, hung from the
+#: bottom of the part's own forward grip (never slid along the bore), down
+#: and inboard, as long as the support arm needs, textured from the grip's
+#: own texel. (direction (u, v, w), section, min length, max length).
+PART_HANDLE = ((0.0, -0.6, -0.8), (0.035, 0.03), 0.04, 0.30)
+PART_HAND_RISE = 0.10          # m the support hand may sit above its own shoulder joint
+PART_HANDLE_SLIDE = 0.04        # m per step back along the tube from the forward grip
+PART_SUPPORT_MIN_AHEAD = 0.08   # m: the support hand stays this far ahead of the pistol grip
 #: Parts never counted as body for the seat: the two arms are moved after it.
 SEAT_ARM_PARTS = ("upperarm0", "upperarm1", "elbow0", "elbow1", "forearm0", "forearm1")
 
@@ -1631,6 +1661,7 @@ LAUNCHERS = {
     # clear of the loader in every clip at that; 0.06 stepped the tube 3.5 cm
     # further outboard for nothing.
     "rpg_team": dict(
+        part="rpg_launcher",   # A3.1: the Meshy RPG-7 replaces every bore and box below when loaded
         prefix="rpg_fire", name="rpg_tube", pitch=38.0, rest=0.35, length=0.96, mate_gap=0.02,
         bores=(("rpg_tube", 0.0, 0.96, 0.075, 0.075, "weapon"),
                ("rpg_tube_bell", -0.04, 0.12, 0.11, 0.11, "weapon"),
@@ -1652,6 +1683,18 @@ LAUNCHERS = {
     # at 0.02 his spotter's walker, swinging its arms in `move`, put 157
     # tube samples inside itself (22 at 0.06).
     "manpad_team": dict(
+        part="manpad_tube",   # A3.1: the Meshy MANPAD replaces every bore and box below when loaded
+        # A3.1: the Meshy tube is fatter than the procedural one (bore r 0.089
+        # against 0.065, its own proportions at 1.4 m, fins and gripstock
+        # wider still): no seat within 0.12 m outboard and 0.2 of its length
+        # forward (nearest: 30 samples within SEAT_GAP of the gunner, 49
+        # within mate_gap of the spotter).
+        seat_out_max=0.12,
+        # ...and stepping OUTBOARD walks it toward the spotter (out 0.20 still
+        # failed: 15 samples within SEAT_GAP of the gunner, 28 within mate_gap
+        # of the spotter), so instead it may slide further up its own bore,
+        # lifting the fins off both men.
+        seat_slide_max=0.45,
         prefix="mpd_fire", name="mpd_tube", pitch=78.0, rest=0.30, length=1.30, mate_gap=0.08,
         bores=(("mpd_tube", 0.0, 1.30, 0.065, 0.065, "weapon"),
                ("mpd_tube_bell", -0.03, 0.08, 0.085, 0.085, "weapon"),
@@ -1669,6 +1712,7 @@ LAUNCHERS = {
     # grip. `mate_gap` 0.06: at 0.02 the kneeling loader, swaying in `idle`
     # beside him, took 23-32 samples of the flare.
     "recoilless_team": dict(
+        part="recoilless_rifle",   # A3.1: the Meshy recoilless replaces every bore and box below when loaded
         prefix="rcl_fire", name="rcl_tube", pitch=0.0, rest=0.45, length=0.86, mate_gap=0.06,
         bores=(("rcl_tube", 0.0, 0.86, 0.115, 0.115, "weapon"),
                ("rcl_tube_bell", -0.04, 0.12, 0.155, 0.155, "weapon")),
@@ -1717,6 +1761,12 @@ def _seat_samples(cfg, P, sight_c):
     1 cm -- the same density PR #325's census tests the exported GLB at."""
     d, v, w = _tube_frame(cfg["pitch"])
     u_rear = -cfg["rest"] * cfg["length"]
+    if cfg.get("samples") is not None:
+        # A Meshy part (A3.1): its own surface, in its canonical frame (x
+        # from the rear along the bore, y outboard, z the bore's up).
+        S = cfg["samples"]
+        return (np.array(P)[None, :] + np.outer(u_rear + S[:, 0], d) + np.outer(S[:, 1], v)
+                + np.outer(S[:, 2], w))
     pts = []
     for _n, u0, u1, r0, r1, _role in cfg["bores"]:
         n = max(2, int((u1 - u0) / 0.01) + 1)
@@ -1921,6 +1971,19 @@ def _seat_launcher(team_id, spec, parts, bones, joints, drop):
     place); returns the launcher's part objects (not yet bound)."""
     from mathutils.bvhtree import BVHTree
     cfg = LAUNCHERS[team_id]
+    part = cfg.get("part") if cfg.get("part") in _HAND else None
+    if part:
+        # A3.1: the Meshy part replaces every bore and box. One measured
+        # cylinder stays as the "a body vertex inside the bore" proxy; the
+        # seat tests the part's own surface samples; the shoulder carries it
+        # PART_REST_BEHIND_GRIP behind its pistol grip, and the slide search
+        # moves it forward from there exactly as it moves a procedural tube.
+        info = _PART_INFO[part]
+        L = info["length"]
+        behind = PART_SPECS[part].get("rest_behind_grip", PART_REST_BEHIND_GRIP)
+        cfg = dict(cfg, length=L, rest=(info["grip"][0] - behind) / L,
+                   bores=((f"{cfg['name']}_bore", 0.0, L, info["r"], info["r"], "weapon"),),
+                   boxes=(), handle=None, samples=info["samples"])
     pfx, fx, fy = spec["prefix"], spec["x"], spec["y"]
     mine = {o.name[len(pfx) + 1:]: o for o in parts
             if o.name.startswith(pfx + "_") and "_death" not in o.name}
@@ -1952,6 +2015,10 @@ def _seat_launcher(team_id, spec, parts, bones, joints, drop):
     head = np.concatenate([_coords(o) for n, o in mine.items()
                            if n in ("cranium", "face", "neck") or n.startswith("kef_")])
     r = cfg["bores"][0][3]
+    if part:
+        # A part is wider than its bore (grips, optic, the bell): its own
+        # half-width across the bore stands in for the procedural radius.
+        r = max(r, float(np.abs(info["samples"][:, 1]).max()))
     y_head = float(head[:, 1].max()) + r + SEAT_GAP
     face = _coords(mine["face"])
     eye_z = FACE_LO_F * H + 0.03 - drop
@@ -1963,9 +2030,10 @@ def _seat_launcher(team_id, spec, parts, bones, joints, drop):
     has_sight = any(b[2] == "sight" for b in cfg["boxes"])
     w_bore = _tube_frame(cfg["pitch"])[2]
     nearest = None   # the least-violating candidate, reported if none clears
-    for k_out in range(int(round(SEAT_OUT_MAX / SEAT_STEP)) + 1):
+    out_max = cfg.get("seat_out_max", SEAT_OUT_MAX)
+    for k_out in range(int(round(out_max / SEAT_STEP)) + 1):
         y = y_head + k_out * SEAT_STEP
-        for k_slide in range(int(round(SEAT_SLIDE_MAX / SEAT_SLIDE_STEP)) + 1):
+        for k_slide in range(int(round(cfg.get('seat_slide_max', SEAT_SLIDE_MAX) / SEAT_SLIDE_STEP)) + 1):
             cfg = dict(cfg, rest=rest0 - k_slide * SEAT_SLIDE_STEP)
             for k_up in range(int(round(SEAT_LIFT_MAX / SEAT_STEP)) + 1):
                 P = Vector((sh1.x, y, sh1.z)) + w_bore * (k_up * SEAT_STEP)
@@ -1980,9 +2048,9 @@ def _seat_launcher(team_id, spec, parts, bones, joints, drop):
     if seat is None:
         # Which rule refused: the full counts on a coarse grid of the same
         # search (every tenth step), reported for the least-violating one.
-        for k_out in range(0, int(round(SEAT_OUT_MAX / SEAT_STEP)) + 1, 10):
+        for k_out in range(0, int(round(out_max / SEAT_STEP)) + 1, 10):
             y = y_head + k_out * SEAT_STEP
-            for k_slide in range(0, int(round(SEAT_SLIDE_MAX / SEAT_SLIDE_STEP)) + 1, 10):
+            for k_slide in range(0, int(round(cfg.get('seat_slide_max', SEAT_SLIDE_MAX) / SEAT_SLIDE_STEP)) + 1, 10):
                 cfg_k = dict(cfg, rest=rest0 - k_slide * SEAT_SLIDE_STEP)
                 for k_up in range(0, int(round(SEAT_LIFT_MAX / SEAT_STEP)) + 1, 10):
                     P = Vector((sh1.x, y, sh1.z)) + w_bore * (k_up * SEAT_STEP)
@@ -1991,7 +2059,7 @@ def _seat_launcher(team_id, spec, parts, bones, joints, drop):
                     if nearest is None or sum(viol) < sum(nearest[0]):
                         nearest = (viol, k_out, k_up, k_slide, tuple(round(c, 3) for c in P))
         viol, k_out, k_up, k_slide, at_p = nearest
-        raise SystemExit(f"{team_id}: no seat for {cfg['name']} within {SEAT_OUT_MAX} m outboard, "
+        raise SystemExit(f"{team_id}: no seat for {cfg['name']} within {out_max} m outboard, "
                          f"{SEAT_LIFT_MAX} m above {pfx}'s shoulder and {SEAT_SLIDE_MAX} of its length forward "
                          f"-- look at the figure before widening any of them. Nearest candidate at {at_p} "
                          f"(out {k_out * SEAT_STEP:.3f}, up {k_up * SEAT_STEP:.3f}, slide {k_slide * SEAT_SLIDE_STEP:.2f}): "
@@ -2000,6 +2068,21 @@ def _seat_launcher(team_id, spec, parts, bones, joints, drop):
     P, sight_c, k_out, k_up, k_slide = seat
     d, v, w = _tube_frame(cfg["pitch"])
     u_rear = -cfg["rest"] * cfg["length"]
+    if part:
+        # The hands' targets ride the part: the firing hand on its pistol
+        # grip (a proxy box the arm search reads, deleted below), the support
+        # hand on its forward grip -- both measured on the mesh and checked
+        # against its surface by `_normalise_part`.
+        g, sp = info["grip"], info["support"]
+        hang_w = info["support_bottom"]
+        cfg = dict(cfg, boxes=((f"{cfg['name']}_gripproxy", (0.02, 0.02, 0.02), (u_rear + g[0], g[1], g[2]), "weapon"),),
+                   grip=f"{cfg['name']}_gripproxy", grip_group=None,
+                   handle=((u_rear + sp[0], sp[1], hang_w),) + PART_HANDLE)
+        if not PART_SPECS[part].get("support_handle", True):
+            # The support hand closes on the part itself (its named point),
+            # no handle: the MANPAD's procedural rule too -- at 78 deg a
+            # handle hung toward the left hand crossed his chest.
+            cfg = dict(cfg, handle=None, support=(u_rear + sp[0], sp[1], sp[2]))
     R = Matrix(((d.x, v.x, w.x), (d.y, v.y, w.y), (d.z, v.z, w.z))).to_4x4()
     Rz = Matrix(((-w.x, v.x, d.x), (-w.y, v.y, d.y), (-w.z, v.z, d.z))).to_4x4()   # local z -> bore
 
@@ -2029,7 +2112,7 @@ def _seat_launcher(team_id, spec, parts, bones, joints, drop):
     reach1 = (a1E - a1S).length + (a1W - a1E).length
     grip_c = next(Vector(c) for n, _s, c, _r in cfg["boxes"] if n == cfg["grip"])
     short1_cap = max(0.0, (at(grip_c) - a1S).length - reach1) + SUPPORT_SHORT_SLACK
-    group = cfg.get("grip_group", (cfg["grip"],))
+    group = cfg.get("grip_group") or (cfg["grip"],)
 
     # Support handle: hung from its attach point along its direction, as long
     # as the support arm needs to reach its foot (PR #325's handle, solved) --
@@ -2051,13 +2134,22 @@ def _seat_launcher(team_id, spec, parts, bones, joints, drop):
             D = (A - S0).normalized()
             return A, D, 0.0, A + D * 0.02
         cands = [(du, dw) for du in SUPPORT_SLIDE["u"] for dw in SUPPORT_SLIDE["w"]]
+        if part:
+            # On a part, only seats on its own surface.
+            sp = info["support"]
+            cands = [(du, dw) for du, dw in cands
+                     if float(np.sqrt(((info["samples"] - np.array((sp[0] + du, sp[1], sp[2] + dw))) ** 2)
+                                      .sum(axis=1)).min()) <= PART_GRIP_REACH]
         cands_zero = (0.0, 0.0)
     else:
         attach_t, dir_t, section, lmin, lmax = cfg["handle"]
         clear_r = 0.5 * math.hypot(*section) + HANDLE_GAP
 
         def solve(du, dphi, rake, dv, grip_du=0.0):
-            A = at((attach_t[0] + du, attach_t[1] + dv, attach_t[2]))
+            # A part's handle slid back off its forward grip hangs from the
+            # tube's own underside (-r), never from air.
+            A = at((attach_t[0] + du, attach_t[1] + dv,
+                    attach_t[2] if not (part and du) else -info["r"] + 0.005))
             r_vw = math.hypot(dir_t[1], dir_t[2])
             phi = math.atan2(-dir_t[1], -dir_t[2]) + math.radians(dphi)
             Dt = (dir_t[0] + rake, -math.sin(phi) * r_vw, -math.cos(phi) * r_vw)
@@ -2085,7 +2177,14 @@ def _seat_launcher(team_id, spec, parts, bones, joints, drop):
                 length = best_clear
             return A, D, length, A + D * length
         cands = [(du, dphi, rk, dv) for du in HANDLE_SLIDE for dphi in HANDLE_SWING for rk in HANDLE_RAKE
-                 for dv in HANDLE_INBOARD]
+                 for dv in HANDLE_INBOARD if not (part and dv)]
+        if part:
+            # Along the part: from its forward grip back toward the pistol
+            # grip in PART_HANDLE_SLIDE steps, never closer than
+            # PART_SUPPORT_MIN_AHEAD to it, never forward of the grip.
+            span = info["support"][0] - info["grip"][0] - PART_SUPPORT_MIN_AHEAD
+            slides = [-PART_HANDLE_SLIDE * k for k in range(int(span / PART_HANDLE_SLIDE) + 1)]
+            cands = [(du, dphi, rk, 0.0) for du in slides for dphi in HANDLE_SWING for rk in HANDLE_RAKE]
         cands_zero = (0.0, 0.0, 0.0, 0.0)
 
     def short_of(foot, D):
@@ -2107,13 +2206,25 @@ def _seat_launcher(team_id, spec, parts, bones, joints, drop):
             # his body than, its declared seat: a hand lifted beside the face
             # to dodge the chest reads worse than the overlap it removes.
             hand, hand0 = sol[3] - sol[1] * 0.02, ref[3] - ref[1] * 0.02
-            if hand.z > hand0.z + 1e-6 or hand.y > hand0.y + 1e-6:
+            # A part's declared seat is its forward grip, LOW on a 38 degree
+            # tube: what bounds that hand is his own shoulder, PART_HAND_RISE
+            # above which it would sit beside his face.
+            z_cap = a0S.z + PART_SPECS[part].get("hand_rise", PART_HAND_RISE) if part else hand0.z
+            if hand.z > z_cap + 1e-6 or hand.y > hand0.y + 1e-6:
                 continue
             _pole, inside = _arm_swivel(team_id, pfx, 0, mine, upper_T, a0S, a0E, a0W, sol[3] - sol[1] * 0.02,
                                         LAUNCH_SUPPORT_POLE, quiet=True)
             tried.append((c, inside))
-            if best is None or inside < best[1]:
-                best = (c, inside, sol)
+            # A part's support hand must REACH first (its handle is only so
+            # long), then keep out of the chest; a procedural handle always
+            # reaches, so the chest alone decides there.
+            key = (short_of(sol[3], sol[1]) > SUPPORT_SHORT_SLACK if part else False, inside)
+            if best is None or key < best[3]:
+                best = (c, inside, sol, key)
+        if best is None:
+            log(f"{team_id}: support search at grip slide {grip_du:+.3f}: none of {len(cands)} seat(s) kept -- "
+                f"declared hand z {ref[3].z:.3f} (cap {(a0S.z + PART_SPECS[part].get('hand_rise', PART_HAND_RISE)) if part else float('nan'):.3f}), "
+                f"short {short_of(ref[3], ref[1]):.3f} (cap {short_cap:.3f})")
         return best, tried
 
     coupled = len(group) > 1
@@ -2122,6 +2233,8 @@ def _seat_launcher(team_id, spec, parts, bones, joints, drop):
     group_u = [c[0] for n, _s, c, _r in cfg["boxes"] if n in group]
     for du in sorted(GRIP_SLIDE, key=abs):
         # Every sliding box stays on the bore, GRIP_ON_TUBE in from either end.
+        if du and part:
+            continue   # a part's pistol grip is where the mesh has it
         if du and not all(u_rear + GRIP_ON_TUBE <= u + du <= u_rear + cfg["length"] - GRIP_ON_TUBE for u in group_u):
             continue
         g = at(grip_c + Vector((du, 0.0, 0.0)))
@@ -2138,7 +2251,7 @@ def _seat_launcher(team_id, spec, parts, bones, joints, drop):
     log(f"{team_id}: {'+'.join(group)} slid {grip_du:+.3f} m along the bore: "
         f"{'both arms' if coupled else 'firing arm'} {by_du[0.0]} -> {by_du[grip_du]} vertices inside his "
         f"upper body ({' '.join(f'{a:+.3f}:{n}' for a, n in sorted(by_du.items()))})")
-    (c_best, inside_best, (A, D, length, foot)) = best
+    (c_best, inside_best, (A, D, length, foot), _key) = best
     log(f"{team_id}: support seat moved {c_best} from the declared one: {dict(tried).get(cands_zero)} -> "
         f"{inside_best} support-arm vertices inside his upper body ({len(tried)} seats tried: "
         f"{' '.join('/'.join(f'{x:+.3f}' for x in c) + f':{n}' for c, n in sorted(tried))})")
@@ -2153,6 +2266,7 @@ def _seat_launcher(team_id, spec, parts, bones, joints, drop):
         centres[name] = at(c)
         out.append(ob)
 
+    handle_ob = None
     if cfg.get("handle") is not None:
         foot = A + D * length
         hob = kit.box(f"{cfg['name']}_handle", (section[0], section[1], length), (0.0, 0.0, 0.0), "weapon")
@@ -2162,6 +2276,7 @@ def _seat_launcher(team_id, spec, parts, bones, joints, drop):
         M = Matrix(((xz.x, yz.x, D.x), (xz.y, yz.y, D.y), (xz.z, yz.z, D.z))).to_4x4()
         _transform(hob, Matrix.Translation(A + D * (length / 2.0)) @ M)
         out.append(hob)
+        handle_ob = hob
 
     # Both arms, rigidly, by PR #325's two-bone IK -- elbow swivel MEASURED
     # (`_arm_swivel`), so the re-seated arm stays out of his own chest.
@@ -2203,6 +2318,19 @@ def _seat_launcher(team_id, spec, parts, bones, joints, drop):
             elif bn == f"{pfx}_forearm_{names[side]}":
                 bones[i] = (bn, parent, tuple(E2), tuple(W2))
         short[side] = sh
+    if part:
+        for ob in [o for o in out if o.name.endswith("_gripproxy") or o.name.endswith("_bore")]:
+            out.remove(ob)
+            bpy.data.objects.remove(ob, do_unlink=True)
+        pob = _part_copy(part, cfg["name"])
+        M = Matrix(((d.x, v.x, w.x), (d.y, v.y, w.y), (d.z, v.z, w.z))).to_4x4()
+        _transform(pob, Matrix.Translation(P + d * u_rear) @ M)
+        out.append(pob)
+        _part_extent_log(pob)
+        # The handle extends the part's forward grip: one material per role,
+        # so it borrows that grip's own texel.
+        if handle_ob is not None:
+            _borrow_uv(handle_ob, pob, near=tuple(A))
     # Every launcher part, accessories included, against the body at rest:
     # the seat search tests the bore and the sight; the grips and the handle
     # are placed after it, so they are verified here and REFUSED if they cut
@@ -2325,12 +2453,18 @@ def _part_source(name):
 
 
 def _load_part(team_id):
-    """Import the part's remesh as one mesh object with its world transform
+    """`MESHY_PARTS[team_id]`'s part (B8): see `_load_part_file`."""
+    path, task_id = _part_source(MESHY_PARTS[team_id]["name"])
+    ob, img = _load_part_file(team_id, path, task_id)
+    ob.name = "part_src"
+    return ob, img
+
+
+def _load_part_file(team_id, path, task_id):
+    """Import a part GLB as one mesh object with its world transform
     applied, keeping only its base-colour image (renamed `part_color`, its
     own material dropped -- the part draws through the figure's material
     once the atlas is composed). Returns (object, image)."""
-    cfg = MESHY_PARTS[team_id]
-    path, task_id = _part_source(cfg["name"])
     before = set(bpy.data.objects)
     before_img = set(bpy.data.images)
     bpy.ops.import_scene.gltf(filepath=path)
@@ -2363,9 +2497,8 @@ def _load_part(team_id):
     bpy.data.materials.remove(mats[0])
     if not ob.data.uv_layers:
         raise SystemExit(f"{team_id}: the part remesh carries no UV layer")
-    log(f"{team_id}: part {os.path.relpath(path, REPO)} (remesh {task_id}): {len(ob.data.polygons)} tris, "
+    log(f"{team_id}: part {os.path.relpath(path, REPO)} ({task_id}): {len(ob.data.polygons)} tris, "
         f"part_color {img.size[0]}x{img.size[1]}")
-    ob.name = "part_src"
     return ob, img
 
 
@@ -2389,24 +2522,29 @@ def _scaled_pixels(img, w, h):
     return px
 
 
-def _compose_atlas(team_id, src, part, part_img):
-    """One `base_color` of 2*TEXTURE_PX x TEXTURE_PX: the figure's bake on the
-    left, the part's on the right; the figure's uvs into [0, 0.5), the
-    part's into [0.5, 1); the part takes the figure's material. Sets
-    `_TEX["atlas"]` so the export step ships the atlas at that size rather
-    than squashing it to a square."""
+def _compose_atlas(team_id, src, slots):
+    """One `base_color` of (1 + n) * TEXTURE_PX x TEXTURE_PX: the figure's bake
+    in the first slot, each part's in the next ones, left to right, in the
+    order `slots` ((object, image) per part) gives; the figure's uvs into
+    [0, 1/(1+n)), part k's into [k/(1+n), (k+1)/(1+n)); every part takes the
+    figure's material. With one part this is B8's two-slot atlas exactly.
+    Sets `_TEX["atlas"]` so the export step ships the atlas at that size
+    rather than squashing it to a square."""
     fig_img = bpy.data.images["base_color"]
-    W, H = 2 * TEXTURE_PX, TEXTURE_PX
-    left = _scaled_pixels(fig_img, TEXTURE_PX, TEXTURE_PX)
-    right = _scaled_pixels(part_img, TEXTURE_PX, TEXTURE_PX)
-    ch = left.shape[2]
-    if right.shape[2] != ch:
-        rgba = np.ones((TEXTURE_PX, TEXTURE_PX, ch), dtype=np.float32)
-        n = min(ch, right.shape[2])
-        rgba[..., :n] = right[..., :n]
-        right = rgba
+    n = 1 + len(slots)
+    W, H = n * TEXTURE_PX, TEXTURE_PX
+    tiles = [_scaled_pixels(fig_img, TEXTURE_PX, TEXTURE_PX)]
+    ch = tiles[0].shape[2]
+    for _ob, img in slots:
+        px = _scaled_pixels(img, TEXTURE_PX, TEXTURE_PX)
+        if px.shape[2] != ch:
+            rgba = np.ones((TEXTURE_PX, TEXTURE_PX, ch), dtype=np.float32)
+            k = min(ch, px.shape[2])
+            rgba[..., :k] = px[..., :k]
+            px = rgba
+        tiles.append(px)
     atlas = bpy.data.images.new("atlas_color", W, H, alpha=(ch == 4))
-    atlas.pixels = np.concatenate([left, right], axis=1).ravel().tolist()
+    atlas.pixels = np.concatenate(tiles, axis=1).ravel().tolist()
     atlas.update()
     mat = _TEX["material"]
     for node in mat.node_tree.nodes:
@@ -2414,15 +2552,17 @@ def _compose_atlas(team_id, src, part, part_img):
             node.image = atlas
     fig_img.name = "figure_color"
     atlas.name = "base_color"
-    _remap_u(src, 0.0, 0.5)
-    _remap_u(part, 0.5, 1.0)
-    part.data.materials.clear()
-    part.data.materials.append(mat)
-    for stale in (fig_img, part_img):
+    _remap_u(src, 0.0, 1.0 / n)
+    for k, (ob, _img) in enumerate(slots, start=1):
+        _remap_u(ob, k / n, (k + 1) / n)
+        ob.data.materials.clear()
+        ob.data.materials.append(mat)
+    for stale in [fig_img] + [img for _ob, img in slots]:
         if stale.users == 0:
             bpy.data.images.remove(stale)
     _TEX["atlas"] = (W, H)
-    log(f"{team_id}: atlas {W}x{H} -- figure bake left, part bake right; images {[i.name for i in bpy.data.images]}")
+    log(f"{team_id}: atlas {W}x{H} -- figure bake, then {[ob.name for ob, _i in slots]}; "
+        f"images {[i.name for i in bpy.data.images]}")
 
 
 def _separate_islands(ob):
@@ -2544,6 +2684,685 @@ def _seat_on_ground(ob, name, role, x, y):
 
 
 # ---------------------------------------------------------------------------
+# A3.1 stage 2 (GH-179, 2026-10-05): Meshy hand weapons through the atlas
+# ---------------------------------------------------------------------------
+#
+# `docs/art/meshy-prompts-a31-parts.md`: the kit rifles and the procedural
+# launchers still drawn on Meshy bodies are replaced by Meshy PARTS -- each
+# refined at 8k and remeshed at the crew-weapon number (400, cap 600), or for
+# the RPG-7 the on-disk textured image-to-3D source decimated by
+# `export_meshy_rpg.py` -- and composed into the team's one atlas exactly as
+# B8's mortar and rifle are (`_compose_atlas`, one TEXTURE_PX slot per part
+# after the figure's). A part shared by several figures is loaded ONCE and
+# copied per figure, so every copy reads the same slot. Every part is scaled
+# to REAL metres from its own measured length (Meshy normalises every model
+# to 1.90 m on its longest axis), role `weapon`.
+#
+# Two kinds, one canonical frame each, set by `_normalise_part`:
+#
+#   rifle     the long axis on X, the muzzle +X (the butt is the TALLER end:
+#             a stock and butt plate against a barrel, `RIFLE_BUTT_RATIO`),
+#             the magazine down (-Z: the deeper protrusion from the body's
+#             own centreline), the length centred on x = 0 and that
+#             centreline on z = 0. It replaces `rig._weapon_parts`' seven-box
+#             rifle IN PLACE (`_rifle_part_at_hand`): the same anchor and yaw
+#             `_rifle_at_hand` solves from the bent right hand, its length
+#             centred where the kit rifle's span is centred. The hand then
+#             closes on the receiver behind the magazine.
+#
+#   launcher  the bore on the X axis, x = 0 at the REAR, the muzzle +X, the
+#             optic (the highest thing above the bore) on -Y -- the INBOARD
+#             side, toward the gunner's face (`_seat_launcher`'s frame: v = +y
+#             is outboard). A part whose optic comes on +Y is MIRRORED in Y
+#             (winding reversed); every one of these weapons is symmetric
+#             but for the sight, and a sight on the far side of the tube from
+#             the eye is the one thing that reads wrong. The grips are found
+#             on the mesh (`_down_runs`: runs of length slices reaching below
+#             the bore) and named per part in `PART_SPECS`; the firing hand
+#             goes to one, the support hand to the other, and each target
+#             must lie within `PART_GRIP_REACH` of the part's own surface or
+#             the import refuses -- a hand closing on air is the defect the
+#             procedural grips could never have.
+HAND_PARTS = {
+    "militia_cell": ("sarim_rifle",),
+    "sarim_rifles": ("sarim_rifle",),
+    "rpg_team": ("rpg_launcher", "sarim_rifle"),
+    "mortar_team": ("kdf_carbine",),
+    "yahalom_squad": ("kdf_carbine",),
+    "breach_team": ("kdf_carbine",),
+    "manpad_team": ("manpad_tube",),
+    "atgm_cell": ("atgm_post",),
+    "recoilless_team": ("recoilless_rifle",),
+}
+#: name -> spec. `length_m`: real overall length. `path`: a part that is not a
+#: Meshy remesh (the RPG, from `export_meshy_rpg.py`), with its provenance.
+#: Launchers: `grip_run`/`support_run` index `_down_runs` from the REAR.
+PART_SPECS = {
+    "sarim_rifle": dict(kind="rifle", length_m=0.88),
+    "kdf_carbine": dict(kind="rifle", length_m=0.85, cut=lambda *a: _cut_carbine_sling(*a)),
+    # Spike (A3.1 #3): Meshy's muzzle (the sealed front cap) at -X, the CLU
+    # with its thermal sight at the rear; the plain canister is the front
+    # third. Seated by `import_meshy_kdf_team.py` (at_team), which keeps its
+    # own measured hands, so no grip runs are named here.
+    "spike_launcher": dict(kind="launcher", length_m=1.2, src_muzzle=-1, bore_band=(0.80, 0.95),
+                           cut=lambda *a: _cut_spike_bipod(*a)),
+    # MANPAD (A3.1 #10): delivered lying on its side (gripstock toward -y),
+    # its pointed missile nose at -X. Seated by `_seat_launcher` at 78 deg
+    # with its gripstock BELOW the shoulder point (`rest_behind_grip` < 0),
+    # where the procedural gripstock hung -- at 78 deg a grip above the
+    # shoulder puts both hands beside the face. The seat search still slides
+    # the fat tube 0.3 m up its bore to clear the head, which lifts both
+    # hands: the support hand closes on the tube just BELOW the pistol grip
+    # (`support_ahead` < 0) and may sit `hand_rise` above its shoulder (at
+    # 0.10 every seat was refused: hand 0.30 m above it, measured).
+    # The lead's ruling: its pointed missile nose is cut off where the tube
+    # ends and the hole capped flat (`_cut_manpad`), and the shipped length
+    # -- after that cut -- is the 1.4 m. The strap that hangs off it goes.
+    "manpad_tube": dict(kind="launcher", length_m=1.4, src_roll=90.0, src_muzzle=-1, bore_band=(0.50, 0.75),
+                        cut=lambda *a: _cut_manpad(*a), grip_run="deepest", support_ahead=-0.10, hand_rise=0.25,
+                        rest_behind_grip=-0.20,
+                        # 2 cm seat samples (the final clearance check still
+                        # samples every 1 cm): at 1 cm its widened search
+                        # ran past ten minutes.
+                        seat_sample_step=0.02, support_handle=False),
+    # ATGM post (A3.1 #6 v2): a squat four-legged tripod under a level tube,
+    # its rounded front at -X; stands on `prop` at kit's anchor.
+    "atgm_post": dict(kind="mounted", tube_m=1.2, tube_band_f=0.30, src_muzzle=-1),
+    # Recoilless (A3.1 #8 v2): on a dirt patch (`_split_recoilless`), muzzle
+    # +X, the fat venturi housing at the rear; 1.1 m.
+    # Its front leg (a folding bipod, hanging) is cut; the hands close on the
+    # barrel's underside, the firing hand just ahead of the venturi housing.
+    "recoilless_rifle": dict(kind="launcher", length_m=1.1, pre=lambda *a: _split_recoilless(*a),
+                             bore_band=(0.60, 0.85), cut=lambda *a: _cut_recoilless_leg(*a),
+                             grip_run=0, grip_at=0.45, support_ahead=0.25),
+    "rpg_launcher": dict(kind="launcher", length_m=1.27, path=os.path.join("art", "parts", "rpg7.glb"),
+                         provenance="export_meshy_rpg.py <- Meshy_AI_RPG_7_launcher_0903143528 (textured)",
+                         grip_run=0, support_run=1, optic_inboard=False),
+}
+RIFLE_BUTT_RATIO = 1.3          # the butt end's height over the muzzle end's, or the import refuses
+RIFLE_END_F = 0.05              # each end slice, of the length, for that comparison
+#: The kit rifle's own span in its anchor frame (`rig._weapon_parts`: the
+#: stock's rear face at -0.44, the front sight at +0.48), whose centre the
+#: Meshy rifle's length is centred on.
+KIT_RIFLE_SPAN = (-0.44, 0.48)
+PART_GRIP_REACH = 0.03          # m: a hand target this close to the part's surface, or refused
+SLIVER_FACES = 8                # loose islands smaller than this are dropped (a remesh's stray strip)
+LAUNCH_BORE_BAND = (0.15, 0.35) # of the length from the rear: plain tube, for the bore radius
+LAUNCH_SIGHT_ABOVE = 0.03       # m above the bore's top that counts as the optic
+CARBINE_SLING_Y = -0.02           # source units, kdf_carbine: see `_cut_carbine_sling`
+CARBINE_STOCK_X = 0.40
+CARBINE_STOCK_BOTTOM = -0.10
+MANPAD_FULL_BORE = 0.92            # of the bore radius: the tube's end, scanning back from the nose
+MANPAD_HANG = 0.005
+MANPAD_STRAP_HUE = (15.0, 45.0)    # degrees: the strap's orange
+MANPAD_STRAP_SAT = 0.45
+MOUNTED_FEET_DZ = 0.03           # m: the vertices this close to the lowest are the feet
+MOUNTED_CAP_BELOW = 0.03         # m under the tube's bottom: what the front cap may cut
+ATGM_ANCHOR = (0.24, 0.0)        # kit's `rig._atgm_extras` anchor: the post's feet centre
+ATGM_SWAY_MARGIN = 0.08         # m past the first anchor clear at rest
+ATGM_ANCHOR_SLIDE = tuple(round(0.02 * k, 2) for k in range(0, 16))   # m forward of it, tried in order
+RCL_BASE_DZ = 0.04               # source units: the recoilless preview's dirt patch
+RCL_ROUNDS_MIN_FACES = 20
+RCL_LEG_BELOW = 0.08
+SPIKE_BIPOD_WINDOW = (0.66, 0.80)  # of the length from the rear: where the preview's bipod hangs
+SPIKE_BIPOD_BELOW = 0.03        # m under the canister's bottom
+GRIP_BELOW = 0.04               # m below the bore's bottom that counts as a grip
+RUN_MERGE = 0.03                # m: hanging runs closer than this are one grip
+_HAND = {}
+_HAND_EXTRA = {}   # a second piece a part's `pre` split off (the recoilless rounds)
+_PART_INFO = {}
+
+
+def _load_hand_part(team_id, name):
+    spec = PART_SPECS[name]
+    if spec.get("path"):
+        path, task = os.path.join(REPO, spec["path"]), spec["provenance"]
+        if not os.path.exists(path):
+            raise SystemExit(f"{team_id}: {name} not built -- run tools/units/export_meshy_rpg.py first ({path})")
+    else:
+        path, task = _part_source(name)
+    ob, img = _load_part_file(team_id, path, task)
+    ob.name = ob.data.name = f"part_{name}"
+    img.name = f"part_color_{name}"
+    if spec.get("pre"):
+        ob = spec["pre"](team_id, name, ob)
+    _drop_slivers(team_id, ob)
+    return ob, img
+
+
+def _drop_slivers(team_id, ob):
+    """Delete loose islands under SLIVER_FACES faces (welded first: a remesh's
+    UV seams split its vertices, `_separate_islands`' note)."""
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)
+    bm.faces.ensure_lookup_table()
+    seen, small = set(), []
+    for f in bm.faces:
+        if f.index in seen:
+            continue
+        comp, stack = [], [f]
+        seen.add(f.index)
+        while stack:
+            g = stack.pop()
+            comp.append(g)
+            for e in g.edges:
+                for h in e.link_faces:
+                    if h.index not in seen:
+                        seen.add(h.index)
+                        stack.append(h)
+        if len(comp) < SLIVER_FACES:
+            small += comp
+    if small:
+        bmesh.ops.delete(bm, geom=small, context="FACES")
+    bm.to_mesh(ob.data)
+    bm.free()
+    ob.data.update()
+    log(f"{team_id}: {ob.name}: {len(small)} sliver face(s) dropped, {len(ob.data.polygons)} tris kept")
+
+
+def _apply_np(ob, co):
+    ob.data.vertices.foreach_set("co", np.asarray(co, dtype=np.float64).ravel())
+    ob.data.update()
+
+
+def _reverse_winding(ob):
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    bmesh.ops.reverse_faces(bm, faces=bm.faces)
+    bm.to_mesh(ob.data)
+    bm.free()
+    ob.data.update()
+
+
+def _slices(co, n=40):
+    """(lo, hi, zmin, zmax, ymin, ymax) per non-empty slice along X."""
+    x0, x1 = co[:, 0].min(), co[:, 0].max()
+    out = []
+    for b in range(n):
+        a, c = x0 + (x1 - x0) * b / n, x0 + (x1 - x0) * (b + 1) / n
+        s = co[(co[:, 0] >= a) & (co[:, 0] <= c)]
+        if len(s):
+            out.append((a, c, s[:, 2].min(), s[:, 2].max(), s[:, 1].min(), s[:, 1].max()))
+    return np.array(out)
+
+
+def _body_centreline(co):
+    """z of the body's own centreline: the median slice midpoint over the
+    slices that are NOT a protrusion (span within 1.3x the median span)."""
+    sl = _slices(co)
+    span = sl[:, 3] - sl[:, 2]
+    body = sl[span <= 1.3 * np.median(span)]
+    return float(np.median((body[:, 2] + body[:, 3]) / 2.0))
+
+
+def _surface_samples(ob, step=0.01):
+    """Every vertex, plus every edge sampled at `step` -- the density the
+    launcher seat and the clearance census use."""
+    co = _coords(ob)
+    pts = [co]
+    for e in ob.data.edges:
+        a, b = co[e.vertices[0]], co[e.vertices[1]]
+        n = max(2, int(np.linalg.norm(b - a) / step) + 1)
+        pts.append(a + (b - a) * np.linspace(0.0, 1.0, n)[:, None])
+    return np.concatenate(pts)
+
+
+def _down_runs(co, r, below):
+    """Runs of length slices (x0, x1, zmin) that HANG: the lowest point more
+    than `below` under the bore's bottom (-r) and at least twice as far down
+    as the slice reaches up -- a grip, not the bell's or a cap's full ring.
+    Runs closer than RUN_MERGE are one run (a grip with a gap at its guard).
+    Rear first."""
+    sl = _slices(co, 60)
+    hang = (sl[:, 2] < -(r + below)) & (-sl[:, 2] > 2.0 * sl[:, 3])
+    runs, cur = [], None
+    for row, h in zip(sl, hang):
+        if h:
+            if cur is None and runs and row[0] - runs[-1][1] < RUN_MERGE:
+                cur = list(runs.pop())
+            cur = [row[0], row[1], row[2]] if cur is None else [cur[0], row[1], min(cur[2], row[2])]
+        elif cur is not None:
+            runs.append(tuple(float(v) for v in cur))
+            cur = None
+    if cur is not None:
+        runs.append(tuple(float(v) for v in cur))
+    return runs
+
+
+def _normalise_part(team_id, name, ob):
+    """Turn, scale and seat `ob` in its kind's canonical frame (see the
+    section comment) and record what the placers need in `_PART_INFO`."""
+    spec = PART_SPECS[name]
+    co = _coords(ob)
+    co = co - co.mean(axis=0)
+    if spec["kind"] == "rifle":
+        # Meshy delivers a "lying flat, level" rifle in its profile plane:
+        # the long axis on X, up on +Z (both 5 Oct rifles, measured: X span
+        # 1.89-1.90, Y 0.10-0.20, the magazine and grips toward -Z). No PCA:
+        # a slack sling or a tall stock tilts the principal axis (tried --
+        # the carbine came out 9 degrees nose-up and upside down). So only
+        # the muzzle end is decided here, and `cut` drops what hangs loose.
+        if spec.get("cut"):
+            spec["cut"](team_id, name, ob, co)
+            co = _coords(ob)
+            co = co - co.mean(axis=0)
+        x0, x1 = co[:, 0].min(), co[:, 0].max()
+        end = RIFLE_END_F * (x1 - x0)
+        h_lo = np.ptp(co[co[:, 0] < x0 + end][:, 2])
+        h_hi = np.ptp(co[co[:, 0] > x1 - end][:, 2])
+        butt, muzzle = max(h_lo, h_hi), min(h_lo, h_hi)
+        if butt < RIFLE_BUTT_RATIO * muzzle:
+            raise SystemExit(f"{team_id}: {name}: cannot tell the butt from the muzzle -- end heights "
+                             f"{h_lo:.3f} / {h_hi:.3f} source units, ratio under {RIFLE_BUTT_RATIO}. Look at it.")
+        if h_hi > h_lo:                                # butt at +x: turn 180 about z
+            co = co * np.array((-1.0, -1.0, 1.0))
+        scale = spec["length_m"] / float(np.ptp(co[:, 0]))
+        co = co * scale
+        co[:, 0] -= (co[:, 0].min() + co[:, 0].max()) / 2.0
+        co[:, 1] -= (co[:, 1].min() + co[:, 1].max()) / 2.0
+        co[:, 2] -= _body_centreline(co)
+        _apply_np(ob, co)
+        _PART_INFO[name] = dict(kind="rifle", length=spec["length_m"])
+        log(f"{team_id}: {name}: rifle, scale {scale:.4f}, butt/muzzle end heights {butt:.3f}/{muzzle:.3f} "
+            f"(x{butt / muzzle:.1f}); "
+            f"x {co[:, 0].min():+.3f}..{co[:, 0].max():+.3f} y {co[:, 1].min():+.3f}..{co[:, 1].max():+.3f} "
+            f"z {co[:, 2].min():+.3f}..{co[:, 2].max():+.3f} m")
+        return
+    if spec["kind"] == "mounted":
+        _normalise_mounted(team_id, name, ob, spec)
+        return
+    # launcher: turned muzzle +X (`src_muzzle` -1: the part arrives with it at
+    # -X), scaled, x = 0 at the rear, and the bore put on the X axis from the
+    # plain-tube band `bore_band` (fractions of the length from the rear).
+    co = _coords(ob)
+    if spec.get("src_roll"):
+        # A part delivered lying on its side: +90 about x takes its -y
+        # (where the grips hang) to -z.
+        co = co @ np.array(Matrix.Rotation(math.radians(spec["src_roll"]), 3, "X")).T
+    if spec.get("src_muzzle", 1) < 0:
+        co = co * np.array((-1.0, -1.0, 1.0))      # 180 degrees about z
+    scale = spec["length_m"] / float(np.ptp(co[:, 0]))
+    co = co * scale
+    co[:, 0] -= co[:, 0].min()
+    L = spec["length_m"]
+    b0, b1 = spec.get("bore_band", LAUNCH_BORE_BAND)
+    band = co[(co[:, 0] > b0 * L) & (co[:, 0] < b1 * L)]
+    by, bz = (band[:, 1].min() + band[:, 1].max()) / 2.0, (band[:, 2].min() + band[:, 2].max()) / 2.0
+    co[:, 1] -= by
+    co[:, 2] -= bz
+    band = co[(co[:, 0] > b0 * L) & (co[:, 0] < b1 * L)]
+    r = float(np.median(np.sqrt(band[:, 1] ** 2 + band[:, 2] ** 2)))
+    top = co[co[:, 2] > r + LAUNCH_SIGHT_ABOVE]
+    mirrored = False
+    want = -1.0 if spec.get("optic_inboard", True) else 1.0
+    if len(top) and float(top[:, 1].mean()) * want < 0.0:
+        co[:, 1] *= -1.0
+        mirrored = True
+    _apply_np(ob, co)
+    if mirrored:
+        _reverse_winding(ob)
+    if spec.get("cut"):
+        spec["cut"](team_id, name, ob, r)
+        co = _coords(ob)
+        if spec.get("length_after_cut", True) and abs(np.ptp(co[:, 0]) - L) > 1e-4:
+            # The shipped length is the spec's, measured after the cut.
+            k = L / float(np.ptp(co[:, 0]))
+            co[:, 0] -= co[:, 0].min()
+            co = co * k
+            r *= k
+            _apply_np(ob, co)
+            log(f"{team_id}: {name}: rescaled x{k:.4f} after the cut to ship at {L} m (bore r {r:.3f})")
+    samples = _surface_samples(ob)
+    info = dict(kind="launcher", length=L, r=r, samples=samples, scale=scale)
+    msg = ""
+    if "grip_run" in spec:
+        runs = _down_runs(co, r, GRIP_BELOW)
+        def underside(u):
+            under = samples[(np.abs(samples[:, 0] - u) < 0.03) & (np.abs(samples[:, 1]) < 0.03)]
+            return float(under[:, 2].min())
+        if "grip_at" in spec:
+            # No pistol grip on the part (or none that survives its cut): the
+            # firing hand closes on the tube's underside at `grip_at` of L.
+            u = spec["grip_at"] * L
+            runs = list(runs) + [(u - 0.01, u + 0.01, underside(u) - 0.01)]
+            spec = dict(spec, grip_run=len(runs) - 1)
+        if spec["grip_run"] == "deepest":
+            # The pistol grip is the run that hangs furthest (a strap stub or
+            # a sight bracket hangs less).
+            spec = dict(spec, grip_run=int(np.argmin([z for _a, _b, z in runs])))
+        if "support_ahead" in spec:
+            # No forward grip on the part: the support hand's handle hangs
+            # from the tube's own underside, `support_ahead` past the grip.
+            g = runs[spec["grip_run"]]
+            u = (g[0] + g[1]) / 2.0 + spec["support_ahead"]
+            runs = list(runs) + [(u - 0.01, u + 0.01, underside(u) - 0.01)]
+            spec = dict(spec, support_run=len(runs) - 1)
+        if len(runs) <= max(spec["grip_run"], spec["support_run"]):
+            raise SystemExit(f"{team_id}: {name}: {len(runs)} hanging run(s) {runs} -- no grip/support to name")
+        for key in ("grip", "support"):
+            x0, x1, zmin = runs[spec[f"{key}_run"]]
+            synthetic = (key == "support" and "support_ahead" in spec) or (key == "grip" and "grip_at" in spec)
+            if synthetic:
+                t = np.array(((x0 + x1) / 2.0, 0.0, zmin + 0.005))
+            else:
+                # The grip's own geometry: the mean of the part's surface
+                # under the bore in the run's window (a slanted pistol grip's
+                # middle is not under the window's centre).
+                g = samples[(samples[:, 0] > x0 - 0.03) & (samples[:, 0] < x1 + 0.03) & (samples[:, 2] < -r - 0.02)]
+                t = g.mean(axis=0)
+            near = float(np.sqrt(((samples - t) ** 2).sum(axis=1)).min())
+            if near > PART_GRIP_REACH:
+                raise SystemExit(f"{team_id}: {name}: the {key} hand target {tuple(round(v, 3) for v in t)} is "
+                                 f"{near:.3f} m from the part (limit {PART_GRIP_REACH}) -- it would close on air")
+            info[key] = t
+        info["support_bottom"] = runs[spec["support_run"]][2] + (0.015 if "support_ahead" in spec else 0.01)
+        msg = (f"; hanging runs {[(round(a, 3), round(b, 3), round(z, 3)) for a, b, z in runs]}; grip "
+               f"{tuple(round(float(v), 3) for v in info['grip'])}, support {tuple(round(float(v), 3) for v in info['support'])}")
+    info["samples"] = _surface_samples(ob, step=spec.get("seat_sample_step", 0.01))
+    _PART_INFO[name] = info
+    log(f"{team_id}: {name}: launcher, scale {scale:.4f}, {L} m, bore r {r:.3f}, bore moved ({by:+.3f}, {bz:+.3f}), "
+        f"optic {'mirrored' if mirrored else 'kept'} to the {'inboard -y' if want < 0 else 'outboard +y'}; "
+        f"x {co[:, 0].min():+.3f}..{co[:, 0].max():+.3f} y {co[:, 1].min():+.3f}..{co[:, 1].max():+.3f} "
+        f"z {co[:, 2].min():+.3f}..{co[:, 2].max():+.3f}{msg}; {len(samples)} surface samples")
+
+
+def _cut_faces(team_id, name, ob, keep_fn, why, drop_idx=None):
+    """Delete every face whose centroid `keep_fn` rejects, or (`drop_idx`)
+    whose index is listed."""
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    bm.faces.ensure_lookup_table()
+    if drop_idx is not None:
+        dead = [bm.faces[i] for i in sorted(drop_idx)]
+    else:
+        dead = [f for f in bm.faces if not keep_fn(np.array(tuple(f.calc_center_median())))]
+    bmesh.ops.delete(bm, geom=dead, context="FACES")
+    bm.to_mesh(ob.data)
+    bm.free()
+    ob.data.update()
+    log(f"{team_id}: {name}: {len(dead)} face(s) cut -- {why}")
+    if not dead:
+        raise SystemExit(f"{team_id}: {name}: the cut ({why}) found nothing -- the part changed; look at it")
+
+
+def _cut_carbine_sling(team_id, name, ob, _co):
+    """The carbine came with its padded sling hanging in a loose loop off the
+    stock, baked a saturated orange (the prompt's "tan" read as safety
+    orange) -- at 25 px an orange ring beside the butt, a colour the bible
+    keeps for markers. In the SOURCE frame (measured: the rifle stands in
+    y +0.03..+0.18 with its stock at +X), the loop is everything at
+    y < CARBINE_SLING_Y, plus whatever hangs under the stock's own bottom."""
+    _cut_faces(team_id, name, ob,
+               lambda c: not (c[1] < CARBINE_SLING_Y or (c[0] > CARBINE_STOCK_X and c[2] < CARBINE_STOCK_BOTTOM)),
+               f"the slack sling (y < {CARBINE_SLING_Y}, or x > {CARBINE_STOCK_X} under z {CARBINE_STOCK_BOTTOM})")
+
+
+def _part_colour_hsv(ob, img_name, px=512):
+    """(n_faces, 3) HSV of the part's own bake at each face's UV centroid,
+    read off a `px` copy of the image (the 8k bake itself is ~1 GB as floats)."""
+    import colorsys
+    img = bpy.data.images[img_name]
+    pix = _scaled_pixels(img, px, px)
+    uv = ob.data.uv_layers.active.data
+    out = []
+    for poly in ob.data.polygons:
+        u, v = np.mean([uv[i].uv[:] for i in poly.loop_indices], axis=0)
+        x, y = int((u % 1.0) * (px - 1)), int((v % 1.0) * (px - 1))
+        out.append(colorsys.rgb_to_hsv(*[float(c) for c in pix[y, x, :3]]))
+    return np.array(out)
+
+
+def _cap_front(team_id, name, ob, x_cut, L, z_above=None):
+    """Cut away everything past x = `x_cut` (only faces whose centroid is above
+    `z_above`, when given: a tube over a tripod whose legs reach as far) and
+    cap the hole with flat face(s) facing +X, textured with one uv from the
+    tube just behind the cut."""
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
+    faces = [f for f in bm.faces if z_above is None or f.calc_center_median().z > z_above]
+    verts = list({v for f in faces for v in f.verts})
+    edges = list({e for f in faces for e in f.edges})
+    res = bmesh.ops.bisect_plane(bm, geom=verts + edges + faces, plane_co=(x_cut, 0.0, 0.0),
+                                 plane_no=(1.0, 0.0, 0.0), clear_outer=True)
+    cut_edges = [e for e in res["geom_cut"] if isinstance(e, bmesh.types.BMEdge) and e.is_valid]
+    filled = bmesh.ops.holes_fill(bm, edges=cut_edges, sides=0)["faces"]
+    uv_layer = bm.loops.layers.uv.active
+    near = [f for f in bm.faces if f not in filled and abs(f.calc_center_median().x - x_cut) < 0.05
+            and (z_above is None or f.calc_center_median().z > z_above)]
+    cap_uv = near[0].loops[0][uv_layer].uv.copy() if near else None
+    for f in filled:
+        f.normal_update()
+        if f.normal.x < 0:
+            f.normal_flip()
+        if cap_uv is not None:
+            for l in f.loops:
+                l[uv_layer].uv = cap_uv
+    kept = len(bm.faces)
+    bm.to_mesh(ob.data)
+    bm.free()
+    ob.data.update()
+    log(f"{team_id}: {name}: nose cut at x {x_cut:.3f} of {L:.3f} (the tube's front end), "
+        f"{len(filled)} cap face(s) over the hole; {kept} faces kept")
+    if not filled:
+        raise SystemExit(f"{team_id}: {name}: the nose cut left an open hole -- nothing capped")
+
+
+def _cut_manpad(team_id, name, ob, r):
+    """Two cuts, both the lead's (5 Oct) or the bible's:
+      * the pointed MISSILE NOSE: everything past the tube's own front end is
+        deleted and the hole capped with one flat face -- a launcher carries
+        a flat front cap, and end-on a cone reads as a rocket. The tube's end
+        is the rearmost slice, scanning back from the tip, at full bore
+        (MANPAD_FULL_BORE of r) -- the white band where the cone starts;
+      * the STRAP that hangs off the tube: faces further than r + MANPAD_HANG
+        from the bore whose bake is the strap's saturated orange (hue
+        MANPAD_STRAP_HUE, saturation > MANPAD_STRAP_SAT) -- where it wraps
+        the tube it stays."""
+    co = _coords(ob)
+    L = float(co[:, 0].max())
+    sl = _slices(co, 60)
+    rad = np.maximum(np.abs(sl[:, 2:4]).max(axis=1), np.abs(sl[:, 4:6]).max(axis=1))
+    x_cut = None
+    for row, rr in zip(sl[::-1], rad[::-1]):
+        if row[1] < 0.6 * L:
+            break
+        if rr >= MANPAD_FULL_BORE * r:
+            x_cut = float(row[1])
+            break
+    if x_cut is None:
+        raise SystemExit(f"{team_id}: {name}: no full-bore slice in the front 40 % -- the nose cut found no tube end")
+    _cap_front(team_id, name, ob, x_cut, L)
+    hsv = _part_colour_hsv(ob, f"part_color_{name}")
+    cent = np.array([tuple(p.center) for p in ob.data.polygons])
+    radial = np.sqrt(cent[:, 1] ** 2 + cent[:, 2] ** 2)
+    h0, h1 = MANPAD_STRAP_HUE
+    strap = (radial > r + MANPAD_HANG) & (hsv[:, 1] > MANPAD_STRAP_SAT) & (hsv[:, 0] * 360.0 >= h0) & (hsv[:, 0] * 360.0 <= h1)
+    idx = set(int(i) for i in np.nonzero(strap)[0])
+    _cut_faces(team_id, name, ob, None, drop_idx=idx, why=f"the hanging strap ({len(idx)} orange faces more than {MANPAD_HANG} m off the tube)")
+
+
+def _split_recoilless(team_id, name, ob):
+    """The recoilless preview stands on a DIRT PATCH with tufts of grass ("no
+    ground, no base" notwithstanding), and the remesh welded patch, tube and
+    rounds into ONE island. The patch is the faces within RCL_BASE_DZ of the
+    lowest point (source units); with it gone the model falls apart by
+    connectivity into the tube, the two spare rounds (one island) and the
+    tufts (singletons). The tube is returned and goes on as the part; the
+    rounds go to `_HAND["recoilless_rounds"]` for `recoilless_team` to lay
+    beside the loader; the tufts are dropped."""
+    co = _coords(ob)
+    zmin = float(co[:, 2].min())
+    _cut_faces(team_id, name, ob, lambda c: c[2] >= zmin + RCL_BASE_DZ,
+               f"the dirt patch (centroids within {RCL_BASE_DZ} of the lowest point)")
+    pieces = _separate_islands(ob)
+    tube = pieces[0]
+    rounds = [p for p in pieces[1:] if len(p.data.polygons) >= RCL_ROUNDS_MIN_FACES]
+    if len(rounds) != 1:
+        raise SystemExit(f"{team_id}: {name}: expected the rounds as one island of >= {RCL_ROUNDS_MIN_FACES} faces, "
+                         f"found {[len(p.data.polygons) for p in pieces[1:]]}")
+    for p in pieces[1:]:
+        if p is not rounds[0]:
+            bpy.data.objects.remove(p, do_unlink=True)
+    log(f"{team_id}: {name}: tube {len(tube.data.polygons)} faces, rounds {len(rounds[0].data.polygons)}, "
+        f"{len(pieces) - 2} tuft island(s) dropped")
+    rounds[0].name = rounds[0].data.name = "part_recoilless_rounds"
+    _HAND_EXTRA["recoilless_rounds"] = rounds[0]
+    tube.name = tube.data.name = f"part_{name}"
+    return tube
+
+
+def _cut_recoilless_leg(team_id, name, ob, r):
+    """The recoilless preview stands its barrel on a folding front leg; on a
+    shouldered tube at 25 px a leg hanging off the muzzle half reads as a
+    second barrel. Everything in the front half more than RCL_LEG_BELOW under
+    the bore goes."""
+    L = PART_SPECS[name]["length_m"]
+    _cut_faces(team_id, name, ob, lambda c: not (c[0] > 0.55 * L and c[2] < -RCL_LEG_BELOW),
+               f"the front leg (x > 0.55 of the length, more than {RCL_LEG_BELOW} m under the bore)")
+
+
+def _cut_spike_bipod(team_id, name, ob, r):
+    """The Spike preview came with its front bipod EXTENDED (the prompt asked
+    for it folded); at 25 px two splayed legs under the canister read as a
+    second barrel. Every face below the canister's bottom, by more than
+    SPIKE_BIPOD_BELOW, in the bipod's window along the length, goes."""
+    L = PART_SPECS[name]["length_m"]
+    x0, x1 = SPIKE_BIPOD_WINDOW
+    _cut_faces(team_id, name, ob,
+               lambda c: not (x0 * L <= c[0] <= x1 * L and c[2] < -(r + SPIKE_BIPOD_BELOW)),
+               f"the extended bipod (x {x0}-{x1} of the length, more than {SPIKE_BIPOD_BELOW} m under the bore)")
+
+
+def _carbine_over_baked(name, baked):
+    """A copy of the canonical rifle laid where a preview's BAKED carbine was
+    (breach_team, WEAPON_ON_SPINE): centred on the baked piece's centroid,
+    along its principal axis, muzzle toward the THINNER end (a barrel against
+    a stock and receiver), its top turned toward the wearer's chest and up
+    (the magazine forward and down, as a carbine is carried across the chest)
+    and scaled by nothing but its own real length."""
+    co = _coords(baked)
+    c = co.mean(axis=0)
+    _ev, vec = np.linalg.eigh((co - c).T @ (co - c))
+    ax = vec[:, 2]
+    t = (co - c) @ ax
+    lo, hi = t.min(), t.max()
+    end = 0.15 * (hi - lo)
+
+    def girth(m):
+        q = (co[m] - c) - np.outer(t[m], ax)
+        return float(np.linalg.norm(q, axis=1).max())
+    if girth(t > hi - end) > girth(t < lo + end):
+        ax = -ax                                        # the thinner end is the muzzle
+    up = np.array((-1.0, 0.0, 1.0)) / math.sqrt(2.0)
+    zc = up - ax * float(up @ ax)
+    zc /= np.linalg.norm(zc)
+    yc = np.cross(zc, ax)
+    M = Matrix(((ax[0], yc[0], zc[0], c[0]), (ax[1], yc[1], zc[1], c[1]),
+                (ax[2], yc[2], zc[2], c[2]), (0.0, 0.0, 0.0, 1.0)))
+    ob = _part_copy(name, baked.name.replace("_carbine", "_w_carbine"))
+    _transform(ob, M)
+    log(f"{baked.name}: baked carbine ({hi - lo:.3f} m along its axis, {len(baked.data.polygons)} faces) "
+        f"replaced by {name}, muzzle {tuple(round(float(v), 2) for v in ax)}")
+    _part_extent_log(ob)
+    return ob
+
+
+def _normalise_mounted(team_id, name, ob, spec):
+    """A crew weapon that stands on the ground (atgm_post): muzzle +X, scaled
+    so its TUBE (the top `tube_band_f` of its height -- the tube and its
+    sight, above the tripod) is `tube_m` long, the centre of its feet on
+    (0, 0), the feet on z = 0; then its pointed front cut back to the tube's
+    own end and capped flat (`_cap_front`, legs untouched)."""
+    co = _coords(ob)
+    if spec.get("src_muzzle", 1) < 0:
+        co = co * np.array((-1.0, -1.0, 1.0))
+    zt, zb = co[:, 2].max(), co[:, 2].min()
+    tube = co[co[:, 2] > zt - spec["tube_band_f"] * (zt - zb)]
+    scale = spec["tube_m"] / float(np.ptp(tube[:, 0]))
+    co = co * scale
+    z0 = co[:, 2].min()
+    feet = co[co[:, 2] < z0 + MOUNTED_FEET_DZ]
+    co = co - np.array((feet[:, 0].mean(), feet[:, 1].mean(), z0))
+    _apply_np(ob, co)
+    zt = co[:, 2].max()
+    band_lo = zt - spec["tube_band_f"] * zt
+    tube = co[co[:, 2] > band_lo]
+    x0, x1 = tube[:, 0].min(), tube[:, 0].max()
+    mid = tube[(tube[:, 0] > x0 + 0.3 * (x1 - x0)) & (tube[:, 0] < x0 + 0.6 * (x1 - x0))]
+    ay, az = np.median(mid[:, 1]), (mid[:, 2].min() + mid[:, 2].max()) / 2.0
+    # The tube's radius is the 90th percentile of the middle band's radial
+    # reach (the median is dragged in by the low-poly tube's own facets).
+    r = float(np.percentile(np.sqrt((mid[:, 1] - ay) ** 2 + (mid[:, 2] - az) ** 2), 90))
+    x_cut = None
+    n = 40
+    for k in range(n - 1, n // 2, -1):
+        a, b = x0 + (x1 - x0) * k / n, x0 + (x1 - x0) * (k + 1) / n
+        sl = tube[(tube[:, 0] >= a) & (tube[:, 0] <= b)]
+        if len(sl) and float(np.sqrt((sl[:, 1] - ay) ** 2 + (sl[:, 2] - az) ** 2).max()) >= MANPAD_FULL_BORE * r:
+            x_cut = float(b)
+            break
+    if x_cut is None:
+        raise SystemExit(f"{team_id}: {name}: no full-bore slice in the tube's front half -- no tube end to cap")
+    _cap_front(team_id, name, ob, x_cut, float(x1), z_above=az - r - MOUNTED_CAP_BELOW)
+    # `tube_m` is the tube WITH its rounded front, as the prompt sized it:
+    # rescaling to 1.2 m after the cut was tried and stood the post 1.14 m
+    # tall with its legs 1.3 m across (the prompt's 0.7 m post, the kit's
+    # 0.74 m tube height), 80 samples inside the crew at kit's anchor.
+    co = _coords(ob)
+    _PART_INFO[name] = dict(kind="mounted", tube_m=spec["tube_m"], axis_z=az, r=r)
+    log(f"{team_id}: {name}: mounted, scale {scale:.4f}, tube {spec['tube_m']} m at z {az:.3f} (r {r:.3f}), "
+        f"x {co[:, 0].min():+.3f}..{co[:, 0].max():+.3f} y {co[:, 1].min():+.3f}..{co[:, 1].max():+.3f} "
+        f"z {co[:, 2].min():+.3f}..{co[:, 2].max():+.3f} m (feet centred on the origin)")
+
+
+def _part_copy(name, new_name):
+    src = _HAND[name]
+    ob = src.copy()
+    ob.data = src.data.copy()
+    bpy.context.scene.collection.objects.link(ob)
+    ob.name = ob.data.name = new_name
+    ob["rl_role"] = "weapon"
+    return ob
+
+
+def _rifle_frame(prefix, joints, dx, dy):
+    """(kit anchor, yaw): the frame `_rifle_at_hand` puts the kit rifle in."""
+    a = joints["arm"][1]
+    elbow, wrist = Vector(a["elbow"]), Vector(a["wrist"])
+    hand = wrist + (wrist - elbow).normalized() * HAND_REACH
+    yaw = math.radians(RIFLE_YAW_DEG)
+    c, s = math.cos(yaw), math.sin(yaw)
+    gx, gy, gz = hand.x - (-0.03 * c), hand.y - (-0.03 * s), hand.z + 0.065
+    reach, z_kit = 0.16, kit.POSTURE_EYE["standing"] * kit.FIGURE_H - 0.16
+    at = (gx - reach * c + dx, gy - reach * s + dy, gz - z_kit)
+    return at, yaw
+
+
+def _hand_rifle(prefix, joints, dx, dy):
+    """The rifle at this figure's hand: the team's Meshy rifle part if it has
+    one (`HAND_PARTS`), else kit's seven boxes (`_rifle_at_hand`)."""
+    rifles = [n for n in HAND_PARTS.get(_TEAM["id"], ()) if PART_SPECS[n]["kind"] == "rifle"]
+    if rifles:
+        return _rifle_part_at_hand(rifles[0], prefix, joints, dx, dy)
+    return _rifle_at_hand(prefix, joints, dx, dy)
+
+
+def _rifle_part_at_hand(name, prefix, joints, dx, dy):
+    """A copy of the canonical Meshy rifle in place of `rig._weapon_parts`'
+    seven boxes: the same anchor and yaw `_rifle_at_hand` solves, its length
+    centred on the kit span's centre. Returns [object]."""
+    at, yaw = _rifle_frame(prefix, joints, dx, dy)
+    g = Vector(rig._weapon_anchor(at, yaw, "standing", False))
+    u_c = (KIT_RIFLE_SPAN[0] + KIT_RIFLE_SPAN[1]) / 2.0
+    ob = _part_copy(name, f"{prefix}_w_rifle")
+    _transform(ob, Matrix.Translation(g) @ Matrix.Rotation(yaw, 4, "Z") @ Matrix.Translation((u_c, 0.0, 0.0)))
+    _part_extent_log(ob)
+    return [ob]
+
+
+# ---------------------------------------------------------------------------
 # teams
 # ---------------------------------------------------------------------------
 
@@ -2618,11 +3437,34 @@ def build_team(team_id):
     _BLOB_KW_ACTIVE.update(BLOB_KW.get(team_id, {}))
     src, height = _load_figure(team_id)
     part_src = None
+    slots = []
     if team_id in MESHY_PARTS:
         # B8: the Meshy crew weapon, before the cut so every figure uv (and
         # every blob that borrows one) lands in the atlas's left half.
         part_src, part_img = _load_part(team_id)
-        _compose_atlas(team_id, src, part_src, part_img)
+        slots.append((part_src, part_img))
+    # A3.1 stage 2: the hand-weapon parts, into the same atlas (one slot each,
+    # after B8's) and then turned into their canonical frame.
+    hand = {}
+    for name in HAND_PARTS.get(team_id, ()):
+        ob, img = _load_hand_part(team_id, name)
+        slots.append((ob, img))
+        hand[name] = ob
+    for name, ob in hand.items():
+        _normalise_part(team_id, name, ob)   # before the atlas: a cut may read the part's own bake
+    if slots:
+        _compose_atlas(team_id, src, slots)
+    for extra in _HAND_EXTRA.values():
+        # A piece split off a part shares that part's slot: same uv mapping.
+        n = 1 + len(slots)
+        k = 1 + [o for o, _i in slots].index(hand["recoilless_rifle"])
+        _remap_u(extra, k / n, (k + 1) / n)
+        extra.data.materials.clear()
+        extra.data.materials.append(_TEX["material"])
+    _HAND.clear()
+    _HAND.update(hand)
+    if team_id != "recoilless_team":
+        _HAND_EXTRA.clear()
     figures = rig.TEAM_FIGURES[team_id]
     parts, bones, forced = [], [], {}
     eyes, hands = {}, {}
@@ -2666,10 +3508,21 @@ def build_team(team_id):
         parts += tube + binos
     elif team_id == "recoilless_team":
         tube = launcher
-        rounds = [
-            kit.tube("rcl_round0", 0.52, 0.075, (-0.10, 0.46, 0.075), yaw=math.radians(90.0)),
-            kit.tube("rcl_round1", 0.52, 0.075, (-0.10, 0.60, 0.075), yaw=math.radians(90.0)),
-        ]
+        if "recoilless_rounds" in _HAND_EXTRA:
+            # A3.1: the preview's own two spare rounds (one island), at the
+            # tube's own scale, long axis along y like kit's, on the ground
+            # where kit's pair lay.
+            rounds_ob = _HAND_EXTRA.pop("recoilless_rounds")
+            co = _coords(rounds_ob) * _PART_INFO["recoilless_rifle"]["scale"]
+            co = co - co.mean(axis=0)
+            _apply_np(rounds_ob, co)
+            _transform(rounds_ob, Matrix.Rotation(math.radians(_long_axis_yaw(co) + 90.0), 4, "Z"))
+            rounds = [_seat_on_ground(rounds_ob, "rcl_rounds", "weapon", -0.10, 0.53)]
+        else:
+            rounds = [
+                kit.tube("rcl_round0", 0.52, 0.075, (-0.10, 0.46, 0.075), yaw=math.radians(90.0)),
+                kit.tube("rcl_round1", 0.52, 0.075, (-0.10, 0.60, 0.075), yaw=math.radians(90.0)),
+            ]
         bones.append(rig._prop_bone((-0.10, 0.53, 0.0), 0.30))
         forced.update({ob: "rcl_fire_forearm_R" for ob in tube})
         forced.update({ob: "prop" for ob in rounds})
@@ -2677,7 +3530,7 @@ def build_team(team_id):
     elif team_id == "militia_cell":
         # Two riflemen, grip on each man's own bent right hand (`_rifle_at_hand`).
         for spec in figures:
-            w = _rifle_at_hand(spec["prefix"], hands[spec["prefix"]], spec["x"], spec["y"])
+            w = _hand_rifle(spec["prefix"], hands[spec["prefix"]], spec["x"], spec["y"])
             forced.update({ob: f"{spec['prefix']}_forearm_R" for ob in w})
             parts += w
     elif team_id == "rpg_team":
@@ -2686,7 +3539,7 @@ def build_team(team_id):
         tube = launcher
         forced.update({ob: "rpg_fire_forearm_R" for ob in tube})
         parts += tube
-        w = _rifle_at_hand("rpg_load", hands["rpg_load"], -0.30, 0.30)
+        w = _hand_rifle("rpg_load", hands["rpg_load"], -0.30, 0.30)
         forced.update({ob: "rpg_load_forearm_R" for ob in w})
         parts += w
     elif team_id == "atgm_cell":
@@ -2694,6 +3547,42 @@ def build_team(team_id):
         # `prop` bone -- hidden while the crew walks (`_key_death_visibility`).
         post, prop_bones, f_post = rig._atgm_extras()
         bones += prop_bones
+        if "atgm_post" in _HAND:
+            # A3.1: the Meshy post in kit's place -- its feet's centre on the
+            # same anchor, on the same `prop` bone, one `weapon` mesh -- and
+            # clear of both crewmen at rest (the mortar's rule), or refused.
+            for ob in post:
+                bpy.data.objects.remove(ob, do_unlink=True)
+            ob = _part_copy("atgm_post", "atgm_post")
+            crew = [o for o in parts if "_death" not in o.name and o.get("rl_role") not in ("weapon", "metal")
+                    and not any(o.name.startswith(s["prefix"] + "_") for s in rig._walker_specs(figures))]
+            # Kit's anchor first; if the Meshy legs (wider than kit's) reach a
+            # crewman, the nearest clear anchor forward of it, measured.
+            tried = []
+            for dx in ATGM_ANCHOR_SLIDE:
+                at = (ATGM_ANCHOR[0] + dx, ATGM_ANCHOR[1], 0.0)
+                _transform(ob, Matrix.Translation(at))
+                inside = _inside_count([ob], crew)
+                tried.append((dx, inside))
+                if not inside:
+                    break
+                _transform(ob, Matrix.Translation(tuple(-c for c in at)))
+            log(f"atgm_cell: post samples inside the crew by anchor x offset from kit's {ATGM_ANCHOR}: "
+                f"{' '.join(f'{d:+.2f}:{n}' for d, n in tried)}")
+            if tried[-1][1]:
+                raise SystemExit(f"atgm_cell: {tried[-1][1]} post samples inside a crewman at every anchor tried -- "
+                                 f"move the mount, do not ship it")
+            # The census here is the crew at REST; in `idle` they breathe and
+            # sway, and the exported GLB read 6 samples inside at the first
+            # clear offset (+0.08, `launcher_clearance.test.ts`). So the mount
+            # goes ATGM_SWAY_MARGIN further on.
+            _transform(ob, Matrix.Translation((ATGM_SWAY_MARGIN, 0.0, 0.0)))
+            log(f"atgm_cell: post anchor x {ATGM_ANCHOR[0] + tried[-1][0] + ATGM_SWAY_MARGIN:+.2f} "
+                f"(first clear {tried[-1][0]:+.2f} + sway margin {ATGM_SWAY_MARGIN}); samples inside at rest "
+                f"{_inside_count([ob], crew)}")
+            _part_extent_log(ob)
+            post = [ob]
+            f_post = {ob: "prop"}
         forced.update(f_post)
         parts += post
     elif team_id == "mortar_crew":
@@ -2752,6 +3641,14 @@ def build_team(team_id):
         # with the gait while the arm it belongs to does not. The plate
         # stands 0.28 m ahead of the man's centre line, where his left
         # forearm, bent across the chest, would hold its handle.
+        if "kdf_carbine" in _HAND:
+            # A3.1: the baked carbine (WEAPON_ON_SPINE) gives way to the Meshy
+            # carbine, laid along the baked one's own long axis.
+            for ob in [o for o in parts if o.name.endswith("_carbine") and "_death" not in o.name]:
+                new = _carbine_over_baked("kdf_carbine", ob)
+                forced[new] = forced.pop(ob)
+                parts[parts.index(ob)] = new
+                bpy.data.objects.remove(ob, do_unlink=True)
         props, _b, f_props = rig._breach_extras()
         forced.update(f_props)
         for ob in props:
@@ -2766,7 +3663,7 @@ def build_team(team_id):
         # B7: three riflemen, grip on each man's own bent right hand --
         # militia_cell's rule, three times.
         for spec in figures:
-            w = _rifle_at_hand(spec["prefix"], hands[spec["prefix"]], spec["x"], spec["y"])
+            w = _hand_rifle(spec["prefix"], hands[spec["prefix"]], spec["x"], spec["y"])
             forced.update({ob: f"{spec['prefix']}_forearm_R" for ob in w})
             parts += w
     elif team_id == "mortar_team":
@@ -2792,12 +3689,13 @@ def build_team(team_id):
         bones += prop_bones
         forced.update({ob: "prop" for ob in tube})
         parts += tube
-        w = _rifle_at_hand("mtr_no3", hands["mtr_no3"], -0.62, 0.0)
+        w = _hand_rifle("mtr_no3", hands["mtr_no3"], -0.62, 0.0)
         for ob in w:
             # One material per role: the kit rifle shares `weapon` with the
             # textured mortar, so it borrows one uv from the mortar's bake
             # (its tube, a dark gunmetal texel) rather than exporting bare.
-            _borrow_uv(ob, tube[0], near=_coords(tube[0]).mean(axis=0))
+            if not ob.data.materials:   # a Meshy carbine part carries its own atlas slot
+                _borrow_uv(ob, tube[0], near=_coords(tube[0]).mean(axis=0))
         forced.update({ob: "mtr_no3_forearm_R" for ob in w})
         parts += w
     elif team_id == "sniper_team":
@@ -2876,7 +3774,7 @@ def build_team(team_id):
             forced[pack] = f"{pfx}_spine"
             packs.append(pack)
         parts += mast + head + packs
-        w = _rifle_at_hand("yah_b", hands["yah_b"], -0.34, 0.26)
+        w = _hand_rifle("yah_b", hands["yah_b"], -0.34, 0.26)
         forced.update({ob: "yah_b_forearm_R" for ob in w})
         parts += w
     else:
@@ -2884,6 +3782,9 @@ def build_team(team_id):
 
     if src_fig is not None:
         bpy.data.objects.remove(src_fig, do_unlink=True)
+    for ob in _HAND.values():   # the canonical part sources; every placed one is a copy
+        bpy.data.objects.remove(ob, do_unlink=True)
+    _HAND.clear()
 
     want = {f"{s['prefix']}_forearm_R" for s in figures if s["weapon"] in ("launcher", "rifle")}
     if want - set(forced.values()):

@@ -99,10 +99,13 @@ export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   // supplied bipeds -- three men in kit's line read narrower than the supplied
   // rifleman, the prone sniper pair wider than the sculpt.
   inf_squad: 0.47, mortar_team: 0.55, sniper_team: 0.62, sarim_rifles: 0.57,
-  at_team: 0.45, demo_squad: 0.45, yahalom_squad: 0.54, breach_team: 0.45, militia_cell: 0.45,
+  // `at_team` 0.5 since the Meshy Spike landed (A3.1 stage 2, 2026-10-05): a 1.2 m
+  // canister reaching further forward of the kneeling gunner than the 1.16 m kit tube.
+  at_team: 0.5, demo_squad: 0.45, yahalom_squad: 0.54, breach_team: 0.45, militia_cell: 0.45,
   // `atgm_cell` reads 0.49 since its Meshy mesh landed (B3, 2026-09-30): the same
   // rear-shin-back kneel as `recoilless_team` below, two figures wide.
-  rpg_team: 0.45, atgm_cell: 0.49, mortar_crew: 0.45, charge_squad: 0.45, digger_crew: 0.45,
+  // ...and 0.5 since the Meshy ATGM post (A3.1 stage 2, 2026-10-05), its four legs wider than kit's three.
+  rpg_team: 0.45, atgm_cell: 0.5, mortar_crew: 0.45, charge_squad: 0.45, digger_crew: 0.45,
   // `recoilless_team` read 0.48 when its Meshy mesh landed (B2, 2026-09-30): a real
   // kneel with the rear shin laid back is a wider footprint than the kit pair. 0.46
   // since its tube moved from the hip onto the shoulder (2026-10-01), shorter in front.

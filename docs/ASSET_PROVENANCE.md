@@ -1195,3 +1195,30 @@ join `TEXTURED_VEHICLE_TYPES` / `TEXTURED_VEHICLE_EXEMPT`. Idle stills at 1,400 
 in `docs/art/sheets/a31-parts/<id>-idle.png` (`tools/render_baked_pose.py`, the
 bake-keeping twin of `render_clip_pose.py`). **Portraits re-rendered** for all
 three (`tools/render_unit_portraits.py --only`).
+
+## WP-A3.1 stage 2 — the hand weapons and crew-weapon parts (GH-179), 2026-10-05
+
+Every kit rifle and procedural launcher left on a Meshy infantry body is replaced
+by a Meshy PART: refined at **8k**, remeshed at the bible's crew-weapon number
+(400, cap 600; the ATGM post and the recoilless 600), loaded from the ledger's
+LAST `kind: remesh` per name, scaled to real metres (Meshy normalises every model
+to 1.90 m on its longest axis) and composed into the team's ONE `base_color`
+atlas exactly as B8's mortar was — one 1024 slot per part beside the figure's
+1024, one material, role `weapon` (`import_meshy_crew_team.py`, "A3.1 stage 2";
+the Spike through `import_meshy_kdf_team.py`). **AI-generated (Meshy)**, disclosed
+per `CONTRIBUTING.md`; every spend and prompt is a line in
+`art/meshy/ledger.jsonl` (numbers and rulings in `docs/art/meshy-prompts-a31-parts.md`).
+Committed per task: `task.json` and `thumbnail.png`; the 8k remesh `model.glb`
+sources (32–62 MB) are not, as B8's were not. Stills at 1,400 px through
+`tools/render_clip_pose.py` (palette-repainted silhouettes) in
+`docs/art/sheets/a31-parts/<team>-<clip>.png`.
+
+| Part | Replaces, on | Preview task id | Refine task id (8k) | Remesh task id (shipped) | Notes |
+|---|---|---|---|---|---|
+| `art/parts/rpg7.glb` (RPG-7) | the procedural RPG on `rpg_team`'s `rpg_fire` (38°) and the kit tube on `moto_rpg`'s pillion | — | — | *on-disk source* `art/blend/enemy/wepons/Meshy_AI_RPG_7_launcher_0903143528_image-to-3d-texture.blend` (Meshy image-to-3D, supplied 3 Sep, 0 credits) | The TEXTURED file by the lead's ruling (every infantry team ships a bake now); `tools/units/export_meshy_rpg.py` decimates 1,954,697 → **559 tris**, 1.27 m overall, muzzle +X, base colour 4096 → 1024. Seated by `_seat_launcher` on the measured shoulder with the hands on its own pistol grip and a solved handle off its forward grip (the figures' arms cannot reach the real forward grip). Optic mirrored to the outboard side: inboard it put 106 → 173 firing-arm vertices in the chest. |
+| `sarim_rifle` | every `kit.rifle` (`rig._weapon_parts`) on `militia_cell` ×2, `sarim_rifles` ×3, `rpg_team`'s loader | `01a10c2d-a7b5-750e-a603-6e4030a645a3` | `01a10c51-668c-7167-989e-f821fbb74854` | `01a10c53-aa02-7283-933d-a36bb3e1103a` at 400 (351 arrived) | 0.88 m, **339 tris** (12 sliver faces dropped). Same anchor and yaw as the kit rifle, its length centred on the kit span. Its grip came FORWARD of the magazine (Meshy's, unfixed). |
+| `kdf_carbine` | the kit rifle on `mortar_team` No.3 and `yahalom_squad` yah_b; on `breach_team` the figures' BAKED carbines (both men), laid along each baked one's own axis | `01a10c40-aa15-7125-9c3b-2fc18e0a0224` | `01a10c6d-dee5-73ab-bab3-2246e541f8c1` | `01a10c6f-fd2f-71bb-9da3-6955d73f2a16` at 400 (350 arrived) | 0.85 m, **315 tris**: the slack sling, baked safety ORANGE, cut off (35 faces). Not `inf_squad`. |
+| `spike_launcher` | the procedural Spike on `at_team`'s `at_fire_forearm_R`, pitch 0 | `01a10c30-4ca3-74b9-befa-ba935597d8b7` | `01a10c5d-97ab-777d-98c9-1775e9c5348d` | `01a10c61-808f-7626-9ebd-8abddc4e01b6` at 400 (410 arrived) | 1.2 m, **350 tris**: the EXTENDED bipod deleted (60 faces; at 25 px it read as a second barrel). Rear face where the procedural sight's eyepiece was; the measured grip and support handle kept, textured from the part. |
+| `manpad_tube` | the procedural MANPAD on `manpad_team`'s `mpd_fire`, 78° | `01a10c41-a7cc-7653-a8d8-d549bec79b17` | `01a10c73-d0c2-7786-9026-53fc1dd45155` | `01a10c75-f46e-7277-b9bb-03d72a1f13da` at 400 (355 arrived) | The pointed missile nose cut at the tube's own end and capped flat (the lead's ruling), the hanging orange strap cut; then 1.4 m. See the manpad_team row's status below. |
+| `atgm_post` (v2) | `kit.atgm_tripod` on `atgm_cell`'s `prop` | `01a10c4f-a611-776f-9bca-d720f1b947b2` | `01a10c80-1c2d-72be-9217-621d55e07b6a` | `01a10c82-1470-7159-8a6a-d25809fb6c95` at 600 (618 arrived) | Tube 1.2 m (with its rounded front, then cut back to a flat cap), axis 0.74 m up, **611 tris**. Its four splayed legs reach further than kit's three: at kit's anchor 8 samples sat inside a kneeling crewman, so the mount slides forward to the first clear anchor (+0.08) plus a 0.08 sway margin: x 0.40. |
+| `recoilless_rifle` (v2) | `kit.launcher("rcl_tube")` and the two `kit.tube` rounds on `recoilless_team` | `01a10c4c-319f-710d-9d1d-12d43c8955ce` | `01a10c86-56c3-7145-b9a0-dea4f527b0d8` | `01a10c88-87de-7586-8a66-47c0c2997c3a` at 600 (599 arrived) | Stood on a dirt patch the remesh welded to it: the patch cut (158 faces), the tube, the two rounds (one island, 65 tris) and three grass tufts then separate by connectivity; tufts dropped, the folding front leg cut. 1.1 m, shouldered from the kneel as before; the rounds by the loader. |

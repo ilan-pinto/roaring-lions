@@ -87,6 +87,11 @@ const MOUNTED: readonly (readonly [string, string, readonly string[], readonly s
   ['yahalom_squad.glb', 'yah_b pack', ['idle', 'fire', 'move'], ['webbing'], 'yah_b_spine', /^yah_b_(head|neck|spine|pelvis)$/],
   ['yahalom_squad.glb', 'yah_ak pack (work)', ['work'], ['webbing'], 'yah_ak_spine', /^yah_ak_(head|neck|spine|pelvis)$/],
   ['mortar_team.glb', 'the mortar vs its crew', ['idle', 'fire'], ['weapon', 'metal'], 'prop', /^mtr_(crew0|crew1|no3)_/],
+  // A3.1 stage 2 (2026-10-05): the Meshy ATGM post's four splayed legs reach
+  // further than kit's three; at kit's own anchor 8 samples sat inside a
+  // kneeling crewman, so the importer slides the mount forward until clear.
+  // atgm_cell has no `fire` clip.
+  ['atgm_cell.glb', 'the ATGM post vs its crew', ['idle'], ['weapon'], 'prop', /^atgm_crew(0|1)_/],
 ];
 
 describe('a mounted kit part stays out of the body it rides', () => {

@@ -1,426 +1,272 @@
-"""Export the Meshy-generated RPG-7 launcher as a glTF prop, mesh contract v2.
+"""Export the Meshy-generated RPG-7 launcher as a TEXTURED crew-weapon part.
 
     /Applications/Blender.app/Contents/MacOS/Blender --background \
-        --factory-startup --python tools/units/export_meshy_rpg.py -- OUT.glb
+        --factory-startup --python tools/units/export_meshy_rpg.py [-- OUT.glb]
 
-The destination is REQUIRED and has no default. `art/meshes/props/rpg7.glb`
-is where this asset belongs, but `render_mesh_gate.py`'s `mesh_kind` has no
-`props` kind yet: it falls an unknown subdirectory through to `infantry` and
-then looks for a sprite sheet that does not exist. The gate globs
-`art/meshes/**/*.glb` with no ignore of untracked files, so a GLB written
-there before that kind exists turns `pnpm validate:meshes` red for EVERY
-session sharing this tree -- CLAUDE.md records exactly that happening, a
-stray `zz_throwaway.glb` colliding at IoU 1.000.
+Writes `art/parts/rpg7.glb` by default: one mesh, one material, one
+base-colour image (`TEXTURE_PX`, JPEG), `TARGET_TRIS` triangles, in real
+metres, muzzle `+X`, the bore on the X axis. It is a PART, not a unit -- no
+rig, no role table, drawn by nothing on its own. `import_meshy_crew_team.py`
+loads it (`PART_SPECS["rpg_launcher"]`) and composes its bake into the team
+atlas exactly as it does a Meshy refine+remesh part (B8's mortar and rifle),
+for `rpg_team`'s firer and, through `import_meshy_moto_rpg.py`, the
+`moto_rpg` pillion. `art/parts/` and not `art/meshes/props/`: the mesh gate
+globs `art/meshes/**/*.glb` and has no `props` kind, so a part written there
+turns `pnpm validate:meshes` red for every session in the tree (the
+September note, still true).
 
-This is the gear half of GH-155's Ashwar batch (`docs/art/meshy-prompts-ashwar.md`,
-prompt 1). It is a PROP, not a unit: it carries no rig and draws nothing on its
-own. `rpg_team.glb` is a separate, later step that parents this to the
-irregular figure's shoulder.
+AI-generated (Meshy image-to-3D, supplied 3 Sep), disclosed per CONTRIBUTING.md.
 
-SOURCES (two .blend files supplied; both inspected, one used)
+SOURCES (both under the main checkout's gitignored `art/blend/enemy/wepons/`)
 
-  art/blend/enemy/wepons/
-      Meshy_AI_RPG_7_launcher_0903143528_image-to-3d-texture.blend
-          one welded object `mesh_node`, 977,326 verts, ONE material with
-          three packed textures (base_color 4096x4096, metallic_roughness
-          2048x2048, normal 4096x4096). NOT USED.
+  Meshy_AI_RPG_7_launcher_0903143528_image-to-3d-texture.blend
+      one welded object `mesh_node`, 977,326 verts / 1,954,697 tris, ONE
+      material with three packed images (base_color 4096, metallic_roughness
+      2048, normal 4096). USED since 2026-10-05.
 
-  art/blend/enemy/wepons/
-      Meshy_AI_RPG_7_launcher_parts_0903143621_part-segmentation.blend
-          eight objects `model_part0`..`model_part7`, 985,427 verts in total,
-          ZERO materials and ZERO images. USED.
+  Meshy_AI_RPG_7_launcher_parts_0903143621_part-segmentation.blend
+      eight objects, 985,427 verts, zero materials. Used in September; not now.
 
-Both AI-generated (Meshy), disclosed per CONTRIBUTING.md.
+WHY THE TEXTURED FILE NOW (the lead's ruling, 5 Oct, WP-A3.1 stage 2). In
+September this script chose the segmentation file for the zero-materials
+rule: "every unit in this tree ships zero materials" and infantry had no
+textured exemption. That rule no longer binds infantry -- every infantry team
+is in `TEXTURED_INFANTRY_TYPES` (PR #307 and B7) and ships its own bake, and
+the max-detail rule of 2 Oct asks for the bake wherever there is one. The
+segmentation file's whole advantage was "zero materials at the source", which
+is now the thing we do NOT want: a palette RPG beside a textured gunner reads
+as a grey kit tube, the very complaint A3.1 exists to fix. The two files are
+the same model at a uniform 3.5768x (measured below), so choosing the bake
+costs no shape. The 2048 metallic-roughness and the 4096 normal are dropped:
+the figures ship base colour only (`import_meshy_crew_team.py`, TEXTURED).
 
-WHY THE SEGMENTATION FILE, AND NOT THE TEXTURED ONE. The same call
-`export_meshy_rocket_battery.py` made on the identical pair of files, for the
-identical reason: the segmentation pass "already satisfies the contract's
-zero-materials rule at the source rather than by stripping." Every unit in
-this tree ships zero materials -- verified from the shipped bytes, not
-assumed: `rocket_battery.glb`, `technical.glb` and `sarim_rifles.glb` all
-read materials=0 images=0, while only `house`/`apartment`/`warehouse` sit in
-`TEXTURED_MESH_EXEMPT`. Infantry and its gear have never had that exemption.
-The 4K bake therefore goes unused here exactly as the irregular fighter's own
-supplied bake does. Extending the exemption to worn gear is the project
-lead's call and is recorded in the task queue, not decided here.
+DECIMATION. 1,954,697 tris to `TARGET_TRIS` (bible §3: a crew-weapon part
+remeshes at 400 and ships under 600). One COLLAPSE pass, in two steps (0.05,
+then to target), welded first; Blender's collapse keeps the UV seams, so the
+4096 bake still lands on the right faces at ~560 tris (photographed). The
+brief allowed decimating the tube and the warhead SEPARATELY if one pass
+collapsed the stem between them; measured, one pass does not, and
+`_assert_continuous` is what says so -- every 2 % slice of the length must be
+crossed by at least one triangle, so a stem that collapsed to nothing leaves
+an empty slice and the export refuses.
 
-THE TWO FILES ARE THE SAME MODEL AT TWO UNIFORM SCALES, confirmed by axis
-ratio rather than assumed -- the trap this pipeline already hit once on the
-Grad truck, where the two frames differed by a uniform 3.202x:
+SCALE. `OVERALL_M` = 1.27 m, warhead tip to bell mouth -- the overall length
+of `import_meshy_crew_team.LAUNCHERS["rpg_team"]` (a 0.96 m tube plus flare,
+stem and warhead), which is the envelope the firer's seat was measured
+against. A real loaded RPG-7 is about 1.34 m. The September export used
+1.40 to match the old kit tube's envelope; the procedural RPG that replaced
+the kit tube (PR #325) is the thing this part replaces now.
+
+ORIENTATION. The textured source's muzzle is at -X, exactly as the
+segmentation file's (the trap recorded below: a bell flares wider than a
+warhead, so "widest end leads" is backwards). `_assert_muzzle` reads the
+radius profile on the welded mesh -- the front quarter must bulge and taper
+(the PG-7 warhead), the last slice must be the widest of the rear quarter
+(the bell) -- so it fails in both directions. Then a 180 degree Z turn puts
+the muzzle at +X. The optic is NOT moved here: it sits on the weapon's own
+left (+Y once the muzzle is +X), and which side of the tube faces the gunner
+is the importer's call, not the part's.
+
+ORIGIN. On the bore axis (y = z = 0 through the centreline of the tube,
+measured from the plain tube between the heat shield and the bell, which the
+optic and grips cannot drag), x = 0 at the model's own X midpoint.
+
+---------------------------------------------------------------------------
+September (2026-09-03), kept for the measurements, which still hold:
+
+THE TWO FILES ARE THE SAME MODEL AT TWO UNIFORM SCALES:
 
     textured        1.90314 x 0.19601 x 0.42922
     segmentation    0.53208 x 0.05480 x 0.12000
     ratio             3.5768    3.5769    3.5768
 
-Agreeing to four significant figures on all three axes, so the difference is
-a uniform scale and nothing else. Vertex counts differ by 8,101 in 985k
-(0.83%) -- the segmentation file has slightly MORE, which is what cutting a
-welded mesh into eight parts does to the seam vertices, not geometry gained.
-Choosing segmentation costs no shape.
+and the textured file is centred on its own vertical midpoint (z -0.2144 to
++0.2148) where the segmentation file rests on z = 0.
 
-There is also a frame TRANSLATION, worth stating because the ratio above hides
-it: the textured file is centred on its own vertical midpoint (z from -0.2144
-to +0.2148) while the segmentation file rests on z=0 (z from 0.0 to 0.1200).
-Nothing here depends on it -- this script reads only the segmentation file --
-but a future pass that wants the bake will need both numbers.
-
-ROLES. From infantry's closed ten (`packages/render/src/three/units/
-mesh-role.ts`), which already anticipated this asset: `wood` exists for a
-heat shield and a spade handle, `weapon` for gunmetal, `metal` for fittings.
-Which SEGMENTED PART carries which role is decided from measured geometry,
-not from the part numbering -- the Grad's own prior inspection pass got two
-parts wrong by trusting the numbering, and this source's numbering is
-likewise not in weapon order (the sequence down the bore is 0, 1, 2, 6, 3,
-5, 7, 4).
-
-THE FIRST IDENTIFICATION OF THIS SOURCE WAS WRONG IN TWO PAIRS, and the
-correction is recorded here because the reasoning that produced it is the
-trap, not the parts. Extents alone said "the widest part on a loaded RPG is
-the warhead", which put the muzzle at +X. It is false: an RPG-7's blast bell
-flares WIDER than its warhead. What settles it is the radius profile along
-each part's own axis, measured in 14 bins about the bore centreline:
-
-    model_part0   0.0058 -> 0.0173 (mid) -> 0.0111       a teardrop with a
-                                                         POINT at -X and a
-                                                         thin stem at +X
-    model_part4   0.0111 -> 0.0190 -> 0.0221 -> 0.0283   a MONOTONE flare,
-                                                         maximum at the very
-                                                         +X end
-
-A warhead bulges and tapers to a point; a bell only opens. So `model_part0`
-is the PG-7 warhead (with its stem running back into the heat shield) and
-`model_part4` is the blast bell -- the reverse of the first reading -- and
-therefore THE SOURCE'S MUZZLE IS AT -X. The two grips follow from that same
-correction: the grip nearer the muzzle is the forward grip, and the one
-carrying the trigger guard is the pistol grip behind it, which a rendered
-side view confirms directly.
-
-Both mis-identified parts are role `weapon`, so no colour was ever wrong --
-only the direction the weapon points, which is exactly the sort of fault
-that reads as merely odd on screen instead of obviously broken.
-
-Measured in the segmentation frame, sorted MUZZLE to BELL (-X to +X):
-
-  model_part0  168,893v  x[-0.2662,-0.1196] profile 0.006/0.017/0.011
-      the PG-7 warhead and its stem: a teardrop pointed at -X, bulging
-      mid-span, narrowing to a stem that runs back into the shield. -> weapon
-  model_part1   15,586v  x[-0.1121,-0.0941] z[0.073,0.100]
-      18 mm long and sitting ABOVE the bore line (bore centre z ~0.063), the
-      only part up there this far forward: the front sight.           -> metal
-  model_part2   44,900v  x[-0.0667,-0.0320] z[0.003,0.053]
-      the more forward of the two parts hanging BELOW the bore, and the one
-      without a trigger guard: the forward grip.                       -> wood
-  model_part6  159,107v  x[-0.1201,+0.0322] z[0.049,0.077] y-span 0.0271
-      spans the middle third, concentric with the bore and wider than the
-      bare tube: the laminated heat shield.                            -> wood
-  model_part3  118,103v  x[-0.0253,+0.0257] z[0.066,0.120] y[-0.0224,+0.0134]
-      reaches the model's own maximum height AND is the only part offset in
-      y -- the PGO-7 optical sight, which mounts on the left.          -> metal
-  model_part5   50,527v  x[-0.0091,+0.0337] z[0.000,0.050]
-      the rearward of the two parts below the bore, carrying the trigger
-      guard: the pistol grip.                                          -> wood
-  model_part7  237,017v  x[+0.0300,+0.2075] z[0.046,0.081]
-      the long tube section behind the grip, running back to the bell.
-                                                                     -> weapon
-  model_part4  191,294v  x[+0.2070,+0.2659] profile monotone to 0.0283
-      the flared blast bell at the +X extreme.                       -> weapon
-
-ORIENTATION. The source's muzzle is at -X (see the profile measurement
-above), and this repository's convention -- stated in the prompt this asset
-was generated from, and the direction `export_meshy_rocket_battery.py`
-normalises its own nose to -- is +X. So a 180-degree Z rotation IS baked
-here, after the scale bake and like every other Meshy exporter in this tree.
-`_assert_muzzle` checks the profile shapes rather than the extents, so it can
-fail in BOTH directions; the extent check it replaces could only ever have
-confirmed itself.
-
-ORIGIN. Not ground-aligned. A vehicle stands on the ground and a decor rock
-sits on it, but a launcher hangs off a shoulder, so z=0 is meaningless for it
-and would only encode which way it happened to be lying. Instead the origin
-is put on the BORE AXIS (y=0, z=0 through the centreline of the tube,
-measured from the heat shield and rear tube rather than from the whole
-bounding box, which the optical sight and the grips would drag off-axis)
-with x=0 at the model's own X midpoint. A bone parent in the `rpg_team` step
-is then one measured translation, and a pitch rotation is a rotation about
-the bore, which is the axis it physically pivots on.
-
-SCALE. Targets an OVERALL length of 1.40 m, warhead tip to bell mouth, and
-the reason it is overall rather than the launcher tube alone is that the two
-things this has to agree with are both overall figures. `tools/units/
-teams.py` builds this weapon as `kit.launcher("rpg_tube", ..., length=1.24,
-radius=0.075)` plus a separate `_bell` of 0.18, an envelope of about 1.42 m
--- and that kit tube is deliberately chunky rather than scale (a 0.075 radius
-is a 15 cm tube; a real RPG-7's is nearer 7 cm), because it is sized to read
-at 25 px, not to measure. A real loaded RPG-7 is about 1.34 m. 1.40 m sits
-inside both, and matching the kit's on-screen envelope is the point --
-`export_meshy_rocket_battery.py` gives the same reasoning for reading
-`realMetres` off a sprite manifest: "the game already draws this unit at that
-size, and a mesh replacing a billboard must not change how big the unit is."
-An RPG has no sprite sheet of its own (it is drawn inside `INF_RPG`'s), so
-the kit's own envelope is the thing to match.
-
-DECIMATION. 985,427 source verts, ~16x the heaviest thing this pipeline ships
-(`apc_eitan` at 61,887) for an object shorter than a rifleman is tall.
-Per-part COLLAPSE ratios below, not one global ratio: the warhead's teardrop
-and the bell's flare are what make this read as an RPG at gameplay zoom and
-get the budget, while a plain tube section is a cylinder that survives heavy
-collapse and the two grips are barely visible at all.
-
-SPLIT NORMALS. Stripped, with the vertex-colour layer, before anything else --
-`export_meshy_jeep.py`'s treatment for the other part-segmentation source in
-this tree, for the same measured reason recorded there.
+THE FIRST IDENTIFICATION OF THE SEGMENTATION PARTS WAS WRONG IN TWO PAIRS:
+extents alone said "the widest part on a loaded RPG is the warhead", which put
+the muzzle at +X. It is false: an RPG-7's blast bell flares WIDER than its
+warhead. The radius profile settled it (warhead: 0.006 -> 0.017 -> 0.011, a
+teardrop; bell: monotone to 0.028 at the far end), so the source's muzzle is
+at -X, and the forward grip is the one nearer the muzzle, the pistol grip
+(with the trigger guard) the one behind it.
 """
 import os
 import sys
 
+import bmesh
 import bpy
+import numpy as np
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SRC = os.path.join(
     REPO, "art", "blend", "enemy", "wepons",
-    "Meshy_AI_RPG_7_launcher_parts_0903143621_part-segmentation.blend",
+    "Meshy_AI_RPG_7_launcher_0903143528_image-to-3d-texture.blend",
 )
-#: There is deliberately NO default output path. `art/meshes/props/rpg7.glb`
-#: is where this belongs, but `render_mesh_gate.py`'s `mesh_kind` has no
-#: `props` kind yet and falls an unknown subdirectory through to `infantry`,
-#: which would then look for a sprite sheet that does not exist -- so writing
-#: there today turns `pnpm validate:meshes` red for EVERY session sharing this
-#: tree, not only the one that ran this script. Until that kind exists, the
-#: caller names the destination and takes responsibility for it.
+#: The main checkout carries `art/blend/` (gitignored); a worktree usually
+#: does not, so the main checkout's copy is the fallback.
+SRC_FALLBACK = os.path.join(os.path.expanduser("~"), "dev", "roaring-lions", "art", "blend", "enemy", "wepons",
+                            os.path.basename(SRC))
+DEFAULT_OUT = os.path.join(REPO, "art", "parts", "rpg7.glb")
 
 TAG = "rpg7"
-
-#: Overall length in metres, warhead tip to bell mouth -- the number this
-#: export scales itself to match. See the module docstring, "SCALE", for why
-#: overall rather than the launcher tube alone.
-TARGET_OVERALL_LENGTH = 1.40
-
-#: source object -> (rl_role, decimate ratio, label). See the module docstring
-#: for how each part was identified (measured extents, never the numbering)
-#: and why each ratio is what it is.
-PARTS = {
-    "model_part0": ("weapon", 0.0089, "PG-7 warhead + stem"),
-    "model_part7": ("weapon", 0.0063, "rear tube"),
-    "model_part4": ("weapon", 0.0105, "blast bell"),
-    "model_part6": ("wood",   0.0075, "heat shield"),
-    "model_part2": ("wood",   0.0134, "forward grip"),
-    "model_part5": ("wood",   0.0119, "pistol grip"),
-    "model_part3": ("metal",  0.0085, "optical sight"),
-    "model_part1": ("metal",  0.0257, "front sight"),
-}
-
-#: The launcher tube proper -- the heat-shield section and the rear tube.
-#: `model_part0` is deliberately NOT here: it is the grenade, not the
-#: launcher, and its stem sits inside the shield. Used for the bore axis
-#: (the sight and grips sit off it by design and would drag a whole-model
-#: centroid off the centreline).
-BORE_PARTS = ("model_part6", "model_part7")
-
-#: Order the joined role nodes are built in, so the export is byte-stable
-#: across runs regardless of dict iteration order.
-ROLE_ORDER = ("weapon", "wood", "metal")
+OVERALL_M = 1.27                 # warhead tip to bell mouth (module docstring, SCALE)
+TARGET_TRIS = 560                # bible §3: crew weapon part, remesh 400, cap 600
+TRI_RANGE = (400, 600)
+TEXTURE_PX = 1024                # the atlas slot it is composed into
+JPEG_QUALITY = 85
+SLICES = 50                      # `_assert_continuous`: 2 % of the length each
 
 
-def _bbox(objs):
-    lo = [1e9] * 3
-    hi = [-1e9] * 3
-    for ob in objs:
-        for v in ob.data.vertices:
-            w = ob.matrix_world @ v.co
-            for i in range(3):
-                lo[i] = min(lo[i], w[i])
-                hi[i] = max(hi[i], w[i])
-    return lo, hi
+def _coords(ob):
+    co = np.empty(len(ob.data.vertices) * 3, dtype=np.float64)
+    ob.data.vertices.foreach_get("co", co)
+    return co.reshape(-1, 3)
 
 
-def _strip_split_normals_and_colour(ob):
-    """Clear this source's baked custom split normals and vertex-colour layer,
-    and shade-smooth the result, BEFORE any decimate. `export_meshy_jeep.py`'s
-    treatment for the other part-segmentation source here, for the reason
-    recorded there: the glTF exporter must split a vertex wherever a per-loop
-    normal or colour differs from its neighbour's, which on flat-shaded
-    segmentation geometry is nearly every loop."""
-    while ob.data.color_attributes:
-        ob.data.color_attributes.remove(ob.data.color_attributes[0])
-    bpy.ops.object.select_all(action="DESELECT")
-    ob.select_set(True)
-    bpy.context.view_layer.objects.active = ob
-    bpy.ops.object.mode_set(mode="EDIT")
-    bpy.ops.mesh.select_all(action="SELECT")
-    bpy.ops.mesh.customdata_custom_splitnormals_clear()
-    bpy.ops.object.mode_set(mode="OBJECT")
-    ob.data.shade_smooth()
+def _bore_yz(co):
+    """y, z of the bore axis: the centre of the plain tube between the heat
+    shield and the bell (62-80 % of the length from the -X end), where
+    nothing but the round tube is."""
+    x = co[:, 0]
+    lo, hi = x.min(), x.max()
+    band = co[(x > lo + 0.62 * (hi - lo)) & (x < lo + 0.80 * (hi - lo))]
+    return (band[:, 1].min() + band[:, 1].max()) / 2.0, (band[:, 2].min() + band[:, 2].max()) / 2.0
 
 
-def _decimate(ob, ratio, label):
-    before_v, before_p = len(ob.data.vertices), len(ob.data.polygons)
-    if ratio >= 1.0:
-        print(f"[{TAG}] {label}: kept at {before_v} verts (no decimate)")
-        return
-    mod = ob.modifiers.new("dec", type="DECIMATE")
-    mod.decimate_type = "COLLAPSE"
-    mod.ratio = ratio
-    bpy.context.view_layer.objects.active = ob
-    bpy.ops.object.modifier_apply(modifier=mod.name)
-    print(f"[{TAG}] {label:24} ratio={ratio:<7} {before_v:7} -> {len(ob.data.vertices):5} verts, "
-          f"{before_p:7} -> {len(ob.data.polygons):5} polys")
-
-
-def _join(objs, name):
-    """Join `objs` into one object called `name`. Custom properties are set
-    AFTER the join, never before -- `object.join` keeps the active object's
-    own properties and silently drops the others'."""
-    bpy.ops.object.select_all(action="DESELECT")
-    for ob in objs:
-        ob.select_set(True)
-    bpy.context.view_layer.objects.active = objs[0]
-    if len(objs) > 1:
-        bpy.ops.object.join()
-    merged = bpy.context.view_layer.objects.active
-    merged.name = name
-    return merged
-
-
-def _radius_profile(ob, bore_z, bins=14):
-    """Max radius from the bore centreline in each of `bins` slices along the
-    part's own X extent. The one measurement that tells a warhead from a blast
-    bell -- see the module docstring for why extents cannot."""
-    vs = [ob.matrix_world @ v.co for v in ob.data.vertices]
-    xs = [v.x for v in vs]
-    lo, hi = min(xs), max(xs)
-    step = (hi - lo) / bins
+def _profile(co, by, bz, x0, x1, bins):
+    """Max radius about the bore axis in each of `bins` slices of [x0, x1]."""
     out = []
     for b in range(bins):
-        a, z = lo + b * step, lo + (b + 1) * step
-        sl = [v for v in vs if a <= v.x <= z]
-        out.append(max(((v.y ** 2 + (v.z - bore_z) ** 2) ** 0.5) for v in sl) if sl else 0.0)
+        a, c = x0 + (x1 - x0) * b / bins, x0 + (x1 - x0) * (b + 1) / bins
+        s = co[(co[:, 0] >= a) & (co[:, 0] <= c)]
+        out.append(float(np.sqrt((s[:, 1] - by) ** 2 + (s[:, 2] - bz) ** 2).max()) if len(s) else 0.0)
     return out
 
 
-def _assert_muzzle(by_name):
-    """The warhead must bulge and taper; the bell must only open. Both are
-    checked, so this fails if the two are swapped, if a re-generated source
-    arrives mirrored, or if either part stops being what it is -- unlike the
-    extent test this replaces, which asked whether the widest part leads and
-    was therefore true whichever way round the weapon pointed."""
-    lo_b, hi_b = _bbox([by_name[n] for n in BORE_PARTS])
-    bore_z = (lo_b[2] + hi_b[2]) / 2
-    head = _radius_profile(by_name["model_part0"], bore_z)
-    bell = _radius_profile(by_name["model_part4"], bore_z)
-
+def _assert_muzzle(co):
+    """Muzzle at -X in the source: the front quarter bulges mid-span and tapers
+    at its tip (the warhead), and the rearmost slice is the widest of the rear
+    quarter (the bell). Fails if the model arrives mirrored, or if either end
+    stops being what it is."""
+    by, bz = _bore_yz(co)
+    lo, hi = co[:, 0].min(), co[:, 0].max()
+    q = (hi - lo) / 4.0
+    head = _profile(co, by, bz, lo, lo + q, 10)
+    bell = _profile(co, by, bz, hi - q, hi, 10)
     peak = head.index(max(head))
-    if not (0 < peak < len(head) - 1 and head[0] < max(head) and head[-1] < max(head)):
-        raise SystemExit(
-            f"[{TAG}] FAIL: model_part0 does not read as a warhead -- profile {['%.4f' % r for r in head]} "
-            "peaks at an end rather than bulging mid-span. Re-measure before re-mapping."
-        )
-    if not (bell[-1] == max(bell) and bell[-1] > bell[0] * 1.5):
-        raise SystemExit(
-            f"[{TAG}] FAIL: model_part4 does not read as a blast bell -- profile {['%.4f' % r for r in bell]} "
-            "does not open to its maximum at the far end. Re-measure before re-mapping."
-        )
-    print(f"[{TAG}] muzzle check: warhead bulges {head[0]:.4f}->{max(head):.4f}->{head[-1]:.4f} (peak at bin {peak}); "
-          f"bell opens {bell[0]:.4f}->{bell[-1]:.4f}. Source muzzle at -X.")
+    if not (0 < peak < len(head) - 1 and head[0] < 0.6 * max(head)):
+        raise SystemExit(f"[{TAG}] FAIL: the -X quarter does not read as a warhead -- profile "
+                         f"{['%.3f' % r for r in head]}. Re-measure before re-orienting.")
+    if not (bell[-1] == max(bell) and bell[-1] > 1.4 * min(bell)):
+        raise SystemExit(f"[{TAG}] FAIL: the +X quarter does not open to a bell -- profile "
+                         f"{['%.3f' % r for r in bell]}. Re-measure before re-orienting.")
+    print(f"[{TAG}] muzzle check: warhead {head[0]:.3f}->{max(head):.3f}->{head[-1]:.3f} (peak bin {peak}); "
+          f"bell {min(bell):.3f}->{bell[-1]:.3f}. Source muzzle at -X.")
+
+
+def _assert_continuous(ob):
+    """Every 1/SLICES of the length is crossed by at least one triangle -- a
+    stem that the decimate collapsed away leaves an empty slice."""
+    co = _coords(ob)
+    lo, hi = co[:, 0].min(), co[:, 0].max()
+    spans = np.array([(co[list(p.vertices), 0].min(), co[list(p.vertices), 0].max()) for p in ob.data.polygons])
+    empty = []
+    for b in range(SLICES):
+        a, c = lo + (hi - lo) * b / SLICES, lo + (hi - lo) * (b + 1) / SLICES
+        if not ((spans[:, 0] <= c) & (spans[:, 1] >= a)).any():
+            empty.append(b)
+    if empty:
+        raise SystemExit(f"[{TAG}] FAIL: {len(empty)} of {SLICES} length slices hold no triangle "
+                         f"(slices {empty}) -- the decimate cut the weapon in two. Decimate the tube "
+                         f"and the warhead separately (the brief's fallback) before shipping this.")
+    print(f"[{TAG}] continuity: all {SLICES} length slices crossed")
+
+
+def _decimate(ob, target):
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
+    bm.to_mesh(ob.data)
+    bm.free()
+    bpy.context.view_layer.objects.active = ob
+    before = len(ob.data.polygons)
+    for ratio in (0.05, None):
+        mod = ob.modifiers.new("dec", type="DECIMATE")
+        mod.decimate_type = "COLLAPSE"
+        mod.use_collapse_triangulate = True
+        mod.ratio = ratio if ratio is not None else target / len(ob.data.polygons)
+        bpy.ops.object.modifier_apply(modifier=mod.name)
+    print(f"[{TAG}] decimate {before} -> {len(ob.data.polygons)} tris")
+
+
+def _keep_base_color(ob):
+    mats = [m for m in ob.data.materials if m is not None]
+    if len(mats) != 1:
+        raise SystemExit(f"[{TAG}] FAIL: expected one material, found {[m.name for m in mats]}")
+    tree = mats[0].node_tree
+    bsdf = next(n for n in tree.nodes if n.type == "BSDF_PRINCIPLED")
+    link = next((l for l in tree.links if l.to_node == bsdf and l.to_socket.name == "Base Color"), None)
+    if link is None or link.from_node.type != "TEX_IMAGE" or link.from_node.image is None:
+        raise SystemExit(f"[{TAG}] FAIL: Base Color is not an image")
+    base = link.from_node.image
+    for node in list(tree.nodes):
+        if node.type in ("NORMAL_MAP", "SEPARATE_COLOR", "SEPARATE_RGB") or (
+                node.type == "TEX_IMAGE" and node.image is not base):
+            tree.nodes.remove(node)
+    for img in list(bpy.data.images):
+        if img is not base:
+            bpy.data.images.remove(img)
+    before = tuple(base.size)
+    base.scale(TEXTURE_PX, TEXTURE_PX)
+    base.name = "part_color"
+    mats[0].name = "rpg7"
+    print(f"[{TAG}] base colour {before} -> {tuple(base.size)}; normal and metallic-roughness dropped")
 
 
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-    if not argv:
-        raise SystemExit(
-            "usage: blender -b --factory-startup --python tools/units/export_meshy_rpg.py -- OUT.glb\n"
-            "No default destination on purpose -- see DEFAULT_OUT's note above."
-        )
-    out_path = os.path.abspath(argv[0])
+    out_path = os.path.abspath(argv[0]) if argv else DEFAULT_OUT
+    target = int(os.environ.get("RPG7_TARGET_TRIS", TARGET_TRIS))   # falsification hook only
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    src = SRC if os.path.exists(SRC) else SRC_FALLBACK
+    if not os.path.exists(src):
+        raise SystemExit(f"[{TAG}] FAIL: source not found at {SRC} or {SRC_FALLBACK}")
+    bpy.ops.wm.open_mainfile(filepath=src)
+    meshes = [o for o in bpy.data.objects if o.type == "MESH"]
+    if [o.name for o in meshes] != ["mesh_node"]:
+        raise SystemExit(f"[{TAG}] FAIL: expected the one welded `mesh_node`, found {[o.name for o in meshes]}")
+    ob = meshes[0]
+    co = _coords(ob)
+    ext = co.max(axis=0) - co.min(axis=0)
+    print(f"[{TAG}] source {os.path.basename(src)}: {len(ob.data.vertices)} verts, {len(ob.data.polygons)} tris, "
+          f"extent {tuple(round(float(e), 5) for e in ext)}")
+    _assert_muzzle(co)
+    _keep_base_color(ob)
+    _decimate(ob, target)
+    _assert_continuous(ob)
+    tris = len(ob.data.polygons)
+    if not TRI_RANGE[0] <= tris <= TRI_RANGE[1]:
+        raise SystemExit(f"[{TAG}] FAIL: {tris} tris outside {TRI_RANGE}")
 
-    bpy.ops.wm.open_mainfile(filepath=SRC)
+    # Scale, muzzle to +X, origin on the bore axis at the X midpoint.
+    co = _coords(ob)
+    scale = OVERALL_M / float(co[:, 0].max() - co[:, 0].min())
+    by, bz = _bore_yz(co)
+    xm = (co[:, 0].max() + co[:, 0].min()) / 2.0
+    co = (co - np.array((xm, by, bz))) * scale
+    co[:, 0] *= -1.0      # the 180 degree Z turn: x -> -x, y -> -y
+    co[:, 1] *= -1.0
+    ob.data.vertices.foreach_set("co", co.ravel())
+    ob.data.update()
+    ob.name = ob.data.name = "rpg7"
+    lo, hi = co.min(axis=0), co.max(axis=0)
+    print(f"[{TAG}] scale {scale:.5f} m/unit; bbox x[{lo[0]:+.3f},{hi[0]:+.3f}] y[{lo[1]:+.3f},{hi[1]:+.3f}] "
+          f"z[{lo[2]:+.3f},{hi[2]:+.3f}] m; {tris} tris; muzzle +X")
 
-    found = {ob.name for ob in bpy.data.objects if ob.type == "MESH"}
-    expected = set(PARTS)
-    if found != expected:
-        raise SystemExit(
-            f"[{TAG}] FAIL: source parts changed. expected {sorted(expected)}, found {sorted(found)}. "
-            "Every role assignment in PARTS was measured against the parts listed in the module "
-            "docstring; re-measure before re-mapping."
-        )
-
-    by_name = {ob.name: ob for ob in bpy.data.objects if ob.type == "MESH"}
-    _assert_muzzle(by_name)
-
-    total_before = sum(len(ob.data.vertices) for ob in by_name.values())
-    for name, (_role, ratio, label) in PARTS.items():
-        ob = by_name[name]
-        _strip_split_normals_and_colour(ob)
-        _decimate(ob, ratio, label)
-
-    # Scale on the OVERALL span -- warhead tip to bell mouth (module
-    # docstring, "SCALE").
-    lo_all, hi_all = _bbox(list(by_name.values()))
-    overall = hi_all[0] - lo_all[0]
-    mpu = TARGET_OVERALL_LENGTH / overall
-    print(f"[{TAG}] overall span {overall:.5f} model units -> {TARGET_OVERALL_LENGTH} m  "
-          f"(scale {mpu:.5f} m/unit)")
-
-    by_role = {}
-    for role in ROLE_ORDER:
-        members = [by_name[n] for n, (r, _, _) in PARTS.items() if r == role]
-        if not members:
-            continue
-        merged = _join(members, f"rpg_{role}")
-        merged["rl_role"] = role
-        merged["rl_part"] = "rpg"
-        by_role[role] = merged
-        print(f"[{TAG}] rpg_{role}: joined {len(members)} part(s) -> "
-              f"{len(merged.data.vertices)} verts, {len(merged.data.polygons)} polys")
-
-    parts = [by_role[r] for r in ROLE_ORDER if r in by_role]
-
-    # Bake model-units -> metres into vertex data; object scale stays 1.
-    bpy.ops.object.select_all(action="DESELECT")
-    for ob in parts:
-        ob.scale = (mpu, mpu, mpu)
-        ob.select_set(True)
-    bpy.context.view_layer.objects.active = parts[0]
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-
-    # Reorient: this source's muzzle is at -X and the convention is +X
-    # (module docstring, "ORIENTATION"), so bake a 180-degree Z rotation.
-    # After the scale bake, before the origin shift -- the same bake point
-    # every other Meshy exporter here uses.
-    bpy.ops.object.select_all(action="DESELECT")
-    for ob in parts:
-        ob.select_set(True)
-        ob.rotation_mode = "XYZ"
-        ob.rotation_euler = (0.0, 0.0, 3.141592653589793)
-    bpy.context.view_layer.objects.active = parts[0]
-    bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
-
-    # Origin: x at the model's own midpoint, y/z on the bore axis. Measured
-    # AFTER the rotation, from the two tube parts only, which are now inside
-    # the joined `rpg_weapon`/`rpg_wood` nodes -- so the bore is recovered
-    # from the weapon node's own y/z centre, the tube being the only thing in
-    # it that is round about the bore.
-    lo_all, hi_all = _bbox(parts)
-    lo_w, hi_w = _bbox([by_role["weapon"]])
-    offset = (
-        -((lo_all[0] + hi_all[0]) / 2),
-        -((lo_w[1] + hi_w[1]) / 2),
-        -((lo_w[2] + hi_w[2]) / 2),
-    )
-    bpy.ops.object.select_all(action="DESELECT")
-    for ob in parts:
-        ob.location = offset
-        ob.select_set(True)
-    bpy.context.view_layer.objects.active = parts[0]
-    bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)
-
-    lo, hi = _bbox(parts)
-    total_after = sum(len(ob.data.vertices) for ob in parts)
-    print(f"[{TAG}] final bbox  x[{lo[0]:+.4f},{hi[0]:+.4f}] y[{lo[1]:+.4f},{hi[1]:+.4f}] "
-          f"z[{lo[2]:+.4f},{hi[2]:+.4f}] m")
-    print(f"[{TAG}] overall length {hi[0]-lo[0]:.4f} m, muzzle at +X")
-    print(f"[{TAG}] verts {total_before} -> {total_after}")
-
+    for o in list(bpy.data.objects):
+        if o is not ob:
+            bpy.data.objects.remove(o, do_unlink=True)
     bpy.ops.export_scene.gltf(
         filepath=out_path,
         export_format="GLB",
@@ -430,15 +276,17 @@ def main():
         export_skins=False,
         export_animations=False,
         export_extras=True,
-        export_materials="NONE",
+        export_texcoords=True,
+        export_normals=True,
+        export_materials="EXPORT",
+        export_image_format="JPEG",
+        export_jpeg_quality=JPEG_QUALITY,
         export_copyright=(
-            "RPG-7 launcher -- AI-generated (Meshy), part-segmentation export, disclosed "
-            "per CONTRIBUTING.md; eight segmented parts joined into rpg_weapon/rpg_wood/"
-            "rpg_metal for this repository. A prop carried by the Ashwar rpg_team, not a "
-            "unit in its own right."
+            "RPG-7 launcher -- AI-generated (Meshy image-to-3D, textured bake), disclosed per "
+            "CONTRIBUTING.md; decimated and re-framed for this repository as a crew-weapon part."
         ),
     )
-    print(f"[{TAG}] wrote {out_path} ({os.path.getsize(out_path)/1024:.1f} KiB)")
+    print(f"[{TAG}] wrote {out_path} ({os.path.getsize(out_path) / 1024:.1f} KiB)")
 
 
 main()
