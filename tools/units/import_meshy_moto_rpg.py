@@ -148,6 +148,22 @@ OUT_PATH = os.path.join(REPO, "art", "meshes", "moto_rpg.glb")   # literal: mesh
 BIKE_NAME = "moto_rpg"            # the ledger `name` of the bike's text -> refine -> remesh chain
 BIKE_TEXTURE_PX = 2048            # the bike's own bake, at `tools/vehicles/textured.py`'s TEXTURE_PX
 BIKE_IMAGE = "bike_color"         # NOT `base_color`: that is the riders' figure bake (crew._keep_base_color)
+#: The lead's ruling (5 Oct, PR #396): the bike's safety-orange paint
+#: (and its yellow-orange trim) reads as a marker colour at 25 px; it ships
+#: a muted dusty tan instead. Every bike texel at hue BIKE_TAN_HUE_IN with
+#: saturation > BIKE_TAN_SAT and value > BIKE_TAN_VAL is moved to hue
+#: BIKE_TAN_HUE, saturation x BIKE_TAN_SAT_GAIN (capped BIKE_TAN_SAT_CAP),
+#: value x BIKE_TAN_VAL_GAIN -- the variant photographed in
+#: docs/art/sheets/a31-parts/moto_rpg-muted.png (24 % of the 2048 image).
+#: Black, gunmetal and chrome are untouched. `_retexel_bike_tan` refuses to
+#: run if it finds no orange, as `crew._retexel_orange` does.
+BIKE_TAN_HUE_IN = (12.0, 58.0)    # degrees
+BIKE_TAN_SAT = 0.30
+BIKE_TAN_VAL = 0.15
+BIKE_TAN_HUE = 38.0
+BIKE_TAN_SAT_GAIN = 0.40
+BIKE_TAN_SAT_CAP = 0.32
+BIKE_TAN_VAL_GAIN = 0.74
 
 BIKE_LENGTH = 2.2                 # teams._motorcycle: "The machine: 2.2 m long"
 WHEEL_WIDTH = 0.10
@@ -364,6 +380,40 @@ def _bike_source():
 #: The bike's own material, set by `_load_bike`. A SECOND material in the file,
 #: beside the riders' figure atlas -- see "THE BIKE'S BAKE" in the module doc.
 _BIKE = {"material": None}
+
+
+def _retexel_bike_tan(img):
+    """Repaint the bike bake's orange texels dusty tan, in place, by the
+    BIKE_TAN_* rule (HSV, numpy, deterministic). Refuses if none match."""
+    w, h, ch = img.size[0], img.size[1], img.channels
+    px = np.empty(w * h * ch, dtype=np.float32)
+    img.pixels.foreach_get(px)
+    px = px.reshape(-1, ch)
+    rgb = px[:, :3]
+    mx, mn = rgb.max(axis=1), rgb.min(axis=1)
+    c = mx - mn
+    d = np.where(c > 1e-6, c, 1.0)
+    r, g, b = rgb[:, 0], rgb[:, 1], rgb[:, 2]
+    hue = np.where(mx == r, ((g - b) / d) % 6.0, np.where(mx == g, (b - r) / d + 2.0, (r - g) / d + 4.0)) * 60.0
+    hue = np.where(c > 1e-6, hue, 0.0)
+    sat = np.where(mx > 1e-6, c / np.where(mx > 1e-6, mx, 1.0), 0.0)
+    m = (hue >= BIKE_TAN_HUE_IN[0]) & (hue <= BIKE_TAN_HUE_IN[1]) & (sat > BIKE_TAN_SAT) & (mx > BIKE_TAN_VAL)
+    n = int(m.sum())
+    if not n:
+        raise SystemExit(f"{TEAM}: no orange texels on {img.name} to repaint tan -- the bike's bake changed; look at it")
+    v2 = mx[m] * BIKE_TAN_VAL_GAIN
+    s2 = np.minimum(sat[m] * BIKE_TAN_SAT_GAIN, BIKE_TAN_SAT_CAP)
+    hh = BIKE_TAN_HUE / 60.0
+    f = hh - math.floor(hh)
+    i = int(math.floor(hh)) % 6
+    p_, q_, t_ = v2 * (1.0 - s2), v2 * (1.0 - s2 * f), v2 * (1.0 - s2 * (1.0 - f))
+    rgb_out = [(v2, t_, p_), (q_, v2, p_), (p_, v2, t_), (p_, q_, v2), (t_, p_, v2), (v2, p_, q_)][i]
+    rgb[m] = np.stack(rgb_out, axis=1)
+    px[:, :3] = rgb
+    img.pixels.foreach_set(px.ravel())
+    img.update()
+    log(f"{img.name}: {n} orange texel(s) of {w * h} ({100.0 * n / (w * h):.1f} %) repainted dusty tan "
+        f"(hue {BIKE_TAN_HUE:.0f}, sat x{BIKE_TAN_SAT_GAIN} cap {BIKE_TAN_SAT_CAP}, value x{BIKE_TAN_VAL_GAIN})")
 
 
 def _load_bike():
@@ -749,6 +799,7 @@ def build():
     bike_before = tuple(bike_img.size)
     if bike_img.size[0] > BIKE_TEXTURE_PX or bike_img.size[1] > BIKE_TEXTURE_PX:
         bike_img.scale(min(bike_img.size[0], BIKE_TEXTURE_PX), min(bike_img.size[1], BIKE_TEXTURE_PX))
+    _retexel_bike_tan(bike_img)
     log(f"base_color {before} -> {tuple(img.size)}; {BIKE_IMAGE} {bike_before} -> {tuple(bike_img.size)}; "
         f"images {[i.name for i in bpy.data.images]}")
     for role, ob in merged.items():
