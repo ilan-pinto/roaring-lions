@@ -2,10 +2,33 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task by task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+## Changed since 4 Oct
+
+Refreshed against `main` `b44df7aa` (v0.121.4, 6 Oct). What F4 replaces is unchanged: the flat `buildQueue` (`mission.ts:517`), `productionAnchor` (:593), `buildBlockedReason` and its "field camp destroyed — no production" (:601–618), `requestBuild` (:671), the deploy loop (:1070–1083), `CONTEST_RADIUS_SQ` (:416) and `contestedIn` (:1562).
+
+- **#402 infantry halt and kneel to fire** (`7962b6ea`, a lead-approved one-off sim change; `packages/sim` otherwise stays closed until Stage 4). 15 foot types fire only while kneeling; a stopped unit kneels; a plain `move` runs through holding fire; an arrived attack-mover is walked on by `stepSweep`; a foot patroller halts on contact (`stepPatrols`, `mission.ts:1523`). Kneel 0.2 s (`KNEEL_DROP_TICKS` = `KNEEL_RISE_TICKS` = 4), final. Sim pins 2109596329 / 1425295494 (4 Oct) → **922714084 / 3200430224**.
+- **GH-382** re-grounded 19 maps. `deir_amun_2_foothold`'s camp moved (26,34) → (21,35); `deirAmun2Plan`'s gate `M(15, 27)` → `M(15, 31)`; `wadi_halam_2_laager`'s anchor (18,21) → (21,25). Task 1's serial predictions were never measured; measure them on this ground. `bs_ladder.ts:97` (report-only, not CI) also buys one `inf_squad` at 120 s in Beit Sahwan II.
+- **Camp census, corrected:** no map has ever carried a `c` tile (not at `751b6742`, `067fab9a` or `b44df7aa`). Six missions stand **one** camp each, all through `structures`: `beit_sahwan_2_foothold` (2,20), `deir_amun_2_foothold` (21,35), `khan_rafid_2_foothold` (20,38), `qarn_hadid_2_foothold` (25,34), `umm_zeitoun_2_buildup` (20,43), `wadi_halam_3_counterraid` (3,20). No mission has two.
+- **GH-330:** `CAMPAIGN_CREDITS` (`packages/app/src/ui/stores-model.ts:63`) must equal `LADDER_CREDITS` (`tools/src/campaign_credits.test.ts`). Both read **5830** (the ladder was 5736 on 4 Oct). A ladder re-pin moves both in one commit.
+- **#374 Pixi retired:** the rally marker is drawn by three only. The dock shows a "deploying" chip for a bought type whose GLB has not landed (`meshPending`, `ui/production.ts`).
+
+**Interactions (R, read from source; none measured):**
+- **D5 rally `move` under #402.** A rallied foot unit runs to the point holding fire the whole way, even under fire (`sim.ts:3829`). It kneels on arrival and stays there (`stepSweep` skips `attackMove` 0, `sim.ts:5177`). An attack-move would fight its way there, but on arrival `stepSweep` would walk it on: toward a current target in cover, or else to the nearest enemy position its side has recorded, which since #402 includes an identified enemy out of reach. So it would not hold the rally point. The player's right-click is always an attack-move (`input/intents.ts:270/292/305`), and there is no plain-move button. Task 9's bought enemy units walking to `rally` behave the same way. A trigger `commit` re-orders them as an attack-move (`mission.ts:1688`).
+- **At the exit.** `spawn` resets the unit to `BRACE_NONE` (`sim.ts:1757`). `runtime.step` runs after `sim.tick`, so a rally `move` queued on the deploy tick is applied before the next tick's `stepBrace`: the unit never drops, and starts 0 ticks late. With no rally the unit kneels at the exit (4 ticks), and a rally set later costs it a 4-tick rise. Successive units still deploy onto the one exit tile (`structureExit`, `sim.ts:4530`), as today.
+- **D1 contested.** The rule is unchanged by #402. A foot patroller that makes contact now stays where it met the player and can hold a camp contested. No shipped camp mission has a foot patroller near its camp (they are `moto_rpg` and `technical`, vehicles, which #402 leaves alone). The building plans' camps sit near what the enemy is sent to:
+  - Beit Sahwan II: all three waves go to `kdf_assembly`, 5.0 tiles from the exit (1.5,19.5). Unchanged since 4 Oct.
+  - Deir Amun II: the 110 s wave and the `pump_yard` commit go to `pump_gate`, 5.4 tiles from the exit (20.5,34.5); it was 11.2 tiles before GH-382. The 340 s wave goes to `ford_centre`, 5.1 tiles away.
+  - Khan Rafid II: its technical patrols y = 34, about 3.5 tiles from the exit (19.5,37.5).
+
+### For the lead
+1. **D5 vs #402.** Should the rally order stay a plain `move`? It holds the point, but the unit does not shoot back on the way, and it is an order the player cannot otherwise give. Or should it be an attack-move, which fights on the way but is walked off the point by the closing rule? Or a third rule, such as an attack-move that halts on arrival (new sim behaviour)?
+2. **Task 9 / D7–D8.** The same question for the enemy's bought units walking to their `rally` marker. By `move` they walk past KDF troops holding fire, and #402's halt-on-contact covers patrollers only.
+3. **D1 vs GH-382.** Deir Amun II's gate fight now falls inside the camp's 6-tile radius, as Beit Sahwan II's wave target already did. Under D1 both lines would pause whenever a wave arrives. Is that the intended "no production while contested", or should contest be measured another way (a smaller radius, or the camp footprint rather than the exit)?
+
 **Goal:** Production gets a place, a pace and a destination, and the enemy buys the same way the
 player does.
 
-| | today (`main` `067fab9a`) | after F4 |
+| | today (`main` `067fab9a`; unchanged on `b44df7aa`) | after F4 |
 |---|---|---|
 | where | beside the first living camp, else `player_start` (`productionAnchor`, `buildBlockedReason`) | **one production line per camp**; a mission with no camp keeps one line at `player_start` |
 | pace | **parallel**: five orders in one tick deploy together after one build time (M, G3 sheet) | **serial**: each line builds one unit at a time, at the `build_time_s` every unit already authors. That is the cooldown, with numbers already on the cost curve |
@@ -21,6 +44,8 @@ player does.
 - **The rally order is a sim command**, `move`, queued for the spawned ids on the deploy tick. The
   runtime already spawns through the sim and the sim already takes `move`; nothing new crosses the
   boundary, and invariant 4 holds (the runtime issues commands, it does not write positions).
+  *(6 Oct: under #402 a plain `move` runs a foot unit through holding fire; see "Changed since
+  4 Oct", For the lead 1.)*
 - **The enemy's spender is a pure function** (`spendDown`) over its menu, its purse, its population
   room and its line state, so its behaviour is unit-tested before any mission authors an enemy camp.
   **No shipped campaign mission authors one in Stage 4** (D7); G-G's commander (Stage 5) is the first
@@ -33,9 +58,12 @@ player does.
 - GH-167 (G3) Q3, the lead on 4 Oct: *production at the field camp (one queue per camp, build time,
   no production while the camp is contested, AI spends its budget the same way). Addition: the
   player sets a rally point, where a unit goes when it is ready.*
-- The G3 decision sheet (PR #369), Q3: the parallel queue, the 8 camp missions (6 via `structures`,
-  `umm_zeitoun_3/4` via the map symbol `c`), the spike's AI banking (3,816 unspent against a passive
-  player; 670–1,630 unspent at 1.63× in `naive` games, M), the officers' "never charged" prices
+- The G3 decision sheet (PR #369, `docs/superpowers/specs/2026-10-04-g3-decision-sheet.md`), Q3:
+  the parallel queue, the camp missions (the sheet says 8, "6 via `structures`, `umm_zeitoun_3/4`
+  via the map symbol `c`"; no map has ever carried a `c` tile, and the tree has **six**, one camp
+  each, all via `structures`; see "Changed since 4 Oct"), the spike's AI banking (3,816 unspent
+  against a passive player; 670–1,630 unspent at 1.63× in `naive` games; M on the spike branch
+  `spike/skirmish-g0` at `2cd77e4a`, whose sim does not carry #402), the officers' "never charged" prices
   (officers stay a deploy slot), and GH-115/GH-109's limits (no construction yard, no power, no sell,
   no mirrored tech trees).
 - F2 (`2026-10-04-gf2-held-ground-income.md`): side 1's purse from held zones. F3
@@ -43,8 +71,9 @@ player does.
 - Field works plan (`2026-09-29-field-works.md`, Stage 5): a work that produces would be a second
   line; F4 does not add any.
 
-**Base:** read against `main` `067fab9a`. Branch `feat/gf4-production`, cut from `main` after F2
-lands. Nothing measured yet: (M) is quoted from the G3 sheet, (R) is reasoned.
+**Base:** read against `main` `067fab9a`, refreshed against `b44df7aa` (6 Oct). Branch
+`feat/gf4-production`, cut from `main` after F2 lands. Nothing measured yet: (M) is quoted from the
+G3 sheet (measured before GH-382 and #402), (R) is reasoned.
 
 ---
 
@@ -56,8 +85,11 @@ lands. Nothing measured yet: (M) is quoted from the G3 sheet, (R) is reasoned.
   Stage 5, inside GH-115's limit).
 - **Taken defaults (confirm or overrule):**
   - **D1. Contested** means a living, surface, ground unit of the other side within
-    `CONTEST_RADIUS_SQ` (6 tiles, the hold rule's own number) of the line's exit point. Aircraft do
-    not contest a camp (the #279 ruling (a) principle, as in F1 and F2).
+    `CONTEST_RADIUS_SQ` (6 tiles, the hold rule's own number: `mission.ts:416`, 2359296 = (6 × 256)²,
+    compared on `>> 8` deltas in `contestedIn`, `mission.ts:1562`) of the line's exit point. Aircraft do
+    not contest a camp (the #279 ruling (a) principle, as in F1 and F2). `contestedIn` has no air
+    skip today, so D1's is new code. *(6 Oct: GH-382 put Deir Amun II's gate fight inside this
+    radius; see "Changed since 4 Oct", For the lead 3.)*
   - **D2. A mission with no camp keeps one line at `player_start`**, and the contested rule applies
     to that point too: reinforcements arrive at a point the player holds (#183 F4). A mission with
     neither builds nothing, as today.
@@ -69,7 +101,10 @@ lands. Nothing measured yet: (M) is quoted from the G3 sheet, (R) is reasoned.
     last camp is gone.
   - **D5. The rally order is a `move`**, not an attack-move. A rally point on a blocked tile is
     refused (the set call returns false), never snapped. A rally point is per line and survives
-    until cleared or the camp dies. No rally point: the unit stays at the exit, as today.
+    until cleared or the camp dies. No rally point: the unit stays at the exit, as today. *(6 Oct:
+    the sim's own `move` snaps a blocked goal to the nearest open tile, `sim.ts:2063` onward, so
+    the refusal is the runtime's check. Under #402 a `move` runs a foot unit through holding fire,
+    and an attack-move would not hold the point. See For the lead 1.)*
   - **D6. Which line a build goes to**: the line the caller names; with none named, the line with the
     fewest items, ties to the lowest index. The dock names the selected camp (S-F).
   - **D7. No shipped campaign mission gives side 1 a camp in Stage 4.** Every campaign enemy stays
@@ -90,13 +125,20 @@ lands. Nothing measured yet: (M) is quoted from the G3 sheet, (R) is reasoned.
   construction). The runtime issues `move` commands through `sim.queueCommand`; it never writes a
   position. No floating point added.
 - **Sim pins unmoved** by every task (R): the golden replays build no `MissionRuntime`. A move is a
-  defect.
+  defect. On `main` they read flat **922714084** and relief **3200430224**
+  (`packages/sim/src/determinism.test.ts:427` and `:721`; 2109596329 and 1425295494 on 4 Oct, both
+  moved by #402).
 - **The economy pins move once**, in Task 6, with the reason.
 - **`pnpm balance`** byte-identical (R).
 - **`pnpm playtest`**: exit 0 at every commit. Lines that move are the missions whose plans build
   (`beit_sahwan_2_foothold`, `deir_amun_2_foothold`, `wadi_halam_2_laager`, M) and, through serial
   timing, nothing else (R): a plan that builds nothing cannot see a line. Every plan still wins;
-  every passive control still loses.
+  every passive control still loses. *(6 Oct: there is a fourth `requestBuild` site, `boughtProbe`
+  (`playtest.ts:2609`). Its two `(bought)` lines each build one unit at t=0, at `player_start`,
+  since `beit_sahwan_4_subterranean` and `umm_zeitoun_4_clearance` have no camp. Serial timing
+  cannot move a single build; D2's contested rule could (R). D1's pause, not only serial timing,
+  can move the two camp plans; see "Changed since 4 Oct". `maxTierProbes` replays the building
+  plans at max tier too.)*
 - **Every check seen red**, by a one-line mutation, quoted in the commit.
 - **Gates before every commit:** as F1, plus `pnpm validate:data` for Task 7.
 - **Git, TypeScript, lane:** as F1. The dock, the rally input and its marker are WP-S-F's (Lane A).
@@ -109,11 +151,11 @@ lands. Nothing measured yet: (M) is quoted from the G3 sheet, (R) is reasoned.
 |---|---|---|
 | `docs/campaign/economy/production-numbers.md` | **New.** G-NUM and the D-list for the lead | 1 |
 | `packages/sim/src/production.ts` (+ test) | **New.** Pure: `ProductionLine`, `advance`, `cancel`; `spendDown` | 2, 8 |
-| `packages/sim/src/mission.ts` (+ test) | Lines per anchor per side; contested; rally; enemy purse and spender; `queueView` per line | 3, 4, 5, 9 |
-| `packages/sim/src/structures.ts`, `data/schemas/mission.schema.json` | `structures[].side` (a placement-level `produces_for` override) | 7 |
-| `data/schemas/mission.schema.json`, the `validate:data` script | `enemy.production` | 7 |
+| `packages/sim/src/mission.ts` (+ test) | Lines per anchor per side; contested; rally; enemy purse and spender; the `production` getter (`mission.ts:791`) per line | 3, 4, 5, 9 |
+| `packages/sim/src/structures.ts`, `packages/sim/src/sim.ts`, `data/schemas/mission.schema.json` | `structures[].side` (a placement-level `produces_for` override; per-structure state lives in `Sim`, see Task 7) | 7 |
+| `data/schemas/mission.schema.json`, the `validate:data` script (`tools/validate_data.mjs`) | `enemy.production` | 7 |
 | `packages/sim/src/determinism.test.ts` | The economy re-pin | 6 |
-| `packages/app/src/main.ts`, `ui/production.ts`, `ui/dock-model.ts` | Call sites `typecheck` forces (`queueView` shape) | 3 |
+| `packages/app/src/main.ts`, `ui/production.ts`, `ui/dock-model.ts` | Call sites `typecheck` forces (the `production` shape, read as `DockView.production`, `ui/dock-model.ts:64`) | 3 |
 | `tools/src/backtest/playtest.ts` | Plan re-proofs | 10 |
 | `tools/src/backtest/enemy-production-probe.ts` | **New.** The witness for D7/D8 | 9 |
 | `docs/GDD.md` §3, `docs/campaign/README.md`, `CLAUDE.md`, `docs/HANDOVER.md` | Contract and ledger | 11 |
@@ -128,7 +170,13 @@ lands. Nothing measured yet: (M) is quoted from the G3 sheet, (R) is reasoned.
   (never a tracked edit), run the three building plans and report, per build: queue tick, deploy tick
   parallel vs serial, and the outcome line. This says before any code whether a plan needs re-timing
   (Task 10) and by how much.
-- [ ] **Step 2: Build times.** Tabulate `build_time_s` for every buildable KDF unit. A serial line
+  *(6 Oct: measure on GH-382's ground and with #402 in the sim, since nothing was measured on
+  4 Oct. The three plans are `playtest.ts:514` (one `inf_squad` at 120 s), `:809` (every 60 s
+  from 90 to 700, at `player_start`) and `deirAmun2Plan` `:1679` (every 40 s from 60 to 420, camp
+  (21,35)). Run D1's contest test in the same scratch copy too: both camp plans' wave targets lie
+  within 6 tiles of the camp exit ("Changed since 4 Oct"). Note the two `(bought)` probes as well.)*
+- [ ] **Step 2: Build times.** Tabulate `build_time_s` (authored as `cost.build_time_s`, read as
+  `unitInfo().buildTimeS`; every KDF unit is buildable, `main.ts:2102–2110`) for every buildable KDF unit. A serial line
   turns them into the pace of a whole mission: at 7 minutes, a 30 s unit is 14 a line at most. Flag any
   build time that makes a five-to-seven-minute mission's dock pointless or instant.
 - [ ] **Step 3: The D-list.** D1–D8 go to the lead in one comment on #183, each with its alternative.
@@ -187,7 +235,9 @@ cancelBuild(line: number, index: number): boolean;      // D3 refund, F3 reserva
 productionLines(side: 0 | 1): readonly { anchor: number; exit: [Fx, Fx]; queued: number;
   current: string | null; progress: number /* 0..1000, integer */; contested: boolean;
   rally: [Fx, Fx] | null }[];
-// queueView() keeps its shape for the dock until S-F, flattened across lines.
+// The `production` getter (mission.ts:791; the dock reads it as DockView.production,
+// ui/dock-model.ts:64) keeps its shape { unit, doneTicks, totalTicks, ticksLeft }[] for the
+// dock until S-F, flattened across lines.
 ```
 
 - [ ] **Step 1: Write the failing tests:**
@@ -200,9 +250,11 @@ productionLines(side: 0 | 1): readonly { anchor: number; exit: [Fx, Fx]; queued:
   - the F3 cap and reservation still bind across lines (one reservation pool per side);
   - `cancelBuild` refunds logistics and intel exactly.
 - [ ] **Step 2: Implement.** Lines are built at construction from the structures with
-  `producesFor === side` (map and mission alike: the `c` camps of `umm_zeitoun_3/4` included, M), in
-  structure index order. `productionAnchor` stays for `buildBlockedReason`. The flat `buildQueue`
-  goes.
+  `producesFor === side` (map and mission alike, in structure index order). No shipped map carries
+  a `c` tile; every shipped camp is a mission `structures` entry, raised by `raiseMissionStructures`
+  (`mission.ts:1210`), which runs in `start()` before any force spawns. So build the lines in or after
+  `start()`, not in the constructor. `productionAnchor` stays for `buildBlockedReason`. The flat
+  `buildQueue` goes.
 - [ ] **Step 3: Measure.** Sim pins unmoved. `playtest`: the three building plans' lines may move
   (Task 1 Step 1 predicted by how much); nothing else moves. Do not edit plans here; Task 10 owns that.
   If a building plan now **fails**, stop: Task 10 must land in the same PR before this task's commit
@@ -226,7 +278,12 @@ productionLines(side: 0 | 1): readonly { anchor: number; exit: [Fx, Fx]; queued:
   - the `player_start` line (D2) is contested by the same rule;
   - `productionLines(0)[i].contested` reads true on exactly the frozen ticks (the HUD's flag).
 - [ ] **Step 2: Implement.** One contest test per line per tick, sharing the hold rule's distance
-  arithmetic (extract it from the objective code rather than copying it).
+  arithmetic (extract it from the objective code rather than copying it). That code is
+  `contestedIn`, `mission.ts:1562–1583`. It hard-codes side 1 against side 0, is gated on the zone,
+  and carries the `tunnelIn` guard but no air skip. *(6 Oct: since #402 a foot patroller that holds
+  a target is halted by `stepPatrols` (`mission.ts:1523`) and stays put. A fixture whose patrol
+  meets the player beside a camp therefore freezes the line for as long as the patroller holds a
+  target (R). Every patroller in the six shipped camp missions is a vehicle.)*
 - [ ] **Step 3: See it red.** Test `CONTEST_RADIUS_SQ * 2`: the 7-tile case freezes. Drop the air skip:
   the drone test fails.
 
@@ -252,13 +309,24 @@ clearRally(line: number): boolean;
   - a rally point on a `#` tile is refused and the previous one is kept;
   - a rally point set while an item is in progress applies to that item;
   - a multi-unit placement (a team of three) moves as one group order, so it lands in formation
-    (`formation.ts`), not stacked on one tile (CLAUDE.md, "units stack on one tile is a bug");
+    (`formation.ts`), not stacked on one tile (CLAUDE.md, "units stack on one tile is a bug").
+    *(6 Oct: a line deploys `{ unit, count: 1 }` today (`mission.ts:1078–1082`), one entity per
+    item, so this case needs a fixture with count > 1. The case shipped content reaches is two
+    items rallied one build time apart. Each is a one-unit `move`, and `assignFormation`'s
+    `reservedTilesFor` (`sim.ts:2015`) keeps the second off the first's tile. Pin that too.)*;
+  - *(6 Oct, #402)* a foot unit with a rally point never drops at the exit: `spawn` resets it to
+    `BRACE_NONE` (`sim.ts:1757`), and the `move` queued in `runtime.step` is applied before the next
+    tick's `stepBrace`. It walks holding fire and kneels on arrival. A unit with no rally kneels at the
+    exit after `KNEEL_DROP_TICKS`;
   - the rally `move` reaches the sim through `queueCommand` and nowhere else: a test spies the
     command queue and asserts one `move` with the spawned ids.
-- [ ] **Step 2: Implement.** `spawnPlacement` already returns the spawned ids; queue the `move` for
-  them in the same tick.
+- [ ] **Step 2: Implement.** `spawnPlacement` already returns the spawned ids (`number[]`,
+  `mission.ts:1250`); queue the `move` for them in the same tick. *(The move is `{ kind: 'move', ids,
+  x, y }`, `sim.ts:594`. D5's `move` is a For the lead question since #402; build it as written
+  until answered.)*
 - [ ] **Step 3: See it red.** Write `goalX/goalY` directly instead of queueing a command: the spy test
-  fails (and invariant 4 says why it must). Accept blocked tiles: the `#` test fails.
+  fails (and invariant 4 says why it must). Both fields are private on `Sim` (`sim.ts:882`; read
+  through `goalOf`), so the mutation needs a cast. Accept blocked tiles: the `#` test fails.
 
 ---
 
@@ -286,6 +354,14 @@ clearRally(line: number): boolean;
 
 **Files:** `data/schemas/mission.schema.json`, `packages/sim/src/structures.ts`,
 `packages/sim/src/mission.ts` (types only), the `validate:data` script and its tests.
+*(6 Oct, verified on `b44df7aa`. `tools/validate_data.mjs` has no spec of its own: a testable rule
+goes in a sibling module with its own `tools/src/validate_<x>.test.ts`, as
+`tools/validate_briefing.mjs` and `tools/src/validate_briefing.test.ts` do. `produces_for` is a
+TYPE field (`structures.ts:92`, `StructureType.producesFor`), so a per-placement `side` is new
+per-structure state in `Sim` (`sim.ts`). Its readers are `productionAnchor` (`mission.ts:596`),
+`declaresProduction` (`:627`) and `stepDemolition`'s own-camp skip (`sim.ts:4914`). Without the
+last, side 1's own demolishers would level an enemy camp. The override is fixed at `start()`, so
+leaving it out of `hash()` keeps the sim pins unmoved, as the Global Constraints require (R).)*
 
 **Interfaces (schema):**
 
@@ -301,6 +377,13 @@ clearRally(line: number): boolean;
     "rally": { "type": "string", "description": "Map marker built units walk to." },
     "tag": { "type": "string", "description": "Group tag given to built units, so triggers and waves can commit them." } } }
 ```
+
+*(6 Oct, verified: a trigger's `commit` addresses a placement's **`group`**, not its `tag`
+(`mission.ts:1677–1688`; the schema's `$defs.placement` says "Trigger orders address groups", and
+`tag` is "Objective targeting (eliminate_hvt, locate)". Waves spawn their own units and commit
+nothing. As written, Task 9's "a trigger that `commit`s that tag" cannot be expressed. For its
+stated purpose the field must give built units a `group`, by renaming it or adding one beside
+`tag`. This is a field name, not a ruling.)*
 
 - [ ] **Step 1: Write the failing validator tests:** a menu unit that is not an enemy unit (`data/units/enemy/`) is
   refused (no mirrored tech trees, GH-109); an unknown rally marker is refused; `enemy.production` with no
@@ -349,12 +432,15 @@ export function spendDown(menu: readonly LineItem[], last: number, purse: number
 
 - [ ] **Step 1: Write the failing tests** (a fixture with `enemy.production`):
   - side 1's purse is `logistics_start` + its rate + F2's held-zone income for side 1, in the same
-    1/1200 accumulator F2 introduced;
+    integer accumulator F2 introduced (1/2400ths since F2's 6 Oct refresh, so that a halved odd
+    rate stays exact; it read 1/1200 on 4 Oct);
   - it buys through `spendDown`, one unit at a time, and its line freezes when a KDF squad contests its
     camp (the same rule, G3 Q3);
   - built units get the authored `tag` and walk to the `rally` marker;
   - a trigger that `commit`s that tag sends them on, which is how authored content and bought units
-    meet;
+    meet. *(6 Oct: `commit` reads a `group` (see Task 7's note) and issues an attack-move
+    (`mission.ts:1688`). The walk to `rally` is a `move` by D5, so under #402 a bought foot unit
+    walks past KDF troops holding fire until it arrives; For the lead 2.)*;
   - with no `enemy.production` block, side 1 never buys, even with a purse from zones (D7: today's
     campaign behaviour).
 - [ ] **Step 2: Implement.**
@@ -365,6 +451,15 @@ export function spendDown(menu: readonly LineItem[], last: number, purse: number
   and prints, per run: units bought, unspent at the end (as a share), outcome, length. Report-only, no
   gate: C5 (spending) is report-only at G4 by the lead's own table. The expected reading is unspent
   near 0% (R, D8), against the spike's banked thousands.
+  *(6 Oct, verified on GH-382's `tel_marum_3`: `battery_position` is still a marker, at (25,6), and
+  `sarim_rifles` and `atgm_cell` are in `data/units/enemy/`. Both halt to fire under #402. But the
+  HVT `rocket_battery` stands at (25.5,6.5). A 2×2 camp placed at the marker covers its tile, and
+  `raiseMissionStructures` runs before spawns, so `assertGroundClear` (`mission.ts:1122`) refuses the
+  load. This was equally true on 4 Oct. Place the probe's camp on open ground beside the marker
+  and name the tile in the probe. The KDF's starting logistics there are 400, so the purse is 640.
+  The 30-seed list (`424242 … 8888` plus `11 … 777`, G3 sheet Q6) lives in the spike harness on
+  `spike/skirmish-g0`, not on `main`. On `main` a playtest run takes its seed from `PT_SEED`
+  (`playtest.ts:201–202`, default 424242). The passive control is `playtest.ts:1962`.)*
 - [ ] **Step 4: See it red.** Let side 1 build in parallel (skip the line): the "one unit at a time"
   test fails, and the probe's bought count jumps.
 
@@ -379,13 +474,23 @@ export function spendDown(menu: readonly LineItem[], last: number, purse: number
 - [ ] **Step 1:** Re-run every plan. For each of the three building plans, if the serial line changed
   its outcome, re-time its `requestBuild` calls to the same intent (the same units, queued earlier or
   on two camps where the mission has two) rather than changing what it buys. Comment each change with
-  Task 1's parallel-vs-serial ticks.
+  Task 1's parallel-vs-serial ticks. *(6 Oct: no shipped mission has two camps; each of the six
+  stands one.)*
 - [ ] **Step 2: One plan uses a rally point.** `deir_amun_2_foothold`, the one plan that spends for
   replacement (M, G3 sheet), sets its camp's rally point at its forward position, so the rally path is
   exercised by the gate and not only by unit tests. It must still win.
+  *(6 Oct: on GH-382's ground the forward position is the pump gate the hold force takes,
+  `M(15, 31)` in `deirAmun2Plan` (`playtest.ts:1661`, `:1669`), beside the `pump_gate` marker
+  (15,32). It is 6.5 tiles from the camp exit (20.5,34.5); on 4 Oct the gate was `M(15, 27)` on
+  the old `deir_amun` ground. Today the plan never orders its bought squads, so they kneel at the
+  exit. Under D5 and #402 they walk into the gate fight holding fire. The camp's 6-tile radius
+  covers `pump_gate`, so D1 can pause the line during that fight. Measure both before re-timing.)*
 - [ ] **Step 3: Measure.** Every plan wins; every passive control loses; banking lines (F2) printed
   and their pins re-read; `LADDER_CREDITS` and `GATES` re-pinned only where a grade or `unitHome`
-  moved, with the per-mission terms in the comment.
+  moved, with the per-mission terms in the comment. *(6 Oct: `LADDER_CREDITS` is **5830** on
+  `main` (`playtest.ts:3181`; 5736 on 4 Oct) and `GATES` is unchanged (`playtest.ts:2944`). Since
+  GH-330, `CAMPAIGN_CREDITS` (`packages/app/src/ui/stores-model.ts:63`, 5830) must move in the same
+  commit, or `tools/src/campaign_credits.test.ts` goes red.)*
 - [ ] **Step 4: See it red.** Remove the rally call: Step 2's plan line returns to its no-rally timing,
   proving the gate sees the rally (state the moved figure in the commit).
 
@@ -410,11 +515,12 @@ export function spendDown(menu: readonly LineItem[], last: number, purse: number
 
 | pin | expected | the reason, for the commit |
 |---|---|---|
-| sim pins, flat and relief | **unmoved** (R) | — |
-| `ECONOMY_PIN`, `ECONOMY_PIN_RELIEF` | **re-pinned once**, Task 6 | serial lines per camp, the contested pause, rally points (G3 Q3) |
+| sim pins, flat and relief | **unmoved** (R): 922714084 / 3200430224 on `main` (2109596329 / 1425295494 on 4 Oct, moved by #402) | — |
+| `ECONOMY_PIN`, `ECONOMY_PIN_RELIEF` | **re-pinned once**, Task 6 (born in F1; not on `main` yet) | serial lines per camp, the contested pause, rally points (G3 Q3) |
 | `pnpm balance` | byte-identical (R) | — |
-| `pnpm playtest` | the three building plans' lines move (serial timing, and one rally) | Task 10's plan edits, each commented |
-| `LADDER_CREDITS` | moves only if a building plan's grade or `unitHome` moves (R) | named per mission |
+| `pnpm playtest` | the three building plans' lines move (serial timing, the contested pause, and one rally) | Task 10's plan edits, each commented |
+| `LADDER_CREDITS` | 5830 on `main` (5736 on 4 Oct); moves only if a building plan's grade or `unitHome` moves (R) | named per mission |
+| `CAMPAIGN_CREDITS` | 5830 on `main`; moves with `LADDER_CREDITS`, same commit (GH-330, `campaign_credits.test.ts`) | as `LADDER_CREDITS` |
 
 ## Lane A needs (WP-S-F #184)
 
@@ -422,7 +528,7 @@ export function spendDown(menu: readonly LineItem[], last: number, purse: number
   progress with its progress bar (`progress`, 0–1000), and cancel per item with the refund shown.
 - **"Contested: production paused"** on the line, from `contested`, and a feed alert when it starts.
 - **Setting a rally point**: an armed order from the dock ("Set rally", then a ground click), the same
-  arming model as fire support (Escape disarms, #264). There is no structure selection today (FW Task 11
+  arming model as fire support (Escape disarms, #264, closed by #268). There is no structure selection today (FW Task 11
   adds a works-only one in Stage 5), so the dock is the entry point. **The rally marker is drawn in
   the world, so it is mocked and shown to the lead before it is built** (memory: mock a world overlay
   first; no status marks in the world). Keep it an order indicator shown while the camp's dock is

@@ -5,12 +5,57 @@ lands in its own commit. Stage 4 runs **Mon 2 Nov – Fri 27 Nov** (M2, "an econ
 it", 27 Nov). The **week of 23 Nov is the buffer** and is not free for new scope (execution plan,
 "Buffers").
 
+## Changed since 4 Oct
+
+Refreshed 6 Oct against `main` `b44df7aa`. Each plan below carries its own "Changed since 4 Oct"
+section; this one covers the schedule.
+
+**What landed:**
+- **#402, halt and kneel to fire (6 Oct), a sim change outside this order.**
+  - It moved both sim pins: flat 2109596329 → **922714084**, relief 1425295494 → **3200430224**.
+    #291 therefore re-pins from those values.
+  - It moved `LADDER_CREDITS` 5844 → **5830** (with `CAMPAIGN_CREDITS`) and `ROSTER_MAX` 33 → **31**.
+  - It added `mobility.halts_to_fire` to the schema, with an explicit override on `manpad_team`:
+    the unit #247 is about.
+  - Its kneel is **0.2 s, final**: the lead chose it on 6 Oct after 0.3 s failed the smoke gate.
+    It adds no further re-pin.
+  - The lead approved it as a one-off. `packages/sim` stays closed until 2 Nov.
+- **GH-382 (5 Oct) re-grounded every mission II and later, and Tel Marum I.** It moved
+  `LADDER_CREDITS` seven times, from 5736 to 5844, before #402. **#330 moved nothing**: it landed
+  as `packages/app/src/campaign-pay.ts`.
+- **Every October G-NUM probe now runs on new maps under halt to fire.** The four plans quote G3
+  numbers (M at `751b6742`) that predate both changes.
+
+**New interactions:**
+- Every plan's G-F rule now meets kneeling infantry and the closing rule: an arrived attack-mover
+  walks toward an identified enemy it cannot reach, and the player's right-click is always an
+  attack-move. Each plan's own section names the cases:
+  - F1: high ground held 10 s;
+  - F2: a zone holder walking off its zone, and patrols that halt on contact;
+  - F3: `halts_to_fire` follows the type fielded;
+  - F4: a rally `move` holds fire on the way.
+- **#247 and #402 edit the same file,** `data/units/enemy/manpad_team.json`.
+  `tools/src/halt_to_fire_roster.test.ts` pins manpad's `halts_to_fire: true` and says the
+  derivation "calls it wheeled". #247's `wheeled: false` makes the override redundant and that
+  comment false, though the test stays green.
+
+### For the lead
+1. **An offer, not an assumption: an earlier landing.** #402 was a lead-approved one-off sim
+   change. The rest of `packages/sim` stays closed until Stage 4 opens on 2 Nov, so the calendar
+   below is unchanged: #291 and #279 stay on 2–3 Nov. If the lead wants either in October instead,
+   the sim-fix plan is ready. Tasks 1–3 are hash-neutral and Task 4 is its only re-pin.
+2. **#247 and the manpad override.** #402's spec §7.3 leaves manpad's wheeled quirk to the lead.
+   When #247 lands `wheeled: false`, should it also drop the now-redundant `halts_to_fire: true`
+   override (and re-word the roster test), or keep it?
+
 **Rules that make the order matter:**
 - Lane C is one lane: one plan in flight in `packages/sim` at a time, landed through a PR with `gates`
   and `determinism` green before the next branch is cut from `main`.
 - Each pin moves at most once per plan, in its own commit, with the reason in the message: the two
-  sim pins (`determinism.test.ts`, flat and relief), the economy pins F1 creates
-  (`ECONOMY_PIN`, `ECONOMY_PIN_RELIEF`), `LADDER_CREDITS` and `GATES` in `playtest.ts`.
+  sim pins (`determinism.test.ts`, flat and relief; `922714084` and `3200430224` since #402), the
+  economy pins F1 creates (`ECONOMY_PIN`, `ECONOMY_PIN_RELIEF`), and `LADDER_CREDITS` (5830),
+  `ROSTER_MAX` (31) and `GATES` in `playtest.ts`. `ROSTER_MAX` was not named on 4 Oct. It is a pin
+  in the same idiom: #402 moved it 33 → 31, and F3's L-1 is the G-F change most likely to move it.
 - The agreed order (lead, 30 Sep, #183): **#291 → the G-F plans → (Stage 5) FW Task 2 → E6 →
   officers.** #330 goes between #291 and F1, as the G3 sheet requires ("first or last in the Stage 4
   order, never folded into a G-F plan").
@@ -21,8 +66,8 @@ it", 27 Nov). The **week of 23 Nov is the buffer** and is not free for new scope
 |---|---|---|---|
 | **before 2 Nov** (October, no sim code) | the four G-NUM halts: F1 Task 2, F2 Task 2, F3 L-1 (Task 7 Step 1's request), F4 Task 1 | read-only probes on scratch copies, posted on #183 for the lead | none |
 | **Mon 2 – Tue 3 Nov** | Stage 4 sim fixes (`2026-09-29-stage4-sim-fixes.md`, #296) | Task 1 (Tel Marum I shepherd), Tasks 2–3 (#279 sim half), **Task 4 (#291)** | **sim pins, once** (#291's three hashed columns) |
-| Tue 3 Nov | FW Task 1 (#280, `2026-09-29-field-works.md`), and #247 (`manpad_team` wheeled) | garrison suppression cover (opt-in field); the `mobility.wheeled: false` data line and its pin test | none expected. #247 moves pathing: if it moves the sim pins it is a **separate** re-pin with its own commit, after #291's, never folded in |
-| ~~Wed 4 Nov~~ **landed in October** | #330 (a fresh campaign pays again) | moved out of Lane C by the lead on 5 Oct: it edits `packages/app` and the harness, never `packages/sim` or `credits.ts` (`2026-10-04-credits-reachability.md`) | **none**: `LADDER_CREDITS` stays 5736; the harness's two-campaign walk is relative to it |
+| Tue 3 Nov | FW Task 1 (#280, `2026-09-29-field-works.md`), and #247 (`manpad_team` wheeled) | garrison suppression cover (opt-in field); the `mobility.wheeled: false` data line in `data/units/enemy/manpad_team.json` (the issue names `data/units/manpad_team.json`) and its pin test, beside `tools/src/boulders.test.ts`'s `rocket_battery` pin. The same file has carried #402's `halts_to_fire: true` override since 6 Oct (For the lead, item 2) | none expected. #247 moves pathing: if it moves the sim pins it is a **separate** re-pin with its own commit, after #291's, never folded in |
+| ~~Wed 4 Nov~~ **landed in October** | #330 (a fresh campaign pays again) | moved out of Lane C by the lead on 5 Oct: it edits `packages/app` and the harness, never `packages/sim` or `credits.ts` (`2026-10-04-credits-reachability.md`); shipped as `packages/app/src/campaign-pay.ts` | **none**: #330 moved no pin. `LADDER_CREDITS` read 5736 when it landed and is **5830** on 6 Oct, moved by GH-382 and #402. The harness's two-campaign walk is relative to it |
 | **Thu 5 – Mon 9 Nov** | **F1** fire support and intel by doing (`2026-10-04-gf1-fire-support-intel.md`) | the economy pins born; the trickle deleted; high ground; barrage and smoke screen; the four-item menu; the intel gates | economy pins born, then **re-pinned once**; `LADDER_CREDITS` only if Task 9's spending plan moves |
 | **Tue 10 – Wed 11 Nov** | **F3** population cap and "on loan" (`2026-10-04-gf3-population-cap-on-loan.md`) | the cap (off in the campaign); the loan predicate; the deploy mark; L-1 if confirmed | economy pins once; roster lines and possibly `LADDER_CREDITS` through L-1 |
 | **Thu 12 – Mon 16 Nov** | **F2** held-ground income and corridors (`2026-10-04-gf2-held-ground-income.md`) | the integer purse; zones; corridors; five missions authored; banking gates | economy pins once; the five D7 missions' playtest lines; `LADDER_CREDITS` only through a moved grade |
@@ -49,11 +94,14 @@ One visual bless per landing, one in flight at a time, from CI numbers.
 
 ## The re-pin order, as a list
 
+0. (Landed 6 Oct, before Stage 4.) #402: both sim pins, `LADDER_CREDITS`/`CAMPAIGN_CREDITS` and
+   `ROSTER_MAX`. Everything below rebases onto it.
 1. #291: sim pins.
 2. (#247, only if it moves them: sim pins again, its own reason.)
 3. ~~#330: `LADDER_CREDITS`.~~ Landed in October and moved no pin. From here on, each `LADDER_CREDITS`
    re-pin also moves `CAMPAIGN_CREDITS` (`packages/app/src/ui/stores-model.ts`), which
-   `tools/src/campaign_credits.test.ts` holds equal to it.
+   `tools/src/campaign_credits.test.ts` holds equal to it. GH-382 and #402 did exactly that (both
+   read 5830 on 6 Oct).
 4. F1: economy pins born, then re-pinned; ladder only via one spending plan.
 5. F3: economy pins; roster and ladder via L-1.
 6. F2: economy pins; playtest; ladder via grades.
