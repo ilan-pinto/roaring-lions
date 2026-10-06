@@ -26,3 +26,17 @@ export const KIT_MAX_TIER = 3;
 /** The one name a kit part with this `rl_kit` may carry. */
 export const kitNodeName = (track: string, tier: number, host: string): string =>
   `${KIT_PREFIX}${track}_${tier}_${host}`;
+
+/** The eight KDF vehicles that carry kit (spec §3, ruling K9 keeps the gunship
+ *  and the command Lavi out). Here, with no dependency, so the kit pass and
+ *  the draw-call harness (`tools/src/perf/kit-drawcalls.ts`) read one list. */
+export const KIT_VEHICLES: readonly string[] = [
+  'apc_eitan',
+  'apc_kipod',
+  'dozer_d9',
+  'heli_peten',
+  'ifv_namer',
+  'jeep_shoded',
+  'mbt_lavi',
+  'scout_shachaf',
+];

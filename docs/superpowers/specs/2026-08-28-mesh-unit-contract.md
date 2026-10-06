@@ -375,7 +375,7 @@ one GLB, and the renderer keeps what the type's bought tiers own.
 - **A kit part is a node named `kit_<track>_<tier>_<host>`**
   (`kit_armour_3_turret_hull`), one per (track, tier, host), with
   `extras.rl_kit = { track, tier, host }` and `extras.rl_role` equal to its
-  host's role. `track` is lower-case letters only and is one the unit's own
+  host's role (absent when the host carries none, never `''`). `track` is lower-case letters only and is one the unit's own
   JSON declares under `upgrades` (no firepower part on the D9); `tier` is 1, 2
   or 3. The name is derived from `rl_kit`, never the other way round, and the
   two must agree.
@@ -386,8 +386,9 @@ one GLB, and the renderer keeps what the type's bought tiers own.
   transform is done once, at graft time: positions through
   `inverse(hostWorld) x partWorld`, normals through that matrix's
   inverse-transpose, renormalised.
-- **Its primitive carries exactly the host's attribute set and the host's
-  material.** `POSITION` and `NORMAL` always, `TEXCOORD_0` iff the host has
+- **It has exactly ONE primitive, indexed iff its host's is, carrying exactly
+  the host's attribute set and the host's material.** (`mergeGeometries`
+  concatenates one geometry onto one, and cannot mix indexed with unindexed.) `POSITION` and `NORMAL` always, `TEXCOORD_0` iff the host has
   it, and the host's material (none on a palette host -- the Namer, Eitan,
   Kipod and Shachaf weapon stations). On a textured host the part's colour IS
   the texel its UVs are pinned to (ruling K3); on a palette host it draws the
@@ -414,8 +415,9 @@ nothing else, so **every live accessor is byte-identical before and after**,
 and a second run writes the same bytes. It refuses, before changing anything:
 an unknown or ambiguous host, a part with no host, a name that does not match
 its `rl_kit`, a tier outside 1-3, a track the unit does not declare, a
-duplicate (track, tier, host), a material on a source part, and a textured
-host whose part has no `TEXCOORD_0`. With no source at all it reports "no kit
+duplicate (track, tier, host), a material on a source part, a source part of
+more than one primitive, a part indexed when its host is not (or the reverse),
+and a textured host whose part has no `TEXCOORD_0`. With no source at all it reports "no kit
 sources" and exits 0; `--id=` naming a vehicle with no source is an error.
 
 Pipeline order for a vehicle: export -> `pnpm kit:meshes` ->
@@ -446,4 +448,6 @@ Pipeline order for a vehicle: export -> `pnpm kit:meshes` ->
   `export_meshy_apache_gunship.py` from the Peten), which would otherwise hand
   the command Lavi and the gunship every kit part of every tier.
   `mesh-vehicle-shipped.test.ts` reads the contract above out of every shipped
-  file's bytes and names how many kit nodes it saw.
+  file's bytes and names how many kit nodes it saw, and holds every vehicle's
+  shipped `kit_*` names to exactly its source's (none without one), so a
+  source exported and never grafted is a red test naming the commands to run.

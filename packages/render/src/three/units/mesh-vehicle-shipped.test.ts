@@ -81,6 +81,11 @@ import { TEXTURED_VEHICLE_TYPES } from './textured-vehicle';
 
 const REPO = fileURLToPath(new URL('../../../../../', import.meta.url));
 const VEHICLE_MESHES = `${REPO}art/meshes/vehicles/`;
+/** Where `export_vehicle_kit.py` writes each vehicle's kit source, and
+ *  `pnpm kit:meshes` reads it from -- `KIT_SOURCES` in
+ *  `tools/src/meshes/kit-pass.ts`, restated for the reason the constants below
+ *  give. */
+const KIT_SOURCES = `${REPO}art/parts/kit/`;
 
 /** The death root's node name and the wreck children's name prefix --
  *  `DEATH_ROOT` / `WRECK_PREFIX` in `tools/src/meshes/wreck-pass.ts`,
@@ -169,11 +174,30 @@ interface GltfJson {
   meshes?: { primitives: { attributes: Record<string, number>; material?: number }[] }[];
 }
 
-/** The JSON chunk of a GLB: 12-byte header, then chunk 0 (length, type, data). */
-function glbJson(id: string): GltfJson {
-  const bytes = readFileSync(`${VEHICLE_MESHES}${id}.glb`);
+/** The JSON chunk of a GLB file: 12-byte header, then chunk 0 (length, type, data). */
+function glbFileJson(file: string): GltfJson {
+  const bytes = readFileSync(file);
   const length = bytes.readUInt32LE(12);
   return JSON.parse(bytes.subarray(20, 20 + length).toString('utf8')) as GltfJson;
+}
+
+/** The JSON chunk of a shipped vehicle GLB. */
+const glbJson = (id: string): GltfJson => glbFileJson(`${VEHICLE_MESHES}${id}.glb`);
+
+/** Every `kit_*` node name in a glTF JSON, sorted. */
+const kitNamesIn = (gltf: GltfJson): string[] =>
+  (gltf.nodes ?? [])
+    .map((n) => n.name ?? '')
+    .filter((name) => name.startsWith(KIT_PREFIX))
+    .sort();
+
+/** Every vehicle with a kit source on disk, by id. */
+function kitSourceIds(): string[] {
+  if (!existsSync(KIT_SOURCES)) return [];
+  return readdirSync(KIT_SOURCES)
+    .filter((f) => f.endsWith('.glb'))
+    .map((f) => f.slice(0, -'.glb'.length))
+    .sort();
 }
 
 /** The upgrade tracks `data/units/kdf/<id>.json` declares, or none for a
@@ -249,7 +273,9 @@ function kitViolations(id: string): { kitNodes: number; violations: string[] } {
 
     const prims = node.mesh === undefined ? [] : (gltf.meshes?.[node.mesh]?.primitives ?? []);
     const hostPrims = hostNode.mesh === undefined ? [] : (gltf.meshes?.[hostNode.mesh]?.primitives ?? []);
-    if (prims.length === 0) bad('has no mesh primitives');
+    // Exactly one: the renderer merges ONE part geometry onto its host's one,
+    // and a second primitive is a second material slot the part cannot have.
+    if (prims.length !== 1) bad(`has ${prims.length} primitives; a kit part has exactly one`);
     if (hostPrims.length !== 1) bad(`host has ${hostPrims.length} primitives; a kit host has exactly one`);
     const hostPrim = hostPrims[0];
     for (const prim of prims) {
@@ -268,11 +294,39 @@ function kitViolations(id: string): { kitNodes: number; violations: string[] } {
 const KIT_CENSUS = shippedVehicleIds().map((id) => ({ id, ...kitViolations(id) }));
 const KIT_NODE_TOTAL = KIT_CENSUS.reduce((sum, v) => sum + v.kitNodes, 0);
 
+/** Every vehicle that has a shipped GLB or a kit source, or both. */
+const KIT_GRAFT_IDS = [...new Set([...shippedVehicleIds(), ...kitSourceIds()])].sort();
+
 describe('shipped vehicle GLBs: kit parts (contract v5, vehicles)', () => {
   it(`saw ${KIT_NODE_TOTAL} kit_* node(s) across ${KIT_CENSUS.length} vehicle GLB(s)`, () => {
-    // Not vacuous when it matters: the walk over every file ran.
+    // Not vacuous when it matters: the walk over every file ran. (The total
+    // itself is in the title, for the reader of the run; it is not asserted,
+    // because nothing here knows independently what it should be -- the
+    // per-vehicle graft check below is what pins the count.)
     expect(KIT_CENSUS.length).toBeGreaterThanOrEqual(SHIPPED_VEHICLE_COUNT);
-    expect(KIT_NODE_TOTAL).toBe(KIT_CENSUS.reduce((sum, v) => sum + v.kitNodes, 0));
+  });
+
+  // The graft actually RAN on the shipped bytes. A source exported and never
+  // grafted (or grafted, then re-exported with a part added or renamed, or a
+  // shipped file re-exported from Blender and never re-grafted) loads fine and
+  // draws a vehicle that simply does not get the kit it was sold -- no other
+  // check sees it, because the contract census above is satisfied by zero
+  // kit nodes. Names, compared as sorted lists, so a duplicate counts too.
+  it.each(KIT_GRAFT_IDS)('%s: carries exactly the kit_* nodes of art/parts/kit/<id>.glb (none if it has no source)', (id) => {
+    const source = `${KIT_SOURCES}${id}.glb`;
+    const shipped = `${VEHICLE_MESHES}${id}.glb`;
+    expect(existsSync(shipped), `${id}: art/parts/kit/${id}.glb has no shipped art/meshes/vehicles/${id}.glb to graft into`).toBe(true);
+    const hasSource = existsSync(source);
+    const want = hasSource ? kitNamesIn(glbFileJson(source)) : [];
+    const got = kitNamesIn(glbJson(id));
+    expect(
+      got,
+      hasSource
+        ? `${id}: the shipped GLB's kit_* nodes are not its source's -- run \`pnpm kit:meshes -- --id=${id}\`, ` +
+            `then \`pnpm wreck:meshes -- --id=${id}\` and \`pnpm encode:meshes\``
+        : `${id}: the shipped GLB carries kit_* nodes but art/parts/kit/${id}.glb does not exist -- ` +
+            `restore the source, or re-export the vehicle without them`
+    ).toEqual(want);
   });
 
   it.each(KIT_CENSUS.map((v) => [v.id, v.kitNodes, v.violations] as const))(

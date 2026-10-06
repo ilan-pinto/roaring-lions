@@ -82,6 +82,22 @@ describe('upgradePrepass', () => {
     expect(Object.isFrozen(unitKitTiers.mbt_lavi)).toBe(true);
   });
 
+  it('hands the renderer the tiers applyUpgrades APPLIES: an over-max tier clamped, an undeclared track dropped (GH-238)', () => {
+    // mbt_lavi's armour track has three tiers; the account says five (data
+    // shrank the track after a purchase, say), and names a track the Lavi
+    // never had. applyUpgrades clamps the first and ignores the second -- so
+    // must the renderer, or it draws kit for tiers the sim is not running.
+    expect(units.mbt_lavi.upgrades?.armour?.tiers.length).toBe(3);
+    expect(Object.keys(units.mbt_lavi.upgrades ?? {})).not.toContain('mobility');
+    const { unitKitTiers, registered } = upgradePrepass(roster, { mbt_lavi: { armour: 5, mobility: 2, sensors: 1 } });
+    expect(unitKitTiers.mbt_lavi).toEqual({ armour: 3, sensors: 1 });
+    // And the sim is running exactly that: the raw request and the clamped
+    // one patch the same Lavi.
+    expect(registered.find((u) => u.id === 'mbt_lavi')).toEqual(applyUpgrades(units.mbt_lavi, unitKitTiers.mbt_lavi));
+    // Below zero clamps to 0, as applyUpgrades' own Math.max does.
+    expect(upgradePrepass(roster, { mbt_lavi: { armour: -2 } }).unitKitTiers.mbt_lavi).toEqual({ armour: 0 });
+  });
+
   it('reads the audit seed as the spec did: Lavi 3, rifles 1, AT 1, and the sim runs that Lavi', () => {
     const seed = {
       inf_squad: { armour: 2, sensors: 1 },

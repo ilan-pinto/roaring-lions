@@ -1280,6 +1280,37 @@ describe('showBrigade — a purchase is an event (§3.5)', () => {
     dispose();
   });
 
+  // GH-238 (plan 3, Task 7): a tier bought for one of the eight kitted
+  // vehicles bolts a part on, so it lands with the 'kit' cue -- through the
+  // real purchase path (the Buy button, the caller's landed answer, then
+  // `celebrate`), not by calling `cueFor` directly, which would agree with a
+  // `celebrate` that never asked it.
+  it('cues a kitted vehicle’s tier as kit, not upgrade (GH-238)', () => {
+    const lavi: BrigadeUnit = {
+      id: 'mbt_lavi',
+      name: 'Lavi MBT',
+      role: 'tank',
+      isKamikaze: false,
+      transportSlots: 0,
+      isSoft: false,
+      upgrades: { armour: { tiers: [{ price: 400, patch: { 'hull.hp': 250 } }] } },
+    };
+    let owned: Record<string, Record<string, number>> = {};
+    const { host, dispose, cues } = buyer({
+      units: [lavi, ...units],
+      onBuyUpgrade: (id, track, tier) => {
+        owned = { [id]: { [track]: tier } };
+        return { units: [lavi, ...units], credits: 599, owned, landed: true };
+      },
+    });
+    select(host, 'mbt_lavi');
+    buyArmour(host);
+    // The Lavi's tier is what was bought, so the cue below is the Lavi's.
+    expect(owned).toEqual({ mbt_lavi: { armour: 1 } });
+    expect(cues).toEqual(['kit']);
+    dispose();
+  });
+
   // Controller ruling (T10): the mark is stamped on EVERY landed purchase,
   // not only one that moves the kit level. Six tiers, so one owned and two
   // owned both read level 1 (`ceil(3 * owned / available)`): the purchase

@@ -22,7 +22,7 @@ import {
   runKitPass,
   stripKit,
 } from './kit-pass';
-import { DEFAULT_KIT, kitSource, kitVehicle, type KitPartSpec } from './kit-fixture';
+import { DEFAULT_KIT, boxMesh, kitSource, kitVehicle, type KitPartSpec } from './kit-fixture';
 import { applyWreckPass } from './wreck-pass';
 
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS);
@@ -61,16 +61,46 @@ function worldPositions(node: Node): vec3[] {
   return out;
 }
 
-/** Every normal of `node`'s mesh, in world space. The fixture's matrices are
- *  rotations and translations only, so the linear part IS the normal matrix. */
+/**
+ * The normal matrix of `m`: the inverse-transpose of its 3x3 linear part, by
+ * cofactors, as a column-major mat4 with no translation. Written out here
+ * rather than imported from `kit-pass.ts`, so the test's oracle cannot shift
+ * with the code under test. The fixture's turret pivot carries a NON-UNIFORM
+ * scale, so this is not the linear part: under [1, 2, 0.5] the two disagree,
+ * and a graft that carried normals by the linear part reads wrong here.
+ */
+function normalMatrixOf(m: mat4): mat4 {
+  // Column-major: element (row r, col c) is m[c * 4 + r].
+  const a = (r: number, c: number): number => m[c * 4 + r];
+  const det =
+    a(0, 0) * (a(1, 1) * a(2, 2) - a(1, 2) * a(2, 1)) -
+    a(0, 1) * (a(1, 0) * a(2, 2) - a(1, 2) * a(2, 0)) +
+    a(0, 2) * (a(1, 0) * a(2, 1) - a(1, 1) * a(2, 0));
+  // inverse(A)^T = cofactor(A) / det; cofactor (r, c) of the 3x3.
+  const cof = (r: number, c: number): number => {
+    const rs = [0, 1, 2].filter((k) => k !== r);
+    const cs = [0, 1, 2].filter((k) => k !== c);
+    const minor = a(rs[0], cs[0]) * a(rs[1], cs[1]) - a(rs[0], cs[1]) * a(rs[1], cs[0]);
+    return ((r + c) % 2 === 0 ? 1 : -1) * minor;
+  };
+  const out = new Array<number>(16).fill(0);
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) out[c * 4 + r] = cof(r, c) / det;
+  out[15] = 1;
+  return out as unknown as mat4;
+}
+
+/** Every normal of `node`'s mesh, in world space, unit length. */
 function worldNormals(node: Node): vec3[] {
   const nrm = node.getMesh()?.listPrimitives()[0].getAttribute('NORMAL');
   if (!nrm) throw new Error(`${node.getName()}: no NORMAL`);
-  const m = node.getWorldMatrix();
-  const lin = [...m.slice(0, 12), 0, 0, 0, 1] as unknown as mat4;
+  const nm = normalMatrixOf(node.getWorldMatrix());
   const out: vec3[] = [];
   const el = [0, 0, 0];
-  for (let i = 0; i < nrm.getCount(); i++) out.push(apply(lin, nrm.getElement(i, el)));
+  for (let i = 0; i < nrm.getCount(); i++) {
+    const v = apply(nm, nrm.getElement(i, el));
+    const len = Math.hypot(v[0], v[1], v[2]);
+    out.push([v[0] / len, v[1] / len, v[2] / len]);
+  }
   return out;
 }
 
@@ -204,6 +234,35 @@ describe('applyKitGraft', () => {
     expect((await bytes(target)).equals(once)).toBe(true);
   });
 
+  it('the turret pivot is non-uniformly scaled, so a normal matrix is NOT the linear part there', () => {
+    // Guards the fixture itself: under a rotation alone the inverse-transpose
+    // IS the linear part, and the normal test above could not tell a graft
+    // that carried normals by the wrong matrix from one that did not.
+    const m = nodeNamed(kitVehicle(), 'turret_hull').getWorldMatrix();
+    const nm = normalMatrixOf(m);
+    const unit = (v: vec3): vec3 => {
+      const l = Math.hypot(...v);
+      return [v[0] / l, v[1] / l, v[2] / l];
+    };
+    const lin = [...m.slice(0, 12), 0, 0, 0, 1] as unknown as mat4;
+    const n: number[] = [1, 1, 0];
+    const viaLinear = unit(apply(lin, n));
+    const viaNormal = unit(apply(nm, n));
+    expect(Math.hypot(viaLinear[0] - viaNormal[0], viaLinear[1] - viaNormal[1], viaLinear[2] - viaNormal[2])).toBeGreaterThan(0.1);
+  });
+
+  it("leaves rl_role ABSENT on a part whose host carries none -- not ''", () => {
+    const target = kitVehicle();
+    const host = nodeNamed(target, 'hull_hull');
+    const extrasNoRole = { ...host.getExtras() };
+    delete extrasNoRole.rl_role;
+    host.setExtras(extrasNoRole);
+    applyKitGraft(target, kitSource(), 'fixture');
+    const extras = nodeNamed(target, 'kit_armour_1_hull_hull').getExtras();
+    expect('rl_role' in extras).toBe(false);
+    expect(extras.rl_role).toBe(host.getExtras().rl_role);
+  });
+
   it('accepts a part whose source node is not at the identity, by its world matrix', () => {
     const source = kitSource();
     const node = nodeNamed(source, 'kit_armour_1_hull_hull');
@@ -238,9 +297,23 @@ describe('applyKitGraft', () => {
     ['a duplicate (track, tier, host)', [base, { ...base, min: [0, 0, 0], max: [1, 1, 1] }], /two kit parts for/],
     ['a textured host with no TEXCOORD_0', [{ ...base, noUv: true }], /needs TEXCOORD_0/],
     ['a part carrying a material', [{ ...base, material: true }], /carries a material/],
+    ['a part of two primitives', [{ ...base, extraPrimitive: true }], /has 2 primitives; a kit part is exactly one/],
+    ['an unindexed part on an indexed host', [{ ...base, unindexed: true }], /is not indexed and host "hull_hull" is indexed/],
     ['a track the unit does not declare', [{ ...base, track: 'firepower', name: undefined }], /not one fixture's JSON declares/, { tracks: new Set(['armour', 'sensors']) }],
     ['an empty source', [], /has no parts/],
   ];
+  it('refuses an indexed part on an unindexed host, and leaves the target untouched', async () => {
+    const target = kitVehicle();
+    const host = nodeNamed(target, 'hull_hull');
+    const prim = host.getMesh()?.listPrimitives()[0];
+    host.setMesh(
+      boxMesh(target, 'hull_hull_flat', [-1, 0, -1], [1, 2, 1], { uv: [0.1, 0.2], material: prim?.getMaterial(), unindexed: true })
+    );
+    const before = await bytes(target);
+    expect(() => applyKitGraft(target, kitSource([base]), 'fixture')).toThrow(/is indexed and host "hull_hull" is not/);
+    expect((await bytes(target)).equals(before)).toBe(true);
+  });
+
   for (const [what, parts, error, opts] of refusals) {
     it(`refuses ${what}, and leaves the target untouched`, async () => {
       const target = kitVehicle();

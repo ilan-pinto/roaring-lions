@@ -32,10 +32,13 @@ export interface UpgradePrepass<T> {
   readonly unitKit: Readonly<Record<string, KitLevel>>;
   /** Each KDF type's bought tiers by track, for `RendererOptions.
    *  unitKitTiers` (GH-238): the renderer keeps the kit parts they own when
-   *  it builds a vehicle's template. A frozen copy of the SAME tiers object
+   *  it builds a vehicle's template. Read from the SAME tiers object
    *  `applyUpgrades` patched the registered type with and `kitSummary` drew
-   *  the card from -- every KDF type, bought or not (`{}` draws no kit), and
-   *  no other faction. */
+   *  the card from, and resolved EXACTLY as `applyUpgrades` resolves it
+   *  (`effectiveKitTiers`): a track the unit does not declare is dropped, and
+   *  a tier above the track's own count is clamped to it -- so the hull on the
+   *  field never shows a tier the sim is not running. Frozen; every KDF type,
+   *  bought or not (`{}` draws no kit), and no other faction. */
   readonly unitKitTiers: Readonly<Record<string, Readonly<Record<string, number>>>>;
 }
 
@@ -57,7 +60,33 @@ export function upgradePrepass<T extends UpgradableUnit & { readonly faction: st
     const summary = kitSummary(u, tiers);
     kitByType.set(u.id, summary);
     unitKit[u.id] = summary.level;
-    unitKitTiers[u.id] = Object.freeze({ ...tiers });
+    unitKitTiers[u.id] = Object.freeze(effectiveKitTiers(u, tiers));
   }
   return { registered, kitByType, unitKit, unitKitTiers };
+}
+
+/**
+ * The tiers `applyUpgrades` actually applies, per track (`@lions/data`'s
+ * `upgrades.ts`): it walks the unit's own `upgrades` and skips a track the
+ * unit does not declare, and clamps a request to `[0, track.tiers.length]`,
+ * applying every tier index below the clamped value. The account can hold
+ * either -- data may shrink a track after a purchase, and an id's tracks may
+ * change -- and the renderer keeps every kit part with `tier <= tiers[track]`,
+ * so an unclamped 5 would draw parts for tiers the sim never patched in.
+ * The count returned is the number of tiers that loop applies (a fractional
+ * request applies the tier it is part-way into, which is `ceil`; a NaN
+ * applies none).
+ */
+export function effectiveKitTiers(
+  unit: UpgradableUnit,
+  tiers: Readonly<Record<string, number>>
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [track, requested] of Object.entries(tiers)) {
+    const declared = unit.upgrades?.[track];
+    if (!declared) continue;
+    const clamped = Math.min(Math.max(requested, 0), declared.tiers.length);
+    out[track] = Number.isNaN(clamped) ? 0 : Math.ceil(clamped);
+  }
+  return out;
 }

@@ -12,9 +12,12 @@
  *                  deliberately NOT at the identity so a hull part's inverse
  *                  transform is not a no-op either
  *   hull_rubber    textured, at the identity
- *   turret_pivot   an empty, translated AND turned 30 degrees about Y, so a
- *                  part grafted without the inverse host transform lands
- *                  visibly wrong and its normals turn too
+ *   turret_pivot   an empty, translated, turned 30 degrees about Y AND scaled
+ *                  non-uniformly ([1, 2, 0.5]), so a part grafted without the
+ *                  inverse host transform lands visibly wrong, and a normal
+ *                  carried by the plain linear part instead of its
+ *                  inverse-transpose points visibly wrong too (under a
+ *                  rotation alone the two are the same matrix)
  *     turret_hull  textured, local translation not cancelling the pivot
  *     turret_metal PALETTE: no material, no TEXCOORD_0 (the Namer/Eitan/Kipod/
  *                  Shachaf weapon station)
@@ -24,6 +27,9 @@ import { Document, type Material, type Mesh, type vec3, type vec4 } from '@gltf-
 export const PIVOT_T: vec3 = [2, 6, 0.5];
 /** 30 degrees about +Y, as a quaternion. */
 export const PIVOT_R: vec4 = [0, Math.sin(Math.PI / 12), 0, Math.cos(Math.PI / 12)];
+/** Non-uniform on purpose: the one case where a normal matrix is not the
+ *  linear part (see the header). */
+export const PIVOT_S: vec3 = [1, 2, 0.5];
 export const HULL_T: vec3 = [0, 0.5, 0];
 
 /** The six faces of an axis-aligned box: outward normal, and the two in-plane
@@ -41,9 +47,13 @@ export interface BoxOptions {
   /** Write TEXCOORD_0, every vertex pinned to this one texel (the T1 rule). */
   readonly uv?: readonly [number, number] | null;
   readonly material?: Material | null;
+  /** Write the box as an UNINDEXED primitive (36 vertices) -- the exporter
+   *  never does; this falsifies the index-parity refusal. */
+  readonly unindexed?: boolean;
 }
 
-/** A closed box with flat normals, as one indexed TRIANGLES primitive. */
+/** A closed box with flat normals, as one TRIANGLES primitive: indexed (24
+ *  vertices) unless `unindexed`. */
 export function boxMesh(doc: Document, name: string, min: vec3, max: vec3, opts: BoxOptions = {}): Mesh {
   const positions: number[] = [];
   const normals: number[] = [];
@@ -59,13 +69,18 @@ export function boxMesh(doc: Document, name: string, min: vec3, max: vec3, opts:
     indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
   }
   const buffer = doc.getRoot().listBuffers()[0];
+  /** `values` (per vertex, `width` wide), expanded along `indices` when unindexed. */
+  const flat = (values: number[], width: number): Float32Array<ArrayBuffer> =>
+    new Float32Array(opts.unindexed ? indices.flatMap((i) => values.slice(i * width, i * width + width)) : values);
   const prim = doc
     .createPrimitive()
-    .setAttribute('POSITION', doc.createAccessor(`${name}_P`, buffer).setType('VEC3').setArray(new Float32Array(positions)))
-    .setAttribute('NORMAL', doc.createAccessor(`${name}_N`, buffer).setType('VEC3').setArray(new Float32Array(normals)))
-    .setIndices(doc.createAccessor(`${name}_I`, buffer).setType('SCALAR').setArray(new Uint16Array(indices)));
+    .setAttribute('POSITION', doc.createAccessor(`${name}_P`, buffer).setType('VEC3').setArray(flat(positions, 3)))
+    .setAttribute('NORMAL', doc.createAccessor(`${name}_N`, buffer).setType('VEC3').setArray(flat(normals, 3)));
+  if (!opts.unindexed) {
+    prim.setIndices(doc.createAccessor(`${name}_I`, buffer).setType('SCALAR').setArray(new Uint16Array(indices)));
+  }
   if (opts.uv) {
-    prim.setAttribute('TEXCOORD_0', doc.createAccessor(`${name}_T`, buffer).setType('VEC2').setArray(new Float32Array(uvs)));
+    prim.setAttribute('TEXCOORD_0', doc.createAccessor(`${name}_T`, buffer).setType('VEC2').setArray(flat(uvs, 2)));
   }
   if (opts.material) prim.setMaterial(opts.material);
   return doc.createMesh(name).addPrimitive(prim);
@@ -88,7 +103,12 @@ export function kitVehicle(): Document {
     .setMesh(boxMesh(doc, 'hull_rubber', [-1, 0, -1], [1, 2, 1], { uv: [0.3, 0.4], material: bake }))
     .setExtras({ rl_role: 'rubber', rl_part: 'hull' });
 
-  const pivot = doc.createNode('turret_pivot').setTranslation(PIVOT_T).setRotation(PIVOT_R).setExtras({ rl_pivot: 'turret' });
+  const pivot = doc
+    .createNode('turret_pivot')
+    .setTranslation(PIVOT_T)
+    .setRotation(PIVOT_R)
+    .setScale(PIVOT_S)
+    .setExtras({ rl_pivot: 'turret' });
   const turretHull = doc
     .createNode('turret_hull')
     .setTranslation([0.5, -1, 0])
@@ -119,6 +139,11 @@ export interface KitPartSpec {
   /** Leave TEXCOORD_0 out (the exporter always writes it; this falsifies). */
   readonly noUv?: boolean;
   readonly material?: boolean;
+  /** Write the part unindexed (falsifies the index-parity refusal). */
+  readonly unindexed?: boolean;
+  /** Give the part's mesh a second primitive, a copy of its first (falsifies
+   *  the one-primitive refusal). */
+  readonly extraPrimitive?: boolean;
 }
 
 /** The default source: one part on each kind of host -- a textured hull at
@@ -140,15 +165,18 @@ export function kitSource(parts: readonly KitPartSpec[] = DEFAULT_KIT): Document
   const stray = doc.createMaterial('stray');
   for (const p of parts) {
     const name = p.name ?? `kit_${p.track}_${p.tier}_${p.host}`;
+    const box = (tag: string): Mesh =>
+      boxMesh(doc, tag, p.min, p.max, {
+        uv: p.noUv ? null : [0.75, 0.25],
+        material: p.material ? stray : null,
+        unindexed: p.unindexed,
+      });
+    const mesh = box(name);
+    if (p.extraPrimitive) mesh.addPrimitive(box(`${name}_extra`).listPrimitives()[0]);
     scene.addChild(
       doc
         .createNode(name)
-        .setMesh(
-          boxMesh(doc, name, p.min, p.max, {
-            uv: p.noUv ? null : [0.75, 0.25],
-            material: p.material ? stray : null,
-          })
-        )
+        .setMesh(mesh)
         .setExtras({
           rl_role: 'plate',
           rl_kit: p.rlKit === undefined ? { track: p.track, tier: p.tier, host: p.host } : p.rlKit,

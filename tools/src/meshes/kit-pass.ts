@@ -60,7 +60,7 @@ import {
   type mat4,
 } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { KIT_MAX_TIER, KIT_TRACK_PATTERN, isKitName, kitNodeName } from './kit-contract';
+import { KIT_MAX_TIER, KIT_TRACK_PATTERN, KIT_VEHICLES, isKitName, kitNodeName } from './kit-contract';
 
 const REPO = fileURLToPath(new URL('../../../', import.meta.url));
 
@@ -70,18 +70,10 @@ export const KIT_SOURCES = path.join(REPO, 'art', 'parts', 'kit');
 const VEHICLES = path.join(REPO, 'art', 'meshes', 'vehicles');
 const KDF_UNITS = path.join(REPO, 'data', 'units', 'kdf');
 
-/** The eight KDF vehicles that carry kit (spec §3, ruling K9 keeps the gunship
- *  and the command Lavi out). */
-export const KIT_VEHICLES: readonly string[] = [
-  'apc_eitan',
-  'apc_kipod',
-  'dozer_d9',
-  'heli_peten',
-  'ifv_namer',
-  'jeep_shoded',
-  'mbt_lavi',
-  'scout_shachaf',
-];
+/** The eight KDF vehicles that carry kit -- defined in `kit-contract.ts`, where
+ *  the draw-call harness reads it too, and re-exported here for the CLI's
+ *  callers. */
+export { KIT_VEHICLES };
 
 /** The root nodes and subtrees that are not live geometry: the wreck pass's. */
 const DEATH_ROOT = 'death_root';
@@ -220,7 +212,14 @@ interface Host {
   readonly node: Node;
   readonly material: Material | null;
   readonly textured: boolean;
-  readonly role: string;
+  /** Whether the host's one primitive is indexed. `mergeGeometries` cannot
+   *  concatenate an indexed geometry with a non-indexed one, so a part must
+   *  match its host here or the renderer's merge throws at load. */
+  readonly indexed: boolean;
+  /** The host's `extras.rl_role`, or `undefined` when it carries none -- in
+   *  which case the part carries none either, rather than an empty string the
+   *  contract census would read as a different role. */
+  readonly role: string | undefined;
   readonly world: mat4;
 }
 
@@ -244,9 +243,9 @@ export interface KitGraftReport {
   readonly grafted: readonly string[];
 }
 
-const roleOf = (node: Node): string => {
+const roleOf = (node: Node): string | undefined => {
   const role = node.getExtras().rl_role;
-  return typeof role === 'string' ? role : '';
+  return typeof role === 'string' ? role : undefined;
 };
 
 /** True if `node` or any ancestor is the wreck pass's `death_root`. */
@@ -291,6 +290,7 @@ function liveHosts(doc: Document): Map<string, Host | string> {
       node,
       material: prims[0].getMaterial(),
       textured,
+      indexed: prims[0].getIndices() !== null,
       role: roleOf(node),
       world: node.getWorldMatrix(),
     });
@@ -337,6 +337,13 @@ function checkPart(part: SourcePart, host: Host, vehicleId: string): void {
   const where = `${vehicleId}: kit part "${part.name}"`;
   const srcPrims = part.node.getMesh()?.listPrimitives() ?? [];
   if (srcPrims.length === 0) throw new Error(`${where}'s mesh has no primitives`);
+  // One primitive, because its host has one and the renderer's merge is a
+  // concatenation of one geometry onto one geometry: a second primitive is a
+  // second material slot, which a kit part (drawing with its host's material)
+  // cannot have, and which the merge would have nowhere to put.
+  if (srcPrims.length !== 1) {
+    throw new Error(`${where}'s mesh has ${srcPrims.length} primitives; a kit part is exactly one, merged into its host's one`);
+  }
   const allowed = new Set(TEXTURED_ATTRIBUTES);
   srcPrims.forEach((src, k) => {
     if (src.getMode() !== TRIANGLES) throw new Error(`${where}: primitive ${k} is not TRIANGLES`);
@@ -360,6 +367,13 @@ function checkPart(part: SourcePart, host: Host, vehicleId: string): void {
       throw new Error(`${where}: primitive ${k}'s attributes disagree on their vertex count`);
     }
     if (src.getIndices() && !src.getIndices()?.getArray()) throw new Error(`${where}: primitive ${k}'s indices have no data`);
+    const indexed = src.getIndices() !== null;
+    if (indexed !== host.indexed) {
+      throw new Error(
+        `${where}: primitive ${k} is ${indexed ? 'indexed' : 'not indexed'} and host "${part.host}" is ` +
+          `${host.indexed ? 'indexed' : 'not'} -- the renderer's merge cannot concatenate the two`
+      );
+    }
     const el = [0, 0, 0];
     for (let i = 0; i < count; i++) {
       normal.getElement(i, el);
@@ -382,10 +396,10 @@ function graftPart(target: Document, part: SourcePart, host: Host, vehicleId: st
   const srcMesh = part.node.getMesh();
   if (!srcMesh) throw new Error(`${where} has no mesh`);
   const srcPrims = srcMesh.listPrimitives();
-  if (srcPrims.length === 0) throw new Error(`${where}'s mesh has no primitives`);
+  if (srcPrims.length !== 1) throw new Error(`${where}'s mesh has ${srcPrims.length} primitives after its check`);
 
   srcPrims.forEach((src, k) => {
-    const tag = srcPrims.length > 1 ? `${part.name}_${k}` : part.name;
+    const tag = part.name;
     const pos = src.getAttribute('POSITION');
     const normal = src.getAttribute('NORMAL');
     const uv = src.getAttribute('TEXCOORD_0');
@@ -442,7 +456,10 @@ function graftPart(target: Document, part: SourcePart, host: Host, vehicleId: st
     .setTranslation(host.node.getTranslation())
     .setRotation(host.node.getRotation())
     .setScale(host.node.getScale())
-    .setExtras({ rl_role: host.role, rl_kit: { track: part.track, tier: part.tier, host: part.host } });
+    .setExtras({
+      ...(host.role === undefined ? {} : { rl_role: host.role }),
+      rl_kit: { track: part.track, tier: part.tier, host: part.host },
+    });
 
   const parent = host.node.getParentNode();
   if (parent) {

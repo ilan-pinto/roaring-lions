@@ -8,7 +8,11 @@
 // +0 draw calls. A vehicle submits once per live mesh per pass, and the game
 // draws three passes -- shadow, main, and the GTAO pre-pass (an override
 // material) -- so every KDF vehicle reads 4 meshes x 3 = 12, and the D9 (2
-// meshes) reads 6, at tiers 0 and at tiers 3 alike. Anything else exits 1.
+// meshes) reads 6, at tiers 0 and at tiers 3 alike. Anything else exits 1 --
+// and so does a tiers > 0 reading on a vehicle with no kit merged (without
+// `--synthetic-kit`), which would be the tier-0 hull read twice and no
+// measurement of the merge at all. An unknown argument exits 2. Both live in
+// `kit-drawcalls-args.ts`, where its test holds them.
 //
 // WHAT IT MEASURES IS THE REAL CODE. `packages/render`'s own
 // `buildVehicleMeshTemplate` (which calls `applyVehicleKit` first),
@@ -44,7 +48,8 @@ import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { musicOffInitScript } from '../ui-review/music-off';
-import { gpuLaunchArgs, resolveGpuBackend } from '../ui-review/gpu';
+import { gpuLaunchArgs } from '../ui-review/gpu';
+import { EXPECTED, EXPECTED_DEFAULT, kitReadingFailure, parseKitDrawcallArgs, type KitDrawcallArgs } from './kit-drawcalls-args';
 
 const TAG = 'kit-drawcalls';
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -53,54 +58,20 @@ const UNITS = join(REPO, 'packages/render/src/three/units');
 const GLB_DIR = join(REPO, 'assets/meshes/vehicles');
 const DRACO_DIR = join(REPO, 'assets/draco');
 
-/** The eight kitted KDF vehicles (spec §3; K9 keeps the gunship and the
- *  officer's armour out of plan 3). */
-const KITTED = [
-  'mbt_lavi',
-  'ifv_namer',
-  'apc_eitan',
-  'apc_kipod',
-  'jeep_shoded',
-  'scout_shachaf',
-  'dozer_d9',
-  'heli_peten',
-] as const;
-
-/** Submissions per vehicle per frame, all three passes. 4 live meshes x 3,
- *  and the D9's 2 x 3 (spec §5's measured table). */
-const EXPECTED_DEFAULT = 12;
-const EXPECTED: Readonly<Record<string, number>> = { dozer_d9: 6 };
-
-function arg(name: string): string | undefined {
-  const hit = process.argv
-    .slice(2)
-    .filter((a) => a.startsWith(`--${name}=`))
-    .at(-1);
-  return hit?.slice(name.length + 3);
-}
-
-const ids = (arg('ids') ?? KITTED.join(',')).split(',').filter((s) => s.length > 0);
-const tiersArg = arg('tiers');
-const tierLevels = tiersArg === undefined ? [0, 3] : [Number(tiersArg)];
-for (const t of tierLevels) {
-  if (!Number.isInteger(t) || t < 0 || t > 3) {
-    console.error(`[${TAG}] --tiers must be 0, 1, 2 or 3 (got "${tiersArg}")`);
-    process.exit(2);
-  }
-}
-const N = Number(arg('n') ?? 20);
-if (!Number.isInteger(N) || N < 1) {
-  console.error(`[${TAG}] --n must be a positive integer`);
+let args: KitDrawcallArgs;
+try {
+  args = parseKitDrawcallArgs(process.argv.slice(2), process.platform);
+} catch (err) {
+  console.error(`[${TAG}] ${err instanceof Error ? err.message : String(err)}`);
   process.exit(2);
 }
+const { ids, tierLevels, n: N, gpu, syntheticKit } = args;
 for (const id of ids) {
   if (!existsSync(join(GLB_DIR, `${id}.glb`))) {
     console.error(`[${TAG}] no ${join(GLB_DIR, `${id}.glb`)}`);
     process.exit(2);
   }
 }
-const gpu = resolveGpuBackend(process.argv.slice(2), process.platform);
-const syntheticKit = process.argv.slice(2).includes('--synthetic-kit');
 
 /** esbuild, reached through `tsx` (a direct dependency of this package, which
  *  depends on it) rather than added as one -- the bundle is a measuring
@@ -332,13 +303,14 @@ try {
         [id, level, N, syntheticKit] as [string, number, number, boolean]
       );
       const want = EXPECTED[id] ?? EXPECTED_DEFAULT;
-      const ok = r.perVehicle === want;
-      if (!ok) failures++;
+      const failure = kitReadingFailure({ id, level, perVehicle: r.perVehicle, kittedMeshes: r.kittedMeshes, syntheticKit });
+      if (failure !== null) failures++;
       console.log(
-        `${ok ? 'PASS' : 'FAIL'} ${id} tiers=${level}: ${r.perVehicle} submissions/vehicle (want ${want}) ` +
+        `${failure === null ? 'PASS' : 'FAIL'} ${id} tiers=${level}: ${r.perVehicle} submissions/vehicle (want ${want}) ` +
           `= (${r.callsMainPlusShadow} shadow+main + ${r.callsAoPrepass} AO) / ${N}; ` +
           `${r.liveMeshes} live meshes, ${r.kittedMeshes} carrying kit, ${r.kitTrisPerVehicle} kit tris/vehicle, ` +
-          `${r.trianglesPerVehicleMainPlusShadow} tris/vehicle shadow+main`
+          `${r.trianglesPerVehicleMainPlusShadow} tris/vehicle shadow+main` +
+          (failure === null ? '' : `\n     -> ${failure}`)
       );
     }
   }
@@ -347,7 +319,7 @@ try {
   rmSync(work, { recursive: true, force: true });
 }
 if (failures > 0) {
-  console.error(`[${TAG}] ${failures} reading(s) off the expected submissions per vehicle`);
+  console.error(`[${TAG}] ${failures} reading(s) failed: off the expected submissions per vehicle, or tiers > 0 with no kit merged`);
   process.exit(1);
 }
 console.log(`[${TAG}] every reading at 12 (6 for dozer_d9)`);
