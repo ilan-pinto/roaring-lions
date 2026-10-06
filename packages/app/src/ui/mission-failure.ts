@@ -7,7 +7,7 @@
  * over what the runtime already reports:
  *
  *  1. `failureReason`: the moment a mission is lost, say WHICH primary failed
- *     and when ("FAILED — Level the post … · 5:00"), in the feed and on the
+ *     and when ("Objective failed: Level the post … · 5:00"), in the feed and on the
  *     outcome card. The cause is `MissionRuntime.defeatCause`, the read
  *     telemetry already uses, never re-derived here.
  *  2. `FAILED_CLOCK` (`hud-model.ts`): once the mission is lost, every running

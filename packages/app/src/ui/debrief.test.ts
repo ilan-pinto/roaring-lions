@@ -30,6 +30,8 @@ describe('showDebrief', () => {
     showDebrief(host, base());
     expect(text(host, '.rl-debrief__tier')).toBe(tierName(2));
     expect(text(host, '.rl-debrief__stars')).toBe('★★');
+    // PA-07: the outcome keeps its one name; the grade sits under it.
+    expect(text(host, '.rl-panel__title')).toBe('Mission accomplished');
     expect(text(host, '.rl-debrief__line')).toContain('Brigade read the file');
   });
 
@@ -127,7 +129,10 @@ describe('showDebrief', () => {
   it('renders a defeat with no tier and no stars', () => {
     const host = document.createElement('div');
     showDebrief(host, base({ result: 'defeat', stars: 0, tierLine: undefined }));
-    expect(text(host, '.rl-debrief__tier')).toBe('Withdraw and regroup');
+    // PA-07: one name for a defeat everywhere -- and a defeat earns no grade,
+    // so there is no tier line under it to read as a second one.
+    expect(text(host, '.rl-panel__title')).toBe('Mission failed');
+    expect(host.querySelector('.rl-debrief__tier')).toBeNull();
     expect(host.querySelector('.rl-debrief__stars')).toBeNull();
   });
 
