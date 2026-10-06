@@ -102,8 +102,11 @@ says what colour it is. `weapon`/`metal`/`charge` are the kit parts.
               'spike'). at_spot standing at (-0.32, 0.34) with
               `kit.binoculars` on his head at this figure's measured eye
               height. Neither figure needs a D6 walker: both stand.
-  demo_squad  demo_a kneeling at (0.34, -0.16) over `kit.demo_charge` at
-              (0.76, -0.16) on the team's `prop` bone; demo_b standing at
+  demo_squad  demo_a STANDING at (0.34, -0.16) (spike-walk, 6 Oct; he knelt in
+              every clip until then), behind `kit.demo_charge` at
+              (0.76, -0.16) on the team's `prop` bone, which is packed away
+              while the team moves; he kneels at it on the sim's brace (the
+              motion pass's kneel clips); demo_b standing at
               (-0.36, 0.28) with `rig._weapon_parts`'s rifle held LEVEL at
               his right hand (the kit anchors a rifle at chest height for a
               figure whose arms are built bent; a hung arm holds it at the

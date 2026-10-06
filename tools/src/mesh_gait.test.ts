@@ -678,17 +678,12 @@ const FIGURE_STRIDE_RATIO_FLOOR = 0.75;
  * really measure still, so a figure that starts walking reds this line.
  */
 export const STILL_FIGURES: Readonly<Record<string, string>> = {
-  'demo_squad.glb move demo_a_root':
-    'rig.py: _f("demo_a", posture="kneeling", animates=False) -- the charge layer, deployed',
-  // E5 (2026-10-01): authored, not a defect -- design `docs/campaign/special_units/design.md`
-  // calls the spotter "a kneeling man behind a low tripod"; his boots hold the tripod's
-  // ground while the two riflemen walk (import_meshy_zikit_team.py, `zk_spot`).
-  'recon_zikit.glb move zk_spot_root':
-    'import_meshy_zikit_team.py: the kneeling spotter behind the tripod stays planted while two riflemen walk',
-  // 2026-10-05: `moveFire` is `move`'s legs (`rig.build_move_fire_clip`), so
-  // the same three men stay deployed in it, for the same three reasons.
-  'demo_squad.glb moveFire demo_a_root': 'as its `move`: rig.py builds moveFire from the same walkers',
-  'recon_zikit.glb moveFire zk_spot_root': 'as its `move`: rig.py builds moveFire from the same walkers',
+  // Empty since spike-walk (6 Oct, the lead's ruling): at_team's at_fire,
+  // demo_squad's demo_a and recon_zikit's zk_spot -- the three men carried
+  // across the ground on one knee -- stand and walk now, kneel on the sim's
+  // brace, and their ground props are packed away while the team moves.
+  // Each left by its own demotion assertion going red. The table stays, so
+  // the next still figure has to be named.
 };
 
 /** A figure in `STILL_FIGURES` must measure this still, in metres of forward
@@ -709,7 +704,7 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   // B0b (2026-09-30): Meshy remeshes cut into rig.py parts with their bake
   // (import_meshy_kdf_team.py), boot = below 0.09 H; the 576 both used to
   // read was kit.py's own boot mesh.
-  'demo_squad.glb move': 214,
+  'demo_squad.glb move': 428, // spike-walk (6 Oct): demo_a walks too -- two men's boots, 214 each
   'at_team.glb move': 514, // spike-walk (6 Oct): the gunner walks too -- two men's boots, 257 each
   'sniper_team.glb move': 332, // B7: Meshy boots on the standing walker
   // B3 (2026-09-30): Meshy figures -- one 2,000-tri remesh cut into rig.py
@@ -734,7 +729,7 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   // B5 (2026-10-01): the Meshy breach figure, boot = below 0.09 H, two men.
   'breach_team.glb move': 518, // A3.1: see militia_cell's note
   // E5 (2026-10-01): the Meshy recon figure, boot = below 0.09 H, three men.
-  'recon_zikit.glb move': 332,
+  'recon_zikit.glb move': 498, // spike-walk (6 Oct): the spotter walks too -- three men, 166 each
   'civilians/civilian_woman.glb move': 328,
   'civilians/office_worker.glb move': 346,
   'civilians/farm_worker.glb move': 315, // re-planted legs (motion pass, 5 Oct): 279 before
@@ -745,7 +740,7 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   // 2026-10-05: every armed walker's `moveFire` -- the same boots on the
   // same legs as its `move` (rig.py's `build_move_fire_clip`, or the
   // captured run under the three captured teams' aim), so the same count.
-  'demo_squad.glb moveFire': 214,
+  'demo_squad.glb moveFire': 428,
   'at_team.glb moveFire': 514,
   'sniper_team.glb moveFire': 332,
   'militia_cell.glb moveFire': 704,
@@ -758,7 +753,7 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   'manpad_team.glb moveFire': 711,
   'recoilless_team.glb moveFire': 518,
   'breach_team.glb moveFire': 518,
-  'recon_zikit.glb moveFire': 332,
+  'recon_zikit.glb moveFire': 498,
   'atgm_cell.glb moveFire': 328,
   'mortar_crew.glb moveFire': 300,
 };
@@ -1248,8 +1243,9 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     // living bodies (the capture's own `down`) instead of the corpse.
     // 158 until the motion pass (5 Oct) added kneel/kneelIn/kneelOut to eight
     // files: 48 more rows, one per visible figure per new clip.
-    // spike-walk (6 Oct): + 6, at_team's two men over its new kneel clips.
-    expect(rows).toHaveLength(212); // B7: 21 GLBs, every one with a face mesh now
+    // spike-walk (6 Oct): + 6, at_team's two men over its new kneel clips;
+    // + 9, recon_zikit's three over its own.
+    expect(rows).toHaveLength(221); // B7: 21 GLBs, every one with a face mesh now
     // WHICH files, by name -- not `not.toContain('sniper_team.glb')`, which
     // could never fail: an un-exempted `sniper_team` makes `measureFacing`
     // THROW rather than produce a row, so the absence it asserts is
@@ -1487,7 +1483,8 @@ const WEAPON_RIGS: readonly {
   // tube rides the kneeling body that walker stands in for -- scaled out of
   // every moving clip (measured: bearing 0.0, elevation 0.00, hidden).
   { file: 'recoilless_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire'] },
-  { file: 'recon_zikit.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire', 'moveFire'] },
+  // spike-walk (6 Oct): the Zikit's rifle is the hold's now, aimed in the kneel too.
+  { file: 'recon_zikit.glb', role: 'weapon', joint: /^zk_rifle_weapon$/, figures: 1, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
 ];
 
 /** An aimed clip's weapon may sit this far off its aim elevation (`aimDeg`).
@@ -1677,8 +1674,9 @@ const WEAPON_IDLE_ELEVATION_DEG: Readonly<Record<string, number>> = {
   // Pitch 0 as before; the pistol grip and support handle hang under the
   // front half of a short fat tube and tilt its cloud's axis 5.2 deg down.
   'recoilless_team.glb rcl_fire_forearm_R': -5.2, // [-7.24, -3.15]
-  // E5 (2026-10-01): the Zikit's one kit rifle, a level carry like the other kit teams.
-  'recon_zikit.glb zk_rifle_forearm_R': 2.47, //  [0.46, 4.47]  idle; fire [2.47, 5.84]
+  // spike-walk (6 Oct): the Zikit's rifle at the hold's low ready, as every
+  // held rifle; before, 2.47 -- a level carry on the forearm.
+  'recon_zikit.glb zk_rifle_weapon': -30,
 };
 
 /**
@@ -2305,17 +2303,15 @@ const STANDING_HIP_THIGHS = 2.54;
 const UPRIGHT_IN_MOTION_FRACTION = 0.65;
 
 /**
- * Figures still deployed on a knee in `move`, each authored that way: a
- * kneeler with no D6 walker, beside a ground prop that travels with the team.
- * The SAME defect as the Spike gunner's -- recorded here, not fixed here (a
- * walker and a hidden prop are a design call per team). Asserted in both
- * directions: an entry that stands up fails and must be deleted.
+ * Figures still deployed on a knee in `move`: a kneeler with no D6 walker,
+ * beside a ground prop that travels with the team. The SAME defect as the
+ * Spike gunner's. demo_squad's demo_a and recon_zikit's zk_spot were here too
+ * and were stood up in the same branch (the lead's ruling, 6 Oct); sagi is
+ * held art the game does not draw yet, so he waits for his type to land.
+ * Asserted in both directions: an entry that stands up fails and must be
+ * deleted.
  */
 const KNEELING_IN_MOTION: Readonly<Record<string, string>> = {
-  'demo_squad.glb move demo_a': 'import_meshy_kdf_team.py: kneels over the charge on the `prop` bone, no walker',
-  'demo_squad.glb moveFire demo_a': 'as its `move`',
-  'recon_zikit.glb move zk_spot': 'import_meshy_zikit_team.py: kneels behind the tripod scope, no walker',
-  'recon_zikit.glb moveFire zk_spot': 'as its `move`',
   'officer_fires.glb move sagi': 'import_meshy_officers.py: kneels behind the designator tripod, no walker (held art)',
 };
 
@@ -2360,5 +2356,42 @@ describe('upright in motion -- every figure walks on its feet', () => {
         UPRIGHT_IN_MOTION_FRACTION
       );
     });
+  }
+});
+
+/**
+ * A ground prop (the charge, the tripod scope, a mortar, an ATGM post) is
+ * packed away while the team moves and set down when it stops or braces
+ * (spike-walk, 6 Oct, the lead's ruling): the team's `prop` joint is scaled
+ * to 0 through `move` and `moveFire`, and to 1 in `idle` and every kneel
+ * clip. Before, demo_squad's charge and recon_zikit's tripod slid along the
+ * ground beside the walking team (rig.py hid a prop only for a team with a
+ * D6 walker); on main's two files this reads scale 1 in `move` -- red.
+ */
+describe('a ground prop is packed away while the team moves', () => {
+  const withProp = RIGS.filter((r) => (readGlb(r.path).json.nodes ?? []).some((n) => n.name === 'prop'));
+  it('reads every team with a ground prop', () => {
+    expect(withProp.map((r) => r.file).sort()).toEqual([
+      'atgm_cell.glb',
+      'demo_squad.glb',
+      'mortar_crew.glb',
+      'mortar_team.glb',
+      'recoilless_team.glb',
+      'recon_zikit.glb',
+    ]);
+  });
+  for (const r of withProp) {
+    for (const clip of ['move', 'moveFire', 'idle', 'kneel', 'kneelIn', 'kneelOut']) {
+      if (!r.clips.includes(clip)) continue;
+      const packed = clip === 'move' || clip === 'moveFire';
+      it(`${r.file} ${clip}: the prop is ${packed ? 'packed away' : 'set down'}`, () => {
+        for (const at of ['start', 'end'] as const) {
+          const prop = measureJointPoses(r.path, clip, at).find((j) => j.name === 'prop');
+          expect(prop, `${r.file}: no prop joint`).toBeDefined();
+          if (packed) expect(prop!.scale, `${r.file} ${clip} ${at}`).toBeLessThan(1e-6);
+          else expect(prop!.scale, `${r.file} ${clip} ${at}`).toBeGreaterThan(0.999);
+        }
+      });
+    }
   }
 });

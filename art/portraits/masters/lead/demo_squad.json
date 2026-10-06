@@ -2,7 +2,7 @@
   "unit": "demo_squad",
   "variant": "lead",
   "source": "assets/meshes/demo_squad.glb",
-  "source_sha256": "f8da856068004ce87a9acfc53c7a5539dd8349fd46235b6579230fcd744f6b10",
+  "source_sha256": "5fbd92e9540292e50996b453f673861288a4c4ccb0808df5d755ff92b777b0b7",
   "yaw_deg": -125.0,
   "elevation_deg": 12.0,
   "fov_deg": 30.0,
@@ -11,8 +11,8 @@
     0.88
   ],
   "ndc_box": [
-    0.2814,
-    0.7186,
+    0.3237,
+    0.6763,
     0.06,
     0.94
   ],

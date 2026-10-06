@@ -127,8 +127,9 @@ export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   // 2.43 m shipped span; it was the 0.35 air class while billboard-only.
   loiter_drone: 0.58,
   // E5 (GH-181, 2026-10-01): the bought-only Shmamit team and Peten Gunship, from a fresh
-  // `tools/src/perf/unit-footprints.ts` run (footprint 0.476 and 0.778 tile).
-  recon_zikit: 0.55, heli_peten_gunship: 0.9,
+  // `tools/src/perf/unit-footprints.ts` run (footprint 0.476 and 0.778 tile). recon_zikit
+  // 0.55 -> 0.53 at spike-walk (6 Oct): the spotter stands beside his tripod (0.454 tile).
+  recon_zikit: 0.53, heli_peten_gunship: 0.9,
 };
 
 /** The ring radius for a unit type: its own row, else the class value. */

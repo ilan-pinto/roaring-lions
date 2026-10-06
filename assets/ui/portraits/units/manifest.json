@@ -82,13 +82,13 @@
     "demo_squad": {
       "file": "demo_squad.png",
       "extent": [
-        148,
+        136,
         174
       ],
       "lead": {
         "file": "lead/demo_squad.png",
         "extent": [
-          89,
+          72,
           174
         ]
       }
@@ -270,7 +270,7 @@
       "lead": {
         "file": "lead/recon_zikit.png",
         "extent": [
-          94,
+          66,
           174
         ]
       }

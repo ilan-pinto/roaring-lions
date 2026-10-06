@@ -26,9 +26,9 @@ placement). Both are read, neither is re-derived a second way.
     (`_kneel_bones`, derived below) plus a convention for a free-standing
     weapon prop that is not gripped by any bone-bound hand: `demo_squad`,
     `at_team`, `mortar_team`, `mortar_crew`, `atgm_cell`, and `digger_crew`
-    (its own ground-clutter spoil heap, see `_digger_extras`). `demo_squad`
-    stays kneeling and deployed through every clip (`at_team`'s gunner did
-    too, until spike-walk stood him up, 6 Oct); `mortar_crew`, `atgm_cell` and `digger_crew` instead walk standing
+    (its own ground-clutter spoil heap, see `_digger_extras`). `demo_squad`'s
+    charge layer and `at_team`'s gunner stayed kneeling and deployed through
+    every clip until spike-walk stood them up (6 Oct); `mortar_crew`, `atgm_cell` and `digger_crew` instead walk standing
     on a THIRD root for `move` -- `move_posture="standing"`, the walker
     `_add_figure` builds beside a figure's kneeling `root` and prone
     `death_root` -- matching `teams.digger_crew`'s own sprite-side "stands
@@ -1148,7 +1148,12 @@ TEAM_FIGURES = {
         _f("rpg_load", -0.30, 0.30, headgear="keffiyeh", loadout="irregular", leader=True, weapon="rifle"),
     ],
     "demo_squad": [
-        _f("demo_a", 0.34, -0.16, posture="kneeling", animates=False),
+        # Stands and walks (spike-walk, 6 Oct, the lead's ruling): he was a
+        # kneeler with no walker, on his knee in `move` beside a charge that
+        # slid along the ground with him. The charge is packed away while the
+        # team moves (`_key_death_visibility`) and he kneels at it on the
+        # sim's brace alone (the motion pass's kneel clips).
+        _f("demo_a", 0.34, -0.16),
         _f("demo_b", -0.36, 0.28, leader=True, weapon="rifle"),
     ],
     "at_team": [
@@ -2064,17 +2069,20 @@ def _key_death_visibility(pbones, figures, has_prop, alive, frame=0, moving=Fals
     walker (`spec["move_posture"] == "standing"`) hides its deployed
     kneeling body while moving and shows its standing walker instead; a
     figure with no walker is unaffected either way. The team's shared `prop`
-    (deployed launcher/mortar) hides too, but only for a team that HAS a
-    walker -- `demo_squad`/`at_team`/`mortar_team`'s crews stay deployed
-    through `move` and keep their prop visible, unchanged.
+    (deployed launcher/mortar/charge/scope) is packed away while moving --
+    unless a figure stays DEPLOYED through `move` (kneeling with no walker,
+    `officer_fires`' sagi today), whose prop stays beside him. Until
+    spike-walk (6 Oct) the rule was "only a team that HAS a walker", which
+    left demo_squad's charge and recon_zikit's tripod sliding along the
+    ground beside a team that had stood up.
     """
     alive_scale = 1.0 if alive else 0.0
     dead_scale = 0.0 if alive else 1.0
-    walkers = False
+    deployed_in_move = False
     for spec in figures:
         prefix = spec["prefix"]
         has_walker = spec.get("move_posture") == "standing"
-        walkers = walkers or has_walker
+        deployed_in_move = deployed_in_move or (spec["posture"] == "kneeling" and not has_walker)
         # A figure with a walker shows its deployed body in every living
         # clip but `move`, where the walker shows instead (design D6).
         has_kneeler = spec.get("work_posture") == "kneeling"
@@ -2089,7 +2097,7 @@ def _key_death_visibility(pbones, figures, has_prop, alive, frame=0, moving=Fals
     if has_prop:
         # The deployed launcher/mortar is carried, not modelled, while a crew
         # walks -- a tripod gliding beside a walking crew is the bug D6 fixes.
-        _key_scale(pbones["prop"], 0.0 if (moving and walkers) else alive_scale, _VIS_FRAMES)
+        _key_scale(pbones["prop"], 0.0 if (moving and not deployed_in_move) else alive_scale, _VIS_FRAMES)
 
 
 #: Per-figure gait-phase offset, as a FRACTION of one cycle (0..1), keyed by
@@ -2155,8 +2163,9 @@ def build_move_clip(arm_obj, figures, gait, clip_name="move", firing=False, extr
     their own kneeling `root` gets no gait key at all, but their `{prefix}w`
     walker does, and it visibly steps.
 
-    A kneeling figure with NO walker -- `demo_squad`'s `demo_a` (and
-    `at_team`'s `at_fire` until spike-walk, 6 Oct) -- has nothing to switch to, so it
+    A kneeling figure with NO walker -- `officer_fires`' `sagi` (and
+    `at_team`'s `at_fire`, `demo_squad`'s `demo_a` and `recon_zikit`'s
+    `zk_spot` until spike-walk, 6 Oct) -- has nothing to switch to, so it
     still gets no keys here at all and stays at `move`'s own frame-0
     identity pose for the whole clip: correctly, the whole figure stays put,
     deployed at its weapon, not just its weapon. `rpg_fire` is the one

@@ -38,9 +38,10 @@ const HELD = Object.entries(MOTION_TEAMS).flatMap(([team, spec]) =>
 describe('the hold: hands on the weapon, eye over the bore', () => {
   it('reads every held figure the motion pass places', () => {
     // Rule 1 of mesh_gait.test.ts: the population first. 3 + 3 + 2 + 1 + 2 +
-    // 1 + 1 + 1 + 1: inf, sarim, militia, yahalom, rpg (rifle and RPG), demo,
-    // mortar No.3, MANPAD, and the Spike (spike-walk, 6 Oct).
-    expect(HELD).toHaveLength(15);
+    // 1 + 1 + 1 + 1 + 1: inf, sarim, militia, yahalom, rpg (rifle and RPG),
+    // demo, mortar No.3, MANPAD, and since spike-walk (6 Oct) the Spike and
+    // the Zikit's rifleman.
+    expect(HELD).toHaveLength(16);
   });
 
   for (const h of HELD) {
