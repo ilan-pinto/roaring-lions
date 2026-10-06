@@ -23,6 +23,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { musicOffInitScript } from '../ui-review/music-off';
 
 // ---------------------------------------------------------------------------
 // The pure half, imported by the spec. Nothing here may pull in playwright.
@@ -470,6 +471,7 @@ async function main(): Promise<void> {
     const gl = (await readUnmaskedRenderer(browser)).replace(/\|/g, '/');
     env = `${process.platform}-${process.arch} ${gl} ${VIEWPORT.width}x${VIEWPORT.height} dsf1`;
     const page = await browser.newPage({ viewport: { ...SETTLE_VIEWPORT }, deviceScaleFactor: 1 });
+    await page.addInitScript(musicOffInitScript());
     page.setDefaultTimeout(STEP_TIMEOUT_MS);
     page.on('pageerror', (err) => console.log('  page error:', err.message));
     await page.goto(`http://localhost:${port}/?sandbox=beit_sahwan_outskirts&renderer=three`, { waitUntil: 'load' });

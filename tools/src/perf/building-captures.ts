@@ -271,6 +271,7 @@ if (wants('sheet')) {
     `<table style="border-collapse:collapse"><tr><th></th>${['hall z2.5', 'hall z1', 'house z2.5', 'house z1'].map((h) => `<th>${h}</th>`).join('')}</tr>${rows}</table>`;
   const sheetHtml = path.join(out, 'damage-sheet.html');
   fs.writeFileSync(sheetHtml, html);
+  // music-off: exempt -- a static file:// contact sheet, not the game.
   const sheetPage = await browser.newPage({ viewport: { width: 1900, height: 1600 }, deviceScaleFactor: 1 });
   await sheetPage.goto(`file://${sheetHtml}`, { waitUntil: 'load' });
   await sheetPage.waitForTimeout(500);

@@ -407,6 +407,7 @@ const browser = await chromium.launch({
   args: ['--use-angle=metal', '--ignore-gpu-blocklist', '--use-gl=angle', '--enable-gpu-rasterization', '--disable-gpu-sandbox'],
 });
 const gpu = await (async () => {
+  // music-off: exempt -- a throwaway GPU-renderer probe page, not the game.
   const p = await browser.newPage();
   const s = await p.evaluate(() => {
     const gl = document.createElement('canvas').getContext('webgl2');

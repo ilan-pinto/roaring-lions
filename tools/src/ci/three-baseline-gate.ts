@@ -143,6 +143,7 @@ import {
   type CaptureResult,
 } from '../golden-diff/browser';
 import { guardCapture } from '../golden-diff/capture-guard';
+import { musicOffInitScript } from '../ui-review/music-off';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -508,6 +509,7 @@ async function main(): Promise<void> {
     }
 
     const page = await browser.newPage({ viewport: { ...CAPTURE_VIEWPORT } });
+    await page.addInitScript(musicOffInitScript());
     const outcomes: ScenarioOutcome[] = [];
 
     // Screens the scenario harness cannot frame, checked before the

@@ -6,6 +6,7 @@
  */
 import { chromium, type Page } from 'playwright';
 import fs from 'node:fs';
+import { musicOffInitScript } from '../ui-review/music-off';
 
 const [base = 'http://127.0.0.1:5178', out = 'art-captures'] = process.argv.slice(2);
 fs.mkdirSync(out, { recursive: true });
@@ -17,6 +18,7 @@ const page: Page = await browser.newPage({
   viewport: { width: 1440, height: 900 },
   deviceScaleFactor: 1,
 });
+await page.addInitScript(musicOffInitScript());
 
 async function boot(url: string): Promise<void> {
   await page.goto(base + url, { waitUntil: 'load' });

@@ -103,6 +103,7 @@ async function main(): Promise<void> {
 
   const browser = await chromium.launch();
   try {
+    // music-off: exempt -- renders radio.ts offline on a stub page, not the game.
     const page = await browser.newPage();
     await page.route('http://radio.test/**', (route) => {
       const url = route.request().url();

@@ -43,6 +43,7 @@
 import { chromium, type Page } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
+import { musicOffInitScript } from '../ui-review/music-off';
 
 /** The zoom band `main.ts` clamps the camera to is 0.35-2.5; these are the two
  *  ends the spec names, and the lead judges the sheet at both. */
@@ -111,6 +112,7 @@ const page: Page = await browser.newPage({
   viewport: { width: 1440, height: 900 },
   deviceScaleFactor: 1,
 });
+await page.addInitScript(musicOffInitScript());
 page.on('console', (msg) => {
   const text = msg.text();
   if (text.includes('no mesh queued') || text.includes('[lions]')) console.log('  page:', text);

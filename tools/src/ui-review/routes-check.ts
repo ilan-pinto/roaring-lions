@@ -247,6 +247,9 @@ try {
   const newContext: typeof browser.newContext = async (...a) => {
     const c = await origNewContext(...a);
     watchTelemetry(c, telemetryHits);
+    // music-off: every context -- this wrapper seeds the lead's music-off
+    // default (`music-off.ts`) into every context the walk opens.
+    await c.addInitScript(musicOffInitScript());
     return c;
   };
   browser.newContext = newContext;
@@ -255,6 +258,7 @@ try {
   // `this.newContext`, so the wrapper already sees it; this line does not rely
   // on that, and `watchTelemetry` is idempotent per context.
   watchTelemetry(page.context(), telemetryHits);
+  await page.context().addInitScript(musicOffInitScript());
   page.setDefaultTimeout(ACTION_TIMEOUT_MS);
   const started = Date.now();
   const at = (): string => `${((Date.now() - started) / 1000).toFixed(1)} s`;
@@ -991,8 +995,6 @@ try {
         '  return ctx; }; })()'
     );
     await modelCtx.addInitScript(garageSeedScript());
-    // Music off, the lead's default for every test browser.
-    await modelCtx.addInitScript(musicOffInitScript());
     const m = await modelCtx.newPage();
     m.setDefaultTimeout(ACTION_TIMEOUT_MS);
     const modelWarnings: string[] = [];

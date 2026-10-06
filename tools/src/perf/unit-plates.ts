@@ -189,6 +189,7 @@ import { PNG } from 'pngjs';
 import pixelmatch from 'pixelmatch';
 import { ensureDevServer, stopDevServer, readUnmaskedRenderer } from '../golden-diff/browser';
 import { FREEZE_FRAME_LOOP_SCRIPT, hideHudExceptCanvas } from '../golden-diff/capture-protocol';
+import { musicOffInitScript } from '../ui-review/music-off';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -465,6 +466,7 @@ async function runCapture(): Promise<void> {
     console.log(`[${TAG}] GPU: ${gpu}`);
 
     const page: Page = await browser.newPage({ viewport: VIEWPORT, deviceScaleFactor: DPR });
+    await page.addInitScript(musicOffInitScript());
     // Generous, not the family's usual 30s: under software SwiftShader a
     // `page.screenshot` measured well past 90s once several GLBs were
     // resident (`GL Driver Message ... GPU stall due to ReadPixels`, this

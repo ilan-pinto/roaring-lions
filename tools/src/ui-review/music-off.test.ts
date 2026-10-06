@@ -53,19 +53,66 @@ describe('music-off settings seed', () => {
   });
 });
 
-describe('no tool seeds lions.settings by hand', () => {
+describe('every browser a tool opens starts with music off', () => {
   const root = join(__dirname, '..');
   const files = (dir: string): string[] =>
     readdirSync(dir).flatMap((n) => {
       const p = join(dir, n);
       return statSync(p).isDirectory() ? files(p) : p.endsWith('.ts') && !p.endsWith('.test.ts') ? [p] : [];
     });
+  const tools = files(root).filter((f) => !f.endsWith('music-off.ts'));
 
   it('every write of the key goes through music-off.ts', () => {
-    const offenders = files(root)
-      .filter((f) => !f.endsWith('music-off.ts'))
+    const offenders = tools
       .filter((f) => /setItem\(\s*['"`]lions\.settings['"`]/.test(readFileSync(f, 'utf8')))
       .map((f) => relative(root, f));
     expect(offenders).toEqual([]);
+  });
+
+  // A creator is a browser.newPage()/browser.newContext() call. It passes when
+  // musicOffInitScript( follows within SEED_WINDOW lines (the seed goes on
+  // right after, before the page navigates), or the call is marked
+  // `music-off: exempt -- <why>` (a probe that is not the game), or its file
+  // seeds every context at one wrapper, marked `music-off: every context`.
+  const SEED_WINDOW = 25;
+  const CREATOR = /\bbrowser!?\.(newPage|newContext)\(/;
+  const LAUNCHER = /chromium\.launch\(|launchCaptureBrowser\(\)/;
+
+  it('every page or context creator seeds music off, or says why not', () => {
+    const offenders: string[] = [];
+    for (const f of tools) {
+      const lines = readFileSync(f, 'utf8').split('\n');
+      const everyContext = lines.some((l) => l.includes('music-off: every context'));
+      lines.forEach((l, i) => {
+        if (!CREATOR.test(l) || /^\s*(\/\/|\*)/.test(l)) return;
+        const seeded = lines.slice(i, i + SEED_WINDOW).some((x) => x.includes('musicOffInitScript('));
+        const exempt = lines.slice(Math.max(0, i - 3), i + 1).some((x) => x.includes('music-off: exempt'));
+        if (!seeded && !exempt && !everyContext) offenders.push(`${relative(root, f)}:${i + 1}`);
+      });
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('every file that launches a browser imports the helper or is wholly exempt', () => {
+    const offenders = tools
+      .filter((f) => {
+        const src = readFileSync(f, 'utf8');
+        const code = src.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+        // golden-diff/browser.ts DEFINES the launcher; its callers are checked above.
+        return LAUNCHER.test(code) && !f.endsWith('golden-diff/browser.ts') && !src.includes('musicOffInitScript(') && !src.includes('music-off: exempt');
+      })
+      .map((f) => relative(root, f));
+    expect(offenders).toEqual([]);
+  });
+
+  it('the seed changes nothing the page draws: parsed, it equals the defaults but for audio.music', () => {
+    // main.ts reads settings only for the video/quality/accessibility/language
+    // hooks and the audio gains; music is read by audio.ts alone. So a frame
+    // (the golden gate included) is identical when parse(seed) and parse(null)
+    // agree everywhere except audio.music.
+    const seeded = parseSettings(musicOffJson());
+    const bare = parseSettings(null);
+    expect({ ...seeded, audio: { ...seeded.audio, music: 1 } }).toEqual(bare);
+    expect(seeded.audio.music).not.toBe(bare.audio.music);
   });
 });

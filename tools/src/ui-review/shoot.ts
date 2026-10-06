@@ -102,6 +102,7 @@ import {
 import { garageSeedScript } from './garage-seed';
 import { assertOutcomeStillPresent } from './outcome-guard';
 import { claimPort } from './port';
+import { musicOffInitScript } from './music-off';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -294,6 +295,7 @@ async function garageStates(browser: Browser, res: { width: number; height: numb
     viewport: { width: res.width, height: res.height },
     deviceScaleFactor: 1,
   });
+  await ctx.addInitScript(musicOffInitScript());
   await ctx.addInitScript(garageSeedScript());
   const page = await ctx.newPage();
   page.setDefaultTimeout(30000);
@@ -661,6 +663,7 @@ try {
       viewport: { width: res.width, height: res.height },
       deviceScaleFactor: 1,
     });
+    await ctx.addInitScript(musicOffInitScript());
     const page = await ctx.newPage();
     page.setDefaultTimeout(30000);
 
@@ -686,6 +689,7 @@ try {
           deviceScaleFactor: 1,
           reducedMotion: 'reduce',
         });
+        await plateCtx.addInitScript(musicOffInitScript());
         const platePage = await plateCtx.newPage();
         platePage.setDefaultTimeout(30000);
         await platePage.goto(url('/'), { waitUntil: 'load' });
@@ -756,6 +760,7 @@ try {
         viewport: { width: res.width, height: res.height },
         deviceScaleFactor: 1,
       });
+      await backCtx.addInitScript(musicOffInitScript());
       const backPage = await backCtx.newPage();
       backPage.setDefaultTimeout(30000);
       await backPage.goto(url(`/mission/${MISSION}`), { waitUntil: 'load' });
@@ -1094,6 +1099,7 @@ try {
         viewport: { width: res.width, height: res.height },
         deviceScaleFactor: 1,
       });
+      await winCtx.addInitScript(musicOffInitScript());
       const winPage = await winCtx.newPage();
       winPage.setDefaultTimeout(30000);
       await winPage.goto(url(`/mission/${MISSION}`), { waitUntil: 'load' });

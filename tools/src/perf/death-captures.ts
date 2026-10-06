@@ -26,6 +26,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ensureDevServer, stopDevServer } from '../golden-diff/browser';
 import { FREEZE_FRAME_LOOP_SCRIPT } from '../golden-diff/capture-protocol';
+import { musicOffInitScript } from '../ui-review/music-off';
 
 const PORT = 5179;
 const VIEWPORT = { width: 1400, height: 900 } as const;
@@ -352,6 +353,7 @@ async function main(): Promise<void> {
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage({ viewport: { ...VIEWPORT }, deviceScaleFactor: 1 });
+    await page.addInitScript(musicOffInitScript());
     page.setDefaultTimeout(STEP_TIMEOUT_MS);
     page.on('pageerror', (err) => console.log('  page error:', err.message));
     await page.goto(`http://localhost:${PORT}/?sandbox=beit_sahwan_outskirts`, { waitUntil: 'load' });

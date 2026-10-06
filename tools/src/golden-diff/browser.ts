@@ -278,6 +278,7 @@ export async function rephotograph(
  *  `docs/PERFORMANCE.md` records the same read costing one full mismeasurement
  *  when it was NOT done. */
 export async function readUnmaskedRenderer(browser: Browser): Promise<string> {
+  // music-off: exempt -- a throwaway about:blank probe, not the game.
   const page = await browser.newPage();
   try {
     await page.goto('about:blank');
