@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { applyUpgrades, kitLevel, units } from '@lions/data';
 import { kitSummary } from './ui/kit-sign';
 import { upgradePrepass } from './upgrade-prepass';
@@ -10,6 +10,23 @@ import { upgradePrepass } from './upgrade-prepass';
 // filter added to one and not the other, a different default -- and then the
 // card shows a kit the mission is not running. One pure function now feeds
 // both from the same per-type read.
+
+// `applyUpgrades`, called through but RECORDED, so a test can compare what the
+// renderer is handed against the tiers the sim's types were actually patched
+// with -- not against a second reading of the account, which would agree with
+// a prepass that read it twice.
+const seen = vi.hoisted(() => [] as { id: string; tiers: unknown }[]);
+vi.mock('@lions/data', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@lions/data')>();
+  return {
+    ...actual,
+    applyUpgrades: ((u: { id: string }, tiers: unknown) => {
+      seen.push({ id: u.id, tiers });
+      return (actual.applyUpgrades as (a: unknown, b: unknown) => unknown)(u, tiers);
+    }) as typeof actual.applyUpgrades,
+  };
+});
+
 describe('upgradePrepass', () => {
   const roster = Object.values(units);
   const owned = { at_team: { firepower: 2 }, mbt_lavi: { armour: 3, sensors: 1 } };
@@ -46,6 +63,23 @@ describe('upgradePrepass', () => {
     expect(Object.keys(unitKit).sort()).toEqual([...kitByType.keys()].sort());
     for (const [id, summary] of kitByType) expect(unitKit[id], id).toBe(summary.level);
     expect(unitKit.mbt_lavi).toBe(kitLevel(units.mbt_lavi, owned.mbt_lavi));
+  });
+
+  it('hands the renderer, per KDF type, exactly the tiers applyUpgrades patched it with (GH-238)', () => {
+    seen.length = 0;
+    const { unitKitTiers, unitKit } = upgradePrepass(roster, owned);
+    const kdf = roster.filter((u) => u.faction === 'kdf').map((u) => u.id);
+    expect(Object.keys(unitKitTiers).sort()).toEqual([...kdf].sort());
+    expect(Object.keys(unitKitTiers).sort()).toEqual(Object.keys(unitKit).sort());
+    // Every KDF type was patched (`kitSummary` patches too, through the same
+    // function, so an id can appear twice -- every call must agree).
+    expect([...new Set(seen.map((s) => s.id))].sort()).toEqual([...kdf].sort());
+    for (const { id, tiers } of seen) expect(unitKitTiers[id], id).toEqual(tiers);
+    expect(unitKitTiers.mbt_lavi).toEqual({ armour: 3, sensors: 1 });
+    expect(unitKitTiers.ifv_namer).toEqual({});
+    // A copy, frozen: the renderer cannot write the account through it.
+    expect(unitKitTiers.mbt_lavi).not.toBe(owned.mbt_lavi);
+    expect(Object.isFrozen(unitKitTiers.mbt_lavi)).toBe(true);
   });
 
   it('reads the audit seed as the spec did: Lavi 3, rifles 1, AT 1, and the sim runs that Lavi', () => {

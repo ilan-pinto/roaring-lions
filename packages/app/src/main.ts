@@ -1650,6 +1650,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       BASE
     ),
     timeOfDay: tod.value,
+    // GH-238: the bought kit each vehicle wears, from the one prepass that
+    // registered the sim's types and drew the card -- so the hull on the
+    // field is the hull the sim is running.
+    unitKitTiers: prepass.unitKitTiers,
     // Sandbox only: a mission brings its own battle, and a dev flag must
     // never change how one looks.
     ...(!mission && wantDecals
