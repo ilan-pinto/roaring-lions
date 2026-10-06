@@ -55,6 +55,10 @@ export {
   WEAPON_CLASS,
   unitTypeFromJson,
   SIM_EVENT_KINDS,
+  BRACE_NONE,
+  BRACE_DROPPING,
+  BRACE_KNEELING,
+  BRACE_RISING,
   type SimConfig,
   type Command,
   type SimEvent,
@@ -66,3 +70,5 @@ export {
   type HitProjection,
   type SimEventKindsAreExhaustive,
 } from './sim';
+// Halt-to-fire clip timing for the renderer (spec 2026-10-05-infantry-halt-to-fire §5).
+export { KNEEL_DROP_TICKS, KNEEL_RISE_TICKS } from './tuning';

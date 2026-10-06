@@ -98,6 +98,10 @@ import {
   VET_SUPP_BONUS,
   DEFAULT_TURN_DEG_S,
   AIM_OFF_HEADING_MAX,
+  KNEEL_DROP_TICKS,
+  KNEEL_RISE_TICKS,
+  BOUND_FIRE_TICKS,
+  BOUND_MOVE_TICKS,
   PIN_SPEED_SHIFT,
   ROUT_AFTER_TICKS,
   ROUT_SPEED_SHIFT,
@@ -189,6 +193,10 @@ export interface UnitTypeJson {
      *  `!FOOT_ROLES.has(role)` — see UnitType.wheeled for why role alone is
      *  not enough and this field has to exist. */
     wheeled?: boolean;
+    /** Fires only from a halt: gets down before its first shot and up again
+     *  before it moves on. Absent means derived -- every armed foot unit that
+     *  is not a kamikaze. See UnitType.haltsToFire. */
+    halts_to_fire?: boolean;
   };
   sensors: {
     optics: number;
@@ -224,6 +232,31 @@ const FOOT_ROLES = new Set(['infantry', 'at_team', 'artillery', 'engineer', 'sni
 export const DOMAIN_FOOT = 0;
 export const DOMAIN_VEHICLE = 1;
 const DOMAIN_COUNT = 2;
+
+/**
+ * Brace states for a unit that halts to fire (`UnitType.haltsToFire`), as
+ * stored in `Sim.state.brace` -- the renderer's contract, spec
+ * `2026-10-05-infantry-halt-to-fire.md` §5. Set only by the sim.
+ *
+ *  - NONE: standing or moving. A bracer does not fire in this state.
+ *  - DROPPING: getting down, KNEEL_DROP_TICKS. Neither moves nor fires.
+ *  - KNEELING: down. Fires; does not move.
+ *  - RISING: getting up, KNEEL_RISE_TICKS. Neither moves nor fires.
+ *
+ * Always NONE for a unit that does not halt to fire, and for a bracer that is
+ * garrisoned, carried or buried. Frozen at death, so a body can be drawn
+ * falling from the pose it held.
+ */
+export const BRACE_NONE = 0;
+export const BRACE_DROPPING = 1;
+export const BRACE_KNEELING = 2;
+export const BRACE_RISING = 3;
+
+/** `braceWant` bits, written by stepCombat and read by stepBrace. */
+const BRACE_WANT_TARGET = 1;
+const BRACE_WANT_CLOSE = 2;
+const BRACE_WANT_BREACH = 4;
+const BRACE_WANT_EXPOSED = 8;
 
 /** Weapon classes as ints — string compares stay out of the hot loop. */
 export const WEAPON_CLASS: Record<string, number> = {
@@ -352,6 +385,21 @@ export interface UnitType {
    */
   wheeled: boolean;
   /**
+   * Fires only from a halt, kneeling (spec 2026-10-05-infantry-halt-to-fire).
+   *
+   * A unit with this set never fires while its feet move: it stops, spends
+   * KNEEL_DROP_TICKS getting down, fires while `BRACE_KNEELING`, and spends
+   * KNEEL_RISE_TICKS getting up before it moves on. Vehicles, aircraft and the
+   * charge squad keep firing on the move.
+   *
+   * Authored as `mobility.halts_to_fire`, defaulting to "armed, on foot, not
+   * a kamikaze" -- foot meaning `!wheeled` and not air, the same derivation
+   * that already decides who a boulder field stops, so `rocket_battery` (a
+   * Grad on a truck, role `artillery`) lands on the vehicle side by the same
+   * authored `wheeled: true` that put it there for boulders.
+   */
+  haltsToFire: boolean;
+  /**
    * Which blocked mask this type paths on: DOMAIN_FOOT or DOMAIN_VEHICLE.
    *
    * Air is DOMAIN_FOOT deliberately. It ignores terrain blocking outright, so
@@ -466,6 +514,8 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
   const abilities = json.abilities ?? [];
   const isAir = json.mobility.domain === 'air';
   const wheeled = json.mobility.wheeled ?? !FOOT_ROLES.has(json.role ?? '');
+  const isKamikaze = abilities.includes('kamikaze');
+  const armed = (json.weapons ?? []).length > 0;
   return {
     id: json.id,
     name: json.name ?? json.id,
@@ -481,9 +531,13 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
     tunnelChargeTicks: fx.toInt(
       fx.mul(fx.from(json.tunnel_charge_time_s ?? CHARGE_SECONDS), fx.fromInt(TICKS_PER_SECOND)),
     ),
-    isKamikaze: abilities.includes('kamikaze'),
+    isKamikaze,
     isAir,
     wheeled,
+    // A kamikaze is excluded because its sprint IS the attack (charge_squad,
+    // the drones): there is no aimed shot to kneel for. Unarmed is excluded
+    // because there is nothing to fire.
+    haltsToFire: json.mobility.halts_to_fire ?? (!wheeled && !isAir && !isKamikaze && armed),
     // Air never pays for a vehicle field: it flies over the boulders the
     // vehicle mask exists to describe.
     moveDomain: !isAir && wheeled ? DOMAIN_VEHICLE : DOMAIN_FOOT,
@@ -874,6 +928,25 @@ export class Sim {
    *  aiming unit at double `turnPerTick`. */
   private readonly aimDesired: Int32Array;
   private readonly aimFrom: Int32Array;
+  /** BRACE_* per entity: whether a unit that halts to fire is standing,
+   *  getting down, down, or getting up. Hashed -- it gates both firing and
+   *  movement. See the BRACE_ constants and `stepBrace`. */
+  private readonly brace: Uint8Array;
+  /** Ticks left in a DROPPING or RISING transition; 0 otherwise. Hashed. An
+   *  interrupted transition starts shorter than the full constant (stepBrace),
+   *  so this, not "ticks since the state changed", is what a clip follows. */
+  private readonly braceTicks: Int32Array;
+  /** Scratch, written by stepCombat and read by stepBrace in the same tick:
+   *  1 when this unit wants to be down this tick. Cleared at the top of every
+   *  stepCombat and never hashed -- it is derived from target selection, which
+   *  the hash already covers through curTarget/engaging and the outcome
+   *  through `brace`. */
+  private readonly braceWant: Uint8Array;
+  /** Ticks spent in the current brace state, reset on every transition.
+   *  Read for the attack-move bound (stepBrace): how long a man has been up
+   *  and moving, or down and firing, in the band between effective and
+   *  maximum range. Hashed: it decides when he next halts. */
+  private readonly braceClock: Int32Array;
   private readonly demoTicks: Int32Array;
   private readonly demoTarget: Int32Array;
   /**
@@ -1044,6 +1117,13 @@ export class Sim {
     readonly carriedBy: Int32Array;
     /** Route this unit is inside, or -1 on the surface. */
     readonly tunnelIn: Int32Array;
+    /** BRACE_* per entity (spec 2026-10-05-infantry-halt-to-fire §5): a unit
+     *  that halts to fire is standing (NONE), getting down (DROPPING), down
+     *  and firing (KNEELING), or getting up (RISING). Always NONE for every
+     *  other unit. */
+    readonly brace: Uint8Array;
+    /** Ticks left in a DROPPING or RISING transition, 0 otherwise. */
+    readonly braceTicks: Int32Array;
   };
 
   /** Read-only structure view for the renderer and HUD. */
@@ -1131,6 +1211,10 @@ export class Sim {
     this.aimTurned = new Uint8Array(n);
     this.aimDesired = new Int32Array(n);
     this.aimFrom = new Int32Array(n);
+    this.brace = new Uint8Array(n);
+    this.braceTicks = new Int32Array(n);
+    this.braceWant = new Uint8Array(n);
+    this.braceClock = new Int32Array(n);
     this.demoTicks = new Int32Array(n);
     this.demoTarget = new Int32Array(n).fill(-1);
     this.demolishOrder = new Int32Array(n).fill(-1);
@@ -1218,6 +1302,8 @@ export class Sim {
       demoTarget: this.demoTarget,
       carriedBy: this.carriedBy,
       tunnelIn: this.tunnelIn,
+      brace: this.brace,
+      braceTicks: this.braceTicks,
     };
     this.structures = {
       alive: this.stAlive,
@@ -1444,6 +1530,7 @@ export class Sim {
     // buried hull.
     if (this.passengers[unitId] > 0) this.unloadAll(unitId);
     this.tunnelIn[unitId] = routeIdx;
+    this.braceClear(unitId);
     this.tnOccupants[routeIdx]++;
     // The earth cancels the WHOLE order bundle, not just kinematics.
     // applyCommands refuses new surface orders while buried; this covers
@@ -1667,6 +1754,9 @@ export class Sim {
     this.moving[id] = 0;
     this.attackMove[id] = 0;
     this.fieldRef[id] = -1;
+    this.brace[id] = BRACE_NONE;
+    this.braceTicks[id] = 0;
+    this.braceClock[id] = 0;
     this.apsAmmo[id] = type.apsMagazine;
     this.pendingEvents.push({ kind: 'spawn', tick: this.tickCount, entity: id, typeId: type.id, side });
     return id;
@@ -1700,6 +1790,29 @@ export class Sim {
   setAmbush(id: number, tiles: Fx): void {
     this.stance[id] = 1;
     this.ambushRadiusSq[id] = fx.mul(tiles, tiles);
+    // An ambusher is already in its firing position: when the trap springs it
+    // shoots that tick, as GDD 5.7's Ashwar target requires, rather than
+    // spending KNEEL_DROP_TICKS getting down in front of the column.
+    this.braceDown(id);
+  }
+
+  /** Put a unit that halts to fire straight into BRACE_KNEELING, no drop.
+   *  For the two cases that start a fight already low: an ambusher, and a
+   *  fighter coming up out of a tunnel shaft. A no-op for any other unit,
+   *  which keeps "brace is NONE for a non-bracer" true by construction. */
+  private braceDown(id: number): void {
+    if (!this.unitTypes[this.typeIdx[id]].haltsToFire) return;
+    this.brace[id] = BRACE_KNEELING;
+    this.braceTicks[id] = 0;
+    this.braceClock[id] = 0;
+  }
+
+  /** Back to BRACE_NONE, no rise: containment (a building, a vehicle, a
+   *  tunnel) takes the man out of the open, and his pose with him. */
+  private braceClear(id: number): void {
+    this.brace[id] = BRACE_NONE;
+    this.braceTicks[id] = 0;
+    this.braceClock[id] = 0;
   }
 
   /** Dev/test hook: place a unit somewhere directly (sandbox tooling). */
@@ -1736,6 +1849,7 @@ export class Sim {
     this.stepDetection();
     this.stepSurfacing();
     this.stepCombat();
+    this.stepBrace();
     this.stepProjectiles();
     this.stepStrikes();
     this.stepKamikaze();
@@ -2409,6 +2523,18 @@ export class Sim {
    *  attack-mover halted to fight counts as stationary for stance, target
    *  motion, and signature purposes. */
   private isEffectivelyMoving(i: number): boolean {
+    // Deliberately NOT changed by halt to fire, and that was measured rather
+    // than assumed. A man on one knee at a SHORT halt -- an attack-move bound,
+    // nothing yet inside effective range -- keeps the values of a unit on the
+    // move: GDD 5.2 names three shooter stances (stationary / short-halt /
+    // moving) and the sim has always priced short-halt with the moving ones.
+    // A man halted for good -- idle, or an attack-mover with a target inside
+    // effective range (`engaging`) -- is stationary, as he always was. Making
+    // every kneeling man stationary instead took the urban 2:1+smoke assault
+    // from 67% to 18% (spec 2026-10-05-infantry-halt-to-fire §6): a bound
+    // would then cost the attacker his moving-target protection and buy him
+    // nothing, so halt to fire changes WHEN a man shoots and moves, never
+    // how hard he is to hit.
     return this.moving[i] === 1 && !(this.attackMove[i] === 1 && this.engaging[i] === 1);
   }
 
@@ -2846,6 +2972,9 @@ export class Sim {
       this.posY[i] = vy;
       this.surfaceTicks[i] = SURFACE_SECONDS * TICKS_PER_SECOND;
       this.volleyLeft[i] = SURFACE_VOLLEY;
+      // Out of the shaft low and ready: the guaranteed window is the
+      // player's answer to this mechanic, and a drop would spend it.
+      this.braceDown(i);
       this.pendingEvents.push({ kind: 'surfaced', tick: this.tickCount, entity: i, tunnel: r });
     }
   }
@@ -3481,6 +3610,7 @@ export class Sim {
 
   private stepCombat(): void {
     this.aimTurned.fill(0);
+    this.braceWant.fill(0);
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0 || this.firepowerKilled[i] === 1) continue;
       // The outbound half of containment — the inbound half is Task 7's
@@ -3518,9 +3648,24 @@ export class Sim {
       const type = this.unitTypes[this.typeIdx[i]];
       if (type.weapons.length === 0) continue;
 
+      // Halt to fire (spec 2026-10-05-infantry-halt-to-fire): a unit that
+      // fires only from a halt does not fire at all unless it is down. Targets
+      // are still SELECTED below exactly as before -- that is what decides
+      // whether it wants to get down (`braceWant`, read by stepBrace) -- only
+      // the trigger is withheld. Garrisoned and carried units are exempt: they
+      // fight from a window or a firing port, not from the open.
+      const holdFire =
+        type.haltsToFire &&
+        this.brace[i] !== BRACE_KNEELING &&
+        this.garrisonedIn[i] < 0 &&
+        this.carriedBy[i] < 0;
+      let anyTarget = false;
+      let breaching = false;
+
       // `engaging` (which halts an attack-mover) only latches once the primary
-      // target is inside EFFECTIVE range — advancing units keep closing under
-      // marching fire instead of stalling at maximum range to plink.
+      // target is inside EFFECTIVE range — advancing units keep closing instead
+      // of stalling at maximum range to plink. (Vehicles close under marching
+      // fire; a unit that halts to fire closes with its weapon held.)
       let engagedClose = false;
       this.curStructure[i] = -1;
       for (let slot = 0; slot < type.weapons.length && slot < 2; slot++) {
@@ -3528,6 +3673,7 @@ export class Sim {
         const target = this.selectTarget(i, w);
         if (slot === 0) this.curTarget[i] = target;
         if (target < 0) continue;
+        anyTarget = true;
         const dSq = distSqFx(
           fx.sub(this.posX[target], this.posX[i]),
           fx.sub(this.posY[target], this.posY[i])
@@ -3543,7 +3689,7 @@ export class Sim {
           );
         }
 
-        if (this.cooldown[i * 2 + slot] > 0) continue;
+        if (this.cooldown[i * 2 + slot] > 0 || holdFire) continue;
         this.fireAt(i, slot, w, target);
       }
 
@@ -3555,6 +3701,7 @@ export class Sim {
           if (STRUCT_DAMAGE[w.cls] === 0) continue;
           const s = this.selectStructureTarget(i, w);
           if (s < 0) continue;
+          anyTarget = true;
           // Same test the unit path makes above, for the same reason: selection
           // reaches to MAXIMUM range, and latching `engaging` on selection stalls
           // an attack-mover the moment a garrisoned building comes into range at
@@ -3569,7 +3716,7 @@ export class Sim {
           if (slot === 0) {
             this.aimHullAt(i, fx.atan2(fx.sub(ty, this.posY[i]), fx.sub(tx, this.posX[i])));
           }
-          if (this.cooldown[i * 2 + slot] > 0) continue;
+          if (this.cooldown[i * 2 + slot] > 0 || holdFire) continue;
           this.fireAtStructure(i, slot, w, s, tx, ty);
         }
       }
@@ -3599,17 +3746,168 @@ export class Sim {
               const dSq = this.structDistSq(s, this.posX[i], this.posY[i]);
               if (dSq > w.rangeSq || dSq < w.minRangeSq) continue;
               engagedClose = true;
+              breaching = true;
               if (slot === 0) this.curStructure[i] = s;
               if (slot === 0) {
                 this.aimHullAt(i, fx.atan2(fx.sub(ty, this.posY[i]), fx.sub(tx, this.posX[i])));
               }
-              if (this.cooldown[i * 2 + slot] > 0) continue;
+              if (this.cooldown[i * 2 + slot] > 0 || holdFire) continue;
               this.fireAtStructure(i, slot, w, s, tx, ty);
             }
           }
         }
       }
       this.engaging[i] = engagedClose ? 1 : 0;
+
+      // What stepBrace needs from this tick's target selection (spec §2):
+      // bit 0 any target at all, bit 1 one inside effective range (the latch
+      // that already halted attack-movers), bit 2 a wall in the way that this
+      // unit is about to shoot (selectBreachTarget). Written for every unit
+      // that halts to fire; stepBrace decides what it means for the order the
+      // unit is under.
+      if (type.haltsToFire) {
+        this.braceWant[i] =
+          (anyTarget ? BRACE_WANT_TARGET : 0) |
+          (engagedClose ? BRACE_WANT_CLOSE : 0) |
+          (breaching ? BRACE_WANT_BREACH : 0) |
+          (this.curTarget[i] >= 0 && this.coverLevelOf(this.curTarget[i], i) === 0 ? BRACE_WANT_EXPOSED : 0);
+      }
+    }
+  }
+
+  /**
+   * Halt to fire: move every unit that halts to fire one step through
+   * NONE -> DROPPING -> KNEELING -> RISING -> NONE (spec
+   * 2026-10-05-infantry-halt-to-fire §2). Runs right after stepCombat, which
+   * wrote `braceWant` from this tick's target selection, and before
+   * stepMovement, which refuses to move any unit not at BRACE_NONE.
+   *
+   * The two counters are asymmetric in code so that they are symmetric in
+   * time. Firing happens in stepCombat, BEFORE this, so a drop that is to
+   * allow its first shot KNEEL_DROP_TICKS ticks after the acquisition tick
+   * must reach KNEELING at the end of tick T + KNEEL_DROP_TICKS - 1: it counts
+   * the acquisition tick itself. Movement happens AFTER this, so a rise that
+   * starts at T' must reach NONE in this step on tick T' + KNEEL_RISE_TICKS:
+   * it does not count its first tick. Both are pinned by brace.test.ts.
+   *
+   * No RNG, no allocation, integers only.
+   */
+  private stepBrace(): void {
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0) continue; // frozen at death
+      const type = this.unitTypes[this.typeIdx[i]];
+      if (!type.haltsToFire) continue;
+      // Contained: no pose in the open. Held at NONE (braceClear already ran
+      // at the moment of containment; this keeps it there).
+      if (this.garrisonedIn[i] >= 0 || this.carriedBy[i] >= 0 || this.tunnelIn[i] >= 0) {
+        if (this.brace[i] !== BRACE_NONE) this.braceClear(i);
+        continue;
+      }
+      // Gone to ground (GDD 5.5) is flatter than kneeling: the machine
+      // freezes, clock and all, neither dropping nor rising. A routed unit is
+      // the exception, because routing is running: it gets up and goes.
+      if (this.pinned[i] === 1 && this.routed[i] === 0) continue;
+
+      const b = this.brace[i];
+      const flags = this.braceWant[i];
+      const close = (flags & (BRACE_WANT_CLOSE | BRACE_WANT_BREACH)) !== 0;
+      // Should this man be down (or getting down) this tick?
+      let down: boolean;
+      if (this.routed[i] === 1) {
+        down = false; // running for it
+      } else if (this.moving[i] === 0) {
+        // Not going anywhere -- halted, holding, arrived, working, watching:
+        // a man who has stopped takes a knee, target or no target. This is
+        // also what keeps a defender "set": he is already down when the
+        // attacker comes into sight, and the attacker is the one who pays
+        // the drop (measured, spec §6 -- without it a smoke screen lets a 1:1
+        // assault carry, because the defender loses his first-shot edge).
+        down = true;
+      } else if ((flags & BRACE_WANT_BREACH) !== 0) {
+        down = true; // stuck against a wall that is in the way: shoot it
+      } else if (this.attackMove[i] === 0) {
+        down = false; // a plain move runs through, holding its fire
+      } else if ((flags & BRACE_WANT_CLOSE) !== 0) {
+        down = true; // attack-move, a target inside effective range: stop and fight
+      } else if ((flags & BRACE_WANT_TARGET) !== 0 && (flags & BRACE_WANT_EXPOSED) !== 0) {
+        // Attack-move with a target only in the band between effective and
+        // maximum range: advance by bounds. Halt and fire for
+        // BOUND_FIRE_TICKS, then get up and move for BOUND_MOVE_TICKS, so the
+        // approach still carries suppressive fire -- every round of it from a
+        // knee -- without stalling at maximum range to plink.
+        down =
+          b === BRACE_NONE
+            ? this.braceClock[i] >= BOUND_MOVE_TICKS
+            : b === BRACE_DROPPING
+              ? true
+              : b === BRACE_KNEELING
+                ? this.braceClock[i] < BOUND_FIRE_TICKS
+                : false;
+      } else {
+        down = false; // nothing to shoot and somewhere to be
+      }
+
+      if (b === BRACE_NONE) {
+        if (!down) {
+          this.braceClock[i]++;
+          continue;
+        }
+        this.brace[i] = BRACE_DROPPING;
+        this.braceTicks[i] = KNEEL_DROP_TICKS;
+        this.braceClock[i] = 0;
+        this.countDownDrop(i);
+      } else if (b === BRACE_DROPPING) {
+        if (down) {
+          this.countDownDrop(i);
+        } else {
+          // Half-way down and no longer wanted there: getting up takes as
+          // long as getting down had, never more than a full rise.
+          const done = KNEEL_DROP_TICKS - this.braceTicks[i];
+          this.brace[i] = BRACE_RISING;
+          this.braceTicks[i] = done < KNEEL_RISE_TICKS ? done : KNEEL_RISE_TICKS;
+          this.braceClock[i] = 0;
+          if (this.braceTicks[i] <= 0) this.braceClear(i);
+        }
+      } else if (b === BRACE_KNEELING) {
+        // A man who fired this tick is still on his knee at the end of it:
+        // the rise starts on the next. That keeps the renderer's contract
+        // exact -- a bracer's `fire` event always comes with BRACE_KNEELING --
+        // and costs the rise one tick only when it follows a shot.
+        if (down || this.lastFired[i] === this.tickCount) {
+          this.braceClock[i]++;
+          continue;
+        }
+        this.brace[i] = BRACE_RISING;
+        this.braceTicks[i] = KNEEL_RISE_TICKS;
+        this.braceClock[i] = 0;
+      } else {
+        // RISING. Only a reason that does not depend on the bound pulls a
+        // man back down mid-rise: a close target, a wall, or a halt.
+        if (down && (close || this.moving[i] === 0)) {
+          // Back down for as long as he had been rising, never more than a
+          // full drop.
+          const done = KNEEL_RISE_TICKS - this.braceTicks[i];
+          this.brace[i] = BRACE_DROPPING;
+          this.braceTicks[i] = done < 1 ? 1 : done < KNEEL_DROP_TICKS ? done : KNEEL_DROP_TICKS;
+          this.braceClock[i] = 0;
+          this.countDownDrop(i);
+        } else if (--this.braceTicks[i] <= 0) {
+          this.braceClear(i);
+          // Up: he moves on this very tick (stepMovement runs next), so this
+          // tick is the first of his bound.
+          this.braceClock[i] = 1;
+        }
+      }
+    }
+  }
+
+  /** One tick of a drop, counting the tick it is called on; KNEELING when it
+   *  runs out. See stepBrace for why the drop counts its first tick. */
+  private countDownDrop(i: number): void {
+    if (--this.braceTicks[i] <= 0) {
+      this.brace[i] = BRACE_KNEELING;
+      this.braceTicks[i] = 0;
+      this.braceClock[i] = 0;
     }
   }
 
@@ -4245,6 +4543,7 @@ export class Sim {
 
   private enterStructure(id: number, s: number): void {
     this.garrisonedIn[id] = s;
+    this.braceClear(id);
     this.garrisonGoal[id] = -1;
     this.stOccupants[s]++;
     this.moving[id] = 0;
@@ -4375,6 +4674,7 @@ export class Sim {
   /** Put `id` in a seat. Extracted so boarding and authored-aboard share it. */
   private seat(car: number, id: number): void {
     this.carriedBy[id] = car;
+    this.braceClear(id);
     this.boardGoal[id] = -1;
     this.passengers[car]++;
     this.moving[id] = 0;
@@ -4877,7 +5177,29 @@ export class Sim {
       if (this.alive[i] === 0 || this.attackMove[i] === 0) continue;
       if (this.moving[i] === 1) continue; // already going somewhere
       if (this.garrisonedIn[i] >= 0 || this.routed[i] === 1 || this.pinned[i] === 1) continue;
-      if (this.curTarget[i] >= 0) continue; // busy shooting something
+      // Busy shooting something -- but only inside EFFECTIVE range counts.
+      // An attack-mover that has arrived with its target out in the band
+      // between effective and maximum range closes on it, exactly as a moving
+      // one does (stepCombat's `engaging` latch), instead of kneeling where it
+      // stopped and plinking at long range for the rest of the mission. With
+      // more sight than reach -- `inf_squad`'s sensor upgrade puts 13 tiles of
+      // sight on an 8-tile rifle -- that was the common case, and it is one
+      // half of the sight-range stall; the identified-but-out-of-reach skip
+      // below is the other half. Spec 2026-10-05-infantry-halt-to-fire §3.
+      if (this.engaging[i] === 1) continue;
+      const tgt = this.curTarget[i];
+      // A target in the band and in the OPEN is worth firing on from here --
+      // the same rule that bounds a moving attack-mover against it (stepBrace)
+      // -- so it stays where it was sent and shoots. Only one in cover is
+      // walked on toward.
+      if (tgt >= 0 && this.coverLevelOf(tgt, i) === 0) continue;
+      if (tgt >= 0) {
+        this.goalX[i] = this.posX[tgt];
+        this.goalY[i] = this.posY[tgt];
+        this.fieldRef[i] = this.fieldFor(fx.toInt(this.goalX[i]), fx.toInt(this.goalY[i]), this.domainOf(i));
+        this.moving[i] = 1;
+        continue;
+      }
       const side = this.side[i];
 
       // Anything we are standing on has been searched.
@@ -4901,8 +5223,17 @@ export class Sim {
           this.lastSeenValid[k] = 0;
           continue;
         }
-        // Currently identified enemies are the combat step's problem.
-        if (this.contactState[k] === 2) continue;
+        // Currently identified enemies are the combat step's problem -- but
+        // only while combat can shoot them. This loop runs only for a unit
+        // with no target at all (the curTarget guard above), so an enemy it
+        // has identified and is not shooting is out of its range or out of
+        // its sight line. Skipping that one too was a stall: an attack-mover
+        // with more sight than reach (the `inf_squad` sensor upgrade buys 13
+        // tiles of sight for an 8-tile rifle) knelt and watched it for the
+        // rest of the mission. Walk to it instead -- unless no weapon this
+        // unit carries could engage it (a rifle squad does not chase a
+        // helicopter), or it is inside something selectTarget refuses.
+        if (this.contactState[k] === 2 && !this.couldEngage(i, t)) continue;
         const d = distSqFx(
           fx.sub(this.lastSeenX[k], this.posX[i]),
           fx.sub(this.lastSeenY[k], this.posY[i])
@@ -4928,6 +5259,30 @@ export class Sim {
     }
   }
 
+  /** The cover level, 0-3, that `t` has against fire from `shooter`: its own
+   *  tile or the parapet it fights behind, whichever is better -- hitFactors'
+   *  own rule, read without rolling anything. */
+  private coverLevelOf(t: number, shooter: number): number {
+    const tx = this.posX[t];
+    const ty = this.posY[t];
+    const tileCover = this.cover[(ty >> 16) * this.width + (tx >> 16)];
+    const parapet = this.parapetCover(tx, ty, this.posX[shooter], this.posY[shooter]);
+    return parapet > tileCover ? parapet : tileCover;
+  }
+
+  /** Could any of `i`'s weapons ever be aimed at `t`, range and sight aside?
+   *  The domain and containment half of selectTarget's filter, for stepSweep:
+   *  worth walking toward only if, once there, combat could take the shot. */
+  private couldEngage(i: number, t: number): boolean {
+    if (this.garrisonedIn[t] >= 0 || this.carriedBy[t] >= 0 || this.tunnelIn[t] >= 0) return false;
+    const air = this.unitTypes[this.typeIdx[t]].isAir;
+    const weapons = this.unitTypes[this.typeIdx[i]].weapons;
+    for (let s = 0; s < weapons.length && s < 2; s++) {
+      if (air ? weapons[s].canTargetAir : weapons[s].canTargetGround) return true;
+    }
+    return false;
+  }
+
   // ----------------------------------------------------------------- movement
 
   private stepMovement(): void {
@@ -4948,6 +5303,9 @@ export class Sim {
       // Attack-movers halt to fight while they hold a target (stationary
       // stance emerges from this — no scripted bonus needed).
       if (this.attackMove[i] === 1 && this.engaging[i] === 1) continue;
+      // Getting down, down, or getting up: a man on one knee does not walk.
+      // Only a unit that halts to fire ever leaves BRACE_NONE.
+      if (this.brace[i] !== BRACE_NONE) continue;
       const type = this.unitTypes[this.typeIdx[i]];
       const px = this.posX[i];
       const py = this.posY[i];
@@ -5281,6 +5639,9 @@ export class Sim {
     h = hashArray(h, this.tnOccupants);
     h = hashArray(h, this.tnContact);
     h = hashArray(h, this.tnContactState);
+    h = hashArray(h, this.brace);
+    h = hashArray(h, this.braceTicks);
+    h = hashArray(h, this.braceClock);
     return h >>> 0;
   }
 }
