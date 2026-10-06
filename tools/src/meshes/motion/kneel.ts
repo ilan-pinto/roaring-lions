@@ -79,7 +79,7 @@ export const KNEEL_UNARMED_LEAN = 10;
  */
 export const KNEEL_HAND_CLEAR = 0.06;
 
-interface Leg {
+export interface Leg {
   readonly thigh: Node;
   readonly shin: Node;
   readonly foot: Node;
@@ -87,7 +87,7 @@ interface Leg {
   readonly ankleRest: V3;
 }
 
-function legOf(rig: Rig, p: string, side: 'L' | 'R'): Leg {
+export function legOf(rig: Rig, p: string, side: 'L' | 'R'): Leg {
   const thigh = rig.node(`${p}_thigh_${side}`);
   const shin = rig.node(`${p}_shin_${side}`);
   const foot = rig.node(`${p}_foot_${side}`);
@@ -139,14 +139,14 @@ interface Kneeler {
   readonly arms: { upper: Node; pts: Pt[] }[];
 }
 
-type Pt = { joint: Node; p: V3 };
+export type Pt = { joint: Node; p: V3 };
 
 /** Metres of forward lean on `plantLeg`'s pole (see there). */
 const PLANT_POLE_FORWARD = 0.03;
 
 /** Lowest of a set of rest points under a pose. A point on a joint scaled
  *  out (a death twin) collapses to its root and is not drawn: skipped. */
-function lowestY(rig: Rig, pose: Pose, pts: readonly Pt[]): number {
+export function lowestY(rig: Rig, pose: Pose, pts: readonly Pt[]): number {
   const cache = new Map<Node, Xf>();
   const world = (n: Node): Xf => rig.worldOf(n, pose, cache);
   let lo = Infinity;
@@ -169,7 +169,7 @@ function lowestY(rig: Rig, pose: Pose, pts: readonly Pt[]): number {
  * plane was whatever the noise said, a knee flipped between two keys, and
  * the slerp between them put a toe 17 mm under the ground.
  */
-function plantLeg(rig: Rig, pose: Pose, leg: Leg, pts: readonly Pt[], y: number): void {
+export function plantLeg(rig: Rig, pose: Pose, leg: Leg, pts: readonly Pt[], y: number): void {
   for (let round = 0; round < 4; round++) {
     const off = y - lowestY(rig, pose, pts);
     if (Math.abs(off) < 1e-4) return;

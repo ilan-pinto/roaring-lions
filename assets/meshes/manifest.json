@@ -1,6 +1,6 @@
 {
   "sources": {
-    "at_team.glb": "182ea7e6716864f372028ff78346a16c2cbc8d99ed8c291e8960db3c9ca48370",
+    "at_team.glb": "87c904587f8fb34d4f968ed134a5e597f9db6de622eb50f3b0c7a7eeb45bef9d",
     "atgm_cell.glb": "e91ee4fd9d50fb600d2ffb68915eca6d25f47c1ffb1dcbf9fd7ad06f481ee635",
     "breach_team.glb": "ce4f8ee219c1b7c347f41fe8a04f4712c93b5474f96c9d14c5160722d827e6aa",
     "buildings/apartment.glb": "805112e4a89a1cdddd1d12790bfe7439e553593c16bf67e2260e27ff7d5cb901",
@@ -81,11 +81,11 @@
     "decor/tree_0.glb": "5af6f46cc2fb4048e2702a346227627a5471b50ac8ae95ba8a63d2a39670a56c",
     "decor/tree_1.glb": "b9e6afd60d469caf3dba05c0029fc1bdbc3e73b1cda6c465d305b71c34d76aa6",
     "decor/tree_2.glb": "b9e6afd60d469caf3dba05c0029fc1bdbc3e73b1cda6c465d305b71c34d76aa6",
-    "demo_squad.glb": "6c831d84eac7695c91402f4269e15e8450529a40fd3449c6c545538cd286f706",
+    "demo_squad.glb": "37ce9ac18a303f57bab224062c45751f5c55e19e0ce0d3632b504baa892885d3",
     "digger_crew.glb": "9d19827ca436e7f9c6ac0f081e0d14955837e4a92385cce98be564b07fbd33fc",
-    "inf_squad.glb": "fb25c397f68b5c22531f9a96c2fe49edc2308d4a481a865b645dae9c54cd3604",
-    "manpad_team.glb": "f3db11864d6f7e81418a08b4f1c5d8dc5e306e6cbbe0390016d574fb1055fcad",
-    "militia_cell.glb": "68547a2844655d4d819f3d51b9c558e6da86d8acb19272b280ba5319903a3d60",
+    "inf_squad.glb": "a6a76c6fd81e99f4a9c24ed8b45cf413467aebe3264c7e69c5d990dbe321710f",
+    "manpad_team.glb": "95187e9a51f9bedbc6da3a21d1f6324388fad119191ec4eda9d8ab6e28af6703",
+    "militia_cell.glb": "cc7765ab125c0fcf696a91c42bdfe8dd0e762a99900fd50ddee81eb1ea9a44bf",
     "mortar_crew.glb": "2812da5851ab72c00c5045db0c71ebc476558c10fed57bcbfb3ff5ba1c7f39d7",
     "mortar_team.glb": "9912f3f614d08c880c1a612303a58891a365ec3c337ceae59750ab7980336223",
     "moto_rpg.glb": "9c5792862e759c0d4b6d46ca70a0cd2118512c3a9c0de3bdd8452cd2f49803b0",
@@ -105,9 +105,9 @@
     "props/water_tank.glb": "3b4b64255d4336d82a74489126c0ef2a9b84f1c8530230c60c2ab1a58cce07ee",
     "props/wrecked_car.glb": "b27c2dd4dfd2a7e9b935c36f6e9ea2271fc9bd1f7757569fb1527886a1dd597e",
     "recoilless_team.glb": "3eb9edfca1cd79f68d3ece5fe5dc3708189bebcdca9fde8bdaa73db5c43c82a6",
-    "recon_zikit.glb": "d8f7cb40ce5430beb1c68525d8d01bd2c71b71e83894130dca1c426e9f8dcb7f",
-    "rpg_team.glb": "9b9988f0a633ad056b239def057e747b002706aad736f7028556f33e70dd520f",
-    "sarim_rifles.glb": "85650f7381fdd1459c273d67ccbbc6cd7e3006610dedb32f4e6efd7ee205de81",
+    "recon_zikit.glb": "e11d552336edcee752e5e084076323ecfdb874b9d0d6c4d3b8dc6ece682e274f",
+    "rpg_team.glb": "bb3b98cb198962befe0e0ca1b8fd469f77d1558ef542c254dc1cce591e3fa7cf",
+    "sarim_rifles.glb": "c92973276372bf7e6c169443a0ca5609218b16390a98992b96040a393b2f86ac",
     "sniper_team.glb": "e41c75ae8e3aab9a55594e13487e7b1d30c891cd9ac1c520b1f4fdebbbd292f2",
     "vehicles/apc_eitan.glb": "99768ce97b326f4d6c28f4d9c09a3d7cd3ba02ce077393abb29a08a9ae03a7dd",
     "vehicles/apc_kipod.glb": "49769f6d798ddddca1aa25b98509b727bcc9725b5bc7481908ffb7f4f139500a",
@@ -130,6 +130,6 @@
     "vfx/explosion_burst.glb": "c111861d350311378a23a73568b9c8ab5fc42308e6d33d107f75db39d68f1702",
     "vfx/muzzle_flash.glb": "cd6d18faa40aaa5ceaeb4a104efc4dd2f62fb99632a56ff3f2d9c03b0294db7b",
     "vfx/smoke_plume.glb": "66787596e321cb586e56e2dfb2923618717820b9e1f2b9bdf8acbd254133bc69",
-    "yahalom_squad.glb": "433ec1e863cdc522df820f2519a42be901e0dec1c26590ad92939f55a99585ea"
+    "yahalom_squad.glb": "eddcf139b084aa42660bcfbb4ccd976200deae565ae4c8a78e203502e172ce15"
   }
 }

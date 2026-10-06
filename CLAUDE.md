@@ -1435,6 +1435,24 @@ for vehicles.
   feature-detected), and recoil is a spine kick after the mixer, one figure
   per shot. Gates: `mesh_hold.test.ts` (hands on the weapon, eye on the bore)
   and `mesh_gait.test.ts`.
+- **Nothing a living team draws is under the ground** (ground-fix, 6 Oct;
+  `motion/ground.ts`, `motion/carry.ts`). For the nine teams marked `ground`
+  in `MOTION_TEAMS`, in idle, fire, move and moveFire: a foot under 1 mm is
+  planted at it by leg IK and the leg re-keyed at 120 fps PLUS every key the
+  clip already had (a coarser root bends at its own keys); a figure with no
+  ankle (manpad_team's kneeling spotter) is raised frame by frame; a `prop` is
+  seated, vertices, rest, keys and bind together. yah_a's sensor mast is
+  carried 20 degrees tip-up in move, the arm not swinging (it went 114 mm into
+  the ground). Two things to know. **Removing the walk's between-key dips
+  moved the gait pass's reading**: `rl_gait.strideM` dropped 1.4-2.5% on the
+  nine (foot skate 0.008-0.042 -> 0.027-0.064, ceiling 0.25), because its
+  planted-speed weight is relative to the clip's own lowest sole; 1 mm and not
+  the kneel's 3 is what kept that smallest. And **the gate is tree-wide**:
+  `mesh_gait.test.ts` reads every rigged file's living clips, and the
+  thirteen not grounded yet are a numbered debt list (`BELOW_GROUND_DEBT`:
+  crew kneelers 12-37 mm, breach_team's shield 148 mm in move, charge_squad
+  26-38 mm everywhere, the civilians, sniper, moto), each asserted still
+  under so a fix must delete its line.
 
 - **`kit.py`'s "No armature." rule is now partly overturned.** Of its three
   reasons, only "blocky is enough at 25 px" fell — beaten by the project lead

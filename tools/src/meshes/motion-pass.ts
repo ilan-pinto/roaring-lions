@@ -7,7 +7,13 @@
  *   kneel     `kneel`, `kneelIn`, `kneelOut` for every standing armed team;
  *   wedge     the figures re-spaced into a wedge (three) or echelon (two);
  *   stride    locomotion legs warped to a realistic cadence, the knee
- *             clamped, the feet planted (`motion/stride.ts`).
+ *             clamped, the feet planted (`motion/stride.ts`);
+ *   carry     a long item held in one hand carried tip-up while walking,
+ *             the arm not swinging (`motion/carry.ts`);
+ *   ground    nothing under the ground in idle, fire, move or moveFire --
+ *             a foot planted, a static kneeler raised, a prop seated
+ *             (`motion/ground.ts`). Before the kneel, which builds from
+ *             the grounded idle.
  *
  * Order in the mesh pipeline: export (Blender) -> THIS -> `pnpm gait:meshes`
  * -> `pnpm encode:meshes`. A file that has been through it carries
@@ -23,6 +29,8 @@ import { NodeIO, type Document } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { applyHold } from './motion/apply-hold';
 import { applyKneel } from './motion/kneel';
+import { applyCarry } from './motion/carry';
+import { applyGround } from './motion/ground';
 import { applyFormation } from './motion/formation';
 import { applyStride } from './motion/stride';
 import { tidyArms } from './motion/tidy';
@@ -48,6 +56,8 @@ export function runMotionPass(doc: Document, id: string, spec: MotionTeam, base:
   if (spec.stride) lines.push(...applyStride(doc, id, spec));
   const holds = spec.hold ? applyHold(doc, id, spec) : [];
   lines.push(...holds.map((h) => h.line));
+  lines.push(...applyCarry(doc, id, spec));
+  lines.push(...applyGround(doc, id, spec));
   if (spec.kneel) lines.push(...applyKneel(doc, id, spec, holds[0]?.ctx ?? []));
   scene.setExtras({
     ...extras,
