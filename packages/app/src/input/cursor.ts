@@ -12,10 +12,19 @@ import type { PlayerIntent, Resolution } from './intents';
 import type { RoleBucket } from '../ui/role';
 import { ORDER_SIGHT, type SightOrderId } from '../ui/order-sight';
 
+/** `advance` is the cursor over a hostile, and it was `attack` until WP-P4
+ *  (PA-08). The rename is the point: a right-click over an enemy does not
+ *  target it. Every plain order is `attackMove` to the TILE, and the sim's
+ *  `selectTarget` picks what each unit shoots -- so a clicked AA truck could
+ *  read "Engaging: Militia Cell". The sight it draws was always the
+ *  attack-move graphic; the key `cursorKey()` reports, and the fire panel's
+ *  footer line that reads it (`hud.fire.clickAdvances`), now say the same
+ *  thing: advance there and engage. When the Stage 4 targeted-fire order
+ *  (GH-420) lands, a real `attack` name comes back with it, for that order. */
 export type CursorName =
   | 'default'
   | 'move'
-  | 'attack'
+  | 'advance'
   | 'blocked'
   | 'costly'
   | 'protected'
@@ -77,7 +86,7 @@ export interface CursorAnimation {
   intervalMs: number;
 }
 
-/** Which approved G1 order sight each wired cursor name draws (Q2). `attack`
+/** Which approved G1 order sight each wired cursor name draws (Q2). `advance`
  *  is the attackMove sight -- a plain order over a hostile is an attack-move
  *  -- and the other four share their order's own id. `load`, `unload` and
  *  `halt` are drawn by the plugin but reach no cursor name: halt is instant,
@@ -85,7 +94,7 @@ export interface CursorAnimation {
  *  reaches the hover ticker. */
 const SIGHT_OF: Readonly<Partial<Record<CursorName, SightOrderId>>> = {
   move: 'move',
-  attack: 'attackMove',
+  advance: 'attackMove',
   sweep: 'sweep',
   strike: 'strike',
   smoke: 'smoke',
@@ -111,7 +120,7 @@ const anim = (id: SightOrderId): CursorAnimation => ({
  *  order's APP-6 tactical graphic animated around it, and round 5 ("Can you
  *  add more colors", APPROVED) coloured each by order family and kept round
  *  4's shapes, motion and periods. So the five wired sights -- `move`,
- *  `attack` (the attackMove sight), `sweep`, `strike` and `smoke` -- all
+ *  `advance` (the attackMove sight), `sweep`, `strike` and `smoke` -- all
  *  animate, at the frame counts and periods `ORDER_SIGHT` carries, and this
  *  table is DERIVED from it rather than restating a number that could drift.
  *
@@ -119,7 +128,7 @@ const anim = (id: SightOrderId): CursorAnimation => ({
  *  recorded rather than silently dropped. It said a cursor animates only
  *  when the order it previews pins a unit to a spot while a sim timer runs
  *  (`demolish`'s `demolitionTicks`, `charge`'s `tunnelChargeTicks`), and it
- *  recorded `attack` as an admitted exception to that rule. And it recorded
+ *  recorded `advance` as an admitted exception to that rule. And it recorded
  *  armed support as REJECTED: a targeting mode that covers every tile while
  *  armed, whose motion "would be constant and carry no per-tile information
  *  ... the 'a cursor that always moves is noise' failure". The lead looked
@@ -168,7 +177,7 @@ const anim = (id: SightOrderId): CursorAnimation => ({
  *  no repaint, the answer is to delete the animation, not to swap mechanisms. */
 export const ANIMATED_CURSORS: Readonly<Partial<Record<CursorName, CursorAnimation>>> = {
   move: anim('move'),
-  attack: anim('attackMove'),
+  advance: anim('attackMove'),
   sweep: anim('sweep'),
   strike: anim('strike'),
   smoke: anim('smoke'),
@@ -196,7 +205,7 @@ export function winningVerb(res: Resolution, hints: CursorHints): CursorName | n
   const has = (kind: string): boolean => res.intents.some((i) => i.kind === kind);
   if (has('demolish')) return 'demolish';
   if (has('chargeTunnel')) return 'charge';
-  if (has('order') && hints.hostile) return 'attack';
+  if (has('order') && hints.hostile) return 'advance';
   if (has('garrison')) return 'garrison';
   if (has('mount')) return 'mount';
   if (has('dismount')) return 'dismount';
@@ -229,29 +238,29 @@ export function cursorFor(res: Resolution, hints: CursorHints): CursorName {
   // roe_penalty, so without this a dozer over a house would read "costly"
   // instead of "demolish" -- true, milder, and useless beside "you are about
   // to level this." This also reaches a hostile plain order: winningVerb
-  // resolves that to 'attack' too (ordering decision 2), so 'attack' now
+  // resolves that to 'advance' too (ordering decision 2), so 'advance' now
   // outranks costly and blocked as well, not only the six new verbs --
-  // a click over impassable ground with a hostile hint reads 'attack', not
+  // a click over impassable ground with a hostile hint reads 'advance', not
   // 'blocked'. Deliberate, and the reason cursor.test.ts's two
-  // costly/blocked-vs-attack cases changed expectations in this same slice.
+  // costly/blocked-vs-advance cases changed expectations in this same slice.
   const verb = winningVerb(res, hints);
-  // Pinned (GH-262) replaces only the plain order's own names -- `attack`
+  // Pinned (GH-262) replaces only the plain order's own names -- `advance`
   // here and `move` at the bottom -- because the hint speaks only for the
   // order intent's ids. Every rung above still outranks it, and so do
   // costly and blocked below, which describe the target rather than the
   // order. The order-intent check is belt and braces: `winningVerb` names
-  // `attack` only for an order, and the final fallback is reached with one.
+  // `advance` only for an order, and the final fallback is reached with one.
   const wholeOrderPinned = hints.pinned === true && res.intents.some((i) => i.kind === 'order');
-  if (verb === 'attack' && wholeOrderPinned) return 'pinned';
+  if (verb === 'advance' && wholeOrderPinned) return 'pinned';
   if (verb) return verb;
   if (res.roe === 'costly') return 'costly';
   if (hints.blocked) return 'blocked';
   if (wholeOrderPinned) return 'pinned';
-  // winningVerb already returns 'attack' for a hostile plain order, so this
+  // winningVerb already returns 'advance' for a hostile plain order, so this
   // line is only reached when there are no intents of any ranked kind --
   // kept anyway, because an unranked future intent kind would otherwise fall
   // through to 'move' over a hostile.
-  return hints.hostile ? 'attack' : 'move';
+  return hints.hostile ? 'advance' : 'move';
 }
 
 /** Whichever id field this intent's kind carries. Written explicitly rather
@@ -294,7 +303,7 @@ function intentVerb(intent: PlayerIntent, hints: CursorHints): CursorName | null
     case 'chargeTunnel':
       return 'charge';
     case 'order':
-      return hints.hostile ? 'attack' : 'move';
+      return hints.hostile ? 'advance' : 'move';
     case 'garrison':
       return 'garrison';
     case 'mount':

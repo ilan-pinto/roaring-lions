@@ -456,6 +456,7 @@
   "hud.fire.factor.firingOnTheMove": "firing on the move",
   "hud.fire.factor.suppressed": "suppressed",
   "hud.fire.cannotPenetrate": "cannot penetrate",
+  "hud.fire.clickAdvances": "Right-click: advance and engage · each unit picks its own target",
   "hud.fire.heading": "Projected fire · {target}",
   "hud.fire.unidentifiedOnly": "Not identified · no firing solution",
   "hud.fire.penalty": "{label} −{n}%",

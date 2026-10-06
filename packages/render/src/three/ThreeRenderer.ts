@@ -154,6 +154,7 @@ import {
   CAMERA_NEAR,
   CAMERA_FAR,
 } from './camera';
+import { structureAtScreenThree, structureBoxes } from './structure-pick';
 import { createSceneLights, DAY_LIGHTS, type ResolvedLights, type SceneLights } from './lighting';
 import {
   BOUNCE_KEY,
@@ -4840,6 +4841,40 @@ export class ThreeRenderer implements Renderer {
       py,
       this.camera,
       { width: this.width, height: this.height },
+      this.retained.elevation,
+      this.sim.width,
+      this.sim.height
+    );
+  }
+
+  /**
+   * The standing structure whose DRAWN volume this pixel shows, or -1 (WP-P4,
+   * PA-14) -- `structure-pick.ts`'s top comment has the defect and the rule.
+   * Each box is as big as what this renderer draws there: the standing
+   * mesh's measured size (`buildingMeshBounds`, the numbers the collapse
+   * shroud is sized from) where a mesh clone stands, else the extruded wall.
+   */
+  structureAtScreen(px: number, py: number): number {
+    const st = this.sim.structures;
+    const boxes = structureBoxes(this.sim, this.retained.elevation, (s) => {
+      const type = this.sim.structureTypes[st.typeIdx[s]];
+      const w = st.maxX[s] - st.minX[s] + 1;
+      const d = st.maxY[s] - st.minY[s] + 1;
+      const bounds = this.buildingMeshIdleEntities.has(s) ? this.buildingMeshBounds.get(type.id) : undefined;
+      if (!bounds) return { width: w, height: type.heightPx * WORLD_Y_PER_LIFT_PIXEL, depth: d };
+      // A per-tile run turns a quarter to follow its neighbours, so its
+      // measured x/z are not this tile's; it is one tile and low either way.
+      if (type.perTile) return { width: w, height: bounds.y, depth: d };
+      // The same rule the collapse shroud is sized by: never smaller than
+      // the footprint, as big as the mesh where the mesh is bigger.
+      return { width: Math.max(w, bounds.x), height: bounds.y, depth: Math.max(d, bounds.z) };
+    });
+    return structureAtScreenThree(
+      px,
+      py,
+      this.camera,
+      { width: this.width, height: this.height },
+      boxes,
       this.retained.elevation,
       this.sim.width,
       this.sim.height

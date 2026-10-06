@@ -27,13 +27,13 @@ describe('cursorFor', () => {
     expect(cursorFor(moving(), NONE)).toBe('move');
   });
 
-  it('is attack when a hostile is under the pointer', () => {
-    expect(cursorFor(moving(), { hostile: true, blocked: false })).toBe('attack');
+  it('is advance (an attack-move, not a targeted attack) when a hostile is under the pointer', () => {
+    expect(cursorFor(moving(), { hostile: true, blocked: false })).toBe('advance');
   });
 
-  it('is attack over impassable ground with a hostile hint, now that the verb outranks blocked', () => {
+  it('is advance over impassable ground with a hostile hint, now that the verb outranks blocked', () => {
     // Slice 3 moved THE VERB rung above roe costly and, with it, blocked:
-    // winningVerb folds a hostile plain order in as 'attack' (ordering
+    // winningVerb folds a hostile plain order in as 'advance' (ordering
     // decision 2), and that check now runs before hints.blocked is ever
     // consulted. This is a deliberate, ruled-on change, not a regression
     // this test failed to notice: attack is a verb in the destructiveness
@@ -41,7 +41,7 @@ describe('cursorFor', () => {
     // outranks the collateral tier (costly/blocked) the same way demolish
     // does -- "here is what you would hit" beats "here is what it costs or
     // blocks." Before this task blocked won here.
-    expect(cursorFor(moving(), { hostile: true, blocked: true })).toBe('attack');
+    expect(cursorFor(moving(), { hostile: true, blocked: true })).toBe('advance');
   });
 
   it('is costly over a structure that scores against you', () => {
@@ -52,7 +52,7 @@ describe('cursorFor', () => {
     expect(cursorFor(moving({ roe: 'protected' }), NONE)).toBe('protected');
   });
 
-  it('puts protected above costly, blocked and attack', () => {
+  it('puts protected above costly, blocked and advance', () => {
     expect(cursorFor(moving({ roe: 'protected' }), { hostile: true, blocked: true })).toBe(
       'protected'
     );
@@ -64,14 +64,14 @@ describe('cursorFor', () => {
     );
   });
 
-  it('puts attack above costly, now that the verb outranks costly', () => {
+  it('puts advance above costly, now that the verb outranks costly', () => {
     // Same reorder as the blocked case above: THE VERB rung sits above roe
-    // costly, and winningVerb resolves a hostile plain order to 'attack'
+    // costly, and winningVerb resolves a hostile plain order to 'advance'
     // before roe === 'costly' is ever reached. Deliberate: a hostile under
     // the pointer now outranks the collateral tier, so the cursor names
     // what the click does (attack) over what it merely costs (costly).
     expect(cursorFor(moving({ roe: 'costly' }), { hostile: true, blocked: false })).toBe(
-      'attack'
+      'advance'
     );
   });
 
@@ -158,7 +158,7 @@ describe('cursorFor', () => {
 describe('ANIMATED_CURSORS follows the approved sheet', () => {
   it('animates the five wired sights at ORDER_SIGHT\'s own frame counts and rates, plus charge and demolish', () => {
     expect(Object.keys(ANIMATED_CURSORS).sort()).toEqual(
-      ['attack', 'charge', 'demolish', 'move', 'smoke', 'strike', 'sweep']
+      ['advance', 'charge', 'demolish', 'move', 'smoke', 'strike', 'sweep']
     );
     for (const [name, id] of Object.entries(SIGHT_OF)) {
       const spec = ORDER_SIGHT[id];
@@ -167,7 +167,7 @@ describe('ANIMATED_CURSORS follows the approved sheet', () => {
         anim: { frames: spec.phases.length, intervalMs: Math.round(spec.periodMs / spec.phases.length) },
       });
     }
-    expect(SIGHT_OF).toEqual({ move: 'move', attack: 'attackMove', sweep: 'sweep', strike: 'strike', smoke: 'smoke' });
+    expect(SIGHT_OF).toEqual({ move: 'move', advance: 'attackMove', sweep: 'sweep', strike: 'strike', smoke: 'smoke' });
     // The two housing animations keep their shipped rates (Q1).
     expect(ANIMATED_CURSORS.charge).toEqual({ frames: 4, intervalMs: 200 });
     expect(ANIMATED_CURSORS.demolish).toEqual({ frames: 4, intervalMs: 300 });
@@ -207,7 +207,7 @@ describe('the cursor names the verb', () => {
     expect(cursorFor(both, NONE)).toBe('charge');
   });
 
-  it('puts charge above attack when a hostile stands on the identified tunnel', () => {
+  it('puts charge above advance when a hostile stands on the identified tunnel', () => {
     // Not a synthetic pairing: resolvePointer's tunnel branch emits chargeTunnel
     // for whoever can charge plus an order for whoever cannot, and if an enemy
     // is on or near the route, hints.hostile is true at the same moment. A
@@ -221,9 +221,9 @@ describe('the cursor names the verb', () => {
     expect(cursorFor(both, { hostile: true, blocked: false })).toBe('charge');
   });
 
-  it('puts attack above garrison, since firing outranks entering', () => {
+  it('puts advance above garrison, since firing outranks entering', () => {
     const both = res([at('garrison', { structure: 3 }), at('order', { verb: 'attackMove' })]);
-    expect(cursorFor(both, { hostile: true, blocked: false })).toBe('attack');
+    expect(cursorFor(both, { hostile: true, blocked: false })).toBe('advance');
   });
 
   it('is the verb over a costly building, not the warning', () => {
@@ -275,7 +275,7 @@ describe('the badge says who is doing it', () => {
     // lying about the other.
     const r = res([{ kind: 'order', verb: 'attackMove', ids: [1, 2], x: 1, y: 1, append: false }]);
     const name = cursorFor(r, { hostile: true, blocked: false });
-    expect(name).toBe('attack');
+    expect(name).toBe('advance');
     expect(badgeFor(r, { hostile: true, blocked: false }, buckets({ 1: 'transport', 2: 'soft' }), name)).toBeNull();
   });
 
@@ -321,7 +321,7 @@ describe('the badge says who is doing it', () => {
     // heli_peten (gunship), recon_drone (drone) and attack_drone (kamikaze)
     // have no click-triggerable ability: ordered over open ground, no ranked
     // verb wins, so cursorFor falls through to its own `hints.hostile ?
-    // 'attack' : 'move'` default. The old badgeFor asked a second,
+    // 'advance' : 'move'` default. The old badgeFor asked a second,
     // independent `winningVerb` for the verb, and winningVerb has no `move`
     // rung at all -- so a move cursor could never carry a badge, and the
     // spec's own example ("a heli_peten ordered to move shows a move cursor
