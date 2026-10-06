@@ -1344,7 +1344,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   if (missionId !== null) {
     const rawMission = (missions as Record<string, MissionJson | undefined>)[missionId];
     if (!rawMission) {
-      bootError(stage, t('boot.unknownMission.title', { id: missionId }), t('boot.unknownMission.body'));
+      bootError(stage, t('boot.unknownMission.title'), t('boot.unknownMission.body'));
       // `teardown`, not a fresh no-op: nothing has been registered yet, so it
       // does nothing today -- but an early return that opts OUT of the teardown
       // is how the next registration added above this line goes unreleased.
@@ -1999,7 +1999,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
 
   // No sprite sheets load any more (WP-A3.3): every unit and structure draws
   // a mesh, loaded above. The loading bar has nothing to count and reads
-  // 'meshes only' (`ui/loading.ts`).
+  // "ready" (`ui/loading.ts`).
   loading.total(0);
 
   /**
@@ -2836,7 +2836,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     for (const id of failedMesh) {
       if (reportedMeshFailures.has(id)) continue;
       reportedMeshFailures.add(id);
-      hud.note(t('main.note.meshFailed', { id }), 'bad');
+      // By the unit's NAME, never its id (PA-01). A structure or wreck id
+      // has no unit type to name it by, so it gets the scenery sentence.
+      const unitName = sim.unitTypes.find((u) => u.id === id)?.name;
+      hud.note(
+        unitName !== undefined ? t('main.note.meshFailed', { name: unitName }) : t('main.note.sceneryFailed'),
+        'bad'
+      );
     }
   };
   // The instrument, off by default now that the HUD is not built on top of it.

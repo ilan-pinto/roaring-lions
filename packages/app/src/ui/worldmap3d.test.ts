@@ -487,7 +487,7 @@ describe('the ground previews what a click there would say', () => {
     await s.ready;
     s.view().hovered = 'nowhere';
     s.view().frame([], 0);
-    expect(say(s.el)).toBe('nowhere — no campaign here');
+    expect(say(s.el)).toBe('No campaign here yet');
     expect(tone(s.el)).toBe('info');
   });
 });

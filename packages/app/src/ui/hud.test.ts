@@ -22,6 +22,9 @@ import { Hud, type HudCommanderInfo, type HudDeps, type MissionView } from './hu
 import type { KitSummary } from './kit-sign';
 import { alertNotice } from './mission-notice';
 import { closeTip } from './tooltip';
+import en from '../i18n/en.json';
+import { pseudo } from '../i18n/pseudo';
+import { setCatalogue } from '../i18n/t';
 
 /** A stand-in resolved commander, the shape `main.ts` would hand over from
  *  `commanderForMission` -- this suite is about the DOM join, not about rank
@@ -1041,9 +1044,28 @@ describe('the single-unit card', () => {
     expect(r.host.querySelector('.rl-chip')).toBeNull();
     expect(card.querySelector('.rl-card__name')!.textContent).toBe('Namer IFV');
     expect(card.textContent).toContain('Armament');
-    expect(card.textContent).toContain('cannon_30');
+    // PA-01: the weapon's name, never its data id.
+    expect(card.textContent).toContain('30 mm cannon');
+    expect(card.textContent).not.toContain('cannon_30');
     expect(card.textContent).toContain('Capabilities');
     expect(card.textContent).toContain('smoke screen');
+  });
+
+  // The pseudo-locale check for the card (WP-P2): every word on it went
+  // through t(), so under ?pseudo=1 no raw id -- nothing lower_snake_case --
+  // and no unbracketed weapon name is left on it.
+  it('shows no raw id under the pseudo-locale', () => {
+    setCatalogue('pseudo', en, pseudo);
+    try {
+      const world = makeForce();
+      const r = clusterRig(() => [world.namer], {}, world);
+      const card = r.host.querySelector<HTMLElement>('.rl-card')!;
+      const text = card.textContent ?? '';
+      expect(text).toContain(pseudo('30 mm cannon'));
+      expect(text).not.toMatch(/\b[a-z0-9]+_[a-z0-9_]+\b/);
+    } finally {
+      setCatalogue('en', en);
+    }
   });
 
   it('keeps the condition line’s existing flags', () => {
@@ -1261,7 +1283,8 @@ describe('unit art the pipeline has not produced', () => {
     expect(art.tagName).toBe('DIV');
     expect(art.dataset.nosprite).toBe('1');
     expect(art.querySelector('svg')).not.toBeNull();
-    expect(art.title).toContain('no portrait');
+    // By the unit's name, never its id (PA-01).
+    expect(art.title).toBe('Namer IFV: no picture yet');
     expect(r.host.querySelector('.rl-card__art img')).toBeNull();
   });
 
@@ -1501,6 +1524,7 @@ describe('victory banner', () => {
 // the end screen under both ("Town is quiet"). The moment is the verdict, so
 // `main.ts` stands this banner down the moment it mounts one. The two tests
 // above are the path where no moment shows, and there the banner is kept.
+// (WP-P2 then gave all three the same name -- `outcome-names.test.ts`.)
 describe('the end banner stands down for the outcome moment', () => {
   it('never goes up once the moment has the verdict', () => {
     const m = mission();
@@ -2594,7 +2618,7 @@ describe('projected fire wording (GH-345)', () => {
   });
   it('D: out of reach names range AND sight and the reach, read from unit data', () => {
     const text = firePanel({ kind: 'noSolution' });
-    expect(text).toContain('Out of range or out of sight · rifles reach 8 tiles');
+    expect(text).toContain('Out of range or out of sight · Rifles reach 8 tiles');
     expect(text).not.toContain('no unit can engage');
   });
   it('a clean shot carries no remedy line', () => {

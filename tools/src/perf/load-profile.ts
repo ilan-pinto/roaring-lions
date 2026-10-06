@@ -164,18 +164,18 @@ async function drive(page: Page, url: string, timeoutMs: number): Promise<Milest
   while (Date.now() - startedAt < timeoutMs) {
     const s = await page.evaluate(() => {
       const wrap = document.querySelector('.rl-loading');
-      const count = document.querySelector('.rl-loading__count')?.textContent ?? '';
-      const match = /^(\d+) \/ (\d+) sheets$/.exec(count.trim());
+      const countState = document.querySelector<HTMLElement>('.rl-loading__count')?.dataset.state ?? '';
       const deploy = document.querySelector<HTMLButtonElement>('.rl-loading__deploy');
       const bootError = /boot failed/i.test(document.body.innerText) ? document.body.innerText.slice(0, 200) : null;
       return {
         now: performance.now(),
         loading: wrap !== null,
-        // A boot with no sheet to load reads 'meshes only' (`ui/loading.ts`,
-        // since 2026-09-07) -- a full bar. Until this matched it too, every
-        // mesh-only mission stalled here forever with the deploy button
-        // working, and the tool timed out on main (found 2026-10-04, A3.3).
-        sheetsDone: (match !== null && match[1] === match[2] && Number(match[2]) > 0) || count.trim() === 'meshes only',
+        // The counter's own STATE, not its words (`ui/loading.ts`): 'ready'
+        // is a full bar, whether every asset counted in or there was nothing
+        // to count. Matching the words stalled this loop forever once, when
+        // a mesh-only boot read 'meshes only' and nothing here knew it
+        // (found 2026-10-04, A3.3); the words are a player's since WP-P2.
+        sheetsDone: countState === 'ready',
         deploy: deploy !== null,
         lions: typeof (window as unknown as { __lions?: unknown }).__lions !== 'undefined',
         bootError,
