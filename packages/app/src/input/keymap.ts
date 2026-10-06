@@ -30,6 +30,13 @@ export interface ActionSpec {
   rebindable: boolean;
   /** The action fires only with ctrl (or cmd on a Mac) held. */
   modifier?: 'ctrl';
+  /** Bound and live, but never LISTED to a player: not in F1's key card and
+   *  not in the Controls settings. Only the diagnostics panel (`o`, the
+   *  render package's `DebugOverlay`) carries it -- an instrument kept on a
+   *  key for bug reports, which read as a dev build in the player's own key
+   *  list (PA-01). Its label is still player-safe, because a rebind that
+   *  collides with it names it in "Already used by …". */
+  hidden?: true;
 }
 
 export const ACTIONS: readonly ActionSpec[] = [
@@ -37,7 +44,7 @@ export const ACTIONS: readonly ActionSpec[] = [
   { id: 'smoke', label: 'keymap.smoke', key: 'f', rebindable: true },
   { id: 'load', label: 'keymap.load', key: 'g', rebindable: true },
   { id: 'unload', label: 'keymap.unload', key: 'u', rebindable: true },
-  { id: 'overlay', label: 'keymap.overlay', key: 'o', rebindable: true },
+  { id: 'overlay', label: 'keymap.overlay', key: 'o', rebindable: true, hidden: true },
   { id: 'production', label: 'keymap.production', key: 'b', rebindable: true },
   { id: 'mute', label: 'keymap.mute', key: 'm', rebindable: true },
   { id: 'selectAll', label: 'keymap.selectAll', key: 'a', rebindable: true, modifier: 'ctrl' },
@@ -65,6 +72,11 @@ export const ACTIONS: readonly ActionSpec[] = [
   { id: 'panRight', label: 'keymap.panRight', key: 'd', rebindable: true },
   { id: 'pause', label: 'keymap.pause', key: 'escape', rebindable: false },
 ];
+
+/** The actions a player is SHOWN -- F1's card and the Controls settings
+ *  both list exactly these. `ACTIONS` stays the table every key lookup and
+ *  conflict check walks, hidden rows included. */
+export const PLAYER_ACTIONS: readonly ActionSpec[] = ACTIONS.filter((a) => a.hidden !== true);
 
 /** The arrow keys pan alongside WASD whatever the bindings say. */
 const ARROWS: Readonly<Record<string, Action>> = { arrowup: 'panUp', arrowdown: 'panDown', arrowleft: 'panLeft', arrowright: 'panRight' };

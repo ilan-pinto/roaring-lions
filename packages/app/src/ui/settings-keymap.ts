@@ -45,7 +45,7 @@
  * enough to keep it from ever reaching that listener at all.
  */
 import { t } from '../i18n/t';
-import { ACTIONS, bindingsFrom, keyLabel, rebind, type Bindings } from '../input/keymap';
+import { ACTIONS, PLAYER_ACTIONS, bindingsFrom, keyLabel, rebind, type Bindings } from '../input/keymap';
 
 export interface KeymapDeps {
   bindings(): Bindings;
@@ -79,7 +79,7 @@ export function keymapRows(deps: { bindings(): Bindings; set(next: Bindings): vo
     // ever changes the ONE binding it was asked for -- so it still calls its
     // own `paint` directly.
     const paints: (() => void)[] = [];
-    for (const a of ACTIONS) {
+    for (const a of PLAYER_ACTIONS) {
       const row = document.createElement('div');
       row.className = 'rl-settings__row';
 
