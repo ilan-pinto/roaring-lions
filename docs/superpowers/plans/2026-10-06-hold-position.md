@@ -60,7 +60,8 @@ The lead answered all four with one order:
 ## Decisions
 
 - **By the lead, 6 Oct:** as in "Why".
-- **Taken defaults (confirm or overrule):**
+- **Taken defaults, accepted as written (PM, 6 Oct):** a rout releases Hold (H-D4), and the runtime
+  decides when a rallied unit has arrived (H-D5).
   - **H-D1. Hold is `halt` plus two writes.** The `hold` branch does everything the `halt` branch
     does (`sim.ts`, the command loop), except leave a structure (see H-D3). It also sets
     `attackMove = 0` and `holdPos = 1`.
@@ -194,13 +195,29 @@ No code in this plan. Each consumer lands with its own plan and cites this one:
 
 **Agent:** lane A. **Depends:** Task 1 on `main`. S-F trails Lane C by one landing.
 
-- [ ] **Step 1: The binding.**
-  - **H is bound to `halt` today:** `packages/app/src/input/keymap.ts` L36,
-    `{ id: 'halt', label: 'keymap.halt', key: 'h', rebindable: true }`. The ruling gives H to
-    Hold.
-  - Moving `halt` to another key, or retiring it, is the lead's (For the lead, below).
-  - Under the closing rule, `halt` on an attack-mover lasts one tick. That is the case for
-    retiring it.
+- [ ] **Step 1: The binding (ruled 6 Oct).**
+  - **Hold takes H, and `halt` moves to X.** H is `halt`'s key today:
+    `packages/app/src/input/keymap.ts` L36,
+    `{ id: 'halt', label: 'keymap.halt', key: 'h', rebindable: true }`.
+    - In `ACTIONS`, add `{ id: 'hold', label: 'keymap.hold', key: 'h', rebindable: true }`
+      and change `halt`'s `key` to `'x'`.
+    - X is free. The taken keys are h f g u o b m, ctrl+a, tab, space, f1, i, w s a d and escape;
+      S is pan-down.
+  - **`halt` stays.** It is a one-tick stop: it still cancels a move and drops queued waypoints.
+    - It keeps its label: the strings are `keymap.halt` and `order.halt`, which read "Halt" in
+      `en.json` on `b44df7aa`.
+    - The ruling calls it "Stop"; no string changes either way.
+  - **What re-pins with the defaults:**
+    - `keymap.test.ts` pins the shipped letters ("ships the bindings main.ts had hard-coded, in
+      the same letters") and the distinct-defaults test.
+    - The settings rebind UI and its spec (`ui/settings-keymap.ts`, `settings-keymap.test.ts`) list
+      every action.
+    - `ACTIONS`' own comments enumerate "the whole of what was taken" three times; add x to each.
+  - **Saved overrides.** `lions.settings` stores only overrides of the defaults
+    (`overridesOf`/`bindingsFrom`), so a player who rebound `halt` keeps that key. A saved override
+    that already put another action on X now collides with `halt`'s new default. `bindingsFrom`
+    drops a colliding override, so that action falls back to its default key. Test that case and
+    say so in the commit.
   - The keymap's conflict rules (`resolveKey`, `passesThroughModal`) apply unchanged.
 - [ ] **Step 2: The intent.** `input/intents.ts` gains `{ kind: 'hold'; ids }` and queues the sim
   command, as `halt` does today (intents.ts ~L31, ~L80). `main.ts` dispatches it from the key and
@@ -219,7 +236,8 @@ No code in this plan. Each consumer lands with its own plan and cites this one:
     shows no unbracketed word.
 - [ ] **Step 5: The tutorial.** The economy step names Hold where it teaches holding ground (F2)
   and rallying (F4).
-- [ ] **Step 6: See it red.** Unbind the key: the keymap test that pins H → `hold` fails.
+- [ ] **Step 6: See it red.** Put `halt` back on H: the distinct-defaults test fails, because two
+  actions share H. Unbind Hold: the test that pins H → `hold` fails.
 
 ---
 
@@ -227,9 +245,9 @@ No code in this plan. Each consumer lands with its own plan and cites this one:
 
 **Model:** haiku.
 
-- [ ] `docs/HANDOVER.md` §1 and §3: the ruling, H-D1–H-D6 as confirmed, and the new pin values.
+- [ ] `docs/HANDOVER.md` §1 and §3: the ruling, H-D1–H-D7 as accepted (6 Oct), the keys, and the new pin values.
 - [ ] `CLAUDE.md` "Dev instruments": one line on Hold and what it does to the closing rule.
-- [ ] Put the halt-vs-Hold answer (For the lead) where the keymap is described.
+- [ ] Record the keys where the keymap is described: Hold on H, `halt` on X (ruled 6 Oct).
 
 ---
 
@@ -247,6 +265,12 @@ No code in this plan. Each consumer lands with its own plan and cites this one:
 1. **H is `halt`'s key today.** The ruling gives H to Hold. Should `halt` move to another key or be
    retired? Under the closing rule it holds an attack-mover for one tick, so it does little the
    player can see.
-2. **Confirm H-D1–H-D6**, chiefly:
+   **Ruled 6 Oct:** Hold takes H, and `halt` moves to X with its label unchanged. `halt` is kept as
+   a one-tick stop that still cancels a move. The settings rebind UI and the keymap test re-pin
+   (Task 3, Step 1).
+2. **Confirm H-D1–H-D7**, chiefly:
    - H-D4: a rout releases Hold;
    - H-D5: the runtime, not the sim, decides "arrived".
+
+   **Ruled 6 Oct:** H-D1 to H-D7 accepted as written. A rout releases Hold, and the runtime decides
+   when a rally has arrived.

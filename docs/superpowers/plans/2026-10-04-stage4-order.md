@@ -100,7 +100,7 @@ S-F trails Lane C by one landing and never edits `packages/sim`:
 
 | after | S-F lands |
 |---|---|
-| Hold position (from Thu 5 Nov) | the H binding (today `halt`'s key), the HUD button, the "holding" mark on the unit card and selection chip (`2026-10-06-hold-position.md`, Task 3) |
+| Hold position (from Thu 5 Nov) | Hold on H, `halt` moved to X (ruled 6 Oct; the keymap and settings-rebind tests re-pin), the HUD button, the "holding" mark on the unit card and selection chip (`2026-10-06-hold-position.md`, Task 3) |
 | F1 (from Tue 10 Nov) | the four-item fire-support menu, charge timer and announcement (GH-113), the intel counter (GH-77) and the earn feed line |
 | F3 (from Thu 12 Nov) | used/cap (hidden in the campaign), the cap reason on the dock; "on loan" on the unit card and selection chip, if F3's Task 8 did not land with F3 |
 | F2 (from Tue 17 Nov) | zone holders on the minimap, the income readout, corridor alerts; the supply-line overlay **after its mock is approved** |

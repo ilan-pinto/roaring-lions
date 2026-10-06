@@ -543,8 +543,8 @@ export function spendDown(menu: readonly LineItem[], last: number, purse: number
 - **The dock per camp**: a camp switcher where a mission has two; each line's queue, the item in
   progress with its progress bar (`progress`, 0–1000), and cancel per item with the refund shown.
 - **"Contested: production paused"** on the line, from `contested`, and a feed alert when it starts.
-- **Hold position** (ruled 6 Oct, its own plan `2026-10-06-hold-position.md`, Task 3): H and a HUD
-  button, landing before this plan. A rallied unit shows as holding on its card and chip.
+- **Hold position** (ruled 6 Oct, its own plan `2026-10-06-hold-position.md`, Task 3): H (`halt`
+  moves to X) and a HUD button, landing before this plan. A rallied unit shows as holding on its card and chip.
 - **Setting a rally point**: an armed order from the dock ("Set rally", then a ground click), the same
   arming model as fire support (Escape disarms, #264, closed by #268). There is no structure selection today (FW Task 11
   adds a works-only one in Stage 5), so the dock is the entry point. **The rally marker is drawn in
