@@ -89,7 +89,17 @@ import { livingHostiles } from './ui/withdrew';
 import { outcomeMoment, outcomeMomentOptions } from './ui/outcome-moment';
 import { showSettings, type SettingsDeps } from './ui/settings-panel';
 import { keymapRows } from './ui/settings-keymap';
-import { EDGE_MARGIN_PX, clampZoom, edgeVector, panDelta, zoomAnchor } from './ui/camera-input';
+import {
+  EDGE_MARGIN_PX,
+  clampCamera,
+  clampZoom,
+  edgeVector,
+  panning,
+  stepPan,
+  wheelZoomFactor,
+  zoomAnchor,
+  type PanVelocity,
+} from './ui/camera-input';
 import { closeOpenDialog, confirmDialog, isDialogOpen } from './ui/confirm';
 import { closeTip } from './ui/tooltip';
 import { objectiveStatusShout } from './ui/objective-status';
@@ -2803,6 +2813,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // there must not be one.
         renderer.camera.x = x;
         renderer.camera.y = y;
+        keepOnMap();
       },
       // The SAME resolver AND the same carrying-out as the canvas
       // contextmenu below: one `issueOrder`, called twice. A minimap order
@@ -3370,6 +3381,21 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     bindings = bindingsFrom(next.controls.bindings);
   }));
   const keys = new Set<string>();
+  /** The pan's own velocity, eased by `stepPan` in the frame loop. */
+  const panVel: PanVelocity = { right: 0, down: 0 };
+  /**
+   * Keep the camera on the map (WP-P1, PA-04): applied after every PLAYER
+   * camera move -- pan, wheel zoom, the minimap, the alert and idle-unit
+   * jumps and control-group centring -- and nowhere else. The dev and tool
+   * paths (`__lions.goto`, `__lions.camera`, a capture's own placement) set
+   * the camera exactly where they say, so a capture framed past an edge is
+   * not silently moved, and nothing clamps a camera nobody touched.
+   */
+  const keepOnMap = (): void => {
+    const c = clampCamera(renderer.camera, sim, { width: renderer.width, height: renderer.height });
+    renderer.camera.x = c.x;
+    renderer.camera.y = c.y;
+  };
   // Control groups 1–9, and double-tap tracking for camera centring.
   const groups = new Map<number, number[]>();
   let lastGroupKey = -1;
@@ -3405,6 +3431,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       }
       renderer.camera.x = cx / members.length;
       renderer.camera.y = cy / members.length;
+      keepOnMap();
     }
     lastGroupKey = slot;
     lastGroupAt = now;
@@ -3537,6 +3564,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         if (lastAlertAt) {
           renderer.camera.x = lastAlertAt.x;
           renderer.camera.y = lastAlertAt.y;
+          keepOnMap();
         } else {
           // Not padding. A key that does nothing and says nothing is
           // indistinguishable from a key that is broken -- the lesson the
@@ -3577,6 +3605,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           dispatch({ kind: 'select', ids: [id], via: 'click' });
           renderer.camera.x = fx.toNumber(sim.state.posX[id]);
           renderer.camera.y = fx.toNumber(sim.state.posY[id]);
+          keepOnMap();
         } else {
           // Same "say why" rule as the jump key just above: nothing found
           // and nothing said is indistinguishable from a broken key.
@@ -3716,7 +3745,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   onWindow('keyup', (ev) => keys.delete(ev.key.toLowerCase()));
   canvas.addEventListener('wheel', (ev) => {
     ev.preventDefault();
-    const z = renderer.camera.zoom * (ev.deltaY > 0 ? 0.9 : 1.1);
+    // Proportional to how far the wheel turned (one mouse notch is still
+    // 1.1x): a trackpad's stream of small deltas zooms smoothly instead of
+    // stepping 10% per event.
+    const z = renderer.camera.zoom * wheelZoomFactor(ev.deltaY, ev.deltaMode);
     if (req.settings.get().controls.zoomToCursor) {
       const before = renderer.screenToWorld(lastCursor.x, lastCursor.y);
       renderer.camera.zoom = clampZoom(z);
@@ -3727,6 +3759,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     } else {
       renderer.camera.zoom = clampZoom(z);
     }
+    // Zooming out near an edge would otherwise open up empty ground.
+    keepOnMap();
   });
 
   // --- fixed-tick loop with render interpolation ---------------------------
@@ -4683,7 +4717,6 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // reaches every open battlefield the moment the player changes it,
     // pause menu included (Task 6) -- `get()` is a plain getter, so this
     // costs nothing extra per frame.
-    const panSpeed = (0.5 * req.settings.get().controls.cameraSpeed) / renderer.camera.zoom;
     // `keys` holds PHYSICAL keys (Task 5 fix round 1) -- W and the physical
     // Up arrow are two different keys that both mean `panUp`, so `held`
     // asks whether ANY held key currently resolves to that action rather
@@ -4691,31 +4724,36 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // releasing only one keeps the camera panning.
     const held = (action: 'panUp' | 'panDown' | 'panLeft' | 'panRight'): boolean =>
       heldAction(bindings, keys, action);
-    if (held('panUp')) {
-      renderer.camera.x -= panSpeed;
-      renderer.camera.y -= panSpeed;
-    }
-    if (held('panDown')) {
-      renderer.camera.x += panSpeed;
-      renderer.camera.y += panSpeed;
-    }
-    if (held('panLeft')) {
-      renderer.camera.x -= panSpeed;
-      renderer.camera.y += panSpeed;
-    }
-    if (held('panRight')) {
-      renderer.camera.x += panSpeed;
-      renderer.camera.y -= panSpeed;
-    }
-    // Edge pan: same speed term as the keys above, gated on its own setting
-    // (default off -- see settings.ts) AND the pointer actually being over
-    // the canvas AND the window holding focus, so a player reaching for the
-    // minimap or the dock never finds the map scrolling under them.
+    // The pan INTENT, in screen directions: keys and edge pan add, and
+    // `stepPan` clamps and normalises the sum, so the two never disagree
+    // about how fast the camera moves, only about what starts it moving.
+    const intent: PanVelocity = { right: 0, down: 0 };
+    if (held('panUp')) intent.down -= 1;
+    if (held('panDown')) intent.down += 1;
+    if (held('panLeft')) intent.right -= 1;
+    if (held('panRight')) intent.right += 1;
+    // Edge pan: gated on its own setting (default off -- see settings.ts) AND
+    // the pointer actually being over the canvas AND the window holding
+    // focus, so a player reaching for the minimap or the dock never finds the
+    // map scrolling under them.
     if (req.settings.get().controls.edgePan && pointerInside) {
       const e = edgeVector(lastCursor.x, lastCursor.y, canvas.clientWidth, canvas.clientHeight, EDGE_MARGIN_PX);
-      const d = panDelta(e.right, e.down, panSpeed);
+      intent.right += e.right;
+      intent.down += e.down;
+    }
+    // Time-based and eased (WP-P1, PA-03): tiles a SECOND from the frame's own
+    // elapsed time, ramping up and down, where it used to be 0.5 tiles a
+    // FRAME -- twice as fast on a 120 Hz display, and instant on and off.
+    // `frameMs` is the wall-clock frame, not sim time: the camera pans in a
+    // pause and at every game speed. The camera speed setting is read live,
+    // pause menu included (Task 6).
+    if (intent.right !== 0 || intent.down !== 0 || panning(panVel)) {
+      const d = stepPan(panVel, intent, frameMs, req.settings.get().controls.cameraSpeed, renderer.camera.zoom);
       renderer.camera.x += d.dx;
       renderer.camera.y += d.dy;
+      // Pushing into an edge just stops there: the velocity left over points
+      // INTO the wall and dies in its own 90 ms, so nothing slides back out.
+      keepOnMap();
     }
     renderer.frame(clock.acc / MS_PER_TICK, lastFrameMs);
 
