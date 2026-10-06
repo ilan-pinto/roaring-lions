@@ -591,7 +591,12 @@ python3 docs/art/sheets/kitted-vehicles/audio/kit_fitted_candidates.py docs/art/
 ```
 
 Conditions: Blender 5.2.0 headless (Cycles CPU, 24 samples, for the stills; Workbench for
-masks), macOS on an M3 Pro, 2026-10-06, at `origin/main` 79e528c4. The raw numbers are in
+masks), macOS on an M3 Pro, 2026-10-06, at `origin/main` 79e528c4. The camera is
+`tools/render_clip_pose.py`'s (the `dimetric.py` vector its `frame_camera` places: azimuth 225°,
+elevation 30°, orthographic), but not that script itself: it needs an armature and a clip, which
+no vehicle has, and it fits the frame to the model, where a gameplay-zoom measurement needs the
+game's fixed px/m. The sun is the game's (azimuth 135°, altitude 55°), not `build_lights`' rig
+lamp, whose convention bug puts it at 45° (CLAUDE.md, "The colour pipeline"). The raw numbers are in
 `docs/art/sheets/kitted-vehicles/measure/` (`measurements.json`, `drawcalls.jsonl`,
 `parts.txt`). Nothing here ships: the blockout geometry is a measuring instrument, and every
 shipped part is built again at detail in plan 3.
