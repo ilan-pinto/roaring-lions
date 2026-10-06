@@ -1,0 +1,83 @@
+{
+  "id": "rpg_backblast",
+  "trigger": "weapon_fire",
+  "layer": "above_units",
+  "budget_priority": 7,
+  "light": {
+    "color": "vfx.fire",
+    "intensity": 1.6,
+    "radius_tiles": 2.5,
+    "decay_ms": 90
+  },
+  "particles": [
+    {
+      "sprite": "streak",
+      "count": [
+        3,
+        5
+      ],
+      "lifetime_ms": [
+        90,
+        160
+      ],
+      "speed_tiles_s": [
+        6.0,
+        9.0
+      ],
+      "cone_deg": 22,
+      "direction_offset_deg": 180,
+      "size_px": [
+        5,
+        8
+      ],
+      "size_over_life": [
+        1.0,
+        0.3
+      ],
+      "color_over_life": [
+        "vfx.white_hot",
+        "vfx.fire",
+        "vfx.ember"
+      ],
+      "alpha_over_life": [
+        1.0,
+        0.0
+      ],
+      "additive": true
+    },
+    {
+      "sprite": "smoke_puff",
+      "count": [
+        5,
+        7
+      ],
+      "lifetime_ms": [
+        450,
+        650
+      ],
+      "speed_tiles_s": [
+        2.0,
+        3.2
+      ],
+      "cone_deg": 40,
+      "direction_offset_deg": 180,
+      "drag": 0.7,
+      "size_px": [
+        5,
+        8
+      ],
+      "size_over_life": [
+        0.7,
+        1.6
+      ],
+      "color_over_life": [
+        "dust.2",
+        "dust.4"
+      ],
+      "alpha_over_life": [
+        0.65,
+        0.0
+      ]
+    }
+  ]
+}

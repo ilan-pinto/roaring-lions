@@ -1249,3 +1249,15 @@ the same supplied Meshy rig and animation library as those files (see the
 CONTRIBUTING.md, and `tools/units/mocap.py` retargets them onto the B7
 textured figures of `inf_squad`, `sarim_rifles` and `yahalom_squad`. No new
 Meshy task, 0 credits.
+
+## The rifleman, re-rolled for the motion pass (inf_squad), 2026-10-05
+
+B7's `inf_squad` preview came holding its carbine across the chest in both
+hands, so its arms and weapon were one piece with the torso and nothing could
+ever hold a rifle properly (motion checkpoint, 5 Oct). The lead approved a new
+A-pose rifleman (two tries, about 80 credits, 60 spent). AI-generated
+(Meshy), disclosed per CONTRIBUTING.md.
+
+| File | Draws as | Preview task id (`--pose a-pose`) | Refine task id (8k) | Remesh task id (shipped) | Notes |
+|---|---|---|---|---|---|
+| `art/meshes/inf_squad.glb` | `inf_squad` (Rifle Squad, KDF) | `01a10dc6-457d-7034-9be1-0158b4db62c4` (try 2; try 1 `01a10dc6-3a54-761a-96fa-cee22a9d3025` came with its arms raised and a carbine fused on the chest, rejected) | `01a10dd8-a248-766a-8158-85f30a9793ec` | `01a10ddb-d286-7771-8082-7a814ef2076e` at 1,500 | An empty-handed rifleman in a straight-armed A-pose: plate carrier with magazine pouches, knee pads, camouflaged helmet (the bake reads as a cover, so no kit cover was added). Each man carries the `kdf_carbine` part through the B8 atlas path (`HAND_PARTS`). Two importer overrides for his straight, low-hanging arms (`ARM_REACH_Z_F`, `ARM_FLOOR_Z_F`/`R_ARM_BY_TEAM`) and one general guard on the elbow search; the motion pass (`pnpm motion:meshes`) then gives him his hold, kneel and gait. The 8k sources are on disk and git-ignored by path, as B7/B8's were. Prompt in `art/meshy/ledger.jsonl`. |

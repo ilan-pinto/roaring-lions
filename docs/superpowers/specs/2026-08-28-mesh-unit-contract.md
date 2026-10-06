@@ -327,3 +327,34 @@ document's own rule that the runtime never depends on bone names: `rig.py`'s
 every one of them parentless and at scale 1 in a living clip, but none of
 them has a bone riding on it, where every figure root the kit/Meshy
 convention builds does (a spine). A future rig whose figure root has no bone children of its own does not topple under this rule: `liveFigureRoots` simply never returns it, so its pose holds frozen (not pitched) for the same `TOPPLE_SECONDS` every topple already waits out, before the forced cut onward to its wreck (or the Pixi fade, with none) — a body that never visibly falls rather than one that falls wrong. So a new rig's root joint should carry at least one child bone even when the figure has no other moving parts to hang off it.
+
+# v5 — the motion pass (2026-10-05): held weapons, kneels, squads, planted gait
+
+Written by `pnpm motion:meshes` (`tools/src/meshes/motion-pass.ts`), which
+runs between the export and `pnpm gait:meshes`. Five additions, every one
+optional for a file the pass does not touch.
+
+- **Clips `kneel`, `kneelIn`, `kneelOut`.** `kneel` loops; `kneelIn` and
+  `kneelOut` are 0.2 s, the sim's own 4-tick drop and rise (#402), and the
+  runtime SCRUBS them by the ticks left in the sim's transition
+  (`units/stance.ts`) rather than playing them on a clock. Like every clip
+  they key every node `idle` keys.
+- **A weapon bone per shooter, `{prefix}_weapon`**, a child of
+  `{prefix}_spine`, carrying the weapon's vertices. The hold places it on
+  every frame of `idle`/`move`/`fire`/`moveFire`/`kneel*`, and both arms are
+  keyed onto its grips; in the death clips it follows the forearm it used to
+  ride. A tube keeps the importer's carry in `idle`/`move`.
+- **An ankle per leg, `{prefix}_foot_L|R`**, a child of the shin, carrying
+  the boot below the ankle, so a planted boot stays flat.
+- **`rl_gait.strideM` is the ground the PLANTED feet cover per cycle**
+  (`measurePlantedGround`), not a boot's peak-to-peak travel; the v3
+  runtime formula is unchanged and now lands on the cadence the pass timed
+  the legs for. A crawl (`sniper_team`) keeps the travel.
+- **`extras.rl_figures`** on the scene: `[{ prefix, recoil, squad }]`, where
+  `recoil` is `rifle | mg | launcher | null` (the kick a shot gets) and
+  `squad` says the team is drawn as separate men -- each figure on its own
+  clip player and walking its own path to its rest slot (`units/squad-rig.ts`).
+  A squad's clips must key no bone that belongs to no figure; the runtime
+  checks and falls back to one team player if one does. `extras.rl_motion`
+  (`{ version, base }`) marks a file as through the pass, which refuses it
+  a second time.

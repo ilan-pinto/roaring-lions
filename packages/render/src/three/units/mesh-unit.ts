@@ -46,6 +46,7 @@ import {
 } from './mesh-anim';
 import { clipScaleSignatures, type ClipPlayer } from './mesh-clip';
 import { HULL_RENDER_ORDER } from './render-order';
+import { buildSquadRig, parseFigureExtras, splitClips, type FigureSpec, type SquadRig } from './squad-rig';
 
 /**
  * One loaded `art/meshes/<team_id>.glb`, kept as a clone source -- `root` is
@@ -82,6 +83,10 @@ export interface MeshUnitTemplate {
    * to remember. See `mesh-anim.ts`'s `LOCOMOTION_CLIPS`.
    */
   readonly gait?: ReadonlyMap<LocomotionClip, GaitMetrics>;
+  /** `extras.rl_figures` (the motion pass): who fires what, who is a squad. */
+  readonly figures?: readonly FigureSpec[];
+  /** The clips split per figure, for a squad; null otherwise (`squad-rig.ts`). */
+  readonly figureClips?: ReadonlyMap<string, ReadonlyMap<ClipName, THREE.AnimationClip>> | null;
 }
 
 /**
@@ -201,8 +206,15 @@ export function buildMeshUnitTemplate(
   // would cost the player the unit.
   const gait = parseGaitExtras((root.userData as { rl_gait?: unknown }).rl_gait, label);
   const clipScale = clipScaleSignatures(clips);
+  const figures = parseFigureExtras((root.userData as { rl_figures?: unknown }).rl_figures, label);
+  const squadPrefixes = figures.filter((f) => f.squad).map((f) => f.prefix);
+  const figureClips =
+    squadPrefixes.length > 0 && squadPrefixes.length === figures.length ? splitClips(clips, squadPrefixes) : null;
+  if (squadPrefixes.length > 0 && !figureClips) {
+    console.warn(`mesh-unit: ${label} marks a squad, but a clip keys a bone no figure owns -- drawn as one team`);
+  }
 
-  return { root, clips, materials, geometries, clipScale, ...(gait !== undefined ? { gait } : {}) };
+  return { root, clips, materials, geometries, clipScale, figures, figureClips, ...(gait !== undefined ? { gait } : {}) };
 }
 
 /**
@@ -227,6 +239,10 @@ export interface MeshUnitEntity extends ClipPlayer {
   readonly typeId: string;
   readonly root: THREE.Object3D;
   readonly mixer: THREE.AnimationMixer;
+  /** Per-figure players, slots and recoil (`squad-rig.ts`); null for a team
+   *  the motion pass did not mark. Optional so a hand-built entity in a test
+   *  need not carry one. */
+  readonly squad?: SquadRig | null;
 }
 
 /**
@@ -260,7 +276,8 @@ export function instantiateMeshUnit(template: MeshUnitTemplate, typeId: string):
     actions.set(name, mixer.clipAction(clip));
   }
 
-  return { typeId, root, mixer, actions, currentClip: null, clipScale: template.clipScale, fades: new Map() };
+  const squad = buildSquadRig(root, mixer, template.figures ?? [], template.figureClips ?? null);
+  return { typeId, root, mixer, actions, currentClip: null, clipScale: template.clipScale, fades: new Map(), squad };
 }
 
 /** Releases everything a `MeshUnitEntity` owns for itself -- its mixer's

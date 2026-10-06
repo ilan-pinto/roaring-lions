@@ -101,10 +101,14 @@ export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   // 2026-10-05: inf_squad 0.47 -> 0.49 and sarim_rifles 0.57 -> 0.60, re-measured
   // when their `idle` became the retargeted capture (tools/units/mocap.py): the
   // soldier's low ready and the Sarim's bladed stance stand wider than rig.py's.
-  inf_squad: 0.49, mortar_team: 0.55, sniper_team: 0.62, sarim_rifles: 0.6,
+  // The motion pass (5 Oct): inf_squad 0.49 -> 0.67, sarim_rifles 0.6 -> 0.70 and
+  // yahalom_squad 0.54 -> 0.57, re-measured once the figures stood in the wedge
+  // (three men at +-1.05 m) and the echelon instead of a line; mortar_team
+  // 0.55 -> 0.56, its No.3 now holding his carbine forward at low ready.
+  inf_squad: 0.67, mortar_team: 0.56, sniper_team: 0.62, sarim_rifles: 0.7,
   // `at_team` 0.5 since the Meshy Spike landed (A3.1 stage 2, 2026-10-05): a 1.2 m
   // canister reaching further forward of the kneeling gunner than the 1.16 m kit tube.
-  at_team: 0.5, demo_squad: 0.45, yahalom_squad: 0.54, breach_team: 0.45, militia_cell: 0.45,
+  at_team: 0.5, demo_squad: 0.45, yahalom_squad: 0.57, breach_team: 0.45, militia_cell: 0.45,
   // `atgm_cell` reads 0.49 since its Meshy mesh landed (B3, 2026-09-30): the same
   // rear-shin-back kneel as `recoilless_team` below, two figures wide.
   // ...and 0.5 since the Meshy ATGM post (A3.1 stage 2, 2026-10-05), its four legs wider than kit's three.

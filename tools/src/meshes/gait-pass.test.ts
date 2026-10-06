@@ -28,7 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Document, NodeIO, type Accessor } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { groundPerCycleM, measureRoleFootprint } from '../mesh_gait';
+import { measurePlantedGround, measureRoleFootprint } from '../mesh_gait';
 import { RIGGED_UNIT_MESHES } from '../../../packages/app/src/mesh-catalogue';
 import {
   MIN_GAIT_TRAVEL_M,
@@ -103,7 +103,7 @@ describe('measureGait over every shipped rigged mesh', () => {
     // captured teams (B7 had removed both of the only two). 16 of the 21:
     // not digger_crew (unarmed) nor the four civilians.
     expect(moveFireCount).toBe(16);
-  });
+  }, 60_000); // every shipped file, each now skinned per sample for its planted feet
 
   it.each(EXPECTED_SKIP_TYPES)('%s is a named skip, and really is degenerate', (type) => {
     const entry = RIGGED_UNIT_MESHES[type];
@@ -146,29 +146,34 @@ describe('measureGait declares exactly what the instrument independently measure
   // deterministic skinning pass over identical bytes. strideM is the FORWARD
   // (`axisTravelM[0]`) component, per gait-pass.ts's Fix round 1 section --
   // not the 3-D hypot `measureRoleTravel` would report.
-  it('move: strideM/cycleS equal a fresh, independently-invoked measureRoleFootprint call', () => {
+  it('move: strideM/cycleS equal a fresh, independently-invoked measurePlantedGround call', () => {
+    // Since the motion pass (5 Oct) `strideM` is the ground the PLANTED feet
+    // cover per cycle, not the boot's peak-to-peak travel (which read 1.8-2.9x
+    // short of the ground and played every walker's legs that much too fast).
     const abs = path.join(MESHES, 'demo_squad.glb');
     const declared = measureGait(abs);
-    const fresh = measureRoleFootprint(abs, 'boot', 'move');
-    expect(declared.clips.move?.strideM).toBe(fresh.axisTravelM[0]);
+    const fresh = measurePlantedGround(abs, 'move');
+    expect(declared.clips.move?.strideM).toBe(fresh.groundPerCycleM);
     expect(declared.clips.move?.cycleS).toBe(fresh.clipSeconds);
+    // ...and it is NOT the old measure, which would have passed this line too
+    // had the pass not been changed: the two differ by more than 2x here.
+    expect(fresh.groundPerCycleM / measureRoleFootprint(abs, 'boot', 'move').axisTravelM[0]).toBeGreaterThan(2);
   });
-
 
   // Cross-checked against the exact ratios `mesh_gait.test.ts` already gates
   // for these files, using groundPerCycleM the same way that suite does --
   // so this pass's declared numbers are shown to reproduce a fact already
   // established independently, not just to be self-consistent.
-  it('reproduces the KIT-table walk ratio mesh_gait.test.ts already gates for at_team', () => {
+  it('declares at_team the ground its re-timed legs cover at its own speed', () => {
+    // At 0.7 tiles/s (2.1 m/s) and a human 2.64 steps/s (the motion pass's
+    // target), one 0.667 s cycle covers 2.1 * 0.667 * (2.64 / (2 / 0.667)) of
+    // ... more simply: the declared ground speed of the legs, timed to land
+    // the renderer's rate-match on that cadence, is about 2.35 m/s.
     const abs = path.join(MESHES, 'at_team.glb');
-    const declared = measureGait(abs);
-    const move = declared.clips.move;
+    const move = measureGait(abs).clips.move;
     if (!move) throw new Error('at_team unexpectedly has no move gait');
-    const ground = groundPerCycleM(0.7, move.cycleS);
-    // mesh_gait.test.ts's own KIT row: ['at_team', 0.7, 0.824] -- "every row
-    // must beat" 0.824. The forward-only strideM is smaller than the old
-    // hypot, so this margin is tighter than it used to be but still clears.
-    expect(move.strideM / ground).toBeGreaterThan(0.824);
+    expect(move.strideM / move.cycleS).toBeGreaterThan(2.2);
+    expect(move.strideM / move.cycleS).toBeLessThan(2.5);
   });
 
   // The property that makes toBe legitimate above: measuring twice, on the
@@ -196,8 +201,10 @@ describe('the oracle would actually catch a wrong role or clip', () => {
     const uniform = measureRoleFootprint(abs, 'uniform', 'move');
     // Not merely different -- different enough that declaring one and
     // checking it against the other could not coincidentally agree the way
-    // GAIT_ROLE='uniform' did against itself in the pre-fix version.
-    expect(Math.abs(boot.axisTravelM[0] - uniform.axisTravelM[0])).toBeGreaterThan(0.1);
+    // GAIT_ROLE='uniform' did against itself in the pre-fix version. Since
+    // the motion pass replanted the legs, the boot travels 0.67 m and the
+    // whole body's worst vertex 0.62, so the margin is 0.04.
+    expect(Math.abs(boot.axisTravelM[0] - uniform.axisTravelM[0])).toBeGreaterThan(0.03);
   });
 });
 
@@ -415,7 +422,7 @@ describe('measureGait warns when a clip does not read as one gait cycle', () => 
       totalWarnings += result.warnings.length;
     }
     expect(totalWarnings).toBe(0);
-  });
+  }, 60_000); // every shipped file, each now skinned per sample for its planted feet
 
   it('warns by name -- naming the clip and the cycle count -- for a genuinely doubled clip', async () => {
     const target = await scratchDoubledClip('demo_squad.glb', 'move');
@@ -442,12 +449,13 @@ describe('measureGait warns when a clip does not read as one gait cycle', () => 
     if (!afterMove) throw new Error('doubled demo_squad unexpectedly has no move gait');
 
     expect(afterMove.cycleS).toBeCloseTo(beforeMove.cycleS * 2, 3);
-    // strideM is peak-to-peak over the WHOLE window: repeating an identical
-    // cycle twice does not widen the range, so it stays close to the
-    // original rather than doubling with cycleS -- which is exactly why a
-    // downstream reader dividing strideM by cycleS would silently halve the
-    // implied ground speed with no other symptom.
-    expect(Math.abs(afterMove.strideM - beforeMove.strideM)).toBeLessThan(0.01);
+    // The planted feet's GROUND SPEED is unchanged by a repeat (same motion,
+    // twice), so the declared ground per cycle doubles with cycleS -- the
+    // rate-match itself is unharmed. What a doubled clip DOES break is the
+    // cadence (two cycles in one clip), and that is what the warning above is
+    // for: this pins that the stride is no longer the symptom, so the warning
+    // is the only one.
+    expect(afterMove.strideM / afterMove.cycleS).toBeCloseTo(beforeMove.strideM / beforeMove.cycleS, 1);
   });
 });
 

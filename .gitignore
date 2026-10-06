@@ -94,3 +94,15 @@ art/portraits/.roles.json
 art/meshy/recon-drone-20261005-01a10c59/model.glb
 art/meshy/attack-drone-20261005-01a10c7c/model.glb
 art/meshy/moto-rpg-20261005-01a10c69/model.glb
+# The infantry motion pass's Meshy sources (5 Oct): the 8k inf_squad refine and
+# remesh, the two previews, and a re-download of the kdf_carbine remesh. Kept on
+# disk, never committed, as B7/B8's 8k sources were not; task.json and the
+# thumbnails beside them are tracked.
+art/meshy/inf-squad-20261005-01a10dc6/model.glb
+art/meshy/inf-squad-try2-20261005-01a10dc6/model.glb
+art/meshy/inf-squad-20261005-01a10dd8/model.*
+art/meshy/inf-squad-20261005-01a10dd8/texture_*
+art/meshy/inf-squad-20261005-01a10ddb/model.glb
+art/meshy/inf-squad-20261005-01a10ddb/texture_*
+art/meshy/kdf-carbine-20261005-01a10c6f/model.glb
+art/meshy/kdf-carbine-20261005-01a10c6f/texture_*

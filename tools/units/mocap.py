@@ -82,7 +82,12 @@ MOCAP_DIR = os.path.join(rig.REPO, "art", "mocap")
 #: `extract_mocap.py`) and which source figure drives each of its figures,
 #: in `rig.TEAM_FIGURES` order.
 CAPTURED = {
-    "inf_squad": dict(source="meshy_soldier", figures=("f0", "f1", "f2")),
+    # Motion pass (5 Oct): the soldier's own `idle` is a deep crouch (pelvis
+    # at 0.83 of standing, knees bent 72-75 deg), which read as three men
+    # squatting whenever the squad stood still. The Sarim capture's standing
+    # idle replaces it; the run and the deaths stay the soldier's.
+    "inf_squad": dict(source="meshy_soldier", figures=("f0", "f1", "f2"),
+                      clips={"idle": ("sarim_rifles", ("f0", "f1", "f2"))}),
     "sarim_rifles": dict(source="sarim_rifles", figures=("f0", "f1", "f2")),
     # The engineer's own `move` is a WALK (1.04 s a cycle, 0.88 m a stride on
     # this body), which yahalom's 0.85 tiles/s would play at 3.02x -- past
@@ -122,10 +127,10 @@ CONTACT_M = 0.03
 #: the arm carrying the weapon (or yahalom's mast), `L` the support arm. The
 #: capture's run swings a FREE arm through ~100 deg at the shoulder; a hand
 #: on a rifle cannot, and rig.py's own gait makes the same call
-#: (`A_ARM_WEAPON` 0.20 against `A_ARM_FREE` 0.52 rad). `inf_squad`'s arms
-#: are part of its torso (`ARMS_ON_TORSO`): no arm geometry to move.
+#: (`A_ARM_WEAPON` 0.20 against `A_ARM_FREE` 0.52 rad). Since the motion
+#: pass (5 Oct) `inf_squad` is a rifleman like the other two.
 ARM_GAIN = {
-    "inf_squad": {"L": 1.0, "R": 1.0},
+    "inf_squad": {"L": 0.55, "R": 0.35},
     "sarim_rifles": {"L": 0.55, "R": 0.35},
     "yahalom_squad": {"L": 0.55, "R": 0.35},
 }
