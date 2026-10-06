@@ -473,7 +473,7 @@ def lifting_eye(name, at, normal, along, r=0.028, t=0.009, segs=3, tone="metal")
     return sweep(name, pts, t, sides=3, closed=False, tone=tone, normal_hint=n.cross(a))
 
 
-def sweep(name, pts, wire_r, sides=3, closed=True, tone="metal", normal_hint=None, smooth=True):
+def sweep(name, pts, wire_r, sides=3, closed=True, tone="metal", normal_hint=None, smooth=True, spin=0.0):
     """A `sides`-gon section swept along the polyline `pts` (closed loop or
     open). The section is mitred at each vertex (bisector frame)."""
     pts = [Vector(p) for p in pts]
@@ -499,7 +499,7 @@ def sweep(name, pts, wire_r, sides=3, closed=True, tone="metal", normal_hint=Non
         cosh = max(tin.dot(tan), 0.5)
         ring = []
         for k in range(sides):
-            ang = 2.0 * math.pi * k / sides
+            ang = 2.0 * math.pi * k / sides + math.radians(spin)
             off = b * math.cos(ang) + c * math.sin(ang)
             # stretch the component lying in the bend plane
             bend = (tout - tin)
@@ -819,13 +819,121 @@ def wedge_module(name, size, M, side, setback=0.14, plate=(0.66, 0.016, 0.27), p
 
 
 def era_brick(name, size, M, side, bolts=((-0.25, 0.12), (0.25, 0.12), (-0.25, -0.12), (0.25, -0.12)),
-              plate_inset=0.05, tone="paint"):
-    """An ERA / armour brick: a chamfered body, a face plate inset
-    `plate_inset` from its edges, four bolt heads through the plate."""
-    plate = (size[0] - 2 * plate_inset, 0.016, size[2] - 2 * plate_inset)
-    sc = [(u * size[0], w * size[2]) for u, w in bolts]
-    return wedge_module(name, size, M, side, setback=0.0, plate=plate, plate_at=(0.0, 0.0), bolts=sc, eye_u=None,
-                        tone=tone)
+              plate_inset=0.05, plate=True, tone="paint"):
+    """An ERA / armour brick in frame `M` (x long, y thick, z high; outer
+    face local `side` * +Y): a chamfered body (its buried inner face left
+    out), a face plate inset `plate_inset` from its edges (`plate` False for
+    none), bolt heads at fractions (u, w) of the face."""
+    s = side
+    out = [wedge(f"{name}_body", size, M, tone=tone, setback=0.0, drop=((0, -s, 0),))]
+    t = 0.0
+    if plate:
+        t = 0.012
+        pM = M @ place((0.0, s * (size[1] / 2 + t / 2), 0.0))
+        out.append(plain_box(f"{name}_plate", (size[0] - 2 * plate_inset, t, size[2] - 2 * plate_inset), pM,
+                             tone=tone, drop=((0, -s, 0),)))
+    n_out = (M.to_3x3() @ Vector((0, s, 0))).normalized()
+    for i, (u, w) in enumerate(bolts):
+        out.append(hex_bolt(f"{name}_bolt{i}", M @ Vector((u * size[0], s * (size[1] / 2 + t), w * size[2])), n_out))
+    return out
+
+
+def armour_plate(name, size, M, bolts=(), eyes=(), panel_inset=None, tone="paint"):
+    """A bolt-on applique plate in frame `M` (x, y in the plate, local +Z its
+    outer normal): a chamfered slab whose inner face is left out, an optional
+    raised face panel inset `panel_inset`, hex bolts and lifting eyes at
+    fractions (u, v) of the plate."""
+    out = [chamfered_box(f"{name}", size, M, tone=tone, drop=((0, 0, -1),))]
+    top = size[2] / 2
+    if panel_inset is not None:
+        out.append(plain_box(f"{name}_panel", (size[0] - 2 * panel_inset, size[1] - 2 * panel_inset, 0.012),
+                             M @ place((0, 0, top + 0.006)), tone=tone, drop=((0, 0, -1),)))
+        top += 0.012
+    n = (M.to_3x3() @ Vector((0, 0, 1))).normalized()
+    for i, (u, v) in enumerate(bolts):
+        out.append(hex_bolt(f"{name}_b{i}", M @ Vector((u * size[0], v * size[1], top)), n))
+    for i, (u, v) in enumerate(eyes):
+        out.append(lifting_eye(f"{name}_e{i}", M @ Vector((u * size[0], v * size[1], top)), n,
+                               M.to_3x3() @ Vector((1, 0, 0))))
+    return out
+
+
+def feed_chute(name, pts, w=0.08, tone="metal"):
+    """An ammunition feed chute: a square section `w` across swept along a
+    polyline, open at both ends where it enters the magazine and the gun."""
+    return [sweep(name, pts, w / math.sqrt(2.0), sides=4, closed=False, tone=tone, smooth=False, spin=45.0)]
+
+
+def radar_array(name, M, size, tone="metal"):
+    """A flat radar antenna in frame `M` (x thick, y wide, z high; its face
+    toward local +X): a chamfered body, a raised dark-edged face panel, and a
+    rear hinge knuckle along the top."""
+    out = [chamfered_box(f"{name}", size, M, tone=tone)]
+    out.append(chamfered_box(f"{name}_face", (0.012, size[1] - 0.06, size[2] - 0.06),
+                             M @ place((size[0] / 2 + 0.006, 0, 0)), tone="dark", chamfer=0.004,
+                             drop=((-1, 0, 0),)))
+    R = M.to_3x3()
+    c = M.translation
+    a = c + R @ Vector((-size[0] / 2 - 0.012, -size[1] * 0.3, size[2] * 0.3))
+    b = c + R @ Vector((-size[0] / 2 - 0.012, size[1] * 0.3, size[2] * 0.3))
+    out += hinge(f"{name}_hinge", a, b, r=0.016)
+    return out
+
+
+def barrel_shroud(name, axis_y, axis_z, a, c, rs, rb, r_in, w=0.05, sides=8, tone="metal"):
+    """A heat shroud over a barrel from x=a to x=c: radius `rs`, a clamp band
+    of radius `rb` at each end, closed down to the barrel (`r_in`) at both."""
+    prof = [(a, r_in), (a, rb), (a + w, rb), (a + w, rs), (c - w, rs), (c - w, rb), (c, rb), (c, r_in)]
+    return [lathe(name, [(x - a, r) for x, r in prof], (a, axis_y, axis_z), (1, 0, 0), sides=sides,
+                  tones=[tone] * (len(prof) - 1), cap0=False, cap1=False)]
+
+
+def cowl(name, at, w, l, h, t=0.05, bolts=True, tone="paint"):
+    """An armoured cowl round a weapon station (kit_blockout.cowl's layout):
+    a front plate across +X and two cheeks along X, chamfered, the cheeks
+    bolted to the front plate."""
+    x, y, z = at
+    out = [chamfered_box(f"{name}_f", (t, w, h), place((x + l / 2, y, z)), tone=tone, chamfer=0.008),
+           chamfered_box(f"{name}_l", (l, t, h), place((x, y + w / 2, z)), tone=tone, chamfer=0.008),
+           chamfered_box(f"{name}_r", (l, t, h), place((x, y - w / 2, z)), tone=tone, chamfer=0.008)]
+    if bolts:
+        for s in (1, -1):
+            for k, dz in enumerate((-h * 0.3, h * 0.3)):
+                out.append(hex_bolt(f"{name}_b{s}{k}", (x + l / 2 - t / 2 - 0.03, y + s * (w / 2 + t / 2), z + dz),
+                                    (0, s, 0), across=0.024, height=0.01))
+    return out
+
+
+def sensor_ball(name, centre, r, segments=10, rings=6, window=True, yoke=True, tone="metal"):
+    """A stabilised sensor ball: a UV sphere, a dark window band set into its
+    front (+X) face, and a yoke collar under it."""
+    c = Vector(centre)
+    out = [uv_ball(f"{name}", c, r, segments=segments, rings=rings, tone=tone)]
+    if window:
+        out.append(chamfered_box(f"{name}_win", (0.02, r * 0.9, r * 0.55), place((c.x + r * 0.93, c.y, c.z)),
+                                 tone="dark", chamfer=0.004))
+    if yoke:
+        out.append(tube(f"{name}_yoke", (c.x, c.y, c.z - r * 1.05), (c.x, c.y, c.z - r * 0.8), r * 0.45,
+                        sides=segments, r1=r * 0.55))
+    return out
+
+
+def ammo_box(name, size, M, lid_h=0.04, latches=True, handle=True, tone="metal"):
+    """A small ammunition box in frame `M` (local Z up): a chamfered body, a
+    lid lip, two latches on the front (+X) face and a carry handle."""
+    out = [chamfered_box(f"{name}", (size[0], size[1], size[2] - lid_h), M @ place((0, 0, -lid_h / 2)), tone=tone,
+                         chamfer=0.008),
+           chamfered_box(f"{name}_lid", (size[0] + 0.012, size[1] + 0.012, lid_h), M @ place((0, 0, size[2] / 2 - lid_h / 2)),
+                         tone=tone, chamfer=0.006)]
+    R = M.to_3x3()
+    if latches:
+        for i, v in enumerate((-0.3, 0.3)):
+            out += latch(f"{name}_latch{i}", M @ Vector((size[0] / 2, v * size[1], size[2] / 2 - lid_h - 0.01)),
+                         R @ Vector((1, 0, 0)), R @ Vector((0, 0, 1)), size=(0.035, 0.012, 0.05), tone=tone)
+    if handle:
+        out.append(lifting_eye(f"{name}_handle", M @ Vector((0, 0, size[2] / 2)), R @ Vector((0, 0, 1)),
+                               R @ Vector((0, 1, 0)), r=min(0.05, size[1] * 0.3), t=0.008))
+    return out
 
 
 def hung_module(name, size, at, side, skin, hangers=(-0.25, 0.25), tone="paint"):

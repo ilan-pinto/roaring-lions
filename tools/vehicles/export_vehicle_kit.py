@@ -82,6 +82,11 @@ def load_vehicle(vid):
     for o in list(bpy.data.objects):
         if o.name == "death_root" or o.name.startswith("WRECK_") or o.name.startswith("kit_"):
             bpy.data.objects.remove(o, do_unlink=True)
+    # and their meshes: a grafted GLB's own kit_* meshes, left as orphans,
+    # would push this run's new nodes to "kit_....001" names
+    for me in list(bpy.data.meshes):
+        if me.users == 0:
+            bpy.data.meshes.remove(me)
     for a in list(bpy.data.actions):
         bpy.data.actions.remove(a)
     for o in bpy.data.objects:
@@ -405,14 +410,21 @@ def choose_tones(live):
     tones = {"paint": find_tone("paint", lin, [("hull_hull's islands", coverage([hull], w, h))], paint_target, nrm)}
     every = coverage(textured, w, h)
 
+
     mimg, chan = _linked_image(mat, "Metallic", through=("SEPARATE_COLOR", "SEPRGB", "SEPARATE_RGB"))
+    metallic = None
     if mimg is not None:
         mp = _pixels(mimg)
         mch = {"Red": 0, "R": 0, "Green": 1, "G": 1, "Blue": 2, "B": 2}.get(chan, 2)
         metallic = mp[..., mch]
-        mmask = coverage(textured, w, h) & (metallic >= 0.5)
-        if not mmask.any():
-            raise Refused("tone metal: the metallic map has no texel >= 0.5 inside the vehicle's islands")
+        mcov = metallic[every]
+        log(f"TONE metallic map {mimg.name} channel {chan}: {mcov.min():.3f}..{mcov.max():.3f} over the islands, "
+            f"{int((mcov >= 0.5).sum())} texels >= 0.5")
+        if not (mcov >= 0.5).any():
+            metallic = None       # a uniform map marks no metal: fall through
+    mnode = next((o for o in textured if o.name.endswith("_metal")), None)
+    if metallic is not None:
+        mmask = every & (metallic >= 0.5)
         cols = lin[mmask]
         order = np.argsort(_lum(cols), kind="stable")
 
@@ -421,17 +433,44 @@ def choose_tones(live):
             k = max(1, len(order) // 200)
             return tuple(cols[order[max(0, i - k):i + k + 1]].mean(axis=0))
         metal_target, dark_target = pct(0.5), pct(0.05)
-        log(f"TONE metal source: metallic map {mimg.name} channel {chan}, {int(mmask.sum())} texels >= 0.5")
-    else:
-        mnode = next((o for o in textured if o.name.endswith("_metal")), None)
-        if mnode is None:
-            raise Refused("tone metal: no metallic map and no textured *_metal node")
+        src = "the metal texels' islands"
+        log(f"TONE metal source: metallic >= 0.5 ({int(mmask.sum())} texels)")
+    elif mnode is not None:
         mtex = kb.bake_texels(mnode)
         metal_target = kb.percentile_colour(mtex, 0.5)
         dark_target = kb.percentile_colour(mtex, 0.05)
         mmask = coverage([mnode], w, h)
-        log(f"TONE metal source: {mnode.name}'s own face texels (no metallic map in the bake)")
-    src = "the metal texels' islands"
+        src = f"{mnode.name}'s islands"
+        log(f"TONE metal source: {mnode.name}'s own face texels (no metal in a metallic map)")
+    else:
+        # No metallic texel and no textured metal node (the Namer, Eitan,
+        # Kipod and Shachaf weapon stations are palette; the D9 has no metal
+        # node), and these bakes are painted all over: metal parts take the
+        # GREYEST PAINT of the hull -- the least-saturated tenth of hull_hull's
+        # texels inside its 25-95th luminance band -- and lenses the darkest
+        # twentieth of every textured island (the track rubber included).
+        hmask = coverage([hull], w, h)
+        cols = lin[hmask]
+        lum = _lum(cols)
+        mx, mn = cols.max(axis=1), cols.min(axis=1)
+        sat = (mx - mn) / np.maximum(mx, 1e-6)
+        band = (lum >= np.percentile(lum, 25)) & (lum <= np.percentile(lum, 95))
+        cut = np.percentile(sat[band], 10)
+        grey = cols[band][sat[band] <= cut]
+        order = np.argsort(_lum(grey), kind="stable")
+        k = max(1, len(order) // 200)
+        mid = len(order) // 2
+        metal_target = tuple(grey[order[max(0, mid - k):mid + k + 1]].mean(axis=0))
+        allc = lin[every]
+        aord = np.argsort(_lum(allc), kind="stable")
+        i5 = int(0.05 * (len(aord) - 1))
+        ka = max(1, len(aord) // 200)
+        dark_target = tuple(allc[aord[max(0, i5 - ka):i5 + ka + 1]].mean(axis=0))
+        mmask = hmask
+        src = "hull_hull's islands"
+        log(f"TONE metal source: no metallic texel and no textured *_metal node -- the greyest paint "
+            f"(saturation <= {cut:.3f} in hull_hull's 25-95th luminance band, {len(grey)} texels); "
+            f"dark: the 5th luminance percentile of every textured island")
     tones["metal"] = find_tone("metal", lin, [(src, mmask), ("every textured island", every)], metal_target, nrm)
     tones["dark"] = find_tone("dark", lin, [(src, mmask), ("every textured island", every)], dark_target, nrm)
     return tones
