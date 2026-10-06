@@ -364,7 +364,7 @@
           },
           "clock": {
             "type": "boolean",
-            "description": "GH-345: false keeps this objective's countdown out of the HUD strip, so the strip counts down only the deadline that can fail -- the objective's text then names the time itself. App-read only; the sim never sees it. Default true."
+            "description": "GH-345: false keeps this objective's countdown out of the HUD while another objective's countdown is running, so the strip counts down one clock at a time -- the deadline that can fail first. Once no other clock is running, this one shows (WP-P3, PA-05). App-read only; the sim never sees it. Default true."
           }
         },
         "allOf": [
