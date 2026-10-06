@@ -36,6 +36,7 @@ import { chromium, type Page } from 'playwright';
 import { PNG } from 'pngjs';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { SILENT_AUDIO, musicOffInitScript } from '../ui-review/music-off';
 
 const args = process.argv.slice(2);
 const arg = (k: string, d: string): string => args.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3) ?? d;
@@ -431,9 +432,7 @@ if (args.includes('--cost')) {
     for (const map of MAPS) {
       for (const v of WANT) {
         const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
-        await page.addInitScript(() => {
-          localStorage.setItem('lions.settings', JSON.stringify({ version: 1, audio: { master: 1, music: 0, sfx: 0, voice: 0, radio: false } }));
-        });
+        await page.addInitScript(musicOffInitScript(SILENT_AUDIO));
         await boot(page, map, TARGETS[v]);
         await stage(page);
         for (const z of ZOOMS) {
@@ -496,9 +495,7 @@ for (const map of MAPS) {
   const rows: string[] = JSON.parse(readFileSync(`${ROOT}/data/maps/${map}.json`, 'utf8')).rows;
   for (const v of WANT) {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
-    await page.addInitScript(() => {
-      localStorage.setItem('lions.settings', JSON.stringify({ version: 1, audio: { master: 1, music: 0, sfx: 0, voice: 0, radio: false } }));
-    });
+    await page.addInitScript(musicOffInitScript(SILENT_AUDIO));
     page.on('pageerror', (e) => console.log(`[readability] pageerror ${e.message}`));
     await boot(page, map, TARGETS[v]);
     const staged = await stage(page);

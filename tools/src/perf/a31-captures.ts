@@ -25,6 +25,7 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { ensureDevServer, stopDevServer } from '../golden-diff/browser';
 import { gpuLaunchArgs, resolveGpuBackend } from '../ui-review/gpu';
+import { SILENT_AUDIO, musicOffInitScript } from '../ui-review/music-off';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -100,16 +101,7 @@ try {
     });
     try {
       const page = await browser.newPage({ viewport: { ...VIEWPORT }, deviceScaleFactor: DPR });
-      await page.addInitScript(() => {
-        try {
-          window.localStorage.setItem(
-            'lions.settings',
-            JSON.stringify({ version: 1, audio: { master: 1, music: 0, sfx: 0, voice: 0, radio: false } })
-          );
-        } catch {
-          /* storage blocked: the page still boots, with sound */
-        }
-      });
+      await page.addInitScript(musicOffInitScript(SILENT_AUDIO));
       await page.goto(`${base}/free-play/beit_sahwan_outskirts?sur&tunnel`, { waitUntil: 'load' });
       await page.waitForFunction(() => !!(window as unknown as LionsWindow).__lions?.renderer, null, {
         timeout: 120000,

@@ -60,6 +60,7 @@ import { SANDBOX_KIT_LEVELS } from '../../../packages/app/src/sandbox-force';
 import { kitLevel, units, type UpgradableUnit } from '@lions/data';
 import { PLACEHOLDER_HZ } from '../../../packages/render/src/audio';
 import { VOICE_TIMING } from '../../../packages/app/src/voice/director';
+import { musicOffInitScript } from './music-off';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -991,9 +992,7 @@ try {
     );
     await modelCtx.addInitScript(garageSeedScript());
     // Music off, the lead's default for every test browser.
-    await modelCtx.addInitScript(
-      'try { localStorage.setItem("lions.settings", JSON.stringify({ version: 1, audio: { master: 1, music: 0, sfx: 1, voice: 1, radio: true } })); } catch (e) {}'
-    );
+    await modelCtx.addInitScript(musicOffInitScript());
     const m = await modelCtx.newPage();
     m.setDefaultTimeout(ACTION_TIMEOUT_MS);
     const modelWarnings: string[] = [];

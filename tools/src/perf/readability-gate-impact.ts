@@ -21,6 +21,7 @@ import { SCENARIOS, captureScript, threeUrl } from '../golden-diff/capture-proto
 import { capture, launchCaptureBrowser } from '../golden-diff/browser';
 import { computeDiff } from '../golden-diff/diff';
 import { specFor } from '../golden-diff/baseline';
+import { SILENT_AUDIO, musicOffInitScript } from '../ui-review/music-off';
 
 const args = process.argv.slice(2);
 const arg = (k: string, d: string): string => args.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3) ?? d;
@@ -58,9 +59,7 @@ function changedBox(a: string, b: string): string {
 
 const browser = await launchCaptureBrowser();
 const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 }, deviceScaleFactor: 1 });
-await ctx.addInitScript(() => {
-  localStorage.setItem('lions.settings', JSON.stringify({ version: 1, audio: { master: 1, music: 0, sfx: 0, voice: 0, radio: false } }));
-});
+await ctx.addInitScript(musicOffInitScript(SILENT_AUDIO));
 console.log(`[gate-impact] base :${BASE_PORT} vs changed :${PORT}`);
 for (const sc of SCENARIOS) {
   const spec = specFor(sc.id);

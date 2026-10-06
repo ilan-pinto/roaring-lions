@@ -172,6 +172,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { FREEZE_FRAME_LOOP_SCRIPT, REPAINT_SCRIPT } from '../golden-diff/capture-protocol';
+import { musicOffInitScript } from '../ui-review/music-off';
 
 // ---------------------------------------------------------------- the sheet
 
@@ -551,14 +552,8 @@ async function captureRevision(revision: 'before' | 'after'): Promise<void> {
   page.setDefaultTimeout(STEP_TIMEOUT_MS);
   page.setDefaultNavigationTimeout(STEP_TIMEOUT_MS);
   // Music off before boot -- the lead's rule for every test browser
-  // (`lions.settings`, `packages/app/src/settings.ts`, merged over defaults).
-  await page.addInitScript(() => {
-    try {
-      window.localStorage.setItem('lions.settings', JSON.stringify({ audio: { music: 0 } }));
-    } catch {
-      /* storage blocked: the page boots with its defaults */
-    }
-  });
+  // (`lions.settings`; `ui-review/music-off.ts` builds it, versioned as the parser demands).
+  await page.addInitScript(musicOffInitScript());
   page.on('console', (msg) => {
     const text = msg.text();
     if (text.includes('no mesh queued') || text.includes('rl_gait')) console.log('  page:', text);

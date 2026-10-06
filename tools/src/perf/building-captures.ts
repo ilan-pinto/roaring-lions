@@ -36,6 +36,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { dismissDeployGate } from '../golden-diff/capture-guard';
 import { gpuLaunchArgs, resolveGpuBackend } from '../ui-review/gpu';
+import { musicOffInitScript } from '../ui-review/music-off';
 
 const ZOOMS = [2.5, 1.0] as const;
 /** The rows of the sheet: `structureHpBand`'s eighths, descending. */
@@ -70,13 +71,7 @@ fs.mkdirSync(out, { recursive: true });
 const gpu = resolveGpuBackend(process.argv, process.platform);
 const browser = await chromium.launch({ headless: true, args: gpuLaunchArgs(gpu) });
 const page: Page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
-await page.addInitScript(() => {
-  try {
-    localStorage.setItem('lions.settings', JSON.stringify({ audio: { music: 0 } }));
-  } catch {
-    /* site data blocked: the page still boots, with music the player's own problem */
-  }
-});
+await page.addInitScript(musicOffInitScript());
 page.on('console', (msg) => {
   const text = msg.text();
   if (msg.type() === 'error' || text.includes('no mesh queued')) console.log('  page:', text);
