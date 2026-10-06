@@ -1101,6 +1101,15 @@ body {
   font-size: var(--t-m);
   color: var(--ink-dim);
 }
+/* Polish pass F (A5): the outcome's line on the radio net, always shown --
+   the caption the HUD's own slot cannot carry while this moment covers it.
+   The narration's dim mono face, so it reads as the net speaking. */
+.rl-outcome__radio {
+  margin: var(--s3) 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--t-m);
+  color: var(--ink-dim);
+}
 .rl-outcome__skip {
   margin-top: var(--s4);
 }

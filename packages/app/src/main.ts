@@ -2624,8 +2624,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       isPinned: (id) => isPinned(sim.state, id),
     },
     play: (cue) => audio.playVoice({ key: cue.key, priority: cue.priority, at: cue.at ?? undefined }),
-    caption: (text, seconds) => {
-      if (req.settings.get().accessibility.captions) hud.caption(text, seconds);
+    // A bark follows the captions setting; an announcement shows always
+    // (polish pass F, A5) -- it is mission information, and a Hebrew line
+    // nobody understands is noise.
+    caption: (text, seconds, always) => {
+      if (always === true || req.settings.get().accessibility.captions) hud.caption(text, seconds);
     },
     info: import.meta.env.DEV ? (m) => console.info(m) : () => {},
     text: (k, params) => t(k, params),
@@ -2876,6 +2879,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   audio.setMusicScene('battle');
   if (mission) {
     audio.playCue(CRITICAL_CUES.missionStart);
+    // Shai on the net (A4): caption-only until the line is recorded.
+    voice.onMission([], [{ event: 'mission_start' }]);
     const primaries = mission.objectives.filter((o) => o.primary !== false).length;
     // `dispatch` is the story voice (GDD §11); absent, this card behaves
     // exactly as it always has (`titleCard`'s own contract).

@@ -94,6 +94,12 @@ export interface OutcomeMomentOptions {
    *  never a second reader of the account. Victory only; `outcomeMomentOptions`
    *  never sets it on a defeat. */
   credits?: { paid: number; balance: number };
+  /** The outcome line on the radio net (polish pass F, section 5.4: Shai's
+   *  verdict), as text. Always drawn, whatever the captions setting says
+   *  (A5): it is the outcome's caption, and until the lead records the line
+   *  it is the only form it has. The moment covers the HUD's caption slot,
+   *  so it is drawn here rather than there. */
+  radio?: string;
   holdMs?: number;
 }
 
@@ -141,6 +147,7 @@ export function outcomeMomentOptions(
     outcome: result,
     title: t(result === 'victory' ? 'outcome.victory' : 'outcome.defeat'),
     ...(say !== undefined ? { line: say.text } : {}),
+    radio: t(result === 'victory' ? 'outcome.radio.victory' : 'outcome.radio.defeat'),
     ...(aftermath ? { aftermath } : {}),
     // Defeat pays nothing (GH-234's own rule, unchanged): the caller never
     // hands one on that path, and this is the second guard even if it did.
@@ -202,6 +209,13 @@ export function outcomeMoment(host: HTMLElement, o: OutcomeMomentOptions): Outco
     line.className = 'rl-outcome__line';
     line.textContent = o.line;
     p.body.appendChild(line);
+  }
+
+  if (o.radio !== undefined) {
+    const radio = document.createElement('p');
+    radio.className = 'rl-outcome__radio';
+    radio.textContent = o.radio;
+    p.body.appendChild(radio);
   }
 
   // The moment's one focusable element: a keyboard path for the same skip

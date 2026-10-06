@@ -665,7 +665,7 @@
       }
     },
     "announcements": {
-      "$comment": "GH-110 announcement lines: objective, deadline, loss, reinforcement and contact calls. Each carries an i18n caption key and an `audio` key that must exist in voices.lines (empty until recorded, ElevenLabs licence D5 unconfirmed): empty or unrecorded means caption only. Priority high > normal > low; a lower one stays quiet for hold_s after a higher one spoke.",
+      "$comment": "GH-110 announcement lines: objective, deadline, loss, reinforcement and contact calls. Each carries an i18n caption key and an `audio` key that must exist in voices.lines (empty until recorded, ElevenLabs licence D5 unconfirmed): empty or unrecorded means caption only. Priority high > normal > low; a lower one stays quiet for hold_s after a higher one spoke. Polish pass F: mission_start (Shai on the net as the deploy gate clears, A4) and roe (a Conduct penalty, 'Check your fire', A9) are caption-only until the lead records them. Every announcement caption shows whatever the captions setting says (A5).",
       "hold_s": 3,
       "caption_s": 3.5,
       "events": {
@@ -710,6 +710,18 @@
           "audio": "",
           "cooldown_s": 6,
           "priority": "low"
+        },
+        "mission_start": {
+          "caption": "announce.missionStart",
+          "audio": "",
+          "cooldown_s": 60,
+          "priority": "high"
+        },
+        "roe": {
+          "caption": "announce.roe",
+          "audio": "",
+          "cooldown_s": 10,
+          "priority": "normal"
         }
       }
     }
