@@ -35,6 +35,7 @@
     "plate:host": "pnpm --filter @lions/tools plate:host",
     "plates:units": "pnpm --filter @lions/tools plates:units",
     "gait:meshes": "pnpm --filter @lions/tools gait:meshes",
+    "motion:meshes": "pnpm --filter @lions/tools motion:meshes",
     "meshy": "pnpm --filter @lions/tools meshy --"
   },
   "devDependencies": {

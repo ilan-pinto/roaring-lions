@@ -1574,9 +1574,13 @@ export interface HeldWeaponClearance {
 export const SAMPLES_HELD = 9;
 
 export function measureHeldWeaponInBody(path: string, clip: string, figure: string): HeldWeaponClearance {
+  // Since the motion pass (5 Oct) a held weapon rides its own
+  // `${figure}_weapon` bone, placed by the hold, rather than the forearm.
+  const names = (readGlb(path).json.nodes ?? []).map((n) => n.name);
+  const joint = names.includes(`${figure}_weapon`) ? `${figure}_weapon` : `${figure}_forearm_R`;
   return measureMountedPartInBody(path, clip, {
     roles: ['weapon', 'metal'],
-    joint: `${figure}_forearm_R`,
+    joint,
     bodyJoint: (name) => name === `${figure}_head` || name === `${figure}_neck` || name === `${figure}_spine`,
   });
 }
@@ -2001,4 +2005,297 @@ export function measureUpperBodyMotion(path: string, clip: string): UpperBodyMot
     if (hidden) return { figure, hiddenInClip: true, leanRangeDeg: 0, headSwayM: 0 };
     return { figure, hiddenInClip: false, leanRangeDeg: range(lean), headSwayM: Math.hypot(range(fx), range(fz)) };
   });
+}
+
+/**
+ * Ground a clip's PLANTED feet cover per cycle (the motion pass, 5 Oct).
+ *
+ * `strideM` used to be one boot's forward peak-to-peak travel, read as the
+ * ground covered per cycle. It is not: a planted foot sweeps back only while
+ * it is on the ground, a fraction of the cycle, so the ground per cycle is
+ * that sweep divided by the stance fraction -- and the rate match played
+ * every walker's legs 1.8-2.9x too fast for their stride (the motion
+ * checkpoint, finding #3). What a rate match must divide by is the speed of
+ * the foot that is on the ground.
+ *
+ * Every boot vertex a foot joint carries (`*_shin_L`/`*_shin_R`), at every
+ * sample: its backward speed, weighted by how near the ground it is -- 1 at
+ * the clip's lowest sole, falling to 0 at `PLANTED_FADE_M` above it. Material
+ * points, because a rigid boot rolls heel to toe and its LOWEST point travels
+ * forward while nothing slides. All feet pooled, every figure. `tools/src/meshes/motion/stride.ts`'s `plantedSpeed` is the same
+ * rule over gltf-transform; this one reads the bytes with this module's own
+ * skinning, and the gait gate's foot-skate oracle is a third, per-sample
+ * measure, so no two of them share code.
+ */
+export const PLANTED_FADE_M = 0.012;
+export const PLANTED_SAMPLES = 120;
+
+export interface PlantedGround {
+  readonly groundPerCycleM: number;
+  readonly clipSeconds: number;
+  readonly feet: number;
+}
+
+export function measurePlantedGround(path: string, clip: string): PlantedGround {
+  const { glb, pos, joints, weights, skin, ibm } = loadSkinnedRole(path, 'boot');
+  const { tracks, start, end } = readClip(glb, clip);
+  const names = (glb.json.nodes ?? []).map((n) => n.name ?? '');
+  const groups = new Map<number, number[]>();
+  for (let i = 0; i < pos.count; i++) {
+    let best = 0;
+    for (let k = 1; k < 4; k++) if (weights.data[i * 4 + k] > weights.data[i * 4 + best]) best = k;
+    const node = skin.joints[joints.data[i * 4 + best]];
+    // The shin carries the boot on rig.py's rigs; since the motion pass the
+    // foot below an ankle does (`motion/feet.ts`). A captured biped's own
+    // foot bones count too.
+    if (!/(_shin_[LR]|_foot_[LR]|^(Left|Right)(Foot|ToeBase))$/.test(names[node] ?? '')) continue;
+    if (!groups.has(node)) groups.set(node, []);
+    groups.get(node)!.push(i);
+  }
+  const n = PLANTED_SAMPLES;
+  const dt = (end - start) / n;
+  const idx = [...groups.values()].flat();
+  const frames: [number, number, number][][] = [];
+  for (let s = 0; s <= n; s++) {
+    const mats = computeSkinMats(skin, nodeWorlds(glb, tracks, start + s * dt), ibm);
+    frames.push(idx.map((v) => skinPoint(pos, joints, weights, v, mats)));
+  }
+  let ground = Infinity;
+  for (const f of frames) for (const p of f) ground = Math.min(ground, p[1]);
+  let num = 0;
+  let den = 0;
+  for (let s = 0; s < n; s++) {
+    for (let i = 0; i < idx.length; i++) {
+      const a = frames[s][i];
+      const b = frames[s + 1][i];
+      const w = Math.max(0, 1 - ((a[1] + b[1]) / 2 - ground) / PLANTED_FADE_M) ** 2;
+      if (w <= 0) continue;
+      num += w * (-(b[0] - a[0]) / dt);
+      den += w;
+    }
+  }
+  const feet = groups.size;
+  const speed = den > 0 ? num / den : NaN;
+  return { groundPerCycleM: speed * (end - start), clipSeconds: end - start, feet };
+}
+
+/**
+ * Foot skate, per figure: how fast a foot that is ON THE GROUND moves over
+ * it once the clip is played the way the renderer plays it -- the gait gate's
+ * oracle (the motion pass, 5 Oct).
+ *
+ * The body is taken to move at `speedMetresPerSecond` along +X and the clip
+ * to play at `timeScale` (the caller passes the renderer's own
+ * `gaitTimeScale`, so a declaration the renderer would misread is judged as
+ * it would be drawn). Every boot vertex of a figure (the vertices its own
+ * `*_shin_*`/`*_foot_*` joints carry, or a biped's `*Foot`/`*ToeBase`) whose
+ * height is within `SKATE_CONTACT_M` of that figure's lowest boot point at
+ * that instant is a vertex on the ground, and its world speed is its
+ * clip-local forward velocity times `timeScale` plus the body's. The reading
+ * is the MEDIAN of those speeds, over the body's speed: 0 for a planted foot,
+ * 1 for a foot gliding along with the body, past 1 for one treadmilling
+ * backwards faster than the ground passes (the defect: 1.86 on inf_squad
+ * before the pass, measured by the motion checkpoint).
+ *
+ * Deliberately not `measurePlantedGround`'s rule (a pooled, weighted mean of
+ * the backward speed): per figure, per sample, a hard contact test and a
+ * median, so the two can disagree and the gate is not a declaration graded
+ * by its own arithmetic.
+ */
+export const SKATE_CONTACT_M = 0.015;
+
+export interface FigureSkate {
+  readonly figure: string;
+  readonly skate: number;
+  readonly samples: number;
+}
+
+export function measureFootSkate(
+  path: string,
+  clip: string,
+  speedMetresPerSecond: number,
+  timeScale: number
+): FigureSkate[] {
+  const { glb, pos, joints, weights, skin, ibm } = loadSkinnedRole(path, 'boot');
+  const { tracks, start, end } = readClip(glb, clip);
+  const names = (glb.json.nodes ?? []).map((n) => n.name ?? '');
+  const figureOf = (n: string): string | null => {
+    const m = /^(.*)_(shin|foot)_[LR]$/.exec(n);
+    if (m) return m[1];
+    return /^(Left|Right)(Foot|ToeBase)$/.test(n) ? '(biped)' : null;
+  };
+  const byFigure = new Map<string, number[]>();
+  for (let i = 0; i < pos.count; i++) {
+    let best = 0;
+    for (let k = 1; k < 4; k++) if (weights.data[i * 4 + k] > weights.data[i * 4 + best]) best = k;
+    const f = figureOf(names[skin.joints[joints.data[i * 4 + best]]] ?? '');
+    if (f === null || /death/.test(f)) continue;
+    if (!byFigure.has(f)) byFigure.set(f, []);
+    byFigure.get(f)!.push(i);
+  }
+  const n = 96;
+  const dtClip = (end - start) / n;
+  const out: FigureSkate[] = [];
+  const frames: Map<string, [number, number, number][][]> = new Map([...byFigure.keys()].map((f) => [f, []]));
+  for (let s = 0; s <= n; s++) {
+    const mats = computeSkinMats(skin, nodeWorlds(glb, tracks, start + s * dtClip), ibm);
+    for (const [f, idx] of byFigure) frames.get(f)!.push(idx.map((v) => skinPoint(pos, joints, weights, v, mats)));
+  }
+  for (const [f, fr] of frames) {
+    // A figure scaled out of this clip (a hidden walker or kneeler) has
+    // every boot vertex at one point: it is not on the ground, it is gone.
+    const spread = Math.max(...fr[0].map((p) => p[1])) - Math.min(...fr[0].map((p) => p[1]));
+    if (spread < 1e-4) continue;
+    // The ground is the figure's lowest boot point over the whole cycle, not
+    // at each instant: in a run's flight phase the lowest point is in the
+    // air, and counting it as "on the ground" reads a sprinter's airborne
+    // feet as gliding (measured: 1.0 on a planted charge_squad).
+    const ground = Math.min(...fr.flatMap((f) => f.map((p) => p[1])));
+    const speeds: number[] = [];
+    for (let s = 0; s < n; s++) {
+      const a = fr[s];
+      const b = fr[s + 1];
+      for (let i = 0; i < a.length; i++) {
+        if (a[i][1] - ground > SKATE_CONTACT_M || b[i][1] - ground > SKATE_CONTACT_M) continue;
+        const local = (b[i][0] - a[i][0]) / (dtClip / timeScale);
+        speeds.push(Math.abs(local + speedMetresPerSecond));
+      }
+    }
+    speeds.sort((x, y) => x - y);
+    out.push({
+      figure: f,
+      skate: speeds.length ? speeds[Math.floor(speeds.length / 2)] / speedMetresPerSecond : NaN,
+      samples: speeds.length,
+    });
+  }
+  return out;
+}
+
+/**
+ * The hold, read off the bytes (the motion pass, 5 Oct): is each hand ON the
+ * weapon, and is the eye over the bore?
+ *
+ * Every mesh of the file is skinned at `SAMPLES_HOLD` instants. For figure
+ * `prefix`: the weapon is every `weapon`-role vertex its `${prefix}_weapon`
+ * joint (or, on a rig the pass did not touch, its `_forearm_R`) dominantly
+ * owns; a HAND is the outermost tenth of the vertices a forearm owns (the
+ * vertices furthest from that forearm's own joint), non-weapon; the eye is
+ * the centroid of the `face` vertices its head owns. Reported per instant,
+ * worst case:
+ *
+ *   handGapM      for each forearm, the distance from its hand's centroid to
+ *                 the nearest weapon vertex; the WORSE of the two hands
+ *   eyeAboveBoreM how far the eye sits above the weapon's own long axis
+ *                 (the first principal component of its vertices), at the
+ *                 point under the eye -- the cheek weld
+ *
+ * Before the pass a rifleman's support hand read 0.36-0.54 m off his weapon
+ * and his eye 0.54-0.71 m above it (the motion checkpoint, finding #1).
+ */
+export const SAMPLES_HOLD = 7;
+
+export interface HoldReading {
+  readonly handGapM: number;
+  readonly eyeAboveBoreMin: number;
+  readonly eyeAboveBoreMax: number;
+  readonly instants: number;
+}
+
+export function measureHold(path: string, clip: string, prefix: string): HoldReading {
+  const glb = readGlb(path);
+  const nodes = glb.json.nodes ?? [];
+  const meshes = glb.json.meshes ?? [];
+  const names = nodes.map((n) => n.name ?? '');
+  const wName = names.includes(`${prefix}_weapon`) ? `${prefix}_weapon` : `${prefix}_forearm_R`;
+  const { tracks, start, end } = readClip(glb, clip);
+  type Pick = { pos: Accessor; joints: Accessor; weights: Accessor; skin: { joints: number[] }; ibm: Accessor | null; role: string; idx: Map<string, number[]> };
+  const picks: Pick[] = [];
+  nodes.forEach((n) => {
+    if (n.mesh === undefined || n.skin === undefined) return;
+    const mesh = meshes[n.mesh];
+    const role = ((n as { extras?: { rl_role?: string } }).extras?.rl_role ?? mesh.name ?? '') as string;
+    const skin = glb.json.skins![n.skin];
+    const prim = mesh.primitives[0];
+    const pick: Pick = {
+      pos: readAccessor(glb, prim.attributes.POSITION),
+      joints: readAccessor(glb, prim.attributes.JOINTS_0),
+      weights: readAccessor(glb, prim.attributes.WEIGHTS_0),
+      skin,
+      ibm: skin.inverseBindMatrices === undefined ? null : readAccessor(glb, skin.inverseBindMatrices),
+      role,
+      idx: new Map(),
+    };
+    for (let i = 0; i < pick.pos.count; i++) {
+      let b = 0;
+      for (let k = 1; k < 4; k++) if (pick.weights.data[i * 4 + k] > pick.weights.data[i * 4 + b]) b = k;
+      const jn = names[skin.joints[pick.joints.data[i * 4 + b]]];
+      // One joint can carry both a hand and the weapon (an untouched rig's
+      // `_forearm_R`), so the role decides, then the joint.
+      let key: string | null = null;
+      if (role === 'weapon') key = jn === wName ? 'weapon' : null;
+      else if (role === 'face') key = jn === `${prefix}_head` ? 'face' : null;
+      else if (role !== 'metal' && (jn === `${prefix}_forearm_L` || jn === `${prefix}_forearm_R`)) key = jn;
+      if (!key) continue;
+      if (!pick.idx.has(key)) pick.idx.set(key, []);
+      pick.idx.get(key)!.push(i);
+    }
+    if (pick.idx.size) picks.push(pick);
+  });
+  let handGap = 0;
+  let eyeLo = Infinity;
+  let eyeHi = -Infinity;
+  let instants = 0;
+  for (let s = 0; s < SAMPLES_HOLD; s++) {
+    const t = start + ((end - start) * s) / Math.max(1, SAMPLES_HOLD - 1);
+    const worlds = nodeWorlds(glb, tracks, t);
+    const pts = new Map<string, [number, number, number][]>();
+    for (const p of picks) {
+      const mats = computeSkinMats(p.skin, worlds, p.ibm);
+      for (const [k, idx] of p.idx) {
+        if (!pts.has(k)) pts.set(k, []);
+        for (const i of idx) pts.get(k)!.push(skinPoint(p.pos, p.joints, p.weights, i, mats));
+      }
+    }
+    const weapon = pts.get('weapon') ?? [];
+    if (weapon.length < 30) continue;
+    // A figure scaled out of the clip collapses to a point: not drawn.
+    const span = Math.max(...weapon.map((q) => q[1])) - Math.min(...weapon.map((q) => q[1]));
+    if (span < 1e-4) continue;
+    instants++;
+    for (const side of ['L', 'R']) {
+      const jn = `${prefix}_forearm_${side}`;
+      const hp = pts.get(jn) ?? [];
+      if (hp.length < 8) throw new Error(`${path}: ${jn} owns ${hp.length} hand vertices`);
+      const m = worlds[names.indexOf(jn)];
+      const elbow = [m[12], m[13], m[14]];
+      const d = hp.map((q) => Math.hypot(q[0] - elbow[0], q[1] - elbow[1], q[2] - elbow[2]));
+      const cut = [...d].sort((a, b) => a - b)[Math.floor(d.length * 0.9)];
+      const far = hp.filter((_, i) => d[i] >= cut);
+      const c = [0, 1, 2].map((k) => far.reduce((a, q) => a + q[k], 0) / far.length);
+      let best = Infinity;
+      for (const w of weapon) best = Math.min(best, Math.hypot(w[0] - c[0], w[1] - c[1], w[2] - c[2]));
+      handGap = Math.max(handGap, best);
+    }
+    const face = pts.get('face') ?? [];
+    if (face.length) {
+      const eye = [0, 1, 2].map((k) => face.reduce((a, q) => a + q[k], 0) / face.length);
+      const c = [0, 1, 2].map((k) => weapon.reduce((a, q) => a + q[k], 0) / weapon.length);
+      let v = [1, 0.1, 0.05];
+      for (let it = 0; it < 48; it++) {
+        const nv = [0, 0, 0];
+        for (const q of weapon) {
+          const d = [q[0] - c[0], q[1] - c[1], q[2] - c[2]];
+          const dot = d[0] * v[0] + d[1] * v[1] + d[2] * v[2];
+          for (let k = 0; k < 3; k++) nv[k] += d[k] * dot;
+        }
+        const l = Math.hypot(nv[0], nv[1], nv[2]);
+        v = nv.map((x) => x / l);
+      }
+      const along = (eye[0] - c[0]) * v[0] + (eye[1] - c[1]) * v[1] + (eye[2] - c[2]) * v[2];
+      const above = eye[1] - (c[1] + v[1] * along);
+      eyeLo = Math.min(eyeLo, above);
+      eyeHi = Math.max(eyeHi, above);
+    }
+  }
+  return { handGapM: handGap, eyeAboveBoreMin: eyeLo, eyeAboveBoreMax: eyeHi, instants };
 }
