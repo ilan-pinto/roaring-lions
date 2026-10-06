@@ -2366,3 +2366,103 @@ export function measureHipHeight(path: string, clip: string): FigureHipHeight[] 
     return { figure, hiddenInClip: false, thighM, hipMinM: sorted[0], hipMedianM: sorted[Math.floor(sorted.length / 2)] };
   });
 }
+
+export interface FigureLowest {
+  /** The figure's root joint (`rpg_fire_root`), or the dominant joint's own
+   *  name when it sits under no `*_root`. */
+  readonly root: string;
+  /** Lowest skinned vertex of the figure over the clip, metres above the
+   *  armature's y = 0 (the ground rig.py and the motion pass stand on). */
+  readonly lowestM: number;
+  /** The joint carrying that vertex, and when. */
+  readonly joint: string;
+  readonly atS: number;
+  /** The figure's lowest vertex at its HIGHEST instant: how far off the
+   *  ground the whole man gets (a figure with both feet in the air floats). */
+  readonly floatM: number;
+  /** Instants sampled with the figure drawn. */
+  readonly instants: number;
+}
+
+/**
+ * The lowest vertex of each figure over `clip` (kneel-toe, 6 Oct): every
+ * skinned mesh node, every vertex, skinned at every keyframe time the clip
+ * carries and at the midpoint between each pair -- so a sink that peaks
+ * between two keys is still sampled near its peak. A vertex is assigned to
+ * its dominant joint, and the joint to the outermost `*_root` above it.
+ * Joints scaled out (a hidden walker, a death twin) are skipped: they
+ * collapse to a point and are not drawn.
+ *
+ * Why every vertex and not the boot: the defect it was built for is the
+ * kneeling back boot's toe, but "under the ground" is a property of any
+ * geometry, and the occlusion outline draws a speck wherever ANY of it is
+ * buried. And why not the motion pass's own sole reading: that one picked
+ * its boot vertices by the SHIN joint after `feet.ts` had moved the sole onto
+ * a new ankle bone, so it read the boot's shaft and printed "0.000 m under"
+ * over a toe 4-94 mm in the ground.
+ */
+export function measureLowestVertex(path: string, clip: string): FigureLowest[] {
+  const glb = readGlb(path);
+  const nodes = glb.json.nodes ?? [];
+  const meshes = glb.json.meshes ?? [];
+  const names = nodes.map((n) => n.name ?? '');
+  const parent = new Int32Array(nodes.length).fill(-1);
+  nodes.forEach((n, i) => { for (const c of n.children ?? []) parent[c] = i; });
+  const rootOf = (j: number): string => {
+    let best = names[j];
+    for (let k = j; k >= 0; k = parent[k]) if (/_root$/.test(names[k])) best = names[k];
+    return best;
+  };
+  const anim = glb.json.animations?.find((a) => a.name === clip);
+  if (!anim) throw new Error(`${path}: clip "${clip}" not in file`);
+  const { tracks } = readClip(glb, clip);
+  const keyTimes = new Set<number>();
+  for (const s of anim.samplers) for (const t of readAccessor(glb, s.input).data) keyTimes.add(t);
+  const sorted = [...keyTimes].sort((a, b) => a - b);
+  const times = sorted.flatMap((t, i) => (i + 1 < sorted.length ? [t, (t + sorted[i + 1]) / 2] : [t]));
+  type Part = { pos: Accessor; joints: Accessor; weights: Accessor; skin: { joints: number[] }; ibm: Accessor | null; dom: Int32Array; root: string[] };
+  const parts: Part[] = [];
+  for (const n of nodes) {
+    if (n.mesh === undefined || n.skin === undefined) continue;
+    const skin = glb.json.skins![n.skin];
+    for (const prim of meshes[n.mesh].primitives) {
+      const pos = readAccessor(glb, prim.attributes.POSITION);
+      const joints = readAccessor(glb, prim.attributes.JOINTS_0);
+      const weights = readAccessor(glb, prim.attributes.WEIGHTS_0);
+      const dom = new Int32Array(pos.count);
+      const root: string[] = [];
+      for (let i = 0; i < pos.count; i++) {
+        let b = 0;
+        for (let k = 1; k < 4; k++) if (weights.data[i * 4 + k] > weights.data[i * 4 + b]) b = k;
+        dom[i] = skin.joints[joints.data[i * 4 + b]];
+        root.push(rootOf(dom[i]));
+      }
+      parts.push({ pos, joints, weights, skin, ibm: skin.inverseBindMatrices === undefined ? null : readAccessor(glb, skin.inverseBindMatrices), dom, root });
+    }
+  }
+  const out = new Map<string, { lowestM: number; joint: string; atS: number; floatM: number; instants: number }>();
+  for (const t of times) {
+    const worlds = nodeWorlds(glb, tracks, t);
+    const now = new Map<string, { y: number; joint: string }>();
+    for (const p of parts) {
+      const mats = computeSkinMats(p.skin, worlds, p.ibm);
+      for (let i = 0; i < p.pos.count; i++) {
+        const j = p.dom[i];
+        if (jointScale(worlds[j]) <= HIDDEN_SCALE) continue;
+        const y = skinPoint(p.pos, p.joints, p.weights, i, mats)[1];
+        const cur = now.get(p.root[i]);
+        if (!cur || y < cur.y) now.set(p.root[i], { y, joint: names[j] });
+      }
+    }
+    for (const [root, { y, joint }] of now) {
+      const cur = out.get(root);
+      if (!cur) out.set(root, { lowestM: y, joint, atS: t, floatM: y, instants: 1 });
+      else {
+        cur.instants++;
+        cur.floatM = Math.max(cur.floatM, y);
+        if (y < cur.lowestM) Object.assign(cur, { lowestM: y, joint, atS: t });
+      }
+    }
+  }
+  return [...out].map(([root, r]) => ({ root, ...r })).sort((a, b) => a.root.localeCompare(b.root));
+}
