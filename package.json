@@ -26,6 +26,7 @@
     "gen:luts": "node tools/gen_luts.mjs",
     "encode:meshes": "pnpm --filter @lions/tools encode:meshes",
     "wreck:meshes": "pnpm --filter @lions/tools wreck:meshes",
+    "kit:meshes": "pnpm --filter @lions/tools kit:meshes",
     "ui:shots": "pnpm --filter @lions/tools ui:shots",
     "ui:routes": "pnpm --filter @lions/tools ui:routes",
     "blast:capture": "pnpm --filter @lions/tools blast:capture",

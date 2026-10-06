@@ -171,6 +171,13 @@ SAMPLES = 64
 # enough on its own.
 DEATH_ROOT_NAME = "death_root"
 
+# Contract v5 (vehicles), plan 3 of the garage uplift: a vehicle GLB may carry
+# its upgrade kit as `kit_*` nodes beside their hosts (`pnpm kit:meshes`). The
+# shipped render is the vehicle a fresh account fields -- tier 0, no kit -- so
+# `hide_kit_parts` takes every one out before framing. Task 6 of that plan adds
+# the kitted renders, re-linking from the stash this returns.
+KIT_PREFIX = "kit_"
+
 # unit id -> rl_role -> palette key, for the vehicle kit's closed role
 # vocabulary (tools/vehicles/kit.py's ROLES). Hand-copied from each vehicle's
 # own render_*.py ROLE_PALETTE rather than imported -- see this file's module
@@ -525,6 +532,32 @@ def hide_death_root(objs, glb_path):
     return live, stashed
 
 
+def hide_kit_parts(objs):
+    """Take every `kit_*` object (and anything under one) out of the scene --
+    UNLINKED from its collections exactly as `hide_death_root` does it, and
+    for the same reason: `render_rig.world_bounds()` reads every object in the
+    scene with no visibility test, so a hidden part would still stretch the
+    framing. A file with no kit returns `(objs, [])` and changes nothing,
+    which is every shipped vehicle until plan 3's Task 4.
+
+    Returns `(kept_objs, stashed)` in `hide_death_root`'s shape, so the wreck
+    render (which hides every object still in the scene) never sees the kit
+    either: its wreck is the host's twin, and the runtime merges the kit into
+    the host's geometry at template build, not here.
+    """
+    stashed = []
+    for root in [o for o in bpy.context.scene.objects if o.name.startswith(KIT_PREFIX)]:
+        for obj in [root] + list(root.children_recursive):
+            if any(obj is s for s, _ in stashed):
+                continue
+            colls = list(obj.users_collection)
+            for coll in colls:
+                coll.objects.unlink(obj)
+            stashed.append((obj, colls))
+    hidden = {obj for obj, _ in stashed}
+    return [o for o in objs if o not in hidden], stashed
+
+
 def render_vehicle_wreck(unit_id, stashed, out_dir):
     """Render the wreck ALONE, through the camera the live render was already
     framed with, to `<out_dir>/wreck_f00_000.png`.
@@ -733,6 +766,10 @@ def render_one(glb_path, out_root):
         # BEFORE materials and before framing, both of which would otherwise
         # take the wreck into account -- see `hide_death_root`'s own docstring
         # for why `hide_render` alone does not do it.
+        mesh_objs, kit_stashed = hide_kit_parts(mesh_objs)
+        if kit_stashed:
+            print(f"MESH_GATE_WARN: {unit_id}: hid {len(kit_stashed)} kit_* "
+                  f"object(s) from the shipped and wreck renders")
         mesh_objs, stashed = hide_death_root(mesh_objs, glb_path)
         print(f"MESH_GATE_WARN: {unit_id}: hid {len(stashed)} death-root "
               f"object(s) for the live render: {[o.name for o, _ in stashed]}")

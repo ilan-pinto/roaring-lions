@@ -1069,6 +1069,13 @@ def check_campaign_meshes(campaign_root, world_path):
 DEATH_ROOT_NODE = "death_root"
 WRECK_NODE_PREFIX = "WRECK_"
 WRECK_CLIP_NAMES = ("idle", "wreck")
+# Contract v5 (vehicles), plan 3 of the garage uplift: `pnpm kit:meshes`
+# grafts upgrade parts as `kit_*` nodes beside their hosts. A kit node is not
+# live geometry for the wreck contract -- no `WRECK_` twin (its wreck is its
+# host's twin, which shares the merged geometry at runtime), no clip channel
+# (the renderer deletes every kit node before a mixer exists) -- so the census
+# below looks past it. `KIT_PREFIX` in tools/src/meshes/kit-contract.ts.
+KIT_NODE_PREFIX = "kit_"
 
 
 def _wreck_subtree(nodes, root_index):
@@ -1187,7 +1194,8 @@ def _check_vehicle_wreck_dir(vehicles_root, failures):
             continue
         death = death[0]
         n_checked += 1
-        live_roots = [i for i in roots if i != death]
+        live_roots = [i for i in roots if i != death
+                      and not (nodes[i].get("name") or "").startswith(KIT_NODE_PREFIX)]
 
         wreck_nodes = _wreck_subtree(nodes, death)
         if not wreck_nodes:
@@ -1196,9 +1204,13 @@ def _check_vehicle_wreck_dir(vehicles_root, failures):
                 f"every clip check below and draws nothing at all when the vehicle dies"
             )
         wreck_set = set(wreck_nodes)
+        # Kit nodes are left out of both sides: a wreck child sharing a kit
+        # mesh is a kit part twinned, which the contract forbids.
+        kit_set = {i for i, node in enumerate(nodes)
+                   if (node.get("name") or "").startswith(KIT_NODE_PREFIX)}
         live_meshes = {
             node["mesh"] for i, node in enumerate(nodes)
-            if "mesh" in node and i not in wreck_set
+            if "mesh" in node and i not in wreck_set and i not in kit_set
         }
         for i in wreck_nodes:
             node = nodes[i]
@@ -1239,7 +1251,7 @@ def _check_vehicle_wreck_dir(vehicles_root, failures):
         # expressible, and the subtraction still names the part.
         want_twins = Counter(
             f"{WRECK_NODE_PREFIX}{node.get('name')}" for i, node in enumerate(nodes)
-            if "mesh" in node and i not in wreck_set
+            if "mesh" in node and i not in wreck_set and i not in kit_set
         )
         got_twins = Counter(
             nodes[i].get("name") for i in wreck_nodes if "mesh" in nodes[i]

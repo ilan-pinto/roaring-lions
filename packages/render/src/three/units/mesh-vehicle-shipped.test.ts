@@ -67,7 +67,7 @@
  * warning, not thrown, because texture PIXELS are not what this file
  * checks. Materials, clips and pivots are still built correctly either way.
  */
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
@@ -89,6 +89,15 @@ const VEHICLE_MESHES = `${REPO}art/meshes/vehicles/`;
  *  rename on one of them is a red test rather than a silent miss. */
 const DEATH_ROOT = 'death_root';
 const WRECK_PREFIX = 'WRECK_';
+
+/** A kit part's node-name prefix -- `KIT_PREFIX` in
+ *  `tools/src/meshes/kit-contract.ts`, restated for the same reason as the two
+ *  above. Contract v5 (vehicles): a kit part is never a clip target and never
+ *  has a `WRECK_` twin (`pnpm wreck:meshes` skips it; the renderer merges the
+ *  owned parts into their hosts, whose twins share the merged geometry), so
+ *  every clip and twin assertion below looks past it. */
+const KIT_PREFIX = 'kit_';
+const isKit = (o: THREE.Object3D): boolean => o.name.startsWith(KIT_PREFIX);
 
 /** Eleven shipped vehicle GLBs, censused 2026-09-15. A floor rather than an
  *  equality so a twelfth vehicle is not a red test on the day it lands --
@@ -130,10 +139,149 @@ function deathRootOf(template: VehicleMeshTemplate): THREE.Object3D | null {
 }
 
 /** The top-level LIVE nodes: everything the scene holds except the death
- *  root. These are what the clips scale to zero when a vehicle dies. */
+ *  root and any kit part. These are what the clips scale to zero when a
+ *  vehicle dies. */
 function liveTopLevel(template: VehicleMeshTemplate): THREE.Object3D[] {
-  return template.root.children.filter((o) => o.name !== DEATH_ROOT);
+  return template.root.children.filter((o) => o.name !== DEATH_ROOT && !isKit(o));
 }
+
+// ---------------------------------------------------------------------------
+// Kit parts (contract v5, vehicles): read straight out of the glTF JSON, the
+// way `validate_mesh_assets.py` reads the wreck, because Task 3's runtime
+// merge DELETES every kit node at template build -- so the template cannot be
+// asked whether the file obeys the contract, only the bytes can.
+// ---------------------------------------------------------------------------
+
+interface GltfNode {
+  name?: string;
+  mesh?: number;
+  children?: number[];
+  translation?: number[];
+  rotation?: number[];
+  scale?: number[];
+  matrix?: number[];
+  extras?: Record<string, unknown>;
+}
+interface GltfJson {
+  scene?: number;
+  scenes?: { nodes?: number[] }[];
+  nodes?: GltfNode[];
+  meshes?: { primitives: { attributes: Record<string, number>; material?: number }[] }[];
+}
+
+/** The JSON chunk of a GLB: 12-byte header, then chunk 0 (length, type, data). */
+function glbJson(id: string): GltfJson {
+  const bytes = readFileSync(`${VEHICLE_MESHES}${id}.glb`);
+  const length = bytes.readUInt32LE(12);
+  return JSON.parse(bytes.subarray(20, 20 + length).toString('utf8')) as GltfJson;
+}
+
+/** The upgrade tracks `data/units/kdf/<id>.json` declares, or none for a
+ *  vehicle with no KDF unit file (no kit may hang on it at all). */
+function declaredTracks(id: string): Set<string> {
+  const file = `${REPO}data/units/kdf/${id}.json`;
+  if (!existsSync(file)) return new Set();
+  const unit = JSON.parse(readFileSync(file, 'utf8')) as { upgrades?: Record<string, unknown> };
+  return new Set(Object.keys(unit.upgrades ?? {}));
+}
+
+const IDENTITY_MATRIX = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+
+/** A node's local transform as glTF states it, defaults filled in. */
+const localTrs = (n: GltfNode): number[][] => [
+  n.translation ?? [0, 0, 0],
+  n.rotation ?? [0, 0, 0, 1],
+  n.scale ?? [1, 1, 1],
+  n.matrix ?? IDENTITY_MATRIX,
+];
+
+/** Every kit node in the file and every way it breaks the contract. */
+function kitViolations(id: string): { kitNodes: number; violations: string[] } {
+  const gltf = glbJson(id);
+  const nodes = gltf.nodes ?? [];
+  const roots = new Set((gltf.scenes ?? [])[gltf.scene ?? 0]?.nodes ?? []);
+  const parent = new Map<number, number>();
+  nodes.forEach((n, i) => (n.children ?? []).forEach((c) => parent.set(c, i)));
+  const parentOf = (i: number): string =>
+    parent.has(i) ? `node ${parent.get(i)}` : roots.has(i) ? 'the scene' : 'nothing';
+  const underDeathRoot = (i: number): boolean => {
+    for (let walk: number | undefined = i; walk !== undefined; walk = parent.get(walk)) {
+      if (nodes[walk].name === DEATH_ROOT) return true;
+    }
+    return false;
+  };
+  const tracks = declaredTracks(id);
+  const violations: string[] = [];
+  const seen = new Set<string>();
+  let kitNodes = 0;
+
+  nodes.forEach((node, i) => {
+    const name = node.name ?? `<node ${i}>`;
+    if (!name.startsWith(KIT_PREFIX)) return;
+    kitNodes++;
+    const bad = (why: string): void => void violations.push(`${id}: ${name}: ${why}`);
+    if (seen.has(name)) bad('a second node of this name -- one node per (track, tier, host)');
+    seen.add(name);
+    if (node.children?.length) bad('has children; a kit part is a leaf');
+
+    const kit = node.extras?.rl_kit as { track?: unknown; tier?: unknown; host?: unknown } | undefined;
+    if (!kit || typeof kit !== 'object') return bad('no extras.rl_kit');
+    const { track, tier, host } = kit;
+    if (typeof track !== 'string' || typeof host !== 'string' || typeof tier !== 'number') {
+      return bad(`rl_kit ${JSON.stringify(kit)} is not { track, tier, host }`);
+    }
+    if (name !== `${KIT_PREFIX}${track}_${tier}_${host}`) bad(`name does not match rl_kit (${track}, ${tier}, ${host})`);
+    if (!Number.isInteger(tier) || tier < 1 || tier > 3) bad(`tier ${tier} is outside 1-3`);
+    if (!tracks.has(track)) {
+      bad(`track "${track}" is not one data/units/kdf/${id}.json declares under upgrades ([${[...tracks].join(', ')}])`);
+    }
+
+    const hosts = nodes
+      .map((n, k) => ({ n, k }))
+      .filter(({ n, k }) => n.name === host && n.mesh !== undefined && !underDeathRoot(k));
+    if (hosts.length !== 1) return bad(`host "${host}" names ${hosts.length} live mesh node(s), not one`);
+    const { n: hostNode, k: hostIndex } = hosts[0];
+    if (parentOf(i) !== parentOf(hostIndex)) bad(`hangs under ${parentOf(i)}, its host under ${parentOf(hostIndex)}`);
+    if (JSON.stringify(localTrs(node)) !== JSON.stringify(localTrs(hostNode))) bad("local transform is not its host's");
+    if (node.extras?.rl_role !== hostNode.extras?.rl_role) {
+      bad(`rl_role ${JSON.stringify(node.extras?.rl_role)} is not its host's ${JSON.stringify(hostNode.extras?.rl_role)}`);
+    }
+
+    const prims = node.mesh === undefined ? [] : (gltf.meshes?.[node.mesh]?.primitives ?? []);
+    const hostPrims = hostNode.mesh === undefined ? [] : (gltf.meshes?.[hostNode.mesh]?.primitives ?? []);
+    if (prims.length === 0) bad('has no mesh primitives');
+    if (hostPrims.length !== 1) bad(`host has ${hostPrims.length} primitives; a kit host has exactly one`);
+    const hostPrim = hostPrims[0];
+    for (const prim of prims) {
+      if (prim.material !== hostPrim?.material) bad(`material ${prim.material} is not its host's ${hostPrim?.material}`);
+      const got = Object.keys(prim.attributes).sort().join(', ');
+      const want = Object.keys(hostPrim?.attributes ?? {}).sort().join(', ');
+      if (got !== want) bad(`attributes [${got}] are not its host's [${want}]`);
+    }
+  });
+  return { kitNodes, violations };
+}
+
+/** Counted at collection time so the census can say, in its own name, how
+ *  many kit nodes it actually looked at -- 0 until plan 3's Task 4 ships the
+ *  first source, and a case title is the one place a reader of the run sees. */
+const KIT_CENSUS = shippedVehicleIds().map((id) => ({ id, ...kitViolations(id) }));
+const KIT_NODE_TOTAL = KIT_CENSUS.reduce((sum, v) => sum + v.kitNodes, 0);
+
+describe('shipped vehicle GLBs: kit parts (contract v5, vehicles)', () => {
+  it(`saw ${KIT_NODE_TOTAL} kit_* node(s) across ${KIT_CENSUS.length} vehicle GLB(s)`, () => {
+    // Not vacuous when it matters: the walk over every file ran.
+    expect(KIT_CENSUS.length).toBeGreaterThanOrEqual(SHIPPED_VEHICLE_COUNT);
+    expect(KIT_NODE_TOTAL).toBe(KIT_CENSUS.reduce((sum, v) => sum + v.kitNodes, 0));
+  });
+
+  it.each(KIT_CENSUS.map((v) => [v.id, v.kitNodes, v.violations] as const))(
+    '%s: every one of its %i kit_* node(s) keeps the contract',
+    (_id, _count, violations) => {
+      expect(violations).toEqual([]);
+    }
+  );
+});
 
 describe('shipped vehicle GLBs', () => {
   it('finds the whole set on disk -- a glob that matched nothing would pass every case below vacuously', () => {
@@ -285,7 +433,7 @@ describe('shipped vehicle GLBs', () => {
       for (const node of liveTopLevel(template)) {
         node.traverse((o) => {
           const mesh = o as THREE.Mesh;
-          if (mesh.isMesh) liveGeometries.add(mesh.geometry);
+          if (mesh.isMesh && !isKit(o)) liveGeometries.add(mesh.geometry);
         });
       }
       expect(liveGeometries.size).toBeGreaterThan(0);
@@ -324,7 +472,8 @@ describe('shipped vehicle GLBs', () => {
       const wanted = new Set<string>();
       for (const node of liveTopLevel(template)) {
         node.traverse((o) => {
-          if ((o as THREE.Mesh).isMesh) wanted.add(`${WRECK_PREFIX}${o.name}`);
+          // A kit part under a pivot is reached by this walk and has no twin.
+          if ((o as THREE.Mesh).isMesh && !isKit(o)) wanted.add(`${WRECK_PREFIX}${o.name}`);
         });
       }
       expect(wanted.size).toBeGreaterThan(0);

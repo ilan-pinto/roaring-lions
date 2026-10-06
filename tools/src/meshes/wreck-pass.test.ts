@@ -29,6 +29,8 @@ import {
 } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { WRECK_FRACTIONS, WRECK_RECIPES, type WreckRecipe } from './wreck-recipes';
+import { DEFAULT_KIT, kitSource, kitVehicle } from './kit-fixture';
+import { applyKitGraft } from './kit-pass';
 import {
   applyWreckPass,
   parseWreckArgs,
@@ -458,6 +460,70 @@ describe('applyWreckPass', () => {
     expect(() => applyWreckPass(doc, 'fixture', { hull: 'wheeled', turretPivot: 'no_such_pivot' })).toThrow(
       /no_such_pivot/
     );
+  });
+});
+
+describe('applyWreckPass over kit_* nodes (contract v5, vehicles)', () => {
+  const recipe: WreckRecipe = { hull: 'wheeled', turretPivot: 'turret_pivot' };
+
+  /** The kit fixture's default parts plus one that would MOVE the measurement
+   *  if it were measured: it reaches below the ground and well past the hull's
+   *  length, so the bounds, the ground plane and the clearance all change. A
+   *  turret part already sits under the pivot, where only the subtree walk
+   *  would find it. */
+  const source = () =>
+    kitSource([
+      ...DEFAULT_KIT,
+      { track: 'armour', tier: 2, host: 'hull_rubber', min: [-1.5, -0.4, -1.5], max: [4, 0.3, 1.5] },
+    ]);
+
+  interface Wrecked {
+    readonly children: { name: string; matrix: number[]; mesh: string | null }[];
+    readonly channels: Record<string, string[]>;
+  }
+
+  function wreckOf(graft: boolean): Wrecked {
+    const doc = kitVehicle();
+    if (graft) applyKitGraft(doc, source(), 'fixture');
+    applyWreckPass(doc, 'fixture', recipe);
+    const children = deathRoot(doc)
+      .listChildren()
+      .map((c) => ({ name: c.getName(), matrix: [...c.getMatrix()], mesh: c.getMesh()?.getName() ?? null }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const channels: Record<string, string[]> = {};
+    for (const a of doc.getRoot().listAnimations()) {
+      channels[a.getName()] = a
+        .listChannels()
+        .map((c) => `${c.getTargetNode()?.getName() ?? '<none>'}.${c.getTargetPath() ?? ''}`)
+        .sort();
+    }
+    return { children, channels };
+  }
+
+  it('a grafted file wrecks EXACTLY as its ungrafted self: same twins, same matrices, same meshes, same clip targets', () => {
+    const plain = wreckOf(false);
+    const kitted = wreckOf(true);
+    // Not vacuous: the fixture has four live mesh nodes and three live tops.
+    expect(plain.children.length).toBe(4);
+    expect(plain.channels[CLIP_IDLE].length).toBe(4);
+    // Equality, not closeness: a kit node that reached the measurement moves
+    // every matrix, and one that reached the clips adds a channel.
+    expect(kitted).toEqual(plain);
+  });
+
+  it('never twins a kit node and never keys one, whichever parent it hangs under', () => {
+    const doc = kitVehicle();
+    applyKitGraft(doc, source(), 'fixture');
+    applyWreckPass(doc, 'fixture', recipe);
+    const names = deathRoot(doc)
+      .listChildren()
+      .map((c) => c.getName());
+    expect(names.some((n) => n.includes('kit_'))).toBe(false);
+    for (const a of doc.getRoot().listAnimations()) {
+      for (const c of a.listChannels()) expect(c.getTargetNode()?.getName().startsWith('kit_')).toBe(false);
+    }
+    // And the kit parts are still there, untouched by the pass.
+    expect(doc.getRoot().listNodes().filter((n) => n.getName().startsWith('kit_')).length).toBe(4);
   });
 });
 
