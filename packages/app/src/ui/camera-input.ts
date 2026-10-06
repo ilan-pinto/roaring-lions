@@ -1,7 +1,7 @@
 /**
  * Pure camera-input maths shared by `main.ts`'s wheel listener (zoom to
- * cursor) and its rAF loop (edge pan), pulled out so both can be tested
- * without booting the shell.
+ * cursor) and its rAF loop (key and edge pan), pulled out so all of it can be
+ * tested without booting the shell.
  *
  * `clampZoom` is the single source of the 0.35..2.5 range: the wheel
  * listener used to inline two magic numbers on the plain-zoom path, and this
@@ -18,6 +18,195 @@ export const ZOOM_MAX = 2.5;
 
 export function clampZoom(z: number): number {
   return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
+}
+
+/** One wheel notch in `WheelEvent.DOM_DELTA_PIXEL` units -- what Chromium,
+ *  Safari and Firefox (since 88) all report for a mouse wheel click -- and the
+ *  zoom factor that notch has always meant here (1.1 in, 1/1.1 out). */
+const WHEEL_NOTCH_PX = 100;
+const WHEEL_NOTCH_FACTOR = 1.1;
+/** A line is ~33 px (Firefox's `DOM_DELTA_LINE`), a page ~10 notches. */
+const WHEEL_LINE_PX = 100 / 3;
+const WHEEL_PAGE_PX = 10 * WHEEL_NOTCH_PX;
+
+/**
+ * The zoom multiplier for one `wheel` event, PROPORTIONAL to how far the
+ * wheel turned. The old handler stepped 10% per EVENT whatever its delta, so
+ * a trackpad -- which reports a two-finger swipe as dozens of 1-10 px events
+ * -- slammed from one end of the zoom range to the other in a flick, while a
+ * notched mouse got the same 10% per click as before (it still does: deltaY
+ * 100 is exactly 1.1x). One event is capped at two notches, so a single
+ * high-resolution flick cannot jump the range either.
+ */
+export function wheelZoomFactor(deltaY: number, deltaMode = 0): number {
+  const px = deltaMode === 1 ? deltaY * WHEEL_LINE_PX : deltaMode === 2 ? deltaY * WHEEL_PAGE_PX : deltaY;
+  const notches = Math.max(-2, Math.min(2, px / WHEEL_NOTCH_PX));
+  return Math.pow(WHEEL_NOTCH_FACTOR, -notches);
+}
+
+// --- pan: time-based, eased --------------------------------------------------
+
+/**
+ * Full pan speed, in tiles a second along EACH world axis the direction
+ * moves (so screen-right is +18 x and -18 y a second), at zoom 1 and the
+ * 1x camera-speed setting. Divided by zoom, so the speed on SCREEN is the
+ * same at every zoom: 1152 px/s across and 576 px/s up and down (the ground
+ * is foreshortened 2:1 by the dimetric view; the pan moves equal GROUND in
+ * every direction, as it always has).
+ *
+ * It used to be 0.5 tiles a FRAME -- 30 tiles a second at 60 Hz, 72 at 144 Hz
+ * -- which is how a 1.5 s hold of D crossed the whole 48-tile map in the
+ * tutorial's first beat (PA-03). 18 is 60% of the old 60 Hz figure: about
+ * 0.9 of a 1280 px screen a second across, still quicker than any unit moves.
+ */
+export const PAN_TILES_PER_SEC = 18;
+/** From standstill to full speed. Long enough that a tap nudges rather than
+ *  jumps, short enough that a hold never feels like it is catching up. */
+export const PAN_ACCEL_MS = 120;
+/** From full speed to standstill after release: a coast of
+ *  `PAN_TILES_PER_SEC * PAN_DECEL_MS / 2000` = 0.81 tiles. Shorter than the
+ *  ramp up on purpose -- a camera that keeps sliding after the key is up is
+ *  the "floaty" the polish plan forbids. */
+export const PAN_DECEL_MS = 90;
+/** A frame longer than this pans as if it were this long, the same 100 ms
+ *  the renderer's own `frameDtMs` clamps every presentation clock to: a tab
+ *  returning from the background must not jump the camera across the map. */
+export const PAN_MAX_DT_MS = 100;
+
+/** Pan velocity as a FRACTION of full speed on each screen axis, -1..1. */
+export interface PanVelocity {
+  right: number;
+  down: number;
+}
+
+/**
+ * One axis of the ramp: move `v` toward `target` at the accelerate rate while
+ * gaining speed in `target`'s direction and at the decelerate rate otherwise,
+ * splitting the step where `v` crosses zero (a reversal brakes, then
+ * accelerates). Returns the new velocity and the integral of velocity over
+ * the step in fraction*ms -- exact, because velocity is piecewise linear in
+ * time, which is what makes the distance the same at 60 Hz and 144 Hz.
+ */
+function rampAxis(v: number, target: number, dtMs: number): { v: number; area: number } {
+  let area = 0;
+  let left = dtMs;
+  for (let phase = 0; phase < 3 && left > 0; phase++) {
+    if (v === target) {
+      area += v * left;
+      left = 0;
+      break;
+    }
+    const speeding = (target > v && v >= 0) || (target < v && v <= 0);
+    const rate = 1 / (speeding ? PAN_ACCEL_MS : PAN_DECEL_MS);
+    const dir = target > v ? 1 : -1;
+    // Stop at the target, or at zero when braking through it.
+    const stop = !speeding && Math.sign(target) !== Math.sign(v) && target !== 0 ? 0 : target;
+    const need = Math.abs(stop - v) / rate;
+    const t = Math.min(need, left);
+    const nv = t === need ? stop : v + dir * rate * t;
+    area += ((v + nv) / 2) * t;
+    v = nv;
+    left -= t;
+  }
+  return { v, area };
+}
+
+/**
+ * Advance the pan velocity `vel` (mutated) toward `intent` -- the direction
+ * the player is asking for, each axis -1..1, keys and edge pan summed -- over
+ * a frame of `dtMs`, and return the world-tile camera delta that frame
+ * covers. A diagonal intent is normalised to unit length, so holding W and D
+ * together pans no faster than either alone (it used to be 1.41x).
+ *
+ * `speed` is the camera-speed setting (0.5..2); `zoom` the camera's.
+ */
+export function stepPan(
+  vel: PanVelocity,
+  intent: PanVelocity,
+  dtMs: number,
+  speed: number,
+  zoom: number
+): { dx: number; dy: number } {
+  const dt = Math.max(0, Math.min(PAN_MAX_DT_MS, dtMs));
+  let { right, down } = intent;
+  right = Math.max(-1, Math.min(1, right));
+  down = Math.max(-1, Math.min(1, down));
+  const len = Math.hypot(right, down);
+  if (len > 1) {
+    right /= len;
+    down /= len;
+  }
+  const r = rampAxis(vel.right, right, dt);
+  const d = rampAxis(vel.down, down, dt);
+  vel.right = r.v;
+  vel.down = d.v;
+  // `area` is fraction*ms; tiles = fraction * PAN_TILES_PER_SEC * s.
+  const scale = (PAN_TILES_PER_SEC * speed) / (1000 * zoom);
+  return panDelta(r.area, d.area, scale);
+}
+
+/** True while the camera is still moving under its own momentum or input. */
+export function panning(vel: PanVelocity): boolean {
+  return vel.right !== 0 || vel.down !== 0;
+}
+
+// --- bounds ------------------------------------------------------------------
+
+/** How far past the map's outermost corner the view may show, in SCREEN
+ *  pixels at any zoom: enough that the last row of tiles can be lifted clear
+ *  of the HUD's bottom strip, small enough that the view is never mostly
+ *  empty ground. */
+export const BOUNDS_VOID_PX = 96;
+
+/** `project.ts`'s tile size, restated: the bounds are pure arithmetic on
+ *  the projection and this module imports nothing. Pinned against
+ *  `@lions/render`'s `TILE_W`/`TILE_H` in the test. */
+const HALF_TILE_W = 32;
+const HALF_TILE_H = 16;
+
+/**
+ * Where the camera may look, for a map `map.width` x `map.height` tiles (tile
+ * (x, y) covering [x, x+1] x [y, y+1]) seen through a viewport `vp` CSS px at
+ * `cam.zoom`. Two rules, in this order:
+ *
+ *  1. The VIEW stays inside the map's on-screen bounding box -- the dimetric
+ *     diamond's box -- plus `BOUNDS_VOID_PX`, on each screen axis separately.
+ *     Where the view is wider (or taller) than that box, it is centred on it
+ *     instead: fully zoomed out, the whole map sits in the middle of the
+ *     screen rather than in a corner of it.
+ *  2. The point the camera looks AT stays on the map. Rule 1 alone would let
+ *     a zoomed-in view sit in a corner of the box, which on a diamond is
+ *     empty ground; this rule wins where they disagree.
+ *
+ * Pan does not bounce or resist: the clamp is applied after each player move,
+ * so pushing into an edge just stops there.
+ */
+export function clampCamera(
+  cam: { x: number; y: number; zoom: number },
+  map: { width: number; height: number },
+  vp: { width: number; height: number }
+): { x: number; y: number } {
+  const z = cam.zoom;
+  // Screen-space (unzoomed px) position of the focus, as `isoX`/`isoY`.
+  let u = (cam.x - cam.y) * HALF_TILE_W;
+  let v = (cam.x + cam.y) * HALF_TILE_H;
+  const uMin = -map.height * HALF_TILE_W;
+  const uMax = map.width * HALF_TILE_W;
+  const vMin = 0;
+  const vMax = (map.width + map.height) * HALF_TILE_H;
+  const m = BOUNDS_VOID_PX / z;
+  const axis = (p: number, lo: number, hi: number, half: number): number => {
+    const a = lo - m + half;
+    const b = hi + m - half;
+    return a > b ? (lo + hi) / 2 : Math.min(b, Math.max(a, p));
+  };
+  if (vp.width > 0 && vp.height > 0) {
+    u = axis(u, uMin, uMax, vp.width / (2 * z));
+    v = axis(v, vMin, vMax, vp.height / (2 * z));
+  }
+  const x = (u / HALF_TILE_W + v / HALF_TILE_H) / 2;
+  const y = (v / HALF_TILE_H - u / HALF_TILE_W) / 2;
+  return { x: Math.min(map.width, Math.max(0, x)), y: Math.min(map.height, Math.max(0, y)) };
 }
 
 function axisPull(pos: number, size: number, marginPx: number): number {
