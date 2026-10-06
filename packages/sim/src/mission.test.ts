@@ -89,6 +89,20 @@ const RIDER: UnitTypeJson = {
   ],
 };
 
+/** A foot patrol that halts to fire (spec 2026-10-05-infantry-halt-to-fire):
+ *  `role: 'infantry'` and armed, so `haltsToFire` derives true. Its own type,
+ *  appended last to the world, so no existing fixture's type index moves. */
+const FOOT_PATROL: UnitTypeJson = {
+  id: 'm_foot',
+  role: 'infantry',
+  hull: { hp: 100000, armor: { front: 10, side: 10, rear: 10 } },
+  mobility: { speed_tiles_s: 1.0 },
+  sensors: { optics: 1.0, sight_tiles: 9, signature: 0.6 },
+  weapons: [
+    { id: 'rifles', type: 'small_arms', range_tiles: 7, effective_range_tiles: 5.5, accuracy: 0.6, penetration: 8, damage: 1, suppression: 0, rof_per_min: 300 },
+  ],
+};
+
 /** Every slot the sim could have spawned into. `Sim.count` is private, and the
  *  alive filter each caller applies covers the unspawned tail. */
 function allIds(sim: Sim): number[] {
@@ -104,7 +118,7 @@ interface World {
 function makeWorld(mission: MissionJson, ctx?: Partial<MissionContext>): World {
   const sim = new Sim({ seed: 7, width: 28, height: 12, capacity: 32 });
   const ids = new Map<string, number>();
-  for (const t of [SQUAD, AMBUSHER, RUNNER, TANK, DRONE, CIVILIANS, CARRIER, RIDER])
+  for (const t of [SQUAD, AMBUSHER, RUNNER, TANK, DRONE, CIVILIANS, CARRIER, RIDER, FOOT_PATROL])
     ids.set(t.id, sim.addUnitType(t));
   const runtime = new MissionRuntime(sim, mission, {
     typeIdOf: (u) => {
@@ -212,6 +226,47 @@ describe('spawning and stances', () => {
     }
     expect(reachedEast).toBe(true);
     expect(backWest).toBe(true);
+  });
+
+  it('a foot patrol that makes contact stops and fights from a knee, then resumes its beat', () => {
+    // Halt to fire: a patrol leg is a plain move, and a plain move never stops
+    // to shoot. Without the runtime halting the patroller on contact it walks
+    // past the enemy holding its fire (falsified: 0 rounds fired).
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_tech', count: 1, at: [12, 6] }],
+        enemy: {
+          garrison: [
+            { unit: 'm_foot', count: 1, at: [4, 2], stance: { kind: 'patrol', waypoints: [[4, 2], [24, 2]] } },
+          ],
+        },
+      })
+    );
+    const target = 0;
+    const foot = 1;
+    let fired = 0;
+    let movedWhileFiring = 0;
+    let x0 = w.sim.state.posX[foot];
+    for (let t = 0; t < 40 * TICKS_PER_SECOND; t++) {
+      const { sim } = w.step(1);
+      for (const e of sim) {
+        if (e.kind !== 'fire' || e.shooter !== foot) continue;
+        fired++;
+        expect(w.sim.state.brace[foot]).toBe(2); // BRACE_KNEELING
+        if (w.sim.state.posX[foot] !== x0) movedWhileFiring++;
+      }
+      x0 = w.sim.state.posX[foot];
+    }
+    expect(fired).toBeGreaterThan(0);
+    expect(movedWhileFiring).toBe(0);
+    // Contact gone: the beat resumes, from the leg it was on.
+    w.sim.debugKill(target);
+    let reachedEast = false;
+    for (let t = 0; t < 60 * TICKS_PER_SECOND && !reachedEast; t++) {
+      w.step(1);
+      if (fx.toNumber(w.sim.state.posX[foot]) > 23) reachedEast = true;
+    }
+    expect(reachedEast).toBe(true);
   });
 
   it('a trigger order cancels a standing patrol instead of being undone by it', () => {

@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "f69c9a8cd3b211364ac6cd6b316eec82515dfc9b",
-  "blessedAt": "2026-10-05T17:44:06.813Z",
-  "reason": "GH-391 (#397): rotor phase, rotor-wash dust, idle exhaust and mesh-unit mixers now on the sim clock; vehicle 1489 px and quiet 92 px read identically on two CI runs; clusters on heli_peten (rotor + dust), parked-vehicle exhaust, and one occluded rifleman's outline behind the hall",
+  "commit": "c28de4d70edf978010ea11e4195fff25a4cecf0a",
+  "blessedAt": "2026-10-05T19:22:49.212Z",
+  "reason": "A3.1 parts (#396) + infantry motion fix (#400): new Meshy drones and weapon parts in frame; captured run/moveFire/idle poses restored on inf_squad, sarim_rifles, yahalom_squad and moveFire on all armed walkers. Clusters checked on #400 CI: vehicle (drones, crews), relief (recon drone), quiet (rifleman outline), aftermath (an off-frame unit's ring edge and shadow at x 0-23)",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "62323b044c0d712870eaacbedcc75dadcd00d123949fe4e16300b9a69a4b222b"
+      "sha256": "07ce514ddb09c775a5daf538b28e129df4988527da386f1945a4c39930444d8c"
     },
     "open-ground": {
       "tick": 60,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "fe2dcebcf53d3bb9d7f2746ad927923d74ec1266062f33eb08528e76ee07831e"
+      "sha256": "e4732e2064ac70c7ccf140d6eb6c47455b29e15bd59678c633a24a40830a6faa"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "a311a1d2e9f8d6a1871a586e94de2746c0e7505a402c2334e0cc824e3f04da82"
+      "sha256": "ad285161c66c0a3b85900dc8f894dbbf930852cdd52d5f8c60644124ae85f12f"
     },
     "relief": {
       "tick": 500,
@@ -67,7 +67,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "b958ddc834de5da3c52b76d669e185c9da290916d9518b303632f308c231904f"
+      "sha256": "b23f2cd740097846b5ac0b217a006a4df1b344cd89a221a0251e6c0975ea3b9c"
     },
     "aftermath": {
       "tick": 300,
@@ -81,7 +81,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "a68d997bf034655200f71a7c61a5ff8dd57fdee533ba052cf6340415a94ec0ea"
+      "sha256": "62b0611c4d25435e1f51d139bee4efdc67b59a7fea678bb9db5c3100886f2a92"
     }
   }
 }
