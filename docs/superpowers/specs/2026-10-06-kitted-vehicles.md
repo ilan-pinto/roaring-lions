@@ -257,8 +257,9 @@ buys jamming.
 Kit at max: blockout 732 tris, **budget 2,560** on a live vehicle of 43,935. The shipped vehicle covers 1806 px at zoom 1.0 (mean of eight headings).
 
 The smallest ground vehicle. The gunner's shield (A2) is its clearest single read at zoom 1
-(+48 solid outline px). The jeep's bake is the darkest of the eight, so paint-matched interior
-kit nearly vanishes into it (`colour-study.png`, bottom rows).
+(+48 solid outline px). Its bake is the darkest of the four hulls in the colour study (median
+paint luminance 0.059 linear, against 0.085–0.096 for the other three), so paint-toned kit nearly
+vanishes into it (`colour-study.png`, bottom rows).
 
 #### `scout_shachaf`
 
