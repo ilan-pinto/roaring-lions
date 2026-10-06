@@ -2368,8 +2368,8 @@ export function measureHipHeight(path: string, clip: string): FigureHipHeight[] 
 }
 
 export interface FigureLowest {
-  /** The figure's root joint (`rpg_fire_root`), or the dominant joint's own
-   *  name when it sits under no `*_root`. */
+  /** The figure's root joint (`rpg_fire_root`), or -- for a joint under no
+   *  `*_root` -- the outermost skin joint above it (`prop`, a biped's `Hips`). */
   readonly root: string;
   /** Lowest skinned vertex of the figure over the clip, metres above the
    *  armature's y = 0 (the ground rig.py and the motion pass stand on). */
@@ -2389,7 +2389,8 @@ export interface FigureLowest {
  * skinned mesh node, every vertex, skinned at every keyframe time the clip
  * carries and at the midpoint between each pair -- so a sink that peaks
  * between two keys is still sampled near its peak. A vertex is assigned to
- * its dominant joint, and the joint to the outermost `*_root` above it.
+ * its dominant joint, and the joint to the outermost `*_root` above it (or,
+ * under none, to the outermost joint above it).
  * Joints scaled out (a hidden walker, a death twin) are skipped: they
  * collapse to a point and are not drawn.
  *
@@ -2408,10 +2409,17 @@ export function measureLowestVertex(path: string, clip: string): FigureLowest[] 
   const names = nodes.map((n) => n.name ?? '');
   const parent = new Int32Array(nodes.length).fill(-1);
   nodes.forEach((n, i) => { for (const c of n.children ?? []) parent[c] = i; });
+  // A joint under no `*_root` belongs to the outermost JOINT above it: a
+  // prop is its own, and a captured biped (the civilians) is one figure under
+  // its Hips rather than twenty-four joints, each "hovering" a metre up.
+  const skinJoints = new Set((glb.json.skins ?? []).flatMap((s) => s.joints));
   const rootOf = (j: number): string => {
-    let best = names[j];
+    let best = '';
     for (let k = j; k >= 0; k = parent[k]) if (/_root$/.test(names[k])) best = names[k];
-    return best;
+    if (best) return best;
+    let top = j;
+    for (let k = parent[j]; k >= 0 && skinJoints.has(k); k = parent[k]) top = k;
+    return names[top];
   };
   const anim = glb.json.animations?.find((a) => a.name === clip);
   if (!anim) throw new Error(`${path}: clip "${clip}" not in file`);

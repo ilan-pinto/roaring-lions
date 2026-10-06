@@ -224,6 +224,62 @@ export function restVertices(rig: Rig): RestVertex[] {
   return out;
 }
 
+/** One joint's share of a smooth-skinned vertex: its weight, and the
+ *  vertex's rest world position through THAT joint's own inverse bind. */
+export interface Influence {
+  readonly joint: Node;
+  readonly w: number;
+  readonly p: V3;
+}
+
+/**
+ * `restVertices` with every influence a vertex has, not only the dominant
+ * one -- for the captured civilians (ground-debt, 6 Oct), the one rig here
+ * skinned smoothly: 2,125-3,307 of each file's vertices carry a second
+ * weight, up to 0.5. A posed vertex is then `sum(w * carry(joint, p))`,
+ * glTF's own blend and the one `measureLowestVertex` reads, where the
+ * dominant joint alone puts a toe millimetres off where it draws.
+ * `influences` is set only on a vertex with more than one, so a rigid rig's
+ * vertices read exactly as `restVertices` gives them.
+ */
+export function restSkinnedVertices(rig: Rig): (RestVertex & { readonly influences?: readonly Influence[] })[] {
+  const out: (RestVertex & { readonly influences?: readonly Influence[] })[] = [];
+  const joints = rig.skin.listJoints();
+  const ibm = rig.skin.getInverseBindMatrices()!.getArray()!;
+  const through = (ji: number, x: number, y: number, z: number): V3 => {
+    const m = ibm.subarray(ji * 16, ji * 16 + 16);
+    return apply(rig.restWorld.get(joints[ji])!, [
+      m[0] * x + m[4] * y + m[8] * z + m[12],
+      m[1] * x + m[5] * y + m[9] * z + m[13],
+      m[2] * x + m[6] * y + m[10] * z + m[14],
+    ]);
+  };
+  for (const node of rig.skinNode) {
+    const mesh = node.getMesh();
+    if (!mesh) continue;
+    const role = ((node.getExtras() as { rl_role?: string }).rl_role ??
+      (mesh.getExtras() as { rl_role?: string }).rl_role ??
+      mesh.getName()) as string;
+    for (const prim of mesh.listPrimitives()) {
+      const pos = prim.getAttribute('POSITION')!.getArray()!;
+      const j = prim.getAttribute('JOINTS_0')!.getArray()!;
+      const w = prim.getAttribute('WEIGHTS_0')!.getArray()!;
+      for (let i = 0; i < pos.length / 3; i++) {
+        let best = 0;
+        for (let k = 1; k < 4; k++) if (w[i * 4 + k] > w[i * 4 + best]) best = k;
+        const x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2];
+        const inf: Influence[] = [];
+        for (let k = 0; k < 4; k++) {
+          if (w[i * 4 + k] === 0) continue;
+          inf.push({ joint: joints[j[i * 4 + k]], w: w[i * 4 + k], p: through(j[i * 4 + k], x, y, z) });
+        }
+        out.push({ role, joint: joints[j[i * 4 + best]], p: through(j[i * 4 + best], x, y, z), ...(inf.length > 1 ? { influences: inf } : {}) });
+      }
+    }
+  }
+  return out;
+}
+
 /** World position of a rest point carried rigidly by `joint` under a pose. */
 export function carry(rig: Rig, world: (n: Node) => Xf, joint: Node, restPoint: V3): V3 {
   const restW = rig.restWorld.get(joint)!;

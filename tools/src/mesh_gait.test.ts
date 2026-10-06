@@ -2486,10 +2486,21 @@ describe('kneeling on the ground -- no kneeler below it, none floating', () => {
  * and fire red on the hover ceiling; an instrument that reads no vertex ->
  * 76 of 78 red, on what each team draws.
  *
+ * Every rigged team since ground-debt (6 Oct): the thirteen files #414
+ * recorded as debt are grounded by the same pass -- the crews kneeling at
+ * their weapons raised, charge_squad seated, the sniper's toes planted on new
+ * ankles, the bike's wheels held up on their axles, brc_point's shield
+ * lifted to run, the civilians planted through their own smooth skinning.
+ * On main's bytes (70a9fbde) 34 of the 39 new per-clip tests read red --
+ * every one but the sniper's and the bike's standing clips and the woman's
+ * idle, which were already on the ground -- with all thirteen census lines.
+ *
  * Literals throughout: the ground is the armature's y = 0, the hover ceiling
- * the kneel gate's centimetre, and the figures each team draws are spelled
- * out below rather than read from the file being judged -- an instrument
- * that matched no root would otherwise pass every team, in no time at all.
+ * the kneel gate's centimetre, and the figures each team draws -- and the
+ * living clips it has -- are spelled out below rather than read from the file
+ * being judged: an instrument that matched no root would otherwise pass every
+ * team, in no time at all. A root sitting in the ground BY DESIGN is not
+ * judged here; the census below holds it to its recorded depth.
  */
 const LIVING_GROUND_M = 0;
 const STANDING_HOVER_MAX_M = 0.01;
@@ -2498,9 +2509,13 @@ const STANDING_CLIPS = new Set(['idle', 'fire']);
 const WALKING_CLIPS = new Set(['move', 'moveFire']);
 
 /** What each grounded team draws: standing (idle, fire, the kneel clips) and
- *  walking. A ground prop is set down while the team stands and packed while
- *  it walks; manpad_team's spotter kneels at rest and walks as `mpd_spotw`. */
-const GROUNDED_DRAWN: Readonly<Record<string, { standing: readonly string[]; walking: readonly string[] }>> = {
+ *  walking, and -- where it is not all seven -- which living clips it has. A
+ *  ground prop is set down while the team stands and packed while it walks;
+ *  manpad_team's spotter kneels at rest and walks as `mpd_spotw`, and every
+ *  crew-served team's men kneel at the weapon and walk as `*w`. The sniper
+ *  lies prone in `idle` and `fire`, drawn on his corpse's root; a captured
+ *  biped is one figure under its `Hips`. */
+const GROUNDED_DRAWN: Readonly<Record<string, { standing: readonly string[]; walking: readonly string[]; clips?: readonly string[] }>> = {
   inf_squad: { standing: ['f0_root', 'f1_root', 'f2_root'], walking: ['f0_root', 'f1_root', 'f2_root'] },
   sarim_rifles: { standing: ['sar0_root', 'sar1_root', 'sar2_root'], walking: ['sar0_root', 'sar1_root', 'sar2_root'] },
   militia_cell: { standing: ['mil0_root', 'mil1_root'], walking: ['mil0_root', 'mil1_root'] },
@@ -2513,29 +2528,100 @@ const GROUNDED_DRAWN: Readonly<Record<string, { standing: readonly string[]; wal
     standing: ['prop', 'zk_radio_root', 'zk_rifle_root', 'zk_spot_root'],
     walking: ['zk_radio_root', 'zk_rifle_root', 'zk_spot_root'],
   },
+  mortar_team: {
+    standing: ['mtr_crew0_root', 'mtr_crew1_root', 'mtr_no3_root', 'prop'],
+    walking: ['mtr_crew0w_root', 'mtr_crew1w_root', 'mtr_no3_root'],
+    clips: ['idle', 'fire', 'move', 'moveFire'],
+  },
+  atgm_cell: {
+    standing: ['atgm_crew0_root', 'atgm_crew1_root', 'prop'],
+    walking: ['atgm_crew0w_root', 'atgm_crew1w_root'],
+    clips: ['idle', 'move', 'moveFire'],
+  },
+  recoilless_team: {
+    standing: ['prop', 'rcl_fire_root', 'rcl_load_root'],
+    walking: ['rcl_firew_root', 'rcl_loadw_root'],
+    clips: ['idle', 'fire', 'move', 'moveFire'],
+  },
+  mortar_crew: {
+    standing: ['emtr_crew0_root', 'emtr_crew1_root', 'prop'],
+    walking: ['emtr_crew0w_root', 'emtr_crew1w_root'],
+    clips: ['idle', 'move', 'moveFire'],
+  },
+  digger_crew: { standing: ['dig_root', 'ground'], walking: ['digw_root', 'ground'], clips: ['idle', 'move'] },
+  charge_squad: { standing: ['chg0_root', 'chg1_root'], walking: ['chg0_root', 'chg1_root'], clips: ['idle', 'fire', 'move', 'moveFire'] },
+  breach_team: { standing: ['brc_cover_root', 'brc_point_root'], walking: ['brc_cover_root', 'brc_point_root'], clips: ['idle', 'fire', 'move', 'moveFire'] },
+  sniper_team: {
+    standing: ['snp_a_death_root', 'snp_b_death_root'],
+    walking: ['snp_a_root', 'snp_b_root'],
+    clips: ['idle', 'fire', 'move', 'moveFire'],
+  },
+  moto_rpg: { standing: ['m_root'], walking: ['m_root'], clips: ['idle', 'fire', 'move'] },
+  civilian_child: { standing: ['Hips'], walking: ['Hips'], clips: ['idle', 'move'] },
+  civilian_woman: { standing: ['Hips'], walking: ['Hips'], clips: ['idle', 'move'] },
+  farm_worker: { standing: ['Hips'], walking: ['Hips'], clips: ['idle', 'move'] },
+  office_worker: { standing: ['Hips'], walking: ['Hips'], clips: ['idle', 'move'] },
 };
 
 const groundedFile = (id: string): string => `${MOTION_TEAMS[id].dir ? `${MOTION_TEAMS[id].dir}/` : ''}${id}.glb`;
 const GROUNDED_FILES = new Set(Object.keys(MOTION_TEAMS).filter((id) => MOTION_TEAMS[id].ground).map(groundedFile));
 
+/** One read per file and clip: the grounded gate and the census below both
+ *  judge every file, and a read skins every vertex at every key. */
+const LOWEST = new Map<string, ReturnType<typeof measureLowestVertex>>();
+function lowestOf(path: string, clip: string): ReturnType<typeof measureLowestVertex> {
+  const key = `${path}#${clip}`;
+  if (!LOWEST.has(key)) LOWEST.set(key, measureLowestVertex(path, clip));
+  return LOWEST.get(key)!;
+}
+
+/**
+ * Below the ground ON PURPOSE, by file and root, with the reason and the
+ * depth it was recorded at: a line here is a design decision, held to its
+ * number by the census below (so a re-export that sinks it deeper, or one
+ * that lifts it out, fails and asks for the line to be revisited), and
+ * skipped by the grounded gate above.
+ */
+const BELOW_GROUND_BY_DESIGN: Readonly<Record<string, { readonly root: string; readonly lowestM: number; readonly why: string }>> = {
+  'digger_crew.glb': {
+    root: 'ground',
+    lowestM: -0.139,
+    why:
+      'the spoil heap is BANKED into the ground: three squashed spheres (rig._digger_extras, 0.45/0.28/0.20 m, ' +
+      'squashed to 0.62/0.62/0.6 high) centred 0.14/0.08/0.06 m up, so each one\'s lower cap -- 139/94/60 mm -- is ' +
+      'under the ground and what shows is a mound rising out of it. Seated on the ground it would be three ' +
+      'ellipsoids resting on their bottoms. It is on a bone no clip keys, the same in every clip.',
+  },
+};
+
 describe('on the ground in the living clips -- every figure and held item', () => {
-  it('grounds exactly the nine teams the motion pass kneels', () => {
+  it('grounds every rigged team, and spells out what each draws', () => {
     const grounded = Object.keys(MOTION_TEAMS).filter((id) => MOTION_TEAMS[id].ground).sort();
     expect(grounded).toEqual(Object.keys(GROUNDED_DRAWN).sort());
-    expect(grounded).toHaveLength(9);
+    // The nine #414 grounded and the thirteen files it recorded as debt.
+    expect(grounded).toHaveLength(22);
+    expect([...GROUNDED_FILES].sort()).toEqual(RIGS.map((r) => r.file).sort());
   });
 
   for (const team of Object.keys(GROUNDED_DRAWN)) {
-    const r = RIGS.find((x) => x.file === `${team}.glb`);
-    for (const clip of LIVING_CLIPS) {
+    const file = groundedFile(team);
+    const r = RIGS.find((x) => x.file === file);
+    const clips = GROUNDED_DRAWN[team].clips ?? LIVING_CLIPS;
+    const design = BELOW_GROUND_BY_DESIGN[file];
+    it(`${team}: has exactly the living clips it is judged in`, () => {
+      expect(r, `${team}: not a rigged file`).toBeDefined();
+      expect(r!.clips.filter((c) => LIVING_CLIPS.includes(c)).sort()).toEqual([...clips].sort());
+    });
+    for (const clip of clips) {
       it(`${team} ${clip}: every figure and held item at or above the ground`, () => {
         expect(r, `${team}: not a rigged file`).toBeDefined();
         expect(r!.clips, `${team}: no ${clip}`).toContain(clip);
-        const read = measureLowestVertex(r!.path, clip);
+        const read = lowestOf(r!.path, clip);
         const drawn = WALKING_CLIPS.has(clip) ? GROUNDED_DRAWN[team].walking : GROUNDED_DRAWN[team].standing;
         expect(read.map((f) => f.root).sort(), `${team} ${clip}: what it draws`).toEqual([...drawn].sort());
         for (const f of read) {
           expect(f.instants, `${team} ${clip} ${f.root}: instants`).toBeGreaterThan(2);
+          if (design && f.root === design.root) continue;
           expect(f.lowestM, `${team} ${clip} ${f.root}: lowest vertex (${f.joint} at ${f.atS.toFixed(3)} s)`).toBeGreaterThanOrEqual(LIVING_GROUND_M);
           if (STANDING_CLIPS.has(clip)) {
             expect(f.floatM, `${team} ${clip} ${f.root}: lowest vertex at its highest instant`).toBeLessThanOrEqual(STANDING_HOVER_MAX_M);
@@ -2547,51 +2633,61 @@ describe('on the ground in the living clips -- every figure and held item', () =
 });
 
 /**
- * Every OTHER rigged file, read the same way in the same clips, and recorded
- * here by number where it is under the ground -- debt, not a pass: none of
- * these is the motion pass's to ground yet. Read 6 Oct on main's bytes
- * (b44df7aa), the worst reading per file over idle, fire, move and moveFire.
- * Each line is asserted STILL under, so a fix fails here and must delete it;
- * and a rigged file NOT listed must read at or above the ground, so a new
- * team cannot ship buried. Falsified both ways: sniper_team's line deleted
- * -> red at 35.8 mm; militia_cell's grounded bytes in moto_rpg's place ->
- * red, "out of the ground now; delete its line".
+ * Every rigged file, read the same way in the same clips, whether the motion
+ * pass grounds it or not, and recorded here by number where it is under the
+ * ground -- as DEBT (a file nobody has grounded yet; asserted STILL under, so a
+ * fix fails here and must delete its line) or BY DESIGN (above: one root,
+ * held to its recorded depth). Anything else must read at or above the
+ * ground, so a new team cannot ship buried.
+ *
+ * The debt #414 recorded here on 6 Oct -- thirteen files, read on b44df7aa --
+ * is paid (ground-debt, 6 Oct), every file through the motion pass's ground
+ * stage; worst per file, mm, before -> after (every root, every living clip):
+ *
+ *   atgm_cell        -36.5 -> 0.8    the kneelers raised, the walkers planted
+ *   mortar_team      -36.2 -> 0.7    the kneelers raised; mtr_no3's idle sway
+ *                                    (-12.3) and the walkers planted
+ *   recoilless_team  -26.8 -> 0.7    as atgm_cell
+ *   mortar_crew      -12.2 -> 0.7    as atgm_cell
+ *   digger_crew      -37.7 -> 0.7    the kneeler raised; the heap BY DESIGN
+ *   charge_squad     -38.2 -> 0.1    seated 27.4 mm (buried at rest), planted
+ *   breach_team     -148.1 -> 0.6    brc_point's shield lifted to run, feet
+ *   sniper_team      -35.8 -> 0.1    ankles added, toes planted
+ *   moto_rpg         -37.0 -> 1.0    the wheels held up on their axles
+ *   the civilians    -9.1..-23.3 -> 0.4..0.6, planted through their skinning
+ *
+ * Falsified: main's bytes for the thirteen -> all thirteen lines red, each at
+ * its old depth; sniper_team's debt line restored -> red, "out of the ground
+ * now; delete its line"; the heap's recorded depth moved 2 mm -> red.
  */
-const BELOW_GROUND_DEBT: Readonly<Record<string, string>> = {
-  'atgm_cell.glb': 'the crew kneeling at the post: shin 36.5 mm under in idle; the walkers 2.2-2.3 mm in move',
-  'breach_team.glb': "brc_point's upright 1.2 m `metal` item, on his spine, 134-148 mm under in move (it wants a carry, as yah_a's mast had); feet 8.4 mm in idle, 1.7 mm in fire",
-  'charge_squad.glb': 'both figures stand 26-38 mm in the ground in every living clip -- under even at their highest instant',
-  'civilians/civilian_child.glb': 'feet and toes 8.5-12.6 mm under in move, 1-10 mm in idle',
-  'civilians/civilian_woman.glb': 'feet and toes 8-9 mm under in move',
-  'civilians/farm_worker.glb': 'a toe 23.3 mm under in move, 18.3 mm in idle',
-  'civilians/office_worker.glb': 'feet and toes 7-10 mm under in move, a toe 7.1 mm in idle',
-  'digger_crew.glb': 'the spoil heap (`ground`) 139 mm under -- banked into the ground; the kneeling digger\'s shin 37.7 mm in idle; the walker 2.4 mm in move',
-  'mortar_crew.glb': 'the crew at the tube: shin 12.2 mm under in idle; the walkers 2.1-2.8 mm in move',
-  'mortar_team.glb': 'the crew kneeling at the mortar: shin 36.2 mm under in idle; mtr_no3 12.3 mm in idle (the idle sway); the walkers 2.4-3.0 mm in move',
-  'moto_rpg.glb': 'a wheel 37 mm under in move',
-  'recoilless_team.glb': 'the crew kneeling at the gun: shin 26.8 mm under in idle; the walkers 3.1-3.4 mm in move',
-  'sniper_team.glb': 'shins 31-36 mm under in move and moveFire',
-};
+const BELOW_GROUND_DEBT: Readonly<Record<string, string>> = {};
 
-describe('below the ground -- every other rigged file, recorded as debt', () => {
-  const others = RIGS.filter((r) => !GROUNDED_FILES.has(r.file));
-  it('reads every rigged file the motion pass does not ground', () => {
-    // 22 files, nine grounded.
-    expect(others).toHaveLength(13);
-    for (const file of Object.keys(BELOW_GROUND_DEBT)) {
-      expect(others.map((r) => r.file), `${file}: recorded as debt but not an ungrounded rigged file`).toContain(file);
+describe('below the ground -- every rigged file, recorded by number', () => {
+  it('records only rigged files, each once', () => {
+    const files = RIGS.map((r) => r.file);
+    for (const file of [...Object.keys(BELOW_GROUND_DEBT), ...Object.keys(BELOW_GROUND_BY_DESIGN)]) {
+      expect(files, `${file}: recorded but not a rigged file`).toContain(file);
     }
+    for (const file of Object.keys(BELOW_GROUND_DEBT)) expect(BELOW_GROUND_BY_DESIGN[file], `${file}: debt AND by design`).toBeUndefined();
   });
-  for (const r of others) {
+  for (const r of RIGS) {
     const debt = BELOW_GROUND_DEBT[r.file];
-    it(`${r.file}: ${debt ? 'still below the ground, as recorded' : 'every figure at or above the ground'}`, () => {
+    const design = BELOW_GROUND_BY_DESIGN[r.file];
+    const what = debt ? 'still below the ground, as recorded' : design ? `at or above the ground, but ${design.root} in it by design` : 'every figure at or above the ground';
+    it(`${r.file}: ${what}`, () => {
       let worst = Infinity;
       let where = '';
       let read = 0;
+      let designRead = 0;
       for (const clip of LIVING_CLIPS) {
         if (!r.clips.includes(clip)) continue;
-        for (const f of measureLowestVertex(r.path, clip)) {
+        for (const f of lowestOf(r.path, clip)) {
           read++;
+          if (design && f.root === design.root) {
+            designRead++;
+            expect(f.lowestM, `${r.file} ${clip} ${f.root}: by design ${(design.lowestM * 1000).toFixed(1)} mm under (${design.why})`).toBeCloseTo(design.lowestM, 3);
+            continue;
+          }
           if (f.lowestM < worst) {
             worst = f.lowestM;
             where = `${f.root} in ${clip} (${f.joint} at ${f.atS.toFixed(3)} s)`;
@@ -2600,6 +2696,7 @@ describe('below the ground -- every other rigged file, recorded as debt', () => 
         }
       }
       expect(read, `${r.file}: nothing read in the living clips`).toBeGreaterThan(0);
+      if (design) expect(designRead, `${r.file}: ${design.root} recorded by design but never read`).toBeGreaterThan(0);
       if (debt) expect(worst, `${r.file} (${debt}) reads ${(worst * 1000).toFixed(1)} mm at ${where} -- out of the ground now; delete its line`).toBeLessThan(LIVING_GROUND_M);
     }, 120_000);
   }

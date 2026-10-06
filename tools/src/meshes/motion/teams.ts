@@ -29,6 +29,11 @@ export interface FigureSpec {
    *  (`motion/carry.ts`): in `move` and `moveFire` that arm stops swinging
    *  and the forearm holds the item `pitchDeg` above level. */
   readonly carry?: { readonly forearm: 'L' | 'R'; readonly pitchDeg: number };
+  /** An item worn on the torso that hangs near the ground (breach_team's
+   *  shield, `role` on the spine): moved onto a bone `${prefix}_${bone}` of
+   *  its own and, in `move` and `moveFire`, lifted up the torso until it is
+   *  never lower than it stands (`motion/carry.ts`). */
+  readonly lift?: { readonly role: string; readonly bone: string };
 }
 
 export function recoilOf(f: FigureSpec): 'rifle' | 'mg' | 'launcher' | null {
@@ -44,10 +49,10 @@ export interface MotionTeam {
   readonly kneel: boolean;
   readonly formation: boolean;
   readonly stride: boolean;
-  /** Ground contact in the living clips (`motion/ground.ts`): no foot, knee
-   *  or prop of this team under the ground in idle, fire, move or moveFire.
-   *  The nine teams the pass kneels; every other rigged file's below-ground
-   *  reading is recorded in `mesh_gait.test.ts` as debt, by number. */
+  /** Ground contact in the living clips (`motion/ground.ts`): no foot, knee,
+   *  wheel or prop of this team under the ground in idle, fire, move or
+   *  moveFire. Every rigged team (ground-debt, 6 Oct; the nine #414 grounded
+   *  and the thirteen it recorded as debt), gated in `mesh_gait.test.ts`. */
   readonly ground: boolean;
   /** 'replant' (the default) re-solves the legs onto planted footpaths
    *  (`replant.ts`); 'warp' scales a captured run's own stance instead
@@ -102,7 +107,7 @@ export const MOTION_TEAMS: Record<string, MotionTeam> = {
   },
   mortar_team: {
     figures: [{ prefix: 'mtr_no3', weapon: 'rifle' }],
-    hold: true, kneel: false, formation: false, stride: true, ground: false, speedTiles: 0.65,
+    hold: true, kneel: false, formation: false, stride: true, ground: true, speedTiles: 0.65,
   },
   manpad_team: {
     figures: [{ prefix: 'mpd_fire', weapon: 'manpad', kneels: true }, { prefix: 'mpd_spot' }],
@@ -120,9 +125,14 @@ export const MOTION_TEAMS: Record<string, MotionTeam> = {
     hold: true, kneel: true, formation: false, squad: true, stride: true, ground: true, speedTiles: 0.7,
   },
   // Stride only: the gait gate is tree-wide, so every walker is re-timed.
-  charge_squad: { figures: [], hold: false, kneel: false, formation: false, stride: true, ground: false, speedTiles: 1.9 },
-  breach_team: { figures: [{ prefix: 'brc_point', recoil: 'rifle' }, { prefix: 'brc_cover', recoil: 'rifle' }], hold: false, kneel: false, formation: false, squad: true, stride: true, ground: false, speedTiles: 0.95 },
-  recoilless_team: { figures: [{ prefix: 'rcl_fire', recoil: 'launcher' }], hold: false, kneel: false, formation: false, stride: true, ground: false, speedTiles: 0.85 },
+  charge_squad: { figures: [], hold: false, kneel: false, formation: false, stride: true, ground: true, speedTiles: 1.9 },
+  // brc_point's ballistic shield is worn on his spine and hangs to 30 mm off
+  // the ground; the run drove it 148 mm in, so he lifts it to run (ground-debt).
+  breach_team: {
+    figures: [{ prefix: 'brc_point', recoil: 'rifle', lift: { role: 'metal', bone: 'shield' } }, { prefix: 'brc_cover', recoil: 'rifle' }],
+    hold: false, kneel: false, formation: false, squad: true, stride: true, ground: true, speedTiles: 0.95,
+  },
+  recoilless_team: { figures: [{ prefix: 'rcl_fire', recoil: 'launcher' }], hold: false, kneel: false, formation: false, stride: true, ground: true, speedTiles: 0.85 },
   // spike-walk (6 Oct): the spotter stands and walks, and the team kneels on
   // the sim's brace -- the rifleman aims his rifle in it (the hold), the
   // spotter kneels behind his tripod scope.
@@ -135,15 +145,21 @@ export const MOTION_TEAMS: Record<string, MotionTeam> = {
     hold: true, kneel: true, formation: false, stride: true, ground: true, speedTiles: 0.9,
   },
   // The crew-served teams' walkers (`*w`, D6): they march between positions.
-  atgm_cell: { figures: [], hold: false, kneel: false, formation: false, stride: true, ground: false, speedTiles: 0.7 },
-  mortar_crew: { figures: [], hold: false, kneel: false, formation: false, stride: true, ground: false, speedTiles: 0.6 },
-  digger_crew: { figures: [], hold: false, kneel: false, formation: false, stride: true, ground: false, speedTiles: 0.5 },
+  atgm_cell: { figures: [], hold: false, kneel: false, formation: false, stride: true, ground: true, speedTiles: 0.7 },
+  mortar_crew: { figures: [], hold: false, kneel: false, formation: false, stride: true, ground: true, speedTiles: 0.6 },
+  digger_crew: { figures: [], hold: false, kneel: false, formation: false, stride: true, ground: true, speedTiles: 0.5 },
+  // Ground only (ground-debt, 6 Oct): neither was through this pass before.
+  // The sniper's walk is rig.py's pendulum, kept as it is -- it gains ankles
+  // (`feet.ts`, for every grounded team) so a toe that digs in can be
+  // planted; the bike's wheels are held out of the ground under its bob.
+  sniper_team: { figures: [], hold: false, kneel: false, formation: false, stride: false, ground: true, speedTiles: 0.45 },
+  moto_rpg: { figures: [], hold: false, kneel: false, formation: false, stride: false, ground: true, speedTiles: 3.4 },
   // The civilians (`data/units/civilians.json`, 0.8 tiles/s): captured
   // Mixamo bipeds, re-timed and re-planted on their own leg bones.
-  civilian_child: { dir: 'civilians', figures: [], hold: false, kneel: false, formation: false, stride: true, ground: false, speedTiles: 0.8 },
-  civilian_woman: { dir: 'civilians', figures: [], hold: false, kneel: false, formation: false, stride: true, ground: false, speedTiles: 0.8 },
-  farm_worker: { dir: 'civilians', figures: [], hold: false, kneel: false, formation: false, stride: true, ground: false, speedTiles: 0.8 },
-  office_worker: { dir: 'civilians', figures: [], hold: false, kneel: false, formation: false, stride: true, ground: false, speedTiles: 0.8 },
+  civilian_child: { dir: 'civilians', figures: [], hold: false, kneel: false, formation: false, stride: true, ground: true, speedTiles: 0.8 },
+  civilian_woman: { dir: 'civilians', figures: [], hold: false, kneel: false, formation: false, stride: true, ground: true, speedTiles: 0.8 },
+  farm_worker: { dir: 'civilians', figures: [], hold: false, kneel: false, formation: false, stride: true, ground: true, speedTiles: 0.8 },
+  office_worker: { dir: 'civilians', figures: [], hold: false, kneel: false, formation: false, stride: true, ground: true, speedTiles: 0.8 },
 };
 
 /**
