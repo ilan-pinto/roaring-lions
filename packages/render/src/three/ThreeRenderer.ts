@@ -393,6 +393,7 @@ import {
   type VehicleMeshTemplate,
   type VehicleMeshEntity,
 } from './units/mesh-vehicle';
+import { setKitDrawRange } from './units/vehicle-kit';
 import {
   loadBuildingMeshTemplate,
   instantiateBuildingMesh,
@@ -1435,6 +1436,15 @@ export class ThreeRenderer implements Renderer {
    * the gate photographs. See `./debug-layers.ts`'s own entry for it.
    */
   private flashLightsDebugHidden = false;
+  /**
+   * `setDebugLayerVisible('kit', false)` (GH-238). The draw ranges it sets
+   * live on the TEMPLATES' geometries, which nothing per-frame writes, so it
+   * needs no per-frame consult -- this flag exists only so a vehicle
+   * template that lands AFTER the layer was hidden (a deferred buildable, a
+   * reload) is born with its kit hidden too, rather than being the one hull
+   * in the frame still wearing it. See `./debug-layers.ts`'s entry.
+   */
+  private kitDebugHidden = false;
   /** Structure index -> ms of standing-mesh hold still owed, counted down by
    *  `stepCollapseShrouds`. While an entry is present and positive,
    *  `updateBuildingMeshes` leaves the STANDING clone in the scene even
@@ -3312,6 +3322,24 @@ export class ThreeRenderer implements Renderer {
         this.flashLightsDebugHidden = !visible;
         if (this.flashLightsDebugHidden) this.zeroFlashLights();
         return this.flashLights.lights.length;
+      case 'kit': {
+        // GH-238: every vehicle template geometry that carries merged kit
+        // (`rlKitBaseCount`) draws its host alone while hidden, everything
+        // when shown; a geometry with no kit is untouched. A draw range on a
+        // TEMPLATE geometry, which every clone shares and nothing per-frame
+        // writes (grepped: `setDrawRange` in this backend is the batches',
+        // the selection ring's and the missile body's, each on its own
+        // geometry), so the plain write holds across the gate's repaint.
+        // The flag covers a template that lands later. Returns how many
+        // kitted geometries it set -- 0 on a field with no kit bought, which
+        // is the honest reading for a check to fail on.
+        this.kitDebugHidden = !visible;
+        let n = 0;
+        for (const template of this.vehicleMeshTemplates.values()) {
+          n += setKitDrawRange(template.geometries, !visible);
+        }
+        return n;
+      }
       case 'missiles':
         // P-5: a FLAG, `blast-light`'s shape -- `MissileFx.step` rewrites all
         // three meshes' `visible` every frame (`count > 0 && !debugHidden`),
@@ -5070,7 +5098,10 @@ export class ThreeRenderer implements Renderer {
    */
   async loadVehicleMesh(unitTypeId: string, glbUrl: string): Promise<void> {
     const allowTextured = TEXTURED_VEHICLE_TYPES.has(unitTypeId);
-    const template = await loadVehicleMeshTemplate(glbUrl, unitTypeId, allowTextured).catch((err: unknown) => {
+    // The type's bought kit (GH-238), fixed for the mission: merged into the
+    // template's host geometry here, once, for every clone it ever makes.
+    const kitTiers = this.opts.unitKitTiers?.[unitTypeId];
+    const template = await loadVehicleMeshTemplate(glbUrl, unitTypeId, allowTextured, kitTiers).catch((err: unknown) => {
       this.noteMeshFailure(unitTypeId, glbUrl, err);
       throw err;
     });
@@ -5104,6 +5135,7 @@ export class ThreeRenderer implements Renderer {
       disposeVehicleMeshTemplate(previous);
     }
     this.vehicleMeshTemplates.set(unitTypeId, template);
+    if (this.kitDebugHidden) setKitDrawRange(template.geometries, true);
     // Measured here, from the template just built, exactly as
     // `loadBuildingMesh` measures its own -- recomputed on every reload and
     // never carried on the template, so a re-export cannot leave a stale

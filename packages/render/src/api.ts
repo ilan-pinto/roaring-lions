@@ -297,6 +297,21 @@ export interface RendererOptions {
    * `shellColors`.
    */
   timeOfDay?: TimeOfDay;
+  /**
+   * Each unit type's bought kit tiers by track (`armour`, `sensors`,
+   * `firepower`), keyed by type id -- GH-238, kitted vehicles. A mesh
+   * vehicle's template keeps the `kit_*` parts its tiers own and merges them
+   * into the host geometry at load (`three/units/vehicle-kit.ts`, +0 draw
+   * calls); a type absent here, or at every tier 0, draws exactly as
+   * shipped.
+   *
+   * Type-wide and fixed for the mission (brigade D3): read once, when a
+   * template is built, so a garage visit mid-mission cannot change what is
+   * on the field. The app fills it from `upgradePrepass`, the same per-type
+   * tiers the sim's unit types were patched with. Three-only:
+   * `PixiRenderer` has no mesh path and ignores it, like `shellColors`.
+   */
+  unitKitTiers?: Readonly<Record<string, Readonly<Record<string, number>>>>;
 }
 
 /** One outlined objective zone: its rect in tiles and how it is going. */
