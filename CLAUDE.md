@@ -335,6 +335,13 @@ The combat model is the product. Everything else is scaffolding around it.
   pixel-comparable with later ones** (`golden-diff/browser.ts` records 230 px /
   0.032 between the two on `quiet`), so compare a capture with one from the same
   backend.
+- **Test browsers start with music off, and the seed comes from ONE helper**
+  (`tools/src/ui-review/music-off.ts`: `musicOffInitScript()` for
+  `addInitScript`, `SILENT_AUDIO` for captures that want every channel quiet).
+  Never write `lions.settings` by hand: `parseSettings` throws away any object
+  whose `version` is not 1 and uses the defaults, so `{ audio: { music: 0 } }`
+  left the music ON in three capture tools. `music-off.test.ts` runs the seed
+  through the real parser and fails on any tool that writes the key itself.
 - Browser sandbox: `window.__lions.step(n)` fast-forwards n deterministic ticks; `__lions.sim` and `__lions.renderer` are exposed. It is defined by the battlefield alone — the menu, the campaign board, the brigade and the picker define nothing, which is how a tool tells "the app booted a mission" from "the app booted".
 - `pnpm meshy -- <command>` (`tools/src/meshy/`) is the Meshy text-to-3D/image-to-3D CLI — estimate before you spend, key lives outside the repo, see `docs/ART_PIPELINE.md`'s "Meshy API — generating a base model" for the full workflow and policy.
 - `?sandbox=<map id>` walks **any** shipped map with a full task force placed from

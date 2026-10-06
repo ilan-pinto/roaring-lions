@@ -51,6 +51,7 @@ import { maps as ALL_MAPS } from '@lions/data';
 import { ensureDevServer, readUnmaskedRenderer, stopDevServer } from '../golden-diff/browser';
 import { CAPTURE_VIEWPORT, FREEZE_FRAME_LOOP_SCRIPT, hideHudExceptCanvas } from '../golden-diff/capture-protocol';
 import { gpuLaunchArgs } from '../ui-review/gpu';
+import { musicOffInitScript } from '../ui-review/music-off';
 
 const TAG = 'ground-capture';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -393,6 +394,7 @@ async function main(): Promise<void> {
   try {
     say(`[${TAG}] gl=${await readUnmaskedRenderer(browser)}`);
     const page = await browser.newPage({ viewport: CAPTURE_VIEWPORT, deviceScaleFactor: 1 });
+    await page.addInitScript(musicOffInitScript());
     const pageErrors: string[] = [];
     page.on('pageerror', (err) => pageErrors.push(err.message));
 

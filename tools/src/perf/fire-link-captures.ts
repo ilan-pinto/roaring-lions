@@ -29,6 +29,7 @@
 import { chromium, type Page } from 'playwright';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { musicOffInitScript } from '../ui-review/music-off';
 
 /** The page-side surface this harness reads -- framing, waiting and the
  *  draw-call readout only; selection goes through real clicks. */
@@ -123,13 +124,7 @@ async function frameOn(page: Page, sel: number, zoom: number): Promise<void> {
 async function capture(s: Subject): Promise<Record<string, unknown>> {
   const tag = `${label}-${s.id}`;
   const page = await browser.newPage({ viewport: { width: 1400, height: 900 }, deviceScaleFactor: 1 });
-  await page.addInitScript(() => {
-    try {
-      localStorage.setItem('lions.settings', JSON.stringify({ audio: { music: 0 } }));
-    } catch {
-      /* defaults */
-    }
-  });
+  await page.addInitScript(musicOffInitScript());
   page.on('pageerror', (e) => console.log(`  [${tag}] pageerror`, e.message));
   await page.goto(`${base}/?sandbox=beit_sahwan_outskirts&sur`);
   await page.waitForFunction(() => !!(window as unknown as LionsWindow).__lions?.renderer, null, { timeout: 180000 });

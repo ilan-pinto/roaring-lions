@@ -72,6 +72,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Page, type Browser } from 'playwright';
 import type { BackendReport } from './three-units';
+import { musicOffInitScript } from '../ui-review/music-off';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -175,6 +176,7 @@ async function ensureDevServer(origin: string, port: number): Promise<ChildProce
 
 async function freshPage(browser: Browser, origin: string): Promise<Page> {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  await page.addInitScript(musicOffInitScript());
   page.on('pageerror', (err) => console.error('[pageerror]', err.message));
   page.on('console', (msg) => {
     if (msg.type() === 'log' || msg.type() === 'info') console.log(msg.text());

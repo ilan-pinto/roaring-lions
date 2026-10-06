@@ -39,6 +39,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { chromium, type CDPSession, type Page } from 'playwright';
 import { ensureDevServer, isServerUp, readUnmaskedRenderer, stopDevServer } from '../golden-diff/browser';
+import { musicOffInitScript } from '../ui-review/music-off';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..', '..');
@@ -277,6 +278,7 @@ async function main(): Promise<void> {
     console.log(`[${TAG}] renderer: ${await readUnmaskedRenderer(browser)}`);
     for (let run = 1; run <= args.runs; run++) {
       const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+      await context.addInitScript(musicOffInitScript());
       const page = await context.newPage();
       const cdp = await context.newCDPSession(page);
       const requests = await attachNetwork(cdp, args.warm, args.mbps);

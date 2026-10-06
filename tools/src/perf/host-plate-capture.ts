@@ -41,6 +41,7 @@ import { fileURLToPath } from 'node:url';
 import { ensureDevServer, launchCaptureBrowser, stopDevServer } from '../golden-diff/browser';
 import { FREEZE_FRAME_LOOP_STATEMENTS } from '../golden-diff/capture-protocol';
 import { claimPort } from '../ui-review/port';
+import { musicOffInitScript } from '../ui-review/music-off';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -64,6 +65,7 @@ let browser: Awaited<ReturnType<typeof launchCaptureBrowser>> | null = null;
 try {
   browser = await launchCaptureBrowser();
   const page = await browser.newPage({ viewport: VIEWPORT, deviceScaleFactor: 1 });
+  await page.addInitScript(musicOffInitScript());
   page.setDefaultTimeout(HOST_WAIT_MS);
 
   console.log(`[${TAG}] booting / at ${VIEWPORT.width}x${VIEWPORT.height}`);

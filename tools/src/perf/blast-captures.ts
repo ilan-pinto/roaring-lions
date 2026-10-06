@@ -78,6 +78,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { musicOffInitScript } from '../ui-review/music-off';
 
 // ---------------------------------------------------------------------------
 // The pure half. Imported by `blast-captures.test.ts`, which must not pull
@@ -1074,6 +1075,7 @@ async function main(): Promise<void> {
       const flags = subjects[0].flags ?? [];
       console.log(`\n=== group ${++groupIndex}/${groups.size}: ${key} (${subjects.map((s) => s.id).join(', ')})`);
       const page = await browser.newPage({ viewport: { ...SETTLE_VIEWPORT }, deviceScaleFactor: 1 });
+      await page.addInitScript(musicOffInitScript());
       page.setDefaultTimeout(STEP_TIMEOUT_MS);
       page.on('pageerror', (err) => console.log('  page error:', err.message));
       // `&renderer=three` explicitly, never by omission: `renderer-choice.ts`
