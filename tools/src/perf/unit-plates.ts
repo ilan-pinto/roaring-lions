@@ -467,6 +467,8 @@ async function runCapture(): Promise<void> {
     console.log(`[${TAG}] GPU: ${gpu}`);
 
     const page: Page = await browser.newPage({ viewport: VIEWPORT, deviceScaleFactor: DPR });
+    // Music off before boot (`ui-review/music-off.ts`: the one seed; a hand-written
+    // object without `version: 1` is discarded by `settings.ts`).
     await page.addInitScript(musicOffInitScript());
     // Generous, not the family's usual 30s: under software SwiftShader a
     // `page.screenshot` measured well past 90s once several GLBs were
@@ -474,16 +476,6 @@ async function runCapture(): Promise<void> {
     // file's own top comment) -- a timeout here is a false failure, not a
     // real one, the capture just needs more wall clock.
     page.setDefaultTimeout(180000);
-    // Music off before boot -- the lead's rule for every test browser. The
-    // `version: 1` is load-bearing: `settings.ts` returns its defaults
-    // (music on) for an object without it.
-    await page.addInitScript(() => {
-      try {
-        window.localStorage.setItem('lions.settings', JSON.stringify({ version: 1, audio: { music: 0 } }));
-      } catch {
-        /* storage blocked: the page boots with its defaults */
-      }
-    });
     page.on('console', (msg) => {
       if (msg.type() === 'error' || msg.type() === 'warning') console.log(`  page ${msg.type()}: ${msg.text()}`);
     });
