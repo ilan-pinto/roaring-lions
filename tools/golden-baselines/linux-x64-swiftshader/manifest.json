@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "4e76d3bfa8e6a14fc2bcb8d690eababfe9525976",
-  "blessedAt": "2026-10-06T06:44:21.991Z",
-  "reason": "Infantry halt-and-kneel (#402) + motion realism (#403): idle infantry now kneel, squads stand in wedges, new KDF rifleman, right-shoulder holds. quiet 515 px, vehicle 4179 px, aftermath 680 px on main CI 0f03d6b5; all self-checks pass",
+  "commit": "1908f27c0f0660aa0410ecc2686be27af73c1216",
+  "blessedAt": "2026-10-06T13:11:49.153Z",
+  "reason": "Kneeling toe above ground (#407): infantry kneel clips grounded, back toe planted at +3 mm; quiet 83 px and vehicle 503 px on the kneeling squads only; all self-checks pass",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "dc711be7d84a159698505b4e6c7d0a3974840029eb4c62dfce484ba4253ef210"
+      "sha256": "85e69bab9c9d06dad92afb8d3d66252ade8c1a703631397e8168744a256afe5e"
     },
     "open-ground": {
       "tick": 60,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "058c7b1e66544d270be8f2d2e68950a1833d5e776e2f669a43839100a9390d3d"
+      "sha256": "addd18e3e6b1f7712de99e0d413c0024aa534835a3f76764cfa9e7fcc4b7468a"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "45402ac1484043cfc4ddb04c5710fd5b76334fdf82198c05b858bd23fc0cb552"
+      "sha256": "1d37972d62c1fff5f827062869cdc8e001e1788cf2e816b7400c19a8ac066e82"
     },
     "relief": {
       "tick": 500,
@@ -81,7 +81,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "23220be86e94c56bdccb391d7d8d8330f49354732e7e63a644751d123a08337c"
+      "sha256": "ab6c12707a9a50b441d39494c5c30ddf9b6edddbfdf38b46a9cc0b4465a63fe0"
     }
   }
 }
