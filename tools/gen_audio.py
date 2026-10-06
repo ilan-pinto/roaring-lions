@@ -9,7 +9,8 @@ Synthesises the placeholder sound library offline and encodes it to OGG + M4A
 the project owns the output outright -- there is no third-party provenance to
 audit, which is exactly the licensing problem that sinks most game audio.
 
-`--only` restricts the run to the named sets (from SETS or UI_SETS) -- use it
+`--only` restricts the run to the named sets (from SETS, UI_SETS or
+STINGER_SETS) -- use it
 for a UI cue so a run never touches the battle clips' RNG draws or re-encodes
 their Ogg streams for nothing (a full run gives every clip a new random Ogg
 stream serial, which rewrites all of them even when the samples are
@@ -225,12 +226,267 @@ def ui_upgrade(seed_shift=0.0):
     return norm(out, UI_PEAK)
 
 
+# --- critical cues (polish pass F, docs/polish/audio-plan.md section 4) ------
+# The lead's picks (6 Oct 2026): candidate A for every cue. Ported from
+# docs/polish/audio/cue_candidates.py UNCHANGED -- the same blocks, the same
+# numbers, the same per-cue seeds -- so each file matches the WAV the lead
+# auditioned. The candidate script reseeded the module RNG and left it there;
+# here a cue that draws noise borrows its own stream for the call and hands
+# the battle stream back untouched (`_own_rng`), so generating a cue never
+# shifts a battle clip's noise, and `--only` and a full run write the same
+# samples.
+
+# Length ceilings by tier (seconds). A UI tick must be over before the next
+# click can land; an outcome stinger may take a breath, never a bar of music.
+CUE_CEILING_S = {
+    "ui": UI_MAX_S,   # confirm, deny, minor alert
+    "cue": 0.8,       # objective new/complete/failed, important alert
+    "major": 1.0,     # major alert
+    "start": 1.5,     # mission start
+    "stinger": 2.5,   # victory, defeat
+}
+
+
+class _own_rng:
+    """Run a cue on its own fixed noise stream, then restore the battle one."""
+
+    def __init__(self, seed):
+        self.seed = seed
+
+    def __enter__(self):
+        global RNG
+        self.saved = RNG
+        RNG = np.random.default_rng(self.seed)
+
+    def __exit__(self, *exc):
+        global RNG
+        RNG = self.saved
+        return False
+
+
+def _tone(dur, f0, f1=None, attack=0.002, power=2.0):
+    n = int(SR * dur)
+    return sine(n, f0, f1) * env(n, attack, dur, power)
+
+
+def _struck(dur, partials, power=2.6, attack=0.0008):
+    """A struck bell or plate: (freq, amp, life) partials, life a 0..1 share
+    of `dur` -- a short partial is a short `env` placed at the start."""
+    n = int(SR * dur)
+    out = np.zeros(n)
+    for f, a, life in partials:
+        k = max(1, int(n * life))
+        out[:k] += a * sine(k, f) * env(k, attack, life * dur, power)
+    return out
+
+
+def _bell(dur, f, power=2.6, bright=1.0):
+    """A small bell: the classic 1 / 2.76 / 5.40 / 8.93 inharmonic series."""
+    return _struck(dur, [(f, 1.0, 1.0), (f * 2.76, 0.42 * bright, 0.6),
+                         (f * 5.40, 0.20 * bright, 0.35), (f * 8.93, 0.08 * bright, 0.2)], power)
+
+
+def _brass(dur, f, attack=0.18, power=1.6, cutoff=1400.0):
+    """A soft brass-like voice: a harmonic stack, low-passed, slow attack."""
+    n = int(SR * dur)
+    x = sum(sine(n, f * h) / h ** 1.1 for h in range(1, 7))
+    return lowpass(x, cutoff) * env(n, attack, dur, power)
+
+
+def _square(dur, f, cutoff=2400.0, power=3.0):
+    n = int(SR * dur)
+    return lowpass(np.sign(sine(n, f)), cutoff) * env(n, 0.002, dur, power)
+
+
+def _drum(dur, f0=95.0, f1=45.0, body=0.6):
+    """A frame-drum hit: a falling sine under a darkened noise slap."""
+    n = int(SR * dur)
+    boom = sine(n, f0, f1) * env(n, 0.002, dur, 2.4)
+    slap = lowpass(noise(n), 520) * env(n, 0.001, dur, 5.0) * body
+    return boom + slap
+
+
+def _squelch(dur=0.012, burst=0.08, burst_gain=0.35):
+    """The radio's key-up: a click, then a short burst of band static (the
+    shape N19 gives the voice chain, so a cue reads as 'the net')."""
+    k = int(SR * dur)
+    click = highpass(noise(k), 2500) * env(k, 0.0003, dur, 6.0)
+    m = int(SR * burst)
+    stat = highpass(lowpass(noise(m), 3000), 500) * env(m, 0.004, burst, 1.5) * burst_gain
+    out = np.zeros(k + m)
+    out[:k] += click
+    out[k:] += stat
+    return out
+
+
+def _mix(total_s, *parts):
+    """`parts` are (start_s, gain, voice); returns the summed, unnormalised mix."""
+    n = int(SR * total_s)
+    out = np.zeros(n)
+    for start, gain, v in parts:
+        out += gain * _at(n, start, v)
+    return out
+
+
+def _finish(x, ms=12):
+    """A 12 ms fade-out, then the -6 dBFS peak every cue shares."""
+    k = min(len(x), int(SR * ms / 1000))
+    x = x.copy()
+    x[-k:] *= np.linspace(1.0, 0.0, k)
+    return norm(x, UI_PEAK)
+
+
+# The theme is D minor at 92 BPM (docs/audio/main-theme-prompt.md); both
+# outcomes speak its key so the music and the verdict never argue.
+D2, D3, F3, A3, D4, Fs4, A4, D5, Fs5, A5 = 73.42, 146.83, 174.61, 220.0, 293.66, 369.99, 440.0, 587.33, 739.99, 880.0
+
+
+def victory(seed_shift=0.0):
+    """'Perimeter held': a frame-drum hit, then a low brass chord that opens
+    on D minor's fifth and lands on a D MAJOR third (a Picardy close) -- the
+    theme's own key, resolved. Second drum on the land."""
+    with _own_rng(0x5101):
+        x = _mix(2.3,
+                 (0.00, 1.0, _drum(0.7, 100, 46)),
+                 (0.04, 0.55, _brass(2.2, D3, attack=0.20)),
+                 (0.04, 0.45, _brass(2.2, A3, attack=0.24)),
+                 (0.04, 0.35, _brass(2.2, D4, attack=0.28)),
+                 (0.62, 0.70, _drum(0.6, 90, 44, body=0.4)),
+                 (0.62, 0.42, _brass(1.65, Fs4, attack=0.10, power=1.8)),
+                 (0.62, 0.18, _bell(1.6, A5, power=2.2, bright=0.6)))
+        return _finish(tail(x, 0.25, 0.5)[: int(SR * 2.45)])
+
+
+def defeat(seed_shift=0.0):
+    """'Unresolved': a dull drum, a D-minor chord in the low brass whose top
+    voice sinks a semitone (A -> G#) while the filter closes. No cadence: the
+    theme's key, left open. Same instruments as victory, opposite close."""
+    with _own_rng(0x5103):
+        n = int(SR * 2.3)
+        top = lowpass(sum(sine(n, A3 * h, A3 * 0.944 * h) / h ** 1.1 for h in range(1, 7)), 900) \
+            * env(n, 0.25, 2.3, 1.5)
+        x = _mix(2.4,
+                 (0.00, 1.0, _drum(0.9, 80, 38, body=0.5)),
+                 (0.03, 0.55, _brass(2.3, D3, attack=0.22, cutoff=900)),
+                 (0.03, 0.45, _brass(2.3, F3, attack=0.26, cutoff=900)),
+                 (0.03, 0.40, top),
+                 (0.03, 0.30, sine(n, D2) * env(n, 0.3, 2.3, 1.2)))
+        return _finish(tail(x, 0.2, 0.4)[: int(SR * 2.45)])
+
+
+# Objectives: one family, three shapes. NEW is level (attention), COMPLETE
+# rises, FAILED falls -- the rule the old synth kept ("an objective rises").
+# Bells, so none of the three can be mistaken for ui_purchase (pure sines over
+# a clunk) or for an alert (squares).
+
+def objective_complete(seed_shift=0.0):
+    """'Rise': a struck D-major triad, D5 F#5 A5, 70 ms apart."""
+    return _finish(_mix(0.75,
+                        (0.00, 0.80, _bell(0.5, D5)),
+                        (0.07, 0.80, _bell(0.5, Fs5)),
+                        (0.14, 1.00, _bell(0.6, A5))))
+
+
+def objective_failed(seed_shift=0.0):
+    """'Fall': a darker bell, A4 then D#4 -- a tritone down, low-passed."""
+    x = _mix(0.8,
+             (0.00, 0.9, _bell(0.55, A4, bright=0.6)),
+             (0.14, 1.0, _bell(0.65, A4 / 1.414, bright=0.5)))
+    return _finish(lowpass(x, 2600))
+
+
+def objective_new(seed_shift=0.0):
+    """'Tasking': the net keys up, then two identical G5 pips -- level, not
+    rising or falling: 'listen, there is something new'."""
+    with _own_rng(0x5109):
+        return _finish(_mix(0.45,
+                            (0.00, 0.45, _squelch(burst=0.05)),
+                            (0.07, 0.85, _bell(0.16, 784.0, bright=0.4)),
+                            (0.20, 0.85, _bell(0.22, 784.0, bright=0.4))))
+
+
+# Alerts, three tiers. Squares and woodblocks, never bells: an alert is a
+# different instrument from an objective. Tier is carried by length, pulse
+# count and register, so it reads with the screen out of sight; the manifest
+# gain adds loudness.
+
+def alert_minor(seed_shift=0.0):
+    """MINOR 'Tick': one soft woodblock knock (your men are taking fire)."""
+    with _own_rng(0x5111):
+        k = int(SR * 0.05)
+        knock = _struck(0.12, [(880, 1.0, 1.0), (2380, 0.35, 0.4)], 4.0)
+        tick = highpass(noise(k), 1500) * env(k, 0.0003, 0.05, 6.0) * 0.4
+        return _finish(_mix(0.14, (0.0, 1.0, knock), (0.0, 1.0, tick)))
+
+
+def alert_important(seed_shift=0.0):
+    """IMPORTANT 'Falls': two falling tones, G5 to D5 -- the old synth's
+    shape (an alert falls) in a rounder voice."""
+    return _finish(_mix(0.45,
+                        (0.00, 1.0, _square(0.14, 784.0, cutoff=1600, power=2.5)),
+                        (0.12, 1.0, _square(0.30, 587.33, cutoff=1400, power=2.2))))
+
+
+def alert_major(seed_shift=0.0):
+    """MAJOR 'Three down': three falling square pulses (E5 D5 B4) over a low
+    thud on the first -- longer, lower and one pulse more than important."""
+    with _own_rng(0x5115):
+        return _finish(_mix(0.95,
+                            (0.00, 0.9, _drum(0.35, 110, 55, body=0.3)),
+                            (0.00, 1.0, _square(0.16, 659.25, cutoff=1500, power=1.8)),
+                            (0.20, 1.0, _square(0.16, 587.33, cutoff=1400, power=1.8)),
+                            (0.40, 1.0, _square(0.42, 493.88, cutoff=1300, power=2.0))))
+
+
+def mission_start(seed_shift=0.0):
+    """'Radio check': the net keys up, two rising call tones (D5, A5), and a
+    drum hit with a low D under it: the company is on the net."""
+    with _own_rng(0x5121):
+        return _finish(_mix(1.35,
+                            (0.00, 0.5, _squelch()),
+                            (0.10, 0.65, _bell(0.25, D5, bright=0.4)),
+                            (0.24, 0.65, _bell(0.30, A5, bright=0.4)),
+                            (0.40, 1.00, _drum(0.8, 96, 44, body=0.45)),
+                            (0.40, 0.35, _tone(0.9, D2, attack=0.05, power=1.5))))
+
+
+def ui_confirm(seed_shift=0.0):
+    """'Click': a crisp 1.3 kHz tick with a breath of air on its front."""
+    with _own_rng(0x5131):
+        k = int(SR * 0.006)
+        air = highpass(noise(k), 3000) * env(k, 0.0003, 0.006, 4.0) * 0.4
+        return _finish(_mix(0.07, (0.0, 1.0, air),
+                            (0.0, 1.0, _struck(0.06, [(1320, 1.0, 1.0), (2640, 0.2, 0.4)], 3.5))))
+
+
+def ui_deny(seed_shift=0.0):
+    """'Buzz-buzz': two low dull square pulses, 147 Hz (D3)."""
+    return _finish(_mix(0.2,
+                        (0.00, 1.0, _square(0.065, D3, cutoff=900, power=1.0)),
+                        (0.10, 1.0, _square(0.075, D3, cutoff=900, power=1.4))))
+
+
 # One variant per UI set is deliberate: a UI cue should be recognisable on
 # repeat, not varied like a battlefield one-shot -- the README's "3-4
 # variants" guidance is for battle clips only.
 UI_SETS = {
     "ui_purchase": (ui_purchase, 1),
     "ui_upgrade": (ui_upgrade, 1),
+    "ui_confirm": (ui_confirm, 1),
+    "ui_deny": (ui_deny, 1),
+    "alert_minor": (alert_minor, 1),
+}
+
+# Cues longer than UI_MAX_S, each held to its own tier's ceiling.
+STINGER_SETS = {
+    "victory": (victory, 1, "stinger"),
+    "defeat": (defeat, 1, "stinger"),
+    "objective_complete": (objective_complete, 1, "cue"),
+    "objective_failed": (objective_failed, 1, "cue"),
+    "objective_new": (objective_new, 1, "cue"),
+    "alert_important": (alert_important, 1, "cue"),
+    "alert_major": (alert_major, 1, "major"),
+    "mission_start": (mission_start, 1, "start"),
 }
 
 
@@ -277,7 +533,7 @@ USAGE = """usage: python tools/gen_audio.py [--only=name,name,...] [-h | --help]
 Regenerates the placeholder sound library into assets/audio/ and rewrites the
 variants in data/audio.json. With no --only it re-encodes EVERY set.
 
-  --only=a,b   generate only the named sets (from SETS or UI_SETS)
+  --only=a,b   generate only the named sets (from SETS, UI_SETS or STINGER_SETS)
   -h, --help   print this and exit without generating anything
 """
 
@@ -304,7 +560,7 @@ def parse_args(argv):
 
 
 def main():
-    all_sets = {**SETS, **UI_SETS}
+    all_sets = {**SETS, **UI_SETS, **{k: (fn, n) for k, (fn, n, _tier) in STINGER_SETS.items()}}
 
     only, stop = parse_args(sys.argv[1:])
     if stop is not None:
@@ -330,6 +586,12 @@ def main():
                 assert len(x) <= int(UI_MAX_S * SR), \
                     f"{name}: {len(x) / SR:.3f}s exceeds {UI_MAX_S}s"
                 assert np.max(np.abs(x)) <= UI_PEAK + 1e-9
+            if name in STINGER_SETS:
+                tier = STINGER_SETS[name][2]
+                ceiling = CUE_CEILING_S[tier]
+                assert len(x) <= int(ceiling * SR), \
+                    f"{name}: {len(x) / SR:.3f}s exceeds the {tier} ceiling {ceiling}s"
+                assert np.max(np.abs(x)) <= UI_PEAK + 1e-9
             encode(x, base)
             # One variant, two encodings: OGG everywhere, M4A for Safari.
             entries.append({
@@ -347,7 +609,7 @@ def main():
         if name in man.get("sets", {}):
             man["sets"][name]["variants"] = entries
     with open(MANIFEST, "w") as fh:
-        json.dump(man, fh, indent=2)
+        json.dump(man, fh, indent=2, ensure_ascii=False)
         fh.write("\n")
     print(f"\nwrote {sum(len(v) for v in variants.values())} files and updated data/audio.json")
     return 0
