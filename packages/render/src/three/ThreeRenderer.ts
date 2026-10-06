@@ -128,6 +128,7 @@ import {
   clipPhase,
   KNEEL_SPREAD,
   kneelClipFor,
+  kneelHeading,
   lerpFacingTurns,
   METRES_PER_TILE,
   mgBurstRounds,
@@ -142,6 +143,7 @@ import {
   TURN_STEP_M_PER_RAD,
   TWIST_MAX_RAD,
   wrapAngle,
+  type KneelHeading,
 } from './units/squad-motion';
 import { rotateBoneWorld, scrubAction, stopSquadPlayers, type SquadRig } from './units/squad-rig';
 import { stanceOf } from './units/stance';
@@ -1476,6 +1478,10 @@ export class ThreeRenderer implements Renderer {
   private readonly lastShotSimS: Float64Array;
   /** The unit-level stance depth, for teams drawn as one (`stance.ts`). */
   private readonly unitDepth: Float64Array;
+  /** 1 while the unit is going UP between kneeling and standing, 0 down
+   *  (`kneelHeading`): the transition clip is chosen by it, never by depth
+   *  against target, which are equal whenever the sim drives the stance. */
+  private readonly unitRising: Uint8Array;
   /** A team drawn as one: the yaw its legs face (the line of travel when
    *  moving), and whether it has been set since the entity appeared. */
   private readonly meshBodyYaw: Float64Array;
@@ -2116,6 +2122,7 @@ export class ThreeRenderer implements Renderer {
     this.curFacing = new Float64Array(n);
     this.lastShotSimS = new Float64Array(n).fill(-Infinity);
     this.unitDepth = new Float64Array(n);
+    this.unitRising = new Uint8Array(n);
     this.meshBodyYaw = new Float64Array(n);
     this.meshBodyYawSet = new Uint8Array(n);
     this.missileTrack = { x: this.curX, y: this.curY, alive: sim.state.alive };
@@ -5711,6 +5718,7 @@ export class ThreeRenderer implements Renderer {
       anim: UnitAnimInput;
       desiredClip: ClipName;
       depthTarget: number;
+      heading: KneelHeading;
       fromSim: boolean;
       dt: number;
       nowS: number;
@@ -5736,12 +5744,12 @@ export class ThreeRenderer implements Renderer {
     const cz = c.wy * M;
     // The unit's own depth history, so each man can follow it a beat late.
     const unitTarget = c.depthTarget;
-    squad.depthHistory.push({ t: c.nowS, d: unitTarget });
+    squad.depthHistory.push({ t: c.nowS, d: unitTarget, h: c.heading });
     while (squad.depthHistory.length > 2 && squad.depthHistory[1].t < c.nowS - 0.5) squad.depthHistory.shift();
-    const depthAt = (t: number): number => {
+    const entryAt = (t: number): { d: number; h: KneelHeading } => {
       const h = squad.depthHistory;
-      for (let k = h.length - 1; k >= 0; k--) if (h[k].t <= t) return h[k].d;
-      return h[0].d;
+      for (let k = h.length - 1; k >= 0; k--) if (h[k].t <= t) return h[k];
+      return h[0];
     };
     const unitDepthNow = this.unitDepth[i];
     this.unitDepth[i] = c.fromSim ? unitTarget : stepDepth(unitDepthNow, unitTarget, c.dt);
@@ -5787,16 +5795,20 @@ export class ThreeRenderer implements Renderer {
       f.group.rotation.set(0, dYaw, 0);
       // Stance, a beat behind the unit.
       const stagger = STANCE_STAGGER_S[f.index % STANCE_STAGGER_S.length];
-      const tgt = depthAt(c.nowS - stagger);
+      const lagged = entryAt(c.nowS - stagger);
+      const tgt = lagged.d;
       f.lastDepth = f.depth;
       f.depth = c.fromSim && stagger === 0 ? tgt : stepDepth(f.depth, tgt, c.dt);
+      // The way the unit was going a beat ago, when the sim says; otherwise
+      // the way this man's own depth is moving.
+      f.heading = c.fromSim ? lagged.h : f.depth < f.lastDepth ? 'up' : f.depth > f.lastDepth ? 'down' : f.heading;
       // Steps: its own speed, or a turn in place.
       const stepM = Math.max(fs, yawRate * TURN_STEP_M_PER_RAD);
       const stepping = stepM > 0.15;
       let base: ClipName = c.desiredClip;
       if (base === 'idle' || base === 'fire') base = stepping ? 'move' : base;
       else if (base === 'move' || base === 'moveFire') base = stepping ? base : c.anim.firing ? 'fire' : 'idle';
-      const k = kneelClipFor(base, f.depth, tgt, f.player.actions.has('kneel'));
+      const k = kneelClipFor(base, f.depth, f.heading, f.player.actions.has('kneel'));
       const before = f.player.currentClip;
       applyMeshClip(f.player, k.clip, k.scrub === null ? undefined : { once: true });
       const action = f.player.actions.get(f.player.currentClip ?? k.clip);
@@ -6030,6 +6042,14 @@ export class ThreeRenderer implements Renderer {
         : reading.stance === 'dropping' || reading.stance === 'kneeling'
           ? 1
           : 0;
+      const heading = kneelHeading(
+        reading.stance,
+        reading.fromSim,
+        this.unitDepth[i],
+        depthTarget,
+        this.unitRising[i] === 1 ? 'up' : 'down'
+      );
+      this.unitRising[i] = heading === 'up' ? 1 : 0;
       const carried = st.carriedBy[i] >= 0;
       // `resolveMeshMotionClip` overrides `fire` to `moveFire` only when this
       // entity is actually moving AND its GLB carries the clip; every other
@@ -6037,7 +6057,7 @@ export class ThreeRenderer implements Renderer {
       const desiredClip = resolveMeshMotionClip(resolveClip(anim), anim.speed > 0, entity.actions.has('moveFire'));
       const squad = entity.squad ?? null;
       if (squad?.squad && !carried) {
-        this.updateSquad(entity, squad, template, i, { wx, wy, worldY, aimYaw, anim, desiredClip, depthTarget, fromSim: reading.fromSim, dt, nowS });
+        this.updateSquad(entity, squad, template, i, { wx, wy, worldY, aimYaw, anim, desiredClip, depthTarget, heading, fromSim: reading.fromSim, dt, nowS });
       } else {
         // A team drawn as one. Its legs still face where it is going (the
         // moonwalk, finding #5: the sim moves a unit at full speed while its
@@ -6056,7 +6076,7 @@ export class ThreeRenderer implements Renderer {
         // The kneel at unit level (no stagger), the clip scrubbed through a
         // drop or a rise.
         this.unitDepth[i] = reading.fromSim ? depthTarget : stepDepth(this.unitDepth[i], depthTarget, dt);
-        const kneelClip = kneelClipFor(desiredClip, this.unitDepth[i], depthTarget, entity.actions.has('kneel'));
+        const kneelClip = kneelClipFor(desiredClip, this.unitDepth[i], heading, entity.actions.has('kneel'));
         applyMeshClip(entity, kneelClip.clip, kneelClip.scrub === null ? undefined : { once: true });
         // `carriedBy >= 0` is a passenger. Its `entitySpeed` is its CARRIER's
         // -- see `applyGaitRate`'s own doc comment -- so its legs are not

@@ -5,6 +5,7 @@ import {
   CADENCE_VARIANCE,
   clipPhase,
   kneelClipFor,
+  kneelHeading,
   lerpFacingTurns,
   recoilAt,
   recoilSeconds,
@@ -144,10 +145,20 @@ describe('the kneel: depth and clip', () => {
     expect(t).toBeCloseTo(KNEEL_TRANSITION_S, 1);
   });
   it('plays kneelIn going down, kneelOut coming up, kneel when down, and never over a forced posture', () => {
-    expect(kneelClipFor('fire', 0.5, 1, true)).toEqual({ clip: 'kneelIn', scrub: 0.5 });
-    expect(kneelClipFor('idle', 0.25, 0, true)).toEqual({ clip: 'kneelOut', scrub: 0.75 });
-    expect(kneelClipFor('fire', 1, 1, true)).toEqual({ clip: 'kneel', scrub: null });
-    expect(kneelClipFor('down', 1, 1, true)).toEqual({ clip: 'down', scrub: null });
-    expect(kneelClipFor('fire', 1, 1, false)).toEqual({ clip: 'fire', scrub: null });
+    expect(kneelClipFor('fire', 0.5, 'down', true)).toEqual({ clip: 'kneelIn', scrub: 0.5 });
+    expect(kneelClipFor('idle', 0.25, 'up', true)).toEqual({ clip: 'kneelOut', scrub: 0.75 });
+    expect(kneelClipFor('fire', 1, 'down', true)).toEqual({ clip: 'kneel', scrub: null });
+    expect(kneelClipFor('down', 1, 'down', true)).toEqual({ clip: 'down', scrub: null });
+    expect(kneelClipFor('fire', 1, 'down', false)).toEqual({ clip: 'fire', scrub: null });
+  });
+  it('heads up only while the sim says rising, whatever the depth and target read', () => {
+    // The sim case: the renderer sets depth FROM target, so they tie.
+    expect(kneelHeading('rising', true, 0.5, 0.5, 'down')).toBe('up');
+    expect(kneelHeading('dropping', true, 0.5, 0.5, 'up')).toBe('down');
+    expect(kneelHeading('kneeling', true, 1, 1, 'up')).toBe('up');
+    // The fallback: the way the depth is moving, a tie keeping the last.
+    expect(kneelHeading('rising', false, 0.6, 0, 'down')).toBe('up');
+    expect(kneelHeading('dropping', false, 0.4, 1, 'up')).toBe('down');
+    expect(kneelHeading('none', false, 0.4, 0.4, 'up')).toBe('up');
   });
 });

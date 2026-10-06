@@ -23,7 +23,7 @@
 import * as THREE from 'three';
 import type { ClipName } from '../../sheet';
 import { clipScaleSignatures, type ClipPlayer } from './mesh-clip';
-import type { Follower, RecoilKind } from './squad-motion';
+import type { Follower, KneelHeading, RecoilKind } from './squad-motion';
 
 export interface FigureSpec {
   readonly prefix: string;
@@ -98,6 +98,8 @@ export interface FigureRig {
   yaw: number;
   depth: number;
   lastDepth: number;
+  /** Which way this man is going between standing and kneeling. */
+  heading: KneelHeading;
   started: boolean;
   kicks: Kick[];
 }
@@ -108,8 +110,9 @@ export interface SquadRig {
   formationYaw: number;
   shots: number;
   started: boolean;
-  /** The unit's stance depth over the last few frames, for the stagger. */
-  readonly depthHistory: { t: number; d: number }[];
+  /** The unit's stance depth, and which way it was going, over the last few
+   *  frames, for the stagger. */
+  readonly depthHistory: { t: number; d: number; h: KneelHeading }[];
 }
 
 function findBone(root: THREE.Object3D, name: string): THREE.Bone | null {
@@ -168,6 +171,7 @@ export function buildSquadRig(
       yaw: 0,
       depth: 0,
       lastDepth: 0,
+      heading: 'down',
       started: false,
       kicks: [],
     };

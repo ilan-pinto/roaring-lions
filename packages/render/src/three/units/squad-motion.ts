@@ -224,16 +224,40 @@ export function shotJitterS(entityId: number, shot: number): number {
   return ((hashEntityId(entityId * 389 + shot * 31) % 1000) / 1000) * 0.12;
 }
 
+/** Which way a figure between standing and kneeling is going. */
+export type KneelHeading = 'down' | 'up';
+
+/**
+ * The heading of a sim-driven stance: up only while the sim says RISING.
+ * Without the sim (the fallback), the heading is read off the depth the
+ * figure is moving toward; a tie keeps `prev`.
+ */
+export function kneelHeading(
+  stance: Stance,
+  fromSim: boolean,
+  depth: number,
+  target: number,
+  prev: KneelHeading
+): KneelHeading {
+  if (fromSim) return stance === 'rising' ? 'up' : stance === 'dropping' ? 'down' : prev;
+  return target > depth ? 'down' : target < depth ? 'up' : prev;
+}
+
 /**
  * Which clip a kneel-capable figure shows at stance depth `depth` (0 standing,
- * 1 down) heading for `target`, and how far through a drop or a rise to
- * scrub it (a fraction of the clip), or null to let it play. A posture the
- * sim forces (`down`, `work`, a death) outranks the kneel.
+ * 1 down), going `heading`, and how far through a drop or a rise to scrub it
+ * (a fraction of the clip), or null to let it play. A posture the sim forces
+ * (`down`, `work`, a death) outranks the kneel.
+ *
+ * The heading is passed in, never inferred from depth against target: when
+ * the sim drives the stance the renderer sets the depth FROM the target, so
+ * the two are equal on the way up as on the way down, and `target >= depth`
+ * -- what this read until spike-walk (6 Oct) -- played every rise as a drop.
  */
 export function kneelClipFor(
   desired: ClipName,
   depth: number,
-  target: number,
+  heading: KneelHeading,
   hasKneel: boolean
 ): { clip: ClipName; scrub: number | null } {
   if (!hasKneel || (desired !== 'idle' && desired !== 'fire' && desired !== 'move' && desired !== 'moveFire')) {
@@ -241,5 +265,5 @@ export function kneelClipFor(
   }
   if (depth >= 1) return { clip: 'kneel', scrub: null };
   if (depth <= 0) return { clip: desired, scrub: null };
-  return target >= depth ? { clip: 'kneelIn', scrub: depth } : { clip: 'kneelOut', scrub: 1 - depth };
+  return heading === 'down' ? { clip: 'kneelIn', scrub: depth } : { clip: 'kneelOut', scrub: 1 - depth };
 }
