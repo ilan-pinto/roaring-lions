@@ -90,17 +90,23 @@ says what colour it is. `weapon`/`metal`/`charge` are the kit parts.
 
 ## What each team carries, from `tools/units/teams.py` and `rig.py`
 
-  at_team     at_fire kneeling at (0.24, -0.30), `kit.launcher` level,
-              length 1.16, on his forearm_R -- but seated ON his +y shoulder
-              beside the head at cheek height, with a sight unit, pistol grip
-              and support handle and both arms re-seated on them
-              (`_shoulder_launcher`), NOT at `rig._at_extras`' centre-line
-              anchor, which on this figure ran through his head; at_spot standing at (-0.32, 0.34) with
+  at_team     at_fire STANDING at (0.24, -0.30) (spike-walk, 6 Oct; he
+              knelt in every clip until then, `move` included), the Spike on
+              his forearm_R, seated ON his +y shoulder beside the head at
+              cheek height with a pistol grip and support handle and both
+              arms re-seated on them (`_shoulder_launcher`, at a drop of 0),
+              NOT at `rig._at_extras`' centre-line anchor, which on this
+              figure ran through his head. That seat is the AIM; the motion
+              pass carries the Spike low in `idle`/`move` and kneels him on
+              the sim's brace (`tools/src/meshes/motion/hold.ts`, kind
+              'spike'). at_spot standing at (-0.32, 0.34) with
               `kit.binoculars` on his head at this figure's measured eye
-              height. Neither figure has a D6 walker: the gunner stays
-              deployed through `move`, as in the kit file.
-  demo_squad  demo_a kneeling at (0.34, -0.16) over `kit.demo_charge` at
-              (0.76, -0.16) on the team's `prop` bone; demo_b standing at
+              height. Neither figure needs a D6 walker: both stand.
+  demo_squad  demo_a STANDING at (0.34, -0.16) (spike-walk, 6 Oct; he knelt in
+              every clip until then), behind `kit.demo_charge` at
+              (0.76, -0.16) on the team's `prop` bone, which is packed away
+              while the team moves; he kneels at it on the sim's brace (the
+              motion pass's kneel clips); demo_b standing at
               (-0.36, 0.28) with `rig._weapon_parts`'s rifle held LEVEL at
               his right hand (the kit anchors a rifle at chest height for a
               figure whose arms are built bent; a hung arm holds it at the
@@ -122,8 +128,8 @@ asked for it folded; at 25 px two splayed legs under the canister read as a
 second barrel, so the bipod's faces are DELETED in Blender before it ships
 (`import_meshy_crew_team._cut_spike_bipod`: 60 faces, 410 -> 350 tris).
 
-After this: `pnpm gait:meshes -- --id=<team>`, `pnpm validate:meshes`,
-`pnpm encode:meshes`. No `mathutils.noise` anywhere in this file.
+After this: `pnpm motion:meshes -- --id=<team>`, `pnpm gait:meshes -- --id=<team>`,
+`pnpm encode:meshes`, `pnpm validate:meshes`. No `mathutils.noise` anywhere in this file.
 """
 import glob
 import math
@@ -488,9 +494,10 @@ def _move_all(parts, names, mat):
             _transform(parts[n], mat)
 
 
-def standing_bones(prefix, joints, dx, dy):
-    """rig.py's `_BASE_BONES` shape (plus its two hip-fix bones) with THIS
-    figure's measured joints."""
+def standing_table(joints):
+    """rig.py's `_BASE_BONES` shape with THIS figure's measured joints, at the
+    origin and unprefixed -- the table `_shoulder_launcher` re-seats the arms
+    in, as it does `_kneel`'s."""
     H, zc, zk, za, zn, zh = (joints[k] for k in ("H", "crotch", "knee", "ankle", "neck", "chin"))
     z_sh = max(joints["arm"][s]["shoulder"][2] for s in (0, 1))
     table = [
@@ -508,7 +515,14 @@ def standing_bones(prefix, joints, dx, dy):
         lx, ly = joints["leg"][side]
         table.append((f"thigh_{name}", "pelvis", (lx, ly, zc), (lx, ly, zk)))
         table.append((f"shin_{name}", f"thigh_{name}", (lx, ly, zk), (lx, ly, za)))
-    out = rig._translate(table, dx, dy, prefix)
+    return table
+
+
+def standing_bones(prefix, joints, dx, dy, table=None):
+    """rig.py's `_BASE_BONES` shape (plus its two hip-fix bones) with THIS
+    figure's measured joints -- `table` when the arms were re-seated on it."""
+    zc, zk = joints["crotch"], joints["knee"]
+    out = rig._translate(table if table is not None else standing_table(joints), dx, dy, prefix)
     for side, name in ((0, "L"), (1, "R")):
         lx, ly = joints["leg"][side]
         out.append((f"{prefix}_hip_{name}", f"{prefix}_pelvis",
@@ -781,6 +795,15 @@ def _figure(src, height, mat, spec):
             info["launcher"] = _shoulder_launcher(parts, joints, kbones, eye_z, drop, prefix)
         bones = rig._translate(kbones, x, y, prefix)
         info["eye_z"], info["drop"] = eye_z, drop
+    elif spec["weapon"] == "launcher":
+        # spike-walk (6 Oct): the gunner STANDS, so the Spike is seated on the
+        # standing figure -- the same measured seat as the kneeling one, at a
+        # drop of 0. This is the AIM (the rest pose, both hands on the grip
+        # and the handle); the carry in `idle`/`move` and the aim in the
+        # motion pass's kneel are the hold's (`motion/hold.ts`, kind 'spike').
+        table = standing_table(joints)
+        info["launcher"] = _shoulder_launcher(parts, joints, table, info["eye_z"], 0.0, prefix)
+        bones = standing_bones(prefix, joints, x, y, table)
     else:
         bones = standing_bones(prefix, joints, x, y)
     _place(parts, x, y)
@@ -957,7 +980,7 @@ def build_team(team_id):
         forced.update({ob: "at_fire_forearm_R" for ob in tube})
         forced.update({ob: "at_spot_head" for ob in binos})
         parts += tube + binos
-        log(f"at_team: tube axis ({fx + ax:.3f}, {fy + ay:.3f}, {az:.3f}) beside the kneeling gunner's head")
+        log(f"at_team: tube axis ({fx + ax:.3f}, {fy + ay:.3f}, {az:.3f}) beside the standing gunner's head")
     elif team_id == "demo_squad":
         charge = kit.demo_charge("demo_charge", (0.76, -0.16, 0.0))
         # The reel worn on the back, not through the shins: kit.cable_spool

@@ -2299,3 +2299,70 @@ export function measureHold(path: string, clip: string, prefix: string): HoldRea
   }
   return { handGapM: handGap, eyeAboveBoreMin: eyeLo, eyeAboveBoreMax: eyeHi, instants };
 }
+
+export interface FigureHipHeight {
+  /** The figure's joint prefix (`at_fire`, `mtr_crew0w`). */
+  readonly figure: string;
+  /** True when the figure is scaled out of the whole clip. */
+  readonly hiddenInClip: boolean;
+  /** Mean thigh length (hip joint to knee joint), metres -- a rigid bone, so
+   *  the same in every pose: the posture-free yardstick a hip height is read
+   *  against. */
+  readonly thighM: number;
+  /** The figure's hip height (the mean of its two hip joints' world Y) over
+   *  its visible samples, metres: lowest and median. */
+  readonly hipMinM: number;
+  readonly hipMedianM: number;
+}
+
+/**
+ * How high each figure carries its hips in `clip` (spike-walk, 6 Oct: the
+ * Spike gunner who knelt through `move`). A figure is a `{prefix}_pelvis`
+ * joint with two `{prefix}_thigh_*` joints and their `{prefix}_shin_*`
+ * knees -- standing rigs name the legs `_L`/`_R`, the kneeling topology
+ * `_f`/`_r`, and both are read. Samples where the figure is scaled out (a
+ * walker in `idle`, a kneeler in `move`) are skipped, so a two-body figure
+ * reports only the body on screen. Ground is the armature's y = 0, where
+ * rig.py and the motion pass stand every sole. Captured Mixamo rigs (the
+ * civilians' `Hips`/`LeftUpLeg`) carry no `_pelvis` and are not read.
+ */
+export function measureHipHeight(path: string, clip: string): FigureHipHeight[] {
+  const glb = readGlb(path);
+  const names = (glb.json.nodes ?? []).map((n) => n.name ?? '');
+  const { tracks, start, end } = readClip(glb, clip);
+  const figures: { figure: string; pelvis: number; thighs: number[]; knees: number[] }[] = [];
+  for (let i = 0; i < names.length; i++) {
+    const m = /^(.+)_pelvis$/.exec(names[i]);
+    if (!m) continue;
+    const thighs: number[] = [];
+    const knees: number[] = [];
+    for (const side of ['L', 'R', 'f', 'r']) {
+      const t = names.indexOf(`${m[1]}_thigh_${side}`);
+      const k = names.indexOf(`${m[1]}_shin_${side}`);
+      if (t >= 0 && k >= 0) {
+        thighs.push(t);
+        knees.push(k);
+      }
+    }
+    if (thighs.length !== 2) throw new Error(`${path}: ${m[1]} has ${thighs.length} thigh/shin pairs, not 2`);
+    figures.push({ figure: m[1], pelvis: i, thighs, knees });
+  }
+  return figures.map(({ figure, pelvis, thighs, knees }) => {
+    const hips: number[] = [];
+    let thighM = 0;
+    for (let s = 0; s <= SAMPLES; s++) {
+      const w = nodeWorlds(glb, tracks, start + ((end - start) * s) / SAMPLES);
+      if (jointScale(w[pelvis]) <= HIDDEN_SCALE) continue;
+      hips.push((w[thighs[0]][13] + w[thighs[1]][13]) / 2);
+      thighM = 0;
+      for (let k = 0; k < 2; k++) {
+        const a = w[thighs[k]];
+        const b = w[knees[k]];
+        thighM += Math.hypot(b[12] - a[12], b[13] - a[13], b[14] - a[14]) / 2;
+      }
+    }
+    if (hips.length === 0) return { figure, hiddenInClip: true, thighM: 0, hipMinM: 0, hipMedianM: 0 };
+    const sorted = [...hips].sort((a, b) => a - b);
+    return { figure, hiddenInClip: false, thighM, hipMinM: sorted[0], hipMedianM: sorted[Math.floor(sorted.length / 2)] };
+  });
+}

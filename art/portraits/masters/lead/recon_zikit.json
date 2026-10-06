@@ -2,7 +2,7 @@
   "unit": "recon_zikit",
   "variant": "lead",
   "source": "assets/meshes/recon_zikit.glb",
-  "source_sha256": "5b786cbb5f4a6ee8be3df856d93e75f4738965dce05b00a288f098e06c025264",
+  "source_sha256": "f6040abe919bf79b7527b6689eb97b0143040442e2128fcfce7ab4384cbe5a05",
   "yaw_deg": -125.0,
   "elevation_deg": 12.0,
   "fov_deg": 30.0,
@@ -11,8 +11,8 @@
     0.88
   ],
   "ndc_box": [
-    0.2695,
-    0.7305,
+    0.3421,
+    0.6579,
     0.06,
     0.94
   ],

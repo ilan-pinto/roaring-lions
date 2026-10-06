@@ -22,6 +22,14 @@ const MESHES = fileURLToPath(new URL('../../art/meshes/', import.meta.url));
 const HAND_GAP_MAX_M = 0.1;
 /** Eye above the bore on an aimed clip, metres. */
 const EYE_ABOVE_BORE: readonly [number, number] = [0.02, 0.12];
+/**
+ * The Spike (spike-walk, 6 Oct) has no cheek weld: its command-launch unit
+ * sits on top of the REAR of the tube, in front of the eye, so the cloud's
+ * long axis runs above the bore and the eye reads just BELOW it -- -0.047 m
+ * on every sample of fire, moveFire and kneel, the importer's own seat. The
+ * chest carry it walks with puts that axis 0.25-0.26 m under the eye.
+ */
+const EYE_AT_SPIKE: readonly [number, number] = [-0.1, 0.0];
 
 const HELD = Object.entries(MOTION_TEAMS).flatMap(([team, spec]) =>
   spec.figures.filter((f) => f.weapon).map((f) => ({ team, prefix: f.prefix, kind: f.weapon!, kneels: !!f.kneels }))
@@ -30,16 +38,18 @@ const HELD = Object.entries(MOTION_TEAMS).flatMap(([team, spec]) =>
 describe('the hold: hands on the weapon, eye over the bore', () => {
   it('reads every held figure the motion pass places', () => {
     // Rule 1 of mesh_gait.test.ts: the population first. 3 + 3 + 2 + 1 + 2 +
-    // 1 + 1 + 1: inf, sarim, militia, yahalom, rpg (rifle and RPG), demo,
-    // mortar No.3, MANPAD.
-    expect(HELD).toHaveLength(14);
+    // 1 + 1 + 1 + 1 + 1: inf, sarim, militia, yahalom, rpg (rifle and RPG),
+    // demo, mortar No.3, MANPAD, and since spike-walk (6 Oct) the Spike and
+    // the Zikit's rifleman.
+    expect(HELD).toHaveLength(16);
   });
 
   for (const h of HELD) {
     // A tube keeps the importer's own carry in idle/move (apply-hold.ts), so
     // only its aimed clips are the hold's.
     const aimed = ['fire', 'moveFire', ...(h.kneels ? ['kneel'] : [])];
-    const ready = h.kind === 'rifle' ? ['idle', 'move'] : [];
+    // ...except the Spike, whose carry is the hold's too (apply-hold.ts).
+    const ready = h.kind === 'rifle' || h.kind === 'spike' ? ['idle', 'move'] : [];
     const eyeClips = h.kind === 'manpad' ? [] : aimed; // a MANPAD aims 35 deg up: no cheek weld
     for (const clip of [...ready, ...aimed]) {
       // One measurement per clip, both gates read from it.
@@ -48,8 +58,9 @@ describe('the hold: hands on the weapon, eye over the bore', () => {
         expect(r.instants, 'instants with the weapon drawn').toBeGreaterThan(0);
         expect(r.handGapM, 'worse hand to the weapon').toBeLessThan(HAND_GAP_MAX_M);
         if (!eyeClips.includes(clip)) return;
-        expect(r.eyeAboveBoreMin, 'eye above bore, lowest').toBeGreaterThan(EYE_ABOVE_BORE[0]);
-        expect(r.eyeAboveBoreMax, 'eye above bore, highest').toBeLessThan(EYE_ABOVE_BORE[1]);
+        const band = h.kind === 'spike' ? EYE_AT_SPIKE : EYE_ABOVE_BORE;
+        expect(r.eyeAboveBoreMin, 'eye above bore, lowest').toBeGreaterThan(band[0]);
+        expect(r.eyeAboveBoreMax, 'eye above bore, highest').toBeLessThan(band[1]);
       }, 60_000);
     }
   }

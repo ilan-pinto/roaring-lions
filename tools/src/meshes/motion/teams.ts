@@ -82,8 +82,10 @@ export const MOTION_TEAMS: Record<string, MotionTeam> = {
     ],
     hold: true, kneel: true, formation: true, stride: true, speedTiles: 0.9,
   },
+  // spike-walk (6 Oct): demo_a stands and walks now, and kneels at the
+  // charge on the sim's brace like everyone else.
   demo_squad: {
-    figures: [{ prefix: 'demo_b', weapon: 'rifle', kneels: true }],
+    figures: [{ prefix: 'demo_b', weapon: 'rifle', kneels: true }, { prefix: 'demo_a', kneels: true }],
     hold: true, kneel: true, formation: false, stride: true, speedTiles: 0.85,
   },
   mortar_team: {
@@ -94,12 +96,32 @@ export const MOTION_TEAMS: Record<string, MotionTeam> = {
     figures: [{ prefix: 'mpd_fire', weapon: 'manpad', kneels: true }, { prefix: 'mpd_spot' }],
     hold: true, kneel: true, formation: false, squad: true, stride: true, speedTiles: 0.75,
   },
+  // spike-walk (6 Oct): the gunner walks upright with the Spike carried and
+  // kneels to fire on the sim's brace, as rpg_team does; the spotter kneels
+  // beside him. Until then he was a kneeler with no walker, on his knee in
+  // every clip, `move` included.
+  at_team: {
+    figures: [
+      { prefix: 'at_fire', weapon: 'spike', kneels: true },
+      { prefix: 'at_spot', kneels: true },
+    ],
+    hold: true, kneel: true, formation: false, squad: true, stride: true, speedTiles: 0.7,
+  },
   // Stride only: the gait gate is tree-wide, so every walker is re-timed.
-  at_team: { figures: [{ prefix: 'at_fire', recoil: 'launcher' }, { prefix: 'at_spot' }], hold: false, kneel: false, formation: false, squad: true, stride: true, speedTiles: 0.7 },
   charge_squad: { figures: [], hold: false, kneel: false, formation: false, stride: true, speedTiles: 1.9 },
   breach_team: { figures: [{ prefix: 'brc_point', recoil: 'rifle' }, { prefix: 'brc_cover', recoil: 'rifle' }], hold: false, kneel: false, formation: false, squad: true, stride: true, speedTiles: 0.95 },
   recoilless_team: { figures: [{ prefix: 'rcl_fire', recoil: 'launcher' }], hold: false, kneel: false, formation: false, stride: true, speedTiles: 0.85 },
-  recon_zikit: { figures: [{ prefix: 'zk_rifle', recoil: 'rifle' }], hold: false, kneel: false, formation: false, stride: true, speedTiles: 0.9 },
+  // spike-walk (6 Oct): the spotter stands and walks, and the team kneels on
+  // the sim's brace -- the rifleman aims his rifle in it (the hold), the
+  // spotter kneels behind his tripod scope.
+  recon_zikit: {
+    figures: [
+      { prefix: 'zk_rifle', weapon: 'rifle', kneels: true },
+      { prefix: 'zk_radio', kneels: true },
+      { prefix: 'zk_spot', kneels: true },
+    ],
+    hold: true, kneel: true, formation: false, stride: true, speedTiles: 0.9,
+  },
   // The crew-served teams' walkers (`*w`, D6): they march between positions.
   atgm_cell: { figures: [], hold: false, kneel: false, formation: false, stride: true, speedTiles: 0.7 },
   mortar_crew: { figures: [], hold: false, kneel: false, formation: false, stride: true, speedTiles: 0.6 },

@@ -44,7 +44,13 @@ import {
 } from './math';
 import { carry, type Pose, type RestVertex, type Rig } from './rig';
 
-export type WeaponKind = 'rifle' | 'rpg' | 'manpad';
+/** `spike` (spike-walk, 6 Oct): the at_team gunner's Spike. Unlike the
+ *  other two tubes it is not re-seated by formula -- its command-launch unit
+ *  sits at the REAR, in front of the eye, where the importer measured it
+ *  (`import_meshy_kdf_team._shoulder_launcher`) -- so its aim is the rest
+ *  seat carried with the head, its grips are the rest hands carried with the
+ *  weapon, and the hold owns its carry too (`SPIKE_CARRY_REAR`). */
+export type WeaponKind = 'rifle' | 'rpg' | 'manpad' | 'spike';
 
 /** Where the hands close, as fractions of the weapon's length from the butt
  *  and drops below the bore (metres). */
@@ -52,10 +58,12 @@ export const GRIPS: Record<WeaponKind, { trigger: [number, number]; support: [nu
   rifle: { trigger: [0.3, 0.07], support: [0.62, 0.035] },
   rpg: { trigger: [0.42, 0.1], support: [0.62, 0.08] },
   manpad: { trigger: [0.46, 0.1], support: [0.62, 0.08] },
+  // Unread: a Spike's grips are its rest hands (`HoldFigure.restGrips`).
+  spike: { trigger: [0.2, 0.15], support: [0.1, 0.2] },
 };
 
 /** How far back along the weapon the support hand may slide to reach. */
-export const SUPPORT_MIN_FRAC: Record<WeaponKind, number> = { rifle: 0.42, rpg: 0.5, manpad: 0.42 };
+export const SUPPORT_MIN_FRAC: Record<WeaponKind, number> = { rifle: 0.42, rpg: 0.5, manpad: 0.42, spike: 0.1 };
 /** The rifle's butt pocket, from the shooting shoulder JOINT: forward, up,
  *  medial. These rigs' shoulder pivots sit low (the cut is at the armpit),
  *  so the top of the visible shoulder cap is about +0.16 m above them. */
@@ -74,15 +82,42 @@ export const READY_POCKET: V3 = [0.03, 0.12, 0.06];
 export const TUBE_BELOW_EYE = 0.04;
 export const TUBE_BESIDE_EYE = 0.22;
 export const TUBE_BEHIND = 0.4;
-export const AIM_ELEVATION_DEG: Record<WeaponKind, number> = { rifle: 0, rpg: 3, manpad: 35 };
+export const AIM_ELEVATION_DEG: Record<WeaponKind, number> = { rifle: 0, rpg: 3, manpad: 35, spike: 0 };
 /** The carry the hold blends a tube's aim FROM inside a kneel drop. In
  *  `idle`/`move` a tube keeps the importer's own seated carry (apply-hold.ts). */
-export const CARRY_ELEVATION_DEG: Record<WeaponKind, number> = { rifle: READY_PITCH_DEG, rpg: 20, manpad: 70 };
+export const CARRY_ELEVATION_DEG: Record<WeaponKind, number> = {
+  rifle: READY_PITCH_DEG,
+  rpg: 20,
+  manpad: 70,
+  spike: -15,
+};
+/**
+ * The Spike's carry in \`idle\`/\`move\` (and the start of a kneel drop): at
+ * the chest, in front, both hands on it, muzzle CARRY_ELEVATION_DEG.spike
+ * down and SPIKE_CARRY_YAW_IN across the body -- carried, not aimed. Low and
+ * in front because the command-launch unit is the REAR of this tube:
+ * shouldered and pitched up like the RPG's carry, it would sit in his upper
+ * back. Its rear end sits SPIKE_CARRY_REAR from the tube-side shoulder joint
+ * (forward, up) and SPIKE_CARRY_IN inboard of the rest seat's own lateral.
+ *
+ * Searched on the shipped figure (spike-walk, 6 Oct), against the two gates
+ * that hold every launcher (launcher_clearance, launcher_arms): the first cut
+ * (0.14 forward, level across, 20 down) put 145 Spike samples inside him and
+ * 258 arm vertices (limit 148); 0.25 forward cleared the tube but not the
+ * arms (236), and the support arm reaching across his chest to the handle is
+ * what costs -- turning the muzzle 30 across and the tube 8 cm inboard brings
+ * the handle to it: 0 samples inside, arms 146 (idle) / 135 (move), level
+ * with the aim seat's own 150. Further forward, the hands leave the grips.
+ */
+export const SPIKE_CARRY_REAR: readonly [number, number] = [0.34, 0.06];
+export const SPIKE_CARRY_IN = 0.08;
+export const SPIKE_CARRY_YAW_IN = 30;
 /** Torso: forward lean and blade (shooting shoulder back), degrees. */
 export const AIM_TORSO: Record<WeaponKind, { lean: number; blade: number }> = {
   rifle: { lean: 12, blade: 20 },
   rpg: { lean: 6, blade: 25 },
   manpad: { lean: -4, blade: 25 },
+  spike: { lean: 4, blade: 0 },
 };
 export const READY_TORSO = { lean: 0, blade: 10 };
 /** The support shoulder reaching for the handguard: the scapula slides
@@ -109,9 +144,16 @@ export interface HoldFigure {
   readonly handSupport: V3;
   readonly eye: V3;
   readonly eyeJoint: Node;
-  /** 'L' or 'R': which rig.py side is the anatomical right. */
+  /** 'L' or 'R': the rig.py side of the arm on the trigger -- the
+   *  anatomical right, except a Spike, held on the left where it was seated. */
   readonly shootSide: 'L' | 'R';
+  /** A Spike only: the rest hand points, which the importer solved onto its
+   *  pistol grip and handle -- the grips, carried with the weapon. */
+  readonly restGrips?: { readonly shoot: V3; readonly support: V3 };
 }
+
+/** +1 when the weapon is held on the anatomical right (+Z), -1 on the left. */
+export const holdSide = (h: HoldFigure): 1 | -1 => (h.kind === 'spike' ? -1 : 1);
 
 function pca(points: V3[]): { c: V3; axis: V3 } {
   const n = points.length;
@@ -158,7 +200,10 @@ export function describeHold(rig: Rig, verts: RestVertex[], prefix: string, kind
   const up = norm(sub([0, 1, 0], scale(axis, axis[1])));
   const zL = rig.restWorld.get(rig.node(`${prefix}_upperarm_L`))!.t[2];
   const zR = rig.restWorld.get(rig.node(`${prefix}_upperarm_R`))!.t[2];
-  const shootSide = zL > zR ? 'L' : 'R';
+  const right = zL > zR ? 'L' : 'R';
+  // A Spike stays on the shoulder the importer seated it on: the tube rides
+  // `forearm_R` (the anatomical left), whose hand closes on its pistol grip.
+  const shootSide = kind === 'spike' ? (right === 'L' ? 'R' : 'L') : right;
   const support = shootSide === 'L' ? 'R' : 'L';
   const head = rig.node(`${prefix}_head`);
   const face = verts.filter((v) => v.joint === head && v.role === 'face');
@@ -166,6 +211,8 @@ export function describeHold(rig: Rig, verts: RestVertex[], prefix: string, kind
     face.length > 0
       ? scale(face.reduce((s, v) => add(s, v.p), [0, 0, 0] as V3), 1 / face.length)
       : add(rig.restWorld.get(head)!.t, [0.09, 0.04, 0]);
+  const handShoot = handPoint(rig, verts, rig.node(`${prefix}_forearm_${shootSide}`));
+  const handSupport = handPoint(rig, verts, rig.node(`${prefix}_forearm_${support}`));
   return {
     prefix,
     kind,
@@ -174,11 +221,12 @@ export function describeHold(rig: Rig, verts: RestVertex[], prefix: string, kind
     up,
     length: hi - lo,
     fromJoint,
-    handShoot: handPoint(rig, verts, rig.node(`${prefix}_forearm_${shootSide}`)),
-    handSupport: handPoint(rig, verts, rig.node(`${prefix}_forearm_${support}`)),
+    handShoot,
+    handSupport,
     eye,
     eyeJoint: head,
     shootSide,
+    ...(kind === 'spike' ? { restGrips: { shoot: handShoot, support: handSupport } } : {}),
   };
 }
 
@@ -245,17 +293,17 @@ function weaponDir(pitchDeg: number, yawInDeg: number, side: number): V3 {
  */
 export function solveHold(rig: Rig, pose: Pose, h: HoldFigure, weapon: Node, st: HoldState): HoldResult {
   const p = h.prefix;
-  const side = 1; // anatomical right is +Z
+  const side = holdSide(h); // anatomical right is +Z
   const spine = rig.node(`${p}_spine`);
   const aimTorso = AIM_TORSO[h.kind];
   const lean = READY_TORSO.lean + ((st.aimLean ?? aimTorso.lean) - READY_TORSO.lean) * st.aim;
   const blade = READY_TORSO.blade + (aimTorso.blade - READY_TORSO.blade) * st.aim;
   // Lean: the head toward +X is a rotation about -Z. Blade: the shooting
   // (+Z) shoulder back is a rotation about +Y by a negative angle.
-  rotateWorld(rig, pose, spine, qmul(qaxis([0, 0, 1], -deg(lean)), qaxis([0, 1, 0], -deg(blade))));
+  rotateWorld(rig, pose, spine, qmul(qaxis([0, 0, 1], -deg(lean)), qaxis([0, 1, 0], -side * deg(blade))));
   // The head does not blade with the shoulders: a shooter looks down the
   // bore, so the neck turns the face back onto the aim by the blade.
-  rotateWorld(rig, pose, rig.node(`${p}_neck`), qaxis([0, 1, 0], deg(blade)));
+  rotateWorld(rig, pose, rig.node(`${p}_neck`), qaxis([0, 1, 0], side * deg(blade)));
 
   const W = (n: Node) => rig.worldOf(n, pose);
   const shoulder = W(rig.node(`${p}_upperarm_${h.shootSide}`)).t;
@@ -263,6 +311,14 @@ export function solveHold(rig: Rig, pose: Pose, h: HoldFigure, weapon: Node, st:
 
   // The two placements, then blended by `aim`.
   const place = (aim: boolean): { butt: V3; dir: V3 } => {
+    if (h.kind === 'spike') {
+      // Aimed: the rest seat, carried with the eye -- the CLU in front of it,
+      // the bore beside the cheek, level. Carried: low in front, muzzle down.
+      if (aim) return { butt: add(eye0, sub(h.butt, h.eye)), dir: h.axis };
+      const outboard = h.butt[2] - h.eye[2] - side * SPIKE_CARRY_IN;
+      const dir = weaponDir(CARRY_ELEVATION_DEG.spike, SPIKE_CARRY_YAW_IN, side);
+      return { butt: [shoulder[0] + SPIKE_CARRY_REAR[0], shoulder[1] + SPIKE_CARRY_REAR[1], eye0[2] + outboard], dir };
+    }
     if (h.kind === 'rifle') {
       if (aim) {
         const butt = add(shoulder, [RIFLE_POCKET[0], RIFLE_POCKET[1], -side * RIFLE_POCKET[2]]);
@@ -319,7 +375,9 @@ export function solveHold(rig: Rig, pose: Pose, h: HoldFigure, weapon: Node, st:
     return add(butt, qrot(r, sub(rest, h.butt)));
   };
   const g = GRIPS[h.kind];
-  const trigger = grip(g.trigger[0], g.trigger[1]);
+  // A Spike's grips are where the importer closed the hands, moved with it.
+  const carried = (rest: V3): V3 => add(butt, qrot(r, sub(rest, h.butt)));
+  const trigger = h.restGrips ? carried(h.restGrips.shoot) : grip(g.trigger[0], g.trigger[1]);
   const supportG = grip(g.support[0], g.support[1]);
   const sup = h.shootSide === 'L' ? 'R' : 'L';
   // Protract the support shoulder: forward and toward the midline, fully
@@ -350,7 +408,18 @@ export function solveHold(rig: Rig, pose: Pose, h: HoldFigure, weapon: Node, st:
   // short-armed figure holds nearer the magazine well, which is a real grip
   // too. Never behind SUPPORT_MIN_FRAC.
   let gapSupport = Infinity;
-  for (let frac = g.support[0]; frac >= SUPPORT_MIN_FRAC[h.kind] - 1e-9; frac -= 0.02) {
+  if (h.restGrips) {
+    gapSupport = twoBoneIK(
+      rig,
+      pose,
+      rig.node(`${p}_upperarm_${sup}`),
+      rig.node(`${p}_forearm_${sup}`),
+      h.handSupport,
+      carried(h.restGrips.support),
+      [0.1, -1, -0.35 * side]
+    );
+  }
+  for (let frac = g.support[0]; !h.restGrips && frac >= SUPPORT_MIN_FRAC[h.kind] - 1e-9; frac -= 0.02) {
     gapSupport = twoBoneIK(
       rig,
       pose,

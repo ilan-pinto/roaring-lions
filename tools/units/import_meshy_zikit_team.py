@@ -32,12 +32,15 @@ corpse and pinning a blob's UVs to the bake is `tools/units/import_meshy_kdf_tea
             chest); what makes HIM the operator is the whip -- a `kit.tube`
             0.90 m long at 80 degrees from horizontal rising from the pack,
             bound to his spine so it leans with him.
-  zk_spot   kneeling at (+0.25, +0.65) behind a tripod spotting scope on the
+  zk_spot   standing at (+0.25, +0.65), behind a tripod spotting scope on the
             team's static `prop` bone at (+0.74, +0.65): three `kit.tube`
-            legs meeting under a `kit.box` scope at his kneeling eye height,
-            the way `at_team`'s tube sits at its gunner's measured shoulder.
-            He kneels through `move` like `at_fire` (no D6 walker: the B0b
-            importer refuses one, and the deployed spotter is the read).
+            legs meeting under a `kit.box` scope at his KNEELING eye height
+            (`_kneel_eye_z`), the way `at_team`'s tube sits at its gunner's
+            measured shoulder. He walks with the team, the scope packed away
+            while it moves (rig.py's `_key_death_visibility`), and kneels
+            behind it on the sim's brace alone -- the motion pass's kneel
+            clips (spike-walk, 6 Oct, the lead's ruling). Until then he knelt
+            through `move` with the tripod sliding along beside him.
 
 Clips are `rig.py`'s own builders called directly with THIS team's figure
 specs -- `build_idle_clip`, `build_move_clip`, `build_fire_clip`, and the two
@@ -56,9 +59,8 @@ Silhouette levers against `inf_squad` (three standing rifles in a line),
 `at_team` (kneel + stand, level tube) and `sniper_team` (prone): one rifle
 among three, a whip at 80 degrees, and a kneeling man behind a low tripod.
 
-After this: `pnpm validate:meshes`, `pnpm encode:meshes`. The `rl_gait`
-extra is applied at landing (`pnpm gait:meshes` is scoped to
-`RIGGED_UNIT_MESHES`).
+After this: `pnpm motion:meshes -- --id=recon_zikit`, `pnpm gait:meshes --
+--id=recon_zikit`, `pnpm encode:meshes`, `pnpm validate:meshes`.
 """
 import glob
 import json
@@ -85,13 +87,17 @@ SOURCE = os.path.join(REPO, "art", "meshy", "recon-zikit-*-01a0f346", "model.glb
 STAGED_JSON = os.path.join(REPO, "docs", "campaign", "special_units", "e5", f"{TEAM}.json")
 HEIGHT = 1.78
 
-#: rig._f specs -- prefix, anchor, posture, weapon. `animates=False` on the
-#: kneeling spotter keeps his legs still through `move`, as `at_fire`.
+#: rig._f specs -- prefix, anchor, posture, weapon. All three stand and walk;
+#: the kneel is the motion pass's, on the sim's brace (spike-walk, 6 Oct).
 FIGURES = [
     rig._f("zk_rifle", 0.10, -0.70, weapon="rifle"),
     rig._f("zk_radio", -0.30, 0.05, leader=True),
-    rig._f("zk_spot", 0.25, 0.65, posture="kneeling", animates=False),
+    rig._f("zk_spot", 0.25, 0.65),
 ]
+#: The motion pass kneels a man with his hip joints at this fraction of
+#: their standing height (`tools/src/meshes/motion/kneel.ts`,
+#: KNEEL_HIP_FRAC): the spotter's eye drops by the rest of it.
+MOTION_KNEEL_HIP_FRAC = 0.5
 TRIPOD_AT = (0.74, 0.65)
 
 #: 100 from +x is 80 degrees from horizontal LEANING BACK over the pack.
@@ -152,6 +158,13 @@ def _tripod(eye_z):
     return parts
 
 
+def _kneel_eye_z(info):
+    """The spotter's eye once the motion pass has knelt him: his standing eye,
+    dropped by the hip joint's own drop (the crotch cut is the hip joint)."""
+    zc = info["joints"]["crotch"]
+    return info["eye_z"] - (1.0 - MOTION_KNEEL_HIP_FRAC) * zc
+
+
 def build_team():
     bpy.ops.wm.read_factory_settings(use_empty=True)
     kdf.SOURCES[TEAM] = (SOURCE, HEIGHT)
@@ -205,7 +218,7 @@ def build_team():
     parts += whip
 
     # --- the spotter's tripod scope, on the team's static prop bone --------
-    tripod = _tripod(infos["zk_spot"]["eye_z"])
+    tripod = _tripod(_kneel_eye_z(infos["zk_spot"]))
     bones.append(rig._prop_bone((TRIPOD_AT[0], TRIPOD_AT[1], 0.10)))
     forced.update({ob: "prop" for ob in tripod})
     parts += tripod

@@ -19,13 +19,13 @@
     "at_team": {
       "file": "at_team.png",
       "extent": [
-        165,
-        174
+        174,
+        128
       ],
       "lead": {
         "file": "lead/at_team.png",
         "extent": [
-          136,
+          162,
           174
         ]
       }
@@ -82,13 +82,13 @@
     "demo_squad": {
       "file": "demo_squad.png",
       "extent": [
-        148,
+        136,
         174
       ],
       "lead": {
         "file": "lead/demo_squad.png",
         "extent": [
-          89,
+          72,
           174
         ]
       }
@@ -270,7 +270,7 @@
       "lead": {
         "file": "lead/recon_zikit.png",
         "extent": [
-          94,
+          66,
           174
         ]
       }
