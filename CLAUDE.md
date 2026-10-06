@@ -1397,12 +1397,37 @@ vehicles' wreck sprites) went with the retirement: see `docs/PERFORMANCE.md`,
 spec ranks what is left (wreck meshes after the first frame, Draco, a service
 worker for Pages' `max-age=600`, the first-frame gap). Pipeline: `tools/units/kit.py` (geometry)
 → `tools/units/rig.py` (armature + clips, authored as Python tables) →
-`tools/export_mesh_team.py` → `art/meshes/<team_id>.glb` → **`pnpm gait:meshes`**
-→ **`pnpm encode:meshes`** → `assets/meshes/` → `three/units/mesh-*.ts`.
-**Both post-export passes are mandatory and their order is load-bearing** — the
-gait pass writes into `art/meshes/`, the encoder mirrors it into `assets/meshes/`,
-and running them the other way round ships a stale stride. Same shape, and the
-same rule, as `pnpm wreck:meshes` for vehicles.
+`tools/export_mesh_team.py` → `art/meshes/<team_id>.glb` → **`pnpm motion:meshes`**
+→ **`pnpm gait:meshes`** → **`pnpm encode:meshes`** → `assets/meshes/` →
+`three/units/mesh-*.ts`.
+**All three post-export passes are mandatory and their order is load-bearing** — the
+motion pass re-times the legs the gait pass then measures, the gait pass writes
+into `art/meshes/`, the encoder mirrors it into `assets/meshes/`, and any other
+order ships a stale stride. Same shape, and the same rule, as `pnpm wreck:meshes`
+for vehicles.
+
+- **The motion pass (5 Oct) owns how infantry hold, kneel, stand and step**
+  (`tools/src/meshes/motion/`, contract v5). Four things a later change will get
+  wrong. **It refuses a file it has already been through** (`extras.rl_motion`):
+  it rebinds vertices and warps tracks, so a re-run starts from the pre-pass
+  bytes -- `--from=<rev>`, the rev recorded in `rl_motion.base`. The 8k Meshy
+  sources most teams were cut from are not in the repo, which is why this is a
+  GLB pass and not Blender work. **`rl_gait.strideM` is the PLANTED ground per
+  cycle now, not a boot's peak-to-peak travel** -- the old reading played every
+  walker's legs 1.8-2.9x too fast for their stride (feet treadmilling backwards
+  at 0.8-1.95x body speed, 3.2-5.0 steps/s; charge_squad 7.9). The gate is the
+  foot-skate oracle (`measureFootSkate`, a planted foot under 0.25 of body
+  speed) plus a human-cadence band, not the multiplier. **A shooter's weapon
+  rides `{prefix}_weapon`, not `forearm_R`**, and both arms are IK'd onto it;
+  the shooting side is the anatomical RIGHT (rig.py's `_L` bones -- the B7
+  retarget had mirrored every shooter onto his left shoulder). **The tubes keep
+  the importer's carry in `idle`/`move`**; the hold only aims them. The runtime
+  half: a team marked `squad` draws each figure on its own clip player walking
+  its own path to its slot (`units/squad-rig.ts`), the kneel is read through
+  `stanceOf(i)` (`units/stance.ts`, #402's `brace`/`braceTicks`,
+  feature-detected), and recoil is a spine kick after the mixer, one figure
+  per shot. Gates: `mesh_hold.test.ts` (hands on the weapon, eye on the bore)
+  and `mesh_gait.test.ts`.
 
 - **`kit.py`'s "No armature." rule is now partly overturned.** Of its three
   reasons, only "blocky is enough at 25 px" fell — beaten by the project lead
