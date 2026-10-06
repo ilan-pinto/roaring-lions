@@ -70,8 +70,10 @@ import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type 
 import { hintFor, loadSeen, markSeen } from './ui/hint-model';
 import { createShownTimer, loadHintsSeen, markHintSeen, owedRule, type HintContext } from './ui/hint-rules';
 import { portraitIds, unitIcon, unitPlate } from './ui/portrait';
-import { Minimap, MINIMAP_SIZE, flipRows, objectivePoint } from './ui/minimap';
-import { alertsForTick, initAlertState, type AlertWorld } from './ui/alerts';
+import { Minimap, MINIMAP_SIZE, flipRows } from './ui/minimap';
+import { alertsForTick, initAlertState, missionEventTier, nextJump, type JumpTarget } from './ui/alerts';
+import { alertWorldFor } from './ui/alert-world';
+import { placeOnScreen } from './ui/alert-place';
 import { CivFlightWatch, type CivObservation } from './ui/civ-flight';
 import { refugeJump, sayFlight } from './ui/refuge-ping';
 import { INITIAL_PINNED_NOTE, pinnedOrderNote } from './ui/pinned-order';
@@ -126,7 +128,7 @@ import { groupBar, groupChips } from './ui/group-bar';
 import { isIdle, nextIdle, type IdleFacts } from './ui/idle';
 import { escapeHtml } from './ui/escape-html';
 import { symbolLabel } from './ui/symbol';
-import { alertNotice, evacuatedNotice, removedNotice, triggerLabel } from './ui/mission-notice';
+import { alertNotice, evacuatedNotice, reinforceTrigger, removedNotice, triggerLabel } from './ui/mission-notice';
 import { ReinforcementDock } from './ui/production';
 import { doctrineTags } from './ui/dock-model';
 import {
@@ -435,11 +437,16 @@ function describeMissionEvent(
         : [t('mission.notice.objectiveStatus', { status: objectiveStatusShout(e.status), label: escapeHtml(label) }), 'bad'];
     }
     case 'trigger': {
+      // A labelled `reinforce` is the alert layer's: it says the label once,
+      // with where the units arrive (WP-P5, `ui/alerts.ts`).
+      if (reinforceTrigger(mission, e.id) !== null) return null;
       const label = triggerLabel(mission, e.id);
       return label === null ? null : [escapeHtml(label), 'warn'];
     }
     case 'wave':
-      return [t('mission.notice.wave', { n: e.count }), 'bad'];
+      // WP-P5: the alert layer words a wave now, with the direction it
+      // enters from (`ui/alerts.ts`); a second line here would say it twice.
+      return null;
     case 'roe': {
       const first = !narratedRoeReasons.has(e.reason);
       narratedRoeReasons.add(e.reason);
@@ -453,7 +460,8 @@ function describeMissionEvent(
       );
     }
     case 'built':
-      return [t('mission.notice.built', { unit: e.unit }), 'info'];
+      // WP-P5: likewise -- `alert.arrived` names the unit and where it stands.
+      return null;
     case 'say':
       // The commander bar is the one surface for a story line now -- `hud.say`
       // already runs for every `say` event (see the mission-loop handler
@@ -2453,6 +2461,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // immediately un-showing it would teach the player nothing.
   const settingsStore = safeStorage();
   const seen = loadSeen(settingsStore);
+  /** WP-P5: did this session show the order-row line (`hintFor`)? */
+  let showedOrderRowHint = false;
   // GH-345 follow-up: first-use one-liners for the lessons the nine-beat
   // tutorial cut (`data/hints/first_use.json`, `ui/hint-rules.ts`). Never in
   // the tutorial itself and never in a sandbox, so a sandbox walk cannot spend
@@ -2581,7 +2591,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         sawDock: seen.dock,
         dockAvailable: mission?.resources !== undefined,
         contextual: contextualHint(),
+        sawOrderRow: seen.orderRow,
       });
+      if (line?.key === 'hud.hint.selected') showedOrderRowHint = true;
       const shown = hintTimer.tick(line?.id ?? null, performance.now());
       if (shown === 'dock') {
         seen.dock = true;
@@ -2603,6 +2615,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   });
   // Six panes on `document.body`, plus a title card that may still be holding.
   onDispose(() => hud.destroy());
+  // WP-P5 (PA-16): a session that showed the order-row line has done its
+  // teaching, so the next one does not show it. Marked on LEAVING rather than
+  // on first sight, so the line stays for the whole of that first session --
+  // retiring it mid-mission would be a line that vanished for no reason.
+  onDispose(() => {
+    if (showedOrderRowHint && !seen.orderRow) markSeen(settingsStore, 'orderRow');
+  });
 
   // Unit voices (WP-AU1 §7). Read-only on the sim (invariant 4): `look` and
   // `onTick` only read state and events the sim already produced. Its intents
@@ -3317,42 +3336,28 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /**
    * Everything the alert layer may ask about the world (`ui/alerts.ts`'s own
    * `AlertWorld`), built once beside `intentWorld` above and for the same
-   * reason: the model stays a pure function over a fixture, and this is the
-   * one adapter that knows it is looking at a real `Sim`.
-   *
-   * `posOf` reads the position of an entity that is usually DEAD -- that is
-   * the whole point of `unitLost` -- which is safe because the sim clears
-   * `alive` and leaves `posX`/`posY` where the casualty fell. The bounds
-   * guard is not defensive noise: `alertsForTick` is handed entity ids out of
-   * an event stream, and an id past `entityCount` would read `undefined` out
-   * of a typed array and turn into `NaN` through `fx.toNumber`, which draws a
-   * flash nowhere and jumps the camera to nowhere, silently.
-   *
-   * `objectiveAt` goes through `minimap.ts`'s own `objectivePoint` rather
-   * than resolving zones and markers a second time here: the camera lands on
-   * the diamond the minimap drew, by construction.
+   * reason: the model stays a pure function over a fixture. The adapter is
+   * `ui/alert-world.ts`'s since WP-P5, so a test can drive it with a real
+   * runtime; the one thing only this file has is the camera, which is what
+   * `placeOf` asks -- through the renderer's own projection, never a copy of
+   * it (CLAUDE.md), against the canvas the player is looking at.
    */
-  const alertWorld: AlertWorld = {
-    posOf: (entity) => {
-      if (entity < 0 || entity >= sim.entityCount) return null;
-      return { x: fx.toNumber(sim.state.posX[entity]), y: fx.toNumber(sim.state.posY[entity]) };
-    },
-    sideOf: (entity) => sim.state.side[entity],
-    // The same lookup the deploy panel's `broughtFor` caller uses, so a feed
-    // line and a briefing line name a unit the same way.
-    unitName: (typeId) => units[typeId as keyof typeof units]?.name ?? typeId,
-    objectiveAt: (id) => {
-      const o = runtime?.objectiveList.find((x) => x.id === id);
-      return o === undefined ? null : objectivePoint(o, map);
-    },
-  };
-  /** Carried across ticks: when each entity last made the feed. Copy-on-write
-   *  inside `alertsForTick`, so this is only ever reassigned, never mutated. */
+  const alertWorld = alertWorldFor({
+    sim,
+    runtime: () => runtime,
+    mission: resolvedMission ?? null,
+    map,
+    units: units as Readonly<Record<string, { name?: string } | undefined>>,
+    placeOf: (x, y) => placeOnScreen(renderer.worldToScreen(x, y), canvas.clientWidth, canvas.clientHeight),
+  });
+  /** Carried across ticks: when each entity last made the feed, and which
+   *  waves have been announced. Copy-on-write inside `alertsForTick`, so this
+   *  is only ever reassigned, never mutated. */
   let alertState = initAlertState();
-  /** Where the jump key goes. A plain local: it is presentation state about
-   *  the last thing worth looking at, it is read by exactly one keydown case,
-   *  and nothing outside this function has any business knowing it. */
-  let lastAlertAt: { x: number; y: number } | null = null;
+  /** Where the jump key goes: the latest important or major alert, or a
+   *  minor one while nothing heavier has happened (`nextJump`, WP-P5). A
+   *  plain local: presentation state read by exactly one keydown case. */
+  let jumpTarget: JumpTarget | null = null;
 
   canvas.addEventListener('contextmenu', (ev) => {
     ev.preventDefault();
@@ -3567,9 +3572,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // The camera, and nothing else: no selection change, no order. The
         // key answers "what just happened, and where" -- deciding what to do
         // about it is still the player's.
-        if (lastAlertAt) {
-          renderer.camera.x = lastAlertAt.x;
-          renderer.camera.y = lastAlertAt.y;
+        if (jumpTarget) {
+          renderer.camera.x = jumpTarget.at.x;
+          renderer.camera.y = jumpTarget.at.y;
           keepOnMap();
         } else {
           // Not padding. A key that does nothing and says nothing is
@@ -3811,12 +3816,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       for (const a of alerts) {
         // `alertNotice` escapes the unit NAME `alert.unitLost` interpolates
         // (shell upgrade Phase 3, Task 10); this was `t(key, params)`, raw.
-        if (a.line) hud.note(...alertNotice(a.line));
+        // The tier styles the line (WP-P5, C3) and ranks the jump key.
+        if (a.line) hud.note(...alertNotice(a.line), { tier: a.tier });
         if (a.sound) audio.playUi(a.sound);
-        if (a.at) {
-          minimap.flash([a.at], performance.now());
-          lastAlertAt = a.at;
-        }
+        if (a.marks.length > 0) minimap.flash(a.marks, performance.now());
+        jumpTarget = nextJump(jumpTarget, a.tier, a.at);
       }
 
       for (const me of missionEvents) {
@@ -3833,7 +3837,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           if (record) lostThisMission.push(record);
         }
         const described = describeMissionEvent(me, mission, narratedRoeReasons, placeNames);
-        if (described) hud.note(described[0], described[1]);
+        if (described) hud.note(described[0], described[1], { tier: missionEventTier(me) ?? undefined });
         // The story voice (GDD §11): the commander bar is the one surface for
         // it now -- `describeMissionEvent`'s own `case 'say'` returns null,
         // so this is the only place a `say` event lands. See `Hud.say`'s own
@@ -4259,16 +4263,19 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // are going; and the refuge ring, once per LINE, not per family
         // (`ui/refuge-ping.ts`). The jump key takes where they broke, the way
         // every other alert's does.
-        lastAlertAt = sayFlight(
+        // A family running is important: it is the evacuation the mission is
+        // scored on, and the jump key should take the player there.
+        const fled = sayFlight(
           flight,
           refugeAt,
           {
-            note: (line) => hud.note(...alertNotice(line)),
+            note: (line) => hud.note(...alertNotice(line), { tier: 'important' }),
             flash: (points, nowMs) => minimap.flash(points, nowMs),
             ping: (x, y) => renderer.pingRefuge?.(x, y),
           },
           performance.now()
         );
+        jumpTarget = nextJump(jumpTarget, 'important', fled);
       }
     }
     // GH-345: the surfaces main.ts owns follow the same set the Hud reads in

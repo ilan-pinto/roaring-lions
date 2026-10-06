@@ -1913,6 +1913,34 @@ body {
   transition: opacity var(--dur-fast) var(--ease);
 }
 
+/* WP-P5 (PA-06; audit passes B1 and C3): the feed's three event tiers, with
+   the same names as the audio cue tiers. Progressively stronger, and never by
+   colour alone -- tone already carries good/bad, so the tier carries weight:
+   size, weight, and a bar in the line's own colour. A minor line (under
+   fire) reads as Level 2, a step down from the commander's lines; important
+   is the plain feed line; major (a vehicle lost, an objective won or lost)
+   is the one that must be seen with the eye elsewhere. */
+.rl-notice[data-tier="minor"] {
+  font-size: var(--t-band);
+  opacity: 0.88;
+}
+.rl-notice[data-tier="major"] {
+  font-weight: 700;
+  box-shadow: inset 0.25rem 0 0 currentColor, inset -0.25rem 0 0 currentColor;
+  padding-block: 0.25rem;
+}
+.rl-notice[data-tier="major"] b {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+/* The merge count ("×4"): the same line said again, not a new line. */
+.rl-notice__count {
+  margin-left: 0.5em;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--ink);
+}
+
 /* --- voice caption (WP-AU1 D8) ------------------------------------------
    One slot under the notice feed, never inside it: the feed is for what
    happened, and a caption only repeats what a unit said. Off unless the
