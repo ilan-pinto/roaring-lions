@@ -12,9 +12,9 @@ import {
 } from './sim';
 import {
   AIM_OFF_HEADING_MAX,
-  MOVING_STANCE_MOD,
   BOUND_FIRE_TICKS,
   BOUND_MOVE_TICKS,
+  MOVING_STANCE_MOD,
   KNEEL_DROP_TICKS,
   KNEEL_RISE_TICKS,
 } from './tuning';
@@ -163,7 +163,7 @@ describe('an idle rifleman that acquires a target', () => {
     const frames = run(w.sim, r, 40);
     // Premise: it does fire, so "no fire before tick 12" is not vacuous.
     const first = frames.findIndex((f) => f.fired);
-    expect(first).toBe(6);
+    expect(first).toBe(4);
     expect(first).toBe(KNEEL_DROP_TICKS);
     // Down on the acquisition tick itself, kneeling by the tick before it fires.
     expect(frames[0].brace).toBe(BRACE_DROPPING);
@@ -190,7 +190,7 @@ describe('an idle rifleman that acquires a target', () => {
 });
 
 describe('an attack-moving rifleman', () => {
-  it('bounds through the band, stops for good inside effective range, never fires on the move, and rises when the target is gone', () => {
+  it('against a target in the OPEN: bounds through the band, stops for good inside effective range, never fires on the move, and rises when the target is gone', () => {
     const w = world();
     const r = w.sim.spawn(w.rifles, 0, at(4.5), at(16.5));
     const p = w.sim.spawn(w.post, 1, at(24.5), at(16.5));
@@ -272,6 +272,96 @@ describe('an attack-moving rifleman', () => {
     expect(after[rise + KNEEL_RISE_TICKS].brace).toBe(BRACE_NONE);
     expect(after[rise + KNEEL_RISE_TICKS - 1].brace).toBe(BRACE_RISING);
   });
+
+  it('against a target in COVER: closes through the band holding fire, stops inside effective range, fires kneeling, and rises when the target is gone', () => {
+    const w = world();
+    const r = w.sim.spawn(w.rifles, 0, at(4.5), at(16.5));
+    const p = w.sim.spawn(w.post, 1, at(24.5), at(16.5));
+    w.sim.setCover(24, 16, 1); // light cover: nothing worth stopping short for
+    w.sim.identifyTo(0, p);
+    w.sim.queueCommand({ kind: 'attackMove', ids: [r], x: at(40.5), y: at(16.5) });
+    const frames: (Frame & { dist: number })[] = [];
+    for (let k = 0; k < 600; k++) {
+      const f = step(w.sim, r);
+      frames.push({ ...f, dist: 24.5 - fx.toNumber(w.sim.state.posX[r]) });
+    }
+
+    // Never a shot on a tick it moved, and never a shot standing.
+    expect(frames.some((f) => f.fired)).toBe(true);
+    for (const f of frames) {
+      if (!f.fired) continue;
+      expect(f.moved).toBe(false);
+      expect(f.brace).toBe(BRACE_KNEELING);
+    }
+    // It walked the whole band -- inside maximum range (10), outside effective
+    // range (6) -- on its feet, without stopping and without a shot.
+    const halt = frames.findIndex((f) => f.brace !== BRACE_NONE);
+    expect(halt).toBeGreaterThan(0);
+    const inBand = frames.slice(0, halt).filter((f) => f.dist <= 10);
+    expect(inBand.length).toBeGreaterThan(40);
+    for (const f of inBand) {
+      expect(f.moved).toBe(true);
+      expect(f.fired).toBe(false);
+    }
+    // The halt is at effective range, on that tick, and the first shot comes
+    // KNEEL_DROP_TICKS later.
+    expect(frames[halt].brace).toBe(BRACE_DROPPING);
+    expect(frames[halt].dist).toBeLessThanOrEqual(6);
+    expect(frames[halt].dist).toBeGreaterThan(5);
+    expect(frames[halt].moved).toBe(false);
+    expect(frames[halt - 1].moved).toBe(true);
+    expect(frames.findIndex((f) => f.fired)).toBe(halt + KNEEL_DROP_TICKS);
+    // Down for good while the target lives, and priced as stationary: kneeling
+    // buys no accuracy of its own.
+    for (let k = halt + KNEEL_DROP_TICKS - 1; k < frames.length; k++) {
+      expect(frames[k].brace).toBe(BRACE_KNEELING);
+      expect(frames[k].moved).toBe(false);
+    }
+    for (const f of frames) {
+      if (!f.fired) continue;
+      const e = f.events.find((x) => x.kind === 'fire' && x.shooter === r);
+      expect(e !== undefined && e.kind === 'fire' ? e.breakdown.stanceMod : -1).toBe(ONE);
+    }
+
+    // Target gone: it rises, and moves again exactly KNEEL_RISE_TICKS after
+    // the tick it started to rise.
+    w.sim.debugKill(p);
+    const after = run(w.sim, r, 60);
+    const rise = after.findIndex((f) => f.brace === BRACE_RISING);
+    expect(rise).toBe(0);
+    for (let k = rise; k < rise + KNEEL_RISE_TICKS; k++) expect(after[k].moved).toBe(false);
+    expect(after[rise + KNEEL_RISE_TICKS].moved).toBe(true);
+    expect(after[rise + KNEEL_RISE_TICKS].brace).toBe(BRACE_NONE);
+    expect(after[rise + KNEEL_RISE_TICKS - 1].brace).toBe(BRACE_RISING);
+  });
+
+  it('gets up and closes when its close target dies and the next is in cover in the band', () => {
+    const w = world();
+    const r = w.sim.spawn(w.rifles, 0, at(10.5), at(16.5));
+    const near = w.sim.spawn(w.post, 1, at(15.5), at(16.5)); // 5 tiles: close
+    const far = w.sim.spawn(w.post, 1, at(19.5), at(17.5)); // ~9 tiles: band
+    w.sim.setCover(19, 17, 2); // in cover: close on it, do not kneel and plink
+    w.sim.identifyTo(0, near);
+    w.sim.identifyTo(0, far);
+    w.sim.queueCommand({ kind: 'attackMove', ids: [r], x: at(12.5), y: at(16.5) });
+    run(w.sim, r, 40);
+    expect(w.sim.state.brace[r]).toBe(BRACE_KNEELING);
+    w.sim.debugKill(near);
+    const after = run(w.sim, r, 200);
+    // Not a kneel-and-plink at long range: it stands, walks in, and only gets
+    // down again inside effective range of the far target.
+    // Up at once -- one tick later only if it fired on the tick the close
+    // target died (a man who fired this tick is still kneeling at its end).
+    const up = after.findIndex((f) => f.brace === BRACE_RISING);
+    expect(up).toBeGreaterThanOrEqual(0);
+    expect(up).toBeLessThanOrEqual(1);
+    expect(after.some((f) => f.moved)).toBe(true);
+    const down = after.findIndex((f, k) => k > KNEEL_RISE_TICKS && f.brace === BRACE_DROPPING);
+    expect(down).toBeGreaterThan(0);
+    const dx = 19.5 - fx.toNumber(w.sim.state.posX[r]);
+    const dy = 17.5 - fx.toNumber(w.sim.state.posY[r]);
+    expect(Math.sqrt(dx * dx + dy * dy)).toBeLessThanOrEqual(6);
+  });
 });
 
 describe('a man who has stopped', () => {
@@ -344,18 +434,18 @@ describe('interrupted transitions mirror', () => {
     const r = w.sim.spawn(w.rifles, 0, at(10.5), at(16.5));
     const p = w.sim.spawn(w.post, 1, at(15.5), at(16.5));
     w.sim.identifyTo(0, p);
-    const before = run(w.sim, r, 4); // ticks 0-3 down
-    expect(before[3].brace).toBe(BRACE_DROPPING);
-    expect(before[3].braceTicks).toBe(KNEEL_DROP_TICKS - 4);
-    // Ordered on with nothing to shoot: four ticks down, so four ticks up.
+    const before = run(w.sim, r, 2); // ticks 0-1 down
+    expect(before[1].brace).toBe(BRACE_DROPPING);
+    expect(before[1].braceTicks).toBe(KNEEL_DROP_TICKS - 2);
+    // Ordered on with nothing to shoot: two ticks down, so two ticks up.
     w.sim.debugKill(p);
     w.sim.queueCommand({ kind: 'move', ids: [r], x: at(30.5), y: at(16.5) });
     const after = run(w.sim, r, 12);
     expect(after[0].brace).toBe(BRACE_RISING);
-    expect(after[0].braceTicks).toBe(4);
-    for (let k = 0; k < 4; k++) expect(after[k].moved).toBe(false);
-    expect(after[4].moved).toBe(true);
-    expect(after[4].brace).toBe(BRACE_NONE);
+    expect(after[0].braceTicks).toBe(2);
+    for (let k = 0; k < 2; k++) expect(after[k].moved).toBe(false);
+    expect(after[2].moved).toBe(true);
+    expect(after[2].brace).toBe(BRACE_NONE);
   });
 });
 

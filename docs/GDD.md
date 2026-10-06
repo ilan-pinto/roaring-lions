@@ -135,7 +135,7 @@ P(hit) = base_accuracy
 
 `range_falloff` is per weapon class: guided weapons (ATGM) use k ≈ 0.25 — inside the envelope, accuracy is launch-condition-dominated, not range-dominated. This is what makes ATGM Pk ≈ 0.7 real rather than aspirational.
 
-**Foot units halt to fire** (2026-10-05, spec `docs/superpowers/specs/2026-10-05-infantry-halt-to-fire.md`). Vehicles fire on the move; infantry, AT and mortar teams never do. They stop, take a knee (0.3 s) before the first shot, fire kneeling, and get up (0.3 s) before moving on. An attack-move closes by bounds — 2 s down and firing, 2 s up and moving — until a target is inside effective range, then stops for good; a plain move runs through holding fire; a man who has stopped takes a knee. Kneeling changes *when* a man shoots and moves, never how hard he is to hit: a bound's kneel is the `short-halt` stance above and is priced like `moving`, a halt for good like `stationary`.
+**Foot units halt to fire** (2026-10-05, spec `docs/superpowers/specs/2026-10-05-infantry-halt-to-fire.md`). Vehicles fire on the move; infantry, AT and mortar teams never do. They stop, take a knee (0.2 s) before the first shot, fire kneeling, and get up (0.2 s) before moving on. An attack-mover closes to its weapons' effective range and stops for good inside it: against a target in the open between effective and maximum range it advances by bounds (2 s down and firing, 2 s up and moving), against one in cover it closes weapon held, and on arriving it walks on toward anything in the band or identified out of reach; a plain move runs through holding fire; a man who has stopped takes a knee. Kneeling changes *when* a man shoots and moves, never how hard he is to hit.
 
 ### 5.3 Penetration
 

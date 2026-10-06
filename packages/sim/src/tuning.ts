@@ -157,37 +157,39 @@ export const DEFAULT_TURN_DEG_S = 360;
  *  before it ever reads a soft target's facing. */
 export const AIM_OFF_HEADING_MAX = 8192; // 0.125 turns = 45°
 /** Ticks a unit that halts to fire (`UnitType.haltsToFire`: the foot units
- *  that shoot) spends getting down before its first shot: 0.3 s. The first
+ *  that shoot) spends getting down before its first shot: 0.2 s. The first
  *  shot is fired exactly this many ticks after the tick the unit first wanted
  *  to be down, and it does not move in between (spec
  *  `2026-10-05-infantry-halt-to-fire.md` §2).
  *
- *  Measured, not just reasoned (spec §6). The realism-only first pick was 12
- *  (0.6 s, a deliberate kneel); at 240 seeds it held a smoked 2:1 urban
- *  assault to 69% / 68% (base / max tier) against the smoke step's 90% floor,
- *  because in this model the side that shoots first at close range pins the
- *  other, and the attacker coming out of the smoke is always the one getting
- *  down. 6 reads 99% / 86%; 4 reads 100% / 82%, so going shorter buys nothing
- *  more and 6 -- a fast drop to a knee, which is what a trained rifleman does
- *  under fire -- is the longest that holds the base step. The cost this buys
- *  is TIME, and nothing else: kneeling adds no cover, accuracy or signature of
- *  its own (see `Sim.isEffectivelyMoving`). */
-export const KNEEL_DROP_TICKS = 6;
-/** Ticks a kneeling unit spends getting up before it moves again: 0.3 s. The
+ *  Measured, not just reasoned (spec §6). In this model whoever shoots first
+ *  at close range pins the other, and the attacker coming into sight is
+ *  always the one getting down, so every tick here is paid by the assault.
+ *  Max-tier 2:1 urban assault with smoke, shipped design: 6 (0.3 s, accepted
+ *  by the lead 6 Oct) reads 88% on the gate's 60 seeds against a 90% floor
+ *  (94% over 240); 4 (0.2 s) reads 97% (96% over 240). The realism-only
+ *  first pick, 12 (0.6 s), read 68% under the first design. Kneeling adds no
+ *  cover, accuracy or signature of its own (see `Sim.isEffectivelyMoving`). */
+export const KNEEL_DROP_TICKS = 4;
+/** Ticks a kneeling unit spends getting up before it moves again: 0.2 s. The
  *  unit moves again exactly this many ticks after the tick it started to
- *  rise. Same measurement as the drop: at 10 the smoked 2:1 assault read 80%
- *  even with a 1-tick drop, because a man getting up neither fires nor moves
- *  and the rise is paid every time a target dies or a bound ends. */
-export const KNEEL_RISE_TICKS = 6;
+ *  rise. Same measurement and direction as the drop: a man getting up neither
+ *  fires nor moves, and the rise is paid every time a target dies or a halt
+ *  ends. */
+export const KNEEL_RISE_TICKS = 4;
 /** Attack-move with a target only in the band between effective and maximum
- *  range: a unit that halts to fire advances by bounds -- down and firing for
- *  BOUND_FIRE_TICKS, then up and moving for BOUND_MOVE_TICKS -- instead of
- *  either walking in silent (measured: the max-tier 3:1 urban assault fell to
- *  ~60%, no suppression on the approach) or halting at maximum range for good
- *  (measured: carried a 2:1 urban assault ~95% of the time, two ratio steps).
- *  Inside effective range it stops for good, as attack-movers always have.
- *  2 s each: long enough for a rifle squad's burst to count, short enough that
- *  the approach still closes. 60/20, 20/40 and 30/30 were measured and moved
+ *  range, and that target IN THE OPEN (cover level 0): a unit that halts to
+ *  fire advances by bounds -- down and firing for BOUND_FIRE_TICKS, then up
+ *  and moving for BOUND_MOVE_TICKS -- so the rear ranks of a larger force
+ *  bring their rifles to bear (without it the Lanchester target failed: 16v8
+ *  left 10.4 survivors against a 13.9 square law, the fight broke up into
+ *  routs that lost contact). A band target IN COVER is not worth stopping
+ *  short for: the squad closes to effective range instead. That half is the
+ *  sight-upgrade fix -- 13 tiles of sight let a max-tier squad identify
+ *  covered defenders in the band and bound against them under their fire
+ *  (max-tier 2:1 + smoke 86% over 240 seeds; 96% with the split).
+ *  Halting for good at maximum range was measured too: a 2:1 urban assault
+ *  carried ~95%, two ratio steps. 2 s each; 60/20, 20/40 and 30/30 moved
  *  nothing outside noise. */
 export const BOUND_FIRE_TICKS = 40;
 export const BOUND_MOVE_TICKS = 40;

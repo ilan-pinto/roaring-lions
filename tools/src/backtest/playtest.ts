@@ -3174,7 +3174,11 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // GH-382 Tel Marum I-III onto new ground, recomputed on the merge with Beit Sahwan (5846 -> 5844, -2, read
 // off the printed per-mission credits, not summed): II 198 -> 196, III 230 -> 245 (ROE 100 against 98),
 // and Umm Zeitoun III 280 -> 265, which inherits the roster Tel Marum III hands on.
-const LADDER_CREDITS = 5844;
+// 2026-10-05, infantry halt to fire (PR #402): 5844 -> 5830, -14, read off the printed per-mission
+// credits: Beit Sahwan breach +10, III +2, IV +10; Wadi Halam I -10, II -10, V +30; Khan Rafid I -10,
+// II -40, III +5; Tel Marum II +20; Qarn Hadid III +4; Umm Zeitoun III -5, IV -20. No star moved:
+// every change is a clock or survivor count, from foot units that kneel to fire.
+const LADDER_CREDITS = 5830;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);

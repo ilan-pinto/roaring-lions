@@ -256,6 +256,7 @@ export const BRACE_RISING = 3;
 const BRACE_WANT_TARGET = 1;
 const BRACE_WANT_CLOSE = 2;
 const BRACE_WANT_BREACH = 4;
+const BRACE_WANT_EXPOSED = 8;
 
 /** Weapon classes as ints — string compares stay out of the hot loop. */
 export const WEAPON_CLASS: Record<string, number> = {
@@ -3768,7 +3769,8 @@ export class Sim {
         this.braceWant[i] =
           (anyTarget ? BRACE_WANT_TARGET : 0) |
           (engagedClose ? BRACE_WANT_CLOSE : 0) |
-          (breaching ? BRACE_WANT_BREACH : 0);
+          (breaching ? BRACE_WANT_BREACH : 0) |
+          (this.curTarget[i] >= 0 && this.coverLevelOf(this.curTarget[i], i) === 0 ? BRACE_WANT_EXPOSED : 0);
       }
     }
   }
@@ -3827,7 +3829,7 @@ export class Sim {
         down = false; // a plain move runs through, holding its fire
       } else if ((flags & BRACE_WANT_CLOSE) !== 0) {
         down = true; // attack-move, a target inside effective range: stop and fight
-      } else if ((flags & BRACE_WANT_TARGET) !== 0) {
+      } else if ((flags & BRACE_WANT_TARGET) !== 0 && (flags & BRACE_WANT_EXPOSED) !== 0) {
         // Attack-move with a target only in the band between effective and
         // maximum range: advance by bounds. Halt and fire for
         // BOUND_FIRE_TICKS, then get up and move for BOUND_MOVE_TICKS, so the
@@ -5175,7 +5177,29 @@ export class Sim {
       if (this.alive[i] === 0 || this.attackMove[i] === 0) continue;
       if (this.moving[i] === 1) continue; // already going somewhere
       if (this.garrisonedIn[i] >= 0 || this.routed[i] === 1 || this.pinned[i] === 1) continue;
-      if (this.curTarget[i] >= 0) continue; // busy shooting something
+      // Busy shooting something -- but only inside EFFECTIVE range counts.
+      // An attack-mover that has arrived with its target out in the band
+      // between effective and maximum range closes on it, exactly as a moving
+      // one does (stepCombat's `engaging` latch), instead of kneeling where it
+      // stopped and plinking at long range for the rest of the mission. With
+      // more sight than reach -- `inf_squad`'s sensor upgrade puts 13 tiles of
+      // sight on an 8-tile rifle -- that was the common case, and it is one
+      // half of the sight-range stall; the identified-but-out-of-reach skip
+      // below is the other half. Spec 2026-10-05-infantry-halt-to-fire §3.
+      if (this.engaging[i] === 1) continue;
+      const tgt = this.curTarget[i];
+      // A target in the band and in the OPEN is worth firing on from here --
+      // the same rule that bounds a moving attack-mover against it (stepBrace)
+      // -- so it stays where it was sent and shoots. Only one in cover is
+      // walked on toward.
+      if (tgt >= 0 && this.coverLevelOf(tgt, i) === 0) continue;
+      if (tgt >= 0) {
+        this.goalX[i] = this.posX[tgt];
+        this.goalY[i] = this.posY[tgt];
+        this.fieldRef[i] = this.fieldFor(fx.toInt(this.goalX[i]), fx.toInt(this.goalY[i]), this.domainOf(i));
+        this.moving[i] = 1;
+        continue;
+      }
       const side = this.side[i];
 
       // Anything we are standing on has been searched.
@@ -5233,6 +5257,17 @@ export class Sim {
       this.fieldRef[i] = this.fieldFor(fx.toInt(gx), fx.toInt(gy), this.domainOf(i));
       this.moving[i] = 1;
     }
+  }
+
+  /** The cover level, 0-3, that `t` has against fire from `shooter`: its own
+   *  tile or the parapet it fights behind, whichever is better -- hitFactors'
+   *  own rule, read without rolling anything. */
+  private coverLevelOf(t: number, shooter: number): number {
+    const tx = this.posX[t];
+    const ty = this.posY[t];
+    const tileCover = this.cover[(ty >> 16) * this.width + (tx >> 16)];
+    const parapet = this.parapetCover(tx, ty, this.posX[shooter], this.posY[shooter]);
+    return parapet > tileCover ? parapet : tileCover;
   }
 
   /** Could any of `i`'s weapons ever be aimed at `t`, range and sight aside?

@@ -85,6 +85,40 @@ describe('an attack-mover that has arrived', () => {
     expect(22.5 - fx.toNumber(w.sim.state.posX[r])).toBeLessThanOrEqual(8);
   });
 
+  it('closes to effective range on a target it arrived within maximum range of, instead of plinking from where it stopped', () => {
+    const w = world();
+    const r = w.sim.spawn(w.looker, 0, fx.from(4.5), fx.from(16.5));
+    // 7 tiles off the goal: inside rifle range 8, outside effective range 6,
+    // and in cover -- a target in the open it would shoot from where it is.
+    const p = w.sim.spawn(w.post, 1, fx.from(17.5), fx.from(16.5));
+    w.sim.setCover(17, 16, 2);
+    w.sim.queueCommand({ kind: 'attackMove', ids: [r], x: fx.from(10.5), y: fx.from(16.5) });
+    let arrived = -1;
+    for (let t = 0; t < 600; t++) {
+      w.sim.tick();
+      if (arrived < 0 && fx.toNumber(w.sim.state.posX[r]) >= 10.4) arrived = t;
+    }
+    expect(arrived).toBeGreaterThan(0);
+    // It walked on past its goal and got down inside effective range.
+    expect(17.5 - fx.toNumber(w.sim.state.posX[r])).toBeLessThanOrEqual(6);
+    expect(w.sim.state.brace[r]).toBe(2); // BRACE_KNEELING
+    expect(w.sim.state.curTarget[r]).toBe(p);
+  });
+
+  it('holds where it was sent and fires on a target in the open in the band', () => {
+    const w = world();
+    const r = w.sim.spawn(w.looker, 0, fx.from(4.5), fx.from(16.5));
+    const p = w.sim.spawn(w.post, 1, fx.from(17.5), fx.from(16.5)); // open ground
+    w.sim.queueCommand({ kind: 'attackMove', ids: [r], x: fx.from(10.5), y: fx.from(16.5) });
+    let fired = 0;
+    for (let t = 0; t < 600; t++) {
+      for (const e of w.sim.tick()) if (e.kind === 'fire' && e.shooter === r && e.target === p) fired++;
+    }
+    expect(fired).toBeGreaterThan(0);
+    // Stayed near its goal: it did not walk on to effective range.
+    expect(17.5 - fx.toNumber(w.sim.state.posX[r])).toBeGreaterThan(6);
+  });
+
   it('does not chase an identified aircraft it has no weapon for', () => {
     const w = world();
     const r = w.sim.spawn(w.looker, 0, fx.from(4.5), fx.from(16.5));

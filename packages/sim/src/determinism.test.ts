@@ -416,7 +416,15 @@ describe('determinism (1000-tick replay)', () => {
     // now carries `role: 'infantry'`: they halt to fire, and the replay walks
     // them through the drop, the knee, the bound and the rise (asserted by
     // "the replay actually exercises halt to fire" below). Was 2109596329.
-    expect(a.hash()).toBe(2118781669);
+    //
+    // Moved again in the same PR, on the lead's ruling of 6 Oct (fix the
+    // sight-upgrade quirk): the kneel is 0.2 s (KNEEL_DROP_TICKS and
+    // KNEEL_RISE_TICKS 4), an attack-mover bounds through the band only
+    // against a target in the open and closes on one in cover, and an
+    // arrived attack-mover closes on a target out in the band. This replay's
+    // riflemen kneel to fire, so the shorter drop alone moves their first
+    // shots. Was 2118781669.
+    expect(a.hash()).toBe(922714084);
   });
 
   it('the replay actually exercises halt to fire', () => {
@@ -708,8 +716,9 @@ describe('determinism over relief (900-tick replay round a hill)', () => {
     //
     // 2026-10-05: moved by halt to fire, for both reasons given at the flat
     // replay's pin -- the brace columns joined hash(), and d_rifles (which this
-    // replay fields too) now kneels to fire. Was 1425295494.
-    expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(3739556491);
+    // replay fields too) now kneels to fire. Was 1425295494. Moved again for
+    // the 6 Oct revision, as at the flat pin. Was 3739556491.
+    expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(3200430224);
   });
 
   it('the relief changes the route, not merely the hash', () => {

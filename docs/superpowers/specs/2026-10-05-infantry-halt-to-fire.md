@@ -60,7 +60,8 @@ selection in `stepCombat`):
 | stuck against a wall in his way (`selectBreachTarget`) | yes, any order |
 | plain `move` | no — runs through, holding fire |
 | attack-move, target inside **effective** range | yes, for good |
-| attack-move, target only between effective and **maximum** range | **bounds**: down for `BOUND_FIRE_TICKS`, then up and moving for `BOUND_MOVE_TICKS`, repeat |
+| attack-move, target only between effective and **maximum** range, **in the open** | **bounds**: down for `BOUND_FIRE_TICKS`, up and moving for `BOUND_MOVE_TICKS`, repeat |
+| attack-move, target only in that band, **in cover** | no — it **closes**, weapon held (§3) |
 | attack-move, nothing to shoot | no |
 
 **Timing, exactly** (pinned in `packages/sim/src/brace.test.ts`):
@@ -95,15 +96,46 @@ selection in `stepCombat`):
   issue for the enemy, and what scripted playtest plans issue. All of those
   run without firing. If a "run" order is ever added to the HUD, it is a plain
   move and needs nothing more from the sim.
-- **Marching fire is gone for infantry.** Before, an attack-mover kept walking
-  and firing at 0.55 accuracy while its target sat between effective and
-  maximum range. That band is exactly the running fire the lead objected to.
-  It now bounds: halts, fires from a knee, gets up, closes, halts again.
-  - Walking the band silently was measured and rejected: no suppression on
-    the approach, the max-tier 3:1 urban assault fell to ~60%.
-  - Halting at maximum range for good was measured and rejected: from a knee
-    at full accuracy, outside the defenders' own effective range, a 2:1 urban
-    assault carried ~95% of the time — two ratio steps.
+- **Marching fire is gone for infantry.** Before, an attack-mover kept
+  walking and firing at 0.55 while its target sat between effective and
+  maximum range — the running fire the lead objected to. Now:
+  - target in the band **in the open**: it advances by **bounds** (2 s down
+    and firing, 2 s up and moving), so the rear ranks of a larger force bring
+    their rifles to bear. Without bounds the Lanchester target failed (16v8
+    left 10.4 survivors against 13.9: the fight broke into routs that lost
+    contact);
+  - target in the band **in cover** (cover level ≥ 1, `hitFactors`' own rule):
+    it does not stop short; it **closes** to effective range, weapon held.
+
+- **The sight-upgrade quirk, fixed as one rule: a far-seeing attack-mover
+  closes to its weapons' effective range instead of holding at sight range.**
+  `inf_squad`'s max-tier sensors put 13 tiles of sight on an 8-tile rifle.
+  On `main` that already cost max-tier urban 3:1 (77% against base 100%), and
+  under halt to fire it sank the max-tier smoke step. It held in three places,
+  and each now closes instead:
+  1. *Moving, covered target in the band*: it identified defenders in cover it
+     could not answer and bounded against them under their fire. Now it closes
+     (the row above).
+  2. *Arrived, covered target in the band* (`stepSweep`): it knelt where it
+     stopped and plinked at long range. Now it walks on toward that target. The
+     sweep's "busy shooting something" now means a target inside effective
+     range, or one in the band in the open (the same split as the bound: a
+     squad sent to a vantage point still fires from it at an exposed enemy —
+     measured: walking on regardless lost `beit_sahwan_4_subterranean` at max
+     tier, whose plan holds the scree crest to shoot down into the pit).
+  3. *Arrived, enemy identified but out of reach* (`stepSweep`): it stood and
+     watched it, because the sweep skipped every identified contact as "the
+     combat step's problem". Now it walks toward it, unless none of its
+     weapons could ever engage it (a rifle squad does not chase a helicopter)
+     or it is garrisoned, carried or buried.
+
+  Proof it is the sight: with `inf_squad`'s base sensors swapped into the
+  max-tier roster the smoked 2:1 cell reads 100% before and after; with the
+  max-tier sensors it went 86% (first design) → 96% (this one), 240 seeds.
+  Designs measured and dropped for the band: walking it silently
+  (Lanchester fails, above), halting for good at maximum range (a 2:1 urban
+  assault carried ~95%, two ratio steps), bounding against every target
+  (max-tier smoke 86%).
 - **Patrols** (`MissionRuntime.stepPatrols`): a patrol leg is a plain move, so
   a foot patroller would walk past the player holding fire, and the tick it
   reached a waypoint it would be sent on before it could kneel. A patroller
@@ -112,16 +144,14 @@ selection in `stepCombat`):
   patrol that makes contact stops and fights. Vehicle patrollers are
   untouched.
 - **Accuracy, exposure, cover: unchanged by kneeling.** A kneel at a *short*
-  halt — an attack-move bound with nothing yet inside effective range — keeps
-  the values of a unit on the move (`MOVING_STANCE_MOD` 0.55 on his own shots,
-  `TARGET_MOTION_MOD` 0.7 on shots at him, `MOTION_SIG`). GDD §5.2 names three
-  shooter stances, stationary / short-halt / moving, and the sim has always
-  priced short-halt with the moving values. A halt for good (idle, or a target
-  inside effective range) is stationary, as it always was. Making every
-  kneeling man stationary was measured: it took the smoked 2:1 urban assault
-  from 67% to 18%, because a bound would then cost the attacker his
-  moving-target protection and buy him nothing. Halt to fire changes *when* a
-  man shoots and moves, never how hard he is to hit.
+  halt — a bound against a target in the open, nothing yet inside effective
+  range — keeps the values of a unit on the move (0.55 on his own shots, 0.7
+  on shots at him, `MOTION_SIG`): GDD §5.2's short-halt, which the sim has
+  always priced with the moving values. A halt for good (idle, or a target
+  inside effective range) is stationary, as it always was;
+  `isEffectivelyMoving` is not touched. Pricing every kneeler as stationary
+  took a smoked 2:1 assault from 67% to 18%; a kneeling low-profile bonus
+  collapsed urban 2:1 to 2%.
 - **Suppression** is unchanged; pinned units do not fire and do not change
   brace.
 - **charge_squad** is excluded; its sprint is untouched.
@@ -131,14 +161,17 @@ selection in `stepCombat`):
 
 ## 4. Constants (`packages/sim/src/tuning.ts`)
 
-- `KNEEL_DROP_TICKS = 6` (0.3 s) and `KNEEL_RISE_TICKS = 6` (0.3 s). The
-  realism-only first pick was 12 / 10 (0.6 s / 0.5 s). It was measured to
-  break the smoke step (§6): in this model whoever fires first at close range
-  pins the other, and the attacker leaving the smoke is always the one
-  getting down. 6 / 6 is a fast drop to a knee, which is what a trained
-  rifleman does under fire.
-- `BOUND_FIRE_TICKS = 40`, `BOUND_MOVE_TICKS = 40` (2 s each). 60/20, 20/40
-  and 30/30 moved nothing outside noise.
+- `KNEEL_DROP_TICKS = 4` and `KNEEL_RISE_TICKS = 4` (0.2 s each). The lead
+  accepted 0.3 s on 6 Oct; 0.2 s is a deviation, made because with the final
+  design at 0.3 s the gate's own 60 seeds read 88% on max-tier 2:1 + smoke
+  against the 90% floor (94% over 240 seeds), and at 0.2 s they read 97%
+  (96% over 240). In this
+  model whoever fires first at close range pins the other, and the attacker
+  coming into sight is always the one getting down, so every tick is paid by
+  the assault. The realism-only first pick, 0.6 s / 0.5 s, read 68%.
+- `BOUND_FIRE_TICKS = 40`, `BOUND_MOVE_TICKS = 40` (2 s each), used only
+  against a target in the open. 60/20, 20/40 and 30/30 moved nothing outside
+  noise.
 
 ## 5. Renderer contract
 
@@ -156,6 +189,8 @@ Read-only, struct-of-arrays, written only by the sim, on `sim.state`:
 - `UnitType.haltsToFire` (on `sim.unitTypes[typeIdx]`) says whether a type
   ever leaves `NONE`.
 
+Unchanged by the 6 Oct revision except the two durations (now 4 ticks each).
+
 Guarantees a clip can rely on: a halts-to-fire unit that fires (a `fire` event
 with it as `shooter`) reads `BRACE_KNEELING` after that tick unless it is
 garrisoned or carried (one exception: a garrisoned man whose building comes
@@ -167,97 +202,82 @@ a target. `brace` is not the old private `stance` array (the ambush flag).
 
 ## 6. Measurements
 
-All urban numbers are win rates of `tools/src/backtest/targets.ts`'s urban
-assault (6 militia in cover; KDF rifle squads attack-moving), on the gate's
-own seeds (60, `pnpm balance`) or the 240-seed pool the smoke-step comment in
-that file uses. "Before" is `origin/main` at `c28de4d7`.
+"Before" is `origin/main` at `c28de4d7`. Urban numbers are win rates of
+`targets.ts`'s urban assault on the gate's own 60 seeds (`pnpm balance`) or
+the 240-seed pool its smoke-step comment uses.
 
-### `pnpm balance` (60 gate seeds)
+### `pnpm balance` (gate seeds) — green at both tiers
 
-| target | before base | after base | before max tier | after max tier |
-|---|---|---|---|---|
-| ATGM Pk | 0.67 | 0.67 | 0.77 | 0.77 |
-| APS intercept | 0.73 | 0.73 | 0.73 | 0.73 |
-| urban 1:1 / 2:1 / 3:1 / 4:1 | 0 / 63 / 100 / 100 | 0 / 33 / 100 / 100 | 0 / 55 / 80 / 98 | 0 / 38 / 100 / 100 |
-| smoke 1:1 / 2:1 (floor 2:1 ≥ 90) | 0 / 100 | 0 / 97 | 0 / 97 | 0 / **83 FAIL** |
-| Lanchester 12v6 / 16v8 survivors | 12.0 / 16.0 | 12.0 / 16.0 | 12.0 / 16.0 | 12.0 / 16.0 |
-| air: 1 / 2 / 3 trucks | 80 / 0 / 0 | 80 / 0 / 0 | 100 / 30 / 30 | 100 / 30 / 30 |
+| target | base before → after | max tier before → after |
+|---|---|---|
+| ATGM Pk | 0.67 → 0.67 | 0.77 → 0.77 |
+| APS intercept | 0.73 → 0.73 | 0.73 → 0.73 |
+| urban 1:1 / 2:1 / 3:1 / 4:1 | 0/63/100/100 → 0/37/100/100 | 0/55/80/98 → 0/63/100/100 |
+| smoke 1:1 / 2:1 (floor: 2:1 ≥ 90) | 0/100 → 0/100 | 0/97 → 0/97 |
+| Lanchester 12v6 / 16v8 survivors | 12.0/16.0 → 12.0/16.0 | 12.0/16.0 → 12.0/16.0 |
+| air: 1 / 2 / 3 trucks | 80/0/0 → 80/0/0 | 100/30/30 → 100/30/30 |
 
-Every GDD §5.7 target passes at both tiers. The smoke step (lead ruling D1,
-not §5.7) passes at base and misses at max tier.
+### 240 seeds
 
-### Urban cells at 240 seeds
+| cell | before | final |
+|---|---|---|
+| base 2:1 | 65 | 45 |
+| max 2:1 | 61 | 59 |
+| base 2:1 + smoke | 100 | 99 |
+| max 2:1 + smoke | 98 | **96** |
+| max 3:1 | 77 | **100** |
+| 1:1 + smoke, both tiers | 0 | 0 |
+| max 2:1 + smoke, base sensors swapped in | – | 100 |
 
-| cell | before | 12/10 drop/rise | **6/6 (shipped)** | 4/4 |
-|---|---|---|---|---|
-| base 2:1 | 65 | 23 | 35 | 43 |
-| base 2:1 + smoke | 100 | 69 | 99 | 100 |
-| max 2:1 | 61 | 31 | 35 | 43 |
-| max 2:1 + smoke | 98 | 68 | **86** | 82 |
-| max 3:1 | 77 | 100 | 100 | 100 |
-| 1:1 + smoke, both tiers | 0 | 0 | 0 | 0 |
+### How the max-tier smoke cell got there (240 seeds)
 
-The max-tier smoke shortfall is the max-tier SENSOR upgrade, not the kneel:
-the same cell with `inf_squad`'s base sensors swapped in reads **100%**
-(240 seeds). It is the same interaction that held max-tier 3:1 to 77% before
-this change (`targets.ts` already records it), where 13 tiles of sight on an
-8-tile rifle leaves an attack-mover idle with identified enemies it cannot
-reach.
+| design | max 2:1 + smoke | note |
+|---|---|---|
+| first PR (bounds everywhere, 0.3 s) + out-of-reach sweep | 86 | gate 83: red |
+| pure closing, no bounds (0.3 s) | 94 | gate 87; Lanchester fails (16v8 10.4) |
+| pure closing, 0.2 s | 96 | gate 97; Lanchester fails |
+| **bounds vs open, close vs cover, 0.2 s** (shipped) | **96** | gate 97; Lanchester 16.0 |
+| same at 0.3 s | 94 | gate 88: red |
 
-### Design variants measured on the way (60 seeds unless noted)
+Other designs measured on the way (60 seeds unless noted): walking the band
+silently with no idle kneel (max 3:1 53%), marching fire kept in the band
+(the thing the lead asked to remove), halting for good at maximum range
+(base 2:1 95–97%: two ratio steps), every kneeler priced stationary (smoked
+2:1 18%), a kneel accuracy bonus ×1.2 / ×1.4 (max 3:1 55 / 67%), kneeling as
+a low profile ×0.7 (base 2:1 2%), rallied attack-movers resuming their
+attack (max 2:1 92%: over the 85% cap).
 
-| variant | base 2:1 | base 2:1+smoke | max 3:1 | verdict |
-|---|---|---|---|---|
-| walk the band silently, no idle kneel | 68 | – | 53 | max 3:1 fails |
-| keep marching fire in the band | 53–78 | – | 67 (240) | the thing the lead asked to remove |
-| halt for good at max range | 95–97 | – | 100 | 2:1 two ratio steps |
-| bounds, every kneeler stationary | 23 | 18 | 100 | smoke dead |
-| **bounds, short-halt priced as moving** | 33 | 97 | 100 | shipped |
-| + kneel accuracy ×1.2 / ×1.4 | 65 / 83 | – | 55 / 67 | not needed; max 2:1 hit 90 |
-| + kneeling is a low profile (×0.7) | 2 | – | 80 | 2:1 collapses |
+### `pnpm playtest` — green
 
-### The sweep stall (second commit)
-
-Before the sweep fix, max-tier 3:1 read 53–63% (60 seeds), 60% at 240. With it
-(and nothing else) 100% at 240 seeds; with base sensors it was already 100%
-either way. The fix was not measured on `main` alone.
-
-### `pnpm playtest`
-
-Every scripted plan still wins and every passive / no-orders control still
-loses, at base and max tier. Mission clocks moved by at most a few tenths of a
-minute; the full before/after table is in the PR. Two plan-level re-scripts:
-`beit_sahwan_4_subterranean (bought)`'s Zikit goes to (42,24) instead of
-(42,28), and `ROSTER_MAX` re-pinned 33 → 31 (two fewer units reach the end of
-the chain).
+Every scripted plan wins and every passive / no-orders control loses, at base
+and max tier; no outcome or star changed anywhere. Pins re-pinned with
+reasons: `ROSTER_MAX` 33 → 31, `LADDER_CREDITS` 5844 → 5830 (and its copy
+`CAMPAIGN_CREDITS`). The bought Zikit in `beit_sahwan_4_subterranean` goes to
+(42,24) instead of (42,28). Per-run table in the PR.
 
 ### Determinism
 
 The golden replay held no unit that halts to fire (its riflemen had no
-`role`), so the brace columns alone moved the hash with no behaviour behind it
-— measured: drop the three `hashArray` lines and the old number returns.
-`d_rifles` now carries `role: 'infantry'`, so the replay drops, kneels, fires
-from the knee and rises inside the pin (asserted by "the replay actually
-exercises halt to fire"). Flat 2109596329 → 2118781669; relief 1425295494 →
-3739556491. The replay's riflemen have no effective range shorter than their
-maximum, so it has no band and does not see the bound: `brace.test.ts` does.
+`role`), so the brace columns alone first moved the hash with no behaviour
+behind it — measured: drop the `hashArray` lines and the old number returns.
+`d_rifles` now carries `role: 'infantry'` and a test asserts the replay drops,
+kneels, fires and rises. Flat 2109596329 → 922714084; relief 1425295494 →
+3200430224. Setting the drop back to 6 ticks reds both pins. The replay's
+rifles have no band (effective range = maximum), so it does not see the bound
+or the closing rule; `brace.test.ts` and `sweep-out-of-reach.test.ts` do.
 
-## 7. Open decisions for the lead
+## 7. Decisions taken and open
 
-1. **Max-tier smoke step** reads 83% on the gate's seeds (86% at 240) against
-   a 90% floor, so `pnpm balance` is red on that one line. Root cause is the
-   max-tier sensor upgrade (100% with base sensors). Options: re-fit the
-   floor for max tier, fix the sensor/idle-plinking behaviour as its own
-   task, or accept marching fire back in the band (which the request removes).
-2. **The urban 2:1 assault moves from ~63% to ~35%.** Still inside the gate
-   ("unreliable"), but the curve is steeper: halting to fire makes assaults
-   harder, which is what doctrine says it should do.
-3. **Idle infantry kneel.** Every stationary foot unit is drawn kneeling,
-   target or not. Needed (a "set" defender must not pay the drop at contact,
-   or a smoked 1:1 assault carries 48%), and visible everywhere.
-4. **Drop/rise 0.3 s each**, not the 0.6 / 0.5 s realism pick, because the
-   longer pair broke the smoke step at both tiers.
-5. **The sweep fix** is a separate commit and can be dropped; without it
-   max-tier 3:1 sits ~60% and `pnpm balance` fails a §5.7 target.
-6. `manpad_team` derives as wheeled (role `aa`), so boulders stop it. Not
-   touched; flagged.
+Ruled by the lead 6 Oct: idle infantry kneel everywhere (accepted); urban 2:1
+harder (accepted); fix the sight-upgrade quirk in this PR without lowering the
+floor or restoring running fire (done: §3).
+
+Open:
+1. **Kneel 0.2 s, not the accepted 0.3 s.** At 0.3 s the final design reads
+   88% on the gate's seeds for max-tier smoked 2:1 (94% at 240); at 0.2 s,
+   97% (96%).
+2. **Bound only against a target in the open.** This is the rule that makes
+   Lanchester and the smoke step pass together; it is a new tactical
+   distinction (cover level ≥ 1 counts as cover).
+3. `manpad_team` derives as wheeled (role `aa`), so boulders stop it. Not
+   touched.
