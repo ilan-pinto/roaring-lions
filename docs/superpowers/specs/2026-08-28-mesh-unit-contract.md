@@ -335,7 +335,7 @@ runs between the export and `pnpm gait:meshes`. Five additions, every one
 optional for a file the pass does not touch.
 
 - **Clips `kneel`, `kneelIn`, `kneelOut`.** `kneel` loops; `kneelIn` and
-  `kneelOut` are 0.3 s, the sim's own 6-tick drop and rise (#402), and the
+  `kneelOut` are 0.2 s, the sim's own 4-tick drop and rise (#402), and the
   runtime SCRUBS them by the ticks left in the sim's transition
   (`units/stance.ts`) rather than playing them on a clock. Like every clip
   they key every node `idle` keys.

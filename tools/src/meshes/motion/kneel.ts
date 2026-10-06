@@ -2,11 +2,11 @@
  * Kneel-to-fire (the lead's approval, 5 Oct; the sim's halt-to-fire is PR
  * #402). Three clips, built from the team's own `idle`:
  *
- *   kneelIn    standing low ready -> kneeling aim, 0.3 s, played once
+ *   kneelIn    standing low ready -> kneeling aim, 0.2 s, played once
  *   kneel      kneeling aim, looping over idle's own breath
- *   kneelOut   kneeling aim -> standing low ready, 0.3 s, played once
+ *   kneelOut   kneeling aim -> standing low ready, 0.2 s, played once
  *
- * 0.3 s is the sim's own `KNEEL_DROP_TICKS`/`KNEEL_RISE_TICKS` (6 ticks at
+ * 0.2 s is the sim's own `KNEEL_DROP_TICKS`/`KNEEL_RISE_TICKS` (4 ticks at
  * 20 Hz): the renderer scrubs these two clips by the ticks LEFT in the sim's
  * transition, so a clip and the stance it draws can never disagree about
  * how far down the man is (`units/stance.ts`).
@@ -31,7 +31,7 @@ import { add, deg, dot, len, lerp3, norm, qaxis, qconj, qfromTo, qmul, qnorm, qs
 import { carry, clipRange, restVertices, Rig, tracksOf, type Pose, type Track } from './rig';
 import type { MotionTeam } from './teams';
 
-export const KNEEL_TRANSITION_S = 0.3;
+export const KNEEL_TRANSITION_S = 0.2;
 export const KNEEL_FPS = 30;
 /** Hip joint height when kneeling, as a fraction of its standing height. */
 export const KNEEL_HIP_FRAC = 0.5;
