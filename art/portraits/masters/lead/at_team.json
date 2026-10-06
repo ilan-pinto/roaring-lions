@@ -2,7 +2,7 @@
   "unit": "at_team",
   "variant": "lead",
   "source": "assets/meshes/at_team.glb",
-  "source_sha256": "18c38f05583391ffb6950a88e180f866ea501407cf6e397e28affd425a0b426f",
+  "source_sha256": "61032ce9f315c947add09210fcfbb681c9101cf3aead1a4abdc94fb7076d5a3d",
   "yaw_deg": -125.0,
   "elevation_deg": 12.0,
   "fov_deg": 30.0,
@@ -11,14 +11,14 @@
     0.88
   ],
   "ndc_box": [
-    0.1591,
-    0.8409,
+    0.0909,
+    0.9091,
     0.06,
     0.94
   ],
   "materials": {
-    "baked": 3,
-    "flat": 2
+    "baked": 4,
+    "flat": 1
   },
   "lead_figure": "at_fire"
 }

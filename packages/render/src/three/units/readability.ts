@@ -107,8 +107,9 @@ export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   // 0.55 -> 0.56, its No.3 now holding his carbine forward at low ready.
   inf_squad: 0.67, mortar_team: 0.56, sniper_team: 0.62, sarim_rifles: 0.7,
   // `at_team` 0.5 since the Meshy Spike landed (A3.1 stage 2, 2026-10-05): a 1.2 m
-  // canister reaching further forward of the kneeling gunner than the 1.16 m kit tube.
-  at_team: 0.5, demo_squad: 0.45, yahalom_squad: 0.57, breach_team: 0.45, militia_cell: 0.45,
+  // canister reaching further forward of the kneeling gunner than the 1.16 m kit tube;
+  // 0.51 since spike-walk (6 Oct), the gunner standing with it carried across his chest.
+  at_team: 0.51, demo_squad: 0.45, yahalom_squad: 0.57, breach_team: 0.45, militia_cell: 0.45,
   // `atgm_cell` reads 0.49 since its Meshy mesh landed (B3, 2026-09-30): the same
   // rear-shin-back kneel as `recoilless_team` below, two figures wide.
   // ...and 0.5 since the Meshy ATGM post (A3.1 stage 2, 2026-10-05), its four legs wider than kit's three.

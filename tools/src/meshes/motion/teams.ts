@@ -94,8 +94,18 @@ export const MOTION_TEAMS: Record<string, MotionTeam> = {
     figures: [{ prefix: 'mpd_fire', weapon: 'manpad', kneels: true }, { prefix: 'mpd_spot' }],
     hold: true, kneel: true, formation: false, squad: true, stride: true, speedTiles: 0.75,
   },
+  // spike-walk (6 Oct): the gunner walks upright with the Spike carried and
+  // kneels to fire on the sim's brace, as rpg_team does; the spotter kneels
+  // beside him. Until then he was a kneeler with no walker, on his knee in
+  // every clip, `move` included.
+  at_team: {
+    figures: [
+      { prefix: 'at_fire', weapon: 'spike', kneels: true },
+      { prefix: 'at_spot', kneels: true },
+    ],
+    hold: true, kneel: true, formation: false, squad: true, stride: true, speedTiles: 0.7,
+  },
   // Stride only: the gait gate is tree-wide, so every walker is re-timed.
-  at_team: { figures: [{ prefix: 'at_fire', recoil: 'launcher' }, { prefix: 'at_spot' }], hold: false, kneel: false, formation: false, squad: true, stride: true, speedTiles: 0.7 },
   charge_squad: { figures: [], hold: false, kneel: false, formation: false, stride: true, speedTiles: 1.9 },
   breach_team: { figures: [{ prefix: 'brc_point', recoil: 'rifle' }, { prefix: 'brc_cover', recoil: 'rifle' }], hold: false, kneel: false, formation: false, squad: true, stride: true, speedTiles: 0.95 },
   recoilless_team: { figures: [{ prefix: 'rcl_fire', recoil: 'launcher' }], hold: false, kneel: false, formation: false, stride: true, speedTiles: 0.85 },

@@ -5,7 +5,8 @@
  *
  * Which clips the hold owns, and in which state:
  *
- *   idle, move            low ready (a rifle) or the shoulder carry (a tube)
+ *   idle, move            low ready (a rifle), the shoulder carry (a tube),
+ *                         or the low carry (the Spike, the hold's own)
  *   fire, moveFire        aimed
  *   kneel*                built by `kneel.ts`, which calls `holdFrame`
  *   everything else       (deaths, `down`, `work`) the weapon follows the
@@ -62,7 +63,10 @@ export function applyHold(doc: Document, id: string, spec: MotionTeam): { line: 
       // by the hold instead, a 1.4 m MANPAD at 70 deg drove its tail through
       // his back (249 samples inside) and the RPG's arms crossed his chest
       // (344-379 arm vertices inside, against 223/281 before).
-      const aim = c.hold.kind !== 'rifle' && AIM_CLIPS[name] === 0 ? undefined : AIM_CLIPS[name];
+      // A Spike is the exception (spike-walk, 6 Oct): its importer seat IS
+      // the aim, so the hold carries it too (`SPIKE_CARRY_REAR`).
+      const ownsCarry = c.hold.kind === 'rifle' || c.hold.kind === 'spike';
+      const aim = !ownsCarry && AIM_CLIPS[name] === 0 ? undefined : AIM_CLIPS[name];
       const times = keyTimes(tracks, `${p}_spine`);
       const written = aim === undefined ? [c.weaponName] : [...heldBones(p), c.weaponName];
       const nodes: Node[] = written.map((n) => rig.node(n));

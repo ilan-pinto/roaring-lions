@@ -19,13 +19,13 @@
     "at_team": {
       "file": "at_team.png",
       "extent": [
-        165,
-        174
+        174,
+        128
       ],
       "lead": {
         "file": "lead/at_team.png",
         "extent": [
-          136,
+          162,
           174
         ]
       }

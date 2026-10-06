@@ -27,8 +27,8 @@ placement). Both are read, neither is re-derived a second way.
     weapon prop that is not gripped by any bone-bound hand: `demo_squad`,
     `at_team`, `mortar_team`, `mortar_crew`, `atgm_cell`, and `digger_crew`
     (its own ground-clutter spoil heap, see `_digger_extras`). `demo_squad`
-    and `at_team`/`mortar_team` stay kneeling and deployed through every
-    clip; `mortar_crew`, `atgm_cell` and `digger_crew` instead walk standing
+    stays kneeling and deployed through every clip (`at_team`'s gunner did
+    too, until spike-walk stood him up, 6 Oct); `mortar_crew`, `atgm_cell` and `digger_crew` instead walk standing
     on a THIRD root for `move` -- `move_posture="standing"`, the walker
     `_add_figure` builds beside a figure's kneeling `root` and prone
     `death_root` -- matching `teams.digger_crew`'s own sprite-side "stands
@@ -1152,7 +1152,16 @@ TEAM_FIGURES = {
         _f("demo_b", -0.36, 0.28, leader=True, weapon="rifle"),
     ],
     "at_team": [
-        _f("at_fire", 0.24, -0.30, posture="kneeling", animates=False, weapon="launcher"),
+        # Stands and WALKS with the Spike carried on his shoulder, as
+        # `rpg_fire` and `mpd_fire` do (spike-walk, 6 Oct). He was a kneeler
+        # with no walker -- `posture="kneeling", animates=False`, the B0b
+        # import's reading of a sprite-sheet fact -- so on the mesh he knelt
+        # in `move` and `moveFire` too and slid across the ground on his knee
+        # beside a walking spotter (measured: hips at 1.09 thigh lengths in
+        # every clip, against 2.03-2.25 for every walker). The kneel is now
+        # the motion pass's `kneel`/`kneelIn`/`kneelOut`, played on the sim's
+        # brace alone (`units/stance.ts`), with the Spike aimed in it.
+        _f("at_fire", 0.24, -0.30, weapon="launcher"),
         # `at_spot` carries binoculars and deliberately gets NO `fire` pose.
         # He is not shooting anything: the Spike is `at_fire`'s, and a spotter
         # with glasses at his eyes who jerks every time his gunner launches is
@@ -2146,8 +2155,8 @@ def build_move_clip(arm_obj, figures, gait, clip_name="move", firing=False, extr
     their own kneeling `root` gets no gait key at all, but their `{prefix}w`
     walker does, and it visibly steps.
 
-    A kneeling figure with NO walker -- `at_team`'s `at_fire`, `demo_squad`'s
-    `demo_a`, `mortar_team`'s two crew -- has nothing to switch to, so it
+    A kneeling figure with NO walker -- `demo_squad`'s `demo_a` (and
+    `at_team`'s `at_fire` until spike-walk, 6 Oct) -- has nothing to switch to, so it
     still gets no keys here at all and stays at `move`'s own frame-0
     identity pose for the whole clip: correctly, the whole figure stays put,
     deployed at its weapon, not just its weapon. `rpg_fire` is the one

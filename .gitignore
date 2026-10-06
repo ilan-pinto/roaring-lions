@@ -106,3 +106,8 @@ art/meshy/inf-squad-20261005-01a10ddb/model.glb
 art/meshy/inf-squad-20261005-01a10ddb/texture_*
 art/meshy/kdf-carbine-20261005-01a10c6f/model.glb
 art/meshy/kdf-carbine-20261005-01a10c6f/texture_*
+# The Meshy Spike's 8k remesh (A3.1 stage 2), which import_meshy_kdf_team.py
+# reads to rebuild at_team: 50.7 MB, kept on disk like the sources above. It
+# lived untracked and unlisted until spike-walk (6 Oct) rebuilt the team.
+art/meshy/spike-launcher-20261005-01a10c61/model.glb
+art/meshy/spike-launcher-20261005-01a10c61/texture_*
