@@ -35,6 +35,7 @@
     "weight:capture": "pnpm --filter @lions/tools weight:capture",
     "plate:host": "pnpm --filter @lions/tools plate:host",
     "plates:units": "pnpm --filter @lions/tools plates:units",
+    "kit:capture": "pnpm --filter @lions/tools kit:capture",
     "gait:meshes": "pnpm --filter @lions/tools gait:meshes",
     "motion:meshes": "pnpm --filter @lions/tools motion:meshes",
     "meshy": "pnpm --filter @lions/tools meshy --"
