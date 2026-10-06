@@ -9,9 +9,11 @@
  *   stride    locomotion legs warped to a realistic cadence, the knee
  *             clamped, the feet planted (`motion/stride.ts`);
  *   carry     a long item held in one hand carried tip-up while walking,
- *             the arm not swinging (`motion/carry.ts`);
+ *             the arm not swinging; an item worn on the torso lifted to
+ *             run (`motion/carry.ts`);
  *   ground    nothing under the ground in idle, fire, move or moveFire --
- *             a foot planted, a static kneeler raised, a prop seated
+ *             a figure buried at rest seated, a foot planted, a static
+ *             kneeler raised, a prop seated, a wheel held up on its axle
  *             (`motion/ground.ts`). Before the kneel, which builds from
  *             the grounded idle.
  *
@@ -52,7 +54,8 @@ export function runMotionPass(doc: Document, id: string, spec: MotionTeam, base:
   const posed = spec.figures.filter((f) => f.weapon || f.kneels).map((f) => f.prefix);
   if (posed.length > 0) lines.push(...tidyArms(doc, posed));
   if (spec.formation) lines.push(...applyFormation(doc, spec));
-  if (spec.stride || spec.kneel) lines.push(...addFeet(doc));
+  // An ankle for every walker the pass grounds, too: a foot is planted at it.
+  if (spec.stride || spec.kneel || spec.ground) lines.push(...addFeet(doc));
   if (spec.stride) lines.push(...applyStride(doc, id, spec));
   const holds = spec.hold ? applyHold(doc, id, spec) : [];
   lines.push(...holds.map((h) => h.line));

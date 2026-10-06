@@ -1435,24 +1435,34 @@ for vehicles.
   feature-detected), and recoil is a spine kick after the mixer, one figure
   per shot. Gates: `mesh_hold.test.ts` (hands on the weapon, eye on the bore)
   and `mesh_gait.test.ts`.
-- **Nothing a living team draws is under the ground** (ground-fix, 6 Oct;
-  `motion/ground.ts`, `motion/carry.ts`). For the nine teams marked `ground`
-  in `MOTION_TEAMS`, in idle, fire, move and moveFire: a foot under 1 mm is
-  planted at it by leg IK and the leg re-keyed at 120 fps PLUS every key the
-  clip already had (a coarser root bends at its own keys); a figure with no
-  ankle (manpad_team's kneeling spotter) is raised frame by frame; a `prop` is
-  seated, vertices, rest, keys and bind together. yah_a's sensor mast is
-  carried 20 degrees tip-up in move, the arm not swinging (it went 114 mm into
-  the ground). Two things to know. **Removing the walk's between-key dips
-  moved the gait pass's reading**: `rl_gait.strideM` dropped 1.4-2.5% on the
-  nine (foot skate 0.008-0.042 -> 0.027-0.064, ceiling 0.25), because its
-  planted-speed weight is relative to the clip's own lowest sole; 1 mm and not
-  the kneel's 3 is what kept that smallest. And **the gate is tree-wide**:
-  `mesh_gait.test.ts` reads every rigged file's living clips, and the
-  thirteen not grounded yet are a numbered debt list (`BELOW_GROUND_DEBT`:
-  crew kneelers 12-37 mm, breach_team's shield 148 mm in move, charge_squad
-  26-38 mm everywhere, the civilians, sniper, moto), each asserted still
-  under so a fix must delete its line.
+- **Nothing a living team draws is under the ground** (ground-fix and
+  ground-debt, 6 Oct; `motion/ground.ts`, `motion/carry.ts`). Every rigged
+  team is marked `ground` in `MOTION_TEAMS` (22; `sniper_team` and `moto_rpg`
+  are in the pass for this alone), and in idle, fire, move and moveFire: a
+  standing figure buried at REST is seated first, rigidly (charge_squad, whose
+  baked sprint lean put its toes 26 mm in); a foot under 1 mm is planted at it
+  by leg IK and the leg re-keyed at 120 fps PLUS every key the clip already had
+  (a coarser root bends at its own keys), and any midpoint between two keys
+  that still reads under is keyed too (a sprinter's foot sags 1.2 mm between
+  120 fps keys); a figure with no ankle (every crew kneeling at its weapon) is
+  raised frame by frame; a `prop` is seated, vertices, rest, keys and bind
+  together; a turning wheel keeps its axle a radius plus 1 mm up while the
+  bike bobs on it. Every grounded walker gets `feet.ts`'s ankle. The civilians
+  are the one SMOOTH-skinned rig here, and are read through every weight
+  (`restSkinnedVertices`) -- by the dominant joint alone they read 1.4-8.4 mm
+  under after planting. Two carries: yah_a's sensor mast 20 degrees tip-up,
+  and brc_point's shield (worn on his spine, 148 mm into the ground in the
+  run) on a bone of its own, lifted 183 mm up the torso in move and moveFire.
+  Two things to know. **Removing the walk's between-key dips moved the gait
+  pass's reading**: `rl_gait.strideM` dropped 1.2-3.0% on the teams and 1.5-4.2%
+  on the civilians (foot skate 0.026-0.070 after, ceiling 0.25; the sniper's
+  crawl declares its boot travel and did not move), because the planted-speed
+  weight is relative to the clip's own lowest sole; 1 mm and not the kneel's 3
+  is what kept that smallest. And
+  **the census is tree-wide**: `mesh_gait.test.ts` reads every rigged file's
+  living clips, and what is under is recorded by number -- `BELOW_GROUND_DEBT`
+  (empty since ground-debt) or `BELOW_GROUND_BY_DESIGN` (digger_crew's spoil
+  heap, three spheres banked 60-139 mm into the ground so a mound shows).
 
 - **`kit.py`'s "No armature." rule is now partly overturned.** Of its three
   reasons, only "blocky is enough at 25 px" fell — beaten by the project lead

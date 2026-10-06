@@ -28,7 +28,7 @@ import { holdFrame, type HoldContext } from './apply-hold';
 import { writeTrack } from './edit';
 import { rotateWorld } from './hold';
 import { add, deg, dot, len, lerp3, norm, qaxis, qconj, qfromTo, qmul, qnorm, qslerp, scale, smoothstep, sub, type V3, type Xf } from './math';
-import { carry, clipRange, restVertices, Rig, tracksOf, type Pose, type Track } from './rig';
+import { carry, clipRange, restVertices, Rig, tracksOf, type Influence, type Pose, type Track } from './rig';
 import type { MotionTeam } from './teams';
 
 export const KNEEL_TRANSITION_S = 0.2;
@@ -139,7 +139,9 @@ interface Kneeler {
   readonly arms: { upper: Node; pts: Pt[] }[];
 }
 
-export type Pt = { joint: Node; p: V3 };
+/** A rest point carried by `joint` -- or, on a smooth-skinned rig, blended
+ *  over `influences` (`rig.restSkinnedVertices`). */
+export type Pt = { joint: Node; p: V3; influences?: readonly Influence[] };
 
 /** Metres of forward lean on `plantLeg`'s pole (see there). */
 const PLANT_POLE_FORWARD = 0.03;
@@ -152,7 +154,11 @@ export function lowestY(rig: Rig, pose: Pose, pts: readonly Pt[]): number {
   let lo = Infinity;
   for (const b of pts) {
     if (world(b.joint).s < 1e-6) continue;
-    lo = Math.min(lo, carry(rig, world, b.joint, b.p)[1]);
+    if (b.influences) {
+      let y = 0;
+      for (const f of b.influences) y += f.w * carry(rig, world, f.joint, f.p)[1];
+      lo = Math.min(lo, y);
+    } else lo = Math.min(lo, carry(rig, world, b.joint, b.p)[1]);
   }
   return lo;
 }

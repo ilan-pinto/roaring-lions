@@ -22,22 +22,66 @@
  *             point ON the ground, so the ring's lower half is under it
  *             (2.7 mm)
  *
- * Three rules, one for each kind of thing that touches the ground:
+ * The thirteen files PR #414 left as debt (ground-debt, 6 Oct), read the same
+ * way on main's bytes (70a9fbde), worst per file over the living clips:
  *
- *   - a standing or walking figure (a leg with an ankle, `feet.ts`): a foot
+ *   idle,     the crews kneeling at their weapons -- the importer's static
+ *   fire      kneelers, no ankle -- sunk at REST: atgm_cell 28.3 mm (36.5 with
+ *             the idle sway), mortar_team 29.0 (36.2), recoilless_team 20.6
+ *             (26.8), digger_crew 30.3 (37.7); mortar_crew's sits on its thigh
+ *             at -0.4 and sways to 12.2
+ *   all       charge_squad's two men stand 26.4 mm in the ground at REST --
+ *             the sprint lean (`teams._lean_forward`, 20 deg about the ground
+ *             line under each man) is baked into the rest geometry, and it
+ *             turns the toes ahead of that line down into the ground -- and
+ *             26-38 mm in every living clip, the replant included (it walks
+ *             the ankle at its rest height)
+ *   move      sniper_team, never through this pass: rig.py's pendulum walk
+ *             with the boot rigid on the shin, a toe 31-36 mm in at the
+ *             bottom of the bob
+ *   move      moto_rpg: the bike bobs 20 mm and dips 1.6 deg as one rigid
+ *             piece (rig.py's `MOTO_BOB`/`MOTO_DIP`), so the rear wheel's
+ *             axle goes 41 mm down and the tyre 37 mm into the ground
+ *   move      breach_team's brc_point: his 1.2 m shield is worn on the spine
+ *             and hangs to 30 mm off the ground standing; the run's lean and
+ *             hip drop drove it 54-148 mm in (`carry.ts` lifts it)
+ *   idle,     the civilians, captured Mixamo bipeds -- skinned SMOOTHLY, the
+ *   move      one rig here that is -- 7-23 mm under at a toe or a heel
+ *   all       mtr_no3, breach_team's two men, every crew-served team's
+ *             walkers: the idle sway and the replant's between-key dip, 2-12 mm
+ *
+ * Five rules, one for each kind of thing that touches the ground:
+ *
+ *   - a standing figure buried at REST (a leg with an ankle, its rest
+ *     lowest vertex under by more than `SEAT_TOLERANCE`): SEATED first --
+ *     raised rigidly until that vertex is at `GROUND_CLEAR`, its root's rest
+ *     and every key, its vertices and its binds together (`formation.ts`'s
+ *     rule), so the pose the file was built in is on the ground and the per
+ *     frame rule below only takes the clips' own dips. Planting a 26 mm
+ *     burial instead would bend a sprinter's knees 27-39 mm in every frame.
+ *   - a standing or walking figure (a leg with an ankle, `feet.ts`; or a
+ *     captured biped's own `{Left,Right}UpLeg`/`Leg`/`Foot`): a foot
  *     whose lowest vertex is under `GROUND_CLEAR` is PLANTED at it --
  *     `kneel.ts`'s `plantLeg`: the ankle moves by exactly what the boot is
  *     off, by two-bone IK, and the boot keeps its world rotation. A leg it
  *     moved is re-keyed at `GROUND_FPS` AND at every key the clip already
  *     had (`denseTimes`), because the dip this fixes in `move` lives
  *     BETWEEN keys: keys that all stood on the ground slerped a sole under
- *     between them, and a root keyed coarser bends at its own keys.
+ *     between them, and a root keyed coarser bends at its own keys. A
+ *     biped's vertices are read through every weight they carry
+ *     (`restSkinnedVertices`), the blend `measureLowestVertex` reads.
  *   - a figure with no ankle (the static kneeler): its root rises, frame by
  *     frame, until its lowest vertex is at `GROUND_CLEAR` -- the knee stays
  *     on the ground and the body's sway goes on above it.
  *   - a ground prop (the team's `prop` bone): seated at `GROUND_CLEAR` --
  *     its vertices, its rest and every key moved by the same amount and its
  *     bind rebuilt (`formation.ts`'s rule), so every clip agrees.
+ *   - a wheel (a `*_wheel<n>` bone): a wheel the clip spins keeps its AXLE at
+ *     least its own radius plus `GROUND_CLEAR` up -- so whichever vertex of
+ *     the polygon is at the bottom between two keys, it is not under -- and
+ *     one it does not spin has its lowest vertex held at `GROUND_CLEAR`. The
+ *     wheel moves up on its parent, frame by frame, and keeps its spin: the
+ *     frame bobs and dips above it on its suspension, as rig.py authored.
  *
  * Runs before `kneel.ts`, which builds all three kneel clips from this
  * team's `idle`: a figure the kneel does not pose (the spotter, the tripod)
@@ -45,14 +89,16 @@
  *
  * The pass refuses (throws) when anything of a grounded figure is still under
  * the ground afterwards -- a hand, a knee, a held item: that needs a pose, not
- * a lift (`carry.ts` is the one there is). It is a guard on the pass's own
- * arithmetic; the gate is `mesh_gait.test.ts`, reading the bytes.
+ * a lift (`carry.ts` has the two there are: yah_a's mast, brc_point's shield).
+ * It is a guard on the pass's own arithmetic; the gate is `mesh_gait.test.ts`,
+ * reading the bytes.
  */
 import type { Animation, Document, Node } from '@gltf-transform/core';
 import { shiftNode, writeTrack } from './edit';
 import { legOf, lowestY, plantLeg, type Leg, type Pt } from './kneel';
+import { figureRoot, legNames } from './replant';
 import { invert, qconj, qrot, scale, toMat4, type V3 } from './math';
-import { denseTimes, restVertices, Rig, tracksOf, type Pose, type RestVertex } from './rig';
+import { denseTimes, restSkinnedVertices, restVertices, Rig, tracksOf, type Pose, type RestVertex } from './rig';
 import type { MotionTeam } from './teams';
 
 /**
@@ -95,11 +141,43 @@ function rootOf(rig: Rig, n: Node): Node | null {
   return best;
 }
 
+/** A captured biped (the civilians: `stride.ts`'s `walkers` rule) is ONE
+ *  figure on its own leg bones, read through every weight its vertices carry.
+ *  A leg's points are everything below the knee -- the shin, the foot and
+ *  the toe -- since a smooth-skinned boot's heel is half on the shin. */
+function bipedFigure(rig: Rig): Figure {
+  const body: Pt[] = restSkinnedVertices(rig).map((v) => ({ joint: v.joint, p: v.p, ...(v.influences ? { influences: v.influences } : {}) }));
+  const below = (n: Node): Set<Node> => {
+    const out = new Set<Node>();
+    const walk = (k: Node): void => {
+      out.add(k);
+      for (const c of k.listChildren()) walk(c);
+    };
+    walk(n);
+    return out;
+  };
+  const legs = (['L', 'R'] as const).map((side) => {
+    const n = legNames(rig, '', side);
+    const leg: Leg = { thigh: rig.node(n.thigh), shin: rig.node(n.shin), foot: rig.node(n.foot), ankleRest: rig.restWorld.get(rig.node(n.foot))!.t };
+    const joints = below(leg.shin);
+    return { leg, pts: body.filter((b) => joints.has(b.joint)) };
+  });
+  return { prefix: 'biped', root: figureRoot(rig, ''), legs, body };
+}
+
+/** Bones named `*_wheel<n>` that carry geometry: moto_rpg's two. */
+function wheelNodes(rig: Rig): Node[] {
+  return rig.nodes.filter((n) => /_wheel\d+$/.test(n.getName()));
+}
+
 function figuresOf(rig: Rig, verts: readonly RestVertex[]): Figure[] {
+  if (rig.has('LeftUpLeg') && rig.has('RightUpLeg')) return [bipedFigure(rig)];
+  // A wheel is grounded by its own rule (`groundWheels`), not by its root's.
+  const wheels = new Set(wheelNodes(rig));
   const byRoot = new Map<Node, Pt[]>();
   for (const v of verts) {
     const r = rootOf(rig, v.joint);
-    if (!r || /_death_root$/.test(r.getName())) continue;
+    if (!r || /_death_root$/.test(r.getName()) || wheels.has(v.joint)) continue;
     if (!byRoot.has(r)) byRoot.set(r, []);
     byRoot.get(r)!.push({ joint: v.joint, p: v.p });
   }
@@ -125,10 +203,72 @@ function raiseRoot(rig: Rig, pose: Pose, root: Node, dy: number): void {
   pose.set(root, { ...r, t: [r.t[0] + d[0], r.t[1] + d[1], r.t[2] + d[2]] });
 }
 
+/**
+ * A sample between two keys of the grounded clip that reads under this is
+ * keyed itself (`groundClip`). 0.1 mm -- `plantLeg`'s own tolerance -- not
+ * zero, so the pass's arithmetic and the gate's agree about which side of
+ * the ground a midpoint is on; every walker #414 grounded reads 0.4 mm or
+ * more at every midpoint, so none of them is refined.
+ */
+export const REFINE_BELOW = 1e-4;
+/** Rounds of refinement before the pass gives up and says where. */
+const REFINE_ROUNDS = 4;
+
+/**
+ * Ground every figure in `anim` (`groundAt`), then read the clip the way the
+ * gate does -- every figure drawn, at the midpoint of every pair of keys the
+ * clip now has -- and where one reads under `REFINE_BELOW`, key that
+ * midpoint too and ground again from the clip as it came in. The 120 fps
+ * grid is not dense enough for a sprinter's foot (charge_squad, 5.7 m/s) or
+ * the sniper's pendulum leg: both read 1.2 mm under their own keys between
+ * them, -0.2 mm at the gate's midpoints.
+ */
 function groundClip(doc: Document, id: string, rig: Rig, anim: Animation, figs: readonly Figure[]): string[] {
-  const lines: string[] = [];
   const tracks = tracksOf(anim);
-  const times = denseTimes(tracks, GROUND_FPS);
+  let times = denseTimes(tracks, GROUND_FPS);
+  for (let round = 0; ; round++) {
+    const lines = groundAt(doc, id, rig, anim, figs, tracks, times);
+    const sag = sagging(rig, anim, figs);
+    if (sag.length === 0) {
+      if (round > 0) lines.push(`ground ${anim.getName()}: ${round} round(s) of refinement, ${times.length} keys`);
+      return lines;
+    }
+    if (round >= REFINE_ROUNDS) {
+      throw new Error(`${id} ${anim.getName()}: still under between keys after ${round} rounds, at ${sag.slice(0, 4).map((t) => t.toFixed(4)).join(', ')} s`);
+    }
+    times = [...times, ...sag].sort((a, b) => a - b);
+  }
+}
+
+/** The midpoints of `anim`'s keys at which a drawn figure reads under `REFINE_BELOW`. */
+function sagging(rig: Rig, anim: Animation, figs: readonly Figure[]): number[] {
+  const tracks = tracksOf(anim);
+  const keys = [...new Set([...tracks.values()].flatMap((t) => Array.from(t.times)))].sort((a, b) => a - b);
+  const out: number[] = [];
+  for (let i = 0; i + 1 < keys.length; i++) {
+    const t = (keys[i] + keys[i + 1]) / 2;
+    const p = rig.sample(tracks, t);
+    for (const f of figs) {
+      if (rig.worldOf(f.root, p).s <= HIDDEN_SCALE) continue;
+      if (lowestY(rig, p, f.body) < REFINE_BELOW) {
+        out.push(t);
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+function groundAt(
+  doc: Document,
+  id: string,
+  rig: Rig,
+  anim: Animation,
+  figs: readonly Figure[],
+  tracks: ReturnType<typeof tracksOf>,
+  times: readonly number[]
+): string[] {
+  const lines: string[] = [];
   for (const f of figs) {
     const poses: Pose[] = [];
     const movedLeg = f.legs ? f.legs.map(() => false) : [];
@@ -166,12 +306,12 @@ function groundClip(doc: Document, id: string, rig: Rig, anim: Animation, figs: 
     f.legs?.forEach(({ leg }, i) => {
       if (!movedLeg[i]) return;
       for (const node of [leg.thigh, leg.shin, leg.foot]) {
-        writeTrack(doc, anim, node, 'rotation', times, poses.flatMap((p) => [...p.get(node)!.r]));
+        writeTrack(doc, anim, node, 'rotation', [...times], poses.flatMap((p) => [...p.get(node)!.r]));
         written.push(node);
       }
     });
     if (raised) {
-      writeTrack(doc, anim, f.root, 'translation', times, poses.flatMap((p) => [...p.get(f.root)!.t]));
+      writeTrack(doc, anim, f.root, 'translation', [...times], poses.flatMap((p) => [...p.get(f.root)!.t]));
       written.push(f.root);
     }
     if (written.length === 0) continue;
@@ -184,26 +324,28 @@ function groundClip(doc: Document, id: string, rig: Rig, anim: Animation, figs: 
   return lines;
 }
 
-/**
- * Seat the team's `prop` bone (a tripod, a charge) at `GROUND_CLEAR`: its
- * vertices and its rest and every key rise together, and its inverse bind
- * matrix is rebuilt from the new rest -- `formation.ts`'s rule, so the file's
- * rest pose still agrees with its bind pose for every later stage.
- */
-function seatProp(doc: Document, id: string): string[] {
-  const rig = new Rig(doc);
-  if (!rig.has('prop')) return [];
-  const prop = rig.node('prop');
-  const subtree = new Set<Node>();
+/** `top` and every node under it. */
+function subtreeOf(top: Node): Set<Node> {
+  const out = new Set<Node>();
   const walk = (n: Node): void => {
-    subtree.add(n);
+    out.add(n);
     for (const c of n.listChildren()) walk(c);
   };
-  walk(prop);
-  const pts = restVertices(rig).filter((v) => subtree.has(v.joint));
-  if (pts.length === 0) return [];
-  const lo = Math.min(...pts.map((v) => v.p[1]));
-  if (lo >= GROUND_CLEAR) return [];
+  walk(top);
+  return out;
+}
+
+/**
+ * Raise `top` and everything under it by `dy` world metres, for good: its
+ * vertices and its rest and every key rise together, and the subtree's
+ * inverse bind matrices are rebuilt from the new rest -- `formation.ts`'s
+ * rule, so the file's rest pose still agrees with its bind pose for every
+ * later stage. Returns the subtree's lowest rest vertex afterwards.
+ */
+function seatSubtree(doc: Document, id: string, topName: string, dy: number): number {
+  const rig = new Rig(doc);
+  const top = rig.node(topName);
+  const subtree = subtreeOf(top);
   const joints = rig.skin.listJoints();
   const ibm = rig.skin.getInverseBindMatrices()!;
   const arr = (ibm.getArray() as Float32Array).slice();
@@ -220,7 +362,6 @@ function seatProp(doc: Document, id: string): string[] {
     const r = n.getRotation();
     if (Math.hypot(t[0], t[1], t[2]) > 1e-6 || Math.abs(r[3]) < 0.999999) throw new Error(`${id}: skinned node ${n.getName()} is not at the origin`);
   }
-  const dy = GROUND_CLEAR - lo;
   // The vertices: bind == rest and the meshes sit at the origin (checked
   // above), so a vertex's stored position is its world rest position.
   const idx = new Set([...subtree].map((j) => joints.indexOf(j)).filter((i) => i >= 0));
@@ -242,27 +383,150 @@ function seatProp(doc: Document, id: string): string[] {
     }
   }
   // The bone: rest and every key, in its parent's frame.
-  const parent = rig.parent.get(prop) ?? null;
+  const parent = rig.parent.get(top) ?? null;
   const pw = parent ? rig.restWorld.get(parent)! : { r: [0, 0, 0, 1] as [number, number, number, number], s: 1 };
-  shiftNode(doc, prop, scale(qrot(qconj(pw.r), [0, dy, 0]), 1 / pw.s) as V3);
+  shiftNode(doc, top, scale(qrot(qconj(pw.r), [0, dy, 0]), 1 / pw.s) as V3);
   const after = new Rig(doc);
   for (const j of subtree) {
     const i = joints.indexOf(j);
     if (i >= 0) arr.set(toMat4(invert(after.restWorld.get(after.node(j.getName()))!)), i * 16);
   }
   ibm.setArray(arr);
-  const now = Math.min(...restVertices(new Rig(doc)).filter((v) => subtree.has(v.joint)).map((v) => v.p[1]));
+  const now = new Rig(doc);
+  const moved = subtreeOf(now.node(topName));
+  return Math.min(...restVertices(now).filter((v) => moved.has(v.joint)).map((v) => v.p[1]));
+}
+
+/**
+ * Seat the team's `prop` bone (a tripod, a charge) at `GROUND_CLEAR`
+ * (`seatSubtree`), so every clip agrees.
+ */
+function seatProp(doc: Document, id: string): string[] {
+  const rig = new Rig(doc);
+  if (!rig.has('prop')) return [];
+  const subtree = subtreeOf(rig.node('prop'));
+  const pts = restVertices(rig).filter((v) => subtree.has(v.joint));
+  if (pts.length === 0) return [];
+  const lo = Math.min(...pts.map((v) => v.p[1]));
+  if (lo >= GROUND_CLEAR) return [];
+  const now = seatSubtree(doc, id, 'prop', GROUND_CLEAR - lo);
   if (Math.abs(now - GROUND_CLEAR) > 1e-5) throw new Error(`${id}: prop seated at ${now.toFixed(5)} m, not ${GROUND_CLEAR}`);
   return [`ground prop: lowest vertex ${(lo * 1000).toFixed(1)} -> ${(now * 1000).toFixed(1)} mm (vertices, rest and every key)`];
+}
+
+/**
+ * A standing figure buried at REST by more than this is seated before the
+ * clips are grounded; anything shallower is rounding (every standing figure
+ * in the nine teams #414 grounded reads -3.6e-9 m at rest, and must not be
+ * seated: the pass reproduces their committed bytes), and `plantLeg`'s own
+ * convergence tolerance is the same 0.1 mm.
+ */
+export const SEAT_TOLERANCE = 1e-4;
+
+/**
+ * Seat every standing figure (a leg with an ankle, on a `*_root`) whose rest
+ * pose is under the ground: its living root and everything under it rise
+ * until the lowest rest vertex is at `GROUND_CLEAR` (`seatSubtree`). The
+ * corpse (`*_death_root`) is its own figure and is not moved.
+ */
+function seatFigures(doc: Document, id: string): string[] {
+  const lines: string[] = [];
+  const rig = new Rig(doc);
+  for (const f of figuresOf(rig, restVertices(rig))) {
+    if (!f.legs || f.prefix === 'biped') continue;
+    const lo = Math.min(...f.body.map((b) => b.p[1]));
+    if (lo >= -SEAT_TOLERANCE) continue;
+    const now = seatSubtree(doc, id, f.root.getName(), GROUND_CLEAR - lo);
+    if (Math.abs(now - GROUND_CLEAR) > 1e-5) throw new Error(`${id}: ${f.prefix} seated at ${now.toFixed(5)} m, not ${GROUND_CLEAR}`);
+    lines.push(`ground seat ${f.prefix}: rest lowest vertex ${(lo * 1000).toFixed(1)} -> ${(now * 1000).toFixed(1)} mm (vertices, rest and every key)`);
+  }
+  return lines;
+}
+
+/** A wheel: its bone, its vertices, and its radius about its own axle. */
+interface Wheel {
+  readonly node: Node;
+  readonly pts: Pt[];
+  readonly radius: number;
+}
+
+/**
+ * Every wheel, measured from its own vertices: the axle is the bone's origin
+ * and runs along the armature's Z (a vehicle faces +X), so the radius is the
+ * furthest vertex from the origin in the X-Y plane. A wheel whose geometry is
+ * not a thin disc across Z is refused -- the radius would be meaningless.
+ */
+function wheelsOf(id: string, rig: Rig, verts: readonly RestVertex[]): Wheel[] {
+  return wheelNodes(rig).flatMap((node) => {
+    const pts = verts.filter((v) => v.joint === node).map((v) => ({ joint: v.joint, p: v.p }));
+    if (pts.length === 0) return [];
+    const o = rig.restWorld.get(node)!.t;
+    const radius = Math.max(...pts.map((b) => Math.hypot(b.p[0] - o[0], b.p[1] - o[1])));
+    const half = Math.max(...pts.map((b) => Math.abs(b.p[2] - o[2])));
+    if (half > radius / 2) throw new Error(`${id}: ${node.getName()} is not a disc across Z (half-width ${half.toFixed(3)} m, radius ${radius.toFixed(3)})`);
+    return [{ node, pts, radius }];
+  });
+}
+
+/** True when `anim` turns `node` (its rotation keys are not all one value). */
+function spins(anim: Animation, node: Node): boolean {
+  const tr = tracksOf(anim).get(`${node.getName()}.rotation`);
+  if (!tr) return false;
+  for (let i = 4; i < tr.values.length; i++) if (Math.abs(tr.values[i] - tr.values[i % 4]) > 1e-6) return true;
+  return false;
+}
+
+function groundWheels(doc: Document, id: string, rig: Rig, anim: Animation, wheels: readonly Wheel[]): string[] {
+  const lines: string[] = [];
+  for (const w of wheels) {
+    const tracks = tracksOf(anim);
+    const times = denseTimes(tracks, GROUND_FPS);
+    const turning = spins(anim, w.node);
+    const poses: Pose[] = [];
+    let before = Infinity;
+    let after = Infinity;
+    let lifted = false;
+    for (const t of times) {
+      const p = rig.sample(tracks, t);
+      poses.push(p);
+      if (rig.worldOf(w.node, p).s <= HIDDEN_SCALE) continue;
+      // A turning wheel: whichever vertex comes to the bottom between two
+      // keys, it is no lower than the axle less the radius.
+      const floor = (): number => (turning ? rig.worldOf(w.node, p).t[1] - w.radius : lowestY(rig, p, w.pts));
+      const f0 = floor();
+      before = Math.min(before, lowestY(rig, p, w.pts));
+      if (f0 < GROUND_CLEAR) {
+        raiseRoot(rig, p, w.node, GROUND_CLEAR - f0);
+        lifted = true;
+      }
+      const lo = lowestY(rig, p, w.pts);
+      if (lo < 0 || floor() < GROUND_CLEAR - 1e-6) {
+        throw new Error(`${id} ${anim.getName()} ${w.node.getName()}: wheel at ${lo.toFixed(4)} m (floor ${floor().toFixed(4)}) at ${t.toFixed(3)} s after grounding`);
+      }
+      after = Math.min(after, lo);
+    }
+    if (!lifted) continue;
+    writeTrack(doc, anim, w.node, 'translation', times, poses.flatMap((p) => [...p.get(w.node)!.t]));
+    lines.push(
+      `ground ${w.node.getName()} ${anim.getName()}: lowest vertex ${(before * 1000).toFixed(1)} -> ${(after * 1000).toFixed(1)} mm, ` +
+        `${turning ? `axle held ${(w.radius * 1000).toFixed(0)} mm (its radius) + ${GROUND_CLEAR * 1000} mm up` : 'wheel lifted'}, ` +
+        `${times.length} keys (${GROUND_FPS} fps and the clip's own)`
+    );
+  }
+  return lines;
 }
 
 export function applyGround(doc: Document, id: string, spec: MotionTeam): string[] {
   if (!spec.ground) return [];
   const lines = seatProp(doc, id);
+  lines.push(...seatFigures(doc, id));
   const rig = new Rig(doc);
-  const figs = figuresOf(rig, restVertices(rig));
+  const verts = restVertices(rig);
+  const figs = figuresOf(rig, verts);
+  const wheels = wheelsOf(id, rig, verts);
   for (const anim of doc.getRoot().listAnimations()) {
     if (!GROUND_CLIPS.includes(anim.getName())) continue;
+    lines.push(...groundWheels(doc, id, rig, anim, wheels));
     lines.push(...groundClip(doc, id, rig, anim, figs));
   }
   return lines;

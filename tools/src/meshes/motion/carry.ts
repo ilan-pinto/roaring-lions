@@ -17,12 +17,26 @@
  * turned to point away from the elbow), never assumed. Every other clip keeps
  * the item as it was: level at hand height in `idle`, swung clear of the
  * ground by `kneel.ts`'s `liftArm` in the kneel clips.
+ *
+ * The LIFT (ground-debt, 6 Oct) is the same idea for an item worn on the
+ * torso rather than held in a hand: breach_team's brc_point wears a 1.2 m
+ * ballistic shield on his spine (`import_meshy_crew_team.py`: his left arm
+ * is baked into the torso, so the forearm bone it would ride swings with a
+ * gait the arm never makes), and it hangs to 30 mm off the ground standing.
+ * The run leans his torso and drops his hips, and on main's bytes the
+ * shield's foot went 54-148 mm into the ground through the whole of `move`
+ * and `moveFire`. So the shield moves onto a bone of its own under the spine
+ * -- keyed at its rest in every clip, where it rides the torso exactly as it
+ * did -- and through `move` and `moveFire` that bone is carried up the
+ * torso's own axis by the least amount that keeps its foot, at every sample
+ * of both clips, no lower than it stands: the man lifts it to run.
  */
 import type { Document } from '@gltf-transform/core';
-import { writeTrack } from './edit';
+import { addBone, rebind, writeTrack } from './edit';
 import { rotateWorld } from './hold';
+import { lowestY } from './kneel';
 import { add, cross, deg, dot, len, norm, qconj, qfromTo, qmul, qrot, scale, sub, type V3 } from './math';
-import { denseTimes, restVertices, Rig, tracksOf } from './rig';
+import { denseTimes, keyTimes, restVertices, Rig, tracksOf } from './rig';
 import type { MotionTeam } from './teams';
 
 export const CARRY_CLIPS: readonly string[] = ['move', 'moveFire'];
@@ -50,6 +64,7 @@ function principalAxis(pts: readonly V3[]): { centre: V3; axis: V3 } {
 export function applyCarry(doc: Document, id: string, spec: MotionTeam): string[] {
   const lines: string[] = [];
   for (const f of spec.figures) {
+    if (f.lift) lines.push(...liftCarry(doc, id, f.prefix, f.lift));
     if (!f.carry) continue;
     const rig = new Rig(doc);
     const p = f.prefix;
@@ -109,4 +124,71 @@ export function applyCarry(doc: Document, id: string, spec: MotionTeam): string[
     }
   }
   return lines;
+}
+
+/**
+ * The lift (see the header): `prefix`'s `role` vertices on its spine move to
+ * a bone `${prefix}_${bone}` of their own, keyed at rest in every clip, and
+ * carried up the torso in `move` and `moveFire` until the item's lowest
+ * vertex is never under its own standing clearance.
+ */
+function liftCarry(doc: Document, id: string, p: string, lift: { readonly role: string; readonly bone: string }): string[] {
+  const lines: string[] = [];
+  let rig = new Rig(doc);
+  const spineName = `${p}_spine`;
+  const name = `${p}_${lift.bone}`;
+  const item = restVertices(rig).filter((v) => v.joint === rig.node(spineName) && v.role === lift.role);
+  if (item.length < 8) throw new Error(`${id}: ${p} wears no ${lift.role} on ${spineName} (${item.length} vertices)`);
+  // How far off the ground it stands: the clearance the carry keeps.
+  const clear = Math.min(...item.map((v) => v.p[1]));
+  if (clear < 0) throw new Error(`${id}: ${p}'s ${lift.role} stands ${clear.toFixed(4)} m under the ground at rest`);
+  const centre = scale(item.reduce((a, v) => add(a, v.p), [0, 0, 0] as V3), 1 / item.length);
+  addBone(doc, rig, name, rig.node(spineName), { t: centre, r: [0, 0, 0, 1], s: 1 });
+  rig = new Rig(doc);
+  const moved = rebind(rig, lift.role, rig.node(spineName), rig.node(name));
+  if (moved !== item.length) throw new Error(`${id}: ${name} took ${moved} of ${item.length} ${lift.role} vertices`);
+  rig = new Rig(doc);
+  const bone = rig.node(name);
+  const rest = rig.rest.get(bone)!;
+  // Every clip keys the new bone at its rest (rig.py's rule, `feet.ts`'s
+  // reason: an untouched bone keeps whatever the last clip left in it).
+  for (const anim of doc.getRoot().listAnimations()) {
+    const times = keyTimes(tracksOf(anim), spineName);
+    writeTrack(doc, anim, bone, 'translation', times, times.flatMap(() => [...rest.t]));
+    writeTrack(doc, anim, bone, 'rotation', times, times.flatMap(() => [...rest.r]));
+    writeTrack(doc, anim, bone, 'scale', times, times.flatMap(() => [1, 1, 1]));
+  }
+  rig = new Rig(doc);
+  const pts = restVertices(rig).filter((v) => v.joint === rig.node(name)).map((v) => ({ joint: v.joint, p: v.p }));
+  // The torso's own up, in the spine's frame: what the carry lifts along.
+  const sw = rig.restWorld.get(rig.node(spineName))!;
+  const up = scale(qrot(qconj(sw.r), [0, 1, 0]), 1 / sw.s);
+  let need = 0;
+  for (const anim of doc.getRoot().listAnimations()) {
+    if (!CARRY_CLIPS.includes(anim.getName())) continue;
+    const tracks = tracksOf(anim);
+    for (const t of denseTimes(tracks, CARRY_FPS)) {
+      const pose = rig.sample(tracks, t);
+      const w = rig.worldOf(rig.node(spineName), pose);
+      const k = qrot(w.r, scale(up, w.s))[1];
+      if (k <= 0.5) throw new Error(`${id} ${anim.getName()} ${p}: the torso leans past 60 deg -- no up to carry along`);
+      need = Math.max(need, (clear - lowestY(rig, pose, pts)) / k);
+    }
+  }
+  const at = add(rest.t, scale(up, need));
+  for (const anim of doc.getRoot().listAnimations()) {
+    if (!CARRY_CLIPS.includes(anim.getName())) continue;
+    const tracks = tracksOf(anim);
+    const times = keyTimes(tracks, spineName);
+    writeTrack(doc, anim, bone, 'translation', times, times.flatMap(() => [...at]));
+    let lo = Infinity;
+    const now = tracksOf(anim);
+    for (const t of denseTimes(now, CARRY_FPS)) lo = Math.min(lo, lowestY(rig, rig.sample(now, t), pts));
+    if (lo < clear - 1e-6) throw new Error(`${id} ${anim.getName()} ${p}: carried ${name} reads ${lo.toFixed(4)} m, under its ${clear.toFixed(4)}`);
+    lines.push(
+      `lift ${p} ${anim.getName()}: ${name} (${pts.length} ${lift.role} vertices) up the torso ${(need * 1000).toFixed(0)} mm, ` +
+        `lowest ${(lo * 1000).toFixed(1)} mm (it stands ${(clear * 1000).toFixed(1)} mm off the ground), ${times.length} keys`
+    );
+  }
+  return [`lift ${p}: ${moved} ${lift.role} vertices onto ${name}`, ...lines];
 }

@@ -52,7 +52,7 @@ export function applyFormation(doc: Document, spec: MotionTeam): string[] {
   return lines;
 }
 
-function moveVertices(rig: Rig, joints: Set<Node>, d: [number, number, number]): void {
+export function moveVertices(rig: Rig, joints: Set<Node>, d: [number, number, number]): void {
   const list = rig.skin.listJoints();
   const idx = new Set([...joints].map((j) => list.indexOf(j)).filter((i) => i >= 0));
   for (const node of rig.skinNode) {
@@ -77,7 +77,7 @@ function moveVertices(rig: Rig, joints: Set<Node>, d: [number, number, number]):
 /** The move rebuilds binds from rest worlds, so it first proves that is
  *  what the file's binds already are (and that its skinned meshes sit at
  *  the origin) -- otherwise a rebuild would silently re-pose every vertex. */
-function verifyBinds(rig: Rig): void {
+export function verifyBinds(rig: Rig): void {
   const arr = rig.skin.getInverseBindMatrices()!.getArray() as Float32Array;
   rig.skin.listJoints().forEach((j, i) => {
     const want = toMat4(invert(rig.restWorld.get(j)!));
@@ -95,7 +95,7 @@ function verifyBinds(rig: Rig): void {
 }
 
 /** Every joint's inverse bind matrix from its rest world (see verifyBinds). */
-function rebuildBinds(rig: Rig): void {
+export function rebuildBinds(rig: Rig): void {
   const ibm = rig.skin.getInverseBindMatrices()!;
   const arr = (ibm.getArray() as Float32Array).slice();
   rig.skin.listJoints().forEach((j, i) => {
