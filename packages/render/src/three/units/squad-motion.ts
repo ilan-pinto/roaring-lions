@@ -134,8 +134,9 @@ export function stepFollower(f: Follower, tx: number, tz: number, svx: number, s
 
 // --- the kneel ----------------------------------------------------------------
 
-/** The sim's drop and rise, 6 ticks each at 20 Hz (PR #402). */
-export const KNEEL_TRANSITION_S = 0.3;
+/** The fallback drop and rise (no sim brace): 0.2 s, the sim's own 4 ticks
+ *  at 20 Hz (PR #402, the lead's ruling, 5 Oct). */
+export const KNEEL_TRANSITION_S = 0.2;
 
 export type Stance = 'none' | 'dropping' | 'kneeling' | 'rising';
 

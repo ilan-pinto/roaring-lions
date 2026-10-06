@@ -35,7 +35,7 @@
 export type ClipName = 'idle' | 'move' | 'fire' | 'down' | 'wreck' | 'work' | 'moveFire' | 'wreckAlt'
   | 'fall' | 'fallAlt'
   // The kneel (motion pass, 5 Oct): mesh-only, built by `pnpm motion:meshes`.
-  // `kneel` loops; `kneelIn`/`kneelOut` are 0.3 s and scrubbed by the sim's
+  // `kneel` loops; `kneelIn`/`kneelOut` are 0.2 s and scrubbed by the sim's
   // own drop/rise ticks (`units/stance.ts`), never played on a clock.
   | 'kneel' | 'kneelIn' | 'kneelOut';
 
