@@ -30,7 +30,7 @@ describe('objectivesPanel', () => {
       p.el.querySelector(`.rl-obj[data-id="${id}"] .rl-obj__reward`)?.textContent ?? null;
     expect(reward('a')).toBeNull();
     expect(reward('d')).toContain('40');
-    expect(reward('e')).toBe('Optional · no carry-over');
+    expect(reward('e')).toBe('Optional');
     p.dispose();
   });
 

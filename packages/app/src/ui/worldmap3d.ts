@@ -259,7 +259,7 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
     }
     const region = regionById.get(regionId);
     if (!region) {
-      speak(t('world3d.hover.unmapped', { id: regionId }), 'info');
+      speak(t('world3d.hover.unmapped'), 'info');
       return;
     }
     const p = regionProgress(region, ledger, missionName);
@@ -499,7 +499,7 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
       // .test.ts` makes that unreachable on the shipped asset; it is handled
       // rather than assumed away because the alternative is a dead click.
       point(null);
-      speak(t('world3d.say.unmapped', { id: regionId }), 'info');
+      speak(t('world3d.say.unmapped'), 'info');
       return;
     }
     point(region.id);

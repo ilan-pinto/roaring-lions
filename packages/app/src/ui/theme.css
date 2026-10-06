@@ -3239,10 +3239,33 @@ button.rl-menu__item[data-kind='aside'] {
   flex-direction: column;
   gap: var(--s1);
   max-width: var(--menu-col);
-  margin: var(--s3) auto var(--s2);
+  margin: var(--s1) auto var(--s2);
   padding: var(--s2) var(--s3);
   border: 1px solid var(--panel-frame);
   text-align: left;
+}
+/* WP-P2: the extras sit behind a closed disclosure, so the picker opens on
+   the maps. The summary is a quiet line, not a button competing with them. */
+.rl-sandbox__dev {
+  max-width: var(--menu-col);
+  margin: var(--s3) auto var(--s2);
+  text-align: left;
+}
+.rl-sandbox__dev-summary {
+  cursor: pointer;
+  font-size: var(--t-s);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.rl-sandbox__dev-summary:hover,
+.rl-sandbox__dev-summary:focus-visible {
+  color: var(--ink);
+}
+.rl-sandbox__dev-hint {
+  margin: 0;
+  font-size: var(--t-s);
+  color: var(--ink-mute);
 }
 .rl-sandbox__flag {
   display: grid;

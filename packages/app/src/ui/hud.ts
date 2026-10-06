@@ -46,6 +46,7 @@ import { roleBadgeSvg, roleBucket } from './role';
 import { symbolLabel, symbolSvg } from './symbol';
 import { bindDelegatedTip, bindTip } from './tooltip';
 import { VoiceCaption } from './voice-caption';
+import { weaponName } from './weapon-name';
 import {
   beatDwellMs,
   conductDefinition,
@@ -1598,7 +1599,7 @@ export class Hud {
       const why = worst.length > 0 ? ` · ${worst.join(' · ')}` : '';
       const bounce = p.hurts ? '' : ` · <span class="rl-bad-text">${t('hud.fire.cannotPenetrate')}</span>`;
       rows.push(
-        `<div>${escapeHtml(name)} <b>${chance}%</b> <span class="rl-dim">${escapeHtml(p.weaponId)}${why}</span>${bounce}</div>`
+        `<div>${escapeHtml(name)} <b>${chance}%</b> <span class="rl-dim">${escapeHtml(weaponName(p.weaponId))}${why}</span>${bounce}</div>`
       );
     }
 
@@ -1628,7 +1629,7 @@ export class Hud {
       if (reach === null) return head + `<div class="rl-dim">${t('hud.fire.noneCanEngage')}</div>`;
       return (
         head +
-        `<div class="rl-dim">${t('hud.fire.outOfReach', { weapon: escapeHtml(reach.weapon), n: reach.tiles })}</div>`
+        `<div class="rl-dim">${t('hud.fire.outOfReach', { weapon: escapeHtml(weaponName(reach.weapon)), n: reach.tiles })}</div>`
       );
     }
 
@@ -1921,11 +1922,12 @@ export class Hud {
   ): string {
     const src = this.deps.portrait?.(typeId, slot) ?? null;
     if (src === null) {
-      // Same wording as the brigade screen's own art gap (`brigade.art.noSprite`
-      // -- `{id} — no portrait`, `en.json`): one sentence for "this type
-      // has no picture", wherever it is drawn.
+      // Same wording as the brigade screen's own art gap (`brigade.art.noSprite`,
+      // `en.json`): one sentence for "this type has no picture", wherever it
+      // is drawn -- by the unit's name, never its id (PA-01).
+      const typeName = this.deps.sim.unitTypes.find((u) => u.id === typeId)?.name ?? '';
       return (
-        `<div class="${cls}" data-nosprite="1" title="${escapeHtml(t('brigade.art.noSprite', { id: typeId }))}">` +
+        `<div class="${cls}" data-nosprite="1" title="${escapeHtml(t('brigade.art.noSprite', { name: typeName }))}">` +
         `${roleBadgeSvg(bucket, markSize)}</div>`
       );
     }
@@ -2001,7 +2003,7 @@ export class Hud {
       for (const w of type.weapons) {
         const pen = fx.toNumber(w.penetration);
         arms.push(
-          `<div>${t('hud.card.weapon', { id: escapeHtml(w.id), effective: fx.toNumber(w.effectiveRange).toFixed(1), range: fx.toNumber(w.range).toFixed(0) })}` +
+          `<div>${t('hud.card.weapon', { weapon: escapeHtml(weaponName(w.id)), effective: fx.toNumber(w.effectiveRange).toFixed(1), range: fx.toNumber(w.range).toFixed(0) })}` +
             (pen > 0 ? ` · ${t('hud.card.weaponPen', { n: pen.toFixed(0) })}` : '') +
             (fx.toNumber(w.collateralRisk) >= 0.5 ? ` <span class="rl-warn">${symbolLabel('heavy', t('hud.card.weaponHeavy'))}</span>` : '') +
             `</div>`

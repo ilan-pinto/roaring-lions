@@ -28,12 +28,12 @@ describe('1. failureReason: a lost mission names the primary that lost it, and w
   ];
   it('a failed objective', () => {
     expect(failureReason({ objective: 'level_the_stone_post' }, objs, 300 * S)).toBe(
-      'FAILED — Level the post on the stone knoll inside five minutes · 5:00'
+      'Objective failed: Level the post on the stone knoll inside five minutes · 5:00'
     );
   });
   it('a wiped force and a Conduct collapse', () => {
-    expect(failureReason('force_destroyed', objs, 61 * S)).toBe('FAILED — every unit lost · 1:01');
-    expect(failureReason('roe_collapse', objs, 61 * S)).toBe('FAILED — Conduct fell below the floor · 1:01');
+    expect(failureReason('force_destroyed', objs, 61 * S)).toBe('Every unit lost · 1:01');
+    expect(failureReason('roe_collapse', objs, 61 * S)).toBe('Conduct fell below the mission floor · 1:01');
   });
   it('nothing when the mission is not lost', () => {
     expect(failureReason(undefined, objs, 300 * S)).toBeNull();
@@ -79,7 +79,7 @@ describe('1. failureReason: a lost mission names the primary that lost it, and w
     }
     expect(rt.result).toBe('defeat');
     expect(failureReason(rt.defeatCause, rt.objectiveList, end)).toBe(
-      'FAILED — Level the post on the stone knoll inside five minutes · 5:00'
+      'Objective failed: Level the post on the stone knoll inside five minutes · 5:00'
     );
   });
 });
