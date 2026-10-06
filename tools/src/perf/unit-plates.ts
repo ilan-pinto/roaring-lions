@@ -229,7 +229,7 @@ interface LionsWindow {
       height: number;
       blocked: Uint8Array;
       entityCount: number;
-      state: { alive: Uint8Array; side: Uint8Array; brace?: Uint8Array };
+      state: { alive: Uint8Array; side: Uint8Array };
       unitTypes: { id: string }[];
       spawn(typeIdx: number, side: number, x: number, y: number): number;
       removeFromPlay(id: number): void;
@@ -237,6 +237,7 @@ interface LionsWindow {
     renderer: {
       camera: { x: number; y: number; zoom: number };
       setDebugLayerVisible(name: string, visible: boolean): number;
+      setDebugHoldStanding?(on: boolean): number;
       frame(alpha: number, dtMs: number): void;
       worldToScreen(wx: number, wy: number): { x: number; y: number };
     };
@@ -512,6 +513,17 @@ async function runCapture(): Promise<void> {
     // infantry plates re-shot on 6 Oct, against 143-280 x 163-240 before
     // sway shipped. Hiding `wind` drives `uSwayAmp` to 0, both frames.
     await page.evaluate(() => (window as unknown as LionsWindow).__lions.renderer.setDebugLayerVisible('wind', false));
+    // Standing, by the lead's choice (6 Oct): since #402 a stationary man
+    // takes a knee within one tick, and the plates show him upright. A
+    // renderer-side, capture-only override (`ThreeRenderer.debugHoldStanding`)
+    // -- the sim still braces; nothing here writes sim state. Refused rather
+    // than skipped when the renderer lacks it: a kneeling plate would ship
+    // looking plausible.
+    await page.evaluate(() => {
+      const r = (window as unknown as LionsWindow).__lions.renderer;
+      if (typeof r.setDebugHoldStanding !== 'function') throw new Error('renderer has no setDebugHoldStanding');
+      r.setDebugHoldStanding(true);
+    });
 
     // Strip EVERY unit `showSandbox` fields by default (`sandbox-force.ts`'s
     // `SANDBOX_KDF` and `SANDBOX_ENEMY`) before anything else runs -- both
@@ -671,22 +683,6 @@ async function runCapture(): Promise<void> {
     for (const id of wanted) {
       const entity = await spawnAt(id);
       await page.evaluate(() => (window as unknown as LionsWindow).__lions.step(2));
-      // A man who has stopped takes a knee (the sim's brace, PR #402), and
-      // two ticks catches him HALFWAY down -- the drop is KNEEL_DROP_TICKS.
-      // Step on, one tick at a time, until he is no longer dropping, so the
-      // plate shows a settled pose. A unit that does not halt to fire stays
-      // at BRACE_NONE (0) and takes no extra tick: every vehicle plate's
-      // protocol is unchanged.
-      const settleTicks = await page.evaluate((e) => {
-        const L = (window as unknown as LionsWindow).__lions;
-        let n = 0;
-        while (L.sim.state.brace?.[e] === 1 && n < 40) {
-          L.step(1);
-          n++;
-        }
-        return n;
-      }, entity);
-      if (settleTicks > 0) console.log(`[${TAG}] ${id}: ${settleTicks} more tick(s) to settle the brace`);
       await page.evaluate(() => (window as unknown as LionsWindow).__lions.renderer.frame(1, 0));
 
       // Retried, not a bare call: measured under SwiftShader with several
