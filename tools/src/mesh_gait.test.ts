@@ -35,6 +35,7 @@ import {
   measureFootSkate,
   measureHipHeight,
   measureJointPoses,
+  measureLowestVertex,
   measureMarkerFacing,
   measurePlantedGround,
   measureRoleFootprint,
@@ -48,6 +49,7 @@ import {
   type RootTravel,
 } from './mesh_gait';
 import { MIN_GAIT_TRAVEL_M } from './meshes/gait-pass';
+import { MOTION_TEAMS } from './meshes/motion/teams';
 import { RIGGED_UNIT_MESHES } from '../../packages/app/src/mesh-catalogue';
 // Task 7, and the brief spells this out: `@lions/tools` deliberately does not
 // depend on `@lions/render`, but `mesh-anim.ts` imports only a TYPE from
@@ -2392,6 +2394,75 @@ describe('a ground prop is packed away while the team moves', () => {
           else expect(prop!.scale, `${r.file} ${clip} ${at}`).toBeGreaterThan(0.999);
         }
       });
+    }
+  }
+});
+
+/**
+ * A kneeling man stays ON the ground (kneel-toe, 6 Oct): in `kneel`,
+ * `kneelIn` and `kneelOut`, every kneeling figure's lowest vertex -- any
+ * role, any joint, at every key and every midpoint between two keys
+ * (`measureLowestVertex`) -- sits at or above the ground and no more than a
+ * centimetre over it. Under it, the occlusion outline (`units/silhouette.ts`)
+ * draws the buried geometry as a blue speck; over it, the man hovers.
+ *
+ * Read on main's bytes before the fix (`0f03d6b5`/`ebbac483`): the back
+ * toe 3.8 mm under in inf_squad's `kneel`, 46-94 mm in every other team's,
+ * and 134-202 mm in the transitions, which were lerped joint by joint with
+ * no ground at all; yahalom's unarmed yah_a also had a hand 36 mm in. The
+ * motion pass's own guard printed "0.000 m under" over inf_squad's toe: it
+ * read the boot's shaft. After: 1.6-3.2 mm at every sample, 6.9 mm at the
+ * highest (zk_spot rising).
+ *
+ * Literals, not the pass's `KNEEL_GROUND_CLEAR`: the ground is the
+ * armature's y = 0, and the ceiling is the brief's centimetre.
+ */
+const KNEEL_GROUND_M = 0;
+const KNEEL_HOVER_MAX_M = 0.01;
+
+/**
+ * Below the ground in the kneel clips and NOT this gate's to fix: neither is
+ * a figure the motion pass kneels, and both sit there in `idle` too. Read
+ * 6 Oct; asserted still under, so a fix fails here and must delete the line.
+ */
+const UNDER_GROUND_RECORDED: Readonly<Record<string, string>> = {
+  'manpad_team mpd_spot_root': 'the importer\'s static kneeling spotter: shin_r 18-24 mm under in idle and every kneel clip',
+  'recon_zikit prop': 'the tripod scope: 2.7 mm under, set down in idle and every kneel clip',
+};
+
+describe('kneeling on the ground -- no kneeler below it, none floating', () => {
+  const KNEELERS = Object.entries(MOTION_TEAMS).flatMap(([team, spec]) =>
+    spec.kneel ? spec.figures.filter((f) => f.kneels).map((f) => ({ team, root: `${f.prefix}_root` })) : []
+  );
+  const TEAMS = [...new Set(KNEELERS.map((k) => k.team))];
+  const CLIPS = ['kneel', 'kneelIn', 'kneelOut'];
+
+  it('reads every figure the motion pass kneels', () => {
+    // 3 + 3 + 2 + 2 + 2 + 2 + 1 + 2 + 3: inf, sarim, militia, yahalom, rpg,
+    // demo, the MANPAD gunner, the Spike team and the Zikit.
+    expect(KNEELERS).toHaveLength(20);
+    expect(TEAMS).toHaveLength(9);
+  });
+
+  for (const team of TEAMS) {
+    for (const clip of CLIPS) {
+      it(`${team} ${clip}: every kneeler's lowest vertex in [${KNEEL_GROUND_M}, ${KNEEL_HOVER_MAX_M}] m`, () => {
+        const read = measureLowestVertex(`${MESHES}${team}.glb`, clip);
+        for (const k of KNEELERS.filter((x) => x.team === team)) {
+          const f = read.find((r) => r.root === k.root);
+          expect(f, `${team} ${clip}: ${k.root} never drawn`).toBeDefined();
+          expect(f!.instants, `${team} ${clip} ${k.root}: instants`).toBeGreaterThan(2);
+          expect(f!.lowestM, `${team} ${clip} ${k.root}: lowest vertex (${f!.joint} at ${f!.atS.toFixed(3)} s)`).toBeGreaterThanOrEqual(KNEEL_GROUND_M);
+          expect(f!.floatM, `${team} ${clip} ${k.root}: lowest vertex at its highest instant`).toBeLessThanOrEqual(KNEEL_HOVER_MAX_M);
+        }
+        for (const [key, why] of Object.entries(UNDER_GROUND_RECORDED)) {
+          const [t, root] = key.split(' ');
+          if (t !== team) continue;
+          const f = read.find((r) => r.root === root);
+          expect(f, `${key}: recorded, but not in the file`).toBeDefined();
+          expect(f!.lowestM, `${key} (${why}) is out of the ground now -- delete its line`).toBeLessThan(KNEEL_GROUND_M);
+        }
+      }, 60_000);
     }
   }
 });

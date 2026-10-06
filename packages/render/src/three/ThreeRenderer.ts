@@ -1692,6 +1692,15 @@ export class ThreeRenderer implements Renderer {
    */
   private unitsDebugHidden = false;
   /**
+   * A capture-only override (the garage plates, 6 Oct): every unit is drawn
+   * STANDING, whatever the sim's brace says. Since #402 a stationary man
+   * takes a knee, so a unit spawned for a portrait drops within one tick;
+   * the lead wants the plates upright. Presentation only -- the sim still
+   * braces, the stance machine is simply not asked -- and set by nothing but
+   * `setDebugHoldStanding`, which only a capture tool calls.
+   */
+  private debugHoldStanding = false;
+  /**
    * Unit types whose GLB FAILED to load, with the URL that failed (WP-A3.3,
    * ruling 2). A type here with no template draws `proxyBoxes` instead of
    * nothing -- see `units/proxy-box.ts`. A type merely not loaded YET (a
@@ -3122,6 +3131,14 @@ export class ThreeRenderer implements Renderer {
    * the gate's case, which makes the pair differ by the layer and nothing
    * else.
    */
+  /** See `debugHoldStanding`. Returns 1 when the flag changed, 0 when it
+   *  was already there -- `setDebugLayerVisible`'s shape. */
+  setDebugHoldStanding(on: boolean): number {
+    const changed = this.debugHoldStanding === on ? 0 : 1;
+    this.debugHoldStanding = on;
+    return changed;
+  }
+
   setDebugLayerVisible(name: string, visible: boolean): number {
     if (!isDebugLayer(name)) throw new Error(unknownDebugLayerMessage(name));
     switch (name) {
@@ -6032,11 +6049,13 @@ export class ThreeRenderer implements Renderer {
       const nowS = presentationSimMs(this.sim.tickCount, alpha) / 1000;
       // The kneel (`units/stance.ts`): the sim's brace when it has one (#402),
       // otherwise "stationary and fired in the last few seconds".
-      const reading = stanceOf(this.sim, i, alpha, {
-        speed: anim.speed,
-        sinceShotS: nowS - this.lastShotSimS[i],
-        prevDepth: this.unitDepth[i],
-      });
+      const reading = this.debugHoldStanding
+        ? { stance: 'none' as const, progress: 0, fromSim: true }
+        : stanceOf(this.sim, i, alpha, {
+            speed: anim.speed,
+            sinceShotS: nowS - this.lastShotSimS[i],
+            prevDepth: this.unitDepth[i],
+          });
       const depthTarget = reading.fromSim
         ? stanceDepth(reading.stance, reading.progress)
         : reading.stance === 'dropping' || reading.stance === 'kneeling'

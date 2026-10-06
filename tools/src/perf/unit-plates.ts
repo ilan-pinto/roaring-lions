@@ -238,6 +238,7 @@ interface LionsWindow {
     renderer: {
       camera: { x: number; y: number; zoom: number };
       setDebugLayerVisible(name: string, visible: boolean): number;
+      setDebugHoldStanding?(on: boolean): number;
       frame(alpha: number, dtMs: number): void;
       worldToScreen(wx: number, wy: number): { x: number; y: number };
     };
@@ -473,6 +474,16 @@ async function runCapture(): Promise<void> {
     // file's own top comment) -- a timeout here is a false failure, not a
     // real one, the capture just needs more wall clock.
     page.setDefaultTimeout(180000);
+    // Music off before boot -- the lead's rule for every test browser. The
+    // `version: 1` is load-bearing: `settings.ts` returns its defaults
+    // (music on) for an object without it.
+    await page.addInitScript(() => {
+      try {
+        window.localStorage.setItem('lions.settings', JSON.stringify({ version: 1, audio: { music: 0 } }));
+      } catch {
+        /* storage blocked: the page boots with its defaults */
+      }
+    });
     page.on('console', (msg) => {
       if (msg.type() === 'error' || msg.type() === 'warning') console.log(`  page ${msg.type()}: ${msg.text()}`);
     });
@@ -496,6 +507,25 @@ async function runCapture(): Promise<void> {
 
     await page.evaluate(() => (window as unknown as LionsWindow).__lions.renderer.setDebugLayerVisible('overlays', false));
     await page.evaluate(() => (window as unknown as LionsWindow).__lions.renderer.setDebugLayerVisible('fog', false));
+    // Foliage at rest. Sway runs on the SIM clock (`terrain/sway.ts`), and
+    // every capture below steps the sim between the empty-ground reference
+    // and the unit's own frame -- so with sway on, every grass tuft in the
+    // clip moved between the two, and the extent was the bounding box of the
+    // tufts rather than of the unit: 1315-1441 x 778-787 px on all five
+    // infantry plates re-shot on 6 Oct, against 143-280 x 163-240 before
+    // sway shipped. Hiding `wind` drives `uSwayAmp` to 0, both frames.
+    await page.evaluate(() => (window as unknown as LionsWindow).__lions.renderer.setDebugLayerVisible('wind', false));
+    // Standing, by the lead's choice (6 Oct): since #402 a stationary man
+    // takes a knee within one tick, and the plates show him upright. A
+    // renderer-side, capture-only override (`ThreeRenderer.debugHoldStanding`)
+    // -- the sim still braces; nothing here writes sim state. Refused rather
+    // than skipped when the renderer lacks it: a kneeling plate would ship
+    // looking plausible.
+    await page.evaluate(() => {
+      const r = (window as unknown as LionsWindow).__lions.renderer;
+      if (typeof r.setDebugHoldStanding !== 'function') throw new Error('renderer has no setDebugHoldStanding');
+      r.setDebugHoldStanding(true);
+    });
 
     // Strip EVERY unit `showSandbox` fields by default (`sandbox-force.ts`'s
     // `SANDBOX_KDF` and `SANDBOX_ENEMY`) before anything else runs -- both
