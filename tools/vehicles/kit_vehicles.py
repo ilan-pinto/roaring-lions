@@ -184,7 +184,7 @@ def _flat_spot(tree, x, y, half, step=0.02, flat=0.03, reach=(0.5, 0.3)):
     raise RuntimeError(f"no deck flat to {flat} m within {reach} m inboard of ({x}, {y})")
 
 
-def _seat_shift(tree, M, size, into, proud=0.004, grid=3, reach=0.3):
+def _seat_shift(tree, M, size, into, proud=0.004, grid=3, reach=0.3, max_out=0.03):
     """How far to move a part in its local frame `M` (a box of `size`)
     along the local unit direction `into` (pointing INTO the hull) so that
     its hull-facing face touches the hull at the nearest point, `proud`
@@ -207,12 +207,28 @@ def _seat_shift(tree, M, size, into, proud=0.004, grid=3, reach=0.3):
                 gaps.append(hit[3] - reach)
     if not gaps:
         return 0.0, (None, None)
-    return min(gaps) - proud, (min(gaps), max(gaps))
+    # never pushed out more than `max_out`: a ledge or a stowage box standing
+    # proud of the side would otherwise throw a whole brick off the hull
+    return max(min(gaps) - proud, -max_out), (min(gaps), max(gaps))
 
 
 def _shifted(M, into, d):
     from mathutils import Matrix
     return Matrix.Translation((M.to_3x3() @ Vector(into)).normalized() * d) @ M
+
+
+def _barrel_r(H, node, gun, x):
+    """The barrel's own radius at station x (rays in from 12 directions
+    round the axis `gun` reads), so a shroud closes onto it."""
+    tree = _tree(H, (node,))
+    rs = []
+    for k in range(12):
+        a = 2.0 * math.pi * k / 12
+        d = Vector((0.0, math.cos(a), math.sin(a)))
+        hit = tree.ray_cast(Vector((x, gun[2], gun[3])) + d * 0.5, -d)
+        if hit[0] is not None:
+            rs.append(0.5 - hit[3])
+    return max(rs)
 
 
 def _side_slope(H, x, s, z0, z1):
@@ -453,7 +469,9 @@ def parts_ifv_namer(H):
             for i in range(n):
                 xc = x0 + step * (i + 0.5)
                 M = kp.place((xc, s * (sy2 + 0.12), 2.15), rx=s * lean)
-                d, _g = _seat_shift(hull, M, size, (0, -s, 0))
+                # a smooth side with nothing standing proud of it: let a
+                # brick come out as far as its lower edge needs
+                d, _g = _seat_shift(hull, M, size, (0, -s, 0), max_out=0.10)
                 out += kp.era_brick(f"a2_era{tag}{i}", size, _shifted(M, (0, -s, 0), d), s,
                                     bolts=((-0.3, 0.3), (0.3, 0.3)), plate_inset=0.06)
         return out
@@ -555,4 +573,294 @@ def parts_ifv_namer(H):
     ]
 
 
-PARTS_DETAILED = {"mbt_lavi": parts_mbt_lavi, "ifv_namer": parts_ifv_namer}
+# ---------------------------------------------------------------------------
+# shared by the wheeled carriers
+# ---------------------------------------------------------------------------
+
+def _corner_cams(H, specs, size, roof_tree, face_lateral=True, post=False, prefix="s2_cam"):
+    """Panoramic camera heads at `specs` [(x, y, angle, z_centre)], each a
+    housing with a recessed window looking out sideways, on a plinth or a
+    post down to the roof."""
+    out = []
+    for i, (x, y, a, zc) in enumerate(specs):
+        M = kp.place((x, y, zc), rz=a)
+        out.append(kp.camera_head(f"{prefix}{i}", size, M, face=(0, math.copysign(1, y), 0),
+                                  window=(size[0] * 0.6, 0.07), centre=(0.0, size[2] * 0.2)))
+        ground = roof_tree.ray_cast(Vector((x, y, zc - size[2] / 2 - 0.002)), Vector((0, 0, -1)))
+        gz = ground[0].z if ground[0] is not None else zc - size[2] / 2 - 0.05
+        bottom = zc - size[2] / 2
+        if bottom - gz > 0.004:
+            if post:
+                out.append(kp.tube(f"{prefix}_post{i}", (x, y, bottom + 0.005), (x, y, gz - 0.01), 0.035, sides=8,
+                                   cap0=False, cap1=False, ground=True))
+            else:
+                out.append(kp.plain_box(f"{prefix}_plinth{i}", (size[0] * 0.8, size[1] * 0.8, bottom - gz + 0.02),
+                                        kp.place((x, y, (bottom + gz) / 2), rz=a), tone="metal",
+                                        drop=((0, 0, 1), (0, 0, -1)), mount=True))
+    return out
+
+
+def _cage(H, prefix, panels, brackets_z, side_reach=0.8, rear_reach=1.0):
+    """Slat panels [(name, p0, p1, z0, z1, kwargs)] and welded struts from
+    their posts back to the hull at `brackets_z` heights: rear panels (p0.x ==
+    p1.x) strut forward along +X, side panels inward along -Y*sign."""
+    out = []
+    hull = H.hull
+    for name, p0, p1, z0, z1, kw in panels:
+        pieces, posts = kp.slat_panel(f"{prefix}{name}", p0, p1, z0, z1, **kw)
+        out += pieces
+        skip = set(kw.get("skip_posts", ()))
+        rear = abs(p0[0] - p1[0]) < 1e-6
+        for i, p in enumerate(posts):
+            if i in skip or (rear and i in (0, len(posts) - 1)):
+                continue
+            for k, z in enumerate(brackets_z):
+                if not (z0 < z < z1):
+                    continue
+                if rear:
+                    sgn = 1.0 if p.x < 0 else -1.0
+                    hit = _toward(hull, (p.x + sgn * 0.03, p.y, z), (sgn, 0, 0), (p.x + sgn * 9, p.y, z))
+                    if abs(hit.x - p.x) < rear_reach:
+                        out += kp.strut(f"{prefix}{name}_br{i}{k}", (p.x + sgn * 0.024, p.y, z), hit, pad=0)
+                else:
+                    sg = 1.0 if p.y > 0 else -1.0
+                    hit = _toward(hull, (p.x, p.y - sg * 0.03, z), (0, -sg, 0), (p.x, p.y - sg * 9, z))
+                    if abs(hit.y - p.y) < side_reach:
+                        out += kp.strut(f"{prefix}{name}_br{i}{k}", (p.x, p.y - sg * 0.024, z), hit, pad=0)
+    return out
+
+
+def _mast_head(H, prefix, xy, top_z, radii, flange_r, head=None, ball=None, drum=None, sections=3, bolts=2,
+               sides=8, tree=None):
+    """A telescoping mast standing on the roof under `xy`, its stages sized so
+    its top is the blockout's mast top `top_z`, with a box head (size), a
+    sensor ball (radius) or an EO drum ((r, h)) on top."""
+    lo, hi = _seat(tree or H.all, xy[0], xy[1], flange_r)
+    ft = hi + 0.014
+    h = (top_z - ft) / sections
+    out, top = kp.telescoping_mast(f"{prefix}_mast", xy, lo, hi, (h,) * sections, radii, flange_r, sides=sides,
+                                   bolts=bolts)
+    if head is not None:
+        c = Vector((xy[0], xy[1], top + head[2] / 2 - 0.004))
+        out.append(kp.camera_head(f"{prefix}_head", head, kp.place(c), window=(head[1] * 0.6, head[2] * 0.3),
+                                  centre=(0.0, head[2] * 0.08)))
+        out.append(kp.chamfered_box(f"{prefix}_win2", (0.012, head[1] * 0.5, head[2] * 0.3),
+                                    kp.place((c.x - head[0] / 2 - 0.004, c.y, c.z + head[2] * 0.08)), tone="dark",
+                                    chamfer=0.004, drop=((1, 0, 0),)))
+    if ball is not None:
+        out += kp.sensor_ball(f"{prefix}_ball", (xy[0], xy[1], top + ball), ball, segments=8, rings=5)
+    if drum is not None:
+        r, dh = drum
+        out += kp.eo_drum(f"{prefix}_drum", xy, top - 0.004, r=r, h=dh, sides=12)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# apc_eitan
+# ---------------------------------------------------------------------------
+
+def parts_apc_eitan(H):
+    if not isinstance(H, Hull):
+        raise TypeError("pass a kit_blockout.Hull")
+    roof = 2.62
+    tlo, thi = H.bounds("turret_metal")
+    gun = barrel(H, "turret_metal", 1.05)
+    hull = H.hull
+    rws = _tree(H, ("turret_metal", "turret_plate"))
+
+    def a1():
+        out = []
+        for tag, y in (("L", 0.62), ("R", -0.62)):
+            size = (0.95, 1.05, 0.09)
+            M = kp.place((2.55, y, 2.00), ry=13)
+            d, _g = _seat_shift(hull, M, size, (0, 0, -1))
+            out += kp.armour_plate(f"a1_nose{tag}", size, _shifted(M, (0, 0, -1), d),
+                                   bolts=((-0.4, -0.4), (0.4, -0.4), (-0.4, 0.4), (0.4, 0.4)), panel_inset=0.07)
+        # the bow plate stands in front of the nose: local Z is its face, +X
+        size = (0.50, 2.30, 0.10)
+        M = kp.frame((3.62, 0.0, 1.25), (0, 0, 1), (1, 0, 0))
+        d, _g = _seat_shift(hull, M, (0.50, 2.30, 0.10), (0, 0, -1))
+        out += kp.armour_plate("a1_bow", (0.50, 2.30, 0.10), _shifted(M, (0, 0, -1), d),
+                               bolts=((-0.3, -0.42), (0.3, -0.42), (-0.3, 0.42), (0.3, 0.42), (0.0, 0.0)))
+        return out
+
+    def a2():
+        out = []
+        size = (1.05, 0.12, 0.50)
+        for i, x in enumerate((-2.05, -0.95, 0.75, 2.45)):
+            for tag, s in (("L", 1), ("R", -1)):
+                lean = _side_slope(H, x, s, 1.55, 1.90)
+                M = kp.place((x, s * 1.56, 1.72), rx=s * lean)
+                d, _g = _seat_shift(hull, M, size, (0, -s, 0))
+                out += kp.era_brick(f"a2_m{i}{tag}", size, _shifted(M, (0, -s, 0), d), s,
+                                    bolts=((-0.38, 0.3), (0.38, 0.3), (-0.38, -0.3), (0.38, -0.3)), plate_inset=0.07)
+        return out
+
+    def a3():
+        return _cage(H, "a3_", [
+            ("sL", (-3.25, 2.00), (3.05, 2.00), 0.95, 2.05, {"post_every": 1.05}),
+            ("sR", (-3.25, -2.00), (3.05, -2.00), 0.95, 2.05, {"post_every": 1.05}),
+            ("rr", (-3.95, 2.00), (-3.95, -2.00), 0.65, 2.25, {}),
+        ], (1.10, 1.85))
+
+    def s1():
+        px, py = 1.25, 0.62
+        lo, hi = _seat(H.all, px, py, 0.14)
+        bottom = roof + 0.20
+        return (kp.pedestal("s1_ped", (px, py), lo, hi, bottom + 0.01, 0.11, 0.14, bolts=3, bolt_r=0.125)
+                + kp.sight_head("s1_head", (1.28, 0.62), bottom, size=(0.38, 0.30, 0.28), body_h=0.22,
+                                window=(0.22, 0.07), hood=(0.37, 0.32, 0.06), door=(0.014, 0.20, 0.12)))
+
+    def s2():
+        specs = [(x, y, a, H.top(x, y, roof, hull) + 0.20)
+                 for (x, y, a) in [(1.95, 1.05, 45), (1.95, -1.05, -45), (-2.95, 1.0, -45), (-2.95, -1.0, 45)]]
+        return _corner_cams(H, specs, (0.46, 0.10, 0.38), hull)
+
+    def s3():
+        r = 0.075
+        return _mast_head(H, "s3", (-3.05, -0.80), roof + 2.0, (r, r * 0.78, r * 0.56), 0.11,
+                          head=(0.50, 0.38, 0.30))
+
+    # F1 hangs OUTBOARD of the station, below its top: on top it raised the
+    # station's bounds 0.24 m and the gate's IoU against gun_truck read 0.8804
+    # (spec section 4); hung here it read 0.8326
+    def f1():
+        c = Vector((-0.60, 0.88, thi.z - 0.14))
+        out = kp.sight_box("f1_th", c, (0.32, 0.24, 0.24), (0.16, 0.07), window_centre=(0.0, 0.02),
+                           visor=(0.07, 0.26, 0.025), visor_drop=0.085)
+        a0 = c - Vector((0, 0.12, 0))
+        hit = _toward(rws, a0, (0, -1, 0), a0 - Vector((0, 0.1, 0)))
+        if (hit - a0).length > 0.004:
+            out.append(kp.bar("f1_arm", a0, hit - Vector((0, 0.01, 0)), 0.03, tone="metal", mount=True))
+        return out
+
+    def f2():
+        x0, x1, gy, gz = gun
+        a, c = x0 + (x1 - x0) * 0.15, x0 + (x1 - x0) * 0.85
+        r_in = _barrel_r(H, "turret_metal", gun, (a + c) / 2) * 0.97
+        out = kp.barrel_shroud("f2_sh", gy, gz, a, c, 0.05, 0.062, r_in)
+        out += kp.ammo_box("f2_box", (0.52, 0.24, 0.36), kp.place((-0.85, 0.90, 3.06)), lid_h=0.04, handle=False)
+        out += kp.feed_chute("f2_chute", [(-0.70, 0.80, 3.16), (-0.62, 0.74, 3.16), (-0.52, 0.70, 3.14)], w=0.08)
+        return out
+
+    def f3():
+        return kp.cowl("f3_cowl", (-0.55, 0.40, 3.08), 0.95, 1.05, 0.46)
+
+    return [
+        ("armour", 1, "hull_hull", "nose applique plates + bow plate", a1),
+        ("armour", 2, "hull_hull", "upper-side armour modules, 4 a side", a2),
+        ("armour", 3, "hull_hull", "slat cage over the sides and rear", a3),
+        ("sensors", 1, "hull_hull", "commander's sight head", s1),
+        ("sensors", 2, "hull_hull", "four panoramic camera heads at the roof corners", s2),
+        ("sensors", 3, "hull_hull", "telescopic sensor mast with a sensor head", s3),
+        ("firepower", 1, "turret_metal", "thermal sight block outboard of the RWS", f1),
+        ("firepower", 2, "turret_metal", ".50 heat shroud + ammunition box with feed chute", f2),
+        ("firepower", 3, "turret_metal", "armoured cowl round the weapon station", f3),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# apc_kipod
+# ---------------------------------------------------------------------------
+
+def parts_apc_kipod(H):
+    if not isinstance(H, Hull):
+        raise TypeError("pass a kit_blockout.Hull")
+    roof = 2.96
+    tlo, thi = H.bounds("turret_metal")
+    gun = barrel(H, "turret_metal", 1.05)
+    hull = H.hull
+    rws = _tree(H, ("turret_metal", "turret_plate"))
+
+    def a1():
+        out = []
+        size = (0.55, 0.62, 0.13)
+        for r in range(2):
+            for c in range(4):
+                M = kp.place((2.35 + 0.55 * r, -0.99 + 0.66 * c, 2.42 - 0.30 * r), ry=25)
+                d, _g = _seat_shift(hull, M, size, (0, 0, -1))
+                out += kp.armour_plate(f"a1_era{r}{c}", size, _shifted(M, (0, 0, -1), d),
+                                       bolts=((-0.3, -0.3), (0.3, 0.3)), panel_inset=0.05)
+        return out
+
+    def a2():
+        out = []
+        x0, x1, n = -2.7, 2.4, 6
+        step = (x1 - x0) / n
+        size = (min(0.78, step * 0.94), 0.16, 0.42)
+        for tag, s in (("L", 1), ("R", -1)):
+            for i in range(n):
+                M = kp.place((x0 + step * (i + 0.5), s * 1.64, 1.82))
+                d, _g = _seat_shift(hull, M, size, (0, -s, 0))
+                out += kp.era_brick(f"a2_era{tag}{i}", size, _shifted(M, (0, -s, 0), d), s,
+                                    bolts=((-0.3, 0.3), (0.3, 0.3)), plate_inset=0.06)
+        return out
+
+    def a3():
+        return _cage(H, "a3_", [
+            ("slR", (-4.00, 2.05), (-4.00, -2.05), 0.70, 2.55, {}),
+            ("slSL", (-4.00, 2.05), (-2.40, 2.05), 0.70, 2.55, {"skip_posts": (0,)}),
+            ("slSR", (-4.00, -2.05), (-2.40, -2.05), 0.70, 2.55, {"skip_posts": (0,)}),
+        ], (1.20, 2.10))
+
+    def s1():
+        px, py = 1.55, 0.70
+        lo, hi = _seat(H.all, px, py, 0.14)
+        bottom = roof + 0.20
+        return (kp.pedestal("s1_ped", (px, py), lo, hi, bottom + 0.01, 0.11, 0.14, bolts=3, bolt_r=0.125)
+                + kp.sight_head("s1_head", (1.58, 0.70), bottom, size=(0.38, 0.30, 0.28), body_h=0.22,
+                                window=(0.22, 0.07), hood=(0.37, 0.32, 0.06), door=(0.014, 0.20, 0.12)))
+
+    def s2():
+        px, py = 1.85, -0.70
+        lo, hi = _seat(H.all, px, py, 0.104)
+        ant = Vector((px, py, roof + 0.62))
+        out = kp.pedestal("s2_ped", (px, py), lo, hi, ant.z - 0.20, 0.08, 0.104, sides=8, bolts=2, bolt_r=0.092)
+        out += kp.radar_array("s2_ant", kp.place(ant, ry=-12), (0.10, 0.92, 0.44), hinge_knuckle=False)
+        out.append(kp.chamfered_box("s2_yoke", (0.12, 0.20, 0.06), kp.place((px, py, ant.z - 0.225)), tone="metal",
+                                    chamfer=0.006))
+        return out
+
+    def s3():
+        r = 0.07
+        return _mast_head(H, "s3", (-2.95, 0.55), roof + 1.70, (r, r * 0.78, r * 0.56), 0.10, drum=(0.22, 0.26),
+                          bolts=0)
+
+    def f1():
+        c = Vector((-1.25, -0.24, thi.z + 0.12 - 0.003))
+        out = kp.sight_box("f1_th", c, (0.32, 0.24, 0.24), (0.16, 0.07), window_centre=(0.0, 0.02),
+                           visor=(0.07, 0.26, 0.025), visor_drop=0.085)
+        for i, yy in enumerate((c.y - 0.08, c.y + 0.08)):
+            out.append(kp.hex_bolt(f"f1_b{i}", (c.x - 0.10, yy, c.z + 0.12), (0, 0, 1), across=0.022, height=0.008))
+        return out
+
+    def f2():
+        x0, x1, gy, gz = gun
+        a, c = x0 + (x1 - x0) * 0.15, x0 + (x1 - x0) * 0.85
+        r_in = _barrel_r(H, "turret_metal", gun, (a + c) / 2) * 0.97
+        out = kp.barrel_shroud("f2_sh", gy, gz, a, c, 0.045, 0.056, r_in)
+        size = (0.50, 0.24, 0.34)
+        M = kp.place((-1.45, 0.48, 3.62))
+        d, _g = _seat_shift(rws, M, size, (0, -1, 0))
+        out += kp.ammo_box("f2_box", size, _shifted(M, (0, -1, 0), d), lid_h=0.04, handle=False)
+        out += kp.feed_chute("f2_chute", [(-1.30, 0.38, 3.72), (-1.20, 0.32, 3.72), (-1.10, 0.26, 3.70)], w=0.08)
+        return out
+
+    def f3():
+        return kp.cowl("f3_cowl", (-1.10, 0.0, 3.66), 0.95, 1.05, 0.44)
+
+    return [
+        ("armour", 1, "hull_hull", "ERA bank on the nose slope, 2 rows of 4", a1),
+        ("armour", 2, "hull_hull", "second ERA row along each side, 6 a side", a2),
+        ("armour", 3, "hull_hull", "rear slat cage and rear quarters", a3),
+        ("sensors", 1, "hull_hull", "commander's sight head", s1),
+        ("sensors", 2, "hull_hull", "ground-surveillance radar on a roof pedestal", s2),
+        ("sensors", 3, "hull_hull", "telescopic mast with an EO drum", s3),
+        ("firepower", 1, "turret_metal", "thermal sight block on the RWS", f1),
+        ("firepower", 2, "turret_metal", "heat shroud + ammunition box with feed chute", f2),
+        ("firepower", 3, "turret_metal", "armoured cowl round the weapon station", f3),
+    ]
+
+
+PARTS_DETAILED = {"mbt_lavi": parts_mbt_lavi, "ifv_namer": parts_ifv_namer,
+                  "apc_eitan": parts_apc_eitan, "apc_kipod": parts_apc_kipod}

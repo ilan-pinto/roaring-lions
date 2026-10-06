@@ -864,7 +864,7 @@ def feed_chute(name, pts, w=0.08, tone="metal"):
     return [sweep(name, pts, w / math.sqrt(2.0), sides=4, closed=False, tone=tone, smooth=False, spin=45.0)]
 
 
-def radar_array(name, M, size, tone="metal"):
+def radar_array(name, M, size, hinge_knuckle=True, tone="metal"):
     """A flat radar antenna in frame `M` (x thick, y wide, z high; its face
     toward local +X): a chamfered body, a raised dark-edged face panel, and a
     rear hinge knuckle along the top."""
@@ -872,11 +872,12 @@ def radar_array(name, M, size, tone="metal"):
     out.append(chamfered_box(f"{name}_face", (0.012, size[1] - 0.06, size[2] - 0.06),
                              M @ place((size[0] / 2 + 0.006, 0, 0)), tone="dark", chamfer=0.004,
                              drop=((-1, 0, 0),)))
-    R = M.to_3x3()
-    c = M.translation
-    a = c + R @ Vector((-size[0] / 2 - 0.012, -size[1] * 0.3, size[2] * 0.3))
-    b = c + R @ Vector((-size[0] / 2 - 0.012, size[1] * 0.3, size[2] * 0.3))
-    out += hinge(f"{name}_hinge", a, b, r=0.016)
+    if hinge_knuckle:
+        R = M.to_3x3()
+        c = M.translation
+        a = c + R @ Vector((-size[0] / 2 - 0.012, -size[1] * 0.3, size[2] * 0.3))
+        b = c + R @ Vector((-size[0] / 2 - 0.012, size[1] * 0.3, size[2] * 0.3))
+        out += hinge(f"{name}_hinge", a, b, r=0.016)
     return out
 
 
