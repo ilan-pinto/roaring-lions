@@ -72,6 +72,8 @@ import { createShownTimer, loadHintsSeen, markHintSeen, owedRule, type HintConte
 import { portraitIds, unitIcon, unitPlate } from './ui/portrait';
 import { Minimap, MINIMAP_SIZE, flipRows, objectivePoint } from './ui/minimap';
 import { alertsForTick, initAlertState, type AlertWorld } from './ui/alerts';
+import { ALERT_CUE, CRITICAL_CUES, OUTCOME_CUE, tickCue } from './ui/cues';
+import { installConfirmCue } from './ui/confirm-cue';
 import { CivFlightWatch, type CivObservation } from './ui/civ-flight';
 import { refugeJump, sayFlight } from './ui/refuge-ping';
 import { INITIAL_PINNED_NOTE, pinnedOrderNote } from './ui/pinned-order';
@@ -122,6 +124,7 @@ import { doctrineTags } from './ui/dock-model';
 import {
   applyIntent,
   issueOrder,
+  orderDenied,
   resolvePointer,
   resolveKeyVerb,
   type OrderSink,
@@ -667,6 +670,9 @@ async function main(): Promise<void> {
   // free-play picker carry the music too, not just a mission -- and now it
   // outlives all of them, since a route change no longer reloads the page.
   const audio = battleAudio();
+  // UI confirm (polish pass F, A8): one listener for the whole document;
+  // primary actions mark themselves (`markConfirm`) and nothing else sounds.
+  installConfirmCue(document, () => audio.playCue(CRITICAL_CUES.uiConfirm));
 
   // --- settings, on every screen --------------------------------------------
   // Loaded and applied before anything else mounts: `applySettings` (settings.ts)
@@ -2632,7 +2638,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   });
   onDispose(() => {
     voice.dispose();
-    audio.stopVoices();
+    // Every voice, every cue hold, and the music back to the menu's level.
+    audio.leaveMission();
   });
 
   // Task 6: the pause menu. `pause`/`resume` are the only two writers of
@@ -2649,6 +2656,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const pause = (): void => {
     if (paused) return;
     paused = true;
+    // The mix's pause row: every voice stops, the music steps 6 dB down.
+    audio.setPaused(true);
     // Repainted here, not on the next tick: at `paused` no tick ever comes,
     // so a strip that waits for one never dims.
     hud.paintSpeed();
@@ -2695,6 +2704,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const resume = (): void => {
     if (!paused) return;
     paused = false;
+    audio.setPaused(false);
     pauseHandle?.close();
     pauseHandle = null;
     hud.paintSpeed();
@@ -2861,7 +2871,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // Mission start punctuation: the operation names itself before the first
   // order is given. Skippable — a replay for a better ROE should not have to
   // sit through it again.
+  // Polish pass F (A10): the music steps down to the battle level as the
+  // deploy gate clears, and the start cue says the clock is running.
+  audio.setMusicScene('battle');
   if (mission) {
+    audio.playCue(CRITICAL_CUES.missionStart);
     const primaries = mission.objectives.filter((o) => o.primary !== false).length;
     // `dispatch` is the story voice (GDD §11); absent, this card behaves
     // exactly as it always has (`titleCard`'s own contract).
@@ -3073,6 +3087,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     dispatch,
     note: (text, tone) => hud.note(text, tone),
     marker: (x, y) => renderer.addOrderMarker(x, y),
+    // Polish pass F: an order that resolved to nothing says so.
+    deny: () => audio.playCue(CRITICAL_CUES.uiDeny),
   };
 
   // The tutorial gets read-only lookups, never the sim itself — it must not be
@@ -3214,6 +3230,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           ok ? 'info' : 'mute'
         );
         if (ok) renderer.addOrderMarker(w.x, w.y);
+        else audio.playCue(CRITICAL_CUES.uiDeny);
         production?.setArmed(null);
         dragStart = null;
         dragBox.style.display = 'none';
@@ -3246,6 +3263,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             for (const intent of move.intents) dispatch(intent);
             if (move.note) hud.note(move.note.text, move.note.tone);
             if (move.marker) renderer.addOrderMarker(w.x, w.y);
+            if (orderDenied(move, mine.length)) audio.playCue(CRITICAL_CUES.uiDeny);
           }
         }
         dragStart = null;
@@ -3328,6 +3346,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       const o = runtime?.objectiveList.find((x) => x.id === id);
       return o === undefined ? null : objectivePoint(o, map);
     },
+    // Polish pass F (A2): a lost vehicle, aircraft or named veteran is a
+    // major alert. Read off the sim's own type flags and the ledger entry the
+    // memorial below also reads -- both still there at the `unitLost` tick.
+    unitClass: (entity) => {
+      if (entity < 0 || entity >= sim.entityCount) return 'foot';
+      const type = sim.unitTypes[sim.state.typeIdx[entity]];
+      return type?.isAir ? 'air' : type?.wheeled ? 'vehicle' : 'foot';
+    },
+    isNamedVeteran: (entity) => runtime?.rosterEntryOf(entity)?.name !== undefined,
   };
   /** Carried across ticks: when each entity last made the feed. Copy-on-write
    *  inside `alertsForTick`, so this is only ever reassigned, never mutated. */
@@ -3768,11 +3795,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         sim.tickCount
       );
       alertState = nextAlerts;
+      // One cue for the tick, the most urgent (`tickCue`): two chimes at once
+      // read as noise. The feed below still carries every line.
+      const cue = tickCue(alerts.map((a) => a.cue));
+      if (cue) audio.playCue(cue);
       for (const a of alerts) {
         // `alertNotice` escapes the unit NAME `alert.unitLost` interpolates
         // (shell upgrade Phase 3, Task 10); this was `t(key, params)`, raw.
         if (a.line) hud.note(...alertNotice(a.line));
-        if (a.sound) audio.playUi(a.sound);
         if (a.at) {
           minimap.flash([a.at], performance.now());
           lastAlertAt = a.at;
@@ -4024,6 +4054,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             missionEnded = true;
             if (paused) {
               paused = false;
+              audio.setPaused(false);
               pauseHandle?.close();
               pauseHandle = null;
             }
@@ -4063,6 +4094,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // same one where it can be read (the second correction to ruling 9).
             const momentOptions = outcomeMomentOptions(me.result, mission, creditsInfo, missionFailure);
             const moment = outcomeMoment(document.body, momentOptions);
+            // Polish pass F: the verdict is heard. The stinger stops every
+            // voice, fades combat and the music under itself, and holds every
+            // other cue off; the music comes back at the menu's level.
+            audio.playCue(OUTCOME_CUE[me.result]);
+            audio.setMusicScene('menu');
             // Final review, ruling 9: the moment is the verdict, so the HUD's
             // own "Mission accomplished"/"Mission failed" banner stands down
             // rather than sit behind it and stay up over the end screen after
@@ -4285,7 +4321,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       deadlinesWarned = due.warned;
       for (const row of due.warn) {
         hud.note(escapeHtml(deadlineWarningLine(row)), 'warn');
-        audio.playUi('ui_alert');
+        audio.playCue(ALERT_CUE.important);
         voice.onMission([], [{ event: 'deadline', params: { label: row.text } }]);
       }
     }

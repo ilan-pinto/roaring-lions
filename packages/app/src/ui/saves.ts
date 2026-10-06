@@ -19,6 +19,7 @@ import { SAVE_ERROR_NOT_A_SAVE, deleteSlot, exportSlot, importSlot, listSlots, l
 import { confirmDialog } from './confirm';
 import { panel } from './panel';
 import { stagger } from './motion';
+import { markConfirm } from './confirm-cue';
 
 export interface SavesDeps {
   /** The app's one door to the save (`ledger-store.ts`). This screen owns no
@@ -218,6 +219,7 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
   saveBtn.type = 'submit';
   saveBtn.className = 'rl-btn';
   saveBtn.textContent = t('saves.form.save');
+  markConfirm(saveBtn);
   form.append(nameInput, saveBtn);
   form.addEventListener('submit', (e) => {
     e.preventDefault();

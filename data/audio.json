@@ -461,7 +461,7 @@
     }
   },
   "cues": {
-    "$comment": "Polish pass F (docs/polish/audio-plan.md section 3, AU-1): every critical game event names its cue here, and the app plays the cue by this id, never a set name. A value is a set in `sets`, or {\"silent\": reason} for an event that is deliberately quiet. packages/app/src/audio/cues.ts declares the ids as a typed exhaustive record, and cues.test.ts holds this table to it.",
+    "$comment": "Polish pass F (docs/polish/audio-plan.md section 3, AU-1): every critical game event names its cue here, and the app plays the cue by this id, never a set name. A value is a set in `sets`, or {\"silent\": reason} for an event that is deliberately quiet. packages/app/src/audio/cues.ts declares the ids as a typed exhaustive record, and cues.test.ts holds this table to it. The garage's purchase and upgrade cues still play by set name (garage-model.ts's CUE_SET, where #418 adds kit fitted) and are not in this table yet.",
     "outcome.victory": "victory",
     "outcome.defeat": "defeat",
     "objective.active": "objective_new",
@@ -472,9 +472,7 @@
     "alert.major": "alert_major",
     "mission.start": "mission_start",
     "ui.confirm": "ui_confirm",
-    "ui.deny": "ui_deny",
-    "garage.purchase": "ui_purchase",
-    "garage.upgrade": "ui_upgrade"
+    "ui.deny": "ui_deny"
   },
   "voices": {
     "$comment": "Unit voices (WP-AU1, docs/superpowers/specs/2026-09-25-unit-voices-design.md). Keyed <lang>.<class>.<trigger>; every key the director can ask for is declared, and an empty `variants` list means the line is not recorded yet -- the engine plays nothing for it. A variant carries file, alt, license, source, credit, generator, text, translit and en, and `pnpm validate:audio` enforces them. Files landed 2026-09-29 by the lead's decision with the ElevenLabs commercial licence (D5) UNCONFIRMED; see docs/ASSET_PROVENANCE.md.",

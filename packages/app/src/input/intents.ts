@@ -387,6 +387,23 @@ export interface OrderSink {
   dispatch(intent: PlayerIntent): void;
   note(text: string, tone: 'info' | 'mute'): void;
   marker(x: number, y: number): void;
+  /** The order resolved to nothing (`orderDenied`): the deny cue (polish
+   *  pass F). Before it, a refused click was silent and only the cursor said
+   *  so -- and the cursor is gone the moment the click lands. */
+  deny(): void;
+}
+
+/**
+ * Did a click with `selected` units under command come to nothing? Either a
+ * protected structure refused it (`refused`), or units were selected and not
+ * one intent came of it. An empty selection is not a denial -- there was no
+ * order to refuse -- and neither is an armed support call, whose acceptance
+ * only the runtime knows.
+ */
+export function orderDenied(res: Resolution, selected: number): boolean {
+  if (res.armed) return false;
+  if (res.refused === true) return true;
+  return selected > 0 && res.intents.length === 0;
 }
 
 /**
@@ -428,6 +445,7 @@ export function issueOrder(
   for (const intent of res.intents) sink.dispatch(intent);
   if (res.note) sink.note(res.note.text, res.note.tone);
   if (res.marker) sink.marker(x, y);
+  if (orderDenied(res, ids.length)) sink.deny();
   return res;
 }
 

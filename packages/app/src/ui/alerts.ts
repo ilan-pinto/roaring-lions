@@ -32,6 +32,13 @@
  * is the louder fact; two lines for one event is exactly the noise this
  * model exists to stop.
  *
+ * TIER (polish pass F, A2). Every alert carries a tier and a cue id
+ * (`cues.ts`): minor for fire taken or a man pinned, important for a foot
+ * unit lost, a new wave, a soldier taken, an ambush sprung on you or a
+ * Conduct penalty, major for a vehicle, an aircraft or a named veteran lost.
+ * An objective sounds its own status: new, complete and failed are three
+ * different cues. The caller plays one cue per tick (`tickCue`).
+ *
  * No `t()` call in this file. It returns catalogue KEYS and params, and the
  * caller resolves them where it renders -- the convention
  * `selection-model.ts`'s `ORDERS[].label` and `input/keymap.ts`'s
@@ -42,6 +49,7 @@
 
 import type { MissionEvent, SimEvent } from '@lions/sim';
 import type { Tone } from './hud-model';
+import { ALERT_CUE, OBJECTIVE_CUE, type AlertTier, type CueId } from './cues';
 
 /** A line for the feed, as a catalogue key and its params -- never wording.
  *  `tone` is semantic and never a colour (`hud-model.ts`'s own rule). */
@@ -52,11 +60,16 @@ export interface AlertLine {
 }
 
 export interface Alert {
-  kind: 'unitLost' | 'underFire' | 'objective';
+  kind: 'unitLost' | 'underFire' | 'pinned' | 'ambush' | 'objective' | 'wave' | 'removed' | 'roe';
   /** The feed line, or `null` when another part of the HUD owns the wording
-   *  -- an objective's text is `describeMissionEvent`'s, not this model's. */
+   *  -- an objective's text is `describeMissionEvent`'s, not this model's,
+   *  and so are a wave's, a capture's and a Conduct deduction's. */
   line: AlertLine | null;
-  sound: 'ui_alert' | 'ui_objective' | null;
+  /** How loud a fact this is, for an alert; `null` for an objective, which
+   *  sounds its own status rather than a tier. */
+  tier: AlertTier | null;
+  /** The cue id the mixer plays (`cues.ts` -> `data/audio.json`). */
+  cue: CueId | null;
   /** Where the camera jumps when the player acts on the alert, in tiles, or
    *  `null` when nothing on the map can be pointed at. */
   at: { x: number; y: number } | null;
@@ -71,6 +84,11 @@ export interface AlertWorld {
   sideOf(entity: number): number;
   unitName(typeId: string): string;
   objectiveAt(id: string): { x: number; y: number } | null;
+  /** What kind of body this entity is: a lost vehicle or aircraft is a major
+   *  alert, a lost foot unit an important one. */
+  unitClass(entity: number): 'foot' | 'vehicle' | 'air';
+  /** A named veteran (a roster entry with a name): losing one is major. */
+  isNamedVeteran(entity: number): boolean;
 }
 
 /** What has to survive between ticks: when each entity last made the feed.
@@ -78,6 +96,8 @@ export interface AlertWorld {
  *  holding an older state cannot have it changed underneath. */
 export interface AlertState {
   readonly lastUnderFire: ReadonlyMap<number, number>;
+  /** The tick the pinned cue last sounded, for its own cooldown. */
+  readonly lastPinned: number;
 }
 
 /**
@@ -92,8 +112,13 @@ export interface AlertState {
  */
 export const UNDER_FIRE_COOLDOWN_TICKS = 100;
 
+/** A man pinned sounds the minor cue at most once in four seconds, whoever
+ *  he is (the plan's "first in 4 s"): a pinned squad pins in a ripple, and
+ *  the feed's own pinned line (GH-262) already names each one. */
+export const PINNED_COOLDOWN_TICKS = 80;
+
 export function initAlertState(): AlertState {
-  return { lastUnderFire: new Map() };
+  return { lastUnderFire: new Map(), lastPinned: -Infinity };
 }
 
 export function alertsForTick(
@@ -106,7 +131,8 @@ export function alertsForTick(
   // --- the mission half: what was lost, and what moved ---------------------
   const lostByType = new Map<string, number[]>();
   const lostEntities = new Set<number>();
-  const objectives: string[] = [];
+  const objectives: Extract<MissionEvent, { kind: 'objective' }>[] = [];
+  const quiet: Alert[] = [];
   for (const e of mission) {
     if (e.kind === 'unitLost') {
       const group = lostByType.get(e.unit);
@@ -114,7 +140,17 @@ export function alertsForTick(
       else lostByType.set(e.unit, [e.entity]);
       lostEntities.add(e.entity);
     } else if (e.kind === 'objective') {
-      objectives.push(e.id);
+      objectives.push(e);
+    } else if (e.kind === 'wave') {
+      quiet.push(soundOnly('wave', 'important', null, e.count));
+    } else if (e.kind === 'removed' && e.side === 0) {
+      // One of the player's own taken off the board: not a death, but a man
+      // gone. A civilian taken is the feed's line alone.
+      quiet.push(soundOnly('removed', 'important', world.posOf(e.entity), 1));
+    } else if (e.kind === 'roe') {
+      // A Conduct penalty (A9): the game's distinguishing mechanic, silent
+      // until now.
+      quiet.push(soundOnly('roe', 'important', null, 1));
     }
   }
 
@@ -123,7 +159,18 @@ export function alertsForTick(
   // the camera jumps to, and a unit hit six times is still one unit.
   const underFire: number[] = [];
   const seen = new Set<number>();
+  let pinnedAt: number | null = null;
+  let ambushAt: number | null = null;
   for (const e of sim) {
+    if (e.kind === 'pinned') {
+      if (pinnedAt === null && world.sideOf(e.entity) === 0 && !lostEntities.has(e.entity)) pinnedAt = e.entity;
+      continue;
+    }
+    if (e.kind === 'ambushSprung') {
+      // `entity` is the ambusher; an ambush of OURS springing is good news.
+      if (ambushAt === null && world.sideOf(e.entity) !== 0) ambushAt = e.entity;
+      continue;
+    }
     if (e.kind !== 'fire' && e.kind !== 'impact') continue;
     const target = e.target;
     // -1 is a round aimed at a building rather than at anybody -- `fire`'s
@@ -144,16 +191,23 @@ export function alertsForTick(
 
   // Copy-on-write, and the old object back untouched when nothing was
   // stamped -- so a caller can compare identity to know the tick was quiet.
+  const pinnedSounds = pinnedAt !== null && tick - state.lastPinned >= PINNED_COOLDOWN_TICKS;
+
   let nextState = state;
   if (kept.length > 0) {
     const lastUnderFire = new Map(state.lastUnderFire);
     for (const entity of kept) lastUnderFire.set(entity, tick);
-    nextState = { lastUnderFire };
+    nextState = { ...nextState, lastUnderFire };
   }
+  if (pinnedSounds) nextState = { ...nextState, lastPinned: tick };
 
   // --- emit, loudest first ------------------------------------------------
   const alerts: Alert[] = [];
   for (const [typeId, entities] of lostByType) {
+    // Major when ANY body in the group is a vehicle, an aircraft or a named
+    // veteran: a type is one class, but a name is per man.
+    const major = entities.some((id) => world.unitClass(id) !== 'foot' || world.isNamedVeteran(id));
+    const tier: AlertTier = major ? 'major' : 'important';
     alerts.push({
       kind: 'unitLost',
       line: {
@@ -161,29 +215,40 @@ export function alertsForTick(
         params: { name: world.unitName(typeId), n: entities.length },
         tone: 'bad',
       },
-      sound: 'ui_alert',
+      tier,
+      cue: ALERT_CUE[tier],
       at: world.posOf(entities[0]),
       count: entities.length,
     });
   }
+  if (ambushAt !== null) alerts.push(soundOnly('ambush', 'important', world.posOf(ambushAt), 1));
+  alerts.push(...quiet);
   if (kept.length > 0) {
     alerts.push({
       kind: 'underFire',
       line: { key: 'alert.underFire', params: { n: kept.length }, tone: 'warn' },
-      sound: 'ui_alert',
+      tier: 'minor',
+      cue: ALERT_CUE.minor,
       at: world.posOf(kept[0]),
       count: kept.length,
     });
   }
-  for (const id of objectives) {
+  if (pinnedSounds && pinnedAt !== null) alerts.push(soundOnly('pinned', 'minor', world.posOf(pinnedAt), 1));
+  for (const e of objectives) {
     alerts.push({
       kind: 'objective',
       line: null,
-      sound: 'ui_objective',
-      at: world.objectiveAt(id),
+      tier: null,
+      cue: OBJECTIVE_CUE[e.status],
+      at: world.objectiveAt(e.id),
       count: 1,
     });
   }
 
   return { state: nextState, alerts };
+}
+
+/** An alert that only sounds: another surface owns its words. */
+function soundOnly(kind: Alert['kind'], tier: AlertTier, at: { x: number; y: number } | null, count: number): Alert {
+  return { kind, line: null, tier, cue: ALERT_CUE[tier], at, count };
 }

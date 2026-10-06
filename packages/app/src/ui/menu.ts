@@ -21,6 +21,7 @@ import { markSvg, wordmark } from './mark';
 import { worldMap } from './worldmap';
 import { withdrewLine } from './withdrew';
 import { worldMap3d } from './worldmap3d';
+import { markConfirm } from './confirm-cue';
 
 export interface MenuOptions {
   /** Deploy base ('/' locally, '/<repo>/' on Pages). */
@@ -109,6 +110,8 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
     a.href = href;
     a.className = 'rl-btn rl-menu__item';
     if (kind) a.dataset.kind = kind;
+    // Continue is the menu's one primary action (A8).
+    if (kind === 'primary') markConfirm(a);
     nav.appendChild(a);
   };
   // The FIRST thing a commander's eye lands on (Task 7): where the campaign
@@ -580,6 +583,8 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): Dispos
     else a.textContent = label;
     a.href = href;
     a.className = 'rl-btn';
+    // The onward link -- the next mission -- is the end screen's primary action.
+    if (onward) markConfirm(a);
     nav.appendChild(a);
   };
   if (opts.onDebrief) {
