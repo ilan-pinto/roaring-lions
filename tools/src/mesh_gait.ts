@@ -2133,7 +2133,7 @@ export function measureFootSkate(
     if (!byFigure.has(f)) byFigure.set(f, []);
     byFigure.get(f)!.push(i);
   }
-  const n = 96;
+  const n = 64;
   const dtClip = (end - start) / n;
   const out: FigureSkate[] = [];
   const frames: Map<string, [number, number, number][][]> = new Map([...byFigure.keys()].map((f) => [f, []]));

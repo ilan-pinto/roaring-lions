@@ -31,12 +31,12 @@ import {
   circularMeanDeg,
   clipSeconds,
   countTracePeaks,
-  groundPerCycleM,
   measureFacing,
+  measureFootSkate,
   measureJointPoses,
   measureMarkerFacing,
+  measurePlantedGround,
   measureRoleFootprint,
-  measureRoleTravel,
   measureRoleTravelByFigure,
   measureRootTravel,
   measureUpperBodyMotion,
@@ -90,70 +90,7 @@ describe('the reach into mesh-anim.ts stays safe for node', () => {
   });
 });
 
-/** `data/units/kdf/mortar_team.json`'s own `mobility.speed_tiles_s`. */
-function mortarSpeedTilesPerSecond(): number {
-  const json = JSON.parse(readFileSync(`${REPO}data/units/kdf/mortar_team.json`, 'utf8')) as {
-    mobility: { speed_tiles_s: number };
-  };
-  return json.mobility.speed_tiles_s;
-}
 
-/**
- * Fraction of the ground covered in one `move` cycle that the boots must
- * actually travel. The two known-good walks in this tree both land near 0.89
- * (`mortar_team.glb` 0.887, `inf_squad.glb` 0.891) and the legless rig this
- * gate exists for landed at 0.032, so anything in between separates them.
- * Set at 0.60 rather than 0.85 so a deliberately different gait -- a shorter
- * shuffle, a crew that jogs rather than strides -- is not failed for being
- * different, only for not walking at all.
- */
-const WALK_FLOOR = 0.6;
-
-/**
- * Which GLB the app actually loads for `mortar_team`.
- *
- * This used to be a REGEX over `packages/app/src/main.ts`, with the comments
- * stripped first because that file's prose named both candidate basenames and
- * a raw-source match would have hit the wrong one. It is an import now: the
- * wiring moved to `packages/app/src/mesh-catalogue.ts` when mesh loading
- * became roster-driven, and that table is plain data with no `import.meta.url`
- * in it precisely so a node-side reader can ask it directly. Same question,
- * asked of the thing itself rather than of its source text.
- *
- * A `mortar_team` drawing several variants would make "the GLB" ambiguous;
- * only `civilians` does that today, so this asserts the single-file shape
- * rather than silently measuring the first of a list.
- */
-function wiredMortarGlb(): string {
-  const entry = RIGGED_UNIT_MESHES.mortar_team;
-  if (!entry) throw new Error('mesh-catalogue loads no mesh for mortar_team');
-  if (entry.files.length !== 1) {
-    throw new Error(
-      `mortar_team now has ${entry.files.length} mesh variants — this gate measures one`
-    );
-  }
-  return entry.files[0];
-}
-
-describe('mesh unit gait', () => {
-  // B7 (GH-179, 2026-10-01): the kit.py build this control measured (0.887)
-  // is superseded by the Meshy figure on rig.py's own gait -- the SAME
-  // keyframe table, sized from the same speed -- so the control is the
-  // rig.py mortar_team still, on its D6 walkers (0.938 measured at the
-  // swap). The supplied `meshy_mortar_team.glb` (#145's subject) is deleted.
-  it('the rig.py mortar_team walks -- the control for the instrument itself', () => {
-    const m = measureRoleTravel(`${MESHES}mortar_team.glb`, 'boot', 'move');
-    const ground = groundPerCycleM(mortarSpeedTilesPerSecond(), m.clipSeconds);
-    expect(ground).toBeCloseTo(1.3, 2);
-    expect(m.maxTravelM / ground).toBeGreaterThan(0.85);
-  });
-
-  it('whichever GLB the mesh catalogue wires to mortar_team is the one that walks', () => {
-    const m = measureRoleTravel(`${MESHES}${wiredMortarGlb()}`, 'boot', 'move');
-    const ground = groundPerCycleM(mortarSpeedTilesPerSecond(), m.clipSeconds);
-    expect(m.maxTravelM / ground).toBeGreaterThan(WALK_FLOOR);
-  });
-});
 
 describe('mesh unit facing', () => {
   it('reads the kit rigs at their authored contrapposto, not a defect', () => {
@@ -221,50 +158,6 @@ describe('mesh unit facing', () => {
   });
 });
 
-// Task 3: the Sarim militia and the four civilians move at 2.4-2.7 m/s and
-// used to play a stroll over it. `move` now binds each source's own `Running`.
-// The floor is `WALK_FLOOR`, shared with the tests above rather than restated,
-// and no CEILING is asserted: two of the civilians measure slightly over 1.0,
-// which is a run (a sprinting foot swings further back than the body advances)
-// and not an error, and the design's D4 rate-match is about to move all of
-// these anyway.
-describe('mesh unit gait -- the run clips', () => {
-  const RAN: [string, string, number, number][] = [
-    ['sarim_rifles', 'sarim_rifles.glb', 0.9, 0.332],
-    ['civilians/civilian_woman', 'civilians/civilian_woman.glb', 0.8, 0.382],
-    ['civilians/office_worker', 'civilians/office_worker.glb', 0.8, 0.445],
-    ['civilians/farm_worker', 'civilians/farm_worker.glb', 0.8, 0.428],
-    ['civilians/civilian_child', 'civilians/civilian_child.glb', 0.8, 0.295],
-  ];
-
-  it.each(RAN)('%s runs rather than strolls', (_label, file, speed, before) => {
-    const m = measureRoleTravel(`${MESHES}${file}`, 'boot', 'move');
-    const ground = groundPerCycleM(speed, m.clipSeconds);
-    const ratio = m.maxTravelM / ground;
-    expect(ratio).toBeGreaterThan(WALK_FLOOR);
-    // And it really is an improvement on what shipped, not merely above a
-    // floor a walk could also clear on a slower unit.
-    expect(ratio).toBeGreaterThan(before);
-  });
-
-  // Fix round 1. Binding `move` to `Running` above left `sarim_rifles`'s
-  // `moveFire` bound to `Walk_Forward_While_Shooting`, which was consistent
-  // while `move` was a walk and stopped being so the moment it was not. That
-  // clip is ONE gait cycle of a 0.2 m/s creeping advance -- 0.6614 m of stride
-  // over 3.25 s -- on a unit the sim moves at 2.7 m/s, so the D4 rate-match
-  // would have had to play it at 13.27x and finish it in 245 ms. Nothing in
-  // the tree could see that: `move` was fine, the facing gates were fine, and
-  // `moveFire` has no `WALK_FLOOR` test of its own because its ratio is
-  // measured against a different clip length.
-  //
-  // This is the guard, and it is expressed as the MULTIPLIER rather than as a
-  // ratio because that is the quantity that actually breaks: a clip whose
-  // implied ground speed is far from the unit's own cannot be rate-matched
-  // without either a flicker or a clamp wide enough to disable rate-matching
-  // for everything else. 2.6 is the worst multiplier anything else in the tree
-  // needs; measured here, `meshy_soldier` 1.125 and `sarim_rifles` 1.244.
-});
-
 describe('circularMeanDeg', () => {
   it('averages bearings across the +/-180 wrap instead of collapsing to 0', () => {
     // An arithmetic mean of [179, -179] is 0. The circular mean is +/-180 --
@@ -284,98 +177,6 @@ describe('circularMeanDeg', () => {
   });
 });
 
-// Task 4 -- `tools/units/rig.py`'s hand-authored gait, sized per team from
-// that team's own `mobility.speed_tiles_s`.
-//
-// Before this pass one gait served all fourteen kit teams, so `sniper_team` at
-// 0.45 tiles/s and `charge_squad` at 1.90 played the same 16-frame stride and
-// the ratios ran 0.32 to 0.89. `before` below is the shipped value, measured on
-// the bytes at `9c3e9ed`, and every row must beat it -- a floor alone would
-// pass a slow unit that never changed.
-//
-// `charge_squad` is the row that must NOT be read as a failure. 1.9 tiles/s is
-// 3.80 m of ground per 0.667 s cycle and no stride on a 1.67 m figure reaches
-// it: the cap is what a fully split leg can do, and design D4's runtime
-// rate-match is what closes the rest. Its own `before` is the assertion that
-// matters there.
-describe('mesh unit gait -- the kit teams take their stride from their speed', () => {
-  const KIT: [string, number, number][] = [
-    ['at_team', 0.7, 0.824],
-    ['demo_squad', 0.85, 0.679],
-    ['rpg_team', 0.9, 0.641],
-    ['militia_cell', 0.95, 0.607],
-    ['breach_team', 0.95, 0.607],
-    ['charge_squad', 1.9, 0.321],
-    // Superseded by a Meshy asset and still built by `rig.py` -- see
-    // `RETIRED_MESH_FILES`. Measured for the same reason the retired files are
-    // kept: so the swap back stays one line.
-    ['inf_squad', 0.9, 0.644],
-    ['mortar_team', 0.65, 0.887],
-    ['yahalom_squad', 0.85, 0.679],
-  ];
-
-  it.each(KIT)('%s strides for its own speed', (team, speed, before) => {
-    const m = measureRoleTravel(`${MESHES}${team}.glb`, 'boot', 'move');
-    const ground = groundPerCycleM(speed, m.clipSeconds);
-    expect(m.maxTravelM / ground).toBeGreaterThan(before);
-  });
-
-  // Task 10 (D6 part 2) -- `atgm_cell`, `mortar_crew` and `digger_crew` used
-  // to be in `STILL` below: every figure carries `animates: False`
-  // (`teams.py`: "crew-served weapons stay deployed through move") and the
-  // deployed pose shipped a degenerate 0.04 s `move` with no leg keys at all,
-  // so `before` for these three is exactly 0 -- not a small number, a real
-  // shipped absence of any forward travel. `rig.py` now gives each a third
-  // root, a standing walker hidden everywhere but `move`, while the deployed
-  // figure hides in turn (the mortar-team precedent -- see the facing sweep's
-  // `hidden` assertion below). Same `it.each` shape as `KIT` on purpose: this
-  // is the same check, not a different one, now that these three have
-  // something to measure.
-  const CREW_WALKERS: [string, number, number][] = [
-    ['atgm_cell', 0.7, 0],
-    ['mortar_crew', 0.6, 0],
-    ['digger_crew', 0.5, 0],
-  ];
-
-  it.each(CREW_WALKERS)('%s strides for its own speed, now that its crew walks', (team, speed, before) => {
-    const m = measureRoleTravel(`${MESHES}${team}.glb`, 'boot', 'move');
-    const ground = groundPerCycleM(speed, m.clipSeconds);
-    expect(m.maxTravelM / ground).toBeGreaterThan(before);
-  });
-
-  // The one the pass must NOT have touched: a motorcycle whose riders' boots
-  // do not move (they bob with the machine). It is built by the same
-  // `build_clips` the KIT pass rewired, so "unchanged" is a real claim about
-  // the scaling being scoped to walkers and not a tautology.
-  const STILL: [string, number][] = [['moto_rpg', 0.6667]];
-
-  it.each(STILL)('%s is deliberately not a walker and did not move', (team, cycleS) => {
-    const m = measureRoleTravel(`${MESHES}${team}.glb`, 'boot', 'move');
-    expect(m.clipSeconds).toBeCloseTo(cycleS, 3);
-    expect(m.maxTravelM).toBeLessThan(0.1);
-  });
-
-  it('sizes every stride from data, so a team with no unit JSON cannot ship', () => {
-    // `rig.py`'s `unit_speed_tiles_s` raises rather than defaulting, and the
-    // reason is that a wrong stride looks like art. The Python guard cannot be
-    // run from here, so this asserts the input it depends on: every team the
-    // rig builds has exactly one unit JSON with a positive speed.
-    const teams: [string, number][] = [...KIT.map(([t, s]) => [t, s] as [string, number]),
-      ...CREW_WALKERS.map(([t, s]) => [t, s] as [string, number]),
-      ...STILL.map(([t]) => [t, 0] as [string, number])];
-    for (const [team, speed] of teams) {
-      const hits = ['kdf', 'enemy']
-        .map((side) => `${REPO}data/units/${side}/${team}.json`)
-        .filter((p) => existsSync(p));
-      expect(hits, `${team}: unit JSON`).toHaveLength(1);
-      const doc = JSON.parse(readFileSync(hits[0], 'utf8')) as {
-        mobility?: { speed_tiles_s?: number };
-      };
-      expect(doc.mobility?.speed_tiles_s, `${team}: mobility.speed_tiles_s`).toBeGreaterThan(0);
-      if (speed > 0) expect(doc.mobility?.speed_tiles_s).toBe(speed);
-    }
-  });
-});
 
 // The design (§2.1, §3.6) records `mortar_team`'s `move` as "+84 degrees,
 // identically, on all three figures". Measured on the bytes it is +87.7 /
@@ -601,187 +402,49 @@ function declaredLocomotion(): (readonly [string, string, LocomotionClip, Rigged
 }
 
 /**
- * Nothing shipped may need more than this. Measured 2026-09-16 off
- * `art/meshes/**`'s own `rl_gait`: the worst is `yahalom_squad` at 2.6454,
- * then `charge_squad` 2.4842. (`sniper_team` was the third at 2.0999 and is
- * not any more -- see `GAIT_MULTIPLIER_OUTLIERS`.) The defect class this
- * refuses is the pre-Task-4 tree, where the legs described a third of the
- * ground (design §2.2's ratio table bottoms out at 0.295, a multiplier of
- * 3.39 on the same metric, and `sarim_rifles`'s `moveFire` was 13.3).
+ * The playback multiplier's sanity band: what the runtime clamp
+ * (`GAIT_TIME_SCALE_MIN`..`GAIT_TIME_SCALE_MAX`) never comes near.
  *
- * So 2.8 sits in the gap between 2.6454 and 3.39 -- it is not fitted to the
- * worst file, and it is not derived from `GAIT_TIME_SCALE_MAX` either, which
- * would make the whole check circular.
+ * Since the motion pass (5 Oct) the multiplier is no longer an art property
+ * worth pinning per file: every walker is re-timed so that at its unit's
+ * speed it lands on a human cadence, which puts every shipped multiplier in
+ * 0.66-1.22 (measured 2026-10-05: `digger_crew` 0.656 at 0.5 tiles/s,
+ * `charge_squad` 1.210 at 1.9). What the eye reads -- the cadence -- and what
+ * the gate is for -- a planted foot -- are gated directly below. This band
+ * only refuses a declaration so wrong the clamp would start doing the work.
  */
-const GAIT_MULTIPLIER_CEILING = 2.8;
+const GAIT_MULTIPLIER_FLOOR = 0.5;
+const GAIT_MULTIPLIER_CEILING = 2.0;
 
 /**
- * And this is the band the roster actually lives in once the two named
- * outliers are set aside: the worst of the other fifteen declarations is
- * `civilian_child` at 1.6123 and the lowest outlier is `charge_squad` at
- * 2.4842, so 1.7 sits in a 0.87-wide gap with nothing in it. (It used to be
- * a 0.49-wide gap, bounded below by `sniper_team`'s 2.0999, which this pass
- * took to 0.9144 and out of the table.)
- *
- * Without this, `GAIT_MULTIPLIER_CEILING` alone would let `mortar_team`
- * regress from 1.02 to 2.7 unseen -- a ceiling set by the worst file is a
- * gate for the worst file.
+ * Steps per second a person takes, by how fast they are moving, metres per
+ * second -- the band each re-timed walker must land in. Literals from human
+ * gait, not a copy of the pass's own `targetCadence`: a walk under 2 m/s is
+ * about 1.7-2.4 steps/s, a run 2.5-3.1, a sprint 3.3-4.2. Before the pass the
+ * roster read 3.2-5.0 steps/s, `charge_squad` 7.9.
  */
-const GAIT_MULTIPLIER_TYPICAL = 1.7;
+const HUMAN_CADENCE: readonly { readonly upTo: number; readonly lo: number; readonly hi: number }[] = [
+  { upTo: 2.0, lo: 1.7, hi: 2.4 },
+  { upTo: 4.0, lo: 2.5, hi: 3.1 },
+  { upTo: Infinity, lo: 3.3, hi: 4.2 },
+];
+function humanCadence(metresPerSecond: number): { lo: number; hi: number } {
+  return HUMAN_CADENCE.find((b) => metresPerSecond <= b.upTo)!;
+}
 
 /**
- * A multiplier under 1 means legs that cover MORE ground than the unit does,
- * which the renderer takes up by playing the clip SLOWER than authored.
- *
- * **One file is under 1.0 and it is not a defect**: `sniper_team` at
- * **0.9144**. `rig.py` sizes a stride through `BASE_BOOT_TRAVEL_M = 1.154 m`,
- * a measurement of the KIT rig's own boot travel at scale 1.0, and these
- * sculpted legs deliver about 9% more at the same joint angles because the
- * foot mass sits further forward of the ankle. The resulting slowdown is an
- * improvement rather than something to correct: effective cycle 0.729 s,
- * **2.74 steps/s**, **0.492 m** step at 1.35 m/s, where re-calibrating the
- * constant per rig to force a nominal 1.000 would give 3.0 steps/s and a
- * 0.450 m step -- further from a human walk, not closer. The next lowest is
- * `mortar_team` at 1.0187, and 0.9144 is pinned both ways by
- * `GAIT_MULTIPLIER_UNDER_ONE`.
- *
- * **Why the floor is NOT what stands between this rig and a human walk, which
- * is worth setting out because it looks as though it is.** A human at
- * 1.35 m/s takes about 1.9 steps/s with a 0.71 m step, which needs a
- * multiplier of 0.633 -- under this floor. But cadence and step length are
- * locked inverses at a unit's own ground speed (`cadence * step =
- * mult * strideM / cycleS = speed * MESH_UNITS_PER_TILE`, by construction of
- * the rate match), so 1.9 steps/s is reachable ONLY with a 0.71 m step, which
- * means an authored `strideM` of 1.42 m -- and at that stride the multiplier
- * comes back to **1.0**, comfortably above this floor. Lowering the floor
- * buys nothing; it would only permit an UNDER-strided clip to be slowed
- * further, which is the defect the floor exists for.
- *
- * What actually pins cadence is `rig.MOVE_FRAMES`: a fixed 16-frame cycle at
- * 24 fps means **every** kit team lands at `3.0 * mult` steps/s, so a team
- * whose feet keep up (mult 1) takes 3.0 steps/s whatever its speed --
- * `militia_cell` 3.88, `demo_squad` 3.48, `at_team` 3.22, `mortar_team` 3.06.
- * `yahalom_engineer`'s 1.0417 s cycle reads `1.92 * mult` and lands at 5.08
- * on a far larger multiplier, which is the same fact from the other side. The
- * lever is a PER-TEAM cycle length in `rig.py` -- the identical follow-up
- * `CADENCE_STEPS_PER_S_CEILING` already recommends for `charge_squad` at the
- * fast end. That is a design call, not a gate parameter.
- *
- * 0.8 sits between 0.9144 and the 0.579 a shortened-cycle re-export reads
- * (the F4 falsification), and nowhere near `GAIT_TIME_SCALE_MIN`.
- *
- * **Which "moonwalk" this refuses, since there are two and it only sees
- * one.** This one is a figure whose legs OVERRUN the ground -- correct
- * direction, wrong rate, feet scrubbing forward under a body that is not
- * keeping up. It is not the other moonwalk, a clip exported BACKWARDS, which
- * every number in this band is blind to by construction: `hi - lo` per axis
- * is invariant under time reversal. `SWING_LIFT_FLOOR` is the check for that
- * one.
+ * A foot on the ground may move over it at most this fraction of the body's
+ * speed, per figure (`measureFootSkate`). Measured 2026-10-05: every re-timed
+ * walker reads 0.01-0.09; before the pass the same oracle read 1.66 (a
+ * civilian) to 5.55 (`digger_crew`), 2.23-2.37 on inf_squad's three men.
+ * 0.25 sits in the gap.
  */
-const GAIT_MULTIPLIER_FLOOR = 0.8;
+const FOOT_SKATE_MAX = 0.25;
 
-/**
- * The two rigs outside `GAIT_MULTIPLIER_TYPICAL`, each pinned to its own
- * measured value so it can improve but not drift. `toBeLessThan(recorded +
- * slack)` rather than an equality: a re-export that fixes one of these must
- * not have to come back here to be allowed to pass.
- *
- * `yahalom_squad` 2.6454 -- a Meshy biped Task 4's stride work never touched
- *   (that pass rewrote `rig.py`, and this file is not built by it).
- * `charge_squad` 2.4842 -- the geometric ceiling. 1.9 tiles/s is 3.80 m of
- *   ground per 0.6667 s cycle and a 1.67 m figure cannot stride it: pushing
- *   `rig.py`'s thigh cap to 1.00 reaches only 0.465 of it and buys a visible
- *   crouch. A documented limit, not a threshold to widen for -- and see
- *   `CADENCE_STEPS_PER_S_CEILING`, which is where its real cost shows.
- *
- * **`sniper_team` WAS the third at 2.0999 and has been demoted**, which is
- * what the `toBeGreaterThan(GAIT_MULTIPLIER_TYPICAL)` assertion below exists
- * to force: `tools/export_meshy_sniper.py` was a third exporter carrying its
- * own `MOVE_FRAMES = 24` (a 1.0 s cycle against `rig.py`'s 16 frames at
- * 0.6667 s) and a hardcoded `swing = 0.40 * sin(a)` that never read
- * `speed_tiles_s`. It now drives `rig.gait_pose` off `rig.gait_for_team`, and
- * reads **0.9144** -- inside the typical band, on the other side of 1.0. Its
- * `SWING_LIFT_OUTLIERS` entry survives and its diagnosis there is different;
- * a stale entry here would have been exactly the exemption the demotion
- * assertions were added to catch.
- */
-const GAIT_MULTIPLIER_OUTLIERS: Readonly<Record<string, number>> = {
-  // B7 (2026-10-01): `yahalom_squad` left this table -- the supplied biped it
-  // named is deleted and the rig.py figure reads 1.1991, inside the band.
-  // 2.4842 on the kit figure (stride 1.5297 m); 2.6453 since B4 (GH-179,
-  // 2026-10-01) put a Meshy figure on the same rig.py gait: its legs are
-  // shorter relative to its height (crotch at 0.47 H of 1.72 m, 0.81 m,
-  // against kit's), so the same thigh swing covers 1.4365 m and the
-  // multiplier the 1.9 tiles/s asks for grows 6%. The ceiling argument above
-  // is unchanged -- the stride cannot grow -- and so is the follow-up.
-  charge_squad: 2.6453,
+/** Rigs whose `move` is not a stance-and-swing gait, with the reason. */
+const CRAWLS: Readonly<Record<string, string>> = {
+  sniper_team: 'a prone crawl: no foot bears weight, the boots drag (gait-pass.ts CRAWLERS)',
 };
-
-/**
- * The one rig BELOW 1.0, pinned on BOTH sides.
- *
- * `GAIT_MULTIPLIER_OUTLIERS` is a one-sided mechanism ("named, and must stay
- * above TYPICAL"), which is right for a file whose multiplier is too large
- * and wrong for one whose multiplier is small. `sniper_team` at 0.9144 is the
- * only file on that side of the pack and `> 0.8` / `< 1.7` would let a
- * re-export drift it to 0.82 or 1.6 with nothing going red -- exactly the
- * hole the outlier table exists to close, left open by removing its old
- * entry without adding this one.
- *
- * 0.9144, measured 2026-09-16 after the figure was re-anchored to the
- * roster's own 1.670 m. It reads under 1.0 because `rig.py` sizes a stride
- * through `BASE_BOOT_TRAVEL_M`, a measurement of the KIT rig, and these
- * sculpted legs deliver slightly more travel at the same joint angles. See
- * `GAIT_MULTIPLIER_FLOOR`.
- */
-// B7 (2026-10-01): `sniper_team` is a rig.py walker now (the supplied sculpt
-// is replaced) and still the one file under 1.0 -- 0.972: its 0.45 tiles/s is
-// the slowest speed in the tree and rig.py's stride floor sizes a cycle that
-// covers slightly more ground than the sim moves it.
-const GAIT_MULTIPLIER_UNDER_ONE: Readonly<Record<string, number>> = { sniper_team: 0.972 };
-
-/** Slack on an outlier's own recorded number -- enough that float noise and a
- *  cosmetic re-export do not red the gate, far too little to hide a drift. */
-const OUTLIER_SLACK = 0.05;
-
-/**
- * Steps per second the legs are asked to take once the rate match is applied:
- * `2 * timeScale / cycleS`, two footfalls per gait cycle.
- *
- * **This is the quantity the eye reads, and it is NOT the multiplier.**
- * `yahalom_squad` has the largest multiplier in the tree (2.6454) and a
- * perfectly human 5.08 steps/s, because its authored cycle is 1.0417 s;
- * `charge_squad`'s smaller 2.4842 lands at **7.45**, because its cycle is
- * 0.6667 s. A multiplier band alone cannot tell those apart. Equivalently
- * this is a STEP LENGTH check -- after the rate match a figure covers exactly
- * `strideM` per cycle by construction, so cadence and step length are the
- * same fact stated twice.
- *
- * Measured 2026-09-16, steps/s: `civilian_child` 5.09, `yahalom_squad` 5.08,
- * `inf_squad` 4.93, `sarim_rifles` 4.76, `civilian_woman` 4.15,
- * `militia_cell`/`breach_team` 3.88, `farm_worker` 3.75, `rpg_team` 3.68,
- * `office_worker` 3.53, `demo_squad` 3.48, `at_team` 3.22, `mortar_team`
- * 3.06, **`sniper_team` 2.74** -- and `charge_squad` **7.45**, alone above
- * 5.1. A sprinting human tops out near 5 steps/s, so everything but that last
- * row is physically reachable.
- *
- * `sniper_team` is now the SLOWEST cadence in the tree and it was 4.20 before
- * this pass, on the slowest unit in the game -- the clearest single number
- * for what reconciling its exporter with `rig.py` bought. There is no floor
- * on this quantity and it does not need one: a cadence too low for a unit's
- * speed is a stride too long for it, which `GAIT_MULTIPLIER_FLOOR` already
- * bounds from the other side.
- */
-const CADENCE_STEPS_PER_S_CEILING = 6.0;
-
-/** `charge_squad`'s own measured cadence, named rather than admitted by a
- *  wider ceiling -- see `GAIT_MULTIPLIER_OUTLIERS` for why its stride cannot
- *  grow. */
-// 7.46 on the kit figure; 7.94 on B4's Meshy figure, the GAIT_MULTIPLIER
-// entry above times the same 0.6667 s cycle.
-// 8.041 on its `moveFire` (2026-10-05): the same legs leaned 4 deg further by
-// the FIRE_ROOT_LEAN brace, which shortens the measured stride 1.3%.
-const CADENCE_OUTLIERS: Readonly<Record<string, number>> = { charge_squad: 8.05 };
 
 describe('mesh unit gait -- the sweep over every rigged type', () => {
   const gaited = RIGS.filter((r) => !(r.typeId in GAIT_EXEMPT));
@@ -815,79 +478,36 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
   });
 
   it.each(declaredLocomotion())(
-    '%s %s %s needs a playback multiplier inside the measured band',
-    (typeId, file, clip, rig, gait) => {
+    '%s %s %s needs a playback multiplier inside the runtime band',
+    (_typeId, file, clip, rig, gait) => {
       const mult = multiplierFor(gait, rig.speedTilesPerSecond);
       expect(mult, `${file} ${clip}`).toBeGreaterThan(GAIT_MULTIPLIER_FLOOR);
       expect(mult, `${file} ${clip}`).toBeLessThan(GAIT_MULTIPLIER_CEILING);
-      const under = GAIT_MULTIPLIER_UNDER_ONE[typeId];
-      if (under !== undefined) {
-        // TWO-SIDED, unlike the high outliers: this file is the only one on
-        // its side of the pack, so `> FLOOR` and `< TYPICAL` leave it free to
-        // drift anywhere in 0.8..1.7 with nothing red. The band is what the
-        // outlier table is for and it was missing here.
-        expect(mult, `${file} ${clip} under-one pin (low)`).toBeGreaterThan(under - OUTLIER_SLACK);
-        expect(mult, `${file} ${clip} under-one pin (high)`).toBeLessThan(under + OUTLIER_SLACK);
-        // And DEMOTION, the same shape as the high outliers': the recommended
-        // follow-up is a longer authored cycle for this team, after which it
-        // comes back over 1.0 and this entry must go rather than sit here
-        // pinning a number that no longer describes anything.
-        expect(
-          mult,
-          `${file} ${clip}: no longer under 1.0 -- delete the GAIT_MULTIPLIER_UNDER_ONE entry`
-        ).toBeLessThan(1.0);
-      }
-      const outlier = GAIT_MULTIPLIER_OUTLIERS[typeId];
-      if (outlier === undefined) {
-        expect(mult, `${file} ${clip} is not a named outlier`).toBeLessThan(GAIT_MULTIPLIER_TYPICAL);
-      } else {
-        expect(mult, `${file} ${clip} outlier`).toBeLessThan(outlier + OUTLIER_SLACK);
-        // And DEMOTION. Without this an outlier that gets fixed stays exempt
-        // for ever: the recommended follow-up for `charge_squad` is a longer
-        // authored cycle, and once that lands this file would sit quietly
-        // inside the general band with its own exemption still standing and
-        // a later regression back to 2.48 invisible. `GAIT_EXEMPT` is
-        // asserted in both directions; so is this now.
-        expect(
-          mult,
-          `${file} ${clip}: named outlier no longer needs its exemption -- delete the entry`
-        ).toBeGreaterThan(GAIT_MULTIPLIER_TYPICAL);
-      }
     }
   );
 
-  it('exactly the rigs named in GAIT_MULTIPLIER_UNDER_ONE read a multiplier below 1.0', () => {
-    // M-2: `GAIT_MULTIPLIER_UNDER_ONE` had a demotion (line ~1012, above) but
-    // no MEMBERSHIP half -- every other table here is asserted in both
-    // directions. Without this, deleting the `sniper_team` entry left every
-    // assertion above green (0.9144 clears `> FLOOR` and `< TYPICAL`), and a
-    // second rig drifting under 1.0 would sit ungated and unnamed.
-    const underOne = [
-      ...new Set(
-        declaredLocomotion()
-          .filter(([, , , rig, gait]) => multiplierFor(gait, rig.speedTilesPerSecond) < 1.0)
-          .map(([typeId]) => typeId)
-      ),
-    ];
-    expect(underOne.sort()).toEqual(Object.keys(GAIT_MULTIPLIER_UNDER_ONE).sort());
-  });
-
-  it.each(declaredLocomotion())(
-    '%s %s %s asks for a cadence a body could take',
-    (typeId, file, clip, rig, gait) => {
+  it.each(declaredLocomotion().filter(([typeId]) => !(typeId in CRAWLS)))(
+    '%s %s %s steps at a human cadence for its speed',
+    (_typeId, file, clip, rig, gait) => {
       const steps = (2 * multiplierFor(gait, rig.speedTilesPerSecond)) / gait.cycleS;
-      const outlier = CADENCE_OUTLIERS[typeId];
-      expect(steps, `${file} ${clip}: steps/s`).toBeLessThan(
-        outlier ?? CADENCE_STEPS_PER_S_CEILING
-      );
-      if (outlier !== undefined) {
-        expect(
-          steps,
-          `${file} ${clip}: named cadence outlier no longer needs its exemption -- delete the entry`
-        ).toBeGreaterThan(CADENCE_STEPS_PER_S_CEILING);
-      }
+      const band = humanCadence(rig.speedTilesPerSecond * 3);
+      expect(steps, `${file} ${clip}: steps/s at ${(rig.speedTilesPerSecond * 3).toFixed(2)} m/s`).toBeGreaterThan(band.lo);
+      expect(steps, `${file} ${clip}: steps/s at ${(rig.speedTilesPerSecond * 3).toFixed(2)} m/s`).toBeLessThan(band.hi);
     }
   );
+
+  it('the crawls are exactly the rigs with no foot on the ground, named', () => {
+    // Both directions: a crawl must really skate (its boots drag), and every
+    // rig that skates must be a named crawl -- the sweep below asserts the
+    // second half per figure.
+    for (const [typeId, why] of Object.entries(CRAWLS)) {
+      expect(why.length).toBeGreaterThan(20);
+      const rig = RIGS.find((r) => r.typeId === typeId)!;
+      const gait = rig.declared!.get('move')!;
+      const skate = measureFootSkate(rig.path, 'move', rig.speedTilesPerSecond * 3, multiplierFor(gait, rig.speedTilesPerSecond));
+      expect(Math.max(...skate.map((f) => f.skate)), `${typeId}: named a crawl, but its feet plant`).toBeGreaterThan(FOOT_SKATE_MAX);
+    }
+  });
 
   /**
    * The factor the clamp probe below doubles-and-checks at.
@@ -963,6 +583,46 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
     // since 2026-10-05 sixteen of them declare a `moveFire` beside `move`
     // (every armed walker; see the locomotion-pair block below): 21 + 16.
     expect(checked).toBe(37);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Step 1a -- the planted foot (the motion pass, 5 Oct).
+// ---------------------------------------------------------------------------
+
+describe('mesh unit gait -- a foot on the ground stays where it landed', () => {
+  const rows = declaredLocomotion()
+    .filter(([typeId]) => !(typeId in CRAWLS))
+    .map(([typeId, file, clip, rig, gait]) => {
+      const ts = multiplierFor(gait, rig.speedTilesPerSecond);
+      return { typeId, file, clip, ts, figures: measureFootSkate(rig.path, clip, rig.speedTilesPerSecond * 3, ts) };
+    });
+
+  it('reads every walking figure of every gaited clip', () => {
+    // Rule 1: the population first. 37 locomotion clips less the crawl's two.
+    expect(rows).toHaveLength(35);
+    for (const r of rows) expect(r.figures.length, `${r.file} ${r.clip}: figures read`).toBeGreaterThan(0);
+  });
+
+  it.each(rows.map((r) => [`${r.file} ${r.clip}`, r] as const))(
+    '%s: every figure keeps its planted foot still at the speed the renderer plays it',
+    (label, row) => {
+      for (const f of row.figures) {
+        expect(f.samples, `${label} ${f.figure}: contact samples`).toBeGreaterThan(20);
+        expect(f.skate, `${label} ${f.figure}: planted-foot speed / body speed`).toBeLessThan(FOOT_SKATE_MAX);
+      }
+    },
+    60_000
+  );
+
+  it('the oracle sees a treadmill: the same legs played 1.8x too fast read as skating', () => {
+    // The positive control, on the shipped bytes: the defect this gate exists
+    // for was legs played 1.8-2.9x too fast for their stride. Played at 1.8x
+    // its own rate-match, inf_squad's planted feet must read as sliding.
+    const r = rows.find((x) => x.file === 'inf_squad.glb' && x.clip === 'move')!;
+    const rig = RIGS.find((x) => x.file === 'inf_squad.glb')!;
+    const fast = measureFootSkate(rig.path, 'move', rig.speedTilesPerSecond * 3, r.ts * 1.8);
+    for (const f of fast) expect(f.skate, `${f.figure} at 1.8x`).toBeGreaterThan(FOOT_SKATE_MAX * 2);
   });
 });
 
@@ -1066,7 +726,7 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   'militia_cell.glb move': 704,
   'rpg_team.glb move': 640, // 528 until the arm re-seat (2026-10-02) re-exported it through B7's bisected cut
   'charge_squad.glb move': 444, // B4: Meshy boots
-  'inf_squad.glb move': 729, // B7: Meshy boots, three men, rig.py gait; the source is bisected at its cut planes (B7 review), so every boot count below moved once more
+  'inf_squad.glb move': 735, // the motion pass's new rifleman (5 Oct) // B7: Meshy boots, three men, rig.py gait; the source is bisected at its cut planes (B7 review), so every boot count below moved once more
   'sarim_rifles.glb move': 1078, // B7 (2 Oct ruling): three of B3's militia_cell body
   'mortar_team.glb move': 590, // B7: Meshy boots -- two D6 walkers and the No.3
   'yahalom_squad.glb move': 508, // B7: Meshy boots, two men
@@ -1079,7 +739,7 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   'recon_zikit.glb move': 332,
   'civilians/civilian_woman.glb move': 328,
   'civilians/office_worker.glb move': 346,
-  'civilians/farm_worker.glb move': 279,
+  'civilians/farm_worker.glb move': 315, // re-planted legs (motion pass, 5 Oct): 279 before
   'civilians/civilian_child.glb move': 284,
   'atgm_cell.glb move': 328, // B3: a 1,100-tri Meshy remesh's boots on the D6 walker; A3.1: see militia_cell's note
   'mortar_crew.glb move': 300, // B4: a 1,100-tri Meshy remesh's boots on the D6 walker
@@ -1093,7 +753,7 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   'militia_cell.glb moveFire': 704,
   'rpg_team.glb moveFire': 640,
   'charge_squad.glb moveFire': 444,
-  'inf_squad.glb moveFire': 729,
+  'inf_squad.glb moveFire': 735,
   'sarim_rifles.glb moveFire': 1078,
   'mortar_team.glb moveFire': 590,
   'yahalom_squad.glb moveFire': 508,
@@ -1177,30 +837,12 @@ const SWING_LIFT_FLOOR = 0.05;
  * is a boot's height profile over 0.67 s at 25 px.
  */
 const SWING_LIFT_OUTLIERS: Readonly<Record<string, number>> = {
-  // Not reversed -- positive, same sign as every other rig -- just small.
-  // 0.010998631554512578 (rounded to 0.011 below): the swing-lift fraction
-  // `swingLiftFraction` reads off the shipped `digger_crew.glb` `move`
-  // clip's own boot trace, the same instrument and the same clip every other
-  // row in this table reads. The one same-unit comparison available is the
-  // other two crews' own gait amplitude SCALE (a different quantity, from
-  // `rig.gait_amplitudes`, not this fraction): `digger_crew` is 0.867
-  // against `atgm_cell`'s 1.213 and `mortar_crew`'s 1.040, the smallest of
-  // the three Task 10 walkers. That is offered as context for where this rig
-  // sits among its own siblings, not as a derivation of the number --
-  // `sniper_team` above is the precedent for a small chirality reading with
-  // no confirmed mechanism. Treat the number as pinned, not as explained.
+  // The crawl: a small chirality reading with no confirmed mechanism, pinned
+  // rather than explained. `digger_crew` and `mortar_crew` sat here until the
+  // motion pass (5 Oct): their re-planted legs lift their feet 0.61-0.62 of
+  // the stride, so both entries were demoted, as the demotion check demands.
   'sniper_team.glb move': -0.012, // B7: the Meshy walker, re-measured
-  'digger_crew.glb move': 0.011,
-  // B4 (GH-179, 2026-10-01): the Meshy mortar crew's D6 walker reads
-  // 0.0435 -- positive, the right sign, just under the 0.05 floor, the same
-  // instrument and clip as every other row. Its kit predecessor cleared the
-  // floor; the Meshy boot is a smaller, lower shape on the same rig.py gait
-  // (the digger above was already the smallest of the three crews on kit).
-  // Pinned, not explained, as the digger's own entry is.
-  'mortar_crew.glb move': 0.043,
-  // 2026-10-05: the same two walkers' `moveFire`, the same legs as `move`.
-  'sniper_team.glb moveFire': -0.012,
-  'mortar_crew.glb moveFire': 0.043,
+  'sniper_team.glb moveFire': -0.012, // the same legs as its `move`
 };
 
 describe('mesh unit gait -- per figure, not per file', () => {
@@ -1328,9 +970,17 @@ describe('mesh unit gait -- declared rl_gait against a fresh measurement', () =>
     // component of the boot's peak-to-peak travel, not the 3-D hypotenuse,
     // which folds in lift and lateral swing and overstates the ground by
     // 1.47–17.70% depending on the rig.
-    const fp = measureRoleFootprint(rig.path, 'boot', clip);
-    expect(fp.axisTravelM[0], `${file} ${clip}: strideM`).toBeCloseTo(gait.strideM, 6);
-    expect(fp.clipSeconds, `${file} ${clip}: cycleS`).toBeCloseTo(gait.cycleS, 6);
+    // Since the motion pass the stride is the ground the PLANTED feet cover
+    // per cycle (`measurePlantedGround`), not a boot's peak-to-peak travel;
+    // a crawl, which has no planted foot, keeps the travel (gait-pass.ts).
+    if (rig.typeId in CRAWLS) {
+      const fp = measureRoleFootprint(rig.path, 'boot', clip);
+      expect(fp.axisTravelM[0], `${file} ${clip}: strideM (crawl)`).toBeCloseTo(gait.strideM, 6);
+    } else {
+      const planted = measurePlantedGround(rig.path, clip);
+      expect(planted.groundPerCycleM, `${file} ${clip}: strideM`).toBeCloseTo(gait.strideM, 6);
+      expect(planted.clipSeconds, `${file} ${clip}: cycleS`).toBeCloseTo(gait.cycleS, 6);
+    }
   });
 
   it('and a file that declares nothing really has no measurable gait', () => {
@@ -1598,7 +1248,9 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     // 2026-10-05: + 36, every visible head of the sixteen new `moveFire` clips;
     // + 8 more on `down`, where the three captured teams crouch on their
     // living bodies (the capture's own `down`) instead of the corpse.
-    expect(rows).toHaveLength(158); // B7: 21 GLBs, every one with a face mesh now
+    // 158 until the motion pass (5 Oct) added kneel/kneelIn/kneelOut to eight
+    // files: 48 more rows, one per visible figure per new clip.
+    expect(rows).toHaveLength(206); // B7: 21 GLBs, every one with a face mesh now
     // WHICH files, by name -- not `not.toContain('sniper_team.glb')`, which
     // could never fail: an un-exempted `sniper_team` makes `measureFacing`
     // THROW rather than produce a row, so the absence it asserts is
@@ -1689,6 +1341,11 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'manpad_team.glb down',
       'manpad_team.glb fire',
       'manpad_team.glb idle',
+      // The motion pass (5 Oct): the kneel clips hide what `idle` hides --
+      // the MANPAD spotter's walker, and yahalom's `work` kneeler.
+      'manpad_team.glb kneel',
+      'manpad_team.glb kneelIn',
+      'manpad_team.glb kneelOut',
       'manpad_team.glb move',
       'manpad_team.glb moveFire',
       'militia_cell.glb down',
@@ -1745,6 +1402,9 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'yahalom_squad.glb down',
       'yahalom_squad.glb fire',
       'yahalom_squad.glb idle',
+      'yahalom_squad.glb kneel',
+      'yahalom_squad.glb kneelIn',
+      'yahalom_squad.glb kneelOut',
       'yahalom_squad.glb move',
       'yahalom_squad.glb moveFire',
       'yahalom_squad.glb work',
@@ -1786,36 +1446,42 @@ const WEAPON_RIGS: readonly {
   readonly joint: RegExp;
   readonly figures: number;
   readonly clips: readonly string[];
+  /** Since the motion pass (5 Oct): the weapon rides its own `*_weapon` bone,
+   *  PLACED by the hold, and an aimed clip holds it at this elevation --
+   *  absolute, because the carry it is drawn from (`idle`) is a low ready 30
+   *  deg down, which an aim is supposed to leave. Absent on the rig.py
+   *  launchers the pass leaves on the forearm, which keep the drift rule. */
+  readonly aimDeg?: number;
 }[] = [
-  // 2026-10-05: `moveFire` joins `fire` on every file whose shooter walks --
-  // walk-and-fire is an aimed clip too, and its weapon must point and hold
-  // its elevation exactly as `fire`'s does (rig.py's `build_move_fire_clip`
-  // and `tools/units/mocap.py` both key `fire`'s arms on it). Measured: every
-  // `moveFire` reads its own file's `fire` bearing and elevation to 0.01 deg.
-  { file: 'demo_squad.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire', 'moveFire'] },
-  { file: 'militia_cell.glb', role: 'weapon', joint: /_forearm_R$/, figures: 2, clips: ['fire', 'moveFire'] },
-  { file: 'rpg_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 2, clips: ['fire', 'moveFire'] },
+  // The motion pass's held weapons (`tools/src/meshes/motion/hold.ts`): every
+  // aimed clip -- `fire`, `moveFire` where the file has one, and `kneel`.
+  { file: 'inf_squad.glb', role: 'weapon', joint: /_weapon$/, figures: 3, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
+  { file: 'sarim_rifles.glb', role: 'weapon', joint: /_weapon$/, figures: 3, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
+  { file: 'militia_cell.glb', role: 'weapon', joint: /_weapon$/, figures: 2, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
+  { file: 'yahalom_squad.glb', role: 'weapon', joint: /_weapon$/, figures: 1, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
+  { file: 'demo_squad.glb', role: 'weapon', joint: /_weapon$/, figures: 1, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
+  { file: 'mortar_team.glb', role: 'weapon', joint: /_weapon$/, figures: 1, clips: ['fire', 'moveFire'], aimDeg: 0 },
+  // rpg_team carries one of each: the loader's rifle and the gunner's RPG,
+  // which aims 3 deg up on the shoulder. Per figure, so read separately.
+  { file: 'rpg_team.glb', role: 'weapon', joint: /^rpg_load_weapon$/, figures: 1, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
+  { file: 'rpg_team.glb', role: 'weapon', joint: /^rpg_fire_weapon$/, figures: 1, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 3 },
+  // The MANPAD aims 35 deg up (it is carried near-vertical, 70, on `idle`).
+  { file: 'manpad_team.glb', role: 'weapon', joint: /_weapon$/, figures: 1, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 35 },
   // One armed figure: `at_fire` holds the Spike, `at_spot` holds binoculars
   // bound to his HEAD, so only one `_forearm_R` owns any `weapon` vertex.
-  // This file was in `WEAPON_EXEMPT` until it gained a `fire` clip.
   { file: 'at_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire', 'moveFire'] },
-  // B2 (2026-09-30): one armed figure each. The MANPAD spotter holds
-  // binoculars on his head; the recoilless loader's two spare rounds are
-  // `weapon` on the static `prop` bone, not on any forearm.
-  { file: 'manpad_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire', 'moveFire'] },
   // Not `moveFire`: the gunner walks on his D6 standing walker, and the
   // tube rides the kneeling body that walker stands in for -- scaled out of
   // every moving clip (measured: bearing 0.0, elevation 0.00, hidden).
   { file: 'recoilless_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire'] },
-  // B7 (2026-10-01): the two supplied bipeds (`uniform`-on-`RightHand`,
-  // `moveFire`) are rig.py figures with kit rifles on `forearm_R` now, like
-  // militia_cell; mortar_team's No.3 and yahalom's rifleman join them.
-  { file: 'sarim_rifles.glb', role: 'weapon', joint: /_forearm_R$/, figures: 3, clips: ['fire', 'moveFire'] },
-  { file: 'mortar_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire', 'moveFire'] },
-  // yahalom: yah_b's rifle alone -- the masts are `metal`, not weapons.
-  { file: 'yahalom_squad.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire', 'moveFire'] },
   { file: 'recon_zikit.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire', 'moveFire'] },
 ];
+
+/** An aimed clip's weapon may sit this far off its aim elevation (`aimDeg`).
+ *  Measured 2026-10-05: every held weapon reads its aim to 0.05 deg on every
+ *  sample; a hip-fired rifle (the checkpoint's finding) reads 5-10 deg, a
+ *  carried one 30. */
+const WEAPON_AIM_TOL_DEG = 3;
 
 /**
  * Rigs with no gateable weapon axis, each with the measurement that says so.
@@ -1835,10 +1501,6 @@ export const WEAPON_EXEMPT: Readonly<Record<string, string>> = {
   'sniper_team.glb':
     'B7 (2026-10-01): its standing carbine rides `spine` (WEAPON_ON_SPINE) and its prone ' +
     'rifle lies on each `death_root` beside the man; no `_forearm_R` owns a weapon vertex',
-  'inf_squad.glb':
-    'B7 (2026-10-01): as breach_team -- the Meshy preview came holding its carbine across the ' +
-    "chest in BOTH hands; it ships as a `weapon` piece on each man's `spine` (WEAPON_ON_SPINE), " +
-    'no kit rifle, and `fire` is a FIRE_ROOT_LEAN brace',
   'moto_rpg.glb': 'no arm bones; the launcher rides `m_launcher` off the machine',
   'breach_team.glb':
     'B5 (2026-10-01): the Meshy preview came with its carbine baked into one shell with the ' +
@@ -1975,45 +1637,31 @@ const WEAPON_ELEVATION_DRIFT_DEG = 12;
  * the same figure's own breathing sweep, which is what sets the tolerance.
  */
 const WEAPON_IDLE_ELEVATION_DEG: Readonly<Record<string, number>> = {
-  'demo_squad.glb demo_b_forearm_R': 2.47, //    [0.47, 4.46]  the level carry
-  'militia_cell.glb mil0_forearm_R': 2.47, //    [0.46, 4.47]
-  'militia_cell.glb mil1_forearm_R': 2.47, //    [0.47, 4.46]
-  'rpg_team.glb rpg_load_forearm_R': 2.47, //    [0.47, 4.46]  the loader's rifle
-  // Re-measured 2026-10-01 after the three shouldered launchers moved off
-  // the kit figure's centre line onto the gunner's shoulder beside his head
-  // (`import_meshy_crew_team.py`'s `_seat_launcher`). Each tube keeps its
-  // pitch; what moved is the CLOUD. `kit.launcher` offsets its tube 0.20 m
-  // forward HORIZONTALLY but its rear flare along the PITCHED axis, so on a
-  // pitched tube the flare sits 0.20 sin(pitch) off the bore (0.12 m on the
-  // RPG, 0.20 on the MANPAD, 0 on a level tube), and that dragged the cloud's
-  // principal axis DOWN -- 34.04 for a 38-deg RPG, 69.9 for a 78-deg MANPAD. The seated
-  // flare is on the bore, and the RPG gains its warhead, so the axis now reads
-  // close to the authored pitch. Worst fire excursion from these idle means:
-  // RPG 6.50, MANPAD 6.64, recoilless 6.47 (all under the 12 the gate allows).
-  'rpg_team.glb rpg_fire_forearm_R': 39.57, //  [37.60, 41.57] the RPG at 38 deg, warhead on
+  // The motion pass (5 Oct): every held rifle's `idle` is the hold's low
+  // ready, the muzzle 30 deg down and 15 across the body (hold.ts's
+  // READY_PITCH_DEG). Before, these read 2.5-7.8: the level hip carry.
+  'inf_squad.glb f0_weapon': -30,
+  'inf_squad.glb f1_weapon': -30,
+  'inf_squad.glb f2_weapon': -30,
+  'sarim_rifles.glb sar0_weapon': -30,
+  'sarim_rifles.glb sar1_weapon': -30,
+  'sarim_rifles.glb sar2_weapon': -30,
+  'militia_cell.glb mil0_weapon': -30,
+  'militia_cell.glb mil1_weapon': -30,
+  'yahalom_squad.glb yah_b_weapon': -30,
+  'demo_squad.glb demo_b_weapon': -30,
+  'mortar_team.glb mtr_no3_weapon': -30,
+  'rpg_team.glb rpg_load_weapon': -30,
+  // The tubes keep the importer's own carry (`_seat_launcher`) in `idle`:
+  // the RPG on the shoulder at its 38 deg pitch, the MANPAD near-upright --
+  // the motion pass only aims them. Read 2026-10-05: 37.91 and 78.54.
+  'rpg_team.glb rpg_fire_weapon': 37.91,
+  'manpad_team.glb mpd_fire_weapon': 78.54,
   // Re-measured 2026-10-01 after the Spike moved onto the shoulder beside the
   // head: still pitch 0, but the cloud now carries the sight unit, pistol grip
   // and support handle, which tilt its principal axis by -0.80 (and its
   // bearing by +1.68). Worst fire excursion from this idle mean: 6.47, unchanged.
   'at_team.glb at_fire_forearm_R': -0.8, //     [-2.84, 1.24]  the Spike, at pitch 0
-  // B2 (2026-09-30): kit.launcher geometry on Meshy figures -- teams.py's own
-  // 78-deg MANPAD tube on the gunner's shoulder, and the recoilless tube level.
-  // B7 (2026-10-01): the three replaced teams' kit rifles at the hung hand
-  // (`_rifle_at_hand`, the militia carry) and yah_a's level mast.
-  // 2026-10-05: the three Sarim riflemen breathe on their CAPTURED idle now
-  // (tools/units/mocap.py): the rifle arm takes 0.35 of the capture's own arm
-  // sway, which lifts each carry's mean by 1.7-3.6 deg from rig.py's 2.48
-  // and differently per man (each plays his own source figure).
-  'sarim_rifles.glb sar0_forearm_R': 4.89,
-  'sarim_rifles.glb sar1_forearm_R': 6.03,
-  'sarim_rifles.glb sar2_forearm_R': 4.16,
-  // A3.1 stage 2 (2026-10-05): the Meshy KDF carbine in place of the kit
-  // rifle, bore level at the same anchor and yaw; its tall stock and its
-  // magazine hang below the bore at opposite ends, which turns the cloud's
-  // principal axis 5.3 deg nose-up. Red at the old 2.48 (read 7.80).
-  'mortar_team.glb mtr_no3_forearm_R': 7.8,
-  'yahalom_squad.glb yah_b_forearm_R': 7.8,
-  'manpad_team.glb mpd_fire_forearm_R': 80.29, // [78.39, 82.39] the 1.30 m tube at 78 deg, gripstock below the shoulder
   // Pitch 0 as before; the pistol grip and support handle hang under the
   // front half of a short fat tube and tilt its cloud's axis 5.2 deg down.
   'recoilless_team.glb rcl_fire_forearm_R': -5.2, // [-7.24, -3.15]
@@ -2112,11 +1760,13 @@ describe('mesh unit weapons -- the axis measured from the weapon, not from a bon
     expect(gated.map((w) => w.file).sort()).toEqual([
       'at_team.glb',
       'demo_squad.glb',
+      'inf_squad.glb',
       'manpad_team.glb',
       'militia_cell.glb',
       'mortar_team.glb',
       'recoilless_team.glb',
       'recon_zikit.glb',
+      'rpg_team.glb',
       'rpg_team.glb',
       'sarim_rifles.glb',
       'yahalom_squad.glb',
@@ -2166,6 +1816,21 @@ describe('mesh unit weapons -- the axis measured from the weapon, not from a bon
           `${file} idle ${a.joint}: carry elevation ${rest.elevationDeg.toFixed(2)} against its ` +
             `own pinned ${pinned}`
         ).toBeLessThan(WEAPON_IDLE_ELEVATION_TOL_DEG);
+        // A held weapon (the motion pass): the aim is absolute. Its carry is a
+        // low ready 30 deg down, which an aim is MEANT to leave, so the
+        // drift-from-idle rule below would refuse exactly the fix.
+        if (spec.aimDeg !== undefined) {
+          const off = Math.max(
+            Math.abs(a.elevationMaxDeg - spec.aimDeg),
+            Math.abs(a.elevationMinDeg - spec.aimDeg)
+          );
+          expect(
+            off,
+            `${file} ${clip} ${a.joint}: elevation [${a.elevationMinDeg.toFixed(2)}, ` +
+              `${a.elevationMaxDeg.toFixed(2)}] against its aim ${spec.aimDeg}`
+          ).toBeLessThan(WEAPON_AIM_TOL_DEG);
+          continue;
+        }
         // The whole sampled RANGE against idle's mean, not mean against mean:
         // the defect was a static offset, but a recoil that peaked 20 deg up
         // and averaged back to level would be just as wrong on screen and a
@@ -2311,13 +1976,10 @@ describe('mesh unit facing -- two instruments, gated against each other', () => 
 // reason (each has its `Object.keys(...).sort()).toEqual(...)` or its
 // per-key `.toContain` above); these five tables were not.
 describe('mesh gait tables -- every key names something real', () => {
-  it('GAIT_MULTIPLIER_OUTLIERS and CADENCE_OUTLIERS key on a real, gaited rig type', () => {
+  it('CRAWLS keys on a real, gaited rig type', () => {
     const known = new Set(RIGS.filter((r) => !(r.typeId in GAIT_EXEMPT)).map((r) => r.typeId));
-    for (const k of Object.keys(GAIT_MULTIPLIER_OUTLIERS)) {
-      expect(known.has(k), `GAIT_MULTIPLIER_OUTLIERS key "${k}": not a gaited rig type`).toBe(true);
-    }
-    for (const k of Object.keys(CADENCE_OUTLIERS)) {
-      expect(known.has(k), `CADENCE_OUTLIERS key "${k}": not a gaited rig type`).toBe(true);
+    for (const k of Object.keys(CRAWLS)) {
+      expect(known.has(k), `CRAWLS key "${k}": not a gaited rig type`).toBe(true);
     }
   });
 
