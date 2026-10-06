@@ -54,7 +54,7 @@ export function runMotionPass(doc: Document, id: string, spec: MotionTeam, base:
     rl_motion: { version: MOTION_VERSION, base },
     // Read by the renderer (`units/squad-rig.ts`): who kicks on a shot, and
     // whether the team is drawn as a squad of separate men.
-    rl_figures: spec.figures.map((f) => ({ prefix: f.prefix, recoil: recoilOf(f), squad: spec.formation })),
+    rl_figures: spec.figures.map((f) => ({ prefix: f.prefix, recoil: recoilOf(f), squad: spec.squad ?? spec.formation })),
   });
   return { id, lines };
 }

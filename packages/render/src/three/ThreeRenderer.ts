@@ -1476,6 +1476,10 @@ export class ThreeRenderer implements Renderer {
   private readonly lastShotSimS: Float64Array;
   /** The unit-level stance depth, for teams drawn as one (`stance.ts`). */
   private readonly unitDepth: Float64Array;
+  /** A team drawn as one: the yaw its legs face (the line of travel when
+   *  moving), and whether it has been set since the entity appeared. */
+  private readonly meshBodyYaw: Float64Array;
+  private readonly meshBodyYawSet: Uint8Array;
   /**
    * `sim.entityCount` as of the last `snapshot()`: how many entities have a
    * position copy above. Every per-frame entity loop stops here rather than
@@ -2112,6 +2116,8 @@ export class ThreeRenderer implements Renderer {
     this.curFacing = new Float64Array(n);
     this.lastShotSimS = new Float64Array(n).fill(-Infinity);
     this.unitDepth = new Float64Array(n);
+    this.meshBodyYaw = new Float64Array(n);
+    this.meshBodyYawSet = new Uint8Array(n);
     this.missileTrack = { x: this.curX, y: this.curY, alive: sim.state.alive };
     this.killerX = new Float64Array(n).fill(NaN);
     this.killerY = new Float64Array(n).fill(NaN);
@@ -5979,6 +5985,8 @@ export class ThreeRenderer implements Renderer {
         // rather than a second visibility test, is what keeps a silhouette
         // from ever revealing a fogged unit.
         attachMeshSilhouette(entity.root, this.silhouetteMaterialFor(st.side[i]));
+        this.meshBodyYawSet[i] = 0;
+        this.unitDepth[i] = 0;
         this.meshUnitEntities.set(i, entity);
         this.scene.add(entity.root);
       }
@@ -6031,8 +6039,22 @@ export class ThreeRenderer implements Renderer {
       if (squad?.squad && !carried) {
         this.updateSquad(entity, squad, template, i, { wx, wy, worldY, aimYaw, anim, desiredClip, depthTarget, fromSim: reading.fromSim, dt, nowS });
       } else {
-        // A team drawn as one: the kneel at unit level (no stagger), the clip
-        // scrubbed through a drop or a rise.
+        // A team drawn as one. Its legs still face where it is going (the
+        // moonwalk, finding #5: the sim moves a unit at full speed while its
+        // facing is still turning 18 deg a tick), turned at the figures' own
+        // rate, and its upper body turns back onto the aim below.
+        if (!carried) {
+          const vx = this.curX[i] - this.prevX[i];
+          const vz = this.curY[i] - this.prevY[i];
+          const moving = anim.speed > 0 && Math.hypot(vx, vz) > 1e-4;
+          const want = moving ? -Math.atan2(vz, vx) : aimYaw;
+          this.meshBodyYaw[i] =
+            this.meshBodyYawSet[i] === 1 ? approachAngle(this.meshBodyYaw[i], want, BODY_TURN_RAD_S * dt) : want;
+          this.meshBodyYawSet[i] = 1;
+          entity.root.rotation.y = this.meshBodyYaw[i];
+        }
+        // The kneel at unit level (no stagger), the clip scrubbed through a
+        // drop or a rise.
         this.unitDepth[i] = reading.fromSim ? depthTarget : stepDepth(this.unitDepth[i], depthTarget, dt);
         const kneelClip = kneelClipFor(desiredClip, this.unitDepth[i], depthTarget, entity.actions.has('kneel'));
         applyMeshClip(entity, kneelClip.clip, kneelClip.scrub === null ? undefined : { once: true });
@@ -6043,7 +6065,7 @@ export class ThreeRenderer implements Renderer {
         if (kneelClip.scrub !== null) scrubAction(entity.actions.get(kneelClip.clip), kneelClip.scrub);
         advanceMeshClipFades(entity, dt);
         entity.mixer.update(dt);
-        if (squad) this.applyFigureAdditives(entity, squad, aimYaw, nowS, false);
+        if (squad) this.applyFigureAdditives(entity, squad, aimYaw, nowS, true);
       }
     }
 

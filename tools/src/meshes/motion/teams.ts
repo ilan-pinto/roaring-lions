@@ -44,6 +44,10 @@ export interface MotionTeam {
    *  (`replant.ts`); 'warp' scales a captured run's own stance instead
    *  (`stride.ts`), kept for a rig the replant cannot drive. */
   readonly strideMode?: 'warp' | 'replant';
+  /** Draw the team as separate men (`extras.rl_figures[].squad`). Defaults to
+   *  `formation`. Needs every figure listed, and a team with a shared `prop`
+   *  bone cannot be split per figure, so it stays one player. */
+  readonly squad?: boolean;
   /** The unit's `mobility.speed_tiles_s` (pinned against the JSON by test). */
   readonly speedTiles: number;
 }
@@ -87,13 +91,13 @@ export const MOTION_TEAMS: Record<string, MotionTeam> = {
     hold: true, kneel: false, formation: false, stride: true, speedTiles: 0.65,
   },
   manpad_team: {
-    figures: [{ prefix: 'mpd_fire', weapon: 'manpad', kneels: true }],
-    hold: true, kneel: true, formation: false, stride: true, speedTiles: 0.75,
+    figures: [{ prefix: 'mpd_fire', weapon: 'manpad', kneels: true }, { prefix: 'mpd_spot' }],
+    hold: true, kneel: true, formation: false, squad: true, stride: true, speedTiles: 0.75,
   },
   // Stride only: the gait gate is tree-wide, so every walker is re-timed.
-  at_team: { figures: [{ prefix: 'at_fire', recoil: 'launcher' }], hold: false, kneel: false, formation: false, stride: true, speedTiles: 0.7 },
+  at_team: { figures: [{ prefix: 'at_fire', recoil: 'launcher' }, { prefix: 'at_spot' }], hold: false, kneel: false, formation: false, squad: true, stride: true, speedTiles: 0.7 },
   charge_squad: { figures: [], hold: false, kneel: false, formation: false, stride: true, speedTiles: 1.9 },
-  breach_team: { figures: [{ prefix: 'brc_point', recoil: 'rifle' }, { prefix: 'brc_cover', recoil: 'rifle' }], hold: false, kneel: false, formation: false, stride: true, speedTiles: 0.95 },
+  breach_team: { figures: [{ prefix: 'brc_point', recoil: 'rifle' }, { prefix: 'brc_cover', recoil: 'rifle' }], hold: false, kneel: false, formation: false, squad: true, stride: true, speedTiles: 0.95 },
   recoilless_team: { figures: [{ prefix: 'rcl_fire', recoil: 'launcher' }], hold: false, kneel: false, formation: false, stride: true, speedTiles: 0.85 },
   recon_zikit: { figures: [{ prefix: 'zk_rifle', recoil: 'rifle' }], hold: false, kneel: false, formation: false, stride: true, speedTiles: 0.9 },
   // The crew-served teams' walkers (`*w`, D6): they march between positions.
