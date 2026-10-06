@@ -937,6 +937,14 @@ export class BattleAudio {
       this.tone(1175, 0.02, 'square', 0.02);
       window.setTimeout(() => this.tone(1175, 0.02, 'square', 0.02), 35);
       window.setTimeout(() => this.tone(880, 0.1, 'sine', 0.045), 90);
+    } else if (setName === 'ui_kit_fitted') {
+      // Bolt-on (GH-238 K10): a short rattle of square pawl clicks, then a
+      // low triangle clank landing on them. Not ui_upgrade's click-then-note
+      // shape, and nowhere near the alert's falling pair.
+      for (let i = 0; i < 4; i++) {
+        window.setTimeout(() => this.tone(2600 - 60 * i, 0.012, 'square', 0.02 + 0.004 * i), 12 + 25 * i);
+      }
+      window.setTimeout(() => this.tone(420, 0.09, 'triangle', 0.06), 150);
     } else {
       this.tone(520, 0.08, 'triangle', 0.06);
       window.setTimeout(() => this.tone(390, 0.16, 'triangle', 0.05), 60);

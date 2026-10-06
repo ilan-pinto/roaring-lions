@@ -225,12 +225,40 @@ def ui_upgrade(seed_shift=0.0):
     return norm(out, UI_PEAK)
 
 
+def _strike(n, partials, decay, power=3.0, attack=0.0008):
+    """A struck steel part: inharmonic partials, each its own decay."""
+    out = np.zeros(n)
+    for f, a, dk in partials:
+        out += a * sine(n, f) * env(n, attack, decay * dk, power)
+    return out
+
+
+def _pawl(ms=10, f=2200, gain=0.5):
+    m = int(SR * ms / 1000)
+    return np.sign(sine(m, f)) * env(m, 0.0004, ms / 1000, 6.0) * gain
+
+
+def ui_kit_fitted(seed_shift=0.0):
+    """Bolt-on (GH-238 plan 3, K10): an impact-wrench rattle of five pawl
+    clicks 25 ms apart (2.6 -> 2.36 kHz, gain 0.35 -> 0.47), then at 150 ms a
+    steel plate clank (inharmonic strike over a 120 -> 70 Hz thud). Played
+    instead of ui_upgrade when the tier bought adds a part to a vehicle."""
+    n = int(SR * 0.24)
+    out = sum(_at(n, 0.012 + 0.025 * i, _pawl(8, 2600 - 60 * i, 0.35 + 0.03 * i)) for i in range(5))
+    k = int(SR * 0.09)
+    clank = _strike(k, [(420, 1.0, 1.0), (1130, 0.55, 0.7), (2090, 0.35, 0.5), (3310, 0.2, 0.35)], 0.09)
+    thud = sine(k, 120, 70) * env(k, 0.001, 0.05, 4.0) * 0.8
+    out = out + _at(n, 0.15, clank + thud)
+    return norm(out, UI_PEAK)
+
+
 # One variant per UI set is deliberate: a UI cue should be recognisable on
 # repeat, not varied like a battlefield one-shot -- the README's "3-4
 # variants" guidance is for battle clips only.
 UI_SETS = {
     "ui_purchase": (ui_purchase, 1),
     "ui_upgrade": (ui_upgrade, 1),
+    "ui_kit_fitted": (ui_kit_fitted, 1),
 }
 
 
@@ -347,7 +375,7 @@ def main():
         if name in man.get("sets", {}):
             man["sets"][name]["variants"] = entries
     with open(MANIFEST, "w") as fh:
-        json.dump(man, fh, indent=2)
+        json.dump(man, fh, indent=2, ensure_ascii=False)
         fh.write("\n")
     print(f"\nwrote {sum(len(v) for v in variants.values())} files and updated data/audio.json")
     return 0

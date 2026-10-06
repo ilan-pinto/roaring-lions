@@ -4,6 +4,7 @@ import {
   cardStatus,
   countAt,
   cueFor,
+  KIT_VEHICLE_TYPES,
   restoreFocus,
   retainSelection,
   rovingStep,
@@ -84,7 +85,30 @@ describe('cueFor / CUE_SET', () => {
   it('sounds a unit as a purchase and a tier as an upgrade, each its own set', () => {
     expect(cueFor({ kind: 'unit', unitId: 'x' })).toBe('purchase');
     expect(cueFor({ kind: 'upgrade', unitId: 'x', track: 'armour', tier: 1 })).toBe('upgrade');
-    expect(CUE_SET).toEqual({ purchase: 'ui_purchase', upgrade: 'ui_upgrade' });
+    expect(CUE_SET).toEqual({ purchase: 'ui_purchase', upgrade: 'ui_upgrade', kit: 'ui_kit_fitted' });
+  });
+  it('sounds a tier on a kitted vehicle as a kit fitted, at every tier of every track', () => {
+    for (const unitId of ['mbt_lavi', 'dozer_d9', 'heli_peten']) {
+      for (const track of ['armour', 'sensors', 'firepower']) {
+        for (const tier of [1, 2, 3]) {
+          expect(cueFor({ kind: 'upgrade', unitId, track, tier })).toBe('kit');
+        }
+      }
+    }
+  });
+  it('still sounds buying a kitted vehicle itself as a purchase, and a non-vehicle tier as an upgrade', () => {
+    expect(cueFor({ kind: 'unit', unitId: 'mbt_lavi' })).toBe('purchase');
+    expect(cueFor({ kind: 'upgrade', unitId: 'inf_squad', track: 'armour', tier: 1 })).toBe('upgrade');
+    expect(cueFor({ kind: 'upgrade', unitId: 'attack_drone', track: 'sensors', tier: 1 })).toBe('upgrade');
+  });
+});
+
+describe('KIT_VEHICLE_TYPES (GH-238 plan 3, Task 7)', () => {
+  it('is exactly the plan’s eight vehicles', () => {
+    // A literal list, not the code under test's own: the plan names these eight.
+    expect([...KIT_VEHICLE_TYPES].sort()).toEqual(
+      ['apc_eitan', 'apc_kipod', 'dozer_d9', 'heli_peten', 'ifv_namer', 'jeep_shoded', 'mbt_lavi', 'scout_shachaf'].sort(),
+    );
   });
 });
 
