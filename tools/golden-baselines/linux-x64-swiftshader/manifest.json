@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "c28de4d70edf978010ea11e4195fff25a4cecf0a",
-  "blessedAt": "2026-10-05T19:22:49.212Z",
-  "reason": "A3.1 parts (#396) + infantry motion fix (#400): new Meshy drones and weapon parts in frame; captured run/moveFire/idle poses restored on inf_squad, sarim_rifles, yahalom_squad and moveFire on all armed walkers. Clusters checked on #400 CI: vehicle (drones, crews), relief (recon drone), quiet (rifleman outline), aftermath (an off-frame unit's ring edge and shadow at x 0-23)",
+  "commit": "4e76d3bfa8e6a14fc2bcb8d690eababfe9525976",
+  "blessedAt": "2026-10-06T06:44:21.991Z",
+  "reason": "Infantry halt-and-kneel (#402) + motion realism (#403): idle infantry now kneel, squads stand in wedges, new KDF rifleman, right-shoulder holds. quiet 515 px, vehicle 4179 px, aftermath 680 px on main CI 0f03d6b5; all self-checks pass",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "07ce514ddb09c775a5daf538b28e129df4988527da386f1945a4c39930444d8c"
+      "sha256": "dc711be7d84a159698505b4e6c7d0a3974840029eb4c62dfce484ba4253ef210"
     },
     "open-ground": {
       "tick": 60,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "e4732e2064ac70c7ccf140d6eb6c47455b29e15bd59678c633a24a40830a6faa"
+      "sha256": "058c7b1e66544d270be8f2d2e68950a1833d5e776e2f669a43839100a9390d3d"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "ad285161c66c0a3b85900dc8f894dbbf930852cdd52d5f8c60644124ae85f12f"
+      "sha256": "45402ac1484043cfc4ddb04c5710fd5b76334fdf82198c05b858bd23fc0cb552"
     },
     "relief": {
       "tick": 500,
@@ -81,7 +81,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "62b0611c4d25435e1f51d139bee4efdc67b59a7fea678bb9db5c3100886f2a92"
+      "sha256": "23220be86e94c56bdccb391d7d8d8330f49354732e7e63a644751d123a08337c"
     }
   }
 }
