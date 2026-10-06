@@ -17,6 +17,349 @@ disclosure this file's own header already anticipated.
 
 ---
 
+## Status, 2026-10-06 -- the A3.2 licensing pass (GH-185)
+
+Every tracked file under `assets/` and `art/` now has a row in the register
+below: **995 files, 138 rows**. `python3 tools/check_provenance_register.py`
+re-checks that against `git ls-files` (how it was falsified is at the foot of
+the register). It proves a row *exists*. It does not prove the row is true:
+each cell is as good as the commit, docstring or task id it cites, and where
+nothing is cited the cell says **Unrecorded** rather than guessing.
+
+What the pass found, most important first:
+
+1. **A Tiger-derived tank set was still tracked**, in a place the earlier
+   retirements never looked: `packages/app/public/assets/sprites/TNK/`, 16
+   frames, `test.png` and a manifest reading `"unit": "tiger_tank"`, committed
+   2026-08-03. Beside it sat `INF/`, 16 frames rendered from BlendSwap's
+   "Human Male Soldier" by contmike (CC BY 3.0, #40767), an attribution the
+   credits screen has never carried. Nothing has served either
+   directory since `bf909d0b` (2026-08-03) pointed `publicDir` at `assets/`,
+   and nothing references them, but both were in a public repository. **Deleted in this PR**; they
+   stay in history like the rest ("History is kept").
+2. **Thirty-three shipped files carry a question the repository cannot
+   answer.** Eleven are audio: the main theme and the five voice lines (in two
+   formats each) are AI-generated, and the plan or tool is not recorded
+   (items 2 and 3). Twenty-two have no recorded origin at all: the two
+   briefing videos, the four favicon files and the sixteen ground-tile files
+   (items 4, 5 and 7).
+3. **130 of the 131 shipped meshes derive from Meshy output** (the exception
+   is `spoil_heap.glb`, built from primitives), so the Meshy plan question
+   (item 1) is the one that gates the most files. It is **pending**.
+4. The ground props' ledger lines were never committed, and this file said
+   they were (item 9).
+
+### Retired, and confirmed gone
+
+| What | Where it was | Now | Evidence |
+|---|---|---|---|
+| `TNK_HULL`, `TNK_TURR` (Tiger-derived; re-rendered from `mbt_lavi.glb` on 2026-09-25) | `assets/sprites/` | **Gone.** All 3,814 sprite files were deleted in A3.3 (#374, commit `5a08b70f`, 2026-10-04) | `git ls-files assets/sprites` is empty; `tools/sprites_retired.py` refuses to recreate it |
+| The older Tiger set: 16 frames, `test.png`, manifest `tiger_tank`, written by `tools/render_tiger.py` | `packages/app/public/assets/sprites/TNK/` | **Was still tracked at `origin/main` (`b44df7aa`, this pass's base); deleted by this PR.** It escaped the 2026-09-25 re-render and A3.3 because neither looked outside `assets/sprites/` | `git grep` finds no reference to it; the script and the frames arrived together in `339d1ada` |
+| 16 frames of "Human Male Soldier" by contmike, CC BY 3.0 | `packages/app/public/assets/sprites/INF/` | **Deleted by this PR** | `tools/render_soldier.py` as of `810776469` wrote them and named the credit |
+| `JEEP_HULL` (downloaded model, no licence) | `assets/sprites/JEEP_HULL/` | **Gone** with the sheets (#374); `art/src/jeep_shoded.blend` and `render_jeep.py` went on 2026-09-25 | HANDOVER G0 #2 recorded closed by deletion |
+| `NAMER_HULL`, `NAMER_TURR` (Mutte, CC BY 3.0) | `assets/sprites/` | **Gone** (#374). The credit for them is still on the credits screen: item 6 | `git ls-files` finds no `NAMER_` path |
+| The first `INF` sheet (KolosStudios soldier FBX, "LICENCE UNVERIFIED") | `assets/sprites/INF/` | Deleted 2026-08-10 (`ff2abe08`) | |
+| `art/src/soldier_kolos.fbx` (embedded a Synty POLYGON texture path) | `art/src/` | Deleted 2026-09-25 (`38ea4a20`, `30b069c0`); it never shipped | `git ls-files` lists no `.fbx` at all |
+| Unit icon crops, `assets/ui/icons/units/` (cropped from the sheets) | `assets/ui/icons/` | Deleted in #374 | |
+
+How the search was done. No tracked path contains `synty`, `tiger`, `kolos`,
+`TNK_`, `JEEP_HULL`, `NAMER_` or ends in `.fbx`. A byte scan of the 2,198
+tracked files outside `docs/` and the lockfile (after the deletion; before it,
+the 2,232 included the `tiger_tank` manifest) for `synty`, `polygon military`, `kolos`,
+`tiger tank`, `contmike` and `mutte` finds only prose and one data entry:
+the paid-pack warnings in `CLAUDE.md`, `CONTRIBUTING.md` and the blender-art
+agent; `tools/units/kit.py`, `tools/render_vehicle_glb.py` and `.gitignore`
+explaining why those models left; and the Mutte credit (`credits-data.ts`, its
+test, `tools/render_namer.py`, `art/src/ifv_dmm08_LICENSE.html`: item 6). The
+two `.glb` "hits" a looser search shows are digit runs inside float data.
+
+### Open items for the lead
+
+| # | Item | What is missing | What would close it |
+|---|---|---|---|
+| 1 | **Meshy plan tier for commercial use.** *Pending: lead to confirm Meshy plan tier for commercial use.* | The repository holds only the lead's word of 2026-08-30 that the plan permits commercial use ("Commercial rights" below). No plan name, no date the terms were read, no answer on redistribution inside a shipped binary, and nothing says the plan was in force on every generation date (the earliest supplied files carry 0829 stamps, the last task is 2026-10-05). `tools/src/meshy/pricing.ts` prices on the Pro plan's advertised $20 per 1,000 credits, which is a cost-estimate constant and not a record of the plan owned. This pass does not guess a tier. | The plan name, the date read, and two answers: commercial use of outputs, and redistribution of them in a shipped binary. 130 shipped meshes, the Meshy working record in `art/meshy/`, and everything rendered from them (portraits, plates, the Roar coin relief) depend on it |
+| 2 | **ElevenLabs commercial licence (D5).** | Five Hebrew voice lines (10 files) are declared `LicenseRef-owned`, but the plan and date of generation are unrecorded and the licence was never confirmed. `CONTRIBUTING.md` says a free-tier TTS output cannot be committed. Already on HANDOVER's "open for the lead" line | Plan name and date, with the same two answers as item 1; or delete the five variants (an empty `variants` list plays nothing) |
+| 3 | **The main theme's generator.** | `holding_the_perimeter.mp3` is AI-generated from `docs/audio/main-theme-prompt.md` and declared CC-BY-4.0 with the credit "Ilan Pinto". A CC-BY grant covers only what the grantor owns, and that depends on the generator's terms, which are not recorded | The tool, the plan, the date, and whether it permits commercial use of the output |
+| 4 | **The two briefing videos.** | `assets/video/tel_marum_{2,3}_briefing.mp4`: the commit says only that the lead cut them. The container's encoder tag reads `Google`, and each carries an AAC audio track, so there is a music or speech question too | How they were made, with which tools and plans, and whether any third-party footage or sound is in them |
+| 5 | **The lion emblem.** | `art/favicon/favicon.png` and its three favicon sizes: "the lead supplied" it (commit `a76d4652`). By inspection it has the look of generative-model output; the repository records no tool | The tool and its terms, or a statement that it was drawn |
+| 6 | **The Mutte credit after A3.3.** | The Namer sprites it was for are deleted and nothing now shipped derives from that model, yet the credits screen still prints it and `art/src/ifv_dmm08_LICENSE.html` is still tracked. The A3.3 commit (`5a08b70f`) flagged this for the lead and left it | Keep (harmless), or remove the `CREDITS.assets` entry, its test and the licence page together. The frames stay in history either way |
+| 7 | **The images behind the Meshy image-to-3D assets, the ground tiles and the character portraits.** | The lead supplied source images (the image fed to Meshy for each supplied building, vehicle, civilian and tile; concept images for the five characters). How those images were made is not recorded. The eight ground tiles (16 files) are the cleanest case: the image *is* the shipped asset | The tool that made each image, or "drawn" |
+| 8 | **Draco decoder notice** (minor). | `assets/draco/` ships the Apache-2.0 decoder with a README that links the licence. Apache-2.0 section 4 asks that recipients get a copy of the licence text, and the credits screen lists only `three` | Add `LICENSE` text beside the decoder and one credits line |
+| 9 | **Meshy record gaps.** | (a) The seven ground props (2026-09-27) are in this file by task id, but `art/meshy/ledger.jsonl` starts on 2026-09-30, so their ledger lines were never committed, the prompts here are truncated, and the earlier text "full prompts are in the ledger" was false. `tools/terrain/export_meshy_props.py` resolves its sources through the ledger and cannot find them. (b) The olive and desert-tree sources have no task ids. (c) Four ledger tasks are cited nowhere in this file and ship nothing: first previews of `atgm_post` (`01a10c31`) and `recoilless_rifle` (`01a10c3f`), and two `loiter_drone` previews of 5 Oct (`01a10c42`, `01a10c4d`), 80 credits | The early ledger lines if they survive in the main checkout's untracked file (not looked at: this pass never touched it); otherwise the doc stays as the record |
+| 10 | **The credits screen's AI disclosure.** | `CREDITS.aiDisclosure` says "Some models were generated with Meshy ... passes the same four art gates". It omits the music, the voices, the videos and the images, and the "four art gates" were retired with `validate:assets` in #374. Separately, 1,848 of the 2,416 commits on `main` (at `c626848f`) carry a Claude co-author trailer, so every Blender script, the audio synthesiser and the SVG paths were written with Claude Code; this register files that under "No" (procedural, no generative art tool). Whether a Steam disclosure should count it is the lead's reading | A wording decision, then an edit to `credits-data.ts` (code; not made here) |
+
+### The register
+
+<!-- register:start -->
+One row per asset. A standing mesh and its wreck share a row, and so does a
+family such as `boulder_{0,1,2}`. The first column is read by the checker:
+every path in backticks is a file or a glob (`{a,b}` expands, `*` stays inside
+one directory, `**` crosses directories).
+
+- **Made from.** "Ledger `x`" is the entry named `x` in `art/meshy/ledger.jsonl`;
+  its preview, refine and remesh task ids are in the section the Record column
+  names. "Supplied Meshy export" is a web-UI export the lead put in the
+  gitignored `art/blend/`, named here by the stamp in its filename (no task id
+  was kept); the exporter's docstring is the record.
+- **Tool.** *Meshy CLI* is `pnpm meshy` (text-to-3D preview, refine, remesh).
+  *Meshy web export* is image-to-3D, texture or part-segmentation through
+  Meshy's web UI. Every Blender step is headless 5.2 running the named script.
+- **AI-generated.** *Yes: X* means the file contains or derives from output of
+  tool X. *No* means hand-built or built by code, with no generative art tool;
+  code written with Claude Code is counted there (item 10). *Derived from Meshy
+  meshes* is a render or photograph of a Meshy-derived GLB. *Unrecorded* means
+  the repository does not say.
+- **Rights.** *ARR* is "all rights reserved" (`data/LICENSE.md`), the
+  claim the project makes over its own output; for Meshy-derived files it can
+  hold only as far as Meshy's terms allow, which is item 1. *CC BY-SA 4.0
+  window (n of m)* means n of the row's m files have had no commit since
+  2026-08-30 or earlier: the repository was public under CC BY-SA 4.0 from
+  2026-08-04 to 2026-08-30, a grant is irrevocable for copies taken then, so
+  those bytes carry it as well as ARR.
+
+#### Infantry and crew teams (`art/meshes/*.glb`)
+
+| Files | What it is | Made from | Tool | AI-generated | Rights | Record |
+|---|---|---|---|---|---|---|
+| `art/meshes/at_team.glb` | Spike AT Team (KDF) | Ledger `at_team` (text-to-3D a-pose, refine 2k, remesh); Meshy part `spike_launcher`; kit binoculars | Meshy CLI; Blender, `import_meshy_kdf_team.py` | Yes: Meshy bodies and parts; kit, rig and clips are code | ARR; Meshy terms pending (item 1) | GH-286 batch B0b; WP-A3.1 stage 2, the hand weapons |
+| `art/meshes/demo_squad.glb` | Combat Engineers (KDF) | Ledger `demo_squad` (text-to-3D a-pose, refine 2k, remesh); kit charge, spool and rifle | Meshy CLI; Blender, `import_meshy_kdf_team.py` | Yes: Meshy bodies and parts; kit, rig and clips are code | ARR; Meshy terms pending (item 1) | GH-286 batch B0b |
+| `art/meshes/militia_cell.glb` | Militia Cell (enemy) | Ledger `militia_cell` (B3); Meshy part `sarim_rifle`; kit keffiyeh | Meshy CLI; Blender, `import_meshy_crew_team.py`, then gait, motion and encode passes | Yes: Meshy bodies and parts; kit, rig and clips are code | ARR; Meshy terms pending (item 1) | WP-A3.1 batch B3; WP-A3.1 stage 2, the hand weapons |
+| `art/meshes/rpg_team.glb` | RPG Team (enemy) | Ledger `rpg_team` (B3); `art/parts/rpg7.glb` (supplied Meshy image-to-3D); part `sarim_rifle` | Meshy CLI + Meshy web export; Blender, `import_meshy_crew_team.py`, then gait, motion and encode passes | Yes: Meshy bodies and parts; kit, rig and clips are code | ARR; Meshy terms pending (item 1) | WP-A3.1 batch B3; WP-A3.1 stage 2, the hand weapons |
+| `art/meshes/atgm_cell.glb` | ATGM Cell (enemy) | Ledger `atgm_cell` (B3); Meshy part `atgm_post` | Meshy CLI; Blender, `import_meshy_crew_team.py`, then gait, motion and encode passes | Yes: Meshy bodies and parts; kit, rig and clips are code | ARR; Meshy terms pending (item 1) | WP-A3.1 batch B3; WP-A3.1 stage 2, the hand weapons |
+| `art/meshes/mortar_crew.glb` | Mortar Crew (enemy) | Ledger `mortar_crew` (B4) | Meshy CLI; Blender, `import_meshy_crew_team.py`, then gait, motion and encode passes | Yes: Meshy bodies and parts; kit, rig and clips are code | ARR; Meshy terms pending (item 1) | WP-A3.1 batch B4 |
+| `art/meshes/charge_squad.glb` | Suicide Squad (enemy) | Ledger `charge_squad` (B4) | Meshy CLI; Blender, `import_meshy_crew_team.py`, then gait, motion and encode passes | Yes: Meshy bodies and parts; kit, rig and clips are code | ARR; Meshy terms pending (item 1) | WP-A3.1 batch B4 |
+| `art/meshes/digger_crew.glb` | Digger Crew (enemy) | Ledger `digger_crew` (B4) | Meshy CLI; Blender, `import_meshy_crew_team.py`, then gait, motion and encode passes | Yes: Meshy bodies and parts; kit, rig and clips are code | ARR; Meshy terms pending (item 1) | WP-A3.1 batch B4 |
+| `art/meshes/breach_team.glb` | Tzinah Breach Team (KDF) | Ledger `breach_team` (B5); Meshy part `kdf_carbine` | Meshy CLI; Blender, `import_meshy_crew_team.py`, then gait, motion and encode passes | Yes: Meshy bodies and parts; kit, rig and clips are code | ARR; Meshy terms pending (item 1) | WP-A3.1 batch B5; WP-A3.1 stage 2, the hand weapons |
+| `art/meshes/moto_rpg.glb` | Armed Motorcycle (enemy) | Bike: ledger `moto_rpg` (stage 2); riders: the B3 `rpg_team` figure; part `rpg7` | Meshy CLI; Blender, `import_meshy_moto_rpg.py` | Yes: Meshy bodies and parts; kit, rig and clips are code | ARR; Meshy terms pending (item 1) | WP-A3.1 batch B6; stage 2, the drones and the bike |
+| `art/meshes/manpad_team.glb` | MANPAD Team (enemy) | Figure: the B3 `militia_cell` remesh; Meshy part `manpad_tube`; the team's own B2/B7 generations are unused | Meshy CLI; Blender, `import_meshy_crew_team.py`, then gait, motion and encode passes | Yes: Meshy bodies and parts; kit, rig and clips are code | ARR; Meshy terms pending (item 1) | WP-A3.1 batch B7 (ruling of 2 Oct); WP-A3.1 stage 2, the hand weapons |
+| `art/meshes/recoilless_team.glb` | Recoilless Team (enemy) | Ledger `recoilless_team` (B2 preview, B7 refine and remesh); Meshy part `recoilless_rifle` | Meshy CLI; Blender, `import_meshy_crew_team.py`, then gait, motion and encode passes | Yes: Meshy bodies and parts; kit, rig and clips are code | ARR; Meshy terms pending (item 1) | WP-A3.1 batch B2 and B7; WP-A3.1 stage 2, the hand weapons |
+| `art/meshes/inf_squad.glb` | Rifle Squad (KDF) | Ledger `inf_squad` (re-roll of 5 Oct, try 2); Meshy part `kdf_carbine`; motion from `art/mocap/meshy_soldier.json` | Meshy CLI; Blender, `import_meshy_crew_team.py`, then gait, motion and encode passes; `pnpm motion:meshes` | Yes: Meshy bodies and parts; kit, rig and clips are code | ARR; Meshy terms pending (item 1) | WP-A3.1 batch B7; The rifleman, re-rolled |
+| `art/meshes/sarim_rifles.glb` | Sarim Rifles (enemy) | Figure: the B3 `militia_cell` remesh; Meshy part `sarim_rifle`; motion from `art/mocap/sarim_rifles.json` | Meshy CLI; Blender, `import_meshy_crew_team.py`, then gait, motion and encode passes | Yes: Meshy bodies and parts; kit, rig and clips are code | ARR; Meshy terms pending (item 1) | WP-A3.1 batch B7 (ruling of 2 Oct); WP-A3.1 stage 2, the hand weapons |
+| `art/meshes/mortar_team.glb` | 60mm Mortar Team (KDF) | Ledger `mortar_team` (B7), `mortar_team_mortar` (B8), part `kdf_carbine` | Meshy CLI; Blender, `import_meshy_crew_team.py`, then gait, motion and encode passes | Yes: Meshy bodies and parts; kit, rig and clips are code | ARR; Meshy terms pending (item 1) | WP-A3.1 batch B7 and B8; WP-A3.1 stage 2, the hand weapons |
+| `art/meshes/sniper_team.glb` | Sniper Team (KDF) | Ledger `sniper_team` (B7) and `sniper_team_rifle` (B8, rifle and scope) | Meshy CLI; Blender, `import_meshy_crew_team.py`, then gait, motion and encode passes | Yes: Meshy bodies and parts; kit, rig and clips are code | ARR; Meshy terms pending (item 1) | WP-A3.1 batch B7 and B8 |
+| `art/meshes/yahalom_squad.glb` | Yahalom Engineers (KDF) | Ledger `yahalom_squad` (B7); part `kdf_carbine`; motion from `art/mocap/yahalom_engineer.json` | Meshy CLI; Blender, `import_meshy_crew_team.py`, then gait, motion and encode passes | Yes: Meshy bodies and parts; kit, rig and clips are code | ARR; Meshy terms pending (item 1) | WP-A3.1 batch B7; The captured clips, restored |
+| `art/meshes/recon_zikit.glb` | Shmamit Deep Recon Team (KDF, held) | Ledger `recon_zikit` (E5) | Meshy CLI; Blender, `import_meshy_zikit_team.py` | Yes: Meshy bodies and parts; kit, rig and clips are code | ARR; Meshy terms pending (item 1) | E5 part 2 |
+| `art/meshes/officer_infantry.glb` | Capt. Maya Pereg (held) | Ledger `officer_infantry`; the signaller is cut from the `at_team` remesh | Meshy CLI; Blender, `import_meshy_officers.py` | Yes: Meshy bodies and parts; kit, rig and clips are code | ARR; Meshy terms pending (item 1) | GH-298, the officers |
+| `art/meshes/officer_fires.glb` | Capt. Sagi Sharav (held) | Ledger `officer_fires`; the radio operator is the `at_team` remesh | Meshy CLI; Blender, `import_meshy_officers.py` | Yes: Meshy bodies and parts; kit, rig and clips are code | ARR; Meshy terms pending (item 1) | GH-298, the officers |
+| `art/meshes/officer_engineer.glb` | Capt. Dalia Charsit (held) | Ledger `officer_engineer`; the sapper is cut from the `demo_squad` remesh | Meshy CLI; Blender, `import_meshy_officers.py` | Yes: Meshy bodies and parts; kit, rig and clips are code | ARR; Meshy terms pending (item 1) | GH-298, the officers |
+
+#### Vehicles (`art/meshes/vehicles/*.glb`)
+
+| Files | What it is | Made from | Tool | AI-generated | Rights | Record |
+|---|---|---|---|---|---|---|
+| `art/meshes/vehicles/apc_eitan.glb` | Eitan 8x8 APC | Ledger `apc_eitan` (text-to-3D, refine 2k, remesh), own bake; kit RWS on the roof ring | Meshy CLI; Blender, `export_meshy_apc.py`; wreck pass | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | Batch B0a units (GH-286) |
+| `art/meshes/vehicles/apc_kipod.glb` | Kipod 6x6 screen carrier | Ledger `apc_kipod` (text-to-3D, refine 2k, remesh), own bake; kit RWS on the roof ring | Meshy CLI; Blender, `export_meshy_apc.py`; wreck pass | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | Batch B0a units (GH-286) |
+| `art/meshes/vehicles/attack_drone.glb` | KDF loitering munition | Ledger `attack_drone` (stage 2: preview, refine 8k, remesh) | Meshy CLI; Blender, `export_meshy_drones.py`; wreck pass | Yes: Meshy | ARR; Meshy terms pending (item 1) | WP-A3.1 stage 2, the drones and the bike |
+| `art/meshes/vehicles/recon_drone.glb` | KDF recon drone | Ledger `recon_drone` (stage 2: preview, refine 8k, remesh); guard rings added in Blender | Meshy CLI; Blender, `export_meshy_drones.py`; wreck pass | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | WP-A3.1 stage 2, the drones and the bike |
+| `art/meshes/vehicles/loiter_drone.glb` | Sarim loitering munition | Ledger `loiter_drone` (B2: preview, remesh 800) | Meshy CLI; Blender, `export_meshy_loiter_drone.py`; wreck pass | Yes: Meshy | ARR; Meshy terms pending (item 1) | WP-A3.1 batch B2 |
+| `art/meshes/vehicles/demo_tzav.glb` | Shiryonan Demolition Carrier (held) | Ledger `demo_tzav` (text-to-3D, refine 2k, remesh), own bake; kit RWS | Meshy CLI; Blender, `export_meshy_tzav.py`; wreck pass | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | E5 part 2 |
+| `art/meshes/vehicles/dozer_d9.glb` | D9 dozer | Ledger `dozer_d9` (ramp set), own bake with the refine's white star painted out | Meshy CLI; Blender, `export_meshy_ramp.py`; wreck pass | Yes: Meshy | ARR; Meshy terms pending (item 1) | The A3.2 ramp set and the tunnel props |
+| `art/meshes/vehicles/scout_shachaf.glb` | Shachaf scout car | Ledger `scout_shachaf` (ramp set), own bake; kit RWS | Meshy CLI; Blender, `export_meshy_ramp.py`; wreck pass | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | The A3.2 ramp set and the tunnel props |
+| `art/meshes/vehicles/gun_truck.glb` | AA gun truck (enemy) | Ledger `gun_truck` (B2: text-to-3D, refine 2k, remesh), own bake | Meshy CLI; Blender, `export_meshy_gun_truck.py`; wreck pass | Yes: Meshy | ARR; Meshy terms pending (item 1) | WP-A3.1 batch B2 |
+| `art/meshes/vehicles/ifv_namer.glb` | Namer IFV (v2) | Ledger `ifv_namer` (B8 v2: `01a0fb1d` preview, 8k refine, remesh); kit RWS | Meshy CLI; Blender, `export_meshy_ramp.py`; wreck pass | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | WP-A3.1 batch B8 v2 |
+| `art/meshes/vehicles/mbt_lavi.glb` | Lavi MBT | Supplied Meshy export `Meshy_AI_A_3D_low_poly_futuris_0829201559_texture.blend` (no task id kept) | Meshy web export; Blender, `export_meshy_tank.py`; wreck pass | Yes: Meshy | ARR; Meshy terms pending (item 1) | The supplied Meshy assets |
+| `art/meshes/vehicles/technical.glb` | Armed technical (enemy) | Supplied Meshy exports `Technical_Truck_Body_0829203857` and `Pintle_Mount_Machine__0829203951` | Meshy web export; Blender, `export_meshy_truck.py`; wreck pass | Yes: Meshy | ARR; Meshy terms pending (item 1) | The supplied Meshy assets |
+| `art/meshes/vehicles/jeep_shoded.glb` | Shoded jeep | Supplied Meshy exports `military_utility_vehi_0907064115` (image-to-3D) and `military_vehicle_spli_0830115629` (part-segmentation) | Meshy web export; Blender, `export_meshy_jeep.py`; wreck pass | Yes: Meshy | ARR; Meshy terms pending (item 1) | The supplied Meshy assets |
+| `art/meshes/vehicles/heli_peten.glb` | Peten attack helicopter | Supplied Meshy export `attack_helicopter_spl_0830150207` (part-segmentation) | Meshy web export; Blender, `export_meshy_apache.py`; wreck pass | Yes: Meshy | ARR; Meshy terms pending (item 1) | The supplied Meshy assets |
+| `art/meshes/vehicles/heli_peten_gunship.glb` | Peten Gunship (held) | The shipped `heli_peten.glb` re-opened, plus kit stores, pods and sensor parts; 0 credits | Blender, `export_meshy_apache_gunship.py`; wreck pass | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | E5 part 2 |
+| `art/meshes/vehicles/officer_armour.glb` | Command Lavi (held) | The shipped `mbt_lavi.glb` re-exported with kit cupola and masts; 0 credits | Blender, `export_officer_armour.py`; wreck pass | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | GH-298, the officers |
+| `art/meshes/vehicles/paramotor.glb` | Paramotor (enemy) | Supplied Meshy exports `paramotor_canopy_3d_0831095518` and `paramotor_trike_3d_0831095609` (image-to-3D) | Meshy web export; Blender, `export_meshy_paramotor.py`; wreck pass | Yes: Meshy | ARR; Meshy terms pending (item 1) | the exporter's docstring (the script under Tool) |
+| `art/meshes/vehicles/rocket_battery.glb` | Grad rocket truck (enemy) | Supplied Meshy exports `grad_rocket_truck_3d_0831111455` (image-to-3D) and `grad_rocket_truck_par_0831111722` (part-segmentation) | Meshy web export; Blender, `export_meshy_rocket_battery.py`; wreck pass | Yes: Meshy | ARR; Meshy terms pending (item 1) | the exporter's docstring (the script under Tool) |
+
+#### Buildings (`art/meshes/buildings/*.glb`)
+
+| Files | What it is | Made from | Tool | AI-generated | Rights | Record |
+|---|---|---|---|---|---|---|
+| `art/meshes/buildings/apartment.glb`<br>`art/meshes/buildings/apartment_wreck.glb` | Apartment block, standing and wreck | Supplied Meshy exports `levantine_house_4stor_0830170357` and `_0830172141` (image-to-3D), own bake | Meshy web export; Blender, `export_meshy_apartment.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | the exporter's docstring (the script under Tool) |
+| `art/meshes/buildings/house.glb`<br>`art/meshes/buildings/house_wreck.glb` | House, standing and wreck | Supplied Meshy exports `levantine_house_intac_0830152052` and `_destr_0830152122` (image-to-3D), own bake | Meshy web export; Blender, `export_meshy_house.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | The supplied Meshy assets |
+| `art/meshes/buildings/warehouse.glb`<br>`art/meshes/buildings/warehouse_wreck.glb` | Warehouse, standing and wreck | Supplied Meshy exports `warehouse_intact_0901053151` and `_destroyed_0901053104` (image-to-3D), own bake | Meshy web export; Blender, `export_meshy_warehouse.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | the exporter's docstring (the script under Tool) |
+| `art/meshes/buildings/clinic.glb`<br>`art/meshes/buildings/clinic_wreck.glb` | Clinic, standing and wreck | Supplied Meshy exports `clinic_intact_3d_0906092201` and `clinic_destroyed_3d_0906100207` (image-to-3D), own bake | Meshy web export; Blender, `export_meshy_clinic.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | the exporter's docstring (the script under Tool) |
+| `art/meshes/buildings/hall.glb`<br>`art/meshes/buildings/hall_wreck.glb` | Civic hall (replaced the mosque), standing and wreck | Supplied Meshy exports `civic_hall_intact_3d_0906112753` and `civic_hall_destroyed__0906113210` (image-to-3D), own bake | Meshy web export; Blender, `export_meshy_hall.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | the exporter's docstring (the script under Tool); The A3.2 remainder (the hall wreck) |
+| `art/meshes/buildings/fence.glb`<br>`art/meshes/buildings/fence_wreck.glb` | Security fence, standing and wreck | Supplied Meshy export `fence_segment_v1_3d_0901144739` (image-to-3D, one of three candidates); the wreck is derived in Blender | Meshy web export; Blender, `export_meshy_fence.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | the exporter's docstring (the script under Tool) |
+| `art/meshes/buildings/concrete.glb`<br>`art/meshes/buildings/concrete_wreck.glb` | Concrete block, standing and wreck | Ledger `concrete` (ramp set), own bake; wreck is the kit's collapse on the textured mesh | Meshy CLI; Blender, `export_meshy_ramp.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | The A3.2 ramp set and the tunnel props |
+| `art/meshes/buildings/shanty.glb`<br>`art/meshes/buildings/shanty_wreck.glb` | Shanty, standing and wreck | Ledger `shanty` (ramp set), own bake | Meshy CLI; Blender, `export_meshy_ramp.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | The A3.2 ramp set and the tunnel props |
+| `art/meshes/buildings/wall.glb`<br>`art/meshes/buildings/wall_wreck.glb` | Compound wall, standing and wreck | Ledger `wall` (ramp set), own bake | Meshy CLI; Blender, `export_meshy_ramp.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | The A3.2 ramp set and the tunnel props |
+| `art/meshes/buildings/camp.glb`<br>`art/meshes/buildings/camp_wreck.glb` | KDF field camp, standing and wreck | Ledger `camp` (ramp set), own bake | Meshy CLI; Blender, `export_meshy_ramp.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | The A3.2 ramp set and the tunnel props |
+| `art/meshes/buildings/relay.glb`<br>`art/meshes/buildings/relay_wreck.glb` | Relay hut, standing and wreck | Ledger `relay` (text-to-3D, refine 8k, remesh), own bake | Meshy CLI; Blender, `export_meshy_ramp.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | The A3.2 remainder |
+| `art/meshes/buildings/pump_house.glb`<br>`art/meshes/buildings/pump_house_wreck.glb` | Pump house, standing and wreck | Ledger `pump_house` (text-to-3D, refine 8k, remesh), own bake | Meshy CLI; Blender, `export_meshy_ramp.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | The A3.2 remainder |
+| `art/meshes/buildings/kdf_medic_station{,_construction,_wreck}.glb` | KDF medic station (held): standing, construction, wreck | Ledger `kdf_medic_station` and `_remesh` (preview, remesh; palette-painted); construction and wreck states and kit pieces made in Blender | Meshy CLI; Blender, `export_fw_works.py` | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | The GH-277 field works |
+| `art/meshes/buildings/kdf_outpost{,_construction,_wreck}.glb` | KDF outpost (held): standing, construction, wreck | Ledger `kdf_outpost` and `_remesh` (preview, remesh; palette-painted); construction and wreck states and kit pieces made in Blender | Meshy CLI; Blender, `export_fw_works.py` | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | The GH-277 field works |
+| `art/meshes/buildings/kdf_intel_centre{,_construction,_wreck}.glb` | KDF intel centre (held): standing, construction, wreck | Ledger `kdf_intel_centre` and `_remesh` (preview, remesh; palette-painted); construction and wreck states and kit pieces made in Blender | Meshy CLI; Blender, `export_fw_works.py` | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | The GH-277 field works |
+| `art/meshes/buildings/kdf_workshop{,_construction,_wreck}.glb` | KDF workshop (held): standing, construction, wreck | Ledger `kdf_workshop` and `_remesh` (preview, remesh; palette-painted); construction and wreck states and kit pieces made in Blender | Meshy CLI; Blender, `export_fw_works.py` | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | The GH-277 field works |
+| `art/meshes/buildings/militia_observation_post{,_wreck}.glb` | Militia observation post (held), standing and wreck | Ledger `militia_observation_post` and `_remesh` (preview, refine, remesh), own bake | Meshy CLI; Blender, `export_fw_works.py` | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | The GH-277 field works |
+| `art/meshes/buildings/militia_weapons_workshop{,_wreck}.glb` | Militia weapons workshop (held), standing and wreck | Ledger `militia_weapons_workshop` and `_remesh` (preview, refine, remesh), own bake | Meshy CLI; Blender, `export_fw_works.py` | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | The GH-277 field works |
+| `art/meshes/buildings/militia_field_clinic{,_wreck}.glb` | Militia field clinic (held), standing and wreck | A crop of the shipped `clinic.glb` (Meshy) plus `kit.py` sandbags, annex and tank (code); 0 credits | Blender, `export_fw_works.py` | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | The GH-277 field works |
+| `art/meshes/buildings/militia_firing_position{,_wreck}.glb` | Militia firing position (held), standing and wreck | The shipped palette `shanty.glb` (Meshy) shed to 0.62 plus `kit.py` sandbag parapets (code); 0 credits | Blender, `export_fw_works.py` | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | The GH-277 field works |
+
+#### Props and terrain decor (`art/meshes/props`, `art/meshes/decor`)
+
+| Files | What it is | Made from | Tool | AI-generated | Rights | Record |
+|---|---|---|---|---|---|---|
+| `art/meshes/props/{jersey_barrier,water_tank,satellite_dish,laundry_line,tyre_pile,rebar,wrecked_car}.glb` | The seven ground props | Meshy text-to-3D preview and remesh of 2026-09-27 (task ids in the doc; the ledger does not hold them, see item 9); palette roles | Meshy CLI; Blender, `export_meshy_props.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | The seven ground props |
+| `art/meshes/props/tunnel_mouth.glb`<br>`art/meshes/props/tunnel_mouth_collapsed.glb` | Tunnel mouth, standing and collapsed twin | Ledger `tunnel_mouth` (preview, remesh 400); the collapsed twin is the same mesh slumped in Blender | Meshy CLI; Blender, `export_meshy_tunnel.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | The A3.2 ramp set and the tunnel props |
+| `art/meshes/props/tunnel_vent.glb`<br>`art/meshes/props/tunnel_vent_collapsed.glb` | Tunnel vent, standing and collapsed twin | Ledger `tunnel_vent` (preview, remesh 200); the collapsed twin is slumped in Blender | Meshy CLI; Blender, `export_meshy_tunnel.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | The A3.2 ramp set and the tunnel props |
+| `art/meshes/props/spoil_heap.glb` | Spoil heap | A hash-jittered hemisphere built from primitives; no Meshy call | Blender, `export_meshy_tunnel.py` | No | ARR, project original | The A3.2 ramp set and the tunnel props |
+| `art/meshes/decor/boulder_{0,1,2}.glb` | Boulder field (`b` tiles) | Supplied Meshy exports `rock_boulder_var1..3` | Meshy web export; Blender, `export_meshy_decor.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | the exporter's docstring (the script under Tool) |
+| `art/meshes/decor/bush_{0,1,2}.glb` | Desert shrub | Supplied Meshy exports `shrub_desert_var1..3` and their part-segmentation companions | Meshy web export; Blender, `export_meshy_decor.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | the exporter's docstring (the script under Tool) |
+| `art/meshes/decor/grass_{0,1,2}.glb` | Grass tuft | Supplied Meshy exports `foliage_grass_tuft_va..` (three of four) | Meshy web export; Blender, `export_meshy_decor.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | the exporter's docstring (the script under Tool) |
+| `art/meshes/decor/rock_{0,1,2}.glb` | Rock cluster | Supplied Meshy exports `rock_cluster_var1..3` | Meshy web export; Blender, `export_meshy_decor.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | the exporter's docstring (the script under Tool) |
+| `art/meshes/decor/slab_{0,1,2}.glb` | Rock outcrop | Supplied Meshy exports `rock_outcrop_var1..3` | Meshy web export; Blender, `export_meshy_decor.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | the exporter's docstring (the script under Tool) |
+| `art/meshes/decor/sand_{0,1,2}.glb` | Sand and gravel patch | Supplied Meshy exports `sand_gravel_patch_var..` | Meshy web export; Blender, `export_meshy_decor.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | the exporter's docstring (the script under Tool) |
+| `art/meshes/decor/tree_{0,1,2}.glb` | Olive tree (`tree_1` and `tree_2` are byte-identical) | Supplied Meshy image-to-3D exports in `terrain object/olive tree/` (task ids not recorded) | Meshy web export; Blender, `export_meshy_decor.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | The decor trees |
+| `art/meshes/decor/desert_tree_{0,1,2}.glb` | Desert tree | Trunks from the desert-shrub `var1` and `var3` part-segmentation sources (Meshy); the crown is generated in Blender code | Meshy web export; Blender, `export_meshy_decor.py` | Yes: Meshy trunks; the crown is code | ARR; Meshy terms pending (item 1) | The decor trees |
+| `art/meshes/decor/cedar_{0,1,2}.glb` | Lebanon cedar (Sur highland) | Ledger `cedar-libani` (`01a0f636` preview, `01a0f63b` remesh at 1,500), three scales of one base | Meshy CLI; Blender, `fit_meshy_cedar.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | The Sur highland biome |
+| `art/meshes/decor/ditch_0.glb` | Anti-tank ditch segment | Supplied Meshy export `antitank_ditch_segmen_0902112836` (image-to-3D), own bake | Meshy web export; Blender, `export_meshy_ditch.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | the exporter's docstring (the script under Tool) |
+
+#### Civilians, campaign board and effects
+
+| Files | What it is | Made from | Tool | AI-generated | Rights | Record |
+|---|---|---|---|---|---|---|
+| `art/meshes/civilians/{civilian_child,civilian_woman,farm_worker,office_worker}.glb` | The four civilian figures | Four supplied Meshy `rig_biped` exports (`art/blend/civilian/`, image-to-3D) with Meshy's own animation clips, bake kept | Meshy web export; Blender, `import_meshy_civilians.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | the exporter's docstring (the script under Tool); WP-A3.1 batch B7 |
+| `art/meshes/campaign/sahar_basin.glb` | Campaign board diorama | Supplied Meshy exports `multi_biome_hex_diora_0902115508` (image-to-3D) and `_0902123927` (part-segmentation) | Meshy web export; Blender, `export_meshy_world.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | the exporter's docstring (the script under Tool) |
+| `art/meshes/vfx/muzzle_flash.glb` | Tank muzzle flash | Supplied Meshy export `tank_muzzle_flash_low_0830151349` (texture) | Meshy web export; Blender, `export_mesh_vfx.py` | Yes: Meshy | ARR; Meshy terms pending (item 1); CC BY-SA 4.0 window (1 of 1) | The supplied Meshy assets |
+| `art/meshes/vfx/explosion_burst.glb` | Explosion fireball | Supplied Meshy export `explosion_fireball_lo_0830152530` (texture) | Meshy web export; Blender, `export_mesh_vfx.py` | Yes: Meshy | ARR; Meshy terms pending (item 1); CC BY-SA 4.0 window (1 of 1) | The supplied Meshy assets |
+| `art/meshes/vfx/smoke_plume.glb` | Smoke plume | Supplied Meshy export `smoke_plume_0830172426` (image-to-3D) | Meshy web export; Blender, `export_mesh_vfx.py` | Yes: Meshy | ARR; Meshy terms pending (item 1); CC BY-SA 4.0 window (1 of 1) | the exporter's docstring (the script under Tool) |
+
+#### The Draco twin (`assets/meshes`)
+
+| Files | What it is | Made from | Tool | AI-generated | Rights | Record |
+|---|---|---|---|---|---|---|
+| `assets/meshes/**/*.glb` | What ships: a Draco-compressed twin of each `art/meshes/**/*.glb` (131 files, one to one) | `pnpm encode:meshes` over the matching `art/meshes` file | `tools/src/meshes/encode-meshes.ts` (glTF-Transform, Draco) | Same as its source row | Same as its source row | the `art/meshes` rows above, one to one |
+| `assets/meshes/manifest.json` | Encoder manifest | Written by `pnpm encode:meshes` | `tools/src/meshes/encode-meshes.ts` | No | ARR, project original | `tools/src/meshes/encode-meshes.ts` docstring |
+
+#### Meshy working record (`art/meshy`) and other sources under `art/`
+
+| Files | What it is | Made from | Tool | AI-generated | Rights | Record |
+|---|---|---|---|---|---|---|
+| `art/meshy/ledger.jsonl` | Spend ledger: one line per submitted task (176 lines, 2026-09-30 to 2026-10-05) | Written by the CLI; holds the prompt of every text task | `pnpm meshy` (`tools/src/meshy/ledger.ts`) | Record of AI generation | ARR, project original | this is the prompt record; it starts on 2026-09-30 (item 9) |
+| `art/meshy/**/task.json` | Meshy API task record: request, response, credits (176, one per ledger line) | Meshy's API response | Meshy CLI | Yes: Meshy | ARR; Meshy terms pending (item 1) | `art/meshy/ledger.jsonl` |
+| `art/meshy/**/thumbnail.png` | Meshy preview thumbnail (176) | Downloaded with each task | Meshy CLI | Yes: Meshy | ARR; Meshy terms pending (item 1) | `art/meshy/ledger.jsonl` |
+| `art/meshy/**/model.glb` | Meshy remesh sources the importers read (27) and the coin relief preview (1) | Downloaded remesh or preview output | Meshy CLI | Yes: Meshy | ARR; Meshy terms pending (item 1) | each batch's section; the preview and refine downloads are not committed |
+| `art/mocap/{meshy_soldier,sarim_rifles,yahalom_engineer}.json` | Bone rotations of the supplied Meshy bipeds' own clips | `git show e31ebdf3:art/meshes/<name>.glb`, rotations only, by `tools/units/extract_mocap.py`; no geometry | Python (`extract_mocap.py`) | Yes: Meshy animation library | ARR; Meshy terms pending (item 1) | The captured clips, restored |
+| `art/parts/rpg7.glb` | RPG-7 launcher part | Supplied Meshy export `RPG_7_launcher_0903143528` (image-to-3D, 3 Sep), decimated to 559 tris | Meshy web export; Blender, `export_meshy_rpg.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | WP-A3.1 stage 2, the hand weapons |
+| `art/spike/inf_squad_rigged.glb` | R0 rigging spike (throwaway; used only by `tools/src/perf/three-units.ts`) | `kit.figure()` rigged in code; no model imported | Blender, `tools/spike_rig_infantry.py` | No | ARR, project original; CC BY-SA 4.0 window (1 of 1) | `tools/spike_rig_infantry.py` docstring |
+| `art/showcase/README.md`<br>`art/showcase/apc_detail.blend`<br>`art/showcase/apc_showcase.blend` | APC hero asset for marketing (feeds no build) | Built from primitives by `tools/showcase/apc_detail.py`, then refined by hand in a live Blender session | Blender | No | ARR, project original; CC BY-SA 4.0 window (3 of 3) | `art/showcase/README.md` |
+| `art/src/buildings/{apartment,concrete,house,shanty,wall,warehouse}.blend`<br>`art/src/buildings/README.md` | Kit-built building sources (superseded by the Meshy GLBs above) | `tools/buildings/author_<name>.py` over `kit.py` | Blender, code | No | ARR, project original; CC BY-SA 4.0 window (7 of 7) | the `author_*.py` docstrings |
+| `art/src/vehicles/{apc_kipod,d9,eitan_apc,gun_truck,rocket_battery,scout_shachaf,technical}.blend`<br>`art/src/aircraft/apache.blend` | Kit-built vehicle sources (superseded by the Meshy GLBs above) | `tools/vehicles/author_<name>.py`; `eitan_apc` flattened from `art/showcase/apc_detail.blend`; `gun_truck` authored from primitives in a live session | Blender, code | No | ARR, project original; CC BY-SA 4.0 window (6 of 8) | the `author_*.py` docstrings |
+| `art/src/drones/{attack_drone,loitering_munition,paramotor,recon_drone}.blend` | Kit-built drone sources (superseded by the Meshy GLBs above) | `author_attack_drone.py`, and primitives authored in a live Blender session for the other three | Blender | No | ARR, project original; CC BY-SA 4.0 window (4 of 4) | docstrings of the `render_*` scripts (`render_drone.py`, `render_loiter.py`, `render_paramotor.py`) |
+| `art/src/campaign/brigade_flag.blend`<br>`art/src/campaign/kedem_world.blend`<br>`art/src/campaign/sahar_basin.blend` | Campaign board sources | Generated by `render_brigade_flag.py`, `render_campaign_world.py`, `render_campaign_map.py` (procedural terrain and heraldry) | Blender, code | No | ARR, project original; CC BY-SA 4.0 window (3 of 3) | docstrings of the three scripts |
+| `art/src/ui/roar_coin.blend` | Roar coin scene | `tools/roar_coin.py`; the lion relief is the Meshy ledger entry `roar-lion-relief` | Blender, code; Meshy CLI | Yes: Meshy (relief only) | ARR; Meshy terms pending (item 1) | The Roar coin's lion relief |
+| `art/src/ifv_dmm08_LICENSE.html` | CC BY 3.0 licence page for 'VEHICLE IFV DMM08' by Mutte (BlendSwap #75225), kept for the credit | Saved from BlendSwap on 2026-08-05 | None (third-party licence text) | No | CC BY 3.0 (the page itself) | Mutte credit (item 6) |
+
+#### Ground textures
+
+| Files | What it is | Made from | Tool | AI-generated | Rights | Record |
+|---|---|---|---|---|---|---|
+| `art/textures/desert_sand_tile.png`<br>`assets/textures/desert_sand_tile.jpg` | Ground albedo tile: open ground, arid maps | The tile image the lead supplied (the image fed to Meshy); how that image was made is not recorded (item 7) | `encode_ground_tiles.py` (PNG to JPEG q90) | Unrecorded | ARR as claimed; image origin pending (item 7) | git history: commits 7636696a, b70a51df, b3963686 |
+| `art/textures/green_basin_tile.png`<br>`assets/textures/green_basin_tile.jpg` | Ground albedo tile: open ground, green maps | The tile image the lead supplied (the image fed to Meshy); how that image was made is not recorded (item 7) | `encode_ground_tiles.py` (PNG to JPEG q90) | Unrecorded | ARR as claimed; image origin pending (item 7) | git history: commits 7636696a, b70a51df, b3963686 |
+| `art/textures/rock_ground_tile.png`<br>`assets/textures/rock_ground_tile.jpg` | Ground albedo tile: `^` ridges | The tile image the lead supplied (the image fed to Meshy); how that image was made is not recorded (item 7) | `encode_ground_tiles.py` (PNG to JPEG q90) | Unrecorded | ARR as claimed; image origin pending (item 7) | git history: commits 7636696a, b70a51df, b3963686 |
+| `art/textures/rough_scrub_tile.png`<br>`assets/textures/rough_scrub_tile.jpg` | Ground albedo tile: cover tiles | The tile image the lead supplied (the image fed to Meshy); how that image was made is not recorded (item 7) | `encode_ground_tiles.py` (PNG to JPEG q90) | Unrecorded | ARR as claimed; image origin pending (item 7) | git history: commits 7636696a, b70a51df, b3963686 |
+| `art/textures/orchard_floor_tile.png`<br>`assets/textures/orchard_floor_tile.jpg` | Ground albedo tile: `o` grove floor | The tile image the lead supplied (the image fed to Meshy); how that image was made is not recorded (item 7) | `encode_ground_tiles.py` (PNG to JPEG q90) | Unrecorded | ARR as claimed; image origin pending (item 7) | git history: commits 7636696a, b70a51df, b3963686 |
+| `art/textures/road_track_tile.png`<br>`assets/textures/road_track_tile.jpg` | Ground albedo tile: retired from drawing, still on disk | The tile image the lead supplied (the image fed to Meshy); how that image was made is not recorded (item 7) | `encode_ground_tiles.py` (PNG to JPEG q90) | Unrecorded | ARR as claimed; image origin pending (item 7) | git history: commits 7636696a, b70a51df, b3963686 |
+| `art/textures/knoll_scree_tile.png`<br>`assets/textures/knoll_scree_tile.jpg` | Ground albedo tile: `n` knolls | The tile image the lead supplied (the image fed to Meshy); how that image was made is not recorded (item 7) | `encode_ground_tiles.py` (PNG to JPEG q90) | Unrecorded | ARR as claimed; image origin pending (item 7) | git history: commits 7636696a, b70a51df, b3963686 |
+| `art/textures/highland_v2_tile.png`<br>`assets/textures/highland_v2_tile.jpg` | Ground albedo tile: Sur highland | Authored from the supplied `Meshy_AI_image_rock.png` (the image the lead fed to Meshy; origin not recorded) by `author_highland_tile.py` | Python (`author_highland_tile.py`, `encode_ground_tiles.py`) | Unrecorded | ARR as claimed; image origin pending (item 7) | The Sur highland biome |
+
+#### Portraits, plates, icons, coin and favicon
+
+| Files | What it is | Made from | Tool | AI-generated | Rights | Record |
+|---|---|---|---|---|---|---|
+| `art/portraits/masters/*.{png,json}` | 512 px unit portrait masters (not shipped) | Rendered from the unit's own GLB | `tools/render_unit_portraits.py` (Blender) | Derived from Meshy meshes | ARR; derived from Meshy output (item 1) | `tools/render_unit_portraits.py` docstring |
+| `art/portraits/masters/lead/*.{png,json}` | 512 px lead-figure masters for the 40 px chips (not shipped) | Rendered from one figure of the team GLB | `tools/render_unit_portraits.py` (Blender) | Derived from Meshy meshes | ARR; derived from Meshy output (item 1) | `tools/render_unit_portraits.py` docstring |
+| `assets/ui/portraits/units/*.png`<br>`assets/ui/portraits/units/manifest.json` | 192 px unit portraits (HUD card, dock, brigade, garage) | Downsampled from the masters | `tools/render_unit_portraits.py` | Derived from Meshy meshes | ARR; derived from Meshy output (item 1) | `tools/render_unit_portraits.py` docstring |
+| `assets/ui/portraits/units/lead/*.png` | 192 px lead-figure chips | Downsampled from `masters/lead` | `tools/render_unit_portraits.py` | Derived from Meshy meshes | ARR; derived from Meshy output (item 1) | `tools/render_unit_portraits.py` docstring |
+| `assets/ui/portraits/{shai_hammai,idit_zohar,nadir_sahim,karim_adhal,jubran_hallaq}.png` | Named-character portraits | Rendered from the lead's Meshy image-to-3D figures (untracked, `art/blend/KDF/...`); the concept images behind them are not recorded (item 7) | `tools/render_portrait.py` (Blender) | Yes: Meshy (figures); concept images unrecorded | ARR; Meshy terms pending (item 1) | `docs/art/meshy-prompts-characters.md` |
+| `assets/ui/plates/units/*.jpg`<br>`assets/ui/plates/units/manifest.json` | Garage plates, one per KDF type | Photographed from the running game with the unit's mesh on the ground texture | `pnpm plates:units` (Playwright over the game) | Derived from Meshy meshes | ARR; derived from Meshy output (item 1) | `tools/src/perf/unit-plates.ts` and CLAUDE.md, `pnpm plates:units` |
+| `assets/ui/menu_host_plate.jpg` | Menu background plate | Photographed from the scene host (`menu_diorama.json`) | `pnpm plate:host` (Playwright over the game) | Derived from Meshy meshes | ARR; derived from Meshy output (item 1) | `tools/src/perf/host-plate-capture.ts`, CLAUDE.md `pnpm plate:host` |
+| `assets/ui/kit/*.svg` | Twelve garage upgrade emblems (3 track heads, 9 tiers) | Drawn as SVG paths, `currentColor` only | Hand-written SVG with Claude Code assistance | No | ARR, project original | GH-238 |
+| `assets/ui/roar_coin/*.{png,svg}` | Roar coin at 16, 24, 48, 96, 512 px, flat variants and spin strip | `tools/roar_coin.py` over the Meshy lion relief (ledger `roar-lion-relief`, preview `01a0f804`) | Blender, code; Meshy CLI | Yes: Meshy (relief only) | ARR; Meshy terms pending (item 1) | The Roar coin's lion relief |
+| `art/favicon/favicon.png`<br>`assets/ui/favicon-{32,64,180}.png` | The lion emblem and its three favicon sizes | 'The lead supplied' the 1254 px source (commit a76d4652); the tool and terms are not recorded. By inspection it has the look of generative-model output | Resized with `sips` | Unrecorded | Unrecorded (item 5) | commit a76d4652 |
+
+#### Campaign map and video
+
+| Files | What it is | Made from | Tool | AI-generated | Rights | Record |
+|---|---|---|---|---|---|---|
+| `assets/campaign/layer_{base,marj,naharin,sur}.png` | Campaign map layers (sea, Kedem, regions) | Rendered from `sahar_basin.svg` geometry | `tools/render_campaign_map.py` (Blender) | No | ARR, project original; CC BY-SA 4.0 window (4 of 4) | docstrings of the `render_campaign_*` and `render_brigade_flag` scripts |
+| `assets/campaign/world_map.png` | One-mesh world map | Procedural terrain, flags and monuments | `tools/render_campaign_world.py` (Blender) | No | ARR, project original; CC BY-SA 4.0 window (1 of 1) | docstrings of the `render_campaign_*` and `render_brigade_flag` scripts |
+| `assets/campaign/flag_brigade.png` | 401st Ari'im Brigade lion banner | Heraldry from axis-aligned rectangles | `tools/render_brigade_flag.py` (Blender) | No | ARR, project original; CC BY-SA 4.0 window (1 of 1) | docstrings of the `render_campaign_*` and `render_brigade_flag` scripts |
+| `assets/campaign/sahar_basin.svg` | Basin outline the map and data gate use | Hand-authored with the Sahar Basin data | Hand-written SVG | No | ARR, project original; CC BY-SA 4.0 window (1 of 1) | docstrings of the `render_campaign_*` and `render_brigade_flag` scripts |
+| `assets/video/tel_marum_2_briefing.mp4`<br>`assets/video/tel_marum_3_briefing.mp4` | Ten-second briefing cinematics, 1280x720 h264 with an AAC track | 'The lead cut' them (commit b0177497); no source, tool or terms recorded. The container's encoder tag reads `Google` | Unrecorded | Unrecorded | Unrecorded (item 4) | commit b0177497 |
+
+#### Audio (`assets/audio`)
+
+| Files | What it is | Made from | Tool | AI-generated | Rights | Record |
+|---|---|---|---|---|---|---|
+| `assets/audio/small_arms/small_arms_0{1,2,3,4}.{ogg,m4a}` | small arms: 4 variants, ogg and m4a | `tools/gen_audio.py`: noise, envelopes and a reverb tail synthesised in numpy (fixed seed), encoded by ffmpeg | Python (numpy), ffmpeg | No: procedural synthesis, no generative model | CC0-1.0, declared in `data/audio.json`; gated by `pnpm validate:audio` | `data/audio.json`, `sets` |
+| `assets/audio/hmg/hmg_0{1,2,3}.{ogg,m4a}` | hmg: 3 variants, ogg and m4a | `tools/gen_audio.py`: noise, envelopes and a reverb tail synthesised in numpy (fixed seed), encoded by ffmpeg | Python (numpy), ffmpeg | No: procedural synthesis, no generative model | CC0-1.0, declared in `data/audio.json`; gated by `pnpm validate:audio` | `data/audio.json`, `sets` |
+| `assets/audio/autocannon/autocannon_0{1,2,3}.{ogg,m4a}` | autocannon: 3 variants, ogg and m4a | `tools/gen_audio.py`: noise, envelopes and a reverb tail synthesised in numpy (fixed seed), encoded by ffmpeg | Python (numpy), ffmpeg | No: procedural synthesis, no generative model | CC0-1.0, declared in `data/audio.json`; gated by `pnpm validate:audio` | `data/audio.json`, `sets` |
+| `assets/audio/tank_gun/tank_gun_0{1,2,3}.{ogg,m4a}` | tank gun: 3 variants, ogg and m4a | `tools/gen_audio.py`: noise, envelopes and a reverb tail synthesised in numpy (fixed seed), encoded by ffmpeg | Python (numpy), ffmpeg | No: procedural synthesis, no generative model | CC0-1.0, declared in `data/audio.json`; gated by `pnpm validate:audio` | `data/audio.json`, `sets` |
+| `assets/audio/atgm_launch/atgm_launch_0{1,2}.{ogg,m4a}` | atgm launch: 2 variants, ogg and m4a | `tools/gen_audio.py`: noise, envelopes and a reverb tail synthesised in numpy (fixed seed), encoded by ffmpeg | Python (numpy), ffmpeg | No: procedural synthesis, no generative model | CC0-1.0, declared in `data/audio.json`; gated by `pnpm validate:audio` | `data/audio.json`, `sets` |
+| `assets/audio/mortar_thump/mortar_thump_0{1,2}.{ogg,m4a}` | mortar thump: 2 variants, ogg and m4a | `tools/gen_audio.py`: noise, envelopes and a reverb tail synthesised in numpy (fixed seed), encoded by ffmpeg | Python (numpy), ffmpeg | No: procedural synthesis, no generative model | CC0-1.0, declared in `data/audio.json`; gated by `pnpm validate:audio` | `data/audio.json`, `sets` |
+| `assets/audio/impact_pen/impact_pen_0{1,2,3}.{ogg,m4a}` | impact pen: 3 variants, ogg and m4a | `tools/gen_audio.py`: noise, envelopes and a reverb tail synthesised in numpy (fixed seed), encoded by ffmpeg | Python (numpy), ffmpeg | No: procedural synthesis, no generative model | CC0-1.0, declared in `data/audio.json`; gated by `pnpm validate:audio` | `data/audio.json`, `sets` |
+| `assets/audio/impact_bounce/impact_bounce_0{1,2,3}.{ogg,m4a}` | impact bounce: 3 variants, ogg and m4a | `tools/gen_audio.py`: noise, envelopes and a reverb tail synthesised in numpy (fixed seed), encoded by ffmpeg | Python (numpy), ffmpeg | No: procedural synthesis, no generative model | CC0-1.0, declared in `data/audio.json`; gated by `pnpm validate:audio` | `data/audio.json`, `sets` |
+| `assets/audio/near_miss/near_miss_0{1,2,3}.{ogg,m4a}` | near miss: 3 variants, ogg and m4a | `tools/gen_audio.py`: noise, envelopes and a reverb tail synthesised in numpy (fixed seed), encoded by ffmpeg | Python (numpy), ffmpeg | No: procedural synthesis, no generative model | CC0-1.0, declared in `data/audio.json`; gated by `pnpm validate:audio` | `data/audio.json`, `sets` |
+| `assets/audio/aps_intercept/aps_intercept_0{1,2}.{ogg,m4a}` | aps intercept: 2 variants, ogg and m4a | `tools/gen_audio.py`: noise, envelopes and a reverb tail synthesised in numpy (fixed seed), encoded by ffmpeg | Python (numpy), ffmpeg | No: procedural synthesis, no generative model | CC0-1.0, declared in `data/audio.json`; gated by `pnpm validate:audio` | `data/audio.json`, `sets` |
+| `assets/audio/destroyed/destroyed_0{1,2,3}.{ogg,m4a}` | destroyed: 3 variants, ogg and m4a | `tools/gen_audio.py`: noise, envelopes and a reverb tail synthesised in numpy (fixed seed), encoded by ffmpeg | Python (numpy), ffmpeg | No: procedural synthesis, no generative model | CC0-1.0, declared in `data/audio.json`; gated by `pnpm validate:audio` | `data/audio.json`, `sets` |
+| `assets/audio/ui_purchase/ui_purchase_01.{ogg,m4a}` | ui purchase cue: ogg and m4a | `tools/gen_audio.py`: noise, envelopes and a reverb tail synthesised in numpy (fixed seed), encoded by ffmpeg | Python (numpy), ffmpeg | No: procedural synthesis, no generative model | CC0-1.0, declared in `data/audio.json`; gated by `pnpm validate:audio` | `data/audio.json`, `sets` |
+| `assets/audio/ui_upgrade/ui_upgrade_01.{ogg,m4a}` | ui upgrade cue: ogg and m4a | `tools/gen_audio.py`: noise, envelopes and a reverb tail synthesised in numpy (fixed seed), encoded by ffmpeg | Python (numpy), ffmpeg | No: procedural synthesis, no generative model | CC0-1.0, declared in `data/audio.json`; gated by `pnpm validate:audio` | `data/audio.json`, `sets` |
+| `assets/audio/music/holding_the_perimeter.mp3` | Main theme 'Holding the Perimeter', 2:41 | Generated from the prompt in `docs/audio/main-theme-prompt.md`, supplied by the lead on 2026-09-05; the generator and plan are not recorded | Unrecorded music generator | Yes: tool unrecorded | Declared CC-BY-4.0, credit Ilan Pinto; generator terms unrecorded (item 3) | `docs/audio/main-theme-prompt.md` |
+| `assets/audio/voice/he/infantry/{move_01a,attack_01a,death_01a,death_02a}.{ogg,m4a}`<br>`assets/audio/voice/he/common/ack_01a.{ogg,m4a}` | Five Hebrew unit voice lines, ogg and m4a | ElevenLabs speech the lead generated and supplied on 2026-09-29, trimmed by `tools/voice_prep.py`; the plan and the generation date are not recorded | ElevenLabs; ffmpeg | Yes: ElevenLabs | Declared `LicenseRef-owned`; ElevenLabs commercial licence NOT confirmed (D5, item 2) | Unit voices (ElevenLabs) |
+| `assets/audio/README.md` | Audio rules | Project text | None | No | ARR, project original | none needed |
+
+#### Fonts, decoder and service worker
+
+| Files | What it is | Made from | Tool | AI-generated | Rights | Record |
+|---|---|---|---|---|---|---|
+| `assets/fonts/barlow-latin-{400,600}.woff2`<br>`assets/fonts/OFL-Barlow.txt` | Barlow, latin subset, and its licence | The Barlow Project Authors (github.com/jpt/barlow); latin subset self-hosted on 2026-08-06, download source not recorded | woff2 subset | No | SIL OFL 1.1; text beside the file; on the credits screen | `packages/app/src/credits-data.ts` |
+| `assets/fonts/big-shoulders-display-latin.woff2`<br>`assets/fonts/OFL-BigShouldersDisplay.txt` | Big Shoulders Display, latin subset, and its licence | The Big Shoulders Project Authors (github.com/xotypeco/big_shoulders); latin subset self-hosted on 2026-08-06, download source not recorded | woff2 subset | No | SIL OFL 1.1; text beside the file; on the credits screen | `packages/app/src/credits-data.ts` |
+| `assets/fonts/ibm-plex-mono-latin-{400,600}.woff2`<br>`assets/fonts/OFL-IBMPlexMono.txt` | IBM Plex Mono, latin subset, and its licence | IBM Corp. (Reserved Font Name 'Plex'); latin subset self-hosted on 2026-08-06, download source not recorded | woff2 subset | No | SIL OFL 1.1; text beside the file; on the credits screen | `packages/app/src/credits-data.ts` |
+| `assets/draco/draco_decoder.wasm`<br>`assets/draco/draco_wasm_wrapper.js`<br>`assets/draco/README.md` | Draco mesh decoder (three.js bundle) | Vendored Google Draco decoder (wasm and wrapper), self-hosted on 2026-09-08; the README is three.js's own `examples/jsm/libs/draco` README | None (third-party binary) | No | Apache-2.0; the README links the licence and no copy of the text ships (item 8) | `assets/draco/README.md` |
+| `assets/sw.js` | Service worker | Written for the project | Hand-written JavaScript | No | ARR, project original | none needed |
+
+<!-- register:end -->
+
+### How the register is checked
+
+`python3 tools/check_provenance_register.py` (read-only; exit 1 on a problem)
+reads the first cell of every register row and compares it with
+`git ls-files art assets`. It reports a file with no row, a file with two
+rows, a pattern that covers nothing, a Meshy task that the ledger and the
+committed `task.json` files disagree about (in either direction), and an
+`art/meshes` GLB with no Draco twin under `assets/meshes` or the reverse. On
+this branch: 995 files, 306 patterns, 138 rows, no problems.
+
+It checks that a row exists. It cannot check that the row is true; that is
+what the Record column is for.
+
+It is not wired into CI or `pnpm test`. Doing that would make every art PR
+add a row, which is a policy for the lead to set, not a side effect of a
+licensing pass.
+
+Falsified before being trusted (2026-10-06, each time by building the failing
+input and running it, then putting it back):
+
+| Input | Result |
+|---|---|
+| the `fence` row deleted | `NO ROW` for `fence.glb` and `fence_wreck.glb`, exit 1 |
+| `assets/audio/zz_throwaway.ogg` added to the index | `NO ROW`, exit 1 |
+| a second row given `art/meshes/props/*.glb` | `TWO ROWS` for seven files, exit 1 |
+| a row given `art/meshes/buildings/mosque.glb` | `COVERS NOTHING`, exit 1 |
+| one ledger line deleted, its `task.json` kept | `LEDGER`, exit 1 |
+| one ledger line added with no `task.json` | `LEDGER`, exit 1 |
+| `art/meshes/props/rebar.glb`, then its `assets/meshes` twin, dropped from the index | `MIRROR` both ways, exit 1 |
+| the start marker removed, or the register emptied | refuses with a message, exit 1 |
+| every file cell moved to the second column | hundreds of `NO ROW`, exit 1 |
+
+And eight one-line mutations of the script, each run against an input that
+tells it apart from the original: `*` crossing directories (`TWO ROWS` appears on the
+unmutated register), uncovered files never reported, doubled rows never
+reported, dead patterns not counted, ledger and mirror problems not counted,
+`**/` required to match a directory (the twenty-one top-level meshes lose their
+`assets/meshes` rows), brace expansion switched off. Seven are caught. The
+eighth survives: dropping only the line that *prints* a dead pattern leaves
+the count, so the gate still fails and only its message is lost.
+
+---
+
 ## The three mechanisms, one of which does not exist
 
 | Assets | Provenance record | Enforced by |
@@ -25,14 +368,25 @@ disclosure this file's own header already anticipated.
 | **Sprites** (`assets/sprites/`) | `credit` in each set's `manifest.json`, written by its `render_*.py` | nothing — the field is conventional, not checked |
 | **Meshes** (`art/meshes/`) | **none** | **nothing** |
 
+> **2026-10-06:** the Sprites row is history (the sheets were deleted in A3.3, #374), and
+> the Meshes row is half out of date. Every mesh now has a row in the register above and
+> every Meshy task since 2026-09-30 is in `art/meshy/ledger.jsonl`; what is still missing is
+> a per-GLB `credit` field that `validate_mesh_assets.py` could gate on.
+
 `tools/validate_mesh_assets.py` checks palette, silhouette and completeness. It
 does not look at provenance, because there is no provenance to look at.
 
 **38 mesh GLBs ship with no recorded origin**, ten of them AI-generated.
+*[2026-10-06: 131 GLBs ship, all in the register, 130 of them Meshy-derived. This count is the
+state of 2026-08-30.]*
 
 ---
 
 ## Sprites: 41 sets, all with recorded rights
+
+*[2026-10-06: historical. `assets/sprites/` was deleted in A3.3 (#374); this section stays
+because it records how the rights questions were closed. The Status section above has the
+current state.]*
 
 **Resolved 2026-09-25, the day the repository went public.** Until then five
 sets carried no usable rights record. Four were replaced and one now carries its
@@ -95,7 +449,16 @@ unrecorded sources (`render_tank.py`, `render_tiger.py`, `render_jeep.py`) --
 them was considered and declined: the project lead accepted keeping history
 (25 Sep). This section records the fact. It is not an oversight.
 
+The same holds for the two sets deleted from `packages/app/public/assets/sprites/` on
+2026-10-06 (the Tiger tank frames and the contmike soldier frames, see Status above): they
+remain in history from `339d1ada` and `810776469` (2026-08-03).
+
 ## The supplied Meshy assets
+
+*[2026-10-06: this is the first ten. Many more were supplied the same way (buildings, civilians,
+decor, the campaign board) and many were later replaced by `pnpm meshy` generations; the
+register above has the complete current list. This table is kept as the record of the
+first batch.]*
 
 Ten, all AI-generated with Meshy, all disclosed per `CONTRIBUTING.md`:
 
@@ -139,6 +502,10 @@ of the plan's own terms before a paid release, since "commercial use" and
 With that settled, the four Meshy assets are clear to ship in a closed-source
 commercial build, and the retirements below are unblocked.
 
+> **2026-10-06: not settled for the record.** The lead's 2026-08-30 word is still the only
+> evidence, and the plan name has not been supplied. *Pending: lead to confirm Meshy plan
+> tier for commercial use* (Status item 1). Read "clear to ship" above as conditional on it.
+
 ---
 
 ## The seven ground props (Meshy text-to-3D, remeshed)
@@ -179,6 +546,8 @@ magnitude denser than these remesh sources), re-scaled to a judged
 real-world size, and stripped to zero materials with one `rl_role` per prop
 from the closed `PROP_ROLES` vocabulary. Full prompts are in
 `art/meshy/ledger.jsonl`.
+*[2026-10-06: they are not. That ledger starts on 2026-09-30 and holds none of these fourteen
+tasks; the ids above and the truncated prompts in this table are the whole record. Status item 9.]*
 
 Full ledger entries and the fourteen downloaded `model.glb` sources (seven
 previews, seven remeshes) live under `art/meshy/<name>-20260927-<task-id>/`,
@@ -550,7 +919,9 @@ a slung gun on the base figure would arm all three men) and are kit geometry ins
   weeks on an unreleased project the practical exposure is minimal, but the
   declaration should be changed **before** the repo goes private, not after.
 - **Steam** requires disclosure of AI-generated content at submission, plus
-  confirmation of rights to everything shipped. Four assets are AI-generated, so
+  confirmation of rights to everything shipped. *[2026-10-06: not four. 130 of 131 meshes,
+  the music, the voices and the portraits are AI-generated, and 22 files have no recorded
+  origin: Status items 4, 5 and 7.]* Four assets are AI-generated, so
   that is a form field to complete rather than a judgement call — which is
   itself a reason to have this written down rather than reconstructed later.
 
@@ -578,6 +949,9 @@ depends on someone remembering is provenance that eventually fails.
 1. **Record credits for the 33 meshes and gate on them** (above). Now that the
    Meshy terms are settled, every mesh has an answer to record — which is the
    cheapest moment to start requiring one.
+   *[2026-10-06: the recording is done, as register rows rather than a per-GLB field, and
+   `tools/check_provenance_register.py` reports a file with no row. The gate is not done: it is
+   not in CI, and the Meshy terms are not in fact settled (Status item 1).]*
 2. ~~**Retire the three superseded sprite sets**~~ -- **resolved 2026-09-25**,
    by a different route than the one this item proposed. Retiring the sets would
    have blanked `mbt_lavi`, `ifv_namer` and `jeep_shoded` on `?renderer=pixi` and
@@ -1122,7 +1496,7 @@ so. The wreck ships as it did (47,860 tris, 945 KB Draco), `hall.glb` and
 
 | asset | status | what replaces it |
 |---|---|---|
-| `TNK_HULL`, `TNK_TURR` (Tiger-derived) | retired 2026-09-25 (`30050389`): every frame re-rendered from `art/meshes/vehicles/mbt_lavi.glb`; the old frames stay in history ("History is kept") | nothing — done |
+| `TNK_HULL`, `TNK_TURR` (Tiger-derived) | retired 2026-09-25 (`30050389`): every frame re-rendered from `art/meshes/vehicles/mbt_lavi.glb`; the old frames stay in history ("History is kept"). **Correction, 2026-10-06:** an older Tiger set was still tracked at `packages/app/public/assets/sprites/TNK/` and is deleted by the licensing pass (Status above) | nothing — done |
 | `JEEP_HULL` (downloaded model, no licence) | re-rendered the same day from `jeep_shoded.glb`, a supplied Meshy asset | nothing — verified |
 | `art/src/soldier_kolos.fbx` (Synty) | deleted (`38ea4a20` / `30b069c0`); never shipped | nothing — done |
 | `NAMER_HULL`, `NAMER_TURR` (Mutte, CC BY 3.0) | kept, the one permanent attribution (`credits-data.ts`, pinned); still live because the sprite sheet is rendered from the Mutte model while `ifv_namer.glb` is a Meshy Namer | optional: re-render from `ifv_namer.glb` (the TNK route), retiring the credit with the sheet |
