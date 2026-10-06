@@ -732,6 +732,12 @@ function buildDigitTexture(fillColorHex: string): THREE.CanvasTexture {
   }
   const texture = new THREE.CanvasTexture(canvas);
   texture.flipY = false;
+  // The canvas holds an sRGB COLOUR (`fillColorHex`, `shadow.1`), so it is
+  // decoded like every base-colour map in the game (CLAUDE.md's colour
+  // pipeline). Left at three's default `NoColorSpace` (until WP-P4, PA-18),
+  // the near-black ink was read as a linear value and encoded on the way
+  // out, and the digit drew mid-grey on its pale disc.
+  texture.colorSpace = THREE.SRGBColorSpace;
   texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
   texture.needsUpdate = true;
