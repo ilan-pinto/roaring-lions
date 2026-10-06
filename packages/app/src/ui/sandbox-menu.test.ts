@@ -25,6 +25,7 @@ import { matchPath, stripBase } from '../shell/router';
 import { showMenu, showSandbox } from './menu';
 import { parseWorld } from '../campaign';
 import worldJson from '../../../../data/campaign/world.json';
+import en from '../i18n/en.json';
 
 const render = (): HTMLElement => {
   const stage = document.createElement('div');
@@ -107,9 +108,29 @@ describe('the flag list', () => {
     expect(boxes.map((b) => b.dataset.flag)).toEqual(SANDBOX_FLAGS.map((f) => f.name));
   });
 
-  it("uses the table's own blurb rather than new prose that can drift from it", () => {
-    const text = render().textContent ?? '';
-    for (const f of SANDBOX_FLAGS) expect(text).toContain(f.blurb);
+  // WP-P2 (PA-01, PA-25): the table's own blurbs are console text for a
+  // developer ("a synthesised 4×4", "the kit sign ... to walk"). The screen
+  // labels each flag in a player's words, from the catalogue, keyed by the
+  // flag's own name -- so a new flag without a sentence is a missing key,
+  // not a dev blurb on the screen.
+  it('labels every flag from the catalogue, never with the dev blurb', () => {
+    const stage = render();
+    const text = stage.textContent ?? '';
+    for (const f of SANDBOX_FLAGS) {
+      const label = (en as Record<string, string>)[`freePlay.option.${f.name}`];
+      expect(label, `freePlay.option.${f.name}`).toBeTruthy();
+      expect(text).toContain(label);
+      expect(text).not.toContain(f.blurb);
+    }
+  });
+
+  it('keeps the flags behind a closed "Developer options" disclosure', () => {
+    const stage = render();
+    const dev = stage.querySelector<HTMLDetailsElement>('details.rl-sandbox__dev');
+    expect(dev).not.toBeNull();
+    expect(dev?.open).toBe(false);
+    expect(dev?.querySelector('summary')?.textContent).toBe('Developer options');
+    for (const box of stage.querySelectorAll('input[data-flag]')) expect(dev?.contains(box)).toBe(true);
   });
 });
 
