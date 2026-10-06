@@ -81,6 +81,25 @@ export function keyTimes(tracks: Map<string, Track>, nodeName: string, fallbackF
   return Array.from({ length: n + 1 }, (_, i) => lo + ((hi - lo) * i) / n);
 }
 
+/**
+ * A dense key grid for re-keying a clip: `fps` uniform frames over its range,
+ * merged with every key time any of its tracks already has. The second half
+ * is load-bearing -- a track keyed coarser than the grid (a root's bob at
+ * 30 fps) has a KINK at each of its keys, and a pose solved on either side of
+ * one but not at it sags through it: a planted sole read 0.8 mm under the
+ * ground at a root key that fell between two 120 fps keys.
+ */
+export function denseTimes(tracks: Map<string, Track>, fps: number): number[] {
+  const [lo, hi] = clipRange(tracks);
+  const n = Math.max(1, Math.round((hi - lo) * fps));
+  const all = Array.from({ length: n + 1 }, (_, i) => lo + ((hi - lo) * i) / n);
+  for (const tr of tracks.values()) all.push(...tr.times);
+  all.sort((a, b) => a - b);
+  const out: number[] = [];
+  for (const t of all) if (out.length === 0 || t - out[out.length - 1] > 1e-6) out.push(t);
+  return out;
+}
+
 export class Rig {
   readonly nodes: Node[];
   readonly byName = new Map<string, Node>();
