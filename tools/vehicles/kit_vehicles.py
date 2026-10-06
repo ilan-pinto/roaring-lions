@@ -82,6 +82,13 @@ BLOCKOUT_SPLIT = {
 #: measurement that forced it. The exporter prints every one on every run and
 #: skips only that axis of that node's comparison.
 DEVIATIONS = {
+    "scout_shachaf": {
+        ("armour", 1, "hull_hull"): (
+            "z",
+            "the mock's nose plate (20 degrees, centre z 1.78) stood 8-9 cm clear of the nose it "
+            "armours; seated 4 mm proud along its own normal it sits lower, and the part's top -- "
+            "that plate's top edge -- drops 0.085 m"),
+    },
     "mbt_lavi": {
         ("sensors", 3, "hull_hull"): (
             "z",
@@ -862,5 +869,250 @@ def parts_apc_kipod(H):
     ]
 
 
+# ---------------------------------------------------------------------------
+# scout_shachaf
+# ---------------------------------------------------------------------------
+
+def _side_plate(H, name, size, at, s, bolts=(), panel_inset=None, max_out=0.03, tree=None):
+    """A plate hung on a hull side (+Y * s out): local X along the hull,
+    local Y up, local Z out; seated against the side, bolted."""
+    M = kp.frame(at, (1, 0, 0), (0, s, 0))
+    sz = (size[0], size[2], size[1])           # (long, high, thick) in the plate's frame
+    d, _g = _seat_shift(tree or H.hull, M, sz, (0, 0, -1), max_out=max_out)
+    return kp.armour_plate(name, sz, _shifted(M, (0, 0, -1), d), bolts=bolts, panel_inset=panel_inset)
+
+
+def parts_scout_shachaf(H):
+    if not isinstance(H, Hull):
+        raise TypeError("pass a kit_blockout.Hull")
+    hv = H.verts("hull_hull", lambda c: c.z > 2.75)
+    mx = sum(c.x for c in hv) / len(hv)
+    my = sum(c.y for c in hv) / len(hv)
+    mtop = max(c.z for c in hv)
+    gun = barrel(H, "turret_metal", 0.75)
+    hull = H.hull
+
+    def a1():
+        size = (1.00, 1.10, 0.08)
+        M = kp.place((1.25, 0.0, 1.78), ry=20)
+        d, _g = _seat_shift(hull, M, size, (0, 0, -1))
+        out = kp.armour_plate("a1_nose", size, _shifted(M, (0, 0, -1), d),
+                              bolts=((-0.4, -0.4), (0.4, -0.4), (-0.4, 0.4), (0.4, 0.4)), panel_inset=0.07)
+        for tag, s in (("L", 1), ("R", -1)):
+            out += _side_plate(H, f"a1_d{tag}", (0.82, 0.06, 0.58), (0.20, s * 0.74, 1.60), s,
+                               bolts=((-0.4, 0.38), (0.4, 0.38)), panel_inset=0.06)
+        return out
+
+    def a2():
+        out = []
+        for tag, s in (("L", 1), ("R", -1)):
+            out += _side_plate(H, f"a2_s{tag}", (1.90, 0.08, 0.66), (-0.05, s * 0.80, 1.12), s,
+                               bolts=((-0.45, 0.38), (0.0, 0.38), (0.45, 0.38)), panel_inset=0.08)
+        for i, (x, sg) in enumerate([(1.62, 1), (1.62, -1), (-1.70, 1), (-1.70, -1)]):
+            out.append(kp.chamfered_box(f"a2_ag{i}", (0.80, 0.30, 0.06), kp.place((x, sg * 1.10, 1.24), rx=sg * -10),
+                                        tone="paint", chamfer=0.01))
+        return out
+
+    def a3():
+        return _cage(H, "a3_", [
+            ("gL", (-1.85, 0.98), (1.05, 0.98), 1.35, 2.15, {"pitch": 0.13}),
+            ("gR", (-1.85, -0.98), (1.05, -0.98), 1.35, 2.15, {"pitch": 0.13}),
+            ("gF", (2.40, 0.65), (2.40, -0.65), 0.55, 1.15, {"pitch": 0.13}),
+        ], (1.60, 1.95, 0.85), side_reach=0.6, rear_reach=0.6)
+
+    def s1():
+        c = Vector((mx + 0.05, my - 0.24, mtop - 0.12))
+        out = [kp.camera_head("s1_lrf", (0.32, 0.22, 0.20), kp.place(c), window=(0.10, 0.06), centre=(0.0, 0.02))]
+        out.append(kp.chamfered_box("s1_lens2", (0.012, 0.07, 0.07), kp.place((c.x + 0.166, c.y + 0.06, c.z - 0.03)),
+                                    tone="dark", chamfer=0.003, drop=((-1, 0, 0),)))
+        a0 = c + Vector((0, 0.11, 0))
+        hit = _toward(H.all, a0, (0, 1, 0), a0 + Vector((0, 0.1, 0)))
+        if (hit - a0).length > 0.004:
+            out.append(kp.bar("s1_arm", a0, hit + Vector((0, 0.01, 0)), 0.03, tone="metal", mount=True))
+        return out
+
+    def s2():
+        c = Vector((mx + 0.12, my, mtop - 0.50))
+        out = kp.radar_array("s2_rad", kp.place(c), (0.10, 0.78, 0.34), hinge_knuckle=False)
+        a0 = c - Vector((0.05, 0, 0))
+        hit = _toward(H.all, a0, (-1, 0, 0), a0 - Vector((0.1, 0, 0)))
+        if (hit - a0).length > 0.004:
+            out.append(kp.bar("s2_arm", a0, hit - Vector((0.01, 0, 0)), 0.04, tone="metal", mount=True))
+        return out
+
+    def s3():
+        out, top = kp.telescoping_mast("s3_ext", (mx, my), mtop - 0.01, mtop - 0.014, (0.5, 0.5), (0.05, 0.039), 0.07,
+                                       sides=8, bolts=2)
+        head = (0.46, 0.32, 0.30)
+        hc = Vector((mx, my, top + head[2] / 2 - 0.004))
+        out.append(kp.camera_head("s3_head", head, kp.place(hc), window=(0.20, 0.08), centre=(0.0, 0.03)))
+        out.append(kp.chamfered_box("s3_hood", (0.10, 0.34, 0.025), kp.place((hc.x + 0.215, hc.y, hc.z + 0.09)),
+                                    tone="metal", chamfer=0.006))
+        return out
+
+    def f1():
+        return kp.sight_box("f1_th", (-0.95, -0.20, 2.62 - 0.003), (0.28, 0.20, 0.20), (0.14, 0.06),
+                            window_centre=(0.0, 0.02), visor=(0.06, 0.22, 0.02), visor_drop=0.07)
+
+    def f2():
+        x0, x1, gy, gz = gun
+        a, c = x0 + (x1 - x0) * 0.15, x0 + (x1 - x0) * 0.85
+        r_in = _barrel_r(H, "turret_metal", gun, (a + c) / 2) * 0.97
+        out = kp.barrel_shroud("f2_sh", gy, gz, a, c, 0.04, 0.05, r_in, sides=6)
+        out += kp.ammo_box("f2_box", (0.44, 0.22, 0.30), kp.place((-1.05, 0.36, 2.40)), lid_h=0.035, handle=False)
+        return out
+
+    def f3():
+        out = kp.cowl("f3_cowl", (-0.85, 0.0, 2.36), 0.80, 0.85, 0.40, bolts=False)
+        for i, yy in enumerate((-0.25, 0.25)):
+            out.append(kp.hex_bolt(f"f3_b{i}", (-0.85 + 0.425 + 0.025, yy, 2.36 + 0.12), (1, 0, 0), across=0.024,
+                                   height=0.01))
+        return out
+
+    return [
+        ("armour", 1, "hull_hull", "nose plate + door plates", a1),
+        ("armour", 2, "hull_hull", "side armour panels + arch guards", a2),
+        ("armour", 3, "hull_hull", "grille cage along the sides + front grille", a3),
+        ("sensors", 1, "hull_hull", "laser-rangefinder/thermal box beside the mast head", s1),
+        ("sensors", 2, "hull_hull", "ground-surveillance radar under the mast head", s2),
+        ("sensors", 3, "hull_hull", "second mast stage with a sensor head", s3),
+        ("firepower", 1, "turret_metal", "thermal sight block on the RWS", f1),
+        ("firepower", 2, "turret_metal", "barrel heat shroud + ammunition box", f2),
+        ("firepower", 3, "turret_metal", "armoured cowl round the weapon station", f3),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# jeep_shoded
+# ---------------------------------------------------------------------------
+
+def parts_jeep_shoded(H):
+    if not isinstance(H, Hull):
+        raise TypeError("pass a kit_blockout.Hull")
+    cab = 1.73
+    gun = barrel(H, "hull_metal", 1.0)
+
+    def a1():
+        out = []
+        for i, x in enumerate((-0.55, 0.30)):
+            for tag, s in (("L", 1), ("R", -1)):
+                out += _side_plate(H, f"a1_d{i}{tag}", (0.78, 0.06, 0.58), (x, s * 1.04, 1.22), s,
+                                   bolts=((-0.4, 0.38), (0.4, 0.38)), panel_inset=0.06,
+                                   tree=_tree(H, ("hull_hull",)))
+        return out
+
+    def a2():
+        out = [kp.chamfered_box("a2_shF", (0.05, 0.95, 0.55), kp.place((0.80, 0.0, 2.06)), tone="paint", chamfer=0.008,
+                                windows=(((1, 0, 0), (0.30, 0.04), 0.02, (0.0, 0.12)),))]
+        for tag, s in (("L", 1), ("R", -1)):
+            out.append(kp.chamfered_box(f"a2_sh{tag}", (0.05, 0.48, 0.50), kp.place((0.62, s * 0.63, 2.04), rz=s * 40),
+                                        tone="paint", chamfer=0.008))
+            for k, dz in enumerate((-0.15, 0.15)):
+                out.append(kp.hex_bolt(f"a2_b{tag}{k}", (0.80 + 0.026, s * 0.40, 2.06 + dz), (1, 0, 0),
+                                       across=0.024, height=0.01))
+        # two struts from the shield down to the ring
+        for tag, s in (("L", 1), ("R", -1)):
+            a0 = Vector((0.775, s * 0.30, 1.80))
+            hit = _toward(H.all, a0, (-1, 0, -0.3), a0 + Vector((-0.2, 0, -0.06)))
+            if (hit - a0).length < 0.4:
+                out.append(kp.bar(f"a2_st{tag}", a0, hit, 0.03, tone="paint", mount=True))
+        return out
+
+    def a3():
+        out = _cage(H, "a3_", [("bb", (2.48, 0.95), (2.48, -0.95), 0.45, 1.02, {"pitch": 0.11})], (0.75,),
+                    rear_reach=0.6)
+        for tag, s in (("L", 1), ("R", -1)):
+            out += _side_plate(H, f"a3_bed{tag}", (0.92, 0.05, 0.46), (-1.55, s * 1.02, 1.02), s,
+                               bolts=((-0.42, 0.36), (0.42, 0.36)), panel_inset=0.06)
+        # windscreen louvres: a frame and five louvres, leaning back 30 degrees
+        M = kp.place((0.78, 0.0, 1.52), ry=-30)
+        R = M.to_3x3()
+        hy, hz = 0.85, 0.20
+        for k, (p0, p1, w, h) in enumerate([((0, -hy, -hz), (0, hy, -hz), 0.04, 0.04), ((0, -hy, hz), (0, hy, hz), 0.04, 0.04),
+                                            ((0, -hy, -hz), (0, -hy, hz), 0.04, 0.04), ((0, hy, -hz), (0, hy, hz), 0.04, 0.04)]):
+            out.append(kp.bar(f"a3_wsf{k}", M @ Vector(p0), M @ Vector(p1), w, h, tone="paint",
+                              cap_a=k >= 2, cap_b=k >= 2))
+        for k in range(5):
+            z = -hz + 2 * hz * (k + 1) / 6
+            out.append(kp.bar(f"a3_wsl{k}", M @ Vector((0, -hy, z)), M @ Vector((0, hy, z)), 0.06, 0.01, tone="paint",
+                              up=R @ Vector((1, 0, 1))))
+        return out
+
+    def s1():
+        px, py = -0.62, -0.62
+        lo, hi = _seat(H.all, px, py, 0.07)
+        out = kp.pedestal("s1_post", (px, py), lo, hi, cab + 0.24, 0.04, 0.07, sides=8)
+        out += kp.sensor_ball("s1_ball", (px, py, cab + 0.37), 0.14, segments=8, rings=5)
+        return out
+
+    def s2():
+        out = []
+        rx, ry, rz = -0.45, -0.25, cab + 0.08
+        h = 0.45
+        for k, (a, b) in enumerate([((-h, -h), (h, -h)), ((-h, h), (h, h)), ((-h, -h), (-h, h)), ((h, -h), (h, h)),
+                                    ((0.0, -h), (0.0, h))]):
+            out.append(kp.bar(f"s2_rack{k}", (rx + a[0], ry + a[1], rz), (rx + b[0], ry + b[1], rz), 0.035,
+                              tone="metal", cap_a=k >= 2, cap_b=k >= 2))
+        for k, (fx, fy) in enumerate([(-h, -h), (h, -h), (-h, h), (h, h)]):
+            g = H.top(rx + fx, ry + fy, rz - 0.1)
+            out.append(kp.plain_box(f"s2_foot{k}", (0.05, 0.05, rz - g + 0.02), kp.place((rx + fx, ry + fy, (rz + g) / 2)),
+                                    tone="metal", drop=((0, 0, 1), (0, 0, -1)), mount=True))
+        pod = kp.place((-0.45, -0.45, cab + 0.27))
+        out.append(kp.camera_head("s2_pod", (0.55, 0.36, 0.32), pod, window=(0.20, 0.08), centre=(0.0, 0.04)))
+        out.append(kp.chamfered_box("s2_hood", (0.10, 0.38, 0.025), kp.place((-0.45 + 0.30, -0.45, cab + 0.39)),
+                                    tone="metal", chamfer=0.006))
+        return out
+
+    def s3():
+        return _mast_head(H, "s3", (-1.55, -0.55), 0.80 + 2.3, (0.06, 0.047, 0.034), 0.09, head=(0.42, 0.30, 0.26))
+
+    def f1():
+        x0, x1, gy, gz = gun
+        out = kp.sight_box("f1_sight", (0.10, 0.13, gz + 0.13), (0.26, 0.14, 0.16), (0.10, 0.06),
+                           window_centre=(0.0, 0.01), visor=(0.05, 0.16, 0.02), visor_drop=0.06)
+        for i, x in enumerate((-0.15, 0.20)):
+            out.append(kp.chamfered_box(f"f1_can{i}", (0.30, 0.13, 0.20), kp.place((x, 0.62, 1.88)), tone="metal",
+                                        chamfer=0.008))
+            out.append(kp.lifting_eye(f"f1_h{i}", (x, 0.62, 1.98), (0, 0, 1), (1, 0, 0), r=0.04, t=0.008))
+        return out
+
+    def f2():
+        x0, x1, gy, gz = gun
+        a, c = x0 + (x1 - x0) * 0.15, x0 + (x1 - x0) * 0.85
+        # the MG's barrel runs inside a gas tube and a body: close the shroud
+        # onto the measured radius, never wider than the shroud itself
+        r_in = min(_barrel_r(H, "hull_metal", gun, (a + c) / 2) * 0.97, 0.036)
+        out = kp.barrel_shroud("f2_sh", gy, gz, a, c, 0.04, 0.05, r_in, sides=6)
+        out += kp.ammo_box("f2_box", (0.40, 0.22, 0.30), kp.place((-0.05, -0.30, 2.10)), lid_h=0.035, handle=False)
+        return out
+
+    def f3():
+        x0, x1, gy, gz = gun
+        xa, xb = x1 + 0.45 - 0.675, x1 + 0.45 + 0.675
+        prof = [(xa, 0.05), (xb - 0.16, 0.05), (xb - 0.16, 0.062), (xb - 0.02, 0.062), (xb, 0.05)]
+        out = [kp.lathe("f3_hb", [(x - xa, r) for x, r in prof], (xa, gy, gz), (1, 0, 0), sides=8,
+                        tones=["metal"] * 4, cap0=False, cap1=True)]
+        out.append(kp.chamfered_box("f3_brake_port", (0.06, 0.13, 0.02), kp.place((xb - 0.09, gy, gz + 0.06)), tone="dark",
+                                    chamfer=0.004))
+        rc = Vector((x0 + 0.15, gy, gz - 0.02))
+        out.append(kp.camera_head("f3_rcv", (0.65, 0.26, 0.26), kp.place(rc), face=(0, 1, 0), window=(0.36, 0.06),
+                                  centre=(0.0, 0.05)))
+        out.append(kp.lifting_eye("f3_handle", (rc.x, rc.y, rc.z + 0.13), (0, 0, 1), (1, 0, 0), r=0.03, t=0.008))
+        return out
+
+    return [
+        ("armour", 1, "hull_hull", "door armour kits, 2 a side", a1),
+        ("armour", 2, "hull_metal", "gunner's shield round the roof MG", a2),
+        ("armour", 3, "hull_hull", "bull-bar grille, bed armour, windscreen louvres", a3),
+        ("sensors", 1, "hull_hull", "roof EO ball on a post", s1),
+        ("sensors", 2, "hull_hull", "surveillance pod on a roof rack", s2),
+        ("sensors", 3, "hull_hull", "telescopic mast with a radar head in the bed", s3),
+        ("firepower", 1, "hull_metal", "MG sight + two ready ammunition cans", f1),
+        ("firepower", 2, "hull_metal", "barrel shroud + 400-round box", f2),
+        ("firepower", 3, "hull_metal", "heavy-barrel conversion", f3),
+    ]
+
+
 PARTS_DETAILED = {"mbt_lavi": parts_mbt_lavi, "ifv_namer": parts_ifv_namer,
-                  "apc_eitan": parts_apc_eitan, "apc_kipod": parts_apc_kipod}
+                  "apc_eitan": parts_apc_eitan, "apc_kipod": parts_apc_kipod,
+                  "scout_shachaf": parts_scout_shachaf, "jeep_shoded": parts_jeep_shoded}
