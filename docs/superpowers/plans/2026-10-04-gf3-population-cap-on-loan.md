@@ -35,19 +35,24 @@ No 4 Oct ruling (G3 Q4: cap off in the campaign, on in skirmish/co-op, used/cap 
 missions may lend, marked "on loan") conflicts with what landed. Three questions:
 1. Since GH-330, an L-1 move of `LADDER_CREDITS` also moves `CAMPAIGN_CREDITS`, the figure the store
    quotes per campaign. Is that inside the L-1 confirmation Task 7 asks for, or does it need its own word?
+   **Ruled 6 Oct:** inside L-1.
 2. (Found in the refresh, not a landing.) Task 8 has no row to mark: both deploy surfaces list only
    `from_ledger` draws, and D5 never lends one, so no loaned unit appears on the deploy screen today.
    Where should "on loan" sit: a new list of issued placements beside "What you brought", or elsewhere?
+   **Ruled 6 Oct:** on the in-mission unit card and the selection chip, and on the dock tile if a
+   loaned type appears there. It is not on the deploy screen. Task 8 is rewritten to match.
 3. (Found in the refresh, not a landing.) A `from_ledger` draw that finds no survivor spawns a fresh
    remnant (mission.ts ~L1276-1289). Should D5 still call that body never on loan when its type is gated?
    9 of the 68 gated lines are `from_ledger`.
+   **Ruled 6 Oct:** yes. A `from_ledger` placement is never on loan, even when it spawns a fresh
+   remnant.
 
 **Goal:** Two small rulings, made real.
 
 | ruling (lead, 4 Oct) | today (`main` `067fab9a`, re-checked on `b44df7aa`) | after F3 |
 |---|---|---|
 | **Q4.** A population cap, available per mission and doctrine: **off in the campaign, on in skirmish and co-op**. The HUD shows used/cap when it is on | 34 of the 35 unit JSONs declare `cost.population` (drones 0, most teams 1, APCs 2, Lavi 3); `civilians.json` takes the schema default 1 (`unit.schema.json` L82-86) and stands on side 2; **nothing reads it** (M, G3 sheet; still true on `b44df7aa`, grep) | the runtime counts it; a cap, when set, refuses builds past it; the validator refuses a cap on any campaign mission |
-| **Q5.** Missions may **lend** locked units, and the deploy screen marks them **"on loan"** | `starting_force` never consults `unlock`; 68 gated placement lines in 26 of 27 missions (M at `751b6742`; my recount on `b44df7aa` is unchanged: 68 in 26, 9 of them `from_ledger`, only `beit_sahwan_breach` has none); CLAUDE.md calls it "undecided" | a documented feature; one pure predicate names the loaned placements; the deploy screen marks them; a loaned survivor goes back to the lender (L-1, the one decision here that can move a pin) |
+| **Q5.** Missions may **lend** locked units, and the deploy screen marks them **"on loan"** | `starting_force` never consults `unlock`; 68 gated placement lines in 26 of 27 missions (M at `751b6742`; my recount on `b44df7aa` is unchanged: 68 in 26, 9 of them `from_ledger`, only `beit_sahwan_breach` has none); CLAUDE.md calls it "undecided" | a documented feature; one pure predicate names the loaned placements; the unit card and selection chip mark them (ruled 6 Oct; the deploy screen lists no loaned unit); a loaned survivor goes back to the lender (L-1, the one decision here that can move a pin) |
 
 **Architecture:**
 - **The cap is `MissionRuntime`.** Population is read from `UnitType.population` (new, parsed in
@@ -56,10 +61,10 @@ missions may lend, marked "on loan") conflicts with what landed. Three questions
   runtime context (`MissionContext.popCaps`), which is the door G-G's doctrine loader and G-H's co-op
   setup will use. No campaign mission sets one, so no campaign outcome can move.
 - **"On loan" is one pure predicate in `unlock.ts`**, beside `unlockReason` and `resolveUpgrades`,
-  so the runtime and the deploy screen read the same answer (the `missionShepherds` pattern from the
+  so the runtime and the HUD's mark read the same answer (the `missionShepherds` pattern from the
   Stage 4 sim-fix plan, `docs/superpowers/plans/2026-09-29-stage4-sim-fixes.md`).
 
-**Tech stack:** TypeScript strict, vitest (jsdom for the deploy screen).
+**Tech stack:** TypeScript strict, vitest (jsdom for the HUD).
 
 **Refs:**
 - GH-183 F3 and F4's "a ruling on `starting_force` never consulting `unlock`". GH-167 (G3) Q4 and Q5,
@@ -72,7 +77,10 @@ missions may lend, marked "on loan") conflicts with what landed. Three questions
   `umm_zeitoun_4_clearance` 20; still 6 `upgrades_to` sites, `gate_only` on `qarn_hadid_3_clearance`'s
   jeep only). The Sarim figures come from the skirmish spike and are not in the tree.
 - CLAUDE.md, "Known scaling debts", the `starting_force` paragraph (rewritten in Task 9).
-- `packages/app/src/ui/deploy-roster.ts`, `ui/loading.ts` (`broughtFor`): the deploy surfaces.
+- `packages/app/src/ui/deploy-roster.ts`, `ui/loading.ts` (`broughtFor`): the deploy surfaces, which
+  list no loaned unit. `packages/app/src/ui/hud.ts` (the unit card and the selection chips) and
+  `ui/kit-sign.ts` (`kitIconSignHtml`, the DOM sign the mark sits beside): where the mark goes since
+  the 6 Oct ruling.
 
 **Base:** read against `main` `067fab9a`, refreshed against `b44df7aa` (6 Oct). Branch `feat/gf3-popcap`,
 cut from `main` after F1 lands. Nothing measured yet: (M) is quoted from the G3 sheet, (R) is reasoned.
@@ -102,7 +110,7 @@ cut from `main` after F1 lands. Nothing measured yet: (M) is quoted from the G3 
     placement upgraded to an open unit is not on loan; a `gate_only` placement dropped by a closed
     gate is not on the field at all; a `from_ledger` placement is never on loan (it is the brigade's
     own body). (On a fresh or gutted roster a `from_ledger` draw spawns a fresh remnant instead,
-    mission.ts ~L1276-1289: see "For the lead" 3.) Halt to fire follows the fielded type, loan or not
+    mission.ts ~L1276-1289. Ruled 6 Oct: that remnant is never on loan either.) Halt to fire follows the fielded type, loan or not
     (#402).
   - **L-1. A loaned survivor goes back to the lender.** "For that mission" (the lead's Q5 wording)
     means the unit does not join `roster.surviving_units` at mission end. Today every starting-force
@@ -148,7 +156,7 @@ cut from `main` after F1 lands. Nothing measured yet: (M) is quoted from the G3 
 | `tools/src/backtest/playtest.ts` | The population census line; Task 7's pins | 5, 7 |
 | `packages/app/src/ui/stores-model.ts` (`CAMPAIGN_CREDITS`) | Moves with `LADDER_CREDITS` if Task 7 moves it (GH-330) | 7 |
 | `packages/sim/src/unlock.ts` (+ test), `index.ts` | `loanedPlacements` | 6 |
-| `packages/app/src/ui/deploy-roster.ts`, `ui/loading.ts`, `i18n/en.json` (+ tests) | The "on loan" mark | 8 |
+| `packages/app/src/ui/hud.ts`, `ui/kit-sign.ts`, `ui/production.ts` (dock tile, only if a loaned type appears), `i18n/en.json` (+ tests) | The "on loan" mark, on the unit card and selection chip (ruled 6 Oct) | 8 |
 | `docs/GDD.md`, `data/schemas/mission.schema.json` (`starting_force` description), `CLAUDE.md`, `docs/campaign/README.md`, `docs/HANDOVER.md` | The documented feature | 9 |
 
 ---
@@ -309,7 +317,7 @@ consumers already hold the RESOLVED mission (`main.ts` ~L1614 builds it once for
 ```ts
 /** D5. Indices into `mission.starting_force` of placements that field a unit whose
  *  gate is closed for this ledger, after `resolveUpgrades`. Pure; the runtime and
- *  the deploy screen call it with the same `gateOf`. */
+ *  the app call it with the same `gateOf`. */
 export function loanedPlacements(
   mission: Pick<MissionJson, 'starting_force'>,
   ledger: LedgerData | undefined,
@@ -332,8 +340,15 @@ export function loanedPlacements(
     the feature's own canonical case, as a test, in `tools/src/` (packages/sim tests read no shipped
     JSON; `halt_to_fire_roster.test.ts` is the precedent).
 - [ ] **Step 2: Implement** by calling `resolveUpgrades` and `unlockReason`, never re-deriving either.
+- [ ] **Step 2b: The runtime remembers who is on loan** (since the 6 Oct ruling put the mark in the
+  mission itself). The runtime never sees a gate (`resolveUpgrades`' own comment), so the indices
+  reach it through `MissionContext`. It records the loaned entity ids at spawn and answers
+  `isOnLoan(id): boolean`. Task 7's roster skip and Task 8's mark both read this one record, so this
+  step does not wait for L-1. Test: on `wadi_halam_5_depot` with an empty ledger, the D9 and the
+  demolition squad answer true, and the `ifv_namer` answers false.
 - [ ] **Step 3: See it red.** Skip `resolveUpgrades`: the `upgrades_to` test fails. Ignore `bought`:
-  the bought test fails.
+  the bought test fails. Record ids from the authored placements instead of the resolved ones: the
+  Step 2b test fails.
 
 ---
 
@@ -344,7 +359,8 @@ confirms L-1 on #183.** If the lead overrules, this task is skipped and the plan
 unit is kept.
 
 **Files:** `packages/sim/src/mission.ts` and its test, `tools/src/backtest/playtest.ts` (comments and
-pins), `packages/app/src/ui/stores-model.ts` (`CAMPAIGN_CREDITS`, only if `LADDER_CREDITS` moves).
+pins), `packages/app/src/ui/stores-model.ts` (`CAMPAIGN_CREDITS`, only if `LADDER_CREDITS` moves;
+ruled 6 Oct: inside the L-1 confirmation, no separate word needed).
 
 - [ ] **Step 1: Measure first, on a scratch copy.** Run `pnpm playtest` with the change. Report which
   roster lines move, whether any later `from_ledger` draw fields a different force, and whether any
@@ -369,10 +385,9 @@ pins), `packages/app/src/ui/stores-model.ts` (`CAMPAIGN_CREDITS`, only if `LADDE
   both (credits unchanged); a loaned unit killed in the mission is a loss in the debrief like any
   other. (An armed fixture with `role: 'infantry'` now kneels when idle, #402; it stands still and
   survives the same, and its roster entry carries no brace state.)
-- [ ] **Step 3: Implement.** The runtime records loaned entity ids at spawn (from Task 6's indices)
-  and skips them in `checkEnd`'s roster write (mission.ts ~L1884; the survivor loop over `playerIds`
-  before ~L1929's unfielded-pool append). The runtime never sees a gate (`resolveUpgrades`' own comment),
-  so the indices reach it through `MissionContext`.
+- [ ] **Step 3: Implement.** Using Task 6 Step 2b's record (`isOnLoan`), the runtime skips loaned
+  ids in `checkEnd`'s roster write (mission.ts ~L1884: the survivor loop over `playerIds`, before
+  ~L1929's unfielded-pool append).
 - [ ] **Step 4: Re-pin, if Step 1 said so.** Each moved `LADDER_CREDITS` (5830 on `b44df7aa`, ~L3181) /
   `GATES` (~L2944) / `ROSTER_MAX` (31, ~L3308) pin gets the house-style comment: the term, per mission,
   before and after, summing to the delta. A moved `LADDER_CREDITS` moves `CAMPAIGN_CREDITS` in the same
@@ -381,33 +396,42 @@ pins), `packages/app/src/ui/stores-model.ts` (`CAMPAIGN_CREDITS`, only if `LADDE
 
 ---
 
-## Task 8: "on loan" on the deploy screen (Lane A)
+## Task 8: "on loan" on the unit card and selection chip (Lane A)
 
-**Model:** sonnet. **Agent:** lane A (`render-vfx` for styling questions). **Depends:** Task 6.
+**Model:** sonnet. **Agent:** lane A (`render-vfx` for styling questions). **Depends:** Task 6 (Step 2b's
+`isOnLoan`).
 
-**Files:** `packages/app/src/ui/deploy-roster.ts`, `packages/app/src/ui/loading.ts` (`broughtFor` and
-the deploy spread), `packages/app/src/i18n/en.json`, `packages/app/src/ui/theme.css` only if a token is
-missing; tests (`loading.test.ts`, `deploy-roster.test.ts`).
+**Ruled 6 Oct:** the mark goes on the in-mission unit card and the selection chip, and on the dock
+tile if a loaned type appears there.
 
-On `b44df7aa` neither surface has a row for a loaned unit. `broughtFor` (loading.ts ~L130) names only
-what `from_ledger` placements draw, through `drawFromPool`, and skips fresh units on purpose; the deploy
-spread (`deploySpread`, ~L252) lists `deployRosterView`'s pool entries (deploy-roster.ts ~L36-52). D5
-puts every loaned unit on a non-`from_ledger` placement, so Wadi Halam V's D9 and demolition squad
-appear on neither, and the "rows" below are new. Both surfaces read the resolved mission (`main.ts`
-~L1614/~L1929/~L1944). Where the mark sits is "For the lead" 2. en.json is flat dotted keys, so
-`deploy.onLoan` and `deploy.onLoan.tip` coexist.
+**Why not the deploy screen.** The lead's Q5 wording put the mark on the deploy screen. On
+`b44df7aa` neither deploy surface has a row for a loaned unit:
+- `broughtFor` (loading.ts ~L130) names only what `from_ledger` placements draw;
+- the deploy spread (`deploySpread`, ~L252) lists only pool entries;
+- D5 puts every loaned unit on a fresh placement.
 
-- [ ] **Step 1: Write the failing tests** (jsdom): on `wadi_halam_5_depot` with an empty ledger, the
-  deploy panel's D9 and demolition rows carry the mark; with a ledger that opens both gates, neither
-  does; the mark's text comes from `t('deploy.onLoan')` (the pseudo-locale renders it bracketed).
-- [ ] **Step 2: Implement.** A chip beside the unit name, with a tooltip:
-  `t('deploy.onLoan.tip')` = "Issued for this mission. Returns to its unit afterwards." (if L-1 is
-  overruled: "Issued for this mission."). Semantic tokens only (`pnpm validate:ui`). The mark is on
-  the deploy screen and nowhere in the world (memory: no status marks in the world).
-- [ ] **Step 3: Measure.** `pnpm validate:ui` clean; a pseudo capture of the deploy screen shows no
-  unbracketed word.
-- [ ] **Step 4: See it red.** Read the gate before `resolveUpgrades` in the view: the upgraded-row test
-  fails.
+**Files:** `packages/app/src/ui/hud.ts` (the selection chips, `chipArtHtml` ~L165, and the
+single-unit card); `ui/kit-sign.ts`; `ui/production.ts` (the dock tile, only if a loaned type
+appears there); `packages/app/src/i18n/en.json`; `packages/app/src/ui/theme.css` only if a token is
+missing. Tests: `hud.test.ts`, `kit-sign.test.ts`.
+
+The mark is DOM, beside the kit sign (`kitIconSignHtml`), so it draws the same way the kit mark
+does. en.json is flat dotted keys, so `hud.onLoan` and `hud.onLoan.tip` coexist.
+
+- [ ] **Step 1: Write the failing tests** (jsdom). On `wadi_halam_5_depot` with an empty ledger:
+  - the D9's and the demolition squad's chips and unit cards carry the mark;
+  - with a ledger that opens both gates, neither does;
+  - the mark's text comes from `t('hud.onLoan')`, which the pseudo-locale renders bracketed.
+- [ ] **Step 2: Implement.**
+  - A mark beside the unit name, with a tooltip.
+  - The tooltip is `t('hud.onLoan.tip')` = "Issued for this mission. Returns to its unit
+    afterwards." If L-1 is overruled, it is "Issued for this mission."
+  - Semantic tokens only (`pnpm validate:ui`).
+  - The mark is on the HUD and nowhere in the world (memory: no status marks in the world).
+- [ ] **Step 3: Measure.** `pnpm validate:ui` is clean, and a pseudo capture of a mission with a
+  loaned unit selected shows no unbracketed word.
+- [ ] **Step 4: See it red.** Read the gate before `resolveUpgrades` in the view: the upgraded-unit
+  test fails.
 
 ---
 
@@ -420,8 +444,8 @@ appear on neither, and the "rows" below are new. Both surfaces read the resolved
 `docs/HANDOVER.md`.
 
 - [ ] **Step 1:** The sentence in all four places: *"The issued force is the brigade's to lend. A
-  placement may field a unit whose gate is closed; it is on loan for that mission, marked so on the
-  deploy screen, and returns afterwards. Gates govern what you build and what you upgrade to.
+  placement may field a unit whose gate is closed; it is on loan for that mission, marked so on its
+  unit card and selection chip, and returns afterwards. Gates govern what you build and what you upgrade to.
   Restraint shapes the issued force through `upgrades_to` and `gate_only` (lead, G3 Q5, 4 Oct)."*
   CLAUDE.md's "Whether that is a feature or a hole is undecided" becomes "decided 4 Oct: a feature".
   That paragraph (CLAUDE.md ~L2079 on `b44df7aa`) also quotes pre-WP-G-E1 floors, `dozer_d9` (ROE 60),
@@ -451,4 +475,5 @@ appear on neither, and the "rows" below are new. Both surfaces read the resolved
 - **Used/cap** beside the logistics counter, shown only when `populationView()` is not null (Q4: the
   HUD shows it when the cap is on). In the campaign it never appears.
 - **The refusal on the dock tile**: the cap reason string, in the same slot the unlock reason uses.
-- **"On loan"** on the deploy screen: Task 8, if lane A was busy when F3 landed.
+- **"On loan"** on the unit card and selection chip (ruled 6 Oct): Task 8, if lane A was busy when F3
+  landed.

@@ -37,17 +37,26 @@ and `detect-report.md`, `fix-sim2.mts` and `patch291.py` are gone.
 - **Tel Marum I's shepherd point `(22, 27)` is now exposed.** It is 9.9 tiles from
   `tm_pocket_west`'s new post, inside its sight and Kornet range 10 (Task 1, Step 1).
 - **#280 × #402: no meeting.** Garrisoned units are held at `BRACE_NONE` and fire as before.
+- **Two different holds.** #291's "hold" branch is a routed unit with nowhere to run, standing
+  still. It is not the Hold position order the lead added on 6 Oct (`2026-10-06-hold-position.md`,
+  landing Wed 4 Nov after this plan's Task 4). That plan's H-D4 has a rout clear its `holdPos`
+  flag. Like this plan's Task 4 columns, `holdPos` is a hashed per-unit column with its own sim
+  re-pin.
 
 ### For the lead
 1. **An offer, not an assumption: an earlier landing.** #402 was a lead-approved one-off. The rest
    of `packages/sim` stays closed until Stage 4 opens on 2 Nov, so this plan keeps #279 and #291
    there. If the lead wants either earlier, Tasks 1–3 are hash-neutral and Task 4 is the only
    re-pin; nothing in the plan depends on the date.
+   **Ruled 6 Oct:** #291 and #279 stay on 2–3 Nov.
 2. **A holding routed unit stands.** The 6 Oct ruling is that idle infantry kneel everywhere. A
    routed unit in #291's hold branch is idle, but `stepBrace` keeps routed units up. Intended?
+   **Ruled 6 Oct:** intended. A routed unit holds upright.
 3. **L-B and D4 assumed the old Umm Zeitoun IV plan,** where the drone moved the porters at t=1. On
    `main` the escort is the first unit sent to them, so `c → a` may not recur. Re-confirm L-B after
    Task 2's re-measure.
+   **Ruled 6 Oct:** re-confirm after the re-measure (procedural). Task 2 reports the line, and the
+   lead re-confirms L-B.
 
 ---
 
@@ -545,8 +554,8 @@ longer on disk: this section is the specification.
   - "4 s after the rout" therefore includes the rise.
 
   Assert the target's `brace` reads `BRACE_NONE` once it moves. For the holding unit in "no source,
-  no threat", record its `brace`. Under `main`'s rules it stands at `BRACE_NONE`; whether it should
-  is "For the lead" item 2.
+  no threat", assert it stands at `BRACE_NONE`: a routed unit holding upright is intended (ruled
+  6 Oct, "For the lead" item 2).
   - **"outranged and blind, it flees away from the fire"** (the probe layout). The shooter is side
     0 at (4.5, 8.5) and the target side 1 at (12.5, 8.5).
     - It routs within 60 s.
@@ -658,7 +667,8 @@ Three measurements FW Task 1 should carry, all taken at `e3bf7484`:
 
 ## Re-pin order across streams
 
-Three streams move the golden pins in Stage 4. Each moves both pins **once**, in its own commit,
+Three streams move the golden pins in Stage 4, and since the lead's 6 Oct ruling a fourth, Hold
+position (row 1b). Each moves both pins **once**, in its own commit,
 with its own reason. They land in a fixed order, and each later stream rebases onto the earlier
 re-pin, reads the new value from the failure, and writes `Was <previous>.`
 
@@ -672,6 +682,7 @@ final, by the lead's choice on 6 Oct, so it brings no further re-pin.
 | 0 | this plan, Tasks 1–3 (#279) | none | hash-neutral (measured) | `civilians.ts`, `mission.ts` |
 | 0 | FW Task 1 (#280 field) | none | hash-neutral: config, not state | `applySuppression`'s cover branch |
 | **1** | **this plan, Task 4 (#291)** | Task 4 | 3 per-unit columns | `applySuppression`'s signature and head, `startRout`, `hash()` |
+| **1b** | **Hold position** (lead, 6 Oct; `2026-10-06-hold-position.md`) | its Task 1, Wed 4 Nov | 1 per-unit column, `holdPos` | the command loop, `startRout` (a rout clears it), `stepSweep`, `hash()` |
 | **2** | **FW Task 2** | FW Task 2 | 14 FW arrays (per structure, the site table, per unit) | `hash()`, per-structure SoA |
 | **3** | **E6 (#274), placed charge** | E6's sim commit | its per-structure columns | per-structure SoA, `splashDirect` blast |
 
@@ -719,8 +730,8 @@ final, by the lead's choice on 6 Oct, so it brings no further re-pin.
 - **R6. #291's hold branch.** A routed unit with no threat and no source now stands still instead
   of running −x. At `e3bf7484` only debug hooks reached it: in the emulation, all 8 balance
   fallbacks and all 8 side-0/1 playtest fallbacks had a source. Re-count after #402. Rally logic is
-  unchanged. Under #402 a holding bracer stands upright, because the routed rule keeps it up (see
-  "For the lead" item 2).
+  unchanged. Under #402 a holding bracer stands upright, because the routed rule keeps it up
+  (intended, ruled 6 Oct; "For the lead" item 2).
 - **R7. `applySuppression` is edited by two streams** (#291 and FW Task 1), and later by E6's blast.
   The order above assigns who rebases. #402 did not touch it: its signature is still
   `(target, amount, coverProtects = true)` at `b44df7aa`.

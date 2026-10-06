@@ -22,8 +22,11 @@ Refreshed against `main` `b44df7aa` (v0.121.4, 6 Oct). What F4 replaces is uncha
 
 ### For the lead
 1. **D5 vs #402.** Should the rally order stay a plain `move`? It holds the point, but the unit does not shoot back on the way, and it is an order the player cannot otherwise give. Or should it be an attack-move, which fights on the way but is walked off the point by the closing rule? Or a third rule, such as an attack-move that halts on arrival (new sim behaviour)?
+   **Ruled 6 Oct (lead):** add a "Hold position" order (`2026-10-06-hold-position.md`, on `main` Wed 4 Nov, before F4). The rally point issues Hold on arrival. A held unit stays put, kneels, fires at anything in range, and never advances, chases or closes. The walk to the point stays D5's `move`.
 2. **Task 9 / D7–D8.** The same question for the enemy's bought units walking to their `rally` marker. By `move` they walk past KDF troops holding fire, and #402's halt-on-contact covers patrollers only.
+   **Ruled 6 Oct (lead):** likewise. The enemy's bought units issue Hold on arrival at their `rally` marker. A trigger's `commit` (an attack-move) releases them.
 3. **D1 vs GH-382.** Deir Amun II's gate fight now falls inside the camp's 6-tile radius, as Beit Sahwan II's wave target already did. Under D1 both lines would pause whenever a wave arrives. Is that the intended "no production while contested", or should contest be measured another way (a smaller radius, or the camp footprint rather than the exit)?
+   **Ruled 6 Oct:** intended. A contested camp pauses; D1 stands as written.
 
 **Goal:** Production gets a place, a pace and a destination, and the enemy buys the same way the
 player does.
@@ -44,8 +47,9 @@ player does.
 - **The rally order is a sim command**, `move`, queued for the spawned ids on the deploy tick. The
   runtime already spawns through the sim and the sim already takes `move`; nothing new crosses the
   boundary, and invariant 4 holds (the runtime issues commands, it does not write positions).
-  *(6 Oct: under #402 a plain `move` runs a foot unit through holding fire; see "Changed since
-  4 Oct", For the lead 1.)*
+  *(6 Oct: under #402 a plain `move` runs a foot unit through holding fire. Ruled 6 Oct: the
+  runtime queues `hold` when the unit arrives (Hold position, `2026-10-06-hold-position.md`, H-D5),
+  also a sim command through `queueCommand`.)*
 - **The enemy's spender is a pure function** (`spendDown`) over its menu, its purse, its population
   room and its line state, so its behaviour is unit-tested before any mission authors an enemy camp.
   **No shipped campaign mission authors one in Stage 4** (D7); G-G's commander (Stage 5) is the first
@@ -89,7 +93,7 @@ G3 sheet (measured before GH-382 and #402), (R) is reasoned.
     compared on `>> 8` deltas in `contestedIn`, `mission.ts:1562`) of the line's exit point. Aircraft do
     not contest a camp (the #279 ruling (a) principle, as in F1 and F2). `contestedIn` has no air
     skip today, so D1's is new code. *(6 Oct: GH-382 put Deir Amun II's gate fight inside this
-    radius; see "Changed since 4 Oct", For the lead 3.)*
+    radius. Ruled 6 Oct: intended, a contested camp pauses.)*
   - **D2. A mission with no camp keeps one line at `player_start`**, and the contested rule applies
     to that point too: reinforcements arrive at a point the player holds (#183 F4). A mission with
     neither builds nothing, as today.
@@ -104,7 +108,10 @@ G3 sheet (measured before GH-382 and #402), (R) is reasoned.
     until cleared or the camp dies. No rally point: the unit stays at the exit, as today. *(6 Oct:
     the sim's own `move` snaps a blocked goal to the nearest open tile, `sim.ts:2063` onward, so
     the refusal is the runtime's check. Under #402 a `move` runs a foot unit through holding fire,
-    and an attack-move would not hold the point. See For the lead 1.)*
+    and an attack-move would not hold the point.)* **Ruled 6 Oct (lead):** on arrival the runtime
+    issues Hold position (`2026-10-06-hold-position.md`). "Arrived" is the first tick the rallied
+    unit reads `moving === 0` (H-D5). The unit then stays, kneels and fires at anything in range,
+    and the closing rule cannot walk it off. The next order the player gives releases it (H-D2).
   - **D6. Which line a build goes to**: the line the caller names; with none named, the line with the
     fewest items, ties to the lowest index. The dock names the selected camp (S-F).
   - **D7. No shipped campaign mission gives side 1 a camp in Stage 4.** Every campaign enemy stays
@@ -122,8 +129,8 @@ G3 sheet (measured before GH-382 and #402), (R) is reasoned.
 ## Global Constraints
 
 - **The four invariants hold.** Line clocks are integer ticks. No `rng` (D8 is deterministic by
-  construction). The runtime issues `move` commands through `sim.queueCommand`; it never writes a
-  position. No floating point added.
+  construction). The runtime issues `move` commands, and since the 6 Oct ruling `hold` commands,
+  through `sim.queueCommand`; it never writes a position. No floating point added.
 - **Sim pins unmoved** by every task (R): the golden replays build no `MissionRuntime`. A move is a
   defect. On `main` they read flat **922714084** and relief **3200430224**
   (`packages/sim/src/determinism.test.ts:427` and `:721`; 2109596329 and 1425295494 on 4 Oct, both
@@ -318,13 +325,19 @@ clearRally(line: number): boolean;
     `BRACE_NONE` (`sim.ts:1757`), and the `move` queued in `runtime.step` is applied before the next
     tick's `stepBrace`. It walks holding fire and kneels on arrival. A unit with no rally kneels at the
     exit after `KNEEL_DROP_TICKS`;
+  - *(ruled 6 Oct)* **"a rallied unit holds on arrival"**: on the first tick it reads `moving === 0`,
+    the runtime queues one `hold` for it (Hold position, H-D5), and `sim.state.holdPos` reads 1.
+    An identified enemy out of its reach does not walk it off the point; the control is the same
+    layout with no `hold`, where an attack-mover would be walked off;
   - the rally `move` reaches the sim through `queueCommand` and nowhere else: a test spies the
     command queue and asserts one `move` with the spawned ids.
 - [ ] **Step 2: Implement.** `spawnPlacement` already returns the spawned ids (`number[]`,
   `mission.ts:1250`); queue the `move` for them in the same tick. *(The move is `{ kind: 'move', ids,
-  x, y }`, `sim.ts:594`. D5's `move` is a For the lead question since #402; build it as written
-  until answered.)*
-- [ ] **Step 3: See it red.** Write `goalX/goalY` directly instead of queueing a command: the spy test
+  x, y }`, `sim.ts:594`. Ruled 6 Oct: the walk stays a `move`, and the runtime keeps the rallied ids
+  and queues `{ kind: 'hold', ids }` for each one as it arrives (`2026-10-06-hold-position.md`,
+  on `main` before F4).)*
+- [ ] **Step 3: See it red.** Skip the arrival `hold`: "a rallied unit holds on arrival" fails.
+  Write `goalX/goalY` directly instead of queueing a command: the spy test
   fails (and invariant 4 says why it must). Both fields are private on `Sim` (`sim.ts:882`; read
   through `goalOf`), so the mutation needs a cast. Accept blocked tiles: the `#` test fails.
 
@@ -436,11 +449,13 @@ export function spendDown(menu: readonly LineItem[], last: number, purse: number
     rate stays exact; it read 1/1200 on 4 Oct);
   - it buys through `spendDown`, one unit at a time, and its line freezes when a KDF squad contests its
     camp (the same rule, G3 Q3);
-  - built units get the authored `tag` and walk to the `rally` marker;
+  - built units get the authored `tag` and walk to the `rally` marker, and hold there on arrival
+    (ruled 6 Oct: the same `hold` the player's rally issues);
   - a trigger that `commit`s that tag sends them on, which is how authored content and bought units
     meet. *(6 Oct: `commit` reads a `group` (see Task 7's note) and issues an attack-move
-    (`mission.ts:1688`). The walk to `rally` is a `move` by D5, so under #402 a bought foot unit
-    walks past KDF troops holding fire until it arrives; For the lead 2.)*;
+    (`mission.ts:1688`), which releases them from Hold (H-D2). The walk to `rally` is a `move` by
+    D5, so under #402 a bought foot unit walks past KDF troops holding fire until it arrives, then
+    holds (ruled 6 Oct).)*;
   - with no `enemy.production` block, side 1 never buys, even with a purse from zones (D7: today's
     campaign behaviour).
 - [ ] **Step 2: Implement.**
@@ -483,8 +498,9 @@ export function spendDown(menu: readonly LineItem[], last: number, purse: number
   `M(15, 31)` in `deirAmun2Plan` (`playtest.ts:1661`, `:1669`), beside the `pump_gate` marker
   (15,32). It is 6.5 tiles from the camp exit (20.5,34.5); on 4 Oct the gate was `M(15, 27)` on
   the old `deir_amun` ground. Today the plan never orders its bought squads, so they kneel at the
-  exit. Under D5 and #402 they walk into the gate fight holding fire. The camp's 6-tile radius
-  covers `pump_gate`, so D1 can pause the line during that fight. Measure both before re-timing.)*
+  exit. Under D5 and #402 they walk into the gate fight holding fire, and hold there on arrival
+  (ruled 6 Oct). The camp's 6-tile radius covers `pump_gate`, so D1 pauses the line during that
+  fight, which is intended (ruled 6 Oct). Measure both before re-timing.)*
 - [ ] **Step 3: Measure.** Every plan wins; every passive control loses; banking lines (F2) printed
   and their pins re-read; `LADDER_CREDITS` and `GATES` re-pinned only where a grade or `unitHome`
   moved, with the per-mission terms in the comment. *(6 Oct: `LADDER_CREDITS` is **5830** on
@@ -527,6 +543,8 @@ export function spendDown(menu: readonly LineItem[], last: number, purse: number
 - **The dock per camp**: a camp switcher where a mission has two; each line's queue, the item in
   progress with its progress bar (`progress`, 0–1000), and cancel per item with the refund shown.
 - **"Contested: production paused"** on the line, from `contested`, and a feed alert when it starts.
+- **Hold position** (ruled 6 Oct, its own plan `2026-10-06-hold-position.md`, Task 3): H and a HUD
+  button, landing before this plan. A rallied unit shows as holding on its card and chip.
 - **Setting a rally point**: an armed order from the dock ("Set rally", then a ground click), the same
   arming model as fire support (Escape disarms, #264, closed by #268). There is no structure selection today (FW Task 11
   adds a works-only one in Stage 5), so the dock is the entry point. **The rally marker is drawn in

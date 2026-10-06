@@ -23,11 +23,17 @@ New interactions, each also noted at its task:
 ### For the lead
 
 1. **High ground (G3 Q1 "earned by doing"; D4).** An arrived attack-mover now walks toward any identified enemy it cannot reach, and the player has no order that stops it. Does D4 stand as written, or does the rise term wait for a hold order the closing rule respects?
+   **Ruled 6 Oct (lead):** add a "Hold position" order (`2026-10-06-hold-position.md`, Wed 4 Nov, before F1). A held unit stays put, kneels and fires at anything in range, and never advances, chases or closes. D4 stands: Hold is how the player keeps a unit on a rise, and Task 5 pins both cases.
 2. **D4 and passivity.** With 16 of 18 economy missions on relief, a starting force placed on a rise is paid 30 after 10 s uncontested without moving. Should a rise the starting force spawns on pay?
+   **Ruled 6 Oct:** a spawn rise pays only after a move onto it. Standing still from t=0 earns nothing.
 3. **D1.** 10 + 25 was the cheapest passing row at `751b6742`, before GH-382 and #402. If Task 2's re-run says it no longer passes, does Task 2 propose the new cheapest passing row, or bring the table back un-picked?
+   **Ruled 6 Oct:** propose the cheapest passing row, flagged for the lead's confirmation.
 4. **D3 (not a landing).** Should an identification with no observer (`observer: -1`: a bought sweep, a pre-marked carry-over spawn) pay? As written, at D1's 10, a sweep that reveals 15 enemies refunds its 150.
+   **Ruled 6 Oct:** no observer, no pay. This closes the refund exploit.
 5. **The drone sweep (four-item menu).** Since #402 a sweep also pulls idle attack-movers toward what it reveals. Is that the drone sweep you want, or should Task 8 pin it either way?
+   **Ruled 6 Oct:** accept it, and pin it in Task 8. Hold position is the player's counter.
 6. **D2.** #402 took base urban 2:1 from 63% to 37% (accepted 6 Oct). Are 60/120 still the starting points, or should Task 2 measure the barrage and smoke screen on `urbanAssault` before G-NUM?
+   **Ruled 6 Oct:** measure the prices on `urbanAssault` first.
 
 **Goal:** Intel stops paying the player for standing still and starts paying for what a commander
 does: finding the enemy, taking high ground, completing objectives. It stays the **fire-support
@@ -86,7 +92,8 @@ currency**, and it buys a menu of four, not two.
 
 - **By the lead, 4 Oct (G3 Q1):** the fire-support reading; the four-item menu; earned by doing;
   **no trickle**. *(6 Oct: where #402 bears on "earned by doing" (high ground) and on the drone
-  sweep, see "For the lead" items 1 and 5. The rulings stand as written.)*
+  sweep, see "For the lead" items 1 and 5, both ruled 6 Oct. The rulings stand as written; the lead
+  added Hold position as the player's tool.)*
 - **Consequence the plan takes as binding:** #183 F1's "`intel_rate_per_min` authored where a mission
   wants it" is **dropped**. An authored per-minute feed is a trickle by another name, and the lead
   ruled the trickle out. The G3 sheet's suggestion to keep one for an informant feed is not taken.
@@ -95,15 +102,18 @@ currency**, and it buys a menu of four, not two.
   - **D1. Starting rates are the G3 sheet's cheapest passing row**, 10 per identified enemy and 25 per
     objective, plus 30 per high-ground rise (R, unmeasured, the one term the sheet did not probe).
     All three go to the lead as a G-NUM table in Task 2 before any code reads them. *(6 Oct: the
-    row was calibrated at `751b6742`; "For the lead" item 3.)*
+    row was calibrated at `751b6742`. Ruled 6 Oct: if it no longer passes, Task 2 proposes the
+    cheapest passing row, flagged for the lead's confirmation.)*
   - **D2. Prices.** Smoke screen 60, mortar barrage 120, drone sweep 150, air strike 250. Sweep and
     strike keep today's prices so no briefing line that names a price is falsified. G-NUM in Task 2.
     *(6 Oct: no mission text names a price at `b44df7aa` (Task 10's census); the HUD does, via
-    `sweepCost`/`strikeCost`. "For the lead" item 6.)*
+    `sweepCost`/`strikeCost`. Ruled 6 Oct: Task 2 measures the barrage and smoke screen prices on
+    `urbanAssault` before G-NUM.)*
   - **D3. "First identified" is once per enemy entity per mission.** An enemy lost and re-identified
     pays nothing the second time. Otherwise a scout that bobs in and out of a treeline farms intel,
     which is the trickle again. *(6 Oct: whether an `observer: -1` identification, from a bought
-    sweep or a pre-marked carry-over spawn, pays is "For the lead" item 4.)*
+    sweep or a pre-marked carry-over spawn, pays: ruled 6 Oct, it does not. Only an identification
+    with a real observer (`observer >= 0`) pays.)*
   - **D4. A high-ground rise** is a 4-connected component of open tiles whose elevation is at least
     `HIGH_GROUND_LEVELS` (2) above the map's median open-tile level. It pays once per mission, to the
     first side-0 surface unit that stands on it for `HIGH_GROUND_HOLD_TICKS` (200, 10 s) with no
@@ -111,8 +121,13 @@ currency**, and it buys a menu of four, not two.
     (`EYE_HEIGHT`, CLAUDE.md "A map") and grants no sight. The median, because an absolute level
     would make every tile of a plateau map "high". Flat maps have no rise and pay nothing for height.
     *(6 Oct: 16 of 18 economy missions are on relief since GH-382, and #402's closing rule walks an
-    arrived attack-mover off a rise toward what it identifies out of reach; "For the lead" items 1
-    and 2. `EYE_HEIGHT` is 1, `packages/sim/src/sim.ts` ~L792.)*
+    arrived attack-mover off a rise toward what it identifies out of reach. `EYE_HEIGHT` is 1,
+    `packages/sim/src/sim.ts` ~L792.)*
+    *Ruled 6 Oct:*
+    - *D4 stands. The lead added Hold position (`2026-10-06-hold-position.md`), which keeps a unit
+      on a rise.*
+    - *A rise pays only to a unit that moved onto it after spawning. A unit standing on it from
+      t=0 earns nothing until it has left and come back.*
   - **D5. Objectives pay on completion, primaries and secondaries alike**, and never for a failure.
     `completeObjective` (the tutorial path) pays too: it is the same earn rule as
     `creditContribution`.
@@ -262,6 +277,11 @@ rendering; the same holds for prices).
   plans onto new ground and #402's closing rule walks attack-movers toward what they identify. The
   G3 numbers this plan quotes are M at `751b6742`. Count the rise term on relief: 16 of the 18
   economy missions now stand on it.)*
+  *Ruled 6 Oct:*
+  - *The probe applies the rulings: no pay without an observer (D3), and no pay for a spawn rise
+    until a move onto it (D4).*
+  - *If 10 + 25 no longer passes, this step proposes the cheapest row that does, flagged for the
+    lead's confirmation (D1).*
 - [ ] **Step 2: The menu table.** For each of the four items: price, delay from call to first impact,
   footprint, damage, suppression, ROE exposure, and the counter it answers. Proposed starting points
   (R):
@@ -275,6 +295,10 @@ rendering; the same holds for prices).
 
   The barrage is the area-denial tool the strike is not: less damage per point than the strike,
   more suppression per point, scatter wide enough that firing it near the clinic is a decision.
+  *Ruled 6 Oct: measure the barrage and smoke screen on `urbanAssault`
+  (`tools/src/backtest/targets.ts`) before this table goes to the lead. A scratch copy issues the
+  profile against the defended town at the gate's own seeds, at each ratio, and records what each
+  price buys. Base urban 2:1 has read 37% since #402.*
 - [ ] **Step 3: The lead answers.** Post the two tables on #183. Record the answer and the date in
   the doc. Tasks 3, 6 and 7 read only the approved numbers.
 - [ ] **Step 4: See it red** (for the doc's own claim): the probe's passive column must read 0 for
@@ -318,6 +342,8 @@ export interface IntelEarnedEvent { kind: 'intelEarned'; tick: number; amount: n
   - **"`completeObjective` pays like an internal completion"**.
   - **"suspected contacts pay nothing"**: only `level: 'identified'` counts.
   - **"side 1 identifying side 0 pays the player nothing"**.
+  - **"an identification with no observer pays nothing"**: a drone sweep's `reveal`, and a pre-marked
+    carry-over spawn, both emit `contact` `identified` with `observer: -1` (ruled 6 Oct, D3).
   - *(6 Oct: one existing test pins the trickle and goes red by design at Step 2: `mission.test.ts`'s
     "a loitering drone earns intel; a parked rifle squad earns none" in
     `describe('intel: earned by watching, spent on certainty (GDD §3)')`. Rewrite it to the new
@@ -330,8 +356,8 @@ export interface IntelEarnedEvent { kind: 'intelEarned'; tick: number; amount: n
   Pay objectives where `creditContribution` is called, both call sites.
   *(6 Oct: the existing `identified` branch at the top of `step` filters exactly this; it is the
   place to hang the pay. `sim.identifyTo` also emits `contact` `identified`, with `observer: -1`,
-  for a drone sweep's `reveal` and for a pre-marked carry-over spawn; as written both pay ("For the
-  lead" item 4). `intelEarned` must join `MISSION_EVENT_KINDS` (`mission.ts` ~L379), or the
+  for a drone sweep's `reveal` and for a pre-marked carry-over spawn. Ruled 6 Oct: neither pays, so
+  the rule also requires `observer >= 0`. `intelEarned` must join `MISSION_EVENT_KINDS` (`mission.ts` ~L379), or the
   `MissionEventKindsAreExhaustive` check fails `typecheck`.)*
 - [ ] **Step 3: Re-pin the economy pin, once.** The commit message says: *"economy pin re-pinned:
   intel now accrues from first identification and objective completion instead of per minute
@@ -345,6 +371,7 @@ export interface IntelEarnedEvent { kind: 'intelEarned'; tick: number; amount: n
   - Drop the `paidIdentified` check: "re-identifying pays nothing" fails.
   - Pay on `level !== 'lost'`: "suspected contacts pay nothing" fails.
   - Pay in the `failed` branch: "a failed one pays nothing" fails.
+  - Drop the `observer >= 0` check: "an identification with no observer pays nothing" fails.
 
 ---
 
@@ -409,13 +436,17 @@ export function highGroundRises(elevation: Uint8Array, blocked: Uint8Array,
     rule #279 ruling (a) gives shepherding (ruled 29 Sep; its sim half is the Stage 4 sim-fixes
     plan's, not on `main` at `b44df7aa`);
   - **"a second unit on a paid rise pays nothing"**.
-  - *(6 Oct, #402: put the test's unit on the rise with a plain `move`. An `attackMove` leaves
+  - *(6 Oct, #402, ruled 6 Oct.) Put the test's unit on the rise with a move, then `hold` (Hold
+    position, `2026-10-06-hold-position.md`, which lands before F1). An `attackMove` leaves
     `attackMove` set, and an arrived attack-mover with nothing inside effective range walks toward
-    any identified enemy it cannot reach (`stepSweep`), so the contest test's enemy, if identified
-    and out of reach, would walk the holder off the rise and the test would measure the closing rule
-    instead. Add one test that states that case as a decision: **"an attack-mover that identifies
-    an enemy out of reach leaves the rise and is not paid"**, or its opposite, per the lead's answer
-    to "For the lead" item 1.)*
+    any identified enemy it cannot reach (`stepSweep`). So the contest test's enemy, if identified
+    and out of reach, would walk an attack-moved holder off the rise, and the test would measure the
+    closing rule instead. Pin both sides of that as decisions:*
+    - **"an attack-mover that identifies an enemy out of reach leaves the rise and is not paid"**;
+    - **"a held unit stays on the rise and is paid"**.
+  - **"a unit that spawned on a rise earns nothing standing there"**: the ruling of 6 Oct, D4. It
+    pays only after it leaves and moves back on. Track per unit, runtime-only, whether it has
+    stepped onto the rise since spawning.
 - [ ] **Step 2: Implement.** Rises computed once in the constructor from `sim.elevation` and the
   blocked mask. Per tick, one pass over `playerIds`: tile → rise id → a per-rise hold counter
   (`Int32Array(count)`), reset when no qualifying unit stands on it. The economy hash covers the
@@ -426,6 +457,7 @@ export function highGroundRises(elevation: Uint8Array, blocked: Uint8Array,
   "at least one rise paid". (`tel_marum`, the sandbox map, is unchanged in kind at `b44df7aa`:
   relief 0-4. The same #402 order rule as Task 1's fixture applies.)
 - [ ] **Step 4: See it red.**
+  - Count a unit standing on its spawn rise: "a unit that spawned on a rise earns nothing" fails.
   - Remove the `isAir` skip: "a drone over a rise earns nothing" fails.
   - Pay on every tick of the hold instead of once: "pays 30 once" fails.
   - Drop the contest check: the contest test fails.
@@ -548,7 +580,9 @@ supportCost(kind: SupportKind): number;
   - *(6 Oct, #402: a sweep's `reveal` identifies through `sim.identifyTo`, and since #402 an
     arrived, idle attack-mover walks toward the nearest identified enemy it cannot reach, so a
     sweep now also sets the player's idle attack-movers walking. Before #402 they waited until the
-    contact decayed. Pin whichever the lead rules ("For the lead" item 5) as a test here.)*
+    contact decayed. Ruled 6 Oct: accepted. Pin it here as **"a drone sweep sets idle attack-movers
+    walking toward what it reveals"**, with its control **"a held unit is not moved by a sweep"**.
+    Hold position is the player's counter.)*
 - [ ] **Step 2: Implement.** `app`'s `SupportKind` (`ui/production.ts`, `'sweep' | 'strike'`) is
   renamed to import the sim's; the dock keeps two buttons until S-F builds the menu. `typecheck` must
   pass at this commit.
