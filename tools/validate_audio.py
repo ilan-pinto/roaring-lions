@@ -21,6 +21,14 @@ Checks (all fail the build):
                   exists/format checks as a clip, with its own size ceiling.
                   A one-shot has no business over 512 KB; a looping track is
                   minutes long and streams, so it gets 8 MB.
+  7. CUES      -- the `cues` table (polish pass F, AU-1): every cue id names
+                  a declared `ui` set, or `{"silent": reason}` with a reason.
+  8. LEVELS    -- music `battle_gain` 0..1, a track's `trim_db` in -12..0,
+                  and, when ffmpeg is on PATH, the track's measured true
+                  peak plus its trim at or under -1 dBTP (the skip is named).
+  9. COMMERCIAL (`--commercial` only) -- no variant whose `source` says its
+                  licence is not yet confirmed: the four ElevenLabs takes
+                  (D5, A3) stay out of a commercial build until it is.
   6. VOICES    -- licence/source/generator/text/translit/en on every voice
                   variant; ASCII voice/<lang>/<class>/<trigger>_<nn><take>.ogg|m4a
                   paths filed under their own key; keys in a language some
@@ -35,6 +43,8 @@ recordings can land one file at a time.
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -75,6 +85,101 @@ VOICE_LICENSES = dict(ALLOWED_LICENSES, **{"LicenseRef-owned": False})
 VOICE_KEY = re.compile(r"^([a-z]{2})\.(infantry|crew|engineer|air|common)\.([a-z_]+)$")
 VOICE_PATH = re.compile(r"^voice/([a-z]{2})/([a-z]+)/([a-z_]+)_(\d{2})([a-z])\.(ogg|m4a)$")
 VOICE_TEXT_FIELDS = ("generator", "text", "translit", "en")
+
+
+# Polish pass F (F4): a music file's true peak, after its trim, sits at or
+# under this. The theme read +0.2 dBTP; `trim_db` -1.2 takes it to -1.0.
+MAX_TRUE_PEAK_DBTP = -1.0
+TRIM_DB_RANGE = (-12.0, 0.0)
+# A3: the marker every unconfirmed-licence variant carries in its `source`.
+UNCONFIRMED_LICENCE = re.compile(r"licen[cs]e not (yet )?confirmed", re.IGNORECASE)
+
+
+def check_cues(man, failures):
+    """AU-1: the cue map. Its COVERAGE (every id the app asks for) is a vitest
+    (packages/app/src/ui/cues.test.ts) because the ids live in TypeScript;
+    this checks each entry's shape against the manifest's own sets."""
+    cues = man.get("cues")
+    if cues is None:
+        return 0
+    sets = man.get("sets", {})
+    n = 0
+    for cid, entry in cues.items():
+        if cid.startswith("$"):
+            continue
+        n += 1
+        if isinstance(entry, str):
+            spec = sets.get(entry)
+            if spec is None:
+                failures.append(f"cues '{cid}': set '{entry}' is not declared in sets")
+            elif spec.get("event") != "ui":
+                failures.append(f"cues '{cid}': set '{entry}' is on event '{spec.get('event')}', not 'ui' -- a cue plays unplaced")
+        elif isinstance(entry, dict) and isinstance(entry.get("silent"), str) and entry["silent"].strip():
+            pass
+        else:
+            failures.append(f"cues '{cid}': must be a set name or {{\"silent\": reason}}, got {entry!r}")
+    return n
+
+
+def true_peak_dbtp(path):
+    """ffmpeg's ebur128 true peak in dBTP, or None when ffmpeg is absent or
+    the read fails. Takes about a second for the 2:41 theme."""
+    if shutil.which("ffmpeg") is None:
+        return None
+    try:
+        out = subprocess.run(
+            ["ffmpeg", "-nostats", "-hide_banner", "-i", path, "-af", "ebur128=peak=true", "-f", "null", "-"],
+            capture_output=True, text=True, timeout=120,
+        ).stderr
+    except (OSError, subprocess.SubprocessError):
+        return None
+    m = re.findall(r"True peak:\s*\n\s*Peak:\s*(-?[\d.]+|-inf)\s*dBFS", out)
+    if not m:
+        return None
+    return float("-inf") if m[-1] == "-inf" else float(m[-1])
+
+
+def check_music_levels(music, failures, notes, audio_dir=AUDIO_DIR, measure=true_peak_dbtp):
+    """F4 / A10: the scene gains and each track's trim, and the measured peak."""
+    if music is None:
+        return
+    bg = music.get("battle_gain")
+    if bg is not None and (isinstance(bg, bool) or not isinstance(bg, (int, float)) or not 0 <= bg <= 1):
+        failures.append(f"music: battle_gain {bg!r} outside 0..1")
+    for t in music.get("tracks", []):
+        f = t.get("file")
+        trim = t.get("trim_db", 0.0)
+        if isinstance(trim, bool) or not isinstance(trim, (int, float)) or not TRIM_DB_RANGE[0] <= trim <= TRIM_DB_RANGE[1]:
+            failures.append(f"{f}: trim_db {trim!r} outside {TRIM_DB_RANGE[0]}..{TRIM_DB_RANGE[1]} dB")
+            continue
+        if not f or not os.path.exists(os.path.join(audio_dir, f)):
+            continue  # check_licensed_file already names a missing file
+        tp = measure(os.path.join(audio_dir, f))
+        if tp is None:
+            notes.append(f"{f}: true peak NOT measured (no ffmpeg on PATH) -- trim_db {trim} is unchecked")
+            continue
+        heard = tp + trim
+        if heard > MAX_TRUE_PEAK_DBTP + 1e-9:
+            failures.append(
+                f"{f}: true peak {tp:+.1f} dBTP with trim_db {trim} is {heard:+.1f}, over {MAX_TRUE_PEAK_DBTP} dBTP "
+                f"-- trim it by at least {heard - MAX_TRUE_PEAK_DBTP:.1f} dB more"
+            )
+        else:
+            notes.append(f"{f}: true peak {tp:+.1f} dBTP, {heard:+.1f} after trim_db {trim}")
+
+
+def check_commercial(man, failures):
+    """A3: what a commercial build may not carry. Every variant, in every
+    section, whose `source` records an unconfirmed licence."""
+    found = []
+    for spec in man.get("sets", {}).values():
+        found += [v for v in spec.get("variants", [])]
+    found += list((man.get("music") or {}).get("tracks", []))
+    for line in ((man.get("voices") or {}).get("lines") or {}).values():
+        found += line.get("variants", [])
+    for v in found:
+        if UNCONFIRMED_LICENCE.search(v.get("source", "") or ""):
+            failures.append(f"{v.get('file')}: licence not confirmed -- it cannot ship in a commercial build (D5, A3)")
 
 
 def unit_factions():
@@ -205,8 +310,15 @@ def check_voices(voices, failures, factions, audio_dir=AUDIO_DIR):
     return declared
 
 
-def main():
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    commercial = "--commercial" in argv
+    unknown = [a for a in argv if a != "--commercial"]
+    if unknown:
+        print(f"unknown argument(s): {' '.join(unknown)}\nusage: python tools/validate_audio.py [--commercial]", file=sys.stderr)
+        return 2
     failures = []
+    notes = []
 
     if not os.path.exists(MANIFEST):
         print(f"no manifest at {MANIFEST} -- nothing to validate")
@@ -261,6 +373,11 @@ def main():
                 continue
             check_licensed_file(t, failures, MAX_MUSIC_BYTES)
 
+    check_music_levels(music, failures, notes)
+    total_cues = check_cues(man, failures)
+    if commercial:
+        check_commercial(man, failures)
+
     # Voices: WP-AU1 §6. Key completeness is a vitest (lines.test.ts, R-6);
     # this checks each key's shape and each variant's rights.
     voices = man.get("voices")
@@ -293,6 +410,8 @@ def main():
                 if rel not in declared:
                     failures.append(f"{rel}: on disk but not declared in data/audio.json")
 
+    for n in notes:
+        print(f"  {n}")
     if failures:
         print(f"\nAUDIO GATE FAILED -- {len(failures)} issue(s):\n")
         for f in failures:
@@ -301,6 +420,8 @@ def main():
 
     music_note = f", {total_tracks} music track(s)" if total_tracks else ""
     voice_note = f", {total_voice_variants} voice variant(s)" if total_voice_variants else ""
+    voice_note += f", {total_cues} cue(s) mapped" if total_cues else ""
+    voice_note += ", commercial build clean" if commercial else ""
     if total_variants == 0:
         print(f"audio gate passed: manifest valid, no recordings yet (procedural synth in use){music_note}{voice_note}")
     else:
