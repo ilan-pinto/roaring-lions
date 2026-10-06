@@ -498,7 +498,7 @@
   "keymap.smoke": "Smoke at the cursor",
   "keymap.load": "Load",
   "keymap.unload": "Unload",
-  "keymap.overlay": "Toggle the debug overlay",
+  "keymap.overlay": "Toggle the diagnostics panel",
   "keymap.production": "Focus the production dock",
   "keymap.mute": "Mute",
   "keymap.selectAll": "Select every unit",

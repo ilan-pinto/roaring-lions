@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ACTIONS, bindingsFrom, keyLabel } from '../input/keymap';
+import { ACTIONS, PLAYER_ACTIONS, bindingsFrom, keyLabel } from '../input/keymap';
 import en from '../i18n/en.json';
 import { pseudo } from '../i18n/pseudo';
 import { setCatalogue } from '../i18n/t';
@@ -23,7 +23,16 @@ describe('showKeysOverlay', () => {
   it('lists every action in ACTIONS and nothing invented', () => {
     const { host, dispose } = mount();
     const ids = [...host.querySelectorAll('.rl-keys__row')].map((el) => el.getAttribute('data-action'));
-    expect(ids).toEqual(ACTIONS.map((a) => a.id));
+    expect(ids).toEqual(PLAYER_ACTIONS.map((a) => a.id));
+    dispose();
+  });
+
+  // PA-01: the diagnostics panel is a bound key, not a player's control. It
+  // must stay in ACTIONS (the key still works) and stay off this card.
+  it('does not list the diagnostics panel, which stays bound', () => {
+    const { host, dispose } = mount();
+    expect(host.querySelector('.rl-keys__row[data-action="overlay"]')).toBeNull();
+    expect(ACTIONS.some((a) => a.id === 'overlay')).toBe(true);
     dispose();
   });
 
