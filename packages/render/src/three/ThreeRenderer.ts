@@ -122,6 +122,30 @@ import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type Parti
 import { SIM_HZ } from '../anim';
 import { resolveClip, cadenceScale, type UnitAnimInput } from '../clip';
 import {
+  approachAngle,
+  BODY_TURN_RAD_S,
+  cadenceMultiplier,
+  clipPhase,
+  KNEEL_SPREAD,
+  kneelClipFor,
+  lerpFacingTurns,
+  METRES_PER_TILE,
+  mgBurstRounds,
+  recoilAt,
+  recoilSeconds,
+  shotJitterS,
+  slotDrift,
+  STANCE_STAGGER_S,
+  stanceDepth,
+  stepDepth,
+  stepFollower,
+  TURN_STEP_M_PER_RAD,
+  TWIST_MAX_RAD,
+  wrapAngle,
+} from './units/squad-motion';
+import { rotateBoneWorld, scrubAction, stopSquadPlayers, type SquadRig } from './units/squad-rig';
+import { stanceOf } from './units/stance';
+import {
   updateDimetricCamera,
   worldToScreenThree,
   screenToWorldThree,
@@ -351,8 +375,11 @@ import {
   MESH_SCALE,
   resolveMeshMotionClip,
   gaitTimeScale,
+  hashEntityId,
   isLocomotionClip,
+  type LocomotionClip,
 } from './units/mesh-anim';
+import type { ClipName } from '../sheet';
 import { gltfLoader, setDracoDecoderPath, disposeGltfLoader } from './units/gltf-loader';
 import { stepTurretFacing } from './units/frame-state';
 import {
@@ -782,6 +809,12 @@ const SHOULDER_TONE_FALLBACK = '#D9C7A7';
  *  more quietly, and a selected unit must always be the louder of the two
  *  when the cursor is resting on one of its own. */
 const PREVIEW_ENVELOPE_STRENGTH = 0.6;
+
+/** The backblast's particle magnitude (`ParticleSystem.spawn`: size x0.75-2,
+ *  count x0.5-1.4): mid-scale, so it reads beside the muzzle emitter's own. */
+const BACKBLAST_MAGNITUDE = 0.4;
+const SQUAD_UP = new THREE.Vector3(0, 1, 0);
+const SQUAD_LATERAL = new THREE.Vector3();
 
 export class ThreeRenderer implements Renderer {
   readonly camera: Camera = { x: 24, y: 24, zoom: 1 };
@@ -1434,6 +1467,15 @@ export class ThreeRenderer implements Renderer {
   private readonly prevY: Float64Array;
   private readonly curX: Float64Array;
   private readonly curY: Float64Array;
+  /** The sim's facing (turns) at the last two snapshots, so a mesh unit's yaw
+   *  is interpolated like its position instead of stepping 18 deg at 20 Hz
+   *  (the motion pass, finding #4). */
+  private readonly prevFacing: Float64Array;
+  private readonly curFacing: Float64Array;
+  /** Sim seconds at which each unit last fired (the kneel fallback, `stance.ts`). */
+  private readonly lastShotSimS: Float64Array;
+  /** The unit-level stance depth, for teams drawn as one (`stance.ts`). */
+  private readonly unitDepth: Float64Array;
   /**
    * `sim.entityCount` as of the last `snapshot()`: how many entities have a
    * position copy above. Every per-frame entity loop stops here rather than
@@ -2066,6 +2108,10 @@ export class ThreeRenderer implements Renderer {
     this.prevY = new Float64Array(n);
     this.curX = new Float64Array(n);
     this.curY = new Float64Array(n);
+    this.prevFacing = new Float64Array(n);
+    this.curFacing = new Float64Array(n);
+    this.lastShotSimS = new Float64Array(n).fill(-Infinity);
+    this.unitDepth = new Float64Array(n);
     this.missileTrack = { x: this.curX, y: this.curY, alive: sim.state.alive };
     this.killerX = new Float64Array(n).fill(NaN);
     this.killerY = new Float64Array(n).fill(NaN);
@@ -3638,15 +3684,18 @@ export class ThreeRenderer implements Renderer {
     }
     this.prevX.set(this.curX);
     this.prevY.set(this.curY);
+    this.prevFacing.set(this.curFacing);
     const st = this.sim.state;
     const seen = this.snapshottedCount;
     const n = this.sim.entityCount;
     for (let i = 0; i < n; i++) {
       this.curX[i] = fx.toNumber(st.posX[i]);
       this.curY[i] = fx.toNumber(st.posY[i]);
+      this.curFacing[i] = fx.toNumber(st.facing[i]);
       if (i >= seen) {
         this.prevX[i] = this.curX[i];
         this.prevY[i] = this.curY[i];
+        this.prevFacing[i] = this.curFacing[i];
       }
       const dx = this.curX[i] - this.prevX[i];
       const dy = this.curY[i] - this.prevY[i];
@@ -4098,6 +4147,32 @@ export class ThreeRenderer implements Renderer {
     // GH-148.
     const latch = this.fireLatchSeconds(type.id);
     if (latch !== null) this.firingTimer[e.shooter] = latch;
+    // The kick (motion pass): one figure per shot, in turn from a per-unit
+    // start, landing 0-120 ms after the shot -- a squad does not recoil on
+    // one frame. Sim time throughout, like the mixers (GH-391).
+    const shotS = presentationSimMs(this.sim.tickCount, 0) / 1000;
+    this.lastShotSimS[e.shooter] = shotS;
+    const squadRig = this.meshUnitEntities.get(e.shooter)?.squad;
+    if (squadRig) {
+      const armed = squadRig.figures.filter((f) => f.recoil !== null && f.spine !== null);
+      // A launcher team's shot always comes from its launcher, and throws
+      // its backblast behind him (`data/vfx/rpg_backblast.json`, 3-4 m of
+      // dust and flame).
+      const launchers = armed.filter((f) => f.recoil === 'launcher');
+      const fromTube = launchers.length > 0 && shellKind === 'missile';
+      if (fromTube) this.spawnBackblast(e.shooter, Math.atan2(ty - this.curY[e.shooter], tx - this.curX[e.shooter]));
+      const pool = fromTube ? launchers : armed;
+      if (pool.length > 0) {
+        const shot = squadRig.shots++;
+        const fig = pool[(shot + (hashEntityId(e.shooter) % pool.length)) % pool.length];
+        const kind = fig.recoil!;
+        fig.kicks.push({
+          at: shotS + shotJitterS(e.shooter, shot),
+          kind,
+          rounds: kind === 'mg' ? mgBurstRounds(e.shooter, shot) : 3,
+        });
+      }
+    }
 
     // Turret facing when this unit type has turret art loaded -- BILLBOARD
     // art (`turretInstancer`) or a mesh vehicle's own `turret_pivot`
@@ -5607,6 +5682,190 @@ export class ThreeRenderer implements Renderer {
     };
   }
 
+  /**
+   * One squad entity's frame (motion pass, approved 5 Oct; `units/squad-rig.ts`
+   * and `units/squad-motion.ts`). Every figure walks its own path to its own
+   * slot -- the team's wedge turned to the line of travel, drifting, spread
+   * wider when kneeling -- under its own clip player: its own phase, its own
+   * cadence, its own stance, a stagger behind the man before it. Its legs
+   * face where it is going; its upper body turns to the aim (at most 60 deg)
+   * after the mixer, with any recoil on top. The unit's sim position is the
+   * only input; nothing is written back.
+   */
+  private updateSquad(
+    entity: MeshUnitEntity,
+    squad: SquadRig,
+    template: MeshUnitTemplate,
+    i: number,
+    c: {
+      wx: number;
+      wy: number;
+      worldY: number;
+      aimYaw: number;
+      anim: UnitAnimInput;
+      desiredClip: ClipName;
+      depthTarget: number;
+      fromSim: boolean;
+      dt: number;
+      nowS: number;
+    }
+  ): void {
+    const M = METRES_PER_TILE;
+    const vx = (this.curX[i] - this.prevX[i]) * SIM_HZ * M;
+    const vz = (this.curY[i] - this.prevY[i]) * SIM_HZ * M;
+    const speedM = Math.hypot(vx, vz);
+    const moving = c.anim.speed > 0 && speedM > 0.05;
+    const travelYaw = moving ? -Math.atan2(vz, vx) : c.aimYaw;
+    // The wedge turns with the line of march, and to the aim when halted.
+    if (!squad.started) {
+      squad.formationYaw = travelYaw;
+    } else {
+      squad.formationYaw = approachAngle(squad.formationYaw, travelYaw, BODY_TURN_RAD_S * c.dt);
+    }
+    const fy = squad.formationYaw;
+    entity.root.rotation.y = fy;
+    const cos = Math.cos(fy);
+    const sin = Math.sin(fy);
+    const cx = c.wx * M;
+    const cz = c.wy * M;
+    // The unit's own depth history, so each man can follow it a beat late.
+    const unitTarget = c.depthTarget;
+    squad.depthHistory.push({ t: c.nowS, d: unitTarget });
+    while (squad.depthHistory.length > 2 && squad.depthHistory[1].t < c.nowS - 0.5) squad.depthHistory.shift();
+    const depthAt = (t: number): number => {
+      const h = squad.depthHistory;
+      for (let k = h.length - 1; k >= 0; k--) if (h[k].t <= t) return h[k].d;
+      return h[0].d;
+    };
+    const unitDepthNow = this.unitDepth[i];
+    this.unitDepth[i] = c.fromSim ? unitTarget : stepDepth(unitDepthNow, unitTarget, c.dt);
+    const spread = 1 + KNEEL_SPREAD * this.unitDepth[i];
+    const driftGain = Math.min(1, speedM / 1.5);
+    for (const f of squad.figures) {
+      if (!f.player || !f.group) continue;
+      // The slot, in metres in the world.
+      const [da, dc] = slotDrift(i, f.index, c.nowS);
+      const lx = f.slot.x * spread + da * driftGain;
+      const lz = f.slot.z * spread + dc * driftGain;
+      // Root-local (x, z) -> world: three's rotation about +Y.
+      const tx = cx + lx * cos + lz * sin;
+      const tz = cz - lx * sin + lz * cos;
+      if (!squad.started || !f.started) {
+        f.follower.x = tx;
+        f.follower.z = tz;
+        f.follower.vx = vx;
+        f.follower.vz = vz;
+        f.yaw = travelYaw;
+      } else {
+        stepFollower(f.follower, tx, tz, vx, vz, c.dt);
+      }
+      const fs = Math.hypot(f.follower.vx, f.follower.vz);
+      const wantYaw = fs > 0.4 ? -Math.atan2(f.follower.vz, f.follower.vx) : c.aimYaw;
+      const prevYaw = f.yaw;
+      f.yaw = f.started ? approachAngle(f.yaw, wantYaw, BODY_TURN_RAD_S * c.dt) : wantYaw;
+      const yawRate = c.dt > 0 ? Math.abs(wrapAngle(f.yaw - prevYaw)) / c.dt : 0;
+      // Group transform: the figure at its follower, turned to its own yaw,
+      // about its own rest slot (root-local metres; the armature node is the
+      // identity in every rig.py file).
+      const ox = f.follower.x - cx;
+      const oz = f.follower.z - cz;
+      const lfx = ox * cos - oz * sin;
+      const lfz = ox * sin + oz * cos;
+      const dYaw = wrapAngle(f.yaw - fy);
+      const rc = Math.cos(dYaw);
+      const rs = Math.sin(dYaw);
+      const rx = f.slot.x * rc + f.slot.z * rs;
+      const rz = -f.slot.x * rs + f.slot.z * rc;
+      const fg = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, f.follower.x / M, f.follower.z / M);
+      f.group.position.set(lfx - rx, (fg - c.worldY) * M, lfz - rz);
+      f.group.rotation.set(0, dYaw, 0);
+      // Stance, a beat behind the unit.
+      const stagger = STANCE_STAGGER_S[f.index % STANCE_STAGGER_S.length];
+      const tgt = depthAt(c.nowS - stagger);
+      f.lastDepth = f.depth;
+      f.depth = c.fromSim && stagger === 0 ? tgt : stepDepth(f.depth, tgt, c.dt);
+      // Steps: its own speed, or a turn in place.
+      const stepM = Math.max(fs, yawRate * TURN_STEP_M_PER_RAD);
+      const stepping = stepM > 0.15;
+      let base: ClipName = c.desiredClip;
+      if (base === 'idle' || base === 'fire') base = stepping ? 'move' : base;
+      else if (base === 'move' || base === 'moveFire') base = stepping ? base : c.anim.firing ? 'fire' : 'idle';
+      const k = kneelClipFor(base, f.depth, tgt, f.player.actions.has('kneel'));
+      const before = f.player.currentClip;
+      applyMeshClip(f.player, k.clip, k.scrub === null ? undefined : { once: true });
+      const action = f.player.actions.get(f.player.currentClip ?? k.clip);
+      if (action && before !== f.player.currentClip && k.scrub === null) {
+        action.time = clipPhase(i, f.index) * action.getClip().duration;
+      }
+      if (action) {
+        if (k.scrub !== null) scrubAction(action, k.scrub);
+        else if (isLocomotionClip(f.player.currentClip ?? '')) {
+          const clip = f.player.currentClip as LocomotionClip;
+          action.timeScale =
+            gaitTimeScale(template.gait?.get(clip), stepM / M, cadenceScale(c.anim)) * cadenceMultiplier(i, f.index);
+        } else action.timeScale = 1;
+      }
+      advanceMeshClipFades(f.player, c.dt);
+      f.started = true;
+    }
+    squad.started = true;
+    entity.mixer.update(c.dt);
+    this.applyFigureAdditives(entity, squad, c.aimYaw, c.nowS, true);
+  }
+
+  /**
+   * After the mixer: each figure's upper body turned to the aim (a squad's
+   * legs face their own heading, at most TWIST_MAX_RAD off) and any recoil
+   * kick still running on its spine. World-space rotations about the spine's
+   * own origin, so the arms and the weapon -- children of the spine -- come
+   * with it and the hands stay on the grips.
+   */
+  private applyFigureAdditives(entity: MeshUnitEntity, squad: SquadRig, aimYaw: number, nowS: number, twist: boolean): void {
+    let dirty = true;
+    for (const f of squad.figures) {
+      if (!f.spine) continue;
+      f.kicks = f.kicks.filter((k) => nowS - k.at < recoilSeconds(k.kind, k.rounds));
+      const figYaw = twist && f.group ? f.yaw : entity.root.rotation.y;
+      const turn = twist ? Math.max(-TWIST_MAX_RAD, Math.min(TWIST_MAX_RAD, wrapAngle(aimYaw - figYaw))) : 0;
+      let pitch = 0;
+      let yaw = 0;
+      for (const k of f.kicks) {
+        const r = recoilAt(k.kind, nowS - k.at, k.rounds);
+        pitch += r.pitch;
+        yaw += r.yaw;
+      }
+      if (turn === 0 && pitch === 0 && yaw === 0) continue;
+      if (dirty) {
+        entity.root.updateMatrixWorld(true);
+        dirty = false;
+      }
+      if (turn + yaw !== 0) rotateBoneWorld(f.spine, SQUAD_UP, turn + yaw);
+      if (pitch !== 0) {
+        const lateral = SQUAD_LATERAL.set(Math.sin(figYaw + turn), 0, Math.cos(figYaw + turn));
+        rotateBoneWorld(f.spine, lateral, pitch);
+      }
+    }
+  }
+
+  /** A shoulder-fired tube's backblast, a quarter tile behind the gunner,
+   *  thrown backwards (the emitter's layers carry `direction_offset_deg` 180). */
+  private spawnBackblast(shooter: number, facingRad: number): void {
+    const em = this.emitterLibrary.byName('rpg_backblast');
+    if (!em || !this.particleSystem) return;
+    const x = this.curX[shooter] - Math.cos(facingRad) * 0.25;
+    const y = this.curY[shooter] - Math.sin(facingRad) * 0.25;
+    const dirTurns = facingRad / (Math.PI * 2);
+    const prio = em.budget_priority ?? 5;
+    for (const layer of em.particles) {
+      const offset = (layer.direction_offset_deg ?? 0) / 360;
+      this.particleSystem.spawn(layer, x, y, dirTurns + offset, BACKBLAST_MAGNITUDE, prio, fxLayerIndex(em.layer, layer.additive ?? false));
+    }
+    if (em.light) {
+      const gy = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, y);
+      this.flashLights.spawn(x, y, gy, em.light, this.overlayColor(em.light.color ?? 'vfx.fire', '#FFB43C'));
+    }
+  }
+
   /** Sets `frameSimDtSeconds` for this frame -- see that field. */
   private beginFrameSimClock(alpha: number, dtMs: number): void {
     const nowSimMs = presentationSimMs(this.sim.tickCount, alpha);
@@ -5728,7 +5987,11 @@ export class ThreeRenderer implements Renderer {
       const wy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
       const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, wx, wy);
       entity.root.position.set(wx, worldY, wy);
-      entity.root.rotation.y = meshYawFromFacing(fx.toNumber(st.facing[i]));
+      // Interpolated between the last two ticks, the short way round, like
+      // the position above: the sim turns a foot unit 18 deg a tick, which
+      // drawn raw is a 20 Hz stutter (motion pass, finding #4).
+      const aimYaw = meshYawFromFacing(lerpFacingTurns(this.prevFacing[i], this.curFacing[i], alpha));
+      entity.root.rotation.y = aimYaw;
       // Side 0 (the player's own) is always drawn, matching `entityFrame`'s
       // own `contactLevel` short-circuit for it -- everything else defers to
       // real fog-of-war, exactly like `updateUnits`'s own `isVisible` gate.
@@ -5743,26 +6006,45 @@ export class ThreeRenderer implements Renderer {
         firing: this.firingTimer[i] > 0,
         working: this.sim.tunnelChargeProgress(i) > 0,
       };
-      // `resolveMeshMotionClip` overrides `fire` to `moveFire` only when this
-      // entity is actually moving AND its GLB carries the clip -- today
-      // `meshy_soldier.glb` (since Task 2's `import_meshy_soldier.py`
-      // `CLIP_ORDER`) and `sarim_rifles.glb` -- every other infantry mesh
-      // gets `resolveClip`'s own answer back unchanged. See that function's
-      // own doc comment.
-      const desiredClip = resolveMeshMotionClip(
-        resolveClip(anim),
-        anim.speed > 0,
-        entity.actions.has('moveFire')
-      );
-      applyMeshClip(entity, desiredClip);
-      // `carriedBy >= 0` is a passenger. Its `entitySpeed` is its CARRIER's
-      // -- see `applyGaitRate`'s own doc comment -- so its legs are not
-      // rate-matched at all.
-      this.applyGaitRate(entity, template, anim, st.carriedBy[i] >= 0);
       // SIM time, not frame time (GH-391): a frozen gate frame then holds the
       // pose sim time says, whatever frames were drawn on the way.
-      advanceMeshClipFades(entity, this.frameSimDtSeconds ?? dtSeconds);
-      entity.mixer.update(this.frameSimDtSeconds ?? dtSeconds);
+      const dt = this.frameSimDtSeconds ?? dtSeconds;
+      const nowS = presentationSimMs(this.sim.tickCount, alpha) / 1000;
+      // The kneel (`units/stance.ts`): the sim's brace when it has one (#402),
+      // otherwise "stationary and fired in the last few seconds".
+      const reading = stanceOf(this.sim, i, alpha, {
+        speed: anim.speed,
+        sinceShotS: nowS - this.lastShotSimS[i],
+        prevDepth: this.unitDepth[i],
+      });
+      const depthTarget = reading.fromSim
+        ? stanceDepth(reading.stance, reading.progress)
+        : reading.stance === 'dropping' || reading.stance === 'kneeling'
+          ? 1
+          : 0;
+      const carried = st.carriedBy[i] >= 0;
+      // `resolveMeshMotionClip` overrides `fire` to `moveFire` only when this
+      // entity is actually moving AND its GLB carries the clip; every other
+      // mesh gets `resolveClip`'s own answer back unchanged.
+      const desiredClip = resolveMeshMotionClip(resolveClip(anim), anim.speed > 0, entity.actions.has('moveFire'));
+      const squad = entity.squad ?? null;
+      if (squad?.squad && !carried) {
+        this.updateSquad(entity, squad, template, i, { wx, wy, worldY, aimYaw, anim, desiredClip, depthTarget, fromSim: reading.fromSim, dt, nowS });
+      } else {
+        // A team drawn as one: the kneel at unit level (no stagger), the clip
+        // scrubbed through a drop or a rise.
+        this.unitDepth[i] = reading.fromSim ? depthTarget : stepDepth(this.unitDepth[i], depthTarget, dt);
+        const kneelClip = kneelClipFor(desiredClip, this.unitDepth[i], depthTarget, entity.actions.has('kneel'));
+        applyMeshClip(entity, kneelClip.clip, kneelClip.scrub === null ? undefined : { once: true });
+        // `carriedBy >= 0` is a passenger. Its `entitySpeed` is its CARRIER's
+        // -- see `applyGaitRate`'s own doc comment -- so its legs are not
+        // rate-matched at all.
+        this.applyGaitRate(entity, template, anim, carried);
+        if (kneelClip.scrub !== null) scrubAction(entity.actions.get(kneelClip.clip), kneelClip.scrub);
+        advanceMeshClipFades(entity, dt);
+        entity.mixer.update(dt);
+        if (squad) this.applyFigureAdditives(entity, squad, aimYaw, nowS, false);
+      }
     }
 
     // Hand off entities no longer alive to the death sequence instead of
@@ -5790,6 +6072,9 @@ export class ThreeRenderer implements Renderer {
       // mutating a material shared by every other unit on that side. A
       // wreck has nothing left to keep track of either.
       detachMeshSilhouette(entity.root);
+      // A squad's figure players hand every bone back to the team's death
+      // clips (`squad-rig.ts`): stopped here, before anything plays a fall.
+      if (entity.squad) stopSquadPlayers(entity.squad);
       // The one fork: was this entity KILLED, or did it get out? `alive === 0`
       // cannot answer -- `MissionRuntime.stepObjectives` clears it for a
       // civilian who reaches the evacuation zone using the identical write a

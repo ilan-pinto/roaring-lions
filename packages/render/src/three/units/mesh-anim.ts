@@ -35,6 +35,9 @@ const CLIP_NAME_SET: { readonly [K in ClipName]: true } = {
   wreckAlt: true,
   fall: true,
   fallAlt: true,
+  kneel: true,
+  kneelIn: true,
+  kneelOut: true,
 };
 
 /** Every `ClipName`, for iteration and validation. */

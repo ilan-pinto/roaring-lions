@@ -140,6 +140,7 @@ import catastrophicKill from '../../../data/vfx/catastrophic_kill.json';
 import fireApfsds from '../../../data/vfx/fire_apfsds.json';
 import fireAutocannon from '../../../data/vfx/fire_autocannon.json';
 import fireHeat from '../../../data/vfx/fire_heat.json';
+import rpgBackblast from '../../../data/vfx/rpg_backblast.json';
 import fireHmg from '../../../data/vfx/fire_hmg.json';
 import fireMissile from '../../../data/vfx/fire_missile.json';
 import fireMortar from '../../../data/vfx/fire_mortar.json';
@@ -423,6 +424,10 @@ export const vfxEmitters = [
   fireAutocannon,
   fireApfsds,
   fireHeat,
+  // The motion pass (5 Oct): a shoulder-fired tube's backblast, thrown
+  // behind the gunner by the renderer on the shot (not indexed by class:
+  // it rides on top of the class's own muzzle emitter).
+  rpgBackblast,
   fireMissile,
   fireMortar,
   cigaretteEmber,

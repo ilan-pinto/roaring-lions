@@ -33,7 +33,11 @@
  *  today; every other GLB's `applyMeshClip` call simply never resolves to
  *  them, exactly like `work` on a sheet that never declares it. */
 export type ClipName = 'idle' | 'move' | 'fire' | 'down' | 'wreck' | 'work' | 'moveFire' | 'wreckAlt'
-  | 'fall' | 'fallAlt';
+  | 'fall' | 'fallAlt'
+  // The kneel (motion pass, 5 Oct): mesh-only, built by `pnpm motion:meshes`.
+  // `kneel` loops; `kneelIn`/`kneelOut` are 0.3 s and scrubbed by the sim's
+  // own drop/rise ticks (`units/stance.ts`), never played on a clock.
+  | 'kneel' | 'kneelIn' | 'kneelOut';
 
 export interface ClipSpec {
   /** Number of frames in this clip. */
