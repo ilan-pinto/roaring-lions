@@ -5,7 +5,7 @@
 // do" and get the same answer the click gives -- two code paths would drift,
 // and the failure mode is a cursor that promises what the click will not do.
 import { describe, expect, it } from 'vitest';
-import { resolvePointer, resolveKeyVerb, type IntentWorld } from './intents';
+import { haltNote, resolvePointer, resolveKeyVerb, type IntentWorld } from './intents';
 
 /** A world where nothing exists unless a test says it does. */
 function emptyWorld(over: Partial<IntentWorld> = {}): IntentWorld {
@@ -299,6 +299,22 @@ describe('the keyboard verbs, resolved the same way', () => {
     expect(r.intents).toEqual([{ kind: 'dismount', carriers: [1] }]);
     expect(r.note?.tone).toBe('info');
     expect(r.note?.text).toBe('<b>dismount</b> — infantry debussing');
+  });
+
+  it('says so when nothing selected is carrying troops (pass K)', () => {
+    const r = resolveKeyVerb(world(), 'dismount', {
+      ids: [1], x: 0, y: 0,
+      isCarrier: () => true, canEmbark: () => false,
+      canSmoke: () => false, passengerCount: () => 0,
+    });
+    expect(r.intents).toEqual([]);
+    expect(r.note?.tone).toBe('mute');
+    expect(r.note?.text).toBe('nothing selected is carrying troops — select a loaded transport to unload');
+  });
+
+  it('halt with nothing of ours selected says what it wants; with units, says nothing (pass K)', () => {
+    expect(haltNote(0)).toEqual({ text: 'nothing of yours selected to halt — select units first', tone: 'mute' });
+    expect(haltNote(3)).toBeNull();
   });
 
   it('lays smoke at the point, from whoever carries it', () => {

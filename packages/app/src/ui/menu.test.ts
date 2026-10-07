@@ -121,6 +121,24 @@ describe('showMenu continue/start', () => {
 });
 
 describe('showEndScreen', () => {
+  // Pass K: the screen the player decides on says why, and what next.
+  it('says why a defeat happened and that the campaign is unchanged', () => {
+    const host = document.createElement('div');
+    showEndScreen(host, { result: 'defeat', roe: 80, survivors: 0, missionId: 'a', reason: 'Every unit lost · 3:12' });
+    const lines = [...host.querySelectorAll('.rl-endreason')].map((p) => p.textContent);
+    expect(lines).toEqual(['Every unit lost · 3:12', expect.stringMatching(/Nothing from before this attempt is lost/)]);
+  });
+  it('points a won town at the campaign map when no next mission follows, and stays quiet when one does', () => {
+    const done = document.createElement('div');
+    showEndScreen(done, { result: 'victory', roe: 90, survivors: 4, missionId: 'a', reason: 'ignored on a win' });
+    expect([...done.querySelectorAll('.rl-endreason')].map((p) => p.textContent)).toEqual([
+      expect.stringMatching(/campaign map/),
+    ]);
+    const more = document.createElement('div');
+    showEndScreen(more, { result: 'victory', roe: 90, survivors: 4, missionId: 'a', nextMissionId: 'b' });
+    expect(more.querySelectorAll('.rl-endreason').length).toBe(0);
+  });
+
   // GH-345: what Conduct was spent on, not only the number left.
   it('prints the invoice summary beside Conduct, and the old line on a clean fight', () => {
     const host = document.createElement('div');

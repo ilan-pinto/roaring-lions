@@ -100,6 +100,8 @@ describe('showSaves', () => {
     expect(listSlots(store)).toHaveLength(1);
     expect(listSlots(store)[0]!.name).toBe('My save');
     expect(stage.querySelectorAll('.rl-saves__row')).toHaveLength(1);
+    // Pass K: a save that worked says so.
+    expect(stage.querySelector('.rl-saves__msg')?.textContent).toBe('Saved as \u201cMy save\u201d.');
   });
 
   it('load confirms, then writes the slot back over the active keys', async () => {
@@ -123,6 +125,9 @@ describe('showSaves', () => {
     await Promise.resolve();
     expect(store.raw(LEDGER_KEY)).toBe(JSON.stringify(active.ledger));
     expect(store.raw(ACCOUNT_KEY)).toBe(JSON.stringify(active.account));
+    // Pass K: and the load says the campaign was replaced.
+    expect(stage.querySelector('.rl-saves__msg')?.textContent).toBe('Loaded \u201cCheckpoint\u201d \u2014 it is now your campaign.');
+    expect(dialog.textContent).toContain('Progress that is not in a save is lost.');
     stage.remove();
   });
 
@@ -240,8 +245,11 @@ describe('showSaves', () => {
     document.querySelector<HTMLButtonElement>('.rl-confirm__yes')!.click();
     await Promise.resolve();
     await Promise.resolve();
+    // Pass K: a refused LOAD says what it may have done to the ACTIVE
+    // campaign and how to recover -- not "the save may be incomplete", which
+    // is the save form's line and was wrong here.
     expect(stage.querySelector('.rl-saves__msg')?.textContent).toBe(
-      'Could not write to browser storage \u2014 the save may be incomplete. Free some space and try again.'
+      'Browser storage refused the load part-way \u2014 your current campaign may be mixed with this save. Load the save again, or start a new campaign.'
     );
     expect(changed).toBe(0);
     expect(error).toHaveBeenCalledWith('saves:', expect.anything());

@@ -2201,7 +2201,10 @@ describe('buildings in missions (garrison stance + structure ROE)', () => {
     ],
   };
 
-  function buildingWorld(partial: Partial<MissionJson>): World & { house: number; hall: number } {
+  function buildingWorld(
+    partial: Partial<MissionJson>,
+    opts: { zones?: Record<string, [number, number, number, number]>; secondHouse?: boolean } = {}
+  ): World & { house: number; hall: number; house2: number } {
     const sim = new Sim({ seed: 3, width: 28, height: 14, capacity: 24 });
     const ids = new Map<string, number>();
     for (const t of [SQUAD, HOLDER]) ids.set(t.id, sim.addUnitType(t));
@@ -2214,6 +2217,8 @@ describe('buildings in missions (garrison stance + structure ROE)', () => {
     };
     const house = rect(ht, 14, 6, 2, 2);
     const hall = rect(mt, 20, 6, 2, 2);
+    // Only on request: an extra building changes pathing for every test here.
+    const house2 = opts.secondHouse === true ? rect(ht, 14, 10, 2, 2) : -1;
     const runtime = new MissionRuntime(sim, baseMission(partial), {
       typeIdOf: (u) => {
         const t = ids.get(u);
@@ -2221,7 +2226,7 @@ describe('buildings in missions (garrison stance + structure ROE)', () => {
         return t;
       },
       markers: {},
-      zones: {},
+      zones: opts.zones ?? {},
     });
     runtime.start();
     return {
@@ -2229,6 +2234,7 @@ describe('buildings in missions (garrison stance + structure ROE)', () => {
       runtime,
       house,
       hall,
+      house2,
       step: (ticks: number) => {
         const out: { sim: SimEvent[]; mission: MissionEvent[] } = { sim: [], mission: [] };
         for (let i = 0; i < ticks; i++) {
@@ -2290,6 +2296,28 @@ describe('buildings in missions (garrison stance + structure ROE)', () => {
     const out = w.runtime.step([byEnemy]);
     expect(out.filter((e) => e.kind === 'roe').length).toBe(0);
     expect(w.runtime.roeScore).toBe(100);
+  });
+
+  it('razing what a raze objective names costs no Conduct; the house next door still does', () => {
+    // Wadi Halam V, 2026-10-07: the depot's seven structures are the `raze`
+    // primary, and levelling them cost 19 Conduct -- the order itself, billed
+    // as carelessness. Collateral is still judged: a house OUTSIDE the zone.
+    const w = buildingWorld(
+      {
+        starting_force: [{ unit: 'm_squad', count: 1, at: [3, 6] }],
+        objectives: [{ id: 'level_it', type: 'raze', primary: true, target: 'depot', seconds: 300 }],
+        roe: { enabled: true, structure_penalty_mult: 1 },
+      },
+      { zones: { depot: [14, 6, 2, 2] }, secondHouse: true }
+    );
+    expect(w.runtime.roeScore).toBe(100);
+    const targetDown = w.runtime.step([{ kind: 'structureDestroyed', tick: 1, structure: w.house, by: 0 }]);
+    expect(targetDown.filter((e) => e.kind === 'roe').length).toBe(0);
+    expect(w.runtime.roeScore).toBe(100);
+
+    const collateral = w.runtime.step([{ kind: 'structureDestroyed', tick: 2, structure: w.house2, by: 0 }]);
+    expect(collateral.filter((e) => e.kind === 'roe').length).toBe(1);
+    expect(w.runtime.roeScore).toBe(94);
   });
 
   it('structure_penalty_mult scales the cost, and 0 turns it off', () => {

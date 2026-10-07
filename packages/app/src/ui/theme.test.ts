@@ -116,3 +116,35 @@ describe('composed layouts (D-8)', () => {
     expect(narrowGrid).toMatch(/grid-template-columns/);
   });
 });
+
+/** The body of the first rule whose selector list is exactly `selector`. */
+function ruleBody(source: string, selector: string): string {
+  const at = source.indexOf(`\n${selector} {`);
+  if (at < 0) throw new Error(`no rule for ${selector}`);
+  const open = source.indexOf('{', at);
+  return source.slice(open + 1, source.indexOf('}', open));
+}
+
+// GH-417, the briefing's reachability. jsdom has no layout, so these pin the
+// three declarations; the measured layout (title top, Deploy in view) is
+// `tools/src/ui-review/briefing-reach.ts`, which `pnpm ui:routes` runs on CI.
+describe('briefing reachability (GH-417)', () => {
+  // Falsified: `align-items: center` (the old value) goes red.
+  it('B-01: the overlay centres SAFELY, so a tall box starts at the top', () => {
+    const body = ruleBody(css, '.rl-loading');
+    expect(body).toMatch(/align-items:\s*safe center;/);
+    expect(body).toMatch(/justify-content:\s*safe center;/);
+  });
+  // Falsified: deleting `position: sticky;` goes red.
+  it('B-02: Deploy is sticky to the bottom edge of the scrolling screen', () => {
+    const body = ruleBody(css, '.rl-loading__box--brief > .rl-loading__deploy');
+    expect(body).toMatch(/position:\s*sticky;/);
+    expect(body).toMatch(/bottom:/);
+  });
+  // Falsified: deleting `max-height: none;` goes red.
+  it('B-03: the beats do not scroll in a box of their own on a briefing', () => {
+    const body = ruleBody(css, '.rl-loading__box--brief:not(.rl-loading__box--video) .rl-loading__brief');
+    expect(body).toMatch(/max-height:\s*none;/);
+    expect(body).toMatch(/overflow-y:\s*visible;/);
+  });
+});
