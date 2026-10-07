@@ -101,6 +101,7 @@ import { ensureDevServer, stopDevServer, readUnmaskedRenderer, capture, rephotog
 import {
   CAPTURE_VIEWPORT,
   FREEZE_FRAME_LOOP_SCRIPT,
+  KITTED_SCENARIO,
   REPAINT_SCRIPT,
   VEHICLE_SCENARIO,
   captureScript,
@@ -861,12 +862,9 @@ async function runGarage(args: Args, port: number): Promise<void> {
 
 // -------------------------------------------------------------- toggle ----
 
-const KITTED_PROBE: Scenario = {
-  ...VEHICLE_SCENARIO,
-  id: 'kitted',
-  description: `${VEHICLE_SCENARIO.description} With &kit: the sandbox ladder's tiers, merged into each vehicle.`,
-  sandboxFlags: [...(VEHICLE_SCENARIO.sandboxFlags ?? []), 'kit'],
-};
+/** The gated scenario itself (`capture-protocol.ts`), not a copy of it, so the
+ *  floor is measured on exactly the URL, camera and tick the gate captures. */
+const KITTED_PROBE: Scenario = KITTED_SCENARIO;
 
 interface ToggleReading {
   control: DiffSummary;

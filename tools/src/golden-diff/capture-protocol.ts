@@ -410,6 +410,40 @@ export const VEHICLE_SCENARIO: Scenario = {
   targetTick: 140,
 };
 
+/** `VEHICLE_SCENARIO`'s own map, camera and tick, with `&kit` (GH-238, plan 3
+ *  K8): the same mesh vehicles, each carrying the sandbox ladder's kit
+ *  (`SANDBOX_KIT_LEVELS`, applied by `bootTiers` before the one
+ *  `upgradePrepass`) merged into its host geometry at load
+ *  (`three/units/vehicle-kit.ts`). Deliberately not a new framing, for the
+ *  reason `DUSK_SCENARIO` gives: the useful comparison is the SAME shot with
+ *  one thing added, and `vehicle` itself stays the kit-free reference, so a
+ *  regression that only shows with kit on reads here and nowhere else.
+ *
+ *  WHY IT EXISTS. Before it, no gated frame carried a single kit part: the
+ *  sandbox force boots with an empty brigade account, so `vehicle` draws
+ *  every hull at L0 and deleting every `kit_*` node from the eight GLBs
+ *  would leave the gate green. Its `kit` layer check (`BASELINES.kitted`)
+ *  asks whether the merged kit contributes pixels -- reference-free, so it
+ *  votes even before this scenario has a baseline.
+ *
+ *  GATED FROM BIRTH, with no baseline committed in the same change: the
+ *  first `kitted` entry in an existing environment's manifest comes from the
+ *  post-merge bless, so until then CI's `visual` job is red (exit 1, a
+ *  missing entry in an EXISTING manifest) -- the `aftermath` precedent, and
+ *  intended. Do not bless it from the branch. */
+export const KITTED_SCENARIO: Scenario = {
+  id: 'kitted',
+  description:
+    "vehicle's own map/camera/tick (beit_sahwan_outskirts sandbox force's mbt_lavi tile, tick 140) " +
+    "with &kit -- the same mesh vehicles carrying the sandbox ladder's kit, the only gated frame " +
+    'with any kit part in it (GH-238 K8).',
+  sandboxMap: VEHICLE_SCENARIO.sandboxMap,
+  sandboxFlags: ['kit'],
+  cameraTile: VEHICLE_SCENARIO.cameraTile,
+  ticks: VEHICLE_SCENARIO.ticks,
+  targetTick: VEHICLE_SCENARIO.targetTick,
+};
+
 /** Real combat: `beit_sahwan_3_clearance`'s own opening roster, ordered to
  *  fight. Closes the gap named in `docs/superpowers/specs/2026-08-29-phase-d-todo.md`
  *  #8 -- `.superpowers/d-combat-diff-report.md` measured 2.133%-3.395% on
@@ -634,6 +668,7 @@ export const SCENARIOS: readonly Scenario[] = [
   QUIET_SCENARIO,
   OPEN_GROUND_SCENARIO,
   VEHICLE_SCENARIO,
+  KITTED_SCENARIO,
   RELIEF_SCENARIO,
   AFTERMATH_SCENARIO,
   DUSK_SCENARIO,
