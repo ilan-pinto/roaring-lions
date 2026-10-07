@@ -156,6 +156,7 @@ import tunnelCollapse from '../../../data/vfx/tunnel_collapse.json';
 import rotorWash from '../../../data/vfx/rotor_wash.json';
 import vehicleDust from '../../../data/vfx/vehicle_dust.json';
 import vehicleExhaust from '../../../data/vfx/vehicle_exhaust.json';
+import vehicleDamagedSmoke from '../../../data/vfx/vehicle_damaged_smoke.json';
 
 // The scene-host diorama (2026-09-24-scene-host §3.2/§10): a real map, a
 // camera and a few idle units, standing behind the main menu. One file, one
@@ -440,6 +441,8 @@ export const vfxEmitters = [
   tunnelCollapse,
   vehicleDust,
   vehicleExhaust,
+  // Pass C2/C4 (P3): a living vehicle with a mobility or firepower kill.
+  vehicleDamagedSmoke,
   rotorWash,
 ];
 

@@ -324,7 +324,7 @@ import {
   BOLT_CAPACITY,
 } from './units/fx';
 import { rotorSpinPhase } from './units/rotor-spin';
-import { exhaustRand, exhaustSlotAgeSec, exhaustSlotsDue } from './units/exhaust-slots';
+import { exhaustRand, exhaustSlotAgeSec, exhaustSlotsDue, vehicleTrailsDamageSmoke } from './units/exhaust-slots';
 import {
   ROTOR_WASH_MIN_STRENGTH,
   rotorWashStrength,
@@ -713,6 +713,12 @@ const FLAT_FX_MAGNITUDE = 0.2;
  */
 const VEHICLE_DUST_OFFSET_TILES = 0.55;
 const VEHICLE_EXHAUST_OFFSET_TILES = 0.35;
+/** Pass C2/C4 (P3): the damage smoke rises from the engine deck too, a
+ *  touch nearer the hull's middle than the exhaust pipe. */
+const VEHICLE_DAMAGE_SMOKE_OFFSET_TILES = 0.2;
+/** One thin puff every 300 ms of sim time: a wisp, not a fire. */
+const VEHICLE_DAMAGE_SMOKE_INTERVAL_MS = 300;
+const VEHICLE_DAMAGE_SMOKE_MAGNITUDE = 0.3;
 
 /**
  * How often (in ms) `updateVehicleAmbientFx` calls `particleSystem.spawn`
@@ -1650,6 +1656,8 @@ export class ThreeRenderer implements Renderer {
   private readonly rotorWashSlot: Int32Array;
   /** Last idle-exhaust slot per entity, -1 = none (sim-clocked, GH-391). */
   private readonly exhaustSlot: Int32Array;
+  /** Pass C2/C4 (P3): the last damage-smoke slot each vehicle emitted. */
+  private readonly damageSmokeSlot: Int32Array;
   /** Presentation sim time at the last `updateFx`, null before the first. */
   /** Presentation sim time at the last `frame()`, null before the first. */
   private lastFrameSimMs: number | null = null;
@@ -2204,6 +2212,7 @@ export class ThreeRenderer implements Renderer {
     this.vehicleDustAccumMs = new Float64Array(n);
     this.rotorWashSlot = new Int32Array(n).fill(-1);
     this.exhaustSlot = new Int32Array(n).fill(-1);
+    this.damageSmokeSlot = new Int32Array(n).fill(-1);
     this.vehicleTrackAccumTiles = new Float64Array(n);
     this.vehicleTrackSeeded = new Uint8Array(n);
     this.fog = new Uint8Array(sim.width * sim.height);
@@ -7314,6 +7323,8 @@ export class ThreeRenderer implements Renderer {
       const type = this.sim.unitTypes[st.typeIdx[i]];
       if (type.isSoft || (hasWash && type.isAir)) continue;
       if (this.vehicleMoving[i] === 1) continue;
+      // Pass C2/C4 (P3): a mobility kill stops the engine -- no exhaust.
+      if (st.mobilityKilled[i] === 1) continue;
       const [first, last] = exhaustSlotsDue(this.exhaustSlot[i], nowMs, interval, emitOverMs, maxLifeMs);
       if (last < first) continue;
       const drawn = this.vehicleMeshEntities.get(i)?.root.position;
@@ -7333,6 +7344,56 @@ export class ThreeRenderer implements Renderer {
         }
       }
       this.exhaustSlot[i] = last;
+    }
+  }
+
+  /**
+   * Pass C2/C4 (P3): a living vehicle that has lost its mobility or its
+   * firepower trails a thin, dark wisp from its engine deck, for as long as
+   * it lives. Which kind of damage it is lives on the HUD (the card and the
+   * chip marks); the world says only "this one is hurt". Dated off the SIM
+   * clock exactly like `updateIdleExhaust` (GH-391), so a frozen gate frame
+   * repaints the same puffs. Reads `mobilityKilled`/`firepowerKilled` and
+   * writes nothing back.
+   */
+  private updateDamageSmoke(alpha: number): void {
+    if (!this.particleSystem) return;
+    const smoke = this.emitterLibrary.byName('vehicle_damaged_smoke');
+    if (!smoke) return;
+    const st = this.sim.state;
+    const n = this.snapshottedCount;
+    const nowMs = presentationSimMs(this.sim.tickCount, alpha);
+    const interval = VEHICLE_DAMAGE_SMOKE_INTERVAL_MS;
+    let maxLifeMs = 0;
+    let emitOverMs = 0;
+    for (const layer of smoke.particles) {
+      const l = layer.lifetime_ms;
+      maxLifeMs = Math.max(maxLifeMs, typeof l === 'number' ? l : l ? l[1] : 0);
+      emitOverMs = Math.max(emitOverMs, layer.emit_over_ms ?? 0);
+    }
+    for (let i = 0; i < n; i++) {
+      if (st.alive[i] === 0) continue;
+      if (!vehicleTrailsDamageSmoke(this.sim.unitTypes[st.typeIdx[i]], st.mobilityKilled[i], st.firepowerKilled[i])) continue;
+      const [first, last] = exhaustSlotsDue(this.damageSmokeSlot[i], nowMs, interval, emitOverMs, maxLifeMs);
+      if (last < first) continue;
+      const drawn = this.vehicleMeshEntities.get(i)?.root.position;
+      const anchor = vehicleFxAnchor(
+        drawn ? drawn.x : this.curX[i],
+        drawn ? drawn.z : this.curY[i],
+        fx.toNumber(st.facing[i]),
+        VEHICLE_DAMAGE_SMOKE_OFFSET_TILES
+      );
+      const prio = smoke.budget_priority ?? 2;
+      for (let slot = first; slot <= last; slot++) {
+        // Salted away from the exhaust's stream: the two never share puffs.
+        const rand = exhaustRand(i + 0x20000, slot);
+        const ageSec = exhaustSlotAgeSec(slot, nowMs, interval);
+        for (const layer of smoke.particles) {
+          const fxLayer = fxLayerIndex(smoke.layer, layer.additive ?? false);
+          this.particleSystem.spawn(layer, anchor.x, anchor.y, anchor.dirTurns, VEHICLE_DAMAGE_SMOKE_MAGNITUDE, prio, fxLayer, 0, 0, { rand, ageSec });
+        }
+      }
+      this.damageSmokeSlot[i] = last;
     }
   }
 
@@ -7436,6 +7497,7 @@ export class ThreeRenderer implements Renderer {
     if (alpha !== undefined) {
       this.updateRotorWash(alpha);
       this.updateIdleExhaust(alpha);
+      this.updateDamageSmoke(alpha);
     }
     const elevation = this.retained.elevation;
     this.particleInstancerBelow.update(this.particleSystem, elevation, this.sim.width, this.sim.height);
