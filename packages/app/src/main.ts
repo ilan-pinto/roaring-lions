@@ -131,7 +131,7 @@ import { isIdle, nextIdle, type IdleFacts } from './ui/idle';
 import { escapeHtml } from './ui/escape-html';
 import { bootFailureCard, bootFailureKind, guardBoot, mountErrorCard } from './ui/boot-failure';
 import { webgl2Available } from './ui/webgl-probe';
-import { alertNotice, evacuatedNotice, reinforceTrigger, removedNotice, triggerLabel } from './ui/mission-notice';
+import { alertNotice, evacuatedNotice, reinforceTrigger, removedNotice, ledgerSavedNotice, triggerLabel, unknownSandboxMapNotice } from './ui/mission-notice';
 import { ReinforcementDock } from './ui/production';
 import { doctrineTags } from './ui/dock-model';
 import {
@@ -2619,6 +2619,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   });
   // Six panes on `document.body`, plus a title card that may still be holding.
   onDispose(() => hud.destroy());
+  // Pass K: a /free-play/<id> link naming no shipped map still loads the
+  // default ground (a typo in a dev URL should not look like a broken build),
+  // but the PLAYER is told, by name -- it used to be a console line only, and
+  // the sandbox strip names no map, so a different battlefield just appeared.
+  const unknownMap = unknownSandboxMapNotice(sandboxMap, maps, mapJson.name);
+  if (unknownMap) hud.note(...unknownMap, { tier: 'important' });
   // WP-P5 (PA-16): a session that showed the order-row line has done its
   // teaching, so the next one does not show it. Marked on LEAVING rather than
   // on first sight, so the line stays for the whole of that first session --
@@ -3908,7 +3914,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // per-campaign record against the ledger's completed missions, and after
             // the write this very victory would count as already won this campaign.
             const accountBefore = ledgerStore.readAccount();
-            ledgerStore.writeLedger(updatedLedger);
+            // Pass K: a refused write (storage full, site data blocked) used to
+            // throw out of this handler and take the end screen with it, and a
+            // browser with no storage at all was still told "campaign saved".
+            let ledgerSaved = ledgerStore.available;
+            try {
+              ledgerStore.writeLedger(updatedLedger);
+            } catch (err) {
+              console.error('campaign ledger write refused:', err);
+              ledgerSaved = false;
+            }
             // The brigade account (spec 2026-09-15 §4.2): what this run is worth, paid
             // only for improvement over what this mission has paid IN THIS CAMPAIGN
             // (GH-330; a mission not open in the campaign the run booted in is held to
@@ -3928,7 +3943,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               if (payout) ledgerStore.writeAccount(payout.account);
               if (payout) telemetry().account('payout', payout.account, { mission: mission.id, paid: payout.paid });
             }
-            hud.note(t('main.note.ledgerUpdated'), 'info');
+            hud.note(...ledgerSavedNotice(ledgerSaved));
           }
           // GH-234: computed once, here, and handed to both the outcome moment
           // (below) and the debrief (`debriefOpts.credits`) -- the payment

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alertNotice, evacuatedNotice, placePhrase, reinforceTrigger, removedNotice, triggerLabel } from './mission-notice';
+import { alertNotice, evacuatedNotice, placePhrase, reinforceTrigger, removedNotice, ledgerSavedNotice, triggerLabel, unknownSandboxMapNotice } from './mission-notice';
 
 describe('removedNotice', () => {
   it('reads "taken (n)" for a civilian (side 2)', () => {
@@ -106,5 +106,40 @@ describe('reinforceTrigger', () => {
     expect(reinforceTrigger(mission, 'trigger_3')?.label).toBe('Mortar arrives');
     expect(reinforceTrigger(mission, 'quiet')).toBeNull();
     expect(reinforceTrigger(mission, 'trigger_2')).toBeNull();
+  });
+});
+
+describe('unknownSandboxMapNotice (pass K)', () => {
+  const known = { beit_sahwan_outskirts: {}, tel_marum: {} };
+  it('is silent for a shipped map, and for no map at all', () => {
+    expect(unknownSandboxMapNotice('tel_marum', known, 'Tel Marum')).toBeNull();
+    expect(unknownSandboxMapNotice(null, known, 'Beit Sahwan')).toBeNull();
+  });
+  it('says the map is missing, names the map shown instead, and how to pick one -- never the raw id', () => {
+    const notice = unknownSandboxMapNotice('tel_maram', known, 'Beit Sahwan outskirts');
+    expect(notice).not.toBeNull();
+    const [html, tone] = notice ?? ['', 'mute'];
+    expect(tone).toBe('warn');
+    expect(html).toMatch(/not in this build/);
+    expect(html).not.toContain('tel_maram');
+    expect(html).toContain('<b>Beit Sahwan outskirts</b>');
+    expect(html).toMatch(/Free Play/);
+  });
+  it('escapes the shown map name', () => {
+    const [html] = unknownSandboxMapNotice('nope', known, '<img>') ?? [''];
+    expect(html).toContain('&lt;img&gt;');
+  });
+});
+
+describe('ledgerSavedNotice (pass K)', () => {
+  it('says "campaign saved" only when the write landed', () => {
+    const [ok, okTone] = ledgerSavedNotice(true);
+    expect(ok).toMatch(/campaign saved/);
+    expect(okTone).toBe('info');
+    const [no, noTone] = ledgerSavedNotice(false);
+    expect(no).not.toMatch(/campaign saved/);
+    expect(no).toMatch(/not saved/);
+    expect(no).toMatch(/Allow this site to store data/);
+    expect(noTone).toBe('bad');
   });
 });

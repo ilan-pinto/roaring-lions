@@ -663,10 +663,12 @@
   "main.note.groupAssigned": "<b>group {slot}</b> — {n, plural, one {# unit} other {# units}}",
   "main.note.groupCleared": "group {slot} cleared",
   "main.note.ledgerUpdated": "<b>campaign saved</b> — survivors and Conduct carry forward",
+  "main.note.ledgerNotSaved": "<b>progress not saved</b> — this browser is not keeping site data, so this campaign will not be here next visit. Allow this site to store data to keep it.",
   "main.note.tutorialComplete": "<b>working up complete</b> — the town is next",
   "main.note.civEvacuated": "<b>civilian evacuated</b> — {n} of {total} out",
   "main.note.meshFailed": "<b>{name}</b> did not load and is drawn as a plain marker",
   "main.note.sceneryFailed": "<b>part of the scenery did not load</b> and is drawn as a plain block",
+  "main.note.sandboxMapUnknown": "The link names a map that is not in this build — showing <b>{name}</b> instead. Pick a map from Free Play to change it.",
 
   "mission.notice.objectiveComplete": "<b>OBJECTIVE COMPLETE</b> — {label}",
   "mission.notice.objectiveStatus": "<b>OBJECTIVE {status}</b> — {label}",
