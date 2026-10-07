@@ -17,7 +17,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 
-const loader = vi.hoisted(() => ({ calls: 0, make: null as null | (() => unknown) }));
+const loader = vi.hoisted(() => ({
+  calls: 0,
+  make: null as null | (() => unknown),
+  /** Called inside every `render`, so a test can read what the world looked
+   *  like at the moment a frame was drawn. */
+  onRender: null as null | (() => void),
+}));
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>();
@@ -43,6 +49,7 @@ vi.mock('three', async (importOriginal) => {
     setSize(): void {}
     render(scene: import('three').Scene, camera: import('three').Camera): void {
       this.renders.push({ scene, camera: camera.position.clone() });
+      loader.onRender?.();
     }
     getContext(): { isContextLost(): boolean } {
       return { isContextLost: () => false };
@@ -81,10 +88,17 @@ function box(w: number, h: number, d: number, at: THREE.Vector3): THREE.BufferGe
 
 /** A kitted vehicle as `GLTFLoader` hands one back, plus handles on the
  *  objects a test watches. */
-function kittedVehicle() {
+function kittedVehicle(sourceOnlyTexture = false) {
   const bake = new THREE.Texture();
   bake.name = 'bake';
-  const material = new THREE.MeshStandardMaterial({ map: bake });
+  // An unlit (KHR_materials_unlit) source: the build re-wraps it as a
+  // standard material carrying ONLY `map`, so an `alphaMap` is a texture the
+  // pristine scene holds and nothing the view draws does.
+  const sourceOnly = new THREE.Texture();
+  sourceOnly.name = 'source-only';
+  const material = sourceOnlyTexture
+    ? new THREE.MeshBasicMaterial({ map: bake, alphaMap: sourceOnly })
+    : new THREE.MeshStandardMaterial({ map: bake });
   const scene = new THREE.Group();
   scene.name = 'Scene';
   const hull = new THREE.Mesh(box(2, 1, 4, new THREE.Vector3(0, 0.5, 0)), material);
@@ -103,14 +117,14 @@ function kittedVehicle() {
   kit('armour', 2, box(0.4, 0.6, 3, new THREE.Vector3(1.6, 0.4, 0)));
   kit('armour', 3, box(0.6, 0.8, 3.6, new THREE.Vector3(2.1, 0.4, 0)));
   kit('sensors', 1, box(0.2, 1.5, 0.2, new THREE.Vector3(-0.5, 1.75, 0.5)));
-  return { gltf: { scene, animations: [] as THREE.AnimationClip[] }, scene, bake, material };
+  return { gltf: { scene, animations: [] as THREE.AnimationClip[] }, scene, bake, material, sourceOnly };
 }
 
 const COLORS = { key: '#ffffff', fill: '#ffffff', sky: '#ffffff', bounce: '#ffffff', ground: '#c8b494' };
 const host = { clientWidth: 600, clientHeight: 400, appendChild: (): void => {} } as unknown as HTMLElement;
 
-async function mount(kitTiers?: Readonly<Record<string, number>>) {
-  const v = kittedVehicle();
+async function mount(kitTiers?: Readonly<Record<string, number>>, sourceOnlyTexture = false) {
+  const v = kittedVehicle(sourceOnlyTexture);
   loader.make = () => v.gltf;
   const view = await mountGarageView(host, {
     typeId: 'mbt_lavi',
@@ -142,6 +156,7 @@ let disposedTextures: THREE.Texture[] = [];
 
 beforeEach(() => {
   loader.calls = 0;
+  loader.onRender = null;
   const g = vi.spyOn(THREE.BufferGeometry.prototype, 'dispose');
   const m = vi.spyOn(THREE.Material.prototype, 'dispose');
   const t = vi.spyOn(THREE.Texture.prototype, 'dispose');
@@ -222,5 +237,46 @@ describe('mountGarageView: the bought kit on the turntable', () => {
     expect(full.lastCamera().toArray()).toEqual(bareCam.toArray());
     expect(full.drawnHull().matrixWorld.elements).toEqual(bareHull.elements);
     full.view.dispose();
+  });
+
+  it('draws the new model BEFORE it releases the old one (a swap must not drop the shared program early)', async () => {
+    const m = await mount({});
+    // What the OLD template owns: its hull's merged geometry and material.
+    // (Counting disposals would not do -- building the new template disposes
+    // its own pre-merge clones, legitimately, before the draw.)
+    const oldHull = m.drawnHull();
+    const oldGeometry = oldHull.geometry;
+    const oldMaterial = oldHull.material as THREE.Material;
+    const atDraw: { geometry: boolean; material: boolean }[] = [];
+    loader.onRender = () =>
+      atDraw.push({ geometry: disposedGeometries.includes(oldGeometry), material: disposedMaterials.includes(oldMaterial) });
+
+    m.view.setKit({ armour: 3, sensors: 1 });
+
+    // Exactly one frame drew the swap, and at that moment the old template
+    // was still whole...
+    expect(atDraw).toEqual([{ geometry: false, material: false }]);
+    // ...and it WAS released afterwards: a test that never saw a release
+    // would pass the line above on a view that leaks.
+    expect(disposedGeometries).toContain(oldGeometry);
+    expect(disposedMaterials).toContain(oldMaterial);
+    m.view.dispose();
+  });
+
+  it('disposes a texture only the pristine source holds, once, at dispose', async () => {
+    const m = await mount({}, true);
+    // The build dropped it, so it is on no drawn object -- only the pristine
+    // scene reaches it.
+    let drawn = false;
+    m.renderer.renders[m.renderer.renders.length - 1].scene.traverse((o) => {
+      const mat = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
+      if (mat && Object.values(mat).includes(m.v.sourceOnly)) drawn = true;
+    });
+    expect(drawn).toBe(false);
+    expect(disposedTextures).not.toContain(m.v.sourceOnly);
+
+    m.view.dispose();
+    expect(disposedTextures.filter((t) => t === m.v.sourceOnly)).toHaveLength(1);
+    expect(disposedTextures.filter((t) => t === m.v.bake)).toHaveLength(1);
   });
 });

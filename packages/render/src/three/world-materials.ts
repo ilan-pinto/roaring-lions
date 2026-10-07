@@ -35,14 +35,35 @@ export function rampMaterial(ramp: readonly string[]): THREE.MeshStandardMateria
   });
 }
 
+/** Textures already prepared, by identity (not a `userData` flag: `Texture.clone`
+ *  copies `userData` and would hand an unprepared copy a "done" mark). */
+const prepared = new WeakSet<THREE.Texture>();
+
 /** A base-colour map is a photograph: sRGB, mipmapped (a 2048 bake is drawn
- *  at ~40 px at zoom 0.35), repeat-safe. */
+ *  at ~40 px at zoom 0.35), repeat-safe.
+ *
+ *  Idempotent per texture: a vehicle's bake is shared by every build of it,
+ *  and `needsUpdate` re-uploads the whole 2048 image plus its mips. The first
+ *  call does exactly what it always did; a later call on a texture whose
+ *  settings still read as prepared leaves `version` alone, so a garage
+ *  purchase (a rebuild) never costs a re-upload. A texture someone has since
+ *  re-tagged is prepared again. */
 export function prepareTexturedMap(map: THREE.Texture): THREE.Texture {
+  if (
+    prepared.has(map) &&
+    map.colorSpace === THREE.SRGBColorSpace &&
+    map.generateMipmaps &&
+    map.minFilter === THREE.LinearMipmapLinearFilter &&
+    map.magFilter === THREE.LinearFilter
+  ) {
+    return map;
+  }
   map.colorSpace = THREE.SRGBColorSpace;
   map.generateMipmaps = true;
   map.minFilter = THREE.LinearMipmapLinearFilter;
   map.magFilter = THREE.LinearFilter;
   map.needsUpdate = true;
+  prepared.add(map);
   return map;
 }
 
