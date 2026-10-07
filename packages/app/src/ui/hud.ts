@@ -46,7 +46,8 @@ import type { HudElement } from './hud-elements';
 import type { CursorName } from '../input/cursor';
 import { ORDER_SIGHT } from './order-sight';
 import { roleBadgeSvg, roleBucket } from './role';
-import { symbolLabel, symbolSvg } from './symbol';
+import { symbolLabel, symbolSvg, type SymbolId } from './symbol';
+import { aimPenaltyPct, breakSeconds, combatBand, hpWord, recoverySeconds, suppressionMeter, SHAKEN_FROM, vehicleDamage } from './combat-state';
 import { bindDelegatedTip, bindTip } from './tooltip';
 import { VoiceCaption } from './voice-caption';
 import { weaponName } from './weapon-name';
@@ -72,6 +73,7 @@ import {
   hpTone,
   orderRow,
   stepFocus,
+  type ChipMark,
   type ChipView,
   type OrderId,
   type OrderSpec,
@@ -165,9 +167,39 @@ const PIN_MARK_CHIP = 12;
 const PIN_MARK_CARD = 16;
 
 /** The corner mark: one named image, so a screen reader hears "Pinned" once
- *  for the art rather than nothing (the svg itself is aria-hidden). */
-function pinMarkHtml(size: number): string {
-  return `<span class="rl-pin-mark" role="img" aria-label="${t('hud.pinned.label')}">${symbolSvg('pinned', size)}</span>`;
+ *  for the art rather than nothing (the svg itself is aria-hidden). Since
+ *  pass C2/C4 (D5) the corner carries whichever status mark wins the line --
+ *  broken, pinned, gun out or immobilised -- in its own ink (`data-mark`,
+ *  theme.css), in the slot and at the size GH-262 gave the pinned mark. */
+const MARK_SYMBOL: Readonly<Record<ChipMark, SymbolId>> = { broken: 'broken', pinned: 'pinned', gunOut: 'gunOut', immobilised: 'immobilised' };
+function markLabel(mark: ChipMark): string {
+  switch (mark) {
+    case 'broken':
+      return t('hud.state.broken');
+    case 'pinned':
+      return t('hud.pinned.label');
+    case 'gunOut':
+      return t('hud.state.gunOut');
+    case 'immobilised':
+      return t('hud.state.immobilised');
+  }
+}
+/** The card's suppression meter (pass C2/C4, D2): two cells -- shaken,
+ *  suppressed -- and the pinned mark, lit at the pin. No number. */
+function suppressionMeterHtml(m: { shaken: number; suppressed: number; pin: boolean }): string {
+  const cell = (f: number): string => `<b class="rl-supp__cell"><i style="width:${(f * 100).toFixed(0)}%"></i></b>`;
+  return (
+    `<div class="rl-supp" role="img" aria-label="${t('hud.supp.label')}">` +
+    `<span class="rl-label">${t('hud.supp.label')}</span>` +
+    cell(m.shaken) +
+    cell(m.suppressed) +
+    `<span class="rl-supp__pin"${m.pin ? ' data-on="1"' : ''}>${symbolSvg('pinned', STRIP_GLYPH_PX)}</span>` +
+    `</div>`
+  );
+}
+
+function statusMarkHtml(mark: ChipMark, size: number): string {
+  return `<span class="rl-pin-mark" data-mark="${mark}" role="img" aria-label="${markLabel(mark)}">${symbolSvg(MARK_SYMBOL[mark], size)}</span>`;
 }
 
 /** The chip art with its corner marks. Unpinned, exactly `withKitSign`'s
@@ -176,9 +208,9 @@ function pinMarkHtml(size: number): string {
  *  built here for an unkitted one too -- with the kit sign kept IMMEDIATELY
  *  after the art (theme.css sizes the chip's stars by the adjacent-sibling
  *  selector `.rl-chip__art + .rl-kit-icon`) and the pinned mark after it. */
-function chipArtHtml(artHtml: string, kit: KitLevel, pinned: boolean): string {
-  if (!pinned) return withKitSign(artHtml, kit);
-  return `<span class="rl-kit-host">${artHtml}${kitIconSignHtml(kit)}${pinMarkHtml(PIN_MARK_CHIP)}</span>`;
+function chipArtHtml(artHtml: string, kit: KitLevel, mark: ChipMark | null): string {
+  if (mark === null) return withKitSign(artHtml, kit);
+  return `<span class="rl-kit-host">${artHtml}${kitIconSignHtml(kit)}${statusMarkHtml(mark, PIN_MARK_CHIP)}</span>`;
 }
 
 /** The attributes that name a strip control across `renderStrip`'s 4 Hz
@@ -288,6 +320,9 @@ export interface HudDeps {
    *  between missions, and the card must show what the sim actually applied.
    *  Only ever asked about side 0; absent in tests that do not exercise it. */
   kitOf?: (typeId: string) => KitSummary | null;
+  /** Pass C2/C4 (D3): ticks this unit has been pinned without breaking,
+   *  from the sim's own `pinned` event (`ui/pinned-since.ts`), or null. */
+  pinnedTicks?: (id: number) => number | null;
   /** The kit level every HUD icon carries (plan 2b): main.ts's one read of
    *  upgradePrepass.unitKit. Asked only about side 0; absent reads as 0
    *  everywhere. */
@@ -1945,6 +1980,9 @@ export class Hud {
         routed: st.routed[i] === 1,
         pinned: st.pinned[i] === 1,
         moving: st.moving[i] === 1,
+        suppression: fx.toNumber(st.suppression[i]),
+        mobilityKilled: st.mobilityKilled[i] === 1,
+        firepowerKilled: st.firepowerKilled[i] === 1,
         aboard: st.carriedBy[i] >= 0,
         own: st.side[i] === 0,
         ...(type.hasAps
@@ -1974,7 +2012,7 @@ export class Hud {
           // theme.css's per-level border tint. Absent at level 0, so an
           // unkitted chip is byte-identical to one drawn before the kit.
           `${kit > 0 ? ` data-kit="${kit}"` : ''}>` +
-          chipArtHtml(this.artHtml(c.typeId, c.bucket, 'rl-chip__art', CHIP_MARK, 'chip'), kit, c.pinned) +
+          chipArtHtml(this.artHtml(c.typeId, c.bucket, 'rl-chip__art', CHIP_MARK, 'chip'), kit, c.mark) +
           `<div class="rl-chip__body">` +
           `<div class="rl-chip__top">` +
           // The name in its own span: `text-overflow`/wrapping does nothing
@@ -1988,8 +2026,8 @@ export class Hud {
           `<div class="rl-track"><i class="rl-fill-${c.hpTone}" ` +
           `style="width:${(c.hpPct * 100).toFixed(0)}%"></i></div>` +
           `<div class="rl-chip__status ${tone}"${
-            c.statusTone === 'hot' ? ' data-tip="pinned" tabindex="0"' : ''
-          }>${c.status}</div>` +
+            c.mark === 'pinned' ? ' data-tip="pinned" tabindex="0"' : ''
+          }>${c.status}${c.detail !== null ? ` <span class="rl-dim">· ${c.detail}</span>` : ''}</div>` +
           `</div></div>`
         );
       })
@@ -2087,24 +2125,59 @@ export class Hud {
         ? `<div class="rl-card__replaces rl-dim">${t('hud.card.replaces', { predecessor: escapeHtml(predecessor.name ?? predecessor.type) })}</div>`
         : '';
 
-    // Condition: only what is actually true right now. Unchanged from the panel
-    // this replaces — the list is the product of a dozen play sessions and the
-    // layout around it is what GH-153 is changing, not the facts in it.
-    const flags: string[] = [];
-    if (st.routed[id] === 1) flags.push(`<span class="rl-bad-text">${t('hud.card.broken')}</span>`);
-    else if (st.pinned[id] === 1)
-      flags.push(
-        `<span class="rl-hot" data-tip="pinned" tabindex="0">${symbolSvg('pinned', STRIP_GLYPH_PX)} ${t('hud.card.pinned')}</span>`
-      );
-    if (st.garrisonedIn[id] >= 0) flags.push(`<span class="rl-live">${t('hud.card.inBuilding')}</span>`);
-    if (st.mobilityKilled[id] === 1) flags.push(`<span class="rl-dim">${t('hud.card.immobilised')}</span>`);
-    if (st.firepowerKilled[id] === 1) flags.push(`<span class="rl-bad-text">${t('hud.card.gunsOut')}</span>`);
-    if (st.moving[id] === 1) flags.push(t('hud.card.moving'));
+    // Condition: only what is actually true right now. Since pass C2/C4
+    // (D1-D3) it LEADS with the unit's combat state -- one word in display
+    // caps, then what that state costs in plain words -- and suppression is
+    // never a percentage: "suppression 170%" became the two numbers a player
+    // can act on, how long after the fire stops the unit gets up, and how
+    // long before a soft one breaks (`ui/combat-state.ts`, every number the
+    // sim's own).
     const supp = fx.toNumber(st.suppression[id]);
-    if (supp > 0.05) flags.push(t('hud.card.suppression', { pct: (supp * 100).toFixed(0) }));
+    const pinned = st.pinned[id] === 1;
+    const routed = st.routed[id] === 1;
+    const band = combatBand(supp, pinned, routed);
+    const damage = vehicleDamage(st.mobilityKilled[id] === 1, st.firepowerKilled[id] === 1);
+    const state = (cls: string, word: string, mark?: string, tip?: 'pinned'): string =>
+      `<span class="rl-card__state ${cls}"${tip ? ` data-tip="${tip}" tabindex="0"` : ''}>${mark ?? ''}${mark ? ' ' : ''}${word}</span>`;
+    const flags: string[] = [];
+    const why: string[] = [];
+    if (band === 'broken') {
+      flags.push(state('rl-bad-text', t('hud.state.broken'), symbolSvg('broken', STRIP_GLYPH_PX)));
+      flags.push(`<span class="rl-dim">${t('hud.state.broken.why')}</span>`);
+      why.push(t('hud.state.rally', { s: recoverySeconds(supp) }));
+    } else if (band === 'pinned') {
+      flags.push(state('rl-hot', t('hud.state.pinned'), symbolSvg('pinned', STRIP_GLYPH_PX), 'pinned'));
+      flags.push(`<span class="rl-dim">${type.isSoft ? t('hud.state.pinned.why') : t('hud.state.vehiclePinned')}</span>`);
+      why.push(t('hud.state.recover', { s: recoverySeconds(supp) }));
+      const ticks = this.deps.pinnedTicks?.(id) ?? null;
+      const breaks = ticks === null ? null : breakSeconds(ticks, type.isSoft, st.mobilityKilled[id] === 1);
+      if (breaks !== null) why.push(`<span class="rl-bad-text">${t('hud.state.breakIn', { s: breaks })}</span>`);
+    } else if (band === 'suppressed') {
+      flags.push(state('rl-hot', t('hud.state.suppressed')));
+      flags.push(`<span class="rl-dim">${t('hud.state.aim', { n: aimPenaltyPct(supp) })} · ${t('hud.state.closeToPin')}</span>`);
+    } else if (band === 'shaken') {
+      flags.push(state('rl-warn', t('hud.state.shaken')));
+      flags.push(`<span class="rl-dim">${t('hud.state.aim', { n: aimPenaltyPct(supp) })}</span>`);
+    }
+    if (damage !== null) {
+      const word = damage === 'outOfAction' ? t('hud.state.outOfAction') : damage === 'gunOut' ? t('hud.state.gunOut') : t('hud.state.immobilised');
+      const what =
+        damage === 'outOfAction' ? t('hud.state.outOfAction.why') : damage === 'gunOut' ? t('hud.state.gunOut.why') : t('hud.state.immobilised.why');
+      flags.push(state('rl-bad-text', word, symbolSvg(damage === 'immobilised' ? 'immobilised' : 'gunOut', STRIP_GLYPH_PX)));
+      flags.push(`<span class="rl-dim">${what}</span>`);
+    }
+    if (st.garrisonedIn[id] >= 0) flags.push(`<span class="rl-live">${t('hud.card.inBuilding')}</span>`);
+    if (st.moving[id] === 1 && band !== 'broken') flags.push(t('hud.card.moving'));
     if (type.hasAps) flags.push(`<span class="rl-info">${t('selection.chip.aps', { ammo: st.apsAmmo[id], magazine: type.apsMagazine })}</span>`);
     const wp = sim.waypointCount(id);
     if (wp > 0) flags.push(t('hud.card.waypoints', { n: wp }));
+    // The meter (D2): shown from the first band up, never on a steady unit.
+    const meter = supp >= SHAKEN_FROM || pinned || routed ? suppressionMeterHtml(suppressionMeter(supp, pinned, routed)) : '';
+    const hpSay = hpWord(hpPct);
+    // The art's corner (D5): the mark that wins the line -- broken, pinned,
+    // then the vehicle's damage.
+    const cornerMark: ChipMark | null =
+      band === 'broken' ? 'broken' : band === 'pinned' ? 'pinned' : damage === 'immobilised' ? 'immobilised' : damage !== null ? 'gunOut' : null;
 
     // Armament, so the player can tell what this unit is for.
     const arms: string[] = [];
@@ -2151,9 +2224,9 @@ export class Hud {
       // `kitPipsHtml` below already names the level to a screen reader, so
       // this copy is decorative only -- one announcement, not two.
       kitIconSignDecorHtml(st.side[id] === 0 ? this.kitLevel(type.id) : 0) +
-      // GH-262: the pinned mark, bottom-left -- only when the condition line
-      // below says PINNED (broken outranks it there, and here).
-      (st.routed[id] !== 1 && st.pinned[id] === 1 ? pinMarkHtml(PIN_MARK_CARD) : '') +
+      // GH-262, pass C2/C4: the status mark, bottom-left -- the one the
+      // condition line below leads with.
+      (cornerMark !== null ? statusMarkHtml(cornerMark, PIN_MARK_CARD) : '') +
       `</div>` +
       `<div class="rl-card__body">` +
       `<div class="rl-card__top">` +
@@ -2161,7 +2234,9 @@ export class Hud {
       `<span class="rl-card__name">${escapeHtml(type.name)}</span>` +
       (vet > 0 ? `<span class="rl-commend">${'★'.repeat(vet)}</span>` : '') +
       (kitted ? `<span class="rl-card__kit">${kitPipsHtml(kit.pips)}</span>` : '') +
-      `<span class="rl-card__hp rl-dim">${t('hud.card.hp', { now: hpNow.toFixed(0), max: hpMax.toFixed(0) })}` +
+      `<span class="rl-card__hp rl-dim">` +
+      (hpSay !== null ? `<span class="${hpSay === 'critical' ? 'rl-bad-text' : 'rl-warn'}">${t(hpSay === 'critical' ? 'hud.hp.critical' : 'hud.hp.damaged')}</span> · ` : '') +
+      `${t('hud.card.hp', { now: hpNow.toFixed(0), max: hpMax.toFixed(0) })}` +
       (kitted && kit.hpKit > 0 ? ` · ${t('hud.card.kit', { n: kit.hpKit })}` : '') +
       `</span>` +
       `</div>` +
@@ -2170,6 +2245,8 @@ export class Hud {
       `<div class="rl-track"><i class="rl-fill-${hpTone(hpPct)}" ` +
       `style="width:${(hpPct * 100).toFixed(0)}%"></i></div>` +
       `<div class="rl-card__cond">${flags.length > 0 ? flags.join(' · ') : t('hud.card.holdingPosition')}</div>` +
+      (why.length > 0 ? `<div class="rl-card__why">${why.join(' · ')}</div>` : '') +
+      meter +
       this.engagingHtml(id) +
       `<div class="rl-card__cols">` +
       `<div><div class="rl-label">${t('hud.card.armamentLabel')}</div>${arms.join('')}</div>` +

@@ -2424,6 +2424,35 @@ body {
 .rl-card__record, .rl-card__replaces { font-size: var(--t-s); }
 /* Who the selected unit is shooting -- the card half of the fire link,
    beside the condition line. Hostile tone, the target's chip art. */
+/* Pass C2/C4 (D1-D3): the condition line leads with the unit's combat state
+   in display caps, and what the state costs follows it in plain words; the
+   clocks sit on their own line; the suppression meter below is two cells and
+   the pinned mark -- no number. */
+.rl-card__state {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+}
+.rl-card__why { font-size: var(--t-s); color: var(--ink-mute); }
+.rl-supp {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 3px;
+  max-width: 16rem;
+}
+.rl-supp > .rl-label { margin-right: var(--s1); }
+.rl-supp__cell {
+  flex: 1;
+  height: 0.375rem;
+  background: var(--well);
+  border: 1px solid var(--panel-frame);
+  overflow: hidden;
+}
+.rl-supp__cell > i { display: block; height: 100%; background: var(--hot); }
+.rl-supp__pin { line-height: 0; color: var(--panel-frame); margin-left: 2px; }
+.rl-supp__pin[data-on='1'] { color: var(--hot); }
 .rl-card__engaging {
   display: flex;
   align-items: center;
@@ -4291,6 +4320,11 @@ button.rl-menu__item[data-kind='aside'] {
    of art at --ui-scale 2. Held to the art's own box, so the corner is the
    art's; the kit sign (top-right) sits where it always did. */
 .rl-chip > .rl-kit-host { align-self: flex-start; }
+/* Pass C2/C4 (D5): the corner carries whichever status mark wins the line;
+   broken and the two damage marks in the bad ink, pinned keeps --hot. */
+.rl-pin-mark[data-mark='broken'],
+.rl-pin-mark[data-mark='gunOut'],
+.rl-pin-mark[data-mark='immobilised'] { color: var(--bad-text); }
 .rl-kit-host > .rl-pin-mark { left: 1px; bottom: 1px; }
 .rl-kit-host > .rl-pin-mark svg { width: 0.75rem; height: 0.75rem; }
 .rl-card__frame > .rl-pin-mark { left: 0.1875rem; bottom: 0.1875rem; }

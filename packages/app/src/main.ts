@@ -72,6 +72,7 @@ import { createShownTimer, loadHintsSeen, markHintSeen, owedRule, type HintConte
 import { portraitIds, unitIcon, unitPlate } from './ui/portrait';
 import { Minimap, MINIMAP_SIZE, flipRows } from './ui/minimap';
 import { alertsForTick, initAlertState, missionEventTier, nextJump, type JumpTarget } from './ui/alerts';
+import { PinnedSince } from './ui/pinned-since';
 import { alertWorldFor } from './ui/alert-world';
 import { placeOnScreen } from './ui/alert-place';
 import { ALERT_CUE, CRITICAL_CUES, OUTCOME_CUE, tickCue } from './ui/cues';
@@ -2520,9 +2521,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  reads it to say what a right-click there does (PA-08), so its line and
    *  the cursor are one decision rather than two that could disagree. */
   let hoverCursorName: CursorName = 'default';
+  // Pass C2/C4 (D3): when each unit went to ground, off the sim's own
+  // `pinned` events, for the card's break clock.
+  const pinnedSince = new PinnedSince();
   const hud = new Hud(document.body, {
     sim,
     isShown,
+    pinnedTicks: (id) => pinnedSince.ticksPinned(id, sim.tickCount),
     // GH-345: the running Conduct invoice, worded from the sim's own reasons.
     conductInvoice: () => ({ lines: invoiceLines(deductions, placeNames), floor: mission?.roe?.fail_below }),
     getSelection: () => renderer.selection,
@@ -3799,6 +3804,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     renderer.onEvents(events);
     audio.setListener(renderer.camera);
     audio.onEvents(events, sim);
+    pinnedSince.onEvents(events);
     voice.onTick(events);
     if (runtime && mission) {
       const missionEvents = runtime.step(events);
