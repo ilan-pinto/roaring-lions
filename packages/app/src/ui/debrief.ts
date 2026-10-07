@@ -6,6 +6,7 @@ import { escapeHtml } from './escape-html';
 import { objectiveGlyph } from './hud-model';
 import { symbolLabel } from './symbol';
 import { panel } from './panel';
+import { mountEndPanel } from './end-panel';
 import { tierName } from './grade-copy';
 import { withdrewLine } from './withdrew';
 import { invoiceClock, type InvoiceLine } from './conduct-invoice';
@@ -78,7 +79,9 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
     title: t(won ? 'outcome.victory' : 'outcome.defeat'),
     tag: t('debrief.tag'),
     mark: true,
-    place: 'top:6%;left:50%;transform:translateX(-50%);width:min(45rem,94vw);max-height:88vh;overflow:auto',
+    // Width only: `.rl-endpanel` (`mountEndPanel`, below) centres it, caps its
+    // height and scrolls the body, with the actions in a foot outside it.
+    place: 'width:min(45rem,94vw)',
   });
   p.el.classList.add('rl-debrief', 'rl-enter');
   const b = p.body;
@@ -222,26 +225,29 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
   }
 
   const nav = el('div', 'rl-endnav');
+  let next: HTMLElement | null = null;
   if (won && o.next) {
     const a = document.createElement('a');
     a.className = 'rl-btn rl-debrief__next';
     a.href = routes.mission(o.next.id);
     a.innerHTML = symbolLabel('next', t('debrief.next', { name: o.next.name }), { after: true });
     nav.appendChild(a);
+    next = a;
     if (o.next.villainLine) b.appendChild(el('div', 'rl-debrief__villain', o.next.villainLine));
   }
-  const back = (label: string, href: string): void => {
+  const back = (label: string, href: string): HTMLAnchorElement => {
     const a = document.createElement('a');
     a.className = 'rl-btn';
     a.href = href;
     a.textContent = label;
     nav.appendChild(a);
+    return a;
   };
-  back(t('debrief.replay', { result: o.result }), routes.mission(o.missionId));
-  back(t('nav.campaignMap'), routes.campaign());
+  const replay = back(t('debrief.replay', { result: o.result }), routes.mission(o.missionId));
+  const campaign = back(t('nav.campaignMap'), routes.campaign());
   back(t('nav.menu'), routes.menu());
-  b.appendChild(nav);
 
-  host.appendChild(p.el);
+  // The same focus rule as the end screen it replaces.
+  mountEndPanel(host, p, nav, next ?? (won ? campaign : replay));
   return () => p.el.remove();
 }
