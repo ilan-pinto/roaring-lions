@@ -20,8 +20,11 @@ import type { RenderQuality } from './quality';
 // A type from a three-FREE module beside `lighting.ts` (it imports nothing),
 // so this file still reaches neither backend's library.
 import type { TimeOfDay } from './three/time-of-day';
+// Three-free too (`three/units/building-fit.ts` imports nothing).
+import type { BuildingFit } from './three/units/building-fit';
 
 export type { TimeOfDay } from './three/time-of-day';
+export type { BuildingFit } from './three/units/building-fit';
 
 /** How open ground is grained. Tones are data; mark shape is drawing code. */
 export type TerrainScatter = 'stone' | 'sward';
@@ -297,6 +300,14 @@ export interface RendererOptions {
    * `shellColors`.
    */
   timeOfDay?: TimeOfDay;
+  /**
+   * MOCK (lead ruling 7 Oct, "fit buildings to their plots"): scale each
+   * building mesh to its footprint instead of drawing it at the shipped size
+   * (`three/units/building-fit.ts` holds the rule and its reasons). Absent or
+   * `off` is today's frame. Presentation only: the sim's footprint and
+   * `blocked` tiles are untouched. The app sets it from `&fitbuildings`.
+   */
+  buildingFit?: BuildingFit;
 }
 
 /** One outlined objective zone: its rect in tiles and how it is going. */

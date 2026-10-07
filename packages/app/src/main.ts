@@ -193,6 +193,7 @@ import { garageColors, garageGroundTexture, garageModelSource } from './garage-m
 import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { timeOfDayOf } from './time-of-day';
+import { buildingFitOf } from './building-fit-flag';
 import { registerServiceWorker } from './service-worker';
 import {
   Router,
@@ -1662,6 +1663,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // since the sim never reads it.
   const tod = timeOfDayOf((mission as { map: object } | undefined) ?? null, params);
   if (tod.warning) console.warn(`[lions] ${tod.warning}`);
+  // MOCK (lead ruling 7 Oct): `&fitbuildings` draws each building at its
+  // footprint's size, on a mission as well as the sandbox. Off by default.
+  const fit = buildingFitOf(params);
+  if (fit.warning) console.warn(`[lions] ${fit.warning}`);
   const opts: RendererOptions = {
     ...rendererOptionsFor(
       map,
@@ -1669,6 +1674,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       BASE
     ),
     timeOfDay: tod.value,
+    buildingFit: fit.value,
     // Sandbox only: a mission brings its own battle, and a dev flag must
     // never change how one looks.
     ...(!mission && wantDecals
