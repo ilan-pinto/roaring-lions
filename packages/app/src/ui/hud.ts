@@ -31,6 +31,8 @@ import type { KitLevel } from '@lions/data';
 import type { ResolvedCommander } from '../campaign';
 import type { RosterEntry } from '../ledger-store';
 import type { HintLine } from './hint-model';
+import type { AlertTier } from './alerts';
+import { FeedModel } from './feed-model';
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
 import { confirmDialog } from './confirm';
@@ -114,6 +116,16 @@ export interface HudCommanderInfo {
 /** The feed is punctuation, not a log. Four lines is what fits above the dock
  *  without the stack reaching the reinforcements tiles. */
 const FEED_LINES = 4;
+
+/** How long a feed line stays, by tier (WP-P5, C3). The untiered 9 s is what
+ *  every line held before tiers existed; a minor line goes sooner, a major
+ *  one is still up for a player who looked away. Each restarts on a merge. */
+const FEED_DWELL_MS: Readonly<Record<AlertTier | 'none', number>> = {
+  minor: 7000,
+  important: 9000,
+  major: 12000,
+  none: 9000,
+};
 
 /** How far the projected-fire panel sits from the target it describes. Right
  *  and slightly up, so it never covers the unit the player is aiming at. */
@@ -355,6 +367,9 @@ export class Hud {
   private chipViews: ChipView[] = [];
   private readonly clock: HTMLDivElement;
   private readonly feed: HTMLDivElement;
+  /** WP-P5: which feed lines are live, for merging repeats. */
+  private readonly feedModel = new FeedModel();
+  private readonly feedRows = new Map<number, { el: HTMLElement; timer: number }>();
   /** WP-AU1 D8: the caption slot under the feed, never inside it -- see
    *  `voice-caption.ts`. Owns its own hold timer, released in `destroy()`. */
   private readonly captionBox = new VoiceCaption();
@@ -1097,22 +1112,71 @@ export class Hud {
    *  (`e.unit`, the art- and mesh-failed ids), which `unit.schema.json` and
    *  `structure.schema.json` pin to `^[a-z0-9_]+$` -- not every id is so
    *  constrained (a map zone's name is not), so this is a list, not a rule. */
-  note(html: string, tone: Tone = 'live'): void {
+  note(html: string, tone: Tone = 'live', opts: { tier?: AlertTier } = {}): void {
     // GH-345: a hidden feed is inert. A line written while it is hidden would
     // otherwise surface, stale, the moment a beat reveals it.
     if (!this.shown('feed')) return;
-    const el = document.createElement('div');
-    // textToneClass, not `rl-${tone}` by hand: a 'bad'-tone notice sits on
-    // this same rl-plate, and `rl-bad`'s fill red reads 4.01:1 there.
-    el.className = `rl-notice rl-enter rl-plate ${textToneClass(tone)}`;
-    el.innerHTML = html;
-    this.feed.prepend(el);
-    while (this.feed.childElementCount > FEED_LINES) {
-      this.feed.lastElementChild?.remove();
+    const tier = opts.tier;
+    // WP-P5 (PA-06): an identical line merges into the one already saying it
+    // (`feed-model.ts`) -- same words, same tone, same tier -- and the merged
+    // line carries the count, goes back to the top, and starts its dwell
+    // again. Four "under fire" lines for one fact were four of the feed's
+    // four slots.
+    const pushed = this.feedModel.push(`${tone}|${tier ?? ''}|${html}`, performance.now());
+    let row = this.feedRows.get(pushed.line.id);
+    if (pushed.kind === 'merged' && row) {
+      window.clearTimeout(row.timer);
+      let count = row.el.querySelector<HTMLElement>('.rl-notice__count');
+      if (!count) {
+        count = document.createElement('span');
+        count.className = 'rl-notice__count';
+        row.el.append(count);
+      }
+      count.textContent = t('hud.feed.repeat', { n: pushed.line.count });
+      // Back to the top, re-entering, so a repeat is SEEN to repeat.
+      row.el.classList.remove('rl-enter');
+      void row.el.offsetWidth;
+      row.el.classList.add('rl-enter');
+      this.feed.prepend(row.el);
+    } else {
+      const el = document.createElement('div');
+      // textToneClass, not `rl-${tone}` by hand: a 'bad'-tone notice sits on
+      // this same rl-plate, and `rl-bad`'s fill red reads 4.01:1 there.
+      el.className = `rl-notice rl-enter rl-plate ${textToneClass(tone)}`;
+      // The tier is a data attribute the theme styles (WP-P5, C3): minor
+      // smaller and quieter, major heavier and marked. An untiered line --
+      // a dock note, a refusal -- keeps the plain style.
+      if (tier) el.dataset.tier = tier;
+      el.innerHTML = html;
+      this.feed.prepend(el);
+      row = { el, timer: 0 };
+      this.feedRows.set(pushed.line.id, row);
     }
+    const id = pushed.line.id;
+    const live = row;
     // Notices are punctuation, not a log — the roll feed in the debug overlay
-    // is where history lives. These clear themselves so the map stays visible.
-    window.setTimeout(() => leave(el), 9000);
+    // is where history lives. These clear themselves so the map stays
+    // visible, and a heavier line stays up longer (`FEED_DWELL_MS`).
+    live.timer = window.setTimeout(() => this.dropFeedRow(id), FEED_DWELL_MS[tier ?? 'none']);
+    while (this.feed.childElementCount > FEED_LINES) {
+      const last = this.feed.lastElementChild;
+      const lastId = [...this.feedRows].find(([, r]) => r.el === last)?.[0];
+      if (lastId !== undefined) this.dropFeedRow(lastId, false);
+      else last?.remove();
+    }
+  }
+
+  /** A feed line leaves: off the model (nothing merges into it any more), off
+   *  the map of rows, and out of the DOM -- faded when its dwell ran out,
+   *  removed at once when a newer line pushed it off the end. */
+  private dropFeedRow(id: number, fade = true): void {
+    const row = this.feedRows.get(id);
+    if (!row) return;
+    window.clearTimeout(row.timer);
+    this.feedRows.delete(id);
+    this.feedModel.drop(id);
+    if (fade) leave(row.el);
+    else row.el.remove();
   }
 
   /** WP-AU1 D8: show a unit's spoken line as text, in the caption slot under
@@ -1498,9 +1562,18 @@ export class Hud {
    */
   private renderHint(): void {
     this.hint.style.display = '';
-    const hint = this.deps.hint?.();
-    if (!hint) {
+    // No `hint` dep at all is a HUD built without the shell (tests): today's
+    // plain controls line. A dep that answers NULL is `hintFor` saying there
+    // is nothing worth a line (WP-P5: the retired order-row line), and then
+    // the line is not drawn at all -- an empty plate is still a plate.
+    if (!this.deps.hint) {
       this.hint.textContent = t('hud.controlHint');
+      return;
+    }
+    const hint = this.deps.hint();
+    if (!hint) {
+      this.hint.textContent = '';
+      this.hint.style.display = 'none';
       return;
     }
     // `hintFor` answers from facts alone and never sees a binding -- the key
