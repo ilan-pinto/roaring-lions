@@ -7,6 +7,7 @@ written; the real clips are judged by `python3 tools/validate_audio.py`.
 """
 import importlib.util
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -46,6 +47,25 @@ def main():
         if not ok:
             bad.append(label)
 
+    # The clip cases encode fixtures with ffmpeg. CI's `gates` runner has none
+    # (validate_audio.py itself then prints "peak NOT checked" by name), so
+    # without it they are skipped BY NAME rather than crashing the gate; the
+    # mirror case below needs no ffmpeg and always runs.
+    have_ffmpeg = shutil.which("ffmpeg") is not None
+    if not have_ffmpeg:
+        print("SKIPPED 6 clip case(s): no ffmpeg on PATH to encode fixtures")
+    else:
+        clip_cases(check, mod, bad)
+    mirror_case(mod, bad)
+
+    if bad:
+        print(f"\n{len(bad)} case(s) failed")
+        return 1
+    print("\nall UI-cue cases passed" + ("" if have_ffmpeg else " (clip cases skipped: no ffmpeg)"))
+    return 0
+
+
+def clip_cases(check, mod, bad):
     check("a 200 ms mono -6 dB cue passes", dict(seconds=0.2), None)
     check("a 300 ms cue fails on length", dict(seconds=0.3), "over the 250 ms ceiling")
     check("a stereo cue fails on channels", dict(seconds=0.2, channels=2), "must be mono")
@@ -72,6 +92,9 @@ def main():
         if not ok:
             bad.append("tier")
 
+
+
+def mirror_case(mod, bad):
     # The mirror: validate_audio's per-set ceilings are gen_audio's
     # STINGER_SETS tiers, read through CUE_CEILING_S, set for set.
     spec = importlib.util.spec_from_file_location("gen_audio", os.path.join(HERE, "gen_audio.py"))
@@ -83,12 +106,6 @@ def main():
           + ("" if ok else f" -- gen_audio {want}, validate_audio {mod.UI_CUE_CEILING_S}"))
     if not ok:
         bad.append("mirror")
-
-    if bad:
-        print(f"\n{len(bad)} case(s) failed")
-        return 1
-    print("\nall UI-cue cases passed")
-    return 0
 
 
 if __name__ == "__main__":
