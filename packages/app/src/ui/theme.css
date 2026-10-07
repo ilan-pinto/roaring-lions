@@ -2970,12 +2970,39 @@ body {
 
 /* Boot failure. Reachable only after this stylesheet has loaded — the module
    that registers the handler is the one that imports it. */
+/* Pass K: a failure card is part of the game, not a browser page -- the
+   title in the display face and the failure tone, the explanation in body
+   ink, the next step quieter, and the ways out as the ordinary `.rl-btn`
+   (the `<a>` used to inherit the browser's underlined blue). No mono: the
+   card never prints a stack or an id any more (`ui/boot-failure.ts`). */
 .rl-boot-error {
-  color: var(--bad-text);
-  font-family: var(--font-mono);
-  font-size: var(--t-m);
+  max-width: 40rem;
   padding: var(--s6);
-  white-space: pre-wrap;
+  font-family: var(--font-body);
+  font-size: var(--t-m);
+  line-height: var(--lh-body);
+  color: var(--ink);
+}
+.rl-boot-error__title {
+  margin: 0 0 var(--s3);
+  font-family: var(--font-display);
+  font-size: var(--t-xl);
+  font-weight: 600;
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  color: var(--bad-text);
+}
+.rl-boot-error__body {
+  margin: 0 0 var(--s2);
+}
+.rl-boot-error__next {
+  margin: 0 0 var(--s5);
+  color: var(--ink-mute);
+}
+.rl-boot-error__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
 }
 
 /* Route transitions (shell/router.ts): the stage fades out under the old

@@ -129,7 +129,8 @@ import { showKeysOverlay } from './ui/keys-overlay';
 import { groupBar, groupChips } from './ui/group-bar';
 import { isIdle, nextIdle, type IdleFacts } from './ui/idle';
 import { escapeHtml } from './ui/escape-html';
-import { symbolLabel } from './ui/symbol';
+import { bootFailureCard, bootFailureKind, guardBoot, mountErrorCard } from './ui/boot-failure';
+import { webgl2Available } from './ui/webgl-probe';
 import { alertNotice, evacuatedNotice, reinforceTrigger, removedNotice, triggerLabel } from './ui/mission-notice';
 import { ReinforcementDock } from './ui/production';
 import { doctrineTags } from './ui/dock-model';
@@ -483,24 +484,18 @@ function describeMissionEvent(
   }
 }
 
-function bootError(stage: HTMLElement, title: string, body: string, home = routes.menu()): void {
-  const div = document.createElement('div');
-  div.className = 'rl-boot-error';
+function bootError(stage: HTMLElement, title: string, body: string, next: string, home = routes.menu()): void {
+  mountErrorCard(stage, { title, body, next, reload: false }, home);
+}
 
-  const h = document.createElement('h2');
-  h.textContent = title;
-  div.appendChild(h);
-
-  const p = document.createElement('p');
-  p.textContent = body;
-  div.appendChild(p);
-
-  const a = document.createElement('a');
-  a.href = home;
-  a.innerHTML = symbolLabel('back', t('nav.backToMenu'));
-  div.appendChild(a);
-
-  stage.appendChild(div);
+/** A screen that could not be mounted (pass K): the error goes to the
+ *  console whole, and the player gets `ui/boot-failure.ts`'s card -- what
+ *  happened, why and what next, in the game's words -- never the exception's
+ *  message or its stack. */
+function bootFailure(stage: HTMLElement, err: unknown): void {
+  console.error('boot failed:', err);
+  stage.replaceChildren();
+  mountErrorCard(stage, bootFailureCard(bootFailureKind(err, webgl2Available())), routes.menu());
 }
 
 /** `ui/saves.ts`'s `download`: a Blob URL and a click on an `<a download>`
@@ -867,7 +862,7 @@ async function main(): Promise<void> {
    *  `available` is that question asked once. */
   function mountSaves(host: HTMLElement): Disposer {
     if (!ledgerStore.available) {
-      bootError(host, t('boot.savesUnavailable.title'), t('boot.savesUnavailable.body'), routes.menu());
+      bootError(host, t('boot.savesUnavailable.title'), t('boot.savesUnavailable.body'), t('boot.savesUnavailable.next'), routes.menu());
       return () => host.replaceChildren();
     }
     const deps: SavesDeps = {
@@ -1106,7 +1101,7 @@ async function main(): Promise<void> {
         name: 'sandbox',
         pattern: '/free-play/:map',
         mount: (host, req) =>
-          bootBattlefield(host, {
+          guardBoot(host, req.signal, (err) => bootFailure(host, err), bootBattlefield(host, {
             missionId: null,
             sandboxMap: req.params.map,
             query: req.query,
@@ -1119,13 +1114,13 @@ async function main(): Promise<void> {
             // and `replace` so the attempt that was just lost does not sit in
             // history as a back-button trap into a dead sim.
             restart: () => void router.navigate(router.href(req.path, req.query), { replace: true, force: true }),
-          }),
+          })),
       },
       {
         name: 'mission',
         pattern: '/mission/:id',
         mount: (host, req) =>
-          bootBattlefield(host, {
+          guardBoot(host, req.signal, (err) => bootFailure(host, err), bootBattlefield(host, {
             missionId: req.params.id,
             sandboxMap: null,
             query: req.query,
@@ -1133,7 +1128,7 @@ async function main(): Promise<void> {
             navigate: (href, opts) => void router.navigate(href, opts),
             settings: settingsDeps,
             restart: () => void router.navigate(router.href(req.path, req.query), { replace: true, force: true }),
-          }),
+          })),
       },
       {
         name: 'settings',
@@ -1165,7 +1160,7 @@ async function main(): Promise<void> {
       },
     ],
     notFound: (host, req) => {
-      bootError(host, t('boot.notFound.title'), t('boot.notFound.body', { path: req.path }), routes.menu());
+      bootError(host, t('boot.notFound.title'), t('boot.notFound.body', { path: req.path }), t('boot.notFound.next'), routes.menu());
       return () => host.replaceChildren();
     },
   });
@@ -1363,7 +1358,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   if (missionId !== null) {
     const rawMission = (missions as Record<string, MissionJson | undefined>)[missionId];
     if (!rawMission) {
-      bootError(stage, t('boot.unknownMission.title'), t('boot.unknownMission.body'));
+      bootError(stage, t('boot.unknownMission.title'), t('boot.unknownMission.body'), t('boot.unknownMission.next'));
       // `teardown`, not a fresh no-op: nothing has been registered yet, so it
       // does nothing today -- but an early return that opts OUT of the teardown
       // is how the next registration added above this line goes unreleased.
@@ -4782,15 +4777,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
 }
 
 main().catch((err: unknown) => {
-  console.error('boot failed:', err);
   const stage = document.getElementById('stage');
   if (stage) {
-    const body = err instanceof Error ? (err.stack ?? err.message) : String(err);
-    // Not t(): main() itself just threw, which can happen before its own
-    // locale boot (loadLocale/setCatalogue) ever runs -- the catalogue is
-    // not a safe thing to call into here. Every other bootError call site
-    // in this file runs from a router callback or bootBattlefield, well
-    // after main()'s boot sequence has completed successfully.
-    bootError(stage, 'Boot failed', body); /* i18n-ok: boot failure before the catalogue */
+    // t() is safe even here, before main()'s own locale boot: the module
+    // starts on the bundled `en` catalogue (`i18n/t.ts`), so a failure that
+    // early still reads in English rather than as raw keys.
+    bootFailure(stage, err);
+  } else {
+    console.error('boot failed:', err);
   }
 });
