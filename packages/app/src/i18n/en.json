@@ -552,6 +552,8 @@
   "intent.load.mounting": "<b>mount up</b> — infantry boarding",
   "intent.dismount": "<b>dismount</b> — infantry debussing",
   "intent.smoke.none": "nothing selected that carries smoke",
+  "intent.dismount.none": "nothing selected is carrying troops — select a loaded transport to unload",
+  "intent.halt.none": "nothing of yours selected to halt — select units first",
 
   "keymap.halt": "Halt",
   "keymap.smoke": "Smoke at the cursor",

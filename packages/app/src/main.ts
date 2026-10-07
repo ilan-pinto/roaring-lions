@@ -137,6 +137,7 @@ import { doctrineTags } from './ui/dock-model';
 import {
   applyIntent,
   issueOrder,
+  haltNote,
   orderDenied,
   resolvePointer,
   resolveKeyVerb,
@@ -2323,6 +2324,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     halt: () => {
       const mine = renderer.selection.filter((i) => sim.state.side[i] === 0);
       if (mine.length) dispatch({ kind: 'halt', ids: mine });
+      const none = haltNote(mine.length);
+      if (none) hud.note(none.text, none.tone);
     },
     smoke: () => armOrder('smoke'),
     load: () => runVerb('mount'),
