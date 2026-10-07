@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   admitVoice,
+  AMB_FADE_IN_S,
   BattleAudio,
   busGain,
   cueDuckRow,
@@ -1285,10 +1286,15 @@ describe('voice decoding -- carried from Task 4 (R-9)', () => {
 
 describe('the ducking table (polish pass F, section 2.2)', () => {
   it('the deepest duck per layer wins, never a product; no rows is no duck', () => {
-    expect(duckLevels([])).toEqual({ sfx: 1, music: 1 });
-    expect(duckLevels([DUCK_TABLE.bark, DUCK_TABLE.major])).toEqual({ sfx: DUCK_TABLE.major.sfx, music: DUCK_TABLE.major.music });
-    expect(duckLevels([DUCK_TABLE.bark, DUCK_TABLE.cue])).toEqual({ sfx: DUCK_TABLE.bark.sfx, music: DUCK_TABLE.cue.music });
+    expect(duckLevels([])).toEqual({ sfx: 1, music: 1, amb: 1 });
+    expect(duckLevels([DUCK_TABLE.bark, DUCK_TABLE.major])).toEqual({
+      sfx: DUCK_TABLE.major.sfx,
+      music: DUCK_TABLE.major.music,
+      amb: DUCK_TABLE.major.amb,
+    });
+    expect(duckLevels([DUCK_TABLE.bark, DUCK_TABLE.cue])).toEqual({ sfx: DUCK_TABLE.bark.sfx, music: DUCK_TABLE.cue.music, amb: 1 });
     expect(duckLevels([DUCK_TABLE.pause]).sfx).toBe(1);
+    expect(duckLevels([DUCK_TABLE.announce, DUCK_TABLE.outcome]).amb).toBe(DUCK_TABLE.outcome.amb);
   });
 
   it('the rows say what the plan says, in dB', () => {
@@ -1299,6 +1305,12 @@ describe('the ducking table (polish pass F, section 2.2)', () => {
     expect([db(DUCK_TABLE.major.sfx), db(DUCK_TABLE.major.music)]).toEqual([-6, -6]);
     expect([DUCK_TABLE.outcome.sfx, DUCK_TABLE.outcome.music, DUCK_TABLE.outcome.attackS]).toEqual([0, 0, 0.6]);
     expect(db(DUCK_TABLE.pause.music)).toBe(-6);
+    // The ambience column (A11): a bark and an objective cue leave the bed,
+    // an announcement and a major alert take it 3 dB, the outcome 12, and the
+    // pause menu silences it.
+    expect([DUCK_TABLE.bark.amb, DUCK_TABLE.cue.amb]).toEqual([1, 1]);
+    expect([db(DUCK_TABLE.announce.amb), db(DUCK_TABLE.major.amb), db(DUCK_TABLE.outcome.amb)]).toEqual([-3, -3, -12]);
+    expect(DUCK_TABLE.pause.amb).toBe(0);
     // No pumping: every release is 250 ms or longer.
     for (const row of Object.values(DUCK_TABLE)) expect(row.releaseS).toBeGreaterThanOrEqual(0.25);
   });
@@ -1577,6 +1589,190 @@ describe('playCue (polish pass F, AU-1, AU-4)', () => {
       expect(el.volume).toBeCloseTo(0.4);
     } finally {
       vi.useRealTimers();
+    }
+  });
+});
+
+describe('ambience beds (polish pass F, A11)', () => {
+  const BED_BUFFER: FakeBuffer = { duration: 40, length: 1_920_000, numberOfChannels: 1 };
+  const AMB_MANIFEST: AudioManifest = {
+    master_gain: 1,
+    music: { gain: 0.4, battle_gain: 0.26, tracks: [{ file: 'music/t.mp3' }] },
+    ambience: {
+      beds: {
+        open: { file: 'ambience/amb_open.ogg', gain: 0.44, loop_s: 40, channels: 1 },
+        town: { file: 'ambience/amb_town.ogg', gain: 0.48, loop_s: 40, channels: 1 },
+      },
+    },
+    sets: { alert_major: { event: 'ui', variants: [] }, victory: { event: 'ui', variants: [] } },
+    cues: { 'alert.major': 'alert_major', 'outcome.victory': 'victory' },
+    voices: MANIFEST.voices,
+  };
+  /** The amb bus and its duck stage: the last gain into the master is the
+   *  duck, and the bus is the gain that feeds it. */
+  const ambGraph = (ctx: FakeContext) => {
+    const master = ctx.gains[0];
+    const ambDuck = ctx.gains.filter((g) => g.to === master).at(-1);
+    const amb = ctx.gains.find((g) => g.to === ambDuck);
+    if (!master || !ambDuck || !amb) throw new Error('attach() built no amb bus');
+    return { master, amb, ambDuck };
+  };
+  /** The bed's source: the looping buffer source. */
+  const beds = (ctx: FakeContext): FakeSource[] => ctx.sources.filter((src) => src.loop);
+  const withBed = async (bed = 'open') => {
+    const fetched = stubFetch();
+    FakeContext.nextBuffer = { ...BED_BUFFER };
+    const got = attachedWith((a) => a.useManifest(AMB_MANIFEST, '/a/'));
+    expect(got.audio.setAmbience(bed)).toBe('loading');
+    await vi.waitFor(() => expect(got.audio.ambienceState().playing).toBe(true));
+    return { ...got, fetched };
+  };
+  afterEach(() => {
+    FakeContext.nextBuffer = { ...LINE_BUFFER };
+  });
+
+  it('a bed plays on its own bus: a duck stage under the SFX slider, into the master, never through the sfx duck', async () => {
+    const { audio, ctx, fetched } = await withBed();
+    const { master, amb, ambDuck } = ambGraph(ctx);
+    expect(fetched).toContain('/a/ambience/amb_open.ogg');
+    const [src] = beds(ctx);
+    expect(beds(ctx)).toHaveLength(1);
+    const g = src?.to as FakeGain;
+    expect(g.to).toBe(amb);
+    expect(amb.to).toBe(ambDuck);
+    expect(ambDuck.to).toBe(master);
+    expect(ambDuck).not.toBe(ctx.gains[2]); // the sfx duck
+    audio.setGains({ master: 1, music: 1, sfx: 0.3 });
+    expect(amb.gain.value).toBe(0.3);
+  });
+
+  it('loops, fades in from silence to the bed gain over 1.5 s, and starts somewhere inside its loop', async () => {
+    const { ctx } = await withBed('town');
+    const [src] = beds(ctx);
+    expect(src?.loop).toBe(true);
+    expect(src?.startedAt).toBe(0);
+    expect(src?.offset).toBeGreaterThanOrEqual(0);
+    expect(src?.offset).toBeLessThan(BED_BUFFER.duration);
+    const g = src?.to as FakeGain;
+    expect(g.gain.events).toEqual([
+      ['set', 0, 0],
+      ['linear', 0.48, AMB_FADE_IN_S],
+    ]);
+  });
+
+  it('an unknown bed is refused, and a bed asked for before the first gesture starts with it', async () => {
+    expect(new BattleAudio().setAmbience('swamp')).toBe('unknown');
+    stubFetch();
+    FakeContext.nextBuffer = { ...BED_BUFFER };
+    const { audio, ctx } = attachedWith((a) => {
+      a.useManifest(AMB_MANIFEST, '/a/');
+      expect(a.setAmbience('swamp')).toBe('unknown');
+      expect(a.setAmbience('open')).toBe('no-context');
+    });
+    await vi.waitFor(() => expect(audio.ambienceState().playing).toBe(true));
+    expect(beds(ctx)).toHaveLength(1);
+  });
+
+  it('pause STOPS the bed and resume starts it again where it was; the duck takes it to silence meanwhile', async () => {
+    const { audio, ctx } = await withBed();
+    const { ambDuck } = ambGraph(ctx);
+    const [first] = beds(ctx);
+    ctx.currentTime = 7;
+    audio.setPaused(true);
+    expect(first?.stoppedAt).toBeCloseTo(7 + DUCK_TABLE.pause.attackS);
+    expect(ambDuck.gain.events).toContainEqual(['linear', 0, 7 + DUCK_TABLE.pause.attackS]);
+    expect(audio.ambienceState()).toEqual({ bed: 'open', loaded: 'open', playing: false, paused: true });
+    ctx.currentTime = 30;
+    audio.setPaused(false);
+    const second = beds(ctx).at(-1);
+    expect(second).not.toBe(first);
+    // Seven seconds in when it was paused, so it resumes seven seconds on.
+    expect(second?.offset).toBeCloseTo(((first?.offset ?? 0) + 7) % BED_BUFFER.duration);
+    expect(ambDuck.gain.events.at(-1)).toEqual(['linear', 1, 30 + DUCK_TABLE.pause.releaseS]);
+  });
+
+  it('teardown stops the bed and forgets it; a decode that lands after teardown starts nothing', async () => {
+    const { audio, ctx } = await withBed();
+    const [src] = beds(ctx);
+    audio.leaveMission();
+    expect(src?.stoppedAt).not.toBeNull();
+    expect(audio.ambienceState()).toEqual({ bed: null, loaded: null, playing: false, paused: false });
+    // A slow decode: asked for, then the mission is left before it lands.
+    let land: (r: FakeResponse) => void = () => {};
+    stubFetch(() => new Promise<FakeResponse>((r) => (land = r)));
+    expect(audio.setAmbience('town')).toBe('loading');
+    audio.leaveMission();
+    land(OK);
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(beds(ctx)).toHaveLength(1);
+    // ...and holds none of its PCM: a left mission keeps no bed in memory.
+    expect(audio.ambienceState()).toEqual({ bed: null, loaded: null, playing: false, paused: false });
+  });
+
+  it('mute stops the bed and unmute brings it back', async () => {
+    const { audio, ctx } = await withBed();
+    const [src] = beds(ctx);
+    audio.toggle();
+    expect(src?.stoppedAt).not.toBeNull();
+    expect(audio.ambienceState().playing).toBe(false);
+    audio.toggle();
+    expect(audio.ambienceState().playing).toBe(true);
+    expect(beds(ctx)).toHaveLength(2);
+  });
+
+  it('a bark leaves the bed alone, an announcement and a major alert take it 3 dB down', async () => {
+    stubFetch();
+    const { audio, ctx } = attachedWith((a) => {
+      a.useManifest(AMB_MANIFEST, '/a/');
+      a.setVoiceLanguages(['he']);
+    });
+    await vi.waitFor(() => expect(audio.voiceStats().keys).toBe(3));
+    FakeContext.nextBuffer = { ...BED_BUFFER };
+    audio.setAmbience('open');
+    await vi.waitFor(() => expect(audio.ambienceState().playing).toBe(true));
+    const { ambDuck } = ambGraph(ctx);
+    audio.playVoice({ key: 'he.infantry.move', priority: 'order' });
+    expect(ambDuck.gain.events).toContainEqual(['linear', 1, DUCK_TABLE.bark.attackS]);
+    audio.playVoice({ key: 'he.infantry.death', priority: 'announce' });
+    expect(ambDuck.gain.events.at(-1)).toEqual(['linear', DUCK_TABLE.announce.amb, DUCK_TABLE.announce.attackS]);
+    audio.stopVoices();
+    vi.useFakeTimers();
+    try {
+      audio.playCue('alert.major');
+      expect(ambDuck.gain.events.at(-1)).toEqual(['linear', DUCK_TABLE.major.amb, DUCK_TABLE.major.attackS]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the outcome takes the bed 12 dB down and keeps it there until the mission is left', async () => {
+    const { audio, ctx } = await withBed();
+    const { ambDuck } = ambGraph(ctx);
+    vi.useFakeTimers();
+    try {
+      audio.playCue('outcome.victory');
+      expect(ambDuck.gain.events).toContainEqual(['linear', DUCK_TABLE.outcome.amb, DUCK_TABLE.outcome.attackS]);
+      vi.advanceTimersByTime(10_000); // the stinger's own hold is long gone
+      expect(ambDuck.gain.events.at(-1)?.[1]).toBe(DUCK_TABLE.outcome.amb);
+      audio.leaveMission();
+      expect(ambDuck.gain.events.at(-1)?.[1]).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the shipped manifest declares three mono 20-90 s beds, each under unity gain', async () => {
+    const shipped = (await import('../../../data/audio.json')).default as AudioManifest;
+    const shippedBeds = shipped.ambience?.beds ?? {};
+    expect(Object.keys(shippedBeds).sort()).toEqual(['open', 'ridge', 'town']);
+    for (const bed of Object.values(shippedBeds)) {
+      expect(bed.channels).toBe(1);
+      expect(bed.loop_s).toBeGreaterThanOrEqual(20);
+      expect(bed.loop_s).toBeLessThanOrEqual(90);
+      expect(bed.gain).toBeGreaterThan(0);
+      expect(bed.gain).toBeLessThan(1);
+      expect(bed.license).toBe('CC0-1.0');
     }
   });
 });

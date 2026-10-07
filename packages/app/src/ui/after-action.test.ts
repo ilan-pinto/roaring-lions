@@ -121,6 +121,8 @@ describe('afterAction (GH-417, H4/H5)', () => {
     expect(a.ladder).toEqual([]);
     expect(a.poor[0]).toMatchObject({ mark: '5:00', text: 'Failed: Raze the depot inside five minutes' });
     expect(a.changed.map((c) => c.text)).toEqual(['Nothing was written to the campaign']);
+    // K-07 (PR 437): the defeat's meaning and what next, in the end screen's words.
+    expect(a.changed[0].sub).toBe('Nothing from before this attempt is lost. Try again with a new plan, or step back to the campaign map.');
     // A defeat promotes nobody and unlocks nothing, whatever it was handed
     // (this fixture still carries Tzur's promotion and two unlocks).
     expect(a.changed.some((c) => c.text.includes('Tzur') || c.text.includes('bought'))).toBe(false);
@@ -138,6 +140,16 @@ describe('afterAction, review round', () => {
     const l = log();
     l.kills = 0;
     expect(afterAction(wh5({ log: l })).well.map((w) => w.text)).toContain('6 withdrew');
+  });
+});
+
+describe('K-07 in the report (PR 437)', () => {
+  // Falsified: dropping the `won && !i.next` item leaves a finished town with
+  // no word on where to go.
+  it('a won town with nothing to follow points at the campaign map', () => {
+    const last = afterAction(wh5({ next: undefined })).changed.map((c) => c.text);
+    expect(last).toContain("This town's operations are done. Choose the next one on the campaign map.");
+    expect(afterAction(wh5()).changed.map((c) => c.text)).not.toContain("This town's operations are done. Choose the next one on the campaign map.");
   });
 });
 

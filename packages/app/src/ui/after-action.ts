@@ -217,7 +217,9 @@ export function afterAction(i: AfterActionInputs): AfterAction {
   // --- what changed ----------------------------------------------------------
   const changed: AfterActionItem[] = [];
   if (!won) {
-    changed.push({ mark: '0', tone: 'commend', text: t('aar.changed.nothing'), sub: t('aar.changed.nothingSub') });
+    // Pass K (K-07, PR 437): what a defeat means for the campaign, and what next
+    // -- the end screen's own wording, carried into the report that replaced it.
+    changed.push({ mark: '0', tone: 'commend', text: t('aar.changed.nothing'), sub: t('menu.end.defeatKept') });
   } else {
     if (i.credits) {
       changed.push(
@@ -250,6 +252,9 @@ export function afterAction(i: AfterActionInputs): AfterAction {
     }
   }
   if (i.taken) changed.push({ mark: t('aar.mark.taken'), tone: 'plain', text: i.taken, sub: t('aar.changed.takenSub') });
+  // K-07's other half: a won town with nothing to follow says where to go
+  // next, where the "next mission" action would otherwise simply be absent.
+  if (won && !i.next) changed.push({ mark: t('aar.mark.next'), tone: 'commend', text: t('menu.end.townDone') });
 
   // --- pins on the ground ----------------------------------------------------
   const pins: GroundPin[] = [];

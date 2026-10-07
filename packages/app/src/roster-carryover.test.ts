@@ -262,3 +262,75 @@ describe('applyRosterCarryover — two missions through the one function main.ts
     expect(active(m2).find((r) => r.missions === 1)?.slot).toBe(0);
   });
 });
+
+// --- roster rule R-2: a replay replaces that mission's earlier survivors -----
+//
+// The lead's ruling (7 Oct 2026, GH-417 L-5). `replay` is `play` with the
+// mission id handed to the carryover, as `main.ts` now hands it.
+describe('R-2: a replay replaces, it does not append', () => {
+  function replay(before: CampaignLedger, b: Battle): Played {
+    const { produced, lost } = fight(before, b);
+    return {
+      ...applyRosterCarryover(before, produced, lost, { ...deps(), missionId: b.missionId }),
+      produced: produced['roster.surviving_units'] ?? [],
+      reserveIn: before['roster.reserve']?.length ?? 0,
+    };
+  }
+  // Wadi Halam V's shape: from_ledger bodies plus a D9 and engineers the
+  // mission brings itself, who come home fresh every win.
+  const WH5: Battle = { missionId: 'wadi_halam_5_depot', field: ['inf_squad'], fresh: ['dozer_d9', 'demo_squad'] };
+
+  it('stamps every fresh body with the mission that brought it home', () => {
+    const m = replay(SAVE, WH5);
+    const fresh = active(m).filter((r) => r.type === 'dozer_d9' || r.type === 'demo_squad');
+    expect(fresh.map((r) => r.enlisted)).toEqual(['wadi_halam_5_depot', 'wadi_halam_5_depot']);
+    // A body that was already here keeps no stamp it never had.
+    expect(active(m).find((r) => r.name === 'Barzel')?.enlisted).toBeUndefined();
+  });
+
+  // Falsified: `isReplayed` returning false grows the roster by two every win
+  // (5 -> 7 -> 9 -> 11), the very growth the lead met.
+  it('three wins of the same mission leave the brigade the size one win did', () => {
+    const one = replay(SAVE, WH5);
+    const two = replay(one.ledger, WH5);
+    const three = replay(two.ledger, WH5);
+    expect(active(one)).toHaveLength(7);
+    expect(active(two)).toHaveLength(7);
+    expect(active(three)).toHaveLength(7);
+    expect(active(three).filter((r) => r.type === 'dozer_d9')).toHaveLength(1);
+  });
+
+  it('a body this mission enlisted that went on to fight elsewhere is a veteran, and stays', () => {
+    const one = replay(SAVE, WH5);
+    // The D9 is fielded in another mission and comes home: missions 2.
+    const elsewhere = replay(one.ledger, { missionId: 'tel_marum_2_foothold', field: ['dozer_d9'] });
+    expect(active(elsewhere).find((r) => r.type === 'dozer_d9')?.missions).toBe(2);
+    const again = replay(elsewhere.ledger, WH5);
+    const d9s = active(again).filter((r) => r.type === 'dozer_d9');
+    expect(d9s).toHaveLength(2);
+    expect(d9s.map((r) => r.missions).sort()).toEqual([1, 2]);
+  });
+
+  it('a body this mission enlisted and fielded again in the replay stays', () => {
+    const one = replay(SAVE, WH5);
+    const again = replay(one.ledger, { ...WH5, field: ['inf_squad', 'dozer_d9'] });
+    const d9s = active(again).filter((r) => r.type === 'dozer_d9');
+    expect(d9s.map((r) => r.missions).sort()).toEqual([1, 2]);
+  });
+
+  it('never drops what another mission enlisted, nor a body from before R-2', () => {
+    const other = replay(SAVE, { missionId: 'tel_marum_2_foothold', field: [], fresh: ['dozer_d9'] });
+    const wh5 = replay(other.ledger, WH5);
+    expect(active(wh5).filter((r) => r.type === 'dozer_d9')).toHaveLength(2);
+    // SAVE's five carry no `enlisted`: all five are still here after three wins.
+    const thrice = replay(replay(replay(SAVE, WH5).ledger, WH5).ledger, WH5);
+    for (const name of ['Sela', 'Barzel', '1-2 Ayil', 'Tzur', 'Marom']) expect(active(thrice).some((r) => r.name === name), name).toBe(true);
+  });
+
+  it('without a mission id it stamps nothing and replaces nothing (an older caller)', () => {
+    const one = play(SAVE, WH5);
+    const two = play(one.ledger, WH5);
+    expect(active(two)).toHaveLength(9);
+    expect(active(two).some((r) => r.enlisted !== undefined)).toBe(false);
+  });
+});
