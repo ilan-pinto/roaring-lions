@@ -14,6 +14,25 @@ implementation of palette or IoU maths.
     python3 tools/validate_mesh_assets.py
     python3 tools/validate_mesh_assets.py --out /tmp/mesh-renders   # keep the renders
     python3 tools/validate_mesh_assets.py --blender /path/to/blender
+    python3 tools/validate_mesh_assets.py --vehicles-dir <scratch>  # falsify on GLB copies
+
+`--vehicles-dir` stands a directory in for `art/meshes/vehicles/` everywhere
+this gate reads vehicles: the renders (passed through to
+`render_mesh_gate.py`), the kit checks, the wreck census and the wreck byte
+checks on the source side (the Draco mirror is still `assets/meshes/vehicles/`).
+It exists so a check can be watched going red on mutated scratch COPIES of the
+vehicle GLBs without touching the tree.
+
+## Kitted vehicles: checked from the bytes AND rendered (plan 3, GH-238)
+
+`check_vehicle_kits` holds every `kit_*` node to contract v5 from the JSON
+chunk (host, parent, TRS, material, attributes, one primitive, tier, a track
+the unit's JSON declares, <= 5,000 kit triangles a vehicle).
+`render_mesh_gate.render_vehicle_kit` renders a painted maximum-kit pose and
+the twelve variants spec §4 measured (nine for the D9), each framed to its own
+bounds; `check_kit_census` requires every one of them, and
+`check_kit_collisions` holds each against every other unit's shipped mask at
+`IOU_LIMIT`, the vehicle's own base excluded.
 
 ## What is compared against what, and why
 
@@ -332,9 +351,11 @@ def find_blender(explicit):
     return None
 
 
-def render_meshes(blender_bin, out_dir):
+def render_meshes(blender_bin, out_dir, vehicles_dir=None):
     script = os.path.join(HERE, "render_mesh_gate.py")
     cmd = [blender_bin, "-b", "-P", script, "--", "--out", out_dir]
+    if vehicles_dir:
+        cmd += ["--vehicles-dir", vehicles_dir]
     proc = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True, check=False)
     # `MESH_GATE_SHEET` lines (a team's own retired sprite sheet) are still
     # parsed, but nothing reads them since the sprite comparison went
@@ -1078,6 +1099,290 @@ WRECK_CLIP_NAMES = ("idle", "wreck")
 KIT_NODE_PREFIX = "kit_"
 
 
+# Plan 3 (GH-238), Task 6: the kit is checked twice, from the bytes and from
+# renders. The track letters and the variant list are restated from
+# `render_mesh_gate.py` (`KIT_TRACK_LETTER`, `kit_variants`), which runs inside
+# Blender and cannot be imported here; `check_kit_census` is what notices the
+# two drifting, because a variant the renderer stopped producing is one this
+# file would otherwise check zero times.
+KIT_TRACK_LETTER = {"armour": "A", "sensors": "S", "firepower": "F"}
+KIT_TIERS = (1, 2, 3)
+KIT_MAX_VARIANT = "max"
+# Spec §3 / plan 3 "Budgets": every vehicle at maximum kit, all parts summed.
+KIT_TRI_LIMIT = 5000
+_TRS_DEFAULTS = {"translation": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0],
+                 "scale": [1.0, 1.0, 1.0]}
+
+
+def _ordered_tracks(tracks):
+    """Canonical order (`render_mesh_gate.kit_tracks`): known tracks first."""
+    known = [t for t in KIT_TRACK_LETTER if t in tracks]
+    return known + sorted(set(tracks) - set(known))
+
+
+def kit_variant_names(tracks):
+    """The render names `render_mesh_gate.render_vehicle_kit` owes a vehicle
+    whose kit spans `tracks`: the painted maximum, each track alone at 1-3,
+    then L1-L3. Twelve and a max for three tracks, nine and a max for two."""
+    names = [KIT_MAX_VARIANT]
+    for track in _ordered_tracks(tracks):
+        names += [f"{KIT_TRACK_LETTER.get(track, track)}{k}" for k in KIT_TIERS]
+    names += [f"L{k}" for k in KIT_TIERS]
+    return names
+
+
+def _unit_upgrades(unit_id, units_root):
+    """`upgrades` from the unit's own JSON, or None with a reason."""
+    found = sorted(glob.glob(os.path.join(units_root, "*", f"{unit_id}.json")))
+    if len(found) != 1:
+        return None, (f"{len(found)} unit JSON file(s) named {unit_id}.json under "
+                      f"{os.path.relpath(units_root, REPO)}/*/ (expected exactly one)")
+    with open(found[0]) as fh:
+        return (json.load(fh).get("upgrades") or {}), None
+
+
+def _trs(node):
+    """A node's local transform as glTF defaults it, or its matrix."""
+    if "matrix" in node:
+        return ("matrix", [float(x) for x in node["matrix"]])
+    return tuple((k, [float(x) for x in node.get(k, d)]) for k, d in _TRS_DEFAULTS.items())
+
+
+def _same_trs(a, b, tol=1e-6):
+    ta, tb = _trs(a), _trs(b)
+    if ta[0] == "matrix" or tb[0] == "matrix":
+        return ta[0] == tb[0] and all(abs(x - y) <= tol for x, y in zip(ta[1], tb[1]))
+    return all(abs(x - y) <= tol for (_, va_), (_, vb_) in zip(ta, tb) for x, y in zip(va_, vb_))
+
+
+def _prim_tris(gltf, prim):
+    acc = gltf.get("accessors", [])
+    idx = prim.get("indices")
+    count = acc[idx]["count"] if idx is not None else acc[prim["attributes"]["POSITION"]]["count"]
+    return count // 3
+
+
+def check_vehicle_kits(vehicles_root, units_root):
+    """Every `kit_*` node in every vehicle GLB against contract v5, read from
+    the JSON chunk with no Blender -- the half of the kit a render cannot see.
+    A kit node that breaks one of these still RENDERS: the gate's Blender
+    importer does not care which host a node names, and the runtime's merge
+    (`vehicle-kit.ts`) concatenates whatever it is handed.
+
+      * the name is `kit_<track>_<tier>_<host>` of its own `extras.rl_kit`;
+      * the host is a live mesh node of the same file (not a kit node, not a
+        wreck twin) with the same parent, the same local TRS, the same
+        material (or none), the same attribute set and the same `rl_role` --
+        the merge is a concatenation with no matrix, so any of those
+        differing puts the part in the wrong place or the wrong colour;
+      * the part is ONE triangle primitive;
+      * the tier is 1-3 and within the tiers the unit's JSON declares on that
+        track, with no duplicate (track, tier, host);
+      * the track is one the unit's own `data/units/<faction>/<id>.json`
+        declares under `upgrades` -- no firepower part on the D9;
+      * all kit triangles together are at most `KIT_TRI_LIMIT`.
+
+    Returns (failures, summaries, tracks_by_unit), one summary line per
+    kitted vehicle, and the tracks each one's kit spans for the census.
+    """
+    failures = []
+    summaries = []
+    tracks_by_unit = {}
+    for path in sorted(glob.glob(os.path.join(vehicles_root, "*.glb"))):
+        unit_id = os.path.splitext(os.path.basename(path))[0]
+        gltf = _read_glb_json(path)
+        nodes = gltf.get("nodes", [])
+        kit = [i for i, n in enumerate(nodes) if (n.get("name") or "").startswith(KIT_NODE_PREFIX)]
+        if not kit:
+            continue
+        name = os.path.relpath(path, REPO)
+        if name.startswith(os.pardir):
+            name = path
+        meshes = gltf.get("meshes", [])
+        parent = {c: i for i, n in enumerate(nodes) for c in n.get("children", [])}
+        death = {i for i, n in enumerate(nodes) if n.get("name") == DEATH_ROOT_NODE}
+        under_death = set()
+        for d in death:
+            under_death |= set(_wreck_subtree(nodes, d)) | {d}
+        live = {}
+        for i, n in enumerate(nodes):
+            if i in under_death or i in kit or "mesh" not in n:
+                continue
+            live.setdefault(n.get("name"), []).append(i)
+        upgrades, why = _unit_upgrades(unit_id, units_root)
+        if upgrades is None:
+            failures.append(f"{name}: carries {len(kit)} kit node(s) but {why} -- there is no "
+                            f"declared upgrade track to hold its kit against")
+        seen = set()
+        tris = 0
+        tracks = {}
+        for i in kit:
+            node = nodes[i]
+            nname = node.get("name")
+            info = (node.get("extras") or {}).get("rl_kit")
+            if not isinstance(info, dict):
+                failures.append(f"{name}: {nname!r} carries no extras.rl_kit -- the runtime cannot "
+                                f"tell which tier owns it")
+                continue
+            track, tier, host = info.get("track"), info.get("tier"), info.get("host")
+            if nname != f"{KIT_NODE_PREFIX}{track}_{tier}_{host}":
+                failures.append(f"{name}: node {nname!r} does not match its rl_kit "
+                                f"({track!r}, {tier!r}, {host!r}); the contract name is "
+                                f"'{KIT_NODE_PREFIX}{track}_{tier}_{host}'")
+            if not isinstance(tier, int) or isinstance(tier, bool) or tier not in KIT_TIERS:
+                failures.append(f"{name}: {nname!r} has tier {tier!r}, outside {list(KIT_TIERS)}")
+            if upgrades is not None:
+                if track not in upgrades:
+                    failures.append(
+                        f"{name}: {nname!r} is a {track!r} part but data/units/.../{unit_id}.json "
+                        f"declares only {sorted(upgrades)} -- no tier the player can buy would "
+                        f"ever draw it"
+                    )
+                elif isinstance(tier, int):
+                    n_tiers = len((upgrades[track] or {}).get("tiers", []))
+                    if tier > n_tiers:
+                        failures.append(f"{name}: {nname!r} is tier {tier} of {track!r}, which "
+                                        f"declares {n_tiers} tier(s)")
+            key = (track, tier, host)
+            if key in seen:
+                failures.append(f"{name}: duplicate kit node for (track, tier, host) {key!r} -- "
+                                f"one node per (track, tier, host)")
+            seen.add(key)
+            tracks.setdefault(track, set()).add(tier)
+
+            hosts = live.get(host, [])
+            if len(hosts) != 1:
+                failures.append(
+                    f"{name}: {nname!r} names host {host!r}, which is "
+                    f"{'not a live mesh node of this file' if not hosts else 'ambiguous (%d live nodes)' % len(hosts)}"
+                    f" -- the merge has nothing to concatenate it into"
+                )
+                hnode = None
+            else:
+                hnode = nodes[hosts[0]]
+                if parent.get(i) != parent.get(hosts[0]):
+                    pn = lambda j: nodes[j].get("name") if j is not None else "<scene root>"  # noqa: E731
+                    failures.append(f"{name}: {nname!r} is under {pn(parent.get(i))!r} but its "
+                                    f"host {host!r} is under {pn(parent.get(hosts[0]))!r}")
+                if not _same_trs(node, hnode):
+                    failures.append(f"{name}: {nname!r}'s local transform differs from its host "
+                                    f"{host!r}'s -- the merge applies no matrix")
+                if (node.get("extras") or {}).get("rl_role") != (hnode.get("extras") or {}).get("rl_role"):
+                    failures.append(f"{name}: {nname!r} has rl_role "
+                                    f"{(node.get('extras') or {}).get('rl_role')!r}, its host "
+                                    f"{(hnode.get('extras') or {}).get('rl_role')!r}")
+            if "mesh" not in node:
+                failures.append(f"{name}: {nname!r} carries no mesh")
+                continue
+            prims = meshes[node["mesh"]].get("primitives", [])
+            if len(prims) != 1:
+                failures.append(f"{name}: {nname!r} has {len(prims)} primitive(s), expected one")
+            for prim in prims:
+                if prim.get("mode", 4) != 4:
+                    failures.append(f"{name}: {nname!r} primitive mode {prim.get('mode')}, "
+                                    f"not TRIANGLES")
+                tris += _prim_tris(gltf, prim)
+            if hnode is not None and "mesh" in hnode and prims:
+                hprims = meshes[hnode["mesh"]].get("primitives", [])
+                hmats = {p.get("material") for p in hprims}
+                hattrs = {frozenset(p.get("attributes", {})) for p in hprims}
+                kmats = {p.get("material") for p in prims}
+                kattrs = {frozenset(p.get("attributes", {})) for p in prims}
+                if kmats != hmats or len(hmats) != 1:
+                    failures.append(f"{name}: {nname!r} uses material(s) {sorted(kmats, key=str)}, "
+                                    f"its host {host!r} {sorted(hmats, key=str)}")
+                if kattrs != hattrs or len(hattrs) != 1:
+                    failures.append(f"{name}: {nname!r} carries attributes "
+                                    f"{sorted(sorted(a) for a in kattrs)}, its host {host!r} "
+                                    f"{sorted(sorted(a) for a in hattrs)}")
+        if tris > KIT_TRI_LIMIT:
+            failures.append(f"{name}: kit totals {tris:,} triangles, over the {KIT_TRI_LIMIT:,} "
+                            f"a vehicle may carry at maximum kit (plan 3, Budgets)")
+        tracks_by_unit[unit_id] = sorted(tracks)
+        summaries.append(
+            f"{unit_id}: {len(kit)} kit node(s), {tris:,} tris (limit {KIT_TRI_LIMIT:,}), tracks "
+            + ", ".join(f"{t} {sorted(tracks[t])}" for t in _ordered_tracks(tracks))
+        )
+    return failures, summaries, tracks_by_unit
+
+
+def load_kit_masks(out_dir, palette_path):
+    """The kitted renders, `<out>/<unit>/kit_<variant>_f00_000.png`, quantized
+    and masked exactly as the shipped renders are (`load_mesh_masks`). Every
+    variant takes `check_framing`: each is framed to its own bounds, so a
+    variant touching an edge was cropped, and an EMPTY one -- which would
+    pass every IoU ceiling by scoring 0 -- is "fully transparent" there. The
+    painted maximum also takes `check_image` unless the unit is a textured
+    exemption (the same rule as its shipped render).
+
+    Returns (failures, {unit: {variant: mask}})."""
+    failures = []
+    kit_masks = {}
+    targets, _ = qs.load_targets(palette_path)
+    allowed, reserved = va.load_palette(palette_path)
+    for path in sorted(glob.glob(os.path.join(out_dir, "*", "kit_*_f00_000.png"))):
+        unit_id = os.path.basename(os.path.dirname(path))
+        variant = os.path.basename(path)[len("kit_"):-len("_f00_000.png")]
+        qs.quantize(path, targets, check_only=False)
+        for e in va.check_framing(path):
+            failures.append(f"{unit_id} kit {variant}: {e}")
+        if variant == KIT_MAX_VARIANT and not textured_exempt(unit_id):
+            for e in va.check_image(path, allowed, reserved):
+                failures.append(f"{unit_id} kit {variant}: {e}")
+        kit_masks.setdefault(unit_id, {})[variant] = va.silhouette(path)
+    return failures, kit_masks
+
+
+def check_kit_census(kit_masks, tracks_by_unit):
+    """Every kitted vehicle produced every render it owes, and nothing else
+    did. Both `check_kit_collisions` and the framing checks iterate the
+    renders that EXIST, so a variant the renderer skipped -- or a vehicle
+    whose kit renders never ran -- is checked zero times and the only trace
+    would be a smaller count (`check_wreck_census`' lesson)."""
+    failures = []
+    for unit_id in sorted(set(tracks_by_unit) | set(kit_masks)):
+        want = set(kit_variant_names(tracks_by_unit.get(unit_id, [])))
+        if unit_id not in tracks_by_unit:
+            want = set()
+        got = set(kit_masks.get(unit_id, {}))
+        if got != want:
+            failures.append(
+                f"{unit_id}: kit renders {sorted(got)} but its kit nodes owe {sorted(want)} "
+                f"(missing {sorted(want - got)}, unexpected {sorted(got - want)}) -- see "
+                f"render_mesh_gate.render_vehicle_kit"
+            )
+    return failures
+
+
+def check_kit_collisions(kit_masks, mesh_masks):
+    """Every kit variant against every OTHER unit's shipped mask, at the same
+    `IOU_LIMIT`. Excluded: the vehicle's own base and its own other variants,
+    since a variant is meant to look like its base (the spec measured it the
+    same way, §4). Variant-vs-other-variant is not compared: two kitted
+    vehicles on screen are two bought upgrades, and the roster question is
+    whether a kitted unit reads as a DIFFERENT unit as it ships.
+
+    Returns (failures, worst) where `worst[unit] = (iou, variant, other)`."""
+    failures = []
+    worst = {}
+    for unit_id, variants in sorted(kit_masks.items()):
+        for variant, mask in sorted(variants.items()):
+            for other, base in sorted(mesh_masks.items()):
+                if other == unit_id:
+                    continue
+                score = va.iou(mask, base)
+                if unit_id not in worst or score > worst[unit_id][0]:
+                    worst[unit_id] = (score, variant, other)
+                if score > va.IOU_LIMIT:
+                    failures.append(
+                        f"silhouette collision: {unit_id} kit {variant} vs {other} (mesh) "
+                        f"IoU={score:.3f} (limit {va.IOU_LIMIT:.2f}) -- with this kit {unit_id} "
+                        f"reads as {other}; give the part a distinguishing profile rather than "
+                        f"moving the limit"
+                    )
+    return failures, worst
+
+
 def _wreck_subtree(nodes, root_index):
     """Every node index under `root_index`, the root itself excluded. A flat
     list today -- the pass writes one child per live mesh node and no deeper
@@ -1336,7 +1641,17 @@ def main():
     ap.add_argument("--palette", default=os.path.join(REPO, "data", "palette.json"))
     ap.add_argument("--blender", default="")
     ap.add_argument("--out", default="", help="keep renders here instead of a throwaway temp dir")
+    ap.add_argument(
+        "--vehicles-dir", default="",
+        help="stand this directory in for art/meshes/vehicles/ (renders, kit, wreck census and "
+             "wreck bytes) -- the falsification hook: point it at mutated scratch COPIES",
+    )
     args = ap.parse_args()
+    vehicles_dir = (os.path.abspath(args.vehicles_dir) if args.vehicles_dir
+                    else os.path.join(REPO, "art", "meshes", "vehicles"))
+    if not os.path.isdir(vehicles_dir):
+        print(f"MESH GATE FAILED -- --vehicles-dir {vehicles_dir} is not a directory")
+        return 1
 
     blender_bin = find_blender(args.blender)
     if not blender_bin:
@@ -1349,7 +1664,8 @@ def main():
     keep = bool(args.out)
     out_dir = args.out or tempfile.mkdtemp(prefix="rl-mesh-gate-")
     try:
-        proc, ok, warn, fail, _sheets = render_meshes(blender_bin, out_dir)
+        proc, ok, warn, fail, _sheets = render_meshes(
+            blender_bin, out_dir, vehicles_dir if args.vehicles_dir else None)
         for line in warn:
             print(f"  [warn] {line}")
         for line in fail:
@@ -1376,11 +1692,34 @@ def main():
         # other unit on the roster.
         # Before either wreck check, because both of them iterate the renders
         # that EXIST and neither can notice one that does not.
-        failures.extend(
-            check_wreck_census(wreck_masks, os.path.join(REPO, "art", "meshes", "vehicles"))
-        )
+        failures.extend(check_wreck_census(wreck_masks, vehicles_dir))
         failures.extend(check_wreck_distinct(mesh_masks, wreck_masks))
         failures.extend(check_wreck_collisions(wreck_masks, mesh_masks))
+
+        # The kit (plan 3, Task 6): from the bytes first, then the renders --
+        # the census before the two render checks, for the wreck census's
+        # reason. One line per kitted vehicle on BOTH paths, so a red run
+        # still says what the kit was.
+        kit_failures, kit_summaries, kit_tracks = check_vehicle_kits(
+            vehicles_dir, os.path.join(REPO, "data", "units"))
+        failures.extend(kit_failures)
+        kit_render_failures, kit_masks = load_kit_masks(out_dir, args.palette)
+        failures.extend(kit_render_failures)
+        failures.extend(check_kit_census(kit_masks, kit_tracks))
+        kit_collisions, kit_worst = check_kit_collisions(kit_masks, mesh_masks)
+        failures.extend(kit_collisions)
+        if kit_summaries:
+            print(f"  kit: {len(kit_summaries)} kitted vehicle(s), from the GLB bytes --")
+            for line in kit_summaries:
+                print(f"    {line}")
+            print(f"  kit: {sum(len(v) for v in kit_masks.values())} kitted render(s), each "
+                  f"framed to its own bounds; worst IoU per vehicle against every other unit "
+                  f"(limit {va.IOU_LIMIT:.2f}; own base excluded) --")
+            for unit_id, (score, variant, other) in sorted(kit_worst.items()):
+                base = max((va.iou(mesh_masks[unit_id], m), o) for o, m in mesh_masks.items()
+                           if o != unit_id) if unit_id in mesh_masks else (0.0, "?")
+                print(f"    {unit_id}: shipped {base[1]} {base[0]:.3f} -> "
+                      f"{variant} vs {other} {score:.3f}")
 
         decor_root = os.path.join(REPO, "art", "meshes", "decor")
         decor_failures, textured_decor = check_decor_meshes(decor_root)
@@ -1413,7 +1752,7 @@ def main():
         # a browser actually downloads. See `check_vehicle_wrecks`' docstring
         # for why `pnpm encode:meshes -- --check` is not a substitute.
         wreck_failures, wreck_counts = check_vehicle_wrecks((
-            os.path.join(REPO, "art", "meshes", "vehicles"),
+            vehicles_dir,
             os.path.join(REPO, "assets", "meshes", "vehicles"),
         ))
         failures.extend(wreck_failures)

@@ -8,7 +8,18 @@ Renders every mesh unit under `art/meshes/` at the locked dimetric angle so
 docstring for what it checks and why.
 
 Usage (headless):
-    blender -b -P tools/render_mesh_gate.py -- --out <dir> [glb paths...]
+    blender -b -P tools/render_mesh_gate.py -- --out <dir> [--vehicles-dir <dir>] [glb paths...]
+
+`--vehicles-dir` stands a directory in for `art/meshes/vehicles/` -- for a
+falsification run on scratch COPIES of the vehicle GLBs; see `VEHICLES_DIR`.
+
+## Kitted vehicles (plan 3, GH-238)
+
+A vehicle GLB carrying `kit_*` nodes gets, beside its shipped (kit-hidden)
+render and its wreck, one painted maximum-kit render and the twelve mask
+variants the spec measured (each track alone at tiers 1-3, then every track
+at L1-L3; nine for a two-track vehicle), each framed to its own bounds. See
+`render_vehicle_kit`; `validate_mesh_assets.py` judges them.
 
 With no glb paths, every `art/meshes/**/*.glb` is discovered and rendered --
 deliberately, since other streams are actively adding new team and vehicle
@@ -174,9 +185,26 @@ DEATH_ROOT_NAME = "death_root"
 # Contract v5 (vehicles), plan 3 of the garage uplift: a vehicle GLB may carry
 # its upgrade kit as `kit_*` nodes beside their hosts (`pnpm kit:meshes`). The
 # shipped render is the vehicle a fresh account fields -- tier 0, no kit -- so
-# `hide_kit_parts` takes every one out before framing. Task 6 of that plan adds
-# the kitted renders, re-linking from the stash this returns.
+# `hide_kit_parts` takes every one out before framing. `render_vehicle_kit`
+# (Task 6 of that plan) re-links from the stash it returns, variant by variant.
 KIT_PREFIX = "kit_"
+
+# The kit variants Task 6 of plan 3 renders beside the shipped pose -- the
+# ones the spec measured (§4): each track alone at tiers 1-3, then every track
+# at level L for L = 1-3, plus one painted maximum-kit render. Restated in
+# `tools/validate_mesh_assets.py` (`KIT_TRACK_LETTER`, `kit_variant_names`),
+# which derives the SAME list from the bytes for its census; this module runs
+# inside Blender and cannot share code with that plain-python3 one.
+KIT_TRACK_LETTER = {"armour": "A", "sensors": "S", "firepower": "F"}
+KIT_LEVELS = (1, 2, 3)
+KIT_MAX_VARIANT = "max"
+
+# The directory this gate treats as `art/meshes/vehicles/`. `--vehicles-dir`
+# replaces it (discovery AND classification), which is the falsification hook:
+# a scratch copy of the vehicle GLBs, mutated, is rendered in place of the
+# shipped ones without touching the tree. `validate_mesh_assets.py` passes it
+# through from its own `--vehicles-dir`.
+VEHICLES_DIR = os.path.join(MESHES_DIR, "vehicles")
 
 # unit id -> rl_role -> palette key, for the vehicle kit's closed role
 # vocabulary (tools/vehicles/kit.py's ROLES). Hand-copied from each vehicle's
@@ -306,8 +334,18 @@ BUILDING_ROLE_PALETTE = {
 WALL_FALLBACK_KEY = "limestone.4"
 
 
+def _shipped_vehicles_dir():
+    return os.path.abspath(os.path.join(MESHES_DIR, "vehicles"))
+
+
 def discover_glbs():
-    return sorted(glob.glob(os.path.join(MESHES_DIR, "**", "*.glb"), recursive=True))
+    paths = glob.glob(os.path.join(MESHES_DIR, "**", "*.glb"), recursive=True)
+    if os.path.abspath(VEHICLES_DIR) != _shipped_vehicles_dir():
+        # `--vehicles-dir`: the scratch directory REPLACES the shipped one.
+        shipped = _shipped_vehicles_dir() + os.sep
+        paths = [p for p in paths if not os.path.abspath(p).startswith(shipped)]
+        paths += glob.glob(os.path.join(VEHICLES_DIR, "*.glb"))
+    return sorted(paths)
 
 
 def read_glb_json(path):
@@ -336,6 +374,8 @@ def mesh_kind(glb_path):
     'infantry', from which subdirectory of art/meshes/ the file lives in --
     see this file's module docstring for why path, not content, is the
     discovery signal."""
+    if os.path.dirname(os.path.abspath(glb_path)) == os.path.abspath(VEHICLES_DIR):
+        return "vehicle"
     rel = os.path.relpath(os.path.abspath(glb_path), MESHES_DIR)
     top = rel.split(os.sep)[0]
     if top == "vehicles":
@@ -558,6 +598,129 @@ def hide_kit_parts(objs):
     return [o for o in objs if o not in hidden], stashed
 
 
+def _kit_key(obj):
+    """(track, tier) of a `kit_*` root object, from its `rl_kit` extras (the
+    importer's `import_scene_extras` turns the dict into an ID property
+    group). Raises rather than guessing: a kit node the gate cannot place in a
+    variant would silently never be rendered."""
+    info = obj.get("rl_kit")
+    if info is None:
+        raise SystemExit(f"{obj.name}: a {KIT_PREFIX}* node with no extras.rl_kit")
+    return str(info["track"]), int(info["tier"])
+
+
+def kit_tracks(groups):
+    """The tracks present in this file's kit, canonical order first. The
+    validator derives the same list from the bytes (`kit_variant_names`), so
+    its census and this render loop cannot disagree about what was owed."""
+    present = {g["track"] for g in groups}
+    known = [t for t in KIT_TRACK_LETTER if t in present]
+    return known + sorted(present - set(known))
+
+
+def kit_variants(tracks):
+    """[(name, {track: tier})] -- each track alone at 1-3, then every track at
+    L. Cumulative within a track: tier t shows every kit node of tier <= t."""
+    out = []
+    for track in tracks:
+        letter = KIT_TRACK_LETTER.get(track, track)
+        for tier in KIT_LEVELS:
+            out.append((f"{letter}{tier}", {track: tier}))
+    for level in KIT_LEVELS:
+        out.append((f"L{level}", {t: level for t in tracks}))
+    return out
+
+
+def show_kit(groups, tiers):
+    """Link exactly the kit groups `tiers` owns and unlink the rest; return
+    the MESH objects now in the scene from the kit. Linking, not
+    `hide_render`, for `hide_kit_parts`' reason: `world_bounds` reads every
+    object in the scene with no visibility test, and each variant is framed
+    to its own bounds."""
+    shown = []
+    for g in groups:
+        on = g["tier"] <= tiers.get(g["track"], 0)
+        for obj, colls in g["members"]:
+            linked = bool(obj.users_collection)
+            if on and not linked:
+                for coll in colls:
+                    coll.objects.link(obj)
+            elif not on and linked:
+                for coll in list(obj.users_collection):
+                    coll.objects.unlink(obj)
+            if on:
+                obj.hide_render = False
+                obj.hide_viewport = False
+                if obj.type == "MESH":
+                    shown.append(obj)
+    bpy.context.view_layer.update()
+    return shown
+
+
+def render_vehicle_kit(unit_id, kit_stashed, cam, out_dir):
+    """The kitted renders (plan 3, Task 6), each framed to its OWN bounds by
+    `render_rig.world_bounds` + `frame_camera`, exactly as the shipped pose
+    is -- not one camera held across them, because the question is the one
+    the shipped render answers: does this vehicle, as a player sees it, read
+    as some other unit. A kit grows the bounds, and the reframing is part of
+    what moves the IoU (spec §4, point 6: a 0.24 m box on the Eitan's
+    station moved it 0.045).
+
+      * `kit_max_f00_000.png` -- every kit node, painted from the vehicle's
+        palette row, through Cycles like the shipped render, so it can take
+        `check_image` where the unit is not a textured exemption.
+      * `kit_<V>_f00_000.png` for every `kit_variants` entry -- Workbench
+        masks (flat, 8x AA, transparent film), which is how the spec measured
+        them (`kit_blockout.py`'s gate pass) and a fraction of a Cycles
+        render's cost. Only the alpha is read.
+
+    Leaves the scene as it found it: every kit node unlinked, the engine back
+    on Cycles and the camera re-fitted to the live bounds, so the wreck
+    render that follows is the one it was before this existed.
+    """
+    groups = []
+    roots = [o for o, _ in kit_stashed if o.name.startswith(KIT_PREFIX)]
+    by_obj = dict(kit_stashed)
+    for root in roots:
+        track, tier = _kit_key(root)
+        members = [(o, by_obj[o]) for o in [root] + list(root.children_recursive) if o in by_obj]
+        groups.append({"track": track, "tier": tier, "members": members})
+    tracks = kit_tracks(groups)
+    scene = bpy.context.scene
+    written = []
+
+    top = {t: max(g["tier"] for g in groups if g["track"] == t) for t in tracks}
+    shown = show_kit(groups, top)
+    apply_vehicle_materials(shown, unit_id)
+    lo, hi = world_bounds()
+    frame_camera(cam, lo, hi)
+    path = os.path.join(out_dir, f"kit_{KIT_MAX_VARIANT}_f00_000.png")
+    scene.render.filepath = path
+    bpy.ops.render.render(write_still=True)
+    written.append((KIT_MAX_VARIANT, path))
+
+    engine = scene.render.engine
+    scene.render.engine = "BLENDER_WORKBENCH"
+    scene.display.shading.light = "FLAT"
+    scene.display.shading.color_type = "SINGLE"
+    scene.display.render_aa = "8"
+    try:
+        for name, tiers in kit_variants(tracks):
+            show_kit(groups, tiers)
+            lo, hi = world_bounds()
+            frame_camera(cam, lo, hi)
+            path = os.path.join(out_dir, f"kit_{name}_f00_000.png")
+            scene.render.filepath = path
+            bpy.ops.render.render(write_still=True)
+            written.append((name, path))
+    finally:
+        scene.render.engine = engine
+        show_kit(groups, {})
+        lo, hi = world_bounds()
+        frame_camera(cam, lo, hi)
+    return written
+
+
 def render_vehicle_wreck(unit_id, stashed, out_dir):
     """Render the wreck ALONE, through the camera the live render was already
     framed with, to `<out_dir>/wreck_f00_000.png`.
@@ -752,6 +915,7 @@ def render_one(glb_path, out_root):
         raise SystemExit(f"{unit_id}: no mesh geometry after import -- nothing to render")
 
     stashed = []
+    kit_stashed = []
     if kind == "infantry":
         faction, sheet = team_registry_entry(unit_id)
         if faction is None:
@@ -802,6 +966,13 @@ def render_one(glb_path, out_root):
     bpy.ops.render.render(write_still=True)
     print(f"MESH_GATE_OK: {unit_id} ({kind}) -> {out_path}")
 
+    if kit_stashed:
+        # Between the shipped render and the wreck, and it hands the scene
+        # back with the kit unlinked and the camera re-fitted to the live
+        # bounds -- see `render_vehicle_kit`'s docstring.
+        for name, path in render_vehicle_kit(unit_id, kit_stashed, cam, out_dir):
+            print(f"MESH_GATE_OK: {unit_id} ({kind}-kit {name}) -> {path}")
+
     if stashed:
         # SECOND render, same camera, same rig, same palette table: the wreck
         # with the live half hidden. Deliberately after the live one and
@@ -814,9 +985,17 @@ def render_one(glb_path, out_root):
 
 
 def main():
+    global VEHICLES_DIR
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
+    if "--vehicles-dir" in argv:
+        vi = argv.index("--vehicles-dir")
+        VEHICLES_DIR = os.path.abspath(argv[vi + 1])
+        if not os.path.isdir(VEHICLES_DIR):
+            raise SystemExit(f"--vehicles-dir {VEHICLES_DIR}: not a directory")
+        argv = argv[:vi] + argv[vi + 2:]
     if "--out" not in argv:
-        raise SystemExit("usage: blender -b -P tools/render_mesh_gate.py -- --out <dir> [glb ...]")
+        raise SystemExit("usage: blender -b -P tools/render_mesh_gate.py -- --out <dir> "
+                         "[--vehicles-dir <dir>] [glb ...]")
     out_idx = argv.index("--out")
     out_root = argv[out_idx + 1]
     paths = argv[:out_idx] + argv[out_idx + 2:]
