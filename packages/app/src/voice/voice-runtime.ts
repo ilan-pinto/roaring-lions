@@ -37,6 +37,7 @@ import type { PlayerIntent } from '../input/intents';
 import { INITIAL_ANNOUNCE, announceInputsOf, decideAnnouncements, type AnnounceInput, type AnnounceState, type AnnounceWhy } from './announce';
 import {
   INITIAL_DIRECTOR,
+  decideCalls,
   decideDeaths,
   decideOrder,
   type DirectorLook,
@@ -132,6 +133,11 @@ export class VoiceRuntime {
     const { state, notes } = decideDeaths(this.state, events, this.deps.look, this.deps.languages, at);
     this.state = state;
     for (const note of notes) this.speak(at, 'death', 'death', note.cue, note.why);
+    // Pass C2/C4 (A1): broken, immobilised, gun out -- after the deaths, so a
+    // death call outranks a state call in the same tick's clocks.
+    const calls = decideCalls(this.state, events, this.deps.look, this.deps.languages, at);
+    this.state = calls.state;
+    for (const note of calls.notes) this.speak(at, 'death', note.cue?.trigger ?? 'call', note.cue, note.why);
   }
 
   /** GH-110: the tick's mission events, plus any announcement the app raises
