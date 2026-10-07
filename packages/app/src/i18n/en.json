@@ -152,6 +152,8 @@
   "freePlay.option.kit": "Your force already kitted, level 1 to 3 by type",
   "menu.end.title": "{result, select, victory {Mission accomplished} other {Mission failed}}",
   "menu.end.tag": "End of mission",
+  "menu.end.defeatKept": "Nothing from before this attempt is lost. Try again with a new plan, or step back to the campaign map.",
+  "menu.end.townDone": "This town's operations are done. Choose the next one on the campaign map.",
   "menu.end.quote": "“{text}”",
   "menu.end.summary": "Conduct {roe} · {n, plural, one {# unit} other {# units}} walking out",
   "menu.end.summaryInvoice": "Conduct {roe} · {invoice}",

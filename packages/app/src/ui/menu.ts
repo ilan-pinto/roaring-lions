@@ -507,6 +507,23 @@ export interface EndScreenOptions {
    *  +1 more", `conduct-invoice.ts`'s `invoiceSummary`). Empty or absent for a
    *  clean fight, which keeps the old line. */
   conduct?: string;
+  /** Pass K: on a defeat, WHY -- `failureReason`'s line ("Every unit lost ·
+   *  3:12"). It was shown only in the transient outcome moment and the feed,
+   *  so the screen the player decides on said "Mission failed" and nothing
+   *  else. Ignored on a victory. */
+  reason?: string;
+}
+
+/** Pass K: the lines under the end screen's title that say what the result
+ *  MEANS for the campaign and what to do next -- a defeat's cause and that
+ *  nothing was lost, a won town's "choose the next operation" where the
+ *  "next mission" link would otherwise just be absent. */
+export function endScreenLines(opts: Pick<EndScreenOptions, 'result' | 'reason' | 'nextMissionId'>): string[] {
+  if (opts.result === 'defeat') {
+    const lines = opts.reason ? [opts.reason] : [];
+    return [...lines, t('menu.end.defeatKept')];
+  }
+  return opts.nextMissionId ? [] : [t('menu.end.townDone')];
 }
 
 export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): Disposer {
@@ -570,6 +587,13 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): Dispos
     aftermath.className = 'rl-endaftermath';
     aftermath.textContent = opts.aftermath;
     p.body.appendChild(aftermath);
+  }
+
+  for (const line of endScreenLines(opts)) {
+    const l = document.createElement('p');
+    l.className = 'rl-endreason';
+    l.textContent = line;
+    p.body.appendChild(l);
   }
 
   const withdrew = withdrewLine(opts.result, opts.withdrew);

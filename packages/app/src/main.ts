@@ -4167,6 +4167,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                   nextMissionId,
                   debrief,
                   aftermath: momentOptions.aftermath,
+                  reason: missionFailure ?? undefined,
                   onDebrief: () => {
                     screenDisposers.push(showDebrief(document.body, debriefOpts));
                   },
