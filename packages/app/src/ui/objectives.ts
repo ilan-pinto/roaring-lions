@@ -53,6 +53,12 @@ export interface ObjectivesDeps {
   /** Puts the camera on a row's `jumpTo`. The in-mission tracker passes it;
    *  the briefing does not -- there is no battlefield under that screen yet. */
   onJump?: (x: number, y: number) => void;
+  /** The briefing's mount (GH-417 B-04): nothing has started, so a row's
+   *  live status ("In progress" on every row) is not true yet. The status
+   *  column names the row's KIND instead -- primary or optional -- and an
+   *  optional row's "Optional" reward line, which would now say it twice, is
+   *  dropped. A carrying row keeps its line: that one says what it pays. */
+  briefing?: boolean;
 }
 
 export function objectivesPanel(
@@ -151,7 +157,9 @@ export function objectivesPanel(
       status.className = 'rl-obj__status';
       // I10's rule, unbroken here: the catalogue label, never `o.status`
       // (the sim's own enum) printed raw.
-      status.textContent = objectiveStatusLabel(o.status);
+      status.textContent = deps.briefing
+        ? t(o.primary ? 'objective.kind.primary' : 'objective.kind.optional')
+        : objectiveStatusLabel(o.status);
       li.appendChild(status);
 
       if (o.ticksLeft !== undefined) {
@@ -179,7 +187,7 @@ export function objectivesPanel(
       // primary's row never even builds the (empty) span.
       if (!o.primary) {
         const reward = rewardFor({ primary: o.primary, carries: o.carries, paysCredits: deps.paysCredits });
-        if (reward) {
+        if (reward && !(deps.briefing && reward.key === 'objective.reward.none')) {
           const rewardEl = document.createElement('span');
           rewardEl.className = 'rl-obj__reward';
           rewardEl.textContent = t(reward.key, reward.params);

@@ -651,6 +651,8 @@
   "objective.status.active": "In progress",
   "objective.status.complete": "Complete",
   "objective.status.failed": "Failed",
+  "objective.kind.primary": "Primary",
+  "objective.kind.optional": "Optional",
   "glance.where": "Where",
   "glance.happened": "What happened",
   "glance.objective": "Objective",
