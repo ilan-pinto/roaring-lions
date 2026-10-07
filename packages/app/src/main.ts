@@ -75,6 +75,7 @@ import { alertsForTick, initAlertState, missionEventTier, nextJump, type JumpTar
 import { alertWorldFor } from './ui/alert-world';
 import { placeOnScreen } from './ui/alert-place';
 import { ALERT_CUE, CRITICAL_CUES, OUTCOME_CUE, tickCue } from './ui/cues';
+import { ambienceBedFor } from './ambience';
 import { installConfirmCue } from './ui/confirm-cue';
 import { CivFlightWatch, type CivObservation } from './ui/civ-flight';
 import { refugeJump, sayFlight } from './ui/refuge-ping';
@@ -2670,7 +2671,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   });
   onDispose(() => {
     voice.dispose();
-    // Every voice, every cue hold, and the music back to the menu's level.
+    // Every voice, every cue hold, the ambience bed, and the music back to
+    // the menu's level.
     audio.leaveMission();
   });
 
@@ -2913,6 +2915,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // Polish pass F (A10): the music steps down to the battle level as the
   // deploy gate clears, and the start cue says the clock is running.
   audio.setMusicScene('battle');
+  // A11: the ground's own bed fades in under it -- picked from the map
+  // (ambience.ts), stopped by the pause menu and by `leaveMission` above.
+  audio.setAmbience(ambienceBedFor(map));
   if (mission) {
     audio.playCue(CRITICAL_CUES.missionStart);
     // Shai on the net (A4): caption-only until the line is recorded.
