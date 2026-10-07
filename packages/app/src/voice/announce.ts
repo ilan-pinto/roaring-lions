@@ -31,7 +31,12 @@ export type AnnounceEventId =
   | 'deadline'
   | 'wave'
   | 'reinforcements'
-  | 'unit_lost';
+  | 'unit_lost'
+  /** Polish pass F (A4): Shai on the net as the deploy gate clears. Raised
+   *  by the app at the title card, like `deadline`. */
+  | 'mission_start'
+  /** Polish pass F (A9): a Conduct penalty, "Check your fire." */
+  | 'roe';
 
 /** One thing that happened, as the announcer needs it. `params` fill the
  *  caption (`label` for an objective, `n` for a loss). */
@@ -78,6 +83,7 @@ export function announceInputsOf(events: readonly MissionEvent[], labelOf: (obje
       out.push({ event, params: { label: labelOf(e.id) } });
     } else if (e.kind === 'unitLost') lost += 1;
     else if (e.kind === 'wave') out.push({ event: 'wave' });
+    else if (e.kind === 'roe') out.push({ event: 'roe' });
     else if (e.kind === 'built') out.push({ event: 'reinforcements' });
   }
   if (lost > 0) out.push({ event: 'unit_lost', params: { n: lost } });

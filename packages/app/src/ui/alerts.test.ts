@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { MissionEvent, SimEvent } from '@lions/sim';
+import { MISSION_EVENT_KINDS } from '@lions/sim';
+import { MISSION_EVENT_SOUND, tickCue } from './cues';
 import {
+  PINNED_COOLDOWN_TICKS,
   UNDER_FIRE_COOLDOWN_TICKS,
   alertsForTick,
   initAlertState,
@@ -39,7 +42,8 @@ describe('alertsForTick — losses', () => {
     expect(alerts[0]).toMatchObject({
       kind: 'unitLost',
       count: 3,
-      sound: 'ui_alert',
+      tier: 'important',
+      cue: 'alert.important',
       line: { key: 'alert.unitLost', params: { name: 'Rifle squad', n: 3 }, tone: 'bad', place: ['here'] },
     });
   });
@@ -60,7 +64,7 @@ describe('alertsForTick — under fire', () => {
   it('raises one alert for the tick however many rounds land', () => {
     const { alerts } = alertsForTick(initAlertState(), [fire(1), fire(1), fire(2)], [], world, 40);
     expect(alerts).toHaveLength(1);
-    expect(alerts[0]).toMatchObject({ kind: 'underFire', count: 2, sound: 'ui_alert', tier: 'minor' });
+    expect(alerts[0]).toMatchObject({ kind: 'underFire', count: 2, cue: 'alert.minor', tier: 'minor' });
     expect(alerts[0].line).toEqual({
       key: 'alert.underFire',
       params: { name: 'Rifle squad', more: 1 },
@@ -106,7 +110,7 @@ describe('alertsForTick — objectives', () => {
         kind: 'objective',
         tier: 'major',
         line: null,
-        sound: 'ui_objective',
+        cue: 'objective.complete',
         at: { x: 24, y: 24 },
         marks: [{ x: 24, y: 24 }],
         count: 1,
@@ -117,7 +121,7 @@ describe('alertsForTick — objectives', () => {
   it('an objective the map cannot place still sounds', () => {
     const ev = { kind: 'objective', tick: 0, id: 'survive', status: 'complete' } as MissionEvent;
     const { alerts } = alertsForTick(initAlertState(), [], [ev], world, 40);
-    expect(alerts[0]).toMatchObject({ sound: 'ui_objective', at: null });
+    expect(alerts[0]).toMatchObject({ cue: 'objective.complete', at: null });
   });
 
   it('is quiet on a tick with nothing in it, and returns the same state object', () => {
@@ -275,5 +279,115 @@ describe('nextJump: Space goes to the latest important or major alert', () => {
   });
   it('an alert with no place leaves the key where it was', () => {
     expect(nextJump({ at: p(1), tier: 'minor' }, 'major', null)?.at).toEqual(p(1));
+  });
+});
+
+// --- polish pass F: the cue each alert sounds -----------------------------
+
+const ev = <K extends MissionEvent['kind']>(e: Extract<MissionEvent, { kind: K }>): MissionEvent => e;
+const pinned = (entity: number): SimEvent => ({ kind: 'pinned', tick: 0, entity }) as SimEvent;
+const ambush = (entity: number): SimEvent => ({ kind: 'ambushSprung', tick: 0, entity }) as SimEvent;
+
+describe('alertsForTick — the cue follows the tier (polish pass F, A2)', () => {
+  it('a foot unit lost sounds important; a major loss (here the Lavi) sounds major', () => {
+    const cueOf = (entity: number, unit: string) => alertsForTick(initAlertState(), [], [lost(entity, unit)], world, 40).alerts[0]?.cue;
+    expect(cueOf(0, 'inf_squad')).toBe('alert.important');
+    expect(cueOf(7, 'mbt_lavi')).toBe('alert.major');
+  });
+
+  it('the three tiers are three different cues', () => {
+    const minor = alertsForTick(initAlertState(), [fire(1)], [], world, 40).alerts[0]?.cue;
+    const important = alertsForTick(initAlertState(), [], [lost(0, 'inf_squad')], world, 40).alerts[0]?.cue;
+    const major = alertsForTick(initAlertState(), [], [lost(7, 'mbt_lavi')], world, 40).alerts[0]?.cue;
+    expect(new Set([minor, important, major]).size).toBe(3);
+  });
+
+  it('every alert with a cue sounds its own tier', () => {
+    const tierCue = { minor: 'alert.minor', important: 'alert.important', major: 'alert.major' } as const;
+    const { alerts } = alertsForTick(
+      initAlertState(),
+      [fire(1), pinned(2), ambush(12)],
+      [lost(0, 'inf_squad'), lost(7, 'mbt_lavi'), ev<'wave'>({ kind: 'wave', tick: 0, count: 2 }), ev<'roe'>({ kind: 'roe', tick: 0, penalty: 5, reason: 'r', score: 90 })],
+      world,
+      400,
+    );
+    for (const a of alerts) if (a.kind !== 'objective' && a.cue !== null) expect(a.cue, a.kind).toBe(tierCue[a.tier]);
+    expect(alerts.length).toBeGreaterThanOrEqual(6);
+  });
+
+  it('a pinned man of ours sounds minor, once in four seconds; an enemy pinned sounds nothing', () => {
+    const a = alertsForTick(initAlertState(), [pinned(1), pinned(2)], [], world, 40);
+    expect(a.alerts).toMatchObject([{ kind: 'pinned', line: null, tier: 'minor', cue: 'alert.minor', at: { x: 1.5, y: 10.5 } }]);
+    expect(alertsForTick(a.state, [pinned(3)], [], world, 40 + PINNED_COOLDOWN_TICKS - 1).alerts).toEqual([]);
+    expect(alertsForTick(a.state, [pinned(3)], [], world, 40 + PINNED_COOLDOWN_TICKS).alerts).toHaveLength(1);
+    expect(alertsForTick(initAlertState(), [pinned(12)], [], world, 40).alerts).toEqual([]);
+  });
+
+  it('an enemy ambush sprung is important and points nowhere; one of ours springing is not news', () => {
+    expect(alertsForTick(initAlertState(), [ambush(12)], [], world, 40).alerts[0]).toMatchObject({ kind: 'ambush', tier: 'important', at: null });
+    expect(alertsForTick(initAlertState(), [ambush(2)], [], world, 40).alerts).toEqual([]);
+  });
+
+  it('a wave, a soldier taken and a Conduct penalty sound important; a civilian taken and an arrival are silent', () => {
+    const cuesOf = (m: MissionEvent) => alertsForTick(initAlertState(), [], [m], world, 40).alerts.map((a) => a.cue);
+    expect(cuesOf(ev<'wave'>({ kind: 'wave', tick: 0, count: 4 }))).toEqual(['alert.important']);
+    expect(cuesOf(ev<'removed'>({ kind: 'removed', tick: 0, entity: 2, side: 0, unit: 'inf_squad' }))).toEqual(['alert.important']);
+    expect(cuesOf(ev<'roe'>({ kind: 'roe', tick: 0, penalty: 5, reason: 'r', score: 95 }))).toEqual(['alert.important']);
+    expect(cuesOf(ev<'removed'>({ kind: 'removed', tick: 0, entity: 2, side: 2, unit: 'civilian' }))).toEqual([]);
+    expect(cuesOf(ev<'built'>({ kind: 'built', tick: 0, unit: 'inf_squad' })).filter((c) => c !== null)).toEqual([]);
+  });
+});
+
+describe('alertsForTick — objectives sound their status', () => {
+  it('new, complete and failed are three different cues', () => {
+    const cueOf = (status: 'active' | 'complete' | 'failed') =>
+      alertsForTick(initAlertState(), [], [ev<'objective'>({ kind: 'objective', tick: 0, id: 'take_town', status })], world, 40).alerts[0]?.cue;
+    expect(cueOf('active')).toBe('objective.active');
+    expect(cueOf('complete')).toBe('objective.complete');
+    expect(cueOf('failed')).toBe('objective.failed');
+  });
+});
+
+/**
+ * The cue map's behavioural half: `MISSION_EVENT_SOUND` (`cues.ts`) declares
+ * what each kind may sound, and THIS proves the model sounds it -- a kind
+ * declared with cues raises one of them, a kind declared silent raises none.
+ * `missionEnd` is the outcome, sounded by `main.ts`'s outcome moment, and is
+ * held to the outcome map in `cues.test.ts` instead.
+ */
+describe('alertsForTick agrees with MISSION_EVENT_SOUND, kind by kind', () => {
+  const sample: Record<MissionEvent['kind'], MissionEvent> = {
+    objective: ev<'objective'>({ kind: 'objective', tick: 0, id: 'take_town', status: 'failed' }),
+    trigger: ev<'trigger'>({ kind: 'trigger', tick: 0, id: 't' }),
+    wave: ev<'wave'>({ kind: 'wave', tick: 0, count: 3 }),
+    roe: ev<'roe'>({ kind: 'roe', tick: 0, penalty: 5, reason: 'r', score: 90 }),
+    built: ev<'built'>({ kind: 'built', tick: 0, unit: 'inf_squad' }),
+    evacuated: ev<'evacuated'>({ kind: 'evacuated', tick: 0, entity: 30 }),
+    removed: ev<'removed'>({ kind: 'removed', tick: 0, entity: 2, side: 0, unit: 'inf_squad' }),
+    unitLost: lost(7, 'mbt_lavi'),
+    say: ev<'say'>({ kind: 'say', tick: 0, speaker: 'shai', text: 'x' }),
+    missionEnd: ev<'missionEnd'>({ kind: 'missionEnd', tick: 0, result: 'victory', roeRating: 100, survivors: [], ledger: {} as never }),
+  };
+  it.each(MISSION_EVENT_KINDS.filter((k) => k !== 'missionEnd'))('%s', (kind) => {
+    const cues = alertsForTick(initAlertState(), [], [sample[kind]], world, 40)
+      .alerts.map((a) => a.cue)
+      .filter((c) => c !== null);
+    const declared = MISSION_EVENT_SOUND[kind];
+    if ('silent' in declared) {
+      expect(cues).toEqual([]);
+    } else {
+      expect(cues.length).toBeGreaterThan(0);
+      for (const c of cues) expect(declared.cues).toContain(c);
+    }
+  });
+});
+
+describe('tickCue: one cue a tick, the most urgent', () => {
+  it('a major loss outranks an objective, which outranks fire taken', () => {
+    expect(tickCue(['alert.minor', 'objective.complete', 'alert.major'])).toBe('alert.major');
+    expect(tickCue(['alert.minor', 'objective.complete'])).toBe('objective.complete');
+    expect(tickCue(['objective.complete', 'objective.failed'])).toBe('objective.failed');
+    expect(tickCue([null, 'alert.minor'])).toBe('alert.minor');
+    expect(tickCue([])).toBeNull();
   });
 });

@@ -23,6 +23,7 @@ import { defaultSelection, isComplete, slotsLeft, toggleEntry, type DeploySelect
 import { paintMapTerrain, type PreviewMap, type PreviewTones } from './map-preview';
 import { objectivesPanel, type ObjectiveRow } from './objectives';
 import type { BriefingSection } from './briefing-sections';
+import { markConfirm } from './confirm-cue';
 
 /**
  * Does this screen wait for the player before handing over the field?
@@ -659,6 +660,7 @@ export function showLoading(
   deploy.className = 'rl-loading__deploy';
   deploy.type = 'button';
   deploy.textContent = t('loading.deploy');
+  markConfirm(deploy);
 
   // The back edge Escape now uses (see `onBack`'s own doc comment above).
   // Rendered only when there is somewhere to go back to -- a sandbox has no
