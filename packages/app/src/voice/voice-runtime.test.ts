@@ -27,6 +27,7 @@ function rig(over: Partial<VoiceRuntimeDeps> = {}) {
   const played: VoiceCue[] = [];
   const infos: string[] = [];
   const captions: [string, number][] = [];
+  const always: boolean[] = [];
   let now = 0;
   let result: VoiceResult = MISSING;
   const rt = new VoiceRuntime({
@@ -38,7 +39,10 @@ function rig(over: Partial<VoiceRuntimeDeps> = {}) {
       played.push(c);
       return result;
     },
-    caption: (t, s) => void captions.push([t, s]),
+    caption: (t, s, a) => {
+      captions.push([t, s]);
+      always.push(a === true);
+    },
     info: (m) => void infos.push(m),
     text: (k) => k,
     ...over,
@@ -47,7 +51,7 @@ function rig(over: Partial<VoiceRuntimeDeps> = {}) {
     for (let fn = queued.shift(); fn; fn = queued.shift()) fn();
   };
   return {
-    rt, flush, played, infos, captions, queued,
+    rt, flush, played, infos, captions, always, queued,
     setNow: (n: number): void => { now = n; },
     setResult: (r: VoiceResult): void => { result = r; },
   };
@@ -125,6 +129,8 @@ describe('VoiceRuntime (WP-AU1 §7, R-3)', () => {
     r.rt.observe(order(3));
     r.flush();
     expect(r.captions).toEqual([['moving', 1.2]]);
+    // A bark follows the captions setting (polish pass F, A5): not `always`.
+    expect(r.always).toEqual([false]);
   });
 
   it('logs every voiced decision, silent ones included, for __lions.voiceLog()', () => {

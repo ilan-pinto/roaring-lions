@@ -144,14 +144,18 @@ describe('announceInputsOf', () => {
   });
 
   it('says nothing for events nobody announces', () => {
-    expect(announceInputsOf([ev({ kind: 'trigger', id: 't' }), ev({ kind: 'roe', penalty: 1, reason: 'r', score: 1 })], (i) => i)).toEqual([]);
+    expect(announceInputsOf([ev({ kind: 'trigger', id: 't' }), ev({ kind: 'say', speaker: 'shai', text: 'x' })], (i) => i)).toEqual([]);
+  });
+
+  it('a Conduct penalty is announced (polish pass F, A9)', () => {
+    expect(announceInputsOf([ev({ kind: 'roe', penalty: 1, reason: 'r', score: 1 })], (i) => i)).toEqual([{ event: 'roe' }]);
   });
 });
 
 describe('the shipped table', () => {
   const t = (audioManifest as { voices: { announcements: AnnouncementManifest; lines: Record<string, unknown> } }).voices;
   it('declares every event the announcer can raise, each with a real caption key', () => {
-    const ids: AnnounceEventId[] = ['objective_active', 'objective_complete', 'objective_failed', 'deadline', 'wave', 'reinforcements', 'unit_lost'];
+    const ids: AnnounceEventId[] = ['objective_active', 'objective_complete', 'objective_failed', 'deadline', 'wave', 'reinforcements', 'unit_lost', 'mission_start', 'roe'];
     expect(Object.keys(t.announcements.events).sort()).toEqual([...ids].sort());
     for (const [id, def] of Object.entries(t.announcements.events)) {
       expect(def.caption in en, id).toBe(true);
@@ -178,6 +182,7 @@ function rig(table: AnnouncementManifest, over: Partial<VoiceRuntimeDeps> = {}) 
   const played: VoiceCue[] = [];
   const captions: [string, number][] = [];
   let now = 0;
+  const always: boolean[] = [];
   let result: VoiceResult = { status: 'missing', seconds: 0, en: null, cut: 0 };
   const rt = new VoiceRuntime({
     now: () => now,
@@ -188,7 +193,10 @@ function rig(table: AnnouncementManifest, over: Partial<VoiceRuntimeDeps> = {}) 
       played.push(c);
       return result;
     },
-    caption: (x, s) => void captions.push([x, s]),
+    caption: (x, s, a) => {
+      captions.push([x, s]);
+      always.push(a === true);
+    },
     info: () => {},
     text: (k, p) => (p ? `${k}|${JSON.stringify(p)}` : k),
     announcements: table,
@@ -196,7 +204,7 @@ function rig(table: AnnouncementManifest, over: Partial<VoiceRuntimeDeps> = {}) 
     labelOf: (id) => `label:${id}`,
     ...over,
   });
-  return { rt, played, captions, setNow: (n: number) => void (now = n), setResult: (r: VoiceResult) => void (result = r) };
+  return { rt, played, captions, always, setNow: (n: number) => void (now = n), setResult: (r: VoiceResult) => void (result = r) };
 }
 const complete: MissionEvent = { kind: 'objective', tick: 1, id: 'o1', status: 'complete' };
 
@@ -205,6 +213,8 @@ describe('VoiceRuntime.onMission (GH-110)', () => {
     const r = rig(TABLE);
     r.rt.onMission([complete]);
     expect(r.captions).toEqual([['a.complete|{"label":"label:o1"}', 3.5]]);
+    // Polish pass F (A5): an announcement captions whatever the setting says.
+    expect(r.always).toEqual([true]);
     expect(r.played).toEqual([]);
     expect(r.rt.log()).toMatchObject([{ source: 'announce', trigger: 'objective_complete', why: 'line', status: null }]);
   });

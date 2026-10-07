@@ -322,6 +322,15 @@ describe('withoutHiddenClocks (GH-345 clock: false)', () => {
     expect(out[1].ticksLeft).toBe(5400);
     expect(holdClock({ name: 'x', result: 'ongoing', objectives: out })?.id).toBe('evac');
   });
+  it('gives the clock back once no other countdown is running (WP-P3, PA-05)', () => {
+    const later: { id: string; text: string; primary: boolean; status: string; type: string; ticksLeft?: number }[] = [
+      objs[0],
+      { id: 'evac', text: 'Evacuate', primary: true, status: 'complete', type: 'evacuate_before' },
+    ];
+    const out = withoutHiddenClocks(later, clocklessObjectives([{ id: 'survive_relief', clock: false }, { id: 'evac' }]));
+    expect(out[0].ticksLeft).toBe(6000);
+    expect(holdClock({ name: 'x', result: 'ongoing', objectives: out })?.id).toBe('survive_relief');
+  });
   it('changes nothing for a mission that authors no clock: false', () => {
     expect(withoutHiddenClocks(objs, clocklessObjectives(undefined))).toEqual(objs);
   });

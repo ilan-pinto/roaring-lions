@@ -23,6 +23,7 @@ import { defaultSelection, isComplete, slotsLeft, toggleEntry, type DeploySelect
 import { paintMapTerrain, type PreviewMap, type PreviewTones } from './map-preview';
 import { objectivesPanel, type ObjectiveRow } from './objectives';
 import type { BriefingSection } from './briefing-sections';
+import { markConfirm } from './confirm-cue';
 
 /**
  * Does this screen wait for the player before handing over the field?
@@ -659,6 +660,7 @@ export function showLoading(
   deploy.className = 'rl-loading__deploy';
   deploy.type = 'button';
   deploy.textContent = t('loading.deploy');
+  markConfirm(deploy);
 
   // The back edge Escape now uses (see `onBack`'s own doc comment above).
   // Rendered only when there is somewhere to go back to -- a sandbox has no
@@ -769,18 +771,23 @@ export function showLoading(
   const paint = (): void => {
     // Before the total is known the bar would divide by zero; an empty bar and
     // a bare count is honest about not knowing yet. Three states since
-    // 2026-09-07, not two: a boot on the mesh path can have NO sheets to load
-    // at all (every fielded type draws as a model -- `spriteSheetPlan`), and
-    // that is a full bar reading 'meshes only', not a bar stuck at 'reading
-    // manifests' under a deploy button that already works.
+    // 2026-09-07, not two: a boot can have nothing to count at all (every
+    // type draws as a model, and since WP-A3.3 that is every boot), and that
+    // is a full bar reading "ready", not a bar stuck on "loading" under a
+    // deploy button that already works. The words are a player's (PA-01:
+    // this line read "meshes only" on every briefing); a tool reads the
+    // STATE from `data-state`, never the words, so a rewording cannot stall
+    // `pnpm perf:load` the way the old literal match once did.
     const ratio = expected > 0 ? Math.min(1, loaded / expected) : totalKnown ? 1 : 0;
     fill.style.width = `${(ratio * 100).toFixed(1)}%`;
+    const ready = expected > 0 ? loaded >= expected : totalKnown;
+    count.dataset.state = ready ? 'ready' : expected > 0 ? 'progress' : 'pending';
     count.textContent =
-      expected > 0
-        ? t('loading.sheets', { loaded, expected })
-        : totalKnown
-          ? t('loading.meshesOnly')
-          : t('loading.readingManifests');
+      expected > 0 && !ready
+        ? t('loading.progress', { loaded, expected })
+        : ready
+          ? t('loading.ready')
+          : t('loading.preparing');
   };
   paint();
 

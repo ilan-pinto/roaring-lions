@@ -15,7 +15,7 @@
  * 'node'` -- so only its CONSTRUCTOR-time properties are checked here; the
  * Phase C report has the browser verification that covers `push()` itself.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import * as THREE from 'three';
 import paletteJson from '../../../../../data/palette.json';
 import { OVERLAY_RENDER_ORDER, BADGE_NUMERAL_RENDER_ORDER } from './render-order';
@@ -493,10 +493,10 @@ describe('OverlayBatch.polygonFillWorld / polygonStrokeWorld', () => {
 });
 
 describe('NumeralBatch construction', () => {
-  it('draws at BADGE_NUMERAL_RENDER_ORDER, a DIFFERENT band from OverlayBatch\'s -- the "ring and numeral do not share a band" trap (render-order.ts)', () => {
+  it('draws at BADGE_NUMERAL_RENDER_ORDER, ABOVE OverlayBatch\'s band -- the badge disc is in that tier, and the numeral must not draw under it (PA-18)', () => {
     const batch = new NumeralBatch(16, '#14150F');
     expect(batch.mesh.renderOrder).toBe(BADGE_NUMERAL_RENDER_ORDER);
-    expect(batch.mesh.renderOrder).not.toBe(OVERLAY_RENDER_ORDER);
+    expect(batch.mesh.renderOrder).toBeGreaterThan(OVERLAY_RENDER_ORDER);
   });
 
   it('starts with no texture bound (map: null) -- built lazily on first push(), not in the constructor', () => {
@@ -507,6 +507,25 @@ describe('NumeralBatch construction', () => {
   it('never frustum-culls, matching OverlayBatch', () => {
     const batch = new NumeralBatch(16, '#14150F');
     expect(batch.mesh.frustumCulled).toBe(false);
+  });
+
+  // WP-P4 (PA-18): the atlas is painted in an sRGB colour (`shadow.1`), and
+  // left at NoColorSpace the near-black ink was encoded on the way out and
+  // drew mid-grey on the pale disc. A stand-in canvas is enough: the
+  // property under test is set on the texture, not read from pixels.
+  it('decodes its digit atlas as sRGB, like every other colour map', () => {
+    const ctx = { clearRect: () => {}, fillText: () => {}, fillStyle: '', font: '', textAlign: '', textBaseline: '' };
+    vi.stubGlobal('document', { createElement: () => ({ width: 0, height: 0, getContext: () => ctx }) });
+    try {
+      const batch = new NumeralBatch(16, '#14150F');
+      batch.beginFrame();
+      batch.push([0, 0, 0], 0, 0, 12, 14, 3);
+      const map = (batch.mesh.material as THREE.MeshBasicMaterial).map;
+      expect(map).not.toBeNull();
+      expect(map?.colorSpace).toBe(THREE.SRGBColorSpace);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

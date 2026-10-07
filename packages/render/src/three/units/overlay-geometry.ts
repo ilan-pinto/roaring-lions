@@ -589,6 +589,19 @@ export function desaturateHex(hex: string, amount: number): string {
 }
 
 /**
+ * WP-P3 (PA-09): `hex` lerped `amount` of the way toward white, per channel.
+ * The primary of a group selection wears its team ring lightened by
+ * `PRIMARY_RING_LIGHTEN` (`group-overlays.ts`), so the hue -- and with it
+ * the colour-vision variant -- is the team's own and only the brightness
+ * says "this one". Derived like `desaturateHex`, not a new palette row.
+ */
+export function lightenHex(hex: string, amount: number): string {
+  const [r, g, b] = hexToBytes(hex);
+  const lift = (c: number): number => clampByte(c + (255 - c) * amount);
+  return bytesToHex(lift(r), lift(g), lift(b));
+}
+
+/**
  * HSL saturation, 0..1 -- the instrument spec S6's acceptance clause (c)
  * ("the capture pass at zoom 2.5 shows no saturated ring fill") is measured
  * with, so that clause is a number in a test rather than a look at a picture.

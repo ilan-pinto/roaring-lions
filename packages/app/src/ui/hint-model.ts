@@ -41,6 +41,9 @@ export interface HintFacts {
   /** GH-345 follow-up: the first-use rule currently owed (`hint-rules.ts`),
    *  already resolved by `main.ts`. Absent or null: none. */
   contextual?: HintLine | null;
+  /** WP-P5 (PA-16): has this player already finished a session in which the
+   *  order-row line was shown (`loadSeen(...).orderRow`)? Absent: no. */
+  sawOrderRow?: boolean;
 }
 
 export interface HintLine {
@@ -72,7 +75,12 @@ export function hintFor(f: HintFacts): HintLine | null {
   }
   if (f.contextual) return f.contextual;
   if (f.selected > 0) {
-    return { key: 'hud.hint.selected' };
+    // WP-P5 (PA-16): the order-row line is scaffolding for a first session,
+    // not a fixture. The audit found it under every selection in every
+    // mission -- Level-3 text in a Level-1 place -- so once a session has
+    // shown it, a selection shows no line at all and the order row speaks
+    // for itself. `null` is what tells the HUD to hide the line.
+    return f.sawOrderRow ? null : { key: 'hud.hint.selected' };
   }
   return { key: 'hud.controlHint' };
 }
@@ -82,14 +90,16 @@ export const FIRST_USE_KEY = 'lions.seen';
 interface Seen {
   projectedFire: boolean;
   dock: boolean;
+  /** WP-P5: a session has ended that showed the order-row line. */
+  orderRow: boolean;
 }
 
-const unseen = (): Seen => ({ projectedFire: false, dock: false });
+const unseen = (): Seen => ({ projectedFire: false, dock: false, orderRow: false });
 
 /** Guarded exactly the way `settings.ts:109-116`'s `loadSettings` guards its
  *  own store: a missing store, a blocked read, or JSON that is not the shape
  *  expected all fall back to "nothing seen yet" rather than throwing. */
-export function loadSeen(store: StorageLike | null): { projectedFire: boolean; dock: boolean } {
+export function loadSeen(store: StorageLike | null): Seen {
   if (!store) return unseen();
   try {
     const raw = store.getItem(FIRST_USE_KEY);
@@ -100,6 +110,7 @@ export function loadSeen(store: StorageLike | null): { projectedFire: boolean; d
     return {
       projectedFire: typeof r.projectedFire === 'boolean' ? r.projectedFire : false,
       dock: typeof r.dock === 'boolean' ? r.dock : false,
+      orderRow: typeof r.orderRow === 'boolean' ? r.orderRow : false,
     };
   } catch {
     return unseen();
@@ -109,7 +120,7 @@ export function loadSeen(store: StorageLike | null): { projectedFire: boolean; d
 /** Guarded exactly the way `settings.ts:118-124`'s `saveSettings` guards its
  *  own write: a blocked store keeps the flag in memory for this session only
  *  (`main.ts` mirrors it there), and nothing throws past this call. */
-export function markSeen(store: StorageLike | null, what: 'projectedFire' | 'dock'): void {
+export function markSeen(store: StorageLike | null, what: keyof Seen): void {
   if (!store) return;
   try {
     const seen = loadSeen(store);

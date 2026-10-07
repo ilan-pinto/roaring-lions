@@ -250,6 +250,7 @@ describe('outcomeMoment', () => {
       outcome: 'victory',
       title: t('outcome.victory'),
       line: mission.debrief?.victory?.text,
+      radio: t('outcome.radio.victory'),
       aftermath: mission.aftermath,
     });
     // No hold of its own: the moment keeps `OUTCOME_HOLD_MS`.
@@ -263,6 +264,21 @@ describe('outcomeMoment', () => {
     expect('aftermath' in lost).toBe(false);
     expect(lost.title).toBe(t('outcome.defeat'));
     expect(lost.line).toBe(mission.debrief?.defeat?.text);
+  });
+
+  // Polish pass F (A5): the outcome's radio line is captioned ALWAYS -- it is
+  // in the options for both results, with no captions setting consulted, and
+  // the moment draws it. Victory and defeat are different lines.
+  it('carries the outcome radio line on both results, and draws it', () => {
+    const mission = { debrief: undefined, aftermath: undefined };
+    const won = outcomeMomentOptions('victory', mission);
+    const lost = outcomeMomentOptions('defeat', mission);
+    expect(won.radio).toBe(t('outcome.radio.victory'));
+    expect(lost.radio).toBe(t('outcome.radio.defeat'));
+    expect(won.radio).not.toBe(lost.radio);
+    const m = outcomeMoment(host, lost);
+    expect(m.el.querySelector('.rl-outcome__radio')?.textContent).toBe(t('outcome.radio.defeat'));
+    m.dismiss();
   });
 
   // GH-234: the win's payment as a headline, ahead of the mission's own

@@ -756,10 +756,10 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
         // shipped case) reads as reserved rather than as a broken image.
         const hatch = el('div', 'rl-garage__card-art');
         hatch.dataset.nosprite = '1';
-        // Named, not silent: the hatch says WHICH type has no sheet, which is
-        // the difference between "reserved" and "this build is broken" for
-        // anyone looking at the roster.
-        hatch.title = t('garage.card.noSprite', { id: u.id });
+        // Named, not silent: the hatch says WHICH type has no picture, which
+        // is the difference between "reserved" and "this build is broken" for
+        // anyone looking at the roster -- by its name, not its id (PA-01).
+        hatch.title = t('garage.card.noSprite', { name: u.name });
         hatch.innerHTML = roleBadgeSvg(roleBucket(u), CARD_MARK);
         art = hatch;
       }
@@ -1186,7 +1186,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       plate.appendChild(img);
     } else {
       plate.dataset.noplate = '1';
-      plate.title = t('garage.plate.none', { id: u.id });
+      plate.title = t('garage.plate.none', { name: u.name });
       plate.innerHTML = roleBadgeSvg(roleBucket(u), BAY_MARK);
     }
     // The kit mark: a bevelled plate with `kit.level` bars and its own label

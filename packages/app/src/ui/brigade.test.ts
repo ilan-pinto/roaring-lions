@@ -211,7 +211,7 @@ describe('showBrigade — the header and the rail', () => {
     expect(art?.getAttribute('data-nosprite')).toBe('1');
     expect(art?.querySelector('svg')).not.toBeNull();
     // Named, so "reserved" cannot be mistaken for "this build is broken".
-    expect(art?.getAttribute('title')).toBe('breach_team — no portrait');
+    expect(art?.getAttribute('title')).toBe('Tzinah Breach Team: no picture yet');
   });
 
   // The whole point of the short form: two units held by the same KIND of gate
@@ -437,7 +437,7 @@ describe('showBrigade — the bay', () => {
     const plate = host.querySelector('.rl-garage__plate');
     expect(plate?.getAttribute('data-noplate')).toBe('1');
     expect(plate?.querySelector('svg')).not.toBeNull();
-    expect(plate?.getAttribute('title')).toBe('ifv_namer — no plate photographed');
+    expect(plate?.getAttribute('title')).toBe('Namer IFV: no photograph yet');
   });
 
   // GH-238 plan 3 Task 9: from kit level 2 a kitted vehicle's plate is its

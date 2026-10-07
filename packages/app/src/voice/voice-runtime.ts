@@ -56,8 +56,10 @@ export interface VoiceRuntimeDeps {
   languages: Readonly<Record<string, string>>;
   /** Hand a cue to the mixer (`battleAudio().playVoice`). */
   play(cue: VoiceCue): VoiceResult;
-  /** Show a line's meaning for `seconds`; a no-op unless captions are on. */
-  caption(text: string, seconds: number): void;
+  /** Show a line's meaning for `seconds`. `always` is set for an
+   *  announcement: mission information captions whatever the captions
+   *  setting says (polish pass F, A5), while a bark follows the setting. */
+  caption(text: string, seconds: number, always?: boolean): void;
   /** i18n lookup (`t` in the app, identity in tests). GH-262: used to render
    *  a cue's `caption` key when the mixer has no take to caption itself. */
   text(key: string, params?: Readonly<Record<string, string | number>>): string;
@@ -188,7 +190,7 @@ export class VoiceRuntime {
       // (missing, still decoding, muted) leaves the caption standing alone.
       if (cue.key !== '') status = this.deps.play(cue).status;
       if (cue.caption !== undefined) {
-        this.deps.caption(this.deps.text(cue.caption, cue.captionParams), cue.captionSeconds ?? PINNED_CAPTION_S);
+        this.deps.caption(this.deps.text(cue.caption, cue.captionParams), cue.captionSeconds ?? PINNED_CAPTION_S, true);
       }
     } else if (cue) {
       const r = this.deps.play(cue);

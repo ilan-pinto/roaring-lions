@@ -22,6 +22,10 @@ import { Hud, type HudCommanderInfo, type HudDeps, type MissionView } from './hu
 import type { KitSummary } from './kit-sign';
 import { alertNotice } from './mission-notice';
 import { closeTip } from './tooltip';
+import type { CursorName } from '../input/cursor';
+import en from '../i18n/en.json';
+import { pseudo } from '../i18n/pseudo';
+import { setCatalogue } from '../i18n/t';
 
 /** A stand-in resolved commander, the shape `main.ts` would hand over from
  *  `commanderForMission` -- this suite is about the DOM join, not about rank
@@ -641,6 +645,15 @@ describe('bottom-centre controls hint', () => {
     expect(hint.textContent).toContain('order row above');
   });
 
+  // WP-P5 (PA-16): `hintFor` answers null once the order-row line has
+  // retired, and an empty plate over the battlefield is still a plate.
+  it('draws no line at all when the hint dep answers null', () => {
+    const r = rig(mission(), { getSelection: () => [0], hint: () => null });
+    const hint = r.host.querySelector<HTMLElement>('.rl-hint')!;
+    expect(hint.style.display).toBe('none');
+    expect(hint.textContent).toBe('');
+  });
+
   // hint-model.test.ts pins the priority order itself; this is the one thing
   // only the DOM join can prove -- `hintFor` never sees a keybinding, so the
   // dock hint's key name has to be merged in here, from `keyFor`, the same
@@ -768,6 +781,40 @@ describe('event feed', () => {
     expect(feed.firstElementChild!.textContent).toBe('five');
     expect(feed.firstElementChild!.className).toContain('rl-live');
     expect([...feed.children].map((c) => c.textContent)).not.toContain('one');
+  });
+
+  // WP-P5 (PA-06): play-22 was four identical "under fire" lines filling the
+  // four-line feed. The same line again is the same line, with a count.
+  it('merges a repeated line into one, with a count, back at the top', () => {
+    const r = rig(mission());
+    for (let i = 0; i < 4; i++) r.hud.note('<b>under fire</b> — Rifle Squad · in view', 'warn', { tier: 'minor' });
+    r.hud.note('<b>lost</b> — Lavi · east', 'bad', { tier: 'major' });
+    r.hud.note('<b>under fire</b> — Rifle Squad · in view', 'warn', { tier: 'minor' });
+    const feed = r.host.querySelector<HTMLElement>('.rl-feed')!;
+    expect([...feed.children].map((c) => c.textContent)).toEqual([
+      'under fire — Rifle Squad · in view×5',
+      'lost — Lavi · east',
+    ]);
+    expect(feed.querySelector('.rl-notice__count')?.textContent).toBe('×5');
+  });
+
+  it('does not merge a line that differs in words, tone or tier', () => {
+    const r = rig(mission());
+    r.hud.note('under fire — Rifle Squad · in view', 'warn', { tier: 'minor' });
+    r.hud.note('under fire — Rifle Squad · north', 'warn', { tier: 'minor' });
+    r.hud.note('under fire — Rifle Squad · in view', 'bad', { tier: 'minor' });
+    r.hud.note('under fire — Rifle Squad · in view', 'warn', { tier: 'major' });
+    expect(r.host.querySelector('.rl-feed')!.childElementCount).toBe(4);
+    expect(r.host.querySelector('.rl-notice__count')).toBeNull();
+  });
+
+  it('marks each line with its tier, and leaves an untiered line plain', () => {
+    const r = rig(mission());
+    r.hud.note('a', 'live');
+    r.hud.note('b', 'bad', { tier: 'major' });
+    const [major, plain] = [...r.host.querySelector('.rl-feed')!.children] as HTMLElement[];
+    expect(major.dataset.tier).toBe('major');
+    expect(plain.dataset.tier).toBeUndefined();
   });
 
   it('carries no panel chrome — it is type on the map', () => {
@@ -1041,9 +1088,28 @@ describe('the single-unit card', () => {
     expect(r.host.querySelector('.rl-chip')).toBeNull();
     expect(card.querySelector('.rl-card__name')!.textContent).toBe('Namer IFV');
     expect(card.textContent).toContain('Armament');
-    expect(card.textContent).toContain('cannon_30');
+    // PA-01: the weapon's name, never its data id.
+    expect(card.textContent).toContain('30 mm cannon');
+    expect(card.textContent).not.toContain('cannon_30');
     expect(card.textContent).toContain('Capabilities');
     expect(card.textContent).toContain('smoke screen');
+  });
+
+  // The pseudo-locale check for the card (WP-P2): every word on it went
+  // through t(), so under ?pseudo=1 no raw id -- nothing lower_snake_case --
+  // and no unbracketed weapon name is left on it.
+  it('shows no raw id under the pseudo-locale', () => {
+    setCatalogue('pseudo', en, pseudo);
+    try {
+      const world = makeForce();
+      const r = clusterRig(() => [world.namer], {}, world);
+      const card = r.host.querySelector<HTMLElement>('.rl-card')!;
+      const text = card.textContent ?? '';
+      expect(text).toContain(pseudo('30 mm cannon'));
+      expect(text).not.toMatch(/\b[a-z0-9]+_[a-z0-9_]+\b/);
+    } finally {
+      setCatalogue('en', en);
+    }
   });
 
   it('keeps the condition line’s existing flags', () => {
@@ -1261,7 +1327,8 @@ describe('unit art the pipeline has not produced', () => {
     expect(art.tagName).toBe('DIV');
     expect(art.dataset.nosprite).toBe('1');
     expect(art.querySelector('svg')).not.toBeNull();
-    expect(art.title).toContain('no portrait');
+    // By the unit's name, never its id (PA-01).
+    expect(art.title).toBe('Namer IFV: no picture yet');
     expect(r.host.querySelector('.rl-card__art img')).toBeNull();
   });
 
@@ -1501,6 +1568,7 @@ describe('victory banner', () => {
 // the end screen under both ("Town is quiet"). The moment is the verdict, so
 // `main.ts` stands this banner down the moment it mounts one. The two tests
 // above are the path where no moment shows, and there the banner is kept.
+// (WP-P2 then gave all three the same name -- `outcome-names.test.ts`.)
 describe('the end banner stands down for the outcome moment', () => {
   it('never goes up once the moment has the verdict', () => {
     const m = mission();
@@ -2549,7 +2617,7 @@ describe('HUD disclosure (isShown)', () => {
 // names the sim's answer outright -- the classifier is `fire-state.ts`'s, and
 // its own suite covers the choice; this covers the words.
 describe('projected fire wording (GH-345)', () => {
-  function firePanel(answer: HitProjection): string {
+  function firePanel(answer: HitProjection, cursor?: CursorName): string {
     const host = document.createElement('div');
     document.body.appendChild(host);
     const { sim, ids } = makeSim();
@@ -2560,6 +2628,7 @@ describe('projected fire wording (GH-345)', () => {
       getMission: () => null,
       hoverStructure: () => -1,
       hoverEntity: () => ids[1],
+      ...(cursor ? { hoverCursor: () => cursor } : {}),
       gameVersion: '0.1',
       commander: TEST_COMMANDER,
     });
@@ -2594,8 +2663,20 @@ describe('projected fire wording (GH-345)', () => {
   });
   it('D: out of reach names range AND sight and the reach, read from unit data', () => {
     const text = firePanel({ kind: 'noSolution' });
-    expect(text).toContain('Out of range or out of sight · rifles reach 8 tiles');
+    expect(text).toContain('Out of range or out of sight · Rifles reach 8 tiles');
     expect(text).not.toContain('no unit can engage');
+  });
+  // WP-P4 (PA-08): the heading names one target and gives odds on it, and
+  // a right-click there is an attack-move to the TILE. The line says so,
+  // whenever -- and only when -- the cursor says `advance`.
+  it('says a right-click advances and engages when the cursor is advance', () => {
+    const shot = { kind: 'shot', weaponId: 'rifles', pHit: fx.from(0.5), hurts: true, factors: factors({}) } as const;
+    expect(firePanel(shot, 'advance')).toContain('Right-click: advance and engage · each unit picks its own target');
+    // A refused click (protected), a pinned order and no cursor at all get no
+    // line: it reads the cursor, it does not second-guess it.
+    for (const other of ['protected', 'pinned', undefined] as const) {
+      expect(firePanel(shot, other)).not.toContain('Right-click');
+    }
   });
   it('a clean shot carries no remedy line', () => {
     const text = firePanel({ kind: 'shot', weaponId: 'rifles', pHit: fx.from(0.5), hurts: true, factors: factors({}) });

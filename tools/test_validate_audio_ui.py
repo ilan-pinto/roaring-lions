@@ -62,6 +62,28 @@ def main():
         if not ok:
             bad.append("skipped")
 
+    # A longer tier is honoured: a 300 ms clip passes at an 800 ms ceiling.
+    with tempfile.TemporaryDirectory() as d:
+        entry = make(d, seconds=0.3)
+        failures = []
+        mod.check_ui_cue(entry, failures, audio_dir=d, max_s=0.8)
+        ok = not failures
+        print(f"{'ok  ' if ok else 'FAIL'} a 300 ms cue passes under its own 800 ms tier")
+        if not ok:
+            bad.append("tier")
+
+    # The mirror: validate_audio's per-set ceilings are gen_audio's
+    # STINGER_SETS tiers, read through CUE_CEILING_S, set for set.
+    spec = importlib.util.spec_from_file_location("gen_audio", os.path.join(HERE, "gen_audio.py"))
+    gen = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gen)
+    want = {name: gen.CUE_CEILING_S[tier] for name, (_fn, _n, tier) in gen.STINGER_SETS.items()}
+    ok = want == mod.UI_CUE_CEILING_S and mod.UI_MAX_S == gen.UI_MAX_S
+    print(f"{'ok  ' if ok else 'FAIL'} UI_CUE_CEILING_S mirrors gen_audio.py's STINGER_SETS tiers"
+          + ("" if ok else f" -- gen_audio {want}, validate_audio {mod.UI_CUE_CEILING_S}"))
+    if not ok:
+        bad.append("mirror")
+
     if bad:
         print(f"\n{len(bad)} case(s) failed")
         return 1

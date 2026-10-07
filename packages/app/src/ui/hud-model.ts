@@ -207,15 +207,26 @@ export function stripObjectives(m: MissionView): StripObjectives {
 /**
  * GH-345: drop the countdown from every objective its mission authored with
  * `clock: false`, so the strip, the big clock and the tracker count down only
- * the deadlines left. The objective's own `text` names the time instead
- * ("Hold until the relief column, 5:00"). App-side only: the sim's own
- * objective list is untouched, so the hold still completes on time.
+ * the deadline that can fail. App-side only: the sim's own objective list is
+ * untouched, so the hold still completes on time.
+ *
+ * WP-P3 (PA-05, the lead's ruling of 6 Oct, partly reversing PR 357's "one
+ * countdown"): the clock is withheld only WHILE another objective is
+ * counting. Once nothing else is -- First Light's families are in, and
+ * `evac_settlements` has no clock left to show -- the hold's own countdown
+ * comes back, in the same strip, big clock and tracker style as any other.
+ * Still one countdown at a time; never none for the last four minutes of a
+ * hold. The objective's text no longer names the time, since the clock does.
  */
 export function withoutHiddenClocks<O extends { id: string; ticksLeft?: number }>(
   objectives: readonly O[],
   clockless: ReadonlySet<string>
 ): O[] {
   if (clockless.size === 0) return [...objectives];
+  // `ticksLeft` is set only on an ACTIVE timed objective (the sim's
+  // `objectiveList`), so this is "is another clock running right now".
+  const otherClock = objectives.some((o) => !clockless.has(o.id) && o.ticksLeft !== undefined);
+  if (!otherClock) return [...objectives];
   return objectives.map((o) => {
     if (!clockless.has(o.id) || o.ticksLeft === undefined) return o;
     const rest = { ...o };

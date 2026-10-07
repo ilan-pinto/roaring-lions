@@ -1101,6 +1101,15 @@ body {
   font-size: var(--t-m);
   color: var(--ink-dim);
 }
+/* Polish pass F (A5): the outcome's line on the radio net, always shown --
+   the caption the HUD's own slot cannot carry while this moment covers it.
+   The narration's dim mono face, so it reads as the net speaking. */
+.rl-outcome__radio {
+  margin: var(--s3) 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--t-m);
+  color: var(--ink-dim);
+}
 .rl-outcome__skip {
   margin-top: var(--s4);
 }
@@ -1913,6 +1922,34 @@ body {
   transition: opacity var(--dur-fast) var(--ease);
 }
 
+/* WP-P5 (PA-06; audit passes B1 and C3): the feed's three event tiers, with
+   the same names as the audio cue tiers. Progressively stronger, and never by
+   colour alone -- tone already carries good/bad, so the tier carries weight:
+   size, weight, and a bar in the line's own colour. A minor line (under
+   fire) reads as Level 2, a step down from the commander's lines; important
+   is the plain feed line; major (a vehicle lost, an objective won or lost)
+   is the one that must be seen with the eye elsewhere. */
+.rl-notice[data-tier="minor"] {
+  font-size: var(--t-band);
+  opacity: 0.88;
+}
+.rl-notice[data-tier="major"] {
+  font-weight: 700;
+  box-shadow: inset 0.25rem 0 0 currentColor, inset -0.25rem 0 0 currentColor;
+  padding-block: 0.25rem;
+}
+.rl-notice[data-tier="major"] b {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+/* The merge count ("×4"): the same line said again, not a new line. */
+.rl-notice__count {
+  margin-left: 0.5em;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--ink);
+}
+
 /* --- voice caption (WP-AU1 D8) ------------------------------------------
    One slot under the notice feed, never inside it: the feed is for what
    happened, and a caption only repeats what a unit said. Off unless the
@@ -2490,6 +2527,14 @@ body {
   max-width: 22rem;
   color: var(--ink-dim);
   font-size: 0.875em;
+}
+/* WP-P4 (PA-08): what a right-click on this target does. A footnote, not a
+   verdict -- it says the click is an attack-move to the tile, so the odds
+   above are a projection, not a promise that this target is the one shot. */
+.rl-fire__click {
+  margin-top: var(--s1);
+  color: var(--ink-dim);
+  font-size: 0.8125em;
 }
 
 .rl-bigbanner {
@@ -3239,10 +3284,33 @@ button.rl-menu__item[data-kind='aside'] {
   flex-direction: column;
   gap: var(--s1);
   max-width: var(--menu-col);
-  margin: var(--s3) auto var(--s2);
+  margin: var(--s1) auto var(--s2);
   padding: var(--s2) var(--s3);
   border: 1px solid var(--panel-frame);
   text-align: left;
+}
+/* WP-P2: the extras sit behind a closed disclosure, so the picker opens on
+   the maps. The summary is a quiet line, not a button competing with them. */
+.rl-sandbox__dev {
+  max-width: var(--menu-col);
+  margin: var(--s3) auto var(--s2);
+  text-align: left;
+}
+.rl-sandbox__dev-summary {
+  cursor: pointer;
+  font-size: var(--t-s);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.rl-sandbox__dev-summary:hover,
+.rl-sandbox__dev-summary:focus-visible {
+  color: var(--ink);
+}
+.rl-sandbox__dev-hint {
+  margin: 0;
+  font-size: var(--t-s);
+  color: var(--ink-mute);
 }
 .rl-sandbox__flag {
   display: grid;

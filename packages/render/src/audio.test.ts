@@ -9,9 +9,16 @@ import {
   admitVoice,
   BattleAudio,
   busGain,
+  cueDuckRow,
   decodeOrder,
   DUCK,
+  DUCK_TABLE,
+  duckLevels,
   duckRamp,
+  musicSceneGain,
+  OUTCOME_CUE_BLOCK_S,
+  SYNTH_CUES,
+  trimGain,
   musicVolume,
   placement,
   PLACEHOLDER_HZ,
@@ -1290,6 +1297,335 @@ describe('voice decoding -- carried from Task 4 (R-9)', () => {
       expect(String(info.mock.calls[0]?.[0])).toMatch(/^\[voice\]/);
     } finally {
       info.mockRestore();
+    }
+  });
+});
+
+
+// --- polish pass F: cues, the cue bus, the ducking table, music scenes -----
+
+describe('the ducking table (polish pass F, section 2.2)', () => {
+  it('the deepest duck per layer wins, never a product; no rows is no duck', () => {
+    expect(duckLevels([])).toEqual({ sfx: 1, music: 1 });
+    expect(duckLevels([DUCK_TABLE.bark, DUCK_TABLE.major])).toEqual({ sfx: DUCK_TABLE.major.sfx, music: DUCK_TABLE.major.music });
+    expect(duckLevels([DUCK_TABLE.bark, DUCK_TABLE.cue])).toEqual({ sfx: DUCK_TABLE.bark.sfx, music: DUCK_TABLE.cue.music });
+    expect(duckLevels([DUCK_TABLE.pause]).sfx).toBe(1);
+  });
+
+  it('the rows say what the plan says, in dB', () => {
+    const db = (g: number): number => Math.round(20 * Math.log10(g));
+    expect([db(DUCK_TABLE.bark.sfx), db(DUCK_TABLE.bark.music)]).toEqual([-4, -3]);
+    expect([db(DUCK_TABLE.announce.sfx), db(DUCK_TABLE.announce.music)]).toEqual([-6, -6]);
+    expect([db(DUCK_TABLE.cue.sfx), db(DUCK_TABLE.cue.music)]).toEqual([-3, -3]);
+    expect([db(DUCK_TABLE.major.sfx), db(DUCK_TABLE.major.music)]).toEqual([-6, -6]);
+    expect([DUCK_TABLE.outcome.sfx, DUCK_TABLE.outcome.music, DUCK_TABLE.outcome.attackS]).toEqual([0, 0, 0.6]);
+    expect(db(DUCK_TABLE.pause.music)).toBe(-6);
+    // No pumping: every release is 250 ms or longer.
+    for (const row of Object.values(DUCK_TABLE)) expect(row.releaseS).toBeGreaterThanOrEqual(0.25);
+  });
+
+  it('a cue id brings its row: objective and important alert -3, major -6, outcome the fade', () => {
+    expect(cueDuckRow('objective.complete')).toBe('cue');
+    expect(cueDuckRow('objective.failed')).toBe('cue');
+    expect(cueDuckRow('alert.important')).toBe('cue');
+    expect(cueDuckRow('alert.major')).toBe('major');
+    expect(cueDuckRow('outcome.defeat')).toBe('outcome');
+    expect(cueDuckRow('alert.minor')).toBeNull();
+    expect(cueDuckRow('ui.confirm')).toBeNull();
+  });
+});
+
+describe('music scenes (A10) and the track trim', () => {
+  it('a mission plays the music at battle_gain, the menu at gain, and no battle_gain reads as gain', () => {
+    expect(musicSceneGain({ gain: 0.4, battle_gain: 0.26 }, 'battle')).toBe(0.26);
+    expect(musicSceneGain({ gain: 0.4, battle_gain: 0.26 }, 'menu')).toBe(0.4);
+    expect(musicSceneGain({ gain: 0.4 }, 'battle')).toBe(0.4);
+  });
+  it('trim_db is a level in dB; absent is unity', () => {
+    expect(trimGain(undefined)).toBe(1);
+    expect(trimGain(-1.2)).toBeCloseTo(0.871, 3);
+  });
+  it('the shipped manifest asks for 0.26 in battle, 0.4 on the menu, and trims the theme to -1 dBTP', async () => {
+    const shipped = (await import('../../../data/audio.json')).default as AudioManifest;
+    expect(shipped.music?.gain).toBe(0.4);
+    expect(shipped.music?.battle_gain).toBe(0.26);
+    expect(shipped.music?.tracks?.[0]?.trim_db).toBeCloseTo(-1.2);
+  });
+  it('setMusicScene steps the element to the battle level over 2 s, trim included, and back', () => {
+    const m: AudioManifest = { master_gain: 1, music: { gain: 0.4, battle_gain: 0.26, tracks: [{ file: 'music/t.mp3', trim_db: -6 }] } };
+    const { audio } = attachedWith((a) => a.useManifest(m, '/a/'));
+    const els = document.querySelectorAll('audio');
+    const el = els[els.length - 1];
+    if (!el) throw new Error('no music element');
+    const half = trimGain(-6);
+    expect(el.volume).toBeCloseTo(0.4 * half);
+    vi.useFakeTimers();
+    try {
+      audio.setMusicScene('battle');
+      vi.advanceTimersByTime(1000);
+      expect(el.volume).toBeGreaterThan(0.26 * half);
+      expect(el.volume).toBeLessThan(0.4 * half);
+      vi.advanceTimersByTime(1100);
+      expect(el.volume).toBeCloseTo(0.26 * half);
+      expect(audio.musicSceneNow()).toBe('battle');
+      audio.setMusicScene('menu');
+      vi.advanceTimersByTime(2100);
+      expect(el.volume).toBeCloseTo(0.4 * half);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('playCue (polish pass F, AU-1, AU-4)', () => {
+  const CUE_MANIFEST: AudioManifest = {
+    master_gain: 1,
+    music: { gain: 0.4, battle_gain: 0.26, tracks: [{ file: 'music/t.mp3' }] },
+    sets: {
+      objective_complete: { event: 'ui', variants: [] },
+      objective_failed: { event: 'ui', variants: [] },
+      objective_new: { event: 'ui', variants: [] },
+      alert_minor: { event: 'ui', variants: [] },
+      alert_important: { event: 'ui', variants: [] },
+      alert_major: { event: 'ui', variants: [] },
+      victory: { event: 'ui', variants: [] },
+      ui_deny: { event: 'ui', variants: [] },
+    },
+    cues: {
+      $comment: 'ignored',
+      'objective.complete': 'objective_complete',
+      'objective.failed': 'objective_failed',
+      'objective.active': 'objective_new',
+      'alert.minor': 'alert_minor',
+      'alert.important': 'alert_important',
+      'alert.major': 'alert_major',
+      'outcome.victory': 'victory',
+      'ui.deny': 'ui_deny',
+      'ui.hover': { silent: 'hover is never a sound (A8)' },
+    },
+  };
+  const graph = (ctx: FakeContext) => {
+    const [master, , sfxDuck, voice] = ctx.gains;
+    const cueBus = ctx.gains.find((g) => g.to === master && g !== sfxDuck && g !== voice);
+    if (!master || !sfxDuck || !cueBus) throw new Error('attach() built no cue bus');
+    return { master, sfxDuck, cueBus };
+  };
+  const freqs = (ctx: FakeContext): number[] =>
+    ctx.oscillators.map((o) => (o as { frequency: { value: number } }).frequency.value);
+
+  it('resolves the id through the manifest, says when it is unmapped or deliberately silent, and is safe before attach', () => {
+    expect(new BattleAudio().playCue('alert.minor')).toBe('unmapped');
+    const { audio, ctx } = attachedWith((a) => a.useManifest(CUE_MANIFEST, '/a/'));
+    expect(audio.playCue('alert.minor')).toBe('played');
+    expect(ctx.oscillators.length).toBeGreaterThan(0);
+    const made = ctx.oscillators.length;
+    expect(audio.playCue('ui.hover')).toBe('silent');
+    expect(audio.playCue('no.such.cue')).toBe('unmapped');
+    expect(audio.playCue('$comment')).toBe('unmapped');
+    expect(ctx.oscillators.length).toBe(made);
+  });
+
+  it('a cue sounds on the cue bus, straight into the master and never through the sfx duck', () => {
+    const { audio, ctx } = attachedWith((a) => a.useManifest(CUE_MANIFEST, '/a/'));
+    const { master, sfxDuck, cueBus } = graph(ctx);
+    audio.playCue('alert.minor');
+    const tone = ctx.oscillators[0]?.to as FakeGain;
+    expect(tone.to).toBe(cueBus);
+    expect(cueBus.to).toBe(master);
+    expect(tone.to).not.toBe(sfxDuck);
+  });
+
+  it('the cue bus rides the SFX slider', () => {
+    const { audio, ctx } = attachedWith((a) => a.useManifest(CUE_MANIFEST, '/a/'));
+    const { cueBus } = graph(ctx);
+    audio.setGains({ master: 1, music: 1, sfx: 0.3 });
+    expect(cueBus.gain.value).toBe(0.3);
+  });
+
+  it('a recorded clip plays at its set gain on the cue bus', async () => {
+    stubFetch();
+    const m: AudioManifest = {
+      ...CUE_MANIFEST,
+      sets: { ...CUE_MANIFEST.sets, alert_minor: { event: 'ui', gain: 0.25, variants: [{ file: 'alert_minor/alert_minor_01.ogg' }] } },
+    };
+    const { audio, ctx } = attachedWith((a) => a.useManifest(m, '/a/'));
+    await audio.decoded();
+    const { cueBus } = graph(ctx);
+    expect(audio.playCue('alert.minor')).toBe('played');
+    const g = ctx.sources.at(-1)?.to as FakeGain;
+    expect(g.gain.value).toBe(0.25);
+    expect(g.to).toBe(cueBus);
+  });
+
+  it('every cue the synth stands in for keeps its shape: complete rises, failed falls, new is level; alerts are one, two, three notes', () => {
+    vi.useFakeTimers();
+    try {
+      const { audio, ctx } = attachedWith((a) => a.useManifest(CUE_MANIFEST, '/a/'));
+      const play = (id: string): number[] => {
+        ctx.oscillators.length = 0;
+        audio.playCue(id);
+        vi.advanceTimersByTime(1000);
+        return freqs(ctx);
+      };
+      const up = play('objective.complete');
+      expect(up[1]).toBeGreaterThan(up[0] ?? Infinity);
+      const down = play('objective.failed');
+      expect(down[1]).toBeLessThan(down[0] ?? 0);
+      const level = play('objective.active');
+      expect(level[1]).toBe(level[0]);
+      expect(play('alert.minor')).toHaveLength(1);
+      expect(play('alert.important')).toHaveLength(2);
+      expect(play('alert.major')).toHaveLength(3);
+      // No two of the objective shapes are the same sound.
+      expect(new Set([up.join(), down.join(), level.join()]).size).toBe(3);
+      for (const name of ['ui_confirm', 'ui_deny', 'mission_start', 'victory', 'defeat', 'objective_new']) {
+        expect(SYNTH_CUES[name]?.length ?? 0).toBeGreaterThan(0);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('an objective cue holds combat 3 dB down for its length, then lets go', () => {
+    vi.useFakeTimers();
+    try {
+      const { audio, ctx } = attachedWith((a) => a.useManifest(CUE_MANIFEST, '/a/'));
+      const { sfxDuck } = graph(ctx);
+      audio.playCue('objective.complete');
+      expect(sfxDuck.gain.events).toContainEqual(['linear', DUCK_TABLE.cue.sfx, DUCK_TABLE.cue.attackS]);
+      expect(sfxDuck.gain.events).not.toContainEqual(['linear', 1, DUCK_TABLE.cue.releaseS]);
+      vi.advanceTimersByTime(1000);
+      expect(sfxDuck.gain.events).toContainEqual(['linear', 1, DUCK_TABLE.cue.releaseS]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a major alert ducks deeper than an important one, and a minor alert not at all', () => {
+    vi.useFakeTimers();
+    try {
+      const { audio, ctx } = attachedWith((a) => a.useManifest(CUE_MANIFEST, '/a/'));
+      const { sfxDuck } = graph(ctx);
+      audio.playCue('alert.minor');
+      expect(sfxDuck.gain.events.filter((e) => e[0] === 'linear')).toEqual([]);
+      audio.playCue('alert.major');
+      expect(sfxDuck.gain.events).toContainEqual(['linear', DUCK_TABLE.major.sfx, DUCK_TABLE.major.attackS]);
+      expect(DUCK_TABLE.major.sfx).toBeLessThan(DUCK_TABLE.cue.sfx);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a voice line never ducks a cue: the duck is on the sfx path, and the cue is not on it', async () => {
+    stubFetch();
+    const { audio, ctx } = attachedWith((a) => {
+      a.useManifest({ ...CUE_MANIFEST, voices: MANIFEST.voices }, '/a/');
+      a.setVoiceLanguages(['he']);
+    });
+    await vi.waitFor(() => expect(audio.voiceStats().keys).toBe(3));
+    const { sfxDuck, cueBus } = graph(ctx);
+    audio.playVoice({ key: 'he.infantry.move', priority: 'order' });
+    expect(sfxDuck.gain.events).toContainEqual(['linear', DUCK.sfx, DUCK.attackS]);
+    audio.playCue('objective.complete');
+    expect(cueBus.gain.events.filter((e) => e[0] === 'linear')).toEqual([]);
+  });
+
+  it('the outcome stops every voice, fades combat and music out, and holds every other cue off for 3 s', async () => {
+    stubFetch();
+    const { audio, ctx } = attachedWith((a) => {
+      a.useManifest({ ...CUE_MANIFEST, voices: MANIFEST.voices }, '/a/');
+      a.setVoiceLanguages(['he']);
+    });
+    await vi.waitFor(() => expect(audio.voiceStats().keys).toBe(3));
+    const { sfxDuck } = graph(ctx);
+    audio.playVoice({ key: 'he.infantry.move', priority: 'order' });
+    expect(audio.voiceStats().active).toBe(1);
+    vi.useFakeTimers();
+    try {
+      expect(audio.playCue('outcome.victory')).toBe('played');
+      expect(audio.voiceStats().active).toBe(0);
+      expect(sfxDuck.gain.events).toContainEqual(['linear', 0, DUCK_TABLE.outcome.attackS]);
+      expect(audio.playCue('alert.important')).toBe('blocked');
+      ctx.currentTime = OUTCOME_CUE_BLOCK_S + 0.01;
+      expect(audio.playCue('alert.important')).toBe('played');
+      audio.leaveMission();
+      expect(sfxDuck.gain.events.at(-1)?.[1]).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('leaveMission lets every hold go: combat back to full, music back to the menu level', () => {
+    vi.useFakeTimers();
+    try {
+      const { audio, ctx } = attachedWith((a) => a.useManifest(CUE_MANIFEST, '/a/'));
+      const { sfxDuck } = graph(ctx);
+      audio.setMusicScene('battle');
+      audio.playCue('alert.major');
+      audio.setPaused(true);
+      audio.leaveMission();
+      expect(sfxDuck.gain.events.at(-1)?.[1]).toBe(1);
+      expect(audio.musicSceneNow()).toBe('menu');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('pause stops every voice and steps the music 6 dB down until the menu closes', async () => {
+    stubFetch();
+    const { audio, ctx } = attachedWith((a) => {
+      a.useManifest({ ...CUE_MANIFEST, voices: MANIFEST.voices }, '/a/');
+      a.setVoiceLanguages(['he']);
+    });
+    await vi.waitFor(() => expect(audio.voiceStats().keys).toBe(3));
+    const els = document.querySelectorAll('audio');
+    const el = els[els.length - 1];
+    if (!el) throw new Error('no music element');
+    audio.playVoice({ key: 'he.infantry.move', priority: 'order' });
+    vi.useFakeTimers();
+    try {
+      // Let the bark's own duck settle first, so the reading below is the pause's.
+      ctx.sources.at(-1)?.onended?.();
+      vi.advanceTimersByTime(400);
+      expect(el.volume).toBeCloseTo(0.4);
+      audio.playVoice({ key: 'he.infantry.move', priority: 'order' });
+      audio.setPaused(true);
+      expect(audio.voiceStats().active).toBe(0);
+      vi.advanceTimersByTime(400);
+      expect(el.volume).toBeCloseTo(0.4 * DUCK_TABLE.pause.music);
+      audio.setPaused(false);
+      vi.advanceTimersByTime(400);
+      expect(el.volume).toBeCloseTo(0.4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+// ui:routes `voices (b)` on PR 426: the shipped ack read `placeholder` 83 s
+// after the first gesture. Pass F put eleven more `ui` sets ahead of the voices,
+// and `decodeAll` decoded them ONE AT A TIME before a single voice was asked
+// for; under SwiftShader every await costs a frame, so thirteen sequential
+// fetch+decode rounds kept every line silent for most of a mission. Here each
+// fetch takes one 100 ms "frame": a roster line must be decoded within a few
+// of them, however many ui cues the manifest declares.
+describe('decode latency: ui cues never hold the voices back', () => {
+  it('with thirteen ui sets, the first voice line decodes in a frame or two, not after all of them', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal('fetch', () => new Promise((r) => setTimeout(() => r(OK), 100)));
+      const sets: Record<string, AudioSet> = {};
+      for (let i = 0; i < 13; i++) sets[`cue_${i}`] = { event: 'ui', variants: [{ file: `cue_${i}/c.ogg` }] };
+      const { audio } = attachedWith((a) => {
+        a.useManifest({ ...MANIFEST, sets }, '/a/');
+        a.setVoiceLanguages(['he']);
+      });
+      await vi.advanceTimersByTimeAsync(250);
+      expect(audio.voiceStats().keys).toBeGreaterThanOrEqual(1);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(audio.voiceStats().keys).toBe(3);
+    } finally {
+      vi.useRealTimers();
     }
   });
 });

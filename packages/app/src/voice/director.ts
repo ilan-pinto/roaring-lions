@@ -158,7 +158,10 @@ export function gestureVerb(g: Gesture): { verb: OrderVerb; ids: readonly number
       return pick('demolish', 'demolish');
     case 'charge':
       return pick('chargeTunnel', 'charge');
-    case 'attack':
+    // The cursor's `advance` (an attack-move over a hostile) keeps the
+    // voice's own `attack` call: the radio line is a shout, not a promise
+    // about which enemy is engaged.
+    case 'advance':
       return pick('order', 'attack');
     case 'garrison':
       return pick('garrison', 'garrison');

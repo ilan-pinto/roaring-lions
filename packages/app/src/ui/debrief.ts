@@ -68,21 +68,27 @@ export function clock(ticks: number): string {
 
 export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
   const won = o.result === 'victory';
-  const defeatTitle = t('debrief.defeat.title');
+  // PA-07: ONE name per outcome, the same one the outcome moment, the feed,
+  // the HUD banner and the end panel use (`outcome.*`). The grade a victory
+  // earned ("Named in brigade orders") is a grade, not the outcome's name,
+  // so it sits under the title with the stars rather than replacing it; a
+  // defeat earns no grade and shows none.
   const p = panel({
     rank: 'mission',
-    title: won ? tierName(o.stars) || tierName(1) : defeatTitle,
-    tag: t('debrief.tag', { result: o.result }),
+    title: t(won ? 'outcome.victory' : 'outcome.defeat'),
+    tag: t('debrief.tag'),
     mark: true,
     place: 'top:6%;left:50%;transform:translateX(-50%);width:min(45rem,94vw);max-height:88vh;overflow:auto',
   });
   p.el.classList.add('rl-debrief', 'rl-enter');
   const b = p.body;
 
-  const head = el('div', 'rl-debrief__head');
-  head.appendChild(el('div', 'rl-debrief__tier', won ? tierName(o.stars) : defeatTitle));
-  if (won && o.stars > 0) head.appendChild(el('div', 'rl-debrief__stars', '★'.repeat(o.stars)));
-  b.appendChild(head);
+  if (won) {
+    const head = el('div', 'rl-debrief__head');
+    head.appendChild(el('div', 'rl-debrief__tier', tierName(o.stars) || tierName(1)));
+    if (o.stars > 0) head.appendChild(el('div', 'rl-debrief__stars', '★'.repeat(o.stars)));
+    b.appendChild(head);
+  }
 
   // GH-234: the reward, promoted out of the row grid below and placed as the
   // most visible figure after the result title -- the same wording and the

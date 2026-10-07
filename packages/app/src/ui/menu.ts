@@ -21,6 +21,7 @@ import { markSvg, wordmark } from './mark';
 import { worldMap } from './worldmap';
 import { withdrewLine } from './withdrew';
 import { worldMap3d } from './worldmap3d';
+import { markConfirm } from './confirm-cue';
 
 export interface MenuOptions {
   /** Deploy base ('/' locally, '/<repo>/' on Pages). */
@@ -109,6 +110,8 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
     a.href = href;
     a.className = 'rl-btn rl-menu__item';
     if (kind) a.dataset.kind = kind;
+    // Continue is the menu's one primary action (A8).
+    if (kind === 'primary') markConfirm(a);
     nav.appendChild(a);
   };
   // The FIRST thing a commander's eye lands on (Task 7): where the campaign
@@ -340,7 +343,7 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
  *  behave. Titled "Free play" for a player: it is the same picker the dev
  *  banner and this file's own history call the sandbox, but nothing on the
  *  card should read like an internal name -- a map is shown by its human
- *  name alone, an opt-in extra by its blurb alone, and neither the map id
+ *  name alone, an opt-in extra by a player's sentence alone, and neither the map id
  *  nor the free-play URL it builds prints anywhere on the screen (the flag
  *  name is still on the label's `title`, for the curious who hover it). */
 export function showSandbox(stage: HTMLElement): Disposer {
@@ -357,8 +360,23 @@ export function showSandbox(stage: HTMLElement): Disposer {
   wrap.appendChild(theatre);
 
   // --- the extras ---------------------------------------------------------
+  // Behind a closed "Developer options" disclosure (WP-P2, PA-25): these are
+  // test set-ups for the battlefield, not part of the mode a player came
+  // for, so the picker opens on the maps alone. Each option reads in a
+  // player's words through the catalogue (`freePlay.option.<flag>`); the
+  // console banner keeps `SANDBOX_FLAGS`' own dev blurbs.
+  const dev = document.createElement('details');
+  dev.className = 'rl-sandbox__dev';
+  const devSummary = document.createElement('summary');
+  devSummary.className = 'rl-sandbox__dev-summary';
+  devSummary.textContent = t('menu.sandbox.devOptions');
+  dev.appendChild(devSummary);
   const flagBox = document.createElement('div');
   flagBox.className = 'rl-sandbox__flags';
+  const devHint = document.createElement('p');
+  devHint.className = 'rl-sandbox__dev-hint';
+  devHint.textContent = t('menu.sandbox.devOptions.hint');
+  flagBox.appendChild(devHint);
   const boxes: { name: SandboxFlagName; input: HTMLInputElement }[] = [];
   for (const f of SANDBOX_FLAGS) {
     const label = document.createElement('label');
@@ -369,19 +387,18 @@ export function showSandbox(stage: HTMLElement): Disposer {
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.dataset.flag = f.name;
-    // The table's own blurb, not new prose: one description of a flag, in the
-    // banner and on this screen alike -- and, since the flag's own name moved
-    // to the label's title, the only text a player reads here at all.
-    // `sandbox-help.ts`'s own blurbs are dev-tool text and stay English on
-    // purpose -- see that file's header.
+    // A player's sentence from the catalogue, not `SANDBOX_FLAGS`' own blurb:
+    // that one is console text for a developer ("a synthesised 4×4", "the
+    // kit sign ... to walk") and read as a dev build on this screen (PA-01).
     const blurb = document.createElement('span');
     blurb.className = 'rl-sandbox__blurb';
-    blurb.textContent = /* i18n-ok: dev tool */ f.blurb;
+    blurb.textContent = t(`freePlay.option.${f.name}`);
     label.append(input, blurb);
     flagBox.appendChild(label);
     boxes.push({ name: f.name, input });
   }
-  wrap.appendChild(flagBox);
+  dev.appendChild(flagBox);
+  wrap.appendChild(dev);
 
   // --- the maps -----------------------------------------------------------
   const nav = document.createElement('nav');
@@ -580,6 +597,8 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): Dispos
     else a.textContent = label;
     a.href = href;
     a.className = 'rl-btn';
+    // The onward link -- the next mission -- is the end screen's primary action.
+    if (onward) markConfirm(a);
     nav.appendChild(a);
   };
   if (opts.onDebrief) {

@@ -84,9 +84,9 @@ export interface OutcomeMomentOptions {
    *  an empty paragraph, when there is none. It buys no hold of its own:
    *  `holdMs` is still the whole hold. */
   aftermath?: string;
-  /** Defeat only: which primary failed and when ("FAILED — … · 5:00"), from
+  /** Defeat only: which primary failed and when ("Objective failed: … · 5:00"), from
    *  `failureReason` (`mission-failure.ts`). Drawn straight under the verdict,
-   *  so a lost mission never ends on a bare "Attempt failed" (PR 361). */
+   *  so a lost mission never ends on a bare "Mission failed" (PR 361). */
   reason?: string;
   /** What this win paid into the brigade account (GH-234), already computed
    *  by the caller -- `main.ts` runs `payMission` before this moment ever
@@ -94,6 +94,12 @@ export interface OutcomeMomentOptions {
    *  never a second reader of the account. Victory only; `outcomeMomentOptions`
    *  never sets it on a defeat. */
   credits?: { paid: number; balance: number };
+  /** The outcome line on the radio net (polish pass F, section 5.4: Shai's
+   *  verdict), as text. Always drawn, whatever the captions setting says
+   *  (A5): it is the outcome's caption, and until the lead records the line
+   *  it is the only form it has. The moment covers the HUD's caption slot,
+   *  so it is drawn here rather than there. */
+  radio?: string;
   holdMs?: number;
 }
 
@@ -107,7 +113,7 @@ export interface OutcomeMoment {
 }
 
 /** How long the moment holds a player who does nothing. Short enough that a
- *  player is never stuck looking at it, long enough that "Objective secured"
+ *  player is never stuck looking at it, long enough that "Mission accomplished"
  *  and a one-line closing sentence can both be read before it moves on --
  *  shorter than `titleCard`'s `DISPATCH_HOLD_MS` (a full paragraph of story
  *  prose), longer than its mechanical `DEFAULT_HOLD_MS` (a name and a
@@ -141,6 +147,7 @@ export function outcomeMomentOptions(
     outcome: result,
     title: t(result === 'victory' ? 'outcome.victory' : 'outcome.defeat'),
     ...(say !== undefined ? { line: say.text } : {}),
+    radio: t(result === 'victory' ? 'outcome.radio.victory' : 'outcome.radio.defeat'),
     ...(aftermath ? { aftermath } : {}),
     // Defeat pays nothing (GH-234's own rule, unchanged): the caller never
     // hands one on that path, and this is the second guard even if it did.
@@ -202,6 +209,13 @@ export function outcomeMoment(host: HTMLElement, o: OutcomeMomentOptions): Outco
     line.className = 'rl-outcome__line';
     line.textContent = o.line;
     p.body.appendChild(line);
+  }
+
+  if (o.radio !== undefined) {
+    const radio = document.createElement('p');
+    radio.className = 'rl-outcome__radio';
+    radio.textContent = o.radio;
+    p.body.appendChild(radio);
   }
 
   // The moment's one focusable element: a keyboard path for the same skip

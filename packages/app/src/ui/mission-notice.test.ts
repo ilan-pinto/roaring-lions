@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alertNotice, evacuatedNotice, removedNotice, triggerLabel } from './mission-notice';
+import { alertNotice, evacuatedNotice, placePhrase, reinforceTrigger, removedNotice, triggerLabel } from './mission-notice';
 
 describe('removedNotice', () => {
   it('reads "taken (n)" for a civilian (side 2)', () => {
@@ -72,5 +72,39 @@ describe('alertNotice', () => {
   it('passes the count through as a number, and an escaped apostrophe survives the plural', () => {
     const [html] = alertNotice({ key: 'alert.unitLost', params: { name: "Sahim's squad", n: 2 }, tone: 'bad' });
     expect(html).toBe('<b>lost</b> — Sahim&#39;s squad (2)');
+  });
+});
+
+// WP-P5: where an alert happened, as one phrase.
+describe('placePhrase', () => {
+  it('words one place, two, or a crowd of them', () => {
+    expect(placePhrase([])).toBe('');
+    expect(placePhrase(['here'])).toBe('in view');
+    expect(placePhrase(['ne', 'ne'])).toBe('north-east');
+    expect(placePhrase(['nw', 'here'])).toBe('north-west and in view');
+    expect(placePhrase(['n', 'e', 's'])).toBe('from several sides');
+  });
+
+  it('a line with no place drops its own separator rather than ending on one', () => {
+    const line = { key: 'alert.arrived', params: { name: 'Lavi' }, tone: 'info' as const };
+    expect(alertNotice({ ...line, place: [] })[0]).toBe('<b>reinforcement deployed</b> — Lavi');
+    expect(alertNotice({ ...line, place: ['w'] })[0]).toBe('<b>reinforcement deployed</b> — Lavi · west');
+  });
+});
+
+describe('reinforceTrigger', () => {
+  const mission = {
+    triggers: [
+      { id: 'squad', label: 'Second squad arrives', do: { kind: 'reinforce', units: [{ marker: 'rp' }] } },
+      { id: 'quiet', do: { kind: 'reinforce', units: [{ marker: 'rp' }] } },
+      { label: 'Village rises', do: { kind: 'spawn' } },
+      { label: 'Mortar arrives', do: { kind: 'reinforce', units: [{ marker: 'rp2' }] } },
+    ],
+  };
+  it('finds a labelled reinforce by id or by index, and nothing else', () => {
+    expect(reinforceTrigger(mission, 'squad')).toEqual({ label: 'Second squad arrives', units: [{ marker: 'rp' }] });
+    expect(reinforceTrigger(mission, 'trigger_3')?.label).toBe('Mortar arrives');
+    expect(reinforceTrigger(mission, 'quiet')).toBeNull();
+    expect(reinforceTrigger(mission, 'trigger_2')).toBeNull();
   });
 });

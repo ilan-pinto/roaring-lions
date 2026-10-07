@@ -49,9 +49,17 @@ describe('render order bands', () => {
     expect(FX_RENDER_ORDER_ABOVE).toBeLessThan(OVERLAY_RENDER_ORDER);
   });
 
-  it('the badge numeral sits strictly between the turret and FX bands -- Pixi paints it above every hull/turret sprite but below FX and unitsG', () => {
-    expect(BADGE_NUMERAL_RENDER_ORDER).toBeGreaterThan(TURRET_RENDER_ORDER);
-    expect(BADGE_NUMERAL_RENDER_ORDER).toBeLessThan(FX_RENDER_ORDER);
+  // WP-P4 (PA-18). This band sat at 1.5, between turret and FX, to copy a
+  // Pixi container order -- which put the numeral BELOW the overlay tier its
+  // own badge disc draws in. Both are depthTest:false, so the 95%-opaque disc
+  // painted over the digit on every grouped unit, and the badge read as a
+  // blank lime blob (audit shots-07, shots-09). Pixi is deleted (WP-A3.3);
+  // the numeral and the chevron are now what the table always said they had
+  // to be: above the vertex-coloured overlay tier, below smoke.
+  it('the badge numeral and chevron draw ABOVE the overlay tier their disc draws in, and below smoke', () => {
+    expect(BADGE_NUMERAL_RENDER_ORDER).toBeGreaterThan(OVERLAY_RENDER_ORDER);
+    expect(BADGE_NUMERAL_RENDER_ORDER).toBeLessThan(SMOKE_RENDER_ORDER);
+    expect(BADGE_NUMERAL_RENDER_ORDER).toBeGreaterThan(FX_RENDER_ORDER_ABOVE_ADDITIVE);
   });
 
   it('the occlusion silhouette sits above the overlay and smoke tiers', () => {

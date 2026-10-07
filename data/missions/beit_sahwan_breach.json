@@ -112,7 +112,7 @@
       "type": "survive_until",
       "primary": true,
       "seconds": 300,
-      "text": "Hold until the relief column, 5:00",
+      "text": "Hold until the relief column arrives",
       "clock": false
     },
     {

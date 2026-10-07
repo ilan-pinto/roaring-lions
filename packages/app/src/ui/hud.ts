@@ -31,6 +31,8 @@ import type { KitLevel } from '@lions/data';
 import type { ResolvedCommander } from '../campaign';
 import type { RosterEntry } from '../ledger-store';
 import type { HintLine } from './hint-model';
+import type { AlertTier } from './alerts';
+import { FeedModel } from './feed-model';
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
 import { confirmDialog } from './confirm';
@@ -41,11 +43,13 @@ import { markSvg } from './mark';
 import { fireState } from './fire-state';
 import { invoiceClock, type InvoiceLine } from './conduct-invoice';
 import type { HudElement } from './hud-elements';
+import type { CursorName } from '../input/cursor';
 import { ORDER_SIGHT } from './order-sight';
 import { roleBadgeSvg, roleBucket } from './role';
 import { symbolLabel, symbolSvg } from './symbol';
 import { bindDelegatedTip, bindTip } from './tooltip';
 import { VoiceCaption } from './voice-caption';
+import { weaponName } from './weapon-name';
 import {
   beatDwellMs,
   conductDefinition,
@@ -113,6 +117,16 @@ export interface HudCommanderInfo {
 /** The feed is punctuation, not a log. Four lines is what fits above the dock
  *  without the stack reaching the reinforcements tiles. */
 const FEED_LINES = 4;
+
+/** How long a feed line stays, by tier (WP-P5, C3). The untiered 9 s is what
+ *  every line held before tiers existed; a minor line goes sooner, a major
+ *  one is still up for a player who looked away. Each restarts on a merge. */
+const FEED_DWELL_MS: Readonly<Record<AlertTier | 'none', number>> = {
+  minor: 7000,
+  important: 9000,
+  major: 12000,
+  none: 9000,
+};
 
 /** How far the projected-fire panel sits from the target it describes. Right
  *  and slightly up, so it never covers the unit the player is aiming at. */
@@ -207,6 +221,12 @@ export interface HudDeps {
   getMission: () => MissionView | null;
   hoverStructure: () => number;
   hoverEntity: () => number;
+  /** The cursor the pointer shows right now, bare (`input/cursor.ts`'s
+   *  `CursorName`). The fire panel reads it to say what a right-click on its
+   *  target does (PA-08), so the panel and the cursor are one decision.
+   *  Optional: a caller with no cursor (a test of something else) gets no
+   *  line. */
+  hoverCursor?: () => CursorName;
   gameVersion: string;
   /** Shai's rank/plate for the mission in play, and Idit's static plate --
    *  see `HudCommanderInfo`'s own doc comment. */
@@ -354,6 +374,9 @@ export class Hud {
   private chipViews: ChipView[] = [];
   private readonly clock: HTMLDivElement;
   private readonly feed: HTMLDivElement;
+  /** WP-P5: which feed lines are live, for merging repeats. */
+  private readonly feedModel = new FeedModel();
+  private readonly feedRows = new Map<number, { el: HTMLElement; timer: number }>();
   /** WP-AU1 D8: the caption slot under the feed, never inside it -- see
    *  `voice-caption.ts`. Owns its own hold timer, released in `destroy()`. */
   private readonly captionBox = new VoiceCaption();
@@ -1096,22 +1119,71 @@ export class Hud {
    *  (`e.unit`, the art- and mesh-failed ids), which `unit.schema.json` and
    *  `structure.schema.json` pin to `^[a-z0-9_]+$` -- not every id is so
    *  constrained (a map zone's name is not), so this is a list, not a rule. */
-  note(html: string, tone: Tone = 'live'): void {
+  note(html: string, tone: Tone = 'live', opts: { tier?: AlertTier } = {}): void {
     // GH-345: a hidden feed is inert. A line written while it is hidden would
     // otherwise surface, stale, the moment a beat reveals it.
     if (!this.shown('feed')) return;
-    const el = document.createElement('div');
-    // textToneClass, not `rl-${tone}` by hand: a 'bad'-tone notice sits on
-    // this same rl-plate, and `rl-bad`'s fill red reads 4.01:1 there.
-    el.className = `rl-notice rl-enter rl-plate ${textToneClass(tone)}`;
-    el.innerHTML = html;
-    this.feed.prepend(el);
-    while (this.feed.childElementCount > FEED_LINES) {
-      this.feed.lastElementChild?.remove();
+    const tier = opts.tier;
+    // WP-P5 (PA-06): an identical line merges into the one already saying it
+    // (`feed-model.ts`) -- same words, same tone, same tier -- and the merged
+    // line carries the count, goes back to the top, and starts its dwell
+    // again. Four "under fire" lines for one fact were four of the feed's
+    // four slots.
+    const pushed = this.feedModel.push(`${tone}|${tier ?? ''}|${html}`, performance.now());
+    let row = this.feedRows.get(pushed.line.id);
+    if (pushed.kind === 'merged' && row) {
+      window.clearTimeout(row.timer);
+      let count = row.el.querySelector<HTMLElement>('.rl-notice__count');
+      if (!count) {
+        count = document.createElement('span');
+        count.className = 'rl-notice__count';
+        row.el.append(count);
+      }
+      count.textContent = t('hud.feed.repeat', { n: pushed.line.count });
+      // Back to the top, re-entering, so a repeat is SEEN to repeat.
+      row.el.classList.remove('rl-enter');
+      void row.el.offsetWidth;
+      row.el.classList.add('rl-enter');
+      this.feed.prepend(row.el);
+    } else {
+      const el = document.createElement('div');
+      // textToneClass, not `rl-${tone}` by hand: a 'bad'-tone notice sits on
+      // this same rl-plate, and `rl-bad`'s fill red reads 4.01:1 there.
+      el.className = `rl-notice rl-enter rl-plate ${textToneClass(tone)}`;
+      // The tier is a data attribute the theme styles (WP-P5, C3): minor
+      // smaller and quieter, major heavier and marked. An untiered line --
+      // a dock note, a refusal -- keeps the plain style.
+      if (tier) el.dataset.tier = tier;
+      el.innerHTML = html;
+      this.feed.prepend(el);
+      row = { el, timer: 0 };
+      this.feedRows.set(pushed.line.id, row);
     }
+    const id = pushed.line.id;
+    const live = row;
     // Notices are punctuation, not a log — the roll feed in the debug overlay
-    // is where history lives. These clear themselves so the map stays visible.
-    window.setTimeout(() => leave(el), 9000);
+    // is where history lives. These clear themselves so the map stays
+    // visible, and a heavier line stays up longer (`FEED_DWELL_MS`).
+    live.timer = window.setTimeout(() => this.dropFeedRow(id), FEED_DWELL_MS[tier ?? 'none']);
+    while (this.feed.childElementCount > FEED_LINES) {
+      const last = this.feed.lastElementChild;
+      const lastId = [...this.feedRows].find(([, r]) => r.el === last)?.[0];
+      if (lastId !== undefined) this.dropFeedRow(lastId, false);
+      else last?.remove();
+    }
+  }
+
+  /** A feed line leaves: off the model (nothing merges into it any more), off
+   *  the map of rows, and out of the DOM -- faded when its dwell ran out,
+   *  removed at once when a newer line pushed it off the end. */
+  private dropFeedRow(id: number, fade = true): void {
+    const row = this.feedRows.get(id);
+    if (!row) return;
+    window.clearTimeout(row.timer);
+    this.feedRows.delete(id);
+    this.feedModel.drop(id);
+    if (fade) leave(row.el);
+    else row.el.remove();
   }
 
   /** WP-AU1 D8: show a unit's spoken line as text, in the caption slot under
@@ -1497,9 +1569,18 @@ export class Hud {
    */
   private renderHint(): void {
     this.hint.style.display = '';
-    const hint = this.deps.hint?.();
-    if (!hint) {
+    // No `hint` dep at all is a HUD built without the shell (tests): today's
+    // plain controls line. A dep that answers NULL is `hintFor` saying there
+    // is nothing worth a line (WP-P5: the retired order-row line), and then
+    // the line is not drawn at all -- an empty plate is still a plate.
+    if (!this.deps.hint) {
       this.hint.textContent = t('hud.controlHint');
+      return;
+    }
+    const hint = this.deps.hint();
+    if (!hint) {
+      this.hint.textContent = '';
+      this.hint.style.display = 'none';
       return;
     }
     // `hintFor` answers from facts alone and never sees a binding -- the key
@@ -1543,13 +1624,28 @@ export class Hud {
     const html = this.projectedFireHtml();
     const visible = html !== '';
     this.fire.style.display = visible ? '' : 'none';
-    if (visible) this.fire.innerHTML = html;
+    if (visible) this.fire.innerHTML = html + this.fireClickLine();
     if (!visible) {
       this.fireVisibleStreak = 0;
       return;
     }
     this.fireVisibleStreak++;
     if (this.fireVisibleStreak === FIRE_TAUGHT_STREAK) this.deps.onProjectedFireShown?.();
+  }
+
+  /**
+   * What a right-click on this panel's target does, when the cursor says it
+   * is an attack-move (`advance`) -- which today is every plain order over an
+   * enemy (PA-08). The panel's heading names ONE target and gives odds
+   * against it, and until this line nothing said the click does not aim at
+   * it: the order goes to the tile and the sim chooses what each unit
+   * shoots, so a clicked AA truck read "Engaging: Militia Cell". Read off
+   * the cursor rather than recomputed, so a refused click (`protected`), a
+   * pinned order (`pinned`) or a building verb never gets this line.
+   */
+  private fireClickLine(): string {
+    if (this.deps.hoverCursor?.() !== 'advance') return '';
+    return `<div class="rl-fire__click">${t('hud.fire.clickAdvances')}</div>`;
   }
 
   private projectedFireHtml(): string {
@@ -1598,7 +1694,7 @@ export class Hud {
       const why = worst.length > 0 ? ` · ${worst.join(' · ')}` : '';
       const bounce = p.hurts ? '' : ` · <span class="rl-bad-text">${t('hud.fire.cannotPenetrate')}</span>`;
       rows.push(
-        `<div>${escapeHtml(name)} <b>${chance}%</b> <span class="rl-dim">${escapeHtml(p.weaponId)}${why}</span>${bounce}</div>`
+        `<div>${escapeHtml(name)} <b>${chance}%</b> <span class="rl-dim">${escapeHtml(weaponName(p.weaponId))}${why}</span>${bounce}</div>`
       );
     }
 
@@ -1628,7 +1724,7 @@ export class Hud {
       if (reach === null) return head + `<div class="rl-dim">${t('hud.fire.noneCanEngage')}</div>`;
       return (
         head +
-        `<div class="rl-dim">${t('hud.fire.outOfReach', { weapon: escapeHtml(reach.weapon), n: reach.tiles })}</div>`
+        `<div class="rl-dim">${t('hud.fire.outOfReach', { weapon: escapeHtml(weaponName(reach.weapon)), n: reach.tiles })}</div>`
       );
     }
 
@@ -1921,11 +2017,12 @@ export class Hud {
   ): string {
     const src = this.deps.portrait?.(typeId, slot) ?? null;
     if (src === null) {
-      // Same wording as the brigade screen's own art gap (`brigade.art.noSprite`
-      // -- `{id} — no portrait`, `en.json`): one sentence for "this type
-      // has no picture", wherever it is drawn.
+      // Same wording as the brigade screen's own art gap (`brigade.art.noSprite`,
+      // `en.json`): one sentence for "this type has no picture", wherever it
+      // is drawn -- by the unit's name, never its id (PA-01).
+      const typeName = this.deps.sim.unitTypes.find((u) => u.id === typeId)?.name ?? '';
       return (
-        `<div class="${cls}" data-nosprite="1" title="${escapeHtml(t('brigade.art.noSprite', { id: typeId }))}">` +
+        `<div class="${cls}" data-nosprite="1" title="${escapeHtml(t('brigade.art.noSprite', { name: typeName }))}">` +
         `${roleBadgeSvg(bucket, markSize)}</div>`
       );
     }
@@ -2001,7 +2098,7 @@ export class Hud {
       for (const w of type.weapons) {
         const pen = fx.toNumber(w.penetration);
         arms.push(
-          `<div>${t('hud.card.weapon', { id: escapeHtml(w.id), effective: fx.toNumber(w.effectiveRange).toFixed(1), range: fx.toNumber(w.range).toFixed(0) })}` +
+          `<div>${t('hud.card.weapon', { weapon: escapeHtml(weaponName(w.id)), effective: fx.toNumber(w.effectiveRange).toFixed(1), range: fx.toNumber(w.range).toFixed(0) })}` +
             (pen > 0 ? ` · ${t('hud.card.weaponPen', { n: pen.toFixed(0) })}` : '') +
             (fx.toNumber(w.collateralRisk) >= 0.5 ? ` <span class="rl-warn">${symbolLabel('heavy', t('hud.card.weaponHeavy'))}</span>` : '') +
             `</div>`

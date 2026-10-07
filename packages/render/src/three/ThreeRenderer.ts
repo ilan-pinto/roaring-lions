@@ -154,6 +154,7 @@ import {
   CAMERA_NEAR,
   CAMERA_FAR,
 } from './camera';
+import { structureAtScreenThree, structureBoxes } from './structure-pick';
 import { createSceneLights, DAY_LIGHTS, type ResolvedLights, type SceneLights } from './lighting';
 import {
   BOUNCE_KEY,
@@ -506,6 +507,14 @@ import {
   REFUGE_RING_EDGE_STYLE,
   REFUGE_RING_EDGE_ALPHA,
 } from './units/overlays';
+import {
+  envelopeDraws,
+  GROUP_DESTINATION_MARGIN_TILES,
+  groupRoutes,
+  primaryRingHex,
+  selectionPrimary,
+  type UnitRoute,
+} from './units/group-overlays';
 import { GroundPing } from './units/ground-ping';
 import {
   ELLIPSE_BY_TYPE,
@@ -818,6 +827,16 @@ const PREVIEW_ENVELOPE_STRENGTH = 0.6;
 const BACKBLAST_MAGNITUDE = 0.4;
 const SQUAD_UP = new THREE.Vector3(0, 1, 0);
 const SQUAD_LATERAL = new THREE.Vector3();
+
+/** The control-group badge (WP-P4, PA-18), in overlay pixels -- the same
+ *  zoom-scaled units every overlay here uses. The disc keeps the 7 it always
+ *  had; the halo is a 1.5 px `shadow.1` edge; the numeral quad grows from
+ *  10 x 12 to 12 x 14 now that it is visible at all, which puts a digit
+ *  about 10 px tall inside a 14 px disc at zoom 1. */
+const GROUP_BADGE_RADIUS_PX = 7;
+const GROUP_BADGE_HALO_PX = 1.5;
+const GROUP_NUMERAL_W_PX = 12;
+const GROUP_NUMERAL_H_PX = 14;
 
 export class ThreeRenderer implements Renderer {
   readonly camera: Camera = { x: 24, y: 24, zoom: 1 };
@@ -1985,6 +2004,15 @@ export class ThreeRenderer implements Renderer {
   /** A fading move/attack order crosshair per recent command -- the three.js
    *  counterpart of `PixiRenderer.orderMarkers` (`renderer.ts:488`). */
   private orderMarkers: { x: number; y: number; ttl: number }[] = [];
+  /**
+   * WP-P3 (PA-09): what the last `updateOverlays` drew for the selection,
+   * counted at the draw calls themselves -- range envelopes, route paths,
+   * route destination marks and live order crosshairs. Read by the
+   * group-clutter spec (`ThreeRenderer.group-clutter.test.ts`) and nothing
+   * else; a count kept beside the draw, not recomputed from the selection,
+   * so a draw path that forgets the rule shows up here.
+   */
+  readonly overlayCensus = { envelopes: 0, routes: 0, destinations: 0, orderMarkers: 0 };
 
   /**
    * Task B4.2: fog of war. Per tile: 0 never seen, 1 explored but not
@@ -4857,6 +4885,40 @@ export class ThreeRenderer implements Renderer {
     );
   }
 
+  /**
+   * The standing structure whose DRAWN volume this pixel shows, or -1 (WP-P4,
+   * PA-14) -- `structure-pick.ts`'s top comment has the defect and the rule.
+   * Each box is as big as what this renderer draws there: the standing
+   * mesh's measured size (`buildingMeshBounds`, the numbers the collapse
+   * shroud is sized from) where a mesh clone stands, else the extruded wall.
+   */
+  structureAtScreen(px: number, py: number): number {
+    const st = this.sim.structures;
+    const boxes = structureBoxes(this.sim, this.retained.elevation, (s) => {
+      const type = this.sim.structureTypes[st.typeIdx[s]];
+      const w = st.maxX[s] - st.minX[s] + 1;
+      const d = st.maxY[s] - st.minY[s] + 1;
+      const bounds = this.buildingMeshIdleEntities.has(s) ? this.buildingMeshBounds.get(type.id) : undefined;
+      if (!bounds) return { width: w, height: type.heightPx * WORLD_Y_PER_LIFT_PIXEL, depth: d };
+      // A per-tile run turns a quarter to follow its neighbours, so its
+      // measured x/z are not this tile's; it is one tile and low either way.
+      if (type.perTile) return { width: w, height: bounds.y, depth: d };
+      // The same rule the collapse shroud is sized by: never smaller than
+      // the footprint, as big as the mesh where the mesh is bigger.
+      return { width: Math.max(w, bounds.x), height: bounds.y, depth: Math.max(d, bounds.z) };
+    });
+    return structureAtScreenThree(
+      px,
+      py,
+      this.camera,
+      { width: this.width, height: this.height },
+      boxes,
+      this.retained.elevation,
+      this.sim.width,
+      this.sim.height
+    );
+  }
+
   // --- queries. The line is between *inventing* an answer and *reporting the
   //     current state truthfully*, not between "implemented" and "not".
   /**
@@ -7590,13 +7652,14 @@ export class ThreeRenderer implements Renderer {
     z: number,
     side: number,
     batch: SelectionRingBatch = this.selectionRing,
-    scale: number = SELECTED_RING_SCALE
+    scale: number = SELECTED_RING_SCALE,
+    colorHex: string = this.opts.teamColors[side]
   ): boolean {
     const p = this.ringScratch;
     p.x = x;
     p.z = z;
     p.radiusTiles = ringRadiusFor(type.id, RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type)) * scale;
-    p.color = cachedHexToLinear(this.opts.teamColors[side]);
+    p.color = cachedHexToLinear(colorHex);
     const e = ELLIPSE_BY_TYPE[type.id];
     if (e === undefined) {
       p.alongTiles = undefined;
@@ -7888,6 +7951,11 @@ export class ThreeRenderer implements Renderer {
    */
   private updateOverlays(alpha: number): void {
     this.frameN++;
+    const census = this.overlayCensus;
+    census.envelopes = 0;
+    census.routes = 0;
+    census.destinations = 0;
+    census.orderMarkers = 0;
     this.overlayBatch.beginFrame();
     this.numeralBatch.beginFrame();
     this.chevronBatch.beginFrame();
@@ -7897,6 +7965,15 @@ export class ThreeRenderer implements Renderer {
 
     const st = this.sim.state;
     const n = this.snapshottedCount;
+    // WP-P3 (PA-09, `units/group-overlays.ts`): the selection's primary
+    // carries the one range envelope, and -- only when more than one unit is
+    // selected -- wears its ground ring lightened so it reads apart from the
+    // rest. A single selection keeps the plain team ring.
+    const isDrawn = (i: number): boolean => i < n && st.alive[i] === 1;
+    const primary = selectionPrimary(this.selection, (i) => this.drawsEnvelope(i), isDrawn);
+    let selectedDrawn = 0;
+    for (const i of this.selection) if (isDrawn(i)) selectedDrawn++;
+    const groupPrimary = selectedDrawn > 1 ? primary : -1;
     const elevation = this.retained.elevation;
     const width = this.sim.width;
     const height = this.sim.height;
@@ -8063,19 +8140,32 @@ export class ThreeRenderer implements Renderer {
       // groupColor || '#B8FF5A' })` -- stays for exactly two cases: a
       // garrisoned unit, whose ring belongs on the ROOF it stands on (Q7),
       // and a ring the batch refused (full, or an unusable axis).
-      if (selected && (inside >= 0 || !this.pushSelectionRing(i, type, ix, iy, side))) {
+      const ringHex = i === groupPrimary ? primaryRingHex(this.opts.teamColors[side]) : this.opts.teamColors[side];
+      if (selected && (inside >= 0 || !this.pushSelectionRing(i, type, ix, iy, side, this.selectionRing, SELECTED_RING_SCALE, ringHex))) {
         const ringCenter = billboardPoint(anchor, 0, -2);
         this.overlayBatch.ellipseRing(ringCenter, r + 7, (r + 7) / 2, 2, groupColor || accentDefault, 1);
       }
 
-      // Control-group badge -- renderer.ts: a filled circle (`g.circle(sx -
-      // r - 4, sy - r - 4, 7).fill({ color: groupColor || '#B8FF5A', alpha:
-      // 0.95 })`) plus a numeral Text at the same point. Two batches, not
-      // one -- see units/overlays.ts's own top comment for why.
+      // Control-group badge: a disc in the group's colour with its numeral
+      // on top, in two batches (units/overlays.ts's top comment says why).
+      // WP-P4 (PA-18): the numeral used to draw UNDER the disc
+      // (`BADGE_NUMERAL_RENDER_ORDER` was 1.5, the disc's tier is 4), so the
+      // badge was a blank lime blob at every zoom. It now draws above it,
+      // a size up, and the disc wears the `shadow.1` halo every ring in the
+      // world vocabulary wears (#364), so a pale disc holds its edge on
+      // pale sand. The disc's own size is unchanged.
       if (grp > 0) {
         const badgeCenter = billboardPoint(anchor, -(r + 4), r + 4);
-        this.overlayBatch.ellipseFan(badgeCenter, 7, 7, groupColor || accentDefault, 0.95);
-        this.numeralBatch.push(badgeCenter, 0, 0, 10, 12, grp);
+        const haloR = GROUP_BADGE_RADIUS_PX + GROUP_BADGE_HALO_PX;
+        this.overlayBatch.ellipseFan(badgeCenter, haloR, haloR, this.overlayColor('shadow.1', '#14150F'), 0.85);
+        this.overlayBatch.ellipseFan(
+          badgeCenter,
+          GROUP_BADGE_RADIUS_PX,
+          GROUP_BADGE_RADIUS_PX,
+          groupColor || accentDefault,
+          1
+        );
+        this.numeralBatch.push(badgeCenter, 0, 0, GROUP_NUMERAL_W_PX, GROUP_NUMERAL_H_PX, grp);
       }
 
       // Veterancy chevron (spec §4.7): top-right, opposite the group badge, one quad
@@ -8242,26 +8332,20 @@ export class ThreeRenderer implements Renderer {
     // out once so this, the shepherd radius below, and the tutorial focus
     // ring above all share the identical formula.
     //
-    // The loop runs over the selection and then, at reduced strength, once
-    // more for `rangeRingPreview` -- the friendly unit under the cursor,
-    // written by `main.ts`'s `updateHover`. That is a SEPARATE field from
-    // `hoverEntity`, which stays the hostile hover the cursor hinting and the
-    // projected-fire panel read (api.ts has both comments). It is skipped
-    // when it is already in the selection, which draws at full strength.
+    // It draws for the selection's PRIMARY only (WP-P3, PA-09 -- fourteen
+    // selected units drew fourteen of these until 6 Oct 2026), and then, at
+    // reduced strength, once more for `rangeRingPreview` -- the friendly unit
+    // under the cursor, written by `main.ts`'s `updateHover`, selected or
+    // not. That is a SEPARATE field from `hoverEntity`, which stays the
+    // hostile hover the cursor hinting and the projected-fire panel read
+    // (api.ts has both comments). Hovering the primary itself adds nothing.
     {
-      const preview = this.rangeRingPreview;
-      const previewDraws =
-        preview >= 0 && preview < n && !this.selection.includes(preview) && this.drawsEnvelope(preview);
-      // How many envelopes this frame will actually draw -- NOT
-      // `selection.length`, which counts the dead and the unarmed. It decides
-      // the fill's per-unit alpha (`rangeFillAlphaFor`'s own doc comment has
-      // the photograph that made this necessary), so counting high would make
-      // the whole shape fainter than it declares. Counted in a loop rather
-      // than with a `filter`, because this runs every frame and the rest of
-      // this method allocates nothing per entity either.
-      let drawing = previewDraws ? 1 : 0;
-      for (const i of this.selection) if (this.drawsEnvelope(i)) drawing++;
-      const fillAlpha = rangeFillAlphaFor(drawing);
+      // WP-P3 (PA-09): the primary's envelope, plus the friendly under the
+      // cursor as a preview -- two at most, never one per selected unit
+      // (`units/group-overlays.ts`). The count still picks the fill's
+      // per-unit alpha (`rangeFillAlphaFor`'s own doc comment).
+      const draws = envelopeDraws(primary, this.rangeRingPreview, (i) => this.drawsEnvelope(i));
+      const fillAlpha = rangeFillAlphaFor(draws.length);
       const drawEnvelope = (i: number, previewing: boolean): void => {
         if (!this.drawsEnvelope(i)) return;
         const type = this.sim.unitTypes[st.typeIdx[i]];
@@ -8274,6 +8358,7 @@ export class ThreeRenderer implements Renderer {
           const { rightR, upR } = tileRadiusToEllipsePx(tiles, TILE_W, TILE_H);
           this.overlayBatch.ellipseRing(envelopeAnchor, rightR, upR, widthPx, colorHex, a);
         };
+        census.envelopes++;
         const w0 = type.weapons[0];
         const fillHex = cachedDesaturate(this.opts.teamColors[st.side[i]], RANGE_FILL_DESATURATE);
         // A preview is a hint at a unit the player has not committed to, so
@@ -8298,8 +8383,7 @@ export class ThreeRenderer implements Renderer {
         this.overlayBatch.ellipseRing(envelopeAnchor, outer.rightR, outer.upR, 1.5, fillHex, RANGE_ARC_ALPHA * strength);
         ring(fx.toNumber(w0.range), fillHex, 1, MAX_RANGE_HOOP_ALPHA * strength);
       };
-      for (const i of this.selection) drawEnvelope(i, false);
-      if (previewDraws) drawEnvelope(preview, true);
+      for (const d of draws) drawEnvelope(d.id, d.previewing);
     }
 
     // Shepherd radius: when a player unit is selected, highlight nearby
@@ -8348,6 +8432,7 @@ export class ThreeRenderer implements Renderer {
     // `void`ed) -- a 20 Hz tail on a 60 fps sprite.
     if (this.selection.length > 0) {
       const routeColor = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY, '#B8FF5A');
+      const unitRoutes: UnitRoute[] = [];
       for (const i of this.selection) {
         if (i >= n || st.alive[i] === 0 || st.moving[i] === 0) continue;
         const ix = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
@@ -8359,7 +8444,18 @@ export class ThreeRenderer implements Renderer {
           const [wx, wy] = this.sim.waypointAt(i, k);
           waypoints.push([fx.toNumber(wx), fx.toNumber(wy)]);
         }
-        const legs = queuedRouteLegs([ix, iy], [fx.toNumber(goal[0]), fx.toNumber(goal[1])], waypoints);
+        unitRoutes.push({ points: queuedRouteLegs([ix, iy], [fx.toNumber(goal[0]), fx.toNumber(goal[1])], waypoints) });
+      }
+      // WP-P3 (PA-09): one path per ORDER, not per unit -- the units an
+      // order sent to one place (a formation's neighbouring slots) draw one
+      // merged route from their centroid to the group's destination, and a
+      // ring round the slots they will stand on (`units/group-overlays.ts`).
+      // One unit alone is its own group, and draws exactly what it drew.
+      for (const route of groupRoutes(unitRoutes)) {
+        const legs = route.points;
+        if (legs.length < 2) continue;
+        census.routes++;
+        census.destinations++;
         for (let k = 1; k < legs.length; k++) {
           const [ax, ay] = legs[k - 1];
           const [bx, by] = legs[k];
@@ -8367,6 +8463,14 @@ export class ThreeRenderer implements Renderer {
           const p1: [number, number, number] = [bx, groundWorldY(elevation, width, height, bx, by), by];
           this.overlayBatch.lineWorld(p0, p1, ROUTE_LINE_WIDTH_PX, routeColor, ROUTE_LINE_ALPHA);
           this.overlayBatch.ellipseFan(p1, ROUTE_NODE_RADIUS_PX, ROUTE_NODE_RADIUS_PX, routeColor, ROUTE_NODE_ALPHA);
+          if (k === legs.length - 1 && route.members > 1) {
+            const { rightR, upR } = tileRadiusToEllipsePx(
+              route.spreadTiles + GROUP_DESTINATION_MARGIN_TILES,
+              TILE_W,
+              TILE_H
+            );
+            this.overlayBatch.ellipseRing(p1, rightR, upR, ROUTE_LINE_WIDTH_PX, routeColor, ROUTE_NODE_ALPHA);
+          }
         }
       }
     }
@@ -8375,6 +8479,7 @@ export class ThreeRenderer implements Renderer {
     // = this.orderMarkers.filter((m) => --m.ttl > 0)`, then a crosshair plus
     // a fading ring per survivor.
     this.orderMarkers = this.orderMarkers.filter((m) => --m.ttl > 0);
+    census.orderMarkers = this.orderMarkers.length;
     if (this.orderMarkers.length > 0) {
       const markerColor = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY, '#B8FF5A');
       for (const m of this.orderMarkers) {
