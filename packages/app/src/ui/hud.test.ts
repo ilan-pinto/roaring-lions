@@ -2694,9 +2694,12 @@ describe('projected fire wording (GH-345)', () => {
     expect(text).toContain('target moving −40%');
     expect(text).toContain('Wait for it to stop');
   });
-  it('D: out of reach names range AND sight and the reach, read from unit data', () => {
+  // Pass C2/C4 (D4, PA-15): it says WHICH -- here the target stands inside
+  // the rifles' 8 tiles, so the one reason left in `projectHit` is sight.
+  it('D: no shot names which reason, not "range or sight"', () => {
     const text = firePanel({ kind: 'noSolution' });
-    expect(text).toContain('Out of range or out of sight · Rifles reach 8 tiles');
+    expect(text).toContain('No line of sight · in range, but something is in the way');
+    expect(text).not.toContain('Out of range or out of sight');
     expect(text).not.toContain('no unit can engage');
   });
   // WP-P4 (PA-08): the heading names one target and gives odds on it, and

@@ -323,6 +323,76 @@ export function worstPenalties(factors: [string, number][]): string[] {
     .map(([label, v]) => t('hud.fire.penalty', { label, n: Math.round((1 - v) * 100) }));
 }
 
+/** Whose a fire-panel factor is (pass C2/C4, D4, PA-15): the TARGET's
+ *  (range, cover, it moving) or OURS (firing on the move, our own
+ *  suppression). "suppressed −20%" beside "cover −91%" read as the target's. */
+export type FactorSide = 'them' | 'us';
+
+/**
+ * `worstPenalties`' two worst factors, grouped by whose they are -- "them"
+ * first, then "us", each group named once -- as catalogue-formatted parts.
+ * The group words come from the caller (`t()` lives there), so this stays
+ * the same pure selection `worstPenalties` makes.
+ */
+export function groupedPenalties(
+  factors: readonly [string, number, FactorSide][],
+  words: Readonly<Record<FactorSide, string>>
+): string[] {
+  const worst = factors
+    .filter(([, v]) => v < 0.995)
+    .sort((a, b) => a[1] - b[1])
+    .slice(0, 2);
+  const out: string[] = [];
+  for (const side of ['them', 'us'] as const) {
+    const mine = worst.filter((f) => f[2] === side);
+    if (mine.length === 0) continue;
+    out.push(
+      `${words[side]} ` + mine.map(([label, v]) => t('hud.fire.penalty', { label, n: Math.round((1 - v) * 100) })).join(' · ')
+    );
+  }
+  return out;
+}
+
+/** Why a shooter has no shot at a target (pass C2/C4, D4). */
+export type NoShotReason = 'gunOut' | 'contained' | 'outOfRange' | 'tooClose' | 'noSight' | 'mixed';
+
+export interface ShooterReach {
+  readonly gunOut: boolean;
+  /** Distance to the target, tiles. */
+  readonly distTiles: number;
+  readonly weapons: readonly { readonly range: number; readonly minRange: number }[];
+}
+
+/**
+ * The reason the sim's `projectHit` answered `noSolution`, derived from what
+ * it reads, in its own order: the shooter's gun knocked out
+ * (`firepowerKilled`), the target inside a building, a vehicle or a tunnel,
+ * then each weapon's range and minimum range -- and LOS as the remainder,
+ * which is exact: inside `projectHit`'s weapon loop, once range and minimum
+ * range pass, `losRay` is the only check left (an indirect weapon needs no
+ * sight and would have produced a shot). One reason for the whole selection
+ * when every shooter shares it, else `mixed`.
+ */
+export function noShotReason(shooters: readonly ShooterReach[], targetContained: boolean): NoShotReason {
+  const reasons = new Set<NoShotReason>();
+  for (const s of shooters) {
+    if (s.gunOut) {
+      reasons.add('gunOut');
+      continue;
+    }
+    if (targetContained) {
+      reasons.add('contained');
+      continue;
+    }
+    const inReach = s.weapons.some((w) => s.distTiles <= w.range && s.distTiles >= w.minRange);
+    if (inReach) reasons.add('noSight');
+    else if (s.weapons.some((w) => s.distTiles < w.minRange)) reasons.add('tooClose');
+    else reasons.add('outOfRange');
+  }
+  if (reasons.size === 1) return [...reasons][0];
+  return 'mixed';
+}
+
 /**
  * Page the commander's briefing beats.
  *

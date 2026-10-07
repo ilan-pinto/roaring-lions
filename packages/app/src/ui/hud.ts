@@ -63,7 +63,8 @@ import {
   stepBeat,
   stripObjectives,
   textToneClass,
-  worstPenalties,
+  groupedPenalties,
+  noShotReason,
   type MissionView,
   type Tone,
 } from './hud-model';
@@ -1733,13 +1734,20 @@ export class Hud {
       // Name only the factors actually degrading the shot, worst first, as
       // PENALTIES (GH-345 decision 5: "cover −86%", not the multiplier).
       // accuracy is the weapon's baseline, not a penalty the player can act on.
-      const worst = worstPenalties([
-        [t('hud.fire.factor.range'), fx.toNumber(p.factors.rangeFalloff)],
-        [t('hud.fire.factor.cover'), fx.toNumber(p.factors.coverMod)],
-        [t('hud.fire.factor.targetMoving'), fx.toNumber(p.factors.motionMod)],
-        [t('hud.fire.factor.firingOnTheMove'), fx.toNumber(p.factors.stanceMod)],
-        [t('hud.fire.factor.suppressed'), fx.toNumber(p.factors.suppressionMod)],
-      ]);
+      // Pass C2/C4 (D4, PA-15): grouped by WHOSE -- the target's ("them")
+      // and the shooter's own ("us") -- and our suppression named by its
+      // band, so "suppressed −20%" can no longer read as the target's.
+      const ourBand = combatBand(fx.toNumber(sim.state.suppression[s]), false, false);
+      const worst = groupedPenalties(
+        [
+          [t('hud.fire.factor.range'), fx.toNumber(p.factors.rangeFalloff), 'them'],
+          [t('hud.fire.factor.cover'), fx.toNumber(p.factors.coverMod), 'them'],
+          [t('hud.fire.factor.targetMoving'), fx.toNumber(p.factors.motionMod), 'them'],
+          [t('hud.fire.factor.firingOnTheMove'), fx.toNumber(p.factors.stanceMod), 'us'],
+          [ourBand === 'suppressed' ? t('hud.fire.factor.suppressed') : t('hud.fire.factor.shaken'), fx.toNumber(p.factors.suppressionMod), 'us'],
+        ],
+        { them: `<span class="rl-fire__grp">${t('hud.fire.them')}</span>`, us: `<span class="rl-fire__grp">${t('hud.fire.us')}</span>` }
+      );
       const why = worst.length > 0 ? ` · ${worst.join(' · ')}` : '';
       const bounce = p.hurts ? '' : ` · <span class="rl-bad-text">${t('hud.fire.cannotPenetrate')}</span>`;
       rows.push(
@@ -1754,7 +1762,13 @@ export class Hud {
     const remedy = (key: string): string => `<div class="rl-fire__why">${t(key)}</div>`;
 
     const target = sim.unitTypes[sim.state.typeIdx[hoverId]].name;
-    const head = `<div class="rl-label">${t('hud.fire.heading', { target: escapeHtml(target) })}</div>`;
+    // Pass C2/C4 (D4): a pinned target cannot shoot back -- the tutorial's
+    // own lesson (`hud.hint.first.pins`), said where the shot is weighed.
+    const targetPinned =
+      sim.state.pinned[hoverId] === 1 && sim.state.routed[hoverId] !== 1
+        ? ` <span class="rl-hot rl-fire__note">${symbolSvg('pinned', STRIP_GLYPH_PX)} ${t('hud.fire.targetPinned')}</span>`
+        : '';
+    const head = `<div class="rl-label">${t('hud.fire.heading', { target: escapeHtml(target) })}${targetPinned}</div>`;
     if (rows.length === 0 && unidentified > 0 && cannot === 0 && holdingFire === 0) {
       return head + `<div class="rl-dim">${t('hud.fire.unidentifiedOnly')}</div>` + remedy('hud.fire.why.unidentified');
     }
@@ -1771,10 +1785,7 @@ export class Hud {
       // read from unit data.
       const reach = this.longestReach(sel);
       if (reach === null) return head + `<div class="rl-dim">${t('hud.fire.noneCanEngage')}</div>`;
-      return (
-        head +
-        `<div class="rl-dim">${t('hud.fire.outOfReach', { weapon: escapeHtml(weaponName(reach.weapon)), n: reach.tiles })}</div>`
-      );
+      return head + `<div class="rl-dim">${this.noShotLine(sel, hoverId, reach)}</div>`;
     }
 
     const extra = sel.length - rows.length - cannot - unidentified - holdingFire;
@@ -1787,6 +1798,45 @@ export class Hud {
     const advice =
       state === 'cover' ? remedy('hud.fire.why.cover') : state === 'moving' ? remedy('hud.fire.why.moving') : '';
     return head + rows.join('') + foot + advice;
+  }
+
+  /**
+   * Which reason the selection has no shot (pass C2/C4, D4) -- "Out of range
+   * or out of sight" said neither. Derived from what `projectHit` reads, in
+   * its order (`noShotReason`), and worded with the one number to act on.
+   */
+  private noShotLine(sel: readonly number[], target: number, reach: { weapon: string; tiles: number }): string {
+    const sim = this.deps.sim;
+    const st = sim.state;
+    const tx = fx.toNumber(st.posX[target]);
+    const ty = fx.toNumber(st.posY[target]);
+    const shooters = sel.map((s) => ({
+      gunOut: st.firepowerKilled[s] === 1,
+      distTiles: Math.hypot(fx.toNumber(st.posX[s]) - tx, fx.toNumber(st.posY[s]) - ty),
+      weapons: sim.unitTypes[st.typeIdx[s]].weapons.map((w) => ({
+        range: fx.toNumber(w.range),
+        minRange: Math.sqrt(Math.max(0, fx.toNumber(w.minRangeSq))),
+      })),
+    }));
+    const contained = st.garrisonedIn[target] >= 0 || st.carriedBy[target] >= 0 || st.tunnelIn[target] >= 0;
+    const weapon = escapeHtml(weaponName(reach.weapon));
+    const nearest = Math.round(Math.min(...shooters.map((s) => s.distTiles)));
+    const minRange = Math.round(Math.max(0, ...shooters.flatMap((s) => s.weapons.map((w) => w.minRange))));
+    const head = (key: string, cls = 'rl-mute'): string => `<b class="${cls}">${t(key)}</b>`;
+    switch (noShotReason(shooters, contained)) {
+      case 'gunOut':
+        return `<b class="rl-bad-text">${symbolSvg('gunOut', STRIP_GLYPH_PX)} ${t('hud.state.gunOut')}</b> · ${t('hud.fire.why.gunOut')}`;
+      case 'contained':
+        return `${head('hud.fire.contained')} · ${t('hud.fire.why.contained')}`;
+      case 'outOfRange':
+        return `${head('hud.fire.outOfRange')} · ${t('hud.fire.why.outOfRange', { weapon, n: reach.tiles, d: nearest })}`;
+      case 'tooClose':
+        return `${head('hud.fire.tooClose')} · ${t('hud.fire.why.tooClose', { n: minRange })}`;
+      case 'noSight':
+        return `${head('hud.fire.noSight')} · ${t('hud.fire.why.noSight')}`;
+      case 'mixed':
+        return t('hud.fire.outOfReach', { weapon, n: reach.tiles });
+    }
   }
 
   /** The longest weapon any selected unit carries, by its authored range in

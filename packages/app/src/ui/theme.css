@@ -2424,6 +2424,17 @@ body {
 .rl-card__record, .rl-card__replaces { font-size: var(--t-s); }
 /* Who the selected unit is shooting -- the card half of the fire link,
    beside the condition line. Hostile tone, the target's chip art. */
+/* Pass C2/C4 (D4): the fire panel names whose a factor is -- "them", "us" --
+   in the label face, and a pinned target's note sits in the heading. */
+.rl-fire__grp {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  font-size: var(--t-xs);
+  color: var(--ink-label);
+}
+.rl-fire__note { letter-spacing: 0; text-transform: none; }
 /* Pass C2/C4 (D1-D3): the condition line leads with the unit's combat state
    in display caps, and what the state costs follows it in plain words; the
    clocks sit on their own line; the suppression meter below is two cells and
