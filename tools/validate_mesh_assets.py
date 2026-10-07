@@ -1110,6 +1110,13 @@ KIT_TIERS = (1, 2, 3)
 KIT_MAX_VARIANT = "max"
 # Spec §3 / plan 3 "Budgets": every vehicle at maximum kit, all parts summed.
 KIT_TRI_LIMIT = 5000
+# The vehicles that OWE a kit. Parsed out of `tools/src/meshes/kit-contract.ts`'s
+# `KIT_VEHICLES` (the list the kit pass and the draw-call harness read) rather
+# than restated, so the three cannot drift. `check_vehicle_kits` iterates the
+# kit nodes that EXIST; without a list of what is OWED, a vehicle whose kit
+# was never grafted, or that lost one tier of one track, is checked zero
+# times and passes. `check_kit_owed` closes that.
+KIT_CONTRACT_TS = os.path.join(REPO, "tools", "src", "meshes", "kit-contract.ts")
 _TRS_DEFAULTS = {"translation": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0],
                  "scale": [1.0, 1.0, 1.0]}
 
@@ -1306,6 +1313,86 @@ def check_vehicle_kits(vehicles_root, units_root):
     return failures, summaries, tracks_by_unit
 
 
+def kit_vehicles(path=KIT_CONTRACT_TS):
+    """`KIT_VEHICLES` parsed out of the TypeScript contract. Raises rather than
+    returning an empty list: an empty list owes nothing and would pass."""
+    import re
+    with open(path) as fh:
+        src = fh.read()
+    m = re.search(r"export const KIT_VEHICLES\b[^=]*=\s*\[(.*?)\]", src, re.S)
+    if not m:
+        raise SystemExit(f"{path}: no `export const KIT_VEHICLES = [...]` to read")
+    ids = [a or b for a, b in re.findall(r"'([a-z0-9_]+)'|\"([a-z0-9_]+)\"", m.group(1))]
+    if not ids:
+        raise SystemExit(f"{path}: KIT_VEHICLES parsed as empty")
+    return ids
+
+
+def check_kit_owed(vehicles_root, units_root, owed):
+    """Every vehicle in `owed` (`KIT_VEHICLES`) carries a kit, and at least one
+    `kit_*` node for EVERY (track, tier) its unit JSON declares under
+    `upgrades` -- the converse of `check_vehicle_kits`, which holds the nodes
+    that exist to the contract and so cannot see one that is missing. A tier
+    the player can buy with no node behind it draws nothing on purchase, and
+    every render this gate makes would still pass: the variant that owes it
+    just shows one tier less.
+
+    Read straight from the JSON chunk; a node counts toward its (track, tier)
+    if its name starts `kit_`, it carries an `extras.rl_kit` dict, and it is
+    not under `death_root` -- whether it is otherwise well-formed is
+    `check_vehicle_kits`' job, which runs beside this one.
+
+    Returns (failures, lines), one line per owed vehicle."""
+    failures = []
+    lines = []
+    for unit_id in owed:
+        path = os.path.join(vehicles_root, f"{unit_id}.glb")
+        name = os.path.relpath(path, REPO)
+        if name.startswith(os.pardir):
+            name = path
+        if not os.path.isfile(path):
+            failures.append(f"{name}: missing -- {unit_id} is in KIT_VEHICLES "
+                            f"(tools/src/meshes/kit-contract.ts) and owes a kit")
+            continue
+        upgrades, why = _unit_upgrades(unit_id, units_root)
+        if upgrades is None:
+            failures.append(f"{name}: {unit_id} is in KIT_VEHICLES but {why}")
+            continue
+        declared = {(track, tier) for track, spec in upgrades.items()
+                    for tier in range(1, len((spec or {}).get("tiers", [])) + 1)}
+        if not declared:
+            failures.append(f"{name}: {unit_id} is in KIT_VEHICLES but its unit JSON declares no "
+                            f"upgrade tier -- nothing to owe a kit for")
+            continue
+        gltf = _read_glb_json(path)
+        nodes = gltf.get("nodes", [])
+        under_death = set()
+        for d, n in enumerate(nodes):
+            if n.get("name") == DEATH_ROOT_NODE:
+                under_death |= set(_wreck_subtree(nodes, d)) | {d}
+        have = {}
+        for i, n in enumerate(nodes):
+            info = (n.get("extras") or {}).get("rl_kit")
+            if (i in under_death or not (n.get("name") or "").startswith(KIT_NODE_PREFIX)
+                    or not isinstance(info, dict)):
+                continue
+            key = (info.get("track"), info.get("tier"))
+            have[key] = have.get(key, 0) + 1
+        if not have:
+            failures.append(f"{name}: carries no kit at all -- {unit_id} is in KIT_VEHICLES and "
+                            f"declares {len(declared)} (track, tier) upgrade(s); run "
+                            f"`pnpm kit:meshes`")
+            continue
+        missing = sorted(declared - set(have))
+        if missing:
+            failures.append(
+                f"{name}: no kit node for {', '.join(f'{t} {k}' for t, k in missing)} -- the unit "
+                f"JSON declares the tier, so buying it would draw nothing")
+        lines.append(f"{unit_id}: {len(declared)} declared (track, tier), "
+                     f"{len(declared) - len(missing)} with kit node(s)")
+    return failures, lines
+
+
 def load_kit_masks(out_dir, palette_path):
     """The kitted renders, `<out>/<unit>/kit_<variant>_f00_000.png`, quantized
     and masked exactly as the shipped renders are (`load_mesh_masks`). Every
@@ -1315,9 +1402,12 @@ def load_kit_masks(out_dir, palette_path):
     painted maximum also takes `check_image` unless the unit is a textured
     exemption (the same rule as its shipped render).
 
-    Returns (failures, {unit: {variant: mask}})."""
+    Returns (failures, {unit: {variant: mask}}, [units whose painted maximum
+    skipped `check_image` as a textured exemption]) -- the last for the
+    passing path's `NOT palette-checked` line."""
     failures = []
     kit_masks = {}
+    not_palette_checked = []
     targets, _ = qs.load_targets(palette_path)
     allowed, reserved = va.load_palette(palette_path)
     for path in sorted(glob.glob(os.path.join(out_dir, "*", "kit_*_f00_000.png"))):
@@ -1326,11 +1416,14 @@ def load_kit_masks(out_dir, palette_path):
         qs.quantize(path, targets, check_only=False)
         for e in va.check_framing(path):
             failures.append(f"{unit_id} kit {variant}: {e}")
-        if variant == KIT_MAX_VARIANT and not textured_exempt(unit_id):
-            for e in va.check_image(path, allowed, reserved):
-                failures.append(f"{unit_id} kit {variant}: {e}")
+        if variant == KIT_MAX_VARIANT:
+            if textured_exempt(unit_id):
+                not_palette_checked.append(unit_id)
+            else:
+                for e in va.check_image(path, allowed, reserved):
+                    failures.append(f"{unit_id} kit {variant}: {e}")
         kit_masks.setdefault(unit_id, {})[variant] = va.silhouette(path)
-    return failures, kit_masks
+    return failures, kit_masks, not_palette_checked
 
 
 def check_kit_census(kit_masks, tracks_by_unit):
@@ -1703,11 +1796,18 @@ def main():
         kit_failures, kit_summaries, kit_tracks = check_vehicle_kits(
             vehicles_dir, os.path.join(REPO, "data", "units"))
         failures.extend(kit_failures)
-        kit_render_failures, kit_masks = load_kit_masks(out_dir, args.palette)
+        owed_failures, owed_lines = check_kit_owed(
+            vehicles_dir, os.path.join(REPO, "data", "units"), kit_vehicles())
+        failures.extend(owed_failures)
+        kit_render_failures, kit_masks, textured_kit = load_kit_masks(out_dir, args.palette)
         failures.extend(kit_render_failures)
         failures.extend(check_kit_census(kit_masks, kit_tracks))
         kit_collisions, kit_worst = check_kit_collisions(kit_masks, mesh_masks)
         failures.extend(kit_collisions)
+        print(f"  kit: {len(owed_lines)} of {len(kit_vehicles())} KIT_VEHICLES carry a node for "
+              f"every declared (track, tier) --")
+        for line in owed_lines:
+            print(f"    {line}")
         if kit_summaries:
             print(f"  kit: {len(kit_summaries)} kitted vehicle(s), from the GLB bytes --")
             for line in kit_summaries:
@@ -1783,6 +1883,16 @@ def main():
             print(f"  NOT palette-checked -- {len(textured)} textured mesh(es) ship their own "
                   f"baked material by the project lead's instruction: {', '.join(sorted(textured))}")
             print("  (silhouette IoU still applied to them; see TEXTURED_MESH_EXEMPT)")
+        if textured_kit:
+            # The kit's own line, for the building line's reason: the painted
+            # maximum-kit render skips `check_image` exactly as its shipped
+            # render does, and a green gate must not read as "the kit's
+            # colours were checked". They are the host's own bake texels,
+            # pinned by the kit exporter; nothing here looks at them.
+            print(f"  NOT palette-checked -- {len(textured_kit)} kitted vehicle(s)' maximum-kit "
+                  f"render(s) ship their host's baked material: {', '.join(sorted(textured_kit))}")
+            print("  (every kit variant is still framing- and silhouette-IoU-checked; see "
+                  "load_kit_masks)")
         if textured_decor:
             # Same reasoning as the building line above, and deliberately on
             # the PASSING path: the thing worth catching is a reader assuming

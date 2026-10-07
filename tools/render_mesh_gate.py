@@ -198,6 +198,10 @@ KIT_PREFIX = "kit_"
 KIT_TRACK_LETTER = {"armour": "A", "sensors": "S", "firepower": "F"}
 KIT_LEVELS = (1, 2, 3)
 KIT_MAX_VARIANT = "max"
+# Samples for the kit MASK variants (`render_vehicle_kit`). Cycles, CPU, the
+# shipped render's own film, filter and camera; only the alpha is read
+# (downsampled to 64 px and thresholded, `validate_assets.silhouette`).
+KIT_MASK_SAMPLES = SAMPLES
 
 # The directory this gate treats as `art/meshes/vehicles/`. `--vehicles-dir`
 # replaces it (discovery AND classification), which is the falsification hook:
@@ -669,14 +673,17 @@ def render_vehicle_kit(unit_id, kit_stashed, cam, out_dir):
       * `kit_max_f00_000.png` -- every kit node, painted from the vehicle's
         palette row, through Cycles like the shipped render, so it can take
         `check_image` where the unit is not a textured exemption.
-      * `kit_<V>_f00_000.png` for every `kit_variants` entry -- Workbench
-        masks (flat, 8x AA, transparent film), which is how the spec measured
-        them (`kit_blockout.py`'s gate pass) and a fraction of a Cycles
-        render's cost. Only the alpha is read.
+      * `kit_<V>_f00_000.png` for every `kit_variants` entry -- masks, of
+        which only the alpha is read, through the SAME Cycles engine, film
+        and pixel filter as the shipped render they are compared against
+        (`KIT_MASK_SAMPLES`, below). They were Workbench until review: an
+        engine this gate had never run on CI's headless ubuntu Blender, and a
+        different rasteriser from the one that made every mask it is held
+        against.
 
-    Leaves the scene as it found it: every kit node unlinked, the engine back
-    on Cycles and the camera re-fitted to the live bounds, so the wreck
-    render that follows is the one it was before this existed.
+    Leaves the scene as it found it: every kit node unlinked, the sample
+    count and denoiser restored and the camera re-fitted to the live bounds,
+    so the wreck render that follows is the one it was before this existed.
     """
     groups = []
     roots = [o for o, _ in kit_stashed if o.name.startswith(KIT_PREFIX)]
@@ -699,11 +706,13 @@ def render_vehicle_kit(unit_id, kit_stashed, cam, out_dir):
     bpy.ops.render.render(write_still=True)
     written.append((KIT_MAX_VARIANT, path))
 
-    engine = scene.render.engine
-    scene.render.engine = "BLENDER_WORKBENCH"
-    scene.display.shading.light = "FLAT"
-    scene.display.shading.color_type = "SINGLE"
-    scene.display.render_aa = "8"
+    if scene.render.engine != "CYCLES" or not scene.render.film_transparent:
+        raise SystemExit(f"{unit_id}: kit masks expect the shipped render's Cycles + transparent "
+                         f"film, found {scene.render.engine} film_transparent="
+                         f"{scene.render.film_transparent}")
+    samples, denoise = scene.cycles.samples, scene.cycles.use_denoising
+    scene.cycles.samples = KIT_MASK_SAMPLES
+    scene.cycles.use_denoising = KIT_MASK_SAMPLES == samples and denoise
     try:
         for name, tiers in kit_variants(tracks):
             show_kit(groups, tiers)
@@ -714,7 +723,7 @@ def render_vehicle_kit(unit_id, kit_stashed, cam, out_dir):
             bpy.ops.render.render(write_still=True)
             written.append((name, path))
     finally:
-        scene.render.engine = engine
+        scene.cycles.samples, scene.cycles.use_denoising = samples, denoise
         show_kit(groups, {})
         lo, hi = world_bounds()
         frame_camera(cam, lo, hi)
