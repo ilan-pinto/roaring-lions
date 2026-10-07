@@ -959,8 +959,10 @@ async function main(): Promise<void> {
       // The garage's bay (Task 15/16). `unitPlate` resolves against the
       // plates manifest AND the eager glob of what is actually on disk, so a
       // unit `pnpm plates:units` has not photographed reads as absent and the
-      // bay draws its reserved hatch -- never a broken <img>.
-      plate: (typeId) => unitPlate(`${BASE}ui/plates/units/`, typeId),
+      // bay draws its reserved hatch -- never a broken <img>. From kit level 2
+      // a kitted vehicle's plate is its kitted photograph (GH-238); the plate
+      // is what the bay keeps when the model cannot be drawn.
+      plate: (typeId, kitLevel) => unitPlate(`${BASE}ui/plates/units/`, typeId, kitLevel),
       // GH-316: the unit's own GLB, turnable, over the plate above -- which
       // stays the picture until the model's first frame, and whenever the
       // model cannot be drawn.

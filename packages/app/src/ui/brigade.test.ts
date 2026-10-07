@@ -440,6 +440,31 @@ describe('showBrigade — the bay', () => {
     expect(plate?.getAttribute('title')).toBe('ifv_namer — no plate photographed');
   });
 
+  // GH-238 plan 3 Task 9: from kit level 2 a kitted vehicle's plate is its
+  // kitted photograph, so the bay hands its resolver the same kit level its
+  // own kit mark reads (`data-kit`).
+  it("asks for the plate at the unit's own kit level", () => {
+    for (const [owned, level] of [
+      [undefined, 0],
+      [{ inf_squad: { armour: 1 } }, 1],
+      [{ inf_squad: { armour: 2, sensors: 1 } }, 3],
+    ] as const) {
+      const asked: [string, number][] = [];
+      const host = mount({
+        units,
+        ledger: {},
+        possibleStars: 78,
+        owned: owned as never,
+        plate: (id, kitLevel) => {
+          asked.push([id, kitLevel]);
+          return { url: `/ui/plates/units/${id}.jpg`, size: [1800, 1200], extent: [600, 400] };
+        },
+      });
+      expect(asked.at(-1), JSON.stringify(owned)).toEqual(['inf_squad', level]);
+      expect(host.querySelector('.rl-garage__plate')?.getAttribute('data-kit')).toBe(String(level));
+    }
+  });
+
   // "One unit LARGE in a lit bay": every plate is the same frame at the same
   // camera zoom, so the unit inside it is whatever size it is -- 154 of 1800
   // pixels for a sniper team. Drawn at the plate's own scale that is a speck,

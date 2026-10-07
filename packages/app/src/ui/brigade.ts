@@ -143,8 +143,14 @@ export interface BrigadeOptions {
    *  far to zoom, and a footprint without the frame it was measured in is a
    *  number that means nothing. `null`, or no resolver at all, draws the
    *  reserved hatch — the same "reserved, not broken" language the rail's card
-   *  art uses. */
-  plate?: (typeId: string) => { url: string; size: readonly [number, number]; extent: readonly [number, number] } | null;
+   *  art uses. `kitLevel` is the unit's kit level (0-3, the same reading the
+   *  plate's kit mark draws): from L2 a kitted vehicle's plate is its KITTED
+   *  photograph (`plates:units --kit`, GH-238), which is the picture the bay
+   *  keeps when no model can be drawn (no WebGL2). */
+  plate?: (
+    typeId: string,
+    kitLevel: number
+  ) => { url: string; size: readonly [number, number]; extent: readonly [number, number] } | null;
   /** The turnable 3D model that replaces the plate in the bay (GH-316,
    *  `ui/garage-viewer.ts`). The plate above is still built first: it is the
    *  picture until the model's first frame is up, and the one the bay keeps
@@ -1161,7 +1167,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     // centred transform keeps it centred.
     const plate = el('div', 'rl-garage__plate');
     plate.dataset.kit = String(kit.level);
-    const picture = opts.plate?.(u.id) ?? null;
+    const picture = opts.plate?.(u.id, kit.level) ?? null;
     if (picture !== null) {
       const img = document.createElement('img');
       img.className = 'rl-garage__plate-img';
