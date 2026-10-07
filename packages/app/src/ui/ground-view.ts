@@ -27,8 +27,8 @@ export interface GroundPin {
 
 export interface GroundView {
   el: HTMLElement;
-  /** Swap the painted tiles for the renderer's photograph. Ignored once the
-   *  view is gone, and ignored for a picture of the wrong aspect. */
+  /** Swap the painted tiles for the renderer's photograph. Ignored for a
+   *  picture of the wrong aspect. */
   setPhoto(img: ImageData): void;
   /** Which picture is under the marks: `painted`, `photo`, or `none`. */
   readonly source: 'painted' | 'photo' | 'none';
@@ -86,16 +86,29 @@ export function groundView(opts: {
   const defs = svgEl('defs', {});
   const pattern = svgEl('pattern', { id: hatchId, width: 1, height: 1, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' });
   pattern.appendChild(svgEl('rect', { width: 1, height: 1 }, 'rl-ground__hatch-bg'));
-  pattern.appendChild(svgEl('line', { x1: 0, y1: 0, x2: 0, y2: 1 }, 'rl-ground__hatch-line'));
+  pattern.appendChild(svgEl('line', { x1: 0.5, y1: 0, x2: 0.5, y2: 1 }, 'rl-ground__hatch-line'));
   defs.appendChild(pattern);
   svg.appendChild(defs);
 
   const legend = new Set<string>();
+  // A label above a zone that touches the top edge would be clipped by the
+  // frame: it goes just inside the zone instead.
+  const above = (y: number): number => (y - size * 0.4 < size ? y + size * 1.1 : y - size * 0.4);
+  // Text past the middle of the map runs back from its anchor, so it stays on
+  // the map whatever its length.
+  const sideLabel = (text: string, x: number, y: number, cls: string): SVGTextElement => {
+    const right = x > map.width * 0.6;
+    const e = label(text, right ? x - size : x + size, y, size, cls);
+    if (right) e.setAttribute('text-anchor', 'end');
+    return e;
+  };
   for (const m of opts.marks) {
     if (m.kind === 'start') {
       const s = size * 1.2;
-      svg.appendChild(svgEl('polygon', { points: `${m.x + 0.5},${m.y + 0.5 - s} ${m.x + 0.5 + s},${m.y + 0.5 + s * 0.7} ${m.x + 0.5 - s},${m.y + 0.5 + s * 0.7}` }, 'rl-ground__start'));
-      svg.appendChild(label(t('ground.start'), m.x + 0.5 + s * 1.3, m.y + 0.5 + s * 0.5, size, 'rl-ground__label--start'));
+      const cx = m.x + 0.5;
+      const cy = m.y + 0.5;
+      svg.appendChild(svgEl('polygon', { points: `${cx},${cy - s} ${cx + s},${cy + s * 0.7} ${cx - s},${cy + s * 0.7}` }, 'rl-ground__start'));
+      svg.appendChild(sideLabel(t('ground.start'), cx + (cx > map.width * 0.6 ? -s * 0.3 : s * 0.3), cy + s * 0.5, 'rl-ground__label--start'));
       legend.add('start');
       continue;
     }
@@ -104,23 +117,27 @@ export function groundView(opts: {
       const r = svgEl('rect', { x, y, width: w, height: h }, 'rl-ground__zone rl-ground__zone--nofire');
       r.setAttribute('fill', `url(#${hatchId})`);
       svg.appendChild(r);
-      svg.appendChild(label(m.label ? t('ground.nofire.named', { place: m.label }) : t('ground.nofire'), x, y + h + size * 1.1, size, 'rl-ground__label--nofire'));
+      const below = y + h + size * 1.1 > map.height ? y - size * 0.4 : y + h + size * 1.1;
+      svg.appendChild(label(m.label ? t('ground.nofire.named', { place: m.label }) : t('ground.nofire'), x, below, size, 'rl-ground__label--nofire'));
       legend.add('nofire');
-    } else if (m.kind === 'refuge') {
+      continue;
+    }
+    const numbers = m.numbers.join(' · ');
+    if (m.refuge) {
       svg.appendChild(svgEl('rect', { x, y, width: w, height: h }, 'rl-ground__zone rl-ground__zone--refuge'));
-      svg.appendChild(label(t('ground.refuge'), x, y - size * 0.4, size, 'rl-ground__label--refuge'));
+      const text = m.clocks.length > 0 ? t('ground.refuge.clock', { numbers, clock: m.clocks.join(' · ') }) : t('ground.refuge', { numbers });
+      svg.appendChild(label(text, x, above(y), size, 'rl-ground__label--refuge'));
       legend.add('refuge');
     } else {
       svg.appendChild(svgEl('rect', { x, y, width: w, height: h }, `rl-ground__zone rl-ground__zone--objective${m.primary ? '' : ' rl-ground__zone--optional'}`));
-      const numbers = m.numbers.join(' · ');
-      const text = m.clock ? t('ground.objective.clock', { numbers, clock: m.clock }) : t('ground.objective', { numbers });
-      svg.appendChild(label(text, x, y - size * 0.4, size, 'rl-ground__label--objective'));
-      legend.add('objective');
+      const text = m.clocks.length > 0 ? t('ground.objective.clock', { numbers, clock: m.clocks.join(' · ') }) : t('ground.objective', { numbers });
+      svg.appendChild(label(text, x, above(y), size, 'rl-ground__label--objective'));
+      legend.add(m.primary ? 'objective' : 'optional');
     }
   }
   for (const p of opts.pins ?? []) {
     svg.appendChild(svgEl('circle', { cx: p.x + 0.5, cy: p.y + 0.5, r: size * 0.7 }, `rl-ground__pin rl-ground__pin--${p.kind}`));
-    svg.appendChild(label(p.label, p.x + 0.5 + size, p.y + 0.5 + size * 0.35, size, `rl-ground__label--${p.kind}`));
+    svg.appendChild(sideLabel(p.label, p.x + 0.5, p.y + 0.5 + size * 0.35, `rl-ground__label--${p.kind}`));
     legend.add(p.kind);
   }
   frame.appendChild(svg);
@@ -128,7 +145,7 @@ export function groundView(opts: {
   if (legend.size > 0) {
     const ul = document.createElement('ul');
     ul.className = 'rl-ground__legend';
-    for (const k of ['objective', 'refuge', 'nofire', 'start', 'loss', 'deduction']) {
+    for (const k of ['objective', 'optional', 'refuge', 'nofire', 'start', 'loss', 'deduction']) {
       if (!legend.has(k)) continue;
       const li = document.createElement('li');
       li.className = `rl-ground__key rl-ground__key--${k}`;

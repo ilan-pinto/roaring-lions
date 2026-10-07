@@ -6270,6 +6270,7 @@ button.rl-menu__item[data-kind='aside'] {
   background: var(--ink-mute);
 }
 .rl-ground__key--objective::before { background: var(--commend); }
+.rl-ground__key--optional::before { background: var(--ink-mute); }
 .rl-ground__key--refuge::before { background: var(--info); }
 .rl-ground__key--nofire::before,
 .rl-ground__key--loss::before { background: var(--bad); }

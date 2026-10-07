@@ -15,9 +15,11 @@ import { objectiveClock, type GlanceObjective } from './briefing-glance';
 export type GroundMark =
   | { kind: 'start'; x: number; y: number }
   /** One zone, with every objective that targets it. `numbers` are the
-   *  objectives' 1-based places in the briefing's own list. */
-  | { kind: 'objective'; zone: string; rect: Rect; numbers: number[]; label: string; clock: string | null; primary: boolean }
-  | { kind: 'refuge'; zone: string; rect: Rect; label: string }
+   *  objectives' 1-based places in the briefing's own list, `clocks` every
+   *  clock among them (a raze limit AND the hold that follows it). `refuge`
+   *  when every objective on the zone is an evacuation: the zone is where
+   *  people are taken to, not ground to take. */
+  | { kind: 'objective'; zone: string; rect: Rect; numbers: number[]; clocks: string[]; primary: boolean; refuge: boolean }
   | { kind: 'nofire'; zone: string; rect: Rect; label: string | null };
 
 export interface Rect {
@@ -42,25 +44,21 @@ const rectOf = (z: readonly number[] | undefined): Rect | null =>
 export function groundMarks(m: GroundMarkInputs): GroundMark[] {
   const marks: GroundMark[] = [];
   const byZone = new Map<string, Extract<GroundMark, { kind: 'objective' }>>();
-  const refuges = new Set<string>();
   m.objectives.forEach((o, i) => {
     if (o.target === undefined) return;
     const rect = rectOf(m.zones[o.target]);
     if (rect === null) return; // a tag, not ground: never pinned (see header)
-    if (o.type === 'evacuate_before') {
-      if (!refuges.has(o.target)) {
-        refuges.add(o.target);
-        marks.push({ kind: 'refuge', zone: o.target, rect, label: o.text ?? '' });
-      }
-      return;
-    }
+    const clock = objectiveClock(o);
+    const evac = o.type === 'evacuate_before';
     const at = byZone.get(o.target);
     if (at) {
       at.numbers.push(i + 1);
+      if (clock !== null && !at.clocks.includes(clock)) at.clocks.push(clock);
       at.primary ||= o.primary;
+      at.refuge &&= evac;
       return;
     }
-    const mark = { kind: 'objective' as const, zone: o.target, rect, numbers: [i + 1], label: o.text ?? '', clock: objectiveClock(o), primary: o.primary };
+    const mark = { kind: 'objective' as const, zone: o.target, rect, numbers: [i + 1], clocks: clock !== null ? [clock] : [], primary: o.primary, refuge: evac };
     byZone.set(o.target, mark);
     marks.push(mark);
   });

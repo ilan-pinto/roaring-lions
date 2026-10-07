@@ -62,8 +62,8 @@ export interface GlanceInputs {
 const TOD = new Set(['dawn', 'day', 'dusk', 'night']);
 
 /** The clock an objective shows on the briefing: "5:00 limit" for a deadline,
- *  "hold 4:00" for a clock to endure, nothing without `seconds`. Shared with
- *  the objectives list's kind tag so the card and the list agree. */
+ *  "hold 4:00" for a clock to endure, nothing without `seconds`. The ground's
+ *  marks and the briefing's objective rows use it too, so all three agree. */
 export function objectiveClock(o: GlanceObjective): string | null {
   if (o.seconds === undefined) return null;
   const c = mmss(o.seconds);

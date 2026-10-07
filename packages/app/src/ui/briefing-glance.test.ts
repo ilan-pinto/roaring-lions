@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { briefingGlance, objectiveClock, type GlanceInputs } from './briefing-glance';
 import { briefingBeats } from './loading';
 
-const json = (p: string): Record<string, unknown> => JSON.parse(readFileSync(resolve(process.cwd(), p), 'utf8'));
+const ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
+const json = (p: string): Record<string, unknown> => JSON.parse(readFileSync(ROOT + p, 'utf8'));
 
 /** Wadi Halam V straight from the shipped data, the mission in the lead's screenshot. */
 function wh5(): GlanceInputs {
@@ -35,7 +36,7 @@ describe('briefingGlance (GH-417, derived, never authored)', () => {
     expect(rows.map((r) => r.key)).toEqual(['where', 'happened', 'objective', 'matters', 'avoid']);
     expect(row(rows, 'where')).toMatch(/^Wadi Halam .+ · dawn · about 7 minutes$/);
     expect(row(rows, 'happened')).toMatch(/^Seven structures inside Hallaq's depot/);
-    expect(row(rows, 'objective')).toBe('Raze the depot inside five minutes, then 2 more');
+    expect(row(rows, 'objective')).toBe('Raze the depot inside five minutes (+2 more objectives)');
     // fail_below 40 -> the second star's floor is 60 (grade.ts: + STAR_ROE_MARGIN).
     expect(row(rows, 'matters')).toContain('Conduct 60 or better earns the second star');
     expect(row(rows, 'avoid')).toContain('No fire on the civic hall');
@@ -68,6 +69,12 @@ describe('briefingGlance (GH-417, derived, never authored)', () => {
   it('omits a row with nothing true to say instead of padding it', () => {
     const rows = briefingGlance({ objectives: [{ type: 'hold_for', primary: true, text: 'Hold', seconds: 60 }] });
     expect(rows.map((r) => r.key)).toEqual(['objective', 'matters']);
+  });
+
+  it('without a fail line, the second star sits at the default 70 and nothing ends the mission', () => {
+    const rows = briefingGlance({ objectives: [{ type: 'capture', primary: true, text: 'Take it' }] });
+    expect(row(rows, 'matters')).toBe('Conduct 70 or better earns the second star');
+    expect(row(rows, 'avoid')).toBeUndefined();
   });
 
   it('a clock to endure is not a deadline, and not something to avoid', () => {

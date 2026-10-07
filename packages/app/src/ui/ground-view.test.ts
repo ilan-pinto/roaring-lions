@@ -6,7 +6,7 @@ import type { GroundMark } from './ground-marks';
 const map = { width: 4, height: 4, blocked: new Uint8Array(16), boulder: new Uint8Array(16), cover: new Uint8Array(16) };
 const tones = { open: 'a', blocked: 'b', rock: 'c', cover: ['d', 'e', 'f'] as [string, string, string] };
 const marks: GroundMark[] = [
-  { kind: 'objective', zone: 'depot', rect: { x: 1, y: 1, w: 2, h: 2 }, numbers: [1, 3], label: 'Raze', clock: '5:00 limit', primary: true },
+  { kind: 'objective', zone: 'depot', rect: { x: 1, y: 1, w: 2, h: 2 }, numbers: [1, 3], clocks: ['5:00 limit', 'hold 4:00'], primary: true, refuge: false },
   { kind: 'nofire', zone: 'hall', rect: { x: 0, y: 3, w: 1, h: 1 }, label: 'civic hall' },
   { kind: 'start', x: 0, y: 0 },
 ];
@@ -31,7 +31,7 @@ describe('groundView (GH-417)', () => {
     expect(svg?.getAttribute('viewBox')).toBe('0 0 4 4');
     const zone = v.el.querySelector('.rl-ground__zone--objective');
     expect([zone?.getAttribute('x'), zone?.getAttribute('width')]).toEqual(['1', '2']);
-    expect(v.el.querySelector('.rl-ground__label--objective')?.textContent).toBe('Objective 1 · 3 · 5:00 limit');
+    expect(v.el.querySelector('.rl-ground__label--objective')?.textContent).toBe('Objective 1 · 3 · 5:00 limit · hold 4:00');
     expect(v.el.querySelector('.rl-ground__label--nofire')?.textContent).toBe('civic hall · no fire');
     expect([...v.el.querySelectorAll('.rl-ground__key')].map((k) => k.className.split('--')[1])).toEqual(['objective', 'nofire', 'start']);
     expect(v.source).toBe('painted');
