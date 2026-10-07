@@ -2531,6 +2531,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     hoverEntity: () => renderer.hoverEntity,
     hoverCursor: () => hoverCursorName,
     gameVersion: __GAME_VERSION__,
+    // PA-25: a sandbox's strip names the map it walks, as a mission's names
+    // the mission; the same name the Free Play picker lists it by.
+    placeName: mission ? undefined : mapJson.name,
     commander: hudCommander,
     orders,
     armedOrder: () => armedOrder,

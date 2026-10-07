@@ -2736,3 +2736,17 @@ describe('the invoice head with no floor (GH-345)', () => {
     expect(text).not.toContain('floor');
   });
 });
+
+// PA-25: a sandbox has no mission, and its strip read the game's own name
+// ("ROARING LIONS") where every mission names where you are.
+describe('the strip with no mission (PA-25)', () => {
+  it('names the sandbox map, escaped', () => {
+    const r = rig(null, { placeName: 'Beit Sahwan — Outskirts <b>' });
+    expect(r.strip()).toContain('Beit Sahwan — Outskirts <b>');
+    expect(r.strip()).not.toContain('Roaring Lions');
+    expect(r.stripEl().querySelector('b')).toBeNull();
+  });
+  it('falls back to the game name with no place to name', () => {
+    expect(rig(null).strip()).toContain('Roaring Lions');
+  });
+});

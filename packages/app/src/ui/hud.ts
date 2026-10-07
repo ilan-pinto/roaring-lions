@@ -228,6 +228,11 @@ export interface HudDeps {
    *  line. */
   hoverCursor?: () => CursorName;
   gameVersion: string;
+  /** PA-25: where the player is when there is no mission -- the sandbox
+   *  map's own name -- so the strip names the ground, as a mission's does,
+   *  rather than the game. Absent (tests, or nothing to name) keeps the
+   *  game's name. */
+  placeName?: string;
   /** Shai's rank/plate for the mission in play, and Idit's static plate --
    *  see `HudCommanderInfo`'s own doc comment. */
   commander: HudCommanderInfo;
@@ -1395,8 +1400,12 @@ export class Hud {
         );
       }
     } else {
-      /* i18n-ok: proper noun */
-      rows.push('<span class="rl-strip__name">Roaring Lions</span>');
+      const place = this.deps.placeName;
+      rows.push(
+        place
+          ? `<span class="rl-strip__name">${escapeHtml(place)}</span>`
+          : /* i18n-ok: proper noun */ '<span class="rl-strip__name">Roaring Lions</span>'
+      );
     }
 
     const info: string[] = [];
