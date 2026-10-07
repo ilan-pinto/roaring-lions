@@ -167,10 +167,12 @@ const HULL_PX = 160;
 /** Absolute ticks: spawn after the boot's own ticks, capture after two 1 Hz
  *  mesh sweeps (`main.ts` loads an unrostered type's mesh on
  *  `tickCount % 20 === 0`). The same pair at every level, so every column
- *  shows the same idle phase. */
-const SPAWN_TICK = 40;
-const SWEEP_TICK = 60;
-const CAPTURE_TICK = 80;
+ *  shows the same idle phase. The spawn tick leaves the boot 10 s of sim
+ *  time before the freeze lands: at 40 the guard below refused L0 and L1 at
+ *  ticks 80 and 65 on a machine at load average ~60 (2026-10-07). */
+const SPAWN_TICK = 200;
+const SWEEP_TICK = 220;
+const CAPTURE_TICK = 240;
 /** The box each cell is clipped to, in CSS px at DPR 1, centred on the
  *  vehicle's ground point raised by `lift` (an aircraft flies `AIR_LIFT_PX`
  *  above its tile and every hull stands up-screen of its footprint). One box
