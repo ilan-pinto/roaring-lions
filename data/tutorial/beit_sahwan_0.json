@@ -87,7 +87,7 @@
       },
       "focus": { "kind": "none" },
       "nudge_after_s": 25,
-      "nudge": "Stay still in sight of it. When the panel shows odds, right-click the target."
+      "nudge": "Stay still in sight of it. When the panel shows odds, right-click toward it: your squad advances and fires at whatever it can hit."
     },
     {
       "id": "use_the_ground",
@@ -136,7 +136,7 @@
       },
       "focus": { "kind": "zone", "zone": "z_clinic" },
       "nudge_after_s": 25,
-      "nudge": "The mortar team is on the road. Select it and right-click the enemy digging by the clinic."
+      "nudge": "The mortar team is on the road. Select it and right-click toward the enemy digging by the clinic: it advances and fires at the first target it can reach."
     }
   ]
 }

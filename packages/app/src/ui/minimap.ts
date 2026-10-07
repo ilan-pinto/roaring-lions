@@ -455,7 +455,7 @@ export function objectivePoints(
  * when a status CHANGES, so by the time the alert layer asks, the objective
  * worth jumping to is usually the one that just stopped being active.
  */
-export function objectivePoint(o: MinimapObjective, map: MinimapMap): MinimapPoint | null {
+export function objectivePoint(o: MinimapObjective, map: Pick<MinimapMap, 'zones' | 'markers'>): MinimapPoint | null {
   if (o.zone === undefined) return null;
   const z = map.zones[o.zone];
   if (z) return { x: z[0] + z[2] / 2, y: z[1] + z[3] / 2 };

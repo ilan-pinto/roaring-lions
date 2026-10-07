@@ -4,11 +4,19 @@
  * about the world arrives through `AlertWorld`, so the whole model is
  * node-testable and a caller can hand it a fixture instead of a battle.
  *
- * Three jobs, and the middle one is the point:
+ * Four jobs, and the middle two are the point:
  *
  *  - CLASSIFY. A tick's `SimEvent`s and `MissionEvent`s say a great many
- *    things; three of them are worth an alert -- a unit lost, a unit taking
- *    fire, an objective moving.
+ *    things; a few are worth an alert -- a unit lost, a unit taking fire, an
+ *    objective moving, and (WP-P5) something ARRIVING: an enemy wave, a unit
+ *    from the dock, a scripted reinforcement. Each gets a TIER --
+ *    minor / important / major (audit pass C3, and the same three names the
+ *    audio plan's cue tiers use, `docs/polish/audio-plan.md` §3 and D-A2) --
+ *    which the feed styles by and the jump key ranks by.
+ *  - SAY WHO AND WHERE (WP-P5, PA-06). Every line names the unit and a
+ *    `Place` (`alert-place.ts`): "in view", or a compass bearing from the
+ *    camera. "under fire — 1 unit" told a commander that something,
+ *    somewhere, was wrong; he could not act on it.
  *  - COALESCE. A transport dying disembarks its riders hurt and kills some of
  *    them in the SAME tick, so several `unitLost` events arrive together. One
  *    line per unit TYPE per tick, with a count, is the answer: a squad wipe
@@ -32,13 +40,6 @@
  * is the louder fact; two lines for one event is exactly the noise this
  * model exists to stop.
  *
- * TIER (polish pass F, A2). Every alert carries a tier and a cue id
- * (`cues.ts`): minor for fire taken or a man pinned, important for a foot
- * unit lost, a new wave, a soldier taken, an ambush sprung on you or a
- * Conduct penalty, major for a vehicle, an aircraft or a named veteran lost.
- * An objective sounds its own status: new, complete and failed are three
- * different cues. The caller plays one cue per tick (`tickCue`).
- *
  * No `t()` call in this file. It returns catalogue KEYS and params, and the
  * caller resolves them where it renders -- the convention
  * `selection-model.ts`'s `ORDERS[].label` and `input/keymap.ts`'s
@@ -47,56 +48,109 @@
  * `main.ts`'s boot ever calls `setCatalogue`.
  */
 
-import type { MissionEvent, SimEvent } from '@lions/sim';
+import type { MissionEvent, ObjectiveStatus, SimEvent } from '@lions/sim';
+import { TICKS_PER_SECOND } from '@lions/sim';
+import { distinctPlaces, type Place } from './alert-place';
+import { ALERT_CUE, OBJECTIVE_CUE, type CueId } from './cues';
 import type { Tone } from './hud-model';
-import { ALERT_CUE, OBJECTIVE_CUE, type AlertTier, type CueId } from './cues';
+
+/**
+ * How loud an event is (audit pass C3; B1's Level 1 is `important` and
+ * `major`). The names are shared with the audio cue tiers on purpose -- one
+ * vocabulary for what the player hears and what the feed shows:
+ *
+ *  - `minor`: under fire. Glanceable, never nagging.
+ *  - `important`: a foot unit lost, an enemy wave, an arrival, a new tasking,
+ *    a Conduct penalty -- something went wrong or changed, and here is where.
+ *  - `major`: a vehicle, an aircraft or a named veteran lost; an objective
+ *    completed or failed; the mission ending -- a fact that changes the plan.
+ */
+export type AlertTier = 'minor' | 'important' | 'major';
+
+export const TIER_RANK: Readonly<Record<AlertTier, number>> = { minor: 0, important: 1, major: 2 };
 
 /** A line for the feed, as a catalogue key and its params -- never wording.
- *  `tone` is semantic and never a colour (`hud-model.ts`'s own rule). */
+ *  `tone` is semantic and never a colour (`hud-model.ts`'s own rule).
+ *  `place` is worded where the line is rendered (`alertNotice` resolves it
+ *  into the `{place}` param), for the same import-time-locale reason this
+ *  file never calls `t()`. */
 export interface AlertLine {
   key: string;
   params: Readonly<Record<string, string | number>>;
   tone: Tone;
+  place?: readonly Place[];
 }
 
 export interface Alert {
-  kind: 'unitLost' | 'underFire' | 'pinned' | 'ambush' | 'objective' | 'wave' | 'removed' | 'roe';
+  kind: 'unitLost' | 'underFire' | 'objective' | 'wave' | 'arrival' | 'pinned' | 'ambush' | 'removed' | 'roe';
+  tier: AlertTier;
   /** The feed line, or `null` when another part of the HUD owns the wording
-   *  -- an objective's text is `describeMissionEvent`'s, not this model's,
-   *  and so are a wave's, a capture's and a Conduct deduction's. */
+   *  -- an objective's text is `describeMissionEvent`'s, not this model's. */
   line: AlertLine | null;
-  /** How loud a fact this is, for an alert; `null` for an objective, which
-   *  sounds its own status rather than a tier. */
-  tier: AlertTier | null;
-  /** The cue id the mixer plays (`cues.ts` -> `data/audio.json`). */
+  /** The cue the mixer plays for it (polish pass F, `cues.ts` ->
+   *  `data/audio.json`), or null. An alert's cue is its TIER's
+   *  (`ALERT_CUE`), so what the feed shows and what the player hears are one
+   *  vocabulary; an objective sounds its own status instead (new, complete
+   *  and failed are three cues), and an arrival is silent -- the announcer
+   *  and the dock carry it. The caller plays one cue a tick (`tickCue`). */
   cue: CueId | null;
   /** Where the camera jumps when the player acts on the alert, in tiles, or
    *  `null` when nothing on the map can be pointed at. */
   at: { x: number; y: number } | null;
+  /** Every point the minimap should flash: `at` and, for a wave that enters
+   *  from several markers at once, each of the others. */
+  marks: readonly { x: number; y: number }[];
   /** How many events this one alert stands for. */
   count: number;
 }
 
+/** A mission wave as the alert layer needs it: a structural subset of
+ *  `MissionJson`'s `enemy.waves[]`, so a test can hand it a literal. */
+export interface AlertWave {
+  at_seconds: number;
+  trigger?: string;
+  units: readonly { count: number; from?: string }[];
+}
+
 /** Everything about the world this model may ask, and nothing more. Kept
- *  structural so a test supplies four functions rather than a `Sim`. */
+ *  structural so a test supplies plain functions rather than a `Sim`. */
 export interface AlertWorld {
   posOf(entity: number): { x: number; y: number } | null;
   sideOf(entity: number): number;
+  /** The unit type id an entity is (`sim.unitTypes[typeIdx].id`). */
+  typeOf(entity: number): string;
   unitName(typeId: string): string;
   objectiveAt(id: string): { x: number; y: number } | null;
-  /** What kind of body this entity is: a lost vehicle or aircraft is a major
-   *  alert, a lost foot unit an important one. */
-  unitClass(entity: number): 'foot' | 'vehicle' | 'air';
-  /** A named veteran (a roster entry with a name): losing one is major. */
-  isNamedVeteran(entity: number): boolean;
+  /** WP-P5: where a tile point lies from the camera, right now. */
+  placeOf(x: number, y: number): Place;
+  /** WP-P5: how heavy a loss of this unit is -- `major` for a vehicle, an
+   *  aircraft or a named veteran, `important` for anything on foot. */
+  lossTier(entity: number, typeId: string): AlertTier;
+  /** WP-P5: the mission's waves, in authored order (`[]` without one). */
+  waves: readonly AlertWave[];
+  /** WP-P5: is this objective complete now -- the gate a `trigger` wave
+   *  waits on (`MissionRuntime.stepWaves`). */
+  objectiveDone(id: string): boolean;
+  /** WP-P5: a named map marker, in tiles, or null. */
+  markerAt(name: string): { x: number; y: number } | null;
+  /** WP-P5: the unit the dock just delivered -- the newest living side-0
+   *  unit of this type -- in tiles, or null. */
+  arrivedAt(typeId: string): { x: number; y: number } | null;
+  /** WP-P5: for a LABELLED `reinforce` trigger, its label and where its
+   *  units arrive; null for any other trigger. */
+  reinforcement(triggerId: string): { label: string; points: readonly { x: number; y: number }[] } | null;
 }
 
-/** What has to survive between ticks: when each entity last made the feed.
- *  Read-only on the way in and copy-on-write on the way out, so a caller
- *  holding an older state cannot have it changed underneath. */
+/** What has to survive between ticks. Read-only on the way in and
+ *  copy-on-write on the way out, so a caller holding an older state cannot
+ *  have it changed underneath. */
 export interface AlertState {
+  /** When each entity last made the feed as under fire. */
   readonly lastUnderFire: ReadonlyMap<number, number>;
-  /** The tick the pinned cue last sounded, for its own cooldown. */
+  /** Indices into `AlertWorld.waves` already announced. */
+  readonly wavesSeen: ReadonlySet<number>;
+  /** The tick the pinned cue last sounded (polish pass F), for its own
+   *  cooldown. */
   readonly lastPinned: number;
 }
 
@@ -108,17 +162,40 @@ export interface AlertState {
  * beyond a map of stamps, and nothing in the sim's event stream says "that
  * firefight is over". A fixed window is the only thing a pure function can
  * answer with, and five seconds is long enough that a sustained burst is one
- * line while a unit pinned for a minute still speaks up a dozen times.
+ * line while a unit pinned for a minute still speaks up a dozen times --
+ * each of which the feed now merges into the line already saying so
+ * (`feed-model.ts`), rather than stacking.
  */
 export const UNDER_FIRE_COOLDOWN_TICKS = 100;
 
+export function initAlertState(): AlertState {
+  return { lastUnderFire: new Map(), wavesSeen: new Set(), lastPinned: -Infinity };
+}
+
 /** A man pinned sounds the minor cue at most once in four seconds, whoever
- *  he is (the plan's "first in 4 s"): a pinned squad pins in a ripple, and
- *  the feed's own pinned line (GH-262) already names each one. */
+ *  he is (the audio plan's "first in 4 s"): a pinned squad pins in a ripple,
+ *  and the feed's own pinned line (GH-262) already names each one. */
 export const PINNED_COOLDOWN_TICKS = 80;
 
-export function initAlertState(): AlertState {
-  return { lastUnderFire: new Map(), lastPinned: -Infinity };
+/**
+ * Which authored wave a `wave` event is. The event carries only its tick and
+ * its head count (`MissionEvent`), and the sim is not to be changed for a
+ * presentation fact -- so this replays `MissionRuntime.stepWaves`' own rule:
+ * waves are visited in authored order, each spawns once, a `trigger` wave is
+ * due once its objective is complete and any other once the clock passes
+ * `at_seconds`. Several waves due in one tick emit their events in that same
+ * order, so the k-th event of a tick is the k-th due, unannounced wave.
+ * Returns -1 when no authored wave fits (a mission edited under a running
+ * game, or a fixture), and the line then goes out without a place.
+ */
+function dueWave(world: AlertWorld, seen: ReadonlySet<number>, tick: number): number {
+  for (let i = 0; i < world.waves.length; i++) {
+    if (seen.has(i)) continue;
+    const w = world.waves[i];
+    const due = w.trigger !== undefined ? world.objectiveDone(w.trigger) : tick >= w.at_seconds * TICKS_PER_SECOND;
+    if (due) return i;
+  }
+  return -1;
 }
 
 export function alertsForTick(
@@ -128,10 +205,15 @@ export function alertsForTick(
   world: AlertWorld,
   tick: number,
 ): { state: AlertState; alerts: Alert[] } {
-  // --- the mission half: what was lost, and what moved ---------------------
+  const alerts: Alert[] = [];
+  let wavesSeen = state.wavesSeen;
+
+  // --- the mission half: what was lost, what moved, what arrived -----------
   const lostByType = new Map<string, number[]>();
   const lostEntities = new Set<number>();
-  const objectives: Extract<MissionEvent, { kind: 'objective' }>[] = [];
+  const objectives: { id: string; status: ObjectiveStatus }[] = [];
+  const arrivals: Alert[] = [];
+  /** Sound-only alerts (polish pass F): another surface owns their words. */
   const quiet: Alert[] = [];
   for (const e of mission) {
     if (e.kind === 'unitLost') {
@@ -140,17 +222,86 @@ export function alertsForTick(
       else lostByType.set(e.unit, [e.entity]);
       lostEntities.add(e.entity);
     } else if (e.kind === 'objective') {
-      objectives.push(e);
+      objectives.push({ id: e.id, status: e.status });
     } else if (e.kind === 'wave') {
-      quiet.push(soundOnly('wave', 'important', null, e.count));
+      const index = dueWave(world, wavesSeen, e.tick);
+      // Head count per entry marker, in authored order: the camera jumps to
+      // the heaviest entry, and the minimap flashes every one of them.
+      const byMarker = new Map<string, { at: { x: number; y: number }; n: number }>();
+      if (index >= 0) {
+        const next = new Set(wavesSeen);
+        next.add(index);
+        wavesSeen = next;
+        for (const u of world.waves[index].units) {
+          if (u.from === undefined) continue;
+          const at = world.markerAt(u.from);
+          if (at === null) continue;
+          const entry = byMarker.get(u.from);
+          if (entry) entry.n += u.count;
+          else byMarker.set(u.from, { at, n: u.count });
+        }
+      }
+      const entries = [...byMarker.values()];
+      let heaviest: { at: { x: number; y: number }; n: number } | null = null;
+      for (const entry of entries) if (heaviest === null || entry.n > heaviest.n) heaviest = entry;
+      arrivals.push({
+        kind: 'wave',
+        tier: 'important',
+        line: {
+          key: 'alert.wave',
+          params: { n: e.count },
+          tone: 'bad',
+          place: distinctPlaces(entries.map((m) => world.placeOf(m.at.x, m.at.y))),
+        },
+        // New contact is an important alert (polish pass F, A2), on top of
+        // the wave's own announcement.
+        cue: ALERT_CUE.important,
+        at: heaviest?.at ?? null,
+        marks: entries.map((m) => m.at),
+        count: e.count,
+      });
+    } else if (e.kind === 'built') {
+      const at = world.arrivedAt(e.unit);
+      arrivals.push({
+        kind: 'arrival',
+        tier: 'important',
+        line: {
+          key: 'alert.arrived',
+          params: { name: world.unitName(e.unit) },
+          tone: 'info',
+          place: at === null ? [] : [world.placeOf(at.x, at.y)],
+        },
+        // Good news the dock and the announcer already carry: no cue.
+        cue: null,
+        at,
+        marks: at === null ? [] : [at],
+        count: 1,
+      });
     } else if (e.kind === 'removed' && e.side === 0) {
-      // One of the player's own taken off the board: not a death, but a man
-      // gone. A civilian taken is the feed's line alone.
-      quiet.push(soundOnly('removed', 'important', world.posOf(e.entity), 1));
+      // One of ours taken off the board (polish pass F, A2): not a death,
+      // but a man gone. Sound only -- `describeMissionEvent` words it.
+      const at = world.posOf(e.entity);
+      quiet.push(soundOnly('removed', 'important', at));
     } else if (e.kind === 'roe') {
-      // A Conduct penalty (A9): the game's distinguishing mechanic, silent
-      // until now.
-      quiet.push(soundOnly('roe', 'important', null, 1));
+      // A Conduct penalty (A9): the game's own mechanic, silent until now.
+      quiet.push(soundOnly('roe', 'important', null));
+    } else if (e.kind === 'trigger') {
+      const r = world.reinforcement(e.id);
+      if (r === null) continue;
+      arrivals.push({
+        kind: 'arrival',
+        tier: 'important',
+        line: {
+          key: 'alert.reinforced',
+          params: { label: r.label },
+          tone: 'warn',
+          place: distinctPlaces(r.points.map((p) => world.placeOf(p.x, p.y))),
+        },
+        cue: null,
+        at: r.points[0] ?? null,
+        marks: r.points,
+        count: 1,
+      });
     }
   }
 
@@ -160,15 +311,16 @@ export function alertsForTick(
   const underFire: number[] = [];
   const seen = new Set<number>();
   let pinnedAt: number | null = null;
-  let ambushAt: number | null = null;
+  let ambushed = false;
   for (const e of sim) {
     if (e.kind === 'pinned') {
       if (pinnedAt === null && world.sideOf(e.entity) === 0 && !lostEntities.has(e.entity)) pinnedAt = e.entity;
       continue;
     }
     if (e.kind === 'ambushSprung') {
-      // `entity` is the ambusher; an ambush of OURS springing is good news.
-      if (ambushAt === null && world.sideOf(e.entity) !== 0) ambushAt = e.entity;
+      // `entity` is the ambusher: one of ours springing is good news. No
+      // position: pointing the minimap at a hidden enemy would be x-ray.
+      if (world.sideOf(e.entity) !== 0) ambushed = true;
       continue;
     }
     if (e.kind !== 'fire' && e.kind !== 'impact') continue;
@@ -189,66 +341,125 @@ export function alertsForTick(
     (entity) => tick - (state.lastUnderFire.get(entity) ?? -Infinity) >= UNDER_FIRE_COOLDOWN_TICKS,
   );
 
-  // Copy-on-write, and the old object back untouched when nothing was
-  // stamped -- so a caller can compare identity to know the tick was quiet.
-  const pinnedSounds = pinnedAt !== null && tick - state.lastPinned >= PINNED_COOLDOWN_TICKS;
-
-  let nextState = state;
+  // Copy-on-write, and the old object back untouched when nothing changed --
+  // so a caller can compare identity to know the tick was quiet.
+  let lastUnderFire = state.lastUnderFire;
   if (kept.length > 0) {
-    const lastUnderFire = new Map(state.lastUnderFire);
-    for (const entity of kept) lastUnderFire.set(entity, tick);
-    nextState = { ...nextState, lastUnderFire };
+    const next = new Map(state.lastUnderFire);
+    for (const entity of kept) next.set(entity, tick);
+    lastUnderFire = next;
   }
-  if (pinnedSounds) nextState = { ...nextState, lastPinned: tick };
+  const pinnedSounds = pinnedAt !== null && tick - state.lastPinned >= PINNED_COOLDOWN_TICKS;
+  const lastPinned = pinnedSounds ? tick : state.lastPinned;
+  const nextState: AlertState =
+    lastUnderFire === state.lastUnderFire && wavesSeen === state.wavesSeen && lastPinned === state.lastPinned
+      ? state
+      : { lastUnderFire, wavesSeen, lastPinned };
 
   // --- emit, loudest first ------------------------------------------------
-  const alerts: Alert[] = [];
   for (const [typeId, entities] of lostByType) {
-    // Major when ANY body in the group is a vehicle, an aircraft or a named
-    // veteran: a type is one class, but a name is per man.
-    const major = entities.some((id) => world.unitClass(id) !== 'foot' || world.isNamedVeteran(id));
-    const tier: AlertTier = major ? 'major' : 'important';
+    const at = world.posOf(entities[0]);
+    let tier: AlertTier = 'important';
+    for (const entity of entities) {
+      const t = world.lossTier(entity, typeId);
+      if (TIER_RANK[t] > TIER_RANK[tier]) tier = t;
+    }
     alerts.push({
       kind: 'unitLost',
+      tier,
       line: {
         key: 'alert.unitLost',
         params: { name: world.unitName(typeId), n: entities.length },
         tone: 'bad',
+        place: at === null ? [] : [world.placeOf(at.x, at.y)],
       },
-      tier,
       cue: ALERT_CUE[tier],
-      at: world.posOf(entities[0]),
+      at,
+      marks: at === null ? [] : [at],
       count: entities.length,
     });
   }
-  if (ambushAt !== null) alerts.push(soundOnly('ambush', 'important', world.posOf(ambushAt), 1));
-  alerts.push(...quiet);
-  if (kept.length > 0) {
-    alerts.push({
-      kind: 'underFire',
-      line: { key: 'alert.underFire', params: { n: kept.length }, tone: 'warn' },
-      tier: 'minor',
-      cue: ALERT_CUE.minor,
-      at: world.posOf(kept[0]),
-      count: kept.length,
-    });
-  }
-  if (pinnedSounds && pinnedAt !== null) alerts.push(soundOnly('pinned', 'minor', world.posOf(pinnedAt), 1));
-  for (const e of objectives) {
+  for (const { id, status } of objectives) {
+    const at = world.objectiveAt(id);
     alerts.push({
       kind: 'objective',
+      tier: status === 'active' ? 'important' : 'major',
       line: null,
-      tier: null,
-      cue: OBJECTIVE_CUE[e.status],
-      at: world.objectiveAt(e.id),
+      cue: OBJECTIVE_CUE[status],
+      at,
+      marks: at === null ? [] : [at],
       count: 1,
     });
   }
+  alerts.push(...arrivals);
+  if (ambushed) alerts.push(soundOnly('ambush', 'important', null));
+  alerts.push(...quiet);
+  if (kept.length > 0) {
+    const points = kept.map((entity) => world.posOf(entity)).filter((p): p is { x: number; y: number } => p !== null);
+    alerts.push({
+      kind: 'underFire',
+      tier: 'minor',
+      line: {
+        key: 'alert.underFire',
+        // The first unit by name, and how many more: "under fire — Rifle
+        // Squad and 2 more". Naming three types in one line is a paragraph.
+        params: { name: world.unitName(world.typeOf(kept[0])), more: kept.length - 1 },
+        tone: 'warn',
+        place: distinctPlaces(points.map((p) => world.placeOf(p.x, p.y))),
+      },
+      cue: ALERT_CUE.minor,
+      at: points[0] ?? null,
+      marks: points.slice(0, 1),
+      count: kept.length,
+    });
+  }
+
+  if (pinnedSounds && pinnedAt !== null) alerts.push(soundOnly('pinned', 'minor', world.posOf(pinnedAt)));
 
   return { state: nextState, alerts };
 }
 
-/** An alert that only sounds: another surface owns its words. */
-function soundOnly(kind: Alert['kind'], tier: AlertTier, at: { x: number; y: number } | null, count: number): Alert {
-  return { kind, line: null, tier, cue: ALERT_CUE[tier], at, count };
+/** An alert that only sounds (polish pass F): another surface owns its words,
+ *  and its cue is its tier's. */
+function soundOnly(kind: Alert['kind'], tier: AlertTier, at: { x: number; y: number } | null): Alert {
+  return { kind, tier, line: null, cue: ALERT_CUE[tier], at, marks: at === null ? [] : [at], count: 1 };
+}
+
+/**
+ * The feed tier of a `MissionEvent` line `describeMissionEvent` (main.ts)
+ * words -- the lines this model leaves to it. `null` for a kind that writes
+ * no line or carries no weight worth styling (a story `say`, a rescue's
+ * "clear (1)" punctuation).
+ */
+export function missionEventTier(e: MissionEvent): AlertTier | null {
+  switch (e.kind) {
+    case 'objective':
+      return e.status === 'active' ? 'important' : 'major';
+    case 'missionEnd':
+      return 'major';
+    case 'roe':
+    case 'trigger':
+      return 'important';
+    case 'removed':
+      return e.side === 0 ? 'important' : 'minor';
+    default:
+      return null;
+  }
+}
+
+/**
+ * Where the jump key goes (WP-P5): the latest `important` or `major` alert.
+ * A minor one -- under fire -- takes the key only while nothing heavier has
+ * happened yet, so the key is never dead in a mission's opening firefight,
+ * and is never stolen from a lost tank by the next rifle round.
+ */
+export interface JumpTarget {
+  at: { x: number; y: number };
+  tier: AlertTier;
+}
+
+export function nextJump(current: JumpTarget | null, tier: AlertTier, at: { x: number; y: number } | null): JumpTarget | null {
+  if (at === null) return current;
+  if (tier !== 'minor' || current === null || current.tier === 'minor') return { at, tier };
+  return current;
 }

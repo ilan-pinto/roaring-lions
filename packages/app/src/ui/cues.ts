@@ -12,6 +12,7 @@
  * Pure, and no `t()`: ids only.
  */
 import type { MissionEvent, ObjectiveStatus } from '@lions/sim';
+import type { AlertTier } from './alerts';
 
 /** Every cue id the app may ask the mixer for. */
 export const CUE_IDS = [
@@ -30,14 +31,12 @@ export const CUE_IDS = [
 export type CueId = (typeof CUE_IDS)[number];
 
 /**
- * Three alert tiers (A2), so "a squad lost" and "the Lavi is gone" stop
- * sounding alike, and under fire stops sounding like either:
- *  - minor: your men are taking fire, or pinned -- glanceable, never nagging;
- *  - important: a foot unit lost, a deadline a minute out, a new wave, a
- *    soldier taken, an ambush sprung on you, a Conduct penalty (A9);
- *  - major: a vehicle, an aircraft or a named veteran lost.
+ * The alert tier is the alert model's own (`alerts.ts`, WP-P5): one
+ * vocabulary for what the feed shows and what the player hears (A2), so
+ * "a squad lost" and "the Lavi is gone" stop sounding alike, and under fire
+ * stops sounding like either.
  */
-export type AlertTier = 'minor' | 'important' | 'major';
+export type { AlertTier };
 
 export const ALERT_CUE: Readonly<Record<AlertTier, CueId>> = {
   minor: 'alert.minor',

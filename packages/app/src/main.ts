@@ -70,14 +70,16 @@ import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type 
 import { hintFor, loadSeen, markSeen } from './ui/hint-model';
 import { createShownTimer, loadHintsSeen, markHintSeen, owedRule, type HintContext } from './ui/hint-rules';
 import { portraitIds, unitIcon, unitPlate } from './ui/portrait';
-import { Minimap, MINIMAP_SIZE, flipRows, objectivePoint } from './ui/minimap';
-import { alertsForTick, initAlertState, type AlertWorld } from './ui/alerts';
+import { Minimap, MINIMAP_SIZE, flipRows } from './ui/minimap';
+import { alertsForTick, initAlertState, missionEventTier, nextJump, type JumpTarget } from './ui/alerts';
+import { alertWorldFor } from './ui/alert-world';
+import { placeOnScreen } from './ui/alert-place';
 import { ALERT_CUE, CRITICAL_CUES, OUTCOME_CUE, tickCue } from './ui/cues';
 import { installConfirmCue } from './ui/confirm-cue';
 import { CivFlightWatch, type CivObservation } from './ui/civ-flight';
 import { refugeJump, sayFlight } from './ui/refuge-ping';
 import { INITIAL_PINNED_NOTE, pinnedOrderNote } from './ui/pinned-order';
-import { isPinned, wholeOrderPinned } from './ui/pinned';
+import { isPinned } from './ui/pinned';
 import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
 import { showBrigade, type BrigadeUnit, type GarageState } from './ui/brigade';
 import { accountView } from './account-view';
@@ -128,7 +130,7 @@ import { groupBar, groupChips } from './ui/group-bar';
 import { isIdle, nextIdle, type IdleFacts } from './ui/idle';
 import { escapeHtml } from './ui/escape-html';
 import { symbolLabel } from './ui/symbol';
-import { alertNotice, evacuatedNotice, removedNotice, triggerLabel } from './ui/mission-notice';
+import { alertNotice, evacuatedNotice, reinforceTrigger, removedNotice, triggerLabel } from './ui/mission-notice';
 import { ReinforcementDock } from './ui/production';
 import { doctrineTags } from './ui/dock-model';
 import {
@@ -141,13 +143,8 @@ import {
   type PlayerIntent,
   type IntentWorld,
 } from './input/intents';
-import {
-  ANIMATED_CURSORS,
-  cursorFor,
-  cursorKey,
-  badgeFor,
-  type BadgeHints,
-} from './input/cursor';
+import { ANIMATED_CURSORS, type CursorName } from './input/cursor';
+import { cursorAt, pointerPoint, simIntentWorld } from './input/pointer';
 import { cursorAnimDriver } from './input/cursor-anim';
 import { prefersReducedMotion } from './ui/motion';
 import { roleBucket } from './ui/role';
@@ -438,11 +435,16 @@ function describeMissionEvent(
         : [t('mission.notice.objectiveStatus', { status: objectiveStatusShout(e.status), label: escapeHtml(label) }), 'bad'];
     }
     case 'trigger': {
+      // A labelled `reinforce` is the alert layer's: it says the label once,
+      // with where the units arrive (WP-P5, `ui/alerts.ts`).
+      if (reinforceTrigger(mission, e.id) !== null) return null;
       const label = triggerLabel(mission, e.id);
       return label === null ? null : [escapeHtml(label), 'warn'];
     }
     case 'wave':
-      return [t('mission.notice.wave', { n: e.count }), 'bad'];
+      // WP-P5: the alert layer words a wave now, with the direction it
+      // enters from (`ui/alerts.ts`); a second line here would say it twice.
+      return null;
     case 'roe': {
       const first = !narratedRoeReasons.has(e.reason);
       narratedRoeReasons.add(e.reason);
@@ -456,7 +458,8 @@ function describeMissionEvent(
       );
     }
     case 'built':
-      return [t('mission.notice.built', { unit: e.unit }), 'info'];
+      // WP-P5: likewise -- `alert.arrived` names the unit and where it stands.
+      return null;
     case 'say':
       // The commander bar is the one surface for a story line now -- `hud.say`
       // already runs for every `say` event (see the mission-loop handler
@@ -2459,6 +2462,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // immediately un-showing it would teach the player nothing.
   const settingsStore = safeStorage();
   const seen = loadSeen(settingsStore);
+  /** WP-P5: did this session show the order-row line (`hintFor`)? */
+  let showedOrderRowHint = false;
   // GH-345 follow-up: first-use one-liners for the lessons the nine-beat
   // tutorial cut (`data/hints/first_use.json`, `ui/hint-rules.ts`). Never in
   // the tutorial itself and never in a sandbox, so a sandbox walk cannot spend
@@ -2511,6 +2516,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   let hudShown: ReadonlySet<HudElement> = hudVisibility(null, null, (mission ?? null) as MissionHudJson | null);
   const isShown = (el: HudElement): boolean => hudShown.has(el);
 
+  /** The cursor `updateHover` last chose, bare (no badge). The fire panel
+   *  reads it to say what a right-click there does (PA-08), so its line and
+   *  the cursor are one decision rather than two that could disagree. */
+  let hoverCursorName: CursorName = 'default';
   const hud = new Hud(document.body, {
     sim,
     isShown,
@@ -2520,6 +2529,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     getMission,
     hoverStructure: () => renderer.hoverStructure,
     hoverEntity: () => renderer.hoverEntity,
+    hoverCursor: () => hoverCursorName,
     gameVersion: __GAME_VERSION__,
     commander: hudCommander,
     orders,
@@ -2587,7 +2597,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         sawDock: seen.dock,
         dockAvailable: mission?.resources !== undefined,
         contextual: contextualHint(),
+        sawOrderRow: seen.orderRow,
       });
+      if (line?.key === 'hud.hint.selected') showedOrderRowHint = true;
       const shown = hintTimer.tick(line?.id ?? null, performance.now());
       if (shown === 'dock') {
         seen.dock = true;
@@ -2609,6 +2621,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   });
   // Six panes on `document.body`, plus a title card that may still be holding.
   onDispose(() => hud.destroy());
+  // WP-P5 (PA-16): a session that showed the order-row line has done its
+  // teaching, so the next one does not show it. Marked on LEAVING rather than
+  // on first sight, so the line stays for the whole of that first session --
+  // retiring it mid-mission would be a line that vanished for no reason.
+  onDispose(() => {
+    if (showedOrderRowHint && !seen.orderRow) markSeen(settingsStore, 'orderRow');
+  });
 
   // Unit voices (WP-AU1 §7). Read-only on the sim (invariant 4): `look` and
   // `onTick` only read state and events the sim already produced. Its intents
@@ -3273,10 +3292,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         } else {
           const mine = myLiving();
           if (mine.length > 0) {
+            // The right-click's own point (PA-14): a building's wall is the
+            // building, here as on the contextmenu path.
+            const at = pointerPoint(renderer, sim, p.x, p.y);
             const move = resolvePointer(intentWorld, {
               ids: mine,
-              x: w.x,
-              y: w.y,
+              x: at.x,
+              y: at.y,
               append: ev.shiftKey,
               armed: null,
               confirm: ev.altKey,
@@ -3284,7 +3306,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             voice.hint({ hostile: renderer.hoverEntity >= 0 });
             for (const intent of move.intents) dispatch(intent);
             if (move.note) hud.note(move.note.text, move.note.tone);
-            if (move.marker) renderer.addOrderMarker(w.x, w.y);
+            if (move.marker) renderer.addOrderMarker(at.x, at.y);
             if (orderDenied(move, mine.length)) audio.playCue(CRITICAL_CUES.uiDeny);
           }
         }
@@ -3304,92 +3326,58 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     dragStart = null;
     dragBox.style.display = 'none';
   });
-  // The resolver's view of the world. One adapter, so the click and (in slice
-  // 2) the hover cursor ask the same object the same questions.
-  //
-  // Both structureAt and tunnelAt take integer tile coordinates; screenToWorld
-  // returns fractional world coordinates, so both calls floor here rather
-  // than in the sim (Math is banned in packages/sim/src — invariant 2).
-  const intentWorld: IntentWorld = {
-    structureAt: (x, y) => sim.structureAt(Math.floor(x), Math.floor(y)),
-    tunnelAt: (x, y) => sim.tunnelAt(Math.floor(x), Math.floor(y)),
-    isProtected: (s) => sim.isProtected(s),
-    structureRoePenalty: (s) => sim.structureRoePenalty(s),
-    garrisonFree: (s) => sim.garrisonFree(s),
-    canDemolish: (i) => sim.unitTypes[sim.state.typeIdx[i]].canDemolish,
-    canGarrison: (i) => sim.unitTypes[sim.state.typeIdx[i]].canGarrison,
-    canTunnelCharge: (i) => sim.unitTypes[sim.state.typeIdx[i]].canTunnelCharge,
+  // The resolver's view of the world. One adapter (`simIntentWorld`,
+  // input/pointer.ts), so the click and the hover cursor ask the same object
+  // the same questions -- and so does pointer.test.ts.
+  const intentWorld: IntentWorld = simIntentWorld(sim, (x, y) => {
     // zoneContains is shared with stepRoe's fire/strike branches (task 1) so
     // the warning here and the ROE penalty in the sim cannot drift by a tile.
-    inFlaggedZone: (x, y) => {
-      const tx = Math.floor(x);
-      const ty = Math.floor(y);
-      for (const name of mission?.roe?.flagged_zones ?? []) {
-        if (zoneContains(map.zones[name], tx, ty)) return true;
-      }
-      // The sandbox has no mission and therefore no declared no-fire ground,
-      // so `?sandbox=<map>&roe` supplies some. Without it the protected X is
-      // unreachable on four of the five shipped maps -- only
-      // wadi_halam_basin contains a civic hall.
-      for (const z of sandboxZones) {
-        if (zoneContains(z, tx, ty)) return true;
-      }
-      return false;
-    },
-  };
+    const tx = Math.floor(x);
+    const ty = Math.floor(y);
+    for (const name of mission?.roe?.flagged_zones ?? []) {
+      if (zoneContains(map.zones[name], tx, ty)) return true;
+    }
+    // The sandbox has no mission and therefore no declared no-fire ground,
+    // so `?sandbox=<map>&roe` supplies some. Without it the protected X is
+    // unreachable on four of the five shipped maps -- only
+    // wadi_halam_basin contains a civic hall.
+    for (const z of sandboxZones) {
+      if (zoneContains(z, tx, ty)) return true;
+    }
+    return false;
+  });
   /**
    * Everything the alert layer may ask about the world (`ui/alerts.ts`'s own
    * `AlertWorld`), built once beside `intentWorld` above and for the same
-   * reason: the model stays a pure function over a fixture, and this is the
-   * one adapter that knows it is looking at a real `Sim`.
-   *
-   * `posOf` reads the position of an entity that is usually DEAD -- that is
-   * the whole point of `unitLost` -- which is safe because the sim clears
-   * `alive` and leaves `posX`/`posY` where the casualty fell. The bounds
-   * guard is not defensive noise: `alertsForTick` is handed entity ids out of
-   * an event stream, and an id past `entityCount` would read `undefined` out
-   * of a typed array and turn into `NaN` through `fx.toNumber`, which draws a
-   * flash nowhere and jumps the camera to nowhere, silently.
-   *
-   * `objectiveAt` goes through `minimap.ts`'s own `objectivePoint` rather
-   * than resolving zones and markers a second time here: the camera lands on
-   * the diamond the minimap drew, by construction.
+   * reason: the model stays a pure function over a fixture. The adapter is
+   * `ui/alert-world.ts`'s since WP-P5, so a test can drive it with a real
+   * runtime; the one thing only this file has is the camera, which is what
+   * `placeOf` asks -- through the renderer's own projection, never a copy of
+   * it (CLAUDE.md), against the canvas the player is looking at.
    */
-  const alertWorld: AlertWorld = {
-    posOf: (entity) => {
-      if (entity < 0 || entity >= sim.entityCount) return null;
-      return { x: fx.toNumber(sim.state.posX[entity]), y: fx.toNumber(sim.state.posY[entity]) };
-    },
-    sideOf: (entity) => sim.state.side[entity],
-    // The same lookup the deploy panel's `broughtFor` caller uses, so a feed
-    // line and a briefing line name a unit the same way.
-    unitName: (typeId) => units[typeId as keyof typeof units]?.name ?? typeId,
-    objectiveAt: (id) => {
-      const o = runtime?.objectiveList.find((x) => x.id === id);
-      return o === undefined ? null : objectivePoint(o, map);
-    },
-    // Polish pass F (A2): a lost vehicle, aircraft or named veteran is a
-    // major alert. Read off the sim's own type flags and the ledger entry the
-    // memorial below also reads -- both still there at the `unitLost` tick.
-    unitClass: (entity) => {
-      if (entity < 0 || entity >= sim.entityCount) return 'foot';
-      const type = sim.unitTypes[sim.state.typeIdx[entity]];
-      return type?.isAir ? 'air' : type?.wheeled ? 'vehicle' : 'foot';
-    },
-    isNamedVeteran: (entity) => runtime?.rosterEntryOf(entity)?.name !== undefined,
-  };
-  /** Carried across ticks: when each entity last made the feed. Copy-on-write
-   *  inside `alertsForTick`, so this is only ever reassigned, never mutated. */
+  const alertWorld = alertWorldFor({
+    sim,
+    runtime: () => runtime,
+    mission: resolvedMission ?? null,
+    map,
+    units: units as Readonly<Record<string, { name?: string } | undefined>>,
+    placeOf: (x, y) => placeOnScreen(renderer.worldToScreen(x, y), canvas.clientWidth, canvas.clientHeight),
+  });
+  /** Carried across ticks: when each entity last made the feed, and which
+   *  waves have been announced. Copy-on-write inside `alertsForTick`, so this
+   *  is only ever reassigned, never mutated. */
   let alertState = initAlertState();
-  /** Where the jump key goes. A plain local: it is presentation state about
-   *  the last thing worth looking at, it is read by exactly one keydown case,
-   *  and nothing outside this function has any business knowing it. */
-  let lastAlertAt: { x: number; y: number } | null = null;
+  /** Where the jump key goes: the latest important or major alert, or a
+   *  minor one while nothing heavier has happened (`nextJump`, WP-P5). A
+   *  plain local: presentation state read by exactly one keydown case. */
+  let jumpTarget: JumpTarget | null = null;
 
   canvas.addEventListener('contextmenu', (ev) => {
     ev.preventDefault();
     const rect = canvas.getBoundingClientRect();
-    const w = renderer.screenToWorld(ev.clientX - rect.left, ev.clientY - rect.top);
+    // PA-14: the point the hover cursor read, so a click on a building's
+    // upper wall orders onto the building, not the ground hidden behind it.
+    const w = pointerPoint(renderer, sim, ev.clientX - rect.left, ev.clientY - rect.top);
     // `issueOrder` rather than a resolve-and-dispatch written out here: since
     // Task 10 the minimap issues the same order from the same function, and
     // this call and that one are the whole of it.
@@ -3599,9 +3587,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // The camera, and nothing else: no selection change, no order. The
         // key answers "what just happened, and where" -- deciding what to do
         // about it is still the player's.
-        if (lastAlertAt) {
-          renderer.camera.x = lastAlertAt.x;
-          renderer.camera.y = lastAlertAt.y;
+        if (jumpTarget) {
+          renderer.camera.x = jumpTarget.at.x;
+          renderer.camera.y = jumpTarget.at.y;
           keepOnMap();
         } else {
           // Not padding. A key that does nothing and says nothing is
@@ -3847,11 +3835,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       for (const a of alerts) {
         // `alertNotice` escapes the unit NAME `alert.unitLost` interpolates
         // (shell upgrade Phase 3, Task 10); this was `t(key, params)`, raw.
-        if (a.line) hud.note(...alertNotice(a.line));
-        if (a.at) {
-          minimap.flash([a.at], performance.now());
-          lastAlertAt = a.at;
-        }
+        // The tier styles the line (WP-P5, C3) and ranks the jump key.
+        if (a.line) hud.note(...alertNotice(a.line), { tier: a.tier });
+        if (a.marks.length > 0) minimap.flash(a.marks, performance.now());
+        jumpTarget = nextJump(jumpTarget, a.tier, a.at);
       }
 
       for (const me of missionEvents) {
@@ -3868,7 +3855,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           if (record) lostThisMission.push(record);
         }
         const described = describeMissionEvent(me, mission, narratedRoeReasons, placeNames);
-        if (described) hud.note(described[0], described[1]);
+        if (described) hud.note(described[0], described[1], { tier: missionEventTier(me) ?? undefined });
         // The story voice (GDD §11): the commander bar is the one surface for
         // it now -- `describeMissionEvent`'s own `case 'say'` returns null,
         // so this is the only place a `say` event lands. See `Hud.say`'s own
@@ -4300,16 +4287,19 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // are going; and the refuge ring, once per LINE, not per family
         // (`ui/refuge-ping.ts`). The jump key takes where they broke, the way
         // every other alert's does.
-        lastAlertAt = sayFlight(
+        // A family running is important: it is the evacuation the mission is
+        // scored on, and the jump key should take the player there.
+        const fled = sayFlight(
           flight,
           refugeAt,
           {
-            note: (line) => hud.note(...alertNotice(line)),
+            note: (line) => hud.note(...alertNotice(line), { tier: 'important' }),
             flash: (points, nowMs) => minimap.flash(points, nowMs),
             ping: (x, y) => renderer.pingRefuge?.(x, y),
           },
           performance.now()
         );
+        jumpTarget = nextJump(jumpTarget, 'important', fled);
       }
     }
     // GH-345: the surfaces main.ts owns follow the same set the Hud reads in
@@ -4503,6 +4493,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           cursor: canvas.dataset.cursor ?? '(unset)',
           asked: [wx, wy] as [number, number],
           landed: [Math.floor(landed.x), Math.floor(landed.y)] as [number, number],
+          // The building whose wall this pixel shows (PA-14), which an order
+          // here resolves to instead of `landed`; -1 on open ground.
+          facade: renderer.structureAtScreen(lastCursor.x, lastCursor.y),
         };
       },
     },
@@ -4542,7 +4535,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // Hover work runs once per frame rather than once per pointer event. A
   // high-poll mouse fires several moves a frame, and this loop includes an
   // O(N) scan over every entity, so this is strictly cheaper than before.
-  const hw = renderer.screenToWorld(lastCursor.x, lastCursor.y);
+  // One read of the pointer for the cursor AND the click (input/pointer.ts):
+  // the ground point, the enemy under it, and -- PA-14 -- the building whose
+  // wall the pixel shows, which an order resolves to instead of the hidden
+  // ground behind it. `hw` is that order point; `pp.ground` stays the
+  // ground, for the friendly hover below, which is about units, not orders.
+  const pp = pointerPoint(renderer, sim, lastCursor.x, lastCursor.y);
+  const hw = { x: pp.x, y: pp.y };
   const hs = sim.structureAt(Math.floor(hw.x), Math.floor(hw.y));
   renderer.hoverStructure = hs;
   renderer.hoverCanGarrison =
@@ -4556,31 +4555,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         sim.state.garrisonedIn[i] !== hs
     );
 
-  // Nearest living enemy within half a tile of the cursor — the same
-  // generosity the click-to-select test uses. Restricted to side 1 (real
-  // enemies, never civilians — side 2 is never an aimpoint) and gated on
-  // renderer.isVisible so the scan can only pick up an entity that is
-  // actually drawn on screen right now. That mirrors the exact condition
-  // the renderer itself uses to decide whether to draw a non-friendly
-  // sprite at all (see PixiRenderer's entity loop) — anything the fog
-  // currently hides must not be able to surface through the hover panel
-  // either, or sweeping the cursor across unexplored ground locates every
-  // hidden defender.
-  let he = -1;
-  let bestD = 0.5 * 0.5;
-  for (let i = 0; i < sim.entityCount; i++) {
-    if (sim.state.alive[i] === 0 || sim.state.side[i] !== 1) continue;
-    const ex = fx.toNumber(sim.state.posX[i]);
-    const ey = fx.toNumber(sim.state.posY[i]);
-    if (!renderer.isVisible(ex, ey)) continue;
-    const dx = ex - hw.x;
-    const dy = ey - hw.y;
-    const d = dx * dx + dy * dy;
-    if (d < bestD) {
-      bestD = d;
-      he = i;
-    }
-  }
+  // Nearest living enemy within half a tile of the cursor's GROUND point,
+  // fog-gated -- `hostileUnder`'s own comment has the rule.
+  const he = pp.hostile;
   renderer.hoverEntity = he;
 
   // The FRIENDLY hover, for the range-ring preview (shell Phase 2 Task 16).
@@ -4607,8 +4584,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     const ex = fx.toNumber(sim.state.posX[i]);
     const ey = fx.toNumber(sim.state.posY[i]);
     if (!renderer.isVisible(ex, ey)) continue;
-    const dx = ex - hw.x;
-    const dy = ey - hw.y;
+    const dx = ex - pp.ground.x;
+    const dy = ey - pp.ground.y;
     const d = dx * dx + dy * dy;
     // The selection test sits INSIDE the distance test, not above it. It is a
     // linear scan of an array the player can fill with the whole roster, and
@@ -4656,40 +4633,17 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   }
 
   // The hover cursor asks the same resolver the click uses, with the same
-  // adapter (intentWorld) — one object, so the click and the cursor that
-  // predicts it can never give different answers. append is always false:
-  // the hover cursor does not depend on Shift, and passing the live Shift
-  // state would make the cursor flicker while a player queues waypoints.
+  // adapter (intentWorld) at the same point (`pp`) -- so the click and the
+  // cursor that predicts it can never give different answers. `cursorAt`
+  // (input/pointer.ts) is also what pointer.test.ts reads at a fixed pixel.
   const mine = renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
-  const res = resolvePointer(intentWorld, {
+  const { name, key } = cursorAt(sim, intentWorld, pp, {
     ids: mine,
-    x: hw.x,
-    y: hw.y,
-    append: false,
     armed: armedSupport,
     confirm: altHeld,
-  });
-  const tx = Math.floor(hw.x);
-  const ty = Math.floor(hw.y);
-  const inBounds = tx >= 0 && ty >= 0 && tx < sim.width && ty < sim.height;
-  // GH-262: the whole order is pinned -- every id the order intent would
-  // move -- so the click is accepted and nobody goes. Read from the order
-  // intent's ids rather than the selection, so a pinned unit in a demolish
-  // or garrison group never speaks for it. Read every frame, so the cursor
-  // goes back to `move` the tick the pin lifts, with no re-hover.
-  const orderIds = res.intents.find((i) => i.kind === 'order')?.ids ?? [];
-  const pinned = wholeOrderPinned(sim.state, orderIds);
-  const hints = {
-    hostile: renderer.hoverEntity >= 0,
-    blocked: inBounds && sim.blocked[ty * sim.width + tx] !== 0,
     armedSmoke: armedOrder === 'smoke',
-    pinned,
-  };
-  const badges: BadgeHints = {
-    bucketOf: (id) => roleBucket(sim.unitTypes[sim.state.typeIdx[id]]),
-  };
-  const name = cursorFor(res, hints);
-  const key = cursorKey(name, badgeFor(res, hints, badges, name));
+  });
+  hoverCursorName = name;
   // Guard the write: a dataset attribute set every frame forces needless
   // style invalidation even when the cursor hasn't changed.
   if (key !== lastCursorKey) {
@@ -4697,7 +4651,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     lastCursorKey = key;
   }
   // Keyed on `name` (the bare verb), not `key`: a badge change alone --
-  // `attack` to `attack-kamikaze` from a selection change while still
+  // `advance` to `advance-kamikaze` from a selection change while still
   // hovering the same target -- must not restart the pulse, only a change
   // of *which* animation (or none) should be running does.
   cursorAnim.show(name);

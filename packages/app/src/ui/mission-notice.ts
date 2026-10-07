@@ -23,6 +23,7 @@
  * No DOM, no Pixi, no sim state.
  */
 import { t } from '../i18n/t';
+import { distinctPlaces, type Place } from './alert-place';
 import type { AlertLine } from './alerts';
 import { escapeHtml } from './escape-html';
 import type { Tone } from './hud';
@@ -115,5 +116,63 @@ export function alertNotice(line: AlertLine): [string, Tone] {
   for (const [key, value] of Object.entries(line.params)) {
     params[key] = typeof value === 'string' ? escapeHtml(value) : value;
   }
+  // WP-P5: the place, worded here and never by the model. `where` lets the
+  // catalogue drop its own " · " when there is nowhere to name -- a line
+  // with no place reads as it did, rather than ending on a dangling dot.
+  if (line.place !== undefined) {
+    const place = placePhrase(line.place);
+    params.place = place;
+    params.where = place === '' ? 'no' : 'yes';
+  }
   return [t(line.key, params), line.tone];
+}
+
+/** Catalogue keys per place, spelled out so each one is a literal a grep
+ *  (and `validate_i18n.mjs`) can find. */
+const PLACE_KEY: Readonly<Record<Place, string>> = {
+  here: 'alert.place.here',
+  n: 'alert.place.n',
+  ne: 'alert.place.ne',
+  e: 'alert.place.e',
+  se: 'alert.place.se',
+  s: 'alert.place.s',
+  sw: 'alert.place.sw',
+  w: 'alert.place.w',
+  nw: 'alert.place.nw',
+};
+
+/**
+ * WP-P5: a list of places as one phrase -- "in view", "north-east",
+ * "north-west and north-east", or "from several sides" once there are
+ * three or more, which is what a wave entering on every face of the
+ * compound is (First Light's first wave enters from five markers). Empty for
+ * no place at all.
+ */
+export function placePhrase(places: readonly Place[]): string {
+  const ps = distinctPlaces(places);
+  if (ps.length === 0) return '';
+  if (ps.length === 1) return t(PLACE_KEY[ps[0]]);
+  if (ps.length === 2) return t('alert.place.two', { a: t(PLACE_KEY[ps[0]]), b: t(PLACE_KEY[ps[1]]) });
+  return t('alert.place.many');
+}
+
+/**
+ * WP-P5: a LABELLED `reinforce` trigger -- the player's own scripted
+ * reinforcement (the tutorial's second squad, jeep and mortar). The alert
+ * layer words these with where they arrive, so `describeMissionEvent` stands
+ * down for exactly this set and the label is said once. An unlabelled one is
+ * null here too: it shows nothing anywhere, as every unlabelled trigger does.
+ */
+export function reinforceTrigger<P>(
+  mission: { triggers?: readonly { id?: string; label?: string; do: { kind: string; units?: readonly P[] } }[] } | undefined,
+  id: string
+): { label: string; units: readonly P[] } | null {
+  const triggers = mission?.triggers ?? [];
+  let def = triggers.find((tr) => tr.id === id);
+  if (def === undefined) {
+    const m = /^trigger_(\d+)$/.exec(id);
+    if (m) def = triggers[Number(m[1])];
+  }
+  if (def === undefined || def.do.kind !== 'reinforce' || def.label === undefined) return null;
+  return { label: def.label, units: def.do.units ?? [] };
 }
