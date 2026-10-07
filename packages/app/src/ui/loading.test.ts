@@ -724,6 +724,42 @@ describe('the objective panel on the briefing (task 5)', () => {
     expect(el.querySelectorAll('.rl-loading__beat')).toHaveLength(briefingBeats(briefing).length);
   });
 
+  // GH-417 B-04: before the mission starts, no row is "In progress". The
+  // status column names the row's kind instead. Falsified: replacing
+  // `deps.briefing ?` with `false ?` in objectives.ts puts four "In progress"
+  // labels back and this goes red.
+  it('labels each row by kind, never by a live status that has not started', () => {
+    const el = document.createElement('div');
+    showLoading(el, 'Umm Zeitoun IV', briefing, undefined, undefined, undefined, undefined, rows, true);
+    const words = [...el.querySelectorAll('.rl-obj__status')].map((s) => s.textContent);
+    expect(words).toEqual(['Primary', 'Primary', 'Optional', 'Optional', 'Optional']);
+    expect(el.textContent).not.toContain('In progress');
+  });
+
+  // GH-417 B-01: focusing Deploy must not scroll the screen to it. Falsified:
+  // `deploy.focus()` with no options leaves `preventScroll` undefined here.
+  it('focuses Deploy without scrolling the screen to it', async () => {
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    const calls: (FocusOptions | undefined)[] = [];
+    const orig = HTMLElement.prototype.focus;
+    HTMLElement.prototype.focus = function (this: HTMLElement, o?: FocusOptions) {
+      if (this.classList.contains('rl-loading__deploy')) calls.push(o);
+      orig.call(this, o);
+    };
+    try {
+      const screen = showLoading(el, 'Umm Zeitoun IV', briefing, undefined, undefined, undefined, undefined, rows, true);
+      void screen.done().catch(() => undefined);
+      await Promise.resolve();
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.preventScroll).toBe(true);
+      screen.dispose();
+    } finally {
+      HTMLElement.prototype.focus = orig;
+      el.remove();
+    }
+  });
+
   it('shows no objectives for a sandbox, which declares none', () => {
     const el = document.createElement('div');
     showLoading(el, 'M0 sandbox');

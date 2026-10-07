@@ -728,7 +728,7 @@ export function showLoading(
     // `rows()` thunk keeps the type this `if` already narrowed it to.
     if (objectives) {
       const objs = objectives;
-      objectivesPanel(left, { rows: () => objs, paysCredits: paysCredits ?? false });
+      objectivesPanel(left, { rows: () => objs, paysCredits: paysCredits ?? false, briefing: true });
     }
     if (broughtEl) left.append(broughtEl);
     if (left !== box) {
@@ -893,7 +893,12 @@ export function showLoading(
         // unparks them.
         back?.addEventListener('click', goBack);
         window.addEventListener('keydown', onKey);
-        deploy.focus();
+        // `preventScroll` (GH-417 B-01): a focus scrolls its target into view,
+        // and Deploy sits below a long briefing -- so a plain `focus()` opened
+        // the screen already scrolled, with the mission's name above the top
+        // edge (PA-13, measured 104 px at 1400x900). Deploy is kept on screen
+        // by `position: sticky` (theme.css), not by scrolling to it.
+        deploy.focus({ preventScroll: true });
       });
     },
   };

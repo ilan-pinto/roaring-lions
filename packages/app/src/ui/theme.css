@@ -3658,8 +3658,13 @@ button.rl-menu__item[data-kind='aside'] {
   inset: 0;
   z-index: 40;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  /* `safe` (GH-417 B-01): plain `center` on a scroll container centres a box
+     taller than the viewport by pushing its top into NEGATIVE overflow, which
+     no scroll reaches -- the mission name sat at -210 px at 1400x900 on Wadi
+     Halam V and could not be scrolled to. `safe` falls back to `start` exactly
+     when the box would overflow, and centres it otherwise. */
+  align-items: safe center;
+  justify-content: safe center;
   /* Opaque, not translucent — see above; there is nothing behind here worth
      showing through. */
   background: var(--panel-bg-solid);
@@ -3825,6 +3830,19 @@ button.rl-menu__item[data-kind='aside'] {
   /* Scrolled text needs a margin to breathe against the scrollbar. */
   padding-right: var(--s2);
 }
+/* GH-417 B-03: with orders to read, the beats do NOT scroll inside their own
+   box any more. That nested box cut its text off flush against the
+   Objectives header (Execution read as overlapped; Notes was hidden inside
+   it at 1400 and 1920). What the cap above protected -- Deploy staying on
+   screen -- is `position: sticky` on Deploy now (below), so the whole screen
+   scrolls as one page. The cinematic layout keeps its own cap
+   (`.rl-loading__box--video .rl-loading__brief`), whose measured fit is a
+   different screen. */
+.rl-loading__box--brief:not(.rl-loading__box--video) .rl-loading__brief {
+  max-height: none;
+  overflow-y: visible;
+  padding-right: 0;
+}
 /* One beat, one paragraph, with air between them -- the "wall of text"
    complaint was as much about the missing paragraph breaks as the size.
    Fades in on a short stagger keyed by `--i`, the same per-child custom
@@ -3939,6 +3957,27 @@ button.rl-menu__item[data-kind='aside'] {
   color: var(--ink);
   border: 0;
   cursor: pointer;
+}
+/* GH-417 B-02: the one control that starts the mission stays on screen. It
+   follows the orders in the page, so on a tall briefing it sat below the fold
+   on open (top at 1123 px at 1920x1080, 1488 px at 2560x1440). Sticky to the
+   scroll container's bottom edge: where the page is short enough it sits
+   exactly where it always did; where it is not, it rides the bottom edge until
+   the reader scrolls to its own place. Behind it, a band in the screen's own
+   colour runs the full width, so prose scrolling under it is hidden rather
+   than read beside the button. The band is a border-image drawn wholly in
+   the OUTSET (width = outset, no `fill`): it paints outside the button and
+   never over it, and outset ink is overflow that triggers no scrolling. Where
+   Deploy sits in its own place the band is the background colour on the
+   background, so it is invisible. */
+.rl-loading__box--brief > .rl-loading__deploy {
+  position: sticky;
+  bottom: var(--s3);
+  z-index: 1;
+  border-image-source: linear-gradient(var(--panel-bg-solid), var(--panel-bg-solid));
+  border-image-slice: 1;
+  border-image-width: var(--s5) 100vw var(--s3);
+  border-image-outset: var(--s5) 100vw var(--s3);
 }
 .rl-loading__deploy:hover,
 .rl-loading__deploy:focus-visible {
