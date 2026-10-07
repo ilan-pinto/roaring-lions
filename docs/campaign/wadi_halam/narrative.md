@@ -705,6 +705,13 @@ that he did not.
 
 ### 5.5 `debrief` — 130 chars — **not applied**
 
+> **Superseded 2026-10-07.** The lead ruled the premise below a bug: razing what a
+> `raze` objective names no longer costs Conduct (`MissionRuntime.stepRoe` skips
+> a structure in any raze objective's target set), so a clean demolition of the
+> depot ends on ROE 100, not 81, and only collateral — the village houses, the
+> hall — is judged. The live `debrief.victory` line is the one in the trigger table, §5.8;
+> the reasoning below is kept as the record of what was shipped before.
+
 > *Nineteen points of this depot is the order itself. Whatever the number below
 > says, part of it was decided before the column moved.*
 
@@ -841,7 +848,7 @@ labelled ENEMY (§10 G-F). Cheapest unrealised story surface in the tree.
 | `missionEnd(victory)` | `toast` | system | `MISSION ACCOMPLISHED — ROE n, k units survive` | hard-coded | live |
 | `missionEnd(victory)` | `aftermath` | narrator | §5.6, Option 1 or Option 2 | victory banner; **the campaign's last line** | live |
 | `missionEnd(any)` | `debrief` | narrator | §5.5 | end screen, above the rating | live |
-| `missionEnd(victory)` | `debrief` | Shai | "Nineteen points, and every one of them was the order. There is no carelessness on this rating." | applied; deliberately subordinate to the `aftermath` | live |
+| `missionEnd(victory)` | `debrief` | Shai | "The depot was the order, and none of it is on this rating. Whatever the number says is what the column did on the way." | applied; deliberately subordinate to the `aftermath` | live |
 | `missionEnd(defeat)` | `debrief` | Idit | "The depot is standing and the road is open. Whatever came up it last month comes up it next month." | applied | live |
 
 ---
@@ -870,7 +877,7 @@ unavailable for the whole town and why three of Act III's failable primaries are
 | the village | zone `village [25,15,9,18]` | `radio` | Idit | "Four houses, two sheds and a lane, and people in all of it. Nobody in there chose which side of a corridor to be born on." | engine |
 | the mosque block | zone `mosque_block [28,22,4,4]`, 9 tiles of `m` | `radio` | Shai | "Thirty points, and it is the only structure on this map the demolishers will refuse on their own. Everything else here comes down if something halts beside it." | engine |
 | the depot wall | 41 `wall` tiles, x34 / x42 / y16 / y31 | `radio` | Idit | "Forty-one tiles of wall and every one of them is worth nothing. The wall is not the depot — the seven buildings inside it are." | engine |
-| the depot | zone `depot [35,17,7,14]`, `depot_gate [34,24]` | `radio` | Idit | "Three warehouses, two concrete stores and two sheds. Nineteen points of restraint, and the mission's own orders spend all of it." | engine |
+| the depot | zone `depot [35,17,7,14]`, `depot_gate [34,24]` | `radio` | Idit | "Three warehouses, two concrete stores and two sheds. Nineteen points of restraint, and the mission's own orders spend all of it." | **void** — since 2026-10-07 the raze target costs no Conduct |
 | the east road | zone `east_road [42,22,6,4]` | `radio` | Idit | "The track east of the depot is the only piece of this map nothing has ever been asked to do anything about. It is where the corridor goes." | engine |
 | the Rif approaches | `rif_north [44,9]`, `rif_east [44,24]`, `rif_south [44,39]` | `radio` | Idit | "Three approaches off the eastern edge and they have used all three in one afternoon. There is no fourth, and they have never needed one." | engine |
 | the refuge | `civ_refuge [22,36]` / zone `refuge [19,34,8,6]` | `radio` | Shai | "The refuge is a fold of ground south of the track with nothing in it. That is the point of it — it is the one place on this map nobody wants." | engine |
