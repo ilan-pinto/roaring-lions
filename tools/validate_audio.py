@@ -29,6 +29,13 @@ Checks (all fail the build):
   9. COMMERCIAL (`--commercial` only) -- no variant whose `source` says its
                   licence is not yet confirmed: the four ElevenLabs takes
                   (D5, A3) stay out of a commercial build until it is.
+  10. AMBIENCE -- the `ambience.beds` table (polish pass F, A11): licence,
+                  source, files and gain always; with ffmpeg and ffprobe, BOTH
+                  encodings of every bed decoded and measured -- the decoded
+                  length against the declared `loop_s` (to 1 ms), the channel
+                  count against `channels`, the true peak (<= -6 dBTP), the
+                  loudness as heard (-34 +- 2 LUFS) and the seam (no level
+                  step, no gap). Without ffmpeg the skip is named.
   6. VOICES    -- licence/source/generator/text/translit/en on every voice
                   variant; ASCII voice/<lang>/<class>/<trigger>_<nn><take>.ogg|m4a
                   paths filed under their own key; keys in a language some
@@ -168,6 +175,167 @@ def check_music_levels(music, failures, notes, audio_dir=AUDIO_DIR, measure=true
             notes.append(f"{f}: true peak {tp:+.1f} dBTP, {heard:+.1f} after trim_db {trim}")
 
 
+# Polish pass F, A11: the ambience beds. A bed is heard at -34 LUFS at default
+# sliders (audio-plan.md section 2.1, rank 6), well under a voice line's -21
+# and a cue's -14 dBFS peak; the tolerance is the plan's own +-2.
+AMB_HEARD_LUFS = -34.0
+AMB_HEARD_TOL_LU = 2.0
+AMB_MAX_TRUE_PEAK_DBTP = -6.0
+AMB_LOOP_RANGE_S = (20.0, 90.0)
+# Both encodings must decode to the declared loop, to the millisecond: an AAC
+# file whose priming or padding is not trimmed loops with a gap in it.
+AMB_LOOP_TOL_S = 0.001
+# The seam, measured on the decoded file, wrapped. LEVEL: the 250 ms either
+# side of the wrap within 2 dB of each other (a swell that is not periodic, or
+# an event cut off). GAP: no 5 ms window within 100 ms of the wrap more than
+# 6 dB under the file's own quietest 1% of 5 ms windows (a codec's silence).
+AMB_SEAM_LEVEL_DB = 2.0
+AMB_SEAM_GAP_DB = 6.0
+
+
+def _db(v):
+    import math
+    return 20 * math.log10(v) if v > 0 else float("-inf")
+
+
+def _rms(xs):
+    return (sum(v * v for v in xs) / len(xs)) ** 0.5 if len(xs) else 0.0
+
+
+def seam_metrics(pcm, rate):
+    """(level step dB, gap dB) at the loop's wrap, for mono float samples.
+    The gap is the quietest 5 ms window near the wrap against the file's 1st
+    percentile 5 ms window: negative means quieter than the file ever is."""
+    k = int(0.25 * rate)
+    level = abs(_db(_rms(pcm[-k:])) - _db(_rms(pcm[:k])))
+    w = max(1, int(0.005 * rate))
+    near = int(0.1 * rate)
+    # The floor is the file AWAY from the seam: what is under test is not
+    # allowed to set its own bar.
+    windows = sorted(_db(_rms(pcm[i:i + w])) for i in range(near, len(pcm) - near - w + 1, w))
+    floor = windows[int(0.01 * (len(windows) - 1))]
+    around = list(pcm[-near:]) + list(pcm[:near])
+    nearest = min(_db(_rms(around[i:i + w])) for i in range(0, len(around) - w + 1, w))
+    return level, nearest - floor
+
+
+def measure_bed(path):
+    """What the gate needs from one encoded bed, decoded by ffmpeg the way a
+    player decodes it: channels, decoded length, integrated loudness, true
+    peak and the seam. None when ffmpeg or ffprobe is not on PATH."""
+    import array
+    if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
+        return None
+    try:
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels,sample_rate",
+             "-of", "default=noprint_wrappers=1", path],
+            capture_output=True, text=True, timeout=60, check=True,
+        ).stdout
+        info = dict(line.split("=", 1) for line in probe.split() if "=" in line)
+        channels, rate = int(info["channels"]), int(info["sample_rate"])
+        raw = subprocess.run(
+            ["ffmpeg", "-v", "error", "-i", path, "-f", "s16le", "-acodec", "pcm_s16le", "-"],
+            capture_output=True, timeout=120, check=True,
+        ).stdout
+        loud = subprocess.run(
+            ["ffmpeg", "-nostats", "-hide_banner", "-i", path, "-af", "ebur128=peak=true", "-f", "null", "-"],
+            capture_output=True, text=True, timeout=120,
+        ).stderr
+    except (OSError, subprocess.SubprocessError, KeyError, ValueError):
+        return None
+    pcm16 = array.array("h")
+    pcm16.frombytes(raw[: len(raw) // 2 * 2])
+    if sys.byteorder == "big":
+        pcm16.byteswap()
+    frames = len(pcm16) // channels
+    if channels == 1:
+        mono = [v / 32768.0 for v in pcm16]
+    else:
+        mono = [sum(pcm16[i * channels:(i + 1) * channels]) / (32768.0 * channels) for i in range(frames)]
+    integrated = re.findall(r"Integrated loudness:\s*\n\s*I:\s*(-?[\d.]+|-inf)\s*LUFS", loud)
+    peak = re.findall(r"True peak:\s*\n\s*Peak:\s*(-?[\d.]+|-inf)\s*dBFS", loud)
+    if not integrated or not peak or frames == 0:
+        return None
+    level, gap = seam_metrics(mono, rate)
+    return {
+        "channels": channels,
+        "seconds": frames / rate,
+        "integrated": float(integrated[-1]),
+        "true_peak": float(peak[-1]),
+        "seam_level_db": level,
+        "seam_gap_db": gap,
+    }
+
+
+def check_ambience(man, failures, notes, audio_dir=AUDIO_DIR, measure=measure_bed):
+    """A11: the `ambience.beds` table. The shape always; with ffmpeg, both
+    encodings of every bed decoded and measured. Returns every file declared.
+    Which beds the app can ask for is a vitest (packages/app/src/ambience.test.ts),
+    because the ids live in TypeScript."""
+    declared = set()
+    amb = man.get("ambience")
+    if amb is None:
+        return declared
+    beds = amb.get("beds")
+    if not isinstance(beds, dict) or not beds:
+        failures.append("ambience: no beds declared")
+        return declared
+    master = man.get("master_gain", 1.0)
+    for bed, spec in beds.items():
+        label = f"ambience '{bed}'"
+        if not isinstance(spec, dict) or not spec.get("file"):
+            failures.append(f"{label}: no file")
+            continue
+        check_licensed_file(spec, failures, MAX_BYTES, audio_dir=audio_dir)
+        declared |= {spec[r] for r in ("file", "alt") if spec.get(r)}
+        gain = spec.get("gain")
+        loop_s = spec.get("loop_s")
+        channels = spec.get("channels")
+        if isinstance(gain, bool) or not isinstance(gain, (int, float)) or not 0 < gain <= 1:
+            failures.append(f"{label}: gain {gain!r} outside (0, 1] -- a bed is never louder than its file")
+            continue
+        if isinstance(loop_s, bool) or not isinstance(loop_s, (int, float)) or not AMB_LOOP_RANGE_S[0] <= loop_s <= AMB_LOOP_RANGE_S[1]:
+            failures.append(f"{label}: loop_s {loop_s!r} outside {AMB_LOOP_RANGE_S[0]}..{AMB_LOOP_RANGE_S[1]} s")
+            continue
+        if channels not in (1, 2) or isinstance(channels, bool):
+            failures.append(f"{label}: channels {channels!r} is not 1 (mono) or 2 (stereo)")
+            continue
+        for role in ("file", "alt"):
+            rel = spec.get(role)
+            path = os.path.join(audio_dir, rel) if rel else None
+            if not path or not os.path.exists(path):
+                continue  # check_licensed_file already names a missing file
+            got = measure(path)
+            if got is None:
+                notes.append(f"{rel}: bed NOT measured (no ffmpeg/ffprobe on PATH) -- loop, channels, peak, loudness and seam unchecked")
+                continue
+            if got["channels"] != channels:
+                failures.append(f"{rel}: decodes to {got['channels']} channel(s), the manifest declares {channels}")
+            if abs(got["seconds"] - loop_s) > AMB_LOOP_TOL_S:
+                failures.append(
+                    f"{rel}: decodes to {got['seconds']:.4f} s, the loop is {loop_s:.4f} s -- "
+                    "an encoder's priming or padding left in loops with a gap"
+                )
+            if got["true_peak"] > AMB_MAX_TRUE_PEAK_DBTP + 1e-9:
+                failures.append(f"{rel}: true peak {got['true_peak']:+.1f} dBTP, over the bed ceiling {AMB_MAX_TRUE_PEAK_DBTP} dBTP")
+            heard = got["integrated"] + _db(gain * master)
+            if abs(heard - AMB_HEARD_LUFS) > AMB_HEARD_TOL_LU + 1e-9:
+                failures.append(
+                    f"{rel}: heard at {heard:.1f} LUFS ({got['integrated']:.1f} LUFS, gain {gain}, master {master}), "
+                    f"outside {AMB_HEARD_LUFS} +- {AMB_HEARD_TOL_LU}"
+                )
+            if got["seam_level_db"] > AMB_SEAM_LEVEL_DB:
+                failures.append(f"{rel}: the loop's seam steps {got['seam_level_db']:.1f} dB (over {AMB_SEAM_LEVEL_DB})")
+            if got["seam_gap_db"] < -AMB_SEAM_GAP_DB:
+                failures.append(f"{rel}: a gap at the loop's seam, {got['seam_gap_db']:.1f} dB under the file's own floor")
+            notes.append(
+                f"{rel}: {got['seconds']:.3f} s loop, {got['channels']} ch, {got['true_peak']:+.1f} dBTP, "
+                f"heard {heard:.1f} LUFS, seam {got['seam_level_db']:.1f} dB / gap {got['seam_gap_db']:+.1f} dB"
+            )
+    return declared
+
+
 def check_commercial(man, failures):
     """A3: what a commercial build may not carry. Every variant, in every
     section, whose `source` records an unconfirmed licence."""
@@ -175,6 +343,7 @@ def check_commercial(man, failures):
     for spec in man.get("sets", {}).values():
         found += [v for v in spec.get("variants", [])]
     found += list((man.get("music") or {}).get("tracks", []))
+    found += [b for b in ((man.get("ambience") or {}).get("beds") or {}).values() if isinstance(b, dict)]
     for line in ((man.get("voices") or {}).get("lines") or {}).values():
         found += line.get("variants", [])
     for v in found:
@@ -374,6 +543,7 @@ def main(argv=None):
             check_licensed_file(t, failures, MAX_MUSIC_BYTES)
 
     check_music_levels(music, failures, notes)
+    declared_amb = check_ambience(man, failures, notes)
     total_cues = check_cues(man, failures)
     if commercial:
         check_commercial(man, failures)
@@ -402,6 +572,7 @@ def main(argv=None):
             if rel
         }
         declared |= declared_voice
+        declared |= declared_amb
         for dirpath, _, files in os.walk(AUDIO_DIR):
             for fn in files:
                 if os.path.splitext(fn)[1].lower() not in ALLOWED_EXT:
@@ -421,6 +592,7 @@ def main(argv=None):
     music_note = f", {total_tracks} music track(s)" if total_tracks else ""
     voice_note = f", {total_voice_variants} voice variant(s)" if total_voice_variants else ""
     voice_note += f", {total_cues} cue(s) mapped" if total_cues else ""
+    voice_note += f", {len(declared_amb) // 2} ambience bed(s)" if declared_amb else ""
     voice_note += ", commercial build clean" if commercial else ""
     if total_variants == 0:
         print(f"audio gate passed: manifest valid, no recordings yet (procedural synth in use){music_note}{voice_note}")
