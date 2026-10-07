@@ -186,9 +186,10 @@ default camera, with no building's mesh over more than half of a rifleman standi
 `tools/src/map_visibility.test.ts` gates every campaign map; a map under the floor needs a
 named exemption with a reason, and the exemption is a ratchet. Run
 `npx tsx tools/src/map_visibility.ts --draw=<map id>` while authoring: a building hides the
-ground up-screen of it (north-west on the grid), a house for about five tiles and an
-apartment for about nine, whatever its footprint, so streets go on the camera side of tall
-buildings and most of a town is low. The geometry and the four authoring rules are in
+ground up-screen of it (north-west on the grid), about 1.2 tiles per world unit of
+height. Buildings are drawn fitted to their footprints (a house on a 2×2 is about 2 units
+tall and hides about 2.5 tiles; nothing draws under 1.2), so streets go on the camera side
+of tall buildings and most of a town is low. The geometry and the four authoring rules are in
 `ground-ladder.md` §15.
 
 ## Verification for narrative content

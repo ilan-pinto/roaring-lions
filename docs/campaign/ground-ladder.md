@@ -576,22 +576,25 @@ prints the table (and a map with `X` on every hidden fight tile).
   under all four settings of the instrument's free parameters that were tried (the full
   argument is on `VISIBLE_FLOOR`).
 
-**The geometry an author has to know.** A building draws its GLB at the footprint's
-centre at a fixed size: the mesh is **not** fitted to the footprint. So a 1×1 or 2×2 `h`
-still draws a house 4.26 × 3.71 tiles in plan, and its walls stand in the lanes beside it.
-And it hides the ground **up-screen** of itself (towards smaller x and y, the north-west
-of the grid), never in front of it:
+**The geometry an author has to know.** Since the lead's ruling of 7 Oct a building's mesh
+is **fitted to its footprint** (`packages/render/src/three/units/building-fit.ts`, rule
+`stretch`): each plan axis is scaled down to the footprint's side, never up; the height
+follows the smaller of the two plan scales; and nothing fitted draws under **1.2 world
+units** (about two riflemen) unless it ships shorter. Before that, a 1×1 or 2×2 `h` drew a
+full 4.26 × 3.71 house standing in the lanes beside it. A building still hides the ground
+**up-screen** of itself (towards smaller x and y, the north-west of the grid), never in
+front of it, for about 1.2 tiles per world unit of height:
 
-| type | mesh plan (tiles) | height (world units) | hides up-screen, about |
-|---|---|---|---|
-| `a` apartment | 4.9 × 4.9 | 7.74 | 9 tiles |
-| `h` house | 4.3 × 3.7 | 4.24 | 5 tiles |
-| `y` relay | 1.5 × 1.5 | 3.33 | 3.5 tiles |
-| `#` concrete | 1.2 × 1.8 | 3.00 | 3 tiles |
-| `k` clinic | 3.4 × 4.7 | 2.23 | 2.5 tiles |
-| `m` hall | 2.8 × 3.2 | 1.52 | 1.5 tiles |
-| `w` warehouse, `s` shed, `p` pump house, `c` camp | 4.0 / 1.7 / 1.3 / 2.5 | 1.3–1.4 | 1.5 tiles |
-| `=` wall, `f` fence | 1 × 0.2 | under 0.6 | nothing |
+| type | shipped plan (tiles) | shipped height | fitted height on a 2×2 / 3×3 | hides up-screen, about |
+|---|---|---|---|---|
+| `a` apartment | 4.9 × 4.9 | 7.74 | 3.15 / 4.72 | 4 / 5.5 tiles |
+| `h` house | 4.3 × 3.7 | 4.24 | 1.99 / 2.99 | 2.5 / 3.5 tiles |
+| `y` relay | 1.5 × 1.5 | 3.33 | 3.33 / 3.33 | 3.5 tiles |
+| `#` concrete | 1.2 × 1.8 | 3.00 | 3.00 / 3.00 (smaller than its plot: not fitted) | 3 tiles |
+| `k` clinic | 3.4 × 4.7 | 2.23 | 1.20 / 1.42 | 1.5 tiles |
+| `m` hall | 2.8 × 3.2 | 1.52 | 1.20 / 1.42 | 1.5 tiles |
+| `w` warehouse, `s` shed, `p` pump house, `c` camp | 4.0 / 1.7 / 1.3 / 2.5 | 1.3–1.4 | 1.2–1.4 | 1.5 tiles |
+| `=` wall, `f` fence | 1 × 0.2 | under 0.6 | never fitted | nothing |
 
 Which gives four authoring rules:
 
@@ -600,9 +603,11 @@ Which gives four authoring rules:
 2. **Tall buildings are few, and they stand where their shadow falls on something that is
    not a fight**: another building, a walled yard, the map edge. Low buildings (`s`, `w`,
    `p`) are what a town is mostly made of.
-3. **Draw a footprint the size of its mesh.** A house wants about 4×4, a warehouse 4×4, a
-   shed 2×2. A smaller footprint does not make a smaller house; it makes a house standing
-   in the street.
+3. **The footprint is the building's size.** A small plot draws a small building (down to
+   the 1.2-unit floor), a plot at least the mesh's size draws it as shipped. A long, thin
+   plot distorts it: 258 of the 512 campaign buildings stretch past 1.25×, and a one-tile-deep
+   plot is the worst case (a warehouse on a 4×1 is 4.0×, a house on a 7×1 3.7×). Give a
+   building a plot near its own shape — every building ships a photographed facade.
 4. **Measure before the PR**, with the table above. Nothing here is visible by eye on a
    48×48 grid.
 
@@ -619,12 +624,11 @@ tests pin is unchanged; difficulty re-measured over 12 seeds in the PR):
 **Exempt, with a ratchet** (each may improve and may not get worse; the test goes red the
 day one clears the floor and asks for its entry to be deleted):
 
-- `beit_sahwan_3` (45.7%) — the old town at street scale is the map. Clearing the floor by
-  lowering buildings keeps 8 of its 39 houses and apartments: a lead decision, below.
-- `qarn_hadid_3`, `wadi_halam_5` (80.6% each) — follow-up.
+- `beit_sahwan_3` (79.2% with buildings fitted; 45.7% before) — the old town at street
+  scale is the map. The lead accepted ~80% for it (7 Oct) rather than a height cap or a
+  shanty town; its ratchet is its fitted reading.
 
-**Open for the lead.** Fitting each building mesh to its own footprint is a renderer change
-(presentation only; the sim never sees a mesh). Measured as a what-if
-(`npx tsx tools/src/map_visibility.ts --fit`), it alone takes `beit_sahwan_3` from 45.7% to
-80.3% and `khan_rafid` (as on `main`) from 61.1% to 80.6%, without touching a map. It would
-move the golden baselines and every town's look, so it is not done here.
+**Fitting the buildings (PR #444, lead ruling 7 Oct)** was the renderer change this section
+left open. With no map edit it took `qarn_hadid_3` from 80.6% to 93.4% and `wadi_halam_5` from
+80.6% to 88.0%, so both exemptions are gone, and every other campaign map reads 90.5% or
+better. `npx tsx tools/src/map_visibility.ts --fit=off` still measures the old shipped size.

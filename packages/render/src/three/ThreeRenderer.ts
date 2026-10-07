@@ -344,7 +344,7 @@ import {
 import { conformHull, type HullConform, type HullConformInput } from './units/vehicle-conform';
 import { vehicleWeightParamsFor } from './units/vehicle-weight-params';
 import { footprintCentre } from './units/footprint';
-import { buildingFitScale, type FitScale } from './units/building-fit';
+import { DEFAULT_BUILDING_FIT, buildingFitScale, type FitScale } from './units/building-fit';
 import {
   FX_RENDER_ORDER,
   DECAL_PERSISTENT_RENDER_ORDER,
@@ -6979,12 +6979,13 @@ export class ThreeRenderer implements Renderer {
     });
   }
 
-  /** The fit (`units/building-fit.ts`) for structure `s`'s mesh: unit scale
-   *  unless `opts.buildingFit` asks for one, and unit until the type's
+  /** The fit (`units/building-fit.ts`) for structure `s`'s mesh:
+   *  `opts.buildingFit`, absent being `DEFAULT_BUILDING_FIT` (`stretch`,
+   *  lead ruling 7 Oct); unit scale under `off` and until the type's
    *  standing bounds are measured. A WRECK takes its standing building's
    *  fit, so the pile shrinks by exactly what the building did. */
   private buildingFitFor(s: number): FitScale {
-    const fit = this.opts.buildingFit ?? 'off';
+    const fit = this.opts.buildingFit ?? DEFAULT_BUILDING_FIT;
     const st = this.sim.structures;
     const type = this.sim.structureTypes[st.typeIdx[s]];
     const bounds = fit === 'off' ? undefined : this.buildingMeshBounds.get(type.id);
@@ -6992,6 +6993,7 @@ export class ThreeRenderer implements Renderer {
     return buildingFitScale(
       bounds.x,
       bounds.z,
+      bounds.y,
       st.maxX[s] - st.minX[s] + 1,
       st.maxY[s] - st.minY[s] + 1,
       fit,

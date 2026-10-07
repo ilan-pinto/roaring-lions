@@ -301,11 +301,12 @@ export interface RendererOptions {
    */
   timeOfDay?: TimeOfDay;
   /**
-   * MOCK (lead ruling 7 Oct, "fit buildings to their plots"): scale each
-   * building mesh to its footprint instead of drawing it at the shipped size
-   * (`three/units/building-fit.ts` holds the rule and its reasons). Absent or
-   * `off` is today's frame. Presentation only: the sim's footprint and
-   * `blocked` tiles are untouched. The app sets it from `&fitbuildings`.
+   * How each building mesh is scaled to its footprint (lead ruling 7 Oct,
+   * "fit buildings to their plots"; `three/units/building-fit.ts` holds the
+   * rule and its reasons). Absent is `DEFAULT_BUILDING_FIT`, `stretch`, with
+   * a 1.2-world-unit height floor; `off` is the shipped size, kept for
+   * comparison. Presentation only: the sim's footprint and `blocked` tiles
+   * are untouched. The app sets it only from `&fitbuildings=<rule>`.
    */
   buildingFit?: BuildingFit;
 }

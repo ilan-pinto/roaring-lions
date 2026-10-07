@@ -128,10 +128,9 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
   },
   {
     name: 'fitbuildings',
-    // MOCK (lead ruling 7 Oct). Not a SANDBOX_FLAGS entry: it works on a
-    // mission too, and it is a value flag like `tod`. `building-fit-flag.ts`
-    // reads it.
-    blurb: 'MOCK: draw each building at its footprint size (bare = clamped; or =uniform | =stretch | =off)',
+    // Lead ruling 7 Oct. Not a SANDBOX_FLAGS entry: it works on a mission
+    // too, and it is a value flag like `tod`. `building-fit-flag.ts` reads it.
+    blurb: 'off | stretch | clamped | uniform — how buildings fit their footprints (default stretch; =off is the shipped size)',
   },
   {
     name: 'pseudo',

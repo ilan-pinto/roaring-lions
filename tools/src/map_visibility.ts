@@ -11,19 +11,17 @@
 // a building's drawn mesh covers more than half of a rifleman standing at its centre, as the
 // default camera sees him. The share that is not hidden is the map's VISIBLE SHARE.
 //
-// WHY THE REAL MESH AND NOT THE FOOTPRINT. A building draws its shipped GLB at the footprint's
-// centre at a FIXED size (`ThreeRenderer.updateBuildingMeshes`: `root.position.set(cx, y, cy)`,
-// scale `MESH_SCALE`, nothing fitted to the footprint), so a house is 4.26 x 3.71 tiles in plan
-// and 4.24 world units tall whatever its footprint says. On Wadi Halam IV's 3x3 house blocks
-// with one-tile lanes between them, the lane is INSIDE the next house's mesh. A footprint
-// model would call that lane open ground. So the occluders here are the shipped
+// WHY THE REAL MESH AND NOT THE FOOTPRINT. Until the lead's ruling of 7 Oct a building drew
+// its shipped GLB at the footprint's centre at a FIXED size, so a house was 4.26 x 3.71 tiles in
+// plan and 4.24 world units tall whatever its footprint said, and on Wadi Halam IV's 3x3 house
+// blocks the one-tile lane was INSIDE the next house's mesh. Since that ruling the renderer fits
+// each mesh to its footprint (`units/building-fit.ts`, `stretch` with a 1.2-unit height floor),
+// but a fitted mesh is still not its footprint: the roof parapet, the stairwell and the height
+// all throw a silhouette over the ground behind it. So the occluders here are the shipped
 // `art/meshes/buildings/<type>.glb` triangles, read with @gltf-transform, scaled by the
-// renderer's own `MESH_SCALE`, and placed the way the renderer places them.
-//
-// `--fit[=uniform|clamped|stretch]` measures the renderer's MOCK fit (`RendererOptions.
-// buildingFit`, lead ruling 7 Oct): each mesh scaled to its footprint by
-// `units/building-fit.ts`'s `buildingFitScale` -- imported, so the instrument and the renderer
-// draw the same rule -- and rasterised at that scale per axis. Bare `--fit` is `clamped`.
+// renderer's own `MESH_SCALE` AND its own `buildingFitScale` (imported, so the instrument and the
+// renderer cannot draw different rules), rasterised at that per-axis scale, and placed the way
+// the renderer places them. `--fit=off` measures the old shipped size.
 //
 // WHY THE REAL CAMERA. The view direction is `camera.ts`'s `VIEW_DIRECTION`, imported, not
 // re-derived. The camera is ORTHOGRAPHIC, so whether a point is hidden depends only on that
@@ -49,7 +47,12 @@ import { FlowField, DIR_DX, DIR_DY, DIR_NONE } from '../../packages/sim/src/flow
 import { VIEW_DIRECTION } from '../../packages/render/src/three/camera';
 import { MESH_SCALE } from '../../packages/render/src/three/units/mesh-anim';
 import { groundWorldY, tileGroundWorldY } from '../../packages/render/src/three/ground-height';
-import { buildingFitScale, type BuildingFit, type FitScale } from '../../packages/render/src/three/units/building-fit';
+import {
+  DEFAULT_BUILDING_FIT,
+  buildingFitScale,
+  type BuildingFit,
+  type FitScale,
+} from '../../packages/render/src/three/units/building-fit';
 import { campaignMissions } from './map_distinctness';
 
 export const ROOT = join(import.meta.dirname, '..', '..');
@@ -126,6 +129,8 @@ export interface Occluder {
   /** Plan extent of the mesh along game x and game y, world units (= tiles). */
   planW: number;
   planD: number;
+  /** Height of the mesh, world units. */
+  planH: number;
 }
 
 /** Triangles of a GLB's default scene in WORLD units (MESH_SCALE applied), flat xyz triples. */
@@ -166,13 +171,15 @@ async function readTriangles(path: string): Promise<Float32Array[]> {
 /** Rasterise a set of world-space triangles onto the screen plane, nearest depth per cell. */
 export function rasterise(type: string, tris: Float32Array[]): Occluder {
   let uMin = Infinity, uMax = -Infinity, vMin = Infinity, vMax = -Infinity, dMax = -Infinity;
-  let xMin = Infinity, xMax = -Infinity, zMin = Infinity, zMax = -Infinity;
+  let xMin = Infinity, xMax = -Infinity, zMin = Infinity, zMax = -Infinity, yMin = Infinity, yMax = -Infinity;
   for (const t of tris)
     for (let i = 0; i < t.length; i += 3) {
       xMin = Math.min(xMin, t[i]);
       xMax = Math.max(xMax, t[i]);
       zMin = Math.min(zMin, t[i + 2]);
       zMax = Math.max(zMax, t[i + 2]);
+      yMin = Math.min(yMin, t[i + 1]);
+      yMax = Math.max(yMax, t[i + 1]);
       const u = dot(R, t[i], t[i + 1], t[i + 2]);
       const v = dot(U, t[i], t[i + 1], t[i + 2]);
       const d = dot(V, t[i], t[i + 1], t[i + 2]);
@@ -213,7 +220,7 @@ export function rasterise(type: string, tris: Float32Array[]): Occluder {
           if (d > depth[k]) depth[k] = d;
         }
     }
-  return { type, u0: uMin, v0: vMin, cols, rows, depth, dMax, planW: xMax - xMin, planD: zMax - zMin };
+  return { type, u0: uMin, v0: vMin, cols, rows, depth, dMax, planW: xMax - xMin, planD: zMax - zMin, planH: yMax - yMin };
 }
 
 const occluderCache = new Map<string, Occluder | null>();
@@ -282,8 +289,8 @@ interface Placed {
 
 
 /** Every building as the renderer places it: footprint centre, ground height there, MESH_SCALE,
- *  and -- under a `fit` other than `off` -- `buildingFitScale`, the renderer's own rule. */
-export async function placeBuildings(map: ParsedMap, fit: BuildingFit = 'off'): Promise<Placed[]> {
+ *  and `buildingFitScale` under `fit` -- by default the renderer's own default. */
+export async function placeBuildings(map: ParsedMap, fit: BuildingFit = DEFAULT_BUILDING_FIT): Promise<Placed[]> {
   const out: Placed[] = [];
   for (let s = 0; s < map.structures.length; s++) {
     const st = map.structures[s];
@@ -300,7 +307,7 @@ export async function placeBuildings(map: ParsedMap, fit: BuildingFit = 'off'): 
     // footprintCentre (units/footprint.ts): (min + max + 1) / 2, max inclusive.
     const cx = (minX + maxX + 1) / 2;
     const cy = (minY + maxY + 1) / 2;
-    const scale = buildingFitScale(shipped.planW, shipped.planD, maxX - minX + 1, maxY - minY + 1, fit, perTileTypes.has(st.type));
+    const scale = buildingFitScale(shipped.planW, shipped.planD, shipped.planH, maxX - minX + 1, maxY - minY + 1, fit, perTileTypes.has(st.type));
     const occ = (await occluderFor(st.type, scale)) ?? shipped;
     const wy = groundWorldY(map.elevation, map.width, map.height, cx, cy);
     // per_tile runs (walls, fences) are turned a quarter by the renderer to follow their
@@ -513,7 +520,7 @@ export async function measureMap(
   mapId: string,
   missionIds: readonly string[],
   mapOverride?: ParsedMap,
-  fit: BuildingFit = 'off'
+  fit: BuildingFit = DEFAULT_BUILDING_FIT
 ): Promise<MapVisibility> {
   const map = mapOverride ?? loadParsedMap(mapId);
   const missions = missionIds.map((id) => readJson(`data/missions/${id}.json`) as Mission);
@@ -570,15 +577,15 @@ export function drawVisibility(mapId: string, v: MapVisibility): string {
     .join('\n');
 }
 
-// CLI: npx tsx tools/src/map_visibility.ts [--draw=<map id>] [--fit[=uniform|clamped|stretch]]
-// A bare `--fit` is `clamped`, the rule the renderer draws under `RendererOptions.buildingFit`.
+// CLI: npx tsx tools/src/map_visibility.ts [--draw=<map id>] [--fit=off|uniform|clamped|stretch]
+// No `--fit` measures what ships (`DEFAULT_BUILDING_FIT`); `--fit=off` the old shipped size.
 if (process.argv[1] && process.argv[1].endsWith('map_visibility.ts')) {
   const draw = process.argv.find((a) => a.startsWith('--draw='))?.slice(7);
   const fitArg = process.argv.find((a) => a === '--fit' || a.startsWith('--fit='));
-  const fit: BuildingFit = !fitArg ? 'off' : fitArg === '--fit' ? 'clamped' : (fitArg.slice(6) as BuildingFit);
+  const fit: BuildingFit = !fitArg || fitArg === '--fit' ? DEFAULT_BUILDING_FIT : (fitArg.slice(6) as BuildingFit);
   const rows: MapVisibility[] = [];
   for (const [mapId, missions] of campaignMaps()) rows.push(await measureMap(mapId, missions, undefined, fit));
-  if (fit !== 'off') console.log(`--fit=${fit}: every mesh scaled to its footprint (units/building-fit.ts; not the default)`);
+  console.log(`fit=${fit}${fit === DEFAULT_BUILDING_FIT ? ' (what ships)' : ''}: units/building-fit.ts`);
   rows.sort((a, b) => a.visible - b.visible);
   console.log(`floor ${VISIBLE_FLOOR}  (fight tiles = within ${NEAR_OBJECTIVE} of an objective + 3-wide main routes)`);
   console.log('map                       fight  hidden  visible  whole-map  missions');
