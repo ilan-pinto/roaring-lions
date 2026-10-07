@@ -14,6 +14,9 @@ import type { MissionLog } from '../mission-log';
 import type { InvoiceLine } from './conduct-invoice';
 import type { GroundPin } from './ground-view';
 
+/** Losses closer than this, in tiles, share one pin on the ground. */
+export const PIN_MERGE_TILES = 2;
+
 const mmss = (ticks: number): string => {
   const s = Math.floor(ticks / 20);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
@@ -40,6 +43,8 @@ export interface Promotion {
  *  mission's force). */
 export interface Unlock {
   name: string;
+  /** What opened it ("11 stars earned"), already worded. */
+  why?: string;
 }
 
 export interface AfterActionInputs {
@@ -221,7 +226,9 @@ export function afterAction(i: AfterActionInputs): AfterAction {
     }
     for (const r of i.replacements) changed.push({ mark: '', tone: 'plain', text: t('aar.changed.replaced', { name: r.name, predecessor: r.predecessor }) });
     if (i.unlocks.length > 0) {
-      changed.push({ mark: t('aar.mark.garage'), tone: 'commend', text: t('aar.changed.buyable', { list: i.unlocks.map((u) => u.name).join(', ') }), sub: t('aar.changed.buyableSub') });
+      const whys = [...new Set(i.unlocks.map((u) => u.why).filter((w): w is string => w !== undefined))];
+      const sub = whys.length > 0 ? t('aar.changed.buyableWhy', { why: whys.join(' · ') }) : t('aar.changed.buyableSub');
+      changed.push({ mark: t('aar.mark.garage'), tone: 'commend', text: t('aar.changed.buyable', { list: i.unlocks.map((u) => u.name).join(', ') }), sub });
     }
     for (const o of i.objectives.filter((x) => !x.primary && x.carries && x.status === 'complete')) {
       changed.push({
@@ -231,12 +238,31 @@ export function afterAction(i: AfterActionInputs): AfterAction {
       });
     }
   }
-  if (i.taken) changed.push({ mark: '', tone: 'plain', text: i.taken });
+  if (i.taken) changed.push({ mark: t('aar.mark.taken'), tone: 'plain', text: i.taken, sub: t('aar.changed.takenSub') });
 
   // --- pins on the ground ----------------------------------------------------
   const pins: GroundPin[] = [];
+  // Losses that fell together are one pin: four labels stacked on one tile
+  // read as a smear. Grouped greedily, in the order they fell, within
+  // PIN_MERGE_TILES of the group's first loss.
+  const groups: { x: number; y: number; losses: typeof i.log.losses }[] = [];
   for (const l of i.log.losses) {
-    pins.push({ kind: 'loss', x: l.x, y: l.y, label: t('aar.pin.loss', { who: l.name ?? i.typeName(l.type), at: mmss(l.tick) }) });
+    const g = groups.find((k) => Math.hypot(k.x - l.x, k.y - l.y) <= PIN_MERGE_TILES);
+    if (g) g.losses.push(l);
+    else groups.push({ x: l.x, y: l.y, losses: [l] });
+  }
+  for (const g of groups) {
+    const first = g.losses[0];
+    const last = g.losses[g.losses.length - 1];
+    pins.push({
+      kind: 'loss',
+      x: g.x,
+      y: g.y,
+      label:
+        g.losses.length === 1
+          ? t('aar.pin.loss', { who: first.name ?? i.typeName(first.type), at: mmss(first.tick) })
+          : t('aar.pin.lossMany', { n: g.losses.length, at: mmss(last.tick) }),
+    });
   }
   for (const d of i.log.deductions) {
     if (d.x === undefined || d.y === undefined) continue;

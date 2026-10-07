@@ -90,6 +90,15 @@ describe('afterAction (GH-417, H4/H5)', () => {
     ]);
   });
 
+  // Four labels on one tile read as a smear. Falsified: PIN_MERGE_TILES 0.
+  it('losses that fell together share one pin', () => {
+    const l = log();
+    l.losses.push({ tick: 7000, entity: 11, type: 'inf_squad', veterancy: 0, x: 34, y: 25 }, { tick: 7200, entity: 12, type: 'inf_squad', veterancy: 0, x: 33.5, y: 23 });
+    const pins = afterAction(wh5({ log: l })).pins.filter((p) => p.kind === 'loss');
+    expect(pins).toHaveLength(2);
+    expect(pins[0]).toEqual({ kind: 'loss', x: 33, y: 24, label: '3 lost · by 6:00' });
+  });
+
   it('the third star is met only with Conduct over the floor AND every carrier done', () => {
     const allDone = wh5().objectives.map((o) => ({ ...o, status: 'complete' as const }));
     expect(afterAction(wh5({ objectives: allDone })).ladder[2].met).toBe(true);
