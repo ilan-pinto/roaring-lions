@@ -1,0 +1,684 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Briefing and Debrief Directions</title>
+<!--
+  GH-417, polish lane pass H (H1 briefing, H2 deployment, H4 mission end, H5 debrief).
+  A static mock: no app code. Open from the repo checkout so the relative asset paths
+  (fonts, portraits, the lit ground photograph) resolve.
+
+  Colour: the only hex values are in the --rl-* block, which copies data/palette.json as
+  the Vite plugin publishes it (each line names its ramp and index). Every other colour is
+  a semantic token with the same mapping as packages/app/src/ui/theme.css. No new token is
+  proposed. Fonts are the self-hosted files in assets/fonts/.
+-->
+<style>
+@font-face { font-family: 'Big Shoulders Display'; font-weight: 400 900; src: url('../../../assets/fonts/big-shoulders-display-latin.woff2') format('woff2'); }
+@font-face { font-family: 'Barlow'; font-weight: 400; src: url('../../../assets/fonts/barlow-latin-400.woff2') format('woff2'); }
+@font-face { font-family: 'Barlow'; font-weight: 600; src: url('../../../assets/fonts/barlow-latin-600.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-weight: 400; src: url('../../../assets/fonts/ibm-plex-mono-latin-400.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-weight: 600; src: url('../../../assets/fonts/ibm-plex-mono-latin-600.woff2') format('woff2'); }
+
+:root {
+  /* --- data/palette.json, resolved (ramp.index) --- */
+  --rl-limestone-0: #F2E8D5; /* limestone.0 */
+  --rl-limestone-1: #E6D8BE; /* limestone.1 */
+  --rl-limestone-4: #B8A182; /* limestone.4 */
+  --rl-limestone-6: #8C7659; /* limestone.6 */
+  --rl-dust-0: #E0B87A;      /* dust.0 */
+  --rl-dust-6: #6B4F29;      /* dust.6 */
+  --rl-olive-1: #6E7449;     /* olive.1 */
+  --rl-olive-2: #4E5433;     /* olive.2 */
+  --rl-olive-3: #333821;     /* olive.3 */
+  --rl-gunmetal-0: #C3C7C4;  /* gunmetal.0 */
+  --rl-gunmetal-1: #8E9491;  /* gunmetal.1 */
+  --rl-gunmetal-2: #5C625F;  /* gunmetal.2 */
+  --rl-gunmetal-3: #363B39;  /* gunmetal.3 */
+  --rl-shadow-0: #23241F;    /* shadow.0 */
+  --rl-shadow-1: #14150F;    /* shadow.1 */
+  --rl-shadow-2: #0A0A08;    /* shadow.2 */
+  --rl-scrub-0: #6B8A4A;     /* scrub.0 */
+  --rl-water-0: #A9C4D1;     /* water.0 */
+  --rl-team-kedem: #2F6FD9;  /* reserved.team.kedem */
+  --rl-team-hostile: #D93A2B;       /* reserved.team.hostile */
+  --rl-team-hostile-text: #F26A55;  /* reserved.team.hostile_text */
+  --rl-team-neutral: #E8C33A;       /* reserved.team.neutral */
+
+  /* --- theme.css semantic tokens (same mappings as the shipped file) --- */
+  --panel-bg: color-mix(in srgb, var(--rl-shadow-1) 92%, transparent);
+  --panel-bg-solid: var(--rl-shadow-1);
+  --panel-frame: var(--rl-gunmetal-3);
+  --panel-rule: color-mix(in srgb, var(--rl-gunmetal-3) 70%, transparent);
+  --well: var(--rl-shadow-1);
+  --scrim: var(--rl-shadow-2);
+  --tile-bg: var(--rl-shadow-0);
+  --band-mission: var(--rl-olive-2);
+  --band-inspect: var(--rl-gunmetal-3);
+  --band-alert: var(--rl-dust-6);
+  --band-ink: var(--rl-limestone-0);
+  --band-ink-dim: var(--rl-gunmetal-0);
+  --ink: var(--rl-limestone-0);
+  --ink-mute: var(--rl-limestone-4);
+  --ink-dim: var(--rl-gunmetal-1);
+  --ink-label: var(--rl-gunmetal-0);
+  --good: var(--rl-scrub-0);
+  --warn: var(--rl-team-neutral);
+  --commend: var(--rl-dust-0);
+  --bad: var(--rl-team-hostile);
+  --bad-text: var(--rl-team-hostile-text);
+  --info: var(--rl-water-0);
+  --friendly: var(--rl-team-kedem);
+  --accent: var(--rl-dust-0);
+  --s1: 0.25rem; --s2: 0.5rem; --s3: 0.75rem; --s4: 1rem; --s5: 1.5rem; --s6: 2rem;
+  --font-display: 'Big Shoulders Display', 'Oswald', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+  --font-body: 'Barlow', system-ui, sans-serif;
+  --t-s: 0.6875rem; --t-body: 0.75rem; --t-m: 0.8125rem; --t-read: 1.25rem; --t-l: 1.25rem; --t-xl: 1.75rem;
+  --track-label: 0.18em; --track-title: 0.06em;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--scrim); color: var(--ink); font: 14px/1.5 var(--font-body); }
+.doc { max-width: 1460px; margin: 0 auto; padding: 32px 16px 80px; }
+.doc h1, .doc h2, .doc h3 { font-family: var(--font-display); text-transform: uppercase; letter-spacing: var(--track-title); margin: 0; }
+.doc h1 { font-size: 32px; }
+.doc h2 { font-size: 22px; margin: 56px 0 8px; padding-top: 14px; border-top: 1px solid var(--panel-frame); }
+.doc h3 { font-size: 15px; margin: 20px 0 6px; color: var(--ink-label); letter-spacing: var(--track-label); }
+.doc p, .doc li { max-width: 92ch; color: var(--ink-mute); }
+.doc p b, .doc li b { color: var(--ink); }
+.lede { font-size: 16px; }
+.cap { font-size: 12px; color: var(--ink-dim); margin: 6px 0 0; }
+.verdict { border-left: 3px solid var(--commend); background: var(--tile-bg); padding: 10px 14px; margin: 16px 0; }
+table.audit { border-collapse: collapse; width: 100%; font-size: 13px; margin-top: 8px; }
+table.audit th { text-align: left; font: 600 11px var(--font-body); letter-spacing: var(--track-label); text-transform: uppercase; color: var(--ink-label); border-bottom: 1px solid var(--panel-frame); padding: 6px 8px; }
+table.audit td { border-bottom: 1px solid var(--panel-rule); padding: 6px 8px; vertical-align: top; color: var(--ink-mute); }
+table.audit td:first-child { font-family: var(--font-mono); color: var(--ink); white-space: nowrap; }
+.p0 { color: var(--bad-text) !important; font-weight: 600; }
+.p1 { color: var(--warn) !important; font-weight: 600; }
+.p2 { color: var(--ink) !important; }
+.p3 { color: var(--ink-dim) !important; }
+.fit { width: 100%; overflow: hidden; margin-top: 12px; }
+.fit > .screen { transform-origin: 0 0; }
+
+/* ====================================================================== */
+/* The screen frames: 1400 x 900, the smallest audited size.             */
+/* ====================================================================== */
+.screen { width: 1400px; height: 900px; position: relative; overflow: hidden; background: var(--panel-bg-solid); font-size: 16px; }
+.lbl { font: 600 var(--t-s) var(--font-body); letter-spacing: var(--track-label); text-transform: uppercase; color: var(--ink-label); }
+.disp { font-family: var(--font-display); text-transform: uppercase; letter-spacing: var(--track-title); }
+.star { color: var(--commend); letter-spacing: 1px; }
+.star .off { color: var(--rl-gunmetal-2); }
+.btn { white-space: nowrap; font: 700 15px var(--font-body); letter-spacing: var(--track-label); text-transform: uppercase; color: var(--ink); background: var(--tile-bg); border: 1px solid var(--panel-frame); padding: 8px 14px; }
+.btn-primary { white-space: nowrap; font: 800 28px var(--font-display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--band-ink); background: var(--band-mission); border: 1px solid var(--rl-olive-1); padding: 10px 34px; box-shadow: 0 0 0 2px var(--panel-bg-solid), 0 0 0 3px var(--commend); }
+.key { font: 600 10px var(--font-mono); color: var(--ink-dim); border: 1px solid var(--panel-rule); padding: 0 4px; margin-left: 6px; vertical-align: 2px; }
+.portrait { background: var(--well) top center / cover no-repeat; border: 1px solid var(--panel-frame); }
+.pt-shai { background-image: url('../../../assets/ui/portraits/shai_hammai.png'); }
+.pt-idit { background-image: url('../../../assets/ui/portraits/idit_zohar.png'); }
+.pt-jubran { background-image: url('../../../assets/ui/portraits/jubran_hallaq.png'); }
+.u { background: var(--well) center 20% / 120% no-repeat; border: 1px solid var(--panel-frame); }
+.u-inf { background-image: url('../../../assets/ui/portraits/units/inf_squad.png'); }
+.u-at { background-image: url('../../../assets/ui/portraits/units/at_team.png'); }
+.u-eitan { background-image: url('../../../assets/ui/portraits/units/apc_eitan.png'); background-size: 110%; background-position: center; }
+.u-namer { background-image: url('../../../assets/ui/portraits/units/ifv_namer.png'); background-size: 110%; background-position: center; }
+.u-d9 { background-image: url('../../../assets/ui/portraits/units/dozer_d9.png'); background-size: 110%; background-position: center; }
+.u-demo { background-image: url('../../../assets/ui/portraits/units/demo_squad.png'); }
+.u-jeep { background-image: url('../../../assets/ui/portraits/units/jeep_shoded.png'); background-size: 110%; background-position: center; }
+.ground { background: var(--well) center / 100% 100% no-repeat url('2026-10-07-briefing-debrief/ground-wadi_halam_5.jpg'); position: relative; }
+.ground svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.field { position: absolute; inset: 0; background: center / cover no-repeat url('2026-10-07-briefing-debrief/field-wadi_halam_5.jpg'); filter: blur(3px) brightness(.38) saturate(.7); transform: scale(1.04); }
+
+/* map overlay vocabulary (SVG in tile units, 48 x 48) */
+.ov-zone { fill: color-mix(in srgb, var(--commend) 14%, transparent); stroke: var(--commend); stroke-width: .28; stroke-dasharray: .9 .5; }
+.ov-nofire { fill: url(#hatch); stroke: var(--bad); stroke-width: .25; }
+.ov-route-good { fill: none; stroke: var(--good); stroke-width: .55; stroke-linejoin: round; }
+.ov-route-bad { fill: none; stroke: var(--warn); stroke-width: .45; stroke-dasharray: 1 .7; }
+.ov-threat { fill: none; stroke: var(--bad-text); stroke-width: .6; marker-end: url(#arrow); }
+.ov-start { fill: var(--friendly); stroke: var(--panel-bg-solid); stroke-width: .25; }
+.ov-hvt { fill: var(--bad); stroke: var(--panel-bg-solid); stroke-width: .25; }
+.ov-text { font: 600 1.25px var(--font-body); fill: var(--ink); paint-order: stroke; stroke: var(--panel-bg-solid); stroke-width: .35; letter-spacing: .02px; }
+.ov-text.warn { fill: var(--warn); } .ov-text.bad { fill: var(--bad-text); } .ov-text.good { fill: var(--good); } .ov-text.commend { fill: var(--commend); }
+.ov-loss { fill: var(--panel-bg-solid); stroke: var(--bad-text); stroke-width: .3; }
+.ov-ded { fill: var(--warn); stroke: var(--panel-bg-solid); stroke-width: .2; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--ink-mute); }
+.legend i { display: inline-block; width: 14px; height: 3px; vertical-align: 3px; margin-right: 5px; }
+
+/* ---------------------------------------------------------------- A --- */
+.a-top { position: absolute; left: 0; right: 0; top: 0; height: 64px; display: flex; align-items: center; gap: 18px; padding: 0 28px; border-bottom: 1px solid var(--panel-frame); background: var(--panel-bg); }
+.a-top .t { font: 800 30px var(--font-display); text-transform: uppercase; letter-spacing: var(--track-title); }
+.a-top .meta { color: var(--ink-mute); font-size: 14px; }
+.a-top .step { margin-left: auto; display: flex; gap: 6px; }
+.a-left { position: absolute; left: 28px; top: 80px; width: 700px; bottom: 208px; display: flex; flex-direction: column; gap: 14px; }
+.a-cmd { display: flex; gap: 14px; align-items: flex-start; }
+.a-cmd .portrait { width: 92px; height: 115px; flex: none; }
+.a-cmd .who { font: 600 12px var(--font-body); letter-spacing: var(--track-label); text-transform: uppercase; color: var(--ink-label); }
+.a-cmd .say { font-size: var(--t-read); line-height: 1.4; margin-top: 4px; }
+.glance { display: grid; grid-template-columns: 128px 1fr; border: 1px solid var(--panel-frame); background: var(--tile-bg); }
+.glance > div { padding: 7px 12px; border-bottom: 1px solid var(--panel-rule); font-size: 15px; line-height: 1.35; }
+.glance > div:nth-last-child(-n+2) { border-bottom: 0; }
+.glance .k { font: 600 11px var(--font-body); letter-spacing: var(--track-label); text-transform: uppercase; color: var(--ink-label); padding-top: 10px; }
+.glance .k.matters { color: var(--commend); }
+.glance .k.avoid { color: var(--bad-text); }
+.objs { list-style: none; margin: 0; padding: 0; }
+.objs li { display: flex; align-items: baseline; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--panel-rule); font-size: 15px; }
+.objs .g { width: 12px; height: 12px; border: 1.5px solid var(--ink-mute); flex: none; transform: translateY(1px); }
+.objs .g.opt { border-style: dashed; border-color: var(--ink-dim); }
+.objs .tag { margin-left: auto; font: 600 11px var(--font-body); letter-spacing: var(--track-label); text-transform: uppercase; color: var(--ink-dim); white-space: nowrap; }
+.objs .tag.carry { color: var(--commend); }
+.more { font-size: 13px; color: var(--ink-mute); }
+.more b { color: var(--ink); }
+.a-map { position: absolute; right: 28px; top: 80px; width: 608px; bottom: 200px; display: flex; flex-direction: column; gap: 6px; }
+.a-map .ground { width: 580px; height: 580px; flex: none; border: 1px solid var(--panel-frame); }
+.a-force { position: absolute; left: 0; right: 0; bottom: 0; height: 188px; border-top: 1px solid var(--panel-frame); background: var(--panel-bg); padding: 12px 28px; display: flex; gap: 16px; }
+.a-force .head { width: 150px; flex: none; }
+.a-force .head .n { font: 800 26px var(--font-display); line-height: 1; margin-top: 6px; }
+.a-force .head p { margin: 6px 0 0; font-size: 12px; color: var(--ink-mute); line-height: 1.35; }
+.slots { display: flex; gap: 8px; min-width: 0; }
+.slot { width: 132px; flex: none; border: 1px solid var(--panel-frame); background: var(--tile-bg); display: flex; flex-direction: column; position: relative; }
+.slot .u { height: 78px; border: 0; border-bottom: 1px solid var(--panel-frame); }
+.slot .b { padding: 5px 8px; font-size: 12px; line-height: 1.3; }
+.slot .nm { font: 800 17px var(--font-display); text-transform: uppercase; letter-spacing: .04em; }
+.slot .ty { color: var(--ink-mute); }
+.slot .fx { color: var(--good); font-size: 11px; }
+.slot .sw { position: absolute; top: 4px; right: 4px; font: 600 10px var(--font-body); color: var(--ink); background: color-mix(in srgb, var(--panel-bg-solid) 80%, transparent); border: 1px solid var(--panel-frame); padding: 1px 5px; }
+.slot.vet { border-color: color-mix(in srgb, var(--commend) 55%, var(--panel-frame)); }
+.slot.fixed { opacity: .72; width: 104px; }
+.slot.fixed .sw { color: var(--ink-dim); }
+.slot.open .u { background: var(--well); display: grid; place-items: center; color: var(--ink-dim); font-size: 28px; }
+.a-go { width: 200px; margin-left: auto; flex: none; display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-end; gap: 10px; }
+.a-go .note { font-size: 12px; color: var(--ink-mute); text-align: right; }
+/* bench drawer */
+.bench { position: absolute; left: 196px; bottom: 196px; width: 360px; border: 1px solid var(--commend); background: var(--panel-bg-solid); padding: 10px 12px; box-shadow: 0 8px 24px var(--scrim); font-size: 13px; }
+.bench .row { display: flex; gap: 8px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--panel-rule); }
+.bench .row .u { width: 34px; height: 34px; }
+.bench .row .r { margin-left: auto; color: var(--ink-mute); font-size: 12px; }
+.bench .row.on { background: color-mix(in srgb, var(--band-mission) 45%, transparent); }
+
+/* A debrief */
+.aar { position: absolute; inset: 0; }
+.aar .shell { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 1240px; max-height: 840px; background: var(--panel-bg); border: 1px solid var(--panel-frame); display: flex; flex-direction: column; }
+.aar .band { background: var(--band-mission); padding: 14px 22px; display: flex; align-items: center; gap: 18px; }
+.aar .band.fail { background: var(--band-alert); }
+.aar .band .v { font: 800 38px var(--font-display); text-transform: uppercase; letter-spacing: var(--track-title); line-height: 1; }
+.aar .band .tier { font: 600 17px var(--font-body); }
+.aar .band .stars { font-size: 30px; }
+.aar .band .why { margin-left: auto; text-align: right; font-size: 14px; color: var(--band-ink-dim); }
+.ladder { display: flex; gap: 0; border-bottom: 1px solid var(--panel-frame); }
+.ladder > div { flex: 1; padding: 9px 22px; font-size: 14px; border-right: 1px solid var(--panel-rule); }
+.ladder > div:last-child { border-right: 0; }
+.ladder .ok { color: var(--good); } .ladder .no { color: var(--ink-dim); }
+.cols { display: grid; grid-template-columns: 1fr 1fr 1fr; min-height: 0; }
+.col { padding: 16px 22px 20px; border-right: 1px solid var(--panel-rule); overflow: hidden; }
+.col:last-child { border-right: 0; }
+.col h4 { margin: 0 0 10px; font: 800 20px var(--font-display); text-transform: uppercase; letter-spacing: var(--track-title); }
+.col.well h4 { color: var(--good); } .col.poor h4 { color: var(--bad-text); } .col.change h4 { color: var(--commend); }
+.it { padding: 9px 0; border-bottom: 1px solid var(--panel-rule); font-size: 15px; line-height: 1.35; display: flex; gap: 10px; }
+.it .m { font: 600 14px var(--font-mono); white-space: nowrap; min-width: 54px; }
+.it .m.good { color: var(--good); } .it .m.bad { color: var(--bad-text); } .it .m.com { color: var(--commend); }
+.it small { display: block; color: var(--ink-dim); font-size: 12px; }
+.person { display: flex; gap: 10px; align-items: center; }
+.person .u { width: 40px; height: 40px; flex: none; }
+.person.lost .u { filter: grayscale(1) brightness(.6); }
+.aar .nav { border-top: 1px solid var(--panel-frame); padding: 12px 20px; display: flex; gap: 10px; align-items: center; }
+.aar .nav .btn-primary { margin-left: auto; font-size: 22px; padding: 8px 22px; }
+.aar .quote { font-size: 14px; color: var(--ink-mute); font-style: italic; }
+
+/* ---------------------------------------------------------------- B --- */
+.b-map { position: absolute; inset: 0; }
+.b-map .ground { position: absolute; left: 470px; top: 0; width: 820px; height: 820px; }
+.b-vig { position: absolute; inset: 0; background: radial-gradient(ellipse 62% 70% at 55% 48%, transparent 55%, var(--panel-bg-solid) 100%); pointer-events: none; }
+.hudp { position: absolute; background: var(--panel-bg); border: 1px solid var(--panel-frame); }
+.hudp .bandh { background: var(--band-mission); padding: 5px 12px; font: 800 18px var(--font-display); text-transform: uppercase; letter-spacing: var(--track-title); display: flex; justify-content: space-between; align-items: center; }
+.hudp .bandh small { font: 600 10px var(--font-body); letter-spacing: var(--track-label); color: var(--band-ink-dim); }
+.b-orders { left: 20px; top: 20px; width: 420px; }
+.b-orders .in { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.b-orders .glance { grid-template-columns: 104px 1fr; }
+.b-orders .glance > div { font-size: 14px; }
+.b-tray { left: 20px; right: 20px; bottom: 16px; height: 150px; display: flex; gap: 12px; padding: 10px 12px; align-items: stretch; }
+.b-tray .grp { display: flex; flex-direction: column; gap: 4px; }
+.b-tray .grp .lbl { font-size: 10px; }
+.b-tray .tiles { display: flex; gap: 6px; }
+.tile { width: 92px; height: 108px; border: 1px solid var(--panel-frame); background: var(--tile-bg); position: relative; display: flex; flex-direction: column; }
+.tile .u { flex: 1; border: 0; }
+.tile .cap2 { font: 700 13px var(--font-display); text-transform: uppercase; padding: 2px 5px; letter-spacing: .04em; white-space: nowrap; overflow: hidden; }
+.tile .st { position: absolute; top: 3px; left: 5px; font-size: 12px; }
+.tile.vet { border-color: var(--commend); }
+.tile.fixed { opacity: .7; }
+.tile .x { position: absolute; top: 2px; right: 4px; font-size: 10px; color: var(--ink-mute); }
+.b-tray .go { margin-left: auto; display: flex; flex-direction: column; justify-content: center; align-items: flex-end; gap: 8px; }
+.pin { position: absolute; font-size: 13px; background: var(--panel-bg); border: 1px solid var(--panel-frame); padding: 4px 8px; max-width: 220px; line-height: 1.3; }
+.pin b { display: block; font: 800 15px var(--font-display); text-transform: uppercase; letter-spacing: .04em; }
+.pin.obj { border-color: var(--commend); } .pin.obj b { color: var(--commend); }
+.pin.no { border-color: var(--bad); } .pin.no b { color: var(--bad-text); }
+.pin.thr b { color: var(--bad-text); }
+.pin.go b { color: var(--good); }
+.b-report { right: 20px; top: 20px; bottom: 20px; width: 430px; display: flex; flex-direction: column; }
+.b-report .in { padding: 12px 16px; flex: 1; overflow: hidden; display: flex; flex-direction: column; gap: 6px; }
+
+/* ---------------------------------------------------------------- C --- */
+.c-top { position: absolute; left: 0; right: 0; top: 0; height: 58px; display: flex; align-items: center; padding: 0 28px; gap: 22px; border-bottom: 1px solid var(--panel-frame); }
+.c-top .t { font: 800 24px var(--font-display); text-transform: uppercase; letter-spacing: var(--track-title); }
+.tabs { display: flex; gap: 0; margin-left: auto; }
+.tabs span { font: 700 14px var(--font-body); letter-spacing: var(--track-label); text-transform: uppercase; padding: 18px 18px 16px; color: var(--ink-dim); border-bottom: 3px solid transparent; }
+.tabs span.on { color: var(--ink); border-bottom-color: var(--commend); }
+.tabs span.done { color: var(--good); }
+.c-hero { position: absolute; left: 0; top: 58px; width: 420px; bottom: 0; }
+.c-hero .portrait { position: absolute; inset: 0; border: 0; background-size: cover; background-position: center 8%; }
+.c-hero::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent 55%, var(--panel-bg-solid)); }
+.c-hero .plate { position: absolute; left: 24px; bottom: 24px; z-index: 1; }
+.c-hero .plate .n { font: 800 30px var(--font-display); text-transform: uppercase; line-height: 1; }
+.c-body { position: absolute; left: 440px; right: 28px; top: 82px; bottom: 28px; display: grid; grid-template-columns: 1fr 420px; gap: 28px; }
+.beats { display: flex; flex-direction: column; gap: 12px; }
+.beat { font-size: 21px; line-height: 1.45; padding-left: 14px; border-left: 2px solid var(--panel-frame); color: var(--ink-mute); }
+.beat.now { border-left-color: var(--commend); color: var(--ink); }
+.beat .sec { display: block; font: 600 11px var(--font-body); letter-spacing: var(--track-label); text-transform: uppercase; color: var(--ink-label); margin-bottom: 2px; }
+.c-side { display: flex; flex-direction: column; gap: 12px; }
+.c-side .ground { width: 420px; height: 420px; border: 1px solid var(--panel-frame); }
+.c-act { display: flex; justify-content: space-between; align-items: center; margin-top: auto; }
+.c-build { position: absolute; left: 28px; right: 28px; top: 82px; bottom: 28px; display: grid; grid-template-columns: repeat(4, 1fr) 300px; gap: 14px; }
+.ccol { border: 1px solid var(--panel-frame); background: var(--panel-bg); display: flex; flex-direction: column; }
+.ccol .hd { padding: 8px 12px; border-bottom: 1px solid var(--panel-frame); display: flex; justify-content: space-between; align-items: baseline; }
+.ccol .hd .disp { font-size: 19px; font-weight: 800; }
+.cand { display: flex; gap: 10px; padding: 8px 10px; border-bottom: 1px solid var(--panel-rule); align-items: center; font-size: 13px; }
+.cand .u { width: 52px; height: 52px; flex: none; }
+.cand .nm { font: 800 17px var(--font-display); text-transform: uppercase; letter-spacing: .04em; }
+.cand .rec { color: var(--ink-mute); font-size: 12px; }
+.cand.on { background: color-mix(in srgb, var(--band-mission) 55%, transparent); box-shadow: inset 3px 0 0 var(--commend); }
+.cand .chk { margin-left: auto; font: 700 11px var(--font-body); letter-spacing: var(--track-label); text-transform: uppercase; color: var(--good); }
+.ccol .foot { margin-top: auto; padding: 8px 12px; font-size: 12px; color: var(--ink-dim); border-top: 1px solid var(--panel-rule); }
+.cons { padding: 12px; font-size: 13px; color: var(--ink-mute); display: flex; flex-direction: column; gap: 10px; }
+.cons b { color: var(--ink); }
+.roll { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.card { border: 1px solid var(--panel-frame); background: var(--tile-bg); }
+.card .u { height: 112px; border: 0; border-bottom: 1px solid var(--panel-frame); }
+.card .b { padding: 8px 10px; font-size: 13px; line-height: 1.35; }
+.card .nm { font: 800 20px var(--font-display); text-transform: uppercase; letter-spacing: .04em; }
+.card .st { font: 700 11px var(--font-body); letter-spacing: var(--track-label); text-transform: uppercase; }
+.card.lost { border-color: var(--bad); } .card.lost .u { filter: grayscale(1) brightness(.55); } .card.lost .st { color: var(--bad-text); }
+.card.up { border-color: var(--commend); } .card.up .st { color: var(--commend); }
+.card.ok .st { color: var(--good); }
+</style>
+</head>
+<body>
+<div class="doc">
+
+<h1>Briefing, deploy and debrief: three directions</h1>
+<p class="lede">GH-417, polish lane pass H (H1 briefing, H2 deployment, H4 mission end, H5 debrief). These are mock-ups for the lead to choose from. Nothing is built yet. Every frame is drawn at <b>1400 × 900</b>, the smallest audited size, and every frame fits it <b>with no page scroll and no nested scroll box</b>. The mission is the one in the lead's screenshot, <b>Wadi Halam V: Break the Depot</b>, with the same cumulative roster ("119 in reserve").</p>
+<p>The ground in every frame is a real photograph of the 3D map. It comes from the shipped renderer's <span class="mono">captureGroundAlbedo</span> (the <span class="mono">photographGround</span> path the minimap already uses). It was taken from the running game at commit 62a7f3d3, rows flipped as <span class="mono">minimap.ts</span>'s <span class="mono">flipRows</span> does. The markings on top are drawn from the mission's own markers and zones (<span class="mono">data/maps/wadi_halam_5.json</span>, <span class="mono">data/missions/wadi_halam_5_depot.json</span>). The audit and the decisions are in <span class="mono">docs/superpowers/specs/2026-10-07-briefing-debrief-directions.md</span>.</p>
+
+<div class="verdict"><b>Recommendation: Direction A, "Field order",</b> with B's map pins added to its ground view. A is the only direction that answers all five H1 questions and the H2 force decision on one screen at 1400 × 900, with no scroll anywhere and one primary action. It reuses shipped parts: the objectives panel, the HUD card portraits, the deploy selection rules and the minimap's photograph. B looks best but needs a camera and layout per map. C reads best but adds a step before every mission.</div>
+
+<!-- =============================================================== A === -->
+<h2>Direction A: Field order</h2>
+<p>An operation order on one sheet. The left column is the order and the right is the ground. The force runs along the bottom as a row of slots, with the one primary action at the end of that row, where the eye finishes. The five H1 questions get a fixed five-row card. Every row is <b>derived from data the mission already declares</b>, so nothing needs authoring. Where: map name, time of day, target minutes. What happened: the briefing's first beat. Objective: the primaries. What matters: the carrying secondaries and the Conduct floor. Avoid: flagged ROE zones and objective deadlines. The full briefing is still one click away ("Full orders"), as a panel that covers the map rather than a scroll box inside a scroll box.</p>
+
+<h3>A1 · Briefing and deploy</h3>
+<div class="fit"><div class="screen" id="a1">
+  <div class="a-top">
+    <span class="t">Wadi Halam V · Break the Depot</span>
+    <span class="meta">Wadi Halam basin · dawn · about 7 minutes</span>
+    <span class="step"><span class="btn">← Campaign map<span class="key">Esc</span></span></span>
+  </div>
+  <div class="a-left">
+    <div class="a-cmd">
+      <div class="portrait pt-shai"></div>
+      <div><div class="who">Lt. Col. Shai Hammai · battalion</div>
+        <div class="say">“Seven structures inside Hallaq's depot, one unarmed bulldozer, and a choice of route. Mind which one you take.”</div></div>
+    </div>
+    <div class="glance">
+      <div class="k">Where</div><div>Hallaq's depot, on the embankment north-east of the crossing. One ramp up.</div>
+      <div class="k">What happened</div><div>Everything that hit Beit Sahwan came up this road. The depot is where it was staged.</div>
+      <div class="k">Objective</div><div><b>Raze the depot in 5:00</b>, take the man at the gate, then hold the rubble for 4:00.</div>
+      <div class="k matters">What matters</div><div>The D9 is the only thing that can raze it, and it cannot defend itself. Escort it.</div>
+      <div class="k avoid">Avoid</div><div>The civic hall: <b>no fire, at any price</b>. Every house the D9 levels on the straight road is judged.</div>
+    </div>
+    <ul class="objs">
+      <li><span class="g"></span>Raze the depot inside five minutes<span class="tag">Primary · 5:00</span></li>
+      <li><span class="g"></span>Kill or capture whoever is holding the gate<span class="tag">Primary</span></li>
+      <li><span class="g"></span>Hold the depot for four minutes once it is down<span class="tag">Primary · 4:00</span></li>
+      <li><span class="g opt"></span>Stay in the field for the first five minutes<span class="tag carry">Optional · ★★★</span></li>
+    </ul>
+    <div class="more"><b>Full orders ▸</b> &nbsp;four more paragraphs from Shai and Idit · <span class="key">O</span></div>
+  </div>
+  <div class="a-map">
+    <div class="lbl">Ground · as the field will look at dawn</div>
+    <div class="ground">
+      <svg viewBox="0 0 48 48" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <pattern id="hatch" width="1" height="1" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="1" height="1" style="fill: color-mix(in srgb, var(--bad) 18%, transparent)"/><line x1="0" y1="0" x2="0" y2="1" style="stroke: var(--bad)" stroke-width=".25"/></pattern>
+          <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill: var(--bad-text)"/></marker>
+        </defs>
+        <rect class="ov-zone" x="29" y="5" width="12" height="12"/>
+        <rect class="ov-nofire" x="21" y="27" width="5" height="5"/>
+        <polyline class="ov-route-good" points="8,42.5 33.5,42.5 33.5,18.5"/>
+        <polyline class="ov-route-bad" points="8,40.5 31,18.5"/>
+        <path class="ov-threat" d="M47.5,26.5 L42,26.5"/>
+        <path class="ov-threat" d="M40,47.5 L40,44"/>
+        <polygon class="ov-start" points="7,40 8.6,42.4 5.4,42.4"/>
+        <rect class="ov-hvt" x="32.4" y="16.4" width="1.3" height="1.3" transform="rotate(45 33 17)"/>
+        <text class="ov-text commend" x="29.2" y="4.3">DEPOT · raze, then hold 4:00</text>
+        <text class="ov-text bad" x="34.3" y="18.4">Hallaq · gate</text>
+        <text class="ov-text bad" x="15.3" y="34.4">Civic hall · no fire</text>
+        <text class="ov-text warn" x="11.6" y="31" transform="rotate(-43.6 11.6 31)">Straight: every house judged</text>
+        <text class="ov-text good" x="12" y="41.6">River road: a little slower</text>
+        <text class="ov-text" x="4" y="44.6">You start</text>
+        <text class="ov-text bad" x="40.2" y="25.3">Motorcycles</text>
+      </svg>
+    </div>
+    <div class="legend"><span><i style="background:var(--commend)"></i>objective</span><span><i style="background:var(--good)"></i>recommended route</span><span><i style="background:var(--warn)"></i>costly route</span><span><i style="background:var(--bad)"></i>no-fire / enemy</span><span><i style="background:var(--friendly)"></i>you</span></div>
+  </div>
+  <div class="a-force">
+    <div class="head"><div class="lbl">Your force</div><div class="n">5 of 5 placed</div><p>Four veterans picked first. Click a card to swap in someone else of that type.</p></div>
+    <div class="slots">
+      <div class="slot vet"><div class="u u-inf"></div><span class="sw">⇄ 19</span><div class="b"><span class="nm">Tzur</span> <span class="star">★★</span><div class="ty">Rifle Squad · 4 missions</div><div class="fx">+12% aim · −16% suppression</div></div></div>
+      <div class="slot vet"><div class="u u-inf"></div><span class="sw">⇄ 19</span><div class="b"><span class="nm">Marom</span> <span class="star">★★</span><div class="ty">Rifle Squad · 4 missions</div><div class="fx">+12% aim · −16% suppression</div></div></div>
+      <div class="slot vet"><div class="u u-at"></div><span class="sw">⇄ 5</span><div class="b"><span class="nm">Sela</span> <span class="star">★</span><div class="ty">Spike AT · 3 missions</div><div class="fx">+6% aim · −8% suppression</div></div></div>
+      <div class="slot vet"><div class="u u-eitan"></div><span class="sw">⇄ 2</span><div class="b"><span class="nm">Nir</span> <span class="star">★</span><div class="ty">Eitan APC · 3 missions</div><div class="fx">+6% aim · −8% suppression</div></div></div>
+      <div class="slot"><div class="u u-namer"></div><span class="sw">⇄ 1</span><div class="b"><span class="nm">Namer IFV</span><div class="ty">fresh crew</div></div></div>
+      <div class="slot fixed"><div class="u u-d9"></div><span class="sw">attached</span><div class="b"><span class="nm">D9 Dov</span><div class="ty">from brigade · not yours to keep</div></div></div>
+      <div class="slot fixed"><div class="u u-demo"></div><span class="sw">attached</span><div class="b"><span class="nm">Engineers</span><div class="ty">from brigade</div></div></div>
+    </div>
+    <div class="a-go"><div class="note">Ready. The briefing stays<br>open until you say go.</div><span class="btn-primary">Deploy</span><div class="note">Enter</div></div>
+  </div>
+</div></div>
+<p class="cap">A1 fixes, from the audit: B-01 (title reachable, nothing opens scrolled), B-02 (no nested scroll, so nothing collides with Objectives), B-03 (objectives read their kind and clock, not "In progress"), B-05 (no "119 in reserve": the force is placed slots; the bench count lives on each slot, ⇄ 19), B-06 (the force is not a scroll box), B-07 (the lit ground, with intent drawn on it), B-08 (the portrait is framed from the top, and the column is full), B-09 (one primary action), B-10 (veteran effects come from tuning.ts: VET_ACC_BONUS +6%, VET_SUPP_BONUS −8% per stripe).</p>
+
+<h3>A1b · Swapping a slot: the bench drawer</h3>
+<div class="fit"><div class="screen" id="a1b" style="height:520px">
+  <div class="a-force" style="height:188px">
+    <div class="head"><div class="lbl">Your force</div><div class="n">5 of 5 placed</div><p>Four veterans picked first. Click a card to swap in someone else of that type.</p></div>
+    <div class="slots">
+      <div class="slot vet"><div class="u u-inf"></div><span class="sw">⇄ 19</span><div class="b"><span class="nm">Tzur</span> <span class="star">★★</span><div class="ty">Rifle Squad · 4 missions</div><div class="fx">+12% aim · −16% suppression</div></div></div>
+      <div class="slot vet" style="outline:2px solid var(--commend)"><div class="u u-inf"></div><span class="sw">⇄ 19</span><div class="b"><span class="nm">Marom</span> <span class="star">★★</span><div class="ty">Rifle Squad · 4 missions</div><div class="fx">+12% aim · −16% suppression</div></div></div>
+      <div class="slot vet"><div class="u u-at"></div><span class="sw">⇄ 5</span><div class="b"><span class="nm">Sela</span> <span class="star">★</span><div class="ty">Spike AT · 3 missions</div></div></div>
+      <div class="slot vet"><div class="u u-eitan"></div><span class="sw">⇄ 2</span><div class="b"><span class="nm">Nir</span> <span class="star">★</span><div class="ty">Eitan APC · 3 missions</div></div></div>
+    </div>
+    <div class="a-go"><span class="btn-primary">Deploy</span></div>
+  </div>
+  <div class="bench">
+    <div class="lbl" style="margin-bottom:6px">Rifle Squad · swap Marom for</div>
+    <div class="row on"><div class="u u-inf"></div><b>Marom</b>&nbsp;<span class="star">★★</span><span class="r">4 missions · 7 kills · fielded</span></div>
+    <div class="row"><div class="u u-inf"></div><b>Dror</b>&nbsp;<span class="star">★★</span><span class="r">4 missions · 8 kills</span></div>
+    <div class="row"><div class="u u-inf"></div><b>Gefen</b><span class="r">1 mission · 0 kills</span></div>
+    <div class="row"><div class="u u-inf"></div><b>Ofer</b><span class="r">1 mission · 1 kill</span></div>
+    <div class="more" style="padding-top:6px">and 16 fresh Rifle Squads with no record yet</div>
+  </div>
+</div></div>
+<p class="cap">The bench is ranked by the order the roster cap already uses (roster-cap.ts rosterOrder: stripes, then missions, then kills). Records come first, and unrecorded bodies collapse to one line. This replaces the 33-row list (1,813 px of rows in a 306 px box at 1400).</p>
+
+<h3>A2 · Debrief: an after-action report</h3>
+<div class="fit"><div class="screen" id="a2">
+  <div class="field"></div>
+  <div class="aar"><div class="shell">
+    <div class="band">
+      <span class="v">Mission accomplished</span>
+      <span class="stars star">★★<span class="off">★</span></span>
+      <span class="tier">Named in brigade orders</span>
+      <span class="why">Depot down at 4:12 of 5:00 · Hallaq killed at the gate<br>Rubble held 4:00 · 7:03 on the clock</span>
+    </div>
+    <div class="ladder">
+      <div class="ok">★ &nbsp;Won the mission ✓</div>
+      <div class="ok">★★ &nbsp;Conduct 84, needed 60 ✓</div>
+      <div class="no">★★★ &nbsp;Every carrying secondary: 0 of 1 · “Stay in the field for the first five minutes”</div>
+    </div>
+    <div class="cols">
+      <div class="col well"><h4>Done well</h4>
+        <div class="it"><span class="m good">4:12</span><div>Depot razed with 48 s to spare<small>The D9 came up the river road and nothing touched it.</small></div></div>
+        <div class="it"><span class="m good">✓</span><div>Jubran Hallaq killed in his own gateway</div></div>
+        <div class="it"><span class="m good">84</span><div>Conduct held above the ★★ line<small>No fire on the civic hall.</small></div></div>
+        <div class="it"><span class="m good">31</span><div>Enemy killed · 6 withdrew</div></div>
+        <div class="quote">“Brigade read the file to the end and put the company in Thursday's orders.” Zohar</div>
+      </div>
+      <div class="col poor"><h4>Cost you</h4>
+        <div class="it"><span class="m bad">−10</span><div>Fire into the depot yard while crews were inside ×2<small>2:00 and 2:35</small></div></div>
+        <div class="it"><span class="m bad">−6</span><div>A house razed outside the depot<small>3:25, the straight road</small></div></div>
+        <div class="it person lost"><div class="u u-inf"></div><div><b>Barzel</b> <span class="star">★</span> · Rifle Squad<small>Killed at 5:40, 4 missions. Gefen took his place.</small></div></div>
+        <div class="it"><span class="m bad">−1</span><div>Shoded Jeep lost (fresh crew)</div></div>
+        <div class="it"><span class="m bad">★★★</span><div>Missed: the column left the field before 5:00</div></div>
+      </div>
+      <div class="col change"><h4>What changed</h4>
+        <div class="it"><span class="m com">+220</span><div>Credits paid · brigade now 1,460<small>Paid only for beating your best on this mission.</small></div></div>
+        <div class="it person"><div class="u u-inf"></div><div><b>Tzur</b> <span class="star">★★ → ★★★</span><small>Promoted · 9 kills this campaign</small></div></div>
+        <div class="it person"><div class="u u-at"></div><div><b>Sela</b> <span class="star">★ → ★★</span><small>Promoted · and one more</small></div></div>
+        <div class="it"><span class="m com">Garage</span><div>Can now be bought: Lavi MBT, Recon Drone, D9 Dov<small>Unlocked for purchase, not added to your force.</small></div></div>
+        <div class="it"><span class="m com">Carries</span><div>Gate taken: Khan Rafid I opens with the east road clear</div></div>
+      </div>
+    </div>
+    <div class="nav"><span class="btn">Replay</span><span class="btn">Campaign map</span><span class="btn">Menu</span><span class="btn-primary">Next: Khan Rafid I →</span></div>
+  </div></div>
+</div></div>
+<p class="cap">A2 answers H5 in three columns that always appear, in the same order, on a win and on a loss. The star ladder says what earned each star and what the missing one needs (grade.ts starsFor: a win, Conduct at fail_below + 20, then every carrying secondary). Losses are people, not "Rifle Squad ×2" (PA-28). Unlock lines say "buy", not "available" (PA-21). The live HUD is hidden behind an opaque, blurred field, so nothing from the radio, feed or dock shows through (D-01, D-02).</p>
+
+<h3>A3 · Debrief, defeat</h3>
+<div class="fit"><div class="screen" id="a3">
+  <div class="field"></div>
+  <div class="aar"><div class="shell" style="width:1100px">
+    <div class="band fail">
+      <span class="v">Mission failed</span>
+      <span class="tier">The depot is still standing</span>
+      <span class="why">Failed at 5:00: “Raze the depot inside five minutes”<br>The D9 was stopped at the ramp at 3:48</span>
+    </div>
+    <div class="cols">
+      <div class="col well"><h4>Done well</h4>
+        <div class="it"><span class="m good">✓</span><div>Jubran Hallaq killed at the gate</div></div>
+        <div class="it"><span class="m good">100</span><div>Conduct unbroken: no civilian harm</div></div>
+      </div>
+      <div class="col poor"><h4>What went wrong</h4>
+        <div class="it"><span class="m bad">3:48</span><div>D9 Dov knocked out at the ramp by the second RPG team<small>It was 9 tiles ahead of its escort.</small></div></div>
+        <div class="it person lost"><div class="u u-inf"></div><div><b>Barzel</b> <span class="star">★</span><small>Lost at 4:10</small></div></div>
+        <div class="quote">“Five minutes, and the depot is standing.” Shai</div>
+      </div>
+      <div class="col change"><h4>What changed</h4>
+        <div class="it"><span class="m com">0</span><div>Nothing written to the campaign. A defeat records no losses and pays nothing.<small>Try again with the same force.</small></div></div>
+        <div class="it"><span class="m com">Same</span><div>Tzur, Marom, Sela and Nir are still yours, with their records as they were.</div></div>
+      </div>
+    </div>
+    <div class="nav"><span class="btn">Campaign map</span><span class="btn">Menu</span><span class="btn-primary">Try again →</span></div>
+  </div></div>
+</div></div>
+<p class="cap">The defeat keeps the same three columns, so the screen teaches where to look. "Nothing written to the campaign" states the shipped rule (a defeat writes nothing to the ledger). The "D9 knocked out at the ramp" line needs the app to keep the last few objective-relevant events, which it already sees as sim events. This is presentation only, with no sim change.</p>
+
+<!-- =============================================================== B === -->
+<h2>Direction B: Map table</h2>
+<p>The lit ground is the screen. The orders and the force float over it as commander-HUD panels in the same band, frame and tile vocabulary as the in-mission HUD (#364), so the briefing reads as the first minute of the mission rather than a document before it. Objectives, threats and the no-fire zone are pinned where they are on the ground. The debrief returns to the same table and pins where things happened. <b>Cost:</b> each map needs a framed crop (the ground is larger than the screen), pin placement that avoids collisions, and recorded positions for the debrief pins. Those positions are app-side, but they are new.</p>
+
+<h3>B1 · Briefing and deploy</h3>
+<div class="fit"><div class="screen" id="b1">
+  <div class="b-map"><div class="ground">
+    <svg viewBox="0 0 48 48" preserveAspectRatio="none" aria-hidden="true">
+      <rect class="ov-zone" x="29" y="5" width="12" height="12"/>
+      <rect class="ov-nofire" x="21" y="27" width="5" height="5"/>
+      <polyline class="ov-route-good" points="8,42.5 33.5,42.5 33.5,18.5"/>
+      <polyline class="ov-route-bad" points="8,40.5 31,18.5"/>
+      <path class="ov-threat" d="M47.5,26.5 L42,26.5"/>
+      <path class="ov-threat" d="M40,47.5 L40,44"/>
+      <polygon class="ov-start" points="7,40 8.6,42.4 5.4,42.4"/>
+      <rect class="ov-hvt" x="32.4" y="16.4" width="1.3" height="1.3" transform="rotate(45 33 17)"/>
+    </svg>
+  </div></div>
+  <div class="b-vig"></div>
+  <div class="pin obj" style="left:1180px;top:40px"><b>① Raze the depot · 5:00</b>then ② hold the rubble 4:00</div>
+  <div class="pin no" style="left:1060px;top:300px"><b>② Hallaq · the gate</b>RPG team at the head of the ramp</div>
+  <div class="pin no" style="left:700px;top:500px"><b>Civic hall</b>No fire at any price</div>
+  <div class="pin" style="left:820px;top:340px;border-color:var(--warn)"><b style="color:var(--warn)">Straight road</b>Every house the D9 levels is judged</div>
+  <div class="pin go" style="left:1050px;top:560px"><b>River road</b>A little slower, nothing else</div>
+  <div class="pin thr" style="left:1170px;top:372px"><b>Motorcycles</b>East and south, all mission</div>
+  <div class="hudp b-orders">
+    <div class="bandh">Wadi Halam V · Break the Depot <small>dawn · ~7 min</small></div>
+    <div class="in">
+      <div class="a-cmd"><div class="portrait pt-shai" style="width:72px;height:90px"></div><div><div class="who">Lt. Col. Shai Hammai</div><div class="say" style="font-size:17px">“Seven structures, one unarmed bulldozer, and a choice of route. Mind which one you take.”</div></div></div>
+      <div class="glance">
+        <div class="k">Objective</div><div><b>Raze in 5:00</b>, take the gate, hold 4:00</div>
+        <div class="k matters">Matters</div><div>The D9 razes it and cannot defend itself</div>
+        <div class="k avoid">Avoid</div><div>The civic hall. Houses on the straight road</div>
+      </div>
+      <div class="more"><b>Full orders ▸</b> <span class="key">O</span> &nbsp; <b>Objectives ▸</b> <span class="key">J</span></div>
+    </div>
+  </div>
+  <div class="hudp b-tray">
+    <div class="grp"><span class="lbl">Rifle Squad · 2</span><div class="tiles">
+      <div class="tile vet"><span class="st star">★★</span><span class="x">⇄19</span><div class="u u-inf"></div><div class="cap2">Tzur</div></div>
+      <div class="tile vet"><span class="st star">★★</span><span class="x">⇄19</span><div class="u u-inf"></div><div class="cap2">Marom</div></div></div></div>
+    <div class="grp"><span class="lbl">Spike AT · 1</span><div class="tiles"><div class="tile vet"><span class="st star">★</span><span class="x">⇄5</span><div class="u u-at"></div><div class="cap2">Sela</div></div></div></div>
+    <div class="grp"><span class="lbl">Eitan · 1</span><div class="tiles"><div class="tile vet"><span class="st star">★</span><span class="x">⇄2</span><div class="u u-eitan"></div><div class="cap2">Nir</div></div></div></div>
+    <div class="grp"><span class="lbl">Namer · 1</span><div class="tiles"><div class="tile"><span class="x">⇄1</span><div class="u u-namer"></div><div class="cap2">Fresh crew</div></div></div></div>
+    <div class="grp"><span class="lbl">Attached by brigade</span><div class="tiles">
+      <div class="tile fixed"><div class="u u-d9"></div><div class="cap2">D9 Dov</div></div>
+      <div class="tile fixed"><div class="u u-demo"></div><div class="cap2">Engineers</div></div>
+      <div class="tile fixed"><div class="u u-jeep"></div><div class="cap2">Jeep</div></div></div></div>
+    <div class="go"><span class="btn">← Campaign<span class="key">Esc</span></span><span class="btn-primary">Deploy</span></div>
+  </div>
+</div></div>
+<p class="cap">B1 uses the dock's tile grammar for the force, so a player meets the same tiles again in the mission. The trade-off is that the five-row "at a glance" card shrinks to three rows, with where and what happened carried by the map and the band title.</p>
+
+<h3>B2 · Debrief: the table, after</h3>
+<div class="fit"><div class="screen" id="b2">
+  <div class="b-map"><div class="ground" style="left:60px;top:20px;width:860px;height:860px">
+    <svg viewBox="0 0 48 48" preserveAspectRatio="none" aria-hidden="true">
+      <rect class="ov-zone" x="29" y="5" width="12" height="12" style="fill: color-mix(in srgb, var(--good) 18%, transparent); stroke: var(--good)"/>
+      <rect class="ov-nofire" x="21" y="27" width="5" height="5"/>
+      <polyline class="ov-route-good" points="8,42.5 33.5,42.5 33.5,18.5" style="stroke: var(--friendly)"/>
+      <circle class="ov-loss" cx="33.5" cy="24" r=".9"/><text class="ov-text bad" x="35" y="24.4">Barzel ★ · 5:40</text>
+      <circle class="ov-loss" cx="27" cy="42.5" r=".9"/><text class="ov-text bad" x="22" y="41">Jeep · 2:10</text>
+      <circle class="ov-ded" cx="35" cy="10" r=".8"/><text class="ov-text warn" x="29.5" y="8.6">−10 · fire into the yard</text>
+      <circle class="ov-ded" cx="17" cy="35" r=".8"/><text class="ov-text warn" x="11" y="37.4">−6 · house razed</text>
+      <text class="ov-text good" x="30" y="19.8">Razed 4:12 · held 4:00</text>
+    </svg>
+  </div></div>
+  <div class="b-vig"></div>
+  <div class="hudp b-report">
+    <div class="bandh" style="font-size:24px;padding:10px 14px">Mission accomplished <span class="star" style="font-size:22px">★★<span class="off">★</span></span></div>
+    <div class="in">
+      <div class="lbl">Named in brigade orders · 7:03</div>
+      <div class="it"><span class="m good">★</span><div>Won</div></div>
+      <div class="it"><span class="m good">★★</span><div>Conduct 84 (needed 60)</div></div>
+      <div class="it"><span class="m bad">★★★</span><div>Missed: stay in the field for the first five minutes</div></div>
+      <div class="it"><span class="m bad">−10</span><div>Fire into the yard ×2 · −6 house razed</div></div>
+      <div class="lbl" style="margin-top:8px">Your people</div>
+      <div class="it person lost"><div class="u u-inf"></div><div><b>Barzel</b> lost · Gefen takes his place</div></div>
+      <div class="it person"><div class="u u-inf"></div><div><b>Tzur</b> <span class="star">★★★</span> promoted</div></div>
+      <div class="it person"><div class="u u-at"></div><div><b>Sela</b> <span class="star">★★</span> promoted</div></div>
+      <div class="lbl" style="margin-top:8px">Brigade</div>
+      <div class="it"><span class="m com">+220</span><div>credits · 1,460 total</div></div>
+      <div class="it"><span class="m com">Buy</span><div>Lavi MBT, Recon Drone, D9 Dov</div></div>
+    </div>
+    <div class="nav" style="display:flex;gap:8px;padding:10px 14px;border-top:1px solid var(--panel-frame)"><span class="btn">Replay</span><span class="btn">Map</span><span class="btn-primary" style="margin-left:auto;font-size:20px;padding:6px 16px">Next →</span></div>
+  </div>
+</div></div>
+<p class="cap">B2 needs the app to record the tile of each friendly loss and each Conduct deduction. The Conduct invoice already groups deductions by place (conduct-invoice.ts), so half of this exists. Losses would need a new app-side log fed from sim death events. That is presentation-only and not a sim change, but it is new work.</p>
+
+<!-- =============================================================== C === -->
+<h2>Direction C: Dossier, two steps</h2>
+<p>The commander delivers the orders, and the force is chosen on a page of its own. Step 1 is the briefing: a full-height portrait and the beats as the commander's speech, one highlighted at a time, already the beat model in loading.ts. Step 2 is the force: one column per demanded type, candidates ranked by record, and a consequences panel. The debrief is a roll call. <b>Cost:</b> one extra click before every mission, and the map is smaller. It is the best fit if the voice-over of the beats (pass F) lands.</p>
+
+<h3>C1 · Step 1, Orders</h3>
+<div class="fit"><div class="screen" id="c1">
+  <div class="c-top"><span class="t">Wadi Halam V · Break the Depot</span><span style="color:var(--ink-mute)">dawn · ~7 min</span>
+    <div class="tabs"><span class="on">1 · Orders</span><span>2 · Force</span><span>Deploy</span></div></div>
+  <div class="c-hero"><div class="portrait pt-shai"></div><div class="plate"><div class="lbl">Battalion</div><div class="n">Lt. Col. Shai Hammai</div></div></div>
+  <div class="c-body">
+    <div class="beats">
+      <div class="beat now"><span class="sec">Situation</span>Seven structures inside Hallaq's depot, one unarmed bulldozer, and a choice of route. Mind which one you take.</div>
+      <div class="beat"><span class="sec">Mission</span>The straight line north-east runs through the village, and a D9 levels whatever it halts beside. Each house is judged. The civic hall is not a target at any price.</div>
+      <div class="beat"><span class="sec">Execution</span>The D9 cannot defend itself and it is the slowest thing on the map. Escort it, do not race it.</div>
+      <div class="beat"><span class="sec">Notes</span>An RPG team holds the gate and a second is dug in at the centre of the depot. Motorcycles come from the east and south the whole time the charges go in.</div>
+      <div class="more">Space: next beat · the beats play in the commander's voice when pass F lands</div>
+    </div>
+    <div class="c-side">
+      <div class="glance">
+        <div class="k">Objective</div><div><b>Raze in 5:00</b>, take the gate, hold 4:00</div>
+        <div class="k matters">Matters</div><div>Escort the D9</div>
+        <div class="k avoid">Avoid</div><div>Civic hall · straight road</div>
+      </div>
+      <div class="ground">
+        <svg viewBox="0 0 48 48" preserveAspectRatio="none" aria-hidden="true">
+          <rect class="ov-zone" x="29" y="5" width="12" height="12"/><rect class="ov-nofire" x="21" y="27" width="5" height="5"/>
+          <polyline class="ov-route-good" points="8,42.5 33.5,42.5 33.5,18.5"/><polygon class="ov-start" points="7,40 8.6,42.4 5.4,42.4"/>
+        </svg>
+      </div>
+      <div class="c-act"><span class="btn">← Campaign</span><span class="btn-primary" style="font-size:22px;padding:8px 20px">Choose force →</span></div>
+    </div>
+  </div>
+</div></div>
+
+<h3>C2 · Step 2, Force</h3>
+<div class="fit"><div class="screen" id="c2">
+  <div class="c-top"><span class="t">Wadi Halam V · Break the Depot</span>
+    <div class="tabs"><span class="done">1 · Orders ✓</span><span class="on">2 · Force</span><span>Deploy</span></div></div>
+  <div class="c-build">
+    <div class="ccol"><div class="hd"><span class="disp">Rifle Squad</span><span class="lbl">2 of 2</span></div>
+      <div class="cand on"><div class="u u-inf"></div><div><span class="nm">Tzur</span> <span class="star">★★</span><div class="rec">4 missions · 6 kills</div></div><span class="chk">In</span></div>
+      <div class="cand on"><div class="u u-inf"></div><div><span class="nm">Marom</span> <span class="star">★★</span><div class="rec">4 missions · 7 kills</div></div><span class="chk">In</span></div>
+      <div class="cand"><div class="u u-inf"></div><div><span class="nm">Dror</span> <span class="star">★★</span><div class="rec">4 missions · 8 kills</div></div></div>
+      <div class="cand"><div class="u u-inf"></div><div><span class="nm">Gefen</span><div class="rec">1 mission</div></div></div>
+      <div class="cand"><div class="u u-inf"></div><div><span class="nm">Ofer</span><div class="rec">1 mission · 1 kill</div></div></div>
+      <div class="foot">+16 fresh squads, no record</div></div>
+    <div class="ccol"><div class="hd"><span class="disp">Spike AT</span><span class="lbl">1 of 1</span></div>
+      <div class="cand on"><div class="u u-at"></div><div><span class="nm">Sela</span> <span class="star">★</span><div class="rec">3 missions · 4 kills</div></div><span class="chk">In</span></div>
+      <div class="cand"><div class="u u-at"></div><div><span class="nm">Arbel</span> <span class="star">★</span><div class="rec">3 missions · 3 kills</div></div></div>
+      <div class="foot">+4 fresh teams</div></div>
+    <div class="ccol"><div class="hd"><span class="disp">Eitan APC</span><span class="lbl">1 of 1</span></div>
+      <div class="cand on"><div class="u u-eitan"></div><div><span class="nm">Nir</span> <span class="star">★</span><div class="rec">3 missions</div></div><span class="chk">In</span></div>
+      <div class="cand"><div class="u u-eitan"></div><div><span class="nm">Ofer</span><div class="rec">1 mission</div></div></div>
+      <div class="foot">+1 fresh crew</div></div>
+    <div class="ccol"><div class="hd"><span class="disp">Namer IFV</span><span class="lbl">1 of 1</span></div>
+      <div class="cand on"><div class="u u-namer"></div><div><span class="nm">Fresh crew</span><div class="rec">no record</div></div><span class="chk">In</span></div>
+      <div class="foot">+1 fresh crew</div>
+      <div class="hd" style="border-top:1px solid var(--panel-frame)"><span class="lbl">Attached by brigade</span></div>
+      <div class="cand" style="opacity:.7"><div class="u u-d9"></div><div><span class="nm">D9 Dov</span><div class="rec">not yours to keep</div></div></div>
+      <div class="cand" style="opacity:.7"><div class="u u-demo"></div><div><span class="nm">Engineers</span></div></div></div>
+    <div class="ccol"><div class="hd"><span class="disp">What rides on it</span></div>
+      <div class="cons">
+        <div><b>Veterans fight better.</b> Each stripe is +6% aim and −8% suppression taken.</div>
+        <div><b>Veterans can be lost.</b> A named soldier killed here goes on the memorial, and the next in line takes the place.</div>
+        <div><b>The brigade keeps the rest.</b> 120 others stay at base. Manage them in the Brigade screen.</div>
+        <div><b>A loss writes nothing.</b> If the mission fails, nobody's record changes.</div>
+      </div>
+      <div style="margin-top:auto;padding:12px;display:flex;justify-content:space-between;align-items:center"><span class="btn">← Orders</span><span class="btn-primary">Deploy</span></div>
+    </div>
+  </div>
+</div></div>
+
+<h3>C3 · Debrief: roll call</h3>
+<div class="fit"><div class="screen" id="c3">
+  <div class="field"></div>
+  <div class="aar"><div class="shell">
+    <div class="band"><span class="v">Mission accomplished</span><span class="stars star">★★<span class="off">★</span></span><span class="tier">Named in brigade orders</span><span class="why">7:03 · Conduct 84 · +220 credits</span></div>
+    <div style="padding:16px 22px;flex:1;display:flex;flex-direction:column;gap:14px;min-height:0">
+      <div class="lbl">Who came back</div>
+      <div class="roll">
+        <div class="card up"><div class="u u-inf"></div><div class="b"><span class="nm">Tzur</span> <span class="star">★★★</span><div class="st">Promoted</div>5 kills this mission · 5 missions</div></div>
+        <div class="card ok"><div class="u u-inf"></div><div class="b"><span class="nm">Marom</span> <span class="star">★★</span><div class="st">Came back</div>2 kills · 5 missions</div></div>
+        <div class="card up"><div class="u u-at"></div><div class="b"><span class="nm">Sela</span> <span class="star">★★</span><div class="st">Promoted</div>Killed the gun truck at the gate</div></div>
+        <div class="card lost"><div class="u u-inf"></div><div class="b"><span class="nm">Barzel</span> <span class="star">★</span><div class="st">Lost · 5:40</div>4 missions. Gefen takes his place.</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+        <div><div class="lbl" style="color:var(--bad-text)">Cost you</div>
+          <div class="it"><span class="m bad">−10</span><div>Fire into the depot yard ×2 · 2:00, 2:35</div></div>
+          <div class="it"><span class="m bad">−6</span><div>A house razed outside the depot · 3:25</div></div>
+          <div class="it"><span class="m bad">★★★</span><div>Missed: stay in the field for the first five minutes</div></div></div>
+        <div><div class="lbl" style="color:var(--commend)">Brigade</div>
+          <div class="it"><span class="m com">+220</span><div>credits · 1,460 total</div></div>
+          <div class="it"><span class="m com">Buy</span><div>Lavi MBT, Recon Drone, D9 Dov in the garage</div></div>
+          <div class="it"><span class="m com">Carries</span><div>Khan Rafid I opens with the east road clear</div></div></div>
+      </div>
+    </div>
+    <div class="nav"><span class="btn">Replay</span><span class="btn">Campaign map</span><span class="btn-primary">Next: Khan Rafid I →</span></div>
+  </div></div>
+</div></div>
+<p class="cap">C3 is the most H6-forward (veterans as people), at the cost of the clear "done well" column: the good news is spread across the cards.</p>
+
+</div>
+<script>
+  // Scale each 1400-wide frame to the column, so the page reads on a laptop.
+  function fit() {
+    for (const f of document.querySelectorAll('.fit')) {
+      const s = f.firstElementChild; const k = Math.min(1, f.clientWidth / 1400);
+      s.style.transform = 'scale(' + k + ')'; f.style.height = (s.offsetHeight * k) + 'px';
+    }
+  }
+  addEventListener('resize', fit); addEventListener('load', fit); fit();
+</script>
+</body>
+</html>
