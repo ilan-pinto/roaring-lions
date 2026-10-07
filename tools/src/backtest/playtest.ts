@@ -3178,7 +3178,16 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // credits: Beit Sahwan breach +10, III +2, IV +10; Wadi Halam I -10, II -10, V +30; Khan Rafid I -10,
 // II -40, III +5; Tel Marum II +20; Qarn Hadid III +4; Umm Zeitoun III -5, IV -20. No star moved:
 // every change is a clock or survivor count, from foot units that kneel to fire.
-const LADDER_CREDITS = 5830;
+// 2026-10-07, razing the objective costs no Conduct (stepRoe skips a structure a `raze`
+// objective names): 5830 -> 5868, +38, read off the printed per-mission credits. Every term
+// is a raze mission's own ROE recovering what its target set used to charge, nothing else:
+// Wadi Halam II 176 -> 180 (ROE 96 -> 100: pump house + shed), Wadi Halam V 181 -> 200
+// (81 -> 100: the depot's three warehouses, two concrete stores and two sheds, 19 points),
+// Tel Marum II 216 -> 218 (96 -> 98; the 2 left are the shed at (36,34) outside `ammo_draw`,
+// which the plan's demo team levels on the way and which is still judged), Qarn Hadid II
+// 197 -> 200 (97 -> 100), Umm Zeitoun II 228 -> 230 (98 -> 100), Umm Zeitoun IV 227 -> 235
+// (92 -> 100). No star moved: every one of the six sits at 2 before and after.
+const LADDER_CREDITS = 5868;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);

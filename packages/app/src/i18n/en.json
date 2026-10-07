@@ -753,6 +753,7 @@
   "mission.notice.missionFailed": "<b>MISSION FAILED</b>",
 
   "alert.unitLost": "<b>lost</b> — {n, plural, one {{name}} other {{name} (#)}}{where, select, yes { · {place}} other {}}",
+  "alert.kill": "<b>enemy destroyed</b> — {n, plural, one {{name}} other {{name} (#)}}{where, select, yes { · {place}} other {}}",
   "alert.underFire": "<b>under fire</b> — {name}{more, plural, =0 {} other { and # more}}{where, select, yes { · {place}} other {}}",
   "alert.wave": "<b>enemy reinforcements</b> — {n, plural, one {# unit} other {# units}} inbound{where, select, yes { · {place}} other {}}",
   "alert.arrived": "<b>reinforcement deployed</b> — {name}{where, select, yes { · {place}} other {}}",

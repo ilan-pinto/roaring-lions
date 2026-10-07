@@ -1,7 +1,8 @@
 {
   "unit": "breach_team",
+  "variant": "team",
   "source": "assets/meshes/breach_team.glb",
-  "source_sha256": "38ca28c1e56e56b6426518ff4d98ea394416ca752bc08cd4060a227f68a21ae2",
+  "source_sha256": "75c6d78ed374eec1549306133590b5fe0f388080129d8feabf34548066f7c6d9",
   "yaw_deg": -125.0,
   "elevation_deg": 12.0,
   "fov_deg": 30.0,
@@ -10,13 +11,13 @@
     0.88
   ],
   "ndc_box": [
-    0.1718,
-    0.8282,
+    0.1583,
+    0.8417,
     0.06,
     0.94
   ],
   "materials": {
     "baked": 4,
-    "flat": 2
+    "flat": 1
   }
 }
