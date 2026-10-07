@@ -27,7 +27,7 @@ import { markConfirm } from './confirm-cue';
 import type { GlanceRow } from './briefing-glance';
 import type { GroundMark } from './ground-marks';
 import { groundView, type GroundView } from './ground-view';
-import { forceBar, type AttachedUnit } from './force-bar';
+import { forceBar, type AttachedUnit, type ForceBar } from './force-bar';
 
 /**
  * Does this screen wait for the player before handing over the field?
@@ -710,6 +710,9 @@ export function showLoading(
   // and orders left, the roster's force and a map preview right"). Built
   // only with orders to read, like everything else conditional on `holds`.
   let ground: GroundView | null = null;
+  /** What Escape closes before it is allowed to leave the briefing: the
+   *  bench, then the full orders. Null on the plain screen. */
+  let dismissOverlay: (() => boolean) | null = null;
   if (holds && field) {
     layoutFieldOrder();
   } else {
@@ -780,7 +783,6 @@ export function showLoading(
     const setOpen = (open: boolean): void => {
       panel.hidden = !open;
       toggle.setAttribute('aria-expanded', String(open));
-      box.dataset.orders = open ? 'open' : 'closed';
     };
     toggle.addEventListener('click', () => setOpen(panel.hidden));
     close.addEventListener('click', () => {
@@ -797,7 +799,7 @@ export function showLoading(
     }
     side.append(panel);
 
-    const bar = forceBar({
+    const bar: ForceBar = forceBar({
       view: force ? force.view : null,
       attached: field.attached,
       notes: brought?.sentences,
@@ -807,6 +809,16 @@ export function showLoading(
       onChange: (sel) => force?.onChange(sel),
     });
     box.append(head, left, side, bar.el);
+    // Escape closes what is open on top of the sheet before it leaves it.
+    dismissOverlay = (): boolean => {
+      if (bar.dismiss()) return true;
+      if (!panel.hidden) {
+        setOpen(false);
+        toggle.focus({ preventScroll: true });
+        return true;
+      }
+      return false;
+    };
   }
 
   /** The screen as it was before the Field order: a sandbox, a cinematic
@@ -1008,7 +1020,9 @@ export function showLoading(
           onBack();
         };
         const onKey = (e: KeyboardEvent): void => {
-          if (e.key === 'Escape') goBack();
+          if (e.key !== 'Escape') return;
+          if (dismissOverlay?.()) return;
+          goBack();
         };
         deploy.addEventListener('click', () => {
           cleanup();

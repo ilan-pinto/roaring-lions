@@ -6327,7 +6327,7 @@ button.rl-menu__item[data-kind='aside'] {
 /* page scrolls as one and the force bar stays on the bottom edge.         */
 /* ====================================================================== */
 .rl-loading__box--field {
-  --field-ground: min(44vw, calc(100dvh - 23rem));
+  --field-ground: max(16rem, min(44vw, calc(100dvh - 23rem)));
   width: min(100% - 2 * var(--s5), 112rem);
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--field-ground);
@@ -6524,6 +6524,9 @@ button.rl-menu__item[data-kind='aside'] {
   border-style: dashed;
   color: var(--ink-mute);
 }
+.rl-force__slot--only {
+  cursor: default;
+}
 .rl-force__slot--fixed {
   width: 6.25rem;
   cursor: default;
@@ -6631,6 +6634,10 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-force__bench-more:hover,
 .rl-force__bench-more:focus-visible {
   background: var(--tile-bg);
+}
+.rl-force__bench-row:disabled {
+  cursor: default;
+  opacity: 0.55;
 }
 .rl-force__bench-row[aria-pressed='true'] {
   background: color-mix(in srgb, var(--band-mission) 45%, transparent);

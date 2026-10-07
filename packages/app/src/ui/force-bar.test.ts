@@ -37,7 +37,7 @@ function view(pool = POOL): DeployRosterView {
   return v;
 }
 
-function mount(v: DeployRosterView | null = view()): { el: HTMLElement; deploy: HTMLButtonElement; changes: DeploySelection[] } {
+function mount(v: DeployRosterView | null = view()): { el: HTMLElement; deploy: HTMLButtonElement; changes: DeploySelection[]; bar: ReturnType<typeof forceBar> } {
   const deploy = document.createElement('button');
   const changes: DeploySelection[] = [];
   const bar = forceBar({
@@ -48,7 +48,7 @@ function mount(v: DeployRosterView | null = view()): { el: HTMLElement; deploy: 
     onChange: (s) => changes.push(s),
   });
   document.body.appendChild(bar.el);
-  return { el: bar.el, deploy, changes };
+  return { el: bar.el, deploy, changes, bar };
 }
 
 const names = (el: HTMLElement, sel: string): string[] => [...el.querySelectorAll(sel)].map((n) => n.querySelector('.rl-force__name')?.textContent?.trim() ?? '');
@@ -87,28 +87,58 @@ describe('forceBar (GH-417, H2)', () => {
     el.querySelector<HTMLButtonElement>('.rl-force__slot[data-type="inf_squad"]')?.click();
     const rows = [...el.querySelectorAll('.rl-force__bench-row')].map((r) => r.querySelector('.rl-force__bench-name')?.textContent);
     expect(rows).toEqual(['Dror', 'Tzur', 'Gefen']);
-    expect(el.querySelector('.rl-force__bench-more')?.textContent).toBe('and 2 fresh with no record yet');
+    expect(el.querySelector('.rl-force__bench-more')?.textContent).toBe('and 2 more with no record yet');
     el.querySelector<HTMLButtonElement>('.rl-force__bench-more')?.click();
     expect(el.querySelectorAll('.rl-force__bench-row')).toHaveLength(5);
   });
 
-  // A pick on a FULL type is a swap: the place's own body out, the pick in.
-  // Falsified: dropping the "toggle the current one out first" line leaves
-  // toggleEntry refusing and nothing changes.
+  // A pick on a FULL type is a swap: the place's own body out, the pick in,
+  // in THAT place -- the other card does not move. Falsified: dropping the
+  // "toggle the current one out first" line leaves toggleEntry refusing.
   it('picking someone at base swaps them into the place that was clicked', () => {
     const { el, changes, deploy } = mount();
-    el.querySelector<HTMLButtonElement>('.rl-force__slot[data-type="inf_squad"]')?.click(); // Gefen's place
+    el.querySelector<HTMLButtonElement>('[data-place="inf_squad:0"]')?.click(); // Gefen's place
     [...el.querySelectorAll<HTMLButtonElement>('.rl-force__bench-row')].find((r) => r.textContent?.includes('Dror'))?.click();
     expect(changes).toHaveLength(1);
     expect([...changes[0].chosen].sort()).toEqual([1, 2, 5]);
-    expect(names(el, '.rl-force__slot[data-type="inf_squad"]')).toEqual(['Tzur ★★', 'Dror ★★']);
+    expect(names(el, '.rl-force__slot[data-type="inf_squad"]')).toEqual(['Dror ★★', 'Tzur ★★']);
     expect(el.querySelector('.rl-force__bench')).toBeNull();
     expect(deploy.disabled).toBe(false);
+    // Review: focus returns to the place, not to <body> (where the next
+    // Escape would leave the briefing).
+    expect((document.activeElement as HTMLElement | null)?.dataset.place).toBe('inf_squad:0');
+  });
+
+  it('a body going in another place cannot be picked from this one', () => {
+    const { el } = mount();
+    el.querySelector<HTMLButtonElement>('[data-place="inf_squad:0"]')?.click();
+    const tzur = [...el.querySelectorAll<HTMLButtonElement>('.rl-force__bench-row')].find((r) => r.textContent?.includes('Tzur'));
+    expect(tzur?.disabled).toBe(true);
+    const gefen = [...el.querySelectorAll<HTMLButtonElement>('.rl-force__bench-row')].find((r) => r.textContent?.includes('Gefen'));
+    expect(gefen?.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('a place with nobody else to put in it is not a control', () => {
+    const { el } = mount();
+    const sela = el.querySelector('.rl-force__slot[data-type="at_team"]');
+    expect(sela?.tagName).toBe('DIV');
+    expect(sela?.classList.contains('rl-force__slot--only')).toBe(true);
+  });
+
+  it('dismiss() closes an open bench even when focus has left it', () => {
+    const { el, bar } = mount();
+    el.querySelector<HTMLButtonElement>('[data-place="inf_squad:1"]')?.click();
+    el.querySelector<HTMLButtonElement>('.rl-force__bench-more')?.click();
+    expect(el.querySelector('.rl-force__bench')?.contains(document.activeElement)).toBe(true);
+    (document.activeElement as HTMLElement).blur();
+    expect(bar.dismiss()).toBe(true);
+    expect(el.querySelector('.rl-force__bench')).toBeNull();
+    expect(bar.dismiss()).toBe(false);
   });
 
   it('picking the one already going benches them, and Deploy waits for the open place', () => {
     const { el, deploy } = mount();
-    el.querySelector<HTMLButtonElement>('.rl-force__slot[data-type="inf_squad"]')?.click();
+    el.querySelector<HTMLButtonElement>('[data-place="inf_squad:0"]')?.click();
     [...el.querySelectorAll<HTMLButtonElement>('.rl-force__bench-row')].find((r) => r.textContent?.includes('Gefen'))?.click();
     expect(el.querySelectorAll('.rl-force__slot--open')).toHaveLength(1);
     expect(el.querySelector('.rl-force__placed')?.textContent).toBe('3 of 4 placed');
@@ -136,7 +166,9 @@ describe('forceBar (GH-417, H2)', () => {
 
   it('the default is untouched: an unopened bar fields exactly defaultSelection', () => {
     const v = view();
-    expect(defaultSelection(v).chosen).toEqual(new Set([0, 1, 5]));
+    const { bar } = mount(v);
+    expect(bar.selection().chosen).toEqual(defaultSelection(v).chosen);
+    expect([...bar.selection().chosen].sort()).toEqual([0, 1, 5]);
   });
 
   it('benchOrder: stripes, then missions, then kills, then pool order', () => {

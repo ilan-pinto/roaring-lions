@@ -1234,6 +1234,25 @@ describe('the Field order briefing (GH-417)', () => {
     s.dispose();
   });
 
+  // Review: Escape closes what is open on top of the sheet before it leaves.
+  // Falsified: `if (dismissOverlay?.()) return;` removed -> onBack fires.
+  it('Escape closes the full orders first, and only then goes back', async () => {
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    let back = 0;
+    const s = showLoading(el, 'Break the Depot', SPREAD_BRIEFING, undefined, undefined, undefined, () => void back++, [], false, { view: viewOf(), onChange: () => undefined }, PREVIEW, undefined, FIELD);
+    void s.done().catch(() => undefined);
+    await Promise.resolve();
+    el.querySelector<HTMLButtonElement>('.rl-field__full-toggle')?.click();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(el.querySelector<HTMLElement>('.rl-field__full')?.hidden).toBe(true);
+    expect(back).toBe(0);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(back).toBe(1);
+    s.dispose();
+    el.remove();
+  });
+
   it('without a field the screen is the plain one, and a photograph is a no-op', () => {
     const el = document.createElement('div');
     const s = showLoading(el, 'Sandbox', SPREAD_BRIEFING);
