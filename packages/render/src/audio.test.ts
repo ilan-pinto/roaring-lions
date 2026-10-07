@@ -1580,3 +1580,31 @@ describe('playCue (polish pass F, AU-1, AU-4)', () => {
     }
   });
 });
+
+// ui:routes `voices (b)` on PR 426: the shipped ack read `placeholder` 83 s
+// after the first gesture. Pass F put eleven more `ui` sets ahead of the voices,
+// and `decodeAll` decoded them ONE AT A TIME before a single voice was asked
+// for; under SwiftShader every await costs a frame, so thirteen sequential
+// fetch+decode rounds kept every line silent for most of a mission. Here each
+// fetch takes one 100 ms "frame": a roster line must be decoded within a few
+// of them, however many ui cues the manifest declares.
+describe('decode latency: ui cues never hold the voices back', () => {
+  it('with thirteen ui sets, the first voice line decodes in a frame or two, not after all of them', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal('fetch', (_url: string) => new Promise((r) => setTimeout(() => r(OK), 100)));
+      const sets: Record<string, AudioSet> = {};
+      for (let i = 0; i < 13; i++) sets[`cue_${i}`] = { event: 'ui', variants: [{ file: `cue_${i}/c.ogg` }] };
+      const { audio } = attachedWith((a) => {
+        a.useManifest({ ...MANIFEST, sets }, '/a/');
+        a.setVoiceLanguages(['he']);
+      });
+      await vi.advanceTimersByTimeAsync(250);
+      expect(audio.voiceStats().keys).toBeGreaterThanOrEqual(1);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(audio.voiceStats().keys).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

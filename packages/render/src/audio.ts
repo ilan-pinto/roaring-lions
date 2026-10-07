@@ -781,14 +781,22 @@ export class BattleAudio {
    * then the roster's voice lines, then the battle library. A screen can be
    * waiting on a UI cue and an order can be waiting on a line; the battle
    * library cannot be heard before a mission starts.
+   *
+   * The ui sets and the voices decode TOGETHER, every ui fetch issued first
+   * and in manifest order, and the battle library only once both are done.
+   * They used to run one ui set at a time before the first voice was asked
+   * for, which was harmless at two sets and was not at thirteen (polish pass
+   * F): under SwiftShader every await waits behind a frame that can cost
+   * seconds, and ui:routes measured the shipped ack still undecoded 83 s
+   * after the first gesture -- the voice slot played its placeholder.
    */
   private async decodeAll(): Promise<void> {
     const ctx = this.ctx;
     const man = this.manifest;
     if (!ctx || !man) return;
     const order = decodeOrder(man.sets);
-    for (const [name, spec] of order) if (spec.event === 'ui') await this.decodeSet(ctx, name, spec);
-    await this.queueVoiceDecode();
+    const ui = order.filter(([, spec]) => spec.event === 'ui').map(([name, spec]) => this.decodeSet(ctx, name, spec));
+    await Promise.all([...ui, this.queueVoiceDecode()]);
     for (const [name, spec] of order) if (spec.event !== 'ui') await this.decodeSet(ctx, name, spec);
   }
 
