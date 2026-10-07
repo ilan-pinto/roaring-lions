@@ -36,6 +36,7 @@
     "plate:host": "pnpm --filter @lions/tools plate:host",
     "plates:units": "pnpm --filter @lions/tools plates:units",
     "kit:capture": "pnpm --filter @lions/tools kit:capture",
+    "closeups:garage": "pnpm --filter @lions/tools closeups:garage",
     "gait:meshes": "pnpm --filter @lions/tools gait:meshes",
     "motion:meshes": "pnpm --filter @lions/tools motion:meshes",
     "meshy": "pnpm --filter @lions/tools meshy --"

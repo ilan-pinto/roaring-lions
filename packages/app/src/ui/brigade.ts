@@ -151,6 +151,10 @@ export interface BrigadeOptions {
     typeId: string,
     kitLevel: number
   ) => { url: string; size: readonly [number, number]; extent: readonly [number, number] } | null;
+  /** A track's close-up (`garage-closeup.ts`, GH-238 K11), drawn in the
+   *  board's track head where its hatch is; `null`, or no resolver, keeps
+   *  the hatch. */
+  closeup?: (typeId: string, track: string) => string | null;
   /** The turnable 3D model that replaces the plate in the bay (GH-316,
    *  `ui/garage-viewer.ts`). The plate above is still built first: it is the
    *  picture until the model's first frame is up, and the one the bay keeps
@@ -1301,6 +1305,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
             owned,
             buy,
             locked: row.locked,
+            closeup: opts.closeup?.(u.id, trackName) ?? null,
             // Held off while `answer()` puts focus back (M2): the rung it
             // lands on is the NEXT tier's, and its `focusin` would paint that
             // tier's preview over the purchase that just landed.

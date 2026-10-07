@@ -99,6 +99,7 @@ import {
   stageLights,
   type GarageClass,
 } from './garage-frame';
+import { CLOSEUP_PAD, FOCUS_TIER, chooseFocus, figureFacingYaws, type FocusSubject } from './garage-focus';
 import {
   bonesOf,
   figureTurner,
@@ -141,6 +142,13 @@ export interface GarageViewOptions {
    *  the brigade account's tiers for this type. Absent reads as no kit.
    *  Ignored for a rigged team. See "Kit" in this file's header. */
   readonly kitTiers?: Readonly<Record<string, number>>;
+  /** A track close-up (GH-238 K11, `garage-focus.ts`): the camera keeps the
+   *  turntable's own FOV and elevation and frames the part of the model the
+   *  track is about, turned to show it best; `info.focus` says what it
+   *  framed and the yaw to draw at. A kitted vehicle wears that track at
+   *  `FOCUS_TIER` and nothing else, so `kitTiers` is ignored. Only
+   *  `pnpm closeups:garage` passes it; the app never does. */
+  readonly focus?: { readonly track: string };
   readonly signal?: AbortSignal;
   /** Called once if the browser takes the context away. The view draws
    *  nothing after that; the app puts the plate back. */
@@ -163,6 +171,25 @@ export interface GarageViewInfo {
   readonly defaultYawDeg: number;
   readonly camera: { readonly fovDeg: number; readonly elevationDeg: number; readonly distance: number };
   readonly sand: boolean;
+  /** Set only for a `focus` mount. */
+  readonly focus?: GarageFocusInfo;
+}
+
+/** What a track close-up framed (`GarageViewOptions.focus`). */
+export interface GarageFocusInfo {
+  readonly track: string;
+  /** `kit`: the track's own kit parts; `role`: the region its roles mark;
+   *  `whole`: nothing matched, so the whole model (warned). */
+  readonly subject: FocusSubject;
+  /** The turn to `draw` at, degrees past the default face. */
+  readonly yawDeg: number;
+  /** Visible subject pixels at each yaw tried (`FOCUS_YAWS_DEG`). */
+  readonly pixelsByYaw: readonly number[];
+  /** Subject triangles, and how many points the frame was fitted to. */
+  readonly triangles: number;
+  readonly points: number;
+  /** The lead figure's root bone, for a team; `null` otherwise. */
+  readonly figure: string | null;
 }
 
 export interface GarageViewStats {
@@ -274,6 +301,9 @@ interface Staged {
   /** Swap to a model built with `tiers`; returns the old model's release,
    *  which the caller runs AFTER drawing the new one. `null`: nothing to do. */
   readonly setKit?: (tiers: VehicleKitTiers) => (() => void) | null;
+  /** A focus mount on a vehicle whose GLB carries kit for the track: the
+   *  subject is the kit, not a role region. */
+  readonly focusKitted?: boolean;
   /** Every texture the staged source holds that the drawn model may not
    *  reach (the pristine scene's), for the view's one disposal pass. */
   readonly sourceTextures?: () => Iterable<THREE.Texture>;
@@ -438,8 +468,15 @@ function stageVehicle(gltf: { scene: THREE.Group; animations: THREE.AnimationCli
   // swapped-in vehicle sits exactly where the last one did.
   const holder = new THREE.Group();
   turntable.add(holder);
+  // A close-up wears the focused track's kit at `FOCUS_TIER` and nothing
+  // else (K11), so every kit triangle on it is that track's, and stays that
+  // way: no `settle` swap.
+  const focusTrack = opts.focus?.track;
+  const focusKitted = focusTrack !== undefined && (ceiling[focusTrack] ?? 0) > 0;
+  const focusTiers: VehicleKitTiers | null =
+    focusTrack === undefined ? null : focusKitted ? { [focusTrack]: Math.min(FOCUS_TIER, ceiling[focusTrack]) } : {};
   // Staged at the MAXIMUM kit for the fit; `settle` swaps to the bought one.
-  let current = build(ceiling);
+  let current = build(focusTiers ?? ceiling);
   holder.add(current.root);
   const swap = (tiers: VehicleKitTiers): (() => void) | null => {
     if (kitKey(tiers, ceiling) === current.key) return null;
@@ -462,9 +499,11 @@ function stageVehicle(gltf: { scene: THREE.Group; animations: THREE.AnimationCli
       turntable.rotation.y = THREE.MathUtils.degToRad(base + deg);
     },
     settle: () => {
+      if (focusTiers !== null) return;
       // Nothing drew the maximum-kit build, so it is released at once.
       swap(opts.kitTiers ?? {})?.();
     },
+    focusKitted,
     setKit: swap,
     sourceTextures: () => {
       const out = new Set<THREE.Texture>();
@@ -490,6 +529,12 @@ function texturesOf(m: THREE.Material): THREE.Texture[] {
     if (v && (v as THREE.Texture).isTexture) out.push(v as THREE.Texture);
   }
   return out;
+}
+
+/** The close-up's frame: the turntable's FOV and elevation, the subject's
+ *  extent filling `1 / CLOSEUP_PAD` of the frame each way. */
+function fitFocus(points: readonly THREE.Vector3[], elevationDeg: number, aspect: number) {
+  return fitCamera(points, GARAGE_FOV_DEG, elevationDeg, aspect, 1 / CLOSEUP_PAD, 1 / CLOSEUP_PAD);
 }
 
 /** Load, pose and frame the unit, then mount its view into `host`. */
@@ -576,6 +621,39 @@ export async function mountGarageView(host: HTMLElement, opts: GarageViewOptions
   const size = (): { w: number; h: number } => ({ w: Math.max(1, host.clientWidth), h: Math.max(1, host.clientHeight) });
   let { w, h } = size();
   let fit = fitCamera(fitPoints, GARAGE_FOV_DEG, elevationDeg, w / h);
+
+  // A track close-up (K11): score the turn through the bay's OWN camera, the
+  // fit just made, then re-fit the same FOV and elevation to the subject
+  // alone with `CLOSEUP_PAD` of margin. See `garage-focus.ts`.
+  let focusInfo: GarageFocusInfo | undefined;
+  let focusPoints: THREE.Vector3[] | null = null;
+  if (opts.focus) {
+    const bay = new THREE.PerspectiveCamera(GARAGE_FOV_DEG, w / h, 0.01, 200);
+    bay.position.copy(fit.position);
+    bay.lookAt(fit.target);
+    bay.updateProjectionMatrix();
+    const choice = chooseFocus({
+      model,
+      figures: staged.figures,
+      track: opts.focus.track,
+      kitted: staged.focusKitted === true,
+      applyYaw: staged.applyYaw,
+      bayCamera: bay,
+      ...(cls === 'figures' ? { yaws: figureFacingYaws(defaultYawDeg('figures')) } : {}),
+      label: opts.typeId,
+    });
+    focusPoints = choice.points;
+    focusInfo = {
+      track: opts.focus.track,
+      subject: choice.subject,
+      yawDeg: choice.yawDeg,
+      pixelsByYaw: choice.pixelsByYaw,
+      triangles: choice.triangles,
+      points: choice.points.length,
+      figure: choice.figure >= 0 ? staged.figures[choice.figure].name : null,
+    };
+    fit = fitFocus(focusPoints, elevationDeg, w / h);
+  }
 
   if (opts.signal?.aborted) {
     staged.release();
@@ -724,6 +802,7 @@ export async function mountGarageView(host: HTMLElement, opts: GarageViewOptions
         defaultYawDeg: defaultYawDeg(cls),
         camera: { fovDeg: GARAGE_FOV_DEG, elevationDeg, distance: +fit.distance.toFixed(3) },
         sand: sand !== null,
+        ...(focusInfo ? { focus: focusInfo } : {}),
       },
       stats: () => ({ frames, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles }),
       draw(yawDeg) {
@@ -741,7 +820,9 @@ export async function mountGarageView(host: HTMLElement, opts: GarageViewOptions
         w = next.w;
         h = next.h;
         renderer.setSize(w, h, false);
-        fit = fitCamera(fitPoints, GARAGE_FOV_DEG, elevationDeg, w / h);
+        fit = focusPoints
+          ? fitFocus(focusPoints, elevationDeg, w / h)
+          : fitCamera(fitPoints, GARAGE_FOV_DEG, elevationDeg, w / h);
         placeCamera();
       },
       setKit(tiers) {
@@ -754,7 +835,7 @@ export async function mountGarageView(host: HTMLElement, opts: GarageViewOptions
       },
       dispose,
     };
-    view.draw(0);
+    view.draw(focusInfo?.yawDeg ?? 0);
     return view;
   } catch (err) {
     dispose();

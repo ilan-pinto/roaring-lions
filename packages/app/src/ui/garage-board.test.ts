@@ -182,3 +182,38 @@ describe('trackEl emblems (GH-238)', () => {
     expect(el.querySelector('.rl-garage__track-glyph svg path')).not.toBeNull();
   });
 });
+
+// GH-238 K11: the track head shows its close-up where the hatch was, the
+// glyph kept over it; a missing close-up keeps the hatch.
+describe('trackEl close-ups (GH-238 K11)', () => {
+  const URL = '/ui/garage/closeups/mbt_lavi_armour.jpg';
+
+  it('draws the close-up in the glyph cell, with its src and alt, the glyph kept', () => {
+    const el = trackEl('armour', track('mbt_lavi', 'armour'), deps({ closeup: URL }));
+    const glyph = el.querySelector<HTMLElement>('.rl-garage__track-glyph');
+    const img = glyph?.querySelector<HTMLImageElement>('img.rl-garage__track-closeup');
+    expect(img?.getAttribute('src')).toBe(URL);
+    expect(img?.getAttribute('alt')).toBe('Lavi MBT: Armour close-up');
+    expect(glyph?.dataset.closeup).toBe('1');
+    expect(glyph?.querySelector('svg')).not.toBeNull();
+  });
+
+  it('keeps the hatch when there is no close-up', () => {
+    for (const closeup of [undefined, null]) {
+      const el = trackEl('armour', track('mbt_lavi', 'armour'), deps({ closeup }));
+      const glyph = el.querySelector<HTMLElement>('.rl-garage__track-glyph');
+      expect(glyph?.querySelector('img')).toBeNull();
+      expect(glyph?.dataset.closeup).toBeUndefined();
+      expect(glyph?.querySelector('svg')).not.toBeNull();
+    }
+  });
+
+  it('puts the hatch back when the close-up fails to load', () => {
+    const el = trackEl('armour', track('mbt_lavi', 'armour'), deps({ closeup: URL }));
+    const glyph = el.querySelector<HTMLElement>('.rl-garage__track-glyph');
+    glyph?.querySelector('img')?.dispatchEvent(new Event('error'));
+    expect(glyph?.querySelector('img')).toBeNull();
+    expect(glyph?.dataset.closeup).toBeUndefined();
+    expect(glyph?.querySelector('svg')).not.toBeNull();
+  });
+});

@@ -70,6 +70,7 @@ import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type 
 import { hintFor, loadSeen, markSeen } from './ui/hint-model';
 import { createShownTimer, loadHintsSeen, markHintSeen, owedRule, type HintContext } from './ui/hint-rules';
 import { portraitIds, unitIcon, unitPlate } from './ui/portrait';
+import { trackCloseup } from './ui/garage-closeup';
 import { Minimap, MINIMAP_SIZE, flipRows, objectivePoint } from './ui/minimap';
 import { alertsForTick, initAlertState, type AlertWorld } from './ui/alerts';
 import { CivFlightWatch, type CivObservation } from './ui/civ-flight';
@@ -963,6 +964,9 @@ async function main(): Promise<void> {
       // a kitted vehicle's plate is its kitted photograph (GH-238); the plate
       // is what the bay keeps when the model cannot be drawn.
       plate: (typeId, kitLevel) => unitPlate(`${BASE}ui/plates/units/`, typeId, kitLevel),
+      // A track's close-up from the bay's own turntable (GH-238 K11), in the
+      // board's track head; a missing one keeps the hatch.
+      closeup: (typeId, track) => trackCloseup(`${BASE}ui/garage/closeups/`, typeId, track),
       // GH-316: the unit's own GLB, turnable, over the plate above -- which
       // stays the picture until the model's first frame, and whenever the
       // model cannot be drawn.

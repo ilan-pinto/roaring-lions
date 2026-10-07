@@ -5348,6 +5348,32 @@ button.rl-menu__item[data-kind='aside'] {
     var(--panel-frame) 0.75rem
   );
 }
+/* The track's close-up (GH-238 K11) where the hatch was: 3:2 like the
+   photograph, at the hatch's own 2.5rem height so the head does not grow,
+   and the glyph kept over its lower corner on a scrim of the bay's tile. A
+   close-up that fails to load drops this attribute, and the hatch is back. */
+.rl-garage__track-glyph[data-closeup='1'] {
+  position: relative;
+  width: 3.75rem;
+  overflow: hidden;
+  align-items: flex-end;
+  justify-content: flex-start;
+  background: var(--tile-bg);
+}
+.rl-garage__track-closeup {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.rl-garage__track-glyph[data-closeup='1'] svg {
+  position: relative;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0.125rem;
+  background: color-mix(in srgb, var(--tile-bg) 70%, transparent);
+}
 .rl-garage__track-line {
   grid-column: 2;
   grid-row: 1;

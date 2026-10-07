@@ -465,6 +465,27 @@ describe('showBrigade — the bay', () => {
     }
   });
 
+  // GH-238 K11: every track head asks for its own close-up, by the unit's id
+  // and the track's name, and draws what it is handed.
+  it("asks each track head for the unit's own close-up", () => {
+    const asked: string[] = [];
+    const host = mount({
+      units,
+      ledger: {},
+      possibleStars: 78,
+      closeup: (id, track) => {
+        asked.push(`${id}_${track}`);
+        return track === 'sensors' ? `/ui/garage/closeups/${id}_${track}.jpg` : null;
+      },
+    });
+    expect(asked.length).toBeGreaterThan(0);
+    const heads = [...host.querySelectorAll<HTMLElement>('.rl-garage__track')];
+    expect(asked.slice(-heads.length).sort()).toEqual(heads.map((h) => `inf_squad_${h.dataset.track}`).sort());
+    const img = host.querySelector('.rl-garage__track[data-track="sensors"] img.rl-garage__track-closeup');
+    expect(img?.getAttribute('src')).toBe('/ui/garage/closeups/inf_squad_sensors.jpg');
+    expect(host.querySelector('.rl-garage__track[data-track="armour"] img')).toBeNull();
+  });
+
   // "One unit LARGE in a lit bay": every plate is the same frame at the same
   // camera zoom, so the unit inside it is whatever size it is -- 154 of 1800
   // pixels for a sniper team. Drawn at the plate's own scale that is a speck,
