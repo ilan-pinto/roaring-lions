@@ -34,7 +34,7 @@
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { measureHeldWeaponInBody, measureMountedPartInBody } from './mesh_gait';
+import { measureHeldWeaponInBody, measureMountedPartInBody, readGlb } from './mesh_gait';
 
 const MESHES = fileURLToPath(new URL('../../art/meshes/', import.meta.url));
 
@@ -110,4 +110,29 @@ describe('a mounted kit part stays out of the body it rides', () => {
       }, 30_000); // the mortar's 2,432 samples against three whole crewmen read ~10 s
     }
   }
+});
+
+/**
+ * breach_team's breaching pole is GONE (the lead, 7 Oct: "the gray tube is
+ * misplaced ... maybe you can completely remove it"). `kit.breach_pole` was
+ * written for a kit figure, "slung across the back"; on the Meshy cover man
+ * (`import_meshy_crew_team.py`, B5) it stood on his centre line instead, a
+ * 1.2 m `charge` rod with its block tip at his face, read in the game as a
+ * grey slab from his helmet to his groin. Measured through
+ * `measureMountedPartInBody` on the last file that carried it (79e528c4):
+ * 929-953 of 1,748-1,756 pole samples inside brc_cover's head, neck, spine
+ * or pelvis in idle, fire, move and moveFire -- more than half the rod ran
+ * through him. No MOUNTED row can hold it, since the part no longer exists;
+ * what the file carries is pinned instead, by role, so the rod (the team's
+ * only `charge`) cannot come back through a re-export unnoticed.
+ */
+describe('breach_team carries no breaching pole', () => {
+  it('ships exactly the shield, the carbines and the two men -- no `charge` role', () => {
+    const glb = readGlb(`${MESHES}breach_team.glb`);
+    const meshes = glb.json.meshes ?? [];
+    const roles = (glb.json.nodes ?? [])
+      .filter((n) => n.mesh !== undefined)
+      .map((n) => n.name ?? meshes[n.mesh as number]?.name ?? '');
+    expect(roles.sort()).toEqual(['boot', 'face', 'metal', 'uniform', 'weapon']);
+  });
 });
