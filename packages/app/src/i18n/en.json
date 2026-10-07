@@ -651,6 +651,8 @@
   "objective.status.active": "In progress",
   "objective.status.complete": "Complete",
   "objective.status.failed": "Failed",
+  "objective.kind.primary": "Primary",
+  "objective.kind.optional": "Optional",
   "objectives.title": "Objectives",
   "objectives.close": "Close",
   "objectives.evacProgress": "{text} ({n}/{of})",
