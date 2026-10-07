@@ -8,8 +8,9 @@
  *
  *  - CLASSIFY. A tick's `SimEvent`s and `MissionEvent`s say a great many
  *    things; a few are worth an alert -- a unit lost, a unit taking fire, an
- *    objective moving, and (WP-P5) something ARRIVING: an enemy wave, a unit
- *    from the dock, a scripted reinforcement. Each gets a TIER --
+ *    objective moving, (WP-P5) something ARRIVING: an enemy wave, a unit
+ *    from the dock, a scripted reinforcement, and (PA-19) an enemy the
+ *    player's own units killed. Each gets a TIER --
  *    minor / important / major (audit pass C3, and the same three names the
  *    audio plan's cue tiers use, `docs/polish/audio-plan.md` §3 and D-A2) --
  *    which the feed styles by and the jump key ranks by.
@@ -59,11 +60,13 @@ import type { Tone } from './hud-model';
  * `major`). The names are shared with the audio cue tiers on purpose -- one
  * vocabulary for what the player hears and what the feed shows:
  *
- *  - `minor`: under fire. Glanceable, never nagging.
+ *  - `minor`: under fire; an enemy on foot killed (PA-19). Glanceable,
+ *    never nagging.
  *  - `important`: a foot unit lost, an enemy wave, an arrival, a new tasking,
  *    a Conduct penalty -- something went wrong or changed, and here is where.
- *  - `major`: a vehicle, an aircraft or a named veteran lost; an objective
- *    completed or failed; the mission ending -- a fact that changes the plan.
+ *  - `major`: a vehicle, an aircraft or a named veteran lost; an enemy
+ *    vehicle or aircraft killed (PA-19); an objective completed or failed;
+ *    the mission ending -- a fact that changes the plan.
  */
 export type AlertTier = 'minor' | 'important' | 'major';
 
@@ -82,7 +85,7 @@ export interface AlertLine {
 }
 
 export interface Alert {
-  kind: 'unitLost' | 'underFire' | 'objective' | 'wave' | 'arrival' | 'pinned' | 'ambush' | 'removed' | 'roe';
+  kind: 'unitLost' | 'kill' | 'underFire' | 'objective' | 'wave' | 'arrival' | 'pinned' | 'ambush' | 'removed' | 'roe';
   tier: AlertTier;
   /** The feed line, or `null` when another part of the HUD owns the wording
    *  -- an objective's text is `describeMissionEvent`'s, not this model's. */
@@ -124,7 +127,9 @@ export interface AlertWorld {
   /** WP-P5: where a tile point lies from the camera, right now. */
   placeOf(x: number, y: number): Place;
   /** WP-P5: how heavy a loss of this unit is -- `major` for a vehicle, an
-   *  aircraft or a named veteran, `important` for anything on foot. */
+   *  aircraft or a named veteran, `important` for anything on foot. PA-19
+   *  reads it for an enemy kill too: `major` there is a vehicle or an
+   *  aircraft, and anything else is a minor line. */
   lossTier(entity: number, typeId: string): AlertTier;
   /** WP-P5: the mission's waves, in authored order (`[]` without one). */
   waves: readonly AlertWave[];
@@ -312,7 +317,22 @@ export function alertsForTick(
   const seen = new Set<number>();
   let pinnedAt: number | null = null;
   let ambushed = false;
+  /** PA-19: enemies the player's own units killed this tick, by type. */
+  const killsByType = new Map<string, number[]>();
   for (const e of sim) {
+    if (e.kind === 'destroyed') {
+      // Only an ENEMY (side 1, never a civilian on side 2) and only one of
+      // OURS killed: a unit dying to its own side's fire, to a collapse with
+      // no killer, or to anything the player did not do is not his to be
+      // told about -- and naming an enemy nobody of ours engaged would be
+      // x-ray. A loss of ours is `unitLost`'s, from the mission half.
+      if (world.sideOf(e.entity) !== 1 || e.by < 0 || world.sideOf(e.by) !== 0) continue;
+      const typeId = world.typeOf(e.entity);
+      const group = killsByType.get(typeId);
+      if (group) group.push(e.entity);
+      else killsByType.set(typeId, [e.entity]);
+      continue;
+    }
     if (e.kind === 'pinned') {
       if (pinnedAt === null && world.sideOf(e.entity) === 0 && !lostEntities.has(e.entity)) pinnedAt = e.entity;
       continue;
@@ -392,6 +412,30 @@ export function alertsForTick(
     });
   }
   alerts.push(...arrivals);
+  // PA-19: an enemy kill, one line per type per tick like a loss. Good news,
+  // so it is silent -- the blast and the round already sound -- and points
+  // the jump key nowhere: Space goes to trouble, never to a wreck of theirs.
+  // Tiered like a loss (C3): a vehicle or an aircraft is major, a man on foot
+  // minor, so a firefight's dead read quietly and a tank kill lands.
+  for (const [typeId, entities] of killsByType) {
+    const at = world.posOf(entities[0]);
+    let tier: AlertTier = 'minor';
+    for (const entity of entities) if (world.lossTier(entity, typeId) === 'major') tier = 'major';
+    alerts.push({
+      kind: 'kill',
+      tier,
+      line: {
+        key: 'alert.kill',
+        params: { name: world.unitName(typeId), n: entities.length },
+        tone: 'good',
+        place: at === null ? [] : [world.placeOf(at.x, at.y)],
+      },
+      cue: null,
+      at: null,
+      marks: [],
+      count: entities.length,
+    });
+  }
   if (ambushed) alerts.push(soundOnly('ambush', 'important', null));
   alerts.push(...quiet);
   if (kept.length > 0) {

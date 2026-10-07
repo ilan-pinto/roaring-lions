@@ -108,3 +108,42 @@ describe('alerts fed by First Light\'s own runtime carry who and where', () => {
     expect(alertNotice(loss!.line!)[0]).toBe(`<b>lost</b> — ${units.jeep_shoded.name} · in view`);
   });
 });
+
+// PA-19, through the real adapter: an enemy one of ours kills is a feed line
+// named from the unit catalogue; the same enemy killed by nobody is not.
+describe('an enemy kill, through First Light\'s own runtime (PA-19)', () => {
+  it('a kill by one of ours is a named line; a death with no killer says nothing', () => {
+    const { sim } = firstLight();
+    sim.tick();
+    let ours = -1;
+    const enemies: number[] = [];
+    for (let i = 0; i < sim.entityCount; i++) {
+      if (sim.state.alive[i] !== 1) continue;
+      if (sim.state.side[i] === 0 && ours < 0) ours = i;
+      if (sim.state.side[i] === 1) enemies.push(i);
+    }
+    expect(ours).toBeGreaterThanOrEqual(0);
+    expect(enemies.length).toBeGreaterThanOrEqual(2);
+    const world = alertWorldFor({
+      sim,
+      runtime: () => null,
+      mission: missions.beit_sahwan_breach as unknown as MissionJson,
+      map: { zones: {}, markers: {} },
+      units: units as Record<string, { name?: string }>,
+      placeOf,
+    });
+    const type = sim.unitTypes[sim.state.typeIdx[enemies[0]]].id;
+    const kill = alertsForTick(
+      initAlertState(),
+      [{ kind: 'destroyed', tick: 1, entity: enemies[0], by: ours }],
+      [],
+      world,
+      1,
+    ).alerts;
+    expect(kill).toHaveLength(1);
+    expect(kill[0].line?.params.name).toBe((units as Record<string, { name?: string }>)[type]?.name);
+    expect(alertNotice(kill[0].line!)[0]).toMatch(/^<b>enemy destroyed<\/b> — /);
+    const unclaimed = alertsForTick(initAlertState(), [{ kind: 'destroyed', tick: 1, entity: enemies[1], by: -1 }], [], world, 1).alerts;
+    expect(unclaimed).toEqual([]);
+  });
+});

@@ -13,12 +13,13 @@ import {
 } from './alerts';
 import en from '../i18n/en.json';
 
-// Entities 0-9 are ours, 10+ the enemy's. Entity e stands at (e + 0.5, 10.5);
-// the "camera" sees x < 5, and everything further east is east of it.
+// Entities 0-9 are ours, 10-29 the enemy's, 30+ civilians (side 2). Entity e
+// stands at (e + 0.5, 10.5); the "camera" sees x < 5, and everything further
+// east is east of it. Entities 7 and 17 are tanks, one each side.
 const world: AlertWorld = {
   posOf: (e) => (e < 0 ? null : { x: e + 0.5, y: 10.5 }),
-  sideOf: (e) => (e < 10 ? 0 : 1),
-  typeOf: (e) => (e === 7 ? 'mbt_lavi' : 'inf_squad'),
+  sideOf: (e) => (e < 10 ? 0 : e < 30 ? 1 : 2),
+  typeOf: (e) => (e === 7 || e === 17 ? 'mbt_lavi' : 'inf_squad'),
   unitName: (id) => (id === 'inf_squad' ? 'Rifle squad' : id === 'mbt_lavi' ? 'Lavi' : id),
   objectiveAt: (id) => (id === 'take_town' ? { x: 24, y: 24 } : null),
   placeOf: (x) => (x < 5 ? 'here' : 'e'),
@@ -29,6 +30,7 @@ const world: AlertWorld = {
   arrivedAt: () => null,
   reinforcement: () => null,
 };
+const destroyed = (entity: number, by: number): SimEvent => ({ kind: 'destroyed', tick: 0, entity, by }) as SimEvent;
 const lost = (entity: number, unit: string): MissionEvent =>
   ({ kind: 'unitLost', tick: 0, entity, side: 0, unit }) as MissionEvent;
 const fire = (target: number): SimEvent =>
@@ -146,10 +148,11 @@ describe('alertsForTick — alert keys are in the catalogue', () => {
     const catalogue = en as Record<string, string>;
     const loss = alertsForTick(initAlertState(), [], [lost(0, 'inf_squad')], world, 40);
     const underFire = alertsForTick(initAlertState(), [fire(0), fire(1)], [], world, 40);
-    const keys = [...loss.alerts, ...underFire.alerts]
+    const kill = alertsForTick(initAlertState(), [destroyed(12, 1)], [], world, 40);
+    const keys = [...loss.alerts, ...underFire.alerts, ...kill.alerts]
       .map((a) => a.line?.key)
       .filter((k): k is string => k !== undefined && k !== null);
-    expect(keys).toEqual(expect.arrayContaining(['alert.unitLost', 'alert.underFire']));
+    expect(keys).toEqual(expect.arrayContaining(['alert.unitLost', 'alert.underFire', 'alert.kill']));
     for (const key of keys) expect(catalogue).toHaveProperty(key);
   });
 });
@@ -389,5 +392,51 @@ describe('tickCue: one cue a tick, the most urgent', () => {
     expect(tickCue(['objective.complete', 'objective.failed'])).toBe('objective.failed');
     expect(tickCue([null, 'alert.minor'])).toBe('alert.minor');
     expect(tickCue([])).toBeNull();
+  });
+});
+
+// PA-19: an enemy kill was the one major combat fact the feed never said. It
+// is good news, so it is quiet (no cue) and takes no jump key -- Space goes to
+// trouble -- and it is tiered like every other line: a vehicle or aircraft is
+// major (C3), a man on foot minor.
+describe('alertsForTick — enemy kills (PA-19)', () => {
+  it('an enemy on foot killed by ours is one minor, silent line, named and placed', () => {
+    const { alerts } = alertsForTick(initAlertState(), [destroyed(12, 1)], [], world, 40);
+    expect(alerts).toEqual([
+      {
+        kind: 'kill',
+        tier: 'minor',
+        line: { key: 'alert.kill', params: { name: 'Rifle squad', n: 1 }, tone: 'good', place: ['e'] },
+        cue: null,
+        at: null,
+        marks: [],
+        count: 1,
+      },
+    ]);
+  });
+
+  it('an enemy vehicle is a major line, still silent and still no jump', () => {
+    const { alerts } = alertsForTick(initAlertState(), [destroyed(17, 1)], [], world, 40);
+    expect(alerts).toMatchObject([{ kind: 'kill', tier: 'major', cue: null, at: null, line: { params: { name: 'Lavi' } } }]);
+    expect(nextJump(null, alerts[0].tier, alerts[0].at)).toBeNull();
+  });
+
+  it('coalesces one type in one tick into one line with a count', () => {
+    const { alerts } = alertsForTick(initAlertState(), [destroyed(12, 1), destroyed(13, 2), destroyed(17, 2)], [], world, 40);
+    expect(alerts.map((a) => [a.line?.params.name, a.count])).toEqual([
+      ['Rifle squad', 2],
+      ['Lavi', 1],
+    ]);
+  });
+
+  it('says nothing of a kill the player did not make, of a civilian, or of one of ours', () => {
+    const { alerts } = alertsForTick(
+      initAlertState(),
+      [destroyed(12, 11), destroyed(13, -1), destroyed(31, 1), destroyed(2, 14)],
+      [],
+      world,
+      40,
+    );
+    expect(alerts.filter((a) => a.kind === 'kill')).toEqual([]);
   });
 });
