@@ -19,7 +19,7 @@
 //
 // ---------------------------------------------------------------------------
 // THE ORDER SIGHTS: G1's approved sheet (round 4's shapes and motion, round
-// 5's family colours, the lead, 2026-09-28). `move`, `attack`, `sweep`,
+// 5's family colours, the lead, 2026-09-28). `move`, `advance`, `sweep`,
 // `strike` and `smoke` draw the chevron stadia aim with that order's APP-6
 // tactical graphic animated around it (`src/ui/order-sight.ts`, the one
 // drawn source the HUD's static order marks come from too). Each is drawn on
@@ -539,7 +539,7 @@ type BareCursorName = Exclude<CursorName, 'default' | 'mount' | 'dismount' | 'ch
  *  never compose -- it is always `charge-soft` (Minor 2, same review). */
 const BARE_NAMES: readonly BareCursorName[] = [
   'move',
-  'attack',
+  'advance',
   'sweep',
   'strike',
   'smoke',
@@ -599,7 +599,7 @@ function badgeMark(bucket: RoleBucket, colour: string): string {
 }
 
 /** Which buckets can actually reach each verb -- from the roster. `move` and
- *  `attack` are reachable by all seven; `garrison`, `demolish` and `charge`
+ *  `advance` are reachable by all seven; `garrison`, `demolish` and `charge`
  *  are gated to the subset of buckets whose units can actually issue them.
  *  Typed over `Exclude<CursorName, UnbadgedName>` rather than
  *  `Exclude<CursorName, 'default'>` so `blocked`, `costly`, `protected`,
@@ -625,7 +625,7 @@ function badgeMark(bucket: RoleBucket, colour: string): string {
  *  derived from the roster" describe in vite-plugin-cursors.test.ts. */
 export const BADGED_VERBS: { [K in Exclude<CursorName, UnbadgedName>]?: RoleBucket[] } = {
   move: ['kamikaze', 'drone', 'gunship', 'sniper', 'transport', 'soft', 'armour'],
-  attack: ['kamikaze', 'drone', 'gunship', 'sniper', 'transport', 'soft', 'armour'],
+  advance: ['kamikaze', 'drone', 'gunship', 'sniper', 'transport', 'soft', 'armour'],
   garrison: ['soft', 'sniper'],
   demolish: ['soft', 'armour'],
   charge: ['soft'],

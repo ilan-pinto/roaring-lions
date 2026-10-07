@@ -401,6 +401,11 @@ export interface Renderer {
   //     for internal use -- PixiRenderer does -- but the seam does not name it.
   worldToScreen(wx: number, wy: number): { x: number; y: number };
   screenToWorld(px: number, py: number): { x: number; y: number };
+  /** The standing structure whose drawn wall or roof this pixel shows, or -1.
+   *  `screenToWorld` answers where the pixel's ray meets the GROUND, which
+   *  for a building's upper wall is the hidden ground behind it (WP-P4,
+   *  PA-14); an order asks this first. Projection, so the renderer's. */
+  structureAtScreen(px: number, py: number): number;
 
   // --- queries
   pickUnit(wx: number, wy: number, radiusTiles?: number): number;

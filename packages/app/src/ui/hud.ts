@@ -43,6 +43,7 @@ import { markSvg } from './mark';
 import { fireState } from './fire-state';
 import { invoiceClock, type InvoiceLine } from './conduct-invoice';
 import type { HudElement } from './hud-elements';
+import type { CursorName } from '../input/cursor';
 import { ORDER_SIGHT } from './order-sight';
 import { roleBadgeSvg, roleBucket } from './role';
 import { symbolLabel, symbolSvg } from './symbol';
@@ -220,6 +221,12 @@ export interface HudDeps {
   getMission: () => MissionView | null;
   hoverStructure: () => number;
   hoverEntity: () => number;
+  /** The cursor the pointer shows right now, bare (`input/cursor.ts`'s
+   *  `CursorName`). The fire panel reads it to say what a right-click on its
+   *  target does (PA-08), so the panel and the cursor are one decision.
+   *  Optional: a caller with no cursor (a test of something else) gets no
+   *  line. */
+  hoverCursor?: () => CursorName;
   gameVersion: string;
   /** Shai's rank/plate for the mission in play, and Idit's static plate --
    *  see `HudCommanderInfo`'s own doc comment. */
@@ -1617,13 +1624,28 @@ export class Hud {
     const html = this.projectedFireHtml();
     const visible = html !== '';
     this.fire.style.display = visible ? '' : 'none';
-    if (visible) this.fire.innerHTML = html;
+    if (visible) this.fire.innerHTML = html + this.fireClickLine();
     if (!visible) {
       this.fireVisibleStreak = 0;
       return;
     }
     this.fireVisibleStreak++;
     if (this.fireVisibleStreak === FIRE_TAUGHT_STREAK) this.deps.onProjectedFireShown?.();
+  }
+
+  /**
+   * What a right-click on this panel's target does, when the cursor says it
+   * is an attack-move (`advance`) -- which today is every plain order over an
+   * enemy (PA-08). The panel's heading names ONE target and gives odds
+   * against it, and until this line nothing said the click does not aim at
+   * it: the order goes to the tile and the sim chooses what each unit
+   * shoots, so a clicked AA truck read "Engaging: Militia Cell". Read off
+   * the cursor rather than recomputed, so a refused click (`protected`), a
+   * pinned order (`pinned`) or a building verb never gets this line.
+   */
+  private fireClickLine(): string {
+    if (this.deps.hoverCursor?.() !== 'advance') return '';
+    return `<div class="rl-fire__click">${t('hud.fire.clickAdvances')}</div>`;
   }
 
   private projectedFireHtml(): string {

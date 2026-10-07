@@ -73,8 +73,12 @@ describe('one line per gesture, ranked by the cursor (N1, R-4)', () => {
   it('says what the cursor shows, for every pointer gesture', () => {
     for (const [label, intents, hostile, verb] of POINTER) {
       const shown = cursorFor({ intents, roe: 'free', marker: false }, { hostile, blocked: false });
-      expect(gestureVerb(g(intents, hostile))?.verb, label).toBe(shown);
-      expect(shown, label).toBe(verb);
+      // One deliberate difference in NAME, not in ranking (WP-P4, PA-08):
+      // the cursor over a hostile is `advance`, because the click is an
+      // attack-move to the tile, and the voice keeps its `attack` call.
+      const said = shown === 'advance' ? 'attack' : shown;
+      expect(gestureVerb(g(intents, hostile))?.verb, label).toBe(said);
+      expect(said, label).toBe(verb);
     }
   });
 

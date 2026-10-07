@@ -233,3 +233,8 @@ export function screenToWorldThree(
   const corrected = intersectHorizontalPlane(raycaster, liftY);
   return { x: corrected.x, y: corrected.z };
 }
+
+// The facade pick (WP-P4, PA-14) is projection too, and reaches the app's
+// specs through this same door. `structure-pick.ts` imports `dimetricCamera`
+// from here and only calls it, so the cycle is evaluation-safe.
+export { structureAtScreenThree, structureBoxes, firstStructureOnRay, type StructureBox, type DrawnSize } from './structure-pick';

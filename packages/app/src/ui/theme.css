@@ -2519,6 +2519,14 @@ body {
   color: var(--ink-dim);
   font-size: 0.875em;
 }
+/* WP-P4 (PA-08): what a right-click on this target does. A footnote, not a
+   verdict -- it says the click is an attack-move to the tile, so the odds
+   above are a projection, not a promise that this target is the one shot. */
+.rl-fire__click {
+  margin-top: var(--s1);
+  color: var(--ink-dim);
+  font-size: 0.8125em;
+}
 
 .rl-bigbanner {
   position: absolute;

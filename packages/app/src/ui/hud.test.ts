@@ -22,6 +22,7 @@ import { Hud, type HudCommanderInfo, type HudDeps, type MissionView } from './hu
 import type { KitSummary } from './kit-sign';
 import { alertNotice } from './mission-notice';
 import { closeTip } from './tooltip';
+import type { CursorName } from '../input/cursor';
 import en from '../i18n/en.json';
 import { pseudo } from '../i18n/pseudo';
 import { setCatalogue } from '../i18n/t';
@@ -2616,7 +2617,7 @@ describe('HUD disclosure (isShown)', () => {
 // names the sim's answer outright -- the classifier is `fire-state.ts`'s, and
 // its own suite covers the choice; this covers the words.
 describe('projected fire wording (GH-345)', () => {
-  function firePanel(answer: HitProjection): string {
+  function firePanel(answer: HitProjection, cursor?: CursorName): string {
     const host = document.createElement('div');
     document.body.appendChild(host);
     const { sim, ids } = makeSim();
@@ -2627,6 +2628,7 @@ describe('projected fire wording (GH-345)', () => {
       getMission: () => null,
       hoverStructure: () => -1,
       hoverEntity: () => ids[1],
+      ...(cursor ? { hoverCursor: () => cursor } : {}),
       gameVersion: '0.1',
       commander: TEST_COMMANDER,
     });
@@ -2663,6 +2665,18 @@ describe('projected fire wording (GH-345)', () => {
     const text = firePanel({ kind: 'noSolution' });
     expect(text).toContain('Out of range or out of sight · Rifles reach 8 tiles');
     expect(text).not.toContain('no unit can engage');
+  });
+  // WP-P4 (PA-08): the heading names one target and gives odds on it, and
+  // a right-click there is an attack-move to the TILE. The line says so,
+  // whenever -- and only when -- the cursor says `advance`.
+  it('says a right-click advances and engages when the cursor is advance', () => {
+    const shot = { kind: 'shot', weaponId: 'rifles', pHit: fx.from(0.5), hurts: true, factors: factors({}) } as const;
+    expect(firePanel(shot, 'advance')).toContain('Right-click: advance and engage · each unit picks its own target');
+    // A refused click (protected), a pinned order and no cursor at all get no
+    // line: it reads the cursor, it does not second-guess it.
+    for (const other of ['protected', 'pinned', undefined] as const) {
+      expect(firePanel(shot, other)).not.toContain('Right-click');
+    }
   });
   it('a clean shot carries no remedy line', () => {
     const text = firePanel({ kind: 'shot', weaponId: 'rifles', pHit: fx.from(0.5), hurts: true, factors: factors({}) });

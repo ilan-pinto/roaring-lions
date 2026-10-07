@@ -154,6 +154,7 @@ import {
   CAMERA_NEAR,
   CAMERA_FAR,
 } from './camera';
+import { structureAtScreenThree, structureBoxes } from './structure-pick';
 import { createSceneLights, DAY_LIGHTS, type ResolvedLights, type SceneLights } from './lighting';
 import {
   BOUNCE_KEY,
@@ -825,6 +826,16 @@ const PREVIEW_ENVELOPE_STRENGTH = 0.6;
 const BACKBLAST_MAGNITUDE = 0.4;
 const SQUAD_UP = new THREE.Vector3(0, 1, 0);
 const SQUAD_LATERAL = new THREE.Vector3();
+
+/** The control-group badge (WP-P4, PA-18), in overlay pixels -- the same
+ *  zoom-scaled units every overlay here uses. The disc keeps the 7 it always
+ *  had; the halo is a 1.5 px `shadow.1` edge; the numeral quad grows from
+ *  10 x 12 to 12 x 14 now that it is visible at all, which puts a digit
+ *  about 10 px tall inside a 14 px disc at zoom 1. */
+const GROUP_BADGE_RADIUS_PX = 7;
+const GROUP_BADGE_HALO_PX = 1.5;
+const GROUP_NUMERAL_W_PX = 12;
+const GROUP_NUMERAL_H_PX = 14;
 
 export class ThreeRenderer implements Renderer {
   readonly camera: Camera = { x: 24, y: 24, zoom: 1 };
@@ -4846,6 +4857,40 @@ export class ThreeRenderer implements Renderer {
     );
   }
 
+  /**
+   * The standing structure whose DRAWN volume this pixel shows, or -1 (WP-P4,
+   * PA-14) -- `structure-pick.ts`'s top comment has the defect and the rule.
+   * Each box is as big as what this renderer draws there: the standing
+   * mesh's measured size (`buildingMeshBounds`, the numbers the collapse
+   * shroud is sized from) where a mesh clone stands, else the extruded wall.
+   */
+  structureAtScreen(px: number, py: number): number {
+    const st = this.sim.structures;
+    const boxes = structureBoxes(this.sim, this.retained.elevation, (s) => {
+      const type = this.sim.structureTypes[st.typeIdx[s]];
+      const w = st.maxX[s] - st.minX[s] + 1;
+      const d = st.maxY[s] - st.minY[s] + 1;
+      const bounds = this.buildingMeshIdleEntities.has(s) ? this.buildingMeshBounds.get(type.id) : undefined;
+      if (!bounds) return { width: w, height: type.heightPx * WORLD_Y_PER_LIFT_PIXEL, depth: d };
+      // A per-tile run turns a quarter to follow its neighbours, so its
+      // measured x/z are not this tile's; it is one tile and low either way.
+      if (type.perTile) return { width: w, height: bounds.y, depth: d };
+      // The same rule the collapse shroud is sized by: never smaller than
+      // the footprint, as big as the mesh where the mesh is bigger.
+      return { width: Math.max(w, bounds.x), height: bounds.y, depth: Math.max(d, bounds.z) };
+    });
+    return structureAtScreenThree(
+      px,
+      py,
+      this.camera,
+      { width: this.width, height: this.height },
+      boxes,
+      this.retained.elevation,
+      this.sim.width,
+      this.sim.height
+    );
+  }
+
   // --- queries. The line is between *inventing* an answer and *reporting the
   //     current state truthfully*, not between "implemented" and "not".
   /**
@@ -8069,14 +8114,26 @@ export class ThreeRenderer implements Renderer {
         this.overlayBatch.ellipseRing(ringCenter, r + 7, (r + 7) / 2, 2, groupColor || accentDefault, 1);
       }
 
-      // Control-group badge -- renderer.ts: a filled circle (`g.circle(sx -
-      // r - 4, sy - r - 4, 7).fill({ color: groupColor || '#B8FF5A', alpha:
-      // 0.95 })`) plus a numeral Text at the same point. Two batches, not
-      // one -- see units/overlays.ts's own top comment for why.
+      // Control-group badge: a disc in the group's colour with its numeral
+      // on top, in two batches (units/overlays.ts's top comment says why).
+      // WP-P4 (PA-18): the numeral used to draw UNDER the disc
+      // (`BADGE_NUMERAL_RENDER_ORDER` was 1.5, the disc's tier is 4), so the
+      // badge was a blank lime blob at every zoom. It now draws above it,
+      // a size up, and the disc wears the `shadow.1` halo every ring in the
+      // world vocabulary wears (#364), so a pale disc holds its edge on
+      // pale sand. The disc's own size is unchanged.
       if (grp > 0) {
         const badgeCenter = billboardPoint(anchor, -(r + 4), r + 4);
-        this.overlayBatch.ellipseFan(badgeCenter, 7, 7, groupColor || accentDefault, 0.95);
-        this.numeralBatch.push(badgeCenter, 0, 0, 10, 12, grp);
+        const haloR = GROUP_BADGE_RADIUS_PX + GROUP_BADGE_HALO_PX;
+        this.overlayBatch.ellipseFan(badgeCenter, haloR, haloR, this.overlayColor('shadow.1', '#14150F'), 0.85);
+        this.overlayBatch.ellipseFan(
+          badgeCenter,
+          GROUP_BADGE_RADIUS_PX,
+          GROUP_BADGE_RADIUS_PX,
+          groupColor || accentDefault,
+          1
+        );
+        this.numeralBatch.push(badgeCenter, 0, 0, GROUP_NUMERAL_W_PX, GROUP_NUMERAL_H_PX, grp);
       }
 
       // Veterancy chevron (spec §4.7): top-right, opposite the group badge, one quad
