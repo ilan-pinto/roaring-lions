@@ -129,6 +129,8 @@ import {
   KNEEL_SPREAD,
   kneelClipFor,
   kneelHeading,
+  leanTarget,
+  stepLean,
   lerpFacingTurns,
   METRES_PER_TILE,
   mgBurstRounds,
@@ -5907,7 +5909,7 @@ export class ThreeRenderer implements Renderer {
     }
     squad.started = true;
     entity.mixer.update(c.dt);
-    this.applyFigureAdditives(entity, squad, c.aimYaw, c.nowS, true);
+    this.applyFigureAdditives(entity, squad, c.aimYaw, c.nowS, true, i, c.dt);
   }
 
   /**
@@ -5917,10 +5919,28 @@ export class ThreeRenderer implements Renderer {
    * own origin, so the arms and the weapon -- children of the spine -- come
    * with it and the hands stay on the grips.
    */
-  private applyFigureAdditives(entity: MeshUnitEntity, squad: SquadRig, aimYaw: number, nowS: number, twist: boolean): void {
+  private applyFigureAdditives(
+    entity: MeshUnitEntity,
+    squad: SquadRig,
+    aimYaw: number,
+    nowS: number,
+    twist: boolean,
+    id: number,
+    dt: number
+  ): void {
+    // The suppression lean (pass C2/C4, P2), read off the sim and written to
+    // bones only: nothing here reaches back (invariant 4).
+    const st = this.sim.state;
+    const target = leanTarget(
+      fx.toNumber(st.suppression[id]),
+      st.pinned[id] === 1,
+      st.routed[id] === 1,
+      this.entitySpeed[id] > 0
+    );
     let dirty = true;
     for (const f of squad.figures) {
       if (!f.spine) continue;
+      f.lean = stepLean(f.lean, target, dt);
       f.kicks = f.kicks.filter((k) => nowS - k.at < recoilSeconds(k.kind, k.rounds));
       const figYaw = twist && f.group ? f.yaw : entity.root.rotation.y;
       const turn = twist ? Math.max(-TWIST_MAX_RAD, Math.min(TWIST_MAX_RAD, wrapAngle(aimYaw - figYaw))) : 0;
@@ -5931,15 +5951,29 @@ export class ThreeRenderer implements Renderer {
         pitch += r.pitch;
         yaw += r.yaw;
       }
-      if (turn === 0 && pitch === 0 && yaw === 0) continue;
+      // A negative pitch is forward (a launcher's own `lower`).
+      pitch -= f.lean.spine;
+      const neck = f.neck !== null ? f.lean.neck : 0;
+      const head = f.head !== null ? f.lean.head : 0;
+      if (turn === 0 && pitch === 0 && yaw === 0 && neck === 0 && head === 0) continue;
       if (dirty) {
         entity.root.updateMatrixWorld(true);
         dirty = false;
       }
       if (turn + yaw !== 0) rotateBoneWorld(f.spine, SQUAD_UP, turn + yaw);
-      if (pitch !== 0) {
+      if (pitch !== 0 || neck !== 0 || head !== 0) {
         const lateral = SQUAD_LATERAL.set(Math.sin(figYaw + turn), 0, Math.cos(figYaw + turn));
-        rotateBoneWorld(f.spine, lateral, pitch);
+        if (pitch !== 0) rotateBoneWorld(f.spine, lateral, pitch);
+        // Each later joint's parent world rotation is read fresh, after the
+        // one above it has turned.
+        if (neck !== 0 && f.neck) {
+          f.spine.updateMatrixWorld(true);
+          rotateBoneWorld(f.neck, lateral, -neck);
+        }
+        if (head !== 0 && f.head) {
+          (f.neck ?? f.spine).updateMatrixWorld(true);
+          rotateBoneWorld(f.head, lateral, -head);
+        }
       }
     }
   }
@@ -6166,7 +6200,7 @@ export class ThreeRenderer implements Renderer {
         if (kneelClip.scrub !== null) scrubAction(entity.actions.get(kneelClip.clip), kneelClip.scrub);
         advanceMeshClipFades(entity, dt);
         entity.mixer.update(dt);
-        if (squad) this.applyFigureAdditives(entity, squad, aimYaw, nowS, true);
+        if (squad) this.applyFigureAdditives(entity, squad, aimYaw, nowS, true, i, dt);
       }
     }
 
