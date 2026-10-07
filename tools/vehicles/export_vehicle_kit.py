@@ -8,14 +8,22 @@ For each vehicle in `kit_vehicles.PARTS_DETAILED` (or `--only`):
   1. import the SHIPPED `art/meshes/vehicles/<id>.glb` (extras on), drop its
      `death_root`, `WRECK_*` twins, any `kit_*` node and every clip;
   2. build every part at detail (`kit_vehicles`), and the blockout's own part
-     beside it (`kit_blockout.PARTS`, the same `Hull`);
+     beside it (`kit_blockout.PARTS`, the same `Hull`); every face takes its
+     TRACK's tone (`TRACK_TONE`, the approved colour study's "L3 shade"
+     column: armour `paint`, sensors and firepower `metal`), `dark` kept only
+     where a builder cut a lens, a window or an aperture;
   3. REFUSE (exit 1) a part over 1.10x its spec section 3 triangle budget, a
-     vehicle over 5,000 kit triangles, or a part whose bounding box moved off
+     vehicle over 5,000 kit triangles, a part whose bounding box moved off
      the mock's (size off by more than max(3 cm, 10%) on any axis, or centre
-     off by more than 3 cm + 10% of its size) -- "built to the mock's numbers";
+     off by more than 3 cm + 10% of its size) -- "built to the mock's numbers"
+     -- unless that axis is a printed `kit_vehicles.DEVIATIONS` entry, or any
+     CLASH (`kit_clash`: kit x kit, kit x the shipped nodes, the turret swept
+     through 72 headings) not in the printed `kit_vehicles.CLASH_EXEMPTIONS`;
   4. choose the three tone texels of the vehicle's own bake (the plan's Tone
      table: `paint` = the hull's 25th-percentile paint, `metal` = the bake's
-     metal, `dark` = the 5th percentile of the metal), each in a flat 16x16
+     metal, `dark` = the 5th percentile of the metal; where the metallic map
+     is uniform and no textured `*_metal` node exists, a third rule, printed
+     as a DEVIATION: `metal` = the greyest paint), each in a flat 16x16
      window (luminance spread < 0.02 linear) and on a neutral normal where the
      bake has a normal map; print them;
   5. join each (track, tier, host)'s pieces into ONE node
@@ -46,6 +54,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, TOOLS)
 
 import kit_blockout as kb  # noqa: E402 -- read-only: Hull, barrel, the blockout parts, the mock's camera
+import kit_clash as kc  # noqa: E402
 import kit_parts as kp  # noqa: E402
 import kit_vehicles as kv  # noqa: E402
 
@@ -60,6 +69,12 @@ TOL_ABS = 0.03
 TOL_REL = 0.10
 #: Faces bending more than this keep a hard edge on a smooth (curved) piece.
 SMOOTH_SPLIT_DEG = 50.0
+#: The tone a track's faces take (the approved colour study's "L3 shade"
+#: column, `docs/art/sheets/kitted-vehicles/colour-study.png`): every ARMOUR
+#: face in the shade paint texel, every SENSORS and FIREPOWER face in the
+#: metal texel. `dark` survives on any track, and only lenses, windows and
+#: apertures carry it (kit_parts' recesses, lenses and ports).
+TRACK_TONE = {"armour": "paint", "sensors": "metal", "firepower": "metal"}
 
 
 def log(msg):
@@ -218,6 +233,18 @@ def check_part(vid, built, blockout):
     if missing:
         refusals.append(f"{vid}: no detailed part for {sorted(missing)}")
     return refusals, total
+
+
+def apply_track_tone(track, pieces):
+    """Every face of the part takes its track's tone, `dark` excepted (a
+    lens, window or aperture keeps it); returns how many faces changed."""
+    want = TRACK_TONE[track]
+    moved = 0
+    for p in pieces:
+        new = [t if t == "dark" else want for t in p.tones]
+        moved += sum(1 for a, b in zip(p.tones, new) if a != b)
+        p.tones = new
+    return moved
 
 
 # ---------------------------------------------------------------------------
@@ -468,6 +495,9 @@ def choose_tones(live):
         dark_target = tuple(allc[aord[max(0, i5 - ka):i5 + ka + 1]].mean(axis=0))
         mmask = hmask
         src = "hull_hull's islands"
+        log("DEVIATION tone metal (a third rule beside the plan's two): this bake's metallic map is uniform "
+            "and no textured *_metal node exists, so `metal` is the greyest paint and `dark` the 5th "
+            "luminance percentile of every textured island")
         log(f"TONE metal source: no metallic texel and no textured *_metal node -- the greyest paint "
             f"(saturation <= {cut:.3f} in hull_hull's 25-95th luminance band, {len(grey)} texels); "
             f"dark: the 5th luminance percentile of every textured island")
@@ -671,7 +701,14 @@ def run(vid, preview_dir):
         built[key] = fn()
         log(f"  built {track} {tier} {host}: {len(built[key])} pieces, {kp.tris(built[key])} tris -- {label}")
 
+    for (track, tier, host), pieces in built.items():
+        moved = apply_track_tone(track, pieces)
+        log(f"  tone {track} {tier} {host}: {TRACK_TONE[track]} (+ dark lenses/windows)"
+            + (f"; {moved} face(s) re-toned from the builders' own choice" if moved else ""))
+
     refusals, total = check_part(vid, built, blockout)
+    clash, _summary = kc.check(vid, live, built, kv.CLASH_EXEMPTIONS.get(vid, {}))
+    refusals += clash
     if refusals:
         raise Refused("; ".join(refusals))
 

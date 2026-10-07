@@ -8,12 +8,17 @@ pieces into one node. There are no object transforms anywhere, the same rule
 `tools/units/kit.py` follows: a transform left on an object would lie to every
 probe that reads vertex data.
 
-TONE is what colour a face draws, decided once per vehicle by the exporter
-(the plan's Tone table): `paint` (plates, ERA, slat, containers -- pinned to
-the hull's 25th-percentile paint texel), `metal` (sight bodies, masts, clamps,
-bolts, chains -- the bake's own metal) and `dark` (lenses, windows).
+TONE is what colour a face draws, decided once per vehicle by the exporter:
+`paint` (the hull's 25th-percentile paint texel), `metal` (the bake's own
+metal) and `dark` (lenses, windows, apertures). The builders' own choice is
+kept only for `dark`: the exporter gives every other face its TRACK's tone
+(`export_vehicle_kit.TRACK_TONE` -- armour `paint`, sensors and firepower
+`metal`, the approved colour study's "L3 shade" column).
 
-Two flags per piece, both read only by the exporter's mock-number check:
+Three flags per piece. `weld` is read only by the clash check (`kit_clash`,
+check (d)): a piece that exists to enter the vehicle (a feed chute into the
+gun's port) may weld into a steel node, as `mount` and `ground` pieces may.
+The other two are read by the exporter's mock-number check as well:
   * `mount`  -- hardware that exists only to reach the hull (brackets, hangers,
                rails, risers): excluded from the comparison with the blockout
                part, because the blockout floated where the detailed part
@@ -35,6 +40,7 @@ import math
 
 import bmesh
 from mathutils import Matrix, Vector
+from mathutils.bvhtree import BVHTree
 
 TONES = ("paint", "metal", "dark")
 TONE_INDEX = {t: i for i, t in enumerate(TONES)}
@@ -50,7 +56,7 @@ BOLT_SINK = 0.002
 class Piece:
     """One closed (or deliberately open, where buried) shell."""
 
-    __slots__ = ("name", "verts", "faces", "tones", "smooth", "mount", "ground")
+    __slots__ = ("name", "verts", "faces", "tones", "smooth", "mount", "ground", "weld")
 
     def __init__(self, name, verts, faces, tones, smooth=False, mount=False, ground=False):
         if isinstance(tones, str):
@@ -67,6 +73,7 @@ class Piece:
         self.smooth = smooth
         self.mount = mount
         self.ground = ground
+        self.weld = False
 
     @property
     def tris(self):
@@ -733,16 +740,21 @@ def eo_drum(name, xy, z0, r=0.25, h=0.22, sides=16, band=(0.06, 0.145), inset=0.
 
 
 def thermal_sleeve(name, axis_y, axis_z, a, c, root_end, rs, rb, w=0.05, end_r=0.088, sides=10,
-                   tone="metal"):
+                   start_r=None, tone="metal"):
     """A barrel thermal sleeve along +X from `a` to `c` on the barrel axis
     (y, z): radius `rs`, three clamp bands of radius `rb` (a ridged band where
     the barrel's root ends, one midway, a flat one at the muzzle end), closed
-    down to the barrel at the muzzle end (`end_r`). Its start is hidden in the
-    barrel's root, so it has no rear face."""
+    down to the barrel at the muzzle end (`end_r`). With `start_r` (the
+    barrel's radius at `a`) its rear end is a closed collar against the
+    barrel's root; without, its start is hidden inside the root."""
     mid = (root_end + c) / 2
     prof = [(a, rs), (root_end, rs), (root_end + w / 2, rb), (root_end + w, rs),
             (mid - w / 2, rs), (mid, rb), (mid + w / 2, rs),
             (c - w, rs), (c - w, rb), (c, rb), (c, end_r)]
+    if start_r is not None:
+        prof = [(a, start_r), (a, rb), (a + w, rb), (a + w, rs),
+                (mid - w / 2, rs), (mid, rb), (mid + w / 2, rs),
+                (c - w, rs), (c - w, rb), (c, rb), (c, end_r)]
     return [lathe(name, [(x - a, r) for x, r in prof], (a, axis_y, axis_z), (1, 0, 0), sides=sides,
                   tones=[tone] * (len(prof) - 1), cap0=False, cap1=False)]
 
@@ -858,19 +870,31 @@ def armour_plate(name, size, M, bolts=(), eyes=(), panel_inset=None, tone="paint
     return out
 
 
+def bent_arm(name, pts, w=0.03, tone="metal"):
+    """A bent bracket: a square bar `w` across swept along a polyline, both
+    ends capped. `mount` hardware: its far end enters the part it holds."""
+    p = sweep(name, pts, w / math.sqrt(2.0), sides=4, closed=False, tone=tone, smooth=False, spin=45.0)
+    p.mount = True
+    return [p]
+
+
 def feed_chute(name, pts, w=0.08, tone="metal"):
     """An ammunition feed chute: a square section `w` across swept along a
-    polyline, open at both ends where it enters the magazine and the gun."""
-    return [sweep(name, pts, w / math.sqrt(2.0), sides=4, closed=False, tone=tone, smooth=False, spin=45.0)]
+    polyline, open at both ends where it enters the magazine and the gun.
+    It welds into the gun's feed port (`weld`), and is part of the mock's
+    shape (the blockout drew its chutes), so it is not `mount`."""
+    p = sweep(name, pts, w / math.sqrt(2.0), sides=4, closed=False, tone=tone, smooth=False, spin=45.0)
+    p.weld = True
+    return [p]
 
 
 def radar_array(name, M, size, hinge_knuckle=True, tone="metal"):
     """A flat radar antenna in frame `M` (x thick, y wide, z high; its face
-    toward local +X): a chamfered body, a raised dark-edged face panel, and a
-    rear hinge knuckle along the top."""
+    toward local +X): a chamfered body, a raised face panel (in the body's
+    tone: a radome is not a lens), and a rear hinge knuckle along the top."""
     out = [chamfered_box(f"{name}", size, M, tone=tone)]
     out.append(chamfered_box(f"{name}_face", (0.012, size[1] - 0.06, size[2] - 0.06),
-                             M @ place((size[0] / 2 + 0.006, 0, 0)), tone="dark", chamfer=0.004,
+                             M @ place((size[0] / 2 + 0.006, 0, 0)), tone=tone, chamfer=0.004,
                              drop=((-1, 0, 0),)))
     if hinge_knuckle:
         R = M.to_3x3()
@@ -881,22 +905,38 @@ def radar_array(name, M, size, hinge_knuckle=True, tone="metal"):
     return out
 
 
-def barrel_shroud(name, axis_y, axis_z, a, c, rs, rb, r_in, w=0.05, sides=8, tone="metal"):
+def barrel_shroud(name, axis_y, axis_z, a, c, rs, rb, r_in, w=0.05, sides=8, spin=0.0, tone="metal"):
     """A heat shroud over a barrel from x=a to x=c: radius `rs`, a clamp band
-    of radius `rb` at each end, closed down to the barrel (`r_in`) at both."""
+    of radius `rb` at each end, closed down to the barrel (`r_in`) at both.
+    `sides=4, spin=45` makes it a square sleeve with flat faces on Y and Z
+    (the radii are then half-diagonals), for a barrel that is a square bar."""
     prof = [(a, r_in), (a, rb), (a + w, rb), (a + w, rs), (c - w, rs), (c - w, rb), (c, rb), (c, r_in)]
     return [lathe(name, [(x - a, r) for x, r in prof], (a, axis_y, axis_z), (1, 0, 0), sides=sides,
-                  tones=[tone] * (len(prof) - 1), cap0=False, cap1=False)]
+                  tones=[tone] * (len(prof) - 1), cap0=False, cap1=False, spin=spin, smooth=sides > 4)]
 
 
-def cowl(name, at, w, l, h, t=0.05, bolts=True, tone="paint"):
+def cowl(name, at, w, l, h, t=0.05, bolts=True, port=None, port_chamfer=True, tone="paint"):
     """An armoured cowl round a weapon station (kit_blockout.cowl's layout):
     a front plate across +X and two cheeks along X, chamfered, the cheeks
-    bolted to the front plate."""
+    bolted to the front plate. `port` (y0, y1, z0, z1), world: a real
+    opening in the front plate for the barrel -- the plate is then four
+    pieces round it (two sides, chamfered unless `port_chamfer` is False,
+    and a plain sill and lintel)."""
     x, y, z = at
-    out = [chamfered_box(f"{name}_f", (t, w, h), place((x + l / 2, y, z)), tone=tone, chamfer=0.008),
-           chamfered_box(f"{name}_l", (l, t, h), place((x, y + w / 2, z)), tone=tone, chamfer=0.008),
-           chamfered_box(f"{name}_r", (l, t, h), place((x, y - w / 2, z)), tone=tone, chamfer=0.008)]
+    fx = x + l / 2
+    if port is None:
+        front = [chamfered_box(f"{name}_f", (t, w, h), place((fx, y, z)), tone=tone, chamfer=0.008)]
+    else:
+        y0, y1, z0, z1 = port
+        ylo, yhi, zlo, zhi = y - w / 2, y + w / 2, z - h / 2, z + h / 2
+        side = ((lambda n, sz, M: chamfered_box(n, sz, M, tone=tone, chamfer=0.008)) if port_chamfer
+                else (lambda n, sz, M: plain_box(n, sz, M, tone=tone)))
+        front = [side(f"{name}_f0", (t, y0 - ylo, h), place((fx, (ylo + y0) / 2, z))),
+                 side(f"{name}_f1", (t, yhi - y1, h), place((fx, (y1 + yhi) / 2, z))),
+                 plain_box(f"{name}_f2", (t, y1 - y0, z0 - zlo), place((fx, (y0 + y1) / 2, (zlo + z0) / 2)), tone=tone),
+                 plain_box(f"{name}_f3", (t, y1 - y0, zhi - z1), place((fx, (y0 + y1) / 2, (z1 + zhi) / 2)), tone=tone)]
+    out = front + [chamfered_box(f"{name}_l", (l, t, h), place((x, y + w / 2, z)), tone=tone, chamfer=0.008),
+                   chamfered_box(f"{name}_r", (l, t, h), place((x, y - w / 2, z)), tone=tone, chamfer=0.008)]
     if bolts:
         for s in (1, -1):
             for k, dz in enumerate((-h * 0.3, h * 0.3)):
@@ -937,20 +977,31 @@ def ammo_box(name, size, M, lid_h=0.04, latches=True, handle=True, tone="metal")
     return out
 
 
-def hung_module(name, size, at, side, skin, hangers=(-0.25, 0.25), tone="paint"):
-    """A stand-off armour module hung on the hull: a chamfered box centred on
-    `at` (its back, facing the hull, left out), and per hanger a flat strap
-    from its top edge back over the hull's edge at |y| `skin`, bolted down.
+def hung_module(name, size, at, side, skin, hangers=(-0.25, 0.25), tree=None, tone="paint"):
+    """A stand-off armour module hung on the hull: a closed chamfered box
+    centred on `at` (it stands off the side, so its back is seen), and per
+    hanger a flat strap from the middle of its top inward and up onto the
+    deck at |y| `skin` - 0.04 (the deck measured in `tree`), bolted there.
     +Y * `side` faces out."""
     s = side
     c = Vector(at)
-    out = [chamfered_box(f"{name}", size, place(at), tone=tone, drop=((0, -s, 0),))]
+    # closed but for its underside, which no camera above the ground sees
+    out = [chamfered_box(f"{name}", size, place(at), tone=tone, drop=((0, 0, -1),))]
     top = c.z + size[2] / 2
     for j, dx in enumerate(hangers):
-        yo, yi = c.y - s * size[1] / 2, s * (skin - 0.02)
-        out.append(plain_box(f"{name}_hang{j}", (0.07, abs(yo - yi), 0.012),
-                             place((c.x + dx, (yo + yi) / 2, top + 0.006)), tone=tone, drop=((0, -s, 0),), mount=True))
-        out.append(hex_bolt(f"{name}_bolt{j}", (c.x + dx, (yo + yi) / 2, top + 0.012), (0, 0, 1)))
+        x = c.x + dx
+        yi = s * (skin - 0.04)
+        zd = top
+        if tree is not None:
+            hit = tree.ray_cast(Vector((x, yi, top + 1.0)), Vector((0.0, 0.0, -1.0)))
+            if hit[0] is not None:
+                zd = max(top, hit[0].z)
+        # (its module end sunk 3 mm into the module's top: welded, not resting)
+        out.append(bar(f"{name}_hang{j}", (x, c.y, top + 0.003), (x, yi, zd + 0.006), 0.07, 0.012, tone=tone,
+                       cap_a=True, cap_b=True, up=(0, 0, 1), mount=True))
+        bolt = hex_bolt(f"{name}_bolt{j}", (x, yi, zd + 0.012), (0, 0, 1))
+        bolt.mount = True                 # it holds the strap to the deck
+        out.append(bolt)
     return out
 
 
@@ -964,3 +1015,251 @@ def chain_curtain(name, x, ys, drops, rail_z, ball_r=0.055, rail_r=0.02, overhan
     for i, (y, d) in enumerate(zip(ys, drops)):
         out += chain(f"{name}{i}", (x, y, rail_z), d, ball_r, spin_axis=(0, 1, 0))
     return out
+
+
+# ---------------------------------------------------------------------------
+# conformal armour: a flat outer face, a back that follows the hull
+# ---------------------------------------------------------------------------
+
+def _newell(pts):
+    n = Vector((0.0, 0.0, 0.0))
+    for a, b in zip(pts, pts[1:] + pts[:1]):
+        n.x += (a.y - b.y) * (a.z + b.z)
+        n.y += (a.z - b.z) * (a.x + b.x)
+        n.z += (a.x - b.x) * (a.y + b.y)
+    return n
+
+
+def conform_slab(name, centre, U, V, N, length, height, thick, tree, nu=5, nv=3, proud=0.004, t_min=0.012,
+                 max_fill=0.04, chamfer=CHAMFER, setback=0.0, reach=0.6, tone="paint"):
+    """An armour slab whose OUTER face is flat and whose BACK follows the
+    surface in `tree` -- a plate or a module bolted onto a curved or sloped
+    hull face without ever passing into it (the clash check's 1 cm rule).
+
+    The outer face is the rectangle `length` x `height` centred on `centre`,
+    spanned by unit axes U (length) and V (height), facing out along N; with
+    `setback` its +U edge leans back toward -U by that much at the +V edge
+    (a wedge module's sloped front). The back is sampled on an nu x nv grid:
+    each grid point is ray-cast inward along -N and its back vertex set
+    `proud` clear of the surface, never thinner than `t_min` behind the 1 cm
+    chamfer, never deeper than `thick` + `max_fill` (a plate seated at its
+    nearest point fills down onto the hull up to `max_fill` and leaves a gap
+    beyond -- its back is closed, so a gap never shows a hollow), and at the
+    nominal `thick` where the ray finds nothing. Where the surface stands
+    higher than the outer face allows, the WHOLE slab is lifted out along N.
+
+    Returns (piece, outer_centre): the second is the outer face's centre
+    after any lift, for the panel, bolts and eyes that sit on it."""
+    U, V, N = Vector(U).normalized(), Vector(V).normalized(), Vector(N).normalized()
+    c0 = Vector(centre)
+    hu, hv = length / 2.0, height / 2.0
+
+    def umax(v):
+        return hu - setback * (v + hv) / height
+
+    vs = [-hv + height * j / (nv - 1) for j in range(nv)]
+    uv = {}
+    for j, v in enumerate(vs):
+        for i in range(nu):
+            uv[i, j] = (-hu + (umax(v) + hu) * i / (nu - 1), v)
+    # each back vertex takes the SHALLOWEST surface within half a cell of it
+    # (5 x 5 rays), so a bump between grid points cannot pierce the back
+    du = (2 * hu) / (nu - 1)
+    dv = height / (nv - 1)
+    raw = {}
+    for k, (u, v) in uv.items():
+        best = None
+        for a in (-0.5, -0.25, 0.0, 0.25, 0.5):
+            for b in (-0.5, -0.25, 0.0, 0.25, 0.5):
+                uu = min(max(u + a * du, -hu), umax(min(max(v + b * dv, -hv), hv)))
+                vv = min(max(v + b * dv, -hv), hv)
+                p = c0 + U * uu + V * vv
+                hit = tree.ray_cast(p + N * reach, -N)
+                if hit[0] is not None:
+                    d = hit[3] - reach
+                    best = d if best is None else min(best, d)
+        raw[k] = best
+    need = chamfer + t_min + proud
+    lift = max([0.0] + [need - d for d in raw.values() if d is not None])
+    depth = {}
+    for k, d in raw.items():
+        if d is None:
+            depth[k] = thick
+        else:
+            depth[k] = min(max(d + lift - proud, chamfer + t_min), thick + max_fill)
+
+    def build(lift, depth):
+        c = c0 + N * lift
+        verts, faces, want, kinds = [], [], [], []
+
+        def add(p):
+            verts.append(p)
+            return len(verts) - 1
+
+        def at(u, v, d):
+            return c + U * u + V * v - N * d
+
+        back = {k: add(at(uv[k][0], uv[k][1], depth[k])) for k in uv}
+        sh = {}
+        for k in uv:
+            i, j = k
+            if i in (0, nu - 1) or j in (0, nv - 1):
+                sh[k] = add(at(uv[k][0], uv[k][1], chamfer))
+        ci = {}
+        for (i, j, su, sv) in ((0, 0, 1, 1), (nu - 1, 0, -1, 1), (nu - 1, nv - 1, -1, -1), (0, nv - 1, 1, -1)):
+            u, v = uv[i, j]
+            ci[i, j] = add(at(u + su * chamfer, v + sv * chamfer, 0.0))
+        faces.append([ci[0, 0], ci[nu - 1, 0], ci[nu - 1, nv - 1], ci[0, nv - 1]])
+        want.append(N)
+        kinds.append(())
+        edges = [
+            ([(i, 0) for i in range(nu)], (0, 0), (nu - 1, 0), -V),
+            ([(i, nv - 1) for i in range(nu)], (0, nv - 1), (nu - 1, nv - 1), V),
+            ([(0, j) for j in range(nv)], (0, 0), (0, nv - 1), -U),
+            ([(nu - 1, j) for j in range(nv)], (nu - 1, 0), (nu - 1, nv - 1),
+             (U + V * (setback / height)).normalized()),
+        ]
+        for run, ka, kb, out in edges:
+            faces.append([ci[ka], ci[kb]] + [sh[k] for k in reversed(run)])
+            want.append((out + N).normalized())
+            kinds.append(())
+            for a, b in zip(run, run[1:]):
+                faces.append([sh[a], sh[b], back[b], back[a]])
+                want.append(out)
+                kinds.append((a, b))
+        for j in range(nv - 1):
+            for i in range(nu - 1):
+                faces.append([back[i, j], back[i + 1, j], back[i + 1, j + 1], back[i, j + 1]])
+                want.append(-N)
+                kinds.append(((i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1)))
+        out_faces = []
+        for f, w in zip(faces, want):
+            n = _newell([verts[i] for i in f])
+            out_faces.append(tuple(reversed(f)) if n.dot(w) < 0 else tuple(f))
+        return c, verts, out_faces, kinds
+
+    # The rays read the surface along -N only; an underside or a lip the
+    # back's faces cross BETWEEN rays is found by testing the slab itself
+    # against the surface, and the back vertices of every face that still
+    # meets it step 5 mm toward the outer face (or, where a face that cannot
+    # move -- the outer face, a chamfer -- meets it, the whole slab steps
+    # out), until nothing meets it.
+    for _it in range(60):
+        c, verts, faces, kinds = build(lift, depth)
+        hit = BVHTree.FromPolygons([tuple(v) for v in verts], faces).overlap(tree)
+        if not hit:
+            break
+        bad = {i for i, _ in hit}
+        keys = {k for i in bad for k in kinds[i]}
+        movable = {k for k in keys if depth[k] > chamfer + t_min + 1e-9}
+        if any(not kinds[i] for i in bad) or not movable:
+            lift += 0.005
+            for k in depth:
+                depth[k] += 0.005
+        else:
+            for k in movable:
+                depth[k] = max(depth[k] - 0.005, chamfer + t_min)
+    else:
+        raise ValueError(f"{name}: the slab still meets the surface after 60 steps")
+    return Piece(name, verts, faces, tone), c
+
+
+def conform_plate(name, size, M, tree, bolts=(), eyes=(), panel_inset=None, nu=5, nv=3, max_fill=0.04,
+                  tone="paint"):
+    """`armour_plate` with a conformal back: frame `M` (x, y in the plate,
+    local +Z its outer normal, the plate's centre at the origin)."""
+    R = M.to_3x3()
+    U, V, N = R @ Vector((1, 0, 0)), R @ Vector((0, 1, 0)), R @ Vector((0, 0, 1))
+    slab, oc = conform_slab(name, M.translation + N * (size[2] / 2), U, V, N, size[0], size[1], size[2], tree,
+                            nu=nu, nv=nv, max_fill=max_fill, tone=tone)
+    out = [slab]
+    Mo = Matrix.Translation(oc) @ R.to_4x4()
+    top = 0.0
+    if panel_inset is not None:
+        out.append(plain_box(f"{name}_panel", (size[0] - 2 * panel_inset, size[1] - 2 * panel_inset, 0.012),
+                             Mo @ place((0, 0, 0.006)), tone=tone, drop=((0, 0, -1),)))
+        top = 0.012
+    for i, (u, v) in enumerate(bolts):
+        out.append(hex_bolt(f"{name}_b{i}", Mo @ Vector((u * size[0], v * size[1], top)), N))
+    for i, (u, v) in enumerate(eyes):
+        out.append(lifting_eye(f"{name}_e{i}", Mo @ Vector((u * size[0], v * size[1], top)), N, U))
+    return out
+
+
+def conform_module(name, size, M, side, tree, setback=0.0, plate=None, plate_at=(0.0, 0.0), bolts=(),
+                   eye_u=None, nu=5, nv=3, max_fill=0.04, plate_chamfer=0.006, tone="paint"):
+    """`wedge_module` / `era_brick` with a conformal back: frame `M` (x long,
+    y thick, z high; outer face local `side` * +Y). `plate` (w, t, h): a face
+    plate on the outer face at `plate_at` (u, w); `bolts` [(u, w)] in metres
+    on the face (through the plate where there is one); `eye_u` a lifting eye
+    on top."""
+    s = side
+    R = M.to_3x3()
+    U, V, N = R @ Vector((1, 0, 0)), R @ Vector((0, 0, 1)), (R @ Vector((0, s, 0))).normalized()
+    slab, oc = conform_slab(f"{name}_body", M.translation + N * (size[1] / 2), U, V, N, size[0], size[2], size[1],
+                            tree, nu=nu, nv=nv, setback=setback, max_fill=max_fill, tone=tone)
+    out = [slab]
+    t = 0.0
+    if plate is not None:
+        pc = oc + U * plate_at[0] + V * plate_at[1] + N * (plate[1] / 2)
+        if plate_chamfer > 0:
+            out.append(chamfered_box(f"{name}_plate", (plate[0], plate[2], plate[1]), _uvn_frame(pc, U, V, N),
+                                     tone=tone, chamfer=plate_chamfer, drop=((0, 0, -1),)))
+        else:
+            out.append(plain_box(f"{name}_plate", (plate[0], plate[2], plate[1]), _uvn_frame(pc, U, V, N),
+                                 tone=tone, drop=((0, 0, -1),)))
+        t = plate[1]
+    for i, (u, w) in enumerate(bolts):
+        out.append(hex_bolt(f"{name}_bolt{i}", oc + U * u + V * w + N * t, N))
+    if eye_u is not None:
+        topc = oc + V * (size[2] / 2) - N * (size[1] / 2)
+        out.append(lifting_eye(f"{name}_eye", topc + U * eye_u, V, U))
+    return out
+
+
+def _uvn_frame(c, U, V, N):
+    """Local -> world with local X along U, Y along V, Z along N (a plate
+    frame: x, y in the face, +z out). U, V, N must be orthonormal; a
+    left-handed set is made right-handed by flipping V."""
+    U, V, N = Vector(U).normalized(), Vector(V).normalized(), Vector(N).normalized()
+    if U.cross(V).dot(N) < 0:
+        V = -V
+    m = Matrix((U, V, N)).transposed().to_4x4()
+    m.translation = Vector(c)
+    return m
+
+
+def arc_wall(name, centre, r_in, r_out, z0, z1, a0, a1, segs=12, tone="metal"):
+    """A curved wall standing on the vertical axis through `centre` (x, y):
+    the ring between `r_in` and `r_out`, from z0 to z1, swept from angle a0
+    to a1 (degrees, 0 along +X, counter-clockwise), closed at both ends -- a
+    housing round a turret with an opening where its gun comes out."""
+    cx, cy = centre
+    verts = []
+    for k in range(segs + 1):
+        a = math.radians(a0 + (a1 - a0) * k / segs)
+        ca, sa = math.cos(a), math.sin(a)
+        for r in (r_in, r_out):
+            for z in (z0, z1):
+                verts.append(Vector((cx + r * ca, cy + r * sa, z)))
+    # per station k: 4 verts: (in, z0), (in, z1), (out, z0), (out, z1)
+    faces, want = [], []
+    for k in range(segs):
+        i0, i1 = 4 * k, 4 * (k + 1)
+        am = math.radians(a0 + (a1 - a0) * (k + 0.5) / segs)
+        radial = Vector((math.cos(am), math.sin(am), 0.0))
+        faces += [(i0 + 2, i1 + 2, i1 + 3, i0 + 3),      # outer
+                  (i0 + 0, i0 + 1, i1 + 1, i1 + 0),      # inner
+                  (i0 + 1, i0 + 3, i1 + 3, i1 + 1),      # top
+                  (i0 + 0, i1 + 0, i1 + 2, i0 + 2)]      # bottom
+        want += [radial, -radial, Vector((0, 0, 1)), Vector((0, 0, -1))]
+    last = 4 * segs
+    for i, ang in ((0, a0), (last, a1)):
+        t = Vector((-math.sin(math.radians(ang)), math.cos(math.radians(ang)), 0.0))
+        faces.append((i + 0, i + 2, i + 3, i + 1))
+        want.append(-t if i == 0 else t)
+    out = []
+    for f, w in zip(faces, want):
+        n = _newell([verts[i] for i in f])
+        out.append(tuple(reversed(f)) if n.dot(w) < 0 else f)
+    return [Piece(name, verts, out, tone, smooth=True)]
