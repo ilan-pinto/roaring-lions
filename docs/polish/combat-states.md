@@ -341,3 +341,32 @@ confirmed on CI. **Local gates** are `pnpm test`, `typecheck`, `lint`, `validate
   - The mocked poses are bone deltas on shipped clips; the authored clip will differ.
 - **Next priority:** the lead's answers to §9, then build step 1 (HUD), which does not wait on
   any art.
+
+---
+
+## As built (7 Oct, `polish/combat-states`)
+
+The lead approved every item in §9. The build plan is
+[`docs/superpowers/plans/2026-10-07-combat-states.md`](../superpowers/plans/2026-10-07-combat-states.md).
+Four places differ from the mock, each measured:
+
+- **The huddle folds 40° at the spine and 10° at the neck, not the mock's 50/25/30.** The mock
+  bent Blender bones in their local axes. On the motion pass's world-axis turns, that 105° put
+  the face past straight down, looking back between the knees, and the facing gate read
+  146–180°. 40/10/0 keeps the silhouette: folded, with the weapon at the ground. A fold that
+  would put a long weapon in the ground is reduced, never below 40% of it: `at_team`'s Spike
+  93%, the digger 50%. `breach_team`'s point man stays on his feet behind his shield, because
+  kneeling it sinks it 0.39 m. The sniper keeps his prone idle.
+- **The three officers are held, not drawn** (`HELD_MESH_FILES`, GH-298 Stage 5). They carry the
+  same `down`/`wreck` pair but no ankles and no motion pass. The gate sweeps every file the game
+  DRAWS, so an officer enters it, and needs a huddle, on the day it is wired. On main the gate
+  reads 14 drawn files red; with the officers it is 17.
+- **The damage smoke is a grey wisp of 9–14 px, not the first cut's 4–7 px dark puffs.** The
+  first cut was spawned and measured (8 particles over the hull), but it could not be seen
+  against a dark green hull at zoom 3.
+- **The gun-out voice key is `common.gunout`**, because `validate:audio` requires a lowercase
+  `<lang>.<class>.<trigger>`.
+
+The evidence is in [`after/c2c4/`](after/c2c4/): four before/after GIFs (pinned then killed,
+the suppression lean, the broken run, the damage smoke) and `hud.jpg` (the card, chips and fire
+panel reached by real clicks and a real drag).
