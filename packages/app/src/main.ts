@@ -3913,7 +3913,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       for (const me of missionEvents) {
         missionTelemetry?.onEvent(me);
         logMissionEvent(missionLog, me, {
-          positionOf: (id) => ({ x: fx.toNumber(sim.state.posX[id]), y: fx.toNumber(sim.state.posY[id]) }),
+          // Sim positions are tile CENTRES; the log keeps the tile.
+          positionOf: (id) => ({ x: Math.floor(fx.toNumber(sim.state.posX[id])), y: Math.floor(fx.toNumber(sim.state.posY[id])) }),
           rosterOf: (id) => runtime?.rosterEntryOf(id),
           zone: (id) => map.zones[id],
         });
@@ -4041,7 +4042,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // that distinction is the whole reason the field is optional, so the
             // line is skipped rather than printed as "Nobody still out."
             const account = hostagesAccount(worldData, updatedLedger);
-            const cameBack = me.ledger['civ.hostages_recovered']?.[missionId] ?? 0;
+            // A defeat writes nothing, so nobody "came back" on one.
+            const cameBack = me.result === 'victory' ? (me.ledger['civ.hostages_recovered']?.[missionId] ?? 0) : 0;
             const place = (mission as { hostages_place?: string }).hostages_place;
             // Truthiness rather than `!== undefined`: the schema puts no
             // `minLength` on `hostages_place`, so an empty string is authorable
@@ -4102,19 +4104,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               unlocks,
               next: nextMissionId ? { name: nextJson?.name ?? nextMissionId } : undefined,
               taken: takenAccount,
+              marked: runtime.markedCount,
               typeName,
             });
-            // The ground after the fight, photographed again (buildings that
-            // fell are rubble now); the painted tiles if the call has nothing.
-            let afterPhoto: ImageData | null = null;
-            if (field) {
-              try {
-                const shot = renderer.captureGroundAlbedo?.(BRIEFING_GROUND_PX) ?? null;
-                if (shot) afterPhoto = new ImageData(flipRows(shot.data, shot.width, shot.height), shot.width, shot.height);
-              } catch (err) {
-                console.warn('debrief: the ground photograph failed; the painted ground stays', err);
-              }
-            }
             const debriefOpts: DebriefOptions = {
               result: me.result,
               stars: runtime.stars,
@@ -4129,7 +4121,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                     line: promotion.line ? { plate: speakerPlate(hudCommander, promotion.line.speaker), text: promotion.line.text } : undefined,
                   }
                 : undefined,
-              ground: field ? { map, tones: opts.terrainTones, marks: field.marks, photo: afterPhoto } : undefined,
+              ground: field ? { map, tones: opts.terrainTones, marks: field.marks } : undefined,
               next: nextMissionId
                 ? {
                     id: nextMissionId,
@@ -4209,7 +4201,25 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               // L-7: the moment hands over straight to the after-action report;
               // the small end panel it used to lead to is folded into the
               // report's verdict and closing word.
-              screenDisposers.push(showDebrief(document.body, { ...debriefOpts, aftermath: momentOptions.aftermath }));
+              // The ground after the fight, photographed now rather than at
+              // the missionEnd event: by the time the moment ends, the renderer
+              // has drawn the last tick, so a building that fell on it is rubble.
+              let photo: ImageData | null = null;
+              if (debriefOpts.ground) {
+                try {
+                  const shot = renderer.captureGroundAlbedo?.(BRIEFING_GROUND_PX) ?? null;
+                  if (shot) photo = new ImageData(flipRows(shot.data, shot.width, shot.height), shot.width, shot.height);
+                } catch (err) {
+                  console.warn('debrief: the ground photograph failed; the painted ground stays', err);
+                }
+              }
+              screenDisposers.push(
+                showDebrief(document.body, {
+                  ...debriefOpts,
+                  aftermath: momentOptions.aftermath,
+                  ground: debriefOpts.ground ? { ...debriefOpts.ground, photo } : undefined,
+                })
+              );
             });
           }
         }

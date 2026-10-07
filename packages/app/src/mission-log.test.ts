@@ -3,7 +3,7 @@ import { logDestroyed, logMissionEvent, newMissionLog, type LogContext } from '.
 
 const ctx: LogContext = {
   positionOf: (e) => ({ x: e * 2, y: e * 3 }),
-  rosterOf: (e) => (e === 7 ? { name: 'Barzel', veterancy: 1 } : undefined),
+  rosterOf: (e) => (e === 7 ? { name: 'Barzel' } : undefined),
   zone: (id) => (id === 'hall_block' ? [20, 26, 7, 7] : undefined),
 };
 
@@ -13,8 +13,8 @@ describe('mission log (GH-417, L-6)', () => {
     logMissionEvent(log, { kind: 'unitLost', tick: 6800, entity: 7, unit: 'inf_squad' }, ctx);
     logMissionEvent(log, { kind: 'unitLost', tick: 2600, entity: 3, unit: 'jeep_shoded' }, ctx);
     expect(log.losses).toEqual([
-      { tick: 6800, entity: 7, type: 'inf_squad', name: 'Barzel', veterancy: 1, x: 14, y: 21 },
-      { tick: 2600, entity: 3, type: 'jeep_shoded', veterancy: 0, x: 6, y: 9 },
+      { tick: 6800, entity: 7, type: 'inf_squad', name: 'Barzel', x: 14, y: 21 },
+      { tick: 2600, entity: 3, type: 'jeep_shoded', x: 6, y: 9 },
     ]);
   });
 
@@ -25,6 +25,15 @@ describe('mission log (GH-417, L-6)', () => {
     logMissionEvent(log, { kind: 'roe', tick: 3000, penalty: 3, reason: 'civilian casualties' }, ctx);
     expect(log.deductions[0]).toEqual({ tick: 2400, reason: 'fire into protected structure (hall_block)', penalty: 5, x: 23, y: 29 });
     expect(log.deductions[1]).toEqual({ tick: 3000, reason: 'civilian casualties', penalty: 3 });
+  });
+
+  // Review: a destroyed structure's `place` is a structure TYPE id. Falsified:
+  // looking every `place` up as a zone pins this one at hall_block's centre.
+  it('never looks a destroyed structure’s type up as a zone', () => {
+    const log = newMissionLog();
+    const sameId: LogContext = { ...ctx, zone: (id) => (id === 'hall_block' || id === 'hall' ? [20, 26, 7, 7] : undefined) };
+    logMissionEvent(log, { kind: 'roe', tick: 10, penalty: 6, reason: 'Hall destroyed' }, sameId);
+    expect(log.deductions[0].x).toBeUndefined();
   });
 
   it('keeps objective outcomes, not their activations, and counts hostile kills only', () => {

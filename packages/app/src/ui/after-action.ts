@@ -68,6 +68,8 @@ export interface AfterActionInputs {
   next?: { name: string };
   /** The hostages line (`hostagesLine`), already worded. */
   taken?: string;
+  /** Positions this run's recon marked (`intel.marked_positions`). */
+  marked?: number;
   /** A unit type's display name. */
   typeName(type: string): string;
 }
@@ -154,16 +156,25 @@ export function afterAction(i: AfterActionInputs): AfterAction {
     });
   }
   if (i.roe >= i.roeFloor) well.push({ mark: String(i.roe), tone: 'good', text: t('aar.well.conduct', { floor: i.roeFloor }) });
+  const withdrew = won && i.withdrew !== undefined && i.withdrew > 0 ? i.withdrew : 0;
   if (i.log.kills > 0) {
     well.push({
       mark: String(i.log.kills),
       tone: 'good',
-      text: won && i.withdrew !== undefined && i.withdrew > 0 ? t('aar.well.killsWithdrew', { n: i.log.kills, w: i.withdrew }) : t('aar.well.kills', { n: i.log.kills }),
+      text: withdrew > 0 ? t('aar.well.killsWithdrew', { n: i.log.kills, w: withdrew }) : t('aar.well.kills', { n: i.log.kills }),
     });
+  } else if (withdrew > 0) {
+    well.push({ mark: String(withdrew), tone: 'good', text: t('aar.well.withdrew', { n: withdrew }) });
+  }
+  if (won && i.marked !== undefined && i.marked > 0) {
+    well.push({ mark: String(i.marked), tone: 'good', text: t('aar.well.marked', { n: i.marked }) });
   }
 
   // --- cost you / what went wrong ------------------------------------------
   const poor: AfterActionItem[] = [];
+  // A defeat has no ladder to carry the rating, so the rating is said here
+  // when it fell short of the second-star line.
+  if (!won && i.roe < i.roeFloor) poor.push({ mark: String(i.roe), tone: 'bad', text: t('aar.poor.conduct', { roe: i.roe, floor: i.roeFloor }) });
   if (!won) {
     for (const o of i.objectives.filter((x) => x.status === 'failed')) {
       const at = failedAt.get(o.id);

@@ -16,7 +16,6 @@ export interface LoggedLoss {
   type: string;
   /** The roster name, when the body had one. */
   name?: string;
-  veterancy: number;
   x: number;
   y: number;
 }
@@ -50,10 +49,10 @@ export function newMissionLog(): MissionLog {
 }
 
 export interface LogContext {
-  /** A unit's position in tiles, read off sim state. */
+  /** The TILE a unit stands on (sim positions are tile centres: floor them). */
   positionOf(entity: number): { x: number; y: number };
   /** The roster entry a player unit was spawned from, if any. */
-  rosterOf(entity: number): { name?: string; veterancy: number } | undefined;
+  rosterOf(entity: number): { name?: string } | undefined;
   /** A zone's rect `[x, y, w, h]`, if the map declares it. */
   zone(id: string): readonly number[] | undefined;
 }
@@ -76,13 +75,14 @@ export function logMissionEvent(
       entity: ev.entity,
       type: ev.unit,
       ...(r?.name !== undefined ? { name: r.name } : {}),
-      veterancy: r?.veterancy ?? 0,
       x: p.x,
       y: p.y,
     });
   } else if (ev.kind === 'roe' && 'reason' in ev && 'penalty' in ev) {
-    const place = classifyReason(ev.reason).place;
-    const z = place !== undefined ? ctx.zone(place) : undefined;
+    // Only fire INTO protected ground names a zone; a destroyed structure's
+    // `place` is a structure TYPE id, which must never be looked up as a zone.
+    const r = classifyReason(ev.reason);
+    const z = (r.cause === 'struck' || r.cause === 'strike') && r.place !== undefined ? ctx.zone(r.place) : undefined;
     const at = z && z.length >= 4 ? { x: z[0] + z[2] / 2 - 0.5, y: z[1] + z[3] / 2 - 0.5 } : {};
     log.deductions.push({ tick: ev.tick, reason: ev.reason, penalty: ev.penalty, ...at });
   } else if (ev.kind === 'objective' && 'status' in ev && (ev.status === 'complete' || ev.status === 'failed')) {

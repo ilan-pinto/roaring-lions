@@ -8,8 +8,8 @@ function log(): MissionLog {
   const l = newMissionLog();
   l.objectives.push({ tick: 5040, id: 'raze', status: 'complete' }, { tick: 10080, id: 'hold', status: 'complete' });
   l.losses.push(
-    { tick: 6800, entity: 7, type: 'inf_squad', name: 'Barzel', veterancy: 1, x: 33, y: 24 },
-    { tick: 2600, entity: 9, type: 'jeep_shoded', veterancy: 0, x: 27, y: 42 }
+    { tick: 6800, entity: 7, type: 'inf_squad', name: 'Barzel', x: 33, y: 24 },
+    { tick: 2600, entity: 9, type: 'jeep_shoded', x: 27, y: 42 }
   );
   l.deductions.push({ tick: 2400, reason: 'fire into protected structure (hall_block)', penalty: 5, x: 23, y: 29 }, { tick: 3000, reason: 'civilian casualties', penalty: 3 });
   l.kills = 31;
@@ -93,7 +93,7 @@ describe('afterAction (GH-417, H4/H5)', () => {
   // Four labels on one tile read as a smear. Falsified: PIN_MERGE_TILES 0.
   it('losses that fell together share one pin', () => {
     const l = log();
-    l.losses.push({ tick: 7000, entity: 11, type: 'inf_squad', veterancy: 0, x: 34, y: 25 }, { tick: 7200, entity: 12, type: 'inf_squad', veterancy: 0, x: 33.5, y: 23 });
+    l.losses.push({ tick: 7000, entity: 11, type: 'inf_squad', x: 34, y: 25 }, { tick: 7200, entity: 12, type: 'inf_squad', x: 33, y: 23 });
     const pins = afterAction(wh5({ log: l })).pins.filter((p) => p.kind === 'loss');
     expect(pins).toHaveLength(2);
     expect(pins[0]).toEqual({ kind: 'loss', x: 33, y: 24, label: '3 lost · by 6:00' });
@@ -124,6 +124,20 @@ describe('afterAction (GH-417, H4/H5)', () => {
     // A defeat promotes nobody and unlocks nothing, whatever it was handed
     // (this fixture still carries Tzur's promotion and two unlocks).
     expect(a.changed.some((c) => c.text.includes('Tzur') || c.text.includes('bought'))).toBe(false);
+  });
+});
+
+describe('afterAction, review round', () => {
+  it('a defeat below the line says its Conduct; a win’s recon marks are a thing done well', () => {
+    const lost = afterAction(wh5({ result: 'defeat', roe: 32, failure: 'Conduct fell below the mission floor · 4:00' }));
+    expect(lost.poor[0]).toMatchObject({ mark: '32', text: 'Conduct 32, under the second-star line (60)' });
+    const won = afterAction(wh5({ marked: 4 }));
+    expect(won.well.map((w) => w.text)).toContain('4 positions marked, on your map next time');
+  });
+  it('withdrew shows even when nobody was killed', () => {
+    const l = log();
+    l.kills = 0;
+    expect(afterAction(wh5({ log: l })).well.map((w) => w.text)).toContain('6 withdrew');
   });
 });
 
