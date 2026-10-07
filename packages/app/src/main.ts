@@ -3898,6 +3898,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           const carryover =
             me.result === 'victory'
               ? applyRosterCarryover(ledger, me.ledger, lostThisMission, {
+                  missionId: mission.id,
                   kindOf: (typeId) => nameKind(unitFor(typeId), names as NamesJson),
                   names: names as NamesJson,
                   // The same lookup `alertWorld.unitName` uses (spec §4.7's own
