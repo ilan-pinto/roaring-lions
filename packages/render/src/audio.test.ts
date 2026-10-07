@@ -1592,7 +1592,7 @@ describe('decode latency: ui cues never hold the voices back', () => {
   it('with thirteen ui sets, the first voice line decodes in a frame or two, not after all of them', async () => {
     vi.useFakeTimers();
     try {
-      vi.stubGlobal('fetch', (_url: string) => new Promise((r) => setTimeout(() => r(OK), 100)));
+      vi.stubGlobal('fetch', () => new Promise((r) => setTimeout(() => r(OK), 100)));
       const sets: Record<string, AudioSet> = {};
       for (let i = 0; i < 13; i++) sets[`cue_${i}`] = { event: 'ui', variants: [{ file: `cue_${i}/c.ogg` }] };
       const { audio } = attachedWith((a) => {
