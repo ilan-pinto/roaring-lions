@@ -63,6 +63,10 @@ describe('briefingGlance (GH-417, derived, never authored)', () => {
       objectives: [...base.objectives, { type: 'locate', primary: false, carries: true, text: 'Mark the cache' }],
     };
     expect(row(briefingGlance(carrying), 'matters')).toContain('The third star needs Mark the cache');
+    // Several carrying secondaries are counted, not listed (Qarn Hadid I has
+    // three; listed, the row ran to four lines).
+    const many = { ...carrying, objectives: [...carrying.objectives, { type: 'locate', primary: false, carries: true, text: 'Mark the well' }] };
+    expect(row(briefingGlance(many), 'matters')).toContain('The third star needs all 2 optional objectives that carry into the next mission');
   });
 
   // Falsified: pushing an empty "Avoid" row anyway turns this red.

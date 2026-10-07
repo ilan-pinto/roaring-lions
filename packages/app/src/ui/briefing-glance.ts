@@ -100,7 +100,11 @@ export function briefingGlance(m: GlanceInputs): GlanceRow[] {
   const matters: string[] = [t('glance.matters.floor', { floor: starRoeFloor(m.roe?.fail_below) })];
   const carrying = m.objectives.filter((o) => !o.primary && o.carries === true && o.text);
   if (carrying.length > 0) {
-    matters.push(t('glance.matters.carries', { list: carrying.map((o) => o.text as string).join(' · ') }));
+    matters.push(
+      carrying.length === 1
+        ? t('glance.matters.carries', { list: carrying[0].text as string })
+        : t('glance.matters.carriesMany', { n: carrying.length })
+    );
   }
   push('matters', matters.join('. '));
 

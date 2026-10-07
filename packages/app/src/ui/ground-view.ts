@@ -94,6 +94,14 @@ export function groundView(opts: {
   // A label above a zone that touches the top edge would be clipped by the
   // frame: it goes just inside the zone instead.
   const above = (y: number): number => (y - size * 0.4 < size ? y + size * 1.1 : y - size * 0.4);
+  // A zone label hangs off the zone's left edge, or -- for a zone in the
+  // right half of the map -- back from its right edge, so it stays on the map.
+  const zoneLabel = (text: string, r: { x: number; y: number; w: number }, cls: string): SVGTextElement => {
+    const right = r.x + r.w / 2 > map.width / 2;
+    const e = label(text, right ? r.x + r.w : r.x, above(r.y), size, cls);
+    if (right) e.setAttribute('text-anchor', 'end');
+    return e;
+  };
   // Text past the middle of the map runs back from its anchor, so it stays on
   // the map whatever its length.
   const sideLabel = (text: string, x: number, y: number, cls: string): SVGTextElement => {
@@ -126,12 +134,12 @@ export function groundView(opts: {
     if (m.refuge) {
       svg.appendChild(svgEl('rect', { x, y, width: w, height: h }, 'rl-ground__zone rl-ground__zone--refuge'));
       const text = m.clocks.length > 0 ? t('ground.refuge.clock', { numbers, clock: m.clocks.join(' · ') }) : t('ground.refuge', { numbers });
-      svg.appendChild(label(text, x, above(y), size, 'rl-ground__label--refuge'));
+      svg.appendChild(zoneLabel(text, m.rect, 'rl-ground__label--refuge'));
       legend.add('refuge');
     } else {
       svg.appendChild(svgEl('rect', { x, y, width: w, height: h }, `rl-ground__zone rl-ground__zone--objective${m.primary ? '' : ' rl-ground__zone--optional'}`));
       const text = m.clocks.length > 0 ? t('ground.objective.clock', { numbers, clock: m.clocks.join(' · ') }) : t('ground.objective', { numbers });
-      svg.appendChild(label(text, x, above(y), size, 'rl-ground__label--objective'));
+      svg.appendChild(zoneLabel(text, m.rect, 'rl-ground__label--objective'));
       legend.add(m.primary ? 'objective' : 'optional');
     }
   }

@@ -685,6 +685,7 @@
   "glance.objective.more": "{text} (+{n, plural, one {# more objective} other {# more objectives}})",
   "glance.matters.floor": "Conduct {floor} or better earns the second star",
   "glance.matters.carries": "The third star needs {list}; it carries into the next mission",
+  "glance.matters.carriesMany": "The third star needs all {n} optional objectives that carry into the next mission",
   "glance.avoid.zone": "No fire on the {place}",
   "glance.avoid.conduct": "Conduct below {n} ends the mission",
   "glance.avoid.deadline": "{clock} limit on “{text}”",

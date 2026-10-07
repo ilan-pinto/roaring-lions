@@ -24,6 +24,10 @@ import { paintMapTerrain, type PreviewMap, type PreviewTones } from './map-previ
 import { objectivesPanel, type ObjectiveRow } from './objectives';
 import type { BriefingSection } from './briefing-sections';
 import { markConfirm } from './confirm-cue';
+import type { GlanceRow } from './briefing-glance';
+import type { GroundMark } from './ground-marks';
+import { groundView, type GroundView } from './ground-view';
+import { forceBar, type AttachedUnit } from './force-bar';
 
 /**
  * Does this screen wait for the player before handing over the field?
@@ -335,6 +339,21 @@ function deploySpread(choice: DeployChoice, deployButton: HTMLButtonElement): HT
   return set;
 }
 
+/**
+ * The Field order briefing (GH-417, direction A, ruled 7 Oct): the five-row
+ * glance card, the marked ground and the force as places. Derived by
+ * `main.ts` from data the mission already declares (`briefing-glance.ts`,
+ * `ground-marks.ts`); absent for a sandbox, which keeps the plain screen.
+ */
+export interface FieldOrder {
+  glance: readonly GlanceRow[];
+  marks: readonly GroundMark[];
+  /** Bodies the mission brings itself (its non-ledger placements). */
+  attached: readonly AttachedUnit[];
+  /** A unit type's display name. */
+  unitName?: (type: string) => string;
+}
+
 export interface LoadingScreen {
   /** How many assets the gate is waiting on. Drives the bar's denominator. */
   total(n: number): void;
@@ -362,6 +381,10 @@ export interface LoadingScreen {
    * Idempotent, and safe before `done()` has ever been called.
    */
   dispose(): void;
+  /** Lay the renderer's photograph of the ground under the briefing's marks
+   *  (`Renderer.captureGroundAlbedo`, rows already flipped; ruling L-2). A
+   *  no-op where the screen draws no ground. */
+  setGroundPhoto(img: ImageData): void;
 }
 
 export function showLoading(
@@ -431,7 +454,11 @@ export function showLoading(
    *  `briefingSections`, so null means "draw the plain beats"; every image
    *  here is already the RESOLVED URL, like `briefingVideo`. Gated on `holds`
    *  like everything else conditional on this screen. */
-  layout?: { sections: readonly BriefingSection[] | null; image?: string }
+  layout?: { sections: readonly BriefingSection[] | null; image?: string },
+  /** The Field order layout. With it, the orders, the ground and the force
+   *  are laid out as one sheet; without it (a sandbox) the screen is the
+   *  plain one, child for child. */
+  field?: FieldOrder
 ): LoadingScreen {
   const wrap = document.createElement('div');
   wrap.className = 'rl-loading';
@@ -682,6 +709,109 @@ export function showLoading(
   // The right-hand column of the spread (Task 3; spec Decision 4: "portrait
   // and orders left, the roster's force and a map preview right"). Built
   // only with orders to read, like everything else conditional on `holds`.
+  let ground: GroundView | null = null;
+  if (holds && field) {
+    layoutFieldOrder();
+  } else {
+    layoutPlain();
+  }
+  wrap.appendChild(box);
+  host.appendChild(wrap);
+
+  /** Direction A: a head bar over two columns -- the orders, the ground --
+   *  and the force along the bottom with Deploy at its end. */
+  function layoutFieldOrder(): void {
+    if (!field) return;
+    box.classList.add('rl-loading__box--brief', 'rl-loading__box--field');
+    const head = document.createElement('header');
+    head.className = 'rl-field__head';
+    const titles = document.createElement('div');
+    titles.className = 'rl-field__titles';
+    titles.append(label, name);
+    const progress = document.createElement('div');
+    progress.className = 'rl-field__progress';
+    progress.append(track, count);
+    head.append(titles, progress);
+
+    const left = document.createElement('div');
+    left.className = 'rl-loading__orders rl-field__orders';
+    // A cinematic IS the commander giving the orders: it takes the portrait's
+    // place at the top of the orders, rather than pushing the ground down.
+    if (video) left.append(video);
+    else if (commander) left.append(commanderHead);
+    if (field.glance.length > 0) {
+      const dl = document.createElement('dl');
+      dl.className = 'rl-glance';
+      for (const r of field.glance) {
+        const dt = document.createElement('dt');
+        dt.className = `rl-glance__k rl-glance__k--${r.key}`;
+        dt.textContent = r.label;
+        const dd = document.createElement('dd');
+        dd.className = 'rl-glance__v';
+        dd.textContent = r.text;
+        dl.append(dt, dd);
+      }
+      left.append(dl);
+    }
+    if (objectives) {
+      const objs = objectives;
+      objectivesPanel(left, { rows: () => objs, paysCredits: paysCredits ?? false, briefing: true });
+    }
+
+    // The full orders: every beat, in a panel that covers the ground when
+    // asked for -- one reading surface at a time, never a box scrolling
+    // inside the page (B-03).
+    const side = document.createElement('div');
+    side.className = 'rl-field__side';
+    const panel = document.createElement('div');
+    panel.className = 'rl-field__full';
+    panel.id = 'rl-field-full';
+    panel.hidden = true;
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'rl-btn rl-field__full-toggle';
+    toggle.textContent = t('briefing.fullOrders');
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.setAttribute('aria-controls', panel.id);
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'rl-btn rl-field__full-close';
+    close.textContent = t('briefing.fullOrders.close');
+    const setOpen = (open: boolean): void => {
+      panel.hidden = !open;
+      toggle.setAttribute('aria-expanded', String(open));
+      box.dataset.orders = open ? 'open' : 'closed';
+    };
+    toggle.addEventListener('click', () => setOpen(panel.hidden));
+    close.addEventListener('click', () => {
+      setOpen(false);
+      toggle.focus({ preventScroll: true });
+    });
+    if (imageEl) panel.append(imageEl);
+    panel.append(orders, close);
+    left.append(toggle);
+
+    if (preview) {
+      ground = groundView({ map: preview.map, tones: preview.tones, marks: field.marks, caption: t('deploy.map') });
+      side.append(ground.el);
+    }
+    side.append(panel);
+
+    const bar = forceBar({
+      view: force ? force.view : null,
+      attached: field.attached,
+      notes: brought?.sentences,
+      deploy,
+      back,
+      unitName: field.unitName,
+      onChange: (sel) => force?.onChange(sel),
+    });
+    box.append(head, left, side, bar.el);
+  }
+
+  /** The screen as it was before the Field order: a sandbox, a cinematic
+   *  with no orders, or a caller that passes no `field`. */
+  function layoutPlain(): void {
   // The spread is built after `deploy` because it owns that button's
   // `disabled` -- the screen may not deploy short (`isComplete`).
   const spreadEl = choosing && force ? deploySpread(force, deploy) : null;
@@ -748,8 +878,7 @@ export function showLoading(
     // A cinematic with no orders still needs the player's go.
     box.append(deploy);
   }
-  wrap.appendChild(box);
-  host.appendChild(wrap);
+  }
 
   // Hook for GH-133 (music epic), not music: this is where a mission's theme
   // would start, and firing it here -- once, the moment the screen mounts --
@@ -811,6 +940,10 @@ export function showLoading(
     step(): void {
       loaded += 1;
       paint();
+    },
+    setGroundPhoto(img: ImageData): void {
+      if (disposed) return;
+      ground?.setPhoto(img);
     },
     dispose(): void {
       if (disposed) return;

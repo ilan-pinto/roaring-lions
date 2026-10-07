@@ -115,7 +115,9 @@ import { buyUnlock, buyUpgrade } from './brigade-account';
 import { payVictory } from './campaign-pay';
 import { tierLine } from './ui/grade-copy';
 import { clocklessObjectives, speakerPlate, speakerPortrait, withoutHiddenClocks } from './ui/hud-model';
-import { briefingBeats, broughtFor, showLoading } from './ui/loading';
+import { briefingBeats, broughtFor, showLoading, type FieldOrder } from './ui/loading';
+import { briefingGlance, objectiveClock } from './ui/briefing-glance';
+import { groundMarks } from './ui/ground-marks';
 import { briefingSections, pickBriefingImage } from './ui/briefing-sections';
 import { deployRosterView } from './ui/deploy-roster';
 import { deployedLedger, type DeploySelection } from './ui/deploy-select';
@@ -257,6 +259,11 @@ function briefingLayout(
 }
 
 const MS_PER_TICK = 1000 / TICKS_PER_SECOND;
+
+/** The briefing's ground photograph, px a side: a 48-tile map at about 13 px
+ *  a tile, sharp on the ~580 px frame a 1400x900 screen gives it and on the
+ *  ~900 px one at 2560. */
+const BRIEFING_GROUND_PX = 960;
 
 /** `window.localStorage` can throw on the PROPERTY ACCESS itself (private mode, site
  *  data blocked) rather than on a method call.
@@ -1933,6 +1940,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       primary: o.primary,
       carries: o.carries ?? false,
       status: 'active',
+      clock: objectiveClock(o) ?? undefined,
     })
   );
   // The same gate `main.ts` puts on `payMission` below (`mission.ledger.
@@ -1954,6 +1962,43 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // Up before the canvas exists, so the player never sees the terrain draw
   // itself in or the units stand around as procedural boxes waiting for their
   // sheets. It comes down once the art gate below has settled.
+  // The Field order briefing (GH-417, direction A): the glance card, the
+  // marked ground and the attached units, every one DERIVED from what the
+  // mission already declares (ruling L-3). A sandbox has no mission and keeps
+  // the plain screen.
+  const briefPlaces = placeNamesFor(map, structureCatalogue as Readonly<Record<string, { name: string } | undefined>>);
+  const field: FieldOrder | undefined = resolvedMission
+    ? (() => {
+        const m = resolvedMission;
+        const mapMeta = m.map as { time_of_day?: string; player_start?: number[] };
+        const sections = briefingLayout(mission)?.sections ?? null;
+        const glanceObjectives = m.objectives.map((o) => ({ type: o.type, primary: o.primary, carries: o.carries, text: o.text, seconds: o.seconds, target: o.target }));
+        return {
+          glance: briefingGlance({
+            mapName: (mapJson as { name?: string }).name,
+            timeOfDay: mapMeta.time_of_day,
+            targetMinutes: (m as { target_minutes?: number }).target_minutes,
+            beats: m.briefing ? briefingBeats(m.briefing) : [],
+            sections,
+            objectives: glanceObjectives,
+            roe: m.roe,
+            zoneName: briefPlaces.zone,
+          }),
+          marks: groundMarks({
+            playerStart: mapMeta.player_start,
+            zones: (mapJson as { zones?: Record<string, number[]> }).zones ?? {},
+            // In the order the briefing's objective list draws them: primaries first, stable.
+            objectives: [...glanceObjectives].sort((a, b) => Number(b.primary) - Number(a.primary)),
+            flaggedZones: m.roe?.flagged_zones,
+            zoneName: briefPlaces.zone,
+          }),
+          attached: (m.starting_force ?? [])
+            .filter((p) => p.from_ledger !== true)
+            .map((p) => ({ type: p.unit, name: unitName(p.unit), count: p.count })),
+          unitName,
+        };
+      })()
+    : undefined;
   const loading = showLoading(
     stage,
     mission?.name ?? mission?.id ?? 'M0 sandbox',
@@ -1984,7 +2029,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // Named sections and the image slot (GH-119). `briefingSections` returns
     // null -- the plain beats -- unless the sections still spell the briefing,
     // which a locale overlay translating `briefing` alone breaks on purpose.
-    briefingLayout(mission)
+    briefingLayout(mission),
+    field
   );
   onDispose(() => loading.dispose());
   // The one teardown that cannot wait for this function to return.
@@ -2020,6 +2066,19 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // a mesh, loaded above. The loading bar has nothing to count and reads
   // "ready" (`ui/loading.ts`).
   loading.total(0);
+
+  // The briefing's ground, photographed (ruling L-2): the minimap's own call,
+  // rows flipped as the minimap flips them. Every GLB the map stands was
+  // awaited above, so the town is in the picture. Optional on `Renderer` and
+  // null on anything it cannot do: the painted tiles simply stay.
+  if (field) {
+    try {
+      const shot = renderer.captureGroundAlbedo?.(BRIEFING_GROUND_PX) ?? null;
+      if (shot) loading.setGroundPhoto(new ImageData(flipRows(shot.data, shot.width, shot.height), shot.width, shot.height));
+    } catch (err) {
+      console.warn('briefing: the ground photograph failed; the painted ground stays', err);
+    }
+  }
 
   /**
    * The picture each unit type shows in the HUD's selection cluster, card and
