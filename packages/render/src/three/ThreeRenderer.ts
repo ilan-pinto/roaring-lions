@@ -131,6 +131,9 @@ import {
   kneelHeading,
   leanTarget,
   stepLean,
+  flinchPitch,
+  flinches,
+  FLINCH_RADIUS_TILES,
   lerpFacingTurns,
   METRES_PER_TILE,
   mgBurstRounds,
@@ -1501,6 +1504,8 @@ export class ThreeRenderer implements Renderer {
   private readonly curFacing: Float64Array;
   /** Sim seconds at which each unit last fired (the kneel fallback, `stance.ts`). */
   private readonly lastShotSimS: Float64Array;
+  /** Pass C2/C4 (P5): the sim time each unit last flinched at a near miss. */
+  private readonly flinchSimS: Float64Array;
   /** The unit-level stance depth, for teams drawn as one (`stance.ts`). */
   private readonly unitDepth: Float64Array;
   /** 1 while the unit is going UP between kneeling and standing, 0 down
@@ -2166,6 +2171,7 @@ export class ThreeRenderer implements Renderer {
     this.prevFacing = new Float64Array(n);
     this.curFacing = new Float64Array(n);
     this.lastShotSimS = new Float64Array(n).fill(-Infinity);
+    this.flinchSimS = new Float64Array(n).fill(-Infinity);
     this.unitDepth = new Float64Array(n);
     this.unitRising = new Uint8Array(n);
     this.meshBodyYaw = new Float64Array(n);
@@ -3931,6 +3937,7 @@ export class ThreeRenderer implements Renderer {
       if (e.kind === 'fire') this.onFire(e);
       else if (e.kind === 'nearMiss') {
         this.spawnFlatFx(fx.toNumber(e.x), fx.toNumber(e.y), this.opts.nearMissColor, 7, 14);
+        this.flinchNear(fx.toNumber(e.x), fx.toNumber(e.y));
       } else if (e.kind === 'aps' && e.intercepted) {
         this.spawnFlatFx(this.curX[e.target], this.curY[e.target], this.opts.interceptColor, 10, 12);
         // GH-250 (spec D4): the round this event names -- (target, shooter)
@@ -5926,6 +5933,28 @@ export class ThreeRenderer implements Renderer {
    * own origin, so the arms and the weapon -- children of the spine -- come
    * with it and the hands stay on the grips.
    */
+  /**
+   * Pass C2/C4 (P5): every drawn infantry team within the sim's own
+   * near-miss radius of a round that landed, already suppressed or pinned,
+   * flinches -- unless the player asked for reduced motion. Dated on the
+   * SIM clock like the shot latch, so a frozen frame repaints the same pose.
+   */
+  private flinchNear(x: number, y: number): void {
+    const reduced = this.opts.reducedMotion?.() === true;
+    if (reduced) return;
+    const st = this.sim.state;
+    const now = presentationSimMs(this.sim.tickCount, 0) / 1000;
+    const r2 = FLINCH_RADIUS_TILES * FLINCH_RADIUS_TILES;
+    for (const id of this.meshUnitEntities.keys()) {
+      if (st.alive[id] !== 1) continue;
+      const dx = this.curX[id] - x;
+      const dy = this.curY[id] - y;
+      if (dx * dx + dy * dy > r2) continue;
+      if (!flinches(fx.toNumber(st.suppression[id]), st.pinned[id] === 1, st.routed[id] === 1, reduced)) continue;
+      this.flinchSimS[id] = now;
+    }
+  }
+
   private applyFigureAdditives(
     entity: MeshUnitEntity,
     squad: SquadRig,
@@ -5959,7 +5988,7 @@ export class ThreeRenderer implements Renderer {
         yaw += r.yaw;
       }
       // A negative pitch is forward (a launcher's own `lower`).
-      pitch -= f.lean.spine;
+      pitch -= f.lean.spine + flinchPitch(nowS - this.flinchSimS[id]);
       const neck = f.neck !== null ? f.lean.neck : 0;
       const head = f.head !== null ? f.lean.head : 0;
       if (turn === 0 && pitch === 0 && yaw === 0 && neck === 0 && head === 0) continue;

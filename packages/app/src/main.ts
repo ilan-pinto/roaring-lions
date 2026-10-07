@@ -1670,6 +1670,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       BASE
     ),
     timeOfDay: tod.value,
+    // Pass C2/C4 (P5): asked live, so the settings panel's motion switch
+    // reaches the near-miss flinch mid-mission.
+    reducedMotion: prefersReducedMotion,
     // Sandbox only: a mission brings its own battle, and a dev flag must
     // never change how one looks.
     ...(!mission && wantDecals

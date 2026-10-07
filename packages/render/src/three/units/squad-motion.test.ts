@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  FLINCH_DEG,
+  FLINCH_SECONDS,
+  flinchPitch,
+  flinches,
   LEAN_FROM,
   LEAN_FULL,
   LEAN_RATE_RAD_S,
@@ -198,5 +202,23 @@ describe('the suppression lean (pass C2/C4, P2)', () => {
     expect(a.spine).toBeCloseTo(LEAN_RATE_RAD_S * 0.05, 9);
     expect(stepLean(a, full, 10)).toEqual(full);
     expect(stepLean(full, none, 0)).toEqual(full);
+  });
+});
+
+describe('the near-miss flinch (pass C2/C4, P5)', () => {
+  it('dips and recovers inside 0.3 s, and is exactly zero outside it', () => {
+    expect(flinchPitch(-0.01)).toBe(0);
+    expect(flinchPitch(Number.NEGATIVE_INFINITY)).toBe(0);
+    expect(flinchPitch(FLINCH_SECONDS)).toBe(0);
+    expect(flinchPitch(0.06)).toBeCloseTo((FLINCH_DEG * Math.PI) / 180, 9);
+    expect(flinchPitch(0.2)).toBeGreaterThan(0);
+    expect(flinchPitch(0.2)).toBeLessThan(flinchPitch(0.06));
+  });
+  it('takes a man already under fire or pinned, never a broken one, and never under reduced motion', () => {
+    expect(flinches(0.1, false, false, false)).toBe(false);
+    expect(flinches(LEAN_FROM, false, false, false)).toBe(true);
+    expect(flinches(0, true, false, false)).toBe(true);
+    expect(flinches(1.7, true, true, false)).toBe(false);
+    expect(flinches(1.7, true, false, true)).toBe(false);
   });
 });

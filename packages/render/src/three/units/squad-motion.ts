@@ -311,3 +311,30 @@ export function stepLean(cur: Lean, target: Lean, dt: number): Lean {
   const go = (a: number, b: number): number => (Math.abs(b - a) <= max ? b : a + Math.sign(b - a) * max);
   return { spine: go(cur.spine, target.spine), neck: go(cur.neck, target.neck), head: go(cur.head, target.head) };
 }
+
+/**
+ * The near-miss flinch (pass C2/C4, P5, optional and off under reduced
+ * motion): a suppressed or pinned man ducks a little further when a round
+ * lands within `FLINCH_RADIUS_TILES` of him -- forward pitch in radians, `t`
+ * seconds after the round, a quick dip and an easier recovery, exactly zero
+ * outside [0, FLINCH_SECONDS).
+ */
+export const FLINCH_SECONDS = 0.3;
+export const FLINCH_DEG = 6;
+/** The sim's own near-miss radius (`tuning.ts` NEAR_MISS_RADIUS_SQ, 1.2 tiles). */
+export const FLINCH_RADIUS_TILES = 1.2;
+
+export function flinchPitch(t: number): number {
+  if (!(t >= 0) || t >= FLINCH_SECONDS) return 0;
+  const u = t / FLINCH_SECONDS;
+  // Down in the first fifth, back up over the rest.
+  const w = u < 0.2 ? u / 0.2 : 1 - (u - 0.2) / 0.8;
+  return FLINCH_DEG * DEG * w;
+}
+
+/** Whether a man flinches at a near miss: he is already under fire (the
+ *  lean's own floor) or pinned, and the player allows the motion. */
+export function flinches(suppression: number, pinned: boolean, routed: boolean, reducedMotion: boolean): boolean {
+  if (reducedMotion || routed) return false;
+  return pinned || suppression >= LEAN_FROM;
+}
