@@ -270,6 +270,8 @@ one directory, `**` crosses directories).
 | `assets/ui/portraits/units/lead/*.png` | 192 px lead-figure chips | Downsampled from `masters/lead` | `tools/render_unit_portraits.py` | Derived from Meshy meshes | ARR; derived from Meshy output (item 1) | `tools/render_unit_portraits.py` docstring |
 | `assets/ui/portraits/{shai_hammai,idit_zohar,nadir_sahim,karim_adhal,jubran_hallaq}.png` | Named-character portraits | Rendered from the lead's Meshy image-to-3D figures (untracked, `art/blend/KDF/...`); the concept images behind them are not recorded (item 7) | `tools/render_portrait.py` (Blender) | Yes: Meshy (figures); concept images unrecorded | ARR; Meshy terms pending (item 1) | `docs/art/meshy-prompts-characters.md` |
 | `assets/ui/plates/units/*.jpg`<br>`assets/ui/plates/units/manifest.json` | Garage plates, one per KDF type | Photographed from the running game with the unit's mesh on the ground texture | `pnpm plates:units` (Playwright over the game) | Derived from Meshy meshes | ARR; derived from Meshy output (item 1) | `tools/src/perf/unit-plates.ts` and CLAUDE.md, `pnpm plates:units` |
+| `assets/ui/plates/units/kit/*.jpg`<br>`assets/ui/plates/units/kit/manifest.json` | Kitted garage plates: the eight KDF vehicles at L3 (every track at tier 3), read only by the bay's no-WebGL2 fallback (GH-238 plan 3) | Photographed in game from the kitted GLBs (the Meshy-derived hull plus the Blender-built `kit_*` parts) | `pnpm plates:units --kit` (Playwright over the game) | No: a photograph of the game's own scene; derived from the vehicles' existing disclosed Meshy bakes | ARR; derived from Meshy output (item 1) | Kitted vehicles (GH-238 plan 3); `tools/src/perf/unit-plates.ts` |
+| `assets/ui/garage/closeups/*.jpg`<br>`assets/ui/garage/closeups/manifest.json` | 54 garage track close-ups, 480x320, one per KDF type and track (GH-238 K11) | Rendered from the garage turntable's own camera (its FOV and elevation), framed on the track's kit (the eight vehicles) or on the region the track concerns (every other KDF type) | `pnpm closeups:garage` (Playwright over the game) | No: renders of the game's own scene; derived from the existing disclosed Meshy bakes (vehicles) and the existing infantry art | ARR; derived from Meshy output (item 1) | Kitted vehicles (GH-238 plan 3); `tools/src/perf/garage-closeups.ts` |
 | `assets/ui/menu_host_plate.jpg` | Menu background plate | Photographed from the scene host (`menu_diorama.json`) | `pnpm plate:host` (Playwright over the game) | Derived from Meshy meshes | ARR; derived from Meshy output (item 1) | `tools/src/perf/host-plate-capture.ts`, CLAUDE.md `pnpm plate:host` |
 | `assets/ui/kit/*.svg` | Twelve garage upgrade emblems (3 track heads, 9 tiers) | Drawn as SVG paths, `currentColor` only | Hand-written SVG with Claude Code assistance | No | ARR, project original | GH-238 |
 | `assets/ui/roar_coin/*.{png,svg}` | Roar coin at 16, 24, 48, 96, 512 px, flat variants and spin strip | `tools/roar_coin.py` over the Meshy lion relief (ledger `roar-lion-relief`, preview `01a0f804`) | Blender, code; Meshy CLI | Yes: Meshy (relief only) | ARR; Meshy terms pending (item 1) | The Roar coin's lion relief |
@@ -327,7 +329,7 @@ reads the first cell of every register row and compares it with
 rows, a pattern that covers nothing, a Meshy task that the ledger and the
 committed `task.json` files disagree about (in either direction), and an
 `art/meshes` GLB with no Draco twin under `assets/meshes` or the reverse. On
-this branch: 995 files, 306 patterns, 138 rows, no problems.
+this branch: 1069 files, 313 patterns, 142 rows, no problems.
 
 It checks that a row exists. It cannot check that the row is true; that is
 what the Record column is for.
@@ -933,12 +935,17 @@ An upgraded vehicle looks different: eight KDF vehicles (`mbt_lavi`, `ifv_namer`
   one file).
 - **`ui_kit_fitted`** is the bolt-on cue for a kit purchase; its row is in the
   audio register above (procedural, CC0).
-- **TODO (the controller fills this in when Task 9 lands):** the kitted plates
-  (`assets/ui/plates/units/kit/`) and the 49 track close-ups
-  (`assets/ui/garage/closeups/`). Both are renders of the game's own scene
-  (Meshy-derived hulls plus the Blender-built kit), made by `plates:units --kit`
-  and `closeups:garage`; they need register rows in the same format as the
-  unit plates and are NOT yet recorded here.
+- **`assets/ui/plates/units/kit/*.jpg` (eight) and its manifest.** Photographed
+  in game by `pnpm plates:units --kit`, from the kitted GLBs: each vehicle at L3,
+  every track at tier 3. The bay's no-WebGL2 fallback is their only reader.
+- **`assets/ui/garage/closeups/*.jpg` (54) and its manifest.** Rendered by
+  `pnpm closeups:garage` from the garage turntable's own camera, one per KDF type
+  and track: 16 types with three tracks and 3 with two. The plan named 49
+  (15 x 3 + 2 x 2); two KDF types landed on `main` after it was written.
+- **Neither set is AI-generated.** Both photograph the game's own scene: the
+  vehicles' existing, disclosed Meshy bakes (the rows above) with the
+  Blender-built kit, and the existing infantry art. Their register rows sit
+  beside the unit plates.
 
 ## What closing the source changes
 
