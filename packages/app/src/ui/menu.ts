@@ -16,6 +16,7 @@ import { routes } from '../shell/links';
 import type { Disposer } from '../shell/router';
 import { confirmDialog } from './confirm';
 import { panel } from './panel';
+import { mountEndPanel } from './end-panel';
 import { stagger } from './motion';
 import { markSvg, wordmark } from './mark';
 import { worldMap } from './worldmap';
@@ -515,7 +516,9 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): Dispos
     rank: 'alert',
     title: t('menu.end.title', { result: opts.result }),
     tag: t('menu.end.tag', { result: opts.result }),
-    place: 'top:62%;left:50%;transform:translateX(-50%);width:min(26.25rem,90vw);text-align:center',
+    // Width only: `.rl-endpanel` (`mountEndPanel`, below) centres it and caps
+    // its height, which `top:62%` never did -- the actions fell off screen.
+    place: 'width:min(26.25rem,90vw);text-align:center',
   });
   p.el.classList.add('rl-enter');
 
@@ -590,7 +593,7 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): Dispos
 
   const nav = document.createElement('div');
   nav.className = 'rl-endnav';
-  const link = (label: string, href: string, onward = false): void => {
+  const link = (label: string, href: string, onward = false): HTMLAnchorElement => {
     const a = document.createElement('a');
     // GH-261: the onward link carries the supporting-attack arrow after its words.
     if (onward) a.innerHTML = symbolLabel('next', label, { after: true });
@@ -600,6 +603,7 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): Dispos
     // The onward link -- the next mission -- is the end screen's primary action.
     if (onward) markConfirm(a);
     nav.appendChild(a);
+    return a;
   };
   if (opts.onDebrief) {
     const btn = document.createElement('button');
@@ -612,12 +616,13 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): Dispos
     });
     nav.appendChild(btn);
   }
-  if (won && opts.nextMissionId) link(t('menu.end.next'), routes.mission(opts.nextMissionId), true);
-  link(t('menu.end.replay', { result: opts.result }), routes.mission(opts.missionId));
-  link(t('nav.campaignMap'), routes.campaign());
+  const next = won && opts.nextMissionId ? link(t('menu.end.next'), routes.mission(opts.nextMissionId), true) : null;
+  const replay = link(t('menu.end.replay', { result: opts.result }), routes.mission(opts.missionId));
+  const campaign = link(t('nav.campaignMap'), routes.campaign());
   link(t('nav.menu'), routes.menu());
-  p.body.appendChild(nav);
 
-  host.appendChild(p.el);
+  // Focus: onward after a win, another go after a loss, and the campaign map
+  // after a win with nothing to follow it.
+  mountEndPanel(host, p, nav, next ?? (won ? campaign : replay));
   return () => p.el.remove();
 }
