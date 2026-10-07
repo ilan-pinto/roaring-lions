@@ -62,6 +62,8 @@ pnpm test:determinism # replay 1000 ticks from seed, assert state hash
 pnpm lint
 pnpm validate:data    # JSON Schema check on all content
 pnpm validate:meshes  # the art gate: palette + silhouette IoU on art/meshes/**, rendered headlessly
+pnpm kit:meshes       # graft art/parts/kit/<id>.glb into the vehicle GLBs (then wreck:meshes, encode:meshes)
+pnpm kit:capture      # in-game kitted-vehicle sheets, the `kit` toggle reading, the garage turntables
 pnpm validate:ui      # no colour literals AND no bare chrome strings in UI source
 pnpm ui:routes        # drive the shell: one JS realm, two missions, no reload (60-74 s local, ~130 s on CI: no GPU there)
 pnpm balance          # headless battle sim, prints win rates
@@ -1647,6 +1649,62 @@ for vehicles.
   (`apc_eitan`, `apc_kipod`, `dozer_d9`, `scout_shachaf`) carry no UVs on it
   at all, and the seven that do share the hull's own material, so scrolling it
   would scroll the whole vehicle. Nothing in WP-A1.3 delivered that half.
+- **A mesh VEHICLE wears its bought kit since plan 3 (GH-238, 2026-10-07), in
+  the garage and on the field.** Spec `2026-10-06-kitted-vehicles.md`, contract
+  v5 (vehicles) in `2026-08-28-mesh-unit-contract.md`. Each of the eight KDF
+  vehicles carries every part of its three tracks as `kit_<track>_<tier>_<host>`
+  nodes in its ONE GLB (`rl_kit` extras, the host's parent, local TRS, material
+  and attribute set). The source is `art/parts/kit/<id>.glb`, Blender-built by
+  `tools/vehicles/export_vehicle_kit.py` (0 Meshy credits, UV-pinned to the
+  vehicle's existing bake). **Pipeline, order load-bearing:** export ->
+  `pnpm kit:meshes` (a gltf-transform graft: every live accessor stays
+  byte-identical) -> `pnpm wreck:meshes` (never twins, measures or clips a
+  `kit_*`) -> `pnpm encode:meshes`. `applyVehicleKit` (`units/vehicle-kit.ts`)
+  runs first in `buildVehicleMeshTemplate`: it keeps the parts whose tier is at
+  most the type's bought tier, merges them into the host geometry HOST FIRST,
+  swaps that onto every mesh over the old one (the `WRECK_` twin too), and
+  deletes every `kit_*` node. The tiers are `RendererOptions.unitKitTiers`,
+  from `upgradePrepass`'s own per-type tiers object; tiers absent or 0 is the
+  shipped template, so the existing golden scenarios cannot move. The `kit`
+  debug layer is `setDrawRange(0, rlKitBaseCount)`, which is why host-first is
+  not a taste.
+  **+0 draw calls**: `tools/src/perf/kit-drawcalls.ts` reads 12 submissions per
+  vehicle (6 for the D9) at tiers 0 and at tiers 3, through the shipped builder
+  with `renderer.info` reset BY HAND, because three r170 resets it after the
+  shadow pass and a main-pass-only reading looks half as expensive.
+  **The exporter refuses** a part over 1.10x its budget, a part off its mock by
+  more than 3 cm or 10% (a named, printed DEVIATION is the only excuse), more
+  than 5,000 kit triangles, and any clash or containment (`kit_clash.py`: kit
+  x kit at rest, turret kit x hull kit and x the shipped nodes over 72
+  headings, kit x its own host). An exemption is named, scoped to headings and
+  given a reason, and one that excuses nothing is itself refused.
+  **`validate:meshes` judges kit two ways**: from the bytes (name, host, TRS,
+  material, one primitive, declared track and tier, <= 5,000 triangles) with
+  `check_kit_owed` requiring a node for EVERY (track, tier) a vehicle's JSON
+  declares (`KIT_VEHICLES` is parsed out of `kit-contract.ts`, so the kit pass,
+  the draw-call harness and the gate share one list); and from renders, the
+  maximum kit plus each track alone at 1-3 and L1-L3 (nine for the D9) through
+  the shipped render's own Cycles, every one held under IoU 0.88 against every
+  other unit and not against its own base. **Tone** (K3): armour takes the
+  shade paint texel (25th-percentile luminance of `hull_hull`), sensors and
+  firepower the bake's metal texel, `dark` only lenses, windows and apertures.
+  Five bakes (Namer, Eitan, Kipod, Shachaf, D9) carry no steel (a uniform
+  metallic map, no textured `*_metal` node), so "the third metal rule" takes
+  the greyest paint instead and prints a DEVIATION line. Shipped kit triangles at maximum kit: Lavi 4,740,
+  Namer 3,282, Eitan 3,266, Kipod 3,222, jeep 2,264, D9 2,758, Shachaf 1,906,
+  Peten 1,434. The `kitted` golden scenario (`vehicle` + `&kit`, gated, `units`
+  and `kit` toggles) has NO baseline: **CI's `visual` job is red (exit 1, a
+  missing entry in an existing manifest) until the post-merge bless, from CI
+  numbers; do not bless from the branch.** `pnpm kit:capture` photographs the
+  eight at L0-L3 through the real prepass and measures the toggle.
+  The garage's `GarageView.setKit` re-merges from a pristine clone (no fetch),
+  draws the new hull and only THEN releases the old, fitted on the maximum kit
+  so a purchase never resizes the frame; `cueFor` returns `'kit'`
+  (`ui_kit_fitted`) for the eight, in the same task. **Open, not fixed:** the
+  slat cages moire at zoom 1; the Peten's kit does not read at zoom 1 (K5, the
+  rotor hides it; it reads from 2.5); and the metal-versus-paint contrast is
+  weak on the third-rule bakes (the Namer's metal texel is 0.055 off its
+  target), so those kits read by shape more than by tone.
 - **A building's FACING is gated now** (GH-142, `tools/building_facing.py`,
   inside `pnpm validate:meshes`). A building never turns — `mesh-building.ts`
   leaves rotation at identity — so whichever elevation an export bakes toward

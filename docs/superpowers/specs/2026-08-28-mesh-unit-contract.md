@@ -451,3 +451,26 @@ Pipeline order for a vehicle: export -> `pnpm kit:meshes` ->
   file's bytes and names how many kit nodes it saw, and holds every vehicle's
   shipped `kit_*` names to exactly its source's (none without one), so a
   source exported and never grafted is a red test naming the commands to run.
+
+## Colour, and what gates it (as built)
+
+- **A kit part's colour is the texel its UVs are pinned to** (K3), one texel of
+  the vehicle's own bake per tone: `paint` (the 25th-percentile luminance texel
+  of `hull_hull`) for every armour face, `metal` for every sensors and firepower
+  face, `dark` only for lenses, windows and apertures. Where the bake has no
+  steel (a uniform metallic map and no textured `*_metal` node: the Namer,
+  Eitan, Kipod, Shachaf and D9) `metal` is the greyest paint, and the exporter
+  prints a DEVIATION line. A palette host (the four weapon stations) takes no
+  UVs and draws its ramp.
+- **The exporter refuses** a part over 1.10x its triangle budget, a part off the
+  approved mock by more than 3 cm or 10% (a named, printed DEVIATION excuses one
+  axis of one node), a vehicle over 5,000 kit triangles, and any clash or
+  containment between kit parts and the shipped nodes (`kit_clash.py`, turret
+  parts swept over 72 headings), unless a named exemption scoped to those
+  headings excuses it.
+- **`pnpm validate:meshes` reads the kit from the bytes** (name, host, TRS,
+  material, one primitive, declared track and tier, <= 5,000 triangles) and
+  requires a node for EVERY (track, tier) a `KIT_VEHICLES` member's unit JSON
+  declares, and **from renders**: the maximum kit and the twelve variants (each
+  track alone at tiers 1-3, then L1-L3; nine for the D9), each IoU-checked
+  below 0.88 against every other unit.

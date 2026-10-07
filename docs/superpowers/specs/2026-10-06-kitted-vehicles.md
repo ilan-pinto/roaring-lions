@@ -1,6 +1,6 @@
 # Kitted vehicles — design (GH-238, garage uplift plan 3)
 
-**Date:** 2026-10-06 · **Status:** design for the lead's approval; nothing is modelled yet ·
+**Date:** 2026-10-06 · **Status:** built in plan 3 (PR to follow) ·
 **Builds on:** `2026-09-25-garage-uplift-design.md` §3.3–3.5, the plan 3 line in §8, and §9's
 textured-vehicle risk · **The lead, 6 Oct:** *"an upgraded unit should look different, in the
 garage and in the game."* · **Not in scope:** a mark or badge of any kind on the map (rejected at
