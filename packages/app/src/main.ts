@@ -130,13 +130,15 @@ import { showKeysOverlay } from './ui/keys-overlay';
 import { groupBar, groupChips } from './ui/group-bar';
 import { isIdle, nextIdle, type IdleFacts } from './ui/idle';
 import { escapeHtml } from './ui/escape-html';
-import { symbolLabel } from './ui/symbol';
-import { alertNotice, evacuatedNotice, reinforceTrigger, removedNotice, triggerLabel } from './ui/mission-notice';
+import { bootFailureCard, bootFailureKind, guardBoot, mountErrorCard } from './ui/boot-failure';
+import { webgl2Available } from './ui/webgl-probe';
+import { alertNotice, evacuatedNotice, reinforceTrigger, removedNotice, ledgerSavedNotice, triggerLabel, unknownSandboxMapNotice } from './ui/mission-notice';
 import { ReinforcementDock } from './ui/production';
 import { doctrineTags } from './ui/dock-model';
 import {
   applyIntent,
   issueOrder,
+  haltNote,
   orderDenied,
   resolvePointer,
   resolveKeyVerb,
@@ -484,24 +486,18 @@ function describeMissionEvent(
   }
 }
 
-function bootError(stage: HTMLElement, title: string, body: string, home = routes.menu()): void {
-  const div = document.createElement('div');
-  div.className = 'rl-boot-error';
+function bootError(stage: HTMLElement, title: string, body: string, next: string, home = routes.menu()): void {
+  mountErrorCard(stage, { title, body, next, reload: false }, home);
+}
 
-  const h = document.createElement('h2');
-  h.textContent = title;
-  div.appendChild(h);
-
-  const p = document.createElement('p');
-  p.textContent = body;
-  div.appendChild(p);
-
-  const a = document.createElement('a');
-  a.href = home;
-  a.innerHTML = symbolLabel('back', t('nav.backToMenu'));
-  div.appendChild(a);
-
-  stage.appendChild(div);
+/** A screen that could not be mounted (pass K): the error goes to the
+ *  console whole, and the player gets `ui/boot-failure.ts`'s card -- what
+ *  happened, why and what next, in the game's words -- never the exception's
+ *  message or its stack. */
+function bootFailure(stage: HTMLElement, err: unknown): void {
+  console.error('boot failed:', err);
+  stage.replaceChildren();
+  mountErrorCard(stage, bootFailureCard(bootFailureKind(err, webgl2Available())), routes.menu());
 }
 
 /** `ui/saves.ts`'s `download`: a Blob URL and a click on an `<a download>`
@@ -868,7 +864,7 @@ async function main(): Promise<void> {
    *  `available` is that question asked once. */
   function mountSaves(host: HTMLElement): Disposer {
     if (!ledgerStore.available) {
-      bootError(host, t('boot.savesUnavailable.title'), t('boot.savesUnavailable.body'), routes.menu());
+      bootError(host, t('boot.savesUnavailable.title'), t('boot.savesUnavailable.body'), t('boot.savesUnavailable.next'), routes.menu());
       return () => host.replaceChildren();
     }
     const deps: SavesDeps = {
@@ -1107,7 +1103,7 @@ async function main(): Promise<void> {
         name: 'sandbox',
         pattern: '/free-play/:map',
         mount: (host, req) =>
-          bootBattlefield(host, {
+          guardBoot(host, req.signal, (err) => bootFailure(host, err), bootBattlefield(host, {
             missionId: null,
             sandboxMap: req.params.map,
             query: req.query,
@@ -1120,13 +1116,13 @@ async function main(): Promise<void> {
             // and `replace` so the attempt that was just lost does not sit in
             // history as a back-button trap into a dead sim.
             restart: () => void router.navigate(router.href(req.path, req.query), { replace: true, force: true }),
-          }),
+          })),
       },
       {
         name: 'mission',
         pattern: '/mission/:id',
         mount: (host, req) =>
-          bootBattlefield(host, {
+          guardBoot(host, req.signal, (err) => bootFailure(host, err), bootBattlefield(host, {
             missionId: req.params.id,
             sandboxMap: null,
             query: req.query,
@@ -1134,7 +1130,7 @@ async function main(): Promise<void> {
             navigate: (href, opts) => void router.navigate(href, opts),
             settings: settingsDeps,
             restart: () => void router.navigate(router.href(req.path, req.query), { replace: true, force: true }),
-          }),
+          })),
       },
       {
         name: 'settings',
@@ -1166,7 +1162,7 @@ async function main(): Promise<void> {
       },
     ],
     notFound: (host, req) => {
-      bootError(host, t('boot.notFound.title'), t('boot.notFound.body', { path: req.path }), routes.menu());
+      bootError(host, t('boot.notFound.title'), t('boot.notFound.body', { path: req.path }), t('boot.notFound.next'), routes.menu());
       return () => host.replaceChildren();
     },
   });
@@ -1364,7 +1360,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   if (missionId !== null) {
     const rawMission = (missions as Record<string, MissionJson | undefined>)[missionId];
     if (!rawMission) {
-      bootError(stage, t('boot.unknownMission.title'), t('boot.unknownMission.body'));
+      bootError(stage, t('boot.unknownMission.title'), t('boot.unknownMission.body'), t('boot.unknownMission.next'));
       // `teardown`, not a fresh no-op: nothing has been registered yet, so it
       // does nothing today -- but an early return that opts OUT of the teardown
       // is how the next registration added above this line goes unreleased.
@@ -2329,6 +2325,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     halt: () => {
       const mine = renderer.selection.filter((i) => sim.state.side[i] === 0);
       if (mine.length) dispatch({ kind: 'halt', ids: mine });
+      const none = haltNote(mine.length);
+      if (none) hud.note(none.text, none.tone);
     },
     smoke: () => armOrder('smoke'),
     load: () => runVerb('mount'),
@@ -2625,6 +2623,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   });
   // Six panes on `document.body`, plus a title card that may still be holding.
   onDispose(() => hud.destroy());
+  // Pass K: a /free-play/<id> link naming no shipped map still loads the
+  // default ground (a typo in a dev URL should not look like a broken build),
+  // but the PLAYER is told, by name -- it used to be a console line only, and
+  // the sandbox strip names no map, so a different battlefield just appeared.
+  const unknownMap = unknownSandboxMapNotice(sandboxMap, maps, mapJson.name);
+  if (unknownMap) hud.note(...unknownMap, { tier: 'important' });
   // WP-P5 (PA-16): a session that showed the order-row line has done its
   // teaching, so the next one does not show it. Marked on LEAVING rather than
   // on first sight, so the line stays for the whole of that first session --
@@ -3919,7 +3923,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // per-campaign record against the ledger's completed missions, and after
             // the write this very victory would count as already won this campaign.
             const accountBefore = ledgerStore.readAccount();
-            ledgerStore.writeLedger(updatedLedger);
+            // Pass K: a refused write (storage full, site data blocked) used to
+            // throw out of this handler and take the end screen with it, and a
+            // browser with no storage at all was still told "campaign saved".
+            let ledgerSaved = ledgerStore.available;
+            try {
+              ledgerStore.writeLedger(updatedLedger);
+            } catch (err) {
+              console.error('campaign ledger write refused:', err);
+              ledgerSaved = false;
+            }
             // The brigade account (spec 2026-09-15 §4.2): what this run is worth, paid
             // only for improvement over what this mission has paid IN THIS CAMPAIGN
             // (GH-330; a mission not open in the campaign the run booted in is held to
@@ -3939,7 +3952,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               if (payout) ledgerStore.writeAccount(payout.account);
               if (payout) telemetry().account('payout', payout.account, { mission: mission.id, paid: payout.paid });
             }
-            hud.note(t('main.note.ledgerUpdated'), 'info');
+            hud.note(...ledgerSavedNotice(ledgerSaved));
           }
           // GH-234: computed once, here, and handed to both the outcome moment
           // (below) and the debrief (`debriefOpts.credits`) -- the payment
@@ -4167,6 +4180,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                   nextMissionId,
                   debrief,
                   aftermath: momentOptions.aftermath,
+                  reason: missionFailure ?? undefined,
                   onDebrief: () => {
                     screenDisposers.push(showDebrief(document.body, debriefOpts));
                   },
@@ -4795,15 +4809,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
 }
 
 main().catch((err: unknown) => {
-  console.error('boot failed:', err);
   const stage = document.getElementById('stage');
   if (stage) {
-    const body = err instanceof Error ? (err.stack ?? err.message) : String(err);
-    // Not t(): main() itself just threw, which can happen before its own
-    // locale boot (loadLocale/setCatalogue) ever runs -- the catalogue is
-    // not a safe thing to call into here. Every other bootError call site
-    // in this file runs from a router callback or bootBattlefield, well
-    // after main()'s boot sequence has completed successfully.
-    bootError(stage, 'Boot failed', body); /* i18n-ok: boot failure before the catalogue */
+    // t() is safe even here, before main()'s own locale boot: the module
+    // starts on the bundled `en` catalogue (`i18n/t.ts`), so a failure that
+    // early still reads in English rather than as raw keys.
+    bootFailure(stage, err);
+  } else {
+    console.error('boot failed:', err);
   }
 });
