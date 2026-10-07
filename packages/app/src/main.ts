@@ -10,6 +10,7 @@ import { unitsJustOutside, withOutsideCounts } from './hold-outside';
 import { deadlineWarningLine, deadlineWarnings, failureReason } from './ui/mission-failure';
 import { nameKind, type NamesJson } from './names';
 import { applyRosterCarryover } from './roster-carryover';
+import { logDestroyed, logMissionEvent, newMissionLog, type MissionLog } from './mission-log';
 import { lostRecordFor, predecessorOf } from './roster-lost';
 import {
   Sim,
@@ -1573,6 +1574,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  so a lost unit on a losing run is not memorialised: the run did not
    *  happen as far as the campaign is concerned. */
   const lostThisMission: LostRecord[] = [];
+  /** GH-417 (L-6): what happened, where and when, for the after-action
+   *  report -- losses with the tile they fell on, deductions pinned to the
+   *  zone they name, objective outcomes, the hostile kill count. Read off
+   *  events and sim state; never written back. */
+  const missionLog: MissionLog = newMissionLog();
   /**
    * `&civ`: where the crowd is walked to, and the ground that counts as out.
    *
@@ -3900,8 +3906,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         jumpTarget = nextJump(jumpTarget, a.tier, a.at);
       }
 
+      for (const e of events) if (e.kind === 'destroyed') logDestroyed(missionLog, sim.state.side[e.entity]);
       for (const me of missionEvents) {
         missionTelemetry?.onEvent(me);
+        logMissionEvent(missionLog, me, {
+          positionOf: (id) => ({ x: fx.toNumber(sim.state.posX[id]), y: fx.toNumber(sim.state.posY[id]) }),
+          rosterOf: (id) => runtime?.rosterEntryOf(id),
+          zone: (id) => map.zones[id],
+        });
         if (tut) tut = advance(tut, { kind: 'mission', event: me }, performance.now());
         if (me.kind === 'roe') deductions.push({ penalty: me.penalty, reason: me.reason, tick: me.tick });
         if (me.kind === 'evacuated') evacuatedSoFar++;
