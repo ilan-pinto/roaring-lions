@@ -61,6 +61,7 @@ import { kitLevel, units, type UpgradableUnit } from '@lions/data';
 import { PLACEHOLDER_HZ } from '../../../packages/render/src/audio';
 import { VOICE_TIMING } from '../../../packages/app/src/voice/director';
 import { musicOffInitScript } from './music-off';
+import { BRIEFING_REACH_SCRIPT, briefingReachProblems, type BriefingReach } from './briefing-reach';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -669,6 +670,16 @@ try {
   // crash, so nothing else here would have reported it.
   await page.goto(`http://localhost:${PORT}/?mission=${MISSION_A}`, { waitUntil: 'load' });
   await page.waitForSelector('.rl-loading__deploy');
+  // GH-417 B-01..B-03, on the layout itself (`briefing-reach.ts`): the screen
+  // opens at its top with the mission's name on screen, Deploy wholly inside
+  // the 1400x900 viewport, and no orders hidden in a nested scroll box.
+  // origin/main read red here three ways (see that file's header). Fonts
+  // first: a late webfont swap reflows every line this measures.
+  await page.waitForFunction(() => document.fonts.status === 'loaded');
+  const reach = (await page.evaluate(BRIEFING_REACH_SCRIPT)) as BriefingReach | null;
+  const reachProblems = reach ? briefingReachProblems(reach) : ['the briefing did not render'];
+  console.log(`[routes] briefing reach: ${reachProblems.length === 0 ? 'OK' : reachProblems.join('; ')} ${JSON.stringify(reach)}`);
+  expect(reachProblems.length === 0, `the briefing is not reachable on open: ${reachProblems.join('; ')}`);
   await pressEscapeUntilGone(page);
   await page.waitForSelector('.rl-world');
   const escapeSettled = await settleBoard(page);

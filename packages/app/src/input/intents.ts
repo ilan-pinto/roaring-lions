@@ -350,7 +350,11 @@ export function resolveKeyVerb(
   }
   if (verb === 'dismount') {
     const carriers = ctx.ids.filter((i) => ctx.passengerCount(i) > 0);
-    if (carriers.length === 0) return { intents: [], roe: free, marker: false };
+    // Pass K: a refused verb says why, like mount and smoke beside it -- this
+    // one used to do nothing at all, which reads as a dead key.
+    if (carriers.length === 0) {
+      return { intents: [], roe: free, marker: false, note: { text: t('intent.dismount.none'), tone: 'mute' } };
+    }
     return {
       intents: [{ kind: 'dismount', carriers }],
       roe: free,
@@ -457,4 +461,10 @@ function roeTierAt(world: IntentWorld, x: number, y: number): RoeTier {
   if (struct < 0) return 'free';
   if (world.isProtected(struct)) return 'protected';
   return world.structureRoePenalty(struct) > 0 ? 'costly' : 'free';
+}
+
+/** Pass K: the halt key with nothing of ours selected used to do nothing, in
+ *  silence. It still dispatches nothing; it now says what the key wants. */
+export function haltNote(mine: number): { text: string; tone: 'mute' } | null {
+  return mine > 0 ? null : { text: t('intent.halt.none'), tone: 'mute' };
 }

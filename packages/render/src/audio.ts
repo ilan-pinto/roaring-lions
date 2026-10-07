@@ -108,6 +108,21 @@ export interface AnnouncementManifest {
   events: Record<string, AnnouncementDef>;
 }
 
+/** One ambience bed (polish pass F, A11): a seamless loop with its own
+ *  level. `file`/`alt` as a clip's; `loop_s` and `channels` are written by
+ *  tools/gen_audio.py and re-measured by `pnpm validate:audio`. */
+export interface AmbienceBed extends AudioVariant {
+  /** The bed's level on the `amb` bus, 0..1: it is heard at -34 LUFS. */
+  gain?: number;
+  loop_s?: number;
+  channels?: number;
+}
+
+/** `data/audio.json`'s `ambience` section: bed id -> bed. */
+export interface AmbienceSpec {
+  beds?: Record<string, AmbienceBed>;
+}
+
 /** One critical event's sound (polish pass F, AU-1): a set name, or a
  *  deliberate silence with its reason. */
 export type CueEntry = string | { silent: string };
@@ -116,6 +131,8 @@ export interface AudioManifest {
   version?: number;
   master_gain?: number;
   music?: MusicSpec;
+  /** The ambience beds (A11), played on the `amb` bus. */
+  ambience?: AmbienceSpec;
   sets?: Record<string, AudioSet>;
   /** Cue id -> set (AU-1). The app plays a cue by id through `playCue`,
    *  never by set name. `$comment` is allowed and ignored. */
@@ -183,6 +200,8 @@ export const VOICE_DECODE_BUDGET_BYTES = 16 * 1024 * 1024;
 export interface DuckRow {
   readonly sfx: number;
   readonly music: number;
+  /** The ambience bed (A11), on its own bus. */
+  readonly amb: number;
   readonly attackS: number;
   readonly releaseS: number;
 }
@@ -202,16 +221,20 @@ export interface DuckRow {
  *   2 s once the stinger and a breath after it are done.
  * - `pause`, the pause menu: music -6 dB, and every voice stops.
  *
- * The plan's ambience column is not here: there is no ambience bed yet
- * (A11, a follow-up package). Deepest wins when rows overlap (`duckLevels`).
+ * The ambience column (A11): a bark leaves the bed alone, an announcement and
+ * a major alert take it 3 dB down, an objective cue leaves it, the outcome
+ * takes it 12 dB down (and keeps it there: `AMB_AFTER_OUTCOME`), and the pause
+ * menu silences it -- the brief's "it stops on pause", where the plan's row had
+ * -6 dB and a low-pass -- and `setPaused` then stops the source outright.
+ * Deepest wins when rows overlap (`duckLevels`).
  */
 export const DUCK_TABLE = {
-  bark: { sfx: 0.631, music: 0.708, attackS: 0.08, releaseS: 0.3 },
-  announce: { sfx: 0.501, music: 0.501, attackS: 0.08, releaseS: 0.4 },
-  cue: { sfx: 0.708, music: 0.708, attackS: 0.02, releaseS: 0.25 },
-  major: { sfx: 0.501, music: 0.501, attackS: 0.02, releaseS: 0.5 },
-  outcome: { sfx: 0, music: 0, attackS: 0.6, releaseS: 2 },
-  pause: { sfx: 1, music: 0.501, attackS: 0.15, releaseS: 0.3 },
+  bark: { sfx: 0.631, music: 0.708, amb: 1, attackS: 0.08, releaseS: 0.3 },
+  announce: { sfx: 0.501, music: 0.501, amb: 0.708, attackS: 0.08, releaseS: 0.4 },
+  cue: { sfx: 0.708, music: 0.708, amb: 1, attackS: 0.02, releaseS: 0.25 },
+  major: { sfx: 0.501, music: 0.501, amb: 0.708, attackS: 0.02, releaseS: 0.5 },
+  outcome: { sfx: 0, music: 0, amb: 0.251, attackS: 0.6, releaseS: 2 },
+  pause: { sfx: 1, music: 0.501, amb: 0, attackS: 0.15, releaseS: 0.3 },
 } as const satisfies Record<string, DuckRow>;
 export type DuckRowName = keyof typeof DUCK_TABLE;
 
@@ -221,14 +244,39 @@ export const DUCK = DUCK_TABLE.bark;
 /** Several rows at once: the deepest duck per layer wins, never a product --
  *  a bark over a major alert must not push combat further down than the
  *  alert alone does. No rows is no duck. */
-export function duckLevels(rows: readonly DuckRow[]): { sfx: number; music: number } {
+export function duckLevels(rows: readonly DuckRow[]): { sfx: number; music: number; amb: number } {
   let sfx = 1;
   let music = 1;
+  let amb = 1;
   for (const r of rows) {
     sfx = Math.min(sfx, r.sfx);
     music = Math.min(music, r.music);
+    amb = Math.min(amb, r.amb);
   }
-  return { sfx, music };
+  return { sfx, music, amb };
+}
+
+/** After the outcome stinger's own hold lets go, the bed stays at the
+ *  outcome's -12 dB until the mission is left: the place is still there under
+ *  the verdict and the debrief, but the fight is over. Touches nothing else. */
+export const AMB_AFTER_OUTCOME: DuckRow = { sfx: 1, music: 1, amb: DUCK_TABLE.outcome.amb, attackS: DUCK_TABLE.outcome.attackS, releaseS: 0.3 };
+/** A bed fades in over this as the deploy gate clears (section 2.2's
+ *  mission-start row: "fades in from -inf over 1.5 s"). */
+export const AMB_FADE_IN_S = 1.5;
+/** A bed fades out over this when it is stopped (teardown, mute, a new bed). */
+export const AMB_FADE_OUT_S = 0.3;
+
+/** What `setAmbience` did. `loading` will start the bed once it decodes. */
+export type AmbienceResult = 'started' | 'loading' | 'stopped' | 'unknown' | 'muted' | 'paused' | 'no-context';
+
+/** The ambience readback (tests, the sandbox): the bed asked for, the bed
+ *  whose PCM is held, whether a source is sounding, and whether the pause
+ *  menu holds it. */
+export interface AmbienceState {
+  bed: string | null;
+  loaded: string | null;
+  playing: boolean;
+  paused: boolean;
 }
 
 /** Which ducking row a cue id brings with it, if any. */
@@ -549,6 +597,21 @@ export class BattleAudio {
    *  the master and NOT under the sfx duck, so a voice line never ducks an
    *  objective chime. Rides the SFX slider; it has none of its own. */
   private cue: GainNode | null = null;
+  /** The ambience bus (A11): the bed, under its own duck stage, into the
+   *  master. Rides the SFX slider; it has none of its own (section 2.1). */
+  private amb: GainNode | null = null;
+  /** The duck stage under the amb bus: the duck table's ambience column. */
+  private ambDuck: GainNode | null = null;
+  /** The bed asked for (`setAmbience`), whether or not it is sounding. */
+  private ambBed: string | null = null;
+  /** The decoded bed, one at a time: a 40 s loop is ~8 MB of PCM. */
+  private ambLoaded: { bed: string; buffer: AudioBuffer } | null = null;
+  /** The bed sounding now: its source, its fade gain, and where in the loop
+   *  it began (context time, offset), so a pause can resume where it was. */
+  private ambSource: { src: AudioBufferSourceNode; gain: GainNode; at: number; offset: number } | null = null;
+  /** Where in the loop a stopped bed resumes. */
+  private ambOffset = 0;
+  private ambPaused = false;
   /** The radio's shared paths (N13, N17): the band alone, the walkie-talkie
    *  chain, and the static's own band. All three feed the voice bus. */
   private radio: RadioChain | null = null;
@@ -655,12 +718,20 @@ export class BattleAudio {
         // places: into the master directly, never through the sfx duck.
         this.cue = this.ctx.createGain();
         this.cue.connect(this.master);
+        // The ambience bus (A11), after the cue bus for the same reason: its
+        // duck stage UNDER the slider's gain, like the sfx bus's.
+        this.amb = this.ctx.createGain();
+        this.ambDuck = this.ctx.createGain();
+        this.amb.connect(this.ambDuck).connect(this.master);
         const bus = busGain(this.masterGain, this.user);
         this.master.gain.value = bus.master;
         this.sfx.gain.value = bus.sfx;
         this.voice.gain.value = bus.voice;
         this.cue.gain.value = bus.sfx;
+        this.amb.gain.value = bus.sfx;
         this.decoding = this.decodeAll();
+        // A bed asked for before the first gesture loads now.
+        if (this.ambBed !== null) this.loadAmbience(this.ambBed);
       }
       if (this.ctx.state === 'suspended') void this.ctx.resume();
       this.startMusic();
@@ -721,6 +792,7 @@ export class BattleAudio {
     if (this.sfx) this.sfx.gain.value = bus.sfx;
     if (this.voice) this.voice.gain.value = bus.voice;
     if (this.cue) this.cue.gain.value = bus.sfx;
+    if (this.amb) this.amb.gain.value = bus.sfx;
     this.applyMusicVolume();
   }
 
@@ -1000,6 +1072,10 @@ export class BattleAudio {
     // sounding (and its duck still held) through a mute would make that
     // claim false the moment a voice was speaking when the player pressed it.
     if (this.muted) this.stopVoices();
+    // The bed is a running source, not a one-shot that checks the flag: stop
+    // it, and start it again on unmute.
+    if (this.muted) this.stopAmbienceSource(AMB_FADE_OUT_S);
+    else this.startAmbience(AMB_FADE_OUT_S);
     return this.muted;
   }
 
@@ -1149,6 +1225,7 @@ export class BattleAudio {
     if (row === 'outcome') {
       this.stopVoices();
       this.cueBlockUntil = ctx.currentTime + OUTCOME_CUE_BLOCK_S;
+      this.setHold('ambience-outcome', AMB_AFTER_OUTCOME);
     }
     const seconds = this.playUi(entry);
     if (row !== null) this.holdFor(row, row, seconds + (row === 'outcome' ? OUTCOME_HOLD_TAIL_S : 0));
@@ -1164,8 +1241,16 @@ export class BattleAudio {
     if (on) {
       this.stopVoices();
       this.setHold('pause', DUCK_TABLE.pause);
+      // The bed STOPS (A11): the duck takes it to silence over the row's
+      // attack, and the source ends there, remembering where it was.
+      this.ambPaused = true;
+      this.stopAmbienceSource(DUCK_TABLE.pause.attackS);
     } else {
       this.setHold('pause', null);
+      if (this.ambPaused) {
+        this.ambPaused = false;
+        this.startAmbience(DUCK_TABLE.pause.releaseS);
+      }
     }
   }
 
@@ -1176,9 +1261,110 @@ export class BattleAudio {
    */
   leaveMission(): void {
     this.stopVoices();
+    this.setAmbience(null);
     for (const id of [...this.holds.keys()]) this.setHold(id, null);
     this.cueBlockUntil = 0;
     this.setMusicScene('menu');
+  }
+
+  /**
+   * The ambience bed (A11): one loop per kind of ground, asked for by id as
+   * the deploy gate clears (the app picks it from the map), on the `amb` bus.
+   * It fades in over AMB_FADE_IN_S, loops seamlessly until the mission is
+   * left (`leaveMission` calls this with null), stops on the pause menu and
+   * on mute, and comes back on resume and unmute.
+   *
+   * Decoded on demand and one at a time -- a bed is only ever wanted inside
+   * a mission, and a 40 s loop is ~8 MB of PCM. Safe before `attach()`: the
+   * id is remembered and loads with the first gesture's context.
+   */
+  setAmbience(bed: string | null): AmbienceResult {
+    if (bed === null) {
+      this.ambBed = null;
+      this.ambPaused = false;
+      this.stopAmbienceSource(AMB_FADE_OUT_S);
+      this.ambLoaded = null;
+      this.ambOffset = 0;
+      return 'stopped';
+    }
+    const spec = this.manifest?.ambience?.beds?.[bed];
+    if (!spec || bed.startsWith('$')) return 'unknown';
+    if (this.ambBed === bed && this.ambSource) return 'started';
+    this.stopAmbienceSource(AMB_FADE_OUT_S);
+    this.ambBed = bed;
+    if (this.ambLoaded?.bed !== bed) {
+      this.ambLoaded = null;
+      this.ambOffset = -1; // a fresh bed starts at a random place in its loop
+    }
+    if (!this.ctx) return 'no-context';
+    if (this.ambLoaded) return this.startAmbience(AMB_FADE_IN_S);
+    this.loadAmbience(bed);
+    return this.muted ? 'muted' : 'loading';
+  }
+
+  ambienceState(): AmbienceState {
+    return { bed: this.ambBed, loaded: this.ambLoaded?.bed ?? null, playing: this.ambSource !== null, paused: this.ambPaused };
+  }
+
+  /** Fetch and decode a bed, then start it if it is still the one wanted. */
+  private loadAmbience(bed: string): void {
+    const ctx = this.ctx;
+    const spec = this.manifest?.ambience?.beds?.[bed];
+    if (!ctx || !spec) return;
+    void this.fetchDecode(ctx, spec).then((buffer) => {
+      // Left, or another bed asked for, while this decoded: drop it.
+      if (this.ambBed !== bed || !buffer) return;
+      this.ambLoaded = { bed, buffer };
+      this.startAmbience(AMB_FADE_IN_S);
+    });
+  }
+
+  /** Start the wanted, decoded bed looping, fading in over `fadeS`, unless
+   *  muted, paused or already sounding. */
+  private startAmbience(fadeS: number): AmbienceResult {
+    const ctx = this.ctx;
+    const bus = this.amb;
+    const loaded = this.ambLoaded;
+    if (!ctx || !bus) return 'no-context';
+    if (this.muted) return 'muted';
+    if (this.ambPaused) return 'paused';
+    if (!loaded || loaded.bed !== this.ambBed) return 'loading';
+    if (this.ambSource) return 'started';
+    const duration = loaded.buffer.duration;
+    if (this.ambOffset < 0) this.ambOffset = this.rand() * duration;
+    const offset = duration > 0 ? this.ambOffset % duration : 0;
+    const src = ctx.createBufferSource();
+    src.buffer = loaded.buffer;
+    src.loop = true;
+    const g = ctx.createGain();
+    const level = clamp01(this.manifest?.ambience?.beds?.[loaded.bed]?.gain ?? 1);
+    const t = ctx.currentTime;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(level, t + fadeS);
+    src.connect(g).connect(bus);
+    src.start(t, offset);
+    this.ambSource = { src, gain: g, at: t, offset };
+    return 'started';
+  }
+
+  /** Fade the sounding bed out over `fadeS` and stop it there, remembering
+   *  where in the loop it was. The bed stays wanted. */
+  private stopAmbienceSource(fadeS: number): void {
+    const ctx = this.ctx;
+    const s = this.ambSource;
+    if (!ctx || !s) return;
+    this.ambSource = null;
+    const t = ctx.currentTime;
+    const duration = s.src.buffer?.duration ?? 0;
+    this.ambOffset = duration > 0 ? (s.offset + (t - s.at)) % duration : 0;
+    s.gain.gain.cancelScheduledValues(t);
+    s.gain.gain.setValueAtTime(s.gain.gain.value, t);
+    s.gain.gain.linearRampToValueAtTime(0, t + fadeS);
+    s.src.stop(t + fadeS);
+    const nodes: AudioNode[] = [s.src, s.gain];
+    s.src.onended = () => {
+      for (const n of nodes) n.disconnect();
+    };
   }
 
   /**
@@ -1363,6 +1549,13 @@ export class BattleAudio {
       d.gain.cancelScheduledValues(t);
       d.gain.setValueAtTime(d.gain.value, t);
       d.gain.linearRampToValueAtTime(target.sfx, t + seconds);
+    }
+    const a = this.ambDuck;
+    if (ctx && a) {
+      const t = ctx.currentTime;
+      a.gain.cancelScheduledValues(t);
+      a.gain.setValueAtTime(a.gain.value, t);
+      a.gain.linearRampToValueAtTime(target.amb, t + seconds);
     }
     this.rampMusic(target.music, seconds * 1000);
   }

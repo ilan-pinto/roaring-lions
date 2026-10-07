@@ -111,8 +111,9 @@ forearms bent to a rifle for a carrier (`FORE_BEND`, `_rifle_at_hand`) and
 the posed corpse -- the fixes the batch was told to inherit. The only
 faction-specific thing in the cut is the head: a KDF helmet and neck are
 `uniform`, not `keffiyeh` (`HEAD_ROLE`), and no kit keffiyeh goes on. Its
-props are `rig._breach_extras`' own shield (on `brc_point_forearm_L`) and
-pole (on `brc_cover_spine`), through `PART_BONE`'s fallback as in the kit.
+prop is `rig._breach_extras`' own shield (forced to `brc_point_spine`, see
+the breach branch below). The cover man's breaching pole is gone (the lead,
+7 Oct): on this figure it ran through his face and chest.
 
 ## A3.1 stage 2 (GH-179, 2026-10-05): Meshy hand weapons
 
@@ -3754,9 +3755,9 @@ def build_team(team_id):
         parts += tool
     elif team_id == "breach_team":
         # B5: no kit rifle -- the figure's own carbine is on the torso (see
-        # WEAPON_ON_SPINE). `rig._breach_extras` verbatim for the props: the
-        # pole resolves through PART_BONE (`pole`/`pole_head` -> spine) as in
-        # the kit file; the shield is FORCED to brc_point's spine rather than
+        # WEAPON_ON_SPINE). `rig._breach_extras` verbatim for the prop (the
+        # cover man's pole is removed, 7 Oct -- it ran through his face and
+        # chest); the shield is FORCED to brc_point's spine rather than
         # PART_BONE's `forearm_L`, because this figure's left arm is on the
         # torso (ARMS_ON_TORSO) and the forearm_L bone it would ride swings
         # with the gait while the arm it belongs to does not. The plate

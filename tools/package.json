@@ -18,6 +18,7 @@
     "wreck:meshes": "tsx src/meshes/wreck-pass.ts",
     "ui:shots": "tsx src/ui-review/shoot.ts",
     "ui:routes": "tsx src/ui-review/routes-check.ts",
+    "end-panel:check": "tsx src/ui-review/end-panel-check.ts",
     "blast:capture": "tsx src/perf/blast-captures.ts",
     "atgm:capture": "tsx src/perf/atgm-captures.ts",
     "radio:clips": "tsx src/audio/radio-clips.ts",
