@@ -46,6 +46,7 @@ import type { CampaignLedger } from '../ledger-store';
 import { ROSTER_CAP } from '../roster-cap';
 import {
   BAR_GROW_MS,
+  KIT_VEHICLE_TYPES,
   STAMP_MS,
   WALLET_COUNT_MS,
   cardStatus,
@@ -1086,6 +1087,15 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     bayModel?.dispose();
     bayModel = null;
   };
+  /** The bay's model wears the account's tiers as they now stand (GH-238):
+   *  only one of the eight kitted vehicles has parts to bolt on, and the
+   *  door itself does nothing for tiers that draw what is already shown. */
+  const syncKit = (): void => {
+    if (bayModel === null || !KIT_VEHICLE_TYPES.has(bayModel.unitId)) return;
+    const id = bayModel.unitId;
+    const u = rows.find((r) => r.u.id === id)?.u;
+    if (u !== undefined) bayModel.setKit(ownedTiers(u, state.owned));
+  };
 
   function renderBay(): void {
     bay.replaceChildren();
@@ -1193,7 +1203,11 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
         bayModel.adopt(plate);
       } else {
         dropModel();
-        bayModel = garageModel(plate, u, { ...opts.model, reducedMotion: opts.model.reducedMotion ?? reduced });
+        bayModel = garageModel(
+          plate,
+          { id: u.id, name: u.name, kitTiers: tiers },
+          { ...opts.model, reducedMotion: opts.model.reducedMotion ?? reduced }
+        );
       }
     }
 
@@ -1425,6 +1439,9 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       restoringFocus = false;
     }
     if (ask !== undefined && next.landed === true) celebrate(ask, fromCredits, fromBars);
+    // A reset, or a refusal answering with a state another tab moved on:
+    // the model follows the account, silently.
+    else syncKit();
   }
 
   /** Each stat row's base and kit widths, by path, as the panel draws them
@@ -1454,6 +1471,9 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
    *  colour, which reports. */
   function celebrate(ask: PurchaseAsk, fromCredits: number | undefined, fromBars: BarWidths): void {
     opts.onCue?.(cueFor(ask));
+    // The part appears WITH the sound (kitted vehicles spec §8): the re-merge
+    // and its one frame happen in the same task as the cue.
+    syncKit();
     spend();
     countWallet(fromCredits, state.credits);
     pulse(bay.querySelector('.rl-garage__plate-kit'), 'rl-garage__plate-kit--stamp', STAMP_MS);
