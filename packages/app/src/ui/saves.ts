@@ -69,10 +69,15 @@ const DATE = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle
  */
 const CODED = new Set<string>([SAVE_ERROR_NOT_A_SAVE]);
 
-function errorText(err: unknown): string {
+/** Pass K: which action failed decides what the line can honestly say -- a
+ *  refused LOAD may have half-replaced the active campaign, a refused DELETE
+ *  left the slot where it was, and only a refused SAVE "may be incomplete". */
+export type SaveAction = 'save' | 'load' | 'delete' | 'import';
+
+export function errorText(err: unknown, action: SaveAction): string {
   if (err instanceof Error && CODED.has(err.message)) return t(err.message);
   console.error('saves:', err);
-  return t('saves.error.storage');
+  return t(`saves.error.storage.${action}`);
 }
 
 function slotRow(
@@ -169,10 +174,10 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
               try {
                 writeActive(deps.store, slot);
               } catch (err) {
-                say(errorText(err));
+                say(errorText(err, 'load'));
                 return;
               }
-              say('');
+              say(t('saves.done.load', { name: slot.name }));
               renderList();
               deps.onChanged();
             });
@@ -193,10 +198,10 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
               try {
                 deleteSlot(deps.store, meta.id);
               } catch (err) {
-                say(errorText(err));
+                say(errorText(err, 'delete'));
                 return;
               }
-              say('');
+              say(t('saves.done.delete', { name: meta.name }));
               renderList();
               deps.onChanged();
             });
@@ -230,10 +235,10 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
     try {
       saveSlot(deps.store, randomId(), name, readActive(deps.store), deps.build, deps.now());
     } catch (err) {
-      say(errorText(err));
+      say(errorText(err, 'save'));
       return;
     }
-    say('');
+    say(t('saves.done.save', { name }));
     renderList();
     nameInput.value = defaultName();
     deps.onChanged();
@@ -258,11 +263,11 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
           imported.build,
           deps.now()
         );
-        say('');
+        say(t('saves.done.import', { name: imported.name }));
         renderList();
         deps.onChanged();
       } catch (err) {
-        say(errorText(err));
+        say(errorText(err, 'import'));
       }
     });
   });
