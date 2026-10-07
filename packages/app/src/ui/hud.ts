@@ -1031,6 +1031,11 @@ export class Hud {
   }
 
   private renderInvoice(): void {
+    // PA-11: the invoice is a battle instrument. Tutorial beat 9 leaves it
+    // open past the last beat, and an open invoice hung over the end panel
+    // and the debrief header; once the result is in, it is closed for good.
+    const result = this.deps.getMission()?.result;
+    if (result !== undefined && result !== 'ongoing') this.invoiceOpen = false;
     const on = this.invoiceOpen && this.shown('conduct');
     if (!on) {
       this.invoice.style.display = 'none';

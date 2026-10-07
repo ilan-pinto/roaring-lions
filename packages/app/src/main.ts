@@ -4101,6 +4101,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // of `paused` too, and left open it would render over the end
             // screen about to be pushed.
             closeKeysOverlay();
+            // PA-11: and the Conduct invoice tutorial beat 9 left open. The
+            // HUD closes it on its own 4 Hz rebuild once the result is in;
+            // this takes it down on the same frame the moment mounts.
+            hud.setInvoiceOpen(false);
             // Task 6: the held victory/defeat moment (`ui/outcome-moment.ts`)
             // goes in front of the end screen, behind the ledger write above
             // -- `writeLedger`/`payMission` already ran (victory only) before
