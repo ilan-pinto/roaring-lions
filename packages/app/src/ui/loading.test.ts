@@ -1170,3 +1170,94 @@ describe('the deploy spread (Task 3)', () => {
     s.dispose();
   });
 });
+
+// --- the Field order (GH-417, direction A) ---------------------------------
+describe('the Field order briefing (GH-417)', () => {
+  beforeEach(leaveCanvasWithoutAContext);
+  afterEach(() => {
+    HTMLCanvasElement.prototype.getContext = realGetContext;
+  });
+  const FIELD = {
+    glance: [
+      { key: 'where' as const, label: 'Where', text: 'The Basin · dawn' },
+      { key: 'avoid' as const, label: 'Avoid', text: 'No fire on the civic hall' },
+    ],
+    marks: [{ kind: 'start' as const, x: 1, y: 1 }],
+    attached: [{ type: 'dozer_d9', name: 'D9 Dov', count: 1 }],
+  };
+  const fieldScreen = (el: HTMLElement, field = FIELD): ReturnType<typeof showLoading> =>
+    showLoading(el, 'Break the Depot', SPREAD_BRIEFING, undefined, undefined, undefined, () => undefined, [], false, { view: viewOf(), onChange: () => undefined }, PREVIEW, undefined, field);
+
+  it('lays out the glance card, the marked ground and the force as places', () => {
+    giveCanvasAContext();
+    const el = document.createElement('div');
+    const s = fieldScreen(el);
+    expect(el.querySelector('.rl-loading__box--field')).not.toBeNull();
+    expect([...el.querySelectorAll('.rl-glance__k')].map((k) => k.textContent)).toEqual(['Where', 'Avoid']);
+    expect(el.querySelector('.rl-field__side .rl-ground .rl-ground__start')).not.toBeNull();
+    expect(el.querySelector('.rl-force .rl-loading__deploy')).not.toBeNull();
+    expect(el.querySelector('.rl-force__slot--fixed[data-type="dozer_d9"]')).not.toBeNull();
+    // The old spread is gone in this layout: no toggle list, no reserve line.
+    expect(el.querySelector('.rl-deploy__rows')).toBeNull();
+    expect(el.textContent).not.toMatch(/in reserve/);
+    // Every beat is still on the page, in the full-orders panel.
+    expect(el.querySelectorAll('.rl-field__full .rl-loading__beat')).toHaveLength(briefingBeats(SPREAD_BRIEFING).length);
+    s.dispose();
+  });
+
+  it('opens the full orders over the ground and closes them again', () => {
+    giveCanvasAContext();
+    const el = document.createElement('div');
+    const s = fieldScreen(el);
+    const panel = el.querySelector<HTMLElement>('.rl-field__full');
+    const toggle = el.querySelector<HTMLButtonElement>('.rl-field__full-toggle');
+    expect(panel?.hidden).toBe(true);
+    toggle?.click();
+    expect(panel?.hidden).toBe(false);
+    expect(toggle?.getAttribute('aria-expanded')).toBe('true');
+    el.querySelector<HTMLButtonElement>('.rl-field__full-close')?.click();
+    expect(panel?.hidden).toBe(true);
+    s.dispose();
+  });
+
+  // Ruling L-2. Falsified: a `setGroundPhoto` that does nothing leaves the
+  // painted tiles under the marks.
+  it('lays the renderer’s photograph under the marks', () => {
+    const ctx = { fillStyle: '', fillRect: (): void => undefined, putImageData: (): void => undefined };
+    HTMLCanvasElement.prototype.getContext = (() => ctx) as unknown as HTMLCanvasElement['getContext'];
+    const el = document.createElement('div');
+    const s = fieldScreen(el);
+    expect(el.querySelector('.rl-ground__base--painted')).not.toBeNull();
+    s.setGroundPhoto({ width: 6, height: 4, data: new Uint8ClampedArray(96) } as unknown as ImageData);
+    expect(el.querySelector('.rl-ground__base--photo')).not.toBeNull();
+    expect(el.querySelector('.rl-ground__base--painted')).toBeNull();
+    s.dispose();
+  });
+
+  // Review: Escape closes what is open on top of the sheet before it leaves.
+  // Falsified: `if (dismissOverlay?.()) return;` removed -> onBack fires.
+  it('Escape closes the full orders first, and only then goes back', async () => {
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    let back = 0;
+    const s = showLoading(el, 'Break the Depot', SPREAD_BRIEFING, undefined, undefined, undefined, () => void back++, [], false, { view: viewOf(), onChange: () => undefined }, PREVIEW, undefined, FIELD);
+    void s.done().catch(() => undefined);
+    await Promise.resolve();
+    el.querySelector<HTMLButtonElement>('.rl-field__full-toggle')?.click();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(el.querySelector<HTMLElement>('.rl-field__full')?.hidden).toBe(true);
+    expect(back).toBe(0);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(back).toBe(1);
+    s.dispose();
+    el.remove();
+  });
+
+  it('without a field the screen is the plain one, and a photograph is a no-op', () => {
+    const el = document.createElement('div');
+    const s = showLoading(el, 'Sandbox', SPREAD_BRIEFING);
+    expect(el.querySelector('.rl-loading__box--field')).toBeNull();
+    expect(() => s.setGroundPhoto({ width: 1, height: 1, data: new Uint8ClampedArray(4) } as unknown as ImageData)).not.toThrow();
+    s.dispose();
+  });
+});

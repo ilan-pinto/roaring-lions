@@ -10,6 +10,7 @@ import { unitsJustOutside, withOutsideCounts } from './hold-outside';
 import { deadlineWarningLine, deadlineWarnings, failureReason } from './ui/mission-failure';
 import { nameKind, type NamesJson } from './names';
 import { applyRosterCarryover } from './roster-carryover';
+import { logDestroyed, logMissionEvent, newMissionLog, type MissionLog } from './mission-log';
 import { lostRecordFor, predecessorOf } from './roster-lost';
 import {
   Sim,
@@ -81,7 +82,7 @@ import { CivFlightWatch, type CivObservation } from './ui/civ-flight';
 import { refugeJump, sayFlight } from './ui/refuge-ping';
 import { INITIAL_PINNED_NOTE, pinnedOrderNote } from './ui/pinned-order';
 import { isPinned } from './ui/pinned';
-import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
+import { showMenu, showCampaign, showSandbox } from './ui/menu';
 import { showBrigade, type BrigadeUnit, type GarageState } from './ui/brigade';
 import { accountView } from './account-view';
 import { kdfUnlockGate } from './kdf-gate';
@@ -89,7 +90,8 @@ import { coinTiers, grantTestCoins, seedTestCoins, testCoinsParam } from './roar
 import { buyWithTestCoins, type CoinHalf } from './ui/stores-model';
 import { CUE_SET } from './ui/garage-model';
 import { upgradePrepass } from './upgrade-prepass';
-import { showDebrief, type DebriefOptions } from './ui/debrief';
+import { showDebrief, type DebriefOptions, type ReportSpeaker } from './ui/debrief';
+import { afterAction, promotionsBetween } from './ui/after-action';
 import { livingHostiles } from './ui/withdrew';
 import { outcomeMoment, outcomeMomentOptions } from './ui/outcome-moment';
 import { showSettings, type SettingsDeps } from './ui/settings-panel';
@@ -116,7 +118,9 @@ import { buyUnlock, buyUpgrade } from './brigade-account';
 import { payVictory } from './campaign-pay';
 import { tierLine } from './ui/grade-copy';
 import { clocklessObjectives, speakerPlate, speakerPortrait, withoutHiddenClocks } from './ui/hud-model';
-import { briefingBeats, broughtFor, showLoading } from './ui/loading';
+import { briefingBeats, broughtFor, showLoading, type FieldOrder } from './ui/loading';
+import { briefingGlance, objectiveClock } from './ui/briefing-glance';
+import { groundMarks } from './ui/ground-marks';
 import { briefingSections, pickBriefingImage } from './ui/briefing-sections';
 import { deployRosterView } from './ui/deploy-roster';
 import { deployedLedger, type DeploySelection } from './ui/deploy-select';
@@ -156,7 +160,6 @@ import { VoiceRuntime, voicePlaceholderOn } from './voice/voice-runtime';
 import { roeNotice } from './ui/roe-notice';
 import {
   invoiceLines,
-  invoiceSummary,
   placeNamesFor,
   reasonLabel,
   type Deduction,
@@ -260,6 +263,11 @@ function briefingLayout(
 }
 
 const MS_PER_TICK = 1000 / TICKS_PER_SECOND;
+
+/** The briefing's ground photograph, px a side: a 48-tile map at about 13 px
+ *  a tile, sharp on the ~580 px frame a 1400x900 screen gives it and on the
+ *  ~900 px one at 2560. */
+const BRIEFING_GROUND_PX = 960;
 
 /** `window.localStorage` can throw on the PROPERTY ACCESS itself (private mode, site
  *  data blocked) rather than on a method call.
@@ -1563,6 +1571,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  so a lost unit on a losing run is not memorialised: the run did not
    *  happen as far as the campaign is concerned. */
   const lostThisMission: LostRecord[] = [];
+  /** GH-417 (L-6): what happened, where and when, for the after-action
+   *  report -- losses with the tile they fell on, deductions pinned to the
+   *  zone they name, objective outcomes, the hostile kill count. Read off
+   *  events and sim state; never written back. */
+  const missionLog: MissionLog = newMissionLog();
   /**
    * `&civ`: where the crowd is walked to, and the ground that counts as out.
    *
@@ -1930,6 +1943,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       primary: o.primary,
       carries: o.carries ?? false,
       status: 'active',
+      clock: objectiveClock(o) ?? undefined,
     })
   );
   // The same gate `main.ts` puts on `payMission` below (`mission.ledger.
@@ -1951,6 +1965,43 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // Up before the canvas exists, so the player never sees the terrain draw
   // itself in or the units stand around as procedural boxes waiting for their
   // sheets. It comes down once the art gate below has settled.
+  // The Field order briefing (GH-417, direction A): the glance card, the
+  // marked ground and the attached units, every one DERIVED from what the
+  // mission already declares (ruling L-3). A sandbox has no mission and keeps
+  // the plain screen.
+  const briefPlaces = placeNamesFor(map, structureCatalogue as Readonly<Record<string, { name: string } | undefined>>);
+  const field: FieldOrder | undefined = resolvedMission
+    ? (() => {
+        const m = resolvedMission;
+        const mapMeta = m.map as { time_of_day?: string; player_start?: number[] };
+        const sections = briefingLayout(mission)?.sections ?? null;
+        const glanceObjectives = m.objectives.map((o) => ({ type: o.type, primary: o.primary, carries: o.carries, text: o.text, seconds: o.seconds, target: o.target }));
+        return {
+          glance: briefingGlance({
+            mapName: (mapJson as { name?: string }).name,
+            timeOfDay: mapMeta.time_of_day,
+            targetMinutes: (m as { target_minutes?: number }).target_minutes,
+            beats: m.briefing ? briefingBeats(m.briefing) : [],
+            sections,
+            objectives: glanceObjectives,
+            roe: m.roe,
+            zoneName: briefPlaces.zone,
+          }),
+          marks: groundMarks({
+            playerStart: mapMeta.player_start,
+            zones: (mapJson as { zones?: Record<string, number[]> }).zones ?? {},
+            // In the order the briefing's objective list draws them: primaries first, stable.
+            objectives: [...glanceObjectives].sort((a, b) => Number(b.primary) - Number(a.primary)),
+            flaggedZones: m.roe?.flagged_zones,
+            zoneName: briefPlaces.zone,
+          }),
+          attached: (m.starting_force ?? [])
+            .filter((p) => p.from_ledger !== true)
+            .map((p) => ({ type: p.unit, name: unitName(p.unit), count: p.count })),
+          unitName,
+        };
+      })()
+    : undefined;
   const loading = showLoading(
     stage,
     mission?.name ?? mission?.id ?? 'M0 sandbox',
@@ -1981,7 +2032,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // Named sections and the image slot (GH-119). `briefingSections` returns
     // null -- the plain beats -- unless the sections still spell the briefing,
     // which a locale overlay translating `briefing` alone breaks on purpose.
-    briefingLayout(mission)
+    briefingLayout(mission),
+    field
   );
   onDispose(() => loading.dispose());
   // The one teardown that cannot wait for this function to return.
@@ -2017,6 +2069,19 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // a mesh, loaded above. The loading bar has nothing to count and reads
   // "ready" (`ui/loading.ts`).
   loading.total(0);
+
+  // The briefing's ground, photographed (ruling L-2): the minimap's own call,
+  // rows flipped as the minimap flips them. Every GLB the map stands was
+  // awaited above, so the town is in the picture. Optional on `Renderer` and
+  // null on anything it cannot do: the painted tiles simply stay.
+  if (field) {
+    try {
+      const shot = renderer.captureGroundAlbedo?.(BRIEFING_GROUND_PX) ?? null;
+      if (shot) loading.setGroundPhoto(new ImageData(flipRows(shot.data, shot.width, shot.height), shot.width, shot.height));
+    } catch (err) {
+      console.warn('briefing: the ground photograph failed; the painted ground stays', err);
+    }
+  }
 
   /**
    * The picture each unit type shows in the HUD's selection cluster, card and
@@ -3853,8 +3918,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         jumpTarget = nextJump(jumpTarget, a.tier, a.at);
       }
 
+      for (const e of events) if (e.kind === 'destroyed') logDestroyed(missionLog, sim.state.side[e.entity]);
       for (const me of missionEvents) {
         missionTelemetry?.onEvent(me);
+        logMissionEvent(missionLog, me, {
+          // Sim positions are tile CENTRES; the log keeps the tile.
+          positionOf: (id) => ({ x: Math.floor(fx.toNumber(sim.state.posX[id])), y: Math.floor(fx.toNumber(sim.state.posY[id])) }),
+          rosterOf: (id) => runtime?.rosterEntryOf(id),
+          zone: (id) => map.zones[id],
+        });
         if (tut) tut = advance(tut, { kind: 'mission', event: me }, performance.now());
         if (me.kind === 'roe') deductions.push({ penalty: me.penalty, reason: me.reason, tick: me.tick });
         if (me.kind === 'evacuated') evacuatedSoFar++;
@@ -3915,8 +3987,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           if (me.result === 'victory')
             telemetry().campaignProgress(mission.id, Object.keys(updatedLedger['campaign.mission_results'] ?? {}).length);
           let payout: ReturnType<typeof payVictory> | null = null;
-          // Task 7's two memorial rows (WP-G-E4). Empty on a defeat, like `payout`.
-          const lostNamed = carryover ? carryover.lostNamed : [];
+          // Who took a fallen place (WP-G-E4). Empty on a defeat, like `payout`.
+          // The fallen themselves are named from the mission log (GH-417).
           const replacements = carryover ? carryover.replacements : [];
           if (me.result === 'victory') {
             // Read BEFORE the ledger write (GH-330): a version-1 account migrates its
@@ -3989,7 +4061,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // that distinction is the whole reason the field is optional, so the
             // line is skipped rather than printed as "Nobody still out."
             const account = hostagesAccount(worldData, updatedLedger);
-            const cameBack = me.ledger['civ.hostages_recovered']?.[missionId] ?? 0;
+            // A defeat writes nothing, so nobody "came back" on one.
+            const cameBack = me.result === 'victory' ? (me.ledger['civ.hostages_recovered']?.[missionId] ?? 0) : 0;
             const place = (mission as { hostages_place?: string }).hostages_place;
             // Truthiness rather than `!== undefined`: the schema puts no
             // `minLength` on `hostages_place`, so an empty string is authorable
@@ -3998,69 +4071,68 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             const takenAccount = account
               ? hostagesLine(account, place ? { count: cameBack, place } : undefined)
               : undefined;
-            // A victory that left hostiles standing says so on both screens. A READ of the
-            // sim at the end tick; the withdrew line itself is gated to victory in `withdrewLine`.
+            // A victory that left hostiles standing says so ("6 withdrew"). A READ of
+            // the sim at the end tick; `after-action.ts` shows it on a victory only.
             const withdrew = livingHostiles(sim.state, sim.entityCount);
-            const debriefOpts: DebriefOptions = {
+            // G11: the mission's own closing word, outcome-aware, resolved to a
+            // plate/portrait the way the commander bar resolves one.
+            const say = me.result === 'victory' ? mission.debrief?.victory : mission.debrief?.defeat;
+            const speaker: ReportSpeaker | undefined = say
+              ? {
+                  plate: speakerPlate(hudCommander, say.speaker),
+                  text: say.text,
+                  portrait: speakerPortrait(hudCommander, say.speaker),
+                  speaker: say.speaker,
+                }
+              : undefined;
+            // Spec §4.5's WHY for an unlock, kept: the stars or the campaign
+            // Conduct that opened it. Through `t()` now (it was raw English).
+            const unlocks =
+              me.result === 'victory'
+                ? newlyUnlocked(kdfUnits, ledger, updatedLedger).map((u) => {
+                    if (u.gate === 'stars') return { name: u.name, why: t('aar.unlock.stars', { n: starsEarned(updatedLedger) }) };
+                    if (u.gate !== 'conduct') return { name: u.name };
+                    const was = campaignRoe(ledger)?.mean;
+                    const now = campaignRoe(updatedLedger)?.mean;
+                    return was === undefined || now === undefined
+                      ? { name: u.name }
+                      : { name: u.name, why: t('aar.unlock.conduct', { was, now }) };
+                  })
+                : [];
+            const typeName = (id: string): string => units[id as keyof typeof units]?.name ?? id;
+            // GH-417 (H5): the after-action report. Its words are
+            // `after-action.ts`'s; the log is what this run remembered.
+            const report = afterAction({
               result: me.result,
-              withdrew,
               stars: runtime.stars,
-              tierLine: tier
-                ? { plate: speakerPlate(hudCommander, tier.speaker), text: tier.text, portrait: speakerPortrait(hudCommander, tier.speaker) }
-                : undefined,
               roe: me.roeRating,
               roeFloor: starRoeFloor(mission.roe?.fail_below),
-              invoice: invoiceLines(deductions, placeNames),
               ticks: sim.tickCount,
               targetMinutes: (mission as { target_minutes?: number }).target_minutes,
-              // GH-345: unit NAMES, never sim type ids -- the same lookup the
-              // memorial rows and the card already use.
-              lost: Object.entries(runtime.lostByType()).map(([type, count]) => ({
-                type: units[type as keyof typeof units]?.name ?? type,
-                count,
-              })),
-              // WP-G-E4, Task 7 (R-11): the aggregate above stays the total --
-              // it counts every dead player entity, including a fresh remnant
-              // that never reached the roster and has no service record.
-              // These two are computed only on the victory branch above and
-              // default to empty on a defeat, where nothing was written.
-              lostNamed,
-              replacements,
-              secondaries: runtime.objectiveList
-                .filter((o) => !o.primary)
-                .map((o) => ({ text: o.text, complete: o.status === 'complete', carries: o.carries })),
-              marked: runtime.markedCount,
-              promoted: runtime.promotedCount,
+              objectives: runtime.objectiveList.map((o) => ({ id: o.id, text: o.text, primary: o.primary, carries: o.carries, status: o.status })),
+              log: missionLog,
+              invoice: invoiceLines(deductions, placeNames),
+              failure: missionFailure,
+              withdrew,
               credits: creditsInfo,
-              // The account of the taken (spec §4.4). The board prints only the
-              // standing total, because the board does not know which mission was
-              // just played -- so "N came back at <place>", the half that needs a
-              // mission, is this screen's. The count is THIS run's entry off the
-              // produced ledger rather than the merged best-of, since the sentence
-              // is about what just happened; `hostagesLine` drops the clause on 0
-              // and on a mission with no `hostages_place` to name.
-              taken: takenAccount,
-              // Spec §4.5 wants the WHY, not just the name: "Campaign Conduct
-              // 58 → 62: Namer IFV available". The two figures are the campaign
-              // mean before and after this mission's rating landed, so they are
-              // read off the two ledgers this block already holds. Either being
-              // null means there is no figure to show (a first mission has no
-              // "before"), and the bare name is the honest fallback rather than
-              // a sentence with a hole in it. A mission-gated unit never has a
-              // figure at all -- the mission it was waiting for is the one the
-              // player just finished, and this screen is already that news.
-              unlocked:
+              promotions:
                 me.result === 'victory'
-                  ? newlyUnlocked(kdfUnits, ledger, updatedLedger).map((u) => {
-                      if (u.gate === 'stars') return `${starsEarned(updatedLedger)} stars: ${u.name} available`;
-                      if (u.gate !== 'conduct') return `${u.name} available`;
-                      const was = campaignRoe(ledger)?.mean;
-                      const now = campaignRoe(updatedLedger)?.mean;
-                      return was === undefined || now === undefined
-                        ? `${u.name} available`
-                        : `Campaign Conduct ${was} → ${now}: ${u.name} available`;
-                    })
+                  ? promotionsBetween(ledger['roster.surviving_units'] ?? [], updatedLedger['roster.surviving_units'] ?? [])
                   : [],
+              replacements,
+              unlocks,
+              next: nextMissionId ? { name: nextJson?.name ?? nextMissionId } : undefined,
+              taken: takenAccount,
+              marked: runtime.markedCount,
+              typeName,
+            });
+            const debriefOpts: DebriefOptions = {
+              result: me.result,
+              stars: runtime.stars,
+              report,
+              speaker,
+              aftermath: undefined,
+              tierLine: tier ? { plate: speakerPlate(hudCommander, tier.speaker), text: tier.text } : undefined,
               promotion: promotion
                 ? {
                     rank: promotion.rank,
@@ -4068,6 +4140,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                     line: promotion.line ? { plate: speakerPlate(hudCommander, promotion.line.speaker), text: promotion.line.text } : undefined,
                   }
                 : undefined,
+              ground: field ? { map, tones: opts.terrainTones, marks: field.marks } : undefined,
               next: nextMissionId
                 ? {
                     id: nextMissionId,
@@ -4080,31 +4153,6 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                 : undefined,
               missionId,
             };
-            // G11: `debrief` is outcome-aware -- pick the variant for the
-            // outcome that just happened, off the same `me.result` this
-            // screen's own `result` is, and resolve its speaker into a
-            // plate/portrait the same way `hud.ts`'s commander bar does
-            // (`speakerPlate`/`speakerPortrait`, `hud-model.ts`), since
-            // `menu.ts` has no `HudCommanderInfo` of its own to look one up
-            // against. `mission` is still the same JSON object
-            // `getMission()` reads `aftermath` off, above.
-            const say = me.result === 'victory' ? mission.debrief?.victory : mission.debrief?.defeat;
-            const debrief: EndScreenDebrief | undefined = say
-              ? {
-                  plate: speakerPlate(hudCommander, say.speaker),
-                  text: say.text,
-                  portrait: speakerPortrait(hudCommander, say.speaker),
-                  speaker: say.speaker,
-                }
-              : undefined;
-            // Fix round 1: set at the exact point `showEndScreen` is about
-            // to show, per the review -- `case 'pause':` reads this and
-            // Escape does nothing once the attempt is over. If the pause
-            // menu happened to be open when the mission ended, close it
-            // directly rather than through `resume()`: there is no clock to
-            // resume any more (the mission is over, not merely unpaused),
-            // so this only needs to take the modal off the screen and let
-            // `paused` settle back to its resting `false`.
             missionEnded = true;
             if (paused) {
               paused = false;
@@ -4169,21 +4217,26 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             screenDisposers.push(() => moment.dismiss());
             void moment.done.then(() => {
               if (disposed) return;
+              // L-7: the moment hands over straight to the after-action report;
+              // the small end panel it used to lead to is folded into the
+              // report's verdict and closing word.
+              // The ground after the fight, photographed now rather than at
+              // the missionEnd event: by the time the moment ends, the renderer
+              // has drawn the last tick, so a building that fell on it is rubble.
+              let photo: ImageData | null = null;
+              if (debriefOpts.ground) {
+                try {
+                  const shot = renderer.captureGroundAlbedo?.(BRIEFING_GROUND_PX) ?? null;
+                  if (shot) photo = new ImageData(flipRows(shot.data, shot.width, shot.height), shot.width, shot.height);
+                } catch (err) {
+                  console.warn('debrief: the ground photograph failed; the painted ground stays', err);
+                }
+              }
               screenDisposers.push(
-                showEndScreen(document.body, {
-                  result: me.result,
-                  roe: me.roeRating,
-                  survivors: me.survivors.length,
-                  conduct: invoiceSummary(invoiceLines(deductions, placeNames)),
-                  withdrew,
-                  missionId,
-                  nextMissionId,
-                  debrief,
+                showDebrief(document.body, {
+                  ...debriefOpts,
                   aftermath: momentOptions.aftermath,
-                  reason: missionFailure ?? undefined,
-                  onDebrief: () => {
-                    screenDisposers.push(showDebrief(document.body, debriefOpts));
-                  },
+                  ground: debriefOpts.ground ? { ...debriefOpts.ground, photo } : undefined,
                 })
               );
             });

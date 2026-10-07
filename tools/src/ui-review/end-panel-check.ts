@@ -9,7 +9,7 @@
 // `packages/app/src/ui/end-panel.test.ts` and runs in `pnpm test`.
 //
 // What this does: boots ONE sandbox on the WH V map behind its own dev server,
-// mounts the real `showEndScreen`/`showDebrief` over it with WH V's own
+// mounts the real after-action report (`showDebrief`, GH-417) over it with WH V's own
 // authored debrief and aftermath, and at each viewport asks of every action in
 // the panel's nav: is its box inside the viewport, and does a hit test at its
 // centre land on it (so a HUD element drawn over it counts as unreachable)? It
@@ -54,6 +54,24 @@ const tut = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'data/missions/beit_
   debrief: { victory: { text: string } };
 };
 
+// The reports, as plain data built here: a function defined INSIDE
+// page.evaluate would be rewritten by tsx's keepNames with a `__name` helper
+// the page does not have (garage-seed.ts's note).
+const item = (mark: string, text: string, sub?: string) => ({ mark, tone: 'plain' as const, text, ...(sub ? { sub } : {}) });
+const SHORT = { reason: ['7:03 on the clock, of about 7:00'], ladder: [], well: [item('4:12', 'Raze the depot inside five minutes')], poor: [], changed: [], pins: [] };
+const LONG = {
+  reason: ['Raze the depot inside five minutes · 4:12', 'Kill or capture whoever is holding the gate', 'Hold the depot for four minutes once it is down · 8:24', '7:03 on the clock, of about 7:00'],
+  ladder: [
+    { stars: 1 as const, met: true, text: 'Won the mission' },
+    { stars: 2 as const, met: true, text: 'Conduct 94, needed 60' },
+    { stars: 3 as const, met: false, text: 'Optional objectives that carry forward: 1 of 2' },
+  ],
+  well: [item('4:12', 'Raze the depot inside five minutes'), item('8:24', 'Hold the depot for four minutes'), item('94', 'Conduct held above the second-star line (60)'), item('31', '31 enemy killed · 3 withdrew')],
+  poor: [item('−10', 'Clinic struck ×2', '2:00, 2:35'), item('−5', 'Civilians killed', '4:20'), item('', 'Barkai · Rifle Squad', 'Lost at 5:40. Gilad takes the place.'), item('−2', 'Rifle Squad ×2 lost (fresh crew)'), item('★★★', 'Missed: Bring the drivers home')],
+  changed: [item('+320', 'Credits paid · brigade now 1180', 'Paid only for beating your best on this mission.'), item('', 'Tzur ★★ → ★★★'), item('', 'Gilad took Barkai’s place'), item('Garage', 'Can now be bought: Namer IFV', 'Campaign Conduct 58 → 62. In the garage; not added to your force.'), item('Taken', 'Fifteen still out. Four came back at the shaft head.')],
+  pins: [],
+};
+
 type Case = 'victory' | 'defeat' | 'tutorial' | 'debrief';
 const CASES: readonly Case[] = ['victory', 'defeat', 'tutorial', 'debrief'];
 
@@ -64,84 +82,47 @@ async function mount(page: Page, kind: Case): Promise<void> {
   const shaiFace = '/ui/portraits/shai_hammai.png';
   const iditFace = '/ui/portraits/idit_zohar.png';
   await page.evaluate(
-    async ({ kind, wh5, tut, shaiFace, iditFace }) => {
+    async ({ kind, wh5, tut, shaiFace, iditFace, SHORT, LONG }) => {
       const w = window as unknown as { __endCheckDispose?: () => void };
       w.__endCheckDispose?.();
       // Served by the dev server, so the same module instances `main.ts` holds.
-      const menuUrl: string = '/src/ui/menu.ts';
       const debriefUrl: string = '/src/ui/debrief.ts';
-      const menu = (await import(/* @vite-ignore */ menuUrl)) as typeof import('../../../packages/app/src/ui/menu');
       const debrief = (await import(/* @vite-ignore */ debriefUrl)) as typeof import('../../../packages/app/src/ui/debrief');
       const body = document.body;
+      // GH-417 (L-7): one screen after a mission now, the after-action report.
+      // The four cases keep their shapes: a rich victory, a defeat, the
+      // tutorial's ending, and a report as long as one can get.
       if (kind === 'victory') {
-        w.__endCheckDispose = menu.showEndScreen(body, {
-          result: 'victory',
-          roe: 94,
-          survivors: 11,
-          conduct: 'Clinic struck ×2 −10 · +1 more',
-          withdrew: 3,
-          missionId: 'wadi_halam_5_depot',
-          nextMissionId: 'tel_marum_1_recon',
-          debrief: { plate: 'Hammai', text: wh5.debrief.victory.text, portrait: shaiFace, speaker: 'shai' },
+        w.__endCheckDispose = debrief.showDebrief(body, {
+          result: 'victory', stars: 2, report: LONG, missionId: 'wadi_halam_5_depot',
+          speaker: { plate: 'Hammai', text: wh5.debrief.victory.text, portrait: shaiFace, speaker: 'shai' },
           aftermath: wh5.aftermath,
-          onDebrief: () => undefined,
+          next: { id: 'tel_marum_1_recon', name: 'Tel Marum I' },
         });
       } else if (kind === 'defeat') {
-        w.__endCheckDispose = menu.showEndScreen(body, {
-          result: 'defeat',
-          roe: 61,
-          survivors: 0,
-          missionId: 'wadi_halam_5_depot',
-          debrief: { plate: 'Zohar', text: wh5.debrief.defeat.text, portrait: iditFace, speaker: 'idit' },
-          onDebrief: () => undefined,
+        w.__endCheckDispose = debrief.showDebrief(body, {
+          result: 'defeat', stars: 0, missionId: 'wadi_halam_5_depot',
+          report: { ...SHORT, reason: ['Objective failed: Raze the depot inside five minutes · 5:00'], changed: [{ mark: '0', tone: 'plain', text: 'Nothing was written to the campaign' }] },
+          speaker: { plate: 'Zohar', text: wh5.debrief.defeat.text, portrait: iditFace, speaker: 'idit' },
         });
       } else if (kind === 'tutorial') {
-        w.__endCheckDispose = menu.showEndScreen(body, {
-          result: 'victory',
-          roe: 100,
-          survivors: 9,
-          missionId: 'beit_sahwan_0_tutorial',
-          nextMissionId: 'beit_sahwan_1_recon',
-          debrief: { plate: 'Hammai', text: tut.debrief.victory.text, portrait: shaiFace, speaker: 'shai' },
-          onDebrief: () => undefined,
+        w.__endCheckDispose = debrief.showDebrief(body, {
+          result: 'victory', stars: 2, report: SHORT, missionId: 'beit_sahwan_0_tutorial',
+          speaker: { plate: 'Hammai', text: tut.debrief.victory.text, portrait: shaiFace, speaker: 'shai' },
+          next: { id: 'beit_sahwan_1_recon', name: 'Beit Sahwan I' },
         });
       } else {
         w.__endCheckDispose = debrief.showDebrief(body, {
-          result: 'victory',
-          stars: 3,
+          result: 'victory', stars: 3, report: LONG, missionId: 'wadi_halam_5_depot',
           tierLine: { plate: 'Hammai', text: wh5.debrief.victory.text },
-          roe: 94,
-          roeFloor: 60,
-          invoice: [
-            { label: 'Clinic struck', cause: 'struck', count: 2, total: 10, ticks: [2400, 3100] },
-            { label: 'Civilians killed', cause: 'civilians', count: 1, total: 5, ticks: [5200] },
-          ],
-          ticks: 8400,
-          targetMinutes: 7,
-          lost: [
-            { type: 'inf_squad', count: 2 },
-            { type: 'apc_eitan', count: 1 },
-          ],
-          lostNamed: [{ name: 'Barkai', type: 'inf_squad' }],
-          replacements: [{ name: 'Gilad', predecessor: 'Barkai' }],
-          secondaries: [
-            { text: 'Keep the clinic standing', complete: true, carries: true },
-            { text: 'Mark the depot vents', complete: true, carries: false },
-            { text: 'Bring the drivers home', complete: false, carries: true },
-          ],
-          marked: 4,
-          promoted: 2,
-          credits: { paid: 320, balance: 1180 },
-          taken: 'Fifteen still out. Four came back at the shaft head.',
-          unlocked: ['Campaign Conduct 58 → 62: Namer IFV available', 'Five stars: the Ari’im company'],
+          speaker: { plate: 'Hammai', text: wh5.debrief.victory.text, portrait: shaiFace, speaker: 'shai' },
+          aftermath: wh5.aftermath,
           promotion: { rank: 'Ari Actual', stars: 5, line: { plate: 'Zohar', text: wh5.aftermath } },
           next: { id: 'tel_marum_1_recon', name: 'Tel Marum I', villainLine: 'Abu Sakhr, on the net: “Come up the hill.”' },
-          missionId: 'wadi_halam_5_depot',
-          withdrew: 3,
         });
       }
     },
-    { kind, wh5, tut, shaiFace, iditFace }
+    { kind, wh5, tut, shaiFace, iditFace, SHORT, LONG }
   );
   // Past `.rl-enter` (var(--dur)) and any image decode.
   await page.waitForTimeout(500);

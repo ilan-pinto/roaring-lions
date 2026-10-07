@@ -49,12 +49,12 @@
 // (`i18n/pseudo.ts`) on whichever screen loads -- a plain, unbracketed word
 // in a pseudo capture is a string that never went through `t()`.
 //
-// 16-end-defeat and 17-debrief are a SCRIPTED defeat: `debugKill` every
+// 17-debrief (the after-action report, GH-417) is a SCRIPTED defeat: `debugKill` every
 // player unit and step the sim until `checkEnd` notices, which a script can
 // do without knowing a single thing about the mission. Task 5's outcome
 // moment (`ui/outcome-moment.ts`) now holds in FRONT of the end screen, so
 // `25-outcome-defeat` photographs it first and clicks `.rl-outcome__skip`
-// before `.rl-endnav` (below) ever appears -- without the skip that wait
+// before `.rl-aar` (below) ever appears -- without the skip that wait
 // times out at 15s, which is how this ordering was found. A victory needs
 // the mission's own objectives satisfied for real rather than a `debugKill`
 // equivalent (there is no `debugWin`, and adding one would be a sim change),
@@ -998,7 +998,7 @@ try {
     });
     // Task 6: the moment (`ui/outcome-moment.ts`) is a held, full-screen
     // dialog in FRONT of the end screen. Photograph it FIRST, then skip it --
-    // without the skip the `.rl-endnav` wait below times out, which is how
+    // without the skip the `.rl-aar` wait below times out, which is how
     // this line was found. This wait runs on the REAL, unfrozen rAF: see the
     // freeze comment right below for why that matters.
     await page.waitForSelector('.rl-outcome[data-outcome="defeat"]', { timeout: 15000 });
@@ -1024,7 +1024,7 @@ try {
     // measurement). So this freezes only AFTER `waitForSelector` above has
     // already confirmed presence on the real rAF, and restores immediately
     // after the screenshot below, before `.rl-outcome__skip`'s click and the
-    // `.rl-endnav`/`.rl-debrief` waits that follow need Playwright's own
+    // `.rl-aar` wait that follows needs Playwright's own
     // polling working again.
     await page.evaluate(FREEZE_FOR_SCREENSHOT_SCRIPT);
     await shot(page, dir, '25-outcome-defeat');
@@ -1045,15 +1045,11 @@ try {
       '25-outcome-defeat'
     );
     await page.click('.rl-outcome__skip');
-    // `.rl-endnav` rather than a single `.rl-end` class: `showEndScreen`
-    // (`ui/menu.ts`) builds its root from the shared `panel()` helper
-    // (`.rl-panel[data-rank="alert"]`), and the nav row it appends last is
-    // the one class unique to this screen that exists regardless of whether
-    // the mission declared a `debrief` line for this outcome.
-    await page.waitForSelector('.rl-endnav', { timeout: 15000 });
-    await shot(page, dir, '16-end-defeat');
-    await page.click('.rl-endnav__debrief');
-    await page.waitForSelector('.rl-debrief', { timeout: 15000 });
+    // GH-417 (L-7): the moment hands over straight to the after-action
+    // report, which absorbed the old end panel -- so `16-end-defeat` and
+    // `17-debrief` are one screen now. The name `17-debrief` is kept for the
+    // shot-to-shot comparisons the audit reads; `16-end-defeat` is gone.
+    await page.waitForSelector('.rl-aar', { timeout: 15000 });
     await shot(page, dir, '17-debrief');
 
     await ctx.close();

@@ -37,6 +37,10 @@ export interface ObjectiveRow {
    *  evacuation's refuge (`evacuation.ts`, GH-279). Drawn as a button only
    *  when the mount also passes `onJump`. */
   jumpTo?: { x: number; y: number };
+  /** The briefing's clock for this row (`briefing-glance.ts`'s
+   *  `objectiveClock`: "5:00 limit", "hold 4:00"). Read only by the
+   *  briefing mount, beside the row's kind; the live mounts show `ticksLeft`. */
+  clock?: string;
 }
 
 export interface ObjectivesDeps {
@@ -115,6 +119,7 @@ export function objectivesPanel(
         o.status,
         o.text,
         o.ticksLeft !== undefined,
+        o.clock ?? null,
         deps.onJump ? (o.jumpTo ?? null) : null,
       ])
     );
@@ -157,8 +162,11 @@ export function objectivesPanel(
       status.className = 'rl-obj__status';
       // I10's rule, unbroken here: the catalogue label, never `o.status`
       // (the sim's own enum) printed raw.
+      const kind = t(o.primary ? 'objective.kind.primary' : 'objective.kind.optional');
       status.textContent = deps.briefing
-        ? t(o.primary ? 'objective.kind.primary' : 'objective.kind.optional')
+        ? o.clock
+          ? t('objective.kind.clock', { kind, clock: o.clock })
+          : kind
         : objectiveStatusLabel(o.status);
       li.appendChild(status);
 
