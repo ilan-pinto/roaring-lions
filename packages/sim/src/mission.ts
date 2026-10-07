@@ -501,6 +501,14 @@ export class MissionRuntime {
    *  that never held anything. Sorted, because an insertion-ordered array whose
    *  order depends on a scan is a latent determinism question. */
   private readonly razeTargets = new Map<string, readonly number[]>();
+  /** Every structure index any `raze` objective names (the union of
+   *  razeTargets). Levelling one is the order, not collateral, so `stepRoe`
+   *  charges nothing for it -- before 2026-10-07 Wadi Halam V billed its own
+   *  primary at 19 Conduct. Keyed on the objective's DEFINITION, not its
+   *  status: the last target falls while the objective is still `active`
+   *  (stepRoe runs before stepObjectives), and a raze whose deadline has
+   *  passed still names a military target, not a civilian one. */
+  private readonly razeExempt = new Set<number>();
   /** Objective id -> the route indices whose mouths its zone held at mission
    *  start. Mirrors razeTargets, though for a different reason: ctx.tunnels
    *  is static so a rescan could not shrink, but snapshotting at start() is
@@ -955,6 +963,7 @@ export class MissionRuntime {
           );
         }
         this.razeTargets.set(o.def.id, [...found].sort((a, b) => a - b));
+        for (const s of found) this.razeExempt.add(s);
       }
       if (o.def.type === 'collapse') {
         const z = this.zone(o.def.target);
@@ -1420,6 +1429,10 @@ export class MissionRuntime {
         // Only the player's demolitions are judged: the enemy wrecking its
         // own town is their affair, not a mark against your restraint.
         if (e.by < 0 || st.side[e.by] !== 0) continue;
+        // A structure a raze objective names is the mission's target: razing
+        // it is doing the objective. Anything outside that set -- a house the
+        // D9 levels on the way through the village -- is still judged.
+        if (this.razeExempt.has(e.structure)) continue;
         const mult = roe?.structure_penalty_mult ?? 1;
         const type = this.sim.structureTypes[this.sim.structures.typeIdx[e.structure]];
         // Round half up without Math (invariant 2): (2v + 1) / 2 truncated.

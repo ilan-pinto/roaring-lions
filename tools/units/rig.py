@@ -303,22 +303,18 @@ PART_BONE = {
     # each hip and at the rear knee; these blobs cover them. The kneel
     # skeleton never animates a leg, so they bind to the nearest static bone.
     "kneek_r": "thigh_r", "hipk_r": "pelvis", "hipk_f": "pelvis",
-    # --- breach_team's own props (new this pass) ---
+    # --- breach_team's own prop ---
     # `kit.ballistic_shield` is held out in front by the same hand a rifle
     # would occupy on the OTHER arm, so it binds to the off-hand forearm
     # rather than through the forced-bone convention _weapon_parts uses for
     # the rifle itself -- it is worn kit from this rig's point of view, the
-    # same class as a dropleg holster or a canteen, just larger. `pole`/
-    # `pole_head` are `kit.breach_pole`'s two objects (the rod and its small
-    # block tip), both worn slung across the back and so both bound to
-    # `spine`, the same convention a carried pack (`yah_pack_a`/`_b`) uses in
-    # `_yahalom_extras` -- except those go through an explicit `forced` dict
-    # because their object names carry no "prefix_suffix" split at all
-    # ("yah_pack_a"), where breach_team's props are named
-    # "{prefix}_shield"/"{prefix}_pole"/"{prefix}_pole_head" and so resolve
-    # through this table's normal fallback path instead.
+    # same class as a dropleg holster or a canteen, just larger. It is named
+    # "{prefix}_shield" and so resolves through this table's normal fallback
+    # path. (The cover man's breaching pole, `pole`/`pole_head` on `spine`,
+    # is removed from the mesh team: the lead, 7 Oct -- on the Meshy figure
+    # it ran through his face and chest. The sprite sheet's `teams.py` still
+    # draws it on his back.)
     "shield": "forearm_L",
-    "pole": "spine", "pole_head": "spine",
     # --- weapon assembly, bound rigidly via forced_bone below, not this
     # table -- see _weapon_parts and _add_figure. Retained here only so a
     # stray unmapped "_w"-suffixed object still raises loudly rather than
@@ -1222,8 +1218,9 @@ TEAM_FIGURES = {
     # so `build_fire_clip`'s raise-and-recoil would aim an empty arm; the
     # fire clip is the FIRE_ROOT_LEAN brace instead. The kit build of
     # this team (`export_mesh_team.py` with its own out_path) loses its kit
-    # rifles with this; that file is superseded and the shield and pole --
-    # the tells -- are untouched.
+    # rifles with this; that file is superseded and the shield -- the tell --
+    # is untouched (the cover man's pole is removed, 7 Oct; see
+    # `_breach_extras`).
     "breach_team": [
         _f("brc_point", 0.32, -0.18, leader=True),
         _f("brc_cover", -0.30, 0.24),
@@ -1519,18 +1516,24 @@ def _digger_extras():
 
 
 def _breach_extras():
-    """breach_team's own props: `brc_point`'s ballistic shield and
-    `brc_cover`'s breach pole. Unlike every other entry in this table, both
-    resolve through the plain PART_BONE fallback rather than an explicit
-    `forced` dict -- see PART_BONE's own "breach_team's own props" comment
-    for why: both objects are named `f"{prefix}_{suffix}"` against a real
-    figure prefix, the same convention `kit.figure()`'s own worn-kit parts
-    (pouches, dropleg, canteen) already use, so `rig_parts` binds them for
-    free. Returning `{}` for `forced` here is the tell that these are worn
-    kit, not a free-standing crew-served weapon with no hand to grip."""
+    """breach_team's own prop: `brc_point`'s ballistic shield. It resolves
+    through the plain PART_BONE fallback rather than an explicit `forced`
+    dict -- see PART_BONE's own "breach_team's own prop" comment for why: it
+    is named `f"{prefix}_{suffix}"` against a real figure prefix, the same
+    convention `kit.figure()`'s own worn-kit parts (pouches, dropleg,
+    canteen) already use, so `rig_parts` binds it for free. Returning `{}`
+    for `forced` here is the tell that it is worn kit, not a free-standing
+    crew-served weapon with no hand to grip.
+
+    `brc_cover`'s breaching pole (`kit.breach_pole`) is NOT in the mesh team
+    any more (the lead, 7 Oct: "the gray tube is misplaced ... maybe you can
+    completely remove it"): written for a kit figure's back, it stood on the
+    Meshy cover man's centre line, 929-953 of ~1,750 rod samples inside his
+    head, neck, spine or pelvis in every living clip, its block tip over his
+    face. `launcher_clearance.test.ts` pins the team's roles so it cannot
+    return through a re-export."""
     shield = kit.ballistic_shield("brc_point_shield", (0.32, -0.18, 0.0))
-    pole = kit.breach_pole("brc_cover_pole", (-0.30, 0.24, 0.0))
-    return shield + pole, [], {}
+    return shield, [], {}
 
 
 TEAM_EXTRAS = {

@@ -175,6 +175,21 @@ calling anything missing (see `docs/ASSET_PROVENANCE.md`).
    common nouns in the materiel register, screened and dated, issued in table order by a
    counter on the ledger. Never write a name into a mission, a line or a briefing; the
    player's units are named by the app, and a name the table does not hold does not exist.
+10. Maps keep the fight visible: 84% of the fight tiles in view of the default camera
+   (below, and `ground-ladder.md` §15). Measure it; do not judge it by eye.
+
+## Maps keep the fight visible
+
+A map is built so the player can see the fight (the lead, GH-416): at least **84%** of
+the passable tiles near its objectives and along its main routes must be visible to the
+default camera, with no building's mesh over more than half of a rifleman standing there.
+`tools/src/map_visibility.test.ts` gates every campaign map; a map under the floor needs a
+named exemption with a reason, and the exemption is a ratchet. Run
+`npx tsx tools/src/map_visibility.ts --draw=<map id>` while authoring: a building hides the
+ground up-screen of it (north-west on the grid), a house for about five tiles and an
+apartment for about nine, whatever its footprint, so streets go on the camera side of tall
+buildings and most of a town is low. The geometry and the four authoring rules are in
+`ground-ladder.md` §15.
 
 ## Verification for narrative content
 

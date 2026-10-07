@@ -89,6 +89,11 @@ import { SAVES_KEY } from './profile';
 export interface RosterEntry extends LedgerRosterEntry {
   /** Place in the order of battle, issued app-side, durable across missions. */
   slot?: number;
+  /** The mission that first brought this body home (roster R-2): set app-side
+   *  on a body that arrives fresh, carried by slot after that. The sim never
+   *  reads it; `checkEnd` copies an unfielded entry whole, so it rides along.
+   *  Absent on a body enlisted before R-2 shipped, which R-2 then never drops. */
+  enlisted?: string;
 }
 
 /** The memorial half of a service record: who held a slot, and where they were

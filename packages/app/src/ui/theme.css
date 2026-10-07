@@ -385,11 +385,11 @@ body {
    column scrollers above switch to `overflow: visible`, so without it the
    whole garage falls back to the native bar under 1200 px wide -- the exact
    defect this file exists to fix, just at a width the earlier pass never
-   captured. `.rl-debrief` cannot be reached by any selector at all: its
-   `overflow: auto; max-height: 88vh` is INLINE (`ui/debrief.ts`'s `panel({
-   place: … })`, applied as `el.style.cssText` by `panel.ts`), so it needed
-   naming here explicitly rather than turning up in a sweep of this file --
-   and it is the one screen in this list shown after every single mission.
+   captured. `.rl-debrief` was named here because its `overflow: auto;
+   max-height: 88vh` used to be INLINE (`ui/debrief.ts`'s `panel({ place: … })`);
+   since the end-panel fix it scrolls through its `.rl-panel__body` under
+   `.rl-endpanel` instead, which the first selector here already covers, and
+   the name stays as harmless belt and braces.
    A sweep of every other TS file under `packages/app/src` for a `place:`
    string found none with an `overflow` of its own (`ui/menu.ts`'s end screen and
    `tutorial/panel.ts` both set only position/size), so `.rl-debrief` is the
@@ -2970,12 +2970,39 @@ body {
 
 /* Boot failure. Reachable only after this stylesheet has loaded — the module
    that registers the handler is the one that imports it. */
+/* Pass K: a failure card is part of the game, not a browser page -- the
+   title in the display face and the failure tone, the explanation in body
+   ink, the next step quieter, and the ways out as the ordinary `.rl-btn`
+   (the `<a>` used to inherit the browser's underlined blue). No mono: the
+   card never prints a stack or an id any more (`ui/boot-failure.ts`). */
 .rl-boot-error {
-  color: var(--bad-text);
-  font-family: var(--font-mono);
-  font-size: var(--t-m);
+  max-width: 40rem;
   padding: var(--s6);
-  white-space: pre-wrap;
+  font-family: var(--font-body);
+  font-size: var(--t-m);
+  line-height: var(--lh-body);
+  color: var(--ink);
+}
+.rl-boot-error__title {
+  margin: 0 0 var(--s3);
+  font-family: var(--font-display);
+  font-size: var(--t-xl);
+  font-weight: 600;
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  color: var(--bad-text);
+}
+.rl-boot-error__body {
+  margin: 0 0 var(--s2);
+}
+.rl-boot-error__next {
+  margin: 0 0 var(--s5);
+  color: var(--ink-mute);
+}
+.rl-boot-error__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
 }
 
 /* Route transitions (shell/router.ts): the stage fades out under the old
@@ -3343,6 +3370,48 @@ button.rl-menu__item[data-kind='aside'] {
   margin-top: var(--s3);
 }
 
+/* The end-of-mission frame (`ui/end-panel.ts`), shared by the end screen and
+   the debrief: centred, never taller than the viewport less a margin, the body
+   scrolling and the action row in a foot BELOW the body rather than inside it.
+   The end screen used to hang from `top: 62%` and grow downward, so a long
+   victory (WH V's portrait, quote and aftermath) put every one of its actions
+   off screen. Above the HUD's furniture (strip 6, minimap 5, tracker 20) so
+   nothing it leaves up can cover an action; below the loading screen (40), the
+   pause/confirm scrims (50) and the outcome moment (55). The foot repeats the
+   body's background and frame, so the two read as one body when nothing
+   scrolls -- the spacing is the old `margin-top` on `.rl-endnav`, moved into
+   the body's own bottom padding. */
+.rl-endpanel {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 2 * var(--s4));
+  max-height: calc(100dvh - 2 * var(--s4));
+}
+.rl-endpanel > .rl-panel__band,
+.rl-endpanel__foot {
+  flex: none;
+}
+.rl-endpanel > .rl-panel__body {
+  flex: 0 1 auto;
+  min-height: 0;
+  border-bottom: 0;
+}
+.rl-endpanel__foot {
+  pointer-events: auto;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  border-top: 0;
+  padding: 0 var(--s3) var(--s3);
+}
+.rl-endpanel__foot .rl-endnav {
+  margin-top: 0;
+}
+
 /* The story voice's outcome-specific closing word (G11 / GDD §11), above the
    ROE/survivors rating in the same panel body -- `mission.debrief.victory`
    on a win, `.defeat` on a loss (`showEndScreen`'s own `EndScreenOptions`
@@ -3421,6 +3490,14 @@ button.rl-menu__item[data-kind='aside'] {
    the same face and ink the outcome moment previews it in
    (`.rl-outcome__aftermath`), at the quote's line height, because here it is
    read rather than glimpsed. */
+/* Pass K: what the result means and what next (`endScreenLines`, ui/menu.ts)
+   -- body face, set like the summary's ink rather than the mono aftermath. */
+.rl-endreason {
+  margin: var(--s2) 0 0;
+  font-family: var(--font-body);
+  font-size: var(--t-m);
+  color: var(--ink);
+}
 .rl-endaftermath {
   margin: 0 0 var(--s2);
   font-family: var(--font-mono);
@@ -3658,8 +3735,13 @@ button.rl-menu__item[data-kind='aside'] {
   inset: 0;
   z-index: 40;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  /* `safe` (GH-417 B-01): plain `center` on a scroll container centres a box
+     taller than the viewport by pushing its top into NEGATIVE overflow, which
+     no scroll reaches -- the mission name sat at -210 px at 1400x900 on Wadi
+     Halam V and could not be scrolled to. `safe` falls back to `start` exactly
+     when the box would overflow, and centres it otherwise. */
+  align-items: safe center;
+  justify-content: safe center;
   /* Opaque, not translucent — see above; there is nothing behind here worth
      showing through. */
   background: var(--panel-bg-solid);
@@ -3825,6 +3907,19 @@ button.rl-menu__item[data-kind='aside'] {
   /* Scrolled text needs a margin to breathe against the scrollbar. */
   padding-right: var(--s2);
 }
+/* GH-417 B-03: with orders to read, the beats do NOT scroll inside their own
+   box any more. That nested box cut its text off flush against the
+   Objectives header (Execution read as overlapped; Notes was hidden inside
+   it at 1400 and 1920). What the cap above protected -- Deploy staying on
+   screen -- is `position: sticky` on Deploy now (below), so the whole screen
+   scrolls as one page. The cinematic layout keeps its own cap
+   (`.rl-loading__box--video .rl-loading__brief`), whose measured fit is a
+   different screen. */
+.rl-loading__box--brief:not(.rl-loading__box--video) .rl-loading__brief {
+  max-height: none;
+  overflow-y: visible;
+  padding-right: 0;
+}
 /* One beat, one paragraph, with air between them -- the "wall of text"
    complaint was as much about the missing paragraph breaks as the size.
    Fades in on a short stagger keyed by `--i`, the same per-child custom
@@ -3939,6 +4034,27 @@ button.rl-menu__item[data-kind='aside'] {
   color: var(--ink);
   border: 0;
   cursor: pointer;
+}
+/* GH-417 B-02: the one control that starts the mission stays on screen. It
+   follows the orders in the page, so on a tall briefing it sat below the fold
+   on open (top at 1123 px at 1920x1080, 1488 px at 2560x1440). Sticky to the
+   scroll container's bottom edge: where the page is short enough it sits
+   exactly where it always did; where it is not, it rides the bottom edge until
+   the reader scrolls to its own place. Behind it, a band in the screen's own
+   colour runs the full width, so prose scrolling under it is hidden rather
+   than read beside the button. The band is a border-image drawn wholly in
+   the OUTSET (width = outset, no `fill`): it paints outside the button and
+   never over it, and outset ink is overflow that triggers no scrolling. Where
+   Deploy sits in its own place the band is the background colour on the
+   background, so it is invisible. */
+.rl-loading__box--brief > .rl-loading__deploy {
+  position: sticky;
+  bottom: var(--s3);
+  z-index: 1;
+  border-image-source: linear-gradient(var(--panel-bg-solid), var(--panel-bg-solid));
+  border-image-slice: 1;
+  border-image-width: var(--s5) 100vw var(--s3);
+  border-image-outset: var(--s5) 100vw var(--s3);
 }
 .rl-loading__deploy:hover,
 .rl-loading__deploy:focus-visible {

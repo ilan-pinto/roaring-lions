@@ -549,3 +549,82 @@ it says so.
 | 6 | `d` in Naharin | **Keep `d` out of Naharin.** Bunds (`1`) and the stony bed (`b`) only. (Coordinator's ruling, per the recommendation.) |
 | 7 | First arc | **Wadi Halam first**, then the §11 order. The Khan Rafid pilot alternative is dropped. |
 | 8 | Light rotation | **Lands first, as its own PR** (`data/light-rotation`): the 16 `time_of_day` edits in §10. |
+
+---
+
+## 15. Keep the fight visible (GH-416, 2026-10-07)
+
+The lead (6 Oct): *"Wadi Halam IV is too dense; I can't see the fight. Maps should be
+wide enough so the user can see the fight; most of it should not be eaten by a
+building."*
+
+**The rule.** On every campaign map, at least **84%** of the fight tiles must be visible
+to the default camera. Gated by `tools/src/map_visibility.test.ts`; the instrument is
+`tools/src/map_visibility.ts`, and `npx tsx tools/src/map_visibility.ts [--draw=<map>]`
+prints the table (and a map with `X` on every hidden fight tile).
+
+- **Fight tiles** are the passable tiles within 5 of an objective's target (its zone, its
+  marker, or the placements its tag names), plus a 3-wide corridor along every main
+  route: the foot flow-field path from `player_start` to each objective, and from each
+  wave's spawn to where it is sent.
+- **Hidden** means a building's drawn mesh covers more than half of a rifleman standing
+  on the tile, seen along `camera.ts`'s `VIEW_DIRECTION`. The camera is orthographic, so
+  zoom changes nothing. Ridges, decor and props do not count; the rule is about buildings.
+- **Why 84%.** Wadi Halam IV as the lead saw it read 74.1%, so the line is above that. On
+  `main` the maps split into a dense group at 45.7–80.6% and an open group at 87.3% and
+  up; 84% sits in the gap, and it is the one value that gives every map the same verdict
+  under all four settings of the instrument's free parameters that were tried (the full
+  argument is on `VISIBLE_FLOOR`).
+
+**The geometry an author has to know.** A building draws its GLB at the footprint's
+centre at a fixed size: the mesh is **not** fitted to the footprint. So a 1×1 or 2×2 `h`
+still draws a house 4.26 × 3.71 tiles in plan, and its walls stand in the lanes beside it.
+And it hides the ground **up-screen** of itself (towards smaller x and y, the north-west
+of the grid), never in front of it:
+
+| type | mesh plan (tiles) | height (world units) | hides up-screen, about |
+|---|---|---|---|
+| `a` apartment | 4.9 × 4.9 | 7.74 | 9 tiles |
+| `h` house | 4.3 × 3.7 | 4.24 | 5 tiles |
+| `y` relay | 1.5 × 1.5 | 3.33 | 3.5 tiles |
+| `#` concrete | 1.2 × 1.8 | 3.00 | 3 tiles |
+| `k` clinic | 3.4 × 4.7 | 2.23 | 2.5 tiles |
+| `m` hall | 2.8 × 3.2 | 1.52 | 1.5 tiles |
+| `w` warehouse, `s` shed, `p` pump house, `c` camp | 4.0 / 1.7 / 1.3 / 2.5 | 1.3–1.4 | 1.5 tiles |
+| `=` wall, `f` fence | 1 × 0.2 | under 0.6 | nothing |
+
+Which gives four authoring rules:
+
+1. **Streets go on the camera side of tall buildings** (south or east of them). A street
+   north or west of a row of houses lies in that row's shadow for five tiles.
+2. **Tall buildings are few, and they stand where their shadow falls on something that is
+   not a fight**: another building, a walled yard, the map edge. Low buildings (`s`, `w`,
+   `p`) are what a town is mostly made of.
+3. **Draw a footprint the size of its mesh.** A house wants about 4×4, a warehouse 4×4, a
+   shed 2×2. A smaller footprint does not make a smaller house; it makes a house standing
+   in the street.
+4. **Measure before the PR**, with the table above. Nothing here is visible by eye on a
+   48×48 grid.
+
+**What GH-416 changed** (same footprints, so every route and sight claim the doctrine
+tests pin is unchanged; difficulty re-measured over 12 seeds in the PR):
+
+| map | before | after | how |
+|---|---|---|---|
+| `wadi_halam_4` | 74.1% | 86.9% | the ten houses no cell holds became sheds, a barn and a pump house; the seven garrisoned houses stay where they were |
+| `khan_rafid` | 61.1% | 86.5% | the new quarter's two apartment blocks became warehouses (4×4 footprints, a 4×4 mesh), the ward's two flanking blocks and seven Old Town blocks became warehouses and sheds, and one house by the start a shed |
+| `khan_rafid_3` | 70.3% | 87.1% | the one-tile houses and two-tile apartments in the souk and the new quarter became sheds |
+| `deir_amun_3` | 73.9% | 87.3% | the south half of the hamlet came down to sheds; the two garrisoned houses stay |
+
+**Exempt, with a ratchet** (each may improve and may not get worse; the test goes red the
+day one clears the floor and asks for its entry to be deleted):
+
+- `beit_sahwan_3` (45.7%) — the old town at street scale is the map. Clearing the floor by
+  lowering buildings keeps 8 of its 39 houses and apartments: a lead decision, below.
+- `qarn_hadid_3`, `wadi_halam_5` (80.6% each) — follow-up.
+
+**Open for the lead.** Fitting each building mesh to its own footprint is a renderer change
+(presentation only; the sim never sees a mesh). Measured as a what-if
+(`npx tsx tools/src/map_visibility.ts --fit`), it alone takes `beit_sahwan_3` from 45.7% to
+80.3% and `khan_rafid` (as on `main`) from 61.1% to 80.6%, without touching a map. It would
+move the golden baselines and every town's look, so it is not done here.

@@ -176,3 +176,25 @@ export function reinforceTrigger<P>(
   if (def === undefined || def.do.kind !== 'reinforce' || def.label === undefined) return null;
   return { label: def.label, units: def.do.units ?? [] };
 }
+
+/** Pass K: the note a free-play link earns when it names no shipped map --
+ *  the boot still falls back to the default ground, and this says so, names
+ *  the map shown instead, and says how to pick another. Null when the map exists (or the
+ *  link named none). */
+export function unknownSandboxMapNotice(
+  requested: string | null,
+  known: Readonly<Record<string, unknown>>,
+  shownName: string,
+): [string, Tone] | null {
+  if (!requested || requested in known) return null;
+  // The requested id is NOT echoed: it is a data id (PA-01's wording gate),
+  // and the player gains nothing from reading their own typo back.
+  return [t('main.note.sandboxMapUnknown', { name: escapeHtml(shownName) }), 'warn'];
+}
+
+/** Pass K: the victory line about the campaign save. "Saved" only when the
+ *  write really landed -- a browser with no storage, or one that refused the
+ *  write, says so and says how to keep the next one. */
+export function ledgerSavedNotice(saved: boolean): [string, Tone] {
+  return saved ? [t('main.note.ledgerUpdated'), 'info'] : [t('main.note.ledgerNotSaved'), 'bad'];
+}

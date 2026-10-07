@@ -16,6 +16,7 @@ import { routes } from '../shell/links';
 import type { Disposer } from '../shell/router';
 import { confirmDialog } from './confirm';
 import { panel } from './panel';
+import { mountEndPanel } from './end-panel';
 import { stagger } from './motion';
 import { markSvg, wordmark } from './mark';
 import { worldMap } from './worldmap';
@@ -507,6 +508,23 @@ export interface EndScreenOptions {
    *  +1 more", `conduct-invoice.ts`'s `invoiceSummary`). Empty or absent for a
    *  clean fight, which keeps the old line. */
   conduct?: string;
+  /** Pass K: on a defeat, WHY -- `failureReason`'s line ("Every unit lost ·
+   *  3:12"). It was shown only in the transient outcome moment and the feed,
+   *  so the screen the player decides on said "Mission failed" and nothing
+   *  else. Ignored on a victory. */
+  reason?: string;
+}
+
+/** Pass K: the lines under the end screen's title that say what the result
+ *  MEANS for the campaign and what to do next -- a defeat's cause and that
+ *  nothing was lost, a won town's "choose the next operation" where the
+ *  "next mission" link would otherwise just be absent. */
+export function endScreenLines(opts: Pick<EndScreenOptions, 'result' | 'reason' | 'nextMissionId'>): string[] {
+  if (opts.result === 'defeat') {
+    const lines = opts.reason ? [opts.reason] : [];
+    return [...lines, t('menu.end.defeatKept')];
+  }
+  return opts.nextMissionId ? [] : [t('menu.end.townDone')];
 }
 
 export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): Disposer {
@@ -515,7 +533,9 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): Dispos
     rank: 'alert',
     title: t('menu.end.title', { result: opts.result }),
     tag: t('menu.end.tag', { result: opts.result }),
-    place: 'top:62%;left:50%;transform:translateX(-50%);width:min(26.25rem,90vw);text-align:center',
+    // Width only: `.rl-endpanel` (`mountEndPanel`, below) centres it and caps
+    // its height, which `top:62%` never did -- the actions fell off screen.
+    place: 'width:min(26.25rem,90vw);text-align:center',
   });
   p.el.classList.add('rl-enter');
 
@@ -572,6 +592,13 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): Dispos
     p.body.appendChild(aftermath);
   }
 
+  for (const line of endScreenLines(opts)) {
+    const l = document.createElement('p');
+    l.className = 'rl-endreason';
+    l.textContent = line;
+    p.body.appendChild(l);
+  }
+
   const withdrew = withdrewLine(opts.result, opts.withdrew);
   if (withdrew !== null) {
     const w = document.createElement('p');
@@ -590,7 +617,7 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): Dispos
 
   const nav = document.createElement('div');
   nav.className = 'rl-endnav';
-  const link = (label: string, href: string, onward = false): void => {
+  const link = (label: string, href: string, onward = false): HTMLAnchorElement => {
     const a = document.createElement('a');
     // GH-261: the onward link carries the supporting-attack arrow after its words.
     if (onward) a.innerHTML = symbolLabel('next', label, { after: true });
@@ -600,6 +627,7 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): Dispos
     // The onward link -- the next mission -- is the end screen's primary action.
     if (onward) markConfirm(a);
     nav.appendChild(a);
+    return a;
   };
   if (opts.onDebrief) {
     const btn = document.createElement('button');
@@ -612,12 +640,13 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): Dispos
     });
     nav.appendChild(btn);
   }
-  if (won && opts.nextMissionId) link(t('menu.end.next'), routes.mission(opts.nextMissionId), true);
-  link(t('menu.end.replay', { result: opts.result }), routes.mission(opts.missionId));
-  link(t('nav.campaignMap'), routes.campaign());
+  const next = won && opts.nextMissionId ? link(t('menu.end.next'), routes.mission(opts.nextMissionId), true) : null;
+  const replay = link(t('menu.end.replay', { result: opts.result }), routes.mission(opts.missionId));
+  const campaign = link(t('nav.campaignMap'), routes.campaign());
   link(t('nav.menu'), routes.menu());
-  p.body.appendChild(nav);
 
-  host.appendChild(p.el);
+  // Focus: onward after a win, another go after a loss, and the campaign map
+  // after a win with nothing to follow it.
+  mountEndPanel(host, p, nav, next ?? (won ? campaign : replay));
   return () => p.el.remove();
 }

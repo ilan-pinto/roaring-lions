@@ -34,6 +34,20 @@ describe('objectivesPanel', () => {
     p.dispose();
   });
 
+  // GH-417 B-04. Falsified: `deps.briefing ?` -> `false ?` reads "In
+  // progress" / "Complete" / "Failed" and goes red; dropping the reward guard
+  // prints "Optional" twice on row e.
+  it('on the briefing, names each row by kind and does not say Optional twice', () => {
+    const host = document.createElement('div');
+    const p = objectivesPanel(host, { rows: () => rows, paysCredits: true, briefing: true });
+    const status = (id: string): string | null | undefined =>
+      p.el.querySelector(`.rl-obj[data-id="${id}"] .rl-obj__status`)?.textContent;
+    expect(['a', 'b', 'c', 'd', 'e'].map(status)).toEqual(['Primary', 'Primary', 'Primary', 'Optional', 'Optional']);
+    expect(p.el.querySelector('.rl-obj[data-id="e"] .rl-obj__reward')).toBeNull();
+    expect(p.el.querySelector('.rl-obj[data-id="d"] .rl-obj__reward')?.textContent).toContain('40');
+    p.dispose();
+  });
+
   it('draws each status as its GH-261 mark, not a character', () => {
     const host = document.createElement('div');
     const p = objectivesPanel(host, { rows: () => rows, paysCredits: true });

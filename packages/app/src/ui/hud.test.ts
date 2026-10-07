@@ -2709,6 +2709,21 @@ describe('the Conduct invoice under the strip (GH-345)', () => {
     q.hud.setInvoiceOpen(true);
     expect(q.host.querySelector<HTMLElement>('.rl-invoice')!.style.display).toBe('none');
   });
+  // PA-11: tutorial beat 9 opens the invoice and leaves it open past the last
+  // beat, so it hung over the end panel and the debrief header. It is a
+  // battle instrument: once the result is in, it closes and stays closed.
+  it('closes when the mission ends, and nothing reopens it over the end screen', () => {
+    const m = mission({ roe: 100 });
+    const r = rig(m, { conductInvoice: () => ({ lines: [] }) });
+    const inv = r.host.querySelector<HTMLElement>('.rl-invoice')!;
+    r.hud.setInvoiceOpen(true);
+    expect(inv.style.display).toBe('');
+    m.result = 'victory';
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(inv.style.display).toBe('none');
+    r.hud.setInvoiceOpen(true);
+    expect(inv.style.display).toBe('none');
+  });
 });
 
 describe('the invoice head with no floor (GH-345)', () => {
@@ -2719,5 +2734,19 @@ describe('the invoice head with no floor (GH-345)', () => {
     const text = r.host.querySelector('.rl-invoice')!.textContent!;
     expect(text).toContain('Conduct 95');
     expect(text).not.toContain('floor');
+  });
+});
+
+// PA-25: a sandbox has no mission, and its strip read the game's own name
+// ("ROARING LIONS") where every mission names where you are.
+describe('the strip with no mission (PA-25)', () => {
+  it('names the sandbox map, escaped', () => {
+    const r = rig(null, { placeName: 'Beit Sahwan — Outskirts <b>' });
+    expect(r.strip()).toContain('Beit Sahwan — Outskirts <b>');
+    expect(r.strip()).not.toContain('Roaring Lions');
+    expect(r.stripEl().querySelector('b')).toBeNull();
+  });
+  it('falls back to the game name with no place to name', () => {
+    expect(rig(null).strip()).toContain('Roaring Lions');
   });
 });
