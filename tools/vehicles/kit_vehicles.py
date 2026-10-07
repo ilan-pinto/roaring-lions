@@ -82,6 +82,26 @@ BLOCKOUT_SPLIT = {
 #: measurement that forced it. The exporter prints every one on every run and
 #: skips only that axis of that node's comparison.
 DEVIATIONS = {
+    "heli_peten": {
+        ("armour", 1, "hull_hull"): (
+            "y",
+            "the mock's cockpit plates (|y| 0.235-0.265) lie 7-13 cm INSIDE the fuselage side at "
+            "z 0.74 (|y| 0.33-0.35 over x 0.14-0.69) and would never be seen; seated on the real "
+            "side, the part widens by 0.27 m"),
+        ("armour", 2, "hull_hull"): (
+            "z",
+            "the mock's engine-bay panels stood 6-7 cm above the nacelles; seated 4 mm proud they "
+            "sit 0.067 m lower (tolerance 0.055)"),
+        ("armour", 3, "hull_hull"): (
+            "z",
+            "the mock's floor plate hung 8.5 cm under the belly; seated against it the part's "
+            "bottom rises 0.07 m"),
+        ("sensors", 3, "hull_hull"): (
+            "z",
+            "the mock's roof sensor fairing (z 1.08-1.18) is INSIDE the rotor disc (z 1.04-1.29, "
+            "0.8 m from the hub): the spinning blades would cut through it. It sits on the engine "
+            "hump instead, under the disc"),
+    },
     "scout_shachaf": {
         ("armour", 1, "hull_hull"): (
             "z",
@@ -638,7 +658,7 @@ def _cage(H, prefix, panels, brackets_z, side_reach=0.8, rear_reach=1.0):
 
 
 def _mast_head(H, prefix, xy, top_z, radii, flange_r, head=None, ball=None, drum=None, sections=3, bolts=2,
-               sides=8, tree=None):
+               sides=8, tree=None, drum_sides=12):
     """A telescoping mast standing on the roof under `xy`, its stages sized so
     its top is the blockout's mast top `top_z`, with a box head (size), a
     sensor ball (radius) or an EO drum ((r, h)) on top."""
@@ -658,7 +678,7 @@ def _mast_head(H, prefix, xy, top_z, radii, flange_r, head=None, ball=None, drum
         out += kp.sensor_ball(f"{prefix}_ball", (xy[0], xy[1], top + ball), ball, segments=8, rings=5)
     if drum is not None:
         r, dh = drum
-        out += kp.eo_drum(f"{prefix}_drum", xy, top - 0.004, r=r, h=dh, sides=12)
+        out += kp.eo_drum(f"{prefix}_drum", xy, top - 0.004, r=r, h=dh, sides=drum_sides)
     return out
 
 
@@ -1113,6 +1133,230 @@ def parts_jeep_shoded(H):
     ]
 
 
+# ---------------------------------------------------------------------------
+# dozer_d9 (no firepower track)
+# ---------------------------------------------------------------------------
+
+def parts_dozer_d9(H):
+    if not isinstance(H, Hull):
+        raise TypeError("pass a kit_blockout.Hull")
+    croof = 3.09
+    hull = H.hull
+
+    def a1():
+        return _cage(H, "a1_", [
+            ("gL", (-1.62, 1.30), (-0.38, 1.30), 2.05, 2.85, {"pitch": 0.10, "bar_t": 0.025}),
+            ("gR", (-1.62, -1.30), (-0.38, -1.30), 2.05, 2.85, {"pitch": 0.10, "bar_t": 0.025}),
+        ], (2.45,), side_reach=0.5)
+
+    def a2():
+        return _cage(H, "a2_", [
+            ("cL", (-1.95, 1.62), (-0.20, 1.62), 1.90, 3.00, {"skip_posts": (0,)}),
+            ("cR", (-1.95, -1.62), (-0.20, -1.62), 1.90, 3.00, {"skip_posts": (0,)}),
+            ("cB", (-1.95, 1.62), (-1.95, -1.62), 1.90, 3.00, {}),
+        ], (2.20, 2.75), side_reach=0.8, rear_reach=0.9)
+
+    def a3():
+        out = []
+        x0, x1, n = -2.6, 2.0, 5
+        step = (x1 - x0) / n
+        size = (min(0.90, step * 0.94), 0.08, 0.60)
+        for tag, s in (("L", 1), ("R", -1)):
+            for i in range(n):
+                xc = x0 + step * (i + 0.5)
+                M = kp.place((xc, s * 2.24, 1.55))
+                out.append(kp.chamfered_box(f"a3_sk{tag}{i}", size, M, tone="paint"))
+                for k, dx in enumerate((-0.28, 0.28)):
+                    out.append(kp.hex_bolt(f"a3_skb{tag}{i}{k}", (xc + dx, s * (2.24 + 0.04), 1.75), (0, s, 0),
+                                           across=0.026, height=0.01))
+                    # struts in and down from the plate's back to the fender or the track
+                    a0 = Vector((xc + dx, s * (2.24 - 0.04), 1.40))
+                    d = Vector((0, -s, -0.45)).normalized()
+                    hit = _toward(H.all, a0, d, a0 + d * 2.0)
+                    if (hit - a0).length < 0.9:
+                        out += kp.strut(f"a3_skst{tag}{i}{k}", a0, hit, t=0.03, pad=0)
+        # the rear slat stands 6 cm clear of the rear corners (the mock's
+        # x -3.25 was 3.5 cm inside them at |y| 0.7)
+        rear = min(_toward(hull, (-20, y, z), (1, 0, 0), (9, y, z)).x for y in (-1.2, -0.7, 0.7, 1.2) for z in (1.3, 1.7, 2.1))
+        xr = min(-3.25, rear - 0.06)
+        out += _cage(H, "a3_", [("rr", (xr, 1.40), (xr, -1.40), 1.10, 2.20, {})], (1.45, 1.95), rear_reach=0.9)
+        return out
+
+    def s1():
+        out = [kp.chamfered_box("s1_bar", (0.22, 1.80, 0.12), kp.place((-0.55, 0.0, croof + 0.08)), tone="metal",
+                                chamfer=0.01)]
+        for i in range(4):
+            y = -0.75 + 0.5 * i
+            out.append(kp.camera_head(f"s1_l{i}", (0.14, 0.22, 0.16), kp.place((-0.45, y, croof + 0.20)),
+                                      window=(0.13, 0.08), centre=(0.0, 0.0)))
+        for k, y in enumerate((-0.6, 0.6)):
+            g = H.top(-0.55, y, croof - 0.2)
+            out.append(kp.plain_box(f"s1_foot{k}", (0.12, 0.08, croof + 0.02 - g + 0.02),
+                                    kp.place((-0.55, y, (croof + 0.02 + g) / 2)), tone="metal",
+                                    drop=((0, 0, 1), (0, 0, -1)), mount=True))
+        return out
+
+    def s2():
+        return _mast_head(H, "s2", (-1.45, 0.75), croof + 0.80, (0.06, 0.047), 0.09, ball=0.16, sections=2, bolts=0)
+
+    def s3():
+        rc = Vector((-0.30, 0.0, croof + 0.24))
+        out = kp.radar_array("s3_rad", kp.place(rc, ry=-10), (0.10, 0.85, 0.36), hinge_knuckle=False)
+        for k, y in enumerate((-0.25, 0.25)):
+            g = H.top(-0.30, y, croof - 0.2)
+            out.append(kp.tube(f"s3_leg{k}", (-0.30, y, rc.z - 0.16), (-0.30, y, g - 0.01), 0.02, sides=6,
+                               cap0=False, cap1=False, ground=True))
+        out += _mast_head(H, "s3", (-1.45, -0.75), croof + 1.30, (0.06, 0.047, 0.034), 0.09, drum=(0.18, 0.22),
+                          bolts=0, drum_sides=10)
+        return out
+
+    return [
+        ("armour", 1, "hull_hull", "cab window grilles", a1),
+        ("armour", 2, "hull_hull", "slat cage round the cab", a2),
+        ("armour", 3, "hull_hull", "track-top skirt plates + rear slat round the ripper", a3),
+        ("sensors", 1, "hull_hull", "work-light bar with IR camera heads", s1),
+        ("sensors", 2, "hull_hull", "remote-operation camera mast", s2),
+        ("sensors", 3, "hull_hull", "forward obstacle radar + a second camera mast", s3),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# heli_peten (the model's own metres, ~0.28 of an airframe -- spec 2.4)
+# ---------------------------------------------------------------------------
+
+def parts_heli_peten(H):
+    if not isinstance(H, Hull):
+        raise TypeError("pass a kit_blockout.Hull")
+    gun = barrel(H, "hull_metal", 0.55)
+    hull = H.hull
+
+    def a1():
+        out = []
+        for tag, s in (("L", 1), ("R", -1)):
+            # the cockpit side is 7 cm OUTSIDE the mock's plates (they were buried)
+            out += _side_plate(H, f"a1_p{tag}", (0.55, 0.03, 0.22), (0.42, s * 0.25, 0.74), s,
+                               bolts=((-0.38, 0.0), (0.38, 0.0)), max_out=0.15)
+        return out
+
+    def a2():
+        out = []
+        size = (0.55, 0.18, 0.16)
+        for tag, s in (("L", 1), ("R", -1)):
+            M = kp.place((-0.30, s * 0.35, 0.95), ry=-10)
+            d, _g = _seat_shift(hull, M, size, (0, 0, -1))
+            M = _shifted(M, (0, 0, -1), d)
+            out.append(kp.chamfered_box(f"a2_ir{tag}", size, M, tone="paint", chamfer=0.01, drop=((0, 0, -1),)))
+            for k, u in enumerate((-0.2, 0.2)):
+                out.append(kp.hex_bolt(f"a2_b{tag}{k}", M @ Vector((u, 0.0, 0.08)), M.to_3x3() @ Vector((0, 0, 1)),
+                                       across=0.02, height=0.008))
+        return out
+
+    def a3():
+        out = []
+        for tag, s in (("L", 1), ("R", -1)):
+            M = kp.place((0.95, s * 0.31, 0.42))
+            d, _g = _seat_shift(hull, M, (0.90, 0.12, 0.20), (0, -s, 0), max_out=0.0)
+            M = _shifted(M, (0, -s, 0), d)
+            out.append(kp.wedge(f"a3_sp{tag}", (0.90, 0.12, 0.20), M, tone="paint", setback=0.10, drop=((0, -s, 0),)))
+            n_out = (M.to_3x3() @ Vector((0, s, 0))).normalized()
+            for k, u in enumerate((-0.28, 0.12)):
+                out.append(kp.hex_bolt(f"a3_spb{tag}{k}", M @ Vector((u, s * 0.06, 0.0)), n_out, across=0.02,
+                                       height=0.008))
+        size = (1.30, 0.42, 0.05)
+        M = kp.place((0.60, 0.0, 0.12))
+        d, _g = _seat_shift(hull, M, size, (0, 0, 1), max_out=0.0)
+        M = _shifted(M, (0, 0, 1), d)
+        out.append(kp.chamfered_box("a3_fl", size, M, tone="paint", chamfer=0.01, drop=((0, 0, 1),)))
+        for k, (u, v) in enumerate(((-0.55, -0.15), (0.55, -0.15), (-0.55, 0.15), (0.55, 0.15))):
+            out.append(kp.hex_bolt(f"a3_flb{k}", M @ Vector((u, v, -0.025)), (0, 0, -1), across=0.02, height=0.008))
+        return out
+
+    def s1():
+        c = Vector((1.98, 0.0, 0.42))
+        prof = [(-0.15, 0.13), (-0.14, 0.14), (0.14, 0.14), (0.15, 0.13)]
+        out = [kp.lathe("s1_tads", [(t + 0.15, r) for t, r in prof], c - Vector((0, 0.15, 0)), (0, 1, 0), sides=12,
+                        tones=["metal"] * 3)]
+        out.append(kp.chamfered_box("s1_win", (0.03, 0.20, 0.12), kp.place((c.x + 0.13, c.y, c.z)), tone="dark",
+                                    chamfer=0.006))
+        out.append(kp.chamfered_box("s1_hub", (0.10, 0.10, 0.08), kp.place((c.x - 0.10, c.y, c.z + 0.10)), tone="metal",
+                                    chamfer=0.008))
+        return out
+
+    def s2():
+        out = []
+        for i, (x, y) in enumerate([(1.30, 0.20), (1.30, -0.20), (-1.40, 0.14), (-1.40, -0.14)]):
+            z = 0.80
+            if x < 0:
+                # the tail boom is ~0.1 m wide here: the mock's heads (|y| 0.14,
+                # z 0.80) hung in the air beside it; they sit ON the boom
+                half = H.side(x, 0.55, 1, 0.10)
+                y = math.copysign(min(abs(y), half * 0.6), y)
+                z = H.top(x, y, 0.6, hull) + 0.05 - 0.004
+            look = Vector((math.copysign(1, x), math.copysign(0.8, y), 0)).normalized()
+            M = kp.frame((x, y, z), look)
+            out.append(kp.chamfered_box(f"s2_maw{i}", (0.10, 0.10, 0.10), M, tone="metal", drop=((0, 0, -1),)))
+            out.append(kp.plain_box(f"s2_lens{i}", (0.012, 0.06, 0.05), M @ kp.place((0.054, 0.0, 0.005)), tone="dark",
+                                    drop=((-1, 0, 0),)))
+        for tag, s in (("L", 1), ("R", -1)):
+            y = s * 0.46
+            out.append(kp.tube(f"s2_ew{tag}", (0.12, y, 0.50), (0.48, y, 0.50), 0.04, sides=6))
+            a0 = Vector((0.30, y - s * 0.035, 0.50))
+            hit = _toward(H.all, a0, (0, -s, 0), a0 - Vector((0, s * 0.2, 0)))
+            if (hit - a0).length < 0.4:
+                out.append(kp.bar(f"s2_ewst{tag}", a0, hit - Vector((0, s * 0.01, 0)), 0.025, tone="metal", mount=True))
+        return out
+
+    def s3():
+        out = kp.sensor_ball("s3_ball", (-1.05, 0.0, 0.88), 0.12, segments=10, rings=6, yoke=True)
+        g = H.top(-1.05, 0.0, 0.7, hull)
+        out.append(kp.tube("s3_post", (-1.05, 0.0, 0.88 - 0.12 * 0.9), (-1.05, 0.0, g - 0.01), 0.03, sides=8,
+                           cap0=False, cap1=False, ground=True))
+        # the fairing sits ON the engine hump, under the rotor disc
+        g2 = H.top(-0.40, 0.0, 1.0, hull)
+        out += kp.armour_plate("s3_fair", (0.36, 0.20, 0.10), kp.place((-0.40, 0.0, g2 + 0.05 - 0.004)), tone="metal",
+                               panel_inset=0.04)
+        return out
+
+    def f1():
+        x0, x1, gy, gz = gun
+        r_in = min(_barrel_r(H, "hull_metal", gun, x1 - 0.05) * 0.97, 0.028)
+        out = kp.barrel_shroud("f1_sh", gy, gz, x0 + (x1 - x0) * 0.15, x0 + (x1 - x0) * 0.85, 0.045, 0.056, r_in,
+                               sides=8)
+        xa = x1 - 0.06
+        prof = [(xa, 0.03), (x1 + 0.22 + 0.24, 0.03), (x1 + 0.22 + 0.24, 0.036), (x1 + 0.22 + 0.275, 0.036)]
+        out.append(kp.lathe("f1_brl", [(x - xa, r) for x, r in prof], (xa, gy, gz), (1, 0, 0), sides=8,
+                            tones=["metal"] * 3, cap0=False, cap1=True))
+        return out
+
+    def f2():
+        M = kp.place((0.45, 0.0, 0.16))
+        out = kp.ammo_box("f2_mag", (0.70, 0.24, 0.17), M, lid_h=0.03, handle=False)
+        out += kp.feed_chute("f2_chute", [(0.85, 0.0, 0.20), (1.10, 0.0, 0.20), (1.33, 0.0, 0.215)], w=0.06)
+        return out
+
+    def f3():
+        x0, x1, gy, gz = gun
+        c = Vector((x0 - 0.05, gy, gz + 0.02))
+        prof = [(-0.13, 0.15), (-0.11, 0.17), (0.09, 0.17), (0.13, 0.13)]
+        return [kp.lathe("f3_turret", [(t + 0.13, r) for t, r in prof], c - Vector((0, 0, 0.13)), (0, 0, 1), sides=14,
+                         tones=["metal"] * 3),
+                kp.chamfered_box("f3_sight", (0.03, 0.10, 0.05), kp.place((c.x + 0.165, c.y, c.z + 0.05)), tone="dark",
+                                 chamfer=0.005)]
+
+    return [
+        ("armour", 1, "hull_hull", "cockpit side armour panels", a1),
+        ("armour", 2, "hull_hull", "engine-bay armour panels", a2),
+        ("armour", 3, "hull_hull", "armoured sponson fairings + floor plate", a3),
+        ("sensors", 1, "hull_glass", "enlarged nose sensor turret", s1),
+        ("sensors", 2, "hull_hull", "four warning-sensor heads + two sensor pods", s2),
+        ("sensors", 3, "hull_hull", "sensor ball on the boom + sensor fairing on the engine hump", s3),
+        ("firepower", 1, "hull_metal", "chin-gun barrel extension with a shroud", f1),
+        ("firepower", 2, "hull_metal", "ammunition magazine pod + feed chute", f2),
+        ("firepower", 3, "hull_metal", "enlarged chin-turret housing", f3),
+    ]
+
+
 PARTS_DETAILED = {"mbt_lavi": parts_mbt_lavi, "ifv_namer": parts_ifv_namer,
                   "apc_eitan": parts_apc_eitan, "apc_kipod": parts_apc_kipod,
-                  "scout_shachaf": parts_scout_shachaf, "jeep_shoded": parts_jeep_shoded}
+                  "scout_shachaf": parts_scout_shachaf, "jeep_shoded": parts_jeep_shoded,
+                  "dozer_d9": parts_dozer_d9, "heli_peten": parts_heli_peten}
