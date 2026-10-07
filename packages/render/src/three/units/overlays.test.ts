@@ -24,6 +24,7 @@ import {
   unitOverlayRadiusPx,
   hpBarColorKey,
   hpBarVisible,
+  suppressionBarVisible,
   orderMarkerSize,
   queuedRouteLegs,
   ROUTE_LINE_WIDTH_PX,
@@ -579,6 +580,15 @@ describe('cachedDesaturate', () => {
     expect(cachedDesaturate('#2F6FD9', RANGE_FILL_DESATURATE)).toBe(first);
     expect(cachedDesaturate('#2F6FD9', 0)).not.toBe(first);
     expect(cachedDesaturate('#2F6FD9', 0)).toBe('#2f6fd9');
+  });
+});
+
+describe('suppressionBarVisible (pass C2/C4, P4)', () => {
+  it('draws for a selected or hovered unit and for nobody else', () => {
+    expect(suppressionBarVisible(false, false, false)).toBe(false);
+    expect(suppressionBarVisible(true, false, false)).toBe(true);
+    expect(suppressionBarVisible(false, true, false)).toBe(true);
+    expect(suppressionBarVisible(false, false, true)).toBe(true);
   });
 });
 

@@ -488,9 +488,7 @@ import {
   OBJECTIVE_ZONE_FILL_ALPHA,
   OBJECTIVE_ZONE_STROKE_INSET_TILES,
   AIR_SHADOW_COLOR_KEY,
-  MOBILITY_KILL_COLOR_KEY,
-  FIREPOWER_KILL_COLOR_KEY,
-  FIREPOWER_KILL_FALLBACK_COLOR,
+  suppressionBarVisible,
   buildingIntegrityColorKey,
   CHARGE_RING_TRACK_COLOR_KEY,
   CHARGE_RING_FILL_COLOR_KEY,
@@ -8145,9 +8143,12 @@ export class ThreeRenderer implements Renderer {
 
       // Suppression bar -- renderer.ts: `g.rect(sx - 12, sy - r - 6, 24 *
       // supp, 3).fill('#FFB43C')`, only once supp clears the same 0.02 floor
-      // Pixi uses (a bar 0-2% full is not worth a draw call).
+      // Pixi uses. Since pass C2/C4 (P4) it draws only for a unit that is
+      // selected or hovered: unselected, the posture carries suppression
+      // (the lean, the `pinned` huddle), and an always-on bar over every
+      // suppressed unit was a status mark in the world.
       const supp = Math.min(1, fx.toNumber(st.suppression[i]));
-      if (supp > 0.02) {
+      if (supp > 0.02 && suppressionBarVisible(selected, i === this.hoverEntity, i === this.rangeRingPreview)) {
         this.overlayBatch.rect(
           anchor,
           -12,
@@ -8159,30 +8160,11 @@ export class ThreeRenderer implements Renderer {
         );
       }
 
-      // Kill-state pips: mobility (gray) and firepower (dark red) --
-      // renderer.ts: `if (st.mobilityKilled[i] === 1) g.circle(sx - r, sy +
-      // r - 2, 3).fill('#8E9491')` and the firepower twin at `sx + r`. A
-      // vehicle that lost its engine but can still shoot, or lost its gun
-      // but can still drive, reads identically to a fully healthy one
-      // without these -- the HP bar alone does not carry that distinction.
-      if (st.mobilityKilled[i] === 1) {
-        this.overlayBatch.ellipseFan(
-          billboardPoint(anchor, -r, -(r - 2)),
-          3,
-          3,
-          this.overlayColor(MOBILITY_KILL_COLOR_KEY, '#8E9491'),
-          1
-        );
-      }
-      if (st.firepowerKilled[i] === 1) {
-        this.overlayBatch.ellipseFan(
-          billboardPoint(anchor, r, -(r - 2)),
-          3,
-          3,
-          this.overlayColor(FIREPOWER_KILL_COLOR_KEY, FIREPOWER_KILL_FALLBACK_COLOR),
-          1
-        );
-      }
+      // The 3 px mobility (grey) and firepower (dark red) kill pips are
+      // retired (pass C2/C4, P4): unreadable at gameplay zoom, and a status
+      // mark in the world. A damaged vehicle trails smoke now
+      // (`updateDamageSmoke`), and WHICH damage it is reads on the chip and
+      // the card.
 
       // Control-group colour -- the badge's, and the billboard fallback
       // ring's below. The ground ring is TEAM colour (A4 Q1, G-MOCK).
