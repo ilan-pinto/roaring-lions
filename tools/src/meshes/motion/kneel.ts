@@ -118,7 +118,7 @@ function legIK(rig: Rig, pose: Pose, leg: Leg, target: V3, pole: V3): void {
   rotateWorld(rig, pose, leg.shin, qfromTo(sub(A2, K3), sub(add(S, scale(dn, L)), K3)));
 }
 
-interface Kneeler {
+export interface Kneeler {
   readonly prefix: string;
   readonly hold?: HoldContext;
   /** The anatomical right leg -- rig.py's `_L` -- is the knee that goes down. */
@@ -207,7 +207,7 @@ function groundFigure(rig: Rig, pose: Pose, k: Kneeler): void {
   if (lo > KNEEL_FLOAT_MAX) shiftRoot(rig, pose, k, KNEEL_GROUND_CLEAR - lo);
 }
 
-function shiftRoot(rig: Rig, pose: Pose, k: Kneeler, dy: number): void {
+export function shiftRoot(rig: Rig, pose: Pose, k: Kneeler, dy: number): void {
   const root = rig.node(`${k.prefix}_root`);
   const r = pose.get(root)!;
   pose.set(root, { ...r, t: [r.t[0], r.t[1] + dy, r.t[2]] });
@@ -228,7 +228,7 @@ function raiseKnees(rig: Rig, pose: Pose, k: Kneeler): void {
 }
 
 /** Pose one figure kneeling (root and legs; the hold is applied after). */
-function kneelBody(rig: Rig, pose: Pose, k: Kneeler): void {
+export function kneelBody(rig: Rig, pose: Pose, k: Kneeler): void {
   const root = rig.node(`${k.prefix}_root`);
   const hipNow = rig.worldOf(k.back.thigh, pose).t;
   const drop = hipNow[1] - k.hipRestY * KNEEL_HIP_FRAC;
@@ -252,7 +252,7 @@ function kneelBody(rig: Rig, pose: Pose, k: Kneeler): void {
  *  `KNEEL_HAND_CLEAR` off the ground: the least swing that clears it, by
  *  bisection (the swing raises the hand monotonically while the arm hangs
  *  below the shoulder, which is the only case it acts on). */
-function liftArm(rig: Rig, pose: Pose, arm: { upper: Node; pts: Pt[] }): void {
+export function liftArm(rig: Rig, pose: Pose, arm: { upper: Node; pts: Pt[] }): void {
   if (lowestY(rig, pose, arm.pts) >= KNEEL_HAND_CLEAR) return;
   const base = pose.get(arm.upper)!;
   const at = (rad: number): number => {
@@ -282,7 +282,7 @@ function lerpPose(a: Pose, b: Pose, nodes: Node[], u: (n: Node) => number): Pose
   return out;
 }
 
-function writeClip(doc: Document, name: string, nodes: Node[], times: number[], poses: Pose[]): Animation {
+export function writeClip(doc: Document, name: string, nodes: Node[], times: number[], poses: Pose[]): Animation {
   if (doc.getRoot().listAnimations().some((a) => a.getName() === name)) {
     throw new Error(`kneel: the file already has a "${name}" clip`);
   }
@@ -294,6 +294,41 @@ function writeClip(doc: Document, name: string, nodes: Node[], times: number[], 
   }
   return anim;
 }
+
+/**
+ * One figure as the kneel needs it: its legs (the anatomical right knee goes
+ * down), its vertices by joint, and its arms. Exported for the pinned huddle
+ * (`motion/pinned.ts`), which kneels a standing figure the same way.
+ */
+export function kneelerOf(rig: Rig, prefix: string, verts: readonly RestVertexLike[], hold?: HoldContext): Kneeler {
+  const zL = rig.restWorld.get(rig.node(`${prefix}_thigh_L`))!.t[2];
+  const zR = rig.restWorld.get(rig.node(`${prefix}_thigh_R`))!.t[2];
+  const right = zL > zR ? 'L' : 'R';
+  const back = legOf(rig, prefix, right);
+  const front = legOf(rig, prefix, right === 'L' ? 'R' : 'L');
+  // By JOINT, every role: the sole is on the ankle bone since
+  // `feet.ts`, and a kneeling knee is trouser, not boot.
+  const on = (...joints: Node[]): Pt[] => verts.filter((v) => joints.includes(v.joint)).map((v) => ({ joint: v.joint, p: v.p }));
+  return {
+    prefix,
+    ...(hold ? { hold } : {}),
+    back,
+    front,
+    hipRestY: rig.restWorld.get(back.thigh)!.t[1],
+    backFoot: on(back.foot),
+    backKnee: on(back.thigh, back.shin),
+    frontFoot: on(front.foot),
+    frontKnee: on(front.thigh, front.shin),
+    bodyVerts: verts.filter((v) => v.joint.getName().startsWith(`${prefix}_`)).map((v) => ({ joint: v.joint, p: v.p })),
+    arms: (['L', 'R'] as const).map((side) => {
+      const upper = rig.node(`${prefix}_upperarm_${side}`);
+      const fore = rig.node(`${prefix}_forearm_${side}`);
+      return { upper, pts: verts.filter((v) => v.joint === upper || v.joint === fore).map((v) => ({ joint: v.joint, p: v.p })) };
+    }),
+  };
+}
+
+type RestVertexLike = { readonly joint: Node; readonly p: V3 };
 
 export function applyKneel(doc: Document, id: string, spec: MotionTeam, holds: readonly HoldContext[]): string[] {
   const rig = new Rig(doc);
@@ -307,37 +342,13 @@ export function applyKneel(doc: Document, id: string, spec: MotionTeam, holds: r
     .filter((f) => f.kneels)
     .map((f) => {
       const h = holds.find((c) => c.hold.prefix === f.prefix);
-      const zL = rig.restWorld.get(rig.node(`${f.prefix}_thigh_L`))!.t[2];
-      const zR = rig.restWorld.get(rig.node(`${f.prefix}_thigh_R`))!.t[2];
-      const right = zL > zR ? 'L' : 'R';
-      const back = legOf(rig, f.prefix, right);
-      const front = legOf(rig, f.prefix, right === 'L' ? 'R' : 'L');
-      // By JOINT, every role: the sole is on the ankle bone since
-      // `feet.ts`, and a kneeling knee is trouser, not boot.
-      const on = (...joints: Node[]): Pt[] => verts.filter((v) => joints.includes(v.joint)).map((v) => ({ joint: v.joint, p: v.p }));
       const hold: HoldContext | undefined = h
         ? {
             ...h,
             hold: { ...h.hold, fromJoint: rig.node(h.hold.fromJoint.getName()), eyeJoint: rig.node(h.hold.eyeJoint.getName()) },
           }
         : undefined;
-      return {
-        prefix: f.prefix,
-        ...(hold ? { hold } : {}),
-        back,
-        front,
-        hipRestY: rig.restWorld.get(back.thigh)!.t[1],
-        backFoot: on(back.foot),
-        backKnee: on(back.thigh, back.shin),
-        frontFoot: on(front.foot),
-        frontKnee: on(front.thigh, front.shin),
-        bodyVerts: verts.filter((v) => v.joint.getName().startsWith(`${f.prefix}_`)).map((v) => ({ joint: v.joint, p: v.p })),
-        arms: (['L', 'R'] as const).map((side) => {
-          const upper = rig.node(`${f.prefix}_upperarm_${side}`);
-          const fore = rig.node(`${f.prefix}_forearm_${side}`);
-          return { upper, pts: verts.filter((v) => v.joint === upper || v.joint === fore).map((v) => ({ joint: v.joint, p: v.p })) };
-        }),
-      };
+      return kneelerOf(rig, f.prefix, verts, hold);
     });
 
   const kneelingRaw = (t: number): Pose => {

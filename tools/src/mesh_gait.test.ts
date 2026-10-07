@@ -1102,6 +1102,14 @@ const FACE_MEAN_MOVEFIRE_DEG = 30;
  * +9.7. The defect class here is a body going to ground facing BACKWARD --
  * −163° on the pre-fix `meshy_soldier` -- and 90 separates −63.7 from that
  * with 26° below it and 73° above.
+ *
+ * `pinned` (pass C2/C4) takes the same bound for the same reason: it is a
+ * man folded over his knees, head down. Measured on the first export
+ * (7 Oct): every head within ±25 but two, `demo_squad`'s demo_b at +39.6 and
+ * `yahalom_squad`'s yah_b at +28.4 -- both kneel-aim figures whose aimed head
+ * was already pitched to the stock before the fold. A 105° fold read +146 to
+ * +180 on the same heads, the face past straight down and looking back
+ * between the knees, and this bound refused it.
  */
 const FACE_MEAN_DOWN_DEG = 90;
 
@@ -1247,7 +1255,10 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     // files: 48 more rows, one per visible figure per new clip.
     // spike-walk (6 Oct): + 6, at_team's two men over its new kneel clips;
     // + 9, recon_zikit's three over its own.
-    expect(rows).toHaveLength(221); // B7: 21 GLBs, every one with a face mesh now
+    // Pass C2/C4 (7 Oct): + 30, every visible, readable head of the new
+    // `pinned` clip on seventeen files (35 visible figures, five of them
+    // thrown away for a short lever below).
+    expect(rows).toHaveLength(251); // B7: 21 GLBs, every one with a face mesh now
     // WHICH files, by name -- not `not.toContain('sniper_team.glb')`, which
     // could never fail: an un-exempted `sniper_team` makes `measureFacing`
     // THROW rather than produce a row, so the absence it asserts is
@@ -1311,6 +1322,15 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     // root x2, both hidden at once once a figure is dead. Measured
     // 2026-09-17 off the shipped bytes.
     expect(hidden.map((h) => h.replace(/ \w+$/, '')).sort()).toEqual([
+      // The motion pass (5 Oct): the kneel clips hide what `idle` hides --
+      // the MANPAD spotter's walker, and yahalom's `work` kneeler.
+      // 2026-10-05: inf_squad, sarim_rifles and yah_a/yah_b are no longer
+      // hidden on `down` -- they crouch there alive (the capture's `down`);
+      // only yahalom's `work` kneeler (yah_ak) still is.
+      // Pass C2/C4 (7 Oct): `pinned` hides what its base clip hides -- the
+      // crews' walkers (kneel/idle-based), the sniper's living roots (he is
+      // drawn prone on his death roots, as in idle), manpad's spotter walker
+      // and yahalom's work kneeler.
       'at_team.glb down',
       'at_team.glb down',
       'atgm_cell.glb down',
@@ -1323,6 +1343,8 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'atgm_cell.glb move',
       'atgm_cell.glb moveFire',
       'atgm_cell.glb moveFire',
+      'atgm_cell.glb pinned',
+      'atgm_cell.glb pinned',
       'breach_team.glb down',
       'breach_team.glb down',
       'charge_squad.glb down',
@@ -1333,18 +1355,18 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'digger_crew.glb down',
       'digger_crew.glb idle',
       'digger_crew.glb move',
+      'digger_crew.glb pinned',
       'manpad_team.glb down',
       'manpad_team.glb down',
       'manpad_team.glb down',
       'manpad_team.glb fire',
       'manpad_team.glb idle',
-      // The motion pass (5 Oct): the kneel clips hide what `idle` hides --
-      // the MANPAD spotter's walker, and yahalom's `work` kneeler.
       'manpad_team.glb kneel',
       'manpad_team.glb kneelIn',
       'manpad_team.glb kneelOut',
       'manpad_team.glb move',
       'manpad_team.glb moveFire',
+      'manpad_team.glb pinned',
       'militia_cell.glb down',
       'militia_cell.glb down',
       'mortar_crew.glb down',
@@ -1357,6 +1379,8 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'mortar_crew.glb move',
       'mortar_crew.glb moveFire',
       'mortar_crew.glb moveFire',
+      'mortar_crew.glb pinned',
+      'mortar_crew.glb pinned',
       'mortar_team.glb down',
       'mortar_team.glb down',
       'mortar_team.glb down',
@@ -1370,6 +1394,8 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'mortar_team.glb move',
       'mortar_team.glb moveFire',
       'mortar_team.glb moveFire',
+      'mortar_team.glb pinned',
+      'mortar_team.glb pinned',
       'recoilless_team.glb down',
       'recoilless_team.glb down',
       'recoilless_team.glb down',
@@ -1382,6 +1408,8 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'recoilless_team.glb move',
       'recoilless_team.glb moveFire',
       'recoilless_team.glb moveFire',
+      'recoilless_team.glb pinned',
+      'recoilless_team.glb pinned',
       'recon_zikit.glb down',
       'recon_zikit.glb down',
       'recon_zikit.glb down',
@@ -1393,9 +1421,8 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'sniper_team.glb fire',
       'sniper_team.glb idle',
       'sniper_team.glb idle',
-      // 2026-10-05: inf_squad, sarim_rifles and yah_a/yah_b are no longer
-      // hidden on `down` -- they crouch there alive (the capture's `down`);
-      // only yahalom's `work` kneeler (yah_ak) still is.
+      'sniper_team.glb pinned',
+      'sniper_team.glb pinned',
       'yahalom_squad.glb down',
       'yahalom_squad.glb fire',
       'yahalom_squad.glb idle',
@@ -1404,17 +1431,27 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'yahalom_squad.glb kneelOut',
       'yahalom_squad.glb move',
       'yahalom_squad.glb moveFire',
+      'yahalom_squad.glb pinned',
       'yahalom_squad.glb work',
     ]);
   });
 
-  it('the readings thrown away for a short lever are exactly civilian_woman’s two', () => {
+  // Pass C2/C4: and five pinned heads, folded so far over that the face sits
+  // above the head joint in the ground plane and no bearing can be read off
+  // it -- the four rifle-holders whose aim already pitched the head to the
+  // stock. The rest of their teams' pinned heads read, and are gated.
+  it('the readings thrown away for a short lever are exactly civilian_woman’s two, and five pinned heads', () => {
     // The `civilian_woman` exclusion, asserted rather than commented. If any
     // other figure ever falls under the floor the gate says so by name; if
     // HER lever is ever fixed (the marker-bone route, or a `face` role that
     // is not symmetric about the joint) these two rows come back and this
     // line goes red, which is the reminder to gate her.
     expect(shortLever).toEqual([
+      'rpg_team.glb pinned rpg_load_head 0.0227',
+      'inf_squad.glb pinned f0_head 0.0172',
+      'inf_squad.glb pinned f1_head 0.0173',
+      'inf_squad.glb pinned f2_head 0.0172',
+      'recon_zikit.glb pinned zk_rifle_head 0.0149',
       'civilians/civilian_woman.glb idle Head 0.0089',
       'civilians/civilian_woman.glb move Head 0.0073',
     ]);
@@ -1424,7 +1461,7 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     '%s faces the way it travels',
     (_label, row) => {
       const ceiling =
-        row.clip === 'down'
+        row.clip === 'down' || row.clip === 'pinned'
           ? FACE_MEAN_DOWN_DEG
           : row.clip === 'moveFire'
             ? FACE_MEAN_MOVEFIRE_DEG
@@ -2504,7 +2541,9 @@ describe('kneeling on the ground -- no kneeler below it, none floating', () => {
  */
 const LIVING_GROUND_M = 0;
 const STANDING_HOVER_MAX_M = 0.01;
-const LIVING_CLIPS = ['idle', 'fire', 'move', 'moveFire', 'kneel', 'kneelIn', 'kneelOut'];
+// + `pinned` (pass C2/C4): the huddle is a living pose, and it is held to
+// the same ground as every other one.
+const LIVING_CLIPS = ['idle', 'fire', 'move', 'moveFire', 'kneel', 'kneelIn', 'kneelOut', 'pinned'];
 const STANDING_CLIPS = new Set(['idle', 'fire']);
 const WALKING_CLIPS = new Set(['move', 'moveFire']);
 
@@ -2531,30 +2570,30 @@ const GROUNDED_DRAWN: Readonly<Record<string, { standing: readonly string[]; wal
   mortar_team: {
     standing: ['mtr_crew0_root', 'mtr_crew1_root', 'mtr_no3_root', 'prop'],
     walking: ['mtr_crew0w_root', 'mtr_crew1w_root', 'mtr_no3_root'],
-    clips: ['idle', 'fire', 'move', 'moveFire'],
+    clips: ['idle', 'fire', 'move', 'moveFire', 'pinned'],
   },
   atgm_cell: {
     standing: ['atgm_crew0_root', 'atgm_crew1_root', 'prop'],
     walking: ['atgm_crew0w_root', 'atgm_crew1w_root'],
-    clips: ['idle', 'move', 'moveFire'],
+    clips: ['idle', 'move', 'moveFire', 'pinned'],
   },
   recoilless_team: {
     standing: ['prop', 'rcl_fire_root', 'rcl_load_root'],
     walking: ['rcl_firew_root', 'rcl_loadw_root'],
-    clips: ['idle', 'fire', 'move', 'moveFire'],
+    clips: ['idle', 'fire', 'move', 'moveFire', 'pinned'],
   },
   mortar_crew: {
     standing: ['emtr_crew0_root', 'emtr_crew1_root', 'prop'],
     walking: ['emtr_crew0w_root', 'emtr_crew1w_root'],
-    clips: ['idle', 'move', 'moveFire'],
+    clips: ['idle', 'move', 'moveFire', 'pinned'],
   },
-  digger_crew: { standing: ['dig_root', 'ground'], walking: ['digw_root', 'ground'], clips: ['idle', 'move'] },
-  charge_squad: { standing: ['chg0_root', 'chg1_root'], walking: ['chg0_root', 'chg1_root'], clips: ['idle', 'fire', 'move', 'moveFire'] },
-  breach_team: { standing: ['brc_cover_root', 'brc_point_root'], walking: ['brc_cover_root', 'brc_point_root'], clips: ['idle', 'fire', 'move', 'moveFire'] },
+  digger_crew: { standing: ['dig_root', 'ground'], walking: ['digw_root', 'ground'], clips: ['idle', 'move', 'pinned'] },
+  charge_squad: { standing: ['chg0_root', 'chg1_root'], walking: ['chg0_root', 'chg1_root'], clips: ['idle', 'fire', 'move', 'moveFire', 'pinned'] },
+  breach_team: { standing: ['brc_cover_root', 'brc_point_root'], walking: ['brc_cover_root', 'brc_point_root'], clips: ['idle', 'fire', 'move', 'moveFire', 'pinned'] },
   sniper_team: {
     standing: ['snp_a_death_root', 'snp_b_death_root'],
     walking: ['snp_a_root', 'snp_b_root'],
-    clips: ['idle', 'fire', 'move', 'moveFire'],
+    clips: ['idle', 'fire', 'move', 'moveFire', 'pinned'],
   },
   moto_rpg: { standing: ['m_root'], walking: ['m_root'], clips: ['idle', 'fire', 'move'] },
   civilian_child: { standing: ['Hips'], walking: ['Hips'], clips: ['idle', 'move'] },
