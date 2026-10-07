@@ -18,7 +18,9 @@ For each vehicle in `kit_vehicles.PARTS_DETAILED` (or `--only`):
      off by more than 3 cm + 10% of its size) -- "built to the mock's numbers"
      -- unless that axis is a printed `kit_vehicles.DEVIATIONS` entry, or any
      CLASH (`kit_clash`: kit x kit, kit x the shipped nodes, the turret swept
-     through 72 headings) not in the printed `kit_vehicles.CLASH_EXEMPTIONS`;
+     through 72 headings, and a kit piece wholly inside a shipped body or
+     another track's closed part) not in the printed
+     `kit_vehicles.CLASH_EXEMPTIONS`;
   4. choose the three tone texels of the vehicle's own bake (the plan's Tone
      table: `paint` = the hull's 25th-percentile paint, `metal` = the bake's
      metal, `dark` = the 5th percentile of the metal; where the metallic map
@@ -31,6 +33,10 @@ For each vehicle in `kit_vehicles.PARTS_DETAILED` (or `--only`):
      `extras.rl_kit` + `extras.rl_role`), pin every loop to its tone's texel,
      and write `art/parts/kit/<id>.glb`: kit nodes only, no materials, no
      images, no animations. `pnpm kit:meshes` grafts it into the vehicle.
+
+`--out <dir>` writes the kit GLBs there instead of `art/parts/kit/` -- for a
+falsification run, or to diff a re-export against the shipped bytes without
+touching them.
 
 `--preview <dir>` renders stills the way `kit_blockout.py`'s mock does (the
 game's sun, the dimetric camera, its px/m), but with the kit drawn in its
@@ -668,15 +674,15 @@ def preview(vid, live, kit, out_dir):
 # ---------------------------------------------------------------------------
 
 USAGE = ("usage: blender -b --factory-startup --python tools/vehicles/export_vehicle_kit.py -- "
-         "[--only id,id] [--preview <dir>]")
+         "[--only id,id] [--preview <dir>] [--out <dir>]")
 
 
 def parse(argv):
-    args = {"only": None, "preview": None}
+    args = {"only": None, "preview": None, "out": None}
     i = 0
     while i < len(argv):
         a = argv[i]
-        if a in ("--only", "--preview") and i + 1 < len(argv):
+        if a in ("--only", "--preview", "--out") and i + 1 < len(argv):
             args[a[2:]] = argv[i + 1]
             i += 2
         else:
@@ -685,7 +691,7 @@ def parse(argv):
     return args
 
 
-def run(vid, preview_dir):
+def run(vid, preview_dir, out_dir=OUT_DIR):
     live = load_vehicle(vid)
     H = kb.Hull(live)
     hosts = {o.name: o for o in live}
@@ -719,7 +725,7 @@ def run(vid, preview_dir):
         uv_name = h.data.uv_layers.active.name if h.data.uv_layers.active else "UVMap"
         kit[(track, tier, host)] = make_node(track, tier, h, pieces, tones, uv_name)
 
-    path = os.path.join(OUT_DIR, f"{vid}.glb")
+    path = os.path.join(out_dir, f"{vid}.glb")
     export_glb(list(kit.values()), path)
     _gj, rows = read_back(path)
     log(f"EXPORT {vid}: {path} ({os.path.getsize(path)} bytes, {len(rows)} nodes)")
@@ -762,7 +768,7 @@ def main():
     try:
         for vid in ids:
             log(f"== {vid}")
-            run(vid, args["preview"])
+            run(vid, args["preview"], os.path.abspath(args["out"]) if args["out"] else OUT_DIR)
     except Refused as e:
         print(f"[kit] REFUSED: {e}", file=sys.stderr, flush=True)
         sys.stdout.flush()

@@ -139,7 +139,9 @@ DEVIATIONS = {
             "xz",
             "the mock's door plates (0.78 long, z 0.93-1.51, at x -0.55 and 0.30) ran into both tyres "
             "(rubber to z 1.18 at x 0.62+) and, on the left, the hull's step box (hull_plate, x -0.30..0.03, "
-            "|y| to 1.17, z to 1.14): 0.68 long at x -0.43 and 0.25, their feet at z 1.15"),
+            "|y| to 1.17, z to 1.14): 0.68 long at x -0.43 and 0.25, their feet at z 1.19, over the rear "
+            "tyres' tops (rubber to z 1.177 at x -0.83..-0.48), which the clash check's escape vote found "
+            "2.7 cm inside the rear plates' feet at the first cut's z 1.15"),
         ("sensors", 1, "hull_hull"): (
             "y",
             "the mock's EO ball (-0.62, -0.62) sat half inside the S2 pod (x -0.73..-0.18, y -0.63..-0.27): "
@@ -263,17 +265,45 @@ DEVIATIONS = {
 }
 
 #: Clash exemptions (`kit_clash`): {vid: {(kit node, other node, piece
-#: prefix): reason}}. An entry excuses a finding only when EVERY kit piece in
-#: it starts with the prefix; the exporter prints each one on every run and
-#: refuses one that no longer excuses anything.
+#: prefix): reason | (reason, headings) | (reason, headings, "seat")}}. An
+#: entry excuses a finding only when EVERY kit piece in it starts with the
+#: prefix and every heading of it is listed; "seat" narrows it further, to
+#: the shipped triangles the shipped vehicle itself cuts at another heading.
+#: The exporter prints each one on every run and refuses one that no longer
+#: excuses anything, or that lists a heading that excuses nothing.
 CLASH_EXEMPTIONS = {
     "mbt_lavi": {
+        ("kit_armour_1_turret_hull", "hull_hull", "a1_cheek"): (
+            "the scan's hull carries a ghost of the turret's lower half (hull_hull to z 1.83) that stays put "
+            "while the real turret turns, and the shipped turret cuts it at every heading. The cheek plates "
+            "hang on the real turret's lower half (z 1.735-1.857), so turned they meet the ghost wherever it "
+            "pokes out of the turret; feet over z 1.84 would leave a 2 cm strip of armour. Excused at every "
+            "heading but rest, and only on the hull triangles the shipped turret itself cuts in the sweep",
+            {k * 5.0 for k in range(1, 72)}, "seat"),
         ("kit_firepower_1_turret_metal", "hull_hull", "f1_sleeve"): (
-            "turned to 145-155 or 205-215 degrees the shipped 120 mm barrel passes 0.5 cm over the "
-            "hull's rear quarters (its underside z 1.605 at 2.2 m from the pivot, the hull 1.61): the rig "
-            "has no gun elevation, so any sleeve round that barrel (the spec's 0.21 m over a 0.18-0.20 m "
-            "barrel) meets the hull there. Excused at those six headings only",
-            {145.0, 150.0, 155.0, 205.0, 210.0, 215.0}),
+            "turned rearward the shipped 120 mm barrel passes 0.5 cm over the hull's rear quarters (its "
+            "underside z 1.605 at 2.2 m from the pivot, the hull 1.61): the rig has no gun elevation, so any "
+            "sleeve round that barrel (the spec's 0.21 m over a 0.18-0.20 m barrel) meets the hull there. "
+            "Excused at these seven headings, and only on the hull triangles the shipped turret cuts",
+            {145.0, 165.0, 175.0, 195.0, 200.0, 210.0, 215.0}, "seat"),
+        ("kit_sensors_3_turret_metal", "hull_hull", "s3_ped"): (
+            "at rest the hull's turret ghost (above) coincides with the turret roof the pedestal's flange is "
+            "welded into, so the flange meets the ghost exactly where it meets the roof. Excused at rest only, "
+            "and only on the hull triangles the shipped turret cuts at other headings",
+            {0.0}, "seat"),
+    },
+    "scout_shachaf": {
+        ("kit_firepower_2_turret_metal", "hull_hull", "f2_box"): (
+            "the hull's whip antenna (hull_hull x -1.57, y 0.39, z 2.13-2.76, 0.70 m from the station's "
+            "pivot) stands inside the station's own sweep: the shipped barrel passes through it at 145-150 "
+            "degrees. The box on the station's left flank reaches 0.75 m and meets it at 35 degrees. Excused "
+            "there, and only on the antenna triangles the shipped station cuts",
+            {35.0}, "seat"),
+        ("kit_firepower_3_turret_metal", "hull_hull", "f3_cowl"): (
+            "the same whip antenna (see f2_box): the cowl's front corners reach 0.69-0.70 m from the pivot "
+            "and graze it at 110 and 180 degrees. Excused there, and only on the antenna triangles the "
+            "shipped station cuts",
+            {110.0, 180.0}, "seat"),
     },
 }
 
@@ -1354,12 +1384,15 @@ def parts_jeep_shoded(H):
 
     def a1():
         out = []
-        # 0.68 long and their feet at z 1.15: the mock's (0.78, z 0.93-1.51)
+        # 0.68 long and their feet at z 1.19: the mock's (0.78, z 0.93-1.51)
         # ran into both tyres and, on the left, the hull's step box
-        # (hull_plate, x -0.30..0.03, |y| to 1.17, z to 1.14)
+        # (hull_plate, x -0.30..0.03, |y| to 1.17, z to 1.14), and the rear
+        # tyres' tops reach z 1.177 under the rear pair's back halves (x
+        # -0.83..-0.48), 2.7 cm into a plate whose feet stood at 1.15. Both
+        # pairs share the one foot line
         for i, x in enumerate((-0.43, 0.25)):
             for tag, s in (("L", 1), ("R", -1)):
-                out += _side_plate(H, f"a1_d{i}{tag}", (0.68, 0.06, 0.54), (x, s * 1.04, 1.42), s,
+                out += _side_plate(H, f"a1_d{i}{tag}", (0.68, 0.06, 0.50), (x, s * 1.04, 1.44), s,
                                    bolts=((-0.4, 0.38), (0.4, 0.38)), panel_inset=0.06,
                                    tree=_tree(H, ("hull_hull",)), fill_tree=body)
         return out
