@@ -331,12 +331,19 @@ describe('III: down from the plateau', () => {
     const shutEast = edited(replaceAll(m, 'b', '.'), (rows) => { for (let y = 12; y <= 19; y++) for (let x = east[0] - 1; x <= east[0] + 1; x++) rows[y][x] = '^'; });
     expect(route(shutEast, 'vehicle', start, lane)).not.toBeNull();
   });
-  it('the mouths stand in open lanes of the hamlet, and nine houses make it a village', () => {
+  it('the mouths stand in open lanes of the hamlet, and nine buildings make it a village', () => {
+    // GH-416: four houses and five low sheds -- the south half of the hamlet came down to sheds
+    // so the lanes between them can be seen from the camera (tools/src/map_visibility.ts).
     const { sim } = world(m);
     const [zx, zy, zw, zh] = m.zones!.hamlet;
     const houses = new Set<number>();
-    for (let y = zy; y < zy + zh; y++) for (let x = zx; x < zx + zw; x++) if (tile(m, x, y) === 'h') houses.add(sim.structureAt(x, y));
-    expect(houses.size).toBe(9);
+    const sheds = new Set<number>();
+    for (let y = zy; y < zy + zh; y++) for (let x = zx; x < zx + zw; x++) {
+      if (tile(m, x, y) === 'h') houses.add(sim.structureAt(x, y));
+      if (tile(m, x, y) === 's') sheds.add(sim.structureAt(x, y));
+    }
+    expect(houses.size).toBe(4);
+    expect(houses.size + sheds.size).toBe(9 + 1); // plus the one shed beside the lane that was always there
     for (const t of m.tunnels!) expect(tile(m, t.mouth[0], t.mouth[1]), t.id).toBe('.');
   });
   it('the detector\'s sight (sight 9): the head of the street sees all four mouths, the middle of it misses the east one, and the spoil field sees none', () => {
