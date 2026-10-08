@@ -81,6 +81,7 @@
  */
 import * as THREE from 'three';
 import { DAY_SUN_DIRECTION } from './time-of-day';
+import { paletteHex } from './palette-hex';
 
 export const SUN_DIRECTION = new THREE.Vector3(...DAY_SUN_DIRECTION).normalize();
 /** ACES needs headroom: 2.6 lands a `limestone.0` wall facing the sun at
@@ -93,10 +94,11 @@ export const SUN_DIRECTION = new THREE.Vector3(...DAY_SUN_DIRECTION).normalize()
 export const SUN_INTENSITY = 2.6;
 export const HEMISPHERE_INTENSITY = 0.9;
 /** Palette keys, resolved by the caller: `limestone.0` sun, `water.0` sky,
- *  `dust.4` ground. Hex fallbacks are those entries as of 2026-09-14. */
-export const SUN_COLOR_HEX = '#F2E8D5';
-export const SKY_COLOR_HEX = '#A9C4D1';
-export const GROUND_BOUNCE_COLOR_HEX = '#96703C';
+ *  `dust.4` ground. The hex fallbacks are read from `data/palette.json`
+ *  (`palette-hex.ts`), not restated, so a palette revision reaches them. */
+export const SUN_COLOR_HEX = paletteHex('limestone.0');
+export const SKY_COLOR_HEX = paletteHex('water.0');
+export const GROUND_BOUNCE_COLOR_HEX = paletteHex('dust.4');
 export const SHADOW_MAP_SIZE = 4096;
 /** World units beyond the map edge the shadow box covers, so a unit standing
  *  on the last tile still casts onto the ground beside it. */

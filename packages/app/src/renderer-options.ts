@@ -69,8 +69,8 @@ export function rendererOptionsFor(map: ParsedMap, s: RendererSettings, base: st
     // `s.colorVision` -- the silhouette outline (`silhouette.ts`'s
     // `SILHOUETTE_COLOR_KEY_BY_SIDE`, every billboard `UnitInstancer`'s
     // `uTeam` and the mesh path's shared materials), the HP bar
-    // (`hpBarColorKey`), the objective-zone tint (`objectiveZoneColorKey`)
-    // and the min-range ring all ask for a palette key by name rather than
+    // (`hpBarColorKey`) and the objective-zone tint (`objectiveZoneColorKey`)
+    // all ask for a palette key by name rather than
     // reading `teamColors` above, so a bare `paletteColor` here would leave
     // every one of them on the default palette no matter what the player
     // picked.

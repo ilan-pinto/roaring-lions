@@ -759,8 +759,11 @@ export class BattleAudio {
 
   /**
    * Register the manifest. Decoding waits for the AudioContext (i.e. the
-   * first user gesture); missing files are logged and fall back to the synth
-   * rather than failing, so a half-filled library still plays.
+   * first user gesture); a file that is missing or will not decode is skipped
+   * in silence (`fetchDecode` tries the `alt` encoding, then gives up) and its
+   * set falls back to the synth rather than failing, so a half-filled library
+   * still plays. Nothing is logged: the browser's own network 404 is the only
+   * trace, and a console message here would fail `pnpm ui:routes`.
    */
   useManifest(manifest: AudioManifest, baseUrl: string): void {
     this.manifest = manifest;

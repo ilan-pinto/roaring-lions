@@ -92,6 +92,7 @@ import {
   type EllipseDash,
 } from './overlay-geometry';
 import { OVERLAY_RENDER_ORDER, BADGE_NUMERAL_RENDER_ORDER } from './render-order';
+import { paletteHex } from '../palette-hex';
 
 // ---------------------------------------------------------------------------
 // Pure: palette-key policy and small per-overlay-kind numeric formulas. No
@@ -165,9 +166,9 @@ export function objectiveZoneColorKey(state: 'held' | 'unheld' | 'contested' | '
  *  next to the key function above rather than folded into it so the two can
  *  be read side by side against `renderer.ts`'s own ternary. */
 export function objectiveZoneFallbackColor(state: 'held' | 'unheld' | 'contested' | 'target'): string {
-  if (state === 'contested' || state === 'target') return '#D93A2B';
-  if (state === 'unheld') return '#E8C33A';
-  return '#B8FF5A';
+  if (state === 'contested' || state === 'target') return paletteHex('team.hostile');
+  if (state === 'unheld') return paletteHex('team.neutral');
+  return paletteHex('vfx.tracer');
 }
 
 /**
@@ -209,7 +210,7 @@ export const OBJECTIVE_ZONE_HALO_INSET_TILES = 0.2;
 /** Palette key for the halo -- the ramp's darkest step; `overlayColor`
  *  resolves it through the same `paletteColor` every other overlay key uses. */
 export const OBJECTIVE_ZONE_HALO_COLOR_KEY = 'shadow.2';
-export const OBJECTIVE_ZONE_HALO_FALLBACK = '#0A0A08';
+export const OBJECTIVE_ZONE_HALO_FALLBACK = paletteHex(OBJECTIVE_ZONE_HALO_COLOR_KEY);
 /** Fill alpha inside the zone -- Pixi's 0.05 was invisible on textured
  *  ground; 0.12 tints the held ground without hiding what stands on it. */
 export const OBJECTIVE_ZONE_FILL_ALPHA = 0.12;
@@ -218,15 +219,6 @@ export const OBJECTIVE_ZONE_FILL_ALPHA = 0.12;
  *  (`renderer.ts`'s air-lift shadow ellipse), the same swatch `fog-mesh.ts`
  *  already names `shadow.2` for the identical literal. */
 export const AIR_SHADOW_COLOR_KEY = 'shadow.2';
-
-/** Palette key for the permanent-wreck fallback cross marker -- a unit type
- *  with no `wreck` clip in its sheet (`mbt_lavi`'s `TNK_HULL`/`TNK_TURR`
- *  manifests among them: no `clips` object at all, so `clipOrFallback(sheet,
- *  'wreck')` resolves to `'idle'`, never `'wreck'`). Pixi's own literal,
- *  `'#5C625F'` (`renderer.ts:1240-1241`'s two-line X, drawn into `unitsG`
- *  itself rather than `wreckLayer`), is the SAME swatch `renderer.ts:2402`
- *  already names `gunmetal.2` for its tutorial-ring track colour. */
-export const WRECK_MARKER_COLOR_KEY = 'gunmetal.2';
 
 /** Ticks this many `frame()` calls a placed order marker survives -- Pixi's
  *  own `ttl: 80` (`renderer.ts`'s `addOrderMarker`). Counted in frames, not
@@ -308,7 +300,7 @@ export const FIREPOWER_KILL_COLOR_KEY = 'terracotta.2';
  *  Pixi's `#8B1E12` (which is not a resolvable key), so a caller with no
  *  resolver still gets a genuine palette colour rather than reintroducing
  *  the off-palette literal through the back door. */
-export const FIREPOWER_KILL_FALLBACK_COLOR = '#7A3B24';
+export const FIREPOWER_KILL_FALLBACK_COLOR = paletteHex('terracotta.2');
 
 /**
  * Palette key for a building's integrity-bar FILL at a given HP ratio --
@@ -330,17 +322,14 @@ export function buildingIntegrityColorKey(ratio: number): string {
  *  Pixi's own `this.opts.resolveColor ? this.opts.resolveColor('gunmetal.2')
  *  : '#5C625F'` (`renderer.ts`'s charge-ring block) -- already resolved
  *  THROUGH a palette key on the Pixi side, so this is a direct port, not a
- *  derivation like `FIREPOWER_KILL_COLOR_KEY` above. Same key
- *  `WRECK_MARKER_COLOR_KEY` already names for its own, unrelated purpose
- *  (two different UI meanings, the same swatch, exactly as this file's own
- *  `BADGE_TEXT_COLOR_KEY` doc comment already notes happens elsewhere). */
+ *  derivation like `FIREPOWER_KILL_COLOR_KEY` above. */
 export const CHARGE_RING_TRACK_COLOR_KEY = 'gunmetal.2';
 /** Palette key for the progress ring's FILL -- Pixi's own
  *  `this.opts.resolveColor('vfx.ember')` fallback `'#E8541E'`, same block. */
 export const CHARGE_RING_FILL_COLOR_KEY = 'vfx.ember';
 /** `overlayColor(CHARGE_RING_FILL_COLOR_KEY, ...)`'s fallback -- Pixi's own
  *  literal, verbatim. */
-export const CHARGE_RING_FILL_FALLBACK_COLOR = '#E8541E';
+export const CHARGE_RING_FILL_FALLBACK_COLOR = paletteHex(CHARGE_RING_FILL_COLOR_KEY);
 
 /**
  * World-tile radius of a weapon envelope ring, expressed in ON-SCREEN
@@ -374,13 +363,13 @@ export const REFUGE_RING_TILES = 2.5;
 /** `--good` in the UI (`theme.css`: `--good: var(--rl-scrub-0)`), the token
  *  the minimap's refuge cross already wears -- one colour for one place. */
 export const REFUGE_RING_COLOR_KEY = 'scrub.0';
-export const REFUGE_RING_FALLBACK_COLOR = '#6B8A4A';
+export const REFUGE_RING_FALLBACK_COLOR = paletteHex(REFUGE_RING_COLOR_KEY);
 /** `--mark-edge` in the UI (`--rl-shadow-0`), the minimap cross's own edge.
  *  Measured on the mock (`03A-plain-no-understroke.png`): scrub.0 sits at
  *  nearly the luminance of the sand, and without this edge the ring is lost
  *  over shadowed ground and rooftops. */
 export const REFUGE_RING_EDGE_COLOR_KEY = 'shadow.0';
-export const REFUGE_RING_EDGE_FALLBACK_COLOR = '#23241F';
+export const REFUGE_RING_EDGE_FALLBACK_COLOR = paletteHex(REFUGE_RING_EDGE_COLOR_KEY);
 /** The green dash: 7 on, 5 off, 2 wide -- the mock's numbers, in overlay
  *  pixels (they scale with zoom like every ring here). */
 export const REFUGE_RING_STYLE: DashedRingStyle = { widthPx: 2, dashPx: 7, gapPx: 5 };

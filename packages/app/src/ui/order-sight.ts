@@ -131,13 +131,17 @@ function phasesFrom(rest: number, frames: number): readonly number[] {
  */
 const HALT_PHASES: readonly number[] = Object.freeze([0.4, 0.85, 0.95, 0.05, 0.15, 0.25]);
 
+// The transport oval was `grass.0`, a ramp palette.json declares "not curated
+// for sprite art" (register VR-06). `limestone.1` is the curated entry at the
+// same lightness (the oval is a pale container outline, so it keeps its value
+// and loses only the green cast); it sits beside obscurant's `limestone.0`.
 export const ORDER_SIGHT: Readonly<Record<SightOrderId, OrderSightSpec>> = {
   move: { family: 'manoeuvre', main: 'vfx.interceptor', accent: 'vfx.white_hot', periodMs: 1200, phases: phasesFrom(0.7, 4) },
   attackMove: { family: 'offensive', main: 'team.hostile_text', accent: 'vfx.fire', periodMs: 900, phases: phasesFrom(0.5, 4) },
   halt: { family: 'control', main: 'team.neutral', accent: 'vfx.white_hot', periodMs: 1300, phases: HALT_PHASES },
   smoke: { family: 'obscurant', main: 'limestone.0', accent: 'gunmetal.1', periodMs: 1600, phases: phasesFrom(0.6, 4) },
-  load: { family: 'transport', main: 'vfx.tracer', accent: 'grass.0', periodMs: 1100, phases: phasesFrom(0.5, 4) },
-  unload: { family: 'transport', main: 'vfx.tracer', accent: 'grass.0', periodMs: 1100, phases: phasesFrom(0.5, 4) },
+  load: { family: 'transport', main: 'vfx.tracer', accent: 'limestone.1', periodMs: 1100, phases: phasesFrom(0.5, 4) },
+  unload: { family: 'transport', main: 'vfx.tracer', accent: 'limestone.1', periodMs: 1100, phases: phasesFrom(0.5, 4) },
   sweep: { family: 'manoeuvre', main: 'vfx.interceptor', accent: 'water.0', periodMs: 1800, phases: phasesFrom(0.5, 4) },
   strike: { family: 'offensive', main: 'team.hostile_text', accent: 'vfx.fire', periodMs: 1600, phases: phasesFrom(0.5, 6) },
 };

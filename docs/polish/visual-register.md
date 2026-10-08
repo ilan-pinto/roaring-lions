@@ -87,7 +87,7 @@ Owned by `packages/app/src/terrain-themes.ts` (three themes) and `packages/rende
 **Inconsistencies**
 
 - **VR-05. Olive is two things at once.** palette.json gives the `olive` ramp the role "KDF vehicle hulls, uniforms, tarps". Arid foliage (`leafDark`, `leafMid`, `leafLit`, `low`), highland cover and highland foliage are olive too (`terrain-themes.ts:47-52,129,138-143`). This is the "olive on olive" the lead flagged in GH-346, built into the palette roles.
-- **VR-06. `grass` is uncurated.** Its role says "not curated for sprite art … nothing currently stops it appearing there", yet the `load`/`unload` order graphics take `grass.0` as their accent (`ui/order-sight.ts:138-139`).
+- **VR-06. `grass` is uncurated.** Its role says "not curated for sprite art … nothing currently stops it appearing there", yet the `load`/`unload` order graphics take `grass.0` as their accent (`ui/order-sight.ts:138-139`). **Resolved:** the transport accent is `limestone.1`, pinned by `order-sight.test.ts`.
 
 ---
 
@@ -111,7 +111,7 @@ Owned by `packages/render/src/three/lighting.ts` and `time-of-day.ts`. Pinned in
 **Inconsistencies**
 
 - **VR-07. The campaign board is not on this pipeline.** `world-view.ts` writes `LinearSRGBColorSpace` by hand and tags its bake `NoColorSpace`, so the diorama is pass-through where a mission is sRGB plus ACES. This is a recorded scope call (CLAUDE.md, "The campaign board"), and it still means the same assets read differently on two screens.
-- **VR-08. Palette hexes are duplicated as fallbacks in render code.** `lighting.ts:97-99`, `time-of-day.ts` (`sunFallback`, `skyFallback`), `buildings.ts:104-106`, `fog-pass.ts:49` (`FOG_TINT_HEX`), `smoke-mesh.ts:245`, and about 30 resolver fallbacks in TR. They agree with the palette today, but a palette revision would not reach them.
+- **VR-08. Palette hexes are duplicated as fallbacks in render code.** `lighting.ts:97-99`, `time-of-day.ts` (`sunFallback`, `skyFallback`), `buildings.ts:104-106`, `fog-pass.ts:49` (`FOG_TINT_HEX`), `smoke-mesh.ts:245`, and about 30 resolver fallbacks in TR. **Partly resolved:** every non-TR instance now reads `data/palette.json` through `three/palette-hex.ts` (`palette-hex.test.ts` swaps the palette and checks each constant follows). The `ThreeRenderer.ts` resolver fallbacks stay literal, deferred until #444 lands. `buildings.ts`'s `WALL_SOUTH_HEX` and `WALL_EAST_HEX` are not palette entries and are untouched. The TR ones agree with the palette today, but a palette revision would not reach them.
 - **VR-09. Two off-palette colours are drawn in the world:**
   - the muzzle smoke `#6B6355` (TR:4442)
   - `CHARRED_TINT_HEX 0x6a5f55`, the wreck char (`units/world-materials.ts:96`)
@@ -156,7 +156,7 @@ Owned by `packages/render/src/three/lighting.ts` and `time-of-day.ts`. Pinned in
 **Inconsistencies**
 
 - **VR-13. The kit glyphs are still placeholders.** `ui/kit-sign.ts` says the S3e symbol family "is not drawn yet" and that its four glyphs are placeholders. `ui/symbol.ts` says the G1 sheet is approved and ported. Either the kit glyphs never joined the approved family, or the comment is stale. The four SVGs in `assets/ui/kit/` are outside the `symbol.ts` geometry rules.
-- **VR-14. CLAUDE.md still describes the retired icon pipeline**, `assets/ui/icons/units/<SHEET>.png` via `pnpm icons:units`. That directory and that script no longer exist (`ui/portrait.ts:11-15` records the change).
+- **VR-14. CLAUDE.md still describes the retired icon pipeline**, `assets/ui/icons/units/<SHEET>.png` via `pnpm icons:units`. That directory and that script no longer exist (`ui/portrait.ts:11-15` records the change). **Already resolved on main:** CLAUDE.md "A unit" and the sprite-renderers bullet name the Blender portrait pipeline, and nothing in it refers to `pnpm icons:units` except to say it is gone.
 - **VR-15. The audio toggle uses a lightning glyph** on the menu and the strip (PA-30), which reads as power or charge, not sound.
 
 ---
@@ -397,6 +397,7 @@ Numbers from #354 (`units/readability.ts`, `units/selection-ring.ts`):
 - **VR-38. Two marks are dead or stale.**
   - `WRECK_MARKER_COLOR_KEY` (`gunmetal.2`, OV:229) is used only by tests.
   - The "min-range ring" is still named as a `resolveColor` consumer (`renderer-options.ts:73`, `packages/data/src/index.ts:509`), but the ring was deleted (TR:8281).
+  - **Resolved:** `WRECK_MARKER_COLOR_KEY` and both stale mentions are removed; `overlays.test.ts` now fails if a `*_COLOR_KEY` export has no production reader. That guard found a third, `FIREPOWER_KILL_COLOR_KEY` (three draws no firepower-kill pip); it is a named exemption for the lead, not deleted.
 
 ---
 
