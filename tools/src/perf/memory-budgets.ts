@@ -134,6 +134,13 @@ export function judge(readings: readonly Reading[], b: MemoryBudget): Verdict[] 
 export const MARGIN = { js: 1.25, gpu: 1.15, process: 1.25 } as const;
 
 /** See docs/PERFORMANCE.md, "Memory", for every reading behind these. */
+// GH-469 saving 3 (a lighter live menu backdrop) LOWERED the menu ceilings to
+// its own readings x the same margins, never raising one: CI n=3 (run
+// 37843211170, attempts 1-3) the menu's GPU ledger 522.1 -> 230.8 MiB on every
+// menu reading, its process total 880-984 (main 1297-1404) and 1084-1169 after
+// a leave (main 1506-1636); Metal n=3 menu-kind <= 1481.9. The GPU ledger is
+// what locks it in: logical bytes, the same on every run, x 1.15 = 266 against
+// main's 522.
 export const MEMORY_BUDGETS: Readonly<Record<string, MemoryBudget>> = {
   // CI's `memory` job. ubuntu-latest, ANGLE/SwiftShader, 1400x900 @1x, dev
   // server, n=4 walks on four runners (2026-10-08, run 37826952688: the
@@ -145,10 +152,10 @@ export const MEMORY_BUDGETS: Readonly<Record<string, MemoryBudget>> = {
   // mission process total of 2946.7. Leak percentages are about twice the
   // largest measured, rounded up to 5.
   'linux-x64-swiftshader': {
-    conditions: 'linux-x64-swiftshader: ubuntu-latest, SwiftShader, 1400x900 @1x, dev server, n=4, margins JS x1.25 GPU x1.15 process x1.25',
-    menu: { jsTotalMiB: 75, gpuMiB: 601, processMiB: 2046 },
+    conditions: 'linux-x64-swiftshader: ubuntu-latest, SwiftShader, 1400x900 @1x, dev server, n=4 (menu re-measured n=3 at GH-469 saving 3), margins JS x1.25 GPU x1.15 process x1.25',
+    menu: { jsTotalMiB: 75, gpuMiB: 266, processMiB: 1462 },
     board: { jsTotalMiB: 40, gpuMiB: 159, processMiB: 939 },
-    mission: { jsTotalMiB: 157, gpuMiB: 1015, processMiB: 3659 },
+    mission: { jsTotalMiB: 157, gpuMiB: 1015, processMiB: 3635 },
     leak: { jsOverMenuPct: 20, gpuOverMenuPct: 2, maxRetainedLostContexts: 0, maxExtraNodes: 50 },
   },
   // Local only -- CI never runs here. M3 Pro, ANGLE/Metal, 1400x900 @1x, dev
@@ -157,10 +164,10 @@ export const MEMORY_BUDGETS: Readonly<Record<string, MemoryBudget>> = {
   // 882.2 / 3207.3 MiB; after-leave JS +14.6% and GPU +0.0% over the menu,
   // DOM nodes +0.
   'darwin-arm64-metal': {
-    conditions: 'darwin-arm64-metal: M3 Pro, ANGLE/Metal, 1400x900 @1x, dev server, n=4, margins JS x1.25 GPU x1.15 process x1.25',
-    menu: { jsTotalMiB: 79, gpuMiB: 601, processMiB: 2419 },
-    board: { jsTotalMiB: 40, gpuMiB: 159, processMiB: 812 },
-    mission: { jsTotalMiB: 162, gpuMiB: 1015, processMiB: 4010 },
+    conditions: 'darwin-arm64-metal: M3 Pro, ANGLE/Metal, 1400x900 @1x, dev server, n=4 (menu re-measured n=3 at GH-469 saving 3), margins JS x1.25 GPU x1.15 process x1.25',
+    menu: { jsTotalMiB: 79, gpuMiB: 266, processMiB: 1853 },
+    board: { jsTotalMiB: 40, gpuMiB: 159, processMiB: 751 },
+    mission: { jsTotalMiB: 162, gpuMiB: 1015, processMiB: 3981 },
     leak: { jsOverMenuPct: 30, gpuOverMenuPct: 2, maxRetainedLostContexts: 0, maxExtraNodes: 50 },
   },
 };
