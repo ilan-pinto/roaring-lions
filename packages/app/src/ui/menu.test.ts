@@ -128,6 +128,34 @@ describe('showMenu aside', () => {
   });
 });
 
+describe('showMenu feedback (GH-464)', () => {
+  it('offers Feedback in the aside only when the shell passes it, and opens it on click', () => {
+    const none = document.createElement('div');
+    showMenu(none, { base: '/', version: '0.0.0', world, tutorial });
+    expect(none.querySelector('[data-act="feedback"]')).toBeNull();
+    const stage = document.createElement('div');
+    let opened = 0;
+    showMenu(stage, { base: '/', version: '0.0.0', world, tutorial, feedback: () => opened++ });
+    const b = stage.querySelector<HTMLButtonElement>('button.rl-menu__item[data-act="feedback"]');
+    expect(b?.textContent).toBe('Feedback');
+    b?.click();
+    expect(opened).toBe(1);
+  });
+
+  it('takes the button down when the server says feedback is closed', async () => {
+    const stage = document.createElement('div');
+    showMenu(stage, { base: '/', version: '0.0.0', world, tutorial, feedback: () => undefined, feedbackAvailable: Promise.resolve(false) });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(stage.querySelector('[data-act="feedback"]')).toBeNull();
+    const open = document.createElement('div');
+    showMenu(open, { base: '/', version: '0.0.0', world, tutorial, feedback: () => undefined, feedbackAvailable: Promise.resolve(true) });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(open.querySelector('[data-act="feedback"]')).not.toBeNull();
+  });
+});
+
 describe('showMenu backdrop (the scene host)', () => {
   it('mounts the backdrop after the column is in the stage, handing it the column', () => {
     const stage = document.createElement('div');

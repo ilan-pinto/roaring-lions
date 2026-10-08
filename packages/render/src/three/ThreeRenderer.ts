@@ -176,6 +176,9 @@ import type { Pass } from 'three/addons/postprocessing/Pass.js';
 // The ONE piece of the post chain `captureGroundAlbedo` needs -- see that
 // method for why a render target cannot simply be read back raw.
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { CopyShader } from 'three/addons/shaders/CopyShader.js';
+import { captureComposerView } from './capture-view';
 import { FlashLightManager } from './flash-light';
 import { MuzzleFlashManager, MUZZLE_FLASH_DEFAULT_DURATION_MS } from './units/muzzle-flash';
 import {
@@ -3511,6 +3514,34 @@ export class ThreeRenderer implements Renderer {
     this.groundPhoto = this.photographGround(size);
     this.groundPhotoPx = this.groundPhoto === null ? 0 : size;
     return this.groundPhoto;
+  }
+
+  /**
+   * `Renderer.captureView` (GH-464): the player's view for a feedback note's
+   * picture. The composer renders once more, short of the screen, and one
+   * copy pass resolves its HalfFloat output into an 8-bit target at most
+   * `maxWidth` wide, which is what is read -- see `./capture-view.ts`, which
+   * owns the order and is tested with a fake composer. Nothing is hidden for
+   * it: the picture is what the player is looking at, minus the DOM.
+   */
+  captureView(maxWidth: number): ImageData | null {
+    if (this.disposed || this.post === null) return null;
+    const copy = new ShaderPass(CopyShader);
+    try {
+      const px = captureComposerView(
+        {
+          gl: this.renderer,
+          composer: this.post.composer,
+          makeTarget: (w, h) => new THREE.WebGLRenderTarget(w, h),
+          // `ShaderPass` reads only `.texture` off its read buffer.
+          copy: (into, from) => copy.render(this.renderer, into, { texture: from } as THREE.WebGLRenderTarget, 0, false),
+        },
+        maxWidth
+      );
+      return px === null ? null : new ImageData(new Uint8ClampedArray(px.data.buffer), px.width, px.height);
+    } finally {
+      copy.dispose();
+    }
   }
 
   /**

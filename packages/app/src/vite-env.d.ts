@@ -8,3 +8,7 @@ declare const __GAME_VERSION__: string;
  *  `__GAME_VERSION__` because a patch release must bust the cache and must
  *  not change the version the HUD shows. */
 declare const __APP_BUILD__: string;
+
+/** The commit this build was made from (hex), or '' when unknown -- a
+ *  feedback note's `commit` (GH-464). See vite.config.ts. */
+declare const __APP_COMMIT__: string;

@@ -1156,6 +1156,13 @@ export class Hud {
     this.strip.dataset.open = open ? '1' : '0';
   }
 
+  /** The feed's lines as the player sees them, newest first -- a feedback
+   *  note's `feed` (GH-464). A read of the DOM this class already owns, never
+   *  a second record of the lines. */
+  feedLines(): string[] {
+    return [...this.feed.children].map((c) => (c.textContent ?? '').replace(/\s+/g, ' ').trim()).filter((l) => l !== '');
+  }
+
   /** Mission-level narration — objectives, triggers, waves, refusals.
    *
    *  `html` is set as `innerHTML`, and it is HTML on purpose: callers pass a

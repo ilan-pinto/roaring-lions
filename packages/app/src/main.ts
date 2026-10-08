@@ -92,7 +92,17 @@ import { coinTiers, grantTestCoins, seedTestCoins, testCoinsParam } from './roar
 import { buyWithTestCoins, type CoinHalf } from './ui/stores-model';
 import { CUE_SET } from './ui/garage-model';
 import { upgradePrepass } from './upgrade-prepass';
-import { showDebrief, type DebriefOptions, type ReportSpeaker } from './ui/debrief';
+import { clock as missionClock, showDebrief, type DebriefOptions, type ReportSpeaker } from './ui/debrief';
+import { feedbackDialog } from './ui/feedback-dialog';
+import { ratingPrompt, type RatingPrompt } from './ui/feedback-prompt';
+import { browserFeedbackSession, type FeedbackSession, type SessionNote } from './feedback/session';
+import { collectContext, type ContextInput } from './feedback/context';
+import { installErrorRing, recentErrors } from './feedback/errors';
+import { isClosed as feedbackClosed } from './feedback/gate';
+import { gpuName } from './feedback/gpu';
+import { takePicture } from './feedback/picture';
+import { answered as promptAnswered, asked as promptAsked, ignored as promptIgnored, readPromptState, shouldAsk, writePromptState } from './feedback/prompt-policy';
+import { ReplayRecorder } from './feedback/replay';
 import { afterAction, promotionsBetween } from './ui/after-action';
 import { livingHostiles } from './ui/withdrew';
 import { outcomeMoment, outcomeMomentOptions } from './ui/outcome-moment';
@@ -116,7 +126,7 @@ import { objectiveStatusShout } from './ui/objective-status';
 import { pauseMenu } from './ui/pause';
 import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
-import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace } from './input/keymap';
+import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace } from './input/keymap';
 import { buyUnlock, buyUpgrade } from './brigade-account';
 import { payVictory } from './campaign-pay';
 import { tierLine } from './ui/grade-copy';
@@ -255,6 +265,9 @@ import { pseudo } from './i18n/pseudo';
 /** Deploy base ('/' locally, '/<repo>/' on GitHub Pages) — every asset URL
  *  is built from it so the same bundle works in both places. */
 const BASE = import.meta.env.BASE_URL;
+/** Every battlefield's `Sim` seed. A constant, so a feedback replay can rebuild
+ *  the battle from the start and the orders alone (GH-464 §4.3). */
+const SIM_SEED = 20260727;
 
 /** The deploy screen's sections and image, with every path resolved against
  *  BASE (GH-119). A pool picks once, here, at mount. */
@@ -654,6 +667,33 @@ function accountState(): {
  * The brigade account (`brigade-account.ts`) deliberately survives it: spec
  * 2026-09-15 §4.1 -- a second campaign starts with the brigade you built.
  */
+/**
+ * The half of a feedback note's context every screen has (GH-464, spec §4.1):
+ * the renderer and its quality, the GPU, the window, the locale, the route,
+ * the accessibility settings and the last errors. A battlefield adds the
+ * mission's own facts on top (`fbWhere`).
+ */
+function shellContextInput(s: Settings): ContextInput {
+  const gpu = gpuName();
+  return {
+    renderer: 'three',
+    quality: s.video.quality,
+    ...(gpu === null ? {} : { gpu }),
+    viewport: [window.innerWidth, window.innerHeight],
+    dpr: window.devicePixelRatio,
+    locale: currentLocale(),
+    ua: navigator.userAgent,
+    route: stripBase(BASE, window.location.pathname),
+    settings: {
+      uiScale: String(s.video.uiScale),
+      textSize: s.video.textSize,
+      motion: s.accessibility.motion,
+      colorVision: s.accessibility.colorVision,
+    },
+    errors: recentErrors(),
+  };
+}
+
 function purgeCampaign(): void {
   // Minor 5: through the store, not the global. `window.localStorage` can throw
   // on the PROPERTY ACCESS itself in a private window or with site data blocked
@@ -686,6 +726,9 @@ async function main(): Promise<void> {
   // reload the page? -- has an answer. One `rl:boot` mark per document,
   // however many screens the player walks through.
   performance.mark('rl:boot');
+  // GH-464: the last few errors, for a feedback note. Listening from the very
+  // first statement, so a boot failure is one of them.
+  installErrorRing(window);
   const stage = document.getElementById('stage');
   if (!stage) throw new Error('no #stage');
 
@@ -817,6 +860,8 @@ async function main(): Promise<void> {
     // menu MOUNT now rather than once per page load, so a store whose property
     // access throws would have thrown on every return to the menu.
     const tutorialIsDone = ledgerStore.tutorialDone();
+    // GH-464: whether this menu offers feedback, asked per mount.
+    const menuFeedback = browserFeedbackSession();
     // Where the campaign is RIGHT NOW (Task 7): the tutorial while nothing has
     // been played, else the first open mission of wherever the map is live.
     // Null once every authored mission is done, which is `continue: undefined`
@@ -852,6 +897,29 @@ async function main(): Promise<void> {
         purgeCampaign();
         void router.navigate(routes.menu(), { replace: true, force: true });
       },
+      // GH-464: the menu's feedback modal -- the pause form without a picture
+      // or a replay. `closeOpenDialog()` takes it down with the screen.
+      feedbackAvailable: menuFeedback.shown ? menuFeedback.open() : undefined,
+      feedback: menuFeedback.shown && !feedbackClosed()
+        ? () => {
+            feedbackDialog(host, {
+              who: menuFeedback.who,
+              build: menuFeedback.build,
+              storage: menuFeedback.storage,
+              send: async (sub, signal) =>
+                menuFeedback.send(
+                  {
+                    source: 'menu',
+                    category: sub.kind,
+                    text: sub.text,
+                    ...(sub.contact === undefined ? {} : { contact: sub.contact }),
+                    where: { context: collectContext(shellContextInput(settingsDeps.get())) },
+                  },
+                  { signal }
+                ),
+            });
+          }
+        : undefined,
       // The host decides its own path (live, plate or off) and builds the
       // diorama's world only on the live one. Settings are read when that
       // world is built, like a mission's at its boot: the colour-vision
@@ -1204,6 +1272,13 @@ async function main(): Promise<void> {
   // `renderer` is always 'three' since WP-A3.3: the field stays so old D1
   // rows and `packages/worker/QUERIES.sql` group the same way.
   initTelemetry({ dev: telemetryScreen === 'sandbox' }).sessionStart(telemetryScreen, 'three');
+  // GH-464 (spec §12.2): ask the server's switch once a boot, so the lead can
+  // close feedback without an app deploy. Cached for the session; every entry
+  // point checks `isClosed()` when it is built, and the menu takes its button
+  // down if the answer lands after it mounted. Never asked where nothing can
+  // be sent (dev, tests, CI, a local host).
+  const bootFeedback = browserFeedbackSession();
+  if (bootFeedback.shown) void bootFeedback.open();
   await router.start({ drop: landingIsMission ? [] : ['fresh'] });
 }
 
@@ -1516,7 +1591,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // many stand at once. First Light puts 104 attackers, 7 defenders and 11
   // civilians through it before the player buys anything, and running out is a
   // thrown error mid-mission, not a graceful cap.
-  const sim = new Sim({ seed: 20260727, width: map.width, height: map.height, capacity: 256 });
+  const sim = new Sim({ seed: SIM_SEED, width: map.width, height: map.height, capacity: 256 });
   // Cover AND blocked terrain, through the one function all three world
   // builders share. Rock ridges arrive here; before this existed, `map.blocked`
   // was filled by parseMap and read by nobody.
@@ -2204,6 +2279,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   //
   // Wrapped like the await above it: this used to throw before the renderer
   // existed, and now runs after it, so a malformed mission must not strand one.
+  // GH-464: the player's orders since mission start, for a Bug note's replay
+  // (spec §4.3). In memory only, and only for a mission: a sandbox has no
+  // start a replay could rebuild.
+  const replayLog = new ReplayRecorder();
   if (resolvedMission) {
     try {
       // One ledger for the runtime and the loadout (GH-254), so the roster
@@ -2230,6 +2309,20 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           };
         },
       }, renderer);
+      // Everything `startMission` consumed, so a replay can rebuild it. The
+      // cast: TypeScript narrows `deploySelection` to its initial null, since
+      // it is assigned only inside the deploy screen's callback.
+      const picks = deploySelection as DeploySelection | null;
+      replayLog.begin({
+        mission: resolvedMission.id,
+        build: __APP_BUILD__,
+        ...(__APP_COMMIT__ === '' ? {} : { commit: __APP_COMMIT__ }),
+        seed: SIM_SEED,
+        ledger: sentLedger,
+        tiers: bootKit,
+        unlocks: [...boughtUnits],
+        deploy: picks === null ? null : [...picks.chosen],
+      });
       // Read after `startMission` has spawned the force: living side-0 units
       // by type, and how many the placements drew from the roster (R-3, R-4).
       // Only when telemetry is on -- the no-op does no work -- and a throw
@@ -2804,6 +2897,43 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // (`case 'pause':` no longer resumes at all, see there), but idempotence
   // stays right: the modal's own Escape and its Resume button both still
   // reach `resume`, and either can fire first.
+  // GH-464: feedback. One session per boot -- the gate, who a note is sent
+  // as, the client -- and the pause menu's tab and the debrief's prompt
+  // appear only when it says so. `fbWhere` reads the live world for a note's
+  // context at the moment it is SENT, read-only (invariant 4).
+  const fb: FeedbackSession = browserFeedbackSession();
+  const fbWhere = (): SessionNote['where'] => {
+    const s = req.settings.get();
+    let alive = 0;
+    const fielded = new Set<string>();
+    for (let i = 0; i < sim.entityCount; i++) {
+      if (sim.state.side[i] !== 0 || sim.state.alive[i] !== 1) continue;
+      alive++;
+      fielded.add(sim.unitTypes[sim.state.typeIdx[i]].id);
+    }
+    const selected = new Set<string>();
+    for (const i of renderer.selection) {
+      if (i >= 0 && i < sim.entityCount) selected.add(sim.unitTypes[sim.state.typeIdx[i]].id);
+    }
+    const input: ContextInput = {
+      ...shellContextInput(s),
+      paused,
+      force: { alive, lost: Object.values(runtime?.lostByType() ?? {}).reduce((a, b) => a + b, 0), fielded: [...fielded], selected: [...selected] },
+      camera: { x: renderer.camera.x, y: renderer.camera.y, zoom: renderer.camera.zoom },
+      feed: hud.feedLines(),
+    };
+    if (runtime) {
+      input.objectives = runtime.objectiveList.map((o) => ({ id: o.id, status: o.status, primary: o.primary }));
+      input.conduct = runtime.roeScore;
+    }
+    if (mission) input.floor = starRoeFloor(mission.roe?.fail_below);
+    return {
+      context: collectContext(input),
+      ...(mission ? { mission: mission.id } : {}),
+      map: mapId,
+      tick: sim.tickCount,
+    };
+  };
   const pause = (): void => {
     if (paused) return;
     paused = true;
@@ -2851,6 +2981,35 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       },
       settings: req.settings,
       build: __APP_BUILD__,
+      feedback:
+        fb.shown && !feedbackClosed()
+          ? {
+              who: fb.who,
+              build: fb.build,
+              storage: fb.storage,
+              ...(mission ? { where: { mission: mission.name ?? mission.id, clock: missionClock(sim.tickCount) } } : {}),
+              // Taken when the tab first opens: the frame the player paused on.
+              picture: () => takePicture(renderer),
+              replay: {
+                available: () => replayLog.available,
+                approxBytes: () => replayLog.approxBytes,
+                log: () => replayLog.log(sim.tickCount, sim.hash()),
+              },
+              send: async (sub, signal) =>
+                fb.send(
+                  {
+                    source: 'pause',
+                    category: sub.kind,
+                    text: sub.text,
+                    ...(sub.contact === undefined ? {} : { contact: sub.contact }),
+                    where: fbWhere(),
+                    shot: sub.shot,
+                    replay: sub.replay,
+                  },
+                  { signal }
+                ),
+            }
+          : undefined,
     });
   };
   const resume = (): void => {
@@ -3063,7 +3222,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
 
   if (runtime && mission?.resources) {
     production = new ReinforcementDock(document.body, {
-      onBought: (id) => missionTelemetry?.onBought(id),
+      onBought: (id) => {
+        missionTelemetry?.onBought(id);
+        replayLog.buy(sim.tickCount, id);
+      },
       // Ruling 1 (WP-A3.3): a deferred buildable whose GLB has not landed --
       // or not been asked for yet -- draws nothing, so its tile says
       // "deploying" once bought. A FAILED type is not pending: it draws a
@@ -3267,6 +3429,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   });
   // Counted after `applyIntent` has run: an observer, like the voice (GH-254).
   intentListeners.push((intent) => missionTelemetry?.onIntent(intent));
+  // GH-464: and recorded, at the tick it was issued, for a Bug note's replay.
+  intentListeners.push((intent) => replayLog.record(sim.tickCount, intent));
   /** Where a resolved right-click's three effects land. Built once and passed
    *  to `issueOrder` by both pointing surfaces. */
   const orderSink: OrderSink = {
@@ -3629,6 +3793,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   onDispose(() => groupsBar.dispose());
   onWindow('blur', () => keys.clear());
   onWindow('keydown', (ev) => {
+    // D18 (GH-464): a focused text field owns its keys. The pause menu's capture
+    // guard already stops them (`pause.ts`); this is the line for a field on
+    // no modal at all -- the debrief's one-line rating note -- where `h` would
+    // otherwise still halt and `w` still pan while the player types.
+    if (isTextEntry(ev.target)) return;
     // The keydown listener used to be an if-chain of literals -- one per
     // bound key, and a second copy of each letter living in
     // `selection-model.ts`'s ORDERS with nothing keeping the two in step.
@@ -4301,13 +4470,31 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                   console.warn('debrief: the ground photograph failed; the painted ground stays', err);
                 }
               }
+              // GH-464: "How was that mission?", at most once per mission
+              // (`prompt-policy.ts`). Asked is recorded now, so a reload on
+              // this screen does not ask twice.
+              let prompt: RatingPrompt | null = null;
+              if (fb.shown && !feedbackClosed()) {
+                const asking = readPromptState(fb.storage, __APP_BUILD__);
+                if (shouldAsk(asking, mission.id, { sandbox: false })) {
+                  writePromptState(fb.storage, promptAsked(asking, mission.id));
+                  prompt = ratingPrompt({
+                    send: async (rating, line, o) =>
+                      fb.send({ source: 'debrief', category: 'rating', rating, text: line, where: fbWhere() }, { keepalive: o.keepalive }),
+                    onAnswered: () => writePromptState(fb.storage, promptAnswered(readPromptState(fb.storage, __APP_BUILD__))),
+                    onIgnored: () => writePromptState(fb.storage, promptIgnored(readPromptState(fb.storage, __APP_BUILD__))),
+                  });
+                }
+              }
               screenDisposers.push(
                 showDebrief(document.body, {
                   ...debriefOpts,
                   aftermath: momentOptions.aftermath,
                   ground: debriefOpts.ground ? { ...debriefOpts.ground, photo } : undefined,
+                  ...(prompt ? { prompt: prompt.el } : {}),
                 })
               );
+              if (prompt) screenDisposers.push(prompt.dispose);
             });
           }
         }

@@ -267,6 +267,26 @@ export function shouldYieldSpace(el: Element | null): boolean {
   return editable !== null && editable !== 'false';
 }
 
+/** Input types that take typed text. A checkbox, radio, range or button
+ *  `<input>` does not: a key pressed on one is not a character. */
+const TEXT_INPUT_TYPES = new Set(['', 'text', 'search', 'email', 'url', 'tel', 'password', 'number']);
+
+/**
+ * D18 (GH-464): is `el` a field the player TYPES into -- a `<textarea>`, a text
+ * `<input>`, or a `contenteditable` element? Narrower than `shouldYieldSpace`,
+ * which also yields to buttons and links: a focused button still lets a pan
+ * key move the camera behind the pause menu, while a focused text field owns
+ * every key, because each letter is a character the player meant to write.
+ */
+export function isTextEntry(el: EventTarget | null): boolean {
+  if (el === null || typeof Element === 'undefined' || !(el instanceof Element)) return false;
+  const tag = el.tagName.toLowerCase();
+  if (tag === 'textarea') return true;
+  if (tag === 'input') return TEXT_INPUT_TYPES.has((el.getAttribute('type') ?? '').toLowerCase());
+  const editable = el.getAttribute('contenteditable');
+  return editable !== null && editable !== 'false';
+}
+
 export function rebind(b: Bindings, action: Action, key: string): { ok: true; bindings: Bindings } | { ok: false; takenBy: Action } {
   const k = norm(key);
   const s = spec(action);

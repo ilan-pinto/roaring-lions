@@ -37,6 +37,9 @@ export interface Telemetry {
   missionStarted(mission: string, replay: boolean, view: () => RuntimeView, loadout?: Loadout): MissionTelemetry;
   campaignProgress(mission: string, missionsWon: number): void;
   account(reason: AccountReason, a: AccountLike, extra?: AccountExtra): void;
+  /** Who this session is, for a feedback note (GH-464): null while telemetry
+   *  is off (dev, tests, an opt-out), so a note from there carries no ids. */
+  ids(): { player: string; session: string; tester?: string } | null;
 }
 
 const NOOP_MISSION: MissionTelemetry = {
@@ -51,6 +54,7 @@ export const NOOP_TELEMETRY: Telemetry = {
   missionStarted: () => NOOP_MISSION,
   campaignProgress: () => undefined,
   account: () => undefined,
+  ids: () => null,
 };
 
 export interface TelemetryDeps {
@@ -102,6 +106,10 @@ export function createTelemetry(d: TelemetryDeps): Telemetry {
   );
 
   return {
+    ids: () =>
+      d.identity.tester === undefined
+        ? { player: d.identity.player, session }
+        : { player: d.identity.player, session, tester: d.identity.tester },
     sessionStart: safe((screen, renderer) => {
       d.sink.push(ev.sessionStart(envelope(), screen, renderer, d.viewport(), d.identity.returning));
     }),

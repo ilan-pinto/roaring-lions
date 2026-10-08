@@ -493,6 +493,22 @@ export interface Renderer {
   captureGroundAlbedo?(sizePx: number): ImageData | null;
 
   /**
+   * The world as the player sees it, for a feedback note's picture (GH-464):
+   * the live camera through the whole post chain -- fog, GTAO, tone map,
+   * SMAA, units and world overlays -- and none of the DOM HUD, which is not
+   * part of the scene. At most `maxWidth` pixels wide, keeping the view's
+   * aspect; rows BOTTOM-UP, as `captureGroundAlbedo`'s are (the app flips
+   * them with `flipRows`).
+   *
+   * Read from a render target, never the canvas: `preserveDrawingBuffer`
+   * stays off, so the drawing buffer reads back black (`three/capture-view.ts`).
+   * Null before the composer exists, after `dispose()`, or on a failed
+   * capture -- the note then goes without a picture. Optional: a backend
+   * with no post chain has nothing to offer here.
+   */
+  captureView?(maxWidth: number): ImageData | null;
+
+  /**
    * Re-resolve every team colour mid-mission (VR-01, lead 8 Oct): the
    * colour-vision setting changes the HUD at once through `theme.css`'s
    * `data-cvd` blocks, and this is how the world follows it in the same
