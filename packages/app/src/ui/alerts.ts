@@ -89,7 +89,7 @@ export interface AlertLine {
 }
 
 export interface Alert {
-  kind: 'unitLost' | 'kill' | 'underFire' | 'objective' | 'wave' | 'arrival' | 'pinned' | 'ambush' | 'removed' | 'roe' | 'broken' | 'damaged';
+  kind: 'unitLost' | 'kill' | 'underFire' | 'objective' | 'wave' | 'arrival' | 'pinned' | 'ambush' | 'removed' | 'roe' | 'broken' | 'damaged' | 'tunnel';
   tier: AlertTier;
   /** Good or bad, as the minimap ring wears it (VR-36): the line's own tone
    *  where there is a line, and for a lineless alert the tone its line would
@@ -166,6 +166,8 @@ export interface AlertState {
   /** The tick the pinned cue last sounded (polish pass F), for its own
    *  cooldown. */
   readonly lastPinned: number;
+  /** GH-471: tunnel routes whose discovery has been announced this mission. */
+  readonly tunnelsAnnounced: ReadonlySet<number>;
 }
 
 /**
@@ -183,7 +185,7 @@ export interface AlertState {
 export const UNDER_FIRE_COOLDOWN_TICKS = 100;
 
 export function initAlertState(): AlertState {
-  return { lastUnderFire: new Map(), wavesSeen: new Set(), lastPinned: -Infinity };
+  return { lastUnderFire: new Map(), wavesSeen: new Set(), lastPinned: -Infinity, tunnelsAnnounced: new Set() };
 }
 
 /** A man pinned sounds the minor cue at most once in four seconds, whoever
@@ -341,6 +343,8 @@ export function alertsForTick(
   const seen = new Set<number>();
   let pinnedAt: number | null = null;
   let ambushed = false;
+  const tunnelsFound: number[] = [];
+  let tunnelsAnnounced = state.tunnelsAnnounced;
   /** VR-37: the first of ours a round was aimed at this tick -- where an
    *  ambush is marked. Never the ambusher: pointing at a hidden enemy is
    *  x-ray, and the man it hit is where the player has to look anyway. */
@@ -383,6 +387,20 @@ export function alertsForTick(
       if (pinnedAt === null && world.sideOf(e.entity) === 0 && !lostEntities.has(e.entity)) pinnedAt = e.entity;
       continue;
     }
+    // GH-471: a tunnel route identified by our side is the discovery beat --
+    // the feed line, the minimap ring and the important cue, beside the
+    // renderer's x-ray sweep. Once per route per mission: identification is
+    // live, so a carrier walking in and out of sight of the same route
+    // re-identifies it every time, and that is not news. `observer` is the
+    // carrier (-1 when spoil alone got there): the line is placed where it
+    // stands and the ring drawn there, since the carrier is over the route.
+    if (e.kind === 'tunnelContact' && e.side === 0 && e.level === 'identified') {
+      if (!tunnelsAnnounced.has(e.tunnel)) {
+        tunnelsFound.push(e.observer);
+        tunnelsAnnounced = new Set(tunnelsAnnounced).add(e.tunnel);
+      }
+      continue;
+    }
     if (e.kind === 'ambushSprung') {
       // `entity` is the ambusher: one of ours springing is good news. No
       // position: pointing the minimap at a hidden enemy would be x-ray.
@@ -419,9 +437,9 @@ export function alertsForTick(
   const pinnedSounds = pinnedAt !== null && tick - state.lastPinned >= PINNED_COOLDOWN_TICKS;
   const lastPinned = pinnedSounds ? tick : state.lastPinned;
   const nextState: AlertState =
-    lastUnderFire === state.lastUnderFire && wavesSeen === state.wavesSeen && lastPinned === state.lastPinned
+    lastUnderFire === state.lastUnderFire && wavesSeen === state.wavesSeen && lastPinned === state.lastPinned && tunnelsAnnounced === state.tunnelsAnnounced
       ? state
-      : { lastUnderFire, wavesSeen, lastPinned };
+      : { lastUnderFire, wavesSeen, lastPinned, tunnelsAnnounced };
 
   // --- emit, loudest first ------------------------------------------------
   for (const [typeId, entities] of lostByType) {
@@ -492,6 +510,22 @@ export function alertsForTick(
   // naming the first and counting the rest.
   if (brokenOwn.length > 0) alerts.push(ownStateAlert('broken', 'alert.broken', brokenOwn, world));
   for (const [what, entities] of damagedOwn) alerts.push(ownStateAlert('damaged', `alert.${what}`, entities, world));
+  // GH-471: routes found this tick, one line with a count (several routes in
+  // sight at once -- a mission start -- read as "3 tunnels found").
+  if (tunnelsFound.length > 0) {
+    const observer = tunnelsFound.find((o) => o >= 0) ?? -1;
+    const at = observer >= 0 ? world.posOf(observer) : null;
+    alerts.push({
+      kind: 'tunnel',
+      tier: 'important',
+      tone: 'warn',
+      line: { key: 'alert.tunnelFound', params: { n: tunnelsFound.length }, tone: 'warn', place: at === null ? [] : [world.placeOf(at.x, at.y)] },
+      cue: ALERT_CUE.important,
+      at,
+      marks: at === null ? [] : [at],
+      count: tunnelsFound.length,
+    });
+  }
   if (ambushed) {
     // VR-37: an ambush gets a line and a mark, not only a sound.
     const at = firstOwnHit >= 0 ? world.posOf(firstOwnHit) : null;

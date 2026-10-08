@@ -257,6 +257,9 @@ export const CHROME = {
    *  desaturated sand-and-limestone ward was a faint smudge beside the
    *  lime viewport outline. */
   refugeEdge: 'var(--mark-edge)',
+  /** An identified tunnel route (GH-471), the world x-ray's own colour --
+   *  `--intercept` is `vfx.interceptor`, the bore's rim. */
+  tunnel: 'var(--intercept)',
   /** Under the map, on the two edges a non-square map would letterbox. */
   ground: 'var(--panel-bg-solid)',
 } as const;
@@ -293,6 +296,51 @@ export function resolveChrome(host: HTMLElement): ChromeColors {
     out[key] = got;
   }
   probe.remove();
+  return out;
+}
+
+/** GH-471: the identified-route line's stroke, its keyline, and the shaft
+ *  square, in box pixels. */
+const TUNNEL_STROKE = 2;
+const TUNNEL_KEYLINE = 4;
+const TUNNEL_SHAFT = 5;
+
+/** What the minimap may know about tunnels: a structural subset of `Sim`. */
+export interface TunnelSource {
+  readonly tunnelCount: number;
+  readonly tnAlive: ArrayLike<number>;
+  readonly tnLength: ArrayLike<number>;
+  tunnelContactLevel(side: number, r: number): number;
+  tunnelPointAt(r: number, d: number): readonly [number, number];
+}
+
+/** One identified route as the minimap draws it, in tile-centre coordinates. */
+export interface TunnelMark {
+  readonly route: number;
+  readonly line: readonly (readonly [number, number])[];
+  /** Mouth, then vent. */
+  readonly shafts: readonly [readonly [number, number], readonly [number, number]];
+}
+
+/**
+ * GH-471: the routes side 0 holds IDENTIFIED right now, and only those --
+ * the same level the world's x-ray draws at (a collapsed route draws
+ * nothing, as the world's does not). A pure read of the sim.
+ */
+export function tunnelMarks(sim: TunnelSource): TunnelMark[] {
+  const out: TunnelMark[] = [];
+  for (let r = 0; r < sim.tunnelCount; r++) {
+    if (sim.tnAlive[r] === 0 || sim.tunnelContactLevel(0, r) !== 2) continue;
+    const len = fx.toNumber(sim.tnLength[r]);
+    const line: [number, number][] = [];
+    for (let d = 0; ; d += 0.5) {
+      const at = Math.min(d, len);
+      const p = sim.tunnelPointAt(r, fx.from(at));
+      line.push([fx.toNumber(p[0]) + 0.5, fx.toNumber(p[1]) + 0.5]);
+      if (at >= len) break;
+    }
+    out.push({ route: r, line, shafts: [line[0], line[line.length - 1]] });
+  }
   return out;
 }
 
@@ -1180,6 +1228,7 @@ export class Minimap {
     for (const m of objectiveMarks(this.deps.objectives(), this.deps.map)) {
       this.objectiveMark(m, nowMs);
     }
+    this.drawTunnels();
     for (const p of observedMarkers(this.deps.map, this.fogAt, this.seenMarkers)) {
       this.diamond(p, this.chrome.story);
     }
@@ -1274,6 +1323,32 @@ export class Minimap {
    * (`ringStyle`). Every ring sits on a `--mark-edge` keyline two pixels
    * wider, at the same alpha.
    */
+  /** GH-471: every route side 0 holds identified, as a line with a square
+   *  at each shaft (`tunnelMarks`); nothing for a suspected or unknown one.
+   *  Over the terrain and the zones, under the unit dots. */
+  private drawTunnels(): void {
+    const { ctx, proj } = this;
+    for (const mark of tunnelMarks(this.deps.sim)) {
+      const pts = mark.line.map(([x, y]) => tileToBox(proj, x, y));
+      for (const [style, width] of [
+        [this.chrome.markEdge, TUNNEL_KEYLINE],
+        [this.chrome.tunnel, TUNNEL_STROKE],
+      ] as const) {
+        ctx.strokeStyle = style;
+        ctx.lineWidth = width;
+        ctx.beginPath();
+        pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+        ctx.stroke();
+      }
+      ctx.fillStyle = this.chrome.tunnel;
+      for (const [x, y] of mark.shafts) {
+        const p = tileToBox(proj, x, y);
+        ctx.fillRect(Math.round(p.x - TUNNEL_SHAFT / 2), Math.round(p.y - TUNNEL_SHAFT / 2), TUNNEL_SHAFT, TUNNEL_SHAFT);
+      }
+    }
+    ctx.lineWidth = 1;
+  }
+
   private drawFlashes(nowMs: number): void {
     const { ctx, proj } = this;
     for (const f of this.flashes) {

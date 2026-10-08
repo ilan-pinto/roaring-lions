@@ -549,3 +549,53 @@ describe('alertsForTick — VR-37 tier and tone', () => {
     expect(alertsForTick(initAlertState(), [destroyed(17, 1)], [], world, 40).alerts[0]).toMatchObject({ tier: 'major', tone: 'good' });
   });
 });
+
+describe('alertsForTick — a tunnel found (GH-471)', () => {
+  const found = (tunnel: number, observer: number, side = 0, level = 'identified'): SimEvent =>
+    ({ kind: 'tunnelContact', tick: 0, side, tunnel, level, observer }) as SimEvent;
+
+  it('is important and warn, sounds the important cue, and rings where the finder stands', () => {
+    const { alerts } = alertsForTick(initAlertState(), [found(2, 3)], [], world, 40);
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({
+      kind: 'tunnel',
+      tier: 'important',
+      tone: 'warn',
+      cue: 'alert.important',
+      at: { x: 3.5, y: 10.5 },
+      line: { key: 'alert.tunnelFound', params: { n: 1 }, tone: 'warn', place: ['here'] },
+    });
+    expect(alerts[0].marks).toEqual([{ x: 3.5, y: 10.5 }]);
+  });
+
+  it('speaks once per route per mission: losing and re-finding the same route is not news', () => {
+    let state = initAlertState();
+    const first = alertsForTick(state, [found(2, 3)], [], world, 40);
+    state = first.state;
+    expect(first.alerts).toHaveLength(1);
+    const again = alertsForTick(state, [found(2, 4)], [], world, 400);
+    expect(again.alerts).toEqual([]);
+    const other = alertsForTick(again.state, [found(5, 4)], [], world, 500);
+    expect(other.alerts).toHaveLength(1);
+  });
+
+  it('several routes found in one tick are one line with a count', () => {
+    const { alerts } = alertsForTick(initAlertState(), [found(0, 3), found(1, 3), found(2, -1)], [], world, 40);
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({ count: 3, line: { params: { n: 3 } } });
+  });
+
+  it('says nothing for the enemy finding ours, or for a route only suspected', () => {
+    expect(alertsForTick(initAlertState(), [found(0, 12, 1)], [], world, 40).alerts).toEqual([]);
+    expect(alertsForTick(initAlertState(), [found(0, 3, 0, 'suspected')], [], world, 40).alerts).toEqual([]);
+  });
+
+  it('a route found through its spoil alone has no finder to point at', () => {
+    const { alerts } = alertsForTick(initAlertState(), [found(0, -1)], [], world, 40);
+    expect(alerts[0]).toMatchObject({ at: null, marks: [] });
+  });
+
+  it('has its line in the catalogue', () => {
+    expect((en as Record<string, string>)['alert.tunnelFound']).toMatch(/tunnel found/);
+  });
+});

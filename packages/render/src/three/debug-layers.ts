@@ -241,6 +241,15 @@
  *                 for the same reason: no gated scenario has a missile in
  *                 flight. `tools/src/perf/atgm-captures.ts` is where it is exercised.
  *
+ * ONE MORE FOR GH-471, the `missiles` rule again:
+ * - `tunnel-xray` the x-ray of an identified tunnel (`../tunnel-xray.ts`):
+ *                 bore and shafts, surface collars, the figures inside and
+ *                 the discovery beam. A flag, not a `visible` write alone,
+ *                 because `update` rewrites the figures' and the beam's
+ *                 visibility every frame. Returns 4, the meshes it governs.
+ *                 No `layerChecks` entry: no gated scenario has a tunnel.
+ *                 `tools/src/perf/tunnel-xray-captures.ts` exercises it.
+ *
  * ONE MORE FOR KITTED VEHICLES (GH-238, plan 3):
  * - `kit`         the bought kit merged into each mesh vehicle's host
  *                 geometry at load (`units/vehicle-kit.ts`). Host first, kit
@@ -304,6 +313,7 @@ export const DEBUG_LAYERS = [
   'blast-light',
   'missiles',
   'kit',
+  'tunnel-xray',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];

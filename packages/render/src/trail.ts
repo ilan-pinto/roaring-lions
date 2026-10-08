@@ -18,6 +18,12 @@
 //
 // Anyone can see dirt; only a detector reads the route. That asymmetry is
 // what makes the drone worth flying.
+//
+// GH-471 (2026-10-08): the three.js renderer no longer asks for the
+// identified-line rung -- `ThreeRenderer.buildTrailInput` downgrades an
+// identified route to the spoil rung, and the x-ray bore (`three/tunnel-xray.ts`)
+// draws an identified route instead. The rung stays here, still correct, so
+// the split above remains a stated, tested fact.
 
 /** Alpha of the identified route line. */
 const LINE_ALPHA = 0.18;
