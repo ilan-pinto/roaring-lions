@@ -10,6 +10,7 @@
     "e5:probes": "tsx src/backtest/e5-probes.ts",
     "perf:units": "tsx src/perf/three-units.ts",
     "perf:load": "tsx src/perf/load-profile.ts",
+    "perf:memory": "tsx src/perf/memory.ts",
     "ground:capture": "tsx src/perf/ground-captures.ts",
     "golden-diff": "tsx src/golden-diff/diff.ts",
     "golden-baseline": "tsx src/ci/three-baseline-gate.ts",
