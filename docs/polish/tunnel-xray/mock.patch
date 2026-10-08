@@ -1,0 +1,1150 @@
+diff --git a/packages/app/src/i18n/en.json b/packages/app/src/i18n/en.json
+index b5fe57f4..d5ccddc8 100644
+--- a/packages/app/src/i18n/en.json
++++ b/packages/app/src/i18n/en.json
+@@ -843,6 +843,7 @@
+   "alert.wave": "<b>enemy reinforcements</b> — {n, plural, one {# unit} other {# units}} inbound{where, select, yes { · {place}} other {}}",
+   "alert.arrived": "<b>reinforcement deployed</b> — {name}{where, select, yes { · {place}} other {}}",
+   "alert.reinforced": "{label}{where, select, yes { · {place}} other {}}",
++  "alert.tunnelFound": "<b>{n, plural, one {tunnel found} other {# tunnels found}}</b> — route and shafts marked{where, select, yes { · {place}} other {}}",
+   "alert.ambush": "<b>ambush</b>{where, select, yes { · {place}} other {}}",
+   "alert.place.here": "in view",
+   "alert.place.n": "north",
+diff --git a/packages/app/src/ui/alerts.ts b/packages/app/src/ui/alerts.ts
+index 1f84fc2d..662367bf 100644
+--- a/packages/app/src/ui/alerts.ts
++++ b/packages/app/src/ui/alerts.ts
+@@ -89,7 +89,7 @@ export interface AlertLine {
+ }
+ 
+ export interface Alert {
+-  kind: 'unitLost' | 'kill' | 'underFire' | 'objective' | 'wave' | 'arrival' | 'pinned' | 'ambush' | 'removed' | 'roe' | 'broken' | 'damaged';
++  kind: 'unitLost' | 'kill' | 'underFire' | 'objective' | 'wave' | 'arrival' | 'pinned' | 'ambush' | 'removed' | 'roe' | 'broken' | 'damaged' | 'tunnel';
+   tier: AlertTier;
+   /** Good or bad, as the minimap ring wears it (VR-36): the line's own tone
+    *  where there is a line, and for a lineless alert the tone its line would
+@@ -166,6 +166,8 @@ export interface AlertState {
+   /** The tick the pinned cue last sounded (polish pass F), for its own
+    *  cooldown. */
+   readonly lastPinned: number;
++  /** MOCK GH-471: routes whose discovery has already been announced. */
++  readonly tunnelsAnnounced?: ReadonlySet<number>;
+ }
+ 
+ /**
+@@ -341,6 +343,8 @@ export function alertsForTick(
+   const seen = new Set<number>();
+   let pinnedAt: number | null = null;
+   let ambushed = false;
++  const tunnelsFound: number[] = [];
++  let tunnelsAnnounced = state.tunnelsAnnounced ?? new Set<number>();
+   /** VR-37: the first of ours a round was aimed at this tick -- where an
+    *  ambush is marked. Never the ambusher: pointing at a hidden enemy is
+    *  x-ray, and the man it hit is where the player has to look anyway. */
+@@ -383,6 +387,16 @@ export function alertsForTick(
+       if (pinnedAt === null && world.sideOf(e.entity) === 0 && !lostEntities.has(e.entity)) pinnedAt = e.entity;
+       continue;
+     }
++    // MOCK GH-471: a route of theirs identified by us is the discovery beat.
++    // Once per route per mission: a carrier walking in and out of sight of
++    // the same route re-identifies it every time, and that is not news.
++    if (e.kind === 'tunnelContact' && e.side === 0 && e.level === 'identified') {
++      if (!tunnelsAnnounced.has(e.tunnel)) {
++        tunnelsFound.push(e.observer);
++        tunnelsAnnounced = new Set(tunnelsAnnounced).add(e.tunnel);
++      }
++      continue;
++    }
+     if (e.kind === 'ambushSprung') {
+       // `entity` is the ambusher: one of ours springing is good news. No
+       // position: pointing the minimap at a hidden enemy would be x-ray.
+@@ -419,9 +433,9 @@ export function alertsForTick(
+   const pinnedSounds = pinnedAt !== null && tick - state.lastPinned >= PINNED_COOLDOWN_TICKS;
+   const lastPinned = pinnedSounds ? tick : state.lastPinned;
+   const nextState: AlertState =
+-    lastUnderFire === state.lastUnderFire && wavesSeen === state.wavesSeen && lastPinned === state.lastPinned
++    lastUnderFire === state.lastUnderFire && wavesSeen === state.wavesSeen && lastPinned === state.lastPinned && tunnelsAnnounced === state.tunnelsAnnounced
+       ? state
+-      : { lastUnderFire, wavesSeen, lastPinned };
++      : { lastUnderFire, wavesSeen, lastPinned, tunnelsAnnounced };
+ 
+   // --- emit, loudest first ------------------------------------------------
+   for (const [typeId, entities] of lostByType) {
+@@ -492,6 +506,20 @@ export function alertsForTick(
+   // naming the first and counting the rest.
+   if (brokenOwn.length > 0) alerts.push(ownStateAlert('broken', 'alert.broken', brokenOwn, world));
+   for (const [what, entities] of damagedOwn) alerts.push(ownStateAlert('damaged', `alert.${what}`, entities, world));
++  if (tunnelsFound.length > 0) {
++    const observer = tunnelsFound[0];
++    const at = observer >= 0 ? world.posOf(observer) : null;
++    alerts.push({
++      kind: 'tunnel',
++      tier: 'important',
++      tone: 'warn',
++      line: { key: 'alert.tunnelFound', params: { n: tunnelsFound.length }, tone: 'warn', place: at === null ? [] : [world.placeOf(at.x, at.y)] },
++      cue: ALERT_CUE.important,
++      at,
++      marks: at === null ? [] : [at],
++      count: tunnelsFound.length,
++    });
++  }
+   if (ambushed) {
+     // VR-37: an ambush gets a line and a mark, not only a sound.
+     const at = firstOwnHit >= 0 ? world.posOf(firstOwnHit) : null;
+diff --git a/packages/app/src/ui/minimap.ts b/packages/app/src/ui/minimap.ts
+index 40f74190..5f5e3088 100644
+--- a/packages/app/src/ui/minimap.ts
++++ b/packages/app/src/ui/minimap.ts
+@@ -257,6 +257,8 @@ export const CHROME = {
+    *  desaturated sand-and-limestone ward was a faint smudge beside the
+    *  lime viewport outline. */
+   refugeEdge: 'var(--mark-edge)',
++  /** MOCK GH-471: an identified tunnel route, the world x-ray's own colour. */
++  tunnel: 'var(--intercept)',
+   /** Under the map, on the two edges a non-square map would letterbox. */
+   ground: 'var(--panel-bg-solid)',
+ } as const;
+@@ -1180,6 +1182,7 @@ export class Minimap {
+     for (const m of objectiveMarks(this.deps.objectives(), this.deps.map)) {
+       this.objectiveMark(m, nowMs);
+     }
++    this.drawTunnels();
+     for (const p of observedMarkers(this.deps.map, this.fogAt, this.seenMarkers)) {
+       this.diamond(p, this.chrome.story);
+     }
+@@ -1274,6 +1277,35 @@ export class Minimap {
+    * (`ringStyle`). Every ring sits on a `--mark-edge` keyline two pixels
+    * wider, at the same alpha.
+    */
++  /** MOCK GH-471: every route side 0 holds identified, as a line with its
++   *  two shafts; nothing for a suspected or unknown one. */
++  private drawTunnels(): void {
++    const { ctx, proj } = this;
++    const sim = this.deps.sim;
++    for (let r = 0; r < sim.tunnelCount; r++) {
++      if (sim.tnAlive[r] === 0 || sim.tunnelContactLevel(0, r) !== 2) continue;
++      const len = fx.toNumber(sim.tnLength[r]);
++      const pts: MinimapPoint[] = [];
++      for (let d = 0; d <= len + 1e-6; d += 0.5) {
++        const p = sim.tunnelPointAt(r, fx.from(Math.min(d, len)));
++        pts.push(tileToBox(proj, fx.toNumber(p[0]) + 0.5, fx.toNumber(p[1]) + 0.5));
++      }
++      for (const [style, width] of [
++        [this.chrome.markEdge, 4],
++        [this.chrome.tunnel, 2],
++      ] as const) {
++        ctx.strokeStyle = style;
++        ctx.lineWidth = width;
++        ctx.beginPath();
++        pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
++        ctx.stroke();
++      }
++      ctx.fillStyle = this.chrome.tunnel;
++      for (const p of [pts[0], pts[pts.length - 1]]) ctx.fillRect(Math.round(p.x - 2.5), Math.round(p.y - 2.5), 5, 5);
++    }
++    ctx.lineWidth = 1;
++  }
++
+   private drawFlashes(nowMs: number): void {
+     const { ctx, proj } = this;
+     for (const f of this.flashes) {
+diff --git a/packages/render/src/three/ThreeRenderer.ts b/packages/render/src/three/ThreeRenderer.ts
+index cbe358bc..f75b0cbb 100644
+--- a/packages/render/src/three/ThreeRenderer.ts
++++ b/packages/render/src/three/ThreeRenderer.ts
+@@ -459,6 +459,7 @@ import { drawBlockedMask } from './terrain/draw-mask';
+ import { TrailMesh, collapsedRouteLevel, type TrailInstanceInput } from './trail-mesh';
+ import { ORDER_GROUND_COLOR_KEY } from '../order-ground';
+ import { TunnelProps, type TunnelPropsInput, type TunnelRouteView } from './tunnel-props';
++import { TunnelXray } from './tunnel-xray';
+ import {
+   trackKindFor,
+   stepTrackAccum,
+@@ -2167,6 +2168,12 @@ export class ThreeRenderer implements Renderer {
+    *  `trailMeshDirty` cadence from the same sim reads the trail uses, under
+    *  the same identification rule -- see `./tunnel-props.ts`. */
+   private readonly tunnelProps = new TunnelProps();
++  /** MOCK GH-471: the x-ray reveal. `window.__xrayMock = false` before boot
++   *  draws today's picture from the same build, for the A/B sheet. */
++  private readonly xrayOn = (globalThis as { __xrayMock?: boolean }).__xrayMock !== false;
++  private tunnelXray!: TunnelXray;
++  private xrayBuiltFor = -1;
++  private xrayRouteTiles: number[][] = [];
+ 
+   /**
+    * Vehicle track marks (tread ruts, tyre prints), now stamped into
+@@ -2273,6 +2280,14 @@ export class ThreeRenderer implements Renderer {
+     // re-resolving per frame -- see trail-mesh.ts's own top comment for why
+     // one uniform colour serves the whole mesh.
+     this.trailMesh = new TrailMesh(sim.width, sim.height, opts.terrainTones.spoil);
++    {
++      const c = (k: string): string => (opts.resolveColor ? opts.resolveColor(k) : paletteHex(k));
++      this.tunnelXray = new TunnelXray(
++        { rim: c('vfx.interceptor'), core: c('shadow.1'), hot: c('vfx.white_hot'), figure: c('team.hostile') },
++        0.25
++      );
++      this.tunnelXray.enabled = this.xrayOn;
++    }
+     // The decal kinds' eight colours, resolved once through `overlayColor`
+     // exactly as the meshes above resolve theirs -- a caller with a resolver
+     // gets the real palette entry, and one without (this backend's own
+@@ -2517,6 +2532,7 @@ export class ThreeRenderer implements Renderer {
+     // meshes grouped together.
+     this.scene.add(this.trailMesh.mesh);
+     this.scene.add(this.tunnelProps.group);
++    this.scene.add(this.tunnelXray.group);
+     // Both decal pools lie on the same ground plane as the trail, so they
+     // are grouped with it for the same reader's-eye reason -- scene-graph
+     // position carries no draw-order meaning in this backend (`renderOrder`
+@@ -3153,8 +3169,10 @@ export class ThreeRenderer implements Renderer {
+     if (this.trailMeshDirty) {
+       this.trailMesh.update(this.buildTrailInput());
+       this.tunnelProps.update(this.buildTunnelPropsInput(), this.propSet);
++      this.xrayRouteState();
+       this.trailMeshDirty = false;
+     }
++    this.xrayFrame(alpha, dtMs);
+     // The decals' age is SIM time (R-14), never `dtMs`: the tick the sim has
+     // reached and the fraction of the way to it this frame presents. A
+     // repaint at zero elapsed time -- the visual gate's second photograph --
+@@ -3738,6 +3756,70 @@ export class ThreeRenderer implements Renderer {
+     };
+   }
+ 
++  /** MOCK GH-471: route geometry for the x-ray, once the sim has routes. */
++  private xrayEnsureBuilt(): void {
++    const sim = this.sim;
++    if (this.xrayBuiltFor === sim.tunnelCount) return;
++    this.xrayBuiltFor = sim.tunnelCount;
++    const routes = [];
++    this.xrayRouteTiles = [];
++    for (let r = 0; r < sim.tunnelCount; r++) {
++      const len = fx.toNumber(sim.tnLength[r]);
++      const pts: [number, number][] = [];
++      const tiles = new Set<number>();
++      const n = Math.max(2, Math.ceil(len / 0.25) + 1);
++      for (let i = 0; i < n; i++) {
++        const d = Math.min(len, i * 0.25);
++        const p = sim.tunnelPointAt(r, fx.from(d));
++        const x = fx.toNumber(p[0]);
++        const y = fx.toNumber(p[1]);
++        pts.push([x + 0.5, y + 0.5]);
++        tiles.add(Math.floor(y) * sim.width + Math.floor(x));
++      }
++      this.xrayRouteTiles.push([...tiles]);
++      routes.push({ points: pts, length: len });
++    }
++    this.tunnelXray.build(routes, (x, y) => groundWorldY(this.retained.elevation, sim.width, sim.height, x, y));
++  }
++
++  /** MOCK GH-471, 5 Hz: identification and the live sight line, per route. */
++  private xrayRouteState(): void {
++    this.xrayEnsureBuilt();
++    const sim = this.sim;
++    const now = presentationSimMs(sim.tickCount, 0) / 1000;
++    for (let r = 0; r < sim.tunnelCount; r++) {
++      const level = collapsedRouteLevel(sim.tnAlive[r] !== 0, sim.tunnelContactLevel(0, r));
++      let held = false;
++      if (level === 2) {
++        for (const t of this.xrayRouteTiles[r]) {
++          if (sim.markerSeesTile(0, t % sim.width, Math.floor(t / sim.width))) {
++            held = true;
++            break;
++          }
++        }
++      }
++      this.tunnelXray.setRouteState(r, level, held, now);
++    }
++  }
++
++  /** MOCK GH-471, per frame: the clock, the pulse and the figures. */
++  private xrayFrame(alpha: number, dtMs: number): void {
++    const sim = this.sim;
++    if (sim.tunnelCount === 0) return;
++    const occ: [number, number][] = [];
++    const st = sim.state;
++    for (let i = 0; i < this.snapshottedCount; i++) {
++      if (st.alive[i] === 1 && st.tunnelIn[i] >= 0) occ.push([st.tunnelIn[i], i]);
++    }
++    this.tunnelXray.update(presentationSimMs(sim.tickCount, alpha) / 1000, Math.min(dtMs, 100) / 1000, occ);
++  }
++
++  /** MOCK GH-471: cost accounting for the sheet. */
++  xrayStats(): { draws: number; cpuMs: number; info: { calls: number; triangles: number } } {
++    const i = this.renderer.info.render;
++    return { draws: this.tunnelXray.drawCalls, cpuMs: this.tunnelXray.lastUpdateMs, info: { calls: i.calls, triangles: i.triangles } };
++  }
++
+   private buildTrailInput(): TrailInstanceInput {
+     const sim = this.sim;
+     return {
+@@ -3746,7 +3828,12 @@ export class ThreeRenderer implements Renderer {
+       elevation: this.retained.elevation,
+       trail: sim.trail,
+       routeCount: sim.tunnelCount,
+-      routeLevel: (r) => collapsedRouteLevel(sim.tnAlive[r] !== 0, sim.tunnelContactLevel(0, r)),
++      // MOCK GH-471: with the x-ray on, the identified-line rung retires and
++      // the trail keeps only its spoil rung.
++      routeLevel: (r) => {
++        const lv = collapsedRouteLevel(sim.tnAlive[r] !== 0, sim.tunnelContactLevel(0, r));
++        return this.xrayOn && lv === 2 ? 1 : lv;
++      },
+       tunnelUnderTile: (r, x, y) => sim.tunnelUnderTile(r, x, y),
+       seenByAnyone: (x, y) => sim.sideSeesTile(0, x, y),
+       seenByCarrier: (x, y) => sim.markerSeesTile(0, x, y),
+@@ -4021,6 +4108,20 @@ export class ThreeRenderer implements Renderer {
+         this.onStrike(e.x, e.y, e.tick);
+       } else if (e.kind === 'tunnelCollapsed') {
+         this.onTunnelCollapsed(e.tunnel, e.tick);
++      } else if (e.kind === 'tunnelContact' && e.side === 0 && e.level === 'identified') {
++        this.xrayEnsureBuilt();
++        const o = e.observer;
++        const obs =
++          o >= 0
++            ? {
++                x: this.curX[o],
++                y: this.curY[o],
++                h: this.sim.unitTypes[st.typeIdx[o]].isAir ? AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL : 0.35,
++              }
++            : null;
++        this.tunnelXray.discover(e.tunnel, e.tick * 0.05, obs, (x, y) =>
++          groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, y)
++        );
+       } else if (e.kind === 'destroyed') {
+         this.killerX[e.entity] = e.by >= 0 ? this.curX[e.by] : NaN;
+         this.killerY[e.entity] = e.by >= 0 ? this.curY[e.by] : NaN;
+diff --git a/packages/render/src/three/tunnel-xray.ts b/packages/render/src/three/tunnel-xray.ts
+new file mode 100644
+index 00000000..e11e129d
+--- /dev/null
++++ b/packages/render/src/three/tunnel-xray.ts
+@@ -0,0 +1,527 @@
++/**
++ * MOCK (GH-471): the x-ray reveal of an identified tunnel. Not wired for
++ * shipping -- this file exists so the design sheet in
++ * `docs/polish/tunnel-xray/` is photographed from the real renderer rather
++ * than painted. Every read is presentation-only (invariant 4): route
++ * geometry from `Sim.tunnelPointAt`/`tnLength`, identification from
++ * `tunnelContactLevel` and `markerSeesTile`, occupants from
++ * `state.tunnelIn`, the discovery moment from the `tunnelContact` event.
++ * Nothing here writes to the sim.
++ *
++ * Three draws, constant, whatever the number of routes or fighters:
++ *  1. the TUBE + its two SHAFTS (mouth, vent), one merged geometry over every
++ *     route, `GreaterDepth` + the silhouette stencil (it draws only where the
++ *     ground hides it, and never over a unit body);
++ *  2. the surface COLLARS at mouth and vent, ordinary depth test;
++ *  3. the FIGURES inside, one InstancedMesh, the tube's own x-ray flags.
++ * Per-route state rides in uniform arrays indexed by an `aRoute` attribute,
++ * so a route fading or pulsing costs a uniform write, not a rebuild.
++ */
++import * as THREE from 'three';
++import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
++import { hexToLinear } from './terrain/shared';
++import { SILHOUETTE_MATERIAL_FLAGS } from './units/silhouette';
++import { VIEW_DIRECTION } from './camera';
++
++export const XRAY_MAX_ROUTES = 16;
++/** Centre of the bore below the drawn ground, world units (1 tile = 1 wu = 3 m). */
++const DEPTH = 0.62;
++/** Half-width and half-height of the bore: an arched gallery ~1.4 m x 1.9 m. */
++const RH = 0.2;
++const RV = 0.28;
++const RING = 20;
++const STEP = 0.25;
++const SHAFT_R = 0.15;
++/** Discovery pulse speed along the route, tiles per second. */
++const PULSE_TILES_PER_S = 12;
++/** How long the discovery flash takes to settle, seconds. */
++const FLASH_S = 1.6;
++/** The sim forgets an unwatched identified route in ~322 ticks (LOST_AT); the
++ *  reveal fades over the same window, never faster. */
++const FADE_S = 16;
++const FADE_FLOOR = 0.3;
++const MAX_FIGURES = 64;
++
++export interface XrayRoute {
++  /** Samples along the route: x, y in tiles (already +0.5 to the tile centre). */
++  readonly points: readonly (readonly [number, number])[];
++  readonly length: number;
++}
++
++export interface XrayColors {
++  rim: string;
++  core: string;
++  hot: string;
++  figure: string;
++}
++
++interface RouteRuntime {
++  centres: Float32Array; // xyz per sample
++  tangents: Float32Array; // xz per sample
++  length: number;
++}
++
++export class TunnelXray {
++  readonly group = new THREE.Group();
++  private readonly tubeMat: THREE.ShaderMaterial;
++  private readonly collarMat: THREE.ShaderMaterial;
++  private readonly figureMat: THREE.ShaderMaterial;
++  private tube: THREE.Mesh | null = null;
++  private collars: THREE.Mesh | null = null;
++  private readonly figures: THREE.InstancedMesh;
++  private readonly figureAlpha: THREE.InstancedBufferAttribute;
++  private readonly beam: THREE.Mesh;
++  private routes: RouteRuntime[] = [];
++  private readonly strength = new Float32Array(XRAY_MAX_ROUTES);
++  private readonly target = new Float32Array(XRAY_MAX_ROUTES);
++  private readonly lastHeldS = new Float32Array(XRAY_MAX_ROUTES).fill(-1e9);
++  private readonly pulseStartS = new Float32Array(XRAY_MAX_ROUTES).fill(-1e9);
++  private readonly pulseOrigin = new Float32Array(XRAY_MAX_ROUTES);
++  private readonly pulseRepeat = new Uint8Array(XRAY_MAX_ROUTES);
++  private readonly found = new Set<number>();
++  private beamFrom = new THREE.Vector3();
++  private beamTo = new THREE.Vector3();
++  private beamStartS = -1e9;
++  private readonly m4 = new THREE.Matrix4();
++  private readonly q = new THREE.Quaternion();
++  private readonly v = new THREE.Vector3();
++  private readonly s3 = new THREE.Vector3(1.15, 1.15, 1.15);
++  enabled = true;
++  private lastNowS = 0;
++  /** Cost accounting for the sheet: CPU ms spent in update(), last frame. */
++  lastUpdateMs = 0;
++
++  constructor(colors: XrayColors, renderOrder: number) {
++    const lin = (h: string) => new THREE.Vector3(...hexToLinear(h));
++    const shared = {
++      uRim: { value: lin(colors.rim) },
++      uCore: { value: lin(colors.core) },
++      uHot: { value: lin(colors.hot) },
++      uTime: { value: 0 },
++      uToCam: { value: VIEW_DIRECTION.clone().normalize() },
++      uStrength: { value: new Float32Array(XRAY_MAX_ROUTES) },
++      uOrigin: { value: new Float32Array(XRAY_MAX_ROUTES) },
++      uFront: { value: new Float32Array(XRAY_MAX_ROUTES).fill(1e6) },
++      uFlash: { value: new Float32Array(XRAY_MAX_ROUTES) },
++    };
++    this.tubeMat = new THREE.ShaderMaterial({
++      ...SILHOUETTE_MATERIAL_FLAGS,
++      // Both faces: the far wall and floor (back faces) are the dark cut
++      // that reads as a trench IN the ground; the near wall (front faces) is
++      // glass, rim only.
++      side: THREE.DoubleSide,
++      defines: (globalThis as { __xrayDebug?: boolean }).__xrayDebug ? { XRAY_DEBUG: 1 } : {},
++      uniforms: shared,
++      vertexShader: /* glsl */ `
++        attribute float aS;
++        attribute float aRoute;
++        attribute float aKind;
++        varying float vS; varying float vKind; varying vec3 vN; varying float vRoute;
++        void main() {
++          vS = aS; vKind = aKind; vRoute = aRoute;
++          vN = normalize(mat3(modelMatrix) * normal);
++          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
++        }`,
++      fragmentShader: /* glsl */ `
++        #define N ${XRAY_MAX_ROUTES}
++        uniform vec3 uRim; uniform vec3 uCore; uniform vec3 uHot; uniform float uTime; uniform vec3 uToCam;
++        uniform float uStrength[N]; uniform float uOrigin[N]; uniform float uFront[N]; uniform float uFlash[N];
++        varying float vS; varying float vKind; varying vec3 vN; varying float vRoute;
++        void main() {
++          int r = int(vRoute + 0.5);
++          float st = 0.0; float o = 0.0; float f = 0.0; float fl = 0.0;
++          for (int i = 0; i < N; i++) { if (i == r) { st = uStrength[i]; o = uOrigin[i]; f = uFront[i]; fl = uFlash[i]; } }
++          float d = abs(vS - o);
++          float revealed = smoothstep(f + 0.4, f - 0.4, d);
++          float edge = exp(-pow((f - d) * 2.2, 2.0)) * fl;
++          if (st * revealed < 0.003 && edge < 0.01) discard;
++          // Ortho camera: one view vector for the whole frame (camera.ts).
++          float nz = dot(vN, uToCam);
++          // One scan band at a time, mouth -> vent (the way the threat
++          // travels), every ~2.5 s.
++          float band = mod(uTime * 6.0, 30.0) - 3.0;
++          float scan = exp(-pow((vS - band) * 1.6, 2.0)) * (1.0 - vKind);
++          vec3 col; float a;
++          if (gl_FrontFacing) {
++            // Near wall: glass. The rim is the outline of the bore.
++            float rim = pow(1.0 - abs(nz), 4.0);
++            col = mix(uRim, uHot, scan * 0.5);
++            a = st * revealed * (rim * 0.95 + scan * 0.45 + 0.03);
++          } else {
++            // Far wall and floor: the dark cut, with a cold edge where the
++            // wall turns away from the eye -- the floor line the figures walk.
++            float edgeIn = pow(1.0 - abs(nz), 3.0);
++            col = mix(uCore, uRim, clamp(edgeIn * 0.9 + scan * 0.7, 0.0, 1.0));
++            a = st * revealed * (0.62 + 0.3 * edgeIn + 0.3 * scan);
++          }
++          col = mix(col, uHot, clamp(edge, 0.0, 1.0));
++          a = a * (1.0 + 0.5 * fl);
++          a = max(a, edge * 0.9);
++          gl_FragColor = vec4(col * (1.0 + 1.4 * edge + 0.4 * fl * revealed), clamp(a, 0.0, 0.9));
++          #ifdef XRAY_DEBUG
++          gl_FragColor = gl_FrontFacing ? vec4(1.0, 0.0, 0.0, 0.5) : vec4(0.0, 1.0, 0.0, 0.5);
++          #endif
++        }`,
++    });
++    this.collarMat = new THREE.ShaderMaterial({
++      transparent: true,
++      depthTest: true,
++      depthWrite: false,
++      uniforms: shared,
++      vertexShader: /* glsl */ `
++        attribute float aRoute; attribute float aKind; attribute float aS;
++        varying float vRoute; varying float vKind; varying float vS; varying vec2 vUv;
++        void main() { vRoute = aRoute; vKind = aKind; vS = aS; vUv = uv;
++          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
++      fragmentShader: /* glsl */ `
++        #define N ${XRAY_MAX_ROUTES}
++        uniform vec3 uRim; uniform vec3 uHot; uniform float uTime;
++        uniform float uStrength[N]; uniform float uOrigin[N]; uniform float uFront[N]; uniform float uFlash[N];
++        varying float vRoute; varying float vKind; varying float vS; varying vec2 vUv;
++        void main() {
++          int r = int(vRoute + 0.5);
++          float st = 0.0; float o = 0.0; float f = 0.0; float fl = 0.0;
++          for (int i = 0; i < N; i++) { if (i == r) { st = uStrength[i]; o = uOrigin[i]; f = uFront[i]; fl = uFlash[i]; } }
++          float revealed = step(abs(vS - o), f);
++          // The vent (kind 1) breathes: it is where fighters come up.
++          float breathe = vKind > 0.5 ? 0.65 + 0.35 * sin(uTime * 3.4) : 0.8;
++          float a = st * revealed * breathe;
++          if (a < 0.01) discard;
++          gl_FragColor = vec4(mix(uRim, uHot, fl * 0.6), a);
++        }`,
++    });
++    this.figureMat = new THREE.ShaderMaterial({
++      ...SILHOUETTE_MATERIAL_FLAGS,
++      side: THREE.FrontSide,
++      uniforms: { uFig: { value: lin(colors.figure) }, uCore: shared.uCore, uToCam: shared.uToCam },
++      vertexShader: /* glsl */ `
++        attribute float aAlpha; varying float vAlpha; varying vec3 vN;
++        void main() { vAlpha = aAlpha;
++          vN = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * normal);
++          gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0); }`,
++      fragmentShader: /* glsl */ `
++        uniform vec3 uFig; uniform vec3 uCore; uniform vec3 uToCam; varying float vAlpha; varying vec3 vN;
++        void main() {
++          if (vAlpha < 0.01) discard;
++          float fres = pow(1.0 - abs(dot(vN, uToCam)), 1.3);
++          vec3 col = mix(uFig * 0.55, uFig * 1.35, fres);
++          gl_FragColor = vec4(col, vAlpha * (0.62 + 0.38 * fres));
++        }`,
++    });
++    const fig = figureGeometry();
++    this.figureAlpha = new THREE.InstancedBufferAttribute(new Float32Array(MAX_FIGURES), 1);
++    fig.setAttribute('aAlpha', this.figureAlpha);
++    this.figures = new THREE.InstancedMesh(fig, this.figureMat, MAX_FIGURES);
++    this.figures.count = 0;
++    this.figures.frustumCulled = false;
++    this.figures.renderOrder = renderOrder + 0.05;
++    this.group.add(this.figures);
++
++    // The discovery beam: observer -> the point on the route it found.
++    const beamGeo = new THREE.CylinderGeometry(0.035, 0.11, 1, 8, 1, true);
++    beamGeo.translate(0, 0.5, 0);
++    this.beam = new THREE.Mesh(
++      beamGeo,
++      new THREE.ShaderMaterial({
++        transparent: true,
++        depthTest: false,
++        depthWrite: false,
++        uniforms: { uRim: shared.uRim, uHot: shared.uHot, uA: { value: 0 } },
++        vertexShader: `varying float vY; void main(){ vY = position.y; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0);} `,
++        fragmentShader: `uniform vec3 uRim; uniform vec3 uHot; uniform float uA; varying float vY;
++          void main(){ gl_FragColor = vec4(mix(uHot, uRim, vY), uA * (0.35 + 0.65 * vY)); }`,
++      })
++    );
++    this.beam.visible = false;
++    this.beam.frustumCulled = false;
++    this.beam.renderOrder = renderOrder + 0.1;
++    this.group.add(this.beam);
++    this.renderOrder = renderOrder;
++  }
++  private readonly renderOrder: number;
++
++  /** Route geometry is load-time data: built once. */
++  build(routes: readonly XrayRoute[], groundY: (x: number, y: number) => number): void {
++    const tubes: THREE.BufferGeometry[] = [];
++    const collars: THREE.BufferGeometry[] = [];
++    this.routes = [];
++    routes.forEach((route, r) => {
++      const n = route.points.length;
++      const centres = new Float32Array(n * 3);
++      const tangents = new Float32Array(n * 2);
++      // The bore does not follow every bump: a moving average of the ground
++      // over +-1.5 tiles, then held at least a bore's height under the
++      // ground at each sample, so it neither climbs a cliff face nor breaks
++      // the surface on a crest.
++      const gy = route.points.map(([x, y]) => groundY(x, y));
++      const W = 6;
++      for (let i = 0; i < n; i++) {
++        const [x, y] = route.points[i];
++        let sum = 0;
++        let cnt = 0;
++        for (let j = Math.max(0, i - W); j <= Math.min(n - 1, i + W); j++) {
++          sum += gy[j];
++          cnt++;
++        }
++        centres[i * 3] = x;
++        centres[i * 3 + 1] = Math.min(sum / cnt - DEPTH, gy[i] - RV - 0.12);
++        centres[i * 3 + 2] = y;
++        const a = route.points[Math.max(0, i - 1)];
++        const b = route.points[Math.min(n - 1, i + 1)];
++        const dx = b[0] - a[0];
++        const dz = b[1] - a[1];
++        const l = Math.hypot(dx, dz) || 1;
++        tangents[i * 2] = dx / l;
++        tangents[i * 2 + 1] = dz / l;
++      }
++      this.routes.push({ centres, tangents, length: route.length });
++      tubes.push(boreGeometry(centres, tangents, r));
++      for (const [end, kind] of [
++        [0, 0],
++        [n - 1, 1],
++      ] as const) {
++        const cx = centres[end * 3];
++        const cz = centres[end * 3 + 2];
++        const top = groundY(cx, cz);
++        tubes.push(shaftGeometry(cx, centres[end * 3 + 1], top - 0.02, cz, r, kind === 0 ? 0 : route.length));
++        collars.push(collarGeometry(cx, top + 0.03, cz, r, kind, kind === 0 ? 0 : route.length));
++      }
++    });
++    if (this.tube) this.group.remove(this.tube);
++    if (this.collars) this.group.remove(this.collars);
++    if (tubes.length === 0) return;
++    this.tube = new THREE.Mesh(mergeGeometries(tubes), this.tubeMat);
++    this.tube.renderOrder = this.renderOrder;
++    this.tube.frustumCulled = false;
++    this.collars = new THREE.Mesh(mergeGeometries(collars), this.collarMat);
++    this.collars.renderOrder = this.renderOrder;
++    this.collars.frustumCulled = false;
++    this.group.add(this.tube, this.collars);
++  }
++
++  /** 5 Hz: what the sim says about each route. `level` is side 0's contact
++   *  level after the collapse downgrade; `held` is "a mark_tunnel carrier sees
++   *  some tile of it right now". */
++  setRouteState(r: number, level: 0 | 1 | 2, held: boolean, nowS: number): void {
++    if (level === 2 && held) this.lastHeldS[r] = nowS;
++    if (level !== 2) {
++      this.target[r] = 0;
++      return;
++    }
++    const since = nowS - this.lastHeldS[r];
++    this.target[r] = since <= 0.3 ? 1 : Math.max(FADE_FLOOR, 1 - (since / FADE_S) * (1 - FADE_FLOOR));
++  }
++
++  /** The `tunnelContact` identified event, side 0. */
++  discover(r: number, nowS: number, observer: { x: number; y: number; h: number } | null, groundY: (x: number, y: number) => number): void {
++    const rt = this.routes[r];
++    if (!rt) return;
++    // Re-acquiring a route already found this mission re-lights it without
++    // the beat: the sweep runs again, no beam, no flash.
++    const first = !this.found.has(r);
++    this.found.add(r);
++    this.pulseRepeat[r] = first ? 0 : 1;
++    this.lastHeldS[r] = nowS;
++    let best = 0;
++    if (observer) {
++      let bestD = Infinity;
++      const n = rt.centres.length / 3;
++      for (let i = 0; i < n; i++) {
++        const d = Math.hypot(rt.centres[i * 3] - observer.x, rt.centres[i * 3 + 2] - observer.y);
++        if (d < bestD) {
++          bestD = d;
++          best = i;
++        }
++      }
++      this.beamFrom.set(observer.x, groundY(observer.x, observer.y) + observer.h, observer.y);
++      this.beamTo.set(rt.centres[best * 3], rt.centres[best * 3 + 1] + RV, rt.centres[best * 3 + 2]);
++      if (first) this.beamStartS = nowS;
++    } else {
++      best = Math.floor(rt.centres.length / 6);
++    }
++    this.pulseOrigin[r] = (best / Math.max(1, rt.centres.length / 3 - 1)) * rt.length;
++    this.pulseStartS[r] = nowS;
++  }
++
++  /** Per frame. `occupants` are (route, entity) pairs from `state.tunnelIn`. */
++  update(nowS: number, dtS: number, occupants: readonly (readonly [number, number])[]): void {
++    const t0 = performance.now();
++    const u = this.tubeMat.uniforms;
++    u.uTime.value = nowS;
++    const st = u.uStrength.value as Float32Array;
++    const front = u.uFront.value as Float32Array;
++    const flash = u.uFlash.value as Float32Array;
++    const origin = u.uOrigin.value as Float32Array;
++    // Smoothed on the SIM clock, like the pulse: a frozen tick repeats, a
++    // pause holds, and a capture at a pinned tick is reproducible.
++    const simDt = Math.max(0, Math.min(0.25, nowS - this.lastNowS));
++    this.lastNowS = nowS;
++    void dtS;
++    const k = Math.min(1, simDt * 4);
++    for (let r = 0; r < this.routes.length; r++) {
++      const tgt = this.enabled ? this.target[r] : 0;
++      this.strength[r] += (tgt - this.strength[r]) * (tgt < this.strength[r] ? k * 0.5 : k);
++      st[r] = this.strength[r];
++      const age = nowS - this.pulseStartS[r];
++      front[r] = age < 0 ? 0 : age * PULSE_TILES_PER_S;
++      flash[r] = age >= 0 && age < FLASH_S * 3 ? Math.exp(-age / FLASH_S) * (this.pulseRepeat[r] ? 0.25 : 1) : 0;
++      origin[r] = this.pulseOrigin[r];
++    }
++    // Figures: the sim keeps no position for a buried unit along its route,
++    // so where each one stands is presentation -- a home on the route by id,
++    // a slow pace either side of it. Revealed only where the pulse has been.
++    let n = 0;
++    for (const [r, id] of occupants) {
++      const rt = this.routes[r];
++      if (!rt || n >= MAX_FIGURES || this.strength[r] < 0.01) continue;
++      const h = hash01(id * 7919 + r * 104729);
++      const home = (0.25 + 0.6 * h) * rt.length;
++      const pace = Math.sin(nowS * (0.22 + 0.1 * h) + h * 6.28);
++      const s = Math.min(rt.length - 0.3, Math.max(0.3, home + pace * 1.1));
++      const dir = Math.cos(nowS * (0.22 + 0.1 * h) + h * 6.28) >= 0 ? 1 : -1;
++      const reveal = Math.abs(s - this.pulseOrigin[r]) <= front[r] ? 1 : 0;
++      const ns = rt.centres.length / 3;
++      const fi = (s / Math.max(rt.length, 1e-6)) * (ns - 1);
++      const i0 = Math.min(ns - 1, Math.floor(fi));
++      const i1 = Math.min(ns - 1, i0 + 1);
++      const w = fi - i0;
++      const x = rt.centres[i0 * 3] * (1 - w) + rt.centres[i1 * 3] * w;
++      const y = rt.centres[i0 * 3 + 1] * (1 - w) + rt.centres[i1 * 3 + 1] * w - RV * 0.82;
++      const z = rt.centres[i0 * 3 + 2] * (1 - w) + rt.centres[i1 * 3 + 2] * w;
++      const tx = rt.tangents[i0 * 2] * dir;
++      const tz = rt.tangents[i0 * 2 + 1] * dir;
++      const bob = Math.abs(Math.sin(nowS * 6 + h * 10)) * 0.02;
++      this.q.setFromAxisAngle(this.v.set(0, 1, 0), Math.atan2(tx, tz));
++      this.m4.compose(this.v.set(x, y + bob, z), this.q, this.s3);
++      this.figures.setMatrixAt(n, this.m4);
++      this.figureAlpha.array[n] = this.strength[r] * reveal;
++      n++;
++    }
++    this.figures.count = n;
++    this.figures.instanceMatrix.needsUpdate = true;
++    this.figureAlpha.needsUpdate = true;
++
++    const bAge = nowS - this.beamStartS;
++    if (this.enabled && bAge >= 0 && bAge < 1.2) {
++      const dir = this.v.subVectors(this.beamTo, this.beamFrom);
++      const len = dir.length();
++      this.beam.position.copy(this.beamFrom);
++      this.beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
++      this.beam.scale.set(1, len, 1);
++      (this.beam.material as THREE.ShaderMaterial).uniforms.uA.value = 0.9 * (1 - bAge / 1.2);
++      this.beam.visible = true;
++    } else {
++      this.beam.visible = false;
++    }
++    this.lastUpdateMs = performance.now() - t0;
++  }
++
++  get drawCalls(): number {
++    return (this.tube ? 1 : 0) + (this.collars ? 1 : 0) + (this.figures.count > 0 ? 1 : 0) + (this.beam.visible ? 1 : 0);
++  }
++}
++
++function hash01(n: number): number {
++  let x = (n | 0) ^ 0x9e3779b9;
++  x = Math.imul(x ^ (x >>> 16), 0x85ebca6b);
++  x = Math.imul(x ^ (x >>> 13), 0xc2b2ae35);
++  x ^= x >>> 16;
++  return (x >>> 0) / 4294967296;
++}
++
++function withRouteAttrs(g: THREE.BufferGeometry, r: number, kind: number, sOf: (i: number) => number): THREE.BufferGeometry {
++  const n = g.getAttribute('position').count;
++  const aR = new Float32Array(n).fill(r);
++  const aK = new Float32Array(n).fill(kind);
++  const aS = new Float32Array(n);
++  for (let i = 0; i < n; i++) aS[i] = sOf(i);
++  g.setAttribute('aRoute', new THREE.BufferAttribute(aR, 1));
++  g.setAttribute('aKind', new THREE.BufferAttribute(aK, 1));
++  g.setAttribute('aS', new THREE.BufferAttribute(aS, 1));
++  if (!g.getAttribute('uv')) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(n * 2), 2));
++  return g;
++}
++
++function boreGeometry(centres: Float32Array, tangents: Float32Array, r: number): THREE.BufferGeometry {
++  const n = centres.length / 3;
++  const pos = new Float32Array(n * RING * 3);
++  const nor = new Float32Array(n * RING * 3);
++  const sArr: number[] = [];
++  for (let i = 0; i < n; i++) {
++    const tx = tangents[i * 2];
++    const tz = tangents[i * 2 + 1];
++    // side vector (horizontal, perpendicular to the route), and up
++    const sx = -tz;
++    const sz = tx;
++    for (let j = 0; j < RING; j++) {
++      const a = (j / RING) * Math.PI * 2;
++      const c = Math.cos(a);
++      const s = Math.sin(a);
++      const o = (i * RING + j) * 3;
++      pos[o] = centres[i * 3] + sx * c * RH;
++      pos[o + 1] = centres[i * 3 + 1] + s * RV;
++      pos[o + 2] = centres[i * 3 + 2] + sz * c * RH;
++      const nx = (sx * c) / RH;
++      const ny = s / RV;
++      const nz = (sz * c) / RH;
++      const l = Math.hypot(nx, ny, nz) || 1;
++      nor[o] = nx / l;
++      nor[o + 1] = ny / l;
++      nor[o + 2] = nz / l;
++      sArr.push(i * STEP);
++    }
++  }
++  const idx: number[] = [];
++  for (let i = 0; i < n - 1; i++) {
++    for (let j = 0; j < RING; j++) {
++      const a = i * RING + j;
++      const b = i * RING + ((j + 1) % RING);
++      const c = (i + 1) * RING + j;
++      const d = (i + 1) * RING + ((j + 1) % RING);
++      idx.push(a, c, b, b, c, d);
++    }
++  }
++  const g = new THREE.BufferGeometry();
++  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
++  g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
++  g.setIndex(idx);
++  return withRouteAttrs(g, r, 0, (i) => sArr[i]);
++}
++
++function shaftGeometry(x: number, y0: number, y1: number, z: number, r: number, s: number): THREE.BufferGeometry {
++  const g = new THREE.CylinderGeometry(SHAFT_R, SHAFT_R, Math.max(0.05, y1 - y0), 12, 1, true);
++  g.translate(x, (y0 + y1) / 2, z);
++  return withRouteAttrs(g, r, 1, () => s);
++}
++
++function collarGeometry(x: number, y: number, z: number, r: number, kind: number, s: number): THREE.BufferGeometry {
++  const g = new THREE.RingGeometry(kind === 1 ? 0.3 : 0.22, kind === 1 ? 0.4 : 0.29, 24);
++  g.rotateX(-Math.PI / 2);
++  g.translate(x, y, z);
++  g.deleteAttribute('normal');
++  return withRouteAttrs(g, r, kind, () => s);
++}
++
++/** A crouched figure, ~1.5 m (0.5 wu): torso, head, legs and a rifle. */
++function figureGeometry(): THREE.BufferGeometry {
++  const parts: THREE.BufferGeometry[] = [];
++  const torso = new THREE.CylinderGeometry(0.055, 0.065, 0.2, 8);
++  torso.rotateX(0.35);
++  torso.translate(0, 0.27, 0.03);
++  parts.push(torso);
++  const head = new THREE.SphereGeometry(0.05, 10, 8);
++  head.translate(0, 0.42, 0.08);
++  parts.push(head);
++  for (const side of [-1, 1]) {
++    const leg = new THREE.CylinderGeometry(0.028, 0.03, 0.19, 6);
++    leg.rotateX(side * 0.3);
++    leg.translate(side * 0.04, 0.1, side * 0.03);
++    parts.push(leg);
++  }
++  const rifle = new THREE.BoxGeometry(0.018, 0.018, 0.26);
++  rifle.rotateX(-0.2);
++  rifle.translate(0.06, 0.3, 0.12);
++  parts.push(rifle);
++  for (const p of parts) p.deleteAttribute('uv');
++  return mergeGeometries(parts.map((p) => (p.index ? p.toNonIndexed() : p)));
++}
+diff --git a/tools/src/perf/tunnel-xray-captures.ts b/tools/src/perf/tunnel-xray-captures.ts
+new file mode 100644
+index 00000000..16708ab7
+--- /dev/null
++++ b/tools/src/perf/tunnel-xray-captures.ts
+@@ -0,0 +1,296 @@
++/**
++ * MOCK capture for GH-471 (x-ray reveal of an identified tunnel). Drives the
++ * patched build: one Metal browser, music off, its own dev server on its own
++ * port (never 5177), every process it starts stopped by PID on the way out.
++ *
++ *   pnpm --filter @lions/tools exec tsx src/perf/tunnel-xray-captures.ts --out=<dir> [--port=5194]
++ *
++ * The drone is ordered with a REAL right-click on the canvas (selection is set
++ * through `__lions.sel`, then cleared before every frame). Frames are stepped
++ * on the sim clock with the rAF loop frozen, so the discovery strip is a
++ * deterministic series of real renderer frames 250 ms apart.
++ */
++import { chromium, type Page } from 'playwright';
++import { spawn, type ChildProcess } from 'node:child_process';
++import { mkdirSync, writeFileSync } from 'node:fs';
++import { join, resolve } from 'node:path';
++import { gpuLaunchArgs } from '../ui-review/gpu';
++import { musicOffInitScript } from '../ui-review/music-off';
++
++const arg = (k: string, d: string): string => process.argv.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3) ?? d;
++const PORT = Number(arg('port', '5194'));
++const OUT = resolve(arg('out', 'tunnel-xray-out'));
++const ONLY = arg('only', '');
++const ROOT = resolve(import.meta.dirname, '../../..');
++mkdirSync(OUT, { recursive: true });
++const log: string[] = [];
++const say = (s: string): void => {
++  console.log(s);
++  log.push(s);
++};
++
++async function waitHttp(url: string, ms: number): Promise<void> {
++  const t0 = Date.now();
++  while (Date.now() - t0 < ms) {
++    try {
++      const r = await fetch(url);
++      if (r.ok) return;
++    } catch {
++      /* not yet */
++    }
++    await new Promise((r) => setTimeout(r, 500));
++  }
++  throw new Error(`dev server never answered at ${url}`);
++}
++
++async function boot(page: Page, query: string): Promise<void> {
++  await page.goto(`http://localhost:${PORT}/${query}`, { waitUntil: 'load', timeout: 120_000 });
++  // Deploy gate: click until the loading screen is gone (capture-guard's rule).
++  const t0 = Date.now();
++  while (Date.now() - t0 < 120_000) {
++    const state = await page.evaluate(() => ({
++      lions: typeof (window as unknown as { __lions?: unknown }).__lions !== 'undefined',
++      loading: document.querySelector('.rl-loading') !== null,
++    }));
++    if (state.lions && !state.loading) break;
++    const btn = await page.$('.rl-loading__deploy');
++    if (btn) await btn.click({ timeout: 1000 }).catch(() => undefined);
++    await page.waitForTimeout(250);
++  }
++  await page.waitForFunction(() => typeof (window as unknown as { __lions?: unknown }).__lions !== 'undefined', null, {
++    timeout: 120_000,
++  });
++  await page.waitForTimeout(1500);
++  await page.evaluate(`(async () => {
++    if (!window.__lionsCaptureFrozen) {
++      const _raf = window.requestAnimationFrame.bind(window);
++      window.__lionsCaptureFrozen = true;
++      window.requestAnimationFrame = function () { return 0; };
++      await new Promise(function (r) { _raf(function () { _raf(function () { r(null); }); }); });
++    }
++  })()`);
++}
++
++type L = {
++  __lions: {
++    sim: {
++      tickCount: number;
++      tunnelCount: number;
++      tunnelContactLevel(s: number, r: number): number;
++      state: { tunnelIn: Int32Array; alive: Uint8Array };
++      entityCount: number;
++    };
++    renderer: {
++      camera: { x: number; y: number; zoom: number };
++      worldToScreen(x: number, y: number): { x: number; y: number };
++      frame(a: number, dt: number): void;
++      xrayStats?: () => unknown;
++    };
++    step(n: number): number;
++    sel(ids: number[]): number[];
++    units(side?: number): { id: number; type: string; x: number; y: number }[];
++  };
++};
++
++async function stepTo(page: Page, tick: number): Promise<number> {
++  return page.evaluate((t) => {
++    const w = window as unknown as L;
++    const n = t - w.__lions.sim.tickCount;
++    return n > 0 ? w.__lions.step(n) : w.__lions.sim.tickCount;
++  }, tick);
++}
++
++async function camera(page: Page, x: number, y: number, zoom: number): Promise<void> {
++  await page.evaluate(
++    ([cx, cy, z]) => {
++      const w = window as unknown as L;
++      w.__lions.renderer.camera.x = cx;
++      w.__lions.renderer.camera.y = cy;
++      w.__lions.renderer.camera.zoom = z;
++      w.__lions.renderer.frame(1, 0);
++    },
++    [x, y, zoom] as const
++  );
++}
++
++async function orderDrone(page: Page, tx: number, ty: number): Promise<void> {
++  const drone = await page.evaluate(() => (window as unknown as L).__lions.units(0).find((u) => u.type === 'recon_drone'));
++  if (!drone) throw new Error('no recon_drone on side 0');
++  await page.evaluate((id) => (window as unknown as L).__lions.sel([id]), drone.id);
++  const cam = await page.evaluate(() => {
++    const c = (window as unknown as L).__lions.renderer.camera;
++    return { x: c.x, y: c.y, zoom: c.zoom };
++  });
++  await camera(page, tx, ty, cam.zoom);
++  const p = await page.evaluate(([x, y]) => (window as unknown as L).__lions.renderer.worldToScreen(x, y), [tx + 0.5, ty + 0.5] as const);
++  await page.mouse.click(p.x, p.y, { button: 'right' });
++  await page.mouse.move(2, 2);
++  await page.evaluate(() => (window as unknown as L).__lions.sel([]));
++  say(`ordered drone ${drone.id} from (${drone.x},${drone.y}) to (${tx},${ty}) via right-click at ${p.x.toFixed(0)},${p.y.toFixed(0)}`);
++}
++
++async function shot(page: Page, name: string): Promise<void> {
++  await page.evaluate(() => (window as unknown as L).__lions.renderer.frame(1, 0));
++  await page.screenshot({ path: join(OUT, `${name}.png`) });
++}
++
++async function stats(page: Page): Promise<unknown> {
++  return page.evaluate(() => {
++    const r = (window as unknown as L).__lions.renderer;
++    r.frame(1, 0);
++    return r.xrayStats ? r.xrayStats() : null;
++  });
++}
++
++interface Run {
++  id: string;
++  query: string;
++  xray: boolean;
++  route: number;
++  orderAt: number;
++  /** Where the drone is sent and the camera looks; null = the route's midpoint. */
++  target: [number, number] | null;
++  view: [number, number] | null;
++  close: [number, number] | null;
++  strip: boolean;
++}
++
++const RUNS: Run[] = [
++  { id: 'tm-xray', query: '?sandbox=tel_marum&tunnel', xray: true, route: 0, orderAt: 40, target: null, view: null, close: null, strip: true },
++  { id: 'tm-today', query: '?sandbox=tel_marum&tunnel', xray: false, route: 0, orderAt: 40, target: null, view: null, close: null, strip: false },
++  // bs_tn_north: (26,9) -> (28,12) -> (31,16) -> vent (33,19), two rpg_teams inside.
++  { id: 'bs4-xray', query: '?mission=beit_sahwan_4_subterranean', xray: true, route: 1, orderAt: 40, target: [29, 17], view: [29.5, 14.5], close: [29.5, 14.5], strip: true },
++  { id: 'bs4-today', query: '?mission=beit_sahwan_4_subterranean', xray: false, route: 1, orderAt: 40, target: [29, 17], view: [29.5, 14.5], close: [29.5, 14.5], strip: true },
++];
++
++async function main(): Promise<void> {
++  say(`[tunnel-xray] starting vite on :${PORT} in ${ROOT}`);
++  const server: ChildProcess = spawn('pnpm', ['--filter', '@lions/app', 'exec', 'vite', '--port', String(PORT), '--strictPort'], {
++    cwd: ROOT,
++    detached: true,
++    stdio: ['ignore', 'pipe', 'pipe'],
++  });
++  server.stdout?.on('data', () => undefined);
++  server.stderr?.on('data', () => undefined);
++  say(`[tunnel-xray] server pgid ${server.pid}`);
++  const browser = await chromium.launch({ headless: true, args: gpuLaunchArgs('metal') });
++  try {
++    await waitHttp(`http://localhost:${PORT}/`, 90_000);
++    for (const run of RUNS) {
++      if (ONLY && !run.id.startsWith(ONLY)) continue;
++      const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
++      await page.addInitScript(musicOffInitScript());
++      await page.addInitScript(`window.__xrayMock = ${run.xray}; window.__xrayDebug = ${process.env.XRAY_DEBUG === '1'};`);
++      const errors: string[] = [];
++      page.on('pageerror', (e) => errors.push(e.message));
++      page.on('console', (m) => {
++        if (m.type() === 'error') errors.push(m.text());
++      });
++      await boot(page, run.query);
++      const gl = await page.evaluate(() => {
++        const c = document.createElement('canvas').getContext('webgl2');
++        const e = c?.getExtension('WEBGL_debug_renderer_info');
++        return e && c ? String(c.getParameter(e.UNMASKED_RENDERER_WEBGL)) : 'unknown';
++      });
++      const zoom0 = await page.evaluate(() => (window as unknown as L).__lions.renderer.camera.zoom);
++      say(`[${run.id}] gl=${gl} default zoom=${zoom0} tick=${await page.evaluate(() => (window as unknown as L).__lions.sim.tickCount)}`);
++      await stepTo(page, run.orderAt);
++      const mid = await page.evaluate((r) => {
++        const s = (window as unknown as { __lions: { sim: { tnLength: Int32Array; tunnelPointAt(r: number, d: number): [number, number] } } }).__lions.sim;
++        const p = s.tunnelPointAt(r, Math.floor(s.tnLength[r] / 2));
++        return [Math.round(p[0] / 65536), Math.round(p[1] / 65536)] as [number, number];
++      }, run.route);
++      const target = run.target ?? mid;
++      run.view = run.view ?? [mid[0] + 0.5, mid[1] + 0.5];
++      run.close = run.close ?? run.view;
++      say(`[${run.id}] route ${run.route} midpoint ${mid.join(',')}`);
++      await orderDrone(page, target[0], target[1]);
++      // Step until the route is identified.
++      let t = run.orderAt;
++      for (; t < run.orderAt + 1200; t++) {
++        await stepTo(page, t + 1);
++        const lv = await page.evaluate((r) => (window as unknown as L).__lions.sim.tunnelContactLevel(0, r), run.route);
++        if (lv === 2) break;
++      }
++      const t0 = t + 1;
++      say(`[${run.id}] route ${run.route} identified at tick ${t0}`);
++      const occupants = await page.evaluate((r) => {
++        const s = (window as unknown as L).__lions.sim;
++        let n = 0;
++        for (let i = 0; i < s.entityCount; i++) if (s.state.alive[i] === 1 && s.state.tunnelIn[i] === r) n++;
++        return n;
++      }, run.route);
++      say(`[${run.id}] occupants in route ${run.route}: ${occupants}`);
++      if (run.strip) {
++        for (let k = 0; k <= 8; k++) {
++          await stepTo(page, t0 + k * 5);
++          const ms = k * 250;
++          await camera(page, run.view![0], run.view![1], zoom0);
++          await shot(page, `${run.id}-strip-${String(ms).padStart(4, '0')}ms-z${zoom0}`);
++          await camera(page, run.close![0], run.close![1], 2.2);
++          await shot(page, `${run.id}-strip-${String(ms).padStart(4, '0')}ms-z2.2`);
++        }
++      }
++      await stepTo(page, t0 + 80);
++      await camera(page, run.view![0], run.view![1], zoom0);
++      await shot(page, `${run.id}-steady-z${zoom0}`);
++      say(`[${run.id}] steady stats z${zoom0}: ${JSON.stringify(await stats(page))}`);
++      await camera(page, run.close![0], run.close![1], 2.2);
++      await shot(page, `${run.id}-steady-z2.2`);
++      say(`[${run.id}] steady stats z2.2: ${JSON.stringify(await stats(page))}`);
++      // Cost: interleaved on/off, 3 rounds x 60 repaints each, gl.finish() at
++      // the end of every batch so GPU work is inside the wall clock; draw
++      // calls counted with info.autoReset off over one repaint.
++      const cost = await page.evaluate(`(() => {
++        const r = window.__lions.renderer;
++        const three = r.renderer;
++        const group = r.tunnelXray.group;
++        const gl = three.getContext();
++        function batch(on) {
++          group.visible = on;
++          const t0 = performance.now();
++          for (let i = 0; i < 60; i++) r.frame(1, 0);
++          gl.finish();
++          return (performance.now() - t0) / 60;
++        }
++        function calls(on) {
++          group.visible = on;
++          three.info.autoReset = false;
++          three.info.reset();
++          r.frame(1, 0);
++          const out = { calls: three.info.render.calls, triangles: three.info.render.triangles };
++          three.info.autoReset = true;
++          return out;
++        }
++        batch(true); batch(false);
++        const on = []; const off = [];
++        for (let k = 0; k < 3; k++) { on.push(batch(true)); off.push(batch(false)); }
++        const c = { on: calls(true), off: calls(false) };
++        group.visible = true;
++        r.frame(1, 0);
++        return { msOn: on, msOff: off, calls: c };
++      })()`);
++      say(`[${run.id}] cost z2.2: ${JSON.stringify(cost)}`);
++      if (errors.length) say(`[${run.id}] page errors: ${errors.slice(0, 5).join(' | ')}`);
++      await page.close();
++    }
++  } finally {
++    await browser.close();
++    if (server.pid) {
++      try {
++        process.kill(-server.pid, 'SIGTERM');
++      } catch {
++        /* gone */
++      }
++    }
++    writeFileSync(join(OUT, 'capture-log.txt'), log.join('\n') + '\n');
++  }
++}
++
++main().then(
++  () => process.exit(0),
++  (e) => {
++    console.error(e);
++    process.exit(1);
++  }
++);
