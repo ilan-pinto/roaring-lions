@@ -318,6 +318,14 @@ export function feedbackForm(host: HTMLElement, deps: FeedbackFormDeps): Feedbac
       title(r.kind === 'sent' ? 'feedback.sent.title' : 'feedback.dryRun.title', 'good');
       line('rl-feedback__thanks', t('feedback.sent.body'));
       if (r.kind === 'sent' && r.ref !== '') line('rl-feedback__ref', t('feedback.sent.ref', { ref: r.ref }));
+      // Stored without an attachment (spec §12.2): said plainly, never as an
+      // error -- the note itself landed.
+      if (r.kind === 'sent' && r.dropped?.picture !== undefined) {
+        line('rl-feedback__dropped', t(r.dropped.picture === 'too_large' ? 'feedback.sent.noPicture.large' : 'feedback.sent.noPicture.full'));
+      }
+      if (r.kind === 'sent' && r.dropped?.replay !== undefined) {
+        line('rl-feedback__dropped', t(r.dropped.replay === 'too_large' ? 'feedback.sent.noReplay.large' : 'feedback.sent.noReplay.full'));
+      }
       if (r.kind === 'dry-run') line('rl-feedback__ref', t('feedback.dryRun'));
       const another = button('rl-btn rl-feedback__another', t('feedback.sent.another'));
       another.addEventListener('click', () => {

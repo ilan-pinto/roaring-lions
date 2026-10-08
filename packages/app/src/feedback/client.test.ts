@@ -32,6 +32,7 @@ describe('feedbackBody', () => {
     const m = f.get('meta') as Blob;
     expect(JSON.parse(await m.text()).category).toBe('bug');
     expect((f.get('shot') as Blob).type).toBe('image/webp');
+    expect((f.get('shot') as File).name).toBe('shot.webp');
   });
 
   it('attaches the replay to a Bug only', () => {
@@ -62,6 +63,22 @@ describe('sendFeedback', () => {
     expect(url).toBe('https://x.test/api/feedback');
     expect(init.method).toBe('POST');
     expect(init.body).toBeInstanceOf(FormData);
+  });
+
+  it('passes on what the Worker stored a note WITHOUT (201 + dropped), and nothing else', async () => {
+    expect(await sendFeedback(note(), deps(answer(201, { ref: 'FB-0043', id: 43, dropped: { picture: 'too_large' } })))).toEqual({
+      kind: 'sent',
+      ref: 'FB-0043',
+      dropped: { picture: 'too_large' },
+    });
+    expect(
+      await sendFeedback(note(), deps(answer(201, { ref: 'FB-0044', dropped: { picture: 'storage_full', replay: 'storage_full' } })))
+    ).toEqual({ kind: 'sent', ref: 'FB-0044', dropped: { picture: 'storage_full', replay: 'storage_full' } });
+    // An unknown reason or attachment is not a drop the form can name.
+    expect(await sendFeedback(note(), deps(answer(201, { ref: 'FB-0045', dropped: { picture: 'cosmic_rays', note: 'too_large' } })))).toEqual({
+      kind: 'sent',
+      ref: 'FB-0045',
+    });
   });
 
   it('reads 410 (the kill switch) and 403 as closed, calmly, for the rest of the session', async () => {

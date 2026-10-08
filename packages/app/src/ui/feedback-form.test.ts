@@ -158,6 +158,30 @@ describe('feedbackForm', () => {
     expect(JSON.parse((d.storage as ReturnType<typeof store>).d[DRAFT_KEY]).text).toBe('');
   });
 
+  it('says calmly what was sent without the picture or the replay, never as an error', async () => {
+    const cases: [SendResult, string[]][] = [
+      [{ kind: 'sent', ref: 'FB-0050', dropped: { picture: 'too_large' } }, ['The picture was too large, so it was sent without it.']],
+      [
+        { kind: 'sent', ref: 'FB-0051', dropped: { picture: 'storage_full', replay: 'storage_full' } },
+        ['Sent without the picture: there is no room for pictures right now.', 'Sent without the replay: there is no room for replays right now.'],
+      ],
+      [{ kind: 'sent', ref: 'FB-0052' }, []],
+    ];
+    for (const [r, lines] of cases) {
+      document.body.replaceChildren();
+      const { d } = deps({ send: vi.fn(async (): Promise<SendResult> => r) });
+      feedbackForm(document.body, d);
+      await flush();
+      kind('bug');
+      type('x');
+      q<HTMLButtonElement>('.rl-feedback__send').click();
+      await flush();
+      expect(q('.rl-feedback').getAttribute('data-state')).toBe('sent');
+      expect(q('.rl-feedback__title').getAttribute('data-tone')).toBe('good');
+      expect([...document.querySelectorAll('.rl-feedback__dropped')].map((e) => e.textContent)).toEqual(lines);
+    }
+  });
+
   it('says calmly that feedback is closed on the server\'s switch, and keeps the note', async () => {
     const { d } = deps({ send: vi.fn(async (): Promise<SendResult> => ({ kind: 'closed' })) });
     feedbackForm(document.body, d);

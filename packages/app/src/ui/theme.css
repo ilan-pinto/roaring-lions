@@ -1508,6 +1508,12 @@ body {
   color: var(--ink-dim);
   font: var(--t-m) var(--font-mono);
 }
+/* Stored without an attachment: information, not a failure. */
+.rl-feedback__dropped {
+  margin: 0;
+  color: var(--ink-dim);
+  font: var(--t-m) / 1.45 var(--font-body);
+}
 /* The pause menu keeps its own action row under the form; the form's
    consent rule separates them. */
 .rl-pause__feedback[hidden] {
