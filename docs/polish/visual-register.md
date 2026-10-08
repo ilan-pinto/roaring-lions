@@ -156,7 +156,7 @@ Owned by `packages/render/src/three/lighting.ts` and `time-of-day.ts`. Pinned in
 **Inconsistencies**
 
 - **VR-13. The kit glyphs are still placeholders.** `ui/kit-sign.ts` says the S3e symbol family "is not drawn yet" and that its four glyphs are placeholders. `ui/symbol.ts` says the G1 sheet is approved and ported. Either the kit glyphs never joined the approved family, or the comment is stale. The four SVGs in `assets/ui/kit/` are outside the `symbol.ts` geometry rules.
-- **VR-14. CLAUDE.md still describes the retired icon pipeline**, `assets/ui/icons/units/<SHEET>.png` via `pnpm icons:units`. That directory and that script no longer exist (`ui/portrait.ts:11-15` records the change).
+- **VR-14. CLAUDE.md still describes the retired icon pipeline**, `assets/ui/icons/units/<SHEET>.png` via `pnpm icons:units`. That directory and that script no longer exist (`ui/portrait.ts:11-15` records the change). **Already resolved on main:** CLAUDE.md "A unit" and the sprite-renderers bullet name the Blender portrait pipeline, and nothing in it refers to `pnpm icons:units` except to say it is gone.
 - **VR-15. The audio toggle uses a lightning glyph** on the menu and the strip (PA-30), which reads as power or charge, not sound.
 
 ---
