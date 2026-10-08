@@ -58,16 +58,6 @@
 			}
 		}
 	],
-	// GH-464: in-game feedback pictures and replays, keyed fb/<uuid>/shot.webp
-	// and fb/<uuid>/replay.json. The bucket must exist BEFORE this deploys --
-	// the lead creates it once with:
-	//   npx wrangler r2 bucket create roaring-lions-feedback
-	"r2_buckets": [
-		{
-			"binding": "FEEDBACK_BLOBS",
-			"bucket_name": "roaring-lions-feedback"
-		}
-	],
 	// GH-464: daily at 03:17 UTC, purge feedback pictures, replays and
 	// contacts older than 180 days (spec §7, D15).
 	"triggers": {

@@ -210,8 +210,9 @@ The combat model is the product. Everything else is scaffolding around it.
 - **In-game feedback (GH-464) is a PUBLIC write endpoint**, open to every player in v1 by the
   lead's ruling. `POST /api/feedback` (multipart: `meta` JSON against
   `data/schemas/feedback.schema.json`, whose Worker twin is `packages/worker/src/feedback-meta.ts`;
-  optional `shot` WebP/JPEG to R2 `FEEDBACK_BLOBS`; optional `replay` JSON, bugs only) answers
-  201 with a `FB-0042` reference, and is capped, origin-checked and rate-limited per IP, session,
+  optional `shot`, WebP only, 64 KB, kept in D1's `feedback_picture`; optional `replay` JSON, bugs only, in `feedback_replay`) answers
+  201 with a `FB-0042` reference (plus `dropped` when a picture was over 64 KB or the D1
+  attachment budget is spent: the note lands, the attachment does not), and is capped, origin-checked and rate-limited per IP, session,
   player and globally. **The kill switch needs no app deploy**: the "Close feedback" button on
   `/stats/feedback` (a D1 `flags` row), or `npx wrangler secret put FEEDBACK_CLOSED`; either
   makes POST answer 410 and `GET /api/feedback` answer `{"open":false}`. Triage, the session

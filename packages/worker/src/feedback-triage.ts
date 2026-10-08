@@ -10,12 +10,12 @@
  *   GET  /count                             {"new":N} for the /stats badge
  *   GET  /:id                               one row, its context, replay summary,
  *                                           session timeline and the issue link
- *   GET  /:id/shot[?download=1]             the picture, from R2, fixed type, nosniff
+ *   GET  /:id/shot[?download=1]             the picture, from D1's feedback_picture, WebP, nosniff
  *   GET  /:id/replay                        the replay JSON, as a download
  *   POST /:id   {"action": ...}             triage | dismiss | reopen | file | issue | note | delete
  *   POST /switch {"open": true|false}       the kill switch's D1 half
  */
-import type { D1Like, Env, R2Like } from './d1';
+import type { D1Like, Env } from './d1';
 import { feedbackRef, FEEDBACK_CATEGORIES, TEXT_MAX } from './feedback-meta';
 import { buildIssueLink, type IssueLink } from './feedback-issue';
 import { feedbackOpen } from './feedback-ingest';
@@ -60,8 +60,8 @@ interface Row {
   map: string | null;
   tick: number | null;
   context: string;
-  shot_key: string | null;
-  log_key: string | null;
+  shot_bytes: number | null;
+  replay_bytes: number | null;
   dev: number;
   status: FeedbackStatus;
   issue: number | null;
@@ -116,11 +116,11 @@ export async function listFeedback(db: D1Like, f: FeedbackFilter) {
   const statusSql = f.status === 'all' ? '' : ' AND status = ?';
   const rows = await db
     .prepare(
-      `SELECT id, received_at, tester, session, category, mission, rating, text, shot_key, log_key, status, issue, dev
+      `SELECT id, received_at, tester, session, category, mission, rating, text, shot_bytes, replay_bytes, status, issue, dev
        FROM feedback WHERE ${w.sql}${statusSql} ORDER BY received_at DESC, id DESC LIMIT 500`
     )
     .bind(...w.args, ...(f.status === 'all' ? [] : [f.status]))
-    .all<Pick<Row, 'id' | 'received_at' | 'tester' | 'session' | 'category' | 'mission' | 'rating' | 'text' | 'shot_key' | 'log_key' | 'status' | 'issue' | 'dev'>>();
+    .all<Pick<Row, 'id' | 'received_at' | 'tester' | 'session' | 'category' | 'mission' | 'rating' | 'text' | 'shot_bytes' | 'replay_bytes' | 'status' | 'issue' | 'dev'>>();
   const byStatus = await db
     .prepare(`SELECT status, COUNT(*) AS n FROM feedback WHERE ${w.sql} GROUP BY status`)
     .bind(...w.args)
@@ -148,8 +148,8 @@ export async function listFeedback(db: D1Like, f: FeedbackFilter) {
       mission: r.mission,
       rating: r.rating,
       snippet: snippet(r.text),
-      shot: r.shot_key !== null,
-      replay: r.log_key !== null,
+      shot: r.shot_bytes !== null,
+      replay: r.replay_bytes !== null,
       status: r.status,
       issue: r.issue,
       dev: r.dev === 1,
@@ -173,22 +173,22 @@ function parseContext(s: string): Record<string, unknown> {
   }
 }
 
-async function replaySummary(blobs: R2Like | undefined, key: string | null) {
-  if (key === null) return null;
-  const obj = await blobs?.get(key);
+async function replaySummary(db: D1Like, r: Row) {
+  if (r.replay_bytes === null) return null;
+  const obj = await db.prepare('SELECT json FROM feedback_replay WHERE feedback_id = ?').bind(r.id).first<{ json: string }>();
   if (!obj) return { missing: true as const };
   let commands: number | null = null;
   let hash: string | null = null;
   let tick: number | null = null;
   try {
-    const j = JSON.parse(await obj.text()) as Record<string, unknown>;
+    const j = JSON.parse(obj.json) as Record<string, unknown>;
     if (Array.isArray(j.commands)) commands = j.commands.length;
     if (typeof j.hash === 'string' || typeof j.hash === 'number') hash = String(j.hash).slice(0, 40);
     if (typeof j.tick === 'number') tick = j.tick;
   } catch {
     /* summarise what we can; the download still works */
   }
-  return { bytes: obj.size, commands, hash, tick };
+  return { bytes: r.replay_bytes, commands, hash, tick };
 }
 
 /** The `events` rows of this row's session, oldest first, with every feedback
@@ -219,7 +219,7 @@ export async function feedbackDetail(env: Env, id: number, origin: string) {
   const issue: IssueLink = buildIssueLink(
     {
       id: r.id, category: r.category, rating: r.rating, text: r.text, mission: r.mission, tick: r.tick, build: r.build,
-      commit: r.commit, context, hasReplay: r.log_key !== null, tester: r.tester, contact: r.contact, player: r.player, session: r.session,
+      commit: r.commit, context, hasReplay: r.replay_bytes !== null, tester: r.tester, contact: r.contact, player: r.player, session: r.session,
     },
     origin
   );
@@ -249,8 +249,8 @@ export async function feedbackDetail(env: Env, id: number, origin: string) {
     note: r.note,
     updatedAt: r.updated_at,
     context,
-    shot: r.shot_key !== null,
-    replay: await replaySummary(env.FEEDBACK_BLOBS, r.log_key),
+    shot: r.shot_bytes !== null,
+    replay: await replaySummary(env.DB, r),
     issue,
     timeline: await sessionTimeline(env.DB, r.session),
   };
@@ -265,16 +265,13 @@ export async function applyFeedbackAction(env: Env, id: number, body: Record<str
   if (!r) return { ok: false, code: 404, error: 'not found' };
   const action = body.action;
   if (action === 'delete') {
-    const keys = [r.shot_key, r.log_key].filter((k): k is string => k !== null);
-    if (keys.length > 0) {
-      if (!env.FEEDBACK_BLOBS) return { ok: false, code: 503, error: 'storage' };
-      try {
-        await env.FEEDBACK_BLOBS.delete(keys);
-      } catch {
-        return { ok: false, code: 503, error: 'storage' }; // keep the row so Delete can be retried
-      }
-    }
-    await env.DB.prepare('DELETE FROM feedback WHERE id = ?').bind(id).run();
+    // Explicit, in one transaction: the ON DELETE CASCADE in 0003 needs
+    // foreign keys on, which D1 has and a plain SQLite connection may not.
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM feedback_picture WHERE feedback_id = ?').bind(id),
+      env.DB.prepare('DELETE FROM feedback_replay WHERE feedback_id = ?').bind(id),
+      env.DB.prepare('DELETE FROM feedback WHERE id = ?').bind(id),
+    ]);
     return { ok: true, status: 'deleted' };
   }
   if (action === 'note') {
@@ -333,23 +330,26 @@ async function readActionBody(req: Request): Promise<Record<string, unknown> | R
   return json({ error: 'body' }, 400);
 }
 
-const SHOT_TYPES: Record<string, string> = { webp: 'image/webp', jpg: 'image/jpeg' };
-
-async function serveBlob(env: Env, r: Row, which: 'shot' | 'replay', download: boolean): Promise<Response> {
-  const key = which === 'shot' ? r.shot_key : r.log_key;
-  if (key === null || !env.FEEDBACK_BLOBS) return NOT_FOUND();
-  const obj = await env.FEEDBACK_BLOBS.get(key);
-  if (!obj) return NOT_FOUND();
-  // The type comes from the key ingest wrote after sniffing the bytes, never
-  // from stored metadata, and nosniff stops a browser second-guessing it.
-  const ext = key.slice(key.lastIndexOf('.') + 1);
-  const type = which === 'shot' ? SHOT_TYPES[ext] : 'application/json';
-  if (!type) return NOT_FOUND();
-  const name = which === 'shot' ? `${feedbackRef(r.id)}.${ext}` : `${feedbackRef(r.id)}-replay.json`;
+/** The attachments, read from their own tables -- the only place a picture's
+ *  bytes are ever selected. */
+async function serveAttachment(env: Env, id: number, which: 'shot' | 'replay', download: boolean): Promise<Response> {
+  let body: Uint8Array<ArrayBuffer> | string;
+  if (which === 'shot') {
+    const row = await env.DB.prepare('SELECT bytes FROM feedback_picture WHERE feedback_id = ?').bind(id).first<{ bytes: ArrayLike<number> }>();
+    if (!row) return NOT_FOUND();
+    body = new Uint8Array(row.bytes); // D1 hands a BLOB back as a number array, node:sqlite as a Uint8Array
+  } else {
+    const row = await env.DB.prepare('SELECT json FROM feedback_replay WHERE feedback_id = ?').bind(id).first<{ json: string }>();
+    if (!row) return NOT_FOUND();
+    body = row.json;
+  }
+  // Only WebP is ever stored (sniffed at ingest), so the type is fixed here,
+  // and nosniff stops a browser second-guessing it.
+  const name = which === 'shot' ? `${feedbackRef(id)}.webp` : `${feedbackRef(id)}-replay.json`;
   const attach = which === 'replay' || download;
-  return new Response(await obj.arrayBuffer(), {
+  return new Response(body, {
     headers: {
-      'content-type': type,
+      'content-type': which === 'shot' ? 'image/webp' : 'application/json',
       'x-content-type-options': 'nosniff',
       'content-security-policy': "default-src 'none'; sandbox",
       'content-disposition': `${attach ? 'attachment' : 'inline'}; filename="${name}"`,
@@ -388,9 +388,7 @@ export async function handleFeedbackApi(req: Request, env: Env, url: URL, now: n
       const d = await feedbackDetail(env, id, url.origin);
       return d ? json(d) : NOT_FOUND();
     }
-    const r = await getRow(env.DB, id);
-    if (!r) return NOT_FOUND();
-    return serveBlob(env, r, m[2] === '/shot' ? 'shot' : 'replay', url.searchParams.has('download'));
+    return serveAttachment(env, id, m[2] === '/shot' ? 'shot' : 'replay', url.searchParams.has('download'));
   } catch {
     return json({ error: 'storage' }, 503); // e.g. migration 0003 not applied yet
   }
@@ -404,19 +402,18 @@ export async function purgeExpired(env: Env, now: number, batch = 100, maxBatche
   let purged = 0;
   for (let i = 0; i < maxBatches; i++) {
     const rows = await env.DB.prepare(
-      `SELECT id, shot_key, log_key FROM feedback WHERE received_at < ?
-       AND (shot_key IS NOT NULL OR log_key IS NOT NULL OR contact IS NOT NULL) ORDER BY id LIMIT ?`
+      `SELECT id FROM feedback WHERE received_at < ?
+       AND (shot_bytes IS NOT NULL OR replay_bytes IS NOT NULL OR contact IS NOT NULL) ORDER BY id LIMIT ?`
     )
       .bind(now - RETENTION_MS, batch)
-      .all<{ id: number; shot_key: string | null; log_key: string | null }>();
+      .all<{ id: number }>();
     if (rows.results.length === 0) break;
-    const keys = rows.results.flatMap((r) => [r.shot_key, r.log_key]).filter((k): k is string => k !== null);
-    if (keys.length > 0) {
-      if (!env.FEEDBACK_BLOBS) break; // keep the keys; a later run with the binding finishes the job
-      await env.FEEDBACK_BLOBS.delete(keys);
-    }
     await env.DB.batch(
-      rows.results.map((r) => env.DB.prepare('UPDATE feedback SET shot_key = NULL, log_key = NULL, contact = NULL WHERE id = ?').bind(r.id))
+      rows.results.flatMap((r) => [
+        env.DB.prepare('DELETE FROM feedback_picture WHERE feedback_id = ?').bind(r.id),
+        env.DB.prepare('DELETE FROM feedback_replay WHERE feedback_id = ?').bind(r.id),
+        env.DB.prepare('UPDATE feedback SET shot_bytes = NULL, replay_bytes = NULL, contact = NULL WHERE id = ?').bind(r.id),
+      ])
     );
     purged += rows.results.length;
     if (rows.results.length < batch) break;

@@ -173,7 +173,9 @@ q 0.75. The form shows the thumbnail, so the player sees exactly what is sent.
 | 960 | 52 KiB | 30 KiB |
 
 An idle frame with the HUD included read 46 KiB at 1280 WebP. A frame with a
-lot of combat read 67 KiB at the same setting. Cap: **300 KiB** server-side.
+lot of combat read 67 KiB at the same setting. Cap: **64 KB** server-side,
+WebP only (§12.2: the lead's ruling keeps every byte in D1), so the client
+must encode to fit, stepping quality or width down when a busy frame is over.
 
 **Rejected:** canvas readback (black by design); `html2canvas`-style DOM
 rasterisers (a dependency that re-implements CSS, and this sheet leans on
@@ -223,7 +225,7 @@ that waits.
 
 ## 5. Where it lands
 
-### 5.1 Storage: D1 row plus R2 objects
+### 5.1 Storage: D1 only (as built: §12)
 
 `packages/worker/migrations/0003_feedback.sql`:
 
@@ -242,7 +244,7 @@ CREATE TABLE feedback (
   contact TEXT,
   mission TEXT, map TEXT, tick INTEGER,
   context TEXT NOT NULL,              -- JSON, ≤ 8 KB
-  shot_key TEXT, log_key TEXT,        -- R2 keys; NULL when not attached
+  shot_bytes INTEGER, replay_bytes INTEGER,  -- sizes; NULL when not attached
   dev INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new','triaged','filed','dismissed')),
   issue INTEGER, note TEXT,
@@ -254,27 +256,23 @@ CREATE INDEX feedback_mission ON feedback (mission, received_at);
 CREATE INDEX feedback_player  ON feedback (player, received_at);
 ```
 
-The picture and the replay go to an **R2 bucket** (`roaring-lions-feedback`,
-binding `FEEDBACK_BLOBS`), keyed `fb/<id>/shot.webp` and `fb/<id>/replay.json`.
-The lead runs `npx wrangler r2 bucket create roaring-lions-feedback` once,
-beside `npx wrangler d1 migrations apply ... --remote`.
+The picture and the replay sit in D1 as well, each in its own table keyed by
+the note's id (`feedback_picture`, `feedback_replay`), so the list and the
+badge never page a blob in. The lead's ruling of 2026-10-08 put everything in
+D1: object storage needs a payment method on the account. The D1 headroom the
+telemetry events need is protected by a 64 KB WebP cap and an attachment byte
+budget (§12.2).
 
 **Rejected:**
-- *Inline in D1.* The telemetry database is kept forever. Cloudflare's
-  published D1 limit at the time of writing is 500 MB per database on Workers
-  Free (verify the current limits page). At about 50 KB a picture, images
-  would eat the same headroom the events table needs.
 - *No pictures.* "The squad walked to the wrong wall" is a hard report to act
   on without the ground.
-
-R2's free tier (10 GB-month, no egress fee) holds about 200,000 pictures.
 
 ### 5.2 `POST /api/feedback`
 
 - **Body:** `multipart/form-data`. `meta` is JSON, ≤ 24 KB, validated against
   a new `data/schemas/feedback.schema.json` shared with the client, the way
-  `telemetry_event.schema.json` is. `shot` is `image/webp` or `image/jpeg`,
-  ≤ 300 KB, with the magic bytes checked. `replay` is JSON, ≤ 96 KB, and is
+  `telemetry_event.schema.json` is. `shot` is `image/webp` only, ≤ 64 KB,
+  with the magic bytes checked. `replay` is JSON, ≤ 96 KB, and is
   accepted only when `category = 'bug'`. The declared `Content-Length` must be
   ≤ 448 KB, and it is checked before the body is read, as `ingest.ts` does
   (M5).
@@ -282,9 +280,9 @@ R2's free tier (10 GB-month, no egress fee) holds about 200,000 pictures.
   `fetch`, not a beacon.
 - **Rate limits:** a new `FEEDBACK_LIMIT` binding, **5 per minute per IP**
   (`CF-Connecting-IP`, never stored). **20 per player per 24 h** and **500 in
-  total per 24 h**, both counted in D1, so a flood cannot fill R2.
-- **Order of writes:** R2 objects first, then the D1 row. If the row fails,
-  the objects are deleted (best effort).
+  total per 24 h**, both counted in D1, so a flood cannot fill D1.
+- **Order of writes:** the row, then its attachments in one batch. If the
+  batch fails, the row is deleted again.
 - **Answers:** unlike `/api/events` (always 204), the player is told whether
   it landed: `201 {"ref":"FB-0042"}`, `400` invalid, `403` origin, `413` too
   large, `429 {"retryAfter":s}`, `503` storage. The client never retries in
@@ -301,7 +299,7 @@ count. The view has:
   filters for tester, mission and kind. The list shows ref, time, tester,
   kind, mission, rating, the first line of the note, "picture"/"replay" tags,
   and status.
-- **Detail:** the full note, the picture (served from R2 through
+- **Detail:** the full note, the picture (served from D1 through
   `/stats/api/feedback/:id/shot`, session-gated, fixed `Content-Type`,
   `X-Content-Type-Options: nosniff`), the context as a key/value table, the
   **session timeline** (the `events` rows for that `session` plus the
@@ -309,7 +307,7 @@ count. The view has:
   Dismiss · Download replay · Download picture · Delete**. It also has a
   private triage note and a "Filed as issue #" field. Every string the page
   renders goes through the dashboard's existing `esc()`.
-- **Delete** removes the row and its R2 objects. It is the answer to "please
+- **Delete** removes the row, its picture and its replay. It is the answer to "please
   remove what I sent" (§7).
 
 ### 5.4 "File as GitHub issue": a prefilled URL the lead submits
@@ -373,7 +371,7 @@ makes the extra click hurt.
   lead's call. It sits beside the licensing decision (PolyForm NC plus CLA,
   #192).
 - **Caps:** text ≤ 2000, line ≤ 280, contact ≤ 120, context ≤ 8 KB, picture
-  ≤ 300 KB, replay ≤ 96 KB. Rate limits are in §5.2.
+  ≤ 64 KB (WebP), replay ≤ 96 KB. Rate limits are in §5.2.
 - **Spam:** own-Origin only, schema validation, IP and player rate limits, a
   global daily ceiling, and nothing auto-publishes. Every row lands as `new`
   behind a password.
@@ -436,8 +434,8 @@ stands in for `captureView`. The driver was throwaway and is not committed.
    only to Bug (checkbox, on), capped at 64 KB of commands and dropped whole
    past it, with a state hash. The replay runner is a separate later package (F4).
 7. **D7 Context.** The §4.1 list, including the last 5 errors, ≤ 8 KB.
-8. **D8 Storage.** A D1 `feedback` table plus an **R2 bucket** for the picture
-   and replay. You create the bucket once.
+8. **D8 Storage.** D1 only: a `feedback` table plus one table each for the
+   picture and the replay (the lead's ruling; see §12).
 9. **D9 Endpoint.** `POST /api/feedback`, multipart, the caps and limits in
    §5.2, answering 201 with a reference.
 10. **D10 Triage.** `/stats/feedback` with new / triaged / filed / dismissed,
@@ -466,7 +464,7 @@ stands in for `captureView`. The driver was throwaway and is not committed.
 
 | WP | Scope | Proof it works (seen red first) |
 |---|---|---|
-| **F1 Worker** | migration 0003, R2 binding, `FEEDBACK_LIMIT`, `feedback.schema.json`, `POST /api/feedback` | Worker tests on the `node:sqlite` adapter: each cap, origin, rate limit, magic bytes, category/replay rule, R2-then-row rollback. Each is red under a one-line mutation of its own check. |
+| **F1 Worker** | migration 0003, `FEEDBACK_LIMIT`, `feedback.schema.json`, `POST /api/feedback` | Worker tests on the `node:sqlite` adapter: each cap, origin, rate limit, magic bytes, category/replay rule, row-then-attachments rollback. Each is red under a one-line mutation of its own check. |
 | **F2 Client** | the form component (pause tab, menu modal), debrief prompt, context collector, error ring buffer, `captureView` on `Renderer` + `ThreeRenderer`, D18 guard, gating/dry run, draft persistence, i18n | the D18 camera test; dry-run on localhost (no network request, asserted); a disposer test (leave mid-send, no DOM write); `validate:ui`; `pnpm ui:routes` on CI |
 | **F3 Triage** | `/stats/feedback`, the shot proxy, status changes, delete, the issue URL builder, the 180-day purge cron | a URL-builder test that fails when a tester name or `@` reaches the body; a size test that holds the URL under the cap; the session-gate test |
 | **F4 Replay** (later) | the app-side recorder (if not in F2), `pnpm replay:feedback` | record through the UI, replay headless, compare hashes; drop one command, see it red |
@@ -484,7 +482,9 @@ new tab.
    public write endpoint: strict caps, per-IP and per-session limits,
    validation, and a server-side kill switch. An untagged player is shown as
    `anonymous` (plus the session id) in the triage view.
-2. **Attachments: picture plus replay**, as designed. The picture goes to R2.
+2. **Attachments: picture plus replay**, as designed, **stored in D1**
+   (second ruling, same day: object storage needs a payment method on the
+   account, which is not wanted). The picture is WebP only, at most 64 KB.
 3. **Filing: a prefilled `issues/new` URL**, as designed (§5.4). No token
    anywhere. The tester name and contact are never in the issue. The body is
    cut to fit a URL, with a pointer to the private detail page.
@@ -498,7 +498,7 @@ lying header buffers no more). Exactly these parts, each at most once:
 | Part | Content | Cap | Allowed when |
 |---|---|---|---|
 | `meta` | JSON, `data/schemas/feedback.schema.json` | 24 KB | always (required) |
-| `shot` | a file, WebP or JPEG, **type from the magic bytes**; a declared type that disagrees is 400 | 300 KB | `source` = `pause` |
+| `shot` | a file, **WebP only**, judged by its magic bytes; anything else (JPEG included), or a declared type other than `image/webp`, is 400 | **64 KB, dropped not refused** (below) | `source` = `pause` |
 | `replay` | JSON, an object | 96 KB | `source` = `pause` and `category` = `bug` |
 
 `meta` fields (the schema is the authority; `packages/worker/src/feedback-meta.ts`
@@ -534,14 +534,16 @@ length), `hash` and `tick` when the object carries them, so F2 should send
 
 | Status | Body | When |
 |---|---|---|
-| 201 | `{"ref":"FB-0042","id":42}` | stored |
+| 201 | `{"ref":"FB-0042","id":42}` | stored with everything sent |
+| 201 | `{"ref":…,"id":…,"dropped":{"picture":"too_large"}}` | stored **without** the picture, which was over 64 KB. The app shows "picture too large, sent without it". |
+| 201 | `…"dropped":{"picture":"storage_full","replay":"storage_full"}` | stored without the attachments named: the D1 attachment budget is spent |
 | 400 | `{"error":"<reason>"}` | malformed, an unknown/duplicate part, a part the source may not send |
 | 403 | `{"error":"origin"}` | Origin is missing or not the site's own (or `ALLOWED_ORIGINS`) |
 | 405 | — | any method but GET and POST |
 | 410 | `{"error":"closed"}` | the kill switch is on (checked first, before the Origin) |
 | 413 | `{"error":"too large"}` | a cap above |
 | 429 | `{"retryAfter":<s>}` | a rate limit (below) |
-| 503 | `{"error":"storage"}` | D1 or R2 failed; nothing is left half-written |
+| 503 | `{"error":"storage"}` | D1 failed; nothing is left half-written |
 
 **`GET /api/feedback`** answers `{"open":true|false}`. **This is new**: the app
 asks it once per boot and hides its three entry points when it says false, so
@@ -553,11 +555,27 @@ the lead can close feedback without an app deploy.
 in total**, whatever ids are sent. `retryAfter` is the time until the oldest
 counted note leaves its window.
 
-**Order of writes, and one change from §5.1.** R2 first, then the row; a row
-failure deletes the objects again. Because the row id does not exist yet when
-the objects are written, the keys are **`fb/<random uuid>/shot.webp|jpg`** and
-**`fb/<random uuid>/replay.json`**, not `fb/<id>/…`. The row stores the keys,
-so nothing reads the layout.
+**The oversized picture is dropped, not refused (decision).** A picture over
+64 KB does not cost the player the note: the note and any replay are stored,
+and the 201 carries `"dropped":{"picture":"too_large"}`. The whole body cap
+stays 448 KB, so a picture up to ~300 KB still reaches this rule instead of a
+413. The app should encode to fit (1280 px WebP q0.75 measured 45–67 KiB, §4.2:
+step quality or width down until it is under 64 KB) and show the drop as
+"picture too large, sent without it".
+
+**Attachment budget.** The picture and replay share D1 with the telemetry
+events, so attachments may add at most **16 MiB a day** and **200 MiB in
+total** (summed from `shot_bytes` + `replay_bytes`). Past either, the note is
+stored and its attachments are dropped with `"storage_full"`. Retention (§12.4)
+frees the total.
+
+**Storage and order of writes.** Everything is D1 (the lead's ruling). The row
+carries `shot_bytes` / `replay_bytes` (NULL when absent); the bytes sit in
+`feedback_picture (feedback_id, bytes BLOB)` and `feedback_replay (feedback_id,
+json TEXT)`, so the list, the badge and the detail never read a blob (a test
+records every SQL statement they issue). The row is written first (its id keys
+the attachments), then both attachments in one batch; if the batch fails the
+row is deleted again.
 
 ### 12.3 The kill switch
 
@@ -583,9 +601,9 @@ below, as mocks 07–08), served with a CSP. The `/stats` header carries
 | `GET ?status=&tester=&mission=&kind=` | list (newest first, ≤ 500), counts per status, filter options, switch state. `tester=*anonymous` and `mission=*none` select the empty ones. |
 | `GET /count` | `{"new":N}`, the badge |
 | `GET /<id>` | the row, its context, replay summary, the session timeline (`events` of that session, with that session's feedback rows interleaved) and the prefilled issue |
-| `GET /<id>/shot[?download=1]` | the picture from R2: type fixed by the key, `nosniff`, `default-src 'none'; sandbox` |
+| `GET /<id>/shot[?download=1]` | the picture, read from `feedback_picture` (the only query that selects its bytes): `image/webp`, `nosniff`, `default-src 'none'; sandbox` |
 | `GET /<id>/replay` | the replay as a download |
-| `POST /<id>` `{"action":…}` | `triage`, `dismiss`, `reopen`, `file` (optional `issue`), `issue` (a number), `note` (≤ 2000, empty clears), `delete` (row and R2 objects; an R2 failure keeps the row) |
+| `POST /<id>` `{"action":…}` | `triage`, `dismiss`, `reopen`, `file` (optional `issue`), `issue` (a number), `note` (≤ 2000, empty clears), `delete` (row, picture and replay, in one transaction) |
 | `POST /switch` `{"open":bool}` | the D1 half of the kill switch |
 
 A POST must carry the site's own Origin and a JSON body. Status transitions:
@@ -613,14 +631,13 @@ replay and contact 180 days after receipt; the note and context stay.
 
 ### 12.5 One-time steps for the lead, before merging
 
-Merging deploys from `main`, and a deploy with an R2 binding to a bucket that
-does not exist fails, so both of these come first:
+Merging deploys from `main`, and the deployed code reads the new tables, so
+apply the migration first. It is the only step:
 
 ```sh
-npx wrangler r2 bucket create roaring-lions-feedback
 npx wrangler d1 migrations apply roaring-lions-telemetry --remote
 ```
 
 Nothing else is needed: the rate-limit namespace (`1003`) and the cron are
-declared in `wrangler.jsonc`. `FEEDBACK_CLOSED` is only for closing feedback.
-
+declared in `wrangler.jsonc`, and nothing needs creating in the dashboard.
+`FEEDBACK_CLOSED` is only for closing feedback.

@@ -14,7 +14,6 @@ import {
 import { FEEDBACK_HTML } from './feedback-page';
 import { STATS_HTML } from './stats-page';
 import { openTestD1 } from './test-d1';
-import { openTestR2 } from './test-r2';
 import { signSession, SESSION_COOKIE } from './auth';
 import type { Env } from './d1';
 
@@ -39,8 +38,9 @@ const META = {
 
 async function setup() {
   const db = openTestD1();
-  const r2 = openTestR2();
-  const env: Env = { DB: db, ASSETS: { fetch: async () => new Response('') }, FEEDBACK_BLOBS: r2, STATS_PASSWORD: SECRET };
+  const env: Env = { DB: db, ASSETS: { fetch: async () => new Response('') }, STATS_PASSWORD: SECRET };
+  const attachments = () =>
+    (db.raw.prepare('SELECT (SELECT COUNT(*) FROM feedback_picture) + (SELECT COUNT(*) FROM feedback_replay) AS n').get() as { n: number }).n;
   const cookie = `${SESSION_COOKIE}=${await signSession(SECRET, NOW + 3_600_000)}`;
   const send = async (meta: Record<string, unknown>, attach = true) => {
     const f = new FormData();
@@ -61,7 +61,7 @@ async function setup() {
   const act = (id: number, body: unknown, headers: Record<string, string> = {}) =>
     req(`/stats/api/feedback/${id}`, { method: 'POST', body: JSON.stringify(body), headers: { origin: ORIGIN, 'content-type': 'application/json', ...headers } });
   const status = (id: number) => (db.raw.prepare('SELECT status FROM feedback WHERE id = ?').get(id) as { status: string } | undefined)?.status;
-  return { db, r2, env, cookie, send, req, act, status };
+  return { db, env, cookie, send, req, act, status, attachments };
 }
 
 /** Every route this change adds under /stats, as [method, path]. */
@@ -98,7 +98,7 @@ describe('/stats/feedback: auth on every route', () => {
       }
     }
     expect(h.status(id)).toBe('new');
-    expect(h.r2.objects.size).toBe(2);
+    expect(h.attachments()).toBe(2);
     expect(await (await handleFeedback(new Request(`${ORIGIN}/api/feedback`), h.env, NOW)).json()).toEqual({ open: true });
   });
 
@@ -194,6 +194,22 @@ describe('/stats/api/feedback: list, filters, badge and detail', () => {
     expect(await ids(`?mission=${encodeURIComponent(NO_MISSION)}`)).toEqual([3]);
     expect(await ids('?kind=rating')).toEqual([4]);
     expect((await list(h, '?tester=dana')).counts).toEqual({ new: 2, triaged: 1, filed: 0, dismissed: 0, all: 3 });
+  });
+
+  it('the list, the badge and the detail never read the picture table; only the picture route does', async () => {
+    const h = await seeded();
+    const seen: string[] = [];
+    const prepare = h.env.DB.prepare.bind(h.env.DB);
+    h.env.DB = { ...h.env.DB, prepare: (sql: string) => (seen.push(sql), prepare(sql)) };
+    const read = async (path: string) => {
+      seen.length = 0;
+      expect((await h.req(path)).status).toBe(200);
+      return seen.join('\n');
+    };
+    for (const path of ['/stats/api/feedback', '/stats/api/feedback?status=new&kind=bug', '/stats/api/feedback/count', '/stats/api/feedback/1']) {
+      expect([path, /feedback_picture|\bbytes\b/.test(await read(path))]).toEqual([path, false]);
+    }
+    expect(await read('/stats/api/feedback/1/shot')).toContain('feedback_picture');
   });
 
   it('the badge counts only new rows', async () => {
@@ -313,17 +329,22 @@ describe('status transitions', () => {
     expect((await h.act(id, { action: 'shred' })).status).toBe(400);
   });
 
-  it('delete removes the row and its R2 objects; an R2 failure keeps the row so it can be retried', async () => {
+  it('delete removes the row, its picture and its replay, in one transaction', async () => {
     const h = await setup();
     const id = await h.send(META);
-    expect(h.r2.objects.size).toBe(2);
-    h.r2.fail.delete = true;
+    const keep = await h.send(META);
+    expect(h.attachments()).toBe(4);
+    // node:sqlite (like D1) enforces foreign keys, so 0003's ON DELETE CASCADE
+    // would hide a missing explicit delete. Off, this test sees the statements.
+    h.db.raw.exec('PRAGMA foreign_keys = OFF');
+    h.db.raw.exec('CREATE TRIGGER no_delete BEFORE DELETE ON feedback BEGIN SELECT RAISE(ABORT, "boom"); END');
     expect((await h.act(id, { action: 'delete' })).status).toBe(503);
-    expect(h.status(id)).toBe('new');
-    h.r2.fail.delete = false;
+    expect([h.status(id), h.attachments()]).toEqual(['new', 4]); // nothing half-deleted
+    h.db.raw.exec('DROP TRIGGER no_delete');
     expect(await (await h.act(id, { action: 'delete' })).json()).toEqual({ status: 'deleted' });
     expect(h.status(id)).toBeUndefined();
-    expect(h.r2.objects.size).toBe(0);
+    expect(h.attachments()).toBe(2);
+    expect(h.status(keep)).toBe('new');
   });
 
   it('a mutation from another origin, with no origin, or not as JSON is refused', async () => {
@@ -364,11 +385,11 @@ describe('retention: the daily purge', () => {
     const fresh = await h.send(META);
     h.db.raw.prepare('UPDATE feedback SET received_at = ? WHERE id = ?').run(NOW - RETENTION_MS - 1, old);
     expect(await purgeExpired(h.env, NOW)).toBe(1);
-    expect(h.db.raw.prepare('SELECT shot_key, log_key, contact, text FROM feedback WHERE id = ?').get(old)).toEqual({
-      shot_key: null, log_key: null, contact: null, text: META.text,
+    expect(h.db.raw.prepare('SELECT shot_bytes, replay_bytes, contact, text FROM feedback WHERE id = ?').get(old)).toEqual({
+      shot_bytes: null, replay_bytes: null, contact: null, text: META.text,
     });
-    expect(h.r2.objects.size).toBe(2); // the fresh row's two
-    expect((h.db.raw.prepare('SELECT shot_key FROM feedback WHERE id = ?').get(fresh) as { shot_key: string | null }).shot_key).not.toBeNull();
+    expect(h.attachments()).toBe(2); // the fresh row's two
+    expect(h.db.raw.prepare('SELECT feedback_id FROM feedback_picture').all()).toEqual([{ feedback_id: fresh }]);
     expect(await purgeExpired(h.env, NOW)).toBe(0);
   });
 

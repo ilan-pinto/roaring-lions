@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { handleFeedback, sniffShot } from './feedback-ingest';
+import { handleFeedback, isWebp } from './feedback-ingest';
 import { setFeedbackOpen } from './feedback-triage';
 import { openTestD1 } from './test-d1';
-import { openTestR2 } from './test-r2';
 import type { Env, RateLimiter } from './d1';
 
 const ORIGIN = 'https://game.example.workers.dev';
@@ -40,7 +39,8 @@ const PNG = (): Uint8Array<ArrayBuffer> => new Uint8Array([0x89, 0x50, 0x4e, 0x4
 // The caps and limits as the spec states them (§5.2, §7) -- literals, never
 // imported from the code under test, so a drifted constant goes red here.
 const BODY_MAX_BYTES = 448 * 1024;
-const SHOT_MAX_BYTES = 300 * 1024;
+const SHOT_MAX_BYTES = 64 * 1024;
+const ATTACHMENT_BUDGET = { dayBytes: 16 * 1024 * 1024, totalBytes: 200 * 1024 * 1024 };
 const REPLAY_MAX_BYTES = 96 * 1024;
 const IP_LIMIT_RETRY_SECONDS = 60;
 const FEEDBACK_LIMITS = {
@@ -60,8 +60,7 @@ interface Opts {
 
 function setup(over: Partial<Env> = {}) {
   const db = openTestD1();
-  const r2 = openTestR2();
-  const env: Env = { DB: db, ASSETS: { fetch: async () => new Response('') }, FEEDBACK_BLOBS: r2, ...over };
+  const env: Env = { DB: db, ASSETS: { fetch: async () => new Response('') }, ...over };
   const form = (o: Opts): FormData => {
     const f = new FormData();
     f.set('meta', typeof o.meta === 'string' ? o.meta : JSON.stringify(o.meta ?? META));
@@ -82,6 +81,9 @@ function setup(over: Partial<Env> = {}) {
     );
   const get = () => handleFeedback(new Request(`${ORIGIN}/api/feedback`), env, NOW);
   const rows = () => db.raw.prepare('SELECT * FROM feedback ORDER BY id').all() as Record<string, unknown>[];
+  const pictures = () => db.raw.prepare('SELECT feedback_id, bytes FROM feedback_picture ORDER BY feedback_id').all() as { feedback_id: number; bytes: Uint8Array }[];
+  const replays = () => db.raw.prepare('SELECT feedback_id, json FROM feedback_replay ORDER BY feedback_id').all() as { feedback_id: number; json: string }[];
+  const attachments = () => pictures().length + replays().length;
   /** Inserts `n` rows straight into D1, for the counted limits. */
   const seed = (n: number, cols: { player?: string | null; session?: string | null }, at: number) => {
     const ins = db.raw.prepare(
@@ -90,29 +92,28 @@ function setup(over: Partial<Env> = {}) {
     );
     for (let i = 0; i < n; i++) ins.run(at, at, cols.player ?? null, cols.session ?? null, at);
   };
-  return { db, r2, env, post, get, rows, seed };
+  return { db, env, post, get, rows, seed, pictures, replays, attachments };
 }
 
 const errorOf = async (r: Response) => ((await r.json()) as { error?: string; retryAfter?: number });
 
 describe('POST /api/feedback: a valid note', () => {
-  it('answers 201 with a reference, stores the row as new, and puts the picture and replay in R2 under sniffed types', async () => {
+  it('answers 201 with a reference, stores the row as new, and the picture and replay in their own D1 tables', async () => {
     const h = setup();
     const res = await h.post({ shot: { bytes: WEBP() }, replay: REPLAY });
     expect(res.status).toBe(201);
     expect(await res.json()).toEqual({ ref: 'FB-0001', id: 1 });
     const [row] = h.rows();
-    expect(row).toMatchObject({ status: 'new', category: 'bug', tester: 'dana', player: P, session: S, mission: 'beit_sahwan_2_foothold', tick: 467, received_at: NOW, dev: 0 });
-    expect(String(row.shot_key)).toMatch(/^fb\/[0-9a-f-]{36}\/shot\.webp$/);
-    expect(String(row.log_key)).toMatch(/^fb\/[0-9a-f-]{36}\/replay\.json$/);
-    expect(h.r2.objects.get(String(row.shot_key))?.contentType).toBe('image/webp');
-    expect(h.r2.objects.get(String(row.log_key))?.contentType).toBe('application/json');
+    expect(row).toMatchObject({ status: 'new', category: 'bug', tester: 'dana', player: P, session: S, mission: 'beit_sahwan_2_foothold', tick: 467, received_at: NOW, dev: 0, shot_bytes: 64, replay_bytes: REPLAY.length });
+    expect(h.pictures()).toEqual([{ feedback_id: 1, bytes: WEBP() }]);
+    expect(h.replays()).toEqual([{ feedback_id: 1, json: REPLAY }]);
   });
 
-  it('a JPEG is stored as .jpg / image/jpeg, whatever extension the client used', async () => {
+  it('a note with no attachments writes no attachment rows', async () => {
     const h = setup();
-    expect((await h.post({ shot: { bytes: JPEG(), type: 'image/jpeg' } })).status).toBe(201);
-    expect(String(h.rows()[0].shot_key)).toMatch(/shot\.jpg$/);
+    expect((await h.post()).status).toBe(201);
+    expect(h.rows()[0]).toMatchObject({ shot_bytes: null, replay_bytes: null });
+    expect(h.attachments()).toBe(0);
   });
 
   it('an anonymous note (opt-out) stores NULL identity, and a debrief rating needs no text', async () => {
@@ -166,10 +167,33 @@ describe('POST /api/feedback: caps', () => {
     expect((await handleFeedback(req, h.env, NOW)).status).toBe(413);
   });
 
-  it('a picture over 300 KB is 413; exactly 300 KB is accepted', async () => {
+  it('a picture over 64 KB is dropped and the note still lands, with dropped.picture "too_large"; exactly 64 KB is kept', async () => {
     const h = setup();
-    expect((await h.post({ shot: { bytes: WEBP(SHOT_MAX_BYTES + 1) } })).status).toBe(413);
-    expect((await h.post({ shot: { bytes: WEBP(SHOT_MAX_BYTES) } })).status).toBe(201);
+    const over = await h.post({ shot: { bytes: WEBP(SHOT_MAX_BYTES + 1) }, replay: REPLAY });
+    expect(over.status).toBe(201);
+    expect(await over.json()).toEqual({ ref: 'FB-0001', id: 1, dropped: { picture: 'too_large' } });
+    expect(h.rows()[0]).toMatchObject({ shot_bytes: null, replay_bytes: REPLAY.length });
+    expect(h.pictures()).toHaveLength(0);
+    const exact = await h.post({ shot: { bytes: WEBP(SHOT_MAX_BYTES) } });
+    expect(await exact.json()).toEqual({ ref: 'FB-0002', id: 2 });
+    expect(h.pictures().map((p) => [p.feedback_id, p.bytes.byteLength])).toEqual([[2, SHOT_MAX_BYTES]]);
+  });
+
+  it('past the daily or total attachment budget, attachments are dropped as "storage_full" and the note still lands', async () => {
+    const h = setup();
+    const big = (bytes: number, at: number) =>
+      h.db.raw
+        .prepare(`INSERT INTO feedback (received_at, t, build, source, category, text, context, shot_bytes, updated_at) VALUES (?, ?, '0.1.0', 'pause', 'bug', 'x', '{}', ?, ?)`)
+        .run(at, at, bytes, at);
+    big(ATTACHMENT_BUDGET.dayBytes - 64, NOW - 1000); // today: exactly room for one 64-byte picture
+    expect(await (await h.post({ shot: { bytes: WEBP() } })).json()).toEqual({ ref: 'FB-0002', id: 2 });
+    const full = await h.post({ shot: { bytes: WEBP() }, replay: REPLAY });
+    expect(await full.json()).toEqual({ ref: 'FB-0003', id: 3, dropped: { picture: 'storage_full', replay: 'storage_full' } });
+    expect(h.attachments()).toBe(1);
+    // A day later the daily budget is free again, but the TOTAL still counts.
+    expect(await (await h.post({ shot: { bytes: WEBP() } }, NOW + 86_400_000)).json()).toEqual({ ref: 'FB-0004', id: 4 });
+    big(ATTACHMENT_BUDGET.totalBytes, NOW - 30 * 86_400_000);
+    expect(await (await h.post({ shot: { bytes: WEBP() } }, NOW + 86_400_000)).json()).toMatchObject({ dropped: { picture: 'storage_full' } });
   });
 
   it('a replay over 96 KB is 413; exactly 96 KB is accepted', async () => {
@@ -197,12 +221,14 @@ describe('POST /api/feedback: caps', () => {
 });
 
 describe('POST /api/feedback: validation', () => {
-  it('the picture type comes from its bytes: PNG, or a WebP labelled JPEG, is 400', async () => {
+  it('WebP only, judged by its bytes: a JPEG, a PNG, or JPEG bytes labelled WebP are 400', async () => {
     const h = setup();
-    expect(await errorOf(await h.post({ shot: { bytes: PNG(), type: 'image/png' } }))).toEqual({ error: 'shot is not WebP or JPEG' });
+    expect(await errorOf(await h.post({ shot: { bytes: JPEG(), type: 'image/jpeg' } }))).toEqual({ error: 'shot is not WebP' });
+    expect((await h.post({ shot: { bytes: PNG(), type: 'image/png' } })).status).toBe(400);
+    expect((await h.post({ shot: { bytes: JPEG(), type: 'image/webp' } })).status).toBe(400);
     expect((await h.post({ shot: { bytes: WEBP(), type: 'image/jpeg' } })).status).toBe(400);
-    expect(sniffShot(WEBP())).toBe('image/webp');
-    expect(sniffShot(JPEG())).toBe('image/jpeg');
+    expect(h.rows()).toHaveLength(0);
+    expect([isWebp(WEBP()), isWebp(JPEG())]).toEqual([true, false]);
   });
 
   it('a replay is accepted only with a bug from the pause form; a picture only from the pause form', async () => {
@@ -213,7 +239,7 @@ describe('POST /api/feedback: validation', () => {
     expect((await h.post({ replay: '[1,2]' })).status).toBe(400);
     expect((await h.post({ replay: 'not json' })).status).toBe(400);
     expect(h.rows()).toHaveLength(0);
-    expect(h.r2.objects.size).toBe(0);
+    expect(h.attachments()).toBe(0);
   });
 
   it('an unknown part, a duplicated part, a missing meta, bad JSON, an unknown field and a rating outside the debrief are 400', async () => {
@@ -257,7 +283,7 @@ describe('POST /api/feedback: rate limits', () => {
     expect(await res.json()).toEqual({ retryAfter: IP_LIMIT_RETRY_SECONDS });
     expect(keys).toEqual(['203.0.113.9']);
     expect(h.rows()).toHaveLength(0);
-    expect(h.r2.objects.size).toBe(0);
+    expect(h.attachments()).toBe(0);
   });
 
   it('per session: the 11th note inside an hour is 429, with the wait until the oldest ages out', async () => {
@@ -281,12 +307,12 @@ describe('POST /api/feedback: rate limits', () => {
     expect((await h.post({ meta: { ...META, session: undefined } })).status).toBe(201);
   });
 
-  it('global: the 501st note in a day is 429 whatever ids it carries (a flood cannot fill R2)', async () => {
+  it('global: the 501st note in a day is 429 whatever ids it carries (a flood cannot fill D1)', async () => {
     const h = setup();
     h.seed(FEEDBACK_LIMITS.global.max, {}, NOW - 60_000);
     const anon = { ...META, player: undefined, session: undefined, tester: undefined };
     expect((await h.post({ meta: anon, shot: { bytes: WEBP() } })).status).toBe(429);
-    expect(h.r2.objects.size).toBe(0);
+    expect(h.attachments()).toBe(0);
   });
 });
 
@@ -298,7 +324,7 @@ describe('POST /api/feedback: the kill switch', () => {
     expect(await res.json()).toEqual({ error: 'closed' });
     expect(await (await h.get()).json()).toEqual({ open: false });
     expect(h.rows()).toHaveLength(0);
-    expect(h.r2.objects.size).toBe(0);
+    expect(h.attachments()).toBe(0);
   });
 
   it('FEEDBACK_CLOSED "0", "false" or empty leaves it open', async () => {
@@ -321,24 +347,19 @@ describe('POST /api/feedback: the kill switch', () => {
 });
 
 describe('POST /api/feedback: storage failures leave nothing behind', () => {
-  it('an R2 put failure is 503 and no row is written', async () => {
+  it('an attachment write failure is 503 and the row is deleted again: no note claims a picture it lacks', async () => {
     const h = setup();
-    h.r2.fail.put = true;
+    h.db.raw.exec('CREATE TRIGGER no_pictures BEFORE INSERT ON feedback_picture BEGIN SELECT RAISE(ABORT, "boom"); END');
     expect((await h.post({ shot: { bytes: WEBP() }, replay: REPLAY })).status).toBe(503);
     expect(h.rows()).toHaveLength(0);
+    expect(h.attachments()).toBe(0); // the batch is one transaction: the replay went too
   });
 
-  it('a row failure after R2 succeeded is 503 and the objects are deleted again', async () => {
+  it('a row failure is 503 and writes no attachment', async () => {
     const h = setup();
     h.db.raw.exec('CREATE TRIGGER no_rows BEFORE INSERT ON feedback BEGIN SELECT RAISE(ABORT, "boom"); END');
     expect((await h.post({ shot: { bytes: WEBP() }, replay: REPLAY })).status).toBe(503);
-    expect(h.r2.objects.size).toBe(0);
-  });
-
-  it('an attachment with no bucket bound is 503, not a row pointing nowhere', async () => {
-    const h = setup({ FEEDBACK_BLOBS: undefined });
-    expect((await h.post({ shot: { bytes: WEBP() } })).status).toBe(503);
-    expect(h.rows()).toHaveLength(0);
+    expect(h.attachments()).toBe(0);
   });
 
   it('the migration not applied (no tables) is 503 on POST and GET', async () => {

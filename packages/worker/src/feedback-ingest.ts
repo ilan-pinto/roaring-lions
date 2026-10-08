@@ -4,20 +4,26 @@
  * endpoint and is built like one).
  *
  * Unlike /api/events (always 204), the player is told whether the note landed:
- *   201 {"ref":"FB-0042","id":42}    stored
- *   400 {"error":"<reason>"}         malformed, or a part the source may not send
+ *   201 {"ref":"FB-0042","id":42}    stored, attachments included
+ *   201 {"ref":…,"id":…,"dropped":{"picture":"too_large"}}
+ *                                    stored WITHOUT the picture: it was over 64 KB.
+ *                                    `dropped` can also carry "storage_full" for
+ *                                    the picture and/or the replay (the D1 budget)
+ *   400 {"error":"<reason>"}         malformed, a picture that is not WebP, or a part the source may not send
  *   403 {"error":"origin"}           not the site's own Origin (no null allowance)
  *   405                              any method but GET/POST
  *   410 {"error":"closed"}           the kill switch is on (env FEEDBACK_CLOSED or D1 flags.feedback)
  *   413 {"error":"too large"}        a cap was exceeded (declared or actual)
  *   429 {"retryAfter":<seconds>}     a rate limit (IP, session, player or global)
- *   503 {"error":"storage"}          D1 or R2 failed; nothing is left behind
+ *   503 {"error":"storage"}          D1 failed; nothing is left behind
  * GET answers 200 {"open":true|false} so the app can hide its entry points
  * when the switch is off, without an app deploy.
  *
  * Order matters and each step is cheaper than the next: switch, origin, IP
  * limit, declared size, a size-capped read, parse and validate, the D1-counted
- * limits, then R2 and finally the row. No IP is ever stored.
+ * limits, then the row and its attachments. Everything lives in D1 (the lead's
+ * 2026-10-08 ruling); the picture and replay sit in their own tables so the
+ * list never reads a blob. No IP is ever stored.
  */
 import type { Env } from './d1';
 import {
@@ -35,12 +41,17 @@ const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 /** The D1-counted limits, all on `received_at`. A session is one tab's run of
  *  the game; a player is one browser; `global` is the ceiling that stops a
- *  flood from filling R2 whatever ids it invents. */
+ *  flood from filling D1 whatever ids it invents. */
 export const FEEDBACK_LIMITS = {
   session: { max: 10, windowMs: HOUR },
   player: { max: 20, windowMs: DAY },
   global: { max: 500, windowMs: DAY },
 } as const;
+
+/** What attachments may add to D1, which is also the telemetry store (free
+ *  tier 500 MB). Past either budget a note still lands, without its
+ *  attachments, and the 201 says so. Retention (180 days) frees space. */
+export const ATTACHMENT_BUDGET = { dayBytes: 16 * 1024 * 1024, totalBytes: 200 * 1024 * 1024 } as const;
 
 const NO_STORE = { 'cache-control': 'no-store' } as const;
 const reply = (status: number, body: unknown): Response =>
@@ -91,14 +102,14 @@ async function readCapped(req: Request, max: number): Promise<Uint8Array<ArrayBu
   return out;
 }
 
-export type ShotType = 'image/webp' | 'image/jpeg';
-/** The picture's type from its first bytes, never from what the client says. */
-export function sniffShot(b: Uint8Array): ShotType | null {
+/** WebP from its first bytes, never from what the client says. WebP only:
+ *  a JPEG of the same frame is about twice the size (spec §4.2). */
+export function isWebp(b: Uint8Array): boolean {
   const ascii = (from: number, s: string): boolean => [...s].every((ch, i) => b[from + i] === ch.charCodeAt(0));
-  if (b.length >= 12 && ascii(0, 'RIFF') && ascii(8, 'WEBP')) return 'image/webp';
-  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
-  return null;
+  return b.length >= 12 && ascii(0, 'RIFF') && ascii(8, 'WEBP');
 }
+
+export type DropReason = 'too_large' | 'storage_full';
 
 /** The Nth-newest row inside a window, or null when under the limit. */
 async function limitedFor(env: Env, column: 'session' | 'player' | null, value: string | undefined, max: number, windowMs: number, now: number): Promise<number | null> {
@@ -112,10 +123,25 @@ async function limitedFor(env: Env, column: 'session' | 'player' | null, value: 
   return Math.max(1, Math.ceil((row.received_at + windowMs - now) / 1000));
 }
 
+/** Whether `want` more attachment bytes stay inside both D1 budgets. */
+async function attachmentsFit(env: Env, want: number, now: number): Promise<boolean> {
+  const row = await env.DB.prepare(
+    `SELECT COALESCE(SUM(COALESCE(shot_bytes, 0) + COALESCE(replay_bytes, 0)), 0) AS total,
+            COALESCE(SUM(CASE WHEN received_at > ? THEN COALESCE(shot_bytes, 0) + COALESCE(replay_bytes, 0) ELSE 0 END), 0) AS day
+     FROM feedback WHERE shot_bytes IS NOT NULL OR replay_bytes IS NOT NULL`
+  )
+    .bind(now - DAY)
+    .first<{ total: number; day: number }>();
+  const total = row?.total ?? 0;
+  const day = row?.day ?? 0;
+  return day + want <= ATTACHMENT_BUDGET.dayBytes && total + want <= ATTACHMENT_BUDGET.totalBytes;
+}
+
 interface Parts {
   meta: FeedbackMeta;
-  shot: { bytes: Uint8Array; type: ShotType } | null;
+  shot: Uint8Array | null;
   replay: Uint8Array | null;
+  dropped: { picture?: DropReason; replay?: DropReason };
 }
 
 const partBytes = async (v: FormDataEntryValue): Promise<Uint8Array> =>
@@ -141,18 +167,21 @@ async function parseParts(form: FormData): Promise<Parts | Response> {
   if (problem !== null) return bad(problem);
   const m = meta as FeedbackMeta;
 
-  let shot: Parts['shot'] = null;
+  let shot: Uint8Array | null = null;
+  const dropped: Parts['dropped'] = {};
   const rawShot = form.get('shot');
   if (rawShot !== null) {
     if (typeof rawShot === 'string') return bad('shot is not a file');
     if (m.source !== 'pause') return bad('shot only from the pause form');
-    if (rawShot.size > SHOT_MAX_BYTES) return TOO_LARGE();
-    const bytes = new Uint8Array(await rawShot.arrayBuffer());
-    if (bytes.byteLength > SHOT_MAX_BYTES) return TOO_LARGE();
-    const type = sniffShot(bytes);
-    if (type === null) return bad('shot is not WebP or JPEG');
-    if (rawShot.type !== '' && rawShot.type !== type) return bad('shot type does not match its bytes');
-    shot = { bytes, type };
+    if (rawShot.type !== '' && rawShot.type !== 'image/webp') return bad('shot is not WebP');
+    // Over the cap: the NOTE still lands and the 201 says the picture did
+    // not (the lead's ruling: "picture too large, sent without it").
+    if (rawShot.size > SHOT_MAX_BYTES) dropped.picture = 'too_large';
+    else {
+      const bytes = new Uint8Array(await rawShot.arrayBuffer());
+      if (!isWebp(bytes)) return bad('shot is not WebP');
+      shot = bytes;
+    }
   }
 
   let replay: Uint8Array | null = null;
@@ -170,7 +199,7 @@ async function parseParts(form: FormData): Promise<Parts | Response> {
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return bad('replay is not an object');
     replay = bytes;
   }
-  return { meta: m, shot, replay };
+  return { meta: m, shot, replay, dropped };
 }
 
 export async function handleFeedback(req: Request, env: Env, now: number): Promise<Response> {
@@ -208,7 +237,8 @@ export async function handleFeedback(req: Request, env: Env, now: number): Promi
   }
   const parts = await parseParts(form);
   if (parts instanceof Response) return parts;
-  const { meta, shot, replay } = parts;
+  const { meta, dropped } = parts;
+  let { shot, replay } = parts;
 
   try {
     const L = FEEDBACK_LIMITS;
@@ -221,50 +251,55 @@ export async function handleFeedback(req: Request, env: Env, now: number): Promi
     return STORAGE();
   }
 
-  // R2 first, under a random prefix (the row id does not exist yet), then the
-  // row. A row never points at an object that failed to land; an object
-  // whose row failed is deleted, best effort.
-  const keys: string[] = [];
-  let shotKey: string | null = null;
-  let logKey: string | null = null;
-  if (shot !== null || replay !== null) {
-    const blobs = env.FEEDBACK_BLOBS;
-    if (!blobs) return STORAGE();
-    const prefix = `fb/${crypto.randomUUID()}`;
-    try {
-      if (shot !== null) {
-        shotKey = `${prefix}/shot.${shot.type === 'image/webp' ? 'webp' : 'jpg'}`;
-        keys.push(shotKey);
-        await blobs.put(shotKey, shot.bytes, { httpMetadata: { contentType: shot.type } });
-      }
-      if (replay !== null) {
-        logKey = `${prefix}/replay.json`;
-        keys.push(logKey);
-        await blobs.put(logKey, replay, { httpMetadata: { contentType: 'application/json' } });
-      }
-    } catch {
-      await blobs.delete(keys).catch(() => undefined);
-      return STORAGE();
+  try {
+    const want = (shot?.byteLength ?? 0) + (replay?.byteLength ?? 0);
+    if (want > 0 && !(await attachmentsFit(env, want, now))) {
+      if (shot) dropped.picture = 'storage_full';
+      if (replay) dropped.replay = 'storage_full';
+      shot = null;
+      replay = null;
     }
+  } catch {
+    return STORAGE();
   }
 
+  // The row first (its id keys the attachments), then the attachments in one
+  // batch. If the batch fails the row is deleted again: a note never claims
+  // a picture or replay that is not there.
+  let id: number;
   try {
     const row = await env.DB.prepare(
       `INSERT INTO feedback (received_at, t, player, session, tester, build, "commit", source, category, rating, text,
-         contact, mission, map, tick, context, shot_key, log_key, dev, status, updated_at)
+         contact, mission, map, tick, context, shot_bytes, replay_bytes, dev, status, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?) RETURNING id`
     )
       .bind(
         now, meta.t, meta.player ?? null, meta.session ?? null, meta.tester ?? null, meta.build, meta.commit ?? null,
         meta.source, meta.category, meta.rating ?? null, meta.text, meta.contact ?? null, meta.mission ?? null,
-        meta.map ?? null, meta.tick ?? null, JSON.stringify(meta.context), shotKey, logKey, meta.dev ? 1 : 0, now
+        meta.map ?? null, meta.tick ?? null, JSON.stringify(meta.context), shot?.byteLength ?? null,
+        replay?.byteLength ?? null, meta.dev ? 1 : 0, now
       )
       .first<{ id: number }>();
     if (!row) throw new Error('no id');
-    return reply(201, { ref: feedbackRef(row.id), id: row.id });
+    id = row.id;
   } catch {
-    if (keys.length > 0) await env.FEEDBACK_BLOBS?.delete(keys).catch(() => undefined);
     return STORAGE();
   }
+  if (shot !== null || replay !== null) {
+    const stmts = [];
+    if (shot !== null) stmts.push(env.DB.prepare('INSERT INTO feedback_picture (feedback_id, bytes) VALUES (?, ?)').bind(id, shot));
+    if (replay !== null) {
+      stmts.push(env.DB.prepare('INSERT INTO feedback_replay (feedback_id, json) VALUES (?, ?)').bind(id, new TextDecoder().decode(replay)));
+    }
+    try {
+      await env.DB.batch(stmts);
+    } catch {
+      await env.DB.prepare('DELETE FROM feedback WHERE id = ?').bind(id).run().catch(() => undefined);
+      return STORAGE();
+    }
+  }
+  const out: Record<string, unknown> = { ref: feedbackRef(id), id };
+  if (dropped.picture || dropped.replay) out.dropped = dropped;
+  return reply(201, out);
 }
 

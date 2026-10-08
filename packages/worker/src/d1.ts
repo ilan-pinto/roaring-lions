@@ -14,19 +14,6 @@ export interface D1Like {
 export interface RateLimiter {
   limit(o: { key: string }): Promise<{ success: boolean }>;
 }
-/** The slice of Cloudflare's R2 API the feedback endpoint uses (GH-464). */
-export interface R2ObjectLike {
-  size: number;
-  httpMetadata?: { contentType?: string };
-  arrayBuffer(): Promise<ArrayBuffer>;
-  text(): Promise<string>;
-}
-export interface R2Like {
-  put(key: string, value: ArrayBuffer | Uint8Array | string, options?: { httpMetadata?: { contentType?: string } }): Promise<unknown>;
-  get(key: string): Promise<R2ObjectLike | null>;
-  head(key: string): Promise<{ size: number } | null>;
-  delete(keys: string | string[]): Promise<void>;
-}
 export interface Env {
   DB: D1Like;
   ASSETS: { fetch(request: Request): Promise<Response> };
@@ -38,8 +25,6 @@ export interface Env {
   /** The /stats password, set as a Worker secret. Unset or empty fails closed:
    *  every /stats* path answers 403. */
   STATS_PASSWORD?: string;
-  /** GH-464: the picture and replay store (bucket `roaring-lions-feedback`). */
-  FEEDBACK_BLOBS?: R2Like;
   /** GH-464: POST /api/feedback, keyed on the connecting IP (5 a minute). */
   FEEDBACK_LIMIT?: RateLimiter;
   /** GH-464 kill switch, the deploy-free half: any non-empty value other than

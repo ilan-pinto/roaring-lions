@@ -56,7 +56,8 @@ GROUP BY tester ORDER BY last_seen DESC;
 -- query above. The kill switch is NOT in this file on purpose (the file is run
 -- whole); its one-line command is in migrations/0003_feedback.sql.
 SELECT status, category, COUNT(*) AS notes,
-       SUM(shot_key IS NOT NULL) AS with_picture, SUM(log_key IS NOT NULL) AS with_replay,
+       SUM(shot_bytes IS NOT NULL) AS with_picture, SUM(replay_bytes IS NOT NULL) AS with_replay,
+       SUM(COALESCE(shot_bytes, 0) + COALESCE(replay_bytes, 0)) AS attachment_bytes,
        datetime(MAX(received_at) / 1000, 'unixepoch') AS latest
 FROM feedback GROUP BY status, category ORDER BY status, notes DESC;
 

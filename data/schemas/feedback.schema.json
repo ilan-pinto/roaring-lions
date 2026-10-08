@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://roaring-lions/schemas/feedback.schema.json",
   "title": "In-game feedback: the `meta` part of POST /api/feedback",
-  "description": "GH-464. Spec: docs/superpowers/specs/2026-10-08-in-game-feedback-design.md (\"Server contract as built\"). The Worker's twin is packages/worker/src/feedback-meta.ts, pinned to this file by feedback-meta.test.ts. Rules a JSON Schema cannot state, enforced by the Worker: `context` serialises to at most 8192 UTF-8 bytes; the `meta` part is at most 24 KB; `text` is not whitespace-only for the five form kinds; the multipart `shot` part (image/webp or image/jpeg, magic bytes checked, <= 300 KB) is accepted only with source `pause`; the `replay` part (a JSON object, <= 96 KB) only with source `pause` and category `bug`; the whole body is <= 448 KB.",
+  "description": "GH-464. Spec: docs/superpowers/specs/2026-10-08-in-game-feedback-design.md (\"Server contract as built\"). The Worker's twin is packages/worker/src/feedback-meta.ts, pinned to this file by feedback-meta.test.ts. Rules a JSON Schema cannot state, enforced by the Worker: `context` serialises to at most 8192 UTF-8 bytes; the `meta` part is at most 24 KB; `text` is not whitespace-only for the five form kinds; the multipart `shot` part (image/webp ONLY, magic bytes checked) is accepted only with source `pause`, and one over 64 KB is dropped while the note is still stored (201 with dropped.picture = too_large); the `replay` part (a JSON object, <= 96 KB) only with source `pause` and category `bug`; the whole body is <= 448 KB.",
   "type": "object",
   "additionalProperties": false,
   "required": ["v", "t", "source", "category", "text", "build", "context"],

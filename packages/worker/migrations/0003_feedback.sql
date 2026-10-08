@@ -1,6 +1,8 @@
 -- GH-464: in-game feedback (spec docs/superpowers/specs/2026-10-08-in-game-feedback-design.md
--- §5.1). One row per note a player sends; the picture and the replay live in
--- R2 (binding FEEDBACK_BLOBS) under shot_key / log_key. No IP is stored.
+-- §5.1, §12). One row per note a player sends. The picture and the replay
+-- live in D1 too, in their own tables keyed by feedback id, so the list and
+-- the badge never read a blob (lead's ruling 2026-10-08: everything in D1). No IP is
+-- stored.
 -- Applied to production by the lead BEFORE merge, with:
 --   npx wrangler d1 migrations apply roaring-lions-telemetry --remote
 CREATE TABLE feedback (
@@ -17,7 +19,8 @@ CREATE TABLE feedback (
   contact TEXT,
   mission TEXT, map TEXT, tick INTEGER,
   context TEXT NOT NULL,              -- JSON, <= 8 KB
-  shot_key TEXT, log_key TEXT,        -- R2 keys; NULL when not attached (or purged)
+  shot_bytes INTEGER,                 -- size of the feedback_picture row; NULL when none (or purged)
+  replay_bytes INTEGER,               -- size of the feedback_replay row; NULL when none (or purged)
   dev INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new','triaged','filed','dismissed')),
   issue INTEGER, note TEXT,
@@ -29,6 +32,19 @@ CREATE INDEX feedback_mission ON feedback (mission, received_at);
 CREATE INDEX feedback_player  ON feedback (player, received_at);
 CREATE INDEX feedback_session ON feedback (session, received_at);
 CREATE INDEX feedback_received ON feedback (received_at);
+
+-- The attachments, one row each at most, keyed by the note's id. Kept out of
+-- `feedback` so `SELECT ... FROM feedback` never pages a blob in. The picture
+-- is WebP, at most 64 KB; the replay is JSON, at most 96 KB. `feedback_id` is
+-- the rowid, so last_insert_rowid() after an insert here is still the note's.
+CREATE TABLE feedback_picture (
+  feedback_id INTEGER PRIMARY KEY REFERENCES feedback (id) ON DELETE CASCADE,
+  bytes BLOB NOT NULL
+);
+CREATE TABLE feedback_replay (
+  feedback_id INTEGER PRIMARY KEY REFERENCES feedback (id) ON DELETE CASCADE,
+  json TEXT NOT NULL
+);
 
 -- Server-side switches the lead flips without deploying the app. One row per
 -- switch; a missing row means the default (open). Today only `feedback`:
