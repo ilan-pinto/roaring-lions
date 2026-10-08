@@ -36,6 +36,7 @@ import { FeedModel } from './feed-model';
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
 import { confirmDialog } from './confirm';
+import { leaveCopy } from './leave-copy';
 import { escapeHtml } from './escape-html';
 import { kitIconSignDecorHtml, kitIconSignHtml, kitPipsHtml, withKitSign, type KitSummary } from './kit-sign';
 import { flash, leave, titleCard } from './motion';
@@ -349,6 +350,9 @@ export interface HudDeps {
    *  navigation, because a mission's teardown does not exist yet; absent in
    *  tests that do not exercise the click. */
   leave?: () => void;
+  /** K-13: a free-play sandbox, not a mission -- the leave confirm words
+   *  itself for it. Absent means a mission. */
+  freePlay?: boolean;
   /** Task 6: opens (or, on a second call, closes) the in-mission objective
    *  tracker -- the strip's `+N` control is the one thing on this bar that
    *  reads the mission's FULL objective list rather than the one primary
@@ -656,12 +660,13 @@ export class Hud {
     // walk selects on would make a restyle silently break the walk.
     leaveBtn.className = 'rl-strip__link rl-hud__leave';
     leaveBtn.innerHTML = symbolLabel('leave', t('hud.leave.link')); // GH-261: line of departure
-    leaveBtn.title = t('hud.leave.title');
+    const leaveText = leaveCopy(deps.freePlay === true);
+    leaveBtn.title = leaveText.tip;
     leaveBtn.addEventListener('click', () => {
       void confirmDialog(document.body, {
-        title: t('hud.leave.confirm.title'),
-        body: t('hud.leave.confirm.body'),
-        confirm: t('hud.leave.confirm.action'),
+        title: leaveText.title,
+        body: leaveText.body,
+        confirm: leaveText.confirm,
         danger: true,
       }).answer.then((ok) => {
         if (ok) deps.leave?.();

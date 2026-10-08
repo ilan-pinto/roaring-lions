@@ -418,6 +418,30 @@ describe('top strip: the persistent controls', () => {
     expect(left).toBe(true);
   });
 
+  // K-13. Falsified: leaveCopy ignoring its argument -> the sandbox arm goes red.
+  it('a free-play sandbox words its leave confirm for a sandbox, with no campaign claim', () => {
+    const r = rig(null, { leave: () => undefined, freePlay: true });
+    const btn = r.host.querySelector<HTMLButtonElement>('.rl-hud__leave')!;
+    expect(btn.title).toBe('leave the sandbox');
+    btn.click();
+    const dialog = document.body.querySelector<HTMLElement>('.rl-confirm')!;
+    expect(dialog.textContent).toContain('Leave the sandbox?');
+    expect(dialog.textContent).toContain('Nothing in your campaign changes.');
+    expect(dialog.textContent).not.toContain('keeps everything');
+    expect(dialog.textContent).not.toContain('Leave the mission?');
+    dialog.querySelector<HTMLButtonElement>('.rl-confirm__no, .rl-confirm__cancel')?.click();
+    document.body.querySelector('.rl-confirm')?.remove();
+  });
+
+  it('a mission keeps the attempt-is-lost wording', () => {
+    const r = rig(mission(), { leave: () => undefined });
+    r.host.querySelector<HTMLButtonElement>('.rl-hud__leave')!.click();
+    const dialog = document.body.querySelector<HTMLElement>('.rl-confirm')!;
+    expect(dialog.textContent).toContain('Leave the mission?');
+    expect(dialog.textContent).toContain('The campaign keeps everything from before it.');
+    document.body.querySelector('.rl-confirm')?.remove();
+  });
+
   it('sits leftmost in the strip -- the one control here that ends the attempt, not one of the instruments', () => {
     const r = rig(mission());
     expect(r.host.querySelector('.rl-strip')!.firstElementChild?.classList.contains('rl-strip__link')).toBe(true);

@@ -110,6 +110,7 @@ import {
   type PanVelocity,
 } from './ui/camera-input';
 import { closeOpenDialog, confirmDialog, isDialogOpen } from './ui/confirm';
+import { leaveCopy } from './ui/leave-copy';
 import { closeTip } from './ui/tooltip';
 import { objectiveStatusShout } from './ui/objective-status';
 import { pauseMenu } from './ui/pause';
@@ -2675,6 +2676,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // before it, a soft leave left the HUD, the minimap and the frame loop
     // running over whatever screen came next.
     leave: () => req.navigate(routes.campaign()),
+    freePlay: !mission,
     openObjectives,
     // Task 9: facts only the shell has, handed to the pure priority list in
     // `hint-model.ts`. `renderer.hoverEntity >= 0` is the same "over a
@@ -2818,10 +2820,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       onQuit: () => {
         // Same wording as the HUD's own "leave the mission" confirm
         // (hud.ts's leaveBtn) -- both ask the identical question.
+        const leaveText = leaveCopy(!mission);
         void confirmDialog(document.body, {
-          title: t('hud.leave.confirm.title'),
-          body: t('hud.leave.confirm.body'),
-          confirm: t('hud.leave.confirm.action'),
+          title: leaveText.title,
+          body: leaveText.body,
+          confirm: leaveText.confirm,
           danger: true,
         }).answer.then((ok) => {
           if (ok) req.navigate(routes.campaign());
