@@ -5,7 +5,7 @@
   "budget_priority": 7,
   "light": {
     "color": "vfx.fire",
-    "intensity": 1.6,
+    "intensity": 0.8,
     "radius_tiles": 2.5,
     "decay_ms": 90
   },

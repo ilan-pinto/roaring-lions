@@ -79,6 +79,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { musicOffInitScript } from '../ui-review/music-off';
+import { gpuLaunchArgs, resolveGpuBackend } from '../ui-review/gpu';
 
 // ---------------------------------------------------------------------------
 // The pure half. Imported by `blast-captures.test.ts`, which must not pull
@@ -125,7 +126,16 @@ export function sampleLadder(windowMs: number, everyMs: number): number[] {
 /** The ten-second ladder every subject is photographed on. 51 rungs. */
 export const SAMPLE_MS: readonly number[] = sampleLadder(SAMPLE_WINDOW_MS, SAMPLE_EVERY_MS);
 
-export type BlastMode = 'kill' | 'impact';
+/**
+ * `collapse` (polish VR-22) levels a BUILDING through `Sim.debugDestroyStructure`
+ * and starts its ladder on the tick that drains the `structureDestroyed`
+ * event. The subject's tile is the structure's own; `typeId` is the SPOTTER --
+ * a side-0 body parked `spotterAt` so fog lifts over the building, which is a
+ * black rectangle otherwise. The spotter is a `dozer_d9` because it carries no
+ * weapon: a spotter that could fire would put its own muzzle lights in the pool
+ * the collapse is being measured in.
+ */
+export type BlastMode = 'kill' | 'impact' | 'collapse';
 
 export interface BlastSubject {
   /** This subject's own name: the file prefix, the sheet row, and what
@@ -156,6 +166,16 @@ export interface BlastSubject {
    *  be a legal target (civilians, side 2, never are) without shooting back
    *  at a 350 hp crew during the seconds the round is in the air. */
   readonly baitId?: string;
+  /** `collapse` only: the tile the unarmed spotter is parked on. Chosen OUTSIDE
+   *  the 600x400 ladder crop at zoom 2.5 and inside its 7-tile sight of the
+   *  building's near corner, so it lifts the fog without standing in the
+   *  picture. */
+  readonly spotterAt?: readonly [number, number];
+  /** This subject's ladder zoom, when the top of the clamp frames nothing but
+   *  the subject itself. Absent means `LADDER_ZOOM` (2.5). A house fills the
+   *  whole 600x400 crop at 2.5, so its light -- which falls on the ground
+   *  AROUND it -- had no ground in the picture to land on. */
+  readonly ladderZoom?: number;
   /** The map this subject is photographed on. Absent means the parade map
    *  (`beit_sahwan_outskirts`), which is every subject the before-set carries,
    *  so the comparison half of this sheet is untouched by the relief half. */
@@ -367,6 +387,56 @@ export const BLAST_SUBJECTS: readonly BlastSubject[] = [
       '`hit_stop_ms` 40 at `impactPower` 0.3 -- so this subject is the one place the ' +
       'shake-to-camera-to-screen-pixel path can be read live, at both ends of the zoom clamp, ' +
       'and the one place the freeze can be seen holding a frame',
+  },
+  {
+    id: 'mbt_lavi_z1',
+    typeId: 'mbt_lavi',
+    mode: 'kill',
+    x: 42,
+    y: 3,
+    ladderZoom: 1,
+    // Its own page: a zoom-1 crop is +/-18 tiles wide, and on the parade page
+    // it took in the mortar subject's crater and smoke eight tiles west.
+    isolate: true,
+    ladderMs: SHORT_LADDER_MS,
+    why:
+      "the Lavi kill again, photographed at the COLLAPSE's ladder zoom (1) so the two blast lights " +
+      'are compared on the same framing (polish VR-22: the collapse light must read above the kill). ' +
+      "At 2.5 a house fills the whole crop and its light's pool falls outside it, so the collapse is " +
+      'framed wider, and this is its like-for-like reference. ABSTAINS from `decals`: at zoom 1 ' +
+      "the scorch is a sixth of its 2.5 footprint and read 0 px / 0.0697 against the 0.07 floor; " +
+      'the mark is judged at 2.5 by the three comparison subjects',
+    abstains: ['decals'],
+  },
+  {
+    id: 'collapse_house',
+    typeId: 'dozer_d9',
+    mode: 'collapse',
+    x: 38,
+    y: 31.5,
+    spotterAt: [43, 26],
+    ladderZoom: 1,
+    isolate: true,
+    handTick: true,
+    probe: true,
+    ladderMs: JOLT_LADDER_MS,
+    why:
+      "polish VR-22: a building collapse, the top of the event ladder. `beit_sahwan_outskirts`' " +
+      'south-east house at x 36-39, y 30-32 -- twelve tiles, so `explosionBurstPowerFromFootprint` ' +
+      'reads 1, the full-power collapse -- chosen because nothing stands between it and the camera. ' +
+      'The first pick, the northern house at x 28-31, y 10-12, sits behind the four-storey ' +
+      'apartment from this view and photographed as that apartment\'s roof. HAND-TICKED and ' +
+      'PROBED for the same reason `blast_in_firefight` is: the freeze and the jolt are what this ' +
+      'subject exists to show, and `step(1)` would drain both before rung zero. Every hostile within ' +
+      '`COLLAPSE_CLEAR_TILES` is taken off the field (`removeFromPlay`, no wreck) before anything is ' +
+      'photographed, because the sandbox force garrisons the town this house stands in. ' +
+      'ABSTAINS from `decals`: the rubble lies inside the wreck and under the 2400 ms collapse ' +
+      'shroud at the 2000 ms rung, measured 0 px / 0.0036-0.0349 (floor 0.07) on Metal, 2026-10-08. ' +
+      'It VOTES on `blast-light`: with the light on the street outside the camera-facing corner and ' +
+      'the `collapse_flash` burst drawn through the shroud it reads 13244 px / 4.2412 at the 200 ms ' +
+      "rung, against `mbt_lavi_z1`'s 7165 px / 2.8039 on the same framing (it abstained at 737 px / " +
+      '2.0064 while the light sat on the roof)',
+    abstains: ['decals'],
   },
   // `blast_nomesh` stood here: the same Lavi kill on the billboard path
   // (`&nomesh`), the strongest `decals` witness and the proof that a pixel
@@ -732,6 +802,10 @@ const BLAST_LIGHT_RADIUS_FLOOR = 5;
 const FIREFIGHT_PAIRS = 3;
 const FIREFIGHT_GAP_TILES = 4;
 const FIREFIGHT_WARMUP_TICKS = 60;
+/** `collapse` only: hostiles inside this radius of the building are taken off
+ *  the field before the spotter arrives. Past the 7-tile sight of every
+ *  sandbox hostile that could otherwise reach the spotter. */
+const COLLAPSE_CLEAR_TILES = 14;
 
 /** The repo root, derived from this module's own location rather than from
  *  `process.cwd()`. `pnpm blast:capture` delegates through
@@ -932,11 +1006,14 @@ interface LionsWindow {
     sim: {
       tickCount: number;
       unitTypes: { id: string }[];
-      state: { alive: Int8Array | Uint8Array; posX: Int32Array; posY: Int32Array };
       spawn(typeIdx: number, side: number, x: number, y: number): number;
       tick(): unknown[];
       debugKill(id: number): void;
       removeFromPlay(id: number): void;
+      structureAt(x: number, y: number): number;
+      debugDestroyStructure(id: number): void;
+      state: { alive: Int8Array | Uint8Array; posX: Int32Array; posY: Int32Array; side: Int8Array | Uint8Array };
+      entityCount: number;
     };
   };
 }
@@ -1064,7 +1141,10 @@ async function main(): Promise<void> {
   }
 
   const server = await ensureDevServer(port, REPO_ROOT, 'blast-captures');
-  const browser = await chromium.launch({ headless: true });
+  // `--gpu=metal|swiftshader`, Metal by default on macOS (`ui-review/gpu.ts`,
+  // the same resolver `ui:shots` uses). The backend is recorded in the sheet
+  // either way (`readUnmaskedRenderer`), so a sheet always says which it was.
+  const browser = await chromium.launch({ headless: true, args: gpuLaunchArgs(resolveGpuBackend(process.argv, process.platform)) });
   let gl = 'unknown';
   let firstStepJumpMs = 0;
   try {
@@ -1233,10 +1313,18 @@ async function main(): Promise<void> {
       for (const p of placed) {
         console.log(`${label}: ${p.subject.id} (${p.subject.mode}) at [${p.subject.x}, ${p.subject.y}]`);
         if (p.subject.firefight === true) await stageFirefight(page, p, notes);
+        if (p.subject.mode === 'collapse') {
+          notes.push(
+            `${p.subject.id}: structure ${p.structure} levelled by \`debugDestroyStructure\`, ` +
+              `${p.cleared ?? 0} hostile(s) within ${COLLAPSE_CLEAR_TILES} tiles taken off the field first`
+          );
+        }
         const trigger =
           p.subject.mode === 'kill'
             ? await triggerKill(page, p, stepJumpMs)
-            : await triggerImpact(page, p, notes);
+            : p.subject.mode === 'collapse'
+              ? await triggerCollapse(page, p)
+              : await triggerImpact(page, p, notes);
         if (trigger === null) continue;
 
         // `ageMs` is the FX age this frame really carries. It starts at the
@@ -1331,6 +1419,10 @@ interface Placed {
   entity: number;
   /** `impact` only: the tube. */
   shooter: number;
+  /** `collapse` only: the building, and how many hostiles were taken off the
+   *  field around it. `entity` is then the SPOTTER, so the mesh wait covers it. */
+  structure?: number;
+  cleared?: number;
 }
 
 async function spawnSubjects(
@@ -1344,15 +1436,44 @@ async function spawnSubjects(
     // in the page, and the whole evaluate dies with a bare
     // `ReferenceError: __name is not defined` that names nothing this file
     // wrote. Measured here once, on exactly such a helper.
-    ([rows, fixed]) => {
+    ([rows, fixed, clear]) => {
       const L = (window as unknown as LionsWindow).__lions;
-      const out: { subject: (typeof rows)[number]; entity: number; shooter: number }[] = [];
+      const out: {
+        subject: (typeof rows)[number];
+        entity: number;
+        shooter: number;
+        structure?: number;
+        cleared?: number;
+      }[] = [];
       for (const row of rows) {
         const typeId = row.typeId ?? row.id;
         const idx = L.sim.unitTypes.findIndex((t) => t.id === typeId);
         if (idx < 0) throw new Error(`no unit type "${typeId}" in this build`);
         if (row.mode === 'kill') {
           out.push({ subject: row, entity: L.sim.spawn(idx, 0, row.x * fixed, row.y * fixed), shooter: -1 });
+        } else if (row.mode === 'collapse') {
+          const structure = L.sim.structureAt(Math.floor(row.x), Math.floor(row.y));
+          if (structure < 0) throw new Error(`no structure at [${row.x}, ${row.y}] for "${row.id}"`);
+          const at = row.spotterAt ?? [row.x, row.y - 6];
+          // The hostiles first, so the spotter never sees one: the sandbox
+          // force garrisons the town, and a firefight beside the house would
+          // put muzzle lights and tracers into the frame being measured.
+          let cleared = 0;
+          for (let e = 0; e < L.sim.entityCount; e++) {
+            if (L.sim.state.alive[e] !== 1 || L.sim.state.side[e] !== 1) continue;
+            const ex = L.sim.state.posX[e] / fixed - row.x;
+            const ey = L.sim.state.posY[e] / fixed - row.y;
+            if (ex * ex + ey * ey > clear * clear) continue;
+            L.sim.removeFromPlay(e);
+            cleared++;
+          }
+          out.push({
+            subject: row,
+            entity: L.sim.spawn(idx, 0, at[0] * fixed, at[1] * fixed),
+            shooter: -1,
+            structure,
+            cleared,
+          });
         } else {
           const standoff = row.standoffTiles ?? 6;
           out.push({
@@ -1364,7 +1485,7 @@ async function spawnSubjects(
       }
       return out;
     },
-    [wanted, FIXED] as const
+    [wanted, FIXED, COLLAPSE_CLEAR_TILES] as const
   );
 }
 
@@ -1444,6 +1565,25 @@ async function triggerKill(page: import('playwright').Page, p: Placed, stepJumpM
     [p.entity, hand] as const
   );
   return { ageMs: hand ? 0 : stepJumpMs, fxBaseMs };
+}
+
+/**
+ * Levels the building, delivered BY HAND for the reason `handTick` gives:
+ * `debugDestroyStructure` queues the `structureDestroyed` event, the next
+ * `sim.tick()` drains it, and `renderer.onEvents()` is where the collapse's
+ * light, shake and freeze are requested -- with no frame presented, so rung
+ * zero is a true zero and the hit-stop is still on the clock.
+ */
+async function triggerCollapse(page: import('playwright').Page, p: Placed): Promise<Trigger> {
+  const fxBaseMs = await page.evaluate((structure) => {
+    const L = (window as unknown as LionsWindow).__lions;
+    L.sim.debugDestroyStructure(structure);
+    const events = L.sim.tick();
+    L.renderer.snapshot();
+    L.renderer.onEvents(events);
+    return L.renderer.smokeClockMs;
+  }, p.structure ?? -1);
+  return { ageMs: 0, fxBaseMs };
 }
 
 /**
@@ -1736,7 +1876,7 @@ async function shoot(
     push(ESTABLISH_ZOOM, file, est.tick);
     console.log(`  saved ${file}`);
   }
-  const state = await frameAt(page, subject.x, subject.y, LADDER_ZOOM);
+  const state = await frameAt(page, subject.x, subject.y, subject.ladderZoom ?? LADDER_ZOOM);
   const rect: Rect = {
     x: Math.min(Math.max(0, state.screenX - CLOSE_CROP.width / 2), VIEWPORT.width - CLOSE_CROP.width),
     y: Math.min(
@@ -1746,12 +1886,12 @@ async function shoot(
     w: CLOSE_CROP.width,
     h: CLOSE_CROP.height,
   };
-  const file = `${subject.id}-${subject.mode}-${String(ms).padStart(5, '0')}ms-${label}-z${LADDER_ZOOM}.png`;
+  const file = `${subject.id}-${subject.mode}-${String(ms).padStart(5, '0')}ms-${label}-z${(subject.ladderZoom ?? LADDER_ZOOM)}.png`;
   await page.screenshot({
     path: path.join(out, file),
     clip: { x: rect.x, y: rect.y, width: rect.w, height: rect.h },
   });
-  push(LADDER_ZOOM, file, state.tick);
+  push(subject.ladderZoom ?? LADDER_ZOOM, file, state.tick);
   return rect;
 }
 
@@ -1760,7 +1900,7 @@ async function shoot(
  *  A/B runs. Zero elapsed time, so it moves no clock -- the frame the toggles
  *  are taken on is the same frame either way. */
 async function frameCrop(page: import('playwright').Page, subject: BlastSubject): Promise<Rect> {
-  const state = await frameAt(page, subject.x, subject.y, LADDER_ZOOM);
+  const state = await frameAt(page, subject.x, subject.y, subject.ladderZoom ?? LADDER_ZOOM);
   return {
     x: Math.min(Math.max(0, state.screenX - CLOSE_CROP.width / 2), VIEWPORT.width - CLOSE_CROP.width),
     y: Math.min(

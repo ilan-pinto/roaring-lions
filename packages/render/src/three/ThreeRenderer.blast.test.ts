@@ -63,7 +63,9 @@ import { buildVehicleMeshTemplate, vehicleShroudBounds, type VehicleMeshTemplate
 import { parseRigidFixture } from './units/rigid-mesh-fixture';
 import catastrophic from '../../../../data/vfx/catastrophic_kill.json';
 import shellImpact from '../../../../data/vfx/shell_impact.json';
+import structureCollapse from '../../../../data/vfx/structure_collapse.json';
 import { shakeOffsetPx, initShakeState, type ShakeState } from './blast-shake';
+import { collapseFrontPoint } from './blast-spec';
 import type { EmitterSpec } from '../vfx/emitters';
 import type { ShellModel } from './units/shells';
 
@@ -778,6 +780,39 @@ function driveTiles(r: ThreeRenderer, id: string, tiles: number, ticks: number, 
 function driveOneTile(r: ThreeRenderer, id: string): void {
   driveTiles(r, id, 1, 20);
 }
+
+describe('a building collapse tops the ladder (polish VR-22)', () => {
+  // `fx-ladder.test.ts` proves the AUTHORED order; this proves the renderer
+  // reads it. Without the wiring the ladder test would stay green over a
+  // collapse that still spawned no light, no shake and no freeze.
+  it('spawns the light, pushes the shake and asks for the freeze at the footprint power', () => {
+    const { r, priv } = harness();
+    const em = structureCollapse as unknown as EmitterSpec;
+    r.useEmitters([em], (key) => (key.startsWith('#') ? key : '#FFB43C'));
+    // 3x3 is `explosionBurstPowerFromFootprint`'s reference: power exactly 1,
+    // so every number is the emitter's own authored value.
+    destroyStructure(r, { minX: 10, minY: 10, maxX: 12, maxY: 12 });
+    expect(priv.flashLights.liveCount).toBe(1);
+    // Lead ruling: low, on the street outside the camera-facing (+X/+Z)
+    // corner -- the corner is (13, 13), the light half a tile beyond it.
+    const lit = (priv.flashLights as unknown as { active: { x: number; z: number }[] }).active[0];
+    expect([lit.x, lit.z]).toEqual(collapseFrontPoint({ maxX: [12], maxY: [12] }, 0, MAP, MAP));
+    expect(lit.x).toBeGreaterThan(13);
+    expect(lit.z).toBeGreaterThan(13);
+    expect(priv.shakeState.live.length).toBe(1);
+    expect(priv.hitStop.remainingMs).toBe(em.hit_stop_ms);
+    r.dispose();
+  });
+
+  it('a smaller building asks for less, at its own power', () => {
+    const { r, priv } = harness();
+    const em = structureCollapse as unknown as EmitterSpec;
+    r.useEmitters([em], (key) => (key.startsWith('#') ? key : '#FFB43C'));
+    destroyStructure(r, { minX: 10, minY: 10, maxX: 10, maxY: 10 });
+    expect(priv.hitStop.remainingMs).toBeCloseTo((em.hit_stop_ms ?? 0) / 9, 9);
+    r.dispose();
+  });
+});
 
 describe('the ground remembers (spec §3.3)', () => {
   it('puts scorch and oil under a killed vehicle, through the one entry', () => {

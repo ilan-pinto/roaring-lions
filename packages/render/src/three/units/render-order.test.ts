@@ -33,6 +33,7 @@ import {
   STRUCTURE_RENDER_ORDER,
   TRAIL_RENDER_ORDER,
   SILHOUETTE_RENDER_ORDER,
+  COLLAPSE_FLASH_RENDER_ORDER,
   WORLD_RENDER_ORDER,
   DECAL_PERSISTENT_RENDER_ORDER,
   DECAL_FADING_RENDER_ORDER,
@@ -111,6 +112,11 @@ describe('render order bands', () => {
     // and out of the turret band.
     expect(TRAIL_RENDER_ORDER).toBe(HULL_RENDER_ORDER);
     expect(TRAIL_RENDER_ORDER).toBeLessThan(TURRET_RENDER_ORDER);
+  });
+
+  it('the collapse flash draws over the collapse shroud (smoke band) and under the silhouette (VR-22)', () => {
+    expect(COLLAPSE_FLASH_RENDER_ORDER).toBeGreaterThan(SMOKE_RENDER_ORDER);
+    expect(COLLAPSE_FLASH_RENDER_ORDER).toBeLessThan(SILHOUETTE_RENDER_ORDER);
   });
 
   it('smoke sits strictly above the overlay tier -- it must paint over HP bars/rings/markers', () => {
