@@ -137,6 +137,11 @@ export interface TrackDeps {
    *  accordion (none exists today, but a future read-only embed might) need
    *  not wire it. */
   readonly onActivate?: () => void;
+  /** The track's close-up (`garage-closeup.ts`'s `trackCloseup`, GH-238
+   *  K11): drawn in the head where the hatch is, the glyph kept over it.
+   *  Absent or `null` -- no photograph for this type and track -- keeps the
+   *  hatch, and so does a file that fails to load. */
+  readonly closeup?: string | null;
 }
 
 /**
@@ -206,6 +211,21 @@ export function trackEl(trackName: string, track: UpgradeTrack, deps: TrackDeps)
   const headEmblem = emblemSvg(trackName);
   if (headEmblem !== null) glyph.innerHTML = headEmblem;
   else if (isKitTrack(trackName)) glyph.innerHTML = kitSymbolSvg(trackName, 40);
+  // The close-up (GH-238 K11) takes the hatch's place, under the glyph. A
+  // load failure puts the hatch back rather than leaving a broken image.
+  if (deps.closeup) {
+    const photo = document.createElement('img');
+    photo.className = 'rl-garage__track-closeup';
+    photo.src = deps.closeup;
+    photo.alt = t('garage.track.closeup', { name: deps.unitName, track: trackLabel });
+    photo.decoding = 'async';
+    photo.addEventListener('error', () => {
+      photo.remove();
+      delete glyph.dataset.closeup;
+    });
+    glyph.dataset.closeup = '1';
+    glyph.prepend(photo);
+  }
   head.appendChild(glyph);
 
   const headLine = el('span', 'rl-garage__track-line');

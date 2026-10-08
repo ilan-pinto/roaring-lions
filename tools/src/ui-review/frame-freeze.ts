@@ -13,7 +13,7 @@
 // the same page afterwards (it evaluates its own capture script and
 // screenshots directly), so it never needs `requestAnimationFrame` handed
 // back. shoot.ts does -- `.rl-outcome__skip`'s click and the
-// `.rl-endnav`/`.rl-debrief` waits that follow the outcome screenshot are
+// `.rl-aar` wait (the after-action report) that follows the outcome screenshot is
 // exactly the Playwright convenience methods (`page.click`/
 // `page.waitForSelector`) a one-way freeze would have to survive, and it does
 // not: freezing right after `debugKill`+`step(40)` and then calling

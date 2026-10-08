@@ -322,6 +322,7 @@ afterEach(async () => {
   // in-flight pass must never reach the next test's stub.
   for (const { audio, added } of live.splice(0)) {
     await audio.decoded();
+    audio.dispose();
     for (const [type, fn] of added) if (fn) window.removeEventListener(type, fn);
   }
   globalThis.AudioContext = realAudioContext;
@@ -433,6 +434,26 @@ describe('playUi — the garage’s two cues (WP-S3g §3.5, R-2)', () => {
     }
   });
 
+  it('a kit fitted rattles four clicks, then clanks low: never the alert’s two-note fall (GH-238 K10)', () => {
+    vi.useFakeTimers();
+    try {
+      const { audio, ctx } = attached();
+      audio.playUi('ui_kit_fitted');
+      vi.advanceTimersByTime(250);
+      const f = freqs(ctx);
+      expect(f).toHaveLength(5);
+      expect(f.slice(0, 4)).toEqual([2600, 2540, 2480, 2420]);
+      expect(f[4]).toBe(420);
+      const started = ctx.oscillators.length;
+      vi.advanceTimersByTime(400);
+      expect(ctx.oscillators.length).toBe(started);
+      // Landing at 150 ms and ringing 90 ms: the whole cue is inside 250 ms.
+      for (const s of ctx.stops) expect(s).toBeLessThanOrEqual(0.1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('both finish inside 250 ms (spec §6)', () => {
     vi.useFakeTimers();
     try {
@@ -481,8 +502,9 @@ describe('decodeOrder', () => {
       destroyed: set('destroyed'),
       ui_purchase: set('ui'),
       ui_upgrade: set('ui'),
+      ui_kit_fitted: set('ui'),
     }).map(([name]) => name);
-    expect(order).toEqual(['ui_alert', 'ui_purchase', 'ui_upgrade', 'rifle', 'cannon', 'destroyed']);
+    expect(order).toEqual(['ui_alert', 'ui_purchase', 'ui_upgrade', 'ui_kit_fitted', 'rifle', 'cannon', 'destroyed']);
   });
   it('reads an absent manifest section as nothing to decode', () => {
     expect(decodeOrder(undefined)).toEqual([]);
@@ -1799,6 +1821,66 @@ describe('decode latency: ui cues never hold the voices back', () => {
       expect(audio.voiceStats().keys).toBeGreaterThanOrEqual(1);
       await vi.advanceTimersByTimeAsync(2000);
       expect(audio.voiceStats().keys).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('dispose (gates red on main: a music-duck timer outlived its test)', () => {
+  const M: AudioManifest = {
+    master_gain: 1,
+    music: { gain: 0.4, battle_gain: 0.26, tracks: [{ file: 'music/t.mp3' }] },
+    sets: { alert_major: { event: 'ui', variants: [] }, ui_upgrade: { event: 'ui', variants: [] } },
+    cues: { 'alert.major': 'alert_major', 'ui.upgrade': 'ui_upgrade' },
+  };
+  // Starts every kind of timer the mixer owns: the music scene step, the music
+  // duck step and a cue hold (all three from one cue plus one scene change),
+  // and the delayed notes of a multi-note synth cue.
+  const startTimers = () => {
+    const { audio } = attachedWith((a) => a.useManifest(M, '/a/'));
+    audio.setMusicScene('battle');
+    expect(audio.playCue('alert.major')).toBe('played');
+    expect(audio.playCue('ui.upgrade')).toBe('played');
+    return audio;
+  };
+
+  it('leaves no timer pending once disposed', () => {
+    vi.useFakeTimers();
+    try {
+      const audio = startTimers();
+      // The control: without this the zero below could be a mixer that never
+      // started a timer at all.
+      expect(vi.getTimerCount()).toBeGreaterThan(2);
+      audio.dispose();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a delayed synth note does not sound after dispose', () => {
+    vi.useFakeTimers();
+    try {
+      const audio = startTimers();
+      const { ctx } = { ctx: FakeContext.made[0] };
+      if (!ctx) throw new Error('no context');
+      const made = ctx.oscillators.length;
+      audio.dispose();
+      vi.advanceTimersByTime(5000);
+      expect(ctx.oscillators.length).toBe(made);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('is safe to call twice, and before attach', () => {
+    new BattleAudio().dispose();
+    vi.useFakeTimers();
+    try {
+      const audio = startTimers();
+      audio.dispose();
+      expect(() => audio.dispose()).not.toThrow();
     } finally {
       vi.useRealTimers();
     }

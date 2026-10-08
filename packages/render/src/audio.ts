@@ -570,6 +570,16 @@ type SynthNote = readonly [number, number, OscillatorType, number, number];
 export const SYNTH_CUES: Readonly<Record<string, readonly SynthNote[]>> = {
   ui_purchase: [[196, 0.08, 'triangle', 0.06, 0], [294, 0.12, 'sine', 0.045, 70]],
   ui_upgrade: [[1175, 0.02, 'square', 0.02, 0], [1175, 0.02, 'square', 0.02, 35], [880, 0.1, 'sine', 0.045, 90]],
+  // Bolt-on (GH-238 K10): a short rattle of four square pawl clicks, then a
+  // low triangle clank landing on them. Not ui_upgrade's click-then-note
+  // shape, and nowhere near the alert's falling pair.
+  ui_kit_fitted: [
+    [2600, 0.012, 'square', 0.02, 12],
+    [2540, 0.012, 'square', 0.024, 37],
+    [2480, 0.012, 'square', 0.028, 62],
+    [2420, 0.012, 'square', 0.032, 87],
+    [420, 0.09, 'triangle', 0.06, 150],
+  ],
   ui_confirm: [[1320, 0.04, 'sine', 0.03, 0]],
   ui_deny: [[147, 0.06, 'square', 0.03, 0], [147, 0.07, 'square', 0.03, 100]],
   alert_minor: [[880, 0.06, 'triangle', 0.04, 0]],
@@ -656,6 +666,8 @@ export class BattleAudio {
   private readonly holds = new Map<string, DuckRow>();
   /** When a timed hold lets go, by hold id. */
   private readonly holdTimers = new Map<string, number>();
+  /** The later notes of a synth cue, each pending until it sounds. */
+  private readonly toneTimers = new Set<number>();
   /** Context time before which only an outcome cue may sound. */
   private cueBlockUntil = 0;
   /** The music scene and its gain, which steps towards the scene's level. */
@@ -1195,7 +1207,13 @@ export class BattleAudio {
     let seconds = 0;
     for (const [freq, dur, type, gain, delayMs] of shape) {
       if (delayMs === 0) this.tone(freq, dur, type, gain, bus);
-      else window.setTimeout(() => this.tone(freq, dur, type, gain, bus), delayMs);
+      else {
+        const id = window.setTimeout(() => {
+          this.toneTimers.delete(id);
+          this.tone(freq, dur, type, gain, bus);
+        }, delayMs);
+        this.toneTimers.add(id);
+      }
       seconds = Math.max(seconds, delayMs / 1000 + dur);
     }
     return seconds;
@@ -1252,6 +1270,24 @@ export class BattleAudio {
         this.startAmbience(DUCK_TABLE.pause.releaseS);
       }
     }
+  }
+
+  /**
+   * Let go of every timer the mixer owns: the music scene and duck steps, the
+   * cue holds and the pending notes of a synth cue. A timer that outlives its
+   * owner fires into whatever is left (a torn-down test environment threw
+   * "window is not defined" and turned the gates job red), so a screen that
+   * is done with the mixer calls this. Idempotent, and safe before `attach()`.
+   */
+  dispose(): void {
+    if (this.musicSceneTimer !== null) window.clearTimeout(this.musicSceneTimer);
+    this.musicSceneTimer = null;
+    if (this.musicDuckTimer !== null) window.clearTimeout(this.musicDuckTimer);
+    this.musicDuckTimer = null;
+    for (const t of this.holdTimers.values()) window.clearTimeout(t);
+    this.holdTimers.clear();
+    for (const t of this.toneTimers) window.clearTimeout(t);
+    this.toneTimers.clear();
   }
 
   /**

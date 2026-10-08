@@ -147,20 +147,20 @@ one directory, `**` crosses directories).
 
 | Files | What it is | Made from | Tool | AI-generated | Rights | Record |
 |---|---|---|---|---|---|---|
-| `art/meshes/vehicles/apc_eitan.glb` | Eitan 8x8 APC | Ledger `apc_eitan` (text-to-3D, refine 2k, remesh), own bake; kit RWS on the roof ring | Meshy CLI; Blender, `export_meshy_apc.py`; wreck pass | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | Batch B0a units (GH-286) |
-| `art/meshes/vehicles/apc_kipod.glb` | Kipod 6x6 screen carrier | Ledger `apc_kipod` (text-to-3D, refine 2k, remesh), own bake; kit RWS on the roof ring | Meshy CLI; Blender, `export_meshy_apc.py`; wreck pass | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | Batch B0a units (GH-286) |
+| `art/meshes/vehicles/apc_eitan.glb` | Eitan 8x8 APC | Ledger `apc_eitan` (text-to-3D, refine 2k, remesh), own bake; kit RWS on the roof ring | Meshy CLI; Blender, `export_meshy_apc.py`; wreck pass; kit_* nodes grafted by `pnpm kit:meshes` (GH-238) | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | Batch B0a units (GH-286); kit_* nodes: GH-238 plan 3, section "Kitted vehicles" |
+| `art/meshes/vehicles/apc_kipod.glb` | Kipod 6x6 screen carrier | Ledger `apc_kipod` (text-to-3D, refine 2k, remesh), own bake; kit RWS on the roof ring | Meshy CLI; Blender, `export_meshy_apc.py`; wreck pass; kit_* nodes grafted by `pnpm kit:meshes` (GH-238) | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | Batch B0a units (GH-286); kit_* nodes: GH-238 plan 3, section "Kitted vehicles" |
 | `art/meshes/vehicles/attack_drone.glb` | KDF loitering munition | Ledger `attack_drone` (stage 2: preview, refine 8k, remesh) | Meshy CLI; Blender, `export_meshy_drones.py`; wreck pass | Yes: Meshy | ARR; Meshy terms pending (item 1) | WP-A3.1 stage 2, the drones and the bike |
 | `art/meshes/vehicles/recon_drone.glb` | KDF recon drone | Ledger `recon_drone` (stage 2: preview, refine 8k, remesh); guard rings added in Blender | Meshy CLI; Blender, `export_meshy_drones.py`; wreck pass | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | WP-A3.1 stage 2, the drones and the bike |
 | `art/meshes/vehicles/loiter_drone.glb` | Sarim loitering munition | Ledger `loiter_drone` (B2: preview, remesh 800) | Meshy CLI; Blender, `export_meshy_loiter_drone.py`; wreck pass | Yes: Meshy | ARR; Meshy terms pending (item 1) | WP-A3.1 batch B2 |
 | `art/meshes/vehicles/demo_tzav.glb` | Shiryonan Demolition Carrier (held) | Ledger `demo_tzav` (text-to-3D, refine 2k, remesh), own bake; kit RWS | Meshy CLI; Blender, `export_meshy_tzav.py`; wreck pass | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | E5 part 2 |
-| `art/meshes/vehicles/dozer_d9.glb` | D9 dozer | Ledger `dozer_d9` (ramp set), own bake with the refine's white star painted out | Meshy CLI; Blender, `export_meshy_ramp.py`; wreck pass | Yes: Meshy | ARR; Meshy terms pending (item 1) | The A3.2 ramp set and the tunnel props |
-| `art/meshes/vehicles/scout_shachaf.glb` | Shachaf scout car | Ledger `scout_shachaf` (ramp set), own bake; kit RWS | Meshy CLI; Blender, `export_meshy_ramp.py`; wreck pass | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | The A3.2 ramp set and the tunnel props |
+| `art/meshes/vehicles/dozer_d9.glb` | D9 dozer | Ledger `dozer_d9` (ramp set), own bake with the refine's white star painted out | Meshy CLI; Blender, `export_meshy_ramp.py`; wreck pass; kit_* nodes grafted by `pnpm kit:meshes` (GH-238) | Yes: Meshy | ARR; Meshy terms pending (item 1) | The A3.2 ramp set and the tunnel props; kit_* nodes: GH-238 plan 3, section "Kitted vehicles" |
+| `art/meshes/vehicles/scout_shachaf.glb` | Shachaf scout car | Ledger `scout_shachaf` (ramp set), own bake; kit RWS | Meshy CLI; Blender, `export_meshy_ramp.py`; wreck pass; kit_* nodes grafted by `pnpm kit:meshes` (GH-238) | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | The A3.2 ramp set and the tunnel props; kit_* nodes: GH-238 plan 3, section "Kitted vehicles" |
 | `art/meshes/vehicles/gun_truck.glb` | AA gun truck (enemy) | Ledger `gun_truck` (B2: text-to-3D, refine 2k, remesh), own bake | Meshy CLI; Blender, `export_meshy_gun_truck.py`; wreck pass | Yes: Meshy | ARR; Meshy terms pending (item 1) | WP-A3.1 batch B2 |
-| `art/meshes/vehicles/ifv_namer.glb` | Namer IFV (v2) | Ledger `ifv_namer` (B8 v2: `01a0fb1d` preview, 8k refine, remesh); kit RWS | Meshy CLI; Blender, `export_meshy_ramp.py`; wreck pass | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | WP-A3.1 batch B8 v2 |
-| `art/meshes/vehicles/mbt_lavi.glb` | Lavi MBT | Supplied Meshy export `Meshy_AI_A_3D_low_poly_futuris_0829201559_texture.blend` (no task id kept) | Meshy web export; Blender, `export_meshy_tank.py`; wreck pass | Yes: Meshy | ARR; Meshy terms pending (item 1) | The supplied Meshy assets |
+| `art/meshes/vehicles/ifv_namer.glb` | Namer IFV (v2) | Ledger `ifv_namer` (B8 v2: `01a0fb1d` preview, 8k refine, remesh); kit RWS | Meshy CLI; Blender, `export_meshy_ramp.py`; wreck pass; kit_* nodes grafted by `pnpm kit:meshes` (GH-238) | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | WP-A3.1 batch B8 v2; kit_* nodes: GH-238 plan 3, section "Kitted vehicles" |
+| `art/meshes/vehicles/mbt_lavi.glb` | Lavi MBT | Supplied Meshy export `Meshy_AI_A_3D_low_poly_futuris_0829201559_texture.blend` (no task id kept) | Meshy web export; Blender, `export_meshy_tank.py`; wreck pass; kit_* nodes grafted by `pnpm kit:meshes` (GH-238) | Yes: Meshy | ARR; Meshy terms pending (item 1) | The supplied Meshy assets; kit_* nodes: GH-238 plan 3, section "Kitted vehicles" |
 | `art/meshes/vehicles/technical.glb` | Armed technical (enemy) | Supplied Meshy exports `Technical_Truck_Body_0829203857` and `Pintle_Mount_Machine__0829203951` | Meshy web export; Blender, `export_meshy_truck.py`; wreck pass | Yes: Meshy | ARR; Meshy terms pending (item 1) | The supplied Meshy assets |
-| `art/meshes/vehicles/jeep_shoded.glb` | Shoded jeep | Supplied Meshy exports `military_utility_vehi_0907064115` (image-to-3D) and `military_vehicle_spli_0830115629` (part-segmentation) | Meshy web export; Blender, `export_meshy_jeep.py`; wreck pass | Yes: Meshy | ARR; Meshy terms pending (item 1) | The supplied Meshy assets |
-| `art/meshes/vehicles/heli_peten.glb` | Peten attack helicopter | Supplied Meshy export `attack_helicopter_spl_0830150207` (part-segmentation) | Meshy web export; Blender, `export_meshy_apache.py`; wreck pass | Yes: Meshy | ARR; Meshy terms pending (item 1) | The supplied Meshy assets |
+| `art/meshes/vehicles/jeep_shoded.glb` | Shoded jeep | Supplied Meshy exports `military_utility_vehi_0907064115` (image-to-3D) and `military_vehicle_spli_0830115629` (part-segmentation) | Meshy web export; Blender, `export_meshy_jeep.py`; wreck pass; kit_* nodes grafted by `pnpm kit:meshes` (GH-238) | Yes: Meshy | ARR; Meshy terms pending (item 1) | The supplied Meshy assets; kit_* nodes: GH-238 plan 3, section "Kitted vehicles" |
+| `art/meshes/vehicles/heli_peten.glb` | Peten attack helicopter | Supplied Meshy export `attack_helicopter_spl_0830150207` (part-segmentation) | Meshy web export; Blender, `export_meshy_apache.py`; wreck pass; kit_* nodes grafted by `pnpm kit:meshes` (GH-238) | Yes: Meshy | ARR; Meshy terms pending (item 1) | The supplied Meshy assets; kit_* nodes: GH-238 plan 3, section "Kitted vehicles" |
 | `art/meshes/vehicles/heli_peten_gunship.glb` | Peten Gunship (held) | The shipped `heli_peten.glb` re-opened, plus kit stores, pods and sensor parts; 0 credits | Blender, `export_meshy_apache_gunship.py`; wreck pass | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | E5 part 2 |
 | `art/meshes/vehicles/officer_armour.glb` | Command Lavi (held) | The shipped `mbt_lavi.glb` re-exported with kit cupola and masts; 0 credits | Blender, `export_officer_armour.py`; wreck pass | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | GH-298, the officers |
 | `art/meshes/vehicles/paramotor.glb` | Paramotor (enemy) | Supplied Meshy exports `paramotor_canopy_3d_0831095518` and `paramotor_trike_3d_0831095609` (image-to-3D) | Meshy web export; Blender, `export_meshy_paramotor.py`; wreck pass | Yes: Meshy | ARR; Meshy terms pending (item 1) | the exporter's docstring (the script under Tool) |
@@ -237,6 +237,7 @@ one directory, `**` crosses directories).
 | `art/meshy/**/model.glb` | Meshy remesh sources the importers read (27) and the coin relief preview (1) | Downloaded remesh or preview output | Meshy CLI | Yes: Meshy | ARR; Meshy terms pending (item 1) | each batch's section; the preview and refine downloads are not committed |
 | `art/mocap/{meshy_soldier,sarim_rifles,yahalom_engineer}.json` | Bone rotations of the supplied Meshy bipeds' own clips | `git show e31ebdf3:art/meshes/<name>.glb`, rotations only, by `tools/units/extract_mocap.py`; no geometry | Python (`extract_mocap.py`) | Yes: Meshy animation library | ARR; Meshy terms pending (item 1) | The captured clips, restored |
 | `art/parts/rpg7.glb` | RPG-7 launcher part | Supplied Meshy export `RPG_7_launcher_0903143528` (image-to-3D, 3 Sep), decimated to 559 tris | Meshy web export; Blender, `export_meshy_rpg.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | WP-A3.1 stage 2, the hand weapons |
+| `art/parts/kit/*.glb` | Kit parts for the eight KDF vehicles (GH-238 plan 3): `kit_<track>_<tier>_<host>` nodes, the SOURCE the graft reads | Modelled in Blender at real metres by `tools/vehicles/kit_parts.py` and `kit_vehicles.py` to the numbers of `kit_blockout.py`'s approved mock; no import, no Meshy credit (K12) | Blender, `tools/vehicles/export_vehicle_kit.py` (UVs pinned to texels of each vehicle's existing Meshy bake; clash-checked by `kit_clash.py`) | No: hand-built by code, no generative art tool | ARR, project original | GH-238 plan 3, section "Kitted vehicles" |
 | `art/spike/inf_squad_rigged.glb` | R0 rigging spike (throwaway; used only by `tools/src/perf/three-units.ts`) | `kit.figure()` rigged in code; no model imported | Blender, `tools/spike_rig_infantry.py` | No | ARR, project original; CC BY-SA 4.0 window (1 of 1) | `tools/spike_rig_infantry.py` docstring |
 | `art/showcase/README.md`<br>`art/showcase/apc_detail.blend`<br>`art/showcase/apc_showcase.blend` | APC hero asset for marketing (feeds no build) | Built from primitives by `tools/showcase/apc_detail.py`, then refined by hand in a live Blender session | Blender | No | ARR, project original; CC BY-SA 4.0 window (3 of 3) | `art/showcase/README.md` |
 | `art/src/buildings/{apartment,concrete,house,shanty,wall,warehouse}.blend`<br>`art/src/buildings/README.md` | Kit-built building sources (superseded by the Meshy GLBs above) | `tools/buildings/author_<name>.py` over `kit.py` | Blender, code | No | ARR, project original; CC BY-SA 4.0 window (7 of 7) | the `author_*.py` docstrings |
@@ -269,6 +270,8 @@ one directory, `**` crosses directories).
 | `assets/ui/portraits/units/lead/*.png` | 192 px lead-figure chips | Downsampled from `masters/lead` | `tools/render_unit_portraits.py` | Derived from Meshy meshes | ARR; derived from Meshy output (item 1) | `tools/render_unit_portraits.py` docstring |
 | `assets/ui/portraits/{shai_hammai,idit_zohar,nadir_sahim,karim_adhal,jubran_hallaq}.png` | Named-character portraits | Rendered from the lead's Meshy image-to-3D figures (untracked, `art/blend/KDF/...`); the concept images behind them are not recorded (item 7) | `tools/render_portrait.py` (Blender) | Yes: Meshy (figures); concept images unrecorded | ARR; Meshy terms pending (item 1) | `docs/art/meshy-prompts-characters.md` |
 | `assets/ui/plates/units/*.jpg`<br>`assets/ui/plates/units/manifest.json` | Garage plates, one per KDF type | Photographed from the running game with the unit's mesh on the ground texture | `pnpm plates:units` (Playwright over the game) | Derived from Meshy meshes | ARR; derived from Meshy output (item 1) | `tools/src/perf/unit-plates.ts` and CLAUDE.md, `pnpm plates:units` |
+| `assets/ui/plates/units/kit/*.jpg`<br>`assets/ui/plates/units/kit/manifest.json` | Kitted garage plates: the eight KDF vehicles at L3 (every track at tier 3), read only by the bay's no-WebGL2 fallback (GH-238 plan 3) | Photographed in game from the kitted GLBs (the Meshy-derived hull plus the Blender-built `kit_*` parts) | `pnpm plates:units --kit` (Playwright over the game) | No: a photograph of the game's own scene; derived from the vehicles' existing disclosed Meshy bakes | ARR; derived from Meshy output (item 1) | Kitted vehicles (GH-238 plan 3); `tools/src/perf/unit-plates.ts` |
+| `assets/ui/garage/closeups/*.jpg`<br>`assets/ui/garage/closeups/manifest.json` | 54 garage track close-ups, 480x320, one per KDF type and track (GH-238 K11) | Rendered from the garage turntable's own camera (its FOV and elevation), framed on the track's kit (the eight vehicles) or on the region the track concerns (every other KDF type) | `pnpm closeups:garage` (Playwright over the game) | No: renders of the game's own scene; derived from the existing disclosed Meshy bakes (vehicles) and the existing infantry art | ARR; derived from Meshy output (item 1) | Kitted vehicles (GH-238 plan 3); `tools/src/perf/garage-closeups.ts` |
 | `assets/ui/menu_host_plate.jpg` | Menu background plate | Photographed from the scene host (`menu_diorama.json`) | `pnpm plate:host` (Playwright over the game) | Derived from Meshy meshes | ARR; derived from Meshy output (item 1) | `tools/src/perf/host-plate-capture.ts`, CLAUDE.md `pnpm plate:host` |
 | `assets/ui/kit/*.svg` | Twelve garage upgrade emblems (3 track heads, 9 tiers) | Drawn as SVG paths, `currentColor` only | Hand-written SVG with Claude Code assistance | No | ARR, project original | GH-238 |
 | `assets/ui/roar_coin/*.{png,svg}` | Roar coin at 16, 24, 48, 96, 512 px, flat variants and spin strip | `tools/roar_coin.py` over the Meshy lion relief (ledger `roar-lion-relief`, preview `01a0f804`) | Blender, code; Meshy CLI | Yes: Meshy (relief only) | ARR; Meshy terms pending (item 1) | The Roar coin's lion relief |
@@ -301,6 +304,7 @@ one directory, `**` crosses directories).
 | `assets/audio/destroyed/destroyed_0{1,2,3}.{ogg,m4a}` | destroyed: 3 variants, ogg and m4a | `tools/gen_audio.py`: noise, envelopes and a reverb tail synthesised in numpy (fixed seed), encoded by ffmpeg | Python (numpy), ffmpeg | No: procedural synthesis, no generative model | CC0-1.0, declared in `data/audio.json`; gated by `pnpm validate:audio` | `data/audio.json`, `sets` |
 | `assets/audio/ui_purchase/ui_purchase_01.{ogg,m4a}` | ui purchase cue: ogg and m4a | `tools/gen_audio.py`: noise, envelopes and a reverb tail synthesised in numpy (fixed seed), encoded by ffmpeg | Python (numpy), ffmpeg | No: procedural synthesis, no generative model | CC0-1.0, declared in `data/audio.json`; gated by `pnpm validate:audio` | `data/audio.json`, `sets` |
 | `assets/audio/ui_upgrade/ui_upgrade_01.{ogg,m4a}` | ui upgrade cue: ogg and m4a | `tools/gen_audio.py`: noise, envelopes and a reverb tail synthesised in numpy (fixed seed), encoded by ffmpeg | Python (numpy), ffmpeg | No: procedural synthesis, no generative model | CC0-1.0, declared in `data/audio.json`; gated by `pnpm validate:audio` | `data/audio.json`, `sets` |
+| `assets/audio/ui_kit_fitted/ui_kit_fitted_01.{ogg,m4a}` | ui kit fitted cue (the bolt-on: a pawl rattle, then a plate clank; GH-238 K10): ogg and m4a | `tools/gen_audio.py`: square-wave clicks, sine strikes and envelopes synthesised in numpy (RNG-free), encoded by ffmpeg | Python (numpy), ffmpeg | No: procedural synthesis, no generative model | CC0-1.0, declared in `data/audio.json`; gated by `pnpm validate:audio` (mono, <= 250 ms, peak under -5 dBFS) | `data/audio.json`, `sets` |
 | `assets/audio/ui_confirm/ui_confirm_01.{ogg,m4a}` | ui confirm cue (a 1.3 kHz tick; primary buttons only, A8), polish pass F: ogg and m4a | `tools/gen_audio.py` (ported unchanged from `docs/polish/audio/cue_candidates.py`, candidate A, the lead's pick 2026-10-06): sine strikes and a breath of filtered noise synthesised in numpy (fixed per-cue seed), encoded by ffmpeg | Python (numpy), ffmpeg | No: procedural synthesis, no generative model | CC0-1.0, declared in `data/audio.json`; gated by `pnpm validate:audio` and `gen_audio.py`'s tier ceilings | `data/audio.json`, `sets` |
 | `assets/audio/ui_deny/ui_deny_01.{ogg,m4a}` | ui deny cue (two dull D3 square pulses; a refused order), polish pass F: ogg and m4a | `tools/gen_audio.py` (ported unchanged from `docs/polish/audio/cue_candidates.py`, candidate A, the lead's pick 2026-10-06): low-passed square pulses synthesised in numpy (fixed per-cue seed), encoded by ffmpeg | Python (numpy), ffmpeg | No: procedural synthesis, no generative model | CC0-1.0, declared in `data/audio.json`; gated by `pnpm validate:audio` and `gen_audio.py`'s tier ceilings | `data/audio.json`, `sets` |
 | `assets/audio/alert_minor/alert_minor_01.{ogg,m4a}` | minor alert cue (one woodblock knock; under fire, pinned), polish pass F: ogg and m4a | `tools/gen_audio.py` (ported unchanged from `docs/polish/audio/cue_candidates.py`, candidate A, the lead's pick 2026-10-06): sine strikes and a breath of filtered noise synthesised in numpy (fixed per-cue seed), encoded by ffmpeg | Python (numpy), ffmpeg | No: procedural synthesis, no generative model | CC0-1.0, declared in `data/audio.json`; gated by `pnpm validate:audio` and `gen_audio.py`'s tier ceilings | `data/audio.json`, `sets` |
@@ -339,7 +343,7 @@ reads the first cell of every register row and compares it with
 rows, a pattern that covers nothing, a Meshy task that the ledger and the
 committed `task.json` files disagree about (in either direction), and an
 `art/meshes` GLB with no Draco twin under `assets/meshes` or the reverse. On
-this branch: 995 files, 306 patterns, 138 rows, no problems.
+this branch: 1091 files, 335 patterns, 153 rows, no problems.
 
 It checks that a row exists. It cannot check that the row is true; that is
 what the Record column is for.
@@ -934,6 +938,42 @@ the chord radius so the test becomes "outboard of the arm-root ring", which is s
 this figure because no pack face reaches that far out. The whip and the slung carbine
 were left out of the prompt on purpose (B0a measured that a remesh drops every thin whip;
 a slung gun on the base figure would arm all three men) and are kit geometry instead.
+
+## Kitted vehicles (GH-238 plan 3, 2026-10-07)
+
+An upgraded vehicle looks different: eight KDF vehicles (`mbt_lavi`, `ifv_namer`,
+`apc_eitan`, `apc_kipod`, `jeep_shoded`, `scout_shachaf`, `dozer_d9`,
+`heli_peten`) carry their kit as `kit_*` nodes in their one GLB.
+
+- **`art/parts/kit/<id>.glb` (eight files).** Blender-built by
+  `tools/vehicles/export_vehicle_kit.py` from `tools/vehicles/kit_parts.py` and
+  `kit_vehicles.py`: bmesh primitives at real metres, to the positions and sizes
+  of the lead-approved mock (`tools/vehicles/kit_blockout.py`). **Not
+  AI-generated, 0 Meshy credits (K12).** Each part's UVs are pinned to a texel
+  of the vehicle's own existing `base_color` bake, so the kit's colour is a
+  texel of an already-disclosed Meshy asset (the rows above); no texture was
+  added or changed.
+- **The `kit_*` nodes in `art/meshes/vehicles/<id>.glb`** (the eight) **and their
+  `assets/meshes/vehicles/<id>.glb` Draco mirrors.** Grafted from the sources by
+  `pnpm kit:meshes` (gltf-transform), then `pnpm wreck:meshes` and
+  `pnpm encode:meshes`. Each file's hull is unchanged: it is still the
+  Meshy-derived asset of its register row, with the kit's parts added beside it,
+  so the AI-generated column of those rows is unchanged. The eight rows carry a
+  pointer here instead of a second row (the register check refuses two rows for
+  one file).
+- **`ui_kit_fitted`** is the bolt-on cue for a kit purchase; its row is in the
+  audio register above (procedural, CC0).
+- **`assets/ui/plates/units/kit/*.jpg` (eight) and its manifest.** Photographed
+  in game by `pnpm plates:units --kit`, from the kitted GLBs: each vehicle at L3,
+  every track at tier 3. The bay's no-WebGL2 fallback is their only reader.
+- **`assets/ui/garage/closeups/*.jpg` (54) and its manifest.** Rendered by
+  `pnpm closeups:garage` from the garage turntable's own camera, one per KDF type
+  and track: 16 types with three tracks and 3 with two. The plan named 49
+  (15 x 3 + 2 x 2); two KDF types landed on `main` after it was written.
+- **Neither set is AI-generated.** Both photograph the game's own scene: the
+  vehicles' existing, disclosed Meshy bakes (the rows above) with the
+  Blender-built kit, and the existing infantry art. Their register rows sit
+  beside the unit plates.
 
 ## What closing the source changes
 

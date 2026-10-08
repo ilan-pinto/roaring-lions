@@ -37,5 +37,14 @@ export function mountEndPanel(host: HTMLElement, p: Panel, nav: HTMLElement, pri
   if (primary !== null) {
     primary.dataset.endPrimary = '1';
     primary.focus({ preventScroll: true });
+    // Once more, a task later, if nothing else has taken focus since. The
+    // outcome moment ends on POINTERDOWN, so a click that skips it mounts this
+    // panel between that event and the same press's mousedown -- whose default
+    // action then focuses whatever is under the pointer (the backdrop: so,
+    // <body>), and Enter answered nothing (measured on a real browser, GH-417).
+    window.setTimeout(() => {
+      const a = document.activeElement;
+      if (primary.isConnected && (a === null || a === document.body)) primary.focus({ preventScroll: true });
+    }, 0);
   }
 }

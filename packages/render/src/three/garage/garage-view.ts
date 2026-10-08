@@ -42,6 +42,31 @@
  *    made, then `disposeAndReleaseContext` -- `WebGLRenderer.dispose()`
  *    alone leaves the context alive until the canvas is collected, and a
  *    browser caps live contexts at about sixteen. Idempotent.
+ *
+ * ## Kit (GH-238, plan 3)
+ *
+ * A vehicle wears the tiers the brigade bought (`kitTiers`), merged into its
+ * hosts by the SHIPPED `buildVehicleMeshTemplate`, the same as in a mission.
+ * Three things about it are deliberate:
+ *
+ * - **The loaded scene is a pristine source and is never built from.**
+ *   `buildVehicleMeshTemplate` mutates what it is handed (kit nodes removed,
+ *   hosts re-merged, materials normalised, the merge's leftovers disposed),
+ *   so every build -- the first one included -- runs on a fresh clone whose
+ *   geometries AND materials are clones too (`cloneForBuild`). A purchase
+ *   (`setKit`) is therefore a re-merge with no re-fetch, and every template
+ *   owns exactly what it disposes. What a clone SHARES is the textures: a
+ *   cloned material keeps the loaded material's `map` (the bake, a 2048
+ *   image), so no template disposes one; the view does, once, at
+ *   `dispose()`.
+ * - **The frame is fitted to the MAXIMUM-kit model**, every kit node the GLB
+ *   carries, and the footprint is centred on it too. Buying kit then never
+ *   resizes the frame, never moves the camera and never moves the turn
+ *   axis; the model shown is built from the bought tiers afterwards.
+ * - **A swap draws before it releases.** The new template draws one frame,
+ *   THEN the old one is disposed: its materials share a program with the
+ *   new ones, and disposing first would drop that program's last user and
+ *   compile it again.
  */
 import * as THREE from 'three';
 import { disposeAndReleaseContext } from '../context-release';
@@ -53,6 +78,7 @@ import {
   disposeVehicleMeshTemplate,
   instantiateVehicleMesh,
 } from '../units/mesh-vehicle';
+import type { VehicleKitTiers } from '../units/vehicle-kit';
 import type { MeshFaction } from '../units/mesh-role';
 import { TEXTURED_INFANTRY_TYPES } from '../units/textured-infantry';
 import { TEXTURED_VEHICLE_TYPES } from '../units/textured-vehicle';
@@ -73,6 +99,7 @@ import {
   stageLights,
   type GarageClass,
 } from './garage-frame';
+import { CLOSEUP_PAD, FOCUS_TIER, chooseFocus, figureFacingYaws, type FocusSubject } from './garage-focus';
 import {
   bonesOf,
   figureTurner,
@@ -111,6 +138,17 @@ export interface GarageViewOptions {
    *  or failed, the patch draws its flat tone. */
   readonly groundTextureUrl?: string;
   readonly colors: GarageColors;
+  /** A vehicle's bought kit, by track (`armour`, `sensors`, `firepower`):
+   *  the brigade account's tiers for this type. Absent reads as no kit.
+   *  Ignored for a rigged team. See "Kit" in this file's header. */
+  readonly kitTiers?: Readonly<Record<string, number>>;
+  /** A track close-up (GH-238 K11, `garage-focus.ts`): the camera keeps the
+   *  turntable's own FOV and elevation and frames the part of the model the
+   *  track is about, turned to show it best; `info.focus` says what it
+   *  framed and the yaw to draw at. A kitted vehicle wears that track at
+   *  `FOCUS_TIER` and nothing else, so `kitTiers` is ignored. Only
+   *  `pnpm closeups:garage` passes it; the app never does. */
+  readonly focus?: { readonly track: string };
   readonly signal?: AbortSignal;
   /** Called once if the browser takes the context away. The view draws
    *  nothing after that; the app puts the plate back. */
@@ -133,6 +171,25 @@ export interface GarageViewInfo {
   readonly defaultYawDeg: number;
   readonly camera: { readonly fovDeg: number; readonly elevationDeg: number; readonly distance: number };
   readonly sand: boolean;
+  /** Set only for a `focus` mount. */
+  readonly focus?: GarageFocusInfo;
+}
+
+/** What a track close-up framed (`GarageViewOptions.focus`). */
+export interface GarageFocusInfo {
+  readonly track: string;
+  /** `kit`: the track's own kit parts; `role`: the region its roles mark;
+   *  `whole`: nothing matched, so the whole model (warned). */
+  readonly subject: FocusSubject;
+  /** The turn to `draw` at, degrees past the default face. */
+  readonly yawDeg: number;
+  /** Visible subject pixels at each yaw tried (`FOCUS_YAWS_DEG`). */
+  readonly pixelsByYaw: readonly number[];
+  /** Subject triangles, and how many points the frame was fitted to. */
+  readonly triangles: number;
+  readonly points: number;
+  /** The lead figure's root bone, for a team; `null` otherwise. */
+  readonly figure: string | null;
 }
 
 export interface GarageViewStats {
@@ -152,6 +209,12 @@ export interface GarageView {
   /** Re-read the host's size and re-fit the camera. Draws nothing; the
    *  caller draws next. */
   resize(): void;
+  /** Re-merge the vehicle with these tiers from the pristine loaded scene
+   *  (no fetch), swap it onto the turntable at the same angle and offset,
+   *  and draw one frame. The camera and the frame do not move: they were
+   *  fitted to the maximum kit. A no-op for a rigged team, and for tiers
+   *  that draw the same parts as the model already shown. */
+  setKit(tiers: Readonly<Record<string, number>>): void;
   dispose(): void;
 }
 
@@ -232,6 +295,18 @@ interface Staged {
   readonly spacing: number;
   /** Turns the model `deg` past its default. */
   readonly applyYaw: (deg: number) => void;
+  /** Called once the frame is fitted: a vehicle staged at its maximum kit
+   *  for the fit swaps to the bought tiers here. */
+  readonly settle?: () => void;
+  /** Swap to a model built with `tiers`; returns the old model's release,
+   *  which the caller runs AFTER drawing the new one. `null`: nothing to do. */
+  readonly setKit?: (tiers: VehicleKitTiers) => (() => void) | null;
+  /** A focus mount on a vehicle whose GLB carries kit for the track: the
+   *  subject is the kit, not a role region. */
+  readonly focusKitted?: boolean;
+  /** Every texture the staged source holds that the drawn model may not
+   *  reach (the pristine scene's), for the view's one disposal pass. */
+  readonly sourceTextures?: () => Iterable<THREE.Texture>;
   readonly release: () => void;
 }
 
@@ -287,39 +362,162 @@ function stageRigged(gltf: { scene: THREE.Group; animations: THREE.AnimationClip
   };
 }
 
+/** The highest tier of each track any kit node in `scene` carries -- the
+ *  maximum kit this GLB can wear. Empty for a GLB with no kit. */
+export function kitCeiling(scene: THREE.Object3D): Record<string, number> {
+  const out: Record<string, number> = {};
+  scene.traverse((o) => {
+    const tag = (o.userData as { rl_kit?: { track?: unknown; tier?: unknown } }).rl_kit;
+    if (!tag || typeof tag.track !== 'string' || typeof tag.tier !== 'number') return;
+    out[tag.track] = Math.max(out[tag.track] ?? 0, tag.tier);
+  });
+  return out;
+}
+
+/** `tiers` as far as this GLB can show them: each track clamped to the
+ *  ceiling, tracks with no kit dropped, as a stable key. Two tier sets with
+ *  one key draw the same parts. */
+function kitKey(tiers: VehicleKitTiers | undefined, ceiling: Readonly<Record<string, number>>): string {
+  return Object.keys(ceiling)
+    .sort()
+    .map((track) => `${track}:${Math.max(0, Math.min(ceiling[track], tiers?.[track] ?? 0))}`)
+    .join(',');
+}
+
+/**
+ * A copy of the pristine scene a build may mutate: nodes, geometries and
+ * materials all fresh, so the template built from it owns everything it
+ * disposes. Sharing is preserved WITHIN the copy -- a `WRECK_` twin still
+ * shares its host's geometry (the merge swaps both) and four meshes over one
+ * material still share one clone (the template dedupes by identity) -- and
+ * the one thing shared WITH the source is every texture, since
+ * `Material.clone()` keeps its maps by reference.
+ */
+export function cloneForBuild(pristine: THREE.Object3D): THREE.Group {
+  const root = pristine.clone(true) as THREE.Group;
+  const geometries = new Map<THREE.BufferGeometry, THREE.BufferGeometry>();
+  const materials = new Map<THREE.Material, THREE.Material>();
+  const cloneMaterial = (m: THREE.Material): THREE.Material => {
+    let c = materials.get(m);
+    if (!c) {
+      c = m.clone();
+      materials.set(m, c);
+    }
+    return c;
+  };
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    let g = geometries.get(mesh.geometry);
+    if (!g) {
+      g = mesh.geometry.clone();
+      geometries.set(mesh.geometry, g);
+    }
+    mesh.geometry = g;
+    const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
+    if (Array.isArray(mat)) mesh.material = mat.map(cloneMaterial);
+    else if (mat) mesh.material = cloneMaterial(mat);
+  });
+  return root;
+}
+
+interface BuiltVehicle {
+  readonly root: THREE.Object3D;
+  readonly pose: PoseSource;
+  readonly key: string;
+  readonly release: () => void;
+}
+
 function stageVehicle(gltf: { scene: THREE.Group; animations: THREE.AnimationClip[] }, opts: GarageViewOptions): Staged {
   const { rest } = splitShowcase(gltf.animations);
-  const tpl = buildVehicleMeshTemplate(
-    { scene: gltf.scene, animations: rest },
-    opts.typeId,
-    TEXTURED_VEHICLE_TYPES.has(opts.typeId)
-  );
-  const ent = instantiateVehicleMesh(tpl, opts.typeId);
-  if (ent.deathRoot) ent.deathRoot.visible = false;
-  let pose: PoseSource = 'bind';
-  const idle = ent.actions.get('idle');
-  if (ent.mixer && idle) {
-    idle.play();
-    ent.mixer.setTime(0);
-    pose = 'idle0';
-  }
+  // Never built from, never mutated: see "Kit" in this file's header.
+  const pristine = gltf.scene;
+  const ceiling = kitCeiling(pristine);
+  const textured = TEXTURED_VEHICLE_TYPES.has(opts.typeId);
+  const build = (tiers: VehicleKitTiers | undefined): BuiltVehicle => {
+    const tpl = buildVehicleMeshTemplate({ scene: cloneForBuild(pristine), animations: rest }, opts.typeId, textured, tiers);
+    const ent = instantiateVehicleMesh(tpl, opts.typeId);
+    if (ent.deathRoot) ent.deathRoot.visible = false;
+    let pose: PoseSource = 'bind';
+    const idle = ent.actions.get('idle');
+    if (ent.mixer && idle) {
+      idle.play();
+      ent.mixer.setTime(0);
+      pose = 'idle0';
+    }
+    ent.root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      m.castShadow = true;
+      m.receiveShadow = true;
+      m.frustumCulled = false;
+    });
+    return {
+      root: ent.root,
+      pose,
+      key: kitKey(tiers, ceiling),
+      release: () => {
+        disposeVehicleMeshEntity(ent);
+        disposeVehicleMeshTemplate(tpl);
+      },
+    };
+  };
   const base = defaultYawDeg('vehicle');
   const turntable = new THREE.Group();
-  turntable.add(ent.root);
+  // The footprint offset lives on this holder, not on the vehicle, so a
+  // swapped-in vehicle sits exactly where the last one did.
+  const holder = new THREE.Group();
+  turntable.add(holder);
+  // A close-up wears the focused track's kit at `FOCUS_TIER` and nothing
+  // else (K11), so every kit triangle on it is that track's, and stays that
+  // way: no `settle` swap.
+  const focusTrack = opts.focus?.track;
+  const focusKitted = focusTrack !== undefined && (ceiling[focusTrack] ?? 0) > 0;
+  const focusTiers: VehicleKitTiers | null =
+    focusTrack === undefined ? null : focusKitted ? { [focusTrack]: Math.min(FOCUS_TIER, ceiling[focusTrack]) } : {};
+  // Staged at the MAXIMUM kit for the fit; `settle` swaps to the bought one.
+  let current = build(focusTiers ?? ceiling);
+  holder.add(current.root);
+  const swap = (tiers: VehicleKitTiers): (() => void) | null => {
+    if (kitKey(tiers, ceiling) === current.key) return null;
+    const old = current;
+    current = build(tiers);
+    holder.remove(old.root);
+    holder.add(current.root);
+    return old.release;
+  };
   return {
     model: turntable,
-    offset: ent.root,
+    offset: holder,
     cls: 'vehicle',
-    pose,
+    get pose() {
+      return current.pose;
+    },
     figures: [],
     spacing: 0,
     applyYaw: (deg) => {
       turntable.rotation.y = THREE.MathUtils.degToRad(base + deg);
     },
-    release: () => {
-      disposeVehicleMeshEntity(ent);
-      disposeVehicleMeshTemplate(tpl);
+    settle: () => {
+      if (focusTiers !== null) return;
+      // Nothing drew the maximum-kit build, so it is released at once.
+      swap(opts.kitTiers ?? {})?.();
     },
+    focusKitted,
+    setKit: swap,
+    sourceTextures: () => {
+      const out = new Set<THREE.Texture>();
+      pristine.traverse((o) => {
+        const m = (o as THREE.Mesh).material;
+        for (const mat of Array.isArray(m) ? m : m ? [m] : []) for (const t of texturesOf(mat)) out.add(t);
+      });
+      return out;
+    },
+    // The pristine scene's own geometries and materials were never drawn,
+    // so never uploaded: there is nothing of theirs on the GPU to free, and
+    // the garbage collector takes them with the view. Its textures WERE
+    // uploaded (through the clones) and go in the view's one pass.
+    release: () => current.release(),
   };
 }
 
@@ -331,6 +529,12 @@ function texturesOf(m: THREE.Material): THREE.Texture[] {
     if (v && (v as THREE.Texture).isTexture) out.push(v as THREE.Texture);
   }
   return out;
+}
+
+/** The close-up's frame: the turntable's FOV and elevation, the subject's
+ *  extent filling `1 / CLOSEUP_PAD` of the frame each way. */
+function fitFocus(points: readonly THREE.Vector3[], elevationDeg: number, aspect: number) {
+  return fitCamera(points, GARAGE_FOV_DEG, elevationDeg, aspect, 1 / CLOSEUP_PAD, 1 / CLOSEUP_PAD);
 }
 
 /** Load, pose and frame the unit, then mount its view into `host`. */
@@ -378,7 +582,10 @@ export async function mountGarageView(host: HTMLElement, opts: GarageViewOptions
   staged.applyYaw(0);
 
   // The sweep: every visible point at every 15 degrees of a full turn, so
-  // the frame fits the WHOLE turn once and the model never resizes.
+  // the frame fits the WHOLE turn once and the model never resizes. A
+  // vehicle is at its MAXIMUM kit here (and was for the centring above), so
+  // no purchase can resize the frame either; `settle` then shows the
+  // bought tiers.
   const swept: THREE.Vector3[] = [];
   let top = 0;
   for (let a = 0; a < 360; a += SWEEP_STEP_DEG) {
@@ -389,6 +596,7 @@ export async function mountGarageView(host: HTMLElement, opts: GarageViewOptions
     }
   }
   staged.applyYaw(0);
+  staged.settle?.();
   let sweepRadius = 0;
   let depth = 0;
   for (const p of swept) {
@@ -414,6 +622,39 @@ export async function mountGarageView(host: HTMLElement, opts: GarageViewOptions
   let { w, h } = size();
   let fit = fitCamera(fitPoints, GARAGE_FOV_DEG, elevationDeg, w / h);
 
+  // A track close-up (K11): score the turn through the bay's OWN camera, the
+  // fit just made, then re-fit the same FOV and elevation to the subject
+  // alone with `CLOSEUP_PAD` of margin. See `garage-focus.ts`.
+  let focusInfo: GarageFocusInfo | undefined;
+  let focusPoints: THREE.Vector3[] | null = null;
+  if (opts.focus) {
+    const bay = new THREE.PerspectiveCamera(GARAGE_FOV_DEG, w / h, 0.01, 200);
+    bay.position.copy(fit.position);
+    bay.lookAt(fit.target);
+    bay.updateProjectionMatrix();
+    const choice = chooseFocus({
+      model,
+      figures: staged.figures,
+      track: opts.focus.track,
+      kitted: staged.focusKitted === true,
+      applyYaw: staged.applyYaw,
+      bayCamera: bay,
+      ...(cls === 'figures' ? { yaws: figureFacingYaws(defaultYawDeg('figures')) } : {}),
+      label: opts.typeId,
+    });
+    focusPoints = choice.points;
+    focusInfo = {
+      track: opts.focus.track,
+      subject: choice.subject,
+      yawDeg: choice.yawDeg,
+      pixelsByYaw: choice.pixelsByYaw,
+      triangles: choice.triangles,
+      points: choice.points.length,
+      figure: choice.figure >= 0 ? staged.figures[choice.figure].name : null,
+    };
+    fit = fitFocus(focusPoints, elevationDeg, w / h);
+  }
+
   if (opts.signal?.aborted) {
     staged.release();
     sand?.tex.dispose();
@@ -431,6 +672,8 @@ export async function mountGarageView(host: HTMLElement, opts: GarageViewOptions
   let disposed = false;
   let lost = false;
   let frames = 0;
+  /** The angle the last frame was drawn at, so a kit swap redraws there. */
+  let lastYaw = 0;
   const onAbort = (): void => dispose();
   const onLost = (ev: Event): void => {
     ev.preventDefault();
@@ -444,14 +687,18 @@ export async function mountGarageView(host: HTMLElement, opts: GarageViewOptions
     opts.signal?.removeEventListener('abort', onAbort);
     renderer.domElement.removeEventListener('webglcontextlost', onLost);
     try {
+      // Every texture once, by identity: a bake is shared by a live
+      // material, its charred wreck clone and the pristine source's.
+      const textures = new Set<THREE.Texture>(owned.textures);
+      model.traverse((o) => {
+        const m = (o as THREE.Mesh).material;
+        for (const mat of Array.isArray(m) ? m : m ? [m] : []) for (const t of texturesOf(mat)) textures.add(t);
+      });
+      for (const t of staged.sourceTextures?.() ?? []) textures.add(t);
       staged.release();
       for (const g of owned.geometries) g.dispose();
       for (const m of owned.materials) m.dispose();
-      for (const t of owned.textures) t.dispose();
-      model.traverse((o) => {
-        const m = (o as THREE.Mesh).material;
-        for (const mat of Array.isArray(m) ? m : m ? [m] : []) for (const t of texturesOf(mat)) t.dispose();
-      });
+      for (const t of textures) t.dispose();
       key?.shadow.dispose();
     } finally {
       disposeAndReleaseContext(renderer);
@@ -555,10 +802,12 @@ export async function mountGarageView(host: HTMLElement, opts: GarageViewOptions
         defaultYawDeg: defaultYawDeg(cls),
         camera: { fovDeg: GARAGE_FOV_DEG, elevationDeg, distance: +fit.distance.toFixed(3) },
         sand: sand !== null,
+        ...(focusInfo ? { focus: focusInfo } : {}),
       },
       stats: () => ({ frames, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles }),
       draw(yawDeg) {
         if (disposed || lost) return;
+        lastYaw = yawDeg;
         staged.applyYaw(yawDeg);
         scene.updateMatrixWorld(true);
         renderer.render(scene, camera);
@@ -571,12 +820,22 @@ export async function mountGarageView(host: HTMLElement, opts: GarageViewOptions
         w = next.w;
         h = next.h;
         renderer.setSize(w, h, false);
-        fit = fitCamera(fitPoints, GARAGE_FOV_DEG, elevationDeg, w / h);
+        fit = focusPoints
+          ? fitFocus(focusPoints, elevationDeg, w / h)
+          : fitCamera(fitPoints, GARAGE_FOV_DEG, elevationDeg, w / h);
         placeCamera();
+      },
+      setKit(tiers) {
+        if (disposed || lost || !staged.setKit) return;
+        const releaseOld = staged.setKit(tiers);
+        if (releaseOld === null) return;
+        // Draw first, release after: see "Kit" in this file's header.
+        view.draw(lastYaw);
+        releaseOld();
       },
       dispose,
     };
-    view.draw(0);
+    view.draw(focusInfo?.yawDeg ?? 0);
     return view;
   } catch (err) {
     dispose();

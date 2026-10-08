@@ -68,6 +68,9 @@ export interface MountedGarageView {
   stats(): { readonly frames: number; readonly calls: number; readonly triangles: number };
   draw(yawDeg: number): void;
   resize(): void;
+  /** Re-merge a vehicle's kit from the loaded GLB and draw one frame; a
+   *  no-op for a team (GH-238). */
+  setKit(tiers: Readonly<Record<string, number>>): void;
   dispose(): void;
 }
 
@@ -82,6 +85,7 @@ export type MountGarageView = (
     readonly dracoDecoderPath?: string;
     readonly groundTextureUrl?: string;
     readonly colors: GarageColors;
+    readonly kitTiers?: Readonly<Record<string, number>>;
     readonly signal?: AbortSignal;
     readonly onContextLost?: () => void;
   }
@@ -128,6 +132,10 @@ export interface GarageModelHandle {
   /** Move into a rebuilt plate (a purchase redraws the bay around the same
    *  unit): the same canvas, the same context, the same angle. */
   adopt(plate: HTMLElement): void;
+  /** The unit's kit tiers changed (a purchase landed, or a reset): the model
+   *  re-merges and redraws at the same angle (GH-238). Before the model is
+   *  up the tiers are remembered and applied the moment it is. */
+  setKit(tiers: Readonly<Record<string, number>>): void;
   dispose(): void;
 }
 
@@ -172,7 +180,7 @@ const defaultClearTimer = (id: number): void => window.clearTimeout(id);
  */
 export function garageModel(
   plate: HTMLElement,
-  unit: { readonly id: string; readonly name: string },
+  unit: { readonly id: string; readonly name: string; readonly kitTiers?: Readonly<Record<string, number>> },
   deps: GarageModelDeps
 ): GarageModelHandle {
   const el = document.createElement('div');
@@ -198,6 +206,9 @@ export function garageModel(
   mark();
 
   const controller = new AbortController();
+  /** The tiers the model should wear: the ones it mounted with, until a
+   *  purchase says otherwise. */
+  let kitTiers = unit.kitTiers;
   let disposed = false;
   let view: MountedGarageView | null = null;
   let turn: TurnController | null = null;
@@ -396,6 +407,7 @@ export function garageModel(
     try {
       const mount = deps.mount ?? (await loadDoor());
       if (disposed) return { shown: 'plate' };
+      const mountedWith = kitTiers;
       const v = await mount(el, {
         typeId: unit.id,
         kind: source.kind,
@@ -404,6 +416,7 @@ export function garageModel(
         dracoDecoderPath: deps.dracoDecoderPath,
         groundTextureUrl: deps.groundTextureUrl,
         colors: deps.colors,
+        ...(kitTiers !== undefined ? { kitTiers } : {}),
         signal: controller.signal,
         onContextLost: () => {
           if (!disposed) keepPlate('context-lost');
@@ -415,6 +428,11 @@ export function garageModel(
         return { shown: 'plate' };
       }
       goLive(v);
+      // A purchase that landed while the model loaded: wear it now.
+      if (kitTiers !== mountedWith && kitTiers !== undefined) {
+        v.setKit(kitTiers);
+        el.dataset.frames = String(v.stats().frames);
+      }
       return { shown: 'model' };
     } catch (err) {
       // The bay was left and the door gave up on purpose, with no context
@@ -434,6 +452,13 @@ export function garageModel(
       if (state !== 'plate') next.prepend(el);
       mark();
       turn?.redraw();
+    },
+    setKit(tiers) {
+      if (disposed) return;
+      kitTiers = tiers;
+      if (view === null) return;
+      view.setKit(tiers);
+      el.dataset.frames = String(view.stats().frames);
     },
     dispose() {
       if (disposed) return;

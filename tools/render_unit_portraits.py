@@ -163,11 +163,15 @@ def import_unit(unit, source):
 def drop_dead_geometry(unit):
     """The wreck and death subtrees (`death_root`, `<prefix>_death_root`) are
     scaled to 0 by `idle`, which collapses their meshes to a point at the
-    origin and wrecks the framing. Unlinked, as the mesh gate does."""
+    origin and wrecks the framing. Unlinked, as the mesh gate does; and so is
+    any `kit_*` part."""
     for o in list(bpy.context.scene.objects):
         if o.type == "MESH" and o.get("rl_role") is None:
             bpy.data.objects.remove(o, do_unlink=True)  # importer's stray icosphere
-    roots = [o for o in bpy.context.scene.objects if o.name.endswith("death_root")]
+    # A vehicle's upgrade kit (`kit_*`, contract v5) is not the portrait's
+    # vehicle: the portrait is the tier-0 unit. Unlinked the same way.
+    roots = [o for o in bpy.context.scene.objects
+             if o.name.endswith("death_root") or o.name.startswith("kit_")]
     for root in roots:
         for o in [root] + list(root.children_recursive):
             for c in list(o.users_collection):
