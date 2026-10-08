@@ -4,7 +4,6 @@
   "layer": "above_units",
   "weapon_classes": ["mortar"],
   "budget_priority": 5,
-  "screen_shake": { "amplitude_px": 2, "duration_ms": 140, "falloff_tiles": 9 },
   "light": { "color": "vfx.fire", "intensity": 0.9, "radius_tiles": 2.0, "decay_ms": 100 },
   "particles": [
     {

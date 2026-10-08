@@ -4,7 +4,6 @@
   "layer": "above_units",
   "weapon_classes": ["autocannon"],
   "budget_priority": 4,
-  "screen_shake": { "amplitude_px": 1.5, "duration_ms": 90, "falloff_tiles": 8 },
   "light": { "color": "vfx.fire", "intensity": 1.2, "radius_tiles": 2.0, "decay_ms": 90 },
   "particles": [
     {

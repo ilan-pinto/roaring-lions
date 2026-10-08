@@ -49,6 +49,11 @@ import type { FlashLightSpec } from './flash-light';
 export const BLAST_EMITTER_ID = 'catastrophic_kill';
 /** The mortar/rocket landing emitter, scaled at the caller's own `impactPower`. */
 export const SHELL_IMPACT_EMITTER_ID = 'shell_impact';
+/** A building collapse (polish VR-22), scaled at the footprint's own power
+ *  (`explosionBurstPowerFromFootprint`). The top of the event ladder:
+ *  collapse > vehicle kill > shell landing > muzzle flash, for light, shake
+ *  and hit-stop alike -- `fx-ladder.test.ts` holds the order. */
+export const STRUCTURE_COLLAPSE_EMITTER_ID = 'structure_collapse';
 
 /** `EmitterSpec.screen_shake`, camelCased and scaled -- never partially built. */
 export interface ScaledShake {

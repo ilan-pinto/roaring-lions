@@ -4,7 +4,7 @@
   "layer": "above_units",
   "weapon_classes": ["atgm", "rpg"],
   "budget_priority": 6,
-  "light": { "color": "vfx.fire", "intensity": 2.0, "radius_tiles": 3.0, "decay_ms": 180 },
+  "light": { "color": "vfx.fire", "intensity": 1.0, "radius_tiles": 3.0, "decay_ms": 180 },
   "particles": [
     {
       "sprite": "soft_dot",
