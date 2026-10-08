@@ -1955,16 +1955,27 @@ the paragraph above, ~:306) -- nothing new here.
   consequence nobody asked for is arithmetic: a mission's survivors include units that
   were never in the pool -- every `starting_force` placement without `from_ledger` spawns
   fresh, and whatever lives writes a NEW entry -- so the pool APPENDS rather than
-  replaces, and replaying a mission appends again. Measured in `pnpm playtest`: the Beit
+  replaces, and a replay appended again until roster rule R-2 (below). Measured in
+  `pnpm playtest`: the Beit
   Sahwan chain's final roster went **10 -> 23** and Umm Zeitoun's **12 -> 26** (re-measured
   2026-09-11: 23 and 26 stand, with `beit_sahwan_1_recon` already at 17). Nothing in the
-  sim scans the roster per tick, so this is not a tick cost -- it is a SAVE that grows
+  sim scans the roster per tick, so this is not a tick cost -- it is a SAVE that grew
   without bound and a deploy panel that would have named a force three times the size of
   the one on the map. The panel is fixed (`broughtFor` scopes to this mission's own
-  `from_ledger` draws and prints the rest as one `N in reserve` line); the roster itself
-  is not capped, deliberately. **Whether the roster or the reserve gets a cap, and what
-  falls off it, is a step-3 decision** -- a cap is a game rule (which veteran do you
-  lose?) and picking one here would have been a balance change smuggled in as a bugfix.
+  `from_ledger` draws and prints the rest as one `N in reserve` line). **The roster is
+  capped now, and a replay no longer appends -- both in the APP's victory write
+  (`applyRosterCarryover`, `packages/app/src/roster-carryover.ts`), not in `checkEnd`,
+  which still only appends the unfielded pool as described above.** `ROSTER_CAP = 150`
+  (WP-G-E2, `roster-cap.ts`, about 5x the ladder maximum `pnpm playtest` measures) stands
+  the overflow down to `roster.reserve` in a fixed order (veterancy, then `missions`,
+  then `kills`, newest place first) and deletes nothing. Roster rule R-2 (the lead, 7 Oct
+  2026, GH-417; `isReplayed`): every fresh body is stamped `enlisted` with the mission
+  that brought it home, and winning that mission again replaces the earlier bodies it
+  enlisted that were not fielded this time and have served nowhere else
+  (`missions <= 1`), in the roster and in `roster.reserve`. A veteran who fought in
+  another mission stays, as does anything another mission enlisted; a defeat writes
+  nothing, so it replaces nothing. A save from before R-2 carries no `enlisted` stamp,
+  so its earlier duplicates stay until they fall or the cap stands them down.
 - Detection is O(N²) pairs per tick. **The "~150 units" figure this line used to
   carry was a guess and it was wrong by an order of magnitude** — measured
   2026-08-30 (`docs/PERFORMANCE.md`, "Sim tick cost"), the 300-unit GDD target

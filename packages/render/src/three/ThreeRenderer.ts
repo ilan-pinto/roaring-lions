@@ -495,6 +495,7 @@ import {
   AIR_SHADOW_COLOR_KEY,
   suppressionBarVisible,
   buildingIntegrityColorKey,
+  MOBILITY_KILL_COLOR_KEY,
   CHARGE_RING_TRACK_COLOR_KEY,
   CHARGE_RING_FILL_COLOR_KEY,
   CHARGE_RING_FILL_FALLBACK_COLOR,
@@ -511,6 +512,7 @@ import {
   REFUGE_RING_EDGE_STYLE,
   REFUGE_RING_EDGE_ALPHA,
 } from './units/overlays';
+import { paletteHex } from './palette-hex';
 import {
   envelopeDraws,
   GROUP_DESTINATION_MARGIN_TILES,
@@ -819,11 +821,19 @@ function decalSeed(kind: DecalKind, x: number, z: number): number {
  * Named once so `rebuildTerrain`'s `uShoulderTone` uniform and
  * `decalGround`'s own copy (`terrain/decal-ground-tone.ts`'s
  * `DecalGroundSource.shoulder`, the decal pool's local-tone denominator)
- * resolve through the same key and the same fallback hex rather than two
- * copies that could drift apart by a retyped literal.
+ * resolve through the same key (and its palette hex as the fallback) rather
+ * than two copies that could drift apart by a retyped literal.
  */
 const SHOULDER_TONE_KEY = 'limestone.2';
-const SHOULDER_TONE_FALLBACK = '#D9C7A7';
+
+/** The no-resolver colours for call sites whose palette key is chosen at run
+ *  time (an emitter's own `light.color`, an HP ratio), so `overlayColor`'s
+ *  key-derived default cannot stand in for them. Read from the palette like
+ *  every other fallback (VR-08): `vfx.fire`, `scrub.0` (the HP bar's healthy
+ *  green, whatever the ratio) and `gunmetal.1` (a building bar's top rung). */
+export const FLASH_LIGHT_FALLBACK = paletteHex('vfx.fire');
+export const HP_BAR_FALLBACK = paletteHex('scrub.0');
+export const BUILDING_BAR_FALLBACK = paletteHex(MOBILITY_KILL_COLOR_KEY);
 
 /** How strong a HOVER preview's envelope is, as a fraction of the same
  *  unit's envelope when it is selected. One multiplier over all three bands
@@ -2258,14 +2268,14 @@ export class ThreeRenderer implements Renderer {
     // second write.
     this.decalMaterial = createDecalMaterial(
       {
-        craterBowl: this.overlayColor('shadow.0', '#23241F'),
-        craterLip: this.overlayColor('limestone.1', '#E6D8BE'),
-        scorch: this.overlayColor('shadow.0', '#23241F'),
-        oil: this.overlayColor('shadow.1', '#14150F'),
-        rubbleA: this.overlayColor('limestone.5', '#A28C6E'),
-        rubbleB: this.overlayColor('limestone.7', '#75624A'),
-        tread: this.overlayColor('dust.5', '#806032'),
-        tyre: this.overlayColor('limestone.6', '#8C7659'),
+        craterBowl: this.overlayColor('shadow.0'),
+        craterLip: this.overlayColor('limestone.1'),
+        scorch: this.overlayColor('shadow.0'),
+        oil: this.overlayColor('shadow.1'),
+        rubbleA: this.overlayColor('limestone.5'),
+        rubbleB: this.overlayColor('limestone.7'),
+        tread: this.overlayColor('dust.5'),
+        tyre: this.overlayColor('limestone.6'),
       },
       {
         uControlB: this.groundMat.uniforms.uControlB,
@@ -2297,10 +2307,10 @@ export class ThreeRenderer implements Renderer {
     // every other overlay colour and converted by `cachedHexToLinear`, so
     // `endFrame`'s once-a-frame read parses no hex.
     this.selectionRing = new SelectionRingBatch({
-      resolveShadow: () => cachedHexToLinear(this.overlayColor('shadow.1', '#14150F')),
+      resolveShadow: () => cachedHexToLinear(this.overlayColor('shadow.1')),
     });
     this.teamRing = new SelectionRingBatch({
-      resolveShadow: () => cachedHexToLinear(this.overlayColor('shadow.1', '#14150F')),
+      resolveShadow: () => cachedHexToLinear(this.overlayColor('shadow.1')),
       style: TEAM_RING,
       capacity: TEAM_RING.capacity,
     });
@@ -2321,10 +2331,10 @@ export class ThreeRenderer implements Renderer {
     // highland pulls toward pale karst and terra rossa); absent, the desert's.
     const macroHue = opts.terrainTones.macroHue;
     (this.groundMat.uniforms.uMacroBright.value as THREE.Vector3).fromArray(
-      neutralTint(macroHue ? macroHue[0] : this.overlayColor('limestone.2', '#D9C7A7'))
+      neutralTint(macroHue ? macroHue[0] : this.overlayColor('limestone.2'))
     );
     (this.groundMat.uniforms.uMacroDark.value as THREE.Vector3).fromArray(
-      neutralTint(macroHue ? macroHue[1] : this.overlayColor('dust.1', '#D1A668'))
+      neutralTint(macroHue ? macroHue[1] : this.overlayColor('dust.1'))
     );
     // The road's three palette tones (#226, spec 3.2), as LINEAR light: they
     // are mixed into `diffuseColor`, which holds the vertex colour `toGeometry`
@@ -2333,10 +2343,10 @@ export class ThreeRenderer implements Renderer {
     // theme, resolved through `overlayColor` like the tints above.
     (this.groundMat.uniforms.uRoadTone.value as THREE.Vector3).fromArray(hexToLinear(opts.terrainTones.road));
     (this.groundMat.uniforms.uShoulderTone.value as THREE.Vector3).fromArray(
-      hexToLinear(this.overlayColor(SHOULDER_TONE_KEY, SHOULDER_TONE_FALLBACK))
+      hexToLinear(this.overlayColor(SHOULDER_TONE_KEY))
     );
     (this.groundMat.uniforms.uRutTone.value as THREE.Vector3).fromArray(
-      hexToLinear(this.overlayColor('limestone.6', '#8C7659'))
+      hexToLinear(this.overlayColor('limestone.6'))
     );
     // Phase C: sized off sim.capacity, not a bare constant -- see
     // OVERLAY_VERTICES_PER_ENTITY's own doc comment for the per-entity
@@ -2352,7 +2362,7 @@ export class ThreeRenderer implements Renderer {
     // with no resolver at all (ThreeRenderer.test.ts's own makeOpts()).
     this.numeralBatch = new NumeralBatch(
       sim.capacity,
-      opts.resolveColor ? opts.resolveColor(BADGE_TEXT_COLOR_KEY) : '#14150F'
+      opts.resolveColor ? opts.resolveColor(BADGE_TEXT_COLOR_KEY) : paletteHex(BADGE_TEXT_COLOR_KEY)
     );
     // Veterancy chevron fill: the same swatch theme.css's --commend maps to
     // (STRIPE_COLOR_KEY's own doc comment), with the identical no-resolver
@@ -2361,7 +2371,7 @@ export class ThreeRenderer implements Renderer {
     // `#E0B87A` is what `dust.0` resolves to in `data/palette.json`, and the
     // same swatch `theme.css`'s `--commend` maps to -- NOT `team.neutral`'s
     // `#E8C33A`, which is what this line shipped with.
-    this.chevronBatch = new ChevronBatch(sim.capacity, opts.resolveColor ? opts.resolveColor(STRIPE_COLOR_KEY) : '#E0B87A');
+    this.chevronBatch = new ChevronBatch(sim.capacity, opts.resolveColor ? opts.resolveColor(STRIPE_COLOR_KEY) : paletteHex(STRIPE_COLOR_KEY));
     // Occlusion silhouettes: three colours for the whole scene, resolved
     // once here rather than per unit type or per entity. Indexed by
     // `silhouetteSideIndex` -- see `units/silhouette.ts` for the mechanism
@@ -4076,7 +4086,7 @@ export class ThreeRenderer implements Renderer {
               dy,
               worldY,
               blastLight,
-              this.overlayColor(blastLight.color ?? 'vfx.fire', '#FFB43C')
+              this.overlayColor(blastLight.color ?? 'vfx.fire', FLASH_LIGHT_FALLBACK)
             );
           }
           this.shakeState = pushShake(this.shakeState, blastShake(blast, killPower), dx, dy);
@@ -4423,7 +4433,7 @@ export class ThreeRenderer implements Renderer {
         mzY,
         groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, mzX, mzY),
         light,
-        this.overlayColor(light.color ?? 'vfx.fire', '#FFB43C')
+        this.overlayColor(light.color ?? 'vfx.fire', FLASH_LIGHT_FALLBACK)
       );
     }
 
@@ -6062,7 +6072,7 @@ export class ThreeRenderer implements Renderer {
     }
     if (em.light) {
       const gy = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, y);
-      this.flashLights.spawn(x, y, gy, em.light, this.overlayColor(em.light.color ?? 'vfx.fire', '#FFB43C'));
+      this.flashLights.spawn(x, y, gy, em.light, this.overlayColor(em.light.color ?? 'vfx.fire', FLASH_LIGHT_FALLBACK));
     }
   }
 
@@ -7703,7 +7713,7 @@ export class ThreeRenderer implements Renderer {
     const em = this.emitterLibrary.byName(SHELL_IMPACT_EMITTER_ID);
     const light = blastLightSpec(em, power);
     if (light) {
-      this.flashLights.spawn(s.tx, s.ty, worldY, light, this.overlayColor(light.color ?? 'vfx.fire', '#FFB43C'));
+      this.flashLights.spawn(s.tx, s.ty, worldY, light, this.overlayColor(light.color ?? 'vfx.fire', FLASH_LIGHT_FALLBACK));
     }
     this.shakeState = pushShake(this.shakeState, blastShake(em, power), s.tx, s.ty);
     this.hitStop = requestHitStop(this.hitStop, blastHitStopMs(em, power));
@@ -7736,7 +7746,7 @@ export class ThreeRenderer implements Renderer {
       }
     }
     const light = blastLightSpec(em, l.scale);
-    if (light) this.flashLights.spawn(l.x, l.y, worldY, light, this.overlayColor(light.color ?? 'vfx.fire', '#FFB43C'));
+    if (light) this.flashLights.spawn(l.x, l.y, worldY, light, this.overlayColor(light.color ?? 'vfx.fire', FLASH_LIGHT_FALLBACK));
     this.shakeState = pushShake(this.shakeState, blastShake(em, l.scale), l.x, l.y);
     if (l.miss) this.stampGroundDecal(this.persistentStamp('scorch', l.x, l.y, scorchRadiusTiles(MISS_SCORCH_POWER)));
   }
@@ -7899,7 +7909,7 @@ export class ThreeRenderer implements Renderer {
     const st = this.sim.state;
     const n = this.snapshottedCount;
     const elevation = this.retained.elevation;
-    const halo = this.overlayColor('shadow.1', '#14150F');
+    const halo = this.overlayColor('shadow.1');
     const now = this.fireLinkClockS;
     this.fireLinkPulses = this.fireLinkPulses.filter((p) => now - p.bornS < PULSE_S && p.target < n && st.alive[p.target] === 1);
     for (const p of this.fireLinkPulses) {
@@ -7968,8 +7978,8 @@ export class ThreeRenderer implements Renderer {
    *  handful of `resolveColor`-through-a-ring-colour call sites already use
    *  (e.g. its tutorial-focus-ring block, `this.opts.resolveColor ? this
    *  .opts.resolveColor('vfx.tracer') : '#B8FF5A'`), not a new pattern. */
-  private overlayColor(key: string, fallback: string): string {
-    return this.opts.resolveColor ? this.opts.resolveColor(key) : fallback;
+  private overlayColor(key: string, fallback?: string): string {
+    return this.opts.resolveColor ? this.opts.resolveColor(key) : (fallback ?? paletteHex(key));
   }
 
   /**
@@ -7985,7 +7995,7 @@ export class ThreeRenderer implements Renderer {
   private applyHaze(): void {
     if (this.fogPass === null) return;
     const p = this.lightPreset;
-    const hex = p.hazeKey !== null ? this.overlayColor(p.hazeKey, '#D1A668') : this.opts.terrainTones.haze;
+    const hex = p.hazeKey !== null ? this.overlayColor(p.hazeKey) : this.opts.terrainTones.haze;
     const [r, g, b] = hexToLinear(hex);
     const k = hazeRadiance(
       this.resolvedLights.sunIntensity,
@@ -8052,8 +8062,8 @@ export class ThreeRenderer implements Renderer {
     const shape = contactShapeOf(cls, contactLevel);
     const h = CONTACT_MARK.halfPx * scale;
     const at = billboardPoint(anchor, 0, r + CONTACT_MARK.liftPx * scale);
-    const halo = this.overlayColor('shadow.1', '#14150F');
-    const team = this.opts.teamColors[1] ?? this.overlayColor('team.hostile', '#D93A2B');
+    const halo = this.overlayColor('shadow.1');
+    const team = this.opts.teamColors[1] ?? this.overlayColor('team.hostile');
     for (const t of contactHaloTriangles(shape, h, CONTACT_MARK.haloPx * scale)) this.overlayBatch.triangle(at, t, halo, CONTACT_MARK.haloAlpha);
     for (const t of contactTriangles(shape, h)) this.overlayBatch.triangle(at, t, team, 1);
   }
@@ -8201,7 +8211,7 @@ export class ThreeRenderer implements Renderer {
           billboardPoint(anchor, 0, -3),
           shadowR,
           shadowR / 2,
-          this.overlayColor(AIR_SHADOW_COLOR_KEY, '#0A0A08'),
+          this.overlayColor(AIR_SHADOW_COLOR_KEY),
           0.28 * bodyAlpha
         );
       }
@@ -8220,7 +8230,7 @@ export class ThreeRenderer implements Renderer {
         const top = -(r + 10);
         const bottom = top + HP_BAR.heightPx;
         const hpRatio = Math.max(0, fx.toNumber(st.hp[i]) / fx.toNumber(type.hp));
-        const bgColor = this.overlayColor(HP_BG_COLOR_KEY, '#14150F');
+        const bgColor = this.overlayColor(HP_BG_COLOR_KEY);
         this.overlayBatch.rect(
           anchor,
           -halfW - HP_BAR.framePx,
@@ -8238,7 +8248,7 @@ export class ThreeRenderer implements Renderer {
             top,
             -halfW + HP_BAR.widthPx * hpRatio,
             bottom,
-            this.overlayColor(hpBarColorKey(hpRatio), '#6B8A4A'),
+            this.overlayColor(hpBarColorKey(hpRatio), HP_BAR_FALLBACK),
             1
           );
         }
@@ -8258,7 +8268,7 @@ export class ThreeRenderer implements Renderer {
           -(r + 6),
           -12 + 24 * supp,
           -(r + 3),
-          this.overlayColor(SUPPRESSION_COLOR_KEY, '#FFB43C'),
+          this.overlayColor(SUPPRESSION_COLOR_KEY),
           1
         );
       }
@@ -8274,7 +8284,7 @@ export class ThreeRenderer implements Renderer {
       const grp = this.unitGroup[i];
       const groupColor =
         grp > 0 && this.opts.groupColors.length > 0 ? this.opts.groupColors[(grp - 1) % this.opts.groupColors.length] : '';
-      const accentDefault = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY, '#B8FF5A');
+      const accentDefault = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY);
 
       // GH-346: a faint team ring under every unselected unit standing on
       // open ground (a garrisoned one has a building over it), and a
@@ -8306,7 +8316,7 @@ export class ThreeRenderer implements Renderer {
       if (grp > 0) {
         const badgeCenter = billboardPoint(anchor, -(r + 4), r + 4);
         const haloR = GROUP_BADGE_RADIUS_PX + GROUP_BADGE_HALO_PX;
-        this.overlayBatch.ellipseFan(badgeCenter, haloR, haloR, this.overlayColor('shadow.1', '#14150F'), 0.85);
+        this.overlayBatch.ellipseFan(badgeCenter, haloR, haloR, this.overlayColor('shadow.1'), 0.85);
         this.overlayBatch.ellipseFan(
           badgeCenter,
           GROUP_BADGE_RADIUS_PX,
@@ -8364,7 +8374,7 @@ export class ThreeRenderer implements Renderer {
             -topUp,
             16,
             -topUp + 4,
-            this.overlayColor(HP_BG_COLOR_KEY, '#14150F'),
+            this.overlayColor(HP_BG_COLOR_KEY),
             0.85
           );
           this.overlayBatch.rect(
@@ -8373,7 +8383,7 @@ export class ThreeRenderer implements Renderer {
             -topUp,
             -16 + 32 * Math.max(0, ratio),
             -topUp + 4,
-            this.overlayColor(buildingIntegrityColorKey(ratio), '#8E9491'),
+            this.overlayColor(buildingIntegrityColorKey(ratio), BUILDING_BAR_FALLBACK),
             1
           );
         }
@@ -8408,7 +8418,7 @@ export class ThreeRenderer implements Renderer {
             by2Rel + 3,
             1.5,
             by2Rel + 8,
-            this.overlayColor(HP_BG_COLOR_KEY, '#14150F'),
+            this.overlayColor(HP_BG_COLOR_KEY),
             1
           ); // doorway
           for (let k = 0; k < occ; k++) {
@@ -8432,7 +8442,7 @@ export class ThreeRenderer implements Renderer {
     // required to stand still, so the two are visually indistinguishable in
     // practice, but this is what Pixi's own source says).
     {
-      const ringTrack = this.overlayColor(CHARGE_RING_TRACK_COLOR_KEY, '#5C625F');
+      const ringTrack = this.overlayColor(CHARGE_RING_TRACK_COLOR_KEY);
       const ringFill = this.overlayColor(CHARGE_RING_FILL_COLOR_KEY, CHARGE_RING_FILL_FALLBACK_COLOR);
       for (let i = 0; i < n; i++) {
         if (st.alive[i] === 0) continue;
@@ -8542,7 +8552,7 @@ export class ThreeRenderer implements Renderer {
     // player has no way to see how close an escort must stay.
     const SHEPHERD_TILES = 4;
     if (this.selection.length > 0) {
-      const shepherdColor = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY, '#B8FF5A');
+      const shepherdColor = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY);
       for (let ci = 0; ci < n; ci++) {
         if (st.alive[ci] === 0 || st.side[ci] !== 2) continue;
         const ctype = this.sim.unitTypes[st.typeIdx[ci]];
@@ -8580,7 +8590,7 @@ export class ThreeRenderer implements Renderer {
     // `posX` at the last tick (its `curX`-derived `px`/`py` are dead code,
     // `void`ed) -- a 20 Hz tail on a 60 fps sprite.
     if (this.selection.length > 0) {
-      const routeColor = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY, '#B8FF5A');
+      const routeColor = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY);
       const unitRoutes: UnitRoute[] = [];
       for (const i of this.selection) {
         if (i >= n || st.alive[i] === 0 || st.moving[i] === 0) continue;
@@ -8630,7 +8640,7 @@ export class ThreeRenderer implements Renderer {
     this.orderMarkers = this.orderMarkers.filter((m) => --m.ttl > 0);
     census.orderMarkers = this.orderMarkers.length;
     if (this.orderMarkers.length > 0) {
-      const markerColor = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY, '#B8FF5A');
+      const markerColor = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY);
       for (const m of this.orderMarkers) {
         const groundYm = groundWorldY(elevation, width, height, m.x, m.y);
         const manchor: [number, number, number] = [m.x, groundYm, m.y];
@@ -8692,7 +8702,7 @@ export class ThreeRenderer implements Renderer {
       const groundYt = groundWorldY(elevation, width, height, tut.x, tut.y);
       const tanchor: [number, number, number] = [tut.x, groundYt, tut.y];
       const pulse = 0.35 + 0.25 * Math.sin(this.frameN * 0.09);
-      const color = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY, '#B8FF5A');
+      const color = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY);
       // `tileRadiusToEllipsePx` (units/overlays.ts) is this same `tiles *
       // TILE_W * ISO_K, tiles * TILE_H * ISO_K` formula, pulled out once now
       // that the weapon-envelope ring below actually exists and shares it.
@@ -8746,7 +8756,7 @@ export class ThreeRenderer implements Renderer {
       const hyUp = badgeTopPx + 12 + 34; // top = anchor_up(badgeTopPx + 12); hy = top - 34 (Pixi y-down)
       const hAnchor = billboardPoint(structAnchor, 0, hyUp);
       const pulse = 0.55 + 0.45 * Math.sin(this.frameN * 0.12);
-      const color = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY, '#B8FF5A');
+      const color = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY);
       // Door outline + jamb: renderer.ts's `g.rect(bx + 2, hy - 9, 11, 18)
       // .stroke(...)` and `g.rect(bx + 2, hy - 9, 3, 18).fill(...)`.
       this.overlayBatch.rectStroke(hAnchor, 2, -9, 13, 9, 2, color, pulse);
@@ -8892,7 +8902,7 @@ export class ThreeRenderer implements Renderer {
       composed.input,
       this.opts.terrainTones,
       this.opts.background,
-      this.overlayColor(SHOULDER_TONE_KEY, SHOULDER_TONE_FALLBACK),
+      this.overlayColor(SHOULDER_TONE_KEY),
       graph
     );
 
