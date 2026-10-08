@@ -127,6 +127,12 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
     blurb: 'dawn | day | dusk | night — the sandbox’s light; a mission uses its own',
   },
   {
+    name: 'fitbuildings',
+    // Lead ruling 7 Oct. Not a SANDBOX_FLAGS entry: it works on a mission
+    // too, and it is a value flag like `tod`. `building-fit-flag.ts` reads it.
+    blurb: 'off | stretch | clamped | uniform — how buildings fit their footprints (default stretch; =off is the shipped size)',
+  },
+  {
     name: 'pseudo',
     // Wraps the `en` catalogue in the pseudo-locale transform (i18n/pseudo.ts)
     // instead of loading a real one -- the fake-translation pass a screen

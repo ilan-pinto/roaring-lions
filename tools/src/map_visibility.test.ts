@@ -20,19 +20,12 @@ import {
  */
 const EXEMPT: Record<string, { measured: number; reason: string }> = {
   beit_sahwan_3: {
-    measured: 0.457,
+    measured: 0.792,
     reason:
-      'The old town at street scale is the map (ground-ladder §2, "sight lines of 3-5 tiles"). ' +
-      'Clearing the floor by lowering buildings keeps 8 of its 39 houses and apartments, which is a ' +
-      'shanty town, not the old town -- a lead decision (GH-416 follow-up), not a silent rewrite.',
-  },
-  qarn_hadid_3: {
-    measured: 0.806,
-    reason: 'Village on a rise beside the ditch line; under the floor, not yet reworked (GH-416 follow-up).',
-  },
-  wadi_halam_5: {
-    measured: 0.806,
-    reason: 'Depot yard and the village on the D9 line; under the floor, not yet reworked (GH-416 follow-up).',
+      'The old town at street scale is the map (ground-ladder §2, "sight lines of 3-5 tiles"). Fitting ' +
+      'buildings to their plots (lead ruling 7 Oct, units/building-fit.ts) took it from 0.457 to 0.792; ' +
+      'the lead accepted ~80% for it rather than a height cap or a shanty town. The floor is its reading ' +
+      'under the fit, so it can get better and not worse.',
   },
 };
 
@@ -100,7 +93,7 @@ describe('map visibility: the instrument', () => {
   it('a house hides the ground up-screen of it (smaller x and y) and not the ground in front', async () => {
     const rows = withBlock(open(24, 24), 12, 12, 3, 'h');
     const m = mapOf(rows);
-    const placed = await placeBuildings(m);
+    const placed = await placeBuildings(m, 'off');
     expect(bodyHiddenShare(m, placed, 10, 10)).toBeGreaterThan(0.5); // behind it, as the camera looks
     expect(bodyHiddenShare(m, placed, 17, 17)).toBe(0); // in front of it
     expect(bodyHiddenShare(m, placed, 18, 9)).toBe(0); // beside it, across the view axis
@@ -109,10 +102,26 @@ describe('map visibility: the instrument', () => {
     expect(bodyHiddenShare(bare, await placeBuildings(bare), 10, 10)).toBe(0);
   });
 
+  it('a house fitted to a 2x2 hides less than the same house at its shipped size', async () => {
+    const hiddenTiles = async (fit: 'off' | 'stretch') => {
+      const m = mapOf(withBlock(open(24, 24), 12, 12, 2, 'h'));
+      const placed = await placeBuildings(m, fit);
+      let n = 0;
+      for (let y = 0; y < 24; y++)
+        for (let x = 0; x < 24; x++) if (m.blocked[y * 24 + x] === 0 && bodyHiddenShare(m, placed, x, y) > 0.5) n++;
+      return n;
+    };
+    const shipped = await hiddenTiles('off');
+    const fitted = await hiddenTiles('stretch');
+    expect(shipped).toBeGreaterThan(15);
+    expect(fitted).toBeGreaterThan(0); // still a building, still a shadow
+    expect(fitted).toBeLessThan(shipped / 2);
+  });
+
   it('a shanty on the same footprint hides less than a house: the lever the reworked maps use', async () => {
     const count = async (ch: string) => {
       const m = mapOf(withBlock(open(24, 24), 12, 12, 3, ch));
-      const placed = await placeBuildings(m);
+      const placed = await placeBuildings(m, 'off');
       let n = 0;
       for (let y = 0; y < 24; y++)
         for (let x = 0; x < 24; x++) if (m.blocked[y * 24 + x] === 0 && bodyHiddenShare(m, placed, x, y) > 0.5) n++;

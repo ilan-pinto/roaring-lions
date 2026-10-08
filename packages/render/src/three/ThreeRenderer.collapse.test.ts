@@ -206,8 +206,10 @@ function armMeshBuilding(boundsY = 3): {
   const priv = renderer as unknown as ShroudPrivate;
   priv.buildingMeshIdleTemplates.set('shanty', fakeBuildingMeshTemplate());
   priv.buildingMeshWreckTemplates.set('shanty', fakeBuildingMeshTemplate());
-  // What `loadBuildingMesh` measures off the real GLB.
-  priv.buildingMeshBounds.set('shanty', new THREE.Vector3(2, boundsY, 2));
+  // What `loadBuildingMesh` measures off the real GLB. One tile in plan, the
+  // fixture's own 1x1 footprint, so the default fit (`units/building-fit.ts`)
+  // leaves it at the size these tests reason about.
+  priv.buildingMeshBounds.set('shanty', new THREE.Vector3(1, boundsY, 1));
   priv.updateBuildingMeshes(); // stands the idle clone up while it is alive
   return { sim, structureIdx, renderer, priv };
 }
@@ -316,6 +318,34 @@ describe('ThreeRenderer collapse shroud: the swap is held until the smoke hides 
     expect(top(tall.priv)).toBeGreaterThan(2 * top(short.priv));
     // ...and the tall one actually reaches over its own roof.
     expect(top(tall.priv)).toBeGreaterThan(8);
+  });
+
+  it('sizes the shroud from the FITTED building, not the shipped mesh', () => {
+    // A mesh 2 tiles in plan on the fixture's 1x1 plot draws at half size
+    // under the default fit, so its 8-unit height draws 4 and the cloud
+    // follows the drawn building rather than the GLB's bounds.
+    const top = (p: ShroudPrivate): number => {
+      const m = new THREE.Matrix4();
+      const pos = new THREE.Vector3();
+      const q = new THREE.Quaternion();
+      const s = new THREE.Vector3();
+      let highest = -Infinity;
+      for (let i = 0; i < p.collapseShrouds.instanceCount; i++) {
+        p.collapseShrouds.mesh.getMatrixAt(i, m);
+        m.decompose(pos, q, s);
+        highest = Math.max(highest, pos.y + s.y);
+      }
+      return highest;
+    };
+    const shroudTop = (planTiles: number): number => {
+      const a = armMeshBuilding(8);
+      a.priv.buildingMeshBounds.set('shanty', new THREE.Vector3(planTiles, 8, planTiles));
+      a.sim.structures.alive[a.structureIdx] = 0;
+      a.priv.beginCollapseShroud(a.structureIdx, 0.5, 0.5);
+      a.priv.collapseShrouds.step(COLLAPSE_SHROUD_SWAP_DELAY_MS);
+      return top(a.priv);
+    };
+    expect(shroudTop(2)).toBeLessThan(0.7 * shroudTop(1));
   });
 
   it('is NOT reachable from a shell impact -- that path has no structure at all', () => {

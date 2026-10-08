@@ -349,6 +349,7 @@ import {
 import { conformHull, type HullConform, type HullConformInput } from './units/vehicle-conform';
 import { vehicleWeightParamsFor } from './units/vehicle-weight-params';
 import { footprintCentre } from './units/footprint';
+import { DEFAULT_BUILDING_FIT, buildingFitScale, type FitScale } from './units/building-fit';
 import {
   FX_RENDER_ORDER,
   DECAL_PERSISTENT_RENDER_ORDER,
@@ -4914,7 +4915,7 @@ export class ThreeRenderer implements Renderer {
       const type = this.sim.structureTypes[st.typeIdx[s]];
       const w = st.maxX[s] - st.minX[s] + 1;
       const d = st.maxY[s] - st.minY[s] + 1;
-      const bounds = this.buildingMeshIdleEntities.has(s) ? this.buildingMeshBounds.get(type.id) : undefined;
+      const bounds = this.buildingMeshIdleEntities.has(s) ? this.drawnBuildingSize(s) : undefined;
       if (!bounds) return { width: w, height: type.heightPx * WORLD_Y_PER_LIFT_PIXEL, depth: d };
       // A per-tile run turns a quarter to follow its neighbours, so its
       // measured x/z are not this tile's; it is one tile and low either way.
@@ -7080,6 +7081,41 @@ export class ThreeRenderer implements Renderer {
     });
   }
 
+  /** The fit (`units/building-fit.ts`) for structure `s`'s mesh:
+   *  `opts.buildingFit`, absent being `DEFAULT_BUILDING_FIT` (`stretch`,
+   *  lead ruling 7 Oct); unit scale under `off` and until the type's
+   *  standing bounds are measured. A WRECK takes its standing building's
+   *  fit, so the pile shrinks by exactly what the building did. */
+  private buildingFitFor(s: number): FitScale {
+    const fit = this.opts.buildingFit ?? DEFAULT_BUILDING_FIT;
+    const st = this.sim.structures;
+    const type = this.sim.structureTypes[st.typeIdx[s]];
+    const bounds = fit === 'off' ? undefined : this.buildingMeshBounds.get(type.id);
+    if (!bounds) return { sx: 1, sy: 1, sz: 1 };
+    return buildingFitScale(
+      bounds.x,
+      bounds.z,
+      bounds.y,
+      st.maxX[s] - st.minX[s] + 1,
+      st.maxY[s] - st.minY[s] + 1,
+      fit,
+      type.perTile
+    );
+  }
+
+  /** Structure `s`'s STANDING mesh size as drawn (width/height/depth in
+   *  tiles): the type's measured bounds times its fit. Undefined for a type
+   *  with no mesh. What the collapse shroud, the roof fire and the drawn-
+   *  volume pick are sized from, so a fitted house is not shrouded, lit and
+   *  picked as the shipped one. */
+  private drawnBuildingSize(s: number): THREE.Vector3 | undefined {
+    const type = this.sim.structureTypes[this.sim.structures.typeIdx[s]];
+    const bounds = this.buildingMeshBounds.get(type.id);
+    if (!bounds) return undefined;
+    const f = this.buildingFitFor(s);
+    return new THREE.Vector3(bounds.x * f.sx, bounds.y * f.sy, bounds.z * f.sz);
+  }
+
   private updateBuildingMeshes(): void {
     if (this.buildingMeshIdleTemplates.size === 0) return;
     const st = this.sim.structures;
@@ -7098,6 +7134,8 @@ export class ThreeRenderer implements Renderer {
           const worldY = groundWorldY(elevation, this.sim.width, this.sim.height, cx, cy);
           root.position.set(cx, worldY, cy);
           if (type.perTile) root.rotation.y = this.perTileYaw(s);
+          const fitIdle = this.buildingFitFor(s);
+          root.scale.multiply(new THREE.Vector3(fitIdle.sx, fitIdle.sy, fitIdle.sz));
           this.buildingMeshIdleEntities.set(s, root);
           this.scene.add(root);
           // A clone stood up already damaged (a type whose mesh landed after
@@ -7154,6 +7192,10 @@ export class ThreeRenderer implements Renderer {
         const worldY = groundWorldY(elevation, this.sim.width, this.sim.height, cx, cy);
         root.position.set(cx, worldY, cy);
         if (type.perTile) root.rotation.y = this.perTileYaw(s);
+        // Before `baseScaleY` is read: the settle grows the wreck to its
+        // FITTED height, not the shipped one.
+        const fitWreck = this.buildingFitFor(s);
+        root.scale.multiply(new THREE.Vector3(fitWreck.sx, fitWreck.sy, fitWreck.sz));
         // GH #143 follow-up: start squashed on Y alone (see this method's
         // own doc comment and `buildingSettleScale`'s), so the wreck appears
         // already forming rather than instantly at full height.
@@ -7264,7 +7306,7 @@ export class ThreeRenderer implements Renderer {
     const type = this.sim.structureTypes[st.typeIdx[s]];
     const { fx: cx, fy: cy } = footprintCentre(this.sim, s);
     const groundY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, cx, cy);
-    const bounds = this.buildingMeshBounds.get(type.id);
+    const bounds = this.drawnBuildingSize(s);
     const roof = bounds ? bounds.y : type.heightPx * WORLD_Y_PER_LIFT_PIXEL;
     const roofY = groundY + roof * (standing ? 1 : WRECK_BURN_HEIGHT_FRACTION);
     const power = explosionBurstPowerFromFootprint(st.minX[s], st.minY[s], st.maxX[s], st.maxY[s]);
@@ -9091,7 +9133,7 @@ export class ThreeRenderer implements Renderer {
   private beginCollapseShroud(structure: number, cx: number, cy: number): void {
     const st = this.sim.structures;
     const type = this.sim.structureTypes[st.typeIdx[structure]];
-    const bounds = this.buildingMeshBounds.get(type.id);
+    const bounds = this.drawnBuildingSize(structure);
     const footprintW = st.maxX[structure] - st.minX[structure] + 1;
     const footprintD = st.maxY[structure] - st.minY[structure] + 1;
     const width = bounds ? Math.max(footprintW, bounds.x) : footprintW;

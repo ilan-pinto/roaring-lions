@@ -3187,7 +3187,12 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // which the plan's demo team levels on the way and which is still judged), Qarn Hadid II
 // 197 -> 200 (97 -> 100), Umm Zeitoun II 228 -> 230 (98 -> 100), Umm Zeitoun IV 227 -> 235
 // (92 -> 100). No star moved: every one of the six sits at 2 before and after.
-const LADDER_CREDITS = 5868;
+// 2026-10-08, buildings drawn to their footprints (PR #444): the one-tile-deep plots no fit can
+// draw within 2x were re-authored on the same tiles, so no route, sight line or marker moved.
+// 5868 -> 5870, +2, read off the printed per-mission credits: Qarn Hadid III 219 -> 221 (ROE
+// 94 -> 96), its six warehouse tiles on row 15 now sheds and pump houses (ROE penalty 2, not
+// 3). Khan Rafid II and Umm Zeitoun IV read the same. No star moved.
+const LADDER_CREDITS = 5870;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);

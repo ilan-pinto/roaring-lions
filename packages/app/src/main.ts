@@ -201,6 +201,7 @@ import { garageColors, garageGroundTexture, garageModelSource } from './garage-m
 import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { timeOfDayOf } from './time-of-day';
+import { buildingFitOf } from './building-fit-flag';
 import { registerServiceWorker } from './service-worker';
 import {
   Router,
@@ -1679,6 +1680,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // since the sim never reads it.
   const tod = timeOfDayOf((mission as { map: object } | undefined) ?? null, params);
   if (tod.warning) console.warn(`[lions] ${tod.warning}`);
+  // `&fitbuildings=<rule>` (lead ruling 7 Oct): compare building fits, on a
+  // mission as well as the sandbox. Absent leaves the renderer's default.
+  const fit = buildingFitOf(params);
+  if (fit.warning) console.warn(`[lions] ${fit.warning}`);
   const opts: RendererOptions = {
     ...rendererOptionsFor(
       map,
@@ -1686,6 +1691,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       BASE
     ),
     timeOfDay: tod.value,
+    ...(fit.value !== undefined ? { buildingFit: fit.value } : {}),
     // Pass C2/C4 (P5): asked live, so the settings panel's motion switch
     // reaches the near-miss flinch mid-mission.
     reducedMotion: prefersReducedMotion,

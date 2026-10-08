@@ -20,8 +20,11 @@ import type { RenderQuality } from './quality';
 // A type from a three-FREE module beside `lighting.ts` (it imports nothing),
 // so this file still reaches neither backend's library.
 import type { TimeOfDay } from './three/time-of-day';
+// Three-free too (`three/units/building-fit.ts` imports nothing).
+import type { BuildingFit } from './three/units/building-fit';
 
 export type { TimeOfDay } from './three/time-of-day';
+export type { BuildingFit } from './three/units/building-fit';
 
 /** How open ground is grained. Tones are data; mark shape is drawing code. */
 export type TerrainScatter = 'stone' | 'sward';
@@ -304,6 +307,15 @@ export interface RendererOptions {
    * `shellColors`.
    */
   timeOfDay?: TimeOfDay;
+  /**
+   * How each building mesh is scaled to its footprint (lead ruling 7 Oct,
+   * "fit buildings to their plots"; `three/units/building-fit.ts` holds the
+   * rule and its reasons). Absent is `DEFAULT_BUILDING_FIT`, `stretch`, with
+   * a 1.2-world-unit height floor; `off` is the shipped size, kept for
+   * comparison. Presentation only: the sim's footprint and `blocked` tiles
+   * are untouched. The app sets it only from `&fitbuildings=<rule>`.
+   */
+  buildingFit?: BuildingFit;
   /**
    * Each unit type's bought kit tiers by track (`armour`, `sensors`,
    * `firepower`), keyed by type id -- GH-238, kitted vehicles. A mesh
