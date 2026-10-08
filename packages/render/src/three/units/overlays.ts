@@ -220,15 +220,6 @@ export const OBJECTIVE_ZONE_FILL_ALPHA = 0.12;
  *  already names `shadow.2` for the identical literal. */
 export const AIR_SHADOW_COLOR_KEY = 'shadow.2';
 
-/** Palette key for the permanent-wreck fallback cross marker -- a unit type
- *  with no `wreck` clip in its sheet (`mbt_lavi`'s `TNK_HULL`/`TNK_TURR`
- *  manifests among them: no `clips` object at all, so `clipOrFallback(sheet,
- *  'wreck')` resolves to `'idle'`, never `'wreck'`). Pixi's own literal,
- *  `'#5C625F'` (`renderer.ts:1240-1241`'s two-line X, drawn into `unitsG`
- *  itself rather than `wreckLayer`), is the SAME swatch `renderer.ts:2402`
- *  already names `gunmetal.2` for its tutorial-ring track colour. */
-export const WRECK_MARKER_COLOR_KEY = 'gunmetal.2';
-
 /** Ticks this many `frame()` calls a placed order marker survives -- Pixi's
  *  own `ttl: 80` (`renderer.ts`'s `addOrderMarker`). Counted in frames, not
  *  seconds: Pixi's own `frame()` runs at the display's refresh rate, not the
@@ -331,10 +322,7 @@ export function buildingIntegrityColorKey(ratio: number): string {
  *  Pixi's own `this.opts.resolveColor ? this.opts.resolveColor('gunmetal.2')
  *  : '#5C625F'` (`renderer.ts`'s charge-ring block) -- already resolved
  *  THROUGH a palette key on the Pixi side, so this is a direct port, not a
- *  derivation like `FIREPOWER_KILL_COLOR_KEY` above. Same key
- *  `WRECK_MARKER_COLOR_KEY` already names for its own, unrelated purpose
- *  (two different UI meanings, the same swatch, exactly as this file's own
- *  `BADGE_TEXT_COLOR_KEY` doc comment already notes happens elsewhere). */
+ *  derivation like `FIREPOWER_KILL_COLOR_KEY` above. */
 export const CHARGE_RING_TRACK_COLOR_KEY = 'gunmetal.2';
 /** Palette key for the progress ring's FILL -- Pixi's own
  *  `this.opts.resolveColor('vfx.ember')` fallback `'#E8541E'`, same block. */

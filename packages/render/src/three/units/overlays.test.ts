@@ -16,6 +16,8 @@
  * Phase C report has the browser verification that covers `push()` itself.
  */
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
 import paletteJson from '../../../../../data/palette.json';
 import { OVERLAY_RENDER_ORDER, BADGE_NUMERAL_RENDER_ORDER } from './render-order';
@@ -43,7 +45,6 @@ import {
   objectiveZonePulse,
   OBJECTIVE_ZONE_STROKE_INSET_TILES,
   AIR_SHADOW_COLOR_KEY,
-  WRECK_MARKER_COLOR_KEY,
   MOBILITY_KILL_COLOR_KEY,
   FIREPOWER_KILL_COLOR_KEY,
   FIREPOWER_KILL_FALLBACK_COLOR,
@@ -186,10 +187,6 @@ describe('overlay palette keys resolve to the exact hex Pixi hard-codes at the e
 
   it('AIR_SHADOW_COLOR_KEY -> #0A0A08, Pixi\'s air-lift shadow ellipse fill (same swatch fog-mesh.ts names shadow.2)', () => {
     expect(resolve(AIR_SHADOW_COLOR_KEY)).toBe('#0A0A08');
-  });
-
-  it('WRECK_MARKER_COLOR_KEY -> #5C625F, Pixi\'s permanent-wreck cross-marker stroke (same swatch renderer.ts:2402 names gunmetal.2)', () => {
-    expect(resolve(WRECK_MARKER_COLOR_KEY)).toBe('#5C625F');
   });
 
   it('MOBILITY_KILL_COLOR_KEY -> #8E9491, Pixi\'s own mobility-kill pip literal, exactly', () => {
@@ -604,5 +601,54 @@ describe('hpBarVisible (GH-186)', () => {
     expect(hpBarVisible(MAX, MAX, true, false, false)).toBe(true);
     expect(hpBarVisible(MAX, MAX, false, true, false)).toBe(true);
     expect(hpBarVisible(MAX, MAX, false, false, true)).toBe(true);
+  });
+});
+
+/**
+ * VR-38: a palette-key constant nothing but a test reads is a dead mark that
+ * still looks like a decision (`WRECK_MARKER_COLOR_KEY` outlived the sprite
+ * wreck cross it named). Every `*_COLOR_KEY` this module exports must be read
+ * by production code, comments stripped, so a mention in prose cannot keep one
+ * alive.
+ */
+describe('overlay colour keys are all live', () => {
+  const stripComments = (src: string): string => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const walk = (dir: string): string[] =>
+    readdirSync(dir).flatMap((name) => {
+      const full = `${dir}/${name}`;
+      if (name === 'node_modules') return [];
+      if (statSync(full).isDirectory()) return walk(full);
+      return /\.ts$/.test(name) && !/\.test\.ts$/.test(name) ? [full] : [];
+    });
+  const packages = fileURLToPath(new URL('../../../../', import.meta.url));
+  const production = [...walk(`${packages}render/src`), ...walk(`${packages}app/src`)].map((f) => ({
+    file: f,
+    code: stripComments(readFileSync(f, 'utf8')),
+  }));
+  const own = production.find((f) => f.file.endsWith('three/units/overlays.ts'));
+
+  it('reads this module as production source (the guard cannot pass on an empty scan)', () => {
+    expect(own).toBeDefined();
+    expect(production.length).toBeGreaterThan(50);
+  });
+
+  // Named, not silent. `FIREPOWER_KILL_COLOR_KEY` has no production reader
+  // either: three never draws a firepower-kill pip (no ThreeRenderer read of
+  // it). It is outside VR-38's two named marks, so it is recorded here for the
+  // lead to rule on rather than deleted with them. The demotion assertion below
+  // fails the day it gains a reader (or is removed), so the entry cannot linger.
+  const KNOWN_DEAD = new Set(['FIREPOWER_KILL_COLOR_KEY']);
+
+  it('has no *_COLOR_KEY export that only a test reads', () => {
+    const declared = [...(own?.code ?? '').matchAll(/^export const ([A-Z0-9_]*COLOR_KEY)\b/gm)].map((m) => m[1]);
+    expect(declared.length).toBeGreaterThan(10);
+    const dead = declared.filter((name) => {
+      const re = new RegExp(`\\b${name}\\b`, 'g');
+      const uses = production.reduce((n, f) => n + (f.code.match(re)?.length ?? 0) - (f === own ? 1 : 0), 0);
+      return uses === 0;
+    });
+    expect(dead.filter((n) => !KNOWN_DEAD.has(n))).toEqual([]);
+    // Demotion: an exemption that is no longer needed must be deleted.
+    expect(dead.filter((n) => KNOWN_DEAD.has(n))).toEqual([...KNOWN_DEAD]);
   });
 });

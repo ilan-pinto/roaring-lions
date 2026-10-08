@@ -508,8 +508,8 @@ export function paletteTeamColors(variant: ColorVisionVariant): [kedem: string, 
  * (`packages/render/src/three/units/silhouette.ts`'s
  * `SILHOUETTE_COLOR_KEY_BY_SIDE`, which feeds every billboard
  * `UnitInstancer`'s own shader uniform AND the mesh path's shared
- * silhouette materials), the HP bar fill (`hpBarColorKey`), the
- * objective-zone tint (`objectiveZoneColorKey`), and the min-range ring. A
+ * silhouette materials), the HP bar fill (`hpBarColorKey`) and the
+ * objective-zone tint (`objectiveZoneColorKey`). A
  * plain `paletteColor` passed as `resolveColor` resolves `'team.hostile'`
  * to the DEFAULT hex regardless of the player's setting, which is exactly
  * the bug this function closes -- Task 12's `teamColors` tuple alone was
