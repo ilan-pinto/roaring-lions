@@ -1,5 +1,5 @@
 /**
- * `ThreeRenderer.captureView`'s GL half (#464): the player's own view, through
+ * `ThreeRenderer.captureView`'s GL half (GH-464): the player's own view, through
  * the whole post chain, read back from a RENDER TARGET -- the picture a
  * feedback note attaches.
  *

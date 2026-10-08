@@ -493,7 +493,7 @@ export interface Renderer {
   captureGroundAlbedo?(sizePx: number): ImageData | null;
 
   /**
-   * The world as the player sees it, for a feedback note's picture (#464):
+   * The world as the player sees it, for a feedback note's picture (GH-464):
    * the live camera through the whole post chain -- fog, GTAO, tone map,
    * SMAA, units and world overlays -- and none of the DOM HUD, which is not
    * part of the scene. At most `maxWidth` pixels wide, keeping the view's

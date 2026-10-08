@@ -60,6 +60,12 @@ export interface MenuOptions {
    * before the host existed.
    */
   backdrop?: (stage: HTMLElement, column: HTMLElement) => Disposer;
+  /** Opens the feedback modal (GH-464). Absent when `feedbackShown` says no
+   *  (`feedback/gate.ts`), which is also every test that does not ask. */
+  feedback?: () => void;
+  /** The server's switch (`GET /api/feedback`, asked once a boot): when it
+   *  resolves false after this menu mounted, the button comes down. */
+  feedbackAvailable?: Promise<boolean>;
 }
 
 export interface CampaignOptions {
@@ -190,6 +196,23 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
   });
   aside.appendChild(newCampaignBtn);
   if (opts.audio) aside.appendChild(audioToggle(opts.audio));
+  // GH-464: a button, like New campaign -- it opens a modal rather than
+  // leaving the page. Bugs on the board, in the garage or the brigade screen
+  // have no pause menu to report them from.
+  if (opts.feedback) {
+    const feedbackBtn = document.createElement('button');
+    feedbackBtn.type = 'button';
+    feedbackBtn.className = 'rl-btn rl-menu__item';
+    feedbackBtn.dataset.kind = 'aside';
+    feedbackBtn.dataset.act = 'feedback';
+    feedbackBtn.textContent = t('menu.aside.feedback');
+    const open = opts.feedback;
+    feedbackBtn.addEventListener('click', () => open());
+    aside.appendChild(feedbackBtn);
+    void opts.feedbackAvailable?.then((ok) => {
+      if (!ok) feedbackBtn.remove();
+    });
+  }
   // Last, deliberately: people, libraries, fonts and the licence split are
   // the least urgent thing on this screen, not the most.
   addAside(t('menu.aside.credits'), routes.credits());

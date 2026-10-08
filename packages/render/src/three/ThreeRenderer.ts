@@ -3517,7 +3517,7 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
-   * `Renderer.captureView` (#464): the player's view for a feedback note's
+   * `Renderer.captureView` (GH-464): the player's view for a feedback note's
    * picture. The composer renders once more, short of the screen, and one
    * copy pass resolves its HalfFloat output into an 8-bit target at most
    * `maxWidth` wide, which is what is read -- see `./capture-view.ts`, which

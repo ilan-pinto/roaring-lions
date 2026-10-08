@@ -1,5 +1,5 @@
 /**
- * `captureComposerView` (#464): the feedback picture is the composer's own
+ * `captureComposerView` (GH-464): the feedback picture is the composer's own
  * output, read from a render target -- never the canvas, whose drawing
  * buffer reads back black with `preserveDrawingBuffer` off -- and the
  * composer is always handed back drawing to the screen.

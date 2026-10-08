@@ -354,7 +354,7 @@ describe('pauseMenu', () => {
     }
   });
 
-  // D18 (#464): the feedback form puts a text field INSIDE this modal, and the
+  // D18 (GH-464): the feedback form puts a text field INSIDE this modal, and the
   // pan exemption above let every w/a/s/d typed into it through to the game --
   // measured on the design branch: the textarea got every character and the
   // camera still moved from (4, 23) to (15.2, 12.5). A focused text field now
@@ -481,3 +481,60 @@ describe('pauseMenu', () => {
     expect(document.body.querySelector('.rl-pause__list')).toBeNull(); // the old <ol> is gone
   });
 });
+
+describe('pauseMenu feedback tab (GH-464)', () => {
+  const fbDeps = () => ({
+    who: { tester: 'dana', anonymous: false },
+    build: '0.122.0',
+    picture: vi.fn(async () => null),
+    send: vi.fn(async () => ({ kind: 'dry-run' as const })),
+    storage: null,
+  });
+
+  it('has no Feedback tab unless the gate passed one', () => {
+    pauseMenu(document.body, deps());
+    expect(document.querySelector('.rl-pause__tabs [data-tab="feedback"]')).toBeNull();
+  });
+
+  it('mounts the form on first open -- taking the picture then, once -- and keeps it', () => {
+    const fb = fbDeps();
+    pauseMenu(document.body, { ...deps(), feedback: fb });
+    const tab = document.querySelector<HTMLButtonElement>('.rl-pause__tabs [data-tab="feedback"]');
+    expect(tab?.textContent).toBe('Feedback');
+    expect(document.querySelector('.rl-feedback')).toBeNull();
+    expect(fb.picture).not.toHaveBeenCalled();
+    tab?.click();
+    expect(document.querySelector('.rl-feedback')).not.toBeNull();
+    expect(tab?.dataset.on).toBe('1');
+    expect(document.activeElement?.classList.contains('rl-feedback__kind')).toBe(true);
+    document.querySelector<HTMLButtonElement>('.rl-pause__tabs [data-tab="objectives"]')?.click();
+    tab?.click();
+    expect(fb.picture).toHaveBeenCalledTimes(1);
+    expect(document.querySelectorAll('.rl-feedback')).toHaveLength(1);
+  });
+
+  it('Cancel goes back to Objectives and leaves the game paused; Back to the game resumes', () => {
+    const d = { ...deps(), feedback: fbDeps() };
+    pauseMenu(document.body, d);
+    document.querySelector<HTMLButtonElement>('.rl-pause__tabs [data-tab="feedback"]')?.click();
+    document.querySelector<HTMLButtonElement>('.rl-feedback__cancel')?.click();
+    expect(document.querySelector<HTMLElement>('.rl-pause__feedback')?.hidden).toBe(true);
+    expect(d.onResume).not.toHaveBeenCalled();
+  });
+
+  it('closing the menu disposes the form: its key listener comes off with it', () => {
+    const add = vi.spyOn(window, 'addEventListener');
+    const remove = vi.spyOn(window, 'removeEventListener');
+    const m = pauseMenu(document.body, { ...deps(), feedback: fbDeps() });
+    document.querySelector<HTMLButtonElement>('.rl-pause__tabs [data-tab="feedback"]')?.click();
+    const keyAdds = add.mock.calls.filter((c) => c[0] === 'keydown');
+    m.close();
+    for (const [type, fn, opt] of keyAdds) {
+      expect(remove.mock.calls.some((c) => c[0] === type && c[1] === fn && c[2] === opt)).toBe(true);
+    }
+    expect(document.querySelector('.rl-feedback')).toBeNull();
+    add.mockRestore();
+    remove.mockRestore();
+  });
+});
+

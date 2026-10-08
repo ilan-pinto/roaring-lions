@@ -127,6 +127,19 @@ export function closeOpenDialog(): void {
 }
 
 /**
+ * Let another modal in the `.rl-confirm` family (the main menu's feedback
+ * dialog, GH-464) answer to `closeOpenDialog()` like a confirm does: `cancel`
+ * becomes the one open dialog's teardown. Returns the release, which clears
+ * the slot only if it still holds `cancel`.
+ */
+export function trackOpenDialog(cancel: () => void): () => void {
+  openCancel = cancel;
+  return () => {
+    if (openCancel === cancel) openCancel = null;
+  };
+}
+
+/**
  * Mounts a modal confirm under `host` and resolves once the player answers.
  *
  * Cancel takes focus on mount, so an Enter that was meant for the game

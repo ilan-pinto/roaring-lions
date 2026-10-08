@@ -272,7 +272,7 @@ export function shouldYieldSpace(el: Element | null): boolean {
 const TEXT_INPUT_TYPES = new Set(['', 'text', 'search', 'email', 'url', 'tel', 'password', 'number']);
 
 /**
- * D18 (#464): is `el` a field the player TYPES into -- a `<textarea>`, a text
+ * D18 (GH-464): is `el` a field the player TYPES into -- a `<textarea>`, a text
  * `<input>`, or a `contenteditable` element? Narrower than `shouldYieldSpace`,
  * which also yields to buttons and links: a focused button still lets a pan
  * key move the camera behind the pause menu, while a focused text field owns

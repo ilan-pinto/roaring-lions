@@ -172,6 +172,13 @@ describe('the type register: theme.css', () => {
       '.rl-keymap__key',
       '.rl-saves__form input[type=\'text\']',
       '.rl-credits__uri',
+      // feedback (GH-464): the character count, an attachment's size, the
+      // send shortcut's keycaps, the reference, and the 1-5 scale
+      '.rl-feedback__count',
+      '.rl-feedback__sub',
+      '.rl-feedback__hint',
+      '.rl-feedback__ref',
+      '.rl-rate__n',
       ':root',
     ]);
     const seen: string[] = [];

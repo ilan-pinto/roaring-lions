@@ -16,7 +16,8 @@ import type { Panel } from './panel';
 
 /** Mount `p` on `host` as an end-of-mission panel: `nav` (the action row)
  *  goes in a foot after the scrolling body, and `primary` -- the one action a
- *  player most likely wants -- takes focus, so Enter answers it.
+ *  player most likely wants -- takes focus, so Enter answers it. `above`,
+ *  when given, sits in the foot over the action row.
  *
  *  A HELD Enter does not: the outcome moment before this panel ends on any
  *  fresh key press, and a player still holding the Enter that dismissed it
@@ -24,10 +25,13 @@ import type { Panel } from './panel';
  *  auto-repeat, without ever seeing this panel. Escape is left alone: the
  *  battlefield's own handler already ignores it once the mission is over
  *  (`missionEnded`, `main.ts`), and there is nothing here for it to close. */
-export function mountEndPanel(host: HTMLElement, p: Panel, nav: HTMLElement, primary: HTMLElement | null): void {
+export function mountEndPanel(host: HTMLElement, p: Panel, nav: HTMLElement, primary: HTMLElement | null, above?: HTMLElement): void {
   p.el.classList.add('rl-endpanel');
   const foot = document.createElement('div');
   foot.className = 'rl-endpanel__foot';
+  // `above` (the debrief's rating prompt, GH-464) sits in the foot too, so it
+  // never scrolls away with the body -- but it takes no focus: `primary` does.
+  if (above) foot.appendChild(above);
   foot.appendChild(nav);
   p.el.appendChild(foot);
   nav.addEventListener('keydown', (e) => {

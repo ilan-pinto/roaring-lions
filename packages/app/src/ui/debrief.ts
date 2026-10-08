@@ -58,6 +58,9 @@ export interface DebriefOptions {
   ground?: { map: PreviewMap; tones: PreviewTones; marks: readonly GroundMark[]; photo?: ImageData | null };
   next?: { id: string; name: string; villainLine?: string };
   missionId: string;
+  /** The rating prompt (GH-464), mounted in the foot above the nav. Built and
+   *  disposed by the caller; this only places it. */
+  prompt?: HTMLElement;
 }
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: string): HTMLElementTagNameMap[K] => {
@@ -252,7 +255,7 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
   // The onward action is the report's primary: the confirm cue marks it, as
   // it marked the end screen's next-mission link.
   markConfirm(primary);
-  mountEndPanel(host, p, nav, primary);
+  mountEndPanel(host, p, nav, primary, o.prompt);
   return () => {
     p.el.remove();
     backdrop.remove();

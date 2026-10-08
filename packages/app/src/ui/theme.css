@@ -1329,6 +1329,258 @@ body {
 }
 
 /* ====================================================================== */
+/* Feedback (ui/feedback-form.ts, feedback-dialog.ts, feedback-prompt.ts)  */
+/* ====================================================================== */
+
+/* The form: the pause menu's third tab, and the main menu's modal (GH-464).
+   Tokens only; the kind chips are a pick-one-of-a-set control, so they wear
+   the one "selected" (VR-26); the focus ring is the sheet's own (VR-28). */
+.rl-feedback,
+.rl-feedback__form,
+.rl-feedback__result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.rl-feedback__form[hidden],
+.rl-feedback__result[hidden] {
+  display: none;
+}
+.rl-feedback__lede {
+  margin: 0;
+  color: var(--ink-dim);
+  font: var(--t-m) / 1.45 var(--font-body);
+}
+.rl-feedback__label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 0 0 calc(-1 * var(--s2));
+  font: 600 var(--t-s) var(--font-display);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+.rl-feedback__count {
+  font: var(--t-s) var(--font-mono);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-mute);
+}
+.rl-feedback__kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.rl-feedback__kind {
+  font: var(--t-m) var(--font-body);
+  color: var(--ink-dim);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  padding: var(--s1h) var(--s3);
+  cursor: pointer;
+}
+.rl-feedback__kind:hover {
+  color: var(--ink);
+}
+.rl-feedback__kind[aria-checked='true'] {
+  color: var(--ink);
+  border-color: var(--selected);
+  background: var(--selected-fill);
+}
+.rl-feedback__text,
+.rl-feedback__contact,
+.rl-rate__line {
+  box-sizing: border-box;
+  width: 100%;
+  background: var(--panel-bg-solid);
+  color: var(--ink);
+  border: 1px solid var(--panel-frame);
+  font: var(--t-m) / 1.5 var(--font-body);
+  padding: var(--s2);
+}
+.rl-feedback__text {
+  min-height: 7.5rem;
+  resize: vertical;
+}
+.rl-feedback__text::placeholder,
+.rl-feedback__contact::placeholder,
+.rl-rate__line::placeholder {
+  color: var(--ink-mute);
+}
+.rl-feedback__attach {
+  display: flex;
+  gap: var(--s3);
+  align-items: center;
+}
+.rl-feedback__thumb {
+  width: 12rem;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border: 1px solid var(--panel-frame);
+}
+.rl-feedback__thumb[hidden] {
+  display: none;
+}
+.rl-feedback__checks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.rl-feedback__check {
+  display: flex;
+  gap: var(--s2);
+  align-items: baseline;
+  color: var(--ink);
+  font: var(--t-m) var(--font-body);
+  cursor: pointer;
+}
+.rl-feedback__check:has(input:disabled) {
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
+}
+.rl-feedback__sub {
+  color: var(--ink-mute);
+  font: var(--t-s) var(--font-mono);
+}
+.rl-feedback__who {
+  margin: 0;
+  color: var(--ink-mute);
+  font: var(--t-s) / 1.5 var(--font-body);
+}
+.rl-feedback__who b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.rl-feedback__details {
+  color: var(--ink-mute);
+  font: var(--t-s) / 1.5 var(--font-body);
+}
+.rl-feedback__details summary {
+  cursor: pointer;
+  color: var(--ink-dim);
+}
+.rl-feedback__details p {
+  margin: var(--s1) 0 0;
+}
+.rl-feedback__row {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+.rl-feedback__hint {
+  margin-left: auto;
+  color: var(--ink-mute);
+  font: var(--t-s) var(--font-mono);
+}
+.rl-feedback__consent {
+  margin: 0;
+  padding-top: var(--s2);
+  color: var(--ink-mute);
+  font: var(--t-s) / 1.5 var(--font-body);
+  border-top: 1px solid var(--panel-rule);
+}
+.rl-feedback__result {
+  align-items: flex-start;
+  padding-block: var(--s3);
+}
+.rl-feedback__title {
+  margin: 0;
+  font: 800 var(--t-xl) / 1 var(--font-display);
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.rl-feedback__title[data-tone='good'] {
+  color: var(--good);
+}
+.rl-feedback__title[data-tone='bad'] {
+  color: var(--bad-text);
+}
+.rl-feedback__thanks {
+  margin: 0;
+  color: var(--ink);
+  font: var(--t-read) / 1.45 var(--font-body);
+}
+.rl-feedback__ref {
+  margin: 0;
+  color: var(--ink-dim);
+  font: var(--t-m) var(--font-mono);
+}
+/* The pause menu keeps its own action row under the form; the form's
+   consent rule separates them. */
+.rl-pause__feedback[hidden] {
+  display: none;
+}
+.rl-feedback-dialog__panel {
+  width: min(36rem, 94vw);
+  max-height: 88vh;
+  overflow: auto;
+}
+
+/* The debrief's rating prompt, in the report's foot above the nav. */
+.rl-rate {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  padding-bottom: var(--s3);
+  margin-bottom: var(--s3);
+  border-bottom: 1px solid var(--panel-rule);
+}
+.rl-rate__q {
+  margin-right: var(--s2);
+  font: 600 var(--t-band) var(--font-display);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+.rl-rate__scale {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.rl-rate__end {
+  color: var(--ink-mute);
+  font: var(--t-s) var(--font-body);
+}
+.rl-rate__n {
+  min-width: 2.25rem;
+  font: 600 var(--t-m) var(--font-mono);
+}
+.rl-rate__n[aria-checked='true'] {
+  color: var(--ink);
+  border-color: var(--selected);
+  background: var(--selected-fill);
+}
+.rl-rate__line {
+  flex: 1 1 18rem;
+  width: auto;
+  min-width: 14rem;
+  padding: var(--s1h) var(--s2);
+}
+.rl-rate__line[hidden],
+.rl-rate__send[hidden],
+.rl-rate__note[hidden] {
+  display: none;
+}
+.rl-rate__note {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--ink-mute);
+  font: var(--t-s) var(--font-body);
+}
+.rl-rate__status {
+  color: var(--bad-text);
+  font: var(--t-s) var(--font-body);
+}
+.rl-rate__thanks {
+  color: var(--good);
+  font: var(--t-m) var(--font-body);
+}
+
+/* ====================================================================== */
 /* Objectives panel (ui/objectives.ts) — one component, three mounts       */
 /* ====================================================================== */
 
