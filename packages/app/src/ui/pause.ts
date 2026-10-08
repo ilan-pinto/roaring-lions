@@ -64,6 +64,7 @@
  * `ev.key === 'Escape'`, so nothing needed to change there.
  */
 import { t } from '../i18n/t';
+import { isTextEntry } from '../input/keymap';
 import type { Disposer } from '../shell/router';
 import { focusTrap } from './focus-trap';
 import { objectivesPanel, type ObjectiveRow } from './objectives';
@@ -235,7 +236,18 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
   // cannot look at it. `deps.isPanKey` (fix round 1) is the live answer,
   // built by `bootBattlefield` from its own `bindings` through
   // `resolveKey` -- see `PauseDeps.isPanKey`'s own doc comment.
+  //
+  // D18 (#464), ABOVE the pan exemption: a focused text field (the Feedback
+  // tab's note) owns every key but Escape (this menu's own close) and Tab
+  // (`focusTrap`'s). Enter included, so a newline never reaches a game
+  // binding. Propagation stops here and the default action is left alone, so
+  // the character still lands in the field -- before this, `w`/`a`/`s`/`d`
+  // typed into a sentence panned the map behind the modal.
   const onCaptureKey = (e: KeyboardEvent): void => {
+    if (isTextEntry(e.target) && e.key !== 'Escape' && e.key !== 'Tab') {
+      e.stopPropagation();
+      return;
+    }
     if (e.key === 'Escape' || e.key === 'Enter' || e.key === 'Tab') return;
     if (deps.isPanKey(e)) return;
     e.stopPropagation();

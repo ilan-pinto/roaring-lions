@@ -354,6 +354,58 @@ describe('pauseMenu', () => {
     }
   });
 
+  // D18 (#464): the feedback form puts a text field INSIDE this modal, and the
+  // pan exemption above let every w/a/s/d typed into it through to the game --
+  // measured on the design branch: the textarea got every character and the
+  // camera still moved from (4, 23) to (15.2, 12.5). A focused text field now
+  // owns every key but Escape and Tab. `gameKeydown` is the same stand-in as
+  // above, panning a camera the way `main.ts`'s `keys` set does.
+  it('typing in a text field inside the modal never pans the camera (D18)', () => {
+    const bindings = bindingsFrom({});
+    const d = deps();
+    d.isPanKey = (ev: KeyboardEvent) => passesThroughModal(resolveKey(bindings, ev));
+    const camera = { x: 4, y: 23 };
+    const acted: string[] = [];
+    const gameKeydown = (ev: KeyboardEvent): void => {
+      const action = resolveKey(bindings, ev);
+      if (isDialogOpen() && !passesThroughModal(action)) return;
+      if (action === 'panRight') camera.x += 1;
+      if (action === 'panLeft') camera.x -= 1;
+      if (action === 'panUp') camera.y -= 1;
+      if (action === 'panDown') camera.y += 1;
+      if (action !== null) acted.push(action);
+    };
+    window.addEventListener('keydown', gameKeydown);
+    try {
+      pauseMenu(document.body, d);
+      const panel = document.querySelector<HTMLElement>('.rl-pause__panel');
+      if (!panel) throw new Error('no panel');
+      const field = document.createElement('textarea');
+      panel.appendChild(field);
+      field.focus();
+      for (const key of [...'the squad would not hold the wadi when asked', 'ArrowLeft', 'Enter']) {
+        const ev = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+        field.dispatchEvent(ev);
+        // The field's own default action (the character, the newline, the
+        // caret move) is never cancelled.
+        expect(ev.defaultPrevented).toBe(false);
+      }
+      expect(camera).toEqual({ x: 4, y: 23 });
+      expect(acted).toEqual([]);
+      // Control: the same key from outside a field still pans (the exemption
+      // above is untouched).
+      document.querySelector<HTMLElement>('.rl-pause [data-act="resume"]')?.focus();
+      document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', bubbles: true }));
+      expect(camera.x).toBe(5);
+      // ...and Escape from inside the field still closes the menu.
+      field.focus();
+      field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      expect(d.onResume).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener('keydown', gameKeydown);
+    }
+  });
+
   // Task 8 (M4): a synthetic Tab never moves focus in jsdom by itself, so a
   // test that presses Tab once and asserts "focus is still inside the modal"
   // proves nothing -- that would already be true with no trap at all, since

@@ -116,7 +116,7 @@ import { objectiveStatusShout } from './ui/objective-status';
 import { pauseMenu } from './ui/pause';
 import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
-import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace } from './input/keymap';
+import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace } from './input/keymap';
 import { buyUnlock, buyUpgrade } from './brigade-account';
 import { payVictory } from './campaign-pay';
 import { tierLine } from './ui/grade-copy';
@@ -3629,6 +3629,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   onDispose(() => groupsBar.dispose());
   onWindow('blur', () => keys.clear());
   onWindow('keydown', (ev) => {
+    // D18 (#464): a focused text field owns its keys. The pause menu's capture
+    // guard already stops them (`pause.ts`); this is the line for a field on
+    // no modal at all -- the debrief's one-line rating note -- where `h` would
+    // otherwise still halt and `w` still pan while the player types.
+    if (isTextEntry(ev.target)) return;
     // The keydown listener used to be an if-chain of literals -- one per
     // bound key, and a second copy of each letter living in
     // `selection-model.ts`'s ORDERS with nothing keeping the two in step.
