@@ -1,0 +1,181 @@
+diff --git a/packages/render/src/three/ThreeRenderer.ts b/packages/render/src/three/ThreeRenderer.ts
+index cbe358bc..2584e6f1 100644
+--- a/packages/render/src/three/ThreeRenderer.ts
++++ b/packages/render/src/three/ThreeRenderer.ts
+@@ -2028,6 +2028,12 @@ export class ThreeRenderer implements Renderer {
+    * below.
+    */
+   private readonly overlayBatch: OverlayBatch;
++  /** GH-470 MOCK (design/zone-tint, not for merge): which zone treatment
++   *  `updateOverlays` draws -- 'today' is shipped behaviour; a outline only;
++   *  b ground-only multiplied tint; c hatched 0.5-tile inner band; d the b
++   *  tint faded out by zoom. Set from the capture harness only. */
++  zoneMock: 'today' | 'a' | 'b' | 'c' | 'd' = 'today';
++  private readonly zoneGroundBatch = new OverlayBatch(120_000, 'ground');
+   /** GH-279: the refuge ring's one slot (`pingRefuge`). Aged in `frame()`
+    *  from the frame clock, drawn in `updateOverlays`. */
+   private readonly refugePing = new GroundPing();
+@@ -2501,6 +2507,8 @@ export class ThreeRenderer implements Renderer {
+     // haven't run yet) and stay that way until `updateOverlays`'s first
+     // call, from `frame()`.
+     this.scene.add(this.overlayBatch.mesh, this.numeralBatch.mesh, this.chevronBatch.mesh);
++    this.zoneGroundBatch.mesh.renderOrder = DECAL_FADING_RENDER_ORDER;
++    this.scene.add(this.zoneGroundBatch.mesh);
+     // The ground beyond the map (`./terrain/skirt.ts`), added once here and
+     // never rebuilt -- it depends on the map's DIMENSIONS and on nothing
+     // `rebuildTerrain` can change. It draws in the world band under the
+@@ -8087,6 +8095,38 @@ export class ThreeRenderer implements Renderer {
+    *  handful of `resolveColor`-through-a-ring-colour call sites already use
+    *  (e.g. its tutorial-focus-ring block, `this.opts.resolveColor ? this
+    *  .opts.resolveColor('vfx.tracer') : '#B8FF5A'`), not a new pattern. */
++  /** GH-470 MOCK: a zone's ground cover as 0.5-tile cells on the drawn
++   *  ground, into the depth-tested multiply batch. `band` keeps only the
++   *  outer ring of cells and hatches them. */
++  private zoneGroundCells(rect: readonly number[], colorHex: string, k: number, band: boolean): void {
++    const [zx, zy, zw, zh] = rect;
++    const { width, height } = this.sim;
++    const elevation = this.retained.elevation;
++    const step = 0.5;
++    const lift = 0.02;
++    const y = (x: number, z: number): number => groundWorldY(elevation, width, height, x, z) + lift;
++    for (let cy = zy; cy < zy + zh - 1e-6; cy += step) {
++      for (let cx = zx; cx < zx + zw - 1e-6; cx += step) {
++        if (band) {
++          const inner = cx - zx >= step && zx + zw - (cx + step) >= step && cy - zy >= step && zy + zh - (cy + step) >= step;
++          if (inner) continue;
++        }
++        const x1 = cx + step;
++        const z1 = cy + step;
++        this.zoneGroundBatch.polygonFillWorld(
++          [
++            [cx, y(cx, cy), cy],
++            [x1, y(x1, cy), cy],
++            [x1, y(x1, z1), z1],
++            [cx, y(cx, z1), z1],
++          ],
++          colorHex,
++          band ? -k : k
++        );
++      }
++    }
++  }
++
+   private overlayColor(key: string, fallback?: string): string {
+     return this.opts.resolveColor ? this.opts.resolveColor(key) : (fallback ?? paletteHex(key));
+   }
+@@ -8239,6 +8279,7 @@ export class ThreeRenderer implements Renderer {
+     census.destinations = 0;
+     census.orderMarkers = 0;
+     this.overlayBatch.beginFrame();
++    this.zoneGroundBatch.beginFrame();
+     this.numeralBatch.beginFrame();
+     this.chevronBatch.beginFrame();
+     this.selectionRing.beginFrame();
+@@ -8810,7 +8851,17 @@ export class ThreeRenderer implements Renderer {
+         pulse + 0.35,
+         objectiveZoneDashed(zv.state) ? OBJECTIVE_ZONE_DASH_TILES : undefined
+       );
+-      this.overlayBatch.polygonFillWorld(corners, color, OBJECTIVE_ZONE_FILL_ALPHA);
++      const mock = this.zoneMock;
++      if (mock === 'today') {
++        this.overlayBatch.polygonFillWorld(corners, color, OBJECTIVE_ZONE_FILL_ALPHA);
++      } else if (mock === 'b') {
++        this.zoneGroundCells(zv.rect, color, 0.3, false);
++      } else if (mock === 'c') {
++        this.zoneGroundCells(zv.rect, color, 1.0, true);
++      } else if (mock === 'd') {
++        const f = Math.min(1, Math.max(0, (1.0 - this.camera.zoom) / 0.4));
++        if (f > 0) this.zoneGroundCells(zv.rect, color, 0.3 * f, false);
++      }
+     }
+ 
+     // Tutorial focus ring -- renderer.ts's own manual 24-point loop, a
+@@ -8896,6 +8947,7 @@ export class ThreeRenderer implements Renderer {
+     }
+ 
+     this.overlayBatch.endFrame();
++    this.zoneGroundBatch.endFrame();
+     this.numeralBatch.endFrame();
+     this.chevronBatch.endFrame();
+   }
+diff --git a/packages/render/src/three/units/overlays.ts b/packages/render/src/three/units/overlays.ts
+index a502263d..054a1af7 100644
+--- a/packages/render/src/three/units/overlays.ts
++++ b/packages/render/src/three/units/overlays.ts
+@@ -456,7 +456,57 @@ export function cachedDesaturate(hex: string, amount: number): string {
+  * `depthTest: false` for the reason this file's own top comment gives (a
+  * faithful port of Pixi's un-occluded `unitsG`, not a shortcut).
+  */
+-function createOverlayMaterial(): THREE.ShaderMaterial {
++function createOverlayMaterial(mode: 'overlay' | 'ground' = 'overlay'): THREE.ShaderMaterial {
++  // GH-470 MOCK (design/zone-tint, not for merge): a GROUND variant of the
++  // batch -- depth-tested against terrain, buildings and units, so it lies on
++  // the ground only, and MULTIPLIED onto the lit ground (the decal pool's own
++  // DstColor * SrcColor), so it inherits the scene's light instead of adding
++  // an unlit colour to a scene-referred buffer. A NEGATIVE per-vertex alpha
++  // asks for a world-space diagonal hatch at |alpha| strength.
++  if (mode === 'ground') {
++    return new THREE.ShaderMaterial({
++      vertexShader: /* glsl */ `
++        attribute vec3 aColor;
++        attribute float aAlpha;
++        varying vec3 vColor;
++        varying float vAlpha;
++        varying vec3 vWorld;
++        void main() {
++          vColor = aColor;
++          vAlpha = aAlpha;
++          vec4 w = modelMatrix * vec4(position, 1.0);
++          vWorld = w.xyz;
++          gl_Position = projectionMatrix * viewMatrix * w;
++        }
++      `,
++      fragmentShader: /* glsl */ `
++        varying vec3 vColor;
++        varying float vAlpha;
++        varying vec3 vWorld;
++        void main() {
++          float k = vAlpha;
++          if (vAlpha < 0.0) {
++            float s = fract((vWorld.x + vWorld.z) / 0.45);
++            k = -vAlpha * (1.0 - smoothstep(0.46, 0.52, s)) * smoothstep(0.0, 0.06, s);
++          }
++          gl_FragColor = vec4(mix(vec3(1.0), vColor, k), 1.0);
++        }
++      `,
++      transparent: true,
++      depthTest: true,
++      depthWrite: false,
++      polygonOffset: true,
++      polygonOffsetFactor: -2,
++      polygonOffsetUnits: -4,
++      side: THREE.DoubleSide,
++      blending: THREE.CustomBlending,
++      blendEquation: THREE.AddEquation,
++      blendSrc: THREE.DstColorFactor,
++      blendDst: THREE.ZeroFactor,
++      blendSrcAlpha: THREE.ZeroFactor,
++      blendDstAlpha: THREE.OneFactor,
++    });
++  }
+   return new THREE.ShaderMaterial({
+     vertexShader: /* glsl */ `
+       attribute vec3 aColor;
+@@ -503,7 +553,7 @@ export class OverlayBatch {
+   /** `dashedEllipseRing`'s layouts, by shape. */
+   private readonly dashLayouts = new Map<string, EllipseDash[]>();
+ 
+-  constructor(vertexCapacity: number) {
++  constructor(vertexCapacity: number, mode: 'overlay' | 'ground' = 'overlay') {
+     this.soup = createTriangleSoup(vertexCapacity);
+     const geometry = new THREE.BufferGeometry();
+     this.positionAttr = new THREE.BufferAttribute(this.soup.positions, 3);
+@@ -517,7 +567,7 @@ export class OverlayBatch {
+     geometry.setAttribute('aAlpha', this.alphaAttr);
+     geometry.setDrawRange(0, 0);
+ 
+-    this.mesh = new THREE.Mesh(geometry, createOverlayMaterial());
++    this.mesh = new THREE.Mesh(geometry, createOverlayMaterial(mode));
+     this.mesh.renderOrder = OVERLAY_RENDER_ORDER;
+     // Overlays track every living/selected entity across the whole map,
+     // exactly like UnitInstancer/ParticleInstancer/TracerBatch -- see
