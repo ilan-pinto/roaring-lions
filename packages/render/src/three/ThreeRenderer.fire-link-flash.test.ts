@@ -73,8 +73,9 @@ interface FlashPrivate {
   stepFireLinkFlashes(): void;
 }
 
-/** The colour a target's silhouette wears once its hit lands. */
-function flashColourFor(side: number): string {
+/** The colour a target's silhouette wears once its hit lands -- optionally
+ *  after a mid-mission colour-vision switch (VR-01's `setTeamColors`). */
+function flashColourFor(side: number, switchTo?: [string, string, string]): string {
   const sim = new Sim({ seed: 1, width: 16, height: 16, capacity: 4 });
   const idx = sim.addUnitType(TANK);
   const id = sim.spawn(idx, side, fx.from(8.5), fx.from(8.5));
@@ -88,6 +89,7 @@ function flashColourFor(side: number): string {
   priv.fireLinkFlashes = [{ target: id, startS: 0 }];
   priv.fireLinkClockS = 0.01;
   priv.stepFireLinkFlashes();
+  if (switchTo) r.setTeamColors(switchTo, (key) => key);
   const hex = '#' + (outline.material as THREE.MeshBasicMaterial).color.getHexString().toUpperCase();
   // The stand-in has no mixer for `dispose` to stop.
   priv.meshUnitEntities.delete(id);
@@ -106,5 +108,11 @@ describe('the hit flash wears the target\'s side (VR-12)', () => {
 
   it('a neutral target flashes neutral', () => {
     expect(flashColourFor(2)).toBe(TEAM[2]);
+  });
+
+  it('a colour-vision switch re-colours each side\'s flash in its own colour (VR-01)', () => {
+    const next: [string, string, string] = ['#3E5C2E', '#E8541E', '#A9C4D1'];
+    expect(flashColourFor(0, next)).toBe(next[0]);
+    expect(flashColourFor(1, next)).toBe(next[1]);
   });
 });

@@ -8014,7 +8014,7 @@ export class ThreeRenderer implements Renderer {
    * options copy:
    *
    * - the three shared occlusion-silhouette materials (one per side);
-   * - the hit-flash outline material, once it exists;
+   * - the hit-flash outline materials (one per side, VR-12), once they exist;
    * - the proxy boxes' per-side instance colours, once they exist.
    *
    * A copy rather than a write into `this.opts`: that object is the app's,
@@ -8025,7 +8025,8 @@ export class ThreeRenderer implements Renderer {
     SILHOUETTE_COLOR_KEY_BY_SIDE.forEach((key, slot) => {
       this.silhouetteMeshMaterials[slot].color.set(this.overlayColor(key, SILHOUETTE_FALLBACK_HEX_BY_SIDE[slot]));
     });
-    if (this.fireLinkFlashMaterial !== null) this.fireLinkFlashMaterial.color.set(teamColors[1]);
+    // One hit-flash material per side since VR-12, each in its own side's colour.
+    for (const [side, m] of this.fireLinkFlashMaterials) m.color.set(teamColors[side] ?? teamColors[1]);
     this.proxyBoxes?.setTeamColors(teamColors);
   }
 
