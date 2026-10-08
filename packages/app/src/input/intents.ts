@@ -228,6 +228,13 @@ export interface Resolution {
    * needs an explicit signal to tell "nothing to do" apart from "refused."
    */
   refused?: boolean;
+  /**
+   * K-08: the click landed on ground nobody selected can enter -- a rock
+   * ridge, a wall, or past the map's edge. No intent, no order marker, a
+   * short note, and the `blocked` cursor (`cursorFor`). Not `refused`: that
+   * is the protected-site rung and draws the other cursor.
+   */
+  groundRefused?: 'blocked' | 'offmap';
 }
 
 /**
