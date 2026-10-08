@@ -26,11 +26,13 @@ import type { VoicePriority } from '@lions/render';
 import type { SimEvent } from '@lions/sim';
 import {
   ackLineKey,
+  callLineKey,
   deathLineKey,
   languageOf,
   lineTriggerOf,
   orderLineKey,
   pinnedLineKey,
+  type CommonCall,
   type LineTrigger,
   type OrderVerb,
   type VoiceClass,
@@ -100,6 +102,10 @@ export interface DirectorState {
    *  joined pinned ids, mirroring `run.sel`. */
   readonly pinnedAt: number;
   readonly pinnedBySel: Readonly<Record<string, number>>;
+  /** Pass C2/C4 (A1): `decideCalls`' clocks -- the last state call on the
+   *  net, and per unit. Optional, so a state built before them reads never. */
+  readonly callAt?: number;
+  readonly callByUnit?: Readonly<Record<number, number>>;
 }
 
 /** Why this gesture got the cue it did, or none at all -- surfaced so a test
@@ -126,6 +132,9 @@ export const VOICE_TIMING = {
   enemyDeathTiles: 18,
   pinnedRepeatMs: 4000,
   pinnedGlobalMs: 2500,
+  /** Pass C2/C4 (A1): the state calls throttle as the death calls do. */
+  callRepeatMs: 4000,
+  callGlobalMs: 2500,
 } as const;
 
 export const INITIAL_DIRECTOR: DirectorState = Object.freeze({
@@ -435,4 +444,69 @@ export function decideDeaths(
   }
 
   return { state, notes };
+}
+
+/** Which call a state event is, for one of ours (pass C2/C4, A1). */
+function callOf(event: SimEvent): { entity: number; call: CommonCall; caption: string } | null {
+  if (event.kind === 'routed') return { entity: event.entity, call: 'broken', caption: 'voice.caption.broken' };
+  if (event.kind === 'component') {
+    if (event.result === 'mobility_kill') return { entity: event.target, call: 'immobilised', caption: 'voice.caption.immobilised' };
+    if (event.result === 'firepower_kill' || event.result === 'combat_ineffective')
+      return { entity: event.target, call: 'gunout', caption: 'voice.caption.gunout' };
+  }
+  return null;
+}
+
+/**
+ * The state calls (pass C2/C4, A1): one of OURS reporting, unprompted, that
+ * it has broken, or that its vehicle is immobilised or its gun is out --
+ * the moments the plan around that unit changes. On the radio net
+ * (`at: null`), `kdf_death` priority, as the death calls are; at most one a
+ * tick, and throttled as they are (`callRepeatMs` per unit, `callGlobalMs`
+ * across the net). An enemy breaking, and a crew merely shaken, say nothing:
+ * the first is not our net's to report, and the second is the card's. Every
+ * key is a DRAFT until D5 (`data/audio.json` declares `variants: []`), so
+ * the runtime captions it when captions are on, exactly as the pinned call.
+ */
+export function decideCalls(
+  s: DirectorState,
+  events: readonly SimEvent[],
+  look: DirectorLook,
+  languages: Readonly<Record<string, string>>,
+  nowMs: number
+): { state: DirectorState; notes: { why: Why; cue: VoiceCue | null }[] } {
+  const notes: { why: Why; cue: VoiceCue | null }[] = [];
+  for (const event of events) {
+    const c = callOf(event);
+    if (c === null || look.side(c.entity) !== 0) continue;
+    const unit = look.unitOf(c.entity);
+    if (!unit) continue;
+    const lang = languageOf(unit.faction, languages);
+    if (lang === null) continue;
+    const throttled =
+      nowMs - (s.callAt ?? Number.NEGATIVE_INFINITY) < VOICE_TIMING.callGlobalMs ||
+      nowMs - (s.callByUnit?.[c.entity] ?? Number.NEGATIVE_INFINITY) < VOICE_TIMING.callRepeatMs;
+    if (throttled) {
+      notes.push({ why: 'silent:throttle', cue: null });
+      continue;
+    }
+    const cue: VoiceCue = {
+      key: callLineKey(lang, c.call),
+      lang,
+      speaker: unit.voice,
+      trigger: c.call,
+      priority: 'kdf_death',
+      at: null,
+      caption: c.caption,
+    };
+    const state: DirectorState = {
+      ...s,
+      callAt: nowMs,
+      callByUnit: { ...(s.callByUnit ?? {}), [c.entity]: nowMs },
+      spoke: { ...s.spoke, [`${lang}.${unit.voice}`]: nowMs },
+    };
+    notes.push({ why: 'line', cue });
+    return { state, notes };
+  }
+  return { state: s, notes };
 }

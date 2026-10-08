@@ -129,6 +129,11 @@ import {
   KNEEL_SPREAD,
   kneelClipFor,
   kneelHeading,
+  leanTarget,
+  stepLean,
+  flinchPitch,
+  flinches,
+  FLINCH_RADIUS_TILES,
   lerpFacingTurns,
   METRES_PER_TILE,
   mgBurstRounds,
@@ -322,7 +327,7 @@ import {
   BOLT_CAPACITY,
 } from './units/fx';
 import { rotorSpinPhase } from './units/rotor-spin';
-import { exhaustRand, exhaustSlotAgeSec, exhaustSlotsDue } from './units/exhaust-slots';
+import { exhaustRand, exhaustSlotAgeSec, exhaustSlotsDue, vehicleTrailsDamageSmoke } from './units/exhaust-slots';
 import {
   ROTOR_WASH_MIN_STRENGTH,
   rotorWashStrength,
@@ -487,9 +492,7 @@ import {
   OBJECTIVE_ZONE_FILL_ALPHA,
   OBJECTIVE_ZONE_STROKE_INSET_TILES,
   AIR_SHADOW_COLOR_KEY,
-  MOBILITY_KILL_COLOR_KEY,
-  FIREPOWER_KILL_COLOR_KEY,
-  FIREPOWER_KILL_FALLBACK_COLOR,
+  suppressionBarVisible,
   buildingIntegrityColorKey,
   CHARGE_RING_TRACK_COLOR_KEY,
   CHARGE_RING_FILL_COLOR_KEY,
@@ -712,6 +715,12 @@ const FLAT_FX_MAGNITUDE = 0.2;
  */
 const VEHICLE_DUST_OFFSET_TILES = 0.55;
 const VEHICLE_EXHAUST_OFFSET_TILES = 0.35;
+/** Pass C2/C4 (P3): the damage smoke rises from the engine deck too, a
+ *  touch nearer the hull's middle than the exhaust pipe. */
+const VEHICLE_DAMAGE_SMOKE_OFFSET_TILES = 0.2;
+/** One thin puff every 300 ms of sim time: a wisp, not a fire. */
+const VEHICLE_DAMAGE_SMOKE_INTERVAL_MS = 300;
+const VEHICLE_DAMAGE_SMOKE_MAGNITUDE = 0.3;
 
 /**
  * How often (in ms) `updateVehicleAmbientFx` calls `particleSystem.spawn`
@@ -1505,6 +1514,8 @@ export class ThreeRenderer implements Renderer {
   private readonly curFacing: Float64Array;
   /** Sim seconds at which each unit last fired (the kneel fallback, `stance.ts`). */
   private readonly lastShotSimS: Float64Array;
+  /** Pass C2/C4 (P5): the sim time each unit last flinched at a near miss. */
+  private readonly flinchSimS: Float64Array;
   /** The unit-level stance depth, for teams drawn as one (`stance.ts`). */
   private readonly unitDepth: Float64Array;
   /** 1 while the unit is going UP between kneeling and standing, 0 down
@@ -1658,6 +1669,8 @@ export class ThreeRenderer implements Renderer {
   private readonly rotorWashSlot: Int32Array;
   /** Last idle-exhaust slot per entity, -1 = none (sim-clocked, GH-391). */
   private readonly exhaustSlot: Int32Array;
+  /** Pass C2/C4 (P3): the last damage-smoke slot each vehicle emitted. */
+  private readonly damageSmokeSlot: Int32Array;
   /** Presentation sim time at the last `updateFx`, null before the first. */
   /** Presentation sim time at the last `frame()`, null before the first. */
   private lastFrameSimMs: number | null = null;
@@ -2168,6 +2181,7 @@ export class ThreeRenderer implements Renderer {
     this.prevFacing = new Float64Array(n);
     this.curFacing = new Float64Array(n);
     this.lastShotSimS = new Float64Array(n).fill(-Infinity);
+    this.flinchSimS = new Float64Array(n).fill(-Infinity);
     this.unitDepth = new Float64Array(n);
     this.unitRising = new Uint8Array(n);
     this.meshBodyYaw = new Float64Array(n);
@@ -2212,6 +2226,7 @@ export class ThreeRenderer implements Renderer {
     this.vehicleDustAccumMs = new Float64Array(n);
     this.rotorWashSlot = new Int32Array(n).fill(-1);
     this.exhaustSlot = new Int32Array(n).fill(-1);
+    this.damageSmokeSlot = new Int32Array(n).fill(-1);
     this.vehicleTrackAccumTiles = new Float64Array(n);
     this.vehicleTrackSeeded = new Uint8Array(n);
     this.fog = new Uint8Array(sim.width * sim.height);
@@ -3950,6 +3965,7 @@ export class ThreeRenderer implements Renderer {
       if (e.kind === 'fire') this.onFire(e);
       else if (e.kind === 'nearMiss') {
         this.spawnFlatFx(fx.toNumber(e.x), fx.toNumber(e.y), this.opts.nearMissColor, 7, 14);
+        this.flinchNear(fx.toNumber(e.x), fx.toNumber(e.y));
       } else if (e.kind === 'aps' && e.intercepted) {
         this.spawnFlatFx(this.curX[e.target], this.curY[e.target], this.opts.interceptColor, 10, 12);
         // GH-250 (spec D4): the round this event names -- (target, shooter)
@@ -5939,7 +5955,7 @@ export class ThreeRenderer implements Renderer {
     }
     squad.started = true;
     entity.mixer.update(c.dt);
-    this.applyFigureAdditives(entity, squad, c.aimYaw, c.nowS, true);
+    this.applyFigureAdditives(entity, squad, c.aimYaw, c.nowS, true, i, c.dt);
   }
 
   /**
@@ -5949,10 +5965,50 @@ export class ThreeRenderer implements Renderer {
    * own origin, so the arms and the weapon -- children of the spine -- come
    * with it and the hands stay on the grips.
    */
-  private applyFigureAdditives(entity: MeshUnitEntity, squad: SquadRig, aimYaw: number, nowS: number, twist: boolean): void {
+  /**
+   * Pass C2/C4 (P5): every drawn infantry team within the sim's own
+   * near-miss radius of a round that landed, already suppressed or pinned,
+   * flinches -- unless the player asked for reduced motion. Dated on the
+   * SIM clock like the shot latch, so a frozen frame repaints the same pose.
+   */
+  private flinchNear(x: number, y: number): void {
+    const reduced = this.opts.reducedMotion?.() === true;
+    if (reduced) return;
+    const st = this.sim.state;
+    const now = presentationSimMs(this.sim.tickCount, 0) / 1000;
+    const r2 = FLINCH_RADIUS_TILES * FLINCH_RADIUS_TILES;
+    for (const id of this.meshUnitEntities.keys()) {
+      if (st.alive[id] !== 1) continue;
+      const dx = this.curX[id] - x;
+      const dy = this.curY[id] - y;
+      if (dx * dx + dy * dy > r2) continue;
+      if (!flinches(fx.toNumber(st.suppression[id]), st.pinned[id] === 1, st.routed[id] === 1, reduced)) continue;
+      this.flinchSimS[id] = now;
+    }
+  }
+
+  private applyFigureAdditives(
+    entity: MeshUnitEntity,
+    squad: SquadRig,
+    aimYaw: number,
+    nowS: number,
+    twist: boolean,
+    id: number,
+    dt: number
+  ): void {
+    // The suppression lean (pass C2/C4, P2), read off the sim and written to
+    // bones only: nothing here reaches back (invariant 4).
+    const st = this.sim.state;
+    const target = leanTarget(
+      fx.toNumber(st.suppression[id]),
+      st.pinned[id] === 1,
+      st.routed[id] === 1,
+      this.entitySpeed[id] > 0
+    );
     let dirty = true;
     for (const f of squad.figures) {
       if (!f.spine) continue;
+      f.lean = stepLean(f.lean, target, dt);
       f.kicks = f.kicks.filter((k) => nowS - k.at < recoilSeconds(k.kind, k.rounds));
       const figYaw = twist && f.group ? f.yaw : entity.root.rotation.y;
       const turn = twist ? Math.max(-TWIST_MAX_RAD, Math.min(TWIST_MAX_RAD, wrapAngle(aimYaw - figYaw))) : 0;
@@ -5963,15 +6019,29 @@ export class ThreeRenderer implements Renderer {
         pitch += r.pitch;
         yaw += r.yaw;
       }
-      if (turn === 0 && pitch === 0 && yaw === 0) continue;
+      // A negative pitch is forward (a launcher's own `lower`).
+      pitch -= f.lean.spine + flinchPitch(nowS - this.flinchSimS[id]);
+      const neck = f.neck !== null ? f.lean.neck : 0;
+      const head = f.head !== null ? f.lean.head : 0;
+      if (turn === 0 && pitch === 0 && yaw === 0 && neck === 0 && head === 0) continue;
       if (dirty) {
         entity.root.updateMatrixWorld(true);
         dirty = false;
       }
       if (turn + yaw !== 0) rotateBoneWorld(f.spine, SQUAD_UP, turn + yaw);
-      if (pitch !== 0) {
+      if (pitch !== 0 || neck !== 0 || head !== 0) {
         const lateral = SQUAD_LATERAL.set(Math.sin(figYaw + turn), 0, Math.cos(figYaw + turn));
-        rotateBoneWorld(f.spine, lateral, pitch);
+        if (pitch !== 0) rotateBoneWorld(f.spine, lateral, pitch);
+        // Each later joint's parent world rotation is read fresh, after the
+        // one above it has turned.
+        if (neck !== 0 && f.neck) {
+          f.spine.updateMatrixWorld(true);
+          rotateBoneWorld(f.neck, lateral, -neck);
+        }
+        if (head !== 0 && f.head) {
+          (f.neck ?? f.spine).updateMatrixWorld(true);
+          rotateBoneWorld(f.head, lateral, -head);
+        }
       }
     }
   }
@@ -6198,7 +6268,7 @@ export class ThreeRenderer implements Renderer {
         if (kneelClip.scrub !== null) scrubAction(entity.actions.get(kneelClip.clip), kneelClip.scrub);
         advanceMeshClipFades(entity, dt);
         entity.mixer.update(dt);
-        if (squad) this.applyFigureAdditives(entity, squad, aimYaw, nowS, true);
+        if (squad) this.applyFigureAdditives(entity, squad, aimYaw, nowS, true, i, dt);
       }
     }
 
@@ -7312,6 +7382,8 @@ export class ThreeRenderer implements Renderer {
       const type = this.sim.unitTypes[st.typeIdx[i]];
       if (type.isSoft || (hasWash && type.isAir)) continue;
       if (this.vehicleMoving[i] === 1) continue;
+      // Pass C2/C4 (P3): a mobility kill stops the engine -- no exhaust.
+      if (st.mobilityKilled[i] === 1) continue;
       const [first, last] = exhaustSlotsDue(this.exhaustSlot[i], nowMs, interval, emitOverMs, maxLifeMs);
       if (last < first) continue;
       const drawn = this.vehicleMeshEntities.get(i)?.root.position;
@@ -7331,6 +7403,56 @@ export class ThreeRenderer implements Renderer {
         }
       }
       this.exhaustSlot[i] = last;
+    }
+  }
+
+  /**
+   * Pass C2/C4 (P3): a living vehicle that has lost its mobility or its
+   * firepower trails a thin, dark wisp from its engine deck, for as long as
+   * it lives. Which kind of damage it is lives on the HUD (the card and the
+   * chip marks); the world says only "this one is hurt". Dated off the SIM
+   * clock exactly like `updateIdleExhaust` (GH-391), so a frozen gate frame
+   * repaints the same puffs. Reads `mobilityKilled`/`firepowerKilled` and
+   * writes nothing back.
+   */
+  private updateDamageSmoke(alpha: number): void {
+    if (!this.particleSystem) return;
+    const smoke = this.emitterLibrary.byName('vehicle_damaged_smoke');
+    if (!smoke) return;
+    const st = this.sim.state;
+    const n = this.snapshottedCount;
+    const nowMs = presentationSimMs(this.sim.tickCount, alpha);
+    const interval = VEHICLE_DAMAGE_SMOKE_INTERVAL_MS;
+    let maxLifeMs = 0;
+    let emitOverMs = 0;
+    for (const layer of smoke.particles) {
+      const l = layer.lifetime_ms;
+      maxLifeMs = Math.max(maxLifeMs, typeof l === 'number' ? l : l ? l[1] : 0);
+      emitOverMs = Math.max(emitOverMs, layer.emit_over_ms ?? 0);
+    }
+    for (let i = 0; i < n; i++) {
+      if (st.alive[i] === 0) continue;
+      if (!vehicleTrailsDamageSmoke(this.sim.unitTypes[st.typeIdx[i]], st.mobilityKilled[i], st.firepowerKilled[i])) continue;
+      const [first, last] = exhaustSlotsDue(this.damageSmokeSlot[i], nowMs, interval, emitOverMs, maxLifeMs);
+      if (last < first) continue;
+      const drawn = this.vehicleMeshEntities.get(i)?.root.position;
+      const anchor = vehicleFxAnchor(
+        drawn ? drawn.x : this.curX[i],
+        drawn ? drawn.z : this.curY[i],
+        fx.toNumber(st.facing[i]),
+        VEHICLE_DAMAGE_SMOKE_OFFSET_TILES
+      );
+      const prio = smoke.budget_priority ?? 2;
+      for (let slot = first; slot <= last; slot++) {
+        // Salted away from the exhaust's stream: the two never share puffs.
+        const rand = exhaustRand(i + 0x20000, slot);
+        const ageSec = exhaustSlotAgeSec(slot, nowMs, interval);
+        for (const layer of smoke.particles) {
+          const fxLayer = fxLayerIndex(smoke.layer, layer.additive ?? false);
+          this.particleSystem.spawn(layer, anchor.x, anchor.y, anchor.dirTurns, VEHICLE_DAMAGE_SMOKE_MAGNITUDE, prio, fxLayer, 0, 0, { rand, ageSec });
+        }
+      }
+      this.damageSmokeSlot[i] = last;
     }
   }
 
@@ -7434,6 +7556,7 @@ export class ThreeRenderer implements Renderer {
     if (alpha !== undefined) {
       this.updateRotorWash(alpha);
       this.updateIdleExhaust(alpha);
+      this.updateDamageSmoke(alpha);
     }
     const elevation = this.retained.elevation;
     this.particleInstancerBelow.update(this.particleSystem, elevation, this.sim.width, this.sim.height);
@@ -8081,9 +8204,12 @@ export class ThreeRenderer implements Renderer {
 
       // Suppression bar -- renderer.ts: `g.rect(sx - 12, sy - r - 6, 24 *
       // supp, 3).fill('#FFB43C')`, only once supp clears the same 0.02 floor
-      // Pixi uses (a bar 0-2% full is not worth a draw call).
+      // Pixi uses. Since pass C2/C4 (P4) it draws only for a unit that is
+      // selected or hovered: unselected, the posture carries suppression
+      // (the lean, the `pinned` huddle), and an always-on bar over every
+      // suppressed unit was a status mark in the world.
       const supp = Math.min(1, fx.toNumber(st.suppression[i]));
-      if (supp > 0.02) {
+      if (supp > 0.02 && suppressionBarVisible(selected, i === this.hoverEntity, i === this.rangeRingPreview)) {
         this.overlayBatch.rect(
           anchor,
           -12,
@@ -8095,30 +8221,11 @@ export class ThreeRenderer implements Renderer {
         );
       }
 
-      // Kill-state pips: mobility (gray) and firepower (dark red) --
-      // renderer.ts: `if (st.mobilityKilled[i] === 1) g.circle(sx - r, sy +
-      // r - 2, 3).fill('#8E9491')` and the firepower twin at `sx + r`. A
-      // vehicle that lost its engine but can still shoot, or lost its gun
-      // but can still drive, reads identically to a fully healthy one
-      // without these -- the HP bar alone does not carry that distinction.
-      if (st.mobilityKilled[i] === 1) {
-        this.overlayBatch.ellipseFan(
-          billboardPoint(anchor, -r, -(r - 2)),
-          3,
-          3,
-          this.overlayColor(MOBILITY_KILL_COLOR_KEY, '#8E9491'),
-          1
-        );
-      }
-      if (st.firepowerKilled[i] === 1) {
-        this.overlayBatch.ellipseFan(
-          billboardPoint(anchor, r, -(r - 2)),
-          3,
-          3,
-          this.overlayColor(FIREPOWER_KILL_COLOR_KEY, FIREPOWER_KILL_FALLBACK_COLOR),
-          1
-        );
-      }
+      // The 3 px mobility (grey) and firepower (dark red) kill pips are
+      // retired (pass C2/C4, P4): unreadable at gameplay zoom, and a status
+      // mark in the world. A damaged vehicle trails smoke now
+      // (`updateDamageSmoke`), and WHICH damage it is reads on the chip and
+      // the card.
 
       // Control-group colour -- the badge's, and the billboard fallback
       // ring's below. The ground ring is TEAM colour (A4 Q1, G-MOCK).

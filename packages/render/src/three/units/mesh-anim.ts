@@ -38,6 +38,7 @@ const CLIP_NAME_SET: { readonly [K in ClipName]: true } = {
   kneel: true,
   kneelIn: true,
   kneelOut: true,
+  pinned: true,
 };
 
 /** Every `ClipName`, for iteration and validation. */
@@ -63,6 +64,13 @@ export function isMeshClipName(name: string): name is ClipName {
  */
 export function meshClipOrFallback(available: ReadonlySet<ClipName>, clip: ClipName): ClipName {
   if (available.has(clip)) return clip;
+  // The huddle's stand-ins (pass C2/C4): `down` only where the file has no
+  // corpse to confuse it with (the civilians' living crawl), else the kneel,
+  // else standing. Never `down` beside a `wreck`: on 17 rigs it IS the wreck.
+  if (clip === 'pinned') {
+    if (available.has('down') && !available.has('wreck')) return 'down';
+    return available.has('kneel') ? 'kneel' : 'idle';
+  }
   if (clip === 'fallAlt' && available.has('fall')) return 'fall';
   if ((clip === 'fall' || clip === 'fallAlt') && available.has('down')) return 'down';
   return 'idle';

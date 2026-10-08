@@ -440,3 +440,46 @@ describe('alertsForTick — enemy kills (PA-19)', () => {
     expect(alerts.filter((a) => a.kind === 'kill')).toEqual([]);
   });
 });
+
+// Pass C2/C4 (A1): one of ours broken, and one of our vehicles hit in a
+// component, are `important` -- the plan around that unit changed.
+describe('alertsForTick — our units broken or damaged (pass C2/C4, A1)', () => {
+  const routed = (entity: number): SimEvent => ({ kind: 'routed', tick: 0, entity }) as SimEvent;
+  const component = (target: number, result: string): SimEvent =>
+    ({ kind: 'component', tick: 0, target, result, overmatch: 0 }) as unknown as SimEvent;
+  const catalogue = en as Record<string, string>;
+
+  it('says one of ours broke, important, with the place and the cue', () => {
+    const { alerts } = alertsForTick(initAlertState(), [routed(2), routed(3)], [], world, 40);
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({
+      kind: 'broken',
+      tier: 'important',
+      cue: 'alert.important',
+      count: 2,
+      line: { key: 'alert.broken', params: { name: 'Rifle squad', more: 1 }, tone: 'bad', place: ['here'] },
+    });
+    expect(catalogue).toHaveProperty('alert.broken');
+  });
+
+  it('names what a component hit took from one of our vehicles, and nothing else', () => {
+    for (const [result, key] of [
+      ['mobility_kill', 'alert.immobilised'],
+      ['firepower_kill', 'alert.gunOut'],
+      ['combat_ineffective', 'alert.outOfAction'],
+    ] as const) {
+      const { alerts } = alertsForTick(initAlertState(), [component(7, result)], [], world, 40);
+      expect(alerts.map((a) => a.line?.key)).toEqual([key]);
+      expect(alerts[0].tier).toBe('important');
+      expect(catalogue).toHaveProperty(key);
+    }
+    // Crew shaken is suppression, which the card shows; catastrophic is a loss.
+    expect(alertsForTick(initAlertState(), [component(7, 'crew_shaken')], [], world, 40).alerts).toEqual([]);
+  });
+
+  it('is silent about the enemy breaking, and about a unit already lost this tick', () => {
+    expect(alertsForTick(initAlertState(), [routed(12), component(17, 'mobility_kill')], [], world, 40).alerts).toEqual([]);
+    const { alerts } = alertsForTick(initAlertState(), [routed(2)], [lost(2, 'inf_squad')], world, 40);
+    expect(alerts.map((a) => a.kind)).toEqual(['unitLost']);
+  });
+});

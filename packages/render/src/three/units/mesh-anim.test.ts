@@ -28,10 +28,10 @@ import { ROUT_CADENCE } from '../../clip';
 import type { ClipName } from '../../sheet';
 
 describe('CLIP_NAMES / isMeshClipName', () => {
-  it('lists exactly the thirteen canonical clip names', () => {
-    // + kneel, kneelIn, kneelOut (the motion pass, 5 Oct).
+  it('lists exactly the fourteen canonical clip names', () => {
+    // + kneel, kneelIn, kneelOut (the motion pass, 5 Oct); + pinned (pass C2/C4).
     expect(new Set(CLIP_NAMES)).toEqual(
-      new Set(['idle', 'move', 'fire', 'down', 'wreck', 'work', 'moveFire', 'wreckAlt', 'fall', 'fallAlt', 'kneel', 'kneelIn', 'kneelOut'])
+      new Set(['idle', 'move', 'fire', 'down', 'wreck', 'work', 'moveFire', 'wreckAlt', 'fall', 'fallAlt', 'kneel', 'kneelIn', 'kneelOut', 'pinned'])
     );
   });
 
@@ -70,6 +70,15 @@ describe('meshClipOrFallback', () => {
     // this pure function's own contract is unconditional: asked for idle,
     // it returns idle, never substituting a third clip.
     expect(meshClipOrFallback(new Set(), 'idle')).toBe('idle');
+  });
+
+  // Pass C2/C4 (PA-31). Break: drop the `!available.has('wreck')` test and
+  // a rig with no huddle plays its corpse for pinned again.
+  it('stands pinned in for the huddle with down only where there is no corpse, else the kneel, else idle', () => {
+    expect(meshClipOrFallback(new Set<ClipName>(['idle', 'down', 'wreck', 'kneel', 'pinned']), 'pinned')).toBe('pinned');
+    expect(meshClipOrFallback(new Set<ClipName>(['idle', 'down', 'wreck', 'kneel']), 'pinned')).toBe('kneel');
+    expect(meshClipOrFallback(new Set<ClipName>(['idle', 'down', 'wreck']), 'pinned')).toBe('idle');
+    expect(meshClipOrFallback(new Set<ClipName>(['idle', 'move', 'down']), 'pinned')).toBe('down');
   });
 
   it('falls back fallAlt -> fall -> down -> idle, so a death module never plays a missing name', () => {

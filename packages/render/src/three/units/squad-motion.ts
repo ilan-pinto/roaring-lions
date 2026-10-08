@@ -267,3 +267,74 @@ export function kneelClipFor(
   if (depth <= 0) return { clip: desired, scrub: null };
   return heading === 'down' ? { clip: 'kneelIn', scrub: depth } : { clip: 'kneelOut', scrub: 1 - depth };
 }
+
+/**
+ * The suppression lean (pass C2/C4, P2): "alive but losing effectiveness",
+ * drawn as a man keeping his head down while he still kneels and fires.
+ * Forward flex of spine, neck and head, radians, about the figure's own
+ * lateral axis -- the upper body only, so the kneel, the wedge and the
+ * right-shoulder grip are untouched (the weapon rides the spine and tilts
+ * with it, a few degrees, the muzzle dipping as a suppressed man's does).
+ *
+ * The weight is the sim's own suppression, presented: zero below
+ * `LEAN_FROM` (0.15, where the card starts to say "shaken"), full at
+ * `LEAN_FULL` (0.70, `PIN_AT`), smoothstepped between. A pinned man leans
+ * nothing extra -- his `pinned` huddle IS the fold -- and a broken man
+ * running is pitched forward at a fixed `ROUT_LEAN`.
+ */
+export const LEAN_FROM = 0.15;
+export const LEAN_FULL = 0.7;
+export const SUPPRESSED_LEAN = { spine: 18 * DEG, neck: 10 * DEG, head: 12 * DEG } as const;
+export const ROUT_LEAN = { spine: 25 * DEG, neck: 5 * DEG, head: 0 } as const;
+/** How fast a lean follows its target, radians a second: a near miss
+ *  ducks a man in about a fifth of a second, and he comes back up over
+ *  about half a second as the suppression decays. */
+export const LEAN_RATE_RAD_S = 90 * DEG;
+
+export interface Lean {
+  spine: number;
+  neck: number;
+  head: number;
+}
+
+export function leanTarget(suppression: number, pinned: boolean, routed: boolean, moving: boolean): Lean {
+  if (routed && moving) return { ...ROUT_LEAN };
+  if (pinned || routed) return { spine: 0, neck: 0, head: 0 };
+  const u = Math.max(0, Math.min(1, (suppression - LEAN_FROM) / (LEAN_FULL - LEAN_FROM)));
+  const w = u * u * (3 - 2 * u);
+  return { spine: SUPPRESSED_LEAN.spine * w, neck: SUPPRESSED_LEAN.neck * w, head: SUPPRESSED_LEAN.head * w };
+}
+
+/** `cur` moved toward `target` by at most `LEAN_RATE_RAD_S * dt` a joint. */
+export function stepLean(cur: Lean, target: Lean, dt: number): Lean {
+  const max = LEAN_RATE_RAD_S * Math.max(0, dt);
+  const go = (a: number, b: number): number => (Math.abs(b - a) <= max ? b : a + Math.sign(b - a) * max);
+  return { spine: go(cur.spine, target.spine), neck: go(cur.neck, target.neck), head: go(cur.head, target.head) };
+}
+
+/**
+ * The near-miss flinch (pass C2/C4, P5, optional and off under reduced
+ * motion): a suppressed or pinned man ducks a little further when a round
+ * lands within `FLINCH_RADIUS_TILES` of him -- forward pitch in radians, `t`
+ * seconds after the round, a quick dip and an easier recovery, exactly zero
+ * outside [0, FLINCH_SECONDS).
+ */
+export const FLINCH_SECONDS = 0.3;
+export const FLINCH_DEG = 6;
+/** The sim's own near-miss radius (`tuning.ts` NEAR_MISS_RADIUS_SQ, 1.2 tiles). */
+export const FLINCH_RADIUS_TILES = 1.2;
+
+export function flinchPitch(t: number): number {
+  if (!(t >= 0) || t >= FLINCH_SECONDS) return 0;
+  const u = t / FLINCH_SECONDS;
+  // Down in the first fifth, back up over the rest.
+  const w = u < 0.2 ? u / 0.2 : 1 - (u - 0.2) / 0.8;
+  return FLINCH_DEG * DEG * w;
+}
+
+/** Whether a man flinches at a near miss: he is already under fire (the
+ *  lean's own floor) or pinned, and the player allows the motion. */
+export function flinches(suppression: number, pinned: boolean, routed: boolean, reducedMotion: boolean): boolean {
+  if (reducedMotion || routed) return false;
+  return pinned || suppression >= LEAN_FROM;
+}

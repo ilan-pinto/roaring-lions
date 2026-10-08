@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
+  FLINCH_DEG,
+  FLINCH_SECONDS,
+  flinchPitch,
+  flinches,
+  LEAN_FROM,
+  LEAN_FULL,
+  LEAN_RATE_RAD_S,
+  leanTarget,
+  ROUT_LEAN,
+  stepLean,
+  SUPPRESSED_LEAN,
   approachAngle,
   cadenceMultiplier,
   CADENCE_VARIANCE,
@@ -160,5 +171,54 @@ describe('the kneel: depth and clip', () => {
     expect(kneelHeading('rising', false, 0.6, 0, 'down')).toBe('up');
     expect(kneelHeading('dropping', false, 0.4, 1, 'up')).toBe('down');
     expect(kneelHeading('none', false, 0.4, 0.4, 'up')).toBe('up');
+  });
+});
+
+describe('the suppression lean (pass C2/C4, P2)', () => {
+  const none = { spine: 0, neck: 0, head: 0 };
+  it('is zero below 0.15 and full from 0.70, smooth between', () => {
+    expect(leanTarget(0, false, false, false)).toEqual(none);
+    expect(leanTarget(LEAN_FROM, false, false, false)).toEqual(none);
+    expect(leanTarget(LEAN_FULL, false, false, false)).toEqual({ ...SUPPRESSED_LEAN });
+    expect(leanTarget(1.7, false, false, false)).toEqual({ ...SUPPRESSED_LEAN });
+    const mid = leanTarget((LEAN_FROM + LEAN_FULL) / 2, false, false, false).spine;
+    expect(mid).toBeCloseTo(SUPPRESSED_LEAN.spine / 2, 9);
+    // Monotone: more suppression never leans a man less.
+    let prev = -1;
+    for (let s = 0; s <= 1; s += 0.01) {
+      const v = leanTarget(s, false, false, false).spine;
+      expect(v).toBeGreaterThanOrEqual(prev);
+      prev = v;
+    }
+  });
+  it('adds nothing while pinned (the huddle is the fold), and pitches a broken man running', () => {
+    expect(leanTarget(1.7, true, false, false)).toEqual(none);
+    expect(leanTarget(1.7, true, true, false)).toEqual(none);
+    expect(leanTarget(1.7, true, true, true)).toEqual({ ...ROUT_LEAN });
+  });
+  it('follows its target at a bounded rate', () => {
+    const full = { ...SUPPRESSED_LEAN };
+    const a = stepLean(none, full, 0.05);
+    expect(a.spine).toBeCloseTo(LEAN_RATE_RAD_S * 0.05, 9);
+    expect(stepLean(a, full, 10)).toEqual(full);
+    expect(stepLean(full, none, 0)).toEqual(full);
+  });
+});
+
+describe('the near-miss flinch (pass C2/C4, P5)', () => {
+  it('dips and recovers inside 0.3 s, and is exactly zero outside it', () => {
+    expect(flinchPitch(-0.01)).toBe(0);
+    expect(flinchPitch(Number.NEGATIVE_INFINITY)).toBe(0);
+    expect(flinchPitch(FLINCH_SECONDS)).toBe(0);
+    expect(flinchPitch(0.06)).toBeCloseTo((FLINCH_DEG * Math.PI) / 180, 9);
+    expect(flinchPitch(0.2)).toBeGreaterThan(0);
+    expect(flinchPitch(0.2)).toBeLessThan(flinchPitch(0.06));
+  });
+  it('takes a man already under fire or pinned, never a broken one, and never under reduced motion', () => {
+    expect(flinches(0.1, false, false, false)).toBe(false);
+    expect(flinches(LEAN_FROM, false, false, false)).toBe(true);
+    expect(flinches(0, true, false, false)).toBe(true);
+    expect(flinches(1.7, true, true, false)).toBe(false);
+    expect(flinches(1.7, true, false, true)).toBe(false);
   });
 });

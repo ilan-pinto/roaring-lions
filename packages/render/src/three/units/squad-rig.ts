@@ -23,7 +23,7 @@
 import * as THREE from 'three';
 import type { ClipName } from '../../sheet';
 import { clipScaleSignatures, type ClipPlayer } from './mesh-clip';
-import type { Follower, KneelHeading, RecoilKind } from './squad-motion';
+import type { Follower, KneelHeading, Lean, RecoilKind } from './squad-motion';
 
 export interface FigureSpec {
   readonly prefix: string;
@@ -89,6 +89,11 @@ export interface FigureRig {
   readonly prefix: string;
   readonly recoil: RecoilKind | null;
   readonly spine: THREE.Bone | null;
+  /** The suppression lean's other two joints (pass C2/C4). */
+  readonly neck: THREE.Bone | null;
+  readonly head: THREE.Bone | null;
+  /** The lean this figure is drawn with now (`stepLean`). */
+  lean: Lean;
   /** Squad mode only from here down. */
   readonly group: THREE.Group | null;
   /** The figure's rest slot in the team's frame, metres (x forward, z right). */
@@ -164,6 +169,9 @@ export function buildSquadRig(
       prefix: s.prefix,
       recoil: s.recoil,
       spine,
+      neck: findBone(root, `${s.prefix}_neck`),
+      head: findBone(root, `${s.prefix}_head`),
+      lean: { spine: 0, neck: 0, head: 0 },
       group,
       slot,
       player,

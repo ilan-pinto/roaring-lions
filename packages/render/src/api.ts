@@ -289,6 +289,13 @@ export interface RendererOptions {
    */
   decalShowcase?: { readonly x: number; readonly y: number };
   /**
+   * Pass C2/C4 (P5): the player's reduced-motion preference, asked live (a
+   * settings change mid-mission takes effect at once). Absent reads as
+   * "full motion". Today it gates one thing: a suppressed or pinned
+   * infantryman's flinch at a round landing near him.
+   */
+  reducedMotion?: () => boolean;
+  /**
    * The light this map is lit by (`three/time-of-day.ts`, N-20): `dawn`,
    * `day` or `dusk`, and `night` resolves to `dusk` (D10). Absent is `day`,
    * which is today's frame to the bit.

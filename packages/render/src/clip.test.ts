@@ -28,11 +28,11 @@ describe('resolveClip — precedence', () => {
   it('goes to ground when pinned', () => {
     // Suppression is the highest-value mechanic in the model (GDD 5.5), so
     // it gets the posture, not just a bar.
-    expect(resolveClip({ ...alive, pinned: 1 })).toBe('down');
+    expect(resolveClip({ ...alive, pinned: 1 })).toBe('pinned');
   });
 
   it('stays down when pinned even while trying to move', () => {
-    expect(resolveClip({ ...alive, pinned: 1, speed: 0.9 })).toBe('down');
+    expect(resolveClip({ ...alive, pinned: 1, speed: 0.9 })).toBe('pinned');
   });
 
   it('fires when the shot clip is latched', () => {
@@ -42,7 +42,7 @@ describe('resolveClip — precedence', () => {
   it('drops to ground rather than firing when suppressed mid-shot', () => {
     // The correct read: getting suppressed interrupts you. If fire outranked
     // pinned, a unit would keep posing with its rifle up while pinned.
-    expect(resolveClip({ ...alive, pinned: 1, firing: true })).toBe('down');
+    expect(resolveClip({ ...alive, pinned: 1, firing: true })).toBe('pinned');
   });
 
   it('keeps firing while moving — firing outranks locomotion', () => {
@@ -72,7 +72,7 @@ describe('resolveClip — work', () => {
   });
 
   it('goes down rather than working when pinned — a pinned man is not working', () => {
-    expect(resolveClip({ ...alive, working: true, pinned: 1 })).toBe('down');
+    expect(resolveClip({ ...alive, working: true, pinned: 1 })).toBe('pinned');
   });
 
   it('runs rather than working when routed', () => {
@@ -100,7 +100,7 @@ describe('resolveClip — rout', () => {
   });
 
   it('cowers when broken but pinned in place', () => {
-    expect(resolveClip({ ...alive, routed: 1, pinned: 1, speed: 0 })).toBe('down');
+    expect(resolveClip({ ...alive, routed: 1, pinned: 1, speed: 0 })).toBe('pinned');
   });
 
   it('outranks firing — broken units are not shooting', () => {

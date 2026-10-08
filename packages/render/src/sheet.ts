@@ -27,7 +27,7 @@
  *  `packages/render/src/three/units/mesh-anim.ts`'s `resolveMeshMotionClip`
  *  and `pickDeathClip`.
  *
- *  `fall`/`fallAlt` (2026-09-17, design D3) are the supplied death animations, one-shot, played only by `units/mesh-death.ts` — `resolveClip` never returns them, because `down` is looped for suppression and a fall is a transition with an end. `fallAlt` pairs with `wreckAlt`.
+ *  `fall`/`fallAlt` (2026-09-17, design D3) are the supplied death animations, one-shot, played only by `units/mesh-death.ts` — `resolveClip` never returns them: a fall is a transition with an end. (`down` was what suppression looped until pass C2/C4; it is `pinned` now, and `down` is the civilians' living crawl and the evacuation's pose.) `fallAlt` pairs with `wreckAlt`.
  *
  *  Only `art/meshes/sarim_rifles.glb` ships `wreckAlt` or `fallAlt`
  *  today; every other GLB's `applyMeshClip` call simply never resolves to
@@ -37,7 +37,12 @@ export type ClipName = 'idle' | 'move' | 'fire' | 'down' | 'wreck' | 'work' | 'm
   // The kneel (motion pass, 5 Oct): mesh-only, built by `pnpm motion:meshes`.
   // `kneel` loops; `kneelIn`/`kneelOut` are 0.2 s and scrubbed by the sim's
   // own drop/rise ticks (`units/stance.ts`), never played on a clock.
-  | 'kneel' | 'kneelIn' | 'kneelOut';
+  | 'kneel' | 'kneelIn' | 'kneelOut'
+  // The pinned huddle (pass C2/C4, 7 Oct): mesh-only, built by `pnpm
+  // motion:meshes` for every file that carries the corpse pair `down`/`wreck`.
+  // A pinned unit, and a broken one standing still, play it -- never `down`,
+  // which on 17 of 20 infantry rigs WAS the corpse.
+  | 'pinned';
 
 export interface ClipSpec {
   /** Number of frames in this clip. */

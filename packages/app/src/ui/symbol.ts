@@ -289,9 +289,10 @@ export type DingbatId =
   | 'broken'; // ⚑
 export type UtilityId = 'logistics' | 'intel' | 'rotateCcw' | 'rotateCw' | DingbatId;
 /** A unit-status mark, drawn on the chip/card/strip/cursor rather than on an
- *  order or a role. `pinned` is the only member: candidate A, "pressed
- *  flat", which the lead picked at G-PIN (28 Sep). */
-export type StatusId = 'pinned';
+ *  order or a role. `pinned` is candidate A, "pressed flat", which the lead
+ *  picked at G-PIN (28 Sep); `immobilised` and `gunOut` are the two vehicle
+ *  damage marks the lead approved with pass C2/C4 (7 Oct, D5). */
+export type StatusId = 'pinned' | 'immobilised' | 'gunOut';
 export type SymbolId = RoleBucket | SightOrderId | UtilityId | StatusId;
 
 const ROLE_IDS: readonly RoleBucket[] = ['kamikaze', 'drone', 'gunship', 'sniper', 'transport', 'soft', 'armour'];
@@ -312,12 +313,12 @@ export const DINGBAT_IDS: readonly DingbatId[] = [
   'broken',
 ];
 const UTILITY_IDS: readonly UtilityId[] = ['logistics', 'intel', 'rotateCcw', 'rotateCw', ...DINGBAT_IDS];
-const STATUS_IDS: readonly StatusId[] = ['pinned'];
+const STATUS_IDS: readonly StatusId[] = ['pinned', 'immobilised', 'gunOut'];
 
-/** Seven roles, eight orders, four utility marks, one status mark: the
+/** Seven roles, eight orders, four utility marks, three status marks: the
  *  twenty the sheet G1 approved (round 2's roles and utility marks, round 5's
- *  orders) plus the pinned mark the lead picked at G-PIN -- and the thirteen
- *  GH-261 marks, thirty-three in all. */
+ *  orders) plus the pinned mark the lead picked at G-PIN and the two damage
+ *  marks of pass C2/C4 -- and the thirteen GH-261 marks, thirty-five in all. */
 export const SYMBOL_IDS: readonly SymbolId[] = [...ROLE_IDS, ...ORDER_IDS, ...UTILITY_IDS, ...STATUS_IDS];
 
 interface RoleGlyph {
@@ -415,6 +416,19 @@ function isStatusId(id: SymbolId): id is StatusId {
  *  it. */
 const STATUS_GLYPHS: Readonly<Record<StatusId, string>> = {
   pinned: path(poly(rect(2, 3, 22, 3 + W))) + ' ' + path(band([2, 9], [12, 20]) + ' ' + band([22, 9], [12, 20])),
+  /** Immobilised (pass C2/C4, D5): a road wheel, struck through. */
+  immobilised: ring(12, 12, 9) + bar([3.2, 20.8], [20.8, 3.2]),
+  /** Gun out (pass C2/C4, D5): a barrel broken in two, the muzzle half
+   *  dropped, over its breech block. */
+  gunOut:
+    box(2, 9, 11, 13) +
+    fill([
+      [13.2, 11.4],
+      [22.6, 15.6],
+      [21.4, 18.4],
+      [12, 14.2],
+    ]) +
+    box(2, 14.5, 7, 19),
 };
 
 /**

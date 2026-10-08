@@ -474,3 +474,30 @@ Pipeline order for a vehicle: export -> `pnpm kit:meshes` ->
   declares, and **from renders**: the maximum kit and the twelve variants (each
   track alone at tiers 1-3, then L1-L3; nine for the D9), each IoU-checked
   below 0.88 against every other unit.
+
+---
+
+# v6 — the pinned huddle (2026-10-07, pass C2/C4)
+
+Written by `pnpm motion:meshes -- --step=pinned` (`tools/src/meshes/motion/pinned.ts`),
+in the motion pass's place in the pipeline: export -> motion -> `gait:meshes` ->
+`encode:meshes`. The step alone is idempotent: it reads only `kneel`/`idle`, never
+its own output, and a re-run replaces its clip with the same bytes.
+
+- **Clip `pinned`**, looping, on every file that carries the corpse pair
+  `down`/`wreck`. Every visible figure is on a knee (the kneel's own pose, or the
+  kneel's IK for a standing figure) and folded forward 40° at the spine and 10° at
+  the neck about its own lateral axis, so the weapon on the spine points at the
+  ground ahead of him. A fold that would put the weapon in the ground is reduced
+  (never below 40% of it) rather than the man raised; a figure whose kneel would
+  sink something he wears (breach_team's shield) stays on his feet and folds behind
+  it. Built over the base clip's own keys and duration; keys every node the base
+  keys. `extras.rl_pinned` (`{ version }`) marks it.
+- **The runtime plays `pinned`** for a pinned unit and a broken one standing still
+  (`clip.ts` `resolveClip`), **never `down`**, which on 17 of the 20 infantry rigs
+  that carry it is keyframe-identical to `wreck`. Without a `pinned`, the stand-in is
+  `down` only where the file has no `wreck` (the civilians' living crawl), else
+  `kneel`, else `idle` (`meshClipOrFallback`).
+- **Gated** by `tools/src/living_not_wreck.test.ts`: every living state the
+  renderer can resolve, on every drawn file with a `wreck`, opens on a pose that is
+  not the corpse; and every drawn file with `down`/`wreck` carries `pinned`.

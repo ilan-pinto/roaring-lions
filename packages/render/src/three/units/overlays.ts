@@ -1083,6 +1083,15 @@ export class ChevronBatch {
  * Scalar arguments rather than an input object: it is called once per unit
  * per frame, and an object literal there is an allocation per unit per frame.
  */
+/**
+ * Pass C2/C4 (P4): the suppression bar draws only for a unit the player is
+ * looking at -- selected, or hovered either way. Unlike the HP bar, damage
+ * does not earn it one: suppression is read off the posture everywhere else.
+ */
+export function suppressionBarVisible(selected: boolean, hostileHover: boolean, friendlyHover: boolean): boolean {
+  return selected || hostileHover || friendlyHover;
+}
+
 export function hpBarVisible(
   hpRaw: number,
   maxHpRaw: number,

@@ -63,7 +63,9 @@ import type { Tone } from './hud-model';
  *  - `minor`: under fire; an enemy on foot killed (PA-19). Glanceable,
  *    never nagging.
  *  - `important`: a foot unit lost, an enemy wave, an arrival, a new tasking,
- *    a Conduct penalty -- something went wrong or changed, and here is where.
+ *    a Conduct penalty, one of ours broken, one of our vehicles immobilised
+ *    or its gun knocked out (pass C2/C4, A1) -- something went wrong or
+ *    changed, and here is where.
  *  - `major`: a vehicle, an aircraft or a named veteran lost; an enemy
  *    vehicle or aircraft killed (PA-19); an objective completed or failed;
  *    the mission ending -- a fact that changes the plan.
@@ -85,7 +87,7 @@ export interface AlertLine {
 }
 
 export interface Alert {
-  kind: 'unitLost' | 'kill' | 'underFire' | 'objective' | 'wave' | 'arrival' | 'pinned' | 'ambush' | 'removed' | 'roe';
+  kind: 'unitLost' | 'kill' | 'underFire' | 'objective' | 'wave' | 'arrival' | 'pinned' | 'ambush' | 'removed' | 'roe' | 'broken' | 'damaged';
   tier: AlertTier;
   /** The feed line, or `null` when another part of the HUD owns the wording
    *  -- an objective's text is `describeMissionEvent`'s, not this model's. */
@@ -319,7 +321,25 @@ export function alertsForTick(
   let ambushed = false;
   /** PA-19: enemies the player's own units killed this tick, by type. */
   const killsByType = new Map<string, number[]>();
+  /** Pass C2/C4 (A1): ours broken this tick, and our vehicles hit in a
+   *  component -- by what the hit took. */
+  const brokenOwn: number[] = [];
+  const damagedOwn = new Map<'immobilised' | 'gunOut' | 'outOfAction', number[]>();
   for (const e of sim) {
+    if (e.kind === 'routed') {
+      if (world.sideOf(e.entity) === 0 && !lostEntities.has(e.entity)) brokenOwn.push(e.entity);
+      continue;
+    }
+    if (e.kind === 'component') {
+      const what =
+        e.result === 'mobility_kill' ? 'immobilised' : e.result === 'firepower_kill' ? 'gunOut' : e.result === 'combat_ineffective' ? 'outOfAction' : null;
+      if (what !== null && world.sideOf(e.target) === 0 && !lostEntities.has(e.target)) {
+        const group = damagedOwn.get(what);
+        if (group) group.push(e.target);
+        else damagedOwn.set(what, [e.target]);
+      }
+      continue;
+    }
     if (e.kind === 'destroyed') {
       // Only an ENEMY (side 1, never a civilian on side 2) and only one of
       // OURS killed: a unit dying to its own side's fire, to a collapse with
@@ -436,6 +456,12 @@ export function alertsForTick(
       count: entities.length,
     });
   }
+  // Pass C2/C4 (A1): one of ours broken, and one of our vehicles that can
+  // no longer move or fire -- the `important` tier, like a foot unit lost:
+  // the plan around that unit just changed. One line per kind per tick,
+  // naming the first and counting the rest.
+  if (brokenOwn.length > 0) alerts.push(ownStateAlert('broken', 'alert.broken', brokenOwn, world));
+  for (const [what, entities] of damagedOwn) alerts.push(ownStateAlert('damaged', `alert.${what}`, entities, world));
   if (ambushed) alerts.push(soundOnly('ambush', 'important', null));
   alerts.push(...quiet);
   if (kept.length > 0) {
@@ -461,6 +487,25 @@ export function alertsForTick(
   if (pinnedSounds && pinnedAt !== null) alerts.push(soundOnly('pinned', 'minor', world.posOf(pinnedAt)));
 
   return { state: nextState, alerts };
+}
+
+/** A line about the state of one or more of OUR units (pass C2/C4, A1). */
+function ownStateAlert(kind: 'broken' | 'damaged', key: string, entities: readonly number[], world: AlertWorld): Alert {
+  const points = entities.map((e) => world.posOf(e)).filter((p): p is { x: number; y: number } => p !== null);
+  return {
+    kind,
+    tier: 'important',
+    line: {
+      key,
+      params: { name: world.unitName(world.typeOf(entities[0])), more: entities.length - 1 },
+      tone: 'bad',
+      place: distinctPlaces(points.map((p) => world.placeOf(p.x, p.y))),
+    },
+    cue: ALERT_CUE.important,
+    at: points[0] ?? null,
+    marks: points.slice(0, 1),
+    count: entities.length,
+  };
 }
 
 /** An alert that only sounds (polish pass F): another surface owns its words,

@@ -4,6 +4,7 @@ import { cursorFor } from '../input/cursor';
 import {
   INITIAL_DIRECTOR,
   VOICE_TIMING,
+  decideCalls,
   decideDeaths,
   decideOrder,
   gestureVerb,
@@ -300,5 +301,39 @@ describe('a move to a pinned unit answers "can’t move", never "moving" (GH-262
 
   it('a look with no isPinned behaves exactly as before', () => {
     expect(decideOrder(INITIAL_DIRECTOR, g([order(1)]), look, LANGS, 0).cue?.key).toBe('he.infantry.move');
+  });
+});
+
+describe('decideCalls: ours report breaking and vehicle damage (pass C2/C4, A1)', () => {
+  const routed = (entity: number): SimEvent => ({ kind: 'routed', tick: 0, entity }) as SimEvent;
+  const component = (target: number, result: string): SimEvent =>
+    ({ kind: 'component', tick: 0, target, result, overmatch: 0 }) as unknown as SimEvent;
+
+  it('says broken, immobilised and gun out on the net, captioned, at the death calls’ priority', () => {
+    const b = decideCalls(INITIAL_DIRECTOR, [routed(1)], look, LANGS, 0);
+    expect(b.notes).toEqual([
+      { why: 'line', cue: { key: 'he.common.broken', lang: 'he', speaker: 'infantry', trigger: 'broken', priority: 'kdf_death', at: null, caption: 'voice.caption.broken' } },
+    ]);
+    expect(decideCalls(INITIAL_DIRECTOR, [component(3, 'mobility_kill')], look, LANGS, 0).notes[0].cue?.key).toBe('he.common.immobilised');
+    expect(decideCalls(INITIAL_DIRECTOR, [component(3, 'firepower_kill')], look, LANGS, 0).notes[0].cue?.key).toBe('he.common.gunout');
+    expect(decideCalls(INITIAL_DIRECTOR, [component(3, 'combat_ineffective')], look, LANGS, 0).notes[0].cue?.key).toBe('he.common.gunout');
+  });
+
+  it('is silent for a shaken crew, an enemy, and a civilian', () => {
+    expect(decideCalls(INITIAL_DIRECTOR, [component(3, 'crew_shaken')], look, LANGS, 0).notes).toEqual([]);
+    const enemy: DirectorLook = { ...look, side: () => 1 };
+    expect(decideCalls(INITIAL_DIRECTOR, [routed(1)], enemy, LANGS, 0).notes).toEqual([]);
+    expect(decideCalls(INITIAL_DIRECTOR, [routed(7)], look, LANGS, 0).notes).toEqual([]);
+  });
+
+  it('speaks once a tick and throttles like the death calls', () => {
+    const first = decideCalls(INITIAL_DIRECTOR, [routed(1), routed(2)], look, LANGS, 0);
+    expect(first.notes.filter((n) => n.why === 'line')).toHaveLength(1);
+    const soon = decideCalls(first.state, [routed(2)], look, LANGS, VOICE_TIMING.callGlobalMs - 1);
+    expect(soon.notes).toEqual([{ why: 'silent:throttle', cue: null }]);
+    const later = decideCalls(first.state, [routed(2)], look, LANGS, VOICE_TIMING.callGlobalMs);
+    expect(later.notes[0].why).toBe('line');
+    const sameUnit = decideCalls(first.state, [routed(1)], look, LANGS, VOICE_TIMING.callGlobalMs);
+    expect(sameUnit.notes).toEqual([{ why: 'silent:throttle', cue: null }]);
   });
 });
