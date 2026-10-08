@@ -26,14 +26,20 @@ describe('showMenu audio toggle', () => {
     // the ledger reset a `<button>` too (same `rl-menu__item` look), so a bare
     // `button.rl-menu__item` selector is no longer unique to the mixer.
     const b = stage.querySelector<HTMLButtonElement>('button.rl-menu__item[aria-pressed]')!;
-    // GH-261: the APP-6 signals bolt, struck through for radio silence.
+    // VR-15: a speaker, struck through when muted -- the old APP-6 signals
+    // bolt read as power, not sound. The speaker's own outline as a LITERAL,
+    // and the cut body: muted, the outline is split by the slash.
     expect(b.textContent?.trim()).toBe('audio off');
     expect(b.querySelector('svg')?.getAttribute('data-symbol')).toBe('audioOff');
+    expect(b.querySelector('svg')?.innerHTML).not.toContain('M2 8.5 L7 8.5 L12.5 3.5 L12.5 20.5 L7 15.5 L2 15.5 Z');
+    expect(b.querySelector('svg')?.innerHTML).not.toContain(' A');
     expect(b.getAttribute('aria-pressed')).toBe('false');
     b.click();
     expect(muted).toBe(false);
     expect(b.textContent?.trim()).toBe('audio on');
     expect(b.querySelector('svg')?.getAttribute('data-symbol')).toBe('audioOn');
+    expect(b.querySelector('svg')?.innerHTML).toContain('d="M2 8.5 L7 8.5 L12.5 3.5 L12.5 20.5 L7 15.5 L2 15.5 Z"');
+    expect(b.querySelector('svg')?.innerHTML).not.toContain('M15 1.5 L5 13.5');
     expect(b.getAttribute('aria-pressed')).toBe('true');
   });
 

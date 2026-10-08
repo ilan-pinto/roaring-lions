@@ -199,6 +199,7 @@ import {
   dracoDecoderPath,
 } from './mesh-catalogue';
 import { rendererOptionsFor } from './renderer-options';
+import { bindLiveTeamColors } from './live-team-colors';
 import { garageColors, garageGroundTexture, garageModelSource } from './garage-model-source';
 import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
@@ -1670,10 +1671,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // The options object itself is `./renderer-options`'s `rendererOptionsFor`
   // (Task 2 of the scene-host plan) -- extracted so the menu's own diorama can
   // ask for exactly the same options a mission gets, rather than a second,
-  // drifting copy of this literal. What stays here is construction-time: both
-  // `colorVision` and `quality` are read ONCE (like the renderer backend
-  // choice below), because a setting switched mid-mission takes effect from
-  // the next boot, which the settings hint says explicitly. `teamColors` and
+  // drifting copy of this literal. What stays here is construction-time:
+  // `quality` is read ONCE (like the renderer backend choice below), because
+  // it takes effect from the next boot, which its settings hint says.
+  // `colorVision` is read here for the boot and then followed live
+  // (`bindLiveTeamColors`, below the minimap -- VR-01). `teamColors` and
   // `resolveColor` -- what the renderer, either backend, asks for a palette
   // key by STRING -- have to agree on the same `colorVision` value, or the
   // silhouette outline, the HP bars, the objective-zone tints and the
@@ -2987,6 +2989,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   });
   // Also on the body, and it carries its own pointer listeners and canvas.
   onDispose(() => minimap.destroy());
+  // VR-01: a colour-vision change re-colours the world and the minimap at
+  // once, as `theme.css` already does the HUD. Registered here, beside the
+  // two sinks it drives, and unsubscribed by the battlefield's own disposer.
+  onDispose(bindLiveTeamColors((fn) => req.settings.onChange(fn), cvdVariant, { renderer, minimap }));
   /** A unit mesh that failed -- at boot or arriving late -- as a HUD note,
    *  once per type, from the 1 Hz sweep. Loud beside the renderer's own
    *  console.error and the proxy box it draws (WP-A3.3, ruling 2). (A

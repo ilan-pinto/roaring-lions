@@ -120,9 +120,13 @@ export function unitOverlayRadiusPx(isSoft: boolean): number {
  * "colour is looked up, never computed" (this task's own constraint): this
  * function decides WHICH key, `ThreeRenderer` resolves it.
  */
-export function hpBarColorKey(ratio: number): string {
+export function hpBarColorKey(ratio: number, friendly: boolean): string {
   if (ratio > 0.5) return 'scrub.0';
-  if (ratio > 0.25) return 'team.neutral';
+  // VR-03 (lead, 8 Oct): the player's own unit never wears the ENEMY colour
+  // over its head. Low health on a friendly stays on the warn key -- the one
+  // the HUD's `--warn` already maps to -- and the bar's length carries how
+  // low; the red tier is kept for a hostile (or neutral) unit only.
+  if (ratio > 0.25 || friendly) return 'team.neutral';
   return 'team.hostile';
 }
 
@@ -320,9 +324,11 @@ export const MOBILITY_KILL_COLOR_KEY = 'gunmetal.1';
  * bars are not the same formula, so this is deliberately its own function
  * rather than a shared one with different call-site thresholds.
  */
-export function buildingIntegrityColorKey(ratio: number): string {
+export function buildingIntegrityColorKey(ratio: number, friendly: boolean): string {
   if (ratio > 0.6) return MOBILITY_KILL_COLOR_KEY;
-  if (ratio > 0.3) return 'team.neutral';
+  // VR-03: the same rule as `hpBarColorKey` -- a building the player holds
+  // (garrisoned by side 0, or producing for side 0) never fills enemy red.
+  if (ratio > 0.3 || friendly) return 'team.neutral';
   return 'team.hostile';
 }
 

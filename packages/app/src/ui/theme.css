@@ -1527,13 +1527,17 @@ body {
 .rl-mute {
   color: var(--ink-mute);
 }
-.rl-fill-good {
-  background: var(--good);
-}
-.rl-fill-warn {
+/* A health track's tone (`hpTone`, the chip and the card). Scoped under
+   `.rl-track > i` on purpose: that rule (0,1,1) paints every track fill lime
+   and used to outrank a bare `.rl-fill-*` (0,1,0), so no health track ever
+   showed its tone -- VR-03's friendly amber included. `good` has no rule of
+   its own and keeps the track's lime, the healthy default (ruling, 8 Oct);
+   `warn` and `bad` win over it. The player's own unit never reaches `bad`
+   (VR-03), so red on a track means an enemy's health. */
+.rl-track > i.rl-fill-warn {
   background: var(--warn);
 }
-.rl-fill-bad {
+.rl-track > i.rl-fill-bad {
   background: var(--bad);
 }
 

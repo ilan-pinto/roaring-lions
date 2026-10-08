@@ -173,7 +173,10 @@ describe('the GH-261 dingbat marks (Military set)', () => {
 
   it('keeps pairs that mean different things visibly different', () => {
     expect(symbolBody('audioOff')).not.toBe(symbolBody('audioOn'));
-    expect(symbolBody('audioOff').startsWith(symbolBody('audioOn'))).toBe(true); // B: the same bolt, struck through
+    // VR-15: the speaker; muted, the silent speaker (no waves) struck through.
+    expect(symbolBody('audioOn')).toContain('d="M2 8.5 L7 8.5 L12.5 3.5 L12.5 20.5 L7 15.5 L2 15.5 Z"');
+    expect(symbolBody('audioOn').match(/ A/g)?.length).toBe(4);
+    expect(symbolBody('audioOff')).not.toContain(' A');
     const objs = new Set(['objectiveOpen', 'objectiveDone', 'objectiveFailed'].map((id) => symbolBody(id as SymbolId)));
     expect(objs.size).toBe(3);
   });
