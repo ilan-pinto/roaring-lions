@@ -5,7 +5,7 @@ const MiB = 1048576;
 
 function reading(
   label: string,
-  o: { js?: number; gpu?: number; proc?: number; ctx?: number; lost?: number; nodes?: number } = {}
+  o: { js?: number; gpu?: number; proc?: number; ctx?: number; lost?: number; nodes?: number; bmp?: number } = {}
 ): Reading {
   return {
     label,
@@ -16,7 +16,7 @@ function reading(
       liveBytes: (o.gpu ?? 100) * MiB,
       liveContexts: o.ctx ?? 1,
       retainedLostContexts: o.lost ?? 0,
-      ledger: { contexts: [], sources: { bytes: 0, count: 0, byKind: {} }, bitmaps: { bytes: 0, count: 0 }, audio: { bytes: 0, count: 0 }, unknownFormats: [] },
+      ledger: { contexts: [], sources: { bytes: 0, count: 0, byKind: {} }, bitmaps: { bytes: (o.bmp ?? 0) * MiB, count: 0 }, audio: { bytes: 0, count: 0 }, unknownFormats: [] },
     },
     process: { total: (o.proc ?? 1000) * MiB, byType: {}, method: 'test' },
     inventory: null,
@@ -27,9 +27,9 @@ function reading(
 
 const BUDGET: MemoryBudget = {
   conditions: 'test',
-  menu: { jsTotalMiB: 60, gpuMiB: 120, processMiB: 1200 },
-  board: { jsTotalMiB: 40, gpuMiB: 80, processMiB: 800 },
-  mission: { jsTotalMiB: 150, gpuMiB: 300, processMiB: 2000 },
+  menu: { jsTotalMiB: 60, gpuMiB: 120, processMiB: 1200, bitmapsMiB: 16 },
+  board: { jsTotalMiB: 40, gpuMiB: 80, processMiB: 800, bitmapsMiB: 16 },
+  mission: { jsTotalMiB: 150, gpuMiB: 300, processMiB: 2000, bitmapsMiB: 600 },
   leak: { jsOverMenuPct: 20, gpuOverMenuPct: 2, maxRetainedLostContexts: 0, maxExtraNodes: 50 },
 };
 
@@ -53,6 +53,7 @@ describe('judge', () => {
     ['menu JS', { menu: { js: 61 } }, /menu: JS heap/],
     ['board GPU', { board: { gpu: 81 } }, /board: GPU ledger/],
     ['mission process', { mission: { proc: 2001 } }, /mission a: all Chromium processes/],
+    ['mission decoded bitmaps (GH-469 savings 1 and 2 reverted)', { mission: { bmp: 972 } }, /mission a: decoded ImageBitmaps 972\.0 MiB <= 600/],
     ['after-leave JS over the menu', { after: { js: 60.5 } }, /menu after a: JS \+10\.5 MiB \(\+21\.0%\)/],
     ['after-leave GPU over the menu', { after: { gpu: 103 } }, /menu after a: GPU \+3\.0 MiB \(\+3\.0%\)/],
     ['a second live context after leaving', { after: { ctx: 2 } }, /2 live WebGL context/],
