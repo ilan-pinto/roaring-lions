@@ -122,6 +122,11 @@ function parseArgs(argv: string[]): Args {
   };
 }
 
+/** A hang guard for every wait in the walk, sized for SwiftShader on CI
+ *  (a mission boot measured 60-80 s there, a leave 50-70 s), not a budget:
+ *  nothing here asserts a duration. */
+const STEP_TIMEOUT_MS = 240_000;
+
 const MiB = 1048576;
 const mib = (b: number): string => (b / MiB).toFixed(1);
 
@@ -244,7 +249,7 @@ async function waitForMenu(page: Page): Promise<void> {
       return h !== undefined && h !== null && h !== 'pending';
     },
     null,
-    { timeout: 90_000 }
+    { timeout: STEP_TIMEOUT_MS }
   );
 }
 
@@ -255,13 +260,15 @@ async function waitForBoard(page: Page): Promise<void> {
       return wrap instanceof HTMLElement && (wrap.dataset.board === 'flat' || wrap.dataset.board === 'diorama');
     },
     null,
-    { timeout: 90_000 }
+    { timeout: STEP_TIMEOUT_MS }
   );
 }
 
 async function playMission(page: Page, id: string, playS: number, sliceS: number): Promise<void> {
-  await dismissDeployGate(page, `${TAG} ${id}`, { selectorTimeoutMs: 120_000, timeoutMs: 120_000 });
-  await page.waitForFunction(() => (window as unknown as { __lions?: unknown }).__lions !== undefined, null, { timeout: 60_000 });
+  await dismissDeployGate(page, `${TAG} ${id}`, { selectorTimeoutMs: STEP_TIMEOUT_MS, timeoutMs: STEP_TIMEOUT_MS });
+  await page.waitForFunction(() => (window as unknown as { __lions?: unknown }).__lions !== undefined, null, {
+    timeout: STEP_TIMEOUT_MS,
+  });
   // `playS` of sim time at 20 Hz, in `sliceS` slices with a real pause
   // between them, so the frame loop draws (spawned units get their meshes,
   // the dead their wrecks, the pools fill) as the battle advances rather than
@@ -277,11 +284,24 @@ async function playMission(page: Page, id: string, playS: number, sliceS: number
   }
 }
 
+/** A click through the page's own `HTMLElement.click()`, not Playwright's
+ *  pointer click: on SwiftShader the main thread is busy with 0.5-1 s frames
+ *  and the leave's own teardown, and `locator.click` timed out at 60 s on two
+ *  of three CI runners waiting for the input to be acknowledged. Same
+ *  handlers, same path; just no pointer simulation to wait on. */
+async function domClick(page: Page, selector: string): Promise<void> {
+  await page.waitForSelector(selector, { state: 'attached', timeout: STEP_TIMEOUT_MS }).then((h) => h.dispose());
+  await page.evaluate((sel) => (document.querySelector(sel) as HTMLElement | null)?.click(), selector);
+}
+
 async function leaveMission(page: Page): Promise<string> {
-  const leave = page.locator('.rl-hud__leave');
-  if (await leave.isVisible().catch(() => false)) {
-    await leave.click({ timeout: 60_000 });
-    await page.locator('.rl-confirm__yes').click({ timeout: 60_000 });
+  const hasLeave = await page.evaluate(() => {
+    const b = document.querySelector('.rl-hud__leave');
+    return b instanceof HTMLElement && b.offsetParent !== null;
+  });
+  if (hasLeave) {
+    await domClick(page, '.rl-hud__leave');
+    await domClick(page, '.rl-confirm__yes');
     await waitForBoard(page);
     return 'HUD leave + confirm';
   }

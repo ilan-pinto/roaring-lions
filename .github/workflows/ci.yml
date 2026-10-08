@@ -238,12 +238,6 @@ jobs:
       # duration.
       - name: one realm, no reload -- the router's own walk
         run: pnpm ui:routes
-      # GH-469. What one realm holds at the menu, the campaign board and the
-      # three heaviest missions after two minutes of sim time each, and
-      # whether leaving a mission (softly, through the router) gives it back.
-      # Its own dev server on :5179. CALIBRATION RUN: report only, no --gate.
-      - name: memory -- the walk, and the leave
-        run: pnpm perf:memory -- --port=5179 --out=visual-baseline-output/memory.json
       # Uploaded on failure AND on success: the diff image is what a triager
       # actually needs, and `combat` is captured but never gated, so its frame
       # is only ever reachable here.
@@ -263,6 +257,47 @@ jobs:
         with:
           name: visual-baseline-output
           path: visual-baseline-output
+          if-no-files-found: ignore
+          retention-days: 3
+
+  # GH-469. What one JS realm holds at the menu, the campaign board and the
+  # three heaviest missions after two minutes of sim time each, and whether
+  # leaving a mission (softly, through the router) gives it back
+  # (`tools/src/perf/memory.ts`; budgets and their readings in
+  # `memory-budgets.ts` and docs/PERFORMANCE.md, "Memory").
+  #
+  # Its OWN job rather than a step in `visual`, which it was first: on
+  # SwiftShader a mission boot is 60-80 s, two minutes of play ~75 s and the
+  # leave 50-70 s, so the walk measured 917 s as a step there -- on top of a
+  # job already 35-40 min long. Here it runs beside `visual` and adds nothing
+  # to the PR's wall clock; it shares that job's Playwright cache key.
+  # CALIBRATION RUN: report only, no --gate.
+  memory:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Install Playwright Chromium
+        run: pnpm --filter @lions/tools exec playwright install --with-deps chromium
+      - name: memory -- the walk, and the leave
+        run: pnpm perf:memory -- --port=5179 --out=memory-output/memory.json
+      - name: Upload the readings
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: memory-output
+          path: memory-output
           if-no-files-found: ignore
           retention-days: 3
 

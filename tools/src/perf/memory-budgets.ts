@@ -38,11 +38,11 @@ export interface MemoryBudget {
   /** Applied to every mission checkpoint. */
   mission: Ceiling;
   leak: {
-    /** A menu reached AFTER leaving a mission may hold at most this many MiB of
-     *  JS (heap + ArrayBuffers) more than the FIRST menu reading. */
-    jsOverMenuMiB: number;
-    /** ...and at most this many MiB more GPU (ledger) than the first menu. */
-    gpuOverMenuMiB: number;
+    /** A menu reached AFTER leaving a mission may hold at most this many
+     *  PERCENT more JS (heap + ArrayBuffers) than the FIRST menu reading. */
+    jsOverMenuPct: number;
+    /** ...and at most this many percent more GPU (ledger) than the first menu. */
+    gpuOverMenuPct: number;
     /** WebGL contexts that are lost yet still reachable after a forced GC --
      *  a renderer something still holds after its screen was left. */
     maxRetainedLostContexts: number;
@@ -92,13 +92,20 @@ export function judge(readings: readonly Reading[], b: MemoryBudget): Verdict[] 
   for (const r of afters) {
     const dj = r.js.jsTotal - menu.js.jsTotal;
     const dg = r.gpu.liveBytes - menu.gpu.liveBytes;
+    const pj = (100 * dj) / menu.js.jsTotal;
+    const pg = menu.gpu.liveBytes > 0 ? (100 * dg) / menu.gpu.liveBytes : dg > 0 ? Infinity : 0;
+    const sign = (x: number): string => (x >= 0 ? '+' : '');
     out.push({
-      ok: dj <= b.leak.jsOverMenuMiB * MiB,
-      detail: `${r.label}: JS ${dj >= 0 ? '+' : ''}${f(dj)} MiB over the first menu (${f(menu.js.jsTotal)}) <= +${b.leak.jsOverMenuMiB} (leak)`,
+      ok: pj <= b.leak.jsOverMenuPct,
+      detail:
+        `${r.label}: JS ${sign(dj)}${f(dj)} MiB (${sign(pj)}${pj.toFixed(1)}%) over the first menu's ` +
+        `${f(menu.js.jsTotal)} <= +${b.leak.jsOverMenuPct}% (leak)`,
     });
     out.push({
-      ok: dg <= b.leak.gpuOverMenuMiB * MiB,
-      detail: `${r.label}: GPU ${dg >= 0 ? '+' : ''}${f(dg)} MiB over the first menu (${f(menu.gpu.liveBytes)}) <= +${b.leak.gpuOverMenuMiB} (leak)`,
+      ok: pg <= b.leak.gpuOverMenuPct,
+      detail:
+        `${r.label}: GPU ${sign(dg)}${f(dg)} MiB (${sign(pg)}${pg.toFixed(1)}%) over the first menu's ` +
+        `${f(menu.gpu.liveBytes)} <= +${b.leak.gpuOverMenuPct}% (leak)`,
     });
     out.push({
       ok: r.gpu.liveContexts <= menu.gpu.liveContexts,
@@ -112,5 +119,24 @@ export function judge(readings: readonly Reading[], b: MemoryBudget): Verdict[] 
   return out;
 }
 
-/** Filled from CI measurements; see docs/PERFORMANCE.md, "Memory". */
-export const MEMORY_BUDGETS: Readonly<Record<string, MemoryBudget>> = {};
+/** Margins over the largest reading of each kind: JS and the process total
+ *  move run to run, the GL ledger does not (it counts what was ASKED for, so
+ *  the same tree reads the same bytes on every run and every machine), so it
+ *  gets the smallest margin. The leak budgets are percentages of the FIRST
+ *  menu reading. Budgets round UP to a whole MiB. */
+export const MARGIN = { js: 1.25, gpu: 1.15, process: 1.25 } as const;
+
+/** See docs/PERFORMANCE.md, "Memory", for every reading behind these. */
+export const MEMORY_BUDGETS: Readonly<Record<string, MemoryBudget>> = {
+  // Local only -- CI never runs here. M3 Pro, ANGLE/Metal, 1400x900 @1x, dev
+  // server, n=4 walks (2026-10-08). Largest readings: menu-kind JS 62.6 /
+  // GPU 522.1 / process 1934.5; board 31.9 / 138.2 / 649.0; mission 128.9 /
+  // 882.2 / 3207.3 MiB; after-leave JS +14.6% and GPU +0.0% over the menu.
+  'darwin-arm64-metal': {
+    conditions: 'darwin-arm64-metal: M3 Pro, ANGLE/Metal, 1400x900 @1x, dev server, n=4, margins JS x1.25 GPU x1.15 process x1.25',
+    menu: { jsTotalMiB: 79, gpuMiB: 601, processMiB: 2419 },
+    board: { jsTotalMiB: 40, gpuMiB: 159, processMiB: 812 },
+    mission: { jsTotalMiB: 162, gpuMiB: 1015, processMiB: 4010 },
+    leak: { jsOverMenuPct: 30, gpuOverMenuPct: 2, maxRetainedLostContexts: 0 },
+  },
+};

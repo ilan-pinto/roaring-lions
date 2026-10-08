@@ -27,7 +27,7 @@ const BUDGET: MemoryBudget = {
   menu: { jsTotalMiB: 60, gpuMiB: 120, processMiB: 1200 },
   board: { jsTotalMiB: 40, gpuMiB: 80, processMiB: 800 },
   mission: { jsTotalMiB: 150, gpuMiB: 300, processMiB: 2000 },
-  leak: { jsOverMenuMiB: 10, gpuOverMenuMiB: 2, maxRetainedLostContexts: 0 },
+  leak: { jsOverMenuPct: 20, gpuOverMenuPct: 2, maxRetainedLostContexts: 0 },
 };
 
 function walk(over: Partial<Record<string, Parameters<typeof reading>[1]>> = {}): Reading[] {
@@ -50,8 +50,8 @@ describe('judge', () => {
     ['menu JS', { menu: { js: 61 } }, /menu: JS heap/],
     ['board GPU', { board: { gpu: 81 } }, /board: GPU ledger/],
     ['mission process', { mission: { proc: 2001 } }, /mission a: all Chromium processes/],
-    ['after-leave JS over the menu', { after: { js: 61 } }, /menu after a: JS \+11\.0 MiB over the first menu/],
-    ['after-leave GPU over the menu', { after: { gpu: 103 } }, /menu after a: GPU \+3\.0 MiB/],
+    ['after-leave JS over the menu', { after: { js: 60.5 } }, /menu after a: JS \+10\.5 MiB \(\+21\.0%\)/],
+    ['after-leave GPU over the menu', { after: { gpu: 103 } }, /menu after a: GPU \+3\.0 MiB \(\+3\.0%\)/],
     ['a second live context after leaving', { after: { ctx: 2 } }, /2 live WebGL context/],
     ['a released context still reachable', { after: { lost: 1 } }, /1 released context/],
   ])('fails on %s', (_name, over, re) => {
