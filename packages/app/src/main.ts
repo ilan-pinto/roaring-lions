@@ -71,6 +71,7 @@ import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type 
 import { hintFor, loadSeen, markSeen } from './ui/hint-model';
 import { createShownTimer, loadHintsSeen, markHintSeen, owedRule, type HintContext } from './ui/hint-rules';
 import { portraitIds, unitIcon, unitPlate } from './ui/portrait';
+import { trackCloseup } from './ui/garage-closeup';
 import { Minimap, MINIMAP_SIZE, flipRows } from './ui/minimap';
 import { alertsForTick, initAlertState, missionEventTier, nextJump, type JumpTarget } from './ui/alerts';
 import { alertWorldFor } from './ui/alert-world';
@@ -983,8 +984,13 @@ async function main(): Promise<void> {
       // The garage's bay (Task 15/16). `unitPlate` resolves against the
       // plates manifest AND the eager glob of what is actually on disk, so a
       // unit `pnpm plates:units` has not photographed reads as absent and the
-      // bay draws its reserved hatch -- never a broken <img>.
-      plate: (typeId) => unitPlate(`${BASE}ui/plates/units/`, typeId),
+      // bay draws its reserved hatch -- never a broken <img>. From kit level 2
+      // a kitted vehicle's plate is its kitted photograph (GH-238); the plate
+      // is what the bay keeps when the model cannot be drawn.
+      plate: (typeId, kitLevel) => unitPlate(`${BASE}ui/plates/units/`, typeId, kitLevel),
+      // A track's close-up from the bay's own turntable (GH-238 K11), in the
+      // board's track head; a missing one keeps the hatch.
+      closeup: (typeId, track) => trackCloseup(`${BASE}ui/garage/closeups/`, typeId, track),
       // GH-316: the unit's own GLB, turnable, over the plate above -- which
       // stays the picture until the model's first frame, and whenever the
       // model cannot be drawn.
@@ -1679,6 +1685,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       BASE
     ),
     timeOfDay: tod.value,
+    // GH-238: the bought kit each vehicle wears, from the one prepass that
+    // registered the sim's types and drew the card -- so the hull on the
+    // field is the hull the sim is running.
+    unitKitTiers: prepass.unitKitTiers,
     // Sandbox only: a mission brings its own battle, and a dev flag must
     // never change how one looks.
     ...(!mission && wantDecals

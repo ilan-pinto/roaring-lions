@@ -97,6 +97,8 @@ describe.each(DEPLOYMENTS)('the service worker policy ($name)', ({ sw, base }) =
       'fonts/inter.woff2',
       'audio/ui_click.ogg',
       'ui/portraits/shai.png',
+      'ui/plates/units/kit/mbt_lavi.jpg',
+      'ui/garage/closeups/mbt_lavi_armour.jpg',
       'campaign/board.png',
       'draco/draco_decoder.wasm',
     ]) {

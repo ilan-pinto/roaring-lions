@@ -570,6 +570,16 @@ type SynthNote = readonly [number, number, OscillatorType, number, number];
 export const SYNTH_CUES: Readonly<Record<string, readonly SynthNote[]>> = {
   ui_purchase: [[196, 0.08, 'triangle', 0.06, 0], [294, 0.12, 'sine', 0.045, 70]],
   ui_upgrade: [[1175, 0.02, 'square', 0.02, 0], [1175, 0.02, 'square', 0.02, 35], [880, 0.1, 'sine', 0.045, 90]],
+  // Bolt-on (GH-238 K10): a short rattle of four square pawl clicks, then a
+  // low triangle clank landing on them. Not ui_upgrade's click-then-note
+  // shape, and nowhere near the alert's falling pair.
+  ui_kit_fitted: [
+    [2600, 0.012, 'square', 0.02, 12],
+    [2540, 0.012, 'square', 0.024, 37],
+    [2480, 0.012, 'square', 0.028, 62],
+    [2420, 0.012, 'square', 0.032, 87],
+    [420, 0.09, 'triangle', 0.06, 150],
+  ],
   ui_confirm: [[1320, 0.04, 'sine', 0.03, 0]],
   ui_deny: [[147, 0.06, 'square', 0.03, 0], [147, 0.07, 'square', 0.03, 100]],
   alert_minor: [[880, 0.06, 'triangle', 0.04, 0]],

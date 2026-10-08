@@ -1415,3 +1415,125 @@ a billboard majority -- render p95 is 10.8 / 17.8 / 30.0 / 39.7 ms at 65 / 143
 / 266 / 320 living units (tick p95 0.30 / 1.20 / 2.20 / 3.40 ms). That is a new
 number, not a regression: it is the shipped default since the mesh flip, now
 measured for the first time.
+
+## Kitted vehicles (GH-238 plan 3, 2026-10-07)
+
+What bolting a bought kit onto the eight KDF vehicles costs. Spec
+`docs/superpowers/specs/2026-10-06-kitted-vehicles.md`, plan
+`docs/superpowers/plans/2026-10-07-kitted-vehicles.md` (Task 10). The design
+claim is **+0 draw calls**: `applyVehicleKit` merges the bought parts into their
+host node's geometry at load, so a kitted hull submits exactly as often as a bare
+one.
+
+### Capture conditions
+
+- **One machine**: Apple M3 Pro, macOS, ANGLE Metal (`ANGLE (Apple, ANGLE Metal
+  Renderer: Apple M3 Pro, Unspecified Version)`, printed by the tool), real
+  hardware and not SwiftShader.
+- **Draw calls and triangles**: `tools/src/perf/kit-drawcalls.ts`, run on the
+  final art at the tip of the branch (all eight GLBs, as shipped in
+  `assets/meshes/vehicles/`, Draco). Twenty clones of one vehicle through the
+  SHIPPED `buildVehicleMeshTemplate`, three passes (shadow, main, and the GTAO
+  pre-pass's override material), `renderer.info` reset **by hand** around each:
+  three r170 resets it after the shadow pass, so the default reading is short
+  (with `autoReset` left on, the harness read Lavi 8 and D9 4 and exited 1, which
+  is how it was falsified).
+- **Sizes** are `wc -c` of the tracked files at the branch tip against
+  `origin/main`.
+
+### Draw calls: +0 at every tier
+
+| Vehicle | Submissions/vehicle, tiers 0 | tiers 3 | Live meshes carrying kit at tiers 3 |
+|---|---|---|---|
+| `mbt_lavi` | 12 | 12 | 3 (`hull_hull`, `turret_hull`, `turret_metal`) |
+| `ifv_namer` | 12 | 12 | 2 |
+| `apc_eitan` | 12 | 12 | 2 |
+| `apc_kipod` | 12 | 12 | 2 |
+| `jeep_shoded` | 12 | 12 | 2 |
+| `scout_shachaf` | 12 | 12 | 2 |
+| `dozer_d9` | 6 | 6 | 1 |
+| `heli_peten` | 12 | 12 | 3 |
+
+12 is 4 live meshes x 3 passes; the D9 has 2 meshes, so 6. The harness exits 1 on
+any other reading, and on a tiers > 0 reading in which no mesh carries kit (which
+would be the bare hull read twice and prove nothing about the merge): run on the
+kit-less art of the time it failed, "tiers=3 but no mesh carries kit", where it
+had printed PASS.
+
+### Triangles: what the kit adds
+
+Kit triangles at maximum kit (every track at tier 3), and the triangles one
+vehicle submits across the shadow and main passes (the kit is in both, so it
+counts twice; the AO pre-pass is not in these totals):
+
+| Vehicle | Kit triangles (budget) | shadow + main, tiers 0 | tiers 3 |
+|---|---|---|---|
+| `mbt_lavi` | 4,740 (4,880; cap 5,000) | 16,692 | 26,172 |
+| `ifv_namer` | 3,282 (3,580) | 15,620 | 22,184 |
+| `apc_eitan` | 3,266 (3,850) | 15,922 | 22,454 |
+| `apc_kipod` | 3,222 (3,590) | 16,104 | 22,548 |
+| `jeep_shoded` | 2,264 (2,560) | 87,870 | 92,398 |
+| `dozer_d9` | 2,758 (3,360) | 15,802 | 21,318 |
+| `scout_shachaf` | 1,906 (2,340) | 10,152 | 13,964 |
+| `heli_peten` | 1,434 (1,680) | 82,062 | 84,930 |
+
+Each tiers-3 figure is the tiers-0 figure plus twice the kit triangles. The kit
+is a share of what the vehicle already costs, not a new order of magnitude: the
+Lavi's grows by 57% (it was a 16,692-triangle model), the jeep's by 5% and the
+Peten's by 3.5% (both ship an 80,000-triangle Meshy hull). A mission fields the
+tier the player bought, so a bare brigade pays nothing per frame: tiers 0 is the
+shipped template, the same geometry objects.
+
+### Encoded size
+
+| Vehicle | `art/meshes/vehicles` | `assets/meshes/vehicles` (Draco) |
+|---|---|---|
+| `mbt_lavi` | +223,036 B (2,831,440 -> 3,054,476) | +29,584 B, 28.9 KiB (2,487,272 -> 2,516,856) |
+| `ifv_namer` | +162,852 B | +21,172 B, 20.7 KiB |
+| `apc_eitan` | +170,984 B | +21,548 B, 21.0 KiB |
+| `apc_kipod` | +166,524 B | +20,252 B, 19.8 KiB |
+| `jeep_shoded` | +105,904 B | +18,268 B, 17.8 KiB |
+| `scout_shachaf` | +98,408 B | +16,600 B, 16.2 KiB |
+| `dozer_d9` | +142,440 B | +14,408 B, 14.1 KiB |
+| `heli_peten` | +67,884 B | +15,612 B, 15.2 KiB |
+| **All eight** | **+1,138,032 B (1,111.4 KiB)** | **+157,444 B (153.8 KiB)** |
+
+What a player downloads is the second column: the Draco twin, **+153.8 KiB for all
+eight**. The kit is loaded with its vehicle whether or not any of it is bought,
+because the merge happens in the browser and the player's tiers can change
+between missions. The `art/parts/kit/*.glb` sources (66-217 KiB each, 1.1 MiB for
+eight) are build intermediates and are not shipped to the player.
+
+### What was NOT measured
+
+- **The merge itself.** `applyVehicleKit` runs once per vehicle type at template
+  build, `mergeGeometries` over the host and its kept parts, and the old
+  geometries are disposed. No wall-clock number was taken for it, and no
+  frame-cost or boot-time reading was taken with kit bought. The triangle table
+  above is the only per-frame evidence.
+- **A kitted force at scale.** `backend-curve-gate.ts` was not re-run for this
+  work.
+
+### `validate:meshes` gate time
+
+The gate now renders, per kitted vehicle, a maximum-kit render and the twelve
+(nine for the D9) variant masks, 101 kit renders in all, and reads the kit
+nodes from the bytes. Same machine, wall clock, `pnpm validate:meshes`:
+
+| Reading | Time | Conditions |
+|---|---|---|
+| before the kit renders | 62.2 s | back to back with the next row, quiet |
+| after Task 6 (variants through Workbench) | 69.0 s | back to back, quiet |
+| the same, noisy | 112.9 s | load average 21-25 from other work |
+| after the review round (masks through the shipped render's own Cycles, 64 samples, so they compare like with like) | 154.9-174.5 s | load average 8-29 |
+
+The eight kitted vehicles alone, at load 15: Workbench 17.1 s, Cycles at 1 sample
+17.2 s, **Cycles at 64 samples 64.5 s**. So the Cycles switch is worth about 47 s
+of the gate on that machine, bought so the variant masks use the rasteriser every
+other mask in the gate was made by (the largest change on any variant against
+another unit was 0.0153 IoU with Workbench, 0.0070 at one sample). **There is no
+quiet-machine reading of the final gate**: the 154.9-174.5 s range was taken
+under load, and the 62-69 s before it is the figure to compare against only
+loosely. CI's `gates` job runs it headless on ubuntu with no GPU; its time was
+not measured. `export_vehicle_kit.py` over all eight takes about 64-70 s
+(63.8 s before the stricter clash check, 69.5 s after).

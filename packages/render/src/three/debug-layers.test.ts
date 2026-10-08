@@ -304,6 +304,27 @@ describe('DEBUG_LAYERS', () => {
     r.dispose();
   });
 
+  it('kit: draws each kitted template geometry as its host alone and back, leaves a kit-less one alone, and survives a repaint (GH-238)', () => {
+    expect(isDebugLayer('kit')).toBe(true);
+    const r = makeRenderer();
+    const templates = (r as unknown as { vehicleMeshTemplates: Map<string, { geometries: THREE.BufferGeometry[] }> })
+      .vehicleMeshTemplates;
+    const kitted = new THREE.BufferGeometry();
+    kitted.userData.rlKitBaseCount = 36;
+    const plain = new THREE.BufferGeometry();
+    templates.set('mbt_lavi', { geometries: [kitted, plain] });
+    expect(r.setDebugLayerVisible('kit', false)).toBe(1);
+    expect(kitted.drawRange.count).toBe(36);
+    expect(plain.drawRange.count).toBe(Infinity);
+    // Nothing per-frame writes a template's draw range.
+    r.frame(1, 0);
+    expect(kitted.drawRange.count).toBe(36);
+    expect(r.setDebugLayerVisible('kit', true)).toBe(1);
+    expect(kitted.drawRange.count).toBe(Infinity);
+    templates.clear();
+    r.dispose();
+  });
+
   it('drives the crown sway amplitude to 0 and back, and only it (ground plan 2, Task 7)', () => {
     expect(isDebugLayer('wind')).toBe(true);
     const r = makeRenderer();

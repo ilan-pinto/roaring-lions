@@ -597,7 +597,9 @@ def load_vehicle(vid):
     bpy.ops.import_scene.gltf(filepath=os.path.join(REPO, "art", "meshes", "vehicles", f"{vid}.glb"),
                               import_scene_extras=True)
     for o in list(bpy.data.objects):
-        if o.name == "death_root" or o.name.startswith("WRECK_"):
+        # `kit_*`: shipped kit parts (contract v5) -- the blockout builds its
+        # own, and measuring on top of the real ones would count them twice.
+        if o.name == "death_root" or o.name.startswith(("WRECK_", "kit_")):
             bpy.data.objects.remove(o, do_unlink=True)
     for a in list(bpy.data.actions):
         bpy.data.actions.remove(a)

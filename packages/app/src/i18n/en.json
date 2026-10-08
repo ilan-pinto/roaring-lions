@@ -211,6 +211,7 @@
   "garage.rung.buy": "Buy tier {tier} · {price}",
   "garage.rung.buy.aria": "buy {name} {track} tier {tier} for {price, plural, one {# credit} other {# credits}}",
   "garage.track.armour": "Armour",
+  "garage.track.closeup": "{name}: {track} close-up",
   "garage.track.firepower": "Firepower",
   "garage.track.sensors": "Sensors",
   "garage.track.maxed": "Maxed",

@@ -15,6 +15,7 @@
 // sheets. `UnitIcon { url, size, extent }` is unchanged.
 
 import plateManifestJson from '../../../../assets/ui/plates/units/manifest.json';
+import kitPlateManifestJson from '../../../../assets/ui/plates/units/kit/manifest.json';
 import portraitManifestJson from '../../../../assets/ui/portraits/units/manifest.json';
 
 /** One icon: the URL to draw, its fixed pixel size, and the unit's own alpha
@@ -173,35 +174,78 @@ interface PlateManifest {
 // manifest import uses above).
 const plateManifest = plateManifestJson as unknown as PlateManifest;
 
-/** Every plate file the eager glob actually found on disk, by filename -- the
+/** Every plate file an eager glob actually found on disk, by filename -- the
  *  manifest can name an id `pnpm plates:units` has not (yet) photographed for
  *  this checkout, and a stale entry should read as absent rather than a
  *  broken `<img>`, the same rule the `PORTRAITS` catalogue enforces by only
  *  ever recording files its glob actually captured. */
-const PLATE_FILES = new Set<string>(
-  Object.keys(
-    import.meta.glob('../../../../assets/ui/plates/units/*.jpg', { eager: true })
-  ).map((p) => p.slice(p.lastIndexOf('/') + 1))
-);
+function basenames(glob: Record<string, unknown>): Set<string> {
+  return new Set(Object.keys(glob).map((p) => p.slice(p.lastIndexOf('/') + 1)));
+}
+
+// --- kitted plates (GH-238, plan 3 Task 9) ------------------------------------
+//
+// `pnpm plates:units --kit` photographs the eight kitted vehicles the same
+// way, each wearing every track it declares at that track's top tier, into
+// `kit/` under the plates directory with a manifest of its own in the same
+// shape. Parent spec §3.1: "a kitted plate, where one exists, replaces the
+// base at L >= 2". Its one reader is the bay's no-WebGL2 fallback -- with a
+// live turntable the model already wears the bought kit (kitted spec §1).
+
+/** The kit level (`kitLevel`, `@lions/data`: 0-3) from which a kitted plate
+ *  replaces the base one. */
+export const KIT_PLATE_LEVEL = 2;
+
+/** One plate set: its manifest's entries and the files actually on disk. */
+export interface PlateSet {
+  readonly manifest: Readonly<Record<string, PlateManifestEntry>>;
+  readonly files: ReadonlySet<string>;
+}
+
+/** The base set and the kitted set, side by side. */
+export interface PlateCatalogue {
+  readonly base: PlateSet;
+  readonly kit: PlateSet;
+}
+
+const kitPlateManifest = kitPlateManifestJson as unknown as PlateManifest;
+
+const SHIPPED_PLATES: PlateCatalogue = {
+  base: {
+    manifest: plateManifest.plates,
+    files: basenames(import.meta.glob('../../../../assets/ui/plates/units/*.jpg', { eager: true })),
+  },
+  kit: {
+    manifest: kitPlateManifest.plates,
+    files: basenames(import.meta.glob('../../../../assets/ui/plates/units/kit/*.jpg', { eager: true })),
+  },
+};
+
+function plateFrom(set: PlateSet, id: string, dir: string): UnitPlate | null {
+  const entry = set.manifest[id];
+  if (entry === undefined || !set.files.has(entry.file)) return null;
+  const [w, h] = entry.extent;
+  return { url: dir + entry.file, size: [entry.width, entry.height], extent: [w, h] };
+}
 
 /**
  * The engine-rendered plate for a KDF unit id, or null when none was
  * photographed for it.
  *
- * `base` is the plates directory, always ending in `/` (mirrors `unitIcon`'s
- * `basePath`); `id` is the unit's own id (`data/units/kdf/<id>.json`'s
- * filename) rather than something parsed back out of a path the way
- * `unitIcon` parses a sheet name out of `basePath` -- a plate is not filed
- * under a per-unit directory of its own the way a sprite sheet is, the whole
- * set sits flat under one directory keyed by id, so the caller already has
- * the id in hand and there is nothing to derive from a path.
+ * `base` is the plates directory (a trailing `/` is added if missing); `id`
+ * is the unit's own id (`data/units/kdf/<id>.json`'s filename). The whole set
+ * sits flat under one directory keyed by id, and the kitted set under its
+ * `kit/` subdirectory.
+ *
+ * `kitLevel` is the unit's kit level as the garage computes it (`kitSummary`
+ * -> `kitLevel`, 0-3). At `KIT_PLATE_LEVEL` and above, the KITTED plate is
+ * returned when one exists for this id; otherwise -- below that level, or a
+ * type with no kitted plate (every team, the drones) -- the base plate.
  *
  * The URL is a plain join of `base` and the manifest's own `file` name.
  * Plates ship through Vite's `publicDir` unhashed
  * (`packages/app/vite.config.ts`: `assets/` -> `/`, "Serve repo-root assets/
- * statically"), so string-joining is exactly what serves them, rather than
- * `unitIcon`'s glob-resolved URL, which exists to survive a bundler renaming
- * the file and is not needed for an asset that is never hashed. Resolution is
+ * statically"), so string-joining is exactly what serves them. Resolution is
  * still gated on the manifest naming the id AND the eager glob above having
  * actually found that file on disk, so an id the manifest outran (a build
  * whose `pnpm plates:units` run is stale or partial) reads as absent rather
@@ -211,12 +255,13 @@ const PLATE_FILES = new Set<string>(
 export function unitPlate(
   base: string,
   id: string,
-  manifest: Readonly<Record<string, PlateManifestEntry>> = plateManifest.plates,
-  knownFiles: ReadonlySet<string> = PLATE_FILES
+  kitLevel = 0,
+  catalogue: PlateCatalogue = SHIPPED_PLATES
 ): UnitPlate | null {
-  const entry = manifest[id];
-  if (entry === undefined || !knownFiles.has(entry.file)) return null;
-  const trimmedBase = base.endsWith('/') ? base : `${base}/`;
-  const [w, h] = entry.extent;
-  return { url: trimmedBase + entry.file, size: [entry.width, entry.height], extent: [w, h] };
+  const dir = base.endsWith('/') ? base : `${base}/`;
+  if (kitLevel >= KIT_PLATE_LEVEL) {
+    const kitted = plateFrom(catalogue.kit, id, `${dir}kit/`);
+    if (kitted !== null) return kitted;
+  }
+  return plateFrom(catalogue.base, id, dir);
 }

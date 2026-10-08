@@ -46,6 +46,7 @@ import type { CampaignLedger } from '../ledger-store';
 import { ROSTER_CAP } from '../roster-cap';
 import {
   BAR_GROW_MS,
+  KIT_VEHICLE_TYPES,
   STAMP_MS,
   WALLET_COUNT_MS,
   cardStatus,
@@ -142,8 +143,18 @@ export interface BrigadeOptions {
    *  far to zoom, and a footprint without the frame it was measured in is a
    *  number that means nothing. `null`, or no resolver at all, draws the
    *  reserved hatch — the same "reserved, not broken" language the rail's card
-   *  art uses. */
-  plate?: (typeId: string) => { url: string; size: readonly [number, number]; extent: readonly [number, number] } | null;
+   *  art uses. `kitLevel` is the unit's kit level (0-3, the same reading the
+   *  plate's kit mark draws): from L2 a kitted vehicle's plate is its KITTED
+   *  photograph (`plates:units --kit`, GH-238), which is the picture the bay
+   *  keeps when no model can be drawn (no WebGL2). */
+  plate?: (
+    typeId: string,
+    kitLevel: number
+  ) => { url: string; size: readonly [number, number]; extent: readonly [number, number] } | null;
+  /** A track's close-up (`garage-closeup.ts`, GH-238 K11), drawn in the
+   *  board's track head where its hatch is; `null`, or no resolver, keeps
+   *  the hatch. */
+  closeup?: (typeId: string, track: string) => string | null;
   /** The turnable 3D model that replaces the plate in the bay (GH-316,
    *  `ui/garage-viewer.ts`). The plate above is still built first: it is the
    *  picture until the model's first frame is up, and the one the bay keeps
@@ -1086,6 +1097,15 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     bayModel?.dispose();
     bayModel = null;
   };
+  /** The bay's model wears the account's tiers as they now stand (GH-238):
+   *  only one of the eight kitted vehicles has parts to bolt on, and the
+   *  door itself does nothing for tiers that draw what is already shown. */
+  const syncKit = (): void => {
+    if (bayModel === null || !KIT_VEHICLE_TYPES.has(bayModel.unitId)) return;
+    const id = bayModel.unitId;
+    const u = rows.find((r) => r.u.id === id)?.u;
+    if (u !== undefined) bayModel.setKit(ownedTiers(u, state.owned));
+  };
 
   function renderBay(): void {
     bay.replaceChildren();
@@ -1151,7 +1171,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     // centred transform keeps it centred.
     const plate = el('div', 'rl-garage__plate');
     plate.dataset.kit = String(kit.level);
-    const picture = opts.plate?.(u.id) ?? null;
+    const picture = opts.plate?.(u.id, kit.level) ?? null;
     if (picture !== null) {
       const img = document.createElement('img');
       img.className = 'rl-garage__plate-img';
@@ -1193,7 +1213,11 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
         bayModel.adopt(plate);
       } else {
         dropModel();
-        bayModel = garageModel(plate, u, { ...opts.model, reducedMotion: opts.model.reducedMotion ?? reduced });
+        bayModel = garageModel(
+          plate,
+          { id: u.id, name: u.name, kitTiers: tiers },
+          { ...opts.model, reducedMotion: opts.model.reducedMotion ?? reduced }
+        );
       }
     }
 
@@ -1281,6 +1305,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
             owned,
             buy,
             locked: row.locked,
+            closeup: opts.closeup?.(u.id, trackName) ?? null,
             // Held off while `answer()` puts focus back (M2): the rung it
             // lands on is the NEXT tier's, and its `focusin` would paint that
             // tier's preview over the purchase that just landed.
@@ -1425,6 +1450,9 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       restoringFocus = false;
     }
     if (ask !== undefined && next.landed === true) celebrate(ask, fromCredits, fromBars);
+    // A reset, or a refusal answering with a state another tab moved on:
+    // the model follows the account, silently.
+    else syncKit();
   }
 
   /** Each stat row's base and kit widths, by path, as the panel draws them
@@ -1454,6 +1482,9 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
    *  colour, which reports. */
   function celebrate(ask: PurchaseAsk, fromCredits: number | undefined, fromBars: BarWidths): void {
     opts.onCue?.(cueFor(ask));
+    // The part appears WITH the sound (kitted vehicles spec §8): the re-merge
+    // and its one frame happen in the same task as the cue.
+    syncKit();
     spend();
     countWallet(fromCredits, state.credits);
     pulse(bay.querySelector('.rl-garage__plate-kit'), 'rl-garage__plate-kit--stamp', STAMP_MS);

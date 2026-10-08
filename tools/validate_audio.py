@@ -41,6 +41,16 @@ Checks (all fail the build):
                   paths filed under their own key; keys in a language some
                   faction speaks; civilians silent. Duration and loudness
                   (N9, N10) are measured by the asset plan's tool, not here.
+  10. UI CUES  -- every `ui` set whose source is tools/gen_audio.py: mono,
+                  at most 250 ms -- or its own tier's ceiling for the longer
+                  pass-F cues, UI_CUE_CEILING_S, which mirrors gen_audio.py's
+                  STINGER_SETS/CUE_CEILING_S and is pinned to them by
+                  test_validate_audio_ui.py -- (read from the OGG's own header
+                  and last page, no decoder), and a decoded peak under -5 dBFS
+                  (needs ffmpeg; without it the gate says so by name rather
+                  than passing quietly). gen_audio.py asserts the same limits
+                  when it generates, which a stale or hand-dropped file never
+                  passes through.
 
 Empty variant lists are legal and expected: BattleAudio falls back to its
 procedural synth, so the game ships with sound from day one and real
@@ -48,9 +58,11 @@ recordings can land one file at a time.
 """
 
 import json
+import math
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 
@@ -388,6 +400,101 @@ def check_licensed_file(entry, failures, max_bytes, roles=("file", "alt"), licen
             failures.append(f"{rel}: {kb} KB exceeds the {max_bytes // 1024} KB ceiling")
 
 
+# A UI cue is one short mono one-shot at -6 dBFS (garage uplift section 3.5,
+# GH-238 section 8). The peak ceiling is 1 dB above that: Vorbis q3 overshoots
+# a -6.0 dBFS source by up to ~0.1 dB, so the room is for the codec and not
+# for a loud clip.
+UI_MAX_S = 0.25
+UI_PEAK_CEILING_DB = -5.0
+UI_GENERATOR = "tools/gen_audio.py"
+# The pass-F cues (polish pass F, section 4) that are longer than a UI tick,
+# each held to its tier's ceiling exactly as gen_audio.py's STINGER_SETS and
+# CUE_CEILING_S hold them at generation. A mirror, not an import: this gate
+# runs without numpy. test_validate_audio_ui.py pins the two tables together.
+UI_CUE_CEILING_S = {
+    "victory": 2.5,
+    "defeat": 2.5,
+    "objective_complete": 0.8,
+    "objective_failed": 0.8,
+    "objective_new": 0.8,
+    "alert_important": 0.8,
+    "alert_major": 1.0,
+    "mission_start": 1.5,
+}
+
+
+def ogg_vorbis_info(path):
+    """(channels, sample_rate, seconds) of an Ogg Vorbis file, from its first
+    packet's identification header and the last page's granule position --
+    no decoder. None if the file is not Ogg Vorbis."""
+    with open(path, "rb") as fh:
+        data = fh.read()
+    channels = rate = None
+    granule = None
+    i = 0
+    while i + 27 <= len(data) and data[i:i + 4] == b"OggS":
+        nseg = data[i + 26]
+        if i + 27 + nseg > len(data):
+            break
+        body = sum(data[i + 27:i + 27 + nseg])
+        start = i + 27 + nseg
+        if channels is None:
+            h = data[start:start + 16]
+            if h[:7] != b"\x01vorbis":
+                return None
+            channels = h[11]
+            (rate,) = struct.unpack("<I", h[12:16])
+        (g,) = struct.unpack("<q", data[i + 6:i + 14])
+        if g >= 0:
+            granule = g
+        i = start + body
+    if channels is None or granule is None or not rate:
+        return None
+    return channels, rate, granule / rate
+
+
+def ogg_peak_db(path):
+    """Decoded peak of a clip in dBFS through ffmpeg, or None when ffmpeg is
+    not installed."""
+    if shutil.which("ffmpeg") is None:
+        return None
+    raw = subprocess.run(
+        ["ffmpeg", "-loglevel", "error", "-i", path, "-f", "f32le", "-ac", "1", "-"],
+        check=True, capture_output=True,
+    ).stdout
+    n = len(raw) // 4
+    peak = max((abs(v) for (v,) in struct.iter_unpack("<f", raw[:n * 4])), default=0.0)
+    return 20 * math.log10(peak) if peak > 0 else float("-inf")
+
+
+def check_ui_cue(entry, failures, audio_dir=AUDIO_DIR, notes=None, max_s=UI_MAX_S):
+    """Section 10: a generated UI cue is mono, <= max_s (UI_MAX_S unless its
+    set has a longer tier in UI_CUE_CEILING_S), and under the peak
+    ceiling. Judged on the OGG, the primary encoding (an AAC file carries
+    encoder padding that a duration check would have to excuse)."""
+    rel = entry.get("file")
+    if not rel or UI_GENERATOR not in str(entry.get("source", "")):
+        return
+    path = os.path.join(audio_dir, rel)
+    if not os.path.exists(path):
+        return  # reported by check_licensed_file
+    info = ogg_vorbis_info(path)
+    if info is None:
+        failures.append(f"{rel}: a ui cue must be Ogg Vorbis")
+        return
+    channels, _rate, seconds = info
+    if channels != 1:
+        failures.append(f"{rel}: ui cue has {channels} channels, must be mono")
+    if seconds > max_s:
+        failures.append(f"{rel}: ui cue is {seconds * 1000:.0f} ms, over the {max_s * 1000:.0f} ms ceiling")
+    peak = ogg_peak_db(path)
+    if peak is None:
+        if notes is not None:
+            notes.append(f"{rel}: peak NOT checked (no ffmpeg on PATH)")
+    elif peak > UI_PEAK_CEILING_DB:
+        failures.append(f"{rel}: ui cue peaks at {peak:.2f} dBFS, over the {UI_PEAK_CEILING_DB} dBFS ceiling")
+
+
 ANNOUNCE_PRIORITIES = ("high", "normal", "low")
 EN_JSON = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "app", "src", "i18n", "en.json")
 
@@ -501,6 +608,7 @@ def main(argv=None):
         failures.append(f"master_gain {master} outside 0..{MAX_GAIN}")
 
     total_variants = 0
+    total_ui = 0
     for name, spec in man.get("sets", {}).items():
         event = spec.get("event")
         if event not in KNOWN_EVENTS:
@@ -526,6 +634,9 @@ def main(argv=None):
             # `file` is the primary encoding, `alt` the Safari fallback of the
             # same sound — both must exist and both must be playable formats.
             check_licensed_file(v, failures, MAX_BYTES)
+            if event == "ui":
+                total_ui += 1
+                check_ui_cue(v, failures, notes=notes, max_s=UI_CUE_CEILING_S.get(name, UI_MAX_S))
 
     # Music: same provenance bar as a clip, larger ceiling, and a 0..1 gain
     # because it is an <audio> element's volume rather than a GainNode.
@@ -589,6 +700,7 @@ def main(argv=None):
             print(f"  - {f}")
         return 1
 
+    ui_note = f", {total_ui} ui cue(s) mono/length/peak-checked" if total_ui else ""
     music_note = f", {total_tracks} music track(s)" if total_tracks else ""
     voice_note = f", {total_voice_variants} voice variant(s)" if total_voice_variants else ""
     voice_note += f", {total_cues} cue(s) mapped" if total_cues else ""
@@ -597,7 +709,7 @@ def main(argv=None):
     if total_variants == 0:
         print(f"audio gate passed: manifest valid, no recordings yet (procedural synth in use){music_note}{voice_note}")
     else:
-        print(f"audio gate passed: {total_variants} clip(s){music_note}{voice_note}, all licensed for redistribution")
+        print(f"audio gate passed: {total_variants} clip(s){ui_note}{music_note}{voice_note}, all licensed for redistribution")
     return 0
 
 

@@ -711,6 +711,10 @@ describe('BASELINES layerChecks', () => {
     // Task 17 (D4): the two decal pools draw nowhere else in the gate, so
     // `aftermath` is their only witness.
     expect(byLayer.get('decals')).toEqual(['aftermath']);
+    // Plan 3 Task 8 (GH-238 K8): the merged vehicle kit draws in no other
+    // gated frame -- the sandbox force boots with an empty brigade account
+    // everywhere but under `&kit` -- so `kitted` is its only witness.
+    expect(byLayer.get('kit')).toEqual(['kitted']);
   });
 
   it('sets every floor strictly below the signal it was measured from, on both metrics', () => {
@@ -814,6 +818,14 @@ describe('BASELINES layerChecks', () => {
       // weakest reading rather than the flattering one.
       vehicle: {
         units: { px: 29622, mean: 2.96 },
+      },
+      // Plan 3 Task 8 (GH-238 K8), 2026-10-07: `kit:capture -- --toggle`, the
+      // gate's own capture code, 3 fresh loads per layer, bit-identical
+      // (`KIT_K8` in `baseline.ts`). `units` carries `vehicle`'s own floor and
+      // is checked against THIS frame's reading, which the kit only raises.
+      kitted: {
+        units: { px: 37565, mean: 3.7734 },
+        kit: { px: 6460, mean: 0.4278 },
       },
     };
     /** Below this many pixels a count is not a measurement you can take a

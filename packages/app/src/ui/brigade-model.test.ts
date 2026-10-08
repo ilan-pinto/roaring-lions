@@ -17,7 +17,22 @@ const UNITS: BrigadeUnit[] = [
     isSoft: true,
     upgrades: { armour: { tiers: [{ price: 100, patch: { 'hull.hp': 10 } }] } },
   },
-  { id: 'mbt_lavi', name: 'Lavi MBT', role: 'mbt', isKamikaze: false, transportSlots: 0, isSoft: false },
+  {
+    id: 'mbt_lavi',
+    name: 'Lavi MBT',
+    role: 'mbt',
+    isKamikaze: false,
+    transportSlots: 0,
+    isSoft: false,
+    upgrades: {
+      armour: {
+        tiers: [
+          { price: 100, patch: { 'hull.hp': 10 } },
+          { price: 100, patch: { 'hull.hp': 10 } },
+        ],
+      },
+    },
+  },
 ];
 const BASE: Record<string, UpgradableUnit> = {
   inf_squad: { id: 'inf_squad', hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } }, weapons: [] },
@@ -27,19 +42,28 @@ const BASE: Record<string, UpgradableUnit> = {
 interface Fake extends MountedGarageView {
   readonly typeId: string;
   disposed: number;
+  /** Every `setKit` the bay asked for, in order. */
+  kits: Readonly<Record<string, number>>[];
 }
 
 function setup() {
   const views: Fake[] = [];
+  /** The cue and the model's re-merge, in the order they happened. */
+  const log: string[] = [];
   const mount = vi.fn<MountGarageView>((_host, o) => {
     const v: Fake = {
       typeId: o.typeId,
       canvas: document.createElement('canvas'),
       info: { pose: 'idle0', figures: 0 },
       disposed: 0,
+      kits: [],
       stats: () => ({ frames: 1, calls: 0, triangles: 0 }),
       draw: () => {},
       resize: () => {},
+      setKit: (tiers) => {
+        v.kits.push(tiers);
+        log.push(`setKit:${o.typeId}`);
+      },
       dispose: () => {
         v.disposed += 1;
       },
@@ -58,6 +82,7 @@ function setup() {
     credits: 999,
     owned: {},
     onBuyUpgrade: (u, tr, tier, price) => ({ units: UNITS, credits: 999 - price, owned: { [u]: { [tr]: tier } }, landed: true }),
+    onCue: (cue) => log.push(`cue:${cue}`),
     reducedMotion: () => true,
     model: {
       source: (id) => (id === 'mbt_lavi' ? { kind: 'vehicle', url: '/m/lavi.glb' } : { kind: 'rigged', url: '/m/inf.glb', faction: 'kdf' }),
@@ -73,7 +98,7 @@ function setup() {
   const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
   const select = (id: string): void => host.querySelector<HTMLButtonElement>(`.rl-garage__card[data-unit="${id}"]`)?.click();
   const plate = (): HTMLElement | null => host.querySelector('.rl-garage__plate');
-  return { host, views, mount, dispose, settle, select, plate };
+  return { host, views, mount, dispose, settle, select, plate, log };
 }
 
 afterEach(() => {
@@ -95,9 +120,13 @@ function deferredSetup() {
             canvas: document.createElement('canvas'),
             info: { pose: 'idle0', figures: 0 },
             disposed: 0,
+            kits: [],
             stats: () => ({ frames: 1, calls: 0, triangles: 0 }),
             draw: () => {},
             resize: () => {},
+            setKit: (tiers) => {
+              v.kits.push(tiers);
+            },
             dispose: () => {
               v.disposed += 1;
               v.canvas.remove();
@@ -218,6 +247,40 @@ describe('the garage bay and its model', () => {
     expect(s.views[0].disposed).toBe(0);
     expect(s.plate()?.querySelector('.rl-garage__model')).not.toBeNull();
     expect(s.plate()?.dataset.model).toBe('live');
+    s.dispose();
+  });
+
+  it('hands the door the account tiers of the unit it mounts', async () => {
+    const s = setup();
+    await s.settle();
+    s.select('mbt_lavi');
+    await s.settle();
+    expect(s.mount.mock.calls[1][1].kitTiers).toEqual({ armour: 0 });
+    s.dispose();
+  });
+
+  it('bolts a bought Lavi tier onto the model with the kit cue, in the same task (GH-238)', async () => {
+    const s = setup();
+    await s.settle();
+    s.select('mbt_lavi');
+    await s.settle();
+    s.log.length = 0;
+    s.host.querySelector<HTMLButtonElement>('.rl-garage__buy-tier')?.click();
+    // Synchronously: no await between the click and these.
+    expect(s.log).toEqual(['cue:kit', 'setKit:mbt_lavi']);
+    expect(s.views[1].kits).toEqual([{ armour: 1 }]);
+    expect(s.mount).toHaveBeenCalledTimes(2);
+    s.dispose();
+  });
+
+  it('does not re-merge for an infantry tier: no parts, the plain upgrade cue', async () => {
+    const s = setup();
+    await s.settle();
+    expect(s.views[0].typeId).toBe('inf_squad');
+    s.log.length = 0;
+    s.host.querySelector<HTMLButtonElement>('.rl-garage__buy-tier')?.click();
+    expect(s.log).toEqual(['cue:upgrade']);
+    expect(s.views[0].kits).toEqual([]);
     s.dispose();
   });
 

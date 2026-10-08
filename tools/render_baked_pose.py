@@ -93,6 +93,8 @@ def main():
                 for c in list(o.users_collection):
                     c.objects.unlink(o)
     else:
+        # A vehicle's kit (`kit_*`, contract v5) is not the shipped pose either.
+        mesh_objs, _kit = gate.hide_kit_parts(mesh_objs)
         mesh_objs, _stashed = gate.hide_death_root(mesh_objs, args["glb"])
 
     cam = build_rig(size)

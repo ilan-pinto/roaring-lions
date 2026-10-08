@@ -433,6 +433,26 @@ describe('playUi — the garage’s two cues (WP-S3g §3.5, R-2)', () => {
     }
   });
 
+  it('a kit fitted rattles four clicks, then clanks low: never the alert’s two-note fall (GH-238 K10)', () => {
+    vi.useFakeTimers();
+    try {
+      const { audio, ctx } = attached();
+      audio.playUi('ui_kit_fitted');
+      vi.advanceTimersByTime(250);
+      const f = freqs(ctx);
+      expect(f).toHaveLength(5);
+      expect(f.slice(0, 4)).toEqual([2600, 2540, 2480, 2420]);
+      expect(f[4]).toBe(420);
+      const started = ctx.oscillators.length;
+      vi.advanceTimersByTime(400);
+      expect(ctx.oscillators.length).toBe(started);
+      // Landing at 150 ms and ringing 90 ms: the whole cue is inside 250 ms.
+      for (const s of ctx.stops) expect(s).toBeLessThanOrEqual(0.1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('both finish inside 250 ms (spec §6)', () => {
     vi.useFakeTimers();
     try {
@@ -481,8 +501,9 @@ describe('decodeOrder', () => {
       destroyed: set('destroyed'),
       ui_purchase: set('ui'),
       ui_upgrade: set('ui'),
+      ui_kit_fitted: set('ui'),
     }).map(([name]) => name);
-    expect(order).toEqual(['ui_alert', 'ui_purchase', 'ui_upgrade', 'rifle', 'cannon', 'destroyed']);
+    expect(order).toEqual(['ui_alert', 'ui_purchase', 'ui_upgrade', 'ui_kit_fitted', 'rifle', 'cannon', 'destroyed']);
   });
   it('reads an absent manifest section as nothing to decode', () => {
     expect(decodeOrder(undefined)).toEqual([]);
