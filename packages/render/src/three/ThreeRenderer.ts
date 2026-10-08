@@ -546,6 +546,7 @@ import {
   ringRadiusFor,
 } from './units/readability';
 import { SelectionRingBatch } from './units/selection-ring';
+import { buildInventory, type MemoryInventory } from './memory-inventory';
 import { CONTACT_MARK, contactHaloTriangles, contactScale, contactShapeOf, contactTriangles } from './units/contact-marks';
 
 
@@ -7188,6 +7189,70 @@ export class ThreeRenderer implements Renderer {
     // The living loop's own single write, same order and same roll sign --
     // see the comment above that one.
     entity.root.rotation.set(-roll, meshYawFromFacing(facingNorm), pitch, 'YZX');
+  }
+
+  /**
+   * GH-469: what this renderer holds, in bytes, grouped by owner -- the scene
+   * (each top-level child labelled by the field that owns it), then the mesh
+   * TEMPLATES units are cloned from (not in the scene, but their arrays stay
+   * in the JS heap), then the shadow map and the composer's two targets.
+   * `pnpm perf:memory` reads it through `window.__lions.renderer`, beside its
+   * own GL-call ledger; the ledger is the total, this is the attribution.
+   * Debug only: it allocates its answer and nothing in `frame()` calls it.
+   * Not on `api.ts`, like `debugVehicleTransform` below.
+   */
+  debugMemoryInventory(): MemoryInventory {
+    const label = new Map<THREE.Object3D, string>();
+    const tag = (o: THREE.Object3D | null | undefined, l: string): void => {
+      if (o) label.set(o, l);
+    };
+    for (const o of [this.terrainMesh, this.scatterMesh, this.residualMesh, this.skirtMesh]) tag(o, 'ground');
+    for (const m of this.structureBoxes.values()) tag(m, 'structure boxes');
+    tag(this.decorGroup, 'decor');
+    tag(this.texturedDecorGroup, 'decor');
+    tag(this.propMesh, 'props');
+    tag(this.tunnelProps.group, 'props');
+    tag(this.decalsPersistent.mesh, 'decals');
+    tag(this.decalsFading.mesh, 'decals');
+    for (const e of this.meshUnitEntities.values()) tag(e.root, 'units: infantry');
+    for (const e of this.vehicleMeshEntities.values()) tag(e.root, 'units: vehicles');
+    for (const r of this.buildingMeshIdleEntities.values()) tag(r, 'buildings');
+    for (const r of this.buildingMeshWreckEntities.values()) tag(r, 'buildings');
+    for (const w of this.meshWrecks) tag(w.root, 'wrecks');
+    for (const o of [
+      this.particleInstancerBelow.mesh,
+      this.particleInstancerAbove.mesh,
+      this.particleInstancerBelowAdditive.mesh,
+      this.particleInstancerAboveAdditive.mesh,
+      this.tracerBatch.mesh,
+      this.shellBatch.mesh,
+      this.boltBatch.mesh,
+      ...this.missileFx.meshes,
+      this.smokeMesh.mesh,
+      this.collapseShrouds.mesh,
+      this.trailMesh.mesh,
+    ]) {
+      tag(o, 'vfx');
+    }
+    for (const o of [this.overlayBatch.mesh, this.numeralBatch.mesh, this.chevronBatch.mesh, this.selectionRingGroup]) {
+      tag(o, 'overlays');
+    }
+    const entries: [string, THREE.Object3D][] = this.scene.children.map((c) => [
+      label.get(c) ?? `other: ${c.name || c.type}`,
+      c,
+    ]);
+    for (const list of this.meshUnitTemplates.values()) for (const t of list) entries.push(['templates: infantry', t.root]);
+    for (const t of this.vehicleMeshTemplates.values()) entries.push(['templates: vehicles', t.root]);
+    for (const t of this.buildingMeshIdleTemplates.values()) entries.push(['templates: buildings', t.root]);
+    for (const t of this.buildingMeshWreckTemplates.values()) entries.push(['templates: buildings', t.root]);
+    const extra: [string, THREE.Texture][] = [];
+    const shadow = this.sceneLights.sun.shadow.map;
+    if (shadow) extra.push(['shadow map', shadow.texture]);
+    if (this.post) {
+      extra.push(['post chain', this.post.composer.renderTarget1.texture]);
+      extra.push(['post chain', this.post.composer.renderTarget2.texture]);
+    }
+    return buildInventory(entries, this.renderer, extra);
   }
 
   /**

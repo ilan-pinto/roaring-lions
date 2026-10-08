@@ -1718,6 +1718,23 @@ describe('destroy', () => {
     expect(document.body.children.length).toBe(before);
   });
 
+  // GH-469: a pending feed dwell or beat-fold timer closes over the HUD, and
+  // the HUD holds the sim, the renderer and the runtime -- so a timer that
+  // outlived `destroy()` kept the left battlefield reachable until it fired.
+  it('leaves no timer of its own pending', () => {
+    vi.useFakeTimers();
+    try {
+      const hud = bodyHud();
+      hud.brief(['One.', 'Two.']);
+      hud.note('<b>under fire</b>', 'warn', { tier: 'major' });
+      hud.note('<b>lost</b>', 'bad', { tier: 'minor' });
+      hud.destroy();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // `announce` mounts a title card that holds for up to five seconds and
   // registers two window listeners and a timer to dismiss itself. Leaving a
   // mission inside that window stranded all three on the document, because
