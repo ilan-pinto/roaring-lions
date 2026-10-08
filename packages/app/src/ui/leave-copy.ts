@@ -1,5 +1,5 @@
 // K-13: what the leave / quit confirm says. A mission costs the attempt and
-// leaves the campaign as it was; a free-play sandbox has no campaign attempt
+// leaves the campaign as it was; a free-play run has no campaign attempt
 // to lose, so "the campaign keeps everything" meant nothing there. One source
 // for the HUD's leave button and the pause menu's Quit, which ask the
 // identical question.

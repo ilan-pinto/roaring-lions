@@ -419,13 +419,13 @@ describe('top strip: the persistent controls', () => {
   });
 
   // K-13. Falsified: leaveCopy ignoring its argument -> the sandbox arm goes red.
-  it('a free-play sandbox words its leave confirm for a sandbox, with no campaign claim', () => {
+  it('free play words its leave confirm for free play, with no campaign claim', () => {
     const r = rig(null, { leave: () => undefined, freePlay: true });
     const btn = r.host.querySelector<HTMLButtonElement>('.rl-hud__leave')!;
-    expect(btn.title).toBe('leave the sandbox');
+    expect(btn.title).toBe('leave free play');
     btn.click();
     const dialog = document.body.querySelector<HTMLElement>('.rl-confirm')!;
-    expect(dialog.textContent).toContain('Leave the sandbox?');
+    expect(dialog.textContent).toContain('Leave free play?');
     expect(dialog.textContent).toContain('Nothing in your campaign changes.');
     expect(dialog.textContent).not.toContain('keeps everything');
     expect(dialog.textContent).not.toContain('Leave the mission?');
