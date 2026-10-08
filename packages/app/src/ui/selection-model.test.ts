@@ -91,6 +91,18 @@ describe('order row — capable, but it would do nothing right now', () => {
     expect(row(facts({ underway: 1 }), 'halt')?.inert).toBe(false);
   });
 
+  it('names WHY each dimmed verb is dim, from the same counts, and only while it is dim (K-09)', () => {
+    expect(row(facts({ carriers: 1, slots: 8, aboard: 0 }), 'unload')?.inertReason).toBe('hud.order.inert.unload');
+    expect(row(facts({ carriers: 1, slots: 8, riders: 0 }), 'load')?.inertReason).toBe('hud.order.inert.load');
+    expect(row(facts(), 'halt')?.inertReason).toBe('hud.order.inert.halt');
+    // Not inert: no reason key at all, so a stale one can never ride along.
+    expect(row(facts({ carriers: 1, slots: 8, aboard: 3 }), 'unload')).not.toHaveProperty('inertReason');
+    expect(row(facts({ carriers: 1, slots: 8, riders: 2 }), 'load')).not.toHaveProperty('inertReason');
+    expect(row(facts({ underway: 1 }), 'halt')).not.toHaveProperty('inertReason');
+    expect(row(facts(), 'attackMove')).not.toHaveProperty('inertReason');
+    expect(row(facts({ smokers: 1 }), 'smoke')).not.toHaveProperty('inertReason');
+  });
+
   it('never dims attack-move — a living unit can always be sent somewhere', () => {
     expect(row(facts(), 'attackMove')?.inert).toBe(false);
     expect(row(facts({ count: 40, underway: 40 }), 'attackMove')?.inert).toBe(false);

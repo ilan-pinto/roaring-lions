@@ -106,6 +106,13 @@ export interface OrderView extends OrderSpec {
    * selected asked to load, a force standing still asked to halt.
    */
   inert: boolean;
+  /**
+   * Why it is inert: a catalogue key for the line naming the missing thing
+   * ("{label} — no one is aboard"). Present exactly when `inert` is, and read
+   * from the same `SelectionFacts` counts the rule itself reads, so the reason
+   * cannot disagree with the dimming (K-09).
+   */
+  inertReason?: string;
   /** `0/8` beside Load, for a selection holding transports. */
   capacity?: string;
 }
@@ -134,6 +141,7 @@ export function orderRow(facts: SelectionFacts, armed: OrderId | null): OrderVie
   for (const spec of ORDERS) {
     let shown = false;
     let inert = false;
+    let inertReason: string | undefined;
     let capacity: string | undefined;
     switch (spec.id) {
       case 'attackMove':
@@ -143,6 +151,7 @@ export function orderRow(facts: SelectionFacts, armed: OrderId | null): OrderVie
       case 'halt':
         shown = true;
         inert = facts.underway === 0;
+        inertReason = 'hud.order.inert.halt';
         break;
       case 'smoke':
         shown = facts.smokers > 0;
@@ -150,11 +159,13 @@ export function orderRow(facts: SelectionFacts, armed: OrderId | null): OrderVie
       case 'load':
         shown = facts.carriers > 0;
         inert = facts.riders === 0;
+        inertReason = 'hud.order.inert.load';
         capacity = `${facts.aboard}/${facts.slots}`;
         break;
       case 'unload':
         shown = facts.carriers > 0;
         inert = facts.aboard === 0;
+        inertReason = 'hud.order.inert.unload';
         break;
     }
     if (!shown) continue;
@@ -162,6 +173,7 @@ export function orderRow(facts: SelectionFacts, armed: OrderId | null): OrderVie
       ...spec,
       armed: armed === spec.id,
       inert,
+      ...(inert && inertReason !== undefined ? { inertReason } : {}),
       ...(capacity !== undefined ? { capacity } : {}),
     });
   }

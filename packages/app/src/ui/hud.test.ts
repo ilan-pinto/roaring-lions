@@ -1550,7 +1550,22 @@ describe('the order row', () => {
     btn.dispatchEvent(new Event('mouseenter'));
     const tip = r.host.querySelector<HTMLElement>('.rl-tip')!;
     expect(tip.textContent).toContain('Step out of the transport');
-    expect(tip.textContent).toContain('nothing in the selection would act on it right now');
+    // K-09: the tooltip names the missing thing, not just that nothing would happen.
+    expect(tip.textContent).toContain('Unload — no one is aboard');
+    expect(tip.textContent).not.toContain('nothing in the selection would act on it right now');
+  });
+
+  it('gives each inert verb its own reason (K-09)', () => {
+    const world = makeForce();
+    const tipOf = (r: ReturnType<typeof clusterRig>, id: 'halt' | 'load' | 'unload'): string => {
+      r.order(id)!.dispatchEvent(new Event('mouseenter'));
+      return r.host.querySelector<HTMLElement>('.rl-tip')!.textContent ?? '';
+    };
+    // A lone transport: Load has nobody selected to board, Unload nobody aboard.
+    const alone = clusterRig(() => [world.namer], {}, world);
+    expect(tipOf(alone, 'load')).toContain('Load — no selected unit can board a transport');
+    expect(tipOf(alone, 'unload')).toContain('Unload — no one is aboard');
+    expect(tipOf(alone, 'halt')).toContain('Halt — nobody selected is moving or has a route queued');
   });
 
   it('drops the inert reason once the order stops being inert', () => {

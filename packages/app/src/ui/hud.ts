@@ -1968,6 +1968,10 @@ export class Hud {
       // handler's own note is what tells the player why nothing happened.
       // A disabled button answers "why?" with silence.
       btn.dataset.inert = row.inert ? '1' : '0';
+      // K-09: the reason travels with the flag, as a catalogue key, so the
+      // tooltip can say WHY (read at show time, like `inert` itself).
+      if (row.inertReason !== undefined) btn.dataset.inertReason = row.inertReason;
+      else delete btn.dataset.inertReason;
       const cap =
         row.capacity !== undefined ? ` <b class="rl-dim">${row.capacity}</b>` : '';
       // `row.label` is a catalogue key (`selection-model.ts`'s `ORDERS[].label`
@@ -1997,10 +2001,12 @@ export class Hud {
    */
   private orderTipHtml(spec: OrderSpec): string {
     const label = t(spec.label);
-    const inert = this.orderBtns.get(spec.id)?.dataset.inert === '1';
+    const btn = this.orderBtns.get(spec.id);
+    const inert = btn?.dataset.inert === '1';
+    const reasonKey = btn?.dataset.inertReason;
     const does = `<div class="rl-tip__blurb">${t(`hud.order.tip.${spec.id}`)}</div>`;
     const why = inert
-      ? `<div class="rl-tip__blurb rl-dim">${t('hud.order.inertTitle', { label })}</div>`
+      ? `<div class="rl-tip__blurb rl-dim">${t(reasonKey ?? 'hud.order.inertTitle', { label })}</div>`
       : '';
     return `<div class="rl-tip__head"><span class="rl-tip__name">${label}</span></div>${does}${why}`;
   }
