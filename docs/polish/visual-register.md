@@ -397,7 +397,7 @@ Numbers from #354 (`units/readability.ts`, `units/selection-ring.ts`):
 - **VR-38. Two marks are dead or stale.**
   - `WRECK_MARKER_COLOR_KEY` (`gunmetal.2`, OV:229) is used only by tests.
   - The "min-range ring" is still named as a `resolveColor` consumer (`renderer-options.ts:73`, `packages/data/src/index.ts:509`), but the ring was deleted (TR:8281).
-  - **Resolved:** `WRECK_MARKER_COLOR_KEY` and both stale mentions are removed; `overlays.test.ts` now fails if a `*_COLOR_KEY` export has no production reader. That guard found a third, `FIREPOWER_KILL_COLOR_KEY` (three draws no firepower-kill pip); it is a named exemption for the lead, not deleted.
+  - **Resolved:** `WRECK_MARKER_COLOR_KEY` and both stale mentions are removed; `overlays.test.ts` now fails if a `*_COLOR_KEY` export has no production reader. That guard found a third, `FIREPOWER_KILL_COLOR_KEY` (three draws no firepower-kill pip); it was a named exemption and is now deleted too, with its fallback constant and the nearest-palette-entry test that existed only for it (Pixi keeps its own off-palette `#8B1E12` literal and never read the key).
 
 ---
 

@@ -46,8 +46,6 @@ import {
   OBJECTIVE_ZONE_STROKE_INSET_TILES,
   AIR_SHADOW_COLOR_KEY,
   MOBILITY_KILL_COLOR_KEY,
-  FIREPOWER_KILL_COLOR_KEY,
-  FIREPOWER_KILL_FALLBACK_COLOR,
   buildingIntegrityColorKey,
   CHARGE_RING_TRACK_COLOR_KEY,
   CHARGE_RING_FILL_COLOR_KEY,
@@ -205,34 +203,8 @@ describe('overlay palette keys resolve to the exact hex Pixi hard-codes at the e
     expect(resolve(CHARGE_RING_FILL_COLOR_KEY)).toBe(CHARGE_RING_FILL_FALLBACK_COLOR);
   });
 
-  it('FIREPOWER_KILL_COLOR_KEY resolves to its own stated fallback -- Pixi\'s own #8B1E12 has no palette match at all (see this key\'s own doc comment)', () => {
-    expect(resolve(FIREPOWER_KILL_COLOR_KEY)).toBe(FIREPOWER_KILL_FALLBACK_COLOR);
-    expect(resolve(FIREPOWER_KILL_COLOR_KEY)).not.toBe('#8B1E12');
-  });
-
   it('STRIPE_COLOR_KEY -> #E0B87A, the same swatch theme.css\'s --commend (--rl-dust-0) maps to', () => {
     expect(resolve(STRIPE_COLOR_KEY)).toBe('#E0B87A');
-  });
-});
-
-describe('FIREPOWER_KILL_COLOR_KEY is genuinely the nearest palette entry to Pixi\'s off-palette #8B1E12', () => {
-  it('beats every other entry in the palette by squared RGB distance', () => {
-    const target = { r: 0x8b, g: 0x1e, b: 0x12 };
-    const ramps = paletteJson.ramps as Record<string, { colors: string[] }>;
-    const reserved = paletteJson.reserved as Record<string, { colors: Record<string, string> }>;
-    const hex = (h: string): { r: number; g: number; b: number } => ({
-      r: parseInt(h.slice(1, 3), 16),
-      g: parseInt(h.slice(3, 5), 16),
-      b: parseInt(h.slice(5, 7), 16),
-    });
-    const dist = (h: string): number => {
-      const c = hex(h);
-      return (c.r - target.r) ** 2 + (c.g - target.g) ** 2 + (c.b - target.b) ** 2;
-    };
-    let best = Infinity;
-    for (const ramp of Object.values(ramps)) for (const c of ramp.colors) best = Math.min(best, dist(c));
-    for (const group of Object.values(reserved)) for (const c of Object.values(group.colors)) best = Math.min(best, dist(c));
-    expect(dist(FIREPOWER_KILL_FALLBACK_COLOR)).toBe(best);
   });
 });
 
@@ -632,13 +604,6 @@ describe('overlay colour keys are all live', () => {
     expect(production.length).toBeGreaterThan(50);
   });
 
-  // Named, not silent. `FIREPOWER_KILL_COLOR_KEY` has no production reader
-  // either: three never draws a firepower-kill pip (no ThreeRenderer read of
-  // it). It is outside VR-38's two named marks, so it is recorded here for the
-  // lead to rule on rather than deleted with them. The demotion assertion below
-  // fails the day it gains a reader (or is removed), so the entry cannot linger.
-  const KNOWN_DEAD = new Set(['FIREPOWER_KILL_COLOR_KEY']);
-
   it('has no *_COLOR_KEY export that only a test reads', () => {
     const declared = [...(own?.code ?? '').matchAll(/^export const ([A-Z0-9_]*COLOR_KEY)\b/gm)].map((m) => m[1]);
     expect(declared.length).toBeGreaterThan(10);
@@ -647,8 +612,6 @@ describe('overlay colour keys are all live', () => {
       const uses = production.reduce((n, f) => n + (f.code.match(re)?.length ?? 0) - (f === own ? 1 : 0), 0);
       return uses === 0;
     });
-    expect(dead.filter((n) => !KNOWN_DEAD.has(n))).toEqual([]);
-    // Demotion: an exemption that is no longer needed must be deleted.
-    expect(dead.filter((n) => KNOWN_DEAD.has(n))).toEqual([...KNOWN_DEAD]);
+    expect(dead).toEqual([]);
   });
 });
