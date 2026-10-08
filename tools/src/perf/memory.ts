@@ -340,6 +340,9 @@ async function main(): Promise<number> {
     const page = await context.newPage();
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
+    page.on('console', (m) => {
+      if (m.type() === 'error') errors.push(`console.error: ${m.text()}`);
+    });
     const cdp = await context.newCDPSession(page);
     await cdp.send('Performance.enable');
     const browserCdp = await browser.newBrowserCDPSession();
@@ -373,7 +376,10 @@ async function main(): Promise<number> {
       readings.push(await read(`menu after ${id}`, page, cdp, browserCdp, t0));
     }
     const boots = (await page.evaluate('performance.getEntriesByType("navigation").length')) as number;
-    if (errors.length > 0) console.warn(`[${TAG}] ${errors.length} page error(s); first: ${errors[0].slice(0, 300)}`);
+    if (errors.length > 0) {
+      console.warn(`[${TAG}] ${errors.length} page error(s):`);
+      for (const e of [...new Set(errors)].slice(0, 10)) console.warn(`  ${e.slice(0, 300)}`);
+    }
     console.log(`[${TAG}] walk took ${((Date.now() - t0) / 1000).toFixed(0)} s, ${boots} document load(s)`);
 
     printAttribution(readings);
