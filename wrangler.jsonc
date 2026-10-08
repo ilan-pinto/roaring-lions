@@ -1,5 +1,7 @@
 {
 	// WP-T1: the game's static build, plus /api/events and /stats.
+	// GH-464: plus /api/feedback and /stats/feedback (already under the
+	// run_worker_first globs below).
 	// Spec: docs/superpowers/specs/2026-09-24-telemetry-design.md
 	"name": "roaring-lions",
 	"main": "packages/worker/src/index.ts",
@@ -44,8 +46,33 @@
 				"limit": 10,
 				"period": 60
 			}
+		},
+		// GH-464: POST /api/feedback, per connecting IP (never stored). The
+		// session, player and global ceilings are counted in D1 instead.
+		{
+			"name": "FEEDBACK_LIMIT",
+			"namespace_id": "1003",
+			"simple": {
+				"limit": 5,
+				"period": 60
+			}
 		}
 	],
+	// GH-464: in-game feedback pictures and replays, keyed fb/<uuid>/shot.webp
+	// and fb/<uuid>/replay.json. The bucket must exist BEFORE this deploys --
+	// the lead creates it once with:
+	//   npx wrangler r2 bucket create roaring-lions-feedback
+	"r2_buckets": [
+		{
+			"binding": "FEEDBACK_BLOBS",
+			"bucket_name": "roaring-lions-feedback"
+		}
+	],
+	// GH-464: daily at 03:17 UTC, purge feedback pictures, replays and
+	// contacts older than 180 days (spec §7, D15).
+	"triggers": {
+		"crons": ["17 3 * * *"]
+	},
 	// Workers Logs and traces, full sampling, persisted. invocation_logs stays
 	// off. NOTE: redact_query_string is false, so a traced request URL keeps its
 	// query string -- including a ?tester= label -- in Cloudflare's storage.

@@ -52,6 +52,14 @@ SELECT tester, COUNT(DISTINCT session) AS sessions,
 FROM events WHERE tester IS NOT NULL
 GROUP BY tester ORDER BY last_seen DESC;
 
+-- @feedback (GH-464): open notes per status and kind. Read-only, like every
+-- query above. The kill switch is NOT in this file on purpose (the file is run
+-- whole); its one-line command is in migrations/0003_feedback.sql.
+SELECT status, category, COUNT(*) AS notes,
+       SUM(shot_key IS NOT NULL) AS with_picture, SUM(log_key IS NOT NULL) AS with_replay,
+       datetime(MAX(received_at) / 1000, 'unixepoch') AS latest
+FROM feedback GROUP BY status, category ORDER BY status, notes DESC;
+
 -- GH-254: rebuild the accounts summary from raw events. Terminal -- run once,
 -- by hand, only if 0002_accounts.sql was applied to a database that already
 -- held `account` events (i.e. the migration landed after the Worker started

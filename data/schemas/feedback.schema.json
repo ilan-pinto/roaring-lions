@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roaring-lions/schemas/feedback.schema.json",
+  "title": "In-game feedback: the `meta` part of POST /api/feedback",
+  "description": "GH-464. Spec: docs/superpowers/specs/2026-10-08-in-game-feedback-design.md (\"Server contract as built\"). The Worker's twin is packages/worker/src/feedback-meta.ts, pinned to this file by feedback-meta.test.ts. Rules a JSON Schema cannot state, enforced by the Worker: `context` serialises to at most 8192 UTF-8 bytes; the `meta` part is at most 24 KB; `text` is not whitespace-only for the five form kinds; the multipart `shot` part (image/webp or image/jpeg, magic bytes checked, <= 300 KB) is accepted only with source `pause`; the `replay` part (a JSON object, <= 96 KB) only with source `pause` and category `bug`; the whole body is <= 448 KB.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "t", "source", "category", "text", "build", "context"],
+  "properties": {
+    "v": { "const": 1 },
+    "t": { "type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Client epoch milliseconds." },
+    "source": { "enum": ["pause", "debrief", "menu"] },
+    "category": { "enum": ["bug", "balance", "confusing", "idea", "praise", "rating"] },
+    "text": { "type": "string", "maxLength": 2000, "pattern": "^[^\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F]*$" },
+    "rating": { "type": "integer", "minimum": 1, "maximum": 5 },
+    "contact": { "type": "string", "minLength": 1, "maxLength": 120, "pattern": "^[^\\u0000-\\u001F\\u007F]*$" },
+    "build": { "type": "string", "pattern": "^[0-9]{1,4}\\.[0-9]{1,4}\\.[0-9]{1,6}$" },
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+    "player": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+    "session": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+    "tester": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,32}$" },
+    "mission": { "type": "string", "pattern": "^[a-z0-9_]{1,64}$" },
+    "map": { "type": "string", "pattern": "^[a-z0-9_]{1,64}$" },
+    "tick": { "type": "integer", "minimum": 0, "maximum": 1000000000 },
+    "dev": { "const": true },
+    "context": {
+      "type": "object",
+      "maxProperties": 64,
+      "description": "Free-form §4.1 context, shown as a key/value table in /stats/feedback. Keys the issue builder reads when present: renderer, quality, gpu (strings), viewport ([w, h]), dpr (number), locale (string). At most 8192 bytes serialised."
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "category": { "const": "rating" } }, "required": ["category"] },
+      "then": {
+        "required": ["rating"],
+        "properties": {
+          "source": { "const": "debrief" },
+          "text": { "maxLength": 280, "pattern": "^[^\\u0000-\\u001F\\u007F]*$" }
+        }
+      },
+      "else": {
+        "not": { "required": ["rating"] },
+        "properties": {
+          "source": { "enum": ["pause", "menu"] },
+          "text": { "minLength": 1 }
+        }
+      }
+    }
+  ]
+}
