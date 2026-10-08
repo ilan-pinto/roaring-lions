@@ -20,6 +20,7 @@ import { t } from '../i18n/t';
 import { symbolLabel } from './symbol';
 import { drawFromPool, type DeployEntry, type DeployRosterView } from './deploy-roster';
 import { defaultSelection, isComplete, slotsLeft, toggleEntry, type DeploySelection } from './deploy-select';
+import { deployLockReason, fullRowReason, openSlots } from './deploy-reason';
 import { paintMapTerrain, type PreviewMap, type PreviewTones } from './map-preview';
 import { objectivesPanel, type ObjectiveRow } from './objectives';
 import type { BriefingSection } from './briefing-sections';
@@ -218,24 +219,6 @@ export interface GroundPreview {
 }
 
 /**
- * How many more bodies the player could still field: per demanded type, the
- * open slots (`slotsLeft`) capped by the unchosen bodies there are to put in
- * them. Zero exactly when `isComplete` is true -- a slot the pool cannot
- * fill is the spawner's to substitute (`mission.ts:1264`), not the player's
- * to fill -- so the line under the roster and the Deploy button can never
- * disagree about whether anything is left to do.
- */
-function openSlots(view: DeployRosterView, sel: DeploySelection): number {
-  let open = 0;
-  for (const type of view.demand.keys()) {
-    let unchosen = 0;
-    for (const e of view.eligible) if (e.type === type && !sel.chosen.has(e.poolIndex)) unchosen++;
-    open += Math.max(0, Math.min(slotsLeft(view, sel, type), unchosen));
-  }
-  return open;
-}
-
-/**
  * The force, chosen (spec Decision 4): one toggle row per body a placement
  * could draw, the slot line, and the reserve line.
  *
@@ -272,6 +255,14 @@ function deploySpread(choice: DeployChoice, deployButton: HTMLButtonElement): HT
   slots.className = 'rl-deploy__slots';
   const reserve = document.createElement('div');
   reserve.className = 'rl-deploy__reserve';
+  // K-11: the reason a row refused a click, or Deploy is locked. Empty (and
+  // hidden) when there is nothing to explain.
+  const why = document.createElement('p');
+  why.className = 'rl-deploy__why';
+  why.setAttribute('role', 'status');
+  why.id = 'rl-deploy-why';
+  why.hidden = true;
+  deployButton.setAttribute('aria-describedby', why.id);
 
   const paint = (): void => {
     for (const { entry, button } of rows) {
@@ -281,8 +272,13 @@ function deploySpread(choice: DeployChoice, deployButton: HTMLButtonElement): HT
       // Not `disabled`: a disabled button leaves the tab order, and a row
       // that cannot be fielded NOW becomes fieldable the moment another of
       // its type is benched. `aria-disabled` says "not at the moment".
-      if (!chosen && slotsLeft(view, sel, entry.type) <= 0) button.setAttribute('aria-disabled', 'true');
-      else button.removeAttribute('aria-disabled');
+      if (!chosen && slotsLeft(view, sel, entry.type) <= 0) {
+        button.setAttribute('aria-disabled', 'true');
+        button.title = fullRowReason(entry);
+      } else {
+        button.removeAttribute('aria-disabled');
+        button.removeAttribute('title');
+      }
     }
     const open = openSlots(view, sel);
     slots.textContent = open > 0 ? t('deploy.slots', { n: open }) : t('deploy.slots.full');
@@ -290,6 +286,11 @@ function deploySpread(choice: DeployChoice, deployButton: HTMLButtonElement): HT
     reserve.textContent = t('loading.brought.reserve', { n: notDrawn });
     reserve.hidden = notDrawn <= 0;
     deployButton.disabled = !isComplete(view, sel);
+    const lock = deployButton.disabled ? deployLockReason(view, sel) : null;
+    if (lock !== null) deployButton.title = lock;
+    else deployButton.removeAttribute('title');
+    why.textContent = lock ?? '';
+    why.hidden = lock === null;
   };
 
   for (const entry of view.eligible) {
@@ -324,7 +325,12 @@ function deploySpread(choice: DeployChoice, deployButton: HTMLButtonElement): HT
 
     button.addEventListener('click', () => {
       const next = toggleEntry(view, sel, entry.poolIndex);
-      if (next === sel) return;
+      if (next === sel) {
+        // A refused click says why, in place of the silence it used to be.
+        why.textContent = fullRowReason(entry);
+        why.hidden = false;
+        return;
+      }
       sel = next;
       paint();
       choice.onChange(sel);
@@ -335,7 +341,7 @@ function deploySpread(choice: DeployChoice, deployButton: HTMLButtonElement): HT
   }
 
   paint();
-  set.append(legend, list, slots, reserve);
+  set.append(legend, list, slots, reserve, why);
   return set;
 }
 

@@ -20,6 +20,7 @@
 import { t } from '../i18n/t';
 import type { DeployEntry, DeployRosterView } from './deploy-roster';
 import { defaultSelection, isComplete, toggleEntry, type DeploySelection } from './deploy-select';
+import { deployLockReason } from './deploy-reason';
 import { unitIcon } from './portrait';
 import { veteranEffect } from './veteran-effect';
 
@@ -103,6 +104,15 @@ export function forceBar(opts: {
   const go = el('div', 'rl-force__go');
   if (opts.back) go.appendChild(opts.back);
   go.appendChild(opts.deploy);
+  // K-11: why Deploy is locked, in words. Last in the DOM, so it sits above
+  // the button in the column-reverse stack. The button's own `title` says it
+  // too, and `aria-describedby` hands it to a screen reader.
+  const why = el('p', 'rl-force__why');
+  why.id = 'rl-force-why';
+  why.setAttribute('role', 'status');
+  why.hidden = true;
+  opts.deploy.setAttribute('aria-describedby', why.id);
+  go.appendChild(why);
   bar.append(head, slots, go);
 
   let bench: HTMLElement | null = null;
@@ -181,7 +191,10 @@ export function forceBar(opts: {
       // empty that place instead of filling this one.
       const elsewhere = !here && sel.chosen.has(e.poolIndex);
       btn.setAttribute('aria-pressed', String(here));
-      if (elsewhere) btn.disabled = true;
+      if (elsewhere) {
+        btn.disabled = true;
+        btn.title = t('deploy.bench.fielded.why');
+      }
       btn.append(picture(e.type), el('span', 'rl-force__bench-name', e.name ?? e.typeName));
       if (e.veterancy > 0) btn.append(stars(e.veterancy));
       const rec = e.missions > 0 || e.kills > 0 ? t('hud.card.record', { missions: e.missions, kills: e.kills }) : '';
@@ -265,6 +278,7 @@ export function forceBar(opts: {
         // A place with nobody else to put in it is not a control: there is no
         // choice to make (review: Sela alone opened a one-row bench).
         const interactive = !entry || others > 0;
+        const lone = !interactive;
         const li = document.createElement('li');
         const card = el(interactive ? 'button' : 'div', `rl-force__slot${entry && entry.veterancy > 0 ? ' rl-force__slot--vet' : ''}${entry ? '' : ' rl-force__slot--open'}${interactive ? '' : ' rl-force__slot--only'}`);
         if (card instanceof HTMLButtonElement) {
@@ -272,6 +286,7 @@ export function forceBar(opts: {
           card.setAttribute('aria-haspopup', 'dialog');
           card.addEventListener('click', () => openBench(type, i));
         }
+        if (lone) card.title = t('deploy.only');
         card.dataset.type = type;
         card.dataset.place = `${type}:${i}`;
         if (entry) card.dataset.poolIndex = String(entry.poolIndex);
@@ -310,6 +325,11 @@ export function forceBar(opts: {
     placed.textContent = totalPlaces > 0 ? t('deploy.placed', { n: filled, of: totalPlaces }) : '';
     placed.hidden = totalPlaces === 0;
     opts.deploy.disabled = view ? !isComplete(view, sel) : false;
+    const lock = opts.deploy.disabled ? deployLockReason(view, sel) : null;
+    if (lock !== null) opts.deploy.title = lock;
+    else opts.deploy.removeAttribute('title');
+    why.textContent = lock ?? '';
+    why.hidden = lock === null;
   };
   paint();
 

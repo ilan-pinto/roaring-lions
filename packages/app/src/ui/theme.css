@@ -4381,6 +4381,17 @@ button.rl-menu__item[data-kind='aside'] {
   margin-top: var(--s1);
   color: var(--ink-mute);
 }
+/* K-11: the reason Deploy is locked, or a row refused its click. */
+.rl-deploy__why,
+.rl-force__why {
+  margin: var(--s1) 0 0;
+  font: var(--t-body) / 1.35 var(--font-body);
+  color: var(--warn);
+}
+.rl-force__why {
+  max-width: 24rem;
+  text-align: right;
+}
 .rl-deploy__map {
   margin: 0;
 }

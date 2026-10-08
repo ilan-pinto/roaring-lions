@@ -978,6 +978,30 @@ describe('the deploy spread (Task 3)', () => {
     s.dispose();
   });
 
+  // K-11. Falsified: fullRowReason / deployLockReason emptied.
+  it('says why Deploy is locked, and why a full row refused its click', () => {
+    const el = document.createElement('div');
+    const s = spread(el);
+    const deploy = el.querySelector<HTMLButtonElement>('.rl-loading__deploy');
+    const why = el.querySelector<HTMLElement>('.rl-deploy__why');
+    expect(why?.hidden).toBe(true);
+    const nachshon = rowsOf(el)[2];
+    expect(nachshon.title).toBe('All Rifle Squad places are filled. Click a Rifle Squad that is going to bench it first.');
+    nachshon.click();
+    expect(why?.hidden).toBe(false);
+    expect(why?.textContent).toBe(nachshon.title);
+    rowsOf(el)[0].click(); // bench one: a place opens, Deploy locks
+    expect(deploy?.disabled).toBe(true);
+    expect(deploy?.title).toBe('Deploy is locked: choose 1 more unit for the force first.');
+    expect(why?.textContent).toBe(deploy?.title);
+    expect(why?.hidden).toBe(false);
+    rowsOf(el)[0].click();
+    expect(deploy?.disabled).toBe(false);
+    expect(deploy?.hasAttribute('title')).toBe(false);
+    expect(why?.hidden).toBe(true);
+    s.dispose();
+  });
+
   it('does not hold Deploy hostage to a pool too thin to fill a slot, and the slot line agrees', () => {
     // One squad for a mission that asks for two: the spawner substitutes a
     // fresh remnant for the missing body (mission.ts:1264), so there is
