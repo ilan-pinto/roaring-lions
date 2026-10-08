@@ -219,15 +219,67 @@ function supportArrow(flip: boolean): string {
   const m = maybe(flip);
   return bar(m([2, 12]), m([19, 12])) + bar(m([21.2, 12]), m([13.2, 4.4])) + bar(m([21.2, 12]), m([13.2, 19.6]));
 }
-/** APP-6 signals: the lightning bolt. */
-const BOLT = fill([
-  [15, 1.5],
-  [5, 13.5],
-  [10.5, 13.5],
-  [8, 22.5],
-  [19, 9.5],
-  [13.2, 9.5],
-]);
+/**
+ * VR-15 (lead, 8 Oct): the audio mark is a SPEAKER. The APP-6 signals bolt it
+ * replaced read as power or charge, not sound. One outline for the body (a
+ * square driver and its cone, a single polygon so no seam crosses it at 14 px)
+ * and two sound waves, each an annular sector of the sheet's one weight `W`
+ * about the cone's mouth -- filled, never stroked, like every ring here.
+ */
+const SPEAKER_PTS: readonly P[] = [
+  [2, 8.5],
+  [7, 8.5],
+  [12.5, 3.5],
+  [12.5, 20.5],
+  [7, 15.5],
+  [2, 15.5],
+];
+/** A wave: the band between radii `inner` and `inner + W`, +-45 degrees about
+ *  the cone's mouth (12.5, 12). Arcs, so the curve stays a curve at any size. */
+function wave(inner: number): string {
+  const c = Math.SQRT1_2;
+  const o = inner + W;
+  const at = (rad: number, sign: number): string => `${r(12.5 + rad * c)} ${r(12 + sign * rad * c)}`;
+  return path(`M${at(o, -1)} A${r(o)} ${r(o)} 0 0 1 ${at(o, 1)} L${at(inner, 1)} A${r(inner)} ${r(inner)} 0 0 0 ${at(inner, -1)} Z`);
+}
+const SPEAKER_ON = fill(SPEAKER_PTS) + wave(3.5) + wave(8.5);
+/**
+ * Keep the part of `pts` where `a*x + b*y >= c`: one Sutherland-Hodgman pass
+ * against a half-plane, which is exact for any simple polygon.
+ */
+function clipHalf(pts: readonly P[], a: number, b: number, c: number): P[] {
+  const out: P[] = [];
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i];
+    const q = pts[(i + 1) % pts.length];
+    const fp = a * p[0] + b * p[1] - c;
+    const fq = a * q[0] + b * q[1] - c;
+    if (fp >= 0) out.push(p);
+    if (fp >= 0 !== fq >= 0) {
+      const t = fp / (fp - fq);
+      out.push([p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1])]);
+    }
+  }
+  return out;
+}
+/**
+ * Muted: the silent speaker -- no waves -- struck through top-left to
+ * bottom-right. The body is CUT either side of the slash, leaving a clear gap
+ * of half a weight: the two share one ink, so a slash laid over a solid body
+ * would vanish exactly where it crosses it. The slash runs two units below the
+ * box diagonal so it splits the body into two pieces of a size that still
+ * read at 14 px, rather than shaving a fleck off the cone's tip.
+ */
+const SLASH_FROM: P = [2, 4];
+const SLASH_TO: P = [20, 22];
+/** Signed distance from the slash's centre line to its cut edge: half the
+ *  slash's own weight plus the gap. */
+const SLASH_CUT = W / 2 + W / 2;
+const SLASH_C = Math.SQRT1_2 * (SLASH_FROM[0] - SLASH_FROM[1]);
+const SPEAKER_OFF =
+  fill(clipHalf(SPEAKER_PTS, Math.SQRT1_2, -Math.SQRT1_2, SLASH_C + SLASH_CUT)) +
+  fill(clipHalf(SPEAKER_PTS, -Math.SQRT1_2, Math.SQRT1_2, -SLASH_C + SLASH_CUT)) +
+  bar(SLASH_FROM, SLASH_TO);
 /** The dashed "planned" frame: APP-6's anticipated status on the land frame. */
 const DASHED_FRAME =
   box(1, 4, 6.5, 6.5) +
@@ -360,9 +412,9 @@ const UTILITY_GLYPHS: Readonly<Record<UtilityId, UtilityGlyph>> = {
   /** Phase-line arrows (B). */
   pagePrev: { body: pagerMark(true) },
   pageNext: { body: pagerMark(false) },
-  /** APP-6 signals bolt (B); struck through for radio silence. */
-  audioOn: { body: BOLT },
-  audioOff: { body: BOLT + bar([2.5, 21.5], [21.5, 2.5]) },
+  /** A speaker with two waves; muted, the silent speaker struck through (VR-15). */
+  audioOn: { body: SPEAKER_ON },
+  audioOff: { body: SPEAKER_OFF },
   /** Dashed planned frame, solid frame with tick, framed X (B). */
   objectiveOpen: { body: DASHED_FRAME },
   objectiveDone: { body: FRAMED_TICK },

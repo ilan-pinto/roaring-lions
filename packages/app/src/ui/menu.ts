@@ -219,7 +219,7 @@ function audioToggle(audio: { isMuted(): boolean; toggle(): boolean }): HTMLButt
   b.title = t('menu.audio.hint');
   const paint = (): void => {
     const on = !audio.isMuted();
-    // GH-261: the APP-6 signals bolt, struck through for radio silence.
+    // VR-15: a speaker, struck through when muted (the GH-261 bolt read as power).
     b.innerHTML = on ? symbolLabel('audioOn', t('menu.audio.on')) : symbolLabel('audioOff', t('menu.audio.off'));
     b.setAttribute('aria-pressed', String(on));
   };

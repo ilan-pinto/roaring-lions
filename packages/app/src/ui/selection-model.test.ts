@@ -179,13 +179,27 @@ describe('chips — grouping', () => {
     expect(chips[0].hpTone).toBe('warn');
   });
 
-  it('bands the health track at a half and a quarter', () => {
-    expect(hpTone(1)).toBe('good');
-    expect(hpTone(0.51)).toBe('good');
-    expect(hpTone(0.5)).toBe('warn');
-    expect(hpTone(0.26)).toBe('warn');
-    expect(hpTone(0.25)).toBe('bad');
-    expect(hpTone(0)).toBe('bad');
+  it('bands a hostile health track at a half and a quarter', () => {
+    expect(hpTone(1, false)).toBe('good');
+    expect(hpTone(0.51, false)).toBe('good');
+    expect(hpTone(0.5, false)).toBe('warn');
+    expect(hpTone(0.26, false)).toBe('warn');
+    expect(hpTone(0.25, false)).toBe('bad');
+    expect(hpTone(0, false)).toBe('bad');
+  });
+
+  it("VR-03: the player's own track is never the enemy red, however low", () => {
+    expect(hpTone(1, true)).toBe('good');
+    expect(hpTone(0.5, true)).toBe('warn');
+    for (let k = 0; k <= 100; k++) expect(hpTone(k / 100, true)).not.toBe('bad');
+    expect(hpTone(0, true)).toBe('warn');
+  });
+
+  it('VR-03: a chip of own units at a tenth of its health reads warn; a hostile one reads bad', () => {
+    const mine = groupChips([unit({ hp: 10, own: true })]);
+    const theirs = groupChips([unit({ hp: 10, own: false })]);
+    expect(mine[0].hpTone).toBe('warn');
+    expect(theirs[0].hpTone).toBe('bad');
   });
 });
 

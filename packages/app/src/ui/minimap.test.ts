@@ -441,6 +441,23 @@ describe('fog', () => {
     expect(red[0].y).toBeCloseTo(at.y, 6);
   });
 
+  it('VR-01: setTeamColors re-colours the dots at once, with no tick in between', () => {
+    const { minimap } = mount(() => true);
+    expect(dotsOf('blue')).toHaveLength(1);
+    expect(dotsOf('red')).toHaveLength(1);
+    recorder.ops.length = 0;
+    minimap.setTeamColors(['navy', 'orange', 'gold']);
+    expect(dotsOf('navy')).toHaveLength(1);
+    expect(dotsOf('orange')).toHaveLength(1);
+    expect(dotsOf('blue')).toEqual([]);
+    expect(dotsOf('red')).toEqual([]);
+    // And it holds: the next 4 Hz redraw keeps the switched colours.
+    recorder.ops.length = 0;
+    for (let i = 0; i < 5; i++) minimap.onTick();
+    expect(dotsOf('navy')).toHaveLength(1);
+    expect(dotsOf('blue')).toEqual([]);
+  });
+
   it("draws the player's own units through fog", () => {
     mount(() => false);
     expect(dotsOf('blue')).toHaveLength(1);
