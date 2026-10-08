@@ -7,7 +7,7 @@ import { pseudo } from '../i18n/pseudo';
 import { setCatalogue } from '../i18n/t';
 import { deployRosterView, type DeployRosterView } from './deploy-roster';
 import type { DeploySelection } from './deploy-select';
-import { briefingBeats, briefingHoldsDeployment, broughtFor, showLoading, type BroughtPanel } from './loading';
+import { briefingBeats, briefingHoldsDeployment, broughtFor, showDownloadProgress, showLoading, type BroughtPanel } from './loading';
 import type { PreviewMap, PreviewTones } from './map-preview';
 import type { ObjectiveRow } from './objectives';
 
@@ -1283,5 +1283,42 @@ describe('the Field order briefing (GH-417)', () => {
     expect(el.querySelector('.rl-loading__box--field')).toBeNull();
     expect(() => s.setGroundPhoto({ width: 1, height: 1, data: new Uint8ClampedArray(4) } as unknown as ImageData)).not.toThrow();
     s.dispose();
+  });
+});
+
+// K-15: the stage while the models download used to be blank.
+describe('the download screen (K-15)', () => {
+  it('wears the loading screen: the mission name, the bar, a count that moves, and no Deploy', () => {
+    const host = document.createElement('div');
+    const dl = showDownloadProgress(host, 'Foothold');
+    expect(host.querySelector('.rl-loading .rl-loading__box')).not.toBeNull();
+    expect(host.querySelector('.rl-loading__name')?.textContent).toBe('Foothold');
+    expect(host.querySelector('.rl-loading__label')?.textContent).toBe('deploying');
+    expect(host.querySelector('.rl-loading__deploy')).toBeNull();
+    const count = host.querySelector<HTMLElement>('.rl-loading__count')!;
+    expect(count.dataset.state).toBe('pending');
+    dl.total(4);
+    expect(count.textContent).toBe('Loading 0 of 4');
+    dl.step();
+    dl.step();
+    expect(count.textContent).toBe('Loading 2 of 4');
+    expect(host.querySelector<HTMLElement>('.rl-loading__fill')?.style.width).toBe('50%');
+    dl.dispose();
+    expect(host.querySelector('.rl-loading')).toBeNull();
+    expect(() => dl.dispose()).not.toThrow();
+  });
+
+  // The perf tool reads data-state 'ready' as "the deploy gate is open".
+  // Falsified: canBeReady defaulting to true for this screen.
+  it('never reads ready, even with every download counted in', () => {
+    const host = document.createElement('div');
+    const dl = showDownloadProgress(host, 'Foothold');
+    dl.total(2);
+    dl.step();
+    dl.step();
+    const count = host.querySelector<HTMLElement>('.rl-loading__count')!;
+    expect(count.dataset.state).toBe('progress');
+    expect(count.textContent).not.toBe('Ready');
+    dl.dispose();
   });
 });

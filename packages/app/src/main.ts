@@ -121,7 +121,7 @@ import { buyUnlock, buyUpgrade } from './brigade-account';
 import { payVictory } from './campaign-pay';
 import { tierLine } from './ui/grade-copy';
 import { clocklessObjectives, speakerPlate, speakerPortrait, withoutHiddenClocks } from './ui/hud-model';
-import { briefingBeats, broughtFor, showLoading, type FieldOrder } from './ui/loading';
+import { briefingBeats, broughtFor, showDownloadProgress, showLoading, type FieldOrder } from './ui/loading';
 import { briefingGlance, objectiveClock } from './ui/briefing-glance';
 import { groundMarks } from './ui/ground-marks';
 import { briefingSections, pickBriefingImage } from './ui/briefing-sections';
@@ -1855,7 +1855,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     meshReady.delete(id);
     failedMesh.push(id);
   };
-  await Promise.all([
+  // K-15: the blank wait. The briefing below cannot be built until the ground
+  // and the force are known, but the player can be told something is
+  // happening: the loading screen's own bar and count, one step per model.
+  const download = showDownloadProgress(stage, mission?.name ?? mission?.id ?? 'M0 sandbox');
+  onDispose(() => download.dispose());
+  const counted = <T>(job: Promise<T>): Promise<T> => job.finally(() => download.step());
+  const jobs: Promise<unknown>[] = [
     ...meshManifest.rigged.map((m) => three.loadMeshUnit(m.id, m.urls, m.faction).catch(unitMeshFailed(m.id))),
     ...meshManifest.vehicles.map((m) => three.loadVehicleMesh(m.id, m.url).catch(unitMeshFailed(m.id))),
     // Building meshes: the STANDING state only, for the structure types
@@ -1885,10 +1891,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // a map with no road and no building tile (`propKindsFor`), which
     // loads nothing and places nothing.
     three.loadPropMeshes(meshManifest.props),
-  ]).catch((err: unknown) => {
-    teardown();
-    throw err;
-  });
+  ];
+  download.total(jobs.length);
+  await Promise.all(jobs.map(counted))
+    .catch((err: unknown) => {
+      teardown();
+      throw err;
+    })
+    // Whether it landed or failed: the failure card (K-01) or the briefing
+    // takes the stage next, and neither should find this screen under it.
+    .finally(() => download.dispose());
 
   // The late arrivals. `loadMeshUnit`/`loadVehicleMesh` are safe to call
   // after the first frame -- both replace a template and tear down every

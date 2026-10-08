@@ -393,6 +393,101 @@ export interface LoadingScreen {
   setGroundPhoto(img: ImageData): void;
 }
 
+/**
+ * The bar and the count under it, as one pure paint. Before the total is known
+ * the bar would divide by zero; an empty bar and a bare count is honest about
+ * not knowing yet. Three states since 2026-09-07, not two: a boot can have
+ * nothing to count at all (every type draws as a model, and since WP-A3.3 that
+ * is every boot), and that is a full bar reading "ready", not a bar stuck on
+ * "loading" under a deploy button that already works. The words are a player's
+ * (PA-01: this line read "meshes only" on every briefing); a tool reads the
+ * STATE from `data-state`, never the words, so a rewording cannot stall
+ * `pnpm perf:load` the way the old literal match once did.
+ *
+ * `canBeReady` is false for the download screen below: it must never read
+ * `ready`, because `tools/src/perf/load-profile.ts` takes that state to mean
+ * the briefing's deploy gate is open.
+ */
+function paintProgress(
+  fill: HTMLElement,
+  count: HTMLElement,
+  loaded: number,
+  expected: number,
+  totalKnown: boolean,
+  canBeReady = true
+): void {
+  const ratio = expected > 0 ? Math.min(1, loaded / expected) : totalKnown ? 1 : 0;
+  fill.style.width = `${(ratio * 100).toFixed(1)}%`;
+  const ready = canBeReady && (expected > 0 ? loaded >= expected : totalKnown);
+  count.dataset.state = ready ? 'ready' : expected > 0 ? 'progress' : 'pending';
+  count.textContent =
+    expected > 0 && !ready
+      ? t('loading.progress', { loaded, expected })
+      : ready
+        ? t('loading.ready')
+        : t('loading.preparing');
+}
+
+/**
+ * K-15: the stage while the models download. Every GLB the mission stands is
+ * fetched before the briefing can be built, so the player used to look at a
+ * blank stage for the whole wait. This is the SAME screen the briefing wears
+ * (`.rl-loading`: the label, the mission's name, the bar and its count, all
+ * its own classes and tokens) with nothing below the count -- no Deploy, since
+ * there is nothing to deploy yet -- and it is replaced by `showLoading` when
+ * the download settles.
+ */
+export interface DownloadProgress {
+  /** How many downloads the bar is waiting on. */
+  total(n: number): void;
+  /** One settled (failed ones count: it is a decided outcome). */
+  step(): void;
+  /** Idempotent. */
+  dispose(): void;
+}
+
+export function showDownloadProgress(host: HTMLElement, title: string): DownloadProgress {
+  const wrap = document.createElement('div');
+  wrap.className = 'rl-loading rl-loading--download';
+  const box = document.createElement('div');
+  box.className = 'rl-loading__box';
+  const label = document.createElement('div');
+  label.className = 'rl-loading__label';
+  label.textContent = t('loading.deploying');
+  const name = document.createElement('div');
+  name.className = 'rl-loading__name';
+  name.textContent = title;
+  const track = document.createElement('div');
+  track.className = 'rl-loading__track';
+  const fill = document.createElement('div');
+  fill.className = 'rl-loading__fill';
+  track.appendChild(fill);
+  const count = document.createElement('div');
+  count.className = 'rl-loading__count';
+  count.setAttribute('role', 'status');
+  count.setAttribute('aria-live', 'polite');
+  box.append(label, name, track, count);
+  wrap.appendChild(box);
+  let loaded = 0;
+  let expected = 0;
+  const paint = (): void => paintProgress(fill, count, loaded, expected, false, false);
+  paint();
+  host.appendChild(wrap);
+  return {
+    total(n) {
+      expected = n;
+      paint();
+    },
+    step() {
+      loaded += 1;
+      paint();
+    },
+    dispose() {
+      wrap.remove();
+    },
+  };
+}
+
 export function showLoading(
   host: HTMLElement,
   title: string,
@@ -916,27 +1011,7 @@ export function showLoading(
   let expected = 0;
   let totalKnown = false;
 
-  const paint = (): void => {
-    // Before the total is known the bar would divide by zero; an empty bar and
-    // a bare count is honest about not knowing yet. Three states since
-    // 2026-09-07, not two: a boot can have nothing to count at all (every
-    // type draws as a model, and since WP-A3.3 that is every boot), and that
-    // is a full bar reading "ready", not a bar stuck on "loading" under a
-    // deploy button that already works. The words are a player's (PA-01:
-    // this line read "meshes only" on every briefing); a tool reads the
-    // STATE from `data-state`, never the words, so a rewording cannot stall
-    // `pnpm perf:load` the way the old literal match once did.
-    const ratio = expected > 0 ? Math.min(1, loaded / expected) : totalKnown ? 1 : 0;
-    fill.style.width = `${(ratio * 100).toFixed(1)}%`;
-    const ready = expected > 0 ? loaded >= expected : totalKnown;
-    count.dataset.state = ready ? 'ready' : expected > 0 ? 'progress' : 'pending';
-    count.textContent =
-      expected > 0 && !ready
-        ? t('loading.progress', { loaded, expected })
-        : ready
-          ? t('loading.ready')
-          : t('loading.preparing');
-  };
+  const paint = (): void => paintProgress(fill, count, loaded, expected, totalKnown);
   paint();
 
   /** Whether `dispose()` has already run. `done()` after that point is a
