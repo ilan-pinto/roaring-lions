@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { EmitterSpec } from '../vfx/emitters';
 import catastrophic from '../../../../data/vfx/catastrophic_kill.json';
 import shellImpact from '../../../../data/vfx/shell_impact.json';
-import { blastHitStopMs, blastLightSpec, blastShake } from './blast-spec';
+import { blastHitStopMs, blastLightSpec, blastShake, collapseFrontPoint } from './blast-spec';
 
 const kill = catastrophic as unknown as EmitterSpec;
 const impact = shellImpact as unknown as EmitterSpec;
@@ -78,5 +78,16 @@ describe('scaling by the caller\'s power term', () => {
     expect(blastLightSpec(bare, 1)).toBeNull();
     expect(blastShake(bare, 1)).toBeNull();
     expect(blastHitStopMs(bare, 1)).toBe(0);
+  });
+});
+
+describe('the collapse light and flash stand on the camera-facing street (VR-22)', () => {
+  it('half a tile outside the +X/+Z corner of the footprint', () => {
+    // Tiles 36-39 x 30-32 span [36, 40) x [30, 33): the corner is (40, 33).
+    expect(collapseFrontPoint({ maxX: [39], maxY: [32] }, 0, 48, 48)).toEqual([40.5, 33.5]);
+  });
+
+  it('stays on the map for a building against its far edge', () => {
+    expect(collapseFrontPoint({ maxX: [47], maxY: [47] }, 0, 48, 48)).toEqual([47.5, 47.5]);
   });
 });

@@ -65,6 +65,7 @@ import catastrophic from '../../../../data/vfx/catastrophic_kill.json';
 import shellImpact from '../../../../data/vfx/shell_impact.json';
 import structureCollapse from '../../../../data/vfx/structure_collapse.json';
 import { shakeOffsetPx, initShakeState, type ShakeState } from './blast-shake';
+import { collapseFrontPoint } from './blast-spec';
 import type { EmitterSpec } from '../vfx/emitters';
 import type { ShellModel } from './units/shells';
 
@@ -792,6 +793,12 @@ describe('a building collapse tops the ladder (polish VR-22)', () => {
     // so every number is the emitter's own authored value.
     destroyStructure(r, { minX: 10, minY: 10, maxX: 12, maxY: 12 });
     expect(priv.flashLights.liveCount).toBe(1);
+    // Lead ruling: low, on the street outside the camera-facing (+X/+Z)
+    // corner -- the corner is (13, 13), the light half a tile beyond it.
+    const lit = (priv.flashLights as unknown as { active: { x: number; z: number }[] }).active[0];
+    expect([lit.x, lit.z]).toEqual(collapseFrontPoint({ maxX: [12], maxY: [12] }, 0, MAP, MAP));
+    expect(lit.x).toBeGreaterThan(13);
+    expect(lit.z).toBeGreaterThan(13);
     expect(priv.shakeState.live.length).toBe(1);
     expect(priv.hitStop.remainingMs).toBe(em.hit_stop_ms);
     r.dispose();

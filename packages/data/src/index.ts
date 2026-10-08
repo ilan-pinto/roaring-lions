@@ -152,6 +152,7 @@ import missileTrail from '../../../data/vfx/missile_trail.json';
 import shellImpact from '../../../data/vfx/shell_impact.json';
 import structureBurning from '../../../data/vfx/structure_burning.json';
 import structureCollapse from '../../../data/vfx/structure_collapse.json';
+import collapseFlash from '../../../data/vfx/collapse_flash.json';
 import tunnelCollapse from '../../../data/vfx/tunnel_collapse.json';
 import rotorWash from '../../../data/vfx/rotor_wash.json';
 import vehicleDust from '../../../data/vfx/vehicle_dust.json';
@@ -438,6 +439,7 @@ export const vfxEmitters = [
   shellImpact,
   structureBurning,
   structureCollapse,
+  collapseFlash,
   tunnelCollapse,
   vehicleDust,
   vehicleExhaust,

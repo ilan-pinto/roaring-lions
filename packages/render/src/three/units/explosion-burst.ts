@@ -324,6 +324,7 @@ const Y_AXIS = new THREE.Vector3(0, 1, 0);
  */
 export class ExplosionBurstManager {
   private readonly capacity: number;
+  private readonly renderOrder: number;
   private readonly materials: Readonly<Record<ExplosionBurstRole, THREE.ShaderMaterial>>;
   private meshes: Readonly<Record<ExplosionBurstRole, THREE.InstancedMesh>> | null = null;
   private readonly active: ActiveExplosionBurst[] = [];
@@ -332,8 +333,12 @@ export class ExplosionBurstManager {
   private readonly scratchPos = new THREE.Vector3();
   private readonly scratchScale = new THREE.Vector3();
 
-  constructor(capacity = EXPLOSION_BURST_CAPACITY) {
+  /** `renderOrder` is a band from `./render-order` -- the ordinary burst's
+   *  `FX_RENDER_ORDER_ABOVE_ADDITIVE` by default; the collapse flash passes
+   *  `COLLAPSE_FLASH_RENDER_ORDER` so it reads through the shroud. */
+  constructor(capacity = EXPLOSION_BURST_CAPACITY, renderOrder = FX_RENDER_ORDER_ABOVE_ADDITIVE) {
     this.capacity = capacity;
+    this.renderOrder = renderOrder;
     this.materials = {
       core: createVfxMeshMaterial(),
       mid: createVfxMeshMaterial(),
@@ -363,12 +368,17 @@ export class ExplosionBurstManager {
    * them to its own scene graph -- mirrors `MuzzleFlashManager.load` exactly.
    */
   async load(glbUrl: string): Promise<THREE.Object3D[]> {
-    const template = await loadExplosionBurstTemplate(glbUrl);
+    return this.adopt(await loadExplosionBurstTemplate(glbUrl));
+  }
+
+  /** `load`'s second half, for a caller that already holds the template --
+   *  two managers over one GLB parse it once. */
+  adopt(template: ExplosionBurstTemplate): THREE.Object3D[] {
     const partial: Partial<Record<ExplosionBurstRole, THREE.InstancedMesh>> = {};
     for (const role of EXPLOSION_BURST_ROLES) {
       const mesh = new THREE.InstancedMesh(template.geometries[role], this.materials[role], this.capacity);
       mesh.count = 0;
-      mesh.renderOrder = FX_RENDER_ORDER_ABOVE_ADDITIVE;
+      mesh.renderOrder = this.renderOrder;
       mesh.frustumCulled = false;
       partial[role] = mesh;
     }

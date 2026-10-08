@@ -1,0 +1,22 @@
+{
+  "id": "collapse_flash",
+  "trigger": "structure_collapse",
+  "layer": "above_units",
+  "budget_priority": 8,
+  "particles": [
+    {
+      "sprite": "soft_dot",
+      "count": [8, 12],
+      "lifetime_ms": [220, 320],
+      "speed_tiles_s": [2.0, 4.5],
+      "cone_deg": 360,
+      "gravity_tiles_s2": -1.0,
+      "size_px": [10, 18],
+      "size_over_life": [0.5, 1.2, 1.4],
+      "color_over_life": ["vfx.white_hot", "vfx.fire", "vfx.ember"],
+      "alpha_over_life": [1.0, 0.85, 0.0],
+      "additive": true,
+      "mesh_burst": true
+    }
+  ]
+}

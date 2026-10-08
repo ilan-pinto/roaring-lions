@@ -180,7 +180,9 @@ import { FlashLightManager } from './flash-light';
 import { MuzzleFlashManager, MUZZLE_FLASH_DEFAULT_DURATION_MS } from './units/muzzle-flash';
 import {
   ExplosionBurstManager,
+  EXPLOSION_BURST_CAPACITY,
   EXPLOSION_BURST_DEFAULT_DURATION_MS,
+  loadExplosionBurstTemplate,
   explosionBurstPowerFromFootprint,
   explosionBurstPowerFromMaxHp,
 } from './units/explosion-burst';
@@ -216,6 +218,8 @@ import {
   BLAST_EMITTER_ID,
   SHELL_IMPACT_EMITTER_ID,
   STRUCTURE_COLLAPSE_EMITTER_ID,
+  COLLAPSE_FLASH_EMITTER_ID,
+  collapseFrontPoint,
   blastLightSpec,
   blastShake,
   blastHitStopMs,
@@ -353,6 +357,7 @@ import { footprintCentre } from './units/footprint';
 import { DEFAULT_BUILDING_FIT, buildingFitScale, type FitScale } from './units/building-fit';
 import {
   FX_RENDER_ORDER,
+  COLLAPSE_FLASH_RENDER_ORDER,
   DECAL_PERSISTENT_RENDER_ORDER,
   DECAL_FADING_RENDER_ORDER,
 } from './units/render-order';
@@ -1352,6 +1357,11 @@ export class ThreeRenderer implements Renderer {
    *  shape): its `InstancedMesh`es exist only once `loadExplosionBurstMesh`
    *  resolves, its three palette colours only once `useEmitters` has run. */
   private readonly explosionBursts = new ExplosionBurstManager();
+  /** Polish VR-22: the same burst mesh, pooled again at
+   *  `COLLAPSE_FLASH_RENDER_ORDER` so a collapse's flash reads THROUGH its own
+   *  shroud (`data/vfx/collapse_flash.json`). Loaded and coloured alongside
+   *  `explosionBursts`, from the one parsed template. */
+  private readonly collapseFlashBursts = new ExplosionBurstManager(EXPLOSION_BURST_CAPACITY, COLLAPSE_FLASH_RENDER_ORDER);
   /** Owns the pooled, modelled smoke-plume mesh
    *  (`art/meshes/vfx/smoke_plume.glb`) -- `units/smoke-plume.ts`'s own top
    *  comment has the full account, including why its zones split along the
@@ -2901,6 +2911,7 @@ export class ThreeRenderer implements Renderer {
     this.flashLights.dispose();
     this.muzzleFlashes.dispose();
     this.explosionBursts.dispose();
+    this.collapseFlashBursts.dispose();
     this.smokePlumes.dispose();
     this.collapseShrouds.dispose();
     // Same "added once in the constructor, no scene.remove needed" shape as
@@ -4225,19 +4236,19 @@ export class ThreeRenderer implements Renderer {
         {
           const em = this.emitterLibrary.byName(STRUCTURE_COLLAPSE_EMITTER_ID);
           const light = blastLightSpec(em, collapsePower);
+          // Low, at street level, OUTSIDE the building's camera-facing corner
+          // (the +X/+Z half: `tools/building_facing.py`, `camera.ts`'s
+          // VIEW_DIRECTION) -- the lead's ruling. A kill's light sits over
+          // open ground it can reach; a collapse's own pad is under the
+          // building and its shroud, and a light there, or at the roof, lit
+          // almost nothing the camera can see (593 px and 737 px against a
+          // Lavi kill's 44282 at the same 200 ms, `pnpm blast:capture`).
+          const [fx0, fz0] = collapseFrontPoint(this.sim.structures, deadStruct, this.sim.width, this.sim.height);
+          const frontY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, fx0, fz0);
           if (light) {
-            // At the ROOF, not the ground: a kill's light sits over open
-            // ground it can reach, but a collapse's ground is the building's
-            // own pad, under the building and its shroud, and a light there
-            // lit almost nothing the camera can see (593 px against a Lavi
-            // kill's 44255 at the same 200 ms, `pnpm blast:capture`). The
-            // height is the one `beginCollapseShroud` sizes its cloud from.
-            const drawn = this.drawnBuildingSize(deadStruct);
-            const type = this.sim.structureTypes[this.sim.structures.typeIdx[deadStruct]];
-            const roof = drawn ? drawn.y : type.heightPx * WORLD_Y_PER_LIFT_PIXEL;
-            const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, bx, by) + roof;
-            this.flashLights.spawn(bx, by, worldY, light, this.overlayColor(light.color ?? 'vfx.fire', FLASH_LIGHT_FALLBACK));
+            this.flashLights.spawn(fx0, fz0, frontY, light, this.overlayColor(light.color ?? 'vfx.fire', FLASH_LIGHT_FALLBACK));
           }
+          this.spawnCollapseFlash(fx0, frontY, fz0, collapsePower, collapseYawTurns);
           this.shakeState = pushShake(this.shakeState, blastShake(em, collapsePower), bx, by);
           this.hitStop = requestHitStop(this.hitStop, blastHitStopMs(em, collapsePower));
         }
@@ -5130,6 +5141,7 @@ export class ThreeRenderer implements Renderer {
     this.muzzleFlashes.setColors(resolve);
     // Identical two-phase-construction safety, for the explosion-burst mesh.
     this.explosionBursts.setColors(resolve);
+    this.collapseFlashBursts.setColors(resolve);
     // Identical two-phase-construction safety, for the smoke-plume mesh.
     this.smokePlumes.setColors(resolve);
     // Identical two-phase-construction safety, for the collapse shroud --
@@ -5366,8 +5378,8 @@ export class ThreeRenderer implements Renderer {
    * (`ExplosionBurstManager.ready`).
    */
   async loadExplosionBurstMesh(glbUrl: string): Promise<void> {
-    const meshes = await this.explosionBursts.load(glbUrl);
-    this.scene.add(...meshes);
+    const template = await loadExplosionBurstTemplate(glbUrl);
+    this.scene.add(...this.explosionBursts.adopt(template), ...this.collapseFlashBursts.adopt(template));
   }
 
   /**
@@ -7659,6 +7671,7 @@ export class ThreeRenderer implements Renderer {
     this.muzzleFlashes.step(dtMs);
     // Identical presentation-only ageing, for the explosion-burst mesh.
     this.explosionBursts.step(dtMs);
+    this.collapseFlashBursts.step(dtMs);
     // Identical presentation-only ageing, for the smoke-plume mesh.
     this.smokePlumes.step(dtMs);
     // Identical presentation-only ageing, for the collapse shroud.
@@ -7697,6 +7710,29 @@ export class ThreeRenderer implements Renderer {
       this.sim.tickCount
     );
     for (const l of landings) this.spawnMissileImpactFx(l);
+  }
+
+  /**
+   * Polish VR-22: the brief bright burst a collapse throws through its own
+   * dust shroud (`data/vfx/collapse_flash.json`). On the mesh path it is the
+   * pooled burst at `COLLAPSE_FLASH_RENDER_ORDER`, above the shroud, living
+   * for the layer's own longest `lifetime_ms`; without the mesh (`&nomesh`)
+   * the authored particle layer stands in, exactly as `spawnCollapseFx`'s
+   * `mesh_burst` fallback does.
+   */
+  private spawnCollapseFlash(x: number, y: number, z: number, power: number, yawTurns: number): void {
+    const em = this.emitterLibrary.byName(COLLAPSE_FLASH_EMITTER_ID);
+    if (!em || power <= 0) return;
+    for (const layer of em.particles) {
+      if (layer.mesh_burst && this.collapseFlashBursts.ready) {
+        const life = layer.lifetime_ms;
+        this.collapseFlashBursts.spawn(x, y, z, yawTurns, power, typeof life === 'number' ? life : life[1]);
+        continue;
+      }
+      if (!this.particleSystem) continue;
+      const prio = em.budget_priority ?? 8;
+      this.particleSystem.spawn(layer, x, z, 0.25, power, prio, fxLayerIndex(em.layer, layer.additive ?? false));
+    }
   }
 
   /**
