@@ -80,7 +80,6 @@ import {
   pushDashedEllipseRingPx,
   ellipseDashAngles,
   desaturateHex,
-  pushPolygonFillWorld,
   pushPolygonStrokeWorld,
   pushLineWorld,
   billboardPoint,
@@ -245,9 +244,6 @@ export const OBJECTIVE_ZONE_HALO_INSET_TILES = 0.2;
  *  resolves it through the same `paletteColor` every other overlay key uses. */
 export const OBJECTIVE_ZONE_HALO_COLOR_KEY = WORLD_HALO_COLOR_KEY;
 export const OBJECTIVE_ZONE_HALO_FALLBACK = paletteHex(OBJECTIVE_ZONE_HALO_COLOR_KEY);
-/** Fill alpha inside the zone -- Pixi's 0.05 was invisible on textured
- *  ground; 0.12 tints the held ground without hiding what stands on it. */
-export const OBJECTIVE_ZONE_FILL_ALPHA = 0.12;
 
 /** Palette key for an airborne unit's ground shadow -- Pixi's own `#0A0A08`
  *  (`renderer.ts`'s air-lift shadow ellipse), the same swatch `fog-mesh.ts`
@@ -653,13 +649,6 @@ export class OverlayBatch {
       this.dashLayouts.set(key, dashes);
     }
     pushDashedEllipseRingPx(this.soup, anchor, rightR, upR, style.widthPx, dashes, cachedHexToLinear(colorHex), alpha);
-  }
-
-  /** The objective zone's fill -- see `overlay-geometry.ts`'s own top
-   *  comment for why this is the one overlay drawn from literal world
-   *  points rather than a single billboard anchor. */
-  polygonFillWorld(points: readonly WorldPoint[], colorHex: string, alpha: number): void {
-    pushPolygonFillWorld(this.soup, points, cachedHexToLinear(colorHex), alpha);
   }
 
   /** The objective zone's outline -- see `pushPolygonStrokeWorld`'s own doc
