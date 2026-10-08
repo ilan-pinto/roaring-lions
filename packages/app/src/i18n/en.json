@@ -843,6 +843,7 @@
   "alert.wave": "<b>enemy reinforcements</b> — {n, plural, one {# unit} other {# units}} inbound{where, select, yes { · {place}} other {}}",
   "alert.arrived": "<b>reinforcement deployed</b> — {name}{where, select, yes { · {place}} other {}}",
   "alert.reinforced": "{label}{where, select, yes { · {place}} other {}}",
+  "alert.ambush": "<b>ambush</b>{where, select, yes { · {place}} other {}}",
   "alert.place.here": "in view",
   "alert.place.n": "north",
   "alert.place.ne": "north-east",

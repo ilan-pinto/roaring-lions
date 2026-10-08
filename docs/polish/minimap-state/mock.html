@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Minimap state mock</title>
+<title>Minimap state sheet</title>
 <!--
   VR-36 / VR-37 mock. Static: no game code runs here. The ground is the real
   renderer's photograph of beit_sahwan_outskirts (`ground.png`, captured by
@@ -32,17 +32,21 @@
 </style>
 </head>
 <body>
-<h1>Minimap: state and urgency (VR-36, VR-37) — mock</h1>
+<h1>Minimap: state and urgency (VR-36, VR-37) — mock and build</h1>
 <p class="sub" id="intro"></p>
 
 <h2>The whole minimap, actual size (210 px, DPR 1)</h2>
 <div class="row" id="full"></div>
 
-<h2>One frame per state — actual size, then 3x of the same pixels</h2>
+<h2>One frame per state — today, the approved mock, and the BUILT minimap; actual size, then 3x of the same pixels</h2>
+<p class="sub" id="builtnote"></p>
 <table id="frames">
-  <thead><tr><th></th><th>today 1x</th><th>proposed 1x</th><th>today 3x</th><th>proposed 3x (alerts: three moments of the ring)</th></tr></thead>
+  <thead><tr><th></th><th>today 1x</th><th>mock 1x</th><th>built 1x</th><th>today 3x</th><th>mock 3x</th><th>built 3x</th></tr></thead>
   <tbody></tbody>
 </table>
+
+<h2>The world's zone outline (lead's ruling 2026-10-08): not held and contested are dashed, colour unchanged</h2>
+<div class="row" id="world"></div>
 
 <h2>Colour-vision strip — proposed marks, each variant's own tokens, simulated through its own deficiency</h2>
 <p class="sub" id="cvdnote"></p>
@@ -229,7 +233,7 @@ function run(img) {
   document.getElementById('intro').textContent =
     'Ground: the renderer’s own photograph of beit_sahwan_outskirts, at the minimap’s saturate(0.4). ' +
     'Zones are that map’s own (shaft_head held, clinic unheld, collection_point contested). Rings are drawn at 35% of their life unless a frame says otherwise. ' +
-    'Every colour is a theme.css token resolved from data/palette.json (tokens.js); no other colour is used. Pulse (unheld/contested) and ring motion cannot show in a still: the 3x alert column shows three moments instead.';
+    'Every colour is a theme.css token resolved from data/palette.json (tokens.js); no other colour is used. Pulse (unheld/contested) and ring motion cannot show in a still; mock-sheet.png keeps the approved mock\u2019s three-moment ring strips.';
 
   const all = {
     objectives: OBJ,
@@ -241,35 +245,38 @@ function run(img) {
   const fullRow = document.getElementById('full');
   if (liveImg && liveImg.naturalWidth) { const c = canvas(SIZE, SIZE); c.getContext('2d').drawImage(liveImg, 0, 0, SIZE, SIZE); fullRow.append(figure(c, 'today, live capture (sandbox force, no objectives)')); }
   fullRow.append(figure(full(img, (g, i) => drawToday(g, i, all)), 'today, mock: amber diamonds, one amber ring, solid triangles'));
-  fullRow.append(figure(full(img, (g, i) => drawProposed(g, i, all)), 'proposed: zone state, ring tier+tone, hollow suspected'));
+  fullRow.append(figure(full(img, (g, i) => drawProposed(g, i, all)), 'approved mock'));
+  if (BUILT.full) { const c = canvas(SIZE, SIZE); c.getContext('2d').drawImage(BUILT.full, 0, 0); fullRow.append(figure(c, 'BUILT: the real Minimap class over the sandbox sim')); }
+  document.getElementById('builtnote').textContent =
+    'Built columns: the shipped Minimap class (packages/app/src/ui/minimap.ts), imported from the dev server and drawn over the live sandbox sim of beit_sahwan_outskirts at DPR 1, one Metal browser, music off. ' +
+    'Fog is opened for the capture so contacts can be framed; one hostile is identified with sim.identifyTo, the rest are as the sim has them (suspected). The built units are the sandbox force, so they stand where the sim put them, not where the mock drew them. Rings are at 35% of their tier\u2019s life; the zone pulse is at its peak.';
+  const world = document.getElementById('world');
+  for (const [f, t] of [['built/world-held.png', 'world, held: solid lime (unchanged)'], ['built/world-unheld.png', 'world, not held: the same yellow, now DASHED']]) {
+    const i = new Image(); i.src = f; i.width = 600; world.append(figure(i, t));
+  }
 
   const tbody = document.querySelector('#frames tbody');
-  const add = (label, ex, todayOpts, propOpts, at, phases) => {
+  const add = (label, ex, todayOpts, propOpts, at, builtId, builtAt) => {
     const tr = document.createElement('tr');
     const td = (n) => { const x = document.createElement('td'); if (n) x.append(n); tr.append(x); return x; };
     const l = td(); l.className = 'lbl'; const b = document.createElement('b'); b.textContent = label; l.append(b, document.createTextNode(ex));
     const t1 = full(img, (g, i) => drawToday(g, i, todayOpts));
     const p1 = full(img, (g, i) => drawProposed(g, i, propOpts));
-    td(crop(t1, at, 1)); td(crop(p1, at, 1)); td(crop(t1, at, 3));
-    if (phases) {
-      const box3 = document.createElement('div'); box3.className = 'phases';
-      for (const a of phases) {
-        const o = { ...propOpts, alerts: propOpts.alerts.map((x) => ({ ...x, a })) };
-        box3.append(figure(crop(full(img, (g, i) => drawProposed(g, i, o)), at, 3), `${Math.round((1 - a) * 100)}% of ${P.tier[propOpts.alerts[0].tier].ms} ms`));
-      }
-      td(box3);
-    } else td(crop(p1, at, 3));
+    const b1 = BUILT[builtId] ? (() => { const c = canvas(SIZE, SIZE); c.getContext('2d').drawImage(BUILT[builtId], 0, 0); return c; })() : null;
+    const bAt = builtAt || at;
+    td(crop(t1, at, 1)); td(crop(p1, at, 1)); td(b1 ? crop(b1, bAt, 1) : null);
+    td(crop(t1, at, 3)); td(crop(p1, at, 3)); td(b1 ? crop(b1, bAt, 3) : null);
     tbody.append(tr);
   };
   for (const o of OBJ) {
     const words = { held: 'held — --live, solid, steady', unheld: 'not held — --warn, dashed, pulses', contested: 'contested — --bad, dashed, pulses' }[o.state];
-    add(`objective ${o.state}`, words, { objectives: [o], units: UNITS, alerts: [] }, { objectives: [o], units: UNITS, alerts: [] }, centre(ZONES[o.zone]));
+    add(`objective ${o.state}`, words, { objectives: [o], units: UNITS, alerts: [] }, { objectives: [o], units: UNITS, alerts: [] }, centre(ZONES[o.zone]), `objective-${o.state}`);
   }
   for (const al of ALERTS) {
-    add(`alert ${al.label}`, al.ex, { objectives: [], units: UNITS, alerts: [{ ...al, a: 0.65 }] }, { objectives: [], units: UNITS, alerts: [{ ...al, a: 0.65 }] }, al.p, [0.85, 0.55, 0.25]);
+    add(`alert ${al.label}`, al.ex, { objectives: [], units: UNITS, alerts: [{ ...al, a: 0.65 }] }, { objectives: [], units: UNITS, alerts: [{ ...al, a: 0.65 }] }, al.p, `alert-${al.id}`, al.id === 'major-bad' || al.id === 'minor-warn' ? AT.friend : null);
   }
-  add('contact suspected', 'hollow diamond, like the world’s', { objectives: [], units: [HOSTILE_SUS], alerts: [] }, { objectives: [], units: [HOSTILE_SUS], alerts: [] }, HOSTILE_SUS);
-  add('contact identified', 'solid triangle, unchanged', { objectives: [], units: [HOSTILE_ID], alerts: [] }, { objectives: [], units: [HOSTILE_ID], alerts: [] }, HOSTILE_ID);
+  add('contact suspected', 'hollow diamond, like the world’s', { objectives: [], units: [HOSTILE_SUS], alerts: [] }, { objectives: [], units: [HOSTILE_SUS], alerts: [] }, HOSTILE_SUS, 'contacts', AT.suspected);
+  add('contact identified', 'solid triangle, unchanged', { objectives: [], units: [HOSTILE_ID], alerts: [] }, { objectives: [], units: [HOSTILE_ID], alerts: [] }, HOSTILE_ID, 'contacts', AT.identified);
 
   // CVD strip: one composite crop holding every state, per variant.
   document.getElementById('cvdnote').textContent =
@@ -301,7 +308,12 @@ function run(img) {
 }
 
 const load = (src) => new Promise((ok) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => ok(null); i.src = src; });
-Promise.all([load('ground.png'), load('today-live.png')]).then(([g, live]) => {
+const BUILT = {};
+let AT = { friend: null, identified: null, suspected: null };
+const BUILT_IDS = ['full', 'objective-held', 'objective-unheld', 'objective-contested', 'alert-major-bad', 'alert-major-good', 'alert-important-bad', 'alert-minor-bad', 'alert-minor-warn', 'alert-minor-info', 'contacts'];
+Promise.all([load('ground.png'), load('today-live.png'), fetch('built/at.json').then((r) => (r.ok ? r.json() : null)).catch(() => null), ...BUILT_IDS.map((id) => load(`built/${id}.png`))]).then(([g, live, at, ...built]) => {
+  if (at) AT = at;
+  BUILT_IDS.forEach((id, k) => { if (built[k]) BUILT[id] = built[k]; });
   if (!g) { document.body.textContent = 'ground.png missing'; return; }
   if (live) { live.id = 'live'; live.style.display = 'none'; document.body.append(live); }
   run(g);

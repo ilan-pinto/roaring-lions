@@ -1,8 +1,20 @@
 # Minimap: state and urgency (VR-36, VR-37) — mock for approval
 
-Status: **mock only, nothing built.** The sheet is `docs/polish/minimap-state/sheet.png`,
-its source `docs/polish/minimap-state/mock.html`, and the colour-vision strip is
-`docs/polish/minimap-state/cvd-strip.png`.
+Status: **approved by the lead on 2026-10-08 as drawn, VR-37 re-grading included, and
+built.**
+
+- `docs/polish/minimap-state/sheet.png` puts each state side by side: today, the approved
+  mock, and the BUILT minimap. The built frames are the real `Minimap` class drawn over
+  the live sandbox sim.
+- `mock-sheet.png` is the mock as approved.
+- `cvd-strip.png` is the colour-vision strip.
+- `mock.html` is the source for the sheets.
+
+**Second ruling (same day):** the world's objective zones get the same dash for
+"not held", with the colour unchanged. Contested is dashed too, as on the minimap
+(`objectiveZoneDashed`, `OBJECTIVE_ZONE_DASH_TILES` = 0.6 on, 0.4 off, in tiles). The
+dashes are drawn over the continuous dark halo, so the band shows in the gaps.
+`sheet.png` carries a held/not-held pair photographed in the live game.
 
 The lead's ask (2026-10-08) had three parts:
 
@@ -190,25 +202,29 @@ The ring colours depend on these resolutions, so they are part of the approval.
      already walks. This is app-only, with no sim change.
    - Ambush is the one new catalogue string (`alert.ambush`), and it goes through `t()`.
 
-## What a build would touch (for scoping, not done)
+## What the build touched
 
 - `packages/app/src/ui/minimap.ts`:
-  - `CHROME` gains `--bad`, `--good` and `--info` (all existing tokens).
-  - `MinimapObjective` gains `state` and its rectangle (or a `objectiveZonesFor` thunk).
-  - `flash()` takes `{tier, tone}` per call.
-  - `unitDots` reads `contactLevel`.
-  - The `drawFlashes` and `diamond` comments that call amber "the same look here" are
-    rewritten.
-- `packages/app/src/ui/alerts.ts`: the VR-37 tier and tone changes, and `Alert.tone` for
-  lineless alerts.
-- `packages/app/src/main.ts`: pass tier and tone at the two `minimap.flash` call sites.
-- No sim, renderer or palette change, and no new colour.
+  - `CHROME` (now exported) gains the three zone states and the four tones, all existing
+    tokens, plus `--mark-edge`.
+  - `MinimapObjective` gains `type` and `paused`.
+  - `objectiveMarks` and `zoneMarkStyle` draw the zone.
+  - `RING_BY_TIER`, `ringStyle` and `ringRadius` draw the ring.
+  - `flash()` takes a required `{tier, tone}`.
+  - `unitDots` reads `contactLevel`, and `dotShape(side, suspected)` gives `hollow`.
+- `packages/app/src/objective-zones.ts`: `zoneStateOf` is the one state rule, shared by
+  the renderer path and the minimap.
+- `packages/app/src/ui/alerts.ts`: the VR-37 tier and tone changes, and `Alert.tone` on
+  every alert.
+- `en.json` gains `alert.ambush`.
+- `packages/app/src/main.ts`: tier and tone at the two `minimap.flash` call sites.
+- `packages/render/src/three/units/overlays.ts` and `overlay-geometry.ts`: the dashed
+  zone stroke (`objectiveZoneDashed`, and `pushPolygonStrokeWorld`'s optional `dash`).
+  It adds 0 draw calls, because the dashes go into the same overlay batch.
+- No sim or palette change, and no new colour.
 
-## Out of scope, for the lead
+## Out of scope
 
-- **World held vs not held** collapses under deuteranopia and protanopia, the same pair
-  measured above. The world zone could take the same dash. That is a world-mark change,
-  so it is the lead's call.
 - **VR-36's fourth point:** the feed's bearings are in screen frame and the minimap is
   in map frame. This is unchanged and is by design (`alert-place.ts`).
 - **VR-33 "lime everywhere":** a held zone adds one more lime mark to the minimap. It is

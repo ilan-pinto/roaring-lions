@@ -3977,7 +3977,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // (shell upgrade Phase 3, Task 10); this was `t(key, params)`, raw.
         // The tier styles the line (WP-P5, C3) and ranks the jump key.
         if (a.line) hud.note(...alertNotice(a.line), { tier: a.tier });
-        if (a.marks.length > 0) minimap.flash(a.marks, performance.now());
+        if (a.marks.length > 0) minimap.flash(a.marks, performance.now(), { tier: a.tier, tone: a.tone });
         jumpTarget = nextJump(jumpTarget, a.tier, a.at);
       }
 
@@ -4437,7 +4437,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           refugeAt,
           {
             note: (line) => hud.note(...alertNotice(line), { tier: 'important' }),
-            flash: (points, nowMs) => minimap.flash(points, nowMs),
+            flash: (points, nowMs) => minimap.flash(points, nowMs, { tier: 'important', tone: flight.line.tone }),
             ping: (x, y) => renderer.pingRefuge?.(x, y),
           },
           performance.now()

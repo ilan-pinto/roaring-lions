@@ -489,6 +489,8 @@ import {
   objectiveZoneColorKey,
   objectiveZoneFallbackColor,
   objectiveZonePulse,
+  objectiveZoneDashed,
+  OBJECTIVE_ZONE_DASH_TILES,
   OBJECTIVE_ZONE_HALO_INSET_TILES,
   OBJECTIVE_ZONE_HALO_COLOR_KEY,
   OBJECTIVE_ZONE_HALO_FALLBACK,
@@ -8690,7 +8692,15 @@ export class ThreeRenderer implements Renderer {
       // why a dark halo now sits under a wider stroke and the fill is 0.12.
       const halo = this.overlayColor(OBJECTIVE_ZONE_HALO_COLOR_KEY, OBJECTIVE_ZONE_HALO_FALLBACK);
       this.overlayBatch.polygonStrokeWorld(corners, OBJECTIVE_ZONE_HALO_INSET_TILES, halo, 0.6);
-      this.overlayBatch.polygonStrokeWorld(corners, OBJECTIVE_ZONE_STROKE_INSET_TILES, color, pulse + 0.35);
+      // VR-36: not held and contested are DASHED over the continuous halo,
+      // so the dark band shows in the gaps; the colour is unchanged.
+      this.overlayBatch.polygonStrokeWorld(
+        corners,
+        OBJECTIVE_ZONE_STROKE_INSET_TILES,
+        color,
+        pulse + 0.35,
+        objectiveZoneDashed(zv.state) ? OBJECTIVE_ZONE_DASH_TILES : undefined
+      );
       this.overlayBatch.polygonFillWorld(corners, color, OBJECTIVE_ZONE_FILL_ALPHA);
     }
 

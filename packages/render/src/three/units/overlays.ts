@@ -173,6 +173,23 @@ export function objectiveZoneColorKey(state: 'held' | 'unheld' | 'contested' | '
   return OVERLAY_ACCENT_COLOR_KEY;
 }
 
+/**
+ * Whether a zone's outline is DASHED (VR-36, the lead's ruling of
+ * 2026-10-08): not held and contested are, held and target are solid. The
+ * colour is unchanged; the dash is the second channel, because held
+ * (`vfx.tracer`) and not held (`team.neutral`) measure ΔE 8-17 apart under
+ * deuteranopia and protanopia, CVD variants included
+ * (`docs/polish/minimap-state.md`). The minimap's `zoneMarkStyle` draws the
+ * same split.
+ */
+export function objectiveZoneDashed(state: 'held' | 'unheld' | 'contested' | 'target'): boolean {
+  return state === 'unheld' || state === 'contested';
+}
+
+/** The dash, `[on, off]` in world tiles: a 0.6-tile stroke, a 0.4-tile gap, so
+ *  a period is one tile and even a 3-tile zone shows three dashes a side. */
+export const OBJECTIVE_ZONE_DASH_TILES: readonly [number, number] = [0.6, 0.4];
+
 /** `overlayColor(objectiveZoneColorKey(state), ...)`'s fallback when no
  *  `resolveColor` is supplied -- Pixi's own three literals verbatim, kept
  *  next to the key function above rather than folded into it so the two can
@@ -642,8 +659,14 @@ export class OverlayBatch {
   /** The objective zone's outline -- see `pushPolygonStrokeWorld`'s own doc
    *  comment for what `insetTiles` means and why it is not a literal
    *  screen-pixel width. */
-  polygonStrokeWorld(points: readonly WorldPoint[], insetTiles: number, colorHex: string, alpha: number): void {
-    pushPolygonStrokeWorld(this.soup, points, insetTiles, cachedHexToLinear(colorHex), alpha);
+  polygonStrokeWorld(
+    points: readonly WorldPoint[],
+    insetTiles: number,
+    colorHex: string,
+    alpha: number,
+    dash?: readonly [number, number]
+  ): void {
+    pushPolygonStrokeWorld(this.soup, points, insetTiles, cachedHexToLinear(colorHex), alpha, dash);
   }
 
   /** The engagement-reticle duel line -- see `pushLineWorld`'s own doc

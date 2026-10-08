@@ -802,7 +802,11 @@ export function pushPolygonStrokeWorld(
   points: readonly WorldPoint[],
   insetTiles: number,
   color: OverlayColor,
-  alpha: number
+  alpha: number,
+  /** `[on, off]` in world tiles along each edge, or omitted for a solid
+   *  stroke (VR-36: a not-held or contested objective zone is dashed). Each
+   *  edge starts on a dash at its first corner, so every corner reads. */
+  dash?: readonly [number, number]
 ): void {
   const n = points.length;
   if (n < 3) return;
@@ -825,10 +829,33 @@ export function pushPolygonStrokeWorld(
     const t = Math.min(insetTiles / len, 0.5);
     return [x + dx * t, y + dy * t, z + dz * t];
   });
+  const lerp = (p: WorldPoint, q: WorldPoint, t: number): WorldPoint => [
+    p[0] + (q[0] - p[0]) * t,
+    p[1] + (q[1] - p[1]) * t,
+    p[2] + (q[2] - p[2]) * t,
+  ];
   for (let i = 0; i < n; i++) {
     const j = (i + 1) % n;
-    pushTriangleWorld(soup, [points[i], points[j], inner[j]], color, alpha);
-    pushTriangleWorld(soup, [points[i], inner[j], inner[i]], color, alpha);
+    if (!dash) {
+      pushTriangleWorld(soup, [points[i], points[j], inner[j]], color, alpha);
+      pushTriangleWorld(soup, [points[i], inner[j], inner[i]], color, alpha);
+      continue;
+    }
+    // Ground-plane length: the dash is measured in tiles across the map,
+    // not along a slope's rise.
+    const len = Math.hypot(points[j][0] - points[i][0], points[j][2] - points[i][2]);
+    const period = dash[0] + dash[1];
+    if (len <= 0 || period <= 0) continue;
+    for (let s0 = 0; s0 < len; s0 += period) {
+      const t0 = s0 / len;
+      const t1 = Math.min(s0 + dash[0], len) / len;
+      const o0 = lerp(points[i], points[j], t0);
+      const o1 = lerp(points[i], points[j], t1);
+      const i0 = lerp(inner[i], inner[j], t0);
+      const i1 = lerp(inner[i], inner[j], t1);
+      pushTriangleWorld(soup, [o0, o1, i1], color, alpha);
+      pushTriangleWorld(soup, [o0, i1, i0], color, alpha);
+    }
   }
 }
 
