@@ -21,6 +21,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Sim, fx, type UnitTypeJson } from '@lions/sim';
 import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
+import { paletteHex } from './palette-hex';
 import type { OverlayBatch } from './units/overlays';
 import type { RingPlacement, SelectionRingBatch } from './units/selection-ring';
 
@@ -213,5 +214,51 @@ describe('group selection overlays (WP-P3, PA-09)', () => {
     const c = w.draw();
     expect(c.envelopes).toBe(1);
     expect(c.routes).toBe(1);
+  });
+});
+
+/**
+ * VR-33: a route and an order marker wear the colour key the app hands over
+ * for the order that set them -- the issuing cursor's family key -- and a unit
+ * nobody tagged keeps the overlay accent it always had. Read back at the draw
+ * calls (`lineWorld` for a route leg, `rect` for a marker arm).
+ *
+ * Falsified: drawing every route in `OVERLAY_ACCENT_COLOR_KEY` again (the
+ * `routeColorKeys.get(i) ?? ...` lookup replaced by the accent) reddens the
+ * first spec; dropping the marker's own key reddens the second.
+ */
+describe('route and marker colour follow the issuing order (VR-33)', () => {
+  const MOVE_KEY = 'vfx.interceptor';
+  const ATTACK_KEY = 'team.hostile_text';
+
+  it('two orders of two families draw two routes, each in its own key; an untagged unit stays the accent', () => {
+    const w = setUp();
+    w.renderer.selection = [...w.ids];
+    w.order(w.ids.slice(0, 5), [34.5, 8.5]);
+    w.order(w.ids.slice(5, 10), [34.5, 38.5]);
+    w.order(w.ids.slice(10), [40.5, 20.5]);
+    w.renderer.setRouteColorKey(w.ids.slice(0, 5), MOVE_KEY);
+    w.renderer.setRouteColorKey(w.ids.slice(5, 10), ATTACK_KEY);
+    w.advance(4);
+    w.draw();
+    const colours = new Set(w.lines.mock.calls.map((c) => c[3]));
+    expect(colours).toEqual(new Set([paletteHex(MOVE_KEY), paletteHex(ATTACK_KEY), paletteHex('vfx.tracer')]));
+    // A null tag puts a unit back on the accent.
+    w.renderer.setRouteColorKey(w.ids.slice(0, 10), null);
+    w.draw();
+    expect(new Set(w.lines.mock.calls.map((c) => c[3]))).toEqual(new Set([paletteHex('vfx.tracer')]));
+  });
+
+  it('a marker wears the key it was dropped with, and the accent with none', () => {
+    const w = setUp();
+    const rects = vi.spyOn((w.renderer as unknown as Priv).overlayBatch, 'rect');
+    w.renderer.addOrderMarker(20.5, 20.5, MOVE_KEY);
+    w.draw();
+    expect(new Set(rects.mock.calls.map((c) => c[5]))).toEqual(new Set([paletteHex(MOVE_KEY)]));
+    const v = setUp();
+    const vRects = vi.spyOn((v.renderer as unknown as Priv).overlayBatch, 'rect');
+    v.renderer.addOrderMarker(20.5, 20.5);
+    v.draw();
+    expect(new Set(vRects.mock.calls.map((c) => c[5]))).toEqual(new Set([paletteHex('vfx.tracer')]));
   });
 });

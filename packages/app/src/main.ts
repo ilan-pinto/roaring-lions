@@ -154,6 +154,8 @@ import {
   type IntentWorld,
 } from './input/intents';
 import { ANIMATED_CURSORS, type CursorName } from './input/cursor';
+import { intentRoute, markerFamily, orderColorKey, plainOrderSight, type PlainOrderSight } from './input/order-family';
+import { ORDER_SIGHT } from './ui/order-sight';
 import { cursorAt, pointerPoint, simIntentWorld } from './input/pointer';
 import { cursorAnimDriver } from './input/cursor-anim';
 import { prefersReducedMotion } from './ui/motion';
@@ -2386,9 +2388,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       canSmoke: (i) => sim.unitTypes[sim.state.typeIdx[i]].canSmoke,
       passengerCount: (i) => sim.passengerCount(i),
     });
-    for (const intent of res.intents) dispatch(intent);
+    for (const intent of res.intents) dispatchOrder(intent, 'move');
     if (res.note) hud.note(res.note.text, res.note.tone);
-    if (res.marker) renderer.addOrderMarker(w.x, w.y);
+    if (res.marker) renderer.addOrderMarker(w.x, w.y, orderColorKey(markerFamily(res.intents, 'move')));
   };
   /**
    * Arm (or disarm) a point-targeted order.
@@ -2422,7 +2424,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // moved, not rewritten, and a dead unit's halt is a no-op in the sim.
     halt: () => {
       const mine = renderer.selection.filter((i) => sim.state.side[i] === 0);
-      if (mine.length) dispatch({ kind: 'halt', ids: mine });
+      if (mine.length) dispatchOrder({ kind: 'halt', ids: mine }, 'move');
       const none = haltNote(mine.length);
       if (none) hud.note(none.text, none.tone);
     },
@@ -3235,6 +3237,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     applyIntent(sim, intent);
     for (const fn of intentListeners) fn(intent);
   };
+  /** `dispatch`, then tell the renderer which order family the intent's
+   *  units now route under (VR-33) -- what `issueOrder`'s `sink.route` does
+   *  for a pointer order, for the order paths that dispatch directly. */
+  const dispatchOrder = (intent: PlayerIntent, sight: PlainOrderSight): void => {
+    dispatch(intent);
+    const route = intentRoute(intent, sight);
+    if (route) renderer.setRouteColorKey(route.ids, orderColorKey(route.family));
+  };
   intentListeners.push((intent) => voice.observe(intent));
   // The feed line for a pinned or broken unit's order (GH-262). `applyIntent`
   // above only queues the command; `sim.state` is still pre-order here, which
@@ -3261,7 +3271,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const orderSink: OrderSink = {
     dispatch,
     note: (text, tone) => hud.note(text, tone),
-    marker: (x, y) => renderer.addOrderMarker(x, y),
+    marker: (x, y, family) => renderer.addOrderMarker(x, y, orderColorKey(family)),
+    route: (ids, family) => renderer.setRouteColorKey(ids, orderColorKey(family)),
     // Polish pass F: an order that resolved to nothing says so.
     deny: () => audio.playCue(CRITICAL_CUES.uiDeny),
   };
@@ -3404,7 +3415,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             : t('main.note.supportRefused'),
           ok ? 'info' : 'mute'
         );
-        if (ok) renderer.addOrderMarker(w.x, w.y);
+        if (ok) renderer.addOrderMarker(w.x, w.y, orderColorKey(ORDER_SIGHT[call].family));
         else audio.playCue(CRITICAL_CUES.uiDeny);
         production?.setArmed(null);
         dragStart = null;
@@ -3438,9 +3449,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               confirm: ev.altKey,
             });
             voice.hint({ hostile: renderer.hoverEntity >= 0 });
-            for (const intent of move.intents) dispatch(intent);
+            // Armed attack-move: the order was given under the attack-move
+            // sight, so its route and marker wear that family (VR-33).
+            const sight = plainOrderSight(false, true);
+            for (const intent of move.intents) dispatchOrder(intent, sight);
             if (move.note) hud.note(move.note.text, move.note.tone);
-            if (move.marker) renderer.addOrderMarker(at.x, at.y);
+            if (move.marker) renderer.addOrderMarker(at.x, at.y, orderColorKey(markerFamily(move.intents, sight)));
             if (orderDenied(move, mine.length)) audio.playCue(CRITICAL_CUES.uiDeny);
           }
         }
@@ -3524,10 +3538,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // this same contextmenu with ctrlKey true, and ctrl-click is the
     // standard Mac idiom for opening a context menu — that click already
     // means "confirmed attack," not "let me reconsider."
-    voice.hint({ hostile: renderer.hoverEntity >= 0 });
+    const hostile = renderer.hoverEntity >= 0;
+    voice.hint({ hostile });
     issueOrder(intentWorld, orderSink, myLiving(), w.x, w.y, {
       append: ev.shiftKey,
       confirm: ev.altKey,
+      // The sight the hover cursor showed: `advance` over a hostile, `move`
+      // otherwise -- the route and marker wear its family (VR-33).
+      sight: plainOrderSight(hostile),
     });
   });
   // The keyboard, as data (Task 5): `resolveKey` is the one place a raw

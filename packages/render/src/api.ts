@@ -532,7 +532,24 @@ export interface Renderer {
    *  ignores this; `main.ts` writes both. */
   objectiveZones?: readonly ObjectiveZoneView[];
 
-  addOrderMarker(x: number, y: number): void;
+  /**
+   * A one-shot marker blooming at the ordered point. `colorKey` is the
+   * palette key of the order family the cursor showed (VR-33: a move order's
+   * marker is the move cursor's cyan, not tracer lime); omitted or null, the
+   * backend's overlay accent -- a minimap ping, which is no order.
+   */
+  addOrderMarker(x: number, y: number, colorKey?: string | null): void;
+  /**
+   * VR-33: the units `ids` were just given an order, and the route the
+   * backend draws for them while they are under way wears `colorKey` -- the
+   * palette key of that order's family, the same key its cursor is drawn in.
+   * Null puts them back on the overlay accent (an order whose cursor is not a
+   * family sight: garrison, demolish, charge). The latest call wins; a unit
+   * never named keeps the accent. The app owns the family-to-key table
+   * (`ui/order-sight.ts`'s `ORDER_FAMILY_COLOR_KEY`); a backend only resolves
+   * the key it is handed.
+   */
+  setRouteColorKey(ids: readonly number[], colorKey: string | null): void;
   /**
    * GH-279: mark the refuge at `(x, y)`, in tiles, for a few seconds -- the
    * backend owns the look and the envelope (on three: a dashed ring that

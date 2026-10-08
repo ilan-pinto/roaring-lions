@@ -12,6 +12,8 @@
 
 import { fx, type Command } from '@lions/sim';
 import { t } from '../i18n/t';
+import type { OrderFamily } from '../ui/order-sight';
+import { intentRoute, markerFamily, type PlainOrderSight } from './order-family';
 
 /** The narrow slice of Sim `applyIntent` needs — so a test can record instead
  *  of constructing a world. */
@@ -422,7 +424,12 @@ export function resolveKeyVerb(
 export interface OrderSink {
   dispatch(intent: PlayerIntent): void;
   note(text: string, tone: 'info' | 'mute'): void;
-  marker(x: number, y: number): void;
+  /** The marker wears the family of the order the cursor showed (VR-33);
+   *  null keeps the renderer's overlay accent. */
+  marker(x: number, y: number, family: OrderFamily | null): void;
+  /** VR-33: the units one dispatched intent ordered, and the family their
+   *  route now wears -- called after that intent's `dispatch`. */
+  route(ids: readonly number[], family: OrderFamily | null): void;
   /** The order resolved to nothing (`orderDenied`): the deny cue (polish
    *  pass F). Before it, a refused click was silent and only the cursor said
    *  so -- and the cursor is gone the moment the click lands. */
@@ -468,7 +475,7 @@ export function issueOrder(
   ids: number[],
   x: number,
   y: number,
-  mods: { append: boolean; confirm: boolean }
+  mods: { append: boolean; confirm: boolean; sight?: PlainOrderSight }
 ): Resolution {
   const res = resolvePointer(world, {
     ids,
@@ -478,9 +485,16 @@ export function issueOrder(
     armed: null,
     confirm: mods.confirm,
   });
-  for (const intent of res.intents) sink.dispatch(intent);
+  // The sight the cursor showed for a plain order (VR-33): `move` unless
+  // the caller saw a hostile under the pointer.
+  const sight = mods.sight ?? 'move';
+  for (const intent of res.intents) {
+    sink.dispatch(intent);
+    const route = intentRoute(intent, sight);
+    if (route) sink.route(route.ids, route.family);
+  }
   if (res.note) sink.note(res.note.text, res.note.tone);
-  if (res.marker) sink.marker(x, y);
+  if (res.marker) sink.marker(x, y, markerFamily(res.intents, sight));
   if (orderDenied(res, ids.length)) sink.deny();
   return res;
 }

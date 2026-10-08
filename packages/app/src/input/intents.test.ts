@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { OrderFamily } from '../ui/order-sight';
 import { fx, type Command } from '@lions/sim';
 import {
   applyIntent,
@@ -180,13 +181,24 @@ type Effect =
 /** Records the three things a resolved click can do, in the order it did
  *  them — the order matters, because a note explaining a refusal that arrived
  *  after the marker would read as a note about the next click. */
-function orderSink(): OrderSink & { log: Effect[] } {
+function orderSink(): OrderSink & { log: Effect[]; routes: { ids: readonly number[]; family: OrderFamily | null }[]; markerFamilies: (OrderFamily | null)[] } {
   const log: Effect[] = [];
+  // Kept off `log`: the effect ORDER the tests above pin is dispatch, note,
+  // marker, deny; the route tag (VR-33) rides each dispatch and is read on
+  // its own, in the VR-33 block below.
+  const routes: { ids: readonly number[]; family: OrderFamily | null }[] = [];
+  const markerFamilies: (OrderFamily | null)[] = [];
   return {
     log,
+    routes,
+    markerFamilies,
     dispatch: (intent) => log.push({ did: 'dispatch', intent }),
     note: (text, tone) => log.push({ did: 'note', text, tone }),
-    marker: (x, y) => log.push({ did: 'marker', x, y }),
+    marker: (x, y, family) => {
+      log.push({ did: 'marker', x, y });
+      markerFamilies.push(family);
+    },
+    route: (ids, family) => routes.push({ ids, family }),
     deny: () => log.push({ did: 'deny' }),
   };
 }
@@ -348,5 +360,28 @@ describe('orderDenied (polish pass F)', () => {
   it('an order that produced an intent is not one', () => {
     const order = { kind: 'order' as const, verb: 'attackMove' as const, ids: [1], x: 1, y: 1, append: false };
     expect(orderDenied({ ...base, intents: [order] }, 1)).toBe(false);
+  });
+});
+
+describe('issueOrder tags each route with the sight it was issued under (VR-33)', () => {
+  it('a plain order on open ground routes under the move family, its marker too', () => {
+    const s = orderSink();
+    issueOrder(world(), s, [1, 2], 4.5, 6.5, { append: false, confirm: false });
+    expect(s.routes).toEqual([{ ids: [1, 2], family: 'manoeuvre' }]);
+    expect(s.markerFamilies).toEqual(['manoeuvre']);
+  });
+
+  it('the same click under the attack-move sight routes offensive', () => {
+    const s = orderSink();
+    issueOrder(world(), s, [1, 2], 4.5, 6.5, { append: false, confirm: false, sight: 'attackMove' });
+    expect(s.routes).toEqual([{ ids: [1, 2], family: 'offensive' }]);
+    expect(s.markerFamilies).toEqual(['offensive']);
+  });
+
+  it('a click that orders nothing tags no route', () => {
+    const s = orderSink();
+    issueOrder(world({ groundAt: () => 'blocked' }), s, [1], 4.5, 6.5, { append: false, confirm: false });
+    expect(s.routes).toEqual([]);
+    expect(s.markerFamilies).toEqual([]);
   });
 });

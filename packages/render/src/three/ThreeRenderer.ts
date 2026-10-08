@@ -2027,7 +2027,11 @@ export class ThreeRenderer implements Renderer {
   private frameN = 0;
   /** A fading move/attack order crosshair per recent command -- the three.js
    *  counterpart of `PixiRenderer.orderMarkers` (`renderer.ts:488`). */
-  private orderMarkers: { x: number; y: number; ttl: number }[] = [];
+  private orderMarkers: { x: number; y: number; ttl: number; colorKey: string | null }[] = [];
+  /** VR-33: the palette key each unit's route wears, written by
+   *  `setRouteColorKey` when the app issues an order. A unit absent from it
+   *  draws the overlay accent, as every route did before. */
+  private readonly routeColorKeys = new Map<number, string>();
   /**
    * WP-P3 (PA-09): what the last `updateOverlays` drew for the selection,
    * counted at the draw calls themselves -- range envelopes, route paths,
@@ -5726,8 +5730,19 @@ export class ThreeRenderer implements Renderer {
    * it is NOT the last statement: a throw there skipped `production.setArmed`
    * and left the drag box stuck on screen.
    */
-  addOrderMarker(x: number, y: number): void {
-    this.orderMarkers.push({ x, y, ttl: ORDER_MARKER_TTL });
+  addOrderMarker(x: number, y: number, colorKey: string | null = null): void {
+    this.orderMarkers.push({ x, y, ttl: ORDER_MARKER_TTL, colorKey });
+  }
+
+  /** VR-33 (`Renderer.setRouteColorKey`): the route these units draw while
+   *  under way wears the issuing order family's key; null returns them to the
+   *  overlay accent. Presentation only -- read by `updateOverlays` and
+   *  nothing else. */
+  setRouteColorKey(ids: readonly number[], colorKey: string | null): void {
+    for (const id of ids) {
+      if (colorKey === null) this.routeColorKeys.delete(id);
+      else this.routeColorKeys.set(id, colorKey);
+    }
   }
 
   /**
@@ -8590,8 +8605,12 @@ export class ThreeRenderer implements Renderer {
     // `posX` at the last tick (its `curX`-derived `px`/`py` are dead code,
     // `void`ed) -- a 20 Hz tail on a 60 fps sprite.
     if (this.selection.length > 0) {
-      const routeColor = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY);
-      const unitRoutes: UnitRoute[] = [];
+      // VR-33: routes are bucketed by the colour of the order that set them
+      // (`setRouteColorKey`), so a move order's path is the move cursor's
+      // cyan and an attack-move's the attack-move cursor's colour. Each
+      // bucket merges on its own: two orders of different families to one
+      // place are two orders, and draw as two.
+      const routesByKey = new Map<string, UnitRoute[]>();
       for (const i of this.selection) {
         if (i >= n || st.alive[i] === 0 || st.moving[i] === 0) continue;
         const ix = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
@@ -8603,32 +8622,38 @@ export class ThreeRenderer implements Renderer {
           const [wx, wy] = this.sim.waypointAt(i, k);
           waypoints.push([fx.toNumber(wx), fx.toNumber(wy)]);
         }
-        unitRoutes.push({ points: queuedRouteLegs([ix, iy], [fx.toNumber(goal[0]), fx.toNumber(goal[1])], waypoints) });
+        const key = this.routeColorKeys.get(i) ?? OVERLAY_ACCENT_COLOR_KEY;
+        let bucket = routesByKey.get(key);
+        if (bucket === undefined) routesByKey.set(key, (bucket = []));
+        bucket.push({ points: queuedRouteLegs([ix, iy], [fx.toNumber(goal[0]), fx.toNumber(goal[1])], waypoints) });
       }
       // WP-P3 (PA-09): one path per ORDER, not per unit -- the units an
       // order sent to one place (a formation's neighbouring slots) draw one
       // merged route from their centroid to the group's destination, and a
       // ring round the slots they will stand on (`units/group-overlays.ts`).
       // One unit alone is its own group, and draws exactly what it drew.
-      for (const route of groupRoutes(unitRoutes)) {
-        const legs = route.points;
-        if (legs.length < 2) continue;
-        census.routes++;
-        census.destinations++;
-        for (let k = 1; k < legs.length; k++) {
-          const [ax, ay] = legs[k - 1];
-          const [bx, by] = legs[k];
-          const p0: [number, number, number] = [ax, groundWorldY(elevation, width, height, ax, ay), ay];
-          const p1: [number, number, number] = [bx, groundWorldY(elevation, width, height, bx, by), by];
-          this.overlayBatch.lineWorld(p0, p1, ROUTE_LINE_WIDTH_PX, routeColor, ROUTE_LINE_ALPHA);
-          this.overlayBatch.ellipseFan(p1, ROUTE_NODE_RADIUS_PX, ROUTE_NODE_RADIUS_PX, routeColor, ROUTE_NODE_ALPHA);
-          if (k === legs.length - 1 && route.members > 1) {
-            const { rightR, upR } = tileRadiusToEllipsePx(
-              route.spreadTiles + GROUP_DESTINATION_MARGIN_TILES,
-              TILE_W,
-              TILE_H
-            );
-            this.overlayBatch.ellipseRing(p1, rightR, upR, ROUTE_LINE_WIDTH_PX, routeColor, ROUTE_NODE_ALPHA);
+      for (const [key, unitRoutes] of routesByKey) {
+        const routeColor = this.overlayColor(key);
+        for (const route of groupRoutes(unitRoutes)) {
+          const legs = route.points;
+          if (legs.length < 2) continue;
+          census.routes++;
+          census.destinations++;
+          for (let k = 1; k < legs.length; k++) {
+            const [ax, ay] = legs[k - 1];
+            const [bx, by] = legs[k];
+            const p0: [number, number, number] = [ax, groundWorldY(elevation, width, height, ax, ay), ay];
+            const p1: [number, number, number] = [bx, groundWorldY(elevation, width, height, bx, by), by];
+            this.overlayBatch.lineWorld(p0, p1, ROUTE_LINE_WIDTH_PX, routeColor, ROUTE_LINE_ALPHA);
+            this.overlayBatch.ellipseFan(p1, ROUTE_NODE_RADIUS_PX, ROUTE_NODE_RADIUS_PX, routeColor, ROUTE_NODE_ALPHA);
+            if (k === legs.length - 1 && route.members > 1) {
+              const { rightR, upR } = tileRadiusToEllipsePx(
+                route.spreadTiles + GROUP_DESTINATION_MARGIN_TILES,
+                TILE_W,
+                TILE_H
+              );
+              this.overlayBatch.ellipseRing(p1, rightR, upR, ROUTE_LINE_WIDTH_PX, routeColor, ROUTE_NODE_ALPHA);
+            }
           }
         }
       }
@@ -8640,8 +8665,9 @@ export class ThreeRenderer implements Renderer {
     this.orderMarkers = this.orderMarkers.filter((m) => --m.ttl > 0);
     census.orderMarkers = this.orderMarkers.length;
     if (this.orderMarkers.length > 0) {
-      const markerColor = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY);
       for (const m of this.orderMarkers) {
+        // VR-33: the issuing order family's key, else the overlay accent.
+        const markerColor = this.overlayColor(m.colorKey ?? OVERLAY_ACCENT_COLOR_KEY);
         const groundYm = groundWorldY(elevation, width, height, m.x, m.y);
         const manchor: [number, number, number] = [m.x, groundYm, m.y];
         const a = m.ttl / ORDER_MARKER_TTL;
