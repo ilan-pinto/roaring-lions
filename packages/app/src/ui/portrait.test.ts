@@ -6,7 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { portraitIds, unitIcon, unitPlate, type UnitPortraits } from './portrait';
+import { KIT_PLATE_LEVEL, portraitIds, unitIcon, unitPlate, type PlateCatalogue, type UnitPortraits } from './portrait';
 
 describe('unitIcon (GH-153: the Blender portrait, or nothing)', () => {
   const portraits: Record<string, UnitPortraits> = {
@@ -137,30 +137,34 @@ describe('unit portrait coverage (GH-153)', () => {
 
 describe('unitPlate', () => {
   // The real shape `tools/src/perf/unit-plates.ts` writes to
-  // `assets/ui/plates/units/manifest.json`.
+  // `assets/ui/plates/units/manifest.json` (and, with `--kit`, to `kit/`).
   const fakeManifest = {
     mbt_lavi: { file: 'mbt_lavi.jpg', width: 1800, height: 1200, extent: [636, 448] },
+    inf_squad: { file: 'inf_squad.jpg', width: 1800, height: 1200, extent: [154, 230] },
   };
-  const fakeKnownFiles = new Set(['mbt_lavi.jpg']);
+  const fakeKitManifest = {
+    mbt_lavi: { file: 'mbt_lavi.jpg', width: 1800, height: 1200, extent: [690, 470] },
+  };
+  const cat = (baseFiles: string[], kitFiles: string[] = []): PlateCatalogue => ({
+    base: { manifest: fakeManifest, files: new Set(baseFiles) },
+    kit: { manifest: fakeKitManifest, files: new Set(kitFiles) },
+  });
+  const both = cat(['mbt_lavi.jpg', 'inf_squad.jpg'], ['mbt_lavi.jpg']);
+  const BASE_LAVI = { url: '/ui/plates/units/mbt_lavi.jpg', size: [1800, 1200], extent: [636, 448] };
+  const KIT_LAVI = { url: '/ui/plates/units/kit/mbt_lavi.jpg', size: [1800, 1200], extent: [690, 470] };
 
   it('resolves a known id from the manifest shape', () => {
-    expect(unitPlate('/ui/plates/units/', 'mbt_lavi', fakeManifest, fakeKnownFiles)).toEqual({
-      url: '/ui/plates/units/mbt_lavi.jpg',
-      size: [1800, 1200],
-      extent: [636, 448],
-    });
+    expect(unitPlate('/ui/plates/units/', 'mbt_lavi', 0, both)).toEqual(BASE_LAVI);
   });
 
   it('accepts a base with no trailing slash too', () => {
-    expect(unitPlate('/ui/plates/units', 'mbt_lavi', fakeManifest, fakeKnownFiles)).toEqual({
-      url: '/ui/plates/units/mbt_lavi.jpg',
-      size: [1800, 1200],
-      extent: [636, 448],
-    });
+    expect(unitPlate('/ui/plates/units', 'mbt_lavi', 0, both)).toEqual(BASE_LAVI);
+    expect(unitPlate('/ui/plates/units', 'mbt_lavi', 3, both)).toEqual(KIT_LAVI);
   });
 
   it('returns null for an id the manifest never names', () => {
-    expect(unitPlate('/ui/plates/units/', 'nope', fakeManifest, fakeKnownFiles)).toBeNull();
+    expect(unitPlate('/ui/plates/units/', 'nope', 0, both)).toBeNull();
+    expect(unitPlate('/ui/plates/units/', 'nope', 3, both)).toBeNull();
   });
 
   it('returns null for a manifest entry whose file the glob never captured', () => {
@@ -168,13 +172,35 @@ describe('unitPlate', () => {
     // named, but its JPEG was never written (or was deleted). Reads exactly
     // like an unknown id, deliberately: a broken `<img>` is worse than no
     // picture at all.
-    expect(unitPlate('/ui/plates/units/', 'mbt_lavi', fakeManifest, new Set())).toBeNull();
+    expect(unitPlate('/ui/plates/units/', 'mbt_lavi', 0, cat([]))).toBeNull();
+  });
+
+  // Parent spec §3.1: a kitted plate, where one exists, replaces the base at
+  // L >= 2.
+  it('gives the base plate at kit level 0 and 1', () => {
+    expect(KIT_PLATE_LEVEL).toBe(2);
+    expect(unitPlate('/ui/plates/units/', 'mbt_lavi', 0, both)).toEqual(BASE_LAVI);
+    expect(unitPlate('/ui/plates/units/', 'mbt_lavi', 1, both)).toEqual(BASE_LAVI);
+    expect(unitPlate('/ui/plates/units/', 'mbt_lavi', undefined, both)).toEqual(BASE_LAVI);
+  });
+
+  it('gives the kitted plate at kit level 2 and 3', () => {
+    expect(unitPlate('/ui/plates/units/', 'mbt_lavi', 2, both)).toEqual(KIT_LAVI);
+    expect(unitPlate('/ui/plates/units/', 'mbt_lavi', 3, both)).toEqual(KIT_LAVI);
+  });
+
+  it('gives the base plate at L3 to a type with no kitted plate', () => {
+    expect(unitPlate('/ui/plates/units/', 'inf_squad', 3, both)?.url).toBe('/ui/plates/units/inf_squad.jpg');
+  });
+
+  it('falls back to the base plate when the kitted file is not on disk', () => {
+    expect(unitPlate('/ui/plates/units/', 'mbt_lavi', 3, cat(['mbt_lavi.jpg']))).toEqual(BASE_LAVI);
   });
 
   it('reads the real shipped catalogue by default', () => {
-    // No manifest/catalogue argument: exercises the module's own
-    // `import.meta.glob` + `manifest.json` join against whatever
-    // `pnpm plates:units` actually wrote under `assets/ui/plates/units/`.
+    // No catalogue argument: exercises the module's own `import.meta.glob` +
+    // `manifest.json` join against whatever `pnpm plates:units` actually
+    // wrote under `assets/ui/plates/units/`.
     const plate = unitPlate('/ui/plates/units/', 'mbt_lavi');
     expect(plate).not.toBeNull();
     expect(plate?.url).toContain('mbt_lavi');
@@ -185,6 +211,38 @@ describe('unitPlate', () => {
     // own frame is a number that means nothing.
     expect(plate?.size[0]).toBeGreaterThan(plate?.extent[0] ?? 0);
     expect(plate?.size[1]).toBeGreaterThan(plate?.extent[1] ?? 0);
+  });
+
+  // `pnpm plates:units --kit` (GH-238 plan 3 Task 9): one kitted plate per
+  // kitted vehicle. The list is a literal, not `KIT_VEHICLE_TYPES`, so a type
+  // dropped from both sides at once still fails here.
+  const KITTED = [
+    'apc_eitan',
+    'apc_kipod',
+    'dozer_d9',
+    'heli_peten',
+    'ifv_namer',
+    'jeep_shoded',
+    'mbt_lavi',
+    'scout_shachaf',
+  ];
+
+  it('ships a kitted plate, on disk and in the kit manifest, for exactly the eight kitted vehicles', () => {
+    const dir = path.resolve(__dirname, '../../../../assets/ui/plates/units/kit');
+    const kitManifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')) as {
+      plates: Record<string, { file: string; width: number; height: number; extent: number[] }>;
+    };
+    expect(Object.keys(kitManifest.plates).sort()).toEqual(KITTED);
+    for (const id of KITTED) {
+      const e = kitManifest.plates[id];
+      expect(fs.existsSync(path.join(dir, e.file)), e.file).toBe(true);
+      expect([e.width, e.height], id).toEqual([1800, 1200]);
+      expect(e.extent[0], id).toBeGreaterThan(0);
+      expect(e.extent[1], id).toBeGreaterThan(0);
+      // Through the module's own catalogue, at L3: the kitted file, not the base.
+      expect(unitPlate('/ui/plates/units/', id, 3)?.url, id).toBe(`/ui/plates/units/kit/${e.file}`);
+      expect(unitPlate('/ui/plates/units/', id, 1)?.url, id).toBe(`/ui/plates/units/${id}.jpg`);
+    }
   });
 });
 

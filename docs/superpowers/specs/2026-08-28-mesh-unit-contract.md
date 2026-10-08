@@ -358,3 +358,119 @@ optional for a file the pass does not touch.
   checks and falls back to one team player if one does. `extras.rl_motion`
   (`{ version, base }`) marks a file as through the pass, which refuses it
   a second time.
+
+---
+
+# v5 (vehicles) — kit parts (2026-10-07, GH-238)
+
+A vehicle-side v5, alongside the infantry motion pass above, and independent of
+it: nothing here touches a rigged team. Plan:
+`docs/superpowers/plans/2026-10-07-kitted-vehicles.md`; spec:
+`docs/superpowers/specs/2026-10-06-kitted-vehicles.md` §5.3. An upgraded
+vehicle looks different: each of the eight KDF vehicles carries its kit in its
+one GLB, and the renderer keeps what the type's bought tiers own.
+
+## The node
+
+- **A kit part is a node named `kit_<track>_<tier>_<host>`**
+  (`kit_armour_3_turret_hull`), one per (track, tier, host), with
+  `extras.rl_kit = { track, tier, host }` and `extras.rl_role` equal to its
+  host's role (absent when the host carries none, never `''`). `track` is lower-case letters only and is one the unit's own
+  JSON declares under `upgrades` (no firepower part on the D9); `tier` is 1, 2
+  or 3. The name is derived from `rl_kit`, never the other way round, and the
+  two must agree.
+- **It shares its host's parent and its host's local transform**, so its
+  vertices are in the host's own space and the runtime merge is a
+  concatenation with no matrix. A turret part hangs under `turret_pivot` and
+  turns with the turret; a hull part is a scene child. The world-to-host
+  transform is done once, at graft time: positions through
+  `inverse(hostWorld) x partWorld`, normals through that matrix's
+  inverse-transpose, renormalised.
+- **It has exactly ONE primitive, indexed iff its host's is, carrying exactly
+  the host's attribute set and the host's material.** (`mergeGeometries`
+  concatenates one geometry onto one, and cannot mix indexed with unindexed.) `POSITION` and `NORMAL` always, `TEXCOORD_0` iff the host has
+  it, and the host's material (none on a palette host -- the Namer, Eitan,
+  Kipod and Shachaf weapon stations). On a textured host the part's colour IS
+  the texel its UVs are pinned to (ruling K3); on a palette host it draws the
+  host's ramp. A host is a live mesh node with exactly one primitive.
+- **A kit part is a leaf**, and it owns its mesh: no other node, and no
+  `WRECK_` twin, references it.
+- **Tiers are cumulative within a track**: tier 3 draws tiers 1, 2 and 3.
+
+## Who writes it
+
+`art/parts/kit/<id>.glb` is the SOURCE, written in Blender by
+`tools/vehicles/export_vehicle_kit.py`: one node per part at the identity at
+the scene root, vertices in vehicle world space, `POSITION`, `NORMAL` and
+`TEXCOORD_0` (pinned even when the host is a palette node; the graft drops it
+there), no material. It lives outside `art/meshes/` on purpose -- it is an
+intermediate, like a `.blend`, and `encode:meshes` ships every `.glb` under
+`art/meshes/`.
+
+`pnpm kit:meshes [-- --id=<vehicle>]` (`tools/src/meshes/kit-pass.ts`) GRAFTS
+the source into `art/meshes/vehicles/<id>.glb` with gltf-transform: it strips
+every `kit_*` node of the target (with the meshes and accessors only they
+used), then adds each part. It adds nodes, meshes and accessors and touches
+nothing else, so **every live accessor is byte-identical before and after**,
+and a second run writes the same bytes. It refuses, before changing anything:
+an unknown or ambiguous host, a part with no host, a name that does not match
+its `rl_kit`, a tier outside 1-3, a track the unit does not declare, a
+duplicate (track, tier, host), a material on a source part, a source part of
+more than one primitive, a part indexed when its host is not (or the reverse),
+and a textured host whose part has no `TEXCOORD_0`. With no source at all it reports "no kit
+sources" and exits 0; `--id=` naming a vehicle with no source is an error.
+
+Pipeline order for a vehicle: export -> `pnpm kit:meshes` ->
+`pnpm wreck:meshes` -> `pnpm encode:meshes`.
+
+## What the other passes and readers do with it
+
+- **`pnpm wreck:meshes` never twins a `kit_*` node, never measures one, and
+  never keys one in a clip.** A hull-hosted part is a scene child; the clips
+  must not reach it, because the renderer deletes it before a mixer exists.
+  A grafted file therefore wrecks exactly as its ungrafted self does
+  (`wreck-pass.test.ts` pins it: same `WRECK_` children, matrices, meshes and
+  channel targets). The kit's wreck is its host's twin, which shares the
+  merged geometry at runtime.
+- **`buildVehicleMeshTemplate(gltf, id, textured, tiers?)` calls
+  `applyVehicleKit` first.** Kept parts merge into the host geometry, host
+  first, kit after (so `setDrawRange(0, hostCount)` can hide the kit, which is
+  the `kit` debug layer). The new geometry is swapped onto EVERY mesh that
+  shared the old one -- the live node and its `WRECK_` twin -- so the wreck
+  carries its kit with the host's own displacement. Every `kit_*` node is then
+  removed, owned or not. `tiers` absent or all 0 leaves the shipped template
+  exactly.
+- **Every other reader of a vehicle GLB ignores `kit_*`**: the mesh gate's
+  shipped and wreck renders, the unit portraits, the legacy vehicle sheets, the
+  baked-pose tool, the selection-ring footprints, the kit blockout, the wreck
+  census in `validate_mesh_assets.py`, and the two exporters that re-open a
+  shipped vehicle (`export_officer_armour.py` from the Lavi,
+  `export_meshy_apache_gunship.py` from the Peten), which would otherwise hand
+  the command Lavi and the gunship every kit part of every tier.
+  `mesh-vehicle-shipped.test.ts` reads the contract above out of every shipped
+  file's bytes and names how many kit nodes it saw, and holds every vehicle's
+  shipped `kit_*` names to exactly its source's (none without one), so a
+  source exported and never grafted is a red test naming the commands to run.
+
+## Colour, and what gates it (as built)
+
+- **A kit part's colour is the texel its UVs are pinned to** (K3), one texel of
+  the vehicle's own bake per tone: `paint` (the 25th-percentile luminance texel
+  of `hull_hull`) for every armour face, `metal` for every sensors and firepower
+  face, `dark` only for lenses, windows and apertures. Where the bake has no
+  steel (a uniform metallic map and no textured `*_metal` node: the Namer,
+  Eitan, Kipod, Shachaf and D9) `metal` is the greyest paint, and the exporter
+  prints a DEVIATION line. A palette host (the four weapon stations) takes no
+  UVs and draws its ramp.
+- **The exporter refuses** a part over 1.10x its triangle budget, a part off the
+  approved mock by more than 3 cm or 10% (a named, printed DEVIATION excuses one
+  axis of one node), a vehicle over 5,000 kit triangles, and any clash or
+  containment between kit parts and the shipped nodes (`kit_clash.py`, turret
+  parts swept over 72 headings), unless a named exemption scoped to those
+  headings excuses it.
+- **`pnpm validate:meshes` reads the kit from the bytes** (name, host, TRS,
+  material, one primitive, declared track and tier, <= 5,000 triangles) and
+  requires a node for EVERY (track, tier) a `KIT_VEHICLES` member's unit JSON
+  declares, and **from renders**: the maximum kit and the twelve variants (each
+  track alone at tiers 1-3, then L1-L3; nine for the D9), each IoU-checked
+  below 0.88 against every other unit.

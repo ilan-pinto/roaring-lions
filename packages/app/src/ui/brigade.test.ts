@@ -440,6 +440,52 @@ describe('showBrigade — the bay', () => {
     expect(plate?.getAttribute('title')).toBe('Namer IFV: no photograph yet');
   });
 
+  // GH-238 plan 3 Task 9: from kit level 2 a kitted vehicle's plate is its
+  // kitted photograph, so the bay hands its resolver the same kit level its
+  // own kit mark reads (`data-kit`).
+  it("asks for the plate at the unit's own kit level", () => {
+    for (const [owned, level] of [
+      [undefined, 0],
+      [{ inf_squad: { armour: 1 } }, 1],
+      [{ inf_squad: { armour: 2, sensors: 1 } }, 3],
+    ] as const) {
+      const asked: [string, number][] = [];
+      const host = mount({
+        units,
+        ledger: {},
+        possibleStars: 78,
+        owned: owned as never,
+        plate: (id, kitLevel) => {
+          asked.push([id, kitLevel]);
+          return { url: `/ui/plates/units/${id}.jpg`, size: [1800, 1200], extent: [600, 400] };
+        },
+      });
+      expect(asked.at(-1), JSON.stringify(owned)).toEqual(['inf_squad', level]);
+      expect(host.querySelector('.rl-garage__plate')?.getAttribute('data-kit')).toBe(String(level));
+    }
+  });
+
+  // GH-238 K11: every track head asks for its own close-up, by the unit's id
+  // and the track's name, and draws what it is handed.
+  it("asks each track head for the unit's own close-up", () => {
+    const asked: string[] = [];
+    const host = mount({
+      units,
+      ledger: {},
+      possibleStars: 78,
+      closeup: (id, track) => {
+        asked.push(`${id}_${track}`);
+        return track === 'sensors' ? `/ui/garage/closeups/${id}_${track}.jpg` : null;
+      },
+    });
+    expect(asked.length).toBeGreaterThan(0);
+    const heads = [...host.querySelectorAll<HTMLElement>('.rl-garage__track')];
+    expect(asked.slice(-heads.length).sort()).toEqual(heads.map((h) => `inf_squad_${h.dataset.track}`).sort());
+    const img = host.querySelector('.rl-garage__track[data-track="sensors"] img.rl-garage__track-closeup');
+    expect(img?.getAttribute('src')).toBe('/ui/garage/closeups/inf_squad_sensors.jpg');
+    expect(host.querySelector('.rl-garage__track[data-track="armour"] img')).toBeNull();
+  });
+
   // "One unit LARGE in a lit bay": every plate is the same frame at the same
   // camera zoom, so the unit inside it is whatever size it is -- 154 of 1800
   // pixels for a sniper team. Drawn at the plate's own scale that is a speck,
@@ -1277,6 +1323,37 @@ describe('showBrigade — a purchase is an event (§3.5)', () => {
       '.rl-garage__card[data-unit="inf_squad"] .rl-kit-pips__col[data-track="armour"] .rl-kit-pips__pip'
     );
     expect(pip?.classList.contains('rl-kit-pips__pip--new')).toBe(true);
+    dispose();
+  });
+
+  // GH-238 (plan 3, Task 7): a tier bought for one of the eight kitted
+  // vehicles bolts a part on, so it lands with the 'kit' cue -- through the
+  // real purchase path (the Buy button, the caller's landed answer, then
+  // `celebrate`), not by calling `cueFor` directly, which would agree with a
+  // `celebrate` that never asked it.
+  it('cues a kitted vehicle’s tier as kit, not upgrade (GH-238)', () => {
+    const lavi: BrigadeUnit = {
+      id: 'mbt_lavi',
+      name: 'Lavi MBT',
+      role: 'tank',
+      isKamikaze: false,
+      transportSlots: 0,
+      isSoft: false,
+      upgrades: { armour: { tiers: [{ price: 400, patch: { 'hull.hp': 250 } }] } },
+    };
+    let owned: Record<string, Record<string, number>> = {};
+    const { host, dispose, cues } = buyer({
+      units: [lavi, ...units],
+      onBuyUpgrade: (id, track, tier) => {
+        owned = { [id]: { [track]: tier } };
+        return { units: [lavi, ...units], credits: 599, owned, landed: true };
+      },
+    });
+    select(host, 'mbt_lavi');
+    buyArmour(host);
+    // The Lavi's tier is what was bought, so the cue below is the Lavi's.
+    expect(owned).toEqual({ mbt_lavi: { armour: 1 } });
+    expect(cues).toEqual(['kit']);
     dispose();
   });
 

@@ -9,6 +9,29 @@
  *   pnpm plates:units --only=mbt_lavi,ifv_namer
  *   pnpm plates:units --out=assets/ui/plates/units
  *   pnpm plates:units --port=5180
+ *   pnpm plates:units --kit --metal --port=5234
+ *
+ * ## `--kit`: the kitted plates (GH-238, plan 3 Task 9)
+ *
+ * The same capture, for the eight kitted vehicles (`KIT_VEHICLE_TYPES`,
+ * `packages/app/src/ui/garage-model.ts`) only, each wearing EVERY track it
+ * declares at that track's top tier (3; the D9 has two tracks), into
+ * `assets/ui/plates/units/kit/<id>.jpg` with a `manifest.json` of its own in
+ * the base manifest's shape, extent included. Parent spec §3.1: a kitted
+ * plate replaces the base one at kit level 2 and above
+ * (`ui/portrait.ts`'s `unitPlate`), and the bay's no-WebGL2 fallback is its
+ * only reader.
+ *
+ * The tiers reach the renderer the way a player's do: every page is seeded
+ * with a brigade account (`ui-review/garage-seed.ts`'s `garageSeedScript`)
+ * holding those tiers, and the sandbox boots WITHOUT `&kit` -- whose ladder
+ * (`SANDBOX_KIT_LEVELS`) is not the top tier on every vehicle -- so they
+ * travel `bootTiers` -> `upgradePrepass` -> `RendererOptions.unitKitTiers`.
+ * Before a kitted capture is trusted, the renderer itself is asked: the tiers
+ * it received for the type must be the seeded ones, and the type's template
+ * must carry kit triangles (`rlKitBaseCount`, `three/units/vehicle-kit.ts`).
+ * Either missing refuses the capture, loudly -- a seed that never arrived
+ * would otherwise photograph a perfectly good BASE plate and file it as kit.
  *
  * Manages its own dev server, the way `host-plate-capture.ts` does (never a
  * human's `pnpm dev`, never a port another tool already owns -- see that
@@ -190,6 +213,10 @@ import pixelmatch from 'pixelmatch';
 import { ensureDevServer, stopDevServer, readUnmaskedRenderer } from '../golden-diff/browser';
 import { FREEZE_FRAME_LOOP_SCRIPT, hideHudExceptCanvas } from '../golden-diff/capture-protocol';
 import { musicOffInitScript } from '../ui-review/music-off';
+import { garageSeedScript, GARAGE_SEED_LEDGER } from '../ui-review/garage-seed';
+import { KIT_VEHICLE_TYPES } from '../../../packages/app/src/ui/garage-model';
+import type { BrigadeAccount } from '../../../packages/app/src/brigade-account';
+import { ACCOUNT_VERSION } from '../../../packages/app/src/brigade-account';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -241,6 +268,13 @@ interface LionsWindow {
       setDebugHoldStanding?(on: boolean): number;
       frame(alpha: number, dtMs: number): void;
       worldToScreen(wx: number, wy: number): { x: number; y: number };
+      // Read only by `--kit`'s merge check (ThreeRenderer internals, reached
+      // the way `kit-captures.ts`' own `readMerge` reaches them).
+      opts?: { unitKitTiers?: Record<string, Record<string, number>> };
+      vehicleMeshTemplates?: Map<
+        string,
+        { geometries: { index: { count: number } | null; attributes: { position: { count: number } }; userData: Record<string, unknown> }[] }
+      >;
     };
   };
 }
@@ -250,11 +284,54 @@ function arg(name: string, fallback: string): string {
   return hit ? hit.slice(name.length + 3) : fallback;
 }
 
+// Every flag this file reads, and nothing else: a typo (`--kits`) used to be
+// ignored, which for `--kit` means photographing the BASE set into the base
+// directory while the caller believes otherwise.
+{
+  const known = /^--(only|out|port)=|^--(child|metal|kit)$|^--$/;
+  const bad = process.argv.slice(2).filter((a) => !known.test(a));
+  if (bad.length > 0) {
+    console.error(`[unit-plates] unknown argument(s): ${bad.join(' ')}`);
+    console.error('[unit-plates] usage: pnpm plates:units -- [--kit] [--only=<id>[,<id>...]] [--out=<dir>] [--port=<n>] [--metal]');
+    process.exit(2);
+  }
+}
+
 const only = arg('only', '');
-const outDir = path.resolve(REPO_ROOT, arg('out', 'assets/ui/plates/units'));
+const isKit = process.argv.includes('--kit');
+const outDir = path.resolve(REPO_ROOT, arg('out', isKit ? 'assets/ui/plates/units/kit' : 'assets/ui/plates/units'));
 const PORT = Number(arg('port', '5179'));
 const isChild = process.argv.includes('--child');
 const useMetal = process.argv.includes('--metal');
+
+/** `--kit`: every track `id` declares, at that track's top tier. */
+function topTiers(id: string): Record<string, number> {
+  const unit = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'data/units/kdf', `${id}.json`), 'utf8')) as {
+    upgrades?: Record<string, { tiers: unknown[] }>;
+  };
+  const out: Record<string, number> = {};
+  for (const [track, t] of Object.entries(unit.upgrades ?? {})) out[track] = t.tiers.length;
+  return out;
+}
+
+/** `--kit`: the brigade account every page boots from -- the eight kitted
+ *  vehicles bought, each at `topTiers`. `garage-seed.ts`'s shape, including
+ *  the `granted` entry that keeps `balance` a fixed point of
+ *  `migrateAccount`. */
+function kitAccount(): BrigadeAccount {
+  const upgrades: Record<string, Record<string, number>> = {};
+  for (const id of KIT_VEHICLE_TYPES) upgrades[id] = topTiers(id);
+  return {
+    version: ACCOUNT_VERSION,
+    balance: 2400,
+    earned_total: 0,
+    paid: {},
+    campaign_paid: {},
+    unlocks: [...KIT_VEHICLE_TYPES],
+    upgrades,
+    grants: [{ source: 'granted', amount: 5000, at: 1 }],
+  };
+}
 const LAUNCH_ARGS = useMetal ? METAL_ARGS : SWIFTSHADER_ARGS;
 
 interface PlateManifestEntry {
@@ -355,9 +432,13 @@ const allIds = fs
   .map((f) => f.slice(0, -'.json'.length))
   .sort();
 const onlySet = only.length > 0 ? new Set(only.split(',')) : null;
-const wanted = onlySet ? allIds.filter((id) => onlySet.has(id)) : allIds;
+const pool = isKit ? allIds.filter((id) => KIT_VEHICLE_TYPES.has(id)) : allIds;
+if (isKit && pool.length !== KIT_VEHICLE_TYPES.size) {
+  throw new Error(`--kit: KIT_VEHICLE_TYPES names ${KIT_VEHICLE_TYPES.size} types, data/units/kdf/ holds ${pool.length} of them`);
+}
+const wanted = onlySet ? pool.filter((id) => onlySet.has(id)) : pool;
 if (wanted.length === 0) {
-  throw new Error(`--only=${only} names no unit under data/units/kdf/`);
+  throw new Error(`--only=${only} names no unit under data/units/kdf/${isKit ? ' that is a kitted vehicle' : ''}`);
 }
 
 /** Spawns one child `tsx` process for a single id, inheriting stdio (so its
@@ -369,6 +450,7 @@ function spawnChild(id: string): Promise<number> {
   return new Promise((resolve) => {
     const args = ['tsx', 'src/perf/unit-plates.ts', `--only=${id}`, '--child', `--port=${PORT}`, `--out=${outDir}`];
     if (useMetal) args.push('--metal');
+    if (isKit) args.push('--kit');
     const child = spawnProcess('npx', args, { cwd: TOOLS_DIR, stdio: 'inherit' });
     child.on('exit', (code) => resolve(code ?? 1));
     child.on('error', (err) => {
@@ -470,6 +552,7 @@ async function runCapture(): Promise<void> {
     // Music off before boot (`ui-review/music-off.ts`: the one seed; a hand-written
     // object without `version: 1` is discarded by `settings.ts`).
     await page.addInitScript(musicOffInitScript());
+    if (isKit) await page.addInitScript(garageSeedScript(GARAGE_SEED_LEDGER, kitAccount()));
     // Generous, not the family's usual 30s: under software SwiftShader a
     // `page.screenshot` measured well past 90s once several GLBs were
     // resident (`GL Driver Message ... GPU stall due to ReadPixels`, this
@@ -652,6 +735,34 @@ async function runCapture(): Promise<void> {
     for (let i = 0; i < 4; i++) await page.evaluate(() => (window as unknown as LionsWindow).__lions.renderer.frame(1, 0));
     for (const e of warm) await remove(e);
     await page.evaluate(() => (window as unknown as LionsWindow).__lions.renderer.frame(1, 0));
+
+    // --- `--kit`: the merge, asked of the renderer itself (see the header).
+    if (isKit) {
+      for (const id of wanted) {
+        const want = topTiers(id);
+        const got = await page.evaluate((typeId) => {
+          const r = (window as unknown as LionsWindow).__lions.renderer;
+          const tiers = r.opts?.unitKitTiers?.[typeId] ?? null;
+          const tpl = r.vehicleMeshTemplates?.get(typeId);
+          let kitTris = 0;
+          for (const g of tpl?.geometries ?? []) {
+            const base = g.userData.rlKitBaseCount;
+            if (typeof base !== 'number') continue;
+            const count = g.index ? g.index.count : g.attributes.position.count;
+            kitTris += (count - base) / 3;
+          }
+          return { tiers: tiers ? { ...tiers } : null, loaded: tpl !== undefined, kitTris };
+        }, id);
+        const tiersOk = got.tiers !== null && Object.entries(want).every(([k, v]) => got.tiers?.[k] === v);
+        if (!tiersOk || !got.loaded || got.kitTris <= 0) {
+          throw new Error(
+            `${id}: --kit refused -- the renderer holds tiers ${JSON.stringify(got.tiers)} (seeded ${JSON.stringify(want)}), ` +
+              `template ${got.loaded ? 'loaded' : 'NOT loaded'}, ${got.kitTris} kit triangle(s)`
+          );
+        }
+        console.log(`[${TAG}] ${id}: kit merged, tiers ${JSON.stringify(got.tiers)}, ${got.kitTris} kit triangles`);
+      }
+    }
 
     // --- the empty-ground reference, captured once, after every mesh is warm
     // and every pre-warm spawn has been struck.

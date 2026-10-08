@@ -61,6 +61,7 @@ import { CHARRED_RAMP, isVehicleMeshRole, rampForVehicleRole } from './vehicle-m
 import { isMeshClipName, MESH_SCALE } from './mesh-anim';
 import { clipScaleSignatures, type ClipPlayer } from './mesh-clip';
 import { HULL_RENDER_ORDER, TURRET_RENDER_ORDER } from './render-order';
+import { applyVehicleKit, type VehicleKitTiers } from './vehicle-kit';
 
 /** The pivot node's own name, per the contract: "The turret pivot is a node
  *  named `turret_pivot` carrying `extras.rl_pivot = "turret"` on that node
@@ -237,14 +238,27 @@ export interface VehicleMeshTemplate {
  * counterpart here and needs none: a lit material's specular response comes
  * from `roughness`/`metalness` against the scene's real sun, not a
  * hand-picked ramp step.
+ *
+ * `tiers` is the type's bought kit by track (GH-238, `RendererOptions.
+ * unitKitTiers`), handed to `applyVehicleKit` before anything else here
+ * runs. Absent or all 0, the template is the shipped one: same meshes, same
+ * geometry objects, the kit nodes simply gone.
  */
 export function buildVehicleMeshTemplate(
   gltf: Pick<GLTF, 'scene'> & Partial<Pick<GLTF, 'animations'>>,
   vehicleId: string,
-  allowTextured = false
+  allowTextured = false,
+  tiers?: VehicleKitTiers
 ): VehicleMeshTemplate {
   const root = gltf.scene;
   root.scale.setScalar(MESH_SCALE);
+  // The bought kit, FIRST (GH-238, `./vehicle-kit.ts`): kept parts merge
+  // into their hosts' geometry and every `kit_*` node leaves the tree, so
+  // the walk below never meets one and assigns materials, shadows and
+  // render order to the merged host exactly as it would to the shipped one.
+  // What the merge replaced is nobody's any more and was never uploaded, so
+  // it is disposed here rather than handed to the template's own list.
+  for (const unused of applyVehicleKit(root, tiers)) unused.dispose();
 
   const materials: THREE.Material[] = [];
   const geometries: THREE.BufferGeometry[] = [];
@@ -492,10 +506,11 @@ export function vehicleShroudBounds(root: THREE.Object3D): THREE.Vector3 {
 export async function loadVehicleMeshTemplate(
   glbUrl: string,
   vehicleId: string,
-  allowTextured = false
+  allowTextured = false,
+  tiers?: VehicleKitTiers
 ): Promise<VehicleMeshTemplate> {
   const gltf = await gltfLoader().loadAsync(glbUrl);
-  return buildVehicleMeshTemplate(gltf, vehicleId, allowTextured);
+  return buildVehicleMeshTemplate(gltf, vehicleId, allowTextured, tiers);
 }
 
 /** One living entity's vehicle instance. `turretPivot`, if present, is

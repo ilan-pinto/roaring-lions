@@ -241,6 +241,23 @@
  *                 for the same reason: no gated scenario has a missile in
  *                 flight. `tools/src/perf/atgm-captures.ts` is where it is exercised.
  *
+ * ONE MORE FOR KITTED VEHICLES (GH-238, plan 3):
+ * - `kit`         the bought kit merged into each mesh vehicle's host
+ *                 geometry at load (`units/vehicle-kit.ts`). Host first, kit
+ *                 after, so hiding sets `setDrawRange(0, rlKitBaseCount)` on
+ *                 every kitted template geometry and the hull draws exactly
+ *                 as shipped; showing restores `Infinity`. A geometry with no
+ *                 kit is untouched, and the count returned is the kitted
+ *                 geometries reached, so a field with nothing bought reads 0.
+ *                 The `decals` rule, not the `units` one: a template's draw
+ *                 range is written by nothing per-frame (clones share the
+ *                 geometry and only read it), so the write holds across the
+ *                 gate's repaint; `ThreeRenderer.kitDebugHidden` exists only
+ *                 so a template loaded later is born hidden too. It hides the
+ *                 kit's own pixels in every pass that draws the host (main,
+ *                 shadow, AO), and not its occlusion outline, which is built
+ *                 from the whole geometry.
+ *
  * `fog`, ADDED FOR THE SAME KEY-ART PLATE, ONE STEP LATER (task-10
  * follow-up 2): the large dark diagonal a first attempt at the plate read as
  * a shadow was the fog-of-war boundary -- `FogOfWarPass` (`../fog-pass.ts`)
@@ -286,6 +303,7 @@ export const DEBUG_LAYERS = [
   'decals',
   'blast-light',
   'missiles',
+  'kit',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];

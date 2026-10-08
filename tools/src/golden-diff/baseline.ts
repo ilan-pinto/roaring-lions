@@ -374,6 +374,26 @@ const GROUND_T17 =
   'in frame on that clock the spread is gone. Floors are a third of the reading, rounded down. ';
 
 /**
+ * Every figure in a `kitted` rationale below, and the conditions it was taken
+ * under. Measured through the GATE'S OWN capture code (`capture()`,
+ * `rephotograph()`, `captureScript`, `REPAINT_SCRIPT`, `layerToggleScript`,
+ * `computeDiff` at the gate's pixelmatch threshold, `launchCaptureBrowser`)
+ * by `pnpm kit:capture -- --toggle`, never by `pnpm golden-baseline`, which a
+ * branch must not run against a scenario it is about to ask CI to bless.
+ */
+const KIT_K8 =
+  'measured 2026-10-07 on plan 3 Task 8 (GH-238 K8), all eight vehicles carrying their final kit ' +
+  '(d68ffc50), by `pnpm kit:capture -- --toggle --port=5232`: 3 fresh page loads of the kitted URL ' +
+  'per session, two sessions (one per layer below; for `units` the tool\'s toggled layer name was ' +
+  'edited to `units` for that run and edited back), on macOS / M3 Pro, headless Chromium, ' +
+  'SwiftShader -- the gate\'s own browser ("ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device ' +
+  '(LLVM 10.0.0)), SwiftShader driver)"), the same rasteriser family as CI\'s linux-x64-swiftshader ' +
+  '(and floors are not per-environment: CLAUDE.md\'s visual-gate section records ANGLE/Metal, a ' +
+  '230 px rasteriser difference against a stored baseline, moving the layer deltas under 2% bar ' +
+  'one -- not re-measured for these two). Frame loop ' +
+  'frozen, tick 140, repaint control 0 px / 0.0000 on all six. ';
+
+/**
  * Ground plan 2, Task 11: every layer check on every gated scenario
  * re-measured once, after Tasks 5 (props), 7 (sway), 9 (haze) and 10 (the
  * dusk/tod flag) had all landed on top of whatever reading each check's own
@@ -1035,6 +1055,68 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
       'decision nobody has taken. The re-injected scatter defect reads 63 px / 0.1953 -- 10x over the ' +
       'threshold on meanAbsChannelDelta and under it on pixel count, which is why magnitude is the ' +
       'primary metric here.',
+  },
+  kitted: {
+    // `vehicle`'s own frame with `&kit` (GH-238 K8, `KITTED_SCENARIO`). No
+    // baseline exists for it in ANY environment: it ships in the change that
+    // adds it, and the first one comes from the post-merge bless. In an
+    // environment whose manifest already exists (darwin, linux-x64-swiftshader)
+    // a missing entry is exit 1, not 3, so CI's `visual` job is red until that
+    // bless -- the `aftermath` precedent, and intended. What votes meanwhile is
+    // the two reference-free checks below.
+    //
+    // THE THRESHOLDS ARE `vehicle`'s, MIRRORED, NOT MEASURED. Same map, same
+    // camera, same tick, same whole-frame region and the same continuous
+    // dust/exhaust; the only difference is the kit merged into each hull, which
+    // is static geometry on a frozen frame. No repeated-capture noise
+    // measurement of THIS scenario against a stored baseline exists yet (there
+    // is no baseline to measure against), so 300 px / 0.02 is carried over from
+    // `vehicle` with that entry's own provenance, and the first post-bless CI
+    // runs are the measurement. What WAS measured is that the zero-time repaint
+    // control reads a literal 0 px / 0.0000 on all six fresh page loads of
+    // this URL behind the two floors below (three per toggle session), so no
+    // `repaintControl` override is declared and the global hard zero applies,
+    // exactly as on `vehicle`.
+    region: null,
+    maxDiffPixels: 300,
+    maxMeanAbsChannelDelta: 0.02,
+    layerChecks: [
+      {
+        layer: 'units',
+        minDiffPixels: 9800,
+        minMeanAbsChannelDelta: 0.98,
+        rationale:
+          KIT_K8 +
+          "`vehicle`'s own floor, carried over rather than re-derived, because hiding every unit body " +
+          'on this frame hides the kit with it (the kit is merged INTO the host geometry, so it is a ' +
+          'unit body) and can only move MORE than on `vehicle`. Measured, not assumed: 37565 / 37565 / ' +
+          '37565 px and 3.7734 x3 here, against 35339 px / 3.3737 on the bare `vehicle` URL in the same ' +
+          'session -- the kit adds 2226 px / 0.3997, and the floor sits 3.8x under this reading. ' +
+          "Falsification is `vehicle`'s own: revert `unitsDebugHidden` on the vehicle write and the " +
+          'vehicles stay drawn (1472 px / 0.1384 there, under both floors).',
+      },
+      {
+        layer: 'kit',
+        minDiffPixels: 2153,
+        minMeanAbsChannelDelta: 0.1425,
+        rationale:
+          KIT_K8 +
+          'hiding the kit (`setDrawRange` back to each host\'s own index count, `debug-layers.ts`) on ' +
+          'the 13 kitted geometries in this frame moves 6460 / 6460 / 6460 px and 0.4278 x3, ' +
+          'bit-identical across three fresh page loads. Floors are a third of the smallest, rounded ' +
+          'down. WATCHED GOING RED: the same capture on the bare `vehicle` URL -- no `&kit`, a fresh ' +
+          'context, so the brigade account is empty and `applyVehicleKit` is handed empty tiers for ' +
+          'every type, through the boot a player takes and no debug path -- reports 0 kitted ' +
+          'geometries and moves 0 px / 0.0000, under both floors. That is the erasure defect this ' +
+          'check exists for (the kit never reaching the renderer: a seed that does not arrive, a merge ' +
+          'that keeps nothing, `kit_*` nodes dropped at export), not a toggle a later restore undoes.',
+      },
+    ],
+    rationale:
+      "whole frame, `vehicle`'s mesh vehicles carrying the sandbox ladder's kit. Thresholds MIRROR " +
+      "`vehicle`'s 300 px / 0.02 and are not this scenario's own measurement: no baseline exists yet " +
+      'to measure noise against. Same frame plus static geometry; repaint control 0 px / 0.0000 on six ' +
+      'of six fresh loads. Exit 1 on an existing manifest until the post-merge bless (GH-238 K8).',
   },
   relief: {
     // MAP COVERAGE. The other four scenarios look at two of the five shipped
