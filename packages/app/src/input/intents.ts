@@ -170,7 +170,15 @@ export interface IntentWorld {
   canTunnelCharge(id: number): boolean;
   /** Mission-declared no-fire zone. Wired in slice 2; false until then. */
   inFlaggedZone(x: number, y: number): boolean;
+  /** What is under a ground point: open, a tile no foot or wheel can enter
+   *  (the sim's own `blocked` mask), or past the map's edge. K-08. */
+  groundAt(x: number, y: number): GroundState;
+  /** True for a unit that is not held to the ground (a drone), which a move
+   *  order over a rock is still a good order for. */
+  flies(id: number): boolean;
 }
+
+export type GroundState = 'open' | 'blocked' | 'offmap';
 
 export interface PointerContext {
   /** Already filtered to living units on side 0 by the caller. */
@@ -279,6 +287,23 @@ export function resolvePointer(world: IntentWorld, ctx: PointerContext): Resolut
             note: { text: t('intent.protectedSite'), tone: 'mute' as const },
           }
         : {}),
+    };
+  }
+
+  // K-08. After the structure branch (a building is a blocked tile you CAN
+  // order onto: garrison, demolish, attack-move) and before the tunnel and
+  // plain-order branches. A selection with a flyer in it keeps the order: a
+  // drone over a rock is fine, and what the sim does with the order is
+  // unchanged either way -- this only stops the UI confirming one the ground
+  // refuses.
+  const ground = world.groundAt(x, y);
+  if (ground !== 'open' && !ids.some((i) => world.flies(i))) {
+    return {
+      intents: [],
+      roe,
+      marker: false,
+      groundRefused: ground,
+      note: { text: t(ground === 'offmap' ? 'intent.ground.offmap' : 'intent.ground.blocked'), tone: 'mute' },
     };
   }
 

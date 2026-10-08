@@ -644,6 +644,8 @@
   "hud.speaker.enemy": "ENEMY",
 
   "intent.protectedSite": "protected site — hold Alt to order fire on it",
+  "intent.ground.blocked": "that ground is impassable — pick open ground to move there",
+  "intent.ground.offmap": "that is off the map — pick a tile on the map",
   "intent.tunnelCharge": "<b>tunnel charge</b> — team moving to the route",
   "intent.load.needsTransport": "select a transport and the infantry to load",
   "intent.load.mounting": "<b>mount up</b> — infantry boarding",

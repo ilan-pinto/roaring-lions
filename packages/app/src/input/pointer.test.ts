@@ -168,3 +168,48 @@ describe('PA-14: a click on the house wall is a click on the house', () => {
     expect(house).toBeGreaterThanOrEqual(0);
   });
 });
+
+describe('K-08: the pointer over ground nobody can enter', () => {
+  /** The tutorial ground has no free-standing rock, so make one: a ridge tile
+   *  is just a nonzero cell in the sim's own `blocked` mask, which is exactly
+   *  what `cursorAt` and `simIntentWorld` read. */
+  function rockTile(sim: Sim): { x: number; y: number } {
+    const x = 14;
+    const y = 24;
+    expect(sim.structureAt(x, y)).toBe(-1);
+    sim.blocked[y * sim.width + x] = 1;
+    return { x, y };
+  }
+
+  it('a rock tile: the click is refused and the cursor reads blocked', () => {
+    const { sim, spawn } = world();
+    const squad = spawn('inf_squad', 0, 11.5, 24.5);
+    const r = rockTile(sim);
+    const cam: Camera = { x: r.x + 0.5, y: r.y + 0.5, zoom: 1 };
+    const out = read(sim, cam, [squad], CENTRE.x, CENTRE.y);
+    expect(out.res.intents).toEqual([]);
+    expect(out.res.marker).toBe(false);
+    expect(out.res.groundRefused).toBe('blocked');
+    expect(out.name).toBe('blocked');
+  });
+
+  it('past the map edge: refused too, where the cursor used to read move', () => {
+    const { sim, spawn } = world();
+    const squad = spawn('inf_squad', 0, 11.5, 24.5);
+    const cam: Camera = { x: -6, y: -6, zoom: 1 };
+    const out = read(sim, cam, [squad], CENTRE.x, CENTRE.y);
+    expect(out.res.groundRefused).toBe('offmap');
+    expect(out.res.marker).toBe(false);
+    expect(out.name).toBe('blocked');
+  });
+
+  it('a drone selected: the same rock is a fine place to fly to', () => {
+    const { sim, spawn } = world();
+    const drone = spawn('recon_drone', 0, 11.5, 24.5);
+    const r = rockTile(sim);
+    const cam: Camera = { x: r.x + 0.5, y: r.y + 0.5, zoom: 1 };
+    const out = read(sim, cam, [drone], CENTRE.x, CENTRE.y);
+    expect(out.res.groundRefused).toBeUndefined();
+    expect(out.res.marker).toBe(true);
+  });
+});
