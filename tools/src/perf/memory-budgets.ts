@@ -46,6 +46,9 @@ export interface MemoryBudget {
     /** WebGL contexts that are lost yet still reachable after a forced GC --
      *  a renderer something still holds after its screen was left. */
     maxRetainedLostContexts: number;
+    /** DOM nodes alive after a forced GC beyond the first menu's count --
+     *  a left screen's detached DOM that something still references. */
+    maxExtraNodes: number;
   };
 }
 
@@ -112,6 +115,10 @@ export function judge(readings: readonly Reading[], b: MemoryBudget): Verdict[] 
       detail: `${r.label}: ${r.gpu.liveContexts} live WebGL context(s) <= the menu's ${menu.gpu.liveContexts} (leak)`,
     });
     out.push({
+      ok: r.dom.nodes - menu.dom.nodes <= b.leak.maxExtraNodes,
+      detail: `${r.label}: ${r.dom.nodes} DOM nodes, ${r.dom.nodes - menu.dom.nodes} over the first menu's ${menu.dom.nodes} <= ${b.leak.maxExtraNodes} (leak)`,
+    });
+    out.push({
       ok: r.gpu.retainedLostContexts <= b.leak.maxRetainedLostContexts,
       detail: `${r.label}: ${r.gpu.retainedLostContexts} released context(s) still reachable after GC <= ${b.leak.maxRetainedLostContexts} (leak)`,
     });
@@ -128,15 +135,32 @@ export const MARGIN = { js: 1.25, gpu: 1.15, process: 1.25 } as const;
 
 /** See docs/PERFORMANCE.md, "Memory", for every reading behind these. */
 export const MEMORY_BUDGETS: Readonly<Record<string, MemoryBudget>> = {
+  // CI's `memory` job. ubuntu-latest, ANGLE/SwiftShader, 1400x900 @1x, dev
+  // server, n=4 walks on four runners (2026-10-08, run 37826952688: the
+  // `memory` job and three `memory-calibrate` runners). Largest readings:
+  // menu-kind JS 59.7 / GPU 522.1 / process 1636.5; board 31.9 / 138.3 /
+  // 750.7; mission 125.2 / 882.2 / 2927.0 MiB; after-leave JS +9.8% and GPU
+  // +0.0% over the menu, DOM nodes +0, no released context reachable. A fifth
+  // walk with 10 s play slices (run 37820472000) read inside these but for a
+  // mission process total of 2946.7. Leak percentages are about twice the
+  // largest measured, rounded up to 5.
+  'linux-x64-swiftshader': {
+    conditions: 'linux-x64-swiftshader: ubuntu-latest, SwiftShader, 1400x900 @1x, dev server, n=4, margins JS x1.25 GPU x1.15 process x1.25',
+    menu: { jsTotalMiB: 75, gpuMiB: 601, processMiB: 2046 },
+    board: { jsTotalMiB: 40, gpuMiB: 159, processMiB: 939 },
+    mission: { jsTotalMiB: 157, gpuMiB: 1015, processMiB: 3659 },
+    leak: { jsOverMenuPct: 20, gpuOverMenuPct: 2, maxRetainedLostContexts: 0, maxExtraNodes: 50 },
+  },
   // Local only -- CI never runs here. M3 Pro, ANGLE/Metal, 1400x900 @1x, dev
   // server, n=4 walks (2026-10-08). Largest readings: menu-kind JS 62.6 /
   // GPU 522.1 / process 1934.5; board 31.9 / 138.2 / 649.0; mission 128.9 /
-  // 882.2 / 3207.3 MiB; after-leave JS +14.6% and GPU +0.0% over the menu.
+  // 882.2 / 3207.3 MiB; after-leave JS +14.6% and GPU +0.0% over the menu,
+  // DOM nodes +0.
   'darwin-arm64-metal': {
     conditions: 'darwin-arm64-metal: M3 Pro, ANGLE/Metal, 1400x900 @1x, dev server, n=4, margins JS x1.25 GPU x1.15 process x1.25',
     menu: { jsTotalMiB: 79, gpuMiB: 601, processMiB: 2419 },
     board: { jsTotalMiB: 40, gpuMiB: 159, processMiB: 812 },
     mission: { jsTotalMiB: 162, gpuMiB: 1015, processMiB: 4010 },
-    leak: { jsOverMenuPct: 30, gpuOverMenuPct: 2, maxRetainedLostContexts: 0 },
+    leak: { jsOverMenuPct: 30, gpuOverMenuPct: 2, maxRetainedLostContexts: 0, maxExtraNodes: 50 },
   },
 };

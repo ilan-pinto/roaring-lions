@@ -271,7 +271,12 @@ jobs:
   # leave 50-70 s, so the walk measured 917 s as a step there -- on top of a
   # job already 35-40 min long. Here it runs beside `visual` and adds nothing
   # to the PR's wall clock; it shares that job's Playwright cache key.
-  # CALIBRATION RUN: report only, no --gate.
+  #
+  # Exit 1 is OVER BUDGET (a ceiling or a leak check), 2 is the INSTRUMENT
+  # failing (a boot that never finished, an empty readback), 3 is "no budget
+  # for this capture environment" -- which fails here, deliberately: unlike
+  # the visual gate there is nothing to bless, a budget is a number in
+  # `memory-budgets.ts` measured on this runner type.
   memory:
     runs-on: ubuntu-latest
     steps:
@@ -290,7 +295,7 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm --filter @lions/tools exec playwright install --with-deps chromium
       - name: memory -- the walk, and the leave
-        run: pnpm perf:memory -- --port=5179 --out=memory-output/memory.json
+        run: pnpm perf:memory -- --gate --port=5179 --out=memory-output/memory.json
       - name: Upload the readings
         if: always()
         continue-on-error: true
@@ -301,15 +306,16 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
-  # TEMPORARY (GH-469 calibration): three independent runners walk the same
-  # tree so the memory budgets rest on n=3 CI readings. Removed in the commit
-  # that sets the budgets.
-  memory-calibrate:
+  # TEMPORARY (GH-469 falsification): the gate must go RED on a deliberate
+  # retained allocation and on a leak. Each runner applies one one-line
+  # mutation to bootBattlefield and runs the gate; both jobs are EXPECTED to
+  # fail. Removed in the next commit.
+  memory-falsify:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        run: [1, 2, 3]
+        mutation: [alloc, leak]
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -325,14 +331,24 @@ jobs:
           key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Install Playwright Chromium
         run: pnpm --filter @lions/tools exec playwright install --with-deps chromium
-      - run: pnpm perf:memory -- --port=5179 --out=memory-out/memory-${{ matrix.run }}.json
-      - uses: actions/upload-artifact@v4
-        if: always()
-        continue-on-error: true
-        with:
-          name: memory-calibrate-${{ matrix.run }}
-          path: memory-out
-          retention-days: 3
+      - name: inject the mutation
+        env:
+          MUTATION: ${{ matrix.mutation }}
+        run: |
+          python3 - <<'PY'
+          import os
+          p = 'packages/app/src/main.ts'
+          s = open(p).read()
+          anchor = "  const lionsHandle = (window as unknown as Record<string, unknown>).__lions;\n"
+          line = {
+              'alloc': "  (window as unknown as Record<string, unknown>).__rlProbe = new Uint8Array(200 * 1048576).fill(1);\n",
+              'leak': "  window.addEventListener('rl-probe', () => void renderer);\n",
+          }[os.environ['MUTATION']]
+          assert s.count(anchor) == 1
+          open(p, 'w').write(s.replace(anchor, line + anchor))
+          PY
+          git diff
+      - run: pnpm perf:memory -- --gate --port=5179
 
   determinism:
     strategy:

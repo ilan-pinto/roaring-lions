@@ -3,12 +3,15 @@ import { envKeyFor, judge, MEMORY_BUDGETS, type MemoryBudget, type Reading } fro
 
 const MiB = 1048576;
 
-function reading(label: string, o: { js?: number; gpu?: number; proc?: number; ctx?: number; lost?: number } = {}): Reading {
+function reading(
+  label: string,
+  o: { js?: number; gpu?: number; proc?: number; ctx?: number; lost?: number; nodes?: number } = {}
+): Reading {
   return {
     label,
     atS: 0,
     js: { used: 0, total: 0, backing: 0, embedder: 0, jsTotal: (o.js ?? 50) * MiB },
-    dom: { nodes: 0, documents: 1, listeners: 0 },
+    dom: { nodes: o.nodes ?? 230, documents: 1, listeners: 0 },
     gpu: {
       liveBytes: (o.gpu ?? 100) * MiB,
       liveContexts: o.ctx ?? 1,
@@ -27,7 +30,7 @@ const BUDGET: MemoryBudget = {
   menu: { jsTotalMiB: 60, gpuMiB: 120, processMiB: 1200 },
   board: { jsTotalMiB: 40, gpuMiB: 80, processMiB: 800 },
   mission: { jsTotalMiB: 150, gpuMiB: 300, processMiB: 2000 },
-  leak: { jsOverMenuPct: 20, gpuOverMenuPct: 2, maxRetainedLostContexts: 0 },
+  leak: { jsOverMenuPct: 20, gpuOverMenuPct: 2, maxRetainedLostContexts: 0, maxExtraNodes: 50 },
 };
 
 function walk(over: Partial<Record<string, Parameters<typeof reading>[1]>> = {}): Reading[] {
@@ -54,6 +57,7 @@ describe('judge', () => {
     ['after-leave GPU over the menu', { after: { gpu: 103 } }, /menu after a: GPU \+3\.0 MiB \(\+3\.0%\)/],
     ['a second live context after leaving', { after: { ctx: 2 } }, /2 live WebGL context/],
     ['a released context still reachable', { after: { lost: 1 } }, /1 released context/],
+    ['a left screen\'s DOM still reachable', { after: { nodes: 281 } }, /281 DOM nodes, 51 over/],
   ])('fails on %s', (_name, over, re) => {
     const f = failures(walk(over as never));
     expect(f.length).toBeGreaterThan(0);
