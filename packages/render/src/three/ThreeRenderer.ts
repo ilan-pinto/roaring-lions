@@ -463,6 +463,7 @@ import { drawBlockedMask } from './terrain/draw-mask';
 import { TrailMesh, collapsedRouteLevel, type TrailInstanceInput } from './trail-mesh';
 import { ORDER_GROUND_COLOR_KEY } from '../order-ground';
 import { TunnelProps, type TunnelPropsInput, type TunnelRouteView } from './tunnel-props';
+import { TunnelXray, XRAY_COLOR_KEYS, XRAY_STEP, type XrayRoute } from './tunnel-xray';
 import {
   trackKindFor,
   stepTrackAccum,
@@ -2175,6 +2176,20 @@ export class ThreeRenderer implements Renderer {
    *  `trailMeshDirty` cadence from the same sim reads the trail uses, under
    *  the same identification rule -- see `./tunnel-props.ts`. */
   private readonly tunnelProps = new TunnelProps();
+  /** GH-471: the x-ray reveal of an identified route -- the bore, its shafts,
+   *  the fighters inside and the discovery beat (`./tunnel-xray.ts`). It
+   *  replaces the trail's identified-line rung (`buildTrailInput`). Reads
+   *  only: `tunnelContactLevel`, `markerSeesTile`, `state.tunnelIn` and the
+   *  `tunnelContact` event. */
+  private readonly tunnelXray: TunnelXray;
+  /** The route set and the elevation grid the bore was built over; a change
+   *  in either rebuilds it. */
+  private xrayBuiltFor = -1;
+  private xrayBuiltElevation: unknown = null;
+  /** Each route's own tiles, for the 5 Hz "does a carrier see it" read. */
+  private xrayRouteTiles: number[][] = [];
+  /** Scratch for the per-frame occupant list. */
+  private readonly xrayOccupants: [number, number][] = [];
 
   /**
    * Vehicle track marks (tread ruts, tyre prints), now stamped into
@@ -2281,6 +2296,17 @@ export class ThreeRenderer implements Renderer {
     // re-resolving per frame -- see trail-mesh.ts's own top comment for why
     // one uniform colour serves the whole mesh.
     this.trailMesh = new TrailMesh(sim.width, sim.height, opts.terrainTones.spoil);
+    {
+      // Palette keys only, through the caller's resolver so `team.hostile`
+      // follows the colour-vision setting like every other team colour.
+      const c = (k: string): string => (opts.resolveColor ? opts.resolveColor(k) : paletteHex(k));
+      this.tunnelXray = new TunnelXray({
+        rim: c(XRAY_COLOR_KEYS.rim),
+        core: c(XRAY_COLOR_KEYS.core),
+        hot: c(XRAY_COLOR_KEYS.hot),
+        figure: c(XRAY_COLOR_KEYS.figure),
+      });
+    }
     // The decal kinds' eight colours, resolved once through `overlayColor`
     // exactly as the meshes above resolve theirs -- a caller with a resolver
     // gets the real palette entry, and one without (this backend's own
@@ -2528,6 +2554,7 @@ export class ThreeRenderer implements Renderer {
     // meshes grouped together.
     this.scene.add(this.trailMesh.mesh);
     this.scene.add(this.tunnelProps.group);
+    this.scene.add(this.tunnelXray.group);
     // Both decal pools lie on the same ground plane as the trail, so they
     // are grouped with it for the same reader's-eye reason -- scene-graph
     // position carries no draw-order meaning in this backend (`renderOrder`
@@ -2996,6 +3023,7 @@ export class ThreeRenderer implements Renderer {
     // just above.
     this.trailMesh.dispose();
     this.tunnelProps.dispose();
+    this.tunnelXray.dispose();
     // BEFORE the renderer goes, and nulled: the composer owns three
     // full-screen render targets plus SMAA's two lookup textures, none of
     // which `WebGLRenderer.dispose()` reaches, and they have to be deleted
@@ -3165,8 +3193,10 @@ export class ThreeRenderer implements Renderer {
     if (this.trailMeshDirty) {
       this.trailMesh.update(this.buildTrailInput());
       this.tunnelProps.update(this.buildTunnelPropsInput(), this.propSet);
+      this.xrayRouteState();
       this.trailMeshDirty = false;
     }
+    this.xrayFrame(alpha);
     // The decals' age is SIM time (R-14), never `dtMs`: the tick the sim has
     // reached and the fraction of the way to it this frame presents. A
     // repaint at zero elapsed time -- the visual gate's second photograph --
@@ -3437,6 +3467,10 @@ export class ThreeRenderer implements Renderer {
         // so a plain write would be undone by the gate's own repaint.
         // Returns 3, the meshes it hides.
         return this.missileFx.setDebugHidden(!visible);
+      case 'tunnel-xray':
+        // GH-471: a FLAG, `missiles`' shape -- `TunnelXray.update` rewrites
+        // the figures' and the beam's `visible` every frame. Returns 4.
+        return this.tunnelXray.setDebugHidden(!visible);
       default:
         // A name `DEBUG_LAYERS` lists and this switch does not handle. The
         // compiler already refuses it (`name` is `never` here), but a build
@@ -3779,6 +3813,72 @@ export class ThreeRenderer implements Renderer {
     };
   }
 
+  /** GH-471: the bore's geometry, built when the route set or the elevation
+   *  grid it stands on changes -- both are load-time facts in practice, so
+   *  this runs once a mission. */
+  private xrayEnsureBuilt(): void {
+    const sim = this.sim;
+    const elevation = this.retained.elevation;
+    if (this.xrayBuiltFor === sim.tunnelCount && this.xrayBuiltElevation === elevation) return;
+    this.xrayBuiltFor = sim.tunnelCount;
+    this.xrayBuiltElevation = elevation;
+    const routes: XrayRoute[] = [];
+    this.xrayRouteTiles = [];
+    for (let r = 0; r < sim.tunnelCount; r++) {
+      const len = fx.toNumber(sim.tnLength[r]);
+      const pts: [number, number][] = [];
+      const tiles = new Set<number>();
+      const n = Math.max(2, Math.ceil(len / XRAY_STEP) + 1);
+      for (let i = 0; i < n; i++) {
+        const p = sim.tunnelPointAt(r, fx.from(Math.min(len, i * XRAY_STEP)));
+        const x = fx.toNumber(p[0]);
+        const y = fx.toNumber(p[1]);
+        pts.push([x + 0.5, y + 0.5]);
+        tiles.add(Math.floor(y) * sim.width + Math.floor(x));
+      }
+      this.xrayRouteTiles.push([...tiles]);
+      routes.push({ points: pts, length: len });
+    }
+    this.tunnelXray.build(routes, (x, y) => groundWorldY(elevation, sim.width, sim.height, x, y));
+  }
+
+  /** GH-471, on the trail's own 5 Hz refresh: side 0's level on each route
+   *  (after the collapse downgrade), and whether a `mark_tunnel` carrier of
+   *  side 0 sees any tile of it right now -- `markerSeesTile`, the read the
+   *  retired identified-line rung drew with. Stops at the first tile seen. */
+  private xrayRouteState(): void {
+    this.xrayEnsureBuilt();
+    const sim = this.sim;
+    const now = presentationSimMs(sim.tickCount, 1) / 1000;
+    for (let r = 0; r < sim.tunnelCount; r++) {
+      const level = collapsedRouteLevel(sim.tnAlive[r] !== 0, sim.tunnelContactLevel(0, r));
+      let held = false;
+      if (level === 2) {
+        for (const t of this.xrayRouteTiles[r]) {
+          if (sim.markerSeesTile(0, t % sim.width, Math.floor(t / sim.width))) {
+            held = true;
+            break;
+          }
+        }
+      }
+      this.tunnelXray.clock.setRoute(r, level, held, now);
+    }
+  }
+
+  /** GH-471, per frame: the sim clock, the sweep and the figures. Occupants
+   *  are read from `state.tunnelIn`; a map with no tunnel skips the scan. */
+  private xrayFrame(alpha: number): void {
+    const sim = this.sim;
+    if (sim.tunnelCount === 0) return;
+    const occ = this.xrayOccupants;
+    occ.length = 0;
+    const st = sim.state;
+    for (let i = 0; i < this.snapshottedCount; i++) {
+      if (st.alive[i] === 1 && st.tunnelIn[i] >= 0) occ.push([st.tunnelIn[i], i]);
+    }
+    this.tunnelXray.update(presentationSimMs(sim.tickCount, alpha) / 1000, occ);
+  }
+
   private buildTrailInput(): TrailInstanceInput {
     const sim = this.sim;
     return {
@@ -3787,7 +3887,14 @@ export class ThreeRenderer implements Renderer {
       elevation: this.retained.elevation,
       trail: sim.trail,
       routeCount: sim.tunnelCount,
-      routeLevel: (r) => collapsedRouteLevel(sim.tnAlive[r] !== 0, sim.tunnelContactLevel(0, r)),
+      // GH-471: the identified-line rung is retired -- the x-ray bore draws
+      // an identified route now -- so the trail asks for at most the spoil
+      // rung. A level-2 route still shows its spoil exactly as a suspected
+      // one does: the dirt is real whatever the player knows about it.
+      routeLevel: (r) => {
+        const lv = collapsedRouteLevel(sim.tnAlive[r] !== 0, sim.tunnelContactLevel(0, r));
+        return lv === 2 ? 1 : lv;
+      },
       tunnelUnderTile: (r, x, y) => sim.tunnelUnderTile(r, x, y),
       seenByAnyone: (x, y) => sim.sideSeesTile(0, x, y),
       seenByCarrier: (x, y) => sim.markerSeesTile(0, x, y),
@@ -4062,6 +4169,20 @@ export class ThreeRenderer implements Renderer {
         this.onStrike(e.x, e.y, e.tick);
       } else if (e.kind === 'tunnelCollapsed') {
         this.onTunnelCollapsed(e.tunnel, e.tick);
+      } else if (e.kind === 'tunnelContact' && e.side === 0 && e.level === 'identified') {
+        // GH-471: the discovery beat. `observer` is the carrier that read
+        // the route (-1 when spoil alone got it there); the beam starts at
+        // its body, at flying height for an aircraft.
+        this.xrayEnsureBuilt();
+        const o = e.observer;
+        let finder: { x: number; y: number; liftY: number } | null = null;
+        if (o >= 0 && o < this.snapshottedCount) {
+          const x = this.curX[o];
+          const y = this.curY[o];
+          const lift = this.sim.unitTypes[st.typeIdx[o]].isAir ? AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL : 0.35;
+          finder = { x, y, liftY: groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, y) + lift };
+        }
+        this.tunnelXray.discover(e.tunnel, presentationSimMs(e.tick, 1) / 1000, finder);
       } else if (e.kind === 'destroyed') {
         this.killerX[e.entity] = e.by >= 0 ? this.curX[e.by] : NaN;
         this.killerY[e.entity] = e.by >= 0 ? this.curY[e.by] : NaN;

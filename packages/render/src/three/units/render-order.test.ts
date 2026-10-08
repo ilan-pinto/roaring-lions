@@ -38,6 +38,9 @@ import {
   DECAL_PERSISTENT_RENDER_ORDER,
   DECAL_FADING_RENDER_ORDER,
   SELECTION_RING_RENDER_ORDER,
+  TUNNEL_XRAY_RENDER_ORDER,
+  TUNNEL_XRAY_FIGURE_RENDER_ORDER,
+  TUNNEL_XRAY_BEAM_RENDER_ORDER,
   ZONE_BAND_RENDER_ORDER,
 } from './render-order';
 
@@ -178,6 +181,14 @@ describe('render order bands', () => {
     // unit's body occludes the ring's inside -- the "under the feet" read.
     expect(DECAL_FADING_RENDER_ORDER).toBeLessThan(SELECTION_RING_RENDER_ORDER);
     expect(SELECTION_RING_RENDER_ORDER).toBeLessThan(TURRET_RENDER_ORDER);
+  });
+
+  it('the tunnel x-ray draws over the trail and decals, its figures over its bore, and all of it under the selection ring (GH-471)', () => {
+    expect(TRAIL_RENDER_ORDER).toBeLessThan(TUNNEL_XRAY_RENDER_ORDER);
+    expect(DECAL_FADING_RENDER_ORDER).toBeLessThan(TUNNEL_XRAY_RENDER_ORDER);
+    expect(TUNNEL_XRAY_RENDER_ORDER).toBeLessThan(TUNNEL_XRAY_FIGURE_RENDER_ORDER);
+    expect(TUNNEL_XRAY_FIGURE_RENDER_ORDER).toBeLessThan(TUNNEL_XRAY_BEAM_RENDER_ORDER);
+    expect(TUNNEL_XRAY_BEAM_RENDER_ORDER).toBeLessThan(SELECTION_RING_RENDER_ORDER);
   });
 
   // #470: the objective zone's band is ground, not an overlay. It replaced a
