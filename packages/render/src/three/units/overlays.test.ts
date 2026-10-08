@@ -465,33 +465,13 @@ describe('OverlayBatch.lineWorld', () => {
   });
 });
 
-describe('OverlayBatch.polygonFillWorld / polygonStrokeWorld', () => {
+describe('OverlayBatch.polygonStrokeWorld', () => {
   const square: readonly [number, number, number][] = [
     [0, 0, 0],
     [4, 0, 0],
     [4, 0, 4],
     [0, 0, 4],
   ];
-
-  it('polygonFillWorld fan-triangulates a 4-point polygon into exactly 6 vertices (2 triangles)', () => {
-    const batch = new OverlayBatch(64);
-    batch.beginFrame();
-    batch.polygonFillWorld(square, '#FF0000', 0.05);
-    batch.endFrame();
-    expect(batch.mesh.geometry.drawRange.count).toBe(6);
-  });
-
-  it('polygonFillWorld writes literal world positions, not anchor-relative pixel offsets', () => {
-    const batch = new OverlayBatch(64);
-    batch.beginFrame();
-    batch.polygonFillWorld(square, '#FF0000', 0.05);
-    batch.endFrame();
-    const pos = (batch.mesh.geometry.getAttribute('position') as THREE.BufferAttribute).array as Float32Array;
-    // First vertex is the polygon's own first corner, verbatim.
-    expect(pos[0]).toBe(0);
-    expect(pos[1]).toBe(0);
-    expect(pos[2]).toBe(0);
-  });
 
   it('polygonStrokeWorld writes 2 triangles (6 vertices) per edge of a closed loop', () => {
     const batch = new OverlayBatch(64);

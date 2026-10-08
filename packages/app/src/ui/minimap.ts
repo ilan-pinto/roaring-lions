@@ -740,8 +740,9 @@ const DOT = 6;
 /** Diamond edge before the 45-degree turn, in box pixels. Spec: 8px stroked. */
 const DIAMOND = 8;
 /** The objective zone mark (VR-36): 2 px edge on a 4 px keyline, a 3/2 dash
- *  while not held or contested, and the world's 0.12 fill
- *  (`OBJECTIVE_ZONE_FILL_ALPHA`). */
+ *  while not held or contested, and a 0.12 fill. The world dropped its own
+ *  0.12 fill for a hatched ground band (GH-470); on the minimap the fill is a
+ *  flat mark on a flat map and hides nothing. */
 const ZONE_STROKE = 2;
 const ZONE_KEYLINE = 4;
 const ZONE_DASH: readonly number[] = [3, 2];
