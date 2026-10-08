@@ -7,9 +7,11 @@ const isOrder = (id: SymbolId): boolean => (ORDER_IDS as readonly string[]).incl
 const viewBoxOf = (svg: string): number[] => (/viewBox="([^"]+)"/.exec(svg)?.[1] ?? '').split(' ').map(Number);
 
 describe('the symbol family (G1 r2 roles, r5 orders, r2 utility marks, the pinned status mark, GH-261)', () => {
-  it('is thirty-three distinct ids: seven roles, eight orders, four utility marks, one status mark, thirteen GH-261 marks', () => {
-    expect(SYMBOL_IDS).toHaveLength(33);
-    expect(new Set(SYMBOL_IDS).size).toBe(33);
+  it('is thirty-five distinct ids: seven roles, eight orders, four utility marks, three status marks, thirteen GH-261 marks', () => {
+    expect(SYMBOL_IDS).toHaveLength(35);
+    expect(new Set(SYMBOL_IDS).size).toBe(35);
+    expect(SYMBOL_IDS).toContain('immobilised');
+    expect(SYMBOL_IDS).toContain('gunOut');
     expect(SYMBOL_IDS).toContain('pinned');
   });
 
@@ -94,6 +96,23 @@ describe('the HUD order marks are cropped to their own surround', () => {
       expect(width / height).toBeCloseTo(w / h, 1);
       expect(svg).not.toContain('preserveAspectRatio="none"');
     }
+  });
+});
+
+describe('the two damage marks (pass C2/C4, D5)', () => {
+  for (const id of ['immobilised', 'gunOut'] as const) {
+    const body = symbolBody(id);
+    it(`${id} is filled only, in currentColor, inside the 24 box, and distinct`, () => {
+      expect(body).toContain('currentColor');
+      expect(body).not.toMatch(/stroke|#[0-9a-fA-F]{3}|var\(--/);
+      const nums = [...body.matchAll(/-?\d+(\.\d+)?/g)].map((m) => Number(m[0]));
+      for (const n of nums) expect(n >= -24 && n <= 24).toBe(true);
+      expect(body).not.toBe(symbolBody('pinned'));
+      expect(symbolSvg(id, 12)).toContain(`data-symbol="${id}"`);
+    });
+  }
+  it('are two different drawings', () => {
+    expect(symbolBody('immobilised')).not.toBe(symbolBody('gunOut'));
   });
 });
 

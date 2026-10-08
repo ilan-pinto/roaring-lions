@@ -1119,8 +1119,41 @@ describe('the single-unit card', () => {
     world.sim.state.moving[world.namer] = 1;
     for (let i = 0; i < 5; i++) r.tick();
     const cond = r.host.querySelector<HTMLElement>('.rl-card__cond')!;
-    expect(cond.textContent).toContain('PINNED');
+    // Pass C2/C4: the state word is set in display caps by CSS, so the text
+    // is the catalogue's own "Pinned".
+    expect(cond.textContent).toContain('Pinned');
     expect(cond.textContent).toContain('moving');
+  });
+
+  // Pass C2/C4 (PA-15): no percentage over 100 -- the state, what it costs
+  // and when it ends. Break: put `suppression {pct}%` back on the line.
+  it('says what suppression costs and when it ends, never as a percentage', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [world.namer], {}, world);
+    world.sim.state.suppression[world.namer] = Math.round(0.62 * 65536);
+    for (let i = 0; i < 5; i++) r.tick();
+    let card = r.host.querySelector<HTMLElement>('.rl-card')!;
+    expect(card.querySelector('.rl-card__cond')!.textContent).toContain('Suppressed');
+    expect(card.querySelector('.rl-card__cond')!.textContent).toContain('aim −48%');
+    expect(card.querySelector('.rl-supp')).not.toBeNull();
+    expect(card.textContent).not.toMatch(/\d%\s*$|suppression \d+%/);
+    world.sim.state.suppression[world.namer] = Math.round(1.7 * 65536);
+    world.sim.state.pinned[world.namer] = 1;
+    for (let i = 0; i < 5; i++) r.tick();
+    card = r.host.querySelector<HTMLElement>('.rl-card')!;
+    expect(card.querySelector('.rl-card__why')!.textContent).toContain('up ~9 s after the fire stops');
+    expect(card.textContent).not.toContain('170');
+  });
+
+  it('heads a vehicle with both kills OUT OF ACTION, with its mark on the art', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [world.namer], {}, world);
+    world.sim.state.mobilityKilled[world.namer] = 1;
+    world.sim.state.firepowerKilled[world.namer] = 1;
+    for (let i = 0; i < 5; i++) r.tick();
+    const card = r.host.querySelector<HTMLElement>('.rl-card')!;
+    expect(card.querySelector('.rl-card__cond')!.textContent).toContain('Out of action');
+    expect(card.querySelector('.rl-pin-mark')!.getAttribute('data-mark')).toBe('gunOut');
   });
 
   it('paints a veteran’s stripe as a commendation, never as a caution', () => {
@@ -2661,9 +2694,12 @@ describe('projected fire wording (GH-345)', () => {
     expect(text).toContain('target moving −40%');
     expect(text).toContain('Wait for it to stop');
   });
-  it('D: out of reach names range AND sight and the reach, read from unit data', () => {
+  // Pass C2/C4 (D4, PA-15): it says WHICH -- here the target stands inside
+  // the rifles' 8 tiles, so the one reason left in `projectHit` is sight.
+  it('D: no shot names which reason, not "range or sight"', () => {
     const text = firePanel({ kind: 'noSolution' });
-    expect(text).toContain('Out of range or out of sight · Rifles reach 8 tiles');
+    expect(text).toContain('No line of sight · in range, but something is in the way');
+    expect(text).not.toContain('Out of range or out of sight');
     expect(text).not.toContain('no unit can engage');
   });
   // WP-P4 (PA-08): the heading names one target and gives odds on it, and

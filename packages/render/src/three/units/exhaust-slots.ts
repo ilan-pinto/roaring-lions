@@ -42,3 +42,18 @@ export function exhaustSlotAgeSec(slot: number, simMs: number, intervalMs: numbe
 export function exhaustRand(entityId: number, slot: number): () => number {
   return washRand(entityId + 0x10000, slot);
 }
+
+/**
+ * Pass C2/C4 (P3): does this unit trail damage smoke? A ground vehicle (not
+ * soft, not an aircraft) that has lost its mobility, its firepower or both.
+ * A soft unit never rolls a component; an aircraft has no engine deck in
+ * reach of a ground wisp.
+ */
+export function vehicleTrailsDamageSmoke(
+  type: { readonly isSoft: boolean; readonly isAir: boolean },
+  mobilityKilled: number,
+  firepowerKilled: number
+): boolean {
+  if (type.isSoft || type.isAir) return false;
+  return mobilityKilled === 1 || firepowerKilled === 1;
+}

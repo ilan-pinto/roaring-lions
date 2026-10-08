@@ -184,6 +184,8 @@ describe('chips — the one status line', () => {
     expect(s({ count: 3, routed: 1, pinned: 2, aboard: 0, moving: 3 })).toEqual({
       status: '1 BROKEN',
       statusTone: 'bad',
+      mark: 'broken',
+      detail: '2 PINNED',
     });
   });
 
@@ -191,6 +193,8 @@ describe('chips — the one status line', () => {
     expect(s({ count: 3, routed: 0, pinned: 1, aboard: 1, moving: 2 })).toEqual({
       status: '1 PINNED',
       statusTone: 'hot',
+      mark: 'pinned',
+      detail: null,
     });
   });
 
@@ -198,7 +202,30 @@ describe('chips — the one status line', () => {
     // The spec's own reading: its Namer chip says `APS 3/4` while the card
     // beside it says the same unit is moving.
     expect(s({ count: 1, routed: 0, pinned: 0, aboard: 0, moving: 1, aps: { ammo: 3, magazine: 4 } })
-    ).toEqual({ status: 'APS 3/4', statusTone: null });
+    ).toEqual({ status: 'APS 3/4', statusTone: null, mark: null, detail: null });
+  });
+
+  // Pass C2/C4 (D5, PA-33): a gunless Lavi read "APS 3/3". Break: drop the
+  // gunOut row from COMBAT_STATES and this goes red.
+  it('puts the vehicle damage under pinned and over everything recoverable, with its mark', () => {
+    expect(s({ count: 1, routed: 0, pinned: 0, gunOut: 1, aboard: 0, moving: 0, aps: { ammo: 3, magazine: 3 } })).toEqual({
+      status: '1 GUN OUT',
+      statusTone: 'bad',
+      mark: 'gunOut',
+      detail: null,
+    });
+    expect(s({ count: 1, routed: 0, pinned: 0, outOfAction: 1, aboard: 0, moving: 0 }).mark).toBe('gunOut');
+    expect(s({ count: 1, routed: 0, pinned: 0, immobilised: 1, aboard: 0, moving: 0 }).mark).toBe('immobilised');
+    expect(s({ count: 2, routed: 0, pinned: 1, immobilised: 1, aboard: 0, moving: 0 })).toMatchObject({ status: '1 PINNED', detail: '1 IMMOBILISED' });
+  });
+
+  it('names suppression and shaken under the damage, with no mark', () => {
+    expect(s({ count: 3, routed: 0, pinned: 0, suppressed: 1, shaken: 2, aboard: 0, moving: 3 })).toEqual({
+      status: '1 suppressed',
+      statusTone: 'hot',
+      mark: null,
+      detail: '2 shaken',
+    });
   });
 
   it('falls through moving to holding', () => {

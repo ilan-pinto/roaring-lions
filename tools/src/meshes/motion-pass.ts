@@ -16,6 +16,11 @@
  *             kneeler raised, a prop seated, a wheel held up on its axle
  *             (`motion/ground.ts`). Before the kneel, which builds from
  *             the grounded idle.
+ *   pinned    the pinned huddle, `pinned`, for every team that carries
+ *             the corpse pair `down`/`wreck` (`motion/pinned.ts`), built
+ *             last, from `kneel` or `idle`. The one step that is
+ *             idempotent: `--step=pinned` runs it ALONE on a file already
+ *             through the pass, and replaces its own clip.
  *
  * Order in the mesh pipeline: export (Blender) -> THIS -> `pnpm gait:meshes`
  * -> `pnpm encode:meshes`. A file that has been through it carries
@@ -31,6 +36,7 @@ import { NodeIO, type Document } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { applyHold } from './motion/apply-hold';
 import { applyKneel } from './motion/kneel';
+import { applyPinned, needsPinned } from './motion/pinned';
 import { applyCarry } from './motion/carry';
 import { applyGround } from './motion/ground';
 import { applyFormation } from './motion/formation';
@@ -62,6 +68,7 @@ export function runMotionPass(doc: Document, id: string, spec: MotionTeam, base:
   lines.push(...applyCarry(doc, id, spec));
   lines.push(...applyGround(doc, id, spec));
   if (spec.kneel) lines.push(...applyKneel(doc, id, spec, holds[0]?.ctx ?? []));
+  if (needsPinned(doc)) lines.push(...applyPinned(doc, id));
   scene.setExtras({
     ...extras,
     rl_motion: { version: MOTION_VERSION, base },
@@ -79,6 +86,9 @@ async function main(): Promise<void> {
   // --in/--out: one file, anywhere (a scratch preview); never with --from.
   const inFile = args.find((a) => a.startsWith('--in='))?.slice(5);
   const outFile = args.find((a) => a.startsWith('--out='))?.slice(6);
+  // --step=pinned: only the pinned huddle, on files already through the pass.
+  const step = args.find((a) => a.startsWith('--step='))?.slice(7);
+  if (step !== undefined && step !== 'pinned') throw new Error(`motion: unknown --step=${step} (only "pinned")`);
   const ids = only ? only.split(',') : Object.keys(MOTION_TEAMS);
   const io = new NodeIO().registerExtensions(ALL_EXTENSIONS);
   for (const id of ids) {
@@ -92,7 +102,14 @@ async function main(): Promise<void> {
         ? execFileSync('/usr/bin/git', ['-C', REPO, 'show', `${from}:${rel}`], { maxBuffer: 1 << 28 })
         : readFileSync(file);
     const doc = await io.readBinary(new Uint8Array(bytes));
-    const r = runMotionPass(doc, id, spec, from ?? (inFile ? 'scratch' : 'working tree'));
+    if (step === 'pinned' && !needsPinned(doc)) {
+      console.log(`MOTION ${id}: no down/wreck pair, no pinned clip`);
+      continue;
+    }
+    const r =
+      step === 'pinned'
+        ? { id, lines: applyPinned(doc, id) }
+        : runMotionPass(doc, id, spec, from ?? (inFile ? 'scratch' : 'working tree'));
     writeFileSync(outFile ?? file, await io.writeBinary(doc));
     console.log(`MOTION ${id}`);
     for (const l of r.lines) console.log(`  ${l}`);

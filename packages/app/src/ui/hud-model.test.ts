@@ -20,6 +20,8 @@ import {
   textToneClass,
   withoutHiddenClocks,
   worstPenalties,
+  groupedPenalties,
+  noShotReason,
   type MissionView,
   type ObjectiveView,
 } from './hud-model';
@@ -333,5 +335,56 @@ describe('withoutHiddenClocks (GH-345 clock: false)', () => {
   });
   it('changes nothing for a mission that authors no clock: false', () => {
     expect(withoutHiddenClocks(objs, clocklessObjectives(undefined))).toEqual(objs);
+  });
+});
+
+describe('groupedPenalties (pass C2/C4, D4, PA-15)', () => {
+  const words = { them: 'them', us: 'us' } as const;
+  it('names whose each of the two worst factors is, the target’s first', () => {
+    expect(
+      groupedPenalties(
+        [
+          ['cover', 0.09, 'them'],
+          ['range', 1, 'them'],
+          ['shaken', 0.8, 'us'],
+        ],
+        words
+      )
+    ).toEqual(['them cover −91%', 'us shaken −20%']);
+  });
+  it('drops a group with nothing in the worst two', () => {
+    expect(
+      groupedPenalties(
+        [
+          ['cover', 0.5, 'them'],
+          ['moving', 0.6, 'them'],
+          ['shaken', 0.9, 'us'],
+        ],
+        words
+      )
+    ).toEqual(['them cover −50% · moving −40%']);
+  });
+});
+
+describe('noShotReason (pass C2/C4, D4)', () => {
+  const rifle = { range: 8, minRange: 0 };
+  const mortar = { range: 20, minRange: 3 };
+  it('says gun out, under cover, out of range, too close or no sight -- in projectHit’s order', () => {
+    expect(noShotReason([{ gunOut: true, distTiles: 2, weapons: [rifle] }], true)).toBe('gunOut');
+    expect(noShotReason([{ gunOut: false, distTiles: 2, weapons: [rifle] }], true)).toBe('contained');
+    expect(noShotReason([{ gunOut: false, distTiles: 11, weapons: [rifle] }], false)).toBe('outOfRange');
+    expect(noShotReason([{ gunOut: false, distTiles: 2, weapons: [mortar] }], false)).toBe('tooClose');
+    expect(noShotReason([{ gunOut: false, distTiles: 6, weapons: [rifle] }], false)).toBe('noSight');
+  });
+  it('is mixed when the selection does not agree', () => {
+    expect(
+      noShotReason(
+        [
+          { gunOut: false, distTiles: 11, weapons: [rifle] },
+          { gunOut: false, distTiles: 6, weapons: [rifle] },
+        ],
+        false
+      )
+    ).toBe('mixed');
   });
 });

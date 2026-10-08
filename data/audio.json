@@ -540,6 +540,9 @@
       "ar.common.ack": {
         "variants": []
       },
+      "ar.common.broken": {
+        "variants": []
+      },
       "ar.common.charge": {
         "variants": []
       },
@@ -549,7 +552,13 @@
       "ar.common.garrison": {
         "variants": []
       },
+      "ar.common.gunout": {
+        "variants": []
+      },
       "ar.common.halt": {
+        "variants": []
+      },
+      "ar.common.immobilised": {
         "variants": []
       },
       "ar.common.mount": {
@@ -612,6 +621,9 @@
           }
         ]
       },
+      "he.common.broken": {
+        "variants": []
+      },
       "he.common.charge": {
         "variants": []
       },
@@ -621,7 +633,13 @@
       "he.common.garrison": {
         "variants": []
       },
+      "he.common.gunout": {
+        "variants": []
+      },
       "he.common.halt": {
+        "variants": []
+      },
+      "he.common.immobilised": {
         "variants": []
       },
       "he.common.mount": {

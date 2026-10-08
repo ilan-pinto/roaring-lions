@@ -22,6 +22,7 @@
 
 import { t } from '../i18n/t';
 import type { RoleBucket } from './role';
+import { combatBand, vehicleDamage } from './combat-state';
 
 /** The five verbs the order row offers. Named rather than positional so the
  *  armed state, the dispatch table and the tests all say the same word. */
@@ -178,6 +179,11 @@ export interface UnitFacts {
   routed: boolean;
   pinned: boolean;
   moving: boolean;
+  /** Pass C2/C4 (D5): suppression (0..2), and the two component kills.
+   *  Optional, so a caller with no combat facts reads healthy. */
+  suppression?: number;
+  mobilityKilled?: boolean;
+  firepowerKilled?: boolean;
   /** Riding in a transport. */
   aboard: boolean;
   /** Active protection, where the type has any. */
@@ -205,7 +211,15 @@ export interface ChipView {
    *  than a raw count, so the mark and the status line can never disagree --
    *  a broken unit's chip says BROKEN and carries no pinned mark. */
   pinned: boolean;
+  /** The mark on the chip art (pass C2/C4, D5), from the same precedence as
+   *  the status line, or null. `pinned` above stays the pinned case of it. */
+  mark: ChipMark | null;
+  /** A muted second clause naming the next state down, or null. */
+  detail: string | null;
 }
+
+/** Which status mark a chip's art carries. */
+export type ChipMark = 'broken' | 'pinned' | 'gunOut' | 'immobilised';
 
 /**
  * The ink a chip's condition line is set in. Its own union rather than
@@ -253,6 +267,11 @@ export function groupChips(units: UnitFacts[]): ChipView[] {
     let hpMax = 0;
     let routed = 0;
     let pinned = 0;
+    let outOfAction = 0;
+    let gunOut = 0;
+    let immobilised = 0;
+    let suppressed = 0;
+    let shaken = 0;
     let aboard = 0;
     let moving = 0;
     let apsAmmo = 0;
@@ -262,6 +281,13 @@ export function groupChips(units: UnitFacts[]): ChipView[] {
       hpMax += u.hpMax;
       if (u.routed) routed++;
       if (u.pinned) pinned++;
+      const damage = vehicleDamage(u.mobilityKilled === true, u.firepowerKilled === true);
+      if (damage === 'outOfAction') outOfAction++;
+      else if (damage === 'gunOut') gunOut++;
+      else if (damage === 'immobilised') immobilised++;
+      const band = combatBand(u.suppression ?? 0, u.pinned, u.routed);
+      if (band === 'suppressed') suppressed++;
+      else if (band === 'shaken') shaken++;
       if (u.aboard) aboard++;
       if (u.moving) moving++;
       if (u.aps) {
@@ -270,10 +296,15 @@ export function groupChips(units: UnitFacts[]): ChipView[] {
       }
     }
     const pct = hpMax > 0 ? Math.max(0, Math.min(1, hp / hpMax)) : 0;
-    const { status, statusTone } = chipStatus({
+    const { status, statusTone, mark, detail } = chipStatus({
       count: group.length,
       routed,
       pinned,
+      outOfAction,
+      gunOut,
+      immobilised,
+      suppressed,
+      shaken,
       aboard,
       moving,
       aps: apsMag > 0 ? { ammo: apsAmmo, magazine: apsMag } : undefined,
@@ -288,7 +319,9 @@ export function groupChips(units: UnitFacts[]): ChipView[] {
       status,
       statusTone,
       own: group.every((u) => u.own === true),
-      pinned: pinned > 0 && routed === 0,
+      pinned: mark === 'pinned',
+      mark,
+      detail,
     };
   });
 }
@@ -297,22 +330,52 @@ interface StatusCounts {
   count: number;
   routed: number;
   pinned: number;
+  /** Pass C2/C4 (D5): optional, so a caller that knows none of them reads 0. */
+  outOfAction?: number;
+  gunOut?: number;
+  immobilised?: number;
+  suppressed?: number;
+  shaken?: number;
   aboard: number;
   moving: number;
   aps?: { ammo: number; magazine: number };
 }
 
-/** The single condition line, exported so its precedence can be tested without
- *  assembling a group around it. */
-export function chipStatus(c: StatusCounts): { status: string; statusTone: ChipTone } {
-  if (c.routed > 0) return { status: t('selection.chip.broken', { n: c.routed }), statusTone: 'bad' };
+/** The combat states in the chip's precedence, worst first (pass C2/C4,
+ *  D5): broken › pinned › out of action › gun out › immobilised ›
+ *  suppressed › shaken. Each with its line, its ink and its mark. */
+const COMBAT_STATES: readonly {
+  readonly key: 'routed' | 'pinned' | 'outOfAction' | 'gunOut' | 'immobilised' | 'suppressed' | 'shaken';
+  readonly label: string;
+  readonly tone: ChipTone;
+  readonly mark: ChipMark | null;
+}[] = [
+  { key: 'routed', label: 'selection.chip.broken', tone: 'bad', mark: 'broken' },
   // 'hot' and not 'bad': pinned is recoverable and broken is not, and the top
   // strip already draws that same distinction in those same two colours.
-  if (c.pinned > 0) return { status: t('selection.chip.pinned', { n: c.pinned }), statusTone: 'hot' };
-  if (c.aboard > 0) return { status: t('selection.chip.aboard', { n: c.aboard }), statusTone: null };
-  if (c.aps) return { status: t('selection.chip.aps', { ammo: c.aps.ammo, magazine: c.aps.magazine }), statusTone: null };
-  if (c.moving > 0) return { status: t('selection.chip.moving', { n: c.moving }), statusTone: null };
-  return { status: t('selection.chip.holding'), statusTone: null };
+  { key: 'pinned', label: 'selection.chip.pinned', tone: 'hot', mark: 'pinned' },
+  { key: 'outOfAction', label: 'selection.chip.outOfAction', tone: 'bad', mark: 'gunOut' },
+  { key: 'gunOut', label: 'selection.chip.gunOut', tone: 'bad', mark: 'gunOut' },
+  { key: 'immobilised', label: 'selection.chip.immobilised', tone: 'bad', mark: 'immobilised' },
+  { key: 'suppressed', label: 'selection.chip.suppressed', tone: 'hot', mark: null },
+  { key: 'shaken', label: 'selection.chip.shaken', tone: null, mark: null },
+];
+
+/** The single condition line, exported so its precedence can be tested without
+ *  assembling a group around it. The worst combat state present wins the
+ *  line and the mark; the next one down, if any, is the muted `detail`. */
+export function chipStatus(c: StatusCounts): { status: string; statusTone: ChipTone; mark: ChipMark | null; detail: string | null } {
+  const present = COMBAT_STATES.filter((s) => (c[s.key] ?? 0) > 0);
+  const detail = present.length > 1 ? t(present[1].label, { n: c[present[1].key] ?? 0 }) : null;
+  if (present.length > 0) {
+    const top = present[0];
+    return { status: t(top.label, { n: c[top.key] ?? 0 }), statusTone: top.tone, mark: top.mark, detail };
+  }
+  const plain = (status: string): { status: string; statusTone: ChipTone; mark: null; detail: null } => ({ status, statusTone: null, mark: null, detail: null });
+  if (c.aboard > 0) return plain(t('selection.chip.aboard', { n: c.aboard }));
+  if (c.aps) return plain(t('selection.chip.aps', { ammo: c.aps.ammo, magazine: c.aps.magazine }));
+  if (c.moving > 0) return plain(t('selection.chip.moving', { n: c.moving }));
+  return plain(t('selection.chip.holding'));
 }
 
 /** Step the chip focus, wrapping. Tab is a cycle: reaching the end and stopping

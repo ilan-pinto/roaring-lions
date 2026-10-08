@@ -65,16 +65,18 @@ describe('languageOf (spec §3, D10)', () => {
 });
 
 describe('the key grammar (R-5)', () => {
-  it('is twenty keys per language, distinct, and ASCII <lang>.<class>.<trigger>', () => {
+  // + 3 (pass C2/C4, A1): the broken, immobilised and gun-out calls.
+  it('is twenty-three keys per language, distinct, and ASCII <lang>.<class>.<trigger>', () => {
     const he = allLineKeys(['he']);
-    expect(he).toHaveLength(20);
-    expect(new Set(he).size).toBe(20);
+    expect(he).toHaveLength(23);
+    expect(new Set(he).size).toBe(23);
     for (const k of he) expect(k).toMatch(/^[a-z]{2}\.(infantry|crew|engineer|air|common)\.[a-z]+$/);
-    expect(allLineKeys(['he', 'ar', 'he'])).toHaveLength(40);
+    expect(allLineKeys(['he', 'ar', 'he'])).toHaveLength(46);
   });
 
-  it('declares the pinned call once per language', () => {
-    expect(allLineKeys(['he'])).toHaveLength(20);
+  it('declares each call once per language', () => {
+    expect(allLineKeys(['he'])).toHaveLength(23);
+    for (const c of ['pinned', 'broken', 'immobilised', 'gunout']) expect(allLineKeys(['he', 'ar'])).toContain(`ar.common.${c}`);
     expect(allLineKeys(['he', 'ar'])).toContain('ar.common.pinned');
     expect(pinnedLineKey('he')).toBe('he.common.pinned');
   });

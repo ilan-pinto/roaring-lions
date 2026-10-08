@@ -666,6 +666,8 @@ export class BattleAudio {
   private readonly holds = new Map<string, DuckRow>();
   /** When a timed hold lets go, by hold id. */
   private readonly holdTimers = new Map<string, number>();
+  /** The later notes of a synth cue, each pending until it sounds. */
+  private readonly toneTimers = new Set<number>();
   /** Context time before which only an outcome cue may sound. */
   private cueBlockUntil = 0;
   /** The music scene and its gain, which steps towards the scene's level. */
@@ -1205,7 +1207,13 @@ export class BattleAudio {
     let seconds = 0;
     for (const [freq, dur, type, gain, delayMs] of shape) {
       if (delayMs === 0) this.tone(freq, dur, type, gain, bus);
-      else window.setTimeout(() => this.tone(freq, dur, type, gain, bus), delayMs);
+      else {
+        const id = window.setTimeout(() => {
+          this.toneTimers.delete(id);
+          this.tone(freq, dur, type, gain, bus);
+        }, delayMs);
+        this.toneTimers.add(id);
+      }
       seconds = Math.max(seconds, delayMs / 1000 + dur);
     }
     return seconds;
@@ -1262,6 +1270,24 @@ export class BattleAudio {
         this.startAmbience(DUCK_TABLE.pause.releaseS);
       }
     }
+  }
+
+  /**
+   * Let go of every timer the mixer owns: the music scene and duck steps, the
+   * cue holds and the pending notes of a synth cue. A timer that outlives its
+   * owner fires into whatever is left (a torn-down test environment threw
+   * "window is not defined" and turned the gates job red), so a screen that
+   * is done with the mixer calls this. Idempotent, and safe before `attach()`.
+   */
+  dispose(): void {
+    if (this.musicSceneTimer !== null) window.clearTimeout(this.musicSceneTimer);
+    this.musicSceneTimer = null;
+    if (this.musicDuckTimer !== null) window.clearTimeout(this.musicDuckTimer);
+    this.musicDuckTimer = null;
+    for (const t of this.holdTimers.values()) window.clearTimeout(t);
+    this.holdTimers.clear();
+    for (const t of this.toneTimers) window.clearTimeout(t);
+    this.toneTimers.clear();
   }
 
   /**

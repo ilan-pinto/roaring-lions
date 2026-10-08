@@ -701,6 +701,20 @@ export function measureJointPoses(path: string, clip: string, at: 'start' | 'end
   });
 }
 
+/** Every NODE's world pose at the first or last frame of `clip` -- the
+ *  skinless twin of `measureJointPoses`, for a vehicle's rigid parts. */
+export function measureNodePoses(path: string, clip: string, at: 'start' | 'end'): JointPose[] {
+  const glb = readGlb(path);
+  const nodes = glb.json.nodes ?? [];
+  const { tracks, start, end } = readClip(glb, clip);
+  const worlds = nodeWorlds(glb, tracks, at === 'start' ? start : end);
+  return nodes.map((n, j) => {
+    const m = worlds[j];
+    const scale = jointScale(m);
+    return { name: n.name ?? `node${j}`, translation: [m[12], m[13], m[14]], rotation: quatFromMat(m, scale), scale };
+  });
+}
+
 /** Angle between two unit quaternions, degrees, sign-agnostic. */
 export function rotationDeltaDeg(a: readonly number[], b: readonly number[]): number {
   const d = Math.min(1, Math.abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]));
