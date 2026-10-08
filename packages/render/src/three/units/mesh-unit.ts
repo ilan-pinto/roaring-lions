@@ -31,7 +31,7 @@
  * expansion of this one.
  */
 import * as THREE from 'three';
-import { gltfLoader } from './gltf-loader';
+import { coldGltfLoader, gltfLoader } from './gltf-loader';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import type { ClipName } from '../../sheet';
@@ -226,9 +226,11 @@ export function buildMeshUnitTemplate(
 export async function loadMeshUnitTemplate(
   glbUrl: string,
   faction: MeshFaction,
-  allowTextured = false
+  allowTextured = false,
+  /** GH-469: keep the textures encoded until `warmColdTextures`. */
+  cold = false
 ): Promise<MeshUnitTemplate> {
-  const gltf = await gltfLoader().loadAsync(glbUrl);
+  const gltf = await (cold ? coldGltfLoader() : gltfLoader()).loadAsync(glbUrl);
   return buildMeshUnitTemplate(gltf, faction, glbUrl, allowTextured);
 }
 
