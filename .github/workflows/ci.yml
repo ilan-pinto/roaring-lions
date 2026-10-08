@@ -306,50 +306,6 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
-  # TEMPORARY (GH-469 falsification): the gate must go RED on a deliberate
-  # retained allocation and on a leak. Each runner applies one one-line
-  # mutation to bootBattlefield and runs the gate; both jobs are EXPECTED to
-  # fail. Removed in the next commit.
-  memory-falsify:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        mutation: [alloc, leak]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-      - name: Install Playwright Chromium
-        run: pnpm --filter @lions/tools exec playwright install --with-deps chromium
-      - name: inject the mutation
-        env:
-          MUTATION: ${{ matrix.mutation }}
-        run: |
-          python3 - <<'PY'
-          import os
-          p = 'packages/app/src/main.ts'
-          s = open(p).read()
-          anchor = "  const lionsHandle = (window as unknown as Record<string, unknown>).__lions;\n"
-          line = {
-              'alloc': "  (window as unknown as Record<string, unknown>).__rlProbe = new Uint8Array(200 * 1048576).fill(1);\n",
-              'leak': "  window.addEventListener('rl-probe', () => void renderer);\n",
-          }[os.environ['MUTATION']]
-          assert s.count(anchor) == 1
-          open(p, 'w').write(s.replace(anchor, line + anchor))
-          PY
-          git diff
-      - run: pnpm perf:memory -- --gate --port=5179
-
   determinism:
     strategy:
       fail-fast: false

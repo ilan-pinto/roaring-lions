@@ -1537,3 +1537,246 @@ under load, and the 62-69 s before it is the figure to compare against only
 loosely. CI's `gates` job runs it headless on ubuntu with no GPU; its time was
 not measured. `export_vehicle_kit.py` over all eight takes about 64-70 s
 (63.8 s before the stricter clash check, 69.5 s after).
+
+## Memory (GH-469, 2026-10-08)
+
+The lead: *"I think the game uses a lot of memory on users' computers."* It
+does. On the heaviest missions a tab holds **about 3.0-3.2 GB** across
+Chromium's processes on a Mac (2.76-2.93 GB under CI's SwiftShader), of which
+the game's own JavaScript is **only 119-129 MiB**. The rest is pictures:
+**~1 GB of decoded GLB textures in the renderer process, ~0.9 GB of GPU
+allocations**, and the GPU process's own overhead on top. Leaving a mission
+gives every JS and GL byte back -- after two fixes this work found -- but not
+every process byte. Nothing has been optimised yet; the ranked list at the end
+is for the lead to pick from.
+
+### The instrument: `pnpm perf:memory`
+
+`tools/src/perf/memory.ts`. ONE browser, ONE page, ONE JS realm: the menu, the
+campaign board, the menu again, then each mission booted SOFTLY (an anchor
+click the shell's `interceptLinks` turns into a router navigation), played for
+120 s of sim time through `__lions.step` in 30 s slices, left through the HUD's
+leave button and confirm, and followed back to the menu softly. A hard
+`page.goto` between missions would hand every reading a fresh heap and make
+the leak check unable to fail.
+
+At every checkpoint, after `Runtime.discardConsoleEntries` and two
+`HeapProfiler.collectGarbage`s:
+
+| reading | source | what it is |
+|---|---|---|
+| **JS** | CDP `Runtime.getHeapUsage` | V8's used heap **plus `backingStorageSize`** -- the ArrayBuffer backing stores, which `JSHeapUsedSize` / `performance.memory` do NOT include. Every geometry array, Draco-decoded buffer and sim component lives there; at a mission it is two thirds of the JS total. |
+| **GPU** | a GL-call ledger (`memory-ledger.ts`, an `addInitScript`) | every byte the page ASKS WebGL for -- `texImage2D`/`texStorage2D`/`texImage3D`/compressed textures with their mip chains, `bufferData`, renderbuffer storage x samples -- per context, live contexts only, plus an ESTIMATE of each default framebuffer. Logical bytes, not driver bytes, so it reads the same on every machine (Metal and SwiftShader agree to 0.1 MiB). `renderer.info.memory` is two counts and sees one renderer; the ledger sees the menu's scene host and the board too. |
+| **process** | CDP `SystemInfo.getProcessInfo` pids | every Chromium process: `phys_footprint` on macOS (`footprint`, Activity Monitor's Memory column, which counts Metal allocations in the GPU process), PSS on Linux (`/proc/<pid>/smaps_rollup`). |
+| **bitmaps** | the ledger wraps `createImageBitmap` | every decoded ImageBitmap still reachable, uploaded or not, at 4 B/px |
+| DOM | `Memory.getDOMCounters` | nodes, JS event listeners -- the leak tell |
+| attribution | `ThreeRenderer.debugMemoryInventory()` (new, debug-only, not on `api.ts`) | scene and mesh-template bytes by owner, each geometry and texture `Source` counted once |
+
+`performance.measureUserAgentSpecificMemory()` is **not available**: it needs
+a cross-origin-isolated page (COOP + COEP), which neither the dev server nor
+the Worker sends. The reading says so rather than going missing.
+
+Flags: `--missions=a,b`, `--play-s`, `--slice-s`, `--viewport=WxH`, `--dpr`,
+`--serve=dev|preview`, `--gpu=metal|swiftshader`, `--port`, `--out`, `--gate`.
+Exit codes: **0** report or every budget met, **1 over budget** (or a leak
+check failed), **2 the instrument failed** (bad argument, a boot that never
+finished, a readback that came back empty), **3** `--gate` with no budget for
+this capture environment.
+
+**Which missions.** All 27 missions are played on 48x48 maps, so map size separates nothing. The
+default three are the top three of 27 by the GLB payload their roster,
+structures and decor plan (`meshPlanFor`): `qarn_hadid_3_clearance` 26.0 MiB on
+disk / 58 GLBs / 33 placed units, `umm_zeitoun_4_clearance` 24.5 / 59 / 39,
+`khan_rafid_3_clearance` 24.4 / 52 / 41 (the most unit types, 19).
+`beit_sahwan_3_clearance` ties the second on bytes (24.5) with fewer units;
+`beit_sahwan_breach` fields the most units (53) on a light payload (17.0) --
+GPU memory follows textures, not unit count, below.
+
+### Readings
+
+**Conditions, local:** M3 Pro, ANGLE/Metal (hardware, read back from
+`WEBGL_debug_renderer_info`), headless Chromium, 1400x900 @1x, dev server,
+machine shared with other sessions, **n=4** walks (three with 10 s play slices,
+one with 30 s; every checkpoint of the fourth within 1% of the first three's range).
+MiB throughout.
+
+| checkpoint | JS heap | + ArrayBuffers | = JS | GPU ledger | process total | renderer proc | GPU proc | DOM nodes |
+|---|---|---|---|---|---|---|---|---|
+| menu | 20.9-21.3 | 33.7 | 54.6-55.1 | 522.1 | 1,434-1,474 | 424-440 | 929-953 | 230 |
+| board | 17.7 | 14.2 | 31.8 | 138.2 | 611-649 | 268-283 | 259-283 | 326 |
+| menu (again, after the board) | 21.6-22.1 | 33.8 | 55.5-55.9 | 522.1 | 1,522-1,569 | 467-487 | 968-1,000 | 230 |
+| mission qarn_hadid_3_clearance | 42.6-43.3 | 84.9 | 127.5-128.2 | 882.2 | 2,986-3,050 | 1,467-1,488 | 1,419-1,461 | 1,068-1,093 |
+| menu after qarn_hadid_3_clearance | 25.7-26.2 | 34.5 | 60.1-60.6 | 522.1 | 1,748-1,797 | 620-637 | 1,027-1,059 | 230 |
+| mission umm_zeitoun_4_clearance | 42.3-43.2 | 85.6 | 127.9-128.9 | 880.5 | 3,157-3,207 | 1,594-1,614 | 1,460-1,497 | 937-951 |
+| menu after umm_zeitoun_4_clearance | 26.6-27.4 | 34.5 | 61.1-61.8 | 522.1 | 1,833-1,878 | 669-686 | 1,054-1,087 | 230 |
+| mission khan_rafid_3_clearance | 42.4-43.6 | 81.7 | 124.1-125.3 | 847.3 | 3,049-3,118 | 1,483-1,506 | 1,457-1,514 | 935-962 |
+| menu after khan_rafid_3_clearance | 27.5-28.1 | 34.5 | 61.9-62.6 | 522.1 | 1,893-1,935 | 675-691 | 1,112-1,139 | 230 |
+
+**Conditions, CI:** `ubuntu-latest`, SwiftShader (software; the GPU ledger is
+the same bytes, the process total is not), 1400x900 @1x, dev server, **n=4** walks on four runners (run 37826952688: the `memory` job and three temporary `memory-calibrate` runners), 30 s play slices. A fifth walk with 10 s slices (run 37820472000) read inside these ranges but for one mission process total of 2,947. **Walk time on CI: 428 / 676 / 753 / 768 s** -- one runner much faster than the other three, cause not established; with 10 s slices it was 917 s.
+
+| checkpoint | JS | GPU ledger | process total | DOM nodes |
+|---|---|---|---|---|
+| menu | 54.3-54.8 | 522.1 | 1,297-1,330 | 230 |
+| board | 31.9 | 138.3 | 709-751 | 326 |
+| menu (again, after the board) | 54.9-55.4 | 522.1 | 1,360-1,404 | 230 |
+| mission qarn_hadid_3_clearance | 122.3-122.5 | 882.2 | 2,756-2,800 | 943 |
+| menu after qarn_hadid_3_clearance | 58.1-58.5 | 522.1 | 1,506-1,521 | 230 |
+| mission umm_zeitoun_4_clearance | 124.4-125.2 | 880.5 | 2,901-2,927 | 937-978 |
+| menu after umm_zeitoun_4_clearance | 59.0-59.2 | 522.1 | 1,549-1,576 | 230 |
+| mission khan_rafid_3_clearance | 118.9-119.9 | 847.3 | 2,769-2,788 | 933-974 |
+| menu after khan_rafid_3_clearance | 59.3-59.7 | 522.1 | 1,579-1,636 | 230 |
+
+Two more conditions, n=1 each, Metal:
+
+- **Retina** (`--viewport=1440x900 --dpr=2`, `qarn_hadid_3_clearance`): the
+  menu's GPU ledger goes 522 -> **870 MiB**, the mission's 882 -> **1,215 MiB**,
+  process 3.0 -> **3.5 GB**. Every full-screen target scales with
+  width x height x dpr^2 (`PIXEL_RATIO_CAP` is 2); the default framebuffer
+  estimate alone goes 48 -> 198 MiB. A Mac laptop is this case, not the 1x one.
+- **The production build** (`pnpm build`, `--serve=preview`): JS is 18-20 MiB
+  LOWER than dev at every checkpoint (menu 35.4, missions 103.9-108.3, after
+  leave 41.0-42.5), the GPU ledger is identical to the byte, and the process
+  total is 0.2-0.3 GB HIGHER (missions 3.33-3.51 GB; renderer +220, browser
+  +60). The higher process figure was not chased; the service worker and the
+  HTTP cache are the obvious suspects.
+
+### What leaving gives back
+
+**JS and GL, all of it -- after two fixes.** The first walk read every left
+mission STILL IN THE HEAP after a forced GC: +15-25 MiB of JS, ~750 DOM nodes
+and one lost-but-reachable WebGL context per mission, accumulating. A heap
+snapshot after the leave traced two retainer chains, neither visible to
+`pnpm ui:routes` (which checks body children, `__lions` and the frozen tick --
+all of which passed):
+
+1. **The harness.** `dismissDeployGate` (`golden-diff/capture-guard.ts`) kept
+   the ElementHandle `waitForSelector` returned. An undisposed Playwright
+   handle is a DevTools global handle: it kept the deploy button, its click
+   listener, and through that closure the sim, renderer and runtime alive for
+   the life of the realm. Disposed now. Every harness that uses it was
+   measuring a heap with a battlefield in it.
+2. **The game.** `Hud.destroy()` cleared neither the feed rows' 7-12 s dwell
+   timers nor the commander bar's beat-fold timer. Each closes over the HUD,
+   which holds the sim, the renderer and the runtime, so the last-left
+   battlefield stayed reachable until its last timer fired -- a whole mission's
+   JS held through the next mission's boot. Cleared in `destroy()` now, under
+   the disposer contract; `hud.test.ts` pins it.
+
+After both, over **eight** consecutive mission visits in one realm (Metal,
+30 s of play each): DOM nodes return to the menu's 230 every time, listeners
+to 58 (the menu's 45 + 13 registered once by the first mission's modules, flat
+after), no released context stays reachable, the GPU ledger returns to 522.1
+exactly, and JS plateaus at **+8 MiB** over the first menu (60-63 vs 55: the
+mission chunks' code, flat from the third visit).
+
+**The process total does NOT come back, and it is not a leak.** After one
+mission it sits +0.3 GB over the first menu, after three +0.45 GB, and over
+eight visits it plateaus at **1.83-1.93 GB against 1.47** -- with JS and GL
+flat underneath it. The growth is in the renderer and GPU processes' own
+allocators and caches (Chromium's allocator does not return freed pages
+promptly; ANGLE and the shader cache keep what they built). That is why the
+leak checks below read JS and GL, never the process total.
+
+### Where it goes (attribution)
+
+`qarn_hadid_3_clearance` at 120 s, Metal, 1400x900 @1x, n=1 (the other two
+missions are within 9% on every row):
+
+| consumer | MiB | where | notes |
+|---|---|---|---|
+| **Decoded GLB textures (ImageBitmaps)** | **972** (70 bitmaps) | renderer process, CPU | GLTFLoader decodes every texture of every loaded GLB. **440 MiB** (30) are the CPU copies of textures also on the GPU; **532 MiB** (40) belong to templates never drawn -- building wrecks, buildables not yet fielded -- and were never uploaded at all. Menu: 184 MiB (12). |
+| **GLB textures on the GPU** | **587** (30) | GPU | almost all 2048x2048 RGBA8 at 21.3 MiB each with mips: building facades, vehicle and infantry bakes (base colour, normal, metal/rough). Menu: 245 (12). |
+| **Shadow map** | **128** | GPU | 4096x4096: a 64 MiB colour target AND a 64 MiB DEPTH24 renderbuffer. Same on the menu. |
+| Screen-sized targets | ~41 + 48 est. | GPU | four 1400x900 composer/AO/SMAA targets (38.5) and two half-size depth renderbuffers (2.4), plus the ESTIMATED default framebuffer (`antialias: true`, 4x MSAA) at 48. About x4 at dpr 2. |
+| JS heap | 43 | JS | |
+| ArrayBuffers | 85 | JS | scene geometry 43, mesh templates 19 (the same arrays are also on the GPU: buffers 31.5 MiB) |
+| Ground | ~28 tex + 4.6 geo | GPU | five 1024x1024 tile JPGs at 5.3 each with mips, control maps A/B at 0.75 each, the macro field |
+| Decals | 1.7 geo + 0.8 tex | GPU + JS | both pools at full size, preallocated |
+| Decoded audio | 0-16 | renderer | 0 at the first mission's reading, 16.1 (53 buffers) at the second and third; 8.8 stays decoded after a leave |
+| Flow-field pool | < 0.1 | JS | 0-4 fields x 11.5 KB at this point in these missions |
+| **The menu's scene host** | GPU **522**, bitmaps 184, process **1.43-1.46 GB** | all | the live diorama behind the menu costs 2.3x the campaign board (GPU 138, process 0.61-0.65 GB) |
+
+### Ranked optimisation candidates (for the lead to pick from; none applied)
+
+Savings are at the heaviest mission unless stated, Metal 1x; "process" is
+what a player's Activity Monitor would show.
+
+| # | candidate | saves (estimate) | risk | effort |
+|---|---|---|---|---|
+| 1 | **Close each texture's ImageBitmap once it is on the GPU** (`texture.image.close()` after the first upload; three keeps `texture.image` forever) | ~440 MiB process at a mission, ~185 at the menu | medium: anything that re-uploads (a `needsUpdate`, a context restore, a template cloned into a second renderer such as the garage viewer) would upload a closed bitmap | S |
+| 2 | **Do not decode textures nobody draws**: load building wrecks and unfielded buildables' GLBs on first use, or close their bitmaps and re-decode on demand | ~530 MiB process | medium: a first-wreck or first-build hitch; the wreck swap is under a shroud today | M |
+| 3 | **Halve GLB texture resolution in `encode:meshes`** (2048 -> 1024; the `art/` sources untouched) | GPU ~440 MiB, bitmaps ~730 MiB, menu ~185 + ~140 (not additive with 1 and 2: it shrinks what they free) | visual: a unit is 25-60 px on screen, but the garage viewer and the 600 px unit plates read the same GLBs; "models at max detail" means this is the lead's call. KTX2/Basis (GPU-compressed, keeps 2048) is the higher-effort variant with no CPU copy at all | M (L for KTX2) |
+| 4 | **A lighter menu scene host** (its own quality preset: 2048 shadow, no AO/SMAA, smaller textures -- or the plate by default) | up to ~0.8 GB process at the menu (the plate; the menu reads 1.43-1.47 GB, the board 0.61-0.65) | design: the live diorama was the lead's choice | S-M |
+| 5 | **Shadow map 4096 -> 2048 at `high`** | 96 MiB GPU, menu and mission alike | visual: softer shadow edges (`medium` already does this) | XS |
+| 6 | `antialias: false` on the context (the composer's SMAA already antialiases) | ~34 MiB at 1x, ~140 at dpr 2 (the ledger's framebuffer estimate) | low; costs 0.5 ms p95 to keep (see above) | XS |
+| 7 | Drop geometry arrays from the JS heap after upload (`onUploadCallback`) | ~40-60 MiB JS | high: picking, bounds and cloning read those arrays | M |
+
+Candidates 1 and 2 are invisible on screen and together are about **a third
+of the process total**. 3 is the largest single lever and the only one that
+needs an art decision.
+
+### The CI gate
+
+A `memory` job in `ci.yml` runs `pnpm perf:memory -- --gate` on every PR and
+push to main, on its own dev server (:5179), and uploads the walk's JSON as
+the `memory-output` artifact. Budgets live in `tools/src/perf/memory-budgets.ts`,
+keyed by capture environment like the visual gate's baselines -- a missing
+environment is exit 3, never a pass -- and are the largest CI reading of each
+kind x a margin: **JS x1.25, GPU ledger x1.15, process x1.25**, rounded up.
+The ledger gets the smallest margin because it does not move run to run.
+
+| environment | kind | JS (MiB) | GPU ledger | process | leak: JS over first menu | GPU over first menu | DOM nodes over | released contexts reachable |
+|---|---|---|---|---|---|---|---|---|
+| `linux-x64-swiftshader` (CI, n=4) | menu (and every menu after a leave) | 75 | 601 | 2,046 | +20% (measured <= +9.8%) | +2% (measured +0.0%) | 50 (measured 0) | 0 (measured 0) |
+| | board | 40 | 159 | 939 | | | | |
+| | mission | 157 | 1,015 | 3,659 | | | | |
+| `darwin-arm64-metal` (local only, n=4) | menu | 79 | 601 | 2,419 | +30% (measured <= +14.6%) | +2% | 50 | 0 |
+| | board | 40 | 159 | 812 | | | | |
+| | mission | 162 | 1,015 | 4,010 | | | | |
+
+The leak percentages are about twice the largest measured, rounded up to 5.
+**What they can resolve:** at +20% of a 54 MiB menu, a leak smaller than
+~11 MiB of JS passes the JS check -- a retained `Sim` alone (a few MiB) would.
+The DOM-node and released-context checks are exact, so anything that holds a
+left screen's DOM or its renderer fails regardless of size.
+
+It runs as its OWN job, `memory`, beside `visual` rather than as a step in
+it, which is where it started: as a step it measured 917 s on top of a job
+already 35-40 minutes long. Beside it, it adds nothing to a PR's wall clock.
+
+**Falsified, red first.** Two one-line mutations of `packages/app/src/main.ts`
+(`bootBattlefield`, beside the `__lions` registration), each run and reverted:
+
+| mutation | CI (`linux-x64-swiftshader`, run 37829076706, the temporary `memory-falsify` jobs) | local (`darwin-arm64-metal`) |
+|---|---|---|
+| none -- the `memory` job, same run | **exit 0**, every budget met (walk 451 s) | exit 0 |
+| `window.__rlProbe = new Uint8Array(200 * 1048576).fill(1)` -- a retained 200 MiB allocation | **exit 1**, 9 checks over: every mission JS 318.9-324.6 MiB against 157, every after-leave menu 258.3-259.5 against 75 and +375-377% against +20% | exit 1, 9 over |
+| `window.addEventListener('rl-probe', () => void renderer)` -- a listener holding a mission object | **exit 1**, 13 checks over: after each leave 1 / 2 / 3 released contexts still reachable, 989 / 1,742 / 2,491 DOM nodes against 230, JS +44 / +81 / +111%, and the third mission's JS 158.7 against 157 | exit 1, 10 over (before the DOM check existed) |
+
+Both mutations are reverted (they were applied inside the CI job only, never
+committed). Neither moved the process total past its ceiling: +200 MiB is
+inside a 25% margin on 2.9 GB, which is why the process check is a backstop
+and the JS, ledger, DOM and context checks are the ones that resolve.
+A mission that never boots exits **2**, not 1 (`--missions=no_such_mission`,
+locally: the deploy gate's 240 s guard).
+
+`memory-budgets.test.ts` falsifies the judge itself (each leak check and each
+ceiling forced to pass, a walk with no baseline passed: all red);
+`memory-ledger.test.ts` runs the shipped init-script string in a `vm` against a
+fake WebGL2 prototype (five mutations, all red); `memory-inventory.test.ts`
+(three, all red).
+
+### What this does not measure
+
+- **A real player's process total.** Headless Chromium, one tab, no
+  extensions; a real browser adds its own processes, and a retina screen
+  multiplies every full-screen target (above). The gate's process ceiling is
+  a regression fence, not a player number.
+- **Driver bytes.** The ledger counts what the game asked for. Metal's GPU
+  process reads 0.41-0.43 GB above the ledger at the menu and 0.55-0.65 GB
+  above it at a mission.
+- **Peak during load.** Every reading is after a settle and a forced GC; the
+  transient peak while GLBs decode and upload was not sampled.
+- **Missions longer than 2 minutes, or the other 24.** `--missions=` reaches
+  any of them.
