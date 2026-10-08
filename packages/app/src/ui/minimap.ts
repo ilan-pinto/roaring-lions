@@ -71,6 +71,9 @@
 import { unitIsObserved, type TerrainTones } from '@lions/render';
 import { fx, type Sim } from '@lions/sim';
 import { paintMapTerrain } from './map-preview';
+import { zoneStateOf } from '../objective-zones';
+import type { AlertTier } from './alerts';
+import type { Tone } from './hud-model';
 
 /**
  * The box, in CSS pixels. theme.css sizes `.rl-minimap` from the `--minimap`
@@ -126,6 +129,11 @@ export interface MinimapObjective {
   readonly status: string;
   /** Zone (or marker) the objective names. */
   readonly zone?: string;
+  /** The objective type, which makes a raze/collapse zone a `target`
+   *  (`zoneStateOf`). Optional: absent reads as a hold. */
+  readonly type?: string;
+  /** Why a timed hold is paused, as `objectiveList` reports it (VR-36). */
+  readonly paused?: 'contested' | 'unheld';
 }
 
 export interface MinimapDeps {
@@ -223,13 +231,25 @@ export interface MinimapInput {
  * map area of the minimap wears the palette the terrain and the units wear,
  * and the marks laid over it wear the palette the rest of the HUD wears.
  */
-const CHROME = {
+export const CHROME = {
   /** The camera's own footprint. */
   viewport: 'var(--live)',
   /** A named piece of ground the player has seen. */
   story: 'var(--live)',
-  /** Ground an objective is fought over. */
-  objective: 'var(--warn)',
+  /** An objective zone in each of the world's hold states (VR-36) -- the
+   *  tokens over the SAME palette keys `objectiveZoneColorKey` gives the
+   *  world's outline (`vfx.tracer`, `team.neutral`, `team.hostile`). */
+  held: 'var(--live)',
+  unheld: 'var(--warn)',
+  contested: 'var(--bad)',
+  /** An alert ring in its alert's tone (VR-36). */
+  toneGood: 'var(--good)',
+  toneBad: 'var(--bad)',
+  toneWarn: 'var(--warn)',
+  toneInfo: 'var(--info)',
+  /** The dark keyline under a zone edge, a ring and a suspected contact,
+   *  so each holds on pale sand -- the job the refuge cross's edge does. */
+  markEdge: 'var(--mark-edge)',
   /** Where families are walked to while an evacuation is scored (GH-279). */
   refuge: 'var(--good)',
   /** The refuge cross's dark under-stroke. Measured necessary, not taste:
@@ -241,7 +261,7 @@ const CHROME = {
   ground: 'var(--panel-bg-solid)',
 } as const;
 
-type ChromeKey = keyof typeof CHROME;
+export type ChromeKey = keyof typeof CHROME;
 export type ChromeColors = Record<ChromeKey, string>;
 
 /**
@@ -455,6 +475,57 @@ export function objectivePoints(
  * when a status CHANGES, so by the time the alert layer asks, the objective
  * worth jumping to is usually the one that just stopped being active.
  */
+/** A zone objective's state on the minimap -- the world's own four. */
+export type ZoneState = 'held' | 'unheld' | 'contested' | 'target';
+
+/**
+ * How one zone state is drawn (VR-36, approved 2026-10-08). The colour is the
+ * world's, by construction; the DASH is the second channel, because `--live`
+ * and `--warn` measure ΔE 8-17 apart under deuteranopia and protanopia
+ * (`docs/polish/minimap-state.md`), so colour alone cannot tell held from
+ * not held. The pulse mirrors `objectiveZonePulse`: what is changing pulses.
+ */
+export interface ZoneMarkStyle {
+  chrome: ChromeKey;
+  dashed: boolean;
+  pulses: boolean;
+}
+export function zoneMarkStyle(state: ZoneState): ZoneMarkStyle {
+  switch (state) {
+    case 'held':
+      return { chrome: 'held', dashed: false, pulses: false };
+    case 'unheld':
+      return { chrome: 'unheld', dashed: true, pulses: true };
+    case 'contested':
+      return { chrome: 'contested', dashed: true, pulses: true };
+    case 'target':
+      return { chrome: 'contested', dashed: false, pulses: false };
+  }
+}
+
+/** One active objective as the minimap draws it: its zone's rectangle where
+ *  it names a zone, otherwise the marker it names, and its state. */
+export interface ObjectiveMark {
+  state: ZoneState;
+  /** `[x, y, w, h]` in tiles, or null for a marker objective. */
+  rect: readonly [number, number, number, number] | null;
+  at: MinimapPoint;
+}
+
+/** Every ACTIVE objective that names ground, as `ObjectiveMark`s. The state is
+ *  `zoneStateOf` -- the renderer's own rule, imported, not restated. */
+export function objectiveMarks(objectives: readonly MinimapObjective[], map: MinimapMap): ObjectiveMark[] {
+  const out: ObjectiveMark[] = [];
+  for (const o of objectives) {
+    if (o.status !== 'active' || o.zone === undefined) continue;
+    const at = objectivePoint(o, map);
+    if (at === null) continue;
+    const z = map.zones[o.zone];
+    out.push({ state: zoneStateOf({ type: o.type ?? '', paused: o.paused }), rect: z ?? null, at });
+  }
+  return out;
+}
+
 export function objectivePoint(o: MinimapObjective, map: Pick<MinimapMap, 'zones' | 'markers'>): MinimapPoint | null {
   if (o.zone === undefined) return null;
   const z = map.zones[o.zone];
@@ -506,10 +577,13 @@ export function observedMarkers(
 /** One unit as the minimap draws it: where, and whose. */
 export interface MinimapDot extends MinimapPoint {
   side: number;
+  /** A hostile the player has only SUSPECTED (`sim.contactLevel` < 2), not
+   *  identified -- drawn hollow, like the world's hollow diamond (VR-36). */
+  suspected: boolean;
 }
 
-/** The three silhouettes a unit dot can wear. */
-export type DotShape = 'square' | 'triangle' | 'circle';
+/** The silhouettes a unit mark can wear. `hollow` is a suspected contact. */
+export type DotShape = 'square' | 'triangle' | 'circle' | 'hollow';
 
 /**
  * Which silhouette a side gets.
@@ -529,8 +603,12 @@ export type DotShape = 'square' | 'triangle' | 'circle';
  * never been told about, since `teamColors` has exactly three entries and
  * `dotShape` must answer for any number.
  */
-export function dotShape(side: number): DotShape {
+export function dotShape(side: number, suspected = false): DotShape {
   if (side === 0) return 'square';
+  // VR-36: what the player KNOWS about the contact, as the world says it
+  // (`contactShapeOf` -> 'unknown', a hollow diamond). Hostiles only: a
+  // friendly is always known, and the world marks no civilian.
+  if (side === 1 && suspected) return 'hollow';
   if (side === 1) return 'triangle';
   return 'circle';
 }
@@ -553,7 +631,8 @@ export function unitDots(sim: Sim, isVisible: (wx: number, wy: number) => boolea
     const x = fx.toNumber(st.posX[i]);
     const y = fx.toNumber(st.posY[i]);
     if (!unitIsObserved(st.side[i], x, y, isVisible)) continue;
-    out.push({ x, y, side: st.side[i] });
+    const side = st.side[i];
+    out.push({ x, y, side, suspected: side === 1 && sim.contactLevel(0, i) < 2 });
   }
   return out;
 }
@@ -570,6 +649,57 @@ export function unitDots(sim: Sim, isVisible: (wx: number, wy: number) => boolea
  * thing an attention cue must not be.
  */
 export const FLASH_MS = 1400;
+
+/**
+ * The alert ring by TIER (VR-36, approved 2026-10-08): how big, how wide,
+ * how long, and whether it is doubled. `important` is the ring that shipped
+ * (5 -> 16 px, 2 px, `FLASH_MS`); a major alert is bigger, longer and two
+ * rings; a minor one smaller, thinner and shorter.
+ */
+export const RING_BY_TIER: Readonly<Record<AlertTier, { r0: number; r1: number; width: number; ms: number; double: boolean }>> = {
+  major: { r0: 6, r1: 22, width: 2, ms: 2000, double: true },
+  important: { r0: 5, r1: 16, width: 2, ms: FLASH_MS, double: false },
+  minor: { r0: 4, r1: 11, width: 1.5, ms: 1000, double: false },
+};
+/** The gap between a major alert's two rings, px. */
+const RING_DOUBLE_GAP = 4;
+
+/** What an alert ring looks like: its tier's geometry, its tone's colour, and
+ *  which way it moves. */
+export interface RingStyle {
+  r0: number;
+  r1: number;
+  width: number;
+  ms: number;
+  double: boolean;
+  chrome: ChromeKey;
+  /** Good news and info SETTLE inward; bad news and caution spread outward.
+   *  The second channel beside colour: `--good` and `--bad` measure ΔE 14-20
+   *  apart under protanopia (`docs/polish/minimap-state.md`). */
+  inward: boolean;
+}
+export function ringStyle(tier: AlertTier, tone: Tone): RingStyle {
+  const g = RING_BY_TIER[tier];
+  const chrome: ChromeKey =
+    tone === 'bad' ? 'toneBad' : tone === 'warn' ? 'toneWarn' : tone === 'good' ? 'toneGood' : 'toneInfo';
+  return { ...g, chrome, inward: tone === 'good' || tone === 'info' || tone === 'live' || tone === 'mute' };
+}
+/** The ring's radius at fade `alpha` (1 at the event, 0 at the end). */
+export function ringRadius(style: RingStyle, alpha: number): number {
+  const t = 1 - alpha;
+  return style.inward ? style.r1 - (style.r1 - style.r0) * t : style.r0 + (style.r1 - style.r0) * t;
+}
+
+/** One ring's period of pulse for an unheld or contested zone, ms -- the
+ *  world's `objectiveZonePulse` (0.09 rad a 60 Hz frame) in wall time. */
+export const ZONE_PULSE_MS = (2 * Math.PI * 1000) / (0.09 * 60);
+/** The pulse's stroke alpha, low and high. Never below 0.55: a 2 px edge on a
+ *  210 px map must not fade out of sight between redraws. */
+export const ZONE_PULSE_ALPHA: readonly [number, number] = [0.55, 1];
+export function zonePulseAlpha(nowMs: number): number {
+  const [lo, hi] = ZONE_PULSE_ALPHA;
+  return lo + (hi - lo) * (0.5 + 0.5 * Math.sin((2 * Math.PI * nowMs) / ZONE_PULSE_MS));
+}
 
 /**
  * One fade, over whatever span the caller names: 1 at the event, 0 at the end
@@ -609,15 +739,22 @@ export const PING_MS = 2500;
 const DOT = 6;
 /** Diamond edge before the 45-degree turn, in box pixels. Spec: 8px stroked. */
 const DIAMOND = 8;
-/** The alert ring, in box pixels: where it starts and where it ends. It
- *  EXPANDS as it fades, so the eye is caught by motion rather than by
- *  brightness alone -- the same reason a real warning light sweeps. The
- *  larger end is well clear of `DIAMOND`, so an alert standing on an
- *  objective is still two distinguishable marks. */
-const FLASH_R0 = 5;
-const FLASH_R1 = 16;
+/** The objective zone mark (VR-36): 2 px edge on a 4 px keyline, a 3/2 dash
+ *  while not held or contested, and the world's 0.12 fill
+ *  (`OBJECTIVE_ZONE_FILL_ALPHA`). */
+const ZONE_STROKE = 2;
+const ZONE_KEYLINE = 4;
+const ZONE_DASH: readonly number[] = [3, 2];
+const ZONE_FILL_ALPHA = 0.12;
+/** A marker objective's square, px. */
+const OBJECTIVE_SQUARE = 10;
+/** The suspected contact's hollow diamond (VR-36): 8 px tall, a 1.5 px stroke
+ *  on a 3.5 px keyline. */
+const SUSPECT_HALF = 4;
+const SUSPECT_STROKE = 1.5;
+const SUSPECT_KEYLINE = 3.5;
 /** The ping's ring, same idea and deliberately a different size: it starts
- *  inside `FLASH_R0` and ends outside `FLASH_R1`, so a ping landing on top of
+ *  inside the important ring's 5 px and ends outside its 16, so a ping landing on top of
  *  an alert is never the same circle at the same instant. */
 const PING_R0 = 3;
 const PING_R1 = 20;
@@ -647,14 +784,15 @@ export class Minimap {
    *  a second for a picture that cannot change. */
   private painted: HTMLCanvasElement | null = null;
   private readonly proj: MinimapProjection;
-  /** Re-resolved by `setTeamColors` (VR-01): `objective` is `--warn`, which a
-   *  colour-vision block re-points. */
+  /** Re-resolved by `setTeamColors` (VR-01): `unheld`/`toneWarn` are `--warn`
+   *  and `contested`/`toneBad` are `--bad`, which a colour-vision block
+   *  re-points. */
   private chrome: ChromeColors;
   /** `deps.teamColors` until `setTeamColors` replaces it (VR-01). */
   private teamColors: readonly [string, string, string];
   private readonly seenMarkers = new Set<string>();
   /** Live alert marks: where, and the wall-clock instant each landed. */
-  private readonly flashes: { p: MinimapPoint; at: number }[] = [];
+  private readonly flashes: { p: MinimapPoint; at: number; style: RingStyle }[] = [];
   /** Live player pings, same shape and its own span. */
   private readonly pings: { p: MinimapPoint; at: number }[] = [];
   private readonly dpr: number;
@@ -742,8 +880,8 @@ export class Minimap {
    * VR-01: a colour-vision change mid-mission. The dots take the variant's
    * `teamColors` -- the SAME array `Renderer.setTeamColors` was handed, so a
    * dot and the ring on the field still cannot disagree -- and the chrome is
-   * re-read through the probe, because `objective` is `--warn` and the
-   * `data-cvd` block that re-points it has already been written on the root
+   * re-read through the probe, because the zone and ring tokens `--warn` and
+   * `--bad` follow `data-cvd`, and the block that re-points them has already been written on the root
    * by the time the settings bus fires. Redraws at once rather than waiting
    * up to four ticks: a paused game would otherwise keep the old colours.
    */
@@ -777,11 +915,16 @@ export class Minimap {
    * sweep is on the ADD rather than on the draw because `drawFlashes` runs
    * five times as often and skips a dead entry in one comparison anyway.
    */
-  flash(points: readonly MinimapPoint[], nowMs: number): void {
+  flash(points: readonly MinimapPoint[], nowMs: number, mark: { tier: AlertTier; tone: Tone }): void {
     for (let i = this.flashes.length - 1; i >= 0; i--) {
-      if (nowMs - this.flashes[i].at >= FLASH_MS) this.flashes.splice(i, 1);
+      if (nowMs - this.flashes[i].at >= this.flashes[i].style.ms) this.flashes.splice(i, 1);
     }
-    for (const p of points) this.flashes.push({ p: { x: p.x, y: p.y }, at: nowMs });
+    // VR-36: the ring wears the alert's urgency and its good/bad, so a lost
+    // tank no longer looks like reinforcements arriving. Required, not
+    // defaulted: a call site that forgot it would silently draw one look
+    // for everything again, which is the defect.
+    const style = ringStyle(mark.tier, mark.tone);
+    for (const p of points) this.flashes.push({ p: { x: p.x, y: p.y }, at: nowMs, style });
   }
 
   /**
@@ -1034,8 +1177,8 @@ export class Minimap {
     ctx.filter = 'none';
     ctx.imageSmoothingEnabled = true;
 
-    for (const p of objectivePoints(this.deps.objectives(), this.deps.map)) {
-      this.diamond(p, this.chrome.objective);
+    for (const m of objectiveMarks(this.deps.objectives(), this.deps.map)) {
+      this.objectiveMark(m, nowMs);
     }
     for (const p of observedMarkers(this.deps.map, this.fogAt, this.seenMarkers)) {
       this.diamond(p, this.chrome.story);
@@ -1048,7 +1191,7 @@ export class Minimap {
       // Colour FIRST and unchanged: the shape is the second channel, not the
       // replacement for a first one that was measured to work.
       ctx.fillStyle = this.teamColors[d.side] ?? this.teamColors[2];
-      this.dot(at, dotShape(d.side));
+      this.dot(at, dotShape(d.side, d.suspected));
     }
 
     this.drawFlashes(nowMs);
@@ -1073,6 +1216,28 @@ export class Minimap {
    */
   private dot(at: MinimapPoint, shape: DotShape): void {
     const { ctx } = this;
+    if (shape === 'hollow') {
+      // VR-36: a suspected contact, the world's hollow diamond in miniature --
+      // the colour the fill would have had, as a stroke over the keyline.
+      const color = String(ctx.fillStyle);
+      const r = SUSPECT_HALF;
+      for (const [style, width] of [
+        [this.chrome.markEdge, SUSPECT_KEYLINE],
+        [color, SUSPECT_STROKE],
+      ] as const) {
+        ctx.strokeStyle = style;
+        ctx.lineWidth = width;
+        ctx.beginPath();
+        ctx.moveTo(at.x, at.y - r);
+        ctx.lineTo(at.x + r, at.y);
+        ctx.lineTo(at.x, at.y + r);
+        ctx.lineTo(at.x - r, at.y);
+        ctx.closePath();
+        ctx.stroke();
+      }
+      ctx.lineWidth = 1;
+      return;
+    }
     if (shape === 'square') {
       ctx.fillRect(Math.round(at.x - DOT / 2), Math.round(at.y - DOT / 2), DOT, DOT);
       return;
@@ -1095,37 +1260,43 @@ export class Minimap {
   }
 
   /**
-   * The alert marks: an expanding stroked ring, fading over `FLASH_MS`.
+   * The alert marks: a stroked ring, fading over its tier's life.
    *
    * Drawn AFTER the unit dots and BEFORE the viewport outline. A mark the
    * player must see over the dots -- a squad wiped out is exactly the moment
    * its own dot stops being there -- and under the frame that says where they
    * are looking, which is the one mark that must never be obscured.
    *
-   * `CHROME.objective`'s amber rather than a fifth chrome key: an alert is
-   * the same "look here" the objective diamond already means, and a second
-   * amber would be two tokens for one idea (CLAUDE.md: colour comes from the
-   * palette, through `theme.css`'s semantic names).
-   *
-   * At the minimap's 4 Hz a 1400 ms flash gets about six frames, which is a
-   * visible fade rather than a blink.
+   * VR-36 (approved 2026-10-08): it used to be one amber ring for every
+   * alert, so a lost tank and a delivered jeep looked alike. Now the TIER sets
+   * size, width, life and a double ring for major (`RING_BY_TIER`), the TONE
+   * sets the colour, and good news settles inward where bad news spreads out
+   * (`ringStyle`). Every ring sits on a `--mark-edge` keyline two pixels
+   * wider, at the same alpha.
    */
   private drawFlashes(nowMs: number): void {
     const { ctx, proj } = this;
     for (const f of this.flashes) {
-      const a = flashAlpha(nowMs - f.at);
+      const a = linearFade(nowMs - f.at, f.style.ms);
       if (a <= 0) continue;
       const at = tileToBox(proj, f.p.x, f.p.y);
-      // Expands as it fades: motion is what catches an eye that was looking
-      // somewhere else, which is the whole job.
-      const r = FLASH_R0 + (FLASH_R1 - FLASH_R0) * (1 - a);
+      const r = ringRadius(f.style, a);
+      const radii = f.style.double ? [r, r - RING_DOUBLE_GAP] : [r];
       ctx.save();
       ctx.globalAlpha = a;
-      ctx.strokeStyle = this.chrome.objective;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(at.x, at.y, r, 0, Math.PI * 2);
-      ctx.stroke();
+      for (const rr of radii) {
+        if (rr <= 1) continue;
+        for (const [style, width] of [
+          [this.chrome.markEdge, f.style.width + 2],
+          [this.chrome[f.style.chrome], f.style.width],
+        ] as const) {
+          ctx.strokeStyle = style;
+          ctx.lineWidth = width;
+          ctx.beginPath();
+          ctx.arc(at.x, at.y, rr, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
       ctx.restore();
     }
   }
@@ -1134,10 +1305,11 @@ export class Minimap {
    * The player's own marks: an expanding ring with a static dot at its centre,
    * fading over `PING_MS`.
    *
-   * `CHROME.story`'s tone rather than the alert amber, and that is the whole
-   * distinction the two marks carry: amber is the game asking for attention,
-   * and this is the player's own note on ground they named. A ping in the
-   * alert colour would make the minimap report a threat the sim never raised.
+   * `CHROME.story`'s tone rather than an alert tone, and that is the whole
+   * distinction the two marks carry: an alert ring is the game asking for
+   * attention, and this is the player's own note on ground they named. A ping
+   * in an alert colour would make the minimap report a threat the sim never
+   * raised. The centre dot is the ping's own: no alert ring carries one.
    *
    * Drawn after the flashes and still under the viewport outline, for the
    * same reason the flashes are: the frame that says where the player is
@@ -1170,6 +1342,58 @@ export class Minimap {
   /** Bound once: `unitDots` and `observedMarkers` take fog as a predicate so
    *  they stay free of the renderer, and re-closing it per redraw is litter. */
   private readonly fogAt = (wx: number, wy: number): boolean => this.deps.view.isVisible(wx, wy);
+
+  /**
+   * One objective, as the world draws it (VR-36): its zone's own rectangle in
+   * the world's state colour, a translucent fill, a `--mark-edge` keyline, and
+   * a DASHED edge while not held or contested (`zoneMarkStyle`). It used to
+   * be an amber diamond at the zone centre whatever its state -- and a red
+   * diamond would now be a suspected contact, so the zone is the shape.
+   *
+   * A marker objective has no rectangle: it gets a square of
+   * `OBJECTIVE_SQUARE` px at the marker, by the same rules.
+   */
+  private objectiveMark(m: ObjectiveMark, nowMs: number): void {
+    const { ctx, proj } = this;
+    const look = zoneMarkStyle(m.state);
+    const color = this.chrome[look.chrome];
+    let x0: number, y0: number, x1: number, y1: number;
+    if (m.rect !== null) {
+      const a = tileToBox(proj, m.rect[0], m.rect[1]);
+      const b = tileToBox(proj, m.rect[0] + m.rect[2], m.rect[1] + m.rect[3]);
+      [x0, y0, x1, y1] = [a.x, a.y, b.x, b.y];
+    } else {
+      const c = tileToBox(proj, m.at.x, m.at.y);
+      const h = OBJECTIVE_SQUARE / 2;
+      [x0, y0, x1, y1] = [c.x - h, c.y - h, c.x + h, c.y + h];
+    }
+    const outline = (): void => {
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y0);
+      ctx.lineTo(x1, y1);
+      ctx.lineTo(x0, y1);
+      ctx.closePath();
+    };
+    ctx.save();
+    ctx.globalAlpha = ZONE_FILL_ALPHA;
+    ctx.fillStyle = color;
+    outline();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.setLineDash([]);
+    ctx.strokeStyle = this.chrome.markEdge;
+    ctx.lineWidth = ZONE_KEYLINE;
+    outline();
+    ctx.stroke();
+    ctx.globalAlpha = look.pulses ? zonePulseAlpha(nowMs) : 1;
+    ctx.setLineDash(look.dashed ? ZONE_DASH : []);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = ZONE_STROKE;
+    outline();
+    ctx.stroke();
+    ctx.restore();
+  }
 
   /** A stroked square turned 45 degrees, matching the spec's own transform. */
   private diamond(p: MinimapPoint, color: string): void {

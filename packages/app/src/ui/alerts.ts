@@ -60,9 +60,11 @@ import type { Tone } from './hud-model';
  * `major`). The names are shared with the audio cue tiers on purpose -- one
  * vocabulary for what the player hears and what the feed shows:
  *
- *  - `minor`: under fire; an enemy on foot killed (PA-19). Glanceable,
+ *  - `minor`: under fire, a man pinned; an enemy on foot killed (PA-19);
+ *    an arrival of ours, dock or scripted (VR-37). Glanceable,
  *    never nagging.
- *  - `important`: a foot unit lost, an enemy wave, an arrival, a new tasking,
+ *  - `important`: a foot unit lost, an enemy wave, a new tasking, a man or a
+ *    civilian taken, an ambush (VR-37),
  *    a Conduct penalty, one of ours broken, one of our vehicles immobilised
  *    or its gun knocked out (pass C2/C4, A1) -- something went wrong or
  *    changed, and here is where.
@@ -89,6 +91,11 @@ export interface AlertLine {
 export interface Alert {
   kind: 'unitLost' | 'kill' | 'underFire' | 'objective' | 'wave' | 'arrival' | 'pinned' | 'ambush' | 'removed' | 'roe' | 'broken' | 'damaged';
   tier: AlertTier;
+  /** Good or bad, as the minimap ring wears it (VR-36): the line's own tone
+   *  where there is a line, and for a lineless alert the tone its line would
+   *  have had -- an objective by its status, a man taken `bad`, a pinned man
+   *  `warn`. Semantic, never a colour (`hud-model.ts`'s rule). */
+  tone: Tone;
   /** The feed line, or `null` when another part of the HUD owns the wording
    *  -- an objective's text is `describeMissionEvent`'s, not this model's. */
   line: AlertLine | null;
@@ -254,6 +261,7 @@ export function alertsForTick(
       arrivals.push({
         kind: 'wave',
         tier: 'important',
+        tone: 'bad',
         line: {
           key: 'alert.wave',
           params: { n: e.count },
@@ -269,9 +277,14 @@ export function alertsForTick(
       });
     } else if (e.kind === 'built') {
       const at = world.arrivedAt(e.unit);
+      // VR-37: minor and info, like the scripted reinforcement below. Both are
+      // OUR units arriving, both are silent (the dock and the announcer carry
+      // them), and the tier that matches a silent alert is the quiet one -- so
+      // a delivery never draws the ring a lost tank does.
       arrivals.push({
         kind: 'arrival',
-        tier: 'important',
+        tier: 'minor',
+        tone: 'info',
         line: {
           key: 'alert.arrived',
           params: { name: world.unitName(e.unit) },
@@ -288,20 +301,29 @@ export function alertsForTick(
       // One of ours taken off the board (polish pass F, A2): not a death,
       // but a man gone. Sound only -- `describeMissionEvent` words it.
       const at = world.posOf(e.entity);
-      quiet.push(soundOnly('removed', 'important', at));
+      quiet.push(soundOnly('removed', 'important', 'bad', at));
+    } else if (e.kind === 'removed' && e.side === 2) {
+      // A civilian taken (VR-37): important and bad, the same weight as a
+      // man of ours taken -- on an evacuation it is a scored loss. Still
+      // silent (MISSION_EVENT_SOUND's contract for a civilian) and still
+      // worded by `describeMissionEvent`; what it gains is the ring where
+      // they were taken.
+      const at = world.posOf(e.entity);
+      quiet.push({ kind: 'removed', tier: 'important', tone: 'bad', line: null, cue: null, at, marks: at === null ? [] : [at], count: 1 });
     } else if (e.kind === 'roe') {
       // A Conduct penalty (A9): the game's own mechanic, silent until now.
-      quiet.push(soundOnly('roe', 'important', null));
+      quiet.push(soundOnly('roe', 'important', 'bad', null));
     } else if (e.kind === 'trigger') {
       const r = world.reinforcement(e.id);
       if (r === null) continue;
       arrivals.push({
         kind: 'arrival',
-        tier: 'important',
+        tier: 'minor',
+        tone: 'info',
         line: {
           key: 'alert.reinforced',
           params: { label: r.label },
-          tone: 'warn',
+          tone: 'info',
           place: distinctPlaces(r.points.map((p) => world.placeOf(p.x, p.y))),
         },
         cue: null,
@@ -319,6 +341,10 @@ export function alertsForTick(
   const seen = new Set<number>();
   let pinnedAt: number | null = null;
   let ambushed = false;
+  /** VR-37: the first of ours a round was aimed at this tick -- where an
+   *  ambush is marked. Never the ambusher: pointing at a hidden enemy is
+   *  x-ray, and the man it hit is where the player has to look anyway. */
+  let firstOwnHit = -1;
   /** PA-19: enemies the player's own units killed this tick, by type. */
   const killsByType = new Map<string, number[]>();
   /** Pass C2/C4 (A1): ours broken this tick, and our vehicles hit in a
@@ -370,6 +396,7 @@ export function alertsForTick(
     if (target < 0) continue;
     // An enemy under fire is good news, and nobody needs telling about it.
     if (world.sideOf(target) !== 0) continue;
+    if (firstOwnHit < 0) firstOwnHit = target;
     // He is already the subject of a `unitLost` line this same tick.
     if (lostEntities.has(target)) continue;
     if (seen.has(target)) continue;
@@ -407,6 +434,7 @@ export function alertsForTick(
     alerts.push({
       kind: 'unitLost',
       tier,
+      tone: 'bad',
       line: {
         key: 'alert.unitLost',
         params: { name: world.unitName(typeId), n: entities.length },
@@ -424,6 +452,7 @@ export function alertsForTick(
     alerts.push({
       kind: 'objective',
       tier: status === 'active' ? 'important' : 'major',
+      tone: status === 'complete' ? 'good' : status === 'failed' ? 'bad' : 'info',
       line: null,
       cue: OBJECTIVE_CUE[status],
       at,
@@ -444,6 +473,7 @@ export function alertsForTick(
     alerts.push({
       kind: 'kill',
       tier,
+      tone: 'good',
       line: {
         key: 'alert.kill',
         params: { name: world.unitName(typeId), n: entities.length },
@@ -462,13 +492,27 @@ export function alertsForTick(
   // naming the first and counting the rest.
   if (brokenOwn.length > 0) alerts.push(ownStateAlert('broken', 'alert.broken', brokenOwn, world));
   for (const [what, entities] of damagedOwn) alerts.push(ownStateAlert('damaged', `alert.${what}`, entities, world));
-  if (ambushed) alerts.push(soundOnly('ambush', 'important', null));
+  if (ambushed) {
+    // VR-37: an ambush gets a line and a mark, not only a sound.
+    const at = firstOwnHit >= 0 ? world.posOf(firstOwnHit) : null;
+    alerts.push({
+      kind: 'ambush',
+      tier: 'important',
+      tone: 'bad',
+      line: { key: 'alert.ambush', params: {}, tone: 'bad', place: at === null ? [] : [world.placeOf(at.x, at.y)] },
+      cue: ALERT_CUE.important,
+      at,
+      marks: at === null ? [] : [at],
+      count: 1,
+    });
+  }
   alerts.push(...quiet);
   if (kept.length > 0) {
     const points = kept.map((entity) => world.posOf(entity)).filter((p): p is { x: number; y: number } => p !== null);
     alerts.push({
       kind: 'underFire',
       tier: 'minor',
+      tone: 'warn',
       line: {
         key: 'alert.underFire',
         // The first unit by name, and how many more: "under fire — Rifle
@@ -484,7 +528,8 @@ export function alertsForTick(
     });
   }
 
-  if (pinnedSounds && pinnedAt !== null) alerts.push(soundOnly('pinned', 'minor', world.posOf(pinnedAt)));
+  // VR-37: pinned is minor and warn -- the under-fire family, the same ring.
+  if (pinnedSounds && pinnedAt !== null) alerts.push(soundOnly('pinned', 'minor', 'warn', world.posOf(pinnedAt)));
 
   return { state: nextState, alerts };
 }
@@ -495,6 +540,7 @@ function ownStateAlert(kind: 'broken' | 'damaged', key: string, entities: readon
   return {
     kind,
     tier: 'important',
+    tone: 'bad',
     line: {
       key,
       params: { name: world.unitName(world.typeOf(entities[0])), more: entities.length - 1 },
@@ -510,8 +556,8 @@ function ownStateAlert(kind: 'broken' | 'damaged', key: string, entities: readon
 
 /** An alert that only sounds (polish pass F): another surface owns its words,
  *  and its cue is its tier's. */
-function soundOnly(kind: Alert['kind'], tier: AlertTier, at: { x: number; y: number } | null): Alert {
-  return { kind, tier, line: null, cue: ALERT_CUE[tier], at, marks: at === null ? [] : [at], count: 1 };
+function soundOnly(kind: Alert['kind'], tier: AlertTier, tone: Tone, at: { x: number; y: number } | null): Alert {
+  return { kind, tier, tone, line: null, cue: ALERT_CUE[tier], at, marks: at === null ? [] : [at], count: 1 };
 }
 
 /**
@@ -530,7 +576,9 @@ export function missionEventTier(e: MissionEvent): AlertTier | null {
     case 'trigger':
       return 'important';
     case 'removed':
-      return e.side === 0 ? 'important' : 'minor';
+      // VR-37: a civilian taken is as heavy as a man of ours taken -- it was
+      // minor here while its tone was bad (`removedNotice`).
+      return 'important';
     default:
       return null;
   }

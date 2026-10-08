@@ -404,11 +404,24 @@ Numbers from #354 (`units/readability.ts`, `units/selection-ring.ts`):
   - Every alert flashes the same amber ring, whatever its tier or tone, so a lost tank and "reinforcements arrived" look alike (`minimap.ts:1104`).
   - Hostiles are triangles with no suspected/identified distinction, while the world draws a hollow diamond for a suspected contact.
   - Bearings in the feed are in screen frame; the minimap is map frame (`alert-place.ts:5-11`).
+  - **Resolved** (lead approved the mock, 2026-10-08; `docs/polish/minimap-state.md`):
+    - Each objective draws its zone's own rectangle in the world's state colour: held `--live` solid, not held `--warn` dashed and pulsing, contested `--bad` dashed and pulsing, target `--bad` solid. The state comes from `zoneStateOf`, the same rule as the world's outline.
+    - The alert ring takes its colour from the alert's tone and its size, width, life and double ring from its tier. Good and info rings settle inward; bad and warn rings spread outward.
+    - A suspected contact (`contactLevel` < 2) is a hollow diamond; an identified one stays the solid triangle.
+    - By the lead's second ruling, the world's not-held and contested zone outlines are dashed too (`objectiveZoneDashed`), with the colour unchanged. That fixes the deutan/protan held-vs-unheld collapse there as well (ΔE 8–17).
+    - The bearing frame is unchanged, by design.
 - **VR-37. Tier and tone disagree in places.**
   - A civilian "taken" is tier minor (smaller, 7 s) but tone bad (`alerts.ts:446` vs `mission-notice.ts:49`).
   - The two arrival kinds are both important, but one is `info` and the other `warn`.
   - "Broken" exists in the HUD only, with no world counterpart.
   - Pinned and ambush have a sound and no line.
+  - **Resolved** (lead approved, 2026-10-08):
+    - A civilian taken is `important`, bad, and gets a ring where they were taken. It is still silent.
+    - Both arrival kinds are `minor` + `info`.
+    - Broken stays HUD and minimap only, an important bad ring, because of the no-status-marks-in-the-world rule.
+    - Pinned is `minor` + `warn`.
+    - Ambush is `important` + `bad`, with an `alert.ambush` line and a ring on the first of ours hit that tick, never on the ambusher.
+    - Every `Alert` now carries a `tone`.
 - **VR-38. Two marks are dead or stale.**
   - `WRECK_MARKER_COLOR_KEY` (`gunmetal.2`, OV:229) is used only by tests.
   - The "min-range ring" is still named as a `resolveColor` consumer (`renderer-options.ts:73`, `packages/data/src/index.ts:509`), but the ring was deleted (TR:8281).
@@ -437,6 +450,6 @@ Numbers from #354 (`units/readability.ts`, `units/selection-ring.ts`):
 | VR-16–21 | type: mono prose, display prose, faux bold, garage scale, button case, back buttons | `theme.css`, settings/saves/credits/loading | PA-22, one register pass |
 | VR-22–23 | effects ladder inverted; dead shake | `data/vfx/*.json`, TR | lead (C3) |
 | VR-24–31 | chrome: bands, credits colour, selected, disabled, focus, raw spacing and timing, halos, shared tokens | `theme.css`, `panel()` callers | **resolved** (chrome register, with VR-20) |
-| VR-32–38 | world language: lime overload, move colour, garrison ring, halos, minimap, tier/tone, dead marks | OV, TR, `minimap.ts`, `alerts.ts` | lead for meaning; VR-34, VR-35, VR-38 resolved; VR-33 a lead question |
+| VR-32–38 | world language: lime overload, move colour, garrison ring, halos, minimap, tier/tone, dead marks | OV, TR, `minimap.ts`, `alerts.ts` | lead for meaning; VR-33 to VR-38 resolved (VR-36/37: minimap state, 2026-10-08) |
 
 Nothing here was changed by this pass: the register only records what exists. The fixes belong to D2 (units), B2 (HUD consistency) and C3 (event tiers) once the lead has picked a side for each split rule.

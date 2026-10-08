@@ -12,6 +12,18 @@ export interface ZoneObjective {
 const TARGET_TYPES: ReadonlySet<string> = new Set(['raze', 'collapse']);
 
 /**
+ * The hold state of one zone objective -- THE rule, read by the renderer's
+ * zone outline (through `objectiveZonesFor`) and by the minimap's own zone
+ * mark (VR-36), so the two can never tint one objective differently.
+ */
+export function zoneStateOf(o: Pick<ZoneObjective, 'type' | 'paused'>): ObjectiveZoneView['state'] {
+  if (TARGET_TYPES.has(o.type)) return 'target';
+  if (o.paused === 'contested') return 'contested';
+  if (o.paused === 'unheld') return 'unheld';
+  return 'held';
+}
+
+/**
  * Every active objective that is about a piece of ground, as the renderer
  * draws it. Until 2026-09-06 the map outlined only the FIRST such objective:
  * Tel Marum II showed the approach to hold and never the draw with the cache
@@ -29,14 +41,7 @@ export function objectiveZonesFor(
     if (o.status !== 'active' || o.zone === undefined) continue;
     const rect = zones[o.zone];
     if (rect === undefined) continue;
-    const state: ObjectiveZoneView['state'] = TARGET_TYPES.has(o.type)
-      ? 'target'
-      : o.paused === 'contested'
-        ? 'contested'
-        : o.paused === 'unheld'
-          ? 'unheld'
-          : 'held';
-    out.push({ id: o.id, rect, state });
+    out.push({ id: o.id, rect, state: zoneStateOf(o) });
   }
   return out;
 }

@@ -25,9 +25,18 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { units } from '@lions/data';
 import { Sim, fx, type UnitTypeJson } from '@lions/sim';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
+  CHROME,
   FLASH_MS,
   MINIMAP_SIZE,
+  RING_BY_TIER,
+  objectiveMarks,
+  ringRadius,
+  ringStyle,
+  zoneMarkStyle,
   Minimap,
   PING_MS,
   boxToTile,
@@ -71,6 +80,11 @@ interface StrokePath {
    *  only looked at coordinates. */
   alpha: number;
   points: [number, number][];
+  /** `lineWidth` and the line dash at the moment of the stroke (VR-36): a
+   *  ring's keyline and its colour stroke differ by width, and a not-held
+   *  zone differs from a held one by its dash and nothing a stub can see. */
+  width: number;
+  dash: number[];
 }
 /** A filled PATH, which is how the two non-square unit marks and the ping's
  *  centre dot are drawn. Recorded with the same shape as a stroke so the two
@@ -160,7 +174,8 @@ function installContext(): Recorder {
     return nextId;
   };
   let path: [number, number][] = [];
-  const saved: { fillStyle: string; strokeStyle: string; lineWidth: number; globalAlpha: number }[] = [];
+  let dash: number[] = [];
+  const saved: { fillStyle: string; strokeStyle: string; lineWidth: number; globalAlpha: number; dash: number[] }[] = [];
   const ctx = {
     fillStyle: '',
     strokeStyle: '',
@@ -178,7 +193,11 @@ function installContext(): Recorder {
         strokeStyle: String(this.strokeStyle),
         lineWidth: Number(this.lineWidth),
         globalAlpha: Number(this.globalAlpha),
+        dash: [...dash],
       });
+    },
+    setLineDash(d: number[]) {
+      dash = [...d];
     },
     restore() {
       const was = saved.pop();
@@ -187,6 +206,7 @@ function installContext(): Recorder {
       this.strokeStyle = was.strokeStyle;
       this.lineWidth = was.lineWidth;
       this.globalAlpha = was.globalAlpha;
+      dash = was.dash;
     },
     // Flattened to the four cardinal points, which is all any assertion here
     // asks of a circle: where its centre is and how big it is.
@@ -223,6 +243,8 @@ function installContext(): Recorder {
         filter: String(this.filter),
         alpha: Number(this.globalAlpha),
         points: [...path],
+        width: Number(this.lineWidth),
+        dash: [...dash],
       });
     },
     fill() {
@@ -341,6 +363,9 @@ function makeSim(): { sim: Sim; mine: number; theirs: number } {
   const t = sim.addUnitType(units.inf_squad as unknown as UnitTypeJson);
   const mine = sim.spawn(t, 0, fx.from(2), fx.from(2));
   const theirs = sim.spawn(t, 1, fx.from(40), fx.from(40));
+  // Identified, so it draws as the solid triangle these tests are about; the
+  // suspected case (VR-36) has its own tests below.
+  sim.identifyTo(0, theirs);
   return { sim, mine, theirs };
 }
 
@@ -388,6 +413,23 @@ function diamondAt(tx: number, ty: number): [number, number][] {
     [at.x + r, at.y],
     [at.x, at.y + r],
     [at.x - r, at.y],
+  ];
+}
+
+/** The ring style every pre-VR-36 test was written against: the important
+ *  tier's geometry, in the caution tone. */
+const IMPORTANT_WARN = { tier: 'important', tone: 'warn' } as const;
+
+/** The four corners of a zone rectangle in tiles, as the zone mark draws them. */
+function rectAt(x: number, y: number, w: number, h: number): [number, number][] {
+  const p = minimapProjection(W, W, MINIMAP_SIZE);
+  const a = tileToBox(p, x, y);
+  const b = tileToBox(p, x + w, y + h);
+  return [
+    [a.x, a.y],
+    [b.x, a.y],
+    [b.x, b.y],
+    [a.x, b.y],
   ];
 }
 
@@ -615,8 +657,8 @@ describe('objective diamonds', () => {
   it('is not fog-gated — the player is told where the objective is', () => {
     mount(() => false, { objectives: () => [{ status: 'active', zone: 'west_approach' }] });
     // Total blackout: not one marker and not one contact was drawn, and the
-    // objective diamond is there anyway, at the zone centre and at spec size.
-    expect(strokeMatching(diamondAt(7, 12))).toBeDefined();
+    // objective is there anyway -- its zone's own rectangle (VR-36).
+    expect(strokeMatching(rectAt(4, 10, 6, 4))).toBeDefined();
     expect(dotsOf('red')).toEqual([]);
   });
 });
@@ -725,7 +767,7 @@ describe('the alert flash', () => {
   it('draws a mark for a point whose unit no longer exists', () => {
     const { minimap } = mount(() => true);
     const strokesBefore = recorder.strokes().length;
-    minimap.flash([{ x: 12, y: 12 }], 1000);
+    minimap.flash([{ x: 12, y: 12 }], 1000, IMPORTANT_WARN);
     minimap.onTick();
     expect(recorder.strokes().length).toBeGreaterThan(strokesBefore);
   });
@@ -737,7 +779,9 @@ describe('the alert flash', () => {
    * diamond's own point set -- and colour cannot either, because jsdom's
    * `getComputedStyle` resolves every chrome token to the same empty string.
    */
-  const ring = (): StrokePath | undefined => recorder.strokes().find((k) => k.alpha < 1);
+  // Since VR-36 every ring is two strokes, a keyline 2 px wider under the
+  // colour; the colour stroke is the one at the tier's own width.
+  const ring = (): StrokePath | undefined => recorder.strokes().find((k) => k.alpha < 1 && k.width === 2);
 
   it('rings the tile it was given, and fades over FLASH_MS', () => {
     // A point nowhere near a unit, a marker or the viewport quad. Stamped
@@ -745,7 +789,7 @@ describe('the alert flash', () => {
     // real clock cannot land outside.
     const { minimap } = mount(() => false);
     recorder.ops.length = 0;
-    minimap.flash([{ x: 12, y: 34 }], performance.now() - FLASH_MS / 2);
+    minimap.flash([{ x: 12, y: 34 }], performance.now() - FLASH_MS / 2, IMPORTANT_WARN);
     minimap.onTick();
     const hit = ring();
     expect(hit).toBeDefined();
@@ -764,7 +808,7 @@ describe('the alert flash', () => {
   it('puts globalAlpha back, so the viewport outline is not left faded', () => {
     const { minimap } = mount(() => false);
     recorder.ops.length = 0;
-    minimap.flash([{ x: 12, y: 34 }], performance.now() - FLASH_MS / 2);
+    minimap.flash([{ x: 12, y: 34 }], performance.now() - FLASH_MS / 2, IMPORTANT_WARN);
     minimap.onTick();
     // The viewport outline is the LAST stroke of a redraw, drawn after the
     // flash. A missing `restore()` leaves it wearing the ring's alpha, which
@@ -777,7 +821,7 @@ describe('the alert flash', () => {
 
   it('stops drawing a mark that has outlived FLASH_MS', () => {
     const { minimap } = mount(() => false);
-    minimap.flash([{ x: 12, y: 34 }], performance.now() - FLASH_MS - 1);
+    minimap.flash([{ x: 12, y: 34 }], performance.now() - FLASH_MS - 1, IMPORTANT_WARN);
     recorder.ops.length = 0;
     minimap.onTick();
     expect(ring()).toBeUndefined();
@@ -791,9 +835,9 @@ describe('the alert flash', () => {
     // that must never be obscured.
     const { minimap } = mount(() => true);
     recorder.ops.length = 0;
-    minimap.flash([{ x: 12, y: 34 }], performance.now() - FLASH_MS / 2);
+    minimap.flash([{ x: 12, y: 34 }], performance.now() - FLASH_MS / 2, IMPORTANT_WARN);
     minimap.onTick();
-    const ringAt = recorder.ops.findIndex((o) => o.kind === 'stroke' && o.alpha < 1);
+    const ringAt = recorder.ops.findIndex((o) => o.kind === 'stroke' && o.alpha < 1 && o.width === 2);
     const lastDot = recorder.ops.reduce(
       (best, o, i) =>
         (o.kind === 'fillRect' || o.kind === 'fillPath') && (o.style === 'blue' || o.style === 'red')
@@ -810,11 +854,11 @@ describe('the alert flash', () => {
 
   it('draws one ring per live point, and none for the expired ones beside them', () => {
     const { minimap } = mount(() => false);
-    minimap.flash([{ x: 12, y: 34 }], performance.now() - FLASH_MS - 1);
-    minimap.flash([{ x: 20, y: 30 }, { x: 30, y: 20 }], performance.now() - FLASH_MS / 2);
+    minimap.flash([{ x: 12, y: 34 }], performance.now() - FLASH_MS - 1, IMPORTANT_WARN);
+    minimap.flash([{ x: 20, y: 30 }, { x: 30, y: 20 }], performance.now() - FLASH_MS / 2, IMPORTANT_WARN);
     recorder.ops.length = 0;
     minimap.onTick();
-    expect(recorder.strokes().filter((k) => k.alpha < 1)).toHaveLength(2);
+    expect(recorder.strokes().filter((k) => k.alpha < 1 && k.width === 2)).toHaveLength(2);
   });
 });
 
@@ -858,7 +902,7 @@ describe('dotShape', () => {
     const sim = new Sim({ seed: 1, width: W, height: W, capacity: 16 });
     const t = sim.addUnitType(units.inf_squad as unknown as UnitTypeJson);
     sim.spawn(t, 0, fx.from(2), fx.from(2));
-    sim.spawn(t, 1, fx.from(10), fx.from(10));
+    sim.identifyTo(0, sim.spawn(t, 1, fx.from(10), fx.from(10)));
     sim.spawn(t, 2, fx.from(30), fx.from(30));
     mount(() => true, { sim });
     const shapesOf = (color: string): DotShape[] =>
@@ -1385,5 +1429,166 @@ describe('the refuge (GH-279)', () => {
     recorder.ops.length = 0;
     minimap.onTick();
     expect(strokeMatching(crossAt(24.5, 22.5))).toBeUndefined();
+  });
+});
+
+// --- VR-36: state and urgency (approved 2026-10-08) ------------------------
+
+/** The palette key a theme.css token resolves to, read from the file itself
+ *  -- so the minimap's zone colours are checked against the SAME keys the
+ *  world's `objectiveZoneColorKey` is pinned to in `overlays.test.ts`. */
+function paletteKeyOf(token: string): string {
+  const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'theme.css'), 'utf8');
+  const m = new RegExp(`${token}:\\s*var\\(--rl-([a-z0-9-]+)\\);`).exec(css);
+  if (!m) throw new Error(`theme.css declares no ${token}`);
+  const parts = m[1].split('-');
+  return parts.length === 2 && /^\d+$/.test(parts[1]) ? `${parts[0]}.${parts[1]}` : `${parts[0]}.${parts.slice(1).join('_')}`;
+}
+const tokenOf = (key: keyof typeof CHROME): string => /^var\((--[a-z-]+)\)$/.exec(CHROME[key])?.[1] ?? 'none';
+
+describe('objective zones wear the world\'s state (VR-36)', () => {
+  it('colours each state with the palette key the world outline uses', () => {
+    // The world's own keys (`objectiveZoneColorKey`, pinned in overlays.test.ts).
+    const world = { held: 'vfx.tracer', unheld: 'team.neutral', contested: 'team.hostile', target: 'team.hostile' } as const;
+    for (const state of ['held', 'unheld', 'contested', 'target'] as const) {
+      expect(paletteKeyOf(tokenOf(zoneMarkStyle(state).chrome)), state).toBe(world[state]);
+    }
+  });
+
+  it('dashes not held and contested, and pulses them; held and target are solid and steady', () => {
+    expect(zoneMarkStyle('held')).toMatchObject({ dashed: false, pulses: false });
+    expect(zoneMarkStyle('unheld')).toMatchObject({ dashed: true, pulses: true });
+    expect(zoneMarkStyle('contested')).toMatchObject({ dashed: true, pulses: true });
+    expect(zoneMarkStyle('target')).toMatchObject({ dashed: false, pulses: false });
+  });
+
+  it('reads the state with the renderer\'s own rule', () => {
+    const map = makeMap();
+    const marks = (o: { type?: string; paused?: 'contested' | 'unheld' }) =>
+      objectiveMarks([{ status: 'active', zone: 'west_approach', ...o }], map)[0]?.state;
+    expect(marks({ type: 'hold_for' })).toBe('held');
+    expect(marks({ type: 'hold_for', paused: 'unheld' })).toBe('unheld');
+    expect(marks({ type: 'hold_for', paused: 'contested' })).toBe('contested');
+    expect(marks({ type: 'raze' })).toBe('target');
+    expect(objectiveMarks([{ status: 'complete', zone: 'west_approach' }], map)).toEqual([]);
+  });
+
+  it('draws the zone\'s own rectangle, dashed only while it is not held', () => {
+    const edge = (paused?: 'unheld' | 'contested'): StrokePath[] => {
+      recorder.ops.length = 0;
+      mount(() => true, { objectives: () => [{ status: 'active', zone: 'west_approach', type: 'hold_for', paused }] });
+      const want = rectAt(4, 10, 6, 4);
+      return recorder
+        .strokes()
+        .filter((k) => k.width === 2 && k.points.length === 4 && k.points.every((p, i) => Math.abs(p[0] - want[i][0]) < 1e-6 && Math.abs(p[1] - want[i][1]) < 1e-6));
+    };
+    expect(edge().map((k) => k.dash)).toEqual([[]]);
+    expect(edge('unheld').map((k) => k.dash)).toEqual([[3, 2]]);
+    expect(edge('contested').map((k) => k.dash)).toEqual([[3, 2]]);
+  });
+});
+
+describe('alert rings wear tier and tone (VR-36)', () => {
+  it('sizes, widths, lives and doubles the ring by tier', () => {
+    expect(RING_BY_TIER.important).toEqual({ r0: 5, r1: 16, width: 2, ms: FLASH_MS, double: false });
+    expect(RING_BY_TIER.major).toEqual({ r0: 6, r1: 22, width: 2, ms: 2000, double: true });
+    expect(RING_BY_TIER.minor).toEqual({ r0: 4, r1: 11, width: 1.5, ms: 1000, double: false });
+  });
+
+  it('colours the ring by tone, through tokens over the palette', () => {
+    const keyOf = (tone: 'good' | 'bad' | 'warn' | 'info'): string => paletteKeyOf(tokenOf(ringStyle('important', tone).chrome));
+    expect(keyOf('bad')).toBe('team.hostile');
+    expect(keyOf('warn')).toBe('team.neutral');
+    expect(keyOf('good')).toBe('scrub.0');
+    expect(keyOf('info')).toBe('water.0');
+  });
+
+  it('spreads bad news and caution outward, and settles good news and info inward', () => {
+    for (const tone of ['bad', 'warn'] as const) {
+      const st = ringStyle('major', tone);
+      expect(st.inward).toBe(false);
+      expect(ringRadius(st, 1)).toBe(6);
+      expect(ringRadius(st, 0)).toBe(22);
+    }
+    for (const tone of ['good', 'info'] as const) {
+      const st = ringStyle('major', tone);
+      expect(st.inward).toBe(true);
+      expect(ringRadius(st, 1)).toBe(22);
+      expect(ringRadius(st, 0)).toBe(6);
+    }
+  });
+
+  it('draws a major ring twice and a minor ring thin, each on a keyline 2 px wider', () => {
+    const { minimap } = mount(() => false);
+    recorder.ops.length = 0;
+    minimap.flash([{ x: 12, y: 34 }], performance.now() - 500, { tier: 'major', tone: 'bad' });
+    minimap.flash([{ x: 30, y: 20 }], performance.now() - 300, { tier: 'minor', tone: 'info' });
+    minimap.onTick();
+    const faded = recorder.strokes().filter((k) => k.alpha < 1);
+    expect(faded.filter((k) => k.width === 2)).toHaveLength(2); // the major pair
+    expect(faded.filter((k) => k.width === 4)).toHaveLength(2); // their keylines
+    expect(faded.filter((k) => k.width === 1.5)).toHaveLength(1); // the minor ring
+    expect(faded.filter((k) => k.width === 3.5)).toHaveLength(1); // its keyline
+  });
+
+  it('keeps a major ring past FLASH_MS and drops a minor one before it', () => {
+    const { minimap } = mount(() => false);
+    minimap.flash([{ x: 12, y: 34 }], performance.now() - FLASH_MS - 100, { tier: 'major', tone: 'bad' });
+    minimap.flash([{ x: 30, y: 20 }], performance.now() - 1100, { tier: 'minor', tone: 'warn' });
+    recorder.ops.length = 0;
+    minimap.onTick();
+    const faded = recorder.strokes().filter((k) => k.alpha < 1);
+    expect(faded.filter((k) => k.width === 2)).toHaveLength(2);
+    expect(faded.filter((k) => k.width === 1.5)).toHaveLength(0);
+  });
+});
+
+describe('suspected and identified contacts (VR-36)', () => {
+  it('marks an observed hostile suspected until it is identified, and never a friendly', () => {
+    const sim = new Sim({ seed: 1, width: W, height: W, capacity: 16 });
+    const t = sim.addUnitType(units.inf_squad as unknown as UnitTypeJson);
+    sim.spawn(t, 0, fx.from(2), fx.from(2));
+    const foe = sim.spawn(t, 1, fx.from(10), fx.from(10));
+    expect(unitDots(sim, () => true).map((d) => [d.side, d.suspected])).toEqual([
+      [0, false],
+      [1, true],
+    ]);
+    sim.identifyTo(0, foe);
+    expect(unitDots(sim, () => true).map((d) => [d.side, d.suspected])).toEqual([
+      [0, false],
+      [1, false],
+    ]);
+    // Level 1 (suspected, the sim's own middle rung) is still hollow: only
+    // level 2 is identified. A real Sim reaches 1 only by decay over ticks,
+    // so the accessor is answered directly here.
+    const atLevel = (level: number): Sim => Object.assign(Object.create(sim) as Sim, { contactLevel: () => level });
+    expect(unitDots(atLevel(1), () => true).map((d) => d.suspected)).toEqual([false, true]);
+    expect(unitDots(atLevel(2), () => true).map((d) => d.suspected)).toEqual([false, false]);
+    expect(dotShape(1, true)).toBe('hollow');
+    expect(dotShape(0, true)).toBe('square');
+    expect(dotShape(2, true)).toBe('circle');
+  });
+
+  it('draws a suspected contact hollow -- a stroked diamond, no fill -- and an identified one solid', () => {
+    const sim = new Sim({ seed: 1, width: W, height: W, capacity: 16 });
+    const t = sim.addUnitType(units.inf_squad as unknown as UnitTypeJson);
+    const foe = sim.spawn(t, 1, fx.from(10), fx.from(10));
+    mount(() => true, { sim });
+    const at = tileToBox(minimapProjection(W, W, MINIMAP_SIZE), 10, 10);
+    expect(dotsOf('red')).toEqual([]);
+    const hollow = recorder.strokes().filter((k) => k.style === 'red');
+    expect(hollow).toHaveLength(1);
+    expect(hollow[0].width).toBe(1.5);
+    expect(hollow[0].points).toEqual([
+      [at.x, at.y - 4],
+      [at.x + 4, at.y],
+      [at.x, at.y + 4],
+      [at.x - 4, at.y],
+    ]);
+    sim.identifyTo(0, foe);
+    recorder.ops.length = 0;
+    mount(() => true, { sim });
+    expect(recorder.dots().filter((d) => d.style === 'red').map((d) => d.shape)).toEqual(['triangle']);
+    expect(recorder.strokes().filter((k) => k.style === 'red')).toEqual([]);
   });
 });

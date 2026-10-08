@@ -43,6 +43,8 @@ import {
   objectiveZoneColorKey,
   objectiveZoneFallbackColor,
   objectiveZonePulse,
+  objectiveZoneDashed,
+  OBJECTIVE_ZONE_DASH_TILES,
   OBJECTIVE_ZONE_STROKE_INSET_TILES,
   AIR_SHADOW_COLOR_KEY,
   MOBILITY_KILL_COLOR_KEY,
@@ -194,6 +196,19 @@ describe('overlay palette keys resolve to the exact hex Pixi hard-codes at the e
 
   it('VR-03: a friendly at a tenth of its health resolves to the warn yellow, not the hostile red', () => {
     expect(resolve(hpBarColorKey(0.1, true))).toBe('#E8C33A');
+  });
+
+  // VR-36 (lead ruling 2026-10-08): not held and contested are dashed, held
+  // and target solid -- the dash is the channel colour cannot carry under
+  // deuteranopia/protanopia, so the split must not drift.
+  it('dashes the not-held and contested zone outlines, and only those', () => {
+    expect(objectiveZoneDashed('held')).toBe(false);
+    expect(objectiveZoneDashed('unheld')).toBe(true);
+    expect(objectiveZoneDashed('contested')).toBe(true);
+    expect(objectiveZoneDashed('target')).toBe(false);
+    const [on, off] = OBJECTIVE_ZONE_DASH_TILES;
+    expect(on).toBeGreaterThan(0);
+    expect(off).toBeGreaterThan(0);
   });
 
   it('objectiveZoneColorKey\'s three states resolve to Pixi\'s own three literals', () => {

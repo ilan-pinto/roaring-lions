@@ -111,6 +111,7 @@ describe('alertsForTick — objectives', () => {
       {
         kind: 'objective',
         tier: 'major',
+        tone: 'good',
         line: null,
         cue: 'objective.complete',
         at: { x: 24, y: 24 },
@@ -242,8 +243,10 @@ describe('alertsForTick — arrivals', () => {
     );
     expect(alerts[0]).toMatchObject({
       kind: 'arrival',
-      tier: 'important',
-      line: { key: 'alert.arrived', params: { name: 'Lavi' }, place: ['e'] },
+      // VR-37: an arrival of ours is minor and info, dock or scripted.
+      tier: 'minor',
+      tone: 'info',
+      line: { key: 'alert.arrived', params: { name: 'Lavi' }, tone: 'info', place: ['e'] },
       at: { x: 30, y: 3 },
     });
   });
@@ -262,6 +265,8 @@ describe('alertsForTick — arrivals', () => {
     );
     expect(alerts).toHaveLength(1);
     expect(alerts[0].line).toMatchObject({ key: 'alert.reinforced', params: { label: 'Second squad arrives' }, place: ['here'] });
+    // VR-37: the same tier and tone as the dock's arrival -- it was `warn`.
+    expect(alerts[0]).toMatchObject({ tier: 'minor', tone: 'info', line: { tone: 'info' } });
   });
 });
 
@@ -336,7 +341,7 @@ describe('alertsForTick — the cue follows the tier (polish pass F, A2)', () =>
     expect(cuesOf(ev<'wave'>({ kind: 'wave', tick: 0, count: 4 }))).toEqual(['alert.important']);
     expect(cuesOf(ev<'removed'>({ kind: 'removed', tick: 0, entity: 2, side: 0, unit: 'inf_squad' }))).toEqual(['alert.important']);
     expect(cuesOf(ev<'roe'>({ kind: 'roe', tick: 0, penalty: 5, reason: 'r', score: 95 }))).toEqual(['alert.important']);
-    expect(cuesOf(ev<'removed'>({ kind: 'removed', tick: 0, entity: 2, side: 2, unit: 'civilian' }))).toEqual([]);
+    expect(cuesOf(ev<'removed'>({ kind: 'removed', tick: 0, entity: 2, side: 2, unit: 'civilian' })).filter((c) => c !== null)).toEqual([]);
     expect(cuesOf(ev<'built'>({ kind: 'built', tick: 0, unit: 'inf_squad' })).filter((c) => c !== null)).toEqual([]);
   });
 });
@@ -406,6 +411,7 @@ describe('alertsForTick — enemy kills (PA-19)', () => {
       {
         kind: 'kill',
         tier: 'minor',
+        tone: 'good',
         line: { key: 'alert.kill', params: { name: 'Rifle squad', n: 1 }, tone: 'good', place: ['e'] },
         cue: null,
         at: null,
@@ -481,5 +487,65 @@ describe('alertsForTick — our units broken or damaged (pass C2/C4, A1)', () =>
     expect(alertsForTick(initAlertState(), [routed(12), component(17, 'mobility_kill')], [], world, 40).alerts).toEqual([]);
     const { alerts } = alertsForTick(initAlertState(), [routed(2)], [lost(2, 'inf_squad')], world, 40);
     expect(alerts.map((a) => a.kind)).toEqual(['unitLost']);
+  });
+});
+
+// VR-37 (approved by the lead, 2026-10-08): tier and tone agree, because the
+// minimap ring now wears both.
+describe('alertsForTick — VR-37 tier and tone', () => {
+  it('a civilian taken is important and bad, silent, and rings where they were taken', () => {
+    const e = ev<'removed'>({ kind: 'removed', tick: 0, entity: 31, side: 2, unit: 'civilian' });
+    expect(missionEventTier(e)).toBe('important');
+    expect(alertsForTick(initAlertState(), [], [e], world, 40).alerts).toEqual([
+      { kind: 'removed', tier: 'important', tone: 'bad', line: null, cue: null, at: { x: 31.5, y: 10.5 }, marks: [{ x: 31.5, y: 10.5 }], count: 1 },
+    ]);
+  });
+
+  it('a man of ours taken is important and bad', () => {
+    const e = ev<'removed'>({ kind: 'removed', tick: 0, entity: 2, side: 0, unit: 'inf_squad' });
+    expect(missionEventTier(e)).toBe('important');
+    expect(alertsForTick(initAlertState(), [], [e], world, 40).alerts[0]).toMatchObject({ tier: 'important', tone: 'bad' });
+  });
+
+  it('broken stays important and bad, and still marks the map where they broke', () => {
+    const routed = { kind: 'routed', tick: 0, entity: 3 } as SimEvent;
+    expect(alertsForTick(initAlertState(), [routed], [], world, 40).alerts[0]).toMatchObject({
+      kind: 'broken',
+      tier: 'important',
+      tone: 'bad',
+      marks: [{ x: 3.5, y: 10.5 }],
+    });
+  });
+
+  it('pinned is minor and warn, the under-fire family', () => {
+    expect(alertsForTick(initAlertState(), [pinned(1)], [], world, 40).alerts[0]).toMatchObject({ kind: 'pinned', tier: 'minor', tone: 'warn' });
+    expect(alertsForTick(initAlertState(), [fire(1)], [], world, 40).alerts[0]).toMatchObject({ kind: 'underFire', tier: 'minor', tone: 'warn' });
+  });
+
+  it('an ambush is important and bad, with a line, marked on the first of ours it hit -- never on the ambusher', () => {
+    const { alerts } = alertsForTick(initAlertState(), [ambush(12), fire(15), fire(4), fire(2)], [], world, 40);
+    const a = alerts.find((x) => x.kind === 'ambush');
+    expect(a).toMatchObject({
+      tier: 'important',
+      tone: 'bad',
+      cue: 'alert.important',
+      line: { key: 'alert.ambush', tone: 'bad', place: ['here'] },
+      at: { x: 4.5, y: 10.5 },
+      marks: [{ x: 4.5, y: 10.5 }],
+    });
+  });
+
+  it('an objective alert carries its status as its tone', () => {
+    const toneOf = (status: 'active' | 'complete' | 'failed') =>
+      alertsForTick(initAlertState(), [], [ev<'objective'>({ kind: 'objective', tick: 0, id: 'take_town', status })], world, 40).alerts[0]?.tone;
+    expect(toneOf('active')).toBe('info');
+    expect(toneOf('complete')).toBe('good');
+    expect(toneOf('failed')).toBe('bad');
+  });
+
+  it('a loss is bad, a wave is bad, a kill is good', () => {
+    expect(alertsForTick(initAlertState(), [], [lost(7, 'mbt_lavi')], world, 40).alerts[0]).toMatchObject({ tier: 'major', tone: 'bad' });
+    expect(alertsForTick(initAlertState(), [], [ev<'wave'>({ kind: 'wave', tick: 0, count: 2 })], world, 40).alerts[0]).toMatchObject({ tier: 'important', tone: 'bad' });
+    expect(alertsForTick(initAlertState(), [destroyed(17, 1)], [], world, 40).alerts[0]).toMatchObject({ tier: 'major', tone: 'good' });
   });
 });
