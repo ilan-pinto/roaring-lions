@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Minimap state mock</title>
+<!--
+  VR-36 / VR-37 mock. Static: no game code runs here. The ground is the real
+  renderer's photograph of beit_sahwan_outskirts (`ground.png`, captured by
+  `captureGroundAlbedo(210)` and row-flipped exactly as main.ts does), drawn
+  through the minimap's own `saturate(0.4)`. Every colour is a semantic token
+  resolved from theme.css + data/palette.json into `tokens.js`; this file
+  names none. Rendered at devicePixelRatio 1 -- the smallest pixel budget a
+  mark must survive -- and the 3x columns are that SAME 1x bitmap magnified
+  nearest-neighbour, not a crisp redraw, so they show exactly what 1x has.
+-->
+<script src="tokens.js"></script>
+<style>
+  body { margin: 0; padding: 16px; font: 13px/1.35 system-ui, sans-serif; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  h2 { font-size: 14px; margin: 18px 0 6px; }
+  .sub { margin: 0 0 10px; max-width: 980px; }
+  table { border-collapse: collapse; }
+  td, th { padding: 4px 8px 4px 0; vertical-align: top; text-align: left; font-weight: normal; }
+  th { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  .lbl { width: 190px; font-size: 12px; }
+  .lbl b { display: block; font-size: 13px; }
+  canvas { display: block; image-rendering: pixelated; }
+  .row { display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
+  .cap { font-size: 11px; margin-top: 3px; }
+  .phases { display: flex; gap: 4px; }
+</style>
+</head>
+<body>
+<h1>Minimap: state and urgency (VR-36, VR-37) — mock</h1>
+<p class="sub" id="intro"></p>
+
+<h2>The whole minimap, actual size (210 px, DPR 1)</h2>
+<div class="row" id="full"></div>
+
+<h2>One frame per state — actual size, then 3x of the same pixels</h2>
+<table id="frames">
+  <thead><tr><th></th><th>today 1x</th><th>proposed 1x</th><th>today 3x</th><th>proposed 3x (alerts: three moments of the ring)</th></tr></thead>
+  <tbody></tbody>
+</table>
+
+<h2>Colour-vision strip — proposed marks, each variant's own tokens, simulated through its own deficiency</h2>
+<p class="sub" id="cvdnote"></p>
+<div class="row" id="cvd"></div>
+
+<script>
+'use strict';
+const T = window.TOKENS;
+const tok = (v, name) => T[v][name].hex;
+document.body.style.background = tok('default', '--panel-bg-solid');
+document.body.style.color = tok('default', '--ink');
+for (const el of document.querySelectorAll('th, .cap')) el.style.color = tok('default', '--ink-mute');
+
+// --- the minimap's own geometry (minimap.ts) -----------------------------
+const SIZE = 210, TILES = 48, SCALE = SIZE / TILES; // 4.375 px a tile
+const DOT = 6, DIAMOND = 8, FLASH_R0 = 5, FLASH_R1 = 16;
+const box = (t) => t * SCALE;
+
+// The map's own zones (data/maps/beit_sahwan_outskirts.json).
+const ZONES = {
+  shaft_head: [25, 12, 3, 3],
+  clinic: [29, 23, 6, 6],
+  collection_point: [28, 32, 4, 3],
+};
+const centre = (z) => ({ x: z[0] + z[2] / 2, y: z[1] + z[3] / 2 });
+
+// --- the proposal's numbers (for approval) -------------------------------
+const P = {
+  zoneStroke: 2, zoneKeyline: 4, zoneFill: 0.12, zoneDash: [3, 2],
+  suspectHalf: 4, suspectStroke: 1.5, suspectKeyline: 3.5,
+  tier: {
+    major:     { r0: 6, r1: 22, lw: 2,   ms: 2000, double: true },
+    important: { r0: 5, r1: 16, lw: 2,   ms: 1400, double: false },
+    minor:     { r0: 4, r1: 11, lw: 1.5, ms: 1000, double: false },
+  },
+  toneToken: { bad: '--bad', good: '--good', warn: '--warn', info: '--info' },
+  stateToken: { held: '--live', unheld: '--warn', contested: '--bad', target: '--bad' },
+  // Good news and info settle INWARD; bad news and caution spread OUTWARD.
+  contracts: { good: true, info: true, bad: false, warn: false },
+};
+
+function teamColors(v) { return [tok(v, '--friendly'), tok(v, '--bad'), tok(v, '--warn')]; }
+
+// --- drawing -------------------------------------------------------------
+function ground(ctx, img) {
+  ctx.fillStyle = tok('default', '--panel-bg-solid');
+  ctx.fillRect(0, 0, SIZE, SIZE);
+  ctx.imageSmoothingEnabled = true;
+  ctx.filter = 'saturate(0.4)';
+  ctx.drawImage(img, 0, 0, SIZE, SIZE);
+  ctx.filter = 'none';
+}
+function dot(ctx, p, side, color, suspected, v, proposed) {
+  const x = box(p.x), y = box(p.y);
+  if (proposed && suspected) {
+    const r = P.suspectHalf;
+    const path = () => { ctx.beginPath(); ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y); ctx.closePath(); };
+    path(); ctx.strokeStyle = tok(v, '--mark-edge'); ctx.lineWidth = P.suspectKeyline; ctx.stroke();
+    path(); ctx.strokeStyle = color; ctx.lineWidth = P.suspectStroke; ctx.stroke();
+    return;
+  }
+  ctx.fillStyle = color;
+  if (side === 0) { ctx.fillRect(Math.round(x - DOT / 2), Math.round(y - DOT / 2), DOT, DOT); return; }
+  if (side === 2) { ctx.beginPath(); ctx.arc(x, y, DOT / 2, 0, Math.PI * 2); ctx.fill(); return; }
+  const h = DOT / Math.sqrt(3);
+  ctx.beginPath(); ctx.moveTo(x, y - DOT * 2 / 3); ctx.lineTo(x + h, y + DOT / 3); ctx.lineTo(x - h, y + DOT / 3); ctx.closePath(); ctx.fill();
+}
+function todayDiamond(ctx, p, color) {
+  const x = box(p.x), y = box(p.y), r = DIAMOND * Math.SQRT2 / 2;
+  ctx.strokeStyle = color; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y); ctx.closePath(); ctx.stroke();
+}
+function proposedZone(ctx, z, state, v) {
+  const color = tok(v, P.stateToken[state]);
+  const x = box(z[0]), y = box(z[1]), w = box(z[2]), h = box(z[3]);
+  ctx.save();
+  ctx.globalAlpha = P.zoneFill; ctx.fillStyle = color; ctx.fillRect(x, y, w, h);
+  ctx.globalAlpha = 1;
+  const dashed = state === 'unheld' || state === 'contested';
+  ctx.setLineDash([]);
+  ctx.strokeStyle = tok(v, '--mark-edge'); ctx.lineWidth = P.zoneKeyline; ctx.strokeRect(x, y, w, h);
+  ctx.setLineDash(dashed ? P.zoneDash : []);
+  ctx.strokeStyle = color; ctx.lineWidth = P.zoneStroke; ctx.strokeRect(x, y, w, h);
+  ctx.restore();
+}
+function todayRing(ctx, p, a) {
+  const r = FLASH_R0 + (FLASH_R1 - FLASH_R0) * (1 - a);
+  ctx.save(); ctx.globalAlpha = a; ctx.strokeStyle = tok('default', '--warn'); ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(box(p.x), box(p.y), r, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+}
+function proposedRing(ctx, p, tier, tone, a, v) {
+  const g = P.tier[tier];
+  const t = 1 - a;
+  const r = P.contracts[tone] ? g.r1 - (g.r1 - g.r0) * t : g.r0 + (g.r1 - g.r0) * t;
+  const radii = g.double ? [r, r - 4] : [r];
+  ctx.save(); ctx.globalAlpha = a;
+  for (const rr of radii) {
+    if (rr <= 1) continue;
+    ctx.beginPath(); ctx.arc(box(p.x), box(p.y), rr, 0, Math.PI * 2);
+    ctx.strokeStyle = tok(v, '--mark-edge'); ctx.lineWidth = g.lw + 2; ctx.stroke();
+    ctx.strokeStyle = tok(v, P.toneToken[tone]); ctx.lineWidth = g.lw; ctx.stroke();
+  }
+  ctx.restore();
+}
+function viewport(ctx) {
+  // A representative camera footprint: a diamond in tile space (minimap.ts §2).
+  const q = [[10, 14], [24, 6], [33, 20], [19, 28]];
+  ctx.strokeStyle = tok('default', '--live'); ctx.lineWidth = 1;
+  ctx.beginPath(); q.forEach(([x, y], i) => (i ? ctx.lineTo(box(x), box(y)) : ctx.moveTo(box(x), box(y)))); ctx.closePath(); ctx.stroke();
+}
+
+// --- the scene -------------------------------------------------------------
+const UNITS = [
+  { side: 0, x: 6.5, y: 23.5 }, { side: 0, x: 8.5, y: 25.5 }, { side: 0, x: 12.5, y: 21.5 }, { side: 0, x: 26.5, y: 14.5 },
+  { side: 2, x: 30.5, y: 34.5 },
+];
+const HOSTILE_ID = { side: 1, x: 37.5, y: 26.5, suspected: false };
+const HOSTILE_SUS = { side: 1, x: 40.5, y: 18.5, suspected: true };
+const OBJ = [
+  { zone: 'shaft_head', state: 'held' },
+  { zone: 'clinic', state: 'unheld' },
+  { zone: 'collection_point', state: 'contested' },
+];
+const ALERTS = [
+  { id: 'major-bad', tier: 'major', tone: 'bad', p: { x: 12.5, y: 21.5 }, label: 'major · bad', ex: 'a vehicle, aircraft or veteran lost; an objective failed' },
+  { id: 'major-good', tier: 'major', tone: 'good', p: centre(ZONES.shaft_head), label: 'major · good', ex: 'an objective completed' },
+  { id: 'important-bad', tier: 'important', tone: 'bad', p: { x: 44.5, y: 24.5 }, label: 'important · bad', ex: 'a foot unit lost, an enemy wave, one of ours broken / immobilised, a civilian taken (VR-37 #1)' },
+  { id: 'minor-bad', tier: 'minor', tone: 'bad', p: { x: 30.5, y: 34.5 }, label: 'minor · bad', ex: 'none after the VR-37 resolutions (today: civilian taken, feed only); kept so the ladder is total' },
+  { id: 'minor-warn', tier: 'minor', tone: 'warn', p: { x: 8.5, y: 25.5 }, label: 'minor · warn', ex: 'under fire; pinned (VR-37 #4)' },
+  { id: 'minor-info', tier: 'minor', tone: 'info', p: { x: 4.5, y: 23.5 }, label: 'minor · info', ex: 'a dock arrival; a scripted reinforcement (VR-37 #2)' },
+];
+
+function drawToday(ctx, img, opts) {
+  ground(ctx, img);
+  const tc = teamColors('default');
+  for (const o of opts.objectives) todayDiamond(ctx, centre(ZONES[o.zone]), tok('default', '--warn'));
+  for (const u of opts.units) dot(ctx, u, u.side, tc[u.side], false, 'default', false);
+  for (const al of opts.alerts) todayRing(ctx, al.p, al.a);
+  if (opts.viewport) viewport(ctx);
+}
+function drawProposed(ctx, img, opts, v = 'default') {
+  ground(ctx, img);
+  const tc = teamColors(v);
+  for (const o of opts.objectives) proposedZone(ctx, ZONES[o.zone], o.state, v);
+  for (const u of opts.units) dot(ctx, u, u.side, tc[u.side], !!u.suspected, v, true);
+  for (const al of opts.alerts) proposedRing(ctx, al.p, al.tier, al.tone, al.a, v);
+  if (opts.viewport) viewport(ctx);
+}
+
+function canvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; c.style.width = w + 'px'; c.style.height = h + 'px'; return c; }
+function full(img, draw) { const c = canvas(SIZE, SIZE); draw(c.getContext('2d'), img); return c; }
+const CROP = 64;
+function crop(src, at, k) {
+  const c = canvas(CROP * k, CROP * k), g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  const sx = Math.max(0, Math.min(SIZE - CROP, Math.round(box(at.x) - CROP / 2)));
+  const sy = Math.max(0, Math.min(SIZE - CROP, Math.round(box(at.y) - CROP / 2)));
+  g.drawImage(src, sx, sy, CROP, CROP, 0, 0, CROP * k, CROP * k);
+  return c;
+}
+function figure(c, text) { const d = document.createElement('div'); d.append(c); const t = document.createElement('div'); t.className = 'cap'; t.textContent = text; t.style.color = tok('default', '--ink-mute'); d.append(t); return d; }
+
+// --- CVD simulation: Machado, Oliveira & Fernandes 2009 at severity 1.0, in
+// linear RGB -- the SAME matrices tools/src/cvd.ts gates the palette with.
+const M = {
+  protanopia: [[0.152286, 1.052583, -0.204868], [0.114503, 0.786281, 0.099216], [-0.003882, -0.048116, 1.051998]],
+  deuteranopia: [[0.367322, 0.860646, -0.227968], [0.280085, 0.672501, 0.047413], [-0.01182, 0.04294, 0.968881]],
+  tritanopia: [[1.255528, -0.076749, -0.178779], [-0.078411, 0.930809, 0.147602], [0.004733, 0.691367, 0.3039]],
+};
+const toLin = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+const toSrgb = (c) => { c = Math.min(1, Math.max(0, c)); return Math.round(255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055)); };
+function simulate(c, kind) {
+  const g = c.getContext('2d'), d = g.getImageData(0, 0, c.width, c.height), a = d.data, m = M[kind];
+  for (let i = 0; i < a.length; i += 4) {
+    const r = toLin(a[i]), gg = toLin(a[i + 1]), b = toLin(a[i + 2]);
+    a[i] = toSrgb(m[0][0] * r + m[0][1] * gg + m[0][2] * b);
+    a[i + 1] = toSrgb(m[1][0] * r + m[1][1] * gg + m[1][2] * b);
+    a[i + 2] = toSrgb(m[2][0] * r + m[2][1] * gg + m[2][2] * b);
+  }
+  g.putImageData(d, 0, 0); return c;
+}
+
+function run(img) {
+  document.getElementById('intro').textContent =
+    'Ground: the renderer’s own photograph of beit_sahwan_outskirts, at the minimap’s saturate(0.4). ' +
+    'Zones are that map’s own (shaft_head held, clinic unheld, collection_point contested). Rings are drawn at 35% of their life unless a frame says otherwise. ' +
+    'Every colour is a theme.css token resolved from data/palette.json (tokens.js); no other colour is used. Pulse (unheld/contested) and ring motion cannot show in a still: the 3x alert column shows three moments instead.';
+
+  const all = {
+    objectives: OBJ,
+    units: [...UNITS, HOSTILE_ID, HOSTILE_SUS],
+    alerts: [ALERTS[0], ALERTS[1], ALERTS[4], ALERTS[5]].map((x) => ({ ...x, a: 0.65 })),
+    viewport: true,
+  };
+  const liveImg = document.getElementById('live');
+  const fullRow = document.getElementById('full');
+  if (liveImg && liveImg.naturalWidth) { const c = canvas(SIZE, SIZE); c.getContext('2d').drawImage(liveImg, 0, 0, SIZE, SIZE); fullRow.append(figure(c, 'today, live capture (sandbox force, no objectives)')); }
+  fullRow.append(figure(full(img, (g, i) => drawToday(g, i, all)), 'today, mock: amber diamonds, one amber ring, solid triangles'));
+  fullRow.append(figure(full(img, (g, i) => drawProposed(g, i, all)), 'proposed: zone state, ring tier+tone, hollow suspected'));
+
+  const tbody = document.querySelector('#frames tbody');
+  const add = (label, ex, todayOpts, propOpts, at, phases) => {
+    const tr = document.createElement('tr');
+    const td = (n) => { const x = document.createElement('td'); if (n) x.append(n); tr.append(x); return x; };
+    const l = td(); l.className = 'lbl'; const b = document.createElement('b'); b.textContent = label; l.append(b, document.createTextNode(ex));
+    const t1 = full(img, (g, i) => drawToday(g, i, todayOpts));
+    const p1 = full(img, (g, i) => drawProposed(g, i, propOpts));
+    td(crop(t1, at, 1)); td(crop(p1, at, 1)); td(crop(t1, at, 3));
+    if (phases) {
+      const box3 = document.createElement('div'); box3.className = 'phases';
+      for (const a of phases) {
+        const o = { ...propOpts, alerts: propOpts.alerts.map((x) => ({ ...x, a })) };
+        box3.append(figure(crop(full(img, (g, i) => drawProposed(g, i, o)), at, 3), `${Math.round((1 - a) * 100)}% of ${P.tier[propOpts.alerts[0].tier].ms} ms`));
+      }
+      td(box3);
+    } else td(crop(p1, at, 3));
+    tbody.append(tr);
+  };
+  for (const o of OBJ) {
+    const words = { held: 'held — --live, solid, steady', unheld: 'not held — --warn, dashed, pulses', contested: 'contested — --bad, dashed, pulses' }[o.state];
+    add(`objective ${o.state}`, words, { objectives: [o], units: UNITS, alerts: [] }, { objectives: [o], units: UNITS, alerts: [] }, centre(ZONES[o.zone]));
+  }
+  for (const al of ALERTS) {
+    add(`alert ${al.label}`, al.ex, { objectives: [], units: UNITS, alerts: [{ ...al, a: 0.65 }] }, { objectives: [], units: UNITS, alerts: [{ ...al, a: 0.65 }] }, al.p, [0.85, 0.55, 0.25]);
+  }
+  add('contact suspected', 'hollow diamond, like the world’s', { objectives: [], units: [HOSTILE_SUS], alerts: [] }, { objectives: [], units: [HOSTILE_SUS], alerts: [] }, HOSTILE_SUS);
+  add('contact identified', 'solid triangle, unchanged', { objectives: [], units: [HOSTILE_ID], alerts: [] }, { objectives: [], units: [HOSTILE_ID], alerts: [] }, HOSTILE_ID);
+
+  // CVD strip: one composite crop holding every state, per variant.
+  document.getElementById('cvdnote').textContent =
+    'Each column redraws the proposed marks with that variant’s own --bad/--warn/--friendly (theme.css [data-cvd]) and then passes every pixel, ground included, through that deficiency’s Machado 2009 matrix. ' +
+    'Held and not-held are lime vs yellow: under deuteranopia and protanopia they collapse (ΔE 8–17, see the note), which is why not-held is also DASHED. ' +
+    'Good and bad rings collapse under protanopia (ΔE 14–20), which is why good rings also CONTRACT where bad rings spread.';
+  const strip = {
+    objectives: OBJ,
+    units: [...UNITS, HOSTILE_ID, HOSTILE_SUS],
+    alerts: [ALERTS[0], ALERTS[1], ALERTS[4], ALERTS[5]].map((x) => ({ ...x, a: 0.65 })),
+    viewport: false,
+  };
+  const at = { x: 26, y: 24 };
+  const cvd = document.getElementById('cvd');
+  for (const v of ['default', 'deuteranopia', 'protanopia', 'tritanopia']) {
+    const c = full(img, (g, i) => drawProposed(g, i, strip, v));
+    const k = crop(c, at, 1);
+    const big = canvas(k.width * 2, k.height * 2);
+    if (v !== 'default') simulate(k, v);
+    const g2 = big.getContext('2d'); g2.imageSmoothingEnabled = false; g2.drawImage(k, 0, 0, big.width, big.height);
+    // Whole 210 px box, simulated, at 1x -- then the 64 px middle at 2x.
+    const whole = full(img, (g, i) => drawProposed(g, i, strip, v));
+    if (v !== 'default') simulate(whole, v);
+    const pair = document.createElement('div'); pair.className = 'phases';
+    pair.append(whole, big);
+    cvd.append(figure(pair, v === 'default' ? 'default tokens, normal vision' : `${v} variant, ${v} simulated`));
+  }
+  document.body.dataset.ready = '1';
+}
+
+const load = (src) => new Promise((ok) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => ok(null); i.src = src; });
+Promise.all([load('ground.png'), load('today-live.png')]).then(([g, live]) => {
+  if (!g) { document.body.textContent = 'ground.png missing'; return; }
+  if (live) { live.id = 'live'; live.style.display = 'none'; document.body.append(live); }
+  run(g);
+});
+</script>
+</body>
+</html>
