@@ -46,11 +46,12 @@ describe('render fallbacks follow a palette revision', () => {
     ['./lighting', 'GROUND_BOUNCE_COLOR_HEX', 'dust.4'],
     ['./fog-pass', 'FOG_TINT_HEX', 'shadow.1'],
     ['./smoke-mesh', 'SMOKE_COLOR', 'gunmetal.0'],
-    ['./units/overlays', 'OBJECTIVE_ZONE_HALO_FALLBACK', 'shadow.2'],
+    ['./units/overlays', 'WORLD_HALO_FALLBACK', 'shadow.1'],
+    ['./units/overlays', 'OBJECTIVE_ZONE_HALO_FALLBACK', 'shadow.1'],
     ['./units/overlays', 'FIREPOWER_KILL_FALLBACK_COLOR', 'terracotta.2'],
     ['./units/overlays', 'CHARGE_RING_FILL_FALLBACK_COLOR', 'vfx.ember'],
     ['./units/overlays', 'REFUGE_RING_FALLBACK_COLOR', 'scrub.0'],
-    ['./units/overlays', 'REFUGE_RING_EDGE_FALLBACK_COLOR', 'shadow.0'],
+    ['./units/overlays', 'REFUGE_RING_EDGE_FALLBACK_COLOR', 'shadow.1'],
   ];
 
   it('every fallback constant is the (inverted) entry of its own key', async () => {

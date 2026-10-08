@@ -65,6 +65,10 @@ import {
   REFUGE_RING_STYLE,
   REFUGE_RING_EDGE_STYLE,
   REFUGE_RING_EDGE_EXTRA_PX,
+  WORLD_HALO_COLOR_KEY,
+  WORLD_HALO_FALLBACK,
+  OBJECTIVE_ZONE_HALO_COLOR_KEY,
+  OBJECTIVE_ZONE_HALO_FALLBACK,
 } from './overlays';
 
 describe('unitOverlayRadiusPx', () => {
@@ -415,14 +419,14 @@ describe('OverlayBatch.dashedEllipseRing (GH-279)', () => {
     expect(REFUGE_RING_EDGE_STYLE.extendPx).toBe(REFUGE_RING_EDGE_EXTRA_PX / 2);
   });
 
-  it('the refuge ring wears the minimap cross\'s tokens: --good (scrub.0) and --mark-edge (shadow.0)', () => {
+  it('the refuge ring wears the minimap cross\'s --good (scrub.0) over the one world halo (VR-35)', () => {
     const ramps = paletteJson.ramps as Record<string, { colors: string[] }>;
     const resolve = (key: string): string => {
       const [band, i] = key.split('.');
       return ramps[band].colors[Number(i)];
     };
     expect(REFUGE_RING_COLOR_KEY).toBe('scrub.0');
-    expect(REFUGE_RING_EDGE_COLOR_KEY).toBe('shadow.0');
+    expect(REFUGE_RING_EDGE_COLOR_KEY).toBe(WORLD_HALO_COLOR_KEY);
     expect(resolve(REFUGE_RING_COLOR_KEY)).toBe(REFUGE_RING_FALLBACK_COLOR);
     expect(resolve(REFUGE_RING_EDGE_COLOR_KEY)).toBe(REFUGE_RING_EDGE_FALLBACK_COLOR);
   });
@@ -650,5 +654,51 @@ describe('overlay colour keys are all live', () => {
     expect(dead.filter((n) => !KNOWN_DEAD.has(n))).toEqual([]);
     // Demotion: an exemption that is no longer needed must be deleted.
     expect(dead.filter((n) => KNOWN_DEAD.has(n))).toEqual([...KNOWN_DEAD]);
+  });
+});
+
+/**
+ * VR-35: one legibility halo in the world. Three adjacent shadow steps did one
+ * job (rings and marks on shadow.1, the objective zone on shadow.2, the refuge
+ * ring on shadow.0). Falsified: putting `OBJECTIVE_ZONE_HALO_COLOR_KEY` back to
+ * 'shadow.2' turns the first spec red; putting a literal
+ * `overlayColor('shadow.1', ...)` back on the contact-mark halo turns the
+ * second.
+ */
+describe('one world halo (VR-35)', () => {
+  it('every halo and frame key is WORLD_HALO_COLOR_KEY, and its fallback is the palette entry', () => {
+    expect(OBJECTIVE_ZONE_HALO_COLOR_KEY).toBe(WORLD_HALO_COLOR_KEY);
+    expect(REFUGE_RING_EDGE_COLOR_KEY).toBe(WORLD_HALO_COLOR_KEY);
+    expect(HP_BG_COLOR_KEY).toBe(WORLD_HALO_COLOR_KEY);
+    expect(OBJECTIVE_ZONE_HALO_FALLBACK).toBe(WORLD_HALO_FALLBACK);
+    expect(REFUGE_RING_EDGE_FALLBACK_COLOR).toBe(WORLD_HALO_FALLBACK);
+    const ramps = paletteJson.ramps as Record<string, { colors: string[] }>;
+    const [band, i] = WORLD_HALO_COLOR_KEY.split('.');
+    expect(ramps[band].colors[Number(i)]).toBe(WORLD_HALO_FALLBACK);
+  });
+
+  it('ThreeRenderer resolves no halo shade of its own', () => {
+    const tr = readFileSync(fileURLToPath(new URL('../ThreeRenderer.ts', import.meta.url)), 'utf8');
+    const haloLines = tr.split('\n').filter((l) => /halo|resolveShadow/i.test(l) && /overlayColor\(/.test(l));
+    // The scan must see the halo reads it is guarding, or it guards nothing.
+    expect(haloLines.length).toBeGreaterThanOrEqual(5);
+    expect(haloLines.filter((l) => !/WORLD_HALO_COLOR_KEY|OBJECTIVE_ZONE_HALO_COLOR_KEY|REFUGE_RING_EDGE_COLOR_KEY/.test(l))).toEqual([]);
+  });
+});
+
+/**
+ * VR-34: a selected unit's ring is its TEAM colour wherever it stands. The flat
+ * billboard fallback (a garrisoned unit, or a ring the batch refused) used to
+ * take the control group's colour, or tracer lime. Falsified: restoring
+ * `groupColor || accentDefault` on that ellipse turns this red.
+ */
+describe('the selected ring has one colour (VR-34)', () => {
+  it('the flat fallback ring draws in the same ringHex the ground ring is pushed with', () => {
+    const tr = readFileSync(fileURLToPath(new URL('../ThreeRenderer.ts', import.meta.url)), 'utf8');
+    const at = tr.indexOf('this.pushSelectionRing(i, type, ix, iy, side, this.selectionRing, SELECTED_RING_SCALE, ringHex)');
+    expect(at).toBeGreaterThan(0);
+    const block = tr.slice(at, tr.indexOf('}', at));
+    const fallback = /ellipseRing\(ringCenter,[^;]*\);/.exec(block)?.[0] ?? '';
+    expect(fallback).toMatch(/,\s*ringHex,\s*1\);$/);
   });
 });

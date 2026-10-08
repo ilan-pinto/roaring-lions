@@ -481,6 +481,8 @@ import {
   ROUTE_NODE_RADIUS_PX,
   ROUTE_NODE_ALPHA,
   HP_BG_COLOR_KEY,
+  WORLD_HALO_COLOR_KEY,
+  WORLD_HALO_FALLBACK,
   SUPPRESSION_COLOR_KEY,
   OVERLAY_ACCENT_COLOR_KEY,
   BADGE_TEXT_COLOR_KEY,
@@ -2293,14 +2295,15 @@ export class ThreeRenderer implements Renderer {
       renderOrder: DECAL_FADING_RENDER_ORDER,
       material: this.decalMaterial,
     });
-    // The ring's halo is `shadow.1`, resolved through `overlayColor` like
+    // The ring's halo is the one world halo (`WORLD_HALO_COLOR_KEY`, VR-35),
+    // resolved through `overlayColor` like
     // every other overlay colour and converted by `cachedHexToLinear`, so
     // `endFrame`'s once-a-frame read parses no hex.
     this.selectionRing = new SelectionRingBatch({
-      resolveShadow: () => cachedHexToLinear(this.overlayColor('shadow.1', '#14150F')),
+      resolveShadow: () => cachedHexToLinear(this.overlayColor(WORLD_HALO_COLOR_KEY, WORLD_HALO_FALLBACK)),
     });
     this.teamRing = new SelectionRingBatch({
-      resolveShadow: () => cachedHexToLinear(this.overlayColor('shadow.1', '#14150F')),
+      resolveShadow: () => cachedHexToLinear(this.overlayColor(WORLD_HALO_COLOR_KEY, WORLD_HALO_FALLBACK)),
       style: TEAM_RING,
       capacity: TEAM_RING.capacity,
     });
@@ -7899,7 +7902,7 @@ export class ThreeRenderer implements Renderer {
     const st = this.sim.state;
     const n = this.snapshottedCount;
     const elevation = this.retained.elevation;
-    const halo = this.overlayColor('shadow.1', '#14150F');
+    const halo = this.overlayColor(WORLD_HALO_COLOR_KEY, WORLD_HALO_FALLBACK);
     const now = this.fireLinkClockS;
     this.fireLinkPulses = this.fireLinkPulses.filter((p) => now - p.bornS < PULSE_S && p.target < n && st.alive[p.target] === 1);
     for (const p of this.fireLinkPulses) {
@@ -8052,7 +8055,7 @@ export class ThreeRenderer implements Renderer {
     const shape = contactShapeOf(cls, contactLevel);
     const h = CONTACT_MARK.halfPx * scale;
     const at = billboardPoint(anchor, 0, r + CONTACT_MARK.liftPx * scale);
-    const halo = this.overlayColor('shadow.1', '#14150F');
+    const halo = this.overlayColor(WORLD_HALO_COLOR_KEY, WORLD_HALO_FALLBACK);
     const team = this.opts.teamColors[1] ?? this.overlayColor('team.hostile', '#D93A2B');
     for (const t of contactHaloTriangles(shape, h, CONTACT_MARK.haloPx * scale)) this.overlayBatch.triangle(at, t, halo, CONTACT_MARK.haloAlpha);
     for (const t of contactTriangles(shape, h)) this.overlayBatch.triangle(at, t, team, 1);
@@ -8269,8 +8272,8 @@ export class ThreeRenderer implements Renderer {
       // (`updateDamageSmoke`), and WHICH damage it is reads on the chip and
       // the card.
 
-      // Control-group colour -- the badge's, and the billboard fallback
-      // ring's below. The ground ring is TEAM colour (A4 Q1, G-MOCK).
+      // Control-group colour -- the badge's. Every selected ring, the ground
+      // one and the flat fallback below, is TEAM colour (A4 Q1, G-MOCK; VR-34).
       const grp = this.unitGroup[i];
       const groupColor =
         grp > 0 && this.opts.groupColors.length > 0 ? this.opts.groupColors[(grp - 1) % this.opts.groupColors.length] : '';
@@ -8285,14 +8288,17 @@ export class ThreeRenderer implements Renderer {
 
       // Selection ring (A4, GH-186): on the ground, in team colour, for a
       // unit standing on it. The old flat billboard ellipse -- renderer.ts:
-      // `g.ellipse(sx, sy + 2, r + 7, (r + 7) / 2).stroke({ width: 2, color:
-      // groupColor || '#B8FF5A' })` -- stays for exactly two cases: a
-      // garrisoned unit, whose ring belongs on the ROOF it stands on (Q7),
-      // and a ring the batch refused (full, or an unusable axis).
+      // `g.ellipse(sx, sy + 2, r + 7, (r + 7) / 2).stroke({ width: 2, ... })`
+      // -- stays for exactly two cases: a garrisoned unit, whose ring belongs
+      // on the ROOF it stands on (Q7), and a ring the batch refused (full, or
+      // an unusable axis). It wears the SAME colour the ground ring does
+      // (VR-34): it used to take the control group's colour, or tracer lime
+      // with no group, so a unit's "selected" changed colour the moment it
+      // stepped into a building. The group is still told by the badge.
       const ringHex = i === groupPrimary ? primaryRingHex(this.opts.teamColors[side]) : this.opts.teamColors[side];
       if (selected && (inside >= 0 || !this.pushSelectionRing(i, type, ix, iy, side, this.selectionRing, SELECTED_RING_SCALE, ringHex))) {
         const ringCenter = billboardPoint(anchor, 0, -2);
-        this.overlayBatch.ellipseRing(ringCenter, r + 7, (r + 7) / 2, 2, groupColor || accentDefault, 1);
+        this.overlayBatch.ellipseRing(ringCenter, r + 7, (r + 7) / 2, 2, ringHex, 1);
       }
 
       // Control-group badge: a disc in the group's colour with its numeral
@@ -8306,7 +8312,7 @@ export class ThreeRenderer implements Renderer {
       if (grp > 0) {
         const badgeCenter = billboardPoint(anchor, -(r + 4), r + 4);
         const haloR = GROUP_BADGE_RADIUS_PX + GROUP_BADGE_HALO_PX;
-        this.overlayBatch.ellipseFan(badgeCenter, haloR, haloR, this.overlayColor('shadow.1', '#14150F'), 0.85);
+        this.overlayBatch.ellipseFan(badgeCenter, haloR, haloR, this.overlayColor(WORLD_HALO_COLOR_KEY, WORLD_HALO_FALLBACK), 0.85);
         this.overlayBatch.ellipseFan(
           badgeCenter,
           GROUP_BADGE_RADIUS_PX,

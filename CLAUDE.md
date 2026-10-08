@@ -1365,7 +1365,8 @@ yours; each one records what the next phase inherits.
   0.05 tile of movement or 2 degrees of turn; `refreshSurface` invalidates the
   cache. Moving rings on relief cost about 0.9 ms per 100 -- the lead accepted
   it ("Cache + accept", `docs/PERFORMANCE.md`). The fallback flat ring
-  (garrisoned units, or overflow) keeps the group colour. The `overlays` debug
+  (garrisoned units, or overflow) wears the same team colour (VR-34; it took
+  the group colour, or lime, until the chrome register). The `overlays` debug
   layer hides `selectionRingGroup`, never the mesh. HP bars draw only for a
   unit that is damaged, selected or hovered, with a 1 px `shadow.1` frame at
   alpha 1.0. **Captures ASSERT no selection and no hover**, so no gated

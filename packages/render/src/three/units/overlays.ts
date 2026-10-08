@@ -126,8 +126,20 @@ export function hpBarColorKey(ratio: number): string {
   return 'team.hostile';
 }
 
-/** Palette key for the HP bar's dark backing rect -- Pixi's `#14150F`. */
-export const HP_BG_COLOR_KEY = 'shadow.1';
+/** THE world legibility halo (VR-35): the one dark edge every ring, contact
+ *  mark, group badge, HP frame, fire-link pulse, objective zone and refuge
+ *  ring draws its colour on, so a mark holds its edge on pale sand. It was
+ *  three keys -- `shadow.1` here, `shadow.2` round the objective zone,
+ *  `shadow.0` under the refuge ring -- three adjacent steps of one ramp
+ *  (#14150F / #0A0A08 / #23241F) doing one job. The UI's own halo is
+ *  `--type-shadow` (`theme.css`'s `--halo`), deliberately a step lighter for
+ *  type set on terrain. */
+export const WORLD_HALO_COLOR_KEY = 'shadow.1';
+export const WORLD_HALO_FALLBACK = paletteHex(WORLD_HALO_COLOR_KEY);
+
+/** Palette key for the HP bar's dark backing rect -- Pixi's `#14150F`: the
+ *  world halo, framing the bar. */
+export const HP_BG_COLOR_KEY = WORLD_HALO_COLOR_KEY;
 /** Palette key for the suppression bar's fill -- Pixi's `#FFB43C`. */
 export const SUPPRESSION_COLOR_KEY = 'vfx.fire';
 /** Palette key for a selection ring/badge/order-marker/hover-highlight/
@@ -207,9 +219,10 @@ export const OBJECTIVE_ZONE_STROKE_INSET_TILES = 0.11;
  *  for the reason that constant's comment gives; the stroke itself doubled
  *  from 0.05 so the pair reads as a marked edge rather than a hairline. */
 export const OBJECTIVE_ZONE_HALO_INSET_TILES = 0.2;
-/** Palette key for the halo -- the ramp's darkest step; `overlayColor`
+/** Palette key for the halo -- the one world halo (VR-35; it was `shadow.2`,
+ *  the ramp's darkest step, one step off every other halo); `overlayColor`
  *  resolves it through the same `paletteColor` every other overlay key uses. */
-export const OBJECTIVE_ZONE_HALO_COLOR_KEY = 'shadow.2';
+export const OBJECTIVE_ZONE_HALO_COLOR_KEY = WORLD_HALO_COLOR_KEY;
 export const OBJECTIVE_ZONE_HALO_FALLBACK = paletteHex(OBJECTIVE_ZONE_HALO_COLOR_KEY);
 /** Fill alpha inside the zone -- Pixi's 0.05 was invisible on textured
  *  ground; 0.12 tints the held ground without hiding what stands on it. */
@@ -364,11 +377,12 @@ export const REFUGE_RING_TILES = 2.5;
  *  the minimap's refuge cross already wears -- one colour for one place. */
 export const REFUGE_RING_COLOR_KEY = 'scrub.0';
 export const REFUGE_RING_FALLBACK_COLOR = paletteHex(REFUGE_RING_COLOR_KEY);
-/** `--mark-edge` in the UI (`--rl-shadow-0`), the minimap cross's own edge.
+/** The one world halo (VR-35; it was `shadow.0`, the minimap cross's own
+ *  `--mark-edge`, one step lighter than every other halo in the world).
  *  Measured on the mock (`03A-plain-no-understroke.png`): scrub.0 sits at
  *  nearly the luminance of the sand, and without this edge the ring is lost
  *  over shadowed ground and rooftops. */
-export const REFUGE_RING_EDGE_COLOR_KEY = 'shadow.0';
+export const REFUGE_RING_EDGE_COLOR_KEY = WORLD_HALO_COLOR_KEY;
 export const REFUGE_RING_EDGE_FALLBACK_COLOR = paletteHex(REFUGE_RING_EDGE_COLOR_KEY);
 /** The green dash: 7 on, 5 off, 2 wide -- the mock's numbers, in overlay
  *  pixels (they scale with zoom like every ring here). */
