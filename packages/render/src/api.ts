@@ -277,6 +277,18 @@ export interface RendererOptions {
    */
   quality?: RenderQuality;
   /**
+   * GH-469: the drawing buffer's pixel ratio is `min(devicePixelRatio, this)`
+   * -- `PIXEL_RATIO_CAP` (2) when absent. Three-only. The menu's backdrop
+   * passes a lower one: every full-screen target scales with its square.
+   */
+  maxPixelRatio?: number;
+  /**
+   * GH-469: GLB textures are decoded no larger than this per edge
+   * (`three/units/texture-cap.ts`); absent leaves them as shipped. Three-only;
+   * the menu's backdrop sets it, a mission never does.
+   */
+  maxTextureSize?: number;
+  /**
    * Stamp the ground-mark showcase (`three/decal-showcase.ts`, D4) around
    * this tile once the terrain has been built: craters, scorch, oil, rubble,
    * tread and tyre, three sizes each, on a flat, a sloped and a road site
