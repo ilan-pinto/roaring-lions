@@ -59,6 +59,18 @@ describe('cold GLB textures', () => {
     expect(hasColdTextures(root)).toBe(false);
   });
 
+  it('frees a warmed texture\'s decoded copy once it is uploaded (saving 1 on top of saving 2)', async () => {
+    const t = new THREE.Texture();
+    markColdTexture(t, new Blob(['x']));
+    const root = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshStandardMaterial({ map: t }));
+    let closed = 0;
+    const bitmap = { width: 8, height: 8, close: () => { closed += 1; } } as unknown as ImageBitmap;
+    await warmColdTextures(root, async () => bitmap);
+    expect(closed).toBe(0);
+    t.onUpdate?.(); // three's after-upload callback
+    expect(closed).toBe(1);
+  });
+
   it('says so, by name, if a cold texture is ever uploaded', async () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     vi.stubGlobal('createImageBitmap', vi.fn());

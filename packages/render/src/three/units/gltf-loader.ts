@@ -63,8 +63,94 @@
  * contract reading rather than glTF transport.
  */
 import * as THREE from 'three';
-import { GLTFLoader, type GLTFLoaderPlugin, type GLTFParser } from 'three/addons/loaders/GLTFLoader.js';
+import { GLTFLoader, type GLTF, type GLTFLoaderPlugin, type GLTFParser } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+
+/**
+ * GH-469 saving 1: free a GLB texture's CPU copy once the GPU has it.
+ *
+ * `GLTFLoader` decodes every texture into an `ImageBitmap` and three keeps it
+ * as `texture.image` for the texture's whole life, so every GLB texture was
+ * held TWICE -- once on the GPU, once decoded in the page's own process.
+ * `pnpm perf:memory` measured the second copy at 440 MiB on the heaviest
+ * mission and 184 MiB behind the menu (docs/PERFORMANCE.md, "Memory").
+ *
+ * `onUpdate` is three's own after-upload callback (`WebGLTextures`, called
+ * once the pixels are in the GL texture), so this closes the bitmap the
+ * moment it has been copied and never earlier. Its dimensions are kept on
+ * `userData.rlReleasedImage` for anything that still wants to know the size
+ * (`memory-inventory.ts`).
+ *
+ * What it trades away is RE-upload: a texture whose source is bumped
+ * (`needsUpdate = true`) after release, or a second texture over the same
+ * `Source` with different sampling parameters, would upload a closed bitmap
+ * and draw black. Nothing in this renderer does either -- materials are
+ * cloned, textures are shared by reference, and `prepareTexturedMap` sets its
+ * parameters before the first draw -- and both cases are made LOUD rather than
+ * silent: an upload that finds the bitmap already closed logs an error naming
+ * the texture. Each renderer parses its own GLBs (`GLTFParser`'s texture cache
+ * is per file and `THREE.Cache` is off), so one renderer's upload never
+ * releases another renderer's texture.
+ */
+export const RELEASED_IMAGE_KEY = 'rlReleasedImage';
+
+interface Closable {
+  readonly width: number;
+  readonly height: number;
+  close(): void;
+}
+
+function isClosable(v: unknown): v is Closable {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    typeof (v as { close?: unknown }).close === 'function' &&
+    typeof (v as { width?: unknown }).width === 'number'
+  );
+}
+
+/** Arm one texture: close its bitmap after its first upload. Idempotent. */
+export function releaseImageAfterUpload(texture: THREE.Texture): void {
+  if (!isClosable(texture.image) || texture.userData[RELEASED_IMAGE_KEY] !== undefined) return;
+  const previous = texture.onUpdate;
+  const t = texture;
+  texture.onUpdate = (): void => {
+    previous?.call(t);
+    const img: unknown = t.image;
+    const released = t.userData[RELEASED_IMAGE_KEY] as { width: number; height: number } | undefined;
+    if (released && released.width > 0 && isClosable(img) && img.width === 0) {
+      console.error(
+        `[render] texture "${t.name || t.uuid}" was uploaded again after its CPU copy was released -- it will draw black`
+      );
+      return;
+    }
+    if (!isClosable(img) || img.width === 0) return;
+    t.userData[RELEASED_IMAGE_KEY] = { width: img.width, height: img.height };
+    img.close();
+  };
+  texture.userData[RELEASED_IMAGE_KEY] = null;
+}
+
+/** Every texture any material under `root` references, armed once. */
+export function releaseImagesAfterUpload(root: THREE.Object3D): void {
+  root.traverse((o) => {
+    const m = (o as THREE.Mesh).material;
+    for (const mat of Array.isArray(m) ? m : m ? [m] : []) {
+      for (const v of Object.values(mat)) if (v instanceof THREE.Texture) releaseImageAfterUpload(v);
+    }
+  });
+}
+
+/** The loader plugin that arms every texture of every GLB this loader parses. */
+export const RELEASE_IMAGES_PLUGIN = 'RL_release_images_after_upload';
+function releaseImagesPlugin(): GLTFLoaderPlugin {
+  return {
+    name: RELEASE_IMAGES_PLUGIN,
+    afterRoot: async (result: GLTF): Promise<void> => {
+      for (const scene of result.scenes) releaseImagesAfterUpload(scene);
+    },
+  };
+}
 
 /**
  * GH-469 saving 2: COLD textures -- a GLB whose geometry is parsed now and
@@ -144,7 +230,12 @@ export async function warmColdTextures(root: THREE.Object3D, decode: ImageDecode
         warming.set(source, pending);
       }
       await pending;
-      for (const t of ts) t.needsUpdate = true;
+      for (const t of ts) {
+        t.needsUpdate = true;
+        // Saving 1 applies to a warmed texture too: free the decoded copy
+        // once the GPU has it.
+        releaseImageAfterUpload(t);
+      }
     })
   );
 }
@@ -247,6 +338,7 @@ export function setDracoDecoderPath(path: string): void {
 export function gltfLoader(): GLTFLoader {
   if (shared) return shared;
   shared = new GLTFLoader();
+  shared.register(releaseImagesPlugin);
   const draco = sharedDraco();
   if (draco) shared.setDRACOLoader(draco);
   return shared;
@@ -258,6 +350,9 @@ export function coldGltfLoader(): GLTFLoader {
   if (sharedCold) return sharedCold;
   sharedCold = new GLTFLoader();
   sharedCold.register(coldTexturesPlugin);
+  // A cold texture holds a placeholder, so this arms nothing at parse; a
+  // warmed one is armed by `warmColdTextures` once its bitmap lands.
+  sharedCold.register(releaseImagesPlugin);
   const draco = sharedDraco();
   if (draco) sharedCold.setDRACOLoader(draco);
   return sharedCold;

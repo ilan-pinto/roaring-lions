@@ -90,8 +90,11 @@ export function textureBytes(t: THREE.Texture): { w: number; h: number; bytes: n
   let w = 0;
   let h = 0;
   let bytes = 0;
+  // A GLB texture whose CPU copy was released after upload (gltf-loader.ts)
+  // has a closed bitmap of width 0; its real size was kept on userData.
+  const released = t.userData?.rlReleasedImage as { width: number; height: number } | null | undefined;
   for (const img of imgs) {
-    const d = dims(img);
+    const d = released && released.width > 0 ? ([released.width, released.height, 1] as [number, number, number]) : dims(img);
     if (!d) continue;
     [w, h] = d;
     bytes += d[0] * d[1] * d[2] * texelBytes(t.format, t.type);
