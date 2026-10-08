@@ -116,6 +116,8 @@ Owned by `packages/render/src/three/lighting.ts` and `time-of-day.ts`. Pinned in
   - the muzzle smoke `#6B6355` (TR:4442)
   - `CHARRED_TINT_HEX 0x6a5f55`, the wreck char (`units/world-materials.ts:96`)
 
+  **Resolved** (fx ladder): both are `limestone.7` (`#75624A`), the nearest palette entry a world colour may use, read through `paletteHex`. CIEDE2000: smoke 5.81, char 6.24 (char luminance 0.130 against 0.1335, so the lead's detail-over-darkness call still holds). `karst.3` is nearer (3.32 / 4.66) but `karst` is `theme_only`, terrain and decor tint only. `palette-hex.test.ts` now requires `ThreeRenderer.ts` to carry no hex literal at all and swaps the palette to prove the char tint follows.
+
 ---
 
 ## 5. Materials
@@ -128,7 +130,7 @@ Owned by `packages/render/src/three/lighting.ts` and `time-of-day.ts`. Pinned in
 
 **Inconsistencies**
 
-- **VR-10. The char tint is the one material colour outside the palette** (`CHARRED_TINT_HEX`; see VR-09).
+- **VR-10. The char tint is the one material colour outside the palette** (`CHARRED_TINT_HEX`; see VR-09). **Resolved** with VR-09: `CHARRED_TINT_KEY` `limestone.7`.
 - **VR-11. Billboards and meshes can disagree.** `kit.py` changed and the sprite sheets were not re-rendered (CLAUDE.md, Mesh units). The sheets are retired for units, but `&nomesh` and the civilians still reach the billboard path.
 
 ---
@@ -141,7 +143,7 @@ Owned by `packages/render/src/three/lighting.ts` and `time-of-day.ts`. Pinned in
 
 **Inconsistencies**
 
-- **VR-12. The hit flash is always hostile-coloured.** It draws `teamColors[1]` (TR:7731), while the pulse it accompanies uses the *target's* side (TR:7719). A friendly unit hit by enemy fire flashes enemy red.
+- **VR-12. The hit flash is always hostile-coloured.** It draws `teamColors[1]` (TR:7731), while the pulse it accompanies uses the *target's* side (TR:7719). A friendly unit hit by enemy fire flashes enemy red. **Resolved** (fx ladder): one flash material per side, the target's, with the pulse's own fallback; `ThreeRenderer.fire-link-flash.test.ts`.
 
 ---
 
@@ -221,6 +223,17 @@ The ladder as authored. Light, shake amplitude and hit-stop are multiplied by th
 | building collapse | — | — | — | — | `structure_collapse.json` (shroud cloud and rubble only) |
 | muzzle (APFSDS) | 3.8 `white_hot` | 8 px (authored) | — | — | `fire_apfsds.json` |
 
+**After the fx ladder (VR-22/23, 2026-10-08)**, each level at its strongest as spawned (authored value × the event's power):
+
+| Event | Light | Shake | Hit-stop |
+|---|---|---|---|
+| building collapse (3x3+ footprint, power 1) | 4.5, r 9, at roof height | 12 px / 520 ms | 90 ms |
+| vehicle kill (3000 hp, power 1) | 3.5 (unchanged) | 9 px (unchanged) | 70 ms (unchanged) |
+| shell landing (Grad, 0.45) | 4.2 × 0.45 = 1.89 (mortar 1.26) | 2.25 px | 18 ms |
+| muzzle flash (one shot) | 1.8: APFSDS 1.8, or a tube's 1.0 + backblast 0.8 | none | none |
+
+The order is held by `three/fx-ladder.test.ts`, through the renderer's own scaling functions. Missile impact (2.6, unscaled for a hit) sits between the shell and the kill and is not one of the four ruled levels.
+
 **Restraint rules already in force:**
 
 - Shake moves a *copy* of the camera.
@@ -233,7 +246,9 @@ The ladder as authored. Light, shake amplitude and hit-stop are multiplied by th
 - **VR-22. The ladder is inverted at both ends.**
   - A building collapse, a "major event" by the plan's tiers, authors no light, shake or hit-stop, so it ranks below a mortar round.
   - The APFSDS muzzle authors more light (3.8) than a vehicle kill (3.5).
-- **VR-23. Shake on every firing emitter is dead data.** `fire_apfsds` authors 8 px, `fire_heat` 3, `fire_mortar` 2 and `fire_autocannon` 1.5. The fire path reads only their light (TR:4374-4383). Only three call sites push shake: kill, shell and missile. `screen_shake` in `vfx_emitter.schema.json` reads as a feature that every emitter has.
+
+  **Resolved** (fx ladder, lead ruling 2026-10-08: collapse > vehicle kill > shell landing > muzzle flash, for light, shake and hit-stop): see the table above. The collapse reads its new blocks through the kill's own three calls. Measured in `docs/polish/fx-ladder/` (`pnpm blast:capture`, Metal): the collapse holds a 90 ms freeze and peaks at 9.8 px of shake against the kill's 8.0, and the mortar's blast-light toggle went 13684 → 30319 px. The collapse's LIGHT is ranked but reads weakly on screen (737 px against the kill's 44282 at 200 ms): the building and its unlit shroud cover the ground it would light. A lead question, not a number.
+- **VR-23. Shake on every firing emitter is dead data.** `fire_apfsds` authors 8 px, `fire_heat` 3, `fire_mortar` 2 and `fire_autocannon` 1.5. The fire path reads only their light (TR:4374-4383). Only three call sites push shake: kill, shell and missile. `screen_shake` in `vfx_emitter.schema.json` reads as a feature that every emitter has. **Resolved** (fx ladder): the four values are deleted, the schema describes `screen_shake` as a blast-only block read on four events, and `fx-ladder.test.ts` fails any `weapon_fire` emitter that authors one.
 
 ---
 
@@ -425,14 +440,14 @@ Numbers from #354 (`units/readability.ts`, `units/selection-ring.ts`):
 | VR-06 | uncurated `grass.0` in UI | `order-sight.ts` | small |
 | VR-07 | campaign board off the lit pipeline | `world-view.ts` | recorded follow-up |
 | VR-08 | palette hex fallbacks in render | `lighting.ts`, `fog-pass.ts`, TR … | small, mechanical |
-| VR-09 / VR-10 | off-palette smoke and char | TR, `world-materials.ts` | small |
+| VR-09 / VR-10 | off-palette smoke and char | TR, `world-materials.ts` | **resolved** (fx ladder) |
 | VR-11 | billboard vs mesh drift | `kit.py`, sprites | recorded debt |
-| VR-12 | hit flash always hostile | TR | small |
+| VR-12 | hit flash always hostile | TR | **resolved** (fx ladder) |
 | VR-13 | kit glyph placeholders vs G1 | `kit-sign.ts`, `assets/ui/kit` | lead (D8 addendum) |
 | VR-14 | stale icon pipeline in CLAUDE.md | `CLAUDE.md` | doc |
 | VR-15 | lightning audio glyph | menu, strip | PA-30 |
 | VR-16–21 | type: mono prose, display prose, faux bold, garage scale, button case, back buttons | `theme.css`, settings/saves/credits/loading | PA-22, one register pass |
-| VR-22–23 | effects ladder inverted; dead shake | `data/vfx/*.json`, TR | lead (C3) |
+| VR-22–23 | effects ladder inverted; dead shake | `data/vfx/*.json`, TR | **resolved** (fx ladder); collapse light on screen is a lead question |
 | VR-24–31 | chrome: bands, credits colour, selected, disabled, focus, raw spacing and timing, halos, shared tokens | `theme.css`, `panel()` callers | **resolved** (chrome register, with VR-20) |
 | VR-32–38 | world language: lime overload, move colour, garrison ring, halos, minimap, tier/tone, dead marks | OV, TR, `minimap.ts`, `alerts.ts` | lead for meaning; VR-34, VR-35, VR-38 resolved; VR-33 a lead question |
 
