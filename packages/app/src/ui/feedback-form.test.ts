@@ -11,7 +11,7 @@ const store = (): StorageLike & { d: Record<string, string> } => {
   const d: Record<string, string> = {};
   return { d, getItem: (k) => d[k] ?? null, setItem: (k, v) => void (d[k] = v) };
 };
-const pic = { blob: new Blob([new Uint8Array(46 * 1024)], { type: 'image/webp' }), width: 1280, height: 720 };
+const pic = { blob: new Blob([new Uint8Array(46 * 1024)], { type: 'image/webp' }), width: 1280, height: 720, quality: 0.75 };
 
 function deps(o: Partial<FeedbackFormDeps> = {}) {
   const sent: FormSubmission[] = [];
