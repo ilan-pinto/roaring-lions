@@ -79,6 +79,13 @@ describe('render fallbacks follow a palette revision', () => {
     expect(ov.objectiveZoneFallbackColor('held')).toBe(invert(paletteHex('vfx.tracer')));
   });
 
+  it('the wreck char tint follows too (VR-10)', async () => {
+    vi.resetModules();
+    vi.doMock('../../../../data/palette.json', () => ({ default: invertTree(realPalette) }));
+    const wm = await import('./world-materials');
+    expect(wm.CHARRED_TINT_HEX).toBe(parseInt(invert(paletteHex(wm.CHARRED_TINT_KEY)).slice(1), 16));
+  });
+
   it('ThreeRenderer: the no-resolver default and the run-time-key fallbacks follow too', async () => {
     vi.resetModules();
     vi.doMock('../../../../data/palette.json', () => ({ default: invertTree(realPalette) }));
@@ -104,10 +111,12 @@ describe('ThreeRenderer.ts restates no palette hex (VR-08)', () => {
     .replace(/^\s*\/\/.*$/gm, '');
   const literals = [...code.matchAll(/['"`]#[0-9A-Fa-f]{3,8}['"`]/g)].map((m) => m[0].slice(1, -1).toUpperCase());
 
-  it('the only hex literal left is one that is not a palette entry', () => {
-    // '#6B6355' is the muzzle-smoke puff's own flat colour (spawnFlatFx): no palette entry holds it.
-    expect(literals).toEqual(['#6B6355']);
-    const palette = JSON.stringify(realPalette).toUpperCase();
-    expect(palette.includes('#6B6355'), 'if the palette gains #6B6355, route it through paletteHex and drop this allowance').toBe(false);
+  it('carries no hex literal at all (VR-09: the muzzle smoke was the last)', () => {
+    expect(literals).toEqual([]);
+  });
+
+  it('draws the muzzle smoke from its palette key', async () => {
+    const tr = await import('./ThreeRenderer');
+    expect(paletteHex(tr.MUZZLE_SMOKE_KEY)).toBeDefined();
   });
 });

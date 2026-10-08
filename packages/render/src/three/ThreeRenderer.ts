@@ -215,6 +215,7 @@ import {
 import {
   BLAST_EMITTER_ID,
   SHELL_IMPACT_EMITTER_ID,
+  STRUCTURE_COLLAPSE_EMITTER_ID,
   blastLightSpec,
   blastShake,
   blastHitStopMs,
@@ -836,6 +837,8 @@ const SHOULDER_TONE_KEY = 'limestone.2';
 export const FLASH_LIGHT_FALLBACK = paletteHex('vfx.fire');
 export const HP_BAR_FALLBACK = paletteHex('scrub.0');
 export const BUILDING_BAR_FALLBACK = paletteHex(MOBILITY_KILL_COLOR_KEY);
+/** The flat muzzle-smoke puff's palette key (polish VR-09). */
+export const MUZZLE_SMOKE_KEY = 'limestone.7';
 
 /** How strong a HOVER preview's envelope is, as a fraction of the same
  *  unit's envelope when it is selected. One multiplier over all three bands
@@ -1925,7 +1928,9 @@ export class ThreeRenderer implements Renderer {
   /** `flash`: the silhouette meshes currently wearing the flash material,
    *  by entity, with the material each one wore before. */
   private readonly fireLinkFlashed = new Map<number, { mesh: THREE.Mesh; was: THREE.Material | THREE.Material[] }[]>();
-  private fireLinkFlashMaterial: THREE.MeshBasicMaterial | null = null;
+  /** One flash material per SIDE, built on first use (polish VR-12): the
+   *  flash wears the TARGET's team colour, like the pulse it accompanies. */
+  private readonly fireLinkFlashMaterials = new Map<number, THREE.MeshBasicMaterial>();
   private readonly particleInstancerBelow = new ParticleInstancer(PARTICLE_CAPACITY, FX_LAYER_BELOW, true, false);
   private readonly particleInstancerAbove = new ParticleInstancer(PARTICLE_CAPACITY, FX_LAYER_ABOVE, false, false);
   /**
@@ -2905,7 +2910,8 @@ export class ThreeRenderer implements Renderer {
     this.decalsFading.dispose();
     this.decalMaterial.dispose();
     this.selectionRing.dispose();
-    this.fireLinkFlashMaterial?.dispose();
+    for (const m of this.fireLinkFlashMaterials.values()) m.dispose();
+    this.fireLinkFlashMaterials.clear();
     this.teamRing.dispose();
     this.tracerBatch.dispose();
     this.shellBatch.dispose();
@@ -4209,6 +4215,32 @@ export class ThreeRenderer implements Renderer {
             this.spawnFlatFx(bx + (a - 0.5) * 3, by + (b - 0.5) * 3, this.opts.nearMissColor, 10 + a * 10, 26 + Math.floor(a * 16));
           }
         }
+        // Polish VR-22: the top of the event ladder. A collapse used to author
+        // no light, shake or freeze at all, so it read below a mortar round.
+        // `structure_collapse.json` now declares all three one notch above
+        // `catastrophic_kill.json`, read through the same three calls and the
+        // same null/zero rule as the kill and the shell, at the footprint's
+        // own power -- outside the particle fallback above on purpose, since
+        // the light and the freeze are not particles.
+        {
+          const em = this.emitterLibrary.byName(STRUCTURE_COLLAPSE_EMITTER_ID);
+          const light = blastLightSpec(em, collapsePower);
+          if (light) {
+            // At the ROOF, not the ground: a kill's light sits over open
+            // ground it can reach, but a collapse's ground is the building's
+            // own pad, under the building and its shroud, and a light there
+            // lit almost nothing the camera can see (593 px against a Lavi
+            // kill's 44255 at the same 200 ms, `pnpm blast:capture`). The
+            // height is the one `beginCollapseShroud` sizes its cloud from.
+            const drawn = this.drawnBuildingSize(deadStruct);
+            const type = this.sim.structureTypes[this.sim.structures.typeIdx[deadStruct]];
+            const roof = drawn ? drawn.y : type.heightPx * WORLD_Y_PER_LIFT_PIXEL;
+            const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, bx, by) + roof;
+            this.flashLights.spawn(bx, by, worldY, light, this.overlayColor(light.color ?? 'vfx.fire', FLASH_LIGHT_FALLBACK));
+          }
+          this.shakeState = pushShake(this.shakeState, blastShake(em, collapsePower), bx, by);
+          this.hitStop = requestHitStop(this.hitStop, blastHitStopMs(em, collapsePower));
+        }
       }
     }
   }
@@ -4497,7 +4529,10 @@ export class ThreeRenderer implements Renderer {
       } else {
         this.spawnFlatFx(mzX, mzY, this.opts.flashColor, 14, 4);
         this.spawnFlatFx(mzX, mzY, this.opts.flashColor, 10, 8);
-        this.spawnFlatFx(mzX, mzY, '#6B6355', 7, 18);
+        // Polish VR-09: the smoke was `#6B6355`, the one off-palette colour in
+        // this file. `limestone.7` is the nearest entry a world colour may use
+        // (CIEDE2000 5.81); `karst.3` is nearer (3.32) but terrain-only.
+        this.spawnFlatFx(mzX, mzY, this.overlayColor(MUZZLE_SMOKE_KEY), 7, 18);
       }
     }
   }
@@ -7936,13 +7971,17 @@ export class ThreeRenderer implements Renderer {
    *  building then lost BOTH outlines for the flash -- the occlusion one was
    *  swapped away and the flash one failed the depth test. The stencil still
    *  punches the body's own footprint out, so it stays an outline. */
-  private fireLinkFlashMat(): THREE.MeshBasicMaterial {
-    if (this.fireLinkFlashMaterial === null) {
-      const m = createMeshSilhouetteMaterial(this.opts.teamColors[1]);
+  private fireLinkFlashMat(side: number): THREE.MeshBasicMaterial {
+    let m = this.fireLinkFlashMaterials.get(side);
+    if (m === undefined) {
+      // Polish VR-12: the TARGET's side, with the pulse's own fallback. It was
+      // `teamColors[1]` for every target, so a friendly unit hit by enemy fire
+      // flashed enemy red while its pulse ring was friendly.
+      m = createMeshSilhouetteMaterial(this.opts.teamColors[side] ?? this.opts.teamColors[1]);
       m.depthTest = false;
-      this.fireLinkFlashMaterial = m;
+      this.fireLinkFlashMaterials.set(side, m);
     }
-    return this.fireLinkFlashMaterial;
+    return m;
   }
 
   /** `flash`: swaps a target's silhouette meshes onto the flash material for
@@ -7964,7 +8003,7 @@ export class ThreeRenderer implements Renderer {
       if (this.fireLinkFlashed.has(id)) continue;
       const root = this.meshUnitEntities.get(id)?.root ?? this.vehicleMeshEntities.get(id)?.root;
       if (!root) continue;
-      const mat = this.fireLinkFlashMat();
+      const mat = this.fireLinkFlashMat(st.side[id]);
       const list: { mesh: THREE.Mesh; was: THREE.Material | THREE.Material[] }[] = [];
       root.traverse((o) => {
         const mesh = o as THREE.Mesh;
@@ -8093,11 +8132,9 @@ export class ThreeRenderer implements Renderer {
   private updateSilhouetteOutlineWidth(): void {
     const zoom = this.camera.zoom;
     setSilhouetteOutlineZoom(this.silhouetteMeshMaterials, zoom);
-    if (this.fireLinkFlashMaterial !== null) {
-      setSilhouetteOutlineZoom([this.fireLinkFlashMaterial], zoom);
-      const w = (this.fireLinkFlashMaterial.userData as Record<string, { value: number } | undefined>)[
-        SILHOUETTE_OUTLINE_UNIFORM_KEY
-      ];
+    for (const m of this.fireLinkFlashMaterials.values()) {
+      setSilhouetteOutlineZoom([m], zoom);
+      const w = (m.userData as Record<string, { value: number } | undefined>)[SILHOUETTE_OUTLINE_UNIFORM_KEY];
       if (w) w.value *= HIT_FLASH_WIDTH_SCALE;
     }
   }
