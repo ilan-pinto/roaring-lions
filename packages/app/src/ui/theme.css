@@ -6324,6 +6324,11 @@ button.rl-menu__item[data-kind='aside'] {
   font-size: var(--t-s);
   color: var(--ink-mute);
 }
+/* K-12: a stored slot that cannot be read. Same row, with the reason in the
+   error ink so it is not mistaken for a loadable save. */
+.rl-saves__sub--damaged {
+  color: var(--bad-text);
+}
 .rl-saves__actions {
   display: flex;
   gap: var(--s1);

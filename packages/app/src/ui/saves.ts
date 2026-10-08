@@ -15,7 +15,7 @@ import { t } from '../i18n/t';
 import { symbolLabel } from './symbol';
 import type { Disposer } from '../shell/router';
 import type { LedgerStore } from '../ledger-store';
-import { SAVE_ERROR_NOT_A_SAVE, deleteSlot, exportSlot, importSlot, listSlots, loadSlot, readActive, saveSlot, writeActive, type SlotMeta } from '../profile';
+import { SAVE_ERROR_NOT_A_SAVE, damagedRaw, deleteSlot, exportSlot, importSlot, listDamaged, listSlots, loadSlot, readActive, saveSlot, writeActive, type DamagedMeta, type SlotMeta } from '../profile';
 import { confirmDialog } from './confirm';
 import { panel } from './panel';
 import { stagger } from './motion';
@@ -121,6 +121,41 @@ function slotRow(
   return row;
 }
 
+/**
+ * K-12: a stored slot that cannot be read. It is kept verbatim by `profile.ts`
+ * (no save or delete ever drops it) and shown here as damaged, with the two
+ * things a player can do: export the kept text, so it can be repaired or sent
+ * on, or delete it for good.
+ */
+function damagedRow(meta: DamagedMeta, n: number, actions: { onExport(): void; onDelete(): void }): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'rl-saves__row rl-saves__row--damaged';
+  const info = document.createElement('div');
+  info.className = 'rl-saves__info';
+  const name = document.createElement('div');
+  name.className = 'rl-saves__name';
+  name.textContent = t('saves.damaged.name', { n });
+  const sub = document.createElement('div');
+  sub.className = 'rl-saves__sub rl-saves__sub--damaged';
+  sub.textContent = t('saves.damaged.sub', { chars: meta.bytes });
+  info.append(name, sub);
+  row.appendChild(info);
+  const btnRow = document.createElement('div');
+  btnRow.className = 'rl-saves__actions';
+  const button = (label: string, onClick: () => void): void => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'rl-btn';
+    b.textContent = label;
+    b.addEventListener('click', onClick);
+    btnRow.appendChild(b);
+  };
+  button(t('saves.slot.export'), actions.onExport);
+  button(t('saves.slot.delete'), actions.onDelete);
+  row.appendChild(btnRow);
+  return row;
+}
+
 export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
   const wrap = document.createElement('div');
   wrap.className = 'rl-menu rl-menu--saves';
@@ -148,7 +183,8 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
   const renderList = (): void => {
     list.replaceChildren();
     const slots = listSlots(deps.store);
-    if (slots.length === 0) {
+    const damaged = listDamaged(deps.store);
+    if (slots.length === 0 && damaged.length === 0) {
       list.appendChild(empty);
       return;
     }
@@ -209,6 +245,36 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
         })
       );
     }
+    damaged.forEach((meta, i) => {
+      list.appendChild(
+        damagedRow(meta, i + 1, {
+          onExport: () => {
+            const text = damagedRaw(deps.store, meta.id);
+            if (text === null) return;
+            deps.download(t('saves.damaged.file', { n: i + 1 }), text);
+          },
+          onDelete: () => {
+            void confirmDialog(stage, {
+              title: t('saves.damaged.delete.confirm.title'),
+              body: t('saves.damaged.delete.confirm.body'),
+              confirm: t('saves.delete.confirm.action'),
+              danger: true,
+            }).answer.then((ok) => {
+              if (!ok) return;
+              try {
+                deleteSlot(deps.store, meta.id);
+              } catch (err) {
+                say(errorText(err, 'delete'));
+                return;
+              }
+              say(t('saves.done.deleteDamaged'));
+              renderList();
+              deps.onChanged();
+            });
+          },
+        })
+      );
+    });
   };
 
   // --- save the active campaign as a new slot -------------------------------

@@ -106,6 +106,12 @@
   "saves.done.load": "Loaded \u201c{name}\u201d \u2014 it is now your campaign.",
   "saves.done.delete": "Deleted \u201c{name}\u201d.",
   "saves.done.import": "Imported \u201c{name}\u201d.",
+  "saves.done.deleteDamaged": "Deleted the damaged save.",
+  "saves.damaged.name": "Damaged save {n}",
+  "saves.damaged.sub": "Damaged, cannot load \u00b7 {chars, plural, one {# character} other {# characters}} kept on this device",
+  "saves.damaged.file": "damaged-save-{n}.txt",
+  "saves.damaged.delete.confirm.title": "Delete this damaged save?",
+  "saves.damaged.delete.confirm.body": "This save cannot be read, and deleting it removes the only copy kept on this device. Export it first if you may want it repaired. This cannot be undone.",
 
   "credits.title": "Credits",
   "credits.madeBy": "Made by",
