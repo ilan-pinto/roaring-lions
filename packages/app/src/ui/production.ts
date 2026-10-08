@@ -179,11 +179,12 @@ export class ReinforcementDock {
     // the top strip's own counters (`--t-strip`, the same size `.rl-info`
     // reads off `.rl-strip`) rather than riding along at the small label's
     // `--t-xs` -- a reviewer read "REINFORCEMENTS · B · 0 CR" at that size as
-    // illegible on the first round. `--good` stays the colour, distinct from
-    // this tile's own logistics badge (`--accent`) and the strip's own
-    // logistics/intel figures (`--info`) -- those are THIS mission's
-    // currencies, and the brigade's credits are a different one, earned
-    // across the whole campaign and spent only in the garage. Static once at
+    // illegible on the first round. `--commend` is the colour, the one every
+    // credit figure wears (VR-25), distinct from the logistics and intel
+    // figures (`--info`, on the strip and on this dock's tile badges alike) --
+    // those are THIS mission's currencies, and the brigade's credits are a
+    // different one, earned across the whole campaign and spent only in the
+    // garage. Static once at
     // construction: nothing in a mission ever spends or grants brigade
     // credits mid-mission, so unlike the tile countdowns this never needs a
     // 4 Hz refresh. The number carries no comma grouping -- nothing in this
