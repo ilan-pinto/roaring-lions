@@ -125,9 +125,8 @@ zoom 2.2:
 ## Decisions for the lead
 
 1. **Do we show the fighters inside, and how many?** The mock draws every occupant of
-   an identified route as a hostile silhouette, so the player learns the real count. A
-   flamethrower-style decision follows from it: the alert layer is otherwise careful
-   never to name an enemy nobody engaged. The positions are invented, because the sim
+   an identified route as a hostile silhouette, so the player learns the real count. The alert
+   layer is otherwise careful never to name an enemy nobody engaged. The positions are invented, because the sim
    keeps none, though the count is true. Options:
    - **(a)** as mocked, every fighter;
    - **(b)** only "occupied", one generic silhouette whatever the count;
