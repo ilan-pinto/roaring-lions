@@ -111,7 +111,7 @@ Owned by `packages/render/src/three/lighting.ts` and `time-of-day.ts`. Pinned in
 **Inconsistencies**
 
 - **VR-07. The campaign board is not on this pipeline.** `world-view.ts` writes `LinearSRGBColorSpace` by hand and tags its bake `NoColorSpace`, so the diorama is pass-through where a mission is sRGB plus ACES. This is a recorded scope call (CLAUDE.md, "The campaign board"), and it still means the same assets read differently on two screens.
-- **VR-08. Palette hexes are duplicated as fallbacks in render code.** `lighting.ts:97-99`, `time-of-day.ts` (`sunFallback`, `skyFallback`), `buildings.ts:104-106`, `fog-pass.ts:49` (`FOG_TINT_HEX`), `smoke-mesh.ts:245`, and about 30 resolver fallbacks in TR. They agree with the palette today, but a palette revision would not reach them.
+- **VR-08. Palette hexes are duplicated as fallbacks in render code.** `lighting.ts:97-99`, `time-of-day.ts` (`sunFallback`, `skyFallback`), `buildings.ts:104-106`, `fog-pass.ts:49` (`FOG_TINT_HEX`), `smoke-mesh.ts:245`, and about 30 resolver fallbacks in TR. **Partly resolved:** every non-TR instance now reads `data/palette.json` through `three/palette-hex.ts` (`palette-hex.test.ts` swaps the palette and checks each constant follows). The `ThreeRenderer.ts` resolver fallbacks stay literal, deferred until #444 lands. `buildings.ts`'s `WALL_SOUTH_HEX` and `WALL_EAST_HEX` are not palette entries and are untouched. The TR ones agree with the palette today, but a palette revision would not reach them.
 - **VR-09. Two off-palette colours are drawn in the world:**
   - the muzzle smoke `#6B6355` (TR:4442)
   - `CHARRED_TINT_HEX 0x6a5f55`, the wreck char (`units/world-materials.ts:96`)

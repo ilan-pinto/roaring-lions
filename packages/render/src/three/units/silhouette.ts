@@ -209,6 +209,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { TILE_W } from '../../project';
 import { MESH_UNITS_PER_TILE } from './mesh-anim';
 import { SILHOUETTE_RENDER_ORDER } from './render-order';
+import { paletteHex } from '../palette-hex';
 
 /**
  * How thick the outline is, in SCREEN pixels, at every zoom.
@@ -338,7 +339,7 @@ export const SILHOUETTE_COLOR_KEY_BY_SIDE = ['team.kedem', 'team.hostile', 'team
  * palette key's name; `silhouette.test.ts` reads `data/palette.json` and
  * asserts these three against it rather than trusting this comment.
  */
-export const SILHOUETTE_FALLBACK_HEX_BY_SIDE = ['#2F6FD9', '#D93A2B', '#E8C33A'] as const;
+export const SILHOUETTE_FALLBACK_HEX_BY_SIDE = [paletteHex('team.kedem'), paletteHex('team.hostile'), paletteHex('team.neutral')] as const;
 
 /**
  * `side` -> colour slot. The ONE place the sim's side numbering is mapped
