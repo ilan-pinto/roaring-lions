@@ -110,6 +110,7 @@ import {
   type PanVelocity,
 } from './ui/camera-input';
 import { closeOpenDialog, confirmDialog, isDialogOpen } from './ui/confirm';
+import { leaveCopy } from './ui/leave-copy';
 import { closeTip } from './ui/tooltip';
 import { objectiveStatusShout } from './ui/objective-status';
 import { pauseMenu } from './ui/pause';
@@ -120,7 +121,7 @@ import { buyUnlock, buyUpgrade } from './brigade-account';
 import { payVictory } from './campaign-pay';
 import { tierLine } from './ui/grade-copy';
 import { clocklessObjectives, speakerPlate, speakerPortrait, withoutHiddenClocks } from './ui/hud-model';
-import { briefingBeats, broughtFor, showLoading, type FieldOrder } from './ui/loading';
+import { briefingBeats, broughtFor, showDownloadProgress, showLoading, type FieldOrder } from './ui/loading';
 import { briefingGlance, objectiveClock } from './ui/briefing-glance';
 import { groundMarks } from './ui/ground-marks';
 import { briefingSections, pickBriefingImage } from './ui/briefing-sections';
@@ -136,7 +137,7 @@ import { showKeysOverlay } from './ui/keys-overlay';
 import { groupBar, groupChips } from './ui/group-bar';
 import { isIdle, nextIdle, type IdleFacts } from './ui/idle';
 import { escapeHtml } from './ui/escape-html';
-import { bootFailureCard, bootFailureKind, guardBoot, mountErrorCard } from './ui/boot-failure';
+import { bootFailureCard, bootFailureKind, guardBoot, mountErrorCard, mountInterrupted, watchContextLoss } from './ui/boot-failure';
 import { webgl2Available } from './ui/webgl-probe';
 import { alertNotice, evacuatedNotice, reinforceTrigger, removedNotice, ledgerSavedNotice, triggerLabel, unknownSandboxMapNotice } from './ui/mission-notice';
 import { ReinforcementDock } from './ui/production';
@@ -1854,7 +1855,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     meshReady.delete(id);
     failedMesh.push(id);
   };
-  await Promise.all([
+  // K-15: the blank wait. The briefing below cannot be built until the ground
+  // and the force are known, but the player can be told something is
+  // happening: the loading screen's own bar and count, one step per model.
+  const download = showDownloadProgress(stage, mission?.name ?? mission?.id ?? 'M0 sandbox');
+  onDispose(() => download.dispose());
+  const counted = <T>(job: Promise<T>): Promise<T> => job.finally(() => download.step());
+  const jobs: Promise<unknown>[] = [
     ...meshManifest.rigged.map((m) => three.loadMeshUnit(m.id, m.urls, m.faction).catch(unitMeshFailed(m.id))),
     ...meshManifest.vehicles.map((m) => three.loadVehicleMesh(m.id, m.url).catch(unitMeshFailed(m.id))),
     // Building meshes: the STANDING state only, for the structure types
@@ -1884,10 +1891,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // a map with no road and no building tile (`propKindsFor`), which
     // loads nothing and places nothing.
     three.loadPropMeshes(meshManifest.props),
-  ]).catch((err: unknown) => {
-    teardown();
-    throw err;
-  });
+  ];
+  download.total(jobs.length);
+  await Promise.all(jobs.map(counted))
+    .catch((err: unknown) => {
+      teardown();
+      throw err;
+    })
+    // Whether it landed or failed: the failure card (K-01) or the briefing
+    // takes the stage next, and neither should find this screen under it.
+    .finally(() => download.dispose());
 
   // The late arrivals. `loadMeshUnit`/`loadVehicleMesh` are safe to call
   // after the first frame -- both replace a template and tear down every
@@ -2675,6 +2688,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // before it, a soft leave left the HUD, the minimap and the frame loop
     // running over whatever screen came next.
     leave: () => req.navigate(routes.campaign()),
+    freePlay: !mission,
     openObjectives,
     // Task 9: facts only the shell has, handed to the pure priority list in
     // `hint-model.ts`. `renderer.hoverEntity >= 0` is the same "over a
@@ -2818,10 +2832,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       onQuit: () => {
         // Same wording as the HUD's own "leave the mission" confirm
         // (hud.ts's leaveBtn) -- both ask the identical question.
+        const leaveText = leaveCopy(!mission);
         void confirmDialog(document.body, {
-          title: t('hud.leave.confirm.title'),
-          body: t('hud.leave.confirm.body'),
-          confirm: t('hud.leave.confirm.action'),
+          title: leaveText.title,
+          body: leaveText.body,
+          confirm: leaveText.confirm,
           danger: true,
         }).answer.then((ok) => {
           if (ok) req.navigate(routes.campaign());
@@ -3109,6 +3124,24 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
 
   // --- input ---------------------------------------------------------------
   const canvas = renderer.canvas;
+  // K-16: a lost graphics context used to leave a silent black canvas. Hold the
+  // battle (nothing is drawn, so nothing should play out unseen) and put the
+  // boot-failure card over it with Reload and the main menu. The listener comes
+  // off in this screen's own disposer, which also runs before the renderer's
+  // teardown releases the context on purpose -- that release must not read as
+  // a loss.
+  let contextCard: HTMLElement | null = null;
+  const unwatchContext = watchContextLoss(canvas, () => {
+    if (disposed) return;
+    console.error('[lions] the graphics context was lost mid-mission');
+    gameSpeed = 0;
+    contextCard = mountInterrupted(document.body, routes.menu());
+  });
+  onDispose(() => {
+    unwatchContext();
+    contextCard?.remove();
+    contextCard = null;
+  });
   // Left drag = box select; a short click = single select.
   const dragBox = document.createElement('div');
   dragBox.className = 'rl-marquee';

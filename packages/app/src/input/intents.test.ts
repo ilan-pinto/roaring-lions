@@ -165,6 +165,8 @@ function world(over: Partial<IntentWorld> = {}): IntentWorld {
     canGarrison: () => false,
     canTunnelCharge: () => false,
     inFlaggedZone: () => false,
+    groundAt: () => 'open',
+    flies: () => false,
     ...over,
   };
 }
@@ -295,6 +297,38 @@ describe('issueOrder', () => {
     const b = issueOrder(w, minimap, [1, 2], 4.5, 6.5, { append: ev.shiftKey, confirm: ev.altKey });
     expect(b).toEqual(a);
     expect(minimap.log).toEqual(field.log);
+  });
+});
+
+describe('K-08: a click on ground nobody can enter', () => {
+  const rock = world({ groundAt: () => 'blocked' });
+  it('drops no marker, dispatches nothing, says why, and denies', () => {
+    const s = orderSink();
+    const res = issueOrder(rock, s, [1, 2], 4.5, 6.5, { append: false, confirm: false });
+    expect(res.groundRefused).toBe('blocked');
+    expect(s.log.map((e) => e.did)).toEqual(['note', 'deny']);
+    expect(s.log[0]).toMatchObject({ text: 'that ground is impassable \u2014 pick open ground to move there' });
+  });
+  it('off the map says so in its own words', () => {
+    const s = orderSink();
+    issueOrder(world({ groundAt: () => 'offmap' }), s, [1], -3, 2, { append: false, confirm: false });
+    expect(s.log[0]).toMatchObject({ did: 'note', text: 'that is off the map \u2014 pick a tile on the map' });
+    expect(s.log.some((e) => e.did === 'marker')).toBe(false);
+  });
+  it('a Shift-queued click is refused the same way', () => {
+    const s = orderSink();
+    issueOrder(rock, s, [1], 4.5, 6.5, { append: true, confirm: false });
+    expect(s.log.map((e) => e.did)).toEqual(['note', 'deny']);
+  });
+  it('a drone in the selection keeps the order: it flies over rock', () => {
+    const s = orderSink();
+    issueOrder(world({ groundAt: () => 'blocked', flies: (i) => i === 2 }), s, [1, 2], 4.5, 6.5, { append: false, confirm: false });
+    expect(s.log.map((e) => e.did)).toEqual(['dispatch', 'marker']);
+  });
+  it('a building on blocked ground is still ordered onto (garrison / demolish / attack-move)', () => {
+    const s = orderSink();
+    issueOrder(world({ groundAt: () => 'blocked', structureAt: () => 7 }), s, [1], 4.5, 6.5, { append: false, confirm: false });
+    expect(s.log.map((e) => e.did)).toEqual(['dispatch', 'marker']);
   });
 });
 

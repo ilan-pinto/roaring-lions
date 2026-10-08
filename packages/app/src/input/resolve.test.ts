@@ -19,6 +19,8 @@ function emptyWorld(over: Partial<IntentWorld> = {}): IntentWorld {
     canGarrison: () => false,
     canTunnelCharge: () => false,
     inFlaggedZone: () => false,
+    groundAt: () => 'open',
+    flies: () => false,
     ...over,
   };
 }

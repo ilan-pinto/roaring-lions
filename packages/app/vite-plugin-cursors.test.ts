@@ -1149,6 +1149,8 @@ describe('the composer and the plugin agree on every key -- Important 2', () => 
       canGarrison: (id) => unitTypes[id].canGarrison,
       canTunnelCharge: (id) => unitTypes[id].canTunnelCharge,
       inFlaggedZone: () => false,
+      groundAt: () => 'open',
+      flies: () => false,
       ...over,
     };
   }

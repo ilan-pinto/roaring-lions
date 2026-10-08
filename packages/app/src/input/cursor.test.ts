@@ -23,6 +23,12 @@ function moving(over: Partial<Resolution> = {}): Resolution {
 }
 
 describe('cursorFor', () => {
+  it('K-08: a click refused by the ground reads blocked, even with no intents and no hint', () => {
+    const refused: Resolution = { intents: [], roe: 'free', marker: false, groundRefused: 'offmap' };
+    expect(cursorFor(refused, NONE)).toBe('blocked');
+    expect(cursorFor({ ...refused, groundRefused: 'blocked' }, NONE)).toBe('blocked');
+  });
+
   it('is move over open ground with something selected', () => {
     expect(cursorFor(moving(), NONE)).toBe('move');
   });
