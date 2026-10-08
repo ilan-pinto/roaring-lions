@@ -1091,7 +1091,8 @@ body {
    read as one visual system rather than three competing ones. */
 .rl-confirm,
 .rl-pause,
-.rl-keys {
+.rl-keys,
+.rl-boot-scrim {
   position: fixed;
   inset: 0;
   display: grid;
@@ -3124,6 +3125,12 @@ body {
   line-height: var(--lh-body);
   color: var(--ink);
 }
+/* K-16: the card over a running mission wears the panel ground, since the
+   scrim behind it is only a dim of a canvas that has gone black. */
+.rl-boot-scrim .rl-boot-error {
+  background: var(--panel-bg-solid);
+  border: 1px solid var(--panel-frame); /* px-ok */
+}
 .rl-boot-error__title {
   margin: 0 0 var(--s3);
   font-family: var(--font-display);
@@ -4477,6 +4484,17 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-deploy__reserve {
   margin-top: var(--s1);
   color: var(--ink-mute);
+}
+/* K-11: the reason Deploy is locked, or a row refused its click. */
+.rl-deploy__why,
+.rl-force__why {
+  margin: var(--s1) 0 0;
+  font: var(--t-body) / 1.35 var(--font-body);
+  color: var(--warn);
+}
+.rl-force__why {
+  max-width: 24rem;
+  text-align: right;
 }
 .rl-deploy__map {
   margin: 0;
@@ -6405,6 +6423,11 @@ button.rl-menu__item[data-kind='aside'] {
   font-family: var(--font-body);
   font-size: var(--t-s);
   color: var(--ink-mute);
+}
+/* K-12: a stored slot that cannot be read. Same row, with the reason in the
+   error ink so it is not mistaken for a loadable save. */
+.rl-saves__sub--damaged {
+  color: var(--bad-text);
 }
 .rl-saves__actions {
   display: flex;

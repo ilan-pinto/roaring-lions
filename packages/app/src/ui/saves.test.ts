@@ -275,4 +275,39 @@ describe('showSaves', () => {
     error.mockRestore();
     stage.remove();
   });
+
+  it('K-12: a damaged slot is listed as such, survives a new save, and only its own delete removes it', async () => {
+    const store = memStore();
+    store.writeSlotsRaw(JSON.stringify({ bad: { version: 1, id: 'bad', ledger: 3 } }));
+    const stage = document.createElement('div');
+    document.body.appendChild(stage);
+    showSaves(stage, deps(store));
+    const row = stage.querySelector('.rl-saves__row--damaged');
+    expect(row?.textContent).toContain('Damaged save 1');
+    expect(row?.textContent).toContain('cannot load');
+    expect(row?.textContent).not.toContain('Load');
+    expect(stage.textContent).not.toContain('No saves yet.');
+    // save a new slot: the damaged one is still there, on screen and in storage
+    stage.querySelector<HTMLFormElement>('.rl-saves__form')!.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    expect(stage.querySelectorAll('.rl-saves__row')).toHaveLength(2);
+    expect(stage.querySelector('.rl-saves__row--damaged')).not.toBeNull();
+    expect(store.readSlotsRaw()).toContain('"bad"');
+    // export hands over the kept text
+    const exported: string[] = [];
+    stage.remove();
+    const stage2 = document.createElement('div');
+    document.body.appendChild(stage2);
+    showSaves(stage2, deps(store, { download: (_n, json) => exported.push(json) }));
+    const damaged = stage2.querySelector('.rl-saves__row--damaged')!;
+    [...damaged.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'Export')!.click();
+    expect(JSON.parse(exported[0] ?? 'null')).toEqual({ version: 1, id: 'bad', ledger: 3 });
+    // delete asks first, then removes only the damaged entry
+    [...damaged.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'Delete')!.click();
+    document.querySelector<HTMLElement>('.rl-confirm')!.querySelector<HTMLButtonElement>('.rl-confirm__yes')!.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(stage2.querySelector('.rl-saves__row--damaged')).toBeNull();
+    expect(stage2.querySelectorAll('.rl-saves__row')).toHaveLength(1);
+    stage2.remove();
+  });
 });

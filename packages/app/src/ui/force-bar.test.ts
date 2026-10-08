@@ -145,6 +145,35 @@ describe('forceBar (GH-417, H2)', () => {
     expect(deploy.disabled).toBe(true);
   });
 
+  // K-11. Falsified: deployLockReason returning null -> the title and the line go.
+  it('a locked Deploy says why, in a line and on the button, and says nothing when it may go', () => {
+    const { el, deploy } = mount();
+    const why = el.querySelector<HTMLElement>('.rl-force__why');
+    expect(why?.hidden).toBe(true);
+    expect(deploy.hasAttribute('title')).toBe(false);
+    el.querySelector<HTMLButtonElement>('[data-place="inf_squad:0"]')?.click();
+    [...el.querySelectorAll<HTMLButtonElement>('.rl-force__bench-row')].find((r) => r.textContent?.includes('Gefen'))?.click();
+    expect(deploy.disabled).toBe(true);
+    expect(why?.hidden).toBe(false);
+    expect(why?.textContent).toBe('Deploy is locked: choose 1 more unit for the force first.');
+    expect(deploy.title).toBe(why?.textContent);
+    expect(deploy.getAttribute('aria-describedby')).toBe(why?.id);
+    // fill the place again: the reason goes with the lock
+    el.querySelector<HTMLButtonElement>('.rl-force__slot--open')?.click();
+    [...el.querySelectorAll<HTMLButtonElement>('.rl-force__bench-row')].find((r) => r.textContent?.includes('Gefen'))?.click();
+    expect(deploy.disabled).toBe(false);
+    expect(why?.hidden).toBe(true);
+    expect(deploy.hasAttribute('title')).toBe(false);
+  });
+
+  it('a body that cannot be picked, and a place with no choice, each say why', () => {
+    const { el } = mount();
+    expect(el.querySelector('.rl-force__slot[data-type="at_team"]')?.getAttribute('title')).toBe('No one else of this type is available to swap in.');
+    el.querySelector<HTMLButtonElement>('[data-place="inf_squad:0"]')?.click();
+    const tzur = [...el.querySelectorAll<HTMLButtonElement>('.rl-force__bench-row')].find((r) => r.textContent?.includes('Tzur'));
+    expect(tzur?.title).toBe('Already going from another place. Open that place to swap them.');
+  });
+
   it('Escape closes the bench and stops there', () => {
     const { el } = mount();
     let reachedWindow = 0;

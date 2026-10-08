@@ -81,30 +81,52 @@ export function writeActive(store: LedgerStore, s: ActiveState): void {
   store.setTutorialDone(s.tutorialDone);
 }
 
-function readAll(store: LedgerStore): Record<string, SaveSlot> {
-  try {
-    const v: unknown = JSON.parse(store.readSlotsRaw() ?? '{}');
-    if (!isRecord(v)) return {};
-    const out: Record<string, SaveSlot> = {};
-    for (const [id, raw] of Object.entries(v)) {
-      try {
-        out[id] = importSlot(JSON.stringify(raw));
-      } catch {
-        // a damaged slot is skipped, never allowed to hide its neighbours
-      }
-    }
-    return out;
-  } catch {
-    return {};
-  }
+/**
+ * The id a whole-blob failure is filed under. When `lions.saves` itself does
+ * not parse (a truncated write, a hand edit), its raw TEXT is kept as one
+ * damaged entry rather than dropped: the next save would otherwise replace the
+ * unreadable blob with a fresh one and the old text would be gone for good.
+ */
+export const DAMAGED_BLOB_ID = 'damaged:blob';
+
+interface SlotTable {
+  /** Slots that parsed and validated. */
+  slots: Record<string, SaveSlot>;
+  /** Everything else, verbatim: each value is what the blob held under that id
+   *  (or, for `DAMAGED_BLOB_ID`, the blob's raw text). Written back untouched
+   *  by `writeAll`, so no save or delete can drop it (K-12). */
+  damaged: Record<string, unknown>;
 }
 
-function writeAll(store: LedgerStore, all: Record<string, SaveSlot>): void {
-  store.writeSlotsRaw(JSON.stringify(all));
+function readAll(store: LedgerStore): SlotTable {
+  const text = store.readSlotsRaw();
+  if (text === null) return { slots: {}, damaged: {} };
+  let v: unknown;
+  try {
+    v = JSON.parse(text);
+  } catch {
+    return { slots: {}, damaged: { [DAMAGED_BLOB_ID]: text } };
+  }
+  if (!isRecord(v)) return { slots: {}, damaged: { [DAMAGED_BLOB_ID]: text } };
+  const slots: Record<string, SaveSlot> = {};
+  const damaged: Record<string, unknown> = {};
+  for (const [id, raw] of Object.entries(v)) {
+    try {
+      slots[id] = importSlot(JSON.stringify(raw));
+    } catch {
+      // A damaged slot never hides its neighbours, and is never dropped.
+      damaged[id] = raw;
+    }
+  }
+  return { slots, damaged };
+}
+
+function writeAll(store: LedgerStore, table: SlotTable): void {
+  store.writeSlotsRaw(JSON.stringify({ ...table.damaged, ...table.slots }));
 }
 
 export function listSlots(store: LedgerStore): SlotMeta[] {
-  return Object.values(readAll(store))
+  return Object.values(readAll(store).slots)
     .sort((a, b) => b.savedAt - a.savedAt)
     .map((s) => ({
       id: s.id, name: s.name, savedAt: s.savedAt, build: s.build,
@@ -113,22 +135,42 @@ export function listSlots(store: LedgerStore): SlotMeta[] {
     }));
 }
 
+/** A slot that is stored but cannot be read. `bytes` is the length of what is
+ *  kept, so the screen can say how much there is to recover. */
+export interface DamagedMeta { id: string; bytes: number }
+
+export function listDamaged(store: LedgerStore): DamagedMeta[] {
+  return Object.entries(readAll(store).damaged).map(([id, raw]) => ({ id, bytes: damagedText(raw).length }));
+}
+
+function damagedText(raw: unknown): string {
+  return typeof raw === 'string' ? raw : JSON.stringify(raw) ?? '';
+}
+
+/** The kept text of a damaged slot, for export; null when no such entry. */
+export function damagedRaw(store: LedgerStore, id: string): string | null {
+  const table = readAll(store);
+  return id in table.damaged ? damagedText(table.damaged[id]) : null;
+}
+
 export function saveSlot(store: LedgerStore, id: string, name: string, s: ActiveState, build: string, now: number): SaveSlot {
   const slot: SaveSlot = { version: SAVE_VERSION, id, name, savedAt: now, build, ledger: s.ledger, account: s.account, tutorialDone: s.tutorialDone };
   const all = readAll(store);
-  all[id] = slot;
+  all.slots[id] = slot;
   writeAll(store, all);
   return slot;
 }
 
 export function loadSlot(store: LedgerStore, id: string): SaveSlot | null {
-  return readAll(store)[id] ?? null;
+  return readAll(store).slots[id] ?? null;
 }
 
+/** Remove a slot, or a damaged entry (the only way one is ever discarded). */
 export function deleteSlot(store: LedgerStore, id: string): void {
   const all = readAll(store);
-  if (!(id in all)) return;
-  delete all[id];
+  if (id in all.slots) delete all.slots[id];
+  else if (id in all.damaged) delete all.damaged[id];
+  else return;
   writeAll(store, all);
 }
 

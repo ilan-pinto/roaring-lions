@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
-import { bootFailureCard, bootFailureKind, guardBoot, mountErrorCard, type BootFailureKind } from './boot-failure';
+import { bootFailureCard, bootFailureKind, guardBoot, mountErrorCard, mountInterrupted, watchContextLoss, type BootFailureKind } from './boot-failure';
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -39,7 +39,7 @@ describe('bootFailureKind', () => {
 const DEBUG = /error:|\bat\s+\S+:\d|https?:\/\/|\.glb|\.js\b|webgl|context|stack|console|undefined|null/i;
 
 describe('bootFailureCard', () => {
-  const kinds: BootFailureKind[] = ['graphics', 'download', 'unknown'];
+  const kinds: BootFailureKind[] = ['graphics', 'download', 'unknown', 'interrupted'];
   it.each(kinds)('%s: says what happened, why, and what next, in plain words', (kind) => {
     const card = bootFailureCard(kind);
     for (const s of [card.title, card.body, card.next]) {
@@ -52,6 +52,7 @@ describe('bootFailureCard', () => {
     expect(bootFailureCard('graphics').reload).toBe(false);
     expect(bootFailureCard('download').reload).toBe(true);
     expect(bootFailureCard('unknown').reload).toBe(true);
+    expect(bootFailureCard('interrupted').reload).toBe(true);
   });
 });
 
@@ -110,5 +111,43 @@ describe('guardBoot', () => {
     const failed: unknown[] = [];
     await expect(guardBoot(host, abort.signal, (e) => failed.push(e), Promise.reject(noContext))).rejects.toBe(noContext);
     expect(failed).toEqual([]);
+  });
+});
+
+// K-16.
+describe('watchContextLoss', () => {
+  const lose = (c: HTMLCanvasElement): void => void c.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
+  // Falsified: the canvas listener never added -> the first expectation is red.
+  it('calls back once when the canvas reports its context lost, however often it says so', () => {
+    const canvas = document.createElement('canvas');
+    let lost = 0;
+    watchContextLoss(canvas, () => lost++);
+    lose(canvas);
+    lose(canvas);
+    expect(lost).toBe(1);
+  });
+  // Falsified: the returned remover made a no-op -> this is red.
+  it('stops listening once the screen has taken it off, so its own teardown is not a loss', () => {
+    const canvas = document.createElement('canvas');
+    let lost = 0;
+    const off = watchContextLoss(canvas, () => lost++);
+    off();
+    lose(canvas);
+    expect(lost).toBe(0);
+  });
+});
+
+describe('mountInterrupted', () => {
+  it('lays the card over the mission with Reload and the way home, in plain words', () => {
+    let reloaded = 0;
+    const scrim = mountInterrupted(document.body, '/', () => reloaded++);
+    expect(scrim.parentElement).toBe(document.body);
+    expect(scrim.querySelector('[role="alert"]')).not.toBeNull();
+    expect(scrim.querySelector('.rl-boot-error__title')?.textContent).toBe('The picture stopped');
+    expect(scrim.querySelector<HTMLAnchorElement>('.rl-boot-error__home')?.getAttribute('href')).toBe('/');
+    scrim.querySelector<HTMLButtonElement>('.rl-boot-error__reload')?.click();
+    expect(reloaded).toBe(1);
+    scrim.remove();
+    expect(document.body.querySelector('.rl-boot-scrim')).toBeNull();
   });
 });

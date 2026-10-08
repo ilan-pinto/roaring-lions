@@ -5,6 +5,7 @@
  * require its fallback constant to be the inverted entry of its own key. A
  * constant that goes back to a literal keeps its old hex and fails here.
  */
+import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import realPalette from '../../../../data/palette.json';
 import { paletteHex } from './palette-hex';
@@ -48,7 +49,6 @@ describe('render fallbacks follow a palette revision', () => {
     ['./smoke-mesh', 'SMOKE_COLOR', 'gunmetal.0'],
     ['./units/overlays', 'WORLD_HALO_FALLBACK', 'shadow.1'],
     ['./units/overlays', 'OBJECTIVE_ZONE_HALO_FALLBACK', 'shadow.1'],
-    ['./units/overlays', 'FIREPOWER_KILL_FALLBACK_COLOR', 'terracotta.2'],
     ['./units/overlays', 'CHARGE_RING_FILL_FALLBACK_COLOR', 'vfx.ember'],
     ['./units/overlays', 'REFUGE_RING_FALLBACK_COLOR', 'scrub.0'],
     ['./units/overlays', 'REFUGE_RING_EDGE_FALLBACK_COLOR', 'shadow.1'],
@@ -77,5 +77,37 @@ describe('render fallbacks follow a palette revision', () => {
     expect(ov.objectiveZoneFallbackColor('contested')).toBe(invert(paletteHex('team.hostile')));
     expect(ov.objectiveZoneFallbackColor('unheld')).toBe(invert(paletteHex('team.neutral')));
     expect(ov.objectiveZoneFallbackColor('held')).toBe(invert(paletteHex('vfx.tracer')));
+  });
+
+  it('ThreeRenderer: the no-resolver default and the run-time-key fallbacks follow too', async () => {
+    vi.resetModules();
+    vi.doMock('../../../../data/palette.json', () => ({ default: invertTree(realPalette) }));
+    const tr = await import('./ThreeRenderer');
+    const overlayColor = (tr.ThreeRenderer.prototype as unknown as { overlayColor(this: unknown, key: string, fallback?: string): string }).overlayColor;
+    const noResolver = { opts: {} };
+    // One key per band the renderer asks overlayColor about.
+    for (const key of ['shadow.0', 'limestone.1', 'limestone.2', 'dust.1', 'dust.5', 'vfx.fire', 'vfx.tracer', 'team.hostile', 'gunmetal.2']) {
+      expect(overlayColor.call(noResolver, key), key).toBe(invert(paletteHex(key)));
+    }
+    // A resolver, when the app supplies one, still wins over any fallback.
+    expect(overlayColor.call({ opts: { resolveColor: () => '#123456' } }, 'shadow.0')).toBe('#123456');
+    expect(tr.FLASH_LIGHT_FALLBACK).toBe(invert(paletteHex('vfx.fire')));
+    expect(tr.HP_BAR_FALLBACK).toBe(invert(paletteHex('scrub.0')));
+    expect(tr.BUILDING_BAR_FALLBACK).toBe(invert(paletteHex('gunmetal.1')));
+  });
+});
+
+describe('ThreeRenderer.ts restates no palette hex (VR-08)', () => {
+  // Comments quote Pixi's literals on purpose; only code counts.
+  const code = readFileSync(new URL('./ThreeRenderer.ts', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+  const literals = [...code.matchAll(/['"`]#[0-9A-Fa-f]{3,8}['"`]/g)].map((m) => m[0].slice(1, -1).toUpperCase());
+
+  it('the only hex literal left is one that is not a palette entry', () => {
+    // '#6B6355' is the muzzle-smoke puff's own flat colour (spawnFlatFx): no palette entry holds it.
+    expect(literals).toEqual(['#6B6355']);
+    const palette = JSON.stringify(realPalette).toUpperCase();
+    expect(palette.includes('#6B6355'), 'if the palette gains #6B6355, route it through paletteHex and drop this allowance').toBe(false);
   });
 });

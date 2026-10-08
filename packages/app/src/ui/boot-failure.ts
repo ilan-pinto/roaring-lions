@@ -15,10 +15,13 @@
 //                three's FileLoader, a failed fetch, a dynamic import that
 //                did not load).
 //   unknown   -- anything else.
+//   interrupted -- the picture stopped mid-mission: the browser took the
+//                graphics context away (K-16). Chosen by the caller that heard
+//                it, never inferred from an error.
 import { t } from '../i18n/t';
 import { symbolLabel } from './symbol';
 
-export type BootFailureKind = 'graphics' | 'download' | 'unknown';
+export type BootFailureKind = 'graphics' | 'download' | 'unknown' | 'interrupted';
 
 /** The text of an error, its name included -- three's `HttpError` carries its
  *  class only in `name`. Never shown to the player. */
@@ -129,4 +132,37 @@ export async function guardBoot(
     fail(err);
     return () => host.replaceChildren();
   }
+}
+
+/**
+ * K-16: the browser can take the graphics context away mid-mission (a GPU
+ * reset, memory pressure, a driver crash). The canvas then goes black and
+ * stays black, and nothing said so. `onLost` runs once, the first time the
+ * canvas reports it; the returned function takes the listener off again and
+ * is the screen's to call from its disposer, so a mission left normally never
+ * hears the context its own teardown releases.
+ */
+export function watchContextLoss(canvas: HTMLCanvasElement, onLost: () => void): () => void {
+  let fired = false;
+  const listener = (): void => {
+    if (fired) return;
+    fired = true;
+    onLost();
+  };
+  canvas.addEventListener('webglcontextlost', listener);
+  return () => canvas.removeEventListener('webglcontextlost', listener);
+}
+
+/**
+ * The "interrupted" card laid over a running mission: a scrim on the body (the
+ * HUD lives there, outside the router's stage), the same card as any boot
+ * failure, with Reload and the main menu. Returns the scrim, which the
+ * mission's disposer removes.
+ */
+export function mountInterrupted(host: HTMLElement, home: string, reload?: () => void): HTMLElement {
+  const scrim = document.createElement('div');
+  scrim.className = 'rl-boot-scrim';
+  mountErrorCard(scrim, bootFailureCard('interrupted'), home, reload);
+  host.appendChild(scrim);
+  return scrim;
 }

@@ -230,6 +230,8 @@ export function cursorFor(res: Resolution, hints: CursorHints): CursorName {
   // the empty-intents rung below, or the refusal reads as "nothing selected"
   // and the X never appears for the one case it exists to warn about.
   if (res.refused) return 'protected';
+  // K-08: ground nobody selected can enter reads `blocked`, rock or map edge.
+  if (res.groundRefused) return 'blocked';
   // Nothing selected means nothing will happen. Warning about rules of
   // engagement over a click that cannot fire would be a lie.
   if (res.intents.length === 0) return 'default';

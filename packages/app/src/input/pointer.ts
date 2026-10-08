@@ -42,6 +42,13 @@ export function simIntentWorld(sim: Sim, inFlaggedZone: (x: number, y: number) =
     canGarrison: (i) => sim.unitTypes[sim.state.typeIdx[i]].canGarrison,
     canTunnelCharge: (i) => sim.unitTypes[sim.state.typeIdx[i]].canTunnelCharge,
     inFlaggedZone,
+    groundAt: (x, y) => {
+      const tx = Math.floor(x);
+      const ty = Math.floor(y);
+      if (tx < 0 || ty < 0 || tx >= sim.width || ty >= sim.height) return 'offmap';
+      return sim.blocked[ty * sim.width + tx] !== 0 ? 'blocked' : 'open';
+    },
+    flies: (i) => sim.unitTypes[sim.state.typeIdx[i]].isAir,
   };
 }
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ACCOUNT_KEY, emptyAccount } from './brigade-account';
 import { LEDGER_KEY, TUTORIAL_DONE_KEY } from './main-keys';
 import { memoryLedgerStore } from './ledger-store';
-import { SAVES_KEY, SAVE_ERROR_NOT_A_SAVE, deleteSlot, exportSlot, importSlot, listSlots, loadSlot, readActive, saveSlot, writeActive } from './profile';
+import { DAMAGED_BLOB_ID, SAVES_KEY, SAVE_ERROR_NOT_A_SAVE, damagedRaw, deleteSlot, exportSlot, importSlot, listDamaged, listSlots, loadSlot, readActive, saveSlot, writeActive } from './profile';
 
 // The `Map`-backed `StorageLike` fake this file used to carry is now
 // `memoryLedgerStore()` (`ledger-store.ts`), which runs the SAME
@@ -89,5 +89,44 @@ describe('profile slots', () => {
     s.map.set(SAVES_KEY, '{');
     expect(listSlots(s)).toEqual([]);
     expect(() => deleteSlot(s, 'nope')).not.toThrow();
+  });
+
+  // K-12: a damaged slot used to be deleted for good by the next save or delete,
+  // because both rewrote only the slots that parsed.
+  it('a corrupt slot survives a new save, verbatim, and the good slots stay', () => {
+    const s = memStore();
+    saveSlot(s, 'good', 'Good', { ledger, account, tutorialDone: true }, '0.68.0', 1);
+    const blob = JSON.parse(s.map.get(SAVES_KEY) ?? '{}') as Record<string, unknown>;
+    const broken = { version: 1, id: 'bad', name: 'Broken', ledger: 'not a ledger', extra: [1, 2, 3] };
+    blob.bad = broken;
+    s.map.set(SAVES_KEY, JSON.stringify(blob));
+    expect(listDamaged(s).map((d) => d.id)).toEqual(['bad']);
+    saveSlot(s, 'new', 'New', { ledger, account, tutorialDone: false }, '0.68.0', 2);
+    expect(JSON.parse(damagedRaw(s, 'bad') ?? 'null')).toEqual(broken);
+    expect(listSlots(s).map((m) => m.id)).toEqual(['new', 'good']);
+    // and a delete of a neighbour keeps it too
+    deleteSlot(s, 'good');
+    expect(listDamaged(s).map((d) => d.id)).toEqual(['bad']);
+    // only an explicit delete of the damaged id discards it
+    deleteSlot(s, 'bad');
+    expect(listDamaged(s)).toEqual([]);
+    expect(listSlots(s).map((m) => m.id)).toEqual(['new']);
+  });
+  it('an unparseable slot blob is kept as raw text across a new save', () => {
+    const s = memStore();
+    s.map.set(SAVES_KEY, '{"a": {"version": 1, "na');
+    saveSlot(s, 'n', 'N', { ledger, account, tutorialDone: false }, '0.68.0', 1);
+    expect(listSlots(s).map((m) => m.id)).toEqual(['n']);
+    expect(listDamaged(s).map((d) => d.id)).toEqual([DAMAGED_BLOB_ID]);
+    expect(damagedRaw(s, DAMAGED_BLOB_ID)).toBe('{"a": {"version": 1, "na');
+    // it stays recoverable through further saves
+    saveSlot(s, 'm', 'M', { ledger, account, tutorialDone: false }, '0.68.0', 2);
+    expect(damagedRaw(s, DAMAGED_BLOB_ID)).toBe('{"a": {"version": 1, "na');
+  });
+  it('a blob that parses to a non-object is kept too', () => {
+    const s = memStore();
+    s.map.set(SAVES_KEY, '[1,2]');
+    saveSlot(s, 'n', 'N', { ledger, account, tutorialDone: false }, '0.68.0', 1);
+    expect(damagedRaw(s, DAMAGED_BLOB_ID)).toBe('[1,2]');
   });
 });

@@ -294,28 +294,6 @@ export function queuedRouteLegs(
 export const MOBILITY_KILL_COLOR_KEY = 'gunmetal.1';
 
 /**
- * Palette key for the firepower-kill pip -- Pixi's own `#8B1E12`
- * (`renderer.ts`'s `if (st.firepowerKilled[i] === 1) g.circle(...).fill(
- * '#8B1E12')`). Unlike every other colour ported from this file's list,
- * `#8B1E12` is not IN `data/palette.json` at all -- checked by squared RGB
- * distance against all 58 entries, not by eye. `terracotta.2` (`#7A3B24`) is
- * the nearest at a distance of ~38 (`team.hostile`, the next closest
- * plausible "kill/damage" red, is ~87 away). This is Pixi's own pre-existing
- * gap, not introduced here -- `renderer.ts` is not subject to `validate:ui`
- * (that gate's own scope comment excludes the renderer package entirely) or
- * to `validate:assets` (that gate walks rendered sprites, not overlay
- * literals) -- so it was never caught. Recorded here rather than silently
- * matched, because "closest" is an approximation, not the palette-exactness
- * this backend's colour pipeline otherwise guarantees everywhere else. */
-export const FIREPOWER_KILL_COLOR_KEY = 'terracotta.2';
-/** `overlayColor(FIREPOWER_KILL_COLOR_KEY, ...)`'s fallback when no
- *  `resolveColor` is supplied -- `terracotta.2`'s own real value, NOT
- *  Pixi's `#8B1E12` (which is not a resolvable key), so a caller with no
- *  resolver still gets a genuine palette colour rather than reintroducing
- *  the off-palette literal through the back door. */
-export const FIREPOWER_KILL_FALLBACK_COLOR = paletteHex('terracotta.2');
-
-/**
  * Palette key for a building's integrity-bar FILL at a given HP ratio --
  * Pixi's own `ratio > 0.6 ? '#8E9491' : ratio > 0.3 ? '#E8C33A' : '#D93A2B'`
  * (`renderer.ts`'s building-status block), three EXACT matches:
@@ -335,7 +313,7 @@ export function buildingIntegrityColorKey(ratio: number): string {
  *  Pixi's own `this.opts.resolveColor ? this.opts.resolveColor('gunmetal.2')
  *  : '#5C625F'` (`renderer.ts`'s charge-ring block) -- already resolved
  *  THROUGH a palette key on the Pixi side, so this is a direct port, not a
- *  derivation like `FIREPOWER_KILL_COLOR_KEY` above. */
+ *  derivation. */
 export const CHARGE_RING_TRACK_COLOR_KEY = 'gunmetal.2';
 /** Palette key for the progress ring's FILL -- Pixi's own
  *  `this.opts.resolveColor('vfx.ember')` fallback `'#E8541E'`, same block. */
