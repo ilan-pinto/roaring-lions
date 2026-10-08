@@ -137,7 +137,7 @@ import { showKeysOverlay } from './ui/keys-overlay';
 import { groupBar, groupChips } from './ui/group-bar';
 import { isIdle, nextIdle, type IdleFacts } from './ui/idle';
 import { escapeHtml } from './ui/escape-html';
-import { bootFailureCard, bootFailureKind, guardBoot, mountErrorCard } from './ui/boot-failure';
+import { bootFailureCard, bootFailureKind, guardBoot, mountErrorCard, mountInterrupted, watchContextLoss } from './ui/boot-failure';
 import { webgl2Available } from './ui/webgl-probe';
 import { alertNotice, evacuatedNotice, reinforceTrigger, removedNotice, ledgerSavedNotice, triggerLabel, unknownSandboxMapNotice } from './ui/mission-notice';
 import { ReinforcementDock } from './ui/production';
@@ -3124,6 +3124,24 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
 
   // --- input ---------------------------------------------------------------
   const canvas = renderer.canvas;
+  // K-16: a lost graphics context used to leave a silent black canvas. Hold the
+  // battle (nothing is drawn, so nothing should play out unseen) and put the
+  // boot-failure card over it with Reload and the main menu. The listener comes
+  // off in this screen's own disposer, which also runs before the renderer's
+  // teardown releases the context on purpose -- that release must not read as
+  // a loss.
+  let contextCard: HTMLElement | null = null;
+  const unwatchContext = watchContextLoss(canvas, () => {
+    if (disposed) return;
+    console.error('[lions] the graphics context was lost mid-mission');
+    gameSpeed = 0;
+    contextCard = mountInterrupted(document.body, routes.menu());
+  });
+  onDispose(() => {
+    unwatchContext();
+    contextCard?.remove();
+    contextCard = null;
+  });
   // Left drag = box select; a short click = single select.
   const dragBox = document.createElement('div');
   dragBox.className = 'rl-marquee';

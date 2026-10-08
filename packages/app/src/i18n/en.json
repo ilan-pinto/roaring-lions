@@ -20,6 +20,9 @@
   "boot.failed.unknown.title": "Something went wrong",
   "boot.failed.unknown.body": "The game hit a problem it did not expect and could not open this screen.",
   "boot.failed.unknown.next": "Reload to try again. Your campaign is kept on this device and is not affected.",
+  "boot.failed.interrupted.title": "The picture stopped",
+  "boot.failed.interrupted.body": "The browser took the game's graphics away, which can happen when the graphics card resets or the computer runs short of memory. The battle is on hold and cannot be drawn.",
+  "boot.failed.interrupted.next": "Reload to start this mission again. This attempt is lost, and your campaign is kept on this device.",
   "boot.failed.reload": "Reload",
 
   "settings.title": "Settings",
