@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { palette, paletteColor } from '@lions/data';
+import { ORDER_GROUND_COLOR_KEY } from '@lions/render';
 import { CHEVRON_SWEEP } from './mark';
-import { ORDER_SIGHT, SIGHT_KEYS, aimBody, sightFrame, surroundBody, type SightOrderId, type SightPaint } from './order-sight';
+import { ORDER_FAMILY_COLOR_KEY, ORDER_SIGHT, SIGHT_KEYS, aimBody, sightFrame, surroundBody, type SightOrderId, type SightPaint } from './order-sight';
 
 const IDS = Object.keys(ORDER_SIGHT) as SightOrderId[];
 const PAINT: SightPaint = { aim: '#aim', main: '#main', accent: '#acc', hot: '#hot' }; // sentinels, test-only
@@ -46,14 +47,14 @@ describe('the order sight (G1 r5, approved 2026-09-28)', () => {
     }
   });
 
-  it("carries r5 NOTES.md's family table exactly", () => {
-    expect(ORDER_SIGHT.move).toMatchObject({ family: 'manoeuvre', main: 'vfx.interceptor', accent: 'vfx.white_hot' });
+  it("carries r5 NOTES.md's family table, with manoeuvre lime since VR-33", () => {
+    expect(ORDER_SIGHT.move).toMatchObject({ family: 'manoeuvre', main: 'vfx.tracer', accent: 'vfx.white_hot' });
     expect(ORDER_SIGHT.attackMove).toMatchObject({ family: 'offensive', main: 'team.hostile_text', accent: 'vfx.fire' });
     expect(ORDER_SIGHT.halt).toMatchObject({ family: 'control', main: 'team.neutral', accent: 'vfx.white_hot' });
     expect(ORDER_SIGHT.smoke).toMatchObject({ family: 'obscurant', main: 'limestone.0', accent: 'gunmetal.1' });
     expect(ORDER_SIGHT.load).toMatchObject({ family: 'transport', main: 'vfx.tracer', accent: 'limestone.1' });
     expect(ORDER_SIGHT.unload).toMatchObject({ family: 'transport', main: 'vfx.tracer', accent: 'limestone.1' });
-    expect(ORDER_SIGHT.sweep).toMatchObject({ family: 'manoeuvre', main: 'vfx.interceptor', accent: 'water.0' });
+    expect(ORDER_SIGHT.sweep).toMatchObject({ family: 'manoeuvre', main: 'vfx.tracer', accent: 'water.0' });
     expect(ORDER_SIGHT.strike).toMatchObject({ family: 'offensive', main: 'team.hostile_text', accent: 'vfx.fire' });
     expect(SIGHT_KEYS).toEqual({ aim: 'gunmetal.0', halo: 'shadow.0', hot: 'vfx.white_hot' });
   });
@@ -129,5 +130,31 @@ describe('the order sight (G1 r5, approved 2026-09-28)', () => {
     const opacities = [...near08.matchAll(/opacity="([\d.]+)"/g)].map((m) => Number(m[1]));
     expect(opacities.length).toBeGreaterThan(0);
     expect(Math.min(...opacities)).toBeGreaterThanOrEqual(0.74);
+  });
+});
+
+/**
+ * VR-33 (the lead's "lime everywhere" ruling): the move cursor and the route
+ * and marker a move order leaves on the ground are one colour. The ground
+ * key is the renderer's own (`ORDER_GROUND_COLOR_KEY`, what `ThreeRenderer`
+ * draws every route and marker in), so this compares two independent
+ * sources rather than one table with itself.
+ *
+ * Falsified: `ORDER_FAMILY_COLOR_KEY.manoeuvre` back to `'vfx.interceptor'`
+ * reddens the first spec; `ORDER_GROUND_COLOR_KEY` set to
+ * `'vfx.interceptor'` reddens both.
+ */
+describe('the move cursor wears the ground colour of its route (VR-33)', () => {
+  it('move and sweep (manoeuvre) are drawn in the ground key', () => {
+    expect(ORDER_FAMILY_COLOR_KEY.manoeuvre).toBe(ORDER_GROUND_COLOR_KEY);
+    expect(ORDER_SIGHT.move.main).toBe(ORDER_GROUND_COLOR_KEY);
+  });
+
+  it('the ground key is tracer lime, the colour routes always had', () => {
+    expect(ORDER_GROUND_COLOR_KEY).toBe('vfx.tracer');
+  });
+
+  it("every sight is drawn in its family's entry", () => {
+    for (const id of IDS) expect({ id, key: ORDER_SIGHT[id].main }).toEqual({ id, key: ORDER_FAMILY_COLOR_KEY[ORDER_SIGHT[id].family] });
   });
 });

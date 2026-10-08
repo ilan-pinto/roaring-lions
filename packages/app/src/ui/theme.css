@@ -204,7 +204,7 @@
      below); the label beside it stays in ink. Offensive and control ride the
      two tokens the colour-vision blocks below already re-point, so they
      follow a CVD choice with no rule of their own. */
-  --order-manoeuvre: var(--rl-vfx-interceptor);
+  --order-manoeuvre: var(--rl-vfx-tracer); /* lime since VR-33, as the move cursor */
   --order-offensive: var(--bad-text);
   --order-control: var(--warn);
   --order-obscurant: var(--rl-limestone-0);

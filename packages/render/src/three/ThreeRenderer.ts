@@ -451,6 +451,7 @@ import { SmokeMesh } from './smoke-mesh';
 import { perTileRunYaw } from './units/run-direction';
 import { drawBlockedMask } from './terrain/draw-mask';
 import { TrailMesh, collapsedRouteLevel, type TrailInstanceInput } from './trail-mesh';
+import { ORDER_GROUND_COLOR_KEY } from '../order-ground';
 import { TunnelProps, type TunnelPropsInput, type TunnelRouteView } from './tunnel-props';
 import {
   trackKindFor,
@@ -8595,7 +8596,9 @@ export class ThreeRenderer implements Renderer {
     // `posX` at the last tick (its `curX`-derived `px`/`py` are dead code,
     // `void`ed) -- a 20 Hz tail on a 60 fps sprite.
     if (this.selection.length > 0) {
-      const routeColor = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY);
+      // Every order's route wears the one ground key (VR-33), the key the
+      // move cursor is drawn in too.
+      const routeColor = this.overlayColor(ORDER_GROUND_COLOR_KEY);
       const unitRoutes: UnitRoute[] = [];
       for (const i of this.selection) {
         if (i >= n || st.alive[i] === 0 || st.moving[i] === 0) continue;
@@ -8645,7 +8648,7 @@ export class ThreeRenderer implements Renderer {
     this.orderMarkers = this.orderMarkers.filter((m) => --m.ttl > 0);
     census.orderMarkers = this.orderMarkers.length;
     if (this.orderMarkers.length > 0) {
-      const markerColor = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY);
+      const markerColor = this.overlayColor(ORDER_GROUND_COLOR_KEY);
       for (const m of this.orderMarkers) {
         const groundYm = groundWorldY(elevation, width, height, m.x, m.y);
         const manchor: [number, number, number] = [m.x, groundYm, m.y];

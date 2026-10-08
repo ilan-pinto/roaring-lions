@@ -82,6 +82,25 @@ function headR(x: number, cy: number, h: number): P[] {
 export type SightOrderId = 'move' | 'attackMove' | 'halt' | 'smoke' | 'load' | 'unload' | 'sweep' | 'strike';
 export type OrderFamily = 'manoeuvre' | 'offensive' | 'control' | 'obscurant' | 'transport';
 
+/**
+ * Each order family's own cursor colour, as a `data/palette.json` KEY -- the
+ * one table `ORDER_SIGHT`'s `main` is drawn from. Round 5's approved family
+ * colours, with one change (VR-33, the lead's "lime everywhere" ruling on
+ * PR 457): manoeuvre is tracer lime, not `vfx.interceptor` cyan, so the move
+ * cursor wears the colour of the route and marker it leaves on the ground
+ * (`@lions/render`'s `ORDER_GROUND_COLOR_KEY`, lime for every order -- cyan
+ * and red were tried on the ground and read too faint on sand).
+ * `order-sight.test.ts` holds manoeuvre equal to the ground key. Sweep shares
+ * the family, so its cursor is lime too; transport was already lime.
+ */
+export const ORDER_FAMILY_COLOR_KEY: Readonly<Record<OrderFamily, string>> = {
+  manoeuvre: 'vfx.tracer',
+  offensive: 'team.hostile_text',
+  control: 'team.neutral',
+  obscurant: 'limestone.0',
+  transport: 'vfx.tracer',
+};
+
 export interface OrderSightSpec {
   readonly family: OrderFamily;
   readonly main: string;
@@ -136,14 +155,14 @@ const HALT_PHASES: readonly number[] = Object.freeze([0.4, 0.85, 0.95, 0.05, 0.1
 // same lightness (the oval is a pale container outline, so it keeps its value
 // and loses only the green cast); it sits beside obscurant's `limestone.0`.
 export const ORDER_SIGHT: Readonly<Record<SightOrderId, OrderSightSpec>> = {
-  move: { family: 'manoeuvre', main: 'vfx.interceptor', accent: 'vfx.white_hot', periodMs: 1200, phases: phasesFrom(0.7, 4) },
-  attackMove: { family: 'offensive', main: 'team.hostile_text', accent: 'vfx.fire', periodMs: 900, phases: phasesFrom(0.5, 4) },
-  halt: { family: 'control', main: 'team.neutral', accent: 'vfx.white_hot', periodMs: 1300, phases: HALT_PHASES },
-  smoke: { family: 'obscurant', main: 'limestone.0', accent: 'gunmetal.1', periodMs: 1600, phases: phasesFrom(0.6, 4) },
-  load: { family: 'transport', main: 'vfx.tracer', accent: 'limestone.1', periodMs: 1100, phases: phasesFrom(0.5, 4) },
-  unload: { family: 'transport', main: 'vfx.tracer', accent: 'limestone.1', periodMs: 1100, phases: phasesFrom(0.5, 4) },
-  sweep: { family: 'manoeuvre', main: 'vfx.interceptor', accent: 'water.0', periodMs: 1800, phases: phasesFrom(0.5, 4) },
-  strike: { family: 'offensive', main: 'team.hostile_text', accent: 'vfx.fire', periodMs: 1600, phases: phasesFrom(0.5, 6) },
+  move: { family: 'manoeuvre', main: ORDER_FAMILY_COLOR_KEY.manoeuvre, accent: 'vfx.white_hot', periodMs: 1200, phases: phasesFrom(0.7, 4) },
+  attackMove: { family: 'offensive', main: ORDER_FAMILY_COLOR_KEY.offensive, accent: 'vfx.fire', periodMs: 900, phases: phasesFrom(0.5, 4) },
+  halt: { family: 'control', main: ORDER_FAMILY_COLOR_KEY.control, accent: 'vfx.white_hot', periodMs: 1300, phases: HALT_PHASES },
+  smoke: { family: 'obscurant', main: ORDER_FAMILY_COLOR_KEY.obscurant, accent: 'gunmetal.1', periodMs: 1600, phases: phasesFrom(0.6, 4) },
+  load: { family: 'transport', main: ORDER_FAMILY_COLOR_KEY.transport, accent: 'limestone.1', periodMs: 1100, phases: phasesFrom(0.5, 4) },
+  unload: { family: 'transport', main: ORDER_FAMILY_COLOR_KEY.transport, accent: 'limestone.1', periodMs: 1100, phases: phasesFrom(0.5, 4) },
+  sweep: { family: 'manoeuvre', main: ORDER_FAMILY_COLOR_KEY.manoeuvre, accent: 'water.0', periodMs: 1800, phases: phasesFrom(0.5, 4) },
+  strike: { family: 'offensive', main: ORDER_FAMILY_COLOR_KEY.offensive, accent: 'vfx.fire', periodMs: 1600, phases: phasesFrom(0.5, 6) },
 };
 
 /** The three keys `ORDER_SIGHT` does not carry per order: the aim's own

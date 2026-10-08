@@ -204,7 +204,9 @@ describe('cursorRules', () => {
       return cursorRules(deriveUiBand(copy));
     };
     expect(edited((p) => (p.ramps.gunmetal.colors[0] = '#010203'))).not.toBe(css);
-    expect(edited((p) => (p.reserved.vfx.colors.interceptor = '#010203'))).not.toBe(css);
+    // `tracer`: the move and sweep sights' main since VR-33 (it was
+    // `interceptor`, which no cursor draws any more).
+    expect(edited((p) => (p.reserved.vfx.colors.tracer = '#010203'))).not.toBe(css);
     expect(edited((p) => (p.reserved.team.colors.hostile_text = '#010203'))).not.toBe(css);
   });
 
@@ -218,9 +220,10 @@ describe('cursorRules', () => {
     // protected) draws in six of the `ui` band's seven; `amber` is used by
     // `mount` and `dismount` alone, which earn no rule. The sights draw the
     // aim, the halo, the warm beat and each WIRED order's main and accent --
-    // load and unload's transport lime and grass.0 are drawn by bodies that
-    // ship no rule (Q2), and halt's team.neutral happens to be the housing's
-    // `warn` as well.
+    // grass.0 is drawn by a body that ships no rule (Q2), and halt's
+    // team.neutral happens to be the housing's `warn` as well. Tracer lime
+    // ships since VR-33: it is move's and sweep's main, not only the
+    // unwired transport sights'.
     const used = new Set(
       defaultLines(css).flatMap((l) => [...l.matchAll(/%23([0-9a-f]{6})/g)].map((m) => `#${m[1]}`))
     );
@@ -234,7 +237,7 @@ describe('cursorRules', () => {
       ...wired.flatMap((id) => [hexOf(ORDER_SIGHT[id].main), hexOf(ORDER_SIGHT[id].accent)]),
     ]);
     expect([...used].sort()).toEqual([...expected].sort());
-    for (const unshipped of [c.amber, raw.reserved.vfx.colors.tracer, raw.ramps.grass.colors[0]]) {
+    for (const unshipped of [c.amber, raw.ramps.grass.colors[0]]) {
       expect({ unshipped, used: used.has(unshipped.toLowerCase()) }).toEqual({ unshipped, used: false });
     }
   });

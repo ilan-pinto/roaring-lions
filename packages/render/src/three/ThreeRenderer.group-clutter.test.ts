@@ -21,6 +21,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { Sim, fx, type UnitTypeJson } from '@lions/sim';
 import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
+import { paletteHex } from './palette-hex';
+import { ORDER_GROUND_COLOR_KEY } from '../order-ground';
 import type { OverlayBatch } from './units/overlays';
 import type { RingPlacement, SelectionRingBatch } from './units/selection-ring';
 
@@ -213,5 +215,35 @@ describe('group selection overlays (WP-P3, PA-09)', () => {
     const c = w.draw();
     expect(c.envelopes).toBe(1);
     expect(c.routes).toBe(1);
+  });
+});
+
+/**
+ * VR-33 ("lime everywhere"): every order's route and marker draw in the one
+ * ground key, the key the move cursor is drawn in too. Read back at the draw
+ * calls (`lineWorld` for a route leg, `rect` for a marker arm).
+ *
+ * Falsified: the route draw reading `'vfx.interceptor'` instead reddens the
+ * first spec; the marker draw reading it reddens the second.
+ */
+describe('routes and markers wear the ground key (VR-33)', () => {
+  it('draws every route leg in ORDER_GROUND_COLOR_KEY', () => {
+    const w = setUp();
+    w.renderer.selection = [...w.ids];
+    w.order(w.ids.slice(0, 7), [34.5, 8.5]);
+    w.order(w.ids.slice(7), [34.5, 38.5]);
+    w.advance(4);
+    w.draw();
+    expect(w.lines).toHaveBeenCalled();
+    expect(new Set(w.lines.mock.calls.map((c) => c[3]))).toEqual(new Set([paletteHex(ORDER_GROUND_COLOR_KEY)]));
+  });
+
+  it('draws the order marker in ORDER_GROUND_COLOR_KEY', () => {
+    const w = setUp();
+    const rects = vi.spyOn((w.renderer as unknown as Priv).overlayBatch, 'rect');
+    w.renderer.addOrderMarker(20.5, 20.5);
+    w.draw();
+    expect(rects).toHaveBeenCalled();
+    expect(new Set(rects.mock.calls.map((c) => c[5]))).toEqual(new Set([paletteHex(ORDER_GROUND_COLOR_KEY)]));
   });
 });
