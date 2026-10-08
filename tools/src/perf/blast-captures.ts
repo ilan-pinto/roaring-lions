@@ -389,6 +389,26 @@ export const BLAST_SUBJECTS: readonly BlastSubject[] = [
       'and the one place the freeze can be seen holding a frame',
   },
   {
+    id: 'mbt_lavi_z1',
+    typeId: 'mbt_lavi',
+    mode: 'kill',
+    x: 42,
+    y: 3,
+    ladderZoom: 1,
+    // Its own page: a zoom-1 crop is +/-18 tiles wide, and on the parade page
+    // it took in the mortar subject's crater and smoke eight tiles west.
+    isolate: true,
+    ladderMs: SHORT_LADDER_MS,
+    why:
+      "the Lavi kill again, photographed at the COLLAPSE's ladder zoom (1) so the two blast lights " +
+      'are compared on the same framing (polish VR-22: the collapse light must read above the kill). ' +
+      "At 2.5 a house fills the whole crop and its light's pool falls outside it, so the collapse is " +
+      'framed wider, and this is its like-for-like reference. ABSTAINS from `decals`: at zoom 1 ' +
+      "the scorch is a sixth of its 2.5 footprint and read 0 px / 0.0697 against the 0.07 floor; " +
+      'the mark is judged at 2.5 by the three comparison subjects',
+    abstains: ['decals'],
+  },
+  {
     id: 'collapse_house',
     typeId: 'dozer_d9',
     mode: 'collapse',
@@ -412,13 +432,11 @@ export const BLAST_SUBJECTS: readonly BlastSubject[] = [
       'photographed, because the sandbox force garrisons the town this house stands in. ' +
       'ABSTAINS from `decals`: the rubble lies inside the wreck and under the 2400 ms collapse ' +
       'shroud at the 2000 ms rung, measured 0 px / 0.0036-0.0349 (floor 0.07) on Metal, 2026-10-08. ' +
-      'ABSTAINS from `blast-light` too, and that one is a FINDING rather than a framing problem: the ' +
-      "collapse's light is authored above a kill's (4.5 against 3.5) and still moves only 737 px / " +
-      '2.0064 at the 200 ms rung (floor 1750 / 1.75), against 44255 px / 12.2681 for the Lavi kill, ' +
-      'because the building and its unlit shroud cover the ground the light would land on. Both ' +
-      'layers stay witnessed by the kill and impact subjects. What this subject is FOR is the ' +
-      "probe: the freeze held for the emitter's 90 ms and the jolt peaking above the kill's",
-    abstains: ['decals', 'blast-light'],
+      'It VOTES on `blast-light`: with the light on the street outside the camera-facing corner and ' +
+      'the `collapse_flash` burst drawn through the shroud it reads 13244 px / 4.2412 at the 200 ms ' +
+      "rung, against `mbt_lavi_z1`'s 7165 px / 2.8039 on the same framing (it abstained at 737 px / " +
+      '2.0064 while the light sat on the roof)',
+    abstains: ['decals'],
   },
   // `blast_nomesh` stood here: the same Lavi kill on the billboard path
   // (`&nomesh`), the strongest `decals` witness and the proof that a pixel

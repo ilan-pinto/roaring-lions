@@ -1,114 +1,114 @@
 # Blast capture sheet -- after
 
-158 frame(s) over 5 subject(s): mbt_lavi, mortar_team, blast_in_firefight, shake_probe, collapse_house.
+166 frame(s) over 6 subject(s): mbt_lavi, mortar_team, blast_in_firefight, shake_probe, mbt_lavi_z1, collapse_house.
 Ladder: 51 rungs, 0..10000 ms every 200 ms.
 
 | subject | mode | t (ms) | age (ms) | FX age (ms) | zoom | tick | file |
 |---|---|---|---|---|---|---|---|
-| `mbt_lavi` | kill | 0 | 12.2 | 0 | 1 | 24 | `mbt_lavi-kill-establish-after-z1.png` |
-| `mbt_lavi` | kill | 0 | 12.2 | 0 | 2.5 | 24 | `mbt_lavi-kill-00000ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 200 | 200 | 139.8 | 2.5 | 24 | `mbt_lavi-kill-00200ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 400 | 400 | 339.8 | 2.5 | 24 | `mbt_lavi-kill-00400ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 600 | 600 | 539.8 | 2.5 | 24 | `mbt_lavi-kill-00600ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 800 | 800 | 739.8 | 2.5 | 24 | `mbt_lavi-kill-00800ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 1000 | 1000 | 939.8 | 2.5 | 24 | `mbt_lavi-kill-01000ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 1200 | 1200 | 1139.8 | 2.5 | 24 | `mbt_lavi-kill-01200ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 1400 | 1400 | 1339.8 | 2.5 | 24 | `mbt_lavi-kill-01400ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 1600 | 1600 | 1539.8 | 2.5 | 24 | `mbt_lavi-kill-01600ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 1800 | 1800 | 1739.8 | 2.5 | 24 | `mbt_lavi-kill-01800ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 2000 | 2000 | 1939.8 | 2.5 | 24 | `mbt_lavi-kill-02000ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 2200 | 2200 | 2139.8 | 2.5 | 24 | `mbt_lavi-kill-02200ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 2400 | 2400 | 2339.8 | 2.5 | 24 | `mbt_lavi-kill-02400ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 2600 | 2600 | 2539.8 | 2.5 | 24 | `mbt_lavi-kill-02600ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 2800 | 2800 | 2739.8 | 2.5 | 24 | `mbt_lavi-kill-02800ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 3000 | 3000 | 2939.8 | 2.5 | 24 | `mbt_lavi-kill-03000ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 3200 | 3200 | 3139.8 | 2.5 | 24 | `mbt_lavi-kill-03200ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 3400 | 3400 | 3339.8 | 2.5 | 24 | `mbt_lavi-kill-03400ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 3600 | 3600 | 3539.8 | 2.5 | 24 | `mbt_lavi-kill-03600ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 3800 | 3800 | 3739.8 | 2.5 | 24 | `mbt_lavi-kill-03800ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 4000 | 4000 | 3939.8 | 2.5 | 24 | `mbt_lavi-kill-04000ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 4200 | 4200 | 4139.8 | 2.5 | 24 | `mbt_lavi-kill-04200ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 4400 | 4400 | 4339.8 | 2.5 | 24 | `mbt_lavi-kill-04400ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 4600 | 4600 | 4539.8 | 2.5 | 24 | `mbt_lavi-kill-04600ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 4800 | 4800 | 4739.8 | 2.5 | 24 | `mbt_lavi-kill-04800ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 5000 | 5000 | 4939.8 | 2.5 | 24 | `mbt_lavi-kill-05000ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 5200 | 5200 | 5139.8 | 2.5 | 24 | `mbt_lavi-kill-05200ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 5400 | 5400 | 5339.8 | 2.5 | 24 | `mbt_lavi-kill-05400ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 5600 | 5600 | 5539.8 | 2.5 | 24 | `mbt_lavi-kill-05600ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 5800 | 5800 | 5739.8 | 2.5 | 24 | `mbt_lavi-kill-05800ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 6000 | 6000 | 5939.8 | 2.5 | 24 | `mbt_lavi-kill-06000ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 6200 | 6200 | 6139.8 | 2.5 | 24 | `mbt_lavi-kill-06200ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 6400 | 6400 | 6339.8 | 2.5 | 24 | `mbt_lavi-kill-06400ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 6600 | 6600 | 6539.8 | 2.5 | 24 | `mbt_lavi-kill-06600ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 6800 | 6800 | 6739.8 | 2.5 | 24 | `mbt_lavi-kill-06800ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 7000 | 7000 | 6939.8 | 2.5 | 24 | `mbt_lavi-kill-07000ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 7200 | 7200 | 7139.8 | 2.5 | 24 | `mbt_lavi-kill-07200ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 7400 | 7400 | 7339.8 | 2.5 | 24 | `mbt_lavi-kill-07400ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 7600 | 7600 | 7539.8 | 2.5 | 24 | `mbt_lavi-kill-07600ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 7800 | 7800 | 7739.8 | 2.5 | 24 | `mbt_lavi-kill-07800ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 8000 | 8000 | 7939.8 | 2.5 | 24 | `mbt_lavi-kill-08000ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 8200 | 8200 | 8139.8 | 2.5 | 24 | `mbt_lavi-kill-08200ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 8400 | 8400 | 8339.8 | 2.5 | 24 | `mbt_lavi-kill-08400ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 8600 | 8600 | 8539.8 | 2.5 | 24 | `mbt_lavi-kill-08600ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 8800 | 8800 | 8739.8 | 2.5 | 24 | `mbt_lavi-kill-08800ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 9000 | 9000 | 8939.8 | 2.5 | 24 | `mbt_lavi-kill-09000ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 9200 | 9200 | 9139.8 | 2.5 | 24 | `mbt_lavi-kill-09200ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 9400 | 9400 | 9339.8 | 2.5 | 24 | `mbt_lavi-kill-09400ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 9600 | 9600 | 9539.8 | 2.5 | 24 | `mbt_lavi-kill-09600ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 9800 | 9800 | 9739.8 | 2.5 | 24 | `mbt_lavi-kill-09800ms-after-z2.5.png` |
-| `mbt_lavi` | kill | 10000 | 10000 | 9939.8 | 2.5 | 24 | `mbt_lavi-kill-10000ms-after-z2.5.png` |
-| `mortar_team` | impact | 0 | 0 | 0 | 1 | 123 | `mortar_team-impact-establish-after-z1.png` |
-| `mortar_team` | impact | 0 | 0 | 0 | 2.5 | 123 | `mortar_team-impact-00000ms-after-z2.5.png` |
-| `mortar_team` | impact | 200 | 200 | 200 | 2.5 | 123 | `mortar_team-impact-00200ms-after-z2.5.png` |
-| `mortar_team` | impact | 400 | 400 | 400 | 2.5 | 123 | `mortar_team-impact-00400ms-after-z2.5.png` |
-| `mortar_team` | impact | 600 | 600 | 600 | 2.5 | 123 | `mortar_team-impact-00600ms-after-z2.5.png` |
-| `mortar_team` | impact | 800 | 800 | 800 | 2.5 | 123 | `mortar_team-impact-00800ms-after-z2.5.png` |
-| `mortar_team` | impact | 1000 | 1000 | 1000 | 2.5 | 123 | `mortar_team-impact-01000ms-after-z2.5.png` |
-| `mortar_team` | impact | 1200 | 1200 | 1200 | 2.5 | 123 | `mortar_team-impact-01200ms-after-z2.5.png` |
-| `mortar_team` | impact | 1400 | 1400 | 1400 | 2.5 | 123 | `mortar_team-impact-01400ms-after-z2.5.png` |
-| `mortar_team` | impact | 1600 | 1600 | 1600 | 2.5 | 123 | `mortar_team-impact-01600ms-after-z2.5.png` |
-| `mortar_team` | impact | 1800 | 1800 | 1800 | 2.5 | 123 | `mortar_team-impact-01800ms-after-z2.5.png` |
-| `mortar_team` | impact | 2000 | 2000 | 2000 | 2.5 | 123 | `mortar_team-impact-02000ms-after-z2.5.png` |
-| `mortar_team` | impact | 2200 | 2200 | 2200 | 2.5 | 123 | `mortar_team-impact-02200ms-after-z2.5.png` |
-| `mortar_team` | impact | 2400 | 2400 | 2400 | 2.5 | 123 | `mortar_team-impact-02400ms-after-z2.5.png` |
-| `mortar_team` | impact | 2600 | 2600 | 2600 | 2.5 | 123 | `mortar_team-impact-02600ms-after-z2.5.png` |
-| `mortar_team` | impact | 2800 | 2800 | 2800 | 2.5 | 123 | `mortar_team-impact-02800ms-after-z2.5.png` |
-| `mortar_team` | impact | 3000 | 3000 | 3000 | 2.5 | 123 | `mortar_team-impact-03000ms-after-z2.5.png` |
-| `mortar_team` | impact | 3200 | 3200 | 3200 | 2.5 | 123 | `mortar_team-impact-03200ms-after-z2.5.png` |
-| `mortar_team` | impact | 3400 | 3400 | 3400 | 2.5 | 123 | `mortar_team-impact-03400ms-after-z2.5.png` |
-| `mortar_team` | impact | 3600 | 3600 | 3600 | 2.5 | 123 | `mortar_team-impact-03600ms-after-z2.5.png` |
-| `mortar_team` | impact | 3800 | 3800 | 3800 | 2.5 | 123 | `mortar_team-impact-03800ms-after-z2.5.png` |
-| `mortar_team` | impact | 4000 | 4000 | 4000 | 2.5 | 123 | `mortar_team-impact-04000ms-after-z2.5.png` |
-| `mortar_team` | impact | 4200 | 4200 | 4200 | 2.5 | 123 | `mortar_team-impact-04200ms-after-z2.5.png` |
-| `mortar_team` | impact | 4400 | 4400 | 4400 | 2.5 | 123 | `mortar_team-impact-04400ms-after-z2.5.png` |
-| `mortar_team` | impact | 4600 | 4600 | 4600 | 2.5 | 123 | `mortar_team-impact-04600ms-after-z2.5.png` |
-| `mortar_team` | impact | 4800 | 4800 | 4800 | 2.5 | 123 | `mortar_team-impact-04800ms-after-z2.5.png` |
-| `mortar_team` | impact | 5000 | 5000 | 5000 | 2.5 | 123 | `mortar_team-impact-05000ms-after-z2.5.png` |
-| `mortar_team` | impact | 5200 | 5200 | 5200 | 2.5 | 123 | `mortar_team-impact-05200ms-after-z2.5.png` |
-| `mortar_team` | impact | 5400 | 5400 | 5400 | 2.5 | 123 | `mortar_team-impact-05400ms-after-z2.5.png` |
-| `mortar_team` | impact | 5600 | 5600 | 5600 | 2.5 | 123 | `mortar_team-impact-05600ms-after-z2.5.png` |
-| `mortar_team` | impact | 5800 | 5800 | 5800 | 2.5 | 123 | `mortar_team-impact-05800ms-after-z2.5.png` |
-| `mortar_team` | impact | 6000 | 6000 | 6000 | 2.5 | 123 | `mortar_team-impact-06000ms-after-z2.5.png` |
-| `mortar_team` | impact | 6200 | 6200 | 6200 | 2.5 | 123 | `mortar_team-impact-06200ms-after-z2.5.png` |
-| `mortar_team` | impact | 6400 | 6400 | 6400 | 2.5 | 123 | `mortar_team-impact-06400ms-after-z2.5.png` |
-| `mortar_team` | impact | 6600 | 6600 | 6600 | 2.5 | 123 | `mortar_team-impact-06600ms-after-z2.5.png` |
-| `mortar_team` | impact | 6800 | 6800 | 6800 | 2.5 | 123 | `mortar_team-impact-06800ms-after-z2.5.png` |
-| `mortar_team` | impact | 7000 | 7000 | 7000 | 2.5 | 123 | `mortar_team-impact-07000ms-after-z2.5.png` |
-| `mortar_team` | impact | 7200 | 7200 | 7200 | 2.5 | 123 | `mortar_team-impact-07200ms-after-z2.5.png` |
-| `mortar_team` | impact | 7400 | 7400 | 7400 | 2.5 | 123 | `mortar_team-impact-07400ms-after-z2.5.png` |
-| `mortar_team` | impact | 7600 | 7600 | 7600 | 2.5 | 123 | `mortar_team-impact-07600ms-after-z2.5.png` |
-| `mortar_team` | impact | 7800 | 7800 | 7800 | 2.5 | 123 | `mortar_team-impact-07800ms-after-z2.5.png` |
-| `mortar_team` | impact | 8000 | 8000 | 8000 | 2.5 | 123 | `mortar_team-impact-08000ms-after-z2.5.png` |
-| `mortar_team` | impact | 8200 | 8200 | 8200 | 2.5 | 123 | `mortar_team-impact-08200ms-after-z2.5.png` |
-| `mortar_team` | impact | 8400 | 8400 | 8400 | 2.5 | 123 | `mortar_team-impact-08400ms-after-z2.5.png` |
-| `mortar_team` | impact | 8600 | 8600 | 8600 | 2.5 | 123 | `mortar_team-impact-08600ms-after-z2.5.png` |
-| `mortar_team` | impact | 8800 | 8800 | 8800 | 2.5 | 123 | `mortar_team-impact-08800ms-after-z2.5.png` |
-| `mortar_team` | impact | 9000 | 9000 | 9000 | 2.5 | 123 | `mortar_team-impact-09000ms-after-z2.5.png` |
-| `mortar_team` | impact | 9200 | 9200 | 9200 | 2.5 | 123 | `mortar_team-impact-09200ms-after-z2.5.png` |
-| `mortar_team` | impact | 9400 | 9400 | 9400 | 2.5 | 123 | `mortar_team-impact-09400ms-after-z2.5.png` |
-| `mortar_team` | impact | 9600 | 9600 | 9600 | 2.5 | 123 | `mortar_team-impact-09600ms-after-z2.5.png` |
-| `mortar_team` | impact | 9800 | 9800 | 9800 | 2.5 | 123 | `mortar_team-impact-09800ms-after-z2.5.png` |
-| `mortar_team` | impact | 10000 | 10000 | 10000 | 2.5 | 123 | `mortar_team-impact-10000ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 0 | 8.4 | 0 | 1 | 31 | `mbt_lavi-kill-establish-after-z1.png` |
+| `mbt_lavi` | kill | 0 | 8.4 | 0 | 2.5 | 31 | `mbt_lavi-kill-00000ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 200 | 200 | 143.6 | 2.5 | 31 | `mbt_lavi-kill-00200ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 400 | 400 | 343.6 | 2.5 | 31 | `mbt_lavi-kill-00400ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 600 | 600 | 543.6 | 2.5 | 31 | `mbt_lavi-kill-00600ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 800 | 800 | 743.6 | 2.5 | 31 | `mbt_lavi-kill-00800ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 1000 | 1000 | 943.6 | 2.5 | 31 | `mbt_lavi-kill-01000ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 1200 | 1200 | 1143.6 | 2.5 | 31 | `mbt_lavi-kill-01200ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 1400 | 1400 | 1343.6 | 2.5 | 31 | `mbt_lavi-kill-01400ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 1600 | 1600 | 1543.6 | 2.5 | 31 | `mbt_lavi-kill-01600ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 1800 | 1800 | 1743.6 | 2.5 | 31 | `mbt_lavi-kill-01800ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 2000 | 2000 | 1943.6 | 2.5 | 31 | `mbt_lavi-kill-02000ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 2200 | 2200 | 2143.6 | 2.5 | 31 | `mbt_lavi-kill-02200ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 2400 | 2400 | 2343.6 | 2.5 | 31 | `mbt_lavi-kill-02400ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 2600 | 2600 | 2543.6 | 2.5 | 31 | `mbt_lavi-kill-02600ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 2800 | 2800 | 2743.6 | 2.5 | 31 | `mbt_lavi-kill-02800ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 3000 | 3000 | 2943.6 | 2.5 | 31 | `mbt_lavi-kill-03000ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 3200 | 3200 | 3143.6 | 2.5 | 31 | `mbt_lavi-kill-03200ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 3400 | 3400 | 3343.6 | 2.5 | 31 | `mbt_lavi-kill-03400ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 3600 | 3600 | 3543.6 | 2.5 | 31 | `mbt_lavi-kill-03600ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 3800 | 3800 | 3743.6 | 2.5 | 31 | `mbt_lavi-kill-03800ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 4000 | 4000 | 3943.6 | 2.5 | 31 | `mbt_lavi-kill-04000ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 4200 | 4200 | 4143.6 | 2.5 | 31 | `mbt_lavi-kill-04200ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 4400 | 4400 | 4343.6 | 2.5 | 31 | `mbt_lavi-kill-04400ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 4600 | 4600 | 4543.6 | 2.5 | 31 | `mbt_lavi-kill-04600ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 4800 | 4800 | 4743.6 | 2.5 | 31 | `mbt_lavi-kill-04800ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 5000 | 5000 | 4943.6 | 2.5 | 31 | `mbt_lavi-kill-05000ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 5200 | 5200 | 5143.6 | 2.5 | 31 | `mbt_lavi-kill-05200ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 5400 | 5400 | 5343.6 | 2.5 | 31 | `mbt_lavi-kill-05400ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 5600 | 5600 | 5543.6 | 2.5 | 31 | `mbt_lavi-kill-05600ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 5800 | 5800 | 5743.6 | 2.5 | 31 | `mbt_lavi-kill-05800ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 6000 | 6000 | 5943.6 | 2.5 | 31 | `mbt_lavi-kill-06000ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 6200 | 6200 | 6143.6 | 2.5 | 31 | `mbt_lavi-kill-06200ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 6400 | 6400 | 6343.6 | 2.5 | 31 | `mbt_lavi-kill-06400ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 6600 | 6600 | 6543.6 | 2.5 | 31 | `mbt_lavi-kill-06600ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 6800 | 6800 | 6743.6 | 2.5 | 31 | `mbt_lavi-kill-06800ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 7000 | 7000 | 6943.6 | 2.5 | 31 | `mbt_lavi-kill-07000ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 7200 | 7200 | 7143.6 | 2.5 | 31 | `mbt_lavi-kill-07200ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 7400 | 7400 | 7343.6 | 2.5 | 31 | `mbt_lavi-kill-07400ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 7600 | 7600 | 7543.6 | 2.5 | 31 | `mbt_lavi-kill-07600ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 7800 | 7800 | 7743.6 | 2.5 | 31 | `mbt_lavi-kill-07800ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 8000 | 8000 | 7943.6 | 2.5 | 31 | `mbt_lavi-kill-08000ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 8200 | 8200 | 8143.6 | 2.5 | 31 | `mbt_lavi-kill-08200ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 8400 | 8400 | 8343.6 | 2.5 | 31 | `mbt_lavi-kill-08400ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 8600 | 8600 | 8543.6 | 2.5 | 31 | `mbt_lavi-kill-08600ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 8800 | 8800 | 8743.6 | 2.5 | 31 | `mbt_lavi-kill-08800ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 9000 | 9000 | 8943.6 | 2.5 | 31 | `mbt_lavi-kill-09000ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 9200 | 9200 | 9143.6 | 2.5 | 31 | `mbt_lavi-kill-09200ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 9400 | 9400 | 9343.6 | 2.5 | 31 | `mbt_lavi-kill-09400ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 9600 | 9600 | 9543.6 | 2.5 | 31 | `mbt_lavi-kill-09600ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 9800 | 9800 | 9743.6 | 2.5 | 31 | `mbt_lavi-kill-09800ms-after-z2.5.png` |
+| `mbt_lavi` | kill | 10000 | 10000 | 9943.6 | 2.5 | 31 | `mbt_lavi-kill-10000ms-after-z2.5.png` |
+| `mortar_team` | impact | 0 | 0 | 0 | 1 | 130 | `mortar_team-impact-establish-after-z1.png` |
+| `mortar_team` | impact | 0 | 0 | 0 | 2.5 | 130 | `mortar_team-impact-00000ms-after-z2.5.png` |
+| `mortar_team` | impact | 200 | 200 | 200 | 2.5 | 130 | `mortar_team-impact-00200ms-after-z2.5.png` |
+| `mortar_team` | impact | 400 | 400 | 400 | 2.5 | 130 | `mortar_team-impact-00400ms-after-z2.5.png` |
+| `mortar_team` | impact | 600 | 600 | 600 | 2.5 | 130 | `mortar_team-impact-00600ms-after-z2.5.png` |
+| `mortar_team` | impact | 800 | 800 | 800 | 2.5 | 130 | `mortar_team-impact-00800ms-after-z2.5.png` |
+| `mortar_team` | impact | 1000 | 1000 | 1000 | 2.5 | 130 | `mortar_team-impact-01000ms-after-z2.5.png` |
+| `mortar_team` | impact | 1200 | 1200 | 1200 | 2.5 | 130 | `mortar_team-impact-01200ms-after-z2.5.png` |
+| `mortar_team` | impact | 1400 | 1400 | 1400 | 2.5 | 130 | `mortar_team-impact-01400ms-after-z2.5.png` |
+| `mortar_team` | impact | 1600 | 1600 | 1600 | 2.5 | 130 | `mortar_team-impact-01600ms-after-z2.5.png` |
+| `mortar_team` | impact | 1800 | 1800 | 1800 | 2.5 | 130 | `mortar_team-impact-01800ms-after-z2.5.png` |
+| `mortar_team` | impact | 2000 | 2000 | 2000 | 2.5 | 130 | `mortar_team-impact-02000ms-after-z2.5.png` |
+| `mortar_team` | impact | 2200 | 2200 | 2200 | 2.5 | 130 | `mortar_team-impact-02200ms-after-z2.5.png` |
+| `mortar_team` | impact | 2400 | 2400 | 2400 | 2.5 | 130 | `mortar_team-impact-02400ms-after-z2.5.png` |
+| `mortar_team` | impact | 2600 | 2600 | 2600 | 2.5 | 130 | `mortar_team-impact-02600ms-after-z2.5.png` |
+| `mortar_team` | impact | 2800 | 2800 | 2800 | 2.5 | 130 | `mortar_team-impact-02800ms-after-z2.5.png` |
+| `mortar_team` | impact | 3000 | 3000 | 3000 | 2.5 | 130 | `mortar_team-impact-03000ms-after-z2.5.png` |
+| `mortar_team` | impact | 3200 | 3200 | 3200 | 2.5 | 130 | `mortar_team-impact-03200ms-after-z2.5.png` |
+| `mortar_team` | impact | 3400 | 3400 | 3400 | 2.5 | 130 | `mortar_team-impact-03400ms-after-z2.5.png` |
+| `mortar_team` | impact | 3600 | 3600 | 3600 | 2.5 | 130 | `mortar_team-impact-03600ms-after-z2.5.png` |
+| `mortar_team` | impact | 3800 | 3800 | 3800 | 2.5 | 130 | `mortar_team-impact-03800ms-after-z2.5.png` |
+| `mortar_team` | impact | 4000 | 4000 | 4000 | 2.5 | 130 | `mortar_team-impact-04000ms-after-z2.5.png` |
+| `mortar_team` | impact | 4200 | 4200 | 4200 | 2.5 | 130 | `mortar_team-impact-04200ms-after-z2.5.png` |
+| `mortar_team` | impact | 4400 | 4400 | 4400 | 2.5 | 130 | `mortar_team-impact-04400ms-after-z2.5.png` |
+| `mortar_team` | impact | 4600 | 4600 | 4600 | 2.5 | 130 | `mortar_team-impact-04600ms-after-z2.5.png` |
+| `mortar_team` | impact | 4800 | 4800 | 4800 | 2.5 | 130 | `mortar_team-impact-04800ms-after-z2.5.png` |
+| `mortar_team` | impact | 5000 | 5000 | 5000 | 2.5 | 130 | `mortar_team-impact-05000ms-after-z2.5.png` |
+| `mortar_team` | impact | 5200 | 5200 | 5200 | 2.5 | 130 | `mortar_team-impact-05200ms-after-z2.5.png` |
+| `mortar_team` | impact | 5400 | 5400 | 5400 | 2.5 | 130 | `mortar_team-impact-05400ms-after-z2.5.png` |
+| `mortar_team` | impact | 5600 | 5600 | 5600 | 2.5 | 130 | `mortar_team-impact-05600ms-after-z2.5.png` |
+| `mortar_team` | impact | 5800 | 5800 | 5800 | 2.5 | 130 | `mortar_team-impact-05800ms-after-z2.5.png` |
+| `mortar_team` | impact | 6000 | 6000 | 6000 | 2.5 | 130 | `mortar_team-impact-06000ms-after-z2.5.png` |
+| `mortar_team` | impact | 6200 | 6200 | 6200 | 2.5 | 130 | `mortar_team-impact-06200ms-after-z2.5.png` |
+| `mortar_team` | impact | 6400 | 6400 | 6400 | 2.5 | 130 | `mortar_team-impact-06400ms-after-z2.5.png` |
+| `mortar_team` | impact | 6600 | 6600 | 6600 | 2.5 | 130 | `mortar_team-impact-06600ms-after-z2.5.png` |
+| `mortar_team` | impact | 6800 | 6800 | 6800 | 2.5 | 130 | `mortar_team-impact-06800ms-after-z2.5.png` |
+| `mortar_team` | impact | 7000 | 7000 | 7000 | 2.5 | 130 | `mortar_team-impact-07000ms-after-z2.5.png` |
+| `mortar_team` | impact | 7200 | 7200 | 7200 | 2.5 | 130 | `mortar_team-impact-07200ms-after-z2.5.png` |
+| `mortar_team` | impact | 7400 | 7400 | 7400 | 2.5 | 130 | `mortar_team-impact-07400ms-after-z2.5.png` |
+| `mortar_team` | impact | 7600 | 7600 | 7600 | 2.5 | 130 | `mortar_team-impact-07600ms-after-z2.5.png` |
+| `mortar_team` | impact | 7800 | 7800 | 7800 | 2.5 | 130 | `mortar_team-impact-07800ms-after-z2.5.png` |
+| `mortar_team` | impact | 8000 | 8000 | 8000 | 2.5 | 130 | `mortar_team-impact-08000ms-after-z2.5.png` |
+| `mortar_team` | impact | 8200 | 8200 | 8200 | 2.5 | 130 | `mortar_team-impact-08200ms-after-z2.5.png` |
+| `mortar_team` | impact | 8400 | 8400 | 8400 | 2.5 | 130 | `mortar_team-impact-08400ms-after-z2.5.png` |
+| `mortar_team` | impact | 8600 | 8600 | 8600 | 2.5 | 130 | `mortar_team-impact-08600ms-after-z2.5.png` |
+| `mortar_team` | impact | 8800 | 8800 | 8800 | 2.5 | 130 | `mortar_team-impact-08800ms-after-z2.5.png` |
+| `mortar_team` | impact | 9000 | 9000 | 9000 | 2.5 | 130 | `mortar_team-impact-09000ms-after-z2.5.png` |
+| `mortar_team` | impact | 9200 | 9200 | 9200 | 2.5 | 130 | `mortar_team-impact-09200ms-after-z2.5.png` |
+| `mortar_team` | impact | 9400 | 9400 | 9400 | 2.5 | 130 | `mortar_team-impact-09400ms-after-z2.5.png` |
+| `mortar_team` | impact | 9600 | 9600 | 9600 | 2.5 | 130 | `mortar_team-impact-09600ms-after-z2.5.png` |
+| `mortar_team` | impact | 9800 | 9800 | 9800 | 2.5 | 130 | `mortar_team-impact-09800ms-after-z2.5.png` |
+| `mortar_team` | impact | 10000 | 10000 | 10000 | 2.5 | 130 | `mortar_team-impact-10000ms-after-z2.5.png` |
 | `blast_in_firefight` | kill | 0 | 0 | 0 | 1 | 84 | `blast_in_firefight-kill-establish-after-z1.png` |
 | `blast_in_firefight` | kill | 0 | 0 | 0 | 2.5 | 84 | `blast_in_firefight-kill-00000ms-after-z2.5.png` |
 | `blast_in_firefight` | kill | 16 | 16 | 0 | 2.5 | 84 | `blast_in_firefight-kill-00016ms-after-z2.5.png` |
@@ -145,24 +145,32 @@ Ladder: 51 rungs, 0..10000 ms every 200 ms.
 | `shake_probe` | impact | 600 | 600 | 600 | 2.5 | 122 | `shake_probe-impact-00600ms-after-z2.5.png` |
 | `shake_probe` | impact | 1000 | 1000 | 1000 | 2.5 | 122 | `shake_probe-impact-01000ms-after-z2.5.png` |
 | `shake_probe` | impact | 2000 | 2000 | 2000 | 2.5 | 122 | `shake_probe-impact-02000ms-after-z2.5.png` |
-| `collapse_house` | collapse | 0 | 0 | 0 | 1 | 24 | `collapse_house-collapse-establish-after-z1.png` |
-| `collapse_house` | collapse | 0 | 0 | 0 | 1 | 24 | `collapse_house-collapse-00000ms-after-z1.png` |
-| `collapse_house` | collapse | 16 | 16 | 0 | 1 | 24 | `collapse_house-collapse-00016ms-after-z1.png` |
-| `collapse_house` | collapse | 32 | 32 | 0 | 1 | 24 | `collapse_house-collapse-00032ms-after-z1.png` |
-| `collapse_house` | collapse | 48 | 48 | 0 | 1 | 24 | `collapse_house-collapse-00048ms-after-z1.png` |
-| `collapse_house` | collapse | 64 | 64 | 0 | 1 | 24 | `collapse_house-collapse-00064ms-after-z1.png` |
-| `collapse_house` | collapse | 80 | 80 | 0 | 1 | 24 | `collapse_house-collapse-00080ms-after-z1.png` |
-| `collapse_house` | collapse | 96 | 96 | 16 | 1 | 24 | `collapse_house-collapse-00096ms-after-z1.png` |
-| `collapse_house` | collapse | 112 | 112 | 32 | 1 | 24 | `collapse_house-collapse-00112ms-after-z1.png` |
-| `collapse_house` | collapse | 144 | 144 | 64 | 1 | 24 | `collapse_house-collapse-00144ms-after-z1.png` |
-| `collapse_house` | collapse | 192 | 192 | 112 | 1 | 24 | `collapse_house-collapse-00192ms-after-z1.png` |
-| `collapse_house` | collapse | 256 | 256 | 176 | 1 | 24 | `collapse_house-collapse-00256ms-after-z1.png` |
-| `collapse_house` | collapse | 320 | 320 | 240 | 1 | 24 | `collapse_house-collapse-00320ms-after-z1.png` |
-| `collapse_house` | collapse | 400 | 400 | 320 | 1 | 24 | `collapse_house-collapse-00400ms-after-z1.png` |
-| `collapse_house` | collapse | 480 | 480 | 400 | 1 | 24 | `collapse_house-collapse-00480ms-after-z1.png` |
-| `collapse_house` | collapse | 600 | 600 | 520 | 1 | 24 | `collapse_house-collapse-00600ms-after-z1.png` |
-| `collapse_house` | collapse | 1000 | 1000 | 920 | 1 | 24 | `collapse_house-collapse-01000ms-after-z1.png` |
-| `collapse_house` | collapse | 2000 | 2000 | 1920 | 1 | 24 | `collapse_house-collapse-02000ms-after-z1.png` |
+| `mbt_lavi_z1` | kill | 0 | 13.9 | 0 | 1 | 25 | `mbt_lavi_z1-kill-establish-after-z1.png` |
+| `mbt_lavi_z1` | kill | 0 | 13.9 | 0 | 1 | 25 | `mbt_lavi_z1-kill-00000ms-after-z1.png` |
+| `mbt_lavi_z1` | kill | 200 | 200 | 138.1 | 1 | 25 | `mbt_lavi_z1-kill-00200ms-after-z1.png` |
+| `mbt_lavi_z1` | kill | 400 | 400 | 338.1 | 1 | 25 | `mbt_lavi_z1-kill-00400ms-after-z1.png` |
+| `mbt_lavi_z1` | kill | 600 | 600 | 538.1 | 1 | 25 | `mbt_lavi_z1-kill-00600ms-after-z1.png` |
+| `mbt_lavi_z1` | kill | 1000 | 1000 | 938.1 | 1 | 25 | `mbt_lavi_z1-kill-01000ms-after-z1.png` |
+| `mbt_lavi_z1` | kill | 2000 | 2000 | 1938.1 | 1 | 25 | `mbt_lavi_z1-kill-02000ms-after-z1.png` |
+| `mbt_lavi_z1` | kill | 4000 | 4000 | 3938.1 | 1 | 25 | `mbt_lavi_z1-kill-04000ms-after-z1.png` |
+| `collapse_house` | collapse | 0 | 0 | 0 | 1 | 27 | `collapse_house-collapse-establish-after-z1.png` |
+| `collapse_house` | collapse | 0 | 0 | 0 | 1 | 27 | `collapse_house-collapse-00000ms-after-z1.png` |
+| `collapse_house` | collapse | 16 | 16 | 0 | 1 | 27 | `collapse_house-collapse-00016ms-after-z1.png` |
+| `collapse_house` | collapse | 32 | 32 | 0 | 1 | 27 | `collapse_house-collapse-00032ms-after-z1.png` |
+| `collapse_house` | collapse | 48 | 48 | 0 | 1 | 27 | `collapse_house-collapse-00048ms-after-z1.png` |
+| `collapse_house` | collapse | 64 | 64 | 0 | 1 | 27 | `collapse_house-collapse-00064ms-after-z1.png` |
+| `collapse_house` | collapse | 80 | 80 | 0 | 1 | 27 | `collapse_house-collapse-00080ms-after-z1.png` |
+| `collapse_house` | collapse | 96 | 96 | 16 | 1 | 27 | `collapse_house-collapse-00096ms-after-z1.png` |
+| `collapse_house` | collapse | 112 | 112 | 32 | 1 | 27 | `collapse_house-collapse-00112ms-after-z1.png` |
+| `collapse_house` | collapse | 144 | 144 | 64 | 1 | 27 | `collapse_house-collapse-00144ms-after-z1.png` |
+| `collapse_house` | collapse | 192 | 192 | 112 | 1 | 27 | `collapse_house-collapse-00192ms-after-z1.png` |
+| `collapse_house` | collapse | 256 | 256 | 176 | 1 | 27 | `collapse_house-collapse-00256ms-after-z1.png` |
+| `collapse_house` | collapse | 320 | 320 | 240 | 1 | 27 | `collapse_house-collapse-00320ms-after-z1.png` |
+| `collapse_house` | collapse | 400 | 400 | 320 | 1 | 27 | `collapse_house-collapse-00400ms-after-z1.png` |
+| `collapse_house` | collapse | 480 | 480 | 400 | 1 | 27 | `collapse_house-collapse-00480ms-after-z1.png` |
+| `collapse_house` | collapse | 600 | 600 | 520 | 1 | 27 | `collapse_house-collapse-00600ms-after-z1.png` |
+| `collapse_house` | collapse | 1000 | 1000 | 920 | 1 | 27 | `collapse_house-collapse-01000ms-after-z1.png` |
+| `collapse_house` | collapse | 2000 | 2000 | 1920 | 1 | 27 | `collapse_house-collapse-02000ms-after-z1.png` |
 
 ## Capture conditions
 
@@ -177,7 +185,7 @@ downscaling and a font-load race.
 - zooms: 1 establishing still (full frame), 2.5 ladder
   (600x400 crop, lifted 50 px)
 - frame loop: frozen (FREEZE_FRAME_LOOP_SCRIPT); every ladder frame pumped by hand at 16 ms
-- `step(1)` frame jump: 12.20 ms, measured at boot (see the module header)
+- `step(1)` frame jump: 8.40 ms, measured at boot (see the module header)
 - settle before the freeze: until 5 consecutive frames <= 150 ms at 320x200, ceiling 30000 ms (the default) -- per-group frames in the notes
 - mode: full ladder
 
@@ -189,15 +197,17 @@ layer as a healthy one. Floors are a third of the measured signal.
 
 | subject | layer | available | votes | verdict | diff px | mean abs channel delta | note |
 |---|---|---|---|---|---|---|---|
-| `mbt_lavi` | `blast-light` | yes | yes | PASS | 44282 | 12.2358 | hidden, repainted at zero elapsed time, compared -- over floor |
-| `mbt_lavi` | `decals` | yes | yes | PASS | 0 | 0.4658 | hidden, repainted at zero elapsed time, compared -- over floor |
-| `mortar_team` | `blast-light` | yes | yes | PASS | 30319 | 9.1496 | hidden, repainted at zero elapsed time, compared -- over floor |
+| `mbt_lavi` | `blast-light` | yes | yes | PASS | 59104 | 13.9728 | hidden, repainted at zero elapsed time, compared -- over floor |
+| `mbt_lavi` | `decals` | yes | yes | PASS | 0 | 0.4483 | hidden, repainted at zero elapsed time, compared -- over floor |
+| `mortar_team` | `blast-light` | yes | yes | PASS | 30317 | 9.1111 | hidden, repainted at zero elapsed time, compared -- over floor |
 | `mortar_team` | `decals` | yes | yes | PASS | 7598 | 1.7891 | hidden, repainted at zero elapsed time, compared -- over floor |
-| `blast_in_firefight` | `blast-light` | yes | yes | PASS | 27628 | 8.4606 | hidden, repainted at zero elapsed time, compared -- over floor |
+| `blast_in_firefight` | `blast-light` | yes | yes | PASS | 27603 | 8.5106 | hidden, repainted at zero elapsed time, compared -- over floor |
 | `blast_in_firefight` | `decals` | yes | yes | PASS | 0 | 0.4816 | hidden, repainted at zero elapsed time, compared -- over floor |
-| `shake_probe` | `blast-light` | yes | yes | PASS | 24624 | 7.7589 | hidden, repainted at zero elapsed time, compared -- over floor |
+| `shake_probe` | `blast-light` | yes | yes | PASS | 24558 | 7.7398 | hidden, repainted at zero elapsed time, compared -- over floor |
 | `shake_probe` | `decals` | yes | yes | PASS | 7598 | 1.7891 | hidden, repainted at zero elapsed time, compared -- over floor |
-| `collapse_house` | `blast-light` | yes | abstains | PASS | 737 | 2.0064 | abstains (recorded, not voting): diffPixels 737 < floor 1750 |
+| `mbt_lavi_z1` | `blast-light` | yes | yes | PASS | 7259 | 2.8071 | hidden, repainted at zero elapsed time, compared -- over floor |
+| `mbt_lavi_z1` | `decals` | yes | abstains | PASS | 0 | 0.0675 | abstains (recorded, not voting): meanAbsChannelDelta 0.0675 < floor 0.07 |
+| `collapse_house` | `blast-light` | yes | yes | PASS | 13244 | 4.2412 | hidden, repainted at zero elapsed time, compared -- over floor |
 | `collapse_house` | `decals` | yes | abstains | PASS | 0 | 0.0036 | abstains (recorded, not voting): meanAbsChannelDelta 0.0036 < floor 0.07 |
 
 Floors in force:
@@ -344,13 +354,15 @@ renderer's own projection -- they are supposed to AGREE.
 
 ## Notes
 
-- beit_sahwan_outskirts||: settle reached 5 frames <= 150 ms after 57 ms and 5 frame(s); over the band: none; last 5: 25.0, 8.4, 8.2, 8.4, 8.3 ms
-- beit_sahwan_outskirts||: step(1) advances the FX clock by 12.20 ms.
-- beit_sahwan_outskirts||blast_in_firefight: settle reached 5 frames <= 150 ms after 49 ms and 5 frame(s); over the band: none; last 5: 8.4, 16.7, 8.2, 8.4, 8.3 ms
-- beit_sahwan_outskirts||blast_in_firefight: step(1) advances the FX clock by 10.30 ms.
+- beit_sahwan_outskirts||: settle reached 5 frames <= 150 ms after 146 ms and 5 frame(s); over the band: none; last 5: 107.9, 17.1, 8.3, 8.3, 8.4 ms
+- beit_sahwan_outskirts||: step(1) advances the FX clock by 8.40 ms.
+- beit_sahwan_outskirts||blast_in_firefight: settle reached 5 frames <= 150 ms after 75 ms and 5 frame(s); over the band: none; last 5: 16.6, 15.8, 8.5, 17.4, 7.9 ms
+- beit_sahwan_outskirts||blast_in_firefight: step(1) advances the FX clock by 6.80 ms.
 - blast_in_firefight: 8 of the 8 flash-pool slots were live at the instant of the kill, peak 8 during the warm-up (3 ifv_namer vs 3 technical, 60 hand ticks with no frame presented)
-- beit_sahwan_outskirts||shake_probe: settle reached 5 frames <= 150 ms after 56 ms and 5 frame(s); over the band: none; last 5: 7.0, 26.4, 8.3, 8.4, 8.3 ms
-- beit_sahwan_outskirts||shake_probe: step(1) advances the FX clock by 8.10 ms.
-- beit_sahwan_outskirts||collapse_house: settle reached 5 frames <= 150 ms after 53 ms and 5 frame(s); over the band: none; last 5: 16.7, 8.3, 8.3, 8.3, 7.8 ms
-- beit_sahwan_outskirts||collapse_house: step(1) advances the FX clock by 8.80 ms.
+- beit_sahwan_outskirts||shake_probe: settle reached 5 frames <= 150 ms after 68 ms and 5 frame(s); over the band: none; last 5: 25.1, 8.3, 16.7, 8.3, 8.4 ms
+- beit_sahwan_outskirts||shake_probe: step(1) advances the FX clock by 19.90 ms.
+- beit_sahwan_outskirts||mbt_lavi_z1: settle reached 5 frames <= 150 ms after 72 ms and 5 frame(s); over the band: none; last 5: 33.4, 15.8, 9.1, 8.3, 8.3 ms
+- beit_sahwan_outskirts||mbt_lavi_z1: step(1) advances the FX clock by 13.90 ms.
+- beit_sahwan_outskirts||collapse_house: settle reached 5 frames <= 150 ms after 70 ms and 5 frame(s); over the band: none; last 5: 24.1, 17.5, 8.4, 8.3, 8.3 ms
+- beit_sahwan_outskirts||collapse_house: step(1) advances the FX clock by 110.80 ms.
 - collapse_house: structure 5 levelled by `debugDestroyStructure`, 10 hostile(s) within 14 tiles taken off the field first

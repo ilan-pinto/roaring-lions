@@ -227,7 +227,7 @@ The ladder as authored. Light, shake amplitude and hit-stop are multiplied by th
 
 | Event | Light | Shake | Hit-stop |
 |---|---|---|---|
-| building collapse (3x3+ footprint, power 1) | 4.5, r 9, at roof height | 12 px / 520 ms | 90 ms |
+| building collapse (3x3+ footprint, power 1) | 7.0, r 9, on the street outside the camera-facing corner, plus the `collapse_flash` burst drawn through the shroud | 12 px / 520 ms | 90 ms |
 | vehicle kill (3000 hp, power 1) | 3.5 (unchanged) | 9 px (unchanged) | 70 ms (unchanged) |
 | shell landing (Grad, 0.45) | 4.2 × 0.45 = 1.89 (mortar 1.26) | 2.25 px | 18 ms |
 | muzzle flash (one shot) | 1.8: APFSDS 1.8, or a tube's 1.0 + backblast 0.8 | none | none |
@@ -247,7 +247,7 @@ The order is held by `three/fx-ladder.test.ts`, through the renderer's own scali
   - A building collapse, a "major event" by the plan's tiers, authors no light, shake or hit-stop, so it ranks below a mortar round.
   - The APFSDS muzzle authors more light (3.8) than a vehicle kill (3.5).
 
-  **Resolved** (fx ladder, lead ruling 2026-10-08: collapse > vehicle kill > shell landing > muzzle flash, for light, shake and hit-stop): see the table above. The collapse reads its new blocks through the kill's own three calls. Measured in `docs/polish/fx-ladder/` (`pnpm blast:capture`, Metal): the collapse holds a 90 ms freeze and peaks at 9.8 px of shake against the kill's 8.0, and the mortar's blast-light toggle went 13684 → 30319 px. The collapse's LIGHT is ranked but reads weakly on screen (737 px against the kill's 44282 at 200 ms): the building and its unlit shroud cover the ground it would light. A lead question, not a number.
+  **Resolved** (fx ladder, lead ruling 2026-10-08: collapse > vehicle kill > shell landing > muzzle flash, for light, shake and hit-stop): see the table above. The collapse reads its new blocks through the kill's own three calls. Measured in `docs/polish/fx-ladder/` (`pnpm blast:capture`, Metal): the collapse holds a 90 ms freeze and peaks at 9.8 px of shake against the kill's 8.0, and the mortar's blast-light toggle went 13684 → 30319 px. Lead ruling on #460 ("make the flash read"): the collapse light moved from the roof to street level outside the +X/+Z corner, rose 4.5 → 7.0, and a brief `collapse_flash` burst (palette keys only, the pooled burst mesh) draws at `COLLAPSE_FLASH_RENDER_ORDER` 5.5, through the band-5 shroud. On the blast-light toggle at 200 ms, same zoom-1 framing: collapse 13244 px / 4.2412 against the Lavi kill's 7259 px / 2.8071 (`mbt_lavi_z1`). On the roof it read 737 px, and on the pad 593.
 - **VR-23. Shake on every firing emitter is dead data.** `fire_apfsds` authors 8 px, `fire_heat` 3, `fire_mortar` 2 and `fire_autocannon` 1.5. The fire path reads only their light (TR:4374-4383). Only three call sites push shake: kill, shell and missile. `screen_shake` in `vfx_emitter.schema.json` reads as a feature that every emitter has. **Resolved** (fx ladder): the four values are deleted, the schema describes `screen_shake` as a blast-only block read on four events, and `fx-ladder.test.ts` fails any `weapon_fire` emitter that authors one.
 
 ---
@@ -447,7 +447,7 @@ Numbers from #354 (`units/readability.ts`, `units/selection-ring.ts`):
 | VR-14 | stale icon pipeline in CLAUDE.md | `CLAUDE.md` | doc |
 | VR-15 | lightning audio glyph | menu, strip | PA-30 |
 | VR-16–21 | type: mono prose, display prose, faux bold, garage scale, button case, back buttons | `theme.css`, settings/saves/credits/loading | PA-22, one register pass |
-| VR-22–23 | effects ladder inverted; dead shake | `data/vfx/*.json`, TR | **resolved** (fx ladder); collapse light on screen is a lead question |
+| VR-22–23 | effects ladder inverted; dead shake | `data/vfx/*.json`, TR | **resolved** (fx ladder) |
 | VR-24–31 | chrome: bands, credits colour, selected, disabled, focus, raw spacing and timing, halos, shared tokens | `theme.css`, `panel()` callers | **resolved** (chrome register, with VR-20) |
 | VR-32–38 | world language: lime overload, move colour, garrison ring, halos, minimap, tier/tone, dead marks | OV, TR, `minimap.ts`, `alerts.ts` | lead for meaning; VR-34, VR-35, VR-38 resolved; VR-33 a lead question |
 
