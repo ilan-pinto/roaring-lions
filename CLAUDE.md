@@ -207,6 +207,18 @@ The combat model is the product. Everything else is scaffolding around it.
   `?telemetry` -- never from `pnpm dev`, tests or CI, because `pnpm ui:routes` fails on any
   console error. `?tester=<name>` labels a tester, `?notrack` opts out (persisted). Results
   are read from the terminal with `packages/worker/QUERIES.sql` (`npx wrangler d1 execute roaring-lions-telemetry --remote --file ...`), still available as an alternative; `/stats` is behind a password set with `npx wrangler secret put STATS_PASSWORD` -- make it long and random (e.g. `openssl rand -base64 24`), not a memorised phrase, since a captured session cookie hands over the signing key too -- and answers 403 until that secret is set. Spec: `docs/superpowers/specs/2026-09-24-telemetry-design.md`.
+- **In-game feedback (GH-464) is a PUBLIC write endpoint**, open to every player in v1 by the
+  lead's ruling. `POST /api/feedback` (multipart: `meta` JSON against
+  `data/schemas/feedback.schema.json`, whose Worker twin is `packages/worker/src/feedback-meta.ts`;
+  optional `shot` WebP/JPEG to R2 `FEEDBACK_BLOBS`; optional `replay` JSON, bugs only) answers
+  201 with a `FB-0042` reference, and is capped, origin-checked and rate-limited per IP, session,
+  player and globally. **The kill switch needs no app deploy**: the "Close feedback" button on
+  `/stats/feedback` (a D1 `flags` row), or `npx wrangler secret put FEEDBACK_CLOSED`; either
+  makes POST answer 410 and `GET /api/feedback` answer `{"open":false}`. Triage, the session
+  timeline and the prefilled GitHub issue URL (never a token, never the tester's name or
+  contact) live at `/stats/feedback`. A daily cron purges pictures, replays and contacts after
+  180 days. Spec: `docs/superpowers/specs/2026-10-08-in-game-feedback-design.md`, section
+  "Server contract as built".
 
 - **The shell is on a router, and the screens are PATHS**
   (`packages/app/src/shell/router.ts`, Phase 1): `/` the menu, `/campaign` the
