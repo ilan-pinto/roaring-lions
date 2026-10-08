@@ -1125,7 +1125,7 @@ export class Hud {
   /** Mirror the audio state the `m` key just changed. */
   paintMute(): void {
     const muted = this.deps.isMuted?.() ?? false;
-    // GH-261: the APP-6 signals bolt, struck through for radio silence.
+    // VR-15: a speaker, struck through when muted (the GH-261 bolt read as power).
     this.muteChip.innerHTML = symbolSvg(muted ? 'audioOff' : 'audioOn', STRIP_GLYPH_PX);
     this.muteChip.title = muted ? t('hud.mute.muted') : t('hud.mute.unmuted');
     this.muteChip.setAttribute('aria-label', this.muteChip.title);
@@ -2156,6 +2156,8 @@ export class Hud {
     const hpNow = fx.toNumber(st.hp[id]);
     const hpMax = fx.toNumber(type.hp);
     const hpPct = hpMax > 0 ? Math.max(0, hpNow / hpMax) : 0;
+    // VR-03: the player's own unit never reads its health in the enemy red.
+    const own = st.side[id] === 0;
     const vet = st.veterancy[id];
     const bucket = roleBucket(type);
     // The kit (WP-S3g §3.4): side 0 only -- an enemy's kit is not the player's
@@ -2296,14 +2298,14 @@ export class Hud {
       (vet > 0 ? `<span class="rl-commend">${'★'.repeat(vet)}</span>` : '') +
       (kitted ? `<span class="rl-card__kit">${kitPipsHtml(kit.pips)}</span>` : '') +
       `<span class="rl-card__hp rl-dim">` +
-      (hpSay !== null ? `<span class="${hpSay === 'critical' ? 'rl-bad-text' : 'rl-warn'}">${t(hpSay === 'critical' ? 'hud.hp.critical' : 'hud.hp.damaged')}</span> · ` : '') +
+      (hpSay !== null ? `<span class="${hpSay === 'critical' && !own ? 'rl-bad-text' : 'rl-warn'}">${t(hpSay === 'critical' ? 'hud.hp.critical' : 'hud.hp.damaged')}</span> · ` : '') +
       `${t('hud.card.hp', { now: hpNow.toFixed(0), max: hpMax.toFixed(0) })}` +
       (kitted && kit.hpKit > 0 ? ` · ${t('hud.card.kit', { n: kit.hpKit })}` : '') +
       `</span>` +
       `</div>` +
       record +
       replaces +
-      `<div class="rl-track"><i class="rl-fill-${hpTone(hpPct)}" ` +
+      `<div class="rl-track"><i class="rl-fill-${hpTone(hpPct, own)}" ` +
       `style="width:${(hpPct * 100).toFixed(0)}%"></i></div>` +
       `<div class="rl-card__cond">${flags.length > 0 ? flags.join(' · ') : t('hud.card.holdingPosition')}</div>` +
       (why.length > 0 ? `<div class="rl-card__why">${why.join(' · ')}</div>` : '') +

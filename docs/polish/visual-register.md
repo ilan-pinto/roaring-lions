@@ -51,8 +51,10 @@ Paths are relative to the repository root. `TR` means `packages/render/src/three
 **Inconsistencies**
 
 - **VR-01. A mid-mission colour-vision change splits the screen.** The HUD tokens change at once, but the world, the minimap dots and the minimap chrome keep the boot colours until the next mission. The settings hint says so. Until then, a `--warn` feed line and a neutral ring can be two different yellows. Files: `theme.css:303-333`, `renderer-options.ts:43`, `ui/minimap.ts:669`.
+  - **Resolved (8 Oct, lead: re-resolve on change):** a colour-vision change now re-colours the world and the minimap in the same instant as the HUD. `Renderer.setTeamColors` (`api.ts`) swaps the backend's `teamColors`/`resolveColor` and re-colours what baked a team colour (the three silhouette materials, the hit-flash outline, the proxy boxes); `Minimap.setTeamColors` re-colours the dots and re-reads the chrome; `bindLiveTeamColors` (`packages/app/src/live-team-colors.ts`) drives both from the settings bus and is unsubscribed by the battlefield disposer. The settings hint no longer says "from the next mission". Evidence: `docs/polish/colour-meaning/02-*`.
 - **VR-02. A side above 2 has no single colour.** The silhouette maps it to hostile (`units/silhouette.ts:351`). The minimap gives it `teamColors[2]` with a circle (`minimap.ts:1030`). Contact marks skip it (TR:8103). Rings read `teamColors[side]`, which is undefined there (TR:7624). No shipped mission fields side 3 today.
 - **VR-03. Hostile red also means "low health" on a friendly unit.** The world HP bar fills `team.hostile` below 25% on every side (OV:126), as does the structure integrity bar (OV:323). A dying KDF squad wears enemy red over its head. The HUD does the same (`hpTone`, `ui/selection-model.ts:220`, then `--bad`).
+  - **Resolved (8 Oct, lead: friendly low health is amber):** `hpBarColorKey`, `buildingIntegrityColorKey` and `hpTone` take whose unit it is. The player's own unit (and a building side 0 holds or produces from) stays on the warn key however low; hostile and neutral keep the red tier. The card's "critical" word follows. The HUD chip/card track fill had never shown its tone -- `.rl-track > i` (`--live`) outranked `.rl-fill-*` on specificity -- and was ruled a bug: the tone rules are now `.rl-track > i.rl-fill-*`, `good` keeps the lime default (`track-tone.test.ts`). Evidence: `docs/polish/colour-meaning/01-*`.
 - **VR-04. Neutral yellow carries at least nine meanings:**
   - civilians (ring, outline, minimap)
   - HP mid and integrity mid
@@ -158,6 +160,7 @@ Owned by `packages/render/src/three/lighting.ts` and `time-of-day.ts`. Pinned in
 - **VR-13. The kit glyphs are still placeholders.** `ui/kit-sign.ts` says the S3e symbol family "is not drawn yet" and that its four glyphs are placeholders. `ui/symbol.ts` says the G1 sheet is approved and ported. Either the kit glyphs never joined the approved family, or the comment is stale. The four SVGs in `assets/ui/kit/` are outside the `symbol.ts` geometry rules.
 - **VR-14. CLAUDE.md still describes the retired icon pipeline**, `assets/ui/icons/units/<SHEET>.png` via `pnpm icons:units`. That directory and that script no longer exist (`ui/portrait.ts:11-15` records the change). **Already resolved on main:** CLAUDE.md "A unit" and the sprite-renderers bullet name the Blender portrait pipeline, and nothing in it refers to `pnpm icons:units` except to say it is gone.
 - **VR-15. The audio toggle uses a lightning glyph** on the menu and the strip (PA-30), which reads as power or charge, not sound.
+  - **Resolved (8 Oct):** a speaker with two waves, in the G1 sheet's rules (`symbol.ts`, filled, one weight, 24-box); muted is the silent speaker struck through, its body cut either side of the slash. Evidence: `docs/polish/colour-meaning/03-audio-toggle-before-after.png`.
 
 ---
 
@@ -417,9 +420,9 @@ Numbers from #354 (`units/readability.ts`, `units/selection-ring.ts`):
 
 | ID | Area | Files | Needs |
 |---|---|---|---|
-| VR-01 | CVD live vs boot | `theme.css`, `renderer-options.ts`, `minimap.ts` | lead: accept, or re-resolve on change |
+| VR-01 | CVD live vs boot | `theme.css`, `renderer-options.ts`, `minimap.ts` | **resolved** (re-resolve on change) |
 | VR-02 | side > 2 colour | `silhouette.ts`, `minimap.ts`, TR | latent; no shipped content |
-| VR-03 | hostile red as low HP | OV, `selection-model.ts` | lead |
+| VR-03 | hostile red as low HP | OV, `selection-model.ts` | **resolved** (friendly = warn; HUD track tone now applies) |
 | VR-04 | neutral yellow ×9 | OV, `theme.css`, `minimap.ts`, `order-sight.ts` | lead |
 | VR-05 | olive hulls and olive foliage | `palette.json`, `terrain-themes.ts` | lead (GH-346 lineage) |
 | VR-06 | uncurated `grass.0` in UI | `order-sight.ts` | small |
@@ -430,7 +433,7 @@ Numbers from #354 (`units/readability.ts`, `units/selection-ring.ts`):
 | VR-12 | hit flash always hostile | TR | small |
 | VR-13 | kit glyph placeholders vs G1 | `kit-sign.ts`, `assets/ui/kit` | lead (D8 addendum) |
 | VR-14 | stale icon pipeline in CLAUDE.md | `CLAUDE.md` | doc |
-| VR-15 | lightning audio glyph | menu, strip | PA-30 |
+| VR-15 | lightning audio glyph | menu, strip | **resolved** (speaker) |
 | VR-16–21 | type: mono prose, display prose, faux bold, garage scale, button case, back buttons | `theme.css`, settings/saves/credits/loading | PA-22, one register pass |
 | VR-22–23 | effects ladder inverted; dead shake | `data/vfx/*.json`, TR | lead (C3) |
 | VR-24–31 | chrome: bands, credits colour, selected, disabled, focus, raw spacing and timing, halos, shared tokens | `theme.css`, `panel()` callers | **resolved** (chrome register, with VR-20) |

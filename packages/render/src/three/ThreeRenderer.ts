@@ -2176,7 +2176,9 @@ export class ThreeRenderer implements Renderer {
 
   constructor(
     private readonly sim: Sim,
-    private readonly opts: RendererOptions
+    // Not `readonly` since VR-01: `setTeamColors` swaps in a copy carrying a
+    // colour-vision variant's `teamColors`/`resolveColor` mid-mission.
+    private opts: RendererOptions
   ) {
     // FIRST, before any loader can be built: every shipped GLB carries
     // `KHR_draco_mesh_compression` (level load time, step 4), and a
@@ -7930,6 +7932,32 @@ export class ThreeRenderer implements Renderer {
     }
   }
 
+  /**
+   * VR-01: a colour-vision change reaches the world mid-mission. Everything
+   * drawn per frame (rings, contact marks, HP bars, badges, range fills, the
+   * garrison house) already reads `this.opts.teamColors` /
+   * `this.overlayColor` every frame, so swapping the options is the whole of
+   * it for those. What follows is the short list of things that BAKED a team
+   * colour when they were built, and each is re-coloured in place -- nothing
+   * is rebuilt, so this costs no draw call and no allocation beyond the
+   * options copy:
+   *
+   * - the three shared occlusion-silhouette materials (one per side);
+   * - the hit-flash outline material, once it exists;
+   * - the proxy boxes' per-side instance colours, once they exist.
+   *
+   * A copy rather than a write into `this.opts`: that object is the app's,
+   * and the minimap was handed its `teamColors` array by reference.
+   */
+  setTeamColors(teamColors: [string, string, string], resolveColor: (paletteKey: string) => string): void {
+    this.opts = { ...this.opts, teamColors, resolveColor };
+    SILHOUETTE_COLOR_KEY_BY_SIDE.forEach((key, slot) => {
+      this.silhouetteMeshMaterials[slot].color.set(this.overlayColor(key, SILHOUETTE_FALLBACK_HEX_BY_SIDE[slot]));
+    });
+    if (this.fireLinkFlashMaterial !== null) this.fireLinkFlashMaterial.color.set(teamColors[1]);
+    this.proxyBoxes?.setTeamColors(teamColors);
+  }
+
   /** `flash`: the occlusion outline's own material with NO depth test, so
    *  the outline shows whether the target stands in the open or behind a
    *  wall. The first cut used an ordinary depth test, and a target behind a
@@ -8251,7 +8279,7 @@ export class ThreeRenderer implements Renderer {
             top,
             -halfW + HP_BAR.widthPx * hpRatio,
             bottom,
-            this.overlayColor(hpBarColorKey(hpRatio), HP_BAR_FALLBACK),
+            this.overlayColor(hpBarColorKey(hpRatio, side === 0), HP_BAR_FALLBACK),
             1
           );
         }
@@ -8373,6 +8401,21 @@ export class ThreeRenderer implements Renderer {
         // Integrity bar -- renderer.ts: `g.rect(bx - 16, top, 32, 4)` (bg)
         // then the same rect scaled by `ratio` (fill), only once damaged.
         const ratio = str.maxHp[s] > 0 ? str.hp[s] / str.maxHp[s] : 1;
+        // Whose side the building is on, read ONCE for both the integrity bar
+        // (VR-03: the player's own never fills enemy red) and the held badge
+        // below: the first living occupant's side, else hostile -- the badge's
+        // own long-standing default.
+        const occ = str.occupants[s];
+        let holder = 1;
+        if (occ > 0) {
+          for (let i = 0; i < n; i++) {
+            if (st.alive[i] === 1 && st.garrisonedIn[i] === s) {
+              holder = st.side[i];
+              break;
+            }
+          }
+        }
+        const friendlyStructure = (occ > 0 && holder === 0) || stype.producesFor === 0;
         if (ratio < 0.999) {
           this.overlayBatch.rect(
             structAnchor,
@@ -8389,7 +8432,7 @@ export class ThreeRenderer implements Renderer {
             -topUp,
             -16 + 32 * Math.max(0, ratio),
             -topUp + 4,
-            this.overlayColor(buildingIntegrityColorKey(ratio), BUILDING_BAR_FALLBACK),
+            this.overlayColor(buildingIntegrityColorKey(ratio, friendlyStructure), BUILDING_BAR_FALLBACK),
             1
           );
         }
@@ -8400,16 +8443,8 @@ export class ThreeRenderer implements Renderer {
         // ALREADY-RESOLVED hex per side (the app's own job), the identical
         // source every other team-coloured overlay already reads from --
         // not a palette-key lookup at this call site.
-        const occ = str.occupants[s];
         if (occ > 0) {
-          let side = 1;
-          for (let i = 0; i < n; i++) {
-            if (st.alive[i] === 1 && st.garrisonedIn[i] === s) {
-              side = st.side[i];
-              break;
-            }
-          }
-          const col = this.opts.teamColors[side];
+          const col = this.opts.teamColors[holder];
           const by2Rel = -(topUp + 16); // Pixi's `by2 = top - 16`
           this.overlayBatch.triangle(
             structAnchor,
