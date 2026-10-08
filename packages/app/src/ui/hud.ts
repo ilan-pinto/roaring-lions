@@ -1125,7 +1125,7 @@ export class Hud {
   /** Mirror the audio state the `m` key just changed. */
   paintMute(): void {
     const muted = this.deps.isMuted?.() ?? false;
-    // GH-261: the APP-6 signals bolt, struck through for radio silence.
+    // VR-15: a speaker, struck through when muted (the GH-261 bolt read as power).
     this.muteChip.innerHTML = symbolSvg(muted ? 'audioOff' : 'audioOn', STRIP_GLYPH_PX);
     this.muteChip.title = muted ? t('hud.mute.muted') : t('hud.mute.unmuted');
     this.muteChip.setAttribute('aria-label', this.muteChip.title);

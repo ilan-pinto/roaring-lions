@@ -2599,13 +2599,21 @@ describe('GH-261 drawn marks', () => {
     expect(mark(next)).toBe('pageNext');
   });
 
-  it('draws the mute chip as the signals bolt, struck through when muted', () => {
+  it('draws the mute chip as a speaker, struck through when muted (VR-15)', () => {
     let muted = false;
     const r = rig(mission(), { isMuted: () => muted, toggleMute: () => void (muted = !muted) });
     const chip = r.host.querySelectorAll<HTMLButtonElement>('.rl-strip__chip')[3];
     expect(mark(chip)).toBe('audioOn');
+    // The speaker's outline as a LITERAL, and two arc-drawn waves; the bolt
+    // it replaced read as power, not sound.
+    expect(chip.innerHTML).toContain('d="M2 8.5 L7 8.5 L12.5 3.5 L12.5 20.5 L7 15.5 L2 15.5 Z"');
+    expect(chip.innerHTML.match(/ A/g)?.length).toBe(4);
+    expect(chip.innerHTML).not.toContain('M15 1.5 L5 13.5');
     chip.click();
     expect(mark(chip)).toBe('audioOff');
+    // Silent: no waves, and the body cut by the slash.
+    expect(chip.innerHTML).not.toContain(' A');
+    expect(chip.innerHTML).not.toContain('M2 8.5 L7 8.5 L12.5 3.5 L12.5 20.5 L7 15.5 L2 15.5 Z');
     expect(chip.textContent).not.toMatch(/🔇|🔊/);
   });
 
