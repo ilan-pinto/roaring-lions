@@ -12,7 +12,7 @@
  * street and hid the ground up-screen of it (`tools/src/map_visibility.ts`,
  * GH-416). This module is the rule that scales a mesh to its plot.
  *
- * The shipped rule, `stretch`, in four clauses:
+ * The shipped rule, `stretch`, in five clauses:
  *
  * 1. SHRINK ONLY. No axis grows past the shipped size (scale <= 1). A mesh
  *    smaller than its plot (`concrete`: 1.20 x 1.77 on a 2x2 or 3x3) stays
@@ -23,10 +23,9 @@
  *    (`clamped`, at most 1.25x between the two plan scales) knowing it
  *    widens some textured facades: measured over the 512 non-run structures
  *    on the 26 campaign maps, `stretch` covers 84.8% of the plot on average
- *    against 75.5% clamped and 66.9% uniform. With the height floor below,
- *    258 of those 512 distort past 1.25x (`fitDistortion`); the worst sit on
- *    one-tile-deep plots -- a warehouse on a 4x1 at 4.0x, houses on a 7x1 and
- *    a 4x1 at 3.7x and 3.5x (PR #444's close-ups).
+ *    against 75.5% clamped and 66.9% uniform. Uncapped, with the floor below,
+ *    the worst sat on one-tile-deep plots -- a warehouse on a 4x1 at 4.0x,
+ *    houses on a 7x1 and a 4x1 at 3.7x and 3.5x (PR #444) -- hence clause 5.
  *
  * 3. HEIGHT FOLLOWS THE SMALLER PLAN SCALE, so the vertical proportions
  *    match the less-stretched facade. Height is what hides the fight.
@@ -36,6 +35,15 @@
  *    it, a warehouse on a 2x1 plot drew 0.35 world units tall -- shorter
  *    than the 0.56 rifleman standing beside it -- and 129 of 251 sheds drew
  *    at or under 1.0. The floor stretches those vertically instead.
+ *
+ * 5. ...AND NO FACADE IS STRETCHED PAST `FIT_MAX_DISTORTION` (2x; lead ruling
+ *    8 Oct). After the floor, each plan axis is clamped to at most 2x the
+ *    smallest of the three scales, so the largest-over-smallest ratio
+ *    (`fitDistortion`) is at most 2 -- unless the FLOOR itself is what is
+ *    more than 2x a plan axis (a warehouse on a one-tile-deep plot), which no
+ *    plan clamp can cure. Those plots were re-authored instead, and
+ *    `tools/src/building_fit_census.test.ts` holds every campaign building
+ *    to 2.0.
  *
  * A per-tile RUN (wall, fence) is never fitted: it turns a quarter to follow
  * its neighbours, is one tile by construction, and already fits it.
@@ -51,6 +59,10 @@
 
 /** `clamped` only: the larger plan scale may exceed the smaller by at most this. */
 export const FIT_MAX_ANISOTROPY = 1.25;
+
+/** `stretch`: no axis scale may exceed the smallest of the three by more
+ *  than this (lead ruling 8 Oct). */
+export const FIT_MAX_DISTORTION = 2;
 
 /**
  * The lowest a fitted building draws, world units (one tile = 3 m). The
@@ -82,7 +94,7 @@ const UNIT: FitScale = { sx: 1, sy: 1, sz: 1 };
  * `footW` x `footD` footprint bounding box.
  *
  * - `stretch` (the default): plan fills the plot, height follows the smaller
- *   plan scale.
+ *   plan scale, no axis past `FIT_MAX_DISTORTION` x the smallest.
  * - `clamped`: as `stretch`, the plan anisotropy capped at 1.25x.
  * - `uniform`: one plan scale on both axes, the largest that fits.
  *
@@ -106,7 +118,13 @@ export function buildingFitScale(
   const floor = meshH > 0 ? Math.min(1, MIN_BUILDING_HEIGHT / meshH) : 0;
   const sy = Math.max(lo, floor);
   if (fit === 'uniform') return { sx: lo, sy, sz: lo };
-  const cap = fit === 'clamped' ? lo * FIT_MAX_ANISOTROPY : Infinity;
+  if (fit === 'clamped') {
+    const cap = lo * FIT_MAX_ANISOTROPY;
+    return { sx: Math.min(ax, cap), sy, sz: Math.min(az, cap) };
+  }
+  // stretch: the plan fills the plot, but no axis runs past 2x the smallest
+  // scale (the smaller plan axis or the height, whichever is less).
+  const cap = Math.min(lo, sy) * FIT_MAX_DISTORTION;
   return { sx: Math.min(ax, cap), sy, sz: Math.min(az, cap) };
 }
 

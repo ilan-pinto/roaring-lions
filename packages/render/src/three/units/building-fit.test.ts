@@ -32,6 +32,17 @@ describe('buildingFitScale', () => {
     expect(s.sy).toBeCloseTo(2 / 3.71, 6);
   });
 
+  it('stretch never distorts past 2x when a plan axis is what runs long (a house on a 7x1)', () => {
+    const s = buildingFitScale(...HOUSE, 7, 1, 'stretch');
+    // Uncapped: sx 1, sz 1/3.71 = 0.270 -> 3.7x. Capped: sx = 2 x 0.270.
+    expect(fitDistortion(s)).toBeCloseTo(2, 6);
+    expect(4.26 * s.sx).toBeCloseTo((2 * 4.26) / 3.71, 6);
+    for (let fw = 1; fw <= 8; fw++)
+      for (let fd = 1; fd <= 8; fd++)
+        for (const [mw, md, mh] of [HOUSE, APARTMENT])
+          expect(fitDistortion(buildingFitScale(mw, md, mh, fw, fd, 'stretch'))).toBeLessThanOrEqual(2 + 1e-9);
+  });
+
   it('nothing fitted draws under 1.2 world units, over its shipped height, or off its plot', () => {
     for (const [mw, md, mh] of [HOUSE, APARTMENT, WAREHOUSE])
       for (let fw = 1; fw <= 6; fw++)
@@ -45,10 +56,12 @@ describe('buildingFitScale', () => {
           }
   });
 
-  it('the floor is what keeps a warehouse on a 2x1 taller than a rifleman (0.56)', () => {
+  it('the floor keeps a warehouse on a 2x1 taller than a rifleman (0.56), and no clamp can cure that plot', () => {
     const s = buildingFitScale(...WAREHOUSE, 2, 1, 'stretch');
     // Without the floor: min(2/4, 1/4) = 0.25 -> 0.35 world units.
     expect(1.4 * s.sy).toBeCloseTo(1.2, 6);
+    // The FLOOR is 3.4x the depth scale: the one case clause 5 leaves to the
+    // map author (building_fit_census.test.ts keeps every campaign plot <= 2).
     expect(fitDistortion(s)).toBeCloseTo(1.2 / 1.4 / 0.25, 5);
   });
 

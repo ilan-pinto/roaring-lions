@@ -605,9 +605,15 @@ Which gives four authoring rules:
    `p`) are what a town is mostly made of.
 3. **The footprint is the building's size.** A small plot draws a small building (down to
    the 1.2-unit floor), a plot at least the mesh's size draws it as shipped. A long, thin
-   plot distorts it: 258 of the 512 campaign buildings stretch past 1.25×, and a one-tile-deep
-   plot is the worst case (a warehouse on a 4×1 is 4.0×, a house on a 7×1 3.7×). Give a
-   building a plot near its own shape — every building ships a photographed facade.
+   plot stretches it, and the fit stops at **2×** (no axis scale more than twice the
+   smallest; lead ruling 8 Oct) by drawing the building shorter than its plot along the long
+   side. The one plot the cap cannot cure is a **warehouse (or hall, or clinic) one tile
+   deep**: its 1.2-unit height floor is more than twice its depth scale.
+   `tools/src/building_fit_census.test.ts` fails on any such plot on any shipped map, and the
+   five that were (QH III's 4×1 and 2×1 warehouses, KR II's 3×1 warehouse and 7×1 house,
+   UZ IV's 4×1 house) were re-authored on the same tiles as rows of single-tile sheds,
+   pump houses and houses. Give a building a plot near its own shape — every building ships a
+   photographed facade.
 4. **Measure before the PR**, with the table above. Nothing here is visible by eye on a
    48×48 grid.
 
@@ -629,6 +635,6 @@ day one clears the floor and asks for its entry to be deleted):
   shanty town; its ratchet is its fitted reading.
 
 **Fitting the buildings (PR #444, lead ruling 7 Oct)** was the renderer change this section
-left open. With no map edit it took `qarn_hadid_3` from 80.6% to 93.4% and `wadi_halam_5` from
-80.6% to 88.0%, so both exemptions are gone, and every other campaign map reads 90.5% or
-better. `npx tsx tools/src/map_visibility.ts --fit=off` still measures the old shipped size.
+left open. With no map edit it took `wadi_halam_5` from 80.6% to 88.0% and `qarn_hadid_3` from
+80.6% to 93.4% (94.0% once its warehouse row was re-authored), so both exemptions are gone, and
+every other campaign map reads 90.5% or better. `npx tsx tools/src/map_visibility.ts --fit=off` still measures the old shipped size.
