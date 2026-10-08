@@ -3131,6 +3131,17 @@ body {
   background: var(--panel-bg-solid);
   border: 1px solid var(--panel-frame); /* px-ok */
 }
+/* K-17: the small-screen notice is the same card on a phone-width scrim, so it
+   keeps a gutter either side and a tighter pad and title than the full-width
+   failure card (the approved mock's measurements). */
+.rl-small-screen .rl-boot-error {
+  box-sizing: border-box;
+  width: min(40rem, calc(100vw - 2 * var(--s3)));
+  padding: var(--s4);
+}
+.rl-small-screen .rl-boot-error__title {
+  font-size: var(--t-l);
+}
 .rl-boot-error__title {
   margin: 0 0 var(--s3);
   font-family: var(--font-display);

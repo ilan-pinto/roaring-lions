@@ -24,6 +24,11 @@
   "boot.failed.interrupted.body": "The browser took the game's graphics away, which can happen when the graphics card resets or the computer runs short of memory. The battle is on hold and cannot be drawn.",
   "boot.failed.interrupted.next": "Reload to start this mission again. This attempt is lost, and your campaign is kept on this device.",
   "boot.failed.reload": "Reload",
+  "smallScreen.title": "Best on a larger screen",
+  "smallScreen.body": "Roaring Lions is played with a mouse on a wide screen. Held upright, a phone cannot fit the command strip or the feed.",
+  "smallScreen.next": "Rotate your device, or open the game on a computer. You can carry on here, but part of the screen stays cut off.",
+  "smallScreen.keep": "Carry on anyway",
+  "smallScreen.menu": "Main menu",
 
   "settings.title": "Settings",
   "settings.video": "Video",
