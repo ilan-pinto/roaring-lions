@@ -238,6 +238,12 @@ jobs:
       # duration.
       - name: one realm, no reload -- the router's own walk
         run: pnpm ui:routes
+      # GH-469. What one realm holds at the menu, the campaign board and the
+      # three heaviest missions after two minutes of sim time each, and
+      # whether leaving a mission (softly, through the router) gives it back.
+      # Its own dev server on :5179. CALIBRATION RUN: report only, no --gate.
+      - name: memory -- the walk, and the leave
+        run: pnpm perf:memory -- --port=5179 --out=visual-baseline-output/memory.json
       # Uploaded on failure AND on success: the diff image is what a triager
       # actually needs, and `combat` is captured but never gated, so its frame
       # is only ever reachable here.
