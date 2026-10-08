@@ -83,16 +83,18 @@ export type SightOrderId = 'move' | 'attackMove' | 'halt' | 'smoke' | 'load' | '
 export type OrderFamily = 'manoeuvre' | 'offensive' | 'control' | 'obscurant' | 'transport';
 
 /**
- * Each order family's own colour, as a `data/palette.json` KEY -- the ONE
- * table both ends of an order read (VR-33). The cursor draws its sight's
- * `main` from it (`ORDER_SIGHT` below), and the route and order marker the
- * order leaves on the ground draw from it too (`input/order-family.ts` hands
- * the key to `Renderer.setRouteColorKey`/`addOrderMarker`). Before it, a move
- * order was cyan as a cursor and tracer lime on the ground. The values are
- * round 5's approved family colours, unchanged: no new colour came with this.
+ * Each order family's own cursor colour, as a `data/palette.json` KEY -- the
+ * one table `ORDER_SIGHT`'s `main` is drawn from. Round 5's approved family
+ * colours, with one change (VR-33, the lead's "lime everywhere" ruling on
+ * PR 457): manoeuvre is tracer lime, not `vfx.interceptor` cyan, so the move
+ * cursor wears the colour of the route and marker it leaves on the ground
+ * (`@lions/render`'s `ORDER_GROUND_COLOR_KEY`, lime for every order -- cyan
+ * and red were tried on the ground and read too faint on sand).
+ * `order-sight.test.ts` holds manoeuvre equal to the ground key. Sweep shares
+ * the family, so its cursor is lime too; transport was already lime.
  */
 export const ORDER_FAMILY_COLOR_KEY: Readonly<Record<OrderFamily, string>> = {
-  manoeuvre: 'vfx.interceptor',
+  manoeuvre: 'vfx.tracer',
   offensive: 'team.hostile_text',
   control: 'team.neutral',
   obscurant: 'limestone.0',

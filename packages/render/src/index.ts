@@ -21,6 +21,9 @@ export type { RendererOptions, TerrainTones, TerrainScatter, OpenScatter, GroveF
 // to translate `Settings.video.quality` into `RendererOptions.quality`
 // before the renderer's chunk has loaded.
 export { QUALITY_PRESETS, type RenderQuality } from './quality';
+// VR-33: the ground colour of every order's route and marker -- backend-
+// neutral (zero imports), read by the app's cursor-agreement test.
+export { ORDER_GROUND_COLOR_KEY } from './order-ground';
 export { DebugOverlay } from './overlay';
 // ThreeRenderer is deliberately NOT re-exported here. It lives behind its own
 // entry point, `@lions/render/three`, so that `import '@lions/render'` does
