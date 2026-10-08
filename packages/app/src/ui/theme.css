@@ -72,7 +72,9 @@
   --panel-frame: var(--rl-gunmetal-3);
   --panel-rule: color-mix(in srgb, var(--rl-gunmetal-3) 70%, transparent);
   --well: var(--rl-shadow-1);
-  /* For type that sits directly on the battlefield with no panel behind it. */
+  /* The dimming laid over the whole screen behind a modal (`.rl-confirm`,
+     `.rl-pause`, `.rl-keys`). Not a glyph halo: that is --type-shadow, through
+     the one --halo token (VR-30). */
   --scrim: var(--rl-shadow-2);
   /* The halo the floating HUD's unpanelled type is set in, and the dark bar of
      the commander's hatch. Deliberately shadow-0 and not --scrim: the halo has
@@ -208,7 +210,42 @@
   --order-obscurant: var(--rl-limestone-0);
   --order-transport: var(--rl-vfx-tracer);
   --friendly: var(--rl-team-kedem);
+  /* The INTERACTIVE colour, and nothing else (VR-31): hover, the focus ring,
+     the selected register below. It shares dust.0 with --commend (credits,
+     stars) and --mark-1 (the brand chevron), each declared on its own line
+     from the palette so a retune of one never moves the others; and since
+     VR-25 no price and no decorative label wears it, so a gold edge on a
+     control means "you can act here" and gold figures mean "earned". */
   --accent: var(--rl-dust-0);
+  /* A decorative display accent (the title card's subline, the garage's role
+     line). Its own name for VR-31: it was --accent, the interactive colour. */
+  --title-accent: var(--rl-dust-0);
+
+  /* --- the chrome register (VR-24..VR-31) ------------------------------- */
+  /* ONE "selected" for every pick-one-of-a-set control -- tabs, views,
+     shelves, cards, rows, the pause menu's tabs (VR-26): the edge in the
+     interactive colour, ink brought up to full, and this tint behind it.
+     The garage tabs already wore exactly this; the other five treatments
+     (lime, copper, steel, olive at 35% and at 45%) fold into it. */
+  --selected: var(--accent);
+  --selected-fill: color-mix(in srgb, var(--accent) 14%, transparent);
+  /* The one justified second register: ON, for a LIVE state of the running
+     mission (the strip's speed chip, an armed order button) -- lime, the
+     battlefield's own "armed" colour. A menu pick is selected, never on. */
+  --on: var(--live);
+  /* ONE disabled (VR-27): every control that cannot be used now dims to
+     this and shows `not-allowed`; nothing swaps its colours instead. 0.45 was
+     the base .rl-btn's own value and the most used of the four. */
+  --disabled-opacity: 0.45;
+  /* ONE legibility halo for type set straight on the battlefield or a scene
+     (VR-30): the --type-shadow tone, a tight core and a soft glow. The glow
+     is in em so a title gets a wider halo than a label from the same token,
+     and both are capped at the title card's old 3/18 so a hero title does
+     not drown in it. A label at --t-body reads the HUD's old 3/8. */
+  --halo: 0 0 min(0.25em, 0.1875rem) var(--type-shadow), 0 0 min(0.6em, 1.125rem) var(--type-shadow);
+  /* The brand wordmark's rule. Olive like the mission band, but its own name
+     (VR-24): a band colour ranks a panel and is not decoration. */
+  --wordmark-rule: var(--rl-olive-2);
 
   /* --- the mark ------------------------------------------------------- */
   /* Three chevrons sweeping darker: depth at menu size, one readable shape at
@@ -226,6 +263,14 @@
   --s4: 1rem;
   --s5: 1.5rem;
   --s6: 2rem;
+  /* Three half-rungs (VR-29), added because the sheet already spent each of
+     these values over and over by hand and no rung sits within 7% of them:
+     0.125rem (half of --s1), 0.375rem (between --s1 and --s2) and 0.625rem
+     (between --s2 and --s3). `chrome-register.test.ts` holds every raw
+     spacing length at least 7% off every rung, so a new one routes here. */
+  --s0: 0.125rem;
+  --s1h: 0.375rem;
+  --s2h: 0.625rem;
 
   /* The bottom edge is shared by three things: production on the left, the
      unit card on the right, and the notice stack in whatever is left. Naming
@@ -306,7 +351,28 @@
      timer that removes the poster is CROSSFADE_MS (ui/scene-host-model.ts),
      and scene-host.test.ts pins the two together. */
   --dur-host-reveal: 400ms;
+  /* The rest of the ladder (VR-29). Every duration in this sheet names a rung;
+     these were added only where no existing rung sat within 7% of a value the
+     sheet already used, and two are the CSS half of a JS timer that ends the
+     same animation (`garage-model.ts`: BAR_GROW_MS is --dur-long, STAMP_MS is
+     --dur-stamp; `brigade.ts`: ENLIST_MS is --dur-lift), which
+     `chrome-register.test.ts` pins together. --dur-stamp is the one rung
+     within 7% of another (--dur-slow, 250): it is the garage spec's own 240
+     (§6), and the JS timer that removes the stamp class runs on it. */
+  --dur-stamp: 240ms;
+  --dur-long: 300ms;
+  --dur-linger: 400ms;
+  --dur-spend: 600ms;
+  --dur-lift: 900ms;
+  --dur-pulse: 1s;
+  /* The step between items of a staggered entrance: a list, then the beats of
+     a briefing, which are read rather than scanned. */
+  --stagger: 60ms;
+  --stagger-beat: 140ms;
   --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+  /* Constant rate, for a fill that tracks a running quantity (a progress bar)
+     and a spinner. Everything else moves on --ease (VR-29). */
+  --ease-steady: linear;
 }
 
 /* --- colour-vision variants (Task 12) --------------------------------
@@ -570,7 +636,7 @@ body {
   stroke-width: 6;
   filter: drop-shadow(0 0 5px var(--map-live)) drop-shadow(0 0 12px var(--map-live));
 }
-.rl-world__town { transition: transform 120ms ease-out; }
+.rl-world__town { transition: transform var(--dur-fast) var(--ease); }
 /* Only a town you can actually open moves under the cursor. This used to be
    unqualified, so an `empty` or `locked` marker scaled exactly like a playable
    one -- the muted colour said "not available" and the motion said "press me".
@@ -714,7 +780,7 @@ body {
   /* A pin with no projected position yet is not drawn at all -- one parked in
      the top-left corner reads as a bug rather than as "still loading". */
   opacity: 0;
-  transition: opacity 160ms ease-out;
+  transition: opacity var(--dur) var(--ease);
 }
 .rl-world--3d .rl-world__town[data-placed='1'] { opacity: 1; }
 /* `[data-hover='1']` (Task 9, `worldmap3d.ts`) is the keyboard twin of
@@ -762,7 +828,7 @@ body {
   pointer-events: auto;
   /* Type sitting directly on the diorama, with no panel behind it: the same
      halo the floating HUD uses for the same reason. */
-  text-shadow: 0 0 3px var(--type-shadow), 0 0 8px var(--type-shadow);
+  text-shadow: var(--halo);
 }
 
 /* Rotation controls. Bottom-right of the stage, out of the board's own way
@@ -781,6 +847,7 @@ body {
   font-family: var(--font-display);
   font-size: var(--t-xs);
   letter-spacing: var(--track-label);
+  text-transform: uppercase;
   color: var(--ink);
   background: var(--panel-bg);
   border: 1px solid var(--panel-frame);
@@ -815,15 +882,15 @@ body {
   padding: var(--s2);
 }
 .rl-world__card[data-status='live'] { border-left-color: var(--map-live); }
-.rl-world__card[data-status='locked'] { border-left-color: var(--map-locked); opacity: 0.6; }
+.rl-world__card[data-status='locked'] { border-left-color: var(--map-locked); opacity: var(--disabled-opacity); }
 .rl-world__badge { font-size: var(--t-body); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-dim); }
 
 .rl-world__stars { color: var(--commend); font-family: var(--font-mono); }
 .rl-world__villain {
-  margin-top: 0.375rem;
+  margin-top: var(--s1h);
   display: grid;
   grid-template-columns: 2.5rem 1fr;
-  gap: 0.5rem;
+  gap: var(--s2);
   align-items: start;
 }
 .rl-world__villain-face { width: 2.5rem; height: 3.25rem; object-fit: cover; background: var(--panel-frame); }
@@ -831,7 +898,7 @@ body {
 .rl-world__villain[data-state='captured'] .rl-world__villain-name,
 .rl-world__villain[data-state='killed'] .rl-world__villain-name { text-decoration: line-through; color: var(--ink-mute); }
 .rl-world__villain-line { color: var(--ink-mute); font-style: italic; }
-.rl-world__taken { margin-top: 0.5rem; color: var(--ink); }
+.rl-world__taken { margin-top: var(--s2); color: var(--ink); }
 
 /* ====================================================================== */
 /* Panel — the stamped header                                             */
@@ -858,7 +925,7 @@ body {
   display: flex;
   align-items: baseline;
   gap: var(--s2);
-  padding: 0.3125rem var(--s3) 0.25rem;
+  padding: 0.3125rem var(--s3) var(--s1);
   background: var(--band-inspect);
   font-family: var(--font-display);
   text-transform: uppercase;
@@ -928,27 +995,37 @@ body {
 .rl-track {
   height: 0.3125rem;
   background: var(--well);
-  border-radius: 2px;
   overflow: hidden;
 }
 .rl-track > i {
   display: block;
   height: 100%;
   background: var(--live);
-  transition: width var(--dur) linear;
+  transition: width var(--dur) var(--ease-steady);
 }
 
 /* ====================================================================== */
 /* Controls                                                               */
 /* ====================================================================== */
 
+/* THE BUTTON REGISTER (VR-20). Case follows face, and face follows the job:
+     display face, capitals, tracked -- a menu TILE (`.rl-menu__item`: goes
+       forward into a screen), a TAB or view toggle (switches what a screen
+       shows: the garage's tabs, views and sort, the stores' shelves, the
+       pause menu's tabs), and a STAMP (the one commit a screen exists for:
+       Deploy, the garage's Buy, the stores' Buy, the debrief's primary);
+     body face, sentence case -- every other button, which is an ACTION:
+       `.rl-btn` itself (back, cancel, confirm, save, load, resume, retry, the
+       end-of-mission row). Clickable cards and rows (dock tiles, deploy rows,
+       garage cards, stores packs, chips) are content, not buttons, and set
+       their content's own type. `chrome-register.test.ts` holds it. */
 .rl-btn {
   font-family: var(--font-body);
   font-size: var(--t-body);
   color: var(--ink);
   background: var(--panel-bg);
   border: 1px solid var(--panel-frame);
-  padding: 0.3125rem 0.625rem;
+  padding: 0.3125rem var(--s2h);
   cursor: pointer;
   pointer-events: auto;
   text-decoration: none;
@@ -963,12 +1040,12 @@ body {
   color: var(--accent);
 }
 .rl-btn[data-armed='1'] {
-  border-color: var(--live);
-  color: var(--live);
+  border-color: var(--on);
+  color: var(--on);
 }
 .rl-btn[disabled],
 .rl-btn[data-locked='1'] {
-  opacity: 0.45;
+  opacity: var(--disabled-opacity);
   cursor: not-allowed;
 }
 
@@ -978,10 +1055,16 @@ body {
 
 /* Most controls here had no ring of their own and fell through to the
    browser's default blue -- inconsistent with everything else this sheet
-   styles, and the only place `--accent` was not the answer. `.rl-tile`
-   already draws its own (a border-color change on `:focus-visible`,
-   theme.css ~1648) and turns this off locally rather than layering a second
-   ring under its own; everything else gets it from here once.
+   styles, and the only place `--accent` was not the answer. THIS is the one
+   focus treatment (VR-28): every focusable control shows this ring, and no
+   rule may turn it off or redraw it. Four controls (`.rl-group`, `.rl-tile`,
+   `.rl-garage__card`, `.rl-garage__rung`) used to swap it for a border
+   colour with `outline: none`, so a keyboard player saw a different focus on
+   each; they keep their hover edge and gain the ring. The only thing a rule
+   may change is WHERE the ring sits: `outline-offset` inward, for a control
+   inside a box that would clip an outset ring (`.rl-garage__model`, and the
+   garage rail's cards and rungs, which live in a scroll region).
+   `chrome-register.test.ts` holds all of it.
    `.country-hit` (theme.css ~272) is NOT the same case, whatever an earlier
    version of this comment said (fix round 1) -- its `outline: none` is flat
    and unconditional, with no `:focus-visible` scoping and no border-color
@@ -991,7 +1074,8 @@ body {
    link gets the ring regardless. That is cascade order doing the work, not
    a ring `.country-hit` draws itself -- reorder either rule, or give
    `.country-hit` a more specific selector later, and the ring silently
-   disappears with nothing here to explain why it used to be safe. */
+   disappears with nothing here to explain why it used to be safe (the test
+   asserts the order). */
 :focus-visible {
   outline: 2px solid var(--accent); /* px-ok */
   outline-offset: 2px;
@@ -1123,9 +1207,10 @@ body {
   margin-top: var(--s4);
 }
 /* The reward (GH-234): the most visible thing on screen after the verdict
-   itself, ahead of the mission's own narration below it. `--good` and the
-   "credit(s)" word both come from the dock chip's own balance (GH-233,
-   `.rl-dock__credits` below) so a figure reads the same everywhere it
+   itself, ahead of the mission's own narration below it. `--commend` (the
+   one credits colour since VR-25: the garage, the stores, the debrief, the
+   dock) and the "credit(s)" word both match the dock chip's own balance
+   (GH-233, `.rl-dock__credits` below) so a figure reads the same everywhere it
    appears -- the display face matches the verdict's own rather than the
    narration's dim mono one, because this is the second thing the player is
    meant to register, not a footnote. The "nothing paid" line shares the
@@ -1137,7 +1222,7 @@ body {
   margin: 0;
   font-family: var(--font-display);
   font-size: var(--t-xl);
-  color: var(--good);
+  color: var(--commend);
 }
 .rl-outcome__credits-none {
   margin: 0;
@@ -1145,9 +1230,9 @@ body {
   color: var(--ink-dim);
 }
 .rl-outcome__credits-total {
-  margin: 0.25rem 0 0;
+  margin: var(--s1) 0 0;
   font-size: var(--t-m);
-  color: var(--good);
+  color: var(--commend);
 }
 /* The outcome is named in the DOM (`data-outcome`), not only in colour --
    this is the second half of that, a border tint rather than a repainted
@@ -1170,9 +1255,17 @@ body {
   gap: var(--s2);
   margin-bottom: var(--s3);
 }
+/* Tabs, so the tab register (VR-20) -- the garage's own tab type. */
+.rl-pause__tabs .rl-btn {
+  font-family: var(--font-display);
+  font-size: var(--t-band);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
 .rl-pause__tabs button[data-on='1'] {
-  border-color: var(--live);
-  color: var(--live);
+  color: var(--ink);
+  border-color: var(--selected);
+  background: var(--selected-fill);
 }
 .rl-pause__list {
   list-style: none;
@@ -1457,7 +1550,6 @@ body {
 .rl-obj {
   display: flex;
   gap: 0.4375rem;
-  border-radius: 2px;
 }
 .rl-obj__g {
   flex: none;
@@ -1525,7 +1617,7 @@ body {
    lifts the glyph off whatever is behind it, the tight pass keeps the stem
    edges from dissolving into it. */
 .rl-onmap {
-  text-shadow: 0 1px 12px var(--type-shadow), 0 1px 2px var(--type-shadow);
+  text-shadow: var(--halo);
 }
 
 /* The other strategy for type over bare map: a dark ground under the glyphs
@@ -1535,8 +1627,7 @@ body {
    plate reads as the same material as every panel in the HUD. */
 .rl-plate {
   background: var(--panel-bg);
-  padding: 0.125rem 0.5rem;
-  border-radius: 2px; /* px-ok */
+  padding: var(--s0) var(--s2);
 }
 
 /* --- top strip -------------------------------------------------------- */
@@ -1629,14 +1720,14 @@ body {
   border: 1px solid var(--panel-frame);
   color: var(--ink-dim);
   background: none;
-  padding: 0 0.5rem;
+  padding: 0 var(--s2);
   font: inherit;
   cursor: pointer;
   line-height: 1.4;
 }
 .rl-strip__chip[data-on='1'] {
-  border-color: var(--live);
-  color: var(--live);
+  border-color: var(--on);
+  color: var(--on);
 }
 .rl-strip__chip:hover,
 .rl-strip__chip:focus-visible {
@@ -1648,7 +1739,7 @@ body {
    claim rather than the 1x/2x chips going dark while 0x stays lit -- the
    mission is paused, not merely set to a speed of zero. */
 .rl-strip__chips[data-paused='1'] {
-  opacity: 0.45;
+  opacity: var(--disabled-opacity);
 }
 /* A `<button>` now (task 6: it used to be a plain `<a href="?campaign">`),
    so it needs the button-chrome reset the anchor never did -- without this
@@ -1676,7 +1767,7 @@ body {
   border: 1px solid var(--panel-frame);
   color: var(--ink-dim);
   background: none;
-  padding: 0 0.5rem;
+  padding: 0 var(--s2);
   font: inherit;
   cursor: pointer;
   line-height: 1.4;
@@ -1716,7 +1807,7 @@ body {
   color: var(--ink);
   pointer-events: none;
   white-space: pre;
-  text-shadow: 0 2px 18px var(--type-shadow), 0 1px 3px var(--type-shadow);
+  text-shadow: var(--halo);
 }
 .rl-clock[data-tone='warn'] {
   color: var(--warn);
@@ -1848,7 +1939,7 @@ body {
   min-width: 0;
   background: var(--panel-bg);
   border-left: 2px solid var(--band-mission);
-  padding: 0.375rem 0.625rem;
+  padding: var(--s1h) var(--s2h);
   pointer-events: auto;
 }
 .rl-cmd[data-open='0'] .rl-cmd__bar {
@@ -1885,8 +1976,8 @@ body {
   color: var(--accent);
 }
 .rl-cmd__page button[disabled] {
-  opacity: 0.35;
-  cursor: default;
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
 }
 .rl-cmd__quote {
   font-size: var(--t-read);
@@ -1896,13 +1987,13 @@ body {
 .rl-cmd__track {
   height: 2px;
   background: var(--well);
-  margin-top: 0.375rem;
+  margin-top: var(--s1h);
 }
 .rl-cmd__track > i {
   display: block;
   height: 100%;
   background: var(--band-mission);
-  transition: width var(--dur) var(--ease);
+  transition: width var(--dur) var(--ease-steady);
 }
 
 /* --- event feed ------------------------------------------------------- */
@@ -1923,7 +2014,7 @@ body {
   text-align: center;
   pointer-events: none;
   align-self: center;
-  margin-bottom: 0.375rem;
+  margin-bottom: var(--s1h);
 }
 .rl-notice {
   font-size: var(--t-read);
@@ -1945,7 +2036,7 @@ body {
 .rl-notice[data-tier="major"] {
   font-weight: 600;
   box-shadow: inset 0.25rem 0 0 currentColor, inset -0.25rem 0 0 currentColor;
-  padding-block: 0.25rem;
+  padding-block: var(--s1);
 }
 .rl-notice[data-tier="major"] b {
   text-transform: uppercase;
@@ -2091,7 +2182,6 @@ body {
 .rl-group:hover,
 .rl-group:focus-visible {
   border-color: var(--accent);
-  outline: none;
 }
 .rl-group__slot {
   font-family: var(--font-display);
@@ -2133,7 +2223,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.375rem;
+  gap: var(--s1h);
   pointer-events: none;
 }
 
@@ -2161,10 +2251,10 @@ body {
    type gives up. */
 .rl-order {
   font-size: var(--t-s);
-  padding: var(--s1) 0.625rem;
+  padding: var(--s1) var(--s2h);
   display: flex;
   align-items: center;
-  gap: 0.375rem;
+  gap: var(--s1h);
   white-space: nowrap;
 }
 .rl-order__glyph {
@@ -2182,7 +2272,7 @@ body {
    absent from the row entirely. Still clickable: the handler's own refusal
    note is what explains it, and a disabled button explains nothing. */
 .rl-order[data-inert='1'] {
-  opacity: 0.45;
+  opacity: var(--disabled-opacity);
   color: var(--ink-dim);
 }
 /* The armed order outranks inert — an armed button is the one the next click
@@ -2207,7 +2297,7 @@ body {
   width: var(--chip-w);
   display: flex;
   gap: var(--s2);
-  padding: 0.375rem var(--s2);
+  padding: var(--s1h) var(--s2);
   background: var(--panel-bg);
   border: 1px solid var(--panel-frame);
   pointer-events: auto;
@@ -2379,8 +2469,8 @@ body {
   max-height: calc(100vh - 12rem);
   overflow-y: auto;
   display: flex;
-  gap: 0.625rem;
-  padding: var(--s2) 0.625rem;
+  gap: var(--s2h);
+  padding: var(--s2) var(--s2h);
   background: var(--panel-bg);
   border: 1px solid var(--panel-frame);
   pointer-events: auto;
@@ -2476,7 +2566,7 @@ body {
 .rl-card__engaging {
   display: flex;
   align-items: center;
-  gap: 0.375rem;
+  gap: var(--s1h);
   margin-top: 2px;
   color: var(--bad-text);
   font-weight: 600;
@@ -2486,7 +2576,6 @@ body {
   height: 1.375rem;
   object-fit: contain;
   border: 1px solid color-mix(in srgb, var(--bad) 70%, transparent);
-  border-radius: 3px;
   flex: none;
 }
 .rl-card__hp {
@@ -2643,14 +2732,16 @@ body {
      -- a grid lets each row size to its own content instead of stretching to
      the widest line. */
   display: grid;
-  gap: 0.25rem;
+  gap: var(--s1);
   justify-items: center;
 }
 /* The title card had no panel behind it, and sun-bleached limestone read
-   close enough to limestone ink over open ground to swallow it -- the scrim
-   was what kept it readable there. Each line now also sits on its own
-   .rl-plate; the scrim stays as a second line of defence, since the plate is
-   translucent (`--panel-bg`). */
+   close enough to limestone ink over open ground to swallow it -- a dark
+   halo was what kept it readable there. Each line now also sits on its own
+   .rl-plate; the halo stays as a second line of defence, since the plate is
+   translucent (`--panel-bg`). It is the one `--halo` (VR-30), no longer a
+   `--scrim` shadow of its own: the token comment above says why --scrim is
+   the wrong tone for a glyph halo. */
 .rl-titlecard__title {
   font-family: var(--font-display);
   font-size: var(--t-hero);
@@ -2659,16 +2750,16 @@ body {
   text-transform: uppercase;
   line-height: 1;
   color: var(--ink);
-  text-shadow: 0 2px 18px var(--scrim), 0 1px 3px var(--scrim);
+  text-shadow: var(--halo);
 }
 .rl-titlecard__sub {
   font-family: var(--font-body);
   font-size: var(--t-m);
   letter-spacing: var(--track-label);
-  color: var(--accent);
+  color: var(--title-accent);
   margin-top: var(--s2);
   text-transform: uppercase;
-  text-shadow: 0 1px 12px var(--scrim), 0 1px 2px var(--scrim);
+  text-shadow: var(--halo);
 }
 /* The story voice (GDD §11), between the name and the mechanical objective
    count -- prose, not a HUD label, so it reads in the body font rather than
@@ -2679,7 +2770,7 @@ body {
   font-size: var(--t-m);
   line-height: 1.5;
   color: var(--ink);
-  text-shadow: 0 2px 18px var(--scrim), 0 1px 3px var(--scrim);
+  text-shadow: var(--halo);
 }
 
 /* --- the reinforcements dock (GH-153 slice 3) ------------------------- */
@@ -2720,7 +2811,7 @@ body {
 .rl-dock__label {
   margin: 0;
   color: var(--ink-label);
-  text-shadow: 0 1px 3px var(--type-shadow);
+  text-shadow: var(--halo);
 }
 /* The brigade credit balance (GH-229 bug 2). Fix round 1 rode it along at the
    label's own `--t-xs` -- reviewed as illegible, "REINFORCEMENTS · B · 0 CR"
@@ -2732,16 +2823,16 @@ body {
    `pointer-events: auto` here is what lets its `bindTip` tooltip be reached
    by mouse OR keyboard, the same as a dock tile -- `.rl-dock` itself sets
    `pointer-events: none` on everything that is not a control.
-   `--good` on purpose: this dock already spends two other colours on two
-   other currencies inside itself -- `--accent` on `.rl-tile__cost` (this
-   mission's logistics, per unit) and `--info` on the support pair (this
-   mission's intel) -- and the brigade's credits are a THIRD currency, earned
-   across the whole campaign rather than this mission, so it gets a colour
-   neither of those two claims. */
+   One colour per currency (VR-25): the brigade's credits wear `--commend`
+   here exactly as they do in the garage, the stores and the debrief (they
+   wore `--good` here and on the outcome moment, a third colour for the same
+   money); THIS mission's logistics and intel wear `--info`, the colour the
+   top strip has always given them, on `.rl-tile__cost` and the support pair
+   alike. */
 .rl-dock__credits {
   font-size: var(--t-strip);
-  color: var(--good);
-  text-shadow: 0 1px 3px var(--type-shadow);
+  color: var(--commend);
+  text-shadow: var(--halo);
   pointer-events: auto;
 }
 .rl-dock__grid {
@@ -2771,7 +2862,6 @@ body {
 .rl-tile:hover,
 .rl-tile:focus-visible {
   border-color: var(--accent);
-  outline: none;
 }
 /* Affordability is not a refusal — the price is still legible, and the badge
    goes red so the reason for the dimming is named rather than guessed.
@@ -2784,7 +2874,7 @@ body {
    player is being refused. It keeps full strength and says both things at
    once: the bar and the clock at full opacity, the price still red. */
 .rl-tile[data-poor='1']:not([data-queued='1']) {
-  opacity: 0.45;
+  opacity: var(--disabled-opacity);
 }
 .rl-tile[data-poor='1'] .rl-tile__cost {
   color: var(--bad-text);
@@ -2824,9 +2914,11 @@ body {
   bottom: 1px;
   font-size: var(--t-s);
   font-weight: 600;
-  color: var(--accent);
+  /* Logistics: the strip's own colour for it (VR-25), not --accent, which
+     is the interactive colour (VR-31). */
+  color: var(--info);
   /* The badge sits on the sprite, not on the tile's own fill. */
-  text-shadow: 0 0 3px var(--well);
+  text-shadow: var(--halo);
 }
 /* Lifted clear of the progress bar while one is running. */
 .rl-tile[data-queued='1'] .rl-tile__cost {
@@ -2839,7 +2931,7 @@ body {
   top: 1px;
   font-size: var(--t-s);
   color: var(--live);
-  text-shadow: 0 0 3px var(--well);
+  text-shadow: var(--halo);
 }
 .rl-tile__bar {
   position: absolute;
@@ -2847,7 +2939,7 @@ body {
   bottom: 0;
   height: 3px;
   background: var(--live);
-  transition: width var(--dur) linear;
+  transition: width var(--dur) var(--ease-steady);
 }
 /* Both are absent rather than empty when nothing is building: a zero-width bar
    still paints its own 0-height nothing, and an empty countdown span would
@@ -2862,7 +2954,7 @@ body {
    mistaken for something buyable. */
 .rl-tile[data-locked='1'] .rl-tile__art {
   filter: grayscale(1);
-  opacity: 0.35;
+  opacity: var(--disabled-opacity);
 }
 .rl-tile__lock {
   position: absolute;
@@ -2887,7 +2979,7 @@ body {
   text-align: center;
   font-size: var(--t-s);
   color: var(--live);
-  text-shadow: 0 0 3px var(--well);
+  text-shadow: var(--halo);
   white-space: nowrap;
 }
 .rl-tile[data-mesh-pending='1'] .rl-tile__left {
@@ -2931,7 +3023,7 @@ body {
 .rl-tile--support[data-poor='1'] {
   color: var(--ink-dim);
   border-color: var(--panel-frame);
-  opacity: 0.45;
+  opacity: var(--disabled-opacity);
 }
 /* Armed outranks both — this is the tile the next click on the map spends, and
    it must read as lime whether or not intel has since been spent elsewhere. */
@@ -2971,7 +3063,7 @@ body {
   top: var(--tip-y);
   box-sizing: border-box;
   width: 14.375rem;
-  padding: 0.375rem 0.625rem;
+  padding: var(--s1h) var(--s2h);
   background: var(--panel-bg);
   border: 1px solid var(--panel-frame);
   font-size: var(--t-body);
@@ -2998,7 +3090,7 @@ body {
 .rl-tip__cost {
   margin-left: auto;
   white-space: nowrap;
-  color: var(--accent);
+  color: var(--info);
 }
 .rl-tip__tags {
   display: flex;
@@ -3258,7 +3350,7 @@ body {
 }
 .rl-wordmark__rule {
   height: 2px;
-  background: var(--band-mission);
+  background: var(--wordmark-rule);
   margin: var(--s2) auto;
   width: 78%;
 }
@@ -3390,6 +3482,8 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-sandbox__dev-summary {
   cursor: pointer;
+  /* Set in capitals, so in the face capitals belong to (VR-20). */
+  font-family: var(--font-display);
   font-size: var(--t-s);
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -3729,7 +3823,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-aar__mark--lost img { filter: grayscale(1) brightness(0.6); }
 .rl-aar__sub {
   display: block;
-  margin-top: 0.125rem;
+  margin-top: var(--s0);
   font-size: var(--t-body);
   color: var(--ink-dim);
 }
@@ -3739,7 +3833,7 @@ button.rl-menu__item[data-kind='aside'] {
   font: italic var(--t-m) / 1.45 var(--font-body);
   color: var(--ink-mute);
 }
-.rl-debrief__who { display: block; margin-top: 0.125rem; font-style: normal; color: var(--ink-dim); }
+.rl-debrief__who { display: block; margin-top: var(--s0); font-style: normal; color: var(--ink-dim); }
 .rl-debrief__promotion { margin-top: var(--s3); color: var(--good); font: var(--t-m) var(--font-body); }
 .rl-debrief__villain { margin-top: var(--s3); color: var(--ink-mute); font: italic var(--t-m) / 1.45 var(--font-body); }
 /* The foot reads as its own row: a rule above it, and an opaque fill, so a
@@ -3749,20 +3843,20 @@ button.rl-menu__item[data-kind='aside'] {
   border-top: 1px solid var(--panel-frame);
   background: var(--panel-bg-solid);
 }
-/* One primary action, in the band colour; the rest plain, upper case like
-   every other menu (PA-22). */
+/* One primary action, the mission STAMP in the band colour; the rest are
+   plain action buttons in the shell's one button register (VR-20): body face,
+   sentence case, like the pause menu's, the confirm dialog's and the saves
+   screen's. They were body face set in capitals, the one place case and face
+   disagreed. */
 .rl-aar__nav {
   display: flex;
   justify-content: flex-end;
   gap: var(--s2);
 }
-.rl-aar__nav .rl-btn {
-  text-transform: uppercase;
-  letter-spacing: var(--track-label);
-}
 .rl-aar__nav .rl-aar__primary {
   font: 800 var(--t-l) var(--font-display);
-  letter-spacing: 0.06em;
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
   background: var(--band-mission);
   color: var(--band-ink);
   border-color: var(--commend);
@@ -3797,8 +3891,8 @@ button.rl-menu__item[data-kind='aside'] {
 /* Menu entrance: children introduce themselves in sequence rather than the
    whole screen arriving at once. --i is set per child. */
 .rl-stagger > * {
-  animation: rl-enter 200ms var(--ease) both;
-  animation-delay: calc(var(--i, 0) * 60ms);
+  animation: rl-enter var(--dur-route) var(--ease) both;
+  animation-delay: calc(var(--i, 0) * var(--stagger));
 }
 
 .rl-leave {
@@ -3816,7 +3910,7 @@ button.rl-menu__item[data-kind='aside'] {
   }
 }
 .rl-flash-good {
-  animation: rl-complete 400ms var(--ease) 1;
+  animation: rl-complete var(--dur-linger) var(--ease) 1;
 }
 
 /* ROE falling is the bad news, and it is easy to miss in a firefight. */
@@ -3831,7 +3925,7 @@ button.rl-menu__item[data-kind='aside'] {
   }
 }
 .rl-flash-bad {
-  animation: rl-drop 300ms var(--ease) 1;
+  animation: rl-drop var(--dur-long) var(--ease) 1;
   display: inline-block;
 }
 
@@ -3847,7 +3941,7 @@ button.rl-menu__item[data-kind='aside'] {
   }
 }
 .rl-pulse {
-  animation: rl-pulse 1s var(--ease) infinite;
+  animation: rl-pulse var(--dur-pulse) var(--ease) infinite;
 }
 
 /* Mission end. Settles rather than appears — the result should land. */
@@ -3862,7 +3956,7 @@ button.rl-menu__item[data-kind='aside'] {
   }
 }
 .rl-banner-in {
-  animation: rl-banner 220ms var(--ease) both;
+  animation: rl-banner var(--dur-route) var(--ease) both;
 }
 
 /* Motion here reports state, so under reduced-motion the report has to survive
@@ -3978,9 +4072,10 @@ button.rl-menu__item[data-kind='aside'] {
   width: 0;
   height: 100%;
   background: var(--band-mission);
-  /* Eased so a burst of sheets resolving together reads as a bar filling
-     rather than as a jump. Matches the duration the rest of the UI moves at. */
-  transition: width var(--dur) var(--ease);
+  /* Transitioned so a burst of sheets resolving together reads as a bar
+     filling rather than as a jump; at the steady rate every progress fill in
+     the sheet uses (VR-29), over the duration the rest of the UI moves at. */
+  transition: width var(--dur) var(--ease-steady);
 }
 .rl-loading__count {
   /* A readout of figures ("12 / 45 sheets"): mono, named here because the
@@ -4137,8 +4232,8 @@ button.rl-menu__item[data-kind='aside'] {
   margin: 0 0 var(--s3) 0;
   opacity: 0;
   transform: translateY(0.375rem);
-  animation: rl-beat-in 320ms var(--ease) both;
-  animation-delay: calc(var(--i, 0) * 140ms);
+  animation: rl-beat-in var(--dur-long) var(--ease) both;
+  animation-delay: calc(var(--i, 0) * var(--stagger-beat));
 }
 .rl-loading__beat:last-child {
   margin-bottom: 0;
@@ -4204,10 +4299,10 @@ button.rl-menu__item[data-kind='aside'] {
    Deploy -- never a beat itself. The left rule borrows `--commend`, the same
    token the world-map star line uses, so a carry-over reads as an earned
    thing rather than as another paragraph of prose. */
-.rl-loading__brought { margin: 0.625rem 0 0; padding: 0.5rem 0.625rem; border-left: 2px solid var(--commend); color: var(--ink); }
+.rl-loading__brought { margin: var(--s2h) 0 0; padding: var(--s2) var(--s2h); border-left: 2px solid var(--commend); color: var(--ink); }
 .rl-loading__brought-head { color: var(--ink-dim); font-size: var(--t-s); text-transform: uppercase; letter-spacing: 1px; }
-.rl-loading__brought ul { margin: 0.25rem 0; padding-left: 1.1em; }
-.rl-loading__brought-line { margin: 0.25rem 0 0; color: var(--ink-mute); }
+.rl-loading__brought ul { margin: var(--s1) 0; padding-left: 1.1em; }
+.rl-loading__brought-line { margin: var(--s1) 0 0; color: var(--ink-mute); }
 /* Survivors this mission does not field -- a count, under the roster, in the
    same muted ink the panel's own prose uses rather than the roster's. */
 .rl-loading__reserve { color: var(--ink-mute); }
@@ -4275,7 +4370,7 @@ button.rl-menu__item[data-kind='aside'] {
    pressable, and does not light on hover as if it were. After the hover rule
    on purpose -- equal specificity, so order decides. */
 .rl-loading__deploy:disabled {
-  opacity: 0.45;
+  opacity: var(--disabled-opacity);
   cursor: not-allowed;
   background: var(--band-mission);
 }
@@ -4344,17 +4439,19 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-deploy__row:hover {
   border-color: var(--accent);
 }
-/* Chosen: the mission's own olive band, the stamp Deploy itself wears. */
+/* Chosen: the shell's one selected register (VR-26). It wore the mission
+   band's olive at 35% until the chrome register; a band colour ranks a panel
+   and is not a selection colour (VR-24). */
 .rl-deploy__row[data-chosen='1'] {
   color: var(--ink);
-  background: color-mix(in srgb, var(--band-mission) 35%, transparent);
-  border-color: var(--band-mission);
+  border-color: var(--selected);
+  background: var(--selected-fill);
 }
 /* Its type is full: this body can go only once another of its type is
    benched, so it stays in the tab order and says "not now". */
 .rl-deploy__row[aria-disabled='true'] {
-  opacity: 0.55;
-  cursor: default;
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
 }
 .rl-deploy__name {
   font-weight: 600;
@@ -4489,12 +4586,12 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-kit-pips {
   display: inline-flex;
   align-items: flex-end;
-  gap: 0.125rem;
+  gap: var(--s0);
 }
 .rl-kit-pips__col {
   display: inline-flex;
   flex-direction: column-reverse;
-  gap: 0.125rem;
+  gap: var(--s0);
   min-width: 0.375rem;
 }
 .rl-kit-pips__pip {
@@ -4513,7 +4610,7 @@ button.rl-menu__item[data-kind='aside'] {
    the sheet's two global rules (the media query and `data-motion='reduce'`)
    collapse it to 1 ms and the pip is simply on. */
 .rl-kit-pips__pip--new {
-  animation: rl-kit-pip-new 240ms var(--ease);
+  animation: rl-kit-pip-new var(--dur-stamp) var(--ease);
 }
 @keyframes rl-kit-pip-new {
   from {
@@ -4738,7 +4835,7 @@ button.rl-menu__item[data-kind='aside'] {
    sheet's own global rule flattens the movement and the colour still
    reports. */
 .rl-garage__wallet--spent {
-  animation: rl-garage-spend 600ms var(--ease);
+  animation: rl-garage-spend var(--dur-spend) var(--ease);
 }
 @keyframes rl-garage-spend {
   0% {
@@ -4788,14 +4885,15 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-garage__tab[aria-selected='true'] {
   color: var(--ink);
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: var(--selected);
+  background: var(--selected-fill);
 }
 /* Sort by kit level (GH-243, spec §4 "Comparison"): a toggle beside the role
    tabs, drawn in their register so it reads as one more way to arrange the
-   rail, and in the KIT colour once pressed -- it orders by what was bought,
-   and the steel is what "bought" looks like everywhere else on this screen.
-   Right-aligned under the tabs, so the tab row keeps its own wrap. */
+   rail. Dashed while off; once pressed it takes the shell's one selected
+   register like the tabs beside it (VR-26) -- it was the kit's steel, which
+   made a sort order read as a purchase. Right-aligned under the tabs, so the
+   tab row keeps its own wrap. */
 .rl-garage__sort {
   align-self: flex-end;
   padding: var(--s1) var(--s2);
@@ -4812,10 +4910,10 @@ button.rl-menu__item[data-kind='aside'] {
   color: var(--ink);
 }
 .rl-garage__sort[aria-pressed='true'] {
-  color: var(--ink);
   border-style: solid;
-  border-color: var(--kit);
-  background: color-mix(in srgb, var(--kit) 14%, transparent);
+  color: var(--ink);
+  border-color: var(--selected);
+  background: var(--selected-fill);
 }
 .rl-garage__cards {
   display: flex;
@@ -4869,18 +4967,8 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-garage__view[aria-selected='true'] {
   color: var(--ink);
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-}
-.rl-garage__view[data-view='stores'][aria-selected='true'] {
-  border-color: var(--roar);
-  background: color-mix(in srgb, var(--roar) 16%, transparent);
-}
-.rl-garage__view:focus-visible,
-.rl-stores__shelf:focus-visible,
-.rl-stores__owned:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  border-color: var(--selected);
+  background: var(--selected-fill);
 }
 .rl-garage__body[hidden],
 .rl-garage__stores[hidden],
@@ -4953,7 +5041,7 @@ button.rl-menu__item[data-kind='aside'] {
   border: 1px solid var(--panel-frame);
 }
 .rl-stores__pack:disabled {
-  color: var(--ink-dim);
+  opacity: var(--disabled-opacity);
   cursor: not-allowed;
 }
 .rl-menu--garage .rl-stores__pack-bonus {
@@ -4998,13 +5086,11 @@ button.rl-menu__item[data-kind='aside'] {
   border: 1px solid var(--panel-frame);
   cursor: pointer;
 }
-.rl-stores__shelf[aria-selected='true'] {
-  color: var(--ink);
-  border-color: var(--roar);
-}
+.rl-stores__shelf[aria-selected='true'],
 .rl-stores__owned[aria-pressed='true'] {
   color: var(--ink);
-  border-color: var(--accent);
+  border-color: var(--selected);
+  background: var(--selected-fill);
 }
 .rl-stores__owned[hidden] {
   display: none;
@@ -5122,21 +5208,20 @@ button.rl-menu__item[data-kind='aside'] {
   align-items: center;
   gap: var(--s1);
   padding: var(--s1) var(--s3);
-  font-family: var(--font-body);
+  /* A stamp, like the garage's own Buy (VR-20). */
+  font-family: var(--font-display);
   font-size: var(--t-band);
   font-weight: 600;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
   color: var(--roar-ink);
   background: var(--roar);
   border: 0;
   cursor: pointer;
 }
 .rl-stores__buy:disabled {
-  color: var(--ink-dim);
-  background: var(--panel-frame);
+  opacity: var(--disabled-opacity);
   cursor: not-allowed;
-}
-.rl-stores__buy:disabled .rl-stores__coin {
-  opacity: 0.55;
 }
 .rl-stores__tier {
   display: flex;
@@ -5203,11 +5288,6 @@ button.rl-menu__item[data-kind='aside'] {
   border: 1px dashed var(--warn);
   cursor: pointer;
 }
-.rl-stores__grant:focus-visible,
-.rl-stores__buy:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
 .rl-stores[data-test='1'] .rl-stores__notice {
   border-left-color: var(--warn);
 }
@@ -5235,11 +5315,11 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__card:hover,
 .rl-garage__card:focus-visible {
   border-color: var(--accent);
-  outline: none;
 }
 .rl-garage__card[aria-selected='true'] {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, var(--well));
+  color: var(--ink);
+  border-color: var(--selected);
+  background: var(--selected-fill);
 }
 /* The card whose bars are ghosted in the bay (GH-243): the same dashed ink
    outline the ghost itself draws, so the eye can pair the two. */
@@ -5255,7 +5335,7 @@ button.rl-menu__item[data-kind='aside'] {
   height: 3rem;
 }
 .rl-garage__card[data-locked='1'] .rl-garage__card-art {
-  opacity: 0.55;
+  opacity: var(--disabled-opacity);
 }
 .rl-garage__card-text {
   display: flex;
@@ -5422,7 +5502,7 @@ button.rl-menu__item[data-kind='aside'] {
   border-radius: 50%;
   border: 0.15rem solid color-mix(in srgb, var(--ink) 18%, transparent);
   border-top-color: color-mix(in srgb, var(--ink) 70%, transparent);
-  animation: rl-garage-wait 0.9s linear infinite;
+  animation: rl-garage-wait var(--dur-lift) var(--ease-steady) infinite;
   pointer-events: none;
 }
 @keyframes rl-garage-wait {
@@ -5434,8 +5514,11 @@ button.rl-menu__item[data-kind='aside'] {
   cursor: grabbing;
 }
 /* The theme's one ring (`:focus-visible` above), drawn INSIDE the edge: the
-   plate's `overflow: hidden` would clip an outset one. */
-.rl-garage__model:focus-visible {
+   plate's `overflow: hidden`, and the rail's own scroll region for its cards
+   and rungs, would clip an outset one (VR-28). */
+.rl-garage__model:focus-visible,
+.rl-garage__card:focus-visible,
+.rl-garage__rung:focus-visible {
   outline-offset: -2px; /* px-ok */
 }
 .rl-garage__model-hint {
@@ -5477,7 +5560,7 @@ button.rl-menu__item[data-kind='aside'] {
   inset: 0;
   background: var(--tile-bg);
   opacity: 0;
-  animation: rl-garage-lift 900ms var(--ease);
+  animation: rl-garage-lift var(--dur-lift) var(--ease);
 }
 .rl-garage__plate--enlisted[data-noplate='1'] > svg {
   position: relative;
@@ -5508,14 +5591,14 @@ button.rl-menu__item[data-kind='aside'] {
   color: var(--kit);
   border: 2px solid var(--kit);
   transform: rotate(-6deg);
-  animation: rl-garage-stamp 240ms var(--ease);
+  animation: rl-garage-stamp var(--dur-stamp) var(--ease);
 }
 /* The stamp's exit (M7): once the hatch's 900 ms lift is done, it fades and
    `brigade.ts`'s `clearStamp` removes it. Reduced motion never adds this
    class -- the stamp simply goes at the same moment. */
 .rl-garage__stamp--out {
   opacity: 0;
-  transition: opacity 160ms var(--ease);
+  transition: opacity var(--dur) var(--ease);
 }
 /* The kit mark, pinned in the plate's own corner (`.rl-garage__plate` is the
    positioning context above): the bevelled bars-and-level badge
@@ -5539,7 +5622,7 @@ button.rl-menu__item[data-kind='aside'] {
    ENLISTED stamp above lands with. `scale`, not `transform`, so it composes
    with the stamp's own tilt. */
 .rl-garage__plate-kit--stamp {
-  animation: rl-garage-stamp 240ms var(--ease);
+  animation: rl-garage-stamp var(--dur-stamp) var(--ease);
 }
 @keyframes rl-garage-stamp {
   from {
@@ -5601,7 +5684,7 @@ button.rl-menu__item[data-kind='aside'] {
   font-size: var(--t-card);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--title-accent);
 }
 /* The special-forces tag (E5): a plain text plate in the ink's own dim tone with a
    hairline edge -- no gold, no star, so it cannot read as an earned reward. */
@@ -5767,7 +5850,7 @@ button.rl-menu__item[data-kind='aside'] {
   position: relative;
   width: 1.25rem;
   height: 1.25rem;
-  padding: 0.125rem;
+  padding: var(--s0);
   background: color-mix(in srgb, var(--tile-bg) 70%, transparent);
 }
 .rl-garage__track-line {
@@ -5945,7 +6028,7 @@ button.rl-menu__item[data-kind='aside'] {
    never be seen sliding there. */
 .rl-garage__stats--grow .rl-garage__stat-fill,
 .rl-garage__stats--grow .rl-garage__stat-kit {
-  transition: width 300ms var(--ease);
+  transition: width var(--dur-long) var(--ease);
 }
 .rl-garage__stat-n {
   font-family: var(--font-mono);
@@ -5985,7 +6068,6 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__rung:focus-visible {
   border-left-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
-  outline: none;
 }
 .rl-garage__rung[data-state='owned'] {
   border-left-color: var(--friendly);
@@ -5994,7 +6076,7 @@ button.rl-menu__item[data-kind='aside'] {
 /* The rung a purchase just bought (§3.5) sweeps out of the kit's steel into
    the owned tint above, 240 ms. Under reduced motion it is simply owned. */
 .rl-garage__rung--stamp {
-  animation: rl-garage-sweep 240ms var(--ease);
+  animation: rl-garage-sweep var(--dur-stamp) var(--ease);
 }
 @keyframes rl-garage-sweep {
   from {
@@ -6655,7 +6737,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-glance__k,
 .rl-glance__v {
   margin: 0;
-  padding: 0.375rem var(--s3);
+  padding: var(--s1h) var(--s3);
   border-bottom: 1px solid var(--panel-rule);
 }
 .rl-glance__k:nth-last-of-type(1),
@@ -6909,11 +6991,13 @@ button.rl-menu__item[data-kind='aside'] {
   background: var(--tile-bg);
 }
 .rl-force__bench-row:disabled {
-  cursor: default;
-  opacity: 0.55;
+  cursor: not-allowed;
+  opacity: var(--disabled-opacity);
 }
 .rl-force__bench-row[aria-pressed='true'] {
-  background: color-mix(in srgb, var(--band-mission) 45%, transparent);
+  color: var(--ink);
+  border-bottom-color: var(--selected);
+  background: var(--selected-fill);
 }
 .rl-force__bench-row .rl-force__pic {
   width: 2.25rem;

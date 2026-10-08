@@ -5,6 +5,19 @@
 // the mission briefing looked exactly as important as a hover tooltip. Three
 // ranks now: the briefing you read for twelve minutes, the machinery you
 // inspect, and the thing that interrupts you.
+//
+// Which panel wears which (VR-24, held by `chrome-register.test.ts`):
+//   mission  a document you READ to decide: the debrief (win or lose), the
+//            tutorial lesson
+//   inspect  machinery: pause, settings, saves, keys, credits, objectives,
+//            a plain confirm
+//   alert    transient, it interrupts you: the outcome moment, a confirm that
+//            destroys player state
+// Full screens (the menu, the campaign board, the briefing, the garage) and
+// HUD furniture (the unit card, the tooltip) are not panels and carry no band;
+// a screen's rank is the screen. The band tokens colour a band, the mission
+// stamp (Deploy, the debrief's primary) and the briefing's own voice (the
+// radio's frame and the briefing's loading bar) -- never a selection.
 
 import { markSvg } from './mark';
 

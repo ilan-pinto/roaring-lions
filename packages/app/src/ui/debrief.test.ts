@@ -55,7 +55,9 @@ describe('the after-action report (GH-417)', () => {
     expect(host.querySelector('.rl-aar__ladder')).toBeNull();
     expect(host.querySelector('.rl-aar__tier')).toBeNull();
     expect(host.querySelectorAll('.rl-aar__col-title')[1].textContent).toBe('What went wrong');
-    expect(host.querySelector('.rl-panel')?.getAttribute('data-rank')).toBe('alert');
+    // VR-24: the debrief is a document you read, so it wears the mission
+    // rank after a defeat too; defeat is told by the column and the grade.
+    expect(host.querySelector('.rl-panel')?.getAttribute('data-rank')).toBe('mission');
   });
 
   // PA-21: the live HUD must not show through. Falsified: no backdrop.
