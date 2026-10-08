@@ -365,6 +365,7 @@ import {
   DECAL_FADING_RENDER_ORDER,
 } from './units/render-order';
 import { unitIsObserved } from './units/observed';
+import { ZoneBandBatch } from './units/zone-band';
 import { ProxyBoxBatch, proxyBoxDims, type ProxyBoxEntry } from './units/proxy-box';
 import {
   SILHOUETTE_COLOR_KEY_BY_SIDE,
@@ -504,7 +505,6 @@ import {
   OBJECTIVE_ZONE_HALO_INSET_TILES,
   OBJECTIVE_ZONE_HALO_COLOR_KEY,
   OBJECTIVE_ZONE_HALO_FALLBACK,
-  OBJECTIVE_ZONE_FILL_ALPHA,
   OBJECTIVE_ZONE_STROKE_INSET_TILES,
   AIR_SHADOW_COLOR_KEY,
   suppressionBarVisible,
@@ -2032,6 +2032,11 @@ export class ThreeRenderer implements Renderer {
    * below.
    */
   private readonly overlayBatch: OverlayBatch;
+  /** #470: every objective zone's hatched ground band (`units/zone-band.ts`).
+   *  In its own group so the `overlays` debug layer can hide it without
+   *  fighting `endFrame`, which owns the mesh's own `visible`. */
+  private readonly zoneBand = new ZoneBandBatch();
+  private readonly zoneBandGroup = new THREE.Group();
   /** GH-279: the refuge ring's one slot (`pingRefuge`). Aged in `frame()`
    *  from the frame clock, drawn in `updateOverlays`. */
   private readonly refugePing = new GroundPing();
@@ -2530,6 +2535,9 @@ export class ThreeRenderer implements Renderer {
     // haven't run yet) and stay that way until `updateOverlays`'s first
     // call, from `frame()`.
     this.scene.add(this.overlayBatch.mesh, this.numeralBatch.mesh, this.chevronBatch.mesh);
+    this.zoneBandGroup.name = 'zone-band-layer';
+    this.zoneBandGroup.add(this.zoneBand.mesh);
+    this.scene.add(this.zoneBandGroup);
     // The ground beyond the map (`./terrain/skirt.ts`), added once here and
     // never rebuilt -- it depends on the map's DIMENSIONS and on nothing
     // `rebuildTerrain` can change. It draws in the world band under the
@@ -2967,6 +2975,7 @@ export class ThreeRenderer implements Renderer {
     // a few lines down for the omit-then-fix history that class of leak has
     // in this file, guarded against here from the start.
     this.overlayBatch.dispose();
+    this.zoneBand.dispose();
     this.numeralBatch.dispose();
     this.chevronBatch.dispose();
     // Task 10, and the one ownership rule the post chain states outright:
@@ -3359,7 +3368,8 @@ export class ThreeRenderer implements Renderer {
           this.overlayBatch.mesh,
           this.numeralBatch.mesh,
           this.chevronBatch.mesh,
-          this.selectionRingGroup
+          this.selectionRingGroup,
+          this.zoneBandGroup
         );
         // The occlusion silhouette (band 6, `units/silhouette.ts`) is a
         // SEPARATE subsystem folded into this same name -- see
@@ -8391,6 +8401,7 @@ export class ThreeRenderer implements Renderer {
     census.destinations = 0;
     census.orderMarkers = 0;
     this.overlayBatch.beginFrame();
+    this.zoneBand.beginFrame();
     this.numeralBatch.beginFrame();
     this.chevronBatch.beginFrame();
     this.selectionRing.beginFrame();
@@ -8950,7 +8961,8 @@ export class ThreeRenderer implements Renderer {
       const pulse = objectiveZonePulse(zv.state, this.frameN);
       // Was renderer.ts's `.stroke({width: 2, ...})` + `.fill({alpha: 0.05})`
       // verbatim until 2026-09-06; see OBJECTIVE_ZONE_HALO_INSET_TILES for
-      // why a dark halo now sits under a wider stroke and the fill is 0.12.
+      // why a dark halo now sits under a wider stroke. The halo and stroke
+      // stay in the overlay tier; there is no fill there any more (#470).
       const halo = this.overlayColor(OBJECTIVE_ZONE_HALO_COLOR_KEY, OBJECTIVE_ZONE_HALO_FALLBACK);
       this.overlayBatch.polygonStrokeWorld(corners, OBJECTIVE_ZONE_HALO_INSET_TILES, halo, 0.6);
       // VR-36: not held and contested are DASHED over the continuous halo,
@@ -8962,7 +8974,11 @@ export class ThreeRenderer implements Renderer {
         pulse + 0.35,
         objectiveZoneDashed(zv.state) ? OBJECTIVE_ZONE_DASH_TILES : undefined
       );
-      this.overlayBatch.polygonFillWorld(corners, color, OBJECTIVE_ZONE_FILL_ALPHA);
+      // #470: the zone's ground band, hatched, 0.5 tile inside the edge,
+      // depth-tested and multiplied onto the lit ground. It replaced a 0.12
+      // fill over the whole rectangle in this overlay tier, which tinted
+      // every roof and hull in a town lime (`units/zone-band.ts`).
+      this.zoneBand.pushZone(zv.rect, color, (x, y) => groundWorldY(elevation, width, height, x, y));
     }
 
     // Tutorial focus ring -- renderer.ts's own manual 24-point loop, a
@@ -9048,6 +9064,7 @@ export class ThreeRenderer implements Renderer {
     }
 
     this.overlayBatch.endFrame();
+    this.zoneBand.endFrame();
     this.numeralBatch.endFrame();
     this.chevronBatch.endFrame();
   }

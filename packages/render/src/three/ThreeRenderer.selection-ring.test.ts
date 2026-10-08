@@ -216,7 +216,8 @@ describe('selection ring wiring (GH-186)', () => {
   it("setDebugLayerVisible('overlays', false) hides the ring too, it stays hidden across frames, and the count includes it", () => {
     const w = setUp();
     w.renderer.selection = [w.a];
-    expect(w.renderer.setDebugLayerVisible('overlays', false)).toBe(7);
+    // Eight: the zone band's group joined the layer (GH-470).
+    expect(w.renderer.setDebugLayerVisible('overlays', false)).toBe(8);
     w.draw();
     w.draw();
     // `endFrame` re-asserts the MESH's own visibility every frame; the layer
@@ -224,7 +225,7 @@ describe('selection ring wiring (GH-186)', () => {
     expect(w.priv.selectionRing.mesh.visible).toBe(true);
     expect(w.priv.selectionRing.mesh.parent).toBe(w.priv.selectionRingGroup);
     expect(w.priv.selectionRingGroup.visible).toBe(false);
-    expect(w.renderer.setDebugLayerVisible('overlays', true)).toBe(7);
+    expect(w.renderer.setDebugLayerVisible('overlays', true)).toBe(8);
     expect(w.priv.selectionRingGroup.visible).toBe(true);
   });
 

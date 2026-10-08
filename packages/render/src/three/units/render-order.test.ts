@@ -41,6 +41,7 @@ import {
   TUNNEL_XRAY_RENDER_ORDER,
   TUNNEL_XRAY_FIGURE_RENDER_ORDER,
   TUNNEL_XRAY_BEAM_RENDER_ORDER,
+  ZONE_BAND_RENDER_ORDER,
 } from './render-order';
 
 describe('render order bands', () => {
@@ -188,5 +189,14 @@ describe('render order bands', () => {
     expect(TUNNEL_XRAY_RENDER_ORDER).toBeLessThan(TUNNEL_XRAY_FIGURE_RENDER_ORDER);
     expect(TUNNEL_XRAY_FIGURE_RENDER_ORDER).toBeLessThan(TUNNEL_XRAY_BEAM_RENDER_ORDER);
     expect(TUNNEL_XRAY_BEAM_RENDER_ORDER).toBeLessThan(SELECTION_RING_RENDER_ORDER);
+  });
+
+  // #470: the objective zone's band is ground, not an overlay. It replaced a
+  // fill in OVERLAY_RENDER_ORDER that painted over every roof and hull.
+  it('the zone band is a ground band: the fading-decal alias, under the selection ring and every unit and overlay tier', () => {
+    expect(ZONE_BAND_RENDER_ORDER).toBe(DECAL_FADING_RENDER_ORDER);
+    expect(ZONE_BAND_RENDER_ORDER).toBeLessThan(SELECTION_RING_RENDER_ORDER);
+    expect(ZONE_BAND_RENDER_ORDER).toBeLessThan(TURRET_RENDER_ORDER);
+    expect(ZONE_BAND_RENDER_ORDER).toBeLessThan(OVERLAY_RENDER_ORDER);
   });
 });

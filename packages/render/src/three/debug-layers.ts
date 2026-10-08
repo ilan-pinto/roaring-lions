@@ -167,7 +167,10 @@
  * draw call -- so hiding the mesh would be undone by the next repaint, the
  * `updateVehicleMeshes` trap. The mesh therefore lives under
  * `ThreeRenderer.selectionRingGroup`, which nothing per-frame touches, and
- * this layer flips the group: seven objects in all, not six.
+ * this layer flips the group: seven objects in all, not six. The objective
+ * zone's hatched ground band (#470, `units/zone-band.ts`) follows the same
+ * rule for the same reason -- its `endFrame()` hides an empty batch -- so it
+ * too is hidden through a group, `ThreeRenderer.zoneBandGroup`: eight.
  *
  * IT ALSO HIDES THE OCCLUSION SILHOUETTE (`units/silhouette.ts`, band 6),
  * which is a SEPARATE subsystem from the three batches above, not a fourth
