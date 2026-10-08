@@ -266,6 +266,39 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
+  # TEMPORARY (GH-469 calibration): three independent runners walk the same
+  # tree so the memory budgets rest on n=3 CI readings. Removed in the commit
+  # that sets the budgets.
+  memory-calibrate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Install Playwright Chromium
+        run: pnpm --filter @lions/tools exec playwright install --with-deps chromium
+      - run: pnpm perf:memory -- --port=5179 --out=memory-out/memory-${{ matrix.run }}.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        continue-on-error: true
+        with:
+          name: memory-calibrate-${{ matrix.run }}
+          path: memory-out
+          retention-days: 3
+
   determinism:
     strategy:
       fail-fast: false

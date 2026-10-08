@@ -5,6 +5,8 @@
 //   pnpm perf:memory -- --gate                         # and judge it against memory-budgets.ts
 //   pnpm perf:memory -- --missions=a,b --play-s=60 --out=/tmp/mem.json
 //   pnpm perf:memory -- --gpu=swiftshader              # CI's rasteriser, on a Mac
+//   pnpm perf:memory -- --viewport=1440x900 --dpr=2    # a retina laptop's drawing buffer
+//   pnpm perf:memory -- --serve=preview                # the production build (pnpm build first)
 //
 // ONE browser, ONE page, ONE JS realm for the whole walk -- the menu, the
 // campaign board, then each mission booted SOFTLY (a same-origin anchor click,
@@ -76,6 +78,8 @@ class InstrumentError extends Error {}
 interface Args {
   missions: string[];
   playS: number;
+  /** Sim seconds per `__lions.step` call; see `playMission`. */
+  sliceS: number;
   gate: boolean;
   out: string | null;
   /** `dev` (default; what CI runs) or `preview` -- the production build in
@@ -94,6 +98,8 @@ function parseArgs(argv: string[]): Args {
   const missions = get('missions')?.split(',').filter(Boolean) ?? DEFAULT_MISSIONS;
   const playS = Number(get('play-s') ?? 120);
   if (!Number.isFinite(playS) || playS < 0) throw new InstrumentError(`--play-s must be a number of seconds, got ${get('play-s')}`);
+  const sliceS = Number(get('slice-s') ?? 30);
+  if (!(sliceS > 0)) throw new InstrumentError(`--slice-s must be a positive number of seconds, got ${get('slice-s')}`);
   const [w, h] = (get('viewport') ?? '1400x900').split('x').map(Number);
   const dpr = Number(get('dpr') ?? 1);
   if (!(w > 0 && h > 0 && dpr > 0)) throw new InstrumentError(`--viewport=<w>x<h> and --dpr=<n> must be positive, got ${get('viewport')} / ${get('dpr')}`);
@@ -106,6 +112,7 @@ function parseArgs(argv: string[]): Args {
   return {
     missions,
     playS,
+    sliceS,
     gate: argv.includes('--gate'),
     out: out ? path.resolve(REPO_ROOT, out) : null,
     serve,
@@ -252,15 +259,19 @@ async function waitForBoard(page: Page): Promise<void> {
   );
 }
 
-async function playMission(page: Page, id: string, playS: number): Promise<void> {
+async function playMission(page: Page, id: string, playS: number, sliceS: number): Promise<void> {
   await dismissDeployGate(page, `${TAG} ${id}`, { selectorTimeoutMs: 120_000, timeoutMs: 120_000 });
   await page.waitForFunction(() => (window as unknown as { __lions?: unknown }).__lions !== undefined, null, { timeout: 60_000 });
-  // `playS` of sim time at 20 Hz, in 10 s slices with a real pause between
-  // them so the frame loop draws (and the renderer's pools and VFX fill) as
-  // the battle advances, rather than one 2,400-tick jump and one frame.
+  // `playS` of sim time at 20 Hz, in `sliceS` slices with a real pause
+  // between them, so the frame loop draws (spawned units get their meshes,
+  // the dead their wrecks, the pools fill) as the battle advances rather than
+  // after one 2,400-tick jump. Each slice ends in one `renderer.frame`, and on
+  // SwiftShader a frame is the expensive part: 10 s slices took the CI walk
+  // to 917 s, three quarters of it here.
   const ticks = Math.round(playS * 20);
-  for (let done = 0; done < ticks; done += 200) {
-    const n = Math.min(200, ticks - done);
+  const slice = Math.max(1, Math.round(sliceS * 20));
+  for (let done = 0; done < ticks; done += slice) {
+    const n = Math.min(slice, ticks - done);
     await page.evaluate((k) => (window as unknown as { __lions: { step(n: number): number } }).__lions.step(k), n);
     await page.waitForTimeout(250);
   }
@@ -332,7 +343,7 @@ async function main(): Promise<number> {
 
     for (const id of args.missions) {
       await softNav(page, `/mission/${id}`);
-      await playMission(page, id, args.playS);
+      await playMission(page, id, args.playS, args.sliceS);
       readings.push(await read(`mission ${id}`, page, cdp, browserCdp, t0));
       const how = await leaveMission(page);
       console.log(`[${TAG}] left ${id} by ${how}`);
