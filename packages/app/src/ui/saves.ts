@@ -275,7 +275,7 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
   p.body.appendChild(msg);
 
   const back = document.createElement('a');
-  back.className = 'rl-btn rl-menu__item rl-saves__back';
+  back.className = 'rl-btn rl-saves__back';
   back.dataset.kind = 'back';
   back.href = deps.back;
   back.innerHTML = symbolLabel('back', t('nav.backToMenu'));

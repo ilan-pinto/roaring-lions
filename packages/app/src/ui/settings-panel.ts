@@ -437,7 +437,7 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
 export function showSettings(stage: HTMLElement, deps: SettingsDeps & { back: string }): Disposer {
   const { el, dispose } = settingsPanel(stage, deps);
   const back = document.createElement('a');
-  back.className = 'rl-btn rl-menu__item rl-settings__back';
+  back.className = 'rl-btn rl-settings__back';
   back.dataset.kind = 'back';
   back.href = deps.back;
   back.innerHTML = symbolLabel('back', t('nav.backToMenu'));

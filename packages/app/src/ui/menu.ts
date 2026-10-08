@@ -312,7 +312,7 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
   const back = document.createElement('a');
   back.innerHTML = symbolLabel('back', t('nav.backToMenu'));
   back.href = routes.menu();
-  back.className = 'rl-btn rl-menu__item';
+  back.className = 'rl-btn';
   back.dataset.kind = 'back';
   nav.appendChild(back);
   wrap.appendChild(nav);
@@ -430,7 +430,7 @@ export function showSandbox(stage: HTMLElement): Disposer {
   const back = document.createElement('a');
   back.innerHTML = symbolLabel('back', t('nav.backToMenu'));
   back.href = routes.menu();
-  back.className = 'rl-btn rl-menu__item';
+  back.className = 'rl-btn';
   back.dataset.kind = 'back';
   backNav.appendChild(back);
   wrap.appendChild(backNav);

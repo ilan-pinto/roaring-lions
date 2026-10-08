@@ -899,12 +899,13 @@ describe('showBrigade — the wallet and the footer', () => {
 });
 
 describe('the garage type floor', () => {
-  // The screen's own reading ladder is five tokens declared on
-  // `.rl-menu--garage` (theme.css), and `--t-small` is the floor. jsdom
-  // computes no stylesheet, so this reads the rules back off disk: every
-  // `font-size` inside a `.rl-garage`/`.rl-menu--garage` rule must name one
-  // of the five, which is what stops a later rule quietly re-introducing the
-  // 0.6875rem the old brigade list set its reason text in.
+  // The screen reads five rungs of the ONE root scale (PA-22, VR-19: the
+  // private `--t-title`/`--t-h2`/`--t-h3`/`--t-small` names are retired, and
+  // `--t-body` is the garage's only re-pointed token), and `--t-band` is the
+  // floor. jsdom computes no stylesheet, so this reads the rules back off
+  // disk: every `font-size` inside a `.rl-garage`/`.rl-menu--garage` rule must
+  // name one of the five, which is what stops a later rule quietly
+  // re-introducing the 0.6875rem the old brigade list set its reason text in.
   //
   // Falsified by hand: pointing `.rl-garage__benefit`'s `font-size` at
   // `var(--t-s)` fails, naming that rule.
@@ -913,7 +914,7 @@ describe('the garage type floor', () => {
     // is the repo root, where `pnpm test` runs) -- not from `import.meta.url`,
     // which under the jsdom environment is an http: URL and not a file path.
     const css = readFileSync(resolve(process.cwd(), 'packages/app/src/ui/theme.css'), 'utf8');
-    const allowed = new Set(['--t-title', '--t-h2', '--t-h3', '--t-body', '--t-small']);
+    const allowed = new Set(['--t-clock', '--t-head', '--t-card', '--t-body', '--t-band']);
     const offenders: string[] = [];
     let seen = 0;
     // Rule by rule: `selector { body }`. The body pattern excludes braces, so

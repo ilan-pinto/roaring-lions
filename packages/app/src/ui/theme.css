@@ -264,11 +264,19 @@
      never arrives, the interface degrades to how it looked yesterday rather
      than to a serif. */
   --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  /* Body prose is Barlow as of GH-153. It replaced IBM Plex Mono, which was
-     never doing monospace work here — nothing in the HUD is a column of
-     figures that has to align — and cost about 15% of the width for the same
-     words. --font-mono stays declared and stays in use by the debug overlay,
-     where columns of numbers ARE the point. */
+  /* THE TYPE REGISTER (audit PA-22). Three faces, one job each:
+       --font-display  titles, bands, menu tiles, strip names -- caps, tracked.
+       --font-body     ALL prose: every sentence, blurb, narration, label that
+                       reads as words. Barlow ships 400 and 600 ONLY, so the
+                       only weights the interface may ask of it are those two.
+       --font-mono     only where columns of figures are the point: clocks,
+                       prices, wallets, stat numbers, key caps, counts, flag
+                       and URI identifiers, and the debug overlay.
+     Body prose is Barlow as of GH-153. It replaced IBM Plex Mono, which was
+     never doing monospace work on a sentence and cost about 15% of the width
+     for the same words. A container that moves to the body face re-applies
+     mono to its numeric children explicitly, so they keep tabular figures.
+     `type-register.test.ts` reads this file back and holds the rule. */
   --font-body: 'Barlow', system-ui, -apple-system, sans-serif;
   --t-xs: 0.625rem;
   --t-s: 0.6875rem;
@@ -281,6 +289,7 @@
   --t-read: 1.25rem; /* the lines the player reads -- the commander's beats and lines, the feed, the objective in hand (the lead: 0.75rem was too small), and since GH-162 the deploy screen's briefing beats, before the mission even starts */
   --t-card: 1.1875rem; /* the single-unit card's name */
   --t-l: 1.25rem;
+  --t-head: 1.5rem; /* section heads on the reading screens (the garage's panel heads); the one rung between --t-l and --t-xl */
   --t-xl: 1.75rem;
   --t-clock: 2.125rem; /* the hold clock, which is read across the room */
   --t-hero: clamp(2.125rem, 7vw, 3.25rem);
@@ -807,9 +816,9 @@ body {
 }
 .rl-world__card[data-status='live'] { border-left-color: var(--map-live); }
 .rl-world__card[data-status='locked'] { border-left-color: var(--map-locked); opacity: 0.6; }
-.rl-world__badge { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-dim); }
+.rl-world__badge { font-size: var(--t-body); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-dim); }
 
-.rl-world__stars { color: var(--commend); }
+.rl-world__stars { color: var(--commend); font-family: var(--font-mono); }
 .rl-world__villain {
   margin-top: 0.375rem;
   display: grid;
@@ -1080,11 +1089,11 @@ body {
 }
 /* A victory's narration (a mission's `aftermath`, GDD §11), directly under
    the verdict: the HUD banner's old second line, moved here when the banner
-   stood down for this moment. Narration, not the verdict -- the banner's own
-   mono face at the body size, in the dim ink the closing line below wears. */
+   stood down for this moment. Narration, not the verdict -- the body face at
+   the body size, in the dim ink the closing line below wears. */
 .rl-outcome__aftermath {
   margin: var(--s3) 0 0;
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--t-m);
   color: var(--ink-dim);
 }
@@ -1092,9 +1101,9 @@ body {
    verdict, in the verdict's own weight -- the reason is the news. */
 .rl-outcome__reason {
   margin: var(--s3) 0 0;
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--t-m);
-  font-weight: 700;
+  font-weight: 600;
 }
 .rl-outcome__line {
   margin: var(--s3) 0 0;
@@ -1103,10 +1112,10 @@ body {
 }
 /* Polish pass F (A5): the outcome's line on the radio net, always shown --
    the caption the HUD's own slot cannot carry while this moment covers it.
-   The narration's dim mono face, so it reads as the net speaking. */
+   The narration's dim body face, so it reads as the net speaking. */
 .rl-outcome__radio {
   margin: var(--s3) 0 0;
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--t-m);
   color: var(--ink-dim);
 }
@@ -1188,7 +1197,7 @@ body {
 }
 .rl-pause__obj[data-primary='1'] .rl-pause__obj-text {
   color: var(--ink);
-  font-weight: 700;
+  font-weight: 600;
 }
 .rl-pause__obj-text {
   color: var(--ink-dim);
@@ -1282,7 +1291,7 @@ body {
 }
 .rl-obj[data-primary='1'] .rl-obj__text {
   color: var(--ink);
-  font-weight: 700;
+  font-weight: 600;
 }
 .rl-obj__status {
   color: var(--ink-mute);
@@ -1934,7 +1943,7 @@ body {
   opacity: 0.88;
 }
 .rl-notice[data-tier="major"] {
-  font-weight: 700;
+  font-weight: 600;
   box-shadow: inset 0.25rem 0 0 currentColor, inset -0.25rem 0 0 currentColor;
   padding-block: 0.25rem;
 }
@@ -1946,7 +1955,7 @@ body {
 .rl-notice__count {
   margin-left: 0.5em;
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--ink);
 }
 
@@ -2470,7 +2479,7 @@ body {
   gap: 0.375rem;
   margin-top: 2px;
   color: var(--bad-text);
-  font-weight: 700;
+  font-weight: 600;
 }
 .rl-card__engaging-art {
   width: 1.375rem;
@@ -2604,7 +2613,7 @@ body {
    weight above: this is narration, not the verdict. */
 .rl-bigbanner__aftermath {
   margin-top: var(--s2);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--t-m);
   letter-spacing: 0;
   text-transform: none;
@@ -2653,7 +2662,7 @@ body {
   text-shadow: 0 2px 18px var(--scrim), 0 1px 3px var(--scrim);
 }
 .rl-titlecard__sub {
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--t-m);
   letter-spacing: var(--track-label);
   color: var(--accent);
@@ -2663,7 +2672,7 @@ body {
 }
 /* The story voice (GDD §11), between the name and the mechanical objective
    count -- prose, not a HUD label, so it reads in the body font rather than
-   `.rl-titlecard__sub`'s tracked mono caps. */
+   `.rl-titlecard__sub`'s tracked caps. */
 .rl-titlecard__dispatch {
   margin-top: var(--s2);
   font-family: var(--font-body);
@@ -3074,7 +3083,11 @@ body {
   padding: var(--s5) var(--s6);
   background: var(--panel-bg);
   border: 1px solid var(--panel-frame);
-  font-family: var(--font-mono);
+  /* The body face (PA-22): this container carries the campaign cards, the
+     Free Play blurbs and the sandbox hints, which are sentences. Its figures
+     (`.rl-world__stars`, the garage's own wallet and prices) name mono
+     themselves. */
+  font-family: var(--font-body);
   color: var(--ink);
   text-align: center;
 }
@@ -3321,6 +3334,18 @@ body {
 button.rl-menu__item[data-kind='aside'] {
   width: 100%;
 }
+/* ONE back button (PA-22, VR-21). Every way back -- Settings, Saves, Credits,
+   the campaign board, Free Play, the briefing, the boot-failure screen -- is
+   the plain `.rl-btn`: body face, sentence case, `--t-body`, the register the
+   rest of the shell's action buttons (end screen, pause, confirm, saves) wear.
+   The menu TILE (`.rl-menu__item`, display face, uppercase) is for going
+   FORWARD into a screen; a way back is not a destination, so it does not
+   dress as one. The three panel-body ones size to their own text through their
+   own `margin`/`width` rules; in a `.rl-menu__nav` column a bare anchor would
+   stretch to the column's width, so it is kept to its text here. */
+.rl-menu__nav > .rl-btn[data-kind='back'] {
+  align-self: flex-start;
+}
 /* The tutorial, while unplayed: it should be the first thing a new
    commander's eye lands on, not just the first item in the list. */
 .rl-menu__item[data-kind='primary'],
@@ -3532,7 +3557,7 @@ button.rl-menu__item[data-kind='aside'] {
    read rather than glimpsed. */
 .rl-endaftermath {
   margin: 0 0 var(--s2);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--t-m);
   line-height: 1.5;
   color: var(--ink-dim);
@@ -3874,17 +3899,17 @@ button.rl-menu__item[data-kind='aside'] {
 }
 
 /* Tutorial step panel — the lesson is the thing a first-time player has to
-   read, so it wears the display face at reading size rather than the 0.6875rem
-   mono every other panel body uses. The nudge is the same copy escalated, so
+   read, so it is set in the body face (it is prose, PA-22) at reading size,
+   `--t-l`, rather than the `--t-body` every other panel body uses. The title
+   above it keeps the display face. The nudge is the same copy escalated, so
    it reads as emphasis rather than a second instruction. */
 .rl-tutorial .rl-panel__title {
-  font-size: 1.5rem;
+  font-size: var(--t-head);
 }
 .rl-tutorial .rl-panel__body {
-  font-family: var(--font-display);
+  font-family: var(--font-body);
   font-size: var(--t-l);
   line-height: 1.3;
-  letter-spacing: var(--track-title);
 }
 .rl-tutorial__nudge:empty {
   display: none;
@@ -3919,7 +3944,7 @@ button.rl-menu__item[data-kind='aside'] {
   /* Opaque, not translucent — see above; there is nothing behind here worth
      showing through. */
   background: var(--panel-bg-solid);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   color: var(--ink);
   /* The screen is `inset: 0` and centres its box, so anything taller than the
      viewport is clipped at both ends with no way to reach it. "What you
@@ -3958,6 +3983,9 @@ button.rl-menu__item[data-kind='aside'] {
   transition: width var(--dur) var(--ease);
 }
 .rl-loading__count {
+  /* A readout of figures ("12 / 45 sheets"): mono, named here because the
+     container above is the body face. */
+  font-family: var(--font-mono);
   margin-top: var(--s2);
   font-size: var(--t-s);
   letter-spacing: var(--track-label);
@@ -4024,9 +4052,9 @@ button.rl-menu__item[data-kind='aside'] {
   text-transform: uppercase;
   color: var(--ink-label);
 }
-/* The reading face, not the plate face (GH-162): the label/count above still
-   wear `.rl-loading`'s own `--font-mono` -- readouts, not prose -- and
-   `.rl-loading__commander` keeps the tracked display caps of a rank/plate
+/* The reading face, not the plate face (GH-162): the count above wears
+   `--font-mono` -- a readout of figures, not prose -- the label beside it the
+   body face, and `.rl-loading__commander` keeps the tracked display caps of a rank/plate
    line, both untouched. The briefing itself is what the player has to sit
    and read, so it takes the same treatment `.rl-cmd__quote` already gives
    the identical prose mid-mission: Barlow (`--font-body`, GH-153 retired
@@ -4611,21 +4639,26 @@ button.rl-menu__item[data-kind='aside'] {
    THE READING LADDER. The global --t-* scale above is sized for type drawn
    OVER a battlefield and glanced at between orders, so it bottoms out at
    0.625rem and calls 0.75rem "body". Nothing on this screen is glanced at.
-   The five names the garage sets its type in are therefore re-pointed HERE,
-   on the screen's own root, and inherit down to everything inside it --
-   including `.rl-btn`, which reads --t-body and so comes out at reading size
-   in this screen's footer without a rule of its own. Nothing OUTSIDE this
-   selector sees any of it, which is the whole reason the ladder is scoped
-   rather than moved: raising --t-body globally would resize every HUD chip
-   in the game. --t-small is this screen's FLOOR -- no rule below may name a
+   The garage used to declare a private five-name scale for that (--t-title,
+   --t-h2, --t-h3, --t-body, --t-small). PA-22 (VR-19) retired it: there is
+   one scale, and the garage reads its upper rungs --
+       title  --t-clock 2.125rem      (was 2.25)
+       head   --t-head  1.5rem        (was 1.5, new root rung)
+       sub    --t-card  1.1875rem     (was 1.125)
+       body   --t-body  = --t-strip 1.0625rem (was 1.0)
+       floor  --t-band  0.9375rem     (was 0.875)
+   -- each within one step (about 6%) of what it replaced; every rung grew
+   except the title, which went down 5.6%, because the lead asked for bigger
+   type by name and a shrink here would undo that.
+   Only --t-body is still re-pointed here, on the screen's own root, so that
+   `.rl-btn`, which reads --t-body, comes out at reading size in this
+   screen's footer without a rule of its own; nothing OUTSIDE this selector
+   sees it, because raising --t-body globally would resize every HUD chip in
+   the game. --t-band is this screen's FLOOR -- no rule below may name a
    smaller size, and `brigade.test.ts` reads this block back off disk and
    fails if one does. */
 .rl-menu--garage {
-  --t-title: 2.25rem;
-  --t-h2: 1.5rem;
-  --t-h3: 1.125rem;
-  --t-body: 1rem;
-  --t-small: 0.875rem;
+  --t-body: var(--t-strip); /* reading size for everything that reads --t-body in here, `.rl-btn` included */
 
   /* The same width exception, and the same vw arithmetic, the campaign board
      takes: subtract the menu's own horizontal padding and border so the BOX,
@@ -4668,7 +4701,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__title {
   margin: 0;
   font-family: var(--font-display);
-  font-size: var(--t-title);
+  font-size: var(--t-clock);
   font-weight: 900;
   line-height: 1;
   letter-spacing: var(--track-title);
@@ -4676,7 +4709,7 @@ button.rl-menu__item[data-kind='aside'] {
   color: var(--ink);
 }
 .rl-garage__campaign {
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--ink-mute);
@@ -4690,12 +4723,12 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-garage__wallet-n {
   font-family: var(--font-mono);
-  font-size: var(--t-h2);
+  font-size: var(--t-head);
   font-weight: 600;
   color: var(--commend);
 }
 .rl-garage__wallet-word {
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--ink-mute);
@@ -4745,7 +4778,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__tab {
   padding: var(--s1) var(--s2);
   font-family: var(--font-display);
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--ink-dim);
@@ -4767,7 +4800,7 @@ button.rl-menu__item[data-kind='aside'] {
   align-self: flex-end;
   padding: var(--s1) var(--s2);
   font-family: var(--font-display);
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--ink-dim);
@@ -4884,12 +4917,12 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-menu--garage .rl-stores__wallet-n {
   font-family: var(--font-mono);
-  font-size: var(--t-h2);
+  font-size: var(--t-head);
   font-weight: 600;
   color: var(--roar);
 }
 .rl-menu--garage .rl-stores__wallet-word {
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--ink-mute);
@@ -4903,7 +4936,7 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-menu--garage .rl-stores__packs-h {
   font-family: var(--font-display);
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--ink-label);
@@ -4914,7 +4947,7 @@ button.rl-menu__item[data-kind='aside'] {
   gap: var(--s1);
   padding: var(--s1) var(--s2);
   font-family: var(--font-body);
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   color: var(--ink);
   background: var(--tile-bg);
   border: 1px solid var(--panel-frame);
@@ -4924,19 +4957,19 @@ button.rl-menu__item[data-kind='aside'] {
   cursor: not-allowed;
 }
 .rl-menu--garage .rl-stores__pack-bonus {
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   color: var(--good);
 }
 .rl-menu--garage .rl-stores__pack-price {
   font-family: var(--font-mono);
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   color: var(--ink-mute);
 }
 .rl-menu--garage .rl-stores__notice {
   margin: 0;
   padding: var(--s1) var(--s3);
   border-left: 3px solid var(--roar);
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   color: var(--ink-mute);
 }
 .rl-stores__bar {
@@ -4957,7 +4990,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-menu--garage .rl-stores__owned {
   padding: var(--s1) var(--s3);
   font-family: var(--font-display);
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--ink-dim);
@@ -4980,7 +5013,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-menu--garage .rl-stores__empty,
 .rl-menu--garage .rl-stores__offsale-count {
   margin: 0 0 var(--s2);
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   color: var(--ink-mute);
   max-width: 80ch;
 }
@@ -4993,7 +5026,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-menu--garage .rl-stores__shelf-h {
   margin: var(--s5) 0 var(--s3);
   font-family: var(--font-display);
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--ink-label);
@@ -5035,13 +5068,13 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-menu--garage .rl-stores__card-name {
   margin: 0;
   font-family: var(--font-display);
-  font-size: var(--t-h3);
+  font-size: var(--t-card);
   font-weight: 800;
   letter-spacing: var(--track-label);
   text-transform: uppercase;
 }
 .rl-menu--garage .rl-stores__state {
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   white-space: nowrap;
@@ -5069,7 +5102,7 @@ button.rl-menu__item[data-kind='aside'] {
   color: var(--roar);
 }
 .rl-menu--garage .rl-stores__coin-word {
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   color: var(--ink-mute);
 }
 .rl-stores__coin {
@@ -5077,11 +5110,11 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-menu--garage .rl-stores__credits {
   font-family: var(--font-mono);
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   color: var(--commend);
 }
 .rl-menu--garage .rl-stores__path {
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   color: var(--ink-mute);
 }
 .rl-menu--garage .rl-stores__buy {
@@ -5090,8 +5123,8 @@ button.rl-menu__item[data-kind='aside'] {
   gap: var(--s1);
   padding: var(--s1) var(--s3);
   font-family: var(--font-body);
-  font-size: var(--t-small);
-  font-weight: 700;
+  font-size: var(--t-band);
+  font-weight: 600;
   color: var(--roar-ink);
   background: var(--roar);
   border: 0;
@@ -5122,7 +5155,7 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-menu--garage .rl-stores__tier-track {
   font-family: var(--font-display);
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--ink-label);
@@ -5155,7 +5188,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-menu--garage .rl-stores__test {
   padding: 0 var(--s2);
   font-family: var(--font-display);
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   letter-spacing: var(--track-label);
   color: var(--roar-ink);
   background: var(--warn);
@@ -5163,8 +5196,8 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-menu--garage .rl-stores__grant {
   padding: var(--s1) var(--s3);
   font-family: var(--font-body);
-  font-size: var(--t-small);
-  font-weight: 700;
+  font-size: var(--t-band);
+  font-weight: 600;
   color: var(--ink);
   background: var(--tile-bg);
   border: 1px dashed var(--warn);
@@ -5184,7 +5217,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-menu--garage .rl-stores__receipts {
   width: 100%;
   border-collapse: collapse;
-  font-size: var(--t-small);
+  font-size: var(--t-band);
 }
 .rl-stores__receipts th {
   text-align: left;
@@ -5246,7 +5279,7 @@ button.rl-menu__item[data-kind='aside'] {
    differs is worse than no rule. The sentence is on the card's `title` and in
    the bay. */
 .rl-garage__card-chip {
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   color: var(--ink-dim);
   white-space: nowrap;
 }
@@ -5469,7 +5502,7 @@ button.rl-menu__item[data-kind='aside'] {
   margin: auto;
   padding: 0 var(--s2);
   font-family: var(--font-display);
-  font-size: var(--t-h2);
+  font-size: var(--t-head);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--kit);
@@ -5518,7 +5551,7 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-garage__plate-kit-label {
   font-family: var(--font-display);
-  font-size: var(--t-h3);
+  font-size: var(--t-card);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
 }
@@ -5530,7 +5563,7 @@ button.rl-menu__item[data-kind='aside'] {
   right: var(--s2);
   bottom: var(--s2);
   font-family: var(--font-display);
-  font-size: var(--t-h3);
+  font-size: var(--t-card);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--kit);
@@ -5556,7 +5589,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__name {
   margin: 0;
   font-family: var(--font-display);
-  font-size: var(--t-title);
+  font-size: var(--t-clock);
   font-weight: 800;
   line-height: 1;
   letter-spacing: var(--track-title);
@@ -5565,7 +5598,7 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-garage__role {
   font-family: var(--font-display);
-  font-size: var(--t-h3);
+  font-size: var(--t-card);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--accent);
@@ -5579,7 +5612,7 @@ button.rl-menu__item[data-kind='aside'] {
   flex-shrink: 0;
   padding: 0 0.4em;
   border: 1px solid var(--kit-edge);
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--ink-dim);
@@ -5612,20 +5645,20 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__buy {
   align-self: flex-start;
   font-family: var(--font-display);
-  font-size: var(--t-h2);
+  font-size: var(--t-head);
   letter-spacing: var(--track-title);
   text-transform: uppercase;
   color: var(--commend);
 }
 .rl-garage__short {
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   color: var(--bad-text);
 }
 /* What this type's kit cost, directly under the panel it bought numbers
    into. Absent when nothing has been spent -- read text, not a badge, so it
    sits at the same weight the blurb below it does. */
 .rl-garage__kit-total {
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   color: var(--ink-mute);
 }
 
@@ -5658,7 +5691,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__track-name {
   margin: 0;
   font-family: var(--font-display);
-  font-size: var(--t-h3);
+  font-size: var(--t-card);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--ink-mute);
@@ -5759,13 +5792,13 @@ button.rl-menu__item[data-kind='aside'] {
   background: var(--kit);
 }
 .rl-garage__track-tier {
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   color: var(--ink-dim);
 }
 .rl-garage__track-spend {
   grid-column: 2;
   grid-row: 2;
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   color: var(--ink-mute);
 }
 .rl-garage__track[data-state='maxed'] .rl-garage__track-spend {
@@ -5808,7 +5841,7 @@ button.rl-menu__item[data-kind='aside'] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   color: var(--ink-dim);
 }
 /* Tighter than the stats panel's own padding and inter-row gap (§2 goal 3,
@@ -5926,7 +5959,7 @@ button.rl-menu__item[data-kind='aside'] {
    removes it rather than being overridden back to visible (GH-237). */
 .rl-garage__stat-kitn {
   grid-column: 3;
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   color: var(--kit);
   text-align: right;
   white-space: nowrap;
@@ -6012,7 +6045,7 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-garage__rung-tier {
   font-family: var(--font-display);
-  font-size: var(--t-h3);
+  font-size: var(--t-card);
   letter-spacing: var(--track-title);
   text-transform: uppercase;
   color: var(--ink);
@@ -6023,7 +6056,7 @@ button.rl-menu__item[data-kind='aside'] {
   color: var(--commend);
 }
 .rl-garage__rung-owned {
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--friendly);
@@ -6038,7 +6071,7 @@ button.rl-menu__item[data-kind='aside'] {
    below, and only for a FUTURE rung. */
 .rl-garage__rung-gist {
   display: none;
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   color: var(--ink-mute);
 }
 .rl-garage__buy-tier {
@@ -6235,9 +6268,9 @@ button.rl-menu__item[data-kind='aside'] {
   font-size: var(--t-s);
   padding: var(--s1) var(--s2);
 }
-/* The back link -- same look as `.rl-loading__back`'s own control-inside-the-
-   body placement, sized to its own text rather than stretching the panel's
-   width. */
+/* The back link -- the same plain `.rl-btn` as `.rl-loading__back`
+   (PA-22, see `.rl-menu__nav > .rl-btn[data-kind='back']`), placed inside the
+   body and sized to its own text rather than stretching the panel's width. */
 .rl-settings__back {
   display: block;
   width: fit-content;
@@ -6287,7 +6320,7 @@ button.rl-menu__item[data-kind='aside'] {
   color: var(--ink);
 }
 .rl-saves__sub {
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--t-s);
   color: var(--ink-mute);
 }
@@ -6330,7 +6363,7 @@ button.rl-menu__item[data-kind='aside'] {
    there, under WCAG AA's 4.5:1 floor (I2, tools/src/bad-text-contrast.test.ts). */
 .rl-saves__msg {
   min-height: 1.2em;
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--t-s);
   color: var(--bad-text);
 }
@@ -6395,13 +6428,13 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-credits__font summary {
   cursor: pointer;
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--t-s);
   color: var(--ink);
 }
 .rl-credits__licence-text {
   white-space: pre-wrap;
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--t-s);
   color: var(--ink-mute);
   max-height: 16rem;
@@ -6640,7 +6673,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-glance__k--avoid { color: var(--bad-text); }
 .rl-glance__v {
   font-family: var(--font-body);
-  font-size: 1.0625rem;
+  font-size: var(--t-strip);
   line-height: 1.35;
   color: var(--ink);
 }
@@ -6795,7 +6828,7 @@ button.rl-menu__item[data-kind='aside'] {
   font: var(--t-body) / 1.3 var(--font-body);
 }
 .rl-force__name {
-  font: 800 1.0625rem / 1.1 var(--font-display);
+  font: 800 var(--t-strip) / 1.1 var(--font-display);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }

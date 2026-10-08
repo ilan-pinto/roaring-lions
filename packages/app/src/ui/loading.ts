@@ -703,6 +703,7 @@ export function showLoading(
     back = document.createElement('button');
     back.type = 'button';
     back.className = 'rl-btn rl-loading__back';
+    back.dataset.kind = 'back';
     back.innerHTML = symbolLabel('back', t('nav.backToCampaignMap'));
   }
 
