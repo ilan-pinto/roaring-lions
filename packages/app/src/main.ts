@@ -137,6 +137,7 @@ import { showKeysOverlay } from './ui/keys-overlay';
 import { groupBar, groupChips } from './ui/group-bar';
 import { isIdle, nextIdle, type IdleFacts } from './ui/idle';
 import { escapeHtml } from './ui/escape-html';
+import { watchSmallScreen } from './ui/small-screen';
 import { bootFailureCard, bootFailureKind, guardBoot, mountErrorCard, mountInterrupted, watchContextLoss } from './ui/boot-failure';
 import { webgl2Available } from './ui/webgl-probe';
 import { alertNotice, evacuatedNotice, reinforceTrigger, removedNotice, ledgerSavedNotice, triggerLabel, unknownSandboxMapNotice } from './ui/mission-notice';
@@ -1187,6 +1188,10 @@ async function main(): Promise<void> {
   // document -- there is no point at which this page stops wanting them, so
   // its disposer is dropped rather than stored.
   interceptLinks(document, router);
+  // The small-screen notice (K-17): app-wide like the line above, so its
+  // disposer is dropped for the same reason -- but it has one, and a test
+  // proves it removes everything the notice adds.
+  watchSmallScreen({ navigate: (href) => void router.navigate(href), menuHref: routes.menu() });
   // `fresh` has done its work above and is not a route parameter, so it comes
   // off the URL -- except on the way into a mission, where it still means "run
   // this one against an empty ledger" and `bootBattlefield` reads it back off

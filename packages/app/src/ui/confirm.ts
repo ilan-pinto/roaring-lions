@@ -66,9 +66,14 @@ export interface ConfirmOptions {
  * this: a key a modal passes through on purpose). That guard has to know
  * this moment counts as a dialog too, or a `Tab` reaching it while the
  * outcome moment is up would fall through to whatever `main.ts` binds it to.
+ *
+ * K-17: `.rl-small-screen` (the narrow-portrait notice, `ui/small-screen.ts`)
+ * joined for the same reason as the rest: its own capture-phase guard answers
+ * Escape (as "Carry on anyway"), and this keeps `main.ts`'s handler from also
+ * opening the pause menu under it.
  */
 export function isDialogOpen(doc: Document = document): boolean {
-  return doc.querySelector('.rl-confirm, .rl-pause, .rl-keys, .rl-outcome') !== null;
+  return doc.querySelector('.rl-confirm, .rl-pause, .rl-keys, .rl-outcome, .rl-small-screen') !== null;
 }
 
 /** What `confirmDialog` hands back: the player's answer, and a way to take the
