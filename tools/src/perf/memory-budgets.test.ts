@@ -13,7 +13,7 @@ function reading(label: string, o: { js?: number; gpu?: number; proc?: number; c
       liveBytes: (o.gpu ?? 100) * MiB,
       liveContexts: o.ctx ?? 1,
       retainedLostContexts: o.lost ?? 0,
-      ledger: { contexts: [], sources: { bytes: 0, count: 0, byKind: {} }, audio: { bytes: 0, count: 0 }, unknownFormats: [] },
+      ledger: { contexts: [], sources: { bytes: 0, count: 0, byKind: {} }, bitmaps: { bytes: 0, count: 0 }, audio: { bytes: 0, count: 0 }, unknownFormats: [] },
     },
     process: { total: (o.proc ?? 1000) * MiB, byType: {}, method: 'test' },
     inventory: null,

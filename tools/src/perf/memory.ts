@@ -406,6 +406,7 @@ function printAttribution(readings: Reading[]): void {
       for (const t of c.renderbuffers) console.log(`      rb  ${t[0]}x${t[1]}  ${mib(t[3]).padStart(6)} MiB  ${t[4]}`);
     }
     console.log(`  pixel sources still reachable: ${mib(r.gpu.ledger.sources.bytes)} MiB (${r.gpu.ledger.sources.count}) ${JSON.stringify(r.gpu.ledger.sources.byKind)}`);
+    console.log(`  decoded ImageBitmaps still reachable, uploaded or not: ${mib(r.gpu.ledger.bitmaps.bytes)} MiB (${r.gpu.ledger.bitmaps.count})`);
     console.log(`  decoded audio still reachable: ${mib(r.gpu.ledger.audio.bytes)} MiB (${r.gpu.ledger.audio.count})`);
     console.log(`  sim: ${JSON.stringify(r.sim)}  process by type: ${JSON.stringify(Object.fromEntries(Object.entries(r.process.byType).map(([k, v]) => [k, mib(v)])))}`);
     if (r.gpu.ledger.unknownFormats.length) console.log(`  unknown GL formats counted at 4 B/texel: ${r.gpu.ledger.unknownFormats.join(', ')}`);

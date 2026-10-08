@@ -59,6 +59,9 @@ export interface LedgerContext {
 export interface LedgerReadout {
   contexts: LedgerContext[];
   sources: { bytes: number; count: number; byKind: Record<string, { bytes: number; count: number }> };
+  /** Every ImageBitmap decoded and still reachable (not closed), uploaded or
+   *  not -- at 4 bytes a pixel, the decoded size. */
+  bitmaps: { bytes: number; count: number };
   audio: { bytes: number; count: number };
   unknownFormats: string[];
 }
@@ -289,6 +292,19 @@ export const GL_LEDGER_INIT_SCRIPT = String.raw`(() => {
     var cb = AC.prototype.createBuffer;
     if (typeof cb === 'function') AC.prototype.createBuffer = function () { return noteAudio(cb.apply(this, arguments)); };
   }
+  // Every ImageBitmap the page decodes, uploaded or not: GLTFLoader decodes
+  // every texture in a GLB into one, including those of a template that is
+  // never drawn (a wreck, a buildable not yet bought), which the GL hooks
+  // above never see.
+  var bitmaps = [];
+  if (typeof createImageBitmap === 'function') {
+    var cib = createImageBitmap;
+    window.createImageBitmap = function () {
+      var p = cib.apply(this, arguments);
+      if (p && typeof p.then === 'function') p.then(function (b) { if (b) bitmaps.push(new WeakRef(b)); }, function () {});
+      return p;
+    };
+  }
   function drawingBuffer(gl) {
     var w = gl.drawingBufferWidth || 0, h = gl.drawingBufferHeight || 0;
     var at = gl.getContextAttributes ? gl.getContextAttributes() : null;
@@ -337,7 +353,12 @@ export const GL_LEDGER_INIT_SCRIPT = String.raw`(() => {
       }
       var au = { bytes: 0, count: 0 };
       for (var m = 0; m < audio.length; m++) if (audio[m].ref.deref()) { au.bytes += audio[m].bytes; au.count++; }
-      return { contexts: out, sources: src, audio: au, unknownFormats: Object.keys(unknown) };
+      var bm = { bytes: 0, count: 0 };
+      for (var q = 0; q < bitmaps.length; q++) {
+        var bb = bitmaps[q].deref();
+        if (bb && bb.width > 0) { bm.bytes += bb.width * bb.height * 4; bm.count++; }
+      }
+      return { contexts: out, sources: src, bitmaps: bm, audio: au, unknownFormats: Object.keys(unknown) };
     }
   };
 })();`;
