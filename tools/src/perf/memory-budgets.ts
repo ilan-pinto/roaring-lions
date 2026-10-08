@@ -28,6 +28,11 @@ export interface Ceiling {
   jsTotalMiB: number;
   gpuMiB: number;
   processMiB: number;
+  /** Decoded ImageBitmaps still reachable (the ledger's `bitmaps`). Logical
+   *  bytes like the GPU ledger, so the same on every machine and run -- the
+   *  one reading that locks GH-469 savings 1 and 2 in: the process total's
+   *  1.25 margin is wider than either saving. */
+  bitmapsMiB: number;
 }
 
 export interface MemoryBudget {
@@ -73,6 +78,10 @@ function ceilingChecks(r: Reading, c: Ceiling, kind: string): Verdict[] {
     { ok: r.js.jsTotal <= c.jsTotalMiB * MiB, detail: `${r.label}: JS heap + ArrayBuffers ${f(r.js.jsTotal)} MiB <= ${c.jsTotalMiB} (${kind})` },
     { ok: r.gpu.liveBytes <= c.gpuMiB * MiB, detail: `${r.label}: GPU ledger ${f(r.gpu.liveBytes)} MiB <= ${c.gpuMiB} (${kind})` },
     { ok: r.process.total <= c.processMiB * MiB, detail: `${r.label}: all Chromium processes ${f(r.process.total)} MiB <= ${c.processMiB} (${kind})` },
+    {
+      ok: r.gpu.ledger.bitmaps.bytes <= c.bitmapsMiB * MiB,
+      detail: `${r.label}: decoded ImageBitmaps ${f(r.gpu.ledger.bitmaps.bytes)} MiB <= ${c.bitmapsMiB} (${kind})`,
+    },
   ];
 }
 
@@ -131,9 +140,22 @@ export function judge(readings: readonly Reading[], b: MemoryBudget): Verdict[] 
  *  the same tree reads the same bytes on every run and every machine), so it
  *  gets the smallest margin. The leak budgets are percentages of the FIRST
  *  menu reading. Budgets round UP to a whole MiB. */
-export const MARGIN = { js: 1.25, gpu: 1.15, process: 1.25 } as const;
+export const MARGIN = { js: 1.25, gpu: 1.15, process: 1.25, bitmaps: 1.15 } as const;
+
+/** A ceiling for a reading that is 0 today would be 0 x 1.15 = 0, and any one
+ *  bitmap would fail it; this is the floor a bitmap ceiling is given instead. */
+export const BITMAP_FLOOR_MIB = 16;
 
 /** See docs/PERFORMANCE.md, "Memory", for every reading behind these. */
+// GH-469 saving 2 (don't decode textures for templates nobody draws) LOWERED
+// the process ceilings to its own readings x the same 1.25, never raising
+// one: CI n=3 (run 37841941926, attempts 1-3) menu 1305-1382 / after a leave
+// 1515-1594 / board 718-765 / mission 2308-2464 MiB; Metal n=3 menu-kind <=
+// 1883.9 / board <= 613.6 / mission <= 2728.0. JS and GPU unchanged. And it
+// ADDED the bitmap ceiling that actually locks it in: decoded bitmaps read
+// 184 at the menu, 64 at the board and 488 / 528 / 552 MiB at the three
+// missions, the same bytes on CI (n=3) and Metal (n=3); x 1.15. main read
+// 972 / 888 / 1004 at the missions, so a revert fails it.
 export const MEMORY_BUDGETS: Readonly<Record<string, MemoryBudget>> = {
   // CI's `memory` job. ubuntu-latest, ANGLE/SwiftShader, 1400x900 @1x, dev
   // server, n=4 walks on four runners (2026-10-08, run 37826952688: the
@@ -145,10 +167,10 @@ export const MEMORY_BUDGETS: Readonly<Record<string, MemoryBudget>> = {
   // mission process total of 2946.7. Leak percentages are about twice the
   // largest measured, rounded up to 5.
   'linux-x64-swiftshader': {
-    conditions: 'linux-x64-swiftshader: ubuntu-latest, SwiftShader, 1400x900 @1x, dev server, n=4, margins JS x1.25 GPU x1.15 process x1.25',
-    menu: { jsTotalMiB: 75, gpuMiB: 601, processMiB: 2046 },
-    board: { jsTotalMiB: 40, gpuMiB: 159, processMiB: 939 },
-    mission: { jsTotalMiB: 157, gpuMiB: 1015, processMiB: 3659 },
+    conditions: 'linux-x64-swiftshader: ubuntu-latest, SwiftShader, 1400x900 @1x, dev server, n=4 (process and bitmaps re-measured n=3 at GH-469 saving 2), margins JS x1.25 GPU x1.15 process x1.25 bitmaps x1.15',
+    menu: { jsTotalMiB: 75, gpuMiB: 601, processMiB: 1993, bitmapsMiB: 212 },
+    board: { jsTotalMiB: 40, gpuMiB: 159, processMiB: 939, bitmapsMiB: 74 },
+    mission: { jsTotalMiB: 157, gpuMiB: 1015, processMiB: 3080, bitmapsMiB: 635 },
     leak: { jsOverMenuPct: 20, gpuOverMenuPct: 2, maxRetainedLostContexts: 0, maxExtraNodes: 50 },
   },
   // Local only -- CI never runs here. M3 Pro, ANGLE/Metal, 1400x900 @1x, dev
@@ -157,10 +179,10 @@ export const MEMORY_BUDGETS: Readonly<Record<string, MemoryBudget>> = {
   // 882.2 / 3207.3 MiB; after-leave JS +14.6% and GPU +0.0% over the menu,
   // DOM nodes +0.
   'darwin-arm64-metal': {
-    conditions: 'darwin-arm64-metal: M3 Pro, ANGLE/Metal, 1400x900 @1x, dev server, n=4, margins JS x1.25 GPU x1.15 process x1.25',
-    menu: { jsTotalMiB: 79, gpuMiB: 601, processMiB: 2419 },
-    board: { jsTotalMiB: 40, gpuMiB: 159, processMiB: 812 },
-    mission: { jsTotalMiB: 162, gpuMiB: 1015, processMiB: 4010 },
+    conditions: 'darwin-arm64-metal: M3 Pro, ANGLE/Metal, 1400x900 @1x, dev server, n=4 (process and bitmaps re-measured n=3 at GH-469 saving 2), margins JS x1.25 GPU x1.15 process x1.25 bitmaps x1.15',
+    menu: { jsTotalMiB: 79, gpuMiB: 601, processMiB: 2355, bitmapsMiB: 212 },
+    board: { jsTotalMiB: 40, gpuMiB: 159, processMiB: 767, bitmapsMiB: 74 },
+    mission: { jsTotalMiB: 162, gpuMiB: 1015, processMiB: 3411, bitmapsMiB: 635 },
     leak: { jsOverMenuPct: 30, gpuOverMenuPct: 2, maxRetainedLostContexts: 0, maxExtraNodes: 50 },
   },
 };
