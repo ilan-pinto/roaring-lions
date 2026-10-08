@@ -81,7 +81,7 @@ export class ProxyBoxBatch {
   readonly mesh: THREE.InstancedMesh;
   private readonly geometry: THREE.BoxGeometry;
   private readonly material: THREE.MeshStandardMaterial;
-  private readonly teamLinear: readonly [number, number, number][];
+  private teamLinear: readonly [number, number, number][];
   private capacity: number;
 
   constructor(scene: THREE.Scene, teamColors: readonly string[], initialCapacity = 8) {
@@ -106,6 +106,12 @@ export class ProxyBoxBatch {
     mesh.renderOrder = HULL_RENDER_ORDER;
     mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3);
     return mesh;
+  }
+
+  /** VR-01: a colour-vision change mid-mission. The next `update` writes
+   *  every instance from these, so nothing else needs touching. */
+  setTeamColors(teamColors: readonly string[]): void {
+    this.teamLinear = teamColors.map((c) => hexToLinear(c));
   }
 
   /** How many boxes drew this frame (tests and the debug layer read it). */

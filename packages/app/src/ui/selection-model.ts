@@ -242,9 +242,12 @@ export type ChipMark = 'broken' | 'pinned' | 'gunOut' | 'immobilised';
 export type ChipTone = 'bad' | 'hot' | null;
 
 /** The health track's three bands, shared by the chip and the card so a unit
- *  cannot be amber in one and green in the other. */
-export function hpTone(pct: number): 'good' | 'warn' | 'bad' {
-  return pct > 0.5 ? 'good' : pct > 0.25 ? 'warn' : 'bad';
+ *  cannot be amber in one and green in the other. `own` is the player's side:
+ *  VR-03 (lead, 8 Oct) -- `bad` is the ENEMY red (`--bad`), so the player's
+ *  own unit stays on `warn` however low it falls, the track's length saying
+ *  how low, exactly as the world bar does (`hpBarColorKey`). */
+export function hpTone(pct: number, own: boolean): 'good' | 'warn' | 'bad' {
+  return pct > 0.5 ? 'good' : pct > 0.25 || own ? 'warn' : 'bad';
 }
 
 /**
@@ -308,6 +311,7 @@ export function groupChips(units: UnitFacts[]): ChipView[] {
       }
     }
     const pct = hpMax > 0 ? Math.max(0, Math.min(1, hp / hpMax)) : 0;
+    const own = group.every((u) => u.own === true);
     const { status, statusTone, mark, detail } = chipStatus({
       count: group.length,
       routed,
@@ -327,10 +331,10 @@ export function groupChips(units: UnitFacts[]): ChipView[] {
       bucket: head.bucket,
       count: group.length,
       hpPct: pct,
-      hpTone: hpTone(pct),
+      hpTone: hpTone(pct, own),
       status,
       statusTone,
-      own: group.every((u) => u.own === true),
+      own,
       pinned: mark === 'pinned',
       mark,
       detail,

@@ -1105,6 +1105,31 @@ describe('multi-select chips', () => {
 });
 
 describe('the single-unit card', () => {
+  // VR-03 (lead, 8 Oct): `--bad` is the ENEMY red. The player's own unit
+  // reads its low health in the warn ink -- track and word alike -- and a
+  // hostile keeps the red.
+  it("VR-03: the player's own unit at a tenth of its health reads warn, never the enemy red", () => {
+    const world = makeForce();
+    world.sim.state.hp[world.namer] = world.sim.state.hp[world.namer] / 10;
+    const r = clusterRig(() => [world.namer], {}, world);
+    const card = r.host.querySelector<HTMLElement>('.rl-card')!;
+    expect(card.querySelector('.rl-track > i')?.className).toBe('rl-fill-warn');
+    const word = card.querySelector<HTMLElement>('.rl-card__hp > span')!;
+    expect(word.textContent).toBe(en['hud.hp.critical']);
+    expect(word.className).toBe('rl-warn');
+    expect(card.querySelector('.rl-fill-bad, .rl-bad-text')).toBeNull();
+  });
+
+  it('VR-03: a hostile unit at a tenth of its health keeps the red track and the red word', () => {
+    const world = makeForce();
+    world.sim.state.side[world.namer] = 1;
+    world.sim.state.hp[world.namer] = world.sim.state.hp[world.namer] / 10;
+    const r = clusterRig(() => [world.namer], {}, world);
+    const card = r.host.querySelector<HTMLElement>('.rl-card')!;
+    expect(card.querySelector('.rl-track > i')?.className).toBe('rl-fill-bad');
+    expect(card.querySelector<HTMLElement>('.rl-card__hp > span')?.className).toBe('rl-bad-text');
+  });
+
   it('names the unit, its armament and its capabilities in one 460px card', () => {
     const world = makeForce();
     const r = clusterRig(() => [world.namer], {}, world);

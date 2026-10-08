@@ -77,19 +77,30 @@ describe('unitOverlayRadiusPx', () => {
 });
 
 describe('hpBarColorKey', () => {
-  it('picks the green tier above 0.5', () => {
-    expect(hpBarColorKey(1)).toBe('scrub.0');
-    expect(hpBarColorKey(0.51)).toBe('scrub.0');
+  it('picks the green tier above 0.5, either side', () => {
+    for (const friendly of [false, true]) {
+      expect(hpBarColorKey(1, friendly)).toBe('scrub.0');
+      expect(hpBarColorKey(0.51, friendly)).toBe('scrub.0');
+    }
   });
 
-  it('picks the yellow tier for the (0.25, 0.5] band', () => {
-    expect(hpBarColorKey(0.5)).toBe('team.neutral');
-    expect(hpBarColorKey(0.26)).toBe('team.neutral');
+  it('picks the yellow tier for the (0.25, 0.5] band, either side', () => {
+    for (const friendly of [false, true]) {
+      expect(hpBarColorKey(0.5, friendly)).toBe('team.neutral');
+      expect(hpBarColorKey(0.26, friendly)).toBe('team.neutral');
+    }
   });
 
-  it('picks the red tier at or below 0.25', () => {
-    expect(hpBarColorKey(0.25)).toBe('team.hostile');
-    expect(hpBarColorKey(0)).toBe('team.hostile');
+  it('a hostile keeps the red tier at or below 0.25', () => {
+    expect(hpBarColorKey(0.25, false)).toBe('team.hostile');
+    expect(hpBarColorKey(0, false)).toBe('team.hostile');
+  });
+
+  it('VR-03: a friendly never resolves to the hostile key, at any ratio', () => {
+    for (let k = 0; k <= 100; k++) expect(hpBarColorKey(k / 100, true)).not.toBe('team.hostile');
+    // The warn key, as a literal: the HUD's `--warn` is `team.neutral`.
+    expect(hpBarColorKey(0.25, true)).toBe('team.neutral');
+    expect(hpBarColorKey(0, true)).toBe('team.neutral');
   });
 });
 
@@ -175,10 +186,14 @@ describe('overlay palette keys resolve to the exact hex Pixi hard-codes at the e
     expect(resolve(OVERLAY_ACCENT_COLOR_KEY)).toBe('#B8FF5A');
   });
 
-  it('hpBarColorKey\'s three tiers resolve to Pixi\'s own three literals', () => {
-    expect(resolve(hpBarColorKey(1))).toBe('#6B8A4A');
-    expect(resolve(hpBarColorKey(0.4))).toBe('#E8C33A');
-    expect(resolve(hpBarColorKey(0.1))).toBe('#D93A2B');
+  it('hpBarColorKey\'s three hostile tiers resolve to Pixi\'s own three literals', () => {
+    expect(resolve(hpBarColorKey(1, false))).toBe('#6B8A4A');
+    expect(resolve(hpBarColorKey(0.4, false))).toBe('#E8C33A');
+    expect(resolve(hpBarColorKey(0.1, false))).toBe('#D93A2B');
+  });
+
+  it('VR-03: a friendly at a tenth of its health resolves to the warn yellow, not the hostile red', () => {
+    expect(resolve(hpBarColorKey(0.1, true))).toBe('#E8C33A');
   });
 
   it('objectiveZoneColorKey\'s three states resolve to Pixi\'s own three literals', () => {
@@ -196,9 +211,15 @@ describe('overlay palette keys resolve to the exact hex Pixi hard-codes at the e
   });
 
   it('buildingIntegrityColorKey\'s three tiers resolve to Pixi\'s own three literals (0.6/0.3 thresholds, NOT hpBarColorKey\'s 0.5/0.25)', () => {
-    expect(resolve(buildingIntegrityColorKey(1))).toBe('#8E9491');
-    expect(resolve(buildingIntegrityColorKey(0.4))).toBe('#E8C33A');
-    expect(resolve(buildingIntegrityColorKey(0.1))).toBe('#D93A2B');
+    expect(resolve(buildingIntegrityColorKey(1, false))).toBe('#8E9491');
+    expect(resolve(buildingIntegrityColorKey(0.4, false))).toBe('#E8C33A');
+    expect(resolve(buildingIntegrityColorKey(0.1, false))).toBe('#D93A2B');
+  });
+
+  it('VR-03: a building the player holds never fills the hostile red, at any ratio', () => {
+    for (let k = 0; k <= 100; k++) expect(buildingIntegrityColorKey(k / 100, true)).not.toBe('team.hostile');
+    expect(resolve(buildingIntegrityColorKey(0.1, true))).toBe('#E8C33A');
+    expect(resolve(buildingIntegrityColorKey(1, true))).toBe('#8E9491');
   });
 
   it('CHARGE_RING_TRACK_COLOR_KEY -> #5C625F, CHARGE_RING_FILL_COLOR_KEY -> #E8541E, Pixi\'s own charge-ring resolveColor fallbacks', () => {

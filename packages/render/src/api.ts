@@ -492,6 +492,20 @@ export interface Renderer {
    */
   captureGroundAlbedo?(sizePx: number): ImageData | null;
 
+  /**
+   * Re-resolve every team colour mid-mission (VR-01, lead 8 Oct): the
+   * colour-vision setting changes the HUD at once through `theme.css`'s
+   * `data-cvd` blocks, and this is how the world follows it in the same
+   * instant. The two arguments are exactly the two `RendererOptions` fields a
+   * colour-vision variant decides -- `teamColors` and `resolveColor`, which
+   * the app builds from `paletteTeamColors(variant)` and
+   * `variantAwareResolver(variant)` -- so the app keeps owning the palette
+   * and the backend never learns what a variant is. A backend must update
+   * every material, uniform and instance colour that baked a team colour at
+   * construction; everything it draws per frame follows on the next frame.
+   */
+  setTeamColors(teamColors: [string, string, string], resolveColor: (paletteKey: string) => string): void;
+
   // --- world data pushed in
   setElevation(elevation: Uint8Array): void;
   setDecor(decor: Uint8Array): void;

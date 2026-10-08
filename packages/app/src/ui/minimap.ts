@@ -647,7 +647,11 @@ export class Minimap {
    *  a second for a picture that cannot change. */
   private painted: HTMLCanvasElement | null = null;
   private readonly proj: MinimapProjection;
-  private readonly chrome: ChromeColors;
+  /** Re-resolved by `setTeamColors` (VR-01): `objective` is `--warn`, which a
+   *  colour-vision block re-points. */
+  private chrome: ChromeColors;
+  /** `deps.teamColors` until `setTeamColors` replaces it (VR-01). */
+  private teamColors: readonly [string, string, string];
   private readonly seenMarkers = new Set<string>();
   /** Live alert marks: where, and the wall-clock instant each landed. */
   private readonly flashes: { p: MinimapPoint; at: number }[] = [];
@@ -667,6 +671,7 @@ export class Minimap {
     private readonly deps: MinimapDeps
   ) {
     this.chrome = resolveChrome(host);
+    this.teamColors = deps.teamColors;
     this.proj = minimapProjection(deps.map.width, deps.map.height, MINIMAP_SIZE);
     // Cap at 2: past that the backing store grows quadratically for a gain
     // nobody can see on a 210px box.
@@ -731,6 +736,21 @@ export class Minimap {
    *  of its four gestures can land. */
   setShown(on: boolean): void {
     this.el.toggleAttribute('data-hud-hidden', !on);
+  }
+
+  /**
+   * VR-01: a colour-vision change mid-mission. The dots take the variant's
+   * `teamColors` -- the SAME array `Renderer.setTeamColors` was handed, so a
+   * dot and the ring on the field still cannot disagree -- and the chrome is
+   * re-read through the probe, because `objective` is `--warn` and the
+   * `data-cvd` block that re-points it has already been written on the root
+   * by the time the settings bus fires. Redraws at once rather than waiting
+   * up to four ticks: a paused game would otherwise keep the old colours.
+   */
+  setTeamColors(teamColors: readonly [string, string, string]): void {
+    this.teamColors = teamColors;
+    this.chrome = resolveChrome(this.el.parentElement ?? document.body);
+    this.draw(performance.now());
   }
 
   onTick(): void {
@@ -1027,7 +1047,7 @@ export class Minimap {
       const at = tileToBox(proj, d.x, d.y);
       // Colour FIRST and unchanged: the shape is the second channel, not the
       // replacement for a first one that was measured to work.
-      ctx.fillStyle = this.deps.teamColors[d.side] ?? this.deps.teamColors[2];
+      ctx.fillStyle = this.teamColors[d.side] ?? this.teamColors[2];
       this.dot(at, dotShape(d.side));
     }
 
