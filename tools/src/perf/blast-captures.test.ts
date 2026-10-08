@@ -49,6 +49,8 @@ describe('the subject list', () => {
   it('carries a vehicle kill and an indirect impact', () => {
     expect(BLAST_SUBJECTS.map((s) => s.mode)).toContain('kill');
     expect(BLAST_SUBJECTS.map((s) => s.mode)).toContain('impact');
+    // Polish VR-22: the top of the event ladder has a witness of its own.
+    expect(BLAST_SUBJECTS.map((s) => s.mode)).toContain('collapse');
   });
   it('gives every subject a distinct id', () => {
     // `--only=<id>` selects on it and every file name carries it, so two
@@ -85,7 +87,8 @@ describe('the subject list, after the relief subjects landed (and the &nomesh on
   // on relief, and scoping this check to the parade is what keeps it meaning
   // something rather than being deleted.
   it('keeps every parade subject on the open northern band', () => {
-    const parade = BLAST_SUBJECTS.filter((s) => s.map === undefined);
+    // A collapse stands on a BUILDING, and no building stands on the band.
+    const parade = BLAST_SUBJECTS.filter((s) => s.map === undefined && s.mode !== 'collapse');
     expect(parade.length).toBeGreaterThanOrEqual(3);
     for (const s of parade) expect(s.y).toBeLessThanOrEqual(7);
   });
@@ -108,13 +111,13 @@ describe('the subject list, after the relief subjects landed (and the &nomesh on
     }
   });
 
-  it('hand-ticks only a kill, because only a kill has a freeze to preserve', () => {
+  it('hand-ticks only a kill or a collapse, because only those have a freeze to preserve', () => {
     // `triggerImpact` pumps its own 16 ms frames to the landing and starts its
     // ladder at a true zero, so it never went through `step(1)`'s latched frame
     // in the first place -- `handTick` there would claim a fix for a problem
     // that path does not have.
     for (const s of BLAST_SUBJECTS) {
-      if (s.handTick === true) expect(s.mode, `subject "${s.id}"`).toBe('kill');
+      if (s.handTick === true) expect(['kill', 'collapse'], `subject "${s.id}"`).toContain(s.mode);
     }
   });
 });
