@@ -163,7 +163,7 @@ export function showCredits(stage: HTMLElement, deps: CreditsDeps): Disposer {
   p.body.appendChild(build);
 
   const back = document.createElement('a');
-  back.className = 'rl-btn rl-menu__item rl-credits__back';
+  back.className = 'rl-btn rl-credits__back';
   back.dataset.kind = 'back';
   back.href = deps.back;
   back.innerHTML = symbolLabel('back', t('nav.backToMenu'));
