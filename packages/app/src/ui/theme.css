@@ -6787,16 +6787,27 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-force__slots {
   list-style: none;
-  margin: 0;
-  padding: 0;
   display: flex;
   gap: var(--s2);
+  /* Sideways only. `overflow-x: auto` alone computes `overflow-y` to `auto`
+     too, and the slots used to stand two pixels taller than their list
+     (see `.rl-force__slot`), so a classic-scrollbar browser drew a
+     full-height vertical bar beside Deploy. The padding is room for the
+     global focus ring (outline plus offset, the `:focus-visible` rule
+     above), which a scroll container would otherwise clip flat at the
+     slot's edge; the equal negative margin leaves the strip where it was. */
   overflow-x: auto;
+  overflow-y: hidden;
+  padding: var(--s1);
+  margin: calc(-1 * var(--s1));
   min-width: 0;
 }
 .rl-force__slot {
   position: relative;
   width: 8rem;
+  /* Border-box: `height: 100%` plus the hairline border was two pixels
+     taller than the <li> it fills. */
+  box-sizing: border-box;
   height: 100%;
   min-height: 9.5rem;
   display: flex;
