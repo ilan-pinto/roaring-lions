@@ -87,7 +87,7 @@ Owned by `packages/app/src/terrain-themes.ts` (three themes) and `packages/rende
 **Inconsistencies**
 
 - **VR-05. Olive is two things at once.** palette.json gives the `olive` ramp the role "KDF vehicle hulls, uniforms, tarps". Arid foliage (`leafDark`, `leafMid`, `leafLit`, `low`), highland cover and highland foliage are olive too (`terrain-themes.ts:47-52,129,138-143`). This is the "olive on olive" the lead flagged in GH-346, built into the palette roles.
-- **VR-06. `grass` is uncurated.** Its role says "not curated for sprite art … nothing currently stops it appearing there", yet the `load`/`unload` order graphics take `grass.0` as their accent (`ui/order-sight.ts:138-139`).
+- **VR-06. `grass` is uncurated.** Its role says "not curated for sprite art … nothing currently stops it appearing there", yet the `load`/`unload` order graphics take `grass.0` as their accent (`ui/order-sight.ts:138-139`). **Resolved:** the transport accent is `limestone.1`, pinned by `order-sight.test.ts`.
 
 ---
 

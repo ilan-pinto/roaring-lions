@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { palette, paletteColor } from '@lions/data';
 import { CHEVRON_SWEEP } from './mark';
 import { ORDER_SIGHT, SIGHT_KEYS, aimBody, sightFrame, surroundBody, type SightOrderId, type SightPaint } from './order-sight';
 
@@ -30,13 +31,28 @@ function inksHotspot(markup: string): boolean {
 }
 
 describe('the order sight (G1 r5, approved 2026-09-28)', () => {
+  it('draws only from curated palette keys (VR-06: no grass, no theme-only ramp)', () => {
+    const uncurated = new Set(
+      Object.entries(palette.ramps as Record<string, { role: string; theme_only?: boolean }>)
+        .filter(([, r]) => r.theme_only === true || /not curated/i.test(r.role))
+        .map(([name]) => name)
+    );
+    // The guard must be able to fire: grass is the ramp the defect used.
+    expect(uncurated.has('grass')).toBe(true);
+    const keys = [...IDS.flatMap((id) => [ORDER_SIGHT[id].main, ORDER_SIGHT[id].accent]), ...Object.values(SIGHT_KEYS)];
+    for (const key of keys) {
+      expect(uncurated.has(key.split('.')[0]), key).toBe(false);
+      expect(paletteColor(key), key).not.toBe('#FF00FF');
+    }
+  });
+
   it("carries r5 NOTES.md's family table exactly", () => {
     expect(ORDER_SIGHT.move).toMatchObject({ family: 'manoeuvre', main: 'vfx.interceptor', accent: 'vfx.white_hot' });
     expect(ORDER_SIGHT.attackMove).toMatchObject({ family: 'offensive', main: 'team.hostile_text', accent: 'vfx.fire' });
     expect(ORDER_SIGHT.halt).toMatchObject({ family: 'control', main: 'team.neutral', accent: 'vfx.white_hot' });
     expect(ORDER_SIGHT.smoke).toMatchObject({ family: 'obscurant', main: 'limestone.0', accent: 'gunmetal.1' });
-    expect(ORDER_SIGHT.load).toMatchObject({ family: 'transport', main: 'vfx.tracer', accent: 'grass.0' });
-    expect(ORDER_SIGHT.unload).toMatchObject({ family: 'transport', main: 'vfx.tracer', accent: 'grass.0' });
+    expect(ORDER_SIGHT.load).toMatchObject({ family: 'transport', main: 'vfx.tracer', accent: 'limestone.1' });
+    expect(ORDER_SIGHT.unload).toMatchObject({ family: 'transport', main: 'vfx.tracer', accent: 'limestone.1' });
     expect(ORDER_SIGHT.sweep).toMatchObject({ family: 'manoeuvre', main: 'vfx.interceptor', accent: 'water.0' });
     expect(ORDER_SIGHT.strike).toMatchObject({ family: 'offensive', main: 'team.hostile_text', accent: 'vfx.fire' });
     expect(SIGHT_KEYS).toEqual({ aim: 'gunmetal.0', halo: 'shadow.0', hot: 'vfx.white_hot' });
