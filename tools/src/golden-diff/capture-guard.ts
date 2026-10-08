@@ -118,7 +118,19 @@ export async function dismissDeployGate(
   const log = opts.log ?? ((line: string) => console.log(line));
 
   const started = Date.now();
-  await page.waitForSelector('.rl-loading__deploy', { timeout: selectorTimeoutMs });
+  // `waitForSelector` hands back an ElementHandle, and an undisposed handle
+  // is a DevTools global handle: it keeps the deploy button reachable, the
+  // button keeps its click listener, and that closure keeps the whole
+  // battlefield -- sim, renderer, runtime, its WebGL context -- reachable for
+  // as long as the JS realm lives, which across the soft router is forever.
+  // Measured by `pnpm perf:memory` (GH-469): before this dispose every left
+  // mission stayed in the heap (+15-25 MiB JS and ~750 DOM nodes a mission,
+  // one lost WebGL context still reachable per mission), and a heap snapshot
+  // traced every one of them to `<button class="rl-loading__deploy">` held by
+  // "DevTools console". The game was not leaking; the harness was.
+  const handle = await page.waitForSelector('.rl-loading__deploy', { timeout: selectorTimeoutMs });
+  const disposable = handle as { dispose?: () => Promise<void> } | null;
+  if (disposable && typeof disposable.dispose === 'function') await disposable.dispose();
 
   let clicks = 0;
   for (;;) {

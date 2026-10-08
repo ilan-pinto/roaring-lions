@@ -931,6 +931,16 @@ export class Hud {
     // element off the host either way, but only `dispose()` clears the timer
     // that would otherwise fire against a node nobody holds any more.
     this.captionBox.dispose();
+    // GH-469: the feed rows' dwell timers (7-12 s) and the commander bar's
+    // beat-fold timer. Each closes over `this`, `this` holds `deps`, and
+    // `deps` holds the sim, the renderer and the runtime -- so a timer left
+    // pending kept the WHOLE battlefield reachable until it fired, measured
+    // by `pnpm perf:memory` as the left mission's heap (+18-25 MiB) and its
+    // lost WebGL context still reachable after a forced GC, released only
+    // when the last feed line's dwell ran out.
+    for (const row of this.feedRows.values()) window.clearTimeout(row.timer);
+    this.feedRows.clear();
+    window.clearTimeout(this.beatTimer);
     // `dismiss()` releases the card's two window listeners and its timer, then
     // fades it over 250 ms before removing the node -- so the element is still
     // on the host when this returns. Teardown has to be synchronous (the
