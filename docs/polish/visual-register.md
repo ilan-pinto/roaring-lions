@@ -198,6 +198,8 @@ Owned by `theme.css:14-55` (faces) and `:260-288` (scale). Every face is self-ho
   | end screen, debrief, pause, confirm, saves, keymap, the base `.rl-btn` | body | sentence case |
 
   The end screen's "next mission" leads back to menu tiles in the other register.
+
+  **Resolved** (chrome register): case follows face, face follows the job. Display face in capitals for a menu *tile*, a *tab* or view toggle (now including the pause menu's tabs) and a *stamp* (Deploy, the garage's Buy, the stores' Buy, the debrief's primary); body face, sentence case for every other button, which is an *action* (`.rl-btn`). The debrief's plain buttons were body face in capitals and are sentence case now. Rule stated above `.rl-btn` in `theme.css`; held by `chrome-register.test.ts`.
 - **VR-21. Back buttons disagree.**
   - Settings, saves and credits use `rl-btn rl-menu__item data-kind='back'`, so they render display face, uppercase, `--t-l` (no `[data-kind='back']` rule exists).
   - The briefing's back is a plain `.rl-btn` in body face at `--t-body`.
@@ -270,10 +272,12 @@ The ladder as authored. Light, shake amplitude and hit-stop are multiplied by th
   - The tutorial lesson, which the player must read, is `inspect` (`tutorial/panel.ts:22`).
   - The garage, the menu column, the unit card and the tooltip carry no band.
   - `--band-mission` is also used as a plain accent outside bands (`theme.css:1815, 1841, 1895, 3181, 3699, 3938, 4032`).
+  - **Resolved** (chrome register): the debrief wears `mission` after a defeat too and the tutorial lesson is `mission`; the rank table is written in `ui/panel.ts`. Full screens (menu, campaign, briefing, garage) and HUD furniture (unit card, tooltip) are not panels and carry no band, by rule. `--band-mission` now colours only a band, the mission stamp and the briefing's own voice (the radio, the briefing's loading bar): the deploy row and bench row moved to the selected register and the wordmark rule to its own `--wordmark-rule`. (The end screen this item names was absorbed into the debrief by GH-417.)
 - **VR-25. Credits wear three colours.**
   - `--commend`, which the token comment names as credits: garage, stores (4400, 4786, 5323, 5702, 5725)
   - `--good`: dock, outcome, debrief (2694, 1131, 1141, 3459, 3469)
   - `--accent`: dock tile cost, tooltip cost (2778, 2952)
+  - **Resolved** (chrome register): credits are `--commend` everywhere (the dock's balance and the outcome moment were `--good`). The `--accent` costs were not credits but this mission's logistics; they now wear `--info`, the colour the top strip has always given logistics and intel.
 - **VR-26. "Selected / on" has six treatments:**
   - `--live`: pause tab, strip chip
   - `--accent` with a 14% fill: garage tab
@@ -283,23 +287,29 @@ The ladder as authored. Light, shake amplitude and hit-stop are multiplied by th
   - `--band-mission` at 35%: deploy row
 
   `--friendly` marks owned garage rungs, which borrows a team colour for "owned".
-- **VR-27. Disabled has four opacities** (0.35, 0.45, 0.55, 0.6), plus a colour swap with no opacity on the stores (`theme.css:962, 1879, 4038, 809, 4628`). The cursor is `not-allowed` in most places but `default` at 1880 and 4039.
-- **VR-28. Focus is mostly one rule, with gaps.** The global `:focus-visible` is 2 px `--accent`, offset 2 px (987). Four controls swap it for a border colour. `.rl-chip` (2225) and `.rl-deploy__row` (4027) have hover and no focus state.
+
+  **Resolved** (chrome register), as a justified two: `--selected` + `--selected-fill` (the garage tab's own accent edge and 14% tint) for every pick-one-of-a-set control, and `--on` (lime) only for a live mission state (the strip's speed chip, an armed button). Copper, steel and both olive treatments are gone; the pause tabs moved from lime to selected. The owned garage rung keeps `--friendly` (not a selection; noted for the lead).
+- **VR-27. Disabled has four opacities** (0.35, 0.45, 0.55, 0.6), plus a colour swap with no opacity on the stores (`theme.css:962, 1879, 4038, 809, 4628`). The cursor is `not-allowed` in most places but `default` at 1880 and 4039. **Resolved** (chrome register): one `--disabled-opacity` (0.45, the base button's) and `not-allowed` on every disabled state, including the stores' two colour-swap buttons, the paused speed chips and the inert order.
+- **VR-28. Focus is mostly one rule, with gaps.** The global `:focus-visible` is 2 px `--accent`, offset 2 px (987). Four controls swap it for a border colour. `.rl-chip` (2225) and `.rl-deploy__row` (4027) have hover and no focus state. **Resolved** (chrome register): the four `outline: none` swaps are gone, so every focusable control shows the one global ring (the garage rail's cards and rungs draw it inset, like the model plate, because their scroll region clips an outset ring); two duplicate ring rules deleted. `.rl-chip` and `.rl-deploy__row` get it from the global rule.
 - **VR-29. The tokens are applied loosely.**
   - 63 of 334 padding, margin and gap values are raw lengths. 25 of them equal a scale step, and the base `.rl-btn` padding is one of them (942).
   - About 19 literal durations sit beside about 15 token uses (220, 240, 300, 320, 400, 600 and 900 ms; 1 s).
   - Progress fills disagree on easing (linear at 929 and 2801, `--ease` elsewhere).
   - Six non-zero `border-radius` values sit in a square-cornered system (744, 922, 1451, 1530, 2440, 5077).
+  - **Resolved** (chrome register): every duration and stagger names a rung (new rungs `--dur-stamp` 240, `--dur-long` 300, `--dur-linger` 400, `--dur-spend` 600, `--dur-lift` 900, `--dur-pulse` 1s, `--stagger` 60, `--stagger-beat` 140, each because no rung sat within 7%, or, for `--dur-stamp`, because the garage spec's JS timer runs on it; 320 snapped to 300, 220 to 200). Progress fills and the spinner use `--ease-steady`, everything else `--ease`. Corners are square: radius is 0 or 50%. Three half-rungs `--s0`/`--s1h`/`--s2h` and 36 raw spaces routed; what stays raw is at least 7% off every rung.
 - **VR-30. Halos are ad hoc.**
   - The title card's text shadow uses `--scrim`, which the token comment calls the wrong token for exactly that job (`theme.css:78-82` vs 2613-2633).
   - Dock tile labels use `--well`.
   - Blur radii vary (3/8, 12/2, 18/3).
+  - **Resolved** (chrome register): one `--halo` token (the `--type-shadow` tone, an em-relative glow capped at the title card's old 3/18), on all 11 text halos, including the title card (was `--scrim`) and the dock tile labels (were `--well`).
 - **VR-31. One palette entry carries unrelated tokens:**
   - `--accent` = `--commend` = `--mark-1` (dust.0)
   - `--kit` = `--ink-label` = `--band-ink-dim` (gunmetal.0)
   - `--roar` = `--map-urban` (terracotta.0)
 
   A retune of one silently moves the others' meaning on screen. `--intercept` has no CSS use.
+
+  **Resolved where it matters** (chrome register): `--accent` is now the interactive colour only (hover, focus, selected); the prices left it (VR-25) and the two decorative labels took `--title-accent`. `--commend`, `--kit` and `--roar` never dress an interactive state. The shared entries themselves are unchanged (no new colours); `--intercept` is kept, its reader is the debug overlay (`render/src/overlay.ts`).
 
 ---
 
@@ -376,14 +386,16 @@ Numbers from #354 (`units/readability.ts`, `units/selection-ring.ts`):
   - the *held* objective zone
 
   `OVERLAY_ACCENT_COLOR_KEY` (OV:135) still documents it as the selection ring's default, which A4 retired.
-- **VR-33. A move order changes colour on the way to the ground.** The move cursor is the manoeuvre family, `vfx.interceptor` cyan (`order-sight.ts:135`). The route and marker it leaves are tracer lime (TR:8402, 8452). Cyan is also group 2, and `white_hot` is also group 9: palette.json says group hues avoid the colours that mean state, but they share the order families' hues.
-- **VR-34. Selected colour depends on garrison.** On open ground the ring is team colour. A garrisoned or overflow unit gets the flat billboard ring in its group colour or lime (TR:8111-8114).
+- **VR-33. A move order changes colour on the way to the ground.** The move cursor is the manoeuvre family, `vfx.interceptor` cyan (`order-sight.ts:135`). The route and marker it leaves are tracer lime (TR:8402, 8452). Cyan is also group 2, and `white_hot` is also group 9: palette.json says group hues avoid the colours that mean state, but they share the order families' hues. **Lead question** (chrome register): not unified. It is not a pure token choice: the renderer draws one route and marker for every order and does not know the order family, so routes in the family colour need the order kind on the route (an interface change), and a lime move cursor would collide with the transport family. Proposed: route and marker take the issuing order's family colour (move = manoeuvre cyan).
+- **VR-34. Selected colour depends on garrison.** On open ground the ring is team colour. A garrisoned or overflow unit gets the flat billboard ring in its group colour or lime (TR:8111-8114). **Resolved** (chrome register): the flat fallback ring wears the same team colour (primary-lightened) as the ground ring; the group is still told by the badge.
 - **VR-35. Three different "legibility halos":**
   - `shadow.1` for rings, marks, badges and the HP frame. The badge comment calls it "every ring in the world vocabulary" (TR:8122).
   - `shadow.2` for objective zones (OV:210).
   - `shadow.0` for the refuge ping edge (OV:382).
 
   Route lines, order markers, range envelopes and the tutorial and shepherd rings have no halo at all.
+
+  **Resolved** (chrome register) for the halos that exist: one `WORLD_HALO_COLOR_KEY` (`shadow.1`) in `units/overlays.ts`, read by the objective zone (was `shadow.2`), the refuge ring (was `shadow.0`), the HP frame and every ring, mark, badge and fire-link halo in `ThreeRenderer`. Giving routes, markers, envelopes and the tutorial/shepherd rings a halo would be a new look and is not done.
 - **VR-36. The minimap ignores state and tier.**
   - Objectives are always `--warn` there, while the world tints held, unheld and contested (`minimap.ts:1018` vs OV:150-155).
   - Every alert flashes the same amber ring, whatever its tier or tone, so a lost tank and "reinforcements arrived" look alike (`minimap.ts:1104`).
@@ -421,7 +433,7 @@ Numbers from #354 (`units/readability.ts`, `units/selection-ring.ts`):
 | VR-15 | lightning audio glyph | menu, strip | PA-30 |
 | VR-16–21 | type: mono prose, display prose, faux bold, garage scale, button case, back buttons | `theme.css`, settings/saves/credits/loading | PA-22, one register pass |
 | VR-22–23 | effects ladder inverted; dead shake | `data/vfx/*.json`, TR | lead (C3) |
-| VR-24–31 | chrome: bands, credits colour, selected, disabled, focus, raw spacing and timing, halos, shared tokens | `theme.css`, `panel()` callers | B2 consistency pass |
-| VR-32–38 | world language: lime overload, move colour, garrison ring, halos, minimap, tier/tone, dead marks | OV, TR, `minimap.ts`, `alerts.ts` | lead for meaning; the rest small |
+| VR-24–31 | chrome: bands, credits colour, selected, disabled, focus, raw spacing and timing, halos, shared tokens | `theme.css`, `panel()` callers | **resolved** (chrome register, with VR-20) |
+| VR-32–38 | world language: lime overload, move colour, garrison ring, halos, minimap, tier/tone, dead marks | OV, TR, `minimap.ts`, `alerts.ts` | lead for meaning; VR-34, VR-35, VR-38 resolved; VR-33 a lead question |
 
 Nothing here was changed by this pass: the register only records what exists. The fixes belong to D2 (units), B2 (HUD consistency) and C3 (event tiers) once the lead has picked a side for each split rule.

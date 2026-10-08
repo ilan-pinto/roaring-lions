@@ -20,7 +20,9 @@ export interface TutorialPanel {
 
 export function tutorialPanel(host: HTMLElement, opts: { onSkip: () => void }): TutorialPanel {
   const p = panel({
-    rank: 'inspect',
+    // A lesson is read, so it wears the briefing's rank (VR-24), not the
+    // machinery's.
+    rank: 'mission',
     title: '',
     tag: '',
     // GH-345: in the radio's own slot, top left (`.rl-cmd` in theme.css:

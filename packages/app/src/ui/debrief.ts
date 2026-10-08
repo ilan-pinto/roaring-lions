@@ -136,7 +136,10 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
   host.appendChild(backdrop);
 
   const p = panel({
-    rank: won ? 'mission' : 'alert',
+    // The document the player reads after either outcome: the briefing's
+    // rank, always (VR-24). Defeat is told by the grade and the reason, never
+    // by borrowing the transient alert band.
+    rank: 'mission',
     title: t(won ? 'outcome.victory' : 'outcome.defeat'),
     tag: t('debrief.tag'),
     mark: true,
