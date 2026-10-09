@@ -6826,8 +6826,8 @@ button.rl-menu__item[data-kind='aside'] {
   color: var(--ink);
 }
 .rl-credits__licence-text {
-  white-space: pre-wrap;
   font-family: var(--font-body);
+  line-height: 1.45;
   font-size: var(--t-s);
   color: var(--ink-mute);
   max-height: 16rem;
@@ -6836,6 +6836,23 @@ button.rl-menu__item[data-kind='aside'] {
   padding: var(--s2);
   background: var(--panel-bg-solid);
   border: 1px solid var(--panel-frame); /* px-ok */
+}
+/* The OFL, set as paragraphs (PA-29): the file's hard line breaks are gone,
+   its all-caps section titles are headings, its dashed divider a rule. */
+.rl-credits__licence-text p {
+  margin: 0 0 var(--s2);
+}
+.rl-credits__licence-head {
+  margin: var(--s2) 0 var(--s1);
+  font-family: var(--font-display);
+  font-size: var(--t-s);
+  letter-spacing: var(--track-label);
+  color: var(--ink);
+}
+.rl-credits__licence-text hr {
+  border: 0;
+  border-top: 1px solid var(--panel-frame); /* px-ok */
+  margin: var(--s2) 0;
 }
 .rl-credits__disclosure {
   margin-top: var(--s2);

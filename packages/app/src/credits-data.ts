@@ -41,18 +41,13 @@ export const CREDITS = {
     { family: 'Barlow', licenceFile: 'OFL-Barlow.txt', holder: 'The Barlow Project Authors' },
     { family: 'IBM Plex Mono', licenceFile: 'OFL-IBMPlexMono.txt', holder: 'IBM Corp.' },
   ],
-  assets: [
-    // Verbatim from art/src/ifv_dmm08_LICENSE.html, the licensor's own page.
-    {
-      title: 'VEHICLE IFV DMM08',
-      author: 'Mutte',
-      licence: 'CC BY 3.0',
-      licenceUrl: 'https://creativecommons.org/licenses/by/3.0/',
-      source: 'BlendSwap #75225',
-      sourceUrl: 'http://www.blendswap.com/blends/view/75225',
-      useKey: 'credits.asset.namer.use',
-    },
-  ],
+  // Empty on purpose. The only entry was the Namer's (Mutte, CC BY 3.0), for
+  // sprite sheets that were deleted in A3.3 -- the Namer is a Meshy model now,
+  // and nothing shipped derives from the credited work. The lead's ruling
+  // (audit L4 / PA-29): remove it. The history stays in the provenance table
+  // (docs/ASSET_PROVENANCE.md). A future work whose licence requires a credit
+  // goes here and is rendered by ui/credits.ts without any other change.
+  assets: [] as readonly AssetCredit[],
   codeLicence: 'PolyForm Noncommercial 1.0.0',
   artLicence: 'all rights reserved',
   aiDisclosure:
