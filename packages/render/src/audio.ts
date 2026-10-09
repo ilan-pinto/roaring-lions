@@ -111,8 +111,10 @@ export interface AnnouncementDef {
   audio: string;
   /** Seconds before THIS announcement may speak again. */
   cooldown_s: number;
-  /** high outranks normal outranks low. */
-  priority: 'high' | 'normal' | 'low';
+  /** high outranks normal outranks low. `outcome` is the verdict's own line
+   *  (§5.4: `victory`/`defeat`): never raised by a mission event, only by the
+   *  outcome moment, and it plays at the `outcome` rung of the voice ladder. */
+  priority: 'high' | 'normal' | 'low' | 'outcome';
 }
 
 export interface AnnouncementManifest {
@@ -159,7 +161,8 @@ export interface AudioManifest {
  *  An announcement is split by the manifest's own `priority`: `announce_high`
  *  (objective new/complete/failed, deadline), `announce` (normal: wave,
  *  reinforcements) and `announce_low` (unit lost). `outcome` is Shai's
- *  victory/defeat line (§5.4), not recorded yet. */
+ *  victory/defeat line (§5.4): the lead recorded the defeat line on
+ *  2026-10-09; victory is not recorded yet. */
 export type VoicePriority =
   | 'outcome'
   | 'announce_high'
@@ -196,7 +199,15 @@ export interface VoicePlay {
   key: string;
   priority: VoicePriority;
   at?: { x: number; y: number };
+  /** Start this many seconds after now, on the context clock (no timer):
+   *  the outcome line waits out the stinger's head (`OUTCOME_LINE_DELAY_S`). */
+  delayS?: number;
 }
+
+/** The outcome line starts once the stinger's head has played (audio plan
+ *  §2.2's outcome row, §5.1: "the outcome line once the stinger's head has
+ *  played (0.6 s), never over it"). */
+export const OUTCOME_LINE_DELAY_S = 0.6;
 
 /** What became of a `VoicePlay`. `missing` is not an error (R-9). */
 export type VoiceStatus =
@@ -1785,7 +1796,7 @@ export class BattleAudio {
     // Not recorded, or not decoded yet: both play nothing (R-9). The tick
     // stands in only when a dev session asked for it (R-10).
     if (!line && !this.voicePlaceholder) return none('missing');
-    const t = ctx.currentTime;
+    const t = ctx.currentTime + Math.max(0, p.delayS ?? 0);
     const admit = admitVoice(this.activeVoices, p.priority, VOICE_CAP, t);
     if (!admit.play) return none('dropped');
     for (const id of admit.cut) this.cutVoice(id);

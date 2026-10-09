@@ -36,6 +36,7 @@ import {
   VOICE_DECODE_BUDGET_BYTES,
   VOICE_NO_CUT_S,
   VOICE_RANK,
+  OUTCOME_LINE_DELAY_S,
   type AudioManifest,
   type AudioSet,
   type VoiceManifest,
@@ -1181,6 +1182,21 @@ describe('playVoice (WP-AU1 §7)', () => {
       expect(noise.offset).toBe(0);
       const later = scheduleSquelch(ctx as unknown as BaseAudioContext, chain, 2, 1, 7);
       expect((later.sources[1] as unknown as FakeSource).offset).toBeCloseTo(RADIO_FX.noiseSeconds);
+    });
+
+    it('the outcome line waits out the stinger head: `delayS` moves the click and the line, on the context clock', async () => {
+      const { audio, ctx } = await ready();
+      const t = 5;
+      ctx.currentTime = t;
+      expect(audio.playVoice({ key: 'he.infantry.move', priority: 'outcome', delayS: OUTCOME_LINE_DELAY_S }).status).toBe('played');
+      const { click, line } = lineSources(ctx, 0);
+      expect(OUTCOME_LINE_DELAY_S).toBe(0.6);
+      expect(click.startedAt).toBeCloseTo(t + OUTCOME_LINE_DELAY_S);
+      expect(line.startedAt).toBeCloseTo(t + OUTCOME_LINE_DELAY_S + RADIO_FX.clickS);
+      // Effect off, the line alone still waits.
+      audio.setRadioEffect(false);
+      audio.playVoice({ key: 'he.infantry.move', priority: 'outcome', delayS: OUTCOME_LINE_DELAY_S });
+      expect(last(ctx.sources).startedAt).toBeCloseTo(t + OUTCOME_LINE_DELAY_S);
     });
 
     it('effect off: the band alone, no click, no static, no delay (N13 as it was)', async () => {

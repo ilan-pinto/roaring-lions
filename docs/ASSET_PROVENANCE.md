@@ -61,12 +61,14 @@ Every audio file that ships has a row in the register below. By class:
 | The main theme | `music/holding_the_perimeter.mp3` | an AI music generator, from `docs/audio/main-theme-prompt.md` | **Yes** | Open: item 3 (the generator's terms) |
 | The mission's calm and battle beds (AU-7, #493) | `music/holding_the_perimeter_{calm,battle}.{ogg,m4a}` | `tools/recut_music.py`: slices of the theme, nothing generated or added | **Yes, by inheritance** | Open: item 3, inherited |
 | Five Hebrew unit voice takes on four keys (`he.infantry.{move,attack,death}`, `he.common.ack`) | `voice/he/**` (10 files) | ElevenLabs, supplied by the lead (placeholders) | **Yes** | **Left out** (D5, A3): see below |
+| Six Hebrew lines in the lead's own voice: five announcer lines (`he.common.announce_{defeat,mission_start,objective_active,objective_complete,reinforcements}`) and a second `he.infantry.attack` take | `voice/he/common/announce_*_01a`, `voice/he/infantry/attack_02a` (12 files) | Recorded by the lead, 2026-10-09; trimmed and normalised by `tools/voice_prep.py` | No | Ships (`LicenseRef-owned`, his own voice): see "Voice lines recorded by the lead" below |
 | Three ambience beds (open, town, ridge) | `ambience/amb_{open,town,ridge}.{ogg,m4a}` | `tools/gen_audio.py`, procedural synthesis | No | **Switched off** since 9 Oct 2026 (`AMBIENCE_ENABLED = false`, the lead's ruling): declared and validated, fetched by no build. Ships nothing audible; CC0-1.0 if it ever does |
 
 **How the four placeholder keys are kept out of a commercial build.**
 `python3 tools/validate_audio.py --commercial` fails on every variant whose
 `source` records an unconfirmed licence: today exactly the five ElevenLabs
-takes. `python3 tools/validate_audio.py --commercial-manifest OUT` writes the
+takes (the lead's own recordings beside them are not touched, and
+`he.infantry.attack` keeps his take in a commercial build). `python3 tools/validate_audio.py --commercial-manifest OUT` writes the
 manifest a commercial build ships (those variants removed, every key still
 declared, its take list empty, so it plays nothing), proves it clean against
 that same gate, and prints the ten files the bundle must leave out.
@@ -357,6 +359,7 @@ one directory, `**` crosses directories).
 | `assets/audio/music/holding_the_perimeter_calm.{ogg,m4a}` | The mission's calm music bed (AU-7): the theme's own sparse intro, bars 2-8, an 18.251 s stereo loop | Cut from `holding_the_perimeter.mp3` by `tools/recut_music.py` (the lead's ruling and by-ear pick, 2026-10-09): a slice of the theme with its last 40 ms crossfaded into the theme's own preceding 40 ms, resampled by under 0.03% to whole AAC frames, gain to -17.0 LUFS, encoded by ffmpeg (Vorbis q5, AAC 160 kb/s). Nothing generated or added | Python (numpy, scipy), ffmpeg | Yes, by inheritance: a cut of the AI-generated theme; the generator is unrecorded | Declared CC-BY-4.0, credit Ilan Pinto, as the theme; **inherits the theme's open question (item 3)** and adds none | `data/audio.json`, `music.beds` |
 | `assets/audio/music/holding_the_perimeter_battle.{ogg,m4a}` | The mission's battle music loop (AU-7): the theme's heaviest section, 16 bars at 92 BPM ending on its own fill, a 41.749 s stereo loop | Cut from `holding_the_perimeter.mp3` by `tools/recut_music.py` (the lead's ruling and by-ear pick, 2026-10-09): a slice of the theme with its last 40 ms crossfaded into the theme's own preceding 40 ms, resampled by under 0.03% to whole AAC frames, gain to -15.0 LUFS, encoded by ffmpeg (Vorbis q5, AAC 160 kb/s). Nothing generated or added | Python (numpy, scipy), ffmpeg | Yes, by inheritance: a cut of the AI-generated theme; the generator is unrecorded | Declared CC-BY-4.0, credit Ilan Pinto, as the theme; **inherits the theme's open question (item 3)** and adds none | `data/audio.json`, `music.beds` |
 | `assets/audio/voice/he/infantry/{move_01a,attack_01a,death_01a,death_02a}.{ogg,m4a}`<br>`assets/audio/voice/he/common/ack_01a.{ogg,m4a}` | Five Hebrew unit voice lines, ogg and m4a | ElevenLabs speech the lead generated and supplied on 2026-09-29, trimmed by `tools/voice_prep.py`; the plan and the generation date are not recorded | ElevenLabs; ffmpeg | Yes: ElevenLabs | Declared `LicenseRef-owned`; ElevenLabs commercial licence NOT confirmed (D5, item 2) | Unit voices (ElevenLabs) |
+| `assets/audio/voice/he/common/announce_{defeat,mission_start,objective_active,objective_complete,reinforcements}_01a.{ogg,m4a}`<br>`assets/audio/voice/he/infantry/attack_02a.{ogg,m4a}` | Six Hebrew voice lines in the lead's own voice (five announcer lines, one unit order), ogg and m4a | Recorded by the project lead on 2026-10-09 and supplied as MP3 (the raw files stay untracked in the main checkout); trimmed, mono 44.1 kHz, -18 LUFS by `tools/voice_prep.py` | ffmpeg | No: a human voice | `LicenseRef-owned`, credit Ilan Pinto: his own voice, commercial-safe | Voice lines recorded by the lead |
 | `assets/audio/README.md` | Audio rules | Project text | None | No | ARR, project original | none needed |
 
 #### Fonts, decoder and service worker
@@ -950,6 +953,30 @@ The `text`, `translit` and `en` fields for four of the five are placeholders
 taken from the filenames: nobody has transcribed the audio. The mapping of the
 `inshouts` pair, `attack` and `od ktana` is inferred from filenames and needs
 the lead's ear.
+
+---
+
+## Voice lines recorded by the lead (2026-10-09)
+
+The lead recorded six Hebrew lines himself and supplied them as MP3 files in
+the main checkout's `assets/audio/voice/he/raw/` (left untracked there; only
+the encoded takes are committed). His own voice, so `LicenseRef-owned` with
+`generator` "none (human voice)": no generative model and no licence question,
+and they stay in a commercial build. Each was trimmed and normalised by
+`tools/voice_prep.py` (mono 44.1 kHz, -18 LUFS, true peak under -3 dBFS, OGG
+plus an M4A `alt`). The text was transcribed by the local Whisper (`medium` and
+`large-v3-turbo`, Hebrew) and read against the filenames; every recorded line
+plays unplaced, so it goes out through the walkie-talkie chain
+(`packages/render/src/radio.ts`) like every other radio line.
+
+| File (`assets/audio/voice/`) | Slot | From | Text | Meaning |
+|---|---|---|---|---|
+| `he/common/announce_mission_start_01a` | `mission_start` | `to the battle.mp3` (cut at 2.4 s, before a click) | הלאה, לקרב | "Onward, into battle." Words confirmed by the lead |
+| `he/common/announce_objective_active_01a` | `objective_active` | `new mission.mp3` | משימה חדשה | "New mission." |
+| `he/common/announce_objective_complete_01a` | `objective_complete` | `mission completed.mp3` | קודקוד, המשימה הושלמה בהצלחה | "Kodkod, mission accomplished." |
+| `he/common/announce_reinforcements_01a` | `reinforcements` | `reinforcment.mp3` | קודקוד, אנחנו חייבים תגבורת | "Kodkod, we need reinforcements." A request, and a proword; the lead's ruling: use it as recorded |
+| `he/common/announce_defeat_01a` | `defeat` (the outcome line) | `retreat.mp3` | לסגת | "Fall back." Shai's verdict at defeat, after the stinger's head |
+| `he/infantry/attack_02a` | `he.infantry.attack` | `attack2.mp3` | אל האויב, בדילוגים | "To the enemy, by bounds." |
 
 ---
 

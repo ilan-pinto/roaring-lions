@@ -8,6 +8,7 @@ import {
   VOICE_CLASSES,
   ackLineKey,
   allLineKeys,
+  announceLineKey,
   deathLineKey,
   languageOf,
   orderLineKey,
@@ -121,16 +122,28 @@ describe('rosterLanguages (N16)', () => {
 
 describe('data/audio.json declares the director’s whole vocabulary (spec §6, R-6)', () => {
   const voices = (audioManifest as {
-    voices?: { gain?: number; languages?: Record<string, string>; lines?: Record<string, unknown> };
+    voices?: {
+      gain?: number;
+      languages?: Record<string, string>;
+      lines?: Record<string, unknown>;
+      announcements?: { events: Record<string, { audio: string }> };
+    };
   }).voices;
 
   it('maps the four fighting factions and leaves civilians silent (D10)', () => {
     expect(voices?.languages).toEqual({ kdf: 'he', ashwar: 'ar', sarim: 'ar', rif: 'ar' });
   });
 
-  it('declares every key the director can ask for, and nothing else', () => {
+  it('declares every key the director can ask for, plus the announcer lines the announcement table names, and nothing else', () => {
     const langs = Object.values(voices?.languages ?? {});
-    expect(Object.keys(voices?.lines ?? {}).sort()).toEqual(allLineKeys(langs).sort());
+    const announced = Object.entries(voices?.announcements?.events ?? {})
+      .filter(([, e]) => e.audio !== '')
+      .map(([event, e]) => {
+        // An announcer line is named for its event in the net's language.
+        expect(e.audio, event).toBe(announceLineKey('he', event));
+        return e.audio;
+      });
+    expect(Object.keys(voices?.lines ?? {}).sort()).toEqual([...allLineKeys(langs), ...announced].sort());
   });
 
   it('carries N11’s line gain', () => {

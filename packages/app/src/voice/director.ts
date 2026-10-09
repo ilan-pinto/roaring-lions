@@ -56,6 +56,9 @@ export interface VoiceCue {
    *  announcement sets them; the pinned cue's caption has neither. */
   captionParams?: Readonly<Record<string, string | number>>;
   captionSeconds?: number;
+  /** Seconds to wait before the line starts, on the mixer's clock. Only the
+   *  outcome line sets it (`OUTCOME_LINE_DELAY_S`). */
+  delayS?: number;
 }
 
 /** One player gesture: every intent it produced, and whether the pointer

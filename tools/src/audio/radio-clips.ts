@@ -17,7 +17,13 @@
  *   calib_walkie_dry.wav    b with the static silenced: the words alone;
  *   calib_squelch_only.wav  b with a silent take: the click and static alone;
  *   calib_noise_unity.wav   the static at unity gain, the scale for `levels`;
- * and prints peaks and the bed's RMS. Loudness is the caller's to measure
+ * and prints peaks and the bed's RMS.
+ *
+ *   pnpm radio:clips -- --out=<dir> --takes=he/common/announce_mission_start_01a.ogg,...
+ *
+ * also renders every listed take (paths under assets/audio/voice) through the
+ * walkie-talkie chain, one `<take stem>_walkie.wav` each, for listening to a
+ * new recording the way the game will play it. Loudness is the caller's to measure
  * (`ffmpeg -i f.wav -af ebur128=peak=true -f null -`); `RADIO_FX`'s comments
  * quote what that read when the numbers were set.
  */
@@ -82,6 +88,8 @@ interface Result {
   lineAt: number;
   endsAt: number;
   takeSeconds: number;
+  /** `--takes`: each listed take through the walkie-talkie chain. */
+  extraWalkies: Render[];
 }
 
 async function main(): Promise<void> {
@@ -99,6 +107,11 @@ async function main(): Promise<void> {
   // radio.ts is erasable TypeScript (no enums, no parameter properties, no
   // imports), so Node's own type stripper turns it into the module the page
   // loads: no `typescript` dependency, and the code is otherwise untouched.
+  const extraNames = arg('takes', '')
+    .split(',')
+    .map((f) => f.trim())
+    .filter((f) => f.length > 0);
+  const extras = extraNames.map((f) => readFileSync(join(ROOT, 'assets/audio/voice', f)).toString('base64'));
   const radioJs = stripTypeScriptTypes(readFileSync(join(ROOT, 'packages/render/src/radio.ts'), 'utf8'));
 
   const browser = await chromium.launch();
@@ -115,16 +128,15 @@ async function main(): Promise<void> {
     await page.addInitScript('globalThis.__name = (f) => f;');
     await page.goto('http://radio.test/');
     const result = await page.evaluate(
-      async ({ takes, master, lineGain, sr }): Promise<Result> => {
+      async ({ takes, extras, master, lineGain, sr }): Promise<Result> => {
         type Radio = typeof import('../../../packages/render/src/radio');
         const moduleUrl = 'http://radio.test/radio.js';
         const radio = (await import(moduleUrl)) as Radio;
         const decoder = new OfflineAudioContext(1, 1, sr);
+        const decode = async (b64: string): Promise<AudioBuffer> =>
+          decoder.decodeAudioData(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)).buffer);
         const bufs: AudioBuffer[] = [];
-        for (const b64 of takes) {
-          const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-          bufs.push(await decoder.decodeAudioData(bytes.buffer));
-        }
+        for (const b64 of takes) bufs.push(await decode(b64));
         const pad = 0.3;
         const tail = radio.RADIO_FX.clickS + radio.RADIO_FX.tailS + 0.3;
 
@@ -182,6 +194,8 @@ async function main(): Promise<void> {
         const bedTo = Math.round((pad + radio.RADIO_FX.clickS + silent.duration - 0.05) * sr);
         let acc = 0;
         for (let i = bedFrom; i < bedTo; i++) acc += (squelchOnly.r.samples[i] ?? 0) ** 2;
+        const extraWalkies: Render[] = [];
+        for (const b64 of extras) extraWalkies.push((await render([{ buf: await decode(b64), at: pad }], true)).r);
         const sq0 = walkie.squelch[0];
         if (!sq0) throw new Error('no squelch scheduled');
         return {
@@ -195,9 +209,10 @@ async function main(): Promise<void> {
           lineAt: sq0.lineAt - pad,
           endsAt: sq0.endsAt - pad,
           takeSeconds: move.duration,
+          extraWalkies,
         };
       },
-      { takes, master, lineGain, sr: SR }
+      { takes, extras, master, lineGain, sr: SR }
     );
 
     const files: [string, Render][] = [
@@ -207,6 +222,10 @@ async function main(): Promise<void> {
       ['calib_walkie_dry.wav', result.walkieDry],
       ['calib_squelch_only.wav', result.squelchOnly],
       ['calib_noise_unity.wav', result.noiseUnity],
+      ...result.extraWalkies.map((r, i): [string, Render] => [
+        `${(extraNames[i] ?? `take_${i}`).replace(/\.[a-z0-9]+$/, '').replace(/\//g, '_')}_walkie.wav`,
+        r,
+      ]),
     ];
     for (const [name, r] of files) {
       writeFileSync(join(out, name), wav16(r.samples, SR));

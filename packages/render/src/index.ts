@@ -44,6 +44,7 @@ export { unitIsObserved } from './three/units/observed';
 export {
   BattleAudio,
   isAnnouncementPriority,
+  OUTCOME_LINE_DELAY_S,
   PLACEHOLDER_HZ,
   VOICE_DECODE_BUDGET_BYTES,
   VOICE_RANK,

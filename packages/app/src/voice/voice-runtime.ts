@@ -49,7 +49,14 @@
  * `dispose` has nothing to clear (the lesson of PR 446, kept by a test).
  */
 import type { MissionEvent, SimEvent } from '@lions/sim';
-import { isAnnouncementPriority, VOICE_RANK, type AnnouncementManifest, type VoiceResult, type VoiceStatus } from '@lions/render';
+import {
+  isAnnouncementPriority,
+  OUTCOME_LINE_DELAY_S,
+  VOICE_RANK,
+  type AnnouncementManifest,
+  type VoiceResult,
+  type VoiceStatus,
+} from '@lions/render';
 import { captionHoldMs } from '../ui/voice-caption';
 import type { PlayerIntent } from '../input/intents';
 import {
@@ -57,6 +64,7 @@ import {
   announceInputsOf,
   decideAnnouncements,
   hasPendingAnnouncement,
+  type AnnounceCue,
   type AnnounceInput,
   type AnnounceState,
   type AnnounceWhy,
@@ -223,6 +231,35 @@ export class VoiceRuntime {
     // loss count stays gathered until the hush is over.
     if (d.cue === null || !this.isHushed(d.cue, at)) this.announceState = d.state;
     for (const note of d.notes) this.speak(at, 'announce', note.event, note.cue, note.why);
+  }
+
+  /**
+   * The verdict's line (audio plan §5.4, §5.1): Shai on the net as the
+   * mission ends. The app calls it right after the outcome stinger and
+   * `hush('outcome')`; the stinger has already stopped every voice, so the
+   * line starts on an empty net, `OUTCOME_LINE_DELAY_S` later on the mixer's
+   * clock (the stinger's head), never over it. Only a table entry of
+   * priority `outcome` speaks: a result with none, or a name that is an
+   * ordinary announcement, says nothing. The hush never silences it.
+   */
+  outcome(result: 'victory' | 'defeat'): void {
+    const table = this.deps.announcements;
+    if (this.disposed || !table) return;
+    const def = Object.prototype.hasOwnProperty.call(table.events, result) ? table.events[result] : undefined;
+    if (def === undefined || def.priority !== 'outcome') return;
+    const cue: AnnounceCue = {
+      key: def.audio,
+      lang: this.deps.announceLang ?? 'he',
+      speaker: 'infantry',
+      trigger: 'announce',
+      priority: 'outcome',
+      at: null,
+      caption: def.caption,
+      captionParams: {},
+      captionSeconds: table.caption_s,
+      delayS: OUTCOME_LINE_DELAY_S,
+    };
+    this.speak(this.deps.now(), 'announce', result, cue, 'line');
   }
 
   /** Copies of the ring, oldest first. */

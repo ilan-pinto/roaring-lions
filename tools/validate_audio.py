@@ -643,14 +643,15 @@ def check_ui_cue(entry, failures, audio_dir=AUDIO_DIR, notes=None, max_s=UI_MAX_
         failures.append(f"{rel}: ui cue peaks at {peak:.2f} dBFS, over the {UI_PEAK_CEILING_DB} dBFS ceiling")
 
 
-ANNOUNCE_PRIORITIES = ("high", "normal", "low")
+ANNOUNCE_PRIORITIES = ("high", "normal", "low", "outcome")
 EN_JSON = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "app", "src", "i18n", "en.json")
 
 
 def check_announcements(voices, failures, captions=None):
     """GH-110: the announcement table. A caption is an i18n key that must exist
     in en.json (`captions`, a set; read from EN_JSON when None); `audio` is empty
-    until a line is recorded, else a key declared in voices.lines."""
+    until a line is recorded, else a key declared in voices.lines with at least
+    one recorded take (its files are check_voices' to find on disk)."""
     table = voices.get("announcements")
     if table is None:
         return
@@ -675,6 +676,10 @@ def check_announcements(voices, failures, captions=None):
             failures.append(f"announcements '{name}': audio must be a string ('' until recorded)")
         elif audio != "" and audio not in lines:
             failures.append(f"announcements '{name}': audio '{audio}' is not declared in voices.lines")
+        elif audio != "" and not (lines[audio] or {}).get("variants"):
+            # A key is named only once a take is recorded: an announcement
+            # pointing at an empty line would read as voiced and play nothing.
+            failures.append(f"announcements '{name}': audio '{audio}' has no recorded take -- leave audio '' until one is")
         cd = ev.get("cooldown_s")
         if isinstance(cd, bool) or not isinstance(cd, (int, float)) or cd < 0:
             failures.append(f"announcements '{name}': cooldown_s {cd!r} is not a non-negative number")

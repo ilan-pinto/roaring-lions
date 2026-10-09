@@ -105,9 +105,20 @@ def main():
     if not ok:
         bad.append("excluded files")
     lines = stripped["voices"]["lines"]
-    ok = all(lines[k]["variants"] == [] for k in ("he.infantry.move", "he.infantry.attack", "he.infantry.death", "he.common.ack"))
+    ok = all(lines[k]["variants"] == [] for k in ("he.infantry.move", "he.infantry.death", "he.common.ack"))
     ok = ok and set(lines) == set(shipped_man["voices"]["lines"])
     print(f"{'ok  ' if ok else 'FAIL'} every key stays declared, its stripped takes an empty list (plays nothing)")
+    if not ok:
+        bad.append("stripped keys")
+    # The lead's own recordings (9 Oct 2026) are his voice, not generated:
+    # they stay in a commercial build, the attack key keeping his take alone.
+    kept = {k: [v["file"] for v in line["variants"]] for k, line in lines.items() if line["variants"]}
+    ok = kept == {
+        "he.infantry.attack": ["voice/he/infantry/attack_02a.ogg"],
+        **{f"he.common.announce_{e}": [f"voice/he/common/announce_{e}_01a.ogg"]
+           for e in ("defeat", "mission_start", "objective_active", "objective_complete", "reinforcements")},
+    }
+    print(f"{'ok  ' if ok else 'FAIL'} the lead's recorded takes stay in a commercial build -> {kept}")
     if not ok:
         bad.append("keys kept")
     ok = shipped_man["voices"]["lines"]["he.common.ack"]["variants"] != []

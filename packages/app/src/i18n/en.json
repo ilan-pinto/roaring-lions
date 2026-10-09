@@ -202,7 +202,7 @@
   "credits.asset.sourceLabel": "Source: ",
   "credits.asset.licenceLabel": "Licence: ",
   "credits.ai.models": "Some models were generated with Meshy from text or images and reworked in Blender. Every model, generated or built, passes the same checks before it ships.",
-  "credits.ai.audio": "The main theme, “Holding the Perimeter”, was generated with an AI music tool from a written prompt, and the music heard in missions is cut from it. The few spoken radio lines are AI-generated stand-ins (ElevenLabs) and are left out of any commercial release. Every sound effect and interface cue is made in code, with no generative model.",
+  "credits.ai.audio": "The main theme, “Holding the Perimeter”, was generated with an AI music tool from a written prompt, and the music heard in missions is cut from it. Some radio lines are recorded by Ilan Pinto; the rest are AI-generated stand-ins (ElevenLabs) and are left out of any commercial release. Every sound effect and interface cue is made in code, with no generative model.",
   "credits.ai.record": "The full record of where every model, image and sound came from is kept in the game’s source repository.",
 
   "nav.campaignMap": "campaign map",
@@ -700,6 +700,7 @@
   "announce.unitLost": "Contact lost with {n, plural, one {one unit} other {# units}}.",
   "announce.missionStart": "Company, on me. Moving out.",
   "announce.roe": "Check your fire.",
+  "announce.outcome.defeat": "Fall back.",
   "voice.caption.broken": "Falling back!",
   "voice.caption.immobilised": "We're stuck, tracks are gone!",
   "voice.caption.gunout": "Main gun's out!",

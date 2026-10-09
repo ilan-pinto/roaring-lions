@@ -72,6 +72,11 @@ export function orderLineKey(lang: string, speaker: VoiceClass, verb: OrderVerb)
   }
 }
 
+/** `<lang>.common.announce_<event>` (GH-110): the line an announcement's
+ *  `audio` names once it is recorded. Not one of `allLineKeys`: the director
+ *  never asks for it, the announcement table does. */
+export const announceLineKey = (lang: string, event: string): string => `${lang}.common.announce_${event}`;
+
 export const deathLineKey = (lang: string, cls: VoiceClass): string => `${lang}.${cls}.death`;
 export const ackLineKey = (lang: string): string => `${lang}.common.ack`;
 

@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { AnnouncementManifest } from '@lions/render';
 import type { MissionEvent } from '@lions/sim';
@@ -16,6 +18,8 @@ import {
 import { VoiceRuntime, type VoiceRuntimeDeps } from './voice-runtime';
 import type { DirectorLook, VoiceCue } from './director';
 import type { VoiceResult } from '@lions/render';
+
+const AUDIO_DIR = fileURLToPath(new URL('../../../../assets/audio', import.meta.url));
 
 const TABLE: AnnouncementManifest = {
   hold_s: 3,
@@ -214,11 +218,29 @@ describe('announceInputsOf', () => {
 describe('the shipped table', () => {
   const t = (audioManifest as { voices: { announcements: AnnouncementManifest; lines: Record<string, unknown> } }).voices;
   it('declares every event the announcer can raise, each with a real caption key', () => {
-    const ids: AnnounceEventId[] = ['objective_active', 'objective_complete', 'objective_failed', 'deadline', 'wave', 'reinforcements', 'unit_lost', 'mission_start', 'roe'];
+    const ids: AnnounceEventId[] = ['objective_active', 'objective_complete', 'objective_failed', 'deadline', 'wave', 'reinforcements', 'unit_lost', 'mission_start', 'roe', 'defeat'];
     expect(Object.keys(t.announcements.events).sort()).toEqual([...ids].sort());
     for (const [id, def] of Object.entries(t.announcements.events)) {
       expect(def.caption in en, id).toBe(true);
       expect(def.audio === '' || def.audio in t.lines, id).toBe(true);
+    }
+  });
+
+  it('every announcement with audio names a line with a recorded take on disk', () => {
+    const lines = t.lines as Record<string, { variants?: { file: string; alt?: string }[] }>;
+    const voiced = Object.entries(t.announcements.events).filter(([, def]) => def.audio !== '');
+    // The lead's first recordings (9 Oct 2026): five events speak. A failed
+    // objective is caption-only: his "fall back" is the defeat verdict.
+    expect(voiced.map(([id]) => id).sort()).toEqual(['defeat', 'mission_start', 'objective_active', 'objective_complete', 'reinforcements']);
+    expect(t.announcements.events.objective_failed.audio).toBe('');
+    // The verdict is the only `outcome` entry; no mission event raises it.
+    expect(Object.entries(t.announcements.events).filter(([, d]) => d.priority === 'outcome').map(([id]) => id)).toEqual(['defeat']);
+    for (const [id, def] of voiced) {
+      const variants = lines[def.audio]?.variants ?? [];
+      expect(variants.length, `${id} -> ${def.audio}`).toBeGreaterThan(0);
+      for (const v of variants) {
+        for (const f of [v.file, v.alt]) if (f !== undefined) expect(existsSync(`${AUDIO_DIR}/${f}`), f).toBe(true);
+      }
     }
   });
 
@@ -266,6 +288,50 @@ function rig(table: AnnouncementManifest, over: Partial<VoiceRuntimeDeps> = {}) 
   return { rt, played, captions, always, setNow: (n: number) => void (now = n), setResult: (r: VoiceResult) => void (result = r) };
 }
 const complete: MissionEvent = { kind: 'objective', tick: 1, id: 'o1', status: 'complete' };
+
+describe('VoiceRuntime.outcome: the verdict line (audio plan §5.4)', () => {
+  const shipped = (audioManifest as unknown as { voices: { announcements: AnnouncementManifest } }).voices.announcements;
+  const failed: MissionEvent = { kind: 'objective', tick: 1, id: 'o1', status: 'failed' };
+
+  it('a defeat plays the defeat line at the outcome rung, after the stinger head, even though the hush has landed', () => {
+    const r = rig(shipped);
+    r.setResult({ status: 'played', seconds: 0.82, en: 'Fall back.', cut: 0 });
+    r.rt.hush('outcome');
+    r.rt.outcome('defeat');
+    expect(r.played.map((c) => [c.key, c.priority, c.at, c.delayS])).toEqual([['he.common.announce_defeat', 'outcome', null, 0.6]]);
+    expect(r.captions).toEqual([['announce.outcome.defeat|{}', 3.5]]);
+    expect(r.always).toEqual([true]);
+  });
+
+  it('a victory says nothing: no line is recorded and the table has no entry', () => {
+    const r = rig(shipped);
+    r.rt.hush('outcome');
+    r.rt.outcome('victory');
+    expect(r.played).toEqual([]);
+    expect(r.captions).toEqual([]);
+  });
+
+  it('only an `outcome` entry speaks: an ordinary announcement name is not a verdict', () => {
+    const table = { ...shipped, events: { ...shipped.events, victory: { ...shipped.events.objective_complete } } };
+    const r = rig(table);
+    r.rt.outcome('victory');
+    expect(r.played).toEqual([]);
+  });
+
+  it('a failed objective is caption-only now: nothing reaches the mixer', () => {
+    const r = rig(shipped);
+    r.rt.onMission([failed]);
+    expect(r.played).toEqual([]);
+    expect(r.captions).toEqual([['announce.objective.failed|{"label":"label:o1"}', 3.5]]);
+  });
+
+  it('after dispose the verdict says nothing', () => {
+    const r = rig(shipped);
+    r.rt.dispose();
+    r.rt.outcome('defeat');
+    expect(r.played).toEqual([]);
+  });
+});
 
 describe('VoiceRuntime.onMission (GH-110)', () => {
   it('captions an announcement with no audio and never touches the mixer', () => {

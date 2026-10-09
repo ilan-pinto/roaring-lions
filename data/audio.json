@@ -543,7 +543,7 @@
     "ui.deny": "ui_deny"
   },
   "voices": {
-    "$comment": "Unit voices (WP-AU1, docs/superpowers/specs/2026-09-25-unit-voices-design.md). Keyed <lang>.<class>.<trigger>; every key the director can ask for is declared, and an empty `variants` list means the line is not recorded yet -- the engine plays nothing for it. A variant carries file, alt, license, source, credit, generator, text, translit and en, and `pnpm validate:audio` enforces them. Files landed 2026-09-29 by the lead's decision with the ElevenLabs commercial licence (D5) UNCONFIRMED; see docs/ASSET_PROVENANCE.md.",
+    "$comment": "Unit voices (WP-AU1, docs/superpowers/specs/2026-09-25-unit-voices-design.md). Keyed <lang>.<class>.<trigger>; every key the director can ask for is declared, and an empty `variants` list means the line is not recorded yet -- the engine plays nothing for it. A variant carries file, alt, license, source, credit, generator, text, translit and en, and `pnpm validate:audio` enforces them. Files landed 2026-09-29 by the lead's decision with the ElevenLabs commercial licence (D5) UNCONFIRMED; since 2026-10-09 the lead's own recordings (generator 'none', his voice, commercial-safe) sit beside them, including the announcer lines he.common.announce_<event>. See docs/ASSET_PROVENANCE.md.",
     "gain": 0.8,
     "languages": {
       "kdf": "he",
@@ -645,6 +645,81 @@
           }
         ]
       },
+      "he.common.announce_defeat": {
+        "variants": [
+          {
+            "file": "voice/he/common/announce_defeat_01a.ogg",
+            "alt": "voice/he/common/announce_defeat_01a.m4a",
+            "license": "LicenseRef-owned",
+            "source": "recorded by the project lead, 2026-10-09 (his own voice, from the six files he supplied in assets/audio/voice/he/raw/, which stay untracked); trimmed and normalised by tools/voice_prep.py",
+            "credit": "Ilan Pinto",
+            "generator": "none (human voice, recorded by the project lead)",
+            "text": "לסגת",
+            "translit": "la-seget",
+            "en": "Fall back. (From 'retreat.mp3'. Shai's verdict at defeat, the outcome line of audio plan section 5.4: the lead's ruling, 2026-10-09.)"
+          }
+        ]
+      },
+      "he.common.announce_mission_start": {
+        "variants": [
+          {
+            "file": "voice/he/common/announce_mission_start_01a.ogg",
+            "alt": "voice/he/common/announce_mission_start_01a.m4a",
+            "license": "LicenseRef-owned",
+            "source": "recorded by the project lead, 2026-10-09 (his own voice, from the six files he supplied in assets/audio/voice/he/raw/, which stay untracked); trimmed and normalised by tools/voice_prep.py",
+            "credit": "Ilan Pinto",
+            "generator": "none (human voice, recorded by the project lead)",
+            "text": "הלאה, לקרב",
+            "translit": "hal'a, la-krav",
+            "en": "Onward, into battle. (From 'to the battle.mp3'; the words confirmed by the lead, 2026-10-09. Cut at 2.4 s of the source, before a click.)"
+          }
+        ]
+      },
+      "he.common.announce_objective_active": {
+        "variants": [
+          {
+            "file": "voice/he/common/announce_objective_active_01a.ogg",
+            "alt": "voice/he/common/announce_objective_active_01a.m4a",
+            "license": "LicenseRef-owned",
+            "source": "recorded by the project lead, 2026-10-09 (his own voice, from the six files he supplied in assets/audio/voice/he/raw/, which stay untracked); trimmed and normalised by tools/voice_prep.py",
+            "credit": "Ilan Pinto",
+            "generator": "none (human voice, recorded by the project lead)",
+            "text": "משימה חדשה",
+            "translit": "mesima chadasha",
+            "en": "New mission. (From 'new mission.mp3'.)"
+          }
+        ]
+      },
+      "he.common.announce_objective_complete": {
+        "variants": [
+          {
+            "file": "voice/he/common/announce_objective_complete_01a.ogg",
+            "alt": "voice/he/common/announce_objective_complete_01a.m4a",
+            "license": "LicenseRef-owned",
+            "source": "recorded by the project lead, 2026-10-09 (his own voice, from the six files he supplied in assets/audio/voice/he/raw/, which stay untracked); trimmed and normalised by tools/voice_prep.py",
+            "credit": "Ilan Pinto",
+            "generator": "none (human voice, recorded by the project lead)",
+            "text": "קודקוד, המשימה הושלמה בהצלחה",
+            "translit": "kodkod, ha-mesima hushlema be-hatzlacha",
+            "en": "Kodkod, mission accomplished. (From 'mission completed.mp3'.)"
+          }
+        ]
+      },
+      "he.common.announce_reinforcements": {
+        "variants": [
+          {
+            "file": "voice/he/common/announce_reinforcements_01a.ogg",
+            "alt": "voice/he/common/announce_reinforcements_01a.m4a",
+            "license": "LicenseRef-owned",
+            "source": "recorded by the project lead, 2026-10-09 (his own voice, from the six files he supplied in assets/audio/voice/he/raw/, which stay untracked); trimmed and normalised by tools/voice_prep.py",
+            "credit": "Ilan Pinto",
+            "generator": "none (human voice, recorded by the project lead)",
+            "text": "קודקוד, אנחנו חייבים תגבורת",
+            "translit": "kodkod, anachnu chayavim tigboret",
+            "en": "Kodkod, we need reinforcements. (From 'reinforcment.mp3'. Said as a request while the event is reinforcements arriving, and it opens with the proword 'kodkod': the lead's ruling, 2026-10-09, is to use it as recorded. The caption carries the house line.)"
+          }
+        ]
+      },
       "he.common.broken": {
         "variants": []
       },
@@ -705,6 +780,17 @@
             "text": "(not transcribed; sample named \"attack\")",
             "translit": "(not transcribed)",
             "en": "\"attack\" (from the filename); language unconfirmed. Unverified by ear; 1.56 s, over the 1.4 s order target (N9)."
+          },
+          {
+            "file": "voice/he/infantry/attack_02a.ogg",
+            "alt": "voice/he/infantry/attack_02a.m4a",
+            "license": "LicenseRef-owned",
+            "source": "recorded by the project lead, 2026-10-09 (his own voice, from the six files he supplied in assets/audio/voice/he/raw/, which stay untracked); trimmed and normalised by tools/voice_prep.py",
+            "credit": "Ilan Pinto",
+            "generator": "none (human voice, recorded by the project lead)",
+            "text": "אל האויב, בדילוגים",
+            "translit": "el ha-oyev, bi-dilugim",
+            "en": "To the enemy, by bounds."
           }
         ]
       },
@@ -751,19 +837,19 @@
       }
     },
     "announcements": {
-      "$comment": "GH-110 announcement lines: objective, deadline, loss, reinforcement and contact calls. Each carries an i18n caption key and an `audio` key that must exist in voices.lines (empty until recorded, ElevenLabs licence D5 unconfirmed): empty or unrecorded means caption only. Priority high > normal > low; a lower one stays quiet for hold_s after a higher one spoke. Polish pass F: mission_start (Shai on the net as the deploy gate clears, A4) and roe (a Conduct penalty, 'Check your fire', A9) are caption-only until the lead records them. Every announcement caption shows whatever the captions setting says (A5).",
+      "$comment": "GH-110 announcement lines: objective, deadline, loss, reinforcement and contact calls. Each carries an i18n caption key and an `audio` key that must exist in voices.lines (empty until recorded, ElevenLabs licence D5 unconfirmed): empty or unrecorded means caption only. Priority high > normal > low; a lower one stays quiet for hold_s after a higher one spoke. Polish pass F: mission_start (Shai on the net as the deploy gate clears, A4) and roe (a Conduct penalty, 'Check your fire', A9). The lead recorded five lines in his own voice on 2026-10-09 (mission_start, objective_active, objective_complete, reinforcements and defeat: keys he.common.announce_<event>); objective_failed, deadline, wave, unit_lost and roe are still caption-only. `defeat` is the outcome line (audio plan section 5.4), priority `outcome`: no mission event raises it; the outcome moment does, through VoiceRuntime.outcome, and it starts as the stinger's head ends (OUTCOME_LINE_DELAY_S). There is no `victory` entry until that line is recorded. Every recorded line plays unplaced, so it goes out through the walkie-talkie chain like every other radio line. Every announcement caption shows whatever the captions setting says (A5).",
       "hold_s": 3,
       "caption_s": 3.5,
       "events": {
         "objective_active": {
           "caption": "announce.objective.active",
-          "audio": "",
+          "audio": "he.common.announce_objective_active",
           "cooldown_s": 2,
           "priority": "high"
         },
         "objective_complete": {
           "caption": "announce.objective.complete",
-          "audio": "",
+          "audio": "he.common.announce_objective_complete",
           "cooldown_s": 2,
           "priority": "high"
         },
@@ -787,7 +873,7 @@
         },
         "reinforcements": {
           "caption": "announce.reinforcements",
-          "audio": "",
+          "audio": "he.common.announce_reinforcements",
           "cooldown_s": 8,
           "priority": "normal"
         },
@@ -799,7 +885,7 @@
         },
         "mission_start": {
           "caption": "announce.missionStart",
-          "audio": "",
+          "audio": "he.common.announce_mission_start",
           "cooldown_s": 60,
           "priority": "high"
         },
@@ -808,6 +894,12 @@
           "audio": "",
           "cooldown_s": 10,
           "priority": "normal"
+        },
+        "defeat": {
+          "caption": "announce.outcome.defeat",
+          "audio": "he.common.announce_defeat",
+          "cooldown_s": 0,
+          "priority": "outcome"
         }
       }
     }

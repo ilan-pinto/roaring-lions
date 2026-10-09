@@ -65,7 +65,7 @@ def main():
     def ann(**over):
         ev = {"caption": "announce.objective.complete", "audio": "", "cooldown_s": 2, "priority": "high"}
         ev.update(over)
-        sec = voices({"he.common.announce_x": {"variants": []}})
+        sec = voices({"he.common.announce_x": {"variants": [variant(file="voice/he/common/announce_x_01a.ogg")]}, "he.common.announce_empty": {"variants": []}})
         sec["announcements"] = {"hold_s": 3, "caption_s": 3.5, "events": {"objective_complete": ev}}
         return sec
 
@@ -79,7 +79,9 @@ def main():
     check("an announcement with no caption fails", run_ann(ann(caption=""))[0], "no caption key")
     check("a caption key missing from en.json fails", run_ann(ann(caption="announce.nope"))[0], "not in en.json")
     check("audio naming an undeclared line fails", run_ann(ann(audio="he.common.nope"))[0], "not declared in voices.lines")
+    check("audio naming a declared line with no recorded take fails", run_ann(ann(audio="he.common.announce_empty"))[0], "no recorded take")
     check("a bad priority fails", run_ann(ann(priority="urgent"))[0], "priority")
+    check("the outcome priority (the verdict line) passes", run_ann(ann(priority="outcome"))[0], None)
     check("a negative cooldown fails", run_ann(ann(cooldown_s=-1))[0], "cooldown_s")
 
     good = variant()
