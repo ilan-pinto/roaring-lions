@@ -1,0 +1,726 @@
+diff --git a/packages/app/src/main.ts b/packages/app/src/main.ts
+index 72ace61d..94ffb93d 100644
+--- a/packages/app/src/main.ts
++++ b/packages/app/src/main.ts
+@@ -106,6 +106,7 @@ import { ReplayRecorder } from './feedback/replay';
+ import { afterAction, promotionsBetween } from './ui/after-action';
+ import { livingHostiles } from './ui/withdrew';
+ import { outcomeMoment, outcomeMomentOptions } from './ui/outcome-moment';
++import { outcomeBeatMock } from './ui/outcome-beat-mock';
+ import { showSettings, type SettingsDeps } from './ui/settings-panel';
+ import { keymapRows } from './ui/settings-keymap';
+ import {
+@@ -4445,7 +4446,28 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
+             // `aftermath` for its hold, and the end screen below carries the
+             // same one where it can be read (the second correction to ruling 9).
+             const momentOptions = outcomeMomentOptions(me.result, mission, creditsInfo, missionFailure);
+-            const moment = outcomeMoment(document.body, momentOptions);
++            // MOCK ONLY (PA-07): `?outcomeMock=A|B|C` swaps in a beat direction.
++            const beatDir = new URLSearchParams(location.search).get('outcomeMock');
++            const moment =
++              beatDir === 'A' || beatDir === 'B' || beatDir === 'C'
++                ? outcomeBeatMock(document.body, momentOptions, {
++                    direction: beatDir,
++                    missionName: mission.name ?? mission.id,
++                    clock: missionClock(sim.tickCount),
++                    focus: (window as unknown as { __beatFocus?: { x: number; y: number } }).__beatFocus ?? {
++                      x: renderer.camera.x,
++                      y: renderer.camera.y,
++                    },
++                    camera: renderer.camera,
++                    setSpeed: (s) => {
++                      gameSpeed = s;
++                    },
++                    step: (n) => {
++                      for (let i = 0; i < n; i++) runTick();
++                      renderer.frame(1, lastFrameMs);
++                    },
++                  })
++                : outcomeMoment(document.body, momentOptions);
+             // Polish pass F: the verdict is heard. The stinger stops every
+             // voice, fades combat and the music under itself, and holds every
+             // other cue off; the music comes back at the menu's level.
+diff --git a/packages/app/src/ui/outcome-beat-mock.ts b/packages/app/src/ui/outcome-beat-mock.ts
+new file mode 100644
+index 00000000..13421ed2
+--- /dev/null
++++ b/packages/app/src/ui/outcome-beat-mock.ts
+@@ -0,0 +1,315 @@
++// packages/app/src/ui/outcome-beat-mock.ts
++/**
++ * MOCK ONLY (PA-07): three directions for the held victory/defeat moment,
++ * selected by `?outcomeMock=A|B|C`. Never shipped: it lives in
++ * `docs/polish/outcome-moment/prototype.patch` so a builder can read exactly
++ * what the sheet photographed. Colour comes from the semantic tokens only;
++ * every string is an existing catalogue key or mission data.
++ *
++ * Time is one number, `t` in ms since the mission ended. In the browser it is
++ * the frame clock; a capture tool sets `window.__beatManual = true` before the
++ * end and then calls `window.__beat.seek(ms)`, which advances the sim by the
++ * ticks the time curve owes, poses the DOM and the camera for `t`, and draws
++ * one frame -- so a frame strip is exact, not a race with a screenshot.
++ */
++import { t } from '../i18n/t';
++import type { OutcomeMoment, OutcomeMomentOptions } from './outcome-moment';
++
++export type BeatDirection = 'A' | 'B' | 'C';
++
++export interface BeatContext {
++  direction: BeatDirection;
++  missionName: string;
++  clock: string;
++  /** World tile the beat looks at (direction B). */
++  focus: { x: number; y: number };
++  camera: { x: number; y: number; zoom: number };
++  setSpeed(s: number): void;
++  /** Ticks the sim n times and draws one frame (`__lions.step`). */
++  step(n: number): void;
++}
++
++/** The stinger (`victory_01.ogg`/`defeat_01.ogg`) is 2.45 s long and hits at
++ *  0: the verdict lands with it and the report arrives as it decays. */
++const STINGER_MS = 2450;
++const HANDOFF_MS = 400;
++export const BEAT_DONE_MS = STINGER_MS;
++
++const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
++const ramp = (t: number, a: number, b: number): number => clamp01((t - a) / (b - a));
++const easeOut = (x: number): number => 1 - Math.pow(1 - x, 3);
++const easeInOut = (x: number): number => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
++
++function div(cls: string, text?: string): HTMLDivElement {
++  const d = document.createElement('div');
++  d.className = cls;
++  if (text !== undefined) d.textContent = text;
++  return d;
++}
++
++const STYLE = `
++.rl-obeat { position: fixed; inset: 0; z-index: 55; pointer-events: none; overflow: hidden; }
++.rl-obeat__scrim { position: absolute; inset: 0; background: var(--panel-bg-solid); opacity: 0; }
++.rl-obeat__box { position: absolute; left: 0; right: 0; background: var(--panel-bg-solid); }
++.rl-obeat__box--top { top: 0; height: 9vh; }
++.rl-obeat__box--bot { bottom: 0; height: 15vh; display: grid; place-items: center; align-content: center; gap: var(--s1); }
++.rl-obeat__stamp { position: absolute; left: 0; right: 0; top: 38%; text-align: center; }
++.rl-obeat__band { background: var(--band-mission); padding: var(--s3) 0 var(--s2); border-top: 3px solid var(--rule); border-bottom: 3px solid var(--rule); }
++.rl-obeat__title { font-family: var(--font-display); font-weight: 800; text-transform: uppercase; letter-spacing: var(--track-title); line-height: 1; color: var(--band-ink); font-size: clamp(3rem, 8vw, 7rem); }
++.rl-obeat__sub { margin-top: var(--s3); font-family: var(--font-display); text-transform: uppercase; letter-spacing: var(--track-label); font-size: var(--t-strip); color: var(--ink); text-shadow: var(--halo); }
++.rl-obeat__credits { color: var(--commend); }
++.rl-obeat__reason { color: var(--bad-text); }
++.rl-obeat__radio { margin-top: var(--s2); font-family: var(--font-body); font-size: var(--t-read); color: var(--ink-dim); text-shadow: var(--halo); }
++.rl-obeat__cine { font-family: var(--font-display); font-weight: 800; text-transform: uppercase; letter-spacing: var(--track-title); line-height: 1; font-size: clamp(2.5rem, 6vw, 5rem); color: var(--rule); }
++.rl-obeat__cine-sub { font-family: var(--font-display); text-transform: uppercase; letter-spacing: var(--track-label); font-size: var(--t-strip); color: var(--ink); }
++.rl-obeat__doc { position: absolute; left: 50%; top: 12vh; width: min(84rem, 100vw - 2 * var(--s4)); }
++.rl-obeat__doc .rl-panel__band { padding: var(--s3) var(--s4) var(--s2); background: var(--band-mission); display: flex; align-items: baseline; gap: var(--s3); }
++.rl-obeat__doc .rl-obeat__doc-title { font-family: var(--font-display); font-weight: 800; text-transform: uppercase; letter-spacing: var(--track-title); line-height: 1; color: var(--band-ink); font-size: var(--t-hero); }
++.rl-obeat__doc-tag { margin-left: auto; font-family: var(--font-display); font-size: var(--t-strip); letter-spacing: var(--track-label); text-transform: uppercase; color: var(--band-ink-dim); }
++.rl-obeat__doc-body { background: var(--panel-bg); border: 1px solid var(--panel-frame); border-top: 0; border-bottom: 3px solid var(--rule); padding: var(--s3) var(--s4); font-size: var(--t-read); color: var(--ink); }
++.rl-obeat__doc-body p { margin: 0 0 var(--s2); }
++`;
++
++export function outcomeBeatMock(host: HTMLElement, o: OutcomeMomentOptions, c: BeatContext): OutcomeMoment {
++  const won = o.outcome === 'victory';
++  const style = document.createElement('style');
++  style.textContent = STYLE;
++  document.head.appendChild(style);
++
++  const el = div('rl-obeat');
++  el.dataset.outcome = o.outcome;
++  el.dataset.direction = c.direction;
++  el.setAttribute('role', 'dialog');
++  el.setAttribute('aria-label', o.title);
++  // The edge rule names the outcome in colour as well as in words (VR-24:
++  // the band itself is the mission rank for both outcomes, as the report's).
++  el.style.setProperty('--rule', won ? 'var(--good)' : 'var(--bad)');
++  const scrim = div('rl-obeat__scrim');
++  el.appendChild(scrim);
++
++  const subParts: HTMLElement[] = [];
++  const sub = div('rl-obeat__sub');
++  const spanOf = (cls: string, text: string): HTMLSpanElement => {
++    const s = document.createElement('span');
++    s.className = cls;
++    s.textContent = text;
++    return s;
++  };
++  sub.appendChild(spanOf('', `${c.missionName} · ${c.clock}`));
++  if (won && o.credits && o.credits.paid > 0) {
++    sub.appendChild(document.createTextNode(' · '));
++    sub.appendChild(spanOf('rl-obeat__credits', t('debrief.credits.paid', { n: o.credits.paid })));
++  }
++  if (!won && o.reason) {
++    sub.appendChild(document.createElement('br'));
++    sub.appendChild(spanOf('rl-obeat__reason', o.reason));
++  }
++  subParts.push(sub);
++  const radio = div('rl-obeat__radio', o.line ?? o.radio ?? '');
++
++  // Direction-specific furniture.
++  let stamp: HTMLDivElement | null = null;
++  let band: HTMLDivElement | null = null;
++  let top: HTMLDivElement | null = null;
++  let bot: HTMLDivElement | null = null;
++  let cine: HTMLDivElement | null = null;
++  let doc: HTMLDivElement | null = null;
++  let docBody: HTMLDivElement | null = null;
++  if (c.direction === 'A') {
++    stamp = div('rl-obeat__stamp');
++    band = div('rl-obeat__band');
++    band.appendChild(div('rl-obeat__title', o.title));
++    stamp.appendChild(band);
++    stamp.appendChild(sub);
++    stamp.appendChild(radio);
++    el.appendChild(stamp);
++  } else if (c.direction === 'B') {
++    top = div('rl-obeat__box rl-obeat__box--top');
++    bot = div('rl-obeat__box rl-obeat__box--bot');
++    cine = div('rl-obeat__cine', o.title);
++    bot.appendChild(cine);
++    bot.appendChild(sub);
++    el.appendChild(top);
++    el.appendChild(bot);
++  } else {
++    doc = div('rl-obeat__doc rl-panel');
++    doc.dataset.rank = 'mission';
++    const b = div('rl-panel__band');
++    b.appendChild(div('rl-obeat__doc-title', o.title));
++    b.appendChild(div('rl-obeat__doc-tag', `${c.missionName} · ${c.clock}`));
++    doc.appendChild(b);
++    docBody = div('rl-obeat__doc-body');
++    if (won && o.credits) {
++      const p = document.createElement('p');
++      p.className = 'rl-obeat__credits';
++      p.textContent = o.credits.paid > 0 ? t('debrief.credits.paid', { n: o.credits.paid }) : t('debrief.credits.none');
++      docBody.appendChild(p);
++    }
++    if (!won && o.reason) {
++      const p = document.createElement('p');
++      p.className = 'rl-obeat__reason';
++      p.textContent = o.reason;
++      docBody.appendChild(p);
++    }
++    const say = document.createElement('p');
++    say.textContent = o.line ?? o.radio ?? '';
++    docBody.appendChild(say);
++    doc.appendChild(docBody);
++    el.appendChild(doc);
++  }
++  host.appendChild(el);
++
++  // The HUD: every body child that is not the battlefield's stage, this beat
++  // or the report. The minimap is a canvas of its own and IS HUD.
++  const hud = [...document.body.children].filter(
++    (k): k is HTMLElement =>
++      k instanceof HTMLElement &&
++      k !== el &&
++      k.tagName !== 'SCRIPT' &&
++      k.tagName !== 'AUDIO' &&
++      !(k.querySelector('canvas') && !k.classList.contains('rl-minimap'))
++  );
++  const world = document.querySelector<HTMLCanvasElement>('canvas:not(.rl-minimap)');
++  const cam0 = { ...c.camera };
++
++  let resolveDone: () => void = () => {};
++  const done = new Promise<void>((r) => (resolveDone = r));
++  let doneSent = false;
++  let removed = false;
++
++  const pose = (tm: number): void => {
++    // --- shared: the report's arrival after the stinger --------------------
++    const report = document.querySelector<HTMLElement>('.rl-aar');
++    const backdrop = document.querySelector<HTMLElement>('.rl-aar-backdrop');
++    const h = easeOut(ramp(tm, STINGER_MS, STINGER_MS + HANDOFF_MS));
++    if (report) {
++      report.style.animation = 'none';
++      report.style.opacity = String(h);
++      report.style.translate =
++        c.direction === 'B' ? `${(1 - h) * 12}vw 0` : c.direction === 'A' ? `0 ${(1 - h) * 6}vh` : `0 ${(1 - h) * -1.5}vh`;
++    }
++    if (backdrop) {
++      backdrop.style.animation = 'none';
++      backdrop.style.opacity = String(h);
++    }
++
++    if (c.direction === 'A') {
++      const hudOut = 1 - easeOut(ramp(tm, 0, 300));
++      for (const k of hud) k.style.opacity = String(hudOut);
++      // The report brings its own backdrop; the scrim hands over to it.
++      scrim.style.opacity = String(0.55 * easeOut(ramp(tm, 0, 300)) * (1 - h));
++      const s = easeOut(ramp(tm, 0, 240));
++      const leave = easeOut(ramp(tm, STINGER_MS, STINGER_MS + 300));
++      if (stamp) {
++        stamp.style.opacity = String(s * (1 - leave));
++        stamp.style.transform = `translateY(${-leave * 12}vh)`;
++      }
++      if (band) band.style.transform = `scale(${1.25 - 0.25 * s}, ${1.6 - 0.6 * s})`;
++      const subIn = easeOut(ramp(tm, 350, 650));
++      sub.style.opacity = String(subIn);
++      radio.style.opacity = String(easeOut(ramp(tm, 700, 1000)));
++    } else if (c.direction === 'B') {
++      const hudOut = 1 - easeOut(ramp(tm, 0, 300));
++      for (const k of hud) k.style.opacity = String(hudOut);
++      const lb = easeOut(ramp(tm, 0, 400)) * (1 - ramp(tm, STINGER_MS, STINGER_MS + HANDOFF_MS));
++      if (top) top.style.transform = `translateY(${(lb - 1) * 100}%)`;
++      if (bot) bot.style.transform = `translateY(${(1 - lb) * 100}%)`;
++      scrim.style.opacity = String(0.18 * lb);
++      const s = easeOut(ramp(tm, 120, 360));
++      if (cine) {
++        cine.style.opacity = String(s);
++        cine.style.transform = `scale(${1.15 - 0.15 * s})`;
++      }
++      sub.style.opacity = String(easeOut(ramp(tm, 450, 750)));
++      const m = easeInOut(ramp(tm, 0, 1800));
++      c.camera.x = cam0.x + (c.focus.x - cam0.x) * m;
++      c.camera.y = cam0.y + (c.focus.y - cam0.y) * m;
++      c.camera.zoom = cam0.zoom * (1 + 0.35 * m);
++    } else {
++      const hudOut = 1 - easeOut(ramp(tm, 0, 400));
++      for (const k of hud) k.style.opacity = String(hudOut);
++      const f = easeOut(ramp(tm, 0, 1500));
++      if (world) world.style.filter = `saturate(${1 - 0.65 * f}) brightness(${1 - 0.35 * f})`;
++      const drop = easeOut(ramp(tm, 0, 260));
++      const leave = ramp(tm, STINGER_MS, STINGER_MS + HANDOFF_MS);
++      if (doc) {
++        doc.style.transform = `translate(-50%, ${(drop - 1) * 140}%)`;
++        doc.style.opacity = String(1 - leave);
++      }
++      if (docBody) {
++        const unfold = easeOut(ramp(tm, 400, 800));
++        docBody.style.opacity = String(unfold);
++        docBody.style.clipPath = `inset(0 0 ${(1 - unfold) * 100}% 0)`;
++      }
++    }
++
++    if (!doneSent && tm >= BEAT_DONE_MS) {
++      doneSent = true;
++      resolveDone();
++    }
++  };
++
++  // Time scale (direction B only): 1 -> 0.25 over 300 ms, held until the
++  // report arrives, then back to 1 behind it.
++  const speedAt = (tm: number): number => {
++    if (c.direction !== 'B') return 1;
++    if (tm >= STINGER_MS + HANDOFF_MS) return 1;
++    return 1 - 0.75 * easeOut(ramp(tm, 0, 300));
++  };
++
++  const finish = (): void => {
++    if (removed) return;
++    removed = true;
++    cancelAnimationFrame(raf);
++    for (const k of hud) k.style.opacity = '';
++    if (world) world.style.filter = '';
++    c.setSpeed(1);
++    el.remove();
++    style.remove();
++    if (!doneSent) {
++      doneSent = true;
++      resolveDone();
++    }
++  };
++
++  const manual = (window as unknown as { __beatManual?: boolean }).__beatManual === true;
++  let raf = 0;
++  if (manual) {
++    let at = 0;
++    let owed = 0;
++    (window as unknown as { __beat?: unknown }).__beat = {
++      seek: async (ms: number) => {
++        // Integrate the time curve in 10 ms slices into 50 ms ticks.
++        for (let x = at; x < ms; x += 10) owed += (10 * speedAt(x)) / 50;
++        at = ms;
++        const n = Math.floor(owed);
++        owed -= n;
++        pose(ms);
++        // Let `done.then` mount the report, then pose it too.
++        await Promise.resolve();
++        await new Promise((r) => setTimeout(r, 0));
++        pose(ms);
++        c.step(n);
++        return n;
++      },
++    };
++    pose(0);
++  } else {
++    const t0 = performance.now();
++    const loop = (): void => {
++      raf = requestAnimationFrame(loop);
++      const tm = performance.now() - t0;
++      c.setSpeed(speedAt(tm));
++      pose(tm);
++      if (tm > STINGER_MS + HANDOFF_MS + 200) {
++        cancelAnimationFrame(raf);
++        // The report owns the screen now; the beat's own furniture goes.
++        el.remove();
++        style.remove();
++      }
++    };
++    raf = requestAnimationFrame(loop);
++  }
++
++  return { el, done, dismiss: finish };
++}
+diff --git a/tools/src/ui-review/mock/outcome-beat-captures.ts b/tools/src/ui-review/mock/outcome-beat-captures.ts
+new file mode 100644
+index 00000000..3072ce3f
+--- /dev/null
++++ b/tools/src/ui-review/mock/outcome-beat-captures.ts
+@@ -0,0 +1,138 @@
++// MOCK harness (PA-07): photographs the held victory/defeat moment on a real
++// First Light ending -- today's modal and the three `?outcomeMock=` directions
++// -- at 0 / 0.5 / 1.5 / 3 s. Victory is the playtest plan's own orders
++// (`playtest.ts`, beit_sahwan_breach); defeat is the passive control, which
++// loses on the evacuation deadline at 4:30. One Metal browser, music off.
++// Needs `docs/polish/outcome-moment/prototype.patch` applied.
++import { chromium, type Browser, type Page } from 'playwright';
++import fs from 'node:fs';
++import path from 'node:path';
++import { fileURLToPath } from 'node:url';
++import { ensureDevServer, stopDevServer, dismissDeployGate } from '../../golden-diff/browser';
++import { FREEZE_FRAME_LOOP_STATEMENTS } from '../../golden-diff/capture-protocol';
++import { gpuLaunchArgs } from '../gpu';
++import { claimPort } from '../port';
++import { musicOffInitScript } from '../music-off';
++
++const TAG = 'outcome-beat';
++const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
++const outArg = process.argv.find((a) => a.startsWith('--out='));
++const OUT = path.resolve(outArg ? outArg.slice(6) : 'outcome-beat-out');
++const onlyArg = process.argv.find((a) => a.startsWith('--only='));
++const ONLY = onlyArg ? onlyArg.slice(7).split(',') : null;
++const FRAMES = [0, 500, 1500, 3000];
++const DIRS = ['today', 'A', 'B', 'C'] as const;
++const OUTCOMES = ['victory', 'defeat'] as const;
++
++async function playTo(page: Page, outcome: 'victory' | 'defeat', manual: boolean): Promise<void> {
++  await page.evaluate(
++    ({ outcome, manual }) => {
++      const L = (window as any).__lions;
++      const w = window as any;
++      w.__beatManual = manual;
++      const ids = (type: string) => L.units(0).filter((u: any) => u.type === type).map((u: any) => u.id);
++      const M = (x: number, y: number) => ({ x: Math.round(x * 65536), y: Math.round(y * 65536) });
++      const until = (tick: number) => {
++        while (L.sim.tickCount < tick && L.runtime.result === 'ongoing') L.step(Math.min(200, tick - L.sim.tickCount));
++      };
++      if (outcome === 'victory') {
++        until(100);
++        L.sim.queueCommand({ kind: 'move', ids: ids('jeep_shoded'), ...M(13, 19) });
++        L.sim.queueCommand({ kind: 'move', ids: ids('apc_eitan'), ...M(13, 28) });
++        until(900);
++        L.sim.queueCommand({ kind: 'move', ids: ids('jeep_shoded'), ...M(20, 21) });
++        L.sim.queueCommand({ kind: 'move', ids: ids('apc_eitan'), ...M(20, 26) });
++        until(5940);
++      } else {
++        until(5340);
++      }
++      // Where the player is looking when it ends: the jeep on a win (the
++      // last thing ordered), the compound on a loss.
++      const jeep = L.units(0).find((u: any) => u.type === 'jeep_shoded');
++      if (outcome === 'victory' && jeep) L.goto(jeep.x + 0.5, jeep.y + 0.5);
++      else L.goto('compound_centre');
++      L.renderer.camera.zoom = 1;
++      // The deciding ground (direction B): the compound the relief reaches
++      // on a win; on a loss, the families still outside the wire.
++      if (outcome === 'victory') w.__beatFocus = { x: 24.5, y: 23.5 };
++      else {
++        const s = L.sim;
++        // The family still outside the wire that came closest to it.
++        let best: { x: number; y: number } | null = null;
++        let bestD = Infinity;
++        for (let i = 0; i < s.entityCount; i++) {
++          if (s.state.alive[i] !== 1 || s.unitTypes[s.state.typeIdx[i]].id !== 'civilians') continue;
++          const px = s.state.posX[i] / 65536, py = s.state.posY[i] / 65536;
++          if (px >= 18 && px < 31 && py >= 17 && py < 30) continue;
++          const d = Math.hypot(px - 24.5, py - 23.5);
++          if (d < bestD) { bestD = d; best = { x: px, y: py }; }
++        }
++        w.__beatFocus = best ?? { x: 24.5, y: 23.5 };
++      }
++      L.renderer.selection = [];
++      L.step(0);
++    },
++    { outcome, manual }
++  );
++  // The last ticks one at a time, so the end lands on a step of its own.
++  const endedAt = await page.evaluate(() => {
++    const L = (window as any).__lions;
++    for (let k = 0; k < 400 && L.runtime.result === 'ongoing'; k++) L.step(1);
++    return { tick: L.sim.tickCount, result: L.runtime.result, focus: (window as any).__beatFocus };
++  });
++  console.log(`[${TAG}] ended`, JSON.stringify(endedAt));
++}
++
++const port = await claimPort(TAG, 'OUTCOME_BEAT_PORT', 5233);
++const dev = await ensureDevServer(port, REPO_ROOT, TAG);
++let browser: Browser | null = null;
++fs.mkdirSync(OUT, { recursive: true });
++try {
++  browser = await chromium.launch({ headless: true, args: gpuLaunchArgs('metal') });
++  for (const outcome of OUTCOMES) {
++    for (const dir of DIRS) {
++      const key = `${outcome}-${dir}`;
++      if (ONLY && !ONLY.includes(key)) continue;
++      const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
++      await ctx.addInitScript(musicOffInitScript());
++      await ctx.addInitScript('globalThis.__name = (f) => f;');
++      const page = await ctx.newPage();
++      page.on('pageerror', (e) => console.log(`[${key}] pageerror`, e.message));
++      page.on('console', (m) => {
++        if (m.type() === 'error') console.log(`[${key}] console.error`, m.text().slice(0, 160));
++      });
++      const q = dir === 'today' ? '' : `&outcomeMock=${dir}`;
++      await page.goto(`http://localhost:${port}/?mission=beit_sahwan_breach${q}`, { waitUntil: 'domcontentloaded' });
++      await dismissDeployGate(page, key);
++      await page.waitForFunction(() => (window as any).__lions !== undefined, null, { timeout: 90_000 });
++      // The mission's title card is held on timers; let it go before the end.
++      await page
++        .waitForFunction(() => document.querySelector('.rl-titlecard') === null, null, { timeout: 30_000 })
++        .catch(() => console.log(`[${key}] title card still up after 30 s`));
++      await page.waitForTimeout(500);
++      await page.evaluate(`(async () => { ${FREEZE_FRAME_LOOP_STATEMENTS} })()`);
++      await playTo(page, outcome, dir !== 'today');
++      if (dir === 'today') {
++        const t0 = Date.now();
++        for (const f of FRAMES) {
++          const wait = f - (Date.now() - t0);
++          if (wait > 0) await page.waitForTimeout(wait);
++          const at = Date.now() - t0;
++          await page.screenshot({ path: path.join(OUT, `${key}-${f}.png`) });
++          console.log(`[${key}] frame ${f} taken at ${at} ms (real time)`);
++        }
++      } else {
++        for (const f of FRAMES) {
++          const n = await page.evaluate((ms) => (window as any).__beat.seek(ms), f);
++          await page.screenshot({ path: path.join(OUT, `${key}-${f}.png`) });
++          console.log(`[${key}] frame ${f} (+${n} ticks)`);
++        }
++      }
++      await ctx.close();
++    }
++  }
++} finally {
++  await browser?.close();
++  stopDevServer(dev, TAG);
++}
++process.exit(0);
+diff --git a/tools/src/ui-review/mock/dawn-fill-captures.ts b/tools/src/ui-review/mock/dawn-fill-captures.ts
+new file mode 100644
+index 00000000..836e6ced
+--- /dev/null
++++ b/tools/src/ui-review/mock/dawn-fill-captures.ts
+@@ -0,0 +1,117 @@
++// MOCK harness (PA-24): First Light's dawn at the shipped light and three
++// lifted fills, on the same two frames, rings and HUD off. Each option is
++// applied to the LIVE renderer (hemisphere intensity, sun shadow intensity,
++// and the haze re-derived from the new lights, exactly as `applyHaze` does
++// for a preset) -- no code change. Every frame is also taken with the `units`
++// layer hidden, so the unit pixels and the ground under them can be measured
++// (`dawn_measure.py`). Zero-time repaints: the four options and their
++// units-hidden twins are the same instant. One Metal browser, music off.
++import { chromium, type Browser } from 'playwright';
++import fs from 'node:fs';
++import path from 'node:path';
++import { fileURLToPath } from 'node:url';
++import { ensureDevServer, stopDevServer, dismissDeployGate } from '../../golden-diff/browser';
++import { FREEZE_FRAME_LOOP_STATEMENTS } from '../../golden-diff/capture-protocol';
++import { gpuLaunchArgs } from '../gpu';
++import { claimPort } from '../port';
++import { musicOffInitScript } from '../music-off';
++
++const TAG = 'dawn-fill';
++const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
++const outArg = process.argv.find((a) => a.startsWith('--out='));
++const OUT = path.resolve(outArg ? outArg.slice(6) : 'dawn-fill-out');
++
++/** hemi = hemisphere (fill) intensity; shadow = sun.shadow.intensity. */
++const OPTIONS = [
++  { id: 'shipped', hemi: 0.75, shadow: 1 },
++  { id: 'fill-1.00', hemi: 1.0, shadow: 1 },
++  { id: 'fill-1.25', hemi: 1.25, shadow: 1 },
++  { id: 'fill-0.90-shadow-0.70', hemi: 0.9, shadow: 0.7 },
++] as const;
++const TICKS = [300, 3600];
++
++const port = await claimPort(TAG, 'DAWN_FILL_PORT', 5234);
++const dev = await ensureDevServer(port, REPO_ROOT, TAG);
++let browser: Browser | null = null;
++fs.mkdirSync(OUT, { recursive: true });
++try {
++  browser = await chromium.launch({ headless: true, args: gpuLaunchArgs('metal') });
++  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
++  await ctx.addInitScript(musicOffInitScript());
++  await ctx.addInitScript('globalThis.__name = (f) => f;');
++  const page = await ctx.newPage();
++  page.on('pageerror', (e) => console.log('pageerror', e.message));
++  await page.goto(`http://localhost:${port}/?mission=beit_sahwan_breach`, { waitUntil: 'domcontentloaded' });
++  await dismissDeployGate(page, TAG);
++  await page.waitForFunction(() => (window as any).__lions !== undefined, null, { timeout: 90_000 });
++  await page
++    .waitForFunction(() => document.querySelector('.rl-titlecard') === null, null, { timeout: 30_000 })
++    .catch(() => console.log(`[${TAG}] title card still up`));
++  await page.evaluate(`(async () => { ${FREEZE_FRAME_LOOP_STATEMENTS} })()`);
++  const meta: Record<string, unknown> = {};
++  for (const tick of TICKS) {
++    const info = await page.evaluate((tick) => {
++      const L = (window as any).__lions;
++      const ids = (type: string) => L.units(0).filter((u: any) => u.type === type).map((u: any) => u.id);
++      const M = (x: number, y: number) => ({ x: Math.round(x * 65536), y: Math.round(y * 65536) });
++      const until = (t: number) => {
++        while (L.sim.tickCount < t) L.step(Math.min(200, t - L.sim.tickCount));
++      };
++      // The playtest plan's orders (playtest.ts, beit_sahwan_breach).
++      if (L.sim.tickCount < 100) {
++        until(100);
++        L.sim.queueCommand({ kind: 'move', ids: ids('jeep_shoded'), ...M(13, 19) });
++        L.sim.queueCommand({ kind: 'move', ids: ids('apc_eitan'), ...M(13, 28) });
++      }
++      if (tick > 900 && L.sim.tickCount < 900) {
++        until(900);
++        L.sim.queueCommand({ kind: 'move', ids: ids('jeep_shoded'), ...M(20, 21) });
++        L.sim.queueCommand({ kind: 'move', ids: ids('apc_eitan'), ...M(20, 26) });
++      }
++      until(tick);
++      L.goto('compound_centre');
++      L.renderer.camera.zoom = 1;
++      L.renderer.selection = [];
++      L.renderer.setDebugLayerVisible('overlays', false);
++      for (const k of document.body.children) {
++        if (k instanceof HTMLElement && !(k.querySelector('canvas') && !k.classList.contains('rl-minimap'))) k.style.opacity = '0';
++      }
++      const r = L.renderer;
++      // The compound zone [18,17,13,13], on screen.
++      const poly = [
++        [18, 17],
++        [31, 17],
++        [31, 30],
++        [18, 30],
++      ].map(([x, y]) => {
++        const p = r.worldToScreen(x, y);
++        return [p.x, p.y];
++      });
++      return { tick: L.sim.tickCount, poly, lights: { ...r.resolvedLights, direction: r.resolvedLights.direction.toArray() } };
++    }, tick);
++    meta[String(tick)] = info;
++    for (const o of OPTIONS) {
++      for (const units of [true, false]) {
++        await page.evaluate(
++          ({ hemi, shadow, units }) => {
++            const r = (window as any).__lions.renderer;
++            r.resolvedLights = { ...r.resolvedLights, hemiIntensity: hemi };
++            r.sceneLights.hemisphere.intensity = hemi;
++            r.sceneLights.sun.shadow.intensity = shadow;
++            r.applyHaze();
++            r.setDebugLayerVisible('units', units);
++            r.frame(1, 0);
++          },
++          { hemi: o.hemi, shadow: o.shadow, units }
++        );
++        await page.screenshot({ path: path.join(OUT, `t${tick}-${o.id}${units ? '' : '-nounits'}.png`) });
++      }
++      console.log(`[${TAG}] tick ${tick} ${o.id}`);
++    }
++  }
++  fs.writeFileSync(path.join(OUT, 'meta.json'), JSON.stringify({ options: OPTIONS, frames: meta }, null, 1));
++} finally {
++  await browser?.close();
++  stopDevServer(dev, TAG);
++}
++process.exit(0);
+diff --git a/tools/src/ui-review/mock/sheet.py b/tools/src/ui-review/mock/sheet.py
+new file mode 100644
+index 00000000..5a4cfff3
+--- /dev/null
++++ b/tools/src/ui-review/mock/sheet.py
+@@ -0,0 +1,39 @@
++# Compose a labelled frame-strip sheet. usage: sheet.py <spec.json> <out.jpg>
++# spec: {"title": str, "cols": [label...], "rows": [{"label": str, "note": str, "files": [path...]}], "w": 440, "foot": [str...]}
++import json, sys
++from PIL import Image, ImageDraw, ImageFont
++spec = json.load(open(sys.argv[1]))
++W = spec.get('w', 440); H = int(W * 900 / 1440)
++LBL = spec.get('lbl', 230); PAD = 10; TOP = 70; HEAD = 26
++font_path = '/Users/ilpinto/dev/roaring-lions-ep/outcome-mock/assets/fonts/barlow-latin-600.woff2'
++def f(sz):
++    for p in ['/System/Library/Fonts/Supplemental/Arial.ttf', '/System/Library/Fonts/Helvetica.ttc']:
++        try: return ImageFont.truetype(p, sz)
++        except Exception: pass
++    return ImageFont.load_default()
++F1, F2, F3 = f(26), f(17), f(14)
++cols = spec['cols']; rows = spec['rows']; foot = spec.get('foot', [])
++sw = LBL + len(cols) * (W + PAD) + PAD
++sh = TOP + HEAD + len(rows) * (H + PAD) + 20 + 20 * len(foot)
++img = Image.new('RGB', (sw, sh), (24, 24, 22))
++d = ImageDraw.Draw(img)
++d.text((PAD, 18), spec['title'], font=F1, fill=(236, 230, 214))
++for i, c in enumerate(cols):
++    d.text((LBL + i * (W + PAD) + 4, TOP), c, font=F2, fill=(200, 196, 180))
++y = TOP + HEAD
++for r in rows:
++    d.text((PAD, y + 6), r['label'], font=F2, fill=(236, 230, 214))
++    yy = y + 32
++    for line in r.get('note', '').split('\n'):
++        d.text((PAD, yy), line, font=F3, fill=(170, 166, 150)); yy += 18
++    for i, p in enumerate(r['files']):
++        im = Image.open(p).convert('RGB')
++        if 'crop' in r: im = im.crop(tuple(r['crop']))
++        im = im.resize((W, int(W * im.height / im.width)), Image.LANCZOS)
++        img.paste(im, (LBL + i * (W + PAD), y))
++    y += H + PAD
++y += 10
++for line in foot:
++    d.text((PAD, y), line, font=F3, fill=(170, 166, 150)); y += 20
++img.save(sys.argv[2], quality=86, optimize=True, progressive=True)
++print(sys.argv[2], img.size)
+diff --git a/tools/src/ui-review/mock/dawn_measure.py b/tools/src/ui-review/mock/dawn_measure.py
+new file mode 100644
+index 00000000..d0336525
+--- /dev/null
++++ b/tools/src/ui-review/mock/dawn_measure.py
+@@ -0,0 +1,45 @@
++# Measures each dawn option: unit pixels inside the compound (shown vs units-hidden diff),
++# their luma contrast against the ground under them, and the ground/highlight luma.
++import json, sys, numpy as np
++from PIL import Image, ImageDraw
++D = sys.argv[1]
++m = json.load(open(f'{D}/meta.json'))
++def luma(a): return 0.2126*a[...,0] + 0.7152*a[...,1] + 0.0722*a[...,2]
++out = {}
++for tick, info in m['frames'].items():
++    mask = Image.new('L', (1440, 900), 0)
++    ImageDraw.Draw(mask).polygon([tuple(p) for p in info['poly']], fill=255)
++    inside = np.array(mask) > 0
++    # One unit mask for every option: the union of where units differ, so each option is judged on the same pixels.
++    um = np.zeros((900, 1440), bool)
++    sb = luma(np.asarray(Image.open(f"{D}/t{tick}-shipped-nounits.png").convert('RGB')).astype(float))
++    shade = um & (sb < 70)   # unit pixels standing on ground the shipped dawn leaves in shadow
++    for o in m['options']:
++        a = np.asarray(Image.open(f"{D}/t{tick}-{o['id']}.png").convert('RGB')).astype(float)
++        b = np.asarray(Image.open(f"{D}/t{tick}-{o['id']}-nounits.png").convert('RGB')).astype(float)
++        um |= np.abs(a-b).sum(-1) > 24
++    um &= inside
++    sb = luma(np.asarray(Image.open(f"{D}/t{tick}-shipped-nounits.png").convert('RGB')).astype(float))
++    shade = um & (sb < 70)   # unit pixels standing on ground the shipped dawn leaves in shadow
++    for o in m['options']:
++        a = np.asarray(Image.open(f"{D}/t{tick}-{o['id']}.png").convert('RGB')).astype(float)
++        b = np.asarray(Image.open(f"{D}/t{tick}-{o['id']}-nounits.png").convert('RGB')).astype(float)
++        la, lb = luma(a), luma(b)
++        c = np.abs(la-lb)[um]
++        ground = lb[inside & ~um]
++        out.setdefault(o['id'], {})[tick] = dict(
++            unit_px=int(um.sum()),
++            unit_contrast_mean=round(float(c.mean()),1),
++            unit_px_read_ge20=round(float((c>=20).mean()),3),
++            unit_luma_median=round(float(np.median(la[um])),1),
++            unit_px_crushed_lt30=round(float((la[um]<30).mean()),3),
++            shade_unit_px=int(shade.sum()),
++            shade_contrast_mean=round(float(np.abs(la-lb)[shade].mean()),1),
++            shade_px_read_ge20=round(float((np.abs(la-lb)[shade]>=20).mean()),3),
++            compound_ground_luma_median=round(float(np.median(ground)),1),
++            compound_ground_luma_p10=round(float(np.percentile(ground,10)),1),
++            frame_luma_p90=round(float(np.percentile(lb,90)),1),
++            frame_luma_mean=round(float(lb.mean()),1))
++json.dump(out, open(f'{D}/numbers.json','w'), indent=1)
++for k,v in out.items():
++    for t,r in v.items(): print(k.ljust(22), t.rjust(5), r)
