@@ -179,6 +179,11 @@ describe('missions is pinned to the directory it comes from', () => {
     expect(onDisk.length).toBeGreaterThan(0);
     expect(Object.keys(missions).sort()).toEqual(onDisk);
   });
+
+  it('shows mission 0 as "Working Up", with its id unchanged (PA-30, lead 2026-10-09)', () => {
+    // The id is what ledgers, saves, telemetry and URLs key on; only the shown name changed.
+    expect(missions['beit_sahwan_0_tutorial']?.name).toBe('Working Up');
+  });
 });
 
 describe('units is pinned to the directory it comes from', () => {

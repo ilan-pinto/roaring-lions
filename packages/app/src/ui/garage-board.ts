@@ -26,7 +26,6 @@ import { emblemSvg } from './kit-emblems';
 import { nextTierPrice, type UpgradableUnit, type UpgradeTrack } from '@lions/data';
 import { t } from '../i18n/t';
 import { previewDeltas } from './garage-stats';
-import { isKitTrack, kitSymbolSvg } from './kit-sign';
 import { formatBenefit, upgradeBenefits, type BenefitLine } from './upgrade-benefit';
 
 const el = (tag: string, cls: string, text?: string): HTMLElement => {
@@ -203,14 +202,13 @@ export function trackEl(trackName: string, track: UpgradeTrack, deps: TrackDeps)
   heading.appendChild(head);
 
   const glyph = el('span', 'rl-garage__track-glyph');
-  // A kit track (armour/sensors/firepower) draws its own symbol
-  // (`kit-sign.ts`); anything else -- a content author's own track, the
+  // A kit track (armour/sensors/firepower) draws its own emblem
+  // (`kit-emblems.ts`); anything else -- a content author's own track, the
   // underscored `fire_control` fixture's case -- draws the reserved hatch
   // alone, the same "reserved, not broken" language the rail's card art and
   // the bay's plate already speak for a unit with no picture.
   const headEmblem = emblemSvg(trackName);
   if (headEmblem !== null) glyph.innerHTML = headEmblem;
-  else if (isKitTrack(trackName)) glyph.innerHTML = kitSymbolSvg(trackName, 40);
   // The close-up (GH-238 K11) takes the hatch's place, under the glyph. A
   // load failure puts the hatch back rather than leaving a broken image.
   if (deps.closeup) {
