@@ -42,6 +42,10 @@ export interface RouteDef {
   /** `/`, `/campaign`, `/mission/:id` — one `:param` per segment, no wildcards. */
   pattern: string;
   mount: Mount;
+  /** False for a screen that owns its own focus for its whole life -- a
+   *  battlefield, whose keys must reach the game rather than a control the
+   *  router picked. Every other screen is focused on arrival (`arrivalFocus`). */
+  focus?: boolean;
 }
 
 export interface RouterOptions {
@@ -55,6 +59,27 @@ export interface RouterOptions {
 }
 
 const DEFAULT_SANDBOX_MAP = 'beit_sahwan_outskirts';
+
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Where focus goes when a screen arrives (KS-08, `docs/polish/keyboard-and-saves.md`):
+ * on a RETURN (`cameFrom` given), the control that leads to where the player
+ * just was -- the menu's "Brigade" after the brigade screen -- else the
+ * screen's first control. Only a return asks for the match: going forward,
+ * every screen has a link back to where it was opened from, and focusing that
+ * would point the player at the way out. Null when there is nothing focusable. A control inside a `[hidden]`
+ * subtree is skipped, as the browser's own tab order skips it.
+ */
+export function arrivalFocus(stage: HTMLElement, cameFrom: string | null, base: string): HTMLElement | null {
+  const all = [...stage.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.closest('[hidden]') === null);
+  if (cameFrom !== null) {
+    const back = all.find((el) => el instanceof HTMLAnchorElement && stripBase(base, new URL(el.href, window.location.href).pathname) === cameFrom);
+    if (back) return back;
+  }
+  return all[0] ?? null;
+}
 
 export function matchPath(pattern: string, path: string): Readonly<Record<string, string>> | null {
   const want = pattern.split('/').filter((s) => s.length > 0);
@@ -179,6 +204,9 @@ export class Router {
   private readonly notFound: Mount;
   private readonly transitionMs: number;
   private mounted: Mounted | null = null;
+  /** The paths mounted so far, minus every one returned from: what tells a
+   *  return (KS-08's focus on the control you left from) from a step forward. */
+  private readonly trail: string[] = [];
   /** The abort controller for a mount currently in flight (awaiting its `mount()` call), or null between navigations. */
   private inflight: AbortController | null = null;
   private seq = 0;
@@ -187,7 +215,7 @@ export class Router {
     // Dispatched immediately, exactly like navigate() below: a back/forward
     // that arrives while an earlier navigation is still mounting must be able
     // to preempt it right away rather than queue behind it.
-    this.pending = this.mountLocation(false, null);
+    this.pending = this.mountLocation(false, null, true);
   };
 
   constructor(opts: RouterOptions) {
@@ -224,7 +252,9 @@ export class Router {
       for (const k of opts.drop) q.delete(k);
       window.history.replaceState(null, '', this.href(stripBase(this.base, window.location.pathname), q));
     }
-    await this.mountLocation(false, null);
+    // No arrival focus on the first load: the player has not touched the page
+    // yet, and a script focus then would draw a ring on the menu at boot.
+    await this.mountLocation(false, null, false);
   }
 
   /** Resolves once every navigation issued so far has settled. */
@@ -263,7 +293,7 @@ export class Router {
     // arrives while an earlier one is still mounting must be able to win the
     // race right away rather than queue behind it. `mountLocation`'s `seq`
     // guard is what makes the loser's eventual resolution a no-op disposal.
-    const p = this.mountLocation(true, opts.force ? path : null);
+    const p = this.mountLocation(true, opts.force ? path : null, true);
     this.pending = p;
     return p;
   }
@@ -299,7 +329,7 @@ export class Router {
     this.stage.replaceChildren();
   }
 
-  private async mountLocation(animate: boolean, force: string | null): Promise<void> {
+  private async mountLocation(animate: boolean, force: string | null, focus: boolean): Promise<void> {
     const path = stripBase(this.base, window.location.pathname);
     const query = new URLSearchParams(window.location.search);
     if (
@@ -331,6 +361,7 @@ export class Router {
     // makes the earlier call's own (guarded, below) removal a harmless
     // no-op instead of the winner inheriting someone else's faded-out stage.
     const hadPrevious = this.mounted !== null;
+    const cameFrom = this.mounted?.req.path ?? null;
     this.unmount();
     this.stage.classList.remove('rl-stage--leave');
     if (animate && hadPrevious && this.transitionMs > 0) {
@@ -359,6 +390,21 @@ export class Router {
       return;
     }
     this.mounted = { req, dispose, abort };
+    // KS-08: a soft navigation used to leave focus on <body> (the control
+    // that had it went with the old screen), so the next Tab started wherever
+    // the browser's starting point happened to be. A screen that placed focus
+    // itself keeps it; a route that owns its focus (`focus: false`) is left
+    // alone. Never scrolls (the PA-13 lesson).
+    const returning = this.trail.length >= 2 && this.trail[this.trail.length - 2] === path && this.trail[this.trail.length - 1] === cameFrom;
+    if (returning) this.trail.pop();
+    else if (this.trail[this.trail.length - 1] !== path) this.trail.push(path);
+    if (this.trail.length > 32) this.trail.shift();
+    if (focus && def?.focus !== false) {
+      const active = document.activeElement;
+      if (active === null || active === document.body || !active.isConnected) {
+        arrivalFocus(this.stage, returning ? cameFrom : null, this.base)?.focus({ preventScroll: true });
+      }
+    }
     if (animate && this.transitionMs > 0) {
       this.stage.classList.add('rl-stage--enter');
       // Unconditional, unlike the leave removal above: `classList.add` on an

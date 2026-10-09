@@ -62,6 +62,17 @@ describe('keymapRows', () => {
     expect(kbd?.textContent?.startsWith(t('keymap.modifier.ctrl'))).toBe(true);
   });
 
+  // KS-10 (keyboard-and-saves): fourteen buttons all named "Change" -- a
+  // sighted player reads the row, a screen reader heard "Change" fourteen
+  // times. Each names its action now.
+  it('names each Change button for its action', () => {
+    const { table } = mount(deps());
+    expect(changeBtn(rowFor(table, 'Halt')).getAttribute('aria-label')).toBe('Change Halt');
+    const labels = [...table.querySelectorAll<HTMLButtonElement>('button')].filter((b) => b.textContent === 'Change').map((b) => b.getAttribute('aria-label'));
+    expect(labels.length).toBeGreaterThan(1);
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+
   it('rebinds through a captured keydown and calls set with the new table', () => {
     const d = deps();
     const { table } = mount(d);

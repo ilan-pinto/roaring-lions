@@ -176,6 +176,32 @@ describe('showSaves', () => {
     stage.remove();
   });
 
+  // KS-13 (keyboard-and-saves): the default name was computed at mount and
+  // after a save, never after a delete -- one slot listed, "Save 3" offered.
+  // A name the player typed is theirs and survives.
+  it('offers the next free default name after a delete, and keeps a typed one', async () => {
+    const store = memStore();
+    saveSlot(store, 'a', 'Older', active, '0.68.0', 1);
+    saveSlot(store, 'b', 'Newer', active, '0.68.0', 2);
+    const stage = document.createElement('div');
+    document.body.appendChild(stage);
+    showSaves(stage, deps(store));
+    const field = stage.querySelector<HTMLInputElement>('input[name="saveName"]')!;
+    expect(field.value).toBe('Save 3');
+    const del = async (): Promise<void> => {
+      [...stage.querySelectorAll<HTMLButtonElement>('.rl-saves__row button')].find((b) => b.textContent === 'Delete')!.click();
+      document.querySelector<HTMLButtonElement>('.rl-confirm__yes')!.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    };
+    await del();
+    expect(field.value).toBe('Save 2');
+    field.value = 'Before the bridge';
+    await del();
+    expect(field.value).toBe('Before the bridge');
+    stage.remove();
+  });
+
   it('import of a bad file shows the refusal message and adds no slot', async () => {
     const store = memStore();
     const stage = document.createElement('div');

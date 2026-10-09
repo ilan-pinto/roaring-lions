@@ -269,6 +269,7 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
               const at = rowIndex(meta.id);
               renderList();
               refocus(at, 'delete');
+              syncDefaultName();
               deps.onChanged();
             });
           },
@@ -301,6 +302,7 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
               const at = rowIndex(meta.id);
               renderList();
               refocus(at, 'delete');
+              syncDefaultName();
               deps.onChanged();
             });
           },
@@ -317,7 +319,16 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
   nameInput.name = 'saveName';
   nameInput.setAttribute('aria-label', t('saves.form.nameLabel'));
   const defaultName = (): string => t('saves.form.defaultName', { n: listSlots(deps.store).length + 1 });
-  nameInput.value = defaultName();
+  // KS-13 (keyboard-and-saves): the name last OFFERED, so a delete can move
+  // the offer on ("Save 3" with one slot listed read as a slot missing) without
+  // touching a name the player typed.
+  let offered = defaultName();
+  nameInput.value = offered;
+  const syncDefaultName = (): void => {
+    if (nameInput.value !== offered) return;
+    offered = defaultName();
+    nameInput.value = offered;
+  };
   const saveBtn = document.createElement('button');
   saveBtn.type = 'submit';
   saveBtn.className = 'rl-btn';
@@ -338,7 +349,8 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
     }
     say(t('saves.done.save', { name }));
     renderList();
-    nameInput.value = defaultName();
+    offered = defaultName();
+    nameInput.value = offered;
     deps.onChanged();
   });
   p.body.appendChild(form);

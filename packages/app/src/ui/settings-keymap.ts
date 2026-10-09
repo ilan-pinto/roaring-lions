@@ -129,6 +129,8 @@ export function keymapRows(deps: { bindings(): Bindings; set(next: Bindings): vo
         btn.type = 'button';
         btn.className = 'rl-btn';
         btn.textContent = t('settings.keymap.change');
+        // KS-10: the row's words, read aloud with the button (keyboard-and-saves).
+        btn.setAttribute('aria-label', t('settings.keymap.changeFor', { action: t(a.label) }));
         btn.addEventListener('click', () => {
           // At most one capture pending at a time -- see the file header.
           cancelPending?.();

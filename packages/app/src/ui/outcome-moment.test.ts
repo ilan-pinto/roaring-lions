@@ -326,6 +326,17 @@ describe('outcomeMoment', () => {
       m.dismiss();
     });
 
+    // KS-12: the write that would have paid was refused, so nothing was
+    // earned -- say that, not "+N credits".
+    it('says nothing was earned when the save was refused', () => {
+      const m = outcomeMoment(host, { outcome: 'victory', title: 'x', credits: { paid: 120, balance: 340, unsaved: true } });
+      expect(m.el.querySelector('.rl-outcome__credits-none')?.textContent).toBe('not saved: browser storage refused the write, nothing earned');
+      expect(m.el.querySelector('.rl-outcome__credits-figure')).toBeNull();
+      expect(m.el.querySelector('.rl-outcome__credits')?.getAttribute('data-paid')).toBe('0');
+      expect(m.el.querySelector('.rl-outcome__credits-total')?.textContent).toBe(t('debrief.credits.total', { n: 340 }));
+      m.dismiss();
+    });
+
     it('shows no reward at all when there is none to show', () => {
       const m = outcomeMoment(host, { outcome: 'victory', title: 'x' });
       expect(m.el.querySelector('.rl-outcome__credits')).toBeNull();
