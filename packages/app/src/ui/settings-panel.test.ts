@@ -89,6 +89,22 @@ describe('settingsPanel', () => {
     expect(el.textContent).toContain('Applies when the next mission starts');
   });
 
+  // The automatic step-down (quality-auto.ts) never touches a quality the
+  // player picked: a change through this control is the player deciding, and
+  // it is how a player takes an automatic `medium` back to `high`. Falsified
+  // by deleting the `qualitySource = 'player'` line in settings-panel.ts.
+  it("picking a quality marks it as the player's own choice", () => {
+    for (const pick of ['high', 'medium', 'low'] as const) {
+      const { d, set } = deps();
+      const { el } = settingsPanel(document.body, d);
+      const sel = el.querySelector<HTMLSelectElement>('select[name="quality"]');
+      if (!sel) throw new Error('no quality control');
+      sel.value = pick;
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      expect(set).toHaveBeenCalledTimes(1);
+      expect(set.mock.calls[0][0].video).toMatchObject({ quality: pick, qualitySource: 'player' });
+    }
+  });
   // I6 (final review): the control column was `auto`, so a `<select>`'s
   // intrinsic width is its longest OPTION -- "High \u2014 everything, 4K shadows"
   // squeezed "Render quality" onto two lines in English at 1920 and, under the

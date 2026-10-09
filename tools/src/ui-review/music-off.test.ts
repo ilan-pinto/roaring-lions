@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parseSettings, DEFAULT_SETTINGS } from '../../../packages/app/src/settings';
+import { autoQualityArmed } from '../../../packages/app/src/quality-auto';
 import { SILENT_AUDIO, musicOffInitScript, musicOffJson, musicOffSettings } from './music-off';
 
 /** Run an init script against a one-key fake store and hand back what it wrote. */
@@ -105,14 +106,30 @@ describe('every browser a tool opens starts with music off', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('the seed changes nothing the page draws: parsed, it equals the defaults but for audio.music', () => {
+  it('the seed changes nothing the page draws: parsed, it equals the defaults but for audio.music and the quality source', () => {
     // main.ts reads settings only for the video/quality/accessibility/language
     // hooks and the audio gains; music is read by audio.ts alone. So a frame
     // (the golden gate included) is identical when parse(seed) and parse(null)
-    // agree everywhere except audio.music.
+    // agree everywhere except audio.music -- and `video.qualitySource`, which
+    // draws nothing: it only decides whether the automatic step-down watches
+    // the opening, and it is pinned to 'player' precisely so a capture's
+    // preset never depends on how fast the runner was (next test).
     const seeded = parseSettings(musicOffJson());
     const bare = parseSettings(null);
-    expect({ ...seeded, audio: { ...seeded.audio, music: 1 } }).toEqual(bare);
+    expect({ ...seeded, audio: { ...seeded.audio, music: 1 }, video: { ...seeded.video, qualitySource: 'default' } }).toEqual(bare);
     expect(seeded.audio.music).not.toBe(bare.audio.music);
+  });
+
+  it('pins the render quality as the player\'s, so no tool browser ever arms the automatic step-down', () => {
+    const seeded = parseSettings(musicOffJson());
+    expect(seeded.video.qualitySource).toBe('player');
+    expect(autoQualityArmed(seeded)).toBe(false);
+    // Through the init script too, and with a video override on top.
+    const written = runInitScript(musicOffInitScript({}, { quality: 'medium', qualitySource: 'default' }));
+    const s = parseSettings(written.get('lions.settings') ?? null);
+    expect(s.video.quality).toBe('medium');
+    expect(s.video.qualitySource).toBe('player');
+    // The bare defaults ARE armed -- otherwise the assertions above prove nothing.
+    expect(autoQualityArmed(parseSettings(null))).toBe(true);
   });
 });

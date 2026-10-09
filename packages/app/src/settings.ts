@@ -20,12 +20,26 @@ export type { StorageLike };
 export type UiScaleSetting = 'auto' | 0.85 | 1 | 1.15 | 1.4;
 export type TextSize = 1 | 1.15 | 1.3;
 export type Quality = 'low' | 'medium' | 'high';
+/** Where `video.quality` came from: `default` is the shipped value, never
+ *  touched; `player` is a choice made in Settings; `auto` is the opening-
+ *  frame step-down (`quality-auto.ts`), which only ever lowers and never
+ *  touches a `player` choice. */
+export type QualitySource = 'default' | 'player' | 'auto';
 export type ColorVision = 'default' | 'deuteranopia' | 'protanopia' | 'tritanopia';
 export type CameraSpeed = 0.5 | 1 | 1.5 | 2;
 
 export interface Settings {
   version: 1;
-  video: { fullscreen: boolean; uiScale: UiScaleSetting; textSize: TextSize; quality: Quality };
+  video: {
+    fullscreen: boolean;
+    uiScale: UiScaleSetting;
+    textSize: TextSize;
+    quality: Quality;
+    qualitySource: QualitySource;
+    /** Consecutive slow mission openings at the current quality, counted by
+     *  the step-down (`quality-auto.ts`), which acts on the second. 0 or 1. */
+    qualityStrikes: number;
+  };
   audio: {
     master: number;
     music: number;
@@ -57,6 +71,7 @@ export const SETTINGS_KEY = 'lions.settings';
 export const UI_SCALES: readonly UiScaleSetting[] = ['auto', 0.85, 1, 1.15, 1.4];
 export const TEXT_SIZES: readonly TextSize[] = [1, 1.15, 1.3];
 export const QUALITIES: readonly Quality[] = ['low', 'medium', 'high'];
+export const QUALITY_SOURCES: readonly QualitySource[] = ['default', 'player', 'auto'];
 export const COLOR_VISIONS: readonly ColorVision[] = ['default', 'deuteranopia', 'protanopia', 'tritanopia'];
 export const CAMERA_SPEEDS: readonly CameraSpeed[] = [0.5, 1, 1.5, 2];
 
@@ -68,7 +83,7 @@ export const CAMERA_SPEEDS: readonly CameraSpeed[] = [0.5, 1, 1.5, 2];
 // otherwise corrupt every caller's "defaults" for the rest of the session.
 export const DEFAULT_SETTINGS: Settings = Object.freeze<Settings>({
   version: 1,
-  video: { fullscreen: false, uiScale: 'auto', textSize: 1, quality: 'high' },
+  video: { fullscreen: false, uiScale: 'auto', textSize: 1, quality: 'high', qualitySource: 'default', qualityStrikes: 0 },
   audio: { master: 1, music: 1, sfx: 1, voice: 1, radio: true },
   controls: { cameraSpeed: 1, bindings: {}, edgePan: false, zoomToCursor: true },
   accessibility: { motion: 'system', colorVision: 'default', captions: true },
@@ -108,6 +123,16 @@ export function parseSettings(raw: string | null): Settings {
       uiScale: oneOf(UI_SCALES, video.uiScale, d.video.uiScale),
       textSize: oneOf(TEXT_SIZES, video.textSize, d.video.textSize),
       quality: oneOf(QUALITIES, video.quality, d.video.quality),
+      // A save from before `qualitySource` existed: a stored quality other
+      // than the shipped `high` can only have been the player's choice, so it
+      // is read as one and the step-down never touches it. A stored `high` is
+      // indistinguishable from the default and is read as the default.
+      qualitySource: oneOf(
+        QUALITY_SOURCES,
+        video.qualitySource,
+        QUALITIES.includes(video.quality as Quality) && video.quality !== d.video.quality ? 'player' : d.video.qualitySource
+      ),
+      qualityStrikes: video.qualityStrikes === 1 ? 1 : 0,
     },
     audio: {
       master: unit(audio.master, d.audio.master),

@@ -135,6 +135,7 @@ import { objectiveStatusShout } from './ui/objective-status';
 import { pauseMenu } from './ui/pause';
 import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
+import { autoQualityArmed, createQualitySampler, settingsAfterVerdict, type QualitySampler } from './quality-auto';
 import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace } from './input/keymap';
 import { buyUnlock, buyUpgrade } from './brigade-account';
 import { payVictory } from './campaign-pay';
@@ -5184,6 +5185,42 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // (fed in below) is unit-tested without a browser. `paused` is READ here,
   // never written -- `pause`/`resume` above are the only writers.
   const clock: Clock = { acc: 0, last: performance.now() };
+  // The automatic quality step-down (low-end assessment, 2026-10-09;
+  // `quality-auto.ts`, docs/PERFORMANCE.md "Low-end"). It watches THIS
+  // mission's opening frames and, after two slow openings in a row, lowers
+  // the SAVED preset one step for the NEXT boot. It never changes the
+  // running mission (the preset is read once, above), never raises, and is
+  // not armed at all over a quality the player picked in Settings. A tab that
+  // was hidden at any point in the window voids the sample: Chrome runs no
+  // rAF while hidden, so the first frame back carries the whole gap.
+  let qualitySampler: QualitySampler | null = autoQualityArmed(req.settings.get()) ? createQualitySampler() : null;
+  let hiddenSinceBoot = document.visibilityState !== 'visible';
+  const onQualityVisibility = (): void => {
+    if (document.visibilityState !== 'visible') hiddenSinceBoot = true;
+  };
+  if (qualitySampler) {
+    document.addEventListener('visibilitychange', onQualityVisibility);
+    onDispose(() => document.removeEventListener('visibilitychange', onQualityVisibility));
+  }
+  const judgeQuality = (frameMs: number): void => {
+    if (!qualitySampler) return;
+    const v = qualitySampler.frame(frameMs, !hiddenSinceBoot && document.visibilityState === 'visible');
+    if (!v) return;
+    qualitySampler = null;
+    // Read live: a quality picked in the pause menu meanwhile is the
+    // player's, and `settingsAfterVerdict` leaves it alone.
+    const now = req.settings.get();
+    const next = settingsAfterVerdict(now, v);
+    if (!next) return;
+    req.settings.set(next);
+    const share = `${Math.round(v.slowShare * 100)}% of ${v.frames} opening frames slower than 30 fps`;
+    console.info(
+      next.video.quality !== now.video.quality
+        ? `[lions] render quality ${now.video.quality} -> ${next.video.quality} from the next mission: ${share}, ` +
+            `the second slow opening in a row (Settings > Video sets it back, and then this never acts again)`
+        : `[lions] render quality ${now.video.quality}: ${share} (slow openings in a row: ${next.video.qualityStrikes})`
+    );
+  };
   // The app owns the frame loop, not the renderer.
   //
   // Pixi's ticker is backend-specific, and a renderer that schedules the
@@ -5275,6 +5312,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     renderer.frame(clock.acc / MS_PER_TICK, lastFrameMs * (pose?.timeScale ?? 1));
 
     updateHover();
+    judgeQuality(frameMs);
   };
   rafId = requestAnimationFrame(loop);
   // The load-bearing line of this whole teardown, and the one the route walk
