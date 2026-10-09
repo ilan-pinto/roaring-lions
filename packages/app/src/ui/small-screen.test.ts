@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { isDialogOpen } from './confirm';
-import { SMALL_SCREEN_DISMISSED_KEY, SMALL_SCREEN_QUERY, watchSmallScreen } from './small-screen';
+import { PHONE_QUERY, SMALL_SCREEN_DISMISSED_KEY, watchSmallScreen } from './small-screen';
 
 // A controllable matchMedia: `setMatches` flips the answer and fires `change`
 // to whoever is listening, exactly as a rotation does.
@@ -66,28 +66,27 @@ afterEach(() => {
 const deps = () => ({ navigate: (h: string) => navigate(h), menuHref: '/' });
 
 describe('watchSmallScreen: when it shows', () => {
-  it('asks narrow-and-portrait, nothing else', () => {
+  it('asks the one phone query, nothing else', () => {
     const m = fakeMedia(true);
     watchSmallScreen(deps())();
-    expect(m.asked()).toEqual([SMALL_SCREEN_QUERY]);
-    expect(SMALL_SCREEN_QUERY).toBe('(max-width: 767.98px) and (orientation: portrait)');
+    expect(m.asked()).toEqual([PHONE_QUERY]);
   });
 
-  it('shows on a narrow portrait viewport, as a modal dialog with focus on the first button', () => {
+  it('shows on a phone, as a modal dialog with focus on the first button', () => {
     fakeMedia(true);
     const stop = watchSmallScreen(deps());
     const c = card();
     expect(c).not.toBeNull();
     expect(c?.getAttribute('role')).toBe('dialog');
     expect(c?.getAttribute('aria-modal')).toBe('true');
-    expect(c?.querySelector('h2')?.textContent).toBe('Best on a larger screen');
+    expect(c?.querySelector('h2')?.textContent).toBe('Play on a computer or large screen');
     expect(buttons().map((b) => b.textContent)).toEqual(['Carry on anyway', 'Main menu']);
     expect(document.activeElement).toBe(buttons()[0]);
     expect(isDialogOpen()).toBe(true);
     stop();
   });
 
-  it('mounts nothing and listens for no key on a desktop or landscape viewport', () => {
+  it('mounts nothing and listens for no key on a desktop', () => {
     fakeMedia(false);
     const spy = vi.spyOn(window, 'addEventListener');
     const before = document.body.childElementCount;
@@ -99,17 +98,122 @@ describe('watchSmallScreen: when it shows', () => {
     spy.mockRestore();
   });
 
-  it('follows a rotation: lands in landscape and goes, comes back upright and returns', () => {
+  it('says the same thing to a computer or large screen, and never tells the player to rotate', () => {
+    fakeMedia(true);
+    const stop = watchSmallScreen(deps());
+    const text = card()?.textContent ?? '';
+    expect(text).toMatch(/computer/i);
+    expect(text).toMatch(/large screen/i);
+    expect(text).not.toMatch(/rotat|upright|sideways|landscape|portrait/i);
+    stop();
+  });
+
+  it('a match that goes away takes the card with it and is not an answer', () => {
+    // E.g. a phone-sized browser given a mouse: the query stops matching.
     const m = fakeMedia(true);
     const stop = watchSmallScreen(deps());
     expect(card()).not.toBeNull();
     m.setMatches(false);
     expect(card()).toBeNull();
-    // Rotating away is not an answer.
     expect(store.has(SMALL_SCREEN_DISMISSED_KEY)).toBe(false);
     m.setMatches(true);
     expect(card()).not.toBeNull();
     stop();
+  });
+});
+
+// --- the rule itself, evaluated against device profiles ---------------------
+// A tiny Media Queries evaluator (and / or / not / parentheses, plus the
+// features the phone query uses), so the boundaries are tested on the REAL
+// query string rather than on a fake that answers true or false by decree.
+interface Device {
+  pointer: 'fine' | 'coarse' | 'none';
+  anyPointerFine: boolean;
+  /** screen.width x screen.height in CSS px (the physical screen, not the window). */
+  screen: [number, number];
+}
+function evalMedia(query: string, d: Device): boolean {
+  const toks = query.match(/\(|\)|[^\s()]+/g) ?? [];
+  let i = 0;
+  const feature = (text: string): boolean => {
+    const [name, raw] = text.split(':').map((x) => x.trim());
+    const num = parseFloat(raw ?? '');
+    switch (name) {
+      case 'pointer':
+        return d.pointer === raw;
+      case 'any-pointer':
+        return raw === 'fine' ? d.anyPointerFine : false;
+      case 'max-device-width':
+        return d.screen[0] <= num;
+      case 'max-device-height':
+        return d.screen[1] <= num;
+      default:
+        throw new Error(`evaluator does not know the feature "${name}"`);
+    }
+  };
+  const term = (): boolean => {
+    if (toks[i] === 'not') {
+      i++;
+      return !term();
+    }
+    if (toks[i] !== '(') throw new Error(`expected "(" at ${toks[i]}`);
+    i++;
+    let v: boolean;
+    if (toks[i] === '(' || toks[i] === 'not') v = or();
+    else {
+      let text = '';
+      while (toks[i] !== ')') text += toks[i++];
+      v = feature(text);
+    }
+    if (toks[i++] !== ')') throw new Error('expected ")"');
+    return v;
+  };
+  const and = (): boolean => {
+    let v = term();
+    while (toks[i] === 'and') {
+      i++;
+      v = term() && v;
+    }
+    return v;
+  };
+  const or = (): boolean => {
+    let v = and();
+    while (toks[i] === 'or') {
+      i++;
+      v = and() || v;
+    }
+    return v;
+  };
+  const r = or();
+  if (i !== toks.length) throw new Error(`trailing tokens from ${toks[i]}`);
+  return r;
+}
+const touch = (w: number, h: number): Device => ({ pointer: 'coarse', anyPointerFine: false, screen: [w, h] });
+
+describe('the phone rule: PHONE_QUERY against devices', () => {
+  it.each([
+    ['phone portrait 390x844', touch(390, 844), true],
+    ['phone landscape 844x390', touch(844, 390), true],
+    ['small phone 360x640', touch(360, 640), true],
+    ['large phone landscape 932x430', touch(932, 430), true],
+        ['short side 599 is a phone', touch(599, 1000), true],
+    ['short side 600 is not', touch(600, 960), false],
+    ['tablet 768x1024 portrait', touch(768, 1024), false],
+    ['tablet 1024x768 landscape', touch(1024, 768), false],
+    ['small tablet 810x1080', touch(810, 1080), false],
+    ['desktop, small window, mouse (screen is 1920x1080)', { pointer: 'fine', anyPointerFine: true, screen: [1920, 1080] }, false],
+    ['a phone-sized screen with a mouse attached', { pointer: 'fine', anyPointerFine: true, screen: [390, 844] }, false],
+    ['a phone whose primary pointer is touch but a mouse is paired', { pointer: 'coarse', anyPointerFine: true, screen: [390, 844] }, false],
+    ['a touchscreen laptop (touch primary, trackpad present)', { pointer: 'coarse', anyPointerFine: true, screen: [1440, 900] }, false],
+    ['headless / no pointer at all', { pointer: 'none', anyPointerFine: false, screen: [390, 844] }, false],
+  ] as Array<[string, Device, boolean]>)('%s -> %s', (_name, device, expected) => {
+    expect(evalMedia(PHONE_QUERY, device)).toBe(expected);
+  });
+
+  it('the evaluator itself can say no and yes (it is not a constant)', () => {
+    expect(evalMedia('(pointer: coarse)', touch(1, 1))).toBe(true);
+    expect(evalMedia('(not (pointer: coarse))', touch(1, 1))).toBe(false);
+    expect(evalMedia('(max-device-width: 100px) or (max-device-height: 100px)', touch(500, 90))).toBe(true);
   });
 });
 

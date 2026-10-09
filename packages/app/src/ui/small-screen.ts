@@ -1,23 +1,37 @@
-// The small-screen notice (polish pass K, K-17).
+// The phone notice (polish pass K, K-17; widened to any phone and either
+// orientation by GH-502).
 //
-// Held upright, a phone cannot fit the command strip or the feed. Measured at
-// 390x844: the menu is 407 px wide and a mission 821 px, and `html`/`body`
-// already compute `overflow-x: hidden` on every route, so the content is not
-// scrolled but CLIPPED -- the strip runs off the right edge and nothing says
-// the game wants a mouse and a wider screen. This card says so, once.
+// Roaring Lions is a mouse-and-wide-screen game. A phone cannot fit the command
+// strip or the feed (measured at 390x844: the menu is 407 px wide and a mission
+// 821 px, clipped, not scrolled), has no right-click or edge pan, and turned
+// sideways is only ~390 px tall. So the card appears on ANY phone, in either
+// orientation, and routes the player to a computer or a large screen. It does
+// not tell them to rotate: that was the first version's cure, and it is no cure.
 //
-// WHEN. `SMALL_SCREEN_QUERY`: viewport narrower than 768 CSS px AND portrait
-// (height greater than width). Portrait is what makes it a notice rather than
-// a nag: the same phone turned sideways is 640-930 wide, the cure the card
-// names is to rotate, and a media query reports the rotation with no polling.
-// A desktop window dragged narrow is usually landscape, so it does not see the
-// card either. 768 is the usual phone/tablet line and the card's own copy says
-// "a phone". Measured with the card out of the way, a mission is 821 px wide
-// at every width below that (menu 407 at 390, 600 at 600, 768 at 768), so a
-// tablet held upright at 768 loses about 53 px of the strip to the same clip
-// and is NOT flagged: a real narrow layout for the strip is pass I's, and
-// widening this to 821 would have the notice fitted to a layout that is
-// expected to change. A 768-820 px portrait tablet is the known gap.
+// WHEN. `PHONE_QUERY` is "a touch-first device with a small physical screen":
+//   (pointer: coarse)               the PRIMARY pointer is a finger, and
+//   (not (any-pointer: fine))       no mouse, trackpad or pen is attached, and
+//   min(screen.width, screen.height) < 600 CSS px
+// The last clause is written as `(max-device-width: 599.98px) or
+// (max-device-height: 599.98px)` because a media query has no `min()` and the
+// OR is the same thing: it is true when EITHER side of the screen is short, so
+// it needs no orientation and no polling. (`device-width` is the physical
+// screen, not the window, and is deprecated only as a layout tool; every engine
+// still answers it. iOS Safari reports the screen upright even when the phone is
+// turned, which is exactly why the rule must not read one named side.)
+//
+// WHY 600. Every phone's short side is 320-440 CSS px, and the largest
+// foldables unfolded and small tablets start at 600-810. 768 is the tablet
+// line the first version used; 600 spares a 768x1024 tablet (and a 600x960 one)
+// while a phone in landscape (844x390, 932x430) is still far below it.
+//
+// WHAT IT SPARES. A desktop browser window dragged small is NOT a phone: its
+// pointer is fine, so it gets nothing, whatever the window width (and a tester
+// shrinking a window to look at the layout is not nagged). A touchscreen laptop
+// and a phone with a mouse paired both report a fine pointer somewhere
+// (`any-pointer: fine`) and are spared too; a tablet's screen is over 600. The
+// same query can never match in the test and CI browsers: headless Chromium
+// reports a fine pointer.
 //
 // WHERE. App-wide, wired ONCE from `main.ts` beside `interceptLinks`, because
 // the card must follow the player across every route and a route's disposer
@@ -29,18 +43,20 @@
 // listening for keys, so `ui:routes`' body-child count is undisturbed.
 //
 // DISMISSAL. "Carry on anyway" (and Escape) is remembered for the session in
-// `sessionStorage`, with an in-memory copy for a browser that refuses it, so
-// rotating to landscape and back never re-shows it. "Main menu" is a soft
-// navigation and counts as an answer too: left standing, the card would sit
-// over the menu it was asked to open. Rotating to landscape removes the card
-// on its own and does NOT dismiss it -- turning the phone back upright without
-// having answered shows it again.
+// `sessionStorage`, with an in-memory copy for a browser that refuses it, so a
+// phone that has answered is never asked again until the tab is closed (a
+// tester can still look). "Main menu" is a soft navigation and counts as an
+// answer too: left standing, the card would sit over the menu it was asked to
+// open. The query ceasing to match (a mouse attached to a phone-sized screen)
+// removes the card on its own and does NOT dismiss it.
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
 import { focusTrap } from './focus-trap';
 
-/** Narrow AND portrait. See the file header for why 768. */
-export const SMALL_SCREEN_QUERY = '(max-width: 767.98px) and (orientation: portrait)';
+/** A phone: touch-first, no fine pointer, a screen side under 600. See the
+ *  file header for each clause. */
+export const PHONE_QUERY =
+  '(pointer: coarse) and (not (any-pointer: fine)) and ((max-device-width: 599.98px) or (max-device-height: 599.98px))';
 /** `sessionStorage` key: present once the player has answered the card. */
 export const SMALL_SCREEN_DISMISSED_KEY = 'lions.smallScreen.dismissed';
 
@@ -117,8 +133,8 @@ function buildCard(doc: Document): { scrim: HTMLElement; keep: HTMLButtonElement
 }
 
 /**
- * Watch the viewport and show the notice while it is narrow portrait and has
- * not been answered. Returns the disposer: it takes the media listener, the
+ * Watch the device and show the notice while it is a phone and has not been
+ * answered. Returns the disposer: it takes the media listener, the
  * key guard, the focus trap and the card away, and is safe to call twice.
  */
 export function watchSmallScreen(deps: SmallScreenDeps): Disposer {
@@ -126,7 +142,7 @@ export function watchSmallScreen(deps: SmallScreenDeps): Disposer {
   const doc = win.document;
   // jsdom and very old browsers have no matchMedia: nothing to watch.
   if (typeof win.matchMedia !== 'function') return () => {};
-  const mq = win.matchMedia(SMALL_SCREEN_QUERY);
+  const mq = win.matchMedia(PHONE_QUERY);
 
   let dismissed = storedDismissed(win);
   let teardownCard: (() => void) | null = null;
