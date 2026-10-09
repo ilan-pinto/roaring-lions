@@ -1306,6 +1306,51 @@ describe('the single-unit card', () => {
   });
 });
 
+// PA-19: the card's "Engaging: <enemy>" line and the projected-fire panel
+// both name a target, and both are rebuilt on the 4 Hz content tick. A target
+// killed between two content ticks used to stay named for up to 250 ms -- over
+// its own fireball. They clear on the very next tick now, and a target that
+// is still alive costs no extra rebuild.
+describe('a dead target leaves the HUD at once (PA-19)', () => {
+  function engagedWorld(): { world: ReturnType<typeof makeForce>; enemy: number } {
+    const world = makeForce();
+    const enemy = world.sim.spawn(world.sim.state.typeIdx[world.squads[0]], 1, fx.from(8), fx.from(1));
+    world.sim.state.curTarget[world.namer] = enemy;
+    return { world, enemy };
+  }
+
+  it('the card drops "Engaging" on the next tick, not the next content tick', () => {
+    const { world, enemy } = engagedWorld();
+    const r = clusterRig(() => [world.namer], {}, world);
+    expect(r.host.querySelector('.rl-card__engaging')?.textContent).toContain('Engaging');
+    world.sim.debugKill(enemy);
+    r.tick(); // tick 2 of 5: not a content tick
+    expect(r.host.querySelector('.rl-card__engaging')).toBeNull();
+  });
+
+  it('the projected-fire panel hides on the next tick when its target dies', () => {
+    const { world, enemy } = engagedWorld();
+    vi.spyOn(world.sim, 'projectHit').mockReturnValue({ kind: 'noSolution' });
+    const r = clusterRig(() => [world.namer], { hoverEntity: () => enemy }, world);
+    const fire = r.host.querySelector<HTMLElement>('.rl-fire')!;
+    expect(fire.style.display).toBe('');
+    world.sim.debugKill(enemy);
+    r.tick();
+    expect(fire.style.display).toBe('none');
+  });
+
+  it('a living target is not rebuilt off the 4 Hz cadence', () => {
+    const { world, enemy } = engagedWorld();
+    vi.spyOn(world.sim, 'projectHit').mockReturnValue({ kind: 'noSolution' });
+    const r = clusterRig(() => [world.namer], { hoverEntity: () => enemy }, world);
+    const card = r.host.querySelector('.rl-card');
+    const row = r.host.querySelector('.rl-fire')!.firstElementChild;
+    r.tick();
+    expect(r.host.querySelector('.rl-card')).toBe(card);
+    expect(r.host.querySelector('.rl-fire')!.firstElementChild).toBe(row);
+  });
+});
+
 describe('the card\'s service record — whose place this is', () => {
   it('names the predecessor when this unit took a vacant slot', () => {
     const world = makeForce();

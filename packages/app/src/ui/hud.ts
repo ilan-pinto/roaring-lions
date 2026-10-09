@@ -449,6 +449,12 @@ export class Hud {
    *  only once per streak: a panel a player glances past on one hover has
    *  not taught them anything, where one they held over for ~0.75s has. */
   private fireVisibleStreak = 0;
+  /** PA-19: the entity the projected-fire panel and the card's "Engaging"
+   *  line were last built naming, or -1. `onTick` rebuilds the one whose
+   *  target has died since, on that tick rather than the next 4 Hz one --
+   *  a killed tank's name hung over its own fireball for up to 250 ms. */
+  private fireShownFor = -1;
+  private engagingShownFor = -1;
 
   /** Fix round 1 (task 6 review, I1/I3): whether the in-mission tracker is
    *  open, mirrored onto the strip control's own `aria-expanded` every
@@ -1106,7 +1112,14 @@ export class Hud {
     this.updateBanner();
     // A full innerHTML rebuild at 20 Hz stalls the page exactly when combat
     // floods events. 4 Hz reads identically.
-    if (this.tickN++ % 5 !== 0) return;
+    if (this.tickN++ % 5 !== 0) {
+      // PA-19: a named target that died since the last content tick goes
+      // now. Only on a death, so a living target costs no extra rebuild.
+      const alive = this.deps.sim.state.alive;
+      if (this.engagingShownFor >= 0 && alive[this.engagingShownFor] === 0) this.renderCard();
+      if (this.fireShownFor >= 0 && alive[this.fireShownFor] === 0) this.renderFire();
+      return;
+    }
     this.renderStrip();
     this.renderInvoice();
     // `renderStrip` innerHTML's `stripBody`/`stripInfo` wholesale; a strip
@@ -1695,6 +1708,7 @@ export class Hud {
   private renderFire(): void {
     const html = this.projectedFireHtml();
     const visible = html !== '';
+    this.fireShownFor = visible ? this.deps.hoverEntity() : -1;
     this.fire.style.display = visible ? '' : 'none';
     if (visible) this.fire.innerHTML = html + this.fireClickLine();
     if (!visible) {
@@ -1901,6 +1915,7 @@ export class Hud {
     // Alive only. A selection outlives its units by up to a tick, and a chip
     // reporting a corpse's health reads as a bug in the health bar.
     const sel = this.deps.getSelection().filter((i) => sim.state.alive[i] === 1);
+    this.engagingShownFor = -1;
     if (sel.length === 0) {
       this.orderBar.style.display = 'none';
       this.cluster.style.display = 'none';
@@ -2345,6 +2360,7 @@ export class Hud {
     const tgt = st.curTarget[id];
     if (tgt < 0 || tgt >= st.alive.length || st.alive[tgt] === 0) return '';
     const ttype = this.deps.sim.unitTypes[st.typeIdx[tgt]];
+    this.engagingShownFor = tgt;
     return (
       `<div class="rl-card__engaging">` +
       this.artHtml(ttype.id, roleBucket(ttype), 'rl-card__engaging-art', 14, 'chip') +
