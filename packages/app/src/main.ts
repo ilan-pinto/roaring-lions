@@ -1796,8 +1796,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // This is the roster that replaces it. `./mesh-catalogue` owns the tables and
   // the arithmetic; what is decided HERE is only which roster to ask about.
   //
+  // GH-469: walked over the RESOLVED mission -- `upgrades_to` already
+  // decided above -- so the variant a placement did not take (a Shachaf the
+  // brigade has not bought, a `gate_only` jeep the gate dropped) is not loaded
+  // and decoded for a unit that cannot appear. On a `resources` mission it is
+  // still buildable, and so lands in `meshDeferred` below like any other.
   const meshRoster = mission
-    ? missionUnitTypes(mission, new Set(Object.keys(units)))
+    ? missionUnitTypes(resolvedMission ?? mission, new Set(Object.keys(units)))
     : sandboxUnitTypes({ tunnel: wantTunnel, sur: wantSur, civ: wantCiv });
   // Only the roster's languages decode (N16). The roster is the one the mesh
   // plan already trusts; a unit it misses still plays -- as `missing` -- and
@@ -1992,7 +1997,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // FAILS, the renderer draws a proxy box and `failedMesh` reports it.
   // `civilians` is never deferred: `missionUnitTypes` puts it in the
   // blocking set above whenever a mission fields any.
-  const ensureUnitMesh = (typeId: string): void => {
+  const ensureUnitMesh = (typeId: string, cold = false): void => {
     // A mesh started before the player left would otherwise be handed to a
     // disposed renderer whenever it lands. Guarded at the start AND in the
     // handler: `loadMeshUnit` is a fetch plus a GLTF parse, so the window
@@ -2000,9 +2005,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     if (disposed || !hasUnitMesh(typeId) || meshLoaded.has(typeId)) return;
     meshLoaded.add(typeId);
     const rigged = RIGGED_UNIT_MESHES[typeId];
+    // `cold` (GH-469): a deferred buildable's textures stay encoded until the
+    // player orders one (`warmUnitMesh`, per tick below) -- most are never
+    // ordered, and each costs 16-48 MiB decoded.
     const job = rigged
-      ? three.loadMeshUnit(typeId, rigged.files.map(meshUrl), rigged.faction)
-      : three.loadVehicleMesh(typeId, meshUrl(VEHICLE_UNIT_MESHES[typeId]));
+      ? three.loadMeshUnit(typeId, rigged.files.map(meshUrl), rigged.faction, { cold })
+      : three.loadVehicleMesh(typeId, meshUrl(VEHICLE_UNIT_MESHES[typeId]), { cold });
     job.then(
       () => {
         if (!disposed) meshReady.add(typeId);
@@ -2236,7 +2244,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // for a mission with a briefing is the moment the player clicks Begin --
   // throwing away the one stretch of wall-clock time in the whole boot where
   // the human is reading and the network is idle.
-  for (const id of meshDeferred) ensureUnitMesh(id);
+  for (const id of meshDeferred) ensureUnitMesh(id, true);
 
   // Waits for the player when there are orders to read; resolves at once when
   // there are none, which is every sandbox and the tutorial.
@@ -4671,6 +4679,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // Bounded by `sim.entityCount`, the same scan `__lions.units()` does, at
     // 1 Hz against a 20 Hz tick. `ensureUnitMesh` returns immediately for a
     // type already asked for, so the steady-state cost is the loop itself.
+    // GH-469: a queued build is the cue to decode that type's textures -- at
+    // least 12 s of sim time before the unit exists (`warmUnitMesh`).
+    // Idempotent; a warm type returns at once.
+    if (runtime) for (const p of runtime.production) three.warmUnitMesh(p.unit);
     if (sim.tickCount % TICKS_PER_SECOND === 0) {
       for (let i = 0; i < sim.entityCount; i++) {
         if (sim.state.alive[i] !== 1) continue;
