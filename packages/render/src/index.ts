@@ -43,8 +43,10 @@ export { DebugOverlay } from './overlay';
 export { unitIsObserved } from './three/units/observed';
 export {
   BattleAudio,
+  isAnnouncementPriority,
   PLACEHOLDER_HZ,
   VOICE_DECODE_BUDGET_BYTES,
+  VOICE_RANK,
   type AudioGains,
   type AudioManifest,
   type AudioSet,

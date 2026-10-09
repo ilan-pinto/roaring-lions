@@ -2700,6 +2700,16 @@ describe('the voice caption slot (WP-AU1 D8)', () => {
     expect(feed?.textContent ?? '').not.toContain('moving');
   });
 
+  it('clearCaption takes a standing caption down at once (AU-5)', () => {
+    const r = rig(mission());
+    const cap = r.host.querySelector<HTMLElement>('.rl-caption');
+    r.hud.caption('moving', 1);
+    r.hud.clearCaption();
+    expect(cap?.textContent).toBe('');
+    expect(cap?.hidden).toBe(true);
+    r.hud.clearCaption();
+  });
+
   it('goes down with the HUD', () => {
     const r = rig(mission());
     r.hud.caption('moving', 1);

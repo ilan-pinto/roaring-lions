@@ -185,6 +185,24 @@ describe('the 3D board reads the ledger the same way the flat one does', () => {
   });
 });
 
+describe('the end of the war', () => {
+  const all = world.regions.flatMap((r) => r.towns.flatMap((tw) => tw.missions));
+  it('rests on the campaign-complete line once nothing is open, and returns to it', async () => {
+    const s = mountScreen({ 'campaign.completed_missions': [...all] });
+    await s.ready;
+    expect(say(s.el)).toBe(t('world.complete'));
+    expect(say(s.el)).not.toBe(HINT);
+    s.view().pick(null);
+    expect(say(s.el)).toBe(t('world.complete'));
+  });
+
+  it('keeps the click hint while a single mission is still open', async () => {
+    const s = mountScreen({ 'campaign.completed_missions': all.slice(0, -1) });
+    await s.ready;
+    expect(say(s.el)).toBe(HINT);
+  });
+});
+
 describe('clicking the ground', () => {
   it('launches the region’s next mission', async () => {
     const s = mountScreen({});

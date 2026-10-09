@@ -50,6 +50,9 @@ export interface DebriefOptions {
   speaker?: ReportSpeaker;
   /** A victory's closing narration (`mission.aftermath`). */
   aftermath?: string;
+  /** The end of the war (`campaign-close.ts`): Idit and Shai, alternating,
+   *  on the report of the victory that finished the campaign, and only there. */
+  closing?: readonly { plate: string; text: string }[];
   /** The brigade's word on the grade (`grade.tier.N.line`). */
   tierLine?: { plate: string; text: string };
   /** The commander's own promotion, when this win earned one. */
@@ -194,6 +197,18 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
     }
     if (o.aftermath) word.appendChild(el('p', 'rl-endaftermath rl-aar__aftermath', o.aftermath));
     b.appendChild(word);
+  }
+
+  // --- the end of the war: two voices, one line each, after the mission's own
+  // word and before the columns, so it is read before anything is counted.
+  if (o.closing && o.closing.length > 0) {
+    const close = el('div', 'rl-aar__closing');
+    for (const line of o.closing) {
+      const q = el('blockquote', 'rl-debrief__line', t('debrief.tierLine.quote', { text: line.text }));
+      q.appendChild(el('cite', 'rl-debrief__who', line.plate));
+      close.appendChild(q);
+    }
+    b.appendChild(close);
   }
 
   // --- the ground and the three answers ------------------------------------

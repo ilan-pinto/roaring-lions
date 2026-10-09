@@ -66,6 +66,9 @@ export interface AfterActionInputs {
   replacements: readonly { name: string; predecessor: string }[];
   unlocks: readonly Unlock[];
   next?: { name: string };
+  /** Every front is closed (`campaign-close.ts`): no "choose the next one"
+   *  row, because there is no next one to choose. */
+  campaignOver?: boolean;
   /** The hostages line (`hostagesLine`), already worded. */
   taken?: string;
   /** Positions this run's recon marked (`intel.marked_positions`). */
@@ -254,7 +257,8 @@ export function afterAction(i: AfterActionInputs): AfterAction {
   if (i.taken) changed.push({ mark: t('aar.mark.taken'), tone: 'plain', text: i.taken, sub: t('aar.changed.takenSub') });
   // K-07's other half: a won town with nothing to follow says where to go
   // next, where the "next mission" action would otherwise simply be absent.
-  if (won && !i.next) changed.push({ mark: t('aar.mark.next'), tone: 'commend', text: t('menu.end.townDone') });
+  // Not once the war is over: the board has nothing left to choose.
+  if (won && !i.next && !i.campaignOver) changed.push({ mark: t('aar.mark.next'), tone: 'commend', text: t('menu.end.townDone') });
 
   // --- pins on the ground ----------------------------------------------------
   const pins: GroundPin[] = [];

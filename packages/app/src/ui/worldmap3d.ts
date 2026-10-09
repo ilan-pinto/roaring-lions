@@ -62,6 +62,7 @@ import { nudgeLabels, pinLabelBox, type LabelBox } from './label-layout';
 // import -- shared with the scene host behind the menu; see that file.
 import { webgl2Available } from './webgl-probe';
 import { ledgerLine, regionCard } from './worldmap';
+import { boardRestingLine } from '../campaign-close';
 import { hoverLine, pickOutcome, type PinStatus } from './pin-hover';
 import { symbolSvg } from './symbol';
 
@@ -233,7 +234,10 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
   // in its original visual position, once the stage and rotate controls are
   // in the DOM) -- declared before the town pins so their hover listeners
   // can call `speak` directly rather than through a forward reference.
-  const HINT = t('world3d.hint');
+  // The resting line: the click hint while a front is open, and the end of
+  // the war once none is -- "click a front to open its next operation" over a
+  // board with nothing left to open was the campaign's only closing word.
+  const HINT = boardRestingLine(world, ledger);
   const say = el('p', 'rl-world__say', HINT);
   say.setAttribute('role', 'status');
   say.setAttribute('aria-live', 'polite');

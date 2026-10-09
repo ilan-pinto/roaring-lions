@@ -27,8 +27,13 @@ Checks (all fail the build):
                   and, when ffmpeg is on PATH, the track's measured true
                   peak plus its trim at or under -1 dBTP (the skip is named).
   9. COMMERCIAL (`--commercial` only) -- no variant whose `source` says its
-                  licence is not yet confirmed: the four ElevenLabs takes
-                  (D5, A3) stay out of a commercial build until it is.
+                  licence is not yet confirmed: the five ElevenLabs takes on
+                  four voice keys (D5, A3) stay out of a commercial build
+                  until it is. `--commercial-manifest OUT` writes the
+                  manifest a commercial build ships -- every such variant
+                  taken out, its key kept with what is left (an empty list
+                  plays nothing) -- checks it against this gate, and prints
+                  the files the bundle must leave out (AU-10).
   10. AMBIENCE -- the `ambience.beds` table (polish pass F, A11): licence,
                   source, files and gain always; with ffmpeg and ffprobe, BOTH
                   encodings of every bed decoded and measured -- the decoded
@@ -67,6 +72,7 @@ procedural synth, so the game ships with sound from day one and real
 recordings can land one file at a time.
 """
 
+import copy
 import json
 import math
 import os
@@ -451,6 +457,60 @@ def check_commercial(man, failures):
             failures.append(f"{v.get('file')}: licence not confirmed -- it cannot ship in a commercial build (D5, A3)")
 
 
+def commercial_manifest(man):
+    """AU-10: the manifest a commercial build ships, and the files it leaves
+    out. A deep copy of `man` with every variant whose `source` records an
+    unconfirmed licence removed, in every section `check_commercial` reads;
+    a voice key keeps its declaration with the takes that remain (an empty
+    `variants` list plays nothing). `man` itself is not touched. Returns
+    `(stripped, excluded)`, `excluded` being every `file` and `alt` removed."""
+    out = copy.deepcopy(man)
+    excluded = []
+
+    def keep(v):
+        if isinstance(v, dict) and UNCONFIRMED_LICENCE.search(v.get("source", "") or ""):
+            excluded.extend(f for f in (v.get("file"), v.get("alt")) if f)
+            return False
+        return True
+
+    for spec in out.get("sets", {}).values():
+        spec["variants"] = [v for v in spec.get("variants", []) if keep(v)]
+    music = out.get("music")
+    if music:
+        music["tracks"] = [t for t in music.get("tracks", []) if keep(t)]
+        beds = music.get("beds")
+        if isinstance(beds, dict):
+            for name in [n for n, b in beds.items() if not keep(b)]:
+                del beds[name]
+    amb = (out.get("ambience") or {}).get("beds")
+    if isinstance(amb, dict):
+        for name in [n for n, b in amb.items() if not keep(b)]:
+            del amb[name]
+    for line in ((out.get("voices") or {}).get("lines") or {}).values():
+        line["variants"] = [v for v in line.get("variants", []) if keep(v)]
+    return out, excluded
+
+
+def write_commercial_manifest(path):
+    """`--commercial-manifest OUT`: write the stripped manifest, prove it
+    clean against the commercial gate, and print what the bundle leaves out."""
+    with open(MANIFEST) as fh:
+        man = json.load(fh)
+    stripped, excluded = commercial_manifest(man)
+    failures = []
+    check_commercial(stripped, failures)
+    if failures:
+        print("commercial manifest still carries an unconfirmed licence:\n  " + "\n  ".join(failures), file=sys.stderr)
+        return 1
+    with open(path, "w") as fh:
+        json.dump(stripped, fh, indent=2, ensure_ascii=False)
+        fh.write("\n")
+    print(f"wrote {path}: commercial gate clean; leave these {len(excluded)} file(s) out of the bundle (assets/audio/...):")
+    for f in sorted(excluded):
+        print(f"  {f}")
+    return 0
+
+
 def unit_factions():
     with open(UNIT_SCHEMA) as fh:
         return set(json.load(fh)["properties"]["faction"]["enum"])
@@ -676,10 +736,16 @@ def check_voices(voices, failures, factions, audio_dir=AUDIO_DIR):
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
+    if len(argv) == 2 and argv[0] == "--commercial-manifest":
+        return write_commercial_manifest(argv[1])
     commercial = "--commercial" in argv
     unknown = [a for a in argv if a != "--commercial"]
     if unknown:
-        print(f"unknown argument(s): {' '.join(unknown)}\nusage: python tools/validate_audio.py [--commercial]", file=sys.stderr)
+        print(
+            f"unknown argument(s): {' '.join(unknown)}\n"
+            "usage: python tools/validate_audio.py [--commercial | --commercial-manifest OUT]",
+            file=sys.stderr,
+        )
         return 2
     failures = []
     notes = []

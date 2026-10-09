@@ -39,6 +39,21 @@ function mount(o: DebriefOptions): HTMLElement {
 }
 
 describe('the after-action report (GH-417)', () => {
+  // The end of the war (campaign-close.ts): the closing exchange is drawn,
+  // in order and with its plates, only when main.ts hands it over.
+  it('draws the closing exchange when given one, and nothing in its place otherwise', () => {
+    const closing = [
+      { plate: 'Zohar', text: 'one' },
+      { plate: 'Hammai', text: 'two' },
+    ];
+    const host = mount(opts({ closing }));
+    const lines = [...host.querySelectorAll('.rl-aar__closing blockquote')];
+    expect(lines.map((q) => q.querySelector('cite')?.textContent)).toEqual(['Zohar', 'Hammai']);
+    expect(lines[0].textContent).toContain('one');
+    document.body.innerHTML = '';
+    expect(mount(opts()).querySelector('.rl-aar__closing')).toBeNull();
+  });
+
   it('draws the verdict, the reason, the ladder and the three columns in order', () => {
     const host = mount(opts());
     expect(host.querySelector('.rl-aar__tier')?.textContent).toBe('Named in brigade orders');

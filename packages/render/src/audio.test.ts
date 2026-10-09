@@ -12,6 +12,7 @@ import {
   busGain,
   cueDuckRow,
   decodeOrder,
+  drawFromBag,
   DUCK,
   DUCK_TABLE,
   duckLevels,
@@ -30,8 +31,11 @@ import {
   RADIO_BAND_HZ,
   RADIO_FX,
   uiSetGain,
+  VOICE_CAP,
   VOICE_CUT_S,
   VOICE_DECODE_BUDGET_BYTES,
+  VOICE_NO_CUT_S,
+  VOICE_RANK,
   type AudioManifest,
   type AudioSet,
   type VoiceManifest,
@@ -739,6 +743,69 @@ describe('admitVoice (N4, N5)', () => {
   });
 });
 
+describe('voice director v2: the rank ladder and the no-cut floor (AU-5, audio plan §5.1)', () => {
+  type Live = { id: number; priority: VoicePriority; startedAt?: number };
+  const v = (id: number, priority: VoicePriority, startedAt?: number): Live => ({ id, priority, startedAt });
+  it('one ladder, highest first: outcome, high announcement, order, normal announcement, KDF death, low announcement, enemy death', () => {
+    const ladder: VoicePriority[] = ['outcome', 'announce_high', 'order', 'announce', 'kdf_death', 'announce_low', 'enemy_death'];
+    expect(ladder.map((p) => VOICE_RANK[p])).toEqual([7, 6, 5, 4, 3, 2, 1]);
+    expect(Object.keys(VOICE_RANK).sort()).toEqual([...ladder].sort());
+  });
+  it('a more important line pre-empts a lesser one; the low announcement sits between a death call and an enemy death', () => {
+    expect(admitVoice([v(1, 'enemy_death'), v(2, 'kdf_death')], 'announce_low')).toEqual({ play: true, cut: [1] });
+    expect(admitVoice([v(1, 'kdf_death'), v(2, 'kdf_death')], 'announce_low')).toEqual({ play: false, cut: [] });
+    expect(admitVoice([v(1, 'order'), v(2, 'kdf_death')], 'announce_high')).toEqual({ play: true, cut: [2] });
+  });
+  it('the no-cut floor: nothing is pre-empted inside its first 300 ms; at 300 ms it may be', () => {
+    expect(VOICE_NO_CUT_S).toBe(0.3);
+    const full = [v(1, 'kdf_death', 0), v(2, 'kdf_death', 0)];
+    expect(admitVoice(full, 'order', VOICE_CAP, 0.299)).toEqual({ play: false, cut: [] });
+    expect(admitVoice(full, 'order', VOICE_CAP, 0.3)).toEqual({ play: true, cut: [1] });
+    // The protected line is skipped, not the rule: an older lesser line still goes.
+    expect(admitVoice([v(1, 'enemy_death', 0.2), v(2, 'kdf_death', 0)], 'order', VOICE_CAP, 0.31)).toEqual({ play: true, cut: [2] });
+  });
+  it('an announcement or the outcome line is never pre-empted by rank: half an objective call is worse than none', () => {
+    expect(admitVoice([v(1, 'announce_low', 0), v(2, 'announce', 0)], 'announce_high', VOICE_CAP, 5)).toEqual({ play: false, cut: [] });
+    expect(admitVoice([v(1, 'outcome', 0), v(2, 'announce_low', 0)], 'outcome', VOICE_CAP, 5)).toEqual({ play: false, cut: [] });
+  });
+  it('a new order still replaces the last order at once (N4): the newest gesture is what the cursor promised', () => {
+    expect(admitVoice([v(1, 'order', 0)], 'order', VOICE_CAP, 0.01)).toEqual({ play: true, cut: [1] });
+  });
+});
+
+describe('voice director v2: a shuffle bag per key (AU-5)', () => {
+  /** The mixer's own xorshift, seeded the same way, so the test draws as the game does. */
+  const xorshift = (seed: number): (() => number) => {
+    let x = seed | 0;
+    return () => {
+      x ^= x << 13;
+      x ^= x >>> 17;
+      x ^= x << 5;
+      return ((x >>> 0) % 100000) / 100000;
+    };
+  };
+  for (const n of [2, 3, 5]) {
+    it(`never plays the same take twice running, and cycles all ${n} before any repeats, over 1,000 draws`, () => {
+      const rand = xorshift(0x2f6b1d3 + n);
+      let bag: readonly number[] = [];
+      let lastTake: number | null = null;
+      const drawn: number[] = [];
+      for (let i = 0; i < 1000; i++) {
+        const d = drawFromBag(bag, n, lastTake, rand);
+        bag = d.bag;
+        lastTake = d.take;
+        drawn.push(d.take);
+      }
+      for (let i = 1; i < drawn.length; i++) expect(drawn[i], `draw ${i}`).not.toBe(drawn[i - 1]);
+      for (let i = 0; i + n <= drawn.length; i += n) expect(new Set(drawn.slice(i, i + n)).size, `cycle at ${i}`).toBe(n);
+    });
+  }
+  it('one take is always take 0, and a bag left over from a longer line is thrown away', () => {
+    expect(drawFromBag([], 1, 0, () => 0.5).take).toBe(0);
+    expect(drawFromBag([4, 3], 2, null, () => 0.5).take).toBeLessThan(2);
+  });
+});
+
 describe('duckRamp and placement', () => {
   it('ramps linearly and holds its target once the time is up (N12)', () => {
     expect(duckRamp(1, 0.5, 0, 80)).toBe(1);
@@ -797,7 +864,7 @@ describe('playVoice (WP-AU1 §7)', () => {
   it('plays an order over the radio band at the line gain, and hands back its meaning and length', async () => {
     const { audio, ctx, hp } = await ready();
     audio.setRadioEffect(false); // today's band alone; the colour is its own block below
-    expect(audio.playVoice(order('he.infantry.move'))).toEqual({ status: 'played', seconds: 1.2, en: 'moving', cut: 0 });
+    expect(audio.playVoice(order('he.infantry.move'))).toMatchObject({ status: 'played', seconds: 1.2, en: 'moving', cut: 0 });
     const line = last(ctx.sources).to as FakeGain;
     expect(line.gain.value).toBeCloseTo(0.8);
     expect(line.to).toBe(hp);
@@ -894,9 +961,50 @@ describe('playVoice (WP-AU1 §7)', () => {
     const made = ctx.sources.length;
     expect(audio.playVoice({ key: 'ar.infantry.death', priority: 'enemy_death', at: { x: 1, y: 1 } }).status).toBe('dropped');
     expect(ctx.sources.length).toBe(made);
+    ctx.currentTime = VOICE_NO_CUT_S; // past the no-cut floor (AU-5)
     expect(audio.playVoice(order('he.infantry.move'))).toMatchObject({ status: 'played', cut: 1 });
-    expect(oldest.stoppedAt).toBeCloseTo(VOICE_CUT_S);
+    expect(oldest.stoppedAt).toBeCloseTo(VOICE_NO_CUT_S + VOICE_CUT_S);
     expect(audio.voiceStats().active).toBe(2);
+  });
+
+  it('a two-take key never plays the same take twice running, and the caption is the take that played (AU-5)', async () => {
+    const twoTakes: AudioManifest = {
+      ...MANIFEST,
+      voices: {
+        ...MANIFEST.voices,
+        lines: {
+          ...MANIFEST.voices?.lines,
+          'he.infantry.death': {
+            variants: [V('voice/he/infantry/death_01a.ogg', 'hit A'), V('voice/he/infantry/death_02a.ogg', 'hit B')],
+          },
+        },
+      },
+    };
+    const { audio, ctx } = await ready(['he'], twoTakes);
+    const heard: (string | null)[] = [];
+    for (let i = 0; i < 24; i++) {
+      const r = audio.playVoice({ key: 'he.infantry.death', priority: 'kdf_death' });
+      expect(r.status).toBe('played');
+      heard.push(r.en);
+      last(ctx.sources).onended?.();
+    }
+    expect(new Set(heard)).toEqual(new Set(['hit A', 'hit B']));
+    for (let i = 1; i < heard.length; i++) expect(heard[i], `line ${i}`).not.toBe(heard[i - 1]);
+  });
+
+  it('the no-cut floor in the mixer: a line 0.2 s in holds its slot, 0.4 s in it yields (AU-5)', async () => {
+    const { audio, ctx } = await ready();
+    audio.playVoice({ key: 'he.infantry.death', priority: 'kdf_death' });
+    const first = last(ctx.sources);
+    audio.playVoice({ key: 'he.infantry.death', priority: 'kdf_death' });
+    ctx.currentTime = 0.2;
+    expect(audio.playVoice(order('he.infantry.move')).status).toBe('dropped');
+    ctx.currentTime = 0.4;
+    const r = audio.playVoice(order('he.infantry.move'));
+    expect(r).toMatchObject({ status: 'played', cut: 1 });
+    expect(first.stoppedAt).toBeCloseTo(0.4 + VOICE_CUT_S);
+    expect(r.cutIds).toHaveLength(1);
+    expect(typeof r.id).toBe('number');
   });
 
   it('places an enemy death in the world, off the radio band, on the voice bus (R-14)', async () => {
@@ -919,7 +1027,7 @@ describe('playVoice (WP-AU1 §7)', () => {
     expect(ctx.oscillators).toEqual([]);
     audio.setVoicePlaceholder(true);
     expect(audio.voiceStats().placeholder).toBe(true);
-    expect(audio.playVoice({ key: 'he.crew.death', priority: 'kdf_death' })).toEqual({
+    expect(audio.playVoice({ key: 'he.crew.death', priority: 'kdf_death' })).toMatchObject({
       status: 'placeholder', seconds: PLACEHOLDER_S, en: null, cut: 0,
     });
     const tick = last(ctx.oscillators);
@@ -934,6 +1042,7 @@ describe('playVoice (WP-AU1 §7)', () => {
     expect((last(ctx.oscillators).to as FakeGain).to).toBe(hp);
     expect(last(ctx.oscillators).stoppedAt).toBeCloseTo(PLACEHOLDER_S);
     audio.setRadioEffect(true);
+    ctx.currentTime = VOICE_NO_CUT_S; // the two ticks above hold their slots until the floor (AU-5)
     audio.playVoice(order('he.common.halt'));
     expect(last(ctx.oscillators).frequency.value).toBe(PLACEHOLDER_HZ.verb);
     // A recorded line always wins over the tick.

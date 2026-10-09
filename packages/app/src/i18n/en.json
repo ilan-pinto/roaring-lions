@@ -201,6 +201,9 @@
   "credits.asset.line": "“{title}” by {author} ({source}), licensed under {licence}. {use}",
   "credits.asset.sourceLabel": "Source: ",
   "credits.asset.licenceLabel": "Licence: ",
+  "credits.ai.models": "Some models were generated with Meshy from text or images and reworked in Blender. Every model, generated or built, passes the same checks before it ships.",
+  "credits.ai.audio": "The main theme, “Holding the Perimeter”, was generated with an AI music tool from a written prompt, and the music heard in missions is cut from it. The few spoken radio lines are AI-generated stand-ins (ElevenLabs) and are left out of any commercial release. Every sound effect and interface cue is made in code, with no generative model.",
+  "credits.ai.record": "The full record of where every model, image and sound came from is kept in the game’s source repository.",
 
   "nav.campaignMap": "campaign map",
   "nav.menu": "menu",
@@ -479,6 +482,10 @@
   "debrief.tierLine.quote": "“{text}”",
   "debrief.next": "Next: {name}",
   "debrief.replay": "{result, select, victory {Replay} other {Try again}}",
+  "debrief.closing.1": "That was the last question on the board. Three fronts, and nothing left on the wall to read.",
+  "debrief.closing.2": "Leave it up one more morning. I want to look at what is still standing on it.",
+  "debrief.closing.3": "Nine did not come in at First Light. I have said it at every town since, because you would not.",
+  "debrief.closing.4": "Say it once more. Then take it down.",
 
   "loading.deploying": "deploying",
   "loading.commander": "{rank} · {plate}",
@@ -532,6 +539,7 @@
   "world.ledger.conduct": "Conduct {mean}",
   "world.ledger.worst": "worst {name} ({value})",
   "world.ledger.fresh": "campaign: fresh start",
+  "world.complete": "Every front is closed, and nothing on this board is waiting to be opened. It stays up one more morning.",
 
   "world3d.hint": "Drag the board to turn it. Click a front to open its next operation.",
   "world3d.bearing.title": "face north again",

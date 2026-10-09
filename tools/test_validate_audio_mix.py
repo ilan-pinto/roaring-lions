@@ -84,6 +84,41 @@ def main():
         {"sets": {"x": {"variants": [{"file": "x/x_01.ogg", "source": "licence not confirmed"}]}}}, f), f)[1])([]),
         "cannot ship")
 
+    # AU-10: the commercial manifest. What the release step ships is the
+    # shipped manifest with every unconfirmed variant taken out; it must pass
+    # the commercial gate, and the files it leaves out are exactly the
+    # ElevenLabs takes (five takes on four keys, two encodings each).
+    import json
+    with open(os.path.join(HERE, "..", "data", "audio.json")) as fh:
+        shipped_man = json.load(fh)
+    stripped, excluded = mod.commercial_manifest(shipped_man)
+    failures = []
+    mod.check_commercial(stripped, failures)
+    check("the commercial manifest passes the commercial gate", failures, None)
+    failures = []
+    mod.check_commercial(shipped_man, failures)
+    check("...while the shipped manifest still fails it (the gate is not vacuous)", failures, "cannot ship in a commercial build")
+    want = sorted(f"voice/he/{p}.{ext}" for p in ("infantry/move_01a", "infantry/attack_01a", "infantry/death_01a",
+                                                 "infantry/death_02a", "common/ack_01a") for ext in ("ogg", "m4a"))
+    ok = sorted(excluded) == want
+    print(f"{'ok  ' if ok else 'FAIL'} it leaves out exactly the ten ElevenLabs files -> {sorted(excluded)}")
+    if not ok:
+        bad.append("excluded files")
+    lines = stripped["voices"]["lines"]
+    ok = all(lines[k]["variants"] == [] for k in ("he.infantry.move", "he.infantry.attack", "he.infantry.death", "he.common.ack"))
+    ok = ok and set(lines) == set(shipped_man["voices"]["lines"])
+    print(f"{'ok  ' if ok else 'FAIL'} every key stays declared, its stripped takes an empty list (plays nothing)")
+    if not ok:
+        bad.append("keys kept")
+    ok = shipped_man["voices"]["lines"]["he.common.ack"]["variants"] != []
+    print(f"{'ok  ' if ok else 'FAIL'} the shipped manifest is not mutated")
+    if not ok:
+        bad.append("not mutated")
+    music_kept = stripped.get("music") == shipped_man.get("music") and stripped.get("sets") == shipped_man.get("sets")
+    print(f"{'ok  ' if music_kept else 'FAIL'} a confirmed section (sets, music) is left exactly as it was")
+    if not music_kept:
+        bad.append("confirmed kept")
+
     code = mod.main(["--nope"])
     ok = code == 2
     print(f"{'ok  ' if ok else 'FAIL'} an unknown argument exits 2 -> {code}")

@@ -7,6 +7,7 @@ import type { LedgerData } from '@lions/sim';
 // makes it playable from the UI with no edit here. `terrain-parity.test.ts`
 // takes `Object.keys(maps)` the same way, for the same reason.
 import { maps, parseMap, type MapJson } from '@lions/data';
+import { campaignComplete } from '../campaign-close';
 import { nextOperation, type CommanderData, type ParsedWorld, type WorldCountry } from '../campaign';
 import { hasKey, t } from '../i18n/t';
 import { symbolLabel } from './symbol';
@@ -346,7 +347,9 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
   // real anchor to the mission route so it soft-navigates like every other
   // link (`interceptLinks`) and middle-click still works. Not drawn once the
   // campaign is complete: there is no next operation to name.
-  const nextId = nextOperation(opts.world, opts.ledger);
+  // "Complete" is `campaign-close.ts`'s one definition (the board's closing
+  // line reads it too); this adds no second one.
+  const nextId = campaignComplete(opts.world, opts.ledger) ? null : nextOperation(opts.world, opts.ledger);
   if (nextId !== null) {
     const nextName = opts.missionOf?.(nextId)?.name;
     const next = document.createElement('a');

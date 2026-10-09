@@ -204,10 +204,12 @@ export function showCredits(stage: HTMLElement, deps: CreditsDeps): Disposer {
     assets.appendChild(li);
   }
   if (CREDITS.assets.length > 0) art.appendChild(assets);
-  const disclosure = document.createElement('p');
-  disclosure.className = 'rl-credits__disclosure';
-  disclosure.textContent = CREDITS.aiDisclosure;
-  art.appendChild(disclosure);
+  for (const key of CREDITS.aiDisclosure) {
+    const disclosure = document.createElement('p');
+    disclosure.className = 'rl-credits__disclosure';
+    disclosure.textContent = t(key);
+    art.appendChild(disclosure);
+  }
 
   // --- Licence --------------------------------------------------------------
   const licence = section(p.body, t('credits.licence'));

@@ -1159,3 +1159,42 @@ mission III; the ledger fix on II (§10 G-B), because until it lands every
 measurement of III is a thin-recon measurement; the fourteen `say` and four
 `say_on_fail` lines; the five `debrief` strings; and last, on mission V only, the
 `aftermath` the lead chooses, which is the last line of the war.
+
+---
+
+## 14. The end of the war — the campaign-complete lines (2026-10-09)
+
+The polish audit's "no campaign-complete line anywhere": the last victory ended on
+the same report as any other, its "What changed" column told the player to choose
+the next town on the campaign map, and the board went on saying *"Click a front to
+open its next operation"* over a board with nothing left to open. These lines close
+that. They follow the `aftermath` (§5.6, Ari Actual) and Shai's promotion line on
+the same report, so they repeat neither: no brigade, no callsign, no stars.
+
+**Where they live.** A campaign line belongs to no one mission, so it has no mission
+file: the words are catalogue entries (`packages/app/src/i18n/en.json`,
+`debrief.closing.1`–`4` and `world.complete`), and *when* is
+`packages/app/src/campaign-close.ts` — complete is derived from
+`campaign.completed_missions` against `world.json` (every region with missions is
+`complete`), never stored. The exchange is shown on the report of the victory that
+FINISHED the campaign (complete after the run, not before it), never on a defeat,
+another victory, or a replay once the war is over. Static text, not conditioned on
+the ledger (storyline.md D9).
+
+**What it honours.** Idit's thread is the one who says the number Shai will not
+(storyline §2.2.6; `wadi_halam_4_village`'s `say_on_fail`: *"Somebody has to keep
+saying the number, and it is not going to be you"*). Shai still does not say it —
+he asks her to, once more (§2.1.3 stands). The board is her map board from First
+Light (§2.2.1). Conduct is the thing Shai wants to look at: what is still standing.
+
+| event | channel | speaker | line | overlay / audio | status |
+|---|---|---|---|---|---|
+| `missionEnd` victory that completes the campaign | debrief | Idit | *"That was the last question on the board. Three fronts, and nothing left on the wall to read."* (92) | quote with plate, after the mission's own word; no portrait | live |
+| same | debrief | Shai | *"Leave it up one more morning. I want to look at what is still standing on it."* (77) | same | live |
+| same | debrief | Idit | *"Nine did not come in at First Light. I have said it at every town since, because you would not."* (95) | same | live |
+| same | debrief | Shai | *"Say it once more. Then take it down."* (36) | same | live |
+| campaign board, every front complete | toast (the board's resting line; flat board: its own line) | Idit's register, unplated, like the hostages line | *"Every front is closed, and nothing on this board is waiting to be opened. It stays up one more morning."* (103) | none | live |
+| same four debrief lines | voice audio | Idit / Shai | as above | approved target, unbuilt | engine |
+
+Rows: 6 — 5 `live`, **1 `engine`** (voice audio).
+
