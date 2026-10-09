@@ -36,6 +36,16 @@ Checks (all fail the build):
                   count against `channels`, the true peak (<= -6 dBTP), the
                   loudness as heard (-34 +- 2 LUFS) and the seam (no level
                   step, no gap). Without ffmpeg the skip is named.
+  11. BEDS    -- `music.beds` (AU-7): both `calm` and `battle` or neither;
+                  the theme's licence/source bar, the music size ceiling, a
+                  trim in range; with ffmpeg and ffprobe BOTH encodings decoded
+                  -- length against `loop_s` (to 1 ms), channels, true peak
+                  plus trim at or under -1 dBTP, no codec gap at the wrap, and
+                  the loudness as heard (file + trim + battle_gain +
+                  master_gain): battle -26 +- 2 LUFS, calm -28 +- 2 and not
+                  louder than battle (audio plan section 6.1). The level step
+                  at the wrap is printed, not gated: a musical loop may wrap
+                  from a fill into a downbeat.
   6. VOICES    -- licence/source/generator/text/translit/en on every voice
                   variant; ASCII voice/<lang>/<class>/<trigger>_<nn><take>.ogg|m4a
                   paths filed under their own key; keys in a language some
@@ -348,6 +358,83 @@ def check_ambience(man, failures, notes, audio_dir=AUDIO_DIR, measure=measure_be
     return declared
 
 
+# AU-7: the mission beds as heard, audio plan section 6.1.
+BED_HEARD_LUFS = {"calm": -28.0, "battle": -26.0}
+BED_HEARD_TOL_LU = 2.0
+BED_LOOP_RANGE_S = (8.0, 120.0)
+
+
+def check_music_beds(man, failures, notes, audio_dir=AUDIO_DIR, measure=measure_bed):
+    """AU-7: `music.beds`. Returns every file declared. Which beds the
+    mixer asks for is a vitest (packages/render/src/audio.test.ts)."""
+    declared = set()
+    music = man.get("music") or {}
+    beds = music.get("beds")
+    if beds is None:
+        return declared
+    if not isinstance(beds, dict) or set(k for k in beds if not k.startswith("$")) != {"calm", "battle"}:
+        failures.append("music.beds: declares exactly `calm` and `battle`, or is absent (the mixer needs both)")
+        return declared
+    gain = music.get("battle_gain", music.get("gain", 1.0))
+    master = man.get("master_gain", 1.0)
+    heard = {}
+    for bed in ("calm", "battle"):
+        spec = beds[bed]
+        label = f"music bed '{bed}'"
+        if not isinstance(spec, dict) or not spec.get("file"):
+            failures.append(f"{label}: no file")
+            continue
+        check_licensed_file(spec, failures, MAX_MUSIC_BYTES, audio_dir=audio_dir)
+        declared |= {spec[r] for r in ("file", "alt") if spec.get(r)}
+        trim = spec.get("trim_db", 0.0)
+        loop_s = spec.get("loop_s")
+        channels = spec.get("channels")
+        if isinstance(trim, bool) or not isinstance(trim, (int, float)) or not TRIM_DB_RANGE[0] <= trim <= TRIM_DB_RANGE[1]:
+            failures.append(f"{label}: trim_db {trim!r} outside {TRIM_DB_RANGE[0]}..{TRIM_DB_RANGE[1]} dB")
+            continue
+        if isinstance(loop_s, bool) or not isinstance(loop_s, (int, float)) or not BED_LOOP_RANGE_S[0] <= loop_s <= BED_LOOP_RANGE_S[1]:
+            failures.append(f"{label}: loop_s {loop_s!r} outside {BED_LOOP_RANGE_S[0]}..{BED_LOOP_RANGE_S[1]} s")
+            continue
+        if channels not in (1, 2) or isinstance(channels, bool):
+            failures.append(f"{label}: channels {channels!r} is not 1 (mono) or 2 (stereo)")
+            continue
+        for role in ("file", "alt"):
+            rel = spec.get(role)
+            path = os.path.join(audio_dir, rel) if rel else None
+            if not path or not os.path.exists(path):
+                continue  # check_licensed_file already names a missing file
+            got = measure(path)
+            if got is None:
+                notes.append(f"{rel}: bed NOT measured (no ffmpeg/ffprobe on PATH) -- loop, channels, peak, loudness and seam unchecked")
+                continue
+            if got["channels"] != channels:
+                failures.append(f"{rel}: decodes to {got['channels']} channel(s), the manifest declares {channels}")
+            if abs(got["seconds"] - loop_s) > AMB_LOOP_TOL_S:
+                failures.append(
+                    f"{rel}: decodes to {got['seconds']:.4f} s, the loop is {loop_s:.4f} s -- "
+                    "an encoder's priming or padding left in loops with a gap"
+                )
+            if got["true_peak"] + trim > MAX_TRUE_PEAK_DBTP + 1e-9:
+                failures.append(f"{rel}: true peak {got['true_peak'] + trim:+.1f} dBTP after trim, over {MAX_TRUE_PEAK_DBTP} dBTP")
+            if got["seam_gap_db"] < -AMB_SEAM_GAP_DB:
+                failures.append(f"{rel}: a gap at the loop's seam, {got['seam_gap_db']:.1f} dB under the file's own floor")
+            level = got["integrated"] + trim + _db(gain * master)
+            if role == "file":
+                heard[bed] = level
+            if abs(level - BED_HEARD_LUFS[bed]) > BED_HEARD_TOL_LU + 1e-9:
+                failures.append(
+                    f"{rel}: heard at {level:.1f} LUFS ({got['integrated']:.1f} LUFS, trim {trim}, battle_gain {gain}, "
+                    f"master {master}), outside {BED_HEARD_LUFS[bed]} +- {BED_HEARD_TOL_LU}"
+                )
+            notes.append(
+                f"{rel}: {got['seconds']:.3f} s loop, {got['channels']} ch, {got['true_peak'] + trim:+.1f} dBTP, "
+                f"heard {level:.1f} LUFS, seam step {got['seam_level_db']:.1f} dB (reported) / gap {got['seam_gap_db']:+.1f} dB"
+            )
+    if "calm" in heard and "battle" in heard and heard["calm"] > heard["battle"] + 1e-9:
+        failures.append(f"music.beds: calm is heard at {heard['calm']:.1f} LUFS, louder than battle's {heard['battle']:.1f}")
+    return declared
+
+
 def check_commercial(man, failures):
     """A3: what a commercial build may not carry. Every variant, in every
     section, whose `source` records an unconfirmed licence."""
@@ -355,6 +442,7 @@ def check_commercial(man, failures):
     for spec in man.get("sets", {}).values():
         found += [v for v in spec.get("variants", [])]
     found += list((man.get("music") or {}).get("tracks", []))
+    found += [b for b in ((man.get("music") or {}).get("beds") or {}).values() if isinstance(b, dict)]
     found += [b for b in ((man.get("ambience") or {}).get("beds") or {}).values() if isinstance(b, dict)]
     for line in ((man.get("voices") or {}).get("lines") or {}).values():
         found += line.get("variants", [])
@@ -655,6 +743,7 @@ def main(argv=None):
 
     check_music_levels(music, failures, notes)
     declared_amb = check_ambience(man, failures, notes)
+    declared_beds = check_music_beds(man, failures, notes)
     total_cues = check_cues(man, failures)
     if commercial:
         check_commercial(man, failures)
@@ -684,6 +773,7 @@ def main(argv=None):
         }
         declared |= declared_voice
         declared |= declared_amb
+        declared |= declared_beds
         for dirpath, _, files in os.walk(AUDIO_DIR):
             for fn in files:
                 if os.path.splitext(fn)[1].lower() not in ALLOWED_EXT:
@@ -705,6 +795,7 @@ def main(argv=None):
     voice_note = f", {total_voice_variants} voice variant(s)" if total_voice_variants else ""
     voice_note += f", {total_cues} cue(s) mapped" if total_cues else ""
     voice_note += f", {len(declared_amb) // 2} ambience bed(s)" if declared_amb else ""
+    voice_note += f", {len(declared_beds) // 2} music bed(s)" if declared_beds else ""
     voice_note += ", commercial build clean" if commercial else ""
     if total_variants == 0:
         print(f"audio gate passed: manifest valid, no recordings yet (procedural synth in use){music_note}{voice_note}")
