@@ -9,68 +9,34 @@
 // this header's old "never a star" rule for that one surface -- so steel,
 // not shape, is what keeps it apart from veterancy's gold there.
 //
-// The glyphs are PLACEHOLDERS. The S3e symbol family is not drawn yet (G1,
-// GH-165), and these four join its addendum (D8). Until the sheet is approved
-// they live here, drawn to the family's properties (one viewBox,
-// currentColor, a pixel of ink at 10 px, the chevron's 14:24 sweep on every
-// diagonal); `KIT_SYMBOLS` is the one line the approved sheet replaces, and
-// everything draws through `kitSymbolSvg` so nothing else changes when it does.
+// The stars on the icons are FINAL (the lead, 2026-10-09). The only other
+// glyph here is the garage bay's own plate-with-bars mark (`kitPlateSvg`,
+// drawn by `brigade.ts`'s bay plate); the three track heads are the approved
+// hand-drawn emblems in `assets/ui/kit/` (`kit-emblems.ts`), and the old
+// built-in track glyphs that backed them up are deleted.
 import { applyUpgrades, kitCounts, kitLevel, readPath, type KitLevel, type UpgradableUnit } from '@lions/data';
 import { t } from '../i18n/t';
 import { escapeHtml } from './escape-html';
 
 export const KIT_TRACKS = ['armour', 'sensors', 'firepower'] as const;
 export type KitTrack = (typeof KIT_TRACKS)[number];
-export type KitSymbolId = 'kit' | KitTrack;
 
-export function isKitTrack(name: string): name is KitTrack {
-  return (KIT_TRACKS as readonly string[]).includes(name);
-}
-
-/** `mark.ts`'s chevron: 14 across for every 24 up. Defined there now and
- *  re-exported here (Q12, 2026-09-28): `order-sight.ts`'s stadia aim leans at
- *  the same sweep, so the constant has one definition instead of two that
- *  happen to agree. */
-export { CHEVRON_SWEEP } from './mark';
-
-export interface KitSymbolSheet {
-  readonly viewBox: string;
-  readonly track: Readonly<Record<KitTrack, string>>;
-  readonly mark: (level: 1 | 2 | 3) => string;
-}
-
-const STROKE = 2.5;
-/** The plate: upper corners bevelled 3.5 across over 6 down -- the chevron's sweep at this box's scale. */
+/** The plate: upper corners bevelled 3.5 across over 6 down -- the chevron's
+ *  sweep (`mark.ts`'s `CHEVRON_SWEEP`) at this box's scale. */
 const PLATE = 'M2 22 L2 8 L5.5 2 L18.5 2 L22 8 L22 22 Z';
+const PLATE_STROKE = 2.5;
 /** Bar 1 at the bottom: a level is climbed, like the board's ladder. */
 const BAR_Y = [16.5, 12, 7.5] as const;
 
-const PLACEHOLDER_KIT_SYMBOLS: KitSymbolSheet = {
-  viewBox: '0 0 24 24',
-  mark: (level) =>
-    `<path d="${PLATE}" fill="none" stroke="currentColor" stroke-width="${STROKE}"/>` +
-    BAR_Y.slice(0, level)
-      .map((y) => `<rect x="6.5" y="${y}" width="11" height="3" fill="currentColor"/>`)
-      .join(''),
-  track: {
-    // A slab with a riveted panel cut out of it.
-    armour: `<path d="M3 21 L3 10 L6.5 4 L17.5 4 L21 10 L21 21 Z M7 12 L7 17 L17 17 L17 12 Z" fill="currentColor" fill-rule="evenodd"/>`,
-    // A lens: ring and pupil. No diagonal, so nothing to sweep.
-    sensors: `<circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="${STROKE}"/><circle cx="12" cy="12" r="3" fill="currentColor"/>`,
-    // A round: body and a nose at the sweep.
-    firepower: `<path d="M8.5 22 L8.5 9 L12 3 L15.5 9 L15.5 22 Z" fill="currentColor"/>`,
-  },
-};
-
-/** THE line G1's approved sheet replaces (GH-165). */
-export const KIT_SYMBOLS: KitSymbolSheet = PLACEHOLDER_KIT_SYMBOLS;
-
-export function kitSymbolSvg(id: KitSymbolId, size: number, level: 1 | 2 | 3 = 1, className = ''): string {
+/** The garage bay's kit mark: a bevelled plate with `level` bars. */
+export function kitPlateSvg(size: number, level: 1 | 2 | 3 = 1, className = ''): string {
   const cls = className ? ` class="${className}"` : '';
-  const body = id === 'kit' ? KIT_SYMBOLS.mark(level) : KIT_SYMBOLS.track[id];
+  const bars = BAR_Y.slice(0, level)
+    .map((y) => `<rect x="6.5" y="${y}" width="11" height="3" fill="currentColor"/>`)
+    .join('');
   return (
-    `<svg${cls} width="${size}" height="${size}" viewBox="${KIT_SYMBOLS.viewBox}" ` +
-    `aria-hidden="true" focusable="false">${body}</svg>`
+    `<svg${cls} width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">` +
+    `<path d="${PLATE}" fill="none" stroke="currentColor" stroke-width="${PLATE_STROKE}"/>${bars}</svg>`
   );
 }
 
@@ -146,7 +112,7 @@ function kitStarsSvg(level: 1 | 2 | 3, heightPx: number): string {
 /** The kit level on a unit's ICON: 1-3 steel Stars of David (G-P3, the
  *  lead, 2026-09-27: "Steel Stars of David" -- steel through `.rl-kit-mark`'s
  *  `--kit`, never gold, which is veterancy and credits, D3). The garage bay
- *  keeps its own bevelled mark (`kitSymbolSvg('kit')`); this is the icon
+ *  keeps its own bevelled mark (`kitPlateSvg`); this is the icon
  *  sign only. Nothing at level 0 -- an unkitted icon must not change by a
  *  byte (every gated golden frame boots a fresh account). The markup never
  *  names a surface or a size: the svg's own attributes are the smaller

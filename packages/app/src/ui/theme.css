@@ -5893,7 +5893,7 @@ button.rl-menu__item[data-kind='aside'] {
 }
 /* The kit mark, pinned in the plate's own corner (`.rl-garage__plate` is the
    positioning context above): the bevelled bars-and-level badge
-   (`kit-sign.ts`'s `kitSymbolSvg`) beside its own `Kit I`/`II`/`III` label.
+   (`kit-sign.ts`'s `kitPlateSvg`) beside its own `Kit I`/`II`/`III` label.
    `.rl-kit-mark` (theme.css, kit pips) already colours the svg through
    `currentColor`. */
 .rl-garage__plate-kit {
