@@ -155,10 +155,40 @@ export interface AudioManifest {
   voices?: VoiceManifest;
 }
 
-/** Who wins a voice slot (N5): an order, then a KDF death, then an enemy death. */
-export type VoicePriority = 'announce' | 'order' | 'kdf_death' | 'enemy_death';
-/** N5's ranking as numbers; higher wins. */
-export const VOICE_RANK: Readonly<Record<VoicePriority, number>> = { announce: 4, order: 3, kdf_death: 2, enemy_death: 1 };
+/** Who wins a voice slot (N5, and the audio plan's §5.1 ladder since AU-5).
+ *  An announcement is split by the manifest's own `priority`: `announce_high`
+ *  (objective new/complete/failed, deadline), `announce` (normal: wave,
+ *  reinforcements) and `announce_low` (unit lost). `outcome` is Shai's
+ *  victory/defeat line (§5.4), not recorded yet. */
+export type VoicePriority =
+  | 'outcome'
+  | 'announce_high'
+  | 'order'
+  | 'announce'
+  | 'kdf_death'
+  | 'announce_low'
+  | 'enemy_death';
+/** The §5.1 ladder as numbers; higher wins. The verdict outranks everything;
+ *  mission state outranks the gesture just made; the gesture outranks the
+ *  normal announcement (feedback is never late, N4); a death call outranks a
+ *  loss count the feed also carries; a seen enemy death is last. */
+export const VOICE_RANK: Readonly<Record<VoicePriority, number>> = {
+  outcome: 7,
+  announce_high: 6,
+  order: 5,
+  announce: 4,
+  kdf_death: 3,
+  announce_low: 2,
+  enemy_death: 1,
+};
+
+/** The lines that speak for the MISSION rather than for a unit: every
+ *  announcement and the outcome. They duck as an announcement does, and they
+ *  are never pre-empted by rank (AU-5): half an objective call is worse than
+ *  none. */
+export function isAnnouncementPriority(p: VoicePriority): boolean {
+  return p === 'outcome' || p === 'announce_high' || p === 'announce' || p === 'announce_low';
+}
 
 /** A request to speak one line. `at` places it in the world; absent means the
  *  radio net, heard through the radio band (N13). */
@@ -188,6 +218,12 @@ export interface VoiceResult {
   en: string | null;
   /** How many playing lines this one cut short (N4, N5). */
   cut: number;
+  /** AU-5: this line's own id while it sounds, so a caller can tell when it
+   *  is cut; absent when nothing plays. */
+  id?: number;
+  /** AU-5: the ids of the lines this one cut, so a caption that belonged to
+   *  one of them can go with it. */
+  cutIds?: readonly number[];
 }
 
 /** The decode and playback readback (N16, R-10): languages, keys, bytes, budget. */
@@ -208,6 +244,9 @@ export interface VoiceStats {
 
 /** Voices that may sound at once (N5). */
 export const VOICE_CAP = 2;
+/** The no-cut floor (AU-5): a line in its first 300 ms is never pre-empted by
+ *  rank, so nothing is clipped to a blip. In context seconds. */
+export const VOICE_NO_CUT_S = 0.3;
 /** Decoded voice PCM held at most, in bytes (N16). */
 export const VOICE_DECODE_BUDGET_BYTES = 16 * 1024 * 1024;
 /** One row of the mix's ducking table: what a trigger does to the layers
@@ -409,11 +448,25 @@ export const PLACEHOLDER_GAIN = 0.15;
 /** How often the music element's duck steps its volume, in ms (N12, R-2). */
 export const MUSIC_DUCK_STEP_MS = 20;
 
-/** N4 and N5 as one pure rule. `active` is oldest-first. */
+/**
+ * N4, N5 and the AU-5 floor as one pure rule. `active` is oldest-first;
+ * `startedAt` and `nowS` are context seconds, and a line with no `startedAt`
+ * (or a call with no `nowS`) is read as long past the floor.
+ *
+ * - A new order replaces the last order at once (N4): the newest gesture is
+ *   what the cursor promised, so this replacement is not held by the floor.
+ * - Below the cap, everything else plays.
+ * - At the cap, the incoming line may pre-empt the lowest-ranked line that
+ *   ranks strictly below it (oldest first on a tie), but never one inside its
+ *   first `VOICE_NO_CUT_S`, and never an announcement or the outcome line.
+ *   Nothing it may pre-empt: it is dropped, not queued -- a queued line
+ *   describes the past.
+ */
 export function admitVoice(
-  active: readonly { id: number; priority: VoicePriority }[],
+  active: readonly { id: number; priority: VoicePriority; startedAt?: number }[],
   incoming: VoicePriority,
-  cap = VOICE_CAP
+  cap = VOICE_CAP,
+  nowS?: number
 ): { play: boolean; cut: number[] } {
   const cut: number[] = [];
   let rest = active;
@@ -422,11 +475,44 @@ export function admitVoice(
     rest = active.filter((v) => v.priority !== 'order');
   }
   if (rest.length < cap) return { play: true, cut };
-  let low = rest[0];
-  for (const v of rest) if (VOICE_RANK[v.priority] < VOICE_RANK[low.priority]) low = v;
-  // A tie loses to what is already speaking: a queued line describes the past.
-  if (VOICE_RANK[low.priority] >= VOICE_RANK[incoming]) return { play: false, cut: [] };
+  const pastFloor = (v: { startedAt?: number }): boolean =>
+    nowS === undefined || v.startedAt === undefined || nowS - v.startedAt >= VOICE_NO_CUT_S - 1e-9;
+  let low: (typeof rest)[number] | null = null;
+  for (const v of rest) {
+    if (isAnnouncementPriority(v.priority) || !pastFloor(v)) continue;
+    if (VOICE_RANK[v.priority] >= VOICE_RANK[incoming]) continue;
+    if (low === null || VOICE_RANK[v.priority] < VOICE_RANK[low.priority]) low = v;
+  }
+  if (low === null) return { play: false, cut: [] };
   return { play: true, cut: [...cut, low.id] };
+}
+
+/**
+ * The shuffle bag (AU-5): which take of an `n`-take line plays next. Never the
+ * same take twice running, and every take once before any plays again. `bag`
+ * is the takes still to come this cycle; when it is empty (or was filled for a
+ * line with more takes than this one has now) a fresh shuffle refills it, and
+ * if that shuffle would open on the take that just played, its first two
+ * swap. Pure: `rand` is the mixer's own presentation PRNG.
+ */
+export function drawFromBag(
+  bag: readonly number[],
+  n: number,
+  last: number | null,
+  rand: () => number
+): { take: number; bag: number[] } {
+  if (n <= 1) return { take: 0, bag: [] };
+  let next = bag.every((i) => i < n) ? [...bag] : [];
+  if (next.length === 0) {
+    next = Array.from({ length: n }, (_, i) => i);
+    for (let i = n - 1; i > 0; i--) {
+      const j = Math.floor(rand() * (i + 1));
+      [next[i], next[j]] = [next[j], next[i]];
+    }
+    if (next[0] === last) [next[0], next[1]] = [next[1], next[0]];
+  }
+  const [take, ...rest] = next;
+  return { take, bag: rest };
 }
 
 /** A linear ramp's value `elapsedMs` into it, holding `to` once it is over (N12). */
@@ -479,6 +565,8 @@ function placeholderHz(key: string): number {
 interface ActiveVoice {
   id: number;
   priority: VoicePriority;
+  /** Context seconds when the line was asked for: the no-cut floor's clock. */
+  startedAt: number;
   src: AudioScheduledSourceNode;
   /** The line's own gain, which a cut fades. */
   gain: GainNode;
@@ -743,6 +831,8 @@ export class BattleAudio {
   /** Lines sounding now, oldest first (N5). */
   private activeVoices: ActiveVoice[] = [];
   private nextVoiceId = 1;
+  /** AU-5: per voice key, the takes still to come this cycle and the last one played. */
+  private readonly takeBags = new Map<string, { bag: number[]; last: number | null }>();
   /** Squelches not yet at their own end, whether or not their words are
    *  still sounding: the tail outlives the line by up to RADIO_FX.tailS, and
    *  a stop in that window must silence it too. Pruned by `endsAt`. */
@@ -1278,6 +1368,7 @@ export class BattleAudio {
     for (const [key, loaded] of this.voiceLines) {
       if (this.voiceWanted.has(voiceLanguage(key))) continue;
       this.voiceLines.delete(key);
+      this.takeBags.delete(key);
       this.voiceBytes -= loaded.bytes;
       freed += loaded.bytes;
     }
@@ -1694,12 +1785,12 @@ export class BattleAudio {
     // Not recorded, or not decoded yet: both play nothing (R-9). The tick
     // stands in only when a dev session asked for it (R-10).
     if (!line && !this.voicePlaceholder) return none('missing');
-    const admit = admitVoice(this.activeVoices, p.priority);
+    const t = ctx.currentTime;
+    const admit = admitVoice(this.activeVoices, p.priority, VOICE_CAP, t);
     if (!admit.play) return none('dropped');
     for (const id of admit.cut) this.cutVoice(id);
 
-    const t = ctx.currentTime;
-    const take = line ? Math.floor(this.rand() * line.buffers.length) : 0;
+    const take = line ? this.nextTake(p.key, line.buffers.length) : 0;
     const seconds = line ? line.buffers[take].duration : PLACEHOLDER_S;
     // The walkie-talkie colour (N17): unplaced lines only, and only when the
     // setting is on AS THIS LINE STARTS. The click and static are made first
@@ -1741,7 +1832,7 @@ export class BattleAudio {
     src.connect(head);
     nodes.unshift(src);
     const id = this.nextVoiceId++;
-    this.activeVoices.push({ id, priority: p.priority, src, gain: g, nodes, squelch });
+    this.activeVoices.push({ id, priority: p.priority, startedAt: t, src, gain: g, nodes, squelch });
     if (squelch) {
       this.squelchTails = this.squelchTails.filter((q) => q.endsAt > ctx.currentTime);
       this.squelchTails.push(squelch);
@@ -1754,7 +1845,15 @@ export class BattleAudio {
     src.start(at);
     if (!line) src.stop(at + PLACEHOLDER_S);
     this.voiceHold();
-    return { status: line ? 'played' : 'placeholder', seconds, en, cut: admit.cut.length };
+    return { status: line ? 'played' : 'placeholder', seconds, en, cut: admit.cut.length, id, cutIds: admit.cut };
+  }
+
+  /** AU-5: the next take of `key` from its shuffle bag. */
+  private nextTake(key: string, n: number): number {
+    const prev = this.takeBags.get(key) ?? { bag: [], last: null };
+    const d = drawFromBag(prev.bag, n, prev.last, () => this.rand());
+    this.takeBags.set(key, { bag: d.bag, last: d.take });
+    return d.take;
   }
 
   /** Fade every line out and let go of the duck: a mission leave. */
@@ -1802,7 +1901,7 @@ export class BattleAudio {
    *  otherwise, none once the last line ends (N12). */
   private voiceHold(): void {
     if (this.activeVoices.length === 0) return this.setHold('voice', null);
-    const announcing = this.activeVoices.some((v) => v.priority === 'announce');
+    const announcing = this.activeVoices.some((v) => isAnnouncementPriority(v.priority));
     this.setHold('voice', announcing ? DUCK_TABLE.announce : DUCK_TABLE.bark);
   }
 
