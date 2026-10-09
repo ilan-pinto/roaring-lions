@@ -15,7 +15,7 @@
     "validate:data": "node tools/validate_data.mjs",
     "validate:meshes": "python3 tools/validate_mesh_assets.py",
     "validate:ui": "node tools/validate_ui_palette.mjs && node tools/validate_i18n.mjs",
-    "validate:audio": "python3 tools/validate_audio.py && python3 tools/test_gen_audio_args.py && python3 tools/test_validate_audio_voices.py && python3 tools/test_validate_audio_ui.py && python3 tools/test_validate_audio_mix.py && python3 tools/test_validate_audio_ambience.py",
+    "validate:audio": "python3 tools/validate_audio.py && python3 tools/test_gen_audio_args.py && python3 tools/test_validate_audio_voices.py && python3 tools/test_validate_audio_ui.py && python3 tools/test_validate_audio_mix.py && python3 tools/test_validate_audio_ambience.py && python3 tools/test_validate_audio_music.py",
     "balance": "pnpm --filter @lions/tools balance",
     "playtest": "pnpm --filter @lions/tools playtest",
     "perf:units": "pnpm --filter @lions/tools perf:units",

@@ -245,7 +245,7 @@ resolves or is declared empty — speech has no synth fallback, so empty means s
   player's ear, and an order given from the minimap far from the camera must still be answered —
   `playSet`'s distance early-out would silence it. Enemy deaths are **placed** through `playSet`:
   they are events the player watches, and N7 already demands they be on screen.
-- **Captions (D8):** default **off**, an Accessibility toggle; when on, the line's `en` shows for
+- **Captions (D8):** default ~~off~~ **ON since 2026-10-09 (PA-23, lead L2 supersedes the default only)**, an Accessibility toggle; when on, the line's `en` shows for
   its length + 1 s in one slot above the dock, never in the notice feed. Off, because every line
   repeats what the cursor and order marker already show.
 
@@ -260,7 +260,7 @@ resolves or is declared empty — speech has no synth fallback, so empty means s
 | D5 | The seven samples | the lead states source and licence; uncommitted, reference only, until then |
 | D6 | Enemy deaths | voiced when visible (N7); alternative: never |
 | D7 | Enemy order lines on `commit`/`withdraw_to` | yes, phase 2, from the visible enemy unit nearest the camera |
-| D8 | Captions | off by default; toggle; English meaning |
+| D8 | Captions | ~~off~~ ON by default (PA-23, 2026-10-09); toggle; English meaning |
 | D9 | Licence id for owned/commissioned voice | `LicenseRef-owned` with a release record |
 | D10 | Civilians | silent |
 | — | N1–N16 | as proposed |

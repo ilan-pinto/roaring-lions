@@ -170,6 +170,16 @@
           ],
           "default": "day"
         },
+        "light": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "description": "PA-24: this mission's own lift on top of its time_of_day preset, for readability (lead ruling L3: First Light only). fill replaces the hemisphere (fill light) intensity; shadow is the sun's shadow strength, 1 = full. App-read only, never by the sim (the same path time_of_day took). Absent is the preset unchanged.",
+          "properties": {
+            "fill": { "type": "number", "minimum": 0.5, "maximum": 1.5 },
+            "shadow": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
         "player_start": {
           "type": "array",
           "items": {

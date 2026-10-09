@@ -80,7 +80,7 @@
  * at 18 degrees or more.
  */
 import * as THREE from 'three';
-import { DAY_SUN_DIRECTION } from './time-of-day';
+import { DAY_SUN_DIRECTION, type LightOverride } from './time-of-day';
 import { paletteHex } from './palette-hex';
 
 export const SUN_DIRECTION = new THREE.Vector3(...DAY_SUN_DIRECTION).normalize();
@@ -198,4 +198,19 @@ export function createSceneLights(
       hemisphere.dispose();
     },
   };
+}
+
+/**
+ * PA-24: a mission's `fill` over a preset's lights. No override, or one with
+ * no `fill`, hands back the SAME object -- so `DAY_LIGHTS` stays itself and
+ * every renderer without an override is lit to the bit as before.
+ */
+export function withLightOverride(lights: ResolvedLights, o: LightOverride | undefined): ResolvedLights {
+  if (o?.fill === undefined) return lights;
+  return { ...lights, hemiIntensity: o.fill };
+}
+
+/** PA-24: the sun's shadow strength; 1 (three's default) unless overridden. */
+export function shadowIntensityOf(o: LightOverride | undefined): number {
+  return o?.shadow ?? 1;
 }

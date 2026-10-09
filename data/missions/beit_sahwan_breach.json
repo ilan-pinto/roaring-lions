@@ -28,7 +28,11 @@
       24,
       23
     ],
-    "time_of_day": "dawn"
+    "time_of_day": "dawn",
+    "light": {
+      "fill": 0.9,
+      "shadow": 0.7
+    }
   },
   "ledger": {
     "requires": [],

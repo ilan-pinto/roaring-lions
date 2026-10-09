@@ -60,7 +60,7 @@ import {
   type PurchaseAsk,
   type PurchaseCue,
 } from './garage-model';
-import { kitIconSignDecorHtml, kitLevelLabel, kitPipsHtml, kitSummary, kitSymbolSvg } from './kit-sign';
+import { kitIconSignDecorHtml, kitLevelLabel, kitPipsHtml, kitPlateSvg, kitSummary } from './kit-sign';
 import { markSvg } from './mark';
 import { plateFit } from './plate-fit';
 import { garageModel, type GarageModelDeps, type GarageModelHandle } from './garage-viewer';
@@ -1194,7 +1194,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     // actually been bought -- an unkitted bay is left exactly as it was.
     if (kit.level !== 0) {
       const mark = el('div', 'rl-garage__plate-kit rl-kit-mark');
-      mark.innerHTML = kitSymbolSvg('kit', 48, kit.level);
+      mark.innerHTML = kitPlateSvg(48, kit.level);
       mark.appendChild(el('span', 'rl-garage__plate-kit-label', kitLevelLabel(kit.level)));
       plate.appendChild(mark);
     }

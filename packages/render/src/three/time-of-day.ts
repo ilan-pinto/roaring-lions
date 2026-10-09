@@ -32,6 +32,17 @@ import { paletteHex } from './palette-hex';
 export type TimeOfDay = 'dawn' | 'day' | 'dusk' | 'night';
 export type LitTimeOfDay = 'dawn' | 'day' | 'dusk';
 
+/**
+ * PA-24 (lead ruling L3): one mission's lift on top of its preset, from the
+ * mission JSON's optional `map.light`. `fill` replaces the hemisphere
+ * intensity; `shadow` is the sun's `shadow.intensity` (1 = full strength,
+ * three r170). Each field absent leaves the preset's own value.
+ */
+export interface LightOverride {
+  readonly fill?: number;
+  readonly shadow?: number;
+}
+
 export interface LightPreset {
   /** null = today's SUN_DIRECTION exactly (day); else the elevation in degrees. */
   readonly elevationDeg: number | null;

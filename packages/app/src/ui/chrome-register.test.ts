@@ -369,7 +369,9 @@ describe('the chrome register: panel ranks (VR-24)', () => {
   it('gives each panel the rank its job names', () => {
     expect(rankAt('packages/app/src/ui/debrief.ts')).toEqual(["'mission'"]);
     expect(rankAt('packages/app/src/tutorial/panel.ts')).toEqual(["'mission'"]);
-    expect(rankAt('packages/app/src/ui/outcome-moment.ts')).toEqual(["'alert'"]);
+    // PA-07 (lead ruling 9 Oct): the verdict band is the mission band, the
+    // report's own rank, for both outcomes (A's stamp on B's held beat).
+    expect(rankAt('packages/app/src/ui/outcome-moment.ts')).toEqual(["'mission'"]);
     expect(rankAt('packages/app/src/ui/confirm.ts')).toEqual(["opts.danger ? 'alert' : 'inspect'"]);
     for (const f of ['pause', 'settings-panel', 'saves', 'keys-overlay', 'credits', 'objectives']) {
       expect([f, rankAt(`packages/app/src/ui/${f}.ts`)]).toEqual([f, ["'inspect'"]]);

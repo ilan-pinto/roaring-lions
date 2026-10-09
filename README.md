@@ -12,7 +12,7 @@ All geography and factions are fictional. Enemy forces are defined by military d
 
 **<https://roaring-lions.pint12.workers.dev>** — the current build, served by a Cloudflare Worker built from `main`. It needs a WebGL2-capable browser; without one, the campaign board falls back to its flat map, and missions need WebGL2. Source and issues: <https://github.com/ilan-pinto/roaring-lions>.
 
-The menu leads with where the campaign stands — Start or Continue and the mission's name — then Campaign, Brigade, the tutorial (*Beit Sahwan 0 — Working Up*, 14 steps), Free play, Saves, Settings, New campaign, sound and Credits. Free play walks any shipped map with a full task force and optional extras: civilians and a refuge, a pre-dug tunnel and sappers to collapse it, the Sarim roster, an anti-tank ditch, no-fire ground, and three diagnostic toggles.
+The menu leads with where the campaign stands — Start or Continue and the mission's name — then Campaign, Brigade, the tutorial (*Working Up*, 14 steps), Free play, Saves, Settings, New campaign, sound and Credits. Free play walks any shipped map with a full task force and optional extras: civilians and a refuge, a pre-dug tunnel and sappers to collapse it, the Sarim roster, an anti-tank ditch, no-fire ground, and three diagnostic toggles.
 
 The first minute:
 

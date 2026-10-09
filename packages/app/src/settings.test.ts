@@ -29,7 +29,8 @@ describe('parseSettings', () => {
     }));
     expect(s.video).toEqual({ fullscreen: true, uiScale: 'auto', textSize: 1.15, quality: 'high' });
     expect(s.audio).toEqual({ master: 0.5, music: 1, sfx: 1, voice: 1, radio: true });
-    expect(s.accessibility).toEqual({ motion: 'reduce', colorVision: 'default', captions: false });
+    // A key the save never carried takes the DEFAULT (captions on, PA-23).
+    expect(s.accessibility).toEqual({ motion: 'reduce', colorVision: 'default', captions: true });
     expect(s.language).toBe('en');
     expect('extra' in s).toBe(false);
   });
@@ -79,11 +80,14 @@ describe('parseSettings', () => {
     store.map.set(SETTINGS_KEY, JSON.stringify({ version: 1, audio: { radio: false, master: 'x' } }));
     expect(loadSettings(store).audio).toMatchObject({ radio: false, master: 1 });
   });
-  it('captions are off by default, and a bad value reads as off (D8)', () => {
-    expect(DEFAULT_SETTINGS.accessibility.captions).toBe(false);
+  it('captions are ON by default (PA-23, lead 2026-10-09; supersedes the D8 default), a stored choice stays, and a bad value reads as the default', () => {
+    expect(DEFAULT_SETTINGS.accessibility.captions).toBe(true);
+    expect(parseSettings(JSON.stringify({ version: 1, accessibility: { motion: 'reduce' } })).accessibility.captions).toBe(true);
+    // A player who switched them off keeps that: the stored false is a choice.
+    expect(parseSettings(JSON.stringify({ version: 1, accessibility: { captions: false } })).accessibility.captions).toBe(false);
     expect(parseSettings(JSON.stringify({ version: 1, accessibility: { captions: true } })).accessibility.captions).toBe(true);
     expect(parseSettings(JSON.stringify({ version: 1, accessibility: { captions: 'yes', motion: 'reduce' } })).accessibility).toEqual({
-      motion: 'reduce', colorVision: 'default', captions: false,
+      motion: 'reduce', colorVision: 'default', captions: true,
     });
   });
 });
