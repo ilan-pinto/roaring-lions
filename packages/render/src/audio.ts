@@ -59,6 +59,21 @@ export interface MusicSpec {
   battle_gain?: number;
   /** Played in order and wrapped; a single track simply loops. */
   tracks?: MusicTrack[];
+  /** AU-7: the mission's two beds, re-cut from the theme. With both declared,
+   *  a mission fades the theme out and plays these at `battle_gain`, calm
+   *  until combat picks up (MusicIntensity). Without them a mission plays the
+   *  theme at `battle_gain`, as before. */
+  beds?: Partial<Record<MusicBed, MusicBedSpec>>;
+}
+
+/** AU-7: the mission's two music beds. */
+export type MusicBed = 'calm' | 'battle';
+
+/** One bed: a seamless loop, as a track, plus what `pnpm validate:audio`
+ *  re-measures from both encodings (written by tools/recut_music.py). */
+export interface MusicBedSpec extends MusicTrack {
+  loop_s?: number;
+  channels?: number;
 }
 
 /** One recorded take (spec §6, D9): provenance plus `en`, the caption (R-18). */
@@ -294,6 +309,8 @@ export const OUTCOME_CUE_BLOCK_S = 3;
 export const OUTCOME_HOLD_TAIL_S = 1;
 /** How long the music takes to move between the menu and battle levels. */
 export const MUSIC_SCENE_S = 2;
+/** One sim tick, in ms: the 20 Hz of invariant 1. */
+const SIM_TICK_MS = 50;
 
 /** The music's scene: the menu screens, or inside a mission (A10). */
 export type MusicScene = 'menu' | 'battle';
@@ -307,6 +324,75 @@ export function musicSceneGain(spec: MusicSpec | undefined, scene: MusicScene): 
 /** A track's `trim_db` as a linear factor; absent is unity. */
 export function trimGain(db: number | undefined): number {
   return db === undefined ? 1 : Math.pow(10, db / 20);
+}
+
+/**
+ * AU-7, audio plan section 6.1: when the mission's music turns to battle and
+ * back. Battle at `riseEvents` player-side combat events (a shot fired by or
+ * at a player unit, a round landing on one) inside `windowS`; calm again only
+ * once the same window has held under `fallBelow` for `quietS`. The gap
+ * between the two is the hysteresis: a burst raises the music once and a lull
+ * shorter than `quietS` cannot drop it. The fades are `upS` and `downS`.
+ */
+export const MUSIC_INTENSITY = { riseEvents: 6, windowS: 5, fallBelow: 2, quietS: 12, upS: 3, downS: 6 } as const;
+
+/**
+ * The intensity reading behind the beds. Pure and clocked by its caller --
+ * the mixer passes the sim's own tick time, so the pause menu (no ticks)
+ * freezes it and a test drives it exactly. It reads events the mixer already
+ * receives and writes nothing back (invariant 4).
+ */
+export class MusicIntensity {
+  private readonly hits: { t: number; n: number }[] = [];
+  private state: MusicBed = 'calm';
+  private quietSince: number | null = null;
+  private last = -Infinity;
+
+  bed(): MusicBed {
+    return this.state;
+  }
+
+  reset(): void {
+    this.hits.length = 0;
+    this.state = 'calm';
+    this.quietSince = null;
+    this.last = -Infinity;
+  }
+
+  /** `count` combat events at `nowMs`; returns the bed to play. */
+  observe(nowMs: number, count: number): MusicBed {
+    if (nowMs < this.last) this.reset();
+    this.last = nowMs;
+    if (count > 0) this.hits.push({ t: nowMs, n: count });
+    const from = nowMs - MUSIC_INTENSITY.windowS * 1000;
+    while (this.hits.length > 0 && this.hits[0].t <= from) this.hits.shift();
+    let sum = 0;
+    for (const h of this.hits) sum += h.n;
+    if (this.state === 'calm') {
+      if (sum >= MUSIC_INTENSITY.riseEvents) {
+        this.state = 'battle';
+        this.quietSince = null;
+      }
+    } else if (sum < MUSIC_INTENSITY.fallBelow) {
+      this.quietSince ??= nowMs;
+      if (nowMs - this.quietSince >= MUSIC_INTENSITY.quietS * 1000) this.state = 'calm';
+    } else {
+      this.quietSince = null;
+    }
+    return this.state;
+  }
+}
+
+/**
+ * The three music elements' weights, equal-power (AU-7): `scene` 0 is the
+ * menu (the theme alone) and 1 a mission; `battle` 0 is the calm bed and 1
+ * the battle bed. The squares always sum to 1, so no point of a fade is a
+ * dip or a bump in loudness.
+ */
+export function musicMix(scene: number, battle: number): { theme: number; calm: number; battle: number } {
+  const s = clamp01(scene) * (Math.PI / 2);
+  const b = clamp01(battle) * (Math.PI / 2);
+  return { theme: Math.cos(s), calm: Math.sin(s) * Math.cos(b), battle: Math.sin(s) * Math.sin(b) };
 }
 
 /** What `playCue` did. `unmapped` is an id the manifest does not name: a
@@ -708,6 +794,22 @@ export class BattleAudio {
   private music: HTMLAudioElement | null = null;
   private musicIndex = 0;
 
+  /** AU-7: the mission's bed elements, made on the first mission that has
+   *  them, looping, and streamed like the theme. */
+  private readonly bedEls: Partial<Record<MusicBed, HTMLAudioElement>> = {};
+  /** When combat makes the beds turn (MusicIntensity). */
+  private readonly intensity = new MusicIntensity();
+  /** The equal-power mix (`musicMix`): where it is and where it is going. */
+  private mixScene = 0;
+  private mixSceneTarget = 0;
+  private mixBattle = 0;
+  private mixBattleTarget = 0;
+  /** The mix's next step, while either part of it is moving. */
+  private mixTimer: number | null = null;
+  /** Which elements this mixer has asked to play, so play/pause is issued on
+   *  a change rather than every 20 ms step. */
+  private readonly musicPlaying: Record<'theme' | MusicBed, boolean> = { theme: true, calm: false, battle: false };
+
   /** Browsers require a user gesture before audio starts. */
   attach(): void {
     const start = (): void => {
@@ -815,9 +917,36 @@ export class BattleAudio {
    *  times the track's own trim, under the sliders, times the duck. */
   private musicLevel(): number {
     const spec = this.manifest?.music;
-    const scene = this.musicSceneLevel ?? musicSceneGain(spec, this.musicScene);
     const trim = trimGain(spec?.tracks?.[this.musicIndex]?.trim_db);
+    // With beds (AU-7) the theme keeps the menu's level and the mix fades it
+    // out of a mission; without them a mission plays it at battle_gain (A10).
+    if (this.hasBeds()) {
+      const w = musicMix(this.mixScene, this.mixBattle).theme;
+      return musicVolume(this.masterGain, musicSceneGain(spec, 'menu') * trim, this.user) * this.musicDuck * w;
+    }
+    const scene = this.musicSceneLevel ?? musicSceneGain(spec, this.musicScene);
     return musicVolume(this.masterGain, scene * trim, this.user) * this.musicDuck;
+  }
+
+  /** A bed's volume: battle_gain times its trim, under the sliders and the
+   *  duck, times its share of the equal-power mix. */
+  private bedLevel(bed: MusicBed): number {
+    const spec = this.manifest?.music;
+    const trim = trimGain(spec?.beds?.[bed]?.trim_db);
+    const w = musicMix(this.mixScene, this.mixBattle)[bed];
+    return musicVolume(this.masterGain, musicSceneGain(spec, 'battle') * trim, this.user) * this.musicDuck * w;
+  }
+
+  /** Both beds declared: a mission plays them rather than the theme. */
+  private hasBeds(): boolean {
+    const beds = this.manifest?.music?.beds;
+    return Boolean(beds?.calm?.file && beds?.battle?.file);
+  }
+
+  /** The bed a mission is playing, or moving to; null outside a mission or
+   *  with no beds declared. A readback for tests and the sandbox. */
+  musicBedNow(): MusicBed | null {
+    return this.hasBeds() && this.musicScene === 'battle' ? this.intensity.bed() : null;
   }
 
   /**
@@ -827,6 +956,20 @@ export class BattleAudio {
    */
   setMusicScene(scene: MusicScene): void {
     if (scene === this.musicScene) return;
+    if (this.hasBeds()) {
+      // AU-7: the theme crossfades to the calm bed over MUSIC_SCENE_S, and
+      // back. Every mission starts calm.
+      this.musicScene = scene;
+      if (this.musicSceneTimer !== null) window.clearTimeout(this.musicSceneTimer);
+      this.musicSceneTimer = null;
+      this.musicSceneLevel = null;
+      this.intensity.reset();
+      this.mixBattleTarget = 0;
+      if (scene === 'battle') this.ensureBeds('auto');
+      this.mixSceneTarget = scene === 'battle' ? 1 : 0;
+      this.startMix();
+      return;
+    }
     const spec = this.manifest?.music;
     const from = this.musicSceneLevel ?? musicSceneGain(spec, this.musicScene);
     this.musicScene = scene;
@@ -857,6 +1000,116 @@ export class BattleAudio {
 
   private applyMusicVolume(): void {
     if (this.music) this.music.volume = this.musicLevel();
+    for (const bed of ['calm', 'battle'] as const) {
+      const el = this.bedEls[bed];
+      if (el) el.volume = this.bedLevel(bed);
+    }
+  }
+
+  /** Whether an element should be sounding: with beds, while it has any
+   *  share of the mix; without them the theme always. */
+  private musicWanted(which: 'theme' | MusicBed): boolean {
+    if (!this.hasBeds()) return which === 'theme';
+    return musicMix(this.mixScene, this.mixBattle)[which] > 1e-6;
+  }
+
+  /** Every music element with its name. */
+  private musicElements(): ['theme' | MusicBed, HTMLAudioElement][] {
+    const out: ['theme' | MusicBed, HTMLAudioElement][] = [];
+    if (this.music) out.push(['theme', this.music]);
+    for (const bed of ['calm', 'battle'] as const) {
+      const el = this.bedEls[bed];
+      if (el) out.push([bed, el]);
+    }
+    return out;
+  }
+
+  /**
+   * Play what has a share of the mix and pause what has none, so an element
+   * nobody hears is not streaming. The battle bed starts from its own first
+   * bar each time it rises from silence -- the section's entrance, the way
+   * the lead heard it in the demo; the calm bed and the theme resume.
+   */
+  private syncMusicPlaying(): void {
+    if (!this.hasBeds()) return;
+    for (const [which, el] of this.musicElements()) {
+      const want = this.musicWanted(which);
+      if (want === this.musicPlaying[which]) continue;
+      this.musicPlaying[which] = want;
+      if (!want) el.pause();
+      else {
+        if (which === 'battle') el.currentTime = 0;
+        if (!this.muted) tryPlay(el);
+      }
+    }
+  }
+
+  /**
+   * Make the two bed elements, once, paused at silence until the mix wants
+   * them. They are made WITH the theme (`preload` none, so the menu fetches
+   * nothing) and stay for the page's life like it: a mission that added two
+   * children to the body and left them would fail ui:routes' "the body is
+   * back to the menu's own" check. A mission raises `preload` to auto, so the
+   * battle bed is buffered before combat asks for it.
+   */
+  private ensureBeds(preload: 'none' | 'auto'): void {
+    const beds = this.manifest?.music?.beds;
+    for (const bed of ['calm', 'battle'] as const) {
+      const spec = beds?.[bed];
+      const made = this.bedEls[bed];
+      if (made) {
+        if (preload === 'auto') made.preload = 'auto';
+        continue;
+      }
+      if (!spec?.file) continue;
+      const el = new Audio();
+      el.preload = preload;
+      el.loop = true;
+      el.volume = 0;
+      // OGG first (seamless in Chromium and Firefox); the m4a where the
+      // browser says it cannot play Vorbis, or when the OGG fails to load.
+      const ogg = el.canPlayType?.('audio/ogg; codecs="vorbis"') ?? '';
+      const useAlt = spec.alt !== undefined && ogg === '' && (el.canPlayType?.('audio/mp4') ?? '') !== '';
+      el.src = `${this.baseUrl}${useAlt ? spec.alt : spec.file}`;
+      if (spec.alt && !useAlt) {
+        const alt = spec.alt;
+        el.addEventListener('error', () => {
+          if (el.src.endsWith(alt)) return;
+          el.src = `${this.baseUrl}${alt}`;
+          if (this.musicPlaying[bed] && !this.muted) tryPlay(el);
+        });
+      }
+      el.dataset.music = bed;
+      el.hidden = true;
+      document.body.appendChild(el);
+      this.bedEls[bed] = el;
+      this.musicPlaying[bed] = false;
+    }
+  }
+
+  /**
+   * Step the mix towards its targets every MUSIC_DUCK_STEP_MS: the scene over
+   * MUSIC_SCENE_S, the beds over MUSIC_INTENSITY.upS up and downS down.
+   * Counted steps, like the duck, so fake timers drive it exactly.
+   */
+  private startMix(): void {
+    if (this.mixTimer !== null) return;
+    const toward = (v: number, t: number, d: number): number => (v < t ? Math.min(t, v + d) : Math.max(t, v - d));
+    const step = (): void => {
+      this.mixTimer = null;
+      const dt = MUSIC_DUCK_STEP_MS / 1000;
+      this.mixScene = toward(this.mixScene, this.mixSceneTarget, dt / MUSIC_SCENE_S);
+      const up = this.mixBattleTarget > this.mixBattle;
+      this.mixBattle = toward(this.mixBattle, this.mixBattleTarget, dt / (up ? MUSIC_INTENSITY.upS : MUSIC_INTENSITY.downS));
+      // Out of the mission altogether: the next one starts calm.
+      if (this.mixScene === 0) this.mixBattle = 0;
+      this.applyMusicVolume();
+      this.syncMusicPlaying();
+      if (this.mixScene !== this.mixSceneTarget || this.mixBattle !== this.mixBattleTarget) {
+        this.mixTimer = window.setTimeout(step, MUSIC_DUCK_STEP_MS);
+      }
+    };
+    this.mixTimer = window.setTimeout(step, MUSIC_DUCK_STEP_MS);
   }
 
   gains(): AudioGains {
@@ -1079,9 +1332,9 @@ export class BattleAudio {
     // Pause rather than zero the volume: a muted player is not paying to
     // stream and decode a track nobody hears, and unmuting resumes where it
     // stopped instead of mid-bar somewhere else.
-    if (this.music) {
-      if (this.muted) this.music.pause();
-      else tryPlay(this.music);
+    for (const [which, el] of this.musicElements()) {
+      if (this.muted) el.pause();
+      else if (this.musicWanted(which)) tryPlay(el);
     }
     // `m` is one flag the HUD reports as "audio muted" -- a line left
     // sounding (and its duck still held) through a mute would make that
@@ -1105,7 +1358,9 @@ export class BattleAudio {
    */
   private startMusic(): void {
     if (this.music) {
-      if (!this.muted && this.music.paused) tryPlay(this.music);
+      for (const [which, el] of this.musicElements()) {
+        if (!this.muted && el.paused && this.musicWanted(which)) tryPlay(el);
+      }
       return;
     }
     const spec = this.manifest?.music;
@@ -1152,8 +1407,10 @@ export class BattleAudio {
     // music is playing, paused or failed. `document.querySelector('audio')` is
     // the readback, the same way the cursor is read from `canvas.dataset`.
     el.hidden = true;
+    el.dataset.music = 'theme';
     document.body.appendChild(el);
     this.music = el;
+    if (this.hasBeds()) this.ensureBeds('none');
     cue(startIndex);
   }
 
@@ -1285,6 +1542,8 @@ export class BattleAudio {
   dispose(): void {
     if (this.musicSceneTimer !== null) window.clearTimeout(this.musicSceneTimer);
     this.musicSceneTimer = null;
+    if (this.mixTimer !== null) window.clearTimeout(this.mixTimer);
+    this.mixTimer = null;
     if (this.musicDuckTimer !== null) window.clearTimeout(this.musicDuckTimer);
     this.musicDuckTimer = null;
     for (const t of this.holdTimers.values()) window.clearTimeout(t);
@@ -1608,7 +1867,7 @@ export class BattleAudio {
   private rampMusic(to: number, ms: number): void {
     if (this.musicDuckTimer !== null) window.clearTimeout(this.musicDuckTimer);
     this.musicDuckTimer = null;
-    if (!this.music) {
+    if (this.musicElements().length === 0) {
       this.musicDuck = to;
       return;
     }
@@ -1625,6 +1884,7 @@ export class BattleAudio {
   }
 
   onEvents(events: SimEvent[], sim: Sim): void {
+    this.readIntensity(events, sim);
     if (this.muted || this.ctx === null || this.ctx.state !== 'running') return;
     const st = sim.state;
     let voices = 0;
@@ -1668,6 +1928,28 @@ export class BattleAudio {
           this.noise(0.5, 180, 0.06);
         }
       }
+    }
+  }
+
+  /**
+   * AU-7: count this tick's player-side combat -- a shot fired by or at side
+   * 0, a round landing on or from it -- and turn the beds when the reading
+   * crosses. Clocked by the sim's own tick (20 Hz, invariant 1), so the pause
+   * menu, which stops the ticks, freezes it. Before the mute check: a muted
+   * player unmuting mid-fight should hear the fight's music.
+   */
+  private readIntensity(events: SimEvent[], sim: Sim): void {
+    if (!this.hasBeds() || this.musicScene !== 'battle') return;
+    const side = sim.state.side;
+    const player = (id: number): boolean => id >= 0 && side[id] === 0;
+    let n = 0;
+    for (const e of events) {
+      if ((e.kind === 'fire' || e.kind === 'impact') && (player(e.shooter) || player(e.target))) n++;
+    }
+    const target = this.intensity.observe(sim.tickCount * SIM_TICK_MS, n) === 'battle' ? 1 : 0;
+    if (target !== this.mixBattleTarget) {
+      this.mixBattleTarget = target;
+      this.startMix();
     }
   }
 

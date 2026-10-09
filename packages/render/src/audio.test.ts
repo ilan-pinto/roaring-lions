@@ -16,6 +16,9 @@ import {
   DUCK_TABLE,
   duckLevels,
   duckRamp,
+  musicMix,
+  MusicIntensity,
+  MUSIC_INTENSITY,
   musicSceneGain,
   OUTCOME_CUE_BLOCK_S,
   SYNTH_CUES,
@@ -36,6 +39,7 @@ import {
   type VoicePriority,
   type VoiceVariant,
 } from './audio';
+import type { Sim, SimEvent } from '@lions/sim';
 import { buildRadioChain, clickSamples, scheduleSquelch, seededNoise, softClipCurve } from './radio';
 
 describe('audio gains', () => {
@@ -1894,6 +1898,257 @@ describe('dispose (gates red on main: a music-duck timer outlived its test)', ()
       expect(() => audio.dispose()).not.toThrow();
     } finally {
       vi.useRealTimers();
+    }
+  });
+});
+
+// --- AU-7: the mission's calm and battle beds, re-cut from the theme ------
+
+describe('MusicIntensity (AU-7, audio plan section 6.1)', () => {
+  const T = 50; // one sim tick, in ms
+  it('starts calm, and goes to battle at 6 player-side combat events inside 5 s', () => {
+    const m = new MusicIntensity();
+    expect(m.bed()).toBe('calm');
+    for (let i = 0; i < 5; i++) expect(m.observe(i * T, 1)).toBe('calm');
+    expect(m.observe(5 * T, 1)).toBe('battle');
+  });
+  it('5 events spread wider than 5 s never reach battle', () => {
+    const m = new MusicIntensity();
+    for (let i = 0; i < 20; i++) expect(m.observe(i * 1100, 1)).toBe('calm');
+  });
+  it('holds battle through a lull, and goes calm only after 12 s under 2 events', () => {
+    const m = new MusicIntensity();
+    m.observe(0, MUSIC_INTENSITY.riseEvents);
+    expect(m.bed()).toBe('battle');
+    // A 0.5 s burst every 8 s: the window empties between bursts, but never for 12 s.
+    for (let t = 0; t <= 60_000; t += T) m.observe(t, t % 8000 < 500 && t % 100 === 0 ? 1 : 0);
+    expect(m.bed()).toBe('battle');
+    // Then quiet: the window clears 5 s after the last event and calm lands 12 s after that.
+    let calmAt = -1;
+    for (let t = 60_050; t <= 90_000; t += T) {
+      if (m.observe(t, 0) === 'calm' && calmAt < 0) calmAt = t;
+    }
+    expect(calmAt).toBeGreaterThan(60_000 + 12_000);
+    expect(calmAt).toBeLessThanOrEqual(60_000 + 5_000 + 12_000 + T);
+  });
+  it('a 0.5 s burst does not flap the bed: one rise, then held through the 12 s quiet', () => {
+    const m = new MusicIntensity();
+    const seen: string[] = [];
+    // The burst ends at 1.5 s, its window clears at 6.5 s, and calm may not land before 18.5 s.
+    for (let t = 0; t <= 18_000; t += T) {
+      const b = m.observe(t, t >= 1000 && t < 1500 ? 1 : 0);
+      if (seen[seen.length - 1] !== b) seen.push(b);
+    }
+    expect(seen).toEqual(['calm', 'battle']);
+  });
+  it('a clock that runs backwards (a new mission) starts over, calm', () => {
+    const m = new MusicIntensity();
+    m.observe(10_000, 10);
+    expect(m.bed()).toBe('battle');
+    expect(m.observe(0, 0)).toBe('calm');
+  });
+});
+
+describe('musicMix (AU-7): equal-power weights', () => {
+  it('menu is the theme alone; a mission is calm or battle, and every point keeps power', () => {
+    expect(musicMix(0, 0)).toEqual({ theme: 1, calm: 0, battle: 0 });
+    const m = musicMix(1, 0);
+    expect([m.theme, m.calm, m.battle].map((v) => +v.toFixed(6))).toEqual([0, 1, 0]);
+    for (const s of [0, 0.3, 0.5, 1]) {
+      for (const b of [0, 0.25, 0.5, 1]) {
+        const w = musicMix(s, b);
+        expect(w.theme ** 2 + w.calm ** 2 + w.battle ** 2).toBeCloseTo(1, 9);
+      }
+    }
+  });
+});
+
+describe('the mission beds (AU-7)', () => {
+  const BEDS: AudioManifest = {
+    master_gain: 1,
+    music: {
+      gain: 0.4,
+      battle_gain: 0.26,
+      tracks: [{ file: 'music/t.mp3' }],
+      beds: { calm: { file: 'music/calm.ogg', alt: 'music/calm.m4a' }, battle: { file: 'music/battle.ogg', alt: 'music/battle.m4a', trim_db: -6 } },
+    },
+  };
+  const el = (which: string): HTMLAudioElement => {
+    const all = document.querySelectorAll<HTMLAudioElement>(`audio[data-music="${which}"]`);
+    const e = all[all.length - 1];
+    if (!e) throw new Error(`no ${which} element`);
+    return e;
+  };
+  /** A sim with one player unit (0) and one enemy (1), ticked by hand. */
+  const fakeSim = () => ({
+    tickCount: 0,
+    state: { side: Uint8Array.from([0, 1]), posX: new Int32Array(2), posY: new Int32Array(2), typeIdx: new Uint16Array(2) },
+    unitTypes: [{ weapons: [] }],
+  });
+  const fire = (tick: number) => ({ kind: 'fire', tick, shooter: 0, target: 1, weaponId: 'x' }) as unknown as SimEvent;
+  const run = (audio: BattleAudio, sim: ReturnType<typeof fakeSim>, ticks: number, firing: boolean) => {
+    for (let i = 0; i < ticks; i++) {
+      sim.tickCount++;
+      audio.onEvents(firing ? [fire(sim.tickCount)] : [], sim as unknown as Sim);
+      vi.advanceTimersByTime(50);
+    }
+  };
+  const BATTLE_TRIM = trimGain(-6);
+
+  it('a mission starts on the calm bed: the theme fades out, calm in, battle silent', () => {
+    vi.useFakeTimers();
+    try {
+      const { audio } = attachedWith((a) => a.useManifest(BEDS, '/a/'));
+      expect(el('theme').volume).toBeCloseTo(0.4);
+      audio.setMusicScene('battle');
+      vi.advanceTimersByTime(2100);
+      expect(audio.musicBedNow()).toBe('calm');
+      expect(el('theme').volume).toBeCloseTo(0);
+      expect(el('calm').volume).toBeCloseTo(0.26);
+      expect(el('battle').volume).toBeCloseTo(0);
+      expect(el('calm').loop && el('battle').loop).toBe(true);
+      expect(el('calm').src).toContain('/a/music/calm.ogg');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('sustained combat crossfades to the battle bed over 3 s, equal-power', () => {
+    vi.useFakeTimers();
+    try {
+      const { audio } = attachedWith((a) => a.useManifest(BEDS, '/a/'));
+      const sim = fakeSim();
+      audio.setMusicScene('battle');
+      run(audio, sim, 50, false);
+      expect(audio.musicBedNow()).toBe('calm');
+      run(audio, sim, 6, true);
+      expect(audio.musicBedNow()).toBe('battle');
+      run(audio, sim, 24, true); // 1.2 s into the 3 s fade, still firing
+      expect(el('battle').volume).toBeGreaterThan(0);
+      expect(el('calm').volume).toBeGreaterThan(0);
+      expect(el('calm').volume).toBeLessThan(0.26);
+      run(audio, sim, 40, true);
+      expect(el('battle').volume).toBeCloseTo(0.26 * BATTLE_TRIM);
+      expect(el('calm').volume).toBeCloseTo(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('returns to calm after the quiet, over 6 s, and not before', () => {
+    vi.useFakeTimers();
+    try {
+      const { audio } = attachedWith((a) => a.useManifest(BEDS, '/a/'));
+      const sim = fakeSim();
+      audio.setMusicScene('battle');
+      run(audio, sim, 40, true);
+      run(audio, sim, 60, false);
+      expect(audio.musicBedNow()).toBe('battle');
+      run(audio, sim, 20 * 14, false); // 3 s + 14 s of quiet: past the window and the 12 s hold
+      expect(audio.musicBedNow()).toBe('calm');
+      run(audio, sim, 20 * 3, false); // halfway down the 6 s fade
+      expect(el('battle').volume).toBeGreaterThan(0);
+      expect(el('calm').volume).toBeGreaterThan(0);
+      run(audio, sim, 20 * 4, false);
+      expect(el('calm').volume).toBeCloseTo(0.26);
+      expect(el('battle').volume).toBeCloseTo(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the music slider at 0 silences every element, beds included', () => {
+    vi.useFakeTimers();
+    try {
+      const { audio } = attachedWith((a) => a.useManifest(BEDS, '/a/'));
+      const sim = fakeSim();
+      audio.setGains({ master: 1, music: 0, sfx: 1 });
+      audio.setMusicScene('battle');
+      run(audio, sim, 120, true);
+      expect(audio.musicBedNow()).toBe('battle');
+      for (const w of ['theme', 'calm', 'battle']) expect(el(w).volume).toBe(0);
+      audio.setGains({ master: 1, music: 1, sfx: 1 });
+      expect(el('battle').volume).toBeCloseTo(0.26 * BATTLE_TRIM);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the pause menu ducks the beds 6 dB too', () => {
+    vi.useFakeTimers();
+    try {
+      const { audio } = attachedWith((a) => a.useManifest(BEDS, '/a/'));
+      audio.setMusicScene('battle');
+      vi.advanceTimersByTime(2100);
+      audio.setPaused(true);
+      vi.advanceTimersByTime(500);
+      expect(el('calm').volume).toBeCloseTo(0.26 * DUCK_TABLE.pause.music);
+      audio.setPaused(false);
+      vi.advanceTimersByTime(500);
+      expect(el('calm').volume).toBeCloseTo(0.26);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('leaving the mission brings the theme back and starts the next one calm', () => {
+    vi.useFakeTimers();
+    try {
+      const { audio } = attachedWith((a) => a.useManifest(BEDS, '/a/'));
+      const sim = fakeSim();
+      audio.setMusicScene('battle');
+      run(audio, sim, 80, true);
+      expect(audio.musicBedNow()).toBe('battle');
+      audio.leaveMission();
+      vi.advanceTimersByTime(2100);
+      expect(el('theme').volume).toBeCloseTo(0.4);
+      expect(el('battle').volume).toBeCloseTo(0);
+      expect(audio.musicBedNow()).toBe(null);
+      audio.setMusicScene('battle');
+      expect(audio.musicBedNow()).toBe('calm');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('makes the beds with the theme, unloaded, so a mission leaves the body as it found it (ui:routes)', () => {
+    vi.useFakeTimers();
+    try {
+      const { audio } = attachedWith((a) => a.useManifest(BEDS, '/a/'));
+      const before = document.body.children.length;
+      expect(el('calm').preload).toBe('none');
+      expect(el('battle').preload).toBe('none');
+      audio.setMusicScene('battle');
+      expect(el('calm').preload).toBe('auto');
+      vi.advanceTimersByTime(2100);
+      audio.leaveMission();
+      vi.advanceTimersByTime(2100);
+      expect(document.body.children.length).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('dispose clears the crossfade timer', () => {
+    vi.useFakeTimers();
+    try {
+      const { audio } = attachedWith((a) => a.useManifest(BEDS, '/a/'));
+      audio.setMusicScene('battle');
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+      audio.dispose();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the shipped manifest declares both beds, OGG with an m4a alt, under the theme’s provenance', async () => {
+    const shipped = (await import('../../../data/audio.json')).default as AudioManifest;
+    const beds = shipped.music?.beds;
+    for (const b of [beds?.calm, beds?.battle]) {
+      expect(b?.file).toMatch(/^music\/.+\.ogg$/);
+      expect(b?.alt).toMatch(/^music\/.+\.m4a$/);
+      expect(b?.source).toContain('holding_the_perimeter');
     }
   });
 });
