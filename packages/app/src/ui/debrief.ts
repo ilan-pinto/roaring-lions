@@ -20,6 +20,7 @@ import type { Stars } from '@lions/sim';
 import { t } from '../i18n/t';
 import { objectiveGlyph } from './hud-model';
 import { symbolLabel } from './symbol';
+import { footBack, footLink, screenFoot } from './foot';
 import { panel } from './panel';
 import { mountEndPanel } from './end-panel';
 import { tierName } from './grade-copy';
@@ -242,31 +243,36 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
   b.appendChild(grid);
 
   // --- one primary action ------------------------------------------------------
-  const nav = el('div', 'rl-endnav rl-aar__nav');
-  const link = (label: string, href: string, cls = 'rl-btn'): HTMLAnchorElement => {
-    const a = el('a', cls);
-    a.href = href;
-    a.textContent = label;
-    return a;
-  };
-  const replay = link(t('debrief.replay', { result: o.result }), routes.mission(o.missionId), 'rl-btn rl-aar__replay');
-  const campaign = link(t('nav.campaignMap'), routes.campaign());
-  const menu = link(t('nav.menu'), routes.menu());
+  // The one footer row (`foot.ts`, GH-498): the ways out first -- the campaign
+  // map as the way back, then the main menu -- and Replay beside the one
+  // primary at the far edge. Every control takes the stamp's height, its
+  // label centred, so the plain buttons no longer hang off the top of a box
+  // stretched to the stamp's size.
+  const foot = screenFoot();
+  foot.el.classList.add('rl-aar__nav');
+  const replay = footLink(t('debrief.replay', { result: o.result }), routes.mission(o.missionId), 'rl-btn rl-aar__replay');
+  const campaign = footBack(t('nav.campaignMap'), routes.campaign());
+  const menu = footLink(t('nav.menu'), routes.menu());
   let primary: HTMLAnchorElement;
   if (won && o.next) {
     primary = el('a', 'rl-btn rl-debrief__next rl-aar__primary');
     primary.href = routes.mission(o.next.id);
     primary.innerHTML = symbolLabel('next', t('debrief.next', { name: o.next.name }), { after: true });
-    nav.append(replay, campaign, menu, primary);
+    foot.start.append(campaign, menu);
+    foot.end.append(replay, primary);
   } else if (won) {
-    primary = campaign;
-    primary.classList.add('rl-aar__primary');
-    nav.append(replay, menu, primary);
+    // The campaign is done: the map is where the player goes on, so it is the
+    // primary, and the main menu is the way back.
+    primary = footLink(t('nav.campaignMap'), routes.campaign(), 'rl-btn rl-aar__primary');
+    foot.start.append(footBack(t('nav.menu'), routes.menu()));
+    foot.end.append(replay, primary);
   } else {
     primary = replay;
     primary.classList.add('rl-aar__primary');
-    nav.append(campaign, menu, primary);
+    foot.start.append(campaign, menu);
+    foot.end.append(primary);
   }
+  const nav = foot.el;
   // The onward action is the report's primary: the confirm cue marks it, as
   // it marked the end screen's next-mission link.
   markConfirm(primary);

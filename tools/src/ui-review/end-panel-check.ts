@@ -141,7 +141,7 @@ async function measure(page: Page): Promise<{ actions: Reading[]; primary: strin
     const p = panels[panels.length - 1];
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const actions = [...p.querySelectorAll<HTMLElement>('.rl-endnav a, .rl-endnav button')].map((a) => {
+    const actions = [...p.querySelectorAll<HTMLElement>('.rl-foot a, .rl-foot button')].map((a) => {
       const r = a.getBoundingClientRect();
       const inView = r.width > 0 && r.height > 0 && r.left >= 0 && r.top >= 0 && r.right <= vw && r.bottom <= vh;
       const at = inView ? document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) : null;
@@ -153,7 +153,7 @@ async function measure(page: Page): Promise<{ actions: Reading[]; primary: strin
         rect: [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)] as [number, number, number, number],
       };
     });
-    const primaryEl = p.querySelector<HTMLElement>('.rl-endnav [data-end-primary]');
+    const primaryEl = p.querySelector<HTMLElement>('.rl-foot [data-end-primary]');
     const focused = document.activeElement && p.contains(document.activeElement) ? (document.activeElement.textContent ?? '').trim() : null;
     return { actions, primary: primaryEl ? (primaryEl.textContent ?? '').trim() : null, focused };
   });

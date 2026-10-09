@@ -304,6 +304,19 @@ describe('reaching it', () => {
     expect(back.map((a) => a.getAttribute('href'))).toEqual(['/']);
     // GH-261: the supporting-attack arrow, drawn -- the catalogue string is words only.
     expect(back[0].querySelector('svg')?.getAttribute('data-symbol')).toBe('back');
-    expect(back[0].textContent?.trim()).toBe('main menu');
+    expect(back[0].textContent?.trim()).toBe('Main menu');
+  });
+
+  // GH-498: the map list runs past a 720-high window, so the way back is a
+  // sticky footer row, the column's own last child, not a link after the
+  // last card. Falsified by hand: dropping `{ sticky: true }` in
+  // `showSandbox` turns this red.
+  it('keeps the way back in a sticky footer row at the column foot', () => {
+    const stage = render();
+    const col = stage.querySelector('.rl-menu')!;
+    const foot = col.lastElementChild;
+    expect(foot?.classList.contains('rl-foot')).toBe(true);
+    expect(foot?.classList.contains('rl-foot--sticky')).toBe(true);
+    expect(foot?.querySelector('.rl-foot__start > [data-kind="back"]')).not.toBeNull();
   });
 });

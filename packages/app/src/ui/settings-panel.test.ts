@@ -34,7 +34,23 @@ describe('settingsPanel', () => {
     showSettings(stage, { ...d, back: '/' });
     const back = stage.querySelector('.rl-settings__back');
     expect(back?.querySelector('svg')?.getAttribute('data-symbol')).toBe('back');
-    expect(back?.textContent?.trim()).toBe('main menu');
+    expect(back?.textContent?.trim()).toBe('Main menu');
+  });
+
+  // GH-498: the way back is the one footer row, the panel's own last child --
+  // outside the body, sticky in the panel's scroller -- so it is on screen at
+  // any window height instead of after the last setting. Falsified by hand:
+  // appending the foot to the panel's body turns this red.
+  it('keeps the way back in a sticky footer row outside the body', () => {
+    const { d } = deps();
+    const stage = document.createElement('div');
+    showSettings(stage, { ...d, back: '/' });
+    const panel = stage.querySelector('.rl-settings')!;
+    const foot = panel.querySelector('.rl-foot')!;
+    expect(panel.lastElementChild).toBe(foot);
+    expect(foot.closest('.rl-panel__body')).toBeNull();
+    expect(foot.classList.contains('rl-foot--sticky')).toBe(true);
+    expect(foot.querySelector('.rl-foot__start')?.firstElementChild).toBe(stage.querySelector('[data-kind="back"]'));
   });
 
   it('renders one table with the four sections and the build id', () => {

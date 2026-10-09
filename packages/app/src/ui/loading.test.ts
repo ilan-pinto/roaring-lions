@@ -283,7 +283,7 @@ describe('reading a long briefing', () => {
     showLoading(withBack, 'Break the Depot', 'Seven structures.', undefined, undefined, undefined, () => undefined);
     expect(withBack.querySelector('.rl-loading__back')).not.toBeNull();
     expect(withBack.querySelector('.rl-loading__back svg')?.getAttribute('data-symbol')).toBe('back'); // GH-261
-    expect(withBack.querySelector('.rl-loading__back')?.textContent?.trim()).toBe('campaign map');
+    expect(withBack.querySelector('.rl-loading__back')?.textContent?.trim()).toBe('Campaign map');
 
     const withoutBack = document.createElement('div');
     showLoading(withoutBack, 'Break the Depot', 'Seven structures.');

@@ -222,12 +222,24 @@ describe('the type register: theme.css', () => {
 
 describe('the type register: back buttons (VR-21)', () => {
   // Every way back is the plain `.rl-btn`. The menu TILE is for going forward.
+  // Since GH-498 every screen footer builds its way back through `foot.ts`'s
+  // `footBack` (whose own default class is read too); the briefing's is still
+  // built by hand. The count is the sites, so a screen that stops building
+  // one, or builds it some third way, fails here rather than passing on
+  // fewer matches.
   const sites: Array<[string, RegExp]> = [
-    ['packages/app/src/ui/settings-panel.ts', /back\.className = '([^']+)'/g],
-    ['packages/app/src/ui/saves.ts', /back\.className = '([^']+)'/g],
-    ['packages/app/src/ui/credits.ts', /back\.className = '([^']+)'/g],
-    ['packages/app/src/ui/menu.ts', /back\.className = '([^']+)'/g],
+    ['packages/app/src/ui/foot.ts', /export function footBack\([^)]*className = '([^']+)'/g],
+    ['packages/app/src/ui/settings-panel.ts', /footBack\([^;]*?, '([^']+)'\)/g],
+    ['packages/app/src/ui/saves.ts', /footBack\([^;]*?, '([^']+)'\)/g],
+    ['packages/app/src/ui/credits.ts', /footBack\([^;]*?, '([^']+)'\)/g],
     ['packages/app/src/ui/loading.ts', /back\.className = '([^']+)'/g],
+  ];
+  const defaultSites: Array<[string, number]> = [
+    // the campaign board and Free Play
+    ['packages/app/src/ui/menu.ts', 2],
+    ['packages/app/src/ui/brigade.ts', 1],
+    // the campaign map, or the main menu once the campaign is done
+    ['packages/app/src/ui/debrief.ts', 2],
   ];
 
   it('are all `.rl-btn` and none is a `.rl-menu__item` tile', () => {
@@ -240,9 +252,13 @@ describe('the type register: back buttons (VR-21)', () => {
         if (!classes.includes('rl-btn') || classes.includes('rl-menu__item')) wrong.push(`${file}: ${m[1]}`);
       }
     }
-    // settings, saves, credits, the campaign board, Free Play, the briefing
-    expect(count).toBe(6);
+    // foot.ts's default, settings, saves, credits, the briefing
+    expect(count).toBe(5);
     expect(wrong).toEqual([]);
+    // ...and the screens that take footBack's default class.
+    for (const [file, n] of defaultSites) {
+      expect([file, [...read(file).matchAll(/footBack\(t\('[\w.]+'\), [^,()]+(?:\(\))?\)/g)].length]).toEqual([file, n]);
+    }
   });
 
   it('is the base button in the stylesheet: body face, no tile override', () => {

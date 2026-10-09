@@ -1,5 +1,5 @@
 {
-  "nav.backToMenu": "main menu",
+  "nav.backToMenu": "Main menu",
   "campaign.next.label": "Next: {name}",
   "campaign.next.generic": "Next operation",
   "common.build": "Build {build}",
@@ -205,9 +205,9 @@
   "credits.ai.audio": "The main theme, “Holding the Perimeter”, was generated with an AI music tool from a written prompt, and the music heard in missions is cut from it. Some radio lines are recorded by Ilan Pinto; the rest are AI-generated stand-ins (ElevenLabs) and are left out of any commercial release. Every sound effect and interface cue is made in code, with no generative model.",
   "credits.ai.record": "The full record of where every model, image and sound came from is kept in the game’s source repository.",
 
-  "nav.campaignMap": "campaign map",
-  "nav.menu": "menu",
-  "nav.backToCampaignMap": "campaign map",
+  "nav.campaignMap": "Campaign map",
+  "nav.menu": "Main menu",
+  "nav.backToCampaignMap": "Campaign map",
 
   "menu.nav.campaign": "Campaign",
   "menu.nav.brigade": "Brigade",
@@ -333,8 +333,9 @@
   "garage.track.firepower": "Firepower",
   "garage.track.sensors": "Sensors",
   "garage.track.maxed": "Maxed",
-  "garage.reset.button": "reset brigade account",
-  "garage.reset.confirm": "click again to reset — this cannot be undone",
+  "garage.reset.button": "Reset brigade account",
+  "garage.reset.confirm": "Click again to reset — this cannot be undone",
+  "garage.reset.keep": "Keep the brigade",
   "kit.level.1": "Kit I",
   "kit.level.2": "Kit II",
   "kit.level.3": "Kit III",

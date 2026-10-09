@@ -24,7 +24,7 @@
  */
 import type { AudioGains } from '@lions/render';
 import { t } from '../i18n/t';
-import { symbolLabel } from './symbol';
+import { footBack, screenFoot } from './foot';
 import type { Locale } from '../i18n/locales';
 import type { Disposer } from '../shell/router';
 import {
@@ -436,11 +436,11 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
 
 export function showSettings(stage: HTMLElement, deps: SettingsDeps & { back: string }): Disposer {
   const { el, dispose } = settingsPanel(stage, deps);
-  const back = document.createElement('a');
-  back.className = 'rl-btn rl-settings__back';
-  back.dataset.kind = 'back';
-  back.href = deps.back;
-  back.innerHTML = symbolLabel('back', t('nav.backToMenu'));
-  (el.querySelector('.rl-panel__body') ?? el).appendChild(back);
+  // The one footer row (`foot.ts`, GH-498): the panel's last child, outside
+  // the body and sticky in the panel's own scroller, so the way back is in
+  // view at any window height rather than at the end of every setting.
+  const foot = screenFoot({ sticky: true });
+  foot.start.appendChild(footBack(t('nav.backToMenu'), deps.back, 'rl-btn rl-settings__back'));
+  el.appendChild(foot.el);
   return dispose;
 }

@@ -1878,7 +1878,7 @@ try {
     expect(buys.length >= 2, `GH-243: at_team's board has ${buys.length} enabled Buy(s) -- the walk cannot test skipping`);
     // Forward: the I1 walk above, from the tab, before anything was pressed on a head.
     for (const k of buys) expect(inBoard.includes(k), `GH-243: forward Tab never reaches ${k}: ${JSON.stringify(inBoard)}`);
-    await tPage.locator('.rl-endnav a').first().focus();
+    await tPage.locator('.rl-foot a').first().focus();
     const back: (string | null)[] = [];
     let entered = false;
     for (let i = 0; i < 20; i++) {

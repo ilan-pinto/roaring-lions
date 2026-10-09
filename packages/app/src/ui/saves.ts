@@ -12,7 +12,7 @@
  * building elements and no browser feature test of its own.
  */
 import { t } from '../i18n/t';
-import { symbolLabel } from './symbol';
+import { footBack, screenFoot } from './foot';
 import type { Disposer } from '../shell/router';
 import type { LedgerStore } from '../ledger-store';
 import { SAVE_ERROR_NOT_A_SAVE, damagedRaw, deleteSlot, exportSlot, importSlot, listDamaged, listSlots, loadSlot, readActive, saveSlot, writeActive, type DamagedMeta, type SlotMeta } from '../profile';
@@ -340,12 +340,11 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
   p.body.appendChild(importBtn);
   p.body.appendChild(msg);
 
-  const back = document.createElement('a');
-  back.className = 'rl-btn rl-saves__back';
-  back.dataset.kind = 'back';
-  back.href = deps.back;
-  back.innerHTML = symbolLabel('back', t('nav.backToMenu'));
-  p.body.appendChild(back);
+  // The one footer row (`foot.ts`, GH-498), outside the body and sticky, so
+  // the way back stays on screen however long the page above it runs.
+  const foot = screenFoot({ sticky: true });
+  foot.start.appendChild(footBack(t('nav.backToMenu'), deps.back, 'rl-btn rl-saves__back'));
+  p.el.appendChild(foot.el);
 
   renderList();
 

@@ -66,6 +66,7 @@ import { plateFit } from './plate-fit';
 import { garageModel, type GarageModelDeps, type GarageModelHandle } from './garage-viewer';
 import { flash, prefersReducedMotion } from './motion';
 import { routes } from '../shell/links';
+import { footBack, footLink, screenFoot } from './foot';
 import type { Disposer } from '../shell/router';
 import { bucketVisible, roleBadgeSvg, roleBucket, roleLabel, type RoleBucket } from './role';
 import { showStores, type CoinAsk, type StoresShelf, type StoresTestWallet } from './stores';
@@ -1334,40 +1335,52 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   renderBay();
 
   // --- footer ---------------------------------------------------------------
-  const nav = el('div', 'rl-endnav');
-  const link = (label: string, href: string): void => {
-    const a = document.createElement('a');
-    a.className = 'rl-btn';
-    a.href = href;
-    a.textContent = label;
-    nav.appendChild(a);
-  };
-  link(t('nav.campaignMap'), routes.campaign());
-  link(t('nav.menu'), routes.menu());
+  // The one footer row (`foot.ts`, GH-498): the way back first, at the rail's
+  // edge, and the reset alone at the board's far edge -- a destructive control
+  // set apart from navigation, never a sibling of it.
+  const foot = screenFoot();
+  foot.start.append(footBack(t('nav.campaignMap'), routes.campaign()), footLink(t('nav.menu'), routes.menu()));
   // Built once, like the wallet: the reset survives a purchase, and its own
   // answer puts it back to its first label rather than replacing it.
   let reset: HTMLButtonElement | null = null;
+  let keep: HTMLButtonElement | null = null;
   let armed = false;
   /** The reset control as it stands before its first click: unarmed, live,
-   *  first label. Run by every answer, which is what makes the two-click
-   *  confirmation start over after a reset that was answered in place. */
+   *  first label, and no way out showing because there is nothing to back out
+   *  of. Run by every answer, which is what makes the two-click confirmation
+   *  start over after a reset that was answered in place. */
   function resetUi(): void {
     if (reset === null) return;
     armed = false;
     reset.disabled = false;
     reset.textContent = t('garage.reset.button');
+    delete reset.dataset.confirm;
+    if (keep !== null) keep.hidden = true;
   }
   if (state.credits !== undefined && opts.onReset) {
+    // The way out of an armed reset: shown only between the two clicks, it
+    // puts the control back as it was and hands focus back to it.
+    const escape = document.createElement('button');
+    escape.type = 'button';
+    escape.className = 'rl-btn rl-garage__keep';
+    escape.textContent = t('garage.reset.keep');
+    keep = escape;
     const control = document.createElement('button');
     control.type = 'button';
-    control.className = 'rl-btn rl-garage__reset';
+    control.className = 'rl-btn rl-btn--danger rl-garage__reset';
     control.dataset.focusKey = 'reset';
     reset = control;
     resetUi();
+    escape.addEventListener('click', () => {
+      resetUi();
+      control.focus({ preventScroll: true });
+    });
     control.addEventListener('click', () => {
       if (!armed) {
         armed = true;
         control.textContent = t('garage.reset.confirm');
+        control.dataset.confirm = '1';
+        escape.hidden = false;
         return;
       }
       // Disabled BEFORE the handler runs, so the second click is provably the
@@ -1375,11 +1388,12 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       // that answers nothing leaves it disabled, and a control that says
       // "cannot be undone" must not be able to fire twice on one ask.
       control.disabled = true;
+      escape.hidden = true;
       answer(opts.onReset?.(), 'reset');
     });
-    nav.appendChild(control);
+    foot.end.append(escape, control);
   }
-  wrap.appendChild(nav);
+  wrap.appendChild(foot.el);
 
   /** The caller's answer to a purchase or a reset: the account as the store
    *  holds it now (R-3). Redraws around it -- same screen node, same tab,

@@ -22,7 +22,7 @@
  */
 import { CREDITS } from '../credits-data';
 import { t } from '../i18n/t';
-import { symbolLabel } from './symbol';
+import { footBack, screenFoot } from './foot';
 import type { Disposer } from '../shell/router';
 import { panel } from './panel';
 import { stagger } from './motion';
@@ -222,12 +222,11 @@ export function showCredits(stage: HTMLElement, deps: CreditsDeps): Disposer {
   build.textContent = t('common.build', { build: deps.build });
   p.body.appendChild(build);
 
-  const back = document.createElement('a');
-  back.className = 'rl-btn rl-credits__back';
-  back.dataset.kind = 'back';
-  back.href = deps.back;
-  back.innerHTML = symbolLabel('back', t('nav.backToMenu'));
-  p.body.appendChild(back);
+  // The one footer row (`foot.ts`, GH-498), outside the body and sticky, so
+  // the way back stays on screen however long the page above it runs.
+  const foot = screenFoot({ sticky: true });
+  foot.start.appendChild(footBack(t('nav.backToMenu'), deps.back, 'rl-btn rl-credits__back'));
+  p.el.appendChild(foot.el);
 
   stagger(wrap);
   stage.appendChild(wrap);

@@ -67,7 +67,18 @@ describe('showSaves', () => {
     showSaves(stage, deps(memStore()));
     const back = stage.querySelector('.rl-saves__back');
     expect(back?.querySelector('svg')?.getAttribute('data-symbol')).toBe('back');
-    expect(back?.textContent?.trim()).toBe('main menu');
+    expect(back?.textContent?.trim()).toBe('Main menu');
+  });
+
+  // GH-498: the one footer row, after the body and sticky in the column's
+  // scroller. Falsified by hand: appending the foot to `p.body` turns this red.
+  it('keeps the way back in a sticky footer row outside the body', () => {
+    const stage = document.createElement('div');
+    showSaves(stage, deps(memStore()));
+    const foot = stage.querySelector('.rl-panel > .rl-foot.rl-foot--sticky');
+    expect(foot).not.toBeNull();
+    expect(foot?.closest('.rl-panel__body')).toBeNull();
+    expect(foot?.querySelector('.rl-foot__start > [data-kind="back"]')).toBe(stage.querySelector('.rl-saves__back'));
   });
 
   it('renders the slot list newest first', () => {

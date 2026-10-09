@@ -17,7 +17,7 @@
 //
 // Every spec below was falsified by a one-line mutation of the implementation;
 // the mutations and their red results are in the PR that landed this file.
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { BAR_GROW_MS, STAMP_MS } from './garage-model';
@@ -121,6 +121,36 @@ describe('the chrome register: theme.css', () => {
         })
         .map((r) => r.selectors.join(', '));
       expect(offenders).toEqual([]);
+    });
+  });
+
+  // GH-498: the one footer row (`ui/foot.ts`). Each falsified by hand: the
+  // row's `align-items: stretch` -> `center`; the control's `align-items:
+  // center` deleted; the back button's old `align-self: flex-start` restored.
+  describe('GH-498: one footer row', () => {
+    it('stretches every control in the row to one height and centres its label', () => {
+      expect(rulesFor('.rl-foot').flatMap((r) => decl(r.body, 'align-items'))).toEqual(['stretch']);
+      const btn = rulesFor('.rl-foot .rl-btn');
+      expect(btn.flatMap((r) => decl(r.body, 'display'))).toEqual(['inline-flex']);
+      expect(btn.flatMap((r) => decl(r.body, 'align-items'))).toEqual(['center']);
+      expect(btn.flatMap((r) => decl(r.body, 'justify-content'))).toEqual(['center']);
+    });
+
+    it('pins no way back to the top of its row', () => {
+      const offenders = styled
+        .filter((r) => r.selectors.some((s) => /data-kind='back'|rl-foot/.test(s)))
+        .filter((r) => decl(r.body, 'align-self').length > 0)
+        .map((r) => r.selectors.join(', '));
+      expect(offenders).toEqual([]);
+    });
+
+    it('dresses the destructive control in the danger colours only', () => {
+      const COLOUR = ['color', 'background', 'border-color'];
+      const used = styled
+        .filter((r) => r.selectors.some((s) => /\.rl-btn--danger/.test(s)))
+        .flatMap((r) => COLOUR.flatMap((p) => decl(r.body, p)));
+      expect(used.length).toBeGreaterThanOrEqual(6);
+      expect(used.filter((v) => !/--bad(-text)?\b|--band-ink|^transparent$/.test(v))).toEqual([]);
     });
   });
 
@@ -359,6 +389,46 @@ describe('the chrome register: theme.css', () => {
         .map((r) => r.selectors.join(', '));
       expect(offenders).toEqual([]);
     });
+  });
+});
+
+// VR-20 reads face and case off the stylesheet, and a stylesheet cannot see
+// the words: the footer's "campaign map", "menu" and "reset brigade account"
+// were lowercase in the CATALOGUE, under a sentence-case rule, and nothing
+// failed (GH-498). This reads the catalogue for every key an action button
+// takes -- a `footBack`/`footLink` label anywhere in `ui/`, every `nav.*` key,
+// the garage reset's three words -- and holds each to a capital first letter,
+// every branch of a `select` included. Falsified by hand: putting
+// `nav.campaignMap` back to "campaign map" turns this red, naming the key.
+describe('the chrome register: action labels are sentence case in the catalogue (VR-20)', () => {
+  const catalogue = JSON.parse(read('packages/app/src/i18n/en.json')) as Record<string, string>;
+  const uiDir = 'packages/app/src/ui';
+  const sources = readdirSync(resolve(process.cwd(), uiDir))
+    .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
+    .map((f) => read(`${uiDir}/${f}`));
+  const fromCalls = sources.flatMap((src) => [...src.matchAll(/foot(?:Back|Link)\(\s*t\('([\w.]+)'/g)].map((m) => m[1]));
+  const keys = [...new Set([
+    ...fromCalls,
+    ...Object.keys(catalogue).filter((k) => k.startsWith('nav.') || k.startsWith('garage.reset.')),
+    'debrief.replay',
+  ])].sort();
+  /** The first word of every literal the message can produce: the message
+   *  itself, or each branch of a leading `{x, select, ...}`. */
+  const openings = (msg: string): string[] =>
+    msg.startsWith('{') ? [...msg.matchAll(/\w+\s*\{([^{}]+)\}/g)].map((m) => m[1].trim()) : [msg.trim()];
+
+  it('finds the labels it guards', () => {
+    expect(fromCalls.length).toBeGreaterThanOrEqual(8);
+    expect(keys).toEqual(expect.arrayContaining(['nav.campaignMap', 'nav.menu', 'nav.backToMenu', 'garage.reset.button', 'garage.reset.keep']));
+  });
+
+  it('starts every one with a capital', () => {
+    const offenders = keys.flatMap((k) => {
+      const msg = catalogue[k];
+      if (msg === undefined) return [`${k}: missing`];
+      return openings(msg).filter((o) => !/^[^a-z]/.test(o)).map((o) => `${k}: "${o}"`);
+    });
+    expect(offenders).toEqual([]);
   });
 });
 

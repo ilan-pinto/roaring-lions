@@ -873,10 +873,10 @@ describe('showBrigade — the wallet and the footer', () => {
     expect(text(host, '.rl-garage__wallet-n')).toBe('460');
     expect(text(host, '.rl-garage__wallet-word')).toBe('credits');
     const btn = host.querySelector<HTMLButtonElement>('.rl-garage__reset');
-    expect(btn?.textContent).toBe('reset brigade account');
+    expect(btn?.textContent).toBe('Reset brigade account');
     btn?.click();
     expect(resets).toBe(0);
-    expect(btn?.textContent).toBe('click again to reset — this cannot be undone');
+    expect(btn?.textContent).toBe('Click again to reset — this cannot be undone');
     btn?.click();
     expect(resets).toBe(1);
     // The second click is the last one this control can fire: disabled before
@@ -884,6 +884,64 @@ describe('showBrigade — the wallet and the footer', () => {
     expect(btn?.disabled).toBe(true);
     btn?.click();
     expect(resets).toBe(1);
+  });
+
+  // GH-498 (the lead's direction A): the footer is the one footer row -- the
+  // way back first, the main menu after it, and the reset ALONE at the far
+  // edge as a danger control, never a sibling of navigation. Falsified by
+  // hand: appending the reset to `foot.start` turns this red.
+  it('builds the footer row: the way back first, the reset alone at the far edge', () => {
+    const host = mount({ units, ledger: {}, possibleStars: 78, credits: 460, onReset: () => {} });
+    const foot = host.querySelector('.rl-menu--garage > .rl-foot')!;
+    const start = [...foot.querySelectorAll('.rl-foot__start > *')];
+    expect(start.map((e) => e.textContent?.trim())).toEqual(['Campaign map', 'Main menu']);
+    expect(start[0].getAttribute('data-kind')).toBe('back');
+    expect(start[0].getAttribute('href')).toBe('/campaign');
+    const shown = [...foot.querySelectorAll<HTMLElement>('.rl-foot__end > *')].filter((e) => !e.hidden);
+    expect(shown).toEqual([host.querySelector('.rl-garage__reset')]);
+    expect(shown[0].classList.contains('rl-btn--danger')).toBe(true);
+  });
+
+  // The two-step reset keeps its two clicks, and the armed state has a way out
+  // ("Keep the brigade") that puts it back as it was. Falsified by hand:
+  // dropping `resetUi()` from the escape's click handler turns this red.
+  it('arms on the first click, shows a way out, and the way out disarms it', () => {
+    let resets = 0;
+    const host = mount({ units, ledger: {}, possibleStars: 78, credits: 460, onReset: () => { resets++; } });
+    document.body.appendChild(host);
+    const btn = host.querySelector<HTMLButtonElement>('.rl-garage__reset')!;
+    const keep = host.querySelector<HTMLButtonElement>('.rl-garage__keep')!;
+    expect(keep.hidden).toBe(true);
+    btn.click();
+    expect(btn.dataset.confirm).toBe('1');
+    expect(keep.hidden).toBe(false);
+    expect(keep.textContent).toBe('Keep the brigade');
+    keep.click();
+    expect(resets).toBe(0);
+    expect(btn.dataset.confirm).toBeUndefined();
+    expect(btn.textContent).toBe('Reset brigade account');
+    expect(keep.hidden).toBe(true);
+    expect(document.activeElement).toBe(btn);
+    // ...and it takes two clicks again from there.
+    btn.click();
+    expect(resets).toBe(0);
+    btn.click();
+    expect(resets).toBe(1);
+    host.remove();
+  });
+
+  // GH-498: the specification is read whole -- two columns, the kit figure
+  // inline, no scroller of its own. Read off disk (jsdom computes no sheet).
+  // Falsified by hand: putting `overflow-y: auto` back on `.rl-garage__stats`.
+  it('draws the specification whole: two columns, no inner scroll', () => {
+    const css = readFileSync(resolve(process.cwd(), 'packages/app/src/ui/theme.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const bodies = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter((m) => m[1].split(',').map((x) => x.trim()).includes('.rl-garage__stats'))
+      .map((m) => m[2])
+      .join(';');
+    expect(bodies).not.toMatch(/overflow(-y)?\s*:\s*(auto|scroll)/);
+    expect(bodies).toMatch(/grid-template-columns\s*:\s*repeat\(2,/);
+    expect(bodies).toMatch(/flex\s*:\s*none/);
   });
 
   it('pluralises the wallet word down to one credit', () => {
@@ -1165,7 +1223,7 @@ describe('showBrigade — a purchase re-renders in place (F3)', () => {
     expect(host.querySelector('.rl-menu--garage')).toBe(screen);
     expect(host.querySelector<HTMLElement>('.rl-garage__wallet-n')?.dataset.value).toBe('0');
     expect(host.querySelector('.rl-garage__rung[data-owned="1"]')).toBeNull();
-    expect(reset()?.textContent).toBe('reset brigade account');
+    expect(reset()?.textContent).toBe('Reset brigade account');
     expect(reset()?.disabled).toBe(false);
     dispose();
   });
@@ -1990,7 +2048,7 @@ describe('showBrigade — Shift+Tab reaches every track’s Buy (GH-243 Minor)',
   it('opens the LAST track when Shift+Tab comes back into the board from below it', () => {
     const { host, dispose } = mountLive(opts());
     expect(expanded(host, 'sensors')).toBe('0');
-    host.querySelector<HTMLElement>('.rl-endnav a')?.focus();
+    host.querySelector<HTMLElement>('.rl-foot a')?.focus();
     shiftTab();
     expect(expanded(host, 'sensors')).toBe('1');
     dispose();
