@@ -142,6 +142,40 @@ describe('showSaves', () => {
     stage.remove();
   });
 
+  // Keyboard walk (polish/keyboard-and-saves): a confirmed load or delete
+  // re-renders the list, and the confirm handed focus back to a button that
+  // was then thrown away -- so the next Tab started from <body>. Focus stays
+  // in the list now: on the loaded slot's own Load, or after a delete on the
+  // slot that took the deleted one's place, else the name field.
+  it('keeps focus in the list after a confirmed load or delete', async () => {
+    const store = memStore();
+    saveSlot(store, 'a', 'Older', active, '0.68.0', 1);
+    saveSlot(store, 'b', 'Newer', active, '0.68.0', 2);
+    const stage = document.createElement('div');
+    document.body.appendChild(stage);
+    showSaves(stage, deps(store));
+    const button = (slot: number, label: string): HTMLButtonElement =>
+      [...stage.querySelectorAll<HTMLElement>('.rl-saves__row')[slot]!.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === label)!;
+    const answer = async (): Promise<void> => {
+      document.querySelector<HTMLButtonElement>('.rl-confirm__yes')!.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    };
+    button(1, 'Load').focus();
+    button(1, 'Load').click();
+    await answer();
+    expect(document.activeElement).toBe(button(1, 'Load'));
+    button(0, 'Delete').focus();
+    button(0, 'Delete').click();
+    await answer();
+    expect(stage.querySelectorAll('.rl-saves__row')).toHaveLength(1);
+    expect(document.activeElement).toBe(button(0, 'Delete'));
+    button(0, 'Delete').click();
+    await answer();
+    expect(document.activeElement).toBe(stage.querySelector('input[name="saveName"]'));
+    stage.remove();
+  });
+
   it('import of a bad file shows the refusal message and adds no slot', async () => {
     const store = memStore();
     const stage = document.createElement('div');
@@ -256,14 +290,40 @@ describe('showSaves', () => {
     document.querySelector<HTMLButtonElement>('.rl-confirm__yes')!.click();
     await Promise.resolve();
     await Promise.resolve();
-    // Pass K: a refused LOAD says what it may have done to the ACTIVE
-    // campaign and how to recover -- not "the save may be incomplete", which
-    // is the save form's line and was wrong here.
+    // Save reliability (keyboard-and-saves): a refused LOAD is undone --
+    // `writeActive` puts the three keys back -- so the line says nothing
+    // changed, and the active campaign is the one that was there before.
+    expect(stage.querySelector('.rl-saves__msg')?.textContent).toBe(
+      'Browser storage refused the load \u2014 nothing was changed, and your current campaign is as it was. Free some space and try again.'
+    );
+    expect(store.readLedger()).toEqual({});
+    expect(changed).toBe(0);
+    expect(error).toHaveBeenCalledWith('saves:', expect.anything());
+    error.mockRestore();
+    stage.remove();
+  });
+
+  it('a load whose undo is refused too says the campaign may be mixed, and how to recover', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const base = quotaStore(2);
+    const store: LedgerStore = {
+      ...base,
+      restoreCampaign: () => {
+        throw new Error('QuotaExceededError: the quota has been exceeded.');
+      },
+    };
+    saveSlot(store, 'a', 'Checkpoint', active, '0.68.0', 1);
+    const stage = document.createElement('div');
+    document.body.appendChild(stage);
+    showSaves(stage, deps(store));
+    const row = stage.querySelector<HTMLElement>('.rl-saves__row')!;
+    [...row.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'Load')!.click();
+    document.querySelector<HTMLButtonElement>('.rl-confirm__yes')!.click();
+    await Promise.resolve();
+    await Promise.resolve();
     expect(stage.querySelector('.rl-saves__msg')?.textContent).toBe(
       'Browser storage refused the load part-way \u2014 your current campaign may be mixed with this save. Load the save again, or start a new campaign.'
     );
-    expect(changed).toBe(0);
-    expect(error).toHaveBeenCalledWith('saves:', expect.anything());
     error.mockRestore();
     stage.remove();
   });

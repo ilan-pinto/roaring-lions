@@ -54,9 +54,9 @@
  * nothing. That is exactly what `safeStorage()` bought at each of its call
  * sites, now decided once. It is NOT the same case as a store that accepts
  * writes and refuses one -- a quota refusal, a Safari private-window write --
- * which is let through, because `profile.ts`'s `writeActive` has no
- * transaction and `ui/saves.ts` has to tell the player when a load was half
- * applied (profile.ts, I2).
+ * which is let through: `profile.ts`'s `writeActive` and `writeVictory` below
+ * catch it, put the three keys back from `snapshotCampaign`, and the screen
+ * says the write was refused (save reliability, keyboard-and-saves).
  */
 import { emptyRoarTest, loadRoarTest, saveRoarTest, type RoarTestAccount } from './roar-test';
 import type { LedgerData, LedgerRosterEntry } from '@lions/sim';
@@ -158,6 +158,21 @@ export interface LedgerStore {
    *  test tool, never a money field of the brigade account. */
   readRoarTest(): RoarTestAccount;
   writeRoarTest(a: RoarTestAccount): void;
+  /** The three campaign keys AS STORED -- ledger, account, tutorial flag --
+   *  for `restoreCampaign` to put back. Bytes, not parsed values: a restore
+   *  that re-serialised a migrated account or a cleaned ledger would be a
+   *  write of its own, not an undo (save reliability, keyboard-and-saves). */
+  snapshotCampaign(): CampaignSnapshot;
+  /** Put the three keys back exactly as `snapshotCampaign` found them; a key
+   *  that was absent is removed. Can throw, like any write. */
+  restoreCampaign(snap: CampaignSnapshot): void;
+}
+
+/** Opaque to everything but this door: what `snapshotCampaign` took. */
+export interface CampaignSnapshot {
+  readonly ledger: string | null;
+  readonly account: string | null;
+  readonly tutorial: string | null;
 }
 
 /**
@@ -238,6 +253,20 @@ function overStorage(store: StorageLike | null): LedgerStore {
     writeRoarTest: (a: RoarTestAccount): void => {
       if (store) saveRoarTest(store, a);
     },
+    snapshotCampaign: (): CampaignSnapshot => ({
+      ledger: store?.getItem(LEDGER_KEY) ?? null,
+      account: store?.getItem(ACCOUNT_KEY) ?? null,
+      tutorial: store?.getItem(TUTORIAL_DONE_KEY) ?? null,
+    }),
+    restoreCampaign: (snap: CampaignSnapshot): void => {
+      if (!store) return;
+      // Removals first: they cannot be refused, and each one frees room for
+      // the writes after it. A value that was stored before fitted then, so
+      // putting it back fits again under the same quota.
+      const keys: [string, string | null][] = [[LEDGER_KEY, snap.ledger], [ACCOUNT_KEY, snap.account], [TUTORIAL_DONE_KEY, snap.tutorial]];
+      for (const [key, value] of keys) if (value === null) store.removeItem(key);
+      for (const [key, value] of keys) if (value !== null) store.setItem(key, value);
+    },
   };
 }
 
@@ -317,4 +346,37 @@ export function newCampaign(store: LedgerStore): void {
   store.clearLedger();
   store.setTutorialDone(false);
   store.startCampaign();
+}
+
+/** What `writeVictory` managed: both keys written; refused and put back; or
+ *  no durable storage to write to at all (a blocked store, never a refusal). */
+export type VictoryWrite = 'saved' | 'refused' | 'unavailable';
+
+/**
+ * The victory handler's write (`main.ts`): the ledger that records the win,
+ * then -- when the win paid -- the brigade account. Both or neither. The
+ * handler used to wrap only the ledger write, so a refused ACCOUNT write (a
+ * quota, a private-window refusal) threw out of it after the ledger had
+ * already recorded the win: a won mission with no pay, and the end screen
+ * taken down with the throw (save reliability walk, keyboard-and-saves). Now
+ * the door's byte snapshot is put back on any refusal and the answer is
+ * `'refused'`, which the HUD reports as "not saved". Nothing throws: a
+ * restore refused too is logged, and the answer is still `'refused'`.
+ */
+export function writeVictory(store: LedgerStore, ledger: CampaignLedger, account: BrigadeAccount | null): VictoryWrite {
+  if (!store.available) return 'unavailable';
+  const before = store.snapshotCampaign();
+  try {
+    store.writeLedger(ledger);
+    if (account) store.writeAccount(account);
+    return 'saved';
+  } catch (err) {
+    console.error('campaign victory write refused:', err);
+    try {
+      store.restoreCampaign(before);
+    } catch (restoreErr) {
+      console.error('campaign victory write: the restore was refused too:', restoreErr);
+    }
+    return 'refused';
+  }
 }

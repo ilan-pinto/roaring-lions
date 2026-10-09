@@ -103,6 +103,30 @@ describe('outcomeMoment', () => {
     }
   });
 
+  // Keyboard walk (polish/keyboard-and-saves): Enter on the focused Continue
+  // ended the moment on KEYDOWN, the debrief mounted and focused its primary
+  // ("Next: ...") before the same press's default action ran -- and the
+  // browser activated THAT, so a keyboard player went straight into the next
+  // mission without ever seeing the debrief. The skip consumes an activation
+  // key's default; any other key keeps its default (a browser shortcut still
+  // works during the hold).
+  it('an Enter or Space that skips it spends the key, so it cannot activate what mounts next', async () => {
+    for (const key of ['Enter', ' ']) {
+      const m = outcomeMoment(host, { outcome: 'victory', title: 'x' });
+      const skip = m.el.querySelector<HTMLButtonElement>('.rl-outcome__skip');
+      if (!skip) throw new Error('no skip button');
+      const ev = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+      skip.dispatchEvent(ev);
+      await expect(m.done).resolves.toBeUndefined();
+      expect(ev.defaultPrevented).toBe(true);
+    }
+    const m = outcomeMoment(host, { outcome: 'victory', title: 'x' });
+    const other = new KeyboardEvent('keydown', { key: 'q', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(other);
+    await expect(m.done).resolves.toBeUndefined();
+    expect(other.defaultPrevented).toBe(false);
+  });
+
   it('a click skips it too', async () => {
     const m = outcomeMoment(host, { outcome: 'defeat', title: 'x' });
     window.dispatchEvent(new PointerEvent('pointerdown'));

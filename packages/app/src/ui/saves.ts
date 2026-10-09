@@ -15,7 +15,7 @@ import { t } from '../i18n/t';
 import { footBack, screenFoot } from './foot';
 import type { Disposer } from '../shell/router';
 import type { LedgerStore } from '../ledger-store';
-import { SAVE_ERROR_NOT_A_SAVE, damagedRaw, deleteSlot, exportSlot, importSlot, listDamaged, listSlots, loadSlot, readActive, saveSlot, writeActive, type DamagedMeta, type SlotMeta } from '../profile';
+import { SAVE_ERROR_LOAD_MIXED, SAVE_ERROR_NOT_A_SAVE, damagedRaw, deleteSlot, exportSlot, importSlot, listDamaged, listSlots, loadSlot, readActive, saveSlot, writeActive, type DamagedMeta, type SlotMeta } from '../profile';
 import { confirmDialog } from './confirm';
 import { panel } from './panel';
 import { stagger } from './motion';
@@ -67,11 +67,12 @@ const DATE = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle
  * thrown value stays a plain `Error` and `profile.ts` needs no dependency on
  * this file.
  */
-const CODED = new Set<string>([SAVE_ERROR_NOT_A_SAVE]);
+const CODED = new Set<string>([SAVE_ERROR_NOT_A_SAVE, SAVE_ERROR_LOAD_MIXED]);
 
 /** Pass K: which action failed decides what the line can honestly say -- a
- *  refused LOAD may have half-replaced the active campaign, a refused DELETE
- *  left the slot where it was, and only a refused SAVE "may be incomplete". */
+ *  refused LOAD was undone (`writeActive` puts the campaign back; only its
+ *  coded `SAVE_ERROR_LOAD_MIXED` says otherwise), a refused DELETE left the
+ *  slot where it was, and only a refused SAVE "may be incomplete". */
 export type SaveAction = 'save' | 'load' | 'delete' | 'import';
 
 export function errorText(err: unknown, action: SaveAction): string {
@@ -80,12 +81,16 @@ export function errorText(err: unknown, action: SaveAction): string {
   return t(`saves.error.storage.${action}`);
 }
 
+/** Which of a row's buttons a refocus aims at. */
+type SlotAction = 'load' | 'export' | 'delete';
+
 function slotRow(
   meta: SlotMeta,
   actions: { onLoad(): void; onExport(): void; onDelete(): void }
 ): HTMLElement {
   const row = document.createElement('div');
   row.className = 'rl-saves__row';
+  row.dataset.slot = meta.id;
 
   const info = document.createElement('div');
   info.className = 'rl-saves__info';
@@ -105,17 +110,18 @@ function slotRow(
 
   const btnRow = document.createElement('div');
   btnRow.className = 'rl-saves__actions';
-  const button = (label: string, onClick: () => void): void => {
+  const button = (label: string, onClick: () => void, action: SlotAction): void => {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'rl-btn';
+    b.dataset.action = action;
     b.textContent = label;
     b.addEventListener('click', onClick);
     btnRow.appendChild(b);
   };
-  button(t('saves.slot.load'), actions.onLoad);
-  button(t('saves.slot.export'), actions.onExport);
-  button(t('saves.slot.delete'), actions.onDelete);
+  button(t('saves.slot.load'), actions.onLoad, 'load');
+  button(t('saves.slot.export'), actions.onExport, 'export');
+  button(t('saves.slot.delete'), actions.onDelete, 'delete');
   row.appendChild(btnRow);
 
   return row;
@@ -130,6 +136,7 @@ function slotRow(
 function damagedRow(meta: DamagedMeta, n: number, actions: { onExport(): void; onDelete(): void }): HTMLElement {
   const row = document.createElement('div');
   row.className = 'rl-saves__row rl-saves__row--damaged';
+  row.dataset.slot = meta.id;
   const info = document.createElement('div');
   info.className = 'rl-saves__info';
   const name = document.createElement('div');
@@ -142,16 +149,17 @@ function damagedRow(meta: DamagedMeta, n: number, actions: { onExport(): void; o
   row.appendChild(info);
   const btnRow = document.createElement('div');
   btnRow.className = 'rl-saves__actions';
-  const button = (label: string, onClick: () => void): void => {
+  const button = (label: string, onClick: () => void, action: SlotAction): void => {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'rl-btn';
+    b.dataset.action = action;
     b.textContent = label;
     b.addEventListener('click', onClick);
     btnRow.appendChild(b);
   };
-  button(t('saves.slot.export'), actions.onExport);
-  button(t('saves.slot.delete'), actions.onDelete);
+  button(t('saves.slot.export'), actions.onExport, 'export');
+  button(t('saves.slot.delete'), actions.onDelete, 'delete');
   row.appendChild(btnRow);
   return row;
 }
@@ -178,6 +186,24 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
 
   const say = (text: string): void => {
     msg.textContent = text;
+  };
+
+  /** Where a row sits in the list right now, for `refocus` after a re-render. */
+  const rowIndex = (id: string): number => [...list.querySelectorAll<HTMLElement>('.rl-saves__row')].findIndex((r) => r.dataset.slot === id);
+
+  /**
+   * Keyboard walk (polish/keyboard-and-saves): a confirmed load or delete
+   * re-renders the list, and the confirm dialog had just handed focus back to
+   * a button the re-render then threw away, so the next Tab started from
+   * <body>. Focus goes to the row now at `index` (the same slot after a load;
+   * the one that took a deleted slot's place, or the last), on its `action`
+   * button -- or to the name field when the list is empty.
+   */
+  const refocus = (index: number, action: SlotAction): void => {
+    const rows = list.querySelectorAll<HTMLElement>('.rl-saves__row');
+    const row = rows.length > 0 ? rows[Math.min(index, rows.length - 1)] : undefined;
+    const target = row?.querySelector<HTMLButtonElement>(`button[data-action="${action}"]`) ?? row?.querySelector<HTMLButtonElement>('button');
+    (target ?? nameInput).focus();
   };
 
   const renderList = (): void => {
@@ -214,7 +240,9 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
                 return;
               }
               say(t('saves.done.load', { name: slot.name }));
+              const at = rowIndex(meta.id);
               renderList();
+              refocus(at, 'load');
               deps.onChanged();
             });
           },
@@ -238,7 +266,9 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
                 return;
               }
               say(t('saves.done.delete', { name: meta.name }));
+              const at = rowIndex(meta.id);
               renderList();
+              refocus(at, 'delete');
               deps.onChanged();
             });
           },
@@ -268,7 +298,9 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
                 return;
               }
               say(t('saves.done.deleteDamaged'));
+              const at = rowIndex(meta.id);
               renderList();
+              refocus(at, 'delete');
               deps.onChanged();
             });
           },

@@ -287,6 +287,13 @@ export function outcomeMoment(host: HTMLElement, o: OutcomeMomentOptions): Outco
       e.stopPropagation();
       return;
     }
+    // An activation key's default is spent here (keyboard walk,
+    // polish/keyboard-and-saves): `finish` hands over to the debrief, which
+    // focuses its primary ("Next: ...") before this press's default action
+    // runs, and the browser then activated THAT -- Enter on Continue went
+    // straight into the next mission, debrief unseen. Only Enter and Space:
+    // any other key keeps its default, so a browser shortcut still works.
+    if (e.key === 'Enter' || e.key === ' ') e.preventDefault();
     finish();
     e.stopPropagation();
   };

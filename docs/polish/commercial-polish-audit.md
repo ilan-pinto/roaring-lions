@@ -26,7 +26,8 @@
 | — | K-10 | Dock refusal says "insufficient logistics" for any refusal | Word it from the sim's refusal reason. Stage 4 (economy) | S |
 | — | K-17 | Narrow portrait layout and touch verbs | Pass I; the notice is done (#456) | L |
 | — | — | No campaign-complete line anywhere | Shai/Idit copy for the end of the last town | S |
-| — | — | Not assessed in the baseline and not since: save/load reliability walk, keyboard-only navigation, low-end performance, hearing the mix | Stage 7 release pass and the tester cohort (#302) | M |
+| — | KS-06 | ~~Save/load reliability and keyboard-only navigation not assessed~~ WALKED by `polish/keyboard-and-saves` ([`keyboard-and-saves.md`](keyboard-and-saves.md)): five fixed (KS-01 Enter on the victory moment skipped the debrief into the next mission; KS-02 Tab escaped the debrief onto the hidden HUD; KS-03 saves list dropped focus; KS-04 a refused load left a mixed campaign, now undone byte for byte; KS-05 a refused account write at victory threw after the ledger recorded the win). Left: KS-07..KS-14; KS-06 (no keyboard move/attack order) is a known limitation by ruling, deferred to a later accessibility pass | KS-07 Escape-goes-back and KS-08 focus on route mount are one S shell package (`polish/keyboard-and-saves-2`); KS-06 options recorded: reticle (L) or order-at-screen-centre (M) | S |
+| — | — | Not assessed in the baseline and not since: low-end performance, hearing the mix | Stage 7 release pass and the tester cohort (#302) | M |
 
 ### Lead decisions
 
@@ -59,7 +60,7 @@ The plan's §16 has no table, so the scores live here. Baseline is the first-pas
 | Briefing | 3.5 | **4** | Field order: at-a-glance card, lit ground with marks, force as places with a bench, Deploy always on screen (#439, #442). |
 | Debrief | 3 | **4** | After-action report: verdict, star ladder, three columns, losses and promotions by name, ground photograph with pins, one primary action (#442); actions always reachable at seven sizes (#434). |
 | Campaign flow | 3.5 | **3.5** | First Light's hold clock returns (#424); the end screen says what the result means (#453, K-07). The board's pin labels and status line are fixed (PA-20, small batch) and it carries a primary "Next: <mission>" button (`polish/ux-small-2`); the end of the war is said on the board and in the report (#495). |
-| Accessibility | 3 | **3.5** | Live colour-vision switch (#459); reduced motion honoured by the new flinch layer (#445); small-screen notice (#456). Captions are on by default since PA-23 (L2, 9 Oct); keyboard-only use was not assessed. |
+| Accessibility | 3 | **3.5** | Live colour-vision switch (#459); reduced motion honoured by the new flinch layer (#445); small-screen notice (#456). Captions are on by default since PA-23 (L2, 9 Oct). Keyboard-only use walked 9 Oct (`keyboard-and-saves.md`): every shell screen, the briefing, pause, settings and the debrief are reachable, and three focus defects are fixed; a battlefield move order still needs a pointer (KS-06). |
 | Performance | 4 | **4** | Memory measured and gated in CI (#474); two retention leaks fixed; the heaviest mission fell from 2756–2927 to 2296–2464 MiB on CI (#478), and #479 and #480 save more. Low-end hardware still unmeasured. |
 
 **Below 4:** Input feel 3.5 · Combat feedback 3.5 · Environment 3.5 · Audio 3 · Campaign flow 3.5 · Accessibility 3.5.

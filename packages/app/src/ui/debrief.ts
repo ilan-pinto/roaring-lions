@@ -23,6 +23,7 @@ import { symbolLabel } from './symbol';
 import { footBack, footLink, screenFoot } from './foot';
 import { panel } from './panel';
 import { mountEndPanel } from './end-panel';
+import { focusTrap } from './focus-trap';
 import { tierName } from './grade-copy';
 import { markSvg } from './mark';
 import { unitIcon } from './portrait';
@@ -277,7 +278,12 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
   // it marked the end screen's next-mission link.
   markConfirm(primary);
   mountEndPanel(host, p, nav, primary, o.prompt);
+  // Keyboard walk (polish/keyboard-and-saves): the backdrop hides the live
+  // HUD, but Tab still walked out onto its strip -- leave, pause, the speed
+  // chips -- invisible and live. One trap, released with the report.
+  const releaseTrap = focusTrap(p.el);
   return () => {
+    releaseTrap();
     p.el.remove();
     backdrop.remove();
   };
