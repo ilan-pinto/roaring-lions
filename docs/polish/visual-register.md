@@ -453,18 +453,18 @@ Numbers from #354 (`units/readability.ts`, `units/selection-ring.ts`):
 | VR-03 | hostile red as low HP | OV, `selection-model.ts` | **resolved** (friendly = warn; HUD track tone now applies) |
 | VR-04 | neutral yellow ×9 | OV, `theme.css`, `minimap.ts`, `order-sight.ts` | lead |
 | VR-05 | olive hulls and olive foliage | `palette.json`, `terrain-themes.ts` | lead (GH-346 lineage) |
-| VR-06 | uncurated `grass.0` in UI | `order-sight.ts` | small |
-| VR-07 | campaign board off the lit pipeline | `world-view.ts` | recorded follow-up |
-| VR-08 | palette hex fallbacks in render | `lighting.ts`, `fog-pass.ts`, TR … | small, mechanical |
+| VR-06 | uncurated `grass.0` in UI | `order-sight.ts` | **resolved** (#449) |
+| VR-07 | campaign board off the lit pipeline | `world-view.ts` | recorded follow-up (CLAUDE.md says the board has been lit since S3a, #332: re-check and close) |
+| VR-08 | palette hex fallbacks in render | `lighting.ts`, `fog-pass.ts`, TR … | **resolved** (#449, #452) |
 | VR-09 / VR-10 | off-palette smoke and char | TR, `world-materials.ts` | **resolved** (fx ladder) |
-| VR-11 | billboard vs mesh drift | `kit.py`, sprites | recorded debt |
+| VR-11 | billboard vs mesh drift | `kit.py`, sprites | recorded debt (billboards retired in A3.3: re-check and close) |
 | VR-12 | hit flash always hostile | TR | **resolved** (fx ladder) |
-| VR-13 | kit glyph placeholders vs G1 | `kit-sign.ts`, `assets/ui/kit` | lead (D8 addendum) |
-| VR-14 | stale icon pipeline in CLAUDE.md | `CLAUDE.md` | doc |
+| VR-13 | kit glyph placeholders vs G1 | `kit-sign.ts`, `assets/ui/kit` | lead (audit status L8: confirm the stars are final; `kit-sign.ts` still says PLACEHOLDER) |
+| VR-14 | stale icon pipeline in CLAUDE.md | `CLAUDE.md` | **resolved** (already fixed on main, #449) |
 | VR-15 | lightning audio glyph | menu, strip | **resolved** (speaker) |
-| VR-16–21 | type: mono prose, display prose, faux bold, garage scale, button case, back buttons | `theme.css`, settings/saves/credits/loading | PA-22, one register pass |
+| VR-16–21 | type: mono prose, display prose, faux bold, garage scale, button case, back buttons | `theme.css`, settings/saves/credits/loading | **resolved** (#448; VR-20 case rule in #454) |
 | VR-22–23 | effects ladder inverted; dead shake | `data/vfx/*.json`, TR | **resolved** (fx ladder) |
 | VR-24–31 | chrome: bands, credits colour, selected, disabled, focus, raw spacing and timing, halos, shared tokens | `theme.css`, `panel()` callers | **resolved** (chrome register, with VR-20) |
-| VR-32–38 | world language: lime overload, move colour, garrison ring, halos, minimap, tier/tone, dead marks | OV, TR, `minimap.ts`, `alerts.ts` | lead for meaning; VR-33 to VR-38 resolved (VR-36/37: minimap state, 2026-10-08) |
+| VR-32–38 | world language: lime overload, move colour, garrison ring, halos, minimap, tier/tone, dead marks | OV, TR, `minimap.ts`, `alerts.ts` | VR-32 lead for meaning (stays); VR-33 to VR-38 resolved (VR-33 #457, VR-34/35 #454, VR-36/37 #461, VR-38 #449) |
 
 Nothing here was changed by this pass: the register only records what exists. The fixes belong to D2 (units), B2 (HUD consistency) and C3 (event tiers) once the lead has picked a side for each split rule.
