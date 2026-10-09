@@ -5,6 +5,13 @@
 //   pnpm perf:load -- --mission=tel_marum_2_foothold --serve=preview   # the production build in dist/
 //   pnpm perf:load -- --mission=... --warm                     # HTTP cache AND service worker ON (a second visit)
 //   pnpm perf:load -- --mission=... --tail=5000                # keep counting 5 s past first-frame (late loads)
+//   pnpm perf:load -- --mission=... --cpu=6 --gpu=swiftshader --viewport=1366x768   # a low-end proxy
+//
+// `--cpu=N` is CDP `Emulation.setCPUThrottlingRate` (the renderer's main
+// thread only -- not the GPU process, not the network), `--gpu` takes
+// `ui-review/gpu.ts`'s two backends (default Metal, the hardware GPU), and
+// `--viewport` the CSS size at deviceScaleFactor 1 (default 1400x900). The
+// low-end assessment (docs/PERFORMANCE.md, "Low-end") is what they are for.
 //
 // Loads one mission or sandbox in headless Chromium with the HTTP cache
 // DISABLED (a first visit, or a visit after GitHub Pages' 10-minute max-age
@@ -34,12 +41,14 @@
 // machine -- the NETWORK bytes and the ORDER of the milestones are the
 // portable part of this report; the absolute milliseconds are this machine's.
 // State capture conditions with every number you quote from it.
-import { spawn, type ChildProcess } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { chromium, type CDPSession, type Page } from 'playwright';
+import { chromium, type CDPSession } from 'playwright';
+import { driveBoot, startPreview } from './boot';
 import { ensureDevServer, isServerUp, readUnmaskedRenderer, stopDevServer } from '../golden-diff/browser';
 import { musicOffInitScript } from '../ui-review/music-off';
+import { gpuLaunchArgs, resolveGpuBackend, type GpuBackend } from '../ui-review/gpu';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..', '..');
@@ -57,6 +66,10 @@ type Args = {
   /** Keep counting this long after first-frame, so the after-first-frame
    *  loads (wreck sheets, deferred buildables) are on the bill too. */
   tailMs: number;
+  /** CDP CPU throttling rate; 1 is none. */
+  cpu: number;
+  gpu: GpuBackend;
+  viewport: { width: number; height: number };
 };
 
 function parseArgs(argv: string[]): Args {
@@ -80,7 +93,17 @@ function parseArgs(argv: string[]): Args {
     runs: Number(get('runs') ?? 1),
     timeoutMs: Number(get('timeout') ?? 180_000),
     tailMs: Number(get('tail') ?? 0),
+    cpu: Number(get('cpu') ?? 1),
+    // 'darwin' pins the default to Metal, which this tool has always used.
+    gpu: resolveGpuBackend(argv, 'darwin'),
+    viewport: parseViewport(get('viewport') ?? '1400x900'),
   };
+}
+
+function parseViewport(v: string): { width: number; height: number } {
+  const [width, height] = v.split('x').map(Number);
+  if (!Number.isFinite(width) || !Number.isFinite(height)) throw new Error(`--viewport must be WIDTHxHEIGHT, got ${v}`);
+  return { width, height };
 }
 
 type Category = 'mesh' | 'sprite' | 'image' | 'code' | 'data' | 'audio' | 'video' | 'texture' | 'font' | 'other';
@@ -153,58 +176,6 @@ async function attachNetwork(cdp: CDPSession, warm: boolean, mbps: number | null
   return () => done.slice();
 }
 
-type Milestones = { loadingScreen: number | null; sheets: number | null; ready: number | null; firstFrame: number | null; bootError: string | null };
-
-async function drive(page: Page, url: string, timeoutMs: number): Promise<Milestones> {
-  const m: Milestones = { loadingScreen: null, sheets: null, ready: null, firstFrame: null, bootError: null };
-  const startedAt = Date.now();
-  await page.goto(url, { waitUntil: 'commit' });
-  // One poll loop over the page's own DOM, so every milestone is read against
-  // the same clock (`performance.now()` in the page).
-  while (Date.now() - startedAt < timeoutMs) {
-    const s = await page.evaluate(() => {
-      const wrap = document.querySelector('.rl-loading');
-      const countState = document.querySelector<HTMLElement>('.rl-loading__count')?.dataset.state ?? '';
-      const deploy = document.querySelector<HTMLButtonElement>('.rl-loading__deploy');
-      const bootError = /boot failed/i.test(document.body.innerText) ? document.body.innerText.slice(0, 200) : null;
-      return {
-        now: performance.now(),
-        loading: wrap !== null,
-        // The counter's own STATE, not its words (`ui/loading.ts`): 'ready'
-        // is a full bar, whether every asset counted in or there was nothing
-        // to count. Matching the words stalled this loop forever once, when
-        // a mesh-only boot read 'meshes only' and nothing here knew it
-        // (found 2026-10-04, A3.3); the words are a player's since WP-P2.
-        sheetsDone: countState === 'ready',
-        deploy: deploy !== null,
-        lions: typeof (window as unknown as { __lions?: unknown }).__lions !== 'undefined',
-        bootError,
-      };
-    });
-    if (s.bootError) {
-      m.bootError = s.bootError;
-      return m;
-    }
-    if (m.loadingScreen === null && s.loading) m.loadingScreen = s.now;
-    if (m.sheets === null && s.sheetsDone) m.sheets = s.now;
-    if (m.ready === null && m.sheets !== null) {
-      // `loading.done()` attaches the click handler only once every art job
-      // has settled; a click before that is silently lost (the gate's own
-      // finding), so keep clicking until the screen goes.
-      m.ready = s.now;
-    }
-    if (m.ready !== null && s.loading && s.deploy) {
-      await page.evaluate(() => document.querySelector<HTMLButtonElement>('.rl-loading__deploy')?.click());
-    }
-    if (s.lions) {
-      m.firstFrame = s.now;
-      return m;
-    }
-    await page.waitForTimeout(50);
-  }
-  return m;
-}
-
 function fmtMiB(b: number): string {
   return (b / 1048576).toFixed(2).padStart(7);
 }
@@ -212,26 +183,11 @@ function fmtMs(v: number | null): string {
   return v === null ? '    -' : String(Math.round(v)).padStart(6);
 }
 
-async function startPreview(port: number): Promise<ChildProcess> {
-  const child = spawn('pnpm', ['--filter', '@lions/app', 'exec', 'vite', 'preview', '--port', String(port), '--strictPort'], {
-    cwd: REPO_ROOT,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    detached: true,
-  });
-  const deadline = Date.now() + 30_000;
-  while (Date.now() < deadline) {
-    if (await isServerUp(port)) return child;
-    await new Promise((r) => setTimeout(r, 250));
-  }
-  stopDevServer(child, TAG);
-  throw new Error(`vite preview did not come up on :${port} -- run \`pnpm build\` first`);
-}
-
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   let server: ChildProcess | null = null;
   if (args.serve === 'preview') {
-    if (!(await isServerUp(args.port))) server = await startPreview(args.port);
+    if (!(await isServerUp(args.port))) server = await startPreview(args.port, REPO_ROOT, TAG);
   } else {
     server = await ensureDevServer(args.port, REPO_ROOT, TAG);
   }
@@ -241,6 +197,7 @@ async function main(): Promise<void> {
     `[${TAG}] ${url}  serve=${args.serve}  ` +
       `cache=${args.warm ? 'ON, service worker ON (warm -- a returning player)' : 'OFF, service worker BYPASSED (cold -- a first visit)'}  ` +
       `${args.mbps ? `downlink ${args.mbps} Mbit/s, 20 ms latency` : 'unthrottled'}  runs=${args.runs}` +
+      `  cpu=${args.cpu}x  gpu=${args.gpu}  viewport=${args.viewport.width}x${args.viewport.height}@1x` +
       (args.tailMs > 0 ? `  tail=${args.tailMs} ms after first-frame` : '')
   );
   // **The real GPU, and printing which one.** This harness measures SPEED, and
@@ -263,13 +220,7 @@ async function main(): Promise<void> {
   // (`golden-diff/browser.ts`'s `launchCaptureBrowser`).
   const browser = await chromium.launch({
     headless: true,
-    args: [
-      '--use-angle=metal',
-      '--ignore-gpu-blocklist',
-      '--use-gl=angle',
-      '--enable-gpu-rasterization',
-      '--disable-gpu-sandbox',
-    ],
+    args: gpuLaunchArgs(args.gpu),
   });
   try {
     // Read, never assumed -- the same probe the visual gate keys its baselines
@@ -277,12 +228,13 @@ async function main(): Promise<void> {
     // CPU rasteriser's and the `first-frame` figure means something else.
     console.log(`[${TAG}] renderer: ${await readUnmaskedRenderer(browser)}`);
     for (let run = 1; run <= args.runs; run++) {
-      const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+      const context = await browser.newContext({ viewport: args.viewport, deviceScaleFactor: 1 });
       await context.addInitScript(musicOffInitScript());
       const page = await context.newPage();
       const cdp = await context.newCDPSession(page);
+      if (args.cpu !== 1) await cdp.send('Emulation.setCPUThrottlingRate', { rate: args.cpu });
       const requests = await attachNetwork(cdp, args.warm, args.mbps);
-      const m = await drive(page, url, args.timeoutMs);
+      const m = await driveBoot(page, url, args.timeoutMs);
       if (args.tailMs > 0 && m.firstFrame !== null) await page.waitForTimeout(args.tailMs);
       const reqs = requests();
       await context.close();
