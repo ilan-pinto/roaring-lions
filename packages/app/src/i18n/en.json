@@ -568,6 +568,7 @@
   "weapon.zu23_twin": "ZU-23 twin anti-aircraft cannon",
 
   "hud.strip.conduct": "Conduct",
+  "hud.strip.freePlay": "Free play — no objectives · Escape for the menu",
   "hud.strip.open": "Objectives{primary, plural, =0 {} other { +{primary} primary}}{secondary, plural, =0 {} other { +{secondary} secondary}}",
   "hud.strip.rate": "+{n}/min",
   "hud.strip.logistics.word": "logistics",

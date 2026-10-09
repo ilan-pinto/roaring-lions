@@ -77,17 +77,25 @@
     {
       "id": "identify_then_shoot",
       "title": "Identify, then shoot",
-      "teach": "The far one is only suspected. Keep it in sight and stay still until the panel gives odds, then take the shot the panel likes best.",
+      "teach": "A squad on the move shoots badly, and nobody can shoot what is only suspected. Press H so your squad stands still, hold the cursor over an enemy until the panel gives odds, and let them take the shot.",
       "await": {
-        "kind": "any_of",
+        "kind": "all_of",
         "of": [
-          { "kind": "sim", "event": "destroyed", "side": 1, "by_unit": "inf_squad" },
-          { "kind": "elapsed_s", "seconds": 60 }
+          { "kind": "intent", "intent": "halt" },
+          {
+            "kind": "any_of",
+            "of": [
+              { "kind": "hover", "target": "enemy", "projection": "shot" },
+              { "kind": "hover", "target": "enemy", "projection": "cover" },
+              { "kind": "hover", "target": "enemy", "projection": "moving" }
+            ]
+          },
+          { "kind": "sim", "event": "fire", "side": 1 }
         ]
       },
       "focus": { "kind": "none" },
-      "nudge_after_s": 25,
-      "nudge": "Stay still in sight of it. When the panel shows odds, right-click toward it: your squad advances and fires at whatever it can hit."
+      "nudge_after_s": 20,
+      "nudge": "Select the squad and press H. Then hold the cursor over an enemy: once the panel shows odds, your squad fires on its own."
     },
     {
       "id": "use_the_ground",
@@ -119,7 +127,7 @@
     {
       "id": "what_a_shot_costs",
       "title": "What a shot costs",
-      "teach": "Fire the mortar near the flagged house and watch the invoice. Conduct is how cleanly you fight, and under the mission floor you lose.",
+      "teach": "The mortar fires at the nearest enemy it knows of, and you pay for where the round lands. Select it and press H so it fires from the road, then watch the invoice. Under the mission floor you lose.",
       "reveal": ["conduct"],
       "await": {
         "kind": "all_of",
@@ -127,16 +135,17 @@
           {
             "kind": "any_of",
             "of": [
-              { "kind": "mission", "event": "roe" },
-              { "kind": "elapsed_s", "seconds": 120 }
+              { "kind": "intent", "intent": "halt" },
+              { "kind": "intent", "intent": "order" }
             ]
           },
+          { "kind": "mission", "event": "roe" },
           { "kind": "elapsed_s", "seconds": 12 }
         ]
       },
       "focus": { "kind": "zone", "zone": "z_clinic" },
       "nudge_after_s": 25,
-      "nudge": "The mortar team is on the road. Select it and right-click toward the enemy digging by the clinic: it advances and fires at the first target it can reach."
+      "nudge": "Select the mortar on the road and press H. Do not walk it in: within four tiles of a target it cannot fire at all."
     }
   ]
 }
