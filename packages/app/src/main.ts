@@ -2890,6 +2890,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     caption: (text, seconds, always) => {
       if (always === true || req.settings.get().accessibility.captions) hud.caption(text, seconds);
     },
+    // AU-5: a line cut short, or the verdict, takes its caption with it.
+    clearCaption: () => hud.clearCaption(),
     info: import.meta.env.DEV ? (m) => console.info(m) : () => {},
     text: (k, params) => t(k, params),
     noted: voiceNoted,
@@ -3223,6 +3225,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   audio.setAmbience(ambienceBedToPlay(map));
   if (mission) {
     audio.playCue(CRITICAL_CUES.missionStart);
+    // AU-5: no bark while the start cue and the title card own the moment.
+    voice.hush('start');
     // Shai on the net (A4): caption-only until the line is recorded.
     voice.onMission([], [{ event: 'mission_start' }]);
     const primaries = mission.objectives.filter((o) => o.primary !== false).length;
@@ -4135,6 +4139,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // read as noise. The feed below still carries every line.
     const cue = tickCue(result.alerts.map((a) => a.cue));
     if (cue) audio.playCue(cue);
+    // AU-5 (audio plan §5.1): nothing at or below a death call talks over a
+    // major alert for the next moment.
+    if (cue === ALERT_CUE.major) voice.hush('major');
     for (const a of result.alerts) {
       // `alertNotice` escapes the unit NAME `alert.unitLost` interpolates
       // (shell upgrade Phase 3, Task 10); this was `t(key, params)`, raw.
@@ -4507,6 +4514,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // voice, fades combat and the music under itself, and holds every
             // other cue off; the music comes back at the menu's level.
             audio.playCue(OUTCOME_CUE[me.result]);
+            // AU-5: the verdict is the last word -- no bark or call after it.
+            voice.hush('outcome');
             audio.setMusicScene('menu');
             // Final review, ruling 9: the moment is the verdict, so the HUD's
             // own "Mission accomplished"/"Mission failed" banner stands down

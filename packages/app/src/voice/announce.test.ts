@@ -5,6 +5,8 @@ import audioManifest from '../../../../data/audio.json';
 import en from '../i18n/en.json';
 import {
   INITIAL_ANNOUNCE,
+  UNIT_LOST_COALESCE_MS,
+  UNIT_LOST_STALE_MS,
   announceInputsOf,
   decideAnnouncements,
   type AnnounceEventId,
@@ -29,17 +31,18 @@ const TABLE: AnnouncementManifest = {
   },
 };
 const inp = (event: AnnounceEventId): AnnounceInput => ({ event });
+const lossOf = (n: number): AnnounceInput => ({ event: 'unit_lost', params: { n } });
 const say = (s: AnnounceState, inputs: AnnounceInput[], nowMs: number) => decideAnnouncements(s, inputs, TABLE, 'he', nowMs);
 
 describe('decideAnnouncements: cooldown (GH-110)', () => {
   it('speaks an event once per its cooldown, then again after it', () => {
-    let r = say(INITIAL_ANNOUNCE, [inp('unit_lost')], 0);
-    expect(r.cue?.caption).toBe('a.lost');
-    r = say(r.state, [inp('unit_lost')], 5_999);
+    let r = say(INITIAL_ANNOUNCE, [inp('reinforcements')], 0);
+    expect(r.cue?.caption).toBe('a.reinf');
+    r = say(r.state, [inp('reinforcements')], 7_999);
     expect(r.cue).toBeNull();
     expect(r.notes[0].why).toBe('silent:cooldown');
-    r = say(r.state, [inp('unit_lost')], 6_000);
-    expect(r.cue?.caption).toBe('a.lost');
+    r = say(r.state, [inp('reinforcements')], 8_000);
+    expect(r.cue?.caption).toBe('a.reinf');
   });
 
   it('a silenced event does not restart its own cooldown', () => {
@@ -58,24 +61,24 @@ describe('decideAnnouncements: cooldown (GH-110)', () => {
 
 describe('decideAnnouncements: priority (GH-110)', () => {
   it('of several events in one tick only the highest speaks; the rest are outranked', () => {
-    const r = say(INITIAL_ANNOUNCE, [inp('unit_lost'), inp('objective_complete'), inp('wave')], 0);
+    const r = say(INITIAL_ANNOUNCE, [inp('reinforcements'), inp('objective_complete'), inp('wave')], 0);
     expect(r.cue?.caption).toBe('a.complete');
-    expect(r.notes.filter((n) => n.why === 'silent:outranked').map((n) => n.event).sort()).toEqual(['unit_lost', 'wave']);
+    expect(r.notes.filter((n) => n.why === 'silent:outranked').map((n) => n.event).sort()).toEqual(['reinforcements', 'wave']);
   });
 
   it('an outranked event does not spend its cooldown', () => {
-    let r = say(INITIAL_ANNOUNCE, [inp('unit_lost'), inp('objective_complete')], 0);
-    r = say(r.state, [inp('unit_lost')], 3_000); // hold over, lost never spoke
-    expect(r.cue?.caption).toBe('a.lost');
+    let r = say(INITIAL_ANNOUNCE, [inp('wave'), inp('objective_complete')], 0);
+    r = say(r.state, [inp('wave')], 3_000); // hold over, the wave never spoke
+    expect(r.cue?.caption).toBe('a.wave');
   });
 
   it('a lower priority stays quiet while a higher one holds the floor, then may speak', () => {
     let r = say(INITIAL_ANNOUNCE, [inp('objective_failed')], 0);
-    r = say(r.state, [inp('unit_lost')], 2_999);
+    r = say(r.state, [inp('wave')], 2_999);
     expect(r.cue).toBeNull();
     expect(r.notes[0].why).toBe('silent:held');
-    r = say(r.state, [inp('unit_lost')], 3_000);
-    expect(r.cue?.caption).toBe('a.lost');
+    r = say(r.state, [inp('wave')], 3_000);
+    expect(r.cue?.caption).toBe('a.wave');
   });
 
   it('an equal or higher priority may follow at once; a loss does not hold off an objective', () => {
@@ -93,10 +96,66 @@ describe('decideAnnouncements: priority (GH-110)', () => {
   });
 });
 
+describe('unit-lost coalescing over 2 s (AU-5)', () => {
+  it('a salvo that kills across several ticks is one call, with the whole count, once the window closes', () => {
+    expect(UNIT_LOST_COALESCE_MS).toBe(2000);
+    let r = say(INITIAL_ANNOUNCE, [lossOf(1)], 0);
+    expect(r.cue).toBeNull();
+    expect(r.notes).toEqual([{ event: 'unit_lost', why: 'pending:coalesce', cue: null }]);
+    r = say(r.state, [lossOf(2)], 50);
+    expect(r.cue).toBeNull();
+    r = say(r.state, [lossOf(1)], 1_900);
+    expect(r.cue).toBeNull();
+    r = say(r.state, [], 1_999);
+    expect(r.cue).toBeNull();
+    r = say(r.state, [], 2_000);
+    expect(r.cue).toMatchObject({ caption: 'a.lost', captionParams: { n: 4 } });
+    r = say(r.state, [], 2_050);
+    expect(r.cue).toBeNull();
+  });
+
+  it('losses inside the cooldown are kept and counted, and said once it ends -- not dropped', () => {
+    let r = say(INITIAL_ANNOUNCE, [lossOf(1)], 0);
+    r = say(r.state, [], 2_000); // spoke: cooldown to 8 000
+    r = say(r.state, [lossOf(1)], 3_000);
+    r = say(r.state, [lossOf(2)], 4_000);
+    r = say(r.state, [], 7_999);
+    expect(r.cue).toBeNull();
+    r = say(r.state, [], 8_000);
+    expect(r.cue).toMatchObject({ caption: 'a.lost', captionParams: { n: 3 } });
+  });
+
+  it('a pending loss waits out a higher call’s hold and then speaks, rather than being dropped', () => {
+    let r = say(INITIAL_ANNOUNCE, [lossOf(1)], 0);
+    r = say(r.state, [inp('objective_complete')], 1_500); // holds lower calls to 4 500
+    r = say(r.state, [], 2_000);
+    expect(r.cue).toBeNull();
+    r = say(r.state, [], 4_500);
+    expect(r.cue).toMatchObject({ caption: 'a.lost', captionParams: { n: 1 } });
+  });
+
+  it('a count nobody got to say is dropped once it is stale: a loss call is about now', () => {
+    let r = say(INITIAL_ANNOUNCE, [lossOf(1)], 0);
+    for (let t = 1_000; t < UNIT_LOST_STALE_MS; t += 2_500) r = say(r.state, [inp(t % 2 ? 'objective_active' : 'objective_complete')], t);
+    r = say(r.state, [], UNIT_LOST_STALE_MS);
+    expect(r.cue).toBeNull();
+    expect(r.notes.map((n) => n.why)).toContain('silent:stale');
+    r = say(r.state, [], UNIT_LOST_STALE_MS + 10_000);
+    expect(r.cue).toBeNull();
+  });
+});
+
 describe('the cue (GH-110)', () => {
   it('carries the caption key, params, length, the radio priority and no position', () => {
     const r = decideAnnouncements(INITIAL_ANNOUNCE, [{ event: 'objective_failed', params: { label: 'Hold' } }], TABLE, 'he', 0);
-    expect(r.cue).toMatchObject({ key: '', lang: 'he', trigger: 'announce', priority: 'announce', at: null, caption: 'a.failed', captionParams: { label: 'Hold' }, captionSeconds: 3.5 });
+    expect(r.cue).toMatchObject({ key: '', lang: 'he', trigger: 'announce', priority: 'announce_high', at: null, caption: 'a.failed', captionParams: { label: 'Hold' }, captionSeconds: 3.5 });
+  });
+
+  it('carries the manifest priority onto the voice ladder: high, normal and low are three rungs (AU-5)', () => {
+    expect(say(INITIAL_ANNOUNCE, [inp('deadline')], 0).cue?.priority).toBe('announce_high');
+    expect(say(INITIAL_ANNOUNCE, [inp('wave')], 0).cue?.priority).toBe('announce');
+    const lost = say(say(INITIAL_ANNOUNCE, [lossOf(1)], 0).state, [], UNIT_LOST_COALESCE_MS);
+    expect(lost.cue?.priority).toBe('announce_low');
   });
 
   it('an event the table does not know is noted and silent, never thrown', () => {
@@ -224,7 +283,7 @@ describe('VoiceRuntime.onMission (GH-110)', () => {
     const r = rig(table);
     r.setResult({ status: 'missing', seconds: 0, en: null, cut: 0 });
     r.rt.onMission([complete]);
-    expect(r.played.map((c) => [c.key, c.priority])).toEqual([['he.common.announce_objective_complete', 'announce']]);
+    expect(r.played.map((c) => [c.key, c.priority])).toEqual([['he.common.announce_objective_complete', 'announce_high']]);
     expect(r.captions).toHaveLength(1);
     expect(r.rt.log()[0].status).toBe('missing');
   });
@@ -255,6 +314,17 @@ describe('VoiceRuntime.onMission (GH-110)', () => {
     r.setNow(500);
     r.rt.onMission([{ kind: 'unitLost', tick: 2, entity: 1, side: 0, unit: 'x' } as MissionEvent]);
     expect(r.captions).toHaveLength(1);
+  });
+
+  it('a coalesced loss is said on a later, quiet tick: the runtime asks even when nothing new happened (AU-5)', () => {
+    const r = rig(TABLE);
+    r.rt.onMission([{ kind: 'unitLost', tick: 2, entity: 1, side: 0, unit: 'x' } as MissionEvent]);
+    r.setNow(1_000);
+    r.rt.onMission([{ kind: 'unitLost', tick: 22, entity: 2, side: 0, unit: 'x' } as MissionEvent]);
+    expect(r.captions).toEqual([]);
+    r.setNow(2_000);
+    r.rt.onMission([]);
+    expect(r.captions).toEqual([['a.lost|{"n":2}', 3.5]]);
   });
 
   it('does nothing without a table, and nothing after dispose', () => {

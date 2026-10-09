@@ -287,6 +287,12 @@ proposal splits `announce` by the manifest's own `priority` and adds the outcome
 - **The outcome cuts everything.** `stopVoices()`, the stinger, then the outcome line once the
   stinger's head has played (0.6 s), never over it.
 - **Pause stops all voices** (`stopVoices()`). A paused line describes a moment that has frozen.
+- *As built (AU-5, 9 Oct 2026):* `admitVoice` holds BOTH readings of the floor. No line is
+  pre-empted by rank inside its first 300 ms (`VOICE_NO_CUT_S`), so nothing is clipped to a
+  blip, and an announcement or the outcome line is never pre-empted by rank at all. The one
+  exemption is N4: a new order still replaces the last order at once, because the newest
+  gesture is what the cursor promised. The outcome still clears everything through
+  `stopVoices()`, which is not a pre-emption.
 
 **Repetition:**
 
