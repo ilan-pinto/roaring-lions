@@ -7,7 +7,8 @@ import { describe, expect, it } from 'vitest';
 import { maps, parseMap, type MapJson } from '@lions/data';
 import type { AudioManifest } from '@lions/render';
 import manifestJson from '../../../data/audio.json';
-import { AMBIENCE_BEDS, ambienceBedFor, builtShare, TOWN_BUILT_SHARE, type AmbienceBed } from './ambience';
+import { readFileSync } from 'node:fs';
+import { AMBIENCE_BEDS, AMBIENCE_ENABLED, ambienceBedFor, ambienceBedToPlay, builtShare, TOWN_BUILT_SHARE, type AmbienceBed } from './ambience';
 
 const parsed = Object.fromEntries(Object.entries(maps).map(([id, json]) => [id, parseMap(json as MapJson)]));
 
@@ -84,5 +85,24 @@ describe('the ambience bed a map plays (A11)', () => {
     const beds = (manifestJson as AudioManifest).ambience?.beds ?? {};
     expect(Object.keys(beds).sort()).toEqual([...AMBIENCE_BEDS].sort());
     for (const bed of AMBIENCE_BEDS) expect(beds[bed]?.file).toMatch(/^ambience\/amb_[a-z]+\.ogg$/);
+  });
+});
+
+describe('the ambience beds are switched off (lead, 2026-10-09: "whining")', () => {
+  it('the switch is off', () => {
+    expect(AMBIENCE_ENABLED).toBe(false);
+  });
+
+  it('no shipped map is handed a bed to play, whatever ambienceBedFor would pick', () => {
+    for (const [id, m] of Object.entries(parsed)) {
+      expect(ambienceBedFor(m), id).toBeTruthy(); // the mapping itself is intact
+      expect(ambienceBedToPlay(m), id).toBeNull();
+    }
+  });
+
+  it('a mission boot asks BattleAudio for ambienceBedToPlay, never for a bed directly', () => {
+    const main = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
+    expect(main).toContain('audio.setAmbience(ambienceBedToPlay(map))');
+    expect(main).not.toMatch(/setAmbience\(\s*ambienceBedFor/);
   });
 });

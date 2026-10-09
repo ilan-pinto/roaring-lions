@@ -48,3 +48,22 @@ export function ambienceBedFor(map: Pick<ParsedMap, 'terrain' | 'width' | 'heigh
   if (map.terrain === 'highland') return 'ridge';
   return builtShare(map) >= TOWN_BUILT_SHARE ? 'town' : 'open';
 }
+
+/**
+ * THE switch for the ambience beds. OFF by the lead's ruling, 2026-10-09: "an
+ * annoying sound that sounds like whining" -- the synthesised beds were never
+ * approved by ear. While false, `ambienceBedToPlay` answers null, so
+ * `setAmbience(null)` runs, no bed starts and no bed file is fetched. The beds,
+ * `data/audio.json`'s `ambience` section and `BattleAudio`'s `amb` bus stay, so
+ * a future bed is one flag -- but re-enable only with a bed the lead has
+ * approved by ear.
+ */
+export const AMBIENCE_ENABLED = false;
+
+/** What `main.ts` hands `BattleAudio.setAmbience` as the deploy gate clears:
+ *  the map's bed, or null while the beds are switched off. */
+export function ambienceBedToPlay(
+  map: Pick<ParsedMap, 'terrain' | 'width' | 'height' | 'structures'>,
+): AmbienceBed | null {
+  return AMBIENCE_ENABLED ? ambienceBedFor(map) : null;
+}
