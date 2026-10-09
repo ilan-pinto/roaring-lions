@@ -1682,6 +1682,17 @@ describe('ambience beds (polish pass F, A11)', () => {
     ]);
   });
 
+  it('with no bed asked for (the app passes null while the beds are off) nothing is fetched, decoded or played', async () => {
+    const fetched = stubFetch();
+    FakeContext.nextBuffer = { ...BED_BUFFER };
+    const { audio, ctx } = attachedWith((a) => a.useManifest(AMB_MANIFEST, '/a/'));
+    expect(audio.setAmbience(null)).toBe('stopped');
+    await Promise.resolve();
+    expect(fetched.filter((u) => u.includes('ambience/'))).toEqual([]);
+    expect(audio.ambienceState()).toEqual({ bed: null, loaded: null, playing: false, paused: false });
+    expect(beds(ctx)).toHaveLength(0);
+  });
+
   it('an unknown bed is refused, and a bed asked for before the first gesture starts with it', async () => {
     expect(new BattleAudio().setAmbience('swamp')).toBe('unknown');
     stubFetch();

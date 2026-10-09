@@ -78,7 +78,7 @@ import { PinnedSince } from './ui/pinned-since';
 import { alertWorldFor } from './ui/alert-world';
 import { placeOnScreen } from './ui/alert-place';
 import { ALERT_CUE, CRITICAL_CUES, OUTCOME_CUE, tickCue } from './ui/cues';
-import { ambienceBedFor } from './ambience';
+import { ambienceBedToPlay } from './ambience';
 import { installConfirmCue } from './ui/confirm-cue';
 import { CivFlightWatch, type CivObservation } from './ui/civ-flight';
 import { refugeJump, sayFlight } from './ui/refuge-ping';
@@ -3206,7 +3206,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   audio.setMusicScene('battle');
   // A11: the ground's own bed fades in under it -- picked from the map
   // (ambience.ts), stopped by the pause menu and by `leaveMission` above.
-  audio.setAmbience(ambienceBedFor(map));
+  // SWITCHED OFF (AMBIENCE_ENABLED, the lead's ruling 2026-10-09): null here,
+  // so no bed starts and none is fetched.
+  audio.setAmbience(ambienceBedToPlay(map));
   if (mission) {
     audio.playCue(CRITICAL_CUES.missionStart);
     // Shai on the net (A4): caption-only until the line is recorded.
