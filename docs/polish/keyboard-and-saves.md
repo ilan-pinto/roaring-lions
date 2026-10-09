@@ -26,8 +26,9 @@
   below is the evidence.
 - **Known remaining issues:** KS-06 to KS-14. The large one is KS-06: there
   is no keyboard way to give a move order.
-- **Next priority:** KS-06 needs a lead decision (see below). KS-07 and KS-08
-  are one small shell package.
+- **Next priority:** KS-07, KS-08 and the small items among KS-09..KS-14, as
+  `polish/keyboard-and-saves-2`. KS-06 is a known limitation by ruling (see
+  its row), not a lead question.
 
 ## How the walk was run
 
@@ -108,7 +109,7 @@ bare `{}` here, so no spec depends on it.
 
 | ID | Area | Problem | Proposed fix | Size |
 |---|---|---|---|---|
-| KS-06 | Battlefield orders | No move, attack-move or smoke order can be given without a pointer: each needs a world position, and smoke quick-casts at the cursor. Selection (Ctrl+A, I, the groups), halt, load and unload, the camera (WASD and arrows), the alert jump, pause and the HUD buttons all work by keyboard. Basic play cannot. | A lead decision is needed between two options. (a) A keyboard order reticle: the arrows steer a ground cursor while an order is armed, Enter confirms. (b) "Order at the screen centre": an armed verb plus Enter targets the camera's focus tile, so a player pans with WASD and then confirms. (b) is smaller and reuses `armOrder`. | L (a) / M (b) |
+| KS-06 | Battlefield orders | **Known limitation (ruled 9 Oct: not now; an RTS's aimed orders are mouse-first).** No move, attack-move or smoke order can be given without a pointer: each needs a world position, and smoke quick-casts at the cursor. Selection (Ctrl+A, I, the groups), halt, load and unload, the camera (WASD and arrows), the alert jump, pause and the HUD buttons all work by keyboard. | For a later accessibility pass, two options recorded: (a) a keyboard order reticle, where the arrows steer a ground cursor while an order is armed and Enter confirms (L); (b) "order at the screen centre", where an armed verb plus Enter targets the camera's focus tile, so the player pans with WASD and then confirms; it reuses `armOrder` (M). | L (a) / M (b), deferred |
 | KS-07 | Shell screens | Escape does nothing on Brigade, Saves, Settings, Credits, Free Play or the campaign board. The only way back is tabbing to the back link at the end of the page. | A router-level Escape goes to the screen's back route when no dialog is open (`isDialogOpen()`) and the screen is not a mission. The garage viewer's own key handling must be checked first. | S |
 | KS-08 | Router | Every soft navigation leaves focus on `<body>`. Coming back to the menu, the first Tab lands on "Start" rather than the item you left from. There is no skip link or heading focus. | On mount, focus the screen's heading (`tabindex=-1`). On a back navigation to `/`, focus the menu item for the route just left. | S |
 | KS-09 | Objectives tracker | Opening it from the strip leaves focus on the strip button, so the first Tab enters the tracker. Closing it sends focus to `<body>`. That second part is deliberate: the game keys need it. | Focus the tracker's first control on open. | XS |
