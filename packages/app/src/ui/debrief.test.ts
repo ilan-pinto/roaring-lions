@@ -12,7 +12,12 @@ import { showDebrief, type DebriefOptions } from './debrief';
 import type { AfterAction } from './after-action';
 import { outcomeMomentOptions } from './outcome-moment';
 
+// Every report mounted here is disposed after its test: since the report
+// traps Tab (keyboard walk), one left mounted would keep its trap live into
+// the next test, the way a real one is released by `main.ts`'s teardown.
+const mounted: (() => void)[] = [];
 afterEach(() => {
+  for (const d of mounted.splice(0)) d();
   document.body.innerHTML = '';
 });
 
@@ -34,7 +39,7 @@ const opts = (over: Partial<DebriefOptions> = {}): DebriefOptions => ({ result: 
 function mount(o: DebriefOptions): HTMLElement {
   const host = document.createElement('div');
   document.body.appendChild(host);
-  showDebrief(host, o);
+  mounted.push(showDebrief(host, o));
   return host;
 }
 
@@ -83,6 +88,30 @@ describe('the after-action report (GH-417)', () => {
     expect(host.querySelector('.rl-aar-backdrop')).not.toBeNull();
     dispose();
     expect(host.childElementCount).toBe(0);
+  });
+
+  // Keyboard walk (polish/keyboard-and-saves): the report covers the live
+  // HUD, but Tab walked out of it onto the strip behind the backdrop --
+  // leave, pause, the speed chips, the audio toggle -- invisible and still
+  // live. It traps Tab now, and its disposer releases the trap.
+  it('keeps Tab inside itself while it is up, and lets go when disposed', () => {
+    const hud = document.createElement('button');
+    hud.textContent = 'leave';
+    document.body.appendChild(hud);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const dispose = showDebrief(host, opts());
+    const panelEl = host.querySelector<HTMLElement>('.rl-aar');
+    if (!panelEl) throw new Error('no report');
+    hud.focus();
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+    expect(panelEl.contains(document.activeElement)).toBe(true);
+    dispose();
+    hud.focus();
+    const after = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(after);
+    expect(after.defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(hud);
   });
 
   it('draws the ground with the battle’s pins when it is given the ground', () => {
