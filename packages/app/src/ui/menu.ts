@@ -11,6 +11,7 @@ import { campaignComplete } from '../campaign-close';
 import { nextOperation, type CommanderData, type ParsedWorld, type WorldCountry } from '../campaign';
 import { hasKey, t } from '../i18n/t';
 import { symbolLabel } from './symbol';
+import { footBack, screenFoot } from './foot';
 import { CAMPAIGN_MESHES, dracoDecoderPath, meshUrl } from '../mesh-catalogue';
 import { SANDBOX_FLAGS, type SandboxFlagName } from '../sandbox-help';
 import { routes } from '../shell/links';
@@ -349,6 +350,10 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
   // campaign is complete: there is no next operation to name.
   // "Complete" is `campaign-close.ts`'s one definition (the board's closing
   // line reads it too); this adds no second one.
+  // The one footer row (`foot.ts`, GH-498), under the status line: the way
+  // back first, the next mission at the far edge, one height.
+  const foot = screenFoot();
+  foot.start.appendChild(footBack(t('nav.backToMenu'), routes.menu()));
   const nextId = campaignComplete(opts.world, opts.ledger) ? null : nextOperation(opts.world, opts.ledger);
   if (nextId !== null) {
     const nextName = opts.missionOf?.(nextId)?.name;
@@ -358,15 +363,9 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
     next.className = 'rl-btn rl-menu__item';
     next.dataset.kind = 'primary';
     markConfirm(next);
-    nav.appendChild(next);
+    foot.end.appendChild(next);
   }
-
-  const back = document.createElement('a');
-  back.innerHTML = symbolLabel('back', t('nav.backToMenu'));
-  back.href = routes.menu();
-  back.className = 'rl-btn';
-  back.dataset.kind = 'back';
-  nav.appendChild(back);
+  nav.appendChild(foot.el);
   wrap.appendChild(nav);
 
   stagger(wrap);
@@ -498,15 +497,11 @@ export function showSandbox(stage: HTMLElement): Disposer {
   for (const b of boxes) b.input.addEventListener('change', refresh);
   refresh();
 
-  const backNav = document.createElement('nav');
-  backNav.className = 'rl-menu__nav';
-  const back = document.createElement('a');
-  back.innerHTML = symbolLabel('back', t('nav.backToMenu'));
-  back.href = routes.menu();
-  back.className = 'rl-btn';
-  back.dataset.kind = 'back';
-  backNav.appendChild(back);
-  wrap.appendChild(backNav);
+  // The one footer row (`foot.ts`, GH-498), sticky: the map list is long, and
+  // the way back stays on screen while it scrolls instead of waiting below it.
+  const foot = screenFoot({ sticky: true });
+  foot.start.appendChild(footBack(t('nav.backToMenu'), routes.menu()));
+  wrap.appendChild(foot.el);
 
   stagger(wrap);
   stage.appendChild(wrap);

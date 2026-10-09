@@ -33,7 +33,7 @@ const label = (el: Element | null): string => (el?.textContent ?? '').trim();
 function expectFootLayout(host: HTMLElement): void {
   const panel = host.querySelector('.rl-panel')!;
   expect(panel.classList.contains('rl-endpanel')).toBe(true);
-  const nav = panel.querySelector('.rl-endnav')!;
+  const nav = panel.querySelector('.rl-foot')!;
   // The action row is never inside the scroller...
   expect(nav.closest('.rl-panel__body')).toBeNull();
   // ...it is the foot, and the foot is the panel's last child, after the body.
@@ -56,7 +56,7 @@ describe('debrief: actions always reachable', () => {
     const host = document.createElement('div');
     document.body.appendChild(host);
     showDebrief(host, debriefOpts());
-    expect(label(document.activeElement)).toBe('campaign map');
+    expect(label(document.activeElement)).toBe('Campaign map');
   });
 
   // A click that skips the outcome moment lands its mousedown on the report's
@@ -87,6 +87,30 @@ describe('debrief: actions always reachable', () => {
     const held = new KeyboardEvent('keydown', { key: 'Enter', repeat: true, bubbles: true, cancelable: true });
     primary.dispatchEvent(held);
     expect(held.defaultPrevented).toBe(true);
+  });
+
+  // GH-498: the report's actions are the one footer row -- the ways out on the
+  // start edge with the way back first, Replay and the primary on the far
+  // edge, the primary last. Falsified by hand: appending `campaign` and
+  // `menu` to `foot.end` in the next-mission branch turns the first case red.
+  it('orders the row: the way back first, the primary last at the far edge', () => {
+    const cases: Array<[Partial<DebriefOptions>, string[], string[]]> = [
+      [{ next: { id: 'b', name: 'Tel Marum I' } }, ['Campaign map', 'Main menu'], ['Replay', 'Next: Tel Marum I']],
+      [{}, ['Main menu'], ['Replay', 'Campaign map']],
+      [{ result: 'defeat', stars: 0 }, ['Campaign map', 'Main menu'], ['Try again']],
+    ];
+    for (const [over, start, end] of cases) {
+      document.body.innerHTML = '';
+      const host = document.createElement('div');
+      document.body.appendChild(host);
+      showDebrief(host, debriefOpts(over));
+      const foot = host.querySelector('.rl-endpanel__foot > .rl-foot')!;
+      const words = (sel: string): string[] => [...foot.querySelectorAll(`${sel} > *`)].map((e) => label(e));
+      expect(words('.rl-foot__start')).toEqual(start);
+      expect(words('.rl-foot__end')).toEqual(end);
+      expect(foot.querySelector('.rl-foot__start')?.firstElementChild?.getAttribute('data-kind')).toBe('back');
+      expect(foot.querySelector('.rl-foot__end')?.lastElementChild?.hasAttribute('data-end-primary')).toBe(true);
+    }
   });
 
   it('carries no inline position, so the class decides where it sits', () => {

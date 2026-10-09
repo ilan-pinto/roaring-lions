@@ -210,6 +210,7 @@ Owned by `theme.css:14-55` (faces) and `:260-288` (scale). Every face is self-ho
   - The briefing's back is a plain `.rl-btn` in body face at `--t-body`.
 
   The comment at `theme.css:5917` says the two look alike. Files: `ui/settings-panel.ts:440`, `ui/saves.ts:273`, `ui/credits.ts:166`, `ui/loading.ts`.
+  - **Footer rows (GH-498, 9 Oct, the lead's direction A):** every screen that ends in actions now builds ONE footer row, `ui/foot.ts`'s `screenFoot` with `.rl-foot` in `theme.css`. This covers the garage, the debrief, the campaign board, Saves, Settings, Credits and Free Play. The way back comes first, and forward actions sit at the far edge. Every control in the row is the same height, with its label centred. The column-nav `align-self: flex-start` is gone. The action labels are sentence case in `en.json` ("Campaign map", "Main menu", "Reset brigade account"), and `chrome-register.test.ts` now reads the catalogue as well as the sheet. The garage reset is a dashed `.rl-btn--danger` that sits alone at the far edge, with a "Keep the brigade" escape while it is armed. Settings, Saves, Credits and Free Play keep the row sticky. Evidence: `docs/polish/footers/before-after.jpg`.
 
 ---
 

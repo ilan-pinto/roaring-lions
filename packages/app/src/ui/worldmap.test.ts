@@ -321,7 +321,7 @@ describe('showCampaign', () => {
     expect(line?.textContent).toBe('campaign: fresh start');
     expect(stage.querySelector('.rl-world__scroll .rl-world__ledger')).toBeNull();
     const kids = [...nav.children];
-    expect(kids.indexOf(nav.querySelector('.rl-world__ledgerwrap')!)).toBeLessThan(kids.indexOf(nav.querySelector('[data-kind="back"]')!));
+    expect(kids.indexOf(nav.querySelector('.rl-world__ledgerwrap')!)).toBeLessThan(kids.indexOf(nav.querySelector('.rl-foot')!));
   });
 });
 
@@ -341,7 +341,7 @@ describe('showCampaign: the next-operation button (PA-20)', () => {
     return stage;
   };
   const primary = (stage: HTMLElement): HTMLAnchorElement | null =>
-    stage.querySelector<HTMLAnchorElement>('.rl-menu__nav > [data-kind="primary"]');
+    stage.querySelector<HTMLAnchorElement>('.rl-menu__nav .rl-foot [data-kind="primary"]');
 
   it('starts the next open mission, named on the button, through the mission route', () => {
     const ledger = { 'campaign.completed_missions': [ALL_BS[0]!] };
@@ -352,11 +352,16 @@ describe('showCampaign: the next-operation button (PA-20)', () => {
     expect(btn?.dataset.cue).toBe('confirm');
   });
 
-  it('sits in the footer above the way back, and is the only primary on the screen', () => {
+  // GH-498: the one footer row -- the way back first, on the start edge, and
+  // the next mission at the far edge. Falsified by hand: appending the next
+  // button to `foot.start` in `showCampaign` turns this red.
+  it('sits in the footer row after the way back, at the far edge, and is the only primary on the screen', () => {
     const stage = mount({});
-    const nav = stage.querySelector('.rl-menu__nav')!;
-    const kids = [...nav.children];
-    expect(kids.indexOf(primary(stage)!)).toBeLessThan(kids.indexOf(nav.querySelector('[data-kind="back"]')!));
+    const foot = stage.querySelector('.rl-menu__nav > .rl-foot')!;
+    const back = foot.querySelector('[data-kind="back"]')!;
+    expect(back.parentElement?.classList.contains('rl-foot__start')).toBe(true);
+    expect(primary(stage)?.parentElement?.classList.contains('rl-foot__end')).toBe(true);
+    expect(back.compareDocumentPosition(primary(stage)!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(stage.querySelectorAll('[data-kind="primary"]')).toHaveLength(1);
   });
 

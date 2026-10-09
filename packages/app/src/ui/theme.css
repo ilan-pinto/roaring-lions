@@ -495,6 +495,7 @@ body {
 .rl-garage__body,
 .rl-garage__cards,
 .rl-garage__stats,
+.rl-garage__bay,
 .rl-garage__board,
 .rl-settings,
 .rl-credits__licence-text,
@@ -517,6 +518,7 @@ body {
 .rl-garage__body::-webkit-scrollbar,
 .rl-garage__cards::-webkit-scrollbar,
 .rl-garage__stats::-webkit-scrollbar,
+.rl-garage__bay::-webkit-scrollbar,
 .rl-garage__board::-webkit-scrollbar,
 .rl-settings::-webkit-scrollbar,
 .rl-credits__licence-text::-webkit-scrollbar,
@@ -538,6 +540,7 @@ body {
 .rl-garage__body::-webkit-scrollbar-track,
 .rl-garage__cards::-webkit-scrollbar-track,
 .rl-garage__stats::-webkit-scrollbar-track,
+.rl-garage__bay::-webkit-scrollbar-track,
 .rl-garage__board::-webkit-scrollbar-track,
 .rl-settings::-webkit-scrollbar-track,
 .rl-credits__licence-text::-webkit-scrollbar-track,
@@ -558,6 +561,7 @@ body {
 .rl-garage__body::-webkit-scrollbar-thumb,
 .rl-garage__cards::-webkit-scrollbar-thumb,
 .rl-garage__stats::-webkit-scrollbar-thumb,
+.rl-garage__bay::-webkit-scrollbar-thumb,
 .rl-garage__board::-webkit-scrollbar-thumb,
 .rl-settings::-webkit-scrollbar-thumb,
 .rl-credits__licence-text::-webkit-scrollbar-thumb,
@@ -587,7 +591,9 @@ body {
 .rl-garage__cards::-webkit-scrollbar-thumb:hover,
 .rl-garage__cards::-webkit-scrollbar-thumb:active,
 .rl-garage__stats::-webkit-scrollbar-thumb:hover,
+.rl-garage__bay::-webkit-scrollbar-thumb:hover,
 .rl-garage__stats::-webkit-scrollbar-thumb:active,
+.rl-garage__bay::-webkit-scrollbar-thumb:active,
 .rl-garage__board::-webkit-scrollbar-thumb:hover,
 .rl-garage__board::-webkit-scrollbar-thumb:active,
 .rl-settings::-webkit-scrollbar-thumb:hover,
@@ -1055,6 +1061,107 @@ body {
 .rl-btn[data-locked='1'] {
   opacity: var(--disabled-opacity);
   cursor: not-allowed;
+}
+
+/* THE FOOTER ROW (GH-498, the lead's direction A; `ui/foot.ts` builds it).
+   One row for every screen that ends in actions: the garage, the report, the
+   campaign board, Saves, Settings, Credits, Free Play. A rule above it, the
+   way back first on the start edge, forward actions on the far edge.
+   Every control in the row is the same height -- the row's tallest, a stamp
+   or a tile, or the floor below -- with its label centred in it: `stretch` on
+   the row and `inline-flex` + `center` on the control. Before this the plain
+   `.rl-btn` was an inline box with no centring of its own, so a flex row
+   stretched it to the stamp's height and its label stayed at the top. */
+.rl-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: var(--s2) var(--s3);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--panel-frame);
+}
+.rl-foot__start,
+.rl-foot__end {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: var(--s2);
+}
+.rl-foot__end {
+  margin-left: auto;
+}
+.rl-foot .rl-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s1);
+  min-height: calc(var(--s6) + var(--s2));
+  line-height: 1;
+  box-sizing: border-box;
+}
+/* `inline-flex` above outranks the UA's own `[hidden]` rule. */
+.rl-foot [hidden] {
+  display: none;
+}
+/* Sticky: the row stays at the bottom of the screen's own scroller (the
+   Settings panel, the Saves/Credits/Free Play column), so the way back is in
+   view at any window height. Opaque, so what scrolls under it is cut at the
+   rule rather than read through the buttons. */
+.rl-foot--sticky {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  padding-bottom: var(--s2);
+  background: var(--panel-bg-solid);
+}
+/* A `.rl-menu` column scrolls with --s5 of padding at its foot, and a sticky
+   box stops at the padding's inner edge: the cards scrolling past showed
+   through underneath the row. The row paints its own fill one padding further
+   down instead of moving there -- on a 720-high window the column already
+   overhangs the viewport by its padding, and a row moved into that padding
+   would leave the screen. */
+.rl-menu .rl-foot--sticky {
+  box-shadow: 0 var(--s5) 0 0 var(--panel-bg-solid);
+}
+/* In a panel the row is the panel's last child, after the body: it carries
+   the body's frame on its own sides and bottom, and its rule is the line the
+   body would otherwise close on. */
+.rl-panel > .rl-foot {
+  padding: var(--s3);
+  border: 1px solid var(--panel-frame);
+  pointer-events: auto;
+}
+.rl-panel > .rl-panel__body:has(+ .rl-foot) {
+  border-bottom: 0;
+}
+/* A destructive control (the garage's reset): kept apart from navigation by
+   place -- alone at the row's far edge -- and by look: smaller, no fill, a
+   dashed danger outline. Armed by its first click (`data-confirm`), it
+   turns solid danger and says what the second click does. */
+.rl-btn--danger {
+  color: var(--bad-text);
+  background: transparent;
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--bad-text) 55%, transparent);
+}
+.rl-btn--danger:hover,
+.rl-btn--danger:focus-visible {
+  color: var(--bad-text);
+  border-style: solid;
+  border-color: var(--bad-text);
+}
+/* Smaller than the row's navigation: in the garage that is --t-band against
+   the screen's re-pointed --t-body (the garage's own type floor). */
+.rl-menu--garage .rl-btn--danger {
+  font-size: var(--t-band);
+}
+.rl-btn--danger[data-confirm='1'] {
+  font-weight: 600;
+  color: var(--band-ink);
+  background: var(--bad);
+  border-style: solid;
+  border-color: var(--bad);
 }
 
 /* ====================================================================== */
@@ -3673,10 +3780,18 @@ body[data-outcome-beat] .rl-aar {
      basis of 100% needs a width to be a hundred percent OF. */
   width: 100%;
 }
-.rl-menu:has(.rl-world) > .rl-menu__nav > .rl-world__ledgerwrap {
+.rl-menu:has(.rl-world) > .rl-menu__nav > .rl-world__ledgerwrap,
+.rl-menu:has(.rl-world) > .rl-menu__nav > .rl-foot {
   flex: 1 0 100%;
 }
-.rl-menu:has(.rl-world) > .rl-menu__nav > .rl-menu__item[data-kind='primary'] {
+/* The board's footer is already its own band under the scrolling board, with
+   the status line above the row: no second rule, and no height taken from the
+   region cards above it on a 720-high window. */
+.rl-menu:has(.rl-world) > .rl-menu__nav > .rl-foot {
+  border-top: 0;
+  padding-top: 0;
+}
+.rl-menu:has(.rl-world) > .rl-menu__nav .rl-menu__item[data-kind='primary'] {
   max-width: 100%;
   padding-block: var(--s1);
 }
@@ -3828,12 +3943,11 @@ button.rl-menu__item[data-kind='aside'] {
    rest of the shell's action buttons (end screen, pause, confirm, saves) wear.
    The menu TILE (`.rl-menu__item`, display face, uppercase) is for going
    FORWARD into a screen; a way back is not a destination, so it does not
-   dress as one. The three panel-body ones size to their own text through their
-   own `margin`/`width` rules; in a `.rl-menu__nav` column a bare anchor would
-   stretch to the column's width, so it is kept to its text here. */
-.rl-menu__nav > .rl-btn[data-kind='back'] {
-  align-self: flex-start;
-}
+   dress as one. Since GH-498 every one of them but the briefing's sits first
+   in the one footer row (`.rl-foot` below, `ui/foot.ts`); the
+   `align-self: flex-start` that kept a column nav's back link to its own
+   text is gone with the column, because in a ROW it pinned the link to the
+   top at its own short height beside a taller tile. */
 /* The tutorial, while unplayed: it should be the first thing a new
    commander's eye lands on, not just the first item in the list. */
 .rl-menu__item[data-kind='primary'],
@@ -3947,12 +4061,6 @@ button.rl-menu__item[data-kind='aside'] {
   color: var(--ink-mute);
 }
 
-.rl-endnav {
-  display: flex;
-  gap: var(--s2);
-  justify-content: center;
-  margin-top: var(--s3);
-}
 
 /* The end-of-mission frame (`ui/end-panel.ts`), shared by the end screen and
    the debrief: centred, never taller than the viewport less a margin, the body
@@ -3963,7 +4071,7 @@ button.rl-menu__item[data-kind='aside'] {
    nothing it leaves up can cover an action; below the loading screen (40), the
    pause/confirm scrims (50) and the outcome moment (55). The foot repeats the
    body's background and frame, so the two read as one body when nothing
-   scrolls -- the spacing is the old `margin-top` on `.rl-endnav`, moved into
+   scrolls -- the spacing is the old `margin-top` on the action row, moved into
    the body's own bottom padding. */
 .rl-endpanel {
   position: fixed;
@@ -3992,8 +4100,10 @@ button.rl-menu__item[data-kind='aside'] {
   border-top: 0;
   padding: 0 var(--s3) var(--s3);
 }
-.rl-endpanel__foot .rl-endnav {
-  margin-top: 0;
+.rl-endpanel__foot .rl-foot {
+  /* The foot above already draws the rule and the space over the row. */
+  border-top: 0;
+  padding-top: 0;
 }
 
 /* The story voice's outcome-specific closing word (G11 / GDD §11), above the
@@ -4273,11 +4383,6 @@ button.rl-menu__item[data-kind='aside'] {
    sentence case, like the pause menu's, the confirm dialog's and the saves
    screen's. They were body face set in capitals, the one place case and face
    disagreed. */
-.rl-aar__nav {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--s2);
-}
 .rl-aar__nav .rl-aar__primary {
   font: 800 var(--t-l) var(--font-display);
   letter-spacing: var(--track-title);
@@ -5830,7 +5935,9 @@ button.rl-menu__item[data-kind='aside'] {
   flex-direction: column;
   gap: var(--s2);
   min-height: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  container: garage-bay / inline-size;
 }
 /* The plate is a photograph of the unit on lit sand; the vignette under it is
    what makes the sand read as a FLOOR the unit is standing on rather than a
@@ -6330,21 +6437,33 @@ button.rl-menu__item[data-kind='aside'] {
   background: var(--well);
   border: 1px solid var(--panel-frame);
 }
-/* Fix round 1 (F4): the one flexible, scrollable child of the bay --
-   `flex: 1 1 0` so it fills whatever the plate/name/role/kit-total/blurb
-   (all `flex-shrink: 0` now) leave behind, `min-height: 0` so a flex child
-   is actually allowed to be shorter than its own content, and its own
-   `overflow-y: auto` with the same themed scrollbar tokens the bay used to
-   carry. It never disappears -- a hovered rung's preview is still read here,
-   just scrolled to (`garage-stats.ts`'s `paint` calls `scrollIntoView` on
-   the changed row) rather than guaranteed to already be on screen. */
+/* GH-498: the whole specification, never a window onto it. It was the bay's
+   one flexible child (F4) -- `flex: 1 1 0` with its own scroller -- and on a
+   1440x900 window that window showed Hit points and Front armour of six rows.
+   Two columns of rows now, the kit figure inline beside the number rather
+   than on a line of its own, at its natural height: all six rows in about a
+   third of the old height's worth of lines. A bay too short for it (720 high)
+   scrolls as a whole (`.rl-garage__bay`), not this panel. */
 .rl-garage__stats {
-  gap: var(--s2);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  column-gap: var(--s4);
+  row-gap: var(--s1);
   padding: var(--s3);
-  flex: 1 1 0;
-  min-height: 0;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
+  flex: none;
+}
+.rl-garage__stats-head {
+  grid-column: 1 / -1;
+}
+/* Two columns need about 34rem of bay: label, bar, figure and kit figure on
+   one line, twice. A narrower bay (1280 wide, where the rail and the board
+   leave it about 25rem) takes one column of the same one-line rows rather
+   than squeezing the kit figure into the next column's label. */
+@container garage-bay (max-width: 34rem) {
+  .rl-garage__stats {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 /* The panel's title line, shared with the comparison caption (GH-243) so a
    comparison starting costs no height and moves no row. */
@@ -6412,9 +6531,9 @@ button.rl-menu__item[data-kind='aside'] {
    Lavi's 3000 do not both draw full. */
 .rl-garage__stat {
   display: grid;
-  grid-template-columns: 8.5rem minmax(3rem, 1fr) auto;
+  grid-template-columns: 6.25rem minmax(3rem, 1fr) auto auto;
   align-items: center;
-  gap: var(--s2);
+  gap: var(--s1h);
   font-size: var(--t-body);
 }
 .rl-garage__stat-label {
@@ -6472,12 +6591,13 @@ button.rl-menu__item[data-kind='aside'] {
   text-align: right;
   white-space: nowrap;
 }
-/* The kit line: what the kit added, in its own steel colour, right under the
-   figure it explains. Third grid column, same as `.rl-garage__stat-n` above
-   it -- and no `display` here, so `hidden` (a plain attribute) actually
+/* The kit line: what the kit added, in its own steel colour, right after the
+   figure it explains (GH-498: inline, its own fourth column, so a row is one
+   line and six rows fit in two columns) -- and no `display` here, so `hidden` (a plain attribute) actually
    removes it rather than being overridden back to visible (GH-237). */
 .rl-garage__stat-kitn {
-  grid-column: 3;
+  grid-column: 4;
+  grid-row: 1;
   font-size: var(--t-band);
   color: var(--kit);
   text-align: right;
@@ -6620,13 +6740,26 @@ button.rl-menu__item[data-kind='aside'] {
   border-style: dashed;
   color: var(--warn);
 }
-.rl-garage__reset {
-  color: var(--bad-text);
-}
 
 /* Narrow: the rail becomes a horizontal strip above the bay and the board
    drops under it. Nothing is hidden and nothing shrinks -- the DOM order is
    already rail, bay, board, so a single-column grid is the whole change. */
+/* GH-498: between the stacked layout and 1500 wide, the rail and the board
+   take their minimum widths so the bay keeps the ~34rem the specification's
+   two columns need (at 1280 the maxima left it 25rem). On a short window the
+   plate gives up height to the specification rather than the reverse, so all
+   six rows are on screen at 1280x720 without the bay scrolling to them. */
+@media (min-width: 1201px) and (max-width: 1500px) { /* px-ok */
+  .rl-garage__body {
+    grid-template-columns: 16rem minmax(0, 1fr) 20rem;
+  }
+}
+@media (min-width: 1201px) and (max-height: 820px) { /* px-ok */
+  .rl-garage__plate {
+    max-height: 34vh;
+  }
+}
+
 @media (max-width: 1200px) { /* px-ok */
   .rl-garage__body {
     grid-template-columns: minmax(0, 1fr);
@@ -6786,14 +6919,6 @@ button.rl-menu__item[data-kind='aside'] {
   font-size: var(--t-s);
   padding: var(--s1) var(--s2);
 }
-/* The back link -- the same plain `.rl-btn` as `.rl-loading__back`
-   (PA-22, see `.rl-menu__nav > .rl-btn[data-kind='back']`), placed inside the
-   body and sized to its own text rather than stretching the panel's width. */
-.rl-settings__back {
-  display: block;
-  width: fit-content;
-  margin: var(--s3) auto 0 0;
-}
 
 /* ---------------------------------------------------------------------- */
 /* Saves (ui/saves.ts)                                                    */
@@ -6889,11 +7014,6 @@ button.rl-menu__item[data-kind='aside'] {
   font-family: var(--font-body);
   font-size: var(--t-s);
   color: var(--bad-text);
-}
-.rl-saves__back {
-  display: block;
-  width: fit-content;
-  margin: var(--s3) auto 0 0;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -6991,11 +7111,6 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-credits__build {
   margin-top: var(--s3);
-}
-.rl-credits__back {
-  display: block;
-  width: fit-content;
-  margin: var(--s3) auto 0 0;
 }
 
 /* ====================================================================== */
