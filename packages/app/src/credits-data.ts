@@ -50,9 +50,14 @@ export const CREDITS = {
   assets: [] as readonly AssetCredit[],
   codeLicence: 'PolyForm Noncommercial 1.0.0',
   artLicence: 'all rights reserved',
-  aiDisclosure:
-    'Some models were generated with Meshy and reworked in Blender. Every asset, generated or drawn, passes the same four art gates before it ships; the full provenance record is docs/ASSET_PROVENANCE.md in the repository.',
+  // The AI-generated disclosure (CONTRIBUTING.md), one paragraph per key, as
+  // en.json keys so it goes through t() like every other chrome string. AU-10
+  // added the audio: the generated theme and the mission music cut from it
+  // (PR 493), the ElevenLabs placeholder voices and their exclusion from a
+  // commercial build (D5, A3), and the synthesised cues and effects. The
+  // record behind every line is docs/ASSET_PROVENANCE.md.
+  aiDisclosure: ['credits.ai.models', 'credits.ai.audio', 'credits.ai.record'],
 } as const satisfies {
   people: readonly string[]; libraries: readonly LibraryCredit[]; fonts: readonly FontCredit[]; assets: readonly AssetCredit[];
-  codeLicence: string; artLicence: string; aiDisclosure: string;
+  codeLicence: string; artLicence: string; aiDisclosure: readonly string[];
 };

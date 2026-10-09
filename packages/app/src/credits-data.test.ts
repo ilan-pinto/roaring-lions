@@ -73,6 +73,24 @@ describe('CREDITS', () => {
     }
     expect(Object.keys(en)).not.toContain('credits.asset.namer.use');
   });
+  it('discloses the AI-generated audio by name, through the catalogue, and keeps the placeholder voices out of a commercial release (AU-10)', () => {
+    const en = JSON.parse(readFileSync(`${ROOT}packages/app/src/i18n/en.json`, 'utf8')) as Record<string, string>;
+    const keys: readonly string[] = CREDITS.aiDisclosure;
+    expect(keys.length).toBeGreaterThan(0);
+    for (const k of keys) expect(en[k], k).toBeTruthy();
+    const text = keys.map((k) => en[k]).join(' ');
+    // The music: the theme is generated, and the mission beds are cut from it (#493).
+    expect(text).toMatch(/Meshy/);
+    expect(text).toMatch(/theme/i);
+    expect(text).toMatch(/cut from it/i);
+    // The voices: who made them, and that a commercial build leaves them out (D5, A3).
+    expect(text).toMatch(/ElevenLabs/);
+    expect(text).toMatch(/commercial/i);
+    // The cues and effects: made in code, no model -- so the class is bounded.
+    expect(text).toMatch(/made in code, with no generative model/i);
+    // The art gates it used to cite were retired with validate:assets (#374).
+    expect(text).not.toMatch(/four art gates/i);
+  });
   it('states the licences the repository states', () => {
     const licence = readFileSync(`${ROOT}LICENSE`, 'utf8');
     expect(licence.startsWith('# PolyForm Noncommercial License 1.0.0')).toBe(true);
