@@ -159,7 +159,7 @@ Owned by `packages/render/src/three/lighting.ts` and `time-of-day.ts`. Pinned in
 
 **Inconsistencies**
 
-- **VR-13. The kit glyphs are still placeholders.** `ui/kit-sign.ts` says the S3e symbol family "is not drawn yet" and that its four glyphs are placeholders. `ui/symbol.ts` says the G1 sheet is approved and ported. Either the kit glyphs never joined the approved family, or the comment is stale. The four SVGs in `assets/ui/kit/` are outside the `symbol.ts` geometry rules.
+- **VR-13. The kit glyphs are still placeholders.** **Resolved (9 Oct) for what ships:** the lead confirmed the 1–3 steel Stars of David on unit icons are FINAL. The four placeholder track/plate glyphs in `kit-sign.ts` (`PLACEHOLDER_KIT_SYMBOLS`, `kitSymbolSvg`) are drawn by no shipped surface (tests only) and still carry the PLACEHOLDER comment; that is dead code to delete or approve, not a visible defect. Original finding: `ui/kit-sign.ts` says the S3e symbol family "is not drawn yet" and that its four glyphs are placeholders. `ui/symbol.ts` says the G1 sheet is approved and ported. Either the kit glyphs never joined the approved family, or the comment is stale. The four SVGs in `assets/ui/kit/` are outside the `symbol.ts` geometry rules.
 - **VR-14. CLAUDE.md still describes the retired icon pipeline**, `assets/ui/icons/units/<SHEET>.png` via `pnpm icons:units`. That directory and that script no longer exist (`ui/portrait.ts:11-15` records the change). **Already resolved on main:** CLAUDE.md "A unit" and the sprite-renderers bullet name the Blender portrait pipeline, and nothing in it refers to `pnpm icons:units` except to say it is gone.
 - **VR-15. The audio toggle uses a lightning glyph** on the menu and the strip (PA-30), which reads as power or charge, not sound.
   - **Resolved (8 Oct):** a speaker with two waves, in the G1 sheet's rules (`symbol.ts`, filled, one weight, 24-box); muted is the silent speaker struck through, its body cut either side of the slash. Evidence: `docs/polish/colour-meaning/03-audio-toggle-before-after.png`.
@@ -459,7 +459,7 @@ Numbers from #354 (`units/readability.ts`, `units/selection-ring.ts`):
 | VR-09 / VR-10 | off-palette smoke and char | TR, `world-materials.ts` | **resolved** (fx ladder) |
 | VR-11 | billboard vs mesh drift | `kit.py`, sprites | recorded debt (billboards retired in A3.3: re-check and close) |
 | VR-12 | hit flash always hostile | TR | **resolved** (fx ladder) |
-| VR-13 | kit glyph placeholders vs G1 | `kit-sign.ts`, `assets/ui/kit` | lead (audit status L8: confirm the stars are final; `kit-sign.ts` still says PLACEHOLDER) |
+| VR-13 | kit glyph placeholders vs G1 | `kit-sign.ts`, `assets/ui/kit` | **resolved** (9 Oct: stars final; unused placeholder track glyphs remain in `kit-sign.ts`, see VR-13) |
 | VR-14 | stale icon pipeline in CLAUDE.md | `CLAUDE.md` | **resolved** (already fixed on main, #449) |
 | VR-15 | lightning audio glyph | menu, strip | **resolved** (speaker) |
 | VR-16–21 | type: mono prose, display prose, faux bold, garage scale, button case, back buttons | `theme.css`, settings/saves/credits/loading | **resolved** (#448; VR-20 case rule in #454) |

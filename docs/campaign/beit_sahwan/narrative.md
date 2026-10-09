@@ -87,13 +87,13 @@ retrofitting the rule means throwing audio away (GH-110).
 
 ---
 
-## 1. `beit_sahwan_0_tutorial` — Beit Sahwan 0 — Working Up
+## 1. `beit_sahwan_0_tutorial` — Working Up
 
 `recon` · Captain (pre-war) · `tutorial_ground` · no ledger keys.
 
 ### 1.1 `name`
 
-`Beit Sahwan 0 — Working Up` — **unchanged.**
+`Working Up` — **changed 2026-10-09** (PA-30, lead: players see the bare name; the id is unchanged).
 
 ### 1.2 `briefing` — 413 chars, 3 beats — **unchanged**
 
@@ -122,7 +122,7 @@ Both **unchanged.**
 
 | event | channel | speaker | line | overlay / audio | status |
 |---|---|---|---|---|---|
-| mission start | `title` | system | `Beit Sahwan 0 — Working Up` · *1 primary objective* | `hud.announce`; applied | live |
+| mission start | `title` | system | `Working Up` · *1 primary objective* | `hud.announce`; applied | live |
 | mission start | `brief` | Shai | beats 1–3 above | deploy screen, ◂/▸ paging; applied | live |
 | `zone_entered(z_wall)` → `deliver_second_squad` | `toast` | system | **`enemy reacts (deliver_second_squad)`** | hard-coded prefix; **wrong — this is a friendly delivery.** See §11 G-C | live |
 | `zone_entered(z_house)` → `deliver_sniper` | `toast` | system | `enemy reacts (deliver_sniper)` | same defect | live |

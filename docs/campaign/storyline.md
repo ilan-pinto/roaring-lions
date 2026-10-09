@@ -261,7 +261,7 @@ Ledger keys, verbatim from the JSON: **R** `roster.surviving_units` · **M**
 
 | id | name | phase | rank | Idit's intel beat | SPADE's presence |
 |---|---|---|---|---|---|
-| `beit_sahwan_0_tutorial` | Beit Sahwan 0 — Working Up | recon | Capt (pre-war) | none — not yet attached | absent, deliberately |
+| `beit_sahwan_0_tutorial` | Working Up | recon | Capt (pre-war) | none — not yet attached | absent, deliberately |
 | `beit_sahwan_breach` | Beit Sahwan — First Light | breach | Capt | she is *in* the compound, not on a net; the mission produces no `I`, and that is the point | **his atrocity**: 11 civilians, 2 counted in |
 | `beit_sahwan_1_recon` | Beit Sahwan I — Recon | recon | Capt | her first picture: `locate` ×6 + the ATGM. Produces `I` | his fire plan, seen for the first time |
 | `beit_sahwan_2_foothold` | Beit Sahwan II — Foothold | foothold | Capt | she reads spoil — disturbed earth as intelligence | he digs while you hold |

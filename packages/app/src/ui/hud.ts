@@ -1257,9 +1257,9 @@ export class Hud {
   /** WP-AU1 D8: show a unit's spoken line as text, in the caption slot under
    *  the feed. The voice runtime (T9) calls this with the manifest line's
    *  own `en` text and its length in seconds, and only once a line actually
-   *  played -- gated upstream by `accessibility.captions` (T6), off by
-   *  default, so a HUD built without that setting on never calls this at
-   *  all. */
+   *  played -- gated upstream by `accessibility.captions` (T6), ON by
+   *  default since PA-23 (lead, 2026-10-09; D8 had it off), so a HUD built
+   *  with the setting switched off never calls this. */
   caption(text: string, seconds: number): void {
     this.captionBox.show(text, seconds);
   }

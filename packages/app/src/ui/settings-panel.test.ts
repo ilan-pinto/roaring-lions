@@ -227,17 +227,17 @@ describe('settingsPanel', () => {
     r.dispatchEvent(new Event('input', { bubbles: true }));
     expect(gains).toHaveBeenLastCalledWith({ master: 1, music: 1, sfx: 0.5, voice: 1 });
   });
-  it('Voice captions are off by default, persist on change, and say what they show (D8)', () => {
+  it('Voice captions are ON by default (PA-23), persist on change, and say what they show (D8)', () => {
     const { d, set } = deps();
     const { el } = settingsPanel(document.body, d);
     const cb = el.querySelector<HTMLInputElement>('input[name="captions"]');
     if (!cb) throw new Error('no captions box');
-    expect(cb.checked).toBe(false);
+    expect(cb.checked).toBe(true);
     expect(el.textContent).toContain('Voice captions');
     expect(el.textContent).toContain('in English');
-    cb.checked = true;
+    cb.checked = false;
     cb.dispatchEvent(new Event('change', { bubbles: true }));
-    expect(set.mock.calls[0][0].accessibility.captions).toBe(true);
+    expect(set.mock.calls[0][0].accessibility.captions).toBe(false);
   });
   it('showSettings mounts on the stage with a back link and its disposer empties the stage', () => {
     const { d } = deps();
