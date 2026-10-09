@@ -1477,6 +1477,13 @@ export class Hud {
           ? `<span class="rl-strip__name">${escapeHtml(place)}</span>`
           : /* i18n-ok: proper noun */ '<span class="rl-strip__name">Roaring Lions</span>'
       );
+      // PA-25: a place with no mission is a Free Play sandbox (`placeName`
+      // is set only then). Its objective slot says so, and how to leave,
+      // rather than standing empty -- an empty slot read as a mission that
+      // had failed to load. Dim, and no glyph: it is not an objective.
+      if (place && this.shown('objective')) {
+        rows.push(`<span class="rl-strip__obj rl-dim" data-free-play>${escapeHtml(t('hud.strip.freePlay'))}</span>`);
+      }
     }
 
     const info: string[] = [];
