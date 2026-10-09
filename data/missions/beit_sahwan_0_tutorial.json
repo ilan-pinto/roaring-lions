@@ -234,7 +234,10 @@
           {
             "unit": "mortar_team",
             "count": 1,
-            "marker": "rp_mortar"
+            "at": [
+              31.5,
+              30.5
+            ]
           }
         ]
       }
