@@ -399,7 +399,14 @@ import {
   type LocomotionClip,
 } from './units/mesh-anim';
 import type { ClipName } from '../sheet';
-import { gltfLoader, setDracoDecoderPath, disposeGltfLoader } from './units/gltf-loader';
+import {
+  gltfLoader,
+  setDracoDecoderPath,
+  disposeGltfLoader,
+  hasColdTextures,
+  warmColdTextures,
+  type ImageDecoder,
+} from './units/gltf-loader';
 import { stepTurretFacing } from './units/frame-state';
 import {
   loadVehicleMeshTemplate,
@@ -1872,6 +1879,15 @@ export class ThreeRenderer implements Renderer {
   /** The WRECK sibling -- absent for a type whose `loadBuildingMesh` call
    *  carried no wreck URL. */
   private readonly buildingMeshWreckTemplates = new Map<string, BuildingMeshTemplate>();
+  /** GH-469: unit types / wreck types whose template textures are still
+   *  ENCODED (`coldGltfLoader`). Never drawn while listed; see `warmUnitMesh`. */
+  private readonly coldUnitTypes = new Set<string>();
+  private readonly coldWreckTypes = new Set<string>();
+  /** Decodes in flight, so a cue that repeats every tick starts one. */
+  private readonly warmingTemplates = new Set<string>();
+  /** `warmColdTextures`' decoder; undefined is three's own options. A seam
+   *  for the node tests, which have no `createImageBitmap`. */
+  private imageDecoder: ImageDecoder | undefined = undefined;
   /** One clone per LIVING structure of a mesh-enabled type, keyed by
    *  structure index (`Sim.structures`' own row index, stable for a
    *  structure's whole lifetime -- unlike an entity id, a structure index is
@@ -5346,7 +5362,9 @@ export class ThreeRenderer implements Renderer {
   async loadMeshUnit(
     unitTypeId: string,
     glbUrl: string | readonly string[],
-    faction: MeshFaction
+    faction: MeshFaction,
+    /** GH-469: parse now, decode the textures only on `warmUnitMesh`. */
+    opts: { cold?: boolean } = {}
   ): Promise<void> {
     // One URL or several. Several means VARIANTS of one unit type -- see
     // `units/mesh-variant.ts` for which entity draws which, and why. Loaded
@@ -5362,7 +5380,7 @@ export class ThreeRenderer implements Renderer {
     const allowTextured = TEXTURED_INFANTRY_TYPES.has(unitTypeId);
     const templates = await Promise.all(
       urls.map((url) =>
-        loadMeshUnitTemplate(url, faction, allowTextured).catch((err: unknown) => {
+        loadMeshUnitTemplate(url, faction, allowTextured, opts.cold === true).catch((err: unknown) => {
           this.noteMeshFailure(unitTypeId, url, err);
           throw err;
         })
@@ -5384,6 +5402,8 @@ export class ThreeRenderer implements Renderer {
       await Promise.all(templates.map((t) => capTextureSize(t.root, cap)));
     }
     this.meshUnitTemplates.set(unitTypeId, templates);
+    if (templates.some((t) => hasColdTextures(t.root))) this.coldUnitTypes.add(unitTypeId);
+    else this.coldUnitTypes.delete(unitTypeId);
   }
 
   /**
@@ -5408,12 +5428,17 @@ export class ThreeRenderer implements Renderer {
    * `allowTextured` is computed here, once, the same way `loadBuildingMesh`
    * computes its own -- see `units/textured-vehicle.ts` for the named list.
    */
-  async loadVehicleMesh(unitTypeId: string, glbUrl: string): Promise<void> {
+  async loadVehicleMesh(
+    unitTypeId: string,
+    glbUrl: string,
+    /** GH-469: parse now, decode the textures only on `warmUnitMesh`. */
+    opts: { cold?: boolean } = {}
+  ): Promise<void> {
     const allowTextured = TEXTURED_VEHICLE_TYPES.has(unitTypeId);
     // The type's bought kit (GH-238), fixed for the mission: merged into the
     // template's host geometry here, once, for every clone it ever makes.
     const kitTiers = this.opts.unitKitTiers?.[unitTypeId];
-    const template = await loadVehicleMeshTemplate(glbUrl, unitTypeId, allowTextured, kitTiers).catch((err: unknown) => {
+    const template = await loadVehicleMeshTemplate(glbUrl, unitTypeId, allowTextured, kitTiers, opts.cold === true).catch((err: unknown) => {
       this.noteMeshFailure(unitTypeId, glbUrl, err);
       throw err;
     });
@@ -5448,6 +5473,8 @@ export class ThreeRenderer implements Renderer {
       disposeVehicleMeshTemplate(previous);
     }
     this.vehicleMeshTemplates.set(unitTypeId, template);
+    if (hasColdTextures(template.root)) this.coldUnitTypes.add(unitTypeId);
+    else this.coldUnitTypes.delete(unitTypeId);
     if (this.kitDebugHidden) setKitDrawRange(template.geometries, true);
     // Measured here, from the template just built, exactly as
     // `loadBuildingMesh` measures its own -- recomputed on every reload and
@@ -5457,6 +5484,82 @@ export class ThreeRenderer implements Renderer {
     // wreck recipe displaces those parts OUTWARD, so measuring the whole
     // clone would size the shroud from scattered debris.
     this.vehicleMeshBounds.set(unitTypeId, vehicleShroudBounds(template.root));
+  }
+
+  /**
+   * GH-469: decode a cold unit type's textures, ahead of its first draw.
+   *
+   * The cue is the player's ORDER: `main.ts` calls this for every entry in
+   * `runtime.production` each tick, so decoding starts the tick a build is
+   * queued -- at least 12 s of sim time (the shortest `build_time_s`, two
+   * jeeps and the recon drone) before the unit can exist, against tens of
+   * milliseconds to decode its textures. Until the decode lands the type is
+   * not drawn at all (`updateMeshUnits`/`updateVehicleMeshes` treat it as not
+   * loaded), so even a unit that arrives with no cue -- `reason` 'spawned' --
+   * appears textured or not at all, never with a placeholder; that case is
+   * reported, because it means a cue is missing. Idempotent and cheap for a
+   * type that is already warm.
+   */
+  warmUnitMesh(unitTypeId: string, reason: 'ordered' | 'spawned' = 'ordered'): void {
+    if (!this.coldUnitTypes.has(unitTypeId)) return;
+    const key = `unit:${unitTypeId}`;
+    if (this.warmingTemplates.has(key)) return;
+    this.warmingTemplates.add(key);
+    if (reason === 'spawned') {
+      console.warn(`[render] ${unitTypeId} reached the field before its textures were warmed; it draws once they decode`);
+    }
+    const roots = [
+      ...(this.meshUnitTemplates.get(unitTypeId) ?? []).map((t) => t.root),
+      ...[this.vehicleMeshTemplates.get(unitTypeId)?.root].filter((r): r is THREE.Object3D => r !== undefined),
+    ];
+    void Promise.all(roots.map((r) => warmColdTextures(r, this.imageDecoder))).then(
+      () => {
+        this.warmingTemplates.delete(key);
+        if (!this.disposed) this.coldUnitTypes.delete(unitTypeId);
+      },
+      (err: unknown) => {
+        this.warmingTemplates.delete(key);
+        if (this.disposed) return;
+        // A template that cannot be decoded is a mesh that failed: drop it,
+        // and the type draws the failed-mesh proxy box like any other.
+        this.coldUnitTypes.delete(unitTypeId);
+        this.meshUnitTemplates.delete(unitTypeId);
+        this.vehicleMeshTemplates.delete(unitTypeId);
+        this.noteMeshFailure(unitTypeId, '(texture decode)', err);
+      }
+    );
+  }
+
+  /** Whether `unitTypeId`'s template is still cold (read by tests). */
+  isUnitMeshCold(unitTypeId: string): boolean {
+    return this.coldUnitTypes.has(unitTypeId);
+  }
+
+  /** GH-469: `warmUnitMesh`'s twin for a building type's wreck template. */
+  private warmWreck(structureId: string): void {
+    if (!this.coldWreckTypes.has(structureId)) return;
+    const key = `wreck:${structureId}`;
+    if (this.warmingTemplates.has(key)) return;
+    const template = this.buildingMeshWreckTemplates.get(structureId);
+    if (!template) return;
+    this.warmingTemplates.add(key);
+    void warmColdTextures(template.root, this.imageDecoder).then(
+      () => {
+        this.warmingTemplates.delete(key);
+        if (!this.disposed) this.coldWreckTypes.delete(structureId);
+      },
+      (err: unknown) => {
+        this.warmingTemplates.delete(key);
+        if (this.disposed) return;
+        // Same as a wreck GLB that failed to load: the type keeps the
+        // procedural wreck `updateStructures` draws when no template exists.
+        console.error(`[render] could not decode the textures of ${structureId}'s wreck:`, err);
+        this.coldWreckTypes.delete(structureId);
+        this.buildingMeshWreckTemplates.delete(structureId);
+        disposeBuildingMeshTemplate(template);
+        this.terrainDirty = true;
+      }
+    );
   }
 
   /**
@@ -5708,7 +5811,10 @@ export class ThreeRenderer implements Renderer {
       wreckUrl,
       structureType.color,
       wallSurfaceForBuilding(structureId),
-      TEXTURED_BUILDING_TYPES.has(structureId)
+      TEXTURED_BUILDING_TYPES.has(structureId),
+      // GH-469: a wreck is drawn only when one of these collapses, so its
+      // textures stay encoded until the type is first hit (`warmWreck`).
+      true
     );
     const previousWreck = this.buildingMeshWreckTemplates.get(structureId);
     if (previousWreck) {
@@ -5721,6 +5827,8 @@ export class ThreeRenderer implements Renderer {
       disposeBuildingMeshTemplate(previousWreck);
     }
     this.buildingMeshWreckTemplates.set(structureId, wreckTemplate);
+    if (hasColdTextures(wreckTemplate.root)) this.coldWreckTypes.add(structureId);
+    else this.coldWreckTypes.delete(structureId);
     // `updateStructures` reads `buildingMeshWreckTemplates` to decide whether
     // this type's BILLBOARD wreck instancer still draws -- so the arrival has
     // to reach the terrain the same way the standing template's does, or a
@@ -6396,6 +6504,13 @@ export class ThreeRenderer implements Renderer {
       const type = this.sim.unitTypes[st.typeIdx[i]];
       const variants = this.meshUnitTemplates.get(type.id);
       if (!variants) continue;
+      // GH-469: a cold template is never drawn (its textures are a 1x1
+      // placeholder until decoded). Treated exactly like one not loaded yet;
+      // reaching here at all means no pre-warm caught it, which is said.
+      if (this.coldUnitTypes.has(type.id) && !this.meshUnitEntities.has(i)) {
+        this.warmUnitMesh(type.id, 'spawned');
+        continue;
+      }
       // One variant for almost every type; four for `civilians` (GH-149).
       // `pickMeshVariant` is a pure function of the entity id, so this
       // resolves to the same figure every frame of that entity's life and
@@ -6764,6 +6879,11 @@ export class ThreeRenderer implements Renderer {
       const type = this.sim.unitTypes[st.typeIdx[i]];
       const template = this.vehicleMeshTemplates.get(type.id);
       if (!template) continue;
+      // GH-469: see `updateMeshUnits` -- a cold template is never drawn.
+      if (this.coldUnitTypes.has(type.id) && !this.vehicleMeshEntities.has(i)) {
+        this.warmUnitMesh(type.id, 'spawned');
+        continue;
+      }
 
       let entity = this.vehicleMeshEntities.get(i);
       if (!entity) {
@@ -7471,6 +7591,15 @@ export class ThreeRenderer implements Renderer {
       // nothing here writes back to it (invariant 4). What is delayed is one
       // `scene.remove`/`scene.add` pair, for 420 ms, under smoke.
       if (this.buildingMeshSwapHold.has(s)) continue;
+      // GH-469: the wreck's textures are still encoded. Keep the STANDING
+      // clone -- still under the collapse cloud -- until they are decoded,
+      // rather than stand up a wreck that would draw a 1x1 placeholder. The
+      // first hit on this type started the decode (`refreshBuildingDamage`),
+      // so in practice this only waits on a building killed outright.
+      if (this.coldWreckTypes.has(type.id) && this.buildingMeshWreckTemplates.has(type.id)) {
+        this.warmWreck(type.id);
+        continue;
+      }
 
       // Dead: drop the idle clone, and stand up the wreck one if this type
       // loaded a wreck template.
@@ -7539,6 +7668,10 @@ export class ThreeRenderer implements Renderer {
     if (!root) return;
     const st = this.sim.structures;
     if (st.alive[s] !== 1) return;
+    // GH-469: the first hit on a type is the wreck's cue to decode -- the
+    // earliest moment a collapse becomes possible, and seconds of fire (or at
+    // the least the 420 ms swap hold) before it can be needed.
+    if (st.hp[s] < st.maxHp[s]) this.warmWreck(this.sim.structureTypes[st.typeIdx[s]].id);
     const band = buildingDamageBand(st.hp[s], st.maxHp[s]);
     if (this.buildingDamageBand.get(s) === band) return;
     this.buildingDamageBand.set(s, band);
