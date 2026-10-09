@@ -2888,7 +2888,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // instead of the ordinary line.
       isPinned: (id) => isPinned(sim.state, id),
     },
-    play: (cue) => audio.playVoice({ key: cue.key, priority: cue.priority, at: cue.at ?? undefined }),
+    play: (cue) => audio.playVoice({ key: cue.key, priority: cue.priority, at: cue.at ?? undefined, delayS: cue.delayS }),
     // A bark follows the captions setting; an announcement shows always
     // (polish pass F, A5) -- it is mission information, and a Hebrew line
     // nobody understands is noise.
@@ -4567,6 +4567,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             audio.playCue(OUTCOME_CUE[me.result]);
             // AU-5: the verdict is the last word -- no bark or call after it.
             voice.hush('outcome');
+            // Audio plan §5.4: Shai's verdict on the net, starting as the
+            // stinger's head ends (the mixer delays it; no timer here).
+            voice.outcome(me.result);
             audio.setMusicScene('menu');
             // Final review, ruling 9: the moment is the verdict, so the HUD's
             // own "Mission accomplished"/"Mission failed" banner stands down

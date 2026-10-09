@@ -700,6 +700,7 @@
   "announce.unitLost": "Contact lost with {n, plural, one {one unit} other {# units}}.",
   "announce.missionStart": "Company, on me. Moving out.",
   "announce.roe": "Check your fire.",
+  "announce.outcome.defeat": "Fall back.",
   "voice.caption.broken": "Falling back!",
   "voice.caption.immobilised": "We're stuck, tracks are gone!",
   "voice.caption.gunout": "Main gun's out!",

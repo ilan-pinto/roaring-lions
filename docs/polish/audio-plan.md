@@ -447,14 +447,17 @@ Rules for these lines:
 | defeat (new) | Shai | נסוגים. עוד נחזור לכאן. | *nesogim. od nachzor le-khan.* | "Pull back. We'll be back." |
 | defeat, alternate (new) | Idit | איבדנו את התמונה. תוציא אותם. | *ibadnu et ha-tmuna. totzi otam.* | "We've lost the picture. Get them out." (breaks her never-an-order rule once, on purpose: the lead decides) |
 
-*As recorded (9 Oct 2026):* the lead recorded the first five himself, one take each, and they ship
+*As recorded (9 Oct 2026):* the lead recorded five lines himself, one take each, and they ship
 under `he.common.announce_<event>`: `mission_start` (*hal'a, la-krav*, "Onward, into battle"),
 `objective_active` (*mesima chadasha*), `objective_complete` (*kodkod, ha-mesima hushlema
-be-hatzlacha*), `reinforcements` (*kodkod, anachnu chayavim tigboret*, "we need reinforcements",
-a request where the event is an arrival) and, for want of a defeat slot, `objective_failed`
-(*la-seget*, "fall back", recorded for defeat). The outcome line itself is still unbuilt. His
-sixth file is a second `he.infantry.attack` take (*el ha-oyev, bi-dilugim*). Two of his lines open
-with *kodkod*, a real net proword that the rules above exclude; his call to keep or re-record.
+be-hatzlacha*), `reinforcements` (*kodkod, anachnu chayavim tigboret*, "we need reinforcements":
+a request where the event is an arrival, and a proword the rules above exclude; the lead's ruling
+is to use it as recorded) and `defeat` (*la-seget*, "Fall back"). The defeat line is the outcome
+line: an announcement entry of priority `outcome`, raised by the outcome moment through
+`VoiceRuntime.outcome` right after the stinger, and started `OUTCOME_LINE_DELAY_S` (0.6 s) later on
+the mixer's clock, through the radio chain. `objective_failed` stays caption-only, and there is no
+`victory` entry until that line is recorded. His sixth file is a second `he.infantry.attack` take
+(*el ha-oyev, bi-dilugim*).
 
 That is **12 announcer lines × 2 takes**, beside the 36 barks: ≈ 48 lines, ≈ 96 files. Shai's
 voice is one actor. Idit's is one actor, and **must not be the Arabic actor's voice** (§5.5).

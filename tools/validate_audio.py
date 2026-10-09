@@ -643,7 +643,7 @@ def check_ui_cue(entry, failures, audio_dir=AUDIO_DIR, notes=None, max_s=UI_MAX_
         failures.append(f"{rel}: ui cue peaks at {peak:.2f} dBFS, over the {UI_PEAK_CEILING_DB} dBFS ceiling")
 
 
-ANNOUNCE_PRIORITIES = ("high", "normal", "low")
+ANNOUNCE_PRIORITIES = ("high", "normal", "low", "outcome")
 EN_JSON = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "app", "src", "i18n", "en.json")
 
 

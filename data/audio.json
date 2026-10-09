@@ -645,6 +645,21 @@
           }
         ]
       },
+      "he.common.announce_defeat": {
+        "variants": [
+          {
+            "file": "voice/he/common/announce_defeat_01a.ogg",
+            "alt": "voice/he/common/announce_defeat_01a.m4a",
+            "license": "LicenseRef-owned",
+            "source": "recorded by the project lead, 2026-10-09 (his own voice, from the six files he supplied in assets/audio/voice/he/raw/, which stay untracked); trimmed and normalised by tools/voice_prep.py",
+            "credit": "Ilan Pinto",
+            "generator": "none (human voice, recorded by the project lead)",
+            "text": "לסגת",
+            "translit": "la-seget",
+            "en": "Fall back. (From 'retreat.mp3'. Shai's verdict at defeat, the outcome line of audio plan section 5.4: the lead's ruling, 2026-10-09.)"
+          }
+        ]
+      },
       "he.common.announce_mission_start": {
         "variants": [
           {
@@ -656,7 +671,7 @@
             "generator": "none (human voice, recorded by the project lead)",
             "text": "הלאה, לקרב",
             "translit": "hal'a, la-krav",
-            "en": "Onward, into battle. (From 'to the battle.mp3'. Whisper is sure of 'la-krav' and not of the first word: 'hal'a' (onward) is the best reading, 'yalla' the alternative; the lead's ear settles it. Cut at 2.4 s of the source, before a click.)"
+            "en": "Onward, into battle. (From 'to the battle.mp3'; the words confirmed by the lead, 2026-10-09. Cut at 2.4 s of the source, before a click.)"
           }
         ]
       },
@@ -690,21 +705,6 @@
           }
         ]
       },
-      "he.common.announce_objective_failed": {
-        "variants": [
-          {
-            "file": "voice/he/common/announce_objective_failed_01a.ogg",
-            "alt": "voice/he/common/announce_objective_failed_01a.m4a",
-            "license": "LicenseRef-owned",
-            "source": "recorded by the project lead, 2026-10-09 (his own voice, from the six files he supplied in assets/audio/voice/he/raw/, which stay untracked); trimmed and normalised by tools/voice_prep.py",
-            "credit": "Ilan Pinto",
-            "generator": "none (human voice, recorded by the project lead)",
-            "text": "לסגת",
-            "translit": "la-seget",
-            "en": "Fall back. (From 'retreat.mp3'. Meant for defeat; no defeat voice slot exists yet, so it voices a failed objective, the closest call.)"
-          }
-        ]
-      },
       "he.common.announce_reinforcements": {
         "variants": [
           {
@@ -716,7 +716,7 @@
             "generator": "none (human voice, recorded by the project lead)",
             "text": "קודקוד, אנחנו חייבים תגבורת",
             "translit": "kodkod, anachnu chayavim tigboret",
-            "en": "Kodkod, we need reinforcements. (From 'reinforcment.mp3'. Said as a request, while the event it voices is reinforcements arriving; the caption carries the house line.)"
+            "en": "Kodkod, we need reinforcements. (From 'reinforcment.mp3'. Said as a request while the event is reinforcements arriving, and it opens with the proword 'kodkod': the lead's ruling, 2026-10-09, is to use it as recorded. The caption carries the house line.)"
           }
         ]
       },
@@ -837,7 +837,7 @@
       }
     },
     "announcements": {
-      "$comment": "GH-110 announcement lines: objective, deadline, loss, reinforcement and contact calls. Each carries an i18n caption key and an `audio` key that must exist in voices.lines (empty until recorded, ElevenLabs licence D5 unconfirmed): empty or unrecorded means caption only. Priority high > normal > low; a lower one stays quiet for hold_s after a higher one spoke. Polish pass F: mission_start (Shai on the net as the deploy gate clears, A4) and roe (a Conduct penalty, 'Check your fire', A9). The lead recorded the first five in his own voice on 2026-10-09 (mission_start, objective_active, objective_complete, objective_failed, reinforcements: keys he.common.announce_<event>); deadline, wave, unit_lost and roe are still caption-only. Every recorded line plays unplaced, so it goes out through the walkie-talkie chain like every other radio line. Every announcement caption shows whatever the captions setting says (A5).",
+      "$comment": "GH-110 announcement lines: objective, deadline, loss, reinforcement and contact calls. Each carries an i18n caption key and an `audio` key that must exist in voices.lines (empty until recorded, ElevenLabs licence D5 unconfirmed): empty or unrecorded means caption only. Priority high > normal > low; a lower one stays quiet for hold_s after a higher one spoke. Polish pass F: mission_start (Shai on the net as the deploy gate clears, A4) and roe (a Conduct penalty, 'Check your fire', A9). The lead recorded five lines in his own voice on 2026-10-09 (mission_start, objective_active, objective_complete, reinforcements and defeat: keys he.common.announce_<event>); objective_failed, deadline, wave, unit_lost and roe are still caption-only. `defeat` is the outcome line (audio plan section 5.4), priority `outcome`: no mission event raises it; the outcome moment does, through VoiceRuntime.outcome, and it starts as the stinger's head ends (OUTCOME_LINE_DELAY_S). There is no `victory` entry until that line is recorded. Every recorded line plays unplaced, so it goes out through the walkie-talkie chain like every other radio line. Every announcement caption shows whatever the captions setting says (A5).",
       "hold_s": 3,
       "caption_s": 3.5,
       "events": {
@@ -855,7 +855,7 @@
         },
         "objective_failed": {
           "caption": "announce.objective.failed",
-          "audio": "he.common.announce_objective_failed",
+          "audio": "",
           "cooldown_s": 2,
           "priority": "high"
         },
@@ -894,6 +894,12 @@
           "audio": "",
           "cooldown_s": 10,
           "priority": "normal"
+        },
+        "defeat": {
+          "caption": "announce.outcome.defeat",
+          "audio": "he.common.announce_defeat",
+          "cooldown_s": 0,
+          "priority": "outcome"
         }
       }
     }

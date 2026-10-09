@@ -46,7 +46,11 @@ export type AnnounceEventId =
    *  by the app at the title card, like `deadline`. */
   | 'mission_start'
   /** Polish pass F (A9): a Conduct penalty, "Check your fire." */
-  | 'roe';
+  | 'roe'
+  /** The verdict's line (audio plan §5.4), priority `outcome`: raised by the
+   *  outcome moment through `VoiceRuntime.outcome`, never by a mission event. */
+  | 'victory'
+  | 'defeat';
 
 /** One thing that happened, as the announcer needs it. `params` fill the
  *  caption (`label` for an objective, `n` for a loss). */
@@ -67,13 +71,14 @@ export interface AnnounceState {
 
 export const INITIAL_ANNOUNCE: AnnounceState = Object.freeze({ spoke: Object.freeze({}), hold: null, lost: null });
 
-export const ANNOUNCE_RANK: Readonly<Record<AnnouncementDef['priority'], number>> = { high: 3, normal: 2, low: 1 };
+export const ANNOUNCE_RANK: Readonly<Record<AnnouncementDef['priority'], number>> = { outcome: 4, high: 3, normal: 2, low: 1 };
 
 /** AU-5: the manifest's priority as a rung of the voice ladder (`VOICE_RANK`). */
 export const ANNOUNCE_VOICE_PRIORITY: Readonly<Record<AnnouncementDef['priority'], VoicePriority>> = {
   high: 'announce_high',
   normal: 'announce',
   low: 'announce_low',
+  outcome: 'outcome',
 };
 
 /** AU-5: losses within this long of the first are one call (audio plan §5.1). */
