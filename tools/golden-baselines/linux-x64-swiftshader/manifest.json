@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "28fca1cb1ffe3a1865294d8393cf8d1151f17b9e",
-  "blessedAt": "2026-10-09T07:05:37.286Z",
-  "reason": "#488 Free Play strip line ('Free play — no objectives · Escape for the menu') in every sandbox scenario (PA-25); #483/#484 move no gated frame",
+  "commit": "7a192a027f5ef685bc2d999c660d55129f1b087d",
+  "blessedAt": "2026-10-09T08:36:37.005Z",
+  "reason": "#492: the alert feed is hidden in gated captures (repaint drift since #488); baselines drop the feed lines #490 had blessed",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "b22270532b63a9c5383a0e59620b2202a6c540345383b3332266a879c01c5d91"
+      "sha256": "720cfb8fc7d75022ed51be44f0d435a66c3756a9f28184093b5f0adaed96d7d1"
     },
     "open-ground": {
       "tick": 60,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "f742a9fc04c31285c475b1f6a63104c7629a0482d8c70b262c8fe8c573d9c551"
+      "sha256": "c5c9800bdca21eea9c6fc72f957824e9969992671ed44693cda87ecbacd6302e"
     },
     "kitted": {
       "tick": 140,
@@ -67,7 +67,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "a066d2aad7d89030947a9658ed08b94439ddf6bb39664990384c4690eb25959b"
+      "sha256": "28251a5364c9d43565a7e3e480715ccd73bbdf76b7ac6ba5ac4985892f56c4bd"
     },
     "relief": {
       "tick": 500,
@@ -81,7 +81,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "abd75c1cbdfee22789d26d03439d76ff2e20a592d0f02b0ac78b9983647b0c5e"
+      "sha256": "5bd24be2d8caf7116ddc58902cac317f073c0273a322a67d8f3434da4b1cc759"
     },
     "aftermath": {
       "tick": 300,
@@ -95,7 +95,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "88c8c5917c95fcc3692d3e614502d956b5ccf4f812cc1388ea4c04e8679ff389"
+      "sha256": "0e9834dd592b5614bcfca1ffa883f4b331859c39761a298d8af596e987661241"
     }
   }
 }
