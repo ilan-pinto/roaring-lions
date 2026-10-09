@@ -150,6 +150,10 @@ describe('K-07 in the report (PR 437)', () => {
     const last = afterAction(wh5({ next: undefined })).changed.map((c) => c.text);
     expect(last).toContain("This town's operations are done. Choose the next one on the campaign map.");
     expect(afterAction(wh5()).changed.map((c) => c.text)).not.toContain("This town's operations are done. Choose the next one on the campaign map.");
+    // The end of the war: no next town to choose, so the row is not drawn.
+    // Falsified: dropping `!i.campaignOver` puts it back.
+    const over = afterAction(wh5({ next: undefined, campaignOver: true })).changed.map((c) => c.text);
+    expect(over).not.toContain("This town's operations are done. Choose the next one on the campaign map.");
   });
 });
 

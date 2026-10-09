@@ -8,6 +8,7 @@ import type { LedgerData, MissionJson } from '@lions/sim';
 import { missions } from '@lions/data';
 import { parseCommander, parseCountries, parseWorld, type CommanderData } from '../campaign';
 import { worldMap } from './worldmap';
+import { t } from '../i18n/t';
 import { showCampaign, showMenu } from './menu';
 
 const world = parseWorld(worldJson);
@@ -29,6 +30,16 @@ const statusOf = (el: HTMLElement, region: string): string | null =>
   el.querySelector(`#region-${region}`)?.getAttribute('data-status') ?? null;
 
 describe('worldMap', () => {
+  // The end of the war (campaign-close.ts): the flat board has no click line,
+  // so it carries the line itself -- once nothing is left to open, never before.
+  it('says the war is over once every mission is done, and not a mission sooner', () => {
+    const all = world.regions.flatMap((r) => r.towns.flatMap((tw) => tw.missions));
+    const line = (el: HTMLElement): string | null => el.querySelector('.rl-world__say')?.textContent ?? null;
+    expect(line(render({ 'campaign.completed_missions': [...all] }))).toBe(t('world.complete'));
+    expect(line(render({ 'campaign.completed_missions': all.slice(0, -1) }))).toBeNull();
+    expect(line(render({}))).toBeNull();
+  });
+
   it('marks each region with its derived status', () => {
     const el = render({});
     expect(statusOf(el, 'marj')).toBe('live');

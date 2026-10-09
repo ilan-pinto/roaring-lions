@@ -29,6 +29,7 @@ import {
   type WorldRegion,
 } from '../campaign';
 import { nudgeLabels, type LabelBox } from './label-layout';
+import { campaignComplete } from '../campaign-close';
 
 export interface WorldMapOptions {
   base: string;
@@ -245,6 +246,11 @@ export function worldMap(opts: WorldMapOptions): HTMLElement {
   };
   if (typeof requestAnimationFrame === 'function') requestAnimationFrame(runNudgePass);
   else runNudgePass();
+
+  // The end of the war (`campaign-close.ts`). The 3D board says it on its
+  // click line; this board has no click line, so it says it here, between the
+  // ground and the cards, and only once nothing is left to open.
+  if (campaignComplete(opts.world, opts.ledger)) wrap.appendChild(el('p', 'rl-world__say', t('world.complete')));
 
   // --- the status panel ----------------------------------------------------
   const cards = el('div', 'rl-world__cards');

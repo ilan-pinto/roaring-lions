@@ -444,6 +444,10 @@
   "debrief.tierLine.quote": "“{text}”",
   "debrief.next": "Next: {name}",
   "debrief.replay": "{result, select, victory {Replay} other {Try again}}",
+  "debrief.closing.1": "That was the last question on the board. Three fronts, and nothing left on the wall to read.",
+  "debrief.closing.2": "Leave it up one more morning. I want to look at what is still standing on it.",
+  "debrief.closing.3": "Nine did not come in at First Light. I have said it at every town since, because you would not.",
+  "debrief.closing.4": "Say it once more. Then take it down.",
 
   "loading.deploying": "deploying",
   "loading.commander": "{rank} · {plate}",
@@ -497,6 +501,7 @@
   "world.ledger.conduct": "Conduct {mean}",
   "world.ledger.worst": "worst {name} ({value})",
   "world.ledger.fresh": "campaign: fresh start",
+  "world.complete": "Every front is closed, and nothing on this board is waiting to be opened. It stays up one more morning.",
 
   "world3d.hint": "Drag the board to turn it. Click a front to open its next operation.",
   "world3d.bearing.title": "face north again",
