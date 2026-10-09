@@ -128,6 +128,7 @@ import {
   type ZoomGlide,
 } from './ui/camera-input';
 import { closeOpenDialog, confirmDialog, isDialogOpen } from './ui/confirm';
+import { installEscapeBack } from './shell/escape-back';
 import { leaveCopy, leaveHref } from './ui/leave-copy';
 import { closeTip } from './ui/tooltip';
 import { objectiveStatusShout } from './ui/objective-status';
@@ -1196,6 +1197,9 @@ async function main(): Promise<void> {
       { name: 'free-play', pattern: '/free-play', mount: (host) => showSandbox(host) },
       {
         name: 'sandbox',
+        // A battlefield owns its focus: its keys reach the game, and its
+        // briefing focuses Deploy itself (KS-08, `shell/router.ts`).
+        focus: false,
         pattern: '/free-play/:map',
         mount: (host, req) =>
           guardBoot(host, req.signal, (err) => bootFailure(host, err), bootBattlefield(host, {
@@ -1215,6 +1219,9 @@ async function main(): Promise<void> {
       },
       {
         name: 'mission',
+        // A battlefield owns its focus: its keys reach the game, and its
+        // briefing focuses Deploy itself (KS-08, `shell/router.ts`).
+        focus: false,
         pattern: '/mission/:id',
         mount: (host, req) =>
           guardBoot(host, req.signal, (err) => bootFailure(host, err), bootBattlefield(host, {
@@ -1265,6 +1272,10 @@ async function main(): Promise<void> {
   // document -- there is no point at which this page stops wanting them, so
   // its disposer is dropped rather than stored.
   interceptLinks(document, router);
+  // KS-07: Escape presses the screen's own back control on the shell screens
+  // (`shell/escape-back.ts`), never on the menu or a battlefield and never
+  // while a dialog owns the key. App-wide, so its disposer is dropped too.
+  installEscapeBack({ route: () => router.current()?.name ?? null, stage, dialogOpen: () => isDialogOpen() });
   // The small-screen notice (K-17): app-wide like the line above, so its
   // disposer is dropped for the same reason -- but it has one, and a test
   // proves it removes everything the notice adds.
@@ -4312,6 +4323,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           if (me.result === 'victory')
             telemetry().campaignProgress(mission.id, Object.keys(updatedLedger['campaign.mission_results'] ?? {}).length);
           let payout: ReturnType<typeof payVictory> | null = null;
+          // KS-12: whether this victory's write was refused (and put back), and
+          // the balance it would have been paid into -- so the moment and the
+          // report claim nothing that was not kept.
+          let victoryUnsaved = false;
+          let balanceBefore = 0;
           // Who took a fallen place (WP-G-E4). Empty on a defeat, like `payout`.
           // The fallen themselves are named from the mission log (GH-417).
           const replacements = carryover ? carryover.replacements : [];
@@ -4344,7 +4360,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // are now ONE write -- `writeVictory` puts both back on a refusal --
             // because the account write was outside that guard, and a refused one
             // still threw after the ledger had recorded the win.
-            const ledgerSaved = writeVictory(ledgerStore, updatedLedger, payout ? payout.account : null) === 'saved';
+            const victoryWrite = writeVictory(ledgerStore, updatedLedger, payout ? payout.account : null);
+            const ledgerSaved = victoryWrite === 'saved';
+            victoryUnsaved = victoryWrite === 'refused';
+            balanceBefore = accountBefore.balance;
             if (payout && ledgerSaved) {
               telemetry().account('payout', payout.account, { mission: mission.id, paid: payout.paid });
             }
@@ -4354,7 +4373,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           // (below) and the debrief (`debriefOpts.credits`) -- the payment
           // already ran above this point (victory only), so both surfaces read
           // the same `{ paid, balance }` rather than each re-deriving it.
-          const creditsInfo = payout ? { paid: payout.paid, balance: payout.account.balance } : undefined;
+          const creditsInfo = payout
+            ? victoryUnsaved
+              ? { paid: 0, balance: balanceBefore, unsaved: true }
+              : { paid: payout.paid, balance: payout.account.balance }
+            : undefined;
           if (missionId) {
             // Campaign order lives in world.json, not in the order data/missions files
             // happen to be imported.
@@ -4442,6 +4465,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               failure: missionFailure,
               withdrew,
               credits: creditsInfo,
+              unsaved: victoryUnsaved,
               promotions:
                 me.result === 'victory'
                   ? promotionsBetween(ledger['roster.surviving_units'] ?? [], updatedLedger['roster.surviving_units'] ?? [])

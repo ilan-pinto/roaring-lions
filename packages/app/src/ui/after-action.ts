@@ -62,6 +62,9 @@ export interface AfterActionInputs {
   /** Hostile units still alive at the end (victory only). */
   withdrew?: number;
   credits?: { paid: number; balance: number };
+  /** KS-12: the victory write was refused (`writeVictory` answered
+   *  `'refused'`), so nothing from this win was kept. */
+  unsaved?: boolean;
   promotions: readonly Promotion[];
   replacements: readonly { name: string; predecessor: string }[];
   unlocks: readonly Unlock[];
@@ -223,6 +226,12 @@ export function afterAction(i: AfterActionInputs): AfterAction {
     // Pass K (K-07, PR 437): what a defeat means for the campaign, and what next
     // -- the end screen's own wording, carried into the report that replaced it.
     changed.push({ mark: '0', tone: 'commend', text: t('aar.changed.nothing'), sub: t('menu.end.defeatKept') });
+  } else if (i.unsaved) {
+    // KS-12 (keyboard-and-saves): the write that keeps a win was refused and
+    // put back, so the pay, the promotions, the unlocks and the carried
+    // objectives below were never kept. Claiming them would be false; this
+    // one line replaces all of them.
+    changed.push({ mark: '0', tone: 'bad', text: t('aar.changed.unsaved'), sub: t('aar.changed.unsavedSub') });
   } else {
     if (i.credits) {
       changed.push(
@@ -258,7 +267,7 @@ export function afterAction(i: AfterActionInputs): AfterAction {
   // K-07's other half: a won town with nothing to follow says where to go
   // next, where the "next mission" action would otherwise simply be absent.
   // Not once the war is over: the board has nothing left to choose.
-  if (won && !i.next && !i.campaignOver) changed.push({ mark: t('aar.mark.next'), tone: 'commend', text: t('menu.end.townDone') });
+  if (won && !i.unsaved && !i.next && !i.campaignOver) changed.push({ mark: t('aar.mark.next'), tone: 'commend', text: t('menu.end.townDone') });
 
   // --- pins on the ground ----------------------------------------------------
   const pins: GroundPin[] = [];

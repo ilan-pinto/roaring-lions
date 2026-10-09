@@ -94,7 +94,7 @@ export interface OutcomeMomentOptions {
    *  mounts, so this is the same `{ paid, balance }` the debrief prints,
    *  never a second reader of the account. Victory only; `outcomeMomentOptions`
    *  never sets it on a defeat. */
-  credits?: { paid: number; balance: number };
+  credits?: { paid: number; balance: number; unsaved?: boolean };
   /** The outcome line on the radio net (polish pass F, section 5.4: Shai's
    *  verdict), as text. Always drawn, whatever the captions setting says
    *  (A5): it is the outcome's caption, and until the lead records the line
@@ -139,7 +139,7 @@ export const OUTCOME_HOLD_MS = 2600;
 export function outcomeMomentOptions(
   result: 'victory' | 'defeat',
   mission: Pick<MissionJson, 'aftermath' | 'debrief'>,
-  credits?: { paid: number; balance: number },
+  credits?: { paid: number; balance: number; unsaved?: boolean },
   reason?: string | null
 ): OutcomeMomentOptions {
   const say = result === 'victory' ? mission.debrief?.victory : mission.debrief?.defeat;
@@ -201,10 +201,16 @@ export function outcomeMoment(host: HTMLElement, o: OutcomeMomentOptions): Outco
   if (o.credits) {
     const reward = document.createElement('div');
     reward.className = 'rl-outcome__credits';
-    reward.dataset.paid = o.credits.paid > 0 ? '1' : '0';
+    // KS-12: a refused victory write kept nothing, whatever the run was worth.
+    const paid = o.credits.unsaved ? 0 : o.credits.paid;
+    reward.dataset.paid = paid > 0 ? '1' : '0';
     const figure = document.createElement('p');
-    figure.className = o.credits.paid > 0 ? 'rl-outcome__credits-figure' : 'rl-outcome__credits-none';
-    figure.textContent = o.credits.paid > 0 ? t('debrief.credits.paid', { n: o.credits.paid }) : t('debrief.credits.none');
+    figure.className = paid > 0 ? 'rl-outcome__credits-figure' : 'rl-outcome__credits-none';
+    figure.textContent = o.credits.unsaved
+      ? t('debrief.credits.unsaved')
+      : paid > 0
+        ? t('debrief.credits.paid', { n: paid })
+        : t('debrief.credits.none');
     reward.appendChild(figure);
     const total = document.createElement('p');
     total.className = 'rl-outcome__credits-total';

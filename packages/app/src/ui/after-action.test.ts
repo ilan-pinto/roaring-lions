@@ -107,6 +107,19 @@ describe('afterAction (GH-417, H4/H5)', () => {
     expect(afterAction(wh5({ objectives: noCarrier })).ladder[2]).toEqual({ stars: 3, met: false, text: 'No optional objective carries forward on this mission' });
   });
 
+  // KS-12 (keyboard-and-saves): when the victory write is refused, nothing
+  // from the win was kept -- not the pay, not a promotion, not an unlock --
+  // and the report used to claim all of it. It says so instead.
+  it('a win the browser refused to save claims nothing kept, and says why', () => {
+    const a = afterAction(wh5({ unsaved: true }));
+    expect(a.changed.map((c) => [c.mark, c.tone, c.text])).toEqual([
+      ['0', 'bad', 'Not saved: browser storage refused the write, so nothing from this win was kept'],
+    ]);
+    expect(a.changed[0].sub).toBe('Free some space and play it again. Your campaign is as it was before this mission.');
+    // the verdict and the ladder are about the fight, and still stand
+    expect(a.ladder.map((r) => r.met)).toEqual([true, true, false]);
+  });
+
   it('a defeat: the reason, what went wrong, and nothing written', () => {
     const lost = wh5({
       result: 'defeat',
