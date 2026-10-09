@@ -86,6 +86,8 @@ describe('CREDITS', () => {
     // The voices: who made them, and that a commercial build leaves them out (D5, A3).
     expect(text).toMatch(/ElevenLabs/);
     expect(text).toMatch(/commercial/i);
+    // ...and the lines the lead recorded himself (9 Oct 2026) are said to be his.
+    expect(text).toMatch(/recorded by Ilan Pinto/);
     // The cues and effects: made in code, no model -- so the class is bounded.
     expect(text).toMatch(/made in code, with no generative model/i);
     // The art gates it used to cite were retired with validate:assets (#374).

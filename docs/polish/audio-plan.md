@@ -447,6 +447,15 @@ Rules for these lines:
 | defeat (new) | Shai | נסוגים. עוד נחזור לכאן. | *nesogim. od nachzor le-khan.* | "Pull back. We'll be back." |
 | defeat, alternate (new) | Idit | איבדנו את התמונה. תוציא אותם. | *ibadnu et ha-tmuna. totzi otam.* | "We've lost the picture. Get them out." (breaks her never-an-order rule once, on purpose: the lead decides) |
 
+*As recorded (9 Oct 2026):* the lead recorded the first five himself, one take each, and they ship
+under `he.common.announce_<event>`: `mission_start` (*hal'a, la-krav*, "Onward, into battle"),
+`objective_active` (*mesima chadasha*), `objective_complete` (*kodkod, ha-mesima hushlema
+be-hatzlacha*), `reinforcements` (*kodkod, anachnu chayavim tigboret*, "we need reinforcements",
+a request where the event is an arrival) and, for want of a defeat slot, `objective_failed`
+(*la-seget*, "fall back", recorded for defeat). The outcome line itself is still unbuilt. His
+sixth file is a second `he.infantry.attack` take (*el ha-oyev, bi-dilugim*). Two of his lines open
+with *kodkod*, a real net proword that the rules above exclude; his call to keep or re-record.
+
 That is **12 announcer lines × 2 takes**, beside the 36 barks: ≈ 48 lines, ≈ 96 files. Shai's
 voice is one actor. Idit's is one actor, and **must not be the Arabic actor's voice** (§5.5).
 Victory and defeat lines are "never says revenge" lines: Shai's motive is never said aloud

@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { AnnouncementManifest } from '@lions/render';
 import type { MissionEvent } from '@lions/sim';
@@ -16,6 +18,8 @@ import {
 import { VoiceRuntime, type VoiceRuntimeDeps } from './voice-runtime';
 import type { DirectorLook, VoiceCue } from './director';
 import type { VoiceResult } from '@lions/render';
+
+const AUDIO_DIR = fileURLToPath(new URL('../../../../assets/audio', import.meta.url));
 
 const TABLE: AnnouncementManifest = {
   hold_s: 3,
@@ -219,6 +223,20 @@ describe('the shipped table', () => {
     for (const [id, def] of Object.entries(t.announcements.events)) {
       expect(def.caption in en, id).toBe(true);
       expect(def.audio === '' || def.audio in t.lines, id).toBe(true);
+    }
+  });
+
+  it('every announcement with audio names a line with a recorded take on disk', () => {
+    const lines = t.lines as Record<string, { variants?: { file: string; alt?: string }[] }>;
+    const voiced = Object.entries(t.announcements.events).filter(([, def]) => def.audio !== '');
+    // The lead's first recordings (9 Oct 2026): five events speak.
+    expect(voiced.map(([id]) => id).sort()).toEqual(['mission_start', 'objective_active', 'objective_complete', 'objective_failed', 'reinforcements']);
+    for (const [id, def] of voiced) {
+      const variants = lines[def.audio]?.variants ?? [];
+      expect(variants.length, `${id} -> ${def.audio}`).toBeGreaterThan(0);
+      for (const v of variants) {
+        for (const f of [v.file, v.alt]) if (f !== undefined) expect(existsSync(`${AUDIO_DIR}/${f}`), f).toBe(true);
+      }
     }
   });
 
