@@ -2782,7 +2782,22 @@ body {
   line-height: 1;
   text-transform: uppercase;
 }
-.rl-card__callsign { color: var(--commend); font-weight: 600; }
+/* PA-28: a named veteran's name is the card's title -- the type's face and
+   size, in the commendation colour -- and the type steps back beside it. */
+.rl-card__callsign {
+  color: var(--commend);
+  font-family: var(--font-display);
+  font-size: var(--t-card);
+  font-weight: 800;
+  letter-spacing: var(--track-title);
+  line-height: 1;
+  text-transform: uppercase;
+}
+.rl-card__name--type {
+  font-size: var(--t-s);
+  font-weight: 600;
+  color: var(--ink-label);
+}
 .rl-card__record, .rl-card__replaces { font-size: var(--t-s); }
 /* Who the selected unit is shooting -- the card half of the fire link,
    beside the condition line. Hostile tone, the target's chip art. */
