@@ -25,7 +25,7 @@ import { closeTip } from './tooltip';
 import type { CursorName } from '../input/cursor';
 import en from '../i18n/en.json';
 import { pseudo } from '../i18n/pseudo';
-import { setCatalogue } from '../i18n/t';
+import { setCatalogue, t } from '../i18n/t';
 
 /** A stand-in resolved commander, the shape `main.ts` would hand over from
  *  `commanderForMission` -- this suite is about the DOM join, not about rank
@@ -2873,5 +2873,19 @@ describe('the strip with no mission (PA-25)', () => {
   });
   it('falls back to the game name with no place to name', () => {
     expect(rig(null).strip()).toContain('Roaring Lions');
+  });
+  // The second half of PA-25: a player-facing mode with no objective read as
+  // a broken mission. It says so, and says how to leave.
+  it('says a sandbox is free play, with no objectives, and how to reach the menu', () => {
+    const r = rig(null, { placeName: 'Tel Marum' });
+    const line = r.stripEl().querySelector<HTMLElement>('[data-free-play]');
+    expect(line).not.toBeNull();
+    expect(line!.textContent).toBe(t('hud.strip.freePlay'));
+    expect(line!.textContent).not.toBe('hud.strip.freePlay');
+    expect(r.strip()).toContain('Tel Marum');
+  });
+  it('says nothing of free play in a mission, or with no place to name', () => {
+    expect(rig(mission()).stripEl().querySelector('[data-free-play]')).toBeNull();
+    expect(rig(null).stripEl().querySelector('[data-free-play]')).toBeNull();
   });
 });

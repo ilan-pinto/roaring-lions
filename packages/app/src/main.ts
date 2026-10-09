@@ -73,7 +73,8 @@ import { createShownTimer, loadHintsSeen, markHintSeen, owedRule, type HintConte
 import { portraitIds, unitIcon, unitPlate } from './ui/portrait';
 import { trackCloseup } from './ui/garage-closeup';
 import { Minimap, MINIMAP_SIZE, flipRows } from './ui/minimap';
-import { alertsForTick, initAlertState, missionEventTier, nextJump, type JumpTarget } from './ui/alerts';
+import { alertsForTick, initAlertState, missionEventTier, nextJump, type Alert, type AlertState, type JumpTarget } from './ui/alerts';
+import { sandboxAlertsForTick } from './ui/sandbox-feed';
 import { PinnedSince } from './ui/pinned-since';
 import { alertWorldFor } from './ui/alert-world';
 import { placeOnScreen } from './ui/alert-place';
@@ -4111,6 +4112,26 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     keepOnMap();
   });
 
+  /** Where one tick's alerts land (`ui/alerts.ts` decides WHAT is worth
+   *  saying; this decides WHERE it goes): the feed line, the minimap ring, the
+   *  jump key, and one cue. Shared by a mission and a Free Play sandbox, so
+   *  the two can never word or place the same loss differently. */
+  const announceAlerts = (result: { state: AlertState; alerts: Alert[] }): void => {
+    alertState = result.state;
+    // One cue for the tick, the most urgent (`tickCue`): two chimes at once
+    // read as noise. The feed below still carries every line.
+    const cue = tickCue(result.alerts.map((a) => a.cue));
+    if (cue) audio.playCue(cue);
+    for (const a of result.alerts) {
+      // `alertNotice` escapes the unit NAME `alert.unitLost` interpolates
+      // (shell upgrade Phase 3, Task 10); this was `t(key, params)`, raw.
+      // The tier styles the line (WP-P5, C3) and ranks the jump key.
+      if (a.line) hud.note(...alertNotice(a.line), { tier: a.tier });
+      if (a.marks.length > 0) minimap.flash(a.marks, performance.now(), { tier: a.tier, tone: a.tone });
+      jumpTarget = nextJump(jumpTarget, a.tier, a.at);
+    }
+  };
+
   // --- fixed-tick loop with render interpolation ---------------------------
   const runTick = (): void => {
     const events = sim.tick();
@@ -4120,6 +4141,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     audio.onEvents(events, sim);
     pinnedSince.onEvents(events);
     voice.onTick(events);
+    // PA-25: a Free Play sandbox has no runtime, and the alert layer below
+    // used to run only beside one -- so a sandbox fight left the feed empty.
+    // The sim half of the layer needs nothing a mission has; the one mission
+    // event it reads, a loss of ours, is derived by the runtime's own rule.
+    // Nothing is scored: no objective, wave or Conduct line exists here.
+    if (!mission) announceAlerts(sandboxAlertsForTick(alertState, events, alertWorld, sim.tickCount));
     if (runtime && mission) {
       const missionEvents = runtime.step(events);
       // The renderer subscribes to the MISSION's events as well as the sim's.
@@ -4143,26 +4170,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // presentation fade on the frame clock, and nothing here writes to the
       // sim (invariant 4). The tick count goes the other way -- into the
       // model, as the cooldown's own clock.
-      const { state: nextAlerts, alerts } = alertsForTick(
-        alertState,
-        events,
-        missionEvents,
-        alertWorld,
-        sim.tickCount
-      );
-      alertState = nextAlerts;
-      // One cue for the tick, the most urgent (`tickCue`): two chimes at once
-      // read as noise. The feed below still carries every line.
-      const cue = tickCue(alerts.map((a) => a.cue));
-      if (cue) audio.playCue(cue);
-      for (const a of alerts) {
-        // `alertNotice` escapes the unit NAME `alert.unitLost` interpolates
-        // (shell upgrade Phase 3, Task 10); this was `t(key, params)`, raw.
-        // The tier styles the line (WP-P5, C3) and ranks the jump key.
-        if (a.line) hud.note(...alertNotice(a.line), { tier: a.tier });
-        if (a.marks.length > 0) minimap.flash(a.marks, performance.now(), { tier: a.tier, tone: a.tone });
-        jumpTarget = nextJump(jumpTarget, a.tier, a.at);
-      }
+      announceAlerts(alertsForTick(alertState, events, missionEvents, alertWorld, sim.tickCount));
 
       for (const e of events) if (e.kind === 'destroyed') logDestroyed(missionLog, sim.state.side[e.entity]);
       for (const me of missionEvents) {
