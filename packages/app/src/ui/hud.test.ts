@@ -25,7 +25,7 @@ import { closeTip } from './tooltip';
 import type { CursorName } from '../input/cursor';
 import en from '../i18n/en.json';
 import { pseudo } from '../i18n/pseudo';
-import { setCatalogue } from '../i18n/t';
+import { setCatalogue, t } from '../i18n/t';
 
 /** A stand-in resolved commander, the shape `main.ts` would hand over from
  *  `commanderForMission` -- this suite is about the DOM join, not about rank
@@ -1323,6 +1323,51 @@ describe('the single-unit card', () => {
       world
     );
     expect(r.host.querySelector('.rl-card__callsign')?.textContent).toBe('Fish &amp; Chips');
+  });
+});
+
+// PA-19: the card's "Engaging: <enemy>" line and the projected-fire panel
+// both name a target, and both are rebuilt on the 4 Hz content tick. A target
+// killed between two content ticks used to stay named for up to 250 ms -- over
+// its own fireball. They clear on the very next tick now, and a target that
+// is still alive costs no extra rebuild.
+describe('a dead target leaves the HUD at once (PA-19)', () => {
+  function engagedWorld(): { world: ReturnType<typeof makeForce>; enemy: number } {
+    const world = makeForce();
+    const enemy = world.sim.spawn(world.sim.state.typeIdx[world.squads[0]], 1, fx.from(8), fx.from(1));
+    world.sim.state.curTarget[world.namer] = enemy;
+    return { world, enemy };
+  }
+
+  it('the card drops "Engaging" on the next tick, not the next content tick', () => {
+    const { world, enemy } = engagedWorld();
+    const r = clusterRig(() => [world.namer], {}, world);
+    expect(r.host.querySelector('.rl-card__engaging')?.textContent).toContain('Engaging');
+    world.sim.debugKill(enemy);
+    r.tick(); // tick 2 of 5: not a content tick
+    expect(r.host.querySelector('.rl-card__engaging')).toBeNull();
+  });
+
+  it('the projected-fire panel hides on the next tick when its target dies', () => {
+    const { world, enemy } = engagedWorld();
+    vi.spyOn(world.sim, 'projectHit').mockReturnValue({ kind: 'noSolution' });
+    const r = clusterRig(() => [world.namer], { hoverEntity: () => enemy }, world);
+    const fire = r.host.querySelector<HTMLElement>('.rl-fire')!;
+    expect(fire.style.display).toBe('');
+    world.sim.debugKill(enemy);
+    r.tick();
+    expect(fire.style.display).toBe('none');
+  });
+
+  it('a living target is not rebuilt off the 4 Hz cadence', () => {
+    const { world, enemy } = engagedWorld();
+    vi.spyOn(world.sim, 'projectHit').mockReturnValue({ kind: 'noSolution' });
+    const r = clusterRig(() => [world.namer], { hoverEntity: () => enemy }, world);
+    const card = r.host.querySelector('.rl-card');
+    const row = r.host.querySelector('.rl-fire')!.firstElementChild;
+    r.tick();
+    expect(r.host.querySelector('.rl-card')).toBe(card);
+    expect(r.host.querySelector('.rl-fire')!.firstElementChild).toBe(row);
   });
 });
 
@@ -2915,5 +2960,19 @@ describe('the strip with no mission (PA-25)', () => {
   });
   it('falls back to the game name with no place to name', () => {
     expect(rig(null).strip()).toContain('Roaring Lions');
+  });
+  // The second half of PA-25: a player-facing mode with no objective read as
+  // a broken mission. It says so, and says how to leave.
+  it('says a sandbox is free play, with no objectives, and how to reach the menu', () => {
+    const r = rig(null, { placeName: 'Tel Marum' });
+    const line = r.stripEl().querySelector<HTMLElement>('[data-free-play]');
+    expect(line).not.toBeNull();
+    expect(line!.textContent).toBe(t('hud.strip.freePlay'));
+    expect(line!.textContent).not.toBe('hud.strip.freePlay');
+    expect(r.strip()).toContain('Tel Marum');
+  });
+  it('says nothing of free play in a mission, or with no place to name', () => {
+    expect(rig(mission()).stripEl().querySelector('[data-free-play]')).toBeNull();
+    expect(rig(null).stripEl().querySelector('[data-free-play]')).toBeNull();
   });
 });

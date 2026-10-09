@@ -1375,7 +1375,9 @@ export class ThreeRenderer implements Renderer {
   /** Polish VR-22: the same burst mesh, pooled again at
    *  `COLLAPSE_FLASH_RENDER_ORDER` so a collapse's flash reads THROUGH its own
    *  shroud (`data/vfx/collapse_flash.json`). Loaded and coloured alongside
-   *  `explosionBursts`, from the one parsed template. */
+   *  `explosionBursts`, from the one parsed template. PA-19: a vehicle kill's
+   *  fireball draws here too, for the same reason -- it has a shroud of its
+   *  own (`beginVehicleCollapseShroud`). */
   private readonly collapseFlashBursts = new ExplosionBurstManager(EXPLOSION_BURST_CAPACITY, COLLAPSE_FLASH_RENDER_ORDER);
   /** Owns the pooled, modelled smoke-plume mesh
    *  (`art/meshes/vfx/smoke_plume.glb`) -- `units/smoke-plume.ts`'s own top
@@ -4248,8 +4250,16 @@ export class ThreeRenderer implements Renderer {
           // its own structure id.
           const killPower = explosionBurstPowerFromMaxHp(fx.toNumber(deadType.hp));
           const killYawTurns = tileHash(e.entity, e.entity * 7 + 1);
-          if (this.explosionBursts.ready) {
-            this.explosionBursts.spawn(dx, worldY, dy, killYawTurns, killPower, EXPLOSION_BURST_DEFAULT_DURATION_MS);
+          // PA-19: the kill's fireball draws in the SHROUD-FLASH band (5.5),
+          // not the ordinary burst band (3.5). The vehicle shroud spawned
+          // below is `depthTest: false` at band 5, so a 3.5 fireball was
+          // painted over by the dust it is meant to burn inside -- measured
+          // with `pnpm blast:capture` (mbt_lavi, 200 ms): an orange rim round
+          // a tan cloud, read as "a brown dust puff". The collapse had the
+          // identical defect and the identical fix (VR-22); this is the same
+          // pooled burst, its own size, life and colours unchanged.
+          if (this.collapseFlashBursts.ready) {
+            this.collapseFlashBursts.spawn(dx, worldY, dy, killYawTurns, killPower, EXPLOSION_BURST_DEFAULT_DURATION_MS);
           }
           // The smoke aftermath follows the same hard-target kill -- a
           // burning hull is exactly what a rising column is FOR. Checked
