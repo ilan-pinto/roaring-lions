@@ -790,6 +790,25 @@ export function showLoading(
   deploy.textContent = t('loading.deploy');
   markConfirm(deploy);
 
+  /** Whether `dispose()` has already run. `done()` after that point is a
+   *  mount still walking its own boot after being superseded, so it rejects
+   *  rather than putting a torn-down screen back on the player's expectations. */
+  let disposed = false;
+
+  // PA-27: the button is mounted, enabled and focused from this line on, but
+  // `done()` -- which used to own its listener -- runs only when the art gate
+  // settles, so a click in that gap was lost. The listener is attached HERE,
+  // where the button is made. `settleDeploy` is `done()`'s answer to a click
+  // (null until `done()` runs); a click that finds it null is remembered, and
+  // `done()` honours it the moment it is called. A click always counts.
+  let settleDeploy: (() => void) | null = null;
+  let deployQueued = false;
+  deploy.addEventListener('click', () => {
+    if (disposed) return;
+    if (settleDeploy) settleDeploy();
+    else deployQueued = true;
+  });
+
   // The back edge Escape now uses (see `onBack`'s own doc comment above).
   // Rendered only when there is somewhere to go back to -- a sandbox has no
   // briefing to return from, and no `onBack` to call. Its click listener is
@@ -1014,10 +1033,6 @@ export function showLoading(
   const paint = (): void => paintProgress(fill, count, loaded, expected, totalKnown);
   paint();
 
-  /** Whether `dispose()` has already run. `done()` after that point is a
-   *  mount still walking its own boot after being superseded, so it rejects
-   *  rather than putting a torn-down screen back on the player's expectations. */
-  let disposed = false;
   /** The live `done()` promise's teardown and its rejection handle, lifted out
    *  of that promise's closure so `dispose()` can reach both. Null whenever no
    *  `done()` is outstanding -- before the first call, and after the deploy
@@ -1106,7 +1121,7 @@ export function showLoading(
           if (dismissOverlay?.()) return;
           goBack();
         };
-        deploy.addEventListener('click', () => {
+        settleDeploy = (): void => {
           cleanup();
           // Settled: a later `dispose()` (the ordinary battlefield teardown,
           // minutes into the mission) must not reject a promise the player
@@ -1115,7 +1130,7 @@ export function showLoading(
           pendingCleanup = null;
           pendingReject = null;
           resolve();
-        });
+        };
         // `goBack` deliberately does NOT clear these: it tears the screen down
         // without settling the promise, so whoever is awaiting `done()` is
         // still parked, and the abort that follows the navigation is what
@@ -1128,6 +1143,8 @@ export function showLoading(
         // edge (PA-13, measured 104 px at 1400x900). Deploy is kept on screen
         // by `position: sticky` (theme.css), not by scrolling to it.
         deploy.focus({ preventScroll: true });
+        // A click that landed before this call (PA-27) deploys now.
+        if (deployQueued) settleDeploy();
       });
     },
   };

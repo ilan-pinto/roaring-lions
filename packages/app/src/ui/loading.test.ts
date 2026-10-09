@@ -101,6 +101,52 @@ describe('showLoading with orders to read', () => {
     expect(el.querySelector('.rl-loading')).toBeNull();
   });
 
+  // PA-27: the button is mounted, enabled and focused the moment the screen is
+  // built, but its listener used to be attached inside `done()`, which main.ts
+  // calls only when the art gate settles. A click in that gap did nothing.
+  it('counts a Deploy click made before done() is called (PA-27)', async () => {
+    const el = host();
+    const screen = showLoading(el, 'Break the Depot', 'Seven structures.');
+    el.querySelector<HTMLButtonElement>('.rl-loading__deploy')?.click();
+    // The assets have not settled yet: the screen stays up, the click is kept.
+    expect(el.querySelector('.rl-loading')).not.toBeNull();
+    let handed = false;
+    const done = screen.done().then(() => {
+      handed = true;
+    });
+    await done;
+    expect(handed).toBe(true);
+    expect(el.querySelector('.rl-loading')).toBeNull();
+  });
+
+  it('a click before done() on a disposed screen does not resolve anything (PA-27)', async () => {
+    const el = host();
+    const screen = showLoading(el, 'Break the Depot', 'Seven structures.');
+    el.querySelector<HTMLButtonElement>('.rl-loading__deploy')?.click();
+    screen.dispose();
+    let rejected = false;
+    await screen.done().catch(() => {
+      rejected = true;
+    });
+    expect(rejected).toBe(true);
+  });
+
+  it('deploys once however many clicks arrive before and after done() (PA-27)', async () => {
+    const el = host();
+    const screen = showLoading(el, 'Break the Depot', 'Seven structures.');
+    const button = el.querySelector<HTMLButtonElement>('.rl-loading__deploy');
+    button?.click();
+    button?.click();
+    let resolutions = 0;
+    const done = screen.done().then(() => {
+      resolutions++;
+    });
+    button?.click();
+    await done;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(resolutions).toBe(1);
+  });
+
   it('hands over at once when there are no orders, so a sandbox is not gated', async () => {
     const el = host();
     const screen = showLoading(el, 'M0 sandbox');
