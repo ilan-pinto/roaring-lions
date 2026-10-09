@@ -261,6 +261,31 @@ describe('a vehicle kill runs the whole sequence', () => {
     renderer.dispose();
   });
 
+  // PA-19: the vehicle's shroud is `depthTest: false` at band 5, so a
+  // fireball at the ordinary burst band (3.5) is painted over by the dust it
+  // burns inside -- `pnpm blast:capture` read it as an orange rim round a tan
+  // cloud. The kill's fireball goes to the shroud-flash pool (5.5), as the
+  // collapse's does (VR-22), and not to the ordinary one.
+  it('throws its fireball in the band above its own shroud (PA-19)', () => {
+    const { sim, renderer, tankId } = worldWithTank();
+    const pools = renderer as unknown as {
+      explosionBursts: { adopt(t: unknown): unknown; liveCount: number };
+      collapseFlashBursts: { adopt(t: unknown): unknown; liveCount: number; renderOrder: number };
+      collapseShrouds: { mesh: THREE.Object3D };
+    };
+    const geometries = { core: new THREE.BufferGeometry(), mid: new THREE.BufferGeometry(), outer: new THREE.BufferGeometry() };
+    pools.explosionBursts.adopt({ geometries });
+    pools.collapseFlashBursts.adopt({ geometries });
+    (renderer as unknown as BlastPrivate).vehicleMeshBounds.set('mbt_lavi', new THREE.Vector3(2, 1.4, 4));
+
+    kill(sim, renderer, tankId);
+
+    expect(pools.collapseFlashBursts.liveCount).toBe(1);
+    expect(pools.explosionBursts.liveCount).toBe(0);
+    expect(pools.collapseFlashBursts.renderOrder).toBeGreaterThan(pools.collapseShrouds.mesh.renderOrder);
+    renderer.dispose();
+  });
+
   // The gate is `isVehicleKill` and it must not have widened. Infantry dying
   // with a scorch under every body is the failure mode this asserts against.
   it('does none of it for a soft target', () => {
