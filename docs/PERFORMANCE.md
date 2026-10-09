@@ -1847,3 +1847,421 @@ main 104.5415), register dY 2.2% / dS 0.2% against the mission frame
   transient peak while GLBs decode and upload was not sampled.
 - **Missions longer than 2 minutes, or the other 24.** `--missions=` reaches
   any of them.
+
+## Low-end (2026-10-09)
+
+The audit's last unassessed area (`docs/polish/commercial-polish-audit.md`,
+"Remaining work"; §22 "Visible stutters", unjudged). Measured on a proxy,
+because no low-end machine was available: the M3 Pro with Chromium's CPU
+throttled, and with no GPU at all.
+
+**The short version.**
+
+- **One real stutter, and the quality preset cannot touch it: a building
+  collapse.** It blocks the main thread for **141–175 ms on an unthrottled M3
+  Pro, 499–643 ms at 4x CPU and 753–927 ms at 6x** (the longest task in every one of
+  the 54 matrix runs, the same at every preset and both viewports). The time is
+  `rebuildTerrain`: a full ground, scatter, decor and control-map rebuild for
+  one fallen building. It is the only frame over 100 ms found anywhere except
+  the no-GPU case.
+- **On a slow CPU, `high` costs 5–8 ms a frame more than `medium`, and
+  `medium` and `low` cost the same.** The difference is the ambient-occlusion
+  pre-pass, which submits the scene a second time (772 draw calls against 555,
+  measured at the fight). At 4x CPU that takes the fight from 4–7% of frames
+  over 33 ms to under 1%; at 6x from 24–36% to 5–13%. Dropping further to
+  `low` buys nothing measurable on the CPU.
+- **With no GPU (SwiftShader) the game is unplayable at every preset**: 0.6–1.9
+  fps, frames of 0.5–7.8 s, `low` no better than `high` in any useful sense.
+  No preset is the answer there; telling the player is.
+- **The default `high` is GPU-bound on the measuring machine itself at a
+  Retina size**: 31–34 fps in the heaviest mission's opening at 1440x900 @2x,
+  and 33–51 fps at 1920x1080 @1x across three sessions (that one disagrees with
+  itself; see "Opening").
+- **Nothing chooses the preset automatically today.** `video.quality` defaults
+  to `high` and only the player changes it. A rule is built on this branch and
+  is a **proposal** (the PR is a draft), because the measurements say it would
+  lower the default on the measuring machine's own Retina screen.
+
+### The instrument: `pnpm perf:lowend`
+
+`tools/src/perf/low-end.ts`, new, because none of the existing harnesses can
+see a stutter: `three-units.ts` is a unit-count curve over a stand-in roster
+and `render-frame-cost.ts` calls `renderer.frame()` in a tight loop with no sim
+and no rAF. This one lets `main.ts`'s own loop run (sim ticks, audio, HUD,
+hover, render) and records the **rAF timestamps**, so an interval is what the
+player sees. It wraps `sim.tick` and `renderer.frame` only to split each frame
+into tick time and render-submit time. Boot milestones come from
+`tools/src/perf/boot.ts`, the loop `pnpm perf:load` uses, moved out of
+`load-profile.ts` unchanged so both read boot the same way.
+
+One boot per (GPU, CPU throttle, viewport, preset, run), since the preset is
+read once at boot. The preset is seeded through `musicOffInitScript`'s new
+`video` argument, as the player's own choice, and **read back** from
+`localStorage` after boot (it matched in every run). Four windows per boot:
+
+| window | what | length |
+|---|---|---|
+| opening | untouched live play, 2 s after the first frame (`--opening-skip-ms`) | 8 s |
+| fight | `umm_zeitoun_4_clearance` (one of #474's three heaviest): the whole force attack-moves on the depot yard (the playtest plan's first order, to everyone), the sim is stepped to tick 660, camera on the force. `--probe` printed the timeline this was picked from: the ambush springs at ~tick 298, shots run ~35/s from 320 and peak at 44–49/s around 667–688 | 10 s |
+| blast | the building nearest the camera levelled and the two nearest vehicles killed on one tick (`debugDestroyStructure`, `debugKill`), drained by the loop's own next tick: collapse plus two catastrophic kills, the top of the event ladder | 4 s |
+| pan | arrow keys held through the real `stepPan` path: right, down, left, up, 2.5 s each (101 tiles at 1366, 74 at 1920) | 10 s |
+
+"Frames > 33 ms" is the share of presented intervals longer than 33.4 ms, i.e.
+below 30 fps. `--profile` records a V8 CPU profile over each window and prints
+self time by function and file; `--profile-dir` keeps the raw `.cpuprofile`.
+`pnpm perf:load` gained `--cpu=N`, `--gpu=metal|swiftshader` and
+`--viewport=WxH` for the boot half.
+
+**Conditions, for every number below unless a row says otherwise:** Apple M3
+Pro (12 cores), macOS, headless Chromium (Playwright), the production build
+(`pnpm build`, `vite preview`, own port) of `origin/main` at `97e8e5f5` (the
+app code under test is unchanged from it; the harness is this branch's),
+deviceScaleFactor 1, page visible (read back every run), music off. GPU read
+back from `WEBGL_debug_renderer_info` every run: **Metal** is `ANGLE Metal
+Renderer: Apple M3 Pro`, **SwiftShader** is `Vulkan 1.3.0 (SwiftShader Device
+(LLVM 10.0.0))`. CPU throttling is CDP `Emulation.setCPUThrottlingRate`
+(Chrome's own "4x / 6x slowdown"): it slows the renderer's main thread and
+**not** the GPU process, the compositor or the network, so "Metal 4x" is a slow
+CPU behind a capable GPU, and SwiftShader is the no-GPU floor (every fragment
+rasterised on the CPU). Neither is a real low-end machine, and no integrated
+GPU was measured. The machine was shared with other sessions throughout:
+1-minute load average 2.2–7.2 on the Metal runs, 6.5–10.7 on SwiftShader (which
+loads the CPU itself). **n=3 per cell**, the three runs of a cell taken
+minutes apart (run-major order), not back to back.
+
+**One limit of the fight window, found while reading it.** The order goes in
+at whatever tick live play has reached by then, so two runs do not fight the
+identical fight. In the main matrix (order at roughly tick 80–120) every
+window held one building collapse; in the profiling runs (order at ~tick 240,
+after the opening window) none did. The harness now prints `orderTick`.
+
+### Frame time on Metal, per preset
+
+"Render submit" is the median time inside `renderer.frame()` (scene update
+plus draw-call submission; on ANGLE/Metal it also absorbs GPU back-pressure,
+see `render-frame-cost.ts`'s header). Sim tick time is not tabulated: it read
+0.1–0.8 ms median on ticking frames in every Metal cell (p95 at most 1.7 ms) --
+this is a renderer story.
+
+**The fight** (the worst frame in every row is the building collapse that fell
+inside the window; see above):
+
+| CPU | viewport | preset | n | fps | p50 / p95 / p99 ms | worst frame ms | frames > 33 ms | render submit p50 ms |
+|---|---|---|---|---|---|---|---|---|
+| 1x | 1366x768 | high | 3 | 59.2–59.3 | 16.7 / 16.7–16.8 / 16.8 | 133–150 | 0.2% | 5.2–5.3 |
+| 1x | 1366x768 | medium | 3 | 55.8–59.2 | 16.7 / 16.7 / 16.8 | 150–383 | 0.2–0.9% | 3.7–4.6 |
+| 1x | 1366x768 | low | 3 | 59.2–59.3 | 16.7 / 16.7–16.8 / 16.8 | 133–150 | 0.2% | 4.3–4.8 |
+| 1x | 1920x1080 | high | 3 | 59.2–59.3 | 16.7 / 16.7–16.8 / 16.8 | 133–150 | 0.2% | 4.3–5.2 |
+| 1x | 1920x1080 | medium | 3 | 59.2–59.3 | 16.7 / 16.7–16.8 / 16.8 | 133–150 | 0.2% | 3.7–3.8 |
+| 1x | 1920x1080 | low | 3 | 59.2–59.3 | 16.7 / 16.7 / 16.8 | 133–150 | 0.2% | 4.0–4.1 |
+| 4x | 1366x768 | high | 3 | 42.1–43.9 | 16.7 / 33.4 / 33.4 | 517–550 | 4.0–6.4% | 19.3–20.0 |
+| 4x | 1366x768 | medium | 3 | 55.8–56.4 | 16.7 / 16.8 / 33.3–33.4 | 483–533 | 0.4–0.5% | 13.7–14.6 |
+| 4x | 1366x768 | low | 3 | 56.1–56.6 | 16.7 / 16.8 / 33.3 | 500–533 | 0.2–0.4% | 13.5–14.1 |
+| 4x | 1920x1080 | high | 3 | 38.8–39.3 | 16.7–16.8 / 33.4 / 33.4–33.5 | 517–567 | 4.9–7.4% | 21.6–21.7 |
+| 4x | 1920x1080 | medium | 3 | 52.0–54.7 | 16.7 / 16.8–33.4 / 33.4 | 517–533 | 0.8–0.9% | 15.6–16.2 |
+| 4x | 1920x1080 | low | 3 | 55.1–55.6 | 16.7 / 16.8 / 33.3–33.4 | 517–533 | 0.2–0.7% | 15.0–15.3 |
+| 6x | 1366x768 | high | 3 | 26.4–27.4 | 33.3 / 50.0 / 50.1–66.6 | 750–833 | 23.6–26.1% | 29.0–29.9 |
+| 6x | 1366x768 | medium | 3 | 35.9–37.8 | 16.7–33.3 / 33.4 / 33.4–50.1 | 767–783 | 5.3–12.6% | 21.1–21.8 |
+| 6x | 1366x768 | low | 3 | 36.9–38.8 | 16.7–16.8 / 33.4 / 49.9–50.0 | 767–783 | 4.5–9.0% | 20.9–21.2 |
+| 6x | 1920x1080 | high | 3 | 24.6–25.6 | 33.3–33.4 / 50.0–50.1 / 50.1–66.7 | 817 | 28.5–36.2% | 31.0–32.1 |
+| 6x | 1920x1080 | medium | 3 | 34.5–35.9 | 33.3 / 33.4 / 50.0 | 783–817 | 7.8–12.5% | 22.1–22.8 |
+| 6x | 1920x1080 | low | 3 | 29.6–36.2 | 33.2–33.3 / 33.4–50.0 / 33.4–50.1 | 783–933 | 9.4–17.3% | 21.9–26.5 |
+
+**The blast** (levelled building plus two vehicle kills on one tick; the worst
+frame is the collapse again, and the hit-stop and FX after it barely register
+beside it):
+
+| CPU | viewport | preset | n | fps | p50 / p95 / p99 ms | worst frame ms | frames > 33 ms | render submit p50 ms |
+|---|---|---|---|---|---|---|---|---|
+| 1x | 1366x768 | high | 3 | 57.3–57.5 | 16.7 / 16.7–16.8 / 16.8–33.4 | 167 | 0.4–1.3% | 4.9–5.3 |
+| 1x | 1366x768 | medium | 3 | 57.5–57.8 | 16.7 / 16.7–16.8 / 16.8 | 150–167 | 0.4–0.9% | 3.6–4.6 |
+| 1x | 1366x768 | low | 3 | 57.5–57.8 | 16.7 / 16.8 / 16.8–33.2 | 150 | 0.4–0.9% | 4.2–4.8 |
+| 1x | 1920x1080 | high | 3 | 57.5–57.7 | 16.7 / 16.7–16.8 / 16.8–33.4 | 150–167 | 0.4–0.9% | 4.2–5.0 |
+| 1x | 1920x1080 | medium | 3 | 57.5–57.7 | 16.7 / 16.7–16.8 / 16.8 | 150–167 | 0.4% | 3.7–4.0 |
+| 1x | 1920x1080 | low | 3 | 57.7 | 16.7 / 16.7–16.8 / 16.8 | 150 | 0.4–0.9% | 3.9–4.0 |
+| 4x | 1366x768 | high | 3 | 38.7–40.6 | 16.7 / 33.4 / 66.6 | 550–567 | 7.1–9.6% | 19.1–19.9 |
+| 4x | 1366x768 | medium | 3 | 50.5–51.3 | 16.7 / 16.7–16.8 / 33.4–50.1 | 533–550 | 1.5% | 13.6–14.2 |
+| 4x | 1366x768 | low | 3 | 50.3–51.0 | 16.7 / 16.8 / 33.4–49.9 | 533–567 | 1.5% | 13.2–13.8 |
+| 4x | 1920x1080 | high | 3 | 34.3–36.0 | 16.7 / 33.4 / 66.6–83.4 | 550–583 | 10.3–12.7% | 21.7–21.9 |
+| 4x | 1920x1080 | medium | 3 | 48.1–50.3 | 16.7 / 16.8–33.3 / 33.4–83.4 | 533–650 | 1.5–2.1% | 15.3–15.9 |
+| 4x | 1920x1080 | low | 3 | 49.8–50.8 | 16.7 / 16.8 / 33.3–50.1 | 550–567 | 1.0–1.5% | 14.7–15.0 |
+| 6x | 1366x768 | high | 3 | 23.0–24.1 | 33.3 / 50.0–50.1 / 816.6–866.7 | 817–867 | 29.8–32.3% | 29.0–29.4 |
+| 6x | 1366x768 | medium | 3 | 32.1–33.8 | 16.7 / 33.4 / 66.7–83.4 | 800–833 | 7.3–12.3% | 20.7–21.4 |
+| 6x | 1366x768 | low | 3 | 33.5–34.5 | 16.7 / 33.4 / 66.6–83.4 | 750–833 | 10.3–14.1% | 20.5–20.6 |
+| 6x | 1920x1080 | high | 3 | 21.4–22.3 | 33.3–33.4 / 50.1 / 833.3–850.0 | 833–850 | 31.1–40.9% | 31.1–31.6 |
+| 6x | 1920x1080 | medium | 3 | 30.9–32.1 | 16.7–33.3 / 33.4 / 66.7–83.4 | 800–867 | 8.5–15.3% | 21.8–22.5 |
+| 6x | 1920x1080 | low | 3 | 26.5–32.2 | 16.8–33.3 / 33.4–50.0 / 66.7–116.7 | 767–900 | 8.7–15.0% | 21.6–24.4 |
+
+**Panning** (no collapse in the window, so this is the steady cost of moving
+the camera):
+
+| CPU | viewport | preset | n | fps | p50 / p95 / p99 ms | worst frame ms | frames > 33 ms | render submit p50 ms |
+|---|---|---|---|---|---|---|---|---|
+| 1x | 1366x768 | high | 3 | 60.0 | 16.7 / 16.7 / 16.8 | 17 | 0.0% | 4.9–5.4 |
+| 1x | 1366x768 | medium | 3 | 60.0 | 16.7 / 16.7 / 16.8 | 17 | 0.0% | 4.0–4.5 |
+| 1x | 1366x768 | low | 3 | 60.0 | 16.7 / 16.7 / 16.8 | 17 | 0.0% | 4.4–4.6 |
+| 1x | 1920x1080 | high | 3 | 60.0 | 16.7 / 16.7–16.8 / 16.8 | 17 | 0.0% | 4.2–4.7 |
+| 1x | 1920x1080 | medium | 3 | 60.0 | 16.7 / 16.7–16.8 / 16.8 | 17 | 0.0% | 3.9–4.1 |
+| 1x | 1920x1080 | low | 3 | 60.0 | 16.7 / 16.7–16.8 / 16.8 | 17 | 0.0% | 4.1–4.3 |
+| 4x | 1366x768 | high | 3 | 50.3–53.1 | 16.7 / 33.3–33.4 / 33.4 | 50 | 3.6–4.4% | 16.0–17.0 |
+| 4x | 1366x768 | medium | 3 | 59.4–59.6 | 16.7 / 16.8 / 16.8 | 33–50 | 0.0–0.3% | 11.9–12.8 |
+| 4x | 1366x768 | low | 3 | 59.6–59.7 | 16.7 / 16.7–16.8 / 16.8 | 33 | 0.2% | 11.5–11.9 |
+| 4x | 1920x1080 | high | 3 | 42.3–43.6 | 16.7 / 33.4 / 33.4–33.5 | 50–67 | 9.4–11.4% | 20.3–20.7 |
+| 4x | 1920x1080 | medium | 3 | 57.5–58.0 | 16.7 / 16.8 / 33.4 | 33–50 | 0.8–1.7% | 14.5–14.9 |
+| 4x | 1920x1080 | low | 3 | 58.5–59.0 | 16.7 / 16.8 / 33.3–33.4 | 33–50 | 0.5–0.8% | 13.9–14.2 |
+| 6x | 1366x768 | high | 3 | 31.3–34.2 | 33.3 / 33.4–49.9 / 50.0–50.1 | 67–800 | 20.3–23.8% | 24.4–24.9 |
+| 6x | 1366x768 | medium | 3 | 45.1–46.5 | 16.7 / 33.4 / 33.4 | 50–83 | 7.0–8.0% | 18.4–18.9 |
+| 6x | 1366x768 | low | 3 | 46.8–47.0 | 16.7 / 33.4 / 33.4 | 67 | 5.4–6.0% | 18.0–18.3 |
+| 6x | 1920x1080 | high | 3 | 26.7–29.4 | 33.3 / 50.0–50.1 / 50.1 | 83–783 | 30.8–36.1% | 28.8–29.6 |
+| 6x | 1920x1080 | medium | 3 | 39.9–41.4 | 16.7–16.8 / 33.4 / 33.4–33.5 | 83 | 11.2–13.7% | 20.5–21.4 |
+| 6x | 1920x1080 | low | 3 | 41.3–42.5 | 16.7 / 33.4 / 33.4–33.5 | 67 | 9.6–12.0% | 20.2–20.8 |
+
+Reading the three tables together:
+
+- **Unthrottled, every preset holds 60 fps at both sizes** in the fight, blast
+  and pan, and the only frames over 33 ms are the collapse.
+- **At 4x the preset matters once.** `high` puts 4–13% of frames over 33 ms;
+  `medium` and `low` hold 0.2–0.9% in the fight, 0–1.7% panning and 1–2% in
+  the blast. The render submit time says why: `high` 16–22 ms, `medium`/`low`
+  12–16 ms.
+- **At 6x nothing holds 60.** `high` runs 21–34 fps with a fifth to two-fifths
+  of frames over 33 ms; `medium`/`low` 27–47 fps with 5–17%. `medium` and
+  `low` cannot be told apart in any of these three windows (their ranges
+  overlap everywhere).
+- **The viewport moves submit by 1–2 ms on Metal** (1920x1080 over
+  1366x768), which is enough to matter only at the margin: panning at 4x on
+  `high` it is 4% of frames over 33 ms against 11%.
+- The sim kept 0.89–1.00 of real time at 4x and 0.84–1.00 at 6x (ticks per
+  wall second over 20): the 20 Hz sim holds except across the collapse's
+  freeze, where `MAX_ACC_MS` drops the backlog.
+
+### Frame time with no GPU (SwiftShader, CPU 1x)
+
+n=3 per cell, 18 boots. A frame here is so long that the 10 s fight window
+saw only 2–8 intervals and the 4 s blast window 0–3, so these are small
+samples and the table gives what the windows did see:
+
+| viewport | preset | fight fps | fight interval p50 | pan fps | worst frame seen |
+|---|---|---|---|---|---|
+| 1366x768 | high | 1.1–1.4 | 600–933 ms | 1.0–1.6 | 4.6 s |
+| 1366x768 | medium | 1.1–1.6 | 533–783 ms | 1.1–1.9 | 4.7 s |
+| 1366x768 | low | 1.4–1.8 | 483–683 ms | 1.4–1.9 | 3.8 s |
+| 1920x1080 | high | 0.8–1.0 | 1,367–1,550 ms | 0.6–0.8 | 7.8 s |
+| 1920x1080 | medium | 0.7–1.0 | 1,167–1,783 ms | 0.7–0.9 | 5.6 s |
+| 1920x1080 | low | 0.9–1.3 | 917–950 ms | 1.0–1.1 | 4.1 s |
+
+Render submit stayed 6–20 ms median, so the seconds are the software
+rasteriser, in the GPU process, not the game's JavaScript. The sim fell to
+0.15–0.46 of real time (the accumulator cap drops what a frame cannot run), so
+the battle also plays in slow motion. `low` is the best
+row and still under 2 fps. This is the player whose browser has hardware
+acceleration off or a blocklisted driver -- the renderer string says so
+(`SwiftShader`, `llvmpipe`, `Microsoft Basic Render Driver`), and a preset
+cannot rescue them.
+
+### The opening, and the auto-pick question
+
+The first 8 s of untouched play after the first frame (2 s skipped), on the
+mission's own opening view (`player_start`, the south edge of the map). This is
+the only signal a rule that decides early can have.
+
+| CPU | viewport | preset | n | fps | p50 / p95 / p99 ms | worst frame ms | frames > 33 ms | render submit p50 ms |
+|---|---|---|---|---|---|---|---|---|
+| 1x | 1366x768 | high | 3 | 49.6–55.5 | 16.7 / 33.3–33.4 / 33.4 | 34–50 | 0.9–2.3% | 5.4–5.7 |
+| 1x | 1366x768 | medium | 3 | 59.5–60.0 | 16.7 / 16.7 / 16.8 | 17–33 | 0.0–0.4% | 4.2–4.3 |
+| 1x | 1366x768 | low | 3 | 58.6–60.0 | 16.7 / 16.7–16.8 / 16.8–33.3 | 17–117 | 0.0–0.4% | 4.2–4.4 |
+| 1x | 1920x1080 | high | 3 | 33.1–36.6 | 33.3 / 33.4 / 50.0–50.1 | 50–83 | 9.5–14.6% | 6.5–15.6 |
+| 1x | 1920x1080 | medium | 3 | 47.0–56.1 | 16.7 / 33.3–33.4 / 33.4–49.9 | 33–67 | 1.3–5.3% | 4.3–4.9 |
+| 1x | 1920x1080 | low | 3 | 53.2–55.9 | 16.7 / 33.3–33.4 / 33.4–50.1 | 50–67 | 1.6–3.8% | 4.3–4.5 |
+| 4x | 1366x768 | high | 3 | 32.7–36.9 | 33.3 / 33.4–50.0 / 50.0–50.1 | 50–67 | 9.8–16.9% | 23.5–26.6 |
+| 4x | 1366x768 | medium | 3 | 47.4–57.6 | 16.7 / 16.8–33.4 / 33.4–33.5 | 33–50 | 0.2–4.5% | 13.6–17.7 |
+| 4x | 1366x768 | low | 3 | 52.1–59.9 | 16.7 / 16.8–33.4 / 16.8–33.4 | 33–50 | 0.2–3.1% | 11.9–15.8 |
+| 4x | 1920x1080 | high | 3 | 28.4–33.4 | 33.3 / 33.4–50.0 / 50.0–66.6 | 50–83 | 13.9–25.2% | 26.1–29.6 |
+| 4x | 1920x1080 | medium | 3 | 41.7–45.3 | 16.7 / 33.4 / 33.4–50.0 | 50–67 | 2.8–6.0% | 18.6–19.3 |
+| 4x | 1920x1080 | low | 3 | 43.6–49.8 | 16.7 / 33.4 / 49.9–50.0 | 50–67 | 2.5–7.8% | 17.5–19.3 |
+| 6x | 1366x768 | high | 3 | 29.3–29.9 | 33.3 / 33.4–50.0 / 50.1–83.3 | 67–500 | 10.6–25.5% | 25.6–29.2 |
+| 6x | 1366x768 | medium | 3 | 41.0–47.3 | 16.7 / 33.4 / 33.4–66.6 | 34–517 | 3.2–5.2% | 17.9–20.0 |
+| 6x | 1366x768 | low | 3 | 48.1–51.6 | 16.7 / 33.3–33.4 / 33.4 | 33–50 | 0.5–1.3% | 17.2–18.2 |
+| 6x | 1920x1080 | high | 3 | 20.3–22.5 | 49.9–50.0 / 66.7 / 83.3–116.7 | 83–500 | 55.3–64.8% | 39.1–40.0 |
+| 6x | 1920x1080 | medium | 3 | 27.3–30.5 | 33.3 / 50.0–50.1 / 50.1–66.8 | 50–500 | 20.5–23.0% | 28.1–28.5 |
+| 6x | 1920x1080 | low | 3 | 32.4–34.9 | 33.3 / 33.4–50.0 / 50.0–50.1 | 50–533 | 7.9–16.2% | 23.1–27.3 |
+
+Three supplementary readings at the same view, Metal 1x, because the
+1920x1080 @1x `high` row above is GPU-bound on the measuring machine (render
+submit 6–16 ms, interval median 33 ms):
+
+| condition | n | fps | frames > 33 ms | render submit p50 |
+|---|---|---|---|---|
+| 1920x1080 @1x high, window 20–28 s after first frame (not 2–10) | 3 | 38.7–45.2 | 7.8–13.6% | 5.9–6.4 ms |
+| 1920x1080 @1x high, the same 2–10 s window, a later session | 2 | 48.6–51.1 | 3.2–3.6% | 5.7 ms |
+| 1920x1080 @1x medium, that later session | 2 | 58.1–59.5 | 0.2% | 4.2–4.6 ms |
+| **1440x900 @2x high (a Retina Mac)** | 3 | **30.8–33.5** | **11.2–17.6%** | 6.5–6.8 ms |
+| 1440x900 @2x medium | 3 | 40.8–42.8 | 5.3–7.1% | 4.8–4.9 ms |
+| 1440x900 @2x low | 3 | 47.9–55.9 | 0.4–4.2% | 4.2–4.4 ms |
+
+**These disagree, and the disagreement is the finding.** The same view, same
+preset, same build read 33–51 fps across three sessions (8 runs), and a
+fourth reading through a different probe (a page-side rAF loop used for the
+layer A/B below) read 58–59. The CPU load average was 2.2–7.2 throughout and
+does not track it; the GPU was shared with other sessions' browsers, which the
+load average cannot see, and that is the surviving explanation. It is not a
+start-up transient: the 20–28 s window reads the same as the 2–10 s one. So
+**an opening measurement on a machine whose GPU is shared is a weak witness**,
+which is why the rule below waits for two slow openings in a row.
+
+What separates the cells is the ambient-occlusion pass: at every condition
+where the opening is slow at `high`, `medium` takes most of the slow frames
+away. A debug-layer A/B at that view (Metal 1x, 1920x1080, 3 s per layer, n=1)
+ran in the fast fourth session and so could not attribute the slow sessions'
+cost: `high` read 57.7–59.0 fps with every layer shown and no hidden layer
+moved it by more than ~2 fps; `medium` read 60.0 throughout.
+
+### Boot
+
+From the same boots, the same loop as `perf:load` (deploy clicked as soon as
+it can be). "Deploy ready" is the loading bar's `ready` state; "first frame"
+is `window.__lions` existing after the click. Cold HTTP cache, localhost (no
+network cost):
+
+| condition | n (both viewports, 3 presets x 3) | deploy ready | first frame |
+|---|---|---|---|
+| Metal 1x | 18 | 0.79–0.92 s | 1.34–1.51 s |
+| Metal 4x | 18 | 2.13–2.45 s | 3.51–4.04 s |
+| Metal 6x | 18 | 3.03–3.40 s | 4.88–5.40 s |
+| SwiftShader 1x | 18 | 4.56–6.17 s | 7.43–18.81 s |
+
+The preset does not move boot on Metal (every per-preset range overlaps).
+`pnpm perf:load` itself, `umm_zeitoun_4_clearance`, 1366x768, production
+build, cold, n=3 each: **1x** deploy ready 0.80–0.87 s, first frame
+1.41–1.50 s (45.3–47.3 MiB before first frame); **6x** 3.10–3.20 s and
+5.16–5.24 s (40.3 MiB); **6x behind a 20 Mbit/s, 20 ms link** 14.19–14.23 s
+and 15.95–16.08 s (29.5 MiB). On a slow machine on a home connection the
+network, not the CPU, is most of a 16 s boot. The byte count falls as the CPU
+slows because fewer late loads land before the first frame, not because less
+is fetched.
+
+### Where the time goes on `low` (CPU profile)
+
+`--profile` on the DEV server (so names survive), Metal, CPU 4x, 1366x768,
+n=1 per preset, V8 sampling every 500 µs (the profiler's own overhead is in
+these numbers; the profiled runs' frame rates sat inside the unprofiled
+matrix's ranges, bar the collapse, which fell outside their fight window). Fight window, 10.6 s, ~630 frames at `low`; per-frame figures divide
+by that count:
+
+| cost | share of the window | per frame at 4x | what it is |
+|---|---|---|---|
+| the main render pass (`post-chain.ts` RenderPass: three.js traversal, culling, submission) | 53% (5.6 s) | ~8.9 ms | of which: `BatchedMesh.onBeforeRender` **1.7 ms** (per-instance frustum cull and sort of the decor and prop batches, run again for every pass that draws them: shadow, main, AO pre-pass); matrix upkeep (`multiplyMatrices`, `updateMatrixWorld`, `Matrix4.toArray`) **~1.8 ms**, for every object every frame -- nothing in `packages/render` sets `matrixAutoUpdate = false`; `bufferSubData` 0.6 ms; the rest is per-object submission |
+| animated infantry (`updateMeshUnits` > `updateSquad`, the `AnimationMixer` and the squad rig) | 17% (1.7 s) | ~2.8 ms | every figure's mixer and bone pose every frame, visible or not |
+| overlays (`updateOverlays`: zone bands, rings, HP) | 4% | ~0.6 ms | `pushZone` re-samples the ground height each frame |
+| FX (`updateFx`) | 2% | ~0.4 ms | |
+| the sim (`sim.tick`) | under 1% | | |
+| the ambient-occlusion pass, **`high` only** | 23% of `high`'s window | **~5.5 ms** | a second submission of every occluder for the normals pre-pass |
+
+The blast window adds one more line: **`rebuildTerrain` took 0.92 s of the
+4.9 s window** under the profiler (`composeTerrain` 0.48 s -- the scatter
+rebuild and its tone quantising; `buildControlMap` 0.21 s and its
+`surfaceWeightsAt` / `roadDistanceAt` samplers), all inside one task.
+
+### Ranked fixes (proposals; none built)
+
+Ranked by milliseconds saved times the inverse of the risk. Each wants the
+golden gate's verdict before it lands, since each touches what draws.
+
+| # | fix | saves (4x CPU) | risk | owner |
+|---|---|---|---|---|
+| 1 | **Make a collapse not rebuild the map.** Rebuild only the dirty rectangle the footprint touches (the follow-up `CLAUDE.md` already names for `buildControlMap`), or split the full rebuild across frames behind the collapse shroud that already covers the swap | most of **500–640 ms** off one frame per collapse (0.75–0.93 s at 6x, 0.14–0.18 s unthrottled): the only stutter found | medium-high: incremental terrain has to match the full rebuild at the seams | `render-vfx` |
+| 2 | **Cull and sort the static decor and prop batches once per frame, not once per pass**, or turn `sortObjects` off on them (opaque, depth-tested: the picture is unchanged; only early-z order moves) | ~1.0–1.7 ms a frame | low | `render-vfx` |
+| 3 | **`matrixAutoUpdate = false` on static objects** (terrain, buildings, decor, props; `updateMatrix()` once at build) | up to ~1.8 ms a frame (an upper bound: some of that upkeep is the moving units') | low-medium: anything later moved must call `updateMatrix()` or it silently stops moving | `render-vfx` |
+| 4 | **Animation LOD**: skip or halve mixer updates for figures off screen or under fog | ~1–2 ms a frame in a big fight | medium: a figure must not pop when it comes into view | `render-vfx` |
+| 5 | The AO pass on slow machines: the auto-pick below, or `medium` as the default | ~5.5 ms a frame | none to correctness; a visible loss of contact shadow | the lead |
+
+Fixes 2 and 3 together are ~3 ms a frame at 4x, about a fifth of `low`'s
+render submit there; fix 1 is the one that changes the §22 verdict.
+
+### The automatic quality step-down (built, draft: the lead decides)
+
+**Nothing chose the preset automatically before this branch**: `video.quality`
+defaults to `high`, the menu's backdrop caps itself at `medium`
+(`front/diorama.ts`), and that is all. The rule on this branch
+(`packages/app/src/quality-auto.ts`, wired in `main.ts`'s frame loop):
+
+- It watches a mission's opening -- 8 s of presented frames, 2 s after the
+  first -- and calls it **slow when 5% or more of the intervals are longer than
+  33.4 ms** (below 30 fps; the threshold is display-rate independent).
+- **Two slow openings in a row** at the same preset lower it **one step**
+  (`high` -> `medium` -> `low`), saved for the **next** mission. The running
+  mission never changes. A fast opening clears a standing strike.
+- It **never raises**, and it is **not armed at all over a quality the player
+  picked** in Settings (`video.qualitySource: 'player'`). A save from before
+  this field that holds a non-`high` quality is read as the player's choice.
+- A tab hidden at any point in the window **voids** the sample: Chrome runs no
+  rAF while hidden, so the first frame back would carry the whole gap.
+- Every tool browser is pinned out of it (`musicOffSettings` seeds
+  `qualitySource: 'player'`), so no capture's picture can depend on how fast
+  the runner was.
+- It says what it did on the console (`[lions] render quality ...`), once per
+  mission that changes anything.
+
+Walked end to end on the production build at 6x CPU, 1920x1080, from fresh
+`default` settings: boot 1 recorded a strike (19% of 213 opening frames slow),
+boot 2 lowered `high` to `medium` (16% of 263), boot 3 at `medium` was fast
+and wrote nothing. The same walk seeded with `qualitySource: 'player'` wrote
+nothing in three boots.
+
+**Why it is a draft.** Read against the opening table, the 5% line separates
+what it should: it fires on `high` at 4x and 6x (9.8–64.8%); it holds `medium`
+at 4x on 1366x768 (0.2–4.5%) and in two runs of three at 1920x1080 (2.8–6.0%);
+and it steps `medium` to `low` where the opening is still slow at `medium`,
+which is where `low` measurably helps (6x 1920x1080: 20–23% to 8–16%; Retina:
+5–7% to 0.4–4%). But it **also
+fires on the measuring machine**: an M3 Pro on a Retina screen reads 11–18% at
+`high`, so two missions in, the lead's own default becomes `medium`, and
+`medium` there reads 5–7% -- two more and it is `low`. At 1920x1080 @1x it fires
+in some sessions and not others. That is the rule working as measured, and it
+is a visible change to the reference machine's default, which is the lead's to
+make. Three ways to take it:
+
+1. **Ship it as built.** Retina Macs and slow machines settle on `medium` or
+   `low`; the opening there gets 7–10 fps back.
+2. **Ship it with a floor of `medium`** (one line: `STEP_DOWN.medium = null`).
+   On a slow CPU, medium-to-low bought nothing measurable in the fight, blast
+   or pan; it helped in the openings and the GPU-bound Retina cells.
+3. **Do not ship it; make `medium` the default instead** and let players opt
+   into AO. Simplest, and it takes ~5.5 ms a frame off every slow CPU from the
+   first mission rather than the third.
+
+### Recommendation
+
+1. **Fix the collapse stall** (ranked fix 1) before calling §22 "Visible
+   stutters" met: it is preset-independent, it happens in ordinary play (a
+   building fell inside the heaviest mission's opening fight in every matrix
+   run), and it is 0.5–0.9 s on a slow CPU.
+2. **Take fixes 2 and 3** together as one low-risk renderer pass: ~3 ms a
+   frame at 4x, no visible change.
+3. **Decide the AO default** (the three options above). Whatever is chosen,
+   add a one-line Settings hint naming the trade ("High adds ambient occlusion,
+   the most expensive effect; Medium if the game stutters") -- a string change,
+   proposed, not built.
+4. **Detect a software renderer at boot and say so** (`SwiftShader`,
+   `llvmpipe`, `Microsoft Basic Render Driver` in the unmasked renderer string,
+   already read by the feedback context): "Your browser is drawing without the
+   graphics card; turn on hardware acceleration." Proposed, not built: it is a
+   visible notice, and the copy is the lead's.
+5. **A resolution cap per preset** for the GPU-bound case (`low` at pixel
+   ratio 1, `medium` at 1.5): the Retina rows say fill, not submission, is the
+   cost there. Not measured beyond those rows; it wants its own A/B.
+
+### What this does not measure
+
+- **A real low-end machine, or any integrated GPU.** CPU throttling slows only
+  the main thread; SwiftShader is far below any real GPU. An Intel UHD-class
+  laptop sits somewhere between "Metal 4x" and "SwiftShader" and could be
+  fill-bound at `high` in a way the Metal rows cannot show. The tester cohort
+  (#302) is where that number comes from, and the feedback context already
+  records the GPU string and the preset.
+- **Missions other than `umm_zeitoun_4_clearance`**, larger fights than its
+  ~30 units, or the 300-unit GDD target under throttling.
+- **Mobile or touch**, and display rates other than 60 Hz.
+- **The menu, the campaign board and the garage** under throttling.
+- **Long sessions**: GC was under 0.5% of every profiled window, but no window
+  was longer than 10 s.
