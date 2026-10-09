@@ -287,6 +287,25 @@ describe('showCampaign', () => {
     const back = stage.querySelector('[data-kind="back"]') as HTMLAnchorElement;
     expect(back.getAttribute('href')).toBe('/');
   });
+
+  // PA-20: the status line was the last thing in the scrolling region and sat
+  // half behind the footer's Main Menu button on a window short enough to
+  // scroll. It is the footer's own row now: outside the scroll region, before
+  // the button. Falsified by hand: deleting the `nav.appendChild(status)` line
+  // in `showCampaign` leaves it inside `.rl-world__scroll` and turns this red.
+  it('keeps the status line in the footer, above the way back and outside the scrolling region (PA-20)', () => {
+    const stage = document.createElement('div');
+    showCampaign(stage, { base: '/', world, countries, ledger: {} });
+    // One status line, not two: this jsdom has no WebGL2, so the 3D board built
+    // one, fell back, and the flat board built its own into the same footer.
+    expect(stage.querySelectorAll('.rl-world__ledger')).toHaveLength(1);
+    const nav = stage.querySelector('.rl-menu__nav')!;
+    const line = nav.querySelector('.rl-world__ledger');
+    expect(line?.textContent).toBe('campaign: fresh start');
+    expect(stage.querySelector('.rl-world__scroll .rl-world__ledger')).toBeNull();
+    const kids = [...nav.children];
+    expect(kids.indexOf(nav.querySelector('.rl-world__ledgerwrap')!)).toBeLessThan(kids.indexOf(nav.querySelector('[data-kind="back"]')!));
+  });
 });
 
 describe("the board's motivation surfaces", () => {

@@ -777,6 +777,14 @@ body {
      set from the projection every frame) never moves; only this transform,
      and with it the rendered ring and label together, does. */
   transform: translate(0.875rem, calc(-50% + var(--dy, 0px)));
+  /* PA-20: a backing plate. Type on the diorama was a halo on bare terrain,
+     which a dark rock face or a pale desert both swallowed ("Umm Zeitoun"). The
+     plate is the panel's own tokens, a little see-through so the ground still
+     reads behind it. The ring (`::after`, below) stays outside it, on the
+     point. Its size is part of what `nudgeLabels` measures, once, at placement. */
+  padding: 1px var(--s1); /* px-ok */
+  background: color-mix(in srgb, var(--panel-bg-solid) 82%, transparent);
+  border: 1px solid var(--panel-frame); /* px-ok */
   /* A pin with no projected position yet is not drawn at all -- one parked in
      the top-left corner reads as a bug rather than as "still loading". */
   opacity: 0;
@@ -3572,6 +3580,8 @@ body {
    otherwise refuse to shrink below this element's own natural (tall)
    content height and defeat the `minmax(0, 1fr)` row above. */
 .rl-world__scroll { overflow-y: auto; min-height: 0; }
+/* PA-20: the status line, moved into the footer by `showCampaign` (menu.ts). */
+.rl-menu__nav > .rl-world__ledgerwrap { text-align: center; }
 /* The footer row itself. Direct-child-scoped so a plain menu screen's nav
    (no `.rl-world` sibling, not a grid row at all) is untouched. */
 .rl-menu:has(.rl-world) > .rl-menu__nav {

@@ -44,6 +44,10 @@ export interface WorldMapOptions {
    *  uses, handed in from `main.ts` because this module has no browser-side
    *  asset resolver of its own. */
   portraitUrl?: (file: string) => string | undefined;
+  /** Where the ledger line goes, when not at the foot of this board (PA-20:
+   *  `showCampaign` hands it the footer, so the status line is never under
+   *  the Main Menu button). Absent, it is the board's last child, as before. */
+  statusHost?: HTMLElement;
 }
 
 /** viewBox the town coordinates in world.json are expressed in. */
@@ -247,7 +251,7 @@ export function worldMap(opts: WorldMapOptions): HTMLElement {
   for (const region of opts.world.regions) cards.appendChild(regionCard(region, opts));
   wrap.appendChild(cards);
 
-  wrap.appendChild(ledgerLine(opts.ledger, opts.world));
+  (opts.statusHost ?? wrap).appendChild(ledgerLine(opts.ledger, opts.world));
   return wrap;
 }
 

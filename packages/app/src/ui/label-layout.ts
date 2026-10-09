@@ -33,3 +33,24 @@ export function nudgeLabels(items: readonly LabelBox[], gap: number): ReadonlyMa
   }
   return out;
 }
+
+/**
+ * The box a 3D-board pin occupies on screen, for `nudgeLabels` (PA-20).
+ *
+ * The pin's own point is where the ring sits; the label is `reach` pixels to
+ * its right (`translate(0.875rem, ...)` in theme.css) and then `labelW` wide.
+ * `onFrame` used to hand `nudgeLabels` the pin point and the LABEL's width, a
+ * span that starts at the ring and ends `reach` short of where the label
+ * really ends -- so a neighbour whose ring stood within `reach` of this
+ * label's tail read as clear, and "Beit Sahwan 0/15" ran into "Qarn Hadid".
+ * `pad` keeps two labels on one row from touching end to end.
+ */
+export function pinLabelBox(
+  id: string,
+  point: { x: number; y: number },
+  label: { w: number; h: number },
+  reach: number,
+  pad: number
+): LabelBox {
+  return { id, x: point.x, y: point.y, w: reach + label.w + pad, h: label.h };
+}

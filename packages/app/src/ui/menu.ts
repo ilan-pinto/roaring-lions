@@ -271,6 +271,14 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
   theatre.className = 'rl-menu__theatre';
   theatre.textContent = opts.world.name;
 
+  // PA-20: the footer is built first because the ledger line ("campaign: fresh
+  // start", the roster and Conduct reading) is the screen's status line and
+  // lives in it. It used to be the LAST thing in the scrolling region, under
+  // the cards, so on any window short enough to scroll it sat half behind the
+  // Main Menu button until the player scrolled to find it. As the footer's own
+  // first row it is always on screen, whatever the window height.
+  const nav = document.createElement('nav');
+  nav.className = 'rl-menu__nav';
   // Which board: the Sahar Basin diorama, falling back to the flat PNG for
   // the three causes `worldmap3d.ts`'s header names (no WebGL2, a GLB that
   // will not load, a scene that fails the campaign contract) plus the one
@@ -286,6 +294,7 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
       commander: opts.commander,
       missionOf: opts.missionOf,
       portraitUrl: opts.portraitUrl,
+      statusHost: nav,
     });
   // A world with no GLB in the catalogue has no diorama to draw, and
   // `meshUrl` throws by name for a catalogue entry whose file is gone. Both
@@ -316,6 +325,7 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
           commander: opts.commander,
           missionOf: opts.missionOf,
           portraitUrl: opts.portraitUrl,
+          statusHost: nav,
           navigate: opts.navigate,
           signal: opts.signal,
         }).el;
@@ -330,8 +340,6 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
   boardEl.prepend(wordmarkEl, theatre);
   wrap.appendChild(boardEl);
 
-  const nav = document.createElement('nav');
-  nav.className = 'rl-menu__nav';
   const back = document.createElement('a');
   back.innerHTML = symbolLabel('back', t('nav.backToMenu'));
   back.href = routes.menu();

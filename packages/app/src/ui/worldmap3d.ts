@@ -57,7 +57,7 @@ import {
   type RegionStatus,
   type WorldRegion,
 } from '../campaign';
-import { nudgeLabels, type LabelBox } from './label-layout';
+import { nudgeLabels, pinLabelBox, type LabelBox } from './label-layout';
 // Whether this browser can draw the board at all, probed before the dynamic
 // import -- shared with the scene host behind the menu; see that file.
 import { webgl2Available } from './webgl-probe';
@@ -121,6 +121,10 @@ export interface World3dOptions {
    *  diorama cannot be drawn, and building it eagerly would mean every
    *  player parsing an SVG overlay they will not see. */
   fallback: () => HTMLElement;
+  /** Where the ledger line goes, when not at the foot of this board (PA-20,
+   *  see `WorldMapOptions.statusHost`). Taken down again if the board falls
+   *  back to the flat one, which brings its own into the same host. */
+  statusHost?: HTMLElement;
   commander?: CommanderData;
   missionOf?: (id: string) => { objectives: readonly { type: string; primary: boolean }[]; name?: string } | undefined;
   /** Resolves a villain's bare portrait file name to a URL, same as the flat
@@ -160,6 +164,8 @@ export interface World3dHandle {
  *  and harmless if it drifts -- the two are a button label and a rotation,
  *  not a contract. */
 const NUDGE_DEGREES = 30;
+/** Clear space kept between two town labels on one row (PA-20). */
+const LABEL_PAD_PX = 8;
 
 const el = (tag: string, cls?: string, text?: string): HTMLElement => {
   const n = document.createElement(tag);
@@ -470,7 +476,8 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
     cardFor.set(region.id, card);
   }
   wrap.appendChild(cards);
-  wrap.appendChild(ledgerLine(ledger, world));
+  const ledgerEl = ledgerLine(ledger, world);
+  (opts.statusHost ?? wrap).appendChild(ledgerEl);
 
   const point = (regionId: string | null): void => {
     for (const [id, card] of cardFor) {
@@ -539,6 +546,14 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
   // `offsetWidth`/`offsetHeight` are the placed-and-visible size regardless
   // of `opacity`, which is all this pin ever animates.
   const labelSize = new Map<string, { w: number; h: number }>();
+  // The label stands 0.875rem right of its pin's point (`translate` in
+  // theme.css), so its true span starts there; and two labels on one row keep
+  // LABEL_PAD_PX between them (PA-20, `pinLabelBox`).
+  let reachPx = 0;
+  const labelReachPx = (): number => {
+    if (reachPx === 0) reachPx = 0.875 * (parseFloat(getComputedStyle(document.documentElement).fontSize) || 16);
+    return reachPx;
+  };
   const onFrame = (towns: readonly TownPin[], bearingDegrees: number): void => {
     const boxes: LabelBox[] = [];
     for (const t of towns) {
@@ -551,7 +566,7 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
         pin.dataset.placed = '1';
       }
       const size = labelSize.get(t.id) ?? { w: 0, h: 0 };
-      boxes.push({ id: t.id, x: t.x, y: t.y, w: size.w, h: size.h });
+      boxes.push(pinLabelBox(t.id, t, size, labelReachPx(), LABEL_PAD_PX));
     }
     // Collision avoidance over the PROJECTED positions, recomputed every
     // frame as the board turns -- cheap at a dozen towns (label-layout.ts).
@@ -593,6 +608,9 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
     wrap.dataset.board = 'flat';
     stage.remove();
     say.remove();
+    // The flat board builds its own ledger line (into the same `statusHost`):
+    // keeping this one would show the status twice.
+    if (opts.statusHost !== undefined) ledgerEl.remove();
     wrap.prepend(opts.fallback());
     return 'flat';
   };
