@@ -214,7 +214,7 @@ import { bindLiveTeamColors } from './live-team-colors';
 import { garageColors, garageGroundTexture, garageModelSource } from './garage-model-source';
 import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
-import { timeOfDayOf } from './time-of-day';
+import { lightOverrideOf, timeOfDayOf } from './time-of-day';
 import { buildingFitOf } from './building-fit-flag';
 import { registerServiceWorker } from './service-worker';
 import {
@@ -1764,6 +1764,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // since the sim never reads it.
   const tod = timeOfDayOf((mission as { map: object } | undefined) ?? null, params);
   if (tod.warning) console.warn(`[lions] ${tod.warning}`);
+  const lightOverride = lightOverrideOf((mission as { map: object } | undefined) ?? null);
   // `&fitbuildings=<rule>` (lead ruling 7 Oct): compare building fits, on a
   // mission as well as the sandbox. Absent leaves the renderer's default.
   const fit = buildingFitOf(params);
@@ -1775,6 +1776,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       BASE
     ),
     timeOfDay: tod.value,
+    // PA-24: a mission's own `map.light` (First Light's lifted dawn fill).
+    ...(lightOverride !== undefined ? { lightOverride } : {}),
     ...(fit.value !== undefined ? { buildingFit: fit.value } : {}),
     // Pass C2/C4 (P5): asked live, so the settings panel's motion switch
     // reaches the near-miss flinch mid-mission.
