@@ -65,6 +65,7 @@
 import type { MissionJson } from '@lions/sim';
 import { t } from '../i18n/t';
 import { focusTrap } from './focus-trap';
+import { prefersReducedMotion } from './motion';
 import { panel } from './panel';
 
 export interface OutcomeMomentOptions {
@@ -158,12 +159,30 @@ export function outcomeMomentOptions(
 
 export function outcomeMoment(host: HTMLElement, o: OutcomeMomentOptions): OutcomeMoment {
   const el = document.createElement('div');
-  el.className = 'rl-outcome rl-enter';
+  el.className = 'rl-outcome';
   el.dataset.outcome = o.outcome;
+  // PA-07 (lead ruling 9 Oct, "B with A's band"): a held beat -- letterbox
+  // bars slide in and the verdict band lands -- or, under reduced motion, a
+  // straight cut to the same frame. Read once, at mount: the hold's LENGTH
+  // is the same either way (rule 1 above).
+  el.dataset.beat = prefersReducedMotion() ? 'cut' : 'held';
   el.setAttribute('role', 'dialog');
   el.setAttribute('aria-modal', 'true');
+  el.setAttribute('aria-label', o.title);
 
-  const p = panel({ rank: 'alert', title: o.title });
+  // The letterbox: the world stays the subject between the two bars, and
+  // the verdict sits in the lower one (`outcome-beat.ts` moves the camera).
+  const top = document.createElement('div');
+  top.className = 'rl-outcome__bar rl-outcome__bar--top';
+  const bottom = document.createElement('div');
+  bottom.className = 'rl-outcome__bar rl-outcome__bar--bottom';
+  el.appendChild(top);
+  el.appendChild(bottom);
+
+  // The mission band, full width (A's stamp, ruled onto B): the same rank the
+  // report wears for both outcomes (VR-24). The outcome is told by the word
+  // and by the band's rule, `--good` or `--bad` (theme.css).
+  const p = panel({ rank: 'mission', title: o.title });
   p.el.classList.add('rl-outcome__panel');
 
   // GH-234: the reward, the most visible thing after the verdict itself --
@@ -228,7 +247,7 @@ export function outcomeMoment(host: HTMLElement, o: OutcomeMomentOptions): Outco
   skip.textContent = t('outcome.skip');
   p.body.appendChild(skip);
 
-  el.appendChild(p.el);
+  bottom.appendChild(p.el);
   host.appendChild(el);
 
   // Queries `p.el` for its own focusables at keypress time, so it does not

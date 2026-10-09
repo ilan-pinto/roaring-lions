@@ -160,7 +160,7 @@ import {
   CAMERA_FAR,
 } from './camera';
 import { structureAtScreenThree, structureBoxes } from './structure-pick';
-import { createSceneLights, DAY_LIGHTS, type ResolvedLights, type SceneLights } from './lighting';
+import { createSceneLights, DAY_LIGHTS, shadowIntensityOf, withLightOverride, type ResolvedLights, type SceneLights } from './lighting';
 import {
   BOUNCE_KEY,
   resolveTimeOfDay,
@@ -2534,13 +2534,21 @@ export class ThreeRenderer implements Renderer {
     // keep today's `dust.4` bounce (N-21).
     this.timeOfDay = resolveTimeOfDay(opts.timeOfDay);
     this.lightPreset = TIME_OF_DAY_PRESETS[this.timeOfDay];
-    this.resolvedLights = this.timeOfDay === 'day' ? DAY_LIGHTS : this.presetLights(this.lightPreset);
+    // PA-24: a mission's own `map.light` lifts the fill on top of its preset
+    // (and the haze follows, since `applyHaze` reads these lights). Absent,
+    // `withLightOverride` hands back the same object, so day is still
+    // `DAY_LIGHTS` itself.
+    this.resolvedLights = withLightOverride(
+      this.timeOfDay === 'day' ? DAY_LIGHTS : this.presetLights(this.lightPreset),
+      opts.lightOverride
+    );
     this.sceneLights = createSceneLights(
       sim.width,
       sim.height,
       (opts.quality ?? QUALITY_PRESETS.high).shadowMapSize,
       this.resolvedLights
     );
+    this.sceneLights.sun.shadow.intensity = shadowIntensityOf(opts.lightOverride);
     this.sceneLights.addTo(this.scene);
     // Same "always present, draws nothing until fed" shape as the FX meshes
     // just above, but for real `THREE.PointLight`s rather than a batched

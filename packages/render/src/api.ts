@@ -19,11 +19,11 @@ import type { EmitterSpec } from './vfx';
 import type { RenderQuality } from './quality';
 // A type from a three-FREE module beside `lighting.ts` (it imports nothing),
 // so this file still reaches neither backend's library.
-import type { TimeOfDay } from './three/time-of-day';
+import type { LightOverride, TimeOfDay } from './three/time-of-day';
 // Three-free too (`three/units/building-fit.ts` imports nothing).
 import type { BuildingFit } from './three/units/building-fit';
 
-export type { TimeOfDay } from './three/time-of-day';
+export type { LightOverride, TimeOfDay } from './three/time-of-day';
 export type { BuildingFit } from './three/units/building-fit';
 
 /** How open ground is grained. Tones are data; mark shape is drawing code. */
@@ -319,6 +319,13 @@ export interface RendererOptions {
    * `shellColors`.
    */
   timeOfDay?: TimeOfDay;
+  /**
+   * PA-24: a mission's own lift on top of its `timeOfDay` preset (the
+   * mission JSON's optional `map.light`). `fill` replaces the hemisphere
+   * intensity, `shadow` is the sun's `shadow.intensity` (1 = full). Absent
+   * is the preset unchanged, to the bit. First Light is the only author.
+   */
+  lightOverride?: LightOverride;
   /**
    * How each building mesh is scaled to its footprint (lead ruling 7 Oct,
    * "fit buildings to their plots"; `three/units/building-fit.ts` holds the

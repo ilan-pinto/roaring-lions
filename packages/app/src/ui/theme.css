@@ -1139,85 +1139,149 @@ body {
 /* Outcome moment (ui/outcome-moment.ts) — the held victory/defeat beat    */
 /* ====================================================================== */
 
-/* Unlike `.rl-confirm`/`.rl-pause`/`.rl-keys`, which dim a battlefield the
-   player can still half-see behind them, this REPLACES the screen -- the
-   held moment is the whole point, not an interruption over something else
-   worth glancing at. `--panel-bg-solid` (`.rl-loading`'s own opaque
-   takeover) is the base rather than `--scrim` for that reason; color-mixed
-   with transparent rather than used bare so the takeover reads as a
-   deliberate wash rather than a flat fill -- no new palette row, no literal. */
+/* PA-07 (lead ruling 9 Oct on PR 485, "B with A's band"): a held beat, not a
+   takeover. The world stays the subject between two letterbox bars -- the
+   camera eases to the deciding ground and presentation time slows under it
+   (`outcome-beat.ts`, driven from `main.ts`) -- and the verdict sits in the
+   lower bar on the full-width mission band, A's stamp. The report then
+   arrives the beat's way (`body[data-outcome-beat] .rl-aar`, below).
+   `data-beat="cut"` is reduced motion: every entrance is dropped, delays
+   included (the global 1 ms rule leaves delays alone), so the frame is the
+   held beat's last one from the first paint. */
 .rl-outcome {
   position: fixed;
   inset: 0;
   /* Above the confirm/pause/keys scrims (50): this moment is shown only
      once nothing else should be open, and it must win if anything is. */
   z-index: 55;
-  display: grid;
-  place-items: center;
+  pointer-events: none;
   text-align: center;
-  --outcome-scrim: color-mix(in srgb, var(--panel-bg-solid) 90%, transparent);
-  background: var(--outcome-scrim);
+  --outcome-rule: var(--good);
+}
+.rl-outcome[data-outcome='defeat'] {
+  --outcome-rule: var(--bad);
+}
+.rl-outcome__bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: var(--panel-bg-solid);
+  pointer-events: auto;
+}
+.rl-outcome__bar--top {
+  top: 0;
+  height: 9vh;
+  animation: rl-outcome-bar-top var(--dur-linger) var(--ease) both;
+}
+.rl-outcome__bar--bottom {
+  bottom: 0;
+  min-height: 15vh;
+  padding: 0 0 var(--s3);
+  animation: rl-outcome-bar-bottom var(--dur-linger) var(--ease) both;
+}
+@keyframes rl-outcome-bar-top {
+  from {
+    translate: 0 -100%;
+  }
+}
+@keyframes rl-outcome-bar-bottom {
+  from {
+    translate: 0 100%;
+  }
 }
 .rl-outcome__panel {
   position: relative;
-  pointer-events: auto;
-  width: min(30rem, 92vw);
+  width: 100%;
 }
-/* The verdict is the one thing on screen; it wears the same display face
-   `.rl-loading__name` and `.rl-titlecard__title` do, at the same size,
-   rather than `.rl-panel__title`'s ordinary band-label weight -- the exact
-   scoped-override shape `.rl-tutorial .rl-panel__title` already uses for
-   the same reason (a panel reused somewhere it has to read as a headline). */
+/* A's stamp: the mission band across the whole width, its rule naming the
+   outcome in colour as the word names it in type. */
+.rl-outcome__panel .rl-panel__band {
+  justify-content: center;
+  padding: var(--s3) var(--s4) var(--s2);
+  border-top: 3px solid var(--outcome-rule);
+  border-bottom: 3px solid var(--outcome-rule);
+  animation: rl-outcome-stamp var(--dur-stamp) var(--ease) var(--dur-fast) both;
+}
+/* The verdict is the one thing on screen; the display face at stamp size,
+   rather than `.rl-panel__title`'s ordinary band-label weight -- the
+   scoped-override shape `.rl-tutorial .rl-panel__title` already uses. */
 .rl-outcome__panel .rl-panel__title {
   font-family: var(--font-display);
-  font-size: var(--t-xl);
+  font-size: clamp(2.5rem, 6vw, 5rem);
+  line-height: 1;
+}
+/* The band carries no tag here; the empty slot's `margin-left: auto` would
+   push the verdict off centre. */
+.rl-outcome__panel .rl-panel__tag {
+  display: none;
+}
+@keyframes rl-outcome-stamp {
+  from {
+    opacity: 0;
+    scale: 1.15;
+  }
+}
+.rl-outcome__panel .rl-panel__body {
+  background: transparent;
+  border: 0;
+  padding: var(--s2) var(--s4) 0;
+  overflow: visible;
+  animation: rl-outcome-body var(--dur-long) var(--ease) var(--dur-linger) both;
+}
+@keyframes rl-outcome-body {
+  from {
+    opacity: 0;
+  }
+}
+.rl-outcome[data-beat='cut'] *,
+.rl-outcome[data-beat='cut'] .rl-panel__band,
+.rl-outcome[data-beat='cut'] .rl-panel__body {
+  animation: none;
 }
 /* A victory's narration (a mission's `aftermath`, GDD §11), directly under
    the verdict: the HUD banner's old second line, moved here when the banner
    stood down for this moment. Narration, not the verdict -- the body face at
    the body size, in the dim ink the closing line below wears. */
 .rl-outcome__aftermath {
-  margin: var(--s3) 0 0;
+  margin: var(--s1) 0 0;
   font-family: var(--font-body);
   font-size: var(--t-m);
   color: var(--ink-dim);
 }
 /* Defeat only (PR 361): which primary failed and when, straight under the
-   verdict, in the verdict's own weight -- the reason is the news. */
+   verdict, in the report's own defeat tone (`.rl-aar__reason`). */
 .rl-outcome__reason {
-  margin: var(--s3) 0 0;
+  margin: var(--s1) 0 0;
   font-family: var(--font-body);
-  font-size: var(--t-m);
+  font-size: var(--t-read);
   font-weight: 600;
 }
 .rl-outcome__line {
-  margin: var(--s3) 0 0;
+  margin: var(--s1) 0 0;
   font-size: var(--t-m);
   color: var(--ink-dim);
 }
 /* Polish pass F (A5): the outcome's line on the radio net, always shown --
-   the caption the HUD's own slot cannot carry while this moment covers it.
-   The narration's dim body face, so it reads as the net speaking. */
+   the caption the HUD's own slot cannot carry while this moment covers it. */
 .rl-outcome__radio {
-  margin: var(--s3) 0 0;
+  margin: var(--s1) 0 0;
   font-family: var(--font-body);
   font-size: var(--t-m);
   color: var(--ink-dim);
 }
 .rl-outcome__skip {
-  margin-top: var(--s4);
+  margin-top: var(--s2);
 }
-/* The reward (GH-234): the most visible thing on screen after the verdict
-   itself, ahead of the mission's own narration below it. `--commend` (the
-   one credits colour since VR-25: the garage, the stores, the debrief, the
-   dock) and the "credit(s)" word both match the dock chip's own balance
-   (GH-233, `.rl-dock__credits` below) so a figure reads the same everywhere it
-   appears -- the display face matches the verdict's own rather than the
-   narration's dim mono one, because this is the second thing the player is
-   meant to register, not a footnote. The "nothing paid" line shares the
-   narration's dim ink instead: it is an explanation, not a reward. */
+/* The reward (GH-234): the most visible thing after the verdict itself,
+   ahead of the mission's own narration below it. `--commend` (the one
+   credits colour since VR-25: the garage, the stores, the debrief, the
+   dock). */
 .rl-outcome__credits {
-  margin: var(--s3) 0 0;
+  margin: var(--s1) 0 0;
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: var(--s3);
 }
 .rl-outcome__credits-figure {
   margin: 0;
@@ -1231,20 +1295,27 @@ body {
   color: var(--ink-dim);
 }
 .rl-outcome__credits-total {
-  margin: var(--s1) 0 0;
+  margin: 0;
   font-size: var(--t-m);
   color: var(--commend);
 }
-/* The outcome is named in the DOM (`data-outcome`), not only in colour --
-   this is the second half of that, a border tint rather than a repainted
-   band so `--band-ink`'s contrast (tuned for `--band-alert`) is never asked
-   to sit on `--good`/`--bad` instead. Mirrors `.rl-bigbanner[data-result=…]`,
-   the existing precedent for exactly this. */
-.rl-outcome[data-outcome='victory'] .rl-outcome__panel .rl-panel__body {
-  border-color: var(--good);
+/* The HUD steps back for the beat (`hideForBeat`, outcome-beat.ts) and
+   stays back under the report. */
+.rl-beat-hidden {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transition: opacity var(--dur-long) var(--ease);
 }
-.rl-outcome[data-outcome='defeat'] .rl-outcome__panel .rl-panel__body {
-  border-color: var(--bad);
+/* The report arrives the beat's way: in from the right as the stinger
+   fades. Reduced motion collapses it to the global 1 ms. */
+body[data-outcome-beat] .rl-aar {
+  animation: rl-aar-after-beat var(--dur-linger) var(--ease) both;
+}
+@keyframes rl-aar-after-beat {
+  from {
+    opacity: 0;
+    translate: 8vw 0;
+  }
 }
 
 /* ====================================================================== */
