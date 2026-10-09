@@ -94,6 +94,7 @@ import { buyWithTestCoins, type CoinHalf } from './ui/stores-model';
 import { CUE_SET } from './ui/garage-model';
 import { upgradePrepass } from './upgrade-prepass';
 import { clock as missionClock, showDebrief, type DebriefOptions, type ReportSpeaker } from './ui/debrief';
+import { campaignComplete, closingExchange } from './campaign-close';
 import { feedbackDialog } from './ui/feedback-dialog';
 import { ratingPrompt, type RatingPrompt } from './ui/feedback-prompt';
 import { browserFeedbackSession, type FeedbackSession, type SessionNote } from './feedback/session';
@@ -4319,6 +4320,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               }));
             const tier = tierLine(runtime.stars);
             const promotion = me.result === 'victory' ? promotionAfter(commanderData, worldData, missionId) : null;
+            // The end of the war: said on the report of the victory that
+            // finished the campaign, and never again (`campaign-close.ts`).
+            const closing = closingExchange(worldData, ledger, updatedLedger, me.result);
             const nextJson = nextMissionId ? (missions as Record<string, MissionJson | undefined>)[nextMissionId] : undefined;
             const region = enemyRegion;
             const villain = region ? commanderData.villains?.[region.id] : undefined;
@@ -4388,6 +4392,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               replacements,
               unlocks,
               next: nextMissionId ? { name: nextJson?.name ?? nextMissionId } : undefined,
+              campaignOver: campaignComplete(worldData, updatedLedger),
               taken: takenAccount,
               marked: runtime.markedCount,
               typeName,
@@ -4406,6 +4411,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                     line: promotion.line ? { plate: speakerPlate(hudCommander, promotion.line.speaker), text: promotion.line.text } : undefined,
                   }
                 : undefined,
+              ...(closing ? { closing: closing.map((l) => ({ plate: speakerPlate(hudCommander, l.speaker), text: l.text })) } : {}),
               ground: field ? { map, tones: opts.terrainTones, marks: field.marks } : undefined,
               next: nextMissionId
                 ? {

@@ -1,6 +1,6 @@
 # Roaring Lions — Game Design Document
 
-**Version:** 1.2.2 · **Status:** decisions locked; §5 synced to the calibrated M0 model; §11 (story) added 2026-09-03 as a draft, its surface list corrected the same day when `dispatch`/`aftermath`/`debrief`/`say` landed
+**Version:** 1.2.3 · **Status:** decisions locked; §5 synced to the calibrated M0 model; §11 (story) added 2026-09-03 as a draft, its surface list corrected the same day when `dispatch`/`aftermath`/`debrief`/`say` landed; §11's surface list gains the end of the war (2026-10-09)
 **Companion docs:** `CLAUDE.md` (working conventions), `docs/ART_PIPELINE.md`, `CONTRIBUTING.md`
 
 ---
@@ -373,7 +373,9 @@ mission is ever scripted in code.
 delivered in beats, `dispatch` on the title card, `aftermath` on the victory
 banner, `debrief` on the end screen, objective labels, and mid-mission `say`
 lines carried by triggers and objectives into the notice feed and onto the
-commander bar. **Approved and not yet built:** EVA announcements, voice audio
+commander bar. The end of the war is said once: on the report of the victory that
+closes the last front, Idit and Shai exchange four lines, and the campaign
+board's resting line says every front is closed. **Approved and not yet built:** EVA announcements, voice audio
 for briefings and transmissions, a radio overlay with portraits for the `say`
 lines, and a `debrief` that can tell a victory from a defeat. See
 `docs/campaign/README.md` for the surface contract.
