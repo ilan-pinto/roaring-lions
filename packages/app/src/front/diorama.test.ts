@@ -5,7 +5,8 @@ import { maps, menuDiorama, parseMap, units, type DioramaJson } from '@lions/dat
 // renderer for projection, but a test may hold data to project.ts's own maths.
 import { screenToWorldFlat, worldToScreen } from '@lions/render/project';
 import { hasUnitMesh } from '../mesh-catalogue';
-import { buildDioramaWorld, dioramaSceneOptions, facingFromDeg } from './diorama';
+import { QUALITY_PRESETS } from '@lions/render';
+import { buildDioramaWorld, dioramaSceneOptions, facingFromDeg, hostQuality } from './diorama';
 import { REF_LAYER, hostZoom } from './framing';
 
 const tiny: DioramaJson = {
@@ -117,5 +118,20 @@ describe('dioramaSceneOptions', () => {
     expect(o.camera).toEqual({ x: 27, y: 22 });
     expect(o.zoomFor(1920, 1080)).toBeCloseTo(1.6, 10);
     expect(o.meshes.vehicles.map((v) => v.id).sort()).toEqual(['apc_eitan', 'mbt_lavi']);
+  });
+});
+
+describe('the backdrop draws lighter than a mission (GH-469)', () => {
+  it('caps quality at medium, the pixel ratio at 1 and GLB textures at 1024', () => {
+    const o = dioramaSceneOptions(menuDiorama, { colorVision: 'default', quality: 'high' }, '/');
+    expect(o.renderer.quality).toEqual(QUALITY_PRESETS.medium);
+    expect(o.renderer.maxPixelRatio).toBe(1);
+    expect(o.renderer.maxTextureSize).toBe(1024);
+  });
+
+  it('never RAISES a player\'s chosen quality', () => {
+    expect(hostQuality('low')).toBe('low');
+    expect(hostQuality('medium')).toBe('medium');
+    expect(hostQuality('high')).toBe('medium');
   });
 });

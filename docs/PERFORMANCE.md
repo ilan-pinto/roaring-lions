@@ -1697,7 +1697,7 @@ missions are within 9% on every row):
 | Flow-field pool | < 0.1 | JS | 0-4 fields x 11.5 KB at this point in these missions |
 | **The menu's scene host** | GPU **522**, bitmaps 184, process **1.43-1.46 GB** | all | the live diorama behind the menu costs 2.3x the campaign board (GPU 138, process 0.61-0.65 GB) |
 
-### Ranked optimisation candidates (for the lead to pick from; none applied)
+### Ranked optimisation candidates (the lead picked 1, 2 and 4 -- shipped, see "The three savings" below)
 
 Savings are at the heaviest mission unless stated, Metal 1x; "process" is
 what a player's Activity Monitor would show.
@@ -1766,6 +1766,73 @@ ceiling forced to pass, a walk with no baseline passed: all red);
 `memory-ledger.test.ts` runs the shipped init-script string in a `vm` against a
 fake WebGL2 prototype (five mutations, all red); `memory-inventory.test.ts`
 (three, all red).
+
+### The three savings (2026-10-09)
+
+The lead picked candidates 1, 2 and 4. They shipped as three PRs, each
+re-measured and each locking its saving into the budgets:
+
+- **#478, free each GLB texture's CPU copy after upload.** A loader plugin
+  closes the `ImageBitmap` from three's own after-upload callback.
+  Invisible: every gated scenario 0 px.
+- **#479, don't decode what nobody draws.** Building wrecks and unordered
+  KDF buildables load through `coldGltfLoader`, with their images kept
+  encoded. A wreck decodes on the first hit to its type; a buildable decodes
+  on the order, at least 12 s before the unit exists. A template that is
+  still cold is never drawn: a wreck keeps its standing clone under the
+  collapse cloud until it decodes, and a unit is not instantiated until
+  then. An outright kill swapped to a textured wreck at 465 ms against
+  main's 460. Invisible: 0 px.
+- **#480, a lighter live menu backdrop.** Quality is capped at `medium`,
+  `maxPixelRatio` is 1 and `maxTextureSize` is 1024. It is softer at dpr 2
+  and loses ambient occlusion. The lead approved it from before/after
+  captures ("Ship it").
+
+**Combined before/after.** MiB. Metal is M3 Pro, 1400x900 @1x, dev
+server, n=3 each: main is `6cdfb8d9`, after is #480's branch with
+#478 and #479 merged in. CI is ubuntu-latest SwiftShader: main from #474
+(n=4), after n=1 (run 37880172368; the 40-minute bound on this round left no room for reruns; the commit that sets these budgets is the second CI walk of this tree).
+
+| reading | Metal main | Metal after | CI main | CI after |
+|---|---|---|---|---|
+| menu, all Chromium processes | 1,431-1,440 | 921-929 | 1,297-1,330 | 861-889 |
+| menu, GPU ledger | 522 | 231 | 522 | 231 |
+| heaviest missions, all processes | 2,997-3,141 | 2,102-2,303 | 2,756-2,927 | 1,859-2,011 |
+| heaviest missions, decoded bitmaps | 888-1,004 | 48-140 | 888-1,004 | 48-140 |
+| menu after a leave, all processes | 1,734-1,905 | 1,240-1,394 | 1,506-1,636 | 1,043-1,125 |
+| board, all processes | 607-612 | 528-530 | 709-751 | 661 |
+| JS (heap + ArrayBuffers), any checkpoint | unchanged | unchanged | unchanged | unchanged |
+
+A retina screen (1440x900 @2, menu only, n=1) goes 1,858-1,882 ->
+979-990. The plate fallback (0.24 GB) was measured and not taken. The plate
+image itself is stale and needs `pnpm plate:host` before it is ever made
+the default.
+
+**Why the bitmap ceiling exists.** A 1.25 margin on the process total is
+wider than any one saving: main's mission total fit under #478's own
+re-derived ceiling. The ledger's decoded-bitmap reading is logical bytes,
+identical on CI and Metal, so it got a x1.15 ceiling of its own
+(`bitmapsMiB`). Reverting #478 reads 488-552 at the missions and
+reverting #479 reads 500-564, against a ceiling of 161; both fail. #480 is
+locked by the menu's GPU ledger, 231 x 1.15 = 266 against main's 522
+(reverted on Metal: exit 1, every menu reading 522.1 > 266). The visual
+gate's menu-scene-host votes still pass with the lighter backdrop: path
+`live` in 1809 ms, contribution 105.2485 over the flanks (floor 30.4426,
+main 104.5415), register dY 2.2% / dS 0.2% against the mission frame
+(tolerance 10%; main 1.5% / 0.7%).
+
+**Two things found on the way.**
+
+- **#479's first cut leaked memory.** It read +30 MiB of ArrayBuffers: a
+  closure created inside the loader plugin captured the GLTF parser, and
+  with it every cold GLB's whole body. `coldTexture` is module-scope for
+  that reason.
+- **The GPU ledger is not perfectly deterministic.** `khan_rafid_3`
+  read 806 instead of 848 in a few walks, on main and on the branches
+  alike: two 2048 textures not yet uploaded at the read, depending on
+  what fog had let draw. The 1.15 margin covers it. "Same bytes every run"
+  above holds for the menu and board, and for missions only to within
+  that.
 
 ### What this does not measure
 

@@ -553,6 +553,7 @@ import {
   ringRadiusFor,
 } from './units/readability';
 import { SelectionRingBatch } from './units/selection-ring';
+import { capTextureSize } from './units/texture-cap';
 import { buildInventory, type MemoryInventory } from './memory-inventory';
 import { CONTACT_MARK, contactHaloTriangles, contactScale, contactShapeOf, contactTriangles } from './units/contact-marks';
 
@@ -2634,7 +2635,8 @@ export class ThreeRenderer implements Renderer {
     // Everything in this method that needs a live GL context lives here
     // rather than in the constructor, which the nine `ThreeRenderer*.test.ts`
     // fakes exercise with a renderer stub that has four members.
-    this.renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, PIXEL_RATIO_CAP));
+    // `maxPixelRatio` (GH-469): the menu's backdrop asks for a lower one.
+    this.renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, this.opts.maxPixelRatio ?? PIXEL_RATIO_CAP));
     this.renderer.shadowMap.enabled = true;
     // PCFSoft, not PCF or VSM: the sun casts one map-wide 4096 map
     // (`lighting.ts`), so a shadow texel is coarse in world terms and a hard
@@ -5395,6 +5397,10 @@ export class ThreeRenderer implements Renderer {
       }
       for (const template of previous) disposeMeshUnitTemplate(template);
     }
+    if (this.opts.maxTextureSize !== undefined) {
+      const cap = this.opts.maxTextureSize;
+      await Promise.all(templates.map((t) => capTextureSize(t.root, cap)));
+    }
     this.meshUnitTemplates.set(unitTypeId, templates);
     if (templates.some((t) => hasColdTextures(t.root))) this.coldUnitTypes.add(unitTypeId);
     else this.coldUnitTypes.delete(unitTypeId);
@@ -5453,6 +5459,7 @@ export class ThreeRenderer implements Renderer {
       throw err;
     }
 
+    if (this.opts.maxTextureSize !== undefined) await capTextureSize(template.root, this.opts.maxTextureSize);
     const previous = this.vehicleMeshTemplates.get(unitTypeId);
     if (previous) {
       for (const [id, entity] of this.vehicleMeshEntities) {
@@ -5722,6 +5729,7 @@ export class ThreeRenderer implements Renderer {
       wallSurface,
       allowTextured
     );
+    if (this.opts.maxTextureSize !== undefined) await capTextureSize(idleTemplate.root, this.opts.maxTextureSize);
     const previousIdle = this.buildingMeshIdleTemplates.get(structureId);
     if (previousIdle) {
       // `buildingMeshIdleEntities` is keyed by STRUCTURE INDEX, not type --

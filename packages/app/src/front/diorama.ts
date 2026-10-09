@@ -30,6 +30,7 @@ import { meshManifestFor, meshPlanFor, type MeshPlan } from '../mesh-catalogue';
 import { rendererOptionsFor, type RendererSettings } from '../renderer-options';
 import type { SceneHostWorld } from '../ui/scene-host';
 import { hostZoom } from './framing';
+import type { Quality } from '../settings';
 
 /**
  * A degree heading -> Q16.16 turn fraction, masked to the facing field's own
@@ -117,6 +118,32 @@ export function buildDioramaWorld(d: DioramaJson): DioramaWorld {
 }
 
 /**
+ * GH-469 saving 3: the menu's backdrop is a BACKDROP. It drew at the mission's
+ * full cost -- 522 MiB of GPU, 1.43-1.46 GB across Chromium's processes at
+ * 1400x900, 1.86-1.88 GB on a retina screen, against the campaign board's
+ * 0.61 -- behind a menu column, at a zoom where no texel of a 2048 bake is
+ * ever seen. Three levers, each measured (docs/PERFORMANCE.md, "Memory"):
+ *
+ * - `quality`: at most `medium` -- no ambient occlusion, a 2048 shadow map
+ *   (the 4096 one is a 64 MiB target plus a 64 MiB depth buffer); a player
+ *   who chose `low` keeps `low`.
+ * - `maxPixelRatio: 1`: every full-screen target scales with its square, so a
+ *   retina screen's backdrop draws at its CSS size and is scaled up.
+ * - `maxTextureSize: 1024`: each 2048 bake is resampled to 1024 at load.
+ *
+ * Together, on Metal: 1.43 -> 0.98 GB at 1x, 1.86 -> 0.99 GB at 2x. The
+ * motion is kept -- this is still the live diorama, not the plate.
+ */
+export const HOST_PROFILE = { quality: 'medium', maxPixelRatio: 1, maxTextureSize: 1024 } as const;
+
+const QUALITY_RANK: Record<Quality, number> = { low: 0, medium: 1, high: 2 };
+
+/** The player's quality, capped at the host's. */
+export function hostQuality(player: Quality): Quality {
+  return QUALITY_RANK[player] <= QUALITY_RANK[HOST_PROFILE.quality] ? player : HOST_PROFILE.quality;
+}
+
+/**
  * Everything the scene host's door needs to draw `d`, bar what the host
  * supplies itself (`signal`, `onMotion`, `onCamera`): the built world, the
  * MISSION's own renderer options for this map and these settings
@@ -132,7 +159,11 @@ export function dioramaSceneOptions(d: DioramaJson, s: RendererSettings, base: s
   const w = buildDioramaWorld(d);
   return {
     sim: w.sim,
-    renderer: rendererOptionsFor(w.map, s, base),
+    renderer: {
+      ...rendererOptionsFor(w.map, { ...s, quality: hostQuality(s.quality) }, base),
+      maxPixelRatio: HOST_PROFILE.maxPixelRatio,
+      maxTextureSize: HOST_PROFILE.maxTextureSize,
+    },
     meshes: meshManifestFor(w.plan),
     decor: w.map.decor,
     elevation: w.map.elevation,
