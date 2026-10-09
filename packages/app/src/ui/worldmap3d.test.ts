@@ -297,6 +297,29 @@ describe('the town pins', () => {
     expect((s.el.querySelector('.rl-world__bearing') as HTMLElement).textContent).toBe('047°');
   });
 
+  // PA-20: a label is drawn beside its pin, not on it, so two pins that are
+  // closer than that offset plus a label's width collide even though the pin
+  // POINTS are apart. jsdom measures every label 0 wide, which is the point:
+  // all that is left is the 14 px offset and the 8 px pad, 22 px, and a pin
+  // 10 px along the same row is inside it. Falsified by hand: building the box
+  // from the pin point and the label width alone (`w: size.w`) reads 0 here.
+  it('steps a label down when a neighbour pin stands inside where it is drawn (PA-20)', async () => {
+    const s = mountScreen({});
+    await s.ready;
+    s.view().frame(
+      [
+        { id: 'tel_marum', x: 100, y: 88 },
+        { id: 'qarn_hadid', x: 110, y: 89 },
+        { id: 'umm_zeitoun', x: 600, y: 89 },
+      ],
+      0
+    );
+    const dy = (id: string): string => (s.el.querySelector(`[data-town="${id}"]`) as HTMLElement).style.getPropertyValue('--dy');
+    expect(dy('tel_marum')).toBe('0px');
+    expect(dy('qarn_hadid')).not.toBe('0px');
+    expect(dy('umm_zeitoun')).toBe('0px');
+  });
+
   it('links a playable town and labels its progress', async () => {
     const s = mountScreen({ 'campaign.completed_missions': ['beit_sahwan_breach'] });
     await s.ready;

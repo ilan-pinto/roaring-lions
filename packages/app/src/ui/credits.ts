@@ -42,6 +42,60 @@ export interface CreditsDeps {
   fetchText(url: string): Promise<string>;
 }
 
+/** A block of a licence text, as the credits screen sets it. */
+export type LicenceBlock = { kind: 'rule' } | { kind: 'head' | 'para'; text: string };
+
+/**
+ * PA-29: the OFL files are hard-wrapped at ~72 columns, and printing them in a
+ * `<pre>` left a ragged column of broken lines. This reflows them into
+ * paragraphs, sets the all-caps section titles as headings and the dashed
+ * divider as a rule. NOTHING is dropped but the divider's dashes and the line
+ * breaks: the licence text must ship whole, and `credits.test.ts` compares the
+ * words of every shipped file with what this returns.
+ *
+ * A heading is a short, all-caps FIRST line of a paragraph (the disclaimer's
+ * body is all caps too, but its lines are long and never first); "1) " starts
+ * a new paragraph even with no blank line before it.
+ */
+export function licenceBlocks(text: string): LicenceBlock[] {
+  const blocks: LicenceBlock[] = [];
+  let held: string[] = [];
+  const flush = (): void => {
+    if (held.length > 0) blocks.push({ kind: 'para', text: held.join(' ') });
+    held = [];
+  };
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line === '') {
+      flush();
+    } else if (/^-{5,}$/.test(line)) {
+      flush();
+      blocks.push({ kind: 'rule' });
+    } else if (held.length === 0 && line.length <= 32 && /[A-Z]{3}/.test(line) && line === line.toUpperCase()) {
+      blocks.push({ kind: 'head', text: line });
+    } else {
+      if (/^\d\)\s/.test(line)) flush();
+      held.push(line);
+    }
+  }
+  flush();
+  return blocks;
+}
+
+function licenceBody(into: HTMLElement, text: string): void {
+  into.replaceChildren();
+  for (const b of licenceBlocks(text)) {
+    if (b.kind === 'rule') {
+      into.appendChild(document.createElement('hr'));
+      continue;
+    }
+    const el = document.createElement(b.kind === 'head' ? 'h4' : 'p');
+    if (b.kind === 'head') el.className = 'rl-credits__licence-head';
+    el.textContent = b.text;
+    into.appendChild(el);
+  }
+}
+
 function section(body: HTMLElement, title: string): HTMLElement {
   const h = document.createElement('h3');
   h.className = 'rl-credits__section';
@@ -91,9 +145,13 @@ export function showCredits(stage: HTMLElement, deps: CreditsDeps): Disposer {
     const summary = document.createElement('summary');
     summary.textContent = t('credits.font.summary', { family: font.family, holder: font.holder });
     d.appendChild(summary);
-    const licenceBody = document.createElement('pre');
-    licenceBody.className = 'rl-credits__licence-text';
-    d.appendChild(licenceBody);
+    // A scrolling region, so a keyboard can reach it (PA-29: no longer a `<pre>`).
+    const licenceEl = document.createElement('div');
+    licenceEl.className = 'rl-credits__licence-text';
+    licenceEl.tabIndex = 0;
+    licenceEl.setAttribute('role', 'region');
+    licenceEl.setAttribute('aria-label', t('credits.font.licenceRegion', { family: font.family }));
+    d.appendChild(licenceEl);
     let loaded = false;
     summary.addEventListener('click', () => {
       if (loaded) return;
@@ -101,10 +159,10 @@ export function showCredits(stage: HTMLElement, deps: CreditsDeps): Disposer {
       deps
         .fetchText(`${deps.base}fonts/${font.licenceFile}`)
         .then((text) => {
-          licenceBody.textContent = text;
+          licenceBody(licenceEl, text);
         })
         .catch(() => {
-          licenceBody.textContent = t('credits.font.unavailable');
+          licenceEl.textContent = t('credits.font.unavailable');
         });
     });
     type.appendChild(d);
@@ -145,7 +203,7 @@ export function showCredits(stage: HTMLElement, deps: CreditsDeps): Disposer {
     li.append(line, src, lic);
     assets.appendChild(li);
   }
-  art.appendChild(assets);
+  if (CREDITS.assets.length > 0) art.appendChild(assets);
   const disclosure = document.createElement('p');
   disclosure.className = 'rl-credits__disclosure';
   disclosure.textContent = CREDITS.aiDisclosure;

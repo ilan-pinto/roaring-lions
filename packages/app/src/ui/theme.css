@@ -777,6 +777,14 @@ body {
      set from the projection every frame) never moves; only this transform,
      and with it the rendered ring and label together, does. */
   transform: translate(0.875rem, calc(-50% + var(--dy, 0px)));
+  /* PA-20: a backing plate. Type on the diorama was a halo on bare terrain,
+     which a dark rock face or a pale desert both swallowed ("Umm Zeitoun"). The
+     plate is the panel's own tokens, a little see-through so the ground still
+     reads behind it. The ring (`::after`, below) stays outside it, on the
+     point. Its size is part of what `nudgeLabels` measures, once, at placement. */
+  padding: 1px var(--s1); /* px-ok */
+  background: color-mix(in srgb, var(--panel-bg-solid) 82%, transparent);
+  border: 1px solid var(--panel-frame); /* px-ok */
   /* A pin with no projected position yet is not drawn at all -- one parked in
      the top-left corner reads as a bug rather than as "still loading". */
   opacity: 0;
@@ -2853,7 +2861,22 @@ body[data-outcome-beat] .rl-aar {
   line-height: 1;
   text-transform: uppercase;
 }
-.rl-card__callsign { color: var(--commend); font-weight: 600; }
+/* PA-28: a named veteran's name is the card's title -- the type's face and
+   size, in the commendation colour -- and the type steps back beside it. */
+.rl-card__callsign {
+  color: var(--commend);
+  font-family: var(--font-display);
+  font-size: var(--t-card);
+  font-weight: 800;
+  letter-spacing: var(--track-title);
+  line-height: 1;
+  text-transform: uppercase;
+}
+.rl-card__name--type {
+  font-size: var(--t-s);
+  font-weight: 600;
+  color: var(--ink-label);
+}
 .rl-card__record, .rl-card__replaces { font-size: var(--t-s); }
 /* Who the selected unit is shooting -- the card half of the fire link,
    beside the condition line. Hostile tone, the target's chip art. */
@@ -3628,6 +3651,8 @@ body[data-outcome-beat] .rl-aar {
    otherwise refuse to shrink below this element's own natural (tall)
    content height and defeat the `minmax(0, 1fr)` row above. */
 .rl-world__scroll { overflow-y: auto; min-height: 0; }
+/* PA-20: the status line, moved into the footer by `showCampaign` (menu.ts). */
+.rl-menu__nav > .rl-world__ledgerwrap { text-align: center; }
 /* The footer row itself. Direct-child-scoped so a plain menu screen's nav
    (no `.rl-world` sibling, not a grid row at all) is untouched. */
 .rl-menu:has(.rl-world) > .rl-menu__nav {
@@ -6882,8 +6907,8 @@ button.rl-menu__item[data-kind='aside'] {
   color: var(--ink);
 }
 .rl-credits__licence-text {
-  white-space: pre-wrap;
   font-family: var(--font-body);
+  line-height: 1.45;
   font-size: var(--t-s);
   color: var(--ink-mute);
   max-height: 16rem;
@@ -6892,6 +6917,23 @@ button.rl-menu__item[data-kind='aside'] {
   padding: var(--s2);
   background: var(--panel-bg-solid);
   border: 1px solid var(--panel-frame); /* px-ok */
+}
+/* The OFL, set as paragraphs (PA-29): the file's hard line breaks are gone,
+   its all-caps section titles are headings, its dashed divider a rule. */
+.rl-credits__licence-text p {
+  margin: 0 0 var(--s2);
+}
+.rl-credits__licence-head {
+  margin: var(--s2) 0 var(--s1);
+  font-family: var(--font-display);
+  font-size: var(--t-s);
+  letter-spacing: var(--track-label);
+  color: var(--ink);
+}
+.rl-credits__licence-text hr {
+  border: 0;
+  border-top: 1px solid var(--panel-frame); /* px-ok */
+  margin: var(--s2) 0;
 }
 .rl-credits__disclosure {
   margin-top: var(--s2);

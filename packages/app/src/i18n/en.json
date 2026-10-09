@@ -194,11 +194,11 @@
   "credits.licence": "Licence",
   "credits.licence.line": "Code: {code}. Art and data: {art}.",
   "credits.font.summary": "{family} — {holder}",
+  "credits.font.licenceRegion": "{family} licence text",
   "credits.font.unavailable": "licence text unavailable offline",
   "credits.asset.line": "“{title}” by {author} ({source}), licensed under {licence}. {use}",
   "credits.asset.sourceLabel": "Source: ",
   "credits.asset.licenceLabel": "Licence: ",
-  "credits.asset.namer.use": "Modified and recoloured for the Namer IFV’s original artwork, since replaced.",
 
   "nav.campaignMap": "campaign map",
   "nav.menu": "menu",

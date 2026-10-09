@@ -1284,6 +1284,26 @@ describe('the single-unit card', () => {
     expect(card.querySelector('.rl-card__record')).toBeNull();
   });
 
+  // PA-28: the veteran's name is the title; the type steps back.
+  it('a named veteran leads the card and its type name is the secondary line (PA-28)', () => {
+    const world = makeForce();
+    const r = clusterRig(
+      () => [world.namer],
+      { rosterEntryOf: (id) => (id === world.namer ? { type: 'inf_squad', veterancy: 1, name: 'Sela' } : undefined) },
+      world
+    );
+    const top = r.host.querySelector<HTMLElement>('.rl-card__top')!;
+    expect(top.firstElementChild?.className).toBe('rl-card__callsign');
+    expect(top.querySelector('.rl-card__name')?.classList.contains('rl-card__name--type')).toBe(true);
+  });
+
+  it('an unnamed unit keeps the type as the card title (PA-28)', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [world.namer], { rosterEntryOf: () => undefined }, world);
+    const name = r.host.querySelector('.rl-card__name')!;
+    expect(name.classList.contains('rl-card__name--type')).toBe(false);
+  });
+
   it('a fresh unit has no callsign and no record line', () => {
     const world = makeForce();
     const r = clusterRig(() => [world.namer], { rosterEntryOf: () => undefined }, world);
@@ -1441,6 +1461,28 @@ describe('the card\'s service record — whose place this is', () => {
     // A selector that stopped matching (a rename, a merge into another rule)
     // would otherwise report zero offenders forever.
     expect(found).toBe(true);
+  });
+
+  // PA-28: the veteran's name is read as the title, which is a size, and the
+  // type beside it is smaller. Falsified by hand: setting the callsign's
+  // font-size to `var(--t-s)` turns this red.
+  it('draws a veteran name at the title size and its type smaller (PA-28)', () => {
+    const css = readFileSync(resolve(process.cwd(), 'packages/app/src/ui/theme.css'), 'utf8');
+    const sizeOf = (selector: string): string | undefined => {
+      for (const rule of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        const selectors = rule[1]
+          .replace(/\/\*[\s\S]*?\*\//g, '')
+          .split(',')
+          .map((x) => x.trim());
+        if (!selectors.includes(selector)) continue;
+        const m = /font-size\s*:\s*([^;]+);/.exec(rule[2]);
+        if (m) return m[1].trim();
+      }
+      return undefined;
+    };
+    expect(sizeOf('.rl-card__callsign')).toBe('var(--t-card)');
+    expect(sizeOf('.rl-card__name')).toBe('var(--t-card)');
+    expect(sizeOf('.rl-card__name--type')).toBe('var(--t-s)');
   });
 });
 

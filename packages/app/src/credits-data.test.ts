@@ -61,19 +61,17 @@ describe('CREDITS', () => {
     const families = files.filter((f) => f.endsWith('.woff2')).map((f) => f.split('-')[0]);
     for (const fam of new Set(families)) expect(CREDITS.fonts.some((f) => f.licenceFile.toLowerCase().includes(fam.replace(/[^a-z]/gi, '').toLowerCase().slice(0, 5))), `${fam} has no credit`).toBe(true);
   });
-  it("carries each CC BY work's title, author and URIs verbatim from the licensor's own page", () => {
-    // Only one attributed work ships (the Namer sheets). Its licence page is
-    // committed beside where its source would sit; the credit must not drift
-    // from it, since a CC BY credit that misnames the work is no credit.
-    const page = readFileSync(`${ROOT}art/src/ifv_dmm08_LICENSE.html`, 'utf8');
-    const namer = CREDITS.assets.find((a) => a.source === 'BlendSwap #75225');
-    expect(namer).toBeDefined();
-    expect(page).toContain(`${namer?.title} by ${namer?.author}`);
-    expect(page).toContain(`href="${namer?.sourceUrl}"`);
-    expect(page).toContain('href="http://creativecommons.org/licenses/by/3.0"');
-    expect(namer?.licenceUrl).toBe('https://creativecommons.org/licenses/by/3.0/');
+  it("carries each credited work's title, author and use line, and credits no work that no longer ships", () => {
     const en = JSON.parse(readFileSync(`${ROOT}packages/app/src/i18n/en.json`, 'utf8')) as Record<string, string>;
     for (const a of CREDITS.assets) expect(en[a.useKey], a.useKey).toBeTruthy();
+    // PA-29 (the lead's ruling, audit L4): the Namer credit (Mutte, CC BY 3.0)
+    // was for sprite sheets deleted in A3.3; the Namer is a Meshy model now.
+    // It must not come back by accident, in the data or in the catalogue.
+    expect(CREDITS.assets.some((a) => /Mutte|BlendSwap|IFV DMM08/i.test(`${a.author} ${a.source} ${a.title}`))).toBe(false);
+    for (const [key, text] of Object.entries(en)) {
+      if (key.startsWith('credits.')) expect(text, key).not.toMatch(/sprite sheet|NAMER_|Mutte|since replaced/i);
+    }
+    expect(Object.keys(en)).not.toContain('credits.asset.namer.use');
   });
   it('states the licences the repository states', () => {
     const licence = readFileSync(`${ROOT}LICENSE`, 'utf8');

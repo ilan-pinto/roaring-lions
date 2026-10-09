@@ -2205,6 +2205,8 @@ export class Hud {
     const kit = st.side[id] === 0 ? (this.deps.kitOf?.(type.id) ?? null) : null;
     const kitted = kit !== null && kit.level !== 0;
 
+    // PA-28: a named veteran LEADS the card at the title size, and its type
+    // steps back to a smaller line beside it (`.rl-card__name--type`).
     // Callsign and service record, from the campaign roster this unit was
     // drawn from -- both absent for a fresh spawn with no history.
     const entry = this.deps.rosterEntryOf?.(id);
@@ -2333,7 +2335,7 @@ export class Hud {
       `<div class="rl-card__body">` +
       `<div class="rl-card__top">` +
       callsign +
-      `<span class="rl-card__name">${escapeHtml(type.name)}</span>` +
+      `<span class="rl-card__name${entry?.name ? ' rl-card__name--type' : ''}">${escapeHtml(type.name)}</span>` +
       (vet > 0 ? `<span class="rl-commend">${'★'.repeat(vet)}</span>` : '') +
       (kitted ? `<span class="rl-card__kit">${kitPipsHtml(kit.pips)}</span>` : '') +
       `<span class="rl-card__hp rl-dim">` +
