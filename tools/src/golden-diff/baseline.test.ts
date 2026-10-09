@@ -50,6 +50,7 @@ import {
 import { computeDiff, type DiffSummary } from './diff';
 import {
   CAPTURE_PRECONDITION_STATEMENTS,
+  HIDE_ALERT_FEED_STATEMENTS,
   PARK_POINTER_STATEMENTS,
   CAPTURE_VIEWPORT,
   RELIEF_SCENARIO,
@@ -1031,5 +1032,55 @@ describe('capture precondition: no selection, no hover (GH-186)', () => {
       const at = script.indexOf(CAPTURE_PRECONDITION_STATEMENTS);
       expect(at).toBeGreaterThan(script.lastIndexOf('.step('));
     }
+  });
+});
+
+describe('capture keeps the alert feed out of shot (repaint drift since #488)', () => {
+  /** A just-enough `document`: the statements query one selector, read one id
+   *  and append one style. Records what they did rather than faking a DOM. */
+  const fakeDocument = (hasFeed: boolean) => {
+    const appended: { id: string; textContent: string }[] = [];
+    const doc = {
+      querySelector: (sel: string) => (hasFeed && sel === '.rl-feed' ? {} : null),
+      getElementById: (id: string) => appended.find((s) => s.id === id) ?? null,
+      createElement: () => ({ id: '', textContent: '' }),
+      head: { appendChild: (el: { id: string; textContent: string }) => void appended.push(el) },
+    };
+    return { doc, appended };
+  };
+  const run = (doc: unknown): void => {
+    new Function('document', HIDE_ALERT_FEED_STATEMENTS)(doc);
+  };
+
+  it('is part of every scenario capture script, before the final step', () => {
+    for (const sc of SCENARIOS) {
+      const script = captureScript(sc);
+      const at = script.indexOf(HIDE_ALERT_FEED_STATEMENTS);
+      expect(at, `scenario "${sc.id}"`).toBeGreaterThan(-1);
+      expect(at, `scenario "${sc.id}"`).toBeLessThan(script.lastIndexOf('.step('));
+    }
+  });
+
+  it('hides .rl-feed with a display:none stylesheet, once', () => {
+    const { doc, appended } = fakeDocument(true);
+    run(doc);
+    run(doc);
+    expect(appended).toHaveLength(1);
+    expect(appended[0].textContent).toMatch(/^\.rl-feed \{ display: none !important; \}$/);
+  });
+
+  it('throws by name when the page has no .rl-feed, rather than hiding nothing', () => {
+    expect(() => run(fakeDocument(false).doc)).toThrow(/no \.rl-feed in the page/);
+  });
+
+  it('names the class the HUD actually gives its feed', () => {
+    // Read as TEXT, like `debugLayersFromRendererSourceForTone`: a rename in
+    // `ui/hud.ts` must turn this red, not leave the capture hiding nothing.
+    const hud = readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../packages/app/src/ui/hud.ts'),
+      'utf8'
+    );
+    expect(hud).toMatch(/this\.feed\.className = 'rl-feed';/);
+    expect(HIDE_ALERT_FEED_STATEMENTS).toContain(".rl-feed { display: none !important; }");
   });
 });

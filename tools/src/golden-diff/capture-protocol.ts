@@ -749,6 +749,40 @@ if (!window.__lionsCaptureFrozen) {
 }
 `.trim();
 
+/** The HUD's alert feed (`.rl-feed`, `ui/hud.ts`), taken out of every
+ *  scenario photograph. Statements, run inside `captureScript`'s async IIFE.
+ *
+ *  WHY. The feed is the one piece of chrome in shot whose content moves on the
+ *  WALL clock: a line enters on a CSS animation, dwells on a `setTimeout`
+ *  (`FEED_DWELL_MS`, 7-12 s) and leaves on a fade. Freezing the frame loop
+ *  stops none of that. Until #488 (PA-25) a sandbox ran no alert layer, so the
+ *  feed was empty in every gated scenario and it did not matter; since #488 a
+ *  sandbox fight writes lines ("2 tunnels found -- route and shafts marked"),
+ *  and between the gate's two repaint-control photographs, taken seconds
+ *  apart, a line's dwell runs out. Measured on main run 37897958966 (the #490
+ *  re-bless): repaint-control 15213 px / 1.5732 on `kitted`, 7305 / 0.2858 on
+ *  `relief`, 9713 / 0.3254 on `aftermath`, and `quiet`'s scatter tone ratio
+ *  0.6366 against its bit-identical 0.9250 -- a toggle pair contaminated by a
+ *  line leaving. No gated scenario judges the feed; the strip stays in shot.
+ *
+ *  A stylesheet, not an inline style, so a row the HUD adds or re-creates
+ *  later is hidden too; `display: none`, not `visibility`, so lines arriving
+ *  and leaving cannot reflow the column the feed heads. It THROWS when the
+ *  page has no `.rl-feed` -- a renamed class would otherwise hide nothing,
+ *  silently, and the drift would come back as "renderer noise". Idempotent
+ *  by the style's id. Capture-only: shipping code is untouched. */
+export const HIDE_ALERT_FEED_STATEMENTS = `
+if (!document.querySelector('.rl-feed')) {
+  throw new Error('capture: no .rl-feed in the page -- the alert feed moved, so the capture cannot keep it out of shot');
+}
+if (!document.getElementById('rl-capture-hide-feed')) {
+  const _s = document.createElement('style');
+  _s.id = 'rl-capture-hide-feed';
+  _s.textContent = '.rl-feed { display: none !important; }';
+  document.head.appendChild(_s);
+}
+`.trim();
+
 /** The stated precondition of every gated capture, ASSERTED rather than hoped
  *  for: nothing selected, no hostile hover, no friendly range-ring preview.
  *  Since A4 (GH-186) an HP bar draws for a damaged, selected OR hovered unit
@@ -874,6 +908,7 @@ export function captureScript(scenario: Scenario = QUIET_SCENARIO): string {
   const parkLine = scenario.mission !== undefined ? `${PARK_POINTER_STATEMENTS}\n` : '';
   return `(async () => {
 ${FREEZE_FRAME_LOOP_STATEMENTS}
+${HIDE_ALERT_FEED_STATEMENTS}
 ${gotoLine}
 ${zoomLine}${ordersLine}${parkLine}${stepLine}
 ${CAPTURE_PRECONDITION_STATEMENTS}
