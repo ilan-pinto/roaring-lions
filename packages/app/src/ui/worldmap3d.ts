@@ -476,7 +476,7 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
     cardFor.set(region.id, card);
   }
   wrap.appendChild(cards);
-  const ledgerEl = ledgerLine(ledger, world);
+  const ledgerEl = ledgerLine(ledger, world, (id) => opts.missionOf?.(id)?.name);
   (opts.statusHost ?? wrap).appendChild(ledgerEl);
 
   const point = (regionId: string | null): void => {

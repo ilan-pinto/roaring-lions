@@ -251,7 +251,7 @@ export function worldMap(opts: WorldMapOptions): HTMLElement {
   for (const region of opts.world.regions) cards.appendChild(regionCard(region, opts));
   wrap.appendChild(cards);
 
-  (opts.statusHost ?? wrap).appendChild(ledgerLine(opts.ledger, opts.world));
+  (opts.statusHost ?? wrap).appendChild(ledgerLine(opts.ledger, opts.world, (id) => opts.missionOf?.(id)?.name));
   return wrap;
 }
 
@@ -311,7 +311,14 @@ export function regionCard(
  *  bare number explains nothing. `world`, when given, adds the account of the taken
  *  (spec 2026-09-10 §4.4) as a sibling line under this one -- absent on a world that
  *  declares no `taken` count at all, the same as `hostagesAccount` itself. */
-export function ledgerLine(ledger: LedgerData, world?: ParsedWorld): HTMLElement {
+export function ledgerLine(
+  ledger: LedgerData,
+  world?: ParsedWorld,
+  /** The mission's display name for an id -- the same lookup the gate
+   *  sentences take. Without one the "worst" clause is dropped: the line
+   *  printed `worst beit_sahwan_2_foothold (88)`, an id nobody reads. */
+  missionName: (id: string) => string | undefined = () => undefined
+): HTMLElement {
   const line = el('div', 'rl-world__ledger rl-info');
   const parts: string[] = [];
 
@@ -327,7 +334,8 @@ export function ledgerLine(ledger: LedgerData, world?: ParsedWorld): HTMLElement
   const roe = campaignRoe(ledger);
   if (roe !== null) {
     parts.push(t('world.ledger.conduct', { mean: roe.mean }));
-    if (roe.worst !== null) parts.push(t('world.ledger.worst', { name: roe.worst[0], value: roe.worst[1] }));
+    const worstName = roe.worst !== null ? missionName(roe.worst[0]) : undefined;
+    if (roe.worst !== null && worstName) parts.push(t('world.ledger.worst', { name: worstName, value: roe.worst[1] }));
   }
 
   line.textContent = parts.length > 0 ? parts.join(' · ') : t('world.ledger.fresh');

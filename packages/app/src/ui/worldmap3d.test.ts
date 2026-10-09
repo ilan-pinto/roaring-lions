@@ -160,6 +160,17 @@ describe('the 3D board reads the ledger the same way the flat one does', () => {
     expect([...s.view().clickable]).toEqual(['marj']);
   });
 
+  it('names the worst mission in the ledger line by its display name, never its id', async () => {
+    const s = mountScreen(
+      { 'roe.mission_ratings': { beit_sahwan_1_recon: 20, beit_sahwan_2_foothold: 60 } },
+      { missionOf: (id) => (id === 'beit_sahwan_1_recon' ? { objectives: [], name: 'First Eyes' } : undefined) }
+    );
+    await s.ready;
+    const line = s.el.querySelector('.rl-world__ledger')?.textContent ?? '';
+    expect(line).toContain('worst First Eyes (20)');
+    expect(line).not.toContain('beit_sahwan_1_recon');
+  });
+
   it('opens the next region once its gate is met', async () => {
     // Sur and naharin used to share one gate (beit_sahwan_3_clearance), so
     // clearing it opened both at once. They now gate on different missions --

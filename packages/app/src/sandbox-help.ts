@@ -23,29 +23,48 @@ export interface UrlParam {
   blurb: string;
 }
 
+export interface SandboxFlag {
+  name: SandboxFlagName;
+  /** Console text for a developer: the boot banner and `__lions.help()`. */
+  blurb: string;
+  /** The PLAYER-facing label, as a catalogue key (`i18n/en.json`): what the
+   *  Free Play picker prints beside the checkbox. Kept in this table so it
+   *  stays the one place a flag is described -- a flag added here without a
+   *  label is a missing key in the picker's spec, not a dev blurb on screen. */
+  labelKey: string;
+}
+
 /** The opt-in sandbox extras. Each adds only what it names, so a check for
  *  one subsystem is not buried under three others. */
-export const SANDBOX_FLAGS: readonly { name: SandboxFlagName; blurb: string }[] = [
-  { name: 'roe', blurb: 'flagged no-fire ground (the map’s own, or a synthesised 4×4)' },
-  { name: 'tunnel', blurb: 'a pre-dug route + two Yahalom sapper squads to collapse it' },
-  { name: 'sur', blurb: 'the four Sarim units no mission fields' },
+export const SANDBOX_FLAGS: readonly SandboxFlag[] = [
+  { name: 'roe', blurb: 'flagged no-fire ground (the map’s own, or a synthesised 4×4)', labelKey: 'freePlay.option.roe' },
+  {
+    name: 'tunnel',
+    blurb: 'a pre-dug route + two Yahalom sapper squads to collapse it',
+    labelKey: 'freePlay.option.tunnel',
+  },
+  { name: 'sur', blurb: 'the four Sarim units no mission fields', labelKey: 'freePlay.option.sur' },
   {
     name: 'civ',
     blurb: 'a mixed crowd of eight civilians, and a refuge to shepherd them to',
+    labelKey: 'freePlay.option.civ',
   },
   {
     name: 'ditch',
     blurb: 'an anti-tank ditch cut across the axis between the two forces',
+    labelKey: 'freePlay.option.ditch',
   },
   {
     name: 'decals',
     blurb:
       'a fixed showcase of every ground mark -- craters, scorch, oil, rubble, tread and tyre -- near the friendly anchor',
+    labelKey: 'freePlay.option.decals',
   },
   {
     name: 'kit',
     blurb:
       'the sandbox force pre-kitted, level 1–3 by type -- the kit sign on the unit icons and the HUD card to walk',
+    labelKey: 'freePlay.option.kit',
   },
 ];
 

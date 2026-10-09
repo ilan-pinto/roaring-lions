@@ -666,6 +666,18 @@ export function continueTarget(
   return null;
 }
 
+/**
+ * The campaign board's "Next: <mission>" target (PA-20): the first open
+ * mission of wherever the map is live, or null once every authored mission is
+ * done -- which is when the button is not drawn. Unlike `continueTarget` it
+ * never answers with the tutorial: that is off the map, and the board's
+ * button is about the war. One walk, not two -- this IS `continueTarget` with
+ * the tutorial already behind the player.
+ */
+export function nextOperation(world: ParsedWorld, ledger: LedgerData): string | null {
+  return continueTarget(world, ledger, { id: '', done: true })?.missionId ?? null;
+}
+
 /** Idit's line under the region cards: who is still out there, and who just came home. */
 export function hostagesLine(
   account: { taken: number; recovered: number },

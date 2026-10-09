@@ -114,15 +114,20 @@ import {
   EDGE_MARGIN_PX,
   clampCamera,
   clampZoom,
+  createPanDrag,
   edgeVector,
+  isPanDragButton,
   panning,
+  planZoom,
   stepPan,
+  stepZoomGlide,
   wheelZoomFactor,
   zoomAnchor,
   type PanVelocity,
+  type ZoomGlide,
 } from './ui/camera-input';
 import { closeOpenDialog, confirmDialog, isDialogOpen } from './ui/confirm';
-import { leaveCopy } from './ui/leave-copy';
+import { leaveCopy, leaveHref } from './ui/leave-copy';
 import { closeTip } from './ui/tooltip';
 import { objectiveStatusShout } from './ui/objective-status';
 import { pauseMenu } from './ui/pause';
@@ -2806,7 +2811,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // document, and the disposer registered below is what makes that safe --
     // before it, a soft leave left the HUD, the minimap and the frame loop
     // running over whatever screen came next.
-    leave: () => req.navigate(routes.campaign()),
+    leave: () => req.navigate(leaveHref(!mission)),
     freePlay: !mission,
     openObjectives,
     // Task 9: facts only the shell has, handed to the pure priority list in
@@ -2995,7 +3000,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           confirm: leaveText.confirm,
           danger: true,
         }).answer.then((ok) => {
-          if (ok) req.navigate(routes.campaign());
+          if (ok) req.navigate(leaveHref(!mission));
         });
       },
       settings: req.settings,
@@ -4104,12 +4109,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // was populated by physical key, so removal has to match by physical key
   // too, and a delete of something never added is a harmless no-op.
   onWindow('keyup', (ev) => keys.delete(ev.key.toLowerCase()));
-  canvas.addEventListener('wheel', (ev) => {
-    ev.preventDefault();
-    // Proportional to how far the wheel turned (one mouse notch is still
-    // 1.1x): a trackpad's stream of small deltas zooms smoothly instead of
-    // stepping 10% per event.
-    const z = renderer.camera.zoom * wheelZoomFactor(ev.deltaY, ev.deltaMode);
+  /** Set the camera zoom to `z` (clamped), keeping the point under the cursor
+   *  fixed when zoom-to-cursor is on, and the view on the map. The one place a
+   *  wheel zoom lands, whether it is instant (reduced motion) or one frame of
+   *  a glide. */
+  const applyZoom = (z: number): void => {
     if (req.settings.get().controls.zoomToCursor) {
       const before = renderer.screenToWorld(lastCursor.x, lastCursor.y);
       renderer.camera.zoom = clampZoom(z);
@@ -4122,7 +4126,54 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     }
     // Zooming out near an edge would otherwise open up empty ground.
     keepOnMap();
+  };
+  /** The zoom in flight, if any (`stepZoomGlide`, eased in the frame loop). */
+  let zoomGlide: ZoomGlide | null = null;
+  canvas.addEventListener('wheel', (ev) => {
+    ev.preventDefault();
+    // Proportional to how far the wheel turned (one mouse notch is still
+    // 1.1x): a trackpad's stream of small deltas zooms smoothly instead of
+    // stepping 10% per event. A notch glides over ~150 ms; under reduced
+    // motion it lands at once.
+    const plan = planZoom(
+      zoomGlide,
+      renderer.camera.zoom,
+      wheelZoomFactor(ev.deltaY, ev.deltaMode),
+      prefersReducedMotion()
+    );
+    zoomGlide = plan.glide;
+    if (plan.glide === null) applyZoom(plan.zoom);
   });
+
+  // Middle-mouse drag grabs the ground (`createPanDrag`): position-based, so
+  // frame-rate independent, and it stops the moment the cursor does. It kills
+  // any key-pan momentum on the way in, so the two never fight.
+  const panDrag = createPanDrag();
+  canvas.addEventListener('pointerdown', (ev) => {
+    if (!isPanDragButton(ev.button)) return;
+    ev.preventDefault();
+    const p = canvasXY(ev);
+    panDrag.start(p.x, p.y);
+    panVel.right = 0;
+    panVel.down = 0;
+  });
+  // Middle-click also starts the browser's autoscroll on some platforms.
+  canvas.addEventListener('mousedown', (ev) => {
+    if (isPanDragButton(ev.button)) ev.preventDefault();
+  });
+  onWindow('pointermove', (ev) => {
+    if (!panDrag.active) return;
+    const p = canvasXY(ev);
+    const d = panDrag.move(p.x, p.y, renderer.camera.zoom);
+    if (d === null) return;
+    renderer.camera.x += d.dx;
+    renderer.camera.y += d.dy;
+    keepOnMap();
+  });
+  onWindow('pointerup', (ev) => {
+    if (isPanDragButton(ev.button)) panDrag.end();
+  });
+  onWindow('blur', () => panDrag.end());
 
   /** Where one tick's alerts land (`ui/alerts.ts` decides WHAT is worth
    *  saying; this decides WHERE it goes): the feed line, the minimap ring, the
@@ -5161,6 +5212,18 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // Pushing into an edge just stops there: the velocity left over points
       // INTO the wall and dies in its own 90 ms, so nothing slides back out.
       keepOnMap();
+    }
+    // A wheel zoom's glide (~150 ms, eased on elapsed time like the pan). The
+    // outcome beat owns the camera while it runs, so a glide in flight is
+    // dropped rather than fought with.
+    if (zoomGlide !== null) {
+      if (beat) {
+        zoomGlide = null;
+      } else {
+        const g = stepZoomGlide(zoomGlide, frameMs);
+        applyZoom(g.zoom);
+        if (g.done) zoomGlide = null;
+      }
     }
     if (beat && pose && beat.focus) {
       const c = beatCamera(beat.from, beat.focus, pose.camera);

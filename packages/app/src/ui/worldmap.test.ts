@@ -7,7 +7,7 @@ import commanderJson from '../../../../data/campaign/commander.json';
 import type { LedgerData, MissionJson } from '@lions/sim';
 import { missions } from '@lions/data';
 import { parseCommander, parseCountries, parseWorld, type CommanderData } from '../campaign';
-import { worldMap } from './worldmap';
+import { ledgerLine, worldMap } from './worldmap';
 import { showCampaign, showMenu } from './menu';
 
 const world = parseWorld(worldJson);
@@ -157,9 +157,15 @@ describe('worldMap', () => {
   });
 
   it('names the worst-rated mission, so a low rating is explainable', () => {
-    const el = render({ 'roe.mission_ratings': { beit_sahwan_1_recon: 20, beit_sahwan_2_foothold: 60 } });
-    expect(el.textContent).toContain('beit_sahwan_1_recon');
-    expect(el.textContent).toContain('40'); // the mean of 20 and 60, computed here not in the sim
+    const el = render(
+      { 'roe.mission_ratings': { beit_sahwan_1_recon: 20, beit_sahwan_2_foothold: 60 } },
+      undefined,
+      (id) => (id === 'beit_sahwan_1_recon' ? { objectives: [], name: 'First Eyes' } : undefined)
+    );
+    const line = el.querySelector('.rl-world__ledger')?.textContent ?? '';
+    expect(line).toContain('worst First Eyes (20)');
+    expect(line).not.toContain('beit_sahwan_1_recon');
+    expect(line).toContain('40'); // the mean of 20 and 60, computed here not in the sim
   });
 
   it('locks every country that has no region authored for it', () => {
@@ -305,6 +311,76 @@ describe('showCampaign', () => {
     expect(stage.querySelector('.rl-world__scroll .rl-world__ledger')).toBeNull();
     const kids = [...nav.children];
     expect(kids.indexOf(nav.querySelector('.rl-world__ledgerwrap')!)).toBeLessThan(kids.indexOf(nav.querySelector('[data-kind="back"]')!));
+  });
+});
+
+// PA-20: the board's one primary call to action. Falsified by hand: removing
+// the `if (next !== null)` guard in `showCampaign` turns the hidden-state test
+// red; pointing the href at `routes.campaign()` turns the target test red.
+describe('showCampaign: the next-operation button (PA-20)', () => {
+  const mount = (ledger: LedgerData): HTMLElement => {
+    const stage = document.createElement('div');
+    showCampaign(stage, {
+      base: '/',
+      world,
+      countries,
+      ledger,
+      missionOf: (id) => (missions as Record<string, MissionJson | undefined>)[id],
+    });
+    return stage;
+  };
+  const primary = (stage: HTMLElement): HTMLAnchorElement | null =>
+    stage.querySelector<HTMLAnchorElement>('.rl-menu__nav > [data-kind="primary"]');
+
+  it('starts the next open mission, named on the button, through the mission route', () => {
+    const ledger = { 'campaign.completed_missions': [ALL_BS[0]!] };
+    const btn = primary(mount(ledger));
+    expect(btn).not.toBeNull();
+    expect(btn?.getAttribute('href')).toBe(`/mission/${ALL_BS[1]}`);
+    expect(btn?.textContent).toBe(`Next: ${(missions as Record<string, MissionJson>)[ALL_BS[1]!]!.name}`);
+    expect(btn?.dataset.cue).toBe('confirm');
+  });
+
+  it('sits in the footer above the way back, and is the only primary on the screen', () => {
+    const stage = mount({});
+    const nav = stage.querySelector('.rl-menu__nav')!;
+    const kids = [...nav.children];
+    expect(kids.indexOf(primary(stage)!)).toBeLessThan(kids.indexOf(nav.querySelector('[data-kind="back"]')!));
+    expect(stage.querySelectorAll('[data-kind="primary"]')).toHaveLength(1);
+  });
+
+  it('is absent when nothing is open: the campaign is complete', () => {
+    const all = world.regions.flatMap((r) => r.towns).flatMap((t) => t.missions);
+    expect(primary(mount({ 'campaign.completed_missions': all }))).toBeNull();
+  });
+});
+
+// The footer's "worst <mission> (<conduct>)" read the mission's raw id
+// ("worst beit_sahwan_2_foothold (88)"). It names the mission by its display
+// name now, through the same `missionOf` the gate sentences use, and drops the
+// clause rather than print an id it cannot name.
+describe('the ledger line names the worst mission, not its id', () => {
+  const results = {
+    'roe.mission_ratings': { [ALL_BS[0]!]: 88, [ALL_BS[1]!]: 61 },
+  } as unknown as LedgerData;
+  const named = (id: string): { objectives: []; name?: string } | undefined =>
+    id === ALL_BS[1] ? { objectives: [], name: 'The Foothold' } : undefined;
+
+  it('shows the display name', () => {
+    const text = ledgerLine(results, world, (id) => named(id)?.name).textContent ?? '';
+    expect(text).toContain('worst The Foothold (61)');
+    expect(text).not.toContain(ALL_BS[1]!);
+  });
+
+  it('drops the clause, never prints an id, when the mission has no name', () => {
+    const text = ledgerLine(results, world, () => undefined).textContent ?? '';
+    expect(text).not.toContain('worst');
+    expect(text).not.toContain(ALL_BS[1]!);
+  });
+
+  it('is wired through both boards: the flat board takes the name from missionOf', () => {
+    const el = worldMap({ base: '/', world, countries, ledger: results, href: (id) => `/mission/${id}`, missionOf: named });
+    expect(el.querySelector('.rl-world__ledger, .rl-world__ledgerwrap')?.textContent).toContain('worst The Foothold (61)');
   });
 });
 

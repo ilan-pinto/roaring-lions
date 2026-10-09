@@ -1,11 +1,17 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { TILE_H, TILE_W } from '@lions/render';
 import {
   EDGE_MARGIN_PX,
+  ZOOM_GLIDE_MS,
   ZOOM_MAX,
   ZOOM_MIN,
   clampCamera,
   clampZoom,
+  createPanDrag,
+  isPanDragButton,
+  planZoom,
+  stepZoomGlide,
   edgeVector,
   panDelta,
   panning,
@@ -284,5 +290,158 @@ describe('wheelZoomFactor', () => {
     expect(wheelZoomFactor(-3, 1)).toBeCloseTo(1.1, 9);
     expect(wheelZoomFactor(-1, 2)).toBeCloseTo(1.21, 9);
     expect(wheelZoomFactor(-5000)).toBeCloseTo(1.21, 9);
+  });
+});
+
+// --- middle-mouse drag pan -----------------------------------------------------
+
+describe('middle-drag pan', () => {
+  // The oracle is the projection itself (HALF_TILE_W/H, pinned to project.ts
+  // above), written out here and not imported from the code under test: a
+  // grab-drag is right when the world point under the cursor is still under it.
+  const iso = (dx: number, dy: number, z: number): { u: number; v: number } => ({
+    u: (dx - dy) * (TILE_W / 2) * z,
+    v: (dx + dy) * (TILE_H / 2) * z,
+  });
+
+  it('only the middle button is a pan drag', () => {
+    expect(isPanDragButton(1)).toBe(true);
+    expect(isPanDragButton(0)).toBe(false); // select
+    expect(isPanDragButton(2)).toBe(false); // order
+  });
+
+  it('drags the ground with the cursor: the point under it stays under it, at every zoom', () => {
+    for (const z of [0.5, 1, 2.5]) {
+      for (const [mx, my] of [[40, 0], [0, -30], [-25, 18]] as const) {
+        const d = createPanDrag();
+        d.start(100, 100);
+        const delta = d.move(100 + mx, 100 + my, z)!;
+        // The camera moved by `delta`; the world under the cursor, seen from
+        // the new camera, must have shifted on screen by the cursor's move.
+        const seen = iso(-delta.dx, -delta.dy, z);
+        expect(seen.u).toBeCloseTo(mx, 6);
+        expect(seen.v).toBeCloseTo(my, 6);
+      }
+    }
+  });
+
+  it('moves less ground per pixel the further in you are', () => {
+    const near = createPanDrag();
+    near.start(0, 0);
+    const far = createPanDrag();
+    far.start(0, 0);
+    const a = near.move(50, 0, 2)!;
+    const b = far.move(50, 0, 1)!;
+    expect(Math.hypot(a.dx, a.dy)).toBeCloseTo(Math.hypot(b.dx, b.dy) / 2, 9);
+  });
+
+  it('is incremental: the move is from the LAST point, so a long drag adds up and stops when the cursor does', () => {
+    const d = createPanDrag();
+    d.start(0, 0);
+    const first = d.move(10, 0, 1)!;
+    const second = d.move(20, 0, 1)!;
+    expect(second.dx).toBeCloseTo(first.dx, 9);
+    expect(d.move(20, 0, 1)).toEqual({ dx: 0, dy: 0 });
+  });
+
+  it('does nothing before a start and after an end', () => {
+    const d = createPanDrag();
+    expect(d.active).toBe(false);
+    expect(d.move(5, 5, 1)).toBeNull();
+    d.start(0, 0);
+    expect(d.active).toBe(true);
+    d.end();
+    expect(d.active).toBe(false);
+    expect(d.move(5, 5, 1)).toBeNull();
+  });
+
+  // main.ts cannot be mounted in a unit test: pin the wiring as text, the way
+  // `leave-copy.test.ts` does for the leave exits.
+  it('is wired in main.ts: the pointer handlers consult isPanDragButton', () => {
+    const main = readFileSync(new URL('../main.ts', import.meta.url), 'utf8');
+    expect(main).toContain('isPanDragButton(ev.button)');
+    expect(main).toContain('panDrag.move(');
+  });
+});
+
+// --- zoom glide -------------------------------------------------------------------
+
+describe('zoom glide', () => {
+  it('eases over about 150 ms', () => {
+    expect(ZOOM_GLIDE_MS).toBeGreaterThanOrEqual(120);
+    expect(ZOOM_GLIDE_MS).toBeLessThanOrEqual(180);
+  });
+
+  it('a notch starts a glide from the CURRENT zoom to the clamped target, and applies nothing yet', () => {
+    const p = planZoom(null, 1, 1.1, false);
+    expect(p.zoom).toBe(1);
+    expect(p.glide).toEqual({ from: 1, to: 1.1, elapsedMs: 0 });
+    // Clamped like the instant path.
+    expect(planZoom(null, ZOOM_MAX, 1.1, false).glide?.to).toBe(ZOOM_MAX);
+  });
+
+  it('reduced motion is instant: the target now, no glide', () => {
+    const p = planZoom(null, 1, 1.1, true);
+    expect(p.zoom).toBeCloseTo(1.1, 12);
+    expect(p.glide).toBeNull();
+  });
+
+  it('a second notch mid-glide adds to the target, not to where the zoom happens to be', () => {
+    const first = planZoom(null, 1, 1.1, false);
+    const mid = stepZoomGlide(first.glide!, 50).zoom;
+    const second = planZoom(first.glide, mid, 1.1, false);
+    expect(second.glide?.to).toBeCloseTo(1.21, 12);
+    expect(second.glide?.from).toBe(mid);
+  });
+
+  it('lands exactly on the target after the glide time, however the frames fall', () => {
+    for (const frame of [4, 16.7, 33, 100]) {
+      const g = planZoom(null, 1, 1.5, false).glide!;
+      let z = 1;
+      let done = false;
+      for (let t = 0; t < 400 && !done; t += frame) ({ zoom: z, done } = stepZoomGlide(g, frame));
+      expect(done, `${frame} ms frames`).toBe(true);
+      expect(z).toBe(1.5);
+    }
+  });
+
+  it('is the same curve at 60 Hz and 144 Hz: equal zoom at equal elapsed time', () => {
+    const at = (frame: number): number => {
+      const g = planZoom(null, 1, 2, false).glide!;
+      let z = 1;
+      for (let t = 0; t < 72; t += frame) z = stepZoomGlide(g, frame).zoom;
+      return z;
+    };
+    // 72 ms is a whole number of 12 ms and 6 ms frames.
+    expect(at(12)).toBeCloseTo(at(6), 9);
+  });
+
+  it('eases out: most of the move is made early, and it never overshoots', () => {
+    const g = planZoom(null, 1, 2, false).glide!;
+    const half = stepZoomGlide(g, ZOOM_GLIDE_MS / 2).zoom;
+    expect(half).toBeGreaterThan(1.5);
+    let prev = half;
+    for (let i = 0; i < 20; i++) {
+      const z = stepZoomGlide(g, 8).zoom;
+      expect(z).toBeGreaterThanOrEqual(prev);
+      expect(z).toBeLessThanOrEqual(2);
+      prev = z;
+    }
+  });
+
+  it('zooming out glides down the same way', () => {
+    const g = planZoom(null, 2, 1 / 2, false).glide!;
+    expect(stepZoomGlide(g, 40).zoom).toBeLessThan(2);
+    stepZoomGlide(g, 100);
+    expect(stepZoomGlide(g, 100).zoom).toBe(1);
+  });
+
+  it('is wired in main.ts: the wheel plans through planZoom with the reduced-motion preference', () => {
+    const main = readFileSync(new URL('../main.ts', import.meta.url), 'utf8');
+    expect(main).toMatch(/planZoom\([\s\S]*?prefersReducedMotion\(\)\s*\)/);
+    // The frame loop is what plays the glide: gate, step, apply.
+    expect(main).toContain('if (zoomGlide !== null) {');
+    expect(main).toContain('stepZoomGlide(zoomGlide, frameMs)');
+    expect(main).toContain('applyZoom(g.zoom)');
   });
 });
