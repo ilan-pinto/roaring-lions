@@ -165,6 +165,12 @@ export const BITMAP_FLOOR_MIB = 16;
 // bitmap ceiling 649 -> 161 (140 x 1.15). Reverting either saving fails it:
 // on Metal, saving 1 reverted reads 488-552 at the missions, saving 2
 // reverted 500-564.
+// GH-469 saving 3 (a lighter live menu backdrop), measured COMBINED with
+// savings 1 and 2: CI n=1 (run 37880172368) the menu's GPU ledger 522.1 ->
+// 230.8 MiB on every menu reading, process menu <= 1124.5, board 661.4,
+// mission <= 2010.6; Metal n=3 menu-kind <= 1394.1, board 529.5, mission <=
+// 2303.2. Menu GPU 601 -> 266 (230.8 x 1.15) -- the lock, since main's 522
+// fails it -- and the process ceilings x 1.25, only lowered.
 export const MEMORY_BUDGETS: Readonly<Record<string, MemoryBudget>> = {
   // CI's `memory` job. ubuntu-latest, ANGLE/SwiftShader, 1400x900 @1x, dev
   // server, n=4 walks on four runners (2026-10-08, run 37826952688: the
@@ -176,8 +182,8 @@ export const MEMORY_BUDGETS: Readonly<Record<string, MemoryBudget>> = {
   // mission process total of 2946.7. Leak percentages are about twice the
   // largest measured, rounded up to 5.
   'linux-x64-swiftshader': {
-    conditions: 'linux-x64-swiftshader: ubuntu-latest, SwiftShader, 1400x900 @1x, dev server, n=4 (process and bitmaps re-measured at GH-469 savings 1+2: CI n=1, Metal n=3), margins JS x1.25 GPU x1.15 process x1.25 bitmaps x1.15',
-    menu: { jsTotalMiB: 75, gpuMiB: 601, processMiB: 1747, bitmapsMiB: 16 },
+    conditions: 'linux-x64-swiftshader: ubuntu-latest, SwiftShader, 1400x900 @1x, dev server, n=4 (process and bitmaps re-measured at GH-469 savings 1+2+3: CI n=1, Metal n=3), margins JS x1.25 GPU x1.15 process x1.25 bitmaps x1.15',
+    menu: { jsTotalMiB: 75, gpuMiB: 266, processMiB: 1406, bitmapsMiB: 16 },
     board: { jsTotalMiB: 40, gpuMiB: 159, processMiB: 810, bitmapsMiB: 16 },
     mission: { jsTotalMiB: 157, gpuMiB: 1015, processMiB: 2511, bitmapsMiB: 161 },
     leak: { jsOverMenuPct: 20, gpuOverMenuPct: 2, maxRetainedLostContexts: 0, maxExtraNodes: 50 },
@@ -188,10 +194,10 @@ export const MEMORY_BUDGETS: Readonly<Record<string, MemoryBudget>> = {
   // 882.2 / 3207.3 MiB; after-leave JS +14.6% and GPU +0.0% over the menu,
   // DOM nodes +0.
   'darwin-arm64-metal': {
-    conditions: 'darwin-arm64-metal: M3 Pro, ANGLE/Metal, 1400x900 @1x, dev server, n=4 (process and bitmaps re-measured at GH-469 savings 1+2: CI n=1, Metal n=3), margins JS x1.25 GPU x1.15 process x1.25 bitmaps x1.15',
-    menu: { jsTotalMiB: 79, gpuMiB: 601, processMiB: 2100, bitmapsMiB: 16 },
-    board: { jsTotalMiB: 40, gpuMiB: 159, processMiB: 683, bitmapsMiB: 16 },
-    mission: { jsTotalMiB: 162, gpuMiB: 1015, processMiB: 2933, bitmapsMiB: 161 },
+    conditions: 'darwin-arm64-metal: M3 Pro, ANGLE/Metal, 1400x900 @1x, dev server, n=4 (process and bitmaps re-measured at GH-469 savings 1+2+3: CI n=1, Metal n=3), margins JS x1.25 GPU x1.15 process x1.25 bitmaps x1.15',
+    menu: { jsTotalMiB: 79, gpuMiB: 266, processMiB: 1743, bitmapsMiB: 16 },
+    board: { jsTotalMiB: 40, gpuMiB: 159, processMiB: 662, bitmapsMiB: 16 },
+    mission: { jsTotalMiB: 162, gpuMiB: 1015, processMiB: 2880, bitmapsMiB: 161 },
     leak: { jsOverMenuPct: 30, gpuOverMenuPct: 2, maxRetainedLostContexts: 0, maxExtraNodes: 50 },
   },
 };
