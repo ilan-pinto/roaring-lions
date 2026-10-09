@@ -263,7 +263,7 @@ import {
   possibleStars,
 } from './campaign';
 import { commanderPortraitUrl } from './portrait-catalogue';
-import { browserLedgerStore, newCampaign, type CampaignLedger, type LostRecord } from './ledger-store';
+import { browserLedgerStore, newCampaign, writeVictory, type CampaignLedger, type LostRecord } from './ledger-store';
 import { showSaves, type SavesDeps } from './ui/saves';
 import { showCredits, type CreditsDeps } from './ui/credits';
 import { LOCALES, applyLocale, loadLocale } from './i18n/locales';
@@ -4320,16 +4320,6 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // per-campaign record against the ledger's completed missions, and after
             // the write this very victory would count as already won this campaign.
             const accountBefore = ledgerStore.readAccount();
-            // Pass K: a refused write (storage full, site data blocked) used to
-            // throw out of this handler and take the end screen with it, and a
-            // browser with no storage at all was still told "campaign saved".
-            let ledgerSaved = ledgerStore.available;
-            try {
-              ledgerStore.writeLedger(updatedLedger);
-            } catch (err) {
-              console.error('campaign ledger write refused:', err);
-              ledgerSaved = false;
-            }
             // The brigade account (spec 2026-09-15 §4.2): what this run is worth, paid
             // only for improvement over what this mission has paid IN THIS CAMPAIGN
             // (GH-330; a mission not open in the campaign the run booted in is held to
@@ -4346,8 +4336,17 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               payout = missionId
                 ? payVictory(accountBefore, parseWorld(world), missionId, ledger, runValue, Date.now())
                 : null;
-              if (payout) ledgerStore.writeAccount(payout.account);
-              if (payout) telemetry().account('payout', payout.account, { mission: mission.id, paid: payout.paid });
+            }
+            // Pass K: a refused write (storage full, site data blocked) used to
+            // throw out of this handler and take the end screen with it, and a
+            // browser with no storage at all was still told "campaign saved".
+            // Save reliability (keyboard-and-saves): the ledger and the account
+            // are now ONE write -- `writeVictory` puts both back on a refusal --
+            // because the account write was outside that guard, and a refused one
+            // still threw after the ledger had recorded the win.
+            const ledgerSaved = writeVictory(ledgerStore, updatedLedger, payout ? payout.account : null) === 'saved';
+            if (payout && ledgerSaved) {
+              telemetry().account('payout', payout.account, { mission: mission.id, paid: payout.paid });
             }
             hud.note(...ledgerSavedNotice(ledgerSaved));
           }

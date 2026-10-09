@@ -48,37 +48,51 @@ export function readActive(store: LedgerStore): ActiveState {
 }
 
 /**
- * Write a slot's three keys back over the ACTIVE campaign.
+ * The one coded reason a LOAD can leave the campaign mixed: the browser
+ * refused one of the three writes AND refused putting the old campaign back.
+ * A catalogue key, like `SAVE_ERROR_NOT_A_SAVE` below and for the same reason.
+ */
+export const SAVE_ERROR_LOAD_MIXED = 'saves.error.storage.loadMixed';
+
+/**
+ * Write a slot's three keys back over the ACTIVE campaign -- all three, or
+ * none of them.
  *
- * Order, which is the accepted failure mode rather than an accident: ledger,
- * then account, then the tutorial flag. There is no transaction available here
- * -- `Storage` offers one `setItem` at a time -- so a `QuotaExceededError` (or
- * a Safari private-window write refusal) partway down leaves the ACTIVE state
- * half written: a ledger married to the previous brigade account, which is
- * precisely the corruption this module's own header says two stores exist to
- * prevent. Ledger first is the deliberate choice, because the ledger is the
- * larger of the two payloads and therefore the likelier one to be refused, so
- * the common quota failure happens before anything has changed at all.
+ * `Storage` offers one `setItem` at a time and no transaction, so a
+ * `QuotaExceededError` (or a Safari private-window refusal) partway down used
+ * to leave the ACTIVE state half written: a ledger married to the previous
+ * brigade account, which is precisely the corruption this module's own header
+ * says two stores exist to prevent -- and `ui/saves.ts` could only tell the
+ * player "your campaign may be mixed" (save reliability walk,
+ * polish/keyboard-and-saves). Now the door's own byte snapshot is taken first
+ * and put back on any refusal, and the ORIGINAL error is rethrown: the load
+ * failed and nothing changed. Putting back what was stored before cannot need
+ * more room than it had, so the restore is expected to succeed; if it is
+ * refused too, `SAVE_ERROR_LOAD_MIXED` is thrown instead, and that is the one
+ * case the player is told the campaign may be mixed.
  *
- * I2 (final review): this throws rather than swallowing, and every caller is
- * expected to say so out loud -- `ui/saves.ts` catches and routes the message
- * through its `role="status"` line. A silent half-write that re-renders as if
- * it had succeeded is the one way "a save slot round-trips the ledger
- * byte-for-byte" can be false with nothing on screen to say so.
+ * Ledger first is kept: it is the larger payload and the likelier refusal,
+ * so the common case fails before anything has changed at all.
  *
- * `LedgerStore` does NOT relax that. An UNAVAILABLE store (no durable storage
- * at all -- `available: false`) writes nothing here and throws nothing, which
- * is a different case entirely: nothing is half written because nothing is
- * written, and the saves screen is not reachable in that state anyway
- * (`main.ts`'s `mountSaves` refuses it). A store that accepts writes and
- * REFUSES one partway down -- a quota, a private-window refusal -- still
- * throws out of here, exactly as before, and that is the case this comment is
- * about. The door must never conflate the two.
+ * An UNAVAILABLE store (`available: false`) writes nothing and throws
+ * nothing, which is a different case entirely: nothing is half written
+ * because nothing is written, and the saves screen is not reachable in that
+ * state anyway (`main.ts`'s `mountSaves` refuses it).
  */
 export function writeActive(store: LedgerStore, s: ActiveState): void {
-  store.writeLedger(s.ledger);
-  store.writeAccount(s.account);
-  store.setTutorialDone(s.tutorialDone);
+  const before = store.snapshotCampaign();
+  try {
+    store.writeLedger(s.ledger);
+    store.writeAccount(s.account);
+    store.setTutorialDone(s.tutorialDone);
+  } catch (err) {
+    try {
+      store.restoreCampaign(before);
+    } catch {
+      throw new Error(SAVE_ERROR_LOAD_MIXED);
+    }
+    throw err;
+  }
 }
 
 /**
