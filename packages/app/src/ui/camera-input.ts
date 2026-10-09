@@ -260,3 +260,94 @@ export function zoomAnchor(
 ): { x: number; y: number } {
   return { x: cam.x + (before.x - after.x), y: cam.y + (before.y - after.y) };
 }
+
+// --- middle-mouse drag pan ---------------------------------------------------
+
+/** The middle button grabs the ground. Not the left (select) or right
+ *  (order): both already mean something on the map. */
+export function isPanDragButton(button: number): boolean {
+  return button === 1;
+}
+
+export interface PanDrag {
+  readonly active: boolean;
+  start(x: number, y: number): void;
+  /** The world-tile camera delta for a pointer now at `(x, y)` canvas px, from
+   *  the LAST point seen, at the camera's `zoom`; null while no drag is on. */
+  move(x: number, y: number, zoom: number): { dx: number; dy: number } | null;
+  end(): void;
+}
+
+/**
+ * A grab-drag: the ground follows the cursor, so the world point under it
+ * stays under it. Position-based -- each move is the pointer's travel since
+ * the last one -- so it is frame-rate independent by construction and has no
+ * momentum to coast (the eased `stepPan` is for keys and edges, which have no
+ * pointer to follow). The pixel travel is inverted through the dimetric
+ * projection (screen u = (x - y) * 32 z, v = (x + y) * 16 z) and negated:
+ * dragging right pulls the world right, so the camera moves left.
+ */
+export function createPanDrag(): PanDrag {
+  let last: { x: number; y: number } | null = null;
+  return {
+    get active() {
+      return last !== null;
+    },
+    start(x, y) {
+      last = { x, y };
+    },
+    move(x, y, zoom) {
+      if (last === null) return null;
+      const du = x - last.x;
+      const dv = y - last.y;
+      last = { x, y };
+      const gx = du / (HALF_TILE_W * zoom);
+      const gy = dv / (HALF_TILE_H * zoom);
+      // Inverse of u = (dx - dy) W z, v = (dx + dy) H z, then negated.
+      // `0 -` and not a unary minus: a still pointer is +0, not -0.
+      return { dx: 0 - (gx + gy) / 2, dy: 0 - (gy - gx) / 2 };
+    },
+    end() {
+      last = null;
+    },
+  };
+}
+
+// --- zoom glide ----------------------------------------------------------------
+
+/** A zoom step eases over this long (the polish plan's "~150 ms"). */
+export const ZOOM_GLIDE_MS = 150;
+
+export interface ZoomGlide {
+  from: number;
+  to: number;
+  elapsedMs: number;
+}
+
+/**
+ * What one wheel notch of `factor` does. Under reduced motion the zoom is the
+ * target now and there is no glide. Otherwise it starts (or retargets) a glide
+ * from where the zoom is NOW: the target accumulates from the glide's own
+ * target, not from its current value, so several notches in quick succession
+ * add up to what the same notches did when zoom was a step.
+ */
+export function planZoom(
+  prev: ZoomGlide | null,
+  current: number,
+  factor: number,
+  reducedMotion: boolean
+): { zoom: number; glide: ZoomGlide | null } {
+  const to = clampZoom((prev !== null ? prev.to : current) * factor);
+  if (reducedMotion) return { zoom: to, glide: null };
+  return { zoom: current, glide: { from: current, to, elapsedMs: 0 } };
+}
+
+/** Advance a glide by a frame (`g` mutated): the eased zoom, and whether it
+ *  has arrived. Ease-out cubic on elapsed TIME, so the curve is the same at
+ *  60 and 144 Hz, and the last step lands exactly on `to`. */
+export function stepZoomGlide(g: ZoomGlide, dtMs: number): { zoom: number; done: boolean } {
+  g.elapsedMs += Math.max(0, Math.min(PAN_MAX_DT_MS, dtMs));
+  if (g.elapsedMs >= ZOOM_GLIDE_MS) return { zoom: g.to, done: true };
+  const k = 1 - Math.pow(1 - g.elapsedMs / ZOOM_GLIDE_MS, 3);
+  return { zoom: g.from + (g.to - g.from) * k, done: false };
+}

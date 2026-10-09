@@ -6,9 +6,10 @@ import type { LedgerData } from '@lions/sim';
 // and the whole point of this screen is that adding a map to `data/maps/`
 // makes it playable from the UI with no edit here. `terrain-parity.test.ts`
 // takes `Object.keys(maps)` the same way, for the same reason.
-import { maps, type MapJson } from '@lions/data';
-import type { CommanderData, ParsedWorld, WorldCountry } from '../campaign';
-import { t } from '../i18n/t';
+import { maps, parseMap, type MapJson } from '@lions/data';
+import { campaignComplete } from '../campaign-close';
+import { nextOperation, type CommanderData, type ParsedWorld, type WorldCountry } from '../campaign';
+import { hasKey, t } from '../i18n/t';
 import { symbolLabel } from './symbol';
 import { CAMPAIGN_MESHES, dracoDecoderPath, meshUrl } from '../mesh-catalogue';
 import { SANDBOX_FLAGS, type SandboxFlagName } from '../sandbox-help';
@@ -20,6 +21,8 @@ import { wordmark } from './mark';
 import { worldMap } from './worldmap';
 import { worldMap3d } from './worldmap3d';
 import { markConfirm } from './confirm-cue';
+import { paintMapTerrain } from './map-preview';
+import { terrainTonesFor } from '../terrain-themes';
 
 export interface MenuOptions {
   /** Deploy base ('/' locally, '/<repo>/' on Pages). */
@@ -340,6 +343,24 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
   boardEl.prepend(wordmarkEl, theatre);
   wrap.appendChild(boardEl);
 
+  // PA-20: the board's one primary call to action -- the next open mission, a
+  // real anchor to the mission route so it soft-navigates like every other
+  // link (`interceptLinks`) and middle-click still works. Not drawn once the
+  // campaign is complete: there is no next operation to name.
+  // "Complete" is `campaign-close.ts`'s one definition (the board's closing
+  // line reads it too); this adds no second one.
+  const nextId = campaignComplete(opts.world, opts.ledger) ? null : nextOperation(opts.world, opts.ledger);
+  if (nextId !== null) {
+    const nextName = opts.missionOf?.(nextId)?.name;
+    const next = document.createElement('a');
+    next.textContent = nextName !== undefined ? t('campaign.next.label', { name: nextName }) : t('campaign.next.generic');
+    next.href = routes.mission(nextId);
+    next.className = 'rl-btn rl-menu__item';
+    next.dataset.kind = 'primary';
+    markConfirm(next);
+    nav.appendChild(next);
+  }
+
   const back = document.createElement('a');
   back.innerHTML = symbolLabel('back', t('nav.backToMenu'));
   back.href = routes.menu();
@@ -388,23 +409,24 @@ export function showSandbox(stage: HTMLElement): Disposer {
   theatre.textContent = t('menu.sandbox.title');
   wrap.appendChild(theatre);
 
-  // --- the extras ---------------------------------------------------------
-  // Behind a closed "Developer options" disclosure (WP-P2, PA-25): these are
-  // test set-ups for the battlefield, not part of the mode a player came
-  // for, so the picker opens on the maps alone. Each option reads in a
-  // player's words through the catalogue (`freePlay.option.<flag>`); the
-  // console banner keeps `SANDBOX_FLAGS`' own dev blurbs.
+  // --- the options --------------------------------------------------------
+  // Behind a closed "Options" disclosure, one quiet line ABOVE the maps
+  // (PA-25): extras for the battlefield, not part of the mode a player came
+  // for, so the picker opens on the maps alone -- but above them, because
+  // under thirty-odd cards it would be a control nobody finds. Each reads as a plain sentence -- the label the
+  // flag table itself names (`SANDBOX_FLAGS[].labelKey`); the console banner
+  // keeps its own dev blurbs.
   const dev = document.createElement('details');
   dev.className = 'rl-sandbox__dev';
   const devSummary = document.createElement('summary');
   devSummary.className = 'rl-sandbox__dev-summary';
-  devSummary.textContent = t('menu.sandbox.devOptions');
+  devSummary.textContent = t('menu.sandbox.options');
   dev.appendChild(devSummary);
   const flagBox = document.createElement('div');
   flagBox.className = 'rl-sandbox__flags';
   const devHint = document.createElement('p');
   devHint.className = 'rl-sandbox__dev-hint';
-  devHint.textContent = t('menu.sandbox.devOptions.hint');
+  devHint.textContent = t('menu.sandbox.options.hint');
   flagBox.appendChild(devHint);
   const boxes: { name: SandboxFlagName; input: HTMLInputElement }[] = [];
   for (const f of SANDBOX_FLAGS) {
@@ -416,12 +438,9 @@ export function showSandbox(stage: HTMLElement): Disposer {
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.dataset.flag = f.name;
-    // A player's sentence from the catalogue, not `SANDBOX_FLAGS`' own blurb:
-    // that one is console text for a developer ("a synthesised 4×4", "the
-    // kit sign ... to walk") and read as a dev build on this screen (PA-01).
     const blurb = document.createElement('span');
     blurb.className = 'rl-sandbox__blurb';
-    blurb.textContent = t(`freePlay.option.${f.name}`);
+    blurb.textContent = t(f.labelKey);
     label.append(input, blurb);
     flagBox.appendChild(label);
     boxes.push({ name: f.name, input });
@@ -430,19 +449,42 @@ export function showSandbox(stage: HTMLElement): Disposer {
   wrap.appendChild(dev);
 
   // --- the maps -----------------------------------------------------------
+  // The primary choice (PA-25): one CARD a map -- its name, one line of what
+  // the ground is, and the ground itself painted a pixel a tile -- rather than
+  // a button label. The line is a catalogue string keyed by the map's id
+  // (`freePlay.map.<id>`, a spec holds every shipped map to one), and the
+  // picture is `paintMapTerrain`, the deploy screen's own painter, which is
+  // simply absent where there is no canvas. The cards stay real anchors with
+  // real hrefs, rewritten as the option boxes below change, so middle-click,
+  // copy-link and the browser's own history all behave.
   const nav = document.createElement('nav');
-  nav.className = 'rl-menu__nav';
+  nav.className = 'rl-menu__nav rl-mapcards';
   const catalogue = maps as Record<string, MapJson>;
   const links: { id: string; a: HTMLAnchorElement }[] = [];
   for (const id of Object.keys(catalogue)) {
     const a = document.createElement('a');
-    a.className = 'rl-btn rl-menu__item';
+    a.className = 'rl-btn rl-menu__item rl-mapcard';
     a.dataset.kind = 'sandbox';
     a.dataset.map = id;
+    const preview = mapPreviewCanvas(catalogue[id]);
+    if (preview) a.appendChild(preview);
+    const text = document.createElement('span');
+    text.className = 'rl-mapcard__text';
     // The name alone -- no id alongside it. The route carries the id and the
     // boot banner still lists it for a dev reading the console, but a player
     // clicking this card has no use for it and it read as leaked plumbing.
-    a.textContent = catalogue[id].name;
+    const name = document.createElement('span');
+    name.className = 'rl-mapcard__name';
+    name.textContent = catalogue[id].name;
+    text.appendChild(name);
+    const descKey = `freePlay.map.${id}`;
+    if (hasKey(descKey)) {
+      const desc = document.createElement('span');
+      desc.className = 'rl-mapcard__desc';
+      desc.textContent = t(descKey);
+      text.appendChild(desc);
+    }
+    a.appendChild(text);
     nav.appendChild(a);
     links.push({ id, a });
   }
@@ -471,3 +513,15 @@ export function showSandbox(stage: HTMLElement): Disposer {
   return () => wrap.remove();
 }
 
+
+/** A map's card picture: the ground painted a pixel a tile, in the tones the
+ *  battlefield itself draws with. Null where there is no 2D canvas -- the card
+ *  then reads and launches exactly the same without it. */
+function mapPreviewCanvas(json: MapJson): HTMLCanvasElement | null {
+  const parsed = parseMap(json);
+  const canvas = paintMapTerrain(parsed, terrainTonesFor(parsed));
+  if (canvas === null) return null;
+  canvas.className = 'rl-mapcard__preview';
+  canvas.setAttribute('aria-hidden', 'true');
+  return canvas;
+}
