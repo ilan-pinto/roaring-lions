@@ -19,8 +19,18 @@
  *    past -- and they do not start their cooldowns.
  *  - HOLD: for `hold_s` after a line spoke, anything of LOWER priority stays
  *    quiet, so a unit-lost call never talks over an objective call.
+ *
+ * And one of its own (AU-5, audio plan §5.1): unit-lost calls COALESCE over
+ * `UNIT_LOST_COALESCE_MS`. The first loss opens a window; every loss inside it
+ * adds to one count; when the window closes the count competes as one
+ * `unit_lost` input, so a salvo that kills across three ticks is one call
+ * with the whole count, not a call for the first tick and silence for the
+ * rest. A count that meets its cooldown or a higher call's hold WAITS (it is
+ * still news), and is dropped only once it is `UNIT_LOST_STALE_MS` old -- the
+ * feed has carried every loss all along. The window is a clock read on the
+ * next call, never a timer: the runtime asks every mission tick.
  */
-import type { AnnouncementDef, AnnouncementManifest } from '@lions/render';
+import type { AnnouncementDef, AnnouncementManifest, VoicePriority } from '@lions/render';
 import type { MissionEvent } from '@lions/sim';
 import type { VoiceCue } from './director';
 
@@ -50,13 +60,37 @@ export interface AnnounceState {
   readonly spoke: Readonly<Record<string, number>>;
   /** The line currently holding the floor, if any. */
   readonly hold: { readonly rank: number; readonly untilMs: number } | null;
+  /** AU-5: the losses gathered since the first one in the open window.
+   *  Optional, so a state built before the rule reads as none pending. */
+  readonly lost?: { readonly n: number; readonly sinceMs: number } | null;
 }
 
-export const INITIAL_ANNOUNCE: AnnounceState = Object.freeze({ spoke: Object.freeze({}), hold: null });
+export const INITIAL_ANNOUNCE: AnnounceState = Object.freeze({ spoke: Object.freeze({}), hold: null, lost: null });
 
 export const ANNOUNCE_RANK: Readonly<Record<AnnouncementDef['priority'], number>> = { high: 3, normal: 2, low: 1 };
 
-export type AnnounceWhy = 'line' | 'silent:cooldown' | 'silent:outranked' | 'silent:held' | 'silent:unknown';
+/** AU-5: the manifest's priority as a rung of the voice ladder (`VOICE_RANK`). */
+export const ANNOUNCE_VOICE_PRIORITY: Readonly<Record<AnnouncementDef['priority'], VoicePriority>> = {
+  high: 'announce_high',
+  normal: 'announce',
+  low: 'announce_low',
+};
+
+/** AU-5: losses within this long of the first are one call (audio plan §5.1). */
+export const UNIT_LOST_COALESCE_MS = 2000;
+/** AU-5: a gathered count older than this is no longer said. */
+export const UNIT_LOST_STALE_MS = 8000;
+
+export type AnnounceWhy =
+  | 'line'
+  | 'silent:cooldown'
+  | 'silent:outranked'
+  | 'silent:held'
+  | 'silent:unknown'
+  /** AU-5: a loss gathered into the open window, said when it closes. */
+  | 'pending:coalesce'
+  /** AU-5: a gathered count that waited too long to be said. */
+  | 'silent:stale';
 
 export interface AnnounceNote {
   event: AnnounceEventId;
@@ -90,10 +124,18 @@ export function announceInputsOf(events: readonly MissionEvent[], labelOf: (obje
   return out;
 }
 
+/** AU-5: is a gathered loss count waiting to be said? The runtime asks the
+ *  announcer on a quiet tick only when this is true. */
+export function hasPendingAnnouncement(s: AnnounceState): boolean {
+  return s.lost !== undefined && s.lost !== null;
+}
+
 /**
  * Decide this tick's announcement: at most one. `inputs` may name several
  * events; the highest-priority one that is off cooldown and not held down
- * speaks (first wins a tie, in the order given).
+ * speaks (first wins a tie, in the order given). A `unit_lost` input does not
+ * compete directly: it joins the coalescing window (see the file header), and
+ * the window's count competes once it closes.
  */
 export function decideAnnouncements(
   s: AnnounceState,
@@ -106,7 +148,32 @@ export function decideAnnouncements(
   let best: { input: AnnounceInput; def: AnnouncementDef; rank: number } | null = null;
   const held = s.hold !== null && nowMs < s.hold.untilMs ? s.hold.rank : 0;
 
+  // AU-5: gather this call's losses into the window, then let a closed
+  // window's count compete as one input.
+  let lost = s.lost ?? null;
+  const competing: AnnounceInput[] = [];
   for (const input of inputs) {
+    if (input.event !== 'unit_lost') {
+      competing.push(input);
+      continue;
+    }
+    const n = typeof input.params?.n === 'number' ? input.params.n : 1;
+    lost = lost === null ? { n, sinceMs: nowMs } : { n: lost.n + n, sinceMs: lost.sinceMs };
+  }
+  let lostInput: AnnounceInput | null = null;
+  if (lost !== null) {
+    if (nowMs - lost.sinceMs >= UNIT_LOST_STALE_MS) {
+      notes.push({ event: 'unit_lost', why: 'silent:stale', cue: null });
+      lost = null;
+    } else if (nowMs - lost.sinceMs >= UNIT_LOST_COALESCE_MS) {
+      lostInput = { event: 'unit_lost', params: { n: lost.n } };
+      competing.push(lostInput);
+    } else if (inputs.some((i) => i.event === 'unit_lost')) {
+      notes.push({ event: 'unit_lost', why: 'pending:coalesce', cue: null });
+    }
+  }
+
+  for (const input of competing) {
     const def = Object.prototype.hasOwnProperty.call(table.events, input.event) ? table.events[input.event] : undefined;
     if (!def) {
       notes.push({ event: input.event, why: 'silent:unknown', cue: null });
@@ -128,14 +195,19 @@ export function decideAnnouncements(
       notes.push({ event: input.event, why: 'silent:outranked', cue: null });
     }
   }
-  if (best === null) return { state: s, notes, cue: null };
+  // A closed window that did not speak keeps its count (it waits out a
+  // cooldown or a hold) unless the table does not know the event at all.
+  const lostKept =
+    lost !== null && lostInput !== null && best?.input !== lostInput && Object.prototype.hasOwnProperty.call(table.events, 'unit_lost');
+  const lostAfter = lostInput === null ? lost : lostKept ? lost : null;
+  if (best === null) return { state: { ...s, lost: lostAfter }, notes, cue: null };
 
   const cue: AnnounceCue = {
     key: best.def.audio,
     lang,
     speaker: 'infantry',
     trigger: 'announce',
-    priority: 'announce',
+    priority: ANNOUNCE_VOICE_PRIORITY[best.def.priority],
     at: null,
     caption: best.def.caption,
     captionParams: best.input.params ?? {},
@@ -144,6 +216,7 @@ export function decideAnnouncements(
   const state: AnnounceState = {
     spoke: { ...s.spoke, [best.input.event]: nowMs },
     hold: { rank: best.rank, untilMs: nowMs + table.hold_s * 1000 },
+    lost: lostAfter,
   };
   notes.push({ event: best.input.event, why: 'line', cue });
   return { state, notes, cue };

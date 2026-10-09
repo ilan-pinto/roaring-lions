@@ -1277,6 +1277,12 @@ export class Hud {
     this.captionBox.show(text, seconds);
   }
 
+  /** AU-5: take the caption down now -- the line it belonged to was cut
+   *  short, or the mission's verdict landed. Idempotent. */
+  clearCaption(): void {
+    this.captionBox.clear();
+  }
+
   /**
    * Stand the big end-of-mission banner down for good (final review of
    * shell-upgrade Phase 3, ruling 9). `main.ts` calls this when it mounts the
