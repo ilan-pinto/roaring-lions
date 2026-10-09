@@ -107,6 +107,7 @@ import { ReplayRecorder } from './feedback/replay';
 import { afterAction, promotionsBetween } from './ui/after-action';
 import { livingHostiles } from './ui/withdrew';
 import { outcomeMoment, outcomeMomentOptions } from './ui/outcome-moment';
+import { beatCamera, beatFocus, beatPose, beatThenReport, hideForBeat, type BeatCamera } from './ui/outcome-beat';
 import { showSettings, type SettingsDeps } from './ui/settings-panel';
 import { keymapRows } from './ui/settings-keymap';
 import {
@@ -2453,6 +2454,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // accumulator is fed, never the tick itself (invariant 1 — the sim is 20 Hz
   // whatever this says, and a replay at 2x produces the same state hash).
   let gameSpeed = 1;
+  // PA-07: the held beat between the mission's end and the report. While it
+  // is set the tick accumulator is held (the mission has ended; the sim is
+  // never slowed and never ticked by the beat), the renderer's presentation
+  // time eases down and the camera eases to the deciding ground
+  // (`ui/outcome-beat.ts`). Cleared when the moment hands over.
+  let beat: { t0: number; reduced: boolean; from: BeatCamera; focus: { x: number; y: number } | null } | null = null;
   // BattleAudio keeps `muted` private and reports the new state from
   // `toggle()`, so the strip's chip reads this mirror rather than the mixer.
   // Seeded from the mixer rather than `false`: the mute is remembered across
@@ -4459,6 +4466,37 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // same one where it can be read (the second correction to ruling 9).
             const momentOptions = outcomeMomentOptions(me.result, mission, creditsInfo, missionFailure);
             const moment = outcomeMoment(document.body, momentOptions);
+            // PA-07: the HUD steps back for the beat and stays back under the
+            // report; the battlefield's teardown brings it back.
+            screenDisposers.push(hideForBeat(document.body, [stage, moment.el]));
+            {
+              const statusOf = new Map(runtime.objectiveList.map((o) => [o.id, o.status] as const));
+              const civilians: { x: number; y: number }[] = [];
+              const force: { x: number; y: number }[] = [];
+              for (let i = 0; i < sim.entityCount; i++) {
+                if (sim.state.alive[i] !== 1) continue;
+                const p = { x: fx.toNumber(sim.state.posX[i]), y: fx.toNumber(sim.state.posY[i]) };
+                if (unitJson[sim.unitTypes[sim.state.typeIdx[i]].id]?.faction === 'civilian') civilians.push(p);
+                else if (sim.state.side[i] === 0) force.push(p);
+              }
+              beat = {
+                t0: performance.now(),
+                reduced: prefersReducedMotion(),
+                from: { x: renderer.camera.x, y: renderer.camera.y, zoom: renderer.camera.zoom },
+                focus: beatFocus({
+                  result: me.result,
+                  objectives: mission.objectives.map((o) => ({
+                    type: o.type,
+                    primary: o.primary,
+                    status: statusOf.get(o.id) ?? 'active',
+                    ...(typeof o.target === 'string' ? { target: o.target } : {}),
+                  })),
+                  zones: map.zones,
+                  civilians,
+                  force,
+                }),
+              };
+            }
             // Polish pass F: the verdict is heard. The stinger stops every
             // voice, fades combat and the music under itself, and holds every
             // other cue off; the music comes back at the menu's level.
@@ -4475,7 +4513,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             hud.suppressEndBanner();
             screenDisposers.push(() => moment.dismiss());
             void moment.done.then(() => {
-              if (disposed) return;
+              beat = null;
+            });
+            beatThenReport(moment, () => disposed, () => {
               // L-7: the moment hands over straight to the after-action report;
               // the small end panel it used to lead to is folded into the
               // report's verdict and closing word.
@@ -5072,7 +5112,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // accumulator itself (Task 6) -- `__lions.step` bypasses this whole loop
     // and calls `runTick` directly, so it still advances the sim while paused,
     // which the tools depend on.
-    const { ticks, frameMs } = advanceClock(clock, performance.now(), gameSpeed, paused, MS_PER_TICK);
+    // PA-07: the held beat holds the accumulator (the mission has ended) and
+    // eases the PRESENTATION clock alone; the sim is neither slowed nor
+    // ticked by it.
+    const now = performance.now();
+    const pose = beat ? beatPose(now - beat.t0, beat.reduced) : null;
+    const { ticks, frameMs } = advanceClock(clock, now, gameSpeed, paused || beat !== null, MS_PER_TICK);
     lastFrameMs = frameMs;
     for (let i = 0; i < ticks; i++) runTick();
     // Read live off the settings store, not snapshotted at boot: `set()`
@@ -5117,7 +5162,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // INTO the wall and dies in its own 90 ms, so nothing slides back out.
       keepOnMap();
     }
-    renderer.frame(clock.acc / MS_PER_TICK, lastFrameMs);
+    if (beat && pose && beat.focus) {
+      const c = beatCamera(beat.from, beat.focus, pose.camera);
+      renderer.camera.x = c.x;
+      renderer.camera.y = c.y;
+      renderer.camera.zoom = c.zoom;
+    }
+    renderer.frame(clock.acc / MS_PER_TICK, lastFrameMs * (pose?.timeScale ?? 1));
 
     updateHover();
   };
