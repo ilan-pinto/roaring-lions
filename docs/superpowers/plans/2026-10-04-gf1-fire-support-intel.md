@@ -35,6 +35,81 @@ New interactions, each also noted at its task:
 6. **D2.** #402 took base urban 2:1 from 63% to 37% (accepted 6 Oct). Are 60/120 still the starting points, or should Task 2 measure the barrage and smoke screen on `urbanAssault` before G-NUM?
    **Ruled 6 Oct:** measure the prices on `urbanAssault` first.
 
+## Pre-flight, 11 Oct (against main f2d5d9e8)
+
+Read against `main` `f2d5d9e8` (11 Oct). The plan's sim and runtime half is unchanged in kind. The
+app half it leans on moved a lot (≈70 PRs since `b44df7aa`), and three corrections are structural,
+not renames: the new event kind needs app rows to typecheck, the app's support kinds are in seven
+files and not one, and a barrage and a smoke round both reuse a sim event the renderer draws as an
+air-strike blast.
+
+What landed that touches F1:
+- **#431 and #444 (pin).** `LADDER_CREDITS` and `CAMPAIGN_CREDITS` are **5870** (#431: 5830 -> 5868,
+  `MissionRuntime.stepRoe` skips a structure any `raze` objective names, `razeExempt`; #444: 5868 ->
+  5870). #431 edited `packages/sim/src/mission.ts`. The runtime code F1 edits is otherwise unchanged
+  (`git diff b44df7aa f2d5d9e8 -- packages/sim` is #431 plus one test). Sim pins unchanged: flat
+  `922714084` (`determinism.test.ts` ~L427), relief `3200430224` (~L721).
+- **#426 audio cues.** `packages/app/src/ui/cues.ts` `MISSION_EVENT_SOUND` is a `Record` over
+  `MissionEvent['kind']`, so a new kind with no row is a `tsc` error in `app`, and `cues.test.ts`
+  fails on it. `alerts.test.ts` also holds a `Record<MissionEvent['kind'], MissionEvent>` sample.
+- **#428 and #461 tiered feed.** Every alert carries a tier (`minor`/`important`/`major`), a tone
+  (good/info/warn/bad) and a place; repeats merge within 8 s with a count; Space jumps to the latest
+  important or major alert (`ui/alerts.ts`, `ui/feed-model.ts`).
+- **#454 one chrome register.** Intel and logistics are `--info`, credits `--commend`, an armed
+  button `--live`, disabled `--disabled-opacity`. The support tiles already follow it
+  (`theme.css` `.rl-tile--support`); `chrome-register.test.ts` pins `.rl-tile__cost` to `--info`.
+- **#427 pointer.** An enemy under the cursor reads `advance`; a wall click resolves to its building
+  through `pointerPoint`/`structureAtScreen`. The armed-support click in `main.ts` does **not** use
+  it (it calls `renderer.screenToWorld`), the open lead question on ground-point aiming.
+- **Hold position** is still planned (`2026-10-06-hold-position.md`, Wed 4 Nov, before F1); the
+  keymap still has `halt` on H at `f2d5d9e8`. Not landed.
+- Nothing else F1 reads moved: `INTEL_PER_MIN_*`, `requestSweep`/`requestStrike`, `callStrike`,
+  `pendingStrikes`, `stepStrikes`, `STRIKE_*`/`SMOKE_*`, `CONTEST_RADIUS_SQ`, `creditContribution`
+  (both call sites), `EYE_HEIGHT`, `creditInputFrom`. 21 relief / 12 flat maps, re-counted from
+  `data/maps/*.json`; the seven maps edited since `b44df7aa` changed no `elevation`. `playtest.ts`
+  denominators unchanged (26 winning plans, 23 controls). Locale overlays: none ship, so Task 10's
+  mission text needs none. No mission text names a sweep or a strike (unchanged).
+
+| task | what changed | fixed in place / question |
+|---|---|---|
+| Global, Task 9, Re-pins | `LADDER_CREDITS` 5830 -> **5870** (`playtest.ts` ~L3195, was "~L3181"; `stores-model.ts` `CAMPAIGN_CREDITS` L63) | fixed in place |
+| Global, Base | Hold position re-pins both sim pins once (its own plan) before F1, as does #291 | fixed in place: the pin line and Base say "whatever #291 and Hold re-pin them to" |
+| Task 3 | A new `intelEarned` kind breaks `app` `typecheck`: `cues.ts` `MISSION_EVENT_SOUND` and `alerts.test.ts` `sample` need a row each (#426, #428) | fixed in place: Step 2 and the file table name both rows; sound is a stated silence (F-Q7) |
+| Task 3 | #428: an earn line must name where. `IntelEarnedEvent.ref` alone cannot (a rise id has no position outside the sim) | fixed in place: the event carries `at` (integer tile); tier and tone in F-Q7 |
+| Task 6 | `stepStrikes` pushes a `strike` SimEvent per round; `ThreeRenderer.onStrike` draws 18 blast puffs and `overlay.ts` logs "PRECISION STRIKE". A smoke round would blast; a barrage round would look like an air strike | fixed in place: a smoke round emits `smokeLaid`, not `strike`; a barrage round's `strike` carries `profile`; render/audio dressing is S-F's (F-Q8) |
+| Task 6 | #431: a structure a `raze` objective names costs no Conduct, whoever levels it, so a barrage on a raze target is free of ROE and cheap to complete | fixed in place: a test pins both sides; Task 2 measures the raze missions with a barrage (F-Q9) |
+| Task 8 | The plan says the one `app` edit is a call-site rename `typecheck` forces. False: the app's `'sweep' \| 'strike'` literals live in `main.ts` (`armedSupport`, ~L3263 and the `pointerup` branch ~L3612, not "~L3204"), `input/intents.ts`, `input/pointer.ts`, `input/keymap.ts` (`anyArmed`), `input/cursor.ts`, `ui/order-sight.ts` (`SightOrderId`), `ui/symbol.ts` (`ORDER_IDS`), `ui/production.ts`, plus telemetry (`orderVerb` enum). The sim's `SupportKind` is a different type; keeping `requestSweep`/`requestStrike` wrappers means nothing forces a rename | fixed in place: Task 8 touches **no** `app` file; the app keeps its two literals until S-F |
+| Task 10, Lane A | Chrome now false after F1 also includes `hud.strip.intel.tip` ("sweep and precision-strike"), `hud.hint.first.intel` (`data/hints/first_use.json` -> `en.json`), `main.note.supportRefused` ("not enough intel": a refused call can also be "no caller") | fixed in place: Lane A list |
+| Lane A | Charge timer, announcement, earn line and counter now have a register to follow (tier, tone, place, `--info`, cue table, voice) | fixed in place: Lane A list rewritten; open points are F-Q7, F-Q10 |
+| Task 5 | `hold` command and `holdPos` are the Hold plan's; a plain `move` (and L1's possible "Move" chip on V) also leaves `attackMove` clear, so it holds a unit on a rise without Hold | no change needed; noted at Task 5 |
+| (checked, no change) | memory budgets (#474: F1 adds no structure, no GLB), roster R-2 and `ROSTER_CAP` (F1 writes no roster), keymap H/X (F1 binds no key), footers (#501), i18n catalogue (no string in F1's own code), locale overlays | none |
+
+### For the lead (11 Oct)
+
+7. **F-Q7. The earn feed line and the counter (GH-77).** Recommended: each cause is a **`minor`
+   alert, tone `info`** (intel is `--info`), worded "+10 intel: <enemy name> identified, <place>",
+   "+30 intel: high ground, <place>", merged within 8 s with a count ("+30 intel: 3 enemies
+   identified"). An objective's +25 gets no line of its own: the objective alert already says it,
+   and the strip's counter pulses. Never `important`: that tier takes the Space jump key, which
+   must keep going to threats. **Silent** in `MISSION_EVENT_SOUND` (reason: "the strip's counter
+   and the feed carry it; a chime per kill would nag"). No world mark (standing ruling). Needs the
+   lead only if he wants the rise to chime.
+8. **F-Q8. What a barrage and a smoke round look and sound like.** Recommended: the sim emits
+   `smokeLaid` for a smoke round and `strike` (with `profile`) for each barrage round; S-F maps
+   `profile` to the existing `shell_impact` emitter for the barrage and to the smoke plume for the
+   screen, and `onStrike` keeps the air-strike look only for profile 0. Presentation, so S-F's
+   call; recorded here so Tasks 6 and 7 do not ship the blast.
+9. **F-Q9. Fire support on a `raze` objective.** After #431 a barrage that levels a raze target
+   costs no Conduct. Recommended: allow it (that is what artillery is for), and have Task 2 time
+   `wadi_halam_5_depot` and `tel_marum_2_foothold` with one barrage so it cannot trivialise them. If
+   it does, the fix is the mission's `seconds` floor, not the rule. Needs the lead only if the
+   measurement shows a collapse of the mission's length.
+10. **F-Q10. Armed support aims at the ground point, not the building (the #427 open question).**
+    The armed click calls `screenToWorld`, so a barrage at a tall building's upper facade lands on
+    the ground behind it. Recommended: **all armed support** (strike, barrage, smoke screen, sweep)
+    resolves through `pointerPoint`, so the point marked is the point hit and a wall click aims at
+    the building. The smoke key and armed smoke follow whatever the lead rules. **Needs the lead.**
+
 **Goal:** Intel stops paying the player for standing still and starts paying for what a commander
 does: finding the enemy, taking high ground, completing objectives. It stays the **fire-support
 currency**, and it buys a menu of four, not two.
@@ -75,9 +150,10 @@ currency**, and it buys a menu of four, not two.
 
 **Base:**
 - Read against `main` `067fab9a`; refreshed against `main` `b44df7aa` (6 Oct, see "Changed since
-  4 Oct"). Locate code by symbol; line numbers drift.
-- Branch `feat/gf1-intel`, cut from `main` **after #291 and #330 have landed** (see
-  `2026-10-04-stage4-order.md`). At `b44df7aa`, #330 has landed (October,
+  4 Oct") and checked against `f2d5d9e8` (11 Oct, see "Pre-flight"). Locate code by symbol; line
+  numbers drift.
+- Branch `feat/gf1-intel`, cut from `main` **after #291, #330 and Hold position
+  (`2026-10-06-hold-position.md`, Wed 4 Nov) have landed** (see `2026-10-04-stage4-order.md`). At `b44df7aa`, #330 has landed (October,
   `packages/app/src/campaign-pay.ts`, no pin moved) and #291 has not. Worktree under
   `/Users/ilpinto/dev/roaring-lions-ep/`, `pnpm install` once.
 - **Nothing in this plan is measured yet.** Every number marked (M) is quoted from the G3 sheet's
@@ -144,8 +220,9 @@ currency**, and it buys a menu of four, not two.
   `eslint-disable`. The earn rule is integer lumps. The barrage draws its scatter from the
   **caller's** `rng` stream, exactly as `callStrike` does, one stream draw pair per round.
 - **The two sim pins (`determinism.test.ts`, flat `922714084` and relief `3200430224` on `main` at
-  `b44df7aa`, ~L427 and ~L721; they were `2109596329` and `1425295494` at `067fab9a`, and #402 moved
-  both; whatever #291 re-pins them to, if it lands first) stay UNMOVED by every task.** The golden
+  `f2d5d9e8`, ~L427 and ~L721, unchanged since `b44df7aa`; they were `2109596329` and `1425295494`
+  at `067fab9a`, and #402 moved both; whatever #291 and Hold position re-pin them to, which both
+  land first) stay UNMOVED by every task.** The golden
   replays never call a strike (grep, 6 Oct: `determinism.test.ts` has no `callStrike`, `reveal` or
   `MissionRuntime` at `b44df7aa`; grep again in Task 6, Step 3; if one does, stop and raise it). The
   new `profile` field is hashed inside the `pendingStrikes` loop, which is empty in both replays, so
@@ -157,10 +234,10 @@ currency**, and it buys a menu of four, not two.
   and spends no intel.
 - **`pnpm playtest`**: exit 0. Outcomes, durations, ROE, stars and credits byte-identical (R): no plan
   spends intel today, and `creditInputFrom` (`packages/sim/src/credits.ts`) reads no intel (M, G3
-  sheet; still true at `b44df7aa`). `LADDER_CREDITS` (**5830** on `main` at `b44df7aa`,
-  `tools/src/backtest/playtest.ts` ~L3181, held equal to `CAMPAIGN_CREDITS` in
-  `packages/app/src/ui/stores-model.ts` L63; it was 5736 at `067fab9a`, GH-382 moved it to 5844 and
-  #402 to 5830; #330 moved no pin) unchanged. Task 9 adds new printed lines; the existing lines do
+  sheet; still true at `b44df7aa`). `LADDER_CREDITS` (**5870** on `main` at `f2d5d9e8`,
+  `tools/src/backtest/playtest.ts` ~L3195, held equal to `CAMPAIGN_CREDITS` in
+  `packages/app/src/ui/stores-model.ts` L63; it was 5736 at `067fab9a`, GH-382 moved it to 5844,
+  #402 to 5830, #431 to 5868 and #444 to 5870; #330 moved no pin) unchanged. Task 9 adds new printed lines; the existing lines do
   not move.
 - **Every check is seen red.** Each task names a one-line mutation of the implementation that must
   turn a named test red, and the commit message quotes the red line (CLAUDE.md, "Every check gets an
@@ -173,8 +250,8 @@ currency**, and it buys a menu of four, not two.
   never `pkill` vite. Messages end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
   The lead merges.
 - **Lane C is one lane.** F1 touches `packages/sim`, `data/schemas`, `data/missions`, `tuning.ts`,
-  `tools/src/backtest/`. The one `packages/app` edit (Task 8) is the call-site rename `typecheck`
-  forces; the menu UI is WP-S-F's.
+  `tools/src/backtest/`. The only `packages/app` edits are Task 3's two exhaustiveness rows (`cues.ts`, `alerts.test.ts`);
+  the menu UI is WP-S-F's.
 
 ---
 
@@ -182,7 +259,7 @@ currency**, and it buys a menu of four, not two.
 
 | File | Role | Task |
 |---|---|---|
-| `packages/sim/src/mission.ts` | `economyHash()`; the earn rule; the per-minute terms deleted; the four-item `requestSupport` | 1, 3, 5, 6, 8 |
+| `packages/sim/src/mission.ts` | `economyHash()`; the earn rule; the per-minute terms deleted (~L420, ~L1066); the four-item `requestSupport` | 1, 3, 5, 6, 8 |
 | `packages/sim/src/determinism.test.ts` | The economy replay and its pin | 1, 3 |
 | `packages/sim/src/intel-earn.ts` (+ test) | **New.** Pure: `highGroundRises(elevation, blocked, w, h)` and the median | 4 |
 | `packages/sim/src/tuning.ts` | `INTEL_EARN`, `FIRE_SUPPORT` profiles, `HIGH_GROUND_*` | 2, 3, 6, 7 |
@@ -191,7 +268,8 @@ currency**, and it buys a menu of four, not two.
 | `packages/sim/src/fire-support.test.ts` | **New.** Barrage and smoke-screen sim tests | 6, 7 |
 | `packages/sim/src/mission.test.ts` | Earn and spend tests | 3, 5, 8 |
 | `packages/sim/src/index.ts` | Exports `SupportKind`, `FIRE_SUPPORT_KINDS` | 8 |
-| `packages/app/src/main.ts`, `ui/production.ts`, `ui/production.test.ts` | The call-site rename only (the test imports `SupportKind` and uses the `'sweep'`/`'strike'` literals) | 8 |
+| `packages/app/src/ui/cues.ts`, `ui/alerts.test.ts` | One `intelEarned` row each (`MISSION_EVENT_SOUND` and the `sample` record are exhaustive over `MissionEvent['kind']`, so `typecheck` fails without them) | 3 |
+| `packages/app/src` (support literals) | **No edit in F1.** The app keeps `'sweep' \| 'strike'` (`main.ts`, `input/*`, `ui/production.ts`, `ui/order-sight.ts`, `ui/symbol.ts`, telemetry) behind the `requestSweep`/`requestStrike` wrappers; S-F renames them | 8 |
 | `tools/src/backtest/playtest.ts` | The intel probe as a gate; one plan that spends intel | 9 |
 | `docs/GDD.md` §3, `docs/campaign/README.md` | The earn rule and the menu, in the contract | 10 |
 | `data/missions/*.json` | Text only, if Task 10's census finds a false line (none named a sweep or strike at `b44df7aa`) | 10 |
@@ -295,6 +373,9 @@ rendering; the same holds for prices).
 
   The barrage is the area-denial tool the strike is not: less damage per point than the strike,
   more suppression per point, scatter wide enough that firing it near the clinic is a decision.
+  *(11 Oct, #431: a `raze` target costs no Conduct whoever levels it. Also time one barrage on
+  `wadi_halam_5_depot` and `tel_marum_2_foothold` and record how much of each mission's length it
+  removes; F-Q9.)*
   *Ruled 6 Oct: measure the barrage and smoke screen on `urbanAssault`
   (`tools/src/backtest/targets.ts`) before this table goes to the lead. A scratch copy issues the
   profile against the defended town at the gate's own seeds, at each ratio, and records what each
@@ -327,9 +408,12 @@ export const INTEL_PER_OBJECTIVE = 25;
 // mission.ts
 /** Side-0 first identifications already paid for (D3). Runtime-only. */
 private readonly paidIdentified = new Set<number>();
-/** Why intel moved this tick, for the HUD's feed (S-F). */
+/** Why intel moved this tick, for the HUD's feed (S-F). `at` is the integer tile the line
+ *  names (#428: a feed line says where): the identified enemy's tile, the objective's zone
+ *  centre, the rise's tile the unit stands on. */
 export interface IntelEarnedEvent { kind: 'intelEarned'; tick: number; amount: number;
-  cause: 'identified' | 'objective' | 'highGround'; ref: number | string }
+  cause: 'identified' | 'objective' | 'highGround'; ref: number | string;
+  at: { x: number; y: number } }
 ```
 
 - [ ] **Step 1: Write the failing tests** (`mission.test.ts`, a new `describe('intel by doing')`):
@@ -359,6 +443,16 @@ export interface IntelEarnedEvent { kind: 'intelEarned'; tick: number; amount: n
   for a drone sweep's `reveal` and for a pre-marked carry-over spawn. Ruled 6 Oct: neither pays, so
   the rule also requires `observer >= 0`. `intelEarned` must join `MISSION_EVENT_KINDS` (`mission.ts` ~L379), or the
   `MissionEventKindsAreExhaustive` check fails `typecheck`.)*
+  *(11 Oct, #426/#428: that is not the only exhaustive list. `app`'s `MISSION_EVENT_SOUND`
+  (`ui/cues.ts`) is a `Record` over `MissionEvent['kind']`, and `ui/alerts.test.ts`'s `sample` is a
+  `Record<MissionEvent['kind'], MissionEvent>`: add a row to each in this commit, or `pnpm
+  typecheck` fails in `app`. The `cues.ts` row is `{ silent: '<reason>' }` (F-Q7: the counter and
+  the feed carry it); `cues.test.ts` requires a reason over 10 characters, and the alerts test
+  then requires `alertsForTick` to raise no cue for that kind, so the row is a decision, not a
+  gap. `describeMissionEvent` (`main.ts`) and `missionEventTier` (`alerts.ts`) already end in
+  `default`, so the kind draws no line until S-F words it, as intended. The tutorial's
+  `steps.test.ts` reads `MISSION_EVENT_KINDS` and needs no row.)*
+- [ ] **Step 2b: The two `app` rows** (above), and `pnpm typecheck` green at this commit.
 - [ ] **Step 3: Re-pin the economy pin, once.** The commit message says: *"economy pin re-pinned:
   intel now accrues from first identification and objective completion instead of per minute
   (G3 Q1, lead 4 Oct); was N"*. Dated comment above the number.
@@ -444,6 +538,10 @@ export function highGroundRises(elevation: Uint8Array, blocked: Uint8Array,
     closing rule instead. Pin both sides of that as decisions:*
     - **"an attack-mover that identifies an enemy out of reach leaves the rise and is not paid"**;
     - **"a held unit stays on the rise and is paid"**.
+  - *(11 Oct: a plain `move` also leaves `attackMove` clear, so a unit that moved onto the rise
+    and was never attack-moved stays too; that is also what the lead's open L1 "Move" chip on V
+    would issue. Hold is still the order the rise test should use, because it is the one the
+    closing rule is documented to respect.)*
   - **"a unit that spawned on a rise earns nothing standing there"**: the ruling of 6 Oct, D4. It
     pays only after it leaves and moves back on. Track per unit, runtime-only, whether it has
     stepped onto the rise since spawning.
@@ -495,6 +593,13 @@ private pendingStrikes: { x: Fx; y: Fx; by: number; readyTick: number; profile: 
     rounds are queued at call time, so the answer is "all of them land". State it as a test so it is
     a decision, not an accident.
   - **"a barrage round damages structures and charges ROE through `by`"**.
+  - **"a barrage round that levels a structure a `raze` objective names charges nothing, and one
+    that levels any other structure still does"** (11 Oct, #431: `razeExempt` is the union of the
+    raze objectives' structure sets, and `stepRoe` skips them for any `by` on side 0, a strike
+    included). Fixture: a mission with a `raze` objective and one unnamed shed in splash.
+  - **"each barrage round emits a `strike` event carrying its profile; a smoke round emits none"**
+    (11 Oct: `ThreeRenderer.onStrike` draws an air-strike burst for every `strike` event and
+    `overlay.ts` logs "PRECISION STRIKE", so a smoke round must not emit one).
   - *(6 Oct, #402: what a barrage does to infantry that halts to fire, all from code on `main`.
     Kneeling changes no hit, exposure, signature or cover factor, and `applyDamage` reads no brace
     state, so round damage against a kneeler equals damage against the same man standing.
@@ -505,7 +610,9 @@ private pendingStrikes: { x: Fx; y: Fx; by: number; readyTick: number; profile: 
 - [ ] **Step 2: Implement.** `callStrike` queues `rounds` entries at
   `tickCount + delayTicks + i * spacingTicks`, each with its own scatter pair. `stepStrikes` reads
   damage, splash and suppression from the entry's profile. `hash()` adds
-  `hashWord(h, s.profile)` inside the existing loop.
+  `hashWord(h, s.profile)` inside the existing loop (`hash()` ~L5587, which hashes `x`, `y` and
+  `readyTick` today; `by` is not hashed, unchanged). The `strike` event gains `profile: number`
+  (additive; `SIM_EVENT_KINDS` needs no entry).
 - [ ] **Step 3: Hash coverage.** **"the strike profile is hashed"**: two sims identical but for one
   pending entry's profile hash differently. Then measure both sim pins: **unmoved** (the loop is empty
   in both replays). If either moves, a replay fires a strike and the pins move for that reason only;
@@ -531,6 +638,8 @@ private pendingStrikes: { x: Fx; y: Fx; by: number; readyTick: number; profile: 
   - **"a smoke round breaks a sight line"** (`losRay` through the screen), the reason it exists.
   - **"smoke screen needs no carrier"**: it works with no `smoke`-capable unit on the field, which is
     what separates it from the unit ability.
+  - **"a smoke round emits `smokeLaid` and no `strike`"** (11 Oct: the renderer draws a blast for
+    `strike`; `smokeLaid` is the event the unit ability already raises, `by` the caller).
   - *(6 Oct, #402: a smoke round is not cover. `coverLevelOf` reads tile cover and parapet only, so
     a band target standing in thin smoke still counts as in the open: attack-movers bound against
     it rather than close on it. Smoke works through sight instead: a line through
@@ -538,7 +647,9 @@ private pendingStrikes: { x: Fx; y: Fx; by: number; readyTick: number; profile: 
     multiplies hit chance by `SMOKE_HIT_MULT` (0.55). A screened target is not selected, and an
     arrived attack-mover with no target then walks toward it if it is still identified.)*
 - [ ] **Step 2: Implement.** Extract the grid stamp from the `smoke` command branch into a private
-  method; the payload `'smoke'` in `stepStrikes` calls it and skips damage.
+  method; the payload `'smoke'` in `stepStrikes` calls it, pushes `smokeLaid` (not `strike`) and skips
+  damage. The ability branch stays `smokeCooldown` and `SMOKE_RANGE_SQ` gated; the extracted stamp
+  is only the `SMOKE_RADIUS` disc write at `SMOKE_MAX`.
 - [ ] **Step 3: Measure.** Both sim pins unmoved; the extraction is behaviour-preserving, and the
   existing smoke tests (`smoke.test.ts`, `tools/src/tel_marum_smoke.test.ts`) pass unchanged.
   `pnpm balance` byte-identical too: `urbanSmokeStep` (`tools/src/backtest/targets.ts`) issues the
@@ -554,10 +665,10 @@ private pendingStrikes: { x: Fx; y: Fx; by: number; readyTick: number; profile: 
 
 **Model:** sonnet. **Agent:** `sim-guard`. **Depends:** Tasks 6, 7.
 
-**Files:** `packages/sim/src/mission.ts` and its test, `packages/sim/src/index.ts`,
-`packages/app/src/main.ts` (`requestSweep`/`requestStrike` at ~L3204),
-`packages/app/src/ui/production.ts` and `production.test.ts` (call sites only; the test imports
-`SupportKind` and spells `'sweep'`/`'strike'` throughout).
+**Files:** `packages/sim/src/mission.ts` and its test, `packages/sim/src/index.ts`. **No `app`
+file** (11 Oct: the plan named `main.ts` and `ui/production.ts`/`production.test.ts` for a rename;
+`requestSweep`/`requestStrike` are called at `main.ts` ~L3612, and the wrappers below keep that
+call, and the app's `SupportKind = 'sweep' | 'strike'`, compiling unchanged).
 
 **Interfaces:**
 
@@ -583,9 +694,13 @@ supportCost(kind: SupportKind): number;
     contact decayed. Ruled 6 Oct: accepted. Pin it here as **"a drone sweep sets idle attack-movers
     walking toward what it reveals"**, with its control **"a held unit is not moved by a sweep"**.
     Hold position is the player's counter.)*
-- [ ] **Step 2: Implement.** `app`'s `SupportKind` (`ui/production.ts`, `'sweep' | 'strike'`) is
-  renamed to import the sim's; the dock keeps two buttons until S-F builds the menu. `typecheck` must
-  pass at this commit.
+- [ ] **Step 2: Implement.** `requestSupport`/`supportCost` are added; `requestSweep`,
+  `requestStrike`, `sweepCost` and `strikeCost` stay as wrappers over them. The app is not edited:
+  its `SupportKind` (`ui/production.ts`, `'sweep' | 'strike'`) is a different type from the sim's,
+  and its literals run through `main.ts`, `input/{intents,pointer,keymap,cursor}.ts`,
+  `ui/{order-sight,symbol}.ts` and the telemetry `orderVerb` enum, which S-F renames together with
+  the menu. The dock keeps two buttons until then. `typecheck` must pass at this commit with `app`
+  untouched (that is the check that the wrappers are enough).
 - [ ] **Step 3: Measure.** Economy pins unmoved (no fixture calls support). `pnpm validate:ui` clean
   (no new strings yet).
 - [ ] **Step 4: See it red.** Swap two prices in the cost table: the per-kind deduction test fails.
@@ -624,7 +739,7 @@ unproven by construction.
   every string in `data/missions/*.json`), so "where the briefing promises one" has no answer in
   the data: place the call by the plan's own geometry and say why in a comment. A drone sweep here
   also sets the plan's idle attack-movers walking toward what it reveals (#402), which can move
-  more of the line than duration and ROE. `LADDER_CREDITS` is 5830 on `main`.)*
+  more of the line than duration and ROE. `LADDER_CREDITS` is 5870 on `main` at `f2d5d9e8`.)*
 - [ ] **Step 3: See it red.**
   - Restore the stationary-scout term on a scratch copy of the runtime: `INTEL_PASSIVE_BEATS_WINNER`
     fails, naming at least `khan_rafid_3_clearance` (M at `751b6742`: passive 189 vs winner 20 on the
@@ -670,27 +785,51 @@ rate (census first; text only), `docs/HANDOVER.md`. *(6 Oct: `data/locales/` hol
 
 | pin | expected | the reason, for the commit |
 |---|---|---|
-| sim pins, flat and relief | **unmoved** (R): `922714084` / `3200430224` on `main` at `b44df7aa` (`2109596329` / `1425295494` at `067fab9a`; #402 moved both), or whatever #291 re-pins them to. A move is a defect | — |
+| sim pins, flat and relief | **unmoved** (R): `922714084` / `3200430224` on `main` at `f2d5d9e8` (`2109596329` / `1425295494` at `067fab9a`; #402 moved both), or whatever #291 and Hold position re-pin them to. A move is a defect | — |
 | `ECONOMY_PIN` | **born** in Task 1, **re-pinned once** in Task 3 | intel accrues by first identification and objective completion, not per minute (G3 Q1) |
 | `ECONOMY_PIN_RELIEF` | **born** in Task 5 | a new guard for the rise term; not a re-pin |
 | `pnpm balance` | byte-identical (R) | — |
 | `pnpm playtest` | every existing line byte-identical (R), except the one plan Task 9 makes spend | new printed intel lines and two new gates |
-| `LADDER_CREDITS` | unchanged (R) at **5830** (`main` `b44df7aa`; 5736 at `067fab9a`, moved by GH-382 and #402); re-pinned in Task 9 only if the spending plan's credits move, with the term named, and `CAMPAIGN_CREDITS` (`packages/app/src/ui/stores-model.ts`) with it, which `tools/src/campaign_credits.test.ts` holds equal | |
+| `LADDER_CREDITS` | unchanged (R) at **5870** (`main` `f2d5d9e8`; 5830 at `b44df7aa`, 5736 at `067fab9a`; moved by GH-382, #402, #431 and #444); re-pinned in Task 9 only if the spending plan's credits move, with the term named, and `CAMPAIGN_CREDITS` (`packages/app/src/ui/stores-model.ts`) with it, which `tools/src/campaign_credits.test.ts` holds equal | |
 
 ## Lane A needs (WP-S-F #184)
 
 F1 lands sim and runtime only. The player cannot use the new menu until S-F builds it:
 - **The four-item fire-support menu** in place of the dock's two buttons, prices from
-  `supportCost`, armed and cancelled like today's (Escape disarms, #264).
+  `supportCost`, armed and cancelled like today's (Escape disarms, #264). Chrome register (#454):
+  tile and cost `--info`, armed `--live`, short of intel `--disabled-opacity` and not-allowed;
+  display capitals on the tile. `theme.css` starts the support row at `data-support='sweep'`
+  (`grid-column-start: 1`), so four tiles need that rule keyed to the first of them. The two new
+  kinds need an order-row symbol (`ui/symbol.ts` `ORDER_IDS`, `ui/order-sight.ts` `SightOrderId`) and
+  cursor names (`input/cursor.ts`), and the app's `'sweep' | 'strike'` literals renamed together
+  (see Task 8). "Smoke screen" must read differently from the unit order "smoke" (`f`): name the
+  call so the two never share a tile word. Where armed support aims: F-Q10.
 - **Charge timer and announcement** for each call (GH-113): "barrage inbound, 6 s". No fireworks.
-- **The intel counter at a legible size** (GH-77), and a throttled feed line from `intelEarned`
-  events ("+10 intel: enemy identified"; "+30 intel: high ground taken"). Feed and HUD only: **no
-  world mark** for a paid rise (lead, "no status marks in the world").
+  Register: a **`minor` alert, tone `info`**, naming the place (target tile, "in view" or a
+  screen-compass bearing, `ui/alert-place.ts`); no alert ring above `minor`. The cue is silent
+  (the dock and the announcer carry it); an announcer line is `voice/announce.ts` work (a new
+  `AnnounceEventId`, he/ar lines, captions regardless, A5), or it ships "silent until recorded".
+  Support calls take no unit voice ack (`voice/director.test.ts` pins that). A countdown reads
+  `--info`, never `--on` (lime is for a live mission state).
+- **The intel counter at a legible size** (GH-77), and the earn feed line from `intelEarned`
+  events (F-Q7: `minor`, `info`, merged, with `at`). Feed and HUD only: **no world mark** for a
+  paid rise (lead, "no status marks in the world").
 - **Strings through `t()`** for every new label, and the pseudo capture pass to find the ones that
-  slip (CLAUDE.md, i18n).
-- **Chrome that F1 makes false** (found in the 6 Oct refresh; present at `067fab9a` too):
+  slip (CLAUDE.md, i18n). Label tables use getters, never a module-load constant.
+- **Telemetry:** `orderVerbOf` counts an accepted support call under its `call` name, and
+  `tallyVerb` refuses a verb outside `data/schemas/telemetry_event.schema.json`'s `orderVerb` enum
+  (`strike`, `sweep` today). A renamed or new kind needs the enum, `packages/data/src/telemetry.ts`
+  and the Worker's `stats` rows extended in one change.
+- **Presentation of the new rounds** (F-Q8): `strike` carries `profile`; `onStrike` keeps the air-strike
+  look for profile 0 only; a smoke round draws as the existing smoke plume. A barrage's 1.5-tile
+  scatter wants a ring on the armed cursor, and a Conduct bill from one reads "Strike on <place>"
+  (`conduct.cause.strike`).
+- **Chrome that F1 makes false** (found in the 6 Oct refresh and re-checked 11 Oct):
   `packages/app/src/i18n/en.json`'s `hud.card.cap.markTarget` ("earns intel while stationary"),
   `hud.hint.first.sniper` ("earns intel while it sits still"), and `dock.note.noIntel` ("watch
-  longer") after Task 3; `dock.support.sweep.name` ("Satellite sweep") after Task 8's rename. They
-  read wrong from the day F1 lands until S-F replaces them.
-- **The tutorial's economy step** (execution plan dependency 5) against this earn rule.
+  longer") after Task 3; `dock.support.sweep.name` ("Satellite sweep"), `hud.strip.intel.tip` and
+  `hud.hint.first.intel` (both name only "sweep and precision-strike") after Task 8's menu;
+  `main.note.supportRefused` ("not enough intel") once a call can also be refused for want of a
+  caller. They read wrong from the day F1 lands until S-F replaces them.
+- **The tutorial's economy step** (execution plan dependency 5) against this earn rule. The
+  shipped tutorial (`data/tutorial/beit_sahwan_0.json`) names no intel, sweep or strike.
