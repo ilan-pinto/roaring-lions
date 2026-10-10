@@ -27,7 +27,7 @@ describe('parseSettings', () => {
       language: 'en',
       extra: 'dropped',
     }));
-    expect(s.video).toEqual({ fullscreen: true, uiScale: 'auto', textSize: 1.15, quality: 'high', qualitySource: 'default', qualityStrikes: 0 });
+    expect(s.video).toEqual({ fullscreen: true, uiScale: 'auto', textSize: 1.15, quality: 'high' });
     expect(s.audio).toEqual({ master: 0.5, music: 1, sfx: 1, voice: 1, radio: true });
     // A key the save never carried takes the DEFAULT (captions on, PA-23).
     expect(s.accessibility).toEqual({ motion: 'reduce', colorVision: 'default', captions: true });

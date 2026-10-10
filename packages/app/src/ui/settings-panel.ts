@@ -267,10 +267,6 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
       (v) =>
         update((n) => {
           n.video.quality = v;
-          // The player has decided, whatever they picked: the automatic
-          // step-down (quality-auto.ts) never touches this again.
-          n.video.qualitySource = 'player';
-          n.video.qualityStrikes = 0;
         })
     ),
     t('settings.quality.hint')

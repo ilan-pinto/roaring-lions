@@ -469,9 +469,7 @@ async function main(): Promise<void> {
     for (const cell of cells) {
       const load = os.loadavg()[0];
       const context = await browser.newContext({ viewport: cell.vp, deviceScaleFactor: args.dpr });
-      // The preset under test, as the player's own choice (the helper pins
-      // `qualitySource: 'player'`), so the automatic step-down never moves it
-      // between boots of one run.
+      // The preset under test, seeded through the one music-off helper.
       await context.addInitScript(musicOffInitScript({}, { quality: cell.q }));
       await context.addInitScript(RECORDER_INIT);
       const page = await context.newPage();

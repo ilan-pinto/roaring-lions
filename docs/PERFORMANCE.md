@@ -1877,10 +1877,11 @@ throttled, and with no GPU at all.
   Retina size**: 31–34 fps in the heaviest mission's opening at 1440x900 @2x,
   and 33–51 fps at 1920x1080 @1x across three sessions (that one disagrees with
   itself; see "Opening").
-- **Nothing chooses the preset automatically today.** `video.quality` defaults
-  to `high` and only the player changes it. A rule is built on this branch and
-  is a **proposal** (the PR is a draft), because the measurements say it would
-  lower the default on the measuring machine's own Retina screen.
+- **Nothing chooses the preset automatically, by ruling.** `video.quality`
+  defaults to `high` and only the player changes it. An automatic step-down
+  was built, measured and **declined by the lead on 2026-10-10 ("Nothing
+  automatic")**; it would have lowered the default on the lead's own Retina
+  Mac. See "The automatic quality step-down" below.
 
 ### The instrument: `pnpm perf:lowend`
 
@@ -2107,7 +2108,7 @@ does not track it; the GPU was shared with other sessions' browsers, which the
 load average cannot see, and that is the surviving explanation. It is not a
 start-up transient: the 20–28 s window reads the same as the 2–10 s one. So
 **an opening measurement on a machine whose GPU is shared is a weak witness**,
-which is why the rule below waits for two slow openings in a row.
+which is why the declined rule below waited for two slow openings in a row.
 
 What separates the cells is the ambient-occlusion pass: at every condition
 where the opening is slow at `high`, `medium` takes most of the slow frames
@@ -2173,62 +2174,43 @@ golden gate's verdict before it lands, since each touches what draws.
 | 2 | **Cull and sort the static decor and prop batches once per frame, not once per pass**, or turn `sortObjects` off on them (opaque, depth-tested: the picture is unchanged; only early-z order moves) | ~1.0–1.7 ms a frame | low | `render-vfx` |
 | 3 | **`matrixAutoUpdate = false` on static objects** (terrain, buildings, decor, props; `updateMatrix()` once at build) | up to ~1.8 ms a frame (an upper bound: some of that upkeep is the moving units') | low-medium: anything later moved must call `updateMatrix()` or it silently stops moving | `render-vfx` |
 | 4 | **Animation LOD**: skip or halve mixer updates for figures off screen or under fog | ~1–2 ms a frame in a big fight | medium: a figure must not pop when it comes into view | `render-vfx` |
-| 5 | The AO pass on slow machines: the auto-pick below, or `medium` as the default | ~5.5 ms a frame | none to correctness; a visible loss of contact shadow | the lead |
+| 5 | The AO pass on slow machines: a player's own choice of `medium` (the auto step-down was declined, below) | ~5.5 ms a frame | none to correctness; a visible loss of contact shadow | the player |
 
 Fixes 2 and 3 together are ~3 ms a frame at 4x, about a fifth of `low`'s
 render submit there; fix 1 is the one that changes the §22 verdict.
 
-### The automatic quality step-down (built, draft: the lead decides)
+### The automatic quality step-down (built, measured, declined)
 
-**Nothing chose the preset automatically before this branch**: `video.quality`
-defaults to `high`, the menu's backdrop caps itself at `medium`
-(`front/diorama.ts`), and that is all. The rule on this branch
-(`packages/app/src/quality-auto.ts`, wired in `main.ts`'s frame loop):
+**Lead ruling, 2026-10-10: "Nothing automatic."** `high` stays the default and
+only the player changes the preset. The rule below was built on the
+`perf/low-end` branch (PR #507), tested and walked, and then removed from it
+before merge. It is recorded here so the next proposal does not start from
+zero.
 
-- It watches a mission's opening -- 8 s of presented frames, 2 s after the
-  first -- and calls it **slow when 5% or more of the intervals are longer than
-  33.4 ms** (below 30 fps; the threshold is display-rate independent).
-- **Two slow openings in a row** at the same preset lower it **one step**
-  (`high` -> `medium` -> `low`), saved for the **next** mission. The running
-  mission never changes. A fast opening clears a standing strike.
-- It **never raises**, and it is **not armed at all over a quality the player
-  picked** in Settings (`video.qualitySource: 'player'`). A save from before
-  this field that holds a non-`high` quality is read as the player's choice.
-- A tab hidden at any point in the window **voids** the sample: Chrome runs no
-  rAF while hidden, so the first frame back would carry the whole gap.
-- Every tool browser is pinned out of it (`musicOffSettings` seeds
-  `qualitySource: 'player'`), so no capture's picture can depend on how fast
-  the runner was.
-- It says what it did on the console (`[lions] render quality ...`), once per
-  mission that changes anything.
+**What it was.** It watched a mission's opening (8 s of presented frames, 2 s
+after the first) and called it slow when 5% or more of the intervals were
+longer than 33.4 ms. Two slow openings in a row at the same preset lowered the
+SAVED preset one step (`high` -> `medium` -> `low`) for the next mission. It
+never raised. It never changed a running mission. It was never armed over a
+quality picked in Settings (a `video.qualitySource` field). A hidden tab voided
+the sample, and tool browsers were pinned out of it. Walked on the production
+build at 6x CPU, 1920x1080: boot 1 recorded a strike (19% of 213 opening
+frames slow), boot 2 lowered `high` to `medium` (16% of 263), boot 3 at
+`medium` wrote nothing.
 
-Walked end to end on the production build at 6x CPU, 1920x1080, from fresh
-`default` settings: boot 1 recorded a strike (19% of 213 opening frames slow),
-boot 2 lowered `high` to `medium` (16% of 263), boot 3 at `medium` was fast
-and wrote nothing. The same walk seeded with `qualitySource: 'player'` wrote
-nothing in three boots.
+**Why it was declined: it would fire on the lead's own machine.** The 5% line
+separated the throttled cells as intended: `high` at 4x and 6x read
+9.8–64.8%, `medium` at 4x on 1366x768 read 0.2–4.5%. But an M3 Pro on a Retina
+screen (1440x900 @2x) reads **11–18% at `high`** in the heaviest opening. So
+two missions in, the reference machine's default would have become `medium`.
+`medium` there reads 5–7%, so two missions later it would have become `low`.
+At 1920x1080 @1x it fired in some sessions and not others (3–15% across three
+sessions; see "The opening"). The rule was working as measured. The trouble is
+that what it measured includes the machine everyone judges the game on.
 
-**Why it is a draft.** Read against the opening table, the 5% line separates
-what it should: it fires on `high` at 4x and 6x (9.8–64.8%); it holds `medium`
-at 4x on 1366x768 (0.2–4.5%) and in two runs of three at 1920x1080 (2.8–6.0%);
-and it steps `medium` to `low` where the opening is still slow at `medium`,
-which is where `low` measurably helps (6x 1920x1080: 20–23% to 8–16%; Retina:
-5–7% to 0.4–4%). But it **also
-fires on the measuring machine**: an M3 Pro on a Retina screen reads 11–18% at
-`high`, so two missions in, the lead's own default becomes `medium`, and
-`medium` there reads 5–7% -- two more and it is `low`. At 1920x1080 @1x it fires
-in some sessions and not others. That is the rule working as measured, and it
-is a visible change to the reference machine's default, which is the lead's to
-make. Three ways to take it:
-
-1. **Ship it as built.** Retina Macs and slow machines settle on `medium` or
-   `low`; the opening there gets 7–10 fps back.
-2. **Ship it with a floor of `medium`** (one line: `STEP_DOWN.medium = null`).
-   On a slow CPU, medium-to-low bought nothing measurable in the fight, blast
-   or pan; it helped in the openings and the GPU-bound Retina cells.
-3. **Do not ship it; make `medium` the default instead** and let players opt
-   into AO. Simplest, and it takes ~5.5 ms a frame off every slow CPU from the
-   first mission rather than the third.
+What stays from it: the opening table above is the evidence any future
+automatic rule must be read against. If one is revisited, start from the
+Retina rows.
 
 ### Recommendation
 
@@ -2237,11 +2219,12 @@ make. Three ways to take it:
    building fell inside the heaviest mission's opening fight in every matrix
    run), and it is 0.5–0.9 s on a slow CPU.
 2. **Take fixes 2 and 3** together as one low-risk renderer pass: ~3 ms a
-   frame at 4x, no visible change.
-3. **Decide the AO default** (the three options above). Whatever is chosen,
-   add a one-line Settings hint naming the trade ("High adds ambient occlusion,
-   the most expensive effect; Medium if the game stutters") -- a string change,
-   proposed, not built.
+   frame at 4x, no visible change. (In progress in a separate PR at the time of
+   writing.)
+3. **The AO default stays `high`** (the lead's ruling above). The lever a slow
+   machine has is the player's own: a one-line Settings hint naming the trade
+   ("High adds ambient occlusion, the most expensive effect; Medium if the game
+   stutters"). This is a string change, proposed and not built.
 4. **Detect a software renderer at boot and say so** (`SwiftShader`,
    `llvmpipe`, `Microsoft Basic Render Driver` in the unmasked renderer string,
    already read by the feedback context): "Your browser is drawing without the
