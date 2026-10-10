@@ -22,11 +22,19 @@ import {
 import { units, maps, missions, structures as structureCatalogue, parseMap, applyTerrain } from '@lions/data';
 import doctrineR1 from './sarim_standoff.doctrine.json';
 import doctrineR2 from './sarim_standoff_r2.doctrine.json';
+// Round 2b (10 Oct): main replaced Tel Marum III's ground in place (f6a815b6, GH-382). The
+// doctrine's zones, markers and corridor watch are tiles on the 1 Oct ground, so the skirmish
+// pins that ground as a spike fixture. SK_GROUND=current plays today's map (doctrine mis-aimed).
+import oct1Map from './tel_marum_3.oct1.map.json';
+import oct1Mission from './tel_marum_3_clearance.oct1.mission.json';
+const CURRENT_GROUND = process.env.SK_GROUND === 'current';
 /** SK_ROUND=1 reproduces round 1's doctrine exactly. */
 const doctrineJson = process.env.SK_ROUND === '1' ? doctrineR1 : doctrineR2;
 
 export const DOCTRINE: DoctrineJson = {
   ...(doctrineJson as unknown as DoctrineJson),
+  // Round 2b (10 Oct): round 2 plus spend-when-unthreatened (§7.3 of round 1).
+  ...(process.env.SK_ROUND === '2b' ? { invest: { floor: 0, cooldown_ticks: 600 } } : {}),
   // Sweep hook: SK_DOC='{"attack_ratio_pct":150}' overrides top-level fields.
   ...(process.env.SK_DOC ? (JSON.parse(process.env.SK_DOC) as Partial<DoctrineJson>) : {}),
 };
@@ -36,8 +44,9 @@ export const SEEDS = process.env.SK_SEEDS === 'alt'
   ? [11, 23, 101, 977, 4242, 7777, 31415, 27182, 16180, 90210, 13, 29, 313, 2718, 6006, 8081, 12345, 54321, 99, 777]
   : [424242, 7, 1009, 31337, 65521, 99991, 123456, 2024, 555, 8888];
 const GAME_TICKS = 7 * 60 * TICKS_PER_SECOND;
-const TM3 = missions.tel_marum_3_clearance as unknown as MissionJson;
+const TM3 = (CURRENT_GROUND ? missions.tel_marum_3_clearance : oct1Mission) as unknown as MissionJson;
 const MAP_FILE = 'tel_marum_3';
+const MAP_JSON = (CURRENT_GROUND ? maps.tel_marum_3 : oct1Map) as (typeof maps)['tel_marum_3'];
 /** Points the KDF earns for the battery (Deviation D-1). */
 const BATTERY_PRIZE = 120;
 const DEBUG = process.env.SK_DEBUG === '1';
@@ -221,7 +230,7 @@ export interface GameResult {
 }
 
 export function play(seed: number, plan: PlanName, arm: Arm, shiftS = 0): GameResult {
-  const map = parseMap(maps[MAP_FILE as keyof typeof maps]);
+  const map = parseMap(MAP_JSON);
   const sim = new Sim({ seed, width: map.width, height: map.height, capacity: 256 });
   applyTerrain(map, sim);
   const structIdx = new Map<string, number>();
@@ -413,7 +422,7 @@ const traceKey = (tr: CommanderDecision[]) => tr.map((d) => `${d.tick}:${d.kind}
 /** Per-tick cost at 300 living units: 150 KDF a-moving north into 150 Sarim
  *  under the commander. Times sim.tick and the commander separately. */
 function cost(seed: number, withCommander: boolean): { tick: number[]; think: number[]; living: number; alive: number[]; spawned: number } {
-  const map = parseMap(maps[MAP_FILE as keyof typeof maps]);
+  const map = parseMap(MAP_JSON);
   const sim = new Sim({ seed, width: map.width, height: map.height, capacity: 512 });
   applyTerrain(map, sim);
   const structIdx = new Map<string, number>();

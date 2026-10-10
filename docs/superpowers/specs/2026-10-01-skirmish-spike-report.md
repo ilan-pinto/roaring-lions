@@ -543,3 +543,157 @@ belongs to G3/G-F, not to another spike. **What would make it a no-go:** if G3's
 economy cannot give the AI doctrine about 1.6× effective force without breaking
 the campaign's own pricing. Then the commander needs typed counters that hurt
 armour (gap G-7, directed fire), not more tuning.
+
+---
+
+## Round 2b: re-measured on today's sim, plus spend-when-unthreatened (10 Oct)
+
+Round 2 above was measured on 1 Oct and committed. It was never reported on #187.
+This section re-runs it on branch `spike/skirmish-g0-r2`: `spike/skirmish-g0` with
+`origin/main` merged in at `c4ac2fe5` (merge, no rebase). It also adds the one change
+§7 asked for that round 2 did not build. The criteria (§1), the plans and the seeds are
+unchanged. "Sensible" is the criteria's `good` plan and "optimal" is `concentrated`.
+
+**Nothing shipped moved.** On the merged branch `pnpm test:determinism` passes 12/12,
+and `determinism.test.ts` is byte-identical to main's, so the golden hash is main's.
+`vitest run packages/sim` passes 583/583 and `pnpm playtest` exits 0. The spike's
+code is still only `commander.ts`, the `MissionRuntime` refactor (behaviour-identical,
+proved by the hash) and `tools/src/skirmish/`. None of it lands.
+
+### R2b.1 Two things changed under the spike since 1 Oct
+
+1. **Tel Marum III's ground was replaced in place** (`f6a815b6`, GH-382, 5 Oct). The
+   doctrine's zones, extra markers and corridor watch are hand-placed tiles on the
+   old ground. On the new map the commander takes 1 zone, not 3 (C1a 0-1/10, where
+   it was 10/10). It walks into the KDF's guns even against a passive player (8-12
+   of its 13 units lost, where it lost 0). C2a never makes contact, and the bank
+   never releases a wave. Those numbers measure a doctrine aimed at terrain that no
+   longer exists, so they are not used below. The harness now pins the 1 Oct ground
+   as a spike fixture (`tel_marum_3.oct1.map.json` and the matching mission, taken
+   from `6a3c4946`). `SK_GROUND=current` plays today's map. **The finding matters on
+   its own: a doctrine written in map tiles rots silently the day the map changes.
+   That is gaps G-4 and G-12 measured, not argued.** A G-G doctrine must name
+   zones and routes that the map declares.
+2. **The engine changed** (#402, infantry halt and kneel to fire, plus the polish
+   passes). On the same ground with the same doctrine, round 2 at ×2 over 30 seeds
+   moved as follows: naive 14 → 16, good 24 → 21, concentrated 28 → 26. That is
+   within noise, since one binomial standard deviation at 30 seeds is about 2.7
+   games, but all three moved toward a weaker gradient. The harness itself is
+   sound: on the old branch it reproduces the 1 Oct tables exactly.
+
+### R2b.2 The change: spend when unthreatened
+
+Round 1's §7.3 asked for "spend the budget when unthreatened instead of banking
+it". Round 2 built the opposite, "bank, then counterattack". Its 700 bank was never
+reached before the naive rush arrived (0-1 waves a game). The new optional
+`invest: {floor, cooldown_ticks, at_only?}` block works like this. While no task
+has enemy power on it and no main effort is on, the commander buys one item above
+`floor` every `cooldown_ticks`. It alternates the anti-armour and general menus and
+posts each item on the most valuable ground. The kept setting is `SK_ROUND=2b`:
+round 2 plus `{floor: 0, cooldown_ticks: 600}`. The setting was chosen against
+these sweeps, all at 30 seeds, with KDF wins given as naive / good / concentrated:
+
+| Invest variant | ×1 | ×2 |
+|---|---|---|
+| none (round 2) | 29 / 27 / 29 | 16 / 21 / 26 |
+| floor 0, every 30 s, alternate (**kept, 2b**) | 23 / 29 / 28 | 20 / 19 / 24 |
+| floor 0, every 10 s, alternate | 24 / 29 / 26 | 17 / 20 / 25 |
+| floor 700, every 10 s (protects the bank) | 29 / 27 / 29 | 16 / 21 / 26 (never fires) |
+| floor 0, every 10 s, anti-armour only | 19 / 22 / 26 | 16 / 15 / 22 |
+| floor 0, every 5 s, anti-armour only | 20 / 27 / 27 | 14 / 16 / 17 |
+
+Investing turns a passive game's 3,816 unspent into 16 units. Against a rush it
+buys only 2-6 items before contact. It helps at ×1 (naive 29 → 23) and does
+nothing at ×2. Buying anti-armour only slows the naive rush, but it slows the good
+plan just as much, so it adds no gradient.
+
+### R2b.3 Results: 1 Oct ground, today's engine, 30 seeds (fixed 10 + `SK_SEEDS=alt` 20)
+
+KDF wins, with the mean units lost by each side (KDF of 8 / Sarim, which includes
+units bought in waves):
+
+| Plan | R1 ×1 | R2 ×1 | R2b ×1 | R1 ×2 | R2 ×2 | R2b ×2 |
+|---|---|---|---|---|---|---|
+| passive | 0/30 | 0/30 | 0/30 | 0/30 | 0/30 | 0/30 |
+| flank | 0/30 | 0/30 | 0/30 | 0/30 | 0/30 | 0/30 |
+| naive | 21/30 (4.9 / 14.5) | 29/30 (3.2 / 13.0) | 23/30 (4.3 / 13.2) | 16/30 (5.6 / 19.2) | **16/30** (5.1 / 15.3) | 20/30 (5.4 / 16.9) |
+| good (sensible) | 24/30 (4.3 / 13.9) | 27/30 (3.3 / 13.0) | 29/30 (3.3 / 13.3) | 11/30 (6.8 / 13.2) | **21/30** (5.3 / 15.4) | 19/30 (5.8 / 13.4) |
+| concentrated (optimal) | 28/30 | 29/30 | 28/30 | 18/30 | **26/30** | 24/30 |
+
+Force sweep with KDF wins out of 30, given as naive / good / concentrated. R2 at
+×1.6 reads 18 / 26 / 25, at ×2.5 16 / 14 / 18, and at ×3 11 / 16 / 18. R2b at ×1.6
+reads 20 / 24 / 25, at ×2.5 10 / 10 / 19, and at ×3 7 / 6 / 13. **No doctrine
+variant and no force from ×1 to ×3 meets the bar, which is naive losing most games
+while good still wins at least 7 in 10.** The nearest are R2 ×2 (naive 53%, good
+70%) and R2 ×3 (naive 37%, good 53%). Above ×2 the commander beats every plan
+alike, so the gradient collapses instead of opening.
+
+**Preservation:** the `preserve_hp_pct` rule does not prevent annihilation. In
+every row that the KDF wins, the Sarim side loses 13-19 units, which is its whole
+opening force or more. The KDF wins by elimination ("s") in 1.3-3.5 minutes, not
+on points at seven. The criteria tables on the fixed ten seeds agree:
+
+| Criterion | R2 ×1 | R2b ×1 | R2 ×2 | R2b ×2 |
+|---|---|---|---|---|
+| C1a | PASS 10/10 | PASS 10/10 | PASS 10/10 | PASS 10/10 |
+| C1b | PASS 76% | FAIL 62% | FAIL 74% | FAIL 67% |
+| C1c | FAIL 1/10 | FAIL 3/10 | FAIL 4/10 | FAIL 6/10 |
+| C2a | FAIL 3/10 (contact 3/10) | FAIL 2/10 | FAIL 0/10 (no contact) | FAIL 0/10 |
+| C2b re-scored | FAIL 0.98× | FAIL 0.97× | FAIL 1.50× | FAIL 1.61× |
+| C2c | PASS 0 < 10 | PASS 0 < 10 | PASS 0 < 6 | PASS 0 < 6 |
+| C3a | PASS 10/10 | PASS 10/10 | FAIL 6/10 | FAIL 6/10 |
+| C3b (naive ≤ 3) | FAIL 9/10 | FAIL 8/10 | FAIL 8/10 | FAIL 7/10 |
+| C3c | PASS | PASS | PASS | PASS |
+| C3d | PASS 10, 10 | PASS 9, 8 | PASS 7, 6 | FAIL 4, 6 |
+
+On the fixed ten, C2a fails because the flank party usually dies in the valley
+before it is "north of the wall". The supplementary "any contact west of x=16"
+reading is still answered within a second, as in round 1.
+
+### R2b.4 Determinism and cost
+
+- **Determinism:** `--determinism` was run under R2 and R2b at ×1 and ×2. In every
+  case two runs of seed 424242 give the same sim hash, score and decision trace
+  (31-53 decisions). `eslint` is clean on the commander and the harness.
+- **Cost at 300 living units** (`--cost`, 3 runs each, Node on this Mac). R2:
+  think mean 0.23-0.45 ms, max 1.47 ms, amortised **0.014-0.021 ms/tick**. R2b:
+  think mean 0.22-0.46 ms, max 1.54 ms, amortised **0.014-0.021 ms/tick**. The sim
+  tick is 1.31-1.39 ms mean with the commander and 1.11-1.34 ms without. All of it
+  is under 0.05% of the 50 ms budget. The round-2 report's 5.2 ms worst think did
+  not recur on this sim.
+
+### R2b.5 G4 recommendation (#168, due 14 Dec): **GO on the engine, NO-GO on a skirmish AI as a selling point**
+
+Round 2's "GO, conditional on about 1.6× effective force" does not survive
+re-measurement. On today's engine the best configuration (R2, ×2) lets a naive
+attack-move win 16 of 30 games, against 21 of 30 for the sensible plan. That
+5-game gap is less than two binomial standard deviations. Neither spending when
+unthreatened, nor investing in anti-armour only, nor any force from ×1 to ×3 makes
+the naive plan lose most games while the good plan still wins. Every engineering
+risk is retired again: deterministic, about 0.02 ms a tick at 300 units, expressed
+in the mission vocabulary, fair perception, and no script. So G4 should **go on
+WP-G-G as engine work**: the commander phase in the tick (G-10), map-declared zones
+and routes (G-4/G-12, which a map change has now shown to be load-bearing), a
+doctrine schema (G-9), and the `&commander` sandbox flag for the lead's five games.
+It should **not commit the 14 Dec milestone to a skirmish mode whose promise is "an
+AI that punishes a bad plan"**. The binding constraint is not the doctrine.
+Round 2 found Sarim anti-armour landing 1-5 rounds a game against a Trophy-equipped
+Lavi; that reading is round 2's and was not re-taken here. On this evidence, a
+thinking defender at any force size loses to one tank leading an attack-move, or
+crushes everyone alike. Closing that needs a balance decision on typed counters to
+armour, or AI-directed fire (G-7). That is G3/balance work, frozen this month, and
+not a fourth doctrine round. Re-open the skirmish question once that exists. Judge
+it on at least 30 seeds, and on the lead's games.
+
+### R2b.6 Reproduce
+
+```
+cd tools
+SK_ROUND=2b npx tsx src/skirmish/skirmish.ts                         # criteria, fixed 10 seeds, x1
+SK_ROUND=2b SK_EXTRA=2 SK_SEEDS=alt npx tsx src/skirmish/skirmish.ts --only=naive,good,concentrated
+SK_ROUND=1|2|2b SK_EXTRA=2 ...                                       # the three doctrines
+SK_DOC='{"invest":{"floor":0,"cooldown_ticks":200,"at_only":true}}' npx tsx src/skirmish/skirmish.ts --only=naive,good
+SK_GROUND=current npx tsx src/skirmish/skirmish.ts                   # today's Tel Marum III (doctrine mis-aimed)
+SK_ROUND=2b npx tsx src/skirmish/skirmish.ts --determinism
+SK_ROUND=2b npx tsx src/skirmish/skirmish.ts --cost
+```

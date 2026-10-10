@@ -98,6 +98,11 @@ export interface DoctrineJson {
   /** Bank the wave budget while not pressed; release it in one wave at the
    *  main effort once at least `min_bank` is banked. */
   counterattack?: { min_bank: number; max_units: number };
+  /** Round 2b: spend when unthreatened. While no task has enemy power on it
+   *  and no main effort is on, buy one item above `floor` every
+   *  `cooldown_ticks` and post it on the most valuable ground, alternating
+   *  anti-armour and general. The bank below `floor` is the counterattack's. */
+  invest?: { floor: number; cooldown_ticks: number; at_only?: boolean };
   waves: {
     start_budget: number;
     income_per_point: number;
@@ -162,6 +167,8 @@ export class Commander {
   private readonly ambushed = new Set<number>();
   private readonly orderedAt = new Map<number, number>();
   private readonly preserved = new Set<number>();
+  /** Round 2b: items bought by the invest rule (alternates the menu). */
+  private invested = 0;
   private readonly lastMarker = new Map<string, string>();
   private readonly abandonedPrev: boolean[];
   private lastWave = -1_000_000;
@@ -481,6 +488,46 @@ export class Commander {
       this.trace.push({ tick, kind: 'stance', task: tasks[ti].id, n: 1 });
     }
 
+    // --- round 2b: invest while unthreatened ---
+    const inv = this.d.invest;
+    if (inv && mainIdx < 0 && tick - this.lastWave >= inv.cooldown_ticks) {
+      let quiet = true;
+      for (let ti = 0; ti < reserveIdx; ti++) if (tasks[ti].enemy > 0) quiet = false;
+      if (quiet) {
+        let ti = -1;
+        for (const o of order) if (!tasks[o].reserve && !tasks[o].abandoned) { ti = o; break; }
+        const menu = inv.at_only === true || (this.invested & 1) === 0 ? this.d.waves.anti_armour : this.d.waves.general;
+        const w = menu[0];
+        if (ti >= 0 && this.budget - w.cost >= inv.floor) {
+          const t = tasks[ti];
+          const [tx, ty] = this.markerFx(t.marker);
+          let from = this.d.waves.spawns[0];
+          let fromD = -1;
+          for (const sp of this.d.waves.spawns) {
+            const [sx, sy] = this.markerFx(sp);
+            const dd = dist(sx, sy, tx, ty);
+            if (fromD < 0 || dd < fromD) {
+              from = sp;
+              fromD = dd;
+            }
+          }
+          this.budget -= w.cost;
+          this.invested++;
+          this.lastWave = tick;
+          const ids = this.rt.dispatchWave({
+            units: [{ unit: w.unit, count: w.count, from }],
+            to: this.d.standoff.includes(w.unit) ? t.standoff : t.marker,
+          });
+          for (const id of ids) {
+            this.owned.add(id);
+            this.assigned.set(id, ti);
+            this.orderedAt.set(id, tick);
+          }
+          this.trace.push({ tick, kind: 'wave', task: t.id, n: ids.length });
+          return;
+        }
+      }
+    }
     // --- waves: spend the budget where the deficit is largest ---
     if (tick - this.lastWave < this.d.waves.cooldown_ticks) return;
     const ca = this.d.counterattack;
