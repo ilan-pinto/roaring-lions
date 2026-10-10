@@ -835,8 +835,19 @@ yours; each one records what the next phase inherits.
   Both halves of that are load-bearing -- `drawBlockedMask` returns a new array every call, so a
   reference compare never matches, and `sim.cover` is written IN PLACE when a structure dies, so
   a reference compare always does. A boot fires 3-5 terrain rebuilds (templates, decor sets,
-  `setElevation`) and now builds the map once; a structure collapse still pays a full build,
-  and a dirty-rect rebuild is the follow-up. See `docs/PERFORMANCE.md`, "The ground, plan 1".
+  `setElevation`) and now builds the map once. See `docs/PERFORMANCE.md`, "The ground, plan 1".
+  **A structure collapse SPLICES** (PR #509, `terrain/incremental.ts`, `terrain/tiled-mesh.ts`):
+  the new draw mask, cover, terrace flag and field source are diffed against the last build,
+  ground and scatter re-emit only changed tiles grown by `SPLICE_RADIUS_TILES` = 2 (Catmull-Rom's
+  support) and copy the rest with shifted indices, and `updateControlMapRegion` rewrites in place
+  the texels within `CONTROL_SPLICE_MARGIN_TEXELS` = 4 (0.2 bend + 0.25 band); a road or ridge
+  tile changing still builds the map whole. Byte-identical to a full build: swept over all 1,724
+  single collapses on every shipped map, 0 differences, and both margins are tight -- 1 tile
+  differs on 13 relief maps, 3 texels on 25 maps (`packages/app/src/terrain-splice.test.ts` keeps
+  chains and one witness per margin). The collapse frame at 4x CPU went 531-627 ms -> 95-103 ms.
+  Left on it: decor placements recomputed whole (~6 ms at 4x; the clump rule drops members by the
+  tile they land on) and the sim's own `recomputeFields` (9-19 ms at 4x). See `docs/PERFORMANCE.md`,
+  "A collapse splices the terrain".
   **The road block in the ground shader is skipped where control B saturates**
   (`if (rlB.g < 1.0)`): there every road term is exactly 0, the golden A/B read 0 px, and its
   grain tap is a `textureGrad` whose derivatives are taken OUTSIDE the branch. Keep them there.
