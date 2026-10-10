@@ -72,6 +72,18 @@ jobs:
       - name: Install ffmpeg (audio gate)
         run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg
       - run: pnpm validate:audio
+      # AU-4's rendered mix check (tools/src/audio/mix-check.ts): scripted
+      # scenes through the shipped mixer in a headless Chromium's
+      # OfflineAudioContext, measured with the ffmpeg installed above. Offline
+      # rendering needs no GPU; the check itself is ~16 s locally.
+      - name: Cache Playwright browsers (mix check)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Install Playwright Chromium (mix check)
+        run: pnpm --filter @lions/tools exec playwright install --with-deps chromium
+      - run: pnpm audio:mix
       - run: python tools/validate_balance.py --units data/units
       - run: python tools/validate_balance.py --units data/units --also docs/campaign/special_units/e5
       # Brigade economy Task 5: the same cost-curve check, run again against every

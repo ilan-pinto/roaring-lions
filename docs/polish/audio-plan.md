@@ -94,7 +94,7 @@ Ranked by **information value**, which decides who yields to whom. This is not l
 |---|---|---|---|---|---|
 | 1 | **Voice / radio**: barks, announcements, outcome lines | the highest-information sound: what my men did, what the mission did | engine live, 4/40 takes, announcements silent | `voice` (+ radio chain) → unchanged | −21 LUFS (N10/N11, shipped) |
 | 2 | **Critical cues**: outcome stingers, objective new/complete/failed, major and important alerts | a state change the player must not miss with the screen out of sight | 2 synth sounds for all of it | `sfx` (ducked under voice) → a new **`cue` bus**, not ducked by voice, own gain | stinger peaks ≈ −10 dBFS; cues ≈ −14 dBFS |
-| 3 | **Combat**: fire, impacts, kills, located | the fight, where it is, how big | live, procedural | `sfx` → unchanged | peaks to −3 dBFS on a kill; ducked −4 dB under voice |
+| 3 | **Combat**: fire, impacts, kills, located | the fight, where it is, how big | live, procedural | `sfx` → unchanged | peaks to −3 dBFS on a kill; ducked −6 dB under voice (−4 until AU-4's rendered check, 10 Oct: §2.2) |
 | 4 | **Unit feedback**: order bark, selection, deny | that the click landed, or did not | barks only | `voice` for barks; deny/confirm → `cue` bus | confirm ≈ −22 dBFS peak, deny ≈ −18 |
 | 5 | **Music** | the emotional line | one track, everywhere | `<audio>` element → two elements (crossfade, §6) | menu −22 LUFS; battle −26 LUFS (proposed gain 0.26) |
 | 6 | **Ambience** | the place is alive | **absent** | new `amb` bus under `master` | −34 LUFS, never ducked below −40 |
@@ -114,7 +114,7 @@ first row is shipped (N12). Every other row is proposed.
 
 | Trigger | Ambience | Combat SFX | Cue bus | Voice | Music | Attack / release |
 |---|---|---|---|---|---|---|
-| Bark: order, ack, death (**shipped**) | — | −4 dB | — | (it is the voice) | −3 dB | 80 / 300 ms |
+| Bark: order, ack, death (**shipped**; SFX −6 since AU-4, see below) | — | −6 dB | — | (it is the voice) | −3 dB | 80 / 300 ms |
 | Announcement (objective, deadline, wave, reinforcements, unit lost) | −3 dB | −6 dB | — | holds lower-ranked lines (`hold_s` 3, shipped) | −6 dB | 80 / 400 ms |
 | Objective cue, important alert | — | −3 dB for the cue's length | (it is the cue) | — | −3 dB | 20 / 250 ms |
 | Major alert | −3 dB | −6 dB | — | barks below `order` dropped for 1 s | −6 dB | 20 / 500 ms |
@@ -123,6 +123,15 @@ first row is shipped (N12). Every other row is proposed.
 | Pause menu open | −6 dB, low-pass 800 Hz | low-pass 800 Hz on tails (no new events: the sim is stopped) | confirm and deny only | `stopVoices()` | −6 dB | 150 / 300 ms |
 | Briefing / deploy screen | — | — | confirm and deny | (future briefing voice-over) | briefing bed | — |
 | Muted (`m`) | off | off | off | off | paused | (shipped) |
+
+*As measured (AU-4, 10 Oct 2026, `pnpm audio:mix`):* the bark row shipped SFX at −4 dB (N12). A
+death call speaks on the tick of its own kill, and the `destroyed` clip is the loudest in the
+library, so at −4 a death call in a firefight read **5.3 LU** over SFX+music, under AU-4's 6. At
+−6 it reads **6.8 LU** (an order bark 9.1 → 10.3). A burst of four kills inside one call still
+reads 1.0 LU and is reported, not gated: no duck the rules below accept clears four explosions by
+6 LU. The same check found the outcome row's 600 ms fade cut to **80 ms** whenever the outcome
+line played (the line's own hold re-ramped a target that had not moved); the mixer now re-ramps
+only a layer whose target moves.
 
 **Rules behind the numbers:**
 
@@ -615,7 +624,7 @@ that makes it fail").
 | **AU-1** | **Cue map and coverage test** | a `cues` table in `data/audio.json`: every critical game event → a set name, or an explicit `silent` with a reason. Events: `MissionEvent` kind × objective status, the alert tiers, outcome victory/defeat, mission start, ui confirm/deny, kit fitted. The app reads cues from the map, never a hard-coded set name | (1) `cue-coverage.test.ts`: every key of a **typed exhaustive record** over `MissionEvent['kind']`, `ObjectiveStatus` and the alert tiers is present, so a new event kind is a `tsc` error, not a silent gap. (2) Every mapped set exists in `sets` and has ≥ 1 variant **or** is on a named synth-allowed list. (3) No two of objective complete/failed/new map to the same set. **Falsify:** delete one mapping → red; point `failed` at `complete`'s set → red; add a dummy `MissionEvent` kind → `tsc` red | — |
 | **AU-2** | **Land the chosen cues** | the lead's picks into `gen_audio.py` (`UI_SETS`, plus a new `STINGER_SETS` with its own length ceiling); `data/audio.json` sets with the §2.3 gains; ASSET_PROVENANCE rows (CC0, `gen_audio.py`) | `pnpm validate:audio` green; `gen_audio.py --only=<new sets>` leaves every existing file byte-identical (`git status`); every new file ≤ −6 dBFS and under its ceiling (asserted in `gen_audio.py`). **Falsify:** set a stinger to 3 s → the assertion trips | §9 A1 |
 | **AU-3** | **Wire the cues** | `alerts.ts` grows the tier (minor/important/major) and the objective status → cue; vehicle and named-veteran losses → major; deadline → important; `outcomeMoment` plays victory/defeat; the title card plays mission start; a refused order plays deny; primary buttons play confirm (via one helper, not per screen) | unit tests on `alertsForTick`: a vehicle loss → `major`, an infantry loss → `important`, under fire → `minor`, complete ≠ failed ≠ active cue. **Falsify:** map every status to one cue → red. `pnpm ui:routes` stays green (no console error, no leaked listener) | AU-1 |
-| **AU-4** | **Mix and buses** | `cue` and `amb` buses with duck stages under their gains; the §2.2 rows as pure functions beside `duckRamp`; battle music gain 0.26 / menu 0.4; outcome fade; pause behaviour | pure tests for each row (attack, release, depth). **A rendered mix check**, like `pnpm radio:clips`: an `OfflineAudioContext` render of a scripted 5 s firefight with a bark and an objective cue, with ffmpeg measuring that the bark is ≥ 6 LU over SFX+music during the line and the cue is never ducked by the voice. **Falsify:** route the cue through `sfx` → the measured cue level drops 4 dB → red | AU-2 |
+| **AU-4** | **Mix and buses** | `cue` and `amb` buses with duck stages under their gains; the §2.2 rows as pure functions beside `duckRamp`; battle music gain 0.26 / menu 0.4; outcome fade; pause behaviour | pure tests for each row (attack, release, depth). **A rendered mix check**, like `pnpm radio:clips`: an `OfflineAudioContext` render of a scripted 5 s firefight with a bark and an objective cue, with ffmpeg measuring that the bark is ≥ 6 LU over SFX+music during the line and the cue is never ducked by the voice. **Falsify:** route the cue through `sfx` → the measured cue level drops 4 dB → red. *Built 10 Oct as `pnpm audio:mix` (`tools/src/audio/mix-check.ts`, CI `gates`): eight scenes through the shipped mixer, every gate's source printed with its number; the cue-through-`sfx` mutation reads 2.2 dB (the reference cue carries its own −3 dB row too) and goes red* | AU-2 |
 | **AU-5** | **Voice director v2** | the §5.1 rank ladder (announce split by priority, outcome rank), the 300 ms no-cut floor, a shuffle bag per key, unit-lost coalescing over 2 s, the mission-start and post-major silences, announcement captions always on | pure tests on `admitVoice` and the announcer: the new ranks, the no-cut floor, a shuffle bag never repeating a take back to back over 1,000 draws. **Falsify:** revert to `rand()` → a back-to-back repeat appears → red | — |
 | **AU-6** | **Voice assets** | the 16 Hebrew + 4 Arabic reachable lines first, then the 12 announcer lines (§5.4), then D7; 2 takes each; `voice_prep.py`; `text`/`translit`/`en` from §5.3; re-record `he.common.ack` | `pnpm validate:audio`: N9 duration, N10 loudness, D9 licence and source naming the release; the native reviewer's sign-off recorded in the PR; every recorded key reachable or explicitly marked D7 | **D4, D5, D9**; §9 A3 |
 | **AU-7** | **Music states** | a two-element crossfader; the §6.1 state machine (menu/briefing/calm/tension/victory/defeat); the intensity reading on presentation time; beds from route 1 or the chosen route | pure tests for the state machine and the hysteresis (no flapping over a 0.5 s burst); `ui:routes` green; a stream never decoded whole (`validate_audio` 8 MB). **Falsify:** remove the hysteresis → a scripted burst flaps → red | §9 A6 |
