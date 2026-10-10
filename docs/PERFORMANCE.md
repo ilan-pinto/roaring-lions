@@ -1893,8 +1893,8 @@ the robust readings.
 
 | | base | this branch |
 |---|---|---|
-| collapse long task, 4x CPU | 531-583 ms (n=3, load ~3); 602-627 ms (n=4, load 8-12) | 95-103 ms (n=4, load 6-12) |
-| collapse long task, 1x | 163-172 ms (n=3, load ~3); 167-170 (n=2) | none over 50 ms (n=2, load 6-11); 104 ms (n=1, load 20) |
+| collapse long task, 4x CPU | 531-583 ms (n=3, load ~3); 602-726 ms (n=5, load 8-17) | 95-178 ms (n=5, load 6-17; 95-103 at load <= 12) |
+| collapse long task, 1x | 163-172 ms (n=3, load ~3); 167-228 (n=3, load 9-15) | none over 50 ms (n=2, load 6-11); 104 ms (n=1, load 20) |
 | render submit p50, 4x, fight | 25.3-28.8 ms, mean 26.5 (n=4) | 22.4-26.9, mean 24.5 (n=4) |
 | render submit p50, 4x, pan | 21.2-24.8, mean 22.9 (n=4) | 19.4-23.7, mean 21.2 (n=4) |
 | render submit p50, 4x, opening | 21.0-24.0, mean 22.4 (n=4) | 18.1-21.9, mean 19.9 (n=4) |
