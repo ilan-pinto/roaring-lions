@@ -67,4 +67,19 @@ export const TEXTURED_INFANTRY_TYPES: ReadonlySet<string> = new Set<string>([
   // and rifle carry no map and take the faction ramp. HELD in
   // mesh-catalogue.ts until Task 9 lands its unit JSON.
   'recon_zikit',
+  // B7 (GH-179, 2026-10-01): the two B2 teams, their bake bought on the B2
+  // preview itself (`pnpm meshy -- refine`) and re-remeshed; and the four
+  // supplied civilian figures, which keep their own supplied bake
+  // (tools/import_meshy_civilians.py) -- one type id for four files, as
+  // mesh-catalogue.ts draws them.
+  'manpad_team',
+  'recoilless_team',
+  'civilians',
+  // B7, the five supplied Meshy teams replaced by A-pose figures with their
+  // bake through the crew importer, under their team ids' own file names.
+  'inf_squad',
+  'sarim_rifles',
+  'mortar_team',
+  'sniper_team',
+  'yahalom_squad',
 ]);

@@ -4,8 +4,7 @@
   "layer": "above_units",
   "weapon_classes": ["heat"],
   "budget_priority": 7,
-  "screen_shake": { "amplitude_px": 3, "duration_ms": 170, "falloff_tiles": 12 },
-  "light": { "color": "vfx.fire", "intensity": 2.4, "radius_tiles": 4.0, "decay_ms": 130 },
+  "light": { "color": "vfx.fire", "intensity": 1.0, "radius_tiles": 4.0, "decay_ms": 130 },
   "particles": [
     {
       "sprite": "soft_dot",

@@ -37,6 +37,10 @@ export interface ObjectiveRow {
    *  evacuation's refuge (`evacuation.ts`, GH-279). Drawn as a button only
    *  when the mount also passes `onJump`. */
   jumpTo?: { x: number; y: number };
+  /** The briefing's clock for this row (`briefing-glance.ts`'s
+   *  `objectiveClock`: "5:00 limit", "hold 4:00"). Read only by the
+   *  briefing mount, beside the row's kind; the live mounts show `ticksLeft`. */
+  clock?: string;
 }
 
 export interface ObjectivesDeps {
@@ -53,6 +57,12 @@ export interface ObjectivesDeps {
   /** Puts the camera on a row's `jumpTo`. The in-mission tracker passes it;
    *  the briefing does not -- there is no battlefield under that screen yet. */
   onJump?: (x: number, y: number) => void;
+  /** The briefing's mount (GH-417 B-04): nothing has started, so a row's
+   *  live status ("In progress" on every row) is not true yet. The status
+   *  column names the row's KIND instead -- primary or optional -- and an
+   *  optional row's "Optional" reward line, which would now say it twice, is
+   *  dropped. A carrying row keeps its line: that one says what it pays. */
+  briefing?: boolean;
 }
 
 export function objectivesPanel(
@@ -109,6 +119,7 @@ export function objectivesPanel(
         o.status,
         o.text,
         o.ticksLeft !== undefined,
+        o.clock ?? null,
         deps.onJump ? (o.jumpTo ?? null) : null,
       ])
     );
@@ -151,7 +162,12 @@ export function objectivesPanel(
       status.className = 'rl-obj__status';
       // I10's rule, unbroken here: the catalogue label, never `o.status`
       // (the sim's own enum) printed raw.
-      status.textContent = objectiveStatusLabel(o.status);
+      const kind = t(o.primary ? 'objective.kind.primary' : 'objective.kind.optional');
+      status.textContent = deps.briefing
+        ? o.clock
+          ? t('objective.kind.clock', { kind, clock: o.clock })
+          : kind
+        : objectiveStatusLabel(o.status);
       li.appendChild(status);
 
       if (o.ticksLeft !== undefined) {
@@ -179,7 +195,7 @@ export function objectivesPanel(
       // primary's row never even builds the (empty) span.
       if (!o.primary) {
         const reward = rewardFor({ primary: o.primary, carries: o.carries, paysCredits: deps.paysCredits });
-        if (reward) {
+        if (reward && !(deps.briefing && reward.key === 'objective.reward.none')) {
           const rewardEl = document.createElement('span');
           rewardEl.className = 'rl-obj__reward';
           rewardEl.textContent = t(reward.key, reward.params);

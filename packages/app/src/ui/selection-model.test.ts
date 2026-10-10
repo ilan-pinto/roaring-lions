@@ -91,6 +91,18 @@ describe('order row — capable, but it would do nothing right now', () => {
     expect(row(facts({ underway: 1 }), 'halt')?.inert).toBe(false);
   });
 
+  it('names WHY each dimmed verb is dim, from the same counts, and only while it is dim (K-09)', () => {
+    expect(row(facts({ carriers: 1, slots: 8, aboard: 0 }), 'unload')?.inertReason).toBe('hud.order.inert.unload');
+    expect(row(facts({ carriers: 1, slots: 8, riders: 0 }), 'load')?.inertReason).toBe('hud.order.inert.load');
+    expect(row(facts(), 'halt')?.inertReason).toBe('hud.order.inert.halt');
+    // Not inert: no reason key at all, so a stale one can never ride along.
+    expect(row(facts({ carriers: 1, slots: 8, aboard: 3 }), 'unload')).not.toHaveProperty('inertReason');
+    expect(row(facts({ carriers: 1, slots: 8, riders: 2 }), 'load')).not.toHaveProperty('inertReason');
+    expect(row(facts({ underway: 1 }), 'halt')).not.toHaveProperty('inertReason');
+    expect(row(facts(), 'attackMove')).not.toHaveProperty('inertReason');
+    expect(row(facts({ smokers: 1 }), 'smoke')).not.toHaveProperty('inertReason');
+  });
+
   it('never dims attack-move — a living unit can always be sent somewhere', () => {
     expect(row(facts(), 'attackMove')?.inert).toBe(false);
     expect(row(facts({ count: 40, underway: 40 }), 'attackMove')?.inert).toBe(false);
@@ -167,13 +179,27 @@ describe('chips — grouping', () => {
     expect(chips[0].hpTone).toBe('warn');
   });
 
-  it('bands the health track at a half and a quarter', () => {
-    expect(hpTone(1)).toBe('good');
-    expect(hpTone(0.51)).toBe('good');
-    expect(hpTone(0.5)).toBe('warn');
-    expect(hpTone(0.26)).toBe('warn');
-    expect(hpTone(0.25)).toBe('bad');
-    expect(hpTone(0)).toBe('bad');
+  it('bands a hostile health track at a half and a quarter', () => {
+    expect(hpTone(1, false)).toBe('good');
+    expect(hpTone(0.51, false)).toBe('good');
+    expect(hpTone(0.5, false)).toBe('warn');
+    expect(hpTone(0.26, false)).toBe('warn');
+    expect(hpTone(0.25, false)).toBe('bad');
+    expect(hpTone(0, false)).toBe('bad');
+  });
+
+  it("VR-03: the player's own track is never the enemy red, however low", () => {
+    expect(hpTone(1, true)).toBe('good');
+    expect(hpTone(0.5, true)).toBe('warn');
+    for (let k = 0; k <= 100; k++) expect(hpTone(k / 100, true)).not.toBe('bad');
+    expect(hpTone(0, true)).toBe('warn');
+  });
+
+  it('VR-03: a chip of own units at a tenth of its health reads warn; a hostile one reads bad', () => {
+    const mine = groupChips([unit({ hp: 10, own: true })]);
+    const theirs = groupChips([unit({ hp: 10, own: false })]);
+    expect(mine[0].hpTone).toBe('warn');
+    expect(theirs[0].hpTone).toBe('bad');
   });
 });
 
@@ -184,6 +210,8 @@ describe('chips — the one status line', () => {
     expect(s({ count: 3, routed: 1, pinned: 2, aboard: 0, moving: 3 })).toEqual({
       status: '1 BROKEN',
       statusTone: 'bad',
+      mark: 'broken',
+      detail: '2 PINNED',
     });
   });
 
@@ -191,6 +219,8 @@ describe('chips — the one status line', () => {
     expect(s({ count: 3, routed: 0, pinned: 1, aboard: 1, moving: 2 })).toEqual({
       status: '1 PINNED',
       statusTone: 'hot',
+      mark: 'pinned',
+      detail: null,
     });
   });
 
@@ -198,7 +228,30 @@ describe('chips — the one status line', () => {
     // The spec's own reading: its Namer chip says `APS 3/4` while the card
     // beside it says the same unit is moving.
     expect(s({ count: 1, routed: 0, pinned: 0, aboard: 0, moving: 1, aps: { ammo: 3, magazine: 4 } })
-    ).toEqual({ status: 'APS 3/4', statusTone: null });
+    ).toEqual({ status: 'APS 3/4', statusTone: null, mark: null, detail: null });
+  });
+
+  // Pass C2/C4 (D5, PA-33): a gunless Lavi read "APS 3/3". Break: drop the
+  // gunOut row from COMBAT_STATES and this goes red.
+  it('puts the vehicle damage under pinned and over everything recoverable, with its mark', () => {
+    expect(s({ count: 1, routed: 0, pinned: 0, gunOut: 1, aboard: 0, moving: 0, aps: { ammo: 3, magazine: 3 } })).toEqual({
+      status: '1 GUN OUT',
+      statusTone: 'bad',
+      mark: 'gunOut',
+      detail: null,
+    });
+    expect(s({ count: 1, routed: 0, pinned: 0, outOfAction: 1, aboard: 0, moving: 0 }).mark).toBe('gunOut');
+    expect(s({ count: 1, routed: 0, pinned: 0, immobilised: 1, aboard: 0, moving: 0 }).mark).toBe('immobilised');
+    expect(s({ count: 2, routed: 0, pinned: 1, immobilised: 1, aboard: 0, moving: 0 })).toMatchObject({ status: '1 PINNED', detail: '1 IMMOBILISED' });
+  });
+
+  it('names suppression and shaken under the damage, with no mark', () => {
+    expect(s({ count: 3, routed: 0, pinned: 0, suppressed: 1, shaken: 2, aboard: 0, moving: 3 })).toEqual({
+      status: '1 suppressed',
+      statusTone: 'hot',
+      mark: null,
+      detail: '2 shaken',
+    });
   });
 
   it('falls through moving to holding', () => {

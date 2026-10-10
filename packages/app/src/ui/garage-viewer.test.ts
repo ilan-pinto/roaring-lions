@@ -12,7 +12,12 @@ import {
 } from './garage-viewer';
 
 /** A stand-in for the door's view: counts draws, records disposal. */
-function fakeView(): MountedGarageView & { drawn: number[]; disposed: number; resized: number } {
+function fakeView(): MountedGarageView & {
+  drawn: number[];
+  disposed: number;
+  resized: number;
+  kits: Readonly<Record<string, number>>[];
+} {
   const canvas = document.createElement('canvas');
   const v = {
     canvas,
@@ -20,12 +25,17 @@ function fakeView(): MountedGarageView & { drawn: number[]; disposed: number; re
     drawn: [] as number[],
     disposed: 0,
     resized: 0,
+    kits: [] as Readonly<Record<string, number>>[],
     stats: () => ({ frames: v.drawn.length, calls: 0, triangles: 0 }),
     draw: (deg: number) => {
       v.drawn.push(deg);
     },
     resize: () => {
       v.resized += 1;
+    },
+    setKit: (tiers: Readonly<Record<string, number>>) => {
+      v.kits.push(tiers);
+      v.drawn.push(-1);
     },
     dispose: () => {
       v.disposed += 1;
@@ -86,8 +96,7 @@ function plate(): HTMLElement {
 
 function deps(over: Partial<GarageModelDeps> = {}): GarageModelDeps {
   return {
-    source: (id) => (id === 'inf_squad' ? { kind: 'rigged', url: '/meshes/meshy_soldier.glb', faction: 'kdf' } : null),
-    renderer: 'three',
+    source: (id) => (id === 'inf_squad' ? { kind: 'rigged', url: '/meshes/inf_squad.glb', faction: 'kdf' } : null),
     dracoDecoderPath: '/draco/',
     groundTextureUrl: '/textures/desert_sand_tile.jpg',
     colors: { key: 'k', fill: 'f', sky: 's', bounce: 'b', ground: 'g' },
@@ -118,22 +127,6 @@ afterEach(() => {
 });
 
 describe('garageModel: the plate fallback paths', () => {
-  it('keeps the plate on ?renderer=pixi -- one info line saying why, no warning -- and never mounts', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
-    const mount = vi.fn<MountGarageView>();
-    const p = plate();
-    const h = garageModel(p, UNIT, deps({ renderer: 'pixi', mount }));
-    expect(await h.ready).toEqual({ shown: 'plate', reason: 'pixi' });
-    expect(mount).not.toHaveBeenCalled();
-    expect(warn).not.toHaveBeenCalled();
-    expect(info).toHaveBeenCalledTimes(1);
-    expect(String(info.mock.calls[0][0])).toContain('?renderer=pixi');
-    expect(p.dataset.model).toBe('plate');
-    expect(p.querySelector('.rl-garage__model')).toBeNull();
-    expect(p.querySelector('.rl-garage__plate-img')).not.toBeNull();
-  });
-
   it('keeps the plate for a unit with no mesh, and says which unit', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const mount = vi.fn<MountGarageView>();
@@ -143,6 +136,30 @@ describe('garageModel: the plate fallback paths', () => {
     expect(mount).not.toHaveBeenCalled();
     expect(String(warn.mock.calls[0][0])).toContain('ghost has no mesh');
     expect(p.dataset.modelReason).toBe('no-mesh');
+  });
+
+  it('hides the plate picture while the model loads, shows it again only when the plate is kept', async () => {
+    const p = plate();
+    const img = p.querySelector<HTMLImageElement>('.rl-garage__plate-img');
+    let fail: (e: unknown) => void = () => {};
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const h = garageModel(p, UNIT, deps({ mount: () => new Promise((_r, j) => (fail = j)) }));
+    expect(p.dataset.model).toBe('pending');
+    expect(img?.hidden).toBe(true);
+    await Promise.resolve();
+    fail(new Error('no glb'));
+    await h.ready;
+    expect(p.dataset.model).toBe('plate');
+    expect(img?.hidden).toBe(false);
+  });
+
+  it('a unit with no mesh never hides its plate picture, not even for a frame', () => {
+    const p = plate();
+    const img = p.querySelector<HTMLImageElement>('.rl-garage__plate-img');
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    garageModel(p, { id: 'ghost', name: 'Ghost' }, deps());
+    expect(p.dataset.model).toBe('plate');
+    expect(img?.hidden).toBe(false);
   });
 
   it('keeps the plate with no WebGL2, probed before anything is imported', async () => {
@@ -229,7 +246,7 @@ describe('garageModel: live', () => {
     expect(o).toMatchObject({
       typeId: 'inf_squad',
       kind: 'rigged',
-      meshUrl: '/meshes/meshy_soldier.glb',
+      meshUrl: '/meshes/inf_squad.glb',
       faction: 'kdf',
       dracoDecoderPath: '/draco/',
       groundTextureUrl: '/textures/desert_sand_tile.jpg',
@@ -484,5 +501,46 @@ describe('garageModel: paging fast', () => {
     const m = memoise(fn);
     expect([m(), m(), m()]).toEqual([7, 7, 7]);
     expect(fn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('garageModel: kit tiers (GH-238)', () => {
+  const LAVI = { id: 'mbt_lavi', name: 'Lavi', kitTiers: { armour: 1 } };
+  const vehicleDeps = (mount: MountGarageView): GarageModelDeps =>
+    deps({ source: () => ({ kind: 'vehicle', url: '/meshes/vehicles/mbt_lavi.glb' }), mount });
+
+  it('mounts with the unit tiers, and forwards a later purchase to the live view', async () => {
+    const v = fakeView();
+    const mount = vi.fn<MountGarageView>(() => Promise.resolve(v));
+    const h = garageModel(plate(), LAVI, vehicleDeps(mount));
+    await h.ready;
+    expect(mount.mock.calls[0][1].kitTiers).toEqual({ armour: 1 });
+    h.setKit({ armour: 2 });
+    expect(v.kits).toEqual([{ armour: 2 }]);
+    // The re-merge's frame is counted like any other.
+    expect(h.el.dataset.frames).toBe(String(v.drawn.length));
+    h.dispose();
+  });
+
+  it('remembers a purchase that lands while the model loads, and applies it once the model is up', async () => {
+    const v = fakeView();
+    let resolve: (view: typeof v) => void = () => {};
+    const mount = vi.fn<MountGarageView>(() => new Promise((r) => (resolve = r)));
+    const h = garageModel(plate(), LAVI, vehicleDeps(mount));
+    await new Promise((r) => setTimeout(r, 0));
+    h.setKit({ armour: 3 });
+    resolve(v);
+    await h.ready;
+    expect(v.kits).toEqual([{ armour: 3 }]);
+    h.dispose();
+  });
+
+  it('asks nothing of the view when the tiers did not change while it loaded', async () => {
+    const v = fakeView();
+    const mount = vi.fn<MountGarageView>(() => Promise.resolve(v));
+    const h = garageModel(plate(), LAVI, vehicleDeps(mount));
+    await h.ready;
+    expect(v.kits).toEqual([]);
+    h.dispose();
   });
 });

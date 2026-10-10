@@ -91,18 +91,25 @@ describe.each(DEPLOYMENTS)('the service worker policy ($name)', ({ sw, base }) =
     // Not cache-first: re-exporting a mesh changes the bytes under the same
     // URL, so a returning player has to be able to pick the new one up.
     for (const p of [
-      'meshes/meshy_soldier.glb',
+      'meshes/inf_squad.glb',
       'meshes/vehicles/mbt_lavi.glb',
       'textures/desert_sand_tile.jpg',
-      'sprites/INF_RIFLE.png',
       'fonts/inter.woff2',
       'audio/ui_click.ogg',
       'ui/portraits/shai.png',
+      'ui/plates/units/kit/mbt_lavi.jpg',
+      'ui/garage/closeups/mbt_lavi_armour.jpg',
       'campaign/board.png',
       'draco/draco_decoder.wasm',
     ]) {
       expect(strategyFor(at(p), GET), p).toBe('swr');
     }
+  });
+
+  // `sprites/` left PUBLIC_DIRS with the sheets (WP-A3.3); a stale request
+  // for one is the network's to answer, never the cache's.
+  it('no longer caches the retired sprite sheets', () => {
+    expect(strategyFor(at('sprites/INF_SQUAD/idle_f03_000.png'), GET)).not.toBe('swr');
   });
 
   it('never touches the briefing videos', () => {
@@ -115,12 +122,12 @@ describe.each(DEPLOYMENTS)('the service worker policy ($name)', ({ sw, base }) =
     // A 206 stored in the Cache API and replayed as a 200 is a corrupt file.
     // Asserted on a path that WOULD otherwise be cached, so this proves the
     // range check wins rather than merely agreeing with the directory rule.
-    expect(strategyFor(at('meshes/meshy_soldier.glb'), GET)).toBe('swr');
-    expect(strategyFor(at('meshes/meshy_soldier.glb'), RANGED)).toBe('passthrough');
+    expect(strategyFor(at('meshes/inf_squad.glb'), GET)).toBe('swr');
+    expect(strategyFor(at('meshes/inf_squad.glb'), RANGED)).toBe('passthrough');
   });
 
   it('ignores anything that is not a same-origin GET', () => {
-    expect(strategyFor(at('meshes/meshy_soldier.glb'), { ...GET, method: 'POST' })).toBe('passthrough');
+    expect(strategyFor(at('meshes/inf_squad.glb'), { ...GET, method: 'POST' })).toBe('passthrough');
     expect(strategyFor(new URL('https://example.com/meshes/x.glb'), GET)).toBe('passthrough');
   });
 

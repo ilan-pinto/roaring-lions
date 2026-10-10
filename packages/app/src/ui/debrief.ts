@@ -1,53 +1,74 @@
-// The debrief: a full screen after a mission (storyline O7, spec §4.2). The end panel keeps
-// its portrait and quote; this is the card that would not fit in 26.25rem. Pure DOM, no sim.
+// The after-action report (GH-417, H4 + H5, direction A "Field order", ruled
+// 7 Oct 2026): the one screen after a mission. It replaces BOTH the small end
+// panel and the debrief it led to (ruling L-7) -- the outcome moment
+// (`outcome-moment.ts`) hands over straight to this.
+//
+// What it answers, top to bottom: the verdict and its reason; on a win, the
+// star ladder; the closing word of whoever speaks for the mission; then three
+// columns that always appear in the same order -- done well, cost you (what
+// went wrong, on a defeat), what changed -- beside the ground with the
+// battle's pins on it. One primary action.
+//
+// Every word comes from `after-action.ts` (pure, tested) or the catalogue;
+// this file only draws. It sits on an opaque backdrop so the live HUD -- the
+// radio panel, the feed, the dock -- cannot show through or collide with it
+// (PA-21). Framing is `end-panel.ts`'s: centred, height-capped, the action row
+// in a foot outside the scrolling body, focus on the primary action, a held
+// Enter ignored (PR 434).
+
 import type { Stars } from '@lions/sim';
 import { t } from '../i18n/t';
-import { escapeHtml } from './escape-html';
 import { objectiveGlyph } from './hud-model';
 import { symbolLabel } from './symbol';
+import { footBack, footLink, screenFoot } from './foot';
 import { panel } from './panel';
+import { mountEndPanel } from './end-panel';
+import { focusTrap } from './focus-trap';
 import { tierName } from './grade-copy';
+import { markSvg } from './mark';
+import { unitIcon } from './portrait';
+import { groundView } from './ground-view';
+import type { AfterAction, AfterActionItem } from './after-action';
+import type { GroundMark } from './ground-marks';
+import type { PreviewMap, PreviewTones } from './map-preview';
+import { markConfirm } from './confirm-cue';
 import { routes } from '../shell/links';
 import type { Disposer } from '../shell/router';
+
+/** The mission's own closing word (`mission.debrief.victory`/`.defeat`). */
+export interface ReportSpeaker {
+  plate: string;
+  text: string;
+  /** Already-resolved portrait URL; absent falls back to the hatch. */
+  portrait?: string;
+  /** The raw `say` speaker id: `net` paints the brigade mark, not a face. */
+  speaker: string;
+}
 
 export interface DebriefOptions {
   result: 'victory' | 'defeat';
   stars: Stars;
-  tierLine?: { plate: string; text: string; portrait?: string };
-  roe: number;
-  roeFloor: number;
-  deductions: { penalty: number; reason: string }[];
-  ticks: number;
-  targetMinutes?: number;
-  lost: { type: string; count: number }[];
-  /** Who was lost, by name (WP-G-E4). A SUBSET of `lost`'s count -- a fresh
-   *  remnant spawned and killed inside one mission never reached the roster
-   *  and has no service record to print (R-11), so `lost` stays the total
-   *  and this is the names it can name. Defaults to empty when absent, so
-   *  every existing call site and every existing spec still compiles. */
-  lostNamed?: { name?: string; type: string }[];
-  /** Who took a vacant place this mission (WP-G-E4) -- a slotless body
-   *  `fillVacancies` handed a slot a death just vacated. Defaults to empty. */
-  replacements?: { name: string; predecessor: string }[];
-  secondaries: { text: string; complete: boolean; carries: boolean }[];
-  marked: number;
-  promoted: number;
-  /** What this run paid into the brigade account (spec 2026-09-15 §4.2). Absent on a
-   *  defeat, which pays nothing and shows nothing. */
-  credits?: { paid: number; balance: number };
-  /** The account of the taken (spec §4.4), already built by `hostagesLine` --
-   *  "Fifteen still out. Four came back at the shaft head." The second sentence
-   *  only exists here: the campaign board prints the standing total but does not
-   *  know which mission was just played, and this screen does. Absent on a world
-   *  that declares no `taken` at all. */
-  taken?: string;
-  unlocked: string[];
+  report: AfterAction;
+  speaker?: ReportSpeaker;
+  /** A victory's closing narration (`mission.aftermath`). */
+  aftermath?: string;
+  /** The end of the war (`campaign-close.ts`): Idit and Shai, alternating,
+   *  on the report of the victory that finished the campaign, and only there. */
+  closing?: readonly { plate: string; text: string }[];
+  /** The brigade's word on the grade (`grade.tier.N.line`). */
+  tierLine?: { plate: string; text: string };
+  /** The commander's own promotion, when this win earned one. */
   promotion?: { rank: string; stars: number; line?: { plate: string; text: string } };
+  /** The ground, for the battle's pins. Drawn when present. */
+  ground?: { map: PreviewMap; tones: PreviewTones; marks: readonly GroundMark[]; photo?: ImageData | null };
   next?: { id: string; name: string; villainLine?: string };
   missionId: string;
+  /** The rating prompt (GH-464), mounted in the foot above the nav. Built and
+   *  disposed by the caller; this only places it. */
+  prompt?: HTMLElement;
 }
 
-const el = (tag: string, cls: string, text?: string): HTMLElement => {
+const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: string): HTMLElementTagNameMap[K] => {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
   if (text !== undefined) e.textContent = text;
@@ -59,160 +80,211 @@ export function clock(ticks: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
+function speakerFace(s: ReportSpeaker): HTMLElement {
+  const face = el('div', 'rl-enddebrief__face');
+  if (s.speaker === 'net') face.classList.add('rl-enddebrief__face--net');
+  const img = el('img', 'rl-enddebrief__face-img');
+  img.alt = '';
+  img.hidden = true;
+  img.addEventListener('error', () => {
+    img.hidden = true;
+    img.removeAttribute('src');
+  });
+  if (s.speaker !== 'net' && s.portrait !== undefined) {
+    img.src = s.portrait;
+    img.hidden = false;
+  }
+  const mark = el('div', 'rl-enddebrief__face-mark');
+  mark.innerHTML = markSvg(86, 52);
+  face.append(img, mark);
+  return face;
+}
+
+function item(i: AfterActionItem): HTMLLIElement {
+  const li = el('li', `rl-aar__item rl-aar__item--${i.tone}`);
+  const mark = el('span', 'rl-aar__mark');
+  if (i.person) {
+    mark.classList.add('rl-aar__mark--person');
+    if (i.person.lost) mark.classList.add('rl-aar__mark--lost');
+    const icon = unitIcon(i.person.type, 'chip');
+    if (icon) {
+      const img = el('img', '');
+      img.alt = '';
+      img.src = icon.url;
+      img.addEventListener('error', () => img.remove());
+      mark.appendChild(img);
+    }
+  } else if (i.glyph) {
+    mark.innerHTML = objectiveGlyph(i.glyph);
+  } else {
+    mark.textContent = i.mark;
+  }
+  const body = el('span', 'rl-aar__text', i.text);
+  if (i.sub) body.appendChild(el('small', 'rl-aar__sub', i.sub));
+  li.append(mark, body);
+  return li;
+}
+
+function column(cls: string, title: string, items: readonly AfterActionItem[], extra?: HTMLElement[]): HTMLElement {
+  const col = el('section', `rl-aar__col rl-aar__col--${cls}`);
+  col.appendChild(el('h3', 'rl-aar__col-title', title));
+  const ul = el('ul', 'rl-aar__items');
+  for (const i of items) ul.appendChild(item(i));
+  col.appendChild(ul);
+  for (const e of extra ?? []) col.appendChild(e);
+  return col;
+}
+
 export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
   const won = o.result === 'victory';
-  const defeatTitle = t('debrief.defeat.title');
+  const r = o.report;
+
+  // Behind everything: the live HUD must not show through (PA-21).
+  const backdrop = el('div', 'rl-aar-backdrop');
+  host.appendChild(backdrop);
+
   const p = panel({
+    // The document the player reads after either outcome: the briefing's
+    // rank, always (VR-24). Defeat is told by the grade and the reason, never
+    // by borrowing the transient alert band.
     rank: 'mission',
-    title: won ? tierName(o.stars) || tierName(1) : defeatTitle,
-    tag: t('debrief.tag', { result: o.result }),
+    title: t(won ? 'outcome.victory' : 'outcome.defeat'),
+    tag: t('debrief.tag'),
     mark: true,
-    place: 'top:6%;left:50%;transform:translateX(-50%);width:min(45rem,94vw);max-height:88vh;overflow:auto',
   });
-  p.el.classList.add('rl-debrief', 'rl-enter');
+  p.el.classList.add('rl-debrief', 'rl-aar', 'rl-enter');
+  p.el.dataset.result = o.result;
   const b = p.body;
 
-  const head = el('div', 'rl-debrief__head');
-  head.appendChild(el('div', 'rl-debrief__tier', won ? tierName(o.stars) : defeatTitle));
-  if (won && o.stars > 0) head.appendChild(el('div', 'rl-debrief__stars', '★'.repeat(o.stars)));
-  b.appendChild(head);
+  // --- the verdict ---------------------------------------------------------
+  const verdict = el('div', 'rl-aar__verdict');
+  const grade = el('div', 'rl-aar__grade');
+  if (won) {
+    grade.appendChild(el('div', 'rl-debrief__tier rl-aar__tier', tierName(o.stars) || tierName(1)));
+    const stars = el('div', 'rl-debrief__stars rl-aar__stars');
+    // The countable mark (validate_ui_palette.mjs's Q5 exception): earned
+    // stars lit, the rest dim, so the missing one is visible as missing.
+    stars.appendChild(el('span', 'rl-aar__star-on', '★'.repeat(o.stars)));
+    stars.appendChild(el('span', 'rl-aar__star-off', '★'.repeat(Math.max(0, 3 - o.stars))));
+    grade.appendChild(stars);
+  }
+  verdict.appendChild(grade);
+  if (r.reason.length > 0) {
+    const why = el('ul', 'rl-aar__reason');
+    for (const line of r.reason) why.appendChild(el('li', '', line));
+    verdict.appendChild(why);
+  }
+  b.appendChild(verdict);
 
-  // GH-234: the reward, promoted out of the row grid below and placed as the
-  // most visible figure after the result title -- the same wording and the
-  // same `{ paid, balance }` the outcome moment already showed (`main.ts`
-  // computes it once, before either screen opens). Absent on a defeat, same
-  // as before.
-  if (o.credits) {
-    const reward = el('div', 'rl-debrief__reward');
-    reward.dataset.paid = o.credits.paid > 0 ? '1' : '0';
-    reward.appendChild(
-      el(
-        'p',
-        o.credits.paid > 0 ? 'rl-debrief__reward-figure' : 'rl-debrief__reward-none',
-        o.credits.paid > 0 ? t('debrief.credits.paid', { n: o.credits.paid }) : t('debrief.credits.none')
-      )
-    );
-    reward.appendChild(el('p', 'rl-debrief__reward-total', t('debrief.credits.total', { n: o.credits.balance })));
-    b.appendChild(reward);
+  // --- the ladder (a win) ---------------------------------------------------
+  if (r.ladder.length > 0) {
+    const ladder = el('ol', 'rl-aar__ladder');
+    for (const rung of r.ladder) {
+      const li = el('li', `rl-aar__rung rl-aar__rung--${rung.met ? 'met' : 'missed'}`);
+      li.dataset.stars = String(rung.stars);
+      li.append(el('span', 'rl-aar__rung-stars', '★'.repeat(rung.stars)), el('span', 'rl-aar__rung-text', rung.text));
+      ladder.appendChild(li);
+    }
+    b.appendChild(ladder);
   }
 
+  // --- the closing word -----------------------------------------------------
+  if (o.speaker || o.aftermath) {
+    const word = el('div', 'rl-aar__word');
+    if (o.speaker) {
+      word.appendChild(speakerFace(o.speaker));
+      const q = el('blockquote', 'rl-aar__quote', t('menu.end.quote', { text: o.speaker.text }));
+      q.appendChild(el('cite', 'rl-aar__cite', o.speaker.plate));
+      word.appendChild(q);
+    }
+    if (o.aftermath) word.appendChild(el('p', 'rl-endaftermath rl-aar__aftermath', o.aftermath));
+    b.appendChild(word);
+  }
+
+  // --- the end of the war: two voices, one line each, after the mission's own
+  // word and before the columns, so it is read before anything is counted.
+  if (o.closing && o.closing.length > 0) {
+    const close = el('div', 'rl-aar__closing');
+    for (const line of o.closing) {
+      const q = el('blockquote', 'rl-debrief__line', t('debrief.tierLine.quote', { text: line.text }));
+      q.appendChild(el('cite', 'rl-debrief__who', line.plate));
+      close.appendChild(q);
+    }
+    b.appendChild(close);
+  }
+
+  // --- the ground and the three answers ------------------------------------
+  const grid = el('div', 'rl-aar__grid');
+  if (o.ground) {
+    const g = groundView({ map: o.ground.map, tones: o.ground.tones, marks: o.ground.marks, pins: r.pins, caption: t('aar.ground') });
+    if (o.ground.photo) g.setPhoto(o.ground.photo);
+    g.el.classList.add('rl-aar__ground');
+    grid.appendChild(g.el);
+  }
+  const wellExtra: HTMLElement[] = [];
   if (o.tierLine) {
-    const q = el('blockquote', 'rl-debrief__line', t('debrief.tierLine.quote', { text: o.tierLine.text }));
+    const q = el('blockquote', 'rl-debrief__line rl-aar__brigade', t('debrief.tierLine.quote', { text: o.tierLine.text }));
     q.appendChild(el('cite', 'rl-debrief__who', o.tierLine.plate));
-    b.appendChild(q);
+    wellExtra.push(q);
   }
-
-  const grid = el('dl', 'rl-debrief__grid');
-  const row = (k: string, v: string, cls: string): void => {
-    grid.appendChild(el('dt', '', k));
-    grid.appendChild(el('dd', cls, v));
-  };
-  row(t('debrief.row.conduct.label'), t('debrief.row.conduct.value', { roe: o.roe, floor: o.roeFloor }), 'rl-debrief__conduct');
-  row(
-    t('debrief.row.time.label'),
-    o.targetMinutes !== undefined
-      ? t('debrief.row.time.value', { clock: clock(o.ticks), target: o.targetMinutes })
-      : clock(o.ticks),
-    'rl-debrief__time'
+  const changedExtra: HTMLElement[] = [];
+  if (o.promotion) {
+    const pr = el('div', 'rl-debrief__promotion rl-aar__promotion', t('debrief.promotion.value', { rank: o.promotion.rank, stars: '★'.repeat(o.promotion.stars) }));
+    if (o.promotion.line) {
+      pr.appendChild(el('blockquote', 'rl-debrief__line', t('debrief.promotion.line', { text: o.promotion.line.text, plate: o.promotion.line.plate })));
+    }
+    changedExtra.push(pr);
+  }
+  if (won && o.next?.villainLine) changedExtra.push(el('div', 'rl-debrief__villain rl-aar__villain', o.next.villainLine));
+  grid.append(
+    column('well', t('aar.col.well'), r.well, wellExtra),
+    column('poor', t(won ? 'aar.col.poor' : 'aar.col.poor.defeat'), r.poor),
+    column('changed', t('aar.col.changed'), r.changed, changedExtra)
   );
-  row(
-    t('debrief.row.lost.label'),
-    o.lost.length === 0 ? t('debrief.row.lost.none') : o.lost.map((l) => `${l.type} ×${l.count}`).join(', '),
-    'rl-debrief__lost'
-  );
-  // R-11: the row above is the total and never changes. These two are the
-  // named half beside it -- who, by name, and who took the vacant place --
-  // and both are omitted entirely rather than printed empty (a nothing-to-
-  // report row is noise on the screen a player sees most often).
-  const lostNamed = o.lostNamed ?? [];
-  if (lostNamed.length > 0) {
-    row(
-      t('debrief.row.lostNamed.label'),
-      // A record with no callsign (a save written before names shipped)
-      // falls back to its type, never to "undefined".
-      lostNamed.map((l) => l.name ?? l.type).join(', '),
-      'rl-debrief__lostNamed'
-    );
-  }
-  const replacements = o.replacements ?? [];
-  if (replacements.length > 0) {
-    row(
-      t('debrief.row.replaced.label'),
-      replacements.map((r) => t('debrief.row.replaced.value', { name: r.name, predecessor: r.predecessor })).join(', '),
-      'rl-debrief__replaced'
-    );
-  }
-  row(t('debrief.row.marked.label'), String(o.marked), 'rl-debrief__marked');
-  row(t('debrief.row.promoted.label'), String(o.promoted), 'rl-debrief__promoted');
   b.appendChild(grid);
 
-  if (o.taken) b.appendChild(el('div', 'rl-debrief__taken', o.taken));
-
-  if (o.deductions.length > 0) {
-    const ul = el('ul', 'rl-debrief__deductions');
-    for (const d of o.deductions) ul.appendChild(el('li', '', `−${d.penalty} ${d.reason}`));
-    b.appendChild(ul);
-  }
-
-  if (o.secondaries.length > 0) {
-    const ul = el('ul', 'rl-debrief__secondaries');
-    for (const s of o.secondaries) {
-      // `s.text` is a param, never touched by the catalogue -- it is the mission's own
-      // objective text, data flowing through unchanged, same as `o.taken`/`o.unlocked` above.
-      const label = s.carries ? t('debrief.secondary.carries', { text: s.text }) : s.text;
-      const li = el('li', 'rl-debrief__secondary');
-      li.innerHTML = `${objectiveGlyph(s.complete ? 'complete' : 'active')} ${escapeHtml(label)}`;
-      li.dataset.carries = s.carries ? '1' : '0';
-      li.dataset.complete = s.complete ? '1' : '0';
-      ul.appendChild(li);
-    }
-    b.appendChild(ul);
-  }
-
-  // One line per unlock, not a comma-joined run: each string carries its own
-  // reason ("Campaign Conduct 58 → 62: Namer IFV available", spec §4.5), and two
-  // of those in one sentence is unreadable.
-  if (o.unlocked.length > 0) {
-    const ul = el('ul', 'rl-debrief__unlocked');
-    for (const u of o.unlocked) ul.appendChild(el('li', '', u));
-    b.appendChild(ul);
-  }
-
-  if (o.promotion) {
-    const pr = el(
-      'div',
-      'rl-debrief__promotion',
-      t('debrief.promotion.value', { rank: o.promotion.rank, stars: '★'.repeat(o.promotion.stars) })
-    );
-    if (o.promotion.line) {
-      pr.appendChild(
-        el('blockquote', 'rl-debrief__line', t('debrief.promotion.line', { text: o.promotion.line.text, plate: o.promotion.line.plate }))
-      );
-    }
-    b.appendChild(pr);
-  }
-
-  const nav = el('div', 'rl-endnav');
+  // --- one primary action ------------------------------------------------------
+  // The one footer row (`foot.ts`, GH-498): the ways out first -- the campaign
+  // map as the way back, then the main menu -- and Replay beside the one
+  // primary at the far edge. Every control takes the stamp's height, its
+  // label centred, so the plain buttons no longer hang off the top of a box
+  // stretched to the stamp's size.
+  const foot = screenFoot();
+  foot.el.classList.add('rl-aar__nav');
+  const replay = footLink(t('debrief.replay', { result: o.result }), routes.mission(o.missionId), 'rl-btn rl-aar__replay');
+  const campaign = footBack(t('nav.campaignMap'), routes.campaign());
+  const menu = footLink(t('nav.menu'), routes.menu());
+  let primary: HTMLAnchorElement;
   if (won && o.next) {
-    const a = document.createElement('a');
-    a.className = 'rl-btn rl-debrief__next';
-    a.href = routes.mission(o.next.id);
-    a.innerHTML = symbolLabel('next', t('debrief.next', { name: o.next.name }), { after: true });
-    nav.appendChild(a);
-    if (o.next.villainLine) b.appendChild(el('div', 'rl-debrief__villain', o.next.villainLine));
+    primary = el('a', 'rl-btn rl-debrief__next rl-aar__primary');
+    primary.href = routes.mission(o.next.id);
+    primary.innerHTML = symbolLabel('next', t('debrief.next', { name: o.next.name }), { after: true });
+    foot.start.append(campaign, menu);
+    foot.end.append(replay, primary);
+  } else if (won) {
+    // The campaign is done: the map is where the player goes on, so it is the
+    // primary, and the main menu is the way back.
+    primary = footLink(t('nav.campaignMap'), routes.campaign(), 'rl-btn rl-aar__primary');
+    foot.start.append(footBack(t('nav.menu'), routes.menu()));
+    foot.end.append(replay, primary);
+  } else {
+    primary = replay;
+    primary.classList.add('rl-aar__primary');
+    foot.start.append(campaign, menu);
+    foot.end.append(primary);
   }
-  const back = (label: string, href: string): void => {
-    const a = document.createElement('a');
-    a.className = 'rl-btn';
-    a.href = href;
-    a.textContent = label;
-    nav.appendChild(a);
+  const nav = foot.el;
+  // The onward action is the report's primary: the confirm cue marks it, as
+  // it marked the end screen's next-mission link.
+  markConfirm(primary);
+  mountEndPanel(host, p, nav, primary, o.prompt);
+  // Keyboard walk (polish/keyboard-and-saves): the backdrop hides the live
+  // HUD, but Tab still walked out onto its strip -- leave, pause, the speed
+  // chips -- invisible and live. One trap, released with the report.
+  const releaseTrap = focusTrap(p.el);
+  return () => {
+    releaseTrap();
+    p.el.remove();
+    backdrop.remove();
   };
-  back(t('debrief.replay', { result: o.result }), routes.mission(o.missionId));
-  back(t('nav.campaignMap'), routes.campaign());
-  back(t('nav.menu'), routes.menu());
-  b.appendChild(nav);
-
-  host.appendChild(p.el);
-  return () => p.el.remove();
 }

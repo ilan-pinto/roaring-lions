@@ -42,6 +42,14 @@ export function currentLocale(): string {
   return state.locale;
 }
 
+/** Whether the ACTIVE catalogue carries `key` -- for a caller whose key is
+ *  built from data (`weapon.<id>`), which must choose a player-facing
+ *  fallback itself rather than let `t()` print the key. Does not record the
+ *  key as missing. */
+export function hasKey(key: string): boolean {
+  return state.messages[key] !== undefined;
+}
+
 export function missingKeys(): readonly string[] {
   return [...missing];
 }

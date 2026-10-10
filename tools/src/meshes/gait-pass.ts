@@ -197,7 +197,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NodeIO, type Document } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { countTracePeaks, measureRoleFootprint } from '../mesh_gait';
+import { countTracePeaks, measurePlantedGround, measureRoleFootprint } from '../mesh_gait';
 import { RIGGED_UNIT_MESHES } from '../../../packages/app/src/mesh-catalogue';
 
 const REPO = fileURLToPath(new URL('../../../', import.meta.url));
@@ -208,6 +208,10 @@ const MESHES = path.join(REPO, 'art', 'meshes');
 export const GAIT_ROLE = 'boot';
 
 export const MOVE_CLIP = 'move';
+
+/** Rigs whose `move` is a crawl: no foot bears weight, so their stride stays
+ *  the boot's forward travel (see `measureClip`). */
+export const CRAWLERS: ReadonlySet<string> = new Set(['sniper_team']);
 export const MOVE_FIRE_CLIP = 'moveFire';
 
 /** See the file header's "Skips" section for the measured values either
@@ -257,14 +261,29 @@ const isError = (m: ClipMeasurement): m is { readonly error: string } =>
 function measureClip(absPath: string, clip: string): ClipMeasurement {
   const fp = measureRoleFootprint(absPath, GAIT_ROLE, clip);
   // `+x` is the mesh contract's forward -- verified empirically on rigs from
-  // both pipelines, see the file header.
-  const strideM = fp.axisTravelM[0];
-  if (strideM < MIN_GAIT_TRAVEL_M) {
+  // both pipelines, see the file header. The peak-to-peak travel is still
+  // what decides whether a rig WALKS at all (the floor below); it is no
+  // longer the stride (see `measurePlantedGround`).
+  const travel = fp.axisTravelM[0];
+  if (travel < MIN_GAIT_TRAVEL_M) {
     return {
       error:
-        `no measurable "${clip}" gait (forward strideM=${strideM.toFixed(4)} m, under the ` +
+        `no measurable "${clip}" gait (forward boot travel ${travel.toFixed(4)} m, under the ` +
         `${MIN_GAIT_TRAVEL_M} m floor -- crew-served or non-walking rig)`,
     };
+  }
+  // `strideM` is the ground the PLANTED feet cover per cycle (motion pass,
+  // 5 Oct): what the renderer's rate match divides the unit's speed by.
+  const planted = measurePlantedGround(absPath, clip);
+  let strideM = planted.groundPerCycleM;
+  if (!Number.isFinite(strideM) || strideM <= 0) {
+    // A crawl (sniper_team) has no foot that bears weight: its boots drag.
+    // There is no planted foot to match, so it keeps the travel it always
+    // declared -- the same number as before the motion pass, by construction.
+    if (!CRAWLERS.has(path.basename(absPath, '.glb'))) {
+      return { error: `"${clip}": no planted foot (${planted.feet} feet read) -- a gait with no contact cannot be rate-matched` };
+    }
+    strideM = travel;
   }
   return {
     strideM,

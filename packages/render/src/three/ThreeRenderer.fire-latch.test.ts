@@ -21,15 +21,11 @@
  *
  * Harness copied from `ThreeRenderer.mesh-death.test.ts` -- read its top
  * comment first; the same `.init()`-free, `WebGLRenderer`-stubbed,
- * template-installed-directly setup applies here for the same reasons. Two
- * additions of its own:
+ * template-installed-directly setup applies here for the same reasons. One
+ * addition of its own (a second, the REAL `INF_SQUAD` sprite `UnitInstancer`
+ * the 0.083 s was read from, went with the billboard path in WP-A3.3 -- the
+ * latch is sized from the mesh clip alone now):
  *
- *  - The sprite side is a REAL `UnitInstancer` built from the REAL shipped
- *    `assets/sprites/INF_SQUAD/manifest.json`, so the 0.083 s this file
- *    contrasts against is the asset's own number rather than a transcription
- *    that could drift from it. Only the texture is a stand-in: a
- *    1x1x1 `DataArrayTexture` instead of `buildUnitTexture`'s real decode,
- *    which needs `fetch` and a 2D canvas. Nothing here draws.
  *  - `onEvents` is driven with a hand-built `fire` event rather than a real
  *    `sim.tick()` engagement. This is a RENDERER test: it cares what the
  *    renderer does WITH the event, and a scripted firefight would make the
@@ -41,18 +37,14 @@
  * fireClip.fps` line; the failing output is in this task's report.
  */
 import { describe, it, expect, vi } from 'vitest';
-import * as THREE from 'three';
 import { Sim, fx, type SimEvent, type UnitTypeJson } from '@lions/sim';
 import type { RendererOptions, TerrainTones } from '../api';
-import { parseManifest, type ClipName, type SheetSpec } from '../sheet';
+import type { ClipName } from '../sheet';
 import { ThreeRenderer } from './ThreeRenderer';
-import { packSheet } from './units/atlas';
-import { UnitInstancer } from './units/instances';
 import { buildMeshUnitTemplate, type MeshUnitTemplate, type MeshUnitEntity } from './units/mesh-unit';
 import { buildVehicleMeshTemplate, type VehicleMeshTemplate } from './units/mesh-vehicle';
 import { parseFixture } from './units/mesh-fixture';
 import { parseRigidFixture } from './units/rigid-mesh-fixture';
-import infSquadManifest from '../../../../assets/sprites/INF_SQUAD/manifest.json';
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>();
@@ -101,10 +93,8 @@ const MESH_INF: UnitTypeJson = {
 };
 
 /** A SECOND type, identical but for its id, which never gets a mesh
- *  template -- the billboard control. Present in the same `Sim` and the
- *  same renderer as the mesh type on purpose: "the billboard path did not
- *  change" is only worth asserting where the mesh path is live to change
- *  it. */
+ *  template -- the no-mesh control. Since the billboard path was retired
+ *  (WP-A3.3) such a type has no clip to size a latch from at all. */
 const SPRITE_INF: UnitTypeJson = { ...MESH_INF, id: 'fire_latch_sprite_inf' };
 
 /** `dozer_d9` because `vehicle-mesh-role.ts`'s ramp table is a CLOSED map of
@@ -119,24 +109,12 @@ const MESH_VEHICLE: UnitTypeJson = {
   sensors: { optics: 2, sight_tiles: 14, signature: 0.9 },
 };
 
-const infSquadSheet: SheetSpec = parseManifest(infSquadManifest);
-
-/** The shipped sheet's own `fire` duration -- read from the manifest rather
- *  than written as 0.0833, so this file states the ASSET's number and not a
- *  copy of it. `INF_SQUAD` declares `fire` as 1 frame @ 12 fps. */
-function spriteFireSeconds(sheet: SheetSpec): number {
-  const clip = sheet.clips.fire;
-  if (!clip) throw new Error('INF_SQUAD manifest has no `fire` clip -- fixture assumption broken');
-  return clip.frames / clip.fps;
-}
-
 /** Reaches the private state this file drives and reads. No public accessor
  *  exists for any of it, and adding one purely for a test would widen
  *  `Renderer`'s surface for no runtime reason -- `ThreeRenderer.mesh-death.
  *  test.ts` gives the same reasoning for its own reach. */
 interface ThreeRendererPrivates {
   firingTimer: Float64Array;
-  unitInstancers: Map<string, UnitInstancer>;
   // A LIST per type since GH-149 -- `civilians` ships four figures for one
   // unit type (`units/mesh-variant.ts`). This file loads one; the shape is
   // the field's, not this test's choice.
@@ -145,16 +123,6 @@ interface ThreeRendererPrivates {
   vehicleMeshTemplates: Map<string, VehicleMeshTemplate>;
   drainTimers(dtSeconds: number): void;
   updateMeshUnits(alpha: number, dtMs: number): void;
-}
-
-/** A real `UnitInstancer` over the real INF_SQUAD sheet. The texture is the
- *  only stand-in (see this file's top comment); `packSheet` is pure and the
- *  instancer's constructor allocates CPU-side geometry/material only, so
- *  nothing here needs a GL context. */
-function installSpriteSheet(priv: ThreeRendererPrivates, unitTypeId: string, capacity: number): void {
-  const packing = packSheet(infSquadSheet);
-  const texture = new THREE.DataArrayTexture(new Uint8Array(4), 1, 1, 1);
-  priv.unitInstancers.set(unitTypeId, new UnitInstancer(infSquadSheet, texture, packing, capacity));
 }
 
 /** A `fire` event exactly as `Sim` emits one, minus the rolls this path
@@ -206,17 +174,6 @@ async function setUp(opts: SetUpOpts = {}) {
   const renderer = new ThreeRenderer(sim, makeOpts());
   const priv = renderer as unknown as ThreeRendererPrivates;
 
-  // Both types get a sprite sheet, the co-existence `main.ts` can still
-  // produce: when this was written its SPRITE_MAP loop loaded every unit
-  // type's sheet regardless of the mesh flag, and since the roster-driven
-  // `spriteSheetPlan` (2026-09-07) a deferred KDF buildable's sheet still
-  // arrives after the first frame as its billboard fallback and stays loaded
-  // once its mesh lands, so a mesh-drawn type really can have a loaded
-  // `UnitInstancer` sitting beside its mesh template. That co-existence is
-  // what made the bug reachable at all.
-  installSpriteSheet(priv, MESH_INF.id, sim.capacity);
-  installSpriteSheet(priv, SPRITE_INF.id, sim.capacity);
-
   const gltf = await parseFixture({
     roleName: 'uniform',
     clipName: opts.meshClips ?? ['idle', 'fire'],
@@ -228,7 +185,6 @@ async function setUp(opts: SetUpOpts = {}) {
   if (opts.withVehicle) {
     const vehicleIdx = sim.addUnitType(MESH_VEHICLE);
     vehicleId = sim.spawn(vehicleIdx, 0, fx.from(8.5), fx.from(9.5));
-    installSpriteSheet(priv, MESH_VEHICLE.id, sim.capacity);
     const rigid = await parseRigidFixture({
       parts: [{ nodeName: 'hull_hull', extrasRole: 'hull' }],
       clipNames: ['idle', 'fire'],
@@ -259,31 +215,31 @@ describe('onFire latch length', () => {
     expect(priv.firingTimer[meshId]).toBeCloseTo(0.25, 6);
   });
 
-  it('leaves the billboard latch on the sprite`s clip, in the same renderer', async () => {
+  it('gives a type with no mesh template no latch at all, in the same renderer', async () => {
+    // It used to fall back to its sprite sheet's 1-frame `fire` clip; that
+    // sheet is retired (WP-A3.3). A type with no template draws a proxy box
+    // (or nothing yet), neither of which has a pose to hold.
     const { renderer, priv, meshId, spriteId, targetId } = await setUp({ meshClipSeconds: 0.5 });
     renderer.onEvents([fireEvent(meshId, targetId), fireEvent(spriteId, targetId)]);
-    // A type with no mesh template keeps the sprite-derived latch it always
-    // had -- 1 frame @ 12 fps, off the shipped INF_SQUAD manifest.
-    expect(priv.firingTimer[spriteId]).toBeCloseTo(spriteFireSeconds(infSquadSheet), 6);
+    expect(priv.firingTimer[spriteId]).toBe(0);
     // ...and the two do not contaminate each other.
     expect(priv.firingTimer[meshId]).toBeCloseTo(0.5, 6);
   });
 
-  it('falls back to the sprite clip for a mesh that never authored `fire`', async () => {
+  it('latches nothing for a mesh that never authored `fire`', async () => {
     // `at_team`, `atgm_cell`, `digger_crew` and `mortar_crew` ship exactly
     // like this. `applyMeshClip` resolves their `fire` to `idle` anyway, so
-    // what the latch holds is invisible for them -- but it must still be a
-    // NUMBER the existing readers can drain, not zero or NaN.
+    // the latch is unobservable for them; it used to borrow the sprite's
+    // 0.083 s and is a clean 0 now -- still a number the drain reads.
     const { renderer, priv, meshId, targetId } = await setUp({ meshClips: ['idle'] });
     renderer.onEvents([fireEvent(meshId, targetId)]);
-    expect(priv.firingTimer[meshId]).toBeCloseTo(spriteFireSeconds(infSquadSheet), 6);
+    expect(priv.firingTimer[meshId]).toBe(0);
   });
 
   it('sizes a MESH VEHICLE`s latch from its own clip too', async () => {
     // `updateVehicleMeshes` reads the SAME `firingTimer`, so an animated
-    // vehicle GLB would have inherited the identical bug. No shipped vehicle
-    // authors any clip today (`mesh-vehicle-shipped.test.ts` pins that), so
-    // this is the fixture's 1 s against the sprite's 0.083 s.
+    // vehicle GLB would have inherited the identical bug. This is the
+    // fixture's own 1 s clip.
     const { renderer, priv, targetId, vehicleId } = await setUp({ withVehicle: true });
     renderer.onEvents([fireEvent(vehicleId, targetId)]);
     expect(priv.firingTimer[vehicleId]).toBeCloseTo(1, 6);

@@ -43,7 +43,6 @@ function setup(): { stage: HTMLElement; column: HTMLElement } {
 }
 const deps = (over: Partial<SceneHostDeps> = {}): SceneHostDeps => ({
   plateUrl: '/ui/menu_host_plate.jpg',
-  renderer: 'three',
   world: () => dioramaSceneOptions(menuDiorama, { colorVision: 'default', quality: 'high' }, '/'),
   reducedMotion: () => false,
   saveData: () => false,
@@ -100,21 +99,23 @@ describe('sceneHost', () => {
     expect(f.calls).toHaveLength(0);
   });
 
-  it('Pixi shows the plate, never probes WebGL2, never mounts, and says so once', async () => {
+  // Was the Pixi case until the backend was retired (WP-A3.3); save-data is
+  // the remaining mount-time plate that is a preference rather than a fault.
+  it('save-data shows the plate, never probes WebGL2, never mounts, and says so once', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const probe = vi.fn(() => true);
     const f = fakeMount();
     const { stage, column } = setup();
-    host(stage, column, deps({ renderer: 'pixi', webgl2: probe, mount: f.mount }));
+    host(stage, column, deps({ saveData: () => true, webgl2: probe, mount: f.mount }));
     await flush();
     const el = hostEl(stage);
     expect(el.dataset.host).toBe('plate');
-    expect(el.dataset.hostReason).toBe('pixi');
+    expect(el.dataset.hostReason).toBe('save-data');
     expect(el.querySelector('img')?.getAttribute('src')).toBe('/ui/menu_host_plate.jpg');
     expect(probe).not.toHaveBeenCalled();
     expect(f.calls).toHaveLength(0);
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0]?.[0])).toMatch(/pixi/);
+    expect(String(warn.mock.calls[0]?.[0])).toMatch(/save-data/);
   });
 
   it('is pending under the poster, then live; the poster leaves after the crossfade', async () => {
@@ -255,7 +256,7 @@ describe('sceneHost', () => {
   it('a plate that fails to load is removed, never shown broken', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { stage, column } = setup();
-    host(stage, column, deps({ renderer: 'pixi' }));
+    host(stage, column, deps({ saveData: () => true }));
     const img = hostEl(stage).querySelector('img');
     img?.dispatchEvent(new Event('error'));
     expect(hostEl(stage).querySelector('img')).toBeNull();
@@ -297,21 +298,11 @@ describe('sceneHost', () => {
       expect(queue).toHaveLength(0);
     });
 
-    // The ORDER of the spec's decision puts Pixi before reduced motion, so a
-    // Pixi player who also asked for reduced motion gets reason `pixi` -- and
-    // must still get a picture that never moves (spec §3.5: "Reduced motion
-    // never mounts it"). Parallax keys off the preference, not the reason.
-    it('pixi + reduced motion never moves it', () => {
-      const queue: FrameRequestCallback[] = [];
-      vi.spyOn(console, 'warn').mockImplementation(() => {});
-      const { stage, column } = setup();
-      host(stage, column, deps({ renderer: 'pixi', reducedMotion: () => true, frame: (cb) => queue.push(cb) }));
-      expect(hostEl(stage).dataset.hostReason).toBe('pixi');
-      move(window.innerWidth, 0, 'mouse');
-      expect(queue).toHaveLength(0);
-      run(queue, 5000);
-      expect(hostEl(stage).style.getPropertyValue('--host-dx')).toBe('');
-    });
+    // D-54 had a second witness here, `pixi + reduced motion`, because the
+    // Pixi plate reason outranked reduced motion. With Pixi retired (WP-A3.3)
+    // nothing outranks it, so `reduced motion shows the plate and never moves
+    // it` above is the whole rule; the scene host still keys parallax off the
+    // preference rather than the reason.
 
     // Asked of the listeners themselves, not of the frame queue: after a leave
     // the easing loop refuses to start whether or not the listener is still

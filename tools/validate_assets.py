@@ -1,33 +1,29 @@
 #!/usr/bin/env python3
 """
-Roaring Lions -- art CI gate.
+Roaring Lions -- the art checks, as a LIBRARY. The sprite gate is retired.
 
-Runs on every PR that touches assets/sprites/. Four checks, all mechanical,
-all fail-the-build. This is what lets you accept art from strangers without
-the roster drifting into visual mush.
+This was `pnpm validate:assets`, the CI gate over `assets/sprites/`: every
+billboard sheet held to four checks. The sheets are retired (WP-A3.3,
+2026-10-04) -- every unit and structure draws a mesh -- so the gate had
+nothing left to walk, and it was retired rather than left to print PASS over
+an empty directory (the `groundTextureCheck` failure, CLAUDE.md). Running this
+file now says so and exits 2.
 
-    python tools/validate_assets.py \
-        --palette data/palette.json \
-        --sprites assets/sprites \
-        --roster  assets/sprites            # existing art to compare against
+The four checks survive, because `validate_mesh_assets.py` imports them and
+holds every rendered MESH to the same rules:
 
-Checks:
   1. PALETTE  -- every opaque pixel is exactly a palette entry.
   2. RESERVED -- no VFX or team-colour band in static art. Those are runtime
                  only; if a contributor bakes fire-orange into a hull, the
                  explosion pop is gone and team remap breaks.
-  3. ALPHA    -- binary alpha only. Soft edges destroy palette quantization
-                 and cost fill rate for nothing at 40-80px.
-  4. SILHOUETTE -- rendered at gameplay zoom and reduced to pure black, every
-                 unit must be distinguishable from every other unit. Enforced
-                 as pairwise IoU below threshold. This is the single check
-                 that most protects readability in a busy fight.
+  3. ALPHA    -- binary alpha only.
+  4. SILHOUETTE -- reduced to pure black at gameplay zoom, every unit must be
+                 distinguishable from every other unit: pairwise IoU below
+                 threshold.
 
 Dependencies: pillow, numpy
 """
 
-import argparse
-import itertools
 import json
 import os
 import re
@@ -271,8 +267,10 @@ def representative(sprites):
 
 
 # The DRAWN GROUND is the fourth named exemption from data/palette.json, and
-# this gate is the one that says so out loud on its passing path -- the same
-# shape `render_mesh_gate.py` uses for the six textured buildings.
+# the mesh gate (`validate_mesh_assets.py`, which imports this) says so out
+# loud on its passing path -- the same shape `render_mesh_gate.py` uses for
+# the six textured buildings. This file printed it until its sprite gate was
+# retired (WP-A3.3).
 #
 # Nothing in this file can check it: terrain is generated at runtime by
 # `packages/render/src/three/terrain/`, not shipped as a PNG, so there is no
@@ -304,84 +302,20 @@ TERRAIN_PALETTE_EXEMPTION = (
     "THE SHADE HALF OF THIS EXEMPTION WAS RETIRED ON 2026-09-14. The ground is",
     "lit and shadowed by the scene sun like every other object on the three.js",
     "backend now, so there is no per-pixel palette guarantee left for a sloped",
-    "fragment, a terrace top or a flat tile to be exempt from. This gate --",
-    "the SPRITE gate -- is unchanged: every sheet in assets/sprites is still",
-    "checked against data/palette.json, and terraces, walls and flat ground",
-    "are named here only because they used to be carved out of this paragraph.",
+    "fragment, a terrace top or a flat tile to be exempt from. Terraces, walls",
+    "and flat ground are named here only because they used to be carved out",
+    "of this paragraph. The sprite gate that printed it is retired with the",
+    "sheets (WP-A3.3); the mesh gate prints it now.",
 )
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--palette", default="data/palette.json")
-    ap.add_argument("--sprites", default="assets/sprites")
-    ap.add_argument("--iou-limit", type=float, default=IOU_LIMIT)
-    args = ap.parse_args()
-
-    allowed, reserved = load_palette(args.palette)
-    sprites = sprite_paths(args.sprites)
-    if not sprites:
-        print("no sprites found -- nothing to validate")
-        return 0
-
-    failures = []
-
-    for p in sprites:
-        for e in check_image(p, allowed, reserved):
-            failures.append(f"{p}: {e}")
-        for e in check_framing(p):
-            failures.append(f"{p}: {e}")
-
-    incomplete_dirs = set()
-    for d in sheet_dirs(args.sprites):
-        errs = check_manifest_completeness(d)
-        if errs:
-            failures.extend(errs)
-            incomplete_dirs.add(d)
-
-    reps = representative(sprites)
-    # Composite layers (a turret drawn onto its hull) are not units. They are
-    # still checked for palette, alpha and framing above; the two checks below
-    # ask "does this read as a unit at gameplay zoom", which a layer never
-    # answers meaningfully. A sheet that failed the manifest-completeness
-    # check above is excluded the same way: it is already a reported
-    # failure, and comparing a probe render's one frame against shipped
-    # units' silhouettes answers a question nobody asked and would only
-    # bury the real error under a coincidental IoU collision.
-    reps = {
-        u: p
-        for u, p in reps.items()
-        if not is_layer(p) and os.path.dirname(p) not in incomplete_dirs
-    }
-    masks = {}
-    for unit, p in reps.items():
-        m = silhouette(p)
-        fill = m.sum() / float(m.size)
-        if fill < MIN_FILL:
-            failures.append(
-                f"{unit}: silhouette fills {fill:.1%} of frame "
-                f"(min {MIN_FILL:.0%}) -- unreadable at gameplay zoom"
-            )
-        masks[unit] = m
-
-    for (ua, ma), (ub, mb) in itertools.combinations(masks.items(), 2):
-        score = iou(ma, mb)
-        if score > args.iou_limit:
-            failures.append(
-                f"silhouette collision: {ua} vs {ub} IoU={score:.3f} "
-                f"(limit {args.iou_limit:.2f}) -- these read as the same unit"
-            )
-
-    if failures:
-        print(f"\nART GATE FAILED -- {len(failures)} issue(s):\n")
-        for f in failures:
-            print(f"  - {f}")
-        return 1
-
-    print(f"art gate passed: {len(sprites)} sprites, {len(masks)} units")
-    for line in TERRAIN_PALETTE_EXEMPTION:
-        print(f"  {line}")
-    return 0
+    print(
+        "validate_assets.py: the sprite gate is retired (WP-A3.3) -- assets/sprites/ "
+        "is deleted and every unit draws a mesh. Its checks run on the meshes now: "
+        "pnpm validate:meshes (tools/validate_mesh_assets.py)."
+    )
+    return 2
 
 
 if __name__ == "__main__":

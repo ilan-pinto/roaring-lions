@@ -20,6 +20,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
+import { HEMISPHERE_INTENSITY, SUN_DIRECTION, SUN_INTENSITY } from '../lighting';
 import { mountWorldView, type WorldView, type WorldViewOptions } from './world-view';
 
 interface FakeRenderer {
@@ -62,13 +63,19 @@ vi.mock('three', async (importOriginal) => {
     calls: string[] = [];
     renderCalls = 0;
     outputColorSpace = '';
+    toneMapping = -1;
+    toneMappingExposure = 0;
+    shadowMap = { enabled: false, type: -1 };
+    /** The last scene drawn, so a test can read the lights in it. */
+    lastScene: unknown = null;
     constructor() {
       made.renderers.push(this);
     }
     setPixelRatio(): void {}
     setClearAlpha(): void {}
     setSize(): void {}
-    render(): void {
+    render(scene: unknown): void {
+      this.lastScene = scene;
       this.renderCalls += 1;
       if (made.renderThrows) throw new Error('first draw failed');
     }
@@ -270,5 +277,66 @@ describe('a board left before it mounts makes no context', () => {
     // player -- and still no renderer was built.
     expect(made.lastScene).not.toBeNull();
     expect(made.renderers).toHaveLength(0);
+  });
+});
+
+describe('the board draws through the mission’s own pipeline (S3a)', () => {
+  it('encodes sRGB through ACES at exposure 1, like ThreeRenderer', async () => {
+    const { view, gl } = await mount();
+    const r = gl as unknown as {
+      outputColorSpace: string;
+      toneMapping: number;
+      toneMappingExposure: number;
+      shadowMap: { enabled: boolean };
+    };
+    expect(r.outputColorSpace).toBe(THREE.SRGBColorSpace);
+    expect(r.toneMapping).toBe(THREE.ACESFilmicToneMapping);
+    expect(r.toneMappingExposure).toBe(1);
+    expect(r.shadowMap.enabled).toBe(true);
+    view.dispose();
+  });
+
+  it('lights the board with lighting.ts’s one sun and one bounce, fixed in WORLD space', async () => {
+    const { view, gl } = await mount();
+    const scene = (gl as unknown as { lastScene: THREE.Scene }).lastScene;
+    const suns: THREE.DirectionalLight[] = [];
+    const hemis: THREE.HemisphereLight[] = [];
+    scene.traverse((o) => {
+      if ((o as THREE.DirectionalLight).isDirectionalLight) suns.push(o as THREE.DirectionalLight);
+      if ((o as THREE.HemisphereLight).isHemisphereLight) hemis.push(o as THREE.HemisphereLight);
+    });
+    expect(suns).toHaveLength(1);
+    expect(hemis).toHaveLength(1);
+    const sun = suns[0];
+    if (!sun) throw new Error('premise');
+    expect(sun.intensity).toBe(SUN_INTENSITY);
+    expect(hemis[0]?.intensity).toBe(HEMISPHERE_INTENSITY);
+
+    // The pivot is the group holding the GLB root. The sun must not be in
+    // it, or it would turn with the board and the lit side would never move.
+    const meshRoot = made.lastScene as THREE.Object3D;
+    const pivot = meshRoot.parent;
+    if (!pivot) throw new Error('premise: the GLB root is parented to a pivot');
+    let inPivot = false;
+    pivot.traverse((o) => {
+      if (o === sun) inPivot = true;
+    });
+    expect(inPivot).toBe(false);
+
+    // And its beam is SUN_DIRECTION, wherever the rig was shifted to.
+    scene.updateMatrixWorld(true);
+    const from = sun.getWorldPosition(new THREE.Vector3());
+    const to = sun.target.getWorldPosition(new THREE.Vector3());
+    const dir = from.sub(to).normalize();
+    expect(dir.distanceTo(SUN_DIRECTION)).toBeLessThan(1e-6);
+
+    // Turning the board does not move it.
+    view.nudge(90);
+    for (let i = 0; i < 60; i++) for (const f of frames.splice(0)) f();
+    scene.updateMatrixWorld(true);
+    const after = sun.getWorldPosition(new THREE.Vector3()).sub(sun.target.getWorldPosition(new THREE.Vector3()));
+    expect(after.normalize().distanceTo(SUN_DIRECTION)).toBeLessThan(1e-6);
+    expect(pivot.rotation.y).not.toBe(0);
+    view.dispose();
   });
 });

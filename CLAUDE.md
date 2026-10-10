@@ -8,12 +8,14 @@ Working instructions for this repository. Read `docs/GDD.md` for *what the game 
 
 **Roaring Lions** — source-available dimetric RTS in TypeScript. Deterministic simulation, data-driven content, realistic combat resolution.
 
-Two renderer backends live behind one interface. **three.js is the default as of
-Phase D (2026-08-30)**; PixiJS still ships and is reachable through
-`?renderer=pixi`, which persists so it survives the links `menu.ts` builds.
+**One renderer: three.js.** It became the default at Phase D (2026-08-30), and
+the PixiJS backend, `?renderer=pixi`, the `&nomesh` billboard path and the
+sprite sheets were retired at WP-A3.3 (2026-10-04, GH-189). The `Renderer`
+interface in `packages/render/src/api.ts` stays: it is still what keeps `app`
+off backend-only members, checked by the compiler rather than a grep.
+`?renderer=` and `&nomesh` are accepted and ignored, so old links do not warn.
 See "The three.js backend" below before touching anything under
-`packages/render/src/three/` — it has its own rules, and several of them invert
-what the Pixi side does.
+`packages/render/src/three/` — it has its own rules.
 
 ---
 
@@ -35,9 +37,9 @@ If a task appears to require breaking one of these, stop and raise it rather tha
 ```
 packages/
   sim/      deterministic core — imports NOTHING
-  render/   renderer + VFX — imports sim types read-only. `app` holds the
-            `Renderer` interface (api.ts), never `PixiRenderer` directly, so a
-            second backend is a new implementation rather than a rewrite.
+  render/   renderer + VFX + audio — imports sim types read-only. `app` holds
+            the `Renderer` interface (api.ts), never `ThreeRenderer` directly;
+            the concrete class is reached only by dynamic import in main.ts.
   data/     unit/building/mission/vfx JSON + schemas
   app/      shell, input, UI, campaign ledger
   worker/   Cloudflare Worker in front of the game: static assets, POST /api/events
@@ -59,11 +61,11 @@ pnpm test             # unit tests
 pnpm test:determinism # replay 1000 ticks from seed, assert state hash
 pnpm lint
 pnpm validate:data    # JSON Schema check on all content
-pnpm validate:assets  # palette + silhouette gate, and sheet COMPLETENESS
-pnpm validate:meshes  # the same checks for art/meshes/**, rendered headlessly
+pnpm validate:meshes  # the art gate: palette + silhouette IoU on art/meshes/**, rendered headlessly
+pnpm kit:meshes       # graft art/parts/kit/<id>.glb into the vehicle GLBs (then wreck:meshes, encode:meshes)
+pnpm kit:capture      # in-game kitted-vehicle sheets, the `kit` toggle reading, the garage turntables
 pnpm validate:ui      # no colour literals AND no bare chrome strings in UI source
 pnpm ui:routes        # drive the shell: one JS realm, two missions, no reload (60-74 s local, ~130 s on CI: no GPU there)
-pnpm icons:units      # crop unit UI icons from the sprite sheets; --check in CI
 pnpm balance          # headless battle sim, prints win rates
 ```
 
@@ -135,7 +137,7 @@ rather than papered over.
 
 ## Adding content
 
-**A unit:** JSON in `data/units/`, validated against `unit.schema.json`, must pass `pnpm balance` within the cost-curve tolerance band, and needs a `.blend` in `art/src/` that survives `pnpm validate:assets` (including the silhouette IoU check). A priced, art-less unit is staged in `docs/campaign/special_units/<wp>/`, is fitted on CI via `validate_balance.py --also`, and is guarded by `tools/src/e5_staged.test.ts` (schema-valid, not half-landed); it moves to `data/units/` in the same commit as its art.
+**A unit:** JSON in `data/units/`, validated against `unit.schema.json`, must pass `pnpm balance` within the cost-curve tolerance band, and needs a GLB under `art/meshes/` (with its `.blend` source) that survives `pnpm validate:meshes` (including the silhouette IoU check), an entry in `packages/app/src/mesh-catalogue.ts`, and a Blender portrait from `tools/render_unit_portraits.py`. `tools/src/mesh_roster.test.ts` fails if any unit id has no GLB on disk, a vehicle lacks `idle`/`wreck`, or a team lacks `down`/`wreck`. (`pnpm validate:assets`, the sprite-sheet gate, was retired with the sheets in WP-A3.3: it walked only `assets/sprites/`.) A priced, art-less unit is staged in `docs/campaign/special_units/<wp>/`, is fitted on CI via `validate_balance.py --also`, and is guarded by `tools/src/e5_staged.test.ts` (schema-valid, not half-landed); it moves to `data/units/` in the same commit as its art.
 
 **A mission:** JSON in `data/missions/`, validated against `mission.schema.json`. Must declare its ledger contract — `requires` and `produces`. Target 5–7 minutes of play, and **the schema enforces it now** — the 25 allowance for the old 12–20 Beit Sahwan missions is gone. `target_minutes` is 5–7, capped by an `if/then/else` at the schema root rather than by a plain `maximum`, because there is exactly one exemption and it is named in the schema: `beit_sahwan_0_tutorial` at 10. The tutorial is not a campaign mission (it produces no ledger keys), its length is 14 teaching steps in `data/tutorial/beit_sahwan_0.json` rather than a timer, and its `survive_until` 600s primary is a backstop that ejects a stalled player — so 10 declares the backstop. No headless instrument can measure a step machine driven by player input, so cutting it to 7 would be fitting a number to a ceiling with nothing behind it. Nothing in the runtime reads `target_minutes` at all: it is a claim, and the schema is the only thing that checks it.
 
@@ -177,13 +179,14 @@ non-`remove` trigger without one.
 - Do not let VFX, audio, or UI state influence simulation outcomes.
 - Do not write mission logic as TypeScript. Missions are declarative data; if a mission needs a behaviour the schema cannot express, extend the schema.
 - Do not use per-unit A* pathfinding. Flow fields only.
-- Do not commit rendered sprites without their `.blend` source.
+- Do not commit a mesh (GLB) without its `.blend` source, and never re-create
+  `assets/sprites/` -- the sprite renderers refuse to (`tools/sprites_retired.py`).
 - Do not commit assets from paid packs (Synty included, even if you own a licence),
   or anything you cannot point to explicit redistribution rights for. This applies to
   audio exactly as it does to art.
 - Do not ship AI-generated art without disclosing it in the PR description. Generative
-  tools *are* permitted, including for assets that ship; the four `validate:assets`
-  gates apply identically regardless of origin. See `CONTRIBUTING.md`.
+  tools *are* permitted, including for assets that ship; the `validate:meshes`
+  checks apply identically regardless of origin. See `CONTRIBUTING.md`.
 
 ---
 
@@ -204,6 +207,19 @@ The combat model is the product. Everything else is scaffolding around it.
   `?telemetry` -- never from `pnpm dev`, tests or CI, because `pnpm ui:routes` fails on any
   console error. `?tester=<name>` labels a tester, `?notrack` opts out (persisted). Results
   are read from the terminal with `packages/worker/QUERIES.sql` (`npx wrangler d1 execute roaring-lions-telemetry --remote --file ...`), still available as an alternative; `/stats` is behind a password set with `npx wrangler secret put STATS_PASSWORD` -- make it long and random (e.g. `openssl rand -base64 24`), not a memorised phrase, since a captured session cookie hands over the signing key too -- and answers 403 until that secret is set. Spec: `docs/superpowers/specs/2026-09-24-telemetry-design.md`.
+- **In-game feedback (GH-464) is a PUBLIC write endpoint**, open to every player in v1 by the
+  lead's ruling. `POST /api/feedback` (multipart: `meta` JSON against
+  `data/schemas/feedback.schema.json`, whose Worker twin is `packages/worker/src/feedback-meta.ts`;
+  optional `shot`, WebP only, 64 KB, kept in D1's `feedback_picture`; optional `replay` JSON, bugs only, in `feedback_replay`) answers
+  201 with a `FB-0042` reference (plus `dropped` when a picture was over 64 KB or the D1
+  attachment budget is spent: the note lands, the attachment does not), and is capped, origin-checked and rate-limited per IP, session,
+  player and globally. **The kill switch needs no app deploy**: the "Close feedback" button on
+  `/stats/feedback` (a D1 `flags` row), or `npx wrangler secret put FEEDBACK_CLOSED`; either
+  makes POST answer 410 and `GET /api/feedback` answer `{"open":false}`. Triage, the session
+  timeline and the prefilled GitHub issue URL (never a token, never the tester's name or
+  contact) live at `/stats/feedback`. A daily cron purges pictures, replays and contacts after
+  180 days. Spec: `docs/superpowers/specs/2026-10-08-in-game-feedback-design.md`, section
+  "Server contract as built".
 
 - **The shell is on a router, and the screens are PATHS**
   (`packages/app/src/shell/router.ts`, Phase 1): `/` the menu, `/campaign` the
@@ -334,6 +350,13 @@ The combat model is the product. Everything else is scaffolding around it.
   pixel-comparable with later ones** (`golden-diff/browser.ts` records 230 px /
   0.032 between the two on `quiet`), so compare a capture with one from the same
   backend.
+- **Test browsers start with music off, and the seed comes from ONE helper**
+  (`tools/src/ui-review/music-off.ts`: `musicOffInitScript()` for
+  `addInitScript`, `SILENT_AUDIO` for captures that want every channel quiet).
+  Never write `lions.settings` by hand: `parseSettings` throws away any object
+  whose `version` is not 1 and uses the defaults, so `{ audio: { music: 0 } }`
+  left the music ON in three capture tools. `music-off.test.ts` runs the seed
+  through the real parser and fails on any tool that writes the key itself.
 - Browser sandbox: `window.__lions.step(n)` fast-forwards n deterministic ticks; `__lions.sim` and `__lions.renderer` are exposed. It is defined by the battlefield alone — the menu, the campaign board, the brigade and the picker define nothing, which is how a tool tells "the app booted a mission" from "the app booted".
 - `pnpm meshy -- <command>` (`tools/src/meshy/`) is the Meshy text-to-3D/image-to-3D CLI — estimate before you spend, key lives outside the repo, see `docs/ART_PIPELINE.md`'s "Meshy API — generating a base model" for the full workflow and policy.
 - `?sandbox=<map id>` walks **any** shipped map with a full task force placed from
@@ -361,8 +384,8 @@ The combat model is the product. Everything else is scaffolding around it.
   but unparsed, is not expressible.
   Prefer this over grepping this file.
 - The opt-in sandbox flags, each adding only what it names, so a check for one
-  subsystem is not buried under four others (`&nomesh` is the one opt-OUT
-  — see "Mesh units"). **This list goes stale; the table and `__lions.help()`
+  subsystem is not buried under four others (`&nomesh`, the old billboard
+  opt-out, and `&mesh` are accepted and do nothing since WP-A3.3). **This list goes stale; the table and `__lions.help()`
   do not** — it is here for the reasoning, not the enumeration. `&roe` supplies
   flagged ground (the map's own `clinic`/`hall`/`refuge` zone where it has
   one, otherwise a 4×4 synthesised midway between the two anchors); `&tunnel`
@@ -395,16 +418,21 @@ The combat model is the product. Everything else is scaffolding around it.
   friendly anchor. The arrival ZONE is always a synthesised 4×4 built AROUND the
   refuge point, never a declared rectangle: `CivilianFlight.step` stops
   re-ordering a civilian standing on the refuge, so a point outside its own zone
-  is a permanent hang rather than a miss. `civilians` is the one unit type with
-  no `SPRITE_MAP` entry, so `&civ` under `&nomesh` or on Pixi spawns a crowd
-  that draws nothing — it warns by name rather than refusing.
+  is a permanent hang rather than a miss. The civilians draw as their four
+  variant meshes (`art/meshes/civilians/`, GH-149) -- there is no other path
+  since WP-A3.3, and a crowd whose GLBs failed to load draws proxy boxes.
 - **The brigade account is a second save, not a ledger key.** `lions.brigade.account`
   (`packages/app/src/brigade-account.ts`, the only reader and writer) holds credits and
   what they bought, and it SURVIVES `?fresh` on purpose (spec 2026-09-15 §4.1): a second
   campaign starts with the brigade you built. Reset it from the brigade screen, twice.
   A victory pays `creditsFor` (`packages/sim/src/credits.ts`, integer-only, never called
-  by the sim) only for improvement over what that mission paid before; `pnpm playtest`
-  pins the optimal ladder's total (`LADDER_CREDITS`) beside the star gates. The tutorial
+  by the sim) only for improvement over what that mission paid before IN THIS CAMPAIGN;
+  since GH-330 (PR #378) the improvement record is per campaign, cleared by "New
+  campaign", so a fresh campaign pays again (the whole catalogue is reachable by play in
+  ~12 campaigns), while a replay inside one campaign still pays only improvement. Only an
+  OPEN mission pays, so booting a locked mission by URL earns nothing. `pnpm playtest`
+  pins the optimal ladder's total (`LADDER_CREDITS`) beside the star gates, and checks
+  that campaign 2 pays it again. The tutorial
   pays nothing: it produces no ledger keys, so `main.ts` gates the payout on
   `mission.ledger.produces` rather than a name list. Buying an unlock deducts and records
   `unlocks`; it writes no grant. A KDF unit's `upgrades` tracks (spec §4.3) are applied by
@@ -478,13 +506,9 @@ The combat model is the product. Everything else is scaffolding around it.
   default (both sides) before spawning anything: an early run put the parade
   tile 7 tiles from a default `militia_cell`, and an `apc_eitan` found it and
   opened fire mid-capture, its own muzzle flash and tracer blowing the
-  measured extent out past 1100px. **Two KDF types carry no GLB at all**
-  (`attack_drone`, `recon_drone` — checked against `hasUnitMesh`, not
-  assumed; `heli_peten` does have one) and the roster-driven sprite loader
-  only queues a billboard sheet for a type the BOOT-TIME force already
-  fields, so spawning either one cold drew nothing but a stray VFX blur on
-  otherwise empty ground — fixed by calling `renderer.loadSprites` on their
-  own `SPRITE_MAP` paths directly before the first spawn.
+  measured extent out past 1100px. (The two drones once carried no GLB and
+  were loaded here as billboard sheets; both have GLBs since B0a, and a type
+  the boot roster did not field is picked up by `main.ts`'s 1 Hz mesh sweep.)
   **The dev instrument that actually failed here was SwiftShader itself**, not
   content: a `page.screenshot` measured 180s+ stalls (`GL Driver Message ...
   GPU stall due to ReadPixels`) after only two or three captures shared one
@@ -540,8 +564,8 @@ The combat model is the product. Everything else is scaffolding around it.
   touched. `packages/app/vite-plugin-asset-watch.ts` now puts those directories
   under the watcher and Vite's own invalidation does the rest. It DERIVES them
   from the source rather than listing them, because a hand-kept list of asset
-  locations is the `SPRITE_MAP` failure mode and would go stale the same silent
-  way. Two consequences worth knowing: a running browser now reloads by itself
+  locations is the retired `SPRITE_MAP`'s failure mode and would go stale the
+  same silent way. Two consequences worth knowing: a running browser now reloads by itself
   when a GLB lands, and the six watched directories are printed at `pnpm dev`
   boot, so "is my new mesh's directory covered?" is answered by the banner.
 
@@ -549,18 +573,20 @@ The combat model is the product. Everything else is scaffolding around it.
 
 ## The three.js backend
 
-**The default since Phase D.** Pixi is the escape hatch (`?renderer=pixi`), not
-the baseline. The seam is `packages/render/src/api.ts`, and `main.ts` holds a
-`Renderer`, never a concrete backend — so the compiler, not a grep, keeps `app`
-off backend-only members. Both backends arrive by dynamic import from their own
-entry points, so a player downloads only the one they run.
-
-Two constraints that were true DURING the migration and are worth restating now
-they can be misread. `renderer.ts` was frozen per phase so the cross-renderer
-diff had a fixed reference; with the flip done, that freeze is no longer
-load-bearing and unfreezing it is a decision someone should make deliberately
-rather than assume. And **VFX no longer owe Pixi parity at all** — three-only
-effects are the intended end state.
+**The only renderer since WP-A3.3 (2026-10-04).** The default since Phase D;
+the PixiJS backend (`renderer.ts`, `?renderer=pixi`), the `&nomesh` billboard
+path, the sprite sheets and the cross-backend harnesses are deleted. The seam is
+`packages/render/src/api.ts`, and `main.ts` holds a `Renderer`, never the
+concrete class — so the compiler, not a grep, keeps `app` off backend-only
+members. three.js arrives by dynamic import from its own entry point, so the
+shell paints before it loads. Every VFX is three-only by construction now, and
+many comments under `packages/render` still say "ported from `renderer.ts`" or
+"Pixi ignores it": those are history. A unit whose GLB fails to load (or a
+vehicle GLB with no `wreck` clip, which `loadVehicleMesh` refuses) draws as a
+team-coloured proxy box at its footprint beside a `console.error` naming the
+file (`units/proxy-box.ts`) -- never as nothing. A deferred buildable whose GLB
+is still in flight draws nothing until it lands, and its dock tile says
+"deploying" (the lead's ruling, A3.3).
 
 **Design and outcomes** are in `docs/superpowers/specs/`: the migration design
 (`2026-08-26-three-renderer-design.md`), the palette GO/NO-GO
@@ -579,8 +605,8 @@ yours; each one records what the next phase inherits.
   in a follow-up commit (`38fe0075`), and `packages/render` is `main`'s bytes
   again. Kit reads on the unit ICONS instead — selection chips, the HUD unit
   card, dock tiles, the garage rail — through `kitIconSignHtml`, fed by
-  `upgradePrepass.unitKit`. The sign is DOM, not canvas, so both backends draw
-  it identically. Do not reintroduce a world overlay for kit without the lead.
+  `upgradePrepass.unitKit`. The sign is DOM, not canvas (which is why it drew
+  identically on both backends while there were two). Do not reintroduce a world overlay for kit without the lead.
   The glyph on those icons is not the garage bay's own plate-with-bars mark —
   the lead reopened it at G-P2 and settled on 1–3 steel Stars of David with a
   per-level chip border tint (G-P3, `docs/superpowers/plans/2026-09-27-garage-kit-on-icons.md`),
@@ -603,9 +629,10 @@ yours; each one records what the next phase inherits.
   up-screen inside its own silhouette. Do **not** re-derive it from
   `build_lights`' lamp — `rotation_euler = (90−55, 0, 135)` yaws a beam
   already tilted toward `+Y` and puts the light source at 45°, behind the
-  subject; that rig convention bug is why every sprite sheet has a bright top
-  over two equally dark sides (`BLD_WALL` is `limestone.0` on top and
-  `limestone.7` on BOTH flanks, identical to the byte). Settled by the project
+  subject; that rig convention bug is why every retired sprite sheet had a
+  bright top over two equally dark sides (`BLD_WALL` is `limestone.0` on top and
+  `limestone.7` on BOTH flanks, identical to the byte -- the sheets are gone
+  since WP-A3.3, the rig is not). Settled by the project
   lead on 2026-09-15; `lighting.ts`'s header and the spec's Deviations entry 3
   carry both retired alternatives with their measurements.
   The frame goes through `post-chain.ts`: `RenderPass → FogOfWarPass →
@@ -648,7 +675,8 @@ yours; each one records what the next phase inherits.
   argument and the nine captures are in
   `docs/superpowers/specs/2026-09-14-lit-renderer-design.md`; the palette is
   still the source of every AUTHORED colour (`docs/ART_PIPELINE.md` §2), and
-  `pnpm validate:ui` and `pnpm validate:assets` are unchanged.
+  `pnpm validate:ui` and `pnpm validate:meshes` hold it (`validate:assets`, the
+  sprite gate, was retired with the sheets in WP-A3.3).
 - **`units/render-order.ts` is the single source of truth for every
   `renderOrder`.** Read it before setting one. Bands are: **-1 world (mesh
   buildings)**, 0 hull/structures, 0.5 selection ring, 1 turret, 1.5 badge numeral, 2 FX,
@@ -656,10 +684,9 @@ yours; each one records what the next phase inherits.
   **6 occlusion silhouette**, 7-9 reserved. **Band 10 is retired** — fog of
   war was `FogMesh`, one black quad per unseen tile at the top band, and it is
   a post pass now, so nothing in the scene draws at 10 and "must sit below the
-  fog band" no longer constrains anything. The overlay tier still sits where
-  it does because Pixi's `unitsG` is added to `world` before `fogG`; an
-  earlier version of that file said the opposite, citing Pixi
-  identifiers that do not exist. Band -1 is the only one whose value changes
+  fog band" no longer constrains anything. The overlay tier sits where it
+  does as history: it matched the retired Pixi backend's paint order, and
+  nothing has needed it to move. Band -1 is the only one whose value changes
   anything for an OPAQUE mesh, where the depth buffer normally makes
   submission order irrelevant. It was added for the occlusion silhouette's
   stencil mask, back when that silhouette was a solid FILL and a unit body
@@ -693,16 +720,20 @@ yours; each one records what the next phase inherits.
   world units, because `main.ts` clamps zoom to 0.35-2.5. And it is applied in
   the GLB's own object space, so it needs multiplying by `MESH_UNITS_PER_TILE`
   to undo `MESH_SCALE` -- forget that and the outline is a third as thick as
-  asked for, which looks plausible and is wrong. Billboards have no hull to
-  invert, so that path dilates the atlas alpha instead. Costs no extra draw
-  call over the fill: measured +24 on 310, both ways.
-- **Every shot that is one round draws a travelling projectile; only a STREAM
-  keeps the flat tracer.** `units/shells.ts` is the whole model and it now
-  serves both halves — `mortar`/`rocket` arc (GH-145), and since GH-149
-  `bolt` (`apfsds`, `autocannon`) flies the same streak with no arc and a
-  much shorter trail. `small_arms` and
-  `hmg` deliberately keep `TracerBatch`'s full-span ribbon, which is right
-  for a rifle burst and was wrong for everything else. Three things about
+  asked for, which looks plausible and is wrong. (A billboard path dilated
+  the atlas alpha instead, with a fixed 0.75 world-unit bias; it went with
+  the billboards in WP-A3.3, and its recorded defect -- 75-432 false px along
+  a billboard Lavi's hull base -- went with it, retired rather than fixed.)
+  Costs no extra draw call over the fill: measured +24 on 310, both ways.
+- **Every shot draws a travelling projectile; no line spans the gap any
+  more** (PR #342, 2 Oct 2026, the lead: "no need for the straight lines").
+  `units/shells.ts` is the whole model — `mortar`/`rocket` arc (GH-145),
+  `bolt` (`apfsds`, `autocannon`) flies a short flat streak (GH-149), and
+  since #342 `small_arms` and `hmg` fire bursts of short streaks too (rifle
+  2 a burst, mg 3; numbers in the PR) instead of `TracerBatch`'s full-span
+  ribbon. Who shoots whom is shown by a pulse ring contracting onto the
+  selected unit's target, a red outline flash on each hit, and "Engaging:
+  <enemy>" on the unit card; the old duel line is deleted. Three things about
   this are worth knowing before touching it. **The flat tracer was never
   absent from direct fire** — the complaint "direct fire has no visible
   projectile" is literally false and substantially true: photographed at
@@ -734,7 +765,7 @@ yours; each one records what the next phase inherits.
   toggle floor and a flash reading, and the lead judges its `flip-<id>.html`
   pages, not the stills.
 - **An arcing round is `vfx.fire`/`vfx.ember`, not `vfx.tracer`** — the new
-  `RendererOptions.shellColors`, three-only, ignored by Pixi. A landing
+  `RendererOptions.shellColors`. A landing
   mortar bomb or Grad rocket also throws `data/vfx/shell_impact.json` through
   the same `spawnCollapseFx`/`mesh_burst` path a building collapse uses, at
   `impactPower` 0.3/0.45. That fires off the FRAME clock (`shellHasLanded`),
@@ -742,14 +773,14 @@ yours; each one records what the next phase inherits.
   different clock and would put the fireball where the bomb visibly is not.
   Note `screen_shake` in `vfx_emitter.schema.json` is still read by nothing —
   `emitters.ts` types it and no backend consumes it.
-- **Overlays scale with zoom, and that is faithful.** Pixi scales its whole
-  `world` container by `camera.zoom` and the overlay layer is a child of it, so
-  HP bars look enormous zoomed in on BOTH backends. Verified side by side. Not a
-  bug; changing it is a decision affecting both.
+- **Overlays scale with zoom, and that is faithful.** HP bars look enormous
+  zoomed in, as they did on the retired Pixi backend, which scaled its whole
+  `world` container by `camera.zoom` (verified side by side before it went).
+  Not a bug; changing it is a design decision.
 - **The ground is SMOOTH since 2026-09-03, and the sim never noticed** (`terrain/ground.ts`,
   `terrain/surface.ts`). It was flat terraces by design -- corners never interpolated, vertices
-  never shared -- for two reasons that are both retired: Pixi parity (report-only since
-  2026-09-02) and the palette guarantee, which the project lead had already overridden three
+  never shared -- for two reasons that are both retired: Pixi parity (report-only from
+  2026-09-02, the backend deleted in WP-A3.3) and the palette guarantee, which the project lead had already overridden three
   times. Open ground is now **Catmull-Rom bicubic over tile CENTRES**, not corners: corner-bilinear
   is a low-pass, and a lone level-3 tile would draw at a quarter of the height the sim charges a
   climb for. Centres make the surface pass through every authored level exactly, so what the
@@ -767,7 +798,7 @@ yours; each one records what the next phase inherits.
   exemption, and **since 2026-09-14 only its ALBEDO half survives**: the ground is lit and
   shadowed by the scene sun like everything else, so the *shade* is not an exemption from
   anything any more (`terrain/surface.ts`'s `SURFACE_SHADING_EXEMPTION`, and the paragraph
-  `pnpm validate:assets` prints). The albedo is still exempt, on all open ground and on `^`,
+  `pnpm validate:meshes` prints -- `validate:assets` printed it until it was retired). The albedo is still exempt, on all open ground and on `^`,
   because it is a ratio to each image's own mean rather than a colour -- which is also why these
   six textures alone stay `NoColorSpace`. Two things worth knowing. **For a texture, the image fed to Meshy
   is the asset, not the model it produces** -- `art/blend/desert tile/`'s `.blend` bakes a
@@ -804,8 +835,19 @@ yours; each one records what the next phase inherits.
   Both halves of that are load-bearing -- `drawBlockedMask` returns a new array every call, so a
   reference compare never matches, and `sim.cover` is written IN PLACE when a structure dies, so
   a reference compare always does. A boot fires 3-5 terrain rebuilds (templates, decor sets,
-  `setElevation`) and now builds the map once; a structure collapse still pays a full build,
-  and a dirty-rect rebuild is the follow-up. See `docs/PERFORMANCE.md`, "The ground, plan 1".
+  `setElevation`) and now builds the map once. See `docs/PERFORMANCE.md`, "The ground, plan 1".
+  **A structure collapse SPLICES** (PR #509, `terrain/incremental.ts`, `terrain/tiled-mesh.ts`):
+  the new draw mask, cover, terrace flag and field source are diffed against the last build,
+  ground and scatter re-emit only changed tiles grown by `SPLICE_RADIUS_TILES` = 2 (Catmull-Rom's
+  support) and copy the rest with shifted indices, and `updateControlMapRegion` rewrites in place
+  the texels within `CONTROL_SPLICE_MARGIN_TEXELS` = 4 (0.2 bend + 0.25 band); a road or ridge
+  tile changing still builds the map whole. Byte-identical to a full build: swept over all 1,724
+  single collapses on every shipped map, 0 differences, and both margins are tight -- 1 tile
+  differs on 13 relief maps, 3 texels on 25 maps (`packages/app/src/terrain-splice.test.ts` keeps
+  chains and one witness per margin). The collapse frame at 4x CPU went 531-627 ms -> 95-103 ms.
+  Left on it: decor placements recomputed whole (~6 ms at 4x; the clump rule drops members by the
+  tile they land on) and the sim's own `recomputeFields` (9-19 ms at 4x). See `docs/PERFORMANCE.md`,
+  "A collapse splices the terrain".
   **The road block in the ground shader is skipped where control B saturates**
   (`if (rlB.g < 1.0)`): there every road term is exactly 0, the golden A/B read 0 px, and its
   grain tap is a `textureGrad` whose derivatives are taken OUTSIDE the branch. Keep them there.
@@ -1018,9 +1060,9 @@ yours; each one records what the next phase inherits.
   the defect's own 0.0493 signal. A missing baseline for the current
   environment is **exit 3**, a distinct code, never a silent pass. A baseline
   still has to be blessed per environment, and CI's must be created by the
-  `visual-baseline-bless` workflow, which **commits to `main` directly** — it
-  opened a review PR until 2026-09-02, so nothing now looks at the picture
-  before it becomes the reference — but the reason is no longer "we do not
+  `visual-baseline-bless` workflow, which **opens a review PR by default** since
+  2026-10-04 (it committed to `main` directly from 2026-09-02 to then; `direct: true`
+  restores that) — but the reason is no longer "we do not
   know whether a capture even works there". **Cross-OS CAPTURE is measured now
   and it works**, which retires the "unmeasured" this line used to carry: on
   `ubuntu-latest` (run 33591712714, 2026-09-02) all four gated scenarios
@@ -1168,7 +1210,9 @@ yours; each one records what the next phase inherits.
   are re-asserted per frame needs the same treatment rather than a bare
   `setObjectsVisible`.
   Two things that fell out of it. The `units` layer hides mesh units, mesh
-  vehicles AND the billboard instancers, so it is the unit BODIES rather than
+  vehicles and the failed-GLB proxy boxes (the billboard instancers too,
+  until WP-A3.3 retired them -- the reading did not move: 35368-35386 px
+  across the retirement's runs), so it is the unit BODIES rather than
   overlays or silhouettes. And giving `vehicle` any check at all made it run
   the zero-time **repaint control for the first time** — `runSelfChecks`
   returns early on an empty `layerChecks` — where it failed the global hard
@@ -1302,55 +1346,35 @@ yours; each one records what the next phase inherits.
   exits in 10.9 s.
   **Accepting an intended change** is `pnpm golden-baseline:bless -- --reason="..."`,
   which refuses to run without the reason and writes it into `manifest.json`;
-  on CI it is the `visual-baseline-bless` `workflow_dispatch`, which since
-  2026-09-02 **commits the new PNGs straight to `main`** (the lead's call:
-  "instead of PR merge to main and push"). Nobody sees the picture unless
-  whoever dispatched it downloads the `visual-baseline-bless-captures`
-  artifact and looks — so do that, every time. Do not widen a threshold to
-  clear a red run.
-  **The PR route this paragraph used to describe is retired.** The workflow no
-  longer calls `gh pr create`, so the repo setting that used to block it
-  (`can_approve_pull_request_reviews: false`, Settings → Actions → General →
-  Workflow permissions) no longer matters to it; the first Linux baseline
-  (`linux-x64-swiftshader`, run 33596042795) landed under the old route as
-  PR #150. Two consequences of the bot commit, both met on 2026-09-15: **its
-  push triggers NO `ci.yml` run** (GitHub never runs workflows for a
-  `GITHUB_TOKEN` push), so after a bless `main`'s `visual` status stays
-  whatever the last real push left it and the `version` job waits for the next
-  real push; and a bless dispatched while `main` is moving retries its push
-  three times before giving up.
-- **The cross-backend Pixi-vs-three diff is now REPORT-ONLY**
-  (`pnpm golden-diff:compare`, `tools/src/ci/golden-diff-gate.ts`). It exits 0
-  unless a capture fails, and its `SCENARIO_BUDGETS` are kept as historical
-  reference numbers, not thresholds. The project lead retired the pass/fail:
-  *"retire cross-backend and rebuild it as three-vs-three."*
-  Why, measured: since the mesh flip (`362bde7`) all four scenarios sat 1.8x–2.3x
-  over budget with **no regression behind it** — re-capturing three with
-  `&nomesh` put every one back inside budget (2.556→0.255, 7.094→2.132,
-  5.426→1.312, 11.971→5.996), so 100% of the overage is the mesh path Pixi has
-  no counterpart for. The budgets were last calibrated at `45a2cc1`, **124
-  commits** before the flip. Recalibrating would have blessed a ~12% baseline on
-  `combat`, inside which a broken mesh material or a missing unit type is
-  invisible. And the harness's own `OPEN_GROUND_SCENARIO` comment already
-  recorded that cross-backend **could not discriminate the scatter defect from
-  its fix at all** (1.945% buggy vs 1.937% fixed, not even ordered right) while
-  same-renderer separated them 34x. `EXPECTED_DIFFERENCES` never fed a pass/fail
-  — it is `.length` in a message and a printed table — so adding entries could
-  never have cleared the red, and correcting them is safe. Full account:
-  `.superpowers/queue/golden-diff-red-report.md` and
-  `.superpowers/queue/golden-three-report.md`.
-  **VFX are exempt from this diff as of 2026-08-30.** The project lead's call:
-  "all VFX should move to three." Pixi's VFX are legacy and are no longer owed a
-  matching effect — an effect that exists only in three is the intended end
-  state, not a divergence to be reconciled. This does NOT relax the freeze on
-  `packages/render/src/renderer.ts`, which must still stay byte-identical to
-  `main`; it removes the obligation to hold three's VFX back to what Pixi can
-  match. Two consequences: `additive` and `heat_shimmer` (schema fields read by
-  nothing) were deferred purely because implementing them meant touching both
-  backends, and are now unblocked in three alone; and new VFX work should be
-  judged on how it looks in three, not on cross-backend agreement. Capture conditions must be stated with any number from it — a
-  first run read 6.5× higher purely from screenshot downscaling and a font-load
-  race, and the OS mouse cursor is shared across tabs and can leak into a capture.
+  on CI it is the `visual-baseline-bless` `workflow_dispatch`.
+  **Since 2026-10-04 (the lead's G2 call, #166) it pushes the new PNGs to
+  `visual-bless/<run id>` and opens a PR to `main`**, its body naming the reason,
+  the scenarios that changed and the captures artifact
+  (`visual-baseline-bless-captures`), so the picture is seen before it becomes
+  the reference — look at it, every time. That needs the repo setting
+  "Allow GitHub Actions to create and approve pull requests" (Settings →
+  Actions → General → Workflow permissions); with it off, PR creation fails, the
+  job prints the `pull/new/<branch>` URL, names the setting and exits 0, and a
+  human opens the PR by hand (as with PR #150, the first Linux baseline). The
+  `direct` input (default false) keeps the old straight-to-`main` commit, with
+  its three-try push retry, for when speed matters; nobody sees the picture on
+  that path. Both paths keep the `git status --porcelain -uall` guard. A bot
+  push or PR from `GITHUB_TOKEN` triggers NO `ci.yml` run, so the PR's `visual`
+  check does not appear by itself (push an empty commit or close and reopen it),
+  and after a direct bless `main`'s `visual` status stays whatever the last real
+  push left it. Do not widen a threshold to clear a red run.
+- **The cross-backend Pixi-vs-three diff is gone** (`golden-diff-gate.ts`,
+  `expected-differences.ts`, `pnpm golden-diff:compare`, deleted in WP-A3.3).
+  It was report-only from 2026-09-02, when the lead retired its pass/fail
+  ("retire cross-backend and rebuild it as three-vs-three") after the mesh
+  flip put every scenario 1.8x-2.3x over budget with no regression behind it.
+  The one lesson worth keeping: cross-backend could not discriminate the
+  scatter defect from its fix at all (1.945% buggy vs 1.937% fixed) while the
+  same-renderer comparison separated them 34x -- which is why the gate is
+  three against a committed three baseline. Full account:
+  `.superpowers/queue/golden-diff-red-report.md`. Capture conditions must still
+  be stated with any visual number -- screenshot downscaling and a font-load
+  race once read 6.5x high, and the OS mouse cursor can leak into a capture.
 - **Selection is a ground ring, and HP bars are conditional (A4, GH-186).**
   The ring is `units/selection-ring.ts`: one mesh at order 0.5, depth-tested but
   not depth-writing, drawn in team colour via `teamColors[side]` (so it follows
@@ -1365,7 +1389,8 @@ yours; each one records what the next phase inherits.
   0.05 tile of movement or 2 degrees of turn; `refreshSurface` invalidates the
   cache. Moving rings on relief cost about 0.9 ms per 100 -- the lead accepted
   it ("Cache + accept", `docs/PERFORMANCE.md`). The fallback flat ring
-  (garrisoned units, or overflow) keeps the group colour. The `overlays` debug
+  (garrisoned units, or overflow) wears the same team colour (VR-34; it took
+  the group colour, or lime, until the chrome register). The `overlays` debug
   layer hides `selectionRingGroup`, never the mesh. HP bars draw only for a
   unit that is damaged, selected or hovered, with a 1 px `shadow.1` frame at
   alpha 1.0. **Captures ASSERT no selection and no hover**, so no gated
@@ -1374,40 +1399,97 @@ yours; each one records what the next phase inherits.
 
 ### Mesh units
 
-Most unit types draw as rigged 3D meshes instead of billboards, and **this is
-the default on `three` as of the mesh flip** — every type with a shipped GLB,
-in every mission, with no flag. It was an opt-in `&mesh` until then, which
-meant no player reached through `ui/menu.ts` ever saw a mesh: that file builds
-`?mission=<id>` and never appended the flag. `&mesh` is still ACCEPTED and does
-nothing, so old bookmarks and doc lines do not trip the unknown-parameter
-warning. The escape hatch inverted: **`&nomesh`** walks the billboard path on
-`three` (and skips the GLB downloads entirely), and `?renderer=pixi` has no
-mesh path at all — not a gap to close, a permanent property of that backend.
+Every unit type draws as a 3D mesh -- rigged teams, rigid vehicles, and
+`civilians` as four variant figures -- and since WP-A3.3 (2026-10-04) there is
+no other path. It was an opt-in `&mesh` until the mesh flip (no player reached
+through `ui/menu.ts` ever saw a mesh: that file builds `?mission=<id>` and
+never appended the flag), then the default with a `&nomesh` billboard escape
+hatch; both flags are now accepted and do nothing, so old bookmarks and doc
+lines do not trip the unknown-parameter warning. `tools/src/mesh_roster.test.ts`
+holds the precondition from the files on disk: every unit id has a GLB (and
+civilians their four), every vehicle GLB carries `idle` and `wreck`, every team
+`down` or `wreck`, every structure type a building and a `_wreck` GLB. A GLB
+that fails to load at runtime draws a team-coloured proxy box with a
+`console.error` naming it (`units/proxy-box.ts`) and a HUD note; a deferred KDF
+buildable draws nothing until its GLB lands, and its dock tile says
+"deploying" (the lead's ruling at A3.3, rather than loading every buildable
+before deploy).
 
-~~The whole set costs **34 GLB fetches, 25.3 MiB**, loaded unconditionally at
-boot rather than per mission roster~~ — **stale on both counts since
-2026-09-07.** Meshes have been roster-driven for a while (`mesh-catalogue.ts`,
-`missionUnitTypes`: the types a mission can field, the buildings its map
-stands, the decor families its tiles use; KDF buildables deferred past deploy
-on a `resources` mission), and as of 2026-09-07 so are the sprite sheets
-(`spriteSheetPlan`: on the mesh path a sheet loads before deploy only for a
-fielded type with no GLB; a mesh vehicle's wreck sprite and a deferred
-buildable's fallback load after the first frame). **Measure, don't recite:**
-`pnpm perf:load -- --mission=<id> --serve=preview` prints what one level
-fetches and when. The first reading (beit_sahwan_1_recon, production build,
-cold, localhost) was 3,736 requests / 114.8 MiB, of which 3,665 requests /
-61 MiB were sprite sheets for types the mesh path draws as models; after
-steps 1-2 of `docs/superpowers/specs/2026-09-07-level-load-time-design.md`
-it is ~170 requests and the GLBs are what remain. That document ranks what
-is left (wreck meshes after the first frame, Draco, a service worker for
-Pages' `max-age=600`, the first-frame gap). Pipeline: `tools/units/kit.py` (geometry)
+Meshes are roster-driven (`mesh-catalogue.ts`, `missionUnitTypes`: the types a
+mission can field, the buildings its map stands, the decor families its tiles
+use; KDF buildables deferred past deploy on a `resources` mission).
+**Measure, don't recite:** `pnpm perf:load -- --mission=<id> --serve=preview
+--tail=5000` prints what one level fetches and when (`--tail` keeps counting
+after first-frame, where the late loads land; the harness stalled on every
+mesh-only boot until A3.3 fixed its 'meshes only' match). The first reading
+(beit_sahwan_1_recon, production build, cold, localhost) was 3,736 requests /
+114.8 MiB, 3,665 / 61 MiB of it sprite sheets for types the mesh path draws as
+models; steps 1-2 of `docs/superpowers/specs/2026-09-07-level-load-time-design.md`
+cut it to ~170. The sheets that still loaded after the first frame (mesh
+vehicles' wreck sprites) went with the retirement: see `docs/PERFORMANCE.md`,
+"Retiring the sprite sheets", for before and after on three missions. That
+spec ranks what is left (wreck meshes after the first frame, Draco, a service
+worker for Pages' `max-age=600`, the first-frame gap). Pipeline: `tools/units/kit.py` (geometry)
 → `tools/units/rig.py` (armature + clips, authored as Python tables) →
-`tools/export_mesh_team.py` → `art/meshes/<team_id>.glb` → **`pnpm gait:meshes`**
-→ **`pnpm encode:meshes`** → `assets/meshes/` → `three/units/mesh-*.ts`.
-**Both post-export passes are mandatory and their order is load-bearing** — the
-gait pass writes into `art/meshes/`, the encoder mirrors it into `assets/meshes/`,
-and running them the other way round ships a stale stride. Same shape, and the
-same rule, as `pnpm wreck:meshes` for vehicles.
+`tools/export_mesh_team.py` → `art/meshes/<team_id>.glb` → **`pnpm motion:meshes`**
+→ **`pnpm gait:meshes`** → **`pnpm encode:meshes`** → `assets/meshes/` →
+`three/units/mesh-*.ts`.
+**All three post-export passes are mandatory and their order is load-bearing** — the
+motion pass re-times the legs the gait pass then measures, the gait pass writes
+into `art/meshes/`, the encoder mirrors it into `assets/meshes/`, and any other
+order ships a stale stride. Same shape, and the same rule, as `pnpm wreck:meshes`
+for vehicles.
+
+- **The motion pass (5 Oct) owns how infantry hold, kneel, stand and step**
+  (`tools/src/meshes/motion/`, contract v5). Four things a later change will get
+  wrong. **It refuses a file it has already been through** (`extras.rl_motion`):
+  it rebinds vertices and warps tracks, so a re-run starts from the pre-pass
+  bytes -- `--from=<rev>`, the rev recorded in `rl_motion.base`. The 8k Meshy
+  sources most teams were cut from are not in the repo, which is why this is a
+  GLB pass and not Blender work. **`rl_gait.strideM` is the PLANTED ground per
+  cycle now, not a boot's peak-to-peak travel** -- the old reading played every
+  walker's legs 1.8-2.9x too fast for their stride (feet treadmilling backwards
+  at 0.8-1.95x body speed, 3.2-5.0 steps/s; charge_squad 7.9). The gate is the
+  foot-skate oracle (`measureFootSkate`, a planted foot under 0.25 of body
+  speed) plus a human-cadence band, not the multiplier. **A shooter's weapon
+  rides `{prefix}_weapon`, not `forearm_R`**, and both arms are IK'd onto it;
+  the shooting side is the anatomical RIGHT (rig.py's `_L` bones -- the B7
+  retarget had mirrored every shooter onto his left shoulder). **The tubes keep
+  the importer's carry in `idle`/`move`**; the hold only aims them. The runtime
+  half: a team marked `squad` draws each figure on its own clip player walking
+  its own path to its slot (`units/squad-rig.ts`), the kneel is read through
+  `stanceOf(i)` (`units/stance.ts`, #402's `brace`/`braceTicks`,
+  feature-detected), and recoil is a spine kick after the mixer, one figure
+  per shot. Gates: `mesh_hold.test.ts` (hands on the weapon, eye on the bore)
+  and `mesh_gait.test.ts`.
+- **Nothing a living team draws is under the ground** (ground-fix and
+  ground-debt, 6 Oct; `motion/ground.ts`, `motion/carry.ts`). Every rigged
+  team is marked `ground` in `MOTION_TEAMS` (22; `sniper_team` and `moto_rpg`
+  are in the pass for this alone), and in idle, fire, move and moveFire: a
+  standing figure buried at REST is seated first, rigidly (charge_squad, whose
+  baked sprint lean put its toes 26 mm in); a foot under 1 mm is planted at it
+  by leg IK and the leg re-keyed at 120 fps PLUS every key the clip already had
+  (a coarser root bends at its own keys), and any midpoint between two keys
+  that still reads under is keyed too (a sprinter's foot sags 1.2 mm between
+  120 fps keys); a figure with no ankle (every crew kneeling at its weapon) is
+  raised frame by frame; a `prop` is seated, vertices, rest, keys and bind
+  together; a turning wheel keeps its axle a radius plus 1 mm up while the
+  bike bobs on it. Every grounded walker gets `feet.ts`'s ankle. The civilians
+  are the one SMOOTH-skinned rig here, and are read through every weight
+  (`restSkinnedVertices`) -- by the dominant joint alone they read 1.4-8.4 mm
+  under after planting. Two carries: yah_a's sensor mast 20 degrees tip-up,
+  and brc_point's shield (worn on his spine, 148 mm into the ground in the
+  run) on a bone of its own, lifted 183 mm up the torso in move and moveFire.
+  Two things to know. **Removing the walk's between-key dips moved the gait
+  pass's reading**: `rl_gait.strideM` dropped 1.2-3.0% on the teams and 1.5-4.2%
+  on the civilians (foot skate 0.026-0.070 after, ceiling 0.25; the sniper's
+  crawl declares its boot travel and did not move), because the planted-speed
+  weight is relative to the clip's own lowest sole; 1 mm and not the kneel's 3
+  is what kept that smallest. And
+  **the census is tree-wide**: `mesh_gait.test.ts` reads every rigged file's
+  living clips, and what is under is recorded by number -- `BELOW_GROUND_DEBT`
+  (empty since ground-debt) or `BELOW_GROUND_BY_DESIGN` (digger_crew's spoil
+  heap, three spheres banked 60-139 mm into the ground so a mound shows).
 
 - **`kit.py`'s "No armature." rule is now partly overturned.** Of its three
   reasons, only "blocky is enough at 25 px" fell — beaten by the project lead
@@ -1441,15 +1523,13 @@ same rule, as `pnpm wreck:meshes` for vehicles.
   blocked on a "fleeing signal" the sim does not have — `move` IS the run, and
   six rigs were shipping an unbound `Running` clip beside the walk they
   played. Closed 2026-09-16 with no sim change at all.
-  **`cadenceScale` was NOT unread by three.js, and the claim that it was is
-  false.** `three/units/frame-state.ts` has always composed
-  `walkFps(anim.speed, n) * cadenceScale(anim)` for every BILLBOARD unit, and
-  `walkFps` is itself a rate match — so a billboard's legs have followed its
-  ground speed since long before this. What had never been rate-matched is the
-  MESH path. This is why the mesh side MULTIPLIES by cadence rather than
-  replacing it: a routed mesh rifleman and a routed billboard standing beside
-  him would otherwise disagree about how fast a broken man's legs move, in the
-  same frame, invisibly to every test.
+  **The mesh side MULTIPLIES by `cadenceScale` rather than replacing it.**
+  The retired billboard path composed `walkFps(anim.speed, n) *
+  cadenceScale(anim)` (`anim.ts`, `clip.ts`), so a routed mesh rifleman and a
+  routed billboard beside him agreed about how fast a broken man's legs move.
+  The billboards are gone (WP-A3.3); the multiplier stays, because it is what
+  a routed or pinned figure's legs should do, and `walkFps`/`cadenceScale`
+  still live in `anim.ts`/`clip.ts`, not in the trimmed `frame-state.ts`.
   **The clamp is a backstop and a clamp doing real work is a defect to
   report.** Reachable range on shipped art is **0.914x–2.645x**
   (`sniper_team` lowest, `yahalom_squad` highest), bounded from the sim rather
@@ -1470,6 +1550,22 @@ same rule, as `pnpm wreck:meshes` for vehicles.
   0.823–0.985 across the seventeen declarations and is rig-dependent, so no
   constant downstream could have corrected it. Fixing it moved every
   declaration down by 1.47%–17.70%.
+- **Every armed walker ships a `moveFire`, and three teams play captured
+  motion again** (2026-10-05, the B7 regression). B7 replaced the three
+  motion-captured Meshy bipeds with rig.py figures and the only two `moveFire`
+  clips went with them, so every unit that fired on the move played `fire` and
+  slid. `rig.build_move_fire_clip` is `move`'s legs from the same gait dict
+  under `fire`'s arms (held against the lean), and `tools/units/mocap.py`
+  retargets the captured clips -- extracted once by `extract_mocap.py` from
+  `e31ebdf3` into `art/mocap/*.json` -- onto `inf_squad`, `sarim_rifles` and
+  `yahalom_squad`'s rig.py bones: world-rotation deltas, mirrored (the capture
+  is a right-handed shooter, every target holds its weapon on `forearm_R` at
+  +Y), feet planted on the capture's own contact frames, falls ending in their
+  own wreck. `mesh_gait.test.ts` gates both: a moving shot must resolve
+  (through the renderer's own chain) to a locomotion clip, and the captured
+  teams' torsos must move. `charge_squad` and `mortar_crew` got theirs from
+  `tools/src/meshes/move-fire-splice.ts`, not a re-export: their importer has
+  moved on since B4 and a re-export changes their geometry.
 - **`tools/src/mesh_gait.test.ts` is the gait and facing gate, and it is
   tree-wide.** It measured `mortar_team` ALONE until 2026-09-16 — the one file
   GH-145 was raised against — which is how fourteen sliding rigs shipped
@@ -1578,6 +1674,62 @@ same rule, as `pnpm wreck:meshes` for vehicles.
   (`apc_eitan`, `apc_kipod`, `dozer_d9`, `scout_shachaf`) carry no UVs on it
   at all, and the seven that do share the hull's own material, so scrolling it
   would scroll the whole vehicle. Nothing in WP-A1.3 delivered that half.
+- **A mesh VEHICLE wears its bought kit since plan 3 (GH-238, 2026-10-07), in
+  the garage and on the field.** Spec `2026-10-06-kitted-vehicles.md`, contract
+  v5 (vehicles) in `2026-08-28-mesh-unit-contract.md`. Each of the eight KDF
+  vehicles carries every part of its three tracks as `kit_<track>_<tier>_<host>`
+  nodes in its ONE GLB (`rl_kit` extras, the host's parent, local TRS, material
+  and attribute set). The source is `art/parts/kit/<id>.glb`, Blender-built by
+  `tools/vehicles/export_vehicle_kit.py` (0 Meshy credits, UV-pinned to the
+  vehicle's existing bake). **Pipeline, order load-bearing:** export ->
+  `pnpm kit:meshes` (a gltf-transform graft: every live accessor stays
+  byte-identical) -> `pnpm wreck:meshes` (never twins, measures or clips a
+  `kit_*`) -> `pnpm encode:meshes`. `applyVehicleKit` (`units/vehicle-kit.ts`)
+  runs first in `buildVehicleMeshTemplate`: it keeps the parts whose tier is at
+  most the type's bought tier, merges them into the host geometry HOST FIRST,
+  swaps that onto every mesh over the old one (the `WRECK_` twin too), and
+  deletes every `kit_*` node. The tiers are `RendererOptions.unitKitTiers`,
+  from `upgradePrepass`'s own per-type tiers object; tiers absent or 0 is the
+  shipped template, so the existing golden scenarios cannot move. The `kit`
+  debug layer is `setDrawRange(0, rlKitBaseCount)`, which is why host-first is
+  not a taste.
+  **+0 draw calls**: `tools/src/perf/kit-drawcalls.ts` reads 12 submissions per
+  vehicle (6 for the D9) at tiers 0 and at tiers 3, through the shipped builder
+  with `renderer.info` reset BY HAND, because three r170 resets it after the
+  shadow pass and a main-pass-only reading looks half as expensive.
+  **The exporter refuses** a part over 1.10x its budget, a part off its mock by
+  more than 3 cm or 10% (a named, printed DEVIATION is the only excuse), more
+  than 5,000 kit triangles, and any clash or containment (`kit_clash.py`: kit
+  x kit at rest, turret kit x hull kit and x the shipped nodes over 72
+  headings, kit x its own host). An exemption is named, scoped to headings and
+  given a reason, and one that excuses nothing is itself refused.
+  **`validate:meshes` judges kit two ways**: from the bytes (name, host, TRS,
+  material, one primitive, declared track and tier, <= 5,000 triangles) with
+  `check_kit_owed` requiring a node for EVERY (track, tier) a vehicle's JSON
+  declares (`KIT_VEHICLES` is parsed out of `kit-contract.ts`, so the kit pass,
+  the draw-call harness and the gate share one list); and from renders, the
+  maximum kit plus each track alone at 1-3 and L1-L3 (nine for the D9) through
+  the shipped render's own Cycles, every one held under IoU 0.88 against every
+  other unit and not against its own base. **Tone** (K3): armour takes the
+  shade paint texel (25th-percentile luminance of `hull_hull`), sensors and
+  firepower the bake's metal texel, `dark` only lenses, windows and apertures.
+  Five bakes (Namer, Eitan, Kipod, Shachaf, D9) carry no steel (a uniform
+  metallic map, no textured `*_metal` node), so "the third metal rule" takes
+  the greyest paint instead and prints a DEVIATION line. Shipped kit triangles at maximum kit: Lavi 4,740,
+  Namer 3,282, Eitan 3,266, Kipod 3,222, jeep 2,264, D9 2,758, Shachaf 1,906,
+  Peten 1,434. The `kitted` golden scenario (`vehicle` + `&kit`, gated, `units`
+  and `kit` toggles) has NO baseline: **CI's `visual` job is red (exit 1, a
+  missing entry in an existing manifest) until the post-merge bless, from CI
+  numbers; do not bless from the branch.** `pnpm kit:capture` photographs the
+  eight at L0-L3 through the real prepass and measures the toggle.
+  The garage's `GarageView.setKit` re-merges from a pristine clone (no fetch),
+  draws the new hull and only THEN releases the old, fitted on the maximum kit
+  so a purchase never resizes the frame; `cueFor` returns `'kit'`
+  (`ui_kit_fitted`) for the eight, in the same task. **Open, not fixed:** the
+  slat cages moire at zoom 1; the Peten's kit does not read at zoom 1 (K5, the
+  rotor hides it; it reads from 2.5); and the metal-versus-paint contrast is
+  weak on the third-rule bakes (the Namer's metal texel is 0.055 off its
+  target), so those kits read by shape more than by tone.
 - **A building's FACING is gated now** (GH-142, `tools/building_facing.py`,
   inside `pnpm validate:meshes`). A building never turns — `mesh-building.ts`
   leaves rotation at identity — so whichever elevation an export bakes toward
@@ -1610,17 +1762,15 @@ same rule, as `pnpm wreck:meshes` for vehicles.
   material). Adding one to `apartment` would therefore buy zero colour and
   would mean re-exporting a supplied Meshy asset purely so a gate can read it,
   against the lead's "used as is". The gap is recorded instead.
-- **Mesh units are outside `validate:assets`** — no PNG, so no palette or IoU
-  gate runs on them at all. Phase G is meant to fix that and has not.
-- **`kit.py` changed without the sprite sheets being re-rendered**, so
-  billboards and meshes can disagree until that debt is paid.
 - **Mesh units ARE gated now** -- `pnpm validate:meshes` (`tools/render_mesh_gate
   .py` + `validate_mesh_assets.py`) renders every `art/meshes/**/*.glb`
   headlessly through `render_rig.py`'s own rig and runs
   `validate_assets.py`'s IMPORTED palette/silhouette/fill checks. Silhouette IoU
-  compares each mesh against every other mesh and every other unit's sprite,
-  EXCLUDING its own retired sprite -- a mesh is supposed to look like the unit it
-  replaces. **It is in CI** (`8304f6b`, ci.yml's `gates` job), and CI really can
+  compares each mesh against every other mesh -- and only that since WP-A3.3: the
+  mesh-vs-sprite half and its "own retired sprite" exclusion went with the
+  sheets. It is the ONLY art gate now: `validate:assets` walked `assets/sprites/`
+  alone and was retired rather than left printing PASS over nothing, and its
+  terrain-exemption paragraph prints here. **It is in CI** (`8304f6b`, ci.yml's `gates` job), and CI really can
   run headless Blender: the workflow downloads Blender 5.2.0 linux-x64 from
   download.blender.org and that URL is live (HTTP 200, verified 2026-09-01) --
   this is a real gate, not a green-looking no-op. Current state measured
@@ -1628,9 +1778,9 @@ same rule, as `pnpm wreck:meshes` for vehicles.
   **passes in roughly 45-70s on this machine, not 31.69s** (Task 3's own
   report read 70.0s, its reviewer 45.7s, the final branch reviewer ~70s —
   Cycles render time varies run to run; the gate logic did not slow down),
-  "46 mesh unit(s) rendered and checked against
-  36 sprite unit(s); 21 decor mesh(es) checked against the mesh contract
-  directly" -- the "29/29" this line used to carry is long stale. Locally it
+  "87 mesh unit(s) rendered and checked against each other; 28 decor, 12 prop
+  and 1 campaign world checked against the mesh contract directly" at WP-A3.3
+  -- measure rather than recite. Locally it
   needs Blender on PATH or `--blender`/`BLENDER_BIN` (a macOS `Blender.app` is
   found by the default candidate list); with none it fails loudly rather than
   skipping. Two traps when running it in a **shared worktree**: it walks
@@ -1640,67 +1790,46 @@ same rule, as `pnpm wreck:meshes` for vehicles.
   `silhouette collision: digger_crew (mesh) vs zz_throwaway (mesh) IoU=1.000
   (limit 0.88)`); and there is no `--meshes` flag to point it elsewhere, so
   `git status art/meshes/` is the first thing to check when it goes red.
-- **Art existing is not art drawing.** `packages/app/src/main.ts`'s
-  `SPRITE_MAP` is what queues a sheet for loading, and a unit type absent from
-  it never loads anything. Three complete, gate-passing sheets shipped and drew
-  NOTHING because of this. No gate catches it. Check `SPRITE_MAP` when adding a
-  unit. A unit's UI picture -- the HUD chip and card, the reinforcements dock
-  tile, the brigade row -- is a separate asset again: `assets/ui/icons/units/
-  <SHEET>.png`, cropped from the sheet's own portrait frame (turret composited
-  in) by `pnpm icons:units`. A re-rendered sheet needs a re-crop, and
-  `tools/src/unit_icons.test.ts` plus CI's `crop_unit_icons.py --check` fail
-  loudly if it was forgotten.
-- **`render_team.py --probe` used to overwrite shipped sprites** with
-  unquantized renders (~10% of pixels, file sizes doubling) -- the PNG half of
-  the same defect `229aad5` fixed for manifests. Fixed: probe output goes to
-  `.superpowers/probe/`. If you touch that path, re-prove `git status` stays
-  clean after a probe run.
-- **The elevation debts above were finally walked on `tel_marum` (2026-08-29)
-  and four of the five are not what the bullet implies.** Extruded terrain
-  fails to occlude units IDENTICALLY in both backends (neither does volumetric
-  occlusion); mid-slope picking works in both; the wreck/fx sorting gap
-  produced no visible artifact even staged at the map's steepest 4-level drop;
-  and `raySmoke` is shared sim code that cannot diverge by backend. The one
-  real divergence runs the OTHER way: Pixi's tracers and puffs ignore
-  elevation (`renderer.ts:2599`, a flat `isoY(...)-4`) while three's
-  `TracerBatch` lifts by the higher endpoint's ground height. Three is
-  correct there and Pixi is not.
-- **A unit spawned mid-mission draws correctly on three and not on Pixi.**
-  Every mid-mission spawn (a build, a reinforcement, a trigger, a wave) happens
-  inside `runtime.step`, after that tick's `renderer.snapshot()`, so until the
-  next snapshot its id is inside `sim.entityCount` with both position copies at
-  zero. Three seeds a newcomer in `snapshot()` (`prev = cur`, speed 0) and
-  bounds every per-frame loop by the count it last snapshotted, so the unit
-  appears where the next snapshot finds it, up to one tick late, and never
-  slides (`4d6d2ede`). Pixi still runs the old code (`renderer.ts`'s
-  `snapshot()` seeds no newcomer and its frame loops walk the live
-  `sim.entityCount`), so it still draws the unit at world (0,0) for that tick
-  and lerps it in from there. Measured on three before `4d6d2ede`, the same
-  code Pixi still runs: on `wadi_halam_2_laager` a bought jeep drew at (0,0),
-  then halfway across the map at 483.7 tiles/s. `renderer.ts` was left alone
-  because its one-method unfreeze (`reseed`, `8c638f1d`) is reserved for edits
-  the compiler forces.
-- **A renderer choice persists per ORIGIN, not per tab** (`renderer-choice.ts`,
-  `localStorage['lions.renderer']`). Two tabs open on the same origin fight
-  over it -- observed live. Harmless between agents; a real hazard for a player
-  with two tabs.
+- **The sprite renderers stay, and refuse to write sheets.** `render_team.py`,
+  `render_vehicle.py`, `render_building.py`, `render_vehicle_glb.py` and the
+  `render_<unit>.py` specs on top of them are imported by the mesh gate and
+  several exporters (palette tables, rig helpers), so they were kept when the
+  sheets went (WP-A3.3) -- but every place they wrote into `assets/sprites/`
+  calls `tools/sprites_retired.py`'s `refuse_sprite_output` first. `--probe`
+  output (`.superpowers/probe/`) is still allowed. A UI picture of a unit is its
+  Blender portrait (`tools/render_unit_portraits.py`); the cropped sheet icons
+  (`pnpm icons:units`) and the `SPRITE_MAP` table that queued sheets -- whose
+  "art exists but draws nothing" failure shipped three times -- are gone.
+- **The elevation debts were walked on `tel_marum` (2026-08-29)** and none
+  survives on three: extruded terrain occludes units through the depth
+  buffer, mid-slope picking works, the wreck/fx sorting gap produced no
+  artifact even at the steepest 4-level drop, `raySmoke` is shared sim code,
+  and three's `TracerBatch` lifts by the higher endpoint's ground height. (The
+  divergences recorded then were all Pixi's, and went with it in WP-A3.3.)
+- **A unit spawned mid-mission is seeded in `snapshot()`** (`prev = cur`,
+  speed 0, `4d6d2ede`): every mid-mission spawn happens inside `runtime.step`,
+  after that tick's snapshot, so until the next one its id is inside
+  `sim.entityCount` with both position copies at zero. Every per-frame loop --
+  the proxy boxes included -- is bounded by the count last snapshotted, so the
+  unit appears up to one tick late and never slides in from world (0,0).
+  Measured before the fix: on `wadi_halam_2_laager` a bought jeep drew at
+  (0,0), then halfway across the map at 483.7 tiles/s.
+  (`ThreeRenderer.midspawn.test.ts`.)
 
 ### The campaign board
 
 `?campaign` draws `art/meshes/campaign/sahar_basin.glb` as a rotating 3D diorama
 on `three` (`packages/render/src/three/campaign/`, reached from `app` by a
 DYNAMIC import of `@lions/render/three-campaign` -- named in eslint's bundle
-rule like the other four doors). **The flat PNG board is not a fallback that
-happens to still exist: it IS the Pixi path**, and `worldmap.ts` /
-`worldmap.test.ts` / `data/campaign/world.json` are unchanged. Forcing three
-for this one screen was rejected because the renderer choice persists per
-ORIGIN and survives every link `menu.ts` builds, so it would load a second
-backend behind a deliberate `?renderer=pixi` -- the hatch someone reaches for
-when three has failed them -- and hand them back to Pixi for the mission.
-Three more paths land on the flat board, each warning by name: no WebGL2
-(probed with a throwaway canvas BEFORE the dynamic import, so a browser that
-cannot draw it never downloads 609 kB of three), a GLB that will not load, and
-a scene graph that fails the campaign contract.
+rule like the other four doors). **The flat PNG board is the FALLBACK**, for
+three named causes, each warning by name: no WebGL2 (probed with a throwaway
+canvas BEFORE the dynamic import, so a browser that cannot draw it never
+downloads 609 kB of three), a GLB that will not load, and a scene graph that
+fails the campaign contract -- plus a world with no diorama GLB at all.
+`worldmap.ts` and `data/campaign/world.json` are unchanged. Until WP-A3.3 the
+flat board was ALSO the whole of the Pixi path, which is why a renderer choice
+used to decide it; that choice is gone (`?renderer=` is ignored, and a stale
+`localStorage['lions.renderer']` is removed at boot, `retired-keys.ts`).
 
 Six things about it are counter-intuitive and each was measured.
 **The camera does not move; the BOARD turns**, under `camera.ts`'s own
@@ -1728,14 +1857,14 @@ hillside draw contour terraces that are not in the source.
 mission renderer antialiases too (SMAA in the composer, plus the raw
 renderer's own MSAA for the composer-less path). Its silhouette is a rotating
 hex rim, the worst place aliasing could land.
-**This screen did NOT move onto the lit pipeline, and that is the spec's own
-scope call** (§9): `world-view.ts` still sets `outputColorSpace =
-LinearSRGBColorSpace` by hand and `world-material.ts` still tags its bake
-`NoColorSpace`, so the diorama is pass-through where the mission is sRGB +
-ACES. Nothing shares a light between them yet. Moving it onto `lighting.ts`'s
-sun is the named one-file follow-up; until someone does it, expect the board
-to read slightly differently from the same assets in a mission, and do not
-"fix" one of the two colour spaces in isolation.
+**The board is on the lit pipeline since 2026-10-01 (S3a, GH-180, PR #332).**
+It renders sRGB with ACES tone mapping at exposure 1.0, lit by `lighting.ts`'s
+own `DAY_LIGHTS` sun and hemisphere with a 2048 shadow map fitted to the board,
+so it reads like the same assets in a mission. The lights sit in the scene
+OUTSIDE the board's pivot, so the light stays fixed in world space while the
+board turns -- the same rule `uLightDir` used to enforce by hand. Kept: the
+transparent canvas, antialiasing, the region tints, the drained
+`outland_scenery`, the fixed camera and every flat-PNG fallback path.
 
 A click on locked ground **says why**, into an `aria-live` line. That is not
 polish: the ground is one canvas, so a click that resolved to nothing and
@@ -1754,11 +1883,12 @@ Two traps found while building it, neither specific to this screen.
 `.superpowers/**` are ignored now, alongside `**/dist/**`.
 **`window.localStorage` in this vitest jsdom config is a bare `{}`** -- no
 `getItem`, no `setItem`, no `length`. Any UI code reaching it must guard
-(`readStoredRenderer` in `renderer-choice.ts` does, which is also right for a
-real browser with site data blocked, where the property access itself
-throws). And it makes `worldmap.test.ts`'s "does not write to localStorage"
-test **unable to fail**: it compares `window.localStorage.length` before and
-after, and both are `undefined`.
+(`retired-keys.ts`'s `forgetRetiredKeys` does, which is also right for a real
+browser with site data blocked, where the property access itself throws). It
+made `worldmap.test.ts`'s "does not write to localStorage" test **unable to
+fail** -- it compared `window.localStorage.length` before and after, both
+`undefined` -- until WP-A3.3 gave it a Map-backed store that counts writes
+(falsified: a `setItem` in `worldMap()` turns it red).
 
 ### The scene host
 
@@ -1797,15 +1927,15 @@ the visual gate freezes the frame loop inside its own `async` IIFE
 (`FREEZE_FRAME_LOOP_STATEMENTS`, not the `_SCRIPT` variant, which reads
 `__lions.sim.tickCount`) rather than its usual one-liner.
 
-**Pixi and reduced motion both get the plate**, never a held live frame:
-Pixi because it is the hatch a player already reached for when three failed
-them, reduced motion because the plate already IS a held frame of the same
-diorama. **Reduced motion gates parallax off on its own, whatever the path**
-(`ui/scene-host.ts`: `decided.path !== 'off' && !reduced`). Keying it on the
-plate's `reason` let Pixi + reduced motion slide, because that visit reads
-reason `pixi`, not `reduced-motion` -- the defect `36f74025` closed (D-54).
-**Pixi at default motion slides the plate by design** (spec §3.5); do not
-"fix" it static.
+**Reduced motion, save-data, no WebGL2 and every failure get the plate**,
+never a held live frame: reduced motion because the plate already IS a held
+frame of the same diorama. **Reduced motion gates parallax off on its own,
+whatever the path** (`ui/scene-host.ts`: `decided.path !== 'off' && !reduced`)
+-- D-54's rule. It was written for Pixi + reduced motion, which read plate
+reason `pixi` and slid (`36f74025`); the `pixi` reason went with the backend
+(WP-A3.3), so reduced motion now outranks every other mount-time reason, but
+parallax still keys off the preference, never the reason, and a plate held for
+save-data or a failure at default motion still slides by design (spec §3.5).
 
 **`pnpm plate:host`** (`tools/src/perf/host-plate-capture.ts`)
 re-photographs `assets/ui/menu_host_plate.jpg` after any edit to
@@ -1850,16 +1980,27 @@ the paragraph above, ~:306) -- nothing new here.
   consequence nobody asked for is arithmetic: a mission's survivors include units that
   were never in the pool -- every `starting_force` placement without `from_ledger` spawns
   fresh, and whatever lives writes a NEW entry -- so the pool APPENDS rather than
-  replaces, and replaying a mission appends again. Measured in `pnpm playtest`: the Beit
+  replaces, and a replay appended again until roster rule R-2 (below). Measured in
+  `pnpm playtest`: the Beit
   Sahwan chain's final roster went **10 -> 23** and Umm Zeitoun's **12 -> 26** (re-measured
   2026-09-11: 23 and 26 stand, with `beit_sahwan_1_recon` already at 17). Nothing in the
-  sim scans the roster per tick, so this is not a tick cost -- it is a SAVE that grows
+  sim scans the roster per tick, so this is not a tick cost -- it is a SAVE that grew
   without bound and a deploy panel that would have named a force three times the size of
   the one on the map. The panel is fixed (`broughtFor` scopes to this mission's own
-  `from_ledger` draws and prints the rest as one `N in reserve` line); the roster itself
-  is not capped, deliberately. **Whether the roster or the reserve gets a cap, and what
-  falls off it, is a step-3 decision** -- a cap is a game rule (which veteran do you
-  lose?) and picking one here would have been a balance change smuggled in as a bugfix.
+  `from_ledger` draws and prints the rest as one `N in reserve` line). **The roster is
+  capped now, and a replay no longer appends -- both in the APP's victory write
+  (`applyRosterCarryover`, `packages/app/src/roster-carryover.ts`), not in `checkEnd`,
+  which still only appends the unfielded pool as described above.** `ROSTER_CAP = 150`
+  (WP-G-E2, `roster-cap.ts`, about 5x the ladder maximum `pnpm playtest` measures) stands
+  the overflow down to `roster.reserve` in a fixed order (veterancy, then `missions`,
+  then `kills`, newest place first) and deletes nothing. Roster rule R-2 (the lead, 7 Oct
+  2026, GH-417; `isReplayed`): every fresh body is stamped `enlisted` with the mission
+  that brought it home, and winning that mission again replaces the earlier bodies it
+  enlisted that were not fielded this time and have served nowhere else
+  (`missions <= 1`), in the roster and in `roster.reserve`. A veteran who fought in
+  another mission stays, as does anything another mission enlisted; a defeat writes
+  nothing, so it replaces nothing. A save from before R-2 carries no `enlisted` stamp,
+  so its earlier duplicates stay until they fall or the cap stands them down.
 - Detection is O(N²) pairs per tick. **The "~150 units" figure this line used to
   carry was a guess and it was wrong by an order of magnitude** — measured
   2026-08-30 (`docs/PERFORMANCE.md`, "Sim tick cost"), the 300-unit GDD target
@@ -1904,10 +2045,11 @@ the paragraph above, ~:306) -- nothing new here.
   note, recorded in the doc as a worked example of "state capture conditions
   with every number"), reproduced across two runs: the render budget is
   crossed around **~1,150 figures**, not lower than 420-460 — the original
-  figure holds, with more margin than previously recorded, not less. The
-  billboard-vs-real-shipped-mesh comparison (a quarter of a mixed 400-unit
-  roster swapped from billboard to real `art/meshes/` GLBs) adds at most
-  ~1ms of p95 frame time at 320 living units, nowhere near either budget.
+  figure holds, with more margin than previously recorded, not less. (That
+  run's billboard-vs-mesh comparison -- a quarter of a mixed roster swapped to
+  meshes, +~1 ms p95 at 320 -- is history: since WP-A3.3 the harness loads
+  every roster type's GLB, and that all-mesh curve read render p95 30.0 ms at
+  266 living / 39.7 ms at 320 on ANGLE/Metal M3 Pro, `docs/PERFORMANCE.md`.)
 - **The flow-field pool is bounded, since 2026-09-15** (group formations,
   `MAX_FLOW_FIELDS = 128`, `sim.ts`): `fieldFor` reuses the least-recently-issued
   field no living unit still follows once the pool is full, with a same-tick
@@ -1940,7 +2082,7 @@ the paragraph above, ~:306) -- nothing new here.
   per-figure `{prefix}_death_root`, and every clip keys both roots' scale (1/0
   living, 0/1 dead). All sixteen infantry team GLBs now carry `down` and `wreck`
   (`moto_rpg` carries `wreck` only — a motorcycle cannot go prone;
-  `yahalom_engineer` also carries `work`), civilians carry `down`, and
+  `yahalom_squad` also carries `work`, built by rig.py since B7), civilians carry `down`, and
   `units/mesh-death.ts` plays them: 0.4 s fade, then a persistent `MeshWreck`.
   **Since 2026-09-17 that is the exception, not the rule** (design
   `2026-09-17-infantry-animation-design.md`): the three Meshy bipeds carry
@@ -1953,11 +2095,9 @@ the paragraph above, ~:306) -- nothing new here.
   Verified 2026-09-01 both from the shipped bytes and on screen — a killed
   `inf_squad` on `?sandbox=beit_sahwan_outskirts` leaves three prone figures beside
   a standing squad.
-  **A mesh VEHICLE has one too, since 2026-09-15** — this entry used to say it had
-  none, and that a dying mesh vehicle showed three art styles in half a second
-  (3D mesh → a fading 2D sprite of the INTACT vehicle → the 2D `wreck` sprite, or
-  for `mbt_lavi` nothing at all, since `TNK_HULL`'s manifest declares no `clips`
-  key). What closes it is a PROCEDURAL wreck rather than authored geometry
+  **A mesh VEHICLE has one too, since 2026-09-15** (before it, a dying mesh
+  vehicle mixed a 2D sprite fade and a sprite wreck with its mesh -- both
+  retired with the billboards in WP-A3.3). What closes it is a PROCEDURAL wreck rather than authored geometry
   (`docs/superpowers/specs/2026-09-14-vehicle-wreck-design.md`): `pnpm
   wreck:meshes` (`tools/src/meshes/wreck-pass.ts`) post-processes each GLB with
   `@gltf-transform`, adding one `death_root` node whose `WRECK_<name>` children
@@ -1977,10 +2117,11 @@ the paragraph above, ~:306) -- nothing new here.
   `ScorchDecalMesh`). A mortar or Grad landing gets the same four minus the
   shroud (and a crater under its scorch), at
   `SHELL_PROFILES[kind].impactPower`. The vehicle-kill branch's outer
-  mesh-readiness guard was removed to do it, so the blast fires on `&nomesh` too
-  — with no shroud there, because there are no bounds to size one from.
+  mesh-readiness guard was removed to do it, so the blast fires for a vehicle
+  with no mesh loaded too -- with no shroud there, because there are no bounds
+  to size one from.
   **Three of those five shipped INERT on this branch, and the way that happened
-  is the `SPRITE_MAP` failure in a second place.**
+  is the (now retired) `SPRITE_MAP` failure in a second place.**
   `blastLightSpec`/`blastShake`/`blastHitStopMs` all resolve through
   `emitterLibrary.byName('catastrophic_kill')`, and
   `data/vfx/catastrophic_kill.json` was **never imported into
@@ -2017,10 +2158,11 @@ the paragraph above, ~:306) -- nothing new here.
   the Lavi photographed as an intact tank with the gun sticking out. Every group
   is then seated on the ground plane off real vertices, so nothing sinks and
   nothing floats.
-  **`addWreck` steps aside only for a type whose template carries the `wreck`
-  clip** (`ThreeRenderer`). Do NOT add `vehicleMeshTemplates` to that guard
-  unconditionally — that deletes the sprite wreck and leaves `&nomesh` and any
-  un-passed re-export with nothing, which is strictly worse than the old bug.
+  **A vehicle GLB without the `wreck` clip is refused at load** (WP-A3.3):
+  `loadVehicleMesh` throws naming the GLB and `pnpm wreck:meshes`, the type
+  draws a proxy box, and `mesh_roster.test.ts` keeps one from shipping. This
+  replaced the sprite-wreck fallback (`addWreck`) and the trap that came with
+  it -- there is no sprite wreck left to delete.
   **The runtime half is `units/mesh-vehicle-death.ts`**, a rigid sibling of
   `mesh-death.ts` rather than a generalisation of it, importing that module's fade
   curve, window, `MeshWreck` cap and fog rule unchanged. A vehicle wreck therefore
@@ -2183,28 +2325,18 @@ the paragraph above, ~:306) -- nothing new here.
   either way. Pinned by `packages/sim/src/smoke.test.ts` (`smoke and elevation`) and
   `tools/src/tel_marum_smoke.test.ts`, which also pins the map elevations it argues
   from — (24,26) reads as plain basin by eye and is two levels up.
-  **The other two were walked on 2026-09-01 and neither survives as written.** Both
-  were Pixi-era statements that stopped being true when three became the default,
-  and both now read as live bugs to anyone who trusts this file.
-  **"VFX are not lifted to terrain height", and the wreck/tracer sorting gap it
-  opened, are Pixi-only.** In `three` all four layers — trails, fx, fx-above and
-  wrecks — are already lifted to their own tile's ground height. The artifact was
-  staged deliberately at Tel Marum's steepest drop and behind its only building,
-  photographed reproducing blatantly in Pixi, and photographed drawing correctly in
-  three at the identical staging. Nothing was changed because there was nothing to
-  change. The Pixi half stays broken on purpose: `renderer.ts` is frozen, VFX owe it
-  no parity since 2026-08-30, and `renderer.ts:2599`'s flat `isoY(...)-4` is the
-  legacy path. The warning that a partial fix would be worse than none — `wreckLayer`
-  sprites (`addWreck`) carry no `zIndex` at all and would sort behind every band on
-  the map, not merely their own tile's — still applies to anyone who reaches for
-  Pixi, and is the reason not to.
+  **The other two were walked on 2026-09-01 and neither survives.** "VFX are
+  not lifted to terrain height" and its wreck/tracer sorting gap were Pixi-only:
+  in `three` trails, fx, fx-above and wrecks are all lifted to their own tile's
+  ground height, photographed correct at Tel Marum's steepest drop. (The Pixi
+  half went with that backend in WP-A3.3.)
   **"Extruded terrain cannot occlude units" is backwards for `three`.** It occludes
   them through the real depth buffer, decisively — up to 85% of an infantryman.
   More usefully: the occluded-unit silhouette (band 6) **already covers terrain,
   unmodified**. It fires on every terrain-occluded tile above its ~10% threshold and
   on none of the 126 unoccluded tiles sampled. There is nothing to extend, and a
   design that set out to extend it would be rebuilding something that works.
-  Picking mid-slope was separately measured working in both backends. E3's cut scope
+  Picking mid-slope was separately measured working. E3's cut scope
   is the only part of that original list still standing, and slope cost has since
   shipped (T1-A).
   **One real defect came out of that walk. It is fixed, and the fix is worth
@@ -2213,29 +2345,21 @@ the paragraph above, ~:306) -- nothing new here.
   — infantry taking cover in boulders became genuinely invisible, which is worse
   than the building case the feature was built for. The cause was the depth bias,
   as reported (draw order was tested and falsified). The bias, a constant 0.75
-  world units, had been sized for the FILL era's billboard artefact and never
-  resized: it is larger than the **0.612** of depth a single-axis neighbouring tile
+  world units, had been sized for the FILL era's (now retired) billboard
+  artefact and never resized: it is larger than the **0.612** of depth a single-axis neighbouring tile
   is worth, so it swallowed every occluder nearer than about a tile and a quarter —
   a boulder sharing a unit's own tile included. Across `tel_marum`'s 1550 open
   tiles, **ten** hid 25–73% of a rifleman and outlined none of it; all ten were in
   the boulder field.
-  **The two silhouette paths now carry different biases, deliberately.** The MESH
-  path's artefact is the outline ring, whose size is the outline's own width — a
-  fixed number of SCREEN pixels, so 7x wider in world units at zoom 0.35 than at
-  2.5. Its bias is therefore `2.5 x silhouetteOutlineWorldWidth(zoom)`, retuned per
-  frame; the multiple is 2 by derivation (this camera's 30-degree pitch means a ring
-  fragment `d` below the feet sits over ground `2d` nearer) plus a measured margin.
-  The BILLBOARD path's artefact is the ground-clipped QUAD, fixed in world units
-  because a sprite's world size does not change with zoom, so it keeps the 0.75
-  constant — applying the mesh number there was measured to grow 5–126 false pixels
-  at a rifleman's feet. Only the GLSL is shared. Nothing is lost by the split:
-  **`&nomesh` draws no decor at all**, so the boulder case cannot arise on it.
-  One pre-existing defect was found while proving that and is NOT fixed: on
-  `&nomesh` at the shipped 0.75, a billboard `mbt_lavi` on open flat ground already
-  draws 75–432 false silhouette pixels along its hull base, at every zoom.
-  Photographed. Clearing it needs ~1.1 world units, which would swallow real
-  occluders a tile and a half out — a worse trade, so it is recorded rather than
-  traded blind. See `.superpowers/queue/boulder-silhouette-report.md`.
+  **The mesh silhouette's bias is `2.5 x silhouetteOutlineWorldWidth(zoom)`,**
+  retuned per frame: the artefact it guards is the outline ring, a fixed number
+  of SCREEN pixels, so 7x wider in world units at zoom 0.35 than at 2.5; the
+  multiple is 2 by derivation (this camera's 30-degree pitch means a ring
+  fragment `d` below the feet sits over ground `2d` nearer) plus a measured
+  margin. The billboard path kept the 0.75 constant for its ground-clipped
+  quad, and drew 75-432 false px along a billboard Lavi's hull base on open
+  ground -- a recorded pre-existing defect retired with that path in WP-A3.3,
+  not fixed. See `.superpowers/queue/boulder-silhouette-report.md`.
 - Tel Marum's narrow saddle is **closed to armour and still the cheaper road on foot**, and
   what priced the armour half was terrain rather than fire. The corridor at x=10-11, y=12-17 is a boulder field (`b`) now, with a
   small scree apron on the valley floor at its mouth (x=9-12, y=18): open ground on foot, a

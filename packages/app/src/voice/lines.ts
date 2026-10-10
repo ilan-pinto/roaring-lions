@@ -19,9 +19,13 @@ export type CommonVerb = (typeof COMMON_VERBS)[number];
 
 /** Calls, not verbs (GH-262): reactions the director volunteers on its own
  *  reading of the world, never a rung `winningVerb` ranks for a gesture. */
-export const COMMON_CALLS = ['pinned'] as const;
+export const COMMON_CALLS = ['pinned', 'broken', 'immobilised', 'gunout'] as const;
 export type CommonCall = (typeof COMMON_CALLS)[number];
-export type LineTrigger = 'move' | 'attack' | 'death' | 'task' | 'ack' | CommonVerb | CommonCall;
+export type LineTrigger = 'move' | 'attack' | 'death' | 'task' | 'ack' | 'announce' | CommonVerb | CommonCall;
+
+/** `<lang>.common.<call>` (pass C2/C4, A1): a unit of ours reporting its own
+ *  state on the radio -- broken, immobilised, its gun knocked out. */
+export const callLineKey = (lang: string, call: CommonCall): string => `${lang}.common.${call}`;
 
 /** `<lang>.common.pinned` (GH-262 §2.4): the one key the pinned branch asks
  *  data/audio.json for, in every language. */
@@ -68,6 +72,11 @@ export function orderLineKey(lang: string, speaker: VoiceClass, verb: OrderVerb)
   }
 }
 
+/** `<lang>.common.announce_<event>` (GH-110): the line an announcement's
+ *  `audio` names once it is recorded. Not one of `allLineKeys`: the director
+ *  never asks for it, the announcement table does. */
+export const announceLineKey = (lang: string, event: string): string => `${lang}.common.announce_${event}`;
+
 export const deathLineKey = (lang: string, cls: VoiceClass): string => `${lang}.${cls}.death`;
 export const ackLineKey = (lang: string): string => `${lang}.common.ack`;
 
@@ -89,7 +98,7 @@ export function allLineKeys(langs: Iterable<string>): string[] {
     out.push(`${lang}.engineer.task`);
     for (const v of COMMON_VERBS) out.push(`${lang}.common.${v}`);
     out.push(`${lang}.common.ack`);
-    out.push(pinnedLineKey(lang));
+    for (const c of COMMON_CALLS) out.push(callLineKey(lang, c));
   }
   return out;
 }

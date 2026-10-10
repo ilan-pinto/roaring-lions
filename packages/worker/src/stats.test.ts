@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { openTestD1 } from './test-d1';
 import { handleIngest } from './ingest';
 import * as stats from './stats';
+import { tutorials } from '@lions/data';
+import { LEGACY_TUTORIAL_STEP_IDS, labelTutorialRows } from './tutorial-funnel';
 import type { Env, RateLimiter } from './d1';
 import { sessionCookieHeader, clearedSessionCookieHeader, signSession, SESSION_COOKIE } from './auth';
 
@@ -53,9 +55,56 @@ describe('stats queries', () => {
     expect(f.find((r) => r.mission === 'beit_sahwan_breach')).toMatchObject({ started: 2, won: 1 });
   });
 
-  it('tutorial funnel counts players reaching each step', async () => {
+  it('tutorial funnel: events with no id are the legacy 14-step funnel, labelled from the old list', async () => {
     const t = await stats.tutorialFunnel(await seeded(), all);
-    expect(t.slice(0, 2)).toEqual([{ step: 0, players: 2 }, { step: 1, players: 1 }]);
+    expect(t.slice(0, 2)).toEqual([
+      { step: 0, steps: 14, id: 'take_command', legacy: true, players: 2 },
+      { step: 1, steps: 14, id: 'move_by_bounds', legacy: true, players: 1 },
+    ]);
+  });
+
+  it('tutorial funnel: the nine beats are read off the event id and never merged with legacy rows', async () => {
+    const db = await seeded();
+    const env: Env = { DB: db, ASSETS: { fetch: async () => new Response('') } };
+    const beats = tutorials.beit_sahwan_0.steps.map((s) => s.id);
+    expect(beats).toHaveLength(9);
+    const events = beats.flatMap((beat, i) =>
+      // Player 3 reaches every beat, player 4 only the first two.
+      [3, 4].filter((p) => p === 3 || i < 2).map((p) => base(p, T0 + 10 + i, { type: 'tutorial_step', step: i, steps: 9, prevMs: 1000, id: beat }))
+    );
+    const res = await handleIngest(new Request('https://g.dev/api/events', { method: 'POST', body: JSON.stringify({ events }) }), env, T0);
+    expect(res.status).toBe(204);
+    const t = await stats.tutorialFunnel(db, all);
+    const current = t.filter((r) => !r.legacy);
+    expect(current.map((r) => r.id)).toEqual(beats);
+    expect(current.map((r) => r.players)).toEqual([2, 2, 1, 1, 1, 1, 1, 1, 1]);
+    // Legacy step 0 still counts its own two players, not four.
+    expect(t.find((r) => r.legacy && r.step === 0)?.players).toBe(2);
+    // Legacy rows sort after the current ones.
+    expect(t.findIndex((r) => r.legacy)).toBe(9);
+  });
+
+  it('tutorial funnel: one index under two ids (a reordered list) stays two rows', async () => {
+    const db = await seeded();
+    const env: Env = { DB: db, ASSETS: { fetch: async () => new Response('') } };
+    const events = [
+      base(5, T0 + 20, { type: 'tutorial_step', step: 0, steps: 14, prevMs: 0, id: 'look_around' }),
+      base(6, T0 + 21, { type: 'tutorial_step', step: 0, steps: 14, prevMs: 0, id: 'something_else' }),
+    ];
+    await handleIngest(new Request('https://g.dev/api/events', { method: 'POST', body: JSON.stringify({ events }) }), env, T0);
+    const t = await stats.tutorialFunnel(db, all);
+    expect(t.filter((r) => r.step === 0).map((r) => [r.id, r.legacy, r.players]).sort()).toEqual([
+      ['look_around', false, 1],
+      ['something_else', false, 1],
+      ['take_command', true, 2],
+    ]);
+  });
+
+  it('the legacy id list has one entry per old step, and none of the cut ids is a current beat', () => {
+    expect(LEGACY_TUTORIAL_STEP_IDS).toHaveLength(14);
+    expect(labelTutorialRows([{ id: null, step: 2, steps: 14, players: 1 }])[0]?.id).toBe('move_as_one');
+    // A legacy row of an unknown length is kept, unlabelled, rather than mislabelled.
+    expect(labelTutorialRows([{ id: null, step: 2, steps: 11, players: 1 }])[0]).toMatchObject({ id: null, legacy: true });
   });
 
   it('per-mission table reports win rate, median real minutes against target, and top loss cause', async () => {

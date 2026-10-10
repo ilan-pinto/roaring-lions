@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready modern short-barrelled assault carbine, a weapon of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level, lying flat. A flat-top receiver with a small red-dot optic on the rail, a quad-rail handguard with a short vertical foregrip, a birdcage flash hider, a straight thirty-round translucent polymer magazine, a collapsible stock extended with a rubber butt pad, a pistol grip, a padded sling. Matte finish worn at the edges, fine scratches on the rails. Real-world scale, 0.85 metres long. Gunmetal, olive polymer, tan sling. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a10c40-aa15-7125-9c3b-2fc18e0a0224",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 1976782397,
+    "prompt": "A single low-poly game-ready modern short-barrelled assault carbine, a weapon of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level, lying flat. A flat-top receiver with a small red-dot optic on the rail, a quad-rail handguard with a short vertical foregrip, a birdcage flash hider, a straight thirty-round translucent polymer magazine, a collapsible stock extended with a rubber butt pad, a pistol grip, a padded sling. Matte finish worn at the edges, fine scratches on the rails. Real-world scale, 0.85 metres long. Gunmetal, olive polymer, tan sling. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1791206929311,
+    "progress": 100,
+    "started_at": 1791206929321,
+    "finished_at": 1791206982710,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10c40-aa15-7125-9c3b-2fc18e0a0224/output/model.glb?Expires=4944758400&Signature=pL2VME33EhMnjqolddt7oXpHkuKcl3oNeFItQEdKd3cjTrfp6aVm8UNPWQaPjKPbCGDwmtZVrGSWEworDjR7at1Wycxe1mUejmyY0bokTQncMqqmkQENVEY6F7MUrP7WCBllAB54KTno6bc38eRgQgB8H1obzw2bnLYerwDumiNbd2JyvRethI7tlhOFMPlDjZ3O5xF-DCVImgxbux0JLiI0p8XP8Mpxkwk2VEURgWrCzJn-nXYI5xkz1Aj3~G9xYGd4w-rsZl0b-l0AMa~4OIe7NBbQlY4OibZzQVFNTrTbk9JKWoU6eUTev2A~M4NlSy06ZkeCzofb3gCw6wKqCw__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10c40-aa15-7125-9c3b-2fc18e0a0224/output/preview.png?Expires=4944758400&Signature=kU2MXJSErrMsk083AkpK-qRRVEkXNG2BVcss1CpblM8gibAqbrKJq3w-NbF3F7SuJ2IVtTIKPO4F0Udgi7q~PusHLTqrkvfhLRFqhlJbf7XryNiFYGoaxsJQFt98RHbVXAOrmzrmQaTBytjenXUk9l8da9uTGTnym5WHukjjmb6BxO74VHkv-mnEzOD9r03bU4BoLqUBHwpzXL54h28YmAKLyLa04I~F23-Ig0qniAqjLk0yKkqwiPNqyg1J5VnsyHATT3hDM~uyGoBBz6wGMD-rqh~9m53Gopi2XIbCLeDk3~j7w5Xsz2aC0n1AxOSdgIM9hdNXk8cw604JbXByPQ__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1791206929311,
+    "started_at": 1791206929321,
+    "finished_at": 1791206982710
+  },
+  "usd_estimated": 0.4
+}

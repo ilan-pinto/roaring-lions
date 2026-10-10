@@ -51,7 +51,6 @@
 import type { Sim } from '@lions/sim';
 import type { EmitterSpec, RendererOptions } from '@lions/render';
 import type { MeshManifest } from '../mesh-catalogue';
-import type { RendererChoice } from '../renderer-choice';
 import type { Disposer } from '../shell/router';
 import {
   CROSSFADE_MS,
@@ -128,9 +127,8 @@ export interface SceneHostDeps {
   /** `${BASE}${menuDiorama.plate}`: the poster, and the whole picture on a
    *  plate path. */
   readonly plateUrl: string;
-  readonly renderer: RendererChoice;
-  /** Built lazily, on the live path only: a Pixi or reduced-motion player
-   *  never pays for a `Sim`. */
+  /** Built lazily, on the live path only: a reduced-motion player never pays
+   *  for a `Sim`. */
   readonly world: () => SceneHostWorld;
   readonly reducedMotion?: () => boolean;
   readonly saveData?: () => boolean;
@@ -217,11 +215,9 @@ export function sceneHost(stage: HTMLElement, column: HTMLElement, deps: SceneHo
   // --- the decision (spec §3.4) --------------------------------------------
   // After the insert, so the column is measured where it actually stands.
   // The motion preference is read ONCE and kept: it decides the path, and it
-  // also decides parallax on its own (below), because the path's order puts
-  // Pixi first and a Pixi player can have asked for reduced motion too.
+  // also decides parallax on its own (below), whatever path was taken.
   const reduced = (deps.reducedMotion ?? defaultReducedMotion)();
   const decided = hostPath({
-    renderer: deps.renderer,
     reducedMotion: reduced,
     saveData: (deps.saveData ?? defaultSaveData)(),
     viewportWidth: window.innerWidth,
@@ -389,8 +385,9 @@ export function sceneHost(stage: HTMLElement, column: HTMLElement, deps: SceneHo
 
   // --- parallax (spec §3.5) --------------------------------------------------
   // Every path but `off`, and never under reduced motion -- keyed off the
-  // PREFERENCE, not the plate's reason: Pixi + reduced motion reads reason
-  // `pixi` and must not move either. The picture moves; the camera does not.
+  // PREFERENCE, not the plate's reason (D-54): a plate kept for any other
+  // reason must not move under reduced motion either. The picture moves; the
+  // camera does not.
   // Mouse only: touch and pen never move it.
   if (decided.path !== 'off' && !reduced) {
     const cur = { x: 0, y: 0 };

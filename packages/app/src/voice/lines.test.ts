@@ -8,6 +8,7 @@ import {
   VOICE_CLASSES,
   ackLineKey,
   allLineKeys,
+  announceLineKey,
   deathLineKey,
   languageOf,
   orderLineKey,
@@ -28,7 +29,7 @@ describe('voiceClassOf (spec §3)', () => {
     breach_team: 'infantry', demo_squad: 'engineer', dozer_d9: 'engineer', heli_peten: 'air',
     ifv_namer: 'crew', inf_squad: 'infantry', jeep_shoded: 'crew', mbt_lavi: 'crew',
     mortar_team: 'infantry', recon_drone: 'air', scout_shachaf: 'crew', sniper_team: 'infantry',
-    yahalom_squad: 'engineer',
+    yahalom_squad: 'engineer', recon_zikit: 'infantry', heli_peten_gunship: 'air',
     atgm_cell: 'infantry', charge_squad: 'infantry', digger_crew: 'engineer', gun_truck: 'crew',
     loiter_drone: 'air', manpad_team: 'infantry', militia_cell: 'infantry', mortar_crew: 'infantry',
     moto_rpg: 'crew', paramotor: 'air', recoilless_team: 'infantry', rocket_battery: 'crew',
@@ -65,16 +66,18 @@ describe('languageOf (spec §3, D10)', () => {
 });
 
 describe('the key grammar (R-5)', () => {
-  it('is twenty keys per language, distinct, and ASCII <lang>.<class>.<trigger>', () => {
+  // + 3 (pass C2/C4, A1): the broken, immobilised and gun-out calls.
+  it('is twenty-three keys per language, distinct, and ASCII <lang>.<class>.<trigger>', () => {
     const he = allLineKeys(['he']);
-    expect(he).toHaveLength(20);
-    expect(new Set(he).size).toBe(20);
+    expect(he).toHaveLength(23);
+    expect(new Set(he).size).toBe(23);
     for (const k of he) expect(k).toMatch(/^[a-z]{2}\.(infantry|crew|engineer|air|common)\.[a-z]+$/);
-    expect(allLineKeys(['he', 'ar', 'he'])).toHaveLength(40);
+    expect(allLineKeys(['he', 'ar', 'he'])).toHaveLength(46);
   });
 
-  it('declares the pinned call once per language', () => {
-    expect(allLineKeys(['he'])).toHaveLength(20);
+  it('declares each call once per language', () => {
+    expect(allLineKeys(['he'])).toHaveLength(23);
+    for (const c of ['pinned', 'broken', 'immobilised', 'gunout']) expect(allLineKeys(['he', 'ar'])).toContain(`ar.common.${c}`);
     expect(allLineKeys(['he', 'ar'])).toContain('ar.common.pinned');
     expect(pinnedLineKey('he')).toBe('he.common.pinned');
   });
@@ -119,16 +122,28 @@ describe('rosterLanguages (N16)', () => {
 
 describe('data/audio.json declares the director’s whole vocabulary (spec §6, R-6)', () => {
   const voices = (audioManifest as {
-    voices?: { gain?: number; languages?: Record<string, string>; lines?: Record<string, unknown> };
+    voices?: {
+      gain?: number;
+      languages?: Record<string, string>;
+      lines?: Record<string, unknown>;
+      announcements?: { events: Record<string, { audio: string }> };
+    };
   }).voices;
 
   it('maps the four fighting factions and leaves civilians silent (D10)', () => {
     expect(voices?.languages).toEqual({ kdf: 'he', ashwar: 'ar', sarim: 'ar', rif: 'ar' });
   });
 
-  it('declares every key the director can ask for, and nothing else', () => {
+  it('declares every key the director can ask for, plus the announcer lines the announcement table names, and nothing else', () => {
     const langs = Object.values(voices?.languages ?? {});
-    expect(Object.keys(voices?.lines ?? {}).sort()).toEqual(allLineKeys(langs).sort());
+    const announced = Object.entries(voices?.announcements?.events ?? {})
+      .filter(([, e]) => e.audio !== '')
+      .map(([event, e]) => {
+        // An announcer line is named for its event in the net's language.
+        expect(e.audio, event).toBe(announceLineKey('he', event));
+        return e.audio;
+      });
+    expect(Object.keys(voices?.lines ?? {}).sort()).toEqual([...allLineKeys(langs), ...announced].sort());
   });
 
   it('carries N11’s line gain', () => {

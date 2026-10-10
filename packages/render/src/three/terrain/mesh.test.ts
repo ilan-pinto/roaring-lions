@@ -626,6 +626,30 @@ describe('toGeometry', () => {
   });
 });
 
+describe('toGeometry linearises colours to the same bits as srgbToLinear', () => {
+  // The byte table (`srgbToLinearByte`) is a speed-up and must be invisible:
+  // every byte over 255, and values that are NOT a byte (which fall through
+  // to the function), land on exactly the float32 `srgbToLinear` gives.
+  it('for every byte, and for non-byte values', () => {
+    const values: number[] = [];
+    for (let k = 0; k < 256; k++) values.push(k / 255);
+    values.push(0.5, 0.04045, 0.0001, 0.333333, 0.999, 1 / 3);
+    while (values.length % 3 !== 0) values.push(0.25);
+    const colors = Float32Array.from(values);
+    const n = colors.length / 3;
+    const g = toGeometry({
+      positions: new Float32Array(n * 3),
+      colors,
+      indices: new Uint32Array(0),
+    });
+    const got = g.getAttribute('color').array as Float32Array;
+    const want = Float32Array.from(colors, (c) => srgbToLinear(c));
+    let mismatches = 0;
+    for (let i = 0; i < want.length; i++) if (got[i] !== want[i]) mismatches++;
+    expect(mismatches).toBe(0);
+  });
+});
+
 describe('toGeometry colour space and normals', () => {
   const data = (): MeshData => ({
     positions: Float32Array.from([0, 0, 0, 1, 0, 0, 0, 0, 1]),

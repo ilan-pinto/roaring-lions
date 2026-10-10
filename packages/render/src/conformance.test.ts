@@ -6,16 +6,16 @@
  * Only rasterization needs a browser, and that is the golden-image diff, which
  * is a separate check outside `pnpm test`.
  *
- * The value here is asymmetric. Running it against PixiRenderer's projection
- * proves the suite describes something real; running it against ThreeRenderer's
- * proves the second backend has not drifted. A suite written against only one
- * implementation would pass forever while the two diverged.
+ * It runs against `three/camera.ts` (what `Renderer.worldToScreen` answers
+ * with) and against `project.ts`'s flat formulas, which three still reads for
+ * picking and layout. Those were Pixi's projection until that backend was
+ * retired (WP-A3.3); the run stays because the formulas are still live.
  */
 import { runProjectionConformance } from './conformance';
 import { worldToScreen, screenToWorldFlat } from './project';
 import { worldToScreenThree, screenToWorldThree } from './three/camera';
 
-runProjectionConformance('PixiRenderer (project.ts)', {
+runProjectionConformance('project.ts (the flat formulas three/camera.ts reads)', {
   worldToScreen,
   screenToWorld: screenToWorldFlat,
 });

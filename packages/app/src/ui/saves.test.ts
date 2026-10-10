@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { showSaves, type SavesDeps } from './saves';
 import { Router } from '../shell/router';
 import { ACCOUNT_KEY, emptyAccount } from '../brigade-account';
@@ -67,7 +67,18 @@ describe('showSaves', () => {
     showSaves(stage, deps(memStore()));
     const back = stage.querySelector('.rl-saves__back');
     expect(back?.querySelector('svg')?.getAttribute('data-symbol')).toBe('back');
-    expect(back?.textContent?.trim()).toBe('main menu');
+    expect(back?.textContent?.trim()).toBe('Main menu');
+  });
+
+  // GH-498: the one footer row, after the body and sticky in the column's
+  // scroller. Falsified by hand: appending the foot to `p.body` turns this red.
+  it('keeps the way back in a sticky footer row outside the body', () => {
+    const stage = document.createElement('div');
+    showSaves(stage, deps(memStore()));
+    const foot = stage.querySelector('.rl-panel > .rl-foot.rl-foot--sticky');
+    expect(foot).not.toBeNull();
+    expect(foot?.closest('.rl-panel__body')).toBeNull();
+    expect(foot?.querySelector('.rl-foot__start > [data-kind="back"]')).toBe(stage.querySelector('.rl-saves__back'));
   });
 
   it('renders the slot list newest first', () => {
@@ -100,6 +111,8 @@ describe('showSaves', () => {
     expect(listSlots(store)).toHaveLength(1);
     expect(listSlots(store)[0]!.name).toBe('My save');
     expect(stage.querySelectorAll('.rl-saves__row')).toHaveLength(1);
+    // Pass K: a save that worked says so.
+    expect(stage.querySelector('.rl-saves__msg')?.textContent).toBe('Saved as \u201cMy save\u201d.');
   });
 
   it('load confirms, then writes the slot back over the active keys', async () => {
@@ -123,6 +136,69 @@ describe('showSaves', () => {
     await Promise.resolve();
     expect(store.raw(LEDGER_KEY)).toBe(JSON.stringify(active.ledger));
     expect(store.raw(ACCOUNT_KEY)).toBe(JSON.stringify(active.account));
+    // Pass K: and the load says the campaign was replaced.
+    expect(stage.querySelector('.rl-saves__msg')?.textContent).toBe('Loaded \u201cCheckpoint\u201d \u2014 it is now your campaign.');
+    expect(dialog.textContent).toContain('Progress that is not in a save is lost.');
+    stage.remove();
+  });
+
+  // Keyboard walk (polish/keyboard-and-saves): a confirmed load or delete
+  // re-renders the list, and the confirm handed focus back to a button that
+  // was then thrown away -- so the next Tab started from <body>. Focus stays
+  // in the list now: on the loaded slot's own Load, or after a delete on the
+  // slot that took the deleted one's place, else the name field.
+  it('keeps focus in the list after a confirmed load or delete', async () => {
+    const store = memStore();
+    saveSlot(store, 'a', 'Older', active, '0.68.0', 1);
+    saveSlot(store, 'b', 'Newer', active, '0.68.0', 2);
+    const stage = document.createElement('div');
+    document.body.appendChild(stage);
+    showSaves(stage, deps(store));
+    const button = (slot: number, label: string): HTMLButtonElement =>
+      [...stage.querySelectorAll<HTMLElement>('.rl-saves__row')[slot]!.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === label)!;
+    const answer = async (): Promise<void> => {
+      document.querySelector<HTMLButtonElement>('.rl-confirm__yes')!.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    };
+    button(1, 'Load').focus();
+    button(1, 'Load').click();
+    await answer();
+    expect(document.activeElement).toBe(button(1, 'Load'));
+    button(0, 'Delete').focus();
+    button(0, 'Delete').click();
+    await answer();
+    expect(stage.querySelectorAll('.rl-saves__row')).toHaveLength(1);
+    expect(document.activeElement).toBe(button(0, 'Delete'));
+    button(0, 'Delete').click();
+    await answer();
+    expect(document.activeElement).toBe(stage.querySelector('input[name="saveName"]'));
+    stage.remove();
+  });
+
+  // KS-13 (keyboard-and-saves): the default name was computed at mount and
+  // after a save, never after a delete -- one slot listed, "Save 3" offered.
+  // A name the player typed is theirs and survives.
+  it('offers the next free default name after a delete, and keeps a typed one', async () => {
+    const store = memStore();
+    saveSlot(store, 'a', 'Older', active, '0.68.0', 1);
+    saveSlot(store, 'b', 'Newer', active, '0.68.0', 2);
+    const stage = document.createElement('div');
+    document.body.appendChild(stage);
+    showSaves(stage, deps(store));
+    const field = stage.querySelector<HTMLInputElement>('input[name="saveName"]')!;
+    expect(field.value).toBe('Save 3');
+    const del = async (): Promise<void> => {
+      [...stage.querySelectorAll<HTMLButtonElement>('.rl-saves__row button')].find((b) => b.textContent === 'Delete')!.click();
+      document.querySelector<HTMLButtonElement>('.rl-confirm__yes')!.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    };
+    await del();
+    expect(field.value).toBe('Save 2');
+    field.value = 'Before the bridge';
+    await del();
+    expect(field.value).toBe('Before the bridge');
     stage.remove();
   });
 
@@ -226,6 +302,9 @@ describe('showSaves', () => {
   // the tutorial flag -- the order `writeActive`'s doc comment now names), so
   // failing write 2 is exactly the half-written state that matters.
   it('a storage refusal partway through a load is named in the status line, and the load is not reported as done', async () => {
+    // `saves.ts` logs the refusal (`console.error('saves:', err)`): expected
+    // here, so it is captured and asserted rather than printed into CI logs.
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const store = quotaStore(2);
     saveSlot(store, 'a', 'Checkpoint', active, '0.68.0', 1);
     const stage = document.createElement('div');
@@ -237,14 +316,48 @@ describe('showSaves', () => {
     document.querySelector<HTMLButtonElement>('.rl-confirm__yes')!.click();
     await Promise.resolve();
     await Promise.resolve();
+    // Save reliability (keyboard-and-saves): a refused LOAD is undone --
+    // `writeActive` puts the three keys back -- so the line says nothing
+    // changed, and the active campaign is the one that was there before.
     expect(stage.querySelector('.rl-saves__msg')?.textContent).toBe(
-      'Could not write to browser storage \u2014 the save may be incomplete. Free some space and try again.'
+      'Browser storage refused the load \u2014 nothing was changed, and your current campaign is as it was. Free some space and try again.'
     );
+    expect(store.readLedger()).toEqual({});
     expect(changed).toBe(0);
+    expect(error).toHaveBeenCalledWith('saves:', expect.anything());
+    error.mockRestore();
+    stage.remove();
+  });
+
+  it('a load whose undo is refused too says the campaign may be mixed, and how to recover', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const base = quotaStore(2);
+    const store: LedgerStore = {
+      ...base,
+      restoreCampaign: () => {
+        throw new Error('QuotaExceededError: the quota has been exceeded.');
+      },
+    };
+    saveSlot(store, 'a', 'Checkpoint', active, '0.68.0', 1);
+    const stage = document.createElement('div');
+    document.body.appendChild(stage);
+    showSaves(stage, deps(store));
+    const row = stage.querySelector<HTMLElement>('.rl-saves__row')!;
+    [...row.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'Load')!.click();
+    document.querySelector<HTMLButtonElement>('.rl-confirm__yes')!.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(stage.querySelector('.rl-saves__msg')?.textContent).toBe(
+      'Browser storage refused the load part-way \u2014 your current campaign may be mixed with this save. Load the save again, or start a new campaign.'
+    );
+    error.mockRestore();
     stage.remove();
   });
 
   it('a storage refusal on the save form is named in the status line, and adds no slot', () => {
+    // `saves.ts` logs the refusal (`console.error('saves:', err)`): expected
+    // here, so it is captured and asserted rather than printed into CI logs.
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const store = quotaStore(1);
     const stage = document.createElement('div');
     document.body.appendChild(stage);
@@ -255,6 +368,43 @@ describe('showSaves', () => {
     expect(stage.querySelector('.rl-saves__msg')?.textContent).toContain('Could not write to browser storage');
     expect(stage.querySelectorAll('.rl-saves__row')).toHaveLength(0);
     expect(changed).toBe(0);
+    expect(error).toHaveBeenCalledWith('saves:', expect.anything());
+    error.mockRestore();
     stage.remove();
+  });
+
+  it('K-12: a damaged slot is listed as such, survives a new save, and only its own delete removes it', async () => {
+    const store = memStore();
+    store.writeSlotsRaw(JSON.stringify({ bad: { version: 1, id: 'bad', ledger: 3 } }));
+    const stage = document.createElement('div');
+    document.body.appendChild(stage);
+    showSaves(stage, deps(store));
+    const row = stage.querySelector('.rl-saves__row--damaged');
+    expect(row?.textContent).toContain('Damaged save 1');
+    expect(row?.textContent).toContain('cannot load');
+    expect(row?.textContent).not.toContain('Load');
+    expect(stage.textContent).not.toContain('No saves yet.');
+    // save a new slot: the damaged one is still there, on screen and in storage
+    stage.querySelector<HTMLFormElement>('.rl-saves__form')!.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    expect(stage.querySelectorAll('.rl-saves__row')).toHaveLength(2);
+    expect(stage.querySelector('.rl-saves__row--damaged')).not.toBeNull();
+    expect(store.readSlotsRaw()).toContain('"bad"');
+    // export hands over the kept text
+    const exported: string[] = [];
+    stage.remove();
+    const stage2 = document.createElement('div');
+    document.body.appendChild(stage2);
+    showSaves(stage2, deps(store, { download: (_n, json) => exported.push(json) }));
+    const damaged = stage2.querySelector('.rl-saves__row--damaged')!;
+    [...damaged.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'Export')!.click();
+    expect(JSON.parse(exported[0] ?? 'null')).toEqual({ version: 1, id: 'bad', ledger: 3 });
+    // delete asks first, then removes only the damaged entry
+    [...damaged.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'Delete')!.click();
+    document.querySelector<HTMLElement>('.rl-confirm')!.querySelector<HTMLButtonElement>('.rl-confirm__yes')!.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(stage2.querySelector('.rl-saves__row--damaged')).toBeNull();
+    expect(stage2.querySelectorAll('.rl-saves__row')).toHaveLength(1);
+    stage2.remove();
   });
 });

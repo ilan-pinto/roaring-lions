@@ -4,7 +4,7 @@
 // DOM. Everything else in this file is pure and does not care.
 
 import { describe, expect, it } from 'vitest';
-import { ACTIONS, anyArmed, bindingsFrom, escapeTarget, heldAction, keyLabel, overridesOf, rebind, resolveKey, shouldYieldSpace } from './keymap';
+import { ACTIONS, anyArmed, bindingsFrom, escapeTarget, heldAction, isTextEntry, keyLabel, overridesOf, rebind, resolveKey, shouldYieldSpace } from './keymap';
 
 describe('keymap', () => {
   it('ships the bindings main.ts had hard-coded, in the same letters', () => {
@@ -101,6 +101,26 @@ describe('keymap', () => {
   // the reinforcement dock's `focusFirst()` and a Tab onto a HUD chip both
   // leave a button focused, and a camera that jumped every time the player
   // pressed a button would read as the camera being broken.
+  describe('isTextEntry (D18)', () => {
+    const make = (html: string): Element => {
+      const host = document.createElement('div');
+      host.innerHTML = html;
+      return host.firstElementChild as Element;
+    };
+    it('is true for a field the player types into', () => {
+      for (const h of ['<textarea></textarea>', '<input>', '<input type="text">', '<input type="search">', '<input type="email">', '<div contenteditable="true"></div>', '<div contenteditable=""></div>']) {
+        expect([h, isTextEntry(make(h))]).toEqual([h, true]);
+      }
+    });
+    it('is false for a control a key does not type into', () => {
+      for (const h of ['<button>Send</button>', '<input type="checkbox">', '<input type="radio">', '<a href="#">x</a>', '<div contenteditable="false"></div>', '<div></div>']) {
+        expect([h, isTextEntry(make(h))]).toEqual([h, false]);
+      }
+      expect(isTextEntry(null)).toBe(false);
+      expect(isTextEntry(window)).toBe(false);
+    });
+  });
+
   describe('shouldYieldSpace', () => {
     const el = (html: string): Element => {
       const host = document.createElement('div');

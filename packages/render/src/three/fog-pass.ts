@@ -42,11 +42,12 @@ import * as THREE from 'three';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import { hexToLinear, WORLD_PER_LEVEL } from './terrain/shared';
 import { HAZE_FORWARD, HAZE_LOW, HAZE_LOW_LEVELS, HAZE_RAMP_TILES } from './haze';
+import { paletteHex } from './palette-hex';
 
 export const FOG_NEVER_SEEN = 0.85;
 export const FOG_EXPLORED = 0.4;
 /** `shadow.1` -- the same key the app hands `RendererOptions.background`. */
-export const FOG_TINT_HEX = '#14150F';
+export const FOG_TINT_HEX = paletteHex('shadow.1');
 /**
  * The shader's `uTint * <this>` -- how far above `FOG_TINT_HEX` the shrouded
  * colour is allowed to sit before the per-pixel luminance scales it down.

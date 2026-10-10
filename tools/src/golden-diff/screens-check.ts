@@ -44,6 +44,7 @@ import {
   hideHudExceptCanvas,
 } from './capture-protocol';
 import { colourRegister, registerDelta, withinRegister, type Register } from './register';
+import { musicOffInitScript } from '../ui-review/music-off';
 
 export interface ScreenCheckResult {
   readonly id: string;
@@ -345,6 +346,7 @@ const ZERO_REGISTER: Register = { meanY: 0, meanS: 0, samples: 0 };
 
 async function voteMenuHostRegister(browser: Browser, baseUrl: string): Promise<MenuHostRegisterVote> {
   const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
+  await page.addInitScript(musicOffInitScript());
   const messages: string[] = [];
   const onConsole = (m: { type(): string; text(): string }): void => {
     const type = m.type();
@@ -496,6 +498,7 @@ export interface MenuHostCheckResult {
 export async function checkMenuSceneHost(browser: Browser, baseUrl: string): Promise<MenuHostCheckResult> {
   const messages: string[] = [];
   const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
+  await page.addInitScript(musicOffInitScript());
   const onConsole = (m: { type(): string; text(): string }): void => {
     const type = m.type();
     if (type === 'error' || type === 'warning') messages.push(`${type}: ${m.text().slice(0, 300)}`);

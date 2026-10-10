@@ -9,6 +9,29 @@
  *   pnpm plates:units --only=mbt_lavi,ifv_namer
  *   pnpm plates:units --out=assets/ui/plates/units
  *   pnpm plates:units --port=5180
+ *   pnpm plates:units --kit --metal --port=5234
+ *
+ * ## `--kit`: the kitted plates (GH-238, plan 3 Task 9)
+ *
+ * The same capture, for the eight kitted vehicles (`KIT_VEHICLE_TYPES`,
+ * `packages/app/src/ui/garage-model.ts`) only, each wearing EVERY track it
+ * declares at that track's top tier (3; the D9 has two tracks), into
+ * `assets/ui/plates/units/kit/<id>.jpg` with a `manifest.json` of its own in
+ * the base manifest's shape, extent included. Parent spec §3.1: a kitted
+ * plate replaces the base one at kit level 2 and above
+ * (`ui/portrait.ts`'s `unitPlate`), and the bay's no-WebGL2 fallback is its
+ * only reader.
+ *
+ * The tiers reach the renderer the way a player's do: every page is seeded
+ * with a brigade account (`ui-review/garage-seed.ts`'s `garageSeedScript`)
+ * holding those tiers, and the sandbox boots WITHOUT `&kit` -- whose ladder
+ * (`SANDBOX_KIT_LEVELS`) is not the top tier on every vehicle -- so they
+ * travel `bootTiers` -> `upgradePrepass` -> `RendererOptions.unitKitTiers`.
+ * Before a kitted capture is trusted, the renderer itself is asked: the tiers
+ * it received for the type must be the seeded ones, and the type's template
+ * must carry kit triangles (`rlKitBaseCount`, `three/units/vehicle-kit.ts`).
+ * Either missing refuses the capture, loudly -- a seed that never arrived
+ * would otherwise photograph a perfectly good BASE plate and file it as kit.
  *
  * Manages its own dev server, the way `host-plate-capture.ts` does (never a
  * human's `pnpm dev`, never a port another tool already owns -- see that
@@ -174,13 +197,11 @@
  * ground unit is. Recorded in the task report from an actual look at the
  * drone and the helicopter plates, not assumed.
  *
- * `attack_drone`/`recon_drone` also carry no GLB at all (`hasUnitMesh`
- * false, checked directly against `mesh-catalogue.ts`) and the roster-driven
- * sprite loader only ever queues a billboard sheet for a type the BOOT-TIME
- * force already fields -- so spawning either one cold drew nothing but a
- * stray VFX blur on empty ground. Fixed by calling `renderer.loadSprites` on
- * their own `SPRITE_MAP` paths (`main.ts:580`, `main.ts:647`) directly
- * before the first spawn.
+ * `attack_drone`/`recon_drone` once carried no GLB and were loaded here as
+ * billboard sheets through `renderer.loadSprites`. Both have GLBs since B0a
+ * (2026-09-30), and the sprite loaders are retired (WP-A3.3): a type the
+ * boot roster did not field is picked up by `main.ts`'s 1 Hz mesh sweep, and
+ * the pre-warm below waits long enough for it.
  */
 import { chromium, type Browser, type Page } from 'playwright';
 import { spawn as spawnProcess } from 'node:child_process';
@@ -191,6 +212,11 @@ import { PNG } from 'pngjs';
 import pixelmatch from 'pixelmatch';
 import { ensureDevServer, stopDevServer, readUnmaskedRenderer } from '../golden-diff/browser';
 import { FREEZE_FRAME_LOOP_SCRIPT, hideHudExceptCanvas } from '../golden-diff/capture-protocol';
+import { musicOffInitScript } from '../ui-review/music-off';
+import { garageSeedScript, GARAGE_SEED_LEDGER } from '../ui-review/garage-seed';
+import { KIT_VEHICLE_TYPES } from '../../../packages/app/src/ui/garage-model';
+import type { BrigadeAccount } from '../../../packages/app/src/brigade-account';
+import { ACCOUNT_VERSION } from '../../../packages/app/src/brigade-account';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -239,9 +265,16 @@ interface LionsWindow {
     renderer: {
       camera: { x: number; y: number; zoom: number };
       setDebugLayerVisible(name: string, visible: boolean): number;
+      setDebugHoldStanding?(on: boolean): number;
       frame(alpha: number, dtMs: number): void;
       worldToScreen(wx: number, wy: number): { x: number; y: number };
-      loadSprites(unitTypeId: string, basePath: string): Promise<void>;
+      // Read only by `--kit`'s merge check (ThreeRenderer internals, reached
+      // the way `kit-captures.ts`' own `readMerge` reaches them).
+      opts?: { unitKitTiers?: Record<string, Record<string, number>> };
+      vehicleMeshTemplates?: Map<
+        string,
+        { geometries: { index: { count: number } | null; attributes: { position: { count: number } }; userData: Record<string, unknown> }[] }
+      >;
     };
   };
 }
@@ -251,11 +284,54 @@ function arg(name: string, fallback: string): string {
   return hit ? hit.slice(name.length + 3) : fallback;
 }
 
+// Every flag this file reads, and nothing else: a typo (`--kits`) used to be
+// ignored, which for `--kit` means photographing the BASE set into the base
+// directory while the caller believes otherwise.
+{
+  const known = /^--(only|out|port)=|^--(child|metal|kit)$|^--$/;
+  const bad = process.argv.slice(2).filter((a) => !known.test(a));
+  if (bad.length > 0) {
+    console.error(`[unit-plates] unknown argument(s): ${bad.join(' ')}`);
+    console.error('[unit-plates] usage: pnpm plates:units -- [--kit] [--only=<id>[,<id>...]] [--out=<dir>] [--port=<n>] [--metal]');
+    process.exit(2);
+  }
+}
+
 const only = arg('only', '');
-const outDir = path.resolve(REPO_ROOT, arg('out', 'assets/ui/plates/units'));
+const isKit = process.argv.includes('--kit');
+const outDir = path.resolve(REPO_ROOT, arg('out', isKit ? 'assets/ui/plates/units/kit' : 'assets/ui/plates/units'));
 const PORT = Number(arg('port', '5179'));
 const isChild = process.argv.includes('--child');
 const useMetal = process.argv.includes('--metal');
+
+/** `--kit`: every track `id` declares, at that track's top tier. */
+function topTiers(id: string): Record<string, number> {
+  const unit = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'data/units/kdf', `${id}.json`), 'utf8')) as {
+    upgrades?: Record<string, { tiers: unknown[] }>;
+  };
+  const out: Record<string, number> = {};
+  for (const [track, t] of Object.entries(unit.upgrades ?? {})) out[track] = t.tiers.length;
+  return out;
+}
+
+/** `--kit`: the brigade account every page boots from -- the eight kitted
+ *  vehicles bought, each at `topTiers`. `garage-seed.ts`'s shape, including
+ *  the `granted` entry that keeps `balance` a fixed point of
+ *  `migrateAccount`. */
+function kitAccount(): BrigadeAccount {
+  const upgrades: Record<string, Record<string, number>> = {};
+  for (const id of KIT_VEHICLE_TYPES) upgrades[id] = topTiers(id);
+  return {
+    version: ACCOUNT_VERSION,
+    balance: 2400,
+    earned_total: 0,
+    paid: {},
+    campaign_paid: {},
+    unlocks: [...KIT_VEHICLE_TYPES],
+    upgrades,
+    grants: [{ source: 'granted', amount: 5000, at: 1 }],
+  };
+}
 const LAUNCH_ARGS = useMetal ? METAL_ARGS : SWIFTSHADER_ARGS;
 
 interface PlateManifestEntry {
@@ -356,9 +432,13 @@ const allIds = fs
   .map((f) => f.slice(0, -'.json'.length))
   .sort();
 const onlySet = only.length > 0 ? new Set(only.split(',')) : null;
-const wanted = onlySet ? allIds.filter((id) => onlySet.has(id)) : allIds;
+const pool = isKit ? allIds.filter((id) => KIT_VEHICLE_TYPES.has(id)) : allIds;
+if (isKit && pool.length !== KIT_VEHICLE_TYPES.size) {
+  throw new Error(`--kit: KIT_VEHICLE_TYPES names ${KIT_VEHICLE_TYPES.size} types, data/units/kdf/ holds ${pool.length} of them`);
+}
+const wanted = onlySet ? pool.filter((id) => onlySet.has(id)) : pool;
 if (wanted.length === 0) {
-  throw new Error(`--only=${only} names no unit under data/units/kdf/`);
+  throw new Error(`--only=${only} names no unit under data/units/kdf/${isKit ? ' that is a kitted vehicle' : ''}`);
 }
 
 /** Spawns one child `tsx` process for a single id, inheriting stdio (so its
@@ -370,6 +450,7 @@ function spawnChild(id: string): Promise<number> {
   return new Promise((resolve) => {
     const args = ['tsx', 'src/perf/unit-plates.ts', `--only=${id}`, '--child', `--port=${PORT}`, `--out=${outDir}`];
     if (useMetal) args.push('--metal');
+    if (isKit) args.push('--kit');
     const child = spawnProcess('npx', args, { cwd: TOOLS_DIR, stdio: 'inherit' });
     child.on('exit', (code) => resolve(code ?? 1));
     child.on('error', (err) => {
@@ -468,6 +549,10 @@ async function runCapture(): Promise<void> {
     console.log(`[${TAG}] GPU: ${gpu}`);
 
     const page: Page = await browser.newPage({ viewport: VIEWPORT, deviceScaleFactor: DPR });
+    // Music off before boot (`ui-review/music-off.ts`: the one seed; a hand-written
+    // object without `version: 1` is discarded by `settings.ts`).
+    await page.addInitScript(musicOffInitScript());
+    if (isKit) await page.addInitScript(garageSeedScript(GARAGE_SEED_LEDGER, kitAccount()));
     // Generous, not the family's usual 30s: under software SwiftShader a
     // `page.screenshot` measured well past 90s once several GLBs were
     // resident (`GL Driver Message ... GPU stall due to ReadPixels`, this
@@ -497,6 +582,25 @@ async function runCapture(): Promise<void> {
 
     await page.evaluate(() => (window as unknown as LionsWindow).__lions.renderer.setDebugLayerVisible('overlays', false));
     await page.evaluate(() => (window as unknown as LionsWindow).__lions.renderer.setDebugLayerVisible('fog', false));
+    // Foliage at rest. Sway runs on the SIM clock (`terrain/sway.ts`), and
+    // every capture below steps the sim between the empty-ground reference
+    // and the unit's own frame -- so with sway on, every grass tuft in the
+    // clip moved between the two, and the extent was the bounding box of the
+    // tufts rather than of the unit: 1315-1441 x 778-787 px on all five
+    // infantry plates re-shot on 6 Oct, against 143-280 x 163-240 before
+    // sway shipped. Hiding `wind` drives `uSwayAmp` to 0, both frames.
+    await page.evaluate(() => (window as unknown as LionsWindow).__lions.renderer.setDebugLayerVisible('wind', false));
+    // Standing, by the lead's choice (6 Oct): since #402 a stationary man
+    // takes a knee within one tick, and the plates show him upright. A
+    // renderer-side, capture-only override (`ThreeRenderer.debugHoldStanding`)
+    // -- the sim still braces; nothing here writes sim state. Refused rather
+    // than skipped when the renderer lacks it: a kneeling plate would ship
+    // looking plausible.
+    await page.evaluate(() => {
+      const r = (window as unknown as LionsWindow).__lions.renderer;
+      if (typeof r.setDebugHoldStanding !== 'function') throw new Error('renderer has no setDebugHoldStanding');
+      r.setDebugHoldStanding(true);
+    });
 
     // Strip EVERY unit `showSandbox` fields by default (`sandbox-force.ts`'s
     // `SANDBOX_KDF` and `SANDBOX_ENEMY`) before anything else runs -- both
@@ -621,22 +725,6 @@ async function runCapture(): Promise<void> {
       await page.evaluate((e) => (window as unknown as LionsWindow).__lions.sim.removeFromPlay(e), entity);
     };
 
-    // Two KDF types carry no GLB at all -- see this file's own top comment
-    // ("Aircraft") for the fix and why it is needed.
-    const NO_MESH_SPRITE_PATHS: Readonly<Record<string, string>> = {
-      attack_drone: '/sprites/DRONE_ATTACK/',
-      recon_drone: '/sprites/DRONE_RECON/',
-    };
-    for (const id of wanted) {
-      const spritePath = NO_MESH_SPRITE_PATHS[id];
-      if (spritePath === undefined) continue;
-      console.log(`[${TAG}] ${id} has no mesh -- loading its billboard sheet directly (${spritePath})`);
-      await page.evaluate(
-        ([unitId, base]) => (window as unknown as LionsWindow).__lions.renderer.loadSprites(unitId, base),
-        [id, spritePath] as [string, string]
-      );
-    }
-
     // --- pre-warm: see this file's own top comment for why this is not in
     // the brief's literal sequence and why it changes no measured pixel.
     console.log(`[${TAG}] pre-warming ${wanted.length} mesh(es)...`);
@@ -647,6 +735,34 @@ async function runCapture(): Promise<void> {
     for (let i = 0; i < 4; i++) await page.evaluate(() => (window as unknown as LionsWindow).__lions.renderer.frame(1, 0));
     for (const e of warm) await remove(e);
     await page.evaluate(() => (window as unknown as LionsWindow).__lions.renderer.frame(1, 0));
+
+    // --- `--kit`: the merge, asked of the renderer itself (see the header).
+    if (isKit) {
+      for (const id of wanted) {
+        const want = topTiers(id);
+        const got = await page.evaluate((typeId) => {
+          const r = (window as unknown as LionsWindow).__lions.renderer;
+          const tiers = r.opts?.unitKitTiers?.[typeId] ?? null;
+          const tpl = r.vehicleMeshTemplates?.get(typeId);
+          let kitTris = 0;
+          for (const g of tpl?.geometries ?? []) {
+            const base = g.userData.rlKitBaseCount;
+            if (typeof base !== 'number') continue;
+            const count = g.index ? g.index.count : g.attributes.position.count;
+            kitTris += (count - base) / 3;
+          }
+          return { tiers: tiers ? { ...tiers } : null, loaded: tpl !== undefined, kitTris };
+        }, id);
+        const tiersOk = got.tiers !== null && Object.entries(want).every(([k, v]) => got.tiers?.[k] === v);
+        if (!tiersOk || !got.loaded || got.kitTris <= 0) {
+          throw new Error(
+            `${id}: --kit refused -- the renderer holds tiers ${JSON.stringify(got.tiers)} (seeded ${JSON.stringify(want)}), ` +
+              `template ${got.loaded ? 'loaded' : 'NOT loaded'}, ${got.kitTris} kit triangle(s)`
+          );
+        }
+        console.log(`[${TAG}] ${id}: kit merged, tiers ${JSON.stringify(got.tiers)}, ${got.kitTris} kit triangles`);
+      }
+    }
 
     // --- the empty-ground reference, captured once, after every mesh is warm
     // and every pre-warm spawn has been struck.

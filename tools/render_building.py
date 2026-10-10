@@ -44,6 +44,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Blender's --python does not put the script's own directory on sys.path.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from sprites_retired import refuse_sprite_output  # noqa: E402
 from dimetric import (  # noqa: E402
     palette_linear,
     ELEVATION as DIMETRIC_ELEVATION,
@@ -835,6 +836,7 @@ def collapse(meshes, base_z, top_z):
 def render_building(spec):
     """One building, one sprite."""
     meshes, extent, scale, framing = setup(spec)
+    refuse_sprite_output(spec.out_dir)
     os.makedirs(spec.out_dir, exist_ok=True)
     name = "idle_f00_000.png"
     bpy.context.scene.render.filepath = os.path.join(spec.out_dir, name)

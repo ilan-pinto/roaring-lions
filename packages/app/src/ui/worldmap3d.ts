@@ -5,25 +5,16 @@
  * ## Two boards, and why both stay
  *
  * `worldmap.ts` draws the flat PNG board and is unchanged. This is the
- * three.js one. Which a player gets is `campaignBoard()` below, and the
- * answer is the renderer they already chose -- **the flat board IS the Pixi
- * path.**
- *
- * Forcing three for this one screen was the alternative and it is worse than
- * it sounds: the renderer choice persists per ORIGIN
- * (`localStorage['lions.renderer']`, see `renderer-choice.ts`) and survives
- * every link `menu.ts` builds, so a player who deliberately typed
- * `?renderer=pixi` -- the escape hatch someone reaches for precisely when
- * three has failed them -- would have three loaded behind their back for a
- * menu, and be handed back to Pixi for the mission. The 3D board is additive
- * and three-only, exactly as mesh units are, and `?renderer=pixi` having no
- * mesh path is a permanent property of that backend rather than a gap.
- *
- * It falls back to the flat board for three more reasons besides Pixi: no
- * WebGL2 at all, a GLB that will not fetch or parse, and a scene graph that
- * does not carry the campaign contract (`world-scene.ts` throws by node
- * name). None of those should cost a player their campaign screen, and each
- * warns by name in the console rather than silently degrading.
+ * three.js one, and it is what every player gets -- unless it cannot be
+ * drawn. The flat board is the FALLBACK, for exactly three causes: no WebGL2
+ * at all (probed with a throwaway canvas before the dynamic import, so such a
+ * browser never downloads three), a GLB that will not fetch or parse, and a
+ * scene graph that does not carry the campaign contract (`world-scene.ts`
+ * throws by node name). None of those should cost a player their campaign
+ * screen, and each warns by name in the console rather than silently
+ * degrading. (Until WP-A3.3 the flat board was also the whole of the Pixi
+ * path; `?renderer=pixi` is accepted and ignored now, and that backend is
+ * deleted.)
  *
  * ## What is DOM and what is canvas, and why the split is where it is
  *
@@ -66,29 +57,17 @@ import {
   type RegionStatus,
   type WorldRegion,
 } from '../campaign';
-import { nudgeLabels, type LabelBox } from './label-layout';
+import { nudgeLabels, pinLabelBox, type LabelBox } from './label-layout';
 // Whether this browser can draw the board at all, probed before the dynamic
 // import -- shared with the scene host behind the menu; see that file.
 import { webgl2Available } from './webgl-probe';
-import type { RendererChoice } from '../renderer-choice';
 import { ledgerLine, regionCard } from './worldmap';
+import { boardRestingLine } from '../campaign-close';
 import { hoverLine, pickOutcome, type PinStatus } from './pin-hover';
 import { symbolSvg } from './symbol';
 
-/** Which board the campaign screen draws. */
+/** Which board the campaign screen ended up drawing. */
 export type CampaignBoardKind = 'diorama' | 'flat';
-
-/**
- * The board this player gets.
- *
- * One line, named and tested rather than inlined, because the failure it
- * prevents is the one the brief called out: a Pixi player looking at a blank
- * rectangle. The flat board is not a degraded mode here -- it is the Pixi
- * path, and it is the only campaign screen `?renderer=pixi` has ever had.
- */
-export function campaignBoard(renderer: RendererChoice): CampaignBoardKind {
-  return renderer === 'three' ? 'diorama' : 'flat';
-}
 
 /** Where one town marker landed on the canvas, in CSS pixels. */
 export interface TownPin {
@@ -143,6 +122,10 @@ export interface World3dOptions {
    *  diorama cannot be drawn, and building it eagerly would mean every
    *  player parsing an SVG overlay they will not see. */
   fallback: () => HTMLElement;
+  /** Where the ledger line goes, when not at the foot of this board (PA-20,
+   *  see `WorldMapOptions.statusHost`). Taken down again if the board falls
+   *  back to the flat one, which brings its own into the same host. */
+  statusHost?: HTMLElement;
   commander?: CommanderData;
   missionOf?: (id: string) => { objectives: readonly { type: string; primary: boolean }[]; name?: string } | undefined;
   /** Resolves a villain's bare portrait file name to a URL, same as the flat
@@ -182,6 +165,8 @@ export interface World3dHandle {
  *  and harmless if it drifts -- the two are a button label and a rotation,
  *  not a contract. */
 const NUDGE_DEGREES = 30;
+/** Clear space kept between two town labels on one row (PA-20). */
+const LABEL_PAD_PX = 8;
 
 const el = (tag: string, cls?: string, text?: string): HTMLElement => {
   const n = document.createElement(tag);
@@ -249,7 +234,10 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
   // in its original visual position, once the stage and rotate controls are
   // in the DOM) -- declared before the town pins so their hover listeners
   // can call `speak` directly rather than through a forward reference.
-  const HINT = t('world3d.hint');
+  // The resting line: the click hint while a front is open, and the end of
+  // the war once none is -- "click a front to open its next operation" over a
+  // board with nothing left to open was the campaign's only closing word.
+  const HINT = boardRestingLine(world, ledger);
   const say = el('p', 'rl-world__say', HINT);
   say.setAttribute('role', 'status');
   say.setAttribute('aria-live', 'polite');
@@ -281,7 +269,7 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
     }
     const region = regionById.get(regionId);
     if (!region) {
-      speak(t('world3d.hover.unmapped', { id: regionId }), 'info');
+      speak(t('world3d.hover.unmapped'), 'info');
       return;
     }
     const p = regionProgress(region, ledger, missionName);
@@ -492,7 +480,8 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
     cardFor.set(region.id, card);
   }
   wrap.appendChild(cards);
-  wrap.appendChild(ledgerLine(ledger, world));
+  const ledgerEl = ledgerLine(ledger, world, (id) => opts.missionOf?.(id)?.name);
+  (opts.statusHost ?? wrap).appendChild(ledgerEl);
 
   const point = (regionId: string | null): void => {
     for (const [id, card] of cardFor) {
@@ -521,7 +510,7 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
       // .test.ts` makes that unreachable on the shipped asset; it is handled
       // rather than assumed away because the alternative is a dead click.
       point(null);
-      speak(t('world3d.say.unmapped', { id: regionId }), 'info');
+      speak(t('world3d.say.unmapped'), 'info');
       return;
     }
     point(region.id);
@@ -561,6 +550,14 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
   // `offsetWidth`/`offsetHeight` are the placed-and-visible size regardless
   // of `opacity`, which is all this pin ever animates.
   const labelSize = new Map<string, { w: number; h: number }>();
+  // The label stands 0.875rem right of its pin's point (`translate` in
+  // theme.css), so its true span starts there; and two labels on one row keep
+  // LABEL_PAD_PX between them (PA-20, `pinLabelBox`).
+  let reachPx = 0;
+  const labelReachPx = (): number => {
+    if (reachPx === 0) reachPx = 0.875 * (parseFloat(getComputedStyle(document.documentElement).fontSize) || 16);
+    return reachPx;
+  };
   const onFrame = (towns: readonly TownPin[], bearingDegrees: number): void => {
     const boxes: LabelBox[] = [];
     for (const t of towns) {
@@ -573,7 +570,7 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
         pin.dataset.placed = '1';
       }
       const size = labelSize.get(t.id) ?? { w: 0, h: 0 };
-      boxes.push({ id: t.id, x: t.x, y: t.y, w: size.w, h: size.h });
+      boxes.push(pinLabelBox(t.id, t, size, labelReachPx(), LABEL_PAD_PX));
     }
     // Collision avoidance over the PROJECTED positions, recomputed every
     // frame as the board turns -- cheap at a dozen towns (label-layout.ts).
@@ -615,6 +612,9 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
     wrap.dataset.board = 'flat';
     stage.remove();
     say.remove();
+    // The flat board builds its own ledger line (into the same `statusHost`):
+    // keeping this one would show the status twice.
+    if (opts.statusHost !== undefined) ledgerEl.remove();
     wrap.prepend(opts.fallback());
     return 'flat';
   };

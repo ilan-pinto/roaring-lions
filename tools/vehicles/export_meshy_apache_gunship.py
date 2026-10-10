@@ -230,6 +230,14 @@ def export(scale=1.0, out_path=OUT):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=SRC, import_scene_extras=True)
 
+    # The Peten's upgrade kit (`kit_*`, contract v5): the gunship is a unit of
+    # its own (ruling K9 keeps it out of plan 3) and must not inherit it.
+    kit = [o for o in bpy.data.objects if o.name.startswith("kit_")]
+    for o in kit:
+        bpy.data.objects.remove(o, do_unlink=True)
+    if kit:
+        log(f"dropped {len(kit)} imported kit_* object(s)")
+
     # Strip the wreck pass's subtree and clips; the pass rebuilds both.
     death = bpy.data.objects.get("death_root")
     if death is not None:

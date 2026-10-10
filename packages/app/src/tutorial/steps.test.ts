@@ -53,6 +53,10 @@ describe('shipped tutorial steps', () => {
           if (p.kind === 'intent') expect(p.intent, where).toBeDefined();
           if (p.kind === 'sim' || p.kind === 'mission') expect(p.event, where).toBeDefined();
           if (p.kind === 'elapsed_s') expect(p.seconds, where).toBeDefined();
+          if (p.kind === 'camera') expect(p.tiles, where).toBeDefined();
+          // An id only means something on the two events that carry an
+          // authored one; on any other kind it would silently match nothing.
+          if (p.kind === 'mission' && p.id !== undefined) expect(['trigger', 'objective'], where).toContain(p.event);
           if (p.kind === 'all_of' || p.kind === 'any_of') {
             expect((p.of ?? []).length, where).toBeGreaterThan(1);
           }
@@ -69,11 +73,12 @@ describe('shipped tutorial steps', () => {
     const allowed: Record<string, string[]> = {
       intent: ['kind', 'intent', 'verb', 'via', 'action', 'append'],
       sim: ['kind', 'event', 'side', 'by_unit', 'loaded'],
-      mission: ['kind', 'event'],
+      mission: ['kind', 'event', 'id'],
       elapsed_s: ['kind', 'seconds'],
       all_of: ['kind', 'of'],
       any_of: ['kind', 'of'],
-      hover: ['kind', 'target'],
+      hover: ['kind', 'target', 'projection'],
+      camera: ['kind', 'tiles'],
     };
     for (const t of all) {
       for (const s of t.steps) {
@@ -117,7 +122,29 @@ describe('shipped tutorial steps', () => {
     const ids = STEPS.map((s) => s.id);
     expect(ids).toContain('read_before_you_fire');
     expect(new Set(ids).size).toBe(ids.length);
-    expect(STEPS).toHaveLength(14);
+    // GH-345: nine beats, down from fourteen.
+    expect(STEPS).toHaveLength(9);
+  });
+
+  // GH-345 (spec §a): one verb per beat, and at most one NEW surface per beat
+  // -- a beat may reveal an element together with the controls that are part
+  // of it (the order row and its key hint; the objective and its list).
+  it('reveals each HUD surface once, and never the ones the tutorial keeps off', () => {
+    const t = tutorials.beit_sahwan_0 as unknown as { hud_start: string[]; steps: { reveal?: string[] }[] };
+    const revealed = [...t.hud_start, ...t.steps.flatMap((s) => s.reveal ?? [])];
+    expect(new Set(revealed).size).toBe(revealed.length);
+    for (const never of ['clock', 'speed', 'mute', 'dock', 'logistics', 'intel', 'groups', 'radio']) {
+      expect(revealed, `${never} is revealed by the tutorial`).not.toContain(never);
+    }
+    // The fire panel arrives with the beat that teaches it.
+    const fireBeat = t.steps.findIndex((s) => (s.reveal ?? []).includes('fire'));
+    expect(tutorials.beit_sahwan_0.steps[fireBeat].id).toBe('read_before_you_fire');
+  });
+
+  it('beat 5 asks for all four panel states, and never for "cannot penetrate"', () => {
+    const beat = tutorials.beit_sahwan_0.steps.find((s) => s.id === 'read_before_you_fire') as StepJson;
+    expect((beat.await.of ?? []).map((p) => p.projection).sort()).toEqual(['cover', 'moving', 'out_of_reach', 'unidentified']);
+    expect(beat.teach).not.toMatch(/penetrat/i);
   });
 
   it('completes only an objective its mission declares', () => {

@@ -6,21 +6,24 @@ import type { LedgerData } from '@lions/sim';
 // and the whole point of this screen is that adding a map to `data/maps/`
 // makes it playable from the UI with no edit here. `terrain-parity.test.ts`
 // takes `Object.keys(maps)` the same way, for the same reason.
-import { maps, type MapJson } from '@lions/data';
-import type { CommanderData, ParsedWorld, WorldCountry } from '../campaign';
-import { t } from '../i18n/t';
+import { maps, parseMap, type MapJson } from '@lions/data';
+import { campaignComplete } from '../campaign-close';
+import { nextOperation, type CommanderData, type ParsedWorld, type WorldCountry } from '../campaign';
+import { hasKey, t } from '../i18n/t';
 import { symbolLabel } from './symbol';
+import { footBack, screenFoot } from './foot';
 import { CAMPAIGN_MESHES, dracoDecoderPath, meshUrl } from '../mesh-catalogue';
-import { readStoredRenderer, rememberRenderer, resolveRendererChoice } from '../renderer-choice';
 import { SANDBOX_FLAGS, type SandboxFlagName } from '../sandbox-help';
 import { routes } from '../shell/links';
 import type { Disposer } from '../shell/router';
 import { confirmDialog } from './confirm';
-import { panel } from './panel';
 import { stagger } from './motion';
-import { markSvg, wordmark } from './mark';
+import { wordmark } from './mark';
 import { worldMap } from './worldmap';
-import { campaignBoard, worldMap3d } from './worldmap3d';
+import { worldMap3d } from './worldmap3d';
+import { markConfirm } from './confirm-cue';
+import { paintMapTerrain } from './map-preview';
+import { terrainTonesFor } from '../terrain-themes';
 
 export interface MenuOptions {
   /** Deploy base ('/' locally, '/<repo>/' on Pages). */
@@ -61,6 +64,12 @@ export interface MenuOptions {
    * before the host existed.
    */
   backdrop?: (stage: HTMLElement, column: HTMLElement) => Disposer;
+  /** Opens the feedback modal (GH-464). Absent when `feedbackShown` says no
+   *  (`feedback/gate.ts`), which is also every test that does not ask. */
+  feedback?: () => void;
+  /** The server's switch (`GET /api/feedback`, asked once a boot): when it
+   *  resolves false after this menu mounted, the button comes down. */
+  feedbackAvailable?: Promise<boolean>;
 }
 
 export interface CampaignOptions {
@@ -74,12 +83,6 @@ export interface CampaignOptions {
   /** Resolves a villain's bare portrait file name to a URL, threaded to both
    *  boards -- neither builds a `portraits/...` path itself. */
   portraitUrl?: (file: string) => string | undefined;
-  /** This navigation's `?renderer=` value, or null. Read by the SHELL and
-   *  handed in: this screen used to reach into `window.location.search` for
-   *  it, and no screen reads `window.location` now that the router owns the
-   *  URL. `undefined` and `null` both mean "not asked for", which is what a
-   *  test that does not care passes. */
-  renderer?: string | null;
   /** Soft navigation for the 3D board's ground clicks, threaded down to
    *  `worldMap3d`. Absent means a real page load, which is that function's
    *  own default -- the flat board's town pins are anchors and go through the
@@ -115,6 +118,8 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
     a.href = href;
     a.className = 'rl-btn rl-menu__item';
     if (kind) a.dataset.kind = kind;
+    // Continue is the menu's one primary action (A8).
+    if (kind === 'primary') markConfirm(a);
     nav.appendChild(a);
   };
   // The FIRST thing a commander's eye lands on (Task 7): where the campaign
@@ -138,12 +143,12 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
   }
   // The war itself lives on its own page: the menu stays a landing, the map a
   // destination you can always come back to.
-  add(t('menu.nav.campaign'), routes.campaign(), 'campaign');
-  add(t('menu.nav.brigade'), routes.brigade(), 'brigade');
+  add(t('menu.nav.campaign'), routes.campaign(), 'secondary');
+  add(t('menu.nav.brigade'), routes.brigade(), 'secondary');
   wrap.appendChild(nav);
 
   const aside = document.createElement('nav');
-  aside.className = 'rl-menu__nav';
+  aside.className = 'rl-menu__nav rl-menu__nav--grid';
   const addAside = (label: string, href: string): void => {
     const a = document.createElement('a');
     a.textContent = label;
@@ -195,6 +200,23 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
   });
   aside.appendChild(newCampaignBtn);
   if (opts.audio) aside.appendChild(audioToggle(opts.audio));
+  // GH-464: a button, like New campaign -- it opens a modal rather than
+  // leaving the page. Bugs on the board, in the garage or the brigade screen
+  // have no pause menu to report them from.
+  if (opts.feedback) {
+    const feedbackBtn = document.createElement('button');
+    feedbackBtn.type = 'button';
+    feedbackBtn.className = 'rl-btn rl-menu__item';
+    feedbackBtn.dataset.kind = 'aside';
+    feedbackBtn.dataset.act = 'feedback';
+    feedbackBtn.textContent = t('menu.aside.feedback');
+    const open = opts.feedback;
+    feedbackBtn.addEventListener('click', () => open());
+    aside.appendChild(feedbackBtn);
+    void opts.feedbackAvailable?.then((ok) => {
+      if (!ok) feedbackBtn.remove();
+    });
+  }
   // Last, deliberately: people, libraries, fonts and the licence split are
   // the least urgent thing on this screen, not the most.
   addAside(t('menu.aside.credits'), routes.credits());
@@ -224,7 +246,7 @@ function audioToggle(audio: { isMuted(): boolean; toggle(): boolean }): HTMLButt
   b.title = t('menu.audio.hint');
   const paint = (): void => {
     const on = !audio.isMuted();
-    // GH-261: the APP-6 signals bolt, struck through for radio silence.
+    // VR-15: a speaker, struck through when muted (the GH-261 bolt read as power).
     b.innerHTML = on ? symbolLabel('audioOn', t('menu.audio.on')) : symbolLabel('audioOff', t('menu.audio.off'));
     b.setAttribute('aria-pressed', String(on));
   };
@@ -253,20 +275,18 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
   theatre.className = 'rl-menu__theatre';
   theatre.textContent = opts.world.name;
 
-  // Which board: the Sahar Basin diorama on three, the flat PNG on Pixi.
-  // `worldmap3d.ts`'s own header has the argument for not forcing three here
-  // -- in short, `?renderer=pixi` is the hatch a player reaches for when
-  // three has failed them, and loading three behind that choice for one menu
-  // is not a fallback, it is ignoring them.
-  //
-  // The query VALUE arrives from the shell (`CampaignOptions.renderer`); the
-  // decision is still resolved and persisted HERE, through the same pure
-  // function and the same storage key `main.ts` uses for a mission, so an
-  // explicit `?renderer=pixi` survives into every mission link this screen
-  // builds exactly as it does elsewhere. Reading `window.location.search`
-  // directly is the one thing the router took away from every screen.
-  const decision = resolveRendererChoice(opts.renderer ?? null, readStoredRenderer());
-  if (decision.persist) rememberRenderer(decision.persist);
+  // PA-20: the footer is built first because the ledger line ("campaign: fresh
+  // start", the roster and Conduct reading) is the screen's status line and
+  // lives in it. It used to be the LAST thing in the scrolling region, under
+  // the cards, so on any window short enough to scroll it sat half behind the
+  // Main Menu button until the player scrolled to find it. As the footer's own
+  // first row it is always on screen, whatever the window height.
+  const nav = document.createElement('nav');
+  nav.className = 'rl-menu__nav';
+  // Which board: the Sahar Basin diorama, falling back to the flat PNG for
+  // the three causes `worldmap3d.ts`'s header names (no WebGL2, a GLB that
+  // will not load, a scene that fails the campaign contract) plus the one
+  // decided here -- a world with no diorama GLB at all.
   const href = (id: string): string => routes.mission(id);
   const flat = (): HTMLElement =>
     worldMap({
@@ -278,6 +298,7 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
       commander: opts.commander,
       missionOf: opts.missionOf,
       portraitUrl: opts.portraitUrl,
+      statusHost: nav,
     });
   // A world with no GLB in the catalogue has no diorama to draw, and
   // `meshUrl` throws by name for a catalogue entry whose file is gone. Both
@@ -294,7 +315,7 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
     }
   }
   const boardEl: HTMLElement =
-    boardUrl === null || campaignBoard(decision.choice) === 'flat'
+    boardUrl === null
       ? flat()
       : worldMap3d({
           world: opts.world,
@@ -308,6 +329,7 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
           commander: opts.commander,
           missionOf: opts.missionOf,
           portraitUrl: opts.portraitUrl,
+          statusHost: nav,
           navigate: opts.navigate,
           signal: opts.signal,
         }).el;
@@ -322,14 +344,28 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
   boardEl.prepend(wordmarkEl, theatre);
   wrap.appendChild(boardEl);
 
-  const nav = document.createElement('nav');
-  nav.className = 'rl-menu__nav';
-  const back = document.createElement('a');
-  back.innerHTML = symbolLabel('back', t('nav.backToMenu'));
-  back.href = routes.menu();
-  back.className = 'rl-btn rl-menu__item';
-  back.dataset.kind = 'back';
-  nav.appendChild(back);
+  // PA-20: the board's one primary call to action -- the next open mission, a
+  // real anchor to the mission route so it soft-navigates like every other
+  // link (`interceptLinks`) and middle-click still works. Not drawn once the
+  // campaign is complete: there is no next operation to name.
+  // "Complete" is `campaign-close.ts`'s one definition (the board's closing
+  // line reads it too); this adds no second one.
+  // The one footer row (`foot.ts`, GH-498), under the status line: the way
+  // back first, the next mission at the far edge, one height.
+  const foot = screenFoot();
+  foot.start.appendChild(footBack(t('nav.backToMenu'), routes.menu()));
+  const nextId = campaignComplete(opts.world, opts.ledger) ? null : nextOperation(opts.world, opts.ledger);
+  if (nextId !== null) {
+    const nextName = opts.missionOf?.(nextId)?.name;
+    const next = document.createElement('a');
+    next.textContent = nextName !== undefined ? t('campaign.next.label', { name: nextName }) : t('campaign.next.generic');
+    next.href = routes.mission(nextId);
+    next.className = 'rl-btn rl-menu__item';
+    next.dataset.kind = 'primary';
+    markConfirm(next);
+    foot.end.appendChild(next);
+  }
+  nav.appendChild(foot.el);
   wrap.appendChild(nav);
 
   stagger(wrap);
@@ -356,7 +392,7 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
  *  behave. Titled "Free play" for a player: it is the same picker the dev
  *  banner and this file's own history call the sandbox, but nothing on the
  *  card should read like an internal name -- a map is shown by its human
- *  name alone, an opt-in extra by its blurb alone, and neither the map id
+ *  name alone, an opt-in extra by a player's sentence alone, and neither the map id
  *  nor the free-play URL it builds prints anywhere on the screen (the flag
  *  name is still on the label's `title`, for the curious who hover it). */
 export function showSandbox(stage: HTMLElement): Disposer {
@@ -372,9 +408,25 @@ export function showSandbox(stage: HTMLElement): Disposer {
   theatre.textContent = t('menu.sandbox.title');
   wrap.appendChild(theatre);
 
-  // --- the extras ---------------------------------------------------------
+  // --- the options --------------------------------------------------------
+  // Behind a closed "Options" disclosure, one quiet line ABOVE the maps
+  // (PA-25): extras for the battlefield, not part of the mode a player came
+  // for, so the picker opens on the maps alone -- but above them, because
+  // under thirty-odd cards it would be a control nobody finds. Each reads as a plain sentence -- the label the
+  // flag table itself names (`SANDBOX_FLAGS[].labelKey`); the console banner
+  // keeps its own dev blurbs.
+  const dev = document.createElement('details');
+  dev.className = 'rl-sandbox__dev';
+  const devSummary = document.createElement('summary');
+  devSummary.className = 'rl-sandbox__dev-summary';
+  devSummary.textContent = t('menu.sandbox.options');
+  dev.appendChild(devSummary);
   const flagBox = document.createElement('div');
   flagBox.className = 'rl-sandbox__flags';
+  const devHint = document.createElement('p');
+  devHint.className = 'rl-sandbox__dev-hint';
+  devHint.textContent = t('menu.sandbox.options.hint');
+  flagBox.appendChild(devHint);
   const boxes: { name: SandboxFlagName; input: HTMLInputElement }[] = [];
   for (const f of SANDBOX_FLAGS) {
     const label = document.createElement('label');
@@ -385,34 +437,53 @@ export function showSandbox(stage: HTMLElement): Disposer {
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.dataset.flag = f.name;
-    // The table's own blurb, not new prose: one description of a flag, in the
-    // banner and on this screen alike -- and, since the flag's own name moved
-    // to the label's title, the only text a player reads here at all.
-    // `sandbox-help.ts`'s own blurbs are dev-tool text and stay English on
-    // purpose -- see that file's header.
     const blurb = document.createElement('span');
     blurb.className = 'rl-sandbox__blurb';
-    blurb.textContent = /* i18n-ok: dev tool */ f.blurb;
+    blurb.textContent = t(f.labelKey);
     label.append(input, blurb);
     flagBox.appendChild(label);
     boxes.push({ name: f.name, input });
   }
-  wrap.appendChild(flagBox);
+  dev.appendChild(flagBox);
+  wrap.appendChild(dev);
 
   // --- the maps -----------------------------------------------------------
+  // The primary choice (PA-25): one CARD a map -- its name, one line of what
+  // the ground is, and the ground itself painted a pixel a tile -- rather than
+  // a button label. The line is a catalogue string keyed by the map's id
+  // (`freePlay.map.<id>`, a spec holds every shipped map to one), and the
+  // picture is `paintMapTerrain`, the deploy screen's own painter, which is
+  // simply absent where there is no canvas. The cards stay real anchors with
+  // real hrefs, rewritten as the option boxes below change, so middle-click,
+  // copy-link and the browser's own history all behave.
   const nav = document.createElement('nav');
-  nav.className = 'rl-menu__nav';
+  nav.className = 'rl-menu__nav rl-mapcards';
   const catalogue = maps as Record<string, MapJson>;
   const links: { id: string; a: HTMLAnchorElement }[] = [];
   for (const id of Object.keys(catalogue)) {
     const a = document.createElement('a');
-    a.className = 'rl-btn rl-menu__item';
+    a.className = 'rl-btn rl-menu__item rl-mapcard';
     a.dataset.kind = 'sandbox';
     a.dataset.map = id;
+    const preview = mapPreviewCanvas(catalogue[id]);
+    if (preview) a.appendChild(preview);
+    const text = document.createElement('span');
+    text.className = 'rl-mapcard__text';
     // The name alone -- no id alongside it. The route carries the id and the
     // boot banner still lists it for a dev reading the console, but a player
     // clicking this card has no use for it and it read as leaked plumbing.
-    a.textContent = catalogue[id].name;
+    const name = document.createElement('span');
+    name.className = 'rl-mapcard__name';
+    name.textContent = catalogue[id].name;
+    text.appendChild(name);
+    const descKey = `freePlay.map.${id}`;
+    if (hasKey(descKey)) {
+      const desc = document.createElement('span');
+      desc.className = 'rl-mapcard__desc';
+      desc.textContent = t(descKey);
+      text.appendChild(desc);
+    }
+    a.appendChild(text);
     nav.appendChild(a);
     links.push({ id, a });
   }
@@ -426,177 +497,26 @@ export function showSandbox(stage: HTMLElement): Disposer {
   for (const b of boxes) b.input.addEventListener('change', refresh);
   refresh();
 
-  const backNav = document.createElement('nav');
-  backNav.className = 'rl-menu__nav';
-  const back = document.createElement('a');
-  back.innerHTML = symbolLabel('back', t('nav.backToMenu'));
-  back.href = routes.menu();
-  back.className = 'rl-btn rl-menu__item';
-  back.dataset.kind = 'back';
-  backNav.appendChild(back);
-  wrap.appendChild(backNav);
+  // The one footer row (`foot.ts`, GH-498), sticky: the map list is long, and
+  // the way back stays on screen while it scrolls instead of waiting below it.
+  const foot = screenFoot({ sticky: true });
+  foot.start.appendChild(footBack(t('nav.backToMenu'), routes.menu()));
+  wrap.appendChild(foot.el);
 
   stagger(wrap);
   stage.appendChild(wrap);
   return () => wrap.remove();
 }
 
-/**
- * The story voice's closing line for ONE outcome, already resolved the same
- * way the commander bar resolves a `say` line -- `plate` is `speakerPlate`'s
- * answer (Shai's or Idit's rank/plate, or the literal NET/ENEMY word) and
- * `portrait` is `speakerPortrait`'s (`hud-model.ts`, both called once in
- * `main.ts`, which is the only place `HudCommanderInfo` and a mission's
- * `debrief` object are both in scope). This screen does no speaker lookup of
- * its own, on purpose -- `menu.ts` has no `HudCommanderInfo` to resolve one
- * against, and duplicating that join here is exactly the second
- * implementation of a lookup `hud.ts`'s `paintFace` already owns.
- */
-export interface EndScreenDebrief {
-  plate: string;
-  text: string;
-  /** Already-resolved portrait URL. `undefined` falls back to the hatch,
-   *  covering "no portrait authored" and "speaker is net/enemy" alike --
-   *  the caller does not need to tell them apart, exactly as `speakerPortrait`
-   *  itself does not. */
-  portrait?: string;
-  /** The raw `say` speaker id (`hud-model.ts`'s vocabulary), carried
-   *  separately from `portrait` for one reason: `net` has to be told apart
-   *  from "no portrait authored yet", and `portrait` alone cannot do that --
-   *  `speakerPortrait` maps both to the same `undefined`. `net` paints the
-   *  brigade mark instead of the hatch, mirroring `hud.ts`'s `paintFace`;
-   *  every other speaker, and a debrief built with no `speaker` at all
-   *  (every caller before this field existed), falls back to the ordinary
-   *  portrait/hatch join unchanged. */
-  speaker?: string;
-}
 
-export interface EndScreenOptions {
-  result: 'victory' | 'defeat';
-  roe: number;
-  survivors: number;
-  missionId: string;
-  /** Next mission in campaign order, if this one was won and one follows. */
-  nextMissionId?: string;
-  /** The story voice's OUTCOME-SPECIFIC closing word (GDD §11, G11) --
-   *  `mission.debrief.victory` on a win, `.defeat` on a loss, picked by the
-   *  caller off the same `missionEnd.result` this screen's own `result` is
-   *  (`mission.schema.json`'s `debrief`: "shown on the end screen, above the
-   *  rating"). Absent entirely when THAT outcome has no line declared --
-   *  never a fallback to the other outcome's, and never the hatch alone
-   *  standing in for missing text: no paragraph at all. */
-  debrief?: EndScreenDebrief;
-  /** A victory's `aftermath` (GDD §11), the mission's closing narration,
-   *  drawn under the speaker's line, above the rating. The caller passes the
-   *  value the outcome moment was handed (`outcomeMomentOptions`'s
-   *  `aftermath`, `ui/outcome-moment.ts`), so the two surfaces read one
-   *  value under one rule -- victory only, only when authored -- and this
-   *  screen does not restate it. The moment only previews it for its hold;
-   *  this is where it stays up long enough to read. Absent: no paragraph. */
-  aftermath?: string;
-  /** Opens the full debrief screen (Task 9's `ui/debrief.ts`) in place of this
-   *  panel. Optional: a caller with nothing to show beyond this 26.25rem card
-   *  (no wiring yet, or a context with no ledger to report on) simply omits
-   *  it, and no button appears. */
-  onDebrief?: () => void;
-}
-
-export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): Disposer {
-  const won = opts.result === 'victory';
-  const p = panel({
-    rank: 'alert',
-    title: t('menu.end.title', { result: opts.result }),
-    tag: t('menu.end.tag', { result: opts.result }),
-    place: 'top:62%;left:50%;transform:translateX(-50%);width:min(26.25rem,90vw);text-align:center',
-  });
-  p.el.classList.add('rl-enter');
-
-  if (opts.debrief) {
-    const { plate, text, portrait, speaker } = opts.debrief;
-
-    const head = document.createElement('div');
-    head.className = 'rl-enddebrief__head';
-
-    // Hatched exactly like the commander bar's own `.rl-cmd__face` whenever
-    // there is no resolved URL -- `error` catches a URL that resolved but
-    // still failed to load, which `portrait !== undefined` alone does not
-    // guarantee (`portrait-catalogue.ts`'s own doc comment on this exact gap).
-    // `net` is carved out first and paints the brigade mark instead of
-    // either, the same split `hud.ts`'s `paintFace` makes.
-    const face = document.createElement('div');
-    face.className = 'rl-enddebrief__face';
-    if (speaker === 'net') face.classList.add('rl-enddebrief__face--net');
-    const faceImg = document.createElement('img');
-    faceImg.className = 'rl-enddebrief__face-img';
-    faceImg.alt = '';
-    faceImg.hidden = true;
-    faceImg.addEventListener('error', () => {
-      faceImg.hidden = true;
-      faceImg.removeAttribute('src');
-    });
-    if (speaker !== 'net' && portrait !== undefined) {
-      faceImg.src = portrait;
-      faceImg.hidden = false;
-    }
-    const faceMark = document.createElement('div');
-    faceMark.className = 'rl-enddebrief__face-mark';
-    faceMark.innerHTML = markSvg(86, 52);
-    face.append(faceImg, faceMark);
-
-    const who = document.createElement('div');
-    who.className = 'rl-enddebrief__who';
-    who.textContent = plate;
-
-    head.append(face, who);
-    p.body.appendChild(head);
-
-    const debrief = document.createElement('p');
-    debrief.className = 'rl-enddebrief';
-    debrief.textContent = t('menu.end.quote', { text });
-    p.body.appendChild(debrief);
-  }
-
-  // Mission data, so `textContent`: an authored tag is shown, not parsed.
-  if (opts.aftermath !== undefined) {
-    const aftermath = document.createElement('p');
-    aftermath.className = 'rl-endaftermath';
-    aftermath.textContent = opts.aftermath;
-    p.body.appendChild(aftermath);
-  }
-
-  const summary = document.createElement('div');
-  summary.className = 'rl-dim';
-  summary.textContent = t('menu.end.summary', { roe: opts.roe, n: opts.survivors });
-  p.body.appendChild(summary);
-
-  const nav = document.createElement('div');
-  nav.className = 'rl-endnav';
-  const link = (label: string, href: string, onward = false): void => {
-    const a = document.createElement('a');
-    // GH-261: the onward link carries the supporting-attack arrow after its words.
-    if (onward) a.innerHTML = symbolLabel('next', label, { after: true });
-    else a.textContent = label;
-    a.href = href;
-    a.className = 'rl-btn';
-    nav.appendChild(a);
-  };
-  if (opts.onDebrief) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'rl-btn rl-endnav__debrief';
-    btn.textContent = t('menu.end.debrief');
-    btn.addEventListener('click', () => {
-      p.el.remove();
-      opts.onDebrief?.();
-    });
-    nav.appendChild(btn);
-  }
-  if (won && opts.nextMissionId) link(t('menu.end.next'), routes.mission(opts.nextMissionId), true);
-  link(t('menu.end.replay', { result: opts.result }), routes.mission(opts.missionId));
-  link(t('nav.campaignMap'), routes.campaign());
-  link(t('nav.menu'), routes.menu());
-  p.body.appendChild(nav);
-
-  host.appendChild(p.el);
-  return () => p.el.remove();
+/** A map's card picture: the ground painted a pixel a tile, in the tones the
+ *  battlefield itself draws with. Null where there is no 2D canvas -- the card
+ *  then reads and launches exactly the same without it. */
+function mapPreviewCanvas(json: MapJson): HTMLCanvasElement | null {
+  const parsed = parseMap(json);
+  const canvas = paintMapTerrain(parsed, terrainTonesFor(parsed));
+  if (canvas === null) return null;
+  canvas.className = 'rl-mapcard__preview';
+  canvas.setAttribute('aria-hidden', 'true');
+  return canvas;
 }

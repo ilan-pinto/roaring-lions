@@ -50,6 +50,7 @@ import {
 import { computeDiff, type DiffSummary } from './diff';
 import {
   CAPTURE_PRECONDITION_STATEMENTS,
+  HIDE_ALERT_FEED_STATEMENTS,
   PARK_POINTER_STATEMENTS,
   CAPTURE_VIEWPORT,
   RELIEF_SCENARIO,
@@ -79,7 +80,7 @@ function summary(over: Partial<DiffSummary>): DiffSummary {
 
 describe('BASELINES', () => {
   it('covers every scenario the gate captures, since a missing entry throws', () => {
-    // Mirrors golden-diff-gate.ts's own rule: a scenario with no calibrated
+    // The retired golden-diff-gate.ts's rule too: a scenario with no calibrated
     // entry must not pass silently.
     //
     // THE ASSERTION READS `SCENARIOS`, NOT A HAND-WRITTEN LIST. What was here
@@ -711,6 +712,10 @@ describe('BASELINES layerChecks', () => {
     // Task 17 (D4): the two decal pools draw nowhere else in the gate, so
     // `aftermath` is their only witness.
     expect(byLayer.get('decals')).toEqual(['aftermath']);
+    // Plan 3 Task 8 (GH-238 K8): the merged vehicle kit draws in no other
+    // gated frame -- the sandbox force boots with an empty brigade account
+    // everywhere but under `&kit` -- so `kitted` is its only witness.
+    expect(byLayer.get('kit')).toEqual(['kitted']);
   });
 
   it('sets every floor strictly below the signal it was measured from, on both metrics', () => {
@@ -814,6 +819,14 @@ describe('BASELINES layerChecks', () => {
       // weakest reading rather than the flattering one.
       vehicle: {
         units: { px: 29622, mean: 2.96 },
+      },
+      // Plan 3 Task 8 (GH-238 K8), 2026-10-07: `kit:capture -- --toggle`, the
+      // gate's own capture code, 3 fresh loads per layer, bit-identical
+      // (`KIT_K8` in `baseline.ts`). `units` carries `vehicle`'s own floor and
+      // is checked against THIS frame's reading, which the kit only raises.
+      kitted: {
+        units: { px: 37565, mean: 3.7734 },
+        kit: { px: 6460, mean: 0.4278 },
       },
     };
     /** Below this many pixels a count is not a measurement you can take a
@@ -1019,5 +1032,55 @@ describe('capture precondition: no selection, no hover (GH-186)', () => {
       const at = script.indexOf(CAPTURE_PRECONDITION_STATEMENTS);
       expect(at).toBeGreaterThan(script.lastIndexOf('.step('));
     }
+  });
+});
+
+describe('capture keeps the alert feed out of shot (repaint drift since #488)', () => {
+  /** A just-enough `document`: the statements query one selector, read one id
+   *  and append one style. Records what they did rather than faking a DOM. */
+  const fakeDocument = (hasFeed: boolean) => {
+    const appended: { id: string; textContent: string }[] = [];
+    const doc = {
+      querySelector: (sel: string) => (hasFeed && sel === '.rl-feed' ? {} : null),
+      getElementById: (id: string) => appended.find((s) => s.id === id) ?? null,
+      createElement: () => ({ id: '', textContent: '' }),
+      head: { appendChild: (el: { id: string; textContent: string }) => void appended.push(el) },
+    };
+    return { doc, appended };
+  };
+  const run = (doc: unknown): void => {
+    new Function('document', HIDE_ALERT_FEED_STATEMENTS)(doc);
+  };
+
+  it('is part of every scenario capture script, before the final step', () => {
+    for (const sc of SCENARIOS) {
+      const script = captureScript(sc);
+      const at = script.indexOf(HIDE_ALERT_FEED_STATEMENTS);
+      expect(at, `scenario "${sc.id}"`).toBeGreaterThan(-1);
+      expect(at, `scenario "${sc.id}"`).toBeLessThan(script.lastIndexOf('.step('));
+    }
+  });
+
+  it('hides .rl-feed with a display:none stylesheet, once', () => {
+    const { doc, appended } = fakeDocument(true);
+    run(doc);
+    run(doc);
+    expect(appended).toHaveLength(1);
+    expect(appended[0].textContent).toMatch(/^\.rl-feed \{ display: none !important; \}$/);
+  });
+
+  it('throws by name when the page has no .rl-feed, rather than hiding nothing', () => {
+    expect(() => run(fakeDocument(false).doc)).toThrow(/no \.rl-feed in the page/);
+  });
+
+  it('names the class the HUD actually gives its feed', () => {
+    // Read as TEXT, like `debugLayersFromRendererSourceForTone`: a rename in
+    // `ui/hud.ts` must turn this red, not leave the capture hiding nothing.
+    const hud = readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../packages/app/src/ui/hud.ts'),
+      'utf8'
+    );
+    expect(hud).toMatch(/this\.feed\.className = 'rl-feed';/);
+    expect(HIDE_ALERT_FEED_STATEMENTS).toContain(".rl-feed { display: none !important; }");
   });
 });

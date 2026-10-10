@@ -72,7 +72,9 @@
   --panel-frame: var(--rl-gunmetal-3);
   --panel-rule: color-mix(in srgb, var(--rl-gunmetal-3) 70%, transparent);
   --well: var(--rl-shadow-1);
-  /* For type that sits directly on the battlefield with no panel behind it. */
+  /* The dimming laid over the whole screen behind a modal (`.rl-confirm`,
+     `.rl-pause`, `.rl-keys`). Not a glyph halo: that is --type-shadow, through
+     the one --halo token (VR-30). */
   --scrim: var(--rl-shadow-2);
   /* The halo the floating HUD's unpanelled type is set in, and the dark bar of
      the commander's hatch. Deliberately shadow-0 and not --scrim: the halo has
@@ -149,6 +151,15 @@
   /* Earned, not a state: stars, citations, the stripe. Its own token so a reward never
      borrows the caution colour (the stripe stars used --warn until 2026-09-11). */
   --commend: var(--rl-dust-0);
+  /* The Roar coin's own register (GH-317, spec 2026-10-01 §3.1): copper, the
+     terracotta ramp. Never --commend (that is credits, and earned), so each
+     currency always wears its own colour, and apart from it in lightness as
+     well as hue. Palette keys only, like every other token here. */
+  --roar: var(--rl-terracotta-0);
+  --roar-mid: var(--rl-terracotta-1);
+  --roar-deep: var(--rl-terracotta-2);
+  --roar-hi: var(--rl-limestone-1);
+  --roar-ink: var(--rl-shadow-1);
   /* Bought, per type (garage uplift §2 goal 4, D3): steel, never gold -- gold
      is veterancy and credits. Shares its value with --ink-label by D3's own
      choice; kit is told apart by SHAPE (pips, the bevelled mark) and by the
@@ -179,7 +190,7 @@
      (`.rl-world__say[data-tone='bad']`), a poor dock tile's price
      (`.rl-tile[data-poor='1'] .rl-tile__cost`), the boot-failure screen
      (`.rl-boot-error`), the debrief's deduction list
-     (`.rl-debrief__deductions li`) and the tutorial nudge
+     (`.rl-debrief__cost`) and the tutorial nudge
      (`.rl-tutorial__nudge`) -- so a bad-tone string cannot land back on the
      unreadable fill token by accident. */
   --bad-text: var(--rl-team-hostile-text);
@@ -193,13 +204,48 @@
      below); the label beside it stays in ink. Offensive and control ride the
      two tokens the colour-vision blocks below already re-point, so they
      follow a CVD choice with no rule of their own. */
-  --order-manoeuvre: var(--rl-vfx-interceptor);
+  --order-manoeuvre: var(--rl-vfx-tracer); /* lime since VR-33, as the move cursor */
   --order-offensive: var(--bad-text);
   --order-control: var(--warn);
   --order-obscurant: var(--rl-limestone-0);
   --order-transport: var(--rl-vfx-tracer);
   --friendly: var(--rl-team-kedem);
+  /* The INTERACTIVE colour, and nothing else (VR-31): hover, the focus ring,
+     the selected register below. It shares dust.0 with --commend (credits,
+     stars) and --mark-1 (the brand chevron), each declared on its own line
+     from the palette so a retune of one never moves the others; and since
+     VR-25 no price and no decorative label wears it, so a gold edge on a
+     control means "you can act here" and gold figures mean "earned". */
   --accent: var(--rl-dust-0);
+  /* A decorative display accent (the title card's subline, the garage's role
+     line). Its own name for VR-31: it was --accent, the interactive colour. */
+  --title-accent: var(--rl-dust-0);
+
+  /* --- the chrome register (VR-24..VR-31) ------------------------------- */
+  /* ONE "selected" for every pick-one-of-a-set control -- tabs, views,
+     shelves, cards, rows, the pause menu's tabs (VR-26): the edge in the
+     interactive colour, ink brought up to full, and this tint behind it.
+     The garage tabs already wore exactly this; the other five treatments
+     (lime, copper, steel, olive at 35% and at 45%) fold into it. */
+  --selected: var(--accent);
+  --selected-fill: color-mix(in srgb, var(--accent) 14%, transparent);
+  /* The one justified second register: ON, for a LIVE state of the running
+     mission (the strip's speed chip, an armed order button) -- lime, the
+     battlefield's own "armed" colour. A menu pick is selected, never on. */
+  --on: var(--live);
+  /* ONE disabled (VR-27): every control that cannot be used now dims to
+     this and shows `not-allowed`; nothing swaps its colours instead. 0.45 was
+     the base .rl-btn's own value and the most used of the four. */
+  --disabled-opacity: 0.45;
+  /* ONE legibility halo for type set straight on the battlefield or a scene
+     (VR-30): the --type-shadow tone, a tight core and a soft glow. The glow
+     is in em so a title gets a wider halo than a label from the same token,
+     and both are capped at the title card's old 3/18 so a hero title does
+     not drown in it. A label at --t-body reads the HUD's old 3/8. */
+  --halo: 0 0 min(0.25em, 0.1875rem) var(--type-shadow), 0 0 min(0.6em, 1.125rem) var(--type-shadow);
+  /* The brand wordmark's rule. Olive like the mission band, but its own name
+     (VR-24): a band colour ranks a panel and is not decoration. */
+  --wordmark-rule: var(--rl-olive-2);
 
   /* --- the mark ------------------------------------------------------- */
   /* Three chevrons sweeping darker: depth at menu size, one readable shape at
@@ -217,6 +263,14 @@
   --s4: 1rem;
   --s5: 1.5rem;
   --s6: 2rem;
+  /* Three half-rungs (VR-29), added because the sheet already spent each of
+     these values over and over by hand and no rung sits within 7% of them:
+     0.125rem (half of --s1), 0.375rem (between --s1 and --s2) and 0.625rem
+     (between --s2 and --s3). `chrome-register.test.ts` holds every raw
+     spacing length at least 7% off every rung, so a new one routes here. */
+  --s0: 0.125rem;
+  --s1h: 0.375rem;
+  --s2h: 0.625rem;
 
   /* The bottom edge is shared by three things: production on the left, the
      unit card on the right, and the notice stack in whatever is left. Naming
@@ -255,11 +309,19 @@
      never arrives, the interface degrades to how it looked yesterday rather
      than to a serif. */
   --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  /* Body prose is Barlow as of GH-153. It replaced IBM Plex Mono, which was
-     never doing monospace work here — nothing in the HUD is a column of
-     figures that has to align — and cost about 15% of the width for the same
-     words. --font-mono stays declared and stays in use by the debug overlay,
-     where columns of numbers ARE the point. */
+  /* THE TYPE REGISTER (audit PA-22). Three faces, one job each:
+       --font-display  titles, bands, menu tiles, strip names -- caps, tracked.
+       --font-body     ALL prose: every sentence, blurb, narration, label that
+                       reads as words. Barlow ships 400 and 600 ONLY, so the
+                       only weights the interface may ask of it are those two.
+       --font-mono     only where columns of figures are the point: clocks,
+                       prices, wallets, stat numbers, key caps, counts, flag
+                       and URI identifiers, and the debug overlay.
+     Body prose is Barlow as of GH-153. It replaced IBM Plex Mono, which was
+     never doing monospace work on a sentence and cost about 15% of the width
+     for the same words. A container that moves to the body face re-applies
+     mono to its numeric children explicitly, so they keep tabular figures.
+     `type-register.test.ts` reads this file back and holds the rule. */
   --font-body: 'Barlow', system-ui, -apple-system, sans-serif;
   --t-xs: 0.625rem;
   --t-s: 0.6875rem;
@@ -272,6 +334,7 @@
   --t-read: 1.25rem; /* the lines the player reads -- the commander's beats and lines, the feed, the objective in hand (the lead: 0.75rem was too small), and since GH-162 the deploy screen's briefing beats, before the mission even starts */
   --t-card: 1.1875rem; /* the single-unit card's name */
   --t-l: 1.25rem;
+  --t-head: 1.5rem; /* section heads on the reading screens (the garage's panel heads); the one rung between --t-l and --t-xl */
   --t-xl: 1.75rem;
   --t-clock: 2.125rem; /* the hold clock, which is read across the room */
   --t-hero: clamp(2.125rem, 7vw, 3.25rem);
@@ -288,7 +351,28 @@
      timer that removes the poster is CROSSFADE_MS (ui/scene-host-model.ts),
      and scene-host.test.ts pins the two together. */
   --dur-host-reveal: 400ms;
+  /* The rest of the ladder (VR-29). Every duration in this sheet names a rung;
+     these were added only where no existing rung sat within 7% of a value the
+     sheet already used, and two are the CSS half of a JS timer that ends the
+     same animation (`garage-model.ts`: BAR_GROW_MS is --dur-long, STAMP_MS is
+     --dur-stamp; `brigade.ts`: ENLIST_MS is --dur-lift), which
+     `chrome-register.test.ts` pins together. --dur-stamp is the one rung
+     within 7% of another (--dur-slow, 250): it is the garage spec's own 240
+     (§6), and the JS timer that removes the stamp class runs on it. */
+  --dur-stamp: 240ms;
+  --dur-long: 300ms;
+  --dur-linger: 400ms;
+  --dur-spend: 600ms;
+  --dur-lift: 900ms;
+  --dur-pulse: 1s;
+  /* The step between items of a staggered entrance: a list, then the beats of
+     a briefing, which are read rather than scanned. */
+  --stagger: 60ms;
+  --stagger-beat: 140ms;
   --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+  /* Constant rate, for a fill that tracks a running quantity (a progress bar)
+     and a spinner. Everything else moves on --ease (VR-29). */
+  --ease-steady: linear;
 }
 
 /* --- colour-vision variants (Task 12) --------------------------------
@@ -376,11 +460,11 @@ body {
    column scrollers above switch to `overflow: visible`, so without it the
    whole garage falls back to the native bar under 1200 px wide -- the exact
    defect this file exists to fix, just at a width the earlier pass never
-   captured. `.rl-debrief` cannot be reached by any selector at all: its
-   `overflow: auto; max-height: 88vh` is INLINE (`ui/debrief.ts`'s `panel({
-   place: … })`, applied as `el.style.cssText` by `panel.ts`), so it needed
-   naming here explicitly rather than turning up in a sweep of this file --
-   and it is the one screen in this list shown after every single mission.
+   captured. `.rl-debrief` was named here because its `overflow: auto;
+   max-height: 88vh` used to be INLINE (`ui/debrief.ts`'s `panel({ place: … })`);
+   since the end-panel fix it scrolls through its `.rl-panel__body` under
+   `.rl-endpanel` instead, which the first selector here already covers, and
+   the name stays as harmless belt and braces.
    A sweep of every other TS file under `packages/app/src` for a `place:`
    string found none with an `overflow` of its own (`ui/menu.ts`'s end screen and
    `tutorial/panel.ts` both set only position/size), so `.rl-debrief` is the
@@ -411,6 +495,7 @@ body {
 .rl-garage__body,
 .rl-garage__cards,
 .rl-garage__stats,
+.rl-garage__bay,
 .rl-garage__board,
 .rl-settings,
 .rl-credits__licence-text,
@@ -433,6 +518,7 @@ body {
 .rl-garage__body::-webkit-scrollbar,
 .rl-garage__cards::-webkit-scrollbar,
 .rl-garage__stats::-webkit-scrollbar,
+.rl-garage__bay::-webkit-scrollbar,
 .rl-garage__board::-webkit-scrollbar,
 .rl-settings::-webkit-scrollbar,
 .rl-credits__licence-text::-webkit-scrollbar,
@@ -454,6 +540,7 @@ body {
 .rl-garage__body::-webkit-scrollbar-track,
 .rl-garage__cards::-webkit-scrollbar-track,
 .rl-garage__stats::-webkit-scrollbar-track,
+.rl-garage__bay::-webkit-scrollbar-track,
 .rl-garage__board::-webkit-scrollbar-track,
 .rl-settings::-webkit-scrollbar-track,
 .rl-credits__licence-text::-webkit-scrollbar-track,
@@ -474,6 +561,7 @@ body {
 .rl-garage__body::-webkit-scrollbar-thumb,
 .rl-garage__cards::-webkit-scrollbar-thumb,
 .rl-garage__stats::-webkit-scrollbar-thumb,
+.rl-garage__bay::-webkit-scrollbar-thumb,
 .rl-garage__board::-webkit-scrollbar-thumb,
 .rl-settings::-webkit-scrollbar-thumb,
 .rl-credits__licence-text::-webkit-scrollbar-thumb,
@@ -503,7 +591,9 @@ body {
 .rl-garage__cards::-webkit-scrollbar-thumb:hover,
 .rl-garage__cards::-webkit-scrollbar-thumb:active,
 .rl-garage__stats::-webkit-scrollbar-thumb:hover,
+.rl-garage__bay::-webkit-scrollbar-thumb:hover,
 .rl-garage__stats::-webkit-scrollbar-thumb:active,
+.rl-garage__bay::-webkit-scrollbar-thumb:active,
 .rl-garage__board::-webkit-scrollbar-thumb:hover,
 .rl-garage__board::-webkit-scrollbar-thumb:active,
 .rl-settings::-webkit-scrollbar-thumb:hover,
@@ -552,7 +642,7 @@ body {
   stroke-width: 6;
   filter: drop-shadow(0 0 5px var(--map-live)) drop-shadow(0 0 12px var(--map-live));
 }
-.rl-world__town { transition: transform 120ms ease-out; }
+.rl-world__town { transition: transform var(--dur-fast) var(--ease); }
 /* Only a town you can actually open moves under the cursor. This used to be
    unqualified, so an `empty` or `locked` marker scaled exactly like a playable
    one -- the muted colour said "not available" and the motion said "press me".
@@ -693,10 +783,18 @@ body {
      set from the projection every frame) never moves; only this transform,
      and with it the rendered ring and label together, does. */
   transform: translate(0.875rem, calc(-50% + var(--dy, 0px)));
+  /* PA-20: a backing plate. Type on the diorama was a halo on bare terrain,
+     which a dark rock face or a pale desert both swallowed ("Umm Zeitoun"). The
+     plate is the panel's own tokens, a little see-through so the ground still
+     reads behind it. The ring (`::after`, below) stays outside it, on the
+     point. Its size is part of what `nudgeLabels` measures, once, at placement. */
+  padding: 1px var(--s1); /* px-ok */
+  background: color-mix(in srgb, var(--panel-bg-solid) 82%, transparent);
+  border: 1px solid var(--panel-frame); /* px-ok */
   /* A pin with no projected position yet is not drawn at all -- one parked in
      the top-left corner reads as a bug rather than as "still loading". */
   opacity: 0;
-  transition: opacity 160ms ease-out;
+  transition: opacity var(--dur) var(--ease);
 }
 .rl-world--3d .rl-world__town[data-placed='1'] { opacity: 1; }
 /* `[data-hover='1']` (Task 9, `worldmap3d.ts`) is the keyboard twin of
@@ -744,7 +842,7 @@ body {
   pointer-events: auto;
   /* Type sitting directly on the diorama, with no panel behind it: the same
      halo the floating HUD uses for the same reason. */
-  text-shadow: 0 0 3px var(--type-shadow), 0 0 8px var(--type-shadow);
+  text-shadow: var(--halo);
 }
 
 /* Rotation controls. Bottom-right of the stage, out of the board's own way
@@ -763,6 +861,7 @@ body {
   font-family: var(--font-display);
   font-size: var(--t-xs);
   letter-spacing: var(--track-label);
+  text-transform: uppercase;
   color: var(--ink);
   background: var(--panel-bg);
   border: 1px solid var(--panel-frame);
@@ -797,15 +896,15 @@ body {
   padding: var(--s2);
 }
 .rl-world__card[data-status='live'] { border-left-color: var(--map-live); }
-.rl-world__card[data-status='locked'] { border-left-color: var(--map-locked); opacity: 0.6; }
-.rl-world__badge { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-dim); }
+.rl-world__card[data-status='locked'] { border-left-color: var(--map-locked); opacity: var(--disabled-opacity); }
+.rl-world__badge { font-size: var(--t-body); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-dim); }
 
-.rl-world__stars { color: var(--commend); }
+.rl-world__stars { color: var(--commend); font-family: var(--font-mono); }
 .rl-world__villain {
-  margin-top: 0.375rem;
+  margin-top: var(--s1h);
   display: grid;
   grid-template-columns: 2.5rem 1fr;
-  gap: 0.5rem;
+  gap: var(--s2);
   align-items: start;
 }
 .rl-world__villain-face { width: 2.5rem; height: 3.25rem; object-fit: cover; background: var(--panel-frame); }
@@ -813,7 +912,7 @@ body {
 .rl-world__villain[data-state='captured'] .rl-world__villain-name,
 .rl-world__villain[data-state='killed'] .rl-world__villain-name { text-decoration: line-through; color: var(--ink-mute); }
 .rl-world__villain-line { color: var(--ink-mute); font-style: italic; }
-.rl-world__taken { margin-top: 0.5rem; color: var(--ink); }
+.rl-world__taken { margin-top: var(--s2); color: var(--ink); }
 
 /* ====================================================================== */
 /* Panel — the stamped header                                             */
@@ -840,7 +939,7 @@ body {
   display: flex;
   align-items: baseline;
   gap: var(--s2);
-  padding: 0.3125rem var(--s3) 0.25rem;
+  padding: 0.3125rem var(--s3) var(--s1);
   background: var(--band-inspect);
   font-family: var(--font-display);
   text-transform: uppercase;
@@ -910,27 +1009,37 @@ body {
 .rl-track {
   height: 0.3125rem;
   background: var(--well);
-  border-radius: 2px;
   overflow: hidden;
 }
 .rl-track > i {
   display: block;
   height: 100%;
   background: var(--live);
-  transition: width var(--dur) linear;
+  transition: width var(--dur) var(--ease-steady);
 }
 
 /* ====================================================================== */
 /* Controls                                                               */
 /* ====================================================================== */
 
+/* THE BUTTON REGISTER (VR-20). Case follows face, and face follows the job:
+     display face, capitals, tracked -- a menu TILE (`.rl-menu__item`: goes
+       forward into a screen), a TAB or view toggle (switches what a screen
+       shows: the garage's tabs, views and sort, the stores' shelves, the
+       pause menu's tabs), and a STAMP (the one commit a screen exists for:
+       Deploy, the garage's Buy, the stores' Buy, the debrief's primary);
+     body face, sentence case -- every other button, which is an ACTION:
+       `.rl-btn` itself (back, cancel, confirm, save, load, resume, retry, the
+       end-of-mission row). Clickable cards and rows (dock tiles, deploy rows,
+       garage cards, stores packs, chips) are content, not buttons, and set
+       their content's own type. `chrome-register.test.ts` holds it. */
 .rl-btn {
   font-family: var(--font-body);
   font-size: var(--t-body);
   color: var(--ink);
   background: var(--panel-bg);
   border: 1px solid var(--panel-frame);
-  padding: 0.3125rem 0.625rem;
+  padding: 0.3125rem var(--s2h);
   cursor: pointer;
   pointer-events: auto;
   text-decoration: none;
@@ -945,13 +1054,114 @@ body {
   color: var(--accent);
 }
 .rl-btn[data-armed='1'] {
-  border-color: var(--live);
-  color: var(--live);
+  border-color: var(--on);
+  color: var(--on);
 }
 .rl-btn[disabled],
 .rl-btn[data-locked='1'] {
-  opacity: 0.45;
+  opacity: var(--disabled-opacity);
   cursor: not-allowed;
+}
+
+/* THE FOOTER ROW (GH-498, the lead's direction A; `ui/foot.ts` builds it).
+   One row for every screen that ends in actions: the garage, the report, the
+   campaign board, Saves, Settings, Credits, Free Play. A rule above it, the
+   way back first on the start edge, forward actions on the far edge.
+   Every control in the row is the same height -- the row's tallest, a stamp
+   or a tile, or the floor below -- with its label centred in it: `stretch` on
+   the row and `inline-flex` + `center` on the control. Before this the plain
+   `.rl-btn` was an inline box with no centring of its own, so a flex row
+   stretched it to the stamp's height and its label stayed at the top. */
+.rl-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: var(--s2) var(--s3);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--panel-frame);
+}
+.rl-foot__start,
+.rl-foot__end {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: var(--s2);
+}
+.rl-foot__end {
+  margin-left: auto;
+}
+.rl-foot .rl-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s1);
+  min-height: calc(var(--s6) + var(--s2));
+  line-height: 1;
+  box-sizing: border-box;
+}
+/* `inline-flex` above outranks the UA's own `[hidden]` rule. */
+.rl-foot [hidden] {
+  display: none;
+}
+/* Sticky: the row stays at the bottom of the screen's own scroller (the
+   Settings panel, the Saves/Credits/Free Play column), so the way back is in
+   view at any window height. Opaque, so what scrolls under it is cut at the
+   rule rather than read through the buttons. */
+.rl-foot--sticky {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  padding-bottom: var(--s2);
+  background: var(--panel-bg-solid);
+}
+/* A `.rl-menu` column scrolls with --s5 of padding at its foot, and a sticky
+   box stops at the padding's inner edge: the cards scrolling past showed
+   through underneath the row. The row paints its own fill one padding further
+   down instead of moving there -- on a 720-high window the column already
+   overhangs the viewport by its padding, and a row moved into that padding
+   would leave the screen. */
+.rl-menu .rl-foot--sticky {
+  box-shadow: 0 var(--s5) 0 0 var(--panel-bg-solid);
+}
+/* In a panel the row is the panel's last child, after the body: it carries
+   the body's frame on its own sides and bottom, and its rule is the line the
+   body would otherwise close on. */
+.rl-panel > .rl-foot {
+  padding: var(--s3);
+  border: 1px solid var(--panel-frame);
+  pointer-events: auto;
+}
+.rl-panel > .rl-panel__body:has(+ .rl-foot) {
+  border-bottom: 0;
+}
+/* A destructive control (the garage's reset): kept apart from navigation by
+   place -- alone at the row's far edge -- and by look: smaller, no fill, a
+   dashed danger outline. Armed by its first click (`data-confirm`), it
+   turns solid danger and says what the second click does. */
+.rl-btn--danger {
+  color: var(--bad-text);
+  background: transparent;
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--bad-text) 55%, transparent);
+}
+.rl-btn--danger:hover,
+.rl-btn--danger:focus-visible {
+  color: var(--bad-text);
+  border-style: solid;
+  border-color: var(--bad-text);
+}
+/* Smaller than the row's navigation: in the garage that is --t-band against
+   the screen's re-pointed --t-body (the garage's own type floor). */
+.rl-menu--garage .rl-btn--danger {
+  font-size: var(--t-band);
+}
+.rl-btn--danger[data-confirm='1'] {
+  font-weight: 600;
+  color: var(--band-ink);
+  background: var(--bad);
+  border-style: solid;
+  border-color: var(--bad);
 }
 
 /* ====================================================================== */
@@ -960,10 +1170,16 @@ body {
 
 /* Most controls here had no ring of their own and fell through to the
    browser's default blue -- inconsistent with everything else this sheet
-   styles, and the only place `--accent` was not the answer. `.rl-tile`
-   already draws its own (a border-color change on `:focus-visible`,
-   theme.css ~1648) and turns this off locally rather than layering a second
-   ring under its own; everything else gets it from here once.
+   styles, and the only place `--accent` was not the answer. THIS is the one
+   focus treatment (VR-28): every focusable control shows this ring, and no
+   rule may turn it off or redraw it. Four controls (`.rl-group`, `.rl-tile`,
+   `.rl-garage__card`, `.rl-garage__rung`) used to swap it for a border
+   colour with `outline: none`, so a keyboard player saw a different focus on
+   each; they keep their hover edge and gain the ring. The only thing a rule
+   may change is WHERE the ring sits: `outline-offset` inward, for a control
+   inside a box that would clip an outset ring (`.rl-garage__model`, and the
+   garage rail's cards and rungs, which live in a scroll region).
+   `chrome-register.test.ts` holds all of it.
    `.country-hit` (theme.css ~272) is NOT the same case, whatever an earlier
    version of this comment said (fix round 1) -- its `outline: none` is flat
    and unconditional, with no `:focus-visible` scoping and no border-color
@@ -973,7 +1189,8 @@ body {
    link gets the ring regardless. That is cascade order doing the work, not
    a ring `.country-hit` draws itself -- reorder either rule, or give
    `.country-hit` a more specific selector later, and the ring silently
-   disappears with nothing here to explain why it used to be safe. */
+   disappears with nothing here to explain why it used to be safe (the test
+   asserts the order). */
 :focus-visible {
   outline: 2px solid var(--accent); /* px-ok */
   outline-offset: 2px;
@@ -989,7 +1206,8 @@ body {
    read as one visual system rather than three competing ones. */
 .rl-confirm,
 .rl-pause,
-.rl-keys {
+.rl-keys,
+.rl-boot-scrim {
   position: fixed;
   inset: 0;
   display: grid;
@@ -1036,73 +1254,155 @@ body {
 /* Outcome moment (ui/outcome-moment.ts) — the held victory/defeat beat    */
 /* ====================================================================== */
 
-/* Unlike `.rl-confirm`/`.rl-pause`/`.rl-keys`, which dim a battlefield the
-   player can still half-see behind them, this REPLACES the screen -- the
-   held moment is the whole point, not an interruption over something else
-   worth glancing at. `--panel-bg-solid` (`.rl-loading`'s own opaque
-   takeover) is the base rather than `--scrim` for that reason; color-mixed
-   with transparent rather than used bare so the takeover reads as a
-   deliberate wash rather than a flat fill -- no new palette row, no literal. */
+/* PA-07 (lead ruling 9 Oct on PR 485, "B with A's band"): a held beat, not a
+   takeover. The world stays the subject between two letterbox bars -- the
+   camera eases to the deciding ground and presentation time slows under it
+   (`outcome-beat.ts`, driven from `main.ts`) -- and the verdict sits in the
+   lower bar on the full-width mission band, A's stamp. The report then
+   arrives the beat's way (`body[data-outcome-beat] .rl-aar`, below).
+   `data-beat="cut"` is reduced motion: every entrance is dropped, delays
+   included (the global 1 ms rule leaves delays alone), so the frame is the
+   held beat's last one from the first paint. */
 .rl-outcome {
   position: fixed;
   inset: 0;
   /* Above the confirm/pause/keys scrims (50): this moment is shown only
      once nothing else should be open, and it must win if anything is. */
   z-index: 55;
-  display: grid;
-  place-items: center;
+  pointer-events: none;
   text-align: center;
-  --outcome-scrim: color-mix(in srgb, var(--panel-bg-solid) 90%, transparent);
-  background: var(--outcome-scrim);
+  --outcome-rule: var(--good);
+}
+.rl-outcome[data-outcome='defeat'] {
+  --outcome-rule: var(--bad);
+}
+.rl-outcome__bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: var(--panel-bg-solid);
+  pointer-events: auto;
+}
+.rl-outcome__bar--top {
+  top: 0;
+  height: 9vh;
+  animation: rl-outcome-bar-top var(--dur-linger) var(--ease) both;
+}
+.rl-outcome__bar--bottom {
+  bottom: 0;
+  min-height: 15vh;
+  padding: 0 0 var(--s3);
+  animation: rl-outcome-bar-bottom var(--dur-linger) var(--ease) both;
+}
+@keyframes rl-outcome-bar-top {
+  from {
+    translate: 0 -100%;
+  }
+}
+@keyframes rl-outcome-bar-bottom {
+  from {
+    translate: 0 100%;
+  }
 }
 .rl-outcome__panel {
   position: relative;
-  pointer-events: auto;
-  width: min(30rem, 92vw);
+  width: 100%;
 }
-/* The verdict is the one thing on screen; it wears the same display face
-   `.rl-loading__name` and `.rl-titlecard__title` do, at the same size,
-   rather than `.rl-panel__title`'s ordinary band-label weight -- the exact
-   scoped-override shape `.rl-tutorial .rl-panel__title` already uses for
-   the same reason (a panel reused somewhere it has to read as a headline). */
+/* A's stamp: the mission band across the whole width, its rule naming the
+   outcome in colour as the word names it in type. */
+.rl-outcome__panel .rl-panel__band {
+  justify-content: center;
+  padding: var(--s3) var(--s4) var(--s2);
+  border-top: 3px solid var(--outcome-rule);
+  border-bottom: 3px solid var(--outcome-rule);
+  animation: rl-outcome-stamp var(--dur-stamp) var(--ease) var(--dur-fast) both;
+}
+/* The verdict is the one thing on screen; the display face at stamp size,
+   rather than `.rl-panel__title`'s ordinary band-label weight -- the
+   scoped-override shape `.rl-tutorial .rl-panel__title` already uses. */
 .rl-outcome__panel .rl-panel__title {
   font-family: var(--font-display);
-  font-size: var(--t-xl);
+  font-size: clamp(2.5rem, 6vw, 5rem);
+  line-height: 1;
+}
+/* The band carries no tag here; the empty slot's `margin-left: auto` would
+   push the verdict off centre. */
+.rl-outcome__panel .rl-panel__tag {
+  display: none;
+}
+@keyframes rl-outcome-stamp {
+  from {
+    opacity: 0;
+    scale: 1.15;
+  }
+}
+.rl-outcome__panel .rl-panel__body {
+  background: transparent;
+  border: 0;
+  padding: var(--s2) var(--s4) 0;
+  overflow: visible;
+  animation: rl-outcome-body var(--dur-long) var(--ease) var(--dur-linger) both;
+}
+@keyframes rl-outcome-body {
+  from {
+    opacity: 0;
+  }
+}
+.rl-outcome[data-beat='cut'] *,
+.rl-outcome[data-beat='cut'] .rl-panel__band,
+.rl-outcome[data-beat='cut'] .rl-panel__body {
+  animation: none;
 }
 /* A victory's narration (a mission's `aftermath`, GDD §11), directly under
    the verdict: the HUD banner's old second line, moved here when the banner
-   stood down for this moment. Narration, not the verdict -- the banner's own
-   mono face at the body size, in the dim ink the closing line below wears. */
+   stood down for this moment. Narration, not the verdict -- the body face at
+   the body size, in the dim ink the closing line below wears. */
 .rl-outcome__aftermath {
-  margin: var(--s3) 0 0;
-  font-family: var(--font-mono);
+  margin: var(--s1) 0 0;
+  font-family: var(--font-body);
   font-size: var(--t-m);
   color: var(--ink-dim);
 }
+/* Defeat only (PR 361): which primary failed and when, straight under the
+   verdict, in the report's own defeat tone (`.rl-aar__reason`). */
+.rl-outcome__reason {
+  margin: var(--s1) 0 0;
+  font-family: var(--font-body);
+  font-size: var(--t-read);
+  font-weight: 600;
+}
 .rl-outcome__line {
-  margin: var(--s3) 0 0;
+  margin: var(--s1) 0 0;
+  font-size: var(--t-m);
+  color: var(--ink-dim);
+}
+/* Polish pass F (A5): the outcome's line on the radio net, always shown --
+   the caption the HUD's own slot cannot carry while this moment covers it. */
+.rl-outcome__radio {
+  margin: var(--s1) 0 0;
+  font-family: var(--font-body);
   font-size: var(--t-m);
   color: var(--ink-dim);
 }
 .rl-outcome__skip {
-  margin-top: var(--s4);
+  margin-top: var(--s2);
 }
-/* The reward (GH-234): the most visible thing on screen after the verdict
-   itself, ahead of the mission's own narration below it. `--good` and the
-   "credit(s)" word both come from the dock chip's own balance (GH-233,
-   `.rl-dock__credits` below) so a figure reads the same everywhere it
-   appears -- the display face matches the verdict's own rather than the
-   narration's dim mono one, because this is the second thing the player is
-   meant to register, not a footnote. The "nothing paid" line shares the
-   narration's dim ink instead: it is an explanation, not a reward. */
+/* The reward (GH-234): the most visible thing after the verdict itself,
+   ahead of the mission's own narration below it. `--commend` (the one
+   credits colour since VR-25: the garage, the stores, the debrief, the
+   dock). */
 .rl-outcome__credits {
-  margin: var(--s3) 0 0;
+  margin: var(--s1) 0 0;
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: var(--s3);
 }
 .rl-outcome__credits-figure {
   margin: 0;
   font-family: var(--font-display);
   font-size: var(--t-xl);
-  color: var(--good);
+  color: var(--commend);
 }
 .rl-outcome__credits-none {
   margin: 0;
@@ -1110,20 +1410,27 @@ body {
   color: var(--ink-dim);
 }
 .rl-outcome__credits-total {
-  margin: 0.25rem 0 0;
+  margin: 0;
   font-size: var(--t-m);
-  color: var(--good);
+  color: var(--commend);
 }
-/* The outcome is named in the DOM (`data-outcome`), not only in colour --
-   this is the second half of that, a border tint rather than a repainted
-   band so `--band-ink`'s contrast (tuned for `--band-alert`) is never asked
-   to sit on `--good`/`--bad` instead. Mirrors `.rl-bigbanner[data-result=…]`,
-   the existing precedent for exactly this. */
-.rl-outcome[data-outcome='victory'] .rl-outcome__panel .rl-panel__body {
-  border-color: var(--good);
+/* The HUD steps back for the beat (`hideForBeat`, outcome-beat.ts) and
+   stays back under the report. */
+.rl-beat-hidden {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transition: opacity var(--dur-long) var(--ease);
 }
-.rl-outcome[data-outcome='defeat'] .rl-outcome__panel .rl-panel__body {
-  border-color: var(--bad);
+/* The report arrives the beat's way: in from the right as the stinger
+   fades. Reduced motion collapses it to the global 1 ms. */
+body[data-outcome-beat] .rl-aar {
+  animation: rl-aar-after-beat var(--dur-linger) var(--ease) both;
+}
+@keyframes rl-aar-after-beat {
+  from {
+    opacity: 0;
+    translate: 8vw 0;
+  }
 }
 
 /* ====================================================================== */
@@ -1135,9 +1442,17 @@ body {
   gap: var(--s2);
   margin-bottom: var(--s3);
 }
+/* Tabs, so the tab register (VR-20) -- the garage's own tab type. */
+.rl-pause__tabs .rl-btn {
+  font-family: var(--font-display);
+  font-size: var(--t-band);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
 .rl-pause__tabs button[data-on='1'] {
-  border-color: var(--live);
-  color: var(--live);
+  color: var(--ink);
+  border-color: var(--selected);
+  background: var(--selected-fill);
 }
 .rl-pause__list {
   list-style: none;
@@ -1162,7 +1477,7 @@ body {
 }
 .rl-pause__obj[data-primary='1'] .rl-pause__obj-text {
   color: var(--ink);
-  font-weight: 700;
+  font-weight: 600;
 }
 .rl-pause__obj-text {
   color: var(--ink-dim);
@@ -1197,6 +1512,264 @@ body {
   max-height: none;
   overflow: visible;
   transform: none;
+}
+
+/* ====================================================================== */
+/* Feedback (ui/feedback-form.ts, feedback-dialog.ts, feedback-prompt.ts)  */
+/* ====================================================================== */
+
+/* The form: the pause menu's third tab, and the main menu's modal (GH-464).
+   Tokens only; the kind chips are a pick-one-of-a-set control, so they wear
+   the one "selected" (VR-26); the focus ring is the sheet's own (VR-28). */
+.rl-feedback,
+.rl-feedback__form,
+.rl-feedback__result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.rl-feedback__form[hidden],
+.rl-feedback__result[hidden] {
+  display: none;
+}
+.rl-feedback__lede {
+  margin: 0;
+  color: var(--ink-dim);
+  font: var(--t-m) / 1.45 var(--font-body);
+}
+.rl-feedback__label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 0 0 calc(-1 * var(--s2));
+  font: 600 var(--t-s) var(--font-display);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+.rl-feedback__count {
+  font: var(--t-s) var(--font-mono);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-mute);
+}
+.rl-feedback__kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.rl-feedback__kind {
+  font: var(--t-m) var(--font-body);
+  color: var(--ink-dim);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  padding: var(--s1h) var(--s3);
+  cursor: pointer;
+}
+.rl-feedback__kind:hover {
+  color: var(--ink);
+}
+.rl-feedback__kind[aria-checked='true'] {
+  color: var(--ink);
+  border-color: var(--selected);
+  background: var(--selected-fill);
+}
+.rl-feedback__text,
+.rl-feedback__contact,
+.rl-rate__line {
+  box-sizing: border-box;
+  width: 100%;
+  background: var(--panel-bg-solid);
+  color: var(--ink);
+  border: 1px solid var(--panel-frame);
+  font: var(--t-m) / 1.5 var(--font-body);
+  padding: var(--s2);
+}
+.rl-feedback__text {
+  min-height: 7.5rem;
+  resize: vertical;
+}
+.rl-feedback__text::placeholder,
+.rl-feedback__contact::placeholder,
+.rl-rate__line::placeholder {
+  color: var(--ink-mute);
+}
+.rl-feedback__attach {
+  display: flex;
+  gap: var(--s3);
+  align-items: center;
+}
+.rl-feedback__thumb {
+  width: 12rem;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border: 1px solid var(--panel-frame);
+}
+.rl-feedback__thumb[hidden] {
+  display: none;
+}
+.rl-feedback__checks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.rl-feedback__check {
+  display: flex;
+  gap: var(--s2);
+  align-items: baseline;
+  color: var(--ink);
+  font: var(--t-m) var(--font-body);
+  cursor: pointer;
+}
+.rl-feedback__check:has(input:disabled) {
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
+}
+.rl-feedback__sub {
+  color: var(--ink-mute);
+  font: var(--t-s) var(--font-mono);
+}
+.rl-feedback__who {
+  margin: 0;
+  color: var(--ink-mute);
+  font: var(--t-s) / 1.5 var(--font-body);
+}
+.rl-feedback__who b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.rl-feedback__details {
+  color: var(--ink-mute);
+  font: var(--t-s) / 1.5 var(--font-body);
+}
+.rl-feedback__details summary {
+  cursor: pointer;
+  color: var(--ink-dim);
+}
+.rl-feedback__details p {
+  margin: var(--s1) 0 0;
+}
+.rl-feedback__row {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+.rl-feedback__hint {
+  margin-left: auto;
+  color: var(--ink-mute);
+  font: var(--t-s) var(--font-mono);
+}
+.rl-feedback__consent {
+  margin: 0;
+  padding-top: var(--s2);
+  color: var(--ink-mute);
+  font: var(--t-s) / 1.5 var(--font-body);
+  border-top: 1px solid var(--panel-rule);
+}
+.rl-feedback__result {
+  align-items: flex-start;
+  padding-block: var(--s3);
+}
+.rl-feedback__title {
+  margin: 0;
+  font: 800 var(--t-xl) / 1 var(--font-display);
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.rl-feedback__title[data-tone='good'] {
+  color: var(--good);
+}
+.rl-feedback__title[data-tone='bad'] {
+  color: var(--bad-text);
+}
+.rl-feedback__thanks {
+  margin: 0;
+  color: var(--ink);
+  font: var(--t-read) / 1.45 var(--font-body);
+}
+.rl-feedback__ref {
+  margin: 0;
+  color: var(--ink-dim);
+  font: var(--t-m) var(--font-mono);
+}
+/* Stored without an attachment: information, not a failure. */
+.rl-feedback__dropped {
+  margin: 0;
+  color: var(--ink-dim);
+  font: var(--t-m) / 1.45 var(--font-body);
+}
+/* The pause menu keeps its own action row under the form; the form's
+   consent rule separates them. */
+.rl-pause__feedback[hidden] {
+  display: none;
+}
+.rl-feedback-dialog__panel {
+  width: min(36rem, 94vw);
+  max-height: 88vh;
+  overflow: auto;
+}
+
+/* The debrief's rating prompt, in the report's foot above the nav. */
+.rl-rate {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  padding-bottom: var(--s3);
+  margin-bottom: var(--s3);
+  border-bottom: 1px solid var(--panel-rule);
+}
+.rl-rate__q {
+  margin-right: var(--s2);
+  font: 600 var(--t-band) var(--font-display);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+.rl-rate__scale {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.rl-rate__end {
+  color: var(--ink-mute);
+  font: var(--t-s) var(--font-body);
+}
+.rl-rate__n {
+  min-width: 2.25rem;
+  font: 600 var(--t-m) var(--font-mono);
+}
+.rl-rate__n[aria-checked='true'] {
+  color: var(--ink);
+  border-color: var(--selected);
+  background: var(--selected-fill);
+}
+.rl-rate__line {
+  flex: 1 1 18rem;
+  width: auto;
+  min-width: 14rem;
+  padding: var(--s1h) var(--s2);
+}
+.rl-rate__line[hidden],
+.rl-rate__send[hidden],
+.rl-rate__note[hidden] {
+  display: none;
+}
+.rl-rate__note {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--ink-mute);
+  font: var(--t-s) var(--font-body);
+}
+.rl-rate__status {
+  color: var(--bad-text);
+  font: var(--t-s) var(--font-body);
+}
+.rl-rate__thanks {
+  color: var(--good);
+  font: var(--t-m) var(--font-body);
 }
 
 /* ====================================================================== */
@@ -1256,7 +1829,7 @@ body {
 }
 .rl-obj[data-primary='1'] .rl-obj__text {
   color: var(--ink);
-  font-weight: 700;
+  font-weight: 600;
 }
 .rl-obj__status {
   color: var(--ink-mute);
@@ -1398,13 +1971,17 @@ body {
 .rl-mute {
   color: var(--ink-mute);
 }
-.rl-fill-good {
-  background: var(--good);
-}
-.rl-fill-warn {
+/* A health track's tone (`hpTone`, the chip and the card). Scoped under
+   `.rl-track > i` on purpose: that rule (0,1,1) paints every track fill lime
+   and used to outrank a bare `.rl-fill-*` (0,1,0), so no health track ever
+   showed its tone -- VR-03's friendly amber included. `good` has no rule of
+   its own and keeps the track's lime, the healthy default (ruling, 8 Oct);
+   `warn` and `bad` win over it. The player's own unit never reaches `bad`
+   (VR-03), so red on a track means an enemy's health. */
+.rl-track > i.rl-fill-warn {
   background: var(--warn);
 }
-.rl-fill-bad {
+.rl-track > i.rl-fill-bad {
   background: var(--bad);
 }
 
@@ -1422,7 +1999,6 @@ body {
 .rl-obj {
   display: flex;
   gap: 0.4375rem;
-  border-radius: 2px;
 }
 .rl-obj__g {
   flex: none;
@@ -1490,7 +2066,7 @@ body {
    lifts the glyph off whatever is behind it, the tight pass keeps the stem
    edges from dissolving into it. */
 .rl-onmap {
-  text-shadow: 0 1px 12px var(--type-shadow), 0 1px 2px var(--type-shadow);
+  text-shadow: var(--halo);
 }
 
 /* The other strategy for type over bare map: a dark ground under the glyphs
@@ -1500,8 +2076,7 @@ body {
    plate reads as the same material as every panel in the HUD. */
 .rl-plate {
   background: var(--panel-bg);
-  padding: 0.125rem 0.5rem;
-  border-radius: 2px; /* px-ok */
+  padding: var(--s0) var(--s2);
 }
 
 /* --- top strip -------------------------------------------------------- */
@@ -1594,14 +2169,14 @@ body {
   border: 1px solid var(--panel-frame);
   color: var(--ink-dim);
   background: none;
-  padding: 0 0.5rem;
+  padding: 0 var(--s2);
   font: inherit;
   cursor: pointer;
   line-height: 1.4;
 }
 .rl-strip__chip[data-on='1'] {
-  border-color: var(--live);
-  color: var(--live);
+  border-color: var(--on);
+  color: var(--on);
 }
 .rl-strip__chip:hover,
 .rl-strip__chip:focus-visible {
@@ -1613,7 +2188,7 @@ body {
    claim rather than the 1x/2x chips going dark while 0x stays lit -- the
    mission is paused, not merely set to a speed of zero. */
 .rl-strip__chips[data-paused='1'] {
-  opacity: 0.45;
+  opacity: var(--disabled-opacity);
 }
 /* A `<button>` now (task 6: it used to be a plain `<a href="?campaign">`),
    so it needs the button-chrome reset the anchor never did -- without this
@@ -1641,7 +2216,7 @@ body {
   border: 1px solid var(--panel-frame);
   color: var(--ink-dim);
   background: none;
-  padding: 0 0.5rem;
+  padding: 0 var(--s2);
   font: inherit;
   cursor: pointer;
   line-height: 1.4;
@@ -1681,7 +2256,7 @@ body {
   color: var(--ink);
   pointer-events: none;
   white-space: pre;
-  text-shadow: 0 2px 18px var(--type-shadow), 0 1px 3px var(--type-shadow);
+  text-shadow: var(--halo);
 }
 .rl-clock[data-tone='warn'] {
   color: var(--warn);
@@ -1696,6 +2271,13 @@ body {
 
 /* --- commander -------------------------------------------------------- */
 
+/* GH-345: a HUD surface the progressive-disclosure set hides (tutorial beats,
+   a mission's hud.hidden). An attribute rather than each pane's own display,
+   which every pane already drives for its own reasons; this has to win over
+   all of them, hence the one !important. */
+[data-hud-hidden] {
+  display: none !important;
+}
 .rl-cmd {
   position: absolute;
   left: var(--s2);
@@ -1806,7 +2388,7 @@ body {
   min-width: 0;
   background: var(--panel-bg);
   border-left: 2px solid var(--band-mission);
-  padding: 0.375rem 0.625rem;
+  padding: var(--s1h) var(--s2h);
   pointer-events: auto;
 }
 .rl-cmd[data-open='0'] .rl-cmd__bar {
@@ -1843,8 +2425,8 @@ body {
   color: var(--accent);
 }
 .rl-cmd__page button[disabled] {
-  opacity: 0.35;
-  cursor: default;
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
 }
 .rl-cmd__quote {
   font-size: var(--t-read);
@@ -1854,13 +2436,13 @@ body {
 .rl-cmd__track {
   height: 2px;
   background: var(--well);
-  margin-top: 0.375rem;
+  margin-top: var(--s1h);
 }
 .rl-cmd__track > i {
   display: block;
   height: 100%;
   background: var(--band-mission);
-  transition: width var(--dur) var(--ease);
+  transition: width var(--dur) var(--ease-steady);
 }
 
 /* --- event feed ------------------------------------------------------- */
@@ -1881,12 +2463,40 @@ body {
   text-align: center;
   pointer-events: none;
   align-self: center;
-  margin-bottom: 0.375rem;
+  margin-bottom: var(--s1h);
 }
 .rl-notice {
   font-size: var(--t-read);
   line-height: 1.25;
   transition: opacity var(--dur-fast) var(--ease);
+}
+
+/* WP-P5 (PA-06; audit passes B1 and C3): the feed's three event tiers, with
+   the same names as the audio cue tiers. Progressively stronger, and never by
+   colour alone -- tone already carries good/bad, so the tier carries weight:
+   size, weight, and a bar in the line's own colour. A minor line (under
+   fire) reads as Level 2, a step down from the commander's lines; important
+   is the plain feed line; major (a vehicle lost, an objective won or lost)
+   is the one that must be seen with the eye elsewhere. */
+.rl-notice[data-tier="minor"] {
+  font-size: var(--t-band);
+  opacity: 0.88;
+}
+.rl-notice[data-tier="major"] {
+  font-weight: 600;
+  box-shadow: inset 0.25rem 0 0 currentColor, inset -0.25rem 0 0 currentColor;
+  padding-block: var(--s1);
+}
+.rl-notice[data-tier="major"] b {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+/* The merge count ("×4"): the same line said again, not a new line. */
+.rl-notice__count {
+  margin-left: 0.5em;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--ink);
 }
 
 /* --- voice caption (WP-AU1 D8) ------------------------------------------
@@ -2021,7 +2631,6 @@ body {
 .rl-group:hover,
 .rl-group:focus-visible {
   border-color: var(--accent);
-  outline: none;
 }
 .rl-group__slot {
   font-family: var(--font-display);
@@ -2063,7 +2672,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.375rem;
+  gap: var(--s1h);
   pointer-events: none;
 }
 
@@ -2091,10 +2700,10 @@ body {
    type gives up. */
 .rl-order {
   font-size: var(--t-s);
-  padding: var(--s1) 0.625rem;
+  padding: var(--s1) var(--s2h);
   display: flex;
   align-items: center;
-  gap: 0.375rem;
+  gap: var(--s1h);
   white-space: nowrap;
 }
 .rl-order__glyph {
@@ -2112,7 +2721,7 @@ body {
    absent from the row entirely. Still clickable: the handler's own refusal
    note is what explains it, and a disabled button explains nothing. */
 .rl-order[data-inert='1'] {
-  opacity: 0.45;
+  opacity: var(--disabled-opacity);
   color: var(--ink-dim);
 }
 /* The armed order outranks inert — an armed button is the one the next click
@@ -2137,7 +2746,7 @@ body {
   width: var(--chip-w);
   display: flex;
   gap: var(--s2);
-  padding: 0.375rem var(--s2);
+  padding: var(--s1h) var(--s2);
   background: var(--panel-bg);
   border: 1px solid var(--panel-frame);
   pointer-events: auto;
@@ -2190,7 +2799,9 @@ body {
    a plain downscale of a smooth photograph rather than a palette-quantised
    sprite. Nearest-neighbour would re-alias what Lanczos already anti-aliased
    -- the opposite mistake from the sheet-frame rule above. No size changes;
-   the icon fills the same frame the sheet frame did. */
+   the icon fills the same frame the sheet frame did. The Blender unit
+   portraits (GH-153: 192 px, Lanczos from a 512 px render) are the same kind
+   of image and carry the same attribute. */
 .rl-chip__art[data-icon='1'],
 .rl-card__art[data-icon='1'],
 .rl-tile__art[data-icon='1'],
@@ -2307,8 +2918,8 @@ body {
   max-height: calc(100vh - 12rem);
   overflow-y: auto;
   display: flex;
-  gap: 0.625rem;
-  padding: var(--s2) 0.625rem;
+  gap: var(--s2h);
+  padding: var(--s2) var(--s2h);
   background: var(--panel-bg);
   border: 1px solid var(--panel-frame);
   pointer-events: auto;
@@ -2357,8 +2968,80 @@ body {
   line-height: 1;
   text-transform: uppercase;
 }
-.rl-card__callsign { color: var(--commend); font-weight: 600; }
+/* PA-28: a named veteran's name is the card's title -- the type's face and
+   size, in the commendation colour -- and the type steps back beside it. */
+.rl-card__callsign {
+  color: var(--commend);
+  font-family: var(--font-display);
+  font-size: var(--t-card);
+  font-weight: 800;
+  letter-spacing: var(--track-title);
+  line-height: 1;
+  text-transform: uppercase;
+}
+.rl-card__name--type {
+  font-size: var(--t-s);
+  font-weight: 600;
+  color: var(--ink-label);
+}
 .rl-card__record, .rl-card__replaces { font-size: var(--t-s); }
+/* Who the selected unit is shooting -- the card half of the fire link,
+   beside the condition line. Hostile tone, the target's chip art. */
+/* Pass C2/C4 (D4): the fire panel names whose a factor is -- "them", "us" --
+   in the label face, and a pinned target's note sits in the heading. */
+.rl-fire__grp {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  font-size: var(--t-xs);
+  color: var(--ink-label);
+}
+.rl-fire__note { letter-spacing: 0; text-transform: none; }
+/* Pass C2/C4 (D1-D3): the condition line leads with the unit's combat state
+   in display caps, and what the state costs follows it in plain words; the
+   clocks sit on their own line; the suppression meter below is two cells and
+   the pinned mark -- no number. */
+.rl-card__state {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+}
+.rl-card__why { font-size: var(--t-s); color: var(--ink-mute); }
+.rl-supp {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 3px;
+  max-width: 16rem;
+}
+.rl-supp > .rl-label { margin-right: var(--s1); }
+.rl-supp__cell {
+  flex: 1;
+  height: 0.375rem;
+  background: var(--well);
+  border: 1px solid var(--panel-frame);
+  overflow: hidden;
+}
+.rl-supp__cell > i { display: block; height: 100%; background: var(--hot); }
+.rl-supp__pin { line-height: 0; color: var(--panel-frame); margin-left: 2px; }
+.rl-supp__pin[data-on='1'] { color: var(--hot); }
+.rl-card__engaging {
+  display: flex;
+  align-items: center;
+  gap: var(--s1h);
+  margin-top: 2px;
+  color: var(--bad-text);
+  font-weight: 600;
+}
+.rl-card__engaging-art {
+  width: 1.375rem;
+  height: 1.375rem;
+  object-fit: contain;
+  border: 1px solid color-mix(in srgb, var(--bad) 70%, transparent);
+  flex: none;
+}
 .rl-card__hp {
   margin-left: auto;
   white-space: nowrap;
@@ -2418,6 +3101,43 @@ body {
   pointer-events: none;
   z-index: 5;
 }
+/* GH-345: the Conduct invoice pinned open under the strip's Conduct field. */
+.rl-invoice {
+  position: absolute;
+  top: calc(var(--hud-strip-h) + 0.625rem);
+  /* Beside the radio's slot (32.5rem from one --s2), never over it: the
+     tutorial's step panel lives there and beat 9 opens both at once. */
+  left: calc(32.5rem + 2 * var(--s2));
+  min-width: 18rem;
+  padding: var(--s1) var(--s2);
+  pointer-events: none;
+  z-index: 6;
+}
+.rl-invoice__line {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: var(--s2);
+}
+/* GH-345: the remedy under the panel's verdict -- what to DO about "not
+   identified" or "in cover". The panel is nowrap for its rows; the remedy is
+   a sentence and wraps inside a measure of its own. */
+.rl-fire__why {
+  margin-top: var(--s1);
+  padding-top: var(--s1);
+  border-top: 1px solid var(--panel-frame);
+  white-space: normal;
+  max-width: 22rem;
+  color: var(--ink-dim);
+  font-size: 0.875em;
+}
+/* WP-P4 (PA-08): what a right-click on this target does. A footnote, not a
+   verdict -- it says the click is an attack-move to the tile, so the odds
+   above are a projection, not a promise that this target is the one shot. */
+.rl-fire__click {
+  margin-top: var(--s1);
+  color: var(--ink-dim);
+  font-size: 0.8125em;
+}
 
 .rl-bigbanner {
   position: absolute;
@@ -2446,7 +3166,7 @@ body {
    weight above: this is narration, not the verdict. */
 .rl-bigbanner__aftermath {
   margin-top: var(--s2);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--t-m);
   letter-spacing: 0;
   text-transform: none;
@@ -2476,14 +3196,16 @@ body {
      -- a grid lets each row size to its own content instead of stretching to
      the widest line. */
   display: grid;
-  gap: 0.25rem;
+  gap: var(--s1);
   justify-items: center;
 }
 /* The title card had no panel behind it, and sun-bleached limestone read
-   close enough to limestone ink over open ground to swallow it -- the scrim
-   was what kept it readable there. Each line now also sits on its own
-   .rl-plate; the scrim stays as a second line of defence, since the plate is
-   translucent (`--panel-bg`). */
+   close enough to limestone ink over open ground to swallow it -- a dark
+   halo was what kept it readable there. Each line now also sits on its own
+   .rl-plate; the halo stays as a second line of defence, since the plate is
+   translucent (`--panel-bg`). It is the one `--halo` (VR-30), no longer a
+   `--scrim` shadow of its own: the token comment above says why --scrim is
+   the wrong tone for a glyph halo. */
 .rl-titlecard__title {
   font-family: var(--font-display);
   font-size: var(--t-hero);
@@ -2492,27 +3214,27 @@ body {
   text-transform: uppercase;
   line-height: 1;
   color: var(--ink);
-  text-shadow: 0 2px 18px var(--scrim), 0 1px 3px var(--scrim);
+  text-shadow: var(--halo);
 }
 .rl-titlecard__sub {
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--t-m);
   letter-spacing: var(--track-label);
-  color: var(--accent);
+  color: var(--title-accent);
   margin-top: var(--s2);
   text-transform: uppercase;
-  text-shadow: 0 1px 12px var(--scrim), 0 1px 2px var(--scrim);
+  text-shadow: var(--halo);
 }
 /* The story voice (GDD §11), between the name and the mechanical objective
    count -- prose, not a HUD label, so it reads in the body font rather than
-   `.rl-titlecard__sub`'s tracked mono caps. */
+   `.rl-titlecard__sub`'s tracked caps. */
 .rl-titlecard__dispatch {
   margin-top: var(--s2);
   font-family: var(--font-body);
   font-size: var(--t-m);
   line-height: 1.5;
   color: var(--ink);
-  text-shadow: 0 2px 18px var(--scrim), 0 1px 3px var(--scrim);
+  text-shadow: var(--halo);
 }
 
 /* --- the reinforcements dock (GH-153 slice 3) ------------------------- */
@@ -2553,7 +3275,7 @@ body {
 .rl-dock__label {
   margin: 0;
   color: var(--ink-label);
-  text-shadow: 0 1px 3px var(--type-shadow);
+  text-shadow: var(--halo);
 }
 /* The brigade credit balance (GH-229 bug 2). Fix round 1 rode it along at the
    label's own `--t-xs` -- reviewed as illegible, "REINFORCEMENTS · B · 0 CR"
@@ -2565,16 +3287,16 @@ body {
    `pointer-events: auto` here is what lets its `bindTip` tooltip be reached
    by mouse OR keyboard, the same as a dock tile -- `.rl-dock` itself sets
    `pointer-events: none` on everything that is not a control.
-   `--good` on purpose: this dock already spends two other colours on two
-   other currencies inside itself -- `--accent` on `.rl-tile__cost` (this
-   mission's logistics, per unit) and `--info` on the support pair (this
-   mission's intel) -- and the brigade's credits are a THIRD currency, earned
-   across the whole campaign rather than this mission, so it gets a colour
-   neither of those two claims. */
+   One colour per currency (VR-25): the brigade's credits wear `--commend`
+   here exactly as they do in the garage, the stores and the debrief (they
+   wore `--good` here and on the outcome moment, a third colour for the same
+   money); THIS mission's logistics and intel wear `--info`, the colour the
+   top strip has always given them, on `.rl-tile__cost` and the support pair
+   alike. */
 .rl-dock__credits {
   font-size: var(--t-strip);
-  color: var(--good);
-  text-shadow: 0 1px 3px var(--type-shadow);
+  color: var(--commend);
+  text-shadow: var(--halo);
   pointer-events: auto;
 }
 .rl-dock__grid {
@@ -2604,7 +3326,6 @@ body {
 .rl-tile:hover,
 .rl-tile:focus-visible {
   border-color: var(--accent);
-  outline: none;
 }
 /* Affordability is not a refusal — the price is still legible, and the badge
    goes red so the reason for the dimming is named rather than guessed.
@@ -2617,7 +3338,7 @@ body {
    player is being refused. It keeps full strength and says both things at
    once: the bar and the clock at full opacity, the price still red. */
 .rl-tile[data-poor='1']:not([data-queued='1']) {
-  opacity: 0.45;
+  opacity: var(--disabled-opacity);
 }
 .rl-tile[data-poor='1'] .rl-tile__cost {
   color: var(--bad-text);
@@ -2657,9 +3378,11 @@ body {
   bottom: 1px;
   font-size: var(--t-s);
   font-weight: 600;
-  color: var(--accent);
+  /* Logistics: the strip's own colour for it (VR-25), not --accent, which
+     is the interactive colour (VR-31). */
+  color: var(--info);
   /* The badge sits on the sprite, not on the tile's own fill. */
-  text-shadow: 0 0 3px var(--well);
+  text-shadow: var(--halo);
 }
 /* Lifted clear of the progress bar while one is running. */
 .rl-tile[data-queued='1'] .rl-tile__cost {
@@ -2672,7 +3395,7 @@ body {
   top: 1px;
   font-size: var(--t-s);
   color: var(--live);
-  text-shadow: 0 0 3px var(--well);
+  text-shadow: var(--halo);
 }
 .rl-tile__bar {
   position: absolute;
@@ -2680,7 +3403,7 @@ body {
   bottom: 0;
   height: 3px;
   background: var(--live);
-  transition: width var(--dur) linear;
+  transition: width var(--dur) var(--ease-steady);
 }
 /* Both are absent rather than empty when nothing is building: a zero-width bar
    still paints its own 0-height nothing, and an empty countdown span would
@@ -2695,7 +3418,7 @@ body {
    mistaken for something buyable. */
 .rl-tile[data-locked='1'] .rl-tile__art {
   filter: grayscale(1);
-  opacity: 0.35;
+  opacity: var(--disabled-opacity);
 }
 .rl-tile__lock {
   position: absolute;
@@ -2708,6 +3431,26 @@ body {
   /* "Conduct ≥55" is eleven characters on a 3.75rem tile: it may overflow the edge
      by a pixel or two, but it must never wrap onto the art. */
   white-space: nowrap;
+}
+/* WP-A3.3, ruling 1: a bought unit whose model is still downloading draws
+   nothing on the map until it lands, so its tile says so. Top edge, where the
+   countdown sits, because it is the same kind of fact: something on its way. */
+.rl-tile__deploying {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 1px;
+  text-align: center;
+  font-size: var(--t-s);
+  color: var(--live);
+  text-shadow: var(--halo);
+  white-space: nowrap;
+}
+.rl-tile[data-mesh-pending='1'] .rl-tile__left {
+  display: none;
+}
+.rl-tile:not([data-mesh-pending='1']) .rl-tile__deploying {
+  display: none;
 }
 /* The price is not the answer when the campaign is the answer. */
 .rl-tile[data-locked='0'] .rl-tile__lock,
@@ -2744,7 +3487,7 @@ body {
 .rl-tile--support[data-poor='1'] {
   color: var(--ink-dim);
   border-color: var(--panel-frame);
-  opacity: 0.45;
+  opacity: var(--disabled-opacity);
 }
 /* Armed outranks both — this is the tile the next click on the map spends, and
    it must read as lime whether or not intel has since been spent elsewhere. */
@@ -2784,7 +3527,7 @@ body {
   top: var(--tip-y);
   box-sizing: border-box;
   width: 14.375rem;
-  padding: 0.375rem 0.625rem;
+  padding: var(--s1h) var(--s2h);
   background: var(--panel-bg);
   border: 1px solid var(--panel-frame);
   font-size: var(--t-body);
@@ -2811,7 +3554,7 @@ body {
 .rl-tip__cost {
   margin-left: auto;
   white-space: nowrap;
-  color: var(--accent);
+  color: var(--info);
 }
 .rl-tip__tags {
   display: flex;
@@ -2832,12 +3575,56 @@ body {
 
 /* Boot failure. Reachable only after this stylesheet has loaded — the module
    that registers the handler is the one that imports it. */
+/* Pass K: a failure card is part of the game, not a browser page -- the
+   title in the display face and the failure tone, the explanation in body
+   ink, the next step quieter, and the ways out as the ordinary `.rl-btn`
+   (the `<a>` used to inherit the browser's underlined blue). No mono: the
+   card never prints a stack or an id any more (`ui/boot-failure.ts`). */
 .rl-boot-error {
-  color: var(--bad-text);
-  font-family: var(--font-mono);
-  font-size: var(--t-m);
+  max-width: 40rem;
   padding: var(--s6);
-  white-space: pre-wrap;
+  font-family: var(--font-body);
+  font-size: var(--t-m);
+  line-height: var(--lh-body);
+  color: var(--ink);
+}
+/* K-16: the card over a running mission wears the panel ground, since the
+   scrim behind it is only a dim of a canvas that has gone black. */
+.rl-boot-scrim .rl-boot-error {
+  background: var(--panel-bg-solid);
+  border: 1px solid var(--panel-frame); /* px-ok */
+}
+/* K-17: the small-screen notice is the same card on a phone-width scrim, so it
+   keeps a gutter either side and a tighter pad and title than the full-width
+   failure card (the approved mock's measurements). */
+.rl-small-screen .rl-boot-error {
+  box-sizing: border-box;
+  width: min(40rem, calc(100vw - 2 * var(--s3)));
+  padding: var(--s4);
+}
+.rl-small-screen .rl-boot-error__title {
+  font-size: var(--t-l);
+}
+.rl-boot-error__title {
+  margin: 0 0 var(--s3);
+  font-family: var(--font-display);
+  font-size: var(--t-xl);
+  font-weight: 600;
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  color: var(--bad-text);
+}
+.rl-boot-error__body {
+  margin: 0 0 var(--s2);
+}
+.rl-boot-error__next {
+  margin: 0 0 var(--s5);
+  color: var(--ink-mute);
+}
+.rl-boot-error__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
 }
 
 /* Route transitions (shell/router.ts): the stage fades out under the old
@@ -2869,7 +3656,11 @@ body {
   padding: var(--s5) var(--s6);
   background: var(--panel-bg);
   border: 1px solid var(--panel-frame);
-  font-family: var(--font-mono);
+  /* The body face (PA-22): this container carries the campaign cards, the
+     Free Play blurbs and the sandbox hints, which are sentences. Its figures
+     (`.rl-world__stars`, the garage's own wallet and prices) name mono
+     themselves. */
+  font-family: var(--font-body);
   color: var(--ink);
   text-align: center;
 }
@@ -2967,12 +3758,42 @@ body {
    otherwise refuse to shrink below this element's own natural (tall)
    content height and defeat the `minmax(0, 1fr)` row above. */
 .rl-world__scroll { overflow-y: auto; min-height: 0; }
+/* PA-20: the status line, moved into the footer by `showCampaign` (menu.ts). */
+.rl-menu__nav > .rl-world__ledgerwrap { text-align: center; }
 /* The footer row itself. Direct-child-scoped so a plain menu screen's nav
    (no `.rl-world` sibling, not a grid row at all) is untouched. */
 .rl-menu:has(.rl-world) > .rl-menu__nav {
   grid-row: 2;
   background: var(--panel-bg);
   padding-block: var(--s2);
+  /* PA-20: the footer's buttons share one row -- the primary "Next: ..." and
+     the way back -- under the status line, which keeps a row to itself. A
+     column of them took ~55 px more of a 900-high window from the region
+     cards above. */
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: var(--s1) var(--s2);
+  /* Auto side margins make a grid item shrink to its content, and a flex
+     basis of 100% needs a width to be a hundred percent OF. */
+  width: 100%;
+}
+.rl-menu:has(.rl-world) > .rl-menu__nav > .rl-world__ledgerwrap,
+.rl-menu:has(.rl-world) > .rl-menu__nav > .rl-foot {
+  flex: 1 0 100%;
+}
+/* The board's footer is already its own band under the scrolling board, with
+   the status line above the row: no second rule, and no height taken from the
+   region cards above it on a 720-high window. */
+.rl-menu:has(.rl-world) > .rl-menu__nav > .rl-foot {
+  border-top: 0;
+  padding-top: 0;
+}
+.rl-menu:has(.rl-world) > .rl-menu__nav .rl-menu__item[data-kind='primary'] {
+  max-width: 100%;
+  padding-block: var(--s1);
 }
 /* The wordmark, theatre label and nav were laid out for the narrow column;
    letting them stretch to the map's width would turn the nav into an
@@ -3040,7 +3861,7 @@ body {
 }
 .rl-wordmark__rule {
   height: 2px;
-  background: var(--band-mission);
+  background: var(--wordmark-rule);
   margin: var(--s2) auto;
   width: 78%;
 }
@@ -3078,20 +3899,55 @@ body {
 }
 /* The sandbox and the ledger reset are instruments, not missions — they should
    not read as the fourth and fifth chapters of the campaign. */
-.rl-menu__item[data-kind='aside'] {
-  font-family: var(--font-mono);
-  font-size: var(--t-s);
-  font-weight: 400;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--ink-dim);
-  padding: var(--s1) var(--s3);
+/* GH-381: one tile family. Rank is FILL, not typeface -- primary is green,
+   secondary the neutral ink variant, utilities (aside) the dim one. All three
+   share .rl-menu__item's display face, uppercase and tracking. */
+.rl-menu__item[data-kind='secondary'] {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ink) 30%, transparent);
 }
-/* The audio toggle is the one <button> in that list; a button does not fill
-   its row the way a block <a> does, and would sit as a pill among rules. */
+.rl-menu__item[data-kind='aside'] {
+  font-size: var(--t-m);
+  text-align: center;
+  color: var(--ink-dim);
+  background: color-mix(in srgb, var(--ink-dim) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ink-dim) 30%, transparent);
+  padding: var(--s2);
+}
+.rl-menu__item[data-kind='secondary']:hover,
+.rl-menu__item[data-kind='secondary']:focus-visible,
+.rl-menu__item[data-kind='aside']:hover,
+.rl-menu__item[data-kind='aside']:focus-visible {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+/* The utilities: a 2-column grid; one column on a very narrow phone. */
+.rl-menu__nav--grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s1);
+}
+@media (max-width: 22.5rem) {
+  .rl-menu__nav--grid {
+    grid-template-columns: 1fr;
+  }
+}
+/* A button does not fill its cell the way a block <a> does. */
 button.rl-menu__item[data-kind='aside'] {
   width: 100%;
 }
+/* ONE back button (PA-22, VR-21). Every way back -- Settings, Saves, Credits,
+   the campaign board, Free Play, the briefing, the boot-failure screen -- is
+   the plain `.rl-btn`: body face, sentence case, `--t-body`, the register the
+   rest of the shell's action buttons (end screen, pause, confirm, saves) wear.
+   The menu TILE (`.rl-menu__item`, display face, uppercase) is for going
+   FORWARD into a screen; a way back is not a destination, so it does not
+   dress as one. Since GH-498 every one of them but the briefing's sits first
+   in the one footer row (`.rl-foot` below, `ui/foot.ts`); the
+   `align-self: flex-start` that kept a column nav's back link to its own
+   text is gone with the column, because in a ROW it pinned the link to the
+   top at its own short height beside a taller tile. */
 /* The tutorial, while unplayed: it should be the first thing a new
    commander's eye lands on, not just the first item in the list. */
 .rl-menu__item[data-kind='primary'],
@@ -3105,14 +3961,43 @@ button.rl-menu__item[data-kind='aside'] {
 /* The sandbox picker                                                      */
 /* ---------------------------------------------------------------------- */
 
-/* A dev instrument, so it reads as one -- but by its name alone, never its
-   id: a map entry is a card, not a campaign chapter. */
+/* A map CARD (PA-25): the ground painted a pixel a tile, then the map's name
+   and one line of what it is. By name alone, never its id: a map entry is a
+   card, not a campaign chapter. The name keeps the tile's display face; the
+   line under it is body type in the quiet ink, so the eye reads the list by
+   name and stops to read a sentence only on the one it is deciding about. */
 .rl-menu__item[data-kind='sandbox'] {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--s2);
+  align-items: center;
+  gap: var(--s3);
   font-size: var(--t-m);
+}
+.rl-mapcard__preview {
+  flex: none;
+  width: 4rem;
+  height: 4rem;
+  /* One authored pixel is one tile: scale it as a hard-edged square, never a
+     blur, and frame it like the panels. */
+  image-rendering: pixelated;
+  border: 1px solid var(--panel-frame);
+}
+.rl-mapcard__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  min-width: 0;
+}
+.rl-mapcard__desc {
+  font-family: var(--font-body);
+  font-size: var(--t-body);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-mute);
+}
+.rl-menu__item[data-kind='sandbox']:hover .rl-mapcard__desc,
+.rl-menu__item[data-kind='sandbox']:focus-visible .rl-mapcard__desc {
+  color: var(--ink-dim);
 }
 /* Not in the .rl-menu__nav max-width group above, so it carries the column
    measure itself -- the flag list is the one part of this screen that is
@@ -3122,10 +4007,35 @@ button.rl-menu__item[data-kind='aside'] {
   flex-direction: column;
   gap: var(--s1);
   max-width: var(--menu-col);
-  margin: var(--s3) auto var(--s2);
+  margin: var(--s1) auto var(--s2);
   padding: var(--s2) var(--s3);
   border: 1px solid var(--panel-frame);
   text-align: left;
+}
+/* WP-P2: the extras sit behind a closed disclosure, so the picker opens on
+   the maps. The summary is a quiet line, not a button competing with them. */
+.rl-sandbox__dev {
+  max-width: var(--menu-col);
+  margin: var(--s3) auto var(--s2);
+  text-align: left;
+}
+.rl-sandbox__dev-summary {
+  cursor: pointer;
+  /* Set in capitals, so in the face capitals belong to (VR-20). */
+  font-family: var(--font-display);
+  font-size: var(--t-s);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.rl-sandbox__dev-summary:hover,
+.rl-sandbox__dev-summary:focus-visible {
+  color: var(--ink);
+}
+.rl-sandbox__dev-hint {
+  margin: 0;
+  font-size: var(--t-s);
+  color: var(--ink-mute);
 }
 .rl-sandbox__flag {
   display: grid;
@@ -3151,11 +4061,49 @@ button.rl-menu__item[data-kind='aside'] {
   color: var(--ink-mute);
 }
 
-.rl-endnav {
+
+/* The end-of-mission frame (`ui/end-panel.ts`), shared by the end screen and
+   the debrief: centred, never taller than the viewport less a margin, the body
+   scrolling and the action row in a foot BELOW the body rather than inside it.
+   The end screen used to hang from `top: 62%` and grow downward, so a long
+   victory (WH V's portrait, quote and aftermath) put every one of its actions
+   off screen. Above the HUD's furniture (strip 6, minimap 5, tracker 20) so
+   nothing it leaves up can cover an action; below the loading screen (40), the
+   pause/confirm scrims (50) and the outcome moment (55). The foot repeats the
+   body's background and frame, so the two read as one body when nothing
+   scrolls -- the spacing is the old `margin-top` on the action row, moved into
+   the body's own bottom padding. */
+.rl-endpanel {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 30;
   display: flex;
-  gap: var(--s2);
-  justify-content: center;
-  margin-top: var(--s3);
+  flex-direction: column;
+  max-height: calc(100vh - 2 * var(--s4));
+  max-height: calc(100dvh - 2 * var(--s4));
+}
+.rl-endpanel > .rl-panel__band,
+.rl-endpanel__foot {
+  flex: none;
+}
+.rl-endpanel > .rl-panel__body {
+  flex: 0 1 auto;
+  min-height: 0;
+  border-bottom: 0;
+}
+.rl-endpanel__foot {
+  pointer-events: auto;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  border-top: 0;
+  padding: 0 var(--s3) var(--s3);
+}
+.rl-endpanel__foot .rl-foot {
+  /* The foot above already draws the rule and the space over the row. */
+  border-top: 0;
+  padding-top: 0;
 }
 
 /* The story voice's outcome-specific closing word (G11 / GDD §11), above the
@@ -3238,57 +4186,212 @@ button.rl-menu__item[data-kind='aside'] {
    read rather than glimpsed. */
 .rl-endaftermath {
   margin: 0 0 var(--s2);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--t-m);
   line-height: 1.5;
   color: var(--ink-dim);
 }
 
-/* The debrief screen (`ui/debrief.ts`, Task 9) -- the full card that would not
-   fit in the 26.25rem end panel above. `--t-lg` does not exist in this file;
-   `.rl-debrief__tier` uses `--t-card`, the same token `.rl-panel__title` is
-   set in, so the tier name reads at the same size as a panel's own title. */
-.rl-debrief__head { display: flex; align-items: baseline; gap: 0.75rem; }
-.rl-debrief__tier { font-size: var(--t-card); color: var(--ink); }
-.rl-debrief__stars { color: var(--commend); letter-spacing: 2px; }
-.rl-debrief__line { margin: 0.5rem 0; color: var(--ink); font-style: italic; }
-.rl-debrief__who { display: block; margin-top: 2px; font-style: normal; color: var(--ink-dim); }
-.rl-debrief__grid { display: grid; grid-template-columns: 6em 1fr; gap: 2px 0.75rem; margin: 0.625rem 0; }
-.rl-debrief__grid dt { color: var(--ink-dim); }
-/* The reward (GH-234), promoted out of the row grid above and placed right
-   after the tier/stars head -- "the most visible figure after the result
-   title" is the brief's own phrase. Same `--good` and the same "credit(s)"
-   word the dock chip's own balance uses (GH-233, `.rl-dock__credits`), so a
-   figure reads the same on the outcome moment, the dock and here. */
-.rl-debrief__reward { margin: 0.5rem 0; }
-.rl-debrief__reward-figure {
-  margin: 0;
-  font-family: var(--font-display);
-  font-size: var(--t-xl);
-  color: var(--good);
+/* The after-action report (GH-417, H4 + H5, `ui/debrief.ts`): the one screen
+   after a mission, absorbing the old end panel (L-7). It sits on an opaque,
+   blurred backdrop so the live HUD -- radio, feed, dock -- cannot show through
+   or collide with it (PA-21); `.rl-endpanel` (z 30) centres and caps it. */
+.rl-aar-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 29;
+  background: color-mix(in srgb, var(--panel-bg-solid) 86%, transparent);
+  backdrop-filter: blur(3px);
 }
-.rl-debrief__reward-none {
+.rl-aar {
+  width: min(84rem, 100vw - 2 * var(--s4));
+}
+.rl-aar > .rl-panel__body {
+  /* `.rl-endpanel` lets the body shrink; it must scroll, not spill under the
+     foot (measured at 1280x720: the last lines ran under the action row). */
+  overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  padding: var(--s4) var(--s5);
+  text-align: left;
+}
+.rl-aar__verdict {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s5);
+}
+.rl-aar__grade {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+}
+.rl-debrief__tier,
+.rl-aar__tier {
+  font: 600 var(--t-l) var(--font-body);
+  color: var(--ink);
+}
+.rl-debrief__stars,
+.rl-aar__stars {
+  font-size: var(--t-xl);
+  letter-spacing: 2px;
+  color: var(--commend);
+}
+.rl-aar__star-off { color: var(--panel-frame); }
+.rl-aar__reason {
+  list-style: none;
   margin: 0;
-  font-size: var(--t-m);
+  padding: 0;
+  text-align: right;
+  font: var(--t-m) / 1.5 var(--font-body);
+  color: var(--ink-mute);
+}
+/* A defeat has no grade to show: its reason IS the verdict, read first. */
+.rl-aar[data-result='defeat'] .rl-aar__grade {
+  display: none;
+}
+.rl-aar[data-result='defeat'] .rl-aar__reason {
+  text-align: left;
+  font: 600 var(--t-read) / 1.4 var(--font-body);
+  color: var(--bad-text);
+}
+.rl-aar__ladder {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid var(--panel-frame);
+  border-bottom: 1px solid var(--panel-frame);
+}
+.rl-aar__rung {
+  display: flex;
+  gap: var(--s2);
+  align-items: baseline;
+  padding: var(--s2) var(--s3);
+  font: var(--t-m) / 1.4 var(--font-body);
+  border-right: 1px solid var(--panel-rule);
+}
+.rl-aar__rung:last-child { border-right: 0; }
+.rl-aar__rung--met { color: var(--good); }
+.rl-aar__rung--missed { color: var(--ink-dim); }
+.rl-aar__rung-stars { flex: none; letter-spacing: 1px; }
+.rl-aar__rung--met .rl-aar__rung-stars { color: var(--commend); }
+.rl-aar__word {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: var(--s4);
+  align-items: start;
+}
+.rl-aar__word .rl-enddebrief__face { grid-row: span 2; }
+.rl-aar__quote {
+  margin: 0;
+  font: italic var(--t-read) / 1.4 var(--font-body);
+  color: var(--ink);
+}
+.rl-aar__cite {
+  display: block;
+  margin-top: var(--s1);
+  font: normal 600 var(--t-s) var(--font-body);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+.rl-endaftermath,
+.rl-aar__aftermath {
+  margin: var(--s2) 0 0;
+  font: var(--t-m) / 1.5 var(--font-body);
+  color: var(--ink-mute);
+}
+.rl-aar__grid {
+  display: grid;
+  grid-template-columns: minmax(14rem, 19rem) repeat(3, minmax(0, 1fr));
+  gap: var(--s4);
+  align-items: start;
+}
+.rl-aar__grid:not(:has(.rl-aar__ground)) {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.rl-aar__col-title {
+  margin: 0 0 var(--s2);
+  font: 800 var(--t-l) var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: var(--track-title);
+}
+.rl-aar__col--well .rl-aar__col-title { color: var(--good); }
+.rl-aar__col--poor .rl-aar__col-title { color: var(--bad-text); }
+.rl-aar__col--changed .rl-aar__col-title { color: var(--commend); }
+.rl-aar__items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.rl-aar__item {
+  display: flex;
+  gap: var(--s3);
+  align-items: flex-start;
+  padding: var(--s2) 0;
+  border-bottom: 1px solid var(--panel-rule);
+  font: var(--t-m) / 1.35 var(--font-body);
+  color: var(--ink);
+}
+.rl-aar__mark {
+  flex: none;
+  min-width: 3.25rem;
+  font: 600 var(--t-m) var(--font-mono);
+}
+.rl-aar__item--good .rl-aar__mark { color: var(--good); }
+.rl-aar__item--bad .rl-aar__mark { color: var(--bad-text); }
+.rl-aar__item--commend .rl-aar__mark { color: var(--commend); }
+.rl-aar__mark svg { width: 1rem; height: 1rem; }
+.rl-aar__mark--person {
+  width: 2.5rem;
+  height: 2.5rem;
+  min-width: 2.5rem;
+  border: 1px solid var(--panel-frame);
+  background: var(--well);
+  overflow: hidden;
+}
+.rl-aar__mark--person img { width: 100%; height: 100%; object-fit: cover; }
+.rl-aar__mark--lost img { filter: grayscale(1) brightness(0.6); }
+.rl-aar__sub {
+  display: block;
+  margin-top: var(--s0);
+  font-size: var(--t-body);
   color: var(--ink-dim);
 }
-.rl-debrief__reward-total {
-  margin: 0.125rem 0 0;
-  font-size: var(--t-m);
-  color: var(--good);
+.rl-debrief__line,
+.rl-aar__brigade {
+  margin: var(--s3) 0 0;
+  font: italic var(--t-m) / 1.45 var(--font-body);
+  color: var(--ink-mute);
 }
-/* The account of the taken, the same ink the board's own line takes. */
-.rl-debrief__taken { margin: 0 0 0.5rem; color: var(--ink); }
-.rl-debrief__deductions, .rl-debrief__secondaries { margin: 0.25rem 0 0.5rem 1.2em; padding: 0; }
-.rl-debrief__deductions li { color: var(--bad-text); }
-.rl-debrief__secondary[data-carries='1'] { color: var(--commend); }
-/* `__unlocked` is a `ul` -- one line per unlock, since each carries its own
-   reason -- so it needs the same list reset the two lists above take, or the
-   browser's own 2.5rem indent and block margins land it well off their column. */
-.rl-debrief__unlocked { margin: 0.5rem 0 0 1.2em; padding: 0; }
-.rl-debrief__unlocked, .rl-debrief__promotion { color: var(--good); }
-.rl-debrief__promotion { margin-top: 0.5rem; }
-.rl-debrief__villain { margin-top: 0.5rem; color: var(--ink-mute); font-style: italic; }
+.rl-debrief__who { display: block; margin-top: var(--s0); font-style: normal; color: var(--ink-dim); }
+.rl-debrief__promotion { margin-top: var(--s3); color: var(--good); font: var(--t-m) var(--font-body); }
+.rl-debrief__villain { margin-top: var(--s3); color: var(--ink-mute); font: italic var(--t-m) / 1.45 var(--font-body); }
+/* The foot reads as its own row: a rule above it, and an opaque fill, so a
+   scrolled body is visibly cut at its edge rather than under the buttons. */
+.rl-aar > .rl-endpanel__foot {
+  padding-top: var(--s3);
+  border-top: 1px solid var(--panel-frame);
+  background: var(--panel-bg-solid);
+}
+/* One primary action, the mission STAMP in the band colour; the rest are
+   plain action buttons in the shell's one button register (VR-20): body face,
+   sentence case, like the pause menu's, the confirm dialog's and the saves
+   screen's. They were body face set in capitals, the one place case and face
+   disagreed. */
+.rl-aar__nav .rl-aar__primary {
+  font: 800 var(--t-l) var(--font-display);
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  background: var(--band-mission);
+  color: var(--band-ink);
+  border-color: var(--commend);
+  padding: var(--s2) var(--s5);
+}
 
 /* ====================================================================== */
 /* Motion — short, interruptible, and only where it carries meaning        */
@@ -3318,8 +4421,8 @@ button.rl-menu__item[data-kind='aside'] {
 /* Menu entrance: children introduce themselves in sequence rather than the
    whole screen arriving at once. --i is set per child. */
 .rl-stagger > * {
-  animation: rl-enter 200ms var(--ease) both;
-  animation-delay: calc(var(--i, 0) * 60ms);
+  animation: rl-enter var(--dur-route) var(--ease) both;
+  animation-delay: calc(var(--i, 0) * var(--stagger));
 }
 
 .rl-leave {
@@ -3337,7 +4440,7 @@ button.rl-menu__item[data-kind='aside'] {
   }
 }
 .rl-flash-good {
-  animation: rl-complete 400ms var(--ease) 1;
+  animation: rl-complete var(--dur-linger) var(--ease) 1;
 }
 
 /* ROE falling is the bad news, and it is easy to miss in a firefight. */
@@ -3352,7 +4455,7 @@ button.rl-menu__item[data-kind='aside'] {
   }
 }
 .rl-flash-bad {
-  animation: rl-drop 300ms var(--ease) 1;
+  animation: rl-drop var(--dur-long) var(--ease) 1;
   display: inline-block;
 }
 
@@ -3368,7 +4471,7 @@ button.rl-menu__item[data-kind='aside'] {
   }
 }
 .rl-pulse {
-  animation: rl-pulse 1s var(--ease) infinite;
+  animation: rl-pulse var(--dur-pulse) var(--ease) infinite;
 }
 
 /* Mission end. Settles rather than appears — the result should land. */
@@ -3383,7 +4486,7 @@ button.rl-menu__item[data-kind='aside'] {
   }
 }
 .rl-banner-in {
-  animation: rl-banner 220ms var(--ease) both;
+  animation: rl-banner var(--dur-route) var(--ease) both;
 }
 
 /* Motion here reports state, so under reduced-motion the report has to survive
@@ -3420,17 +4523,17 @@ button.rl-menu__item[data-kind='aside'] {
 }
 
 /* Tutorial step panel — the lesson is the thing a first-time player has to
-   read, so it wears the display face at reading size rather than the 0.6875rem
-   mono every other panel body uses. The nudge is the same copy escalated, so
+   read, so it is set in the body face (it is prose, PA-22) at reading size,
+   `--t-l`, rather than the `--t-body` every other panel body uses. The title
+   above it keeps the display face. The nudge is the same copy escalated, so
    it reads as emphasis rather than a second instruction. */
 .rl-tutorial .rl-panel__title {
-  font-size: 1.5rem;
+  font-size: var(--t-head);
 }
 .rl-tutorial .rl-panel__body {
-  font-family: var(--font-display);
+  font-family: var(--font-body);
   font-size: var(--t-l);
   line-height: 1.3;
-  letter-spacing: var(--track-title);
 }
 .rl-tutorial__nudge:empty {
   display: none;
@@ -3455,12 +4558,17 @@ button.rl-menu__item[data-kind='aside'] {
   inset: 0;
   z-index: 40;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  /* `safe` (GH-417 B-01): plain `center` on a scroll container centres a box
+     taller than the viewport by pushing its top into NEGATIVE overflow, which
+     no scroll reaches -- the mission name sat at -210 px at 1400x900 on Wadi
+     Halam V and could not be scrolled to. `safe` falls back to `start` exactly
+     when the box would overflow, and centres it otherwise. */
+  align-items: safe center;
+  justify-content: safe center;
   /* Opaque, not translucent — see above; there is nothing behind here worth
      showing through. */
   background: var(--panel-bg-solid);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   color: var(--ink);
   /* The screen is `inset: 0` and centres its box, so anything taller than the
      viewport is clipped at both ends with no way to reach it. "What you
@@ -3494,11 +4602,15 @@ button.rl-menu__item[data-kind='aside'] {
   width: 0;
   height: 100%;
   background: var(--band-mission);
-  /* Eased so a burst of sheets resolving together reads as a bar filling
-     rather than as a jump. Matches the duration the rest of the UI moves at. */
-  transition: width var(--dur) var(--ease);
+  /* Transitioned so a burst of sheets resolving together reads as a bar
+     filling rather than as a jump; at the steady rate every progress fill in
+     the sheet uses (VR-29), over the duration the rest of the UI moves at. */
+  transition: width var(--dur) var(--ease-steady);
 }
 .rl-loading__count {
+  /* A readout of figures ("12 / 45 sheets"): mono, named here because the
+     container above is the body face. */
+  font-family: var(--font-mono);
   margin-top: var(--s2);
   font-size: var(--t-s);
   letter-spacing: var(--track-label);
@@ -3565,9 +4677,9 @@ button.rl-menu__item[data-kind='aside'] {
   text-transform: uppercase;
   color: var(--ink-label);
 }
-/* The reading face, not the plate face (GH-162): the label/count above still
-   wear `.rl-loading`'s own `--font-mono` -- readouts, not prose -- and
-   `.rl-loading__commander` keeps the tracked display caps of a rank/plate
+/* The reading face, not the plate face (GH-162): the count above wears
+   `--font-mono` -- a readout of figures, not prose -- the label beside it the
+   body face, and `.rl-loading__commander` keeps the tracked display caps of a rank/plate
    line, both untouched. The briefing itself is what the player has to sit
    and read, so it takes the same treatment `.rl-cmd__quote` already gives
    the identical prose mid-mission: Barlow (`--font-body`, GH-153 retired
@@ -3622,6 +4734,19 @@ button.rl-menu__item[data-kind='aside'] {
   /* Scrolled text needs a margin to breathe against the scrollbar. */
   padding-right: var(--s2);
 }
+/* GH-417 B-03: with orders to read, the beats do NOT scroll inside their own
+   box any more. That nested box cut its text off flush against the
+   Objectives header (Execution read as overlapped; Notes was hidden inside
+   it at 1400 and 1920). What the cap above protected -- Deploy staying on
+   screen -- is `position: sticky` on Deploy now (below), so the whole screen
+   scrolls as one page. The cinematic layout keeps its own cap
+   (`.rl-loading__box--video .rl-loading__brief`), whose measured fit is a
+   different screen. */
+.rl-loading__box--brief:not(.rl-loading__box--video) .rl-loading__brief {
+  max-height: none;
+  overflow-y: visible;
+  padding-right: 0;
+}
 /* One beat, one paragraph, with air between them -- the "wall of text"
    complaint was as much about the missing paragraph breaks as the size.
    Fades in on a short stagger keyed by `--i`, the same per-child custom
@@ -3637,20 +4762,77 @@ button.rl-menu__item[data-kind='aside'] {
   margin: 0 0 var(--s3) 0;
   opacity: 0;
   transform: translateY(0.375rem);
-  animation: rl-beat-in 320ms var(--ease) both;
-  animation-delay: calc(var(--i, 0) * 140ms);
+  animation: rl-beat-in var(--dur-long) var(--ease) both;
+  animation-delay: calc(var(--i, 0) * var(--stagger-beat));
 }
 .rl-loading__beat:last-child {
   margin-bottom: 0;
+}
+/* Named briefing sections (GH-119): a block of the order under a tracked-caps
+   heading in the same label ink the rank/plate line wears, with a hairline
+   between blocks. Each section is a tab stop (the global ring marks it), and
+   the brief's own scroll follows focus. */
+.rl-loading__section {
+  padding: var(--s2) 0 var(--s3);
+  border-top: 1px solid var(--panel-frame);
+}
+.rl-loading__section:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.rl-loading__section::after {
+  content: '';
+  display: block;
+  clear: both;
+}
+.rl-loading__section-head {
+  margin: 0 0 var(--s2);
+  font-family: var(--font-display);
+  font-size: var(--t-s);
+  font-weight: 600;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+/* A section's picture: a small framed thumbnail the prose wraps beside, so a
+   picture never costs the orders their reading measure. */
+.rl-loading__section-img {
+  float: right;
+  width: 5.5rem;
+  height: 6.875rem;
+  margin: 0 0 var(--s2) var(--s3);
+  object-fit: cover;
+  border: 1px solid var(--panel-frame);
+  background: var(--panel-bg);
+}
+/* The mission's image slot: one framed picture, at the top of the right-hand
+   column on the spread, otherwise above the orders. Width-capped like the
+   ground preview beside it and height-capped so Deploy keeps its place on a
+   45rem-tall screen; never cropped, because a plate cut to its middle is sand,
+   and sized to the picture so the frame hugs it. */
+.rl-loading__image {
+  margin: var(--s3) 0 var(--s2);
+}
+.rl-loading__image-img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: min(100%, 22rem);
+  max-height: min(24vh, 13.75rem);
+  border: 1px solid var(--panel-frame);
+  background: var(--panel-bg);
+}
+.rl-loading__force .rl-loading__image {
+  margin-top: 0;
 }
 /* "What you brought" (Task 11): a sibling of the beats, between the orders and
    Deploy -- never a beat itself. The left rule borrows `--commend`, the same
    token the world-map star line uses, so a carry-over reads as an earned
    thing rather than as another paragraph of prose. */
-.rl-loading__brought { margin: 0.625rem 0 0; padding: 0.5rem 0.625rem; border-left: 2px solid var(--commend); color: var(--ink); }
+.rl-loading__brought { margin: var(--s2h) 0 0; padding: var(--s2) var(--s2h); border-left: 2px solid var(--commend); color: var(--ink); }
 .rl-loading__brought-head { color: var(--ink-dim); font-size: var(--t-s); text-transform: uppercase; letter-spacing: 1px; }
-.rl-loading__brought ul { margin: 0.25rem 0; padding-left: 1.1em; }
-.rl-loading__brought-line { margin: 0.25rem 0 0; color: var(--ink-mute); }
+.rl-loading__brought ul { margin: var(--s1) 0; padding-left: 1.1em; }
+.rl-loading__brought-line { margin: var(--s1) 0 0; color: var(--ink-mute); }
 /* Survivors this mission does not field -- a count, under the roster, in the
    same muted ink the panel's own prose uses rather than the roster's. */
 .rl-loading__reserve { color: var(--ink-mute); }
@@ -3680,6 +4862,27 @@ button.rl-menu__item[data-kind='aside'] {
   border: 0;
   cursor: pointer;
 }
+/* GH-417 B-02: the one control that starts the mission stays on screen. It
+   follows the orders in the page, so on a tall briefing it sat below the fold
+   on open (top at 1123 px at 1920x1080, 1488 px at 2560x1440). Sticky to the
+   scroll container's bottom edge: where the page is short enough it sits
+   exactly where it always did; where it is not, it rides the bottom edge until
+   the reader scrolls to its own place. Behind it, a band in the screen's own
+   colour runs the full width, so prose scrolling under it is hidden rather
+   than read beside the button. The band is a border-image drawn wholly in
+   the OUTSET (width = outset, no `fill`): it paints outside the button and
+   never over it, and outset ink is overflow that triggers no scrolling. Where
+   Deploy sits in its own place the band is the background colour on the
+   background, so it is invisible. */
+.rl-loading__box--brief > .rl-loading__deploy {
+  position: sticky;
+  bottom: var(--s3);
+  z-index: 1;
+  border-image-source: linear-gradient(var(--panel-bg-solid), var(--panel-bg-solid));
+  border-image-slice: 1;
+  border-image-width: var(--s5) 100vw var(--s3);
+  border-image-outset: var(--s5) 100vw var(--s3);
+}
 .rl-loading__deploy:hover,
 .rl-loading__deploy:focus-visible {
   background: color-mix(in srgb, var(--band-mission) 80%, var(--ink));
@@ -3697,7 +4900,7 @@ button.rl-menu__item[data-kind='aside'] {
    pressable, and does not light on hover as if it were. After the hover rule
    on purpose -- equal specificity, so order decides. */
 .rl-loading__deploy:disabled {
-  opacity: 0.45;
+  opacity: var(--disabled-opacity);
   cursor: not-allowed;
   background: var(--band-mission);
 }
@@ -3766,17 +4969,19 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-deploy__row:hover {
   border-color: var(--accent);
 }
-/* Chosen: the mission's own olive band, the stamp Deploy itself wears. */
+/* Chosen: the shell's one selected register (VR-26). It wore the mission
+   band's olive at 35% until the chrome register; a band colour ranks a panel
+   and is not a selection colour (VR-24). */
 .rl-deploy__row[data-chosen='1'] {
   color: var(--ink);
-  background: color-mix(in srgb, var(--band-mission) 35%, transparent);
-  border-color: var(--band-mission);
+  border-color: var(--selected);
+  background: var(--selected-fill);
 }
 /* Its type is full: this body can go only once another of its type is
    benched, so it stays in the tab order and says "not now". */
 .rl-deploy__row[aria-disabled='true'] {
-  opacity: 0.55;
-  cursor: default;
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
 }
 .rl-deploy__name {
   font-weight: 600;
@@ -3802,6 +5007,17 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-deploy__reserve {
   margin-top: var(--s1);
   color: var(--ink-mute);
+}
+/* K-11: the reason Deploy is locked, or a row refused its click. */
+.rl-deploy__why,
+.rl-force__why {
+  margin: var(--s1) 0 0;
+  font: var(--t-body) / 1.35 var(--font-body);
+  color: var(--warn);
+}
+.rl-force__why {
+  max-width: 24rem;
+  text-align: right;
 }
 .rl-deploy__map {
   margin: 0;
@@ -3911,12 +5127,12 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-kit-pips {
   display: inline-flex;
   align-items: flex-end;
-  gap: 0.125rem;
+  gap: var(--s0);
 }
 .rl-kit-pips__col {
   display: inline-flex;
   flex-direction: column-reverse;
-  gap: 0.125rem;
+  gap: var(--s0);
   min-width: 0.375rem;
 }
 .rl-kit-pips__pip {
@@ -3935,7 +5151,7 @@ button.rl-menu__item[data-kind='aside'] {
    the sheet's two global rules (the media query and `data-motion='reduce'`)
    collapse it to 1 ms and the pip is simply on. */
 .rl-kit-pips__pip--new {
-  animation: rl-kit-pip-new 240ms var(--ease);
+  animation: rl-kit-pip-new var(--dur-stamp) var(--ease);
 }
 @keyframes rl-kit-pip-new {
   from {
@@ -4031,6 +5247,11 @@ button.rl-menu__item[data-kind='aside'] {
    of art at --ui-scale 2. Held to the art's own box, so the corner is the
    art's; the kit sign (top-right) sits where it always did. */
 .rl-chip > .rl-kit-host { align-self: flex-start; }
+/* Pass C2/C4 (D5): the corner carries whichever status mark wins the line;
+   broken and the two damage marks in the bad ink, pinned keeps --hot. */
+.rl-pin-mark[data-mark='broken'],
+.rl-pin-mark[data-mark='gunOut'],
+.rl-pin-mark[data-mark='immobilised'] { color: var(--bad-text); }
 .rl-kit-host > .rl-pin-mark { left: 1px; bottom: 1px; }
 .rl-kit-host > .rl-pin-mark svg { width: 0.75rem; height: 0.75rem; }
 .rl-card__frame > .rl-pin-mark { left: 0.1875rem; bottom: 0.1875rem; }
@@ -4056,21 +5277,26 @@ button.rl-menu__item[data-kind='aside'] {
    THE READING LADDER. The global --t-* scale above is sized for type drawn
    OVER a battlefield and glanced at between orders, so it bottoms out at
    0.625rem and calls 0.75rem "body". Nothing on this screen is glanced at.
-   The five names the garage sets its type in are therefore re-pointed HERE,
-   on the screen's own root, and inherit down to everything inside it --
-   including `.rl-btn`, which reads --t-body and so comes out at reading size
-   in this screen's footer without a rule of its own. Nothing OUTSIDE this
-   selector sees any of it, which is the whole reason the ladder is scoped
-   rather than moved: raising --t-body globally would resize every HUD chip
-   in the game. --t-small is this screen's FLOOR -- no rule below may name a
+   The garage used to declare a private five-name scale for that (--t-title,
+   --t-h2, --t-h3, --t-body, --t-small). PA-22 (VR-19) retired it: there is
+   one scale, and the garage reads its upper rungs --
+       title  --t-clock 2.125rem      (was 2.25)
+       head   --t-head  1.5rem        (was 1.5, new root rung)
+       sub    --t-card  1.1875rem     (was 1.125)
+       body   --t-body  = --t-strip 1.0625rem (was 1.0)
+       floor  --t-band  0.9375rem     (was 0.875)
+   -- each within one step (about 6%) of what it replaced; every rung grew
+   except the title, which went down 5.6%, because the lead asked for bigger
+   type by name and a shrink here would undo that.
+   Only --t-body is still re-pointed here, on the screen's own root, so that
+   `.rl-btn`, which reads --t-body, comes out at reading size in this
+   screen's footer without a rule of its own; nothing OUTSIDE this selector
+   sees it, because raising --t-body globally would resize every HUD chip in
+   the game. --t-band is this screen's FLOOR -- no rule below may name a
    smaller size, and `brigade.test.ts` reads this block back off disk and
    fails if one does. */
 .rl-menu--garage {
-  --t-title: 2.25rem;
-  --t-h2: 1.5rem;
-  --t-h3: 1.125rem;
-  --t-body: 1rem;
-  --t-small: 0.875rem;
+  --t-body: var(--t-strip); /* reading size for everything that reads --t-body in here, `.rl-btn` included */
 
   /* The same width exception, and the same vw arithmetic, the campaign board
      takes: subtract the menu's own horizontal padding and border so the BOX,
@@ -4113,7 +5339,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__title {
   margin: 0;
   font-family: var(--font-display);
-  font-size: var(--t-title);
+  font-size: var(--t-clock);
   font-weight: 900;
   line-height: 1;
   letter-spacing: var(--track-title);
@@ -4121,7 +5347,7 @@ button.rl-menu__item[data-kind='aside'] {
   color: var(--ink);
 }
 .rl-garage__campaign {
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--ink-mute);
@@ -4135,12 +5361,12 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-garage__wallet-n {
   font-family: var(--font-mono);
-  font-size: var(--t-h2);
+  font-size: var(--t-head);
   font-weight: 600;
   color: var(--commend);
 }
 .rl-garage__wallet-word {
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--ink-mute);
@@ -4150,7 +5376,7 @@ button.rl-menu__item[data-kind='aside'] {
    sheet's own global rule flattens the movement and the colour still
    reports. */
 .rl-garage__wallet--spent {
-  animation: rl-garage-spend 600ms var(--ease);
+  animation: rl-garage-spend var(--dur-spend) var(--ease);
 }
 @keyframes rl-garage-spend {
   0% {
@@ -4190,7 +5416,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__tab {
   padding: var(--s1) var(--s2);
   font-family: var(--font-display);
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--ink-dim);
@@ -4200,19 +5426,20 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-garage__tab[aria-selected='true'] {
   color: var(--ink);
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: var(--selected);
+  background: var(--selected-fill);
 }
 /* Sort by kit level (GH-243, spec §4 "Comparison"): a toggle beside the role
    tabs, drawn in their register so it reads as one more way to arrange the
-   rail, and in the KIT colour once pressed -- it orders by what was bought,
-   and the steel is what "bought" looks like everywhere else on this screen.
-   Right-aligned under the tabs, so the tab row keeps its own wrap. */
+   rail. Dashed while off; once pressed it takes the shell's one selected
+   register like the tabs beside it (VR-26) -- it was the kit's steel, which
+   made a sort order read as a purchase. Right-aligned under the tabs, so the
+   tab row keeps its own wrap. */
 .rl-garage__sort {
   align-self: flex-end;
   padding: var(--s1) var(--s2);
   font-family: var(--font-display);
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--ink-dim);
@@ -4224,10 +5451,10 @@ button.rl-menu__item[data-kind='aside'] {
   color: var(--ink);
 }
 .rl-garage__sort[aria-pressed='true'] {
-  color: var(--ink);
   border-style: solid;
-  border-color: var(--kit);
-  background: color-mix(in srgb, var(--kit) 14%, transparent);
+  color: var(--ink);
+  border-color: var(--selected);
+  background: var(--selected-fill);
 }
 .rl-garage__cards {
   display: flex;
@@ -4258,14 +5485,382 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__card[hidden] {
   display: none;
 }
+
+/* --- the garage's two views and the Stores (GH-317) ---------------------
+   The view tabs sit in the header between the title and the wallet. The
+   body and the Stores share the screen's one `1fr` row, and whichever is
+   `hidden` must actually go: both set an author `display`, which beats the
+   UA's `[hidden]` rule (the GH-237 trap named just above). */
+.rl-garage__views {
+  display: flex;
+  gap: var(--s1);
+}
+.rl-menu--garage .rl-garage__view {
+  padding: var(--s2) var(--s4);
+  font-family: var(--font-display);
+  font-size: var(--t-body);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  background: transparent;
+  border: 1px solid var(--panel-frame);
+  cursor: pointer;
+}
+.rl-garage__view[aria-selected='true'] {
+  color: var(--ink);
+  border-color: var(--selected);
+  background: var(--selected-fill);
+}
+.rl-garage__body[hidden],
+.rl-garage__stores[hidden],
+.rl-garage__wallet[hidden],
+.rl-stores__panel[hidden] {
+  display: none;
+}
+.rl-garage__stores {
+  min-height: 0;
+  overflow-y: auto;
+}
+.rl-menu--garage .rl-stores {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  font-size: var(--t-body);
+  color: var(--ink);
+}
+/* The head: the balance, Grant (TEST) and the compact "Get Roar coins" row
+   beside them -- never above the items (the lead's declutter, 2 Oct). */
+.rl-stores__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3) var(--s5);
+}
+.rl-stores__wallet {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.rl-stores__wallet-coin {
+  flex: none;
+}
+.rl-menu--garage .rl-stores__wallet-n {
+  font-family: var(--font-mono);
+  font-size: var(--t-head);
+  font-weight: 600;
+  color: var(--roar);
+}
+.rl-menu--garage .rl-stores__wallet-word {
+  font-size: var(--t-band);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.rl-stores__packs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  margin-left: auto;
+}
+.rl-menu--garage .rl-stores__packs-h {
+  font-family: var(--font-display);
+  font-size: var(--t-band);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+.rl-menu--garage .rl-stores__pack {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--s1);
+  padding: var(--s1) var(--s2);
+  font-family: var(--font-body);
+  font-size: var(--t-band);
+  color: var(--ink);
+  background: var(--tile-bg);
+  border: 1px solid var(--panel-frame);
+}
+.rl-stores__pack:disabled {
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
+}
+.rl-menu--garage .rl-stores__pack-bonus {
+  font-size: var(--t-band);
+  color: var(--good);
+}
+.rl-menu--garage .rl-stores__pack-price {
+  font-family: var(--font-mono);
+  font-size: var(--t-band);
+  color: var(--ink-mute);
+}
+.rl-menu--garage .rl-stores__notice {
+  margin: 0;
+  padding: var(--s1) var(--s3);
+  border-left: 3px solid var(--roar);
+  font-size: var(--t-band);
+  color: var(--ink-mute);
+}
+.rl-stores__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  border-bottom: 1px solid var(--panel-frame);
+  padding-bottom: var(--s2);
+}
+.rl-stores__shelves {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1);
+}
+.rl-menu--garage .rl-stores__shelf,
+.rl-menu--garage .rl-stores__owned {
+  padding: var(--s1) var(--s3);
+  font-family: var(--font-display);
+  font-size: var(--t-band);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  background: transparent;
+  border: 1px solid var(--panel-frame);
+  cursor: pointer;
+}
+.rl-stores__shelf[aria-selected='true'],
+.rl-stores__owned[aria-pressed='true'] {
+  color: var(--ink);
+  border-color: var(--selected);
+  background: var(--selected-fill);
+}
+.rl-stores__owned[hidden] {
+  display: none;
+}
+.rl-menu--garage .rl-stores__lede,
+.rl-menu--garage .rl-stores__empty,
+.rl-menu--garage .rl-stores__offsale-count {
+  margin: 0 0 var(--s2);
+  font-size: var(--t-band);
+  color: var(--ink-mute);
+  max-width: 80ch;
+}
+.rl-stores__empty[hidden],
+.rl-stores__group[hidden],
+.rl-stores__card[hidden],
+.rl-stores__tier[hidden] {
+  display: none;
+}
+.rl-menu--garage .rl-stores__shelf-h {
+  margin: var(--s5) 0 var(--s3);
+  font-family: var(--font-display);
+  font-size: var(--t-band);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+/* Fewer, larger cards: each at least a quarter of the row (so never more
+   than four), and never under 22rem (three at 1400). */
+.rl-stores__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(max(22rem, calc((100% - 3 * var(--s5)) / 4)), 1fr));
+  gap: var(--s5);
+}
+.rl-stores__card {
+  display: grid;
+  grid-template-columns: 6.5rem minmax(0, 1fr);
+  align-items: start;
+  gap: var(--s4);
+  min-width: 0;
+  padding: var(--s4);
+  background: var(--tile-bg);
+  border: 1px solid var(--panel-frame);
+}
+.rl-stores__card[data-state='affordable'] {
+  border-color: var(--commend);
+}
+.rl-stores__card-art {
+  width: 6.5rem;
+  height: 6.5rem;
+  object-fit: contain;
+  background: var(--well);
+  border: 1px solid var(--panel-rule);
+}
+.rl-stores__card-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s2);
+  min-width: 0;
+}
+.rl-menu--garage .rl-stores__card-name {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--t-card);
+  font-weight: 800;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+.rl-menu--garage .rl-stores__state {
+  font-size: var(--t-band);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--ink-dim);
+}
+.rl-menu--garage .rl-stores__state--earned {
+  color: var(--good);
+}
+.rl-stores__price {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s1) var(--s3);
+}
+.rl-stores__coin-price {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  white-space: nowrap;
+}
+.rl-menu--garage .rl-stores__coin-n {
+  font-family: var(--font-mono);
+  font-size: var(--t-body);
+  font-weight: 600;
+  color: var(--roar);
+}
+.rl-menu--garage .rl-stores__coin-word {
+  font-size: var(--t-band);
+  color: var(--ink-mute);
+}
+.rl-stores__coin {
+  flex: none;
+}
+.rl-menu--garage .rl-stores__credits {
+  font-family: var(--font-mono);
+  font-size: var(--t-band);
+  color: var(--commend);
+}
+.rl-menu--garage .rl-stores__path {
+  font-size: var(--t-band);
+  color: var(--ink-mute);
+}
+.rl-menu--garage .rl-stores__buy {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  padding: var(--s1) var(--s3);
+  /* A stamp, like the garage's own Buy (VR-20). */
+  font-family: var(--font-display);
+  font-size: var(--t-band);
+  font-weight: 600;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--roar-ink);
+  background: var(--roar);
+  border: 0;
+  cursor: pointer;
+}
+.rl-stores__buy:disabled {
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
+}
+.rl-stores__tier {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s3);
+  width: 100%;
+  padding-top: var(--s2);
+  border-top: 1px solid var(--panel-rule);
+}
+.rl-stores__tier-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  width: 100%;
+}
+.rl-menu--garage .rl-stores__tier-track {
+  font-family: var(--font-display);
+  font-size: var(--t-band);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+.rl-stores__pips {
+  display: inline-flex;
+  gap: var(--s1);
+}
+.rl-stores__pip {
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 1px solid var(--panel-frame);
+}
+.rl-stores__pip--earned {
+  background: var(--commend);
+  border-color: var(--commend);
+}
+/* Coin-bought tiers: hollow, in the coin's own colour (spec §2.2) -- told
+   from earned by SHAPE as well as hue. */
+.rl-stores__pip--coins {
+  border: 2px solid var(--roar);
+}
+.rl-menu--garage .rl-stores__state--coins {
+  color: var(--roar);
+}
+.rl-stores__card[data-state='coins'] {
+  border-color: var(--roar);
+}
+/* The TEST wallet (GH-317): labelled TEST wherever its balance shows. */
+.rl-menu--garage .rl-stores__test {
+  padding: 0 var(--s2);
+  font-family: var(--font-display);
+  font-size: var(--t-band);
+  letter-spacing: var(--track-label);
+  color: var(--roar-ink);
+  background: var(--warn);
+}
+.rl-menu--garage .rl-stores__grant {
+  padding: var(--s1) var(--s3);
+  font-family: var(--font-body);
+  font-size: var(--t-band);
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--tile-bg);
+  border: 1px dashed var(--warn);
+  cursor: pointer;
+}
+.rl-stores[data-test='1'] .rl-stores__notice {
+  border-left-color: var(--warn);
+}
+.rl-stores__receipts-wrap {
+  overflow-x: auto;
+}
+.rl-menu--garage .rl-stores__receipts {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-band);
+}
+.rl-stores__receipts th {
+  text-align: left;
+  color: var(--ink-label);
+  font-weight: 600;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--panel-frame);
+  padding: var(--s1) var(--s2);
+}
+.rl-stores__receipts td {
+  border-bottom: 1px solid var(--panel-rule);
+  padding: var(--s1) var(--s2);
+}
 .rl-garage__card:hover,
 .rl-garage__card:focus-visible {
   border-color: var(--accent);
-  outline: none;
 }
 .rl-garage__card[aria-selected='true'] {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, var(--well));
+  color: var(--ink);
+  border-color: var(--selected);
+  background: var(--selected-fill);
 }
 /* The card whose bars are ghosted in the bay (GH-243): the same dashed ink
    outline the ghost itself draws, so the eye can pair the two. */
@@ -4281,7 +5876,7 @@ button.rl-menu__item[data-kind='aside'] {
   height: 3rem;
 }
 .rl-garage__card[data-locked='1'] .rl-garage__card-art {
-  opacity: 0.55;
+  opacity: var(--disabled-opacity);
 }
 .rl-garage__card-text {
   display: flex;
@@ -4305,7 +5900,7 @@ button.rl-menu__item[data-kind='aside'] {
    differs is worse than no rule. The sentence is on the card's `title` and in
    the bay. */
 .rl-garage__card-chip {
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   color: var(--ink-dim);
   white-space: nowrap;
 }
@@ -4340,7 +5935,9 @@ button.rl-menu__item[data-kind='aside'] {
   flex-direction: column;
   gap: var(--s2);
   min-height: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  container: garage-bay / inline-size;
 }
 /* The plate is a photograph of the unit on lit sand; the vignette under it is
    what makes the sand read as a FLOOR the unit is standing on rather than a
@@ -4409,15 +6006,62 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__plate[data-model='live'] > .rl-garage__model {
   opacity: 1;
 }
-.rl-garage__plate[data-model='live'] > .rl-garage__plate-img {
-  visibility: hidden;
+/* The plate's own picture shows only when the plate is what the bay keeps:
+   `garage-viewer.ts` stamps `hidden` on it while the model loads and while
+   it is live. It used to show while loading, and every unit switch flashed
+   the old top-down screenshot before the 3D model (the lead, 5 Oct). An
+   SVG role badge has no UA `[hidden]` rule, hence `display` here. */
+.rl-garage__plate > [hidden] {
+  display: none;
+}
+/* Loading: an empty disk where the unit will stand, and a quiet spinner on
+   it. Reduced motion collapses the turn to one frame (the global rule
+   above), leaving a still arc -- still a "loading" mark, never a picture of
+   the wrong unit. */
+.rl-garage__plate[data-model='pending']::before {
+  content: '';
+  position: absolute;
+  left: 22%;
+  right: 22%;
+  top: 62%;
+  bottom: 14%;
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse at 50% 50%,
+    color-mix(in srgb, var(--ink) 22%, transparent) 0%,
+    color-mix(in srgb, var(--ink) 8%, transparent) 60%,
+    transparent 72%
+  );
+  pointer-events: none;
+}
+.rl-garage__plate[data-model='pending']::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 2rem;
+  height: 2rem;
+  margin: -1rem 0 0 -1rem;
+  border-radius: 50%;
+  border: 0.15rem solid color-mix(in srgb, var(--ink) 18%, transparent);
+  border-top-color: color-mix(in srgb, var(--ink) 70%, transparent);
+  animation: rl-garage-wait var(--dur-lift) var(--ease-steady) infinite;
+  pointer-events: none;
+}
+@keyframes rl-garage-wait {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .rl-garage__model[data-dragging='1'] {
   cursor: grabbing;
 }
 /* The theme's one ring (`:focus-visible` above), drawn INSIDE the edge: the
-   plate's `overflow: hidden` would clip an outset one. */
-.rl-garage__model:focus-visible {
+   plate's `overflow: hidden`, and the rail's own scroll region for its cards
+   and rungs, would clip an outset one (VR-28). */
+.rl-garage__model:focus-visible,
+.rl-garage__card:focus-visible,
+.rl-garage__rung:focus-visible {
   outline-offset: -2px; /* px-ok */
 }
 .rl-garage__model-hint {
@@ -4459,7 +6103,7 @@ button.rl-menu__item[data-kind='aside'] {
   inset: 0;
   background: var(--tile-bg);
   opacity: 0;
-  animation: rl-garage-lift 900ms var(--ease);
+  animation: rl-garage-lift var(--dur-lift) var(--ease);
 }
 .rl-garage__plate--enlisted[data-noplate='1'] > svg {
   position: relative;
@@ -4484,24 +6128,24 @@ button.rl-menu__item[data-kind='aside'] {
   margin: auto;
   padding: 0 var(--s2);
   font-family: var(--font-display);
-  font-size: var(--t-h2);
+  font-size: var(--t-head);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--kit);
   border: 2px solid var(--kit);
   transform: rotate(-6deg);
-  animation: rl-garage-stamp 240ms var(--ease);
+  animation: rl-garage-stamp var(--dur-stamp) var(--ease);
 }
 /* The stamp's exit (M7): once the hatch's 900 ms lift is done, it fades and
    `brigade.ts`'s `clearStamp` removes it. Reduced motion never adds this
    class -- the stamp simply goes at the same moment. */
 .rl-garage__stamp--out {
   opacity: 0;
-  transition: opacity 160ms var(--ease);
+  transition: opacity var(--dur) var(--ease);
 }
 /* The kit mark, pinned in the plate's own corner (`.rl-garage__plate` is the
    positioning context above): the bevelled bars-and-level badge
-   (`kit-sign.ts`'s `kitSymbolSvg`) beside its own `Kit I`/`II`/`III` label.
+   (`kit-sign.ts`'s `kitPlateSvg`) beside its own `Kit I`/`II`/`III` label.
    `.rl-kit-mark` (theme.css, kit pips) already colours the svg through
    `currentColor`. */
 .rl-garage__plate-kit {
@@ -4521,7 +6165,7 @@ button.rl-menu__item[data-kind='aside'] {
    ENLISTED stamp above lands with. `scale`, not `transform`, so it composes
    with the stamp's own tilt. */
 .rl-garage__plate-kit--stamp {
-  animation: rl-garage-stamp 240ms var(--ease);
+  animation: rl-garage-stamp var(--dur-stamp) var(--ease);
 }
 @keyframes rl-garage-stamp {
   from {
@@ -4533,7 +6177,7 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-garage__plate-kit-label {
   font-family: var(--font-display);
-  font-size: var(--t-h3);
+  font-size: var(--t-card);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
 }
@@ -4545,7 +6189,7 @@ button.rl-menu__item[data-kind='aside'] {
   right: var(--s2);
   bottom: var(--s2);
   font-family: var(--font-display);
-  font-size: var(--t-h3);
+  font-size: var(--t-card);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--kit);
@@ -4571,7 +6215,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__name {
   margin: 0;
   font-family: var(--font-display);
-  font-size: var(--t-title);
+  font-size: var(--t-clock);
   font-weight: 800;
   line-height: 1;
   letter-spacing: var(--track-title);
@@ -4580,10 +6224,10 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-garage__role {
   font-family: var(--font-display);
-  font-size: var(--t-h3);
+  font-size: var(--t-card);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--title-accent);
 }
 /* The special-forces tag (E5): a plain text plate in the ink's own dim tone with a
    hairline edge -- no gold, no star, so it cannot read as an earned reward. */
@@ -4594,7 +6238,7 @@ button.rl-menu__item[data-kind='aside'] {
   flex-shrink: 0;
   padding: 0 0.4em;
   border: 1px solid var(--kit-edge);
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--ink-dim);
@@ -4627,20 +6271,20 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__buy {
   align-self: flex-start;
   font-family: var(--font-display);
-  font-size: var(--t-h2);
+  font-size: var(--t-head);
   letter-spacing: var(--track-title);
   text-transform: uppercase;
   color: var(--commend);
 }
 .rl-garage__short {
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   color: var(--bad-text);
 }
 /* What this type's kit cost, directly under the panel it bought numbers
    into. Absent when nothing has been spent -- read text, not a badge, so it
    sits at the same weight the blurb below it does. */
 .rl-garage__kit-total {
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   color: var(--ink-mute);
 }
 
@@ -4673,7 +6317,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__track-name {
   margin: 0;
   font-family: var(--font-display);
-  font-size: var(--t-h3);
+  font-size: var(--t-card);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--ink-mute);
@@ -4726,6 +6370,32 @@ button.rl-menu__item[data-kind='aside'] {
     var(--panel-frame) 0.75rem
   );
 }
+/* The track's close-up (GH-238 K11) where the hatch was: 3:2 like the
+   photograph, at the hatch's own 2.5rem height so the head does not grow,
+   and the glyph kept over its lower corner on a scrim of the bay's tile. A
+   close-up that fails to load drops this attribute, and the hatch is back. */
+.rl-garage__track-glyph[data-closeup='1'] {
+  position: relative;
+  width: 3.75rem;
+  overflow: hidden;
+  align-items: flex-end;
+  justify-content: flex-start;
+  background: var(--tile-bg);
+}
+.rl-garage__track-closeup {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.rl-garage__track-glyph[data-closeup='1'] svg {
+  position: relative;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: var(--s0);
+  background: color-mix(in srgb, var(--tile-bg) 70%, transparent);
+}
 .rl-garage__track-line {
   grid-column: 2;
   grid-row: 1;
@@ -4748,13 +6418,13 @@ button.rl-menu__item[data-kind='aside'] {
   background: var(--kit);
 }
 .rl-garage__track-tier {
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   color: var(--ink-dim);
 }
 .rl-garage__track-spend {
   grid-column: 2;
   grid-row: 2;
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   color: var(--ink-mute);
 }
 .rl-garage__track[data-state='maxed'] .rl-garage__track-spend {
@@ -4767,21 +6437,33 @@ button.rl-menu__item[data-kind='aside'] {
   background: var(--well);
   border: 1px solid var(--panel-frame);
 }
-/* Fix round 1 (F4): the one flexible, scrollable child of the bay --
-   `flex: 1 1 0` so it fills whatever the plate/name/role/kit-total/blurb
-   (all `flex-shrink: 0` now) leave behind, `min-height: 0` so a flex child
-   is actually allowed to be shorter than its own content, and its own
-   `overflow-y: auto` with the same themed scrollbar tokens the bay used to
-   carry. It never disappears -- a hovered rung's preview is still read here,
-   just scrolled to (`garage-stats.ts`'s `paint` calls `scrollIntoView` on
-   the changed row) rather than guaranteed to already be on screen. */
+/* GH-498: the whole specification, never a window onto it. It was the bay's
+   one flexible child (F4) -- `flex: 1 1 0` with its own scroller -- and on a
+   1440x900 window that window showed Hit points and Front armour of six rows.
+   Two columns of rows now, the kit figure inline beside the number rather
+   than on a line of its own, at its natural height: all six rows in about a
+   third of the old height's worth of lines. A bay too short for it (720 high)
+   scrolls as a whole (`.rl-garage__bay`), not this panel. */
 .rl-garage__stats {
-  gap: var(--s2);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  column-gap: var(--s4);
+  row-gap: var(--s1);
   padding: var(--s3);
-  flex: 1 1 0;
-  min-height: 0;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
+  flex: none;
+}
+.rl-garage__stats-head {
+  grid-column: 1 / -1;
+}
+/* Two columns need about 34rem of bay: label, bar, figure and kit figure on
+   one line, twice. A narrower bay (1280 wide, where the rail and the board
+   leave it about 25rem) takes one column of the same one-line rows rather
+   than squeezing the kit figure into the next column's label. */
+@container garage-bay (max-width: 34rem) {
+  .rl-garage__stats {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 /* The panel's title line, shared with the comparison caption (GH-243) so a
    comparison starting costs no height and moves no row. */
@@ -4797,7 +6479,7 @@ button.rl-menu__item[data-kind='aside'] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   color: var(--ink-dim);
 }
 /* Tighter than the stats panel's own padding and inter-row gap (§2 goal 3,
@@ -4849,9 +6531,9 @@ button.rl-menu__item[data-kind='aside'] {
    Lavi's 3000 do not both draw full. */
 .rl-garage__stat {
   display: grid;
-  grid-template-columns: 8.5rem minmax(3rem, 1fr) auto;
+  grid-template-columns: 6.25rem minmax(3rem, 1fr) auto auto;
   align-items: center;
-  gap: var(--s2);
+  gap: var(--s1h);
   font-size: var(--t-body);
 }
 .rl-garage__stat-label {
@@ -4901,7 +6583,7 @@ button.rl-menu__item[data-kind='aside'] {
    never be seen sliding there. */
 .rl-garage__stats--grow .rl-garage__stat-fill,
 .rl-garage__stats--grow .rl-garage__stat-kit {
-  transition: width 300ms var(--ease);
+  transition: width var(--dur-long) var(--ease);
 }
 .rl-garage__stat-n {
   font-family: var(--font-mono);
@@ -4909,13 +6591,14 @@ button.rl-menu__item[data-kind='aside'] {
   text-align: right;
   white-space: nowrap;
 }
-/* The kit line: what the kit added, in its own steel colour, right under the
-   figure it explains. Third grid column, same as `.rl-garage__stat-n` above
-   it -- and no `display` here, so `hidden` (a plain attribute) actually
+/* The kit line: what the kit added, in its own steel colour, right after the
+   figure it explains (GH-498: inline, its own fourth column, so a row is one
+   line and six rows fit in two columns) -- and no `display` here, so `hidden` (a plain attribute) actually
    removes it rather than being overridden back to visible (GH-237). */
 .rl-garage__stat-kitn {
-  grid-column: 3;
-  font-size: var(--t-small);
+  grid-column: 4;
+  grid-row: 1;
+  font-size: var(--t-band);
   color: var(--kit);
   text-align: right;
   white-space: nowrap;
@@ -4941,7 +6624,6 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__rung:focus-visible {
   border-left-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
-  outline: none;
 }
 .rl-garage__rung[data-state='owned'] {
   border-left-color: var(--friendly);
@@ -4950,7 +6632,7 @@ button.rl-menu__item[data-kind='aside'] {
 /* The rung a purchase just bought (§3.5) sweeps out of the kit's steel into
    the owned tint above, 240 ms. Under reduced motion it is simply owned. */
 .rl-garage__rung--stamp {
-  animation: rl-garage-sweep 240ms var(--ease);
+  animation: rl-garage-sweep var(--dur-stamp) var(--ease);
 }
 @keyframes rl-garage-sweep {
   from {
@@ -4975,9 +6657,33 @@ button.rl-menu__item[data-kind='aside'] {
   align-items: baseline;
   gap: var(--s2);
 }
+.rl-garage__rung-emblem {
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  width: 1.5rem;
+  height: 1.5rem;
+  color: var(--kit);
+}
+.rl-garage__rung-emblem svg {
+  width: 100%;
+  height: 100%;
+}
+/* The next rung is the decision, so its emblem is drawn larger; a future
+   rung's emblem steps back with the rest of its head. */
+.rl-garage__rung[data-state='next'] .rl-garage__rung-emblem {
+  width: 2rem;
+  height: 2rem;
+}
+.rl-garage__rung[data-state='future'] .rl-garage__rung-emblem {
+  color: color-mix(in srgb, var(--kit) 45%, transparent);
+}
+.rl-garage__rung[data-state='owned'] .rl-garage__rung-emblem {
+  color: var(--friendly);
+}
 .rl-garage__rung-tier {
   font-family: var(--font-display);
-  font-size: var(--t-h3);
+  font-size: var(--t-card);
   letter-spacing: var(--track-title);
   text-transform: uppercase;
   color: var(--ink);
@@ -4988,7 +6694,7 @@ button.rl-menu__item[data-kind='aside'] {
   color: var(--commend);
 }
 .rl-garage__rung-owned {
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--friendly);
@@ -5003,7 +6709,7 @@ button.rl-menu__item[data-kind='aside'] {
    below, and only for a FUTURE rung. */
 .rl-garage__rung-gist {
   display: none;
-  font-size: var(--t-small);
+  font-size: var(--t-band);
   color: var(--ink-mute);
 }
 .rl-garage__buy-tier {
@@ -5034,13 +6740,26 @@ button.rl-menu__item[data-kind='aside'] {
   border-style: dashed;
   color: var(--warn);
 }
-.rl-garage__reset {
-  color: var(--bad-text);
-}
 
 /* Narrow: the rail becomes a horizontal strip above the bay and the board
    drops under it. Nothing is hidden and nothing shrinks -- the DOM order is
    already rail, bay, board, so a single-column grid is the whole change. */
+/* GH-498: between the stacked layout and 1500 wide, the rail and the board
+   take their minimum widths so the bay keeps the ~34rem the specification's
+   two columns need (at 1280 the maxima left it 25rem). On a short window the
+   plate gives up height to the specification rather than the reverse, so all
+   six rows are on screen at 1280x720 without the bay scrolling to them. */
+@media (min-width: 1201px) and (max-width: 1500px) { /* px-ok */
+  .rl-garage__body {
+    grid-template-columns: 16rem minmax(0, 1fr) 20rem;
+  }
+}
+@media (min-width: 1201px) and (max-height: 820px) { /* px-ok */
+  .rl-garage__plate {
+    max-height: 34vh;
+  }
+}
+
 @media (max-width: 1200px) { /* px-ok */
   .rl-garage__body {
     grid-template-columns: minmax(0, 1fr);
@@ -5200,14 +6919,6 @@ button.rl-menu__item[data-kind='aside'] {
   font-size: var(--t-s);
   padding: var(--s1) var(--s2);
 }
-/* The back link -- same look as `.rl-loading__back`'s own control-inside-the-
-   body placement, sized to its own text rather than stretching the panel's
-   width. */
-.rl-settings__back {
-  display: block;
-  width: fit-content;
-  margin: var(--s3) auto 0 0;
-}
 
 /* ---------------------------------------------------------------------- */
 /* Saves (ui/saves.ts)                                                    */
@@ -5252,9 +6963,14 @@ button.rl-menu__item[data-kind='aside'] {
   color: var(--ink);
 }
 .rl-saves__sub {
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--t-s);
   color: var(--ink-mute);
+}
+/* K-12: a stored slot that cannot be read. Same row, with the reason in the
+   error ink so it is not mistaken for a loadable save. */
+.rl-saves__sub--damaged {
+  color: var(--bad-text);
 }
 .rl-saves__actions {
   display: flex;
@@ -5295,14 +7011,9 @@ button.rl-menu__item[data-kind='aside'] {
    there, under WCAG AA's 4.5:1 floor (I2, tools/src/bad-text-contrast.test.ts). */
 .rl-saves__msg {
   min-height: 1.2em;
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--t-s);
   color: var(--bad-text);
-}
-.rl-saves__back {
-  display: block;
-  width: fit-content;
-  margin: var(--s3) auto 0 0;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -5360,13 +7071,13 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-credits__font summary {
   cursor: pointer;
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: var(--t-s);
   color: var(--ink);
 }
 .rl-credits__licence-text {
-  white-space: pre-wrap;
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
+  line-height: 1.45;
   font-size: var(--t-s);
   color: var(--ink-mute);
   max-height: 16rem;
@@ -5376,6 +7087,23 @@ button.rl-menu__item[data-kind='aside'] {
   background: var(--panel-bg-solid);
   border: 1px solid var(--panel-frame); /* px-ok */
 }
+/* The OFL, set as paragraphs (PA-29): the file's hard line breaks are gone,
+   its all-caps section titles are headings, its dashed divider a rule. */
+.rl-credits__licence-text p {
+  margin: 0 0 var(--s2);
+}
+.rl-credits__licence-head {
+  margin: var(--s2) 0 var(--s1);
+  font-family: var(--font-display);
+  font-size: var(--t-s);
+  letter-spacing: var(--track-label);
+  color: var(--ink);
+}
+.rl-credits__licence-text hr {
+  border: 0;
+  border-top: 1px solid var(--panel-frame); /* px-ok */
+  margin: var(--s2) 0;
+}
 .rl-credits__disclosure {
   margin-top: var(--s2);
   color: var(--ink-mute);
@@ -5384,8 +7112,504 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-credits__build {
   margin-top: var(--s3);
 }
-.rl-credits__back {
+
+/* ====================================================================== */
+/* The ground, marked (GH-417, Field order): `ui/ground-view.ts`.         */
+/* A picture of the map -- painted tiles first, the renderer's lit        */
+/* photograph once it can take one -- under an SVG whose viewBox is the   */
+/* map in tiles. Every colour on it is a token named here, by class.      */
+/* ====================================================================== */
+.rl-ground {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  min-height: 0;
+}
+.rl-ground__caption {
+  font: 600 var(--t-s) var(--font-body);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+.rl-ground__frame {
+  --ground-aspect: 1;
+  position: relative;
+  aspect-ratio: var(--ground-aspect);
+  border: 1px solid var(--panel-frame);
+  background: var(--well);
+  overflow: hidden;
+}
+.rl-ground__base {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   display: block;
-  width: fit-content;
-  margin: var(--s3) auto 0 0;
+}
+/* One pixel per tile, kept as tiles; the photograph is a picture and is
+   smoothed like one. */
+.rl-ground__base--painted {
+  image-rendering: pixelated;
+}
+.rl-ground__base--photo {
+  animation: rl-ground-photo-in var(--dur-slow) var(--ease) both;
+}
+@keyframes rl-ground-photo-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.rl-ground__svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.rl-ground__zone--objective {
+  fill: color-mix(in srgb, var(--commend) 14%, transparent);
+  stroke: var(--commend);
+  stroke-width: 0.28;
+  stroke-dasharray: 0.9 0.5;
+}
+.rl-ground__zone--optional {
+  stroke: var(--ink-mute);
+  fill: color-mix(in srgb, var(--ink-mute) 10%, transparent);
+}
+.rl-ground__zone--refuge {
+  fill: color-mix(in srgb, var(--info) 16%, transparent);
+  stroke: var(--info);
+  stroke-width: 0.25;
+}
+.rl-ground__zone--nofire {
+  stroke: var(--bad);
+  stroke-width: 0.25;
+}
+.rl-ground__hatch-bg {
+  fill: color-mix(in srgb, var(--bad) 18%, transparent);
+}
+.rl-ground__hatch-line {
+  stroke: var(--bad);
+  stroke-width: 0.25;
+}
+.rl-ground__start {
+  fill: var(--friendly);
+  stroke: var(--panel-bg-solid);
+  stroke-width: 0.25;
+}
+.rl-ground__pin--loss {
+  fill: var(--panel-bg-solid);
+  stroke: var(--bad-text);
+  stroke-width: 0.3;
+}
+.rl-ground__pin--deduction {
+  fill: var(--warn);
+  stroke: var(--panel-bg-solid);
+  stroke-width: 0.2;
+}
+.rl-ground__label {
+  font-family: var(--font-body);
+  font-weight: 600;
+  fill: var(--ink);
+  paint-order: stroke;
+  stroke: var(--panel-bg-solid);
+  stroke-width: 0.35;
+}
+.rl-ground__label--objective { fill: var(--commend); }
+.rl-ground__label--nofire,
+.rl-ground__label--loss { fill: var(--bad-text); }
+.rl-ground__label--refuge { fill: var(--info); }
+.rl-ground__label--deduction { fill: var(--warn); }
+.rl-ground__legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1) var(--s4);
+  font: var(--t-body) var(--font-body);
+  color: var(--ink-mute);
+}
+.rl-ground__key::before {
+  content: '';
+  display: inline-block;
+  width: 0.875rem;
+  height: 0.1875rem;
+  margin-right: var(--s1);
+  vertical-align: 0.2em;
+  background: var(--ink-mute);
+}
+.rl-ground__key--objective::before { background: var(--commend); }
+.rl-ground__key--optional::before { background: var(--ink-mute); }
+.rl-ground__key--refuge::before { background: var(--info); }
+.rl-ground__key--nofire::before,
+.rl-ground__key--loss::before { background: var(--bad); }
+.rl-ground__key--start::before { background: var(--friendly); }
+.rl-ground__key--deduction::before { background: var(--warn); }
+
+/* ====================================================================== */
+/* The Field order briefing (GH-417, direction A, ruled 7 Oct 2026).       */
+/* One sheet: a head bar, the orders beside the marked ground, and the     */
+/* force along the bottom with Deploy at its end. At 1400x900 the whole    */
+/* sheet fits with no scroll; where a mission's orders run longer the      */
+/* page scrolls as one and the force bar stays on the bottom edge.         */
+/* ====================================================================== */
+.rl-loading__box--field {
+  --field-ground: max(16rem, min(44vw, calc(100dvh - 23rem)));
+  width: min(100% - 2 * var(--s5), 112rem);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--field-ground);
+  grid-template-areas:
+    'head head'
+    'orders side'
+    'force force';
+  column-gap: var(--s6);
+  row-gap: var(--s4);
+  align-items: start;
+  text-align: left;
+  padding-top: var(--s4);
+}
+.rl-field__head {
+  grid-area: head;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s5);
+  padding-bottom: var(--s2);
+  border-bottom: 1px solid var(--panel-frame);
+}
+.rl-field__progress {
+  width: 12rem;
+  flex: none;
+}
+.rl-field__orders {
+  grid-area: orders;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  min-width: 0;
+}
+.rl-loading__box--field .rl-loading__head {
+  margin-top: 0;
+}
+.rl-loading__box--field .rl-loading__face {
+  width: 5.75rem;
+  height: 7.1875rem;
+}
+.rl-loading__box--field .rl-loading__face-img {
+  object-position: 50% 8%;
+}
+/* The five answers (`briefing-glance.ts`). */
+.rl-glance {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 8.5rem minmax(0, 1fr);
+  border: 1px solid var(--panel-frame);
+  background: var(--tile-bg);
+}
+.rl-glance__k,
+.rl-glance__v {
+  margin: 0;
+  padding: var(--s1h) var(--s3);
+  border-bottom: 1px solid var(--panel-rule);
+}
+.rl-glance__k:nth-last-of-type(1),
+.rl-glance__v:nth-last-of-type(1) {
+  border-bottom: 0;
+}
+.rl-glance__k {
+  font: 600 var(--t-s) var(--font-body);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+  padding-top: calc(var(--s2) + 0.2rem);
+}
+.rl-glance__k--matters { color: var(--commend); }
+.rl-glance__k--avoid { color: var(--bad-text); }
+.rl-glance__v {
+  font-family: var(--font-body);
+  font-size: var(--t-strip);
+  line-height: 1.35;
+  color: var(--ink);
+}
+.rl-field__full-toggle {
+  align-self: flex-start;
+}
+.rl-field__side {
+  grid-area: side;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  min-width: 0;
+}
+.rl-field__orders .rl-loading__video {
+  max-height: min(24vh, 14rem);
+  width: auto;
+  max-width: 100%;
+  align-self: flex-start;
+  margin: 0;
+}
+/* The full orders cover the ground when asked for: one reading surface at a
+   time, with its own close control (B-03 was a box scrolling INSIDE the page
+   with no sign it held more). */
+.rl-field__full {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding: var(--s4);
+  overflow-y: auto;
+  background: var(--panel-bg-solid);
+  border: 1px solid var(--panel-frame);
+}
+.rl-field__full[hidden] {
+  display: none;
+}
+.rl-field__full .rl-loading__brief {
+  margin-top: 0;
+}
+.rl-field__full-close {
+  align-self: flex-start;
+}
+
+/* The force (`force-bar.ts`): places, not a list. Sticky to the bottom edge
+   over a full-width band in the screen colour -- the same outset-only
+   border-image the plain screen's Deploy uses, so it never paints over its
+   own contents and adds no scrolling. */
+.rl-force {
+  grid-area: force;
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: 10rem minmax(0, 1fr) auto;
+  gap: var(--s3);
+  align-items: end;
+  padding: var(--s3) 0 var(--s4);
+  border-top: 1px solid var(--panel-frame);
+  background: var(--panel-bg-solid);
+  border-image-source: linear-gradient(var(--panel-bg-solid), var(--panel-bg-solid));
+  border-image-slice: 1;
+  border-image-width: 0 100vw;
+  border-image-outset: 0 100vw;
+}
+.rl-force__head {
+  align-self: start;
+}
+.rl-force__title {
+  margin: 0;
+  font: 600 var(--t-s) var(--font-body);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+.rl-force__placed {
+  margin-top: var(--s1);
+  font: 800 var(--t-xl) var(--font-display);
+  line-height: 1;
+}
+.rl-force__hint,
+.rl-force__note {
+  margin: var(--s2) 0 0;
+  font: var(--t-body) / 1.35 var(--font-body);
+  color: var(--ink-mute);
+}
+.rl-force__slots {
+  list-style: none;
+  display: flex;
+  gap: var(--s2);
+  /* Sideways only. `overflow-x: auto` alone computes `overflow-y` to `auto`
+     too, and the slots used to stand two pixels taller than their list
+     (see `.rl-force__slot`), so a classic-scrollbar browser drew a
+     full-height vertical bar beside Deploy. The padding is room for the
+     global focus ring (outline plus offset, the `:focus-visible` rule
+     above), which a scroll container would otherwise clip flat at the
+     slot's edge; the equal negative margin leaves the strip where it was. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: var(--s1);
+  margin: calc(-1 * var(--s1));
+  min-width: 0;
+}
+.rl-force__slot {
+  position: relative;
+  width: 8rem;
+  /* Border-box: `height: 100%` plus the hairline border was two pixels
+     taller than the <li> it fills. */
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 9.5rem;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  color: var(--ink);
+  background: var(--tile-bg);
+  border: 1px solid var(--panel-frame);
+  cursor: pointer;
+}
+.rl-force__slot:hover,
+.rl-force__slot:focus-visible {
+  border-color: var(--ink-mute);
+}
+.rl-force__slot--vet {
+  border-color: color-mix(in srgb, var(--commend) 55%, var(--panel-frame));
+}
+.rl-force__slot--open {
+  border-style: dashed;
+  color: var(--ink-mute);
+}
+.rl-force__slot--only {
+  cursor: default;
+}
+.rl-force__slot--fixed {
+  width: 6.25rem;
+  cursor: default;
+  opacity: 0.78;
+}
+.rl-force__pic {
+  display: block;
+  height: 4.5rem;
+  flex: none;
+  overflow: hidden;
+  background: var(--well);
+  border-bottom: 1px solid var(--panel-frame);
+}
+.rl-force__pic img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 25%;
+}
+.rl-force__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.0625rem;
+  padding: var(--s1) var(--s2) var(--s2);
+  font: var(--t-body) / 1.3 var(--font-body);
+}
+.rl-force__name {
+  font: 800 var(--t-strip) / 1.1 var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.rl-force__type,
+.rl-force__rec {
+  color: var(--ink-mute);
+}
+.rl-force__fx {
+  color: var(--good);
+  font-size: var(--t-s);
+}
+.rl-force__swap {
+  position: absolute;
+  top: var(--s1);
+  right: var(--s1);
+  padding: 0 var(--s1);
+  font: 600 var(--t-xs) var(--font-body);
+  color: var(--ink);
+  background: color-mix(in srgb, var(--panel-bg-solid) 80%, transparent);
+  border: 1px solid var(--panel-frame);
+}
+.rl-force__go {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-end;
+  gap: var(--s2);
+}
+.rl-force__go .rl-loading__deploy {
+  margin-top: 0;
+}
+.rl-force__go .rl-loading__back {
+  margin: 0;
+}
+/* The bench: every body of one type, ranked by record, over the force. */
+.rl-force__bench {
+  position: absolute;
+  bottom: calc(100% + var(--s2));
+  left: 12rem;
+  z-index: 4;
+  width: min(26rem, 90vw);
+  max-height: 55vh;
+  overflow-y: auto;
+  padding: var(--s3);
+  background: var(--panel-bg-solid);
+  border: 1px solid var(--commend);
+}
+.rl-force__bench-title {
+  margin-bottom: var(--s2);
+  font: 600 var(--t-s) var(--font-body);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+.rl-force__bench-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.rl-force__bench-row,
+.rl-force__bench-more {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s1) var(--s2);
+  font: var(--t-m) var(--font-body);
+  color: var(--ink);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--panel-rule);
+  cursor: pointer;
+}
+.rl-force__bench-row:hover,
+.rl-force__bench-row:focus-visible,
+.rl-force__bench-more:hover,
+.rl-force__bench-more:focus-visible {
+  background: var(--tile-bg);
+}
+.rl-force__bench-row:disabled {
+  cursor: not-allowed;
+  opacity: var(--disabled-opacity);
+}
+.rl-force__bench-row[aria-pressed='true'] {
+  color: var(--ink);
+  border-bottom-color: var(--selected);
+  background: var(--selected-fill);
+}
+.rl-force__bench-row .rl-force__pic {
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 1px solid var(--panel-frame);
+}
+.rl-force__bench-name {
+  font-weight: 600;
+}
+.rl-force__bench-rec {
+  margin-left: auto;
+  color: var(--ink-mute);
+  font-size: var(--t-body);
+}
+.rl-force__bench-state {
+  width: 3.5rem;
+  text-align: right;
+  font: 600 var(--t-xs) var(--font-body);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.rl-force__bench-row[aria-pressed='true'] .rl-force__bench-state {
+  color: var(--good);
+}
+.rl-force__bench-more {
+  color: var(--ink-mute);
+}
+.rl-force__bench-close {
+  margin-top: var(--s2);
 }

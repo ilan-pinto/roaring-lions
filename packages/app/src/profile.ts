@@ -35,6 +35,12 @@ export interface SaveSlot {
 export interface SlotMeta { id: string; name: string; savedAt: number; build: string; missions: number; credits: number }
 export interface ActiveState { ledger: LedgerData; account: BrigadeAccount; tutorialDone: boolean }
 
+/** A slot ledger's completed missions, for `migrateAccount`. */
+function slotCompleted(ledger: unknown): ReadonlySet<string> {
+  const done = isRecord(ledger) ? ledger['campaign.completed_missions'] : undefined;
+  return new Set(Array.isArray(done) ? done.filter((m): m is string => typeof m === 'string') : []);
+}
+
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 export function readActive(store: LedgerStore): ActiveState {
@@ -42,63 +48,99 @@ export function readActive(store: LedgerStore): ActiveState {
 }
 
 /**
- * Write a slot's three keys back over the ACTIVE campaign.
+ * The one coded reason a LOAD can leave the campaign mixed: the browser
+ * refused one of the three writes AND refused putting the old campaign back.
+ * A catalogue key, like `SAVE_ERROR_NOT_A_SAVE` below and for the same reason.
+ */
+export const SAVE_ERROR_LOAD_MIXED = 'saves.error.storage.loadMixed';
+
+/**
+ * Write a slot's three keys back over the ACTIVE campaign -- all three, or
+ * none of them.
  *
- * Order, which is the accepted failure mode rather than an accident: ledger,
- * then account, then the tutorial flag. There is no transaction available here
- * -- `Storage` offers one `setItem` at a time -- so a `QuotaExceededError` (or
- * a Safari private-window write refusal) partway down leaves the ACTIVE state
- * half written: a ledger married to the previous brigade account, which is
- * precisely the corruption this module's own header says two stores exist to
- * prevent. Ledger first is the deliberate choice, because the ledger is the
- * larger of the two payloads and therefore the likelier one to be refused, so
- * the common quota failure happens before anything has changed at all.
+ * `Storage` offers one `setItem` at a time and no transaction, so a
+ * `QuotaExceededError` (or a Safari private-window refusal) partway down used
+ * to leave the ACTIVE state half written: a ledger married to the previous
+ * brigade account, which is precisely the corruption this module's own header
+ * says two stores exist to prevent -- and `ui/saves.ts` could only tell the
+ * player "your campaign may be mixed" (save reliability walk,
+ * polish/keyboard-and-saves). Now the door's own byte snapshot is taken first
+ * and put back on any refusal, and the ORIGINAL error is rethrown: the load
+ * failed and nothing changed. Putting back what was stored before cannot need
+ * more room than it had, so the restore is expected to succeed; if it is
+ * refused too, `SAVE_ERROR_LOAD_MIXED` is thrown instead, and that is the one
+ * case the player is told the campaign may be mixed.
  *
- * I2 (final review): this throws rather than swallowing, and every caller is
- * expected to say so out loud -- `ui/saves.ts` catches and routes the message
- * through its `role="status"` line. A silent half-write that re-renders as if
- * it had succeeded is the one way "a save slot round-trips the ledger
- * byte-for-byte" can be false with nothing on screen to say so.
+ * Ledger first is kept: it is the larger payload and the likelier refusal,
+ * so the common case fails before anything has changed at all.
  *
- * `LedgerStore` does NOT relax that. An UNAVAILABLE store (no durable storage
- * at all -- `available: false`) writes nothing here and throws nothing, which
- * is a different case entirely: nothing is half written because nothing is
- * written, and the saves screen is not reachable in that state anyway
- * (`main.ts`'s `mountSaves` refuses it). A store that accepts writes and
- * REFUSES one partway down -- a quota, a private-window refusal -- still
- * throws out of here, exactly as before, and that is the case this comment is
- * about. The door must never conflate the two.
+ * An UNAVAILABLE store (`available: false`) writes nothing and throws
+ * nothing, which is a different case entirely: nothing is half written
+ * because nothing is written, and the saves screen is not reachable in that
+ * state anyway (`main.ts`'s `mountSaves` refuses it).
  */
 export function writeActive(store: LedgerStore, s: ActiveState): void {
-  store.writeLedger(s.ledger);
-  store.writeAccount(s.account);
-  store.setTutorialDone(s.tutorialDone);
-}
-
-function readAll(store: LedgerStore): Record<string, SaveSlot> {
+  const before = store.snapshotCampaign();
   try {
-    const v: unknown = JSON.parse(store.readSlotsRaw() ?? '{}');
-    if (!isRecord(v)) return {};
-    const out: Record<string, SaveSlot> = {};
-    for (const [id, raw] of Object.entries(v)) {
-      try {
-        out[id] = importSlot(JSON.stringify(raw));
-      } catch {
-        // a damaged slot is skipped, never allowed to hide its neighbours
-      }
+    store.writeLedger(s.ledger);
+    store.writeAccount(s.account);
+    store.setTutorialDone(s.tutorialDone);
+  } catch (err) {
+    try {
+      store.restoreCampaign(before);
+    } catch {
+      throw new Error(SAVE_ERROR_LOAD_MIXED);
     }
-    return out;
-  } catch {
-    return {};
+    throw err;
   }
 }
 
-function writeAll(store: LedgerStore, all: Record<string, SaveSlot>): void {
-  store.writeSlotsRaw(JSON.stringify(all));
+/**
+ * The id a whole-blob failure is filed under. When `lions.saves` itself does
+ * not parse (a truncated write, a hand edit), its raw TEXT is kept as one
+ * damaged entry rather than dropped: the next save would otherwise replace the
+ * unreadable blob with a fresh one and the old text would be gone for good.
+ */
+export const DAMAGED_BLOB_ID = 'damaged:blob';
+
+interface SlotTable {
+  /** Slots that parsed and validated. */
+  slots: Record<string, SaveSlot>;
+  /** Everything else, verbatim: each value is what the blob held under that id
+   *  (or, for `DAMAGED_BLOB_ID`, the blob's raw text). Written back untouched
+   *  by `writeAll`, so no save or delete can drop it (K-12). */
+  damaged: Record<string, unknown>;
+}
+
+function readAll(store: LedgerStore): SlotTable {
+  const text = store.readSlotsRaw();
+  if (text === null) return { slots: {}, damaged: {} };
+  let v: unknown;
+  try {
+    v = JSON.parse(text);
+  } catch {
+    return { slots: {}, damaged: { [DAMAGED_BLOB_ID]: text } };
+  }
+  if (!isRecord(v)) return { slots: {}, damaged: { [DAMAGED_BLOB_ID]: text } };
+  const slots: Record<string, SaveSlot> = {};
+  const damaged: Record<string, unknown> = {};
+  for (const [id, raw] of Object.entries(v)) {
+    try {
+      slots[id] = importSlot(JSON.stringify(raw));
+    } catch {
+      // A damaged slot never hides its neighbours, and is never dropped.
+      damaged[id] = raw;
+    }
+  }
+  return { slots, damaged };
+}
+
+function writeAll(store: LedgerStore, table: SlotTable): void {
+  store.writeSlotsRaw(JSON.stringify({ ...table.damaged, ...table.slots }));
 }
 
 export function listSlots(store: LedgerStore): SlotMeta[] {
-  return Object.values(readAll(store))
+  return Object.values(readAll(store).slots)
     .sort((a, b) => b.savedAt - a.savedAt)
     .map((s) => ({
       id: s.id, name: s.name, savedAt: s.savedAt, build: s.build,
@@ -107,22 +149,42 @@ export function listSlots(store: LedgerStore): SlotMeta[] {
     }));
 }
 
+/** A slot that is stored but cannot be read. `bytes` is the length of what is
+ *  kept, so the screen can say how much there is to recover. */
+export interface DamagedMeta { id: string; bytes: number }
+
+export function listDamaged(store: LedgerStore): DamagedMeta[] {
+  return Object.entries(readAll(store).damaged).map(([id, raw]) => ({ id, bytes: damagedText(raw).length }));
+}
+
+function damagedText(raw: unknown): string {
+  return typeof raw === 'string' ? raw : JSON.stringify(raw) ?? '';
+}
+
+/** The kept text of a damaged slot, for export; null when no such entry. */
+export function damagedRaw(store: LedgerStore, id: string): string | null {
+  const table = readAll(store);
+  return id in table.damaged ? damagedText(table.damaged[id]) : null;
+}
+
 export function saveSlot(store: LedgerStore, id: string, name: string, s: ActiveState, build: string, now: number): SaveSlot {
   const slot: SaveSlot = { version: SAVE_VERSION, id, name, savedAt: now, build, ledger: s.ledger, account: s.account, tutorialDone: s.tutorialDone };
   const all = readAll(store);
-  all[id] = slot;
+  all.slots[id] = slot;
   writeAll(store, all);
   return slot;
 }
 
 export function loadSlot(store: LedgerStore, id: string): SaveSlot | null {
-  return readAll(store)[id] ?? null;
+  return readAll(store).slots[id] ?? null;
 }
 
+/** Remove a slot, or a damaged entry (the only way one is ever discarded). */
 export function deleteSlot(store: LedgerStore, id: string): void {
   const all = readAll(store);
-  if (!(id in all)) return;
-  delete all[id];
+  if (id in all.slots) delete all.slots[id];
+  else if (id in all.damaged) delete all.damaged[id];
+  else return;
   writeAll(store, all);
 }
 
@@ -162,7 +224,9 @@ export function importSlot(json: string): SaveSlot {
     savedAt: typeof v.savedAt === 'number' ? v.savedAt : 0,
     build: typeof v.build === 'string' ? v.build : '',
     ledger: v.ledger as LedgerData,
-    account: migrateAccount(v.account),
+    // A version-1 slot's per-campaign record (GH-330) is derived against the
+    // slot's OWN ledger, the campaign it was saved in, not the active one.
+    account: migrateAccount(v.account, slotCompleted(v.ledger)),
     tutorialDone: v.tutorialDone === true,
   };
 }

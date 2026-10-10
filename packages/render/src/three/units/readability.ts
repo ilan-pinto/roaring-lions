@@ -31,17 +31,25 @@ export function ringClassOf(t: { isAir: boolean; wheeled: boolean; isSoft: boole
  */
 export const RING_CLASS_OVERRIDE: Readonly<Record<string, RingClass>> = { dozer_d9: 'light' };
 
+/**
+ * GH-346 (the lead, 2 Oct: "bigrings" ships) made the selected ring bigger
+ * and bolder: `thicknessTiles` 0.06 -> 0.10, `minThicknessPx` 1.5 -> 2.5,
+ * `coreAlpha` 0.9 -> 0.95, `haloAlpha` 0.35 -> 0.5, and the drawn radius x
+ * `SELECTED_RING_SCALE`. `radiusTiles` and the generated tables below are
+ * still the TYPE's own footprint ring -- the team ring draws at exactly that.
+ * Measurements: docs/superpowers/specs/2026-10-02-readability-design.md.
+ */
 export const SELECTION_RING = {
   radiusTiles: { foot: 0.45, light: 0.55, armour: 0.7, air: 0.35 },
-  thicknessTiles: 0.06,
+  thicknessTiles: 0.1,
   /** Screen-pixel floor on the thickness (holds at the 0.35 zoom clamp). */
-  minThicknessPx: 1.5,
+  minThicknessPx: 2.5,
   featherTiles: 0.015,
-  coreAlpha: 0.9,
+  coreAlpha: 0.95,
   /** Outside the core only. */
   haloTiles: 0.03,
   /** 0 means off (Q4). */
-  haloAlpha: 0.35,
+  haloAlpha: 0.5,
   capacity: 256,
 } as const satisfies {
   radiusTiles: Readonly<Record<RingClass, number>>;
@@ -53,6 +61,25 @@ export const SELECTION_RING = {
   haloAlpha: number;
   capacity: number;
 };
+
+/** The selected ring's radius and ellipse axes are the type's own x this
+ *  (GH-346): a foot ring 40.7 -> 50.9 px wide at zoom 1. */
+export const SELECTED_RING_SCALE = 1.25;
+
+/**
+ * GH-346: the faint TEAM ring under every unselected unit on open ground --
+ * the same radius or ellipse its selection ring has at 1x, in team colour,
+ * quieter than a selection. Its own `SelectionRingBatch` (+1 draw call while
+ * any unit is in view). Capacity covers the GDD's 300 units with margin; a
+ * unit past it simply draws no team ring.
+ */
+export const TEAM_RING = {
+  thicknessTiles: 0.05,
+  minThicknessPx: 1.5,
+  coreAlpha: 0.55,
+  haloAlpha: 0.3,
+  capacity: 512,
+} as const;
 
 /** `frameAlpha` 1.0, not the 0.8 G-NUM approved: at 0.8 the frame read only
  *  as a slightly darker edge on the mock, at 1.0 as a clear outline (G-MOCK,
@@ -67,12 +94,26 @@ export const HP_BAR = { widthPx: 24, heightPx: 3, framePx: 1, frameAlpha: 1 } as
  */
 export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   // dozer_d9 and scout_shachaf re-measured from their A3.2 Meshy exports (GH-185, 2026-09-30).
-  mbt_lavi: 1.15, ifv_namer: 1.6, apc_eitan: 1.49, apc_kipod: 1.56, scout_shachaf: 1.01,
-  inf_squad: 0.56, mortar_team: 0.58, sniper_team: 0.51, sarim_rifles: 0.49,
-  at_team: 0.45, demo_squad: 0.45, yahalom_squad: 0.45, breach_team: 0.45, militia_cell: 0.45,
+  mbt_lavi: 1.15, ifv_namer: 1.61, apc_eitan: 1.49, apc_kipod: 1.56, scout_shachaf: 1.01,
+  // B7 (GH-179, 2026-10-01): re-measured from the Meshy figures that replaced the
+  // supplied bipeds -- three men in kit's line read narrower than the supplied
+  // rifleman, the prone sniper pair wider than the sculpt.
+  // 2026-10-05: inf_squad 0.47 -> 0.49 and sarim_rifles 0.57 -> 0.60, re-measured
+  // when their `idle` became the retargeted capture (tools/units/mocap.py): the
+  // soldier's low ready and the Sarim's bladed stance stand wider than rig.py's.
+  // The motion pass (5 Oct): inf_squad 0.49 -> 0.67, sarim_rifles 0.6 -> 0.70 and
+  // yahalom_squad 0.54 -> 0.57, re-measured once the figures stood in the wedge
+  // (three men at +-1.05 m) and the echelon instead of a line; mortar_team
+  // 0.55 -> 0.56, its No.3 now holding his carbine forward at low ready.
+  inf_squad: 0.67, mortar_team: 0.56, sniper_team: 0.62, sarim_rifles: 0.7,
+  // `at_team` 0.5 since the Meshy Spike landed (A3.1 stage 2, 2026-10-05): a 1.2 m
+  // canister reaching further forward of the kneeling gunner than the 1.16 m kit tube;
+  // 0.51 since spike-walk (6 Oct), the gunner standing with it carried across his chest.
+  at_team: 0.51, demo_squad: 0.45, yahalom_squad: 0.57, breach_team: 0.45, militia_cell: 0.45,
   // `atgm_cell` reads 0.49 since its Meshy mesh landed (B3, 2026-09-30): the same
   // rear-shin-back kneel as `recoilless_team` below, two figures wide.
-  rpg_team: 0.45, atgm_cell: 0.49, mortar_crew: 0.45, charge_squad: 0.45, digger_crew: 0.45,
+  // ...and 0.5 since the Meshy ATGM post (A3.1 stage 2, 2026-10-05), its four legs wider than kit's three.
+  rpg_team: 0.45, atgm_cell: 0.5, mortar_crew: 0.45, charge_squad: 0.45, digger_crew: 0.45,
   // `recoilless_team` read 0.48 when its Meshy mesh landed (B2, 2026-09-30): a real
   // kneel with the rear shin laid back is a wider footprint than the kit pair. 0.46
   // since its tube moved from the hip onto the shoulder (2026-10-01), shorter in front.
@@ -85,6 +126,10 @@ export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   // `loiter_drone` reads 0.58 since its mesh landed (B2, 2026-09-30): 1.15 x its own
   // 2.43 m shipped span; it was the 0.35 air class while billboard-only.
   loiter_drone: 0.58,
+  // E5 (GH-181, 2026-10-01): the bought-only Shmamit team and Peten Gunship, from a fresh
+  // `tools/src/perf/unit-footprints.ts` run (footprint 0.476 and 0.778 tile). recon_zikit
+  // 0.55 -> 0.53 at spike-walk (6 Oct): the spotter stands beside his tripod (0.454 tile).
+  recon_zikit: 0.53, heli_peten_gunship: 0.9,
 };
 
 /** The ring radius for a unit type: its own row, else the class value. */
@@ -125,7 +170,7 @@ export interface RingEllipse {
  */
 export const ELLIPSE_BY_TYPE: Readonly<Record<string, RingEllipse>> = {
   mbt_lavi: { along: 1.17, across: 0.78, offsetAlong: -0.18 },
-  ifv_namer: { along: 1.61, across: 1.03, offsetAlong: 0 },
+  ifv_namer: { along: 1.61, across: 1.05, offsetAlong: 0 },
   apc_eitan: { along: 1.52, across: 0.83, offsetAlong: 0 },
   jeep_shoded: { along: 1.1, across: 0.69, offsetAlong: 0 },
   // Both re-measured 2026-09-30 (GH-185) from the Meshy exports by
@@ -165,7 +210,13 @@ export const RING_LARGE_TILES = 0.72;
  * Lavi (1.17) and the Grad (1.25) stay on 6 x 6, where they bury nothing.
  */
 export const RING_GRID_XL = 7;
-export const RING_XL_TILES = 1.28;
+/** 1.28 until GH-346, which thickened the selected ring's band (0.066 ->
+ *  0.11 tile at zoom 1). The sweep measures burial across the whole band, so
+ *  a thicker band reaches further inside the grid: on 6 x 6 a 1.27-tile
+ *  circle then buried 0.0214 wu and 1.25 0.0203 on tel_marum. Lowered until
+ *  the boundary sweep passes: 1.23 on 6 x 6 reads 0.0183 / 0.0053, and 1.22
+ *  on 7 x 7 buries nothing. */
+export const RING_XL_TILES = 1.23;
 /*
  * The two thresholds were 0.75 and 1.4 until fix round 3, which swept rings
  * AT each boundary and one 0.01 step either side, at eight headings and
@@ -173,12 +224,28 @@ export const RING_XL_TILES = 1.28;
  * (`tools/src/ring_burial.test.ts`, "the tier boundaries"): a 0.75 ring on
  * 4 x 4 buried 0.024 wu on tel_marum and a 1.4 ring on 6 x 6 0.038 -- past the
  * 0.02 limit, so a future type landing just under either boundary could
- * bury. Lowered until the sweep passes: 0.72 on 4 x 4 reads 0.0194 and 1.28 on
+ * bury. Lowered until the sweep passes (1.28 has since become 1.23, above): 0.72 on 4 x 4 reads 0.0194 and 1.28 on
  * 6 x 6 0.0185 (9-offset whole-map sweep). No shipped type changed grid: the
  * largest foot ring is 0.58, the Peten 0.9, the Grad 1.25, and the four XL
  * ellipses start at 1.47.
  */
 export const RING_SAG_STEPS = 2;
+
+/**
+ * GH-346: a fourth tier, for the SELECTED ring at `SELECTED_RING_SCALE`.
+ * x1.25 takes the Namer's ellipse to 2.01 x 1.31 tiles, and on 7 x 7 the
+ * sweep (`tools/src/ring_burial_selected.test.ts`) buried it 0.032 wu on
+ * tel_marum, the D9 0.023 and the Kipod 0.023 -- past the 0.02 limit. Probed
+ * worst case, a CIRCLE at every heading over both relief maps' steep tiles:
+ * on 7 x 7 a 1.5-tile circle buries 0.0098 / 0.0100 and 1.6 buries 0.019 /
+ * 0.030; on 9 x 9 nothing up to 1.8 buries at all and 2.0 buries 0.018 /
+ * 0.029. So a ring over 1.5 tiles is conformed on 9 x 9. No shipped CIRCLE
+ * reaches 1.5 even selected (the Peten's 0.9 x 1.25 = 1.125); a future type
+ * whose selected circle passed ~1.9 would bury on 9 x 9 and the selected
+ * sweep would say so.
+ */
+export const RING_GRID_XXL = 9;
+export const RING_XXL_TILES = 1.5;
 
 /**
  * The ring's per-slot position cache (fix round 1, the lead's "Cache +

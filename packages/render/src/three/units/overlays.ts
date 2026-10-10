@@ -80,7 +80,6 @@ import {
   pushDashedEllipseRingPx,
   ellipseDashAngles,
   desaturateHex,
-  pushPolygonFillWorld,
   pushPolygonStrokeWorld,
   pushLineWorld,
   billboardPoint,
@@ -92,6 +91,7 @@ import {
   type EllipseDash,
 } from './overlay-geometry';
 import { OVERLAY_RENDER_ORDER, BADGE_NUMERAL_RENDER_ORDER } from './render-order';
+import { paletteHex } from '../palette-hex';
 
 // ---------------------------------------------------------------------------
 // Pure: palette-key policy and small per-overlay-kind numeric formulas. No
@@ -119,14 +119,30 @@ export function unitOverlayRadiusPx(isSoft: boolean): number {
  * "colour is looked up, never computed" (this task's own constraint): this
  * function decides WHICH key, `ThreeRenderer` resolves it.
  */
-export function hpBarColorKey(ratio: number): string {
+export function hpBarColorKey(ratio: number, friendly: boolean): string {
   if (ratio > 0.5) return 'scrub.0';
-  if (ratio > 0.25) return 'team.neutral';
+  // VR-03 (lead, 8 Oct): the player's own unit never wears the ENEMY colour
+  // over its head. Low health on a friendly stays on the warn key -- the one
+  // the HUD's `--warn` already maps to -- and the bar's length carries how
+  // low; the red tier is kept for a hostile (or neutral) unit only.
+  if (ratio > 0.25 || friendly) return 'team.neutral';
   return 'team.hostile';
 }
 
-/** Palette key for the HP bar's dark backing rect -- Pixi's `#14150F`. */
-export const HP_BG_COLOR_KEY = 'shadow.1';
+/** THE world legibility halo (VR-35): the one dark edge every ring, contact
+ *  mark, group badge, HP frame, fire-link pulse, objective zone and refuge
+ *  ring draws its colour on, so a mark holds its edge on pale sand. It was
+ *  three keys -- `shadow.1` here, `shadow.2` round the objective zone,
+ *  `shadow.0` under the refuge ring -- three adjacent steps of one ramp
+ *  (#14150F / #0A0A08 / #23241F) doing one job. The UI's own halo is
+ *  `--type-shadow` (`theme.css`'s `--halo`), deliberately a step lighter for
+ *  type set on terrain. */
+export const WORLD_HALO_COLOR_KEY = 'shadow.1';
+export const WORLD_HALO_FALLBACK = paletteHex(WORLD_HALO_COLOR_KEY);
+
+/** Palette key for the HP bar's dark backing rect -- Pixi's `#14150F`: the
+ *  world halo, framing the bar. */
+export const HP_BG_COLOR_KEY = WORLD_HALO_COLOR_KEY;
 /** Palette key for the suppression bar's fill -- Pixi's `#FFB43C`. */
 export const SUPPRESSION_COLOR_KEY = 'vfx.fire';
 /** Palette key for a selection ring/badge/order-marker/hover-highlight/
@@ -160,14 +176,31 @@ export function objectiveZoneColorKey(state: 'held' | 'unheld' | 'contested' | '
   return OVERLAY_ACCENT_COLOR_KEY;
 }
 
+/**
+ * Whether a zone's outline is DASHED (VR-36, the lead's ruling of
+ * 2026-10-08): not held and contested are, held and target are solid. The
+ * colour is unchanged; the dash is the second channel, because held
+ * (`vfx.tracer`) and not held (`team.neutral`) measure ΔE 8-17 apart under
+ * deuteranopia and protanopia, CVD variants included
+ * (`docs/polish/minimap-state.md`). The minimap's `zoneMarkStyle` draws the
+ * same split.
+ */
+export function objectiveZoneDashed(state: 'held' | 'unheld' | 'contested' | 'target'): boolean {
+  return state === 'unheld' || state === 'contested';
+}
+
+/** The dash, `[on, off]` in world tiles: a 0.6-tile stroke, a 0.4-tile gap, so
+ *  a period is one tile and even a 3-tile zone shows three dashes a side. */
+export const OBJECTIVE_ZONE_DASH_TILES: readonly [number, number] = [0.6, 0.4];
+
 /** `overlayColor(objectiveZoneColorKey(state), ...)`'s fallback when no
  *  `resolveColor` is supplied -- Pixi's own three literals verbatim, kept
  *  next to the key function above rather than folded into it so the two can
  *  be read side by side against `renderer.ts`'s own ternary. */
 export function objectiveZoneFallbackColor(state: 'held' | 'unheld' | 'contested' | 'target'): string {
-  if (state === 'contested' || state === 'target') return '#D93A2B';
-  if (state === 'unheld') return '#E8C33A';
-  return '#B8FF5A';
+  if (state === 'contested' || state === 'target') return paletteHex('team.hostile');
+  if (state === 'unheld') return paletteHex('team.neutral');
+  return paletteHex('vfx.tracer');
 }
 
 /**
@@ -206,27 +239,16 @@ export const OBJECTIVE_ZONE_STROKE_INSET_TILES = 0.11;
  *  for the reason that constant's comment gives; the stroke itself doubled
  *  from 0.05 so the pair reads as a marked edge rather than a hairline. */
 export const OBJECTIVE_ZONE_HALO_INSET_TILES = 0.2;
-/** Palette key for the halo -- the ramp's darkest step; `overlayColor`
+/** Palette key for the halo -- the one world halo (VR-35; it was `shadow.2`,
+ *  the ramp's darkest step, one step off every other halo); `overlayColor`
  *  resolves it through the same `paletteColor` every other overlay key uses. */
-export const OBJECTIVE_ZONE_HALO_COLOR_KEY = 'shadow.2';
-export const OBJECTIVE_ZONE_HALO_FALLBACK = '#0A0A08';
-/** Fill alpha inside the zone -- Pixi's 0.05 was invisible on textured
- *  ground; 0.12 tints the held ground without hiding what stands on it. */
-export const OBJECTIVE_ZONE_FILL_ALPHA = 0.12;
+export const OBJECTIVE_ZONE_HALO_COLOR_KEY = WORLD_HALO_COLOR_KEY;
+export const OBJECTIVE_ZONE_HALO_FALLBACK = paletteHex(OBJECTIVE_ZONE_HALO_COLOR_KEY);
 
 /** Palette key for an airborne unit's ground shadow -- Pixi's own `#0A0A08`
  *  (`renderer.ts`'s air-lift shadow ellipse), the same swatch `fog-mesh.ts`
  *  already names `shadow.2` for the identical literal. */
 export const AIR_SHADOW_COLOR_KEY = 'shadow.2';
-
-/** Palette key for the permanent-wreck fallback cross marker -- a unit type
- *  with no `wreck` clip in its sheet (`mbt_lavi`'s `TNK_HULL`/`TNK_TURR`
- *  manifests among them: no `clips` object at all, so `clipOrFallback(sheet,
- *  'wreck')` resolves to `'idle'`, never `'wreck'`). Pixi's own literal,
- *  `'#5C625F'` (`renderer.ts:1240-1241`'s two-line X, drawn into `unitsG`
- *  itself rather than `wreckLayer`), is the SAME swatch `renderer.ts:2402`
- *  already names `gunmetal.2` for its tutorial-ring track colour. */
-export const WRECK_MARKER_COLOR_KEY = 'gunmetal.2';
 
 /** Ticks this many `frame()` calls a placed order marker survives -- Pixi's
  *  own `ttl: 80` (`renderer.ts`'s `addOrderMarker`). Counted in frames, not
@@ -289,28 +311,6 @@ export function queuedRouteLegs(
 export const MOBILITY_KILL_COLOR_KEY = 'gunmetal.1';
 
 /**
- * Palette key for the firepower-kill pip -- Pixi's own `#8B1E12`
- * (`renderer.ts`'s `if (st.firepowerKilled[i] === 1) g.circle(...).fill(
- * '#8B1E12')`). Unlike every other colour ported from this file's list,
- * `#8B1E12` is not IN `data/palette.json` at all -- checked by squared RGB
- * distance against all 58 entries, not by eye. `terracotta.2` (`#7A3B24`) is
- * the nearest at a distance of ~38 (`team.hostile`, the next closest
- * plausible "kill/damage" red, is ~87 away). This is Pixi's own pre-existing
- * gap, not introduced here -- `renderer.ts` is not subject to `validate:ui`
- * (that gate's own scope comment excludes the renderer package entirely) or
- * to `validate:assets` (that gate walks rendered sprites, not overlay
- * literals) -- so it was never caught. Recorded here rather than silently
- * matched, because "closest" is an approximation, not the palette-exactness
- * this backend's colour pipeline otherwise guarantees everywhere else. */
-export const FIREPOWER_KILL_COLOR_KEY = 'terracotta.2';
-/** `overlayColor(FIREPOWER_KILL_COLOR_KEY, ...)`'s fallback when no
- *  `resolveColor` is supplied -- `terracotta.2`'s own real value, NOT
- *  Pixi's `#8B1E12` (which is not a resolvable key), so a caller with no
- *  resolver still gets a genuine palette colour rather than reintroducing
- *  the off-palette literal through the back door. */
-export const FIREPOWER_KILL_FALLBACK_COLOR = '#7A3B24';
-
-/**
  * Palette key for a building's integrity-bar FILL at a given HP ratio --
  * Pixi's own `ratio > 0.6 ? '#8E9491' : ratio > 0.3 ? '#E8C33A' : '#D93A2B'`
  * (`renderer.ts`'s building-status block), three EXACT matches:
@@ -320,9 +320,11 @@ export const FIREPOWER_KILL_FALLBACK_COLOR = '#7A3B24';
  * bars are not the same formula, so this is deliberately its own function
  * rather than a shared one with different call-site thresholds.
  */
-export function buildingIntegrityColorKey(ratio: number): string {
+export function buildingIntegrityColorKey(ratio: number, friendly: boolean): string {
   if (ratio > 0.6) return MOBILITY_KILL_COLOR_KEY;
-  if (ratio > 0.3) return 'team.neutral';
+  // VR-03: the same rule as `hpBarColorKey` -- a building the player holds
+  // (garrisoned by side 0, or producing for side 0) never fills enemy red.
+  if (ratio > 0.3 || friendly) return 'team.neutral';
   return 'team.hostile';
 }
 
@@ -330,17 +332,14 @@ export function buildingIntegrityColorKey(ratio: number): string {
  *  Pixi's own `this.opts.resolveColor ? this.opts.resolveColor('gunmetal.2')
  *  : '#5C625F'` (`renderer.ts`'s charge-ring block) -- already resolved
  *  THROUGH a palette key on the Pixi side, so this is a direct port, not a
- *  derivation like `FIREPOWER_KILL_COLOR_KEY` above. Same key
- *  `WRECK_MARKER_COLOR_KEY` already names for its own, unrelated purpose
- *  (two different UI meanings, the same swatch, exactly as this file's own
- *  `BADGE_TEXT_COLOR_KEY` doc comment already notes happens elsewhere). */
+ *  derivation. */
 export const CHARGE_RING_TRACK_COLOR_KEY = 'gunmetal.2';
 /** Palette key for the progress ring's FILL -- Pixi's own
  *  `this.opts.resolveColor('vfx.ember')` fallback `'#E8541E'`, same block. */
 export const CHARGE_RING_FILL_COLOR_KEY = 'vfx.ember';
 /** `overlayColor(CHARGE_RING_FILL_COLOR_KEY, ...)`'s fallback -- Pixi's own
  *  literal, verbatim. */
-export const CHARGE_RING_FILL_FALLBACK_COLOR = '#E8541E';
+export const CHARGE_RING_FILL_FALLBACK_COLOR = paletteHex(CHARGE_RING_FILL_COLOR_KEY);
 
 /**
  * World-tile radius of a weapon envelope ring, expressed in ON-SCREEN
@@ -374,13 +373,14 @@ export const REFUGE_RING_TILES = 2.5;
 /** `--good` in the UI (`theme.css`: `--good: var(--rl-scrub-0)`), the token
  *  the minimap's refuge cross already wears -- one colour for one place. */
 export const REFUGE_RING_COLOR_KEY = 'scrub.0';
-export const REFUGE_RING_FALLBACK_COLOR = '#6B8A4A';
-/** `--mark-edge` in the UI (`--rl-shadow-0`), the minimap cross's own edge.
+export const REFUGE_RING_FALLBACK_COLOR = paletteHex(REFUGE_RING_COLOR_KEY);
+/** The one world halo (VR-35; it was `shadow.0`, the minimap cross's own
+ *  `--mark-edge`, one step lighter than every other halo in the world).
  *  Measured on the mock (`03A-plain-no-understroke.png`): scrub.0 sits at
  *  nearly the luminance of the sand, and without this edge the ring is lost
  *  over shadowed ground and rooftops. */
-export const REFUGE_RING_EDGE_COLOR_KEY = 'shadow.0';
-export const REFUGE_RING_EDGE_FALLBACK_COLOR = '#23241F';
+export const REFUGE_RING_EDGE_COLOR_KEY = WORLD_HALO_COLOR_KEY;
+export const REFUGE_RING_EDGE_FALLBACK_COLOR = paletteHex(REFUGE_RING_EDGE_COLOR_KEY);
 /** The green dash: 7 on, 5 off, 2 wide -- the mock's numbers, in overlay
  *  pixels (they scale with zoom like every ring here). */
 export const REFUGE_RING_STYLE: DashedRingStyle = { widthPx: 2, dashPx: 7, gapPx: 5 };
@@ -651,18 +651,17 @@ export class OverlayBatch {
     pushDashedEllipseRingPx(this.soup, anchor, rightR, upR, style.widthPx, dashes, cachedHexToLinear(colorHex), alpha);
   }
 
-  /** The objective zone's fill -- see `overlay-geometry.ts`'s own top
-   *  comment for why this is the one overlay drawn from literal world
-   *  points rather than a single billboard anchor. */
-  polygonFillWorld(points: readonly WorldPoint[], colorHex: string, alpha: number): void {
-    pushPolygonFillWorld(this.soup, points, cachedHexToLinear(colorHex), alpha);
-  }
-
   /** The objective zone's outline -- see `pushPolygonStrokeWorld`'s own doc
    *  comment for what `insetTiles` means and why it is not a literal
    *  screen-pixel width. */
-  polygonStrokeWorld(points: readonly WorldPoint[], insetTiles: number, colorHex: string, alpha: number): void {
-    pushPolygonStrokeWorld(this.soup, points, insetTiles, cachedHexToLinear(colorHex), alpha);
+  polygonStrokeWorld(
+    points: readonly WorldPoint[],
+    insetTiles: number,
+    colorHex: string,
+    alpha: number,
+    dash?: readonly [number, number]
+  ): void {
+    pushPolygonStrokeWorld(this.soup, points, insetTiles, cachedHexToLinear(colorHex), alpha, dash);
   }
 
   /** The engagement-reticle duel line -- see `pushLineWorld`'s own doc
@@ -732,6 +731,12 @@ function buildDigitTexture(fillColorHex: string): THREE.CanvasTexture {
   }
   const texture = new THREE.CanvasTexture(canvas);
   texture.flipY = false;
+  // The canvas holds an sRGB COLOUR (`fillColorHex`, `shadow.1`), so it is
+  // decoded like every base-colour map in the game (CLAUDE.md's colour
+  // pipeline). Left at three's default `NoColorSpace` (until WP-P4, PA-18),
+  // the near-black ink was read as a linear value and encoded on the way
+  // out, and the digit drew mid-grey on its pale disc.
+  texture.colorSpace = THREE.SRGBColorSpace;
   texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
   texture.needsUpdate = true;
@@ -1077,6 +1082,15 @@ export class ChevronBatch {
  * Scalar arguments rather than an input object: it is called once per unit
  * per frame, and an object literal there is an allocation per unit per frame.
  */
+/**
+ * Pass C2/C4 (P4): the suppression bar draws only for a unit the player is
+ * looking at -- selected, or hovered either way. Unlike the HP bar, damage
+ * does not earn it one: suppression is read off the posture everywhere else.
+ */
+export function suppressionBarVisible(selected: boolean, hostileHover: boolean, friendlyHover: boolean): boolean {
+  return selected || hostileHover || friendlyHover;
+}
+
 export function hpBarVisible(
   hpRaw: number,
   maxHpRaw: number,

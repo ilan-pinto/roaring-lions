@@ -211,7 +211,7 @@ describe('showBrigade — the header and the rail', () => {
     expect(art?.getAttribute('data-nosprite')).toBe('1');
     expect(art?.querySelector('svg')).not.toBeNull();
     // Named, so "reserved" cannot be mistaken for "this build is broken".
-    expect(art?.getAttribute('title')).toBe('breach_team — no sprite sheet');
+    expect(art?.getAttribute('title')).toBe('Tzinah Breach Team: no picture yet');
   });
 
   // The whole point of the short form: two units held by the same KIND of gate
@@ -437,7 +437,53 @@ describe('showBrigade — the bay', () => {
     const plate = host.querySelector('.rl-garage__plate');
     expect(plate?.getAttribute('data-noplate')).toBe('1');
     expect(plate?.querySelector('svg')).not.toBeNull();
-    expect(plate?.getAttribute('title')).toBe('ifv_namer — no plate photographed');
+    expect(plate?.getAttribute('title')).toBe('Namer IFV: no photograph yet');
+  });
+
+  // GH-238 plan 3 Task 9: from kit level 2 a kitted vehicle's plate is its
+  // kitted photograph, so the bay hands its resolver the same kit level its
+  // own kit mark reads (`data-kit`).
+  it("asks for the plate at the unit's own kit level", () => {
+    for (const [owned, level] of [
+      [undefined, 0],
+      [{ inf_squad: { armour: 1 } }, 1],
+      [{ inf_squad: { armour: 2, sensors: 1 } }, 3],
+    ] as const) {
+      const asked: [string, number][] = [];
+      const host = mount({
+        units,
+        ledger: {},
+        possibleStars: 78,
+        owned: owned as never,
+        plate: (id, kitLevel) => {
+          asked.push([id, kitLevel]);
+          return { url: `/ui/plates/units/${id}.jpg`, size: [1800, 1200], extent: [600, 400] };
+        },
+      });
+      expect(asked.at(-1), JSON.stringify(owned)).toEqual(['inf_squad', level]);
+      expect(host.querySelector('.rl-garage__plate')?.getAttribute('data-kit')).toBe(String(level));
+    }
+  });
+
+  // GH-238 K11: every track head asks for its own close-up, by the unit's id
+  // and the track's name, and draws what it is handed.
+  it("asks each track head for the unit's own close-up", () => {
+    const asked: string[] = [];
+    const host = mount({
+      units,
+      ledger: {},
+      possibleStars: 78,
+      closeup: (id, track) => {
+        asked.push(`${id}_${track}`);
+        return track === 'sensors' ? `/ui/garage/closeups/${id}_${track}.jpg` : null;
+      },
+    });
+    expect(asked.length).toBeGreaterThan(0);
+    const heads = [...host.querySelectorAll<HTMLElement>('.rl-garage__track')];
+    expect(asked.slice(-heads.length).sort()).toEqual(heads.map((h) => `inf_squad_${h.dataset.track}`).sort());
+    const img = host.querySelector('.rl-garage__track[data-track="sensors"] img.rl-garage__track-closeup');
+    expect(img?.getAttribute('src')).toBe('/ui/garage/closeups/inf_squad_sensors.jpg');
+    expect(host.querySelector('.rl-garage__track[data-track="armour"] img')).toBeNull();
   });
 
   // "One unit LARGE in a lit bay": every plate is the same frame at the same
@@ -827,10 +873,10 @@ describe('showBrigade — the wallet and the footer', () => {
     expect(text(host, '.rl-garage__wallet-n')).toBe('460');
     expect(text(host, '.rl-garage__wallet-word')).toBe('credits');
     const btn = host.querySelector<HTMLButtonElement>('.rl-garage__reset');
-    expect(btn?.textContent).toBe('reset brigade account');
+    expect(btn?.textContent).toBe('Reset brigade account');
     btn?.click();
     expect(resets).toBe(0);
-    expect(btn?.textContent).toBe('click again to reset — this cannot be undone');
+    expect(btn?.textContent).toBe('Click again to reset — this cannot be undone');
     btn?.click();
     expect(resets).toBe(1);
     // The second click is the last one this control can fire: disabled before
@@ -838,6 +884,64 @@ describe('showBrigade — the wallet and the footer', () => {
     expect(btn?.disabled).toBe(true);
     btn?.click();
     expect(resets).toBe(1);
+  });
+
+  // GH-498 (the lead's direction A): the footer is the one footer row -- the
+  // way back first, the main menu after it, and the reset ALONE at the far
+  // edge as a danger control, never a sibling of navigation. Falsified by
+  // hand: appending the reset to `foot.start` turns this red.
+  it('builds the footer row: the way back first, the reset alone at the far edge', () => {
+    const host = mount({ units, ledger: {}, possibleStars: 78, credits: 460, onReset: () => {} });
+    const foot = host.querySelector('.rl-menu--garage > .rl-foot')!;
+    const start = [...foot.querySelectorAll('.rl-foot__start > *')];
+    expect(start.map((e) => e.textContent?.trim())).toEqual(['Campaign map', 'Main menu']);
+    expect(start[0].getAttribute('data-kind')).toBe('back');
+    expect(start[0].getAttribute('href')).toBe('/campaign');
+    const shown = [...foot.querySelectorAll<HTMLElement>('.rl-foot__end > *')].filter((e) => !e.hidden);
+    expect(shown).toEqual([host.querySelector('.rl-garage__reset')]);
+    expect(shown[0].classList.contains('rl-btn--danger')).toBe(true);
+  });
+
+  // The two-step reset keeps its two clicks, and the armed state has a way out
+  // ("Keep the brigade") that puts it back as it was. Falsified by hand:
+  // dropping `resetUi()` from the escape's click handler turns this red.
+  it('arms on the first click, shows a way out, and the way out disarms it', () => {
+    let resets = 0;
+    const host = mount({ units, ledger: {}, possibleStars: 78, credits: 460, onReset: () => { resets++; } });
+    document.body.appendChild(host);
+    const btn = host.querySelector<HTMLButtonElement>('.rl-garage__reset')!;
+    const keep = host.querySelector<HTMLButtonElement>('.rl-garage__keep')!;
+    expect(keep.hidden).toBe(true);
+    btn.click();
+    expect(btn.dataset.confirm).toBe('1');
+    expect(keep.hidden).toBe(false);
+    expect(keep.textContent).toBe('Keep the brigade');
+    keep.click();
+    expect(resets).toBe(0);
+    expect(btn.dataset.confirm).toBeUndefined();
+    expect(btn.textContent).toBe('Reset brigade account');
+    expect(keep.hidden).toBe(true);
+    expect(document.activeElement).toBe(btn);
+    // ...and it takes two clicks again from there.
+    btn.click();
+    expect(resets).toBe(0);
+    btn.click();
+    expect(resets).toBe(1);
+    host.remove();
+  });
+
+  // GH-498: the specification is read whole -- two columns, the kit figure
+  // inline, no scroller of its own. Read off disk (jsdom computes no sheet).
+  // Falsified by hand: putting `overflow-y: auto` back on `.rl-garage__stats`.
+  it('draws the specification whole: two columns, no inner scroll', () => {
+    const css = readFileSync(resolve(process.cwd(), 'packages/app/src/ui/theme.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const bodies = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter((m) => m[1].split(',').map((x) => x.trim()).includes('.rl-garage__stats'))
+      .map((m) => m[2])
+      .join(';');
+    expect(bodies).not.toMatch(/overflow(-y)?\s*:\s*(auto|scroll)/);
+    expect(bodies).toMatch(/grid-template-columns\s*:\s*repeat\(2,/);
+    expect(bodies).toMatch(/flex\s*:\s*none/);
   });
 
   it('pluralises the wallet word down to one credit', () => {
@@ -853,12 +957,13 @@ describe('showBrigade — the wallet and the footer', () => {
 });
 
 describe('the garage type floor', () => {
-  // The screen's own reading ladder is five tokens declared on
-  // `.rl-menu--garage` (theme.css), and `--t-small` is the floor. jsdom
-  // computes no stylesheet, so this reads the rules back off disk: every
-  // `font-size` inside a `.rl-garage`/`.rl-menu--garage` rule must name one
-  // of the five, which is what stops a later rule quietly re-introducing the
-  // 0.6875rem the old brigade list set its reason text in.
+  // The screen reads five rungs of the ONE root scale (PA-22, VR-19: the
+  // private `--t-title`/`--t-h2`/`--t-h3`/`--t-small` names are retired, and
+  // `--t-body` is the garage's only re-pointed token), and `--t-band` is the
+  // floor. jsdom computes no stylesheet, so this reads the rules back off
+  // disk: every `font-size` inside a `.rl-garage`/`.rl-menu--garage` rule must
+  // name one of the five, which is what stops a later rule quietly
+  // re-introducing the 0.6875rem the old brigade list set its reason text in.
   //
   // Falsified by hand: pointing `.rl-garage__benefit`'s `font-size` at
   // `var(--t-s)` fails, naming that rule.
@@ -867,7 +972,7 @@ describe('the garage type floor', () => {
     // is the repo root, where `pnpm test` runs) -- not from `import.meta.url`,
     // which under the jsdom environment is an http: URL and not a file path.
     const css = readFileSync(resolve(process.cwd(), 'packages/app/src/ui/theme.css'), 'utf8');
-    const allowed = new Set(['--t-title', '--t-h2', '--t-h3', '--t-body', '--t-small']);
+    const allowed = new Set(['--t-clock', '--t-head', '--t-card', '--t-body', '--t-band']);
     const offenders: string[] = [];
     let seen = 0;
     // Rule by rule: `selector { body }`. The body pattern excludes braces, so
@@ -1118,7 +1223,7 @@ describe('showBrigade — a purchase re-renders in place (F3)', () => {
     expect(host.querySelector('.rl-menu--garage')).toBe(screen);
     expect(host.querySelector<HTMLElement>('.rl-garage__wallet-n')?.dataset.value).toBe('0');
     expect(host.querySelector('.rl-garage__rung[data-owned="1"]')).toBeNull();
-    expect(reset()?.textContent).toBe('reset brigade account');
+    expect(reset()?.textContent).toBe('Reset brigade account');
     expect(reset()?.disabled).toBe(false);
     dispose();
   });
@@ -1277,6 +1382,37 @@ describe('showBrigade — a purchase is an event (§3.5)', () => {
       '.rl-garage__card[data-unit="inf_squad"] .rl-kit-pips__col[data-track="armour"] .rl-kit-pips__pip'
     );
     expect(pip?.classList.contains('rl-kit-pips__pip--new')).toBe(true);
+    dispose();
+  });
+
+  // GH-238 (plan 3, Task 7): a tier bought for one of the eight kitted
+  // vehicles bolts a part on, so it lands with the 'kit' cue -- through the
+  // real purchase path (the Buy button, the caller's landed answer, then
+  // `celebrate`), not by calling `cueFor` directly, which would agree with a
+  // `celebrate` that never asked it.
+  it('cues a kitted vehicle’s tier as kit, not upgrade (GH-238)', () => {
+    const lavi: BrigadeUnit = {
+      id: 'mbt_lavi',
+      name: 'Lavi MBT',
+      role: 'tank',
+      isKamikaze: false,
+      transportSlots: 0,
+      isSoft: false,
+      upgrades: { armour: { tiers: [{ price: 400, patch: { 'hull.hp': 250 } }] } },
+    };
+    let owned: Record<string, Record<string, number>> = {};
+    const { host, dispose, cues } = buyer({
+      units: [lavi, ...units],
+      onBuyUpgrade: (id, track, tier) => {
+        owned = { [id]: { [track]: tier } };
+        return { units: [lavi, ...units], credits: 599, owned, landed: true };
+      },
+    });
+    select(host, 'mbt_lavi');
+    buyArmour(host);
+    // The Lavi's tier is what was bought, so the cue below is the Lavi's.
+    expect(owned).toEqual({ mbt_lavi: { armour: 1 } });
+    expect(cues).toEqual(['kit']);
     dispose();
   });
 
@@ -1912,7 +2048,7 @@ describe('showBrigade — Shift+Tab reaches every track’s Buy (GH-243 Minor)',
   it('opens the LAST track when Shift+Tab comes back into the board from below it', () => {
     const { host, dispose } = mountLive(opts());
     expect(expanded(host, 'sensors')).toBe('0');
-    host.querySelector<HTMLElement>('.rl-endnav a')?.focus();
+    host.querySelector<HTMLElement>('.rl-foot a')?.focus();
     shiftTab();
     expect(expanded(host, 'sensors')).toBe('1');
     dispose();
@@ -1928,13 +2064,14 @@ describe('showBrigade — Shift+Tab reaches every track’s Buy (GH-243 Minor)',
   });
 });
 
-// E5 Task 7: the special-forces rows. The three units are STAGED (not in the shipping
-// roster), so the fixtures are read from their drafts; a row appears in the live garage
-// only once Task 9 lands the file. The tag keys on `isBoughtOnly`, never an id list.
+// E5 Task 7: the special-forces rows. The Zikit and Gunship LANDED (GH-181 part 2); the Tzav is
+// still STAGED until E6, so its fixture is read from the draft. The tag keys on `isBoughtOnly`, never an id list.
 describe('the garage rows — special forces (E5 Task 7)', () => {
   const draftDir = resolve(__dirname, '../../../../docs/campaign/special_units/e5');
+  const shippedDir = resolve(__dirname, '../../../../data/units/kdf');
   const staged = ['recon_zikit', 'demo_tzav', 'heli_peten_gunship'].map((id): BrigadeUnit => {
-    const raw = JSON.parse(readFileSync(resolve(draftDir, `${id}.json`), 'utf8')) as {
+    const dir = id === 'demo_tzav' ? draftDir : shippedDir; // Tzav stays staged until E6
+    const raw = JSON.parse(readFileSync(resolve(dir, `${id}.json`), 'utf8')) as {
       name: string;
       role: string;
       unlock: BrigadeUnit['unlock'];

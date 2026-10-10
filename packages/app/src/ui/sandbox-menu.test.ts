@@ -17,14 +17,15 @@
 // sandbox banner was built to prevent.
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
-import { maps } from '@lions/data';
+import { maps, type MapJson } from '@lions/data';
 import { SANDBOX_FLAGS, readFlags, unknownParams } from '../sandbox-help';
 import { matchPath, stripBase } from '../shell/router';
 import { showMenu, showSandbox } from './menu';
 import { parseWorld } from '../campaign';
 import worldJson from '../../../../data/campaign/world.json';
+import en from '../i18n/en.json';
 
 const render = (): HTMLElement => {
   const stage = document.createElement('div');
@@ -91,11 +92,69 @@ describe('the map list', () => {
   it('shows each map by its human name, never its id -- the id is what the URL takes, not what the player reads', () => {
     const stage = render();
     const tel = stage.querySelector('a[data-map="tel_marum"]');
-    expect(tel?.textContent).toBe(maps.tel_marum.name);
+    const name = tel?.querySelector('.rl-mapcard__name');
+    expect(name?.textContent).toBe(maps.tel_marum.name);
     expect(tel?.textContent).not.toContain('tel_marum');
     // No shipped map name carries an underscore -- the tell of an id
     // standing in for a name -- so this also catches a name regressing to one.
     expect(tel?.textContent).not.toContain('_');
+  });
+});
+
+// PA-25: the picker is a set of map CARDS -- name, one line of what the ground
+// is, and a picture of it -- not a list of button labels. The line is a
+// catalogue string keyed by the map's own id, so a shipped map with no
+// sentence is a red spec here and not a bare name on the screen.
+describe('the map cards (PA-25)', () => {
+  const cat = en as Record<string, string>;
+
+  it('every shipped map has a one-line description in the catalogue', () => {
+    for (const id of Object.keys(maps)) {
+      const line = cat[`freePlay.map.${id}`];
+      expect(line, `freePlay.map.${id}`).toBeTruthy();
+      // One line: a sentence that ends and does not run on.
+      expect(line!.length, id).toBeLessThanOrEqual(90);
+      expect(line, id).not.toContain('\n');
+    }
+  });
+
+  it('each card carries its description beside its name', () => {
+    const stage = render();
+    for (const id of Object.keys(maps)) {
+      const card = stage.querySelector(`a[data-map="${id}"]`);
+      const want = cat[`freePlay.map.${id}`];
+      // Not vacuous: an absent key must not let `undefined` equal `undefined`.
+      expect(want, id).toBeTruthy();
+      expect(card?.querySelector('.rl-mapcard__desc')?.textContent, id).toBe(want);
+    }
+  });
+
+  describe('the preview', () => {
+    const realGetContext = HTMLCanvasElement.prototype.getContext;
+    afterEach(() => {
+      HTMLCanvasElement.prototype.getContext = realGetContext;
+    });
+
+    it('is the map painted one pixel a tile, on every card, where a canvas exists', () => {
+      // jsdom has no canvas backend; the recording stub is map-preview.test's.
+      const ctx = { fillStyle: '', fillRect() {} };
+      HTMLCanvasElement.prototype.getContext = (() => ctx) as unknown as HTMLCanvasElement['getContext'];
+      const stage = render();
+      for (const [id, m] of Object.entries(maps as Record<string, MapJson>)) {
+        const c = stage.querySelector<HTMLCanvasElement>(`a[data-map="${id}"] canvas.rl-mapcard__preview`);
+        expect(c, id).not.toBeNull();
+        expect([c?.width, c?.height], id).toEqual([m.width, m.height]);
+      }
+    });
+
+    it('is simply absent, and the card still reads and launches, where there is no canvas', () => {
+      HTMLCanvasElement.prototype.getContext = (() => null) as unknown as HTMLCanvasElement['getContext'];
+      const stage = render();
+      const card = stage.querySelector('a[data-map="tel_marum"]');
+      expect(card?.querySelector('canvas')).toBeNull();
+      expect(card?.querySelector('.rl-mapcard__name')?.textContent).toBe(maps.tel_marum.name);
+      expect(card?.getAttribute('href')).toBe('/free-play/tel_marum');
+    });
   });
 });
 
@@ -107,9 +166,51 @@ describe('the flag list', () => {
     expect(boxes.map((b) => b.dataset.flag)).toEqual(SANDBOX_FLAGS.map((f) => f.name));
   });
 
-  it("uses the table's own blurb rather than new prose that can drift from it", () => {
-    const text = render().textContent ?? '';
-    for (const f of SANDBOX_FLAGS) expect(text).toContain(f.blurb);
+  // WP-P2 (PA-01, PA-25): the table's own blurbs are console text for a
+  // developer ("a synthesised 4×4", "the kit sign ... to walk"). Each flag
+  // carries its player-facing label as a catalogue key IN THE TABLE
+  // (`labelKey`), so the table stays the single source -- and a new flag
+  // without a sentence is a missing key, not a dev blurb on the screen.
+  it('labels every flag with the catalogue sentence the table names, never the dev blurb', () => {
+    const stage = render();
+    const text = stage.textContent ?? '';
+    for (const f of SANDBOX_FLAGS) {
+      const label = (en as Record<string, string>)[f.labelKey];
+      expect(label, `${f.name}.labelKey = ${String(f.labelKey)}`).toBeTruthy();
+      expect(text).toContain(label);
+      expect(text).not.toContain(f.blurb);
+    }
+  });
+
+  it('builds each checkbox label from the flag table: a flag added there is offered with its own label', () => {
+    // The strongest form of "single source": extend the table and the picker
+    // follows with no edit here. The entry is removed again in `finally`.
+    const added = { name: 'zz_probe' as never, blurb: 'dev text', labelKey: 'freePlay.option.kit' };
+    (SANDBOX_FLAGS as unknown as unknown[]).push(added);
+    try {
+      const box = render().querySelector<HTMLInputElement>('input[data-flag="zz_probe"]');
+      expect(box).not.toBeNull();
+      expect(box?.closest('label')?.textContent).toBe((en as Record<string, string>)['freePlay.option.kit']);
+    } finally {
+      (SANDBOX_FLAGS as unknown as unknown[]).pop();
+    }
+  });
+
+  it('keeps the flags behind a closed "Options" disclosure', () => {
+    const stage = render();
+    const dev = stage.querySelector<HTMLDetailsElement>('details.rl-sandbox__dev');
+    expect(dev).not.toBeNull();
+    expect(dev?.open).toBe(false);
+    expect(dev?.querySelector('summary')?.textContent).toBe('Options');
+    for (const box of stage.querySelectorAll('input[data-flag]')) expect(dev?.contains(box)).toBe(true);
+  });
+
+  it('keeps the closed Options line above the cards, where it can be found', () => {
+    // Below thirty-odd map cards it would be a control nobody scrolls to.
+    const stage = render();
+    const firstCard = stage.querySelector('a[data-map]')!;
+    const dev = stage.querySelector('details.rl-sandbox__dev')!;
+    expect(dev.compareDocumentPosition(firstCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
 
@@ -144,7 +245,7 @@ describe('the launch URL', () => {
     // that agrees with itself.
     const stage = render();
     toggle(stage, 'roe');
-    toggle(stage, 'nomesh');
+    toggle(stage, 'kit');
     const url = new URL(hrefOf(stage, 'wadi_halam_basin'), 'http://localhost:3000');
     expect(matchPath('/free-play/:map', stripBase('/', url.pathname))).toEqual({
       map: 'wadi_halam_basin',
@@ -156,9 +257,8 @@ describe('the launch URL', () => {
       sur: false,
       civ: false,
       ditch: false,
-      nomesh: true,
       decals: false,
-      kit: false,
+      kit: true,
     });
     expect(unknownParams(params)).toEqual([]);
   });
@@ -204,6 +304,19 @@ describe('reaching it', () => {
     expect(back.map((a) => a.getAttribute('href'))).toEqual(['/']);
     // GH-261: the supporting-attack arrow, drawn -- the catalogue string is words only.
     expect(back[0].querySelector('svg')?.getAttribute('data-symbol')).toBe('back');
-    expect(back[0].textContent?.trim()).toBe('main menu');
+    expect(back[0].textContent?.trim()).toBe('Main menu');
+  });
+
+  // GH-498: the map list runs past a 720-high window, so the way back is a
+  // sticky footer row, the column's own last child, not a link after the
+  // last card. Falsified by hand: dropping `{ sticky: true }` in
+  // `showSandbox` turns this red.
+  it('keeps the way back in a sticky footer row at the column foot', () => {
+    const stage = render();
+    const col = stage.querySelector('.rl-menu')!;
+    const foot = col.lastElementChild;
+    expect(foot?.classList.contains('rl-foot')).toBe(true);
+    expect(foot?.classList.contains('rl-foot--sticky')).toBe(true);
+    expect(foot?.querySelector('.rl-foot__start > [data-kind="back"]')).not.toBeNull();
   });
 });

@@ -22,12 +22,22 @@ import { AIM_OFF_HEADING_MAX } from './tuning';
 // direction of travel moonwalks. Stationary hulls keep the free turn.
 
 /** Isotropic and soft: exactly the shape of every infantry type on the roster.
- *  90 deg/s = 4.5 deg/tick, so a quarter turn takes 20 ticks. */
+ *  90 deg/s = 4.5 deg/tick, so a quarter turn takes 20 ticks.
+ *
+ *  `halts_to_fire: false` is an opt-out, and the reason is the subject of this
+ *  file. Since 2026-10-05 every armed foot unit fires only from a halt
+ *  (spec 2026-10-05-infantry-halt-to-fire), so a roster rifleman never fires
+ *  on the move and "a moving unit that is firing" below would have no
+ *  infantry case to measure. The aim bound itself is untouched by that change
+ *  -- a bracer running past a target still turns toward it inside
+ *  AIM_OFF_HEADING_MAX, which brace.test.ts pins -- so this fixture keeps
+ *  firing on the move to keep the bound measurable against the same scenario
+ *  it always was. */
 const RIFLES: UnitTypeJson = {
   id: 'f_rifles',
   role: 'infantry',
   hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
-  mobility: { speed_tiles_s: 0.9, turn_rate_deg_s: 90 },
+  mobility: { speed_tiles_s: 0.9, turn_rate_deg_s: 90, halts_to_fire: false },
   sensors: { optics: 1, sight_tiles: 12, signature: 0.6 },
   weapons: [
     {

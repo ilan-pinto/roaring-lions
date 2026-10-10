@@ -1,0 +1,24 @@
+{
+  "unit": "sarim_rifles",
+  "variant": "lead",
+  "source": "assets/meshes/sarim_rifles.glb",
+  "source_sha256": "82484fa5b5a3d6acab74483c8c73262397fc73046b3b001f2e786c633e17f5a3",
+  "yaw_deg": -125.0,
+  "elevation_deg": 12.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "longer",
+    0.88
+  ],
+  "ndc_box": [
+    0.298,
+    0.702,
+    0.06,
+    0.94
+  ],
+  "materials": {
+    "baked": 4,
+    "flat": 1
+  },
+  "lead_figure": "sar0"
+}

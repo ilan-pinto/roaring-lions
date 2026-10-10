@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>GH-381 menu tile family mock</title>
+<style>
+@font-face{font-family:'Big Shoulders Display';font-weight:400 900;src:url('../../../assets/fonts/big-shoulders-display-latin.woff2') format('woff2')}
+@font-face{font-family:'Barlow';font-weight:400;src:url('../../../assets/fonts/barlow-latin-400.woff2') format('woff2')}
+@font-face{font-family:'Barlow';font-weight:600;src:url('../../../assets/fonts/barlow-latin-600.woff2') format('woff2')}
+@font-face{font-family:'IBM Plex Mono';font-weight:400;src:url('../../../assets/fonts/ibm-plex-mono-latin-400.woff2') format('woff2')}
+:root{
+  --limestone-0:#F2E8D5; /* limestone.0 -> --ink */
+  --gunmetal-1:#8E9491;  /* gunmetal.1 -> --ink-dim */
+  --gunmetal-3:#363B39;  /* gunmetal.3 -> --panel-frame */
+  --shadow-1:#14150F;    /* shadow.1 -> --panel-bg */
+  --shadow-2:#0A0A08;    /* shadow.2 -> page */
+  --scrub-0:#6B8A4A;     /* scrub.0 -> --good */
+  --dust-0:#E0B87A;      /* dust.0 -> --accent */
+  --ink:var(--limestone-0);--ink-dim:var(--gunmetal-1);--panel-frame:var(--gunmetal-3);
+  --panel-bg:color-mix(in srgb,var(--shadow-1) 92%,transparent);--good:var(--scrub-0);--accent:var(--dust-0);
+  --font-display:'Big Shoulders Display',sans-serif;--font-mono:'IBM Plex Mono',monospace;--font-body:'Barlow',sans-serif;
+  --s1:.25rem;--s2:.5rem;--s3:.75rem;--s4:1rem;--s5:1.5rem;
+  --t-s:.6875rem;--t-body:.75rem;--t-m:.8125rem;--t-l:1.25rem;--t-xl:1.75rem;--track-title:.06em;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--shadow-2);color:var(--ink);font-family:var(--font-body);padding:var(--s4)}
+h1{font:600 var(--t-l) var(--font-display);letter-spacing:var(--track-title);text-transform:uppercase;margin:0 0 var(--s3)}
+.cols{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--s4);align-items:start}
+.col>h2{font:400 var(--t-s) var(--font-mono);color:var(--accent);margin:0 0 var(--s1)}
+.col>p{font:400 var(--t-s) var(--font-mono);color:var(--ink-dim);margin:0 0 var(--s3);min-height:2.4em}
+.nav{display:flex;flex-direction:column;gap:var(--s1);background:var(--panel-bg);padding:var(--s2);border:1px solid var(--panel-frame)}
+.grid{display:grid;gap:var(--s1)}.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:1fr 1fr 1fr}
+a{display:block;text-decoration:none;color:var(--ink);background:var(--panel-bg);border:1px solid var(--panel-frame);text-align:left}
+/* the shipped family today */
+.today a{padding:var(--s2) var(--s3);font:600 var(--t-l) var(--font-display);letter-spacing:var(--track-title);text-transform:uppercase}
+.today a.aside{font:400 var(--t-s) var(--font-mono);letter-spacing:0;text-transform:none;color:var(--ink-dim);padding:var(--s1) var(--s3)}
+/* THE tile: primary treatment, from the shipped data-kind=primary rule */
+.t{font:600 var(--t-l) var(--font-display);letter-spacing:var(--track-title);text-transform:uppercase;padding:var(--s2) var(--s3)}
+.t.pri{color:var(--good);background:color-mix(in srgb,var(--good) 12%,transparent);border:1px solid color-mix(in srgb,var(--good) 45%,transparent)}
+/* neutral variant: same shape, ink instead of green */
+.t.neu{color:var(--ink);background:color-mix(in srgb,var(--ink) 6%,transparent);border:1px solid color-mix(in srgb,var(--ink) 30%,transparent)}
+.t.dim{color:var(--ink-dim);background:color-mix(in srgb,var(--ink-dim) 7%,transparent);border:1px solid color-mix(in srgb,var(--ink-dim) 30%,transparent)}
+/* A sizes */
+.A .lg{font-size:var(--t-xl);padding:var(--s4) var(--s3)}
+.A .md{font-size:var(--t-l);padding:var(--s3)}
+.A .sm{font-size:var(--t-m);padding:var(--s1) var(--s3)}
+.A .pri.lg{background:color-mix(in srgb,var(--good) 20%,transparent)}
+/* B */
+.B .sm{font-size:var(--t-m);padding:var(--s2) var(--s2);text-align:center}
+.B .grid{margin-top:var(--s1)}
+/* C: tile with a kicker line; utilities as one quiet strip of text tabs */
+.C .t{display:flex;justify-content:space-between;align-items:baseline}
+.C .t small{font:400 var(--t-s) var(--font-body);letter-spacing:0;text-transform:none;opacity:.75}
+.C .big{font-size:var(--t-xl);padding:var(--s4) var(--s3)}
+.C .strip{display:flex;flex-wrap:wrap;border:1px solid color-mix(in srgb,var(--ink-dim) 30%,transparent)}
+.C .strip a{flex:1 1 33%;border:0;border-right:1px solid color-mix(in srgb,var(--ink-dim) 30%,transparent);border-bottom:1px solid color-mix(in srgb,var(--ink-dim) 30%,transparent);background:transparent;text-align:center;font:600 var(--t-m) var(--font-display);letter-spacing:var(--track-title);text-transform:uppercase;color:var(--ink-dim);padding:var(--s2) var(--s1)}
+.C .strip a:hover{color:var(--accent)}
+</style></head><body>
+<h1>GH-381 &mdash; main menu tile family (mock, not shipped)</h1>
+<div class="cols">
+<section class="col"><h2>today</h2><p>three unrelated styles</p><div class="nav today" id="today"></div></section>
+<section class="col"><h2>A &mdash; one family, three sizes</h2><p>primary large / secondary medium / utilities small; size and fill carry rank</p><div class="nav A" id="A"></div></section>
+<section class="col"><h2>B &mdash; matching tiles + utility grid</h2><p>campaign/brigade neutral tiles; utilities 2-col grid; shortest column</p><div class="nav B" id="B"></div></section>
+<section class="col"><h2>C &mdash; kicker tiles + utility tab strip</h2><p>tiles carry a one-line state; utilities are a bordered text-tab strip</p><div class="nav C" id="C"></div></section>
+</div>
+<script>
+// 11 entries as today: Continue, Beit Sahwan 0, Campaign, Brigade, then the seven utilities
+// (the real menu shows "replay the tutorial" only once the tutorial is done; shown here for completeness).
+const U=['Replay the tutorial','Free play','Saves','Settings','New campaign','Audio on','Credits'];
+const a=(c,t,k='')=>`<a href="#" class="${c}">${t}${k}</a>`;
+const put=(id,html)=>{document.getElementById(id).innerHTML=html};
+put('today',
+  a('" style="color:var(--good);background:color-mix(in srgb,var(--good) 12%,transparent);border-color:color-mix(in srgb,var(--good) 45%,transparent)','Continue &mdash; Beit Sahwan II')+
+  a('" style="color:var(--good);background:color-mix(in srgb,var(--good) 12%,transparent);border-color:color-mix(in srgb,var(--good) 45%,transparent)','Start &mdash; Beit Sahwan 0')+
+  a('','Campaign')+a('','Brigade')+
+  ['replay the tutorial','free play \u2014 any map','Saves','Settings','New campaign','audio on','Credits'].map(t=>a('aside',t)).join(''));
+put('A',
+  a('t pri lg','Continue &mdash; Beit Sahwan II')+a('t pri lg','Start &mdash; Beit Sahwan 0')+
+  a('t neu md','Campaign')+a('t neu md','Brigade')+U.map(t=>a('t dim sm',t)).join(''));
+put('B',
+  a('t pri','Continue &mdash; Beit Sahwan II')+a('t pri','Start &mdash; Beit Sahwan 0')+
+  a('t neu','Campaign')+a('t neu','Brigade')+
+  '<div class="grid g2">'+U.map(t=>a('t dim sm',t)).join('')+'</div>');
+put('C',
+  a('t pri big','Continue',' <small>Beit Sahwan II</small>')+a('t pri','Start',' <small>Beit Sahwan 0</small>')+
+  a('t neu','Campaign',' <small>Sahar Basin</small>')+a('t neu','Brigade',' <small>roster</small>')+
+  '<div class="strip">'+U.map(t=>a('',t)).join('')+'</div>');
+</script>
+</body></html>

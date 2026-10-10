@@ -82,6 +82,7 @@ import {
 } from './shared';
 import type { MeshData, TerrainInput } from './types';
 import type { TerrainTones } from '../../api';
+import { paletteHex } from '../palette-hex';
 
 export type { MeshData, TerrainInput };
 
@@ -103,7 +104,7 @@ const FALLBACK_HEIGHT_PX = 18;
  */
 const WALL_SOUTH_HEX = '#1E1F1A';
 const WALL_EAST_HEX = '#3A3C33';
-const CLUTTER_HEX = '#8E9491';
+const CLUTTER_HEX = paletteHex('gunmetal.1');
 
 /** Both walls share `renderer.ts`'s one alpha value, 0.9 -- the south wall
  *  uses it bare, the east wall scales it by `wear` (`:1847` vs `:1849`).

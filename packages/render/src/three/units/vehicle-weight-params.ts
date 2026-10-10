@@ -68,6 +68,7 @@ import attackDrone from '../../../../../data/units/kdf/attack_drone.json';
 import reconDrone from '../../../../../data/units/kdf/recon_drone.json';
 import dozerD9 from '../../../../../data/units/kdf/dozer_d9.json';
 import heliPeten from '../../../../../data/units/kdf/heli_peten.json';
+import heliPetenGunship from '../../../../../data/units/kdf/heli_peten_gunship.json';
 import ifvNamer from '../../../../../data/units/kdf/ifv_namer.json';
 import jeepShoded from '../../../../../data/units/kdf/jeep_shoded.json';
 import mbtLavi from '../../../../../data/units/kdf/mbt_lavi.json';
@@ -113,6 +114,8 @@ const VEHICLE_UNIT_JSON: readonly unknown[] = [
   reconDrone,
   dozerD9,
   heliPeten,
+  // E5 (GH-181): `isAir`, excluded from the weight model upstream like `heli_peten`.
+  heliPetenGunship,
   ifvNamer,
   jeepShoded,
   mbtLavi,

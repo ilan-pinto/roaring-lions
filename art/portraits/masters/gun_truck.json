@@ -1,0 +1,23 @@
+{
+  "unit": "gun_truck",
+  "variant": "team",
+  "source": "assets/meshes/vehicles/gun_truck.glb",
+  "source_sha256": "47f170390ab3f5c80e41d883ac9de736cc79e8b7e9747e1e3a2ff865cd4b13e3",
+  "yaw_deg": -125.0,
+  "elevation_deg": 18.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "width",
+    0.92
+  ],
+  "ndc_box": [
+    0.04,
+    0.96,
+    0.1438,
+    0.8562
+  ],
+  "materials": {
+    "baked": 5,
+    "flat": 0
+  }
+}

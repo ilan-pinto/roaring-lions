@@ -60,6 +60,8 @@ import { SANDBOX_KIT_LEVELS } from '../../../packages/app/src/sandbox-force';
 import { kitLevel, units, type UpgradableUnit } from '@lions/data';
 import { PLACEHOLDER_HZ } from '../../../packages/render/src/audio';
 import { VOICE_TIMING } from '../../../packages/app/src/voice/director';
+import { musicOffInitScript } from './music-off';
+import { BRIEFING_REACH_SCRIPT, briefingReachProblems, type BriefingReach } from './briefing-reach';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -246,6 +248,9 @@ try {
   const newContext: typeof browser.newContext = async (...a) => {
     const c = await origNewContext(...a);
     watchTelemetry(c, telemetryHits);
+    // music-off: every context -- this wrapper seeds the lead's music-off
+    // default (`music-off.ts`) into every context the walk opens.
+    await c.addInitScript(musicOffInitScript());
     return c;
   };
   browser.newContext = newContext;
@@ -254,6 +259,7 @@ try {
   // `this.newContext`, so the wrapper already sees it; this line does not rely
   // on that, and `watchTelemetry` is idempotent per context.
   watchTelemetry(page.context(), telemetryHits);
+  await page.context().addInitScript(musicOffInitScript());
   page.setDefaultTimeout(ACTION_TIMEOUT_MS);
   const started = Date.now();
   const at = (): string => `${((Date.now() - started) / 1000).toFixed(1)} s`;
@@ -534,12 +540,49 @@ try {
 
   await frameCadence(page, 'the soft-booted mission');
 
+  // And leave THAT one too. Until GH-345 the board's first card (First Light)
+  // was a `resources` mission and this leave also proved its dock comes off
+  // the body; First Light has no dock now, so the dock mission gets its own
+  // soft boot and leave below.
+  await page.click('.rl-hud__leave');
+  await page.click('.rl-confirm__yes');
+  await page.waitForSelector('.rl-world');
+  const afterSoft = await probe(page);
+  expect(!afterSoft.lions, 'window.__lions survived leaving the soft-booted mission');
+  expectDocuments(3, 'leaving the soft-booted mission');
+  expect(
+    afterSoft.leftovers.length === 0,
+    `chrome left on the body after leaving the soft-booted mission: ${afterSoft.leftovers.join(', ')}`
+  );
+  expect(
+    afterSoft.bodyChildren === idleBody,
+    `body has ${afterSoft.bodyChildren} children after leaving the soft-booted mission, ` +
+      `${idleBody} at the menu`
+  );
+  console.log(
+    `[${TAG}] after three missions the body has ${afterSoft.bodyChildren} children` +
+      `${afterSoft.bodyChildren === idleBody ? ' -- back to the menu’s own count' : ` -- the menu had ${idleBody}`}`
+  );
+
+  // --- a dock-bearing mission, booted softly --------------------------------
+  await page.evaluate((href) => {
+    const a = document.createElement('a');
+    a.href = href;
+    a.textContent = 'dock mission';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }, '/mission/beit_sahwan_2_foothold');
+  await dismissDeployGate(page, `${TAG} dock-soft`);
+  await page.waitForFunction(() => (window as unknown as { __lions?: unknown }).__lions !== undefined);
+  const dockBoot = await probe(page);
+  expect(dockBoot.boots === 1, `the soft dock-mission boot reloaded the page: boots=${dockBoot.boots}`);
   // GH-229: the dock's tooltip, opened on a tile below the first row, used to
   // land on top of the row above it (`tooltip.ts`'s `computeTipPosition`,
-  // `production.ts`'s `clear: this.el`). The soft-booted mission above is
-  // already a `resources` one (the comment below explains why), so its dock
-  // is on the body right now -- reused rather than booting a fourth mission
-  // just to hover a tile.
+  // `production.ts`'s `clear: this.el`). GH-345 took First Light's dock away,
+  // so the first dock-bearing mission, Beit Sahwan II, is booted SOFTLY here
+  // -- a same-origin anchor click, the router's own soft navigation -- in the
+  // realm three missions have already been torn down in.
   // A plain arrow inline, never a NAMED const holding one: `frameCadence`
   // above already found that tsx/esbuild compiles a function assigned to a
   // const with a `__name` helper the page does not have, and dies on it.
@@ -570,7 +613,7 @@ try {
       viewport: { width: window.innerWidth, height: window.innerHeight },
     };
   });
-  expect(dockTip !== null, 'the soft-booted mission has no dock to test the tooltip on');
+  expect(dockTip !== null, 'the soft-booted dock mission has no dock to test the tooltip on');
   if (dockTip !== null) {
     expect(dockTip.tileCount > 5, `dock has only ${dockTip.tileCount} tile(s) -- the regression needs a second row`);
     expect(dockTip.tipShown === true, `hovering dock tile ${dockTip.tileIndex} showed no tooltip`);
@@ -592,30 +635,23 @@ try {
     document.querySelectorAll('.rl-dock .rl-tile').forEach((t) => t.dispatchEvent(new Event('mouseleave')));
   });
 
-  // And leave THAT one too, which is not belt-and-braces: the board's first
-  // card is a `resources` mission, and a mission with resources fields a
-  // `ReinforcementDock` on the body that the two recon missions above do not.
-  // Leaving only MISSION_A and MISSION_B left that dock unexamined, and it was
-  // leaking -- found by reading the body-mount list rather than by this walk,
-  // which is why the walk now covers it.
+  // A mission with resources fields a `ReinforcementDock` on the body that
+  // the recon missions above do not; leaving only those left that dock
+  // unexamined, and it was leaking -- found by reading the body-mount list,
+  // which is why the walk covers it.
   await page.click('.rl-hud__leave');
   await page.click('.rl-confirm__yes');
   await page.waitForSelector('.rl-world');
-  const afterSoft = await probe(page);
-  expect(!afterSoft.lions, 'window.__lions survived leaving the soft-booted mission');
-  expectDocuments(3, 'leaving the soft-booted mission');
+  const afterDock = await probe(page);
+  expectDocuments(3, 'the soft dock mission, booted and left');
+  expect(!afterDock.lions, 'window.__lions survived leaving the dock mission');
   expect(
-    afterSoft.leftovers.length === 0,
-    `chrome left on the body after leaving the soft-booted mission: ${afterSoft.leftovers.join(', ')}`
+    afterDock.leftovers.length === 0,
+    `chrome left on the body after leaving the dock mission: ${afterDock.leftovers.join(', ')}`
   );
   expect(
-    afterSoft.bodyChildren === idleBody,
-    `body has ${afterSoft.bodyChildren} children after leaving the soft-booted mission, ` +
-      `${idleBody} at the menu`
-  );
-  console.log(
-    `[${TAG}] after three missions the body has ${afterSoft.bodyChildren} children` +
-      `${afterSoft.bodyChildren === idleBody ? ' -- back to the menu’s own count' : ` -- the menu had ${idleBody}`}`
+    afterDock.bodyChildren === idleBody,
+    `body has ${afterDock.bodyChildren} children after leaving the dock mission, ${idleBody} at the menu`
   );
 
   // --- leaving from the DEPLOY SCREEN, which is the abort path ---------------
@@ -634,6 +670,16 @@ try {
   // crash, so nothing else here would have reported it.
   await page.goto(`http://localhost:${PORT}/?mission=${MISSION_A}`, { waitUntil: 'load' });
   await page.waitForSelector('.rl-loading__deploy');
+  // GH-417 B-01..B-03, on the layout itself (`briefing-reach.ts`): the screen
+  // opens at its top with the mission's name on screen, Deploy wholly inside
+  // the 1400x900 viewport, and no orders hidden in a nested scroll box.
+  // origin/main read red here three ways (see that file's header). Fonts
+  // first: a late webfont swap reflows every line this measures.
+  await page.waitForFunction(() => document.fonts.status === 'loaded');
+  const reach = (await page.evaluate(BRIEFING_REACH_SCRIPT)) as BriefingReach | null;
+  const reachProblems = reach ? briefingReachProblems(reach) : ['the briefing did not render'];
+  console.log(`[routes] briefing reach: ${reachProblems.length === 0 ? 'OK' : reachProblems.join('; ')} ${JSON.stringify(reach)}`);
+  expect(reachProblems.length === 0, `the briefing is not reachable on open: ${reachProblems.join('; ')}`);
   await pressEscapeUntilGone(page);
   await page.waitForSelector('.rl-world');
   const escapeSettled = await settleBoard(page);
@@ -960,10 +1006,6 @@ try {
         '  return ctx; }; })()'
     );
     await modelCtx.addInitScript(garageSeedScript());
-    // Music off, the lead's default for every test browser.
-    await modelCtx.addInitScript(
-      'try { localStorage.setItem("lions.settings", JSON.stringify({ version: 1, audio: { master: 1, music: 0, sfx: 1, voice: 1, radio: true } })); } catch (e) {}'
-    );
     const m = await modelCtx.newPage();
     m.setDefaultTimeout(ACTION_TIMEOUT_MS);
     const modelWarnings: string[] = [];
@@ -1836,7 +1878,7 @@ try {
     expect(buys.length >= 2, `GH-243: at_team's board has ${buys.length} enabled Buy(s) -- the walk cannot test skipping`);
     // Forward: the I1 walk above, from the tab, before anything was pressed on a head.
     for (const k of buys) expect(inBoard.includes(k), `GH-243: forward Tab never reaches ${k}: ${JSON.stringify(inBoard)}`);
-    await tPage.locator('.rl-endnav a').first().focus();
+    await tPage.locator('.rl-foot a').first().focus();
     const back: (string | null)[] = [];
     let entered = false;
     for (let i = 0; i < 20; i++) {
@@ -2161,8 +2203,10 @@ try {
   }
 
   // --- K4: the account pass, on a mission with a dock ------------------------
+  // Beit Sahwan II since GH-345: First Light lost its `resources` (and with
+  // them its dock), so the first dock-bearing mission is the foothold.
   {
-    const { ctx, page: p } = await kitPage('/mission/beit_sahwan_breach', true, `${TAG} K4`);
+    const { ctx, page: p } = await kitPage('/mission/beit_sahwan_2_foothold', true, `${TAG} K4`);
     await p.evaluate(() => (window as unknown as { __lions?: { step(n: number): void } }).__lions?.step(40));
     await p.waitForTimeout(400);
     const selected = await p.evaluate<number>(SELECT_ALL_OWN);

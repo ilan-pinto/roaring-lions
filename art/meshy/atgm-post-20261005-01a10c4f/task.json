@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready tripod-mounted anti-tank guided missile launcher, a weapon of an irregular militia, worn and field-repaired, scratched gunmetal under sun-faded paint. At rest, level, tube horizontal. A long plain cylindrical launch tube with flat sealed caps at both ends, in a cradle on a squat low tripod with short widely splayed legs and spiked feet, only knee height off the ground, a boxy thermal sight beside the tube, a traverse hand wheel under the cradle, a coiled cable. Chipped paint, bare metal. Real-world scale, 1.2 metre tube, 0.7 metres tall. Faded green-grey paint, gunmetal, black rubber. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "negative_prompt": "missile nose cone, pointed tip, fins, tall tripod, long legs, camera tripod, telescope",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a10c4f-a611-776f-9bca-d720f1b947b2",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 2058324571,
+    "prompt": "A single low-poly game-ready tripod-mounted anti-tank guided missile launcher, a weapon of an irregular militia, worn and field-repaired, scratched gunmetal under sun-faded paint. At rest, level, tube horizontal. A long plain cylindrical launch tube with flat sealed caps at both ends, in a cradle on a squat low tripod with short widely splayed legs and spiked feet, only knee height off the ground, a boxy thermal sight beside the tube, a traverse hand wheel under the cradle, a coiled cable. Chipped paint, bare metal. Real-world scale, 1.2 metre tube, 0.7 metres tall. Faded green-grey paint, gunmetal, black rubber. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1791207911646,
+    "progress": 100,
+    "started_at": 1791207911653,
+    "finished_at": 1791208014965,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10c4f-a611-776f-9bca-d720f1b947b2/output/model.glb?Expires=4944758400&Signature=Qe10DIchDIzaO3rM-PZU7ETzBDnRvI1NEIWi25AsM-t~FOqErEkXNLlqBaEsq977pTsjEpOjIv0X5mARS6HRUJCQoHqEYuAydbbz~Ll~jZW73OZ21Si~vaojqkJH9be6wwdrX45lYyX1GbQDlOlWt47tEj9ajTL-mpgr3nsRXOn1M9KlWvIxrJkoEDuJcigJ1Wpz9mTyLZW0dyZjyc22aT2OhuqTkgsMuTet7bsbBbXQEuBWbzrRmuOyYA4IjK~JeBioZ-vqRRumU-BilZGTvNeYSpZT9zwLsdJj-~0Bvte4oFyWbk2SY~QdtFUbXrXBn-sYc6uuqWfl6g~POT6GwA__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10c4f-a611-776f-9bca-d720f1b947b2/output/preview.png?Expires=4944758400&Signature=lCyg0Bo8me9OSeYdER-U~~BF6eyCo7lSMaQhqrUtp3kV5cAwa6xKpD5zkodEcNy1LVUeEKmnroQ4fWRDEWszXuGpA~hgqW80XmUSTW1MtTmctuggdzlLN0h~FGMantIxIce4NpvwcpzeFfBLTq2b86IQVPPIRPIOMGmGeK4rIpbGWo6EkKAsZ3RKuPBa8wXHwpa0p8bn-6JRYFxcsIJBYSfnChj9mMyfN27E-bKMvNsfnuDtoC5XR4z7STErobyY~dw0N0wBdllpHhOodJWOUvzlkfWmxQpmUxvI4E8jz-5fm9gapObDYzO0KE-e88FYuVsY0gl09EclFGWewkwN4w__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1791207911646,
+    "started_at": 1791207911653,
+    "finished_at": 1791208014965
+  },
+  "usd_estimated": 0.4
+}

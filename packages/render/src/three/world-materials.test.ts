@@ -79,4 +79,30 @@ describe('texturedMapMaterial / prepareTexturedMap', () => {
     map.colorSpace = THREE.NoColorSpace;
     expect(prepareTexturedMap(map).colorSpace).toBe(THREE.SRGBColorSpace);
   });
+  it('prepares a texture once: a second call does not bump version (no re-upload of the bake)', () => {
+    const map = new THREE.Texture();
+    prepareTexturedMap(map);
+    const v = map.version;
+    expect(v).toBeGreaterThan(0); // the first call still schedules the upload
+    prepareTexturedMap(map);
+    texturedMaterial(new THREE.MeshStandardMaterial({ map }));
+    expect(map.version).toBe(v);
+  });
+  it('prepares again when a prepared texture has been re-tagged since', () => {
+    const map = new THREE.Texture();
+    prepareTexturedMap(map);
+    map.colorSpace = THREE.NoColorSpace;
+    const v = map.version;
+    prepareTexturedMap(map);
+    expect(map.colorSpace).toBe(THREE.SRGBColorSpace);
+    expect(map.version).toBe(v + 1);
+  });
+  it('does not treat a clone of a prepared texture as prepared', () => {
+    const map = new THREE.Texture();
+    prepareTexturedMap(map);
+    const copy = map.clone();
+    const v = copy.version;
+    prepareTexturedMap(copy);
+    expect(copy.version).toBe(v + 1);
+  });
 });

@@ -119,15 +119,22 @@ describe('the infantry-team owner table', () => {
     const declared = [...(teams as RegExpExecArray)[1].matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
     const owned = [...(block as RegExpExecArray)[1].matchAll(/^\s*"([a-z_]+)":/gm)].map((m) => m[1]).sort();
     expect(owned).toEqual(declared);
-    expect(owned.length).toBe(16);
+    expect(owned.length).toBe(17); // B7: sarim_rifles joined SUPPORTED_TEAMS
   });
 
-  it('names sniper_team as export_meshy_sniper.py, and that script writes it', () => {
+  it('names sniper_team as import_meshy_crew_team.py (B7), and that script writes it', () => {
     const entry = /^\s*"sniper_team":\s*("[\s\S]*?")\s*,?\s*$/m.exec((block as RegExpExecArray)[1]);
     expect(entry, 'sniper_team not found in TEAM_MESH_OWNER').not.toBeNull();
     const owner = (entry as RegExpExecArray)[1].replace(/"/g, '');
     expect(owner).not.toBe(kitSentinel());
-    expectOwnerWrites(owner, 'art/meshes/sniper_team.glb');
+    // The crew importer writes `art/meshes/<team_id>.glb` for every team in
+    // its SOURCES table (an f-string, not one literal per file), so "writes
+    // it" is: writes under art/meshes, and names sniper_team as a source.
+    expect(owner).toBe('tools/units/import_meshy_crew_team.py');
+    const script = read(owner);
+    expect(joinedPaths(script)).toContain('art/meshes');
+    expect(script).toMatch(/^\s*"sniper_team":\s*\(os\.path\.join\(REPO, "art", "meshy"/m);
+    expect(script).toMatch(/os\.path\.join\(OUT_DIR, f"\{team_id\}\.glb"\)/);
   });
 });
 

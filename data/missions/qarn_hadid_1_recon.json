@@ -16,6 +16,13 @@
     }
   },
   "briefing": "The wall across this pass has two ways through it: a shoulder at the crest, and a notch at plain level with the road in it. Somebody has cut an anti-tank ditch across the notch, so your men go low and your vehicles go high. Push the drone through the notch and identify the post over each gate. It can have both in one sortie; nothing on the ground can, because neither gate sees the other from any range on this map. What the drone cannot buy is the eastern pocket. A missile team on the scree covers it out to thirteen tiles, air only, and the battery it protects sits in a bowl nothing here can see into. Four families are stopped on the pass road east of the staging ground, inside that battery's arc. Get two of them back to the staging ground inside four minutes. The jeep and the Eitan carry two each, and the same men are the only ones who can reach anything east. Driving is how you beat that clock; walking is how you lose it. Bring back both gate posts, and do not buy the pocket with the drone.",
+  "briefing_sections": [
+    {"id": "situation", "text": "The wall across this pass has two ways through it: a shoulder at the crest, and a notch at plain level with the road in it. Somebody has cut an anti-tank ditch across the notch, so your men go low and your vehicles go high."},
+    {"id": "mission", "text": "Push the drone through the notch and identify the post over each gate. It can have both in one sortie; nothing on the ground can, because neither gate sees the other from any range on this map."},
+    {"id": "execution", "text": "What the drone cannot buy is the eastern pocket. A missile team on the scree covers it out to thirteen tiles, air only, and the battery it protects sits in a bowl nothing here can see into. Four families are stopped on the pass road east of the staging ground, inside that battery's arc. Get two of them back to the staging ground inside four minutes. The jeep and the Eitan carry two each, and the same men are the only ones who can reach anything east. Driving is how you beat that clock; walking is how you lose it."},
+    {"id": "notes", "text": "Bring back both gate posts, and do not buy the pocket with the drone."}
+  ],
+  "briefing_image": "ui/plates/units/recon_drone.jpg",
   "map": {
     "file": "qarn_hadid",
     "player_start": [24, 42]

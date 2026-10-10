@@ -3,14 +3,13 @@
 // The bay used to show a screenshot plate (`pnpm plates:units`). It now shows
 // the unit's own GLB, drawn by `@lions/render/three-garage`, turned by drag
 // and by the arrow keys, and turning itself slowly after five quiet seconds.
-// The plate is still built first and stays the picture until the model's
-// first frame is ready, and it is what the bay keeps -- with the reason
+// The plate is still built first, but its picture is HIDDEN while the model
+// loads -- the bay shows an empty disk and a spinner instead, so paging
+// between units never flashes an old screenshot -- and it is what the bay
+// keeps -- with the reason
 // warned by name, as the campaign board does -- whenever the model cannot be
 // drawn:
 //
-//   * `?renderer=pixi`. Not a failure, and not warned: the player chose the
-//     escape hatch, and the campaign board's rule is that it never downloads
-//     three behind their back for a menu.
 //   * The unit has no mesh.
 //   * No WebGL2, probed BEFORE the dynamic import (`webgl-probe.ts`), so a
 //     browser that cannot draw it never fetches three.
@@ -42,7 +41,6 @@
 // host's soft-leave rule, and `pnpm ui:routes` checks it.
 import { t } from '../i18n/t';
 import type { MeshFactionName } from '../mesh-catalogue';
-import type { RendererChoice } from '../renderer-choice';
 import { DRAG_DEG_PER_PX, KEY_STEP_DEG, PAGE_STEP_DEG, TurnController } from './garage-turn';
 import { webgl2Available } from './webgl-probe';
 
@@ -70,6 +68,9 @@ export interface MountedGarageView {
   stats(): { readonly frames: number; readonly calls: number; readonly triangles: number };
   draw(yawDeg: number): void;
   resize(): void;
+  /** Re-merge a vehicle's kit from the loaded GLB and draw one frame; a
+   *  no-op for a team (GH-238). */
+  setKit(tiers: Readonly<Record<string, number>>): void;
   dispose(): void;
 }
 
@@ -84,6 +85,7 @@ export type MountGarageView = (
     readonly dracoDecoderPath?: string;
     readonly groundTextureUrl?: string;
     readonly colors: GarageColors;
+    readonly kitTiers?: Readonly<Record<string, number>>;
     readonly signal?: AbortSignal;
     readonly onContextLost?: () => void;
   }
@@ -101,7 +103,6 @@ async function loadDoor(): Promise<MountGarageView> {
 export interface GarageModelDeps {
   /** The unit's GLB, or `null` for a unit with none. */
   readonly source: (typeId: string) => ModelSource | null;
-  readonly renderer: RendererChoice;
   readonly dracoDecoderPath: string;
   readonly groundTextureUrl: string;
   readonly colors: GarageColors;
@@ -117,8 +118,9 @@ export interface GarageModelDeps {
   readonly clearTimer?: (id: number) => void;
 }
 
-/** Why a bay kept its plate. `pixi` is a choice, every other one a fault. */
-export type PlateReason = 'pixi' | 'no-mesh' | 'no-webgl2' | 'load-failed' | 'context-lost';
+/** Why a bay kept its plate -- every one a fault. (A `pixi` reason, the one
+ *  that was a choice, went with the Pixi backend, WP-A3.3.) */
+export type PlateReason = 'no-mesh' | 'no-webgl2' | 'load-failed' | 'context-lost';
 
 export interface GarageModelHandle {
   /** The focusable control the canvas lives in. */
@@ -130,6 +132,10 @@ export interface GarageModelHandle {
   /** Move into a rebuilt plate (a purchase redraws the bay around the same
    *  unit): the same canvas, the same context, the same angle. */
   adopt(plate: HTMLElement): void;
+  /** The unit's kit tiers changed (a purchase landed, or a reset): the model
+   *  re-merges and redraws at the same angle (GH-238). Before the model is
+   *  up the tiers are remembered and applied the moment it is. */
+  setKit(tiers: Readonly<Record<string, number>>): void;
   dispose(): void;
 }
 
@@ -174,7 +180,7 @@ const defaultClearTimer = (id: number): void => window.clearTimeout(id);
  */
 export function garageModel(
   plate: HTMLElement,
-  unit: { readonly id: string; readonly name: string },
+  unit: { readonly id: string; readonly name: string; readonly kitTiers?: Readonly<Record<string, number>> },
   deps: GarageModelDeps
 ): GarageModelHandle {
   const el = document.createElement('div');
@@ -188,10 +194,21 @@ export function garageModel(
   const mark = (): void => {
     host.dataset.model = state;
     if (plateReason !== null) host.dataset.modelReason = plateReason;
+    // The plate's own picture -- the screenshot JPEG, or the role badge of a
+    // unit with none -- shows ONLY when the plate is what the bay keeps.
+    // While the model loads it is hidden and the bay draws an empty disk
+    // (`data-model="pending"` in theme.css): showing it there flashed an old
+    // top-down capture between every two models (the lead's 5 Oct report).
+    for (const pic of host.querySelectorAll(':scope > .rl-garage__plate-img, :scope > svg')) {
+      pic.toggleAttribute('hidden', state !== 'plate');
+    }
   };
   mark();
 
   const controller = new AbortController();
+  /** The tiers the model should wear: the ones it mounted with, until a
+   *  purchase says otherwise. */
+  let kitTiers = unit.kitTiers;
   let disposed = false;
   let view: MountedGarageView | null = null;
   let turn: TurnController | null = null;
@@ -202,21 +219,16 @@ export function garageModel(
   let wakeEarly: (() => void) | null = null;
 
   const keepPlate = (reason: PlateReason, err?: unknown): { shown: 'plate'; reason: PlateReason } => {
-    if (reason === 'pixi') {
-      // A choice, not a fault: said once, at `info`, never as a warning.
-      console.info(`garage model: ?renderer=pixi -- showing ${unit.id}'s plate, not its three.js model`);
-    } else {
-      const why =
-        reason === 'no-mesh'
-          ? `${unit.id} has no mesh`
-          : reason === 'no-webgl2'
-            ? 'this browser has no WebGL2'
-            : reason === 'context-lost'
-              ? `the WebGL context drawing ${unit.id} was lost`
-              : `could not draw ${unit.id}'s model`;
-      if (err !== undefined) console.warn(`garage model: ${why} -- showing its plate`, err);
-      else console.warn(`garage model: ${why} -- showing its plate`);
-    }
+    const why =
+      reason === 'no-mesh'
+        ? `${unit.id} has no mesh`
+        : reason === 'no-webgl2'
+          ? 'this browser has no WebGL2'
+          : reason === 'context-lost'
+            ? `the WebGL context drawing ${unit.id} was lost`
+            : `could not draw ${unit.id}'s model`;
+    if (err !== undefined) console.warn(`garage model: ${why} -- showing its plate`, err);
+    else console.warn(`garage model: ${why} -- showing its plate`);
     teardown();
     state = 'plate';
     plateReason = reason;
@@ -376,7 +388,6 @@ export function garageModel(
   }
 
   const ready = (async (): Promise<{ shown: 'model' | 'plate'; reason?: PlateReason }> => {
-    if (deps.renderer === 'pixi') return keepPlate('pixi');
     const source = deps.source(unit.id);
     if (source === null) return keepPlate('no-mesh');
     if (!(deps.webgl ?? webgl2Once)()) return keepPlate('no-webgl2');
@@ -396,6 +407,7 @@ export function garageModel(
     try {
       const mount = deps.mount ?? (await loadDoor());
       if (disposed) return { shown: 'plate' };
+      const mountedWith = kitTiers;
       const v = await mount(el, {
         typeId: unit.id,
         kind: source.kind,
@@ -404,6 +416,7 @@ export function garageModel(
         dracoDecoderPath: deps.dracoDecoderPath,
         groundTextureUrl: deps.groundTextureUrl,
         colors: deps.colors,
+        ...(kitTiers !== undefined ? { kitTiers } : {}),
         signal: controller.signal,
         onContextLost: () => {
           if (!disposed) keepPlate('context-lost');
@@ -415,6 +428,11 @@ export function garageModel(
         return { shown: 'plate' };
       }
       goLive(v);
+      // A purchase that landed while the model loaded: wear it now.
+      if (kitTiers !== mountedWith && kitTiers !== undefined) {
+        v.setKit(kitTiers);
+        el.dataset.frames = String(v.stats().frames);
+      }
       return { shown: 'model' };
     } catch (err) {
       // The bay was left and the door gave up on purpose, with no context
@@ -434,6 +452,13 @@ export function garageModel(
       if (state !== 'plate') next.prepend(el);
       mark();
       turn?.redraw();
+    },
+    setKit(tiers) {
+      if (disposed) return;
+      kitTiers = tiers;
+      if (view === null) return;
+      view.setKit(tiers);
+      el.dataset.frames = String(view.stats().frames);
     },
     dispose() {
       if (disposed) return;

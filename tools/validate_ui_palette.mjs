@@ -140,7 +140,7 @@ export const RETIRED_DINGBATS = [
 //     strings also reach a `title` attribute (garage-board.ts's read-only
 //     rung), which is plain text and cannot carry a mark. The render
 //     package's combat-log overlay (overlay.ts) cannot import app's sheet at
-//     all. The two NAVIGATION arrows (en.json menu.end.next, debrief.next)
+//     all. The two NAVIGATION arrows (en.json debrief.next; the end screen's menu.end.next went with it, GH-417)
 //     ARE drawn, by menu.ts's end screen and debrief.ts's next link.
 //   input/keymap.ts's `LABELS` (↑ ↓ ← → key-name display): typography by
 //     the lead's ruling, so ← -- retired everywhere else -- is allowed in

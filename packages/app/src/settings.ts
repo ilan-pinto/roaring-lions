@@ -71,7 +71,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze<Settings>({
   video: { fullscreen: false, uiScale: 'auto', textSize: 1, quality: 'high' },
   audio: { master: 1, music: 1, sfx: 1, voice: 1, radio: true },
   controls: { cameraSpeed: 1, bindings: {}, edgePan: false, zoomToCursor: true },
-  accessibility: { motion: 'system', colorVision: 'default', captions: false },
+  accessibility: { motion: 'system', colorVision: 'default', captions: true },
   language: 'en',
 });
 
@@ -125,7 +125,7 @@ export function parseSettings(raw: string | null): Settings {
     accessibility: {
       motion: oneOf(['system', 'reduce'] as const, acc.motion, 'system'),
       colorVision: oneOf(COLOR_VISIONS, acc.colorVision, 'default'),
-      captions: bool(acc.captions, false),
+      captions: bool(acc.captions, d.accessibility.captions),
     },
     language: typeof v.language === 'string' && LOCALES.some((l) => l.id === v.language) ? v.language : 'en',
   };

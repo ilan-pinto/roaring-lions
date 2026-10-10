@@ -56,6 +56,10 @@ already ship:
   exactly **−19**. Measured: a clean, sanctioned, optimal demolition ends on
   **ROE 81**. **Break the Depot cannot be played above 81.** The last mission of
   the war bills the player nineteen points for obeying it.
+  **Superseded 2026-10-07** (the lead: "Razing the depot is an objective, so how
+  come I'm punished for doing the objective?"): a structure a `raze` objective
+  names now costs no Conduct, so a clean demolition ends on ROE 100. The village
+  houses and the hall are still judged.
 - **The last mission hands him a D9.** `dozer_d9` has no weapons and a two-tile
   automatic demolition search. Anything with `roe_penalty < 20` that it merely
   halts beside comes down with nobody ordering it — every house in the village.

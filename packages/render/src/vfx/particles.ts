@@ -1,11 +1,25 @@
-import type { Graphics } from 'pixi.js';
 import type { ParticleSpec, Range } from './emitters';
 
-function pick(r: Range | undefined, fallback: number): number {
+function pick(r: Range | undefined, fallback: number, rand: () => number = Math.random): number {
   if (r === undefined) return fallback;
   if (typeof r === 'number') return r;
-  return r[0] + Math.random() * (r[1] - r[0]);
+  return r[0] + rand() * (r[1] - r[0]);
 }
+
+/**
+ * Optional determinism for one `spawn()` call (GH-391). `rand` replaces
+ * `Math.random` for every roll of that call, and `ageSec` places the
+ * particles as if they had been emitted that long ago -- both exist so a
+ * caller can date an emission off the SIM clock and make the frozen frame a
+ * pure function of sim time. Absent, `spawn` is exactly what it always was.
+ * Burst path only: an `emit_over_ms` trickle keeps its own clock.
+ */
+export interface SpawnDeterminism {
+  rand: () => number;
+  ageSec: number;
+}
+
+const AGE_SUBSTEP_SEC = 0.05;
 
 /** Sample a stepped curve. Stepped, not interpolated: interpolating palette
  *  colours would generate off-palette values the art gate rejects. */
@@ -39,9 +53,7 @@ export function sampleLerp(curve: number[] | undefined, t: number, fallback: num
  *
  * This is presentation vocabulary, not a new schema field: it is DERIVED
  * from the `sprite` every emitter already authors, so no `data/vfx/*.json`
- * had to change to opt in and none can opt in by accident. A backend is
- * free to ignore it (Pixi does -- `draw()` below passes it to nothing);
- * `three`'s `createParticleMaterial` reads it to feather the particle's own
+ * had to change to opt in and none can opt in by accident. `three`'s `createParticleMaterial` reads it to feather the particle's own
  * edge instead of stamping the hard-edged filled circle every sprite used
  * to get. See that function's own doc comment for what the hard circle
  * looked like at collapse scale and why a *shape* fix was needed rather
@@ -112,13 +124,16 @@ export class ParticleSystem {
   private readonly drag: Float64Array;
   private readonly priority: Uint8Array;
   private readonly alive: Uint8Array;
+  /** 1 when this particle ages on the SIM clock (`step`'s `simDt`) rather than
+   *  the frame's -- set by `spawn`'s `SpawnDeterminism`. */
+  private readonly simDated: Uint8Array;
   /** Which draw layer a particle belongs to (0 = below units, 1 = above
    *  units). One shared pool, so priority-based eviction still competes
    *  across both layers rather than reserving capacity per layer. */
   private readonly layerIdx: Uint8Array;
   /** 1 when this particle's authored `sprite` names a cloud rather than a
    *  solid (`isSoftParticleSprite`). Read back through `forEachLive` and
-   *  used by the three.js backend alone; Pixi's `draw()` ignores it. */
+   *  used by the three.js backend's particle material. */
   private readonly soft: Uint8Array;
   /** Resolved hex colours per particle, one ramp step per frame of life. */
   private readonly colors: string[][] = [];
@@ -145,6 +160,7 @@ export class ParticleSystem {
     this.drag = new Float64Array(capacity);
     this.priority = new Uint8Array(capacity);
     this.alive = new Uint8Array(capacity);
+    this.simDated = new Uint8Array(capacity);
     this.layerIdx = new Uint8Array(capacity);
     this.soft = new Uint8Array(capacity);
     this.colors.length = capacity;
@@ -202,10 +218,14 @@ export class ParticleSystem {
     priority: number,
     layerIdx: number,
     velX = 0,
-    velY = 0
+    velY = 0,
+    det?: SpawnDeterminism
   ): void {
+    const rand = det?.rand ?? Math.random;
+    const ageSec = det?.ageSec ?? 0;
+    const dated = det !== undefined;
     const scale = 0.75 + magnitude * 1.25;
-    const n = Math.max(1, Math.round(pick(spec.count, 1) * (0.5 + magnitude * 0.9)));
+    const n = Math.max(1, Math.round(pick(spec.count, 1, rand) * (0.5 + magnitude * 0.9)));
     const coneRad = ((spec.cone_deg ?? 360) * Math.PI) / 180;
     const dirRad = dirTurns * Math.PI * 2;
     const resolved = spec.color_over_life.map((k) => this.resolve(k));
@@ -214,13 +234,26 @@ export class ParticleSystem {
     // The first particle always lands now, burst or sustained alike -- a
     // sustained emitter with a 900ms window must not read as "nothing for
     // the first frame".
-    this.spawnOne(spec, x, y, dirRad, coneRad, scale, resolved, priority, layerIdx, velX, velY);
+    if (det !== undefined && emitOverMs > 0) {
+      // Dated trickle: particle `j` is born `emitOverMs * j / n` after the
+      // window opens, so it is `ageSec` minus that old. The caller emits a
+      // window only once its whole trickle has elapsed; one not yet born is
+      // skipped rather than left to a frame-clock `pending` entry.
+      for (let j = 0; j < n; j++) {
+        const a = ageSec - (emitOverMs * j) / n / 1000;
+        if (a < 0) continue;
+        this.spawnOne(spec, x, y, dirRad, coneRad, scale, resolved, priority, layerIdx, velX, velY, rand, a, true);
+      }
+      return;
+    }
+
+    this.spawnOne(spec, x, y, dirRad, coneRad, scale, resolved, priority, layerIdx, velX, velY, rand, ageSec, dated);
 
     if (emitOverMs <= 0 || n <= 1) {
       // Burst path, byte-for-byte the loop this always was: same per-particle
       // work (spawnOne), same order, same count.
       for (let k = 1; k < n; k++) {
-        this.spawnOne(spec, x, y, dirRad, coneRad, scale, resolved, priority, layerIdx, velX, velY);
+        this.spawnOne(spec, x, y, dirRad, coneRad, scale, resolved, priority, layerIdx, velX, velY, rand, ageSec, dated);
       }
       return;
     }
@@ -259,40 +292,50 @@ export class ParticleSystem {
     priority: number,
     layerIdx: number,
     velX: number,
-    velY: number
+    velY: number,
+    rand: () => number = Math.random,
+    ageSec = 0,
+    dated = false
   ): void {
     const i = this.freeSlot(priority);
     if (i < 0) return;
     if (this.alive[i] === 0) this.liveCount++;
-    const a = dirRad + (Math.random() - 0.5) * coneRad;
-    const speed = pick(spec.speed_tiles_s, 0);
+    const a = dirRad + (rand() - 0.5) * coneRad;
+    const speed = pick(spec.speed_tiles_s, 0, rand);
     const inherit = spec.inherit_velocity ?? 0;
     this.x[i] = x;
     this.y[i] = y;
     this.vx[i] = Math.cos(a) * speed + velX * inherit;
     this.vy[i] = Math.sin(a) * speed + velY * inherit;
     this.age[i] = 0;
-    this.life[i] = pick(spec.lifetime_ms, 200) / 1000;
-    this.size[i] = pick(spec.size_px, 6) * scale;
+    this.life[i] = pick(spec.lifetime_ms, 200, rand) / 1000;
+    this.size[i] = pick(spec.size_px, 6, rand) * scale;
     this.gravity[i] = spec.gravity_tiles_s2 ?? 0;
     this.drag[i] = spec.drag ?? 0;
     this.priority[i] = priority;
     this.layerIdx[i] = layerIdx;
     this.soft[i] = isSoftParticleSprite(spec.sprite) ? 1 : 0;
     this.alive[i] = 1;
+    this.simDated[i] = dated ? 1 : 0;
     this.colors[i] = resolved;
     this.alphaCurve[i] = spec.alpha_over_life;
     this.sizeCurve[i] = spec.size_over_life;
+    if (ageSec > 0) this.advance(i, ageSec);
   }
 
-  step(dt: number): void {
-    for (let i = 0; i < this.capacity; i++) {
-      if (this.alive[i] === 0) continue;
+  /** Ages one particle by `sec` in the same fixed sub-steps `step` would
+   *  have used, or kills it if that outlives it. Only for a particle that
+   *  is born already old (`SpawnDeterminism.ageSec`). */
+  private advance(i: number, sec: number): void {
+    let left = sec;
+    while (left > 0) {
+      const dt = Math.min(AGE_SUBSTEP_SEC, left);
+      left -= dt;
       this.age[i] += dt;
       if (this.age[i] >= this.life[i]) {
         this.alive[i] = 0;
         this.liveCount--;
-        continue;
+        return;
       }
       const d = 1 - this.drag[i] * dt;
       this.vx[i] *= d;
@@ -300,6 +343,33 @@ export class ParticleSystem {
       this.vy[i] += this.gravity[i] * dt;
       this.x[i] += this.vx[i] * dt;
       this.y[i] += this.vy[i] * dt;
+    }
+  }
+
+  /**
+   * Ages every particle by `dt` seconds of frame time -- except those born
+   * with `SpawnDeterminism`, which age by `simDt`, the sim time this frame
+   * presents beyond the last. A frozen gate frame (sim time jumped, however
+   * long the frame was) then holds exactly the particles sim time says are
+   * alive. `simDt` defaults to `dt`, so every other caller is unchanged.
+   */
+  step(frameDt: number, simDt: number = frameDt): void {
+    const dt = frameDt;
+    for (let i = 0; i < this.capacity; i++) {
+      if (this.alive[i] === 0) continue;
+      const pdt = this.simDated[i] === 1 ? simDt : frameDt;
+      this.age[i] += pdt;
+      if (this.age[i] >= this.life[i]) {
+        this.alive[i] = 0;
+        this.liveCount--;
+        continue;
+      }
+      const d = 1 - this.drag[i] * pdt;
+      this.vx[i] *= d;
+      this.vy[i] *= d;
+      this.vy[i] += this.gravity[i] * pdt;
+      this.x[i] += this.vx[i] * pdt;
+      this.y[i] += this.vy[i] * pdt;
     }
 
     // Trickle sustained emissions. Iterated back-to-front so a finished
@@ -325,27 +395,22 @@ export class ParticleSystem {
    * signature (plain numbers and a string), so a three.js caller can build
    * instance-buffer writes directly from it.
    *
-   * This applies the exact same skips `draw()` used to apply inline: a slot
-   * that is not `alive`, or not on the requested `layerIdx`, is never
+   * A slot that is not `alive`, or not on the requested `layerIdx`, is never
    * visited; one whose sampled radius or alpha has collapsed to zero or
-   * below is visited by neither this nor `draw()` -- `sampleStep`/
-   * `sampleLerp` are the one place curve sampling happens, so the two
-   * backends cannot sample a palette-quantised colour or an alpha ramp
-   * differently.
+   * below is skipped -- `sampleStep`/`sampleLerp` are the one place curve
+   * sampling happens. (This was the backend-agnostic half of a pair; Pixi's
+   * `draw(g: Graphics)` was the other, and went with that backend, WP-A3.3.)
    *
    * Callback takes flat arguments rather than an object: this method runs
    * over up to `capacity` particles a frame (weapon fire is the
    * highest-frequency effect in the game), and the class-level contract
    * above -- "allocates nothing per particle per frame" -- has to hold for
-   * this accessor exactly as it holds for `spawn`/`step`, or a three.js
-   * caller adopting it inherits a GC-pressure regression `draw()` never had.
+   * this accessor exactly as it holds for `spawn`/`step`, or the three.js
+   * caller inherits a GC-pressure regression.
    *
    * The trailing `soft` argument is `isSoftParticleSprite(spec.sprite)`,
    * latched at spawn -- a sixth flat argument rather than a widened options
    * object for exactly the no-allocation reason the paragraph above gives.
-   * It is deliberately LAST so every existing caller keeps working
-   * unchanged: `draw()` below declares five parameters and JavaScript drops
-   * the sixth, which is what keeps the frozen Pixi path byte-identical.
    */
   forEachLive(
     layerIdx: number,
@@ -361,23 +426,5 @@ export class ParticleSystem {
       if (r <= 0 || alpha <= 0) continue;
       cb(this.x[i], this.y[i], color, alpha, r, this.soft[i] === 1);
     }
-  }
-
-  /** Draws only particles spawned with the matching `layerIdx`, so callers
-   *  can render below-unit and above-unit effects onto separate Graphics
-   *  in the correct order relative to unit sprites.
-   *
-   *  Expressed entirely in terms of `forEachLive` -- there is no second copy
-   *  of the curve-sampling or skip logic here, so this and the read path
-   *  cannot diverge. */
-  draw(
-    g: Graphics,
-    isoX: (x: number, y: number) => number,
-    isoY: (x: number, y: number) => number,
-    layerIdx: number
-  ): void {
-    this.forEachLive(layerIdx, (x, y, color, alpha, r) => {
-      g.circle(isoX(x, y), isoY(x, y) - 3, r).fill({ color, alpha });
-    });
   }
 }

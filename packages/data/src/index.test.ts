@@ -179,6 +179,11 @@ describe('missions is pinned to the directory it comes from', () => {
     expect(onDisk.length).toBeGreaterThan(0);
     expect(Object.keys(missions).sort()).toEqual(onDisk);
   });
+
+  it('shows mission 0 as "Working Up", with its id unchanged (PA-30, lead 2026-10-09)', () => {
+    // The id is what ledgers, saves, telemetry and URLs key on; only the shown name changed.
+    expect(missions['beit_sahwan_0_tutorial']?.name).toBe('Working Up');
+  });
 });
 
 describe('units is pinned to the directory it comes from', () => {
@@ -290,7 +295,9 @@ describe('the ATGM emitters (GH-250, spec N9-N16)', () => {
 
   it('fire_missile throws an ignition flash, a rear backblast cone and a ground ring (N11, N12)', () => {
     const em = byId('fire_missile');
-    expect(em.light).toEqual({ color: 'vfx.fire', intensity: 2.0, radius_tiles: 3.0, decay_ms: 180 });
+    // Intensity 1.0, not 2.0, since polish VR-22: with `rpg_backblast`'s 0.8 a
+    // tube shot is 1.8, under a Grad landing's 1.89 (`fx-ladder.test.ts`).
+    expect(em.light).toEqual({ color: 'vfx.fire', intensity: 1.0, radius_tiles: 3.0, decay_ms: 180 });
     const [flash, blast, ring] = em.particles;
     expect(flash.additive).toBe(true);
     expect(flash.count).toEqual([3, 4]);

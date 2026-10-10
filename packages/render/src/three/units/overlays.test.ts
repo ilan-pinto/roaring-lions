@@ -15,7 +15,9 @@
  * 'node'` -- so only its CONSTRUCTOR-time properties are checked here; the
  * Phase C report has the browser verification that covers `push()` itself.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
 import paletteJson from '../../../../../data/palette.json';
 import { OVERLAY_RENDER_ORDER, BADGE_NUMERAL_RENDER_ORDER } from './render-order';
@@ -24,6 +26,7 @@ import {
   unitOverlayRadiusPx,
   hpBarColorKey,
   hpBarVisible,
+  suppressionBarVisible,
   orderMarkerSize,
   queuedRouteLegs,
   ROUTE_LINE_WIDTH_PX,
@@ -40,12 +43,11 @@ import {
   objectiveZoneColorKey,
   objectiveZoneFallbackColor,
   objectiveZonePulse,
+  objectiveZoneDashed,
+  OBJECTIVE_ZONE_DASH_TILES,
   OBJECTIVE_ZONE_STROKE_INSET_TILES,
   AIR_SHADOW_COLOR_KEY,
-  WRECK_MARKER_COLOR_KEY,
   MOBILITY_KILL_COLOR_KEY,
-  FIREPOWER_KILL_COLOR_KEY,
-  FIREPOWER_KILL_FALLBACK_COLOR,
   buildingIntegrityColorKey,
   CHARGE_RING_TRACK_COLOR_KEY,
   CHARGE_RING_FILL_COLOR_KEY,
@@ -63,6 +65,10 @@ import {
   REFUGE_RING_STYLE,
   REFUGE_RING_EDGE_STYLE,
   REFUGE_RING_EDGE_EXTRA_PX,
+  WORLD_HALO_COLOR_KEY,
+  WORLD_HALO_FALLBACK,
+  OBJECTIVE_ZONE_HALO_COLOR_KEY,
+  OBJECTIVE_ZONE_HALO_FALLBACK,
 } from './overlays';
 
 describe('unitOverlayRadiusPx', () => {
@@ -73,19 +79,30 @@ describe('unitOverlayRadiusPx', () => {
 });
 
 describe('hpBarColorKey', () => {
-  it('picks the green tier above 0.5', () => {
-    expect(hpBarColorKey(1)).toBe('scrub.0');
-    expect(hpBarColorKey(0.51)).toBe('scrub.0');
+  it('picks the green tier above 0.5, either side', () => {
+    for (const friendly of [false, true]) {
+      expect(hpBarColorKey(1, friendly)).toBe('scrub.0');
+      expect(hpBarColorKey(0.51, friendly)).toBe('scrub.0');
+    }
   });
 
-  it('picks the yellow tier for the (0.25, 0.5] band', () => {
-    expect(hpBarColorKey(0.5)).toBe('team.neutral');
-    expect(hpBarColorKey(0.26)).toBe('team.neutral');
+  it('picks the yellow tier for the (0.25, 0.5] band, either side', () => {
+    for (const friendly of [false, true]) {
+      expect(hpBarColorKey(0.5, friendly)).toBe('team.neutral');
+      expect(hpBarColorKey(0.26, friendly)).toBe('team.neutral');
+    }
   });
 
-  it('picks the red tier at or below 0.25', () => {
-    expect(hpBarColorKey(0.25)).toBe('team.hostile');
-    expect(hpBarColorKey(0)).toBe('team.hostile');
+  it('a hostile keeps the red tier at or below 0.25', () => {
+    expect(hpBarColorKey(0.25, false)).toBe('team.hostile');
+    expect(hpBarColorKey(0, false)).toBe('team.hostile');
+  });
+
+  it('VR-03: a friendly never resolves to the hostile key, at any ratio', () => {
+    for (let k = 0; k <= 100; k++) expect(hpBarColorKey(k / 100, true)).not.toBe('team.hostile');
+    // The warn key, as a literal: the HUD's `--warn` is `team.neutral`.
+    expect(hpBarColorKey(0.25, true)).toBe('team.neutral');
+    expect(hpBarColorKey(0, true)).toBe('team.neutral');
   });
 });
 
@@ -171,10 +188,27 @@ describe('overlay palette keys resolve to the exact hex Pixi hard-codes at the e
     expect(resolve(OVERLAY_ACCENT_COLOR_KEY)).toBe('#B8FF5A');
   });
 
-  it('hpBarColorKey\'s three tiers resolve to Pixi\'s own three literals', () => {
-    expect(resolve(hpBarColorKey(1))).toBe('#6B8A4A');
-    expect(resolve(hpBarColorKey(0.4))).toBe('#E8C33A');
-    expect(resolve(hpBarColorKey(0.1))).toBe('#D93A2B');
+  it('hpBarColorKey\'s three hostile tiers resolve to Pixi\'s own three literals', () => {
+    expect(resolve(hpBarColorKey(1, false))).toBe('#6B8A4A');
+    expect(resolve(hpBarColorKey(0.4, false))).toBe('#E8C33A');
+    expect(resolve(hpBarColorKey(0.1, false))).toBe('#D93A2B');
+  });
+
+  it('VR-03: a friendly at a tenth of its health resolves to the warn yellow, not the hostile red', () => {
+    expect(resolve(hpBarColorKey(0.1, true))).toBe('#E8C33A');
+  });
+
+  // VR-36 (lead ruling 2026-10-08): not held and contested are dashed, held
+  // and target solid -- the dash is the channel colour cannot carry under
+  // deuteranopia/protanopia, so the split must not drift.
+  it('dashes the not-held and contested zone outlines, and only those', () => {
+    expect(objectiveZoneDashed('held')).toBe(false);
+    expect(objectiveZoneDashed('unheld')).toBe(true);
+    expect(objectiveZoneDashed('contested')).toBe(true);
+    expect(objectiveZoneDashed('target')).toBe(false);
+    const [on, off] = OBJECTIVE_ZONE_DASH_TILES;
+    expect(on).toBeGreaterThan(0);
+    expect(off).toBeGreaterThan(0);
   });
 
   it('objectiveZoneColorKey\'s three states resolve to Pixi\'s own three literals', () => {
@@ -187,18 +221,20 @@ describe('overlay palette keys resolve to the exact hex Pixi hard-codes at the e
     expect(resolve(AIR_SHADOW_COLOR_KEY)).toBe('#0A0A08');
   });
 
-  it('WRECK_MARKER_COLOR_KEY -> #5C625F, Pixi\'s permanent-wreck cross-marker stroke (same swatch renderer.ts:2402 names gunmetal.2)', () => {
-    expect(resolve(WRECK_MARKER_COLOR_KEY)).toBe('#5C625F');
-  });
-
   it('MOBILITY_KILL_COLOR_KEY -> #8E9491, Pixi\'s own mobility-kill pip literal, exactly', () => {
     expect(resolve(MOBILITY_KILL_COLOR_KEY)).toBe('#8E9491');
   });
 
   it('buildingIntegrityColorKey\'s three tiers resolve to Pixi\'s own three literals (0.6/0.3 thresholds, NOT hpBarColorKey\'s 0.5/0.25)', () => {
-    expect(resolve(buildingIntegrityColorKey(1))).toBe('#8E9491');
-    expect(resolve(buildingIntegrityColorKey(0.4))).toBe('#E8C33A');
-    expect(resolve(buildingIntegrityColorKey(0.1))).toBe('#D93A2B');
+    expect(resolve(buildingIntegrityColorKey(1, false))).toBe('#8E9491');
+    expect(resolve(buildingIntegrityColorKey(0.4, false))).toBe('#E8C33A');
+    expect(resolve(buildingIntegrityColorKey(0.1, false))).toBe('#D93A2B');
+  });
+
+  it('VR-03: a building the player holds never fills the hostile red, at any ratio', () => {
+    for (let k = 0; k <= 100; k++) expect(buildingIntegrityColorKey(k / 100, true)).not.toBe('team.hostile');
+    expect(resolve(buildingIntegrityColorKey(0.1, true))).toBe('#E8C33A');
+    expect(resolve(buildingIntegrityColorKey(1, true))).toBe('#8E9491');
   });
 
   it('CHARGE_RING_TRACK_COLOR_KEY -> #5C625F, CHARGE_RING_FILL_COLOR_KEY -> #E8541E, Pixi\'s own charge-ring resolveColor fallbacks', () => {
@@ -207,34 +243,8 @@ describe('overlay palette keys resolve to the exact hex Pixi hard-codes at the e
     expect(resolve(CHARGE_RING_FILL_COLOR_KEY)).toBe(CHARGE_RING_FILL_FALLBACK_COLOR);
   });
 
-  it('FIREPOWER_KILL_COLOR_KEY resolves to its own stated fallback -- Pixi\'s own #8B1E12 has no palette match at all (see this key\'s own doc comment)', () => {
-    expect(resolve(FIREPOWER_KILL_COLOR_KEY)).toBe(FIREPOWER_KILL_FALLBACK_COLOR);
-    expect(resolve(FIREPOWER_KILL_COLOR_KEY)).not.toBe('#8B1E12');
-  });
-
   it('STRIPE_COLOR_KEY -> #E0B87A, the same swatch theme.css\'s --commend (--rl-dust-0) maps to', () => {
     expect(resolve(STRIPE_COLOR_KEY)).toBe('#E0B87A');
-  });
-});
-
-describe('FIREPOWER_KILL_COLOR_KEY is genuinely the nearest palette entry to Pixi\'s off-palette #8B1E12', () => {
-  it('beats every other entry in the palette by squared RGB distance', () => {
-    const target = { r: 0x8b, g: 0x1e, b: 0x12 };
-    const ramps = paletteJson.ramps as Record<string, { colors: string[] }>;
-    const reserved = paletteJson.reserved as Record<string, { colors: Record<string, string> }>;
-    const hex = (h: string): { r: number; g: number; b: number } => ({
-      r: parseInt(h.slice(1, 3), 16),
-      g: parseInt(h.slice(3, 5), 16),
-      b: parseInt(h.slice(5, 7), 16),
-    });
-    const dist = (h: string): number => {
-      const c = hex(h);
-      return (c.r - target.r) ** 2 + (c.g - target.g) ** 2 + (c.b - target.b) ** 2;
-    };
-    let best = Infinity;
-    for (const ramp of Object.values(ramps)) for (const c of ramp.colors) best = Math.min(best, dist(c));
-    for (const group of Object.values(reserved)) for (const c of Object.values(group.colors)) best = Math.min(best, dist(c));
-    expect(dist(FIREPOWER_KILL_FALLBACK_COLOR)).toBe(best);
   });
 });
 
@@ -417,14 +427,14 @@ describe('OverlayBatch.dashedEllipseRing (GH-279)', () => {
     expect(REFUGE_RING_EDGE_STYLE.extendPx).toBe(REFUGE_RING_EDGE_EXTRA_PX / 2);
   });
 
-  it('the refuge ring wears the minimap cross\'s tokens: --good (scrub.0) and --mark-edge (shadow.0)', () => {
+  it('the refuge ring wears the minimap cross\'s --good (scrub.0) over the one world halo (VR-35)', () => {
     const ramps = paletteJson.ramps as Record<string, { colors: string[] }>;
     const resolve = (key: string): string => {
       const [band, i] = key.split('.');
       return ramps[band].colors[Number(i)];
     };
     expect(REFUGE_RING_COLOR_KEY).toBe('scrub.0');
-    expect(REFUGE_RING_EDGE_COLOR_KEY).toBe('shadow.0');
+    expect(REFUGE_RING_EDGE_COLOR_KEY).toBe(WORLD_HALO_COLOR_KEY);
     expect(resolve(REFUGE_RING_COLOR_KEY)).toBe(REFUGE_RING_FALLBACK_COLOR);
     expect(resolve(REFUGE_RING_EDGE_COLOR_KEY)).toBe(REFUGE_RING_EDGE_FALLBACK_COLOR);
   });
@@ -455,33 +465,13 @@ describe('OverlayBatch.lineWorld', () => {
   });
 });
 
-describe('OverlayBatch.polygonFillWorld / polygonStrokeWorld', () => {
+describe('OverlayBatch.polygonStrokeWorld', () => {
   const square: readonly [number, number, number][] = [
     [0, 0, 0],
     [4, 0, 0],
     [4, 0, 4],
     [0, 0, 4],
   ];
-
-  it('polygonFillWorld fan-triangulates a 4-point polygon into exactly 6 vertices (2 triangles)', () => {
-    const batch = new OverlayBatch(64);
-    batch.beginFrame();
-    batch.polygonFillWorld(square, '#FF0000', 0.05);
-    batch.endFrame();
-    expect(batch.mesh.geometry.drawRange.count).toBe(6);
-  });
-
-  it('polygonFillWorld writes literal world positions, not anchor-relative pixel offsets', () => {
-    const batch = new OverlayBatch(64);
-    batch.beginFrame();
-    batch.polygonFillWorld(square, '#FF0000', 0.05);
-    batch.endFrame();
-    const pos = (batch.mesh.geometry.getAttribute('position') as THREE.BufferAttribute).array as Float32Array;
-    // First vertex is the polygon's own first corner, verbatim.
-    expect(pos[0]).toBe(0);
-    expect(pos[1]).toBe(0);
-    expect(pos[2]).toBe(0);
-  });
 
   it('polygonStrokeWorld writes 2 triangles (6 vertices) per edge of a closed loop', () => {
     const batch = new OverlayBatch(64);
@@ -493,10 +483,10 @@ describe('OverlayBatch.polygonFillWorld / polygonStrokeWorld', () => {
 });
 
 describe('NumeralBatch construction', () => {
-  it('draws at BADGE_NUMERAL_RENDER_ORDER, a DIFFERENT band from OverlayBatch\'s -- the "ring and numeral do not share a band" trap (render-order.ts)', () => {
+  it('draws at BADGE_NUMERAL_RENDER_ORDER, ABOVE OverlayBatch\'s band -- the badge disc is in that tier, and the numeral must not draw under it (PA-18)', () => {
     const batch = new NumeralBatch(16, '#14150F');
     expect(batch.mesh.renderOrder).toBe(BADGE_NUMERAL_RENDER_ORDER);
-    expect(batch.mesh.renderOrder).not.toBe(OVERLAY_RENDER_ORDER);
+    expect(batch.mesh.renderOrder).toBeGreaterThan(OVERLAY_RENDER_ORDER);
   });
 
   it('starts with no texture bound (map: null) -- built lazily on first push(), not in the constructor', () => {
@@ -507,6 +497,25 @@ describe('NumeralBatch construction', () => {
   it('never frustum-culls, matching OverlayBatch', () => {
     const batch = new NumeralBatch(16, '#14150F');
     expect(batch.mesh.frustumCulled).toBe(false);
+  });
+
+  // WP-P4 (PA-18): the atlas is painted in an sRGB colour (`shadow.1`), and
+  // left at NoColorSpace the near-black ink was encoded on the way out and
+  // drew mid-grey on the pale disc. A stand-in canvas is enough: the
+  // property under test is set on the texture, not read from pixels.
+  it('decodes its digit atlas as sRGB, like every other colour map', () => {
+    const ctx = { clearRect: () => {}, fillText: () => {}, fillStyle: '', font: '', textAlign: '', textBaseline: '' };
+    vi.stubGlobal('document', { createElement: () => ({ width: 0, height: 0, getContext: () => ctx }) });
+    try {
+      const batch = new NumeralBatch(16, '#14150F');
+      batch.beginFrame();
+      batch.push([0, 0, 0], 0, 0, 12, 14, 3);
+      const map = (batch.mesh.material as THREE.MeshBasicMaterial).map;
+      expect(map).not.toBeNull();
+      expect(map?.colorSpace).toBe(THREE.SRGBColorSpace);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 
@@ -563,6 +572,15 @@ describe('cachedDesaturate', () => {
   });
 });
 
+describe('suppressionBarVisible (pass C2/C4, P4)', () => {
+  it('draws for a selected or hovered unit and for nobody else', () => {
+    expect(suppressionBarVisible(false, false, false)).toBe(false);
+    expect(suppressionBarVisible(true, false, false)).toBe(true);
+    expect(suppressionBarVisible(false, true, false)).toBe(true);
+    expect(suppressionBarVisible(false, false, true)).toBe(true);
+  });
+});
+
 describe('hpBarVisible (GH-186)', () => {
   const MAX = 300 << 16;
   it('full health with no flags draws no bar', () => {
@@ -575,5 +593,91 @@ describe('hpBarVisible (GH-186)', () => {
     expect(hpBarVisible(MAX, MAX, true, false, false)).toBe(true);
     expect(hpBarVisible(MAX, MAX, false, true, false)).toBe(true);
     expect(hpBarVisible(MAX, MAX, false, false, true)).toBe(true);
+  });
+});
+
+/**
+ * VR-38: a palette-key constant nothing but a test reads is a dead mark that
+ * still looks like a decision (`WRECK_MARKER_COLOR_KEY` outlived the sprite
+ * wreck cross it named). Every `*_COLOR_KEY` this module exports must be read
+ * by production code, comments stripped, so a mention in prose cannot keep one
+ * alive.
+ */
+describe('overlay colour keys are all live', () => {
+  const stripComments = (src: string): string => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const walk = (dir: string): string[] =>
+    readdirSync(dir).flatMap((name) => {
+      const full = `${dir}/${name}`;
+      if (name === 'node_modules') return [];
+      if (statSync(full).isDirectory()) return walk(full);
+      return /\.ts$/.test(name) && !/\.test\.ts$/.test(name) ? [full] : [];
+    });
+  const packages = fileURLToPath(new URL('../../../../', import.meta.url));
+  const production = [...walk(`${packages}render/src`), ...walk(`${packages}app/src`)].map((f) => ({
+    file: f,
+    code: stripComments(readFileSync(f, 'utf8')),
+  }));
+  const own = production.find((f) => f.file.endsWith('three/units/overlays.ts'));
+
+  it('reads this module as production source (the guard cannot pass on an empty scan)', () => {
+    expect(own).toBeDefined();
+    expect(production.length).toBeGreaterThan(50);
+  });
+
+  it('has no *_COLOR_KEY export that only a test reads', () => {
+    const declared = [...(own?.code ?? '').matchAll(/^export const ([A-Z0-9_]*COLOR_KEY)\b/gm)].map((m) => m[1]);
+    expect(declared.length).toBeGreaterThan(10);
+    const dead = declared.filter((name) => {
+      const re = new RegExp(`\\b${name}\\b`, 'g');
+      const uses = production.reduce((n, f) => n + (f.code.match(re)?.length ?? 0) - (f === own ? 1 : 0), 0);
+      return uses === 0;
+    });
+    expect(dead).toEqual([]);
+  });
+});
+
+/**
+ * VR-35: one legibility halo in the world. Three adjacent shadow steps did one
+ * job (rings and marks on shadow.1, the objective zone on shadow.2, the refuge
+ * ring on shadow.0). Falsified: putting `OBJECTIVE_ZONE_HALO_COLOR_KEY` back to
+ * 'shadow.2' turns the first spec red; putting a literal
+ * `overlayColor('shadow.1', ...)` back on the contact-mark halo turns the
+ * second.
+ */
+describe('one world halo (VR-35)', () => {
+  it('every halo and frame key is WORLD_HALO_COLOR_KEY, and its fallback is the palette entry', () => {
+    expect(OBJECTIVE_ZONE_HALO_COLOR_KEY).toBe(WORLD_HALO_COLOR_KEY);
+    expect(REFUGE_RING_EDGE_COLOR_KEY).toBe(WORLD_HALO_COLOR_KEY);
+    expect(HP_BG_COLOR_KEY).toBe(WORLD_HALO_COLOR_KEY);
+    expect(OBJECTIVE_ZONE_HALO_FALLBACK).toBe(WORLD_HALO_FALLBACK);
+    expect(REFUGE_RING_EDGE_FALLBACK_COLOR).toBe(WORLD_HALO_FALLBACK);
+    const ramps = paletteJson.ramps as Record<string, { colors: string[] }>;
+    const [band, i] = WORLD_HALO_COLOR_KEY.split('.');
+    expect(ramps[band].colors[Number(i)]).toBe(WORLD_HALO_FALLBACK);
+  });
+
+  it('ThreeRenderer resolves no halo shade of its own', () => {
+    const tr = readFileSync(fileURLToPath(new URL('../ThreeRenderer.ts', import.meta.url)), 'utf8');
+    const haloLines = tr.split('\n').filter((l) => /halo|resolveShadow/i.test(l) && /overlayColor\(/.test(l));
+    // The scan must see the halo reads it is guarding, or it guards nothing.
+    expect(haloLines.length).toBeGreaterThanOrEqual(5);
+    expect(haloLines.filter((l) => !/WORLD_HALO_COLOR_KEY|OBJECTIVE_ZONE_HALO_COLOR_KEY|REFUGE_RING_EDGE_COLOR_KEY/.test(l))).toEqual([]);
+  });
+});
+
+/**
+ * VR-34: a selected unit's ring is its TEAM colour wherever it stands. The flat
+ * billboard fallback (a garrisoned unit, or a ring the batch refused) used to
+ * take the control group's colour, or tracer lime. Falsified: restoring
+ * `groupColor || accentDefault` on that ellipse turns this red.
+ */
+describe('the selected ring has one colour (VR-34)', () => {
+  it('the flat fallback ring draws in the same ringHex the ground ring is pushed with', () => {
+    const tr = readFileSync(fileURLToPath(new URL('../ThreeRenderer.ts', import.meta.url)), 'utf8');
+    const at = tr.indexOf('this.pushSelectionRing(i, type, ix, iy, side, this.selectionRing, SELECTED_RING_SCALE, ringHex)');
+    expect(at).toBeGreaterThan(0);
+    const block = tr.slice(at, tr.indexOf('}', at));
+    const fallback = /ellipseRing\(ringCenter,[^;]*\);/.exec(block)?.[0] ?? '';
+    expect(fallback).toMatch(/,\s*ringHex,\s*1\);$/);
   });
 });

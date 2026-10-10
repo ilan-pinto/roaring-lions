@@ -170,7 +170,15 @@ export interface IntentWorld {
   canTunnelCharge(id: number): boolean;
   /** Mission-declared no-fire zone. Wired in slice 2; false until then. */
   inFlaggedZone(x: number, y: number): boolean;
+  /** What is under a ground point: open, a tile no foot or wheel can enter
+   *  (the sim's own `blocked` mask), or past the map's edge. K-08. */
+  groundAt(x: number, y: number): GroundState;
+  /** True for a unit that is not held to the ground (a drone), which a move
+   *  order over a rock is still a good order for. */
+  flies(id: number): boolean;
 }
+
+export type GroundState = 'open' | 'blocked' | 'offmap';
 
 export interface PointerContext {
   /** Already filtered to living units on side 0 by the caller. */
@@ -220,6 +228,13 @@ export interface Resolution {
    * needs an explicit signal to tell "nothing to do" apart from "refused."
    */
   refused?: boolean;
+  /**
+   * K-08: the click landed on ground nobody selected can enter -- a rock
+   * ridge, a wall, or past the map's edge. No intent, no order marker, a
+   * short note, and the `blocked` cursor (`cursorFor`). Not `refused`: that
+   * is the protected-site rung and draws the other cursor.
+   */
+  groundRefused?: 'blocked' | 'offmap';
 }
 
 /**
@@ -279,6 +294,23 @@ export function resolvePointer(world: IntentWorld, ctx: PointerContext): Resolut
             note: { text: t('intent.protectedSite'), tone: 'mute' as const },
           }
         : {}),
+    };
+  }
+
+  // K-08. After the structure branch (a building is a blocked tile you CAN
+  // order onto: garrison, demolish, attack-move) and before the tunnel and
+  // plain-order branches. A selection with a flyer in it keeps the order: a
+  // drone over a rock is fine, and what the sim does with the order is
+  // unchanged either way -- this only stops the UI confirming one the ground
+  // refuses.
+  const ground = world.groundAt(x, y);
+  if (ground !== 'open' && !ids.some((i) => world.flies(i))) {
+    return {
+      intents: [],
+      roe,
+      marker: false,
+      groundRefused: ground,
+      note: { text: t(ground === 'offmap' ? 'intent.ground.offmap' : 'intent.ground.blocked'), tone: 'mute' },
     };
   }
 
@@ -350,7 +382,11 @@ export function resolveKeyVerb(
   }
   if (verb === 'dismount') {
     const carriers = ctx.ids.filter((i) => ctx.passengerCount(i) > 0);
-    if (carriers.length === 0) return { intents: [], roe: free, marker: false };
+    // Pass K: a refused verb says why, like mount and smoke beside it -- this
+    // one used to do nothing at all, which reads as a dead key.
+    if (carriers.length === 0) {
+      return { intents: [], roe: free, marker: false, note: { text: t('intent.dismount.none'), tone: 'mute' } };
+    }
     return {
       intents: [{ kind: 'dismount', carriers }],
       roe: free,
@@ -387,6 +423,23 @@ export interface OrderSink {
   dispatch(intent: PlayerIntent): void;
   note(text: string, tone: 'info' | 'mute'): void;
   marker(x: number, y: number): void;
+  /** The order resolved to nothing (`orderDenied`): the deny cue (polish
+   *  pass F). Before it, a refused click was silent and only the cursor said
+   *  so -- and the cursor is gone the moment the click lands. */
+  deny(): void;
+}
+
+/**
+ * Did a click with `selected` units under command come to nothing? Either a
+ * protected structure refused it (`refused`), or units were selected and not
+ * one intent came of it. An empty selection is not a denial -- there was no
+ * order to refuse -- and neither is an armed support call, whose acceptance
+ * only the runtime knows.
+ */
+export function orderDenied(res: Resolution, selected: number): boolean {
+  if (res.armed) return false;
+  if (res.refused === true) return true;
+  return selected > 0 && res.intents.length === 0;
 }
 
 /**
@@ -428,6 +481,7 @@ export function issueOrder(
   for (const intent of res.intents) sink.dispatch(intent);
   if (res.note) sink.note(res.note.text, res.note.tone);
   if (res.marker) sink.marker(x, y);
+  if (orderDenied(res, ids.length)) sink.deny();
   return res;
 }
 
@@ -439,4 +493,10 @@ function roeTierAt(world: IntentWorld, x: number, y: number): RoeTier {
   if (struct < 0) return 'free';
   if (world.isProtected(struct)) return 'protected';
   return world.structureRoePenalty(struct) > 0 ? 'costly' : 'free';
+}
+
+/** Pass K: the halt key with nothing of ours selected used to do nothing, in
+ *  silence. It still dispatches nothing; it now says what the key wants. */
+export function haltNote(mine: number): { text: string; tone: 'mute' } | null {
+  return mine > 0 ? null : { text: t('intent.halt.none'), tone: 'mute' };
 }

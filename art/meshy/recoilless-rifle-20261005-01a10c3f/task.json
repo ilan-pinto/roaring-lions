@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready shoulder-fired recoilless rifle with two spare rounds lying beside it, a weapon of an irregular militia, worn and field-repaired, scratched gunmetal under sun-faded paint, grips wrapped in tape. At rest, level, all on the ground as one object. A short fat tube with a wide flared venturi at the rear, a hinged breech ring, an optical sight on a side bracket, a pistol grip under the middle, a padded shoulder rest, a carrying handle; beside it two long finned rounds with blunt warheads. Scratched steel, chipped paint, dust. Real-world scale, 1.1 metre tube. Gunmetal, faded green-grey paint, tan tape. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a10c3f-d3cd-705d-9e0d-ad4a6737fa20",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 1802427519,
+    "prompt": "A single low-poly game-ready shoulder-fired recoilless rifle with two spare rounds lying beside it, a weapon of an irregular militia, worn and field-repaired, scratched gunmetal under sun-faded paint, grips wrapped in tape. At rest, level, all on the ground as one object. A short fat tube with a wide flared venturi at the rear, a hinged breech ring, an optical sight on a side bracket, a pistol grip under the middle, a padded shoulder rest, a carrying handle; beside it two long finned rounds with blunt warheads. Scratched steel, chipped paint, dust. Real-world scale, 1.1 metre tube. Gunmetal, faded green-grey paint, tan tape. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1791206874209,
+    "progress": 100,
+    "started_at": 1791206874220,
+    "finished_at": 1791206918037,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10c3f-d3cd-705d-9e0d-ad4a6737fa20/output/model.glb?Expires=4944758400&Signature=TFeMJdl4XHjFmFgs~n6LFATZ2VS41ge-Mrzb7C3KXlI9hvODNaH7WIaA4jq2dViVvtvJ~PJMwx0gb13h7h22PepcXV8QAPtWwVAm2WLgkOT2r3-WXtLno7BKErxQBWe9Ey1KvG~UEgMw9mMywNTP6WK-13nyRkzDaTlHNgJ4WmmlQWbjyz~hwBjz1kONhnMlP3vpII3rJ4l1NpZIkrtKKb0iqUB4IYDhB~QV3tx9b3XtV52q8v8m-3aOiYVCd8qP02CCzF97Cbzsss4AwDfU~oCoopwZPtGBfij~FIG-WGWdKDclOix-fgNO8FZlm9~NAtfQSQp-RAxDhlXZtvig6Q__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10c3f-d3cd-705d-9e0d-ad4a6737fa20/output/preview.png?Expires=4944758400&Signature=dm9GU4bfLa5kDArf-jKrFVOKR9EvnXAmuekLTaogn6DSgrGzUidapUpVjDc9HU6JLEOtD36lKjyPwGdUhKwk8YiW1QKVdLAQhLX5FIwdKeZCXVqesVQQx8~K6XqFZf54sJhc5P~cBd8cB~zGgZz8kOg03XpO7OnO1D5G5OKsPHWA9R9YboXdnvnFTsHjp3cDD1gTDt-PUaW6E7O67HJPK-73l0yfFV85Umo6XL6v1Mcv02Cj9lsr55tZ7s3wzcgft7cgTj2NgVOXnITeUvgqIMQVe3vEV0Qpn1BmpfdlOxgm7VfImIuCYe1i7AtTJ9tUrXs3bGo47PMgJjdEyzDyyw__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1791206874209,
+    "started_at": 1791206874220,
+    "finished_at": 1791206918037
+  },
+  "usd_estimated": 0.4
+}

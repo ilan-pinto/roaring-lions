@@ -1,0 +1,23 @@
+{
+  "unit": "paramotor",
+  "variant": "team",
+  "source": "assets/meshes/vehicles/paramotor.glb",
+  "source_sha256": "9b9097b56f233bad0d1f3ed6810dd0012f871a7f4496faa6160d82e697784006",
+  "yaw_deg": -125.0,
+  "elevation_deg": 18.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "width",
+    0.92
+  ],
+  "ndc_box": [
+    0.04,
+    0.96,
+    0.0531,
+    0.9469
+  ],
+  "materials": {
+    "baked": 4,
+    "flat": 0
+  }
+}

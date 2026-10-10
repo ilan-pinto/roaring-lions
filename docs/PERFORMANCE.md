@@ -1,4 +1,15 @@
-# Performance — both renderer backends, and sim tick cost
+# Performance — the renderer, and sim tick cost
+
+> **Pixi and the billboard path are retired (WP-A3.3, 2026-10-04).** Every
+> section below that measures Pixi, or three drawing billboards
+> (`measurePixi`, `measureThree`, "What mesh units cost against billboards",
+> the `three, billboards` rows), is **history**: kept because the
+> measurements explain decisions that still stand, and no longer
+> reproducible -- `backend-curve-gate.ts` runs `measureThreeMesh` and
+> `measureSkinnedInfantry` only, and `measureThreeMesh` now loads every
+> roster type's GLB rather than a quarter of them over billboards. The level
+> load numbers for the retirement itself are in "Retiring the sprite sheets"
+> at the end of this file.
 
 **Last measured:** 2026-08-30, this branch's HEAD (`15bd819` + this session's
 uncommitted `tools/src/perf/` changes). **Re-run before quoting these numbers
@@ -32,10 +43,10 @@ npx tsx tools/src/perf/backend-curve-gate.ts --port=5190 --out=.superpowers/perf
 ```
 
 This drives a real headless Chromium (Playwright, already a `tools`
-devDependency — the same one `tools/src/ci/golden-diff-gate.ts` uses) through
-four measurement functions exported by `tools/src/perf/three-units.ts`:
-`measurePixi`, `measureThree`, `measureThreeMesh` (added this session — see
-below), and `measureSkinnedInfantry`. Each runs in its own fresh page
+devDependency) through the measurement functions exported by
+`tools/src/perf/three-units.ts`. When this section was written there were
+four -- `measurePixi`, `measureThree`, `measureThreeMesh` and
+`measureSkinnedInfantry`; since WP-A3.3 only the last two exist. Each runs in its own fresh page
 navigation to `/` (the campaign menu, not a sandbox/mission — see the
 capture-conditions section for why). Progress lines and the final JSON path
 print to stdout; the full per-checkpoint data (tick/render `SampleStats`,
@@ -130,7 +141,7 @@ npx tsx tools/src/perf/three-units.ts
 above for why `avg`/`max` were unusable before the hardware fix; with it,
 `avg` and `p95` agree closely (both quoted for completeness). All times in ms.
 
-### Pixi (billboards only, as shipped)
+### Pixi (billboards only, as shipped) — history, backend retired in WP-A3.3
 
 | target | living | tick avg | tick p95 | render avg | render p95 | render max |
 |---|---|---|---|---|---|---|
@@ -139,7 +150,7 @@ above for why `avg`/`max` were unusable before the hardware fix; with it,
 | 300 | 266 | 1.61 | 1.90 | 2.26–2.58 | 4.40 | 6.7–7.4 |
 | 400 | 320 | 2.38 | 3.70 | 2.33–2.66 | 4.40–5.00 | 6.7–8.9 |
 
-### Three, billboards only (`measureThree` — same roster, no `&mesh`)
+### Three, billboards only (`measureThree` — same roster, no `&mesh`) — history, billboard path retired in WP-A3.3
 
 | target | living | tick avg | tick p95 | render avg | render p95 | render max |
 |---|---|---|---|---|---|---|
@@ -169,7 +180,7 @@ share the tab (see the capture-conditions section).
 
 ---
 
-## What mesh units cost against billboards
+## What mesh units cost against billboards (history: billboards retired in WP-A3.3)
 
 `measureThreeMesh` runs the **identical** curve to `measureThree` — same
 roster, same checkpoints, same map — with the real shipped mesh GLBs loaded
@@ -1342,3 +1353,958 @@ The stationary figure matches what was measured in fix round 1 for 14 selected u
   - It is met on relief while the selection is stationary.
 - **Moving on relief** costs about 0.9 ms at 100 rings, up from 0.8 before the 7×7 tier. The lead accepted the moving relief cost on 29 Sep, and fix round 2's tier was ruled with it.
 - **Next step, should it matter later:** the lift lattice is already coarse (2, not 4). What would help next is caching `decalGroundY` per tile corner, or sampling the ground mesh's own vertices instead of the bicubic.
+
+---
+
+## Retiring the sprite sheets (WP-A3.3, 2026-10-04)
+
+The Pixi backend, the `&nomesh` billboard path and the 43 sheets under
+`assets/sprites/` were deleted on `feat/retire-pixi` (GH-189). On the default
+path the sheets were no longer drawn by anything a player could see -- every
+unit already drew a mesh -- but a mission still FETCHED some after its first
+frame: each fielded mesh vehicle's sheet (for a sprite wreck no shipped vehicle
+reached any more, since all 18 vehicle GLBs carry a `wreck` clip) and, on a
+`resources` mission, every deferred KDF buildable's sheet (a billboard
+placeholder until its GLB landed). This measures what that cost.
+
+**Conditions.** `pnpm perf:load -- --mission=<id> --serve=preview --runs=3
+--tail=5000`, a production build served by `vite preview` from `dist/`,
+headless Chromium with the HTTP cache and the service worker bypassed (a cold
+first visit), unthrottled localhost, ANGLE/Metal on an M3 Pro (the harness
+prints the renderer). `--tail=5000` keeps counting five seconds past
+first-frame -- without it the harness stops at first-frame and every one of
+these sheet requests is invisible, which is why it was added. Before: base
+`f818eb7b`. After: the branch head. The harness itself had to be fixed first:
+it waited for "N / N sheets" and a mesh-only boot reads "meshes only", so on
+`main` every run timed out at 180 s without clicking Deploy.
+
+| mission | requests before | requests after | MiB before | MiB after | sheet requests / MiB before | first-frame ms before | after |
+|---|---|---|---|---|---|---|---|
+| `beit_sahwan_1_recon` | 465 ×3 | 116 ×3 | 29.91 ×3 | 24.08-24.09 | 346 / 5.82 | 2166 / 1397 / 1214 | 1781 / 1472 / 1305 |
+| `tel_marum_2_foothold` | 1163 ×3 | 151 ×3 | 42.64 ×3 | 27.29 ×3 | 1009 / 15.33 | 1542 / 1177 / 1198 | 1455 / 1181 / 1316 |
+| `wadi_halam_2_laager` | 1300 / 732 / 884 | 172 ×3 | 52.10 / 43.34 / 45.83 | 34.68 ×3 | 1125 / 557 / 709 -- 17.41 / 8.65 / 11.14 | 2002 / 1394 / 1694 | 1619 / 1406 / 1486 |
+
+Reading it:
+
+- **Sheet requests go to zero on every run**, and nothing else moved: meshes are
+  57 / 61 / 68 requests and 20.27 / 20.26 / 30.78 MiB before and after.
+- **The saving is 5.8 / 15.4 / 11.2-17.4 MiB and 349 / 1,012 / 560-1,128
+  requests per mission load.** `wadi_halam_2_laager`'s before-numbers vary
+  because its sheets were still loading when the five-second tail closed; the
+  run with the longest tail-end read 17.41 MiB of sheets, so the real figure is
+  at least that.
+- **Time to first frame did not change**, and should not have: every sheet in
+  question loaded AFTER the first frame. What the player got back is bandwidth
+  and request count in the first seconds of play, not a faster deploy.
+- `dist/` went from **195,364 KiB to 120,896 KiB** (-74,468 KiB, -38%): the
+  sheets (72 MiB) plus the ten Pixi chunks (592.1 kB raw). The tracked
+  `assets/` tree went from 154.2 MiB to 90.4 MiB. Clone size does not shrink
+  -- history keeps the PNGs, and rewriting it is not a goal (the plan's risk
+  12).
+
+The deferred-buildable option the plan left to the lead (load every buildable
+GLB before deploy) was NOT taken: the lead's ruling was to keep them invisible
+until their GLB lands, with a "deploying" chip on the dock tile. So
+time-to-deploy is unchanged by this work, and the cost of the alternative was
+not measured.
+
+**The all-mesh backend curve** (`backend-curve-gate.ts --only=three-mesh`, same
+machine, ANGLE/Metal): with every one of the 20 roster types drawing its real
+GLB -- where the old "three, meshes" curve swapped a quarter of the roster over
+a billboard majority -- render p95 is 10.8 / 17.8 / 30.0 / 39.7 ms at 65 / 143
+/ 266 / 320 living units (tick p95 0.30 / 1.20 / 2.20 / 3.40 ms). That is a new
+number, not a regression: it is the shipped default since the mesh flip, now
+measured for the first time.
+
+## Kitted vehicles (GH-238 plan 3, 2026-10-07)
+
+What bolting a bought kit onto the eight KDF vehicles costs. Spec
+`docs/superpowers/specs/2026-10-06-kitted-vehicles.md`, plan
+`docs/superpowers/plans/2026-10-07-kitted-vehicles.md` (Task 10). The design
+claim is **+0 draw calls**: `applyVehicleKit` merges the bought parts into their
+host node's geometry at load, so a kitted hull submits exactly as often as a bare
+one.
+
+### Capture conditions
+
+- **One machine**: Apple M3 Pro, macOS, ANGLE Metal (`ANGLE (Apple, ANGLE Metal
+  Renderer: Apple M3 Pro, Unspecified Version)`, printed by the tool), real
+  hardware and not SwiftShader.
+- **Draw calls and triangles**: `tools/src/perf/kit-drawcalls.ts`, run on the
+  final art at the tip of the branch (all eight GLBs, as shipped in
+  `assets/meshes/vehicles/`, Draco). Twenty clones of one vehicle through the
+  SHIPPED `buildVehicleMeshTemplate`, three passes (shadow, main, and the GTAO
+  pre-pass's override material), `renderer.info` reset **by hand** around each:
+  three r170 resets it after the shadow pass, so the default reading is short
+  (with `autoReset` left on, the harness read Lavi 8 and D9 4 and exited 1, which
+  is how it was falsified).
+- **Sizes** are `wc -c` of the tracked files at the branch tip against
+  `origin/main`.
+
+### Draw calls: +0 at every tier
+
+| Vehicle | Submissions/vehicle, tiers 0 | tiers 3 | Live meshes carrying kit at tiers 3 |
+|---|---|---|---|
+| `mbt_lavi` | 12 | 12 | 3 (`hull_hull`, `turret_hull`, `turret_metal`) |
+| `ifv_namer` | 12 | 12 | 2 |
+| `apc_eitan` | 12 | 12 | 2 |
+| `apc_kipod` | 12 | 12 | 2 |
+| `jeep_shoded` | 12 | 12 | 2 |
+| `scout_shachaf` | 12 | 12 | 2 |
+| `dozer_d9` | 6 | 6 | 1 |
+| `heli_peten` | 12 | 12 | 3 |
+
+12 is 4 live meshes x 3 passes; the D9 has 2 meshes, so 6. The harness exits 1 on
+any other reading, and on a tiers > 0 reading in which no mesh carries kit (which
+would be the bare hull read twice and prove nothing about the merge): run on the
+kit-less art of the time it failed, "tiers=3 but no mesh carries kit", where it
+had printed PASS.
+
+### Triangles: what the kit adds
+
+Kit triangles at maximum kit (every track at tier 3), and the triangles one
+vehicle submits across the shadow and main passes (the kit is in both, so it
+counts twice; the AO pre-pass is not in these totals):
+
+| Vehicle | Kit triangles (budget) | shadow + main, tiers 0 | tiers 3 |
+|---|---|---|---|
+| `mbt_lavi` | 4,740 (4,880; cap 5,000) | 16,692 | 26,172 |
+| `ifv_namer` | 3,282 (3,580) | 15,620 | 22,184 |
+| `apc_eitan` | 3,266 (3,850) | 15,922 | 22,454 |
+| `apc_kipod` | 3,222 (3,590) | 16,104 | 22,548 |
+| `jeep_shoded` | 2,264 (2,560) | 87,870 | 92,398 |
+| `dozer_d9` | 2,758 (3,360) | 15,802 | 21,318 |
+| `scout_shachaf` | 1,906 (2,340) | 10,152 | 13,964 |
+| `heli_peten` | 1,434 (1,680) | 82,062 | 84,930 |
+
+Each tiers-3 figure is the tiers-0 figure plus twice the kit triangles. The kit
+is a share of what the vehicle already costs, not a new order of magnitude: the
+Lavi's grows by 57% (it was a 16,692-triangle model), the jeep's by 5% and the
+Peten's by 3.5% (both ship an 80,000-triangle Meshy hull). A mission fields the
+tier the player bought, so a bare brigade pays nothing per frame: tiers 0 is the
+shipped template, the same geometry objects.
+
+### Encoded size
+
+| Vehicle | `art/meshes/vehicles` | `assets/meshes/vehicles` (Draco) |
+|---|---|---|
+| `mbt_lavi` | +223,036 B (2,831,440 -> 3,054,476) | +29,584 B, 28.9 KiB (2,487,272 -> 2,516,856) |
+| `ifv_namer` | +162,852 B | +21,172 B, 20.7 KiB |
+| `apc_eitan` | +170,984 B | +21,548 B, 21.0 KiB |
+| `apc_kipod` | +166,524 B | +20,252 B, 19.8 KiB |
+| `jeep_shoded` | +105,904 B | +18,268 B, 17.8 KiB |
+| `scout_shachaf` | +98,408 B | +16,600 B, 16.2 KiB |
+| `dozer_d9` | +142,440 B | +14,408 B, 14.1 KiB |
+| `heli_peten` | +67,884 B | +15,612 B, 15.2 KiB |
+| **All eight** | **+1,138,032 B (1,111.4 KiB)** | **+157,444 B (153.8 KiB)** |
+
+What a player downloads is the second column: the Draco twin, **+153.8 KiB for all
+eight**. The kit is loaded with its vehicle whether or not any of it is bought,
+because the merge happens in the browser and the player's tiers can change
+between missions. The `art/parts/kit/*.glb` sources (66-217 KiB each, 1.1 MiB for
+eight) are build intermediates and are not shipped to the player.
+
+### What was NOT measured
+
+- **The merge itself.** `applyVehicleKit` runs once per vehicle type at template
+  build, `mergeGeometries` over the host and its kept parts, and the old
+  geometries are disposed. No wall-clock number was taken for it, and no
+  frame-cost or boot-time reading was taken with kit bought. The triangle table
+  above is the only per-frame evidence.
+- **A kitted force at scale.** `backend-curve-gate.ts` was not re-run for this
+  work.
+
+### `validate:meshes` gate time
+
+The gate now renders, per kitted vehicle, a maximum-kit render and the twelve
+(nine for the D9) variant masks, 101 kit renders in all, and reads the kit
+nodes from the bytes. Same machine, wall clock, `pnpm validate:meshes`:
+
+| Reading | Time | Conditions |
+|---|---|---|
+| before the kit renders | 62.2 s | back to back with the next row, quiet |
+| after Task 6 (variants through Workbench) | 69.0 s | back to back, quiet |
+| the same, noisy | 112.9 s | load average 21-25 from other work |
+| after the review round (masks through the shipped render's own Cycles, 64 samples, so they compare like with like) | 154.9-174.5 s | load average 8-29 |
+
+The eight kitted vehicles alone, at load 15: Workbench 17.1 s, Cycles at 1 sample
+17.2 s, **Cycles at 64 samples 64.5 s**. So the Cycles switch is worth about 47 s
+of the gate on that machine, bought so the variant masks use the rasteriser every
+other mask in the gate was made by (the largest change on any variant against
+another unit was 0.0153 IoU with Workbench, 0.0070 at one sample). **There is no
+quiet-machine reading of the final gate**: the 154.9-174.5 s range was taken
+under load, and the 62-69 s before it is the figure to compare against only
+loosely. CI's `gates` job runs it headless on ubuntu with no GPU; its time was
+not measured. `export_vehicle_kit.py` over all eight takes about 64-70 s
+(63.8 s before the stricter clash check, 69.5 s after).
+
+## Memory (GH-469, 2026-10-08)
+
+The lead: *"I think the game uses a lot of memory on users' computers."* It
+does. On the heaviest missions a tab holds **about 3.0-3.2 GB** across
+Chromium's processes on a Mac (2.76-2.93 GB under CI's SwiftShader), of which
+the game's own JavaScript is **only 119-129 MiB**. The rest is pictures:
+**~1 GB of decoded GLB textures in the renderer process, ~0.9 GB of GPU
+allocations**, and the GPU process's own overhead on top. Leaving a mission
+gives every JS and GL byte back -- after two fixes this work found -- but not
+every process byte. Nothing has been optimised yet; the ranked list at the end
+is for the lead to pick from.
+
+### The instrument: `pnpm perf:memory`
+
+`tools/src/perf/memory.ts`. ONE browser, ONE page, ONE JS realm: the menu, the
+campaign board, the menu again, then each mission booted SOFTLY (an anchor
+click the shell's `interceptLinks` turns into a router navigation), played for
+120 s of sim time through `__lions.step` in 30 s slices, left through the HUD's
+leave button and confirm, and followed back to the menu softly. A hard
+`page.goto` between missions would hand every reading a fresh heap and make
+the leak check unable to fail.
+
+At every checkpoint, after `Runtime.discardConsoleEntries` and two
+`HeapProfiler.collectGarbage`s:
+
+| reading | source | what it is |
+|---|---|---|
+| **JS** | CDP `Runtime.getHeapUsage` | V8's used heap **plus `backingStorageSize`** -- the ArrayBuffer backing stores, which `JSHeapUsedSize` / `performance.memory` do NOT include. Every geometry array, Draco-decoded buffer and sim component lives there; at a mission it is two thirds of the JS total. |
+| **GPU** | a GL-call ledger (`memory-ledger.ts`, an `addInitScript`) | every byte the page ASKS WebGL for -- `texImage2D`/`texStorage2D`/`texImage3D`/compressed textures with their mip chains, `bufferData`, renderbuffer storage x samples -- per context, live contexts only, plus an ESTIMATE of each default framebuffer. Logical bytes, not driver bytes, so it reads the same on every machine (Metal and SwiftShader agree to 0.1 MiB). `renderer.info.memory` is two counts and sees one renderer; the ledger sees the menu's scene host and the board too. |
+| **process** | CDP `SystemInfo.getProcessInfo` pids | every Chromium process: `phys_footprint` on macOS (`footprint`, Activity Monitor's Memory column, which counts Metal allocations in the GPU process), PSS on Linux (`/proc/<pid>/smaps_rollup`). |
+| **bitmaps** | the ledger wraps `createImageBitmap` | every decoded ImageBitmap still reachable, uploaded or not, at 4 B/px |
+| DOM | `Memory.getDOMCounters` | nodes, JS event listeners -- the leak tell |
+| attribution | `ThreeRenderer.debugMemoryInventory()` (new, debug-only, not on `api.ts`) | scene and mesh-template bytes by owner, each geometry and texture `Source` counted once |
+
+`performance.measureUserAgentSpecificMemory()` is **not available**: it needs
+a cross-origin-isolated page (COOP + COEP), which neither the dev server nor
+the Worker sends. The reading says so rather than going missing.
+
+Flags: `--missions=a,b`, `--play-s`, `--slice-s`, `--viewport=WxH`, `--dpr`,
+`--serve=dev|preview`, `--gpu=metal|swiftshader`, `--port`, `--out`, `--gate`.
+Exit codes: **0** report or every budget met, **1 over budget** (or a leak
+check failed), **2 the instrument failed** (bad argument, a boot that never
+finished, a readback that came back empty), **3** `--gate` with no budget for
+this capture environment.
+
+**Which missions.** All 27 missions are played on 48x48 maps, so map size separates nothing. The
+default three are the top three of 27 by the GLB payload their roster,
+structures and decor plan (`meshPlanFor`): `qarn_hadid_3_clearance` 26.0 MiB on
+disk / 58 GLBs / 33 placed units, `umm_zeitoun_4_clearance` 24.5 / 59 / 39,
+`khan_rafid_3_clearance` 24.4 / 52 / 41 (the most unit types, 19).
+`beit_sahwan_3_clearance` ties the second on bytes (24.5) with fewer units;
+`beit_sahwan_breach` fields the most units (53) on a light payload (17.0) --
+GPU memory follows textures, not unit count, below.
+
+### Readings
+
+**Conditions, local:** M3 Pro, ANGLE/Metal (hardware, read back from
+`WEBGL_debug_renderer_info`), headless Chromium, 1400x900 @1x, dev server,
+machine shared with other sessions, **n=4** walks (three with 10 s play slices,
+one with 30 s; every checkpoint of the fourth within 1% of the first three's range).
+MiB throughout.
+
+| checkpoint | JS heap | + ArrayBuffers | = JS | GPU ledger | process total | renderer proc | GPU proc | DOM nodes |
+|---|---|---|---|---|---|---|---|---|
+| menu | 20.9-21.3 | 33.7 | 54.6-55.1 | 522.1 | 1,434-1,474 | 424-440 | 929-953 | 230 |
+| board | 17.7 | 14.2 | 31.8 | 138.2 | 611-649 | 268-283 | 259-283 | 326 |
+| menu (again, after the board) | 21.6-22.1 | 33.8 | 55.5-55.9 | 522.1 | 1,522-1,569 | 467-487 | 968-1,000 | 230 |
+| mission qarn_hadid_3_clearance | 42.6-43.3 | 84.9 | 127.5-128.2 | 882.2 | 2,986-3,050 | 1,467-1,488 | 1,419-1,461 | 1,068-1,093 |
+| menu after qarn_hadid_3_clearance | 25.7-26.2 | 34.5 | 60.1-60.6 | 522.1 | 1,748-1,797 | 620-637 | 1,027-1,059 | 230 |
+| mission umm_zeitoun_4_clearance | 42.3-43.2 | 85.6 | 127.9-128.9 | 880.5 | 3,157-3,207 | 1,594-1,614 | 1,460-1,497 | 937-951 |
+| menu after umm_zeitoun_4_clearance | 26.6-27.4 | 34.5 | 61.1-61.8 | 522.1 | 1,833-1,878 | 669-686 | 1,054-1,087 | 230 |
+| mission khan_rafid_3_clearance | 42.4-43.6 | 81.7 | 124.1-125.3 | 847.3 | 3,049-3,118 | 1,483-1,506 | 1,457-1,514 | 935-962 |
+| menu after khan_rafid_3_clearance | 27.5-28.1 | 34.5 | 61.9-62.6 | 522.1 | 1,893-1,935 | 675-691 | 1,112-1,139 | 230 |
+
+**Conditions, CI:** `ubuntu-latest`, SwiftShader (software; the GPU ledger is
+the same bytes, the process total is not), 1400x900 @1x, dev server, **n=4** walks on four runners (run 37826952688: the `memory` job and three temporary `memory-calibrate` runners), 30 s play slices. A fifth walk with 10 s slices (run 37820472000) read inside these ranges but for one mission process total of 2,947. **Walk time on CI: 428 / 676 / 753 / 768 s** -- one runner much faster than the other three, cause not established; with 10 s slices it was 917 s.
+
+| checkpoint | JS | GPU ledger | process total | DOM nodes |
+|---|---|---|---|---|
+| menu | 54.3-54.8 | 522.1 | 1,297-1,330 | 230 |
+| board | 31.9 | 138.3 | 709-751 | 326 |
+| menu (again, after the board) | 54.9-55.4 | 522.1 | 1,360-1,404 | 230 |
+| mission qarn_hadid_3_clearance | 122.3-122.5 | 882.2 | 2,756-2,800 | 943 |
+| menu after qarn_hadid_3_clearance | 58.1-58.5 | 522.1 | 1,506-1,521 | 230 |
+| mission umm_zeitoun_4_clearance | 124.4-125.2 | 880.5 | 2,901-2,927 | 937-978 |
+| menu after umm_zeitoun_4_clearance | 59.0-59.2 | 522.1 | 1,549-1,576 | 230 |
+| mission khan_rafid_3_clearance | 118.9-119.9 | 847.3 | 2,769-2,788 | 933-974 |
+| menu after khan_rafid_3_clearance | 59.3-59.7 | 522.1 | 1,579-1,636 | 230 |
+
+Two more conditions, n=1 each, Metal:
+
+- **Retina** (`--viewport=1440x900 --dpr=2`, `qarn_hadid_3_clearance`): the
+  menu's GPU ledger goes 522 -> **870 MiB**, the mission's 882 -> **1,215 MiB**,
+  process 3.0 -> **3.5 GB**. Every full-screen target scales with
+  width x height x dpr^2 (`PIXEL_RATIO_CAP` is 2); the default framebuffer
+  estimate alone goes 48 -> 198 MiB. A Mac laptop is this case, not the 1x one.
+- **The production build** (`pnpm build`, `--serve=preview`): JS is 18-20 MiB
+  LOWER than dev at every checkpoint (menu 35.4, missions 103.9-108.3, after
+  leave 41.0-42.5), the GPU ledger is identical to the byte, and the process
+  total is 0.2-0.3 GB HIGHER (missions 3.33-3.51 GB; renderer +220, browser
+  +60). The higher process figure was not chased; the service worker and the
+  HTTP cache are the obvious suspects.
+
+### What leaving gives back
+
+**JS and GL, all of it -- after two fixes.** The first walk read every left
+mission STILL IN THE HEAP after a forced GC: +15-25 MiB of JS, ~750 DOM nodes
+and one lost-but-reachable WebGL context per mission, accumulating. A heap
+snapshot after the leave traced two retainer chains, neither visible to
+`pnpm ui:routes` (which checks body children, `__lions` and the frozen tick --
+all of which passed):
+
+1. **The harness.** `dismissDeployGate` (`golden-diff/capture-guard.ts`) kept
+   the ElementHandle `waitForSelector` returned. An undisposed Playwright
+   handle is a DevTools global handle: it kept the deploy button, its click
+   listener, and through that closure the sim, renderer and runtime alive for
+   the life of the realm. Disposed now. Every harness that uses it was
+   measuring a heap with a battlefield in it.
+2. **The game.** `Hud.destroy()` cleared neither the feed rows' 7-12 s dwell
+   timers nor the commander bar's beat-fold timer. Each closes over the HUD,
+   which holds the sim, the renderer and the runtime, so the last-left
+   battlefield stayed reachable until its last timer fired -- a whole mission's
+   JS held through the next mission's boot. Cleared in `destroy()` now, under
+   the disposer contract; `hud.test.ts` pins it.
+
+After both, over **eight** consecutive mission visits in one realm (Metal,
+30 s of play each): DOM nodes return to the menu's 230 every time, listeners
+to 58 (the menu's 45 + 13 registered once by the first mission's modules, flat
+after), no released context stays reachable, the GPU ledger returns to 522.1
+exactly, and JS plateaus at **+8 MiB** over the first menu (60-63 vs 55: the
+mission chunks' code, flat from the third visit).
+
+**The process total does NOT come back, and it is not a leak.** After one
+mission it sits +0.3 GB over the first menu, after three +0.45 GB, and over
+eight visits it plateaus at **1.83-1.93 GB against 1.47** -- with JS and GL
+flat underneath it. The growth is in the renderer and GPU processes' own
+allocators and caches (Chromium's allocator does not return freed pages
+promptly; ANGLE and the shader cache keep what they built). That is why the
+leak checks below read JS and GL, never the process total.
+
+### Where it goes (attribution)
+
+`qarn_hadid_3_clearance` at 120 s, Metal, 1400x900 @1x, n=1 (the other two
+missions are within 9% on every row):
+
+| consumer | MiB | where | notes |
+|---|---|---|---|
+| **Decoded GLB textures (ImageBitmaps)** | **972** (70 bitmaps) | renderer process, CPU | GLTFLoader decodes every texture of every loaded GLB. **440 MiB** (30) are the CPU copies of textures also on the GPU; **532 MiB** (40) belong to templates never drawn -- building wrecks, buildables not yet fielded -- and were never uploaded at all. Menu: 184 MiB (12). |
+| **GLB textures on the GPU** | **587** (30) | GPU | almost all 2048x2048 RGBA8 at 21.3 MiB each with mips: building facades, vehicle and infantry bakes (base colour, normal, metal/rough). Menu: 245 (12). |
+| **Shadow map** | **128** | GPU | 4096x4096: a 64 MiB colour target AND a 64 MiB DEPTH24 renderbuffer. Same on the menu. |
+| Screen-sized targets | ~41 + 48 est. | GPU | four 1400x900 composer/AO/SMAA targets (38.5) and two half-size depth renderbuffers (2.4), plus the ESTIMATED default framebuffer (`antialias: true`, 4x MSAA) at 48. About x4 at dpr 2. |
+| JS heap | 43 | JS | |
+| ArrayBuffers | 85 | JS | scene geometry 43, mesh templates 19 (the same arrays are also on the GPU: buffers 31.5 MiB) |
+| Ground | ~28 tex + 4.6 geo | GPU | five 1024x1024 tile JPGs at 5.3 each with mips, control maps A/B at 0.75 each, the macro field |
+| Decals | 1.7 geo + 0.8 tex | GPU + JS | both pools at full size, preallocated |
+| Decoded audio | 0-16 | renderer | 0 at the first mission's reading, 16.1 (53 buffers) at the second and third; 8.8 stays decoded after a leave |
+| Flow-field pool | < 0.1 | JS | 0-4 fields x 11.5 KB at this point in these missions |
+| **The menu's scene host** | GPU **522**, bitmaps 184, process **1.43-1.46 GB** | all | the live diorama behind the menu costs 2.3x the campaign board (GPU 138, process 0.61-0.65 GB) |
+
+### Ranked optimisation candidates (the lead picked 1, 2 and 4 -- shipped, see "The three savings" below)
+
+Savings are at the heaviest mission unless stated, Metal 1x; "process" is
+what a player's Activity Monitor would show.
+
+| # | candidate | saves (estimate) | risk | effort |
+|---|---|---|---|---|
+| 1 | **Close each texture's ImageBitmap once it is on the GPU** (`texture.image.close()` after the first upload; three keeps `texture.image` forever) | ~440 MiB process at a mission, ~185 at the menu | medium: anything that re-uploads (a `needsUpdate`, a context restore, a template cloned into a second renderer such as the garage viewer) would upload a closed bitmap | S |
+| 2 | **Do not decode textures nobody draws**: load building wrecks and unfielded buildables' GLBs on first use, or close their bitmaps and re-decode on demand | ~530 MiB process | medium: a first-wreck or first-build hitch; the wreck swap is under a shroud today | M |
+| 3 | **Halve GLB texture resolution in `encode:meshes`** (2048 -> 1024; the `art/` sources untouched) | GPU ~440 MiB, bitmaps ~730 MiB, menu ~185 + ~140 (not additive with 1 and 2: it shrinks what they free) | visual: a unit is 25-60 px on screen, but the garage viewer and the 600 px unit plates read the same GLBs; "models at max detail" means this is the lead's call. KTX2/Basis (GPU-compressed, keeps 2048) is the higher-effort variant with no CPU copy at all | M (L for KTX2) |
+| 4 | **A lighter menu scene host** (its own quality preset: 2048 shadow, no AO/SMAA, smaller textures -- or the plate by default) | up to ~0.8 GB process at the menu (the plate; the menu reads 1.43-1.47 GB, the board 0.61-0.65) | design: the live diorama was the lead's choice | S-M |
+| 5 | **Shadow map 4096 -> 2048 at `high`** | 96 MiB GPU, menu and mission alike | visual: softer shadow edges (`medium` already does this) | XS |
+| 6 | `antialias: false` on the context (the composer's SMAA already antialiases) | ~34 MiB at 1x, ~140 at dpr 2 (the ledger's framebuffer estimate) | low; costs 0.5 ms p95 to keep (see above) | XS |
+| 7 | Drop geometry arrays from the JS heap after upload (`onUploadCallback`) | ~40-60 MiB JS | high: picking, bounds and cloning read those arrays | M |
+
+Candidates 1 and 2 are invisible on screen and together are about **a third
+of the process total**. 3 is the largest single lever and the only one that
+needs an art decision.
+
+### The CI gate
+
+A `memory` job in `ci.yml` runs `pnpm perf:memory -- --gate` on every PR and
+push to main, on its own dev server (:5179), and uploads the walk's JSON as
+the `memory-output` artifact. Budgets live in `tools/src/perf/memory-budgets.ts`,
+keyed by capture environment like the visual gate's baselines -- a missing
+environment is exit 3, never a pass -- and are the largest CI reading of each
+kind x a margin: **JS x1.25, GPU ledger x1.15, process x1.25**, rounded up.
+The ledger gets the smallest margin because it does not move run to run.
+
+| environment | kind | JS (MiB) | GPU ledger | process | leak: JS over first menu | GPU over first menu | DOM nodes over | released contexts reachable |
+|---|---|---|---|---|---|---|---|---|
+| `linux-x64-swiftshader` (CI, n=4) | menu (and every menu after a leave) | 75 | 601 | 2,046 | +20% (measured <= +9.8%) | +2% (measured +0.0%) | 50 (measured 0) | 0 (measured 0) |
+| | board | 40 | 159 | 939 | | | | |
+| | mission | 157 | 1,015 | 3,659 | | | | |
+| `darwin-arm64-metal` (local only, n=4) | menu | 79 | 601 | 2,419 | +30% (measured <= +14.6%) | +2% | 50 | 0 |
+| | board | 40 | 159 | 812 | | | | |
+| | mission | 162 | 1,015 | 4,010 | | | | |
+
+The leak percentages are about twice the largest measured, rounded up to 5.
+**What they can resolve:** at +20% of a 54 MiB menu, a leak smaller than
+~11 MiB of JS passes the JS check -- a retained `Sim` alone (a few MiB) would.
+The DOM-node and released-context checks are exact, so anything that holds a
+left screen's DOM or its renderer fails regardless of size.
+
+It runs as its OWN job, `memory`, beside `visual` rather than as a step in
+it, which is where it started: as a step it measured 917 s on top of a job
+already 35-40 minutes long. Beside it, it adds nothing to a PR's wall clock.
+
+**Falsified, red first.** Two one-line mutations of `packages/app/src/main.ts`
+(`bootBattlefield`, beside the `__lions` registration), each run and reverted:
+
+| mutation | CI (`linux-x64-swiftshader`, run 37829076706, the temporary `memory-falsify` jobs) | local (`darwin-arm64-metal`) |
+|---|---|---|
+| none -- the `memory` job, same run | **exit 0**, every budget met (walk 451 s) | exit 0 |
+| `window.__rlProbe = new Uint8Array(200 * 1048576).fill(1)` -- a retained 200 MiB allocation | **exit 1**, 9 checks over: every mission JS 318.9-324.6 MiB against 157, every after-leave menu 258.3-259.5 against 75 and +375-377% against +20% | exit 1, 9 over |
+| `window.addEventListener('rl-probe', () => void renderer)` -- a listener holding a mission object | **exit 1**, 13 checks over: after each leave 1 / 2 / 3 released contexts still reachable, 989 / 1,742 / 2,491 DOM nodes against 230, JS +44 / +81 / +111%, and the third mission's JS 158.7 against 157 | exit 1, 10 over (before the DOM check existed) |
+
+Both mutations are reverted (they were applied inside the CI job only, never
+committed). Neither moved the process total past its ceiling: +200 MiB is
+inside a 25% margin on 2.9 GB, which is why the process check is a backstop
+and the JS, ledger, DOM and context checks are the ones that resolve.
+A mission that never boots exits **2**, not 1 (`--missions=no_such_mission`,
+locally: the deploy gate's 240 s guard).
+
+`memory-budgets.test.ts` falsifies the judge itself (each leak check and each
+ceiling forced to pass, a walk with no baseline passed: all red);
+`memory-ledger.test.ts` runs the shipped init-script string in a `vm` against a
+fake WebGL2 prototype (five mutations, all red); `memory-inventory.test.ts`
+(three, all red).
+
+### The three savings (2026-10-09)
+
+The lead picked candidates 1, 2 and 4. They shipped as three PRs, each
+re-measured and each locking its saving into the budgets:
+
+- **#478, free each GLB texture's CPU copy after upload.** A loader plugin
+  closes the `ImageBitmap` from three's own after-upload callback.
+  Invisible: every gated scenario 0 px.
+- **#479, don't decode what nobody draws.** Building wrecks and unordered
+  KDF buildables load through `coldGltfLoader`, with their images kept
+  encoded. A wreck decodes on the first hit to its type; a buildable decodes
+  on the order, at least 12 s before the unit exists. A template that is
+  still cold is never drawn: a wreck keeps its standing clone under the
+  collapse cloud until it decodes, and a unit is not instantiated until
+  then. An outright kill swapped to a textured wreck at 465 ms against
+  main's 460. Invisible: 0 px.
+- **#480, a lighter live menu backdrop.** Quality is capped at `medium`,
+  `maxPixelRatio` is 1 and `maxTextureSize` is 1024. It is softer at dpr 2
+  and loses ambient occlusion. The lead approved it from before/after
+  captures ("Ship it").
+
+**Combined before/after.** MiB. Metal is M3 Pro, 1400x900 @1x, dev
+server, n=3 each: main is `6cdfb8d9`, after is #480's branch with
+#478 and #479 merged in. CI is ubuntu-latest SwiftShader: main from #474
+(n=4), after n=1 (run 37880172368; the 40-minute bound on this round left no room for reruns; the commit that sets these budgets is the second CI walk of this tree).
+
+| reading | Metal main | Metal after | CI main | CI after |
+|---|---|---|---|---|
+| menu, all Chromium processes | 1,431-1,440 | 921-929 | 1,297-1,330 | 861-889 |
+| menu, GPU ledger | 522 | 231 | 522 | 231 |
+| heaviest missions, all processes | 2,997-3,141 | 2,102-2,303 | 2,756-2,927 | 1,859-2,011 |
+| heaviest missions, decoded bitmaps | 888-1,004 | 48-140 | 888-1,004 | 48-140 |
+| menu after a leave, all processes | 1,734-1,905 | 1,240-1,394 | 1,506-1,636 | 1,043-1,125 |
+| board, all processes | 607-612 | 528-530 | 709-751 | 661 |
+| JS (heap + ArrayBuffers), any checkpoint | unchanged | unchanged | unchanged | unchanged |
+
+A retina screen (1440x900 @2, menu only, n=1) goes 1,858-1,882 ->
+979-990. The plate fallback (0.24 GB) was measured and not taken. The plate
+image itself is stale and needs `pnpm plate:host` before it is ever made
+the default.
+
+**Why the bitmap ceiling exists.** A 1.25 margin on the process total is
+wider than any one saving: main's mission total fit under #478's own
+re-derived ceiling. The ledger's decoded-bitmap reading is logical bytes,
+identical on CI and Metal, so it got a x1.15 ceiling of its own
+(`bitmapsMiB`). Reverting #478 reads 488-552 at the missions and
+reverting #479 reads 500-564, against a ceiling of 161; both fail. #480 is
+locked by the menu's GPU ledger, 231 x 1.15 = 266 against main's 522
+(reverted on Metal: exit 1, every menu reading 522.1 > 266). The visual
+gate's menu-scene-host votes still pass with the lighter backdrop: path
+`live` in 1809 ms, contribution 105.2485 over the flanks (floor 30.4426,
+main 104.5415), register dY 2.2% / dS 0.2% against the mission frame
+(tolerance 10%; main 1.5% / 0.7%).
+
+**Two things found on the way.**
+
+- **#479's first cut leaked memory.** It read +30 MiB of ArrayBuffers: a
+  closure created inside the loader plugin captured the GLTF parser, and
+  with it every cold GLB's whole body. `coldTexture` is module-scope for
+  that reason.
+- **The GPU ledger is not perfectly deterministic.** `khan_rafid_3`
+  read 806 instead of 848 in a few walks, on main and on the branches
+  alike: two 2048 textures not yet uploaded at the read, depending on
+  what fog had let draw. The 1.15 margin covers it. "Same bytes every run"
+  above holds for the menu and board, and for missions only to within
+  that.
+
+### What this does not measure
+
+- **A real player's process total.** Headless Chromium, one tab, no
+  extensions; a real browser adds its own processes, and a retina screen
+  multiplies every full-screen target (above). The gate's process ceiling is
+  a regression fence, not a player number.
+- **Driver bytes.** The ledger counts what the game asked for. Metal's GPU
+  process reads 0.41-0.43 GB above the ledger at the menu and 0.55-0.65 GB
+  above it at a mission.
+- **Peak during load.** Every reading is after a settle and a forced GC; the
+  transient peak while GLBs decode and upload was not sampled.
+- **Missions longer than 2 minutes, or the other 24.** `--missions=` reaches
+  any of them.
+
+## Low-end (2026-10-09)
+
+The audit's last unassessed area (`docs/polish/commercial-polish-audit.md`,
+"Remaining work"; §22 "Visible stutters", unjudged). Measured on a proxy,
+because no low-end machine was available: the M3 Pro with Chromium's CPU
+throttled, and with no GPU at all.
+
+**The short version.**
+
+- **One real stutter, and the quality preset cannot touch it: a building
+  collapse.** It blocks the main thread for **141–175 ms on an unthrottled M3
+  Pro, 499–643 ms at 4x CPU and 753–927 ms at 6x** (the longest task in every one of
+  the 54 matrix runs, the same at every preset and both viewports). The time is
+  `rebuildTerrain`: a full ground, scatter, decor and control-map rebuild for
+  one fallen building. It is the only frame over 100 ms found anywhere except
+  the no-GPU case.
+- **On a slow CPU, `high` costs 5–8 ms a frame more than `medium`, and
+  `medium` and `low` cost the same.** The difference is the ambient-occlusion
+  pre-pass, which submits the scene a second time (772 draw calls against 555,
+  measured at the fight). At 4x CPU that takes the fight from 4–7% of frames
+  over 33 ms to under 1%; at 6x from 24–36% to 5–13%. Dropping further to
+  `low` buys nothing measurable on the CPU.
+- **With no GPU (SwiftShader) the game is unplayable at every preset**: 0.6–1.9
+  fps, frames of 0.5–7.8 s, `low` no better than `high` in any useful sense.
+  No preset is the answer there; telling the player is.
+- **The default `high` is GPU-bound on the measuring machine itself at a
+  Retina size**: 31–34 fps in the heaviest mission's opening at 1440x900 @2x,
+  and 33–51 fps at 1920x1080 @1x across three sessions (that one disagrees with
+  itself; see "Opening").
+- **Nothing chooses the preset automatically, by ruling.** `video.quality`
+  defaults to `high` and only the player changes it. An automatic step-down
+  was built, measured and **declined by the lead on 2026-10-10 ("Nothing
+  automatic")**; it would have lowered the default on the lead's own Retina
+  Mac. See "The automatic quality step-down" below.
+
+### The instrument: `pnpm perf:lowend`
+
+`tools/src/perf/low-end.ts`, new, because none of the existing harnesses can
+see a stutter: `three-units.ts` is a unit-count curve over a stand-in roster
+and `render-frame-cost.ts` calls `renderer.frame()` in a tight loop with no sim
+and no rAF. This one lets `main.ts`'s own loop run (sim ticks, audio, HUD,
+hover, render) and records the **rAF timestamps**, so an interval is what the
+player sees. It wraps `sim.tick` and `renderer.frame` only to split each frame
+into tick time and render-submit time. Boot milestones come from
+`tools/src/perf/boot.ts`, the loop `pnpm perf:load` uses, moved out of
+`load-profile.ts` unchanged so both read boot the same way.
+
+One boot per (GPU, CPU throttle, viewport, preset, run), since the preset is
+read once at boot. The preset is seeded through `musicOffInitScript`'s new
+`video` argument, as the player's own choice, and **read back** from
+`localStorage` after boot (it matched in every run). Four windows per boot:
+
+| window | what | length |
+|---|---|---|
+| opening | untouched live play, 2 s after the first frame (`--opening-skip-ms`) | 8 s |
+| fight | `umm_zeitoun_4_clearance` (one of #474's three heaviest): the whole force attack-moves on the depot yard (the playtest plan's first order, to everyone), the sim is stepped to tick 660, camera on the force. `--probe` printed the timeline this was picked from: the ambush springs at ~tick 298, shots run ~35/s from 320 and peak at 44–49/s around 667–688 | 10 s |
+| blast | the building nearest the camera levelled and the two nearest vehicles killed on one tick (`debugDestroyStructure`, `debugKill`), drained by the loop's own next tick: collapse plus two catastrophic kills, the top of the event ladder | 4 s |
+| pan | arrow keys held through the real `stepPan` path: right, down, left, up, 2.5 s each (101 tiles at 1366, 74 at 1920) | 10 s |
+
+"Frames > 33 ms" is the share of presented intervals longer than 33.4 ms, i.e.
+below 30 fps. `--profile` records a V8 CPU profile over each window and prints
+self time by function and file; `--profile-dir` keeps the raw `.cpuprofile`.
+`pnpm perf:load` gained `--cpu=N`, `--gpu=metal|swiftshader` and
+`--viewport=WxH` for the boot half.
+
+**Conditions, for every number below unless a row says otherwise:** Apple M3
+Pro (12 cores), macOS, headless Chromium (Playwright), the production build
+(`pnpm build`, `vite preview`, own port) of `origin/main` at `97e8e5f5` (the
+app code under test is unchanged from it; the harness is this branch's),
+deviceScaleFactor 1, page visible (read back every run), music off. GPU read
+back from `WEBGL_debug_renderer_info` every run: **Metal** is `ANGLE Metal
+Renderer: Apple M3 Pro`, **SwiftShader** is `Vulkan 1.3.0 (SwiftShader Device
+(LLVM 10.0.0))`. CPU throttling is CDP `Emulation.setCPUThrottlingRate`
+(Chrome's own "4x / 6x slowdown"): it slows the renderer's main thread and
+**not** the GPU process, the compositor or the network, so "Metal 4x" is a slow
+CPU behind a capable GPU, and SwiftShader is the no-GPU floor (every fragment
+rasterised on the CPU). Neither is a real low-end machine, and no integrated
+GPU was measured. The machine was shared with other sessions throughout:
+1-minute load average 2.2–7.2 on the Metal runs, 6.5–10.7 on SwiftShader (which
+loads the CPU itself). **n=3 per cell**, the three runs of a cell taken
+minutes apart (run-major order), not back to back.
+
+**One limit of the fight window, found while reading it.** The order goes in
+at whatever tick live play has reached by then, so two runs do not fight the
+identical fight. In the main matrix (order at roughly tick 80–120) every
+window held one building collapse; in the profiling runs (order at ~tick 240,
+after the opening window) none did. The harness now prints `orderTick`.
+
+### Frame time on Metal, per preset
+
+"Render submit" is the median time inside `renderer.frame()` (scene update
+plus draw-call submission; on ANGLE/Metal it also absorbs GPU back-pressure,
+see `render-frame-cost.ts`'s header). Sim tick time is not tabulated: it read
+0.1–0.8 ms median on ticking frames in every Metal cell (p95 at most 1.7 ms) --
+this is a renderer story.
+
+**The fight** (the worst frame in every row is the building collapse that fell
+inside the window; see above):
+
+| CPU | viewport | preset | n | fps | p50 / p95 / p99 ms | worst frame ms | frames > 33 ms | render submit p50 ms |
+|---|---|---|---|---|---|---|---|---|
+| 1x | 1366x768 | high | 3 | 59.2–59.3 | 16.7 / 16.7–16.8 / 16.8 | 133–150 | 0.2% | 5.2–5.3 |
+| 1x | 1366x768 | medium | 3 | 55.8–59.2 | 16.7 / 16.7 / 16.8 | 150–383 | 0.2–0.9% | 3.7–4.6 |
+| 1x | 1366x768 | low | 3 | 59.2–59.3 | 16.7 / 16.7–16.8 / 16.8 | 133–150 | 0.2% | 4.3–4.8 |
+| 1x | 1920x1080 | high | 3 | 59.2–59.3 | 16.7 / 16.7–16.8 / 16.8 | 133–150 | 0.2% | 4.3–5.2 |
+| 1x | 1920x1080 | medium | 3 | 59.2–59.3 | 16.7 / 16.7–16.8 / 16.8 | 133–150 | 0.2% | 3.7–3.8 |
+| 1x | 1920x1080 | low | 3 | 59.2–59.3 | 16.7 / 16.7 / 16.8 | 133–150 | 0.2% | 4.0–4.1 |
+| 4x | 1366x768 | high | 3 | 42.1–43.9 | 16.7 / 33.4 / 33.4 | 517–550 | 4.0–6.4% | 19.3–20.0 |
+| 4x | 1366x768 | medium | 3 | 55.8–56.4 | 16.7 / 16.8 / 33.3–33.4 | 483–533 | 0.4–0.5% | 13.7–14.6 |
+| 4x | 1366x768 | low | 3 | 56.1–56.6 | 16.7 / 16.8 / 33.3 | 500–533 | 0.2–0.4% | 13.5–14.1 |
+| 4x | 1920x1080 | high | 3 | 38.8–39.3 | 16.7–16.8 / 33.4 / 33.4–33.5 | 517–567 | 4.9–7.4% | 21.6–21.7 |
+| 4x | 1920x1080 | medium | 3 | 52.0–54.7 | 16.7 / 16.8–33.4 / 33.4 | 517–533 | 0.8–0.9% | 15.6–16.2 |
+| 4x | 1920x1080 | low | 3 | 55.1–55.6 | 16.7 / 16.8 / 33.3–33.4 | 517–533 | 0.2–0.7% | 15.0–15.3 |
+| 6x | 1366x768 | high | 3 | 26.4–27.4 | 33.3 / 50.0 / 50.1–66.6 | 750–833 | 23.6–26.1% | 29.0–29.9 |
+| 6x | 1366x768 | medium | 3 | 35.9–37.8 | 16.7–33.3 / 33.4 / 33.4–50.1 | 767–783 | 5.3–12.6% | 21.1–21.8 |
+| 6x | 1366x768 | low | 3 | 36.9–38.8 | 16.7–16.8 / 33.4 / 49.9–50.0 | 767–783 | 4.5–9.0% | 20.9–21.2 |
+| 6x | 1920x1080 | high | 3 | 24.6–25.6 | 33.3–33.4 / 50.0–50.1 / 50.1–66.7 | 817 | 28.5–36.2% | 31.0–32.1 |
+| 6x | 1920x1080 | medium | 3 | 34.5–35.9 | 33.3 / 33.4 / 50.0 | 783–817 | 7.8–12.5% | 22.1–22.8 |
+| 6x | 1920x1080 | low | 3 | 29.6–36.2 | 33.2–33.3 / 33.4–50.0 / 33.4–50.1 | 783–933 | 9.4–17.3% | 21.9–26.5 |
+
+**The blast** (levelled building plus two vehicle kills on one tick; the worst
+frame is the collapse again, and the hit-stop and FX after it barely register
+beside it):
+
+| CPU | viewport | preset | n | fps | p50 / p95 / p99 ms | worst frame ms | frames > 33 ms | render submit p50 ms |
+|---|---|---|---|---|---|---|---|---|
+| 1x | 1366x768 | high | 3 | 57.3–57.5 | 16.7 / 16.7–16.8 / 16.8–33.4 | 167 | 0.4–1.3% | 4.9–5.3 |
+| 1x | 1366x768 | medium | 3 | 57.5–57.8 | 16.7 / 16.7–16.8 / 16.8 | 150–167 | 0.4–0.9% | 3.6–4.6 |
+| 1x | 1366x768 | low | 3 | 57.5–57.8 | 16.7 / 16.8 / 16.8–33.2 | 150 | 0.4–0.9% | 4.2–4.8 |
+| 1x | 1920x1080 | high | 3 | 57.5–57.7 | 16.7 / 16.7–16.8 / 16.8–33.4 | 150–167 | 0.4–0.9% | 4.2–5.0 |
+| 1x | 1920x1080 | medium | 3 | 57.5–57.7 | 16.7 / 16.7–16.8 / 16.8 | 150–167 | 0.4% | 3.7–4.0 |
+| 1x | 1920x1080 | low | 3 | 57.7 | 16.7 / 16.7–16.8 / 16.8 | 150 | 0.4–0.9% | 3.9–4.0 |
+| 4x | 1366x768 | high | 3 | 38.7–40.6 | 16.7 / 33.4 / 66.6 | 550–567 | 7.1–9.6% | 19.1–19.9 |
+| 4x | 1366x768 | medium | 3 | 50.5–51.3 | 16.7 / 16.7–16.8 / 33.4–50.1 | 533–550 | 1.5% | 13.6–14.2 |
+| 4x | 1366x768 | low | 3 | 50.3–51.0 | 16.7 / 16.8 / 33.4–49.9 | 533–567 | 1.5% | 13.2–13.8 |
+| 4x | 1920x1080 | high | 3 | 34.3–36.0 | 16.7 / 33.4 / 66.6–83.4 | 550–583 | 10.3–12.7% | 21.7–21.9 |
+| 4x | 1920x1080 | medium | 3 | 48.1–50.3 | 16.7 / 16.8–33.3 / 33.4–83.4 | 533–650 | 1.5–2.1% | 15.3–15.9 |
+| 4x | 1920x1080 | low | 3 | 49.8–50.8 | 16.7 / 16.8 / 33.3–50.1 | 550–567 | 1.0–1.5% | 14.7–15.0 |
+| 6x | 1366x768 | high | 3 | 23.0–24.1 | 33.3 / 50.0–50.1 / 816.6–866.7 | 817–867 | 29.8–32.3% | 29.0–29.4 |
+| 6x | 1366x768 | medium | 3 | 32.1–33.8 | 16.7 / 33.4 / 66.7–83.4 | 800–833 | 7.3–12.3% | 20.7–21.4 |
+| 6x | 1366x768 | low | 3 | 33.5–34.5 | 16.7 / 33.4 / 66.6–83.4 | 750–833 | 10.3–14.1% | 20.5–20.6 |
+| 6x | 1920x1080 | high | 3 | 21.4–22.3 | 33.3–33.4 / 50.1 / 833.3–850.0 | 833–850 | 31.1–40.9% | 31.1–31.6 |
+| 6x | 1920x1080 | medium | 3 | 30.9–32.1 | 16.7–33.3 / 33.4 / 66.7–83.4 | 800–867 | 8.5–15.3% | 21.8–22.5 |
+| 6x | 1920x1080 | low | 3 | 26.5–32.2 | 16.8–33.3 / 33.4–50.0 / 66.7–116.7 | 767–900 | 8.7–15.0% | 21.6–24.4 |
+
+**Panning** (no collapse in the window, so this is the steady cost of moving
+the camera):
+
+| CPU | viewport | preset | n | fps | p50 / p95 / p99 ms | worst frame ms | frames > 33 ms | render submit p50 ms |
+|---|---|---|---|---|---|---|---|---|
+| 1x | 1366x768 | high | 3 | 60.0 | 16.7 / 16.7 / 16.8 | 17 | 0.0% | 4.9–5.4 |
+| 1x | 1366x768 | medium | 3 | 60.0 | 16.7 / 16.7 / 16.8 | 17 | 0.0% | 4.0–4.5 |
+| 1x | 1366x768 | low | 3 | 60.0 | 16.7 / 16.7 / 16.8 | 17 | 0.0% | 4.4–4.6 |
+| 1x | 1920x1080 | high | 3 | 60.0 | 16.7 / 16.7–16.8 / 16.8 | 17 | 0.0% | 4.2–4.7 |
+| 1x | 1920x1080 | medium | 3 | 60.0 | 16.7 / 16.7–16.8 / 16.8 | 17 | 0.0% | 3.9–4.1 |
+| 1x | 1920x1080 | low | 3 | 60.0 | 16.7 / 16.7–16.8 / 16.8 | 17 | 0.0% | 4.1–4.3 |
+| 4x | 1366x768 | high | 3 | 50.3–53.1 | 16.7 / 33.3–33.4 / 33.4 | 50 | 3.6–4.4% | 16.0–17.0 |
+| 4x | 1366x768 | medium | 3 | 59.4–59.6 | 16.7 / 16.8 / 16.8 | 33–50 | 0.0–0.3% | 11.9–12.8 |
+| 4x | 1366x768 | low | 3 | 59.6–59.7 | 16.7 / 16.7–16.8 / 16.8 | 33 | 0.2% | 11.5–11.9 |
+| 4x | 1920x1080 | high | 3 | 42.3–43.6 | 16.7 / 33.4 / 33.4–33.5 | 50–67 | 9.4–11.4% | 20.3–20.7 |
+| 4x | 1920x1080 | medium | 3 | 57.5–58.0 | 16.7 / 16.8 / 33.4 | 33–50 | 0.8–1.7% | 14.5–14.9 |
+| 4x | 1920x1080 | low | 3 | 58.5–59.0 | 16.7 / 16.8 / 33.3–33.4 | 33–50 | 0.5–0.8% | 13.9–14.2 |
+| 6x | 1366x768 | high | 3 | 31.3–34.2 | 33.3 / 33.4–49.9 / 50.0–50.1 | 67–800 | 20.3–23.8% | 24.4–24.9 |
+| 6x | 1366x768 | medium | 3 | 45.1–46.5 | 16.7 / 33.4 / 33.4 | 50–83 | 7.0–8.0% | 18.4–18.9 |
+| 6x | 1366x768 | low | 3 | 46.8–47.0 | 16.7 / 33.4 / 33.4 | 67 | 5.4–6.0% | 18.0–18.3 |
+| 6x | 1920x1080 | high | 3 | 26.7–29.4 | 33.3 / 50.0–50.1 / 50.1 | 83–783 | 30.8–36.1% | 28.8–29.6 |
+| 6x | 1920x1080 | medium | 3 | 39.9–41.4 | 16.7–16.8 / 33.4 / 33.4–33.5 | 83 | 11.2–13.7% | 20.5–21.4 |
+| 6x | 1920x1080 | low | 3 | 41.3–42.5 | 16.7 / 33.4 / 33.4–33.5 | 67 | 9.6–12.0% | 20.2–20.8 |
+
+Reading the three tables together:
+
+- **Unthrottled, every preset holds 60 fps at both sizes** in the fight, blast
+  and pan, and the only frames over 33 ms are the collapse.
+- **At 4x the preset matters once.** `high` puts 4–13% of frames over 33 ms;
+  `medium` and `low` hold 0.2–0.9% in the fight, 0–1.7% panning and 1–2% in
+  the blast. The render submit time says why: `high` 16–22 ms, `medium`/`low`
+  12–16 ms.
+- **At 6x nothing holds 60.** `high` runs 21–34 fps with a fifth to two-fifths
+  of frames over 33 ms; `medium`/`low` 27–47 fps with 5–17%. `medium` and
+  `low` cannot be told apart in any of these three windows (their ranges
+  overlap everywhere).
+- **The viewport moves submit by 1–2 ms on Metal** (1920x1080 over
+  1366x768), which is enough to matter only at the margin: panning at 4x on
+  `high` it is 4% of frames over 33 ms against 11%.
+- The sim kept 0.89–1.00 of real time at 4x and 0.84–1.00 at 6x (ticks per
+  wall second over 20): the 20 Hz sim holds except across the collapse's
+  freeze, where `MAX_ACC_MS` drops the backlog.
+
+### Frame time with no GPU (SwiftShader, CPU 1x)
+
+n=3 per cell, 18 boots. A frame here is so long that the 10 s fight window
+saw only 2–8 intervals and the 4 s blast window 0–3, so these are small
+samples and the table gives what the windows did see:
+
+| viewport | preset | fight fps | fight interval p50 | pan fps | worst frame seen |
+|---|---|---|---|---|---|
+| 1366x768 | high | 1.1–1.4 | 600–933 ms | 1.0–1.6 | 4.6 s |
+| 1366x768 | medium | 1.1–1.6 | 533–783 ms | 1.1–1.9 | 4.7 s |
+| 1366x768 | low | 1.4–1.8 | 483–683 ms | 1.4–1.9 | 3.8 s |
+| 1920x1080 | high | 0.8–1.0 | 1,367–1,550 ms | 0.6–0.8 | 7.8 s |
+| 1920x1080 | medium | 0.7–1.0 | 1,167–1,783 ms | 0.7–0.9 | 5.6 s |
+| 1920x1080 | low | 0.9–1.3 | 917–950 ms | 1.0–1.1 | 4.1 s |
+
+Render submit stayed 6–20 ms median, so the seconds are the software
+rasteriser, in the GPU process, not the game's JavaScript. The sim fell to
+0.15–0.46 of real time (the accumulator cap drops what a frame cannot run), so
+the battle also plays in slow motion. `low` is the best
+row and still under 2 fps. This is the player whose browser has hardware
+acceleration off or a blocklisted driver -- the renderer string says so
+(`SwiftShader`, `llvmpipe`, `Microsoft Basic Render Driver`), and a preset
+cannot rescue them.
+
+### The opening, and the auto-pick question
+
+The first 8 s of untouched play after the first frame (2 s skipped), on the
+mission's own opening view (`player_start`, the south edge of the map). This is
+the only signal a rule that decides early can have.
+
+| CPU | viewport | preset | n | fps | p50 / p95 / p99 ms | worst frame ms | frames > 33 ms | render submit p50 ms |
+|---|---|---|---|---|---|---|---|---|
+| 1x | 1366x768 | high | 3 | 49.6–55.5 | 16.7 / 33.3–33.4 / 33.4 | 34–50 | 0.9–2.3% | 5.4–5.7 |
+| 1x | 1366x768 | medium | 3 | 59.5–60.0 | 16.7 / 16.7 / 16.8 | 17–33 | 0.0–0.4% | 4.2–4.3 |
+| 1x | 1366x768 | low | 3 | 58.6–60.0 | 16.7 / 16.7–16.8 / 16.8–33.3 | 17–117 | 0.0–0.4% | 4.2–4.4 |
+| 1x | 1920x1080 | high | 3 | 33.1–36.6 | 33.3 / 33.4 / 50.0–50.1 | 50–83 | 9.5–14.6% | 6.5–15.6 |
+| 1x | 1920x1080 | medium | 3 | 47.0–56.1 | 16.7 / 33.3–33.4 / 33.4–49.9 | 33–67 | 1.3–5.3% | 4.3–4.9 |
+| 1x | 1920x1080 | low | 3 | 53.2–55.9 | 16.7 / 33.3–33.4 / 33.4–50.1 | 50–67 | 1.6–3.8% | 4.3–4.5 |
+| 4x | 1366x768 | high | 3 | 32.7–36.9 | 33.3 / 33.4–50.0 / 50.0–50.1 | 50–67 | 9.8–16.9% | 23.5–26.6 |
+| 4x | 1366x768 | medium | 3 | 47.4–57.6 | 16.7 / 16.8–33.4 / 33.4–33.5 | 33–50 | 0.2–4.5% | 13.6–17.7 |
+| 4x | 1366x768 | low | 3 | 52.1–59.9 | 16.7 / 16.8–33.4 / 16.8–33.4 | 33–50 | 0.2–3.1% | 11.9–15.8 |
+| 4x | 1920x1080 | high | 3 | 28.4–33.4 | 33.3 / 33.4–50.0 / 50.0–66.6 | 50–83 | 13.9–25.2% | 26.1–29.6 |
+| 4x | 1920x1080 | medium | 3 | 41.7–45.3 | 16.7 / 33.4 / 33.4–50.0 | 50–67 | 2.8–6.0% | 18.6–19.3 |
+| 4x | 1920x1080 | low | 3 | 43.6–49.8 | 16.7 / 33.4 / 49.9–50.0 | 50–67 | 2.5–7.8% | 17.5–19.3 |
+| 6x | 1366x768 | high | 3 | 29.3–29.9 | 33.3 / 33.4–50.0 / 50.1–83.3 | 67–500 | 10.6–25.5% | 25.6–29.2 |
+| 6x | 1366x768 | medium | 3 | 41.0–47.3 | 16.7 / 33.4 / 33.4–66.6 | 34–517 | 3.2–5.2% | 17.9–20.0 |
+| 6x | 1366x768 | low | 3 | 48.1–51.6 | 16.7 / 33.3–33.4 / 33.4 | 33–50 | 0.5–1.3% | 17.2–18.2 |
+| 6x | 1920x1080 | high | 3 | 20.3–22.5 | 49.9–50.0 / 66.7 / 83.3–116.7 | 83–500 | 55.3–64.8% | 39.1–40.0 |
+| 6x | 1920x1080 | medium | 3 | 27.3–30.5 | 33.3 / 50.0–50.1 / 50.1–66.8 | 50–500 | 20.5–23.0% | 28.1–28.5 |
+| 6x | 1920x1080 | low | 3 | 32.4–34.9 | 33.3 / 33.4–50.0 / 50.0–50.1 | 50–533 | 7.9–16.2% | 23.1–27.3 |
+
+Three supplementary readings at the same view, Metal 1x, because the
+1920x1080 @1x `high` row above is GPU-bound on the measuring machine (render
+submit 6–16 ms, interval median 33 ms):
+
+| condition | n | fps | frames > 33 ms | render submit p50 |
+|---|---|---|---|---|
+| 1920x1080 @1x high, window 20–28 s after first frame (not 2–10) | 3 | 38.7–45.2 | 7.8–13.6% | 5.9–6.4 ms |
+| 1920x1080 @1x high, the same 2–10 s window, a later session | 2 | 48.6–51.1 | 3.2–3.6% | 5.7 ms |
+| 1920x1080 @1x medium, that later session | 2 | 58.1–59.5 | 0.2% | 4.2–4.6 ms |
+| **1440x900 @2x high (a Retina Mac)** | 3 | **30.8–33.5** | **11.2–17.6%** | 6.5–6.8 ms |
+| 1440x900 @2x medium | 3 | 40.8–42.8 | 5.3–7.1% | 4.8–4.9 ms |
+| 1440x900 @2x low | 3 | 47.9–55.9 | 0.4–4.2% | 4.2–4.4 ms |
+
+**These disagree, and the disagreement is the finding.** The same view, same
+preset, same build read 33–51 fps across three sessions (8 runs), and a
+fourth reading through a different probe (a page-side rAF loop used for the
+layer A/B below) read 58–59. The CPU load average was 2.2–7.2 throughout and
+does not track it; the GPU was shared with other sessions' browsers, which the
+load average cannot see, and that is the surviving explanation. It is not a
+start-up transient: the 20–28 s window reads the same as the 2–10 s one. So
+**an opening measurement on a machine whose GPU is shared is a weak witness**,
+which is why the declined rule below waited for two slow openings in a row.
+
+What separates the cells is the ambient-occlusion pass: at every condition
+where the opening is slow at `high`, `medium` takes most of the slow frames
+away. A debug-layer A/B at that view (Metal 1x, 1920x1080, 3 s per layer, n=1)
+ran in the fast fourth session and so could not attribute the slow sessions'
+cost: `high` read 57.7–59.0 fps with every layer shown and no hidden layer
+moved it by more than ~2 fps; `medium` read 60.0 throughout.
+
+### Boot
+
+From the same boots, the same loop as `perf:load` (deploy clicked as soon as
+it can be). "Deploy ready" is the loading bar's `ready` state; "first frame"
+is `window.__lions` existing after the click. Cold HTTP cache, localhost (no
+network cost):
+
+| condition | n (both viewports, 3 presets x 3) | deploy ready | first frame |
+|---|---|---|---|
+| Metal 1x | 18 | 0.79–0.92 s | 1.34–1.51 s |
+| Metal 4x | 18 | 2.13–2.45 s | 3.51–4.04 s |
+| Metal 6x | 18 | 3.03–3.40 s | 4.88–5.40 s |
+| SwiftShader 1x | 18 | 4.56–6.17 s | 7.43–18.81 s |
+
+The preset does not move boot on Metal (every per-preset range overlaps).
+`pnpm perf:load` itself, `umm_zeitoun_4_clearance`, 1366x768, production
+build, cold, n=3 each: **1x** deploy ready 0.80–0.87 s, first frame
+1.41–1.50 s (45.3–47.3 MiB before first frame); **6x** 3.10–3.20 s and
+5.16–5.24 s (40.3 MiB); **6x behind a 20 Mbit/s, 20 ms link** 14.19–14.23 s
+and 15.95–16.08 s (29.5 MiB). On a slow machine on a home connection the
+network, not the CPU, is most of a 16 s boot. The byte count falls as the CPU
+slows because fewer late loads land before the first frame, not because less
+is fetched.
+
+### Where the time goes on `low` (CPU profile)
+
+`--profile` on the DEV server (so names survive), Metal, CPU 4x, 1366x768,
+n=1 per preset, V8 sampling every 500 µs (the profiler's own overhead is in
+these numbers; the profiled runs' frame rates sat inside the unprofiled
+matrix's ranges, bar the collapse, which fell outside their fight window). Fight window, 10.6 s, ~630 frames at `low`; per-frame figures divide
+by that count:
+
+| cost | share of the window | per frame at 4x | what it is |
+|---|---|---|---|
+| the main render pass (`post-chain.ts` RenderPass: three.js traversal, culling, submission) | 53% (5.6 s) | ~8.9 ms | of which: `BatchedMesh.onBeforeRender` **1.7 ms** (per-instance frustum cull and sort of the decor and prop batches, run again for every pass that draws them: shadow, main, AO pre-pass); matrix upkeep (`multiplyMatrices`, `updateMatrixWorld`, `Matrix4.toArray`) **~1.8 ms**, for every object every frame -- nothing in `packages/render` sets `matrixAutoUpdate = false`; `bufferSubData` 0.6 ms; the rest is per-object submission |
+| animated infantry (`updateMeshUnits` > `updateSquad`, the `AnimationMixer` and the squad rig) | 17% (1.7 s) | ~2.8 ms | every figure's mixer and bone pose every frame, visible or not |
+| overlays (`updateOverlays`: zone bands, rings, HP) | 4% | ~0.6 ms | `pushZone` re-samples the ground height each frame |
+| FX (`updateFx`) | 2% | ~0.4 ms | |
+| the sim (`sim.tick`) | under 1% | | |
+| the ambient-occlusion pass, **`high` only** | 23% of `high`'s window | **~5.5 ms** | a second submission of every occluder for the normals pre-pass |
+
+The blast window adds one more line: **`rebuildTerrain` took 0.92 s of the
+4.9 s window** under the profiler (`composeTerrain` 0.48 s -- the scatter
+rebuild and its tone quantising; `buildControlMap` 0.21 s and its
+`surfaceWeightsAt` / `roadDistanceAt` samplers), all inside one task.
+
+### Ranked fixes (proposals; none built)
+
+Ranked by milliseconds saved times the inverse of the risk. Each wants the
+golden gate's verdict before it lands, since each touches what draws.
+
+| # | fix | saves (4x CPU) | risk | owner |
+|---|---|---|---|---|
+| 1 | **Make a collapse not rebuild the map.** Rebuild only the dirty rectangle the footprint touches (the follow-up `CLAUDE.md` already names for `buildControlMap`), or split the full rebuild across frames behind the collapse shroud that already covers the swap | most of **500–640 ms** off one frame per collapse (0.75–0.93 s at 6x, 0.14–0.18 s unthrottled): the only stutter found | medium-high: incremental terrain has to match the full rebuild at the seams | `render-vfx` |
+| 2 | **Cull and sort the static decor and prop batches once per frame, not once per pass**, or turn `sortObjects` off on them (opaque, depth-tested: the picture is unchanged; only early-z order moves) | ~1.0–1.7 ms a frame | low | `render-vfx` |
+| 3 | **`matrixAutoUpdate = false` on static objects** (terrain, buildings, decor, props; `updateMatrix()` once at build) | up to ~1.8 ms a frame (an upper bound: some of that upkeep is the moving units') | low-medium: anything later moved must call `updateMatrix()` or it silently stops moving | `render-vfx` |
+| 4 | **Animation LOD**: skip or halve mixer updates for figures off screen or under fog | ~1–2 ms a frame in a big fight | medium: a figure must not pop when it comes into view | `render-vfx` |
+| 5 | The AO pass on slow machines: a player's own choice of `medium` (the auto step-down was declined, below) | ~5.5 ms a frame | none to correctness; a visible loss of contact shadow | the player |
+
+Fixes 2 and 3 together are ~3 ms a frame at 4x, about a fifth of `low`'s
+render submit there; fix 1 is the one that changes the §22 verdict.
+
+### The automatic quality step-down (built, measured, declined)
+
+**Lead ruling, 2026-10-10: "Nothing automatic."** `high` stays the default and
+only the player changes the preset. The rule below was built on the
+`perf/low-end` branch (PR #507), tested and walked, and then removed from it
+before merge. It is recorded here so the next proposal does not start from
+zero.
+
+**What it was.** It watched a mission's opening (8 s of presented frames, 2 s
+after the first) and called it slow when 5% or more of the intervals were
+longer than 33.4 ms. Two slow openings in a row at the same preset lowered the
+SAVED preset one step (`high` -> `medium` -> `low`) for the next mission. It
+never raised. It never changed a running mission. It was never armed over a
+quality picked in Settings (a `video.qualitySource` field). A hidden tab voided
+the sample, and tool browsers were pinned out of it. Walked on the production
+build at 6x CPU, 1920x1080: boot 1 recorded a strike (19% of 213 opening
+frames slow), boot 2 lowered `high` to `medium` (16% of 263), boot 3 at
+`medium` wrote nothing.
+
+**Why it was declined: it would fire on the lead's own machine.** The 5% line
+separated the throttled cells as intended: `high` at 4x and 6x read
+9.8–64.8%, `medium` at 4x on 1366x768 read 0.2–4.5%. But an M3 Pro on a Retina
+screen (1440x900 @2x) reads **11–18% at `high`** in the heaviest opening. So
+two missions in, the reference machine's default would have become `medium`.
+`medium` there reads 5–7%, so two missions later it would have become `low`.
+At 1920x1080 @1x it fired in some sessions and not others (3–15% across three
+sessions; see "The opening"). The rule was working as measured. The trouble is
+that what it measured includes the machine everyone judges the game on.
+
+What stays from it: the opening table above is the evidence any future
+automatic rule must be read against. If one is revisited, start from the
+Retina rows.
+
+### Recommendation
+
+1. **Fix the collapse stall** (ranked fix 1) before calling §22 "Visible
+   stutters" met: it is preset-independent, it happens in ordinary play (a
+   building fell inside the heaviest mission's opening fight in every matrix
+   run), and it is 0.5–0.9 s on a slow CPU.
+2. **Take fixes 2 and 3** together as one low-risk renderer pass: ~3 ms a
+   frame at 4x, no visible change. (In progress in a separate PR at the time of
+   writing.)
+3. **The AO default stays `high`** (the lead's ruling above). The lever a slow
+   machine has is the player's own: a one-line Settings hint naming the trade
+   ("High adds ambient occlusion, the most expensive effect; Medium if the game
+   stutters"). This is a string change, proposed and not built.
+4. **Detect a software renderer at boot and say so** (`SwiftShader`,
+   `llvmpipe`, `Microsoft Basic Render Driver` in the unmasked renderer string,
+   already read by the feedback context): "Your browser is drawing without the
+   graphics card; turn on hardware acceleration." Proposed, not built: it is a
+   visible notice, and the copy is the lead's.
+5. **A resolution cap per preset** for the GPU-bound case (`low` at pixel
+   ratio 1, `medium` at 1.5): the Retina rows say fill, not submission, is the
+   cost there. Not measured beyond those rows; it wants its own A/B.
+
+### What this does not measure
+
+- **A real low-end machine, or any integrated GPU.** CPU throttling slows only
+  the main thread; SwiftShader is far below any real GPU. An Intel UHD-class
+  laptop sits somewhere between "Metal 4x" and "SwiftShader" and could be
+  fill-bound at `high` in a way the Metal rows cannot show. The tester cohort
+  (#302) is where that number comes from, and the feedback context already
+  records the GPU string and the preset.
+- **Missions other than `umm_zeitoun_4_clearance`**, larger fights than its
+  ~30 units, or the 300-unit GDD target under throttling.
+- **Mobile or touch**, and display rates other than 60 Hz.
+- **The menu, the campaign board and the garage** under throttling.
+- **Long sessions**: GC was under 0.5% of every profiled window, but no window
+  was longer than 10 s.
+
+## A collapse splices the terrain; static upkeep once per view (2026-10-10)
+
+The fixes ranked 1-3 in the low-end assessment (PR #507, "Low-end": a
+building collapse was the only stutter, 141-175 ms unthrottled and 499-643 ms
+at 4x CPU, all of it a full `rebuildTerrain`).
+
+**What changed.**
+
+- **The collapse is a splice** (`terrain/tiled-mesh.ts`, `terrain/incremental.ts`).
+  `buildGround`/`buildScatter` are tile emitters that record where each tile's
+  vertices and indices start; a rebuild diffs the new draw mask, cover, terrace
+  flag and smooth-field source against the last build, re-emits the changed
+  tiles grown by `SPLICE_RADIUS_TILES` = 2 (Catmull-Rom's support), and copies
+  the rest with their indices shifted. The control map rewrites in place only
+  the texels within `CONTROL_SPLICE_MARGIN_TEXELS` = 4 of a changed tile
+  (0.2 tile of edge bend + 0.25 of band = 0.45 tile); a road or ridge tile
+  changing builds it whole. **Byte-identical to a full build**: swept once over
+  every structure of every shipped map, 1,724 single collapses, 0 differences;
+  one tile narrower differs on 13 relief maps and one texel narrower on 25 maps,
+  so both margins are tight. `packages/app/src/terrain-splice.test.ts` keeps
+  chains of real collapses equal to full builds and one witness per margin.
+- Two costs that only showed once the splice removed the bulk: `toGeometry`'s
+  `Math.pow` sRGB decode (a byte table now, same bits, ~12 ms at 4x off a
+  collapse), and a **shader compile**: disposing the replaced decor and prop
+  batches' materials before the new ones drew released their program, and the
+  new batch recompiled it (38 ms in `getProgramInfoLog` at 4x). They are
+  disposed after the next draw now.
+- **Decor and prop batches cull and sort once per view** (`terrain/batch-cull.ts`):
+  the draw list is kept per camera matrices, so the AO pre-pass reuses the main
+  pass's and the fixed shadow box reuses its own, frame to frame.
+- **Static objects stop recomposing matrices** (`static-matrix.ts`): the scene no
+  longer forces a multiply onto every child, and terrain, structure boxes, decor,
+  props, standing buildings and settled wrecks are frozen where they are built.
+
+**Measured** with PR #507's `low-end.ts` harness (copied in, unchanged but for
+its imports), production build, Apple M3 Pro, Metal, headless Chromium,
+1366x768 @1x, `high`, `umm_zeitoun_4_clearance`, music off. Base is `origin/main`
+97e8e5f5 from its own worktree, interleaved run by run with this branch. **The
+machine was shared and loaded** (1-minute load 6-20, against 2-3 for PR #507's
+matrix) and the display ran at 120 Hz in some runs, so frame-interval
+percentiles are noisier than #507's; the collapse task and render submit are
+the robust readings.
+
+| | base | this branch |
+|---|---|---|
+| collapse long task, 4x CPU | 531-583 ms (n=3, load ~3); 602-726 ms (n=5, load 8-17) | 95-178 ms (n=5, load 6-17; 95-103 at load <= 12) |
+| collapse long task, 1x | 163-172 ms (n=3, load ~3); 167-228 (n=3, load 9-15) | none over 50 ms (n=2, load 6-11); 104 ms (n=1, load 20) |
+| render submit p50, 4x, fight | 25.3-28.8 ms, mean 26.5 (n=4) | 22.4-26.9, mean 24.5 (n=4) |
+| render submit p50, 4x, pan | 21.2-24.8, mean 22.9 (n=4) | 19.4-23.7, mean 21.2 (n=4) |
+| render submit p50, 4x, opening | 21.0-24.0, mean 22.4 (n=4) | 18.1-21.9, mean 19.9 (n=4) |
+| draw calls at the fight | 769-783 | 769-771 |
+
+What is left in the 4x collapse frame (profiled, dev server): ~25 ms in
+`rebuildTerrain` (decor and prop placements recomputed whole, ~6 ms; the
+splices ~5; `toGeometry` ~5; the decor batches rebuilt ~5), the next draw's
+uploads, and the sim's own `recomputeFields` (~9-19 ms at 4x, sim side, out of
+scope). The decor placements are not spliced: the clump rule drops members by
+the tile they land on, so a splice would need `decor-place.ts` restructured for
+~1 ms unthrottled.

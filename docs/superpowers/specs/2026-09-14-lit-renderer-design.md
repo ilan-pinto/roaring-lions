@@ -283,6 +283,15 @@ it already renders antialiased at pixel ratio 2. Moving it onto `lighting.ts`'s
 sun so the diorama and the mission share one light is a one-file follow-up,
 listed in the plan as optional.
 
+**Done 2026-10-01 (S3a, GH-180).** The board now draws through
+`MeshStandardMaterial` over its sRGB bake (`world-materials.ts`'s
+`texturedMaterial`), sRGB output through ACES at exposure 1.0, and
+`lighting.ts`'s `DAY_LIGHTS` added to the scene outside the board's pivot,
+with a 2048 shadow map fitted to the board. Region state is injected after
+`<map_fragment>`; its display-referred brightness numbers are applied as
+`pow(bright, 2.2)` on the linear albedo. No composer: the canvas stays
+transparent and MSAA-antialiased. It took three files, not one.
+
 ### 10. Tests
 
 Policy: a test that pinned "on-palette by construction" is deleted with the

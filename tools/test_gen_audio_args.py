@@ -40,6 +40,7 @@ def load():
     scratch = tempfile.mkdtemp(prefix="gen_audio_args_")
     mod.OUT = os.path.join(scratch, "audio")
     mod.MANIFEST = os.path.join(scratch, "audio.json")
+    mod.AMB_AUDITION = os.path.join(scratch, "audition")
     return mod, scratch
 
 

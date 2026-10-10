@@ -1,0 +1,22 @@
+{
+  "unit": "rocket_battery",
+  "source": "assets/meshes/vehicles/rocket_battery.glb",
+  "source_sha256": "b81be49935863f35f7b40d6129429267eddfff735c6f5d4d59875fe365c08e8e",
+  "yaw_deg": -125.0,
+  "elevation_deg": 18.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "width",
+    0.92
+  ],
+  "ndc_box": [
+    0.04,
+    0.96,
+    0.0736,
+    0.9264
+  ],
+  "materials": {
+    "baked": 4,
+    "flat": 0
+  }
+}

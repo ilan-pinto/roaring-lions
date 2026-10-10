@@ -4,23 +4,19 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { units, type UpgradableUnit } from '@lions/data';
+import { CHEVRON_SWEEP } from './mark';
 import {
-  CHEVRON_SWEEP,
   KIT_ICON_SIGN,
-  KIT_SYMBOLS,
-  KIT_TRACKS,
   kitIconSignHtml,
   kitLevelLabel,
   kitPipsHtml,
   kitSignAspect,
   kitSummary,
   starOfDavidPath,
-  kitSymbolSvg,
+  kitPlateSvg,
   withKitSign,
-  type KitSymbolId,
 } from './kit-sign';
 
-const IDS: readonly KitSymbolId[] = ['kit', ...KIT_TRACKS];
 /** One pixel of ink at 10 px, in the sheet's 24-unit box. */
 const MIN_STROKE = 2.4;
 const kdf = (id: keyof typeof units): UpgradableUnit => units[id] as unknown as UpgradableUnit;
@@ -43,54 +39,35 @@ function slopes(svg: string): number[] {
   return out;
 }
 
-// The S3e family's properties, as phase 3's gated `symbol.test.ts` pins them
-// (docs/superpowers/plans/2026-09-19-shell-upgrade-phase-3-app.md, Task 11):
-// these four move into `ui/symbol.ts` with the glyphs when G1 approves the
-// sheet, and a different drawing passes them without a test edit.
-describe('the kit glyphs (placeholders until G1, #165)', () => {
-  it('fill and stroke with currentColor, and name no colour of their own', () => {
-    for (const id of IDS) {
-      const svg = kitSymbolSvg(id, 16, 3);
-      expect(svg).toContain('currentColor');
-      expect(svg).not.toMatch(/#[0-9a-fA-F]{3}/);
-      expect(svg).not.toContain('var(--');
+// The garage bay's plate mark (the track heads are the approved emblems, pinned
+// by kit-emblems.test.ts; the old built-in track glyphs are deleted).
+describe('the bay’s kit plate mark', () => {
+  it('fills and strokes with currentColor, and names no colour of its own', () => {
+    const svg = kitPlateSvg(16, 3);
+    expect(svg).toContain('currentColor');
+    expect(svg).not.toMatch(/#[0-9a-fA-F]{3}/);
+    expect(svg).not.toContain('var(--');
+  });
+
+  it('honours the size asked for', () => {
+    expect(kitPlateSvg(48, 2)).toContain('height="48"');
+    expect(kitPlateSvg(40)).toContain('width="40"');
+  });
+
+  it('carries at least a pixel of ink at 10 px', () => {
+    for (const m of kitPlateSvg(10, 3).matchAll(/stroke-width="([\d.]+)"/g)) {
+      expect(Number(m[1])).toBeGreaterThanOrEqual(MIN_STROKE);
     }
   });
 
-  it('share one viewBox and honour the size asked for', () => {
-    const boxes = new Set(IDS.map((id) => /viewBox="([^"]+)"/.exec(kitSymbolSvg(id, 16))?.[1]));
-    expect(boxes.size).toBe(1);
-    expect(kitSymbolSvg('armour', 40)).toContain('width="40"');
-    expect(kitSymbolSvg('kit', 48, 2)).toContain('height="48"');
-  });
-
-  it('carry at least a pixel of ink at 10 px', () => {
-    // Vacuous for the fill-only glyphs (armour, firepower) and the mark's
-    // rect bars -- there is no stroke-width to read on a fill shape. Those
-    // are checked by hand (>= 3.5 units at 10 px) until G1's sheet lands.
-    for (const id of IDS) {
-      for (const m of kitSymbolSvg(id, 10, 3).matchAll(/stroke-width="([\d.]+)"/g)) {
-        expect(Number(m[1])).toBeGreaterThanOrEqual(MIN_STROKE);
-      }
-    }
-  });
-
-  it('bevel at the chevron’s own sweep, 14 across over 24 up (mark.ts)', () => {
-    const all = IDS.flatMap((id) => slopes(kitSymbolSvg(id, 24, 3)));
-    expect(all.length).toBeGreaterThanOrEqual(6);
+  it('bevels at the chevron’s own sweep, 14 across over 24 up (mark.ts)', () => {
+    const all = slopes(kitPlateSvg(24, 3));
+    expect(all.length).toBeGreaterThanOrEqual(2);
     for (const s of all) expect(s).toBeCloseTo(CHEVRON_SWEEP, 9);
   });
 
-  it('hold one bar per kit level on the mark', () => {
-    expect(([1, 2, 3] as const).map((l) => (kitSymbolSvg('kit', 24, l).match(/<rect /g) ?? []).length)).toEqual([
-      1, 2, 3,
-    ]);
-  });
-
-  it('draw from KIT_SYMBOLS and nowhere else, so G1’s sheet is a one-line swap', () => {
-    expect(kitSymbolSvg('armour', 24)).toContain(KIT_SYMBOLS.track.armour);
-    expect(kitSymbolSvg('kit', 24, 2)).toContain(KIT_SYMBOLS.mark(2));
-    expect(kitSymbolSvg('sensors', 24)).toContain(`viewBox="${KIT_SYMBOLS.viewBox}"`);
+  it('holds one bar per kit level', () => {
+    expect(([1, 2, 3] as const).map((l) => (kitPlateSvg(24, l).match(/<rect /g) ?? []).length)).toEqual([1, 2, 3]);
   });
 });
 

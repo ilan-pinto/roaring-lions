@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready long-range sniper rifle on its folding bipod with a spotting scope on a short tripod beside, weapons of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level, both on the ground as one object. A heavy bolt-action rifle 1.25 metres long with a thick fluted barrel, muzzle brake, long scope on a rail, adjustable cheek rest and box magazine, bipod legs down; the spotting scope with an angled eyepiece on a low tripod alongside. Worn gunmetal, scuffed olive stock, dust. Real-world scale, 1.25 metre rifle. Gunmetal, olive paint, black rubber. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a0fae0-89ab-7725-9fbf-5cfb7ff3af18",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 1108802872,
+    "prompt": "A single low-poly game-ready long-range sniper rifle on its folding bipod with a spotting scope on a short tripod beside, weapons of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level, both on the ground as one object. A heavy bolt-action rifle 1.25 metres long with a thick fluted barrel, muzzle brake, long scope on a rail, adjustable cheek rest and box magazine, bipod legs down; the spotting scope with an angled eyepiece on a low tripod alongside. Worn gunmetal, scuffed olive stock, dust. Real-world scale, 1.25 metre rifle. Gunmetal, olive paint, black rubber. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1790915416380,
+    "progress": 100,
+    "started_at": 1790915416395,
+    "finished_at": 1790915465401,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0fae0-89ab-7725-9fbf-5cfb7ff3af18/output/model.glb?Expires=4944499200&Signature=cDjE4pNCx9O4r0vqQ4ta4nhtdzgKcaYh1LklvXiVZ5dQ0ggvoSdZ1hvIWe1LHF7oi23uBBrLbU8JFK~uujU4vyZFOXjnv6BRBWpRKFF0PVvVdyKt-MOYagopM9jA7nWMCIsRTAPXgSgJOudv8xJXYNcND5K~p4cm1MjnmJ9krY~A1FvQwjzk1W6I~Hpk8LS7-qgxXX1kcPARqBHedqXcxW1mseOIjUUkf2QyyQDUMx~73rVc6N7mLGaINoIyRTYLG~u1~Dy2AcftZYVlh02pjwzuyIJSL6KRakkZKyVv~k5WvDL44EXx6H88-0IaCpQnvlzkJ8VqRdsT8BzmpL~s~g__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0fae0-89ab-7725-9fbf-5cfb7ff3af18/output/preview.png?Expires=4944499200&Signature=a-I~FMA~Mznr3kOtdXitkO9p1h~VKPfYO3~B6sq8QFHMJRp530DTjyiVV6sPL8ndM82F4kmEnTH7VwFX7zHonN-fDCOUGOhPkZl2kKShkfxAg89u9RoULAliGxOPID1G9Fb9njqA8lZ~mHPx7rRXUDgEZHZO3J25hwGPRgBf2iQ4uyXKWFwfAeATJvBrfbeKsPe7VOA6gjdyzWU-YgNYbIQLR0RD7LBRz~vlsSX92jq4qtiia9-jJqtGD38LZ1m5yFJg~J9qsoKNzoyZs1Bh0SAtvxGBO1R6cGORf3EtCD4d6Q4NNDFhPvObe1xQvjqkx~oxmMDhnQoNZej-7vd9mw__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1790915416380,
+    "started_at": 1790915416395,
+    "finished_at": 1790915465401
+  },
+  "usd_estimated": 0.4
+}

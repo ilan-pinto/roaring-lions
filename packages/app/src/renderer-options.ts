@@ -8,9 +8,10 @@
  * Parameterised on the three things `bootBattlefield` used to close over:
  * the parsed map (`map.terrain` picks the theme and the ground texture), the
  * player's own settings (colour-vision variant and video quality -- both read
- * ONCE, at construction time, the same way `bootBattlefield` always did: a
- * change mid-mission takes effect from the next boot, which is what
- * `settings.quality.hint` tells the player), and the deploy base (`'/'`
+ * here at construction time; a quality change takes effect from the next
+ * boot, which is what `settings.quality.hint` tells the player, while a
+ * colour-vision change is followed live by `bindLiveTeamColors`, VR-01,
+ * through the same two `@lions/data` functions used below), and the deploy base (`'/'`
  * locally, `'/<repo>/'` on GitHub Pages) every asset URL is built from.
  */
 import { paletteColor, paletteTeamColors, variantAwareResolver, type ParsedMap } from '@lions/data';
@@ -69,8 +70,8 @@ export function rendererOptionsFor(map: ParsedMap, s: RendererSettings, base: st
     // `s.colorVision` -- the silhouette outline (`silhouette.ts`'s
     // `SILHOUETTE_COLOR_KEY_BY_SIDE`, every billboard `UnitInstancer`'s
     // `uTeam` and the mesh path's shared materials), the HP bar
-    // (`hpBarColorKey`), the objective-zone tint (`objectiveZoneColorKey`)
-    // and the min-range ring all ask for a palette key by name rather than
+    // (`hpBarColorKey`) and the objective-zone tint (`objectiveZoneColorKey`)
+    // all ask for a palette key by name rather than
     // reading `teamColors` above, so a bare `paletteColor` here would leave
     // every one of them on the default palette no matter what the player
     // picked.

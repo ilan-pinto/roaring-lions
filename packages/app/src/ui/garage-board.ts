@@ -22,10 +22,10 @@
 // applies), carrying its full text as a `title` a mouse can still reach, and
 // -- for a FUTURE rung only, and only once the widest layout has room to
 // spare -- a one-line gist.
+import { emblemSvg } from './kit-emblems';
 import { nextTierPrice, type UpgradableUnit, type UpgradeTrack } from '@lions/data';
 import { t } from '../i18n/t';
 import { previewDeltas } from './garage-stats';
-import { isKitTrack, kitSymbolSvg } from './kit-sign';
 import { formatBenefit, upgradeBenefits, type BenefitLine } from './upgrade-benefit';
 
 const el = (tag: string, cls: string, text?: string): HTMLElement => {
@@ -136,6 +136,11 @@ export interface TrackDeps {
    *  accordion (none exists today, but a future read-only embed might) need
    *  not wire it. */
   readonly onActivate?: () => void;
+  /** The track's close-up (`garage-closeup.ts`'s `trackCloseup`, GH-238
+   *  K11): drawn in the head where the hatch is, the glyph kept over it.
+   *  Absent or `null` -- no photograph for this type and track -- keeps the
+   *  hatch, and so does a file that fails to load. */
+  readonly closeup?: string | null;
 }
 
 /**
@@ -197,12 +202,28 @@ export function trackEl(trackName: string, track: UpgradeTrack, deps: TrackDeps)
   heading.appendChild(head);
 
   const glyph = el('span', 'rl-garage__track-glyph');
-  // A kit track (armour/sensors/firepower) draws its own symbol
-  // (`kit-sign.ts`); anything else -- a content author's own track, the
+  // A kit track (armour/sensors/firepower) draws its own emblem
+  // (`kit-emblems.ts`); anything else -- a content author's own track, the
   // underscored `fire_control` fixture's case -- draws the reserved hatch
   // alone, the same "reserved, not broken" language the rail's card art and
   // the bay's plate already speak for a unit with no picture.
-  if (isKitTrack(trackName)) glyph.innerHTML = kitSymbolSvg(trackName, 40);
+  const headEmblem = emblemSvg(trackName);
+  if (headEmblem !== null) glyph.innerHTML = headEmblem;
+  // The close-up (GH-238 K11) takes the hatch's place, under the glyph. A
+  // load failure puts the hatch back rather than leaving a broken image.
+  if (deps.closeup) {
+    const photo = document.createElement('img');
+    photo.className = 'rl-garage__track-closeup';
+    photo.src = deps.closeup;
+    photo.alt = t('garage.track.closeup', { name: deps.unitName, track: trackLabel });
+    photo.decoding = 'async';
+    photo.addEventListener('error', () => {
+      photo.remove();
+      delete glyph.dataset.closeup;
+    });
+    glyph.dataset.closeup = '1';
+    glyph.prepend(photo);
+  }
   head.appendChild(glyph);
 
   const headLine = el('span', 'rl-garage__track-line');
@@ -249,6 +270,12 @@ export function trackEl(trackName: string, track: UpgradeTrack, deps: TrackDeps)
     rung.tabIndex = -1;
 
     const rungHead = el('div', 'rl-garage__rung-head');
+    const tierEmblem = emblemSvg(trackName, tier);
+    if (tierEmblem !== null) {
+      const mark = el('span', 'rl-garage__rung-emblem');
+      mark.innerHTML = tierEmblem;
+      rungHead.appendChild(mark);
+    }
     rungHead.appendChild(el('span', 'rl-garage__rung-tier', t('garage.rung.tier', { tier })));
     rungHead.appendChild(el('span', 'rl-garage__rung-price', String(track.tiers[tier - 1].price)));
     if (owned) rungHead.appendChild(el('span', 'rl-garage__rung-owned', t('garage.rung.owned')));

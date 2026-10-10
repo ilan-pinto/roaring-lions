@@ -33,6 +33,7 @@ SAMPLES = 64
 CAM_AZIMUTH = math.radians(225.0)
 # Blender's --python does not put the script's own directory on sys.path.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from sprites_retired import refuse_sprite_output  # noqa: E402
 from dimetric import (  # noqa: E402
     ELEVATION as DIMETRIC_ELEVATION,
     metres_for_scale,
@@ -441,6 +442,7 @@ def render_clip(pivot, show, hide, out_dir, clip, files, frames=1, pose=None):
     repository was rendered with: one file per facing, named `_000.png`, frame
     index 0. A caller that passes neither gets byte-identical output.
     """
+    refuse_sprite_output(out_dir)
     os.makedirs(out_dir, exist_ok=True)
     for o in show:
         o.hide_render = False

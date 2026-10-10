@@ -31,4 +31,9 @@ export const TEXTURED_BUILDING_TYPES: ReadonlySet<string> = new Set([
   'shanty',
   'wall',
   'camp',
+  // The A3.2 remainder (GH-185, 2026-10-03): Adhal's relay hut on the Umm
+  // Zeitoun crest and the Rif pump house of Wadi Halam II, both Meshy
+  // text-to-3D remeshes shipping their own bake through the same exporter.
+  'relay',
+  'pump_house',
 ]);

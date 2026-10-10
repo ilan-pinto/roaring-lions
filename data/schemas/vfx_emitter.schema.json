@@ -64,6 +64,7 @@
     },
     "screen_shake": {
       "type": "object",
+      "description": "A camera jolt for a BLAST, not a property every emitter has. The renderer reads it on four events only: a building collapse (structure_collapse), a vehicle kill (catastrophic_kill), a shell landing (shell_impact) and a missile impact (missile_impact), each scaled by that event's own power. Firing never shakes the screen, so a weapon_fire emitter does not author one (polish VR-23). Strength is ranked by event: collapse > vehicle kill > shell landing > muzzle flash, for shake, hit_stop_ms and light alike (VR-22).",
       "additionalProperties": false,
       "properties": {
         "amplitude_px": {

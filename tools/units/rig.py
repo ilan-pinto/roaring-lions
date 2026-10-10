@@ -26,9 +26,9 @@ placement). Both are read, neither is re-derived a second way.
     (`_kneel_bones`, derived below) plus a convention for a free-standing
     weapon prop that is not gripped by any bone-bound hand: `demo_squad`,
     `at_team`, `mortar_team`, `mortar_crew`, `atgm_cell`, and `digger_crew`
-    (its own ground-clutter spoil heap, see `_digger_extras`). `demo_squad`
-    and `at_team`/`mortar_team` stay kneeling and deployed through every
-    clip; `mortar_crew`, `atgm_cell` and `digger_crew` instead walk standing
+    (its own ground-clutter spoil heap, see `_digger_extras`). `demo_squad`'s
+    charge layer and `at_team`'s gunner stayed kneeling and deployed through
+    every clip until spike-walk stood them up (6 Oct); `mortar_crew`, `atgm_cell` and `digger_crew` instead walk standing
     on a THIRD root for `move` -- `move_posture="standing"`, the walker
     `_add_figure` builds beside a figure's kneeling `root` and prone
     `death_root` -- matching `teams.digger_crew`'s own sprite-side "stands
@@ -153,6 +153,10 @@ SUPPORTED_TEAMS = (
     # parentheses in this comment: mesh_ownership.test.ts reads the tuple
     # with a regex that stops at the first closing bracket.
     "manpad_team", "recoilless_team",
+    # B7, GH-179, 2026-10-01: the supplied Sarim rifleman is replaced by a
+    # Meshy A-pose figure on the same path; it was never a kit export, so it
+    # joins here for `build_clips`/`TEAM_FIGURES` and nothing else.
+    "sarim_rifles",
 )
 DEFAULT_TEAM = "inf_squad"
 
@@ -182,7 +186,12 @@ DEFAULT_TEAM = "inf_squad"
 #: script's OWN output path, so retiring that script turns this into a red test
 #: rather than a permanent unexplained block on a file nobody else claims.
 TEAM_MESH_OWNER = {
-    "inf_squad": MESH_KIT_OWNED,
+    # B7 (GH-179, 2026-10-01): the five supplied Meshy teams are replaced by
+    # A-pose figures with their bake, cut and driven by this module through
+    # tools/units/import_meshy_crew_team.py -- inf_squad, mortar_team and
+    # yahalom_squad reclaim their own file names from the superseded kit
+    # builds; sniper_team leaves tools/export_meshy_sniper.py.
+    "inf_squad": "tools/units/import_meshy_crew_team.py",
     # B3 (GH-179, 2026-09-30): Meshy figures with their own bake, cut and
     # driven by this module through tools/units/import_meshy_crew_team.py.
     "militia_cell": "tools/units/import_meshy_crew_team.py",
@@ -193,16 +202,18 @@ TEAM_MESH_OWNER = {
     "charge_squad": "tools/units/import_meshy_crew_team.py",   # B4 (GH-179, 2026-10-01)
     "at_team": "tools/units/import_meshy_kdf_team.py",
     "rpg_team": "tools/units/import_meshy_crew_team.py",
-    "mortar_team": MESH_KIT_OWNED,
+    "mortar_team": "tools/units/import_meshy_crew_team.py",   # B7 (GH-179, 2026-10-01)
     "mortar_crew": "tools/units/import_meshy_crew_team.py",   # B4 (GH-179, 2026-10-01)
     "atgm_cell": "tools/units/import_meshy_crew_team.py",
-    "sniper_team": "tools/export_meshy_sniper.py",
-    "yahalom_squad": MESH_KIT_OWNED,
+    # B7 (GH-179, 2026-10-01): was tools/export_meshy_sniper.py.
+    "sniper_team": "tools/units/import_meshy_crew_team.py",
+    "yahalom_squad": "tools/units/import_meshy_crew_team.py",   # B7 (GH-179, 2026-10-01)
     "digger_crew": "tools/units/import_meshy_crew_team.py",   # B4 (GH-179, 2026-10-01)
     "moto_rpg": "tools/units/import_meshy_moto_rpg.py",       # B6 (GH-179, 2026-10-01)
     "breach_team": "tools/units/import_meshy_crew_team.py",   # B5 (GH-179, 2026-10-01)
     "manpad_team": "tools/units/import_meshy_crew_team.py",
     "recoilless_team": "tools/units/import_meshy_crew_team.py",
+    "sarim_rifles": "tools/units/import_meshy_crew_team.py",   # B7 (GH-179, 2026-10-01)
 }
 assert set(TEAM_MESH_OWNER) == set(SUPPORTED_TEAMS), (
     "TEAM_MESH_OWNER needs exactly one entry per SUPPORTED_TEAMS member -- "
@@ -292,22 +303,18 @@ PART_BONE = {
     # each hip and at the rear knee; these blobs cover them. The kneel
     # skeleton never animates a leg, so they bind to the nearest static bone.
     "kneek_r": "thigh_r", "hipk_r": "pelvis", "hipk_f": "pelvis",
-    # --- breach_team's own props (new this pass) ---
+    # --- breach_team's own prop ---
     # `kit.ballistic_shield` is held out in front by the same hand a rifle
     # would occupy on the OTHER arm, so it binds to the off-hand forearm
     # rather than through the forced-bone convention _weapon_parts uses for
     # the rifle itself -- it is worn kit from this rig's point of view, the
-    # same class as a dropleg holster or a canteen, just larger. `pole`/
-    # `pole_head` are `kit.breach_pole`'s two objects (the rod and its small
-    # block tip), both worn slung across the back and so both bound to
-    # `spine`, the same convention a carried pack (`yah_pack_a`/`_b`) uses in
-    # `_yahalom_extras` -- except those go through an explicit `forced` dict
-    # because their object names carry no "prefix_suffix" split at all
-    # ("yah_pack_a"), where breach_team's props are named
-    # "{prefix}_shield"/"{prefix}_pole"/"{prefix}_pole_head" and so resolve
-    # through this table's normal fallback path instead.
+    # same class as a dropleg holster or a canteen, just larger. It is named
+    # "{prefix}_shield" and so resolves through this table's normal fallback
+    # path. (The cover man's breaching pole, `pole`/`pole_head` on `spine`,
+    # is removed from the mesh team: the lead, 7 Oct -- on the Meshy figure
+    # it ran through his face and chest. The sprite sheet's `teams.py` still
+    # draws it on his back.)
     "shield": "forearm_L",
-    "pole": "spine", "pole_head": "spine",
     # --- weapon assembly, bound rigidly via forced_bone below, not this
     # table -- see _weapon_parts and _add_figure. Retained here only so a
     # stray unmapped "_w"-suffixed object still raises loudly rather than
@@ -743,6 +750,18 @@ def unit_speed_tiles_s(team_id):
     return float(speed)
 
 
+def unit_has_weapons(team_id):
+    """True when the team's OWN unit JSON lists any weapon -- the sim lets
+    every armed unit fire while it moves, so every armed walker needs a
+    `moveFire` (see `build_move_fire_clip`). Read the same way, and with the
+    same refusal, as `unit_speed_tiles_s`."""
+    hits = sorted(glob.glob(os.path.join(DATA_UNITS_DIR, "**", f"{team_id}.json"), recursive=True))
+    if len(hits) != 1:
+        raise RuntimeError(f"{team_id}: expected exactly one unit JSON under {DATA_UNITS_DIR}, found {hits}")
+    with open(hits[0], encoding="utf-8") as fh:
+        return bool(json.load(fh).get("weapons"))
+
+
 def move_seconds():
     """`move`'s own length in seconds -- `MOVE_FRAMES` at the SCENE's frame
     rate, read back rather than assumed, because the ratio this whole block
@@ -1071,10 +1090,12 @@ def _weapon_parts(prefix, at, yaw=0.0, posture="standing", aim=False):
 # re-derived -- REST_FIGURES's own discipline, carried forward.
 
 def _f(prefix, x, y, posture="standing", headgear="helmet", loadout="regular",
-       leader=False, mirror=False, animates=True, weapon=None, move_posture=None):
+       leader=False, mirror=False, animates=True, weapon=None, move_posture=None,
+       work_posture=None):
     return dict(prefix=prefix, x=x, y=y, posture=posture, headgear=headgear,
                 loadout=loadout, leader=leader, mirror=mirror,
-                animates=animates, weapon=weapon, move_posture=move_posture)
+                animates=animates, weapon=weapon, move_posture=move_posture,
+                work_posture=work_posture)
 
 
 #: sniper_team's own rest spacing -- copied verbatim from `teams.sniper_team`
@@ -1094,6 +1115,10 @@ SNIPER_SPECS = (
 
 
 TEAM_FIGURES = {
+    # Motion pass (5 Oct): a new empty-handed Meshy rifleman, so every man
+    # carries the kdf_carbine part on his hand like any rifleman
+    # (import_meshy_crew_team.py's HAND_PARTS). B7's figure had its carbine
+    # baked across the chest and fired with a FIRE_ROOT_LEAN brace.
     "inf_squad": [
         _f("f0", 0.0, -0.78, weapon="rifle"),
         _f("f1", 0.20, 0.0, leader=True, weapon="rifle"),
@@ -1119,11 +1144,25 @@ TEAM_FIGURES = {
         _f("rpg_load", -0.30, 0.30, headgear="keffiyeh", loadout="irregular", leader=True, weapon="rifle"),
     ],
     "demo_squad": [
-        _f("demo_a", 0.34, -0.16, posture="kneeling", animates=False),
+        # Stands and walks (spike-walk, 6 Oct, the lead's ruling): he was a
+        # kneeler with no walker, on his knee in `move` beside a charge that
+        # slid along the ground with him. The charge is packed away while the
+        # team moves (`_key_death_visibility`) and he kneels at it on the
+        # sim's brace alone (the motion pass's kneel clips).
+        _f("demo_a", 0.34, -0.16),
         _f("demo_b", -0.36, 0.28, leader=True, weapon="rifle"),
     ],
     "at_team": [
-        _f("at_fire", 0.24, -0.30, posture="kneeling", animates=False, weapon="launcher"),
+        # Stands and WALKS with the Spike carried on his shoulder, as
+        # `rpg_fire` and `mpd_fire` do (spike-walk, 6 Oct). He was a kneeler
+        # with no walker -- `posture="kneeling", animates=False`, the B0b
+        # import's reading of a sprite-sheet fact -- so on the mesh he knelt
+        # in `move` and `moveFire` too and slid across the ground on his knee
+        # beside a walking spotter (measured: hips at 1.09 thigh lengths in
+        # every clip, against 2.03-2.25 for every walker). The kneel is now
+        # the motion pass's `kneel`/`kneelIn`/`kneelOut`, played on the sim's
+        # brace alone (`units/stance.ts`), with the Spike aimed in it.
+        _f("at_fire", 0.24, -0.30, weapon="launcher"),
         # `at_spot` carries binoculars and deliberately gets NO `fire` pose.
         # He is not shooting anything: the Spike is `at_fire`'s, and a spotter
         # with glasses at his eyes who jerks every time his gunner launches is
@@ -1132,9 +1171,13 @@ TEAM_FIGURES = {
         # `yah_a`'s mast already get.
         _f("at_spot", -0.32, 0.34, leader=True),
     ],
+    # B7 (GH-179, 2026-10-01): the two crew walk on D6 walkers now, as
+    # `mortar_crew`'s do -- the Meshy file replaces the supplied limbered
+    # march, and a kneeler with no walker slides across the ground in `move`
+    # (the GH-145 complaint). The kit export of this team is superseded.
     "mortar_team": [
-        _f("mtr_crew0", -0.14, -0.54, posture="kneeling", animates=False),
-        _f("mtr_crew1", -0.14, 0.54, posture="kneeling", animates=False),
+        _f("mtr_crew0", -0.14, -0.54, posture="kneeling", animates=False, move_posture="standing"),
+        _f("mtr_crew1", -0.14, 0.54, posture="kneeling", animates=False, move_posture="standing"),
         _f("mtr_no3", -0.62, 0.0, leader=True, weapon="rifle"),
     ],
     "mortar_crew": [
@@ -1157,8 +1200,15 @@ TEAM_FIGURES = {
         _f(s["prefix"], s["x"], s["sign"] * SNIPER_CLOSE_IDLE, posture="standing")
         for s in SNIPER_SPECS
     ],
+    # B7 (GH-179, 2026-10-01): `yah_a` carries a third body, a KNEELER on
+    # `yah_ak_root` (`_kneeler_prefix`), shown in `work` alone -- the mast
+    # driven into the ground for the whole of a tunnel charge, the clip
+    # `yahalom_engineer.glb` was the only mesh to carry. Built by
+    # import_meshy_crew_team.py (a kneel copy of the standing cut, its own
+    # mast pitched into the ground on `yah_ak_forearm_R`); keyed by
+    # `build_work_clip`. The kit export of this team is superseded.
     "yahalom_squad": [
-        _f("yah_a", 0.30, -0.20, leader=True),
+        _f("yah_a", 0.30, -0.20, leader=True, work_posture="kneeling"),
         _f("yah_b", -0.34, 0.26, weapon="rifle"),
     ],
     # B5 (GH-179, 2026-10-01): `weapon=None` since the Meshy figure landed --
@@ -1168,8 +1218,9 @@ TEAM_FIGURES = {
     # so `build_fire_clip`'s raise-and-recoil would aim an empty arm; the
     # fire clip is the FIRE_ROOT_LEAN brace instead. The kit build of
     # this team (`export_mesh_team.py` with its own out_path) loses its kit
-    # rifles with this; that file is superseded and the shield and pole --
-    # the tells -- are untouched.
+    # rifles with this; that file is superseded and the shield -- the tell --
+    # is untouched (the cover man's pole is removed, 7 Oct; see
+    # `_breach_extras`).
     "breach_team": [
         _f("brc_point", 0.32, -0.18, leader=True),
         _f("brc_cover", -0.30, 0.24),
@@ -1199,6 +1250,14 @@ TEAM_FIGURES = {
            loadout="irregular", animates=False, weapon="launcher", move_posture="standing"),
         _f("rcl_load", -0.30, 0.30, posture="kneeling", headgear="keffiyeh",
            loadout="irregular", leader=True, animates=False, move_posture="standing"),
+    ],
+    # B7 (GH-179): positions verbatim from `teams.sarim_rifles` -- the
+    # diagonal wedge that separates three irregular riflemen from
+    # inf_squad's straight line. Built by import_meshy_crew_team.py.
+    "sarim_rifles": [
+        _f("sar0", 0.34, -0.90, headgear="keffiyeh", loadout="irregular", weapon="rifle"),
+        _f("sar1", 0.0, 0.0, headgear="keffiyeh", loadout="irregular", leader=True, weapon="rifle"),
+        _f("sar2", -0.34, 0.86, headgear="keffiyeh", loadout="irregular", weapon="rifle"),
     ],
     # moto_rpg is NOT built through `_add_figure`/PART_BONE at all -- see
     # `_moto_rpg_rest`, which force-binds every single part it creates to an
@@ -1237,6 +1296,7 @@ def _check_team_figures_against_teams():
         "sniper_team": "kdf", "yahalom_squad": "kdf", "digger_crew": "enemy",
         "moto_rpg": "enemy", "breach_team": "kdf",
         "manpad_team": "enemy", "recoilless_team": "enemy",
+        "sarim_rifles": "enemy",
     }
     for team_id, figures in TEAM_FIGURES.items():
         assert team_id in teams.TEAMS, f"{team_id} missing from teams.TEAMS"
@@ -1292,6 +1352,11 @@ def _figure_death_parts(spec):
 
 def _walker_prefix(spec):
     return f"{spec['prefix']}w"
+
+
+def _kneeler_prefix(spec):
+    """The `work` body of a figure with `work_posture="kneeling"` (B7)."""
+    return f"{spec['prefix']}k"
 
 
 def _walker_specs(figures):
@@ -1451,18 +1516,24 @@ def _digger_extras():
 
 
 def _breach_extras():
-    """breach_team's own props: `brc_point`'s ballistic shield and
-    `brc_cover`'s breach pole. Unlike every other entry in this table, both
-    resolve through the plain PART_BONE fallback rather than an explicit
-    `forced` dict -- see PART_BONE's own "breach_team's own props" comment
-    for why: both objects are named `f"{prefix}_{suffix}"` against a real
-    figure prefix, the same convention `kit.figure()`'s own worn-kit parts
-    (pouches, dropleg, canteen) already use, so `rig_parts` binds them for
-    free. Returning `{}` for `forced` here is the tell that these are worn
-    kit, not a free-standing crew-served weapon with no hand to grip."""
+    """breach_team's own prop: `brc_point`'s ballistic shield. It resolves
+    through the plain PART_BONE fallback rather than an explicit `forced`
+    dict -- see PART_BONE's own "breach_team's own prop" comment for why: it
+    is named `f"{prefix}_{suffix}"` against a real figure prefix, the same
+    convention `kit.figure()`'s own worn-kit parts (pouches, dropleg,
+    canteen) already use, so `rig_parts` binds it for free. Returning `{}`
+    for `forced` here is the tell that it is worn kit, not a free-standing
+    crew-served weapon with no hand to grip.
+
+    `brc_cover`'s breaching pole (`kit.breach_pole`) is NOT in the mesh team
+    any more (the lead, 7 Oct: "the gray tube is misplaced ... maybe you can
+    completely remove it"): written for a kit figure's back, it stood on the
+    Meshy cover man's centre line, 929-953 of ~1,750 rod samples inside his
+    head, neck, spine or pelvis in every living clip, its block tip over his
+    face. `launcher_clearance.test.ts` pins the team's roles so it cannot
+    return through a re-export."""
     shield = kit.ballistic_shield("brc_point_shield", (0.32, -0.18, 0.0))
-    pole = kit.breach_pole("brc_cover_pole", (-0.30, 0.24, 0.0))
-    return shield + pole, [], {}
+    return shield, [], {}
 
 
 TEAM_EXTRAS = {
@@ -1981,7 +2052,7 @@ def _key_scale(pb, value, frames):
 _VIS_FRAMES = (0, 1)
 
 
-def _key_death_visibility(pbones, figures, has_prop, alive, frame=0, moving=False):
+def _key_death_visibility(pbones, figures, has_prop, alive, frame=0, moving=False, working=False):
     """Explicit scale keys for every figure's `root`/`death_root` (and the
     team's shared `prop` bone, if it has one) -- the switch that actually
     hides whichever rig, living or dead, is not this clip's.
@@ -2001,28 +2072,35 @@ def _key_death_visibility(pbones, figures, has_prop, alive, frame=0, moving=Fals
     walker (`spec["move_posture"] == "standing"`) hides its deployed
     kneeling body while moving and shows its standing walker instead; a
     figure with no walker is unaffected either way. The team's shared `prop`
-    (deployed launcher/mortar) hides too, but only for a team that HAS a
-    walker -- `demo_squad`/`at_team`/`mortar_team`'s crews stay deployed
-    through `move` and keep their prop visible, unchanged.
+    (deployed launcher/mortar/charge/scope) is packed away while moving --
+    unless a figure stays DEPLOYED through `move` (kneeling with no walker,
+    `officer_fires`' sagi today), whose prop stays beside him. Until
+    spike-walk (6 Oct) the rule was "only a team that HAS a walker", which
+    left demo_squad's charge and recon_zikit's tripod sliding along the
+    ground beside a team that had stood up.
     """
     alive_scale = 1.0 if alive else 0.0
     dead_scale = 0.0 if alive else 1.0
-    walkers = False
+    deployed_in_move = False
     for spec in figures:
         prefix = spec["prefix"]
         has_walker = spec.get("move_posture") == "standing"
-        walkers = walkers or has_walker
+        deployed_in_move = deployed_in_move or (spec["posture"] == "kneeling" and not has_walker)
         # A figure with a walker shows its deployed body in every living
         # clip but `move`, where the walker shows instead (design D6).
-        deployed = alive_scale if not (has_walker and moving) else 0.0
+        has_kneeler = spec.get("work_posture") == "kneeling"
+        deployed = alive_scale if not ((has_walker and moving) or (has_kneeler and working)) else 0.0
         _key_scale(pbones[f"{prefix}_root"], deployed, _VIS_FRAMES)
         _key_scale(pbones[f"{prefix}_death_root"], dead_scale, _VIS_FRAMES)
         if has_walker:
             _key_scale(pbones[f"{_walker_prefix(spec)}_root"], 1.0 if (alive and moving) else 0.0, _VIS_FRAMES)
+        if has_kneeler:
+            # B7: the `work` body shows in `work` alone (yahalom_squad).
+            _key_scale(pbones[f"{_kneeler_prefix(spec)}_root"], 1.0 if (alive and working) else 0.0, _VIS_FRAMES)
     if has_prop:
         # The deployed launcher/mortar is carried, not modelled, while a crew
         # walks -- a tripod gliding beside a walking crew is the bug D6 fixes.
-        _key_scale(pbones["prop"], 0.0 if (moving and walkers) else alive_scale, _VIS_FRAMES)
+        _key_scale(pbones["prop"], 0.0 if (moving and not deployed_in_move) else alive_scale, _VIS_FRAMES)
 
 
 #: Per-figure gait-phase offset, as a FRACTION of one cycle (0..1), keyed by
@@ -2077,7 +2155,7 @@ def build_idle_clip(arm_obj, figures):
             key(pbones[f"{prefix}_pelvis"], bones[f"{prefix}_pelvis"], AXIS_X, sway, f)
 
 
-def build_move_clip(arm_obj, figures, gait):
+def build_move_clip(arm_obj, figures, gait, clip_name="move", firing=False, extra_root_lean=None):
     """Full gait -- thigh/shin/arm swing, weight transfer, settle, head
     stabilisation, vertical bob -- for every figure that walks
     (`spec["animates"]`), PLUS -- since design D6 -- every kneeling figure's
@@ -2088,8 +2166,9 @@ def build_move_clip(arm_obj, figures, gait):
     their own kneeling `root` gets no gait key at all, but their `{prefix}w`
     walker does, and it visibly steps.
 
-    A kneeling figure with NO walker -- `at_team`'s `at_fire`, `demo_squad`'s
-    `demo_a`, `mortar_team`'s two crew -- has nothing to switch to, so it
+    A kneeling figure with NO walker -- `officer_fires`' `sagi` (and
+    `at_team`'s `at_fire`, `demo_squad`'s `demo_a` and `recon_zikit`'s
+    `zk_spot` until spike-walk, 6 Oct) -- has nothing to switch to, so it
     still gets no keys here at all and stays at `move`'s own frame-0
     identity pose for the whole clip: correctly, the whole figure stays put,
     deployed at its weapon, not just its weapon. `rpg_fire` is the one
@@ -2121,8 +2200,14 @@ def build_move_clip(arm_obj, figures, gait):
     from the same dict rather than from a second copy. What is left here is
     the RIGGING -- one bone per entry -- which is the half that really is
     specific to `_BASE_BONES`.
+
+    `clip_name="moveFire", firing=True` is `build_move_fire_clip`: the SAME
+    legs, hips, pelvis and bob from the SAME `gait` dict -- so `pnpm
+    gait:meshes` declares `rl_gait.moveFire` at `move`'s own stride -- with
+    every shooter's upper body taken from `build_fire_clip` instead of the
+    swing. See that function.
     """
-    _new_action(arm_obj, "move")
+    _new_action(arm_obj, clip_name)
     bones = arm_obj.data.bones
     pbones = arm_obj.pose.bones
     _key_death_visibility(pbones, figures, "prop" in pbones, alive=True, moving=True)
@@ -2142,8 +2227,12 @@ def build_move_clip(arm_obj, figures, gait):
         f"predicted boot travel={BASE_BOOT_TRAVEL_M * gait['scale']:.3f} m"
     )
     root_bob_dir = local_offset_for_world_axis(bones[f"{walkers[0]['prefix']}_root"], AXIS_Z)
+    leaners = (extra_root_lean or {}) if firing else {}
     for f in range(0, MOVE_FRAMES + 1):
         base_phase = 2.0 * math.pi * f / MOVE_FRAMES
+        # One shot per gait cycle: `fire`'s own rise-and-settle impulse,
+        # resampled over the cycle, zero at both ends so the loop closes.
+        kick = _recoil_curve(f / MOVE_FRAMES)
         for i, spec in enumerate(walkers):
             prefix = spec["prefix"]
             phase = base_phase + gait_phase(i)
@@ -2152,6 +2241,35 @@ def build_move_clip(arm_obj, figures, gait):
             key(pbones[f"{prefix}_thigh_R"], bones[f"{prefix}_thigh_R"], AXIS_Y, p["thigh_r"], f)
             key(pbones[f"{prefix}_shin_L"], bones[f"{prefix}_shin_L"], AXIS_Y, p["shin_l"], f)
             key(pbones[f"{prefix}_shin_R"], bones[f"{prefix}_shin_R"], AXIS_Y, p["shin_r"], f)
+            weapon = spec.get("weapon") if firing else None
+            if weapon in ("rifle", "launcher"):
+                # Walk-and-fire: the upper body is `build_fire_clip`'s, keyed
+                # on the same joints with the same constants, and the torso
+                # holds the facing -- the spine cancels the hips' own twist
+                # rather than adding a shoulder twist, so the weapon stays on
+                # the aim while the legs walk under it. No arm swing, no head
+                # counter-rotation (there is no shoulder twist to counter).
+                if weapon == "rifle":
+                    sh, el, sp = (FIRE_SHOULDER + RECOIL_SHOULDER * kick, FIRE_ELBOW + RECOIL_ELBOW * kick,
+                                  RECOIL_SPINE * kick)
+                else:
+                    sh, el, sp = LAUNCH_SHOULDER * kick, LAUNCH_ELBOW * kick, LAUNCH_SPINE * kick
+                # Both arms take the gait's forward lean back off, so the
+                # weapon stays at `fire`'s own elevation rather than dipping
+                # by the lean (measured before this: 11-13 deg nose-down
+                # against `idle`, past mesh_gait.test.ts's 12).
+                key(pbones[f"{prefix}_upperarm_R"], bones[f"{prefix}_upperarm_R"], AXIS_Y, sh - p["lean"], f)
+                key(pbones[f"{prefix}_forearm_R"], bones[f"{prefix}_forearm_R"], AXIS_Y, el, f)
+                key(pbones[f"{prefix}_upperarm_L"], bones[f"{prefix}_upperarm_L"], AXIS_Y, -p["lean"], f)
+                key(pbones[f"{prefix}_hip_L"], bones[f"{prefix}_hip_L"], AXIS_Y, p["hip_l"], f)
+                key(pbones[f"{prefix}_hip_R"], bones[f"{prefix}_hip_R"], AXIS_Y, p["hip_r"], f)
+                key_axes(pbones[f"{prefix}_spine"], bones[f"{prefix}_spine"],
+                         [(AXIS_Y, p["lean"] + sp), (AXIS_Z, -p["hip_twist"])], f)
+                key(pbones[f"{prefix}_pelvis"], bones[f"{prefix}_pelvis"], AXIS_Z, p["hip_twist"], f)
+                pb_root = pbones[f"{prefix}_root"]
+                pb_root.location = root_bob_dir * p["bob"]
+                pb_root.keyframe_insert(data_path="location", frame=f)
+                continue
             # A walking launcher carrier (`rpg_fire`, `mpd_fire`) keeps both
             # hands where the rest pose seats them -- on the launcher's grips
             # (`import_meshy_crew_team._seat_launcher`) -- instead of swinging
@@ -2172,6 +2290,28 @@ def build_move_clip(arm_obj, figures, gait):
             pb_root = pbones[f"{prefix}_root"]
             pb_root.location = root_bob_dir * p["bob"]
             pb_root.keyframe_insert(data_path="location", frame=f)
+            if prefix in leaners:
+                # A FIRE_ROOT_LEAN team (its weapon rides the torso, so its
+                # `fire` is a brace): the same flat lean on the walking root.
+                key(pb_root, bones[f"{prefix}_root"], AXIS_Y, leaners[prefix], f)
+
+
+def build_move_fire_clip(arm_obj, figures, gait, extra_root_lean=None):
+    """`moveFire` -- walk and fire (the lead's ruling, 2026-10-05).
+
+    Until this clip existed, a rig.py unit that fired while it moved played
+    `fire` -- a standing brace, legs still -- and slid across the ground at
+    its full speed: `resolveMeshMotionClip` only routes a moving shot to
+    `moveFire` when the GLB carries one, and nothing this module builds did.
+    The legs, hips, pelvis and bob here are `build_move_clip`'s, from the same
+    `gait` dict, so the gait pass reads the same stride off it; every shooter
+    takes `build_fire_clip`'s upper body, one shot per cycle; a figure with no
+    hand-bound weapon (a launcher crew's walker, a FIRE_ROOT_LEAN brace team)
+    walks exactly as in `move`, the brace teams leaning on their root as their
+    `fire` does.
+    """
+    build_move_clip(arm_obj, figures, gait, clip_name="moveFire", firing=True,
+                    extra_root_lean=extra_root_lean)
 
 
 def _recoil_curve(p):
@@ -2271,6 +2411,34 @@ def build_death_clip(arm_obj, team_id, clip_name):
     _key_death_visibility(pbones, figures, "prop" in pbones, alive=False)
 
 
+#: `work` (B7, yahalom_squad): six frames at 6 fps, looped -- `teams.
+#: TEAM_CLIP_ADD`'s own numbers for the sprite's work cycle.
+WORK_FRAMES = 6
+WORK_PUMP_RAD = 0.22      # the mast arm driving down and lifting, about forearm_R
+WORK_SPINE_RAD = 0.08     # the torso leaning into the press
+
+
+def build_work_clip(arm_obj, figures):
+    """`work`: every figure with a `work_posture` kneeler shows that body
+    (its standing root hidden) and pumps its right forearm -- the mast,
+    bound to it, drives into the ground and lifts. A cycle, so it loops;
+    `_key_death_visibility(working=True)` is what flips the bodies."""
+    _new_action(arm_obj, "work")
+    bones = arm_obj.data.bones
+    pbones = arm_obj.pose.bones
+    _key_death_visibility(pbones, figures, "prop" in pbones, alive=True, working=True)
+    for f in range(0, WORK_FRAMES + 1):
+        t = f / WORK_FRAMES
+        pump = 0.5 - 0.5 * math.cos(2.0 * math.pi * t)
+        for spec in figures:
+            if spec.get("work_posture") != "kneeling":
+                continue
+            kp = _kneeler_prefix(spec)
+            key(pbones[f"{kp}_forearm_R"], bones[f"{kp}_forearm_R"], AXIS_Y, WORK_PUMP_RAD * pump, f)
+            key(pbones[f"{kp}_upperarm_R"], bones[f"{kp}_upperarm_R"], AXIS_Y, 0.5 * WORK_PUMP_RAD * pump, f)
+            key(pbones[f"{kp}_spine"], bones[f"{kp}_spine"], AXIS_Y, WORK_SPINE_RAD * pump, f)
+
+
 def build_sniper_clips(arm_obj, gait):
     """sniper_team's own five clips -- bespoke, not `build_idle_clip`/
     `build_move_clip`/`build_fire_clip`/`build_death_clip`'s
@@ -2298,6 +2466,9 @@ def build_sniper_clips(arm_obj, gait):
     figures = [dict(prefix=s["prefix"], animates=True) for s in SNIPER_SPECS]
 
     build_move_clip(arm_obj, figures, gait)
+    # The rifle is slung on the standing walker (or lies with the prone
+    # body), so a sniper that fires on the move walks exactly as in `move`.
+    build_move_fire_clip(arm_obj, figures, gait)
 
     bones = arm_obj.data.bones
     delta = SNIPER_CLOSE_DOWN - SNIPER_CLOSE_IDLE
@@ -2422,8 +2593,20 @@ def build_clips(arm_obj, team_id):
         build_moto_clips(arm_obj)
         return
     figures = TEAM_FIGURES[team_id]
+    import mocap   # noqa: E402 -- tools/units/mocap.py imports this module
+    if team_id in mocap.CAPTURED:
+        # The three teams that replaced the supplied mocap bipeds (B7) play
+        # those bipeds' own captured clips again, retargeted onto these bones.
+        built = mocap.build_captured_clips(arm_obj, team_id)
+        for clip_name in ("down", "wreck"):
+            if clip_name not in built:
+                build_death_clip(arm_obj, team_id, clip_name)
+        if any(s.get("work_posture") == "kneeling" for s in figures):
+            build_work_clip(arm_obj, figures)
+        return
+    gait = gait_for_team(team_id)
     build_idle_clip(arm_obj, figures)
-    build_move_clip(arm_obj, figures, gait_for_team(team_id))
+    build_move_clip(arm_obj, figures, gait)
     # Any hand-bound weapon, rifle or launcher -- see `build_fire_clip`. This
     # condition read `== "rifle"` until this pass, which is why `at_team`
     # shipped four clips where every other team ships five.
@@ -2431,10 +2614,15 @@ def build_clips(arm_obj, team_id):
     leaners = FIRE_ROOT_LEAN.get(team_id)
     if armed or leaners:
         build_fire_clip(arm_obj, figures, leaners)
+    walkers = [s for s in figures if s["animates"]] + _walker_specs(figures)
+    if walkers and unit_has_weapons(team_id):
+        build_move_fire_clip(arm_obj, figures, gait, leaners)
     build_death_clip(arm_obj, team_id, "down")
     build_death_clip(arm_obj, team_id, "wreck")
-    # `work`: only `teams.TEAM_CLIP_ADD` scopes it to yahalom_squad, which
-    # this pass does not build (see the module docstring).
+    # `work`: `teams.TEAM_CLIP_ADD` scopes it to yahalom_squad; since B7 a
+    # figure declaring `work_posture="kneeling"` has a kneeler body for it.
+    if any(s.get("work_posture") == "kneeling" for s in figures):
+        build_work_clip(arm_obj, figures)
 
 
 def export_glb(arm_obj, path, materials=False, jpeg_quality=85):

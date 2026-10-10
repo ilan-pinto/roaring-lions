@@ -16,10 +16,10 @@ describe('garageModelSource', () => {
   });
 
   it('draws the GLB the mission draws, through the same catalogue', () => {
-    expect(garageModelSource('inf_squad', (f) => f)).toEqual({ kind: 'rigged', url: 'meshy_soldier.glb', faction: 'kdf' });
+    expect(garageModelSource('inf_squad', (f) => f)).toEqual({ kind: 'rigged', url: 'inf_squad.glb', faction: 'kdf' });
     expect(garageModelSource('yahalom_squad', (f) => f)).toEqual({
       kind: 'rigged',
-      url: 'yahalom_engineer.glb',
+      url: 'yahalom_squad.glb',
       faction: 'kdf',
     });
     expect(garageModelSource('mbt_lavi', (f) => f)).toEqual({ kind: 'vehicle', url: 'vehicles/mbt_lavi.glb' });

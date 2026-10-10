@@ -67,6 +67,17 @@ export interface GlbFile {
 
 /** Splits a `.glb` into its JSON chunk and its binary chunk. */
 export function readGlb(path: string): GlbFile {
+  // Memoised per path and per process (GH-344): a file's clips and tests all
+  // read the same bytes. Nothing mutates a `GlbFile`; a vitest worker
+  // isolates modules per spec file, so a re-export is never seen stale.
+  let hit = GLB_CACHE.get(path);
+  if (!hit) { hit = readGlbUncached(path); GLB_CACHE.set(path, hit); }
+  return hit;
+}
+const GLB_CACHE = new Map<string, GlbFile>();
+const ACCESSOR_CACHE = new WeakMap<GlbFile, Map<number, { data: Float64Array; components: number; count: number }>>();
+
+function readGlbUncached(path: string): GlbFile {
   const buf = readFileSync(path);
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   if (dv.getUint32(0, true) !== 0x46546c67) throw new Error(`${path}: not a GLB`);
@@ -92,6 +103,14 @@ const TYPE_COUNT: Record<string, number> = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 
  *  Integer component types come back unnormalised, which is what joint
  *  indices want; weights in this tree are always FLOAT. */
 export function readAccessor(glb: GlbFile, index: number): { data: Float64Array; components: number; count: number } {
+  let per = ACCESSOR_CACHE.get(glb);
+  if (!per) { per = new Map(); ACCESSOR_CACHE.set(glb, per); }
+  let hit = per.get(index);
+  if (!hit) { hit = readAccessorUncached(glb, index); per.set(index, hit); }
+  return hit;
+}
+
+function readAccessorUncached(glb: GlbFile, index: number): { data: Float64Array; components: number; count: number } {
   const acc = glb.json.accessors?.[index];
   if (!acc) throw new Error(`accessor ${index} missing`);
   const comps = TYPE_COUNT[acc.type];
@@ -588,24 +607,35 @@ function skinRoots(glb: GlbFile): number[] {
 }
 
 /** Where each figure's root joint goes over `clip`: the fall gate's
- *  "no horizontal root motion, starts standing, ends prone" instrument. */
+ *  "no horizontal root motion, starts standing, ends prone" instrument.
+ *
+ *  On a supplied Meshy biped the skin root IS the hips. On a rig.py figure
+ *  it is `<p>_root`, a ground-level bone whose height says nothing about
+ *  standing or lying, so the HIPS are read from its `<p>_pelvis` child
+ *  (2026-10-05, when the captured falls came back onto rig.py figures; the
+ *  hidden/live classification still reads the root, whose scale is the
+ *  switch). */
 export function measureRootTravel(path: string, clip: string): RootTravel[] {
   const glb = readGlb(path);
   const nodes = glb.json.nodes ?? [];
   const { tracks, start, end } = readClip(glb, clip);
   const roots = skinRoots(glb);
+  const hips = roots.map((r) => {
+    const pelvis = (nodes[r]?.children ?? []).find((c) => /_pelvis$/.test(nodes[c]?.name ?? ''));
+    return pelvis ?? r;
+  });
   const first = nodeWorlds(glb, tracks, start);
-  const out = roots.map((r) => ({
+  const out = roots.map((r, i) => ({
     root: nodes[r]?.name ?? `node${r}`,
-    x0: first[r][12], y0: first[r][13], z0: first[r][14],
+    x0: first[hips[i]][12], y0: first[hips[i]][13], z0: first[hips[i]][14],
     liveAtStart: jointScale(first[r]) > HIDDEN_SCALE,
-    horizontalM: 0, endY: first[r][13],
+    horizontalM: 0, endY: first[hips[i]][13],
   }));
   for (let s = 1; s <= SAMPLES; s++) {
     const t = start + ((end - start) * s) / SAMPLES;
     const worlds = nodeWorlds(glb, tracks, t);
-    roots.forEach((r, i) => {
-      const m = worlds[r];
+    roots.forEach((_r, i) => {
+      const m = worlds[hips[i]];
       const o = out[i];
       o.horizontalM = Math.max(o.horizontalM, Math.hypot(m[12] - o.x0, m[14] - o.z0));
       o.endY = m[13];
@@ -668,6 +698,20 @@ export function measureJointPoses(path: string, clip: string, at: 'start' | 'end
       rotation: quatFromMat(m, scale),
       scale,
     };
+  });
+}
+
+/** Every NODE's world pose at the first or last frame of `clip` -- the
+ *  skinless twin of `measureJointPoses`, for a vehicle's rigid parts. */
+export function measureNodePoses(path: string, clip: string, at: 'start' | 'end'): JointPose[] {
+  const glb = readGlb(path);
+  const nodes = glb.json.nodes ?? [];
+  const { tracks, start, end } = readClip(glb, clip);
+  const worlds = nodeWorlds(glb, tracks, at === 'start' ? start : end);
+  return nodes.map((n, j) => {
+    const m = worlds[j];
+    const scale = jointScale(m);
+    return { name: n.name ?? `node${j}`, translation: [m[12], m[13], m[14]], rotation: quatFromMat(m, scale), scale };
   });
 }
 
@@ -1544,12 +1588,37 @@ export interface HeldWeaponClearance {
 export const SAMPLES_HELD = 9;
 
 export function measureHeldWeaponInBody(path: string, clip: string, figure: string): HeldWeaponClearance {
+  // Since the motion pass (5 Oct) a held weapon rides its own
+  // `${figure}_weapon` bone, placed by the hold, rather than the forearm.
+  const names = (readGlb(path).json.nodes ?? []).map((n) => n.name);
+  const joint = names.includes(`${figure}_weapon`) ? `${figure}_weapon` : `${figure}_forearm_R`;
+  return measureMountedPartInBody(path, clip, {
+    roles: ['weapon', 'metal'],
+    joint,
+    bodyJoint: (name) => name === `${figure}_head` || name === `${figure}_neck` || name === `${figure}_spine`,
+  });
+}
+
+/** A kit part mounted on one joint, against the body triangles another set
+ *  of joints owns -- `measureHeldWeaponInBody` with the three choices
+ *  exposed (B7 review): a pack on `spine` against its own torso, a mortar
+ *  on `prop` against every crewman. */
+export interface MountedPartSpec {
+  /** Node names (roles) whose vertices count as the part when `joint` owns them. */
+  readonly roles: readonly string[];
+  /** The joint that must dominantly own a vertex for it to be part of the part. */
+  readonly joint: string;
+  /** Which dominant joints make a triangle "the body" the part must stay out of. */
+  readonly bodyJoint: (jointName: string) => boolean;
+}
+
+export function measureMountedPartInBody(path: string, clip: string, spec: MountedPartSpec): HeldWeaponClearance {
   const glb = readGlb(path);
   const nodes = glb.json.nodes ?? [];
   const meshes = glb.json.meshes ?? [];
   const { tracks, start, end } = readClip(glb, clip);
-  const hand = `${figure}_forearm_R`;
-  const upper = new Set([`${figure}_head`, `${figure}_neck`, `${figure}_spine`]);
+  const hand = spec.joint;
+  const roleSet = new Set(spec.roles);
   interface Part {
     pos: Accessor; joints: Accessor; weights: Accessor; skin: { joints: number[] }; ibm: Accessor | null;
     verts: number[]; edges: [number, number][]; tris: [number, number, number][];
@@ -1561,7 +1630,7 @@ export function measureHeldWeaponInBody(path: string, clip: string, figure: stri
     const skin = glb.json.skins?.[node.skin];
     if (!skin) continue;
     const role = node.name ?? meshes[node.mesh]?.name ?? '';
-    const isWeapon = role === 'weapon' || role === 'metal';
+    const isWeapon = roleSet.has(role);
     for (const prim of meshes[node.mesh].primitives) {
       if (prim.indices === undefined) continue;
       const pos = readAccessor(glb, prim.attributes.POSITION);
@@ -1595,13 +1664,13 @@ export function measureHeldWeaponInBody(path: string, clip: string, figure: stri
         }
         weapon.push({ pos, joints, weights, skin, ibm, verts, edges, tris: [] });
       } else {
-        const own = tris.filter((t) => upper.has(dom[t[0]]) && upper.has(dom[t[1]]) && upper.has(dom[t[2]]));
+        const own = tris.filter((t) => spec.bodyJoint(dom[t[0]]) && spec.bodyJoint(dom[t[1]]) && spec.bodyJoint(dom[t[2]]));
         if (own.length) body.push({ pos, joints, weights, skin, ibm, verts: [], edges: [], tris: own });
       }
     }
   }
-  if (weapon.length === 0) throw new Error(`${path}: no weapon/metal vertex rides ${hand}`);
-  if (body.length === 0) throw new Error(`${path}: no triangle rides ${figure}'s head, neck or spine`);
+  if (weapon.length === 0) throw new Error(`${path}: no ${spec.roles.join('/')} vertex rides ${hand}`);
+  if (body.length === 0) throw new Error(`${path}: no triangle rides the body joints named for ${hand}`);
 
   let worst = 0, instants = 0, samples = 0;
   for (let s = 0; s < SAMPLES_HELD; s++) {
@@ -1630,14 +1699,20 @@ export function measureHeldWeaponInBody(path: string, clip: string, figure: stri
     let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
     for (const q of pts) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], q[k]); hi[k] = Math.max(hi[k], q[k]); }
     if (Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) < 1e-3) continue;
-    const tri: number[] = [];
+    const triList: number[] = [];
     for (const p of body) {
       const mats = computeSkinMats(p.skin, worlds, p.ibm);
-      for (const [a, b, c] of p.tris) {
-        tri.push(...skinPoint(p.pos, p.joints, p.weights, a, mats), ...skinPoint(p.pos, p.joints, p.weights, b, mats),
-          ...skinPoint(p.pos, p.joints, p.weights, c, mats));
-      }
+      // Each vertex is skinned once, not once per triangle that shares it.
+      const skinned = new Map<number, [number, number, number]>();
+      const at = (v: number): [number, number, number] => {
+        let q = skinned.get(v);
+        if (!q) { q = skinPoint(p.pos, p.joints, p.weights, v, mats); skinned.set(v, q); }
+        return q;
+      };
+      for (const [a, b, c] of p.tris) triList.push(...at(a), ...at(b), ...at(c));
     }
+    const soup = buildTriChunks(Float64Array.from(triList));
+    const tri = soup.tri;
     lo = [Infinity, Infinity, Infinity]; hi = [-Infinity, -Infinity, -Infinity];
     for (let i = 0; i < tri.length; i += 3) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], tri[i + k]); hi[k] = Math.max(hi[k], tri[i + k]); }
     if (Math.min(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) < 1e-3) continue;   // the holder is scaled out
@@ -1647,26 +1722,769 @@ export function measureHeldWeaponInBody(path: string, clip: string, figure: stri
     for (const q of pts) {
       // Outside the body's box the winding number is ~0; skip the sum.
       if (q[0] < lo[0] || q[1] < lo[1] || q[2] < lo[2] || q[0] > hi[0] || q[1] > hi[1] || q[2] > hi[2]) continue;
-      if (windingNumber(q, tri) > 0.5) inside++;
+      if (windingInside(q, soup)) inside++;
     }
     worst = Math.max(worst, inside);
   }
   return { samples, instants, worstInside: worst };
 }
 
+interface TriNode {
+  /** Triangle range [a, b) in the reordered soup. */
+  a: number; b: number;
+  /** Area-weighted centroid, summed area vector, total area, radius about c. */
+  c: number[]; s: number[]; area: number; r: number;
+  left: TriNode | null; right: TriNode | null;
+}
+interface TriChunks {
+  readonly tri: Float64Array;
+  readonly root: TriNode | null;
+}
+
+/** Reorders the triangles by a recursive median split on the longest axis and
+ *  builds a Barnes-Hut tree over them (leaves of <= 8), so far triangles can
+ *  be summed by their far-field term instead of one by one. */
+function buildTriChunks(flat: Float64Array): TriChunks {
+  const n = flat.length / 9;
+  if (n === 0) return { tri: flat, root: null };
+  const cen = new Float64Array(n * 3);
+  for (let t = 0; t < n; t++) for (let k = 0; k < 3; k++) {
+    cen[t * 3 + k] = (flat[t * 9 + k] + flat[t * 9 + 3 + k] + flat[t * 9 + 6 + k]) / 3;
+  }
+  const order = Array.from({ length: n }, (_, i) => i);
+  const ranges: [number, number][] = [];
+  const split = (a: number, b: number): void => {
+    ranges.push([a, b]);
+    if (b - a <= 8) return;
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (let i = a; i < b; i++) for (let k = 0; k < 3; k++) {
+      const v = cen[order[i] * 3 + k]; lo[k] = Math.min(lo[k], v); hi[k] = Math.max(hi[k], v);
+    }
+    let ax = 0;
+    for (let k = 1; k < 3; k++) if (hi[k] - lo[k] > hi[ax] - lo[ax]) ax = k;
+    const part = order.slice(a, b).sort((x, y) => cen[x * 3 + ax] - cen[y * 3 + ax] || x - y);
+    for (let i = a; i < b; i++) order[i] = part[i - a];
+    const m = (a + b) >> 1;
+    split(a, m); split(m, b);
+  };
+  split(0, n);
+  const tri = new Float64Array(flat.length);
+  for (let i = 0; i < n; i++) tri.set(flat.subarray(order[i] * 9, order[i] * 9 + 9), i * 9);
+  const make = (a: number, b: number): TriNode => {
+    const c = [0, 0, 0], sv = [0, 0, 0];
+    let area = 0;
+    for (let i = a; i < b; i++) {
+      const o = i * 9;
+      const ux = tri[o + 3] - tri[o], uy = tri[o + 4] - tri[o + 1], uz = tri[o + 5] - tri[o + 2];
+      const vx = tri[o + 6] - tri[o], vy = tri[o + 7] - tri[o + 1], vz = tri[o + 8] - tri[o + 2];
+      const nx = 0.5 * (uy * vz - uz * vy), ny = 0.5 * (uz * vx - ux * vz), nz = 0.5 * (ux * vy - uy * vx);
+      const ar = Math.sqrt(nx * nx + ny * ny + nz * nz);
+      sv[0] += nx; sv[1] += ny; sv[2] += nz; area += ar;
+      for (let k = 0; k < 3; k++) c[k] += ar * (tri[o + k] + tri[o + 3 + k] + tri[o + 6 + k]) / 3;
+    }
+    for (let k = 0; k < 3; k++) c[k] = area > 0 ? c[k] / area : tri[a * 9 + k];
+    let r = 0;
+    for (let i = a; i < b; i++) for (let v = 0; v < 3; v++) {
+      r = Math.max(r, Math.hypot(tri[i * 9 + v * 3] - c[0], tri[i * 9 + v * 3 + 1] - c[1], tri[i * 9 + v * 3 + 2] - c[2]));
+    }
+    if (b - a <= 8) return { a, b, c, s: sv, area, r, left: null, right: null };
+    const m = (a + b) >> 1;
+    return { a, b, c, s: sv, area, r, left: make(a, m), right: make(m, b) };
+  };
+  return { tri, root: make(0, n) };
+}
+
+/** `windingNumber(p, all) > 0.5`, decided exactly. A node far from `p`
+ *  (d > 2.5 r from its area-weighted centroid) contributes its far-field
+ *  term S.(c-p)/d^3 / 4 pi, with the error bounded by 6 area r^2 / (d-r)^4 /
+ *  4 pi (second-order Taylor remainder of the solid-angle kernel, generous --
+ *  measured error is ~100x under it). Bounds are summed; when the estimate
+ *  lies within the summed bound of the 0.5 threshold, everything is redone
+ *  exactly, so the verdict is the exact one. */
+function windingInside(p: readonly number[], soup: TriChunks): boolean {
+  if (!soup.root) return false;
+  WI.px = p[0]; WI.py = p[1]; WI.pz = p[2]; WI.bound = 0; WI.sum = 0; WI.tri = soup.tri;
+  windingVisit(soup.root);
+  const { sum, bound } = WI;
+  if (Math.abs(sum - 0.5) > bound) return sum > 0.5;
+  return windingNumber(p, soup.tri) > 0.5;
+}
+
+/** Per-query accumulators, module-level so the traversal allocates no closure. */
+const WI: { px: number; py: number; pz: number; bound: number; sum: number; tri: Float64Array } = { px: 0, py: 0, pz: 0, bound: 0, sum: 0, tri: new Float64Array(0) };
+
+function windingVisit(nd: TriNode): void {
+  const dx = nd.c[0] - WI.px, dy = nd.c[1] - WI.py, dz = nd.c[2] - WI.pz;
+  const d2 = dx * dx + dy * dy + dz * dz;
+  if (d2 > 6.25 * nd.r * nd.r) {
+    const d = Math.sqrt(d2);
+    const g = d - nd.r, g2 = g * g;
+    const e = (6 * nd.area * nd.r * nd.r) / (g2 * g2 * 4 * Math.PI);
+    if (e < 0.003 && WI.bound + e < 0.3) {
+      WI.sum += (nd.s[0] * dx + nd.s[1] * dy + nd.s[2] * dz) / (d2 * d * 4 * Math.PI);
+      WI.bound += e;
+      return;
+    }
+  }
+  if (nd.left && nd.right) { windingVisit(nd.left); windingVisit(nd.right); return; }
+  WI.sum += windingSpan(WI.px, WI.py, WI.pz, WI.tri, nd.a * 9, nd.b * 9);
+}
+
 /** Generalised winding number of `p` against a flat triangle list (nine
  *  numbers a triangle): the solid angle each subtends, summed, over 4 pi. */
-function windingNumber(p: readonly number[], tri: readonly number[]): number {
+function windingNumber(p: readonly number[], tri: Float64Array): number {
+  return windingSpan(p[0], p[1], p[2], tri, 0, tri.length);
+}
+
+/** The same sum over `tri[from, to)`, with no subarray allocated per call. */
+function windingSpan(px: number, py: number, pz: number, tri: Float64Array, from: number, to: number): number {
   let sum = 0;
-  for (let i = 0; i < tri.length; i += 9) {
-    const ax = tri[i] - p[0], ay = tri[i + 1] - p[1], az = tri[i + 2] - p[2];
-    const bx = tri[i + 3] - p[0], by = tri[i + 4] - p[1], bz = tri[i + 5] - p[2];
-    const cx = tri[i + 6] - p[0], cy = tri[i + 7] - p[1], cz = tri[i + 8] - p[2];
-    const la = Math.hypot(ax, ay, az), lb = Math.hypot(bx, by, bz), lc = Math.hypot(cx, cy, cz);
+  for (let i = from; i < to; i += 9) {
+    const ax = tri[i] - px, ay = tri[i + 1] - py, az = tri[i + 2] - pz;
+    const bx = tri[i + 3] - px, by = tri[i + 4] - py, bz = tri[i + 5] - pz;
+    const cx = tri[i + 6] - px, cy = tri[i + 7] - py, cz = tri[i + 8] - pz;
+    const la = Math.sqrt(ax * ax + ay * ay + az * az), lb = Math.sqrt(bx * bx + by * by + bz * bz),
+      lc = Math.sqrt(cx * cx + cy * cy + cz * cz);
     const det = ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx);
     const den = la * lb * lc + (ax * bx + ay * by + az * bz) * lc + (bx * cx + by * cy + bz * cz) * la
       + (cx * ax + cy * ay + cz * az) * lb;
     sum += 2 * Math.atan2(det, den);
   }
   return sum / (4 * Math.PI);
+}
+
+export interface ArmClearance {
+  /** Arm vertices: every non-weapon vertex `figure`'s `upperarm_*` or
+   *  `forearm_*` dominantly owns. */
+  readonly samples: number;
+  /** Instants of the clip at which the figure was drawn (not scaled out). */
+  readonly instants: number;
+  /** The worst instant's count of arm vertices inside the same figure's own
+   *  head, neck and torso, by generalised winding number (> 0.5). */
+  readonly worstInside: number;
+}
+
+/**
+ * How deep does a figure's own arm sit inside his own upper body?
+ *
+ * #327 seated the launchers on the shoulder and re-seated both gunner arms
+ * rigidly with `_two_bone`; its census recorded the arms going deeper into
+ * the torso (rpg 223 -> 391 arm vertices inside). `measureHeldWeaponInBody`
+ * cannot see that: there the part and the body are told apart by ROLE, and
+ * an arm and a torso share the `uniform` role. Here they are told apart by
+ * JOINT alone -- arm joints against `head`/`neck`/`spine` -- with the
+ * `weapon`/`metal` roles excluded, so the tube riding `forearm_R` is not
+ * counted as arm. Vertices only (an arm is dense; a tube is not), at
+ * `SAMPLES_HELD` instants, ends included.
+ *
+ * Throws when no arm vertex or no body triangle is found for `figure`: an
+ * empty measurement is a silent pass.
+ */
+export function measureArmInBody(path: string, clip: string, figure: string): ArmClearance {
+  const glb = readGlb(path);
+  const nodes = glb.json.nodes ?? [];
+  const meshes = glb.json.meshes ?? [];
+  const { tracks, start, end } = readClip(glb, clip);
+  const armRe = new RegExp(`^${figure}_(upperarm|forearm)_[LR]$`);
+  const isBody = (n: string) => n === `${figure}_head` || n === `${figure}_neck` || n === `${figure}_spine`;
+  interface Part {
+    pos: Accessor; joints: Accessor; weights: Accessor; skin: { joints: number[] }; ibm: Accessor | null;
+    verts: number[]; tris: [number, number, number][];
+  }
+  const parts: Part[] = [];
+  let armCount = 0, bodyCount = 0;
+  for (const node of nodes) {
+    if (node.mesh === undefined || node.skin === undefined) continue;
+    const skin = glb.json.skins?.[node.skin];
+    if (!skin) continue;
+    const role = node.name ?? meshes[node.mesh]?.name ?? '';
+    const held = role === 'weapon' || role === 'metal';
+    for (const prim of meshes[node.mesh].primitives) {
+      if (prim.indices === undefined) continue;
+      const pos = readAccessor(glb, prim.attributes.POSITION);
+      const joints = readAccessor(glb, prim.attributes.JOINTS_0);
+      const weights = readAccessor(glb, prim.attributes.WEIGHTS_0);
+      const ibm = skin.inverseBindMatrices === undefined ? null : readAccessor(glb, skin.inverseBindMatrices);
+      const dom: string[] = [];
+      for (let v = 0; v < pos.count; v++) {
+        let best = -1, bw = 0;
+        for (let k = 0; k < 4; k++) {
+          const w = weights.data[v * 4 + k];
+          if (w > bw) { bw = w; best = joints.data[v * 4 + k]; }
+        }
+        dom.push(best < 0 ? '' : (nodes[skin.joints[best]]?.name ?? ''));
+      }
+      const verts = held ? [] : dom.flatMap((d, v) => (armRe.test(d) ? [v] : []));
+      const idx = readAccessor(glb, prim.indices).data;
+      const tris: [number, number, number][] = [];
+      for (let i = 0; i + 2 < idx.length; i += 3) {
+        if (isBody(dom[idx[i]]) && isBody(dom[idx[i + 1]]) && isBody(dom[idx[i + 2]])) tris.push([idx[i], idx[i + 1], idx[i + 2]]);
+      }
+      armCount += verts.length;
+      bodyCount += tris.length;
+      if (verts.length || tris.length) parts.push({ pos, joints, weights, skin, ibm, verts, tris });
+    }
+  }
+  if (armCount === 0) throw new Error(`${path}: no arm vertex rides ${figure}'s arm joints`);
+  if (bodyCount === 0) throw new Error(`${path}: no triangle rides ${figure}'s head, neck or spine`);
+
+  let worst = 0, instants = 0;
+  for (let s = 0; s < SAMPLES_HELD; s++) {
+    const t = start + ((end - start) * s) / (SAMPLES_HELD - 1);
+    const worlds = nodeWorlds(glb, tracks, t);
+    const pts: [number, number, number][] = [];
+    const tri: number[] = [];
+    for (const p of parts) {
+      const mats = computeSkinMats(p.skin, worlds, p.ibm);
+      for (const v of p.verts) pts.push(skinPoint(p.pos, p.joints, p.weights, v, mats));
+      for (const [a, b, c] of p.tris) {
+        tri.push(...skinPoint(p.pos, p.joints, p.weights, a, mats), ...skinPoint(p.pos, p.joints, p.weights, b, mats),
+          ...skinPoint(p.pos, p.joints, p.weights, c, mats));
+      }
+    }
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; i < tri.length; i += 3) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], tri[i + k]); hi[k] = Math.max(hi[k], tri[i + k]); }
+    if (Math.min(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) < 1e-3) continue;   // scaled out
+    instants++;
+    const soup = buildTriChunks(Float64Array.from(tri));
+    let inside = 0;
+    for (const q of pts) {
+      if (q[0] < lo[0] || q[1] < lo[1] || q[2] < lo[2] || q[0] > hi[0] || q[1] > hi[1] || q[2] > hi[2]) continue;
+      if (windingInside(q, soup)) inside++;
+    }
+    worst = Math.max(worst, inside);
+  }
+  return { samples: armCount, instants, worstInside: worst };
+}
+
+/**
+ * How much a figure's UPPER BODY moves over a clip, measured off the bytes:
+ * the B7 regression's instrument (2026-10-05).
+ *
+ * B7 replaced three motion-captured bipeds with rig.py figures whose `move`
+ * locks the torso to the pelvis -- legs and arms swing, the body above the
+ * belt rides along rigid. Nothing gated that: every gait check reads boots.
+ * Two numbers per figure, both from the pelvis joint and the head joint alone
+ * (rig.py's `<p>_pelvis`/`<p>_head`, or a supplied biped's `<p>_Hips`/
+ * `<p>_Head`, so the same instrument reads the pre-B7 files it is calibrated
+ * on):
+ *
+ *  - `leanRangeDeg`: the peak-to-peak swing of the pelvis-to-head line's
+ *    angle from vertical in the forward plane (+X forward, +Y up) -- the
+ *    torso pitching through the stride;
+ *  - `headSwayM`: the head's horizontal excursion RELATIVE TO THE PELVIS
+ *    (the hypotenuse of its forward and lateral peak-to-peak), so the root's
+ *    own travel and bob do not count.
+ *
+ * A figure whose pelvis is scaled out of the clip (a corpse, a hidden walker
+ * or kneeler) is reported `hiddenInClip` and its numbers are zero.
+ */
+export interface UpperBodyMotion {
+  readonly figure: string;
+  readonly hiddenInClip: boolean;
+  readonly leanRangeDeg: number;
+  readonly headSwayM: number;
+}
+
+export function measureUpperBodyMotion(path: string, clip: string): UpperBodyMotion[] {
+  const glb = readGlb(path);
+  const nodes = glb.json.nodes ?? [];
+  const names = nodes.map((n) => n.name ?? '');
+  const { tracks, start, end } = readClip(glb, clip);
+  const figures: { figure: string; pelvis: number; head: number }[] = [];
+  for (let i = 0; i < names.length; i++) {
+    const m = /^(.+)_(pelvis|Hips)$/.exec(names[i]);
+    if (!m) continue;
+    const head = names.findIndex((n) => n === `${m[1]}_${m[2] === 'Hips' ? 'Head' : 'head'}`);
+    if (head >= 0) figures.push({ figure: m[1], pelvis: i, head });
+  }
+  if (figures.length === 0) throw new Error(`${path}: no pelvis/head joint pair -- measureUpperBodyMotion needs one per figure`);
+  const range = (a: number[]): number => Math.max(...a) - Math.min(...a);
+  return figures.map(({ figure, pelvis, head }) => {
+    const lean: number[] = [];
+    const fx: number[] = [];
+    const fz: number[] = [];
+    let hidden = true;
+    for (let s = 0; s <= SAMPLES; s++) {
+      const w = nodeWorlds(glb, tracks, start + ((end - start) * s) / SAMPLES);
+      if (jointScale(w[pelvis]) <= HIDDEN_SCALE) continue;
+      hidden = false;
+      const dx = w[head][12] - w[pelvis][12];
+      const dy = w[head][13] - w[pelvis][13];
+      const dz = w[head][14] - w[pelvis][14];
+      lean.push((Math.atan2(dx, dy) * 180) / Math.PI);
+      fx.push(dx);
+      fz.push(dz);
+    }
+    if (hidden) return { figure, hiddenInClip: true, leanRangeDeg: 0, headSwayM: 0 };
+    return { figure, hiddenInClip: false, leanRangeDeg: range(lean), headSwayM: Math.hypot(range(fx), range(fz)) };
+  });
+}
+
+/**
+ * Ground a clip's PLANTED feet cover per cycle (the motion pass, 5 Oct).
+ *
+ * `strideM` used to be one boot's forward peak-to-peak travel, read as the
+ * ground covered per cycle. It is not: a planted foot sweeps back only while
+ * it is on the ground, a fraction of the cycle, so the ground per cycle is
+ * that sweep divided by the stance fraction -- and the rate match played
+ * every walker's legs 1.8-2.9x too fast for their stride (the motion
+ * checkpoint, finding #3). What a rate match must divide by is the speed of
+ * the foot that is on the ground.
+ *
+ * Every boot vertex a foot joint carries (`*_shin_L`/`*_shin_R`), at every
+ * sample: its backward speed, weighted by how near the ground it is -- 1 at
+ * the clip's lowest sole, falling to 0 at `PLANTED_FADE_M` above it. Material
+ * points, because a rigid boot rolls heel to toe and its LOWEST point travels
+ * forward while nothing slides. All feet pooled, every figure. `tools/src/meshes/motion/stride.ts`'s `plantedSpeed` is the same
+ * rule over gltf-transform; this one reads the bytes with this module's own
+ * skinning, and the gait gate's foot-skate oracle is a third, per-sample
+ * measure, so no two of them share code.
+ */
+export const PLANTED_FADE_M = 0.012;
+export const PLANTED_SAMPLES = 120;
+
+export interface PlantedGround {
+  readonly groundPerCycleM: number;
+  readonly clipSeconds: number;
+  readonly feet: number;
+}
+
+export function measurePlantedGround(path: string, clip: string): PlantedGround {
+  const { glb, pos, joints, weights, skin, ibm } = loadSkinnedRole(path, 'boot');
+  const { tracks, start, end } = readClip(glb, clip);
+  const names = (glb.json.nodes ?? []).map((n) => n.name ?? '');
+  const groups = new Map<number, number[]>();
+  for (let i = 0; i < pos.count; i++) {
+    let best = 0;
+    for (let k = 1; k < 4; k++) if (weights.data[i * 4 + k] > weights.data[i * 4 + best]) best = k;
+    const node = skin.joints[joints.data[i * 4 + best]];
+    // The shin carries the boot on rig.py's rigs; since the motion pass the
+    // foot below an ankle does (`motion/feet.ts`). A captured biped's own
+    // foot bones count too.
+    if (!/(_shin_[LR]|_foot_[LR]|^(Left|Right)(Foot|ToeBase))$/.test(names[node] ?? '')) continue;
+    if (!groups.has(node)) groups.set(node, []);
+    groups.get(node)!.push(i);
+  }
+  const n = PLANTED_SAMPLES;
+  const dt = (end - start) / n;
+  const idx = [...groups.values()].flat();
+  const frames: [number, number, number][][] = [];
+  for (let s = 0; s <= n; s++) {
+    const mats = computeSkinMats(skin, nodeWorlds(glb, tracks, start + s * dt), ibm);
+    frames.push(idx.map((v) => skinPoint(pos, joints, weights, v, mats)));
+  }
+  let ground = Infinity;
+  for (const f of frames) for (const p of f) ground = Math.min(ground, p[1]);
+  let num = 0;
+  let den = 0;
+  for (let s = 0; s < n; s++) {
+    for (let i = 0; i < idx.length; i++) {
+      const a = frames[s][i];
+      const b = frames[s + 1][i];
+      const w = Math.max(0, 1 - ((a[1] + b[1]) / 2 - ground) / PLANTED_FADE_M) ** 2;
+      if (w <= 0) continue;
+      num += w * (-(b[0] - a[0]) / dt);
+      den += w;
+    }
+  }
+  const feet = groups.size;
+  const speed = den > 0 ? num / den : NaN;
+  return { groundPerCycleM: speed * (end - start), clipSeconds: end - start, feet };
+}
+
+/**
+ * Foot skate, per figure: how fast a foot that is ON THE GROUND moves over
+ * it once the clip is played the way the renderer plays it -- the gait gate's
+ * oracle (the motion pass, 5 Oct).
+ *
+ * The body is taken to move at `speedMetresPerSecond` along +X and the clip
+ * to play at `timeScale` (the caller passes the renderer's own
+ * `gaitTimeScale`, so a declaration the renderer would misread is judged as
+ * it would be drawn). Every boot vertex of a figure (the vertices its own
+ * `*_shin_*`/`*_foot_*` joints carry, or a biped's `*Foot`/`*ToeBase`) whose
+ * height is within `SKATE_CONTACT_M` of that figure's lowest boot point at
+ * that instant is a vertex on the ground, and its world speed is its
+ * clip-local forward velocity times `timeScale` plus the body's. The reading
+ * is the MEDIAN of those speeds, over the body's speed: 0 for a planted foot,
+ * 1 for a foot gliding along with the body, past 1 for one treadmilling
+ * backwards faster than the ground passes (the defect: 1.86 on inf_squad
+ * before the pass, measured by the motion checkpoint).
+ *
+ * Deliberately not `measurePlantedGround`'s rule (a pooled, weighted mean of
+ * the backward speed): per figure, per sample, a hard contact test and a
+ * median, so the two can disagree and the gate is not a declaration graded
+ * by its own arithmetic.
+ */
+export const SKATE_CONTACT_M = 0.015;
+
+export interface FigureSkate {
+  readonly figure: string;
+  readonly skate: number;
+  readonly samples: number;
+}
+
+export function measureFootSkate(
+  path: string,
+  clip: string,
+  speedMetresPerSecond: number,
+  timeScale: number
+): FigureSkate[] {
+  const { glb, pos, joints, weights, skin, ibm } = loadSkinnedRole(path, 'boot');
+  const { tracks, start, end } = readClip(glb, clip);
+  const names = (glb.json.nodes ?? []).map((n) => n.name ?? '');
+  const figureOf = (n: string): string | null => {
+    const m = /^(.*)_(shin|foot)_[LR]$/.exec(n);
+    if (m) return m[1];
+    return /^(Left|Right)(Foot|ToeBase)$/.test(n) ? '(biped)' : null;
+  };
+  const byFigure = new Map<string, number[]>();
+  for (let i = 0; i < pos.count; i++) {
+    let best = 0;
+    for (let k = 1; k < 4; k++) if (weights.data[i * 4 + k] > weights.data[i * 4 + best]) best = k;
+    const f = figureOf(names[skin.joints[joints.data[i * 4 + best]]] ?? '');
+    if (f === null || /death/.test(f)) continue;
+    if (!byFigure.has(f)) byFigure.set(f, []);
+    byFigure.get(f)!.push(i);
+  }
+  const n = 64;
+  const dtClip = (end - start) / n;
+  const out: FigureSkate[] = [];
+  const frames: Map<string, [number, number, number][][]> = new Map([...byFigure.keys()].map((f) => [f, []]));
+  for (let s = 0; s <= n; s++) {
+    const mats = computeSkinMats(skin, nodeWorlds(glb, tracks, start + s * dtClip), ibm);
+    for (const [f, idx] of byFigure) frames.get(f)!.push(idx.map((v) => skinPoint(pos, joints, weights, v, mats)));
+  }
+  for (const [f, fr] of frames) {
+    // A figure scaled out of this clip (a hidden walker or kneeler) has
+    // every boot vertex at one point: it is not on the ground, it is gone.
+    const spread = Math.max(...fr[0].map((p) => p[1])) - Math.min(...fr[0].map((p) => p[1]));
+    if (spread < 1e-4) continue;
+    // The ground is the figure's lowest boot point over the whole cycle, not
+    // at each instant: in a run's flight phase the lowest point is in the
+    // air, and counting it as "on the ground" reads a sprinter's airborne
+    // feet as gliding (measured: 1.0 on a planted charge_squad).
+    const ground = Math.min(...fr.flatMap((f) => f.map((p) => p[1])));
+    const speeds: number[] = [];
+    for (let s = 0; s < n; s++) {
+      const a = fr[s];
+      const b = fr[s + 1];
+      for (let i = 0; i < a.length; i++) {
+        if (a[i][1] - ground > SKATE_CONTACT_M || b[i][1] - ground > SKATE_CONTACT_M) continue;
+        const local = (b[i][0] - a[i][0]) / (dtClip / timeScale);
+        speeds.push(Math.abs(local + speedMetresPerSecond));
+      }
+    }
+    speeds.sort((x, y) => x - y);
+    out.push({
+      figure: f,
+      skate: speeds.length ? speeds[Math.floor(speeds.length / 2)] / speedMetresPerSecond : NaN,
+      samples: speeds.length,
+    });
+  }
+  return out;
+}
+
+/**
+ * The hold, read off the bytes (the motion pass, 5 Oct): is each hand ON the
+ * weapon, and is the eye over the bore?
+ *
+ * Every mesh of the file is skinned at `SAMPLES_HOLD` instants. For figure
+ * `prefix`: the weapon is every `weapon`-role vertex its `${prefix}_weapon`
+ * joint (or, on a rig the pass did not touch, its `_forearm_R`) dominantly
+ * owns; a HAND is the outermost tenth of the vertices a forearm owns (the
+ * vertices furthest from that forearm's own joint), non-weapon; the eye is
+ * the centroid of the `face` vertices its head owns. Reported per instant,
+ * worst case:
+ *
+ *   handGapM      for each forearm, the distance from its hand's centroid to
+ *                 the nearest weapon vertex; the WORSE of the two hands
+ *   eyeAboveBoreM how far the eye sits above the weapon's own long axis
+ *                 (the first principal component of its vertices), at the
+ *                 point under the eye -- the cheek weld
+ *
+ * Before the pass a rifleman's support hand read 0.36-0.54 m off his weapon
+ * and his eye 0.54-0.71 m above it (the motion checkpoint, finding #1).
+ */
+export const SAMPLES_HOLD = 7;
+
+export interface HoldReading {
+  readonly handGapM: number;
+  readonly eyeAboveBoreMin: number;
+  readonly eyeAboveBoreMax: number;
+  readonly instants: number;
+}
+
+export function measureHold(path: string, clip: string, prefix: string): HoldReading {
+  const glb = readGlb(path);
+  const nodes = glb.json.nodes ?? [];
+  const meshes = glb.json.meshes ?? [];
+  const names = nodes.map((n) => n.name ?? '');
+  const wName = names.includes(`${prefix}_weapon`) ? `${prefix}_weapon` : `${prefix}_forearm_R`;
+  const { tracks, start, end } = readClip(glb, clip);
+  type Pick = { pos: Accessor; joints: Accessor; weights: Accessor; skin: { joints: number[] }; ibm: Accessor | null; role: string; idx: Map<string, number[]> };
+  const picks: Pick[] = [];
+  nodes.forEach((n) => {
+    if (n.mesh === undefined || n.skin === undefined) return;
+    const mesh = meshes[n.mesh];
+    const role = ((n as { extras?: { rl_role?: string } }).extras?.rl_role ?? mesh.name ?? '') as string;
+    const skin = glb.json.skins![n.skin];
+    const prim = mesh.primitives[0];
+    const pick: Pick = {
+      pos: readAccessor(glb, prim.attributes.POSITION),
+      joints: readAccessor(glb, prim.attributes.JOINTS_0),
+      weights: readAccessor(glb, prim.attributes.WEIGHTS_0),
+      skin,
+      ibm: skin.inverseBindMatrices === undefined ? null : readAccessor(glb, skin.inverseBindMatrices),
+      role,
+      idx: new Map(),
+    };
+    for (let i = 0; i < pick.pos.count; i++) {
+      let b = 0;
+      for (let k = 1; k < 4; k++) if (pick.weights.data[i * 4 + k] > pick.weights.data[i * 4 + b]) b = k;
+      const jn = names[skin.joints[pick.joints.data[i * 4 + b]]];
+      // One joint can carry both a hand and the weapon (an untouched rig's
+      // `_forearm_R`), so the role decides, then the joint.
+      let key: string | null = null;
+      if (role === 'weapon') key = jn === wName ? 'weapon' : null;
+      else if (role === 'face') key = jn === `${prefix}_head` ? 'face' : null;
+      else if (role !== 'metal' && (jn === `${prefix}_forearm_L` || jn === `${prefix}_forearm_R`)) key = jn;
+      if (!key) continue;
+      if (!pick.idx.has(key)) pick.idx.set(key, []);
+      pick.idx.get(key)!.push(i);
+    }
+    if (pick.idx.size) picks.push(pick);
+  });
+  let handGap = 0;
+  let eyeLo = Infinity;
+  let eyeHi = -Infinity;
+  let instants = 0;
+  for (let s = 0; s < SAMPLES_HOLD; s++) {
+    const t = start + ((end - start) * s) / Math.max(1, SAMPLES_HOLD - 1);
+    const worlds = nodeWorlds(glb, tracks, t);
+    const pts = new Map<string, [number, number, number][]>();
+    for (const p of picks) {
+      const mats = computeSkinMats(p.skin, worlds, p.ibm);
+      for (const [k, idx] of p.idx) {
+        if (!pts.has(k)) pts.set(k, []);
+        for (const i of idx) pts.get(k)!.push(skinPoint(p.pos, p.joints, p.weights, i, mats));
+      }
+    }
+    const weapon = pts.get('weapon') ?? [];
+    if (weapon.length < 30) continue;
+    // A figure scaled out of the clip collapses to a point: not drawn.
+    const span = Math.max(...weapon.map((q) => q[1])) - Math.min(...weapon.map((q) => q[1]));
+    if (span < 1e-4) continue;
+    instants++;
+    for (const side of ['L', 'R']) {
+      const jn = `${prefix}_forearm_${side}`;
+      const hp = pts.get(jn) ?? [];
+      if (hp.length < 8) throw new Error(`${path}: ${jn} owns ${hp.length} hand vertices`);
+      const m = worlds[names.indexOf(jn)];
+      const elbow = [m[12], m[13], m[14]];
+      const d = hp.map((q) => Math.hypot(q[0] - elbow[0], q[1] - elbow[1], q[2] - elbow[2]));
+      const cut = [...d].sort((a, b) => a - b)[Math.floor(d.length * 0.9)];
+      const far = hp.filter((_, i) => d[i] >= cut);
+      const c = [0, 1, 2].map((k) => far.reduce((a, q) => a + q[k], 0) / far.length);
+      let best = Infinity;
+      for (const w of weapon) best = Math.min(best, Math.hypot(w[0] - c[0], w[1] - c[1], w[2] - c[2]));
+      handGap = Math.max(handGap, best);
+    }
+    const face = pts.get('face') ?? [];
+    if (face.length) {
+      const eye = [0, 1, 2].map((k) => face.reduce((a, q) => a + q[k], 0) / face.length);
+      const c = [0, 1, 2].map((k) => weapon.reduce((a, q) => a + q[k], 0) / weapon.length);
+      let v = [1, 0.1, 0.05];
+      for (let it = 0; it < 48; it++) {
+        const nv = [0, 0, 0];
+        for (const q of weapon) {
+          const d = [q[0] - c[0], q[1] - c[1], q[2] - c[2]];
+          const dot = d[0] * v[0] + d[1] * v[1] + d[2] * v[2];
+          for (let k = 0; k < 3; k++) nv[k] += d[k] * dot;
+        }
+        const l = Math.hypot(nv[0], nv[1], nv[2]);
+        v = nv.map((x) => x / l);
+      }
+      const along = (eye[0] - c[0]) * v[0] + (eye[1] - c[1]) * v[1] + (eye[2] - c[2]) * v[2];
+      const above = eye[1] - (c[1] + v[1] * along);
+      eyeLo = Math.min(eyeLo, above);
+      eyeHi = Math.max(eyeHi, above);
+    }
+  }
+  return { handGapM: handGap, eyeAboveBoreMin: eyeLo, eyeAboveBoreMax: eyeHi, instants };
+}
+
+export interface FigureHipHeight {
+  /** The figure's joint prefix (`at_fire`, `mtr_crew0w`). */
+  readonly figure: string;
+  /** True when the figure is scaled out of the whole clip. */
+  readonly hiddenInClip: boolean;
+  /** Mean thigh length (hip joint to knee joint), metres -- a rigid bone, so
+   *  the same in every pose: the posture-free yardstick a hip height is read
+   *  against. */
+  readonly thighM: number;
+  /** The figure's hip height (the mean of its two hip joints' world Y) over
+   *  its visible samples, metres: lowest and median. */
+  readonly hipMinM: number;
+  readonly hipMedianM: number;
+}
+
+/**
+ * How high each figure carries its hips in `clip` (spike-walk, 6 Oct: the
+ * Spike gunner who knelt through `move`). A figure is a `{prefix}_pelvis`
+ * joint with two `{prefix}_thigh_*` joints and their `{prefix}_shin_*`
+ * knees -- standing rigs name the legs `_L`/`_R`, the kneeling topology
+ * `_f`/`_r`, and both are read. Samples where the figure is scaled out (a
+ * walker in `idle`, a kneeler in `move`) are skipped, so a two-body figure
+ * reports only the body on screen. Ground is the armature's y = 0, where
+ * rig.py and the motion pass stand every sole. Captured Mixamo rigs (the
+ * civilians' `Hips`/`LeftUpLeg`) carry no `_pelvis` and are not read.
+ */
+export function measureHipHeight(path: string, clip: string): FigureHipHeight[] {
+  const glb = readGlb(path);
+  const names = (glb.json.nodes ?? []).map((n) => n.name ?? '');
+  const { tracks, start, end } = readClip(glb, clip);
+  const figures: { figure: string; pelvis: number; thighs: number[]; knees: number[] }[] = [];
+  for (let i = 0; i < names.length; i++) {
+    const m = /^(.+)_pelvis$/.exec(names[i]);
+    if (!m) continue;
+    const thighs: number[] = [];
+    const knees: number[] = [];
+    for (const side of ['L', 'R', 'f', 'r']) {
+      const t = names.indexOf(`${m[1]}_thigh_${side}`);
+      const k = names.indexOf(`${m[1]}_shin_${side}`);
+      if (t >= 0 && k >= 0) {
+        thighs.push(t);
+        knees.push(k);
+      }
+    }
+    if (thighs.length !== 2) throw new Error(`${path}: ${m[1]} has ${thighs.length} thigh/shin pairs, not 2`);
+    figures.push({ figure: m[1], pelvis: i, thighs, knees });
+  }
+  return figures.map(({ figure, pelvis, thighs, knees }) => {
+    const hips: number[] = [];
+    let thighM = 0;
+    for (let s = 0; s <= SAMPLES; s++) {
+      const w = nodeWorlds(glb, tracks, start + ((end - start) * s) / SAMPLES);
+      if (jointScale(w[pelvis]) <= HIDDEN_SCALE) continue;
+      hips.push((w[thighs[0]][13] + w[thighs[1]][13]) / 2);
+      thighM = 0;
+      for (let k = 0; k < 2; k++) {
+        const a = w[thighs[k]];
+        const b = w[knees[k]];
+        thighM += Math.hypot(b[12] - a[12], b[13] - a[13], b[14] - a[14]) / 2;
+      }
+    }
+    if (hips.length === 0) return { figure, hiddenInClip: true, thighM: 0, hipMinM: 0, hipMedianM: 0 };
+    const sorted = [...hips].sort((a, b) => a - b);
+    return { figure, hiddenInClip: false, thighM, hipMinM: sorted[0], hipMedianM: sorted[Math.floor(sorted.length / 2)] };
+  });
+}
+
+export interface FigureLowest {
+  /** The figure's root joint (`rpg_fire_root`), or -- for a joint under no
+   *  `*_root` -- the outermost skin joint above it (`prop`, a biped's `Hips`). */
+  readonly root: string;
+  /** Lowest skinned vertex of the figure over the clip, metres above the
+   *  armature's y = 0 (the ground rig.py and the motion pass stand on). */
+  readonly lowestM: number;
+  /** The joint carrying that vertex, and when. */
+  readonly joint: string;
+  readonly atS: number;
+  /** The figure's lowest vertex at its HIGHEST instant: how far off the
+   *  ground the whole man gets (a figure with both feet in the air floats). */
+  readonly floatM: number;
+  /** Instants sampled with the figure drawn. */
+  readonly instants: number;
+}
+
+/**
+ * The lowest vertex of each figure over `clip` (kneel-toe, 6 Oct): every
+ * skinned mesh node, every vertex, skinned at every keyframe time the clip
+ * carries and at the midpoint between each pair -- so a sink that peaks
+ * between two keys is still sampled near its peak. A vertex is assigned to
+ * its dominant joint, and the joint to the outermost `*_root` above it (or,
+ * under none, to the outermost joint above it).
+ * Joints scaled out (a hidden walker, a death twin) are skipped: they
+ * collapse to a point and are not drawn.
+ *
+ * Why every vertex and not the boot: the defect it was built for is the
+ * kneeling back boot's toe, but "under the ground" is a property of any
+ * geometry, and the occlusion outline draws a speck wherever ANY of it is
+ * buried. And why not the motion pass's own sole reading: that one picked
+ * its boot vertices by the SHIN joint after `feet.ts` had moved the sole onto
+ * a new ankle bone, so it read the boot's shaft and printed "0.000 m under"
+ * over a toe 4-94 mm in the ground.
+ */
+export function measureLowestVertex(path: string, clip: string): FigureLowest[] {
+  const glb = readGlb(path);
+  const nodes = glb.json.nodes ?? [];
+  const meshes = glb.json.meshes ?? [];
+  const names = nodes.map((n) => n.name ?? '');
+  const parent = new Int32Array(nodes.length).fill(-1);
+  nodes.forEach((n, i) => { for (const c of n.children ?? []) parent[c] = i; });
+  // A joint under no `*_root` belongs to the outermost JOINT above it: a
+  // prop is its own, and a captured biped (the civilians) is one figure under
+  // its Hips rather than twenty-four joints, each "hovering" a metre up.
+  const skinJoints = new Set((glb.json.skins ?? []).flatMap((s) => s.joints));
+  const rootOf = (j: number): string => {
+    let best = '';
+    for (let k = j; k >= 0; k = parent[k]) if (/_root$/.test(names[k])) best = names[k];
+    if (best) return best;
+    let top = j;
+    for (let k = parent[j]; k >= 0 && skinJoints.has(k); k = parent[k]) top = k;
+    return names[top];
+  };
+  const anim = glb.json.animations?.find((a) => a.name === clip);
+  if (!anim) throw new Error(`${path}: clip "${clip}" not in file`);
+  const { tracks } = readClip(glb, clip);
+  const keyTimes = new Set<number>();
+  for (const s of anim.samplers) for (const t of readAccessor(glb, s.input).data) keyTimes.add(t);
+  const sorted = [...keyTimes].sort((a, b) => a - b);
+  const times = sorted.flatMap((t, i) => (i + 1 < sorted.length ? [t, (t + sorted[i + 1]) / 2] : [t]));
+  type Part = { pos: Accessor; joints: Accessor; weights: Accessor; skin: { joints: number[] }; ibm: Accessor | null; dom: Int32Array; root: string[] };
+  const parts: Part[] = [];
+  for (const n of nodes) {
+    if (n.mesh === undefined || n.skin === undefined) continue;
+    const skin = glb.json.skins![n.skin];
+    for (const prim of meshes[n.mesh].primitives) {
+      const pos = readAccessor(glb, prim.attributes.POSITION);
+      const joints = readAccessor(glb, prim.attributes.JOINTS_0);
+      const weights = readAccessor(glb, prim.attributes.WEIGHTS_0);
+      const dom = new Int32Array(pos.count);
+      const root: string[] = [];
+      for (let i = 0; i < pos.count; i++) {
+        let b = 0;
+        for (let k = 1; k < 4; k++) if (weights.data[i * 4 + k] > weights.data[i * 4 + b]) b = k;
+        dom[i] = skin.joints[joints.data[i * 4 + b]];
+        root.push(rootOf(dom[i]));
+      }
+      parts.push({ pos, joints, weights, skin, ibm: skin.inverseBindMatrices === undefined ? null : readAccessor(glb, skin.inverseBindMatrices), dom, root });
+    }
+  }
+  const out = new Map<string, { lowestM: number; joint: string; atS: number; floatM: number; instants: number }>();
+  for (const t of times) {
+    const worlds = nodeWorlds(glb, tracks, t);
+    const now = new Map<string, { y: number; joint: string }>();
+    for (const p of parts) {
+      const mats = computeSkinMats(p.skin, worlds, p.ibm);
+      for (let i = 0; i < p.pos.count; i++) {
+        const j = p.dom[i];
+        if (jointScale(worlds[j]) <= HIDDEN_SCALE) continue;
+        const y = skinPoint(p.pos, p.joints, p.weights, i, mats)[1];
+        const cur = now.get(p.root[i]);
+        if (!cur || y < cur.y) now.set(p.root[i], { y, joint: names[j] });
+      }
+    }
+    for (const [root, { y, joint }] of now) {
+      const cur = out.get(root);
+      if (!cur) out.set(root, { lowestM: y, joint, atS: t, floatM: y, instants: 1 });
+      else {
+        cur.instants++;
+        cur.floatM = Math.max(cur.floatM, y);
+        if (y < cur.lowestM) Object.assign(cur, { lowestM: y, joint, atS: t });
+      }
+    }
+  }
+  return [...out].map(([root, r]) => ({ root, ...r })).sort((a, b) => a.root.localeCompare(b.root));
 }

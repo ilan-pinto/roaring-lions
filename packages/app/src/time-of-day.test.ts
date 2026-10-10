@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { timeOfDayOf } from './time-of-day';
+import { lightOverrideOf, timeOfDayOf } from './time-of-day';
 
 const P = (q: string): URLSearchParams => new URLSearchParams(q);
 const MISSIONS = join(__dirname, '../../../data/missions');
@@ -24,8 +24,10 @@ describe('timeOfDayOf (R-12, N-23)', () => {
     expect(r.warning).toMatch(/noon/);
     expect(timeOfDayOf(null, P('')).warning).toBeNull();
   });
-  // D11: the mechanism ships with today's two authored values; nothing else changes.
-  it('reads every shipped mission without a warning, and finds exactly the two authored values', () => {
+  // D11 shipped two authored values; GH-382's light rotation (docs/campaign/ground-ladder.md
+  // section 10) adds sixteen more so no two consecutive campaign missions share a light.
+  // Literals on purpose: this list is the oracle, not a copy of the data.
+  it('reads every shipped mission without a warning, and finds exactly the authored values', () => {
     const found: Record<string, string> = {};
     for (const f of readdirSync(MISSIONS).filter((n) => n.endsWith('.json'))) {
       const m = JSON.parse(readFileSync(join(MISSIONS, f), 'utf8')) as { map: { time_of_day?: string } };
@@ -33,6 +35,47 @@ describe('timeOfDayOf (R-12, N-23)', () => {
       expect(r.warning, f).toBeNull();
       if (m.map.time_of_day !== undefined) found[f] = r.value;
     }
-    expect(found).toEqual({ 'beit_sahwan_breach.json': 'dawn', 'beit_sahwan_0_tutorial.json': 'day' });
+    expect(found).toEqual({
+      'beit_sahwan_breach.json': 'dawn',
+      'beit_sahwan_0_tutorial.json': 'day',
+      'beit_sahwan_2_foothold.json': 'dusk',
+      'beit_sahwan_4_subterranean.json': 'dusk',
+      'khan_rafid_1_recon.json': 'dawn',
+      'khan_rafid_3_clearance.json': 'dusk',
+      'deir_amun_1_recon.json': 'dawn',
+      'deir_amun_2_foothold.json': 'dusk',
+      'tel_marum_1_recon.json': 'dusk',
+      'tel_marum_3_clearance.json': 'dawn',
+      'qarn_hadid_2_foothold.json': 'dusk',
+      'qarn_hadid_3_clearance.json': 'dawn',
+      'umm_zeitoun_2_buildup.json': 'dusk',
+      'umm_zeitoun_3_clearance.json': 'dawn',
+      'wadi_halam_1_fords.json': 'dusk',
+      'wadi_halam_2_laager.json': 'dawn',
+      'wadi_halam_4_village.json': 'dusk',
+      'wadi_halam_5_depot.json': 'dawn',
+    });
+  });
+});
+
+// PA-24 (lead ruling L3, 9 Oct): First Light alone lifts its dawn fill and
+// softens its sun's shadow, through an optional `map.light` block. The
+// `dawn` preset itself is untouched.
+describe('lightOverrideOf (PA-24)', () => {
+  it("takes a mission's authored light, and nothing when it has none", () => {
+    expect(lightOverrideOf({ map: { file: 'x', light: { fill: 0.9, shadow: 0.7 } } })).toEqual({ fill: 0.9, shadow: 0.7 });
+    expect(lightOverrideOf({ map: { file: 'x', light: { fill: 1.1 } } })).toEqual({ fill: 1.1 });
+    expect(lightOverrideOf({ map: { file: 'x', time_of_day: 'dawn' } })).toBeUndefined();
+    expect(lightOverrideOf(null)).toBeUndefined();
+  });
+  // Literals on purpose: the oracle is this line, not the data.
+  it('is authored on beit_sahwan_breach alone, at fill 0.9 and shadow 0.7', () => {
+    const lit: Record<string, unknown> = {};
+    for (const f of readdirSync(MISSIONS).filter((n) => n.endsWith('.json'))) {
+      const m = JSON.parse(readFileSync(join(MISSIONS, f), 'utf8')) as { id: string; map: object };
+      const o = lightOverrideOf(m);
+      if (o !== undefined) lit[m.id] = o;
+    }
+    expect(lit).toEqual({ beit_sahwan_breach: { fill: 0.9, shadow: 0.7 } });
   });
 });

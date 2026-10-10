@@ -78,6 +78,7 @@
  * file does not use.
  */
 import { chromium } from 'playwright';
+import { musicOffInitScript } from '../ui-review/music-off';
 
 const args = process.argv.slice(2);
 const selectAll = args.includes('--select-all');
@@ -102,6 +103,7 @@ const page = await browser.newPage({
   viewport: { width: viewportWidth, height: viewportHeight },
   deviceScaleFactor: 2,
 });
+await page.addInitScript(musicOffInitScript());
 await page.goto(base + '/' + query, { waitUntil: 'load' });
 await page.waitForFunction(() => !!(window as unknown as { __lions?: { renderer?: unknown } }).__lions?.renderer, null, { timeout: 60000 });
 await page.waitForTimeout(3000);

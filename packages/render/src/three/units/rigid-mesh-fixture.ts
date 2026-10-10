@@ -11,9 +11,9 @@
  * exactly what `mesh-unit-contract.md` v2 pins for buildings ("no armature,
  * no skin, no clips"). It was also what every shipped VEHICLE carried until
  * 2026-09-15; the wreck pass gave all eleven `idle` and `wreck`, so the
- * clipless shape below is now a fixture-only case -- which is the point of
- * keeping it, since `&nomesh` and any un-passed re-export still land on it
- * and no shipped file exercises it any more. `clipNames` was written before
+ * clipless shape below is now a fixture-only case -- kept because it is
+ * exactly what `loadVehicleMesh` must refuse (WP-A3.3: no `wreck` clip) and
+ * no shipped file exercises it any more. `clipNames` was written before
  * any asset shipped a clip, so that the engine half of that path
  * (`mesh-vehicle.ts`) could be exercised first rather than arriving with the
  * art. One shared triangle's `POSITION`/`NORMAL`/
@@ -114,8 +114,8 @@ export interface RigidFixtureOpts {
    *
    * OMITTING this is the case NO shipped `art/meshes/vehicles/*.glb` is in
    * any more -- all eleven declare `idle` and `wreck` since the wreck pass
-   * (2026-09-15) -- so it is reachable only through `&nomesh` and an
-   * un-passed re-export. When it is omitted this fixture emits NO
+   * (2026-09-15), and `loadVehicleMesh` refuses one since WP-A3.3 -- so it
+   * is reachable only through a template built directly from this fixture. When it is omitted this fixture emits NO
    * `animations` key and no extra accessors, so the bytes are identical to
    * what it produced before clips existed.
    *

@@ -1,0 +1,22 @@
+{
+  "unit": "apc_kipod",
+  "source": "assets/meshes/vehicles/apc_kipod.glb",
+  "source_sha256": "afeddf4c35f51fe620c7d1a075212c8004d9ba5c8996682b8e50029b33002732",
+  "yaw_deg": -125.0,
+  "elevation_deg": 18.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "width",
+    0.92
+  ],
+  "ndc_box": [
+    0.04,
+    0.96,
+    0.1289,
+    0.8711
+  ],
+  "materials": {
+    "baked": 2,
+    "flat": 2
+  }
+}

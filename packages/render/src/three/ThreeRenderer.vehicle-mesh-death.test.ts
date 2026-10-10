@@ -1,7 +1,8 @@
 /**
  * Wiring test for `mesh-vehicle-death.ts` INTO `ThreeRenderer` -- the prune
- * loop's hand-off, `stepVehicleDeaths`, the `addWreck` guard, the
- * billboard-death skip in `onEvents`, and `dispose()`.
+ * loop's hand-off, `stepVehicleDeaths` and `dispose()`. (The `addWreck` guard
+ * and the billboard-death skip were pinned here too, until the billboard
+ * path was retired, WP-A3.3.)
  * `units/mesh-vehicle-death.test.ts` already proves every function in that
  * module correct in isolation; this file proves `ThreeRenderer` calls them at
  * the right moment and, just as importantly, that it does NOT call them for a
@@ -12,9 +13,9 @@
  *
  * `mbt_lavi` is the unit type throughout because it is the one the whole
  * feature is about: a real key in `vehicle-mesh-role.ts`'s closed ramp table,
- * and the vehicle whose billboard sheet (`TNK_HULL`) declares no `wreck`
- * clip at all, so before this a destroyed Lavi left nothing but the overlay's
- * grey cross.
+ * and the vehicle whose retired billboard sheet (`TNK_HULL`) declared no
+ * `wreck` clip, so before the wreck pass a destroyed Lavi left nothing but
+ * the overlay's grey cross.
  *
  * Per this project's own testing standard: every assertion below that matters
  * was verified by breaking the corresponding line in `ThreeRenderer.ts` by
@@ -83,28 +84,19 @@ const LAVI: UnitTypeJson = {
   sensors: { optics: 3, sight_tiles: 14, signature: 1 },
 };
 
-interface UnitWreckRow {
-  typeId: string;
-}
-interface DyingBillboardRow {
-  typeId: string;
-}
-
 interface ThreeRendererPrivates {
   scene: THREE.Scene;
   vehicleMeshTemplates: Map<string, VehicleMeshTemplate>;
   vehicleMeshEntities: Map<number, VehicleMeshEntity>;
   vehicleDying: DyingVehicle[];
   meshWrecks: MeshWreck[];
-  wrecks: UnitWreckRow[];
-  dying: DyingBillboardRow[];
   updateVehicleMeshes(alpha: number, dtMs: number): void;
-  addWreck(x: number, y: number, facing: number, typeId: string, side: number): void;
 }
 
 /** `withWreck: false` is the pre-wreck-pass GLB every shipped vehicle was
- *  until 2026-09-15, and the state `&nomesh` and any un-passed re-export are
- *  still in -- the case that must keep the billboard path byte for byte. */
+ *  until 2026-09-15. No shipped GLB is in that state any more, and since
+ *  WP-A3.3 `loadVehicleMesh` refuses one; the template is built directly
+ *  here, past that check, to pin what the prune loop does with it. */
 async function setUp(withWreck: boolean) {
   const sim = new Sim({ seed: 1, width: 24, height: 24, capacity: 8 });
   const typeIdx = sim.addUnitType(LAVI);
@@ -237,45 +229,7 @@ describe('updateVehicleMeshes death hand-off', () => {
   });
 });
 
-describe('the billboard path steps aside, and only for a type that has a mesh wreck coming', () => {
-  it('addWreck pushes no sprite wreck for a wreck-bearing vehicle type', async () => {
-    const { priv } = await setUp(true);
-    priv.addWreck(3, 4, 0, LAVI.id, 0);
-    // Break check: delete the `vehicleMeshTemplates.get(typeId)?.hasWreck`
-    // guard in `addWreck`. This reads 1 and goes red -- and on screen it is
-    // a flat sprite wreck lying underneath the 3D one.
-    expect(priv.wrecks).toHaveLength(0);
-  });
-
-  it('addWreck STILL pushes one for a mesh vehicle without the clip -- CLAUDE.md\'s recorded trap', async () => {
-    const { priv } = await setUp(false);
-    priv.addWreck(3, 4, 0, LAVI.id, 0);
-    // Break check: widen the guard to a bare `vehicleMeshTemplates.has(typeId)`.
-    // This reads 0 and goes red: excluding every mesh vehicle unconditionally
-    // deletes the sprite wreck and leaves nothing at all behind.
-    expect(priv.wrecks).toHaveLength(1);
-    expect(priv.wrecks[0].typeId).toBe(LAVI.id);
-  });
-
-  it('addWreck is untouched for a type with no vehicle mesh template at all', async () => {
-    const { priv } = await setUp(true);
-    priv.addWreck(3, 4, 0, 'inf_squad', 0);
-    expect(priv.wrecks).toHaveLength(1);
-  });
-
-  it('onEvents queues no billboard death fade for a wreck-bearing vehicle -- no sprite ever flashes', async () => {
-    const { sim, renderer, priv, id } = await setUp(true);
-    renderer.onEvents([{ kind: 'destroyed', entity: id, by: id, tick: sim.tickCount }]);
-    // Break check: remove the `hasWreck` condition around `this.dying.push`.
-    // This reads 1 and goes red -- on screen, a flat sprite of the INTACT
-    // tank fading on top of its own slumping mesh.
-    expect(priv.dying).toHaveLength(0);
-  });
-
-  it('onEvents STILL queues one for a vehicle without the clip', async () => {
-    const { sim, renderer, priv, id } = await setUp(false);
-    renderer.onEvents([{ kind: 'destroyed', entity: id, by: id, tick: sim.tickCount }]);
-    expect(priv.dying).toHaveLength(1);
-    expect(priv.dying[0].typeId).toBe(LAVI.id);
-  });
-});
+// The billboard sprite-wreck and death-fade guards (`addWreck`, `dying`)
+// were pinned here; both went with the billboard path (WP-A3.3), so a
+// vehicle's death draws its mesh wreck and nothing else. A vehicle template
+// without a `wreck` clip now throws at load (Task 7 of the retirement).

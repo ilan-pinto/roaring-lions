@@ -103,6 +103,30 @@ describe('outcomeMoment', () => {
     }
   });
 
+  // Keyboard walk (polish/keyboard-and-saves): Enter on the focused Continue
+  // ended the moment on KEYDOWN, the debrief mounted and focused its primary
+  // ("Next: ...") before the same press's default action ran -- and the
+  // browser activated THAT, so a keyboard player went straight into the next
+  // mission without ever seeing the debrief. The skip consumes an activation
+  // key's default; any other key keeps its default (a browser shortcut still
+  // works during the hold).
+  it('an Enter or Space that skips it spends the key, so it cannot activate what mounts next', async () => {
+    for (const key of ['Enter', ' ']) {
+      const m = outcomeMoment(host, { outcome: 'victory', title: 'x' });
+      const skip = m.el.querySelector<HTMLButtonElement>('.rl-outcome__skip');
+      if (!skip) throw new Error('no skip button');
+      const ev = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+      skip.dispatchEvent(ev);
+      await expect(m.done).resolves.toBeUndefined();
+      expect(ev.defaultPrevented).toBe(true);
+    }
+    const m = outcomeMoment(host, { outcome: 'victory', title: 'x' });
+    const other = new KeyboardEvent('keydown', { key: 'q', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(other);
+    await expect(m.done).resolves.toBeUndefined();
+    expect(other.defaultPrevented).toBe(false);
+  });
+
   it('a click skips it too', async () => {
     const m = outcomeMoment(host, { outcome: 'defeat', title: 'x' });
     window.dispatchEvent(new PointerEvent('pointerdown'));
@@ -250,6 +274,7 @@ describe('outcomeMoment', () => {
       outcome: 'victory',
       title: t('outcome.victory'),
       line: mission.debrief?.victory?.text,
+      radio: t('outcome.radio.victory'),
       aftermath: mission.aftermath,
     });
     // No hold of its own: the moment keeps `OUTCOME_HOLD_MS`.
@@ -263,6 +288,21 @@ describe('outcomeMoment', () => {
     expect('aftermath' in lost).toBe(false);
     expect(lost.title).toBe(t('outcome.defeat'));
     expect(lost.line).toBe(mission.debrief?.defeat?.text);
+  });
+
+  // Polish pass F (A5): the outcome's radio line is captioned ALWAYS -- it is
+  // in the options for both results, with no captions setting consulted, and
+  // the moment draws it. Victory and defeat are different lines.
+  it('carries the outcome radio line on both results, and draws it', () => {
+    const mission = { debrief: undefined, aftermath: undefined };
+    const won = outcomeMomentOptions('victory', mission);
+    const lost = outcomeMomentOptions('defeat', mission);
+    expect(won.radio).toBe(t('outcome.radio.victory'));
+    expect(lost.radio).toBe(t('outcome.radio.defeat'));
+    expect(won.radio).not.toBe(lost.radio);
+    const m = outcomeMoment(host, lost);
+    expect(m.el.querySelector('.rl-outcome__radio')?.textContent).toBe(t('outcome.radio.defeat'));
+    m.dismiss();
   });
 
   // GH-234: the win's payment as a headline, ahead of the mission's own
@@ -283,6 +323,17 @@ describe('outcomeMoment', () => {
       expect(m.el.querySelector('.rl-outcome__credits-total')?.textContent).toBe(t('debrief.credits.total', { n: 460 }));
       expect(m.el.querySelector('.rl-outcome__credits')?.getAttribute('data-paid')).toBe('0');
       expect(m.el.querySelector('.rl-outcome__credits-figure')).toBeNull();
+      m.dismiss();
+    });
+
+    // KS-12: the write that would have paid was refused, so nothing was
+    // earned -- say that, not "+N credits".
+    it('says nothing was earned when the save was refused', () => {
+      const m = outcomeMoment(host, { outcome: 'victory', title: 'x', credits: { paid: 120, balance: 340, unsaved: true } });
+      expect(m.el.querySelector('.rl-outcome__credits-none')?.textContent).toBe('not saved: browser storage refused the write, nothing earned');
+      expect(m.el.querySelector('.rl-outcome__credits-figure')).toBeNull();
+      expect(m.el.querySelector('.rl-outcome__credits')?.getAttribute('data-paid')).toBe('0');
+      expect(m.el.querySelector('.rl-outcome__credits-total')?.textContent).toBe(t('debrief.credits.total', { n: 340 }));
       m.dismiss();
     });
 

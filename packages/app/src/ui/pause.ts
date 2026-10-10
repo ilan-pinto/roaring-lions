@@ -64,7 +64,9 @@
  * `ev.key === 'Escape'`, so nothing needed to change there.
  */
 import { t } from '../i18n/t';
+import { isTextEntry } from '../input/keymap';
 import type { Disposer } from '../shell/router';
+import { feedbackForm, type FeedbackForm, type FeedbackFormDeps } from './feedback-form';
 import { focusTrap } from './focus-trap';
 import { objectivesPanel, type ObjectiveRow } from './objectives';
 import { panel } from './panel';
@@ -99,9 +101,13 @@ export interface PauseDeps {
    *  else. See `onCaptureKey` below for why panning is exempted from the
    *  capture guard at all. */
   isPanKey(ev: KeyboardEvent): boolean;
+  /** The Feedback tab (GH-464), present only when `feedbackShown` said so
+   *  (`feedback/gate.ts`). Its Back is Resume and its Cancel returns to
+   *  Objectives, so the menu supplies both. */
+  feedback?: Omit<FeedbackFormDeps, 'source' | 'onBack' | 'onCancel'>;
 }
 
-type Tab = 'objectives' | 'settings';
+type Tab = 'objectives' | 'settings' | 'feedback';
 
 function actionButton(label: string, act: string): HTMLButtonElement {
   const b = document.createElement('button');
@@ -150,6 +156,17 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
   setTabBtn.dataset.tab = 'settings';
   setTabBtn.textContent = t('pause.tab.settings');
   tabs.append(objTabBtn, setTabBtn);
+  // The third tab (GH-464): a tab rather than a second modal, because stacked
+  // modals and their Escape ordering are this file's whole header.
+  let fbTabBtn: HTMLButtonElement | null = null;
+  if (deps.feedback) {
+    fbTabBtn = document.createElement('button');
+    fbTabBtn.type = 'button';
+    fbTabBtn.className = 'rl-btn';
+    fbTabBtn.dataset.tab = 'feedback';
+    fbTabBtn.textContent = t('pause.tab.feedback');
+    tabs.appendChild(fbTabBtn);
+  }
   p.body.appendChild(tabs);
 
   // --- objectives pane -----------------------------------------------------
@@ -168,17 +185,39 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
   p.body.appendChild(settingsPane);
   let mountedSettings: { el: HTMLElement; dispose: Disposer } | null = null;
 
+  // --- feedback pane: mounted on first open, and kept --------------------
+  // Mounted lazily for the same reason as settings, and for one more: the
+  // form takes its picture when it mounts, so the picture is the frame the
+  // player paused on when they reached for the tab, not one from boot.
+  const feedbackPane = document.createElement('div');
+  feedbackPane.className = 'rl-pause__feedback';
+  feedbackPane.hidden = true;
+  p.body.appendChild(feedbackPane);
+  let mountedFeedback: FeedbackForm | null = null;
+
   const showTab = (tab: Tab): void => {
     objPanel.el.hidden = tab !== 'objectives';
     settingsPane.hidden = tab !== 'settings';
+    feedbackPane.hidden = tab !== 'feedback';
     objTabBtn.dataset.on = tab === 'objectives' ? '1' : '0';
     setTabBtn.dataset.on = tab === 'settings' ? '1' : '0';
+    if (fbTabBtn) fbTabBtn.dataset.on = tab === 'feedback' ? '1' : '0';
     if (tab === 'settings' && !mountedSettings) {
       mountedSettings = settingsPanel(settingsPane, deps.settings);
+    }
+    if (tab === 'feedback' && deps.feedback) {
+      mountedFeedback ??= feedbackForm(feedbackPane, {
+        ...deps.feedback,
+        source: 'pause',
+        onBack: () => resumeAndClose(),
+        onCancel: () => showTab('objectives'),
+      });
+      mountedFeedback.focus();
     }
   };
   objTabBtn.addEventListener('click', () => showTab('objectives'));
   setTabBtn.addEventListener('click', () => showTab('settings'));
+  fbTabBtn?.addEventListener('click', () => showTab('feedback'));
   showTab('objectives');
 
   // --- actions --------------------------------------------------------------
@@ -204,6 +243,7 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
     window.removeEventListener('keydown', onCaptureKey, true);
     disposeTrap();
     mountedSettings?.dispose();
+    mountedFeedback?.dispose();
     objPanel.dispose();
     scrim.remove();
     opener?.focus();
@@ -235,7 +275,18 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
   // cannot look at it. `deps.isPanKey` (fix round 1) is the live answer,
   // built by `bootBattlefield` from its own `bindings` through
   // `resolveKey` -- see `PauseDeps.isPanKey`'s own doc comment.
+  //
+  // D18 (GH-464), ABOVE the pan exemption: a focused text field (the Feedback
+  // tab's note) owns every key but Escape (this menu's own close) and Tab
+  // (`focusTrap`'s). Enter included, so a newline never reaches a game
+  // binding. Propagation stops here and the default action is left alone, so
+  // the character still lands in the field -- before this, `w`/`a`/`s`/`d`
+  // typed into a sentence panned the map behind the modal.
   const onCaptureKey = (e: KeyboardEvent): void => {
+    if (isTextEntry(e.target) && e.key !== 'Escape' && e.key !== 'Tab') {
+      e.stopPropagation();
+      return;
+    }
     if (e.key === 'Escape' || e.key === 'Enter' || e.key === 'Tab') return;
     if (deps.isPanKey(e)) return;
     e.stopPropagation();

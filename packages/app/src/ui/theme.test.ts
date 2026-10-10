@@ -116,3 +116,65 @@ describe('composed layouts (D-8)', () => {
     expect(narrowGrid).toMatch(/grid-template-columns/);
   });
 });
+
+/** The body of the first rule whose selector list is exactly `selector`. */
+function ruleBody(source: string, selector: string): string {
+  const at = source.indexOf(`\n${selector} {`);
+  if (at < 0) throw new Error(`no rule for ${selector}`);
+  const open = source.indexOf('{', at);
+  return source.slice(open + 1, source.indexOf('}', open));
+}
+
+// GH-417, the briefing's reachability. jsdom has no layout, so these pin the
+// three declarations; the measured layout (title top, Deploy in view) is
+// `tools/src/ui-review/briefing-reach.ts`, which `pnpm ui:routes` runs on CI.
+describe('briefing reachability (GH-417)', () => {
+  // Falsified: `align-items: center` (the old value) goes red.
+  it('B-01: the overlay centres SAFELY, so a tall box starts at the top', () => {
+    const body = ruleBody(css, '.rl-loading');
+    expect(body).toMatch(/align-items:\s*safe center;/);
+    expect(body).toMatch(/justify-content:\s*safe center;/);
+  });
+  // Falsified: deleting `position: sticky;` goes red.
+  it('B-02: Deploy is sticky to the bottom edge of the scrolling screen', () => {
+    const body = ruleBody(css, '.rl-loading__box--brief > .rl-loading__deploy');
+    expect(body).toMatch(/position:\s*sticky;/);
+    expect(body).toMatch(/bottom:/);
+  });
+  // Falsified: deleting `max-height: none;` goes red.
+  it('B-03: the beats do not scroll in a box of their own on a briefing', () => {
+    const body = ruleBody(css, '.rl-loading__box--brief:not(.rl-loading__box--video) .rl-loading__brief');
+    expect(body).toMatch(/max-height:\s*none;/);
+    expect(body).toMatch(/overflow-y:\s*visible;/);
+  });
+});
+
+// The stray scrollbar beside Deploy. jsdom has no layout, so this pins the
+// declarations; the measurement is in docs/polish/deploy-scrollbar/ (a
+// classic-scrollbar Chromium read the slots' scrollHeight 179 over a
+// clientHeight of 177 at 1920x1080, a 15 px bar; 184 / 184 after).
+describe('the force strip never scrolls vertically', () => {
+  // `overflow-x: auto` alone makes `overflow-y` compute to `auto`.
+  // Falsified: deleting `overflow-y: hidden;` from `.rl-force__slots` goes red.
+  it('declares overflow-y on the slots list, and not as a scrolling value', () => {
+    const body = ruleBody(css, '.rl-force__slots');
+    expect(body).toMatch(/overflow-x:\s*auto;/);
+    expect(body).toMatch(/overflow-y:\s*(hidden|clip);/);
+  });
+  // The cause: `height: 100%` plus a 1px border on a content-box was 2 px
+  // taller than the <li> it fills.
+  // Falsified: deleting `box-sizing: border-box;` from `.rl-force__slot` goes red.
+  it('sizes a slot by its border box, so height: 100% plus the border fits', () => {
+    const body = ruleBody(css, '.rl-force__slot');
+    expect(body).toMatch(/height:\s*100%;/);
+    expect(body).toMatch(/box-sizing:\s*border-box;/);
+  });
+  // The focus ring (outline plus offset) is clipped by a scroll
+  // container, so the list pads one --s1 and pulls the same back with its margin.
+  // Falsified: deleting the `padding` line from `.rl-force__slots` goes red.
+  it('leaves room inside the list for the focus ring, without moving the strip', () => {
+    const body = ruleBody(css, '.rl-force__slots');
+    expect(body).toMatch(/padding:\s*var\(--s1\);/);
+    expect(body).toMatch(/margin:\s*calc\(-1 \* var\(--s1\)\);/);
+  });
+});

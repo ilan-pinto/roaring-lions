@@ -17,11 +17,15 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { units, type KitLevel } from '@lions/data';
-import { Sim, fx, type UnitTypeJson } from '@lions/sim';
+import { Sim, fx, type HitProjection, type UnitTypeJson } from '@lions/sim';
 import { Hud, type HudCommanderInfo, type HudDeps, type MissionView } from './hud';
 import type { KitSummary } from './kit-sign';
 import { alertNotice } from './mission-notice';
 import { closeTip } from './tooltip';
+import type { CursorName } from '../input/cursor';
+import en from '../i18n/en.json';
+import { pseudo } from '../i18n/pseudo';
+import { setCatalogue, t } from '../i18n/t';
 
 /** A stand-in resolved commander, the shape `main.ts` would hand over from
  *  `commanderForMission` -- this suite is about the DOM join, not about rank
@@ -414,6 +418,30 @@ describe('top strip: the persistent controls', () => {
     expect(left).toBe(true);
   });
 
+  // K-13. Falsified: leaveCopy ignoring its argument -> the sandbox arm goes red.
+  it('free play words its leave confirm for free play, with no campaign claim', () => {
+    const r = rig(null, { leave: () => undefined, freePlay: true });
+    const btn = r.host.querySelector<HTMLButtonElement>('.rl-hud__leave')!;
+    expect(btn.title).toBe('leave free play');
+    btn.click();
+    const dialog = document.body.querySelector<HTMLElement>('.rl-confirm')!;
+    expect(dialog.textContent).toContain('Leave free play?');
+    expect(dialog.textContent).toContain('Nothing in your campaign changes.');
+    expect(dialog.textContent).not.toContain('keeps everything');
+    expect(dialog.textContent).not.toContain('Leave the mission?');
+    dialog.querySelector<HTMLButtonElement>('.rl-confirm__no, .rl-confirm__cancel')?.click();
+    document.body.querySelector('.rl-confirm')?.remove();
+  });
+
+  it('a mission keeps the attempt-is-lost wording', () => {
+    const r = rig(mission(), { leave: () => undefined });
+    r.host.querySelector<HTMLButtonElement>('.rl-hud__leave')!.click();
+    const dialog = document.body.querySelector<HTMLElement>('.rl-confirm')!;
+    expect(dialog.textContent).toContain('Leave the mission?');
+    expect(dialog.textContent).toContain('The campaign keeps everything from before it.');
+    document.body.querySelector('.rl-confirm')?.remove();
+  });
+
   it('sits leftmost in the strip -- the one control here that ends the attempt, not one of the instruments', () => {
     const r = rig(mission());
     expect(r.host.querySelector('.rl-strip')!.firstElementChild?.classList.contains('rl-strip__link')).toBe(true);
@@ -641,6 +669,15 @@ describe('bottom-centre controls hint', () => {
     expect(hint.textContent).toContain('order row above');
   });
 
+  // WP-P5 (PA-16): `hintFor` answers null once the order-row line has
+  // retired, and an empty plate over the battlefield is still a plate.
+  it('draws no line at all when the hint dep answers null', () => {
+    const r = rig(mission(), { getSelection: () => [0], hint: () => null });
+    const hint = r.host.querySelector<HTMLElement>('.rl-hint')!;
+    expect(hint.style.display).toBe('none');
+    expect(hint.textContent).toBe('');
+  });
+
   // hint-model.test.ts pins the priority order itself; this is the one thing
   // only the DOM join can prove -- `hintFor` never sees a keybinding, so the
   // dock hint's key name has to be merged in here, from `keyFor`, the same
@@ -658,6 +695,15 @@ describe('bottom-centre controls hint', () => {
     const r = rig(mission(), { hint: () => ({ key: 'hud.hint.dock' }) });
     const hint = r.host.querySelector<HTMLElement>('.rl-hint')!;
     expect(hint.textContent).toContain('press production to open');
+  });
+
+  it('merges live key caps into a first-use line from its `keys` map', () => {
+    const r = rig(mission(), {
+      hint: () => ({ key: 'hud.hint.first.mount_up', keys: { load: 'load', unload: 'unload' } }),
+      keyFor: (action) => (action === 'load' ? 'K' : action === 'unload' ? 'L' : action),
+    });
+    const hint = r.host.querySelector<HTMLElement>('.rl-hint')!;
+    expect(hint.textContent).toBe('K loads the selected infantry into a carrier, L dismounts them');
   });
 
   it('the hint stacks under the feed inside the cluster', () => {
@@ -759,6 +805,40 @@ describe('event feed', () => {
     expect(feed.firstElementChild!.textContent).toBe('five');
     expect(feed.firstElementChild!.className).toContain('rl-live');
     expect([...feed.children].map((c) => c.textContent)).not.toContain('one');
+  });
+
+  // WP-P5 (PA-06): play-22 was four identical "under fire" lines filling the
+  // four-line feed. The same line again is the same line, with a count.
+  it('merges a repeated line into one, with a count, back at the top', () => {
+    const r = rig(mission());
+    for (let i = 0; i < 4; i++) r.hud.note('<b>under fire</b> — Rifle Squad · in view', 'warn', { tier: 'minor' });
+    r.hud.note('<b>lost</b> — Lavi · east', 'bad', { tier: 'major' });
+    r.hud.note('<b>under fire</b> — Rifle Squad · in view', 'warn', { tier: 'minor' });
+    const feed = r.host.querySelector<HTMLElement>('.rl-feed')!;
+    expect([...feed.children].map((c) => c.textContent)).toEqual([
+      'under fire — Rifle Squad · in view×5',
+      'lost — Lavi · east',
+    ]);
+    expect(feed.querySelector('.rl-notice__count')?.textContent).toBe('×5');
+  });
+
+  it('does not merge a line that differs in words, tone or tier', () => {
+    const r = rig(mission());
+    r.hud.note('under fire — Rifle Squad · in view', 'warn', { tier: 'minor' });
+    r.hud.note('under fire — Rifle Squad · north', 'warn', { tier: 'minor' });
+    r.hud.note('under fire — Rifle Squad · in view', 'bad', { tier: 'minor' });
+    r.hud.note('under fire — Rifle Squad · in view', 'warn', { tier: 'major' });
+    expect(r.host.querySelector('.rl-feed')!.childElementCount).toBe(4);
+    expect(r.host.querySelector('.rl-notice__count')).toBeNull();
+  });
+
+  it('marks each line with its tier, and leaves an untiered line plain', () => {
+    const r = rig(mission());
+    r.hud.note('a', 'live');
+    r.hud.note('b', 'bad', { tier: 'major' });
+    const [major, plain] = [...r.host.querySelector('.rl-feed')!.children] as HTMLElement[];
+    expect(major.dataset.tier).toBe('major');
+    expect(plain.dataset.tier).toBeUndefined();
   });
 
   it('carries no panel chrome — it is type on the map', () => {
@@ -1025,6 +1105,31 @@ describe('multi-select chips', () => {
 });
 
 describe('the single-unit card', () => {
+  // VR-03 (lead, 8 Oct): `--bad` is the ENEMY red. The player's own unit
+  // reads its low health in the warn ink -- track and word alike -- and a
+  // hostile keeps the red.
+  it("VR-03: the player's own unit at a tenth of its health reads warn, never the enemy red", () => {
+    const world = makeForce();
+    world.sim.state.hp[world.namer] = world.sim.state.hp[world.namer] / 10;
+    const r = clusterRig(() => [world.namer], {}, world);
+    const card = r.host.querySelector<HTMLElement>('.rl-card')!;
+    expect(card.querySelector('.rl-track > i')?.className).toBe('rl-fill-warn');
+    const word = card.querySelector<HTMLElement>('.rl-card__hp > span')!;
+    expect(word.textContent).toBe(en['hud.hp.critical']);
+    expect(word.className).toBe('rl-warn');
+    expect(card.querySelector('.rl-fill-bad, .rl-bad-text')).toBeNull();
+  });
+
+  it('VR-03: a hostile unit at a tenth of its health keeps the red track and the red word', () => {
+    const world = makeForce();
+    world.sim.state.side[world.namer] = 1;
+    world.sim.state.hp[world.namer] = world.sim.state.hp[world.namer] / 10;
+    const r = clusterRig(() => [world.namer], {}, world);
+    const card = r.host.querySelector<HTMLElement>('.rl-card')!;
+    expect(card.querySelector('.rl-track > i')?.className).toBe('rl-fill-bad');
+    expect(card.querySelector<HTMLElement>('.rl-card__hp > span')?.className).toBe('rl-bad-text');
+  });
+
   it('names the unit, its armament and its capabilities in one 460px card', () => {
     const world = makeForce();
     const r = clusterRig(() => [world.namer], {}, world);
@@ -1032,9 +1137,28 @@ describe('the single-unit card', () => {
     expect(r.host.querySelector('.rl-chip')).toBeNull();
     expect(card.querySelector('.rl-card__name')!.textContent).toBe('Namer IFV');
     expect(card.textContent).toContain('Armament');
-    expect(card.textContent).toContain('cannon_30');
+    // PA-01: the weapon's name, never its data id.
+    expect(card.textContent).toContain('30 mm cannon');
+    expect(card.textContent).not.toContain('cannon_30');
     expect(card.textContent).toContain('Capabilities');
     expect(card.textContent).toContain('smoke screen');
+  });
+
+  // The pseudo-locale check for the card (WP-P2): every word on it went
+  // through t(), so under ?pseudo=1 no raw id -- nothing lower_snake_case --
+  // and no unbracketed weapon name is left on it.
+  it('shows no raw id under the pseudo-locale', () => {
+    setCatalogue('pseudo', en, pseudo);
+    try {
+      const world = makeForce();
+      const r = clusterRig(() => [world.namer], {}, world);
+      const card = r.host.querySelector<HTMLElement>('.rl-card')!;
+      const text = card.textContent ?? '';
+      expect(text).toContain(pseudo('30 mm cannon'));
+      expect(text).not.toMatch(/\b[a-z0-9]+_[a-z0-9_]+\b/);
+    } finally {
+      setCatalogue('en', en);
+    }
   });
 
   it('keeps the condition line’s existing flags', () => {
@@ -1044,8 +1168,41 @@ describe('the single-unit card', () => {
     world.sim.state.moving[world.namer] = 1;
     for (let i = 0; i < 5; i++) r.tick();
     const cond = r.host.querySelector<HTMLElement>('.rl-card__cond')!;
-    expect(cond.textContent).toContain('PINNED');
+    // Pass C2/C4: the state word is set in display caps by CSS, so the text
+    // is the catalogue's own "Pinned".
+    expect(cond.textContent).toContain('Pinned');
     expect(cond.textContent).toContain('moving');
+  });
+
+  // Pass C2/C4 (PA-15): no percentage over 100 -- the state, what it costs
+  // and when it ends. Break: put `suppression {pct}%` back on the line.
+  it('says what suppression costs and when it ends, never as a percentage', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [world.namer], {}, world);
+    world.sim.state.suppression[world.namer] = Math.round(0.62 * 65536);
+    for (let i = 0; i < 5; i++) r.tick();
+    let card = r.host.querySelector<HTMLElement>('.rl-card')!;
+    expect(card.querySelector('.rl-card__cond')!.textContent).toContain('Suppressed');
+    expect(card.querySelector('.rl-card__cond')!.textContent).toContain('aim −48%');
+    expect(card.querySelector('.rl-supp')).not.toBeNull();
+    expect(card.textContent).not.toMatch(/\d%\s*$|suppression \d+%/);
+    world.sim.state.suppression[world.namer] = Math.round(1.7 * 65536);
+    world.sim.state.pinned[world.namer] = 1;
+    for (let i = 0; i < 5; i++) r.tick();
+    card = r.host.querySelector<HTMLElement>('.rl-card')!;
+    expect(card.querySelector('.rl-card__why')!.textContent).toContain('up ~9 s after the fire stops');
+    expect(card.textContent).not.toContain('170');
+  });
+
+  it('heads a vehicle with both kills OUT OF ACTION, with its mark on the art', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [world.namer], {}, world);
+    world.sim.state.mobilityKilled[world.namer] = 1;
+    world.sim.state.firepowerKilled[world.namer] = 1;
+    for (let i = 0; i < 5; i++) r.tick();
+    const card = r.host.querySelector<HTMLElement>('.rl-card')!;
+    expect(card.querySelector('.rl-card__cond')!.textContent).toContain('Out of action');
+    expect(card.querySelector('.rl-pin-mark')!.getAttribute('data-mark')).toBe('gunOut');
   });
 
   it('paints a veteran’s stripe as a commendation, never as a caution', () => {
@@ -1127,6 +1284,26 @@ describe('the single-unit card', () => {
     expect(card.querySelector('.rl-card__record')).toBeNull();
   });
 
+  // PA-28: the veteran's name is the title; the type steps back.
+  it('a named veteran leads the card and its type name is the secondary line (PA-28)', () => {
+    const world = makeForce();
+    const r = clusterRig(
+      () => [world.namer],
+      { rosterEntryOf: (id) => (id === world.namer ? { type: 'inf_squad', veterancy: 1, name: 'Sela' } : undefined) },
+      world
+    );
+    const top = r.host.querySelector<HTMLElement>('.rl-card__top')!;
+    expect(top.firstElementChild?.className).toBe('rl-card__callsign');
+    expect(top.querySelector('.rl-card__name')?.classList.contains('rl-card__name--type')).toBe(true);
+  });
+
+  it('an unnamed unit keeps the type as the card title (PA-28)', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [world.namer], { rosterEntryOf: () => undefined }, world);
+    const name = r.host.querySelector('.rl-card__name')!;
+    expect(name.classList.contains('rl-card__name--type')).toBe(false);
+  });
+
   it('a fresh unit has no callsign and no record line', () => {
     const world = makeForce();
     const r = clusterRig(() => [world.namer], { rosterEntryOf: () => undefined }, world);
@@ -1146,6 +1323,51 @@ describe('the single-unit card', () => {
       world
     );
     expect(r.host.querySelector('.rl-card__callsign')?.textContent).toBe('Fish &amp; Chips');
+  });
+});
+
+// PA-19: the card's "Engaging: <enemy>" line and the projected-fire panel
+// both name a target, and both are rebuilt on the 4 Hz content tick. A target
+// killed between two content ticks used to stay named for up to 250 ms -- over
+// its own fireball. They clear on the very next tick now, and a target that
+// is still alive costs no extra rebuild.
+describe('a dead target leaves the HUD at once (PA-19)', () => {
+  function engagedWorld(): { world: ReturnType<typeof makeForce>; enemy: number } {
+    const world = makeForce();
+    const enemy = world.sim.spawn(world.sim.state.typeIdx[world.squads[0]], 1, fx.from(8), fx.from(1));
+    world.sim.state.curTarget[world.namer] = enemy;
+    return { world, enemy };
+  }
+
+  it('the card drops "Engaging" on the next tick, not the next content tick', () => {
+    const { world, enemy } = engagedWorld();
+    const r = clusterRig(() => [world.namer], {}, world);
+    expect(r.host.querySelector('.rl-card__engaging')?.textContent).toContain('Engaging');
+    world.sim.debugKill(enemy);
+    r.tick(); // tick 2 of 5: not a content tick
+    expect(r.host.querySelector('.rl-card__engaging')).toBeNull();
+  });
+
+  it('the projected-fire panel hides on the next tick when its target dies', () => {
+    const { world, enemy } = engagedWorld();
+    vi.spyOn(world.sim, 'projectHit').mockReturnValue({ kind: 'noSolution' });
+    const r = clusterRig(() => [world.namer], { hoverEntity: () => enemy }, world);
+    const fire = r.host.querySelector<HTMLElement>('.rl-fire')!;
+    expect(fire.style.display).toBe('');
+    world.sim.debugKill(enemy);
+    r.tick();
+    expect(fire.style.display).toBe('none');
+  });
+
+  it('a living target is not rebuilt off the 4 Hz cadence', () => {
+    const { world, enemy } = engagedWorld();
+    vi.spyOn(world.sim, 'projectHit').mockReturnValue({ kind: 'noSolution' });
+    const r = clusterRig(() => [world.namer], { hoverEntity: () => enemy }, world);
+    const card = r.host.querySelector('.rl-card');
+    const row = r.host.querySelector('.rl-fire')!.firstElementChild;
+    r.tick();
+    expect(r.host.querySelector('.rl-card')).toBe(card);
+    expect(r.host.querySelector('.rl-fire')!.firstElementChild).toBe(row);
   });
 });
 
@@ -1240,6 +1462,28 @@ describe('the card\'s service record — whose place this is', () => {
     // would otherwise report zero offenders forever.
     expect(found).toBe(true);
   });
+
+  // PA-28: the veteran's name is read as the title, which is a size, and the
+  // type beside it is smaller. Falsified by hand: setting the callsign's
+  // font-size to `var(--t-s)` turns this red.
+  it('draws a veteran name at the title size and its type smaller (PA-28)', () => {
+    const css = readFileSync(resolve(process.cwd(), 'packages/app/src/ui/theme.css'), 'utf8');
+    const sizeOf = (selector: string): string | undefined => {
+      for (const rule of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        const selectors = rule[1]
+          .replace(/\/\*[\s\S]*?\*\//g, '')
+          .split(',')
+          .map((x) => x.trim());
+        if (!selectors.includes(selector)) continue;
+        const m = /font-size\s*:\s*([^;]+);/.exec(rule[2]);
+        if (m) return m[1].trim();
+      }
+      return undefined;
+    };
+    expect(sizeOf('.rl-card__callsign')).toBe('var(--t-card)');
+    expect(sizeOf('.rl-card__name')).toBe('var(--t-card)');
+    expect(sizeOf('.rl-card__name--type')).toBe('var(--t-s)');
+  });
 });
 
 describe('unit art the pipeline has not produced', () => {
@@ -1252,7 +1496,8 @@ describe('unit art the pipeline has not produced', () => {
     expect(art.tagName).toBe('DIV');
     expect(art.dataset.nosprite).toBe('1');
     expect(art.querySelector('svg')).not.toBeNull();
-    expect(art.title).toContain('no sprite sheet');
+    // By the unit's name, never its id (PA-01).
+    expect(art.title).toBe('Namer IFV: no picture yet');
     expect(r.host.querySelector('.rl-card__art img')).toBeNull();
   });
 
@@ -1441,7 +1686,22 @@ describe('the order row', () => {
     btn.dispatchEvent(new Event('mouseenter'));
     const tip = r.host.querySelector<HTMLElement>('.rl-tip')!;
     expect(tip.textContent).toContain('Step out of the transport');
-    expect(tip.textContent).toContain('nothing in the selection would act on it right now');
+    // K-09: the tooltip names the missing thing, not just that nothing would happen.
+    expect(tip.textContent).toContain('Unload — no one is aboard');
+    expect(tip.textContent).not.toContain('nothing in the selection would act on it right now');
+  });
+
+  it('gives each inert verb its own reason (K-09)', () => {
+    const world = makeForce();
+    const tipOf = (r: ReturnType<typeof clusterRig>, id: 'halt' | 'load' | 'unload'): string => {
+      r.order(id)!.dispatchEvent(new Event('mouseenter'));
+      return r.host.querySelector<HTMLElement>('.rl-tip')!.textContent ?? '';
+    };
+    // A lone transport: Load has nobody selected to board, Unload nobody aboard.
+    const alone = clusterRig(() => [world.namer], {}, world);
+    expect(tipOf(alone, 'load')).toContain('Load — no selected unit can board a transport');
+    expect(tipOf(alone, 'unload')).toContain('Unload — no one is aboard');
+    expect(tipOf(alone, 'halt')).toContain('Halt — nobody selected is moving or has a route queued');
   });
 
   it('drops the inert reason once the order stops being inert', () => {
@@ -1492,6 +1752,7 @@ describe('victory banner', () => {
 // the end screen under both ("Town is quiet"). The moment is the verdict, so
 // `main.ts` stands this banner down the moment it mounts one. The two tests
 // above are the path where no moment shows, and there the banner is kept.
+// (WP-P2 then gave all three the same name -- `outcome-names.test.ts`.)
 describe('the end banner stands down for the outcome moment', () => {
   it('never goes up once the moment has the verdict', () => {
     const m = mission();
@@ -1542,6 +1803,23 @@ describe('destroy', () => {
     // route runs its disposer after the teardown that aborted it.
     hud.destroy();
     expect(document.body.children.length).toBe(before);
+  });
+
+  // GH-469: a pending feed dwell or beat-fold timer closes over the HUD, and
+  // the HUD holds the sim, the renderer and the runtime -- so a timer that
+  // outlived `destroy()` kept the left battlefield reachable until it fired.
+  it('leaves no timer of its own pending', () => {
+    vi.useFakeTimers();
+    try {
+      const hud = bodyHud();
+      hud.brief(['One.', 'Two.']);
+      hud.note('<b>under fire</b>', 'warn', { tier: 'major' });
+      hud.note('<b>lost</b>', 'bad', { tier: 'minor' });
+      hud.destroy();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   // `announce` mounts a title card that holds for up to five seconds and
@@ -2422,6 +2700,16 @@ describe('the voice caption slot (WP-AU1 D8)', () => {
     expect(feed?.textContent ?? '').not.toContain('moving');
   });
 
+  it('clearCaption takes a standing caption down at once (AU-5)', () => {
+    const r = rig(mission());
+    const cap = r.host.querySelector<HTMLElement>('.rl-caption');
+    r.hud.caption('moving', 1);
+    r.hud.clearCaption();
+    expect(cap?.textContent).toBe('');
+    expect(cap?.hidden).toBe(true);
+    r.hud.clearCaption();
+  });
+
   it('goes down with the HUD', () => {
     const r = rig(mission());
     r.hud.caption('moving', 1);
@@ -2450,13 +2738,21 @@ describe('GH-261 drawn marks', () => {
     expect(mark(next)).toBe('pageNext');
   });
 
-  it('draws the mute chip as the signals bolt, struck through when muted', () => {
+  it('draws the mute chip as a speaker, struck through when muted (VR-15)', () => {
     let muted = false;
     const r = rig(mission(), { isMuted: () => muted, toggleMute: () => void (muted = !muted) });
     const chip = r.host.querySelectorAll<HTMLButtonElement>('.rl-strip__chip')[3];
     expect(mark(chip)).toBe('audioOn');
+    // The speaker's outline as a LITERAL, and two arc-drawn waves; the bolt
+    // it replaced read as power, not sound.
+    expect(chip.innerHTML).toContain('d="M2 8.5 L7 8.5 L12.5 3.5 L12.5 20.5 L7 15.5 L2 15.5 Z"');
+    expect(chip.innerHTML.match(/ A/g)?.length).toBe(4);
+    expect(chip.innerHTML).not.toContain('M15 1.5 L5 13.5');
     chip.click();
     expect(mark(chip)).toBe('audioOff');
+    // Silent: no waves, and the body cut by the slash.
+    expect(chip.innerHTML).not.toContain(' A');
+    expect(chip.innerHTML).not.toContain('M2 8.5 L7 8.5 L12.5 3.5 L12.5 20.5 L7 15.5 L2 15.5 Z');
     expect(chip.textContent).not.toMatch(/🔇|🔊/);
   });
 
@@ -2490,5 +2786,203 @@ describe('GH-261 drawn marks', () => {
     const heavy = r.host.querySelector('.rl-card .rl-warn');
     expect(mark(heavy)).toBe('heavy');
     expect(heavy?.textContent?.trim()).toBe('heavy');
+  });
+});
+
+// GH-345: progressive disclosure. The Hud asks `isShown` and nothing else; the
+// rule that builds the set is `tutorial/hud-visibility.ts`'s, tested there.
+describe('HUD disclosure (isShown)', () => {
+  it('a hidden surface is off the strip, and its pane carries data-hud-hidden', () => {
+    const hidden = new Set(['conduct', 'objective', 'objectives', 'clock', 'speed', 'mute', 'radio', 'feed', 'hint']);
+    const r = rig(mission({ roe: 90 }), { isShown: (el) => !hidden.has(el) });
+    expect(r.host.querySelector('[data-tip="conduct"]')).toBeNull();
+    expect(r.host.querySelector('[data-obj]')).toBeNull();
+    expect(r.host.querySelector('[data-open-objectives]')).toBeNull();
+    expect(r.host.querySelector('.rl-strip__chips')!.hasAttribute('data-hud-hidden')).toBe(true);
+    expect(r.host.querySelector('.rl-cmd')!.hasAttribute('data-hud-hidden')).toBe(true);
+    expect(r.host.querySelector('.rl-clock')!.hasAttribute('data-hud-hidden')).toBe(true);
+    expect(r.host.querySelector('.rl-hint')!.hasAttribute('data-hud-hidden')).toBe(true);
+    // The leave button and the mission name are never part of the set.
+    expect(r.host.querySelector('.rl-hud__leave')).not.toBeNull();
+    expect(r.strip()).toContain('Beit Sahwan II');
+  });
+
+  it('a hidden feed is inert: a note written while hidden never surfaces', () => {
+    let feedOn = false;
+    const r = rig(mission(), { isShown: (el) => el !== 'feed' || feedOn });
+    r.hud.note('Contact east', 'live');
+    feedOn = true;
+    r.tick();
+    expect(r.host.querySelector('.rl-feed')!.textContent).not.toContain('Contact east');
+    r.hud.note('Second line', 'live');
+    expect(r.host.querySelector('.rl-feed')!.textContent).toContain('Second line');
+  });
+
+  it('a reveal lands on the next tick, and everything shows with no isShown at all', () => {
+    let on = false;
+    const r = rig(mission({ roe: 90 }), { isShown: (el) => el !== 'conduct' || on });
+    expect(r.host.querySelector('[data-tip="conduct"]')).toBeNull();
+    on = true;
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(r.host.querySelector('[data-tip="conduct"]')).not.toBeNull();
+    const plain = rig(mission({ roe: 90 }));
+    expect(plain.host.querySelector('[data-hud-hidden]')).toBeNull();
+    expect(plain.host.querySelector('[data-tip="conduct"]')).not.toBeNull();
+  });
+});
+
+// GH-345 (spec §a beat 5, decisions 1 and 5): the four states the tutorial
+// teaches, worded by the panel itself. `projectHit` is stubbed so each test
+// names the sim's answer outright -- the classifier is `fire-state.ts`'s, and
+// its own suite covers the choice; this covers the words.
+describe('projected fire wording (GH-345)', () => {
+  function firePanel(answer: HitProjection, cursor?: CursorName): string {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const { sim, ids } = makeSim();
+    vi.spyOn(sim, 'projectHit').mockReturnValue(answer);
+    const hud = new Hud(host, {
+      sim,
+      getSelection: () => [ids[0]],
+      getMission: () => null,
+      hoverStructure: () => -1,
+      hoverEntity: () => ids[1],
+      ...(cursor ? { hoverCursor: () => cursor } : {}),
+      gameVersion: '0.1',
+      commander: TEST_COMMANDER,
+    });
+    hud.onTick();
+    return host.querySelector('.rl-fire')!.textContent!.replace(/\s+/g, ' ');
+  }
+  const factors = (o: Partial<Record<'coverMod' | 'motionMod' | 'rangeFalloff', number>>) => ({
+    p: fx.from(0.1),
+    accuracy: fx.from(0.6),
+    rangeFalloff: fx.from(o.rangeFalloff ?? 1),
+    coverMod: fx.from(o.coverMod ?? 1),
+    motionMod: fx.from(o.motionMod ?? 1),
+    stanceMod: fx.from(1),
+    suppressionMod: fx.from(1),
+  });
+
+  it('A: not identified says so and says what to do about it', () => {
+    const text = firePanel({ kind: 'unidentified' });
+    expect(text).toContain('Not identified · no firing solution');
+    expect(text).toContain('Keep eyes on it');
+  });
+  it('B: cover prints as a penalty, never as the multiplier, with its remedy', () => {
+    const text = firePanel({ kind: 'shot', weaponId: 'rifles', pHit: fx.from(0.09), hurts: true, factors: factors({ coverMod: 0.14 }) });
+    expect(text).toContain('cover −86%');
+    expect(text).not.toContain('cover 14%');
+    expect(text).toContain('Flank it');
+  });
+  it('C: a moving target prints its penalty and its remedy', () => {
+    const text = firePanel({ kind: 'shot', weaponId: 'rifles', pHit: fx.from(0.38), hurts: true, factors: factors({ motionMod: 0.6 }) });
+    expect(text).toContain('target moving −40%');
+    expect(text).toContain('Wait for it to stop');
+  });
+  // Pass C2/C4 (D4, PA-15): it says WHICH -- here the target stands inside
+  // the rifles' 8 tiles, so the one reason left in `projectHit` is sight.
+  it('D: no shot names which reason, not "range or sight"', () => {
+    const text = firePanel({ kind: 'noSolution' });
+    expect(text).toContain('No line of sight · in range, but something is in the way');
+    expect(text).not.toContain('Out of range or out of sight');
+    expect(text).not.toContain('no unit can engage');
+  });
+  // WP-P4 (PA-08): the heading names one target and gives odds on it, and
+  // a right-click there is an attack-move to the TILE. The line says so,
+  // whenever -- and only when -- the cursor says `advance`.
+  it('says a right-click advances and engages when the cursor is advance', () => {
+    const shot = { kind: 'shot', weaponId: 'rifles', pHit: fx.from(0.5), hurts: true, factors: factors({}) } as const;
+    expect(firePanel(shot, 'advance')).toContain('Right-click: advance and engage · each unit picks its own target');
+    // A refused click (protected), a pinned order and no cursor at all get no
+    // line: it reads the cursor, it does not second-guess it.
+    for (const other of ['protected', 'pinned', undefined] as const) {
+      expect(firePanel(shot, other)).not.toContain('Right-click');
+    }
+  });
+  it('a clean shot carries no remedy line', () => {
+    const text = firePanel({ kind: 'shot', weaponId: 'rifles', pHit: fx.from(0.5), hurts: true, factors: factors({}) });
+    expect(text).toContain('50%');
+    expect(text).not.toContain('Flank');
+    expect(text).not.toContain('Wait for it');
+  });
+});
+
+describe('the Conduct invoice under the strip (GH-345)', () => {
+  const lines = [{ label: 'Clinic struck', cause: 'struck' as const, count: 2, total: 10, ticks: [820, 1040] }];
+  it('a click on Conduct pins the running ledger open, and a second click closes it', () => {
+    const r = rig(mission({ roe: 90 }), { conductInvoice: () => ({ lines, floor: 70 }) });
+    const inv = r.host.querySelector<HTMLElement>('.rl-invoice')!;
+    expect(inv.style.display).toBe('none');
+    r.host.querySelector<HTMLElement>('[data-tip="conduct"]')!.click();
+    expect(inv.style.display).toBe('');
+    expect(inv.textContent).toContain('Conduct 90 · floor 70');
+    expect(inv.textContent).toContain('Clinic struck ×2');
+    expect(inv.textContent).toContain('0:41');
+    expect(inv.textContent).toContain('−10');
+    r.host.querySelector<HTMLElement>('[data-tip="conduct"]')!.click();
+    expect(inv.style.display).toBe('none');
+  });
+  it('opened with nothing deducted, it reads the definition; hidden Conduct cannot open it', () => {
+    const r = rig(mission({ roe: 100 }), { conductInvoice: () => ({ lines: [] }) });
+    r.hud.setInvoiceOpen(true);
+    expect(r.host.querySelector('.rl-invoice')!.textContent).toContain('Conduct');
+    const q = rig(mission({ roe: 100 }), { conductInvoice: () => ({ lines }), isShown: (el) => el !== 'conduct' });
+    q.hud.setInvoiceOpen(true);
+    expect(q.host.querySelector<HTMLElement>('.rl-invoice')!.style.display).toBe('none');
+  });
+  // PA-11: tutorial beat 9 opens the invoice and leaves it open past the last
+  // beat, so it hung over the end panel and the debrief header. It is a
+  // battle instrument: once the result is in, it closes and stays closed.
+  it('closes when the mission ends, and nothing reopens it over the end screen', () => {
+    const m = mission({ roe: 100 });
+    const r = rig(m, { conductInvoice: () => ({ lines: [] }) });
+    const inv = r.host.querySelector<HTMLElement>('.rl-invoice')!;
+    r.hud.setInvoiceOpen(true);
+    expect(inv.style.display).toBe('');
+    m.result = 'victory';
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(inv.style.display).toBe('none');
+    r.hud.setInvoiceOpen(true);
+    expect(inv.style.display).toBe('none');
+  });
+});
+
+describe('the invoice head with no floor (GH-345)', () => {
+  it('never prints "floor 0" for a mission that declares none', () => {
+    const lines = [{ label: 'Clinic struck', cause: 'struck' as const, count: 1, total: 5, ticks: [7200] }];
+    const r = rig(mission({ roe: 95 }), { conductInvoice: () => ({ lines }) });
+    r.hud.setInvoiceOpen(true);
+    const text = r.host.querySelector('.rl-invoice')!.textContent!;
+    expect(text).toContain('Conduct 95');
+    expect(text).not.toContain('floor');
+  });
+});
+
+// PA-25: a sandbox has no mission, and its strip read the game's own name
+// ("ROARING LIONS") where every mission names where you are.
+describe('the strip with no mission (PA-25)', () => {
+  it('names the sandbox map, escaped', () => {
+    const r = rig(null, { placeName: 'Beit Sahwan — Outskirts <b>' });
+    expect(r.strip()).toContain('Beit Sahwan — Outskirts <b>');
+    expect(r.strip()).not.toContain('Roaring Lions');
+    expect(r.stripEl().querySelector('b')).toBeNull();
+  });
+  it('falls back to the game name with no place to name', () => {
+    expect(rig(null).strip()).toContain('Roaring Lions');
+  });
+  // The second half of PA-25: a player-facing mode with no objective read as
+  // a broken mission. It says so, and says how to leave.
+  it('says a sandbox is free play, with no objectives, and how to reach the menu', () => {
+    const r = rig(null, { placeName: 'Tel Marum' });
+    const line = r.stripEl().querySelector<HTMLElement>('[data-free-play]');
+    expect(line).not.toBeNull();
+    expect(line!.textContent).toBe(t('hud.strip.freePlay'));
+    expect(line!.textContent).not.toBe('hud.strip.freePlay');
+    expect(r.strip()).toContain('Tel Marum');
+  });
+  it('says nothing of free play in a mission, or with no place to name', () => {
+    expect(rig(mission()).stripEl().querySelector('[data-free-play]')).toBeNull();
+    expect(rig(null).stripEl().querySelector('[data-free-play]')).toBeNull();
   });
 });

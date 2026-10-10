@@ -90,17 +90,23 @@ says what colour it is. `weapon`/`metal`/`charge` are the kit parts.
 
 ## What each team carries, from `tools/units/teams.py` and `rig.py`
 
-  at_team     at_fire kneeling at (0.24, -0.30), `kit.launcher` level,
-              length 1.16, on his forearm_R -- but seated ON his +y shoulder
-              beside the head at cheek height, with a sight unit, pistol grip
-              and support handle and both arms re-seated on them
-              (`_shoulder_launcher`), NOT at `rig._at_extras`' centre-line
-              anchor, which on this figure ran through his head; at_spot standing at (-0.32, 0.34) with
+  at_team     at_fire STANDING at (0.24, -0.30) (spike-walk, 6 Oct; he
+              knelt in every clip until then, `move` included), the Spike on
+              his forearm_R, seated ON his +y shoulder beside the head at
+              cheek height with a pistol grip and support handle and both
+              arms re-seated on them (`_shoulder_launcher`, at a drop of 0),
+              NOT at `rig._at_extras`' centre-line anchor, which on this
+              figure ran through his head. That seat is the AIM; the motion
+              pass carries the Spike low in `idle`/`move` and kneels him on
+              the sim's brace (`tools/src/meshes/motion/hold.ts`, kind
+              'spike'). at_spot standing at (-0.32, 0.34) with
               `kit.binoculars` on his head at this figure's measured eye
-              height. Neither figure has a D6 walker: the gunner stays
-              deployed through `move`, as in the kit file.
-  demo_squad  demo_a kneeling at (0.34, -0.16) over `kit.demo_charge` at
-              (0.76, -0.16) on the team's `prop` bone; demo_b standing at
+              height. Neither figure needs a D6 walker: both stand.
+  demo_squad  demo_a STANDING at (0.34, -0.16) (spike-walk, 6 Oct; he knelt in
+              every clip until then), behind `kit.demo_charge` at
+              (0.76, -0.16) on the team's `prop` bone, which is packed away
+              while the team moves; he kneels at it on the sim's brace (the
+              motion pass's kneel clips); demo_b standing at
               (-0.36, 0.28) with `rig._weapon_parts`'s rifle held LEVEL at
               his right hand (the kit anchors a rifle at chest height for a
               figure whose arms are built bent; a hung arm holds it at the
@@ -112,8 +118,18 @@ Every figure carries a prone corpse for `down`/`wreck` -- the standing body
 laid face-down and decimated to half, rigidly on `{prefix}_death_root`
 (`rig._figure_death_parts`'s convention with the man's own body).
 
-After this: `pnpm gait:meshes -- --id=<team>`, `pnpm validate:meshes`,
-`pnpm encode:meshes`. No `mathutils.noise` anywhere in this file.
+A3.1 stage 2 (GH-179, 2026-10-05): at_team's procedural tube and sight box
+are replaced by the Meshy Spike (`spike_launcher`: preview
+01a10c30-4ca3-74b9-befa-ba935597d8b7, refine 8k 01a10c5d-97ab-777d-98c9-1775e9c5348d,
+remesh 01a10c61-808f-7626-9ebd-8abddc4e01b6; AI-generated, disclosed per
+CONTRIBUTING.md), 1.2 m, through a 2048 x 1024 figure+part atlas (`_spike_part`,
+`_seat_spike`). The preview came with its front bipod EXTENDED where the prompt
+asked for it folded; at 25 px two splayed legs under the canister read as a
+second barrel, so the bipod's faces are DELETED in Blender before it ships
+(`import_meshy_crew_team._cut_spike_bipod`: 60 faces, 410 -> 350 tris).
+
+After this: `pnpm motion:meshes -- --id=<team>`, `pnpm gait:meshes -- --id=<team>`,
+`pnpm encode:meshes`, `pnpm validate:meshes`. No `mathutils.noise` anywhere in this file.
 """
 import glob
 import math
@@ -478,9 +494,10 @@ def _move_all(parts, names, mat):
             _transform(parts[n], mat)
 
 
-def standing_bones(prefix, joints, dx, dy):
-    """rig.py's `_BASE_BONES` shape (plus its two hip-fix bones) with THIS
-    figure's measured joints."""
+def standing_table(joints):
+    """rig.py's `_BASE_BONES` shape with THIS figure's measured joints, at the
+    origin and unprefixed -- the table `_shoulder_launcher` re-seats the arms
+    in, as it does `_kneel`'s."""
     H, zc, zk, za, zn, zh = (joints[k] for k in ("H", "crotch", "knee", "ankle", "neck", "chin"))
     z_sh = max(joints["arm"][s]["shoulder"][2] for s in (0, 1))
     table = [
@@ -498,7 +515,14 @@ def standing_bones(prefix, joints, dx, dy):
         lx, ly = joints["leg"][side]
         table.append((f"thigh_{name}", "pelvis", (lx, ly, zc), (lx, ly, zk)))
         table.append((f"shin_{name}", f"thigh_{name}", (lx, ly, zk), (lx, ly, za)))
-    out = rig._translate(table, dx, dy, prefix)
+    return table
+
+
+def standing_bones(prefix, joints, dx, dy, table=None):
+    """rig.py's `_BASE_BONES` shape (plus its two hip-fix bones) with THIS
+    figure's measured joints -- `table` when the arms were re-seated on it."""
+    zc, zk = joints["crotch"], joints["knee"]
+    out = rig._translate(table if table is not None else standing_table(joints), dx, dy, prefix)
     for side, name in ((0, "L"), (1, "R")):
         lx, ly = joints["leg"][side]
         out.append((f"{prefix}_hip_{name}", f"{prefix}_pelvis",
@@ -771,6 +795,15 @@ def _figure(src, height, mat, spec):
             info["launcher"] = _shoulder_launcher(parts, joints, kbones, eye_z, drop, prefix)
         bones = rig._translate(kbones, x, y, prefix)
         info["eye_z"], info["drop"] = eye_z, drop
+    elif spec["weapon"] == "launcher":
+        # spike-walk (6 Oct): the gunner STANDS, so the Spike is seated on the
+        # standing figure -- the same measured seat as the kneeling one, at a
+        # drop of 0. This is the AIM (the rest pose, both hands on the grip
+        # and the handle); the carry in `idle`/`move` and the aim in the
+        # motion pass's kneel are the hold's (`motion/hold.ts`, kind 'spike').
+        table = standing_table(joints)
+        info["launcher"] = _shoulder_launcher(parts, joints, table, info["eye_z"], 0.0, prefix)
+        bones = standing_bones(prefix, joints, x, y, table)
     else:
         bones = standing_bones(prefix, joints, x, y)
     _place(parts, x, y)
@@ -784,10 +817,10 @@ def _figure(src, height, mat, spec):
     return out, bones, forced, info
 
 
-def _prepare_texture(mat):
-    """Keep the base-colour bake only, at `TEXTURE_PX`. The remesh's normal
-    and metallic-roughness maps are unlinked and their images removed, so the
-    exporter writes exactly one image."""
+def _prepare_texture(mat, cap=(TEXTURE_PX, TEXTURE_PX)):
+    """Keep the base-colour bake only, at `TEXTURE_PX` (or `cap`, an atlas's
+    own size). The remesh's normal and metallic-roughness maps are unlinked
+    and their images removed, so the exporter writes exactly one image."""
     tree = mat.node_tree
     bsdf = next(n for n in tree.nodes if n.type == "BSDF_PRINCIPLED")
     base_link = next((l for l in tree.links if l.to_node == bsdf and l.to_socket.name == "Base Color"), None)
@@ -801,8 +834,8 @@ def _prepare_texture(mat):
         if img is not base:
             bpy.data.images.remove(img)
     before = tuple(base.size)
-    if base.size[0] > TEXTURE_PX or base.size[1] > TEXTURE_PX:
-        base.scale(min(base.size[0], TEXTURE_PX), min(base.size[1], TEXTURE_PX))
+    if base.size[0] > cap[0] or base.size[1] > cap[1]:
+        base.scale(min(base.size[0], cap[0]), min(base.size[1], cap[1]))
     log(f"texture: {base.name} {before} -> {tuple(base.size)}, JPEG q{JPEG_QUALITY}; other maps dropped")
 
 
@@ -831,9 +864,87 @@ def export_glb_textured(arm_obj, path):
     )
 
 
+# --- A3.1 stage 2: the Meshy Spike --------------------------------------------
+#
+# `docs/art/meshy-prompts-a31-parts.md` #3: the procedural tube and its sight
+# box give way to the refined+remeshed Meshy Spike (1.2 m, real metres),
+# loaded, turned, measured and cut (its extended bipod) by
+# `import_meshy_crew_team`'s part path (`PART_SPECS["spike_launcher"]`), and
+# composed into this figure's atlas as B8 composes a part: the figure's bake
+# in the left half, the part's in the right, ONE material. It sits where
+# `_shoulder_launcher` seats the tube -- the bore on the measured axis beside
+# the head, level, muzzle +X -- with its REAR face where the procedural sight's
+# eyepiece face was (SIGHT_STANDOFF ahead of the face): the Spike's own
+# command-launch unit and thermal sight ARE its rear, so the eye sits behind
+# them as it sat behind the sight box. The pistol grip and the support handle
+# stay `_shoulder_launcher`'s measured boxes (the hands are solved onto them),
+# and borrow the part's own dark texel so `weapon` stays one material.
+SPIKE_PART = {"at_team": "spike_launcher"}
+
+
+def _spike_part(team_id, src, mat):
+    import import_meshy_crew_team as crew
+    name = SPIKE_PART[team_id]
+    part, img = crew._load_hand_part(team_id, name)
+    crew._normalise_part(team_id, name, part)
+    fig_img = next(n.image for n in mat.node_tree.nodes if n.type == "TEX_IMAGE"
+                   and any(l.to_socket.name == "Base Color" for l in n.outputs[0].links))
+    W, H = 2 * TEXTURE_PX, TEXTURE_PX
+    left = crew._scaled_pixels(fig_img, TEXTURE_PX, TEXTURE_PX)
+    right = crew._scaled_pixels(img, TEXTURE_PX, TEXTURE_PX)
+    if right.shape[2] != left.shape[2]:
+        pad = np.ones((TEXTURE_PX, TEXTURE_PX, left.shape[2]), dtype=np.float32)
+        k = min(left.shape[2], right.shape[2])
+        pad[..., :k] = right[..., :k]
+        right = pad
+    atlas = bpy.data.images.new("atlas_color", W, H, alpha=(left.shape[2] == 4))
+    atlas.pixels = np.concatenate([left, right], axis=1).ravel().tolist()
+    atlas.update()
+    for node in mat.node_tree.nodes:
+        if node.type == "TEX_IMAGE" and node.image is fig_img:
+            node.image = atlas
+    old = fig_img.name
+    fig_img.name = "figure_color"
+    atlas.name = old
+    crew._remap_u(src, 0.0, 0.5)
+    crew._remap_u(part, 0.5, 1.0)
+    part.data.materials.clear()
+    part.data.materials.append(mat)
+    for stale in (fig_img, img):
+        if stale.users == 0:
+            bpy.data.images.remove(stale)
+    log(f"{team_id}: atlas {W}x{H} -- figure bake left, {name} right")
+    return part
+
+
+def _seat_spike(part, seat, fx, fy, mat):
+    import import_meshy_crew_team as crew
+    boxes = {n: (size, c) for n, size, c in seat["boxes"]}
+    sight_size, sight_c = boxes["sight"]
+    ax, ay, az = seat["at"]
+    rear_x = fx + sight_c[0] - sight_size[0] / 2.0
+    _transform(part, Matrix.Translation((rear_x, fy + ay, az)))
+    part.name = part.data.name = "at_tube"
+    part["rl_role"] = "weapon"
+    co = _coords(part)
+    out = [part]
+    for n in ("grip", "handle"):
+        size, c = boxes[n]
+        ob = kit.box(f"at_tube_{n}", size, (fx + c[0], fy + c[1], c[2]), "weapon")
+        crew._TEX["material"] = mat
+        crew._borrow_uv(ob, part, near=(fx + c[0], fy + c[1], c[2] + size[2] / 2.0))
+        out.append(ob)
+    log(f"at_team: Meshy Spike rear face x {rear_x:.3f} (the procedural sight's eyepiece face), bore "
+        f"y {fy + ay:+.3f} z {az:.3f}; x {co[:, 0].min():+.3f}..{co[:, 0].max():+.3f} "
+        f"y {co[:, 1].min():+.3f}..{co[:, 1].max():+.3f} z {co[:, 2].min():+.3f}..{co[:, 2].max():+.3f}, "
+        f"{len(part.data.polygons)} tris")
+    return out
+
+
 def build_team(team_id):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     src, height, mat = _load_figure(team_id)
+    spike = _spike_part(team_id, src, mat) if team_id in SPIKE_PART else None
     figures = rig.TEAM_FIGURES[team_id]
     parts, bones, forced = [], [], {}
     infos = {}
@@ -857,16 +968,19 @@ def build_team(team_id):
         fx, fy = fire_spec["x"], fire_spec["y"]
         seat = infos["at_fire"]["launcher"]
         ax, ay, az = seat["at"]
-        tube = kit.launcher("at_tube", (fx + ax, fy + ay, az), pitch=0.0, length=TUBE_LENGTH, radius=TUBE_RADIUS)
-        for name, size, c in seat["boxes"]:
-            tube += [kit.box(f"at_tube_{name}", size, (fx + c[0], fy + c[1], c[2]), "weapon")]
+        if spike is None:
+            tube = kit.launcher("at_tube", (fx + ax, fy + ay, az), pitch=0.0, length=TUBE_LENGTH, radius=TUBE_RADIUS)
+            for name, size, c in seat["boxes"]:
+                tube += [kit.box(f"at_tube_{name}", size, (fx + c[0], fy + c[1], c[2]), "weapon")]
+        else:
+            tube = _seat_spike(spike, seat, fx, fy, mat)
         spot = infos["at_spot"]
         binos = kit.binoculars("at_binos", (-0.32, 0.34, spot["eye_z"] - kit.POSTURE_EYE["standing"] * kit.FIGURE_H - 0.04),
                                posture="standing")
         forced.update({ob: "at_fire_forearm_R" for ob in tube})
         forced.update({ob: "at_spot_head" for ob in binos})
         parts += tube + binos
-        log(f"at_team: tube axis ({fx + ax:.3f}, {fy + ay:.3f}, {az:.3f}) beside the kneeling gunner's head")
+        log(f"at_team: tube axis ({fx + ax:.3f}, {fy + ay:.3f}, {az:.3f}) beside the standing gunner's head")
     elif team_id == "demo_squad":
         charge = kit.demo_charge("demo_charge", (0.76, -0.16, 0.0))
         # The reel worn on the back, not through the shins: kit.cable_spool
@@ -913,7 +1027,7 @@ def build_team(team_id):
     stray = [o.name for o in bpy.data.objects if o is not arm_obj and o not in merged.values()]
     if stray:
         raise SystemExit(f"{team_id}: objects in the scene that are neither the rig nor a role mesh: {stray}")
-    _prepare_texture(mat)
+    _prepare_texture(mat, cap=(2 * TEXTURE_PX, TEXTURE_PX) if spike is not None else (TEXTURE_PX, TEXTURE_PX))
     path = os.path.join(OUT_DIR, f"{team_id}.glb")
     export_glb_textured(arm_obj, path)
     tris = {role: len(ob.data.polygons) for role, ob in merged.items()}

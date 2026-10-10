@@ -8,6 +8,7 @@
  * families across four roles is four draws, not eighteen.
  */
 import * as THREE from 'three';
+import { memoizeBatchCulling } from './batch-cull';
 import { liftTone, rampMaterial } from '../world-materials';
 import { rampForDecorRole, type DecorMeshRole } from './decor-role';
 import type { DecorPlacement } from './decor-place';
@@ -256,7 +257,8 @@ export function buildDecorMesh(
       mesh.dispose();
       continue;
     }
-    group.add(mesh);
+    // Culled and sorted once per view, not once per pass (`batch-cull.ts`).
+    group.add(memoizeBatchCulling(mesh));
   }
   return group;
 }

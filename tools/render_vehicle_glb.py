@@ -68,6 +68,7 @@ import bpy
 from mathutils import Matrix
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from sprites_retired import refuse_sprite_output  # noqa: E402
 from render_vehicle import (  # noqa: E402
     FACINGS,
     SIZE,
@@ -145,7 +146,7 @@ def load_clean(glb, quarters):
     """Import the GLB into an empty scene and leave only the living model.
 
     Dropped: the WRECK_ meshes and their death_root (the mesh path's own wreck,
-    not this sheet's), every animation (bind pose only), and every empty -- the
+    not this sheet's), every `kit_*` upgrade part, every animation (bind pose only), and every empty -- the
     turret meshes are un-parented from turret_pivot keeping their world
     transform, because render_vehicle.setup re-parents parentless meshes onto
     its own pivot and would otherwise discard the pivot's offset.
@@ -156,7 +157,8 @@ def load_clean(glb, quarters):
         ob.animation_data_clear()
     bpy.context.view_layer.update()
     for ob in list(bpy.data.objects):
-        if ob.name.startswith("WRECK_") or ob.name == "death_root":
+        # `kit_*`: the upgrade kit (contract v5) -- not the tier-0 sheet.
+        if ob.name.startswith(("WRECK_", "kit_")) or ob.name == "death_root":
             bpy.data.objects.remove(ob, do_unlink=True)
     meshes = [o for o in bpy.data.objects if o.type == "MESH"]
     worlds = {o.name: o.matrix_world.copy() for o in meshes}
@@ -234,6 +236,7 @@ def render_legacy(spec, cfg, yaw):
         (spec.out_hull, hull, turret, spec.hull_unit, None),
         (spec.out_turr, turret, hull, spec.turret_unit, "turret"),
     ):
+        refuse_sprite_output(out_dir)
         os.makedirs(out_dir, exist_ok=True)
         for o in show:
             o.hide_render = False

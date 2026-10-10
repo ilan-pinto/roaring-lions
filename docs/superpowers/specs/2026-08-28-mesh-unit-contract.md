@@ -327,3 +327,177 @@ document's own rule that the runtime never depends on bone names: `rig.py`'s
 every one of them parentless and at scale 1 in a living clip, but none of
 them has a bone riding on it, where every figure root the kit/Meshy
 convention builds does (a spine). A future rig whose figure root has no bone children of its own does not topple under this rule: `liveFigureRoots` simply never returns it, so its pose holds frozen (not pitched) for the same `TOPPLE_SECONDS` every topple already waits out, before the forced cut onward to its wreck (or the Pixi fade, with none) — a body that never visibly falls rather than one that falls wrong. So a new rig's root joint should carry at least one child bone even when the figure has no other moving parts to hang off it.
+
+# v5 — the motion pass (2026-10-05): held weapons, kneels, squads, planted gait
+
+Written by `pnpm motion:meshes` (`tools/src/meshes/motion-pass.ts`), which
+runs between the export and `pnpm gait:meshes`. Five additions, every one
+optional for a file the pass does not touch.
+
+- **Clips `kneel`, `kneelIn`, `kneelOut`.** `kneel` loops; `kneelIn` and
+  `kneelOut` are 0.2 s, the sim's own 4-tick drop and rise (#402), and the
+  runtime SCRUBS them by the ticks left in the sim's transition
+  (`units/stance.ts`) rather than playing them on a clock. Like every clip
+  they key every node `idle` keys.
+- **A weapon bone per shooter, `{prefix}_weapon`**, a child of
+  `{prefix}_spine`, carrying the weapon's vertices. The hold places it on
+  every frame of `idle`/`move`/`fire`/`moveFire`/`kneel*`, and both arms are
+  keyed onto its grips; in the death clips it follows the forearm it used to
+  ride. A tube keeps the importer's carry in `idle`/`move`.
+- **An ankle per leg, `{prefix}_foot_L|R`**, a child of the shin, carrying
+  the boot below the ankle, so a planted boot stays flat.
+- **`rl_gait.strideM` is the ground the PLANTED feet cover per cycle**
+  (`measurePlantedGround`), not a boot's peak-to-peak travel; the v3
+  runtime formula is unchanged and now lands on the cadence the pass timed
+  the legs for. A crawl (`sniper_team`) keeps the travel.
+- **`extras.rl_figures`** on the scene: `[{ prefix, recoil, squad }]`, where
+  `recoil` is `rifle | mg | launcher | null` (the kick a shot gets) and
+  `squad` says the team is drawn as separate men -- each figure on its own
+  clip player and walking its own path to its rest slot (`units/squad-rig.ts`).
+  A squad's clips must key no bone that belongs to no figure; the runtime
+  checks and falls back to one team player if one does. `extras.rl_motion`
+  (`{ version, base }`) marks a file as through the pass, which refuses it
+  a second time.
+
+---
+
+# v5 (vehicles) — kit parts (2026-10-07, GH-238)
+
+A vehicle-side v5, alongside the infantry motion pass above, and independent of
+it: nothing here touches a rigged team. Plan:
+`docs/superpowers/plans/2026-10-07-kitted-vehicles.md`; spec:
+`docs/superpowers/specs/2026-10-06-kitted-vehicles.md` §5.3. An upgraded
+vehicle looks different: each of the eight KDF vehicles carries its kit in its
+one GLB, and the renderer keeps what the type's bought tiers own.
+
+## The node
+
+- **A kit part is a node named `kit_<track>_<tier>_<host>`**
+  (`kit_armour_3_turret_hull`), one per (track, tier, host), with
+  `extras.rl_kit = { track, tier, host }` and `extras.rl_role` equal to its
+  host's role (absent when the host carries none, never `''`). `track` is lower-case letters only and is one the unit's own
+  JSON declares under `upgrades` (no firepower part on the D9); `tier` is 1, 2
+  or 3. The name is derived from `rl_kit`, never the other way round, and the
+  two must agree.
+- **It shares its host's parent and its host's local transform**, so its
+  vertices are in the host's own space and the runtime merge is a
+  concatenation with no matrix. A turret part hangs under `turret_pivot` and
+  turns with the turret; a hull part is a scene child. The world-to-host
+  transform is done once, at graft time: positions through
+  `inverse(hostWorld) x partWorld`, normals through that matrix's
+  inverse-transpose, renormalised.
+- **It has exactly ONE primitive, indexed iff its host's is, carrying exactly
+  the host's attribute set and the host's material.** (`mergeGeometries`
+  concatenates one geometry onto one, and cannot mix indexed with unindexed.) `POSITION` and `NORMAL` always, `TEXCOORD_0` iff the host has
+  it, and the host's material (none on a palette host -- the Namer, Eitan,
+  Kipod and Shachaf weapon stations). On a textured host the part's colour IS
+  the texel its UVs are pinned to (ruling K3); on a palette host it draws the
+  host's ramp. A host is a live mesh node with exactly one primitive.
+- **A kit part is a leaf**, and it owns its mesh: no other node, and no
+  `WRECK_` twin, references it.
+- **Tiers are cumulative within a track**: tier 3 draws tiers 1, 2 and 3.
+
+## Who writes it
+
+`art/parts/kit/<id>.glb` is the SOURCE, written in Blender by
+`tools/vehicles/export_vehicle_kit.py`: one node per part at the identity at
+the scene root, vertices in vehicle world space, `POSITION`, `NORMAL` and
+`TEXCOORD_0` (pinned even when the host is a palette node; the graft drops it
+there), no material. It lives outside `art/meshes/` on purpose -- it is an
+intermediate, like a `.blend`, and `encode:meshes` ships every `.glb` under
+`art/meshes/`.
+
+`pnpm kit:meshes [-- --id=<vehicle>]` (`tools/src/meshes/kit-pass.ts`) GRAFTS
+the source into `art/meshes/vehicles/<id>.glb` with gltf-transform: it strips
+every `kit_*` node of the target (with the meshes and accessors only they
+used), then adds each part. It adds nodes, meshes and accessors and touches
+nothing else, so **every live accessor is byte-identical before and after**,
+and a second run writes the same bytes. It refuses, before changing anything:
+an unknown or ambiguous host, a part with no host, a name that does not match
+its `rl_kit`, a tier outside 1-3, a track the unit does not declare, a
+duplicate (track, tier, host), a material on a source part, a source part of
+more than one primitive, a part indexed when its host is not (or the reverse),
+and a textured host whose part has no `TEXCOORD_0`. With no source at all it reports "no kit
+sources" and exits 0; `--id=` naming a vehicle with no source is an error.
+
+Pipeline order for a vehicle: export -> `pnpm kit:meshes` ->
+`pnpm wreck:meshes` -> `pnpm encode:meshes`.
+
+## What the other passes and readers do with it
+
+- **`pnpm wreck:meshes` never twins a `kit_*` node, never measures one, and
+  never keys one in a clip.** A hull-hosted part is a scene child; the clips
+  must not reach it, because the renderer deletes it before a mixer exists.
+  A grafted file therefore wrecks exactly as its ungrafted self does
+  (`wreck-pass.test.ts` pins it: same `WRECK_` children, matrices, meshes and
+  channel targets). The kit's wreck is its host's twin, which shares the
+  merged geometry at runtime.
+- **`buildVehicleMeshTemplate(gltf, id, textured, tiers?)` calls
+  `applyVehicleKit` first.** Kept parts merge into the host geometry, host
+  first, kit after (so `setDrawRange(0, hostCount)` can hide the kit, which is
+  the `kit` debug layer). The new geometry is swapped onto EVERY mesh that
+  shared the old one -- the live node and its `WRECK_` twin -- so the wreck
+  carries its kit with the host's own displacement. Every `kit_*` node is then
+  removed, owned or not. `tiers` absent or all 0 leaves the shipped template
+  exactly.
+- **Every other reader of a vehicle GLB ignores `kit_*`**: the mesh gate's
+  shipped and wreck renders, the unit portraits, the legacy vehicle sheets, the
+  baked-pose tool, the selection-ring footprints, the kit blockout, the wreck
+  census in `validate_mesh_assets.py`, and the two exporters that re-open a
+  shipped vehicle (`export_officer_armour.py` from the Lavi,
+  `export_meshy_apache_gunship.py` from the Peten), which would otherwise hand
+  the command Lavi and the gunship every kit part of every tier.
+  `mesh-vehicle-shipped.test.ts` reads the contract above out of every shipped
+  file's bytes and names how many kit nodes it saw, and holds every vehicle's
+  shipped `kit_*` names to exactly its source's (none without one), so a
+  source exported and never grafted is a red test naming the commands to run.
+
+## Colour, and what gates it (as built)
+
+- **A kit part's colour is the texel its UVs are pinned to** (K3), one texel of
+  the vehicle's own bake per tone: `paint` (the 25th-percentile luminance texel
+  of `hull_hull`) for every armour face, `metal` for every sensors and firepower
+  face, `dark` only for lenses, windows and apertures. Where the bake has no
+  steel (a uniform metallic map and no textured `*_metal` node: the Namer,
+  Eitan, Kipod, Shachaf and D9) `metal` is the greyest paint, and the exporter
+  prints a DEVIATION line. A palette host (the four weapon stations) takes no
+  UVs and draws its ramp.
+- **The exporter refuses** a part over 1.10x its triangle budget, a part off the
+  approved mock by more than 3 cm or 10% (a named, printed DEVIATION excuses one
+  axis of one node), a vehicle over 5,000 kit triangles, and any clash or
+  containment between kit parts and the shipped nodes (`kit_clash.py`, turret
+  parts swept over 72 headings), unless a named exemption scoped to those
+  headings excuses it.
+- **`pnpm validate:meshes` reads the kit from the bytes** (name, host, TRS,
+  material, one primitive, declared track and tier, <= 5,000 triangles) and
+  requires a node for EVERY (track, tier) a `KIT_VEHICLES` member's unit JSON
+  declares, and **from renders**: the maximum kit and the twelve variants (each
+  track alone at tiers 1-3, then L1-L3; nine for the D9), each IoU-checked
+  below 0.88 against every other unit.
+
+---
+
+# v6 — the pinned huddle (2026-10-07, pass C2/C4)
+
+Written by `pnpm motion:meshes -- --step=pinned` (`tools/src/meshes/motion/pinned.ts`),
+in the motion pass's place in the pipeline: export -> motion -> `gait:meshes` ->
+`encode:meshes`. The step alone is idempotent: it reads only `kneel`/`idle`, never
+its own output, and a re-run replaces its clip with the same bytes.
+
+- **Clip `pinned`**, looping, on every file that carries the corpse pair
+  `down`/`wreck`. Every visible figure is on a knee (the kneel's own pose, or the
+  kneel's IK for a standing figure) and folded forward 40° at the spine and 10° at
+  the neck about its own lateral axis, so the weapon on the spine points at the
+  ground ahead of him. A fold that would put the weapon in the ground is reduced
+  (never below 40% of it) rather than the man raised; a figure whose kneel would
+  sink something he wears (breach_team's shield) stays on his feet and folds behind
+  it. Built over the base clip's own keys and duration; keys every node the base
+  keys. `extras.rl_pinned` (`{ version }`) marks it.
+- **The runtime plays `pinned`** for a pinned unit and a broken one standing still
+  (`clip.ts` `resolveClip`), **never `down`**, which on 17 of the 20 infantry rigs
+  that carry it is keyframe-identical to `wreck`. Without a `pinned`, the stand-in is
+  `down` only where the file has no `wreck` (the civilians' living crawl), else
+  `kneel`, else `idle` (`meshClipOrFallback`).
+- **Gated** by `tools/src/living_not_wreck.test.ts`: every living state the
+  renderer can resolve, on every drawn file with a `wreck`, opens on a pose that is
+  not the corpse; and every drawn file with `down`/`wreck` carries `pinned`.

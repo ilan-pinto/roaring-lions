@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready medium infantry mortar set up for firing, a weapon of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level. A smooth steel tube 1.3 metres long elevated at seventy degrees on an adjustable two-legged bipod with elevation and traverse hand wheels, a round ribbed steel baseplate on the ground, a small optical sight unit on the bipod bracket, and a carrying handle on the tube. Worn gunmetal, chipped olive paint, dust. Real-world scale, 1.3 metre tube. Gunmetal, olive paint, black rubber grips. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a0fae0-8f0b-70aa-bc3e-0f4c44e2ec5a",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 2205736189,
+    "prompt": "A single low-poly game-ready medium infantry mortar set up for firing, a weapon of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level. A smooth steel tube 1.3 metres long elevated at seventy degrees on an adjustable two-legged bipod with elevation and traverse hand wheels, a round ribbed steel baseplate on the ground, a small optical sight unit on the bipod bracket, and a carrying handle on the tube. Worn gunmetal, chipped olive paint, dust. Real-world scale, 1.3 metre tube. Gunmetal, olive paint, black rubber grips. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1790915417298,
+    "progress": 100,
+    "started_at": 1790915417308,
+    "finished_at": 1790915470054,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0fae0-8f0b-70aa-bc3e-0f4c44e2ec5a/output/model.glb?Expires=4944499200&Signature=lQVT5ytevrWYv4B3~SlLdQ22ZC6WUfjDyZeuPko~wy4Ve1l0E3Xi0kIbN34~IuF2P8H87pELev7AZ31sFAi3BA8TGngkB1-~~7V9SUKysulCzxx8yJPklCMY5Bsfl51CgBzIDlCMQfsEEt5sXSu9jr5pdCvQkGXotgifkSlQHkejBaeryshmzJ8z-baV1Y5-ZteoWehpQ0LkksOHZJX4jsSvR5ENmaiLqaJw9T7QmuNeYXdNOL9SCOWBdL4nwGrI4lPj6D9HbIdq-EGyrJOvwEUD298pBOC6qtOzTm6omse23PEsfPTMm887xRRNJT~rTLixgKqaY7q2myOu~Ltobg__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0fae0-8f0b-70aa-bc3e-0f4c44e2ec5a/output/preview.png?Expires=4944499200&Signature=BXwRcZkxF6OxeNJnpIbyF7g4C5G8JqZ4sQZC5tGNns9b~BdHnZhxIQlgFwrDonqFSEGu8ibGzOZrs~TjHZvbw8nLKQE4tdf3AxCcXw-qsaVtO1F~~IZ8J28Tw7mmy3YzcP6cWxjysO1gqkB1st-Sh2w0XwrAntL4BCTBTPTFRFXeb2WvYlZ3vV3pIATIWmYtUzqxTwexfg~tqy~BykXNGpNXxHcn~nCpvNJl6ADsCIYNGgCWq7KdoZpsqbJSMrWC0a0ZKt3q-yBYB-f85GpFxTTvH9mjf3qCxS-BVZT99819w6~EDN1av6xdT5ZIBu9m0aMyDPA069qcZSE~wiCGtg__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1790915417298,
+    "started_at": 1790915417308,
+    "finished_at": 1790915470054
+  },
+  "usd_estimated": 0.4
+}

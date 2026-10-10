@@ -8,7 +8,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { browserLedgerStore, memoryLedgerStore, type CampaignLedger } from './ledger-store';
+import { browserLedgerStore, memoryLedgerStore, newCampaign, type CampaignLedger } from './ledger-store';
 import { ACCOUNT_KEY } from './brigade-account';
 import { LEDGER_KEY, TUTORIAL_DONE_KEY } from './main-keys';
 import { SAVES_KEY } from './profile';
@@ -292,20 +292,68 @@ describe('the three campaign keys have one door', () => {
 
   it('nothing outside the door mentions localStorage, bar the person-and-device keys', () => {
     expect(naming('localStorage')).toEqual([
+      // GH-464: feedback's gate reads `?feedback`'s persisted flag and the
+      // tester label, behind the same `safeStorage` guard, and hands the store
+      // to the draft and the debrief prompt's frequency record.
+      'feedback/gate.ts',
       // The door itself, and the module whose header explains the guard it moved.
       'ledger-store.ts',
       'main-keys.ts',
-      // R-9: the renderer choice and the settings/hint stores are facts about
-      // the person and the device, and stay on their own guarded access.
-      // `ui/menu.ts` left this list when its guarded renderer read/write
-      // moved into `renderer-choice.ts` (scene-host plan, Task 6).
+      // R-9: the settings/hint stores are facts about the person and the
+      // device, and stay on their own guarded access. `renderer-choice.ts`
+      // left this list with the Pixi backend (WP-A3.3); `retired-keys.ts`
+      // removes its stale key once at boot.
       'main.ts',
-      'renderer-choice.ts',
+      'retired-keys.ts',
       'shell/router.ts',
       // WP-T1: telemetry initializes the player identity from localStorage via safeStorage guard.
       'telemetry/index.ts',
       'ui/saves.ts',
-      'ui/worldmap3d.ts',
     ]);
+  });
+});
+
+// GH-330: "New campaign"'s account half, and the version-1 migration that reads
+// the active ledger.
+describe('ledger store: a new campaign pays again (GH-330)', () => {
+  const V1 = JSON.stringify({ version: 1, balance: 470, earned_total: 470, paid: { a: 310, b: 160 } });
+  const LEDGER_A = JSON.stringify({ 'campaign.completed_missions': ['a'] });
+
+  it('readAccount migrates a version-1 record against the active campaign', () => {
+    const store = memoryLedgerStore({ [ACCOUNT_KEY]: V1, [LEDGER_KEY]: LEDGER_A });
+    expect(store.readAccount().campaign_paid).toEqual({ a: 310 });
+  });
+
+  it('startCampaign clears the campaign record, keeps everything else, and persists version 2', () => {
+    const store = memoryLedgerStore({ [ACCOUNT_KEY]: V1, [LEDGER_KEY]: LEDGER_A });
+    store.startCampaign();
+    const saved = JSON.parse(store.raw(ACCOUNT_KEY)!);
+    expect(saved.version).toBe(2);
+    expect(saved.campaign_paid).toEqual({});
+    expect(saved.paid).toEqual({ a: 310, b: 160 });
+    expect(saved.balance).toBe(470);
+  });
+
+  it('startCampaign writes nothing when no account is stored, and a blocked store is a no-op', () => {
+    const store = memoryLedgerStore();
+    store.startCampaign();
+    expect(store.raw(ACCOUNT_KEY)).toBe(null);
+    expect(() => memoryLedgerStore.blocked().startCampaign()).not.toThrow();
+  });
+});
+
+describe('newCampaign (GH-330)', () => {
+  it('removes the ledger and tutorial keys and clears only the per-campaign record', () => {
+    const acct = JSON.stringify({ version: 2, balance: 310, earned_total: 310, paid: { a: 310 }, campaign_paid: { a: 310 },
+      unlocks: ['u'], upgrades: {}, grants: [{ source: 'earned', amount: 310, missionId: 'a', at: 1 }] });
+    const store = memoryLedgerStore({ [ACCOUNT_KEY]: acct, [LEDGER_KEY]: JSON.stringify({ 'campaign.completed_missions': ['a'] }), [TUTORIAL_DONE_KEY]: '1' });
+    newCampaign(store);
+    expect(store.raw(LEDGER_KEY)).toBe(null);
+    expect(store.raw(TUTORIAL_DONE_KEY)).toBe(null);
+    const saved = JSON.parse(store.raw(ACCOUNT_KEY)!);
+    expect(saved.campaign_paid).toEqual({});
+    expect(saved.paid).toEqual({ a: 310 });
+    expect(saved.balance).toBe(310);
+    expect(saved.unlocks).toEqual(['u']);
   });
 });

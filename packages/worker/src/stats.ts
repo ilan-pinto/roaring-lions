@@ -1,7 +1,10 @@
 import type { D1Like, Env } from './d1';
 import { CAMPAIGN_ORDER, MISSION_TARGET_MINUTES } from './campaign-order';
+import { labelTutorialRows } from './tutorial-funnel';
 import { STATS_HTML } from './stats-page';
 import { loginPageHtml } from './login-page';
+import { FEEDBACK_HTML, FEEDBACK_PAGE_CSP } from './feedback-page';
+import { handleFeedbackApi } from './feedback-triage';
 import { SESSION_COOKIE, readCookie, verifySession, sessionCookieHeader, clearedSessionCookieHeader, passwordsMatch } from './auth';
 import type { TelemetryOrderVerb } from '@lions/data/telemetry';
 
@@ -106,12 +109,13 @@ export async function tutorialFunnel(db: D1Like, f: StatsFilter) {
   const w = where(f);
   const rows = await db
     .prepare(
-      `SELECT json_extract(payload, '$.step') AS step, COUNT(DISTINCT player) AS players
-       FROM events WHERE ${w.sql} AND type = 'tutorial_step' GROUP BY step ORDER BY step`
+      `SELECT json_extract(payload, '$.id') AS beat, json_extract(payload, '$.step') AS step,
+              json_extract(payload, '$.steps') AS steps, COUNT(DISTINCT player) AS players
+       FROM events WHERE ${w.sql} AND type = 'tutorial_step' GROUP BY beat, step, steps`
     )
     .bind(...w.args)
-    .all<{ step: number; players: number }>();
-  return rows.results;
+    .all<{ beat: string | null; step: number; steps: number; players: number }>();
+  return labelTutorialRows(rows.results.map((r) => ({ id: r.beat, step: r.step, steps: r.steps, players: r.players })));
 }
 
 export async function missions(db: D1Like, f: StatsFilter) {
@@ -388,6 +392,7 @@ export async function handleStats(req: Request, env: Env, now: number): Promise<
 
   if (isApi) {
     if (!authed) return json(UNAUTHORIZED_JSON, 401);
+    if (path === '/stats/api/feedback' || path.startsWith('/stats/api/feedback/')) return handleFeedbackApi(req, env, url, now);
     const f = parseFilter(url, now);
     switch (path) {
       case '/stats/api/summary':
@@ -413,6 +418,14 @@ export async function handleStats(req: Request, env: Env, now: number): Promise<
 
   if (path === '/stats' || path === '/stats/') {
     return authed ? html(STATS_HTML) : html(loginPageHtml());
+  }
+
+  // GH-464: the triage view. The id rides in the path; the page reads it.
+  if (path === '/stats/feedback' || /^\/stats\/feedback\/\d{1,9}$/.test(path)) {
+    if (!authed) return html(loginPageHtml());
+    const res = html(FEEDBACK_HTML);
+    res.headers.set('content-security-policy', FEEDBACK_PAGE_CSP);
+    return res;
   }
 
   return new Response('Not found', { status: 404, headers: NO_STORE });

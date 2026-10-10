@@ -94,7 +94,7 @@ finished.
 
 | channel | what the player sees or hears | speaker | when | status | where |
 |---|---|---|---|---|---|
-| `brief` | deploy-screen beats, then the in-mission commander bar (◂/▸ paging) | Shai / Idit | start | **live**, one hard-coded speaker | `ui/loading.ts` `briefingBeats`, `ui/hud.ts` `COMMANDER`, `renderCommander` |
+| `brief` | deploy-screen beats, then the in-mission commander bar (◂/▸ paging); optionally under named sections (`briefing_sections`: `situation`, `mission`, `execution`, `notes`, in that order, texts joined must spell `briefing`) with a section `image` and a mission `briefing_image` (one path or a pool) from `assets/ui/portraits/` or `assets/ui/plates/` | Shai / Idit | start | **live**, one hard-coded speaker; sections and image live since 2026-10-04 (GH-119), exemplars `beit_sahwan_1_recon` and the tutorial | `ui/loading.ts` `briefingBeats`, `ui/briefing-sections.ts`, `ui/hud.ts` `COMMANDER`, `renderCommander`, `tools/validate_briefing.mjs` |
 | `video` | deploy-screen cinematic above the beats: `briefing_video`, a short mp4/webm under `assets/video/` (Tel Marum II ships a 10 s, 3.4 MB h264 at 1280×720; Tel Marum III a 10 s, 2.8 MB cut of the same shape, added 2026-09-07 — each a file under `assets/video/` named `<mission>_briefing.mp4`); autoplays with sound after the mission click, falls back to muted autoplay with controls; never holds Deploy | the lead's cut | start | **live** since 2026-09-06 | `ui/loading.ts`, `mission.schema.json` `briefing_video`, `validate_data.mjs` (file must exist) |
 | `toast` | notice feed, 4 lines, 9 s | system | on `MissionEvent` | **live**, strings hard-coded; only `objectives[].text` and the raw `trigger.id` are authored | `main.ts` `describeMissionEvent`, `hud.note` |
 | `title` | title card | system | start | **live**: `name` + "N primary objective(s)" | `hud.announce` |
@@ -175,6 +175,22 @@ calling anything missing (see `docs/ASSET_PROVENANCE.md`).
    common nouns in the materiel register, screened and dated, issued in table order by a
    counter on the ledger. Never write a name into a mission, a line or a briefing; the
    player's units are named by the app, and a name the table does not hold does not exist.
+10. Maps keep the fight visible: 84% of the fight tiles in view of the default camera
+   (below, and `ground-ladder.md` §15). Measure it; do not judge it by eye.
+
+## Maps keep the fight visible
+
+A map is built so the player can see the fight (the lead, GH-416): at least **84%** of
+the passable tiles near its objectives and along its main routes must be visible to the
+default camera, with no building's mesh over more than half of a rifleman standing there.
+`tools/src/map_visibility.test.ts` gates every campaign map; a map under the floor needs a
+named exemption with a reason, and the exemption is a ratchet. Run
+`npx tsx tools/src/map_visibility.ts --draw=<map id>` while authoring: a building hides the
+ground up-screen of it (north-west on the grid), about 1.2 tiles per world unit of
+height. Buildings are drawn fitted to their footprints (a house on a 2×2 is about 2 units
+tall and hides about 2.5 tiles; nothing draws under 1.2), so streets go on the camera side
+of tall buildings and most of a town is low. The geometry and the four authoring rules are in
+`ground-ladder.md` §15.
 
 ## Verification for narrative content
 

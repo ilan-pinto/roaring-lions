@@ -1,0 +1,13 @@
+{
+  "rules": [
+    { "id": "group_move", "key": "hud.hint.first.group_move", "mission": ["beit_sahwan_1_recon"], "selected_over": 2 },
+    { "id": "sniper", "key": "hud.hint.first.sniper", "selected_type": ["sniper_team"] },
+    { "id": "drones", "key": "hud.hint.first.drones", "selected_type": ["recon_drone", "attack_drone"] },
+    { "id": "mount_up", "key": "hud.hint.first.mount_up", "keys": { "load": "load", "unload": "unload" }, "carrier_empty_seat": true },
+    { "id": "pins", "key": "hud.hint.first.pins", "enemy_pinned": true },
+    { "id": "armour_rear", "key": "hud.hint.first.armour_rear", "keys": { "smoke": "smoke" }, "selected_type": ["mbt_lavi"] },
+    { "id": "logistics", "key": "hud.hint.first.logistics", "resources": true },
+    { "id": "intel", "key": "hud.hint.first.intel", "resources": true },
+    { "id": "groups", "key": "hud.hint.first.groups", "force_over": 8 }
+  ]
+}

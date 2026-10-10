@@ -31,11 +31,15 @@ export interface MissionTelemetry {
 }
 
 export interface Telemetry {
-  sessionStart(screen: TelemetryScreen, renderer: 'three' | 'pixi'): void;
-  tutorialStep(step: number, steps: number): void;
+  /** `renderer` is always 'three' now (WP-A3.3); kept for row continuity. */
+  sessionStart(screen: TelemetryScreen, renderer: 'three'): void;
+  tutorialStep(step: number, steps: number, id?: string): void;
   missionStarted(mission: string, replay: boolean, view: () => RuntimeView, loadout?: Loadout): MissionTelemetry;
   campaignProgress(mission: string, missionsWon: number): void;
   account(reason: AccountReason, a: AccountLike, extra?: AccountExtra): void;
+  /** Who this session is, for a feedback note (GH-464): null while telemetry
+   *  is off (dev, tests, an opt-out), so a note from there carries no ids. */
+  ids(): { player: string; session: string; tester?: string } | null;
 }
 
 const NOOP_MISSION: MissionTelemetry = {
@@ -50,6 +54,7 @@ export const NOOP_TELEMETRY: Telemetry = {
   missionStarted: () => NOOP_MISSION,
   campaignProgress: () => undefined,
   account: () => undefined,
+  ids: () => null,
 };
 
 export interface TelemetryDeps {
@@ -101,16 +106,20 @@ export function createTelemetry(d: TelemetryDeps): Telemetry {
   );
 
   return {
+    ids: () =>
+      d.identity.tester === undefined
+        ? { player: d.identity.player, session }
+        : { player: d.identity.player, session, tester: d.identity.tester },
     sessionStart: safe((screen, renderer) => {
       d.sink.push(ev.sessionStart(envelope(), screen, renderer, d.viewport(), d.identity.returning));
     }),
-    tutorialStep: safe((step, steps) => {
+    tutorialStep: safe((step, steps, id) => {
       const now = d.now();
       // A fresh tutorial run (replayed, or a second player on the same
       // document) starts back at step 0; `prevMs` must read as 0 for it too,
       // not as the time since whatever step the PREVIOUS run ended on.
       if (step === 0) lastStepAt = null;
-      d.sink.push(ev.tutorialStep(envelope(), step, steps, lastStepAt === null ? 0 : now - lastStepAt));
+      d.sink.push(ev.tutorialStep(envelope(), step, steps, lastStepAt === null ? 0 : now - lastStepAt, id));
       lastStepAt = now;
     }),
     campaignProgress: safe((mission, missionsWon) => {

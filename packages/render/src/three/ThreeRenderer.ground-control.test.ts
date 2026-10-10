@@ -28,6 +28,8 @@ import type { DecalStamp } from './decal-pool';
 import type { GroundMaterial } from './terrain/mesh';
 import { DECOR_ROAD, hexToLinear } from './terrain/shared';
 import { tileBaseToneHex } from './terrain/ground';
+import { buildControlMap } from './terrain/control-map';
+import type { TerrainInput } from './terrain/types';
 import type { DecalGroundSource } from './terrain/decal-ground-tone';
 
 vi.mock('three', async (importOriginal) => {
@@ -165,15 +167,67 @@ describe('the control map is rebuilt only when its inputs change (fix wave I-1)'
     expect(builds.graph).toBe(graphs);
     r.dispose();
   });
-  it('rebuilds when the cover changes IN PLACE -- the sim writes its own array when a structure dies', () => {
+  it('updates the map when the cover changes IN PLACE -- the sim writes its own array when a structure dies', () => {
     builds.control = 0;
     const { r, priv, sim } = setUp();
     expect(builds.control).toBe(1);
+    const boundA = priv.groundMat.uniforms.uControlA.value;
+    const versionA = boundA.version;
     sim.cover[9 * MAP + 9] = 2; // the same array, new content
     rebuild(r, priv);
-    expect(builds.control).toBe(2);
+    // Seen, and answered by rewriting the texels around that one tile in the
+    // texture already bound -- not by a second full build.
+    expect(builds.control).toBe(1);
+    expect(priv.groundMat.uniforms.uControlA.value).toBe(boundA);
+    expect(boundA.version).toBeGreaterThan(versionA);
+    const { texels, full } = r.debugTerrainRebuild();
+    expect(full).toBe(false);
+    expect(texels).toBeGreaterThan(0);
+    expect(texels).toBeLessThan(MAP * MAP * 64);
+    // And what it wrote is what a full build of the new world says.
+    const fresh = buildControlMap(priv.decalGround?.input as TerrainInput);
+    expect(Array.from(boundA.image.data as Uint8Array)).toEqual(Array.from(fresh.a));
+    const versionAfter = boundA.version;
     rebuild(r, priv);
-    expect(builds.control).toBe(2);
+    expect(boundA.version).toBe(versionAfter);
+    r.dispose();
+  });
+});
+
+describe('a collapse re-makes only the terrain around its footprint', () => {
+  it('splices the ground and rewrites the control map around a fallen structure, nowhere else', () => {
+    builds.control = 0;
+    const { r, sim } = setUp();
+    expect(r.debugTerrainRebuild().full).toBe(true);
+    sim.debugDestroyStructure(0);
+    r.applyStructureDestroyed(0);
+    r.frame(1, 0);
+    const { tiles, texels, full } = r.debugTerrainRebuild();
+    expect(full).toBe(false);
+    // One tile reopened on a flat 16x16 map: its 5x5 splice square, and its
+    // own 8x8 texels plus a 4-texel margin all round.
+    expect(tiles).toBe(25);
+    expect(texels).toBe(16 * 16);
+    expect(builds.control).toBe(1);
+    r.dispose();
+  });
+
+  it('disposes the decor batch it replaced only after the next frame has drawn', () => {
+    // Disposing first released the batch's shader program while nothing else
+    // held it, and the replacement paid a fresh compile on its first draw.
+    const { r, priv, sim } = setUp();
+    const p = priv as unknown as { decorGroup: THREE.Group | null; rebuildTerrain(): void };
+    const material = new THREE.MeshStandardMaterial();
+    let disposed = 0;
+    material.addEventListener('dispose', () => disposed++);
+    const old = p.decorGroup as THREE.Group;
+    old.add(new THREE.BatchedMesh(1, 3, 3, material));
+    sim.debugDestroyStructure(0);
+    p.rebuildTerrain();
+    expect(p.decorGroup).not.toBe(old);
+    expect(disposed).toBe(0);
+    r.frame(1, 0);
+    expect(disposed).toBe(1);
     r.dispose();
   });
 });

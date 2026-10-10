@@ -1,16 +1,20 @@
 # The ONLY way a stored visual baseline changes on a CI runner.
 #
 # Manual dispatch only, with a required `reason` that is written into
-# `manifest.json` and printed on every future mismatch. The result is
-# COMMITTED STRAIGHT TO `main` -- the project lead's call on 2026-09-02:
-# "instead of PR merge to main and push".
+# `manifest.json` and printed on every future mismatch.
 #
-# What that trades away, stated plainly so nobody re-derives it as a bug: the
-# earlier version opened a pull request so a human saw the PNG before it became
-# the reference. Nothing looks at the picture now. A wrong baseline landed here
-# silently disarms the visual gate for everything it would otherwise catch, and
-# the only thing standing between a bad capture and `main` is whoever typed the
-# reason. Keep the reason honest; it is the whole audit trail.
+# DEFAULT (since 2026-10-04, the lead's G2 call, recorded on #166): the new
+# PNGs are committed to a branch `visual-bless/<run id>` and a PULL REQUEST to
+# `main` is opened, so a human sees each picture before it becomes the
+# reference. If PR creation is refused because the repo setting "Allow GitHub
+# Actions to create and approve pull requests" is off, the job prints the
+# `pull/new/<branch>` URL, names the setting, and exits 0 -- the branch is
+# already pushed and a human finishes it by hand.
+#
+# `direct: true` keeps the 2026-09-02 behaviour (commit straight to `main`, the
+# lead's "instead of PR merge to main and push"), for when he wants speed. That
+# path trades away the human look at the picture: a wrong baseline landed there
+# silently disarms the visual gate, and the reason is the whole audit trail.
 #
 # Two jobs this workflow does that a local `pnpm golden-baseline:bless` cannot:
 #
@@ -39,12 +43,18 @@ on:
         description: 'Optional comma-separated scenario ids; blank re-blesses all of them'
         required: false
         type: string
+      direct:
+        description: 'true = commit straight to main (no review PR); false = open a review PR'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   bless:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -82,9 +92,12 @@ jobs:
 
       # An explicit path list, never `git add -A`: this job must not sweep up a
       # build artifact or anything else the capture left in the tree.
-      - name: Commit the new baseline to main
+      - name: Commit the new baseline (review PR by default, main if direct)
         env:
           REASON: ${{ inputs.reason }}
+          SCENARIO: ${{ inputs.scenario }}
+          DIRECT: ${{ inputs.direct }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           # `git status --porcelain`, NOT `git diff --quiet`, and the difference
@@ -108,8 +121,14 @@ jobs:
             echo "::notice title=Baseline unchanged::The capture matched the stored baseline byte for byte. Nothing to commit."
             exit 0
           fi
-          echo "Baseline files being committed to main:"
+          echo "Baseline files being committed:"
           echo "$CHANGES"
+
+          # Scenarios that changed: the per-environment directory holds one
+          # PNG per scenario, so name them from the file paths.
+          CHANGED_SCENARIOS="$(echo "$CHANGES" | awk '{print $NF}' | grep -E '\.png$' | xargs -n1 basename | sed 's/\.png$//' | sort -u | paste -sd, - || true)"
+          [ -n "$CHANGED_SCENARIOS" ] || CHANGED_SCENARIOS="(none named: manifest only)"
+          ARTIFACTS_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}#artifacts"
 
           # The captured PNGs are the only thing worth keeping out of this
           # checkout. Park them outside the work tree, because the next step
@@ -122,45 +141,107 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Retry once: a push to main races anything else landing between the
-          # fetch and the push, and a lost baseline would be silent.
-          for attempt in 1 2 3; do
-            git fetch origin main
-            git checkout -B main origin/main
-            mkdir -p tools/golden-baselines
-            cp -R "$STASH/." tools/golden-baselines/
-            git add -- tools/golden-baselines
-            if git diff --cached --quiet; then
-              echo "::notice title=Baseline unchanged::Already on main byte for byte."
-              exit 0
-            fi
-            git commit -m "chore(visual): re-bless the golden baseline
+          MSG="chore(visual): re-bless the golden baseline
 
           $REASON
 
           Captured by .github/workflows/visual-baseline-bless.yml on this runner,
           at ${GITHUB_SHA}. Every future run of the visual gate is judged against
           exactly these pixels."
-            if git push origin main; then
-              echo "::notice title=Baseline committed::Pushed to main on attempt $attempt."
-              {
-                echo "### Baseline committed to \`main\`"
-                echo ""
-                echo "**Reason given:** $REASON"
-                echo ""
-                echo "Captured on \`ubuntu-latest\` at \`${GITHUB_SHA::7}\`. Files:"
-                echo ""
-                echo '```'
-                echo "$CHANGES"
-                echo '```'
-                echo ""
-                echo "Every future run of \`pnpm golden-baseline\` is judged against exactly these"
-                echo "pixels. If the change was not intended, revert this commit and fix the renderer."
-              } >> "$GITHUB_STEP_SUMMARY"
-              exit 0
-            fi
-            echo "::warning title=Push rejected::main moved under us; retrying ($attempt of 3)."
-          done
 
-          echo "::error title=Baseline not committed::Three pushes to main were rejected."
-          exit 1
+          if [ "${DIRECT:-false}" = "true" ]; then
+            # Retry: a push to main races anything else landing between the
+            # fetch and the push, and a lost baseline would be silent.
+            for attempt in 1 2 3; do
+              git fetch origin main
+              git checkout -B main origin/main
+              mkdir -p tools/golden-baselines
+              cp -R "$STASH/." tools/golden-baselines/
+              git add -- tools/golden-baselines
+              if git diff --cached --quiet; then
+                echo "::notice title=Baseline unchanged::Already on main byte for byte."
+                exit 0
+              fi
+              git commit -m "$MSG"
+              if git push origin main; then
+                echo "::notice title=Baseline committed::Pushed to main on attempt $attempt."
+                {
+                  echo "### Baseline committed to \`main\` (direct)"
+                  echo ""
+                  echo "**Reason given:** $REASON"
+                  echo ""
+                  echo "Scenarios: $CHANGED_SCENARIOS"
+                  echo ""
+                  echo '```'
+                  echo "$CHANGES"
+                  echo '```'
+                } >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+              echo "::warning title=Push rejected::main moved under us; retrying ($attempt of 3)."
+            done
+            echo "::error title=Baseline not committed::Three pushes to main were rejected."
+            exit 1
+          fi
+
+          # Review-PR path. The branch name is unique per run, so no retry loop.
+          BRANCH="visual-bless/${GITHUB_RUN_ID}"
+          git fetch origin main
+          git checkout -B "$BRANCH" origin/main
+          mkdir -p tools/golden-baselines
+          cp -R "$STASH/." tools/golden-baselines/
+          git add -- tools/golden-baselines
+          if git diff --cached --quiet; then
+            echo "::notice title=Baseline unchanged::Already on main byte for byte."
+            exit 0
+          fi
+          git commit -m "$MSG"
+          git push origin "$BRANCH"
+
+          BODY="$(mktemp)"
+          {
+            echo "Re-blessed visual baseline, opened by \`visual-baseline-bless\` run ${GITHUB_RUN_ID}."
+            echo ""
+            echo "**Reason:** $REASON"
+            echo ""
+            echo "**Scenarios changed:** $CHANGED_SCENARIOS"
+            echo ""
+            echo "**Captures:** ${ARTIFACTS_URL} (artifact \`visual-baseline-bless-captures\`, kept 14 days). Look at the pictures before merging: once merged they are the reference the gate judges against."
+            echo ""
+            echo "Captured at \`${GITHUB_SHA::7}\` on \`ubuntu-latest\`. Files:"
+            echo ""
+            echo '```'
+            echo "$CHANGES"
+            echo '```'
+          } > "$BODY"
+
+          if URL="$(gh pr create --base main --head "$BRANCH" \
+                --title "chore(visual): re-bless the golden baseline" \
+                --body-file "$BODY" 2>pr-error.txt)"; then
+            echo "::notice title=Review PR opened::$URL"
+            {
+              echo "### Review PR opened"
+              echo ""
+              echo "$URL"
+              echo ""
+              echo "**Reason given:** $REASON"
+              echo ""
+              echo "Scenarios: $CHANGED_SCENARIOS"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            cat pr-error.txt
+            NEW_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/pull/new/${BRANCH}"
+            echo "::warning title=PR not created::The branch ${BRANCH} is pushed but a PR could not be opened. Most likely the repo setting 'Allow GitHub Actions to create and approve pull requests' (Settings, Actions, General, Workflow permissions) is off. Open the PR by hand: ${NEW_URL}"
+            {
+              echo "### Baseline pushed to \`${BRANCH}\`, PR not opened"
+              echo ""
+              echo "Enable **Allow GitHub Actions to create and approve pull requests** (Settings, Actions, General, Workflow permissions) to have this done automatically."
+              echo ""
+              echo "Open the PR by hand: ${NEW_URL}"
+              echo ""
+              echo "**Reason:** $REASON"
+              echo ""
+              echo "Scenarios: $CHANGED_SCENARIOS"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi

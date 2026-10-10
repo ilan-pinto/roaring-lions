@@ -9,10 +9,8 @@ import {
 describe('roeNotice', () => {
   it('states the deduction, the reason and the running score', () => {
     const [html, tone] = roeNotice(5, 'House destroyed', 82, undefined, false);
-    expect(html).toContain('−5');
-    expect(html).toContain('Conduct −5');
-    expect(html).toContain('House destroyed');
-    expect(html).toContain('82');
+    expect(html).toContain('<b>House destroyed −5</b>');
+    expect(html).toContain('Conduct 82');
     expect(tone).toBe('bad');
   });
 
@@ -71,7 +69,7 @@ describe('roeNotice', () => {
   // protected-zone test still reads the reason as authored.
   it('shows a zone name the mission authored as text, and still recognises the zone', () => {
     const [html] = roeNotice(5, "fire into protected structure (<i>St. Anne's</i>)", 95, 40, true);
-    expect(html).toContain('(fire into protected structure (&lt;i&gt;St. Anne&#39;s&lt;/i&gt;))');
+    expect(html).toContain('fire into protected structure (&lt;i&gt;St. Anne&#39;s&lt;/i&gt;) −5');
     expect(html).not.toContain('<i>');
     expect(html).toContain(protectedZoneHint());
   });
@@ -92,5 +90,14 @@ describe('isProtectedZoneReason', () => {
     expect(isProtectedZoneReason('civilian casualties')).toBe(false);
     expect(isProtectedZoneReason('House destroyed')).toBe(false);
     expect(isProtectedZoneReason('heavy ordnance danger-close to civilians')).toBe(false);
+  });
+
+  // GH-345: the feed line is the invoice line, not the sim's reason string.
+  it('heads with the invoice label when given one, and escapes it', () => {
+    const [html] = roeNotice(5, 'fire into protected structure (z_clinic)', 95, 40, false, 'Clinic struck');
+    expect(html).toContain('<b>Clinic struck −5</b> · Conduct 95');
+    expect(html).not.toContain('z_clinic');
+    const [escaped] = roeNotice(5, 'x', 95, undefined, false, '<i>Ward</i> struck');
+    expect(escaped).not.toContain('<i>');
   });
 });

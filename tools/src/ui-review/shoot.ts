@@ -26,7 +26,8 @@
 // on the sandbox's own kit ladder (`&kit`, `SANDBOX_KIT_LEVELS`) instead,
 // which puts every level on the chips at once where the three-type account
 // seed cannot; 26 is the seeded account again, on the one dock-bearing
-// mission the garage-uplift plan drives elsewhere (`beit_sahwan_breach`).
+// mission the garage-uplift plan drives elsewhere (`beit_sahwan_2_foothold`
+// since GH-345 took First Light's dock away).
 // GH-262 Task 5 added 28-pinned-card and 28-pinned-chips: the pinned status
 // mark on a sandbox Lavi pinned through the sim's `debugSuppress` hook.
 // Every later task's acceptance is read off these files -- see
@@ -48,12 +49,12 @@
 // (`i18n/pseudo.ts`) on whichever screen loads -- a plain, unbracketed word
 // in a pseudo capture is a string that never went through `t()`.
 //
-// 16-end-defeat and 17-debrief are a SCRIPTED defeat: `debugKill` every
+// 17-debrief (the after-action report, GH-417) is a SCRIPTED defeat: `debugKill` every
 // player unit and step the sim until `checkEnd` notices, which a script can
 // do without knowing a single thing about the mission. Task 5's outcome
 // moment (`ui/outcome-moment.ts`) now holds in FRONT of the end screen, so
 // `25-outcome-defeat` photographs it first and clicks `.rl-outcome__skip`
-// before `.rl-endnav` (below) ever appears -- without the skip that wait
+// before `.rl-aar` (below) ever appears -- without the skip that wait
 // times out at 15s, which is how this ordering was found. A victory needs
 // the mission's own objectives satisfied for real rather than a `debugKill`
 // equivalent (there is no `debugWin`, and adding one would be a sim change),
@@ -101,6 +102,7 @@ import {
 import { garageSeedScript } from './garage-seed';
 import { assertOutcomeStillPresent } from './outcome-guard';
 import { claimPort } from './port';
+import { musicOffInitScript } from './music-off';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -293,6 +295,7 @@ async function garageStates(browser: Browser, res: { width: number; height: numb
     viewport: { width: res.width, height: res.height },
     deviceScaleFactor: 1,
   });
+  await ctx.addInitScript(musicOffInitScript());
   await ctx.addInitScript(garageSeedScript());
   const page = await ctx.newPage();
   page.setDefaultTimeout(30000);
@@ -420,7 +423,7 @@ async function garageStates(browser: Browser, res: { width: number; height: numb
   // dock-bearing mission `routes-check.ts`'s K4 leg drives. Same
   // timeout-is-not-a-defect treatment: a deploy gate that never clears is
   // logged and skipped, never a thrown failure.
-  await page.goto(url('/mission/beit_sahwan_breach'), { waitUntil: 'load' });
+  await page.goto(url('/mission/beit_sahwan_2_foothold'), { waitUntil: 'load' });
   const deployedForDock = await dismissDeployGate(page, `${TAG} 26`)
     .then(() => true)
     .catch((e: unknown) => {
@@ -660,6 +663,7 @@ try {
       viewport: { width: res.width, height: res.height },
       deviceScaleFactor: 1,
     });
+    await ctx.addInitScript(musicOffInitScript());
     const page = await ctx.newPage();
     page.setDefaultTimeout(30000);
 
@@ -685,6 +689,7 @@ try {
           deviceScaleFactor: 1,
           reducedMotion: 'reduce',
         });
+        await plateCtx.addInitScript(musicOffInitScript());
         const platePage = await plateCtx.newPage();
         platePage.setDefaultTimeout(30000);
         await platePage.goto(url('/'), { waitUntil: 'load' });
@@ -755,6 +760,7 @@ try {
         viewport: { width: res.width, height: res.height },
         deviceScaleFactor: 1,
       });
+      await backCtx.addInitScript(musicOffInitScript());
       const backPage = await backCtx.newPage();
       backPage.setDefaultTimeout(30000);
       await backPage.goto(url(`/mission/${MISSION}`), { waitUntil: 'load' });
@@ -992,7 +998,7 @@ try {
     });
     // Task 6: the moment (`ui/outcome-moment.ts`) is a held, full-screen
     // dialog in FRONT of the end screen. Photograph it FIRST, then skip it --
-    // without the skip the `.rl-endnav` wait below times out, which is how
+    // without the skip the `.rl-aar` wait below times out, which is how
     // this line was found. This wait runs on the REAL, unfrozen rAF: see the
     // freeze comment right below for why that matters.
     await page.waitForSelector('.rl-outcome[data-outcome="defeat"]', { timeout: 15000 });
@@ -1018,7 +1024,7 @@ try {
     // measurement). So this freezes only AFTER `waitForSelector` above has
     // already confirmed presence on the real rAF, and restores immediately
     // after the screenshot below, before `.rl-outcome__skip`'s click and the
-    // `.rl-endnav`/`.rl-debrief` waits that follow need Playwright's own
+    // `.rl-aar` wait that follows needs Playwright's own
     // polling working again.
     await page.evaluate(FREEZE_FOR_SCREENSHOT_SCRIPT);
     await shot(page, dir, '25-outcome-defeat');
@@ -1039,15 +1045,11 @@ try {
       '25-outcome-defeat'
     );
     await page.click('.rl-outcome__skip');
-    // `.rl-endnav` rather than a single `.rl-end` class: `showEndScreen`
-    // (`ui/menu.ts`) builds its root from the shared `panel()` helper
-    // (`.rl-panel[data-rank="alert"]`), and the nav row it appends last is
-    // the one class unique to this screen that exists regardless of whether
-    // the mission declared a `debrief` line for this outcome.
-    await page.waitForSelector('.rl-endnav', { timeout: 15000 });
-    await shot(page, dir, '16-end-defeat');
-    await page.click('.rl-endnav__debrief');
-    await page.waitForSelector('.rl-debrief', { timeout: 15000 });
+    // GH-417 (L-7): the moment hands over straight to the after-action
+    // report, which absorbed the old end panel -- so `16-end-defeat` and
+    // `17-debrief` are one screen now. The name `17-debrief` is kept for the
+    // shot-to-shot comparisons the audit reads; `16-end-defeat` is gone.
+    await page.waitForSelector('.rl-aar', { timeout: 15000 });
     await shot(page, dir, '17-debrief');
 
     await ctx.close();
@@ -1093,6 +1095,7 @@ try {
         viewport: { width: res.width, height: res.height },
         deviceScaleFactor: 1,
       });
+      await winCtx.addInitScript(musicOffInitScript());
       const winPage = await winCtx.newPage();
       winPage.setDefaultTimeout(30000);
       await winPage.goto(url(`/mission/${MISSION}`), { waitUntil: 'load' });

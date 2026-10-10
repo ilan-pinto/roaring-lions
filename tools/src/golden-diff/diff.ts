@@ -1,7 +1,8 @@
-// The measuring half of the golden-image diff harness -- Node-only, no
-// browser, no GPU. Takes two already-captured PNGs (one per backend, same
-// map/tick/camera -- see capture-protocol.ts for how those get made) and
-// produces a per-pixel diff image plus a summary metric.
+// The measuring half of the golden-image gate -- Node-only, no browser, no
+// GPU. Takes two already-captured PNGs (same map/tick/camera -- see
+// capture-protocol.ts for how those get made) and produces a per-pixel diff
+// image plus a summary metric. `ci/three-baseline-gate.ts`,
+// `perf/blast-captures.ts` and `perf/atgm-captures.ts` call `computeDiff`.
 //
 // Deliberately split from capture the same way three-units.ts splits its
 // Node-CLI tick-cost mode from its browser render-cost mode (see that
@@ -17,15 +18,14 @@
 // or via the workspace script:
 //   pnpm --filter @lions/tools golden-diff -- <baseline.png> <candidate.png> [outDir]
 //
-// "baseline" is the Pixi capture (today's default, shipping renderer).
-// "candidate" is the three.js capture. Naming them asymmetrically is
-// deliberate: this harness measures how far three has to go before Phase D
-// can flip the default, not a symmetric "which is right" comparison.
+// "baseline" is the reference (a committed three.js baseline); "candidate"
+// is the fresh capture. Until WP-A3.3 the baseline was a Pixi capture and
+// this file printed `expected-differences.ts`, the cross-backend catalogue;
+// both went with the Pixi backend.
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { PNG } from 'pngjs';
 import pixelmatch from 'pixelmatch';
-import { EXPECTED_DIFFERENCES, formatExpectedDifferences } from './expected-differences';
 
 /** A rectangle in capture-pixel coordinates. Shared by `computeDiff`'s optional
  *  `region` and, before it was retired, by `computeDominantColorFraction`. */
@@ -158,14 +158,10 @@ export function computeDiff(
   const diff = new PNG({ width, height });
   const diffPixels = pixelmatch(a.data, b.data, diff.data, width, height, {
     threshold,
-    // AA-pixel exclusion stays ON (pixelmatch default) rather than fought --
-    // see expected-differences.ts's `antialiasing` entry. This is a
-    // heuristic (it compares each image's OWN local neighbourhood for an
-    // AA-like pattern), not a guarantee it catches every edge pixel that
-    // differs ONLY because one backend blends and the other quantises, so
-    // `antialiasing`-shaped diffs are still expected to show up in the
-    // count -- this just keeps the harness from double-penalizing them via
-    // pixelmatch's own AA heuristic on top of the raw threshold.
+    // AA-pixel exclusion stays ON (pixelmatch default) rather than fought.
+    // It is a heuristic (it compares each image's OWN local neighbourhood
+    // for an AA-like pattern), not a guarantee it catches every edge pixel
+    // that differs only by antialiasing.
   });
 
   // Magnitude pass, independent of pixelmatch's pass/fail count: mean/max
@@ -259,13 +255,6 @@ async function main(): Promise<void> {
   const { baseline, candidate, outDir, threshold } = parseArgs(process.argv.slice(2));
   const summary = computeDiff(baseline, candidate, { outDir, threshold });
   console.log(formatSummary(summary));
-  console.log('');
-  console.log(
-    `[golden-diff] Before triaging any of the ${summary.diffPixels} differing pixels as a bug, ` +
-      `check them against the ${EXPECTED_DIFFERENCES.length} known expected-difference entries:`
-  );
-  console.log('');
-  console.log(formatExpectedDifferences());
   if (outDir) {
     writeFileSync(`${outDir}/summary.json`, JSON.stringify(summary, null, 2));
   }

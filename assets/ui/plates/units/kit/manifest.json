@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "camera": {
+    "zoom": 3.2,
+    "dpr": 2,
+    "gpu": "ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified Version)"
+  },
+  "plates": {
+    "apc_kipod": {
+      "file": "apc_kipod.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        1011,
+        706
+      ]
+    },
+    "dozer_d9": {
+      "file": "dozer_d9.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        884,
+        614
+      ]
+    },
+    "heli_peten": {
+      "file": "heli_peten.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        547,
+        397
+      ]
+    },
+    "ifv_namer": {
+      "file": "ifv_namer.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        1034,
+        648
+      ]
+    },
+    "jeep_shoded": {
+      "file": "jeep_shoded.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        555,
+        446
+      ]
+    },
+    "mbt_lavi": {
+      "file": "mbt_lavi.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        751,
+        448
+      ]
+    },
+    "scout_shachaf": {
+      "file": "scout_shachaf.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        534,
+        524
+      ]
+    },
+    "apc_eitan": {
+      "file": "apc_eitan.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        1019,
+        678
+      ]
+    }
+  }
+}

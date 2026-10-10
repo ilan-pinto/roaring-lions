@@ -510,14 +510,14 @@ describe('the outline width', () => {
     ).toBe(silhouetteOutlineObjectWidth(2.5));
   });
 
-  it('draws the hull’s FAR shell on the mesh path and the quad’s near face on the billboard path', () => {
+  it('draws the hull’s FAR shell on the mesh path, overriding the shared flags’ default facing', () => {
     // Not a preference. `FrontSide` on a mesh gives an outline in fragments:
     // a front face only moves outward in SCREEN space by however much its
     // normal is perpendicular to the view, which is true only of the grazing
     // triangles at the silhouette edge -- and half of those face away and are
     // culled. Photographed both ways at one camera: broken squiggles vs one
-    // continuous contour. The billboard path must NOT inherit it, because a
-    // camera-facing quad drawn BackSide draws nothing at all.
+    // continuous contour. (The shared flags keep FrontSide, the retired
+    // billboard quad's facing; the mesh material must override it.)
     // Break to confirm red: drop the `side:` override in
     // createMeshSilhouetteMaterial -- `expected 0 to be 1`.
     expect(createMeshSilhouetteMaterial('#2F6FD9').side).toBe(THREE.BackSide);

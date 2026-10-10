@@ -83,7 +83,11 @@ interface Rig {
   tiles: () => HTMLButtonElement[];
 }
 
-function rig(unitList: DockUnit[] = [dockUnit()], rt = fakeRuntime()): Rig {
+function rig(
+  unitList: DockUnit[] = [dockUnit()],
+  rt = fakeRuntime(),
+  meshPending?: (unitId: string) => boolean
+): Rig {
   document.body.replaceChildren();
   const host = document.createElement('div');
   document.body.appendChild(host);
@@ -94,6 +98,7 @@ function rig(unitList: DockUnit[] = [dockUnit()], rt = fakeRuntime()): Rig {
     runtime: rt,
     note: (html, tone) => notes.push({ html, tone }),
     onArm: (kind) => arms.push(kind),
+    meshPending,
   });
   const q = <T extends HTMLElement>(sel: string): T => {
     const el = host.querySelector<T>(sel);
@@ -348,6 +353,39 @@ describe('tile states', () => {
 // ----------------------------------------------------------------------
 // Clicks
 // ----------------------------------------------------------------------
+
+// WP-A3.3, the lead's ruling 1: a deferred buildable whose GLB has not landed
+// draws nothing on the map, so once bought its tile says "deploying".
+describe('the deploying chip', () => {
+  it('is off for a tile nobody has bought, even while its model is pending', () => {
+    const r = rig([dockUnit()], fakeRuntime(), () => true);
+    expect(r.tile('inf_squad').dataset.meshPending).toBe('0');
+  });
+
+  it('turns on once the player buys one, and off again when the model lands', () => {
+    let pending = true;
+    const r = rig([dockUnit()], fakeRuntime(), () => pending);
+    r.tile('inf_squad').click();
+    expect(r.rt.builds).toEqual(['inf_squad']);
+    expect(r.tile('inf_squad').dataset.meshPending).toBe('1');
+    expect(r.tile('inf_squad').querySelector('.rl-tile__deploying')?.textContent).toBe('deploying');
+    pending = false;
+    r.dock.refresh();
+    expect(r.tile('inf_squad').dataset.meshPending).toBe('0');
+  });
+
+  it('stays off when no pending predicate is supplied', () => {
+    const r = rig();
+    r.tile('inf_squad').click();
+    expect(r.tile('inf_squad').dataset.meshPending).toBe('0');
+  });
+
+  it('stays off when the runtime refused the build', () => {
+    const r = rig([dockUnit()], fakeRuntime({ buildOk: false }), () => true);
+    r.tile('inf_squad').click();
+    expect(r.tile('inf_squad').dataset.meshPending).toBe('0');
+  });
+});
 
 describe('what a click does', () => {
   it('asks the runtime to build, and says so', () => {

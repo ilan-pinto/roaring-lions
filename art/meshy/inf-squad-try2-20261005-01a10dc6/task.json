@@ -1,0 +1,26 @@
+{
+  "response": {
+    "id": "01a10dc6-457d-7034-9be1-0158b4db62c4",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 784115758,
+    "prompt": "A single low-poly game-ready infantry soldier of a fictional modern army, empty-handed, in a clean A-pose: both arms straight, angled down at forty-five degrees, well clear of the torso, open flat hands, palms down, legs straight and slightly apart. Highly detailed: a loose olive camouflage cloth cover over the helmet with ragged scrim edges at the back, a coyote-olive plate carrier with three magazine pouches across the front and a radio pouch on the left, a slim hydration pack on the back, padded knee pads, olive-drab field shirt with sleeves rolled to the forearm, olive cargo trousers, tan suede combat boots, tan gloves. Real-world scale, 1.78 metres tall. Plain even lighting, no baked shadows, no ground, no base, centred, one object, facing forward. No insignia, patches or text.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1791232460199,
+    "progress": 100,
+    "started_at": 1791232460206,
+    "finished_at": 1791232549601,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10dc6-457d-7034-9be1-0158b4db62c4/output/model.glb?Expires=4944758400&Signature=eLE65oequjpff2-bMCZWvDivUc9QhjVOC0pyTQLOSvI4z32nD6pl8wUkJOv88J8eRcMYFaQXowo2O-fsdQ5lsJWZg0GcvHACDJCIbFWeK~xAAFZWMYzd7TcEvIiju5oruXg4ka-wYmAVrtgcd5Tr5lotnN7rFSPsCfJ49APVXLarcuY6HYCThJC-koDrgFl27yadaJDtKmQzsEq8p1u3R8uiEW6p2r7KvdtYIbqWvGKHkG7sJUO0uim64kpS6p15H4HOGuH-jqxoSY2CYw--BeAUZNb9epAw5eOyd8tTsIPT8D6ImIL~3tmH8wqkCzuyHXU7PlfrHRh7dtrPVLjdCw__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10dc6-457d-7034-9be1-0158b4db62c4/output/preview.png?Expires=4944758400&Signature=WLhXS6~IKez~b6fqdMEs1maaq~h5Y97VA6MG6GQVHP07CK34f0ZvoNPZR1krKCrOxsw5IkIQSFKHcmi5NFG4h5bA2ictWOkK9rDFdeGtzAxi2J9a6DdFGlEzZK4c0fooeSsmdaPbEAGY3QYwfoBFmNhusAx-I3YWjrvtabgafQ5U0wKtmiz1WAMh3sC0uyErzpFr2CiTkiJBTxSbTH2neTD7UL5K5NTWvCJKkIBSjJCQiA46G0QZNF9JUHqtWlC3-MFB4FktLeLIsAUK7aw589HCsdoMBNNuWPde6QRsAmOWr5odhBQD6l4opgeb~JyL25pO2waF7k5QyK7bqsOktA__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "downloaded_via": "meshy download"
+}

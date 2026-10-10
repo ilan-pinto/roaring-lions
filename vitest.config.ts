@@ -3,6 +3,8 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     environment: 'node',
+    // One macrotask yield after every test: see vitest.setup.ts.
+    setupFiles: ['./vitest.setup.ts'],
     // vite-plugin-cursors.ts (and its test) live at the package root rather
     // than under src/ -- deliberately, so a build-time Vite plugin holding
     // colour never sits inside a validate:ui scan root. That means the

@@ -44,7 +44,7 @@ export const ROUT_CADENCE = 1.6;
  *
  *   1. dead      — outranks everything; a corpse's last speed reading is a
  *                  stale tick delta that would otherwise walk it off
- *   2. routed    — rout is what pinning escalates into, so showing `down`
+ *   2. routed    — rout is what pinning escalates into, so showing the huddle
  *                  here would hide the more important state
  *   3. pinned    — the suppression read (GDD 5.5)
  *   4. working   — below the three above (a pinned, broken or dead man is not
@@ -55,8 +55,12 @@ export const ROUT_CADENCE = 1.6;
  */
 export function resolveClip(u: UnitAnimInput): ClipName {
   if (u.alive === 0) return 'down';
-  if (u.routed === 1) return u.speed > 0 ? 'move' : 'down';
-  if (u.pinned === 1) return 'down';
+  // Pass C2/C4 (PA-31): a pinned man, and a broken one standing still, HUDDLE
+  // -- `pinned` -- and never `down`, which on 17 of the 20 infantry rigs that
+  // carry it is keyframe-for-keyframe the corpse (`wreck`). A GLB with no
+  // `pinned` resolves it through `meshClipOrFallback`, never to the corpse.
+  if (u.routed === 1) return u.speed > 0 ? 'move' : 'pinned';
+  if (u.pinned === 1) return 'pinned';
   // `work` outranking `fire` is load-bearing, not tidiness — do not reorder.
   // `fire` latches per shot, and `work` is the one clip allowed to change a
   // figure's height (the Yahalom lead kneels). If fire won, every burst from a

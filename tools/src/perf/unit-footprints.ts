@@ -86,6 +86,9 @@ type Mat = number[]; // column-major 4x4
 const identity: Mat = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 /** Nodes hidden while the unit lives (the death-swap geometry). */
 const DEAD_NODE = /^WRECK_|death/i;
+/** A vehicle's upgrade kit (contract v5): the ring is sized to the tier-0 hull,
+ *  so a fresh account and a kitted one select the same footprint. */
+const KIT_NODE = /^kit_/;
 
 function mul(a: Mat, b: Mat): Mat {
   const o = new Array<number>(16).fill(0);
@@ -207,7 +210,7 @@ export function footprintOf(gltf: GltfJson, bin: Uint8Array | null = null, opts:
   for (let i = 0; i < nodes.length; i++) {
     const n = nodes[i];
     const m = world[i];
-    if (!m || n.mesh === undefined || DEAD_NODE.test(n.name ?? '')) continue;
+    if (!m || n.mesh === undefined || DEAD_NODE.test(n.name ?? '') || KIT_NODE.test(n.name ?? '')) continue;
     const skin = n.skin === undefined ? undefined : gltf.skins?.[n.skin];
     for (const prim of gltf.meshes?.[n.mesh]?.primitives ?? []) {
       const pos = prim.attributes.POSITION;

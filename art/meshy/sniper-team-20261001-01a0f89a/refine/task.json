@@ -1,0 +1,47 @@
+{
+  "request": {
+    "mode": "refine",
+    "preview_task_id": "01a0f89a-112b-76f6-be96-e757cf292ba7",
+    "texture_resolution": "2k"
+  },
+  "response": {
+    "id": "01a0f89a-d374-7120-acea-40834aa11577",
+    "type": "text-to-3d-refine",
+    "mode": "refine",
+    "name": "",
+    "model_type": "standard",
+    "seed": 1100493840,
+    "prompt": "A single low-poly game-ready sniper, a soldier of a fictional army in a plain olive-drab field uniform, black nylon plate carrier, tan suede boots, modern helmet with a plain olive cover. Standing in a relaxed A-pose, arms slightly away from the body. A shaggy ghillie hood of shredded burlap strips covering the helmet and draped down over the upper back. Real-world scale, 1.78 metres tall. Olive drab cloth, dusty tan burlap, black webbing. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1790877291418,
+    "progress": 100,
+    "started_at": 1790877291435,
+    "finished_at": 1790877393012,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f89a-d374-7120-acea-40834aa11577/output/model.glb?Expires=4944412800&Signature=pIPJPTLH6zQL1liKUzND945fZ8KfFbSxjXLMECd1rI6Na-9OsO4FgPvo5H33DYbx5tQQzdlOR2LW5cPp5b5X82lNTcZIAlIYhiqU4oxQw27DdJlHJ~I6Tksu4Aijy5muPRTMgIAk-~BUsfx8WaYb9GtB33eZXIqqfWH8yZlmhHAY~gR6AdmBerFDYCgSNdoL5aNpybKODis2fb1VOMW9JTHAtfdexMNYp9jgYrNMkvCIHL81j2gpvtgosVZIs8~SMtiQc-WGGEFD1GGYflLHo5am7NL-LfGoAmSAbcoL33dbiNIBoUoDz51sPl0O3qs5Wf1hgQ5~MWrD5Nd2Eow-EA__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "fbx": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f89a-d374-7120-acea-40834aa11577/output/model.fbx?Expires=4944412800&Signature=A4uLrCWFVuTa7YByaCYdFyk98L5OUGr3u2lYBIAabj1o6LzKtkwoKRG9NE2drYrgxAsgbOopkdyEuf4oTMIcevVZCy7GDp3De7k7JMZ4BJ6XEFzDT4OcxqIG92uGCKc2z-SujoF2uWn3wK~vpVwQ4O69ec-M3gaKHvxDDw154vv0RBycPp8q8iocRTEnF9WZ1dU~PJ-6PrFWsNh9Yseu~nHdBUZMNVWyRJ6jWNUDeNYOjB-4nT7-Sj8Xs7N7R02g3VaaMOTXLj~RJKoKhZizcVSBa9HA8dJCU6k6Bldo4Fn2z~gUUBZIN9OD2mcxoQnTa2RpxP53Nx~2R3Pl9tzMSQ__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "usdz": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f89a-d374-7120-acea-40834aa11577/output/model.usdz?Expires=4944412800&Signature=FkrX1Nvvnwpol-fAUs9oiDZs-A0tTg3alabn1bHoMFs1YP3n5AryE5McmXGwelln-ooTngoS-cmUDCQOTS9Kzoxm-L66m13pVvZxwHv9Fe-K2Wr6k2eA4FjjAK2qxXwBWywNHqXpYaQhVd1sUmu6JyJ2Hh2pnqQWd9W9HwjBztp9KVnCfqWTS2HeebUiFJCnhUMIxBNI6kjBddVv8SHrJ3e3PEGtn2flbPQ6UsXLIs54do8aPEjywT4DLe9hgc-yt~JD9P5ANH1I~GAzTQkgRKs3RJ8Di7tiugwsRDrKF-SThd9eMjXUgPsBihgF9pSr2-FBd5t3JnOUqgPgaJZvvQ__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "obj": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f89a-d374-7120-acea-40834aa11577/output/model.obj?Expires=4944412800&Signature=OduBEivNc2c5g43Ee2lZJdOIw-nSEIRzyKYiAdSKX6LTmMhbgj2rGD1TtRPldyJN2dIV7OA9kNSXjSQrpTidBp3vqMl49cS0TNaQ93rRnb0v8jI5z~F7kdBskMhJ7wP20zGx6kVDme5PT2qT2JQRSrN8NlQt3u9dPFFjRw2cf26L889B0N-OM9TlWGFWoeZ-O9qOri7eUXLxIFr0-dxRQk29BTfN4N2D5oSIcEdqZUvpv7WJ44MZ~JtO6fXwv9zkOr9TxYOVmfbD2ODl90l5LvaNkRGSvmjehPiXRPgmPn4956yOrc5-lfMSfxvTx4zH4x6fXP9oMBA0eHgZBlAyzw__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "mtl": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f89a-d374-7120-acea-40834aa11577/output/model.mtl?Expires=4944412800&Signature=o8BQXMisXvqf4nFTnXSCIDEYgCxWqDGVVzcbWZQmoSVDEKgwodic~NNvaWX7lOWxtnFnbcNi9kALBtLSAxdxHZZg7SPJOrXqADdMkkTIz8~bVgup3DF01gZGWwkKqyBwoIfwokI3Sxib2K6-bGIpEVgl6ucHWYe7KNKoxMdx7QNuv4TDSWWQ5D5mxw2SEegc90cVscnFgIImblSlXUb9vPJ6qrqWCo6mPaXirC0gX4zveSFv-PoWQF3CMm6L-8oJLwhkl9prdM0r7ks3z7ngXyJPTEnenLAQXlisWqb3lLGnppFOBTL7VmuIO4IgXTvL4fFQ8tN18gCgw5Jg6QJgrw__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "stl": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f89a-d374-7120-acea-40834aa11577/output/model.stl?Expires=4944412800&Signature=V8MgFk3QB0ifxqFtBCiu32YfuR90vEMOsFvU8Y2JwrIROTCLENOiRAr0wqsSFUoksXgv8N5fNyQA2tWvpsDyBzUatA4bmlxPBNZ8Yvc7xltP23FxXWt6R08bPG~CBH86tUTGNNL8saJIirPrnU09Ik5nz3R0yAafBPuihr1gdVMJyGWA6deCLgmcs1sihukuw37VYAirz8zJZrjwDU76OBhgynVaja1NnfuiiYqH3tN~n5wNwo41rYpRlpo2autWdGJEprTR5D6mJESLc~nq-BNmABFTspA8vCNXOzTWFsRcnlsL4sr6jHK8MOnXhozkA82zZiFyyIhjvenQcA3CdQ__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f89a-d374-7120-acea-40834aa11577/output/preview.png?Expires=4944412800&Signature=J3RwY4SyW2XbyBdH8DwM52wVCcJmp-H-mUi7IJLgRPpor-OK1XEN6VWe0O6auTLgxrkGJdLn1jWBFq9ucWdXXsNoCK8~eLpcfAsE4dU9oq-wCUdu08QNA7ARvsBYRKIdVGLHuQEOViT2-ERUN4bhuqxMJRi-6fL8XzUMXSBypNiOk6xNrLCfaASKICn60f1ILZX9BW-BqYJrCltG1fsng-CM8WGsY0SHFfR6oAMMw5nRVqvz2XzmINZTW1H75~dRDB0BRnJXIIx-GvAhlJh8v3q7VuA95QtzlEtd6hrgZcGVNFzY6O5BL9hvRNaInexfCzLSaaAcld3iwIFPyo41gA__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [
+      {
+        "base_color": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f89a-d374-7120-acea-40834aa11577/output/texture_0.png?Expires=4944412800&Signature=VJIYf1XNbyy1a8v08xdxoWbMaf2pVl~vcfJNe6ffdlPIz-vqiV7WlGnvNKBbxIlMBxXxQJ4kDnBReEZ4dkjfWHos9wIIhd-klvSwVN-xJMoY8FONaF9VyBvJRKxI4RazM7OdqwurHdwK2axbefLAwjOIhrCk~GOH6UAve~1oFhsKEtBUh903qAOc0pJYsVsvR7uxPBzjyqyTAxdT7isgFV7txxCMPCFUdUzonbhK3L8NQ3ei48Ef38fKtmJDcckAe7zQVm2LEhX4E53Z5M3e3NTHglbF1nlKjlaft3hRXUeyHlo0ONRjY1SrOBc2J~4sfY-PdEwm8PvTX7fFPtwugw__&Key-Pair-Id=K1VGYTHIYLM9UM"
+      }
+    ],
+    "remove_lighting": true,
+    "consumed_credits": 10
+  },
+  "consumed_credits": 10,
+  "timestamps": {
+    "created_at": 1790877291418,
+    "started_at": 1790877291435,
+    "finished_at": 1790877393012
+  },
+  "usd_estimated": 0.2
+}

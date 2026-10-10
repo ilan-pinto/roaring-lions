@@ -199,6 +199,12 @@ export interface MissionJson {
   /** A short cinematic for the deploy screen, as a path under assets/
    *  (`video/<id>.mp4`). The sim never reads it; carried for the app. */
   briefing_video?: string;
+  /** Named sections of `briefing` and an image slot for the deploy screen
+   *  (GH-119). The sim never reads either; carried for the app, like
+   *  `briefing_video`. `id` is a plain string because a JSON module types it
+   *  so -- the app's `briefingSections` narrows it. */
+  briefing_sections?: { id: string; text: string; image?: string }[];
+  briefing_image?: string | string[];
   /** Story voice (GDD §11), shown before the mission starts alongside the
    *  title. The sim never reads these three -- they are carried on the
    *  mission object purely so the app can, off the same JSON it already
@@ -495,6 +501,14 @@ export class MissionRuntime {
    *  that never held anything. Sorted, because an insertion-ordered array whose
    *  order depends on a scan is a latent determinism question. */
   private readonly razeTargets = new Map<string, readonly number[]>();
+  /** Every structure index any `raze` objective names (the union of
+   *  razeTargets). Levelling one is the order, not collateral, so `stepRoe`
+   *  charges nothing for it -- before 2026-10-07 Wadi Halam V billed its own
+   *  primary at 19 Conduct. Keyed on the objective's DEFINITION, not its
+   *  status: the last target falls while the objective is still `active`
+   *  (stepRoe runs before stepObjectives), and a raze whose deadline has
+   *  passed still names a military target, not a civilian one. */
+  private readonly razeExempt = new Set<number>();
   /** Objective id -> the route indices whose mouths its zone held at mission
    *  start. Mirrors razeTargets, though for a different reason: ctx.tunnels
    *  is static so a rescan could not shrink, but snapshotting at start() is
@@ -949,6 +963,7 @@ export class MissionRuntime {
           );
         }
         this.razeTargets.set(o.def.id, [...found].sort((a, b) => a - b));
+        for (const s of found) this.razeExempt.add(s);
       }
       if (o.def.type === 'collapse') {
         const z = this.zone(o.def.target);
@@ -1414,6 +1429,10 @@ export class MissionRuntime {
         // Only the player's demolitions are judged: the enemy wrecking its
         // own town is their affair, not a mark against your restraint.
         if (e.by < 0 || st.side[e.by] !== 0) continue;
+        // A structure a raze objective names is the mission's target: razing
+        // it is doing the objective. Anything outside that set -- a house the
+        // D9 levels on the way through the village -- is still judged.
+        if (this.razeExempt.has(e.structure)) continue;
         const mult = roe?.structure_penalty_mult ?? 1;
         const type = this.sim.structureTypes[this.sim.structures.typeIdx[e.structure]];
         // Round half up without Math (invariant 2): (2v + 1) / 2 truncated.
@@ -1522,6 +1541,26 @@ export class MissionRuntime {
       // the patrol resumed from an arbitrary leg when the route vented — and
       // queued one dead command per tick for the whole mission meanwhile.
       if (this.sim.state.tunnelIn[p.id] >= 0) continue;
+      // Contact. A patroller that halts to fire walks its beat on a plain
+      // move, and a plain move never stops to shoot (spec
+      // 2026-10-05-infantry-halt-to-fire §3) -- so without this it would walk
+      // straight past the enemy holding its fire, and the tick it reached a
+      // waypoint it would be sent on before it could get down. A patrol that
+      // makes contact stops and fights: halt it, keep the interrupted leg, and
+      // resume the beat from that leg once the target is gone. A vehicle
+      // patroller fires on the move and is left exactly as it was.
+      const st = this.sim.state;
+      if (
+        (st.curTarget[p.id] >= 0 || st.curStructure[p.id] >= 0) &&
+        this.sim.unitTypes[st.typeIdx[p.id]].haltsToFire
+      ) {
+        if (st.moving[p.id] === 1) {
+          this.sim.queueCommand({ kind: 'halt', ids: [p.id] });
+          const n = p.waypoints.length;
+          p.idx = (p.idx + n - 1) % n;
+        }
+        continue;
+      }
       if (this.sim.state.moving[p.id] === 1) continue;
       const [wx, wy] = p.waypoints[p.idx];
       p.idx = (p.idx + 1) % p.waypoints.length;

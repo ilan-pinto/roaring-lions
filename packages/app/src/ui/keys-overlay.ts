@@ -35,7 +35,7 @@
  * (installed right after the panel is built, below) is what actually cycles
  * focus within the card now.
  */
-import { ACTIONS, keyLabel, resolveKey, type Bindings } from '../input/keymap';
+import { PLAYER_ACTIONS, keyLabel, resolveKey, type Bindings } from '../input/keymap';
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
 import { focusTrap } from './focus-trap';
@@ -105,7 +105,7 @@ export function showKeysOverlay(host: HTMLElement, deps: KeysOverlayDeps): Dispo
   p.body.appendChild(list);
 
   const bindings = deps.bindings();
-  for (const a of ACTIONS) {
+  for (const a of PLAYER_ACTIONS) {
     const key = keyLabel(bindings[a.id]);
     // One catalogue call for the WHOLE keycap, not a modifier fragment
     // resolved through `t()` on its own and then glued to a bare, untranslated

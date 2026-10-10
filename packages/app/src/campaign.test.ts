@@ -10,6 +10,7 @@ import {
   campaignSummary,
   commanderForMission,
   continueTarget,
+  nextOperation,
   hostagesAccount,
   hostagesLine,
   newlyUnlocked,
@@ -573,5 +574,22 @@ describe('continueTarget', () => {
   it('returns null when every mission is complete', () => {
     const all = world.regions.flatMap((r) => r.towns).flatMap((t) => t.missions);
     expect(continueTarget(world, { 'campaign.completed_missions': all }, { ...tutorial, done: true })).toBeNull();
+  });
+});
+
+// PA-20: the board's "Next: <mission>" button. The tutorial is off the map, so
+// unlike `continueTarget` this never names it: it is the first open mission
+// of wherever the map is live, and null once the campaign is complete.
+describe('nextOperation', () => {
+  it('names the first open mission on an empty ledger, never the tutorial', () => {
+    expect(nextOperation(world, {})).toBe(ALL_BS[0]);
+  });
+  it('follows the ledger through a town', () => {
+    const ledger = { 'campaign.completed_missions': [ALL_BS[0]!, ALL_BS[1]!] };
+    expect(nextOperation(world, ledger)).toBe(ALL_BS[2]);
+  });
+  it('is null once every mission is complete, which hides the button', () => {
+    const all = world.regions.flatMap((r) => r.towns).flatMap((t) => t.missions);
+    expect(nextOperation(world, { 'campaign.completed_missions': all })).toBeNull();
   });
 });

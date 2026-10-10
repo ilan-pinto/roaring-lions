@@ -10,7 +10,7 @@
  * it, the same reason `town`/`phase` are read off the raw JSON in `main.ts`
  * rather than widening that type for a lookup only `app` makes.
  */
-import type { TimeOfDay } from '@lions/render';
+import type { LightOverride, TimeOfDay } from '@lions/render';
 
 export const TIMES_OF_DAY: readonly TimeOfDay[] = ['dawn', 'day', 'dusk', 'night'];
 
@@ -43,4 +43,20 @@ export function timeOfDayOf(
     return { value: raw, warning: null };
   }
   return { value: 'day', warning: `unknown &tod value "${raw}" — using day` };
+}
+
+/**
+ * PA-24: a mission's optional `map.light` (fill and/or sun shadow strength
+ * over its `time_of_day` preset), or nothing. Missions only: the sandbox has
+ * no flag for it. Schema-validated (`validate:data`), so trusted here like
+ * `time_of_day`; only the two named numbers are carried through.
+ */
+export function lightOverrideOf(mission: { readonly map: object } | null): LightOverride | undefined {
+  if (mission === null) return undefined;
+  const raw = (mission.map as { light?: { fill?: unknown; shadow?: unknown } }).light;
+  if (raw === undefined) return undefined;
+  return {
+    ...(typeof raw.fill === 'number' ? { fill: raw.fill } : {}),
+    ...(typeof raw.shadow === 'number' ? { shadow: raw.shadow } : {}),
+  };
 }

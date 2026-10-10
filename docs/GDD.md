@@ -1,6 +1,6 @@
 # Roaring Lions — Game Design Document
 
-**Version:** 1.2.2 · **Status:** decisions locked; §5 synced to the calibrated M0 model; §11 (story) added 2026-09-03 as a draft, its surface list corrected the same day when `dispatch`/`aftermath`/`debrief`/`say` landed
+**Version:** 1.2.3 · **Status:** decisions locked; §5 synced to the calibrated M0 model; §11 (story) added 2026-09-03 as a draft, its surface list corrected the same day when `dispatch`/`aftermath`/`debrief`/`say` landed; §11's surface list gains the end of the war (2026-10-09)
 **Companion docs:** `CLAUDE.md` (working conventions), `docs/ART_PIPELINE.md`, `CONTRIBUTING.md`
 
 ---
@@ -134,6 +134,8 @@ P(hit) = base_accuracy
 ```
 
 `range_falloff` is per weapon class: guided weapons (ATGM) use k ≈ 0.25 — inside the envelope, accuracy is launch-condition-dominated, not range-dominated. This is what makes ATGM Pk ≈ 0.7 real rather than aspirational.
+
+**Foot units halt to fire** (2026-10-05, spec `docs/superpowers/specs/2026-10-05-infantry-halt-to-fire.md`). Vehicles fire on the move; infantry, AT and mortar teams never do. They stop, take a knee (0.2 s) before the first shot, fire kneeling, and get up (0.2 s) before moving on. An attack-mover closes to its weapons' effective range and stops for good inside it: against a target in the open between effective and maximum range it advances by bounds (2 s down and firing, 2 s up and moving), against one in cover it closes weapon held, and on arriving it walks on toward anything in the band or identified out of reach; a plain move runs through holding fire; a man who has stopped takes a knee. Kneeling changes *when* a man shoots and moves, never how hard he is to hit.
 
 ### 5.3 Penetration
 
@@ -371,7 +373,9 @@ mission is ever scripted in code.
 delivered in beats, `dispatch` on the title card, `aftermath` on the victory
 banner, `debrief` on the end screen, objective labels, and mid-mission `say`
 lines carried by triggers and objectives into the notice feed and onto the
-commander bar. **Approved and not yet built:** EVA announcements, voice audio
+commander bar. The end of the war is said once: on the report of the victory that
+closes the last front, Idit and Shai exchange four lines, and the campaign
+board's resting line says every front is closed. **Approved and not yet built:** EVA announcements, voice audio
 for briefings and transmissions, a radio overlay with portraits for the `say`
 lines, and a `debrief` that can tell a victory from a defeat. See
 `docs/campaign/README.md` for the surface contract.

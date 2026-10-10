@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alertNotice, evacuatedNotice, removedNotice, triggerLabel } from './mission-notice';
+import { alertNotice, evacuatedNotice, placePhrase, reinforceTrigger, removedNotice, ledgerSavedNotice, triggerLabel, unknownSandboxMapNotice } from './mission-notice';
 
 describe('removedNotice', () => {
   it('reads "taken (n)" for a civilian (side 2)', () => {
@@ -72,5 +72,74 @@ describe('alertNotice', () => {
   it('passes the count through as a number, and an escaped apostrophe survives the plural', () => {
     const [html] = alertNotice({ key: 'alert.unitLost', params: { name: "Sahim's squad", n: 2 }, tone: 'bad' });
     expect(html).toBe('<b>lost</b> — Sahim&#39;s squad (2)');
+  });
+});
+
+// WP-P5: where an alert happened, as one phrase.
+describe('placePhrase', () => {
+  it('words one place, two, or a crowd of them', () => {
+    expect(placePhrase([])).toBe('');
+    expect(placePhrase(['here'])).toBe('in view');
+    expect(placePhrase(['ne', 'ne'])).toBe('north-east');
+    expect(placePhrase(['nw', 'here'])).toBe('north-west and in view');
+    expect(placePhrase(['n', 'e', 's'])).toBe('from several sides');
+  });
+
+  it('a line with no place drops its own separator rather than ending on one', () => {
+    const line = { key: 'alert.arrived', params: { name: 'Lavi' }, tone: 'info' as const };
+    expect(alertNotice({ ...line, place: [] })[0]).toBe('<b>reinforcement deployed</b> — Lavi');
+    expect(alertNotice({ ...line, place: ['w'] })[0]).toBe('<b>reinforcement deployed</b> — Lavi · west');
+  });
+});
+
+describe('reinforceTrigger', () => {
+  const mission = {
+    triggers: [
+      { id: 'squad', label: 'Second squad arrives', do: { kind: 'reinforce', units: [{ marker: 'rp' }] } },
+      { id: 'quiet', do: { kind: 'reinforce', units: [{ marker: 'rp' }] } },
+      { label: 'Village rises', do: { kind: 'spawn' } },
+      { label: 'Mortar arrives', do: { kind: 'reinforce', units: [{ marker: 'rp2' }] } },
+    ],
+  };
+  it('finds a labelled reinforce by id or by index, and nothing else', () => {
+    expect(reinforceTrigger(mission, 'squad')).toEqual({ label: 'Second squad arrives', units: [{ marker: 'rp' }] });
+    expect(reinforceTrigger(mission, 'trigger_3')?.label).toBe('Mortar arrives');
+    expect(reinforceTrigger(mission, 'quiet')).toBeNull();
+    expect(reinforceTrigger(mission, 'trigger_2')).toBeNull();
+  });
+});
+
+describe('unknownSandboxMapNotice (pass K)', () => {
+  const known = { beit_sahwan_outskirts: {}, tel_marum: {} };
+  it('is silent for a shipped map, and for no map at all', () => {
+    expect(unknownSandboxMapNotice('tel_marum', known, 'Tel Marum')).toBeNull();
+    expect(unknownSandboxMapNotice(null, known, 'Beit Sahwan')).toBeNull();
+  });
+  it('says the map is missing, names the map shown instead, and how to pick one -- never the raw id', () => {
+    const notice = unknownSandboxMapNotice('tel_maram', known, 'Beit Sahwan outskirts');
+    expect(notice).not.toBeNull();
+    const [html, tone] = notice ?? ['', 'mute'];
+    expect(tone).toBe('warn');
+    expect(html).toMatch(/not in this build/);
+    expect(html).not.toContain('tel_maram');
+    expect(html).toContain('<b>Beit Sahwan outskirts</b>');
+    expect(html).toMatch(/Free Play/);
+  });
+  it('escapes the shown map name', () => {
+    const [html] = unknownSandboxMapNotice('nope', known, '<img>') ?? [''];
+    expect(html).toContain('&lt;img&gt;');
+  });
+});
+
+describe('ledgerSavedNotice (pass K)', () => {
+  it('says "campaign saved" only when the write landed', () => {
+    const [ok, okTone] = ledgerSavedNotice(true);
+    expect(ok).toMatch(/campaign saved/);
+    expect(okTone).toBe('info');
+    const [no, noTone] = ledgerSavedNotice(false);
+    expect(no).not.toMatch(/campaign saved/);
+    expect(no).toMatch(/not saved/);
+    expect(no).toMatch(/Allow this site to store data/);
+    expect(noTone).toBe('bad');
   });
 });

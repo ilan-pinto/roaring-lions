@@ -16,7 +16,8 @@
 import * as THREE from 'three';
 
 export const FLASH_CAPACITY = 8;
-/** Emitter `intensity` is 0.3-3.5 across `data/vfx/`; point-light intensity
+/** Emitter `intensity` is 0.3-4.5 across `data/vfx/` (polish VR-22 ranks it by
+ *  event: collapse > vehicle kill > shell landing > muzzle flash); point-light intensity
  *  under physically correct lights is candela-ish, so a flash needs an order
  *  of magnitude more to read on a sunlit surface. Judged on screen. */
 export const FLASH_INTENSITY_SCALE = 12;

@@ -4,8 +4,8 @@
  *
  * Pure: no `three`. `lighting.ts` turns a preset into lights and
  * `ThreeRenderer` resolves its palette keys through `overlayColor`, so this
- * file holds only numbers and palette KEYS, plus each key's hex as it stands
- * today for a caller with no `resolveColor` (every test fake).
+ * file holds only numbers and palette KEYS, plus each key's hex, read from
+ * `data/palette.json`, for a caller with no `resolveColor` (every test fake).
  *
  * **`day` is today, and today is the constants, not this table.** Its
  * `elevationDeg` is `null`, meaning "`lighting.ts`'s literal, normalised the
@@ -27,9 +27,21 @@
  *
  * `night` is not a light (D10): it resolves to `dusk`.
  */
+import { paletteHex } from './palette-hex';
 
 export type TimeOfDay = 'dawn' | 'day' | 'dusk' | 'night';
 export type LitTimeOfDay = 'dawn' | 'day' | 'dusk';
+
+/**
+ * PA-24 (lead ruling L3): one mission's lift on top of its preset, from the
+ * mission JSON's optional `map.light`. `fill` replaces the hemisphere
+ * intensity; `shadow` is the sun's `shadow.intensity` (1 = full strength,
+ * three r170). Each field absent leaves the preset's own value.
+ */
+export interface LightOverride {
+  readonly fill?: number;
+  readonly shadow?: number;
+}
 
 export interface LightPreset {
   /** null = today's SUN_DIRECTION exactly (day); else the elevation in degrees. */
@@ -56,10 +68,10 @@ export const TIME_OF_DAY_PRESETS: Readonly<Record<LitTimeOfDay, LightPreset>> = 
     elevationDeg: 22,
     azimuthOffsetDeg: -35,
     sunKey: 'limestone.1',
-    sunFallback: '#E6D8BE',
+    sunFallback: paletteHex('limestone.1'),
     sunIntensity: 2.0,
     skyKey: 'water.0',
-    skyFallback: '#A9C4D1',
+    skyFallback: paletteHex('water.0'),
     hemiIntensity: 0.75,
     hazeFar: 0.16,
     hazeKey: null,
@@ -68,10 +80,10 @@ export const TIME_OF_DAY_PRESETS: Readonly<Record<LitTimeOfDay, LightPreset>> = 
     elevationDeg: null,
     azimuthOffsetDeg: 0,
     sunKey: 'limestone.0',
-    sunFallback: '#F2E8D5',
+    sunFallback: paletteHex('limestone.0'),
     sunIntensity: 2.6,
     skyKey: 'water.0',
-    skyFallback: '#A9C4D1',
+    skyFallback: paletteHex('water.0'),
     hemiIntensity: 0.9,
     hazeFar: 0.12,
     hazeKey: null,
@@ -80,10 +92,10 @@ export const TIME_OF_DAY_PRESETS: Readonly<Record<LitTimeOfDay, LightPreset>> = 
     elevationDeg: 18,
     azimuthOffsetDeg: 35,
     sunKey: 'dust.0',
-    sunFallback: '#E0B87A',
+    sunFallback: paletteHex('dust.0'),
     sunIntensity: 1.8,
     skyKey: 'gunmetal.1',
-    skyFallback: '#8E9491',
+    skyFallback: paletteHex('gunmetal.1'),
     hemiIntensity: 0.7,
     hazeFar: 0.18,
     hazeKey: 'dust.1',

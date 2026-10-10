@@ -5,7 +5,7 @@ import { cursorAnimDriver, type CursorAnimDeps } from './cursor-anim';
 import type { ANIMATED_CURSORS, CursorName } from './cursor';
 
 const TABLE: Partial<typeof ANIMATED_CURSORS> = {
-  attack: { frames: 4, intervalMs: 200 },
+  advance: { frames: 4, intervalMs: 200 },
   move: { frames: 4, intervalMs: 300 },
 };
 
@@ -49,7 +49,7 @@ describe('cursorAnimDriver', () => {
   it('writes 0 then advances at intervalMs and wraps', () => {
     const d = deps();
     const driver = cursorAnimDriver(TABLE as typeof ANIMATED_CURSORS, d);
-    driver.show('attack' as CursorName);
+    driver.show('advance' as CursorName);
     expect(d.frames).toEqual([0]);
     vi.advanceTimersByTime(200);
     vi.advanceTimersByTime(200);
@@ -61,10 +61,10 @@ describe('cursorAnimDriver', () => {
   it('does not restart the cycle on a repeated show() of the same name', () => {
     const d = deps();
     const driver = cursorAnimDriver(TABLE as typeof ANIMATED_CURSORS, d);
-    driver.show('attack' as CursorName);
+    driver.show('advance' as CursorName);
     vi.advanceTimersByTime(200); // frame 1
-    driver.show('attack' as CursorName);
-    driver.show('attack' as CursorName);
+    driver.show('advance' as CursorName);
+    driver.show('advance' as CursorName);
     vi.advanceTimersByTime(200); // frame 2, not reset to 1 again
     expect(d.frames).toEqual([0, 1, 2]);
   });
@@ -72,7 +72,7 @@ describe('cursorAnimDriver', () => {
   it('stops the timer for a name that is not animated', () => {
     const d = deps();
     const driver = cursorAnimDriver(TABLE as typeof ANIMATED_CURSORS, d);
-    driver.show('attack' as CursorName);
+    driver.show('advance' as CursorName);
     vi.advanceTimersByTime(200); // frame 1
     driver.show('blocked' as CursorName);
     expect(d.frames).toEqual([0, 1, 0]);
@@ -83,7 +83,7 @@ describe('cursorAnimDriver', () => {
   it('resets to 0 on a name change', () => {
     const d = deps();
     const driver = cursorAnimDriver(TABLE as typeof ANIMATED_CURSORS, d);
-    driver.show('attack' as CursorName);
+    driver.show('advance' as CursorName);
     vi.advanceTimersByTime(200); // frame 1
     driver.show('move' as CursorName);
     expect(d.frames).toEqual([0, 1, 0]);
@@ -101,7 +101,7 @@ describe('cursorAnimDriver', () => {
   it('hiding then refresh() stops the timer and writes 0; showing again resumes from 0', () => {
     const d = deps();
     const driver = cursorAnimDriver(TABLE as typeof ANIMATED_CURSORS, d);
-    driver.show('attack' as CursorName);
+    driver.show('advance' as CursorName);
     vi.advanceTimersByTime(200); // frame 1
     vi.advanceTimersByTime(200); // frame 2
     d.setHidden(true);
@@ -110,7 +110,7 @@ describe('cursorAnimDriver', () => {
     vi.advanceTimersByTime(1000); // the old timer is gone; nothing ticks
     expect(d.frames).toEqual([0, 1, 2, 0]);
     d.setHidden(false);
-    driver.show('attack' as CursorName); // resumes from 0 on the next show()
+    driver.show('advance' as CursorName); // resumes from 0 on the next show()
     expect(d.frames).toEqual([0, 1, 2, 0]); // frame already 0 -- no redundant write
     vi.advanceTimersByTime(200);
     expect(d.frames).toEqual([0, 1, 2, 0, 1]);
@@ -119,7 +119,7 @@ describe('cursorAnimDriver', () => {
   it('dispose() clears the timer', () => {
     const d = deps();
     const driver = cursorAnimDriver(TABLE as typeof ANIMATED_CURSORS, d);
-    driver.show('attack' as CursorName);
+    driver.show('advance' as CursorName);
     driver.dispose();
     vi.advanceTimersByTime(1000);
     expect(d.frames).toEqual([0]); // nothing further fires after dispose
@@ -135,7 +135,7 @@ describe('cursorAnimDriver', () => {
     expect(d.frames).toEqual([]);
     // Now stop a running animation: exactly one 0 is written for the stop,
     // not one for every subsequent show() of the same non-animated name.
-    driver.show('attack' as CursorName);
+    driver.show('advance' as CursorName);
     vi.advanceTimersByTime(200);
     driver.show('blocked' as CursorName);
     driver.show('blocked' as CursorName);

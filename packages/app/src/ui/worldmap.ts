@@ -29,6 +29,7 @@ import {
   type WorldRegion,
 } from '../campaign';
 import { nudgeLabels, type LabelBox } from './label-layout';
+import { campaignComplete } from '../campaign-close';
 
 export interface WorldMapOptions {
   base: string;
@@ -44,6 +45,10 @@ export interface WorldMapOptions {
    *  uses, handed in from `main.ts` because this module has no browser-side
    *  asset resolver of its own. */
   portraitUrl?: (file: string) => string | undefined;
+  /** Where the ledger line goes, when not at the foot of this board (PA-20:
+   *  `showCampaign` hands it the footer, so the status line is never under
+   *  the Main Menu button). Absent, it is the board's last child, as before. */
+  statusHost?: HTMLElement;
 }
 
 /** viewBox the town coordinates in world.json are expressed in. */
@@ -242,12 +247,17 @@ export function worldMap(opts: WorldMapOptions): HTMLElement {
   if (typeof requestAnimationFrame === 'function') requestAnimationFrame(runNudgePass);
   else runNudgePass();
 
+  // The end of the war (`campaign-close.ts`). The 3D board says it on its
+  // click line; this board has no click line, so it says it here, between the
+  // ground and the cards, and only once nothing is left to open.
+  if (campaignComplete(opts.world, opts.ledger)) wrap.appendChild(el('p', 'rl-world__say', t('world.complete')));
+
   // --- the status panel ----------------------------------------------------
   const cards = el('div', 'rl-world__cards');
   for (const region of opts.world.regions) cards.appendChild(regionCard(region, opts));
   wrap.appendChild(cards);
 
-  wrap.appendChild(ledgerLine(opts.ledger, opts.world));
+  (opts.statusHost ?? wrap).appendChild(ledgerLine(opts.ledger, opts.world, (id) => opts.missionOf?.(id)?.name));
   return wrap;
 }
 
@@ -307,7 +317,14 @@ export function regionCard(
  *  bare number explains nothing. `world`, when given, adds the account of the taken
  *  (spec 2026-09-10 §4.4) as a sibling line under this one -- absent on a world that
  *  declares no `taken` count at all, the same as `hostagesAccount` itself. */
-export function ledgerLine(ledger: LedgerData, world?: ParsedWorld): HTMLElement {
+export function ledgerLine(
+  ledger: LedgerData,
+  world?: ParsedWorld,
+  /** The mission's display name for an id -- the same lookup the gate
+   *  sentences take. Without one the "worst" clause is dropped: the line
+   *  printed `worst beit_sahwan_2_foothold (88)`, an id nobody reads. */
+  missionName: (id: string) => string | undefined = () => undefined
+): HTMLElement {
   const line = el('div', 'rl-world__ledger rl-info');
   const parts: string[] = [];
 
@@ -323,7 +340,8 @@ export function ledgerLine(ledger: LedgerData, world?: ParsedWorld): HTMLElement
   const roe = campaignRoe(ledger);
   if (roe !== null) {
     parts.push(t('world.ledger.conduct', { mean: roe.mean }));
-    if (roe.worst !== null) parts.push(t('world.ledger.worst', { name: roe.worst[0], value: roe.worst[1] }));
+    const worstName = roe.worst !== null ? missionName(roe.worst[0]) : undefined;
+    if (roe.worst !== null && worstName) parts.push(t('world.ledger.worst', { name: worstName, value: roe.worst[1] }));
   }
 
   line.textContent = parts.length > 0 ? parts.join(' · ') : t('world.ledger.fresh');

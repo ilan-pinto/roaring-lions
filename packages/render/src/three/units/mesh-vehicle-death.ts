@@ -171,8 +171,9 @@ export function beginVehicleDeath(
  *     and `meshDeathSinkPx`, with `idle` still running. When the window
  *     closes, the fade clones are restored and disposed
  *     (`endMeshDeathFade`) and one of two things happens. A vehicle with no
- *     `wreck` action -- `&nomesh`'s billboard path never reaches here, but a
- *     GLB the pass has not run on does -- is removed and disposed, returning
+ *     `wreck` action -- no shipped GLB, and `loadVehicleMesh` refuses one
+ *     since WP-A3.3, but a template built directly (a test) can -- is
+ *     removed and disposed, returning
  *     `'removed'`, which is today's behaviour minus the abruptness. A vehicle
  *     WITH one reveals its death root, starts `wreck` once
  *     (`clampWhenFinished` + `LoopOnce`, through `applyMeshClip`'s `once`

@@ -1,0 +1,24 @@
+{
+  "unit": "rpg_team",
+  "variant": "lead",
+  "source": "assets/meshes/rpg_team.glb",
+  "source_sha256": "8b9eaeb51ccc1d16fe9cff5218d6b5dacfe41ae2aa96f97a5e1a947719f2a560",
+  "yaw_deg": -125.0,
+  "elevation_deg": 12.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "longer",
+    0.88
+  ],
+  "ndc_box": [
+    0.2879,
+    0.7121,
+    0.06,
+    0.94
+  ],
+  "materials": {
+    "baked": 4,
+    "flat": 2
+  },
+  "lead_figure": "rpg_fire"
+}

@@ -6,7 +6,12 @@
  * and thirteen properties (two optional), counted when `reseed` was added --
  * and that smallness is the whole reason replacing the backend is tractable.
  *
- * Types only. No implementation, no imports from Pixi or three.
+ * Types only. No implementation, no import from three.
+ *
+ * It was extracted for a second backend, Pixi, which shipped beside three
+ * until WP-A3.3 (2026-10-04). Pixi is deleted; the seam stays, because it is
+ * still what keeps `app` off backend-only members (the compiler, not a grep).
+ * Every "Pixi ignores it" / "`renderer.ts`" note below is history.
  */
 import type { MissionEvent, SimEvent } from '@lions/sim';
 import type { Camera } from './project';
@@ -14,9 +19,12 @@ import type { EmitterSpec } from './vfx';
 import type { RenderQuality } from './quality';
 // A type from a three-FREE module beside `lighting.ts` (it imports nothing),
 // so this file still reaches neither backend's library.
-import type { TimeOfDay } from './three/time-of-day';
+import type { LightOverride, TimeOfDay } from './three/time-of-day';
+// Three-free too (`three/units/building-fit.ts` imports nothing).
+import type { BuildingFit } from './three/units/building-fit';
 
-export type { TimeOfDay } from './three/time-of-day';
+export type { LightOverride, TimeOfDay } from './three/time-of-day';
+export type { BuildingFit } from './three/units/building-fit';
 
 /** How open ground is grained. Tones are data; mark shape is drawing code. */
 export type TerrainScatter = 'stone' | 'sward';
@@ -269,6 +277,18 @@ export interface RendererOptions {
    */
   quality?: RenderQuality;
   /**
+   * GH-469: the drawing buffer's pixel ratio is `min(devicePixelRatio, this)`
+   * -- `PIXEL_RATIO_CAP` (2) when absent. Three-only. The menu's backdrop
+   * passes a lower one: every full-screen target scales with its square.
+   */
+  maxPixelRatio?: number;
+  /**
+   * GH-469: GLB textures are decoded no larger than this per edge
+   * (`three/units/texture-cap.ts`); absent leaves them as shipped. Three-only;
+   * the menu's backdrop sets it, a mission never does.
+   */
+  maxTextureSize?: number;
+  /**
    * Stamp the ground-mark showcase (`three/decal-showcase.ts`, D4) around
    * this tile once the terrain has been built: craters, scorch, oil, rubble,
    * tread and tyre, three sizes each, on a flat, a sloped and a road site
@@ -284,6 +304,13 @@ export interface RendererOptions {
    */
   decalShowcase?: { readonly x: number; readonly y: number };
   /**
+   * Pass C2/C4 (P5): the player's reduced-motion preference, asked live (a
+   * settings change mid-mission takes effect at once). Absent reads as
+   * "full motion". Today it gates one thing: a suppressed or pinned
+   * infantryman's flinch at a round landing near him.
+   */
+  reducedMotion?: () => boolean;
+  /**
    * The light this map is lit by (`three/time-of-day.ts`, N-20): `dawn`,
    * `day` or `dusk`, and `night` resolves to `dusk` (D10). Absent is `day`,
    * which is today's frame to the bit.
@@ -292,6 +319,37 @@ export interface RendererOptions {
    * `shellColors`.
    */
   timeOfDay?: TimeOfDay;
+  /**
+   * PA-24: a mission's own lift on top of its `timeOfDay` preset (the
+   * mission JSON's optional `map.light`). `fill` replaces the hemisphere
+   * intensity, `shadow` is the sun's `shadow.intensity` (1 = full). Absent
+   * is the preset unchanged, to the bit. First Light is the only author.
+   */
+  lightOverride?: LightOverride;
+  /**
+   * How each building mesh is scaled to its footprint (lead ruling 7 Oct,
+   * "fit buildings to their plots"; `three/units/building-fit.ts` holds the
+   * rule and its reasons). Absent is `DEFAULT_BUILDING_FIT`, `stretch`, with
+   * a 1.2-world-unit height floor; `off` is the shipped size, kept for
+   * comparison. Presentation only: the sim's footprint and `blocked` tiles
+   * are untouched. The app sets it only from `&fitbuildings=<rule>`.
+   */
+  buildingFit?: BuildingFit;
+  /**
+   * Each unit type's bought kit tiers by track (`armour`, `sensors`,
+   * `firepower`), keyed by type id -- GH-238, kitted vehicles. A mesh
+   * vehicle's template keeps the `kit_*` parts its tiers own and merges them
+   * into the host geometry at load (`three/units/vehicle-kit.ts`, +0 draw
+   * calls); a type absent here, or at every tier 0, draws exactly as
+   * shipped.
+   *
+   * Type-wide and fixed for the mission (brigade D3): read once, when a
+   * template is built, so a garage visit mid-mission cannot change what is
+   * on the field. The app fills it from `upgradePrepass`, the same per-type
+   * tiers the sim's unit types were patched with. Three-only:
+   * `PixiRenderer` has no mesh path and ignores it, like `shellColors`.
+   */
+  unitKitTiers?: Readonly<Record<string, Readonly<Record<string, number>>>>;
 }
 
 /** One outlined objective zone: its rect in tiles and how it is going. */
@@ -353,12 +411,10 @@ export interface Renderer {
    * that distinguishes them, and invariant 4 permits exactly this shape:
    * events out, never the renderer inferring a sim conclusion from geometry.
    *
-   * OPTIONAL, unlike `onEvents`, and that is deliberate rather than lazy. A
-   * backend is free to have nothing that mission events could change -- Pixi
-   * draws no civilians at all (no mesh path, and `civilians` is absent from
-   * `SPRITE_MAP`), so an implementation there would be dead code in a file
-   * that is under a freeze. `main.ts` calls it as `?.()`, so the compiler,
-   * not a grep, keeps the app honest about that.
+   * OPTIONAL, unlike `onEvents`: it was made optional for the Pixi backend,
+   * which drew no civilians and was under a freeze. Pixi is retired (WP-A3.3)
+   * and `ThreeRenderer` implements it; making it required is a free tidy-up
+   * nobody has needed yet. `main.ts` calls it as `?.()`.
    */
   onMissionEvents?(events: readonly MissionEvent[]): void;
 
@@ -372,15 +428,11 @@ export interface Renderer {
    * three missions strands three WebGL contexts, and a browser hands out a
    * bounded number of them.
    *
-   * OPTIONAL for the same reason `onMissionEvents` is, and the precedent is
-   * deliberate: `ThreeRenderer` implements it, and PixiRenderer's file is
-   * under a freeze (CLAUDE.md, "renderer.ts must stay byte-identical to
-   * main"), so declaring it as required would either break the build or force
-   * an edit this task has no mandate for. `main.ts` calls it as `?.()`, so the
-   * compiler rather than a grep keeps the app honest -- and a Pixi battlefield
-   * therefore still leaks its context on a soft leave. Recorded rather than
-   * hidden; closing it means unfreezing that file, which is someone's
-   * deliberate call to make.
+   * OPTIONAL for the same historical reason as `onMissionEvents`: the frozen
+   * Pixi backend implemented nothing, and leaked its context on a soft leave
+   * (G0 #4, D-25). That backend is deleted (WP-A3.3), so the leak is closed by
+   * deletion; `ThreeRenderer` implements this and `main.ts` calls it as
+   * `?.()`.
    */
   dispose?(): void;
 
@@ -402,6 +454,11 @@ export interface Renderer {
   //     for internal use -- PixiRenderer does -- but the seam does not name it.
   worldToScreen(wx: number, wy: number): { x: number; y: number };
   screenToWorld(px: number, py: number): { x: number; y: number };
+  /** The standing structure whose drawn wall or roof this pixel shows, or -1.
+   *  `screenToWorld` answers where the pixel's ray meets the GROUND, which
+   *  for a building's upper wall is the hidden ground behind it (WP-P4,
+   *  PA-14); an order asks this first. Projection, so the renderer's. */
+  structureAtScreen(px: number, py: number): number;
 
   // --- queries
   pickUnit(wx: number, wy: number, radiusTiles?: number): number;
@@ -454,15 +511,45 @@ export interface Renderer {
    */
   captureGroundAlbedo?(sizePx: number): ImageData | null;
 
+  /**
+   * The world as the player sees it, for a feedback note's picture (GH-464):
+   * the live camera through the whole post chain -- fog, GTAO, tone map,
+   * SMAA, units and world overlays -- and none of the DOM HUD, which is not
+   * part of the scene. At most `maxWidth` pixels wide, keeping the view's
+   * aspect; rows BOTTOM-UP, as `captureGroundAlbedo`'s are (the app flips
+   * them with `flipRows`).
+   *
+   * Read from a render target, never the canvas: `preserveDrawingBuffer`
+   * stays off, so the drawing buffer reads back black (`three/capture-view.ts`).
+   * Null before the composer exists, after `dispose()`, or on a failed
+   * capture -- the note then goes without a picture. Optional: a backend
+   * with no post chain has nothing to offer here.
+   */
+  captureView?(maxWidth: number): ImageData | null;
+
+  /**
+   * Re-resolve every team colour mid-mission (VR-01, lead 8 Oct): the
+   * colour-vision setting changes the HUD at once through `theme.css`'s
+   * `data-cvd` blocks, and this is how the world follows it in the same
+   * instant. The two arguments are exactly the two `RendererOptions` fields a
+   * colour-vision variant decides -- `teamColors` and `resolveColor`, which
+   * the app builds from `paletteTeamColors(variant)` and
+   * `variantAwareResolver(variant)` -- so the app keeps owning the palette
+   * and the backend never learns what a variant is. A backend must update
+   * every material, uniform and instance colour that baked a team colour at
+   * construction; everything it draws per frame follows on the next frame.
+   */
+  setTeamColors(teamColors: [string, string, string], resolveColor: (paletteKey: string) => string): void;
+
   // --- world data pushed in
   setElevation(elevation: Uint8Array): void;
   setDecor(decor: Uint8Array): void;
   useEmitters(list: EmitterSpec[], resolve: (key: string) => string): void;
 
-  // --- art. Paths and ids only: what a sheet becomes -- textures, materials,
-  //     meshes -- is the backend's business, and the app never sees it.
-  loadSprites(unitTypeId: string, basePath: string, opts?: { turretPath?: string }): Promise<void>;
-  loadStructureSprite(structureId: string, basePath: string): Promise<void>;
+  // --- art. The sprite loaders (`loadSprites`, `loadStructureSprite`) were
+  //     here until WP-A3.3 retired the billboard path; every unit and
+  //     structure draws a mesh, loaded through the backend's own mesh
+  //     loaders, which `main.ts` reaches through the concrete class.
 
   // --- presentation state the app drives
   readonly camera: Camera;

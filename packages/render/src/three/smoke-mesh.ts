@@ -234,6 +234,7 @@ import { pushPolygon, hexToLinear } from './terrain/shared';
 import { tileGroundWorldY, type ElevationSource } from './ground-height';
 import { SOFT_PARTICLE_CORE } from './units/fx';
 import { SMOKE_RENDER_ORDER } from './units/render-order';
+import { paletteHex } from './palette-hex';
 
 // ---------------------------------------------------------------------------
 // Pure: no THREE.* below this line yet -- mirrors fog-mesh.ts's own split.
@@ -242,7 +243,7 @@ import { SMOKE_RENDER_ORDER } from './units/render-order';
 /** `gunmetal.0` (`data/palette.json`), exactly -- see this file's own top
  *  comment, "`SMOKE_COLOR`: moved onto the palette, not merely
  *  re-justified", for why this is no longer Pixi's own `#C9CBC4` literal. */
-export const SMOKE_COLOR = '#C3C7C4';
+export const SMOKE_COLOR = paletteHex('gunmetal.0');
 
 /** Alpha ceiling `smokeDensityAlpha` approaches as `d -> 255` -- see this
  *  file's own "Why 0.80, not 0.85" section for why this is fixed BELOW

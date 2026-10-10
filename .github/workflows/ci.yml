@@ -29,18 +29,15 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm validate:data
-      - run: pnpm validate:assets
-      # Same claim as tools/src/unit_icons.test.ts (every unit icon is pinned,
-      # by content hash, to the sprite frame it was cropped from), run here
-      # from Python rather than trusted to vitest alone: a sheet re-rendered
-      # without a matching `pnpm icons:units` afterward changes no TypeScript
-      # at all, so a gate that only ran on the node side would stay green.
-      # The two overlap, not duplicate: a sprite-sheet manifest that lists no
-      # files is a hull sheet `discover_sheets` finds but `process_sheet`
-      # returns nothing for, so `--check` silently skips it, while vitest's
-      # coverage test (every discovered hull sheet has a manifest entry) fails
-      # loudly on the same input. Neither is redundant with the other.
-      - run: python3 tools/crop_unit_icons.py --check
+      # `pnpm validate:assets` (the sprite-sheet gate) and `crop_unit_icons.py
+      # --check` (the cropped sprite icons) stood here. Both were retired with
+      # the sprite sheets (WP-A3.3): their directories are deleted, and a gate
+      # that walks nothing and prints PASS is the failure CLAUDE.md records
+      # for `groundTextureCheck`. The four art checks run on the meshes in
+      # `pnpm validate:meshes` below.
+      # GH-153: the Blender unit portraits' manifest (size + alpha extent of
+      # each team and lead-figure PNG) must match the PNGs it describes.
+      - run: python3 tools/portrait_manifest.py --check
       # Level load time, step 4: `art/meshes/` is the uncompressed source of
       # record and `assets/meshes/` is the Draco-compressed copy that SHIPS.
       # Every other mesh gate reads the source, so a shipped file that is
@@ -50,13 +47,11 @@ jobs:
       # fails naming the files, in both directions.
       - run: pnpm encode:meshes -- --check
       # Phase G (docs/superpowers/specs/2026-08-26-three-renderer-design.md):
-      # validate:assets never looks at art/meshes/ -- it walks PNGs, and a mesh
-      # produces none. tools/validate_mesh_assets.py renders every mesh headlessly
+      # tools/validate_mesh_assets.py renders every mesh headlessly
       # (tools/render_mesh_gate.py, inside this Blender) at the locked dimetric
-      # angle and runs the SAME palette/framing/fill/silhouette-IoU checks
-      # validate_assets.py already runs on sprites. A sibling script and gate step,
-      # not folded into validate:assets itself, so a contributor with no Blender
-      # installed can still run the fast, PNG-only sprite gate locally unblocked.
+      # angle and runs the palette/framing/fill/silhouette-IoU checks
+      # validate_assets.py defines -- the only art gate since the sprite
+      # sheets were retired (WP-A3.3).
       # Version pinned to match the Blender.app used for local dev (CLAUDE.md,
       # "Blender 5.2.0 LTS"), same reasoning render_rig.py's rig-lock comment
       # gives for every other CI-vs-local mismatch risk in this pipeline.
@@ -69,6 +64,13 @@ jobs:
           echo "/opt/blender" >> "$GITHUB_PATH"
       - run: pnpm validate:meshes
       - run: pnpm validate:ui
+      # Polish pass F, A11: the audio gate decodes every ambience bed (both
+      # encodings) and measures its loop length, channels, true peak,
+      # loudness as heard and seam, and re-measures the theme's true peak --
+      # all through ffmpeg/ffprobe, which ubuntu-latest does not ship. Without
+      # this step every one of those checks is a named skip on CI.
+      - name: Install ffmpeg (audio gate)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg
       - run: pnpm validate:audio
       - run: python tools/validate_balance.py --units data/units
       - run: python tools/validate_balance.py --units data/units --also docs/campaign/special_units/e5
@@ -93,7 +95,7 @@ jobs:
       # workflow -- it costs nothing to run on every push rather than being gated
       # behind a schedule or a label.
       - run: pnpm playtest
-      # Sim-side half of the three-vs-Pixi scaling claim (tools/src/perf/three-units.ts):
+      # The sim tick-cost gate (tools/src/perf/three-units.ts's Node-CLI half):
       # no browser/GPU involved, so it can run headless here exactly like `pnpm balance`
       # above it. Fails the build if sim.tick() cost regresses past a generous budget at
       # 65/150/300/400 units -- see that file's Node-CLI section for what this does and
@@ -255,6 +257,52 @@ jobs:
         with:
           name: visual-baseline-output
           path: visual-baseline-output
+          if-no-files-found: ignore
+          retention-days: 3
+
+  # GH-469. What one JS realm holds at the menu, the campaign board and the
+  # three heaviest missions after two minutes of sim time each, and whether
+  # leaving a mission (softly, through the router) gives it back
+  # (`tools/src/perf/memory.ts`; budgets and their readings in
+  # `memory-budgets.ts` and docs/PERFORMANCE.md, "Memory").
+  #
+  # Its OWN job rather than a step in `visual`, which it was first: on
+  # SwiftShader a mission boot is 60-80 s, two minutes of play ~75 s and the
+  # leave 50-70 s, so the walk measured 917 s as a step there -- on top of a
+  # job already 35-40 min long. Here it runs beside `visual` and adds nothing
+  # to the PR's wall clock; it shares that job's Playwright cache key.
+  #
+  # Exit 1 is OVER BUDGET (a ceiling or a leak check), 2 is the INSTRUMENT
+  # failing (a boot that never finished, an empty readback), 3 is "no budget
+  # for this capture environment" -- which fails here, deliberately: unlike
+  # the visual gate there is nothing to bless, a budget is a number in
+  # `memory-budgets.ts` measured on this runner type.
+  memory:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Install Playwright Chromium
+        run: pnpm --filter @lions/tools exec playwright install --with-deps chromium
+      - name: memory -- the walk, and the leave
+        run: pnpm perf:memory -- --gate --port=5179 --out=memory-output/memory.json
+      - name: Upload the readings
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: memory-output
+          path: memory-output
           if-no-files-found: ignore
           retention-days: 3
 

@@ -1,0 +1,22 @@
+{
+  "unit": "scout_shachaf",
+  "source": "assets/meshes/vehicles/scout_shachaf.glb",
+  "source_sha256": "50c6a7ba4f3b035a706797cd9d8cc96ec1420fd48eaf85db2819a52891e97289",
+  "yaw_deg": -125.0,
+  "elevation_deg": 18.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "width",
+    0.92
+  ],
+  "ndc_box": [
+    0.04,
+    0.96,
+    0.0679,
+    0.9321
+  ],
+  "materials": {
+    "baked": 2,
+    "flat": 2
+  }
+}

@@ -214,6 +214,13 @@ def _join_into(host, parts):
 def export():
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=SRC, import_scene_extras=True)
+    # The Lavi's upgrade kit (`kit_*`, contract v5): the command Lavi is a unit
+    # of its own and must not inherit every kit part of every tier.
+    kit = [o for o in bpy.data.objects if o.name.startswith("kit_")]
+    for o in kit:
+        bpy.data.objects.remove(o, do_unlink=True)
+    if kit:
+        log(f"dropped {len(kit)} imported kit_* object(s)")
     objs = {o.name: o for o in bpy.data.objects}
     for need in ("hull_hull", "hull_rubber", "turret_hull", "turret_metal", "turret_pivot"):
         if need not in objs:

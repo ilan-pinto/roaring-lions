@@ -49,6 +49,37 @@ import type { FlashLightSpec } from './flash-light';
 export const BLAST_EMITTER_ID = 'catastrophic_kill';
 /** The mortar/rocket landing emitter, scaled at the caller's own `impactPower`. */
 export const SHELL_IMPACT_EMITTER_ID = 'shell_impact';
+/** A building collapse (polish VR-22), scaled at the footprint's own power
+ *  (`explosionBurstPowerFromFootprint`). The top of the event ladder:
+ *  collapse > vehicle kill > shell landing > muzzle flash, for light, shake
+ *  and hit-stop alike -- `fx-ladder.test.ts` holds the order. */
+export const STRUCTURE_COLLAPSE_EMITTER_ID = 'structure_collapse';
+/** The brief burst a collapse throws THROUGH its own shroud (polish VR-22). */
+export const COLLAPSE_FLASH_EMITTER_ID = 'collapse_flash';
+
+/** How far outside the camera-facing corner, along each axis, the collapse's
+ *  light and flash stand -- off the pad, on the street the player can see. */
+export const COLLAPSE_FRONT_STANDOFF_TILES = 0.5;
+
+/**
+ * Where a collapse's light and flash go: at street level just outside the
+ * building's camera-facing corner, the `+X`/`+Z` one (`tools/building_facing.py`
+ * derives that half from `camera.ts`'s VIEW_DIRECTION; tile `x` is world X and
+ * tile `y` world Z). A tile spans `[x, x + 1)`, so the corner is
+ * `(maxX + 1, maxY + 1)`. Clamped inside the map, so an edge building's light
+ * still stands on ground. Returned in TILE coordinates, like every other
+ * blast position.
+ */
+export function collapseFrontPoint(
+  st: { readonly maxX: ArrayLike<number>; readonly maxY: ArrayLike<number> },
+  s: number,
+  width: number,
+  height: number
+): [number, number] {
+  const x = st.maxX[s] + 1 + COLLAPSE_FRONT_STANDOFF_TILES;
+  const z = st.maxY[s] + 1 + COLLAPSE_FRONT_STANDOFF_TILES;
+  return [Math.min(x, width - COLLAPSE_FRONT_STANDOFF_TILES), Math.min(z, height - COLLAPSE_FRONT_STANDOFF_TILES)];
+}
 
 /** `EmitterSpec.screen_shake`, camelCased and scaled -- never partially built. */
 export interface ScaledShake {

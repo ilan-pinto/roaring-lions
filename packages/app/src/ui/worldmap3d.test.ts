@@ -6,10 +6,8 @@ import worldJson from '../../../../data/campaign/world.json';
 import countriesJson from '../../../../data/campaign/countries.json';
 import { parseCountries, parseWorld } from '../campaign';
 import { t } from '../i18n/t';
-import { RENDERER_STORAGE_KEY } from '../renderer-choice';
 import { showCampaign } from './menu';
 import {
-  campaignBoard,
   worldMap3d,
   type MountWorldView,
   type MountedView,
@@ -118,10 +116,9 @@ const mountScreen = (
  * A real Storage API on `window`.
  *
  * This vitest jsdom configuration supplies `window.localStorage` as a bare
- * `{}` -- no `getItem`, no `setItem`, no `length`. Two things follow.
- * `showCampaign` must survive that (it does, see `readStoredRenderer` in
- * `renderer-choice.ts`), and a test that wants to steer the renderer choice has to
- * provide storage itself. Map-backed rather than a spy: the shape a browser
+ * `{}` -- no `getItem`, no `setItem`, no `length`. `showCampaign` must
+ * survive that, and a test that wants to plant a stale key has to provide
+ * storage itself. Map-backed rather than a spy: the shape a browser
  * really hands over, so nothing here passes against an API the app could
  * never meet.
  */
@@ -150,17 +147,6 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-describe('campaignBoard', () => {
-  // The whole reason the flat board stays. A Pixi player who got 'diorama'
-  // here gets a blank rectangle: that backend has no mesh path at all.
-  it('gives a Pixi player the flat board', () => {
-    expect(campaignBoard('pixi')).toBe('flat');
-  });
-  it('gives a three player the diorama', () => {
-    expect(campaignBoard('three')).toBe('diorama');
-  });
-});
-
 describe('the 3D board reads the ledger the same way the flat one does', () => {
   it('hands the view every region status', async () => {
     const s = mountScreen({});
@@ -174,6 +160,17 @@ describe('the 3D board reads the ledger the same way the flat one does', () => {
     expect([...s.view().clickable]).toEqual(['marj']);
   });
 
+  it('names the worst mission in the ledger line by its display name, never its id', async () => {
+    const s = mountScreen(
+      { 'roe.mission_ratings': { beit_sahwan_1_recon: 20, beit_sahwan_2_foothold: 60 } },
+      { missionOf: (id) => (id === 'beit_sahwan_1_recon' ? { objectives: [], name: 'First Eyes' } : undefined) }
+    );
+    await s.ready;
+    const line = s.el.querySelector('.rl-world__ledger')?.textContent ?? '';
+    expect(line).toContain('worst First Eyes (20)');
+    expect(line).not.toContain('beit_sahwan_1_recon');
+  });
+
   it('opens the next region once its gate is met', async () => {
     // Sur and naharin used to share one gate (beit_sahwan_3_clearance), so
     // clearing it opened both at once. They now gate on different missions --
@@ -185,6 +182,24 @@ describe('the 3D board reads the ledger the same way the flat one does', () => {
     await s.ready;
     expect(s.view().statuses.sur).toBe('live');
     expect([...s.view().clickable].sort()).toEqual(['marj', 'sur']);
+  });
+});
+
+describe('the end of the war', () => {
+  const all = world.regions.flatMap((r) => r.towns.flatMap((tw) => tw.missions));
+  it('rests on the campaign-complete line once nothing is open, and returns to it', async () => {
+    const s = mountScreen({ 'campaign.completed_missions': [...all] });
+    await s.ready;
+    expect(say(s.el)).toBe(t('world.complete'));
+    expect(say(s.el)).not.toBe(HINT);
+    s.view().pick(null);
+    expect(say(s.el)).toBe(t('world.complete'));
+  });
+
+  it('keeps the click hint while a single mission is still open', async () => {
+    const s = mountScreen({ 'campaign.completed_missions': all.slice(0, -1) });
+    await s.ready;
+    expect(say(s.el)).toBe(HINT);
   });
 });
 
@@ -309,6 +324,29 @@ describe('the town pins', () => {
     expect(before.style.left).toBe('321.4px');
     expect(before.style.top).toBe('88.6px');
     expect((s.el.querySelector('.rl-world__bearing') as HTMLElement).textContent).toBe('047°');
+  });
+
+  // PA-20: a label is drawn beside its pin, not on it, so two pins that are
+  // closer than that offset plus a label's width collide even though the pin
+  // POINTS are apart. jsdom measures every label 0 wide, which is the point:
+  // all that is left is the 14 px offset and the 8 px pad, 22 px, and a pin
+  // 10 px along the same row is inside it. Falsified by hand: building the box
+  // from the pin point and the label width alone (`w: size.w`) reads 0 here.
+  it('steps a label down when a neighbour pin stands inside where it is drawn (PA-20)', async () => {
+    const s = mountScreen({});
+    await s.ready;
+    s.view().frame(
+      [
+        { id: 'tel_marum', x: 100, y: 88 },
+        { id: 'qarn_hadid', x: 110, y: 89 },
+        { id: 'umm_zeitoun', x: 600, y: 89 },
+      ],
+      0
+    );
+    const dy = (id: string): string => (s.el.querySelector(`[data-town="${id}"]`) as HTMLElement).style.getPropertyValue('--dy');
+    expect(dy('tel_marum')).toBe('0px');
+    expect(dy('qarn_hadid')).not.toBe('0px');
+    expect(dy('umm_zeitoun')).toBe('0px');
   });
 
   it('links a playable town and labels its progress', async () => {
@@ -501,7 +539,7 @@ describe('the ground previews what a click there would say', () => {
     await s.ready;
     s.view().hovered = 'nowhere';
     s.view().frame([], 0);
-    expect(say(s.el)).toBe('nowhere — no campaign here');
+    expect(say(s.el)).toBe('No campaign here yet');
     expect(tone(s.el)).toBe('info');
   });
 });
@@ -630,6 +668,11 @@ describe('the rotate controls', () => {
 });
 
 describe('nobody gets a blank screen', () => {
+  // Every fallback here is announced by `worldmap3d.ts` with one
+  // `campaign board: ...` console.warn: expected on these paths, so it is
+  // silenced rather than printed into CI logs.
+  beforeEach(() => void vi.spyOn(console, 'warn').mockImplementation(() => {}));
+  afterEach(() => vi.mocked(console.warn).mockRestore());
   it('falls back to the flat board where there is no WebGL2', async () => {
     const s = mountScreen({}, { webgl: () => false });
     expect(await s.ready).toBe('flat');
@@ -640,6 +683,14 @@ describe('nobody gets a blank screen', () => {
 
   it('falls back when the world mesh cannot be drawn', async () => {
     const s = mountScreen({}, { mount: () => Promise.reject(new Error('GLTFLoader: 404')) });
+    expect(await s.ready).toBe('flat');
+    expect(s.el.querySelector('.rl-world__flatstub')).not.toBe(null);
+  });
+
+  // The third named cause: the GLB parsed, but `world-scene.ts` found no node
+  // the campaign contract requires and threw by name.
+  it('falls back when the scene graph fails the campaign contract', async () => {
+    const s = mountScreen({}, { mount: () => Promise.reject(new Error('world scene: no node named region_marj')) });
     expect(await s.ready).toBe('flat');
     expect(s.el.querySelector('.rl-world__flatstub')).not.toBe(null);
   });
@@ -660,34 +711,48 @@ describe('nobody gets a blank screen', () => {
   });
 });
 
-describe('showCampaign picks the board from the renderer the player chose', () => {
-  const mount = (): HTMLElement => {
+// The flat board is the FALLBACK since the Pixi backend was retired (WP-A3.3),
+// never a player's choice: the diorama by default, the flat board when the
+// world has no diorama to draw. The other three causes (no WebGL2, a GLB that
+// will not load, a scene that fails the contract) are `worldMap3d`'s own and
+// are pinned in 'nobody gets a blank screen' above.
+describe('showCampaign picks the board', () => {
+  // Every fallback here is announced by `worldmap3d.ts` with one
+  // `campaign board: ...` console.warn: expected on these paths, so it is
+  // silenced rather than printed into CI logs.
+  beforeEach(() => void vi.spyOn(console, 'warn').mockImplementation(() => {}));
+  afterEach(() => vi.mocked(console.warn).mockRestore());
+  const mount = (w = world): HTMLElement => {
     const stage = document.createElement('div');
-    showCampaign(stage, { base: '/', world, countries, ledger: {} });
+    showCampaign(stage, { base: '/', world: w, countries, ledger: {} });
     document.body.appendChild(stage);
     return stage;
   };
+  const noDiorama = { ...world, id: 'no_such_world' };
 
-  it('draws the flat board on Pixi', () => {
-    window.localStorage.setItem(RENDERER_STORAGE_KEY, 'pixi');
-    const stage = mount();
-    expect(stage.querySelector('.rl-world--3d')).toBe(null);
-    expect(stage.querySelector('.rl-world__board')).not.toBe(null);
-  });
-
-  it('draws the diorama on three', () => {
-    window.localStorage.setItem(RENDERER_STORAGE_KEY, 'three');
+  it('draws the diorama by default', () => {
     const stage = mount();
     expect(stage.querySelector('.rl-world--3d')).not.toBe(null);
   });
 
+  it('ignores a remembered ?renderer=pixi -- that choice no longer exists', () => {
+    window.localStorage.setItem('lions.renderer', 'pixi');
+    const stage = mount();
+    expect(stage.querySelector('.rl-world--3d')).not.toBe(null);
+  });
+
+  it('draws the flat board for a world with no diorama GLB', () => {
+    const stage = mount(noDiorama);
+    expect(stage.querySelector('.rl-world--3d')).toBe(null);
+    expect(stage.querySelector('.rl-world__board')).not.toBe(null);
+  });
+
   it('keeps the way back to the menu on both', () => {
-    for (const choice of ['pixi', 'three'] as const) {
-      window.localStorage.setItem(RENDERER_STORAGE_KEY, choice);
-      const stage = mount();
+    for (const [label, w] of [['diorama', world], ['flat', noDiorama]] as const) {
+      const stage = mount(w);
       const back = stage.querySelector('[data-kind="back"]') as HTMLAnchorElement;
-      expect(back.getAttribute('href'), choice).toBe('/');
-      expect(stage.querySelector('[data-town="beit_sahwan"]'), choice).not.toBe(null);
+      expect(back.getAttribute('href'), label).toBe('/');
+      expect(stage.querySelector('[data-town="beit_sahwan"]'), label).not.toBe(null);
     }
   });
 });

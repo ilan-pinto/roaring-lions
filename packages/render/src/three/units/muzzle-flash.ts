@@ -80,8 +80,9 @@
  *
  * ## What this replaces, and what it does not
  *
- * `fire_apfsds.json` has five particle layers, plus `light` and
- * `screen_shake`. Both `soft_dot` layers -- the tight, short-lived,
+ * `fire_apfsds.json` has five particle layers, plus `light` (its authored
+ * `screen_shake` was dead data and is deleted: firing never shakes the screen,
+ * polish VR-23). Both `soft_dot` layers -- the tight, short-lived,
  * single-colour point-blank core (`cone_deg: 14`, `lifetime_ms: [40, 70]`,
  * `color_over_life: ["vfx.white_hot"]`) and the wider, faster three-colour
  * spray around it (`cone_deg: 30`, `speed_tiles_s: [5.0, 10.0]`,
@@ -99,9 +100,8 @@
  * doing work particles are good at -- inherently soft, translucent, and
  * randomly drifting (`alpha_over_life` fading toward 0), exactly the case
  * `units/fx.ts`'s own particle doc comment argues for. `light` (the pooled
- * `THREE.PointLight` `flash-light.ts` spawns for the same shot) and
- * `screen_shake` are unrelated to either particles or this mesh and are
- * untouched.
+ * `THREE.PointLight` `flash-light.ts` spawns for the same shot) is unrelated
+ * to either particles or this mesh and is untouched by it.
  *
  * ## Orientation, capacity, animation -- see this file's own exported
  * symbols for the numbers and their citations: `MUZZLE_FLASH_CAPACITY`,
@@ -377,9 +377,8 @@ export class MuzzleFlashManager {
 
   /** True once `load()` has resolved -- `ThreeRenderer.onFire` reads this to
    *  decide whether a `mesh_flash`-marked particle layer is superseded yet
-   *  (`&nomesh`, under which `main.ts` never calls `load()` at all, or the
-   *  GLB still loading on the default mesh path, both fall back to the
-   *  authored particle exactly as before this feature existed). */
+   *  (while the GLB is still loading, or if it failed, the authored particle
+   *  draws exactly as before this feature existed). */
   get ready(): boolean {
     return this.meshes !== null;
   }

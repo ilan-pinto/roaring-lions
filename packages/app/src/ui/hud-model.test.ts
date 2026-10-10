@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { TICKS_PER_SECOND } from '@lions/sim';
 import {
   beatDwellMs,
+  clocklessObjectives,
   clockText,
   countSuppressed,
   holdClock,
@@ -17,7 +18,10 @@ import {
   stepBeat,
   stripObjectives,
   textToneClass,
+  withoutHiddenClocks,
   worstPenalties,
+  groupedPenalties,
+  noShotReason,
   type MissionView,
   type ObjectiveView,
 } from './hud-model';
@@ -266,17 +270,17 @@ describe('worstPenalties', () => {
         ['cover', 0.4],
         ['target moving', 0.9],
       ])
-    ).toEqual(['cover 40%', 'range 81%']);
+    ).toEqual(['cover −60%', 'range −19%']);
   });
 
-  it('drops a factor that rounds to 100% — a row saying a penalty costs nothing is noise', () => {
+  it('drops a factor that rounds to no penalty — a row saying a penalty costs nothing is noise', () => {
     expect(
       worstPenalties([
         ['range', 0.996],
         ['cover', 1],
         ['target moving', 0.9],
       ])
-    ).toEqual(['target moving 90%']);
+    ).toEqual(['target moving −10%']);
   });
 
   it('is empty when nothing is degrading the shot', () => {
@@ -306,5 +310,81 @@ describe('beatDwellMs', () => {
 
   it('floors at six seconds, so a one-word beat is still readable', () => {
     expect(beatDwellMs('Go.')).toBe(6000);
+  });
+});
+
+describe('withoutHiddenClocks (GH-345 clock: false)', () => {
+  const objs = [
+    { id: 'survive_relief', text: 'Hold', primary: true, status: 'active', type: 'survive_until', ticksLeft: 6000 },
+    { id: 'evac', text: 'Evacuate', primary: true, status: 'active', type: 'evacuate_before', ticksLeft: 5400 },
+  ];
+  it('drops only the clockless objective countdown, so the strip shows the one that can fail', () => {
+    const out = withoutHiddenClocks(objs, clocklessObjectives([{ id: 'survive_relief', clock: false }, { id: 'evac' }]));
+    expect(out[0].ticksLeft).toBeUndefined();
+    expect(out[1].ticksLeft).toBe(5400);
+    expect(holdClock({ name: 'x', result: 'ongoing', objectives: out })?.id).toBe('evac');
+  });
+  it('gives the clock back once no other countdown is running (WP-P3, PA-05)', () => {
+    const later: { id: string; text: string; primary: boolean; status: string; type: string; ticksLeft?: number }[] = [
+      objs[0],
+      { id: 'evac', text: 'Evacuate', primary: true, status: 'complete', type: 'evacuate_before' },
+    ];
+    const out = withoutHiddenClocks(later, clocklessObjectives([{ id: 'survive_relief', clock: false }, { id: 'evac' }]));
+    expect(out[0].ticksLeft).toBe(6000);
+    expect(holdClock({ name: 'x', result: 'ongoing', objectives: out })?.id).toBe('survive_relief');
+  });
+  it('changes nothing for a mission that authors no clock: false', () => {
+    expect(withoutHiddenClocks(objs, clocklessObjectives(undefined))).toEqual(objs);
+  });
+});
+
+describe('groupedPenalties (pass C2/C4, D4, PA-15)', () => {
+  const words = { them: 'them', us: 'us' } as const;
+  it('names whose each of the two worst factors is, the target’s first', () => {
+    expect(
+      groupedPenalties(
+        [
+          ['cover', 0.09, 'them'],
+          ['range', 1, 'them'],
+          ['shaken', 0.8, 'us'],
+        ],
+        words
+      )
+    ).toEqual(['them cover −91%', 'us shaken −20%']);
+  });
+  it('drops a group with nothing in the worst two', () => {
+    expect(
+      groupedPenalties(
+        [
+          ['cover', 0.5, 'them'],
+          ['moving', 0.6, 'them'],
+          ['shaken', 0.9, 'us'],
+        ],
+        words
+      )
+    ).toEqual(['them cover −50% · moving −40%']);
+  });
+});
+
+describe('noShotReason (pass C2/C4, D4)', () => {
+  const rifle = { range: 8, minRange: 0 };
+  const mortar = { range: 20, minRange: 3 };
+  it('says gun out, under cover, out of range, too close or no sight -- in projectHit’s order', () => {
+    expect(noShotReason([{ gunOut: true, distTiles: 2, weapons: [rifle] }], true)).toBe('gunOut');
+    expect(noShotReason([{ gunOut: false, distTiles: 2, weapons: [rifle] }], true)).toBe('contained');
+    expect(noShotReason([{ gunOut: false, distTiles: 11, weapons: [rifle] }], false)).toBe('outOfRange');
+    expect(noShotReason([{ gunOut: false, distTiles: 2, weapons: [mortar] }], false)).toBe('tooClose');
+    expect(noShotReason([{ gunOut: false, distTiles: 6, weapons: [rifle] }], false)).toBe('noSight');
+  });
+  it('is mixed when the selection does not agree', () => {
+    expect(
+      noShotReason(
+        [
+          { gunOut: false, distTiles: 11, weapons: [rifle] },
+          { gunOut: false, distTiles: 6, weapons: [rifle] },
+        ],
+        false
+      )
+    ).toBe('mixed');
   });
 });

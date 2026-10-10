@@ -1,0 +1,23 @@
+{
+  "unit": "ifv_namer",
+  "variant": "team",
+  "source": "assets/meshes/vehicles/ifv_namer.glb",
+  "source_sha256": "a585222da0cae93fcfc24f49e5311398ec2a7295392ef5a8e39151c4873a69e9",
+  "yaw_deg": -125.0,
+  "elevation_deg": 18.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "width",
+    0.92
+  ],
+  "ndc_box": [
+    0.04,
+    0.96,
+    0.1713,
+    0.8287
+  ],
+  "materials": {
+    "baked": 2,
+    "flat": 2
+  }
+}

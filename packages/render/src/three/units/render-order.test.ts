@@ -33,10 +33,15 @@ import {
   STRUCTURE_RENDER_ORDER,
   TRAIL_RENDER_ORDER,
   SILHOUETTE_RENDER_ORDER,
+  COLLAPSE_FLASH_RENDER_ORDER,
   WORLD_RENDER_ORDER,
   DECAL_PERSISTENT_RENDER_ORDER,
   DECAL_FADING_RENDER_ORDER,
   SELECTION_RING_RENDER_ORDER,
+  TUNNEL_XRAY_RENDER_ORDER,
+  TUNNEL_XRAY_FIGURE_RENDER_ORDER,
+  TUNNEL_XRAY_BEAM_RENDER_ORDER,
+  ZONE_BAND_RENDER_ORDER,
 } from './render-order';
 
 describe('render order bands', () => {
@@ -49,9 +54,17 @@ describe('render order bands', () => {
     expect(FX_RENDER_ORDER_ABOVE).toBeLessThan(OVERLAY_RENDER_ORDER);
   });
 
-  it('the badge numeral sits strictly between the turret and FX bands -- Pixi paints it above every hull/turret sprite but below FX and unitsG', () => {
-    expect(BADGE_NUMERAL_RENDER_ORDER).toBeGreaterThan(TURRET_RENDER_ORDER);
-    expect(BADGE_NUMERAL_RENDER_ORDER).toBeLessThan(FX_RENDER_ORDER);
+  // WP-P4 (PA-18). This band sat at 1.5, between turret and FX, to copy a
+  // Pixi container order -- which put the numeral BELOW the overlay tier its
+  // own badge disc draws in. Both are depthTest:false, so the 95%-opaque disc
+  // painted over the digit on every grouped unit, and the badge read as a
+  // blank lime blob (audit shots-07, shots-09). Pixi is deleted (WP-A3.3);
+  // the numeral and the chevron are now what the table always said they had
+  // to be: above the vertex-coloured overlay tier, below smoke.
+  it('the badge numeral and chevron draw ABOVE the overlay tier their disc draws in, and below smoke', () => {
+    expect(BADGE_NUMERAL_RENDER_ORDER).toBeGreaterThan(OVERLAY_RENDER_ORDER);
+    expect(BADGE_NUMERAL_RENDER_ORDER).toBeLessThan(SMOKE_RENDER_ORDER);
+    expect(BADGE_NUMERAL_RENDER_ORDER).toBeGreaterThan(FX_RENDER_ORDER_ABOVE_ADDITIVE);
   });
 
   it('the occlusion silhouette sits above the overlay and smoke tiers', () => {
@@ -103,6 +116,11 @@ describe('render order bands', () => {
     // and out of the turret band.
     expect(TRAIL_RENDER_ORDER).toBe(HULL_RENDER_ORDER);
     expect(TRAIL_RENDER_ORDER).toBeLessThan(TURRET_RENDER_ORDER);
+  });
+
+  it('the collapse flash draws over the collapse shroud (smoke band) and under the silhouette (VR-22)', () => {
+    expect(COLLAPSE_FLASH_RENDER_ORDER).toBeGreaterThan(SMOKE_RENDER_ORDER);
+    expect(COLLAPSE_FLASH_RENDER_ORDER).toBeLessThan(SILHOUETTE_RENDER_ORDER);
   });
 
   it('smoke sits strictly above the overlay tier -- it must paint over HP bars/rings/markers', () => {
@@ -163,5 +181,22 @@ describe('render order bands', () => {
     // unit's body occludes the ring's inside -- the "under the feet" read.
     expect(DECAL_FADING_RENDER_ORDER).toBeLessThan(SELECTION_RING_RENDER_ORDER);
     expect(SELECTION_RING_RENDER_ORDER).toBeLessThan(TURRET_RENDER_ORDER);
+  });
+
+  it('the tunnel x-ray draws over the trail and decals, its figures over its bore, and all of it under the selection ring (GH-471)', () => {
+    expect(TRAIL_RENDER_ORDER).toBeLessThan(TUNNEL_XRAY_RENDER_ORDER);
+    expect(DECAL_FADING_RENDER_ORDER).toBeLessThan(TUNNEL_XRAY_RENDER_ORDER);
+    expect(TUNNEL_XRAY_RENDER_ORDER).toBeLessThan(TUNNEL_XRAY_FIGURE_RENDER_ORDER);
+    expect(TUNNEL_XRAY_FIGURE_RENDER_ORDER).toBeLessThan(TUNNEL_XRAY_BEAM_RENDER_ORDER);
+    expect(TUNNEL_XRAY_BEAM_RENDER_ORDER).toBeLessThan(SELECTION_RING_RENDER_ORDER);
+  });
+
+  // #470: the objective zone's band is ground, not an overlay. It replaced a
+  // fill in OVERLAY_RENDER_ORDER that painted over every roof and hull.
+  it('the zone band is a ground band: the fading-decal alias, under the selection ring and every unit and overlay tier', () => {
+    expect(ZONE_BAND_RENDER_ORDER).toBe(DECAL_FADING_RENDER_ORDER);
+    expect(ZONE_BAND_RENDER_ORDER).toBeLessThan(SELECTION_RING_RENDER_ORDER);
+    expect(ZONE_BAND_RENDER_ORDER).toBeLessThan(TURRET_RENDER_ORDER);
+    expect(ZONE_BAND_RENDER_ORDER).toBeLessThan(OVERLAY_RENDER_ORDER);
   });
 });

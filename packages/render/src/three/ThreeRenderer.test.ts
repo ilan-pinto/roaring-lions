@@ -316,25 +316,11 @@ describe('ThreeRenderer.dispose releases the WebGL context', () => {
   });
 });
 
-describe('ThreeRenderer.onEvents removed', () => {
-  it('never enters the billboard death-fade queue for a "removed" entity -- only "destroyed" does', () => {
-    // The billboard path's whole death sequence (`stepDeaths`, `addWreck`)
-    // is driven exclusively by `this.dying`, which `onEvents` populates from
-    // exactly one SimEvent kind: `destroyed`. `Sim.removeFromPlay` (GDD §11,
-    // a mission `remove` trigger -- the enemy's act, never a death) sets
-    // `alive` the same way `destroy()` does but never emits `destroyed`
-    // (`removeFromPlay`'s own doc comment), so a removed entity's normal
-    // per-tick frame loop (`updateUnits`'s own `if (st.alive[i] === 0)
-    // continue`) simply stops drawing it -- no fork needed on this path at
-    // all. This is a negative assertion on the exact mechanism, not a full
-    // `updateUnits` rig (which needs a loaded sheet/atlas this file does not
-    // otherwise build): no entity need ever be spawned for it.
-    const renderer = new ThreeRenderer(makeSim(), makeOpts());
-    const priv = renderer as unknown as { dying: unknown[] };
-    renderer.onEvents([{ kind: 'removed', tick: 0, entity: 0, side: 0 }]);
-    expect(priv.dying).toHaveLength(0);
-  });
-});
+// `ThreeRenderer.onEvents removed` lived here: a negative assertion that a
+// `removed` entity never entered the BILLBOARD death-fade queue (`dying`).
+// That queue went with the billboard path (WP-A3.3). The mesh paths' own
+// abduction forks are pinned in `ThreeRenderer.vehicle-mesh-death.test.ts`
+// ("prunes a REMOVED vehicle immediately") and the mesh-death suite.
 
 describe('the chevron fallback colour', () => {
   // `makeOpts()` supplies no `resolveColor`, which is the one caller shape that
@@ -390,6 +376,40 @@ describe('time of day (ground plan 2, Task 8)', () => {
       r.dispose();
     }
     day.dispose();
+  });
+});
+
+// PA-24: a mission's optional light override lifts the fill (hemisphere)
+// and softens the sun's shadow; nothing else about the preset moves, and a
+// renderer handed none is lit exactly as before.
+describe('mission light override (PA-24)', () => {
+  type Lit = {
+    sceneLights: { sun: THREE.DirectionalLight; hemisphere: THREE.HemisphereLight };
+    resolvedLights: { hemiIntensity: number; sunIntensity: number };
+  };
+  const lit = (r: ThreeRenderer): Lit => r as unknown as Lit;
+
+  it('dawn with no override keeps the preset fill and a full-strength shadow', () => {
+    const r = new ThreeRenderer(makeSim(), { ...makeOpts(), timeOfDay: 'dawn' });
+    expect(lit(r).sceneLights.hemisphere.intensity).toBe(0.75);
+    expect(lit(r).sceneLights.sun.shadow.intensity).toBe(1);
+    r.dispose();
+  });
+
+  it('applies fill and shadow, and feeds the new fill to the haze', () => {
+    const r = new ThreeRenderer(makeSim(), { ...makeOpts(), timeOfDay: 'dawn', lightOverride: { fill: 0.9, shadow: 0.7 } });
+    expect(lit(r).sceneLights.hemisphere.intensity).toBe(0.9);
+    expect(lit(r).resolvedLights.hemiIntensity).toBe(0.9);
+    expect(lit(r).sceneLights.sun.shadow.intensity).toBe(0.7);
+    expect(lit(r).sceneLights.sun.intensity).toBe(2.0);
+    r.dispose();
+  });
+
+  it('a partial override moves only what it names', () => {
+    const r = new ThreeRenderer(makeSim(), { ...makeOpts(), timeOfDay: 'dawn', lightOverride: { shadow: 0.5 } });
+    expect(lit(r).sceneLights.hemisphere.intensity).toBe(0.75);
+    expect(lit(r).sceneLights.sun.shadow.intensity).toBe(0.5);
+    r.dispose();
   });
 });
 

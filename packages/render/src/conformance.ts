@@ -1,22 +1,18 @@
 /**
- * The projection contract, independent of which renderer implements it.
+ * The projection contract, independent of which code implements it.
  *
- * `Renderer.worldToScreen`/`screenToWorld` (`api.ts`) are one seam with two
- * implementations: `project.ts`'s flat 2D formulas for Pixi, and
- * `three/camera.ts`'s `OrthographicCamera` for three. Both must agree
+ * `Renderer.worldToScreen`/`screenToWorld` (`api.ts`) are answered by
+ * `three/camera.ts`'s `OrthographicCamera`; `project.ts` keeps the flat 2D
+ * formulas that camera, picking and layout still read. Both must agree
  * numerically -- that is what `camera.test.ts`'s "agrees with..." tests pin.
  * But numeric agreement between two implementations does not prove either one
- * is *right*: it only proves they have not drifted apart. If both made the
- * same mistake, agreement would stay green.
+ * is *right*: if both made the same mistake, agreement would stay green.
  *
  * This file is the other half: six properties any correct dimetric
  * projection must satisfy, asserted independently against each
- * implementation via `runProjectionConformance`. Written against only one
- * implementation this would be indistinguishable from a implementation test;
- * run against both, it is what stops a second backend from silently
- * satisfying "agrees with the first one" while both are wrong, and what
- * would catch a *first* implementation regressing even if a second backend
- * never existed.
+ * implementation via `runProjectionConformance`. (The flat formulas were
+ * Pixi's own projection until that backend was retired, WP-A3.3; they stay
+ * under test because three still reads them.)
  */
 import { describe, it, expect } from 'vitest';
 import { TILE_W, TILE_H, type Camera, type Viewport } from './project';

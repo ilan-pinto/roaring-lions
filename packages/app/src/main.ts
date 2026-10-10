@@ -6,8 +6,11 @@
 
 import { objectiveZonesFor } from './objective-zones';
 import { activeRefuge, evacuationTargets, refugePoint, withEvacuationProgress } from './evacuation';
+import { unitsJustOutside, withOutsideCounts } from './hold-outside';
+import { deadlineWarningLine, deadlineWarnings, failureReason } from './ui/mission-failure';
 import { nameKind, type NamesJson } from './names';
 import { applyRosterCarryover } from './roster-carryover';
+import { logDestroyed, logMissionEvent, newMissionLog, type MissionLog } from './mission-log';
 import { lostRecordFor, predecessorOf } from './roster-lost';
 import {
   Sim,
@@ -26,14 +29,10 @@ import {
   type MissionEvent,
   type MissionJson,
   type TunnelRouteJson,
-  type UnlockGate,
 } from '@lions/sim';
-// PixiRenderer is deliberately NOT imported here (see the dynamic import
-// below, and `@lions/render/pixi`'s own comment): a static import of it,
-// even alongside pixi-free names like DebugOverlay/TERRAIN_DECOR below,
-// pulls pixi.js into this file's module graph and back into the main chunk
-// for every player -- the same shape ThreeRenderer's own static-import ban
-// (eslint, `@lions/render/three`) already guards against.
+// ThreeRenderer is deliberately NOT imported here: it arrives by dynamic
+// import below, and eslint bans a static import of `@lions/render/three` --
+// the barrel imported here is three-free.
 import {
   DebugOverlay,
   BattleAudio,
@@ -60,41 +59,91 @@ import {
   audioManifest,
   vfxEmitters,
   menuDiorama,
+  structures as structureCatalogue,
   type KitLevel,
   type MapJson,
   type MissionLocaleOverlay,
   type UpgradableUnit,
+  firstUseHints,
 } from '@lions/data';
 import './ui/theme.css';
 import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type Tone } from './ui/hud';
 import { hintFor, loadSeen, markSeen } from './ui/hint-model';
-import { portraitUrl, unitIcon, unitPlate, type SheetManifest } from './ui/portrait';
-import { Minimap, MINIMAP_SIZE, flipRows, objectivePoint } from './ui/minimap';
-import { alertsForTick, initAlertState, type AlertWorld } from './ui/alerts';
+import { createShownTimer, loadHintsSeen, markHintSeen, owedRule, type HintContext } from './ui/hint-rules';
+import { portraitIds, unitIcon, unitPlate } from './ui/portrait';
+import { trackCloseup } from './ui/garage-closeup';
+import { Minimap, MINIMAP_SIZE, flipRows } from './ui/minimap';
+import { alertsForTick, initAlertState, missionEventTier, nextJump, type Alert, type AlertState, type JumpTarget } from './ui/alerts';
+import { sandboxAlertsForTick } from './ui/sandbox-feed';
+import { PinnedSince } from './ui/pinned-since';
+import { alertWorldFor } from './ui/alert-world';
+import { placeOnScreen } from './ui/alert-place';
+import { ALERT_CUE, CRITICAL_CUES, OUTCOME_CUE, tickCue } from './ui/cues';
+import { ambienceBedToPlay } from './ambience';
+import { installConfirmCue } from './ui/confirm-cue';
 import { CivFlightWatch, type CivObservation } from './ui/civ-flight';
 import { refugeJump, sayFlight } from './ui/refuge-ping';
 import { INITIAL_PINNED_NOTE, pinnedOrderNote } from './ui/pinned-order';
-import { isPinned, wholeOrderPinned } from './ui/pinned';
-import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
+import { isPinned } from './ui/pinned';
+import { showMenu, showCampaign, showSandbox } from './ui/menu';
 import { showBrigade, type BrigadeUnit, type GarageState } from './ui/brigade';
+import { accountView } from './account-view';
+import { kdfUnlockGate } from './kdf-gate';
+import { coinTiers, grantTestCoins, seedTestCoins, testCoinsParam } from './roar-test';
+import { buyWithTestCoins, type CoinHalf } from './ui/stores-model';
 import { CUE_SET } from './ui/garage-model';
 import { upgradePrepass } from './upgrade-prepass';
-import { showDebrief, type DebriefOptions } from './ui/debrief';
+import { clock as missionClock, showDebrief, type DebriefOptions, type ReportSpeaker } from './ui/debrief';
+import { campaignComplete, closingExchange } from './campaign-close';
+import { feedbackDialog } from './ui/feedback-dialog';
+import { ratingPrompt, type RatingPrompt } from './ui/feedback-prompt';
+import { browserFeedbackSession, type FeedbackSession, type SessionNote } from './feedback/session';
+import { collectContext, type ContextInput } from './feedback/context';
+import { installErrorRing, recentErrors } from './feedback/errors';
+import { isClosed as feedbackClosed } from './feedback/gate';
+import { gpuName } from './feedback/gpu';
+import { takePicture } from './feedback/picture';
+import { answered as promptAnswered, asked as promptAsked, ignored as promptIgnored, readPromptState, shouldAsk, writePromptState } from './feedback/prompt-policy';
+import { ReplayRecorder } from './feedback/replay';
+import { afterAction, promotionsBetween } from './ui/after-action';
+import { livingHostiles } from './ui/withdrew';
 import { outcomeMoment, outcomeMomentOptions } from './ui/outcome-moment';
+import { beatCamera, beatFocus, beatPose, beatThenReport, hideForBeat, type BeatCamera } from './ui/outcome-beat';
 import { showSettings, type SettingsDeps } from './ui/settings-panel';
 import { keymapRows } from './ui/settings-keymap';
-import { EDGE_MARGIN_PX, clampZoom, edgeVector, panDelta, zoomAnchor } from './ui/camera-input';
+import {
+  EDGE_MARGIN_PX,
+  clampCamera,
+  clampZoom,
+  createPanDrag,
+  edgeVector,
+  isPanDragButton,
+  panning,
+  planZoom,
+  stepPan,
+  stepZoomGlide,
+  wheelZoomFactor,
+  zoomAnchor,
+  type PanVelocity,
+  type ZoomGlide,
+} from './ui/camera-input';
 import { closeOpenDialog, confirmDialog, isDialogOpen } from './ui/confirm';
+import { installEscapeBack } from './shell/escape-back';
+import { leaveCopy, leaveHref } from './ui/leave-copy';
 import { closeTip } from './ui/tooltip';
 import { objectiveStatusShout } from './ui/objective-status';
 import { pauseMenu } from './ui/pause';
 import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
-import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace } from './input/keymap';
-import { buyUnlock, buyUpgrade, payMission } from './brigade-account';
+import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace } from './input/keymap';
+import { buyUnlock, buyUpgrade } from './brigade-account';
+import { payVictory } from './campaign-pay';
 import { tierLine } from './ui/grade-copy';
-import { speakerPlate, speakerPortrait } from './ui/hud-model';
-import { briefingBeats, broughtFor, showLoading } from './ui/loading';
+import { clocklessObjectives, speakerPlate, speakerPortrait, withoutHiddenClocks } from './ui/hud-model';
+import { briefingBeats, broughtFor, showDownloadProgress, showLoading, type FieldOrder } from './ui/loading';
+import { briefingGlance, objectiveClock } from './ui/briefing-glance';
+import { groundMarks } from './ui/ground-marks';
+import { briefingSections, pickBriefingImage } from './ui/briefing-sections';
 import { deployRosterView } from './ui/deploy-roster';
 import { deployedLedger, type DeploySelection } from './ui/deploy-select';
 import { startMission } from './mission-start';
@@ -107,32 +156,38 @@ import { showKeysOverlay } from './ui/keys-overlay';
 import { groupBar, groupChips } from './ui/group-bar';
 import { isIdle, nextIdle, type IdleFacts } from './ui/idle';
 import { escapeHtml } from './ui/escape-html';
-import { symbolLabel } from './ui/symbol';
-import { alertNotice, evacuatedNotice, removedNotice, triggerLabel } from './ui/mission-notice';
+import { watchSmallScreen } from './ui/small-screen';
+import { bootFailureCard, bootFailureKind, guardBoot, mountErrorCard, mountInterrupted, watchContextLoss } from './ui/boot-failure';
+import { webgl2Available } from './ui/webgl-probe';
+import { alertNotice, evacuatedNotice, reinforceTrigger, removedNotice, ledgerSavedNotice, triggerLabel, unknownSandboxMapNotice } from './ui/mission-notice';
 import { ReinforcementDock } from './ui/production';
 import { doctrineTags } from './ui/dock-model';
 import {
   applyIntent,
   issueOrder,
+  haltNote,
+  orderDenied,
   resolvePointer,
   resolveKeyVerb,
   type OrderSink,
   type PlayerIntent,
   type IntentWorld,
 } from './input/intents';
-import {
-  ANIMATED_CURSORS,
-  cursorFor,
-  cursorKey,
-  badgeFor,
-  type BadgeHints,
-} from './input/cursor';
+import { ANIMATED_CURSORS, type CursorName } from './input/cursor';
+import { cursorAt, pointerPoint, simIntentWorld } from './input/pointer';
 import { cursorAnimDriver } from './input/cursor-anim';
 import { prefersReducedMotion } from './ui/motion';
 import { roleBucket } from './ui/role';
 import { rosterLanguages, voiceClassOf } from './voice/lines';
 import { VoiceRuntime, voicePlaceholderOn } from './voice/voice-runtime';
 import { roeNotice } from './ui/roe-notice';
+import {
+  invoiceLines,
+  placeNamesFor,
+  reasonLabel,
+  type Deduction,
+  type PlaceNames,
+} from './ui/conduct-invoice';
 import { sandboxAnchors, type SandboxAnchors } from './sandbox-anchors';
 import {
   sandboxDitchRows,
@@ -158,16 +213,17 @@ import {
   meshUrl,
   missionUnitTypes,
   hasUnitMesh,
-  spriteSheetPlan,
   meshPlanFor,
   meshManifestFor,
   dracoDecoderPath,
 } from './mesh-catalogue';
 import { rendererOptionsFor } from './renderer-options';
+import { bindLiveTeamColors } from './live-team-colors';
 import { garageColors, garageGroundTexture, garageModelSource } from './garage-model-source';
 import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
-import { timeOfDayOf } from './time-of-day';
+import { lightOverrideOf, timeOfDayOf } from './time-of-day';
+import { buildingFitOf } from './building-fit-flag';
 import { registerServiceWorker } from './service-worker';
 import {
   Router,
@@ -178,7 +234,7 @@ import {
   type RouteRequest,
 } from './shell/router';
 import { routes } from './shell/links';
-import { readStoredRenderer, rememberRenderer, resolveRendererChoice, RENDERER_STORAGE_KEY } from './renderer-choice';
+import { forgetRetiredKeys } from './retired-keys';
 // The menu's scene host (scene-host plan, Task 6): the lit diorama behind the
 // column. `ui/scene-host.ts` is the only thing that reaches its three.js door,
 // by a dynamic import, so neither import below pulls three into this chunk.
@@ -186,6 +242,9 @@ import { sceneHost } from './ui/scene-host';
 import { dioramaSceneOptions } from './front/diorama';
 import { initTutorial, advance, type TutorialState, type StepJson } from './tutorial/runtime';
 import { tutorialPanel, type TutorialPanel } from './tutorial/panel';
+import { hudVisibility, type MissionHudJson, type TutorialHudJson } from './tutorial/hud-visibility';
+import type { HudElement } from './ui/hud-elements';
+import { fireState, type FireState } from './ui/fire-state';
 import {
   parseWorld,
   parseCountries,
@@ -205,7 +264,7 @@ import {
   possibleStars,
 } from './campaign';
 import { commanderPortraitUrl } from './portrait-catalogue';
-import { browserLedgerStore, type CampaignLedger, type LostRecord } from './ledger-store';
+import { browserLedgerStore, newCampaign, writeVictory, type CampaignLedger, type LostRecord } from './ledger-store';
 import { showSaves, type SavesDeps } from './ui/saves';
 import { showCredits, type CreditsDeps } from './ui/credits';
 import { LOCALES, applyLocale, loadLocale } from './i18n/locales';
@@ -215,8 +274,28 @@ import { pseudo } from './i18n/pseudo';
 /** Deploy base ('/' locally, '/<repo>/' on GitHub Pages) — every asset URL
  *  is built from it so the same bundle works in both places. */
 const BASE = import.meta.env.BASE_URL;
+/** Every battlefield's `Sim` seed. A constant, so a feedback replay can rebuild
+ *  the battle from the start and the orders alone (GH-464 §4.3). */
+const SIM_SEED = 20260727;
+
+/** The deploy screen's sections and image, with every path resolved against
+ *  BASE (GH-119). A pool picks once, here, at mount. */
+function briefingLayout(
+  mission: MissionJson | undefined
+): { sections: ReturnType<typeof briefingSections>; image?: string } | undefined {
+  if (mission === undefined) return undefined;
+  const sections = briefingSections(mission.briefing, mission.briefing_sections);
+  const resolved = sections?.map((s) => (s.image !== undefined ? { ...s, image: `${BASE}${s.image}` } : s)) ?? null;
+  const image = pickBriefingImage(mission.briefing_image);
+  return image !== undefined ? { sections: resolved, image: `${BASE}${image}` } : { sections: resolved };
+}
 
 const MS_PER_TICK = 1000 / TICKS_PER_SECOND;
+
+/** The briefing's ground photograph, px a side: a 48-tile map at about 13 px
+ *  a tile, sharp on the ~580 px frame a 1400x900 screen gives it and on the
+ *  ~900 px one at 2560. */
+const BRIEFING_GROUND_PX = 960;
 
 /** `window.localStorage` can throw on the PROPERTY ACCESS itself (private mode, site
  *  data blocked) rather than on a method call.
@@ -249,25 +328,6 @@ const ledgerStore = browserLedgerStore();
 function unitFor(typeId: string): { id: string; role: string } {
   const u = units[typeId as keyof typeof units] as { id: string; role: string } | undefined;
   return u ?? { id: typeId, role: 'infantry' };
-}
-
-/** A KDF unit JSON entry's `unlock` gate, mapped from the authored
- *  `roe_rating_min`/`stars_min`/`after_mission`/`price` field names to `UnlockGate` --
- *  the one mapping `unitInfo`, `kdfUnits` and `resolveUpgrades`'s lookup all share.
- *  `bought` is resolved here and nowhere else (spec §4.4) -- a purchase opens the
- *  unit on every surface that reads this gate by construction. */
-function kdfUnlockGate(u: (typeof units)[keyof typeof units], bought: ReadonlySet<string>): UnlockGate | undefined {
-  const unlock = 'unlock' in u
-    ? (u.unlock as { roe_rating_min?: number; stars_min?: number; after_mission?: string; price?: number })
-    : undefined;
-  if (!unlock) return undefined;
-  return {
-    roeMin: unlock.roe_rating_min,
-    starsMin: unlock.stars_min,
-    afterMission: unlock.after_mission,
-    price: unlock.price,
-    bought: bought.has(u.id),
-  };
 }
 
 /** What `roleBucket` needs to pick a role mark for the brigade screen's
@@ -394,7 +454,10 @@ function describeMissionEvent(
   /** Reasons already narrated this mission, so the ROE advice is offered once
    *  rather than every time the zone cooldown expires. Owned by the caller
    *  because `describeMissionEvent` is otherwise a pure translation. */
-  narratedRoeReasons: Set<string> = new Set()
+  narratedRoeReasons: Set<string> = new Set(),
+  /** GH-345: names the places an ROE reason mentions, for the invoice-style
+   *  feed line. Absent, the line falls back to the sim's reason. */
+  places?: PlaceNames
 ): [string, Tone] | null {
   switch (e.kind) {
     case 'objective': {
@@ -411,18 +474,31 @@ function describeMissionEvent(
         : [t('mission.notice.objectiveStatus', { status: objectiveStatusShout(e.status), label: escapeHtml(label) }), 'bad'];
     }
     case 'trigger': {
+      // A labelled `reinforce` is the alert layer's: it says the label once,
+      // with where the units arrive (WP-P5, `ui/alerts.ts`).
+      if (reinforceTrigger(mission, e.id) !== null) return null;
       const label = triggerLabel(mission, e.id);
       return label === null ? null : [escapeHtml(label), 'warn'];
     }
     case 'wave':
-      return [t('mission.notice.wave', { n: e.count }), 'bad'];
+      // WP-P5: the alert layer words a wave now, with the direction it
+      // enters from (`ui/alerts.ts`); a second line here would say it twice.
+      return null;
     case 'roe': {
       const first = !narratedRoeReasons.has(e.reason);
       narratedRoeReasons.add(e.reason);
-      return roeNotice(e.penalty, e.reason, e.score, mission.roe?.fail_below, first);
+      return roeNotice(
+        e.penalty,
+        e.reason,
+        e.score,
+        mission.roe?.fail_below,
+        first,
+        places ? reasonLabel(e.reason, places) : e.reason
+      );
     }
     case 'built':
-      return [t('mission.notice.built', { unit: e.unit }), 'info'];
+      // WP-P5: likewise -- `alert.arrived` names the unit and where it stands.
+      return null;
     case 'say':
       // The commander bar is the one surface for a story line now -- `hud.say`
       // already runs for every `say` event (see the mission-loop handler
@@ -446,24 +522,18 @@ function describeMissionEvent(
   }
 }
 
-function bootError(stage: HTMLElement, title: string, body: string, home = routes.menu()): void {
-  const div = document.createElement('div');
-  div.className = 'rl-boot-error';
+function bootError(stage: HTMLElement, title: string, body: string, next: string, home = routes.menu()): void {
+  mountErrorCard(stage, { title, body, next, reload: false }, home);
+}
 
-  const h = document.createElement('h2');
-  h.textContent = title;
-  div.appendChild(h);
-
-  const p = document.createElement('p');
-  p.textContent = body;
-  div.appendChild(p);
-
-  const a = document.createElement('a');
-  a.href = home;
-  a.innerHTML = symbolLabel('back', t('nav.backToMenu'));
-  div.appendChild(a);
-
-  stage.appendChild(div);
+/** A screen that could not be mounted (pass K): the error goes to the
+ *  console whole, and the player gets `ui/boot-failure.ts`'s card -- what
+ *  happened, why and what next, in the game's words -- never the exception's
+ *  message or its stack. */
+function bootFailure(stage: HTMLElement, err: unknown): void {
+  console.error('boot failed:', err);
+  stage.replaceChildren();
+  mountErrorCard(stage, bootFailureCard(bootFailureKind(err, webgl2Available())), routes.menu());
 }
 
 /** `ui/saves.ts`'s `download`: a Blob URL and a click on an `<a download>`
@@ -587,17 +657,10 @@ function accountState(): {
   // null` this used to carry produced. The handle itself is no longer returned:
   // callers that need to know whether there is anywhere to WRITE ask
   // `ledgerStore.available`, and the rest just read.
-  const account = ledgerStore.readAccount();
-  return {
-    boughtUnits: new Set(account.unlocks),
-    // An empty account is `{}`, and `applyUpgrades` treats an absent track as
-    // the identity, so that case registers the raw JSON unchanged -- today's
-    // behaviour (spec 2026-09-15 §4.3, D5: the sim never learns a tier exists).
-    ownedTiers: account.upgrades,
-    // The garage's wallet (WP-S3g T3): its answer to a purchase reads the
-    // balance here, alongside the two fields that purchase changes.
-    balance: account.balance,
-  };
+  // Earned (the brigade account) joined with coin-bought (the Roar coin TEST
+  // wallet, GH-317): single-player plays `earned OR coins`. One read, so every
+  // surface below sees a coin-bought unit as open by construction.
+  return accountView(ledgerStore);
 }
 
 /**
@@ -613,6 +676,33 @@ function accountState(): {
  * The brigade account (`brigade-account.ts`) deliberately survives it: spec
  * 2026-09-15 §4.1 -- a second campaign starts with the brigade you built.
  */
+/**
+ * The half of a feedback note's context every screen has (GH-464, spec §4.1):
+ * the renderer and its quality, the GPU, the window, the locale, the route,
+ * the accessibility settings and the last errors. A battlefield adds the
+ * mission's own facts on top (`fbWhere`).
+ */
+function shellContextInput(s: Settings): ContextInput {
+  const gpu = gpuName();
+  return {
+    renderer: 'three',
+    quality: s.video.quality,
+    ...(gpu === null ? {} : { gpu }),
+    viewport: [window.innerWidth, window.innerHeight],
+    dpr: window.devicePixelRatio,
+    locale: currentLocale(),
+    ua: navigator.userAgent,
+    route: stripBase(BASE, window.location.pathname),
+    settings: {
+      uiScale: String(s.video.uiScale),
+      textSize: s.video.textSize,
+      motion: s.accessibility.motion,
+      colorVision: s.accessibility.colorVision,
+    },
+    errors: recentErrors(),
+  };
+}
+
 function purgeCampaign(): void {
   // Minor 5: through the store, not the global. `window.localStorage` can throw
   // on the PROPERTY ACCESS itself in a private window or with site data blocked
@@ -620,142 +710,24 @@ function purgeCampaign(): void {
   // landing -- so a player in that state met a thrown boot error instead of a
   // menu, for a store that has nothing in it to purge. Both calls REMOVE their
   // key rather than writing an empty value, exactly as before.
-  ledgerStore.clearLedger();
-  ledgerStore.setTutorialDone(false);
+  // `newCampaign` (ledger-store.ts): the ledger key and the tutorial flag removed,
+  // and since GH-330 the account's per-campaign improvement record cleared, so a
+  // new campaign pays again. Balance, purchases and the lifetime record stay.
+  newCampaign(ledgerStore);
 }
 
-// Which sheet a unit uses -- facing convention, frame counts, clip list and
-// draw scale all come from the sheet's own manifest, written by the rig that
-// produced the files. At module scope rather than inside a screen, because
-// two of them read it: the brigade roster (for its portraits, with no map, sim
-// or renderer of its own to have loaded a sheet through) and the battlefield.
-type SpriteSpec = { path: string; turretPath?: string };
-const TANK: SpriteSpec = {
-  path: `${BASE}sprites/TNK_HULL/`,
-  turretPath: `${BASE}sprites/TNK_TURR/`,
-};
-const EITAN: SpriteSpec = {
-  path: `${BASE}sprites/EITAN_HULL/`,
-  turretPath: `${BASE}sprites/EITAN_TURR/`,
-};
-const NAMER: SpriteSpec = {
-  path: `${BASE}sprites/NAMER_HULL/`,
-  turretPath: `${BASE}sprites/NAMER_TURR/`,
-};
-// Hull only: the model carries no separately modelled weapon station, so
-// there is no turret sheet to composite.
-const JEEP: SpriteSpec = { path: `${BASE}sprites/JEEP_HULL/` };
-// The enemy's armed pickup. Its turret manifest carries `turretAxisPx`, which
-// no other sheet does: a pintle gun on a bed sits well off the model's centre,
-// and without that the renderer would swing it off the truck while tracking.
-const TECHNICAL: SpriteSpec = {
-  path: `${BASE}sprites/TECH_HULL/`,
-  turretPath: `${BASE}sprites/TECH_TURR/`,
-};
-// No shared infantry sheet. Seven types used to point at one directory, which
-// meant a rifle squad and an enemy militia cell were the same PNG and the
-// silhouette gate could never compare them -- it cannot compare a file with
-// itself. Each type now names its own sheet, so a sheet that fails to load is
-// a visible gap rather than something masked by an alias.
-// The only animated sheet: four frames of hover per facing, looping. Nothing
-// here says so -- the frame count, rate and loop flag all come from the
-// sheet's own manifest, same as every other property of every other sheet.
-const DRONE: SpriteSpec = { path: `${BASE}sprites/DRONE_RECON/` };
-const SPRITE_MAP: Record<string, SpriteSpec> = {
-  mbt_lavi: TANK,
-  apc_eitan: EITAN,
-  ifv_namer: NAMER,
-  jeep_shoded: JEEP,
-  technical: TECHNICAL,
-  recon_drone: DRONE,
-  dozer_d9: { path: `${BASE}sprites/D9_HULL/` },
-  heli_peten: { path: `${BASE}sprites/APACHE_HULL/` },
-  // The two star-gated vehicles (docs/campaign/special_units/design.md
-  // §4-5). Hull only, like the jeep: each carries a fixed gun, not a
-  // traversing station. Rendered from the same kit-authored sources their
-  // GLBs were exported from, so the billboard, the portrait and the mesh
-  // agree; the sheet is what gives a dead one a wreck instead of the grey
-  // cross, since a mesh vehicle's death falls back to its sheet.
-  scout_shachaf: { path: `${BASE}sprites/SHACHAF_HULL/` },
-  apc_kipod: { path: `${BASE}sprites/KIPOD_HULL/` },
-  // One sheet per infantry type, composed from tools/units/kit.py. Each is a
-  // distinct silhouette rather than a distinct texture: posture, weapon axis
-  // and figure count are what survive downsampling to a 64px black shape.
-  inf_squad: { path: `${BASE}sprites/INF_SQUAD/` },
-  demo_squad: { path: `${BASE}sprites/INF_DEMO/` },
-  at_team: { path: `${BASE}sprites/INF_AT/` },
-  mortar_team: { path: `${BASE}sprites/INF_MORTAR/` },
-  sniper_team: { path: `${BASE}sprites/INF_SNIPER/` },
-  // The Yahalom sheet is the one carrying a `work` clip — what resolveClip
-  // shows for the whole of a tunnel charge.
-  yahalom_squad: { path: `${BASE}sprites/INF_YAHALOM/` },
-  // The star-gated Tzinah team (design.md §3): the upright shield is its
-  // silhouette, the same kit the mesh was exported from.
-  breach_team: { path: `${BASE}sprites/INF_BREACH/` },
-  militia_cell: { path: `${BASE}sprites/INF_MILITIA/` },
-  rpg_team: { path: `${BASE}sprites/INF_RPG/` },
-  atgm_cell: { path: `${BASE}sprites/INF_ATGM/` },
-  mortar_crew: { path: `${BASE}sprites/INF_MORTAR_E/` },
-  // The Sarim set. These three shipped complete, gate-passing sheets and
-  // still drew NOTHING, because art existing and art being LOADED are
-  // different things and only the first has a gate.
-  sarim_rifles: { path: `${BASE}sprites/INF_SARIM/` },
-  recoilless_team: { path: `${BASE}sprites/INF_RECOILLESS/` },
-  manpad_team: { path: `${BASE}sprites/INF_MANPAD/` },
-  // The raider set. Like the technical, the gun truck's turret manifest
-  // carries `turretAxisPx`: its cannon sits 1.65 m behind the model centre,
-  // so without the correction the renderer swings it off the bed while
-  // tracking.
-  gun_truck: {
-    path: `${BASE}sprites/GUNTRUCK_HULL/`,
-    turretPath: `${BASE}sprites/GUNTRUCK_TURR/`,
-  },
-  charge_squad: { path: `${BASE}sprites/INF_CHARGE/` },
-  moto_rpg: { path: `${BASE}sprites/MOTO_RPG/` },
-  digger_crew: { path: `${BASE}sprites/INF_DIGGER/` },
-  // Hull only: the rack is fixed to the bed, not a separately traversing
-  // weapon station, so there is no turret sheet to composite -- same shape
-  // as dozer_d9 above.
-  rocket_battery: { path: `${BASE}sprites/ROCKETBATTERY_HULL/` },
-  // Two air sheets whose flight is presentational: the sim has no altitude,
-  // so these move on the ground plane like anything else. The paramotor's
-  // `down` clip is its landed state, authored against a land-and-dismount
-  // behaviour that does not exist yet.
-  paramotor: { path: `${BASE}sprites/PARA_MOTOR/` },
-  loiter_drone: { path: `${BASE}sprites/DRONE_LOITER/` },
-  // attack_drone shares loiter_drone's shape of unit -- KDF's own loitering
-  // munition -- but not its source: reusing loitering_munition.blend would
-  // have been an identical silhouette (IoU ~= 1.0, guaranteed, not merely a
-  // risk), so it renders from its own hull, art/src/drones/attack_drone.blend.
-  attack_drone: { path: `${BASE}sprites/DRONE_ATTACK/` },
-};
-
 /**
- * A unit type's portrait, resolved the same way the mission HUD resolves one
- * for its card (`portraits[typeId]`, built from `SPRITE_MAP` and each
- * sheet's own cropped `unitIcon` or, failing that, its manifest via
- * `portraitUrl`) -- fetched fresh here because the brigade screen has no
- * running renderer to have already fetched it for. A type absent from
- * `SPRITE_MAP`, or whose manifest 404s with no icon either, resolves to
- * `null`; the caller draws the reserved hatch for that, same as the HUD's
- * card does. `isIcon` tells the caller which of the two pictures it got, so
- * it can set `data-icon` the same way the mission HUD does.
+ * A unit type's portrait for the brigade screen: its Blender portrait
+ * (`unitIcon`, GH-153), whole team -- every brigade slot is larger than a
+ * chip -- or `null`, for which the caller draws the reserved hatch, as the
+ * HUD's card does (`civilians` is the one shipped type with none). Until
+ * WP-A3.3 a type with no portrait fell back to a frame of its sprite sheet,
+ * through `SPRITE_MAP`; the sheets are retired, and every unit with a mesh
+ * has a portrait (`portrait.test.ts`, "unit portrait coverage").
  */
-const loadBrigadePortrait = async (id: string): Promise<{ url: string; isIcon: boolean } | null> => {
-  const spec = SPRITE_MAP[id];
-  if (!spec) return null;
-  const icon = unitIcon(spec.path);
-  if (icon !== null) return { url: icon.url, isIcon: true };
-  try {
-    const res = await fetch(`${spec.path}manifest.json`);
-    if (!res.ok) return null;
-    const manifest = (await res.json()) as SheetManifest;
-    const url = portraitUrl(spec.path, manifest);
-    return url === null ? null : { url, isIcon: false };
-  } catch (err) {
-    console.warn(`[lions] portrait manifest FAILED for ${id}:`, err);
-    return null;
-  }
+const loadBrigadePortrait = (id: string): { url: string; isIcon: boolean } | null => {
+  const icon = unitIcon(id, 'full');
+  return icon === null ? null : { url: icon.url, isIcon: true };
 };
 
 async function main(): Promise<void> {
@@ -763,6 +735,9 @@ async function main(): Promise<void> {
   // reload the page? -- has an answer. One `rl:boot` mark per document,
   // however many screens the player walks through.
   performance.mark('rl:boot');
+  // GH-464: the last few errors, for a feedback note. Listening from the very
+  // first statement, so a boot failure is one of them.
+  installErrorRing(window);
   const stage = document.getElementById('stage');
   if (!stage) throw new Error('no #stage');
 
@@ -771,6 +746,9 @@ async function main(): Promise<void> {
   // free-play picker carry the music too, not just a mission -- and now it
   // outlives all of them, since a route change no longer reloads the page.
   const audio = battleAudio();
+  // UI confirm (polish pass F, A8): one listener for the whole document;
+  // primary actions mark themselves (`markConfirm`) and nothing else sounds.
+  installConfirmCue(document, () => audio.playCue(CRITICAL_CUES.uiConfirm));
 
   // --- settings, on every screen --------------------------------------------
   // Loaded and applied before anything else mounts: `applySettings` (settings.ts)
@@ -779,6 +757,9 @@ async function main(): Promise<void> {
   // `document.documentElement`, so the menu itself has to carry a saved scale
   // or motion preference, not just a mission. The mixer needs its gains before
   // the first screen's music starts for the same reason.
+  // A returning player's `lions.renderer=pixi` is removed once, never read
+  // (`retired-keys.ts`; the Pixi backend was retired, WP-A3.3).
+  forgetRetiredKeys();
   const settingsStore = safeStorage();
   let settings: Settings = loadSettings(settingsStore);
   applySettings(settings, document.documentElement);
@@ -882,18 +863,14 @@ async function main(): Promise<void> {
   if (new URLSearchParams(landingSearch).has('fresh') && !landingIsMission) purgeCampaign();
 
   /** The landing. The one screen that defines no `window.__lions`. */
-  function mountMenu(host: HTMLElement, req: RouteRequest): Disposer {
+  function mountMenu(host: HTMLElement): Disposer {
     const worldData = parseWorld(world);
-    // Which backend this player chose, resolved and persisted the way
-    // `showCampaign` does it: the scene host behind the column takes the
-    // campaign board's rule -- `?renderer=pixi` gets the plate, and never
-    // downloads three for a menu.
-    const renderer = resolveRendererChoice(req.query.get('renderer'), readStoredRenderer());
-    if (renderer.persist) rememberRenderer(renderer.persist);
     // Minor 4 + Minor 5: one predicate, through the store. This runs on every
     // menu MOUNT now rather than once per page load, so a store whose property
     // access throws would have thrown on every return to the menu.
     const tutorialIsDone = ledgerStore.tutorialDone();
+    // GH-464: whether this menu offers feedback, asked per mount.
+    const menuFeedback = browserFeedbackSession();
     // Where the campaign is RIGHT NOW (Task 7): the tutorial while nothing has
     // been played, else the first open mission of wherever the map is live.
     // Null once every authored mission is done, which is `continue: undefined`
@@ -929,6 +906,29 @@ async function main(): Promise<void> {
         purgeCampaign();
         void router.navigate(routes.menu(), { replace: true, force: true });
       },
+      // GH-464: the menu's feedback modal -- the pause form without a picture
+      // or a replay. `closeOpenDialog()` takes it down with the screen.
+      feedbackAvailable: menuFeedback.shown ? menuFeedback.open() : undefined,
+      feedback: menuFeedback.shown && !feedbackClosed()
+        ? () => {
+            feedbackDialog(host, {
+              who: menuFeedback.who,
+              build: menuFeedback.build,
+              storage: menuFeedback.storage,
+              send: async (sub, signal) =>
+                menuFeedback.send(
+                  {
+                    source: 'menu',
+                    category: sub.kind,
+                    text: sub.text,
+                    ...(sub.contact === undefined ? {} : { contact: sub.contact }),
+                    where: { context: collectContext(shellContextInput(settingsDeps.get())) },
+                  },
+                  { signal }
+                ),
+            });
+          }
+        : undefined,
       // The host decides its own path (live, plate or off) and builds the
       // diorama's world only on the live one. Settings are read when that
       // world is built, like a mission's at its boot: the colour-vision
@@ -936,7 +936,6 @@ async function main(): Promise<void> {
       backdrop: (into, column) =>
         sceneHost(into, column, {
           plateUrl: `${BASE}${menuDiorama.plate}`,
-          renderer: renderer.choice,
           world: () => {
             const now = settingsDeps.get();
             return dioramaSceneOptions(
@@ -956,7 +955,7 @@ async function main(): Promise<void> {
    *  `available` is that question asked once. */
   function mountSaves(host: HTMLElement): Disposer {
     if (!ledgerStore.available) {
-      bootError(host, t('boot.savesUnavailable.title'), t('boot.savesUnavailable.body'), routes.menu());
+      bootError(host, t('boot.savesUnavailable.title'), t('boot.savesUnavailable.body'), t('boot.savesUnavailable.next'), routes.menu());
       return () => host.replaceChildren();
     }
     const deps: SavesDeps = {
@@ -988,10 +987,6 @@ async function main(): Promise<void> {
       commander: parseCommander(commander),
       missionOf: (id) => (missions as Record<string, MissionJson | undefined>)[id],
       portraitUrl: commanderPortraitUrl,
-      // The screen used to read `window.location.search` for this itself. No
-      // screen reads `window.location` any more: the shell knows which
-      // navigation this is and hands the value in.
-      renderer: req.query.get('renderer'),
       // So a click on the 3D board's ground changes screen without reloading
       // the document. The flat board's town pins are real anchors and go
       // through `interceptLinks` instead.
@@ -1010,10 +1005,6 @@ async function main(): Promise<void> {
    *  the map, so it is never in this sum at all). */
   async function mountBrigade(host: HTMLElement, req: RouteRequest): Promise<Disposer> {
     const worldData = parseWorld(world);
-    // The bay's turnable model (GH-316) takes the campaign board's renderer
-    // rule: `?renderer=pixi` keeps the plate and never downloads three.
-    const renderer = resolveRendererChoice(req.query.get('renderer'), readStoredRenderer());
-    if (renderer.persist) rememberRenderer(renderer.persist);
     const { boughtUnits, ownedTiers, balance } = accountState();
     /** The KDF roster as the garage draws it, off one account's bought set.
      *  Called at mount and again for every answer: a purchase can open a
@@ -1049,6 +1040,23 @@ async function main(): Promise<void> {
       const a = accountState();
       return { units: garageUnits(a.boughtUnits), credits: a.balance, owned: a.ownedTiers };
     };
+    // `?testcoins=<n>` (GH-317, a TEST tool): the first visit seeds the TEST
+    // wallet with n coins, once; the Stores' Grant button adds n more.
+    const testGrant = testCoinsParam(req.query);
+    if (testGrant !== null && ledgerStore.available) {
+      ledgerStore.writeRoarTest(seedTestCoins(ledgerStore.readRoarTest(), testGrant, Date.now()));
+    }
+    /** Which part of the single-player account came from coins. */
+    const coinHalf = (): CoinHalf => {
+      const account = ledgerStore.readAccount();
+      const roar = ledgerStore.readRoarTest();
+      return {
+        earnedUnits: new Set(account.unlocks),
+        coinUnits: new Set(Object.keys(roar.entitlements.units)),
+        earnedTiers: account.upgrades,
+        coinTiers: coinTiers(roar),
+      };
+    };
     return showBrigade(host, {
       units: kdfUnits,
       ledger: ledgerStore.readLedger(),
@@ -1058,14 +1066,18 @@ async function main(): Promise<void> {
       // The garage's bay (Task 15/16). `unitPlate` resolves against the
       // plates manifest AND the eager glob of what is actually on disk, so a
       // unit `pnpm plates:units` has not photographed reads as absent and the
-      // bay draws its reserved hatch -- never a broken <img>.
-      plate: (typeId) => unitPlate(`${BASE}ui/plates/units/`, typeId),
+      // bay draws its reserved hatch -- never a broken <img>. From kit level 2
+      // a kitted vehicle's plate is its kitted photograph (GH-238); the plate
+      // is what the bay keeps when the model cannot be drawn.
+      plate: (typeId, kitLevel) => unitPlate(`${BASE}ui/plates/units/`, typeId, kitLevel),
+      // A track's close-up from the bay's own turntable (GH-238 K11), in the
+      // board's track head; a missing one keeps the hatch.
+      closeup: (typeId, track) => trackCloseup(`${BASE}ui/garage/closeups/`, typeId, track),
       // GH-316: the unit's own GLB, turnable, over the plate above -- which
       // stays the picture until the model's first frame, and whenever the
       // model cannot be drawn.
       model: {
         source: (typeId) => garageModelSource(typeId),
-        renderer: renderer.choice,
         dracoDecoderPath: dracoDecoderPath(),
         groundTextureUrl: garageGroundTexture(BASE),
         colors: garageColors(),
@@ -1087,6 +1099,46 @@ async function main(): Promise<void> {
       // its own first gesture. Mute and the volume sliders are honoured
       // inside `playUi`; a set with no decoded clip plays its synth arm.
       onCue: (cue) => battleAudio().playUi(CUE_SET[cue]),
+      // The Stores tab (GH-317). For everyone it is a preview: a zero coin
+      // balance and every Buy disabled. With `?testcoins=<n>` (a TEST tool,
+      // the lead's go-ahead on 2 Oct; remove or gate it before release) a
+      // local TEST wallet buys what credits buy. Packs stay disabled.
+      stores: {
+        coinSrc: (size) => `${BASE}ui/roar_coin/roar_coin_${size}.png`,
+        paid: ledgerStore.readAccount().paid,
+        open: testGrant !== null,
+        read: () => {
+          const r = ledgerStore.readRoarTest();
+          return {
+            coin: coinHalf(),
+            test: testGrant !== null ? { coins: r.coins, grant: testGrant, receipts: r.receipts } : undefined,
+          };
+        },
+        onBuy:
+          testGrant !== null && ledgerStore.available
+            ? (ask) => {
+                const a = accountState();
+                const { account, ok } = buyWithTestCoins(
+                  {
+                    units: garageUnits(a.boughtUnits),
+                    ledger: ledgerStore.readLedger(),
+                    credits: a.balance,
+                    owned: a.ownedTiers,
+                    coin: coinHalf(),
+                  },
+                  ledgerStore.readRoarTest(),
+                  ask,
+                  Date.now()
+                );
+                if (ok) ledgerStore.writeRoarTest(account);
+                return now();
+              }
+            : undefined,
+        onGrant:
+          testGrant !== null && ledgerStore.available
+            ? () => ledgerStore.writeRoarTest(grantTestCoins(ledgerStore.readRoarTest(), testGrant, Date.now()))
+            : undefined,
+      },
       onReset: ledgerStore.available
         ? () => {
             telemetry().account('reset', ledgerStore.resetAccount());
@@ -1137,7 +1189,7 @@ async function main(): Promise<void> {
     base: BASE,
     stage,
     routes: [
-      { name: 'menu', pattern: '/', mount: (host, req) => mountMenu(host, req) },
+      { name: 'menu', pattern: '/', mount: (host) => mountMenu(host) },
       { name: 'campaign', pattern: '/campaign', mount: (host, req) => mountCampaign(host, req) },
       { name: 'brigade', pattern: '/brigade', mount: (host, req) => mountBrigade(host, req) },
       // The picker. Nothing is passed in: the screen reads the map enumeration
@@ -1145,9 +1197,12 @@ async function main(): Promise<void> {
       { name: 'free-play', pattern: '/free-play', mount: (host) => showSandbox(host) },
       {
         name: 'sandbox',
+        // A battlefield owns its focus: its keys reach the game, and its
+        // briefing focuses Deploy itself (KS-08, `shell/router.ts`).
+        focus: false,
         pattern: '/free-play/:map',
         mount: (host, req) =>
-          bootBattlefield(host, {
+          guardBoot(host, req.signal, (err) => bootFailure(host, err), bootBattlefield(host, {
             missionId: null,
             sandboxMap: req.params.map,
             query: req.query,
@@ -1160,13 +1215,16 @@ async function main(): Promise<void> {
             // and `replace` so the attempt that was just lost does not sit in
             // history as a back-button trap into a dead sim.
             restart: () => void router.navigate(router.href(req.path, req.query), { replace: true, force: true }),
-          }),
+          })),
       },
       {
         name: 'mission',
+        // A battlefield owns its focus: its keys reach the game, and its
+        // briefing focuses Deploy itself (KS-08, `shell/router.ts`).
+        focus: false,
         pattern: '/mission/:id',
         mount: (host, req) =>
-          bootBattlefield(host, {
+          guardBoot(host, req.signal, (err) => bootFailure(host, err), bootBattlefield(host, {
             missionId: req.params.id,
             sandboxMap: null,
             query: req.query,
@@ -1174,7 +1232,7 @@ async function main(): Promise<void> {
             navigate: (href, opts) => void router.navigate(href, opts),
             settings: settingsDeps,
             restart: () => void router.navigate(router.href(req.path, req.query), { replace: true, force: true }),
-          }),
+          })),
       },
       {
         name: 'settings',
@@ -1206,7 +1264,7 @@ async function main(): Promise<void> {
       },
     ],
     notFound: (host, req) => {
-      bootError(host, t('boot.notFound.title'), t('boot.notFound.body', { path: req.path }), routes.menu());
+      bootError(host, t('boot.notFound.title'), t('boot.notFound.body', { path: req.path }), t('boot.notFound.next'), routes.menu());
       return () => host.replaceChildren();
     },
   });
@@ -1214,6 +1272,14 @@ async function main(): Promise<void> {
   // document -- there is no point at which this page stops wanting them, so
   // its disposer is dropped rather than stored.
   interceptLinks(document, router);
+  // KS-07: Escape presses the screen's own back control on the shell screens
+  // (`shell/escape-back.ts`), never on the menu or a battlefield and never
+  // while a dialog owns the key. App-wide, so its disposer is dropped too.
+  installEscapeBack({ route: () => router.current()?.name ?? null, stage, dialogOpen: () => isDialogOpen() });
+  // The small-screen notice (K-17): app-wide like the line above, so its
+  // disposer is dropped for the same reason -- but it has one, and a test
+  // proves it removes everything the notice adds.
+  watchSmallScreen({ navigate: (href) => void router.navigate(href), menuHref: routes.menu() });
   // `fresh` has done its work above and is not a route parameter, so it comes
   // off the URL -- except on the way into a mission, where it still means "run
   // this one against an empty ledger" and `bootBattlefield` reads it back off
@@ -1222,10 +1288,16 @@ async function main(): Promise<void> {
   // `?mission=` query rewrites to -- `location.pathname` here would still be
   // the raw pre-rewrite path and misclassify those links as `menu`.
   const telemetryScreen = screenFor(landingPath, '/', 'beit_sahwan_0_tutorial');
-  initTelemetry({ dev: telemetryScreen === 'sandbox' }).sessionStart(
-    telemetryScreen,
-    resolveRendererChoice(new URLSearchParams(location.search).get('renderer'), safeStorage()?.getItem(RENDERER_STORAGE_KEY) ?? null).choice
-  );
+  // `renderer` is always 'three' since WP-A3.3: the field stays so old D1
+  // rows and `packages/worker/QUERIES.sql` group the same way.
+  initTelemetry({ dev: telemetryScreen === 'sandbox' }).sessionStart(telemetryScreen, 'three');
+  // GH-464 (spec §12.2): ask the server's switch once a boot, so the lead can
+  // close feedback without an app deploy. Cached for the session; every entry
+  // point checks `isClosed()` when it is built, and the menu takes its button
+  // down if the answer lands after it mounted. Never asked where nothing can
+  // be sent (dev, tests, CI, a local host).
+  const bootFeedback = browserFeedbackSession();
+  if (bootFeedback.shown) void bootFeedback.open();
   await router.start({ drop: landingIsMission ? [] : ['fresh'] });
 }
 
@@ -1405,7 +1477,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   if (missionId !== null) {
     const rawMission = (missions as Record<string, MissionJson | undefined>)[missionId];
     if (!rawMission) {
-      bootError(stage, t('boot.unknownMission.title', { id: missionId }), t('boot.unknownMission.body'));
+      bootError(stage, t('boot.unknownMission.title'), t('boot.unknownMission.body'), t('boot.unknownMission.next'));
       // `teardown`, not a fresh no-op: nothing has been registered yet, so it
       // does nothing today -- but an early return that opts OUT of the teardown
       // is how the next registration added above this line goes unreleased.
@@ -1489,12 +1561,6 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // the friendly anchor. Sandbox-only and three-only, like every flag beside
   // it -- a real mission's ground must remember only its own battle.
   const wantDecals = flags.decals;
-  // Meshes are what the game looks like now, so they load unless asked not to.
-  // This was `flags.mesh` -- an opt-IN that `ui/menu.ts` never appended to any
-  // link it builds, so no player reached by the menu ever saw a mesh. The
-  // escape hatch inverts rather than disappearing: `&nomesh` still walks the
-  // billboard path on `three`, and `?renderer=pixi` has no mesh path at all.
-  const wantMesh = !flags.nomesh;
   // A misspelled flag (`&tunel`) otherwise does nothing at all, silently,
   // which reads as a broken feature rather than as a typo.
   // Level load time step 5. Fire-and-forget and deliberately NOT awaited: the
@@ -1544,7 +1610,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // many stand at once. First Light puts 104 attackers, 7 defenders and 11
   // civilians through it before the player buys anything, and running out is a
   // thrown error mid-mission, not a graceful cap.
-  const sim = new Sim({ seed: 20260727, width: map.width, height: map.height, capacity: 256 });
+  const sim = new Sim({ seed: SIM_SEED, width: map.width, height: map.height, capacity: 256 });
   // Cover AND blocked terrain, through the one function all three world
   // builders share. Rock ridges arrive here; before this existed, `map.blocked`
   // was filled by parseMap and read by nobody.
@@ -1607,13 +1673,18 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const narratedRoeReasons = new Set<string>();
   /** Every Conduct deduction this mission, for the debrief. The sim keeps no
    *  presentation log; the events are the record. */
-  const deductions: { penalty: number; reason: string }[] = [];
+  const deductions: Deduction[] = [];
   /** The memorial half of this mission's service records (WP-G-E4), captured
    *  one `unitLost` event at a time and appended to `roster.lost` on victory
    *  only -- a defeat writes nothing to the ledger at all (M4, no ironman),
    *  so a lost unit on a losing run is not memorialised: the run did not
    *  happen as far as the campaign is concerned. */
   const lostThisMission: LostRecord[] = [];
+  /** GH-417 (L-6): what happened, where and when, for the after-action
+   *  report -- losses with the tile they fell on, deductions pinned to the
+   *  zone they name, objective outcomes, the hostile kill count. Read off
+   *  events and sim state; never written back. */
+  const missionLog: MissionLog = newMissionLog();
   /**
    * `&civ`: where the crowd is walked to, and the ground that counts as out.
    *
@@ -1645,6 +1716,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /** One per `evacuated` MissionEvent -- the runtime's own tally, counted
    *  from the outside. */
   let evacuatedSoFar = 0;
+  // PR 361: deadlines already warned a minute out, and why a lost mission
+  // was lost (`ui/mission-failure.ts`).
+  let deadlinesWarned: ReadonlySet<string> = new Set();
+  let missionFailure: string | null = null;
   /** No refuge, no flight: `CivilianFlight.step` is never run without one. */
   const civWatch = refugeAt ? new CivFlightWatch() : null;
   /** `sim.entityCount` at the watch's last observation. */
@@ -1690,10 +1765,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // The options object itself is `./renderer-options`'s `rendererOptionsFor`
   // (Task 2 of the scene-host plan) -- extracted so the menu's own diorama can
   // ask for exactly the same options a mission gets, rather than a second,
-  // drifting copy of this literal. What stays here is construction-time: both
-  // `colorVision` and `quality` are read ONCE (like the renderer backend
-  // choice below), because a setting switched mid-mission takes effect from
-  // the next boot, which the settings hint says explicitly. `teamColors` and
+  // drifting copy of this literal. What stays here is construction-time:
+  // `quality` is read ONCE (like the renderer backend choice below), because
+  // it takes effect from the next boot, which its settings hint says.
+  // `colorVision` is read here for the boot and then followed live
+  // (`bindLiveTeamColors`, below the minimap -- VR-01). `teamColors` and
   // `resolveColor` -- what the renderer, either backend, asks for a palette
   // key by STRING -- have to agree on the same `colorVision` value, or the
   // silhouette outline, the HP bars, the objective-zone tints and the
@@ -1706,6 +1782,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // since the sim never reads it.
   const tod = timeOfDayOf((mission as { map: object } | undefined) ?? null, params);
   if (tod.warning) console.warn(`[lions] ${tod.warning}`);
+  const lightOverride = lightOverrideOf((mission as { map: object } | undefined) ?? null);
+  // `&fitbuildings=<rule>` (lead ruling 7 Oct): compare building fits, on a
+  // mission as well as the sandbox. Absent leaves the renderer's default.
+  const fit = buildingFitOf(params);
+  if (fit.warning) console.warn(`[lions] ${fit.warning}`);
   const opts: RendererOptions = {
     ...rendererOptionsFor(
       map,
@@ -1713,46 +1794,22 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       BASE
     ),
     timeOfDay: tod.value,
+    // PA-24: a mission's own `map.light` (First Light's lifted dawn fill).
+    ...(lightOverride !== undefined ? { lightOverride } : {}),
+    ...(fit.value !== undefined ? { buildingFit: fit.value } : {}),
+    // Pass C2/C4 (P5): asked live, so the settings panel's motion switch
+    // reaches the near-miss flinch mid-mission.
+    reducedMotion: prefersReducedMotion,
+    // GH-238: the bought kit each vehicle wears, from the one prepass that
+    // registered the sim's types and drew the card -- so the hull on the
+    // field is the hull the sim is running.
+    unitKitTiers: prepass.unitKitTiers,
     // Sandbox only: a mission brings its own battle, and a dev flag must
     // never change how one looks.
     ...(!mission && wantDecals
       ? { decalShowcase: { x: anchors.friendly[0], y: anchors.friendly[1] } }
       : {}),
   };
-  // Three is the default as of Phase D; Pixi remains reachable through
-  // `?renderer=pixi`, which `renderer-choice.ts` persists so it survives the
-  // navigation links `menu.ts` builds. The annotation is what makes this a
-  // real choice: both branches must satisfy `Renderer` or this does not
-  // compile.
-  //
-  // BOTH backends arrive by dynamic import, from their own entry points --
-  // this used to be true only of three. A static `import { ThreeRenderer }
-  // from '@lions/render'` used in a live ternary is not tree-shakeable, and
-  // it once put three.js's whole runtime into the main chunk -- 1,081 kB --
-  // for every player who never passed the flag; `@lions/render`'s barrel
-  // never named ThreeRenderer to fix that. But `PixiRenderer` stayed a
-  // static barrel export, which was invisible while Pixi was the only
-  // backend that ever ran eagerly -- once three shipped, that export became
-  // the mirror-image bug: importing the barrel AT ALL, on either backend,
-  // pulled pixi.js into the main chunk, because a module import cannot
-  // partially execute (`renderer.ts`'s own `import 'pixi.js'` runs
-  // regardless of which of its exports are used). `PixiRenderer` now has its
-  // own entry point too, `@lions/render/pixi` (`pixi.ts`), so which backend
-  // a player downloads is symmetric: only the one actually chosen.
-  // `?renderer=pixi` and `?renderer=three` are both real, parsed values --
-  // not `=== 'three'` with everything else falling through to Pixi, which
-  // only ever looked like a working escape hatch because Pixi happens to be
-  // the default. An explicit choice is also written to storage, so it
-  // survives every `menu.ts` link (they hard-code their own query string
-  // and drop this one) and a reload with no `?renderer` at all. See
-  // `renderer-choice.ts`.
-  const rendererDecision = resolveRendererChoice(
-    params.get('renderer'),
-    window.localStorage.getItem(RENDERER_STORAGE_KEY)
-  );
-  if (rendererDecision.persist) {
-    window.localStorage.setItem(RENDERER_STORAGE_KEY, rendererDecision.persist);
-  }
   // --- which meshes this mission needs -------------------------------------
   //
   // The whole mesh library used to load at boot, before the loading screen was
@@ -1761,11 +1818,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // This is the roster that replaces it. `./mesh-catalogue` owns the tables and
   // the arithmetic; what is decided HERE is only which roster to ask about.
   //
-  // Computed unconditionally, outside the renderer branch, so a change to it
-  // is not hidden inside a backend the reader may not be looking at. On Pixi
-  // and under `&nomesh` it is simply never read.
+  // GH-469: walked over the RESOLVED mission -- `upgrades_to` already
+  // decided above -- so the variant a placement did not take (a Shachaf the
+  // brigade has not bought, a `gate_only` jeep the gate dropped) is not loaded
+  // and decoded for a unit that cannot appear. On a `resources` mission it is
+  // still buildable, and so lands in `meshDeferred` below like any other.
   const meshRoster = mission
-    ? missionUnitTypes(mission, new Set(Object.keys(units)))
+    ? missionUnitTypes(resolvedMission ?? mission, new Set(Object.keys(units)))
     : sandboxUnitTypes({ tunnel: wantTunnel, sur: wantSur, civ: wantCiv });
   // Only the roster's languages decode (N16). The roster is the one the mesh
   // plan already trusts; a unit it misses still plays -- as `missing` -- and
@@ -1778,13 +1837,6 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // Registered where it is set, not with the runtime below: a boot abandoned
   // before the runtime exists must not leave the next screen ticking.
   onDispose(() => audio.setVoicePlaceholder(false));
-  // Structure types this map actually stands, plus anything the mission
-  // places itself (`camp` is the only one that arrives that way). Kept
-  // independently of `meshPlanFor` below -- `spritePlan` further down needs
-  // the raw set of standing types, not the mesh-only subset `MeshPlan.buildings`
-  // filters down to.
-  const meshStructures = new Set(map.structures.map((b) => b.type));
-  for (const s of mission?.structures ?? []) meshStructures.add(s.type);
   // `./mesh-catalogue`'s `meshPlanFor` (Task 2 of the scene-host plan): which
   // meshes this roster and this map's own buildings actually need, so the
   // menu's own diorama can ask the same question about its own roster.
@@ -1801,10 +1853,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    * has unlocked, so its true roster is "what it fields" plus "the whole KDF
    * catalogue" -- which on `beit_sahwan_3_clearance` is most of the library
    * again and would give the change back. They are deferred instead: a build
-   * takes seconds of game time to deploy, `updateUnits` draws a
-   * mesh-less type as its BILLBOARD in the meantime, and every KDF buildable
-   * has a `SPRITE_MAP` entry, so the worst case is a sprite that becomes a
-   * model rather than a unit that is missing.
+   * takes seconds of game time to deploy, and the GLB is fetched from the
+   * moment the art gate clears. A unit deployed before its GLB lands draws
+   * NOTHING until it does -- no sprite placeholder since WP-A3.3 (the lead's
+   * ruling 1) -- and its dock tile shows a "deploying" chip meanwhile
+   * (`meshReady`). Measuring the alternative (loading every buildable before
+   * deploy) is in the PR for the lead.
    */
   const meshDeferred = mission?.resources
     ? new Set(
@@ -1817,23 +1871,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  asked of the renderer: `ThreeRenderer` exposes no "is this loaded" read,
    *  and this file is the only thing that calls the loaders. */
   const meshLoaded = new Set<string>([...meshPlan.rigged, ...meshPlan.vehicles]);
-  /** Type ids whose deferred mesh failed, surfaced beside `failedArt`. */
+  /** Unit type ids whose mesh failed (boot or deferred), for the HUD note. */
   const failedMesh: string[] = [];
-  /** Starts one structure type's WRECK mesh, or null on a backend with no
-   *  mesh path. Assigned in the three branch beside `ensureUnitMesh`, for
-   *  the same reason: `three` is in scope only there, and this file is the
-   *  only thing that calls the loaders. Deferred to after the first frame --
-   *  see the call site below `loading.done()`. */
-  let wreckMeshLoader: ((structureId: string) => void) | null = null;
-  /** Load one unit type's mesh if it has one and has not been asked for yet.
-   *  Assigned only on the three backend with meshes on; a no-op on Pixi and
-   *  under `&nomesh`, where `meshPathActive` keeps the sweep off entirely. */
-  let ensureUnitMesh: (typeId: string) => void = () => {};
-  /** Whether anything on screen is drawing a mesh at all. Gates the
-   *  living-unit sweep below: with the mesh path off, EVERY type is
-   *  legitimately mesh-less and the sweep would warn about all of them once a
-   *  second forever. */
-  let meshPathActive = false;
+  /** Unit types whose mesh has LANDED (template built). A deferred buildable
+   *  is "pending" until it appears here -- the dock's deploying chip reads
+   *  it (WP-A3.3, ruling 1). Failed types never appear: they draw a proxy box
+   *  (`units/proxy-box.ts`) and are reported through `failedMesh`. */
+  const meshReady = new Set<string>([...meshPlan.rigged, ...meshPlan.vehicles]);
 
   // The map's decor layer goes to the renderer as `TERRAIN_DECOR` indices, and
   // the two enums are declared separately because @lions/render must not import
@@ -1852,184 +1896,176 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     throw new Error('decor enums have diverged between @lions/data and @lions/render');
   }
 
-  let renderer: Renderer;
-  if (rendererDecision.choice === 'three') {
-    const { ThreeRenderer } = await import('@lions/render/three');
-    // Held at its CONCRETE type only inside this branch. `renderer` stays the
-    // `Renderer` interface, so `app` still cannot reach a backend-only member
-    // anywhere else in this file -- the compiler keeps that, not a grep. But
-    // `loadMeshUnit` IS backend-only and always will be (a Pixi billboard has
-    // no mesh to load), so the honest place to call it is the one branch that
-    // already knows which backend it built.
-    const three = new ThreeRenderer(sim, opts);
-    renderer = three;
-    // Its teardown is registered HERE, the moment the WebGL context exists,
-    // not after `init()`: the mesh downloads below are awaited first, and a
-    // boot that failed on one used to throw with the context held and no
-    // disposer to give it back. Safe this early because `dispose()` works
-    // before `init()` and is idempotent, and it runs ONCE -- there is no
-    // second registration below. `teardown()` drains in reverse, so this
-    // runs after everything built on top of the renderer, the frame loop's
-    // `cancelAnimationFrame` (registered last of all) included.
+  // One backend since WP-A3.3 (the Pixi backend and `?renderer=pixi` are
+  // deleted; `?renderer=` is accepted and ignored, `sandbox-help.ts`). It
+  // still arrives by dynamic import from its own entry point, so three.js
+  // never lands in the main chunk: a static `import { ThreeRenderer } from
+  // '@lions/render'` once put its whole runtime -- 1,081 kB -- there.
+  const { ThreeRenderer } = await import('@lions/render/three');
+  // `three` is the CONCRETE type and is used only for the mesh loading below.
+  // `renderer` stays the `Renderer` interface, so `app` still cannot reach a
+  // backend-only member anywhere else in this file -- the compiler keeps that,
+  // not a grep.
+  const three = new ThreeRenderer(sim, opts);
+  const renderer: Renderer = three;
+  // Its teardown is registered HERE, the moment the WebGL context exists,
+  // not after `init()`: the mesh downloads below are awaited first, and a
+  // boot that failed on one used to throw with the context held and no
+  // disposer to give it back. Safe this early because `dispose()` works
+  // before `init()` and is idempotent, and it runs ONCE -- there is no
+  // second registration below. `teardown()` drains in reverse, so this
+  // runs after everything built on top of the renderer, the frame loop's
+  // `cancelAnimationFrame` (registered last of all) included.
+  //
+  // The CANVAS is taken off in the same breath, and that half is not
+  // redundant. `init()` puts it in the stage, and the router only clears
+  // the stage for a screen that actually MOUNTED -- `Router.unmount()`
+  // returns early at `if (!m) return` when the mount is still in flight. So
+  // a battlefield abandoned on its deploy screen left its canvas behind in
+  // the stage, under the campaign board, and the route walk photographed
+  // exactly that: two canvases where the board needs one. Measured, not
+  // assumed; a teardown that relies on the router to clean up after it is
+  // the rule this file states at the top, broken.
+  onDispose(() => {
+    three.dispose();
+    three.canvas.remove();
+  });
+  // ROSTER-DRIVEN, not the whole library. Everything below is driven by
+  // `meshPlan` above: this branch loads the meshes for the unit types this
+  // mission or sandbox can actually field, the buildings its map actually
+  // stands, and the decor families its terrain can actually place.
+  //
+  // Before this, the block here was ~300 lines of hand-written calls that
+  // ran for every mission alike -- measured, in a production build served
+  // from disk, at 65 GLB fetches and 40.04 MiB regardless of what was on
+  // the map. `tel_marum_1_recon` fields nine unit types and downloaded all
+  // thirty. The catalogue those calls became is `./mesh-catalogue`, whose
+  // header carries the reasoning that used to live here: which faction
+  // each rigged mesh is shaded through and why that is a design call
+  // rather than a naming heuristic, why five Meshy assets cannot share the
+  // "team id == unit type id == file basename" convention, why civilians
+  // are four variants of one type in a fixed order, and which three
+  // shipped GLBs are deliberately never loaded.
+  //
+  // `meshUrl` keeps the `new URL(..., import.meta.url)` template form Vite
+  // rewrites into a glob, so `vite-plugin-asset-watch.ts` (GH-147) still
+  // finds and watches all six mesh directories.
+  //
+  // A UNIT mesh that fails does not fail the boot (WP-A3.3, ruling 2): the
+  // renderer logs a console.error naming the GLB and draws that type as a
+  // team-coloured proxy box at its footprint (`units/proxy-box.ts`), and
+  // `failedMesh` puts it in front of the player as a HUD note. Before the
+  // billboard path was retired, the same failure quietly drew the sprite.
+  // Every OTHER asset here still propagates, as it always did -- after the
+  // teardown, like the other awaits below that can throw: a registered
+  // disposer is no use to a boot that throws past it.
+  // The renderer has already named the GLB in its own console.error.
+  const unitMeshFailed = (id: string) => (): void => {
+    meshReady.delete(id);
+    failedMesh.push(id);
+  };
+  // K-15: the blank wait. The briefing below cannot be built until the ground
+  // and the force are known, but the player can be told something is
+  // happening: the loading screen's own bar and count, one step per model.
+  const download = showDownloadProgress(stage, mission?.name ?? mission?.id ?? 'M0 sandbox');
+  onDispose(() => download.dispose());
+  const counted = <T>(job: Promise<T>): Promise<T> => job.finally(() => download.step());
+  const jobs: Promise<unknown>[] = [
+    ...meshManifest.rigged.map((m) => three.loadMeshUnit(m.id, m.urls, m.faction).catch(unitMeshFailed(m.id))),
+    ...meshManifest.vehicles.map((m) => three.loadVehicleMesh(m.id, m.url).catch(unitMeshFailed(m.id))),
+    // Building meshes: the STANDING state only, for the structure types
+    // this map actually stands. `colour_key`/`wallColorKey` is resolved
+    // inside `loadBuildingMesh` itself off `Sim.structureTypes[...].color`
+    // -- nothing here needs to know it.
     //
-    // The CANVAS is taken off in the same breath, and that half is not
-    // redundant. `init()` puts it in the stage, and the router only clears
-    // the stage for a screen that actually MOUNTED -- `Router.unmount()`
-    // returns early at `if (!m) return` when the mount is still in flight. So
-    // a battlefield abandoned on its deploy screen left its canvas behind in
-    // the stage, under the campaign board, and the route walk photographed
-    // exactly that: two canvases where the board needs one. Measured, not
-    // assumed; a teardown that relies on the router to clean up after it is
-    // the rule this file states at the top, broken.
-    onDispose(() => {
-      three.dispose();
-      three.canvas.remove();
-    });
-    if (wantMesh) {
-      // ROSTER-DRIVEN, not the whole library. Everything below is driven by
-      // `meshPlan` above: this branch loads the meshes for the unit types this
-      // mission or sandbox can actually field, the buildings its map actually
-      // stands, and the decor families its terrain can actually place.
-      //
-      // Before this, the block here was ~300 lines of hand-written calls that
-      // ran for every mission alike -- measured, in a production build served
-      // from disk, at 65 GLB fetches and 40.04 MiB regardless of what was on
-      // the map. `tel_marum_1_recon` fields nine unit types and downloaded all
-      // thirty. The catalogue those calls became is `./mesh-catalogue`, whose
-      // header carries the reasoning that used to live here: which faction
-      // each rigged mesh is shaded through and why that is a design call
-      // rather than a naming heuristic, why five Meshy assets cannot share the
-      // "team id == unit type id == file basename" convention, why civilians
-      // are four variants of one type in a fixed order, and which three
-      // shipped GLBs are deliberately never loaded.
-      //
-      // `meshUrl` keeps the `new URL(..., import.meta.url)` template form Vite
-      // rewrites into a glob, so `vite-plugin-asset-watch.ts` (GH-147) still
-      // finds and watches all six mesh directories.
-      //
-      // Errors propagate, as they did before: `loadMeshUnit`'s own doc comment
-      // says a missing or malformed GLB fails loudly for this caller to
-      // report, and swallowing it would leave a unit type silently absent.
-      // After the teardown, like the other awaits below that can throw: a
-      // registered disposer is no use to a boot that throws past it, and
-      // this one used to leave the context alive until GC.
-      await Promise.all([
-        ...meshManifest.rigged.map((m) => three.loadMeshUnit(m.id, m.urls, m.faction)),
-        ...meshManifest.vehicles.map((m) => three.loadVehicleMesh(m.id, m.url)),
-        // Building meshes: the STANDING state only, for the structure types
-        // this map actually stands. `colour_key`/`wallColorKey` is resolved
-        // inside `loadBuildingMesh` itself off `Sim.structureTypes[...].color`
-        // -- nothing here needs to know it.
-        //
-        // `null` for the wreck, deliberately: it is fetched after the first
-        // frame instead (below, beside `spritePlan.after`). Level load time,
-        // step 3 -- on `beit_sahwan_outskirts` the five wreck GLBs are 9.62
-        // MiB of a 47.0 MiB level and `hall_wreck` alone is 3.77, while the
-        // earliest a building can fall is minutes of play away.
-        ...meshManifest.buildings.map((m) => three.loadBuildingMesh(m.id, m.url, null)),
-        // The three shared VFX meshes (`units/muzzle-flash.ts`,
-        // `units/explosion-burst.ts`, `units/smoke-plume.ts`). Not keyed by
-        // anything and wanted by every mission -- 0.46 MiB for the set, so
-        // there is nothing to gain by making them conditional. Each falls back
-        // to its authored particle layer until it resolves.
-        three.loadMuzzleFlashMesh(meshUrl(VFX_MESHES.muzzleFlash)),
-        three.loadExplosionBurstMesh(meshUrl(VFX_MESHES.explosionBurst)),
-        three.loadSmokePlumeMesh(meshUrl(VFX_MESHES.smokePlume)),
-        // Decor: one call for the whole set, so it is one entry rather than a
-        // spread. `<family>_<variant>` keys, not unit type ids -- nothing in
-        // the sim has a "bush", which is the point.
-        three.loadDecorMeshes(meshManifest.decor),
-        // Props (ground plan 2): one call for the kit, keyed by kind. Empty on
-        // a map with no road and no building tile (`propKindsFor`), which
-        // loads nothing and places nothing.
-        three.loadPropMeshes(meshManifest.props),
-      ]).catch((err: unknown) => {
-        teardown();
-        throw err;
-      });
+    // `null` for the wreck, deliberately: it is fetched after the first
+    // frame instead (below, `afterFirstFrame`). Level load time,
+    // step 3 -- on `beit_sahwan_outskirts` the five wreck GLBs are 9.62
+    // MiB of a 47.0 MiB level and `hall_wreck` alone is 3.77, while the
+    // earliest a building can fall is minutes of play away.
+    ...meshManifest.buildings.map((m) => three.loadBuildingMesh(m.id, m.url, null)),
+    // The three shared VFX meshes (`units/muzzle-flash.ts`,
+    // `units/explosion-burst.ts`, `units/smoke-plume.ts`). Not keyed by
+    // anything and wanted by every mission -- 0.46 MiB for the set, so
+    // there is nothing to gain by making them conditional. Each falls back
+    // to its authored particle layer until it resolves.
+    three.loadMuzzleFlashMesh(meshUrl(VFX_MESHES.muzzleFlash)),
+    three.loadExplosionBurstMesh(meshUrl(VFX_MESHES.explosionBurst)),
+    three.loadSmokePlumeMesh(meshUrl(VFX_MESHES.smokePlume)),
+    // Decor: one call for the whole set, so it is one entry rather than a
+    // spread. `<family>_<variant>` keys, not unit type ids -- nothing in
+    // the sim has a "bush", which is the point.
+    three.loadDecorMeshes(meshManifest.decor),
+    // Props (ground plan 2): one call for the kit, keyed by kind. Empty on
+    // a map with no road and no building tile (`propKindsFor`), which
+    // loads nothing and places nothing.
+    three.loadPropMeshes(meshManifest.props),
+  ];
+  download.total(jobs.length);
+  await Promise.all(jobs.map(counted))
+    .catch((err: unknown) => {
+      teardown();
+      throw err;
+    })
+    // Whether it landed or failed: the failure card (K-01) or the briefing
+    // takes the stage next, and neither should find this screen under it.
+    .finally(() => download.dispose());
 
-      // The late arrivals. `loadMeshUnit`/`loadVehicleMesh` are safe to call
-      // after the first frame -- both replace a template and tear down every
-      // live clone of it first -- and `updateUnits`' own
-      // `meshUnitTemplates.has(type.id)` guard means a type with no template
-      // yet draws its BILLBOARD rather than nothing, so a mesh arriving late
-      // is a sprite becoming a model, never a hole in the battlefield. The one
-      // type that has no billboard is `civilians`, and it is never deferred:
-      // `missionUnitTypes` puts it in the blocking set above whenever a
-      // mission fields any.
-      meshPathActive = true;
-      ensureUnitMesh = (typeId: string): void => {
-        // A mesh started before the player left would otherwise be handed to a
-        // disposed renderer whenever it lands. Guarded at the start AND in the
-        // handler: `loadMeshUnit` is a fetch plus a GLTF parse, so the window
-        // between the two is seconds wide on a cold cache.
-        if (disposed || !hasUnitMesh(typeId) || meshLoaded.has(typeId)) return;
-        meshLoaded.add(typeId);
-        const rigged = RIGGED_UNIT_MESHES[typeId];
-        const job = rigged
-          ? three.loadMeshUnit(typeId, rigged.files.map(meshUrl), rigged.faction)
-          : three.loadVehicleMesh(typeId, meshUrl(VEHICLE_UNIT_MESHES[typeId]));
-        job.catch((err: unknown) => {
-          if (disposed) return;
-          console.warn(`[lions] mesh FAILED for ${typeId}:`, err);
-          failedMesh.push(typeId);
-        });
-      };
-      // The wreck half of every building this map stands, started after the
-      // first frame. Failing is survivable in the strongest sense available
-      // here: the type simply keeps the procedural wreck `updateStructures`
-      // is already drawing for it, so the warning is the whole cost.
-      wreckMeshLoader = (structureId: string): void => {
-        const files = BUILDING_MESHES[structureId];
-        // The longest-latency load in the boot -- 9.6 MiB of collapsed masonry
-        // that nobody is waiting for -- and therefore the one most likely to
-        // land after a leave.
-        if (disposed || !files) return;
-        three.loadBuildingWreckMesh(structureId, meshUrl(files.wreck)).catch((err: unknown) => {
-          if (disposed) return;
-          console.warn(`[lions] building wreck mesh FAILED for ${structureId}:`, err);
-          failedMesh.push(`${structureId}_wreck`);
-        });
-      };
-    }
-  } else {
-    // Same shape as the three branch above: PixiRenderer's own entry point,
-    // reached only when actually chosen, so pixi.js never lands in this
-    // file's static module graph.
-    const { PixiRenderer } = await import('@lions/render/pixi');
-    renderer = new PixiRenderer(sim, opts);
-    if (wantMesh) {
-      // The `&tunel` lesson, applied to a flag that is real but backend-only:
-      // `&mesh` on the Pixi backend otherwise does nothing at all, silently,
-      // and reads as a broken feature rather than as a missing `?renderer=
-      // three`. Warn by name, the way `unknownParams` warns for a typo.
-      console.warn('&mesh needs ?renderer=three — the Pixi backend has no mesh path; ignoring it');
-    }
-    if (wantDecals) {
-      // Same lesson again: `RendererOptions.decalShowcase` is three-only
-      // (`api.ts`) and `PixiRenderer` ignores it outright, so `&decals` on
-      // this backend would otherwise stamp nothing and say nothing.
-      console.warn('&decals needs ?renderer=three — the Pixi backend has no decal path; ignoring it');
-    }
-  }
+  // The late arrivals. `loadMeshUnit`/`loadVehicleMesh` are safe to call
+  // after the first frame -- both replace a template and tear down every
+  // live clone of it first. Until one lands, a unit of that type draws
+  // NOTHING (WP-A3.3, ruling 1: no sprite placeholder any more); the dock
+  // tile carries a "deploying" chip meanwhile (`meshReady`, below). If it
+  // FAILS, the renderer draws a proxy box and `failedMesh` reports it.
+  // `civilians` is never deferred: `missionUnitTypes` puts it in the
+  // blocking set above whenever a mission fields any.
+  const ensureUnitMesh = (typeId: string, cold = false): void => {
+    // A mesh started before the player left would otherwise be handed to a
+    // disposed renderer whenever it lands. Guarded at the start AND in the
+    // handler: `loadMeshUnit` is a fetch plus a GLTF parse, so the window
+    // between the two is seconds wide on a cold cache.
+    if (disposed || !hasUnitMesh(typeId) || meshLoaded.has(typeId)) return;
+    meshLoaded.add(typeId);
+    const rigged = RIGGED_UNIT_MESHES[typeId];
+    // `cold` (GH-469): a deferred buildable's textures stay encoded until the
+    // player orders one (`warmUnitMesh`, per tick below) -- most are never
+    // ordered, and each costs 16-48 MiB decoded.
+    const job = rigged
+      ? three.loadMeshUnit(typeId, rigged.files.map(meshUrl), rigged.faction, { cold })
+      : three.loadVehicleMesh(typeId, meshUrl(VEHICLE_UNIT_MESHES[typeId]), { cold });
+    job.then(
+      () => {
+        if (!disposed) meshReady.add(typeId);
+      },
+      () => {
+        // The renderer has already named the GLB in a console.error.
+        if (disposed) return;
+        failedMesh.push(typeId);
+      }
+    );
+  };
+  // The wreck half of every building this map stands, started after the
+  // first frame. Failing is survivable in the strongest sense available
+  // here: the type simply keeps the procedural wreck `updateStructures`
+  // is already drawing for it, so the warning is the whole cost.
+  const wreckMeshLoader = (structureId: string): void => {
+    const files = BUILDING_MESHES[structureId];
+    // The longest-latency load in the boot -- 9.6 MiB of collapsed masonry
+    // that nobody is waiting for -- and therefore the one most likely to
+    // land after a leave.
+    if (disposed || !files) return;
+    three.loadBuildingWreckMesh(structureId, meshUrl(files.wreck)).catch((err: unknown) => {
+      if (disposed) return;
+      console.warn(`[lions] building wreck mesh FAILED for ${structureId}:`, err);
+      failedMesh.push(`${structureId}_wreck`);
+    });
+  };
   // Left during the mesh download (or the backend's import). Everything
   // below until the next abandon check -- the loading screen, `init()` --
   // would otherwise run for a screen the player has gone from: measured,
   // `init()` appended the battlefield's canvas into the NEXT screen's stage
   // and fetched five ground textures before that check tore it down.
   if (req.signal.aborted) abandon('left while the meshes were downloading');
-  // The same lesson again, for the one unit type with no billboard to fall
-  // back on. `civilians` is absent from `SPRITE_MAP` by design (the four
-  // figures are mesh-only), so on Pixi or under `&nomesh` the crowd is spawned,
-  // walks, is shot at and evacuates while drawing NOTHING -- which reads as
-  // `&civ` being broken rather than as the wrong backend. The flag still does
-  // everything else it says: this warns, it does not refuse.
-  if (wantCiv && !meshPathActive) {
-    console.warn(
-      '&civ draws nothing without the mesh path — civilians have no billboard ' +
-        '(no SPRITE_MAP entry). Use ?renderer=three without &nomesh to see them.'
-    );
-  }
 
   // The map's decor layer -- road, olive grove, rocky knoll -- goes straight to
   // the renderer. It deliberately does NOT travel through the sim: whether a tile
@@ -2052,6 +2088,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       primary: o.primary,
       carries: o.carries ?? false,
       status: 'active',
+      clock: objectiveClock(o) ?? undefined,
     })
   );
   // The same gate `main.ts` puts on `payMission` below (`mission.ledger.
@@ -2073,6 +2110,43 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // Up before the canvas exists, so the player never sees the terrain draw
   // itself in or the units stand around as procedural boxes waiting for their
   // sheets. It comes down once the art gate below has settled.
+  // The Field order briefing (GH-417, direction A): the glance card, the
+  // marked ground and the attached units, every one DERIVED from what the
+  // mission already declares (ruling L-3). A sandbox has no mission and keeps
+  // the plain screen.
+  const briefPlaces = placeNamesFor(map, structureCatalogue as Readonly<Record<string, { name: string } | undefined>>);
+  const field: FieldOrder | undefined = resolvedMission
+    ? (() => {
+        const m = resolvedMission;
+        const mapMeta = m.map as { time_of_day?: string; player_start?: number[] };
+        const sections = briefingLayout(mission)?.sections ?? null;
+        const glanceObjectives = m.objectives.map((o) => ({ type: o.type, primary: o.primary, carries: o.carries, text: o.text, seconds: o.seconds, target: o.target }));
+        return {
+          glance: briefingGlance({
+            mapName: (mapJson as { name?: string }).name,
+            timeOfDay: mapMeta.time_of_day,
+            targetMinutes: (m as { target_minutes?: number }).target_minutes,
+            beats: m.briefing ? briefingBeats(m.briefing) : [],
+            sections,
+            objectives: glanceObjectives,
+            roe: m.roe,
+            zoneName: briefPlaces.zone,
+          }),
+          marks: groundMarks({
+            playerStart: mapMeta.player_start,
+            zones: (mapJson as { zones?: Record<string, number[]> }).zones ?? {},
+            // In the order the briefing's objective list draws them: primaries first, stable.
+            objectives: [...glanceObjectives].sort((a, b) => Number(b.primary) - Number(a.primary)),
+            flaggedZones: m.roe?.flagged_zones,
+            zoneName: briefPlaces.zone,
+          }),
+          attached: (m.starting_force ?? [])
+            .filter((p) => p.from_ledger !== true)
+            .map((p) => ({ type: p.unit, name: unitName(p.unit), count: p.count })),
+          unitName,
+        };
+      })()
+    : undefined;
   const loading = showLoading(
     stage,
     mission?.name ?? mission?.id ?? 'M0 sandbox',
@@ -2099,7 +2173,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // same resolved tones the minimap paints with. The screen draws it only
     // when there are orders to read, and goes without it where the canvas has
     // no 2D context.
-    { map, tones: opts.terrainTones }
+    { map, tones: opts.terrainTones },
+    // Named sections and the image slot (GH-119). `briefingSections` returns
+    // null -- the plain beats -- unless the sections still spell the briefing,
+    // which a locale overlay translating `briefing` alone breaks on purpose.
+    briefingLayout(mission),
+    field
   );
   onDispose(() => loading.dispose());
   // The one teardown that cannot wait for this function to return.
@@ -2127,185 +2206,67 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // `ThreeRenderer` holds a WebGL context, a 4096 shadow map, every geometry
   // and material for the map, and a ResizeObserver on the canvas; its
   // teardown was registered where it was constructed, above, and loses the
-  // context. This one is PIXI's, and only the canvas half of it does
-  // anything: `dispose` is optional on the seam (`api.ts`), PixiRenderer's
-  // file is frozen and implements nothing, so a Pixi battlefield still leaks
-  // its context here. Registered after `init()` because Pixi's `canvas`
-  // does not exist before it.
-  if (rendererDecision.choice !== 'three') {
-    onDispose(() => {
-      renderer.dispose?.();
-      renderer.canvas.remove();
-    });
-  }
+  // context.
   if (req.signal.aborted) abandon('left while the renderer was starting');
   renderer.useEmitters(vfxEmitters as EmitterSpec[], paletteColor);
 
-  // Load sprite sheets for unit types that have rendered art (non-blocking).
-  // `SPRITE_MAP` itself is declared at module scope, above `main()`, because
-  // the brigade screen is its other reader: the roster resolves a portrait
-  // through the same table, so a unit's picture cannot differ between the
-  // HUD's card and that screen.
-  // Structures with art. A building has one sprite, not sixteen: it is placed
-  // with a fixed orientation under a fixed camera and never turns. Types without
-  // a sheet keep the procedural extrusion, so art lands one building at a time.
-  // Every type in data/structures.json has art, and the Marj perimeter places
-  // both '#' (concrete) and '=' (wall). `wall` is per_tile: its one sprite is
-  // stamped on every tile of the run rather than once per footprint.
-  const STRUCTURE_SPRITES: Record<string, string> = {
-    shanty: `${BASE}sprites/BLD_SHANTY/`,
-    house: `${BASE}sprites/BLD_HOUSE/`,
-    warehouse: `${BASE}sprites/BLD_WAREHOUSE/`,
-    apartment: `${BASE}sprites/BLD_APARTMENT/`,
-    concrete: `${BASE}sprites/BLD_CONCRETE/`,
-    wall: `${BASE}sprites/BLD_WALL/`,
-  };
-  // Every sheet is fetched in parallel, but the mission does not start until
-  // all of them have settled — see the gate below.
-  const artJobs: Promise<unknown>[] = [];
-  // Every id whose art failed to load, surfaced once the HUD exists (below)
-  // rather than left as a console.warn a completed loading bar buries. On
-  // Pixi a failed load still leaves the unit visible — its procedural
-  // placeholder, the pre-existing fallback for un-authored art. The three.js
-  // backend has no such fallback: a unit type whose sheet failed to load is
-  // not drawn at all, so a swallowed failure there means an entire unit type
-  // is silently invisible on the battlefield, differently on each reload
-  // (the underlying fetch race is nondeterministic). console.warn stays for
-  // developers reading the console; this array is what makes the same
-  // failure unmissable to a player.
-  const failedArt: string[] = [];
-  // Which sheets THIS boot needs, and when -- `spriteSheetPlan`'s own doc
-  // comment has the rules and the measurement behind them (61 MiB and 3,665
-  // requests of a 115 MiB level were sheets for types the mesh path draws
-  // as models). Portrait manifests are still read for every type below,
-  // because the HUD shows a face for a type whose sheet is not loaded.
-  const spritePlan = spriteSheetPlan({
-    meshPath: meshPathActive,
-    roster: meshRoster,
-    deferred: meshDeferred,
-    spriteTypes: new Set(Object.keys(SPRITE_MAP)),
-    structureTypes: meshStructures,
-    structureSprites: new Set(Object.keys(STRUCTURE_SPRITES)),
-  });
-  console.log(
-    `[lions] sheets: ${spritePlan.before.size} before deploy` +
-      (spritePlan.before.size ? ` (${[...spritePlan.before].join(', ')})` : '') +
-      `, ${spritePlan.after.size} after the first frame` +
-      (spritePlan.after.size ? ` (${[...spritePlan.after].join(', ')})` : '') +
-      `, ${spritePlan.structures.size} structure sprite(s)` +
-      (meshPathActive ? '' : ' -- no mesh path, everything loads up front')
-  );
-  // The bar counts SHEETS, so it counts what this boot actually loads --
-  // not the 2 KB portrait manifests, which would read "29 / 29 sheets" over
-  // one real sheet. A mesh-only boot reads 'meshes only' (`ui/loading.ts`).
-  loading.total(spritePlan.structures.size + spritePlan.before.size);
+  // No sprite sheets load any more (WP-A3.3): every unit and structure draws
+  // a mesh, loaded above. The loading bar has nothing to count and reads
+  // "ready" (`ui/loading.ts`).
+  loading.total(0);
 
-  for (const id of spritePlan.structures) {
-    artJobs.push(
-      renderer
-        .loadStructureSprite(id, STRUCTURE_SPRITES[id])
-        .catch((err) => {
-          console.warn(`[lions] structure sprite FAILED for ${id}:`, err);
-          failedArt.push(id);
-        })
-        .then(() => loading.step())
-    );
+  // The briefing's ground, photographed (ruling L-2): the minimap's own call,
+  // rows flipped as the minimap flips them. Every GLB the map stands was
+  // awaited above, so the town is in the picture. Optional on `Renderer` and
+  // null on anything it cannot do: the painted tiles simply stay.
+  if (field) {
+    try {
+      const shot = renderer.captureGroundAlbedo?.(BRIEFING_GROUND_PX) ?? null;
+      if (shot) loading.setGroundPhoto(new ImageData(flipRows(shot.data, shot.width, shot.height), shot.width, shot.height));
+    } catch (err) {
+      console.warn('briefing: the ground photograph failed; the painted ground stays', err);
+    }
   }
-
-  /** One unit sheet, its own failure swallowed into `failedArt` -- shared by
-   *  the deploy-gating loop below and the after-first-frame loads. */
-  const loadUnitSheet = (id: string): Promise<void> => {
-    // The deferred half of the sheet plan runs through here two frames after
-    // deploy, so this can be called -- and can resolve -- after the player has
-    // left. `loadSprites` decodes into the renderer's atlases, which is exactly
-    // the kind of touch the third rule at the top of this function names.
-    if (disposed) return Promise.resolve();
-    const { path, ...rest } = SPRITE_MAP[id];
-    return renderer.loadSprites(id, path, rest).catch((err) => {
-      if (disposed) return;
-      console.warn(`[lions] sprites FAILED for ${id}:`, err);
-      failedArt.push(id);
-    });
-  };
 
   /**
-   * The frame each unit type shows in the HUD's selection cluster (GH-153).
-   *
-   * `unitIcon` first -- the cropped icon needs no fetch at all, it is already
-   * in the bundle -- and only when a sheet has none does this fall back to
-   * fetching that sheet's own manifest and picking a frame from it the way it
-   * always has. Resolving from the manifest rather than from a filename
-   * template matters for exactly that fallback: there are already two naming
-   * conventions in `assets/sprites/` (`idle_f03_000.png` where the sheet
-   * declares clips, a bare `f03_000.png` where it does not) and a hand-kept map
-   * of which sheet is which is the `SPRITE_MAP` failure mode all over again.
-   *
-   * A type absent from here has no picture and the HUD draws its role mark on
-   * the reserved hatch instead — `civilians` is the one shipped type in that
-   * position, and a click-select can reach it.
+   * The picture each unit type shows in the HUD's selection cluster, card and
+   * dock (GH-153): its Blender portrait (`unitIcon`), resolved from the
+   * bundle with no fetch. A type with none has no picture and the HUD draws
+   * its role mark on the reserved hatch -- `civilians` is the one shipped
+   * type in that position, and a click-select can reach it. (A sprite-sheet
+   * frame was the fallback until the sheets were retired, WP-A3.3.)
    */
   const portraits: Record<string, string> = {};
-  /** Which ids in `portraits` above came from a cropped `unitIcon` rather than
-   *  a whole sheet frame -- read by the HUD and the dock to set `data-icon`. */
+  /** Which ids in `portraits` above came from `unitIcon` (a Blender portrait
+   *  or a cropped icon) rather than a whole sheet frame -- read by the HUD and
+   *  the dock to set `data-icon`. */
   const portraitIcons = new Set<string>();
+  /** The HUD selection chip's picture where it differs from `portraits`: a
+   *  figure team's ONE lead figure (GH-153; the lead's call, 2 Oct -- at
+   *  <= 48 px a team shows one man). Every larger slot reads `portraits`. */
+  const chipPortraits: Record<string, string> = {};
 
-  for (const [id, spec] of Object.entries(SPRITE_MAP)) {
-    const { path } = spec;
-    const icon = unitIcon(path);
-    if (icon !== null) {
-      portraits[id] = icon.url;
-      portraitIcons.add(id);
-    }
-    artJobs.push(
-      Promise.all([
-        spritePlan.before.has(id) ? loadUnitSheet(id) : Promise.resolve(),
-        // Its own fetch and its own failure: a manifest that 404s costs the HUD
-        // a picture, not the battlefield a unit, so it must not push onto
-        // `failedArt` and must not hold up the art gate on its own. For a type
-        // whose sheet loads, the renderer has just fetched the same URL and
-        // this is a cache hit; for the rest it is the 2 KB the portrait needs.
-        // Skipped entirely once an icon already answered the question above.
-        icon !== null
-          ? Promise.resolve()
-          : fetch(`${path}manifest.json`)
-              .then((r) => (r.ok ? (r.json() as Promise<SheetManifest>) : null))
-              .then((m) => {
-                const url = m === null ? null : portraitUrl(path, m);
-                if (url !== null) portraits[id] = url;
-              })
-              .catch((err: unknown) => {
-                console.warn(`[lions] portrait manifest FAILED for ${id}:`, err);
-              }),
-      ]).then(() => {
-        if (spritePlan.before.has(id)) loading.step();
-      })
-    );
+  for (const id of portraitIds()) {
+    const full = unitIcon(id, 'full');
+    if (full === null) continue;
+    portraits[id] = full.url;
+    portraitIcons.add(id);
+    const chip = unitIcon(id, 'chip');
+    if (chip !== null && chip.url !== full.url) chipPortraits[id] = chip.url;
   }
 
-  // The art gate. Nothing below this line — the HUD, the mission title card,
-  // the first tick — happens until the sheets are in, so the opening seconds
-  // of a mission are the real art rather than the procedural fallback that
-  // stands in for units whose sheets were never authored.
-  //
-  // Each job swallows its own rejection above, so this waits for every fetch
-  // to be *decided*, not to succeed. A sheet that 404s still lets the player
-  // in — that unit falls back to its placeholder on Pixi, or (on three.js)
-  // to not being drawn — either way far better than a permanent loading
-  // screen, and now also reported to the player once the HUD exists, via
-  // `failedArt` above.
-  await Promise.all(artJobs);
-  // The buildables, now that the art gate is behind us. Deliberately NOT
+  // The buildables, now that the blocking meshes are in. Deliberately NOT
   // awaited: these are meshes for units the player MIGHT build, and the whole
   // point of deferring them is that the mission starts without them.
   //
   // This line sits BETWEEN the two waits on purpose. Started any earlier it
-  // would compete with the sprite sheets for the gate above and delay the
-  // mission for everyone, including a player who never builds anything.
+  // would compete with the blocking meshes and delay the mission for
+  // everyone, including a player who never builds anything.
   // Started any later it would begin only when `loading.done()` returns, which
   // for a mission with a briefing is the moment the player clicks Begin --
   // throwing away the one stretch of wall-clock time in the whole boot where
   // the human is reading and the network is idle.
-  for (const id of meshDeferred) ensureUnitMesh(id);
+  for (const id of meshDeferred) ensureUnitMesh(id, true);
 
   // Waits for the player when there are orders to read; resolves at once when
   // there are none, which is every sandbox and the tutorial.
@@ -2343,12 +2304,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // (`renderer.reseed()`), and that is not optional: `renderer.init()` above
   // ran on a sim with no units in it yet, and without it the whole force drew
   // at world (0, 0) until tick 1, every vehicle threw a dust burst as it
-  // lerped out, the map stayed under full shroud until tick 3, and on
-  // `&nomesh` a mission's own structure could go undrawn. The sandbox branch
+  // lerped out, and the map stayed under full shroud until tick 3. The sandbox branch
   // spawns before `init()` and needs none of this.
   //
   // Wrapped like the await above it: this used to throw before the renderer
   // existed, and now runs after it, so a malformed mission must not strand one.
+  // GH-464: the player's orders since mission start, for a Bug note's replay
+  // (spec §4.3). In memory only, and only for a mission: a sandbox has no
+  // start a replay could rebuild.
+  const replayLog = new ReplayRecorder();
   if (resolvedMission) {
     try {
       // One ledger for the runtime and the loadout (GH-254), so the roster
@@ -2375,6 +2339,20 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           };
         },
       }, renderer);
+      // Everything `startMission` consumed, so a replay can rebuild it. The
+      // cast: TypeScript narrows `deploySelection` to its initial null, since
+      // it is assigned only inside the deploy screen's callback.
+      const picks = deploySelection as DeploySelection | null;
+      replayLog.begin({
+        mission: resolvedMission.id,
+        build: __APP_BUILD__,
+        ...(__APP_COMMIT__ === '' ? {} : { commit: __APP_COMMIT__ }),
+        seed: SIM_SEED,
+        ledger: sentLedger,
+        tiers: bootKit,
+        unlocks: [...boughtUnits],
+        deploy: picks === null ? null : [...picks.chosen],
+      });
       // Read after `startMission` has spawned the force: living side-0 units
       // by type, and how many the placements drew from the roster (R-3, R-4).
       // Only when telemetry is on -- the no-op does no work -- and a throw
@@ -2425,23 +2403,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // two waits like the deferred unit meshes: a briefing is read for seconds
   // and a wreck is minutes away, so nothing is lost by waiting.
   //
-  // Both halves fail soft and neither can draw a hole. A sheet that never
-  // arrives leaves its type on the mesh it already has; a wreck mesh that is
-  // still in flight leaves `buildingMeshWreckTemplates` without the type,
+  // It fails soft and cannot draw a hole: a wreck mesh that is still in
+  // flight leaves `buildingMeshWreckTemplates` without the type,
   // which is exactly the state in which `updateStructures` keeps drawing the
   // procedural wreck -- see `loadBuildingWreckMesh`'s own doc comment.
   const afterFirstFrame: Array<() => void> = [];
-  if (spritePlan.after.size > 0) {
-    afterFirstFrame.push(() => {
-      for (const id of spritePlan.after) void loadUnitSheet(id);
-    });
-  }
-  if (meshPathActive && wreckMeshLoader) {
-    const loadWreck = wreckMeshLoader;
-    afterFirstFrame.push(() => {
-      for (const id of meshPlan.buildings) loadWreck(id);
-    });
-  }
+  afterFirstFrame.push(() => {
+    for (const id of meshPlan.buildings) wreckMeshLoader(id);
+  });
   if (afterFirstFrame.length > 0) {
     // Guarded at BOTH hops, and neither is the frame loop. These two callbacks
     // are scheduled on their own, are not the `rafId` the disposer cancels, and
@@ -2461,8 +2430,22 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  refuge folded in (GH-279, `evacuation.ts`). What the strip, the tracker
    *  and the pause list read. NOT what `objectiveZonesFor` reads: the refuge
    *  is never drawn in the 3D world (the lead's ruling). */
+  // GH-345: objectives authored `clock: false` (First Light's relief hold)
+  // keep their countdown out of the strip; read once, it is mission data.
+  const clockless = clocklessObjectives(
+    (mission?.objectives ?? []) as readonly { id: string; clock?: boolean }[]
+  );
   const liveObjectives = () =>
-    runtime ? withEvacuationProgress(runtime.objectiveList, evacTargets, evacuatedSoFar, refugeAt) : [];
+    runtime
+      ? withoutHiddenClocks(
+          withOutsideCounts(
+            withEvacuationProgress(runtime.objectiveList, evacTargets, evacuatedSoFar, refugeAt),
+            map.zones,
+            (zone) => unitsJustOutside(sim.state, sim.entityCount, zone)
+          ),
+          clockless
+        )
+      : [];
   const getMission = (): MissionView | null =>
     runtime && mission
       ? {
@@ -2488,6 +2471,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // accumulator is fed, never the tick itself (invariant 1 — the sim is 20 Hz
   // whatever this says, and a replay at 2x produces the same state hash).
   let gameSpeed = 1;
+  // PA-07: the held beat between the mission's end and the report. While it
+  // is set the tick accumulator is held (the mission has ended; the sim is
+  // never slowed and never ticked by the beat), the renderer's presentation
+  // time eases down and the camera eases to the deciding ground
+  // (`ui/outcome-beat.ts`). Cleared when the moment hands over.
+  let beat: { t0: number; reduced: boolean; from: BeatCamera; focus: { x: number; y: number } | null } | null = null;
   // BattleAudio keeps `muted` private and reports the new state from
   // `toggle()`, so the strip's chip reads this mirror rather than the mixer.
   // Seeded from the mixer rather than `false`: the mute is remembered across
@@ -2570,6 +2559,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     halt: () => {
       const mine = renderer.selection.filter((i) => sim.state.side[i] === 0);
       if (mine.length) dispatch({ kind: 'halt', ids: mine });
+      const none = haltNote(mine.length);
+      if (none) hud.note(none.text, none.tone);
     },
     smoke: () => armOrder('smoke'),
     load: () => runVerb('mount'),
@@ -2704,14 +2695,82 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // immediately un-showing it would teach the player nothing.
   const settingsStore = safeStorage();
   const seen = loadSeen(settingsStore);
+  /** WP-P5: did this session show the order-row line (`hintFor`)? */
+  let showedOrderRowHint = false;
+  // GH-345 follow-up: first-use one-liners for the lessons the nine-beat
+  // tutorial cut (`data/hints/first_use.json`, `ui/hint-rules.ts`). Never in
+  // the tutorial itself and never in a sandbox, so a sandbox walk cannot spend
+  // a player's one showing. A line counts as shown, and is remembered, once it
+  // has been the hint line for six seconds running -- the dock's own hint
+  // included, which used to stay up until the key was pressed.
+  const hintsSeen = loadHintsSeen(settingsStore);
+  const hintTimer = createShownTimer(6000);
+  const contextualHint = () => {
+    if (mission === undefined || mission.id === 'beit_sahwan_0_tutorial') return null;
+    const sel = renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
+    const ctx: HintContext = {
+      missionId: mission.id,
+      hasResources: mission.resources !== undefined,
+      selectedCount: sel.length,
+      selectedTypes: () => new Set(sel.map((i) => sim.unitTypes[sim.state.typeIdx[i]].id)),
+      forceSize: () => {
+        let n = 0;
+        for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0 && sim.state.alive[i] === 1) n++;
+        return n;
+      },
+      carrierEmptySeat: () =>
+        sel.some((i) => {
+          const slots = sim.unitTypes[sim.state.typeIdx[i]].transportSlots;
+          return slots > 0 && sim.passengerCount(i) < slots;
+        }),
+      enemyPinned: () => {
+        for (let i = 0; i < sim.entityCount; i++) {
+          if (sim.state.side[i] === 1 && sim.state.alive[i] === 1 && sim.state.pinned[i] === 1) return true;
+        }
+        return false;
+      },
+    };
+    const r = owedRule(firstUseHints, hintsSeen, ctx);
+    return r ? { key: r.key, id: r.id, ...(r.keys ? { keys: r.keys } : {}) } : null;
+  };
 
+  // GH-345: the HUD disclosure set. Seeded from the mission's own
+  // `hud.hidden` (everything, for every mission that declares none);
+  // `refreshHudShown` below folds a running tutorial in once one exists.
+  // Read by the Hud, the minimap, the dock, the group bar and the two
+  // keyboard paths those surfaces own (production, ctrl+N), so a hidden
+  // surface is inert everywhere at once.
+  // GH-345: names for the places Conduct deductions mention -- a flagged
+  // zone's structure ("Clinic"), a destroyed structure's catalogue name.
+  const placeNames: PlaceNames = placeNamesFor(
+    map,
+    structureCatalogue as Readonly<Record<string, { name: string } | undefined>>
+  );
+  let hudShown: ReadonlySet<HudElement> = hudVisibility(null, null, (mission ?? null) as MissionHudJson | null);
+  const isShown = (el: HudElement): boolean => hudShown.has(el);
+
+  /** The cursor `updateHover` last chose, bare (no badge). The fire panel
+   *  reads it to say what a right-click there does (PA-08), so its line and
+   *  the cursor are one decision rather than two that could disagree. */
+  let hoverCursorName: CursorName = 'default';
+  // Pass C2/C4 (D3): when each unit went to ground, off the sim's own
+  // `pinned` events, for the card's break clock.
+  const pinnedSince = new PinnedSince();
   const hud = new Hud(document.body, {
     sim,
+    isShown,
+    pinnedTicks: (id) => pinnedSince.ticksPinned(id, sim.tickCount),
+    // GH-345: the running Conduct invoice, worded from the sim's own reasons.
+    conductInvoice: () => ({ lines: invoiceLines(deductions, placeNames), floor: mission?.roe?.fail_below }),
     getSelection: () => renderer.selection,
     getMission,
     hoverStructure: () => renderer.hoverStructure,
     hoverEntity: () => renderer.hoverEntity,
+    hoverCursor: () => hoverCursorName,
     gameVersion: __GAME_VERSION__,
+    // PA-25: a sandbox's strip names the map it walks, as a mission's names
+    // the mission; the same name the Free Play picker lists it by.
+    placeName: mission ? undefined : mapJson.name,
     commander: hudCommander,
     orders,
     armedOrder: () => armedOrder,
@@ -2721,7 +2780,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // reads the same table) is closed over rather than copied, so a rebind
     // repaints the button the next time the HUD ticks.
     keyFor: (id) => (isAction(id) ? keyLabel(bindings[id]) : id),
-    portrait: (typeId) => portraits[typeId] ?? null,
+    portrait: (typeId, slot) => (slot === 'chip' ? chipPortraits[typeId] : undefined) ?? portraits[typeId] ?? null,
     portraitIsIcon: (typeId) => portraitIcons.has(typeId),
     kitOf: (typeId) => kitByType.get(typeId) ?? null,
     kitLevelOf,
@@ -2764,20 +2823,34 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // document, and the disposer registered below is what makes that safe --
     // before it, a soft leave left the HUD, the minimap and the frame loop
     // running over whatever screen came next.
-    leave: () => req.navigate(routes.campaign()),
+    leave: () => req.navigate(leaveHref(!mission)),
+    freePlay: !mission,
     openObjectives,
     // Task 9: facts only the shell has, handed to the pure priority list in
     // `hint-model.ts`. `renderer.hoverEntity >= 0` is the same "over a
     // hostile" signal the cursor resolver already reads further down
     // (`hints.hostile`) -- one definition of "hovering a hostile" for both.
-    hint: () =>
-      hintFor({
+    hint: () => {
+      const line = hintFor({
         selected: renderer.selection.length,
         hoveringHostile: renderer.hoverEntity >= 0,
         sawProjectedFire: seen.projectedFire,
         sawDock: seen.dock,
         dockAvailable: mission?.resources !== undefined,
-      }),
+        contextual: contextualHint(),
+        sawOrderRow: seen.orderRow,
+      });
+      if (line?.key === 'hud.hint.selected') showedOrderRowHint = true;
+      const shown = hintTimer.tick(line?.id ?? null, performance.now());
+      if (shown === 'dock') {
+        seen.dock = true;
+        markSeen(settingsStore, 'dock');
+      } else if (shown !== null) {
+        hintsSeen.add(shown);
+        markHintSeen(settingsStore, shown);
+      }
+      return line;
+    },
     // Marked on USE, not on the hint merely showing -- see `hint-model.ts`'s
     // own header for why showing it once would teach nobody. `renderFire`
     // (hud.ts) calls this once per three-tick streak; `case 'production':`
@@ -2789,6 +2862,19 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   });
   // Six panes on `document.body`, plus a title card that may still be holding.
   onDispose(() => hud.destroy());
+  // Pass K: a /free-play/<id> link naming no shipped map still loads the
+  // default ground (a typo in a dev URL should not look like a broken build),
+  // but the PLAYER is told, by name -- it used to be a console line only, and
+  // the sandbox strip names no map, so a different battlefield just appeared.
+  const unknownMap = unknownSandboxMapNotice(sandboxMap, maps, mapJson.name);
+  if (unknownMap) hud.note(...unknownMap, { tier: 'important' });
+  // WP-P5 (PA-16): a session that showed the order-row line has done its
+  // teaching, so the next one does not show it. Marked on LEAVING rather than
+  // on first sight, so the line stays for the whole of that first session --
+  // retiring it mid-mission would be a line that vanished for no reason.
+  onDispose(() => {
+    if (showedOrderRowHint && !seen.orderRow) markSeen(settingsStore, 'orderRow');
+  });
 
   // Unit voices (WP-AU1 §7). Read-only on the sim (invariant 4): `look` and
   // `onTick` only read state and events the sim already produced. Its intents
@@ -2813,17 +2899,29 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // instead of the ordinary line.
       isPinned: (id) => isPinned(sim.state, id),
     },
-    play: (cue) => audio.playVoice({ key: cue.key, priority: cue.priority, at: cue.at ?? undefined }),
-    caption: (text, seconds) => {
-      if (req.settings.get().accessibility.captions) hud.caption(text, seconds);
+    play: (cue) => audio.playVoice({ key: cue.key, priority: cue.priority, at: cue.at ?? undefined, delayS: cue.delayS }),
+    // A bark follows the captions setting; an announcement shows always
+    // (polish pass F, A5) -- it is mission information, and a Hebrew line
+    // nobody understands is noise.
+    caption: (text, seconds, always) => {
+      if (always === true || req.settings.get().accessibility.captions) hud.caption(text, seconds);
     },
+    // AU-5: a line cut short, or the verdict, takes its caption with it.
+    clearCaption: () => hud.clearCaption(),
     info: import.meta.env.DEV ? (m) => console.info(m) : () => {},
-    text: (k) => t(k),
+    text: (k, params) => t(k, params),
     noted: voiceNoted,
+    // GH-110: the EVA half. The radio net speaks the player faction's
+    // language; captions carry it until a line is recorded (D5).
+    announcements: (audioManifest as AudioManifest).voices?.announcements,
+    announceLang: voiceLangs['kdf'] ?? 'he',
+    labelOf: (id) => mission?.objectives.find((o) => o.id === id)?.text ?? id,
   });
   onDispose(() => {
     voice.dispose();
-    audio.stopVoices();
+    // Every voice, every cue hold, the ambience bed, and the music back to
+    // the menu's level.
+    audio.leaveMission();
   });
 
   // Task 6: the pause menu. `pause`/`resume` are the only two writers of
@@ -2837,9 +2935,48 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // (`case 'pause':` no longer resumes at all, see there), but idempotence
   // stays right: the modal's own Escape and its Resume button both still
   // reach `resume`, and either can fire first.
+  // GH-464: feedback. One session per boot -- the gate, who a note is sent
+  // as, the client -- and the pause menu's tab and the debrief's prompt
+  // appear only when it says so. `fbWhere` reads the live world for a note's
+  // context at the moment it is SENT, read-only (invariant 4).
+  const fb: FeedbackSession = browserFeedbackSession();
+  const fbWhere = (): SessionNote['where'] => {
+    const s = req.settings.get();
+    let alive = 0;
+    const fielded = new Set<string>();
+    for (let i = 0; i < sim.entityCount; i++) {
+      if (sim.state.side[i] !== 0 || sim.state.alive[i] !== 1) continue;
+      alive++;
+      fielded.add(sim.unitTypes[sim.state.typeIdx[i]].id);
+    }
+    const selected = new Set<string>();
+    for (const i of renderer.selection) {
+      if (i >= 0 && i < sim.entityCount) selected.add(sim.unitTypes[sim.state.typeIdx[i]].id);
+    }
+    const input: ContextInput = {
+      ...shellContextInput(s),
+      paused,
+      force: { alive, lost: Object.values(runtime?.lostByType() ?? {}).reduce((a, b) => a + b, 0), fielded: [...fielded], selected: [...selected] },
+      camera: { x: renderer.camera.x, y: renderer.camera.y, zoom: renderer.camera.zoom },
+      feed: hud.feedLines(),
+    };
+    if (runtime) {
+      input.objectives = runtime.objectiveList.map((o) => ({ id: o.id, status: o.status, primary: o.primary }));
+      input.conduct = runtime.roeScore;
+    }
+    if (mission) input.floor = starRoeFloor(mission.roe?.fail_below);
+    return {
+      context: collectContext(input),
+      ...(mission ? { mission: mission.id } : {}),
+      map: mapId,
+      tick: sim.tickCount,
+    };
+  };
   const pause = (): void => {
     if (paused) return;
     paused = true;
+    // The mix's pause row: every voice stops, the music steps 6 dB down.
+    audio.setPaused(true);
     // Repainted here, not on the next tick: at `paused` no tick ever comes,
     // so a strip that waits for one never dims.
     hud.paintSpeed();
@@ -2870,22 +3007,53 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       onQuit: () => {
         // Same wording as the HUD's own "leave the mission" confirm
         // (hud.ts's leaveBtn) -- both ask the identical question.
+        const leaveText = leaveCopy(!mission);
         void confirmDialog(document.body, {
-          title: t('hud.leave.confirm.title'),
-          body: t('hud.leave.confirm.body'),
-          confirm: t('hud.leave.confirm.action'),
+          title: leaveText.title,
+          body: leaveText.body,
+          confirm: leaveText.confirm,
           danger: true,
         }).answer.then((ok) => {
-          if (ok) req.navigate(routes.campaign());
+          if (ok) req.navigate(leaveHref(!mission));
         });
       },
       settings: req.settings,
       build: __APP_BUILD__,
+      feedback:
+        fb.shown && !feedbackClosed()
+          ? {
+              who: fb.who,
+              build: fb.build,
+              storage: fb.storage,
+              ...(mission ? { where: { mission: mission.name ?? mission.id, clock: missionClock(sim.tickCount) } } : {}),
+              // Taken when the tab first opens: the frame the player paused on.
+              picture: () => takePicture(renderer),
+              replay: {
+                available: () => replayLog.available,
+                approxBytes: () => replayLog.approxBytes,
+                log: () => replayLog.log(sim.tickCount, sim.hash()),
+              },
+              send: async (sub, signal) =>
+                fb.send(
+                  {
+                    source: 'pause',
+                    category: sub.kind,
+                    text: sub.text,
+                    ...(sub.contact === undefined ? {} : { contact: sub.contact }),
+                    where: fbWhere(),
+                    shot: sub.shot,
+                    replay: sub.replay,
+                  },
+                  { signal }
+                ),
+            }
+          : undefined,
     });
   };
   const resume = (): void => {
     if (!paused) return;
     paused = false;
+    audio.setPaused(false);
     pauseHandle?.close();
     pauseHandle = null;
     hud.paintSpeed();
@@ -2994,6 +3162,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // there must not be one.
         renderer.camera.x = x;
         renderer.camera.y = y;
+        keepOnMap();
       },
       // The SAME resolver AND the same carrying-out as the canvas
       // contextmenu below: one `issueOrder`, called twice. A minimap order
@@ -3017,24 +3186,27 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   });
   // Also on the body, and it carries its own pointer listeners and canvas.
   onDispose(() => minimap.destroy());
-  // Loud, not a console.warn behind a completed loading bar: `failedArt`
-  // (collected above, before the HUD existed to report through) names every
-  // structure or unit type whose art never loaded. One notice for the whole
-  // batch — a burst of individually-failed fetches is one incident, not one
-  // per id.
-  if (failedArt.length > 0) {
-    hud.note(t('main.note.artFailed', { n: failedArt.length, ids: failedArt.join(', ') }), 'bad');
-  }
-  /** The same notice for a mesh that arrived late and failed. Separate from
-   *  `failedArt` because it can happen minutes into a mission, long after that
-   *  one batch was decided -- a mesh load started by `ensureUnitMesh` has no
-   *  gate to be counted at. Reported once per type. */
+  // VR-01: a colour-vision change re-colours the world and the minimap at
+  // once, as `theme.css` already does the HUD. Registered here, beside the
+  // two sinks it drives, and unsubscribed by the battlefield's own disposer.
+  onDispose(bindLiveTeamColors((fn) => req.settings.onChange(fn), cvdVariant, { renderer, minimap }));
+  /** A unit mesh that failed -- at boot or arriving late -- as a HUD note,
+   *  once per type, from the 1 Hz sweep. Loud beside the renderer's own
+   *  console.error and the proxy box it draws (WP-A3.3, ruling 2). (A
+   *  `failedArt` batch note for sprite sheets stood beside this until the
+   *  sheets were retired.) */
   const reportedMeshFailures = new Set<string>();
   const reportMeshFailures = (): void => {
     for (const id of failedMesh) {
       if (reportedMeshFailures.has(id)) continue;
       reportedMeshFailures.add(id);
-      hud.note(t('main.note.meshFailed', { id }), 'bad');
+      // By the unit's NAME, never its id (PA-01). A structure or wreck id
+      // has no unit type to name it by, so it gets the scenery sentence.
+      const unitName = sim.unitTypes.find((u) => u.id === id)?.name;
+      hud.note(
+        unitName !== undefined ? t('main.note.meshFailed', { name: unitName }) : t('main.note.sceneryFailed'),
+        'bad'
+      );
     }
   };
   // The instrument, off by default now that the HUD is not built on top of it.
@@ -3059,7 +3231,20 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // Mission start punctuation: the operation names itself before the first
   // order is given. Skippable — a replay for a better ROE should not have to
   // sit through it again.
+  // Polish pass F (A10): the music steps down to the battle level as the
+  // deploy gate clears, and the start cue says the clock is running.
+  audio.setMusicScene('battle');
+  // A11: the ground's own bed fades in under it -- picked from the map
+  // (ambience.ts), stopped by the pause menu and by `leaveMission` above.
+  // SWITCHED OFF (AMBIENCE_ENABLED, the lead's ruling 2026-10-09): null here,
+  // so no bed starts and none is fetched.
+  audio.setAmbience(ambienceBedToPlay(map));
   if (mission) {
+    audio.playCue(CRITICAL_CUES.missionStart);
+    // AU-5: no bark while the start cue and the title card own the moment.
+    voice.hush('start');
+    // Shai on the net (A4): caption-only until the line is recorded.
+    voice.onMission([], [{ event: 'mission_start' }]);
     const primaries = mission.objectives.filter((o) => o.primary !== false).length;
     // `dispatch` is the story voice (GDD §11); absent, this card behaves
     // exactly as it always has (`titleCard`'s own contract).
@@ -3079,7 +3264,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
 
   if (runtime && mission?.resources) {
     production = new ReinforcementDock(document.body, {
-      onBought: (id) => missionTelemetry?.onBought(id),
+      onBought: (id) => {
+        missionTelemetry?.onBought(id);
+        replayLog.buy(sim.tickCount, id);
+      },
+      // Ruling 1 (WP-A3.3): a deferred buildable whose GLB has not landed --
+      // or not been asked for yet -- draws nothing, so its tile says
+      // "deploying" once bought. A FAILED type is not pending: it draws a
+      // proxy box and has its own HUD note.
+      meshPending: (id) => hasUnitMesh(id) && !meshReady.has(id) && !failedMesh.includes(id),
       units: Object.values(units)
         .filter((u) => u.faction === 'kdf')
         .map((u) => {
@@ -3146,6 +3339,24 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
 
   // --- input ---------------------------------------------------------------
   const canvas = renderer.canvas;
+  // K-16: a lost graphics context used to leave a silent black canvas. Hold the
+  // battle (nothing is drawn, so nothing should play out unseen) and put the
+  // boot-failure card over it with Reload and the main menu. The listener comes
+  // off in this screen's own disposer, which also runs before the renderer's
+  // teardown releases the context on purpose -- that release must not read as
+  // a loss.
+  let contextCard: HTMLElement | null = null;
+  const unwatchContext = watchContextLoss(canvas, () => {
+    if (disposed) return;
+    console.error('[lions] the graphics context was lost mid-mission');
+    gameSpeed = 0;
+    contextCard = mountInterrupted(document.body, routes.menu());
+  });
+  onDispose(() => {
+    unwatchContext();
+    contextCard?.remove();
+    contextCard = null;
+  });
   // Left drag = box select; a short click = single select.
   const dragBox = document.createElement('div');
   dragBox.className = 'rl-marquee';
@@ -3260,12 +3471,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   });
   // Counted after `applyIntent` has run: an observer, like the voice (GH-254).
   intentListeners.push((intent) => missionTelemetry?.onIntent(intent));
+  // GH-464: and recorded, at the tick it was issued, for a Bug note's replay.
+  intentListeners.push((intent) => replayLog.record(sim.tickCount, intent));
   /** Where a resolved right-click's three effects land. Built once and passed
    *  to `issueOrder` by both pointing surfaces. */
   const orderSink: OrderSink = {
     dispatch,
     note: (text, tone) => hud.note(text, tone),
     marker: (x, y) => renderer.addOrderMarker(x, y),
+    // Polish pass F: an order that resolved to nothing says so.
+    deny: () => audio.playCue(CRITICAL_CUES.uiDeny),
   };
 
   // The tutorial gets read-only lookups, never the sim itself — it must not be
@@ -3274,9 +3489,26 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // id — the mission each entry teaches is its own `.mission` field, so the
   // match has to search by that rather than index directly by `missionId`.
   const stepList = Object.values(
-    tutorials as Record<string, { mission: string; steps: StepJson[]; completes?: string } | undefined>
+    tutorials as Record<
+      string,
+      ({ mission: string; steps: StepJson[]; completes?: string } & TutorialHudJson) | undefined
+    >
   ).find((t) => t?.mission === missionId);
   let tut: TutorialState | null = null;
+  /** GH-345: recompute the disclosure set from the tutorial as it stands.
+   *  Cheap (a set of at most eighteen), and called wherever `tut` changes. */
+  const refreshHudShown = (): void => {
+    hudShown = hudVisibility(tut, stepList ?? null, (mission ?? null) as MissionHudJson | null);
+  };
+  /** Where the camera stood when the tutorial first ticked, for beat 1's
+   *  `camera` predicate. Captured lazily on that first tick rather than at
+   *  init, so a boot-time camera placement is not counted as the player's. */
+  let tutCameraStart: { x: number; y: number } | null = null;
+  /** The last hover the tutorial was told about, projection included: an
+   *  enemy that becomes identified under a still cursor is a new fact. */
+  let lastHoverProjection: FireState | null = null;
+  /** Whether tutorial beat 9 currently holds the Conduct invoice open. */
+  let tutInvoiceOpen = false;
   let telemetryTutIndex = -1;
   let tutPanel: TutorialPanel | null = null;
   // Companions for the hover dispatch in `updateHover`: it runs every frame,
@@ -3294,9 +3526,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     (tutorialReplay || !ledgerStore.tutorialDone())
   ) {
     tut = initTutorial(stepList.steps, performance.now());
+    refreshHudShown();
     tutPanel = tutorialPanel(document.body, {
       onSkip: () => {
         tut = null;
+        refreshHudShown();
         tutPanel?.destroy();
         tutPanel = null;
         renderer.clearTutorialFocus();
@@ -3388,6 +3622,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           ok ? 'info' : 'mute'
         );
         if (ok) renderer.addOrderMarker(w.x, w.y);
+        else audio.playCue(CRITICAL_CUES.uiDeny);
         production?.setArmed(null);
         dragStart = null;
         dragBox.style.display = 'none';
@@ -3408,10 +3643,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         } else {
           const mine = myLiving();
           if (mine.length > 0) {
+            // The right-click's own point (PA-14): a building's wall is the
+            // building, here as on the contextmenu path.
+            const at = pointerPoint(renderer, sim, p.x, p.y);
             const move = resolvePointer(intentWorld, {
               ids: mine,
-              x: w.x,
-              y: w.y,
+              x: at.x,
+              y: at.y,
               append: ev.shiftKey,
               armed: null,
               confirm: ev.altKey,
@@ -3419,7 +3657,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             voice.hint({ hostile: renderer.hoverEntity >= 0 });
             for (const intent of move.intents) dispatch(intent);
             if (move.note) hud.note(move.note.text, move.note.tone);
-            if (move.marker) renderer.addOrderMarker(w.x, w.y);
+            if (move.marker) renderer.addOrderMarker(at.x, at.y);
+            if (orderDenied(move, mine.length)) audio.playCue(CRITICAL_CUES.uiDeny);
           }
         }
         dragStart = null;
@@ -3438,83 +3677,58 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     dragStart = null;
     dragBox.style.display = 'none';
   });
-  // The resolver's view of the world. One adapter, so the click and (in slice
-  // 2) the hover cursor ask the same object the same questions.
-  //
-  // Both structureAt and tunnelAt take integer tile coordinates; screenToWorld
-  // returns fractional world coordinates, so both calls floor here rather
-  // than in the sim (Math is banned in packages/sim/src — invariant 2).
-  const intentWorld: IntentWorld = {
-    structureAt: (x, y) => sim.structureAt(Math.floor(x), Math.floor(y)),
-    tunnelAt: (x, y) => sim.tunnelAt(Math.floor(x), Math.floor(y)),
-    isProtected: (s) => sim.isProtected(s),
-    structureRoePenalty: (s) => sim.structureRoePenalty(s),
-    garrisonFree: (s) => sim.garrisonFree(s),
-    canDemolish: (i) => sim.unitTypes[sim.state.typeIdx[i]].canDemolish,
-    canGarrison: (i) => sim.unitTypes[sim.state.typeIdx[i]].canGarrison,
-    canTunnelCharge: (i) => sim.unitTypes[sim.state.typeIdx[i]].canTunnelCharge,
+  // The resolver's view of the world. One adapter (`simIntentWorld`,
+  // input/pointer.ts), so the click and the hover cursor ask the same object
+  // the same questions -- and so does pointer.test.ts.
+  const intentWorld: IntentWorld = simIntentWorld(sim, (x, y) => {
     // zoneContains is shared with stepRoe's fire/strike branches (task 1) so
     // the warning here and the ROE penalty in the sim cannot drift by a tile.
-    inFlaggedZone: (x, y) => {
-      const tx = Math.floor(x);
-      const ty = Math.floor(y);
-      for (const name of mission?.roe?.flagged_zones ?? []) {
-        if (zoneContains(map.zones[name], tx, ty)) return true;
-      }
-      // The sandbox has no mission and therefore no declared no-fire ground,
-      // so `?sandbox=<map>&roe` supplies some. Without it the protected X is
-      // unreachable on four of the five shipped maps -- only
-      // wadi_halam_basin contains a civic hall.
-      for (const z of sandboxZones) {
-        if (zoneContains(z, tx, ty)) return true;
-      }
-      return false;
-    },
-  };
+    const tx = Math.floor(x);
+    const ty = Math.floor(y);
+    for (const name of mission?.roe?.flagged_zones ?? []) {
+      if (zoneContains(map.zones[name], tx, ty)) return true;
+    }
+    // The sandbox has no mission and therefore no declared no-fire ground,
+    // so `?sandbox=<map>&roe` supplies some. Without it the protected X is
+    // unreachable on four of the five shipped maps -- only
+    // wadi_halam_basin contains a civic hall.
+    for (const z of sandboxZones) {
+      if (zoneContains(z, tx, ty)) return true;
+    }
+    return false;
+  });
   /**
    * Everything the alert layer may ask about the world (`ui/alerts.ts`'s own
    * `AlertWorld`), built once beside `intentWorld` above and for the same
-   * reason: the model stays a pure function over a fixture, and this is the
-   * one adapter that knows it is looking at a real `Sim`.
-   *
-   * `posOf` reads the position of an entity that is usually DEAD -- that is
-   * the whole point of `unitLost` -- which is safe because the sim clears
-   * `alive` and leaves `posX`/`posY` where the casualty fell. The bounds
-   * guard is not defensive noise: `alertsForTick` is handed entity ids out of
-   * an event stream, and an id past `entityCount` would read `undefined` out
-   * of a typed array and turn into `NaN` through `fx.toNumber`, which draws a
-   * flash nowhere and jumps the camera to nowhere, silently.
-   *
-   * `objectiveAt` goes through `minimap.ts`'s own `objectivePoint` rather
-   * than resolving zones and markers a second time here: the camera lands on
-   * the diamond the minimap drew, by construction.
+   * reason: the model stays a pure function over a fixture. The adapter is
+   * `ui/alert-world.ts`'s since WP-P5, so a test can drive it with a real
+   * runtime; the one thing only this file has is the camera, which is what
+   * `placeOf` asks -- through the renderer's own projection, never a copy of
+   * it (CLAUDE.md), against the canvas the player is looking at.
    */
-  const alertWorld: AlertWorld = {
-    posOf: (entity) => {
-      if (entity < 0 || entity >= sim.entityCount) return null;
-      return { x: fx.toNumber(sim.state.posX[entity]), y: fx.toNumber(sim.state.posY[entity]) };
-    },
-    sideOf: (entity) => sim.state.side[entity],
-    // The same lookup the deploy panel's `broughtFor` caller uses, so a feed
-    // line and a briefing line name a unit the same way.
-    unitName: (typeId) => units[typeId as keyof typeof units]?.name ?? typeId,
-    objectiveAt: (id) => {
-      const o = runtime?.objectiveList.find((x) => x.id === id);
-      return o === undefined ? null : objectivePoint(o, map);
-    },
-  };
-  /** Carried across ticks: when each entity last made the feed. Copy-on-write
-   *  inside `alertsForTick`, so this is only ever reassigned, never mutated. */
+  const alertWorld = alertWorldFor({
+    sim,
+    runtime: () => runtime,
+    mission: resolvedMission ?? null,
+    map,
+    units: units as Readonly<Record<string, { name?: string } | undefined>>,
+    placeOf: (x, y) => placeOnScreen(renderer.worldToScreen(x, y), canvas.clientWidth, canvas.clientHeight),
+  });
+  /** Carried across ticks: when each entity last made the feed, and which
+   *  waves have been announced. Copy-on-write inside `alertsForTick`, so this
+   *  is only ever reassigned, never mutated. */
   let alertState = initAlertState();
-  /** Where the jump key goes. A plain local: it is presentation state about
-   *  the last thing worth looking at, it is read by exactly one keydown case,
-   *  and nothing outside this function has any business knowing it. */
-  let lastAlertAt: { x: number; y: number } | null = null;
+  /** Where the jump key goes: the latest important or major alert, or a
+   *  minor one while nothing heavier has happened (`nextJump`, WP-P5). A
+   *  plain local: presentation state read by exactly one keydown case. */
+  let jumpTarget: JumpTarget | null = null;
 
   canvas.addEventListener('contextmenu', (ev) => {
     ev.preventDefault();
     const rect = canvas.getBoundingClientRect();
-    const w = renderer.screenToWorld(ev.clientX - rect.left, ev.clientY - rect.top);
+    // PA-14: the point the hover cursor read, so a click on a building's
+    // upper wall orders onto the building, not the ground hidden behind it.
+    const w = pointerPoint(renderer, sim, ev.clientX - rect.left, ev.clientY - rect.top);
     // `issueOrder` rather than a resolve-and-dispatch written out here: since
     // Task 10 the minimap issues the same order from the same function, and
     // this call and that one are the whole of it.
@@ -3544,6 +3758,21 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     bindings = bindingsFrom(next.controls.bindings);
   }));
   const keys = new Set<string>();
+  /** The pan's own velocity, eased by `stepPan` in the frame loop. */
+  const panVel: PanVelocity = { right: 0, down: 0 };
+  /**
+   * Keep the camera on the map (WP-P1, PA-04): applied after every PLAYER
+   * camera move -- pan, wheel zoom, the minimap, the alert and idle-unit
+   * jumps and control-group centring -- and nowhere else. The dev and tool
+   * paths (`__lions.goto`, `__lions.camera`, a capture's own placement) set
+   * the camera exactly where they say, so a capture framed past an edge is
+   * not silently moved, and nothing clamps a camera nobody touched.
+   */
+  const keepOnMap = (): void => {
+    const c = clampCamera(renderer.camera, sim, { width: renderer.width, height: renderer.height });
+    renderer.camera.x = c.x;
+    renderer.camera.y = c.y;
+  };
   // Control groups 1–9, and double-tap tracking for camera centring.
   const groups = new Map<number, number[]>();
   let lastGroupKey = -1;
@@ -3579,6 +3808,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       }
       renderer.camera.x = cx / members.length;
       renderer.camera.y = cy / members.length;
+      keepOnMap();
     }
     lastGroupKey = slot;
     lastGroupAt = now;
@@ -3605,6 +3835,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   onDispose(() => groupsBar.dispose());
   onWindow('blur', () => keys.clear());
   onWindow('keydown', (ev) => {
+    // D18 (GH-464): a focused text field owns its keys. The pause menu's capture
+    // guard already stops them (`pause.ts`); this is the line for a field on
+    // no modal at all -- the debrief's one-line rating note -- where `h` would
+    // otherwise still halt and `w` still pan while the player types.
+    if (isTextEntry(ev.target)) return;
     // The keydown listener used to be an if-chain of literals -- one per
     // bound key, and a second copy of each letter living in
     // `selection-model.ts`'s ORDERS with nothing keeping the two in step.
@@ -3684,6 +3919,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // `production` actually existing: the key is bound whether or not
         // this mission fields a dock, and a press that did nothing must not
         // be recorded as having taught anything.
+        // GH-345: a hidden dock is inert, its key included.
+        if (!isShown('dock')) break;
         if (production) {
           seen.dock = true;
           markSeen(settingsStore, 'dock');
@@ -3706,9 +3943,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // The camera, and nothing else: no selection change, no order. The
         // key answers "what just happened, and where" -- deciding what to do
         // about it is still the player's.
-        if (lastAlertAt) {
-          renderer.camera.x = lastAlertAt.x;
-          renderer.camera.y = lastAlertAt.y;
+        if (jumpTarget) {
+          renderer.camera.x = jumpTarget.at.x;
+          renderer.camera.y = jumpTarget.at.y;
+          keepOnMap();
         } else {
           // Not padding. A key that does nothing and says nothing is
           // indistinguishable from a key that is broken -- the lesson the
@@ -3749,6 +3987,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           dispatch({ kind: 'select', ids: [id], via: 'click' });
           renderer.camera.x = fx.toNumber(sim.state.posX[id]);
           renderer.camera.y = fx.toNumber(sim.state.posY[id]);
+          keepOnMap();
         } else {
           // Same "say why" rule as the jump key just above: nothing found
           // and nothing said is indistinguishable from a broken key.
@@ -3854,7 +4093,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
 
     // Control groups: Ctrl/Cmd+digit assigns the selection, digit recalls it,
     // double-tap centres the camera on the group.
-    if (ev.key >= '1' && ev.key <= '9') {
+    // GH-345: a hidden group bar is inert -- no assign, no recall.
+    if (ev.key >= '1' && ev.key <= '9' && isShown('groups')) {
       const slot = Number(ev.key);
       if (ev.ctrlKey || ev.metaKey) {
         ev.preventDefault();
@@ -3885,9 +4125,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // was populated by physical key, so removal has to match by physical key
   // too, and a delete of something never added is a harmless no-op.
   onWindow('keyup', (ev) => keys.delete(ev.key.toLowerCase()));
-  canvas.addEventListener('wheel', (ev) => {
-    ev.preventDefault();
-    const z = renderer.camera.zoom * (ev.deltaY > 0 ? 0.9 : 1.1);
+  /** Set the camera zoom to `z` (clamped), keeping the point under the cursor
+   *  fixed when zoom-to-cursor is on, and the view on the map. The one place a
+   *  wheel zoom lands, whether it is instant (reduced motion) or one frame of
+   *  a glide. */
+  const applyZoom = (z: number): void => {
     if (req.settings.get().controls.zoomToCursor) {
       const before = renderer.screenToWorld(lastCursor.x, lastCursor.y);
       renderer.camera.zoom = clampZoom(z);
@@ -3898,7 +4140,79 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     } else {
       renderer.camera.zoom = clampZoom(z);
     }
+    // Zooming out near an edge would otherwise open up empty ground.
+    keepOnMap();
+  };
+  /** The zoom in flight, if any (`stepZoomGlide`, eased in the frame loop). */
+  let zoomGlide: ZoomGlide | null = null;
+  canvas.addEventListener('wheel', (ev) => {
+    ev.preventDefault();
+    // Proportional to how far the wheel turned (one mouse notch is still
+    // 1.1x): a trackpad's stream of small deltas zooms smoothly instead of
+    // stepping 10% per event. A notch glides over ~150 ms; under reduced
+    // motion it lands at once.
+    const plan = planZoom(
+      zoomGlide,
+      renderer.camera.zoom,
+      wheelZoomFactor(ev.deltaY, ev.deltaMode),
+      prefersReducedMotion()
+    );
+    zoomGlide = plan.glide;
+    if (plan.glide === null) applyZoom(plan.zoom);
   });
+
+  // Middle-mouse drag grabs the ground (`createPanDrag`): position-based, so
+  // frame-rate independent, and it stops the moment the cursor does. It kills
+  // any key-pan momentum on the way in, so the two never fight.
+  const panDrag = createPanDrag();
+  canvas.addEventListener('pointerdown', (ev) => {
+    if (!isPanDragButton(ev.button)) return;
+    ev.preventDefault();
+    const p = canvasXY(ev);
+    panDrag.start(p.x, p.y);
+    panVel.right = 0;
+    panVel.down = 0;
+  });
+  // Middle-click also starts the browser's autoscroll on some platforms.
+  canvas.addEventListener('mousedown', (ev) => {
+    if (isPanDragButton(ev.button)) ev.preventDefault();
+  });
+  onWindow('pointermove', (ev) => {
+    if (!panDrag.active) return;
+    const p = canvasXY(ev);
+    const d = panDrag.move(p.x, p.y, renderer.camera.zoom);
+    if (d === null) return;
+    renderer.camera.x += d.dx;
+    renderer.camera.y += d.dy;
+    keepOnMap();
+  });
+  onWindow('pointerup', (ev) => {
+    if (isPanDragButton(ev.button)) panDrag.end();
+  });
+  onWindow('blur', () => panDrag.end());
+
+  /** Where one tick's alerts land (`ui/alerts.ts` decides WHAT is worth
+   *  saying; this decides WHERE it goes): the feed line, the minimap ring, the
+   *  jump key, and one cue. Shared by a mission and a Free Play sandbox, so
+   *  the two can never word or place the same loss differently. */
+  const announceAlerts = (result: { state: AlertState; alerts: Alert[] }): void => {
+    alertState = result.state;
+    // One cue for the tick, the most urgent (`tickCue`): two chimes at once
+    // read as noise. The feed below still carries every line.
+    const cue = tickCue(result.alerts.map((a) => a.cue));
+    if (cue) audio.playCue(cue);
+    // AU-5 (audio plan §5.1): nothing at or below a death call talks over a
+    // major alert for the next moment.
+    if (cue === ALERT_CUE.major) voice.hush('major');
+    for (const a of result.alerts) {
+      // `alertNotice` escapes the unit NAME `alert.unitLost` interpolates
+      // (shell upgrade Phase 3, Task 10); this was `t(key, params)`, raw.
+      // The tier styles the line (WP-P5, C3) and ranks the jump key.
+      if (a.line) hud.note(...alertNotice(a.line), { tier: a.tier });
+      if (a.marks.length > 0) minimap.flash(a.marks, performance.now(), { tier: a.tier, tone: a.tone });
+      jumpTarget = nextJump(jumpTarget, a.tier, a.at);
+    }
+  };
 
   // --- fixed-tick loop with render interpolation ---------------------------
   const runTick = (): void => {
@@ -3907,7 +4221,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     renderer.onEvents(events);
     audio.setListener(renderer.camera);
     audio.onEvents(events, sim);
+    pinnedSince.onEvents(events);
     voice.onTick(events);
+    // PA-25: a Free Play sandbox has no runtime, and the alert layer below
+    // used to run only beside one -- so a sandbox fight left the feed empty.
+    // The sim half of the layer needs nothing a mission has; the one mission
+    // event it reads, a loss of ours, is derived by the runtime's own rule.
+    // Nothing is scored: no objective, wave or Conduct line exists here.
+    if (!mission) announceAlerts(sandboxAlertsForTick(alertState, events, alertWorld, sim.tickCount));
     if (runtime && mission) {
       const missionEvents = runtime.step(events);
       // The renderer subscribes to the MISSION's events as well as the sim's.
@@ -3920,6 +4241,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // Optional on the interface (`api.ts`) -- Pixi draws no civilians at all
       // and implements nothing.
       renderer.onMissionEvents?.(missionEvents);
+      voice.onMission(missionEvents);
 
       // The alert layer (spec acceptance (a)): one classification of the tick,
       // four consequences, all in one place so a line, a cue and a mark can
@@ -3930,29 +4252,19 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // presentation fade on the frame clock, and nothing here writes to the
       // sim (invariant 4). The tick count goes the other way -- into the
       // model, as the cooldown's own clock.
-      const { state: nextAlerts, alerts } = alertsForTick(
-        alertState,
-        events,
-        missionEvents,
-        alertWorld,
-        sim.tickCount
-      );
-      alertState = nextAlerts;
-      for (const a of alerts) {
-        // `alertNotice` escapes the unit NAME `alert.unitLost` interpolates
-        // (shell upgrade Phase 3, Task 10); this was `t(key, params)`, raw.
-        if (a.line) hud.note(...alertNotice(a.line));
-        if (a.sound) audio.playUi(a.sound);
-        if (a.at) {
-          minimap.flash([a.at], performance.now());
-          lastAlertAt = a.at;
-        }
-      }
+      announceAlerts(alertsForTick(alertState, events, missionEvents, alertWorld, sim.tickCount));
 
+      for (const e of events) if (e.kind === 'destroyed') logDestroyed(missionLog, sim.state.side[e.entity]);
       for (const me of missionEvents) {
         missionTelemetry?.onEvent(me);
+        logMissionEvent(missionLog, me, {
+          // Sim positions are tile CENTRES; the log keeps the tile.
+          positionOf: (id) => ({ x: Math.floor(fx.toNumber(sim.state.posX[id])), y: Math.floor(fx.toNumber(sim.state.posY[id])) }),
+          rosterOf: (id) => runtime?.rosterEntryOf(id),
+          zone: (id) => map.zones[id],
+        });
         if (tut) tut = advance(tut, { kind: 'mission', event: me }, performance.now());
-        if (me.kind === 'roe') deductions.push({ penalty: me.penalty, reason: me.reason });
+        if (me.kind === 'roe') deductions.push({ penalty: me.penalty, reason: me.reason, tick: me.tick });
         if (me.kind === 'evacuated') evacuatedSoFar++;
         // The memorial half of the service record (WP-G-E4). `unitLost` is already
         // side-0-only (mission.ts:1018) and `entityRoster` is only ever added to, so the
@@ -3962,19 +4274,25 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           const record = lostRecordFor(runtime.rosterEntryOf(me.entity), me.unit, mission.id, me.tick);
           if (record) lostThisMission.push(record);
         }
-        const described = describeMissionEvent(me, mission, narratedRoeReasons);
-        if (described) hud.note(described[0], described[1]);
+        const described = describeMissionEvent(me, mission, narratedRoeReasons, placeNames);
+        if (described) hud.note(described[0], described[1], { tier: missionEventTier(me) ?? undefined });
         // The story voice (GDD §11): the commander bar is the one surface for
         // it now -- `describeMissionEvent`'s own `case 'say'` returns null,
         // so this is the only place a `say` event lands. See `Hud.say`'s own
         // doc comment for why this call is independent of `brief()`.
         if (me.kind === 'say') hud.say(me.speaker, me.text);
         if (me.kind === 'missionEnd') {
+          // PR 361: a lost mission names the primary that lost it, at once,
+          // in the feed and on the outcome card -- never a bare verdict over
+          // clocks that have simply stopped.
+          missionFailure = me.result === 'defeat' ? failureReason(runtime?.defeatCause, liveObjectives(), me.tick) : null;
+          if (missionFailure) hud.note(escapeHtml(missionFailure), 'bad');
           // The end screen must not land over a live step panel — an early
           // mission end (e.g. destroy_all completing before lesson 12) is not
           // tutorial completion, so the completion flag is deliberately not
           // set here.
           tut = null;
+          refreshHudShown();
           tutPanel?.destroy();
           tutPanel = null;
           renderer.clearTutorialFocus();
@@ -3992,6 +4310,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           const carryover =
             me.result === 'victory'
               ? applyRosterCarryover(ledger, me.ledger, lostThisMission, {
+                  missionId: mission.id,
                   kindOf: (typeId) => nameKind(unitFor(typeId), names as NamesJson),
                   names: names as NamesJson,
                   // The same lookup `alertWorld.unitName` uses (spec §4.7's own
@@ -4003,14 +4322,24 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           const updatedLedger: CampaignLedger = carryover ? carryover.ledger : { ...ledger, ...me.ledger };
           if (me.result === 'victory')
             telemetry().campaignProgress(mission.id, Object.keys(updatedLedger['campaign.mission_results'] ?? {}).length);
-          let payout: ReturnType<typeof payMission> | null = null;
-          // Task 7's two memorial rows (WP-G-E4). Empty on a defeat, like `payout`.
-          const lostNamed = carryover ? carryover.lostNamed : [];
+          let payout: ReturnType<typeof payVictory> | null = null;
+          // KS-12: whether this victory's write was refused (and put back), and
+          // the balance it would have been paid into -- so the moment and the
+          // report claim nothing that was not kept.
+          let victoryUnsaved = false;
+          let balanceBefore = 0;
+          // Who took a fallen place (WP-G-E4). Empty on a defeat, like `payout`.
+          // The fallen themselves are named from the mission log (GH-417).
           const replacements = carryover ? carryover.replacements : [];
           if (me.result === 'victory') {
-            ledgerStore.writeLedger(updatedLedger);
+            // Read BEFORE the ledger write (GH-330): a version-1 account migrates its
+            // per-campaign record against the ledger's completed missions, and after
+            // the write this very victory would count as already won this campaign.
+            const accountBefore = ledgerStore.readAccount();
             // The brigade account (spec 2026-09-15 §4.2): what this run is worth, paid
-            // only for improvement over what this mission has paid before. Read from the
+            // only for improvement over what this mission has paid IN THIS CAMPAIGN
+            // (GH-330; a mission not open in the campaign the run booted in is held to
+            // its lifetime best instead -- `campaign-pay.ts`). Read from the
             // runtime's own counters -- the same numbers the debrief prints -- and the
             // wall clock is taken here, never in the sim.
             // R5: a mission that produces no ledger key pays nothing -- the tutorial
@@ -4020,17 +4349,35 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // than a name list, the same test `validate_data.mjs` already applies.
             if (mission.ledger.produces.length > 0 && ledgerStore.available) {
               const runValue = creditsFor(creditInputFrom(runtime, me.roeRating, mission.roe?.fail_below));
-              payout = missionId ? payMission(ledgerStore.readAccount(), missionId, runValue, Date.now()) : null;
-              if (payout) ledgerStore.writeAccount(payout.account);
-              if (payout) telemetry().account('payout', payout.account, { mission: mission.id, paid: payout.paid });
+              payout = missionId
+                ? payVictory(accountBefore, parseWorld(world), missionId, ledger, runValue, Date.now())
+                : null;
             }
-            hud.note(t('main.note.ledgerUpdated'), 'info');
+            // Pass K: a refused write (storage full, site data blocked) used to
+            // throw out of this handler and take the end screen with it, and a
+            // browser with no storage at all was still told "campaign saved".
+            // Save reliability (keyboard-and-saves): the ledger and the account
+            // are now ONE write -- `writeVictory` puts both back on a refusal --
+            // because the account write was outside that guard, and a refused one
+            // still threw after the ledger had recorded the win.
+            const victoryWrite = writeVictory(ledgerStore, updatedLedger, payout ? payout.account : null);
+            const ledgerSaved = victoryWrite === 'saved';
+            victoryUnsaved = victoryWrite === 'refused';
+            balanceBefore = accountBefore.balance;
+            if (payout && ledgerSaved) {
+              telemetry().account('payout', payout.account, { mission: mission.id, paid: payout.paid });
+            }
+            hud.note(...ledgerSavedNotice(ledgerSaved));
           }
           // GH-234: computed once, here, and handed to both the outcome moment
           // (below) and the debrief (`debriefOpts.credits`) -- the payment
           // already ran above this point (victory only), so both surfaces read
           // the same `{ paid, balance }` rather than each re-deriving it.
-          const creditsInfo = payout ? { paid: payout.paid, balance: payout.account.balance } : undefined;
+          const creditsInfo = payout
+            ? victoryUnsaved
+              ? { paid: 0, balance: balanceBefore, unsaved: true }
+              : { paid: payout.paid, balance: payout.account.balance }
+            : undefined;
           if (missionId) {
             // Campaign order lives in world.json, not in the order data/missions files
             // happen to be imported.
@@ -4053,6 +4400,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               }));
             const tier = tierLine(runtime.stars);
             const promotion = me.result === 'victory' ? promotionAfter(commanderData, worldData, missionId) : null;
+            // The end of the war: said on the report of the victory that
+            // finished the campaign, and never again (`campaign-close.ts`).
+            const closing = closingExchange(worldData, ledger, updatedLedger, me.result);
             const nextJson = nextMissionId ? (missions as Record<string, MissionJson | undefined>)[nextMissionId] : undefined;
             const region = enemyRegion;
             const villain = region ? commanderData.villains?.[region.id] : undefined;
@@ -4061,7 +4411,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // that distinction is the whole reason the field is optional, so the
             // line is skipped rather than printed as "Nobody still out."
             const account = hostagesAccount(worldData, updatedLedger);
-            const cameBack = me.ledger['civ.hostages_recovered']?.[missionId] ?? 0;
+            // A defeat writes nothing, so nobody "came back" on one.
+            const cameBack = me.result === 'victory' ? (me.ledger['civ.hostages_recovered']?.[missionId] ?? 0) : 0;
             const place = (mission as { hostages_place?: string }).hostages_place;
             // Truthiness rather than `!== undefined`: the schema puts no
             // `minLength` on `hostages_place`, so an empty string is authorable
@@ -4070,60 +4421,70 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             const takenAccount = account
               ? hostagesLine(account, place ? { count: cameBack, place } : undefined)
               : undefined;
+            // A victory that left hostiles standing says so ("6 withdrew"). A READ of
+            // the sim at the end tick; `after-action.ts` shows it on a victory only.
+            const withdrew = livingHostiles(sim.state, sim.entityCount);
+            // G11: the mission's own closing word, outcome-aware, resolved to a
+            // plate/portrait the way the commander bar resolves one.
+            const say = me.result === 'victory' ? mission.debrief?.victory : mission.debrief?.defeat;
+            const speaker: ReportSpeaker | undefined = say
+              ? {
+                  plate: speakerPlate(hudCommander, say.speaker),
+                  text: say.text,
+                  portrait: speakerPortrait(hudCommander, say.speaker),
+                  speaker: say.speaker,
+                }
+              : undefined;
+            // Spec §4.5's WHY for an unlock, kept: the stars or the campaign
+            // Conduct that opened it. Through `t()` now (it was raw English).
+            const unlocks =
+              me.result === 'victory'
+                ? newlyUnlocked(kdfUnits, ledger, updatedLedger).map((u) => {
+                    if (u.gate === 'stars') return { name: u.name, why: t('aar.unlock.stars', { n: starsEarned(updatedLedger) }) };
+                    if (u.gate !== 'conduct') return { name: u.name };
+                    const was = campaignRoe(ledger)?.mean;
+                    const now = campaignRoe(updatedLedger)?.mean;
+                    return was === undefined || now === undefined
+                      ? { name: u.name }
+                      : { name: u.name, why: t('aar.unlock.conduct', { was, now }) };
+                  })
+                : [];
+            const typeName = (id: string): string => units[id as keyof typeof units]?.name ?? id;
+            // GH-417 (H5): the after-action report. Its words are
+            // `after-action.ts`'s; the log is what this run remembered.
+            const report = afterAction({
+              result: me.result,
+              stars: runtime.stars,
+              roe: me.roeRating,
+              roeFloor: starRoeFloor(mission.roe?.fail_below),
+              ticks: sim.tickCount,
+              targetMinutes: (mission as { target_minutes?: number }).target_minutes,
+              objectives: runtime.objectiveList.map((o) => ({ id: o.id, text: o.text, primary: o.primary, carries: o.carries, status: o.status })),
+              log: missionLog,
+              invoice: invoiceLines(deductions, placeNames),
+              failure: missionFailure,
+              withdrew,
+              credits: creditsInfo,
+              unsaved: victoryUnsaved,
+              promotions:
+                me.result === 'victory'
+                  ? promotionsBetween(ledger['roster.surviving_units'] ?? [], updatedLedger['roster.surviving_units'] ?? [])
+                  : [],
+              replacements,
+              unlocks,
+              next: nextMissionId ? { name: nextJson?.name ?? nextMissionId } : undefined,
+              campaignOver: campaignComplete(worldData, updatedLedger),
+              taken: takenAccount,
+              marked: runtime.markedCount,
+              typeName,
+            });
             const debriefOpts: DebriefOptions = {
               result: me.result,
               stars: runtime.stars,
-              tierLine: tier
-                ? { plate: speakerPlate(hudCommander, tier.speaker), text: tier.text, portrait: speakerPortrait(hudCommander, tier.speaker) }
-                : undefined,
-              roe: me.roeRating,
-              roeFloor: starRoeFloor(mission.roe?.fail_below),
-              deductions,
-              ticks: sim.tickCount,
-              targetMinutes: (mission as { target_minutes?: number }).target_minutes,
-              lost: Object.entries(runtime.lostByType()).map(([type, count]) => ({ type, count })),
-              // WP-G-E4, Task 7 (R-11): the aggregate above stays the total --
-              // it counts every dead player entity, including a fresh remnant
-              // that never reached the roster and has no service record.
-              // These two are computed only on the victory branch above and
-              // default to empty on a defeat, where nothing was written.
-              lostNamed,
-              replacements,
-              secondaries: runtime.objectiveList
-                .filter((o) => !o.primary)
-                .map((o) => ({ text: o.text, complete: o.status === 'complete', carries: o.carries })),
-              marked: runtime.markedCount,
-              promoted: runtime.promotedCount,
-              credits: creditsInfo,
-              // The account of the taken (spec §4.4). The board prints only the
-              // standing total, because the board does not know which mission was
-              // just played -- so "N came back at <place>", the half that needs a
-              // mission, is this screen's. The count is THIS run's entry off the
-              // produced ledger rather than the merged best-of, since the sentence
-              // is about what just happened; `hostagesLine` drops the clause on 0
-              // and on a mission with no `hostages_place` to name.
-              taken: takenAccount,
-              // Spec §4.5 wants the WHY, not just the name: "Campaign Conduct
-              // 58 → 62: Namer IFV available". The two figures are the campaign
-              // mean before and after this mission's rating landed, so they are
-              // read off the two ledgers this block already holds. Either being
-              // null means there is no figure to show (a first mission has no
-              // "before"), and the bare name is the honest fallback rather than
-              // a sentence with a hole in it. A mission-gated unit never has a
-              // figure at all -- the mission it was waiting for is the one the
-              // player just finished, and this screen is already that news.
-              unlocked:
-                me.result === 'victory'
-                  ? newlyUnlocked(kdfUnits, ledger, updatedLedger).map((u) => {
-                      if (u.gate === 'stars') return `${starsEarned(updatedLedger)} stars: ${u.name} available`;
-                      if (u.gate !== 'conduct') return `${u.name} available`;
-                      const was = campaignRoe(ledger)?.mean;
-                      const now = campaignRoe(updatedLedger)?.mean;
-                      return was === undefined || now === undefined
-                        ? `${u.name} available`
-                        : `Campaign Conduct ${was} → ${now}: ${u.name} available`;
-                    })
-                  : [],
+              report,
+              speaker,
+              aftermath: undefined,
+              tierLine: tier ? { plate: speakerPlate(hudCommander, tier.speaker), text: tier.text } : undefined,
               promotion: promotion
                 ? {
                     rank: promotion.rank,
@@ -4131,6 +4492,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                     line: promotion.line ? { plate: speakerPlate(hudCommander, promotion.line.speaker), text: promotion.line.text } : undefined,
                   }
                 : undefined,
+              ...(closing ? { closing: closing.map((l) => ({ plate: speakerPlate(hudCommander, l.speaker), text: l.text })) } : {}),
+              ground: field ? { map, tones: opts.terrainTones, marks: field.marks } : undefined,
               next: nextMissionId
                 ? {
                     id: nextMissionId,
@@ -4143,34 +4506,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                 : undefined,
               missionId,
             };
-            // G11: `debrief` is outcome-aware -- pick the variant for the
-            // outcome that just happened, off the same `me.result` this
-            // screen's own `result` is, and resolve its speaker into a
-            // plate/portrait the same way `hud.ts`'s commander bar does
-            // (`speakerPlate`/`speakerPortrait`, `hud-model.ts`), since
-            // `menu.ts` has no `HudCommanderInfo` of its own to look one up
-            // against. `mission` is still the same JSON object
-            // `getMission()` reads `aftermath` off, above.
-            const say = me.result === 'victory' ? mission.debrief?.victory : mission.debrief?.defeat;
-            const debrief: EndScreenDebrief | undefined = say
-              ? {
-                  plate: speakerPlate(hudCommander, say.speaker),
-                  text: say.text,
-                  portrait: speakerPortrait(hudCommander, say.speaker),
-                  speaker: say.speaker,
-                }
-              : undefined;
-            // Fix round 1: set at the exact point `showEndScreen` is about
-            // to show, per the review -- `case 'pause':` reads this and
-            // Escape does nothing once the attempt is over. If the pause
-            // menu happened to be open when the mission ended, close it
-            // directly rather than through `resume()`: there is no clock to
-            // resume any more (the mission is over, not merely unpaused),
-            // so this only needs to take the modal off the screen and let
-            // `paused` settle back to its resting `false`.
             missionEnded = true;
             if (paused) {
               paused = false;
+              audio.setPaused(false);
               pauseHandle?.close();
               pauseHandle = null;
             }
@@ -4185,6 +4524,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // of `paused` too, and left open it would render over the end
             // screen about to be pushed.
             closeKeysOverlay();
+            // PA-11: and the Conduct invoice tutorial beat 9 left open. The
+            // HUD closes it on its own 4 Hz rebuild once the result is in;
+            // this takes it down on the same frame the moment mounts.
+            hud.setInvoiceOpen(false);
             // Task 6: the held victory/defeat moment (`ui/outcome-moment.ts`)
             // goes in front of the end screen, behind the ledger write above
             // -- `writeLedger`/`payMission` already ran (victory only) before
@@ -4208,8 +4551,49 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // One value for both surfaces: the moment previews the
             // `aftermath` for its hold, and the end screen below carries the
             // same one where it can be read (the second correction to ruling 9).
-            const momentOptions = outcomeMomentOptions(me.result, mission, creditsInfo);
+            const momentOptions = outcomeMomentOptions(me.result, mission, creditsInfo, missionFailure);
             const moment = outcomeMoment(document.body, momentOptions);
+            // PA-07: the HUD steps back for the beat and stays back under the
+            // report; the battlefield's teardown brings it back.
+            screenDisposers.push(hideForBeat(document.body, [stage, moment.el]));
+            {
+              const statusOf = new Map(runtime.objectiveList.map((o) => [o.id, o.status] as const));
+              const civilians: { x: number; y: number }[] = [];
+              const force: { x: number; y: number }[] = [];
+              for (let i = 0; i < sim.entityCount; i++) {
+                if (sim.state.alive[i] !== 1) continue;
+                const p = { x: fx.toNumber(sim.state.posX[i]), y: fx.toNumber(sim.state.posY[i]) };
+                if (unitJson[sim.unitTypes[sim.state.typeIdx[i]].id]?.faction === 'civilian') civilians.push(p);
+                else if (sim.state.side[i] === 0) force.push(p);
+              }
+              beat = {
+                t0: performance.now(),
+                reduced: prefersReducedMotion(),
+                from: { x: renderer.camera.x, y: renderer.camera.y, zoom: renderer.camera.zoom },
+                focus: beatFocus({
+                  result: me.result,
+                  objectives: mission.objectives.map((o) => ({
+                    type: o.type,
+                    primary: o.primary,
+                    status: statusOf.get(o.id) ?? 'active',
+                    ...(typeof o.target === 'string' ? { target: o.target } : {}),
+                  })),
+                  zones: map.zones,
+                  civilians,
+                  force,
+                }),
+              };
+            }
+            // Polish pass F: the verdict is heard. The stinger stops every
+            // voice, fades combat and the music under itself, and holds every
+            // other cue off; the music comes back at the menu's level.
+            audio.playCue(OUTCOME_CUE[me.result]);
+            // AU-5: the verdict is the last word -- no bark or call after it.
+            voice.hush('outcome');
+            // Audio plan §5.4: Shai's verdict on the net, starting as the
+            // stinger's head ends (the mixer delays it; no timer here).
+            voice.outcome(me.result);
+            audio.setMusicScene('menu');
             // Final review, ruling 9: the moment is the verdict, so the HUD's
             // own "Mission accomplished"/"Mission failed" banner stands down
             // rather than sit behind it and stay up over the end screen after
@@ -4221,21 +4605,49 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             hud.suppressEndBanner();
             screenDisposers.push(() => moment.dismiss());
             void moment.done.then(() => {
-              if (disposed) return;
+              beat = null;
+            });
+            beatThenReport(moment, () => disposed, () => {
+              // L-7: the moment hands over straight to the after-action report;
+              // the small end panel it used to lead to is folded into the
+              // report's verdict and closing word.
+              // The ground after the fight, photographed now rather than at
+              // the missionEnd event: by the time the moment ends, the renderer
+              // has drawn the last tick, so a building that fell on it is rubble.
+              let photo: ImageData | null = null;
+              if (debriefOpts.ground) {
+                try {
+                  const shot = renderer.captureGroundAlbedo?.(BRIEFING_GROUND_PX) ?? null;
+                  if (shot) photo = new ImageData(flipRows(shot.data, shot.width, shot.height), shot.width, shot.height);
+                } catch (err) {
+                  console.warn('debrief: the ground photograph failed; the painted ground stays', err);
+                }
+              }
+              // GH-464: "How was that mission?", at most once per mission
+              // (`prompt-policy.ts`). Asked is recorded now, so a reload on
+              // this screen does not ask twice.
+              let prompt: RatingPrompt | null = null;
+              if (fb.shown && !feedbackClosed()) {
+                const asking = readPromptState(fb.storage, __APP_BUILD__);
+                if (shouldAsk(asking, mission.id, { sandbox: false })) {
+                  writePromptState(fb.storage, promptAsked(asking, mission.id));
+                  prompt = ratingPrompt({
+                    send: async (rating, line, o) =>
+                      fb.send({ source: 'debrief', category: 'rating', rating, text: line, where: fbWhere() }, { keepalive: o.keepalive }),
+                    onAnswered: () => writePromptState(fb.storage, promptAnswered(readPromptState(fb.storage, __APP_BUILD__))),
+                    onIgnored: () => writePromptState(fb.storage, promptIgnored(readPromptState(fb.storage, __APP_BUILD__))),
+                  });
+                }
+              }
               screenDisposers.push(
-                showEndScreen(document.body, {
-                  result: me.result,
-                  roe: me.roeRating,
-                  survivors: me.survivors.length,
-                  missionId,
-                  nextMissionId,
-                  debrief,
+                showDebrief(document.body, {
+                  ...debriefOpts,
                   aftermath: momentOptions.aftermath,
-                  onDebrief: () => {
-                    screenDisposers.push(showDebrief(document.body, debriefOpts));
-                  },
+                  ground: debriefOpts.ground ? { ...debriefOpts.ground, photo } : undefined,
+                  ...(prompt ? { prompt: prompt.el } : {}),
                 })
               );
+              if (prompt) screenDisposers.push(prompt.dispose);
             });
           }
         }
@@ -4254,7 +4666,29 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             now
           );
         }
+        // Beat 1's camera predicate: how far the view's centre has travelled
+        // from where it stood on the tutorial's first tick.
+        if (tutCameraStart === null) tutCameraStart = { x: renderer.camera.x, y: renderer.camera.y };
+        tut = advance(
+          tut,
+          {
+            kind: 'camera',
+            tilesFromStart: Math.hypot(renderer.camera.x - tutCameraStart.x, renderer.camera.y - tutCameraStart.y),
+          },
+          now
+        );
         tut = advance(tut, { kind: 'tick' }, now);
+        refreshHudShown();
+        // GH-345 beat 9: the beat that reveals Conduct opens its invoice, and
+        // it stays open past the last beat (the index clamps to it) until the
+        // player clicks Conduct -- it is the last thing the tutorial teaches.
+        // Only on a CHANGE, so a player who closes it is not overruled four
+        // times a second.
+        const invoiceBeat = (tut.steps[Math.min(tut.index, tut.steps.length - 1)]?.reveal ?? []).includes('conduct');
+        if (invoiceBeat !== tutInvoiceOpen) {
+          tutInvoiceOpen = invoiceBeat;
+          hud.setInvoiceOpen(invoiceBeat);
+        }
         tutPanel?.render(tut);
         const step = tut.steps[tut.index];
         const focus = step?.focus;
@@ -4272,6 +4706,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           hud.note(t('main.note.tutorialComplete'), 'good');
           if (stepList?.completes !== undefined) runtime.completeObjective(stepList.completes);
           tut = null;
+          refreshHudShown();
           tutPanel?.destroy();
           tutPanel = null;
           renderer.clearTutorialFocus();
@@ -4341,18 +4776,27 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // are going; and the refuge ring, once per LINE, not per family
         // (`ui/refuge-ping.ts`). The jump key takes where they broke, the way
         // every other alert's does.
-        lastAlertAt = sayFlight(
+        // A family running is important: it is the evacuation the mission is
+        // scored on, and the jump key should take the player there.
+        const fled = sayFlight(
           flight,
           refugeAt,
           {
-            note: (line) => hud.note(...alertNotice(line)),
-            flash: (points, nowMs) => minimap.flash(points, nowMs),
+            note: (line) => hud.note(...alertNotice(line), { tier: 'important' }),
+            flash: (points, nowMs) => minimap.flash(points, nowMs, { tier: 'important', tone: flight.line.tone }),
             ping: (x, y) => renderer.pingRefuge?.(x, y),
           },
           performance.now()
         );
+        jumpTarget = nextJump(jumpTarget, 'important', fled);
       }
     }
+    // GH-345: the surfaces main.ts owns follow the same set the Hud reads in
+    // its own onTick. Every tick, for the same reason: a beat's reveal lands
+    // on the tick it opens.
+    minimap.setShown(isShown('minimap'));
+    production?.setShown(isShown('dock'));
+    groupsBar.el.toggleAttribute('data-hud-hidden', !isShown('groups'));
     hud.onTick();
     minimap.onTick();
     // Task 11: same cadence as the HUD's own chip row -- rebuilt wholesale
@@ -4380,7 +4824,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // Bounded by `sim.entityCount`, the same scan `__lions.units()` does, at
     // 1 Hz against a 20 Hz tick. `ensureUnitMesh` returns immediately for a
     // type already asked for, so the steady-state cost is the loop itself.
-    if (meshPathActive && sim.tickCount % TICKS_PER_SECOND === 0) {
+    // GH-469: a queued build is the cue to decode that type's textures -- at
+    // least 12 s of sim time before the unit exists (`warmUnitMesh`).
+    // Idempotent; a warm type returns at once.
+    if (runtime) for (const p of runtime.production) three.warmUnitMesh(p.unit);
+    if (sim.tickCount % TICKS_PER_SECOND === 0) {
       for (let i = 0; i < sim.entityCount; i++) {
         if (sim.state.alive[i] !== 1) continue;
         const typeId = sim.unitTypes[sim.state.typeIdx[i]].id;
@@ -4392,6 +4840,18 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         ensureUnitMesh(typeId);
       }
       reportMeshFailures();
+    }
+    // PR 361: a deadline that loses the mission warns once, a minute out,
+    // with the alert chime the feed's other warnings use. GH-110 adds its
+    // announcement (caption now, audio once recorded).
+    if (runtime && runtime.result === 'ongoing' && sim.tickCount % 5 === 0) {
+      const due = deadlineWarnings(liveObjectives(), deadlinesWarned);
+      deadlinesWarned = due.warned;
+      for (const row of due.warn) {
+        hud.note(escapeHtml(deadlineWarningLine(row)), 'warn');
+        audio.playCue(ALERT_CUE.important);
+        voice.onMission([], [{ event: 'deadline', params: { label: row.text } }]);
+      }
     }
     // Show the ground a timed objective is about, and how it is going.
     if (runtime && sim.tickCount % 5 === 0) {
@@ -4407,7 +4867,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     }
     if (tut && tut.index !== telemetryTutIndex) {
       telemetryTutIndex = tut.index;
-      if (tut.index < tut.steps.length) telemetry().tutorialStep(tut.index, tut.steps.length);
+      if (tut.index < tut.steps.length) telemetry().tutorialStep(tut.index, tut.steps.length, tut.steps[tut.index]?.id);
     }
   };
 
@@ -4526,6 +4986,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           cursor: canvas.dataset.cursor ?? '(unset)',
           asked: [wx, wy] as [number, number],
           landed: [Math.floor(landed.x), Math.floor(landed.y)] as [number, number],
+          // The building whose wall this pixel shows (PA-14), which an order
+          // here resolves to instead of `landed`; -1 on open ground.
+          facade: renderer.structureAtScreen(lastCursor.x, lastCursor.y),
         };
       },
     },
@@ -4565,7 +5028,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // Hover work runs once per frame rather than once per pointer event. A
   // high-poll mouse fires several moves a frame, and this loop includes an
   // O(N) scan over every entity, so this is strictly cheaper than before.
-  const hw = renderer.screenToWorld(lastCursor.x, lastCursor.y);
+  // One read of the pointer for the cursor AND the click (input/pointer.ts):
+  // the ground point, the enemy under it, and -- PA-14 -- the building whose
+  // wall the pixel shows, which an order resolves to instead of the hidden
+  // ground behind it. `hw` is that order point; `pp.ground` stays the
+  // ground, for the friendly hover below, which is about units, not orders.
+  const pp = pointerPoint(renderer, sim, lastCursor.x, lastCursor.y);
+  const hw = { x: pp.x, y: pp.y };
   const hs = sim.structureAt(Math.floor(hw.x), Math.floor(hw.y));
   renderer.hoverStructure = hs;
   renderer.hoverCanGarrison =
@@ -4579,31 +5048,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         sim.state.garrisonedIn[i] !== hs
     );
 
-  // Nearest living enemy within half a tile of the cursor — the same
-  // generosity the click-to-select test uses. Restricted to side 1 (real
-  // enemies, never civilians — side 2 is never an aimpoint) and gated on
-  // renderer.isVisible so the scan can only pick up an entity that is
-  // actually drawn on screen right now. That mirrors the exact condition
-  // the renderer itself uses to decide whether to draw a non-friendly
-  // sprite at all (see PixiRenderer's entity loop) — anything the fog
-  // currently hides must not be able to surface through the hover panel
-  // either, or sweeping the cursor across unexplored ground locates every
-  // hidden defender.
-  let he = -1;
-  let bestD = 0.5 * 0.5;
-  for (let i = 0; i < sim.entityCount; i++) {
-    if (sim.state.alive[i] === 0 || sim.state.side[i] !== 1) continue;
-    const ex = fx.toNumber(sim.state.posX[i]);
-    const ey = fx.toNumber(sim.state.posY[i]);
-    if (!renderer.isVisible(ex, ey)) continue;
-    const dx = ex - hw.x;
-    const dy = ey - hw.y;
-    const d = dx * dx + dy * dy;
-    if (d < bestD) {
-      bestD = d;
-      he = i;
-    }
-  }
+  // Nearest living enemy within half a tile of the cursor's GROUND point,
+  // fog-gated -- `hostileUnder`'s own comment has the rule.
+  const he = pp.hostile;
   renderer.hoverEntity = he;
 
   // The FRIENDLY hover, for the range-ring preview (shell Phase 2 Task 16).
@@ -4630,8 +5077,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     const ex = fx.toNumber(sim.state.posX[i]);
     const ey = fx.toNumber(sim.state.posY[i]);
     if (!renderer.isVisible(ex, ey)) continue;
-    const dx = ex - hw.x;
-    const dy = ey - hw.y;
+    const dx = ex - pp.ground.x;
+    const dy = ey - pp.ground.y;
     const d = dx * dx + dy * dy;
     // The selection test sits INSIDE the distance test, not above it. It is a
     // linear scan of an array the player can fill with the whole roster, and
@@ -4647,10 +5094,26 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
 
   // Teach the hover, but only on a real change: `updateHover` runs every
   // frame, and an unchanged hover is not a new thing the player did.
-  if (tut && (he !== lastHoverEntity || hs !== lastHoverStructure)) {
+  // GH-345: what the fire panel says about this hover -- the same word
+  // (`fireState`) the panel's own wording is chosen by, so "hover the one in
+  // cover" is satisfied by exactly the hover the panel calls cover.
+  const projection =
+    tut && he >= 0
+      ? fireState(
+          renderer.selection
+            .filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1)
+            .map((i) => sim.projectHit(i, he))
+        )
+      : null;
+  if (tut && (he !== lastHoverEntity || hs !== lastHoverStructure || projection !== lastHoverProjection)) {
     lastHoverEntity = he;
     lastHoverStructure = hs;
-    tut = advance(tut, { kind: 'hover', entity: he, structure: hs, sideOf: (e) => sim.state.side[e] }, performance.now());
+    lastHoverProjection = projection;
+    tut = advance(
+      tut,
+      { kind: 'hover', entity: he, structure: hs, sideOf: (e) => sim.state.side[e], projection },
+      performance.now()
+    );
   }
 
   // Keep the projected-fire panel beside the target it describes. Per frame
@@ -4663,40 +5126,17 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   }
 
   // The hover cursor asks the same resolver the click uses, with the same
-  // adapter (intentWorld) — one object, so the click and the cursor that
-  // predicts it can never give different answers. append is always false:
-  // the hover cursor does not depend on Shift, and passing the live Shift
-  // state would make the cursor flicker while a player queues waypoints.
+  // adapter (intentWorld) at the same point (`pp`) -- so the click and the
+  // cursor that predicts it can never give different answers. `cursorAt`
+  // (input/pointer.ts) is also what pointer.test.ts reads at a fixed pixel.
   const mine = renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
-  const res = resolvePointer(intentWorld, {
+  const { name, key } = cursorAt(sim, intentWorld, pp, {
     ids: mine,
-    x: hw.x,
-    y: hw.y,
-    append: false,
     armed: armedSupport,
     confirm: altHeld,
-  });
-  const tx = Math.floor(hw.x);
-  const ty = Math.floor(hw.y);
-  const inBounds = tx >= 0 && ty >= 0 && tx < sim.width && ty < sim.height;
-  // GH-262: the whole order is pinned -- every id the order intent would
-  // move -- so the click is accepted and nobody goes. Read from the order
-  // intent's ids rather than the selection, so a pinned unit in a demolish
-  // or garrison group never speaks for it. Read every frame, so the cursor
-  // goes back to `move` the tick the pin lifts, with no re-hover.
-  const orderIds = res.intents.find((i) => i.kind === 'order')?.ids ?? [];
-  const pinned = wholeOrderPinned(sim.state, orderIds);
-  const hints = {
-    hostile: renderer.hoverEntity >= 0,
-    blocked: inBounds && sim.blocked[ty * sim.width + tx] !== 0,
     armedSmoke: armedOrder === 'smoke',
-    pinned,
-  };
-  const badges: BadgeHints = {
-    bucketOf: (id) => roleBucket(sim.unitTypes[sim.state.typeIdx[id]]),
-  };
-  const name = cursorFor(res, hints);
-  const key = cursorKey(name, badgeFor(res, hints, badges, name));
+  });
+  hoverCursorName = name;
   // Guard the write: a dataset attribute set every frame forces needless
   // style invalidation even when the cursor hasn't changed.
   if (key !== lastCursorKey) {
@@ -4704,7 +5144,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     lastCursorKey = key;
   }
   // Keyed on `name` (the bare verb), not `key`: a badge change alone --
-  // `attack` to `attack-kamikaze` from a selection change while still
+  // `advance` to `advance-kamikaze` from a selection change while still
   // hovering the same target -- must not restart the pulse, only a change
   // of *which* animation (or none) should be running does.
   cursorAnim.show(name);
@@ -4764,14 +5204,18 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // accumulator itself (Task 6) -- `__lions.step` bypasses this whole loop
     // and calls `runTick` directly, so it still advances the sim while paused,
     // which the tools depend on.
-    const { ticks, frameMs } = advanceClock(clock, performance.now(), gameSpeed, paused, MS_PER_TICK);
+    // PA-07: the held beat holds the accumulator (the mission has ended) and
+    // eases the PRESENTATION clock alone; the sim is neither slowed nor
+    // ticked by it.
+    const now = performance.now();
+    const pose = beat ? beatPose(now - beat.t0, beat.reduced) : null;
+    const { ticks, frameMs } = advanceClock(clock, now, gameSpeed, paused || beat !== null, MS_PER_TICK);
     lastFrameMs = frameMs;
     for (let i = 0; i < ticks; i++) runTick();
     // Read live off the settings store, not snapshotted at boot: `set()`
     // reaches every open battlefield the moment the player changes it,
     // pause menu included (Task 6) -- `get()` is a plain getter, so this
     // costs nothing extra per frame.
-    const panSpeed = (0.5 * req.settings.get().controls.cameraSpeed) / renderer.camera.zoom;
     // `keys` holds PHYSICAL keys (Task 5 fix round 1) -- W and the physical
     // Up arrow are two different keys that both mean `panUp`, so `held`
     // asks whether ANY held key currently resolves to that action rather
@@ -4779,33 +5223,56 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // releasing only one keeps the camera panning.
     const held = (action: 'panUp' | 'panDown' | 'panLeft' | 'panRight'): boolean =>
       heldAction(bindings, keys, action);
-    if (held('panUp')) {
-      renderer.camera.x -= panSpeed;
-      renderer.camera.y -= panSpeed;
-    }
-    if (held('panDown')) {
-      renderer.camera.x += panSpeed;
-      renderer.camera.y += panSpeed;
-    }
-    if (held('panLeft')) {
-      renderer.camera.x -= panSpeed;
-      renderer.camera.y += panSpeed;
-    }
-    if (held('panRight')) {
-      renderer.camera.x += panSpeed;
-      renderer.camera.y -= panSpeed;
-    }
-    // Edge pan: same speed term as the keys above, gated on its own setting
-    // (default off -- see settings.ts) AND the pointer actually being over
-    // the canvas AND the window holding focus, so a player reaching for the
-    // minimap or the dock never finds the map scrolling under them.
+    // The pan INTENT, in screen directions: keys and edge pan add, and
+    // `stepPan` clamps and normalises the sum, so the two never disagree
+    // about how fast the camera moves, only about what starts it moving.
+    const intent: PanVelocity = { right: 0, down: 0 };
+    if (held('panUp')) intent.down -= 1;
+    if (held('panDown')) intent.down += 1;
+    if (held('panLeft')) intent.right -= 1;
+    if (held('panRight')) intent.right += 1;
+    // Edge pan: gated on its own setting (default off -- see settings.ts) AND
+    // the pointer actually being over the canvas AND the window holding
+    // focus, so a player reaching for the minimap or the dock never finds the
+    // map scrolling under them.
     if (req.settings.get().controls.edgePan && pointerInside) {
       const e = edgeVector(lastCursor.x, lastCursor.y, canvas.clientWidth, canvas.clientHeight, EDGE_MARGIN_PX);
-      const d = panDelta(e.right, e.down, panSpeed);
+      intent.right += e.right;
+      intent.down += e.down;
+    }
+    // Time-based and eased (WP-P1, PA-03): tiles a SECOND from the frame's own
+    // elapsed time, ramping up and down, where it used to be 0.5 tiles a
+    // FRAME -- twice as fast on a 120 Hz display, and instant on and off.
+    // `frameMs` is the wall-clock frame, not sim time: the camera pans in a
+    // pause and at every game speed. The camera speed setting is read live,
+    // pause menu included (Task 6).
+    if (intent.right !== 0 || intent.down !== 0 || panning(panVel)) {
+      const d = stepPan(panVel, intent, frameMs, req.settings.get().controls.cameraSpeed, renderer.camera.zoom);
       renderer.camera.x += d.dx;
       renderer.camera.y += d.dy;
+      // Pushing into an edge just stops there: the velocity left over points
+      // INTO the wall and dies in its own 90 ms, so nothing slides back out.
+      keepOnMap();
     }
-    renderer.frame(clock.acc / MS_PER_TICK, lastFrameMs);
+    // A wheel zoom's glide (~150 ms, eased on elapsed time like the pan). The
+    // outcome beat owns the camera while it runs, so a glide in flight is
+    // dropped rather than fought with.
+    if (zoomGlide !== null) {
+      if (beat) {
+        zoomGlide = null;
+      } else {
+        const g = stepZoomGlide(zoomGlide, frameMs);
+        applyZoom(g.zoom);
+        if (g.done) zoomGlide = null;
+      }
+    }
+    if (beat && pose && beat.focus) {
+      const c = beatCamera(beat.from, beat.focus, pose.camera);
+      renderer.camera.x = c.x;
+      renderer.camera.y = c.y;
+      renderer.camera.zoom = c.zoom;
+    }
+    renderer.frame(clock.acc / MS_PER_TICK, lastFrameMs * (pose?.timeScale ?? 1));
 
     updateHover();
   };
@@ -4831,15 +5298,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
 }
 
 main().catch((err: unknown) => {
-  console.error('boot failed:', err);
   const stage = document.getElementById('stage');
   if (stage) {
-    const body = err instanceof Error ? (err.stack ?? err.message) : String(err);
-    // Not t(): main() itself just threw, which can happen before its own
-    // locale boot (loadLocale/setCatalogue) ever runs -- the catalogue is
-    // not a safe thing to call into here. Every other bootError call site
-    // in this file runs from a router callback or bootBattlefield, well
-    // after main()'s boot sequence has completed successfully.
-    bootError(stage, 'Boot failed', body); /* i18n-ok: boot failure before the catalogue */
+    // t() is safe even here, before main()'s own locale boot: the module
+    // starts on the bundled `en` catalogue (`i18n/t.ts`), so a failure that
+    // early still reads in English rather than as raw keys.
+    bootFailure(stage, err);
+  } else {
+    console.error('boot failed:', err);
   }
 });

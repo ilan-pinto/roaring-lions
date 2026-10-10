@@ -11,11 +11,14 @@ B3's rigged figures re-posed seated"). Owner of the file in
 
 SOURCES
 
-  the bike     art/meshy/moto-rpg-20261001-01a0f631/model.glb -- Meshy
-               text-to-3d preview 01a0f62f-c542-709f-a687-4c7c07808be6 (no
-               pose, no refine: a palette part), REMESH
-               01a0f631-... at 1,500 tris. Zero materials ship: the remesh's
-               normal map is dropped and the bike takes the enemy ramp.
+  the bike     A3.1 stage 2 (GH-179, 2026-10-05): the TEXTURED re-make --
+               preview 01a10c31-ea45-70f1-bef0-b06f3d51d4e2, refine (8k)
+               01a10c65-0225-775d-8dfd-e5f11040b216, REMESH 01a10c69-8fc1-740c-acb1-1e25cd415d57
+               at 1,500 (arrived 1,440 tris, 8k base colour), found through
+               the ledger's last `kind: remesh` named `moto_rpg` (`_bike_source`),
+               not a glob over a hand-typed id. It replaces B6's palette bike
+               (preview 01a0f62f, remesh 01a0f631, no uv, no material), whose
+               source dir stays in the tree as history.
   the riders   B3's rpg_team remesh (01a0f313-bf75-727d-8573-8fb7f04c2453,
                1.76 m, its own 2k bake, the rose head wrap remapped to dusty
                tan) -- `import_meshy_crew_team.SOURCES["moto_rpg"]`, loaded
@@ -35,25 +38,68 @@ axles, the saddle. `rig.build_clips(arm, "moto_rpg")` is called as is.
 ## The bike, measured rather than assumed
 
 The remesh's long axis is X and its FRONT is at -X (the bars are the widest
-end -- |y| 0.18 L at 0.35-0.40 of the length against 0.11 L for the rear
-bag; the thumbnail agrees), so it takes one 180-degree Z turn, as the gun
-truck did. Scaled so its length is `BIKE_LENGTH` (teams._motorcycle's 2.2 m),
-tyres on z = 0, origin at the bbox centre on the ground. Measured on the
-preview (969k tris) and re-measured on the remesh: wheel centres at 0.27 and
-0.70 of the length, z 0.19 L; wheel top 0.30 L, so the radius is 0.15 L; the
-saddle top ~0.40 L between 0.50 and 0.65 of the length; the bars at 0.35-0.40
-of the length, z 0.54 L.
+end -- |y| 0.519 against 0.294 at the rear in the first and last 40% of the
+length -- and the preview's side view agrees), so it takes one 180-degree Z
+turn, as the gun truck did. Scaled so its length is `BIKE_LENGTH`
+(teams._motorcycle's 2.2 m, x1.169), tyres on z = 0.
 
-**The remesh's wheels are hoops** -- 1,500 tris cannot keep spokes -- so the
-faces inside each wheel disc are deleted and `kit.tube` wheels (14-segment
-solid cylinders, the kit bike's own wheel, `weapon` role as kit's tyres are)
-are stood on the measured axles and bound to the wheel bones. A spinning
-hoop reads as a flicker at 25 px; a spinning cylinder reads as a wheel.
+**What the 5 Oct remesh did that the 1 Oct one did not**, found by dumping the
+remesh's connected pieces (`_islands`: 6 vertex-connected pieces, vertices merged
+by position because Meshy splits them along uv seams -- 12 when only edges
+connect) and plotting their centroids, and every number below read off that,
+never guessed:
 
-Roles on the bike: `weapon` the kit tyres; `webbing` the saddle and the rear
-bag (face centroids in the measured boxes); `metal` the rest. No UVs, no
-material: the loader paints these from the faction ramp beside the textured
-riders (`buildMeshUnitTemplate` decides per mesh -- B0b).
+  * a SECOND wheel stands across the front -- a 116-face hoop with a mudguard
+    and hub (four pieces, 155 faces), 0.34 m right of the centre line, which is
+    not in the prompt and not on a bike. Deleted.
+  * the FRONT wheel is welded to the fork inside the big island and is yawed
+    about 14-27 degrees (a steered wheel, hub 0.16 m off the centre line). Its
+    faces are cut by a disc about the measured front hub, and a straight kit
+    wheel goes on the centre line.
+  * the rear wheel is a clean 183-face island, which gives the axle (x -0.761),
+    the wheel radius (0.337) and the centre line (its y mid, +0.119 -- the old
+    importer centred the bbox and the stray wheel dragged the whole bike 0.12 m
+    sideways). Deleted; the kit wheel replaces it.
+  * the bedroll "behind the saddle" landed ON the saddle at 1.03 m, which would
+    seat both riders a hand above the real seat (0.90 m). 45 faces deleted.
+  * the bars are three small islands above z 1.0 (half width 0.40 m, z 1.06):
+    kept, and read for the grips.
+
+All of it in `_prune_bike`; the front axle is the big island's max x less the
+radius (+0.763), so the wheelbase reads 1.52 m, a dirt bike's.
+
+**The wheels are kit tubes again** -- a 14-segment solid cylinder on each
+measured axle bound to the wheel bones, a spinning disc reading as a wheel at
+25 px where a spinning hoop is a flicker -- but now TEXTURED: each takes one uv,
+the bike bake's own tyre texel (`_bike_borrow_uv`, the twin of
+`crew._borrow_uv`, which can only point at the riders' material).
+
+## THE BIKE'S BAKE: a second material, not a share of the riders' atlas
+
+The B8 part precedent (`import_meshy_crew_team.MESHY_PARTS`) composes a part's
+bake BESIDE the figure's in one 2 x 1 atlas so the whole file keeps one
+material. That is NOT done here, for three reasons. (1) The bike's bake is an
+8k image shipped at 2,048 -- the vehicles' `textured.TEXTURE_PX`, "dont drop
+resolution" -- against the riders' 1,024; an atlas would scale one of them to
+the other's density or grow to 3 x 1. (2) Another change is replacing the
+launcher with a Meshy part through exactly that atlas, in the riders' half of
+`import_meshy_crew_team.py`; a bike composed into the same atlas would fight it
+for the right-hand half. (3) A role only splits into `_1`/`_2` primitives when
+ITS faces sit on two materials, and the bike can be given roles the riders do
+not use. So: the bike has its own material, `bike_material`, its own image,
+`bike_color` (never `base_color`, which is the figure's), and ONE role, `metal`
+(frame and both wheels, living and wrecked), which no rider part uses -- the
+palette bike's `webbing` and `weapon` pieces are gone, `weapon` being the one
+role the bike must not touch, since the launcher is a `weapon` part.
+`_one_material_per_role` fails the build if that ever stops being true. It is
+also one skinned draw call where the palette bike was three.
+
+Triangle budget: the crew importer at `HEAD` cuts the riders larger than the
+file B6 shipped from (2 x 2,720 faces), so the same file with this bike read
+8,955 against the 8,000 cap; the thrown corpses (0.35 -> 0.25) and the tipped
+bike (0.45 -> 0.30) are decimated harder to land at 7,903 -- as close to the cap
+as the ratio steps allow (the lead's rule: maximum detail, simplified only to the
+measured cap; 0.16 read 7,423 and left 577 triangles unspent).
 
 ## The riders, re-posed in code
 
@@ -99,16 +145,40 @@ import import_meshy_crew_team as crew  # noqa: E402
 REPO = os.path.dirname(TOOLS)
 TEAM = "moto_rpg"
 OUT_PATH = os.path.join(REPO, "art", "meshes", "moto_rpg.glb")   # literal: mesh_ownership.test.ts reads it
-BIKE_SRC = os.path.join(REPO, "art", "meshy", "moto-rpg-*-01a0f631", "model.glb")
+BIKE_NAME = "moto_rpg"            # the ledger `name` of the bike's text -> refine -> remesh chain
+BIKE_TEXTURE_PX = 2048            # the bike's own bake, at `tools/vehicles/textured.py`'s TEXTURE_PX
+BIKE_IMAGE = "bike_color"         # NOT `base_color`: that is the riders' figure bake (crew._keep_base_color)
+#: The lead's ruling (5 Oct, PR #396): the bike's safety-orange paint
+#: (and its yellow-orange trim) reads as a marker colour at 25 px; it ships
+#: a muted dusty tan instead. Every bike texel at hue BIKE_TAN_HUE_IN with
+#: saturation > BIKE_TAN_SAT and value > BIKE_TAN_VAL is moved to hue
+#: BIKE_TAN_HUE, saturation x BIKE_TAN_SAT_GAIN (capped BIKE_TAN_SAT_CAP),
+#: value x BIKE_TAN_VAL_GAIN -- the variant photographed in
+#: docs/art/sheets/a31-parts/moto_rpg-muted.png (24 % of the 2048 image).
+#: Black, gunmetal and chrome are untouched. `_retexel_bike_tan` refuses to
+#: run if it finds no orange, as `crew._retexel_orange` does.
+BIKE_TAN_HUE_IN = (12.0, 58.0)    # degrees
+BIKE_TAN_SAT = 0.30
+BIKE_TAN_VAL = 0.15
+BIKE_TAN_HUE = 38.0
+BIKE_TAN_SAT_GAIN = 0.40
+BIKE_TAN_SAT_CAP = 0.32
+BIKE_TAN_VAL_GAIN = 0.74
 
 BIKE_LENGTH = 2.2                 # teams._motorcycle: "The machine: 2.2 m long"
 WHEEL_WIDTH = 0.10
+WHEEL_CUT_MARGIN = 0.03          # m past the measured tyre radius that a wheel-disc face is cut
+WHEEL_CUT_HALF_WIDTH = 0.40      # m: the front hoop is welded to a fork yawed ~20 deg, so it spans y 0.03-0.28 about the centre line; the stray wheel is already gone
 WHEEL_SIDES = 14                  # teams._motorcycle's own wheel
-WRECK_BIKE_DECIMATE = 0.45
-#: The two thrown riders' corpses, decimated harder than the crew teams'
-#: 0.5: a file carrying a bike, a tipped bike, two seated 2,000-tri men and
-#: two corpses read 8,110 tris at 0.5 against the 8,000 team cap.
-CORPSE_DECIMATE = 0.35
+WRECK_BIKE_DECIMATE = 0.30
+#: The two thrown riders' corpses, decimated harder than the crew teams' 0.5.
+#: B6 shipped 0.35 at 7,872 tris against the 8,000 team cap; the crew importer
+#: at `HEAD` cuts the same figure larger than the file B6 was built from (the
+#: living riders are 2 x 2,720 faces now), so the same file read 8,955 with a
+#: 1,057-face textured bike. 0.25 -- and the tipped bike at 0.30 -- is what puts
+#: the file back under the cap, at 7,903 (0.16 read 7,423: detail left unspent);
+#: both are the wreck pose, at 25 px.
+CORPSE_DECIMATE = 0.25
 
 #: Where each rider's crotch sits along the bike (metres, +X forward, after
 #: the turn). The kit put them at +0.18 / -0.42 on a 1.50 m wheelbase; this
@@ -167,22 +237,223 @@ def _rot_about(point, axis, deg):
 # the bike
 # ---------------------------------------------------------------------------
 
-def _load_bike():
-    hits = sorted(glob.glob(BIKE_SRC))
+#: Where the saddle top is read (after the turn, +X forward): between the tank
+#: and the rear bag.
+SADDLE_X = (-0.45, -0.05)
+#: The remesh's stray pieces, measured 2026-10-05 on remesh 01a10c69 (see
+#: `_prune_bike`): a rear-wheel island whose centroid lies behind this x, and any
+#: island whose centroid sits this far to the right of the centre line.
+REAR_WHEEL_MAX_X = -0.40
+STRAY_DY = 0.15
+BARS_MIN_Z = 1.0
+#: The bedroll the prompt put "behind the empty saddle" landed ON the saddle
+#: (a 1.03 m blob over x -0.55..-0.25, where the pillion sits), so the riders
+#: would sit a hand above the seat. Its faces -- the box below, in the turned
+#: frame, above the seat line -- are deleted. (x0, x1, |y| max, z min)
+BEDROLL_BOX = (-0.62, -0.18, 0.22, 0.90)
+
+
+def _islands(ob):
+    """The connected pieces of the mesh, as lists of polygon indices, largest
+    first. Meshy's remesh splits vertices along its UV seams, so connectivity is
+    read from vertices merged by position (1e-4), not from vertex indices."""
+    me = ob.data
+    co = _coords(ob)
+    key = {}
+    vid = np.empty(len(co), dtype=np.int64)
+    for i, p in enumerate(np.round(co / 1e-4).astype(np.int64)):
+        vid[i] = key.setdefault(tuple(p), len(key))
+    parent = list(range(len(key)))
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    for p in me.polygons:
+        r0 = find(int(vid[p.vertices[0]]))
+        for i in p.vertices[1:]:
+            ri = find(int(vid[i]))
+            if ri != r0:
+                parent[ri] = r0
+    groups = {}
+    for p in me.polygons:
+        groups.setdefault(find(int(vid[p.vertices[0]])), []).append(p.index)
+    return sorted(groups.values(), key=lambda g: -len(g))
+
+
+def _prune_bike(ob):
+    """Clean the textured remesh of what it grew that a bike does not have.
+
+    MEASURED, 2026-10-05, on remesh 01a10c69 (1,440 tris, 12 connected pieces):
+    the preview came with a SECOND wheel standing across the front -- a 116-face
+    hoop with a mudguard and hub, 0.34 m to the right of the centre line --
+    which the 1 Oct bike did not have; the rear wheel is a clean island of its
+    own; the handlebar ends are three small islands above z 1.0. So:
+
+      * the largest island is the bike (frame, tank, saddle, panniers, engine,
+        exhaust, fork, bars centre and the FRONT wheel, which the remesh welded
+        to the fork);
+      * the island behind `REAR_WHEEL_MAX_X` and under 0.7 m is the rear wheel:
+        it gives the axle, the wheel radius and the centre line (its y mid), and
+        is deleted -- the kit wheel replaces it, as it replaced the hoop;
+      * every island whose centroid sits `STRAY_DY` right of that centre line is
+        the stray wheel assembly, deleted;
+      * the whole bike is then shifted so the centre line is y = 0 (the bbox
+        centre the old importer used was dragged 0.12 m sideways by the stray
+        wheel).
+
+    The front wheel stays in the big island and is cut by `_bike_parts`.
+    Returns the info dict (`axles`, `r_wheel`, `bars`)."""
+    me = ob.data
+    isl = _islands(ob)
+    co = _coords(ob)
+    cent = _face_centroids(ob)
+    main = isl[0]
+    rear = [g for g in isl[1:] if cent[g, 0].mean() < REAR_WHEEL_MAX_X and cent[g, 2].mean() < 0.7 and len(g) >= 100]
+    if len(rear) != 1:
+        raise SystemExit(f"bike: expected one rear-wheel island behind x {REAR_WHEEL_MAX_X}, found {[len(g) for g in rear]} "
+                         f"-- re-measure with the island dump")
+    rear = rear[0]
+    rv = np.unique(np.array([i for p in rear for i in me.polygons[p].vertices]))
+    rmn, rmx = co[rv].min(axis=0), co[rv].max(axis=0)
+    y0 = float((rmn[1] + rmx[1]) / 2.0)
+    r = float((rmx[2] - rmn[2]) / 2.0)
+    rear_x = float((rmn[0] + rmx[0]) / 2.0)
+    stray = [g for g in isl[1:] if g is not rear and cent[g, 1].mean() < y0 - STRAY_DY]
+    doomed = set(rear) | {p for g in stray for p in g}
+    bx0, bx1, by, bz = BEDROLL_BOX
+    bedroll = {int(i) for i in np.nonzero((cent[:, 0] > bx0) & (cent[:, 0] < bx1) & (np.abs(cent[:, 1] - y0) < by)
+                                           & (cent[:, 2] > bz))[0]} - doomed
+    doomed |= bedroll
+    bars_isl = [g for g in isl[1:] if g is not rear and g not in stray and cent[g, 2].mean() > BARS_MIN_Z]
+    bar_c = np.concatenate([cent[g] for g in bars_isl]) if bars_isl else cent[main][cent[main][:, 2] > BARS_MIN_Z]
+    mv = np.unique(np.array([i for p in main for i in me.polygons[p].vertices]))
+    front_x = float(co[mv, 0].max()) - r
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    bm.faces.ensure_lookup_table()
+    bmesh.ops.delete(bm, geom=[bm.faces[i] for i in doomed], context="FACES")
+    loose = [v for v in bm.verts if not v.link_faces]
+    bmesh.ops.delete(bm, geom=loose, context="VERTS")
+    bm.to_mesh(ob.data)
+    bm.free()
+    ob.data.update()
+    _transform(ob, Matrix.Translation((0.0, -y0, 0.0)))
+    log(f"bike: {len(isl)} islands; rear wheel {len(rear)} faces (axle x {rear_x:+.3f}, r {r:.3f}) and "
+        f"{len(stray)} stray island(s) ({sum(len(g) for g in stray)} faces) and the bedroll ({len(bedroll)} faces) deleted; "
+        f"centre line y0 {y0:+.3f} -> 0; "
+        f"front axle x {front_x:+.3f}; {len(ob.data.polygons)} tris left")
+    bar_x = float(bar_c[:, 0].mean())
+    bar_half = float(max(abs(bar_c[:, 1].max() - y0), abs(bar_c[:, 1].min() - y0)))
+    bar_z = float(bar_c[:, 2].mean())
+    return {"axles": [(front_x, r), (rear_x, r)], "r_wheel": r, "bars": (bar_x, bar_half, bar_z), "y0": y0}
+
+
+def _bike_source():
+    """`art/meshy/moto-rpg-<yyyymmdd>-<id8>/model.glb` of the LEDGER's last
+    `kind: remesh` task named `moto_rpg` -- the same lookup the drone and
+    vehicle exporters use, because the bike has two chains in the ledger
+    (B6's palette preview + remesh, 1 Oct, and this textured one, 5 Oct) and
+    only the ledger says which is current. Slug AND id prefix, since the
+    moto-rpg preview and the atgm-post preview of 5 Oct share `01a10c31`."""
+    import json
+    ledger = os.path.join(REPO, "art", "meshy", "ledger.jsonl")
+    task_id = None
+    with open(ledger) as fh:
+        for line in fh:
+            line = line.strip()
+            if line:
+                entry = json.loads(line)
+                if entry.get("kind") == "remesh" and entry.get("name") == BIKE_NAME:
+                    task_id = entry["id"]
+    if task_id is None:
+        raise SystemExit(f"no kind=remesh entry named {BIKE_NAME!r} in {ledger}")
+    hits = glob.glob(os.path.join(REPO, "art", "meshy", f"{BIKE_NAME.replace('_', '-')}-*-{task_id.split('-')[0]}",
+                                  "model.glb"))
     if len(hits) != 1:
-        raise SystemExit(f"expected exactly one bike source at {BIKE_SRC}, found {hits}")
+        raise SystemExit(f"expected one download dir for remesh task {task_id}, found {hits}")
+    return hits[0], task_id
+
+
+#: The bike's own material, set by `_load_bike`. A SECOND material in the file,
+#: beside the riders' figure atlas -- see "THE BIKE'S BAKE" in the module doc.
+_BIKE = {"material": None}
+
+
+def _retexel_bike_tan(img):
+    """Repaint the bike bake's orange texels dusty tan, in place, by the
+    BIKE_TAN_* rule (HSV, numpy, deterministic). Refuses if none match."""
+    w, h, ch = img.size[0], img.size[1], img.channels
+    px = np.empty(w * h * ch, dtype=np.float32)
+    img.pixels.foreach_get(px)
+    px = px.reshape(-1, ch)
+    rgb = px[:, :3]
+    mx, mn = rgb.max(axis=1), rgb.min(axis=1)
+    c = mx - mn
+    d = np.where(c > 1e-6, c, 1.0)
+    r, g, b = rgb[:, 0], rgb[:, 1], rgb[:, 2]
+    hue = np.where(mx == r, ((g - b) / d) % 6.0, np.where(mx == g, (b - r) / d + 2.0, (r - g) / d + 4.0)) * 60.0
+    hue = np.where(c > 1e-6, hue, 0.0)
+    sat = np.where(mx > 1e-6, c / np.where(mx > 1e-6, mx, 1.0), 0.0)
+    m = (hue >= BIKE_TAN_HUE_IN[0]) & (hue <= BIKE_TAN_HUE_IN[1]) & (sat > BIKE_TAN_SAT) & (mx > BIKE_TAN_VAL)
+    n = int(m.sum())
+    if not n:
+        raise SystemExit(f"{TEAM}: no orange texels on {img.name} to repaint tan -- the bike's bake changed; look at it")
+    v2 = mx[m] * BIKE_TAN_VAL_GAIN
+    s2 = np.minimum(sat[m] * BIKE_TAN_SAT_GAIN, BIKE_TAN_SAT_CAP)
+    hh = BIKE_TAN_HUE / 60.0
+    f = hh - math.floor(hh)
+    i = int(math.floor(hh)) % 6
+    p_, q_, t_ = v2 * (1.0 - s2), v2 * (1.0 - s2 * f), v2 * (1.0 - s2 * (1.0 - f))
+    rgb_out = [(v2, t_, p_), (q_, v2, p_), (p_, v2, t_), (p_, q_, v2), (t_, p_, v2), (v2, p_, q_)][i]
+    rgb[m] = np.stack(rgb_out, axis=1)
+    px[:, :3] = rgb
+    img.pixels.foreach_set(px.ravel())
+    img.update()
+    log(f"{img.name}: {n} orange texel(s) of {w * h} ({100.0 * n / (w * h):.1f} %) repainted dusty tan "
+        f"(hue {BIKE_TAN_HUE:.0f}, sat x{BIKE_TAN_SAT_GAIN} cap {BIKE_TAN_SAT_CAP}, value x{BIKE_TAN_VAL_GAIN})")
+
+
+def _load_bike():
+    path, task_id = _bike_source()
     before = {o.name for o in bpy.data.objects}
-    bpy.ops.import_scene.gltf(filepath=hits[0])
+    bpy.ops.import_scene.gltf(filepath=path)
     new = [o for o in bpy.data.objects if o.name not in before and o.type == "MESH"]
     if len(new) != 1:
         raise SystemExit(f"bike: expected one mesh object, found {[o.name for o in new]}")
     ob = new[0]
-    ob.data.materials.clear()
-    for img in list(bpy.data.images):
-        if img.users == 0 and img.name != "base_color":
-            bpy.data.images.remove(img)
-    for uv in list(ob.data.uv_layers):
-        ob.data.uv_layers.remove(uv)
+    for o in list(bpy.data.objects):
+        if o.name not in before and o.type != "MESH":
+            bpy.data.objects.remove(o, do_unlink=True)
+    ob.parent = None
+    mats = [m for m in ob.data.materials if m is not None]
+    if len(mats) != 1 or not mats[0].use_nodes:
+        raise SystemExit(f"bike: expected one node material on the remesh, found {[m.name for m in mats]}")
+    tree = mats[0].node_tree
+    bsdf = next((n for n in tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+    link = next((l for l in tree.links if bsdf is not None and l.to_node == bsdf and l.to_socket.name == "Base Color"), None)
+    if link is None or link.from_node.type != "TEX_IMAGE" or link.from_node.image is None:
+        raise SystemExit("bike: Base Color is not an image -- no bake to ship")
+    base = link.from_node.image
+    # Keep exactly the base colour, as `crew._keep_base_color` does for a figure:
+    # drop every other texture node and its image.
+    for node in list(tree.nodes):
+        if node.type == "TEX_IMAGE" and node.image is not base:
+            img = node.image
+            tree.nodes.remove(node)
+            if img is not None and img.users == 0:
+                bpy.data.images.remove(img)
+    for other in list(bpy.data.images):
+        if other is not base and other.users == 0:
+            bpy.data.images.remove(other)
+    base.name = BIKE_IMAGE
+    mats[0].name = "bike_material"
+    _BIKE["material"] = mats[0]
+    if not ob.data.uv_layers:
+        raise SystemExit("bike: the remesh carries no UV layer")
+    log(f"bike: {os.path.relpath(path, REPO)} (remesh {task_id}); {BIKE_IMAGE} {base.size[0]}x{base.size[1]}")
     bpy.ops.object.select_all(action="DESELECT")
     ob.select_set(True)
     bpy.context.view_layer.objects.active = ob
@@ -207,30 +478,13 @@ def _load_bike():
     centre = Vector(((mn[0] + mx[0]) / 2.0, (mn[1] + mx[1]) / 2.0, mn[2]))
     m = Matrix.Scale(k, 4) @ rot @ Matrix.Translation(-centre)
     _transform(ob, m)
+    info = _prune_bike(ob)
     co = _coords(ob)
-    # Axles from the GROUND CONTACT: the tyre bottoms are the only points
-    # under z = 0.04 and sit directly below the axles (a low-band centroid
-    # was dragged 0.26 m inward by the engine -- measured, 2026-10-01). The
-    # radius is half the tyre's top in the column above that x (the
-    # mudguards sit above 0.80 on this bike); the axle is one radius up.
-    ground = co[co[:, 2] < 0.04]
-    info = {"axles": []}
-    r = 0.0
-    for sel in (ground[:, 0] > 0, ground[:, 0] < 0):
-        ax = float(ground[sel, 0].mean())
-        col = co[(np.abs(co[:, 0] - ax) < 0.05) & (np.abs(co[:, 1]) < 0.10) & (co[:, 2] < 0.80)]
-        r = max(r, float(col[:, 2].max()) / 2.0)
-        info["axles"].append(ax)
-    info["axles"] = [(ax, r) for ax in info["axles"]]
-    info["r_wheel"] = r
+    r = info["r_wheel"]
     # The saddle top: the highest point in the band between the axles, behind the tank.
-    sad = (co[:, 0] < -0.05) & (co[:, 0] > -0.45) & (np.abs(co[:, 1]) < 0.15)
+    sad = (co[:, 0] < SADDLE_X[1]) & (co[:, 0] > SADDLE_X[0]) & (np.abs(co[:, 1]) < 0.15)
     info["saddle_z"] = float(co[sad, 2].max()) if sad.sum() else 0.85
-    # The bars: the widest band in the front half, its grip height and reach.
-    front = co[:, 0] > 0.1
-    yi = int(np.argmax(np.abs(co[front, 1])))
-    bar = co[front][yi]
-    info["bars"] = (float(bar[0]), float(abs(bar[1])), float(bar[2]))
+    log(f"bike: saddle band holds {int(sad.sum())} verts, top z {info['saddle_z']:.3f}")
     log(f"bike: scaled x{k:.3f}; axles {[(round(a, 3), round(z, 3)) for a, z in info['axles']]} r {r:.3f}; "
         f"saddle top z {info['saddle_z']:.3f}; bars at x {info['bars'][0]:.2f} |y| {info['bars'][1]:.2f} z {info['bars'][2]:.2f}")
     ob.name = "bike_src"
@@ -263,28 +517,56 @@ def _piece(src, name, role, faces):
     return ob
 
 
-def _bike_parts(src, info, prefix):
-    """The remesh split by role with the hoop wheels cut out, plus kit
-    cylinder wheels on the measured axles. Returns (frame parts, wheel parts)."""
+def _bike_borrow_uv(ob, src, near):
+    """Give a UV-less kit wheel the bike's material and ONE uv -- the centroid
+    uv of the bike face nearest `near` (the tyre tread) -- so it takes the
+    tyre's own rubber texel. The bike-bake twin of `crew._borrow_uv`, which
+    reads the riders' figure material and cannot be pointed at this one."""
+    me_s = src.data
+    uv_s = me_s.uv_layers.active.data
     cent = _face_centroids(src)
-    r_cut = info["r_wheel"] + 0.03      # just past the ring's own outer edge
+    i = int(np.argmin(((cent - np.array(near, dtype=np.float64)) ** 2).sum(axis=1)))
+    poly = me_s.polygons[i]
+    uv = np.mean([uv_s[l].uv[:] for l in poly.loop_indices], axis=0)
+    me = ob.data
+    layer = me.uv_layers.active if me.uv_layers else me.uv_layers.new(name="UVMap")
+    for loop in layer.data:
+        loop.uv = uv
+    me.materials.clear()
+    me.materials.append(_BIKE["material"])
+    return tuple(round(float(c), 3) for c in uv)
+
+
+def _bike_parts(src, info, prefix):
+    """The remesh as ONE `metal` piece with the hoop wheels cut out, plus kit
+    cylinder wheels on the measured axles, also `metal`, textured through the
+    bike's own bake. Returns (frame parts, wheel parts).
+
+    ONE role, not three. The palette bike split `metal` / `webbing` / `weapon`
+    (frame / saddle and bag / tyres) so the faction ramp could colour them; the
+    bake carries every colour now, and `weapon` is the one role a bike piece
+    may NOT sit in: the launcher is a `weapon` part too, and a role whose
+    pieces sit on two materials exports as `weapon_1`/`weapon_2`, which the
+    loader maps to nothing (`import_meshy_crew_team.py`, "WHY AN ATLAS"). The
+    riders use boot/face/keffiyeh/uniform only, so `metal` is the bike's alone.
+    A single role is also one skinned draw call where the palette bike was
+    three -- the bottleneck `CLAUDE.md` names for rigged units."""
+    cent = _face_centroids(src)
+    r_cut = info["r_wheel"] + WHEEL_CUT_MARGIN      # just past the ring's own outer edge
     in_wheel = np.zeros(len(cent), dtype=bool)
     for ax, az in info["axles"]:
-        in_wheel |= ((cent[:, 0] - ax) ** 2 + (cent[:, 2] - az) ** 2 < r_cut ** 2) & (np.abs(cent[:, 1]) < 0.14)
-    saddle = ((cent[:, 0] < -0.02) & (cent[:, 0] > -0.46) & (np.abs(cent[:, 1]) < 0.16)
-              & (cent[:, 2] > info["saddle_z"] - 0.10))
-    bag = (cent[:, 0] < -0.46) & (cent[:, 2] > 0.70) & (np.abs(cent[:, 1]) < 0.25)
-    soft = (saddle | bag) & ~in_wheel
-    hard = ~soft & ~in_wheel
-    parts = [_piece(src, f"{prefix}_frame", "metal", set(np.nonzero(hard)[0]))]
-    if soft.sum():
-        parts.append(_piece(src, f"{prefix}_soft", "webbing", set(np.nonzero(soft)[0])))
-    log(f"{prefix}: frame {int(hard.sum())} faces metal, saddle+bag {int(soft.sum())} webbing, "
-        f"{int(in_wheel.sum())} hoop-wheel faces cut")
+        in_wheel |= ((cent[:, 0] - ax) ** 2 + (cent[:, 2] - az) ** 2 < r_cut ** 2) & (np.abs(cent[:, 1]) < WHEEL_CUT_HALF_WIDTH)
+    keep = ~in_wheel
+    parts = [_piece(src, f"{prefix}_frame", "metal", set(np.nonzero(keep)[0]))]
+    log(f"{prefix}: frame {int(keep.sum())} faces metal, {int(in_wheel.sum())} wheel-disc faces cut")
     wheels = []
     for i, (ax, az) in enumerate(info["axles"]):
-        wheels.append(kit.tube(f"{prefix}_wheel{i}", WHEEL_WIDTH, info["r_wheel"], (ax, 0.0, az),
-                              yaw=math.radians(90.0), sides=WHEEL_SIDES, role="weapon"))
+        w = kit.tube(f"{prefix}_wheel{i}", WHEEL_WIDTH, info["r_wheel"], (ax, 0.0, az),
+                     yaw=math.radians(90.0), sides=WHEEL_SIDES, role="metal")
+        uv = _bike_borrow_uv(w, src, (ax, 0.0, az - info["r_wheel"] * 0.9))
+        if prefix == "m":
+            log(f"{prefix}: wheel{i} takes the bike's tyre texel uv {uv}")
+        wheels.append(w)
     return parts, wheels
 
 
@@ -405,13 +687,42 @@ def _decimate(ob, ratio):
     ob.data.validate(verbose=False)
 
 
+def _one_material_per_role(merged):
+    """Fail the build if any role mesh would export as more than one primitive.
+
+    A role whose faces sit on two materials -- or on one material and none --
+    exports as `weapon_1` / `weapon_2`, which the loader maps to nothing and
+    which draws as nothing (`import_meshy_crew_team.py`, "WHY AN ATLAS"). The
+    bike now brings a SECOND material beside the riders' atlas, so the hazard is
+    live here: the old palette bike sat in `weapon` beside the launcher with no
+    material at all, and a textured wheel left in `weapon` beside that launcher
+    would split the role without any other error."""
+    for role, ob in merged.items():
+        mats = ob.data.materials
+        used = {mats[p.material_index].name if p.material_index < len(mats) and mats[p.material_index] is not None
+                else None for p in ob.data.polygons}
+        if len(used) > 1:
+            raise SystemExit(f"role {role!r} would export as {len(used)} primitives (materials {sorted(map(str, used))}) "
+                             f"-- two materials in one role is `{role}_1`/`{role}_2`, which nothing maps")
+    log("every role mesh sits on exactly one material (or none)")
+
+
 def build():
     bpy.ops.wm.read_factory_settings(use_empty=True)
     crew._TEX["material"] = None
+    crew._TEX.pop("atlas", None)
     crew._TEAM["id"] = TEAM
     crew._BLOB_KW_ACTIVE.clear()
     crew._BLOB_KW_ACTIVE.update(crew.BLOB_KW.get(TEAM, {}))
     fig, height = crew._load_figure(TEAM)          # the rider figure, textured
+    # A3.1 stage 2 (the RPG): the textured Meshy RPG-7 (`export_meshy_rpg.py`,
+    # `crew.PART_SPECS["rpg_launcher"]`) composed into the RIDERS' atlas --
+    # figure left, RPG right, one material -- exactly as rpg_team does.
+    rpg, rpg_img = crew._load_hand_part(TEAM, "rpg_launcher")
+    crew._normalise_part(TEAM, "rpg_launcher", rpg)
+    crew._compose_atlas(TEAM, fig, [(rpg, rpg_img)])
+    crew._HAND.clear()
+    crew._HAND["rpg_launcher"] = rpg
     bike, info = _load_bike()
 
     parts, forced = [], {}
@@ -430,8 +741,23 @@ def build():
     parts += pas
 
     launcher_at = (RIDER_X["pas"] - LAUNCHER_BACK, LAUNCHER_Y, pas_shoulder_z + LAUNCHER_ABOVE_SHOULDER)
-    launcher = kit.launcher("pas_rpg", launcher_at, yaw=math.pi, pitch=rig.MOTO_LAUNCH_PITCH,
-                            length=1.18, radius=0.075)
+    # The Meshy RPG along the axis kit's tube drew: from the kit bell's rear
+    # face (`at` - 0.5856 L-units back along the pitched bore) to its muzzle
+    # (the tube centre 0.20 behind `at`, plus half its 1.18 m), bell rear on
+    # the bell rear, muzzle toward the kit muzzle, the bore's up toward +z.
+    p_, c_ = rig.MOTO_LAUNCH_PITCH, math.cos(math.pi)
+    D = Vector((math.cos(p_) * c_, 0.0, math.sin(p_)))
+    at_v = Vector(launcher_at)
+    rear = at_v - D * (0.42 * 1.18 + 0.09)
+    front = at_v + Vector((0.20 * c_, 0.0, 0.0)) + D * (1.18 / 2.0)
+    d = (front - rear).normalized()
+    w = (Vector((0.0, 0.0, 1.0)) - d * d.z).normalized()
+    v = w.cross(d)
+    launcher = [crew._part_copy("rpg_launcher", "pas_rpg")]
+    M = Matrix(((d.x, v.x, w.x, rear.x), (d.y, v.y, w.y, rear.y), (d.z, v.z, w.z, rear.z), (0.0, 0.0, 0.0, 1.0)))
+    _transform(launcher[0], M)
+    bpy.data.objects.remove(rpg, do_unlink=True)
+    crew._HAND.clear()
     forced.update({ob: "m_launcher" for ob in launcher})
     parts += launcher
     log(f"launcher at {tuple(round(c, 3) for c in launcher_at)} (pillion shoulder z {pas_shoulder_z:.3f})")
@@ -462,12 +788,20 @@ def build():
     arm_obj = rig.build_armature(bones)
     rig.rig_parts(parts, arm_obj, forced, {"m", "rid", "pas", "mw", "mw_a", "mw_b"})
     merged = rig.join_by_role(parts)
+    _one_material_per_role(merged)
     rig.build_clips(arm_obj, TEAM)
     img = bpy.data.images["base_color"]
     before = tuple(img.size)
-    if img.size[0] > crew.TEXTURE_PX or img.size[1] > crew.TEXTURE_PX:
-        img.scale(min(img.size[0], crew.TEXTURE_PX), min(img.size[1], crew.TEXTURE_PX))
-    log(f"base_color {before} -> {tuple(img.size)}; images {[i.name for i in bpy.data.images]}")
+    cap_w, cap_h = crew._TEX.get("atlas") or (crew.TEXTURE_PX, crew.TEXTURE_PX)   # the riders' + RPG atlas
+    if img.size[0] > cap_w or img.size[1] > cap_h:
+        img.scale(min(img.size[0], cap_w), min(img.size[1], cap_h))
+    bike_img = bpy.data.images[BIKE_IMAGE]
+    bike_before = tuple(bike_img.size)
+    if bike_img.size[0] > BIKE_TEXTURE_PX or bike_img.size[1] > BIKE_TEXTURE_PX:
+        bike_img.scale(min(bike_img.size[0], BIKE_TEXTURE_PX), min(bike_img.size[1], BIKE_TEXTURE_PX))
+    _retexel_bike_tan(bike_img)
+    log(f"base_color {before} -> {tuple(img.size)}; {BIKE_IMAGE} {bike_before} -> {tuple(bike_img.size)}; "
+        f"images {[i.name for i in bpy.data.images]}")
     for role, ob in merged.items():
         has = any(m is not None for m in ob.data.materials)
         log(f"  role {role:9s} material {'yes' if has else 'no '} uv {'yes' if ob.data.uv_layers else 'no '} "

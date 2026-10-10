@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import AjvModule from 'ajv/dist/2020.js';
 import { elevationFailures } from './validate_map_grid.mjs';
 import { regionBiomeFailures } from './validate_biome.mjs';
+import { briefingFailures } from './validate_briefing.mjs';
 import {
   commanderRankFailures,
   narrativeTextFailures,
@@ -159,12 +160,13 @@ const schemas = {
   commander: loadJson(join(ROOT, 'data/schemas/commander.schema.json')),
   names: loadJson(join(ROOT, 'data/schemas/names.schema.json')),
   diorama: loadJson(join(ROOT, 'data/schemas/diorama.schema.json')),
+  hints: loadJson(join(ROOT, 'data/schemas/first_use_hints.schema.json')),
 };
 
 let checked = 0;
 if (
   schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tutorial &&
-  schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama
+  schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints
 ) {
   const validators = {
     unit: ajv.compile(schemas.unit),
@@ -177,6 +179,7 @@ if (
     commander: ajv.compile(schemas.commander),
     names: ajv.compile(schemas.names),
     diorama: ajv.compile(schemas.diorama),
+    hints: ajv.compile(schemas.hints),
   };
   checked += validateDir(join(ROOT, 'data/units'), validators.unit, 'unit.schema');
   checked += validateDir(join(ROOT, 'data/missions'), validators.mission, 'mission.schema');
@@ -191,6 +194,7 @@ if (
   checked += validateFile(join(ROOT, 'data/campaign/commander.json'), validators.commander, 'commander.schema');
   checked += validateFile(join(ROOT, 'data/campaign/names.json'), validators.names, 'names.schema');
   checked += validateFile(join(ROOT, 'data/front/menu_diorama.json'), validators.diorama, 'diorama.schema');
+  checked += validateFile(join(ROOT, 'data/hints/first_use.json'), validators.hints, 'first_use_hints.schema');
 } else {
   failures.push('schema files missing or unparseable — cannot validate content');
 }
@@ -220,6 +224,17 @@ if (
 const structureCatalogue = loadJson(join(ROOT, 'data/structures.json'));
 const structureSymbols = new Map(
   Object.entries(structureCatalogue?.types ?? {}).map(([id, spec]) => [spec.symbol, id])
+);
+// The symbols a garrison stance may point at: every catalogue type with a
+// slot, read from the catalogue rather than retyped. This was the literal
+// '#hawsm' until 2026-10-03 (A3.2 remainder), which silently excluded the
+// clinic and the camp and would have rejected the relay hut's `y` on the day
+// it was added -- the same drift the symbol check below was refactored to
+// prevent.
+const garrisonableSymbols = new Set(
+  Object.values(structureCatalogue?.types ?? {})
+    .filter((spec) => (spec.garrison_slots ?? 0) > 0)
+    .map((spec) => spec.symbol)
 );
 
 // --- mission cross-checks ----------------------------------------------------
@@ -519,7 +534,7 @@ const structureSymbols = new Map(
       if (p.stance?.kind === 'garrison') {
         const b = p.stance.building;
         let sym = b && map.rows?.[Math.floor(b[1])]?.[Math.floor(b[0])];
-        if ((!sym || !'#hawsm'.includes(sym)) && b) {
+        if ((!sym || !garrisonableSymbols.has(sym)) && b) {
           const [bx, by] = b;
           const placed = (mi.structures ?? []).find((s) => {
             if (!s?.type || !Array.isArray(s.at)) return false;
@@ -530,7 +545,7 @@ const structureSymbols = new Map(
           const placedSym = placed && structureCatalogue.types[placed.type]?.symbol;
           if (placedSym) sym = placedSym;
         }
-        if (!sym || !'#hawsm'.includes(sym)) {
+        if (!sym || !garrisonableSymbols.has(sym)) {
           failures.push(
             `${rel(file)}: ${p.unit} garrison stance points at (${b?.join(',')}) which is not a building`
           );
@@ -967,6 +982,36 @@ const structureSymbols = new Map(
   }
 }
 
+// --- first-use hint cross-checks ----------------------------------------------
+// A rule naming a mission or unit type that does not exist is a hint that can
+// never fire, with no error anywhere. Ids must also be unique: the id is the
+// per-profile memory key.
+{
+  const missionIds = new Set();
+  for (const file of jsonFilesIn(join(ROOT, 'data/missions'))) {
+    const mi = loadJson(file);
+    if (mi?.id) missionIds.add(mi.id);
+  }
+  const unitIds = new Set();
+  for (const file of jsonFilesIn(join(ROOT, 'data/units'))) {
+    const u = loadJson(file);
+    if (u?.id) unitIds.add(u.id);
+  }
+  const hintsFile = join(ROOT, 'data/hints/first_use.json');
+  const hints = loadJson(hintsFile);
+  const seenIds = new Set();
+  for (const r of hints?.rules ?? []) {
+    if (seenIds.has(r.id)) failures.push(`${rel(hintsFile)}: duplicate rule id "${r.id}"`);
+    seenIds.add(r.id);
+    for (const m of r.mission ?? []) {
+      if (!missionIds.has(m)) failures.push(`${rel(hintsFile)}: rule "${r.id}" mission "${m}" is not a mission`);
+    }
+    for (const u of r.selected_type ?? []) {
+      if (!unitIds.has(u)) failures.push(`${rel(hintsFile)}: rule "${r.id}" selected_type "${u}" is not a unit`);
+    }
+  }
+}
+
 // --- mission-text locale overlays -------------------------------------------
 // data/locales/<lang>/missions.json (data/locales/README.md states the
 // shape; `en` is the source and never ships one of these) may only point at
@@ -1030,6 +1075,9 @@ const structureSymbols = new Map(
           failures.push(`data/missions/${m}.json: briefing_video "${mission.briefing_video}" not found at assets/${mission.briefing_video}`);
         }
       }
+      // Named sections must still spell the briefing, and every image they or
+      // the mission name must be on disk (GH-119; validate_briefing.mjs).
+      failures.push(...briefingFailures(m, mission, (p) => existsSync(join(ROOT, 'assets', p))));
     }
 
     // Every mission must be reachable from the map, or it is unplayable content. The

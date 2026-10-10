@@ -14,7 +14,7 @@ const pkg = (p: string): { dependencies?: Record<string, string> } => JSON.parse
 /**
  * pnpm does not hoist a workspace package's own dependency to the repo root
  * `node_modules` -- only the ROOT package.json's own devDependencies land
- * there (verified: `three`/`pixi.js`, declared only in
+ * there (verified: `three`, declared only in
  * `packages/render/package.json`, have no `node_modules/three` at the repo
  * root at all, only a symlink at `packages/render/node_modules/three` into
  * the pnpm store). So a dependency's installed `package.json` is looked up
@@ -45,25 +45,53 @@ describe('CREDITS', () => {
       expect(c?.licence).toBe(installed.license);
     }
   });
+  // The reverse direction, added when pixi.js left the dependencies (WP-A3.3)
+  // and its credit would otherwise have stayed on the credits screen: a
+  // credited library must still be a shipped runtime dependency.
+  it('credits no library that is no longer a runtime dependency', () => {
+    const shipped = new Set<string>();
+    for (const p of ['packages/app/package.json', 'packages/render/package.json', 'packages/data/package.json', 'packages/sim/package.json']) {
+      for (const [name, range] of Object.entries(pkg(p).dependencies ?? {})) if (!range.startsWith('workspace:')) shipped.add(name);
+    }
+    for (const l of CREDITS.libraries) expect(shipped.has(l.name), `${l.name} is credited and not shipped`).toBe(true);
+  });
   it('names every font file under assets/fonts with a licence file that exists', () => {
     const files = readdirSync(`${ROOT}assets/fonts`);
     for (const f of CREDITS.fonts) expect(files, f.licenceFile).toContain(f.licenceFile);
     const families = files.filter((f) => f.endsWith('.woff2')).map((f) => f.split('-')[0]);
     for (const fam of new Set(families)) expect(CREDITS.fonts.some((f) => f.licenceFile.toLowerCase().includes(fam.replace(/[^a-z]/gi, '').toLowerCase().slice(0, 5))), `${fam} has no credit`).toBe(true);
   });
-  it("carries each CC BY work's title, author and URIs verbatim from the licensor's own page", () => {
-    // Only one attributed work ships (the Namer sheets). Its licence page is
-    // committed beside where its source would sit; the credit must not drift
-    // from it, since a CC BY credit that misnames the work is no credit.
-    const page = readFileSync(`${ROOT}art/src/ifv_dmm08_LICENSE.html`, 'utf8');
-    const namer = CREDITS.assets.find((a) => a.source === 'BlendSwap #75225');
-    expect(namer).toBeDefined();
-    expect(page).toContain(`${namer?.title} by ${namer?.author}`);
-    expect(page).toContain(`href="${namer?.sourceUrl}"`);
-    expect(page).toContain('href="http://creativecommons.org/licenses/by/3.0"');
-    expect(namer?.licenceUrl).toBe('https://creativecommons.org/licenses/by/3.0/');
+  it("carries each credited work's title, author and use line, and credits no work that no longer ships", () => {
     const en = JSON.parse(readFileSync(`${ROOT}packages/app/src/i18n/en.json`, 'utf8')) as Record<string, string>;
     for (const a of CREDITS.assets) expect(en[a.useKey], a.useKey).toBeTruthy();
+    // PA-29 (the lead's ruling, audit L4): the Namer credit (Mutte, CC BY 3.0)
+    // was for sprite sheets deleted in A3.3; the Namer is a Meshy model now.
+    // It must not come back by accident, in the data or in the catalogue.
+    expect(CREDITS.assets.some((a) => /Mutte|BlendSwap|IFV DMM08/i.test(`${a.author} ${a.source} ${a.title}`))).toBe(false);
+    for (const [key, text] of Object.entries(en)) {
+      if (key.startsWith('credits.')) expect(text, key).not.toMatch(/sprite sheet|NAMER_|Mutte|since replaced/i);
+    }
+    expect(Object.keys(en)).not.toContain('credits.asset.namer.use');
+  });
+  it('discloses the AI-generated audio by name, through the catalogue, and keeps the placeholder voices out of a commercial release (AU-10)', () => {
+    const en = JSON.parse(readFileSync(`${ROOT}packages/app/src/i18n/en.json`, 'utf8')) as Record<string, string>;
+    const keys: readonly string[] = CREDITS.aiDisclosure;
+    expect(keys.length).toBeGreaterThan(0);
+    for (const k of keys) expect(en[k], k).toBeTruthy();
+    const text = keys.map((k) => en[k]).join(' ');
+    // The music: the theme is generated, and the mission beds are cut from it (#493).
+    expect(text).toMatch(/Meshy/);
+    expect(text).toMatch(/theme/i);
+    expect(text).toMatch(/cut from it/i);
+    // The voices: who made them, and that a commercial build leaves them out (D5, A3).
+    expect(text).toMatch(/ElevenLabs/);
+    expect(text).toMatch(/commercial/i);
+    // ...and the lines the lead recorded himself (9 Oct 2026) are said to be his.
+    expect(text).toMatch(/recorded by Ilan Pinto/);
+    // The cues and effects: made in code, no model -- so the class is bounded.
+    expect(text).toMatch(/made in code, with no generative model/i);
+    // The art gates it used to cite were retired with validate:assets (#374).
+    expect(text).not.toMatch(/four art gates/i);
   });
   it('states the licences the repository states', () => {
     const licence = readFileSync(`${ROOT}LICENSE`, 'utf8');

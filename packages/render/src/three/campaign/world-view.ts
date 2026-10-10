@@ -37,22 +37,33 @@
  * line, spin past the poles and it is upside down, and there is no way back
  * except a reset button admitting the interaction was wrong.
  *
- * ## Colour space
+ * ## Colour space and light: the mission's own, since S3a (GH-180)
  *
- * This screen never went through the battlefield renderer's own shared
- * pass-through helper (`ThreeRenderer.ts`'s own colour-pipeline lines,
- * `applyPalettePipeline` before Task 7 deleted it), and that is not an
- * oversight. That helper did two things: set `outputColorSpace` to
- * pass-through, and put the CLEAR colour through the same non-converting
- * path so the background lands on-palette. This canvas has no clear colour
- * -- it is transparent, and the campaign page's own theme is the ground
- * behind it -- so the second half has nothing to do here. The first half is
- * done directly below, and it is the half `prepareCampaignMap`'s
- * `NoColorSpace` (`world-material.ts`) is paired with: get either wrong and
- * the whole board renders dark and still looks like a plausible diorama.
+ * sRGB output through ACES at exposure 1.0, an sRGB-tagged bake on a
+ * `MeshStandardMaterial` (`world-material.ts`), and `lighting.ts`'s
+ * `DAY_LIGHTS` -- the battlefield's sun direction, colours and intensities,
+ * by the same constants -- so the diorama reads like the same assets in a
+ * mission. Until 2026-10-01 this screen was the lit renderer spec's named
+ * exemption (§9): pass-through `LinearSRGBColorSpace` paired with a
+ * `NoColorSpace` bake under a private smooth shade. Both halves moved
+ * together; moving one alone renders the whole board wrong and still looks
+ * like a plausible diorama.
+ *
+ * No composer. The battlefield's chain (fog, GTAO, SMAA) exists for a
+ * battlefield; this canvas is transparent over the page and antialiased by
+ * MSAA, and the renderer's own tone mapping and encode run on the direct
+ * draw. The clear stays alpha 0 -- there is no clear colour to convert, and
+ * the page's own theme is the ground behind the board.
+ *
+ * The lights live in the SCENE, outside the pivot the board turns on, so the
+ * sun is fixed in world space and the lit side of the board changes as it
+ * rotates. The board casts onto itself through one shadow map sized to it:
+ * a ridge throws a shadow that swings as the board turns, which is the
+ * single strongest cue that the board is an object and not a texture.
  */
 import * as THREE from 'three';
 import { disposeAndReleaseContext } from '../context-release';
+import { createSceneLights, DAY_LIGHTS } from '../lighting';
 import { gltfLoader, setDracoDecoderPath } from '../units/gltf-loader';
 
 import {
@@ -62,6 +73,7 @@ import {
   worldViewCamera,
 } from './world-camera';
 import {
+  campaignUniforms,
   campaignWorldMaterial,
   HOVER_BRIGHT,
   REGION_VISUALS,
@@ -163,6 +175,10 @@ const CLICK_SLOP_PX = 4;
 
 const TAU = Math.PI * 2;
 
+/** The board's shadow map. Half the battlefield's 4096: one board, drawn at
+ *  most ~900 px across at pixel ratio 2, against a 48-tile map at any zoom. */
+export const CAMPAIGN_SHADOW_MAP_SIZE = 2048;
+
 /** What `mountWorldView` rejects with when its screen was left first. Built
  *  here rather than taken from `AbortSignal.throwIfAborted()`, which needs
  *  Chrome 100 / Safari 15.4 and which Vite does not polyfill; the app
@@ -245,11 +261,13 @@ function mountOnto(
   renderer: THREE.WebGLRenderer
 ): WorldView {
   renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 2));
-  // Pass-through output, pairing with `prepareCampaignMap`'s `NoColorSpace`
-  // (`world-material.ts`). See this file's header for why
-  // `applyPalettePipeline`'s replacement in `ThreeRenderer.ts` is not the
-  // call here either.
-  renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+  // The battlefield's own output, by the same three lines
+  // (`ThreeRenderer`'s constructor): see this file's header.
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.setClearAlpha(0);
   renderer.domElement.style.display = 'block';
   renderer.domElement.style.width = '100%';
@@ -267,7 +285,9 @@ function mountOnto(
   // `outland_scenery` carries the diorama's whole underside and rim. A
   // scene that fails the campaign contract throws here, and
   // `mountWorldView` releases the context.
-  const world: WorldScene = readWorldScene(gltfScene, (map) => campaignWorldMaterial(map, SCENERY_VISUAL));
+  const world: WorldScene = readWorldScene(gltfScene, (_map, loaded) =>
+    campaignWorldMaterial(loaded, SCENERY_VISUAL)
+  );
 
   // The board turns about its own horizontal centre. Not the origin (the
   // exporter centres X/Z on it, but a re-export need not) and not the
@@ -279,6 +299,21 @@ function mountOnto(
   world.root.position.set(-centre.x, 0, -centre.z);
   pivot.add(world.root);
   scene.add(pivot);
+  for (const meshes of world.regions.values()) {
+    for (const m of meshes) m.castShadow = m.receiveShadow = true;
+  }
+  for (const m of world.scenery) m.castShadow = m.receiveShadow = true;
+
+  // The mission's sun, sky and bounce, fitted to the board. `createSceneLights`
+  // centres its shadow box on a map whose corner is the origin; the board is
+  // centred on the origin, so the lights go in a group shifted back by half
+  // the board. The group is a child of the SCENE, never of `pivot`: the sun
+  // stays put while the board turns under it.
+  const lights = createSceneLights(size.x, size.z, CAMPAIGN_SHADOW_MAP_SIZE, DAY_LIGHTS);
+  const lightRig = new THREE.Group();
+  lightRig.position.set(-size.x / 2, 0, -size.z / 2);
+  lights.addTo(lightRig);
+  scene.add(lightRig);
 
   // In pivot space the board is centred horizontally; the camera looks at
   // its mid-height so it sits vertically centred on screen too.
@@ -318,7 +353,7 @@ function mountOnto(
       const visual = REGION_VISUALS[status];
       const lift = hovered === id && clickable.has(id) ? HOVER_BRIGHT : 1;
       for (const m of meshes) {
-        const u = (m.material as THREE.ShaderMaterial).uniforms;
+        const u = campaignUniforms(m.material as THREE.Material);
         u.uSat.value = visual.sat;
         u.uBright.value = visual.bright * lift;
       }
@@ -561,6 +596,7 @@ function mountOnto(
           (m.material as THREE.Material).dispose();
         }
         world.map.dispose();
+        lights.dispose();
       } finally {
         disposeAndReleaseContext(renderer);
         el.remove();

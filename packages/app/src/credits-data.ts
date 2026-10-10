@@ -35,30 +35,29 @@ export const CREDITS = {
   people: ['Ilan Pinto and the Roaring Lions contributors'],
   libraries: [
     { name: 'three', version: '0.170', licence: 'MIT', url: 'https://threejs.org' },
-    { name: 'pixi.js', version: '8.19', licence: 'MIT', url: 'https://pixijs.com' },
   ],
   fonts: [
     { family: 'Big Shoulders Display', licenceFile: 'OFL-BigShouldersDisplay.txt', holder: 'The Big Shoulders Project Authors' },
     { family: 'Barlow', licenceFile: 'OFL-Barlow.txt', holder: 'The Barlow Project Authors' },
     { family: 'IBM Plex Mono', licenceFile: 'OFL-IBMPlexMono.txt', holder: 'IBM Corp.' },
   ],
-  assets: [
-    // Verbatim from art/src/ifv_dmm08_LICENSE.html, the licensor's own page.
-    {
-      title: 'VEHICLE IFV DMM08',
-      author: 'Mutte',
-      licence: 'CC BY 3.0',
-      licenceUrl: 'https://creativecommons.org/licenses/by/3.0/',
-      source: 'BlendSwap #75225',
-      sourceUrl: 'http://www.blendswap.com/blends/view/75225',
-      useKey: 'credits.asset.namer.use',
-    },
-  ],
+  // Empty on purpose. The only entry was the Namer's (Mutte, CC BY 3.0), for
+  // sprite sheets that were deleted in A3.3 -- the Namer is a Meshy model now,
+  // and nothing shipped derives from the credited work. The lead's ruling
+  // (audit L4 / PA-29): remove it. The history stays in the provenance table
+  // (docs/ASSET_PROVENANCE.md). A future work whose licence requires a credit
+  // goes here and is rendered by ui/credits.ts without any other change.
+  assets: [] as readonly AssetCredit[],
   codeLicence: 'PolyForm Noncommercial 1.0.0',
   artLicence: 'all rights reserved',
-  aiDisclosure:
-    'Some models were generated with Meshy and reworked in Blender. Every asset, generated or drawn, passes the same four art gates before it ships; the full provenance record is docs/ASSET_PROVENANCE.md in the repository.',
+  // The AI-generated disclosure (CONTRIBUTING.md), one paragraph per key, as
+  // en.json keys so it goes through t() like every other chrome string. AU-10
+  // added the audio: the generated theme and the mission music cut from it
+  // (PR 493), the ElevenLabs placeholder voices and their exclusion from a
+  // commercial build (D5, A3), and the synthesised cues and effects. The
+  // record behind every line is docs/ASSET_PROVENANCE.md.
+  aiDisclosure: ['credits.ai.models', 'credits.ai.audio', 'credits.ai.record'],
 } as const satisfies {
   people: readonly string[]; libraries: readonly LibraryCredit[]; fonts: readonly FontCredit[]; assets: readonly AssetCredit[];
-  codeLicence: string; artLicence: string; aiDisclosure: string;
+  codeLicence: string; artLicence: string; aiDisclosure: readonly string[];
 };

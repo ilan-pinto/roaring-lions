@@ -86,3 +86,28 @@ art/blend/
 # Wrangler's local state (dev D1 shadow copy, cached auth, etc, WP-T1). Never
 # wanted in git, and it accumulates just from running `wrangler dev`.
 .wrangler/
+art/portraits/.roles.json
+# A3.1 stage 2's 8k Meshy remesh sources (46-72 MB each): kept on disk, never
+# committed, as B7/B8's 8k sources were not. Named by path rather than a
+# blanket `art/meshy/*/model.glb`, because 28 smaller remesh sources ARE
+# tracked by precedent and a blanket rule would hide the next one.
+art/meshy/recon-drone-20261005-01a10c59/model.glb
+art/meshy/attack-drone-20261005-01a10c7c/model.glb
+art/meshy/moto-rpg-20261005-01a10c69/model.glb
+# The infantry motion pass's Meshy sources (5 Oct): the 8k inf_squad refine and
+# remesh, the two previews, and a re-download of the kdf_carbine remesh. Kept on
+# disk, never committed, as B7/B8's 8k sources were not; task.json and the
+# thumbnails beside them are tracked.
+art/meshy/inf-squad-20261005-01a10dc6/model.glb
+art/meshy/inf-squad-try2-20261005-01a10dc6/model.glb
+art/meshy/inf-squad-20261005-01a10dd8/model.*
+art/meshy/inf-squad-20261005-01a10dd8/texture_*
+art/meshy/inf-squad-20261005-01a10ddb/model.glb
+art/meshy/inf-squad-20261005-01a10ddb/texture_*
+art/meshy/kdf-carbine-20261005-01a10c6f/model.glb
+art/meshy/kdf-carbine-20261005-01a10c6f/texture_*
+# The Meshy Spike's 8k remesh (A3.1 stage 2), which import_meshy_kdf_team.py
+# reads to rebuild at_team: 50.7 MB, kept on disk like the sources above. It
+# lived untracked and unlisted until spike-walk (6 Oct) rebuilt the team.
+art/meshy/spike-launcher-20261005-01a10c61/model.glb
+art/meshy/spike-launcher-20261005-01a10c61/texture_*

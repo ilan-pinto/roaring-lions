@@ -135,7 +135,7 @@ describe('guardCapture', () => {
     // survivable BECAUSE it cannot vote. Promoting it to gated, or ungating a
     // scenario that does vote, must move this.
     expect(isGated(BASELINES.combat)).toBe(false);
-    for (const id of ['quiet', 'open-ground', 'vehicle', 'relief']) {
+    for (const id of ['quiet', 'open-ground', 'vehicle', 'kitted', 'relief']) {
       expect(isGated(BASELINES[id])).toBe(true);
     }
   });

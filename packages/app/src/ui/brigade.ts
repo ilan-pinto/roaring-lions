@@ -46,6 +46,7 @@ import type { CampaignLedger } from '../ledger-store';
 import { ROSTER_CAP } from '../roster-cap';
 import {
   BAR_GROW_MS,
+  KIT_VEHICLE_TYPES,
   STAMP_MS,
   WALLET_COUNT_MS,
   cardStatus,
@@ -59,14 +60,17 @@ import {
   type PurchaseAsk,
   type PurchaseCue,
 } from './garage-model';
-import { kitIconSignDecorHtml, kitLevelLabel, kitPipsHtml, kitSummary, kitSymbolSvg } from './kit-sign';
+import { kitIconSignDecorHtml, kitLevelLabel, kitPipsHtml, kitPlateSvg, kitSummary } from './kit-sign';
 import { markSvg } from './mark';
 import { plateFit } from './plate-fit';
 import { garageModel, type GarageModelDeps, type GarageModelHandle } from './garage-viewer';
 import { flash, prefersReducedMotion } from './motion';
 import { routes } from '../shell/links';
+import { footBack, footLink, screenFoot } from './foot';
 import type { Disposer } from '../shell/router';
 import { bucketVisible, roleBadgeSvg, roleBucket, roleLabel, type RoleBucket } from './role';
+import { showStores, type CoinAsk, type StoresShelf, type StoresTestWallet } from './stores';
+import type { CoinHalf } from './stores-model';
 
 export interface BrigadeUnit {
   id: string;
@@ -140,8 +144,18 @@ export interface BrigadeOptions {
    *  far to zoom, and a footprint without the frame it was measured in is a
    *  number that means nothing. `null`, or no resolver at all, draws the
    *  reserved hatch — the same "reserved, not broken" language the rail's card
-   *  art uses. */
-  plate?: (typeId: string) => { url: string; size: readonly [number, number]; extent: readonly [number, number] } | null;
+   *  art uses. `kitLevel` is the unit's kit level (0-3, the same reading the
+   *  plate's kit mark draws): from L2 a kitted vehicle's plate is its KITTED
+   *  photograph (`plates:units --kit`, GH-238), which is the picture the bay
+   *  keeps when no model can be drawn (no WebGL2). */
+  plate?: (
+    typeId: string,
+    kitLevel: number
+  ) => { url: string; size: readonly [number, number]; extent: readonly [number, number] } | null;
+  /** A track's close-up (`garage-closeup.ts`, GH-238 K11), drawn in the
+   *  board's track head where its hatch is; `null`, or no resolver, keeps
+   *  the hatch. */
+  closeup?: (typeId: string, track: string) => string | null;
   /** The turnable 3D model that replaces the plate in the bay (GH-316,
    *  `ui/garage-viewer.ts`). The plate above is still built first: it is the
    *  picture until the model's first frame is up, and the one the bay keeps
@@ -184,6 +198,30 @@ export interface BrigadeOptions {
    *  Absent reads `motion.ts`'s `prefersReducedMotion()` -- the setting, then
    *  the OS. A seam for tests, which have neither. */
   reducedMotion?: () => boolean;
+  /** The Stores tab (GH-317), a PREVIEW: visible to everyone, sells nothing
+   *  (`ui/stores.ts`). Absent: the garage draws no view tabs at all, exactly
+   *  as before -- a test or a caller that never asked for the Stores does not
+   *  get one. */
+  stores?: GarageStoresOptions;
+}
+
+/** What the Stores tab needs beyond what the garage already holds. */
+export interface GarageStoresOptions {
+  /** The Roar coin art (`assets/ui/roar_coin/`), by pixel size. */
+  coinSrc: (size: 16 | 24 | 48) => string;
+  /** The account's per-mission pay record, for the honest line's mean pay. */
+  paid?: Readonly<Record<string, number>>;
+  /** Open on the Stores tab rather than the brigade. */
+  open?: boolean;
+  /** The coin half of the account and, with `?testcoins`, the TEST wallet --
+   *  read afresh on every draw of the Stores, so a purchase is seen at once. */
+  read?: () => { coin: CoinHalf; test?: StoresTestWallet };
+  /** A Buy pressed with TEST coins. The caller buys and saves, then answers
+   *  with the garage's account as it now stands (a coin-bought unit opens, a
+   *  coin tier lands); the Stores redraws in place either way. */
+  onBuy?: (ask: CoinAsk) => GarageState | void;
+  /** The TEST Grant button. The caller adds coins and saves. */
+  onGrant?: () => void;
 }
 
 const el = (tag: string, cls: string, text?: string): HTMLElement => {
@@ -367,6 +405,41 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   brand.appendChild(titles);
   head.appendChild(brand);
 
+  // The two views (GH-317): the brigade -- the rail, bay and board below --
+  // and the Stores. Drawn only when the caller asked for a Stores at all.
+  // Left/Right/Home/End move between them, the rail tabs' own F8 pattern.
+  type View = 'brigade' | 'stores';
+  let view: View = 'brigade';
+  const viewEls = new Map<View, HTMLButtonElement>();
+  if (opts.stores !== undefined) {
+    const views = el('div', 'rl-garage__views');
+    views.setAttribute('role', 'tablist');
+    views.setAttribute('aria-label', t('garage.view.label'));
+    for (const v of ['brigade', 'stores'] as const) {
+      const tab = document.createElement('button');
+      tab.type = 'button';
+      tab.className = 'rl-garage__view';
+      tab.dataset.view = v;
+      tab.dataset.focusKey = `view:${v}`;
+      tab.setAttribute('role', 'tab');
+      tab.textContent = t(`garage.view.${v}`);
+      tab.addEventListener('click', () => setView(v));
+      viewEls.set(v, tab);
+      views.appendChild(tab);
+    }
+    views.addEventListener('keydown', (ev: KeyboardEvent) => {
+      if (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight' && ev.key !== 'Home' && ev.key !== 'End') return;
+      const order = [...viewEls.entries()];
+      const at = order.findIndex(([, tab]) => tab === document.activeElement);
+      const to = rovingStep(ev.key, at, order.length);
+      if (to === null) return;
+      ev.preventDefault();
+      setView(order[to][0]);
+      order[to][1].focus();
+    });
+    head.appendChild(views);
+  }
+
   // The wallet is built ONCE and survives every purchase: `renderWallet`
   // repaints its figure, so the spend flash below runs on a node that is still
   // on screen afterwards (F3: it used to run on one the remount had removed).
@@ -473,6 +546,85 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   const board = el('aside', 'rl-garage__board');
   body.append(rail, bay, board);
   wrap.appendChild(body);
+
+  // The Stores' slot: the body's own grid row, shown in its place. Rebuilt on
+  // every visit, so it always reads the account as the brigade last left it
+  // (a credit purchase on the board moves its "you have" figures).
+  const storesHost = el('div', 'rl-garage__stores');
+  storesHost.hidden = true;
+  wrap.appendChild(storesHost);
+  let storesDispose: Disposer | null = null;
+  let storesShelf: StoresShelf = 'early';
+  let storesOwned = false;
+  /** A coin purchase's answer: the garage redraws around the account as the
+   *  store now holds it -- quietly, since it is not on screen -- and the
+   *  Stores is drawn again with focus back on the control that asked. */
+  function storesAnswered(next: GarageState | void, focusKey: string): void {
+    if (next !== undefined) {
+      state = next;
+      rows = classify();
+      selectedId = retainSelection(selectedId, rows.map((r) => r.u.id));
+      renderWallet();
+      renderCards();
+      syncTabs();
+      renderBay();
+    }
+    setView('stores', focusKey);
+  }
+  function setView(v: View, focusKey?: string): void {
+    view = v;
+    for (const [k, tab] of viewEls) {
+      tab.setAttribute('aria-selected', k === v ? 'true' : 'false');
+      tab.tabIndex = k === v ? 0 : -1;
+    }
+    body.hidden = v !== 'brigade';
+    storesHost.hidden = v !== 'stores';
+    // The header's credit wallet stays off the Stores (spec §1.8, §4: neither
+    // header shows the other currency's balance).
+    if (wallet !== null) wallet.hidden = v === 'stores';
+    storesDispose?.();
+    storesDispose = null;
+    const so = opts.stores;
+    if (v !== 'stores' || so === undefined) return;
+    const live = so.read?.();
+    const onBuy = so.onBuy;
+    const onGrant = so.onGrant;
+    storesDispose = showStores(storesHost, {
+      coin: live?.coin,
+      test: live?.test,
+      shelf: storesShelf,
+      onShelf: (s) => {
+        storesShelf = s;
+      },
+      showOwned: storesOwned,
+      onShowOwned: (on) => {
+        storesOwned = on;
+      },
+      focusKey,
+      onBuy:
+        onBuy === undefined
+          ? undefined
+          : (ask) => {
+              const key = ask.kind === 'unit' ? `unit:${ask.unitId}` : `tier:${ask.unitId}.${ask.track}.${ask.tier + 1}`;
+              storesAnswered(onBuy(ask), key);
+            },
+      onGrant:
+        onGrant === undefined
+          ? undefined
+          : () => {
+              onGrant();
+              storesAnswered(undefined, 'grant');
+            },
+      units: state.units,
+      ledger: opts.ledger,
+      credits: state.credits,
+      owned: state.owned,
+      paid: so.paid,
+      coinSrc: so.coinSrc,
+      missionName: opts.missionName,
+      portrait: opts.portrait,
+    });
+  }
 
   /** The bay's stat panel (`garage-stats.ts`'s `statPanel`), rebuilt with the
    *  bay. A rung's hover and focus address it through `panel.preview`, which
@@ -605,10 +757,10 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
         // shipped case) reads as reserved rather than as a broken image.
         const hatch = el('div', 'rl-garage__card-art');
         hatch.dataset.nosprite = '1';
-        // Named, not silent: the hatch says WHICH type has no sheet, which is
-        // the difference between "reserved" and "this build is broken" for
-        // anyone looking at the roster.
-        hatch.title = t('garage.card.noSprite', { id: u.id });
+        // Named, not silent: the hatch says WHICH type has no picture, which
+        // is the difference between "reserved" and "this build is broken" for
+        // anyone looking at the roster -- by its name, not its id (PA-01).
+        hatch.title = t('garage.card.noSprite', { name: u.name });
         hatch.innerHTML = roleBadgeSvg(roleBucket(u), CARD_MARK);
         art = hatch;
       }
@@ -737,6 +889,8 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   // where Shift+1 is `!`, `trackForDigit` never sees a digit anyway.
   wrap.addEventListener('keydown', (ev: KeyboardEvent) => {
     if (ev.altKey || ev.ctrlKey || ev.metaKey) return;
+    // The board is not drawn while the Stores is: a digit there is not a jump.
+    if (view !== 'brigade') return;
     const target = ev.target instanceof HTMLElement ? ev.target : null;
     if (target !== null && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
     const trackNames = [...board.querySelectorAll<HTMLElement>('[data-track]')].map((e) => e.dataset.track ?? '');
@@ -944,6 +1098,15 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     bayModel?.dispose();
     bayModel = null;
   };
+  /** The bay's model wears the account's tiers as they now stand (GH-238):
+   *  only one of the eight kitted vehicles has parts to bolt on, and the
+   *  door itself does nothing for tiers that draw what is already shown. */
+  const syncKit = (): void => {
+    if (bayModel === null || !KIT_VEHICLE_TYPES.has(bayModel.unitId)) return;
+    const id = bayModel.unitId;
+    const u = rows.find((r) => r.u.id === id)?.u;
+    if (u !== undefined) bayModel.setKit(ownedTiers(u, state.owned));
+  };
 
   function renderBay(): void {
     bay.replaceChildren();
@@ -1009,7 +1172,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     // centred transform keeps it centred.
     const plate = el('div', 'rl-garage__plate');
     plate.dataset.kit = String(kit.level);
-    const picture = opts.plate?.(u.id) ?? null;
+    const picture = opts.plate?.(u.id, kit.level) ?? null;
     if (picture !== null) {
       const img = document.createElement('img');
       img.className = 'rl-garage__plate-img';
@@ -1024,7 +1187,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       plate.appendChild(img);
     } else {
       plate.dataset.noplate = '1';
-      plate.title = t('garage.plate.none', { id: u.id });
+      plate.title = t('garage.plate.none', { name: u.name });
       plate.innerHTML = roleBadgeSvg(roleBucket(u), BAY_MARK);
     }
     // The kit mark: a bevelled plate with `kit.level` bars and its own label
@@ -1032,7 +1195,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     // actually been bought -- an unkitted bay is left exactly as it was.
     if (kit.level !== 0) {
       const mark = el('div', 'rl-garage__plate-kit rl-kit-mark');
-      mark.innerHTML = kitSymbolSvg('kit', 48, kit.level);
+      mark.innerHTML = kitPlateSvg(48, kit.level);
       mark.appendChild(el('span', 'rl-garage__plate-kit-label', kitLevelLabel(kit.level)));
       plate.appendChild(mark);
     }
@@ -1051,7 +1214,11 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
         bayModel.adopt(plate);
       } else {
         dropModel();
-        bayModel = garageModel(plate, u, { ...opts.model, reducedMotion: opts.model.reducedMotion ?? reduced });
+        bayModel = garageModel(
+          plate,
+          { id: u.id, name: u.name, kitTiers: tiers },
+          { ...opts.model, reducedMotion: opts.model.reducedMotion ?? reduced }
+        );
       }
     }
 
@@ -1139,6 +1306,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
             owned,
             buy,
             locked: row.locked,
+            closeup: opts.closeup?.(u.id, trackName) ?? null,
             // Held off while `answer()` puts focus back (M2): the rung it
             // lands on is the NEXT tier's, and its `focusin` would paint that
             // tier's preview over the purchase that just landed.
@@ -1167,40 +1335,52 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   renderBay();
 
   // --- footer ---------------------------------------------------------------
-  const nav = el('div', 'rl-endnav');
-  const link = (label: string, href: string): void => {
-    const a = document.createElement('a');
-    a.className = 'rl-btn';
-    a.href = href;
-    a.textContent = label;
-    nav.appendChild(a);
-  };
-  link(t('nav.campaignMap'), routes.campaign());
-  link(t('nav.menu'), routes.menu());
+  // The one footer row (`foot.ts`, GH-498): the way back first, at the rail's
+  // edge, and the reset alone at the board's far edge -- a destructive control
+  // set apart from navigation, never a sibling of it.
+  const foot = screenFoot();
+  foot.start.append(footBack(t('nav.campaignMap'), routes.campaign()), footLink(t('nav.menu'), routes.menu()));
   // Built once, like the wallet: the reset survives a purchase, and its own
   // answer puts it back to its first label rather than replacing it.
   let reset: HTMLButtonElement | null = null;
+  let keep: HTMLButtonElement | null = null;
   let armed = false;
   /** The reset control as it stands before its first click: unarmed, live,
-   *  first label. Run by every answer, which is what makes the two-click
-   *  confirmation start over after a reset that was answered in place. */
+   *  first label, and no way out showing because there is nothing to back out
+   *  of. Run by every answer, which is what makes the two-click confirmation
+   *  start over after a reset that was answered in place. */
   function resetUi(): void {
     if (reset === null) return;
     armed = false;
     reset.disabled = false;
     reset.textContent = t('garage.reset.button');
+    delete reset.dataset.confirm;
+    if (keep !== null) keep.hidden = true;
   }
   if (state.credits !== undefined && opts.onReset) {
+    // The way out of an armed reset: shown only between the two clicks, it
+    // puts the control back as it was and hands focus back to it.
+    const escape = document.createElement('button');
+    escape.type = 'button';
+    escape.className = 'rl-btn rl-garage__keep';
+    escape.textContent = t('garage.reset.keep');
+    keep = escape;
     const control = document.createElement('button');
     control.type = 'button';
-    control.className = 'rl-btn rl-garage__reset';
+    control.className = 'rl-btn rl-btn--danger rl-garage__reset';
     control.dataset.focusKey = 'reset';
     reset = control;
     resetUi();
+    escape.addEventListener('click', () => {
+      resetUi();
+      control.focus({ preventScroll: true });
+    });
     control.addEventListener('click', () => {
       if (!armed) {
         armed = true;
         control.textContent = t('garage.reset.confirm');
+        control.dataset.confirm = '1';
+        escape.hidden = false;
         return;
       }
       // Disabled BEFORE the handler runs, so the second click is provably the
@@ -1208,11 +1388,12 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       // that answers nothing leaves it disabled, and a control that says
       // "cannot be undone" must not be able to fire twice on one ask.
       control.disabled = true;
+      escape.hidden = true;
       answer(opts.onReset?.(), 'reset');
     });
-    nav.appendChild(control);
+    foot.end.append(escape, control);
   }
-  wrap.appendChild(nav);
+  wrap.appendChild(foot.el);
 
   /** The caller's answer to a purchase or a reset: the account as the store
    *  holds it now (R-3). Redraws around it -- same screen node, same tab,
@@ -1283,6 +1464,9 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       restoringFocus = false;
     }
     if (ask !== undefined && next.landed === true) celebrate(ask, fromCredits, fromBars);
+    // A reset, or a refusal answering with a state another tab moved on:
+    // the model follows the account, silently.
+    else syncKit();
   }
 
   /** Each stat row's base and kit widths, by path, as the panel draws them
@@ -1312,6 +1496,9 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
    *  colour, which reports. */
   function celebrate(ask: PurchaseAsk, fromCredits: number | undefined, fromBars: BarWidths): void {
     opts.onCue?.(cueFor(ask));
+    // The part appears WITH the sound (kitted vehicles spec §8): the re-merge
+    // and its one frame happen in the same task as the cue.
+    syncKit();
     spend();
     countWallet(fromCredits, state.credits);
     pulse(bay.querySelector('.rl-garage__plate-kit'), 'rl-garage__plate-kit--stamp', STAMP_MS);
@@ -1408,6 +1595,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     countRaf = requestAnimationFrame(step);
   }
 
+  if (opts.stores !== undefined) setView(opts.stores.open === true ? 'stores' : 'brigade');
   host.appendChild(wrap);
   // Leaving mid-purchase stops the count's frame and every flash's timeout
   // BEFORE the node goes, so nothing this screen started writes to it after.
@@ -1418,6 +1606,8 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     cancelAnimationFrame(countRaf);
     for (const id of timers) window.clearTimeout(id);
     dropModel();
+    storesDispose?.();
+    storesDispose = null;
     wrap.remove();
   };
 }

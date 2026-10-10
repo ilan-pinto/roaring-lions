@@ -1,0 +1,22 @@
+{
+  "unit": "jeep_shoded",
+  "source": "assets/meshes/vehicles/jeep_shoded.glb",
+  "source_sha256": "b9c0270ff5d721a395bd82c0fe9e6877f8579bdc17f631660a6e0c97f41a2fd7",
+  "yaw_deg": -125.0,
+  "elevation_deg": 18.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "width",
+    0.92
+  ],
+  "ndc_box": [
+    0.04,
+    0.96,
+    0.1669,
+    0.8331
+  ],
+  "materials": {
+    "baked": 4,
+    "flat": 0
+  }
+}

@@ -114,7 +114,7 @@ describe('cursorRules', () => {
 
   it('emits a rule for every cursor name the app can ask for', () => {
     // 'default' deliberately has no rule: it is the OS arrow.
-    for (const name of ['move', 'attack', 'blocked', 'costly', 'protected', 'sweep', 'strike', 'smoke']) {
+    for (const name of ['move', 'advance', 'blocked', 'costly', 'protected', 'sweep', 'strike', 'smoke']) {
       expect(css).toContain(`canvas[data-cursor='${name}']`);
     }
   });
@@ -136,7 +136,7 @@ describe('cursorRules', () => {
     // A rule that draws the right picture under the wrong declaration (e.g.
     // `outline:` instead of `cursor:`) would leave the OS arrow on screen
     // just as surely as a dead selector would.
-    for (const name of ['move', 'attack', 'blocked', 'costly', 'protected', 'sweep', 'strike', 'smoke']) {
+    for (const name of ['move', 'advance', 'blocked', 'costly', 'protected', 'sweep', 'strike', 'smoke']) {
       const rule = css.split('\n').find((l) => l.includes(`data-cursor='${name}'`));
       expect(rule).toMatch(/\{\s*cursor:\s*url\(/);
     }
@@ -204,7 +204,9 @@ describe('cursorRules', () => {
       return cursorRules(deriveUiBand(copy));
     };
     expect(edited((p) => (p.ramps.gunmetal.colors[0] = '#010203'))).not.toBe(css);
-    expect(edited((p) => (p.reserved.vfx.colors.interceptor = '#010203'))).not.toBe(css);
+    // `tracer`: the move and sweep sights' main since VR-33 (it was
+    // `interceptor`, which no cursor draws any more).
+    expect(edited((p) => (p.reserved.vfx.colors.tracer = '#010203'))).not.toBe(css);
     expect(edited((p) => (p.reserved.team.colors.hostile_text = '#010203'))).not.toBe(css);
   });
 
@@ -218,9 +220,10 @@ describe('cursorRules', () => {
     // protected) draws in six of the `ui` band's seven; `amber` is used by
     // `mount` and `dismount` alone, which earn no rule. The sights draw the
     // aim, the halo, the warm beat and each WIRED order's main and accent --
-    // load and unload's transport lime and grass.0 are drawn by bodies that
-    // ship no rule (Q2), and halt's team.neutral happens to be the housing's
-    // `warn` as well.
+    // grass.0 is drawn by a body that ships no rule (Q2), and halt's
+    // team.neutral happens to be the housing's `warn` as well. Tracer lime
+    // ships since VR-33: it is move's and sweep's main, not only the
+    // unwired transport sights'.
     const used = new Set(
       defaultLines(css).flatMap((l) => [...l.matchAll(/%23([0-9a-f]{6})/g)].map((m) => `#${m[1]}`))
     );
@@ -234,7 +237,7 @@ describe('cursorRules', () => {
       ...wired.flatMap((id) => [hexOf(ORDER_SIGHT[id].main), hexOf(ORDER_SIGHT[id].accent)]),
     ]);
     expect([...used].sort()).toEqual([...expected].sort());
-    for (const unshipped of [c.amber, raw.reserved.vfx.colors.tracer, raw.ramps.grass.colors[0]]) {
+    for (const unshipped of [c.amber, raw.ramps.grass.colors[0]]) {
       expect({ unshipped, used: used.has(unshipped.toLowerCase()) }).toEqual({ unshipped, used: false });
     }
   });
@@ -316,7 +319,7 @@ describe('badged rules', () => {
 
   it('emits a rule for every reachable name-badge key', () => {
     for (const key of ['demolish-soft', 'demolish-armour', 'charge-soft', 'garrison-soft',
-                       'move-drone', 'attack-gunship']) {
+                       'move-drone', 'advance-gunship']) {
       expect(css).toContain(`canvas[data-cursor='${key}']`);
     }
   });
@@ -520,7 +523,7 @@ describe('the stadia sights -- the approved G1 r5 order cursors', () => {
   const drawn = (key: string, frame: number): string => decodeSvgUri(markupOf(frameLineFor(css, key, frame)));
 
   it('wires exactly move, attack, sweep, strike and smoke (Q2)', () => {
-    expect(SIGHTS.map(([n]) => n).sort()).toEqual(['attack', 'move', 'smoke', 'strike', 'sweep']);
+    expect(SIGHTS.map(([n]) => n).sort()).toEqual(['advance', 'move', 'smoke', 'strike', 'sweep']);
   });
 
   it('draws every frame of every wired sight on the 24-box at 32 px, with the hotspot at 16 16', () => {
@@ -608,7 +611,7 @@ describe('the stadia sights -- the approved G1 r5 order cursors', () => {
     const badge = (bucket: RoleBucket): string =>
       '<g transform="translate(15 15) scale(0.375)">' + symbolBody(bucket).replaceAll('currentColor', aim) + '</g>';
     expect(drawn('move-armour', 0)).toContain(badge('armour'));
-    for (const name of ['move', 'attack'] as const) {
+    for (const name of ['move', 'advance'] as const) {
       for (const bucket of BADGED_VERBS[name] ?? []) {
         for (let frame = 0; frame < (ANIMATED_CURSORS[name]?.frames ?? 1); frame++) {
           expect({ name, bucket, frame, ok: drawn(`${name}-${bucket}`, frame).includes(badge(bucket)) }).toEqual({
@@ -680,7 +683,7 @@ describe('animated cursor frames', () => {
     // A silent eighth entry (or the loss of one) would otherwise only
     // surface as a visual difference nobody happened to look for.
     expect(Object.keys(ANIMATED_CURSORS).sort()).toEqual(
-      ['attack', 'charge', 'demolish', 'move', 'smoke', 'strike', 'sweep']
+      ['advance', 'charge', 'demolish', 'move', 'smoke', 'strike', 'sweep']
     );
   });
 
@@ -799,7 +802,7 @@ describe('animated cursor frames', () => {
   }
 
   it('changes what it draws on every tick of every animated cycle -- no adjacent-frame step (including the wrap) is a no-op', () => {
-    for (const key of ['move', 'move-soft', 'attack', 'attack-armour', 'sweep', 'strike', 'smoke']) {
+    for (const key of ['move', 'move-soft', 'advance', 'advance-armour', 'sweep', 'strike', 'smoke']) {
       const anim = ANIMATED_CURSORS[key.split('-')[0] as keyof typeof ANIMATED_CURSORS];
       if (!anim) throw new Error(key);
       assertNoStaticTick(css, key, anim.frames);
@@ -831,8 +834,8 @@ describe('animated cursor frames', () => {
     expect(beacons.filter((b) => typeof b === 'string').length).toBe(4);
     expect(new Set(beacons).size).toBe(4);
     // 3. no sight carries the core.
-    for (let frame = 0; frame < (ANIMATED_CURSORS.attack?.frames ?? 0); frame++) {
-      expect({ frame, core: at(frame, 'attack').includes(CORE) }).toEqual({ frame, core: false });
+    for (let frame = 0; frame < (ANIMATED_CURSORS.advance?.frames ?? 0); frame++) {
+      expect({ frame, core: at(frame, 'advance').includes(CORE) }).toEqual({ frame, core: false });
     }
   });
 
@@ -859,9 +862,9 @@ describe('animated cursor frames', () => {
   it('matches a real canvas once main.ts\'s own pairing writes both data-cursor and a mid-cycle data-cursor-frame', () => {
     const dom = new JSDOM('<div id="stage"><canvas></canvas></div>');
     const canvas = dom.window.document.querySelector('canvas')!;
-    canvas.dataset.cursor = 'attack';
+    canvas.dataset.cursor = 'advance';
     canvas.dataset.cursorFrame = '1';
-    const line = frameLineFor(css, 'attack', 1);
+    const line = frameLineFor(css, 'advance', 1);
     expect(line).toContain("[data-cursor-frame='1']");
     expect(canvas.matches(selectorOf(line))).toBe(true);
   });
@@ -875,10 +878,10 @@ describe('animated cursor frames', () => {
     // rather than trusted from selector syntax alone.
     const dom = new JSDOM('<div id="stage"><canvas></canvas></div>');
     const canvas = dom.window.document.querySelector('canvas')!;
-    const baseSelector = selectorOf(frameLineFor(css, 'attack', 0));
-    const frame1Selector = selectorOf(frameLineFor(css, 'attack', 1));
+    const baseSelector = selectorOf(frameLineFor(css, 'advance', 0));
+    const frame1Selector = selectorOf(frameLineFor(css, 'advance', 1));
 
-    canvas.dataset.cursor = 'attack'; // data-cursor-frame not written at all yet
+    canvas.dataset.cursor = 'advance'; // data-cursor-frame not written at all yet
     expect(canvas.matches(baseSelector)).toBe(true);
     expect(canvas.matches(frame1Selector)).toBe(false);
 
@@ -922,7 +925,7 @@ describe('animated cursor frames', () => {
     canvas.dataset.cursorFrame = '3';
     const drawn = winner('demolish-soft');
     expect(drawn).toBe(markupOf(frameLineFor(css, 'demolish-soft', 3)));
-    expect(drawn).not.toBe(markupOf(frameLineFor(css, 'attack-soft', 3)));
+    expect(drawn).not.toBe(markupOf(frameLineFor(css, 'advance-soft', 3)));
   });
 });
 
@@ -1018,14 +1021,14 @@ describe('colour-vision variants -- team.* follows the setting (Q9)', () => {
     expect(hexOf('team.hostile_text', 'tritanopia')).toBe(hexOf('team.hostile_text'));
     const art = (variant: string, key: string, frame: number): string =>
       decodeSvgUri(winnerFor(sheet, variant, key, frame) ?? '');
-    for (const key of ['attack', 'attack-soft', 'strike']) {
+    for (const key of ['advance', 'advance-soft', 'strike']) {
       expect({ key, deut: art('deuteranopia', key, 0).includes(`fill="${deut}"`) }).toEqual({ key, deut: true });
       expect(art('deuteranopia', key, 0)).not.toContain(`fill="${hexOf('team.hostile_text')}"`);
     }
     // No tritanopia rule names attack or strike at all: their markup is
     // identical to the default's there, so the default rules already draw it.
     const tritKeys = sheet.filter((s) => s.cvd === 'tritanopia').map((s) => s.key.split('-')[0]);
-    expect(tritKeys).not.toContain('attack');
+    expect(tritKeys).not.toContain('advance');
     expect(tritKeys).not.toContain('strike');
     // tritanopia swaps only team.neutral, which the housing's warn draws.
     expect(new Set(tritKeys)).toEqual(new Set(['costly', 'charge']));
@@ -1081,7 +1084,7 @@ describe('BADGED_VERBS reachability is derived from the roster', () => {
    *  directions" check would flag a mismatch against a table that is
    *  correct on purpose. */
   function verbsOf(type: ReturnType<typeof unitTypeFromJson>): (keyof typeof BADGED_VERBS)[] {
-    const verbs: (keyof typeof BADGED_VERBS)[] = ['move', 'attack'];
+    const verbs: (keyof typeof BADGED_VERBS)[] = ['move', 'advance'];
     if (type.canGarrison) verbs.push('garrison');
     if (type.canDemolish) verbs.push('demolish');
     if (type.canTunnelCharge) verbs.push('charge');
@@ -1149,6 +1152,8 @@ describe('the composer and the plugin agree on every key -- Important 2', () => 
       canGarrison: (id) => unitTypes[id].canGarrison,
       canTunnelCharge: (id) => unitTypes[id].canTunnelCharge,
       inFlaggedZone: () => false,
+      groundAt: () => 'open',
+      flies: () => false,
       ...over,
     };
   }
@@ -1252,7 +1257,7 @@ describe('the composer and the plugin agree on every key -- Important 2', () => 
     // Guards against a vacuously-passing set-equality check (an empty
     // `produced` set trivially satisfies both directions above).
     const moveAndAttackBadges = [...producedWithRules].filter(
-      (k) => k.startsWith('move-') || k.startsWith('attack-')
+      (k) => k.startsWith('move-') || k.startsWith('advance-')
     );
     expect(moveAndAttackBadges.length).toBeGreaterThanOrEqual(14); // 7 buckets x {move, attack}
   });

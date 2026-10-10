@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready small agricultural pump house, vernacular construction of a fictional arid river-basin region: a one-room single-storey breeze-block shed, lower than it is long, with a single-pitch corrugated metal roof weighted with stones, a plank door ajar and one shuttered window on the front face, beside the shed on its left a squat steel water tank on a steel stand, galvanised pipework from the tank into the shed wall, mineral scale streaking down from the overflow pipe. Real-world scale, 6 metres square, shed 3.5 metres tall, tank 2.8 metres. Grey block, rust-streaked corrugated metal, galvanised steel. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a10299-dca5-7022-93ef-8c3b564692b9",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 2014967210,
+    "prompt": "A single low-poly game-ready small agricultural pump house, vernacular construction of a fictional arid river-basin region: a one-room single-storey breeze-block shed, lower than it is long, with a single-pitch corrugated metal roof weighted with stones, a plank door ajar and one shuttered window on the front face, beside the shed on its left a squat steel water tank on a steel stand, galvanised pipework from the tank into the shed wall, mineral scale streaking down from the overflow pipe. Real-world scale, 6 metres square, shed 3.5 metres tall, tank 2.8 metres. Grey block, rust-streaked corrugated metal, galvanised steel. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1791045001943,
+    "progress": 100,
+    "started_at": 1791045001953,
+    "finished_at": 1791045085572,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10299-dca5-7022-93ef-8c3b564692b9/output/model.glb?Expires=4944585600&Signature=QuWwwExqJu5oGDXuZ9Ntjjns7sWZovUridE3DtaFX-JK1ggIiHP2~2Iq3kCiGPfaRlkN~AhGnNaVFlO5J2VFCVY4lmFFBnBcAUe6vjxoSqeh3srTlXlWWmVfEUyMWU~tcFDc0u-CondrVARjDrN6nzpDK8u5YrSvi0GvYPj-n674XazWK2vAg8HsHgRXZmk9t9N9lry2o2vT10wRCeMONbTEnhDt4CX9PKurANJh6wF7WGLqsHRe5cwdtfVW~xpII8B9J7c7dg7NZhgGvIP-AUqWRwkImgCX9zsfIX0bdt7f6C0xMukjJ-JEHs0chocK905xI9rpuLZ13L7HF3SgHg__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10299-dca5-7022-93ef-8c3b564692b9/output/preview.png?Expires=4944585600&Signature=S5TV3xRIMSTJCl0FPBIgXhunJU3UlbhdDBXNgUZ61Roay40QLjJhgt~ckTVTHJ02A99RodrpfHSAsacIB9fTxD37uZQTFR3dbJtGWWVABJEvNBA4nthAUZuWSmVDPvY2hrYqIlWbtVJm~1mSrrkSGUiXnHsNcwihl77LfVFR3zEIyzHEwZrCSQZsCcUEs6UrMDq8nT1md35hEgNhOMxUHL15ibEG1oCWpCqNHf6ChpI9uUkGOsUYjGsadUiEVx~sSnJq-aUEOQkXPscWRM-lBDTcc0q6o3odc0drVdGOP4VQ4go~9is24tlA4HE0fqZxY71vmM1myl4U10tun6nBxw__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1791045001943,
+    "started_at": 1791045001953,
+    "finished_at": 1791045085572
+  },
+  "usd_estimated": 0.4
+}

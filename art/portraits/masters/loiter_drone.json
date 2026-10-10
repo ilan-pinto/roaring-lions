@@ -1,0 +1,22 @@
+{
+  "unit": "loiter_drone",
+  "source": "assets/meshes/vehicles/loiter_drone.glb",
+  "source_sha256": "e6ba2e65d475ff07c9ec7ae76e36d2f6f831ca252937ad8761d4696bf3da0354",
+  "yaw_deg": -125.0,
+  "elevation_deg": 18.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "width",
+    0.92
+  ],
+  "ndc_box": [
+    0.04,
+    0.96,
+    0.2955,
+    0.7045
+  ],
+  "materials": {
+    "baked": 0,
+    "flat": 3
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready shoulder-fired recoilless anti-tank launcher with two spare rounds beside it, a weapon of an irregular militia, worn and field-repaired, scratched gunmetal under sun-faded paint. At rest, level, on the ground as one object. A short fat steel tube of wide bore, open at both ends, a wide cone-shaped venturi nozzle flaring at the rear, a hinged breech ring, a periscope sight on one side, a pistol grip, a shoulder rest, no stock; beside it two finned rounds with blunt warheads. Scratched steel, chipped paint. Real-world scale, 1.1 metre tube, 0.11 metre bore. Gunmetal, faded green-grey paint, tan tape. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "negative_prompt": "rifle, assault rifle, stock, scope, thin barrel, magazine, bayonet",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a10c4c-319f-710d-9d1d-12d43c8955ce",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 2282118414,
+    "prompt": "A single low-poly game-ready shoulder-fired recoilless anti-tank launcher with two spare rounds beside it, a weapon of an irregular militia, worn and field-repaired, scratched gunmetal under sun-faded paint. At rest, level, on the ground as one object. A short fat steel tube of wide bore, open at both ends, a wide cone-shaped venturi nozzle flaring at the rear, a hinged breech ring, a periscope sight on one side, a pistol grip, a shoulder rest, no stock; beside it two finned rounds with blunt warheads. Scratched steel, chipped paint. Real-world scale, 1.1 metre tube, 0.11 metre bore. Gunmetal, faded green-grey paint, tan tape. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1791207685307,
+    "progress": 100,
+    "started_at": 1791207685314,
+    "finished_at": 1791207776014,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10c4c-319f-710d-9d1d-12d43c8955ce/output/model.glb?Expires=4944758400&Signature=FkPAeEgFfncWIHYGYb2J-vX-sqQYd1FWraiFc9uEjVfSaRsY5gy0LIA4uN2Ch8zA9kBXIgw9AyJDm6xUAY-FyMedyN~XsDxttHHWv0sXA5D8-Y39Oe-XOG0BmGwCEP8M-karkoqyBvyABU4i7CiwUTVqmZIimnHWZ2J2N4mZj2T9DDK7mnMC4r2kMRIZcyDTxUXIP0gwT2EyJs3szPXRSG3sDljIVEB3KhoDb9616TW62U3GzsrjUO89NYqc0a7ubcFBKJiaFlye4XLRrZ-38FAg67dHHllOPZuJWFIJ-BQyzjC84M2HKnJWfweG8Ubf7z6f8bhBa4Y1EypdY33Uvg__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10c4c-319f-710d-9d1d-12d43c8955ce/output/preview.png?Expires=4944758400&Signature=plcY4ZlzVC~s15S6sdW1USUesTxChOlLWB6NIbR9VtxaqDySDXQGk8DQXK62r8s9lrwOJtx7fSrILCsHg4qseoSKe1ZxIfGuSGibrSgkY-rz3f-5E7KJioAKsM20JbZuWYLPnmew0M0LQVnFpkVAeiyk5I~cTgz2ual0ZO09SvToG54LzOHWPNDCVbI~J6Qd4y3-4TnpACnuGm8GVpeaavDkpw3bO1e4d2aOdueFJFG7T9GHpKnlrzjKymZQnKuKMZ5TaHnLtCNxl9HdoPnD4kQfprsfZeayMA-rUF8gJG4wn-idKJRICsRrTLw9wJSIqUNoB5ViZwOpO8LLwu5fBA__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1791207685307,
+    "started_at": 1791207685314,
+    "finished_at": 1791207776014
+  },
+  "usd_estimated": 0.4
+}

@@ -1,0 +1,23 @@
+{
+  "unit": "digger_crew",
+  "variant": "team",
+  "source": "assets/meshes/digger_crew.glb",
+  "source_sha256": "263d4fdd7308e00cdca1dcf2d56157ab5acfd1c8da4edafdfeec473b65b4ee8d",
+  "yaw_deg": -125.0,
+  "elevation_deg": 12.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "longer",
+    0.88
+  ],
+  "ndc_box": [
+    0.1664,
+    0.8336,
+    0.06,
+    0.94
+  ],
+  "materials": {
+    "baked": 4,
+    "flat": 2
+  }
+}

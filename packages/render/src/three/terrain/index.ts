@@ -75,3 +75,5 @@ export * from './decor-place';
 export * from './prop-role';
 export * from './prop-place';
 export * from './sway';
+export * from './tiled-mesh';
+export * from './incremental';

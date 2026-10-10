@@ -1,0 +1,85 @@
+PART mbt_lavi armour 1 turret_hull tris=24 | turret cheek wedge modules
+PART mbt_lavi armour 2 hull_hull tris=120 | hull side skirt modules, 5 a side
+PART mbt_lavi armour 3 hull_hull tris=1756 | rear slat cage + turret-bustle ball-and-chain curtain
+PART mbt_lavi sensors 1 turret_metal tris=56 | commander's panoramic sight
+PART mbt_lavi sensors 2 turret_hull tris=48 | four panoramic camera heads on the turret faces
+PART mbt_lavi sensors 3 turret_metal tris=144 | raised 360-degree EO/IR drum + four hull-corner cameras
+PART mbt_lavi firepower 1 turret_metal tris=144 | barrel thermal sleeve + muzzle reference sensor
+PART mbt_lavi firepower 2 turret_metal tris=68 | enlarged gunner's primary sight + crosswind sensor
+PART mbt_lavi firepower 3 turret_hull tris=24 | armoured ready-round container on the turret bustle
+BASE mbt_lavi tris=8346
+FRAME mbt_lavi frame_m=10.030 lo=(-3.604, -1.644, 0.0) hi=(3.16, 1.644, 3.141)
+PART ifv_namer armour 1 hull_hull tris=24 | glacis applique wedges
+PART ifv_namer armour 2 hull_hull tris=168 | ERA brick row along each upper side, 7 a side
+PART ifv_namer armour 3 hull_hull tris=684 | rear slat cage around the ramp and rear quarters
+PART ifv_namer sensors 1 hull_hull tris=56 | commander's sight head beside the RWS
+PART ifv_namer sensors 2 hull_hull tris=48 | four panoramic camera heads at the roof corners
+PART ifv_namer sensors 3 hull_hull tris=188 | folding EO mast with sensor ball at the rear roof
+PART ifv_namer firepower 1 turret_metal tris=12 | gunner's thermal sight block on the RWS
+PART ifv_namer firepower 2 turret_metal tris=144 | 30 mm barrel thermal shroud + muzzle-velocity radar
+PART ifv_namer firepower 3 turret_metal tris=24 | armoured dual-feed ammunition magazine on the RWS
+BASE ifv_namer tris=7810
+FRAME ifv_namer frame_m=12.192 lo=(-4.124, -2.074, 0.0) hi=(3.65, 2.074, 4.63)
+PART apc_eitan armour 1 hull_hull tris=36 | nose applique plates
+PART apc_eitan armour 2 hull_hull tris=96 | upper-side armour modules between the arches, 4 a side
+PART apc_eitan armour 3 hull_hull tris=660 | slat cage over the sides and rear
+PART apc_eitan sensors 1 hull_hull tris=56 | commander's sight head, roof front-left
+PART apc_eitan sensors 2 hull_hull tris=48 | four panoramic camera heads at the roof corners
+PART apc_eitan sensors 3 hull_hull tris=120 | telescopic sensor mast, rear right
+PART apc_eitan firepower 1 turret_metal tris=12 | thermal sight block on the RWS
+PART apc_eitan firepower 2 turret_metal tris=156 | .50 barrel heat shroud + big ammunition box with feed chute
+PART apc_eitan firepower 3 turret_metal tris=36 | armoured cowl round the weapon station
+BASE apc_eitan tris=7961
+FRAME apc_eitan frame_m=12.011 lo=(-3.974, -2.024, 0.0) hi=(3.67, 2.024, 4.92)
+PART apc_kipod armour 1 hull_hull tris=96 | ERA bank on the nose slope, 2 rows of 4
+PART apc_kipod armour 2 hull_hull tris=144 | second ERA row along each side, 6 a side
+PART apc_kipod armour 3 hull_hull tris=720 | rear slat cage and rear quarters
+PART apc_kipod sensors 1 hull_hull tris=56 | commander's sight head, roof front
+PART apc_kipod sensors 2 hull_hull tris=56 | ground-surveillance radar on a roof pedestal
+PART apc_kipod sensors 3 hull_hull tris=168 | telescopic mast with an EO drum, rear
+PART apc_kipod firepower 1 turret_metal tris=12 | thermal sight block on the RWS
+PART apc_kipod firepower 2 turret_metal tris=156 | barrel heat shroud + big ammunition box with feed chute
+PART apc_kipod firepower 3 turret_metal tris=36 | armoured cowl round the weapon station
+BASE apc_kipod tris=8052
+FRAME apc_kipod frame_m=12.154 lo=(-4.024, -2.074, 0.0) hi=(3.6, 2.074, 4.92)
+PART jeep_shoded armour 1 hull_hull tris=48 | door armour kits, 2 a side
+PART jeep_shoded armour 2 hull_metal tris=36 | gunner's shield around the roof MG
+PART jeep_shoded armour 3 hull_hull tris=144 | bull-bar grille, bed armour, windscreen louvres
+PART jeep_shoded sensors 1 hull_hull tris=124 | roof EO ball on a post
+PART jeep_shoded sensors 2 hull_hull tris=24 | surveillance pod on a roof rack
+PART jeep_shoded sensors 3 hull_hull tris=120 | telescopic mast with radar head in the bed
+PART jeep_shoded firepower 1 hull_metal tris=36 | optical/thermal sight on the MG + two ready ammunition cans
+PART jeep_shoded firepower 2 hull_metal tris=144 | barrel shroud + 400-round box with feed chute
+PART jeep_shoded firepower 3 hull_metal tris=56 | heavy-barrel conversion: long heavy barrel and receiver shroud
+BASE jeep_shoded tris=43935
+FRAME jeep_shoded frame_m=7.609 lo=(-2.396, -1.167, 0.0) hi=(2.504, 1.174, 3.36)
+PART scout_shachaf armour 1 hull_hull tris=36 | nose plate + door plates
+PART scout_shachaf armour 2 hull_hull tris=72 | side armour panels between the wheels + arch guards
+PART scout_shachaf armour 3 hull_hull tris=360 | grille cage along the body sides + front grille
+PART scout_shachaf sensors 1 hull_hull tris=12 | laser-rangefinder/thermal box beside the mast head
+PART scout_shachaf sensors 2 hull_hull tris=12 | ground-surveillance radar under the mast head
+PART scout_shachaf sensors 3 hull_hull tris=84 | second mast stage with a stacked sensor head
+PART scout_shachaf firepower 1 turret_metal tris=12 | thermal sight block on the RWS
+PART scout_shachaf firepower 2 turret_metal tris=144 | barrel heat shroud + ammunition box with feed chute
+PART scout_shachaf firepower 3 turret_metal tris=36 | armoured cowl round the weapon station
+BASE scout_shachaf tris=5076
+FRAME scout_shachaf frame_m=8.066 lo=(-2.3, -1.268, 0.0) hi=(2.424, 1.268, 4.361)
+PART dozer_d9 armour 1 hull_hull tris=288 | cab window grilles
+PART dozer_d9 armour 2 hull_hull tris=492 | slat cage around the cab
+PART dozer_d9 armour 3 hull_hull tris=288 | track-top skirt plates + rear slat around the ripper
+PART dozer_d9 sensors 1 hull_hull tris=60 | roof work-light bar with IR cameras
+PART dozer_d9 sensors 2 hull_hull tris=152 | remote-operation camera mast
+PART dozer_d9 sensors 3 hull_hull tris=172 | forward obstacle radar + a second, taller camera mast
+BASE dozer_d9 tris=7901
+FRAME dozer_d9 frame_m=11.102 lo=(-3.416, -2.28, 0.0) hi=(3.416, 2.28, 4.61)
+PART heli_peten armour 1 hull_hull tris=24 | cockpit side armour panels
+PART heli_peten armour 2 hull_hull tris=24 | engine-bay armour panels
+PART heli_peten armour 3 hull_hull tris=36 | armoured sponson fairings + floor plate
+PART heli_peten sensors 1 hull_glass tris=52 | enlarged nose sensor turret
+PART heli_peten sensors 2 hull_hull tris=72 | four warning sensors + two sensor pods
+PART heli_peten sensors 3 hull_hull tris=92 | turret sensor ball on the boom + roof sensor fairing
+PART heli_peten firepower 1 hull_metal tris=160 | chin gun: longer barrel with a shroud
+PART heli_peten firepower 2 hull_metal tris=24 | ammunition magazine pod + feed chute under the fuselage
+PART heli_peten firepower 3 hull_metal tris=60 | enlarged chin-turret housing
+BASE heli_peten tris=41031
+FRAME heli_peten frame_m=7.730 lo=(-2.324, -2.081, 0.0) hi=(2.599, 2.051, 1.292)

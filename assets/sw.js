@@ -38,7 +38,7 @@
  *  - **`assets/` (Vite's own output)** -- CACHE-FIRST. These filenames carry
  *    a content hash, so a given URL's bytes can never change. Revalidating an
  *    immutable file is pure latency.
- *  - **The `publicDir` binaries** (`meshes/`, `textures/`, `sprites/`,
+ *  - **The `publicDir` binaries** (`meshes/`, `textures/`,
  *    `fonts/`, `audio/`, `ui/`, `campaign/`, `draco/`) -- STALE-WHILE-
  *    REVALIDATE. These are NOT hashed: re-exporting a mesh changes the bytes
  *    under the same URL. The player gets the cached copy at once and the
@@ -64,7 +64,7 @@ const BASE = new URL('./', self.location.href).pathname;
 
 /** Directories under `BASE` whose contents are large, unhashed, and worth
  *  keeping. `video/` is deliberately ABSENT -- see rule 4 above. */
-const PUBLIC_DIRS = ['meshes/', 'textures/', 'sprites/', 'fonts/', 'audio/', 'ui/', 'campaign/', 'draco/'];
+const PUBLIC_DIRS = ['meshes/', 'textures/', 'fonts/', 'audio/', 'ui/', 'campaign/', 'draco/'];
 
 /**
  * Which strategy a request gets: `'network-first'`, `'cache-first'`,

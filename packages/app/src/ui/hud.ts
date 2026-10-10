@@ -26,22 +26,32 @@
 // that the strip's inline clock and the big centred clock cannot derive the
 // same number twice, and so that "can this selection unload" is answered once.
 
-import { fx, type Sim } from '@lions/sim';
+import { fx, type HitProjection, type Sim } from '@lions/sim';
 import type { KitLevel } from '@lions/data';
 import type { ResolvedCommander } from '../campaign';
 import type { RosterEntry } from '../ledger-store';
+import type { HintLine } from './hint-model';
+import type { AlertTier } from './alerts';
+import { FeedModel } from './feed-model';
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
 import { confirmDialog } from './confirm';
+import { leaveCopy } from './leave-copy';
 import { escapeHtml } from './escape-html';
 import { kitIconSignDecorHtml, kitIconSignHtml, kitPipsHtml, withKitSign, type KitSummary } from './kit-sign';
 import { flash, leave, titleCard } from './motion';
 import { markSvg } from './mark';
+import { fireState } from './fire-state';
+import { invoiceClock, type InvoiceLine } from './conduct-invoice';
+import type { HudElement } from './hud-elements';
+import type { CursorName } from '../input/cursor';
 import { ORDER_SIGHT } from './order-sight';
 import { roleBadgeSvg, roleBucket } from './role';
-import { symbolLabel, symbolSvg } from './symbol';
+import { symbolLabel, symbolSvg, type SymbolId } from './symbol';
+import { aimPenaltyPct, breakSeconds, combatBand, hpWord, recoverySeconds, suppressionMeter, SHAKEN_FROM, vehicleDamage } from './combat-state';
 import { bindDelegatedTip, bindTip } from './tooltip';
 import { VoiceCaption } from './voice-caption';
+import { weaponName } from './weapon-name';
 import {
   beatDwellMs,
   conductDefinition,
@@ -54,7 +64,8 @@ import {
   stepBeat,
   stripObjectives,
   textToneClass,
-  worstPenalties,
+  groupedPenalties,
+  noShotReason,
   type MissionView,
   type Tone,
 } from './hud-model';
@@ -64,6 +75,7 @@ import {
   hpTone,
   orderRow,
   stepFocus,
+  type ChipMark,
   type ChipView,
   type OrderId,
   type OrderSpec,
@@ -110,6 +122,16 @@ export interface HudCommanderInfo {
  *  without the stack reaching the reinforcements tiles. */
 const FEED_LINES = 4;
 
+/** How long a feed line stays, by tier (WP-P5, C3). The untiered 9 s is what
+ *  every line held before tiers existed; a minor line goes sooner, a major
+ *  one is still up for a player who looked away. Each restarts on a merge. */
+const FEED_DWELL_MS: Readonly<Record<AlertTier | 'none', number>> = {
+  minor: 7000,
+  important: 9000,
+  major: 12000,
+  none: 9000,
+};
+
 /** How far the projected-fire panel sits from the target it describes. Right
  *  and slightly up, so it never covers the unit the player is aiming at. */
 const FIRE_OFFSET = { x: 36, y: -8 };
@@ -147,9 +169,39 @@ const PIN_MARK_CHIP = 12;
 const PIN_MARK_CARD = 16;
 
 /** The corner mark: one named image, so a screen reader hears "Pinned" once
- *  for the art rather than nothing (the svg itself is aria-hidden). */
-function pinMarkHtml(size: number): string {
-  return `<span class="rl-pin-mark" role="img" aria-label="${t('hud.pinned.label')}">${symbolSvg('pinned', size)}</span>`;
+ *  for the art rather than nothing (the svg itself is aria-hidden). Since
+ *  pass C2/C4 (D5) the corner carries whichever status mark wins the line --
+ *  broken, pinned, gun out or immobilised -- in its own ink (`data-mark`,
+ *  theme.css), in the slot and at the size GH-262 gave the pinned mark. */
+const MARK_SYMBOL: Readonly<Record<ChipMark, SymbolId>> = { broken: 'broken', pinned: 'pinned', gunOut: 'gunOut', immobilised: 'immobilised' };
+function markLabel(mark: ChipMark): string {
+  switch (mark) {
+    case 'broken':
+      return t('hud.state.broken');
+    case 'pinned':
+      return t('hud.pinned.label');
+    case 'gunOut':
+      return t('hud.state.gunOut');
+    case 'immobilised':
+      return t('hud.state.immobilised');
+  }
+}
+/** The card's suppression meter (pass C2/C4, D2): two cells -- shaken,
+ *  suppressed -- and the pinned mark, lit at the pin. No number. */
+function suppressionMeterHtml(m: { shaken: number; suppressed: number; pin: boolean }): string {
+  const cell = (f: number): string => `<b class="rl-supp__cell"><i style="width:${(f * 100).toFixed(0)}%"></i></b>`;
+  return (
+    `<div class="rl-supp" role="img" aria-label="${t('hud.supp.label')}">` +
+    `<span class="rl-label">${t('hud.supp.label')}</span>` +
+    cell(m.shaken) +
+    cell(m.suppressed) +
+    `<span class="rl-supp__pin"${m.pin ? ' data-on="1"' : ''}>${symbolSvg('pinned', STRIP_GLYPH_PX)}</span>` +
+    `</div>`
+  );
+}
+
+function statusMarkHtml(mark: ChipMark, size: number): string {
+  return `<span class="rl-pin-mark" data-mark="${mark}" role="img" aria-label="${markLabel(mark)}">${symbolSvg(MARK_SYMBOL[mark], size)}</span>`;
 }
 
 /** The chip art with its corner marks. Unpinned, exactly `withKitSign`'s
@@ -158,9 +210,9 @@ function pinMarkHtml(size: number): string {
  *  built here for an unkitted one too -- with the kit sign kept IMMEDIATELY
  *  after the art (theme.css sizes the chip's stars by the adjacent-sibling
  *  selector `.rl-chip__art + .rl-kit-icon`) and the pinned mark after it. */
-function chipArtHtml(artHtml: string, kit: KitLevel, pinned: boolean): string {
-  if (!pinned) return withKitSign(artHtml, kit);
-  return `<span class="rl-kit-host">${artHtml}${kitIconSignHtml(kit)}${pinMarkHtml(PIN_MARK_CHIP)}</span>`;
+function chipArtHtml(artHtml: string, kit: KitLevel, mark: ChipMark | null): string {
+  if (mark === null) return withKitSign(artHtml, kit);
+  return `<span class="rl-kit-host">${artHtml}${kitIconSignHtml(kit)}${statusMarkHtml(mark, PIN_MARK_CHIP)}</span>`;
 }
 
 /** The attributes that name a strip control across `renderStrip`'s 4 Hz
@@ -203,7 +255,18 @@ export interface HudDeps {
   getMission: () => MissionView | null;
   hoverStructure: () => number;
   hoverEntity: () => number;
+  /** The cursor the pointer shows right now, bare (`input/cursor.ts`'s
+   *  `CursorName`). The fire panel reads it to say what a right-click on its
+   *  target does (PA-08), so the panel and the cursor are one decision.
+   *  Optional: a caller with no cursor (a test of something else) gets no
+   *  line. */
+  hoverCursor?: () => CursorName;
   gameVersion: string;
+  /** PA-25: where the player is when there is no mission -- the sandbox
+   *  map's own name -- so the strip names the ground, as a mission's does,
+   *  rather than the game. Absent (tests, or nothing to name) keeps the
+   *  game's name. */
+  placeName?: string;
   /** Shai's rank/plate for the mission in play, and Idit's static plate --
    *  see `HudCommanderInfo`'s own doc comment. */
   commander: HudCommanderInfo;
@@ -221,9 +284,12 @@ export interface HudDeps {
    *  exercise the row, which prints `row.key` unchanged (the same as an
    *  identity mapping). */
   keyFor?: (action: string) => string;
-  /** The idle-frame URL for a unit type, or null where the type ships no sprite
-   *  sheet. Resolved once at boot in main.ts from each sheet's own manifest. */
-  portrait?: (typeId: string) => string | null;
+  /** The picture URL for a unit type, or null where the type has none.
+   *  Resolved once at boot in main.ts: the Blender portrait (GH-153), else the
+   *  cropped icon, else a sheet frame. `slot` is `'chip'` for the selection
+   *  chip -- where a figure team shows its ONE lead figure -- and `'full'`
+   *  for the unit card. */
+  portrait?: (typeId: string, slot: 'chip' | 'full') => string | null;
   /** True when the URL `portrait` above returned for this type came from a
    *  cropped `unitIcon` rather than a whole sheet frame -- `artHtml` uses this
    *  only to set `data-icon="1"`, which `theme.css` reads to pick
@@ -256,6 +322,9 @@ export interface HudDeps {
    *  between missions, and the card must show what the sim actually applied.
    *  Only ever asked about side 0; absent in tests that do not exercise it. */
   kitOf?: (typeId: string) => KitSummary | null;
+  /** Pass C2/C4 (D3): ticks this unit has been pinned without breaking,
+   *  from the sim's own `pinned` event (`ui/pinned-since.ts`), or null. */
+  pinnedTicks?: (id: number) => number | null;
   /** The kit level every HUD icon carries (plan 2b): main.ts's one read of
    *  upgradePrepass.unitKit. Asked only about side 0; absent reads as 0
    *  everywhere. */
@@ -281,6 +350,9 @@ export interface HudDeps {
    *  navigation, because a mission's teardown does not exist yet; absent in
    *  tests that do not exercise the click. */
   leave?: () => void;
+  /** K-13: a free-play sandbox, not a mission -- the leave confirm words
+   *  itself for it. Absent means a mission. */
+  freePlay?: boolean;
   /** Task 6: opens (or, on a second call, closes) the in-mission objective
    *  tracker -- the strip's `+N` control is the one thing on this bar that
    *  reads the mission's FULL objective list rather than the one primary
@@ -297,7 +369,7 @@ export interface HudDeps {
    *  itself carries no facts and no storage: it only asks the question and
    *  paints the answer, merging in a live key cap (`keyFor`) for the one
    *  hint that names a key. */
-  hint?: () => { key: string; params?: Readonly<Record<string, string | number>> } | null;
+  hint?: () => HintLine | null;
   /** Task 9: the projected-fire panel has now held the screen for three
    *  consecutive HUD ticks (~0.75s at 4Hz) -- `renderFire`'s own streak
    *  counter, not a raw "is it visible this frame" signal, so a panel that
@@ -306,6 +378,16 @@ export interface HudDeps {
    *  `lions.seen.projectedFire` from it. Absent in tests that do not
    *  exercise it, which is the same as never marking it. */
   onProjectedFireShown?: () => void;
+  /** GH-345: whether one HUD surface is on screen right now -- the
+   *  progressive-disclosure set (`tutorial/hud-visibility.ts`), asked every
+   *  tick. A hidden surface is inert, not merely invisible: a hidden feed
+   *  drops its notes, a hidden Conduct field opens no tooltip. Absent shows
+   *  everything, which is every HUD built before this existed. */
+  isShown?: (el: HudElement) => boolean;
+  /** GH-345: the running Conduct invoice and the mission's floor, for the
+   *  strip's Conduct field (hover for the tip, click to pin it open). Absent
+   *  in tests that do not exercise it, which keeps the definition-only tip. */
+  conductInvoice?: () => { lines: readonly InvoiceLine[]; floor?: number };
 }
 
 export class Hud {
@@ -337,6 +419,9 @@ export class Hud {
   private chipViews: ChipView[] = [];
   private readonly clock: HTMLDivElement;
   private readonly feed: HTMLDivElement;
+  /** WP-P5: which feed lines are live, for merging repeats. */
+  private readonly feedModel = new FeedModel();
+  private readonly feedRows = new Map<number, { el: HTMLElement; timer: number }>();
   /** WP-AU1 D8: the caption slot under the feed, never inside it -- see
    *  `voice-caption.ts`. Owns its own hold timer, released in `destroy()`. */
   private readonly captionBox = new VoiceCaption();
@@ -351,6 +436,10 @@ export class Hud {
   private readonly cmdPrev: HTMLButtonElement;
   private readonly cmdNext: HTMLButtonElement;
   private readonly banner: HTMLDivElement;
+  /** GH-345: the Conduct invoice pinned open under the strip -- by a click on
+   *  the Conduct field, or by tutorial beat 9. */
+  private readonly invoice: HTMLDivElement;
+  private invoiceOpen = false;
   private bannerShown = false;
   private tickN = 0;
   /** Task 9: consecutive HUD ticks (the 4Hz `renderFire` cadence, not raw
@@ -360,6 +449,12 @@ export class Hud {
    *  only once per streak: a panel a player glances past on one hover has
    *  not taught them anything, where one they held over for ~0.75s has. */
   private fireVisibleStreak = 0;
+  /** PA-19: the entity the projected-fire panel and the card's "Engaging"
+   *  line were last built naming, or -1. `onTick` rebuilds the one whose
+   *  target has died since, on that tick rather than the next 4 Hz one --
+   *  a killed tank's name hung over its own fireball for up to 250 ms. */
+  private fireShownFor = -1;
+  private engagingShownFor = -1;
 
   /** Fix round 1 (task 6 review, I1/I3): whether the in-mission tracker is
    *  open, mirrored onto the strip control's own `aria-expanded` every
@@ -571,12 +666,13 @@ export class Hud {
     // walk selects on would make a restyle silently break the walk.
     leaveBtn.className = 'rl-strip__link rl-hud__leave';
     leaveBtn.innerHTML = symbolLabel('leave', t('hud.leave.link')); // GH-261: line of departure
-    leaveBtn.title = t('hud.leave.title');
+    const leaveText = leaveCopy(deps.freePlay === true);
+    leaveBtn.title = leaveText.tip;
     leaveBtn.addEventListener('click', () => {
       void confirmDialog(document.body, {
-        title: t('hud.leave.confirm.title'),
-        body: t('hud.leave.confirm.body'),
-        confirm: t('hud.leave.confirm.action'),
+        title: leaveText.title,
+        body: leaveText.body,
+        confirm: leaveText.confirm,
         danger: true,
       }).answer.then((ok) => {
         if (ok) deps.leave?.();
@@ -795,10 +891,22 @@ export class Hud {
     this.banner.className = 'rl-bigbanner';
     this.banner.style.display = 'none';
 
+    this.invoice = document.createElement('div');
+    this.invoice.className = 'rl-invoice rl-plate';
+    this.invoice.style.display = 'none';
+    // Click the Conduct field to pin the invoice open; click again to close.
+    // Delegated on the strip for the same reason as the objectives button:
+    // the field is rebuilt at 4 Hz.
+    this.strip.addEventListener('click', (ev) => {
+      const field = (ev.target as HTMLElement | null)?.closest<HTMLElement>('[data-tip="conduct"]');
+      if (!field || !this.deps.conductInvoice) return;
+      this.setInvoiceOpen(!this.invoiceOpen);
+    });
+
     // The six panes this HUD owns on the host. Recorded as they are appended
     // -- `destroy()` walks `roots`, so a seventh pane added here is torn down
     // by construction rather than by remembering to name it twice.
-    this.roots.push(this.strip, this.cmd, this.clock, this.sel, this.fire, this.banner);
+    this.roots.push(this.strip, this.cmd, this.clock, this.sel, this.fire, this.banner, this.invoice);
     host.append(...this.roots);
   }
 
@@ -829,6 +937,16 @@ export class Hud {
     // element off the host either way, but only `dispose()` clears the timer
     // that would otherwise fire against a node nobody holds any more.
     this.captionBox.dispose();
+    // GH-469: the feed rows' dwell timers (7-12 s) and the commander bar's
+    // beat-fold timer. Each closes over `this`, `this` holds `deps`, and
+    // `deps` holds the sim, the renderer and the runtime -- so a timer left
+    // pending kept the WHOLE battlefield reachable until it fired, measured
+    // by `pnpm perf:memory` as the left mission's heap (+18-25 MiB) and its
+    // lost WebGL context still reachable after a forced GC, released only
+    // when the last feed line's dwell ran out.
+    for (const row of this.feedRows.values()) window.clearTimeout(row.timer);
+    this.feedRows.clear();
+    window.clearTimeout(this.beatTimer);
     // `dismiss()` releases the card's two window listeners and its timer, then
     // fades it over 250 ms before removing the node -- so the element is still
     // on the host when this returns. Teardown has to be synchronous (the
@@ -910,12 +1028,100 @@ export class Hud {
     this.renderCommander();
   }
 
+  /** GH-345: is this surface on screen right now? */
+  private shown(el: HudElement): boolean {
+    return this.deps.isShown?.(el) ?? true;
+  }
+
+  /**
+   * Hide or show the persistent panes by the disclosure set. An attribute,
+   * never `style.display`: every one of these already drives its own
+   * `display` for its own reasons (a clock with no timer, a card with no
+   * selection), and the two must compose rather than fight -- theme.css's
+   * `[data-hud-hidden]` wins over whatever the pane says about itself. Every
+   * tick, not 4 Hz, so a beat's reveal lands on the frame it opens.
+   */
+  private applyVisibility(): void {
+    const set = (el: HTMLElement, on: boolean): void => {
+      el.toggleAttribute('data-hud-hidden', !on);
+    };
+    set(this.speedCluster, this.shown('speed'));
+    set(this.muteChip, this.shown('mute'));
+    set(this.cmd, this.shown('radio'));
+    set(this.feed, this.shown('feed'));
+    set(this.captionBox.el, this.shown('feed'));
+    set(this.hint, this.shown('hint'));
+    set(this.orderBar, this.shown('orders'));
+    set(this.cluster, this.shown('card'));
+    set(this.clock, this.shown('clock'));
+    set(this.fire, this.shown('fire'));
+  }
+
+  /**
+   * GH-345: pin the Conduct invoice open under the strip, or close it. Public
+   * for tutorial beat 9, which opens it for the beat ("watch the invoice").
+   * A hidden Conduct field cannot be opened: the invoice belongs to it.
+   */
+  setInvoiceOpen(open: boolean): void {
+    this.invoiceOpen = open;
+    this.renderInvoice();
+  }
+
+  /** The running ledger: cause, first time, total. Null with nothing to show
+   *  (no invoice wired, or a clean fight), and the definition stands in. */
+  private invoiceHtml(): string | null {
+    const inv = this.deps.conductInvoice?.();
+    if (!inv || inv.lines.length === 0) return null;
+    const roe = this.deps.getMission()?.roe;
+    const head =
+      roe !== undefined
+        ? `<div class="rl-label">${
+            inv.floor !== undefined
+              ? t('conduct.invoice.head', { roe, floor: inv.floor })
+              : t('conduct.invoice.headNoFloor', { roe })
+          }</div>`
+        : '';
+    const rows = inv.lines
+      .map(
+        (l) =>
+          `<div class="rl-invoice__line"><span>${escapeHtml(l.count > 1 ? `${l.label} ×${l.count}` : l.label)}</span>` +
+          `<span class="rl-dim">${l.ticks.length > 0 ? invoiceClock(l.ticks[0]) : ''}</span>` +
+          `<b class="rl-bad-text">−${l.total}</b></div>`
+      )
+      .join('');
+    return head + rows;
+  }
+
+  private renderInvoice(): void {
+    // PA-11: the invoice is a battle instrument. Tutorial beat 9 leaves it
+    // open past the last beat, and an open invoice hung over the end panel
+    // and the debrief header; once the result is in, it is closed for good.
+    const result = this.deps.getMission()?.result;
+    if (result !== undefined && result !== 'ongoing') this.invoiceOpen = false;
+    const on = this.invoiceOpen && this.shown('conduct');
+    if (!on) {
+      this.invoice.style.display = 'none';
+      return;
+    }
+    this.invoice.innerHTML = this.invoiceHtml() ?? `<div class="rl-dim">${conductDefinition()}</div>`;
+    this.invoice.style.display = '';
+  }
+
   onTick(): void {
+    this.applyVisibility();
     this.updateBanner();
     // A full innerHTML rebuild at 20 Hz stalls the page exactly when combat
     // floods events. 4 Hz reads identically.
-    if (this.tickN++ % 5 !== 0) return;
+    if (this.tickN++ % 5 !== 0) {
+      // PA-19: a named target that died since the last content tick goes
+      // now. Only on a death, so a living target costs no extra rebuild.
+      const alive = this.deps.sim.state.alive;
+      if (this.engagingShownFor >= 0 && alive[this.engagingShownFor] === 0) this.renderCard();
+      if (this.fireShownFor >= 0 && alive[this.fireShownFor] === 0) this.renderFire();
+      return;
+    }
     this.renderStrip();
+    this.renderInvoice();
     // `renderStrip` innerHTML's `stripBody`/`stripInfo` wholesale; a strip
     // tip shown for the pre-rebuild node would otherwise freeze on stale
     // content (fix round 1, I1) with no event of its own to notice by.
@@ -942,7 +1148,7 @@ export class Hud {
   /** Mirror the audio state the `m` key just changed. */
   paintMute(): void {
     const muted = this.deps.isMuted?.() ?? false;
-    // GH-261: the APP-6 signals bolt, struck through for radio silence.
+    // VR-15: a speaker, struck through when muted (the GH-261 bolt read as power).
     this.muteChip.innerHTML = symbolSvg(muted ? 'audioOff' : 'audioOn', STRIP_GLYPH_PX);
     this.muteChip.title = muted ? t('hud.mute.muted') : t('hud.mute.unmuted');
     this.muteChip.setAttribute('aria-label', this.muteChip.title);
@@ -973,6 +1179,13 @@ export class Hud {
     this.strip.dataset.open = open ? '1' : '0';
   }
 
+  /** The feed's lines as the player sees them, newest first -- a feedback
+   *  note's `feed` (GH-464). A read of the DOM this class already owns, never
+   *  a second record of the lines. */
+  feedLines(): string[] {
+    return [...this.feed.children].map((c) => (c.textContent ?? '').replace(/\s+/g, ' ').trim()).filter((l) => l !== '');
+  }
+
   /** Mission-level narration — objectives, triggers, waves, refusals.
    *
    *  `html` is set as `innerHTML`, and it is HTML on purpose: callers pass a
@@ -987,29 +1200,87 @@ export class Hud {
    *  (`e.unit`, the art- and mesh-failed ids), which `unit.schema.json` and
    *  `structure.schema.json` pin to `^[a-z0-9_]+$` -- not every id is so
    *  constrained (a map zone's name is not), so this is a list, not a rule. */
-  note(html: string, tone: Tone = 'live'): void {
-    const el = document.createElement('div');
-    // textToneClass, not `rl-${tone}` by hand: a 'bad'-tone notice sits on
-    // this same rl-plate, and `rl-bad`'s fill red reads 4.01:1 there.
-    el.className = `rl-notice rl-enter rl-plate ${textToneClass(tone)}`;
-    el.innerHTML = html;
-    this.feed.prepend(el);
-    while (this.feed.childElementCount > FEED_LINES) {
-      this.feed.lastElementChild?.remove();
+  note(html: string, tone: Tone = 'live', opts: { tier?: AlertTier } = {}): void {
+    // GH-345: a hidden feed is inert. A line written while it is hidden would
+    // otherwise surface, stale, the moment a beat reveals it.
+    if (!this.shown('feed')) return;
+    const tier = opts.tier;
+    // WP-P5 (PA-06): an identical line merges into the one already saying it
+    // (`feed-model.ts`) -- same words, same tone, same tier -- and the merged
+    // line carries the count, goes back to the top, and starts its dwell
+    // again. Four "under fire" lines for one fact were four of the feed's
+    // four slots.
+    const pushed = this.feedModel.push(`${tone}|${tier ?? ''}|${html}`, performance.now());
+    let row = this.feedRows.get(pushed.line.id);
+    if (pushed.kind === 'merged' && row) {
+      window.clearTimeout(row.timer);
+      let count = row.el.querySelector<HTMLElement>('.rl-notice__count');
+      if (!count) {
+        count = document.createElement('span');
+        count.className = 'rl-notice__count';
+        row.el.append(count);
+      }
+      count.textContent = t('hud.feed.repeat', { n: pushed.line.count });
+      // Back to the top, re-entering, so a repeat is SEEN to repeat.
+      row.el.classList.remove('rl-enter');
+      void row.el.offsetWidth;
+      row.el.classList.add('rl-enter');
+      this.feed.prepend(row.el);
+    } else {
+      const el = document.createElement('div');
+      // textToneClass, not `rl-${tone}` by hand: a 'bad'-tone notice sits on
+      // this same rl-plate, and `rl-bad`'s fill red reads 4.01:1 there.
+      el.className = `rl-notice rl-enter rl-plate ${textToneClass(tone)}`;
+      // The tier is a data attribute the theme styles (WP-P5, C3): minor
+      // smaller and quieter, major heavier and marked. An untiered line --
+      // a dock note, a refusal -- keeps the plain style.
+      if (tier) el.dataset.tier = tier;
+      el.innerHTML = html;
+      this.feed.prepend(el);
+      row = { el, timer: 0 };
+      this.feedRows.set(pushed.line.id, row);
     }
+    const id = pushed.line.id;
+    const live = row;
     // Notices are punctuation, not a log — the roll feed in the debug overlay
-    // is where history lives. These clear themselves so the map stays visible.
-    window.setTimeout(() => leave(el), 9000);
+    // is where history lives. These clear themselves so the map stays
+    // visible, and a heavier line stays up longer (`FEED_DWELL_MS`).
+    live.timer = window.setTimeout(() => this.dropFeedRow(id), FEED_DWELL_MS[tier ?? 'none']);
+    while (this.feed.childElementCount > FEED_LINES) {
+      const last = this.feed.lastElementChild;
+      const lastId = [...this.feedRows].find(([, r]) => r.el === last)?.[0];
+      if (lastId !== undefined) this.dropFeedRow(lastId, false);
+      else last?.remove();
+    }
+  }
+
+  /** A feed line leaves: off the model (nothing merges into it any more), off
+   *  the map of rows, and out of the DOM -- faded when its dwell ran out,
+   *  removed at once when a newer line pushed it off the end. */
+  private dropFeedRow(id: number, fade = true): void {
+    const row = this.feedRows.get(id);
+    if (!row) return;
+    window.clearTimeout(row.timer);
+    this.feedRows.delete(id);
+    this.feedModel.drop(id);
+    if (fade) leave(row.el);
+    else row.el.remove();
   }
 
   /** WP-AU1 D8: show a unit's spoken line as text, in the caption slot under
    *  the feed. The voice runtime (T9) calls this with the manifest line's
    *  own `en` text and its length in seconds, and only once a line actually
-   *  played -- gated upstream by `accessibility.captions` (T6), off by
-   *  default, so a HUD built without that setting on never calls this at
-   *  all. */
+   *  played -- gated upstream by `accessibility.captions` (T6), ON by
+   *  default since PA-23 (lead, 2026-10-09; D8 had it off), so a HUD built
+   *  with the setting switched off never calls this. */
   caption(text: string, seconds: number): void {
     this.captionBox.show(text, seconds);
+  }
+
+  /** AU-5: take the caption down now -- the line it belonged to was cut
+   *  short, or the mission's verdict landed. Idempotent. */
+  clearCaption(): void {
+    this.captionBox.clear();
   }
 
   /**
@@ -1147,14 +1418,14 @@ export class Hud {
       rows.push(
         `<span class="rl-strip__name"${m.campaign ? ` title="${escapeHtml(m.campaign)}"` : ''}>${escapeHtml(m.name)}</span>`
       );
-      if (m.roe !== undefined) {
+      if (m.roe !== undefined && this.shown('conduct')) {
         rows.push(
           `<span data-tip="conduct" tabindex="0"><b class="rl-${roeTone(m.roe)}" data-roe>${m.roe}</b> <span class="rl-dim">${t('hud.strip.conduct')}</span></span>`
         );
       }
       const { primary, deadline, primaryOpen, secondaryOpen } = stripObjectives(m);
-      const hold = holdClock(m);
-      if (primary) {
+      const hold = this.shown('clock') ? holdClock(m) : null;
+      if (primary && this.shown('objective')) {
         // The clock is stamped inline ONLY when it belongs to this objective.
         // A hold running on a secondary while the strip shows a primary would
         // otherwise read as the primary's own timer.
@@ -1172,7 +1443,7 @@ export class Hud {
             `${objectiveGlyph(primary.status)} ${escapeHtml(primary.text)}${inline}</span>`
         );
       }
-      if (deadline) {
+      if (deadline && this.shown('objective') && this.shown('clock')) {
         // A failable primary's clock, running out while the strip shows a
         // different primary. Tel Marum II was lost on exactly this clock with
         // the hold ticked complete beside it (2026-09-06).
@@ -1194,7 +1465,7 @@ export class Hud {
       // (including the one primary already stamped inline above): "nothing
       // left open" -- every objective complete or failed -- is the one case
       // with no control at all, never a disabled one.
-      if (m.objectives.some((o) => o.status === 'active')) {
+      if (m.objectives.some((o) => o.status === 'active') && this.shown('objectives')) {
         // Fix round 1 (I3): `aria-expanded` mirrors `this.objectivesOpen`,
         // which `setObjectivesOpen` writes -- read back here on every 4 Hz
         // rebuild so the attribute tracks the tracker even though the button
@@ -1206,12 +1477,23 @@ export class Hud {
         );
       }
     } else {
-      /* i18n-ok: proper noun */
-      rows.push('<span class="rl-strip__name">Roaring Lions</span>');
+      const place = this.deps.placeName;
+      rows.push(
+        place
+          ? `<span class="rl-strip__name">${escapeHtml(place)}</span>`
+          : /* i18n-ok: proper noun */ '<span class="rl-strip__name">Roaring Lions</span>'
+      );
+      // PA-25: a place with no mission is a Free Play sandbox (`placeName`
+      // is set only then). Its objective slot says so, and how to leave,
+      // rather than standing empty -- an empty slot read as a mission that
+      // had failed to load. Dim, and no glyph: it is not an objective.
+      if (place && this.shown('objective')) {
+        rows.push(`<span class="rl-strip__obj rl-dim" data-free-play>${escapeHtml(t('hud.strip.freePlay'))}</span>`);
+      }
     }
 
     const info: string[] = [];
-    if (m?.logistics !== undefined) {
+    if (m?.logistics !== undefined && this.shown('logistics')) {
       const rate =
         m.logisticsRate !== undefined && m.logisticsRate > 0
           ? ` <span class="rl-dim">${t('hud.strip.rate', { n: m.logisticsRate })}</span>`
@@ -1229,7 +1511,7 @@ export class Hud {
           `<span class="rl-dim">${t('hud.strip.logistics.word')}</span>${rate}</span>`
       );
     }
-    if (m?.intel !== undefined) {
+    if (m?.intel !== undefined && this.shown('intel')) {
       info.push(
         `<span class="rl-info" data-tip="intel" tabindex="0">${symbolSvg('intel', STRIP_GLYPH_PX)} <b>${m.intel}</b> ` +
           `<span class="rl-dim">${t('hud.strip.intel.word')}</span></span>`
@@ -1237,7 +1519,9 @@ export class Hud {
     }
     // Suppression: shown only when there is some. A permanent "0 pinned" is
     // the kind of field a player learns to stop reading.
-    const { pinned, broken } = countSuppressed(this.deps.sim.state, this.deps.sim.entityCount);
+    const { pinned, broken } = this.shown('status')
+      ? countSuppressed(this.deps.sim.state, this.deps.sim.entityCount)
+      : { pinned: 0, broken: 0 };
     if (pinned > 0)
       info.push(
         // GH-262: the drawn mark where the retired dingbat stood, 1em of the
@@ -1342,7 +1626,7 @@ export class Hud {
   private stripTipHtml(key: string | undefined): string | null {
     switch (key) {
       case 'conduct':
-        return conductDefinition();
+        return this.invoiceHtml() ?? conductDefinition();
       case 'logistics':
         return t('hud.strip.logistics.tip', { rate: this.deps.getMission()?.logisticsRate ?? 0 });
       case 'intel':
@@ -1383,19 +1667,34 @@ export class Hud {
    */
   private renderHint(): void {
     this.hint.style.display = '';
-    const hint = this.deps.hint?.();
-    if (!hint) {
+    // No `hint` dep at all is a HUD built without the shell (tests): today's
+    // plain controls line. A dep that answers NULL is `hintFor` saying there
+    // is nothing worth a line (WP-P5: the retired order-row line), and then
+    // the line is not drawn at all -- an empty plate is still a plate.
+    if (!this.deps.hint) {
       this.hint.textContent = t('hud.controlHint');
+      return;
+    }
+    const hint = this.deps.hint();
+    if (!hint) {
+      this.hint.textContent = '';
+      this.hint.style.display = 'none';
       return;
     }
     // `hintFor` answers from facts alone and never sees a binding -- the key
     // name inside the dock hint's copy comes from HERE, the same way the
     // order row's own key caps do (`this.deps.keyFor`, above), so a rebind
     // keeps the hint true instead of quietly starting to lie.
+    const keyCaps: Record<string, string> = {};
+    for (const [param, action] of Object.entries(hint.keys ?? {})) {
+      keyCaps[param] = this.deps.keyFor?.(action) ?? action;
+    }
     const params: Readonly<Record<string, string | number>> | undefined =
       hint.key === 'hud.hint.dock'
         ? { ...hint.params, key: this.deps.keyFor?.('production') ?? 'production' }
-        : hint.params;
+        : hint.keys
+          ? { ...hint.params, ...keyCaps }
+          : hint.params;
     this.hint.textContent = t(hint.key, params);
   }
 
@@ -1422,14 +1721,30 @@ export class Hud {
   private renderFire(): void {
     const html = this.projectedFireHtml();
     const visible = html !== '';
+    this.fireShownFor = visible ? this.deps.hoverEntity() : -1;
     this.fire.style.display = visible ? '' : 'none';
-    if (visible) this.fire.innerHTML = html;
+    if (visible) this.fire.innerHTML = html + this.fireClickLine();
     if (!visible) {
       this.fireVisibleStreak = 0;
       return;
     }
     this.fireVisibleStreak++;
     if (this.fireVisibleStreak === FIRE_TAUGHT_STREAK) this.deps.onProjectedFireShown?.();
+  }
+
+  /**
+   * What a right-click on this panel's target does, when the cursor says it
+   * is an attack-move (`advance`) -- which today is every plain order over an
+   * enemy (PA-08). The panel's heading names ONE target and gives odds
+   * against it, and until this line nothing said the click does not aim at
+   * it: the order goes to the tile and the sim chooses what each unit
+   * shoots, so a clicked AA truck read "Engaging: Militia Cell". Read off
+   * the cursor rather than recomputed, so a refused click (`protected`), a
+   * pinned order (`pinned`) or a building verb never gets this line.
+   */
+  private fireClickLine(): string {
+    if (this.deps.hoverCursor?.() !== 'advance') return '';
+    return `<div class="rl-fire__click">${t('hud.fire.clickAdvances')}</div>`;
   }
 
   private projectedFireHtml(): string {
@@ -1443,11 +1758,13 @@ export class Hud {
 
     const MAX_ROWS = 6;
     const rows: string[] = [];
+    const projections: HitProjection[] = [];
     let cannot = 0;
     let unidentified = 0;
     let holdingFire = 0;
     for (const s of sel) {
       const p = sim.projectHit(s, hoverId);
+      projections.push(p);
       if (p.kind === 'unidentified') {
         unidentified++;
         continue;
@@ -1463,33 +1780,62 @@ export class Hud {
       if (rows.length >= MAX_ROWS) continue;
       const name = sim.unitTypes[sim.state.typeIdx[s]].name;
       const chance = Math.round(fx.toNumber(p.pHit) * 100);
-      // Name only the factors actually degrading the shot, worst first.
+      // Name only the factors actually degrading the shot, worst first, as
+      // PENALTIES (GH-345 decision 5: "cover −86%", not the multiplier).
       // accuracy is the weapon's baseline, not a penalty the player can act on.
-      const worst = worstPenalties([
-        [t('hud.fire.factor.range'), fx.toNumber(p.factors.rangeFalloff)],
-        [t('hud.fire.factor.cover'), fx.toNumber(p.factors.coverMod)],
-        [t('hud.fire.factor.targetMoving'), fx.toNumber(p.factors.motionMod)],
-        [t('hud.fire.factor.firingOnTheMove'), fx.toNumber(p.factors.stanceMod)],
-        [t('hud.fire.factor.suppressed'), fx.toNumber(p.factors.suppressionMod)],
-      ]);
+      // Pass C2/C4 (D4, PA-15): grouped by WHOSE -- the target's ("them")
+      // and the shooter's own ("us") -- and our suppression named by its
+      // band, so "suppressed −20%" can no longer read as the target's.
+      const ourBand = combatBand(fx.toNumber(sim.state.suppression[s]), false, false);
+      const worst = groupedPenalties(
+        [
+          [t('hud.fire.factor.range'), fx.toNumber(p.factors.rangeFalloff), 'them'],
+          [t('hud.fire.factor.cover'), fx.toNumber(p.factors.coverMod), 'them'],
+          [t('hud.fire.factor.targetMoving'), fx.toNumber(p.factors.motionMod), 'them'],
+          [t('hud.fire.factor.firingOnTheMove'), fx.toNumber(p.factors.stanceMod), 'us'],
+          [ourBand === 'suppressed' ? t('hud.fire.factor.suppressed') : t('hud.fire.factor.shaken'), fx.toNumber(p.factors.suppressionMod), 'us'],
+        ],
+        { them: `<span class="rl-fire__grp">${t('hud.fire.them')}</span>`, us: `<span class="rl-fire__grp">${t('hud.fire.us')}</span>` }
+      );
       const why = worst.length > 0 ? ` · ${worst.join(' · ')}` : '';
       const bounce = p.hurts ? '' : ` · <span class="rl-bad-text">${t('hud.fire.cannotPenetrate')}</span>`;
       rows.push(
-        `<div>${escapeHtml(name)} <b>${chance}%</b> <span class="rl-dim">${escapeHtml(p.weaponId)}${why}</span>${bounce}</div>`
+        `<div>${escapeHtml(name)} <b>${chance}%</b> <span class="rl-dim">${escapeHtml(weaponName(p.weaponId))}${why}</span>${bounce}</div>`
       );
     }
 
+    // GH-345: one word for what this panel is saying (`fire-state.ts`), the
+    // same word the tutorial's hover lesson is gated on. It chooses the
+    // remedy line under the verdict; it never changes a number.
+    const state = fireState(projections);
+    const remedy = (key: string): string => `<div class="rl-fire__why">${t(key)}</div>`;
+
     const target = sim.unitTypes[sim.state.typeIdx[hoverId]].name;
-    const head = `<div class="rl-label">${t('hud.fire.heading', { target: escapeHtml(target) })}</div>`;
+    // Pass C2/C4 (D4): a pinned target cannot shoot back -- the tutorial's
+    // own lesson (`hud.hint.first.pins`), said where the shot is weighed.
+    const targetPinned =
+      sim.state.pinned[hoverId] === 1 && sim.state.routed[hoverId] !== 1
+        ? ` <span class="rl-hot rl-fire__note">${symbolSvg('pinned', STRIP_GLYPH_PX)} ${t('hud.fire.targetPinned')}</span>`
+        : '';
+    const head = `<div class="rl-label">${t('hud.fire.heading', { target: escapeHtml(target) })}${targetPinned}</div>`;
     if (rows.length === 0 && unidentified > 0 && cannot === 0 && holdingFire === 0) {
-      return head + `<div class="rl-dim">${t('hud.fire.unidentifiedOnly')}</div>`;
+      return head + `<div class="rl-dim">${t('hud.fire.unidentifiedOnly')}</div>` + remedy('hud.fire.why.unidentified');
     }
     // Pinned or lying in ambush is a different fact from "cannot reach" —
     // the shot exists, the unit is choosing (or forced) not to take it.
     if (rows.length === 0 && holdingFire > 0 && cannot === 0 && unidentified === 0) {
       return head + `<div class="rl-dim">${t('hud.fire.holdingFireOnly')}</div>`;
     }
-    if (rows.length === 0) return head + `<div class="rl-dim">${t('hud.fire.noneCanEngage')}</div>`;
+    if (rows.length === 0) {
+      // Was a bare "no unit can engage", which did not say whether the answer
+      // was range or sight. The sim's `noSolution` does not either (a Stage 4
+      // reason would), so this names both and gives the one number the
+      // player can act on: how far the selection's longest weapon reaches,
+      // read from unit data.
+      const reach = this.longestReach(sel);
+      if (reach === null) return head + `<div class="rl-dim">${t('hud.fire.noneCanEngage')}</div>`;
+      return head + `<div class="rl-dim">${this.noShotLine(sel, hoverId, reach)}</div>`;
+    }
 
     const extra = sel.length - rows.length - cannot - unidentified - holdingFire;
     const tail: string[] = [];
@@ -1498,7 +1844,63 @@ export class Hud {
     if (holdingFire > 0) tail.push(t('hud.fire.holdingFire', { n: holdingFire }));
     if (unidentified > 0) tail.push(t('hud.fire.unidentified', { n: unidentified }));
     const foot = tail.length > 0 ? `<div class="rl-dim">${tail.join(' · ')}</div>` : '';
-    return head + rows.join('') + foot;
+    const advice =
+      state === 'cover' ? remedy('hud.fire.why.cover') : state === 'moving' ? remedy('hud.fire.why.moving') : '';
+    return head + rows.join('') + foot + advice;
+  }
+
+  /**
+   * Which reason the selection has no shot (pass C2/C4, D4) -- "Out of range
+   * or out of sight" said neither. Derived from what `projectHit` reads, in
+   * its order (`noShotReason`), and worded with the one number to act on.
+   */
+  private noShotLine(sel: readonly number[], target: number, reach: { weapon: string; tiles: number }): string {
+    const sim = this.deps.sim;
+    const st = sim.state;
+    const tx = fx.toNumber(st.posX[target]);
+    const ty = fx.toNumber(st.posY[target]);
+    const shooters = sel.map((s) => ({
+      gunOut: st.firepowerKilled[s] === 1,
+      distTiles: Math.hypot(fx.toNumber(st.posX[s]) - tx, fx.toNumber(st.posY[s]) - ty),
+      weapons: sim.unitTypes[st.typeIdx[s]].weapons.map((w) => ({
+        range: fx.toNumber(w.range),
+        minRange: Math.sqrt(Math.max(0, fx.toNumber(w.minRangeSq))),
+      })),
+    }));
+    const contained = st.garrisonedIn[target] >= 0 || st.carriedBy[target] >= 0 || st.tunnelIn[target] >= 0;
+    const weapon = escapeHtml(weaponName(reach.weapon));
+    const nearest = Math.round(Math.min(...shooters.map((s) => s.distTiles)));
+    const minRange = Math.round(Math.max(0, ...shooters.flatMap((s) => s.weapons.map((w) => w.minRange))));
+    const head = (key: string, cls = 'rl-mute'): string => `<b class="${cls}">${t(key)}</b>`;
+    switch (noShotReason(shooters, contained)) {
+      case 'gunOut':
+        return `<b class="rl-bad-text">${symbolSvg('gunOut', STRIP_GLYPH_PX)} ${t('hud.state.gunOut')}</b> · ${t('hud.fire.why.gunOut')}`;
+      case 'contained':
+        return `${head('hud.fire.contained')} · ${t('hud.fire.why.contained')}`;
+      case 'outOfRange':
+        return `${head('hud.fire.outOfRange')} · ${t('hud.fire.why.outOfRange', { weapon, n: reach.tiles, d: nearest })}`;
+      case 'tooClose':
+        return `${head('hud.fire.tooClose')} · ${t('hud.fire.why.tooClose', { n: minRange })}`;
+      case 'noSight':
+        return `${head('hud.fire.noSight')} · ${t('hud.fire.why.noSight')}`;
+      case 'mixed':
+        return t('hud.fire.outOfReach', { weapon, n: reach.tiles });
+    }
+  }
+
+  /** The longest weapon any selected unit carries, by its authored range in
+   *  whole tiles -- read from unit data, never from the sim's answer, which
+   *  does not say why it found no solution. Null when nobody is armed. */
+  private longestReach(sel: readonly number[]): { weapon: string; tiles: number } | null {
+    const sim = this.deps.sim;
+    let best: { weapon: string; tiles: number } | null = null;
+    for (const s of sel) {
+      for (const w of sim.unitTypes[sim.state.typeIdx[s]].weapons) {
+        const tiles = Math.round(fx.toNumber(w.range));
+        if (best === null || tiles > best.tiles) best = { weapon: w.id, tiles };
+      }
+    }
+    return best;
   }
 
   // ------------------------------------------------------------------
@@ -1526,6 +1928,7 @@ export class Hud {
     // Alive only. A selection outlives its units by up to a tick, and a chip
     // reporting a corpse's health reads as a bug in the health bar.
     const sel = this.deps.getSelection().filter((i) => sim.state.alive[i] === 1);
+    this.engagingShownFor = -1;
     if (sel.length === 0) {
       this.orderBar.style.display = 'none';
       this.cluster.style.display = 'none';
@@ -1615,6 +2018,10 @@ export class Hud {
       // handler's own note is what tells the player why nothing happened.
       // A disabled button answers "why?" with silence.
       btn.dataset.inert = row.inert ? '1' : '0';
+      // K-09: the reason travels with the flag, as a catalogue key, so the
+      // tooltip can say WHY (read at show time, like `inert` itself).
+      if (row.inertReason !== undefined) btn.dataset.inertReason = row.inertReason;
+      else delete btn.dataset.inertReason;
       const cap =
         row.capacity !== undefined ? ` <b class="rl-dim">${row.capacity}</b>` : '';
       // `row.label` is a catalogue key (`selection-model.ts`'s `ORDERS[].label`
@@ -1644,10 +2051,12 @@ export class Hud {
    */
   private orderTipHtml(spec: OrderSpec): string {
     const label = t(spec.label);
-    const inert = this.orderBtns.get(spec.id)?.dataset.inert === '1';
+    const btn = this.orderBtns.get(spec.id);
+    const inert = btn?.dataset.inert === '1';
+    const reasonKey = btn?.dataset.inertReason;
     const does = `<div class="rl-tip__blurb">${t(`hud.order.tip.${spec.id}`)}</div>`;
     const why = inert
-      ? `<div class="rl-tip__blurb rl-dim">${t('hud.order.inertTitle', { label })}</div>`
+      ? `<div class="rl-tip__blurb rl-dim">${t(reasonKey ?? 'hud.order.inertTitle', { label })}</div>`
       : '';
     return `<div class="rl-tip__head"><span class="rl-tip__name">${label}</span></div>${does}${why}`;
   }
@@ -1677,6 +2086,9 @@ export class Hud {
         routed: st.routed[i] === 1,
         pinned: st.pinned[i] === 1,
         moving: st.moving[i] === 1,
+        suppression: fx.toNumber(st.suppression[i]),
+        mobilityKilled: st.mobilityKilled[i] === 1,
+        firepowerKilled: st.firepowerKilled[i] === 1,
         aboard: st.carriedBy[i] >= 0,
         own: st.side[i] === 0,
         ...(type.hasAps
@@ -1706,7 +2118,7 @@ export class Hud {
           // theme.css's per-level border tint. Absent at level 0, so an
           // unkitted chip is byte-identical to one drawn before the kit.
           `${kit > 0 ? ` data-kit="${kit}"` : ''}>` +
-          chipArtHtml(this.artHtml(c.typeId, c.bucket, 'rl-chip__art', CHIP_MARK), kit, c.pinned) +
+          chipArtHtml(this.artHtml(c.typeId, c.bucket, 'rl-chip__art', CHIP_MARK, 'chip'), kit, c.mark) +
           `<div class="rl-chip__body">` +
           `<div class="rl-chip__top">` +
           // The name in its own span: `text-overflow`/wrapping does nothing
@@ -1720,8 +2132,8 @@ export class Hud {
           `<div class="rl-track"><i class="rl-fill-${c.hpTone}" ` +
           `style="width:${(c.hpPct * 100).toFixed(0)}%"></i></div>` +
           `<div class="rl-chip__status ${tone}"${
-            c.statusTone === 'hot' ? ' data-tip="pinned" tabindex="0"' : ''
-          }>${c.status}</div>` +
+            c.mark === 'pinned' ? ' data-tip="pinned" tabindex="0"' : ''
+          }>${c.status}${c.detail !== null ? ` <span class="rl-dim">· ${c.detail}</span>` : ''}</div>` +
           `</div></div>`
         );
       })
@@ -1749,25 +2161,26 @@ export class Hud {
    *
    * The stand-in is the commander portrait's hatch with the role mark on it —
    * the same "reserved, not broken" language the briefing bar already uses —
-   * and never an empty box. `civilians` is the one shipped type with no sheet
-   * in `SPRITE_MAP`, and it is reachable: a left click picks any unit, not only
-   * your own. A boot where a sheet failed to fetch lands here too, which is the
-   * case worth drawing honestly: the HUD says "no picture for this type", and
-   * the failed-art notice says which.
+   * and never an empty box. `civilians` is the one shipped type with no
+   * portrait, and it is reachable: a left click picks any unit, not only your
+   * own. (Until WP-A3.3 a sprite sheet that failed to fetch landed here too;
+   * the sheets are retired and portraits come from the bundle.)
    */
   private artHtml(
     typeId: string,
     bucket: ReturnType<typeof roleBucket>,
     cls: string,
-    markSize: number
+    markSize: number,
+    slot: 'chip' | 'full'
   ): string {
-    const src = this.deps.portrait?.(typeId) ?? null;
+    const src = this.deps.portrait?.(typeId, slot) ?? null;
     if (src === null) {
-      // Same wording as the brigade screen's own art gap (`brigade.art.noSprite`
-      // -- `{id} — no sprite sheet`, `en.json`): one sentence for "this type
-      // has no picture", wherever it is drawn.
+      // Same wording as the brigade screen's own art gap (`brigade.art.noSprite`,
+      // `en.json`): one sentence for "this type has no picture", wherever it
+      // is drawn -- by the unit's name, never its id (PA-01).
+      const typeName = this.deps.sim.unitTypes.find((u) => u.id === typeId)?.name ?? '';
       return (
-        `<div class="${cls}" data-nosprite="1" title="${escapeHtml(t('brigade.art.noSprite', { id: typeId }))}">` +
+        `<div class="${cls}" data-nosprite="1" title="${escapeHtml(t('brigade.art.noSprite', { name: typeName }))}">` +
         `${roleBadgeSvg(bucket, markSize)}</div>`
       );
     }
@@ -1788,6 +2201,8 @@ export class Hud {
     const hpNow = fx.toNumber(st.hp[id]);
     const hpMax = fx.toNumber(type.hp);
     const hpPct = hpMax > 0 ? Math.max(0, hpNow / hpMax) : 0;
+    // VR-03: the player's own unit never reads its health in the enemy red.
+    const own = st.side[id] === 0;
     const vet = st.veterancy[id];
     const bucket = roleBucket(type);
     // The kit (WP-S3g §3.4): side 0 only -- an enemy's kit is not the player's
@@ -1796,6 +2211,8 @@ export class Hud {
     const kit = st.side[id] === 0 ? (this.deps.kitOf?.(type.id) ?? null) : null;
     const kitted = kit !== null && kit.level !== 0;
 
+    // PA-28: a named veteran LEADS the card at the title size, and its type
+    // steps back to a smaller line beside it (`.rl-card__name--type`).
     // Callsign and service record, from the campaign roster this unit was
     // drawn from -- both absent for a fresh spawn with no history.
     const entry = this.deps.rosterEntryOf?.(id);
@@ -1818,24 +2235,59 @@ export class Hud {
         ? `<div class="rl-card__replaces rl-dim">${t('hud.card.replaces', { predecessor: escapeHtml(predecessor.name ?? predecessor.type) })}</div>`
         : '';
 
-    // Condition: only what is actually true right now. Unchanged from the panel
-    // this replaces — the list is the product of a dozen play sessions and the
-    // layout around it is what GH-153 is changing, not the facts in it.
-    const flags: string[] = [];
-    if (st.routed[id] === 1) flags.push(`<span class="rl-bad-text">${t('hud.card.broken')}</span>`);
-    else if (st.pinned[id] === 1)
-      flags.push(
-        `<span class="rl-hot" data-tip="pinned" tabindex="0">${symbolSvg('pinned', STRIP_GLYPH_PX)} ${t('hud.card.pinned')}</span>`
-      );
-    if (st.garrisonedIn[id] >= 0) flags.push(`<span class="rl-live">${t('hud.card.inBuilding')}</span>`);
-    if (st.mobilityKilled[id] === 1) flags.push(`<span class="rl-dim">${t('hud.card.immobilised')}</span>`);
-    if (st.firepowerKilled[id] === 1) flags.push(`<span class="rl-bad-text">${t('hud.card.gunsOut')}</span>`);
-    if (st.moving[id] === 1) flags.push(t('hud.card.moving'));
+    // Condition: only what is actually true right now. Since pass C2/C4
+    // (D1-D3) it LEADS with the unit's combat state -- one word in display
+    // caps, then what that state costs in plain words -- and suppression is
+    // never a percentage: "suppression 170%" became the two numbers a player
+    // can act on, how long after the fire stops the unit gets up, and how
+    // long before a soft one breaks (`ui/combat-state.ts`, every number the
+    // sim's own).
     const supp = fx.toNumber(st.suppression[id]);
-    if (supp > 0.05) flags.push(t('hud.card.suppression', { pct: (supp * 100).toFixed(0) }));
+    const pinned = st.pinned[id] === 1;
+    const routed = st.routed[id] === 1;
+    const band = combatBand(supp, pinned, routed);
+    const damage = vehicleDamage(st.mobilityKilled[id] === 1, st.firepowerKilled[id] === 1);
+    const state = (cls: string, word: string, mark?: string, tip?: 'pinned'): string =>
+      `<span class="rl-card__state ${cls}"${tip ? ` data-tip="${tip}" tabindex="0"` : ''}>${mark ?? ''}${mark ? ' ' : ''}${word}</span>`;
+    const flags: string[] = [];
+    const why: string[] = [];
+    if (band === 'broken') {
+      flags.push(state('rl-bad-text', t('hud.state.broken'), symbolSvg('broken', STRIP_GLYPH_PX)));
+      flags.push(`<span class="rl-dim">${t('hud.state.broken.why')}</span>`);
+      why.push(t('hud.state.rally', { s: recoverySeconds(supp) }));
+    } else if (band === 'pinned') {
+      flags.push(state('rl-hot', t('hud.state.pinned'), symbolSvg('pinned', STRIP_GLYPH_PX), 'pinned'));
+      flags.push(`<span class="rl-dim">${type.isSoft ? t('hud.state.pinned.why') : t('hud.state.vehiclePinned')}</span>`);
+      why.push(t('hud.state.recover', { s: recoverySeconds(supp) }));
+      const ticks = this.deps.pinnedTicks?.(id) ?? null;
+      const breaks = ticks === null ? null : breakSeconds(ticks, type.isSoft, st.mobilityKilled[id] === 1);
+      if (breaks !== null) why.push(`<span class="rl-bad-text">${t('hud.state.breakIn', { s: breaks })}</span>`);
+    } else if (band === 'suppressed') {
+      flags.push(state('rl-hot', t('hud.state.suppressed')));
+      flags.push(`<span class="rl-dim">${t('hud.state.aim', { n: aimPenaltyPct(supp) })} · ${t('hud.state.closeToPin')}</span>`);
+    } else if (band === 'shaken') {
+      flags.push(state('rl-warn', t('hud.state.shaken')));
+      flags.push(`<span class="rl-dim">${t('hud.state.aim', { n: aimPenaltyPct(supp) })}</span>`);
+    }
+    if (damage !== null) {
+      const word = damage === 'outOfAction' ? t('hud.state.outOfAction') : damage === 'gunOut' ? t('hud.state.gunOut') : t('hud.state.immobilised');
+      const what =
+        damage === 'outOfAction' ? t('hud.state.outOfAction.why') : damage === 'gunOut' ? t('hud.state.gunOut.why') : t('hud.state.immobilised.why');
+      flags.push(state('rl-bad-text', word, symbolSvg(damage === 'immobilised' ? 'immobilised' : 'gunOut', STRIP_GLYPH_PX)));
+      flags.push(`<span class="rl-dim">${what}</span>`);
+    }
+    if (st.garrisonedIn[id] >= 0) flags.push(`<span class="rl-live">${t('hud.card.inBuilding')}</span>`);
+    if (st.moving[id] === 1 && band !== 'broken') flags.push(t('hud.card.moving'));
     if (type.hasAps) flags.push(`<span class="rl-info">${t('selection.chip.aps', { ammo: st.apsAmmo[id], magazine: type.apsMagazine })}</span>`);
     const wp = sim.waypointCount(id);
     if (wp > 0) flags.push(t('hud.card.waypoints', { n: wp }));
+    // The meter (D2): shown from the first band up, never on a steady unit.
+    const meter = supp >= SHAKEN_FROM || pinned || routed ? suppressionMeterHtml(suppressionMeter(supp, pinned, routed)) : '';
+    const hpSay = hpWord(hpPct);
+    // The art's corner (D5): the mark that wins the line -- broken, pinned,
+    // then the vehicle's damage.
+    const cornerMark: ChipMark | null =
+      band === 'broken' ? 'broken' : band === 'pinned' ? 'pinned' : damage === 'immobilised' ? 'immobilised' : damage !== null ? 'gunOut' : null;
 
     // Armament, so the player can tell what this unit is for.
     const arms: string[] = [];
@@ -1843,7 +2295,7 @@ export class Hud {
       for (const w of type.weapons) {
         const pen = fx.toNumber(w.penetration);
         arms.push(
-          `<div>${t('hud.card.weapon', { id: escapeHtml(w.id), effective: fx.toNumber(w.effectiveRange).toFixed(1), range: fx.toNumber(w.range).toFixed(0) })}` +
+          `<div>${t('hud.card.weapon', { weapon: escapeHtml(weaponName(w.id)), effective: fx.toNumber(w.effectiveRange).toFixed(1), range: fx.toNumber(w.range).toFixed(0) })}` +
             (pen > 0 ? ` · ${t('hud.card.weaponPen', { n: pen.toFixed(0) })}` : '') +
             (fx.toNumber(w.collateralRisk) >= 0.5 ? ` <span class="rl-warn">${symbolLabel('heavy', t('hud.card.weaponHeavy'))}</span>` : '') +
             `</div>`
@@ -1871,40 +2323,64 @@ export class Hud {
     return (
       `<div class="rl-card" data-type="${escapeHtml(type.id)}">` +
       `<div class="rl-card__frame">` +
-      this.artHtml(type.id, bucket, 'rl-card__art', CARD_MARK) +
+      this.artHtml(type.id, bucket, 'rl-card__art', CARD_MARK, 'full') +
       // The corner badge only where there IS art. Without it the placeholder
       // already carries the mark, and two of the same shape in one 72px frame
       // reads as a rendering fault rather than as emphasis.
-      (this.deps.portrait?.(type.id) != null
+      (this.deps.portrait?.(type.id, 'full') != null
         ? `<span class="rl-card__badge">${roleBadgeSvg(bucket, CARD_BADGE)}</span>`
         : '') +
       // The frame's summary level, beside the name's three-track pips (D2).
       // `kitPipsHtml` below already names the level to a screen reader, so
       // this copy is decorative only -- one announcement, not two.
       kitIconSignDecorHtml(st.side[id] === 0 ? this.kitLevel(type.id) : 0) +
-      // GH-262: the pinned mark, bottom-left -- only when the condition line
-      // below says PINNED (broken outranks it there, and here).
-      (st.routed[id] !== 1 && st.pinned[id] === 1 ? pinMarkHtml(PIN_MARK_CARD) : '') +
+      // GH-262, pass C2/C4: the status mark, bottom-left -- the one the
+      // condition line below leads with.
+      (cornerMark !== null ? statusMarkHtml(cornerMark, PIN_MARK_CARD) : '') +
       `</div>` +
       `<div class="rl-card__body">` +
       `<div class="rl-card__top">` +
       callsign +
-      `<span class="rl-card__name">${escapeHtml(type.name)}</span>` +
+      `<span class="rl-card__name${entry?.name ? ' rl-card__name--type' : ''}">${escapeHtml(type.name)}</span>` +
       (vet > 0 ? `<span class="rl-commend">${'★'.repeat(vet)}</span>` : '') +
       (kitted ? `<span class="rl-card__kit">${kitPipsHtml(kit.pips)}</span>` : '') +
-      `<span class="rl-card__hp rl-dim">${t('hud.card.hp', { now: hpNow.toFixed(0), max: hpMax.toFixed(0) })}` +
+      `<span class="rl-card__hp rl-dim">` +
+      (hpSay !== null ? `<span class="${hpSay === 'critical' && !own ? 'rl-bad-text' : 'rl-warn'}">${t(hpSay === 'critical' ? 'hud.hp.critical' : 'hud.hp.damaged')}</span> · ` : '') +
+      `${t('hud.card.hp', { now: hpNow.toFixed(0), max: hpMax.toFixed(0) })}` +
       (kitted && kit.hpKit > 0 ? ` · ${t('hud.card.kit', { n: kit.hpKit })}` : '') +
       `</span>` +
       `</div>` +
       record +
       replaces +
-      `<div class="rl-track"><i class="rl-fill-${hpTone(hpPct)}" ` +
+      `<div class="rl-track"><i class="rl-fill-${hpTone(hpPct, own)}" ` +
       `style="width:${(hpPct * 100).toFixed(0)}%"></i></div>` +
       `<div class="rl-card__cond">${flags.length > 0 ? flags.join(' · ') : t('hud.card.holdingPosition')}</div>` +
+      (why.length > 0 ? `<div class="rl-card__why">${why.join(' · ')}</div>` : '') +
+      meter +
+      this.engagingHtml(id) +
       `<div class="rl-card__cols">` +
       `<div><div class="rl-label">${t('hud.card.armamentLabel')}</div>${arms.join('')}</div>` +
       `<div><div class="rl-label">${t('hud.card.capabilitiesLabel')}</div>${caps.map((c) => `<div>${c}</div>`).join('')}</div>` +
       `</div></div></div>`
+    );
+  }
+
+  /** "Engaging: <enemy>" with the enemy's chip portrait, for a friendly
+   *  unit with a live target -- the card half of the fire link (the world
+   *  half is the renderer's pulse and hit flash). Reads `curTarget`, which
+   *  the sim already exposes; writes nothing. */
+  private engagingHtml(id: number): string {
+    const st = this.deps.sim.state;
+    if (st.side[id] !== 0) return '';
+    const tgt = st.curTarget[id];
+    if (tgt < 0 || tgt >= st.alive.length || st.alive[tgt] === 0) return '';
+    const ttype = this.deps.sim.unitTypes[st.typeIdx[tgt]];
+    this.engagingShownFor = tgt;
+    return (
+      `<div class="rl-card__engaging">` +
+      this.artHtml(ttype.id, roleBucket(ttype), 'rl-card__engaging-art', 14, 'chip') +
+      `<span>${t('hud.card.engaging', { target: escapeHtml(ttype.name) })}</span>` +
+      `</div>`
     );
   }
 

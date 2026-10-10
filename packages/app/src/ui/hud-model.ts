@@ -26,12 +26,15 @@ export interface ObjectiveView {
   status: string;
   ticksLeft?: number;
   paused?: 'contested' | 'unheld';
+  /** Your units just outside an UNHELD zone (`hold-outside.ts`). They do not
+   *  count, and the clock says so rather than a bare "nobody holding". */
+  outside?: number;
 }
 
 /** The objective types whose `seconds` is a deadline the mission is LOST on
  *  when it expires -- the failable three. `hold_for`/`survive_until` clocks
  *  are the opposite kind: running out is how they complete. */
-const DEADLINE_TYPES: ReadonlySet<string> = new Set(['raze', 'collapse', 'evacuate_before']);
+export const DEADLINE_TYPES: ReadonlySet<string> = new Set(['raze', 'collapse', 'evacuate_before']);
 
 export interface MissionView {
   name: string;
@@ -87,12 +90,17 @@ export interface HoldClock {
 export function holdClock(m: MissionView | null): HoldClock | null {
   const timed = m?.objectives.find((o) => o.status === 'active' && o.ticksLeft !== undefined);
   if (!timed || timed.ticksLeft === undefined) return null;
+  // A lost mission freezes every clock where it stood, and a frozen count
+  // reads as a stuck game (Umm Zeitoun II, 3 Oct 2026). Say it is over.
+  if (m?.result === 'defeat') return { id: timed.id, text: t('hud.clock.failed'), tone: 'bad', contested: false };
   const secs = Math.ceil(timed.ticksLeft / TICKS_PER_SECOND);
   const why =
     timed.paused === 'contested'
       ? t('hud.hold.contested')
       : timed.paused === 'unheld'
-        ? t('hud.hold.unheld')
+        ? timed.outside !== undefined && timed.outside > 0
+          ? t('hud.hold.outside', { n: timed.outside })
+          : t('hud.hold.unheld')
         : '';
   return {
     id: timed.id,
@@ -178,11 +186,14 @@ export function stripObjectives(m: MissionView): StripObjectives {
   let deadline: StripDeadline | null = null;
   if (urgent && urgent.ticksLeft !== undefined && primary && urgent.id !== primary.id) {
     const secs = Math.ceil(urgent.ticksLeft / TICKS_PER_SECOND);
-    deadline = {
-      objective: urgent,
-      text: clockText(urgent.ticksLeft),
-      tone: secs <= 30 ? 'bad' : secs <= 60 ? 'warn' : '',
-    };
+    deadline =
+      m.result === 'defeat'
+        ? { objective: urgent, text: t('hud.clock.failed'), tone: 'bad' }
+        : {
+            objective: urgent,
+            text: clockText(urgent.ticksLeft),
+            tone: secs <= 30 ? 'bad' : secs <= 60 ? 'warn' : '',
+          };
   }
   const shown = new Set([primary?.id, deadline?.objective.id]);
   return {
@@ -191,6 +202,42 @@ export function stripObjectives(m: MissionView): StripObjectives {
     primaryOpen: active.filter((o) => !shown.has(o.id)).length,
     secondaryOpen: m.objectives.filter((o) => !o.primary && o.status === 'active').length,
   };
+}
+
+/**
+ * GH-345: drop the countdown from every objective its mission authored with
+ * `clock: false`, so the strip, the big clock and the tracker count down only
+ * the deadline that can fail. App-side only: the sim's own objective list is
+ * untouched, so the hold still completes on time.
+ *
+ * WP-P3 (PA-05, the lead's ruling of 6 Oct, partly reversing PR 357's "one
+ * countdown"): the clock is withheld only WHILE another objective is
+ * counting. Once nothing else is -- First Light's families are in, and
+ * `evac_settlements` has no clock left to show -- the hold's own countdown
+ * comes back, in the same strip, big clock and tracker style as any other.
+ * Still one countdown at a time; never none for the last four minutes of a
+ * hold. The objective's text no longer names the time, since the clock does.
+ */
+export function withoutHiddenClocks<O extends { id: string; ticksLeft?: number }>(
+  objectives: readonly O[],
+  clockless: ReadonlySet<string>
+): O[] {
+  if (clockless.size === 0) return [...objectives];
+  // `ticksLeft` is set only on an ACTIVE timed objective (the sim's
+  // `objectiveList`), so this is "is another clock running right now".
+  const otherClock = objectives.some((o) => !clockless.has(o.id) && o.ticksLeft !== undefined);
+  if (!otherClock) return [...objectives];
+  return objectives.map((o) => {
+    if (!clockless.has(o.id) || o.ticksLeft === undefined) return o;
+    const rest = { ...o };
+    delete rest.ticksLeft;
+    return rest;
+  });
+}
+
+/** The ids of a mission's objectives authored with `clock: false`. */
+export function clocklessObjectives(objectives: readonly { id: string; clock?: boolean }[] | undefined): Set<string> {
+  return new Set((objectives ?? []).filter((o) => o.clock === false).map((o) => o.id));
 }
 
 /** The mark an objective wears, by status, as inline SVG (GH-261, Military
@@ -259,7 +306,7 @@ export function countSuppressed(s: SuppressionSource, entityCount: number): Supp
 /**
  * The two factors actually degrading a shot, worst first.
  *
- * Anything at or above 99.5% is dropped: it rounds to "100%", and a penalty
+ * Anything at or above 99.5% is dropped: it rounds to a penalty of "−0%", and a penalty
  * row that says a factor costs nothing is noise in a panel the player reads
  * mid-fight. The weapon's own accuracy is deliberately not a candidate — it is
  * the baseline, not something the player can act on.
@@ -269,7 +316,81 @@ export function worstPenalties(factors: [string, number][]): string[] {
     .filter(([, v]) => v < 0.995)
     .sort((a, b) => a[1] - b[1])
     .slice(0, 2)
-    .map(([label, v]) => `${label} ${Math.round(v * 100)}%`);
+    // GH-345 (decision 5): printed as the PENALTY, 1 - multiplier, with a
+    // minus sign -- "cover −86%", never the multiplier "cover 14%", which read
+    // as almost no cover. The number is the same factor; only the sign and the
+    // wording changed.
+    .map(([label, v]) => t('hud.fire.penalty', { label, n: Math.round((1 - v) * 100) }));
+}
+
+/** Whose a fire-panel factor is (pass C2/C4, D4, PA-15): the TARGET's
+ *  (range, cover, it moving) or OURS (firing on the move, our own
+ *  suppression). "suppressed −20%" beside "cover −91%" read as the target's. */
+export type FactorSide = 'them' | 'us';
+
+/**
+ * `worstPenalties`' two worst factors, grouped by whose they are -- "them"
+ * first, then "us", each group named once -- as catalogue-formatted parts.
+ * The group words come from the caller (`t()` lives there), so this stays
+ * the same pure selection `worstPenalties` makes.
+ */
+export function groupedPenalties(
+  factors: readonly [string, number, FactorSide][],
+  words: Readonly<Record<FactorSide, string>>
+): string[] {
+  const worst = factors
+    .filter(([, v]) => v < 0.995)
+    .sort((a, b) => a[1] - b[1])
+    .slice(0, 2);
+  const out: string[] = [];
+  for (const side of ['them', 'us'] as const) {
+    const mine = worst.filter((f) => f[2] === side);
+    if (mine.length === 0) continue;
+    out.push(
+      `${words[side]} ` + mine.map(([label, v]) => t('hud.fire.penalty', { label, n: Math.round((1 - v) * 100) })).join(' · ')
+    );
+  }
+  return out;
+}
+
+/** Why a shooter has no shot at a target (pass C2/C4, D4). */
+export type NoShotReason = 'gunOut' | 'contained' | 'outOfRange' | 'tooClose' | 'noSight' | 'mixed';
+
+export interface ShooterReach {
+  readonly gunOut: boolean;
+  /** Distance to the target, tiles. */
+  readonly distTiles: number;
+  readonly weapons: readonly { readonly range: number; readonly minRange: number }[];
+}
+
+/**
+ * The reason the sim's `projectHit` answered `noSolution`, derived from what
+ * it reads, in its own order: the shooter's gun knocked out
+ * (`firepowerKilled`), the target inside a building, a vehicle or a tunnel,
+ * then each weapon's range and minimum range -- and LOS as the remainder,
+ * which is exact: inside `projectHit`'s weapon loop, once range and minimum
+ * range pass, `losRay` is the only check left (an indirect weapon needs no
+ * sight and would have produced a shot). One reason for the whole selection
+ * when every shooter shares it, else `mixed`.
+ */
+export function noShotReason(shooters: readonly ShooterReach[], targetContained: boolean): NoShotReason {
+  const reasons = new Set<NoShotReason>();
+  for (const s of shooters) {
+    if (s.gunOut) {
+      reasons.add('gunOut');
+      continue;
+    }
+    if (targetContained) {
+      reasons.add('contained');
+      continue;
+    }
+    const inReach = s.weapons.some((w) => s.distTiles <= w.range && s.distTiles >= w.minRange);
+    if (inReach) reasons.add('noSight');
+    else if (s.weapons.some((w) => s.distTiles < w.minRange)) reasons.add('tooClose');
+    else reasons.add('outOfRange');
+  }
+  if (reasons.size === 1) return [...reasons][0];
+  return 'mixed';
 }
 
 /**

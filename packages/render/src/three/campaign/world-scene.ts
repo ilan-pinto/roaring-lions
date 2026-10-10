@@ -84,12 +84,14 @@ const regionOf = (o: THREE.Object3D): string | null => {
  *
  * @param root the `gltf.scene` from `GLTFLoader`
  * @param materialFor builds the material each mesh will draw through, given
- *        the `base_color` the GLB shipped. Injected rather than called
- *        directly so this stays testable without compiling a shader.
+ *        the `base_color` the GLB shipped and the material `GLTFLoader`
+ *        built around it (which is disposed straight afterwards, so a
+ *        builder that wants to keep it must clone it). Injected rather than
+ *        called directly so this stays testable without compiling a shader.
  */
 export function readWorldScene(
   root: THREE.Object3D,
-  materialFor: (map: THREE.Texture) => THREE.Material
+  materialFor: (map: THREE.Texture, loaded: THREE.Material) => THREE.Material
 ): WorldScene {
   const regions = new Map<string, THREE.Mesh[]>();
   const scenery: THREE.Mesh[] = [];
@@ -128,7 +130,8 @@ export function readWorldScene(
     // One material per MESH, sharing the one texture: the tint that says
     // "locked" is a uniform, and a shared material would mean locking one
     // region locked all five.
-    mesh.material = materialFor(loadedMap);
+    // `loaded` cannot be undefined here: `loadedMap` was read off it.
+    mesh.material = materialFor(loadedMap, loaded as THREE.Material);
     loaded?.dispose();
 
     if (role === 'region') {

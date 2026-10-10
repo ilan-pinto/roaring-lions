@@ -20,8 +20,15 @@ import { t } from '../i18n/t';
 import { symbolLabel } from './symbol';
 import { drawFromPool, type DeployEntry, type DeployRosterView } from './deploy-roster';
 import { defaultSelection, isComplete, slotsLeft, toggleEntry, type DeploySelection } from './deploy-select';
+import { deployLockReason, fullRowReason, openSlots } from './deploy-reason';
 import { paintMapTerrain, type PreviewMap, type PreviewTones } from './map-preview';
 import { objectivesPanel, type ObjectiveRow } from './objectives';
+import type { BriefingSection } from './briefing-sections';
+import { markConfirm } from './confirm-cue';
+import type { GlanceRow } from './briefing-glance';
+import type { GroundMark } from './ground-marks';
+import { groundView, type GroundView } from './ground-view';
+import { forceBar, type AttachedUnit, type ForceBar } from './force-bar';
 
 /**
  * Does this screen wait for the player before handing over the field?
@@ -72,6 +79,19 @@ export function briefingBeats(text: string): string[] {
   }
   flush();
   return beats;
+}
+
+/** An `<img>` with no alt text -- every picture on the deploy screen is
+ *  decoration beside orders that are all in the text -- that takes itself out
+ *  when its URL fails to load rather than leaving a broken box. */
+function decorativeImage(className: string, src: string): HTMLImageElement {
+  const img = document.createElement('img');
+  img.className = className;
+  img.alt = '';
+  img.decoding = 'async';
+  img.addEventListener('error', () => img.remove());
+  img.src = src;
+  return img;
 }
 
 export interface BroughtPanel {
@@ -199,24 +219,6 @@ export interface GroundPreview {
 }
 
 /**
- * How many more bodies the player could still field: per demanded type, the
- * open slots (`slotsLeft`) capped by the unchosen bodies there are to put in
- * them. Zero exactly when `isComplete` is true -- a slot the pool cannot
- * fill is the spawner's to substitute (`mission.ts:1264`), not the player's
- * to fill -- so the line under the roster and the Deploy button can never
- * disagree about whether anything is left to do.
- */
-function openSlots(view: DeployRosterView, sel: DeploySelection): number {
-  let open = 0;
-  for (const type of view.demand.keys()) {
-    let unchosen = 0;
-    for (const e of view.eligible) if (e.type === type && !sel.chosen.has(e.poolIndex)) unchosen++;
-    open += Math.max(0, Math.min(slotsLeft(view, sel, type), unchosen));
-  }
-  return open;
-}
-
-/**
  * The force, chosen (spec Decision 4): one toggle row per body a placement
  * could draw, the slot line, and the reserve line.
  *
@@ -253,6 +255,14 @@ function deploySpread(choice: DeployChoice, deployButton: HTMLButtonElement): HT
   slots.className = 'rl-deploy__slots';
   const reserve = document.createElement('div');
   reserve.className = 'rl-deploy__reserve';
+  // K-11: the reason a row refused a click, or Deploy is locked. Empty (and
+  // hidden) when there is nothing to explain.
+  const why = document.createElement('p');
+  why.className = 'rl-deploy__why';
+  why.setAttribute('role', 'status');
+  why.id = 'rl-deploy-why';
+  why.hidden = true;
+  deployButton.setAttribute('aria-describedby', why.id);
 
   const paint = (): void => {
     for (const { entry, button } of rows) {
@@ -262,8 +272,13 @@ function deploySpread(choice: DeployChoice, deployButton: HTMLButtonElement): HT
       // Not `disabled`: a disabled button leaves the tab order, and a row
       // that cannot be fielded NOW becomes fieldable the moment another of
       // its type is benched. `aria-disabled` says "not at the moment".
-      if (!chosen && slotsLeft(view, sel, entry.type) <= 0) button.setAttribute('aria-disabled', 'true');
-      else button.removeAttribute('aria-disabled');
+      if (!chosen && slotsLeft(view, sel, entry.type) <= 0) {
+        button.setAttribute('aria-disabled', 'true');
+        button.title = fullRowReason(entry);
+      } else {
+        button.removeAttribute('aria-disabled');
+        button.removeAttribute('title');
+      }
     }
     const open = openSlots(view, sel);
     slots.textContent = open > 0 ? t('deploy.slots', { n: open }) : t('deploy.slots.full');
@@ -271,6 +286,11 @@ function deploySpread(choice: DeployChoice, deployButton: HTMLButtonElement): HT
     reserve.textContent = t('loading.brought.reserve', { n: notDrawn });
     reserve.hidden = notDrawn <= 0;
     deployButton.disabled = !isComplete(view, sel);
+    const lock = deployButton.disabled ? deployLockReason(view, sel) : null;
+    if (lock !== null) deployButton.title = lock;
+    else deployButton.removeAttribute('title');
+    why.textContent = lock ?? '';
+    why.hidden = lock === null;
   };
 
   for (const entry of view.eligible) {
@@ -305,7 +325,12 @@ function deploySpread(choice: DeployChoice, deployButton: HTMLButtonElement): HT
 
     button.addEventListener('click', () => {
       const next = toggleEntry(view, sel, entry.poolIndex);
-      if (next === sel) return;
+      if (next === sel) {
+        // A refused click says why, in place of the silence it used to be.
+        why.textContent = fullRowReason(entry);
+        why.hidden = false;
+        return;
+      }
       sel = next;
       paint();
       choice.onChange(sel);
@@ -316,8 +341,23 @@ function deploySpread(choice: DeployChoice, deployButton: HTMLButtonElement): HT
   }
 
   paint();
-  set.append(legend, list, slots, reserve);
+  set.append(legend, list, slots, reserve, why);
   return set;
+}
+
+/**
+ * The Field order briefing (GH-417, direction A, ruled 7 Oct): the five-row
+ * glance card, the marked ground and the force as places. Derived by
+ * `main.ts` from data the mission already declares (`briefing-glance.ts`,
+ * `ground-marks.ts`); absent for a sandbox, which keeps the plain screen.
+ */
+export interface FieldOrder {
+  glance: readonly GlanceRow[];
+  marks: readonly GroundMark[];
+  /** Bodies the mission brings itself (its non-ledger placements). */
+  attached: readonly AttachedUnit[];
+  /** A unit type's display name. */
+  unitName?: (type: string) => string;
 }
 
 export interface LoadingScreen {
@@ -347,6 +387,105 @@ export interface LoadingScreen {
    * Idempotent, and safe before `done()` has ever been called.
    */
   dispose(): void;
+  /** Lay the renderer's photograph of the ground under the briefing's marks
+   *  (`Renderer.captureGroundAlbedo`, rows already flipped; ruling L-2). A
+   *  no-op where the screen draws no ground. */
+  setGroundPhoto(img: ImageData): void;
+}
+
+/**
+ * The bar and the count under it, as one pure paint. Before the total is known
+ * the bar would divide by zero; an empty bar and a bare count is honest about
+ * not knowing yet. Three states since 2026-09-07, not two: a boot can have
+ * nothing to count at all (every type draws as a model, and since WP-A3.3 that
+ * is every boot), and that is a full bar reading "ready", not a bar stuck on
+ * "loading" under a deploy button that already works. The words are a player's
+ * (PA-01: this line read "meshes only" on every briefing); a tool reads the
+ * STATE from `data-state`, never the words, so a rewording cannot stall
+ * `pnpm perf:load` the way the old literal match once did.
+ *
+ * `canBeReady` is false for the download screen below: it must never read
+ * `ready`, because `tools/src/perf/load-profile.ts` takes that state to mean
+ * the briefing's deploy gate is open.
+ */
+function paintProgress(
+  fill: HTMLElement,
+  count: HTMLElement,
+  loaded: number,
+  expected: number,
+  totalKnown: boolean,
+  canBeReady = true
+): void {
+  const ratio = expected > 0 ? Math.min(1, loaded / expected) : totalKnown ? 1 : 0;
+  fill.style.width = `${(ratio * 100).toFixed(1)}%`;
+  const ready = canBeReady && (expected > 0 ? loaded >= expected : totalKnown);
+  count.dataset.state = ready ? 'ready' : expected > 0 ? 'progress' : 'pending';
+  count.textContent =
+    expected > 0 && !ready
+      ? t('loading.progress', { loaded, expected })
+      : ready
+        ? t('loading.ready')
+        : t('loading.preparing');
+}
+
+/**
+ * K-15: the stage while the models download. Every GLB the mission stands is
+ * fetched before the briefing can be built, so the player used to look at a
+ * blank stage for the whole wait. This is the SAME screen the briefing wears
+ * (`.rl-loading`: the label, the mission's name, the bar and its count, all
+ * its own classes and tokens) with nothing below the count -- no Deploy, since
+ * there is nothing to deploy yet -- and it is replaced by `showLoading` when
+ * the download settles.
+ */
+export interface DownloadProgress {
+  /** How many downloads the bar is waiting on. */
+  total(n: number): void;
+  /** One settled (failed ones count: it is a decided outcome). */
+  step(): void;
+  /** Idempotent. */
+  dispose(): void;
+}
+
+export function showDownloadProgress(host: HTMLElement, title: string): DownloadProgress {
+  const wrap = document.createElement('div');
+  wrap.className = 'rl-loading rl-loading--download';
+  const box = document.createElement('div');
+  box.className = 'rl-loading__box';
+  const label = document.createElement('div');
+  label.className = 'rl-loading__label';
+  label.textContent = t('loading.deploying');
+  const name = document.createElement('div');
+  name.className = 'rl-loading__name';
+  name.textContent = title;
+  const track = document.createElement('div');
+  track.className = 'rl-loading__track';
+  const fill = document.createElement('div');
+  fill.className = 'rl-loading__fill';
+  track.appendChild(fill);
+  const count = document.createElement('div');
+  count.className = 'rl-loading__count';
+  count.setAttribute('role', 'status');
+  count.setAttribute('aria-live', 'polite');
+  box.append(label, name, track, count);
+  wrap.appendChild(box);
+  let loaded = 0;
+  let expected = 0;
+  const paint = (): void => paintProgress(fill, count, loaded, expected, false, false);
+  paint();
+  host.appendChild(wrap);
+  return {
+    total(n) {
+      expected = n;
+      paint();
+    },
+    step() {
+      loaded += 1;
+      paint();
+    },
+    dispose() {
+      wrap.remove();
+    },
+  };
 }
 
 export function showLoading(
@@ -411,7 +550,16 @@ export function showLoading(
   /** The ground the orders are about, painted one pixel per tile beside the
    *  force. Gated on `holds`; dropped, not thrown on, where the canvas has no
    *  2D context. */
-  preview?: GroundPreview
+  preview?: GroundPreview,
+  /** Named sections and the image slot (GH-119). `sections` comes from
+   *  `briefingSections`, so null means "draw the plain beats"; every image
+   *  here is already the RESOLVED URL, like `briefingVideo`. Gated on `holds`
+   *  like everything else conditional on this screen. */
+  layout?: { sections: readonly BriefingSection[] | null; image?: string },
+  /** The Field order layout. With it, the orders, the ground and the force
+   *  are laid out as one sheet; without it (a sandbox) the screen is the
+   *  plain one, child for child. */
+  field?: FieldOrder
 ): LoadingScreen {
   const wrap = document.createElement('div');
   wrap.className = 'rl-loading';
@@ -489,21 +637,58 @@ export function showLoading(
   // "Deploy never leaves the screen" contract is untouched.
   const orders = document.createElement('div');
   orders.className = 'rl-loading__brief';
-  if (holds) {
-    for (const [i, beat] of briefingBeats(briefing as string).entries()) {
-      const p = document.createElement('p');
-      p.className = 'rl-loading__beat';
-      p.textContent = beat;
-      // `--i` is the same per-child stagger property `motion.ts`'s `stagger()`
-      // sets for the menu entrance (`.rl-stagger`) -- reused here rather than
-      // a new custom property, and read at a different pace by
-      // `.rl-loading__beat`'s own animation-delay in theme.css. `data-index`
-      // is the redundant, assertable half: jsdom does not run CSS animations
-      // at all (see loading.test.ts), so the test reads this, not `--i`.
-      p.style.setProperty('--i', String(i));
-      p.dataset.index = String(i);
-      orders.appendChild(p);
+  const beatEl = (beat: string, i: number): HTMLParagraphElement => {
+    const p = document.createElement('p');
+    p.className = 'rl-loading__beat';
+    p.textContent = beat;
+    // `--i` is the same per-child stagger property `motion.ts`'s `stagger()`
+    // sets for the menu entrance (`.rl-stagger`) -- reused here rather than
+    // a new custom property, and read at a different pace by
+    // `.rl-loading__beat`'s own animation-delay in theme.css. `data-index`
+    // is the redundant, assertable half: jsdom does not run CSS animations
+    // at all (see loading.test.ts), so the test reads this, not `--i`.
+    p.style.setProperty('--i', String(i));
+    p.dataset.index = String(i);
+    return p;
+  };
+  const sections = holds ? (layout?.sections ?? null) : null;
+  if (sections) {
+    // Named sections (GH-119): one `<section>` per block of the order, each a
+    // tab stop labelled by its own heading, so Tab walks the orders a block at
+    // a time and the scrolling container follows focus. The beats inside keep
+    // their class and a running index, so a beat is still a beat.
+    orders.classList.add('rl-loading__brief--sections');
+    let i = 0;
+    for (const section of sections) {
+      const el = document.createElement('section');
+      el.className = 'rl-loading__section';
+      el.dataset.section = section.id;
+      el.tabIndex = 0;
+      const head = document.createElement('h3');
+      head.className = 'rl-loading__section-head';
+      head.id = `rl-brief-${section.id}`;
+      head.textContent = t(`briefing.section.${section.id}`);
+      el.setAttribute('aria-labelledby', head.id);
+      el.appendChild(head);
+      if (section.image !== undefined) el.appendChild(decorativeImage('rl-loading__section-img', section.image));
+      for (const beat of section.beats) el.appendChild(beatEl(beat, i++));
+      orders.appendChild(el);
     }
+  } else if (holds) {
+    for (const [i, beat] of briefingBeats(briefing as string).entries()) orders.appendChild(beatEl(beat, i));
+  }
+
+  // The mission's image slot (GH-119): a figure, decorative like every picture
+  // on this screen -- the orders are all in the text. Placed in the right-hand
+  // column when the spread is drawn, otherwise above the orders.
+  let imageEl: HTMLElement | null = null;
+  if (holds && layout?.image !== undefined) {
+    imageEl = document.createElement('figure');
+    imageEl.className = 'rl-loading__image';
+    const holder = imageEl;
+    const img = decorativeImage('rl-loading__image-img', layout.image);
+    img.addEventListener('error', () => holder.remove());
+    imageEl.appendChild(img);
   }
 
   // Whether the force is CHOSEN on this screen (Task 3) rather than listed.
@@ -603,6 +788,26 @@ export function showLoading(
   deploy.className = 'rl-loading__deploy';
   deploy.type = 'button';
   deploy.textContent = t('loading.deploy');
+  markConfirm(deploy);
+
+  /** Whether `dispose()` has already run. `done()` after that point is a
+   *  mount still walking its own boot after being superseded, so it rejects
+   *  rather than putting a torn-down screen back on the player's expectations. */
+  let disposed = false;
+
+  // PA-27: the button is mounted, enabled and focused from this line on, but
+  // `done()` -- which used to own its listener -- runs only when the art gate
+  // settles, so a click in that gap was lost. The listener is attached HERE,
+  // where the button is made. `settleDeploy` is `done()`'s answer to a click
+  // (null until `done()` runs); a click that finds it null is remembered, and
+  // `done()` honours it the moment it is called. A click always counts.
+  let settleDeploy: (() => void) | null = null;
+  let deployQueued = false;
+  deploy.addEventListener('click', () => {
+    if (disposed) return;
+    if (settleDeploy) settleDeploy();
+    else deployQueued = true;
+  });
 
   // The back edge Escape now uses (see `onBack`'s own doc comment above).
   // Rendered only when there is somewhere to go back to -- a sandbox has no
@@ -618,12 +823,128 @@ export function showLoading(
     back = document.createElement('button');
     back.type = 'button';
     back.className = 'rl-btn rl-loading__back';
+    back.dataset.kind = 'back';
     back.innerHTML = symbolLabel('back', t('nav.backToCampaignMap'));
   }
 
   // The right-hand column of the spread (Task 3; spec Decision 4: "portrait
   // and orders left, the roster's force and a map preview right"). Built
   // only with orders to read, like everything else conditional on `holds`.
+  let ground: GroundView | null = null;
+  /** What Escape closes before it is allowed to leave the briefing: the
+   *  bench, then the full orders. Null on the plain screen. */
+  let dismissOverlay: (() => boolean) | null = null;
+  if (holds && field) {
+    layoutFieldOrder();
+  } else {
+    layoutPlain();
+  }
+  wrap.appendChild(box);
+  host.appendChild(wrap);
+
+  /** Direction A: a head bar over two columns -- the orders, the ground --
+   *  and the force along the bottom with Deploy at its end. */
+  function layoutFieldOrder(): void {
+    if (!field) return;
+    box.classList.add('rl-loading__box--brief', 'rl-loading__box--field');
+    const head = document.createElement('header');
+    head.className = 'rl-field__head';
+    const titles = document.createElement('div');
+    titles.className = 'rl-field__titles';
+    titles.append(label, name);
+    const progress = document.createElement('div');
+    progress.className = 'rl-field__progress';
+    progress.append(track, count);
+    head.append(titles, progress);
+
+    const left = document.createElement('div');
+    left.className = 'rl-loading__orders rl-field__orders';
+    // A cinematic IS the commander giving the orders: it takes the portrait's
+    // place at the top of the orders, rather than pushing the ground down.
+    if (video) left.append(video);
+    else if (commander) left.append(commanderHead);
+    if (field.glance.length > 0) {
+      const dl = document.createElement('dl');
+      dl.className = 'rl-glance';
+      for (const r of field.glance) {
+        const dt = document.createElement('dt');
+        dt.className = `rl-glance__k rl-glance__k--${r.key}`;
+        dt.textContent = r.label;
+        const dd = document.createElement('dd');
+        dd.className = 'rl-glance__v';
+        dd.textContent = r.text;
+        dl.append(dt, dd);
+      }
+      left.append(dl);
+    }
+    if (objectives) {
+      const objs = objectives;
+      objectivesPanel(left, { rows: () => objs, paysCredits: paysCredits ?? false, briefing: true });
+    }
+
+    // The full orders: every beat, in a panel that covers the ground when
+    // asked for -- one reading surface at a time, never a box scrolling
+    // inside the page (B-03).
+    const side = document.createElement('div');
+    side.className = 'rl-field__side';
+    const panel = document.createElement('div');
+    panel.className = 'rl-field__full';
+    panel.id = 'rl-field-full';
+    panel.hidden = true;
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'rl-btn rl-field__full-toggle';
+    toggle.textContent = t('briefing.fullOrders');
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.setAttribute('aria-controls', panel.id);
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'rl-btn rl-field__full-close';
+    close.textContent = t('briefing.fullOrders.close');
+    const setOpen = (open: boolean): void => {
+      panel.hidden = !open;
+      toggle.setAttribute('aria-expanded', String(open));
+    };
+    toggle.addEventListener('click', () => setOpen(panel.hidden));
+    close.addEventListener('click', () => {
+      setOpen(false);
+      toggle.focus({ preventScroll: true });
+    });
+    if (imageEl) panel.append(imageEl);
+    panel.append(orders, close);
+    left.append(toggle);
+
+    if (preview) {
+      ground = groundView({ map: preview.map, tones: preview.tones, marks: field.marks, caption: t('deploy.map') });
+      side.append(ground.el);
+    }
+    side.append(panel);
+
+    const bar: ForceBar = forceBar({
+      view: force ? force.view : null,
+      attached: field.attached,
+      notes: brought?.sentences,
+      deploy,
+      back,
+      unitName: field.unitName,
+      onChange: (sel) => force?.onChange(sel),
+    });
+    box.append(head, left, side, bar.el);
+    // Escape closes what is open on top of the sheet before it leaves it.
+    dismissOverlay = (): boolean => {
+      if (bar.dismiss()) return true;
+      if (!panel.hidden) {
+        setOpen(false);
+        toggle.focus({ preventScroll: true });
+        return true;
+      }
+      return false;
+    };
+  }
+
+  /** The screen as it was before the Field order: a sandbox, a cinematic
+   *  with no orders, or a caller that passes no `field`. */
+  function layoutPlain(): void {
   // The spread is built after `deploy` because it owns that button's
   // `disabled` -- the screen may not deploy short (`isComplete`).
   const spreadEl = choosing && force ? deploySpread(force, deploy) : null;
@@ -658,6 +979,7 @@ export function showLoading(
       left.className = 'rl-loading__orders';
     }
     if (commander) left.append(commanderHead);
+    if (imageEl && left === box) left.append(imageEl);
     left.append(orders);
     // Task 5 (R-7: one component, three mounts): the full objective list,
     // read once, before deploying. A sibling of the beats -- appended here,
@@ -669,12 +991,13 @@ export function showLoading(
     // `rows()` thunk keeps the type this `if` already narrowed it to.
     if (objectives) {
       const objs = objectives;
-      objectivesPanel(left, { rows: () => objs, paysCredits: paysCredits ?? false });
+      objectivesPanel(left, { rows: () => objs, paysCredits: paysCredits ?? false, briefing: true });
     }
     if (broughtEl) left.append(broughtEl);
     if (left !== box) {
       const right = document.createElement('div');
       right.className = 'rl-loading__force';
+      if (imageEl) right.append(imageEl);
       if (spreadEl) right.append(spreadEl);
       if (groundEl) right.append(groundEl);
       box.append(left, right);
@@ -688,8 +1011,7 @@ export function showLoading(
     // A cinematic with no orders still needs the player's go.
     box.append(deploy);
   }
-  wrap.appendChild(box);
-  host.appendChild(wrap);
+  }
 
   // Hook for GH-133 (music epic), not music: this is where a mission's theme
   // would start, and firing it here -- once, the moment the screen mounts --
@@ -708,28 +1030,9 @@ export function showLoading(
   let expected = 0;
   let totalKnown = false;
 
-  const paint = (): void => {
-    // Before the total is known the bar would divide by zero; an empty bar and
-    // a bare count is honest about not knowing yet. Three states since
-    // 2026-09-07, not two: a boot on the mesh path can have NO sheets to load
-    // at all (every fielded type draws as a model -- `spriteSheetPlan`), and
-    // that is a full bar reading 'meshes only', not a bar stuck at 'reading
-    // manifests' under a deploy button that already works.
-    const ratio = expected > 0 ? Math.min(1, loaded / expected) : totalKnown ? 1 : 0;
-    fill.style.width = `${(ratio * 100).toFixed(1)}%`;
-    count.textContent =
-      expected > 0
-        ? t('loading.sheets', { loaded, expected })
-        : totalKnown
-          ? t('loading.meshesOnly')
-          : t('loading.readingManifests');
-  };
+  const paint = (): void => paintProgress(fill, count, loaded, expected, totalKnown);
   paint();
 
-  /** Whether `dispose()` has already run. `done()` after that point is a
-   *  mount still walking its own boot after being superseded, so it rejects
-   *  rather than putting a torn-down screen back on the player's expectations. */
-  let disposed = false;
   /** The live `done()` promise's teardown and its rejection handle, lifted out
    *  of that promise's closure so `dispose()` can reach both. Null whenever no
    *  `done()` is outstanding -- before the first call, and after the deploy
@@ -746,6 +1049,10 @@ export function showLoading(
     step(): void {
       loaded += 1;
       paint();
+    },
+    setGroundPhoto(img: ImageData): void {
+      if (disposed) return;
+      ground?.setPhoto(img);
     },
     dispose(): void {
       if (disposed) return;
@@ -810,9 +1117,11 @@ export function showLoading(
           onBack();
         };
         const onKey = (e: KeyboardEvent): void => {
-          if (e.key === 'Escape') goBack();
+          if (e.key !== 'Escape') return;
+          if (dismissOverlay?.()) return;
+          goBack();
         };
-        deploy.addEventListener('click', () => {
+        settleDeploy = (): void => {
           cleanup();
           // Settled: a later `dispose()` (the ordinary battlefield teardown,
           // minutes into the mission) must not reject a promise the player
@@ -821,14 +1130,21 @@ export function showLoading(
           pendingCleanup = null;
           pendingReject = null;
           resolve();
-        });
+        };
         // `goBack` deliberately does NOT clear these: it tears the screen down
         // without settling the promise, so whoever is awaiting `done()` is
         // still parked, and the abort that follows the navigation is what
         // unparks them.
         back?.addEventListener('click', goBack);
         window.addEventListener('keydown', onKey);
-        deploy.focus();
+        // `preventScroll` (GH-417 B-01): a focus scrolls its target into view,
+        // and Deploy sits below a long briefing -- so a plain `focus()` opened
+        // the screen already scrolled, with the mission's name above the top
+        // edge (PA-13, measured 104 px at 1400x900). Deploy is kept on screen
+        // by `position: sticky` (theme.css), not by scrolling to it.
+        deploy.focus({ preventScroll: true });
+        // A click that landed before this call (PA-27) deploys now.
+        if (deployQueued) settleDeploy();
       });
     },
   };

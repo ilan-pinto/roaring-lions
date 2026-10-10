@@ -36,9 +36,14 @@ FROM events WHERE dev = 0 AND type = 'mission_end' AND json_extract(payload, '$.
 GROUP BY mission, cause ORDER BY losses DESC;
 
 -- @tutorial_funnel
-SELECT json_extract(payload, '$.step') AS step, COUNT(DISTINCT player) AS players
+-- GH-345 cut the tutorial from 14 beats to 9 and began sending the beat id.
+-- Rows with a NULL id are the old 14-step funnel: read them by step index only
+-- (index 0 = take_command ... 13 = command_groups; the list is
+-- LEGACY_TUTORIAL_STEP_IDS in src/tutorial-funnel.ts). Never add the two up.
+SELECT json_extract(payload, '$.id') AS beat, json_extract(payload, '$.step') AS step,
+       json_extract(payload, '$.steps') AS steps, COUNT(DISTINCT player) AS players
 FROM events WHERE dev = 0 AND type = 'tutorial_step'
-GROUP BY step ORDER BY step;
+GROUP BY beat, step, steps ORDER BY beat IS NULL, step;
 
 -- @testers
 SELECT tester, COUNT(DISTINCT session) AS sessions,
@@ -46,6 +51,15 @@ SELECT tester, COUNT(DISTINCT session) AS sessions,
        datetime(MAX(t) / 1000, 'unixepoch') AS last_seen
 FROM events WHERE tester IS NOT NULL
 GROUP BY tester ORDER BY last_seen DESC;
+
+-- @feedback (GH-464): open notes per status and kind. Read-only, like every
+-- query above. The kill switch is NOT in this file on purpose (the file is run
+-- whole); its one-line command is in migrations/0003_feedback.sql.
+SELECT status, category, COUNT(*) AS notes,
+       SUM(shot_bytes IS NOT NULL) AS with_picture, SUM(replay_bytes IS NOT NULL) AS with_replay,
+       SUM(COALESCE(shot_bytes, 0) + COALESCE(replay_bytes, 0)) AS attachment_bytes,
+       datetime(MAX(received_at) / 1000, 'unixepoch') AS latest
+FROM feedback GROUP BY status, category ORDER BY status, notes DESC;
 
 -- GH-254: rebuild the accounts summary from raw events. Terminal -- run once,
 -- by hand, only if 0002_accounts.sql was applied to a database that already

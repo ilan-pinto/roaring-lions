@@ -482,6 +482,33 @@ describe('pushPolygonStrokeWorld', () => {
     pushPolygonStrokeWorld(soup, [[0, 0, 0], [1, 0, 1]], 0.2, RED, 0.5);
     expect(soup.count).toBe(0);
   });
+  // VR-36: a not-held or contested zone is dashed. A 4-tile edge at [0.6, 0.4]
+  // is four dashes, each 0.6 tile long, with 0.4-tile gaps nothing covers.
+  it('a dashed stroke lays one quad per dash, and leaves the gaps empty', () => {
+    const soup = createTriangleSoup(256);
+    pushPolygonStrokeWorld(soup, square, 0.2, RED, 0.5, [0.6, 0.4]);
+    expect(soup.count).toBe(square.length * 4 * 6);
+    // The first edge runs along x at z = 0 (the outer loop). Any triangle
+    // with two corners on it spans one dash: never longer than 0.6 tile, so
+    // the 0.4 between dashes stays uncovered.
+    let spans = 0;
+    for (let t = 0; t < soup.count; t += 3) {
+      const onEdge: number[] = [];
+      for (let v = t; v < t + 3; v++) if (Math.abs(soup.positions[v * 3 + 2]) < 1e-6) onEdge.push(soup.positions[v * 3]);
+      if (onEdge.length !== 2) continue;
+      spans++;
+      expect(Math.abs(onEdge[0] - onEdge[1])).toBeLessThanOrEqual(0.6 + 1e-5);
+    }
+    expect(spans).toBeGreaterThan(0);
+  });
+
+  it('a solid stroke is the same call with no dash -- the default is unchanged', () => {
+    const a = createTriangleSoup(64);
+    const b = createTriangleSoup(64);
+    pushPolygonStrokeWorld(a, square, 0.2, RED, 0.5);
+    pushPolygonStrokeWorld(b, square, 0.2, RED, 0.5, undefined);
+    expect(Array.from(a.positions.slice(0, a.count * 3))).toEqual(Array.from(b.positions.slice(0, b.count * 3)));
+  });
 });
 
 describe('pushLineWorld', () => {

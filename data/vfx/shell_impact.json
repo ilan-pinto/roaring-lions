@@ -5,7 +5,7 @@
   "budget_priority": 7,
   "hit_stop_ms": 40,
   "screen_shake": { "amplitude_px": 5, "duration_ms": 300, "falloff_tiles": 10 },
-  "light": { "color": "vfx.fire", "intensity": 2.0, "radius_tiles": 4, "decay_ms": 380 },
+  "light": { "color": "vfx.fire", "intensity": 4.2, "radius_tiles": 4, "decay_ms": 380 },
   "particles": [
     {
       "sprite": "soft_dot",

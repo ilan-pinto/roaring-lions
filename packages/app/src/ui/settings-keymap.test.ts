@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ACTIONS, bindingsFrom, type Bindings } from '../input/keymap';
+import { PLAYER_ACTIONS, bindingsFrom, type Bindings } from '../input/keymap';
 import { t } from '../i18n/t';
 import { keymapRows, type KeymapDeps } from './settings-keymap';
 
@@ -42,8 +42,9 @@ describe('keymapRows', () => {
   it('renders one row per action with its current keycap', () => {
     const { table } = mount(deps());
     const rows = [...table.querySelectorAll('.rl-settings__row')];
-    // ACTIONS.length rows plus the trailing "Reset to defaults" row.
-    expect(rows.length).toBe(ACTIONS.length + 1);
+    // PLAYER_ACTIONS.length rows plus the trailing "Reset to defaults" row.
+    // The diagnostics panel is bound but not listed (PA-01).
+    expect(rows.length).toBe(PLAYER_ACTIONS.length + 1);
     expect(rowFor(table, 'Halt').querySelector('kbd')?.textContent).toBe('H');
   });
 
@@ -59,6 +60,17 @@ describe('keymapRows', () => {
     const kbd = rowFor(table, 'Select every unit').querySelector('kbd');
     expect(kbd?.textContent).toBe(`${t('keymap.modifier.ctrl')}A`);
     expect(kbd?.textContent?.startsWith(t('keymap.modifier.ctrl'))).toBe(true);
+  });
+
+  // KS-10 (keyboard-and-saves): fourteen buttons all named "Change" -- a
+  // sighted player reads the row, a screen reader heard "Change" fourteen
+  // times. Each names its action now.
+  it('names each Change button for its action', () => {
+    const { table } = mount(deps());
+    expect(changeBtn(rowFor(table, 'Halt')).getAttribute('aria-label')).toBe('Change Halt');
+    const labels = [...table.querySelectorAll<HTMLButtonElement>('button')].filter((b) => b.textContent === 'Change').map((b) => b.getAttribute('aria-label'));
+    expect(labels.length).toBeGreaterThan(1);
+    expect(new Set(labels).size).toBe(labels.length);
   });
 
   it('rebinds through a captured keydown and calls set with the new table', () => {

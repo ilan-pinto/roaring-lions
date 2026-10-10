@@ -38,10 +38,12 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { parseGlbHeadless } from './headless-gltf';
 import { buildMeshUnitTemplate, instantiateMeshUnit } from './mesh-unit';
 import { CLIP_NAMES } from './mesh-anim';
 import { MESH_ROLES, isMeshRole } from './mesh-role';
+import { TEXTURED_INFANTRY_TYPES } from './textured-infantry';
+
 
 const REPO = fileURLToPath(new URL('../../../../../', import.meta.url));
 const CIVILIAN_MESHES = `${REPO}art/meshes/civilians/`;
@@ -61,14 +63,7 @@ function shippedFigures(): string[] {
 }
 
 async function parseShipped(figure: string) {
-  const bytes = readFileSync(`${CIVILIAN_MESHES}${figure}.glb`);
-  // `Buffer` is a `Uint8Array` view over a pool, so hand `parseAsync` a
-  // standalone `ArrayBuffer` rather than the whole pool behind it.
-  const ab = bytes.buffer.slice(
-    bytes.byteOffset,
-    bytes.byteOffset + bytes.byteLength
-  ) as ArrayBuffer;
-  return new GLTFLoader().parseAsync(ab, '');
+  return parseGlbHeadless(readFileSync(`${CIVILIAN_MESHES}${figure}.glb`));
 }
 
 /** Every `rl_role` (falling back to the node name, exactly as
@@ -100,21 +95,26 @@ describe('shipped civilian GLBs', () => {
       const gltf = await parseShipped(figure);
       // Not `.not.toThrow()`: `buildMeshUnitTemplate` names the offending role
       // or clip in its own message, and losing that is losing the whole value.
-      const template = buildMeshUnitTemplate(gltf, 'civilian');
+      // `allowTextured` as `ThreeRenderer.loadMeshUnit` computes it for the
+      // `civilians` type: the four files ship their supplied bake since B7.
+      const template = buildMeshUnitTemplate(gltf, 'civilian', `${figure}.glb`, TEXTURED_INFANTRY_TYPES.has('civilians'));
       expect(template.materials.length).toBeGreaterThan(0);
       expect(template.geometries.length).toBe(template.materials.length);
     }
   );
 
-  it.each(shippedFigures())('%s: carries zero materials, images and textures', async (figure) => {
+  it.each(shippedFigures())('%s: carries exactly one material, one image and one texture -- its own bake', async (figure) => {
     const gltf = await parseShipped(figure);
-    // The parser hands back the raw glTF JSON, which is where the contract's
-    // "zero of each" is actually observable -- a `THREE.Mesh` always has SOME
-    // material once three.js has finished with it.
+    // The parser hands back the raw glTF JSON, which is where the count is
+    // actually observable -- a `THREE.Mesh` always has SOME material once
+    // three.js has finished with it. "Zero of each" (the contract) held until
+    // B7 (GH-179, 2026-10-01); `civilians` is in TEXTURED_INFANTRY_TYPES now
+    // and ships the supplied 1024 base-colour bake, one per file.
+    expect(TEXTURED_INFANTRY_TYPES.has('civilians')).toBe(true);
     const json = (gltf.parser as { json: Record<string, unknown[]> }).json;
-    expect(json.materials ?? []).toHaveLength(0);
-    expect(json.images ?? []).toHaveLength(0);
-    expect(json.textures ?? []).toHaveLength(0);
+    expect(json.materials ?? []).toHaveLength(1);
+    expect(json.images ?? []).toHaveLength(1);
+    expect(json.textures ?? []).toHaveLength(1);
   });
 
   it.each(shippedFigures())('%s: every role is in the closed set', async (figure) => {

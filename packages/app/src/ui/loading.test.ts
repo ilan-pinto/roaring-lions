@@ -7,7 +7,7 @@ import { pseudo } from '../i18n/pseudo';
 import { setCatalogue } from '../i18n/t';
 import { deployRosterView, type DeployRosterView } from './deploy-roster';
 import type { DeploySelection } from './deploy-select';
-import { briefingBeats, briefingHoldsDeployment, broughtFor, showLoading, type BroughtPanel } from './loading';
+import { briefingBeats, briefingHoldsDeployment, broughtFor, showDownloadProgress, showLoading, type BroughtPanel } from './loading';
 import type { PreviewMap, PreviewTones } from './map-preview';
 import type { ObjectiveRow } from './objectives';
 
@@ -99,6 +99,52 @@ describe('showLoading with orders to read', () => {
     await done;
     expect(handed).toBe(true);
     expect(el.querySelector('.rl-loading')).toBeNull();
+  });
+
+  // PA-27: the button is mounted, enabled and focused the moment the screen is
+  // built, but its listener used to be attached inside `done()`, which main.ts
+  // calls only when the art gate settles. A click in that gap did nothing.
+  it('counts a Deploy click made before done() is called (PA-27)', async () => {
+    const el = host();
+    const screen = showLoading(el, 'Break the Depot', 'Seven structures.');
+    el.querySelector<HTMLButtonElement>('.rl-loading__deploy')?.click();
+    // The assets have not settled yet: the screen stays up, the click is kept.
+    expect(el.querySelector('.rl-loading')).not.toBeNull();
+    let handed = false;
+    const done = screen.done().then(() => {
+      handed = true;
+    });
+    await done;
+    expect(handed).toBe(true);
+    expect(el.querySelector('.rl-loading')).toBeNull();
+  });
+
+  it('a click before done() on a disposed screen does not resolve anything (PA-27)', async () => {
+    const el = host();
+    const screen = showLoading(el, 'Break the Depot', 'Seven structures.');
+    el.querySelector<HTMLButtonElement>('.rl-loading__deploy')?.click();
+    screen.dispose();
+    let rejected = false;
+    await screen.done().catch(() => {
+      rejected = true;
+    });
+    expect(rejected).toBe(true);
+  });
+
+  it('deploys once however many clicks arrive before and after done() (PA-27)', async () => {
+    const el = host();
+    const screen = showLoading(el, 'Break the Depot', 'Seven structures.');
+    const button = el.querySelector<HTMLButtonElement>('.rl-loading__deploy');
+    button?.click();
+    button?.click();
+    let resolutions = 0;
+    const done = screen.done().then(() => {
+      resolutions++;
+    });
+    button?.click();
+    await done;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(resolutions).toBe(1);
   });
 
   it('hands over at once when there are no orders, so a sandbox is not gated', async () => {
@@ -237,7 +283,7 @@ describe('reading a long briefing', () => {
     showLoading(withBack, 'Break the Depot', 'Seven structures.', undefined, undefined, undefined, () => undefined);
     expect(withBack.querySelector('.rl-loading__back')).not.toBeNull();
     expect(withBack.querySelector('.rl-loading__back svg')?.getAttribute('data-symbol')).toBe('back'); // GH-261
-    expect(withBack.querySelector('.rl-loading__back')?.textContent?.trim()).toBe('campaign map');
+    expect(withBack.querySelector('.rl-loading__back')?.textContent?.trim()).toBe('Campaign map');
 
     const withoutBack = document.createElement('div');
     showLoading(withoutBack, 'Break the Depot', 'Seven structures.');
@@ -459,7 +505,7 @@ describe('deploy screen beat layout (GH-162)', () => {
     const el = document.createElement('div');
     showLoading(el, firstLight.name, firstLightBriefing);
     const expected = briefingBeats(firstLightBriefing);
-    expect(expected.length).toBe(8); // First Light's own count -- see the issue text.
+    expect(expected.length).toBe(5); // First Light's own count since GH-345 cut it to two problems.
     const rendered = [...el.querySelectorAll<HTMLParagraphElement>('.rl-loading__beat')];
     expect(rendered).toHaveLength(expected.length);
     expect(rendered.map((p) => p.textContent)).toEqual(expected);
@@ -724,6 +770,42 @@ describe('the objective panel on the briefing (task 5)', () => {
     expect(el.querySelectorAll('.rl-loading__beat')).toHaveLength(briefingBeats(briefing).length);
   });
 
+  // GH-417 B-04: before the mission starts, no row is "In progress". The
+  // status column names the row's kind instead. Falsified: replacing
+  // `deps.briefing ?` with `false ?` in objectives.ts puts four "In progress"
+  // labels back and this goes red.
+  it('labels each row by kind, never by a live status that has not started', () => {
+    const el = document.createElement('div');
+    showLoading(el, 'Umm Zeitoun IV', briefing, undefined, undefined, undefined, undefined, rows, true);
+    const words = [...el.querySelectorAll('.rl-obj__status')].map((s) => s.textContent);
+    expect(words).toEqual(['Primary', 'Primary', 'Optional', 'Optional', 'Optional']);
+    expect(el.textContent).not.toContain('In progress');
+  });
+
+  // GH-417 B-01: focusing Deploy must not scroll the screen to it. Falsified:
+  // `deploy.focus()` with no options leaves `preventScroll` undefined here.
+  it('focuses Deploy without scrolling the screen to it', async () => {
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    const calls: (FocusOptions | undefined)[] = [];
+    const orig = HTMLElement.prototype.focus;
+    HTMLElement.prototype.focus = function (this: HTMLElement, o?: FocusOptions) {
+      if (this.classList.contains('rl-loading__deploy')) calls.push(o);
+      orig.call(this, o);
+    };
+    try {
+      const screen = showLoading(el, 'Umm Zeitoun IV', briefing, undefined, undefined, undefined, undefined, rows, true);
+      void screen.done().catch(() => undefined);
+      await Promise.resolve();
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.preventScroll).toBe(true);
+      screen.dispose();
+    } finally {
+      HTMLElement.prototype.focus = orig;
+      el.remove();
+    }
+  });
+
   it('shows no objectives for a sandbox, which declares none', () => {
     const el = document.createElement('div');
     showLoading(el, 'M0 sandbox');
@@ -942,6 +1024,30 @@ describe('the deploy spread (Task 3)', () => {
     s.dispose();
   });
 
+  // K-11. Falsified: fullRowReason / deployLockReason emptied.
+  it('says why Deploy is locked, and why a full row refused its click', () => {
+    const el = document.createElement('div');
+    const s = spread(el);
+    const deploy = el.querySelector<HTMLButtonElement>('.rl-loading__deploy');
+    const why = el.querySelector<HTMLElement>('.rl-deploy__why');
+    expect(why?.hidden).toBe(true);
+    const nachshon = rowsOf(el)[2];
+    expect(nachshon.title).toBe('All Rifle Squad places are filled. Click a Rifle Squad that is going to bench it first.');
+    nachshon.click();
+    expect(why?.hidden).toBe(false);
+    expect(why?.textContent).toBe(nachshon.title);
+    rowsOf(el)[0].click(); // bench one: a place opens, Deploy locks
+    expect(deploy?.disabled).toBe(true);
+    expect(deploy?.title).toBe('Deploy is locked: choose 1 more unit for the force first.');
+    expect(why?.textContent).toBe(deploy?.title);
+    expect(why?.hidden).toBe(false);
+    rowsOf(el)[0].click();
+    expect(deploy?.disabled).toBe(false);
+    expect(deploy?.hasAttribute('title')).toBe(false);
+    expect(why?.hidden).toBe(true);
+    s.dispose();
+  });
+
   it('does not hold Deploy hostage to a pool too thin to fill a slot, and the slot line agrees', () => {
     // One squad for a mission that asks for two: the spawner substitutes a
     // fresh remnant for the missing body (mission.ts:1264), so there is
@@ -1132,5 +1238,133 @@ describe('the deploy spread (Task 3)', () => {
       expect(el.querySelector(sel)?.textContent ?? '', sel).toMatch(/^⟦[\s\S]*⟧$/);
     }
     s.dispose();
+  });
+});
+
+// --- the Field order (GH-417, direction A) ---------------------------------
+describe('the Field order briefing (GH-417)', () => {
+  beforeEach(leaveCanvasWithoutAContext);
+  afterEach(() => {
+    HTMLCanvasElement.prototype.getContext = realGetContext;
+  });
+  const FIELD = {
+    glance: [
+      { key: 'where' as const, label: 'Where', text: 'The Basin · dawn' },
+      { key: 'avoid' as const, label: 'Avoid', text: 'No fire on the civic hall' },
+    ],
+    marks: [{ kind: 'start' as const, x: 1, y: 1 }],
+    attached: [{ type: 'dozer_d9', name: 'D9 Dov', count: 1 }],
+  };
+  const fieldScreen = (el: HTMLElement, field = FIELD): ReturnType<typeof showLoading> =>
+    showLoading(el, 'Break the Depot', SPREAD_BRIEFING, undefined, undefined, undefined, () => undefined, [], false, { view: viewOf(), onChange: () => undefined }, PREVIEW, undefined, field);
+
+  it('lays out the glance card, the marked ground and the force as places', () => {
+    giveCanvasAContext();
+    const el = document.createElement('div');
+    const s = fieldScreen(el);
+    expect(el.querySelector('.rl-loading__box--field')).not.toBeNull();
+    expect([...el.querySelectorAll('.rl-glance__k')].map((k) => k.textContent)).toEqual(['Where', 'Avoid']);
+    expect(el.querySelector('.rl-field__side .rl-ground .rl-ground__start')).not.toBeNull();
+    expect(el.querySelector('.rl-force .rl-loading__deploy')).not.toBeNull();
+    expect(el.querySelector('.rl-force__slot--fixed[data-type="dozer_d9"]')).not.toBeNull();
+    // The old spread is gone in this layout: no toggle list, no reserve line.
+    expect(el.querySelector('.rl-deploy__rows')).toBeNull();
+    expect(el.textContent).not.toMatch(/in reserve/);
+    // Every beat is still on the page, in the full-orders panel.
+    expect(el.querySelectorAll('.rl-field__full .rl-loading__beat')).toHaveLength(briefingBeats(SPREAD_BRIEFING).length);
+    s.dispose();
+  });
+
+  it('opens the full orders over the ground and closes them again', () => {
+    giveCanvasAContext();
+    const el = document.createElement('div');
+    const s = fieldScreen(el);
+    const panel = el.querySelector<HTMLElement>('.rl-field__full');
+    const toggle = el.querySelector<HTMLButtonElement>('.rl-field__full-toggle');
+    expect(panel?.hidden).toBe(true);
+    toggle?.click();
+    expect(panel?.hidden).toBe(false);
+    expect(toggle?.getAttribute('aria-expanded')).toBe('true');
+    el.querySelector<HTMLButtonElement>('.rl-field__full-close')?.click();
+    expect(panel?.hidden).toBe(true);
+    s.dispose();
+  });
+
+  // Ruling L-2. Falsified: a `setGroundPhoto` that does nothing leaves the
+  // painted tiles under the marks.
+  it('lays the renderer’s photograph under the marks', () => {
+    const ctx = { fillStyle: '', fillRect: (): void => undefined, putImageData: (): void => undefined };
+    HTMLCanvasElement.prototype.getContext = (() => ctx) as unknown as HTMLCanvasElement['getContext'];
+    const el = document.createElement('div');
+    const s = fieldScreen(el);
+    expect(el.querySelector('.rl-ground__base--painted')).not.toBeNull();
+    s.setGroundPhoto({ width: 6, height: 4, data: new Uint8ClampedArray(96) } as unknown as ImageData);
+    expect(el.querySelector('.rl-ground__base--photo')).not.toBeNull();
+    expect(el.querySelector('.rl-ground__base--painted')).toBeNull();
+    s.dispose();
+  });
+
+  // Review: Escape closes what is open on top of the sheet before it leaves.
+  // Falsified: `if (dismissOverlay?.()) return;` removed -> onBack fires.
+  it('Escape closes the full orders first, and only then goes back', async () => {
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    let back = 0;
+    const s = showLoading(el, 'Break the Depot', SPREAD_BRIEFING, undefined, undefined, undefined, () => void back++, [], false, { view: viewOf(), onChange: () => undefined }, PREVIEW, undefined, FIELD);
+    void s.done().catch(() => undefined);
+    await Promise.resolve();
+    el.querySelector<HTMLButtonElement>('.rl-field__full-toggle')?.click();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(el.querySelector<HTMLElement>('.rl-field__full')?.hidden).toBe(true);
+    expect(back).toBe(0);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(back).toBe(1);
+    s.dispose();
+    el.remove();
+  });
+
+  it('without a field the screen is the plain one, and a photograph is a no-op', () => {
+    const el = document.createElement('div');
+    const s = showLoading(el, 'Sandbox', SPREAD_BRIEFING);
+    expect(el.querySelector('.rl-loading__box--field')).toBeNull();
+    expect(() => s.setGroundPhoto({ width: 1, height: 1, data: new Uint8ClampedArray(4) } as unknown as ImageData)).not.toThrow();
+    s.dispose();
+  });
+});
+
+// K-15: the stage while the models download used to be blank.
+describe('the download screen (K-15)', () => {
+  it('wears the loading screen: the mission name, the bar, a count that moves, and no Deploy', () => {
+    const host = document.createElement('div');
+    const dl = showDownloadProgress(host, 'Foothold');
+    expect(host.querySelector('.rl-loading .rl-loading__box')).not.toBeNull();
+    expect(host.querySelector('.rl-loading__name')?.textContent).toBe('Foothold');
+    expect(host.querySelector('.rl-loading__label')?.textContent).toBe('deploying');
+    expect(host.querySelector('.rl-loading__deploy')).toBeNull();
+    const count = host.querySelector<HTMLElement>('.rl-loading__count')!;
+    expect(count.dataset.state).toBe('pending');
+    dl.total(4);
+    expect(count.textContent).toBe('Loading 0 of 4');
+    dl.step();
+    dl.step();
+    expect(count.textContent).toBe('Loading 2 of 4');
+    expect(host.querySelector<HTMLElement>('.rl-loading__fill')?.style.width).toBe('50%');
+    dl.dispose();
+    expect(host.querySelector('.rl-loading')).toBeNull();
+    expect(() => dl.dispose()).not.toThrow();
+  });
+
+  // The perf tool reads data-state 'ready' as "the deploy gate is open".
+  // Falsified: canBeReady defaulting to true for this screen.
+  it('never reads ready, even with every download counted in', () => {
+    const host = document.createElement('div');
+    const dl = showDownloadProgress(host, 'Foothold');
+    dl.total(2);
+    dl.step();
+    dl.step();
+    const count = host.querySelector<HTMLElement>('.rl-loading__count')!;
+    expect(count.dataset.state).toBe('progress');
+    expect(count.textContent).not.toBe('Ready');
+    dl.dispose();
   });
 });

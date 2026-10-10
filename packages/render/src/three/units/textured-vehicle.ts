@@ -45,6 +45,10 @@
  */
 export const TEXTURED_VEHICLE_TYPES: ReadonlySet<string> = new Set([
   'mbt_lavi',
+  // B8 (GH-179, 2026-10-02): the Namer is a Meshy text-to-3D remesh shipping
+  // its own 2k bake through `tools/vehicles/export_meshy_ramp.py`, with a kit
+  // RWS on its roof ring like the Eitan's; the 2026-08 image-to-3D hull it
+  // replaces was already on this list.
   'ifv_namer',
   'technical',
   'rocket_battery',
@@ -78,4 +82,9 @@ export const TEXTURED_VEHICLE_TYPES: ReadonlySet<string> = new Set([
   // and draws through `rampForVehicleRole`, per mesh, like the Eitan's.
   // HELD in mesh-catalogue.ts until E6 wires the unit.
   'demo_tzav',
+  // A3.1 stage 2 (GH-179, 2026-10-05): the KDF drones are Meshy text-to-3D
+  // remeshes shipping their own bake (tools/drones/export_meshy_drones.py), no
+  // longer palette-painted B0a exports.
+  'attack_drone',
+  'recon_drone',
 ]);

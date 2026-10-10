@@ -1,0 +1,48 @@
+{
+  "request": {
+    "mode": "refine",
+    "preview_task_id": "01a10c4f-a611-776f-9bca-d720f1b947b2",
+    "texture_resolution": "8k"
+  },
+  "response": {
+    "id": "01a10c80-1c2d-72be-9217-621d55e07b6a",
+    "type": "text-to-3d-refine",
+    "mode": "refine",
+    "name": "",
+    "model_type": "standard",
+    "seed": 2058324571,
+    "prompt": "A single low-poly game-ready tripod-mounted anti-tank guided missile launcher, a weapon of an irregular militia, worn and field-repaired, scratched gunmetal under sun-faded paint. At rest, level, tube horizontal. A long plain cylindrical launch tube with flat sealed caps at both ends, in a cradle on a squat low tripod with short widely splayed legs and spiked feet, only knee height off the ground, a boxy thermal sight beside the tube, a traverse hand wheel under the cradle, a coiled cable. Chipped paint, bare metal. Real-world scale, 1.2 metre tube, 0.7 metres tall. Faded green-grey paint, gunmetal, black rubber. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1791211084861,
+    "progress": 100,
+    "started_at": 1791211084870,
+    "finished_at": 1791211195163,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10c80-1c2d-72be-9217-621d55e07b6a/output/model.glb?Expires=4944758400&Signature=QZG~KgEYZU2LzC4Ni1fnJleQSRHxBUxClTixCGk0GBBZ4-ootsb3JEnfd-M1~9UUmMDTYTzRpS5AePC8XuLzx49B0vo11VFtYMsMdrnNNIq2BrgjNjYv-nUdmLuLal9M0uD0CR2QMcr63YNEN4rxzrOnlRhI3S7e3NLPbJ3NJ3JVcUhD5qJqk9~ApD0StF3FKvDK20H8Nr6cLC3VZQRJCB4XhKXWAHI-W3xa2AmHjziXSa5NmimNtEFJ0eDsQre3mIJ62JbB9NmnuDv6hbYcwUtw326PVWO1EFBzjTqcouwbLxBsMVRITfl1sd~RUF4o9mH7qTjemJUHtBGwTMcuJA__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "fbx": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10c80-1c2d-72be-9217-621d55e07b6a/output/model.fbx?Expires=4944758400&Signature=piv3w1~IjQfWfoaDKIiQLkS-oO9-PoiB5fOZeSvKG2QJzeCoaGbkSu55cjtyAm-M1uPoZCG0I-YX4A-NmAHDYVc3VU7STIIGJ51mqgKW8-VYB31Nd3GEpdhYWk1GVQgpPQJlPrIc2RXZEgA8fVRnu8KBdqM4iRpZfUhH~xvrltAcrAQ8KBySHPmlt51TtDBNE9R7cpliLJTqpxWNHUKeFptisyswpJUeFTO~BMDuulTj79iz2qTn9eIc8LwmUfeRVS8ypmr5zhRYxBFsabX3vVTHbCcIdf523~xAla8rJu-TnkhI2ceomATvu6zqwy~MqPDcUzEvlo17TRbxy3d7sA__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "usdz": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10c80-1c2d-72be-9217-621d55e07b6a/output/model.usdz?Expires=4944758400&Signature=ean7vuSCdAoQDH0LSt~ANz3M-NCGKAhs~5saL3a4pYmgTrrt3GS4koRjvwbdxEbtS1drdut4INm94b7QFa072mk-Azl~c5amqNnV7fbBprw6crQed60NPkfvFJT1CzUK2wa5MCTbFBbdvDEjtWIx4JRSSy3agjFOU2~spp2PuEiYoYhdRttEZzaYQN4RrvqdNqZikFra6hPN5yygxJa-ha7fwqmq~Z5YKetyedpphsj7rR7lrOJKxa4xfvKFS9hVoyiEcrlEdejyadchZISCV9tk0wARaMdXzt4TKXlWY99EvOlc6OqBYp-fqJI6fkNPfz4dRMr6nz2x~-2RvvXXng__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "obj": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10c80-1c2d-72be-9217-621d55e07b6a/output/model.obj?Expires=4944758400&Signature=P6Hk7PLZYbo9urGj7Oryur~pZQQfrsY6737RWdHA1NRmes4ESGuxn5IBBI2SRfJRmrpXQtR8vuVIfZEX3iWDkW8pNKzF3Vbp-hnLJFb0Yu~bQuLUrLTwRs6lche2XKqPT3b-uSDWsmbINM0K-5whUJzLWiVOi-1gwHpvDUSbOKhaAozJupgxLWtTEhUgTGcpd9N7sHqDCjjawU2NYpybDiR~flRnUW0skpxiwsWDf3OvBo~91y3Z2BjFRnA8EUPznUijYjm~84HkmswASYZJYKz2Gdv97I0zhbzAsHBCobfkxus2CPTXjIIaE0zjPY0Iuq4df9P5M1D0m6s~SoqKjg__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "mtl": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10c80-1c2d-72be-9217-621d55e07b6a/output/model.mtl?Expires=4944758400&Signature=FBUcJVSSUCbQLqHtTI7uo9IEHZaecIZi6Hvd7oxi2YdGXxr~IpgUG-zXc8VvIfqmPt9hykNNOhI6ZH8t6Q2bK3UZrDZF0FVQIxbE4RvcP1J8xGgQvuAk4Q7WyMFwF-ycsWOZD9iF7fP-7ymBS4ZsEfKNojz660BAw7KUwpOdDnZRS8M~tRGqm-MCOp60PZeasM3cZMR7ENJkzIqGol2vXa5sFmsJ8fQEgkynzZ16EuKxCOHW5x~UXLgGbz0Vjy0HOZECk8Hy5ezGKBqRgciQgNgdh4qxStv7aBWHjXF~b~hwRlAsjB~VlUf18-bObu2CRmG8DCFGdcIBJQDb7R5lmA__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "stl": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10c80-1c2d-72be-9217-621d55e07b6a/output/model.stl?Expires=4944758400&Signature=qWH-UglJtrfcSwPXUKIZPezynieYoO4ERnkvy2q-Gvj7Ak9Slp6csAaIfaS8~X~l-f49S671JJndnDEDf2rPVdIoNdgsCJwKtUkgafESHxT33sKKSfubdJb4XZG1f79lfofPtdJBQ3AZkQP7gQPyv~7155fgYnKuSTGp4y1agU~n2pHB4jow-lmGhyNr8ep68P4oFIbsUmcMtRNgt9qCSzoNSayInP3ga14KdxDFxXkNeRvHK4-wHBhHKX8bBo5bHF8MjTT4Y70udt24rz6TERSN-~cZZb~rWr4n9GazkFLz8YXJstlJ1GMmaJMJ3s24L52QP8YiZ2ueCXNi6onrBA__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10c80-1c2d-72be-9217-621d55e07b6a/output/preview.png?Expires=4944758400&Signature=C9VEjQUkY56OGcKBjWnf1TwG-6EfQ0VGs522xf4kxA6Nh-VnKV-0fS4b350JLGGx74qzDxsEhbRaDHl7h8FGEm8bdMG-16gF0VMIqaSsKgOx38Lh51Jdbv8eJ~bW-Ux~9Yi1wFzTL1aHMqfoJtREgIUojh-EU7vGTGkbGxLXV3iZ-6FgwNb6JiAa5uii0OxojE5X1ylEyeIkUxhe6GteqTvW0eC5cXBn6EjgNcBEUzGr7ACPub12iKRFhorui0GBbhChBG35899HZd~usTlgiuib5~MSLF~f82ROTWDpoCHS9s7D-XbItCfObgCthVRd96To0qym2slID6s85jjqYA__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [
+      {
+        "base_color": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10c80-1c2d-72be-9217-621d55e07b6a/output/texture_0.png?Expires=4944758400&Signature=RH3cqY0qCUP4-3YqhVlejWm4NvukDi~7c0mm3eRB80d5zuTvCvOU~AIt0QI8bjHzYykOTRcW2SvVHhhdqICkfhWByA1aa~HbqRgAs7KMf83Lz6psNe8vm7aBzNm3hOYwPFhd3u64B31RN8LRqe3JrW5PXxQcIqG86KH0rUS-s22ZCvFlomGIa22aiRx2H88XzTuFw4L556gpLFlE-OVCpJbyy7YHGi7TexDBMAREcUhTQ7rgZ1DVI5dHwvs6k5WmG2cW9YXy0x~zZE1sdc4D4~EzjEYvJAv6FmnSTOMEbUSGzKb5Amq1i~YNMD8flgl1MxvYpl2nSH~6esy8V-pELQ__&Key-Pair-Id=K1VGYTHIYLM9UM"
+      }
+    ],
+    "hd_texture": true,
+    "texture_resolution": "8k",
+    "consumed_credits": 15
+  },
+  "consumed_credits": 15,
+  "timestamps": {
+    "created_at": 1791211084861,
+    "started_at": 1791211084870,
+    "finished_at": 1791211195163
+  },
+  "usd_estimated": 0.3
+}

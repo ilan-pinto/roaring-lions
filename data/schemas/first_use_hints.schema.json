@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roaringlions.dev/schemas/first_use_hints.schema.json",
+  "title": "First-use hint rules",
+  "description": "GH-345 follow-up. One-line contextual hints for the lessons the tutorial no longer teaches. Each rule is shown on the HUD's hint line the first time ALL of its conditions hold, for a few seconds, once per profile (localStorage 'lions.seen.hints'). Read by @lions/app only, never by the sim. `key` is an i18n catalogue key, never prose.",
+  "type": "object",
+  "required": ["rules"],
+  "additionalProperties": false,
+  "properties": {
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/rule" }
+    }
+  },
+  "$defs": {
+    "rule": {
+      "type": "object",
+      "required": ["id", "key"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9_]{1,32}$", "description": "The memory key; renaming one re-shows it to everyone." },
+        "key": { "type": "string", "pattern": "^hud\\.hint\\.first\\.[a-z0-9_]+$", "description": "i18n key of the one-line text." },
+        "keys": {
+          "type": "object",
+          "description": "Key-cap parameters of the text: {param name: keymap action id}, resolved live so a rebind keeps the hint true.",
+          "additionalProperties": { "type": "string" }
+        },
+        "mission": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "Only in these missions. Absent: any mission." },
+        "selected_type": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "A selected unit has one of these unit type ids." },
+        "selected_over": { "type": "integer", "minimum": 1, "description": "More than this many units are selected." },
+        "force_over": { "type": "integer", "minimum": 1, "description": "The player fields more than this many living units." },
+        "carrier_empty_seat": { "const": true, "description": "A selected carrier has a free seat." },
+        "enemy_pinned": { "const": true, "description": "Some hostile is pinned." },
+        "resources": { "const": true, "description": "The mission has a logistics economy." }
+      }
+    }
+  }
+}

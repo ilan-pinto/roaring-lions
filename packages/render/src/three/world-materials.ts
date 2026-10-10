@@ -16,6 +16,7 @@
  * (spec §8) is consumed with no change here.
  */
 import * as THREE from 'three';
+import { paletteHex } from './palette-hex';
 
 export const WORLD_ROUGHNESS = 0.85;
 
@@ -35,14 +36,35 @@ export function rampMaterial(ramp: readonly string[]): THREE.MeshStandardMateria
   });
 }
 
+/** Textures already prepared, by identity (not a `userData` flag: `Texture.clone`
+ *  copies `userData` and would hand an unprepared copy a "done" mark). */
+const prepared = new WeakSet<THREE.Texture>();
+
 /** A base-colour map is a photograph: sRGB, mipmapped (a 2048 bake is drawn
- *  at ~40 px at zoom 0.35), repeat-safe. */
+ *  at ~40 px at zoom 0.35), repeat-safe.
+ *
+ *  Idempotent per texture: a vehicle's bake is shared by every build of it,
+ *  and `needsUpdate` re-uploads the whole 2048 image plus its mips. The first
+ *  call does exactly what it always did; a later call on a texture whose
+ *  settings still read as prepared leaves `version` alone, so a garage
+ *  purchase (a rebuild) never costs a re-upload. A texture someone has since
+ *  re-tagged is prepared again. */
 export function prepareTexturedMap(map: THREE.Texture): THREE.Texture {
+  if (
+    prepared.has(map) &&
+    map.colorSpace === THREE.SRGBColorSpace &&
+    map.generateMipmaps &&
+    map.minFilter === THREE.LinearMipmapLinearFilter &&
+    map.magFilter === THREE.LinearFilter
+  ) {
+    return map;
+  }
   map.colorSpace = THREE.SRGBColorSpace;
   map.generateMipmaps = true;
   map.minFilter = THREE.LinearMipmapLinearFilter;
   map.magFilter = THREE.LinearFilter;
   map.needsUpdate = true;
+  prepared.add(map);
   return map;
 }
 
@@ -92,8 +114,17 @@ export function texturedMaterial(loaded: THREE.Material): THREE.MeshStandardMate
  * the same decision on the palette path: the two must land on the same TONE or
  * a burnt Lavi and a burnt Eitan read as different events.
  * `mesh-vehicle-death.test.ts` pins that they do.
+ *
+ * **A palette entry since polish VR-10 (2026-10-08).** The lead's `0x6a5f55` was
+ * the one material colour outside `data/palette.json`; it is now
+ * `limestone.7` (`#75624A`), the nearest entry a world material may use --
+ * CIEDE2000 6.24 from the old value, at the same luminance (0.130 against
+ * 0.1335, so the detail-over-darkness measurement above still describes it).
+ * `karst.3` (`#6E6960`) is nearer at 4.66, but `karst` is `theme_only`:
+ * procedural terrain and decor tint, nothing else.
  */
-export const CHARRED_TINT_HEX = 0x6a5f55;
+export const CHARRED_TINT_KEY = 'limestone.7';
+export const CHARRED_TINT_HEX = parseInt(paletteHex(CHARRED_TINT_KEY).slice(1), 16);
 
 /**
  * The charred sibling of `texturedMaterial`: the same normalised bake, on a

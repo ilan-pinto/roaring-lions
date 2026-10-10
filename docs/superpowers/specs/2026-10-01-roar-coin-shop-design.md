@@ -101,6 +101,15 @@ the recommendation is to restore reachability before coins go live:
 | R3. Lower catalogue prices | rescale tiers and E5 toward one lifetime | breaks the cost-curve fits (`upgrades.md`, E5 `numbers.md`); not recommended |
 | R4. Accept | coin-exclusive in practice | contradicts the 30 Sep rule; not recommended |
 
+**R1 landed (GH-330, 5 Oct).** The account keeps a per-campaign improvement record beside the
+lifetime one, and "New campaign" clears it. Replay inside one campaign still pays improvement
+only. A mission that is not open in the campaign (played by address) is held to its lifetime best
+(guard G-A), because a plain reset made "New campaign" plus `/mission/khan_rafid_1_recon` pay
+9,300 credits/h on the plan clock, 3.5x a campaign. Measured by `pnpm playtest`: a second campaign
+pays 5,736 (5,859 at max tier), so the shipped catalogue (70,090 credits) takes 12.2 campaigns. The
+lead accepted the openers loop (1.46x a campaign on the plan clock) on 5 Oct. Plan:
+`docs/superpowers/plans/2026-10-04-credits-reachability.md`.
+
 **Guard G1** (§1.7) carries this into the shop. An item is sellable for coins only while a
 measured instrument shows play can reach it. Since money waits on ST5–ST7 anyway, R1 has time
 to land first.
@@ -308,7 +317,9 @@ garage today) and **coins** (hollow, `--roar`). The rung that plays online is al
 earned one, and the card says so.
 
 **G1 holds until R1 or R2 lands.** Until then, an item play cannot reach shows "Not yet
-reachable by play — not sold" in place of the coin button.
+reachable by play — not sold" in place of the coin button. *R1 landed with GH-330: no credit
+item is off sale now, and a bought-only unit above one campaign's pay shows the computed "About N
+missions of pay" line.*
 
 ### 2.3 Confirmation and receipts
 
@@ -529,7 +540,7 @@ is earned-only) are taken as settled. These remain open:
 |---|---|---|
 | 1 | **The exchange rate** | **B: 1 Roar coin = 10 credits**, prices rounded up to 5 coins (whole catalogue 7,395 coins ≈ $60; one campaign's pay ≈ 585 coins) |
 | 2 | **Pack prices** | **500 / 1,100 / 2,400 / 6,500 Roar coins at $4.99 / $9.99 / $19.99 / $49.99** (bonus 0 / 10 / 20 / 30%); no larger pack; new accounts limited to the first two packs for 24 h |
-| 3 | **Reachability (F1)** | **Ask the balance analyst to land R1: a fresh campaign resets `paid`, making the catalogue reachable in ~12 campaigns (~52 h)**, with skirmish and co-op payouts (R2) later. Until it lands, G1 keeps unreachable items off sale for coins |
+| 3 | **Reachability (F1)** | **Landed (GH-330, 5 Oct): R1 with guard G-A**, catalogue in ~12 campaigns; skirmish and co-op payouts (R2) later |
 | 4 | **Bought with coins, then earned** | **The item gains `earned`; no coins come back.** A gate flips it automatically, and credit-only items offer "Earn it for network play" for their credit price |
 | 5 | **How the account separates sources** | **`earned`/`coins` per unit and per upgrade track, server-held (ST6); network reads `earned` only** |
 | 6 | **The ST8 amendment** (§1.8) | **Land it with this spec** |

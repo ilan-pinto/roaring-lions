@@ -5,6 +5,12 @@
   "phase": "buildup",
   "target_minutes": 6,
   "briefing": "The pasture is ours; now we raid back. Intel puts the local commander at the north hide — Jubran Hallaq's man on this ground, riding a technical he will not hesitate to run in if he has to. A second position dug in to the south covers the cattle track. Kill the commander, get eyes on the southern hide, and hold the bunds for five minutes. The moment the commander goes down, what is left of the local cell will come back at the bunds twice more to retake them. Catching the commander himself is a mobility problem, not a firepower one.",
+  "briefing_sections": [
+    {"id": "situation", "text": "The pasture is ours; now we raid back. Intel puts the local commander at the north hide — Jubran Hallaq's man on this ground, riding a technical he will not hesitate to run in if he has to. A second position dug in to the south covers the cattle track."},
+    {"id": "mission", "text": "Kill the commander, get eyes on the southern hide, and hold the bunds for five minutes."},
+    {"id": "notes", "text": "The moment the commander goes down, what is left of the local cell will come back at the bunds twice more to retake them. Catching the commander himself is a mobility problem, not a firepower one."}
+  ],
+  "briefing_image": "ui/plates/units/scout_shachaf.jpg",
   "debrief": {
     "victory": {
       "speaker": "idit",
@@ -131,8 +137,8 @@
   "civilians": {
     "refuge": "civ_refuge",
     "groups": [
-      { "unit": "civilians", "count": 2, "at": [20.5, 32.5] },
-      { "unit": "civilians", "count": 2, "at": [23.5, 33.5] }
+      { "unit": "civilians", "count": 2, "at": [23.5, 31.5] },
+      { "unit": "civilians", "count": 2, "at": [26.5, 32.5] }
     ]
   },
   "enemy": {
@@ -160,7 +166,7 @@
         "unit": "militia_cell",
         "count": 1,
         "at": [
-          21.5,
+          22.5,
           38.5
         ],
         "facing_deg": 0,
@@ -174,7 +180,7 @@
         "unit": "rpg_team",
         "count": 1,
         "at": [
-          23.5,
+          27.5,
           38.5
         ],
         "facing_deg": 0,
@@ -189,7 +195,7 @@
         "count": 1,
         "at": [
           20.5,
-          16.5
+          14.5
         ],
         "facing_deg": 200,
         "stance": {
@@ -197,7 +203,7 @@
           "waypoints": [
             [
               20.5,
-              16.5
+              14.5
             ],
             [
               20.5,
@@ -210,7 +216,7 @@
         "unit": "moto_rpg",
         "count": 1,
         "at": [
-          20.5,
+          34.5,
           29.5
         ],
         "facing_deg": 160,
@@ -218,11 +224,11 @@
           "kind": "patrol",
           "waypoints": [
             [
-              20.5,
+              34.5,
               29.5
             ],
             [
-              20.5,
+              34.5,
               32.5
             ]
           ]

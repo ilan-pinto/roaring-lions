@@ -25,7 +25,7 @@ import { Sim, fx, type SimEvent, type UnitTypeJson } from '@lions/sim';
 import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
 import type { TracerModel } from './units/tracers';
-import { SHELL_PROFILES, type ShellModel } from './units/shells';
+import { BURST_PROFILES, SHELL_PROFILES, type ShellModel } from './units/shells';
 import type { MissileModel } from './units/missiles';
 import { hexToLinear } from './terrain/shared';
 
@@ -242,12 +242,15 @@ describe('indirect fire draws an arcing projectile', () => {
     gradRenderer.dispose();
   });
 
-  it('direct fire is untouched: a rifle still draws a tracer and no shell', () => {
+  it('a rifle fires a burst of travelling streaks -- no full-span tracer, and no arcing shell', () => {
     const { sim, events } = firstFireEvents(RIFLES);
     const renderer = rendererAfter(sim, events);
     const p = privates(renderer);
-    expect(p.tracers.length).toBeGreaterThan(0);
+    const fires = events.filter((e) => e.kind === 'fire').length;
+    expect(p.tracers).toHaveLength(0);
     expect(p.shells).toHaveLength(0);
+    expect(p.bolts.length).toBe(fires * BURST_PROFILES.rifle.rounds);
+    expect(p.bolts.every((b) => b.kind === 'rifle')).toBe(true);
     renderer.dispose();
   });
 

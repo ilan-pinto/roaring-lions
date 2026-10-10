@@ -25,4 +25,11 @@ export interface Env {
   /** The /stats password, set as a Worker secret. Unset or empty fails closed:
    *  every /stats* path answers 403. */
   STATS_PASSWORD?: string;
+  /** GH-464: POST /api/feedback, keyed on the connecting IP (5 a minute). */
+  FEEDBACK_LIMIT?: RateLimiter;
+  /** GH-464 kill switch, the deploy-free half: any non-empty value other than
+   *  "0"/"false" closes feedback. Set with `npx wrangler secret put
+   *  FEEDBACK_CLOSED` (a secret survives deploys; a dashboard var does not).
+   *  The other half is the D1 `flags` row, flipped from /stats/feedback. */
+  FEEDBACK_CLOSED?: string;
 }

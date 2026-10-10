@@ -9,9 +9,9 @@
 // Task 4 review, with nothing re-seeding: until tick 1 the whole starting
 // force drew at world (0, 0); on tick 1 it lerped out to its spawns and every
 // vehicle threw a dust burst off the speed spike; the map stayed full shroud
-// until tick 3; and Pixi never seeded turret facing. On `&nomesh` a mission
-// structure could also go undrawn, because the three.js structure instancer
-// was sized before it existed.
+// until tick 3. (Pixi never seeded turret facing, and on `&nomesh` a mission
+// structure could go undrawn because the billboard structure instancer was
+// sized before it existed -- both paths retired in WP-A3.3.)
 //
 // The fix is `Renderer.reseed()` (`packages/render/src/api.ts`): one call,
 // after the spawn, and each backend owns what re-seeding means for it. The

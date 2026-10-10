@@ -195,7 +195,9 @@ export function screenFor(pathname: string, base: string, tutorialId: string): T
 export const sessionStart = (
   env: TelemetryEnvelope,
   screen: TelemetryScreen,
-  renderer: 'three' | 'pixi',
+  // Always 'three' since the Pixi backend was retired (WP-A3.3). The field
+  // stays so old D1 rows and `packages/worker/QUERIES.sql` still group alike.
+  renderer: 'three',
   viewport: [number, number],
   returning: boolean
 ): TelemetryEvent => ({ ...env, type: 'session_start', screen, renderer, viewport: [int(viewport[0]), int(viewport[1])], returning });
@@ -204,8 +206,14 @@ export const heartbeat = (env: TelemetryEnvelope, mission: string, tick: number)
   ...env, type: 'heartbeat', mission, tick: int(tick),
 });
 
-export const tutorialStep = (env: TelemetryEnvelope, step: number, steps: number, prevMs: number): TelemetryEvent => ({
-  ...env, type: 'tutorial_step', step: int(step), steps: int(steps), prevMs: int(prevMs),
+export const tutorialStep = (
+  env: TelemetryEnvelope,
+  step: number,
+  steps: number,
+  prevMs: number,
+  id?: string
+): TelemetryEvent => ({
+  ...env, type: 'tutorial_step', step: int(step), steps: int(steps), prevMs: int(prevMs), ...(id === undefined ? {} : { id }),
 });
 
 export const missionStart = (

@@ -92,6 +92,7 @@ function internals(r: ThreeRenderer): {
   numeralBatch: { mesh: THREE.Mesh };
   chevronBatch: { mesh: THREE.Mesh };
   selectionRingGroup: THREE.Group;
+  zoneBandGroup: THREE.Group;
   silhouetteMeshMaterials: THREE.MeshBasicMaterial[];
   rebuildTerrain(): void;
 } {
@@ -125,24 +126,26 @@ describe('DEBUG_LAYERS', () => {
     r.dispose();
   });
 
-  it('hides every overlay mesh -- HP bars, badges, chevrons, all three batches, and the selection ring\'s group -- and back, with a plain visible flag', () => {
+  it('hides every overlay mesh -- HP bars, badges, chevrons, all three batches, the selection ring\'s group and the zone band\'s -- and back, with a plain visible flag', () => {
     // Unlike `units`, this one is built unconditionally in the constructor
     // (`OverlayBatch`/`NumeralBatch`/`ChevronBatch`, `ThreeRenderer`'s own
     // ctor) and nothing in the per-frame beginFrame/push/endFrame cycle
     // touches `.visible` -- see `debug-layers.ts`'s own comment for the check
     // that makes a bare `setObjectsVisible` correct here rather than assumed.
     const r = makeRenderer();
-    expect(r.setDebugLayerVisible('overlays', false)).toBe(7);
+    expect(r.setDebugLayerVisible('overlays', false)).toBe(8);
     const i = internals(r);
     expect(i.overlayBatch.mesh.visible).toBe(false);
     expect(i.numeralBatch.mesh.visible).toBe(false);
     expect(i.chevronBatch.mesh.visible).toBe(false);
     expect(i.selectionRingGroup.visible).toBe(false);
-    expect(r.setDebugLayerVisible('overlays', true)).toBe(7);
+    expect(i.zoneBandGroup.visible).toBe(false);
+    expect(r.setDebugLayerVisible('overlays', true)).toBe(8);
     expect(i.overlayBatch.mesh.visible).toBe(true);
     expect(i.numeralBatch.mesh.visible).toBe(true);
     expect(i.chevronBatch.mesh.visible).toBe(true);
     expect(i.selectionRingGroup.visible).toBe(true);
+    expect(i.zoneBandGroup.visible).toBe(true);
     r.dispose();
   });
 
@@ -156,9 +159,9 @@ describe('DEBUG_LAYERS', () => {
     const r = makeRenderer();
     const i = internals(r);
     expect(i.silhouetteMeshMaterials).toHaveLength(3);
-    expect(r.setDebugLayerVisible('overlays', false)).toBe(7);
+    expect(r.setDebugLayerVisible('overlays', false)).toBe(8);
     for (const m of i.silhouetteMeshMaterials) expect(m.visible).toBe(false);
-    expect(r.setDebugLayerVisible('overlays', true)).toBe(7);
+    expect(r.setDebugLayerVisible('overlays', true)).toBe(8);
     for (const m of i.silhouetteMeshMaterials) expect(m.visible).toBe(true);
     r.dispose();
   });
@@ -301,6 +304,27 @@ describe('DEBUG_LAYERS', () => {
     expect(i.propMesh.visible).toBe(false);
     expect(r.setDebugLayerVisible('props', true)).toBe(1);
     expect(i.propMesh.visible).toBe(true);
+    r.dispose();
+  });
+
+  it('kit: draws each kitted template geometry as its host alone and back, leaves a kit-less one alone, and survives a repaint (GH-238)', () => {
+    expect(isDebugLayer('kit')).toBe(true);
+    const r = makeRenderer();
+    const templates = (r as unknown as { vehicleMeshTemplates: Map<string, { geometries: THREE.BufferGeometry[] }> })
+      .vehicleMeshTemplates;
+    const kitted = new THREE.BufferGeometry();
+    kitted.userData.rlKitBaseCount = 36;
+    const plain = new THREE.BufferGeometry();
+    templates.set('mbt_lavi', { geometries: [kitted, plain] });
+    expect(r.setDebugLayerVisible('kit', false)).toBe(1);
+    expect(kitted.drawRange.count).toBe(36);
+    expect(plain.drawRange.count).toBe(Infinity);
+    // Nothing per-frame writes a template's draw range.
+    r.frame(1, 0);
+    expect(kitted.drawRange.count).toBe(36);
+    expect(r.setDebugLayerVisible('kit', true)).toBe(1);
+    expect(kitted.drawRange.count).toBe(Infinity);
+    templates.clear();
     r.dispose();
   });
 

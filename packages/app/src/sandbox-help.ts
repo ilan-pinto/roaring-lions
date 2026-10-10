@@ -16,46 +16,55 @@
  * Pure: a URLSearchParams and some ids in, strings out. No DOM, no console.
  */
 
-export type SandboxFlagName = 'roe' | 'tunnel' | 'sur' | 'civ' | 'ditch' | 'nomesh' | 'decals' | 'kit';
+export type SandboxFlagName = 'roe' | 'tunnel' | 'sur' | 'civ' | 'ditch' | 'decals' | 'kit';
 
 export interface UrlParam {
   name: string;
   blurb: string;
 }
 
+export interface SandboxFlag {
+  name: SandboxFlagName;
+  /** Console text for a developer: the boot banner and `__lions.help()`. */
+  blurb: string;
+  /** The PLAYER-facing label, as a catalogue key (`i18n/en.json`): what the
+   *  Free Play picker prints beside the checkbox. Kept in this table so it
+   *  stays the one place a flag is described -- a flag added here without a
+   *  label is a missing key in the picker's spec, not a dev blurb on screen. */
+  labelKey: string;
+}
+
 /** The opt-in sandbox extras. Each adds only what it names, so a check for
  *  one subsystem is not buried under three others. */
-export const SANDBOX_FLAGS: readonly { name: SandboxFlagName; blurb: string }[] = [
-  { name: 'roe', blurb: 'flagged no-fire ground (the map’s own, or a synthesised 4×4)' },
-  { name: 'tunnel', blurb: 'a pre-dug route + two Yahalom sapper squads to collapse it' },
-  { name: 'sur', blurb: 'the four Sarim units no mission fields' },
+export const SANDBOX_FLAGS: readonly SandboxFlag[] = [
+  { name: 'roe', blurb: 'flagged no-fire ground (the map’s own, or a synthesised 4×4)', labelKey: 'freePlay.option.roe' },
+  {
+    name: 'tunnel',
+    blurb: 'a pre-dug route + two Yahalom sapper squads to collapse it',
+    labelKey: 'freePlay.option.tunnel',
+  },
+  { name: 'sur', blurb: 'the four Sarim units no mission fields', labelKey: 'freePlay.option.sur' },
   {
     name: 'civ',
     blurb: 'a mixed crowd of eight civilians, and a refuge to shepherd them to',
+    labelKey: 'freePlay.option.civ',
   },
   {
     name: 'ditch',
     blurb: 'an anti-tank ditch cut across the axis between the two forces',
-  },
-  {
-    name: 'nomesh',
-    // No `&`-prefixed flag name in this string: SANDBOX_FLAGS's blurbs are
-    // rendered as visible DOM text on the Free play screen (`showSandbox`),
-    // unlike KNOWN_PARAMS's (console-only, via `sandboxHelp`) -- so naming
-    // the RETIRED opt-in flag this replaced has to be done without spelling
-    // out its URL syntax.
-    blurb:
-      'draw billboards instead of meshes — the diagnostic half of the old mesh-opt-in switch',
+    labelKey: 'freePlay.option.ditch',
   },
   {
     name: 'decals',
     blurb:
       'a fixed showcase of every ground mark -- craters, scorch, oil, rubble, tread and tyre -- near the friendly anchor',
+    labelKey: 'freePlay.option.decals',
   },
   {
     name: 'kit',
     blurb:
       'the sandbox force pre-kitted, level 1–3 by type -- the kit sign on the unit icons and the HUD card to walk',
+    labelKey: 'freePlay.option.kit',
   },
 ];
 
@@ -83,21 +92,11 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
   { name: 'tutorial', blurb: 'replay the tutorial' },
   {
     name: 'renderer',
-    // This blurb used to name a phase and a capability list ("terrain only,
-    // Phase B2; no units/fog yet"), and went stale the moment the next
-    // phase shipped -- twice. SANDBOX_FLAGS/KNOWN_PARAMS being "the single
-    // source" only guarantees a flag is parsed and listed; it says nothing
-    // about whether prose describing a DIFFERENT package (packages/render's
-    // three backend) still matches that package's current state, and
-    // nothing under packages/app runs when packages/render changes. So this
-    // no longer states a capability list at all -- it points at the file
-    // that actually is kept current in the same commit as backend work
-    // (CLAUDE.md's "The three.js backend" section), which is the only
-    // durable fix short of importing render internals this package is not
-    // allowed to import.
-    blurb:
-      'three (default) | pixi — which backend draws; an explicit choice persists ' +
-      'across missions (see CLAUDE.md "The three.js backend" for current parity)',
+    // Accepted and does nothing, the way `mesh` is (WP-A3.3). It chose the
+    // backend until the Pixi one was deleted; there is one renderer now, and
+    // keeping the key known stops every bookmark and old doc link carrying
+    // `?renderer=pixi` or `=three` from tripping `unknownParams` as a typo.
+    blurb: 'accepted, no effect — three.js is the only renderer since the Pixi backend was retired',
   },
   {
     name: 'mesh',
@@ -107,7 +106,16 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
     // being reported as a typo. It is deliberately NOT in SANDBOX_FLAGS: the
     // banner should list what still changes something, and this no longer
     // does. `&nomesh` is the live flag now.
-    blurb: 'accepted, no effect — meshes are the default; use &nomesh to turn them off',
+    blurb: 'accepted, no effect — meshes are the only render path',
+  },
+  {
+    name: 'nomesh',
+    // Accepted and does nothing, like `mesh` above (WP-A3.3). It drew the
+    // billboards instead of meshes until the billboard path was retired;
+    // meshes are the only path now. Known so a bookmark carrying it is not
+    // reported as a typo, and NOT in SANDBOX_FLAGS, so the Free play screen
+    // stops offering a checkbox that does nothing.
+    blurb: 'accepted, no effect — meshes are the only render path since the billboards were retired',
   },
   {
     name: 'nosw',
@@ -129,13 +137,19 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
   },
   {
     name: 'tod',
-    // A value flag like `renderer`/`lang`, not a SANDBOX_FLAGS boolean --
+    // A value flag like `lang`, not a SANDBOX_FLAGS boolean --
     // `dawn | day | dusk | night` are values, not an on/off switch, so
     // `readFlags`'s `.has()` shape does not fit it. `time-of-day.ts`'s
     // `timeOfDayOf` reads it directly off `params`. A mission never reads
     // it (N-23): its own `map.time_of_day` always wins, which is why the
     // blurb says so rather than leaving that to be discovered the hard way.
     blurb: 'dawn | day | dusk | night — the sandbox’s light; a mission uses its own',
+  },
+  {
+    name: 'fitbuildings',
+    // Lead ruling 7 Oct. Not a SANDBOX_FLAGS entry: it works on a mission
+    // too, and it is a value flag like `tod`. `building-fit-flag.ts` reads it.
+    blurb: 'off | stretch | clamped | uniform — how buildings fit their footprints (default stretch; =off is the shipped size)',
   },
   {
     name: 'pseudo',
@@ -150,6 +164,13 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
     // it works on a mission too, and it changes nothing in the battle --
     // only what an unrecorded line sounds like, and only in a dev build.
     blurb: 'dev builds only: a synth tick per voice line class where no line is recorded yet -- never shipped as a voice',
+  },
+  {
+    name: 'testcoins',
+    // GH-317, the lead's go-ahead on 2 Oct. A TEST TOOL, live on every build:
+    // anyone with the link can unlock things free. Remove or gate it before
+    // release. Not a SANDBOX_FLAGS entry: it belongs to the garage.
+    blurb: '<n> — TEST Roar coins in the garage Stores (seeds n once, Grant adds n); buys unlock locally, packs stay disabled',
   },
   ...SANDBOX_FLAGS,
 ];

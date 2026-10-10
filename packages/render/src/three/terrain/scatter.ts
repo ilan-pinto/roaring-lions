@@ -39,7 +39,8 @@ import {
   rectCorners as sharedRectCorners,
   pushPolygon,
 } from './shared';
-import { buildTerrainSurface, hasWall, markPlane, surfaceWorldY } from './surface';
+import { buildTerrainSurface, hasWall, markPlane, surfaceWorldY, type TerrainSurface } from './surface';
+import { buildTiledMesh, spliceTiledMesh, type TiledMeshData, type TileEmitter, type TileSink } from './tiled-mesh';
 import type { MeshData, TerrainInput } from './types';
 import type { TerrainTones } from '../../api';
 
@@ -211,15 +212,48 @@ function rectCorners(
 }
 
 export function buildScatter(input: TerrainInput, tones: TerrainTones, background: string): MeshData {
+  return buildScatterTiled(input, tones, background).mesh;
+}
+
+/** `buildScatter`, keeping where each tile's marks start, so a later rebuild
+ *  can splice (`tiled-mesh.ts`). `surface` is `buildTerrainSurface(input)` --
+ *  the drawn ground every mark is draped on, and the single source for
+ *  whether a slope face exists at all, built from `input` exactly as
+ *  `ground.ts` builds its own so the two cannot disagree about where a wall
+ *  is or how high the ground is under a fleck. */
+export function buildScatterTiled(
+  input: TerrainInput,
+  tones: TerrainTones,
+  background: string,
+  surface: TerrainSurface = buildTerrainSurface(input)
+): TiledMeshData {
+  return buildTiledMesh(input.width, input.height, [], scatterTileEmitter(input, tones, background, surface));
+}
+
+/** `buildScatterTiled`'s result with only the `dirty` tiles rebuilt -- see
+ *  `spliceTiledMesh` for what makes that exact. */
+export function spliceScatter(
+  prev: TiledMeshData,
+  dirty: Uint8Array,
+  input: TerrainInput,
+  tones: TerrainTones,
+  background: string,
+  surface: TerrainSurface
+): TiledMeshData {
+  return spliceTiledMesh(prev, dirty, scatterTileEmitter(input, tones, background, surface));
+}
+
+/** One tile's marks: what the tile loop in `buildScatter` always ran per
+ *  tile, unchanged, lifted into an emitter so the same code serves the full
+ *  build and a splice. */
+function scatterTileEmitter(
+  input: TerrainInput,
+  tones: TerrainTones,
+  background: string,
+  surface: TerrainSurface
+): TileEmitter {
   const { width, height } = input;
-  // The drawn ground every mark below is draped on, and the single source
-  // for whether a slope face exists at all. Built from `input`, exactly as
-  // `ground.ts` builds its own, so the two cannot disagree about where a
-  // wall is or how high the ground is under a fleck.
-  const surface = buildTerrainSurface(input);
-  const positions: number[] = [];
-  const colors: number[] = [];
-  const indices: number[] = [];
+  let sink: TileSink = { positions: [], colors: [], indices: [] };
 
   // Computed once, outside the tile loop: both alphas are fixed, and the base
   // they composite against (`background`) does not vary per tile. Every
@@ -236,7 +270,7 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
     p3: [number, number, number],
     color: [number, number, number],
     flip: boolean
-  ): void => pushPolygon(positions, colors, indices, [p0, p1, p2, p3], color, flip);
+  ): void => pushPolygon(sink.positions, sink.colors, sink.indices, [p0, p1, p2, p3], color, flip);
 
   /**
    * Pushes one flat ground-plane mark: a centre at screen-pixel offset
@@ -486,262 +520,255 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
     }
   };
 
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const ti = y * width + x;
-      const levelHere = levelAt(input, x, y);
-      // Containment only matters where an unclamped mark could float over
-      // a differently-elevated neighbour -- see `hasElevationEdge`'s doc
-      // comment. Computed once per tile, used by every mark this tile emits.
-      const needsContainment = hasElevationEdge(input, x, y);
-      const cx = x + 0.5;
-      const cz = y + 0.5;
-      const rnd = tileHash(x, y);
-      const decorHere = input.decor ? input.decor[ti] : 0;
-      const coverHere = input.cover[ti];
-      const blocked = input.blocked[ti] !== 0;
+  return (target: TileSink, x: number, y: number): void => {
+    sink = target;
+    const ti = y * width + x;
+    const levelHere = levelAt(input, x, y);
+    // Containment only matters where an unclamped mark could float over
+    // a differently-elevated neighbour -- see `hasElevationEdge`'s doc
+    // comment. Computed once per tile, used by every mark this tile emits.
+    const needsContainment = hasElevationEdge(input, x, y);
+    const cx = x + 0.5;
+    const cz = y + 0.5;
+    const rnd = tileHash(x, y);
+    const decorHere = input.decor ? input.decor[ti] : 0;
+    const coverHere = input.cover[ti];
+    const blocked = input.blocked[ti] !== 0;
 
-      // The tile's own composited-and-quantised ground tone -- what every
-      // mark on this tile composites over, per the rule this task inherits
-      // (`groundTone`, not the raw background, is the base a mark alpha-fills
-      // against).
-      const baseHex = groundTone(input, tones, ti, quantisePalette(tones), background);
+    // The tile's own composited-and-quantised ground tone -- what every
+    // mark on this tile composites over, per the rule this task inherits
+    // (`groundTone`, not the raw background, is the base a mark alpha-fills
+    // against).
+    const baseHex = groundTone(input, tones, ti, quantisePalette(tones), background);
 
-      if (blocked) {
-        // A `^` ridge TOP draws no synthetic grain any more, for the same
-        // reason its wall draws no synthetic strata: as of 2026-09-03 it
-        // carries a real rock texture (`ground.ts`'s `rockMask`, `mesh.ts`'s
-        // `uRock`), and that image is fractured limestone with its own
-        // grain, crack network and ochre staining.
-        //
-        // This was not a judgement made from the code. Photographed on
-        // `tel_marum`'s corridor walls at zoom 2 with both present, the five
-        // blobs and their `rockLit` highlights (`#F2E8D5`, all but white)
-        // read as pale confetti scattered over a photograph -- a hard
-        // palette edge on top of a continuous-tone surface wins the eye and
-        // looks like a rendering fault rather than like rock.
-        //
-        // A plain blocked (BUILDING) tile still gets none either, which it
-        // never did: `drawBuildingTile` and the structure sprite own that
-        // ground entirely.
-        // Nothing here any more, for either kind of blocked tile.
-        //
-        // A plain blocked (BUILDING) tile never had grain: `drawBuildingTile`
-        // and the structure sprite own that ground entirely in Pixi. A `^`
-        // RIDGE had five rock blobs with `rockLit` highlights
-        // (renderer.ts:1461-1477) and lost them on 2026-09-03, when it
-        // gained a real rock texture instead (`ground.ts`'s `rockMask`,
-        // `mesh.ts`'s `uRock`) -- fractured limestone with its own grain,
-        // crack network and staining.
-        //
-        // That was not decided from the code. Photographed on `tel_marum`'s
-        // corridor walls at zoom 2 with both present, the blobs' highlights
-        // (`tones.rockLit`, `#F2E8D5` on the arid theme -- all but white)
-        // read as pale confetti scattered over a photograph: a hard palette
-        // edge on a continuous-tone surface wins the eye and looks like a
-        // rendering fault rather than like rock. Same call as the strata
-        // bands in `drawSlopeFace` above, for the same reason.
+    if (blocked) {
+      // A `^` ridge TOP draws no synthetic grain any more, for the same
+      // reason its wall draws no synthetic strata: as of 2026-09-03 it
+      // carries a real rock texture (`ground.ts`'s `rockMask`, `mesh.ts`'s
+      // `uRock`), and that image is fractured limestone with its own
+      // grain, crack network and ochre staining.
+      //
+      // This was not a judgement made from the code. Photographed on
+      // `tel_marum`'s corridor walls at zoom 2 with both present, the five
+      // blobs and their `rockLit` highlights (`#F2E8D5`, all but white)
+      // read as pale confetti scattered over a photograph -- a hard
+      // palette edge on top of a continuous-tone surface wins the eye and
+      // looks like a rendering fault rather than like rock.
+      //
+      // A plain blocked (BUILDING) tile still gets none either, which it
+      // never did: `drawBuildingTile` and the structure sprite own that
+      // ground entirely.
+      // Nothing here any more, for either kind of blocked tile.
+      //
+      // A plain blocked (BUILDING) tile never had grain: `drawBuildingTile`
+      // and the structure sprite own that ground entirely in Pixi. A `^`
+      // RIDGE had five rock blobs with `rockLit` highlights
+      // (renderer.ts:1461-1477) and lost them on 2026-09-03, when it
+      // gained a real rock texture instead (`ground.ts`'s `rockMask`,
+      // `mesh.ts`'s `uRock`) -- fractured limestone with its own grain,
+      // crack network and staining.
+      //
+      // That was not decided from the code. Photographed on `tel_marum`'s
+      // corridor walls at zoom 2 with both present, the blobs' highlights
+      // (`tones.rockLit`, `#F2E8D5` on the arid theme -- all but white)
+      // read as pale confetti scattered over a photograph: a hard palette
+      // edge on a continuous-tone surface wins the eye and looks like a
+      // rendering fault rather than like rock. Same call as the strata
+      // bands in `drawSlopeFace` above, for the same reason.
+    } else {
+      if (decorHere === DECOR_ROAD) {
+        // Road ruts retired (#226): the road is a worn track drawn
+        // straight from the control map's own distance field in the
+        // ground shader now (`GroundMaterial`'s `uRoadTone`/`uRutTone`),
+        // tone, shoulder and wheel-wear together. A synthetic dash pair
+        // stamped on top of that procedural surface duplicated the wear
+        // the shader already draws, disagreed with it (it was keyed to
+        // this tile's own `DECOR_ROAD` flag and a Pixi-parity hash, not
+        // to the shader's distance field, so it could not track a
+        // two-wide street's collapsed centreline at all -- Task 6), and
+        // read as a loud, out-of-register scatter of dashes over a
+        // packed surface. No marks here now: the road owns its own
+        // weathering.
+      } else if (decorHere === DECOR_KNOLL) {
+        // Knoll: 4 blobs with a highlight, smaller than a ridge's
+        // (renderer.ts:1543-1553).
+        for (let k = 0; k < 4; k++) {
+          const a = tileHash(x * 11 + k, y * 17 + k);
+          const b = tileHash(x * 23 + k, y * 5 + k);
+          const px = (a - 0.5) * (TILE_W - 20);
+          const py = (b - 0.5) * (TILE_H - 10);
+          const r = 3 + a * 5;
+          const blobHex = quantise(composite(baseHex, tones.rock, 0.95), quantisePalette(tones));
+          pushMark(cx, cz, MARK_EPSILON, px, py, diamondCorners(r, r * 0.62), blobHex, needsContainment);
+          const hlHex = quantise(composite(blobHex, tones.rockLit, 0.8), quantisePalette(tones));
+          pushMark(cx, cz, HIGHLIGHT_EPSILON,
+            px - r * 0.2,
+            py - r * 0.22,
+            diamondCorners(r * 0.6, r * 0.36),
+            hlHex,
+            needsContainment
+          );
+        }
+      } else if (decorHere === DECOR_GROVE) {
+        // Trunk shadow + canopy (renderer.ts:1558-1564) are sprited/
+        // depth-sorted tree geometry, not scatter -- out of this task's
+        // table and out of scope here. Left flat rather than guessed at.
       } else {
-        if (decorHere === DECOR_ROAD) {
-          // Road ruts retired (#226): the road is a worn track drawn
-          // straight from the control map's own distance field in the
-          // ground shader now (`GroundMaterial`'s `uRoadTone`/`uRutTone`),
-          // tone, shoulder and wheel-wear together. A synthetic dash pair
-          // stamped on top of that procedural surface duplicated the wear
-          // the shader already draws, disagreed with it (it was keyed to
-          // this tile's own `DECOR_ROAD` flag and a Pixi-parity hash, not
-          // to the shader's distance field, so it could not track a
-          // two-wide street's collapsed centreline at all -- Task 6), and
-          // read as a loud, out-of-register scatter of dashes over a
-          // packed surface. No marks here now: the road owns its own
-          // weathering.
-        } else if (decorHere === DECOR_KNOLL) {
-          // Knoll: 4 blobs with a highlight, smaller than a ridge's
-          // (renderer.ts:1543-1553).
-          for (let k = 0; k < 4; k++) {
-            const a = tileHash(x * 11 + k, y * 17 + k);
-            const b = tileHash(x * 23 + k, y * 5 + k);
-            const px = (a - 0.5) * (TILE_W - 20);
-            const py = (b - 0.5) * (TILE_H - 10);
-            const r = 3 + a * 5;
-            const blobHex = quantise(composite(baseHex, tones.rock, 0.95), quantisePalette(tones));
-            pushMark(cx, cz, MARK_EPSILON, px, py, diamondCorners(r, r * 0.62), blobHex, needsContainment);
-            const hlHex = quantise(composite(blobHex, tones.rockLit, 0.8), quantisePalette(tones));
-            pushMark(cx, cz, HIGHLIGHT_EPSILON,
-              px - r * 0.2,
-              py - r * 0.22,
-              diamondCorners(r * 0.6, r * 0.36),
-              hlHex,
+        // Open hillside grain: stone or sward, per `tones.scatter`.
+        if (tones.scatter === 'sward') {
+          // Sward blades (renderer.ts:1577-1596).
+          const n = 8 + Math.floor(rnd * 7);
+          for (let k = 0; k < n; k++) {
+            const a = tileHash(x * 19 + k * 7, y * 23 + k * 5);
+            const b = tileHash(x * 41 + k * 3, y * 7 + k * 11);
+            const px = (a - 0.5) * (TILE_W - 12);
+            const py = (b - 0.5) * (TILE_H - 6);
+            const bh = 2.6 + a * 1.8;
+            const bladeHex = quantise(
+              composite(baseHex, b > 0.4 ? tones.bladeLit : tones.bladeShade, 0.6 + a * 0.3),
+              quantisePalette(tones)
+            );
+            // halfW 0.5 matches Pixi's own 1px stroke width exactly
+            // (renderer.ts:1594's `width: 1`) -- not a rounder-looking
+            // 0.75, which would read 50% thicker than the source.
+            pushMark(cx, cz, MARK_EPSILON, px, py, rectCorners(0.5, -bh, 0), bladeHex, needsContainment);
+          }
+          // D9 (G8): the sward bare-earth patch retires. At zoom 2.5 a flat
+          // earth-toned diamond dropped onto grass read as a polka dot, not
+          // dirt -- the same complaint the stone-grain disc drew, for the
+          // same reason (a hard-edged flat quad on a now-textured ground).
+          if (rnd > 0.84 && coverHere === 0) {
+            // Tussock: 3 fanning strokes, approximated as one mark
+            // spanning their bounding box (renderer.ts:1606-1616).
+            const a = tileHash(x * 31, y * 3);
+            const bx = (a - 0.5) * 30;
+            const by = (rnd - 0.9) * 18;
+            const tussockHex = quantise(composite(baseHex, tones.low, 0.8), quantisePalette(tones));
+            // Pixi's three strokes (renderer.ts:1612-1615) run from (bx, by)
+            // to (bx + k*2.6, by - 4.2 - a*1.6) for k in {-1, 0, 1}: exact
+            // tip height 4.2 + a*1.6, exact base 0. Padded by 0.6 on both
+            // ends -- half of the 1.2px stroke width (:1615) -- so the
+            // bounding box holds the stroke's rendered pixels, not just its
+            // ideal path.
+            pushMark(cx, cz, MARK_EPSILON,
+              bx,
+              by,
+              rectCorners(3.2, -(4.2 + a * 1.6 + 0.6), 0.6),
+              tussockHex,
               needsContainment
             );
           }
-        } else if (decorHere === DECOR_GROVE) {
-          // Trunk shadow + canopy (renderer.ts:1558-1564) are sprited/
-          // depth-sorted tree geometry, not scatter -- out of this task's
-          // table and out of scope here. Left flat rather than guessed at.
         } else {
-          // Open hillside grain: stone or sward, per `tones.scatter`.
-          if (tones.scatter === 'sward') {
-            // Sward blades (renderer.ts:1577-1596).
-            const n = 8 + Math.floor(rnd * 7);
-            for (let k = 0; k < n; k++) {
-              const a = tileHash(x * 19 + k * 7, y * 23 + k * 5);
-              const b = tileHash(x * 41 + k * 3, y * 7 + k * 11);
-              const px = (a - 0.5) * (TILE_W - 12);
-              const py = (b - 0.5) * (TILE_H - 6);
-              const bh = 2.6 + a * 1.8;
-              const bladeHex = quantise(
-                composite(baseHex, b > 0.4 ? tones.bladeLit : tones.bladeShade, 0.6 + a * 0.3),
-                quantisePalette(tones)
-              );
-              // halfW 0.5 matches Pixi's own 1px stroke width exactly
-              // (renderer.ts:1594's `width: 1`) -- not a rounder-looking
-              // 0.75, which would read 50% thicker than the source.
-              pushMark(cx, cz, MARK_EPSILON, px, py, rectCorners(0.5, -bh, 0), bladeHex, needsContainment);
-            }
-            // D9 (G8): the sward bare-earth patch retires. At zoom 2.5 a flat
-            // earth-toned diamond dropped onto grass read as a polka dot, not
-            // dirt -- the same complaint the stone-grain disc drew, for the
-            // same reason (a hard-edged flat quad on a now-textured ground).
-            if (rnd > 0.84 && coverHere === 0) {
-              // Tussock: 3 fanning strokes, approximated as one mark
-              // spanning their bounding box (renderer.ts:1606-1616).
-              const a = tileHash(x * 31, y * 3);
-              const bx = (a - 0.5) * 30;
-              const by = (rnd - 0.9) * 18;
-              const tussockHex = quantise(composite(baseHex, tones.low, 0.8), quantisePalette(tones));
-              // Pixi's three strokes (renderer.ts:1612-1615) run from (bx, by)
-              // to (bx + k*2.6, by - 4.2 - a*1.6) for k in {-1, 0, 1}: exact
-              // tip height 4.2 + a*1.6, exact base 0. Padded by 0.6 on both
-              // ends -- half of the 1.2px stroke width (:1615) -- so the
-              // bounding box holds the stroke's rendered pixels, not just its
-              // ideal path.
-              pushMark(cx, cz, MARK_EPSILON,
-                bx,
-                by,
-                rectCorners(3.2, -(4.2 + a * 1.6 + 0.6), 0.6),
-                tussockHex,
-                needsContainment
-              );
-            }
-          } else {
-            // Stone grain: limestone flecks (renderer.ts:1616-1641). D9 (G8):
-            // the earth disc (the `b > 0.78` branch below) retires -- at zoom
-            // 2.5 a flat earth-toned diamond on now-textured ground read as a
-            // polka dot, not dirt -- so every mark this loop emits is a
-            // fleck now, and the count halves (`stoneFleckCount`, 2-4 rather
-            // than the old 3-7) to keep the ground from reading as confetti.
-            const n = stoneFleckCount(rnd);
-            for (let k = 0; k < n; k++) {
-              const a = tileHash(x * 19 + k * 7, y * 23 + k * 5);
-              const b = tileHash(x * 41 + k * 3, y * 7 + k * 11);
-              const px = (a - 0.5) * (TILE_W - 12);
-              const py = (b - 0.5) * (TILE_H - 6);
-              const r = 1.2 + a * 2.6;
-              // Limestone fleck: a rock-toned blob against the ground,
-              // never `tones.rockLit` blended straight onto `baseHex`.
-              // That direct port of Pixi's `ellipse.fill({ color:
-              // rockLit, alpha })` is a mathematical no-op wherever a
-              // theme's `rockLit` coincides with its own `open` tone --
-              // true of the shipped `arid` theme today (both
-              // `limestone.3`): `composite(X, X, anyAlpha)` is `X`
-              // exactly, in continuous colour and doubly so once
-              // quantised back onto the palette entry it already started
-              // from, for any alpha at all. Pixi never hits this: its
-              // base wash is a continuous, non-quantised alpha blend
-              // that keeps a faint but real gradient from the canvas
-              // clear colour underneath no matter what `rockLit` equals
-              // -- headroom this quantised, palette-snapped pipeline
-              // cannot reproduce at that same contrast (checked
-              // numerically: re-deriving that same per-tile jitter before
-              // compositing still rounds back to the identical entry --
-              // the palette's own step is coarser than the signal). So
-              // this blob is built the way the knoll, ridge and slope-
-              // scree marks a little above and below already are --
-              // `tones.rock` as the base, `tones.rockLit` as a highlight
-              // on top -- which stays visibly distinct from the ground
-              // regardless of what any given theme's `rockLit` happens to
-              // equal, rather than depending on a blend that can silently
-              // collapse. Verified against the shipped `arid` values
-              // directly (Task's own probe): this alpha range lands one
-              // step down the limestone ramp, matching the modest, single-
-              // step-darker tone Pixi's own continuous blend averages out
-              // to -- not the much heavier tone a knoll/ridge blob uses,
-              // which reads correctly as "impassable rock" rather than
-              // "ordinary open ground with grain".
-              const blobHex = quantise(composite(baseHex, tones.rock, 0.15 + b * 0.25), quantisePalette(tones));
-              pushMark(cx, cz, MARK_EPSILON, px, py, diamondCorners(r, r * 0.62), blobHex, needsContainment);
-              if (a > 0.72) {
-                const hlHex = quantise(composite(blobHex, tones.rockLit, 0.5), quantisePalette(tones));
-                pushMark(cx, cz, HIGHLIGHT_EPSILON,
-                  px - r * 0.3,
-                  py - r * 0.3,
-                  diamondCorners(r * 0.55, r * 0.34),
-                  hlHex,
-                  needsContainment
-                );
-              }
-            }
-            if (rnd > 0.84 && coverHere === 0) {
-              // Dry bush (renderer.ts:1643-1650).
-              const a = tileHash(x * 31, y * 3);
-              const bushHex = quantise(composite(baseHex, tones.low, 0.55), quantisePalette(tones));
-              pushMark(cx, cz, MARK_EPSILON,
-                (a - 0.5) * 30,
-                (rnd - 0.9) * 18,
-                diamondCorners(3.2 + a * 1.4, 2 + a),
-                bushHex,
+          // Stone grain: limestone flecks (renderer.ts:1616-1641). D9 (G8):
+          // the earth disc (the `b > 0.78` branch below) retires -- at zoom
+          // 2.5 a flat earth-toned diamond on now-textured ground read as a
+          // polka dot, not dirt -- so every mark this loop emits is a
+          // fleck now, and the count halves (`stoneFleckCount`, 2-4 rather
+          // than the old 3-7) to keep the ground from reading as confetti.
+          const n = stoneFleckCount(rnd);
+          for (let k = 0; k < n; k++) {
+            const a = tileHash(x * 19 + k * 7, y * 23 + k * 5);
+            const b = tileHash(x * 41 + k * 3, y * 7 + k * 11);
+            const px = (a - 0.5) * (TILE_W - 12);
+            const py = (b - 0.5) * (TILE_H - 6);
+            const r = 1.2 + a * 2.6;
+            // Limestone fleck: a rock-toned blob against the ground,
+            // never `tones.rockLit` blended straight onto `baseHex`.
+            // That direct port of Pixi's `ellipse.fill({ color:
+            // rockLit, alpha })` is a mathematical no-op wherever a
+            // theme's `rockLit` coincides with its own `open` tone --
+            // true of the shipped `arid` theme today (both
+            // `limestone.3`): `composite(X, X, anyAlpha)` is `X`
+            // exactly, in continuous colour and doubly so once
+            // quantised back onto the palette entry it already started
+            // from, for any alpha at all. Pixi never hits this: its
+            // base wash is a continuous, non-quantised alpha blend
+            // that keeps a faint but real gradient from the canvas
+            // clear colour underneath no matter what `rockLit` equals
+            // -- headroom this quantised, palette-snapped pipeline
+            // cannot reproduce at that same contrast (checked
+            // numerically: re-deriving that same per-tile jitter before
+            // compositing still rounds back to the identical entry --
+            // the palette's own step is coarser than the signal). So
+            // this blob is built the way the knoll, ridge and slope-
+            // scree marks a little above and below already are --
+            // `tones.rock` as the base, `tones.rockLit` as a highlight
+            // on top -- which stays visibly distinct from the ground
+            // regardless of what any given theme's `rockLit` happens to
+            // equal, rather than depending on a blend that can silently
+            // collapse. Verified against the shipped `arid` values
+            // directly (Task's own probe): this alpha range lands one
+            // step down the limestone ramp, matching the modest, single-
+            // step-darker tone Pixi's own continuous blend averages out
+            // to -- not the much heavier tone a knoll/ridge blob uses,
+            // which reads correctly as "impassable rock" rather than
+            // "ordinary open ground with grain".
+            const blobHex = quantise(composite(baseHex, tones.rock, 0.15 + b * 0.25), quantisePalette(tones));
+            pushMark(cx, cz, MARK_EPSILON, px, py, diamondCorners(r, r * 0.62), blobHex, needsContainment);
+            if (a > 0.72) {
+              const hlHex = quantise(composite(blobHex, tones.rockLit, 0.5), quantisePalette(tones));
+              pushMark(cx, cz, HIGHLIGHT_EPSILON,
+                px - r * 0.3,
+                py - r * 0.3,
+                diamondCorners(r * 0.55, r * 0.34),
+                hlHex,
                 needsContainment
               );
             }
           }
+          if (rnd > 0.84 && coverHere === 0) {
+            // Dry bush (renderer.ts:1643-1650).
+            const a = tileHash(x * 31, y * 3);
+            const bushHex = quantise(composite(baseHex, tones.low, 0.55), quantisePalette(tones));
+            pushMark(cx, cz, MARK_EPSILON,
+              (a - 0.5) * 30,
+              (rnd - 0.9) * 18,
+              diamondCorners(3.2 + a * 1.4, 2 + a),
+              bushHex,
+              needsContainment
+            );
+          }
+        }
 
-          if (coverHere > 0) {
-            // Cover rubble: `cover + 2` marks, tone `cover[min(cover,3)-1]`
-            // (renderer.ts:1650-1660). Pixi's `rect` is corner-anchored, not
-            // centred; centring it here is a small, deliberate approximation
-            // -- rubble reads the same as scattered debris either way.
-            const c = tones.cover[Math.min(coverHere, 3) - 1];
-            const rubbleHex = quantise(composite(baseHex, c, 0.9), quantisePalette(tones));
-            for (let k = 0; k < coverHere + 2; k++) {
-              const a = tileHash(x * 7 + k, y * 13 + k);
-              const b = tileHash(x * 31 + k, y * 3 + k);
-              const px = (a - 0.5) * (TILE_W - 18);
-              const py = (b - 0.5) * (TILE_H - 8);
-              const halfW = (4 + a * 4) / 2;
-              pushMark(cx, cz, MARK_EPSILON, px, py, rectCorners(halfW, -1.25, 1.25), rubbleHex, needsContainment);
-            }
+        if (coverHere > 0) {
+          // Cover rubble: `cover + 2` marks, tone `cover[min(cover,3)-1]`
+          // (renderer.ts:1650-1660). Pixi's `rect` is corner-anchored, not
+          // centred; centring it here is a small, deliberate approximation
+          // -- rubble reads the same as scattered debris either way.
+          const c = tones.cover[Math.min(coverHere, 3) - 1];
+          const rubbleHex = quantise(composite(baseHex, c, 0.9), quantisePalette(tones));
+          for (let k = 0; k < coverHere + 2; k++) {
+            const a = tileHash(x * 7 + k, y * 13 + k);
+            const b = tileHash(x * 31 + k, y * 3 + k);
+            const px = (a - 0.5) * (TILE_W - 18);
+            const py = (b - 0.5) * (TILE_H - 8);
+            const halfW = (4 + a * 4) / 2;
+            pushMark(cx, cz, MARK_EPSILON, px, py, rectCorners(halfW, -1.25, 1.25), rubbleHex, needsContainment);
           }
         }
       }
-
-      // Slope-face dressing runs wherever `ground.ts` actually emits a WALL,
-      // independent of the blocked/decor branch above -- see
-      // `drawSlopeFace`'s doc comment.
-      //
-      // `hasWall` (`surface.ts`) rather than a second `levelHere > levelX`
-      // comparison, and that is the point of it existing: since open ground
-      // ramps, a drop between two OPEN tiles has no wall under it any more,
-      // and dressing it would hang a strata band and a lit top edge in mid
-      // air over a smooth hillside. Two copies of the rule would drift apart
-      // the first time either was touched; there is one, and both files read
-      // it.
-      const levelEast = levelAt(input, x + 1, y);
-      const dropEast = levelHere - levelEast;
-      if (dropEast > 0 && hasWall(surface, x, y, 0)) {
-        drawSlopeFace(0, x, y, levelHere, dropEast, faceEastHex, decorHere);
-      }
-      const levelSouth = levelAt(input, x, y + 1);
-      const dropSouth = levelHere - levelSouth;
-      if (dropSouth > 0 && hasWall(surface, x, y, 1)) {
-        drawSlopeFace(1, x, y, levelHere, dropSouth, faceSouthHex, decorHere);
-      }
     }
-  }
 
-  return {
-    positions: Float32Array.from(positions),
-    colors: Float32Array.from(colors),
-    indices: Uint32Array.from(indices),
+    // Slope-face dressing runs wherever `ground.ts` actually emits a WALL,
+    // independent of the blocked/decor branch above -- see
+    // `drawSlopeFace`'s doc comment.
+    //
+    // `hasWall` (`surface.ts`) rather than a second `levelHere > levelX`
+    // comparison, and that is the point of it existing: since open ground
+    // ramps, a drop between two OPEN tiles has no wall under it any more,
+    // and dressing it would hang a strata band and a lit top edge in mid
+    // air over a smooth hillside. Two copies of the rule would drift apart
+    // the first time either was touched; there is one, and both files read
+    // it.
+    const levelEast = levelAt(input, x + 1, y);
+    const dropEast = levelHere - levelEast;
+    if (dropEast > 0 && hasWall(surface, x, y, 0)) {
+      drawSlopeFace(0, x, y, levelHere, dropEast, faceEastHex, decorHere);
+    }
+    const levelSouth = levelAt(input, x, y + 1);
+    const dropSouth = levelHere - levelSouth;
+    if (dropSouth > 0 && hasWall(surface, x, y, 1)) {
+      drawSlopeFace(1, x, y, levelHere, dropSouth, faceSouthHex, decorHere);
+    }
   };
 }

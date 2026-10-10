@@ -20,9 +20,15 @@ import beitSahwan2Map from '../../../data/maps/beit_sahwan_2.json';
 import beitSahwan3Map from '../../../data/maps/beit_sahwan_3.json';
 import beitSahwan4Map from '../../../data/maps/beit_sahwan_4.json';
 import khanRafidMap from '../../../data/maps/khan_rafid.json';
+import khanRafid2Map from '../../../data/maps/khan_rafid_2.json';
+import khanRafid3Map from '../../../data/maps/khan_rafid_3.json';
 import deirAmunMap from '../../../data/maps/deir_amun.json';
+import deirAmun2Map from '../../../data/maps/deir_amun_2.json';
+import deirAmun3Map from '../../../data/maps/deir_amun_3.json';
 import marjPerimeter from '../../../data/maps/marj_perimeter.json';
 import qarnHadid from '../../../data/maps/qarn_hadid.json';
+import qarnHadid2Map from '../../../data/maps/qarn_hadid_2.json';
+import qarnHadid3Map from '../../../data/maps/qarn_hadid_3.json';
 import telMarum from '../../../data/maps/tel_marum.json';
 // Tel Marum's per-mission variants (docs/campaign/map-variants-design.md):
 // same 48x48 frame, same markers/zones, same rows 12-17 (the wall), obstacles
@@ -46,6 +52,7 @@ import ummZeitoun from '../../../data/maps/umm_zeitoun.json';
 // `post_stone` and `hamlet` contents -- obstacles bent around them per
 // mission. The base file is untouched; I and II stay on it (the basin's
 // "no wall, no gate, crossable anywhere" briefing is the point of both).
+import ummZeitoun2 from '../../../data/maps/umm_zeitoun_2.json';
 import ummZeitoun3 from '../../../data/maps/umm_zeitoun_3.json';
 import ummZeitoun4 from '../../../data/maps/umm_zeitoun_4.json';
 import wadiHalamBasin from '../../../data/maps/wadi_halam_basin.json';
@@ -87,6 +94,7 @@ import deirAmun1Recon from '../../../data/missions/deir_amun_1_recon.json';
 import deirAmun2Foothold from '../../../data/missions/deir_amun_2_foothold.json';
 import deirAmun3Subterranean from '../../../data/missions/deir_amun_3_subterranean.json';
 import tutorialBeitSahwan0 from '../../../data/tutorial/beit_sahwan_0.json';
+import firstUseHintsJson from '../../../data/hints/first_use.json';
 
 import mbtLavi from '../../../data/units/kdf/mbt_lavi.json';
 import ifvNamer from '../../../data/units/kdf/ifv_namer.json';
@@ -108,6 +116,9 @@ import yahalomSquad from '../../../data/units/kdf/yahalom_squad.json';
 import breachTeam from '../../../data/units/kdf/breach_team.json';
 import scoutShachaf from '../../../data/units/kdf/scout_shachaf.json';
 import apcKipod from '../../../data/units/kdf/apc_kipod.json';
+// E5 bought-only special forces (GH-181): `unlock` is `{ price }` alone, credits, no star gate.
+import reconZikit from '../../../data/units/kdf/recon_zikit.json';
+import heliPetenGunship from '../../../data/units/kdf/heli_peten_gunship.json';
 import militiaCell from '../../../data/units/enemy/militia_cell.json';
 import rpgTeam from '../../../data/units/enemy/rpg_team.json';
 import atgmCell from '../../../data/units/enemy/atgm_cell.json';
@@ -129,6 +140,7 @@ import catastrophicKill from '../../../data/vfx/catastrophic_kill.json';
 import fireApfsds from '../../../data/vfx/fire_apfsds.json';
 import fireAutocannon from '../../../data/vfx/fire_autocannon.json';
 import fireHeat from '../../../data/vfx/fire_heat.json';
+import rpgBackblast from '../../../data/vfx/rpg_backblast.json';
 import fireHmg from '../../../data/vfx/fire_hmg.json';
 import fireMissile from '../../../data/vfx/fire_missile.json';
 import fireMortar from '../../../data/vfx/fire_mortar.json';
@@ -138,10 +150,14 @@ import fireSmallArms from '../../../data/vfx/fire_small_arms.json';
 import missileImpact from '../../../data/vfx/missile_impact.json';
 import missileTrail from '../../../data/vfx/missile_trail.json';
 import shellImpact from '../../../data/vfx/shell_impact.json';
+import structureBurning from '../../../data/vfx/structure_burning.json';
 import structureCollapse from '../../../data/vfx/structure_collapse.json';
+import collapseFlash from '../../../data/vfx/collapse_flash.json';
 import tunnelCollapse from '../../../data/vfx/tunnel_collapse.json';
+import rotorWash from '../../../data/vfx/rotor_wash.json';
 import vehicleDust from '../../../data/vfx/vehicle_dust.json';
 import vehicleExhaust from '../../../data/vfx/vehicle_exhaust.json';
+import vehicleDamagedSmoke from '../../../data/vfx/vehicle_damaged_smoke.json';
 
 // The scene-host diorama (2026-09-24-scene-host §3.2/§10): a real map, a
 // camera and a few idle units, standing behind the main menu. One file, one
@@ -194,9 +210,15 @@ export const maps = {
   beit_sahwan_3: beitSahwan3Map,
   beit_sahwan_4: beitSahwan4Map,
   khan_rafid: khanRafidMap,
+  khan_rafid_2: khanRafid2Map,
+  khan_rafid_3: khanRafid3Map,
   deir_amun: deirAmunMap,
+  deir_amun_2: deirAmun2Map,
+  deir_amun_3: deirAmun3Map,
   marj_perimeter: marjPerimeter,
   qarn_hadid: qarnHadid,
+  qarn_hadid_2: qarnHadid2Map,
+  qarn_hadid_3: qarnHadid3Map,
   tel_marum: telMarum,
   tel_marum_1: telMarum1,
   tel_marum_2: telMarum2,
@@ -208,6 +230,7 @@ export const maps = {
   tile_scrub: tileScrub,
   tutorial_ground: tutorialGround,
   umm_zeitoun: ummZeitoun,
+  umm_zeitoun_2: ummZeitoun2,
   umm_zeitoun_3: ummZeitoun3,
   umm_zeitoun_4: ummZeitoun4,
   wadi_halam_basin: wadiHalamBasin,
@@ -286,6 +309,24 @@ export const tutorials = {
 
 export type TutorialId = keyof typeof tutorials;
 
+/** One first-use hint rule. Shape matches first_use_hints.schema.json. */
+export interface FirstUseHintRule {
+  id: string;
+  key: string;
+  keys?: Record<string, string>;
+  mission?: string[];
+  selected_type?: string[];
+  selected_over?: number;
+  force_over?: number;
+  carrier_empty_seat?: true;
+  enemy_pinned?: true;
+  resources?: true;
+}
+
+/** The one-line hints for lessons the tutorial no longer teaches (GH-345
+ *  follow-up). Read by @lions/app only; the sim never sees them. */
+export const firstUseHints: readonly FirstUseHintRule[] = firstUseHintsJson.rules as readonly FirstUseHintRule[];
+
 /** The full unit roster, keyed by unit id. Shapes match unit.schema.json. */
 export const units = {
   mbt_lavi: mbtLavi,
@@ -305,6 +346,8 @@ export const units = {
   breach_team: breachTeam,
   scout_shachaf: scoutShachaf,
   apc_kipod: apcKipod,
+  recon_zikit: reconZikit,
+  heli_peten_gunship: heliPetenGunship,
   militia_cell: militiaCell,
   rpg_team: rpgTeam,
   atgm_cell: atgmCell,
@@ -359,6 +402,10 @@ export const menuDiorama: DioramaJson = menuDioramaJson as DioramaJson;
  * `three/units/vehicle-fx.ts`'s top comment. Three-only: `renderer.ts` never
  * looks either vehicle emitter up, by design (VFX now live in three; see
  * CLAUDE.md's "VFX are exempt from this diff as of 2026-08-30").
+ * `structure_burning` is looked up by name as well, on the renderer's own
+ * timer for a mesh building in its lowest two HP bands and for its wreck's
+ * first seconds (GH-31, A3.2 remainder): a building on fire is a
+ * presentation of `hp`, not an event, exactly the ambient pair's shape.
  * `catastrophic_kill` is looked up by name too, off a `destroyed` event
  * whose type is a vehicle: the blast's light, screen shake and hit-stop
  * (WP-A1.2). It was the ONE file in `data/vfx/` this array did not carry,
@@ -379,6 +426,10 @@ export const vfxEmitters = [
   fireAutocannon,
   fireApfsds,
   fireHeat,
+  // The motion pass (5 Oct): a shoulder-fired tube's backblast, thrown
+  // behind the gunner by the renderer on the shot (not indexed by class:
+  // it rides on top of the class's own muzzle emitter).
+  rpgBackblast,
   fireMissile,
   fireMortar,
   cigaretteEmber,
@@ -386,10 +437,15 @@ export const vfxEmitters = [
   missileTrail,
   missileImpact,
   shellImpact,
+  structureBurning,
   structureCollapse,
+  collapseFlash,
   tunnelCollapse,
   vehicleDust,
   vehicleExhaust,
+  // Pass C2/C4 (P3): a living vehicle with a mobility or firepower kill.
+  vehicleDamagedSmoke,
+  rotorWash,
 ];
 
 /** Resolve a palette key like "vfx.fire" or "dust.2" to its hex colour. */
@@ -454,8 +510,8 @@ export function paletteTeamColors(variant: ColorVisionVariant): [kedem: string, 
  * (`packages/render/src/three/units/silhouette.ts`'s
  * `SILHOUETTE_COLOR_KEY_BY_SIDE`, which feeds every billboard
  * `UnitInstancer`'s own shader uniform AND the mesh path's shared
- * silhouette materials), the HP bar fill (`hpBarColorKey`), the
- * objective-zone tint (`objectiveZoneColorKey`), and the min-range ring. A
+ * silhouette materials), the HP bar fill (`hpBarColorKey`) and the
+ * objective-zone tint (`objectiveZoneColorKey`). A
  * plain `paletteColor` passed as `resolveColor` resolves `'team.hostile'`
  * to the DEFAULT hex regardless of the player's setting, which is exactly
  * the bug this function closes -- Task 12's `teamColors` tuple alone was

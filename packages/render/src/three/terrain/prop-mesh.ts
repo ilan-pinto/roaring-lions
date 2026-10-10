@@ -23,6 +23,7 @@
  * colour this asset class ever has.
  */
 import * as THREE from 'three';
+import { memoizeBatchCulling } from './batch-cull';
 import { WORLD_ROUGHNESS } from '../world-materials';
 import type { PropKind, PropMeshRole } from './prop-role';
 import { liftTone } from '../world-materials';
@@ -150,7 +151,8 @@ export function buildPropMesh(
     }
   }
 
-  return mesh;
+  // Culled and sorted once per view, not once per pass (`batch-cull.ts`).
+  return memoizeBatchCulling(mesh);
 }
 
 export function disposePropMesh(mesh: THREE.BatchedMesh): void {

@@ -1,0 +1,24 @@
+{
+  "unit": "recoilless_team",
+  "variant": "lead",
+  "source": "assets/meshes/recoilless_team.glb",
+  "source_sha256": "69c048bda394073a93f443aa7a52b2fbb62b4bb7fc0435c8504587bc1c162411",
+  "yaw_deg": -125.0,
+  "elevation_deg": 12.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "longer",
+    0.88
+  ],
+  "ndc_box": [
+    0.2172,
+    0.7828,
+    0.06,
+    0.94
+  ],
+  "materials": {
+    "baked": 4,
+    "flat": 2
+  },
+  "lead_figure": "rcl_fire"
+}

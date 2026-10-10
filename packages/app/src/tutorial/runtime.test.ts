@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { FireState } from '../ui/fire-state';
 import { advance, initTutorial, matches, type PredicateJson, type StepJson, type TutorialInput } from './runtime';
 
 const STEPS: StepJson[] = [
@@ -341,5 +342,74 @@ describe('the hover predicate', () => {
   it('a hover input satisfies no other predicate kind', () => {
     expect(matches({ kind: 'intent', intent: 'select' } as PredicateJson, hover(101), 0, 0)).toBe(false);
     expect(matches({ kind: 'sim', event: 'fire' } as PredicateJson, hover(101), 0, 0)).toBe(false);
+  });
+});
+
+// GH-345: the three predicates the nine-beat ladder needs.
+describe('the camera predicate', () => {
+  const p = { kind: 'camera', tiles: 6 } as PredicateJson;
+  it('matches once the view has moved far enough, and not before', () => {
+    expect(matches(p, { kind: 'camera', tilesFromStart: 5.9 }, 0, 0)).toBe(false);
+    expect(matches(p, { kind: 'camera', tilesFromStart: 6 }, 0, 0)).toBe(true);
+  });
+  it('is satisfied by no other input kind', () => {
+    expect(matches(p, { kind: 'tick' }, 0, 0)).toBe(false);
+    expect(matches({ kind: 'intent', intent: 'select' } as PredicateJson, { kind: 'camera', tilesFromStart: 99 }, 0, 0)).toBe(false);
+  });
+});
+
+describe('hover.projection', () => {
+  const at = (entity: number, projection: FireState | null): TutorialInput =>
+    ({ kind: 'hover', entity, structure: -1, sideOf: (e) => (e >= 100 ? 1 : 0), projection });
+  it('matches only the named projection, and only over an enemy', () => {
+    const p = { kind: 'hover', target: 'enemy', projection: 'cover' } as PredicateJson;
+    expect(matches(p, at(101, 'cover'), 0, 0)).toBe(true);
+    expect(matches(p, at(101, 'moving'), 0, 0)).toBe(false);
+    expect(matches(p, at(101, null), 0, 0)).toBe(false);
+    // Your own unit cannot be "in cover" for this lesson.
+    expect(matches(p, at(1, 'cover'), 0, 0)).toBe(false);
+  });
+  it('an all_of of four projections clears only when all four have been hovered', () => {
+    const steps: StepJson[] = [
+      {
+        id: 'read',
+        title: 'Read',
+        teach: 'Hover each.',
+        await: {
+          kind: 'all_of',
+          of: (['unidentified', 'cover', 'moving', 'out_of_reach'] as const).map((projection) => ({
+            kind: 'hover' as const,
+            target: 'enemy' as const,
+            projection,
+          })),
+        },
+      },
+      { id: 'next', title: 'Next', teach: '.', await: { kind: 'elapsed_s', seconds: 1 } },
+    ];
+    let s = initTutorial(steps, 0);
+    s = advance(s, at(101, 'unidentified'), 1);
+    s = advance(s, at(102, 'cover'), 2);
+    s = advance(s, at(103, 'moving'), 3);
+    expect(s.index).toBe(0);
+    s = advance(s, at(103, 'shot'), 4);
+    expect(s.index).toBe(0);
+    s = advance(s, at(104, 'out_of_reach'), 5);
+    expect(s.index).toBe(1);
+  });
+});
+
+describe('mission.id', () => {
+  it('matches a trigger or objective by its authored id', () => {
+    const p = { kind: 'mission', event: 'trigger', id: 'enter_ground' } as PredicateJson;
+    expect(matches(p, { kind: 'mission', event: { kind: 'trigger', tick: 1, id: 'enter_ground' } }, 0, 0)).toBe(true);
+    expect(matches(p, { kind: 'mission', event: { kind: 'trigger', tick: 1, id: 'other' } }, 0, 0)).toBe(false);
+    const o = { kind: 'mission', event: 'objective', id: 'evac' } as PredicateJson;
+    expect(
+      matches(o, { kind: 'mission', event: { kind: 'objective', tick: 1, id: 'evac', status: 'complete' } }, 0, 0)
+    ).toBe(true);
+  });
+  it('without an id, any event of the kind still matches', () => {
+    const p = { kind: 'mission', event: 'trigger' } as PredicateJson;
+    expect(matches(p, { kind: 'mission', event: { kind: 'trigger', tick: 1, id: 'x' } }, 0, 0)).toBe(true);
   });
 });

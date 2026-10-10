@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready small unmanned communications relay post, vernacular construction of a fictional arid river-basin region: a squat two-storey poured-concrete blockhouse with board-form marks, narrow slit windows and one heavy steel door on the front face, an external steel ladder to a flat roof with a low parapet, a tall steel lattice radio mast rising from the front corner of the roof carrying two small parabolic dishes and a conduit running down into the building. Real-world scale, 6 metres long, 3 metres deep, 6 metres tall, mast to 10 metres. Grey concrete, gunmetal steel, dust. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a10299-4609-75ff-a2b2-9ac0d2fc3b07",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 3502306325,
+    "prompt": "A single low-poly game-ready small unmanned communications relay post, vernacular construction of a fictional arid river-basin region: a squat two-storey poured-concrete blockhouse with board-form marks, narrow slit windows and one heavy steel door on the front face, an external steel ladder to a flat roof with a low parapet, a tall steel lattice radio mast rising from the front corner of the roof carrying two small parabolic dishes and a conduit running down into the building. Real-world scale, 6 metres long, 3 metres deep, 6 metres tall, mast to 10 metres. Grey concrete, gunmetal steel, dust. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1791044963656,
+    "progress": 100,
+    "started_at": 1791044963670,
+    "finished_at": 1791045034337,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10299-4609-75ff-a2b2-9ac0d2fc3b07/output/model.glb?Expires=4944585600&Signature=qY5KF-v69IlpHOW~NgXSTKosMR9ADnsc7eTZiUriMcdNv2vEqPz~~T6YeIJh7kvvz62Y4PcbpFfy4zGUQq70WqoZFJWZTPh99R~er7EJMhQu53GqP2OnlZ3WELJMM~tehjfzZ0G3GTKHKgxqrnPgjIwA-3z7jNPUTW0-XJnkYH1iIWv5Tg64ExBaIwTcBz5dRLZvj9LZVMvslbAo~QrkLF9K6lPM-6FNNKpf9TGgLgJzwytrwtnbhUYcBCpBH9Z9fQQru4RIJyFWj~J4lWCtv9O-c7JMy92ajfZpRUt3-SDrEsEMcxkZeXsm4lBrtnLQ7uTIWx~b7hznZ9Z-e9HH6g__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a10299-4609-75ff-a2b2-9ac0d2fc3b07/output/preview.png?Expires=4944585600&Signature=cTyPkniS2SM63XfNjg62yeCb6uUDNGkl95zaWeSYHtdKknPDHXk5wkonyfEJ9OzfxnGP-9zJkPwOPghgGsePbE9vyjfTyMjqv8MOhHoDq933CgOdHvtZ6EU5u4mWFucf3wj6~9oCIbcODncVkpuC6YHvOfgcKPkF5IAN-tN3poIysIIGUjT0Ml4yXOhK4NAYC99Slvh1WIGTuNcrc0QIumyMDGGFNff9wLrI4Uoteaml48VMJBVM9-QYlk-NmnxitQ9lYNdhCbxW7lHT~D05-ys0WB2kZag8S7~onqqfkLq2CtMTiaWpu5kdrKlA9YPh0bo5BaBzhNx3xHZbOg353Q__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1791044963656,
+    "started_at": 1791044963670,
+    "finished_at": 1791045034337
+  },
+  "usd_estimated": 0.4
+}

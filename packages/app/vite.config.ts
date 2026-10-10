@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import { palettePlugin } from './vite-plugin-palette';
 import { cursorsPlugin } from './vite-plugin-cursors';
 import { assetWatchPlugin } from './vite-plugin-asset-watch';
@@ -16,6 +17,24 @@ const GAME_VERSION = `${major}.${minor}`;
 // (`src/service-worker.ts`). Not `GAME_VERSION`: a patch release changes the
 // hashed assets, and a cache that survived it would serve the old ones.
 const APP_BUILD = pkg.version;
+// The exact commit, for a feedback note (GH-464): `main` deploys per push, so
+// two deploys can share a version, and a replay needs the commit. Cloudflare
+// Workers Builds names it in `WORKERS_CI_COMMIT_SHA`, GitHub Actions in
+// `GITHUB_SHA`; a local build asks git; anything else ships without one.
+function appCommit(): string {
+  const fromEnv = process.env.WORKERS_CI_COMMIT_SHA ?? process.env.GITHUB_SHA;
+  let sha = fromEnv ?? '';
+  if (sha === '') {
+    try {
+      sha = execSync('git rev-parse HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    } catch {
+      sha = '';
+    }
+  }
+  sha = sha.toLowerCase();
+  return /^[0-9a-f]{7,40}$/.test(sha) ? sha : '';
+}
+const APP_COMMIT = appCommit();
 
 export default defineConfig({
   // The palette reaches CSS as --rl-* custom properties, from the same
@@ -34,6 +53,7 @@ export default defineConfig({
   define: {
     __GAME_VERSION__: JSON.stringify(GAME_VERSION),
     __APP_BUILD__: JSON.stringify(APP_BUILD),
+    __APP_COMMIT__: JSON.stringify(APP_COMMIT),
   },
   // GitHub Pages serves the app from /<repo>/, so asset URLs need that
   // prefix; local dev and the preview harness stay at the root.

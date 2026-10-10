@@ -26,7 +26,7 @@ against its class's reference first:
 
 | class | reference | why that one |
 |---|---|---|
-| infantry | the 1.78 m KDF rifleman (`meshy_soldier.glb`) | the thing every other unit is judged against |
+| infantry | the 1.78 m KDF rifleman (`inf_squad.glb` since B7; `meshy_soldier.glb` before) | the thing every other unit is judged against |
 | vehicles | `technical.glb` (enemy light) / `mbt_lavi.glb` (heavy) | the two ends of the ground roster |
 | air | `recon_drone`, drawn at `SIZE_CLASS["air"]` 1.5 | an air unit must be at least as clickable as a soldier (25.8 px vs 25.7) |
 | buildings | the tile (3 m) and the storey (3 m) | a building's base *is* a tile diamond |
@@ -156,6 +156,14 @@ above (refine, then remesh) stands and the `retexture` fallback (10) was not nee
 One consequence worth knowing: the CLI has no standalone `refine <preview-id>`, so a
 textured unit runs `text --refine` as ONE call (30) and the preview cannot be judged
 before the refine spends; the remesh (5) is the step that can still be withheld.
+
+**The lead's standing rule since 2 Oct 2026 — every model at MAXIMUM DETAIL.**
+Detailed prompts (gear, weathering; stencils with no readable text on a vehicle,
+still no real-world insignia), the refine at the highest texture setting
+(`--tex 8k`, 15 credits, +5 over the 2k row above), and simplification only to a
+MEASURED budget, saying what the cap cost. Polycount still comes from the remesh
+and the class row in §3, never from adjectives. A textured unit is therefore 40
+credits, not 35, and a crew weapon part that ships a bake is 40, not 25 (B8).
 
 **Rules that are not optional:**
 
@@ -304,8 +312,9 @@ both of the first two lists — `manpad_team` and `recoilless_team` are kit-buil
 that never exported a GLB — so the work is **17 distinct units**, not 19. The other ten
 kit-built teams: `demo_squad`, `at_team`, `breach_team` (KDF); `militia_cell`,
 `rpg_team`, `atgm_cell`, `mortar_crew`, `charge_squad`, `digger_crew`, `moto_rpg`
-(enemy). Already Meshy-sourced and out of scope: `inf_squad`, `sarim_rifles`,
-`mortar_team`, `yahalom_squad`, `sniper_team`.
+(enemy). Already Meshy-sourced and out of scope at the time: `inf_squad`, `sarim_rifles`,
+`mortar_team`, `yahalom_squad`, `sniper_team` -- replaced in B7 (§14) on the lead's
+2026-10-01 ruling, with the civilians' supplied bakes kept.
 
 Three units per session, one importer run and one gate run each, two batches per
 visual bless (from CI numbers only).
@@ -590,3 +599,99 @@ otherwise.
 - **"Two canvas panniers and a rolled bedroll" came as one roll bag** -- the
   silhouette, not the count (bible §8 again). Kept: it is the lateral mass
   the kit's panniers existed for and the pillion's back rests on it.
+
+## 14. Measured in B7 (2026-10-01)
+
+- **A refine can be bought on an old preview.** `refine <preview-task-id>`
+  (new CLI command) textured B2's two figures a day after their previews for
+  10 credits each; the remesh of the refined task at the SAME polycount gave a
+  near-identical shell, but not an identical one -- the MANPAD's seat search
+  found no seat inside its 0.10 m outboard limit where B2's had, by 3 samples
+  within 2 cm. The search now reports the nearest candidate and which rule
+  refused it before anyone widens a limit.
+- **"Standing in a relaxed A-pose" lost twice more -- to "rifleman" and to
+  "sniper".** Both KDF previews came holding a carbine (across the chest in
+  both hands; aimed). Both kept: `ARMS_ON_TORSO` on both sides, the carbine as
+  the weapon on `spine`, a `FIRE_ROOT_LEAN` brace. The engineer, the mortar
+  crewman and the Sarim rifleman honoured the pose. Score on this pipeline:
+  nine previews of twenty-one ignored the pose line.
+- **A prone pose is the kneel's method laid flat, and the arms decide what
+  works.** With its arms welded to the gun, the sniper's body lies on them;
+  the long rifle has to lie BESIDE the head rather than under the hands, and
+  kit's prone offsets (written for a 0.25 m-thick kit body) put it inside a
+  0.5 m-thick Meshy one. Placed from the measured head instead.
+- **`work` is built in rig.py now** (`build_work_clip`, `work_posture`): a
+  third body per figure that kneels, shown in one clip, its own mast pitched
+  into the ground. The cost is the body -- `yahalom_squad` ships 10,482 glTF
+  tris, the largest team file in the batch.
+- **A mast is `metal`.** kit.tube's default `weapon` role put a 48-vertex bar
+  on `forearm_R` and the weapon-axis gate read it as a barrel too small to
+  gate. The role was wrong, not the gate.
+- **The civilians' bake was there all along.** Four supplied 4096 bakes,
+  dropped at import since GH-149 by the contract's "zero materials"; kept now
+  at 1024 JPEG for 0 credits, with the four basenames mapped to one type id
+  on the gate side so the pinned lists stay equal.
+- **A triangle that straddles a cut becomes a spike.** At 1,000-1,500 tris
+  a remesh's triangles reach ~10 cm; classified whole by centroid, the ones
+  crossing the knee or the arm root tore into shards when the kneel or the
+  arm hang turned their neighbours (the lead's review of the mortar team).
+  The source is bisected along the hinge planes before the cut now, for
+  every team on this path. Not a remesh problem and not a decimation one.
+- **Kit positions assume kit bodies, again** (B0b's lesson, third time): the
+  yahalom packs sat 0.18 m behind a kit axis and ran through a Meshy chest
+  (86-89 samples inside). Seated behind the measured back; 0 inside; gated.
+- **A dark-olive bake on a militia man reads as the other army** (the lead,
+  2 Oct). The B7 Sarim rifleman and the refined B2 MANPAD man were tan in
+  their thumbnails and KDF at 25 px; both teams moved to B3's militia_cell
+  body, the shipped Sarim figure, for 0 credits. The side's look is the BODY
+  the importer maps a team to, not the prompt's colour words -- 50 credits
+  of this batch bought figures that do not ship.
+- Counts (glTF tris, after the bisection): manpad 11,440, recoilless 12,432,
+  inf_squad 8,664, sarim 12,898, mortar_team 11,766, sniper 7,938, yahalom
+  12,410 -- all over the 8,000 team cap, where the supplied files they
+  replace read 31,965 / 180,670 / 20,544 / 30,876 / 27,991. 205 credits of
+  the 240 approved.
+
+## 15. Measured in B8 (2026-10-02)
+
+- **An 8k refine's remesh carries 8k.** The Namer's 8,000-tri remesh arrived
+  with an 8192² base colour and 4096² normal / metallic-roughness (74 MB GLB);
+  the two 600-tri parts likewise (40 and 66 MB). All of it is downscaled at
+  export (2048 for a vehicle, 1024 for a figure's atlas half), so the 8k buys a
+  sharper 2048, not a bigger file; the downloads are not committed.
+- **"No weapon fitted" lost again on a tracked hull.** The Namer preview put a
+  gun tube on the glacis, as the Eitan's did; the ramp module gained the APC
+  module's `gun` collapse for it.
+- **A remesh is a triangle soup by vertex connectivity.** `separate(LOOSE)` on
+  the sniper part gave 361 islands; a `remove_doubles` at 0.1 mm first gives the
+  two objects the prompt asked for. UVs live on loops and survive the weld.
+- **A textured part beside a textured figure needs ONE material, so it needs an
+  atlas.** Two materials in one role export as two primitives (`weapon_1`,
+  `weapon_2`) that no role maps; the importer composes the part's bake beside the
+  figure's in a 2048×1024 `base_color` and remaps u. Kit pieces left in a shared
+  role borrow a uv from the part.
+- **"Elevated at seventy degrees" was ignored.** The mortar came at ~35°, a
+  machine-gun angle with a mortar's round plate; shipped as is and named in the
+  provenance for the lead to rule on.
+- **A detailed prompt can still land in the wrong era.** The Namer preview
+  honoured every named feature and read as a WWII tank destroyer anyway
+  (sloped, low, an old-style turret, too light an olive) -- the lead rejected
+  it at the capture; it is not shipped and a v2 runs on `art/namer-v2` with the
+  hull's SHAPE (tall, boxy, engine forward, flat high roof, rear ramp) named
+  ahead of its fittings. 40 credits bought a measurement, not a mesh.
+- Counts: `mortar_team` 10,743 tris (was 11,766); `sniper_team` 8,012 (was
+  7,938). 120 credits, no re-roll, balance 3,165 after.
+
+## 16. Measured in B8 v2 (2026-10-02, the Namer again)
+
+- **The negative prompt did not remove the turret.** `negative_prompt` ("tank
+  destroyer, sloped casemate, gun turret, cannon barrel, WWII, vintage, low hull,
+  rivets") moved the ERA and the hull -- a tall modern box with a bonnet and a rear
+  ramp where v1 was a sloped casemate -- and still left a gun turret on the roof.
+  On this pipeline "no weapon fitted" has now lost four times (Eitan, Kipod stub,
+  Namer v1, Namer v2); the exporter's collapse is the reliable half, not the prompt.
+- **A colour word in the prompt is a suggestion.** "Sand-olive" came back desert
+  tan; the bake fix (`sand_olive`, a hue pull like the Shachaf's `olive_shift`)
+  is what put it beside the Eitan. Judge colour on the capture, not the thumbnail.
+- `ifv_namer` 7,810 tris (hull 2,354, tracks 5,404, kit RWS 22); 40 credits,
+  balance 3,125 after.

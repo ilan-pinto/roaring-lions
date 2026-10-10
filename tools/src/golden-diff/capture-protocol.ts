@@ -7,80 +7,57 @@
 // wall and answers it the same way this file does: run inside a real
 // browser tab pointed at the app's own Vite dev server, not a synthetic DOM.
 //
-// This file is NOT a script you execute -- `pixiUrl`/`threeUrl`/`captureScript`
-// build what a browser-driving caller needs, so the browser-driving half (a
-// human in devtools, or an agent with browser automation tools, or
-// `tools/src/ci/golden-diff-gate.ts` driving Playwright) has one source of
-// truth for "what counts as an identical scenario" rather than several
-// copies that can drift. Read this file top to bottom before capturing; the
-// protocol below is what was actually run to produce
-// `.superpowers/d-golden-diff-report.md`'s numbers, generalised afterward
-// (Phase D item #20/#8) to more than the one scenario it started with.
+// This file is NOT a script you execute -- `threeUrl`/`captureScript` build
+// what a browser-driving caller needs, so every caller
+// (`ci/three-baseline-gate.ts` driving Playwright, the perf capture
+// harnesses, or a human in devtools) has one source of truth for "what
+// counts as an identical scenario" rather than several copies that can
+// drift.
+//
+// It was written for the cross-backend diff (`ci/golden-diff-gate.ts`,
+// Pixi against three, report-only from 2026-09-02) and kept `pixiUrl` for
+// it; that harness, `pixiUrl` and `expected-differences.ts` went with the
+// Pixi backend (WP-A3.3). The visual gate was always three against a
+// committed three baseline, and that is all this file serves now.
 //
 // ============================================================================
 // Scenarios
 // ============================================================================
 //
-// A `Scenario` is everything needed to put both backends into an identical,
+// A `Scenario` is everything needed to put the renderer into a fixed,
 // comparable state: which map, where the camera looks, how far to
-// fast-forward the sim, and (optionally) a camera zoom. Each scenario is its
-// own gate in `golden-diff-gate.ts`, with its own budget -- see that file's
-// top comment for why a single global threshold across scenes with
-// genuinely different content is the wrong instrument.
+// fast-forward the sim, and (optionally) a camera zoom. Each scenario has
+// its own budget in `baseline.ts` -- a single global threshold across scenes
+// with genuinely different content is the wrong instrument.
 //
-// `QUIET_SCENARIO` is the original, and the only one measured by a real
-// GPU-accelerated Chrome by hand (`.superpowers/d-golden-diff-report.md`):
-// a static, order-free sandbox scan with no vehicle, no combat, no open
-// ground at zoom. It stayed the CI default while it was the only scenario
-// that existed; it is NOT representative of the whole game -- see
-// `.superpowers/d-readiness-audit.md` item "The 0.143% scene has exactly one
-// unit in frame."
+// `QUIET_SCENARIO` is the original: a static, order-free sandbox scan with
+// no vehicle, no combat, no open ground at zoom. It is NOT representative
+// of the whole game -- see `.superpowers/d-readiness-audit.md` item "The
+// 0.143% scene has exactly one unit in frame."
 //
 // `OPEN_GROUND_SCENARIO` closes the gap the quiet scenario cannot see by
 // construction: it never frames open ground at zoom, which is exactly where
 // `.superpowers/d-scatter-report.md` found three's dominant stone-grain mark
 // silently invisible on 4 of 5 shipped maps. Parameters below (map, marker,
-// ticks, zoom) match that report's own manual walk exactly, since that walk
-// already proved out where the defect is visible and confirmed a real
-// `pnpm dev` capture at those settings shows it -- re-deriving different
-// parameters from scratch would only risk missing the framing that is known
-// to work.
+// ticks, zoom) match that report's own manual walk exactly.
 //
 // ============================================================================
-// Protocol
+// Protocol (by hand; the gate automates the same steps)
 // ============================================================================
 //
 // 1. Have a Vite dev server for THIS worktree running (check with `lsof` or
 //    similar that its cwd is this checkout -- CLAUDE.md's hard constraint:
 //    never kill someone else's `pnpm dev`, never assume port 5173 is yours).
-//    If none is running, start your own on a different port
-//    (`pnpm --filter @lions/app dev` with `PORT=<port>` set -- vite.config.ts
-//    reads `PORT`, defaulting to 5173).
 //
-// 2. Open ONE browser tab (real Chrome, via any automation surface that can
-//    navigate, eval JS, and screenshot a CSS-pixel region -- e.g.
-//    claude-in-chrome's `navigate` / `javascript_tool` / `computer{zoom}`, or
-//    Playwright as `golden-diff-gate.ts` does). Resize its window ONCE to a
-//    fixed size and reuse the SAME tab/window for both captures of a given
-//    scenario, so window chrome and any DPR quirks cancel out identically.
-//    Record whatever canvas rect you actually get; do not assume a number.
+// 2. Open ONE browser tab at a fixed window size and reuse it, so window
+//    chrome and any DPR quirks cancel out. Record the canvas rect you get.
 //
-// 3. For EACH backend (pixi first, then three), in the SAME tab:
-//    a. navigate to that backend's URL for the scenario (see
-//       `pixiUrl`/`threeUrl` below)
-//    b. wait for boot (~2-3s is enough on a warm dev-server cache; poll
-//       `typeof window.__lions !== 'undefined'` if you want a real gate
-//       rather than a fixed sleep)
-//    c. run `captureScript(scenario)` and keep its returned
-//       `{camera, rect}` -- diff it against the OTHER backend's returned
-//       value before trusting the screenshots. They must match exactly (a
-//       mismatch means the two captures are not comparable at all --
-//       different framing, not a rendering difference).
-//    d. screenshot exactly `rect` (not the whole viewport -- HUD chrome
-//       outside the canvas is identical DOM/CSS on both backends and only
-//       adds noise) and save it to disk.
+// 3. Navigate to `threeUrl(port, scenario)`, wait for boot (poll
+//    `typeof window.__lions !== 'undefined'`), run `captureScript(scenario)`
+//    and keep its returned `{camera, rect}`, then screenshot exactly `rect`
+//    (HUD chrome outside the canvas only adds noise).
 //
-// 4. Run `diff.ts` on the two saved PNGs.
+// 4. Run `diff.ts` on the saved PNG and the reference.
 //
 // Why a real compositor screenshot, not `canvas.toDataURL()`/`readPixels`:
 // CLAUDE.md is explicit that `preserveDrawingBuffer` stays OFF in shipping
@@ -137,9 +114,9 @@ export interface Scenario {
   /** One line: what this scenario frames and why it exists. */
   description: string;
   /** Exactly one of `sandboxMap`/`mission` must be set -- `captureScript`
-   *  and `pixiUrl`/`threeUrl` throw if neither is, or both are. A `mission`
+   *  and `threeUrl` throw if neither is, or both are. A `mission`
    *  scenario gates behind the loading screen's deploy click (see `orders`'
-   *  own comment and `capture()` in `golden-diff-gate.ts`), which a
+   *  own comment and the gate's own capture loop), which a
    *  `sandboxMap` scenario never does (`main.ts`'s `showLoading` only holds
    *  deployment for a mission's own briefing -- `briefingHoldsDeployment`,
    *  `ui/loading.ts` -- and the sandbox passes no briefing at all). */
@@ -433,6 +410,40 @@ export const VEHICLE_SCENARIO: Scenario = {
   targetTick: 140,
 };
 
+/** `VEHICLE_SCENARIO`'s own map, camera and tick, with `&kit` (GH-238, plan 3
+ *  K8): the same mesh vehicles, each carrying the sandbox ladder's kit
+ *  (`SANDBOX_KIT_LEVELS`, applied by `bootTiers` before the one
+ *  `upgradePrepass`) merged into its host geometry at load
+ *  (`three/units/vehicle-kit.ts`). Deliberately not a new framing, for the
+ *  reason `DUSK_SCENARIO` gives: the useful comparison is the SAME shot with
+ *  one thing added, and `vehicle` itself stays the kit-free reference, so a
+ *  regression that only shows with kit on reads here and nowhere else.
+ *
+ *  WHY IT EXISTS. Before it, no gated frame carried a single kit part: the
+ *  sandbox force boots with an empty brigade account, so `vehicle` draws
+ *  every hull at L0 and deleting every `kit_*` node from the eight GLBs
+ *  would leave the gate green. Its `kit` layer check (`BASELINES.kitted`)
+ *  asks whether the merged kit contributes pixels -- reference-free, so it
+ *  votes even before this scenario has a baseline.
+ *
+ *  GATED FROM BIRTH, with no baseline committed in the same change: the
+ *  first `kitted` entry in an existing environment's manifest comes from the
+ *  post-merge bless, so until then CI's `visual` job is red (exit 1, a
+ *  missing entry in an EXISTING manifest) -- the `aftermath` precedent, and
+ *  intended. Do not bless it from the branch. */
+export const KITTED_SCENARIO: Scenario = {
+  id: 'kitted',
+  description:
+    "vehicle's own map/camera/tick (beit_sahwan_outskirts sandbox force's mbt_lavi tile, tick 140) " +
+    "with &kit -- the same mesh vehicles carrying the sandbox ladder's kit, the only gated frame " +
+    'with any kit part in it (GH-238 K8).',
+  sandboxMap: VEHICLE_SCENARIO.sandboxMap,
+  sandboxFlags: ['kit'],
+  cameraTile: VEHICLE_SCENARIO.cameraTile,
+  ticks: VEHICLE_SCENARIO.ticks,
+  targetTick: VEHICLE_SCENARIO.targetTick,
+};
+
 /** Real combat: `beit_sahwan_3_clearance`'s own opening roster, ordered to
  *  fight. Closes the gap named in `docs/superpowers/specs/2026-08-29-phase-d-todo.md`
  *  #8 -- `.superpowers/d-combat-diff-report.md` measured 2.133%-3.395% on
@@ -645,8 +656,8 @@ export const DUSK_SCENARIO: Scenario = {
   targetTick: QUIET_SCENARIO.targetTick,
 };
 
-/** Every scenario this harness knows about. `golden-diff-gate.ts` runs all of
- *  them, each against its own budget. Add a new one here rather than
+/** Every scenario this harness knows about. `three-baseline-gate.ts` runs
+ *  all of them, each against its own budget. Add a new one here rather than
  *  building another ad-hoc scenario by hand.
  *
  *  Adding one here and forgetting its `BASELINES` entry is caught by
@@ -657,6 +668,7 @@ export const SCENARIOS: readonly Scenario[] = [
   QUIET_SCENARIO,
   OPEN_GROUND_SCENARIO,
   VEHICLE_SCENARIO,
+  KITTED_SCENARIO,
   RELIEF_SCENARIO,
   AFTERMATH_SCENARIO,
   DUSK_SCENARIO,
@@ -689,21 +701,10 @@ function sceneParam(scenario: Scenario): string {
   throw new Error(`scenario "${scenario.id}" sets neither sandboxMap nor mission`);
 }
 
-export function pixiUrl(port = 5173, scenario: Scenario = QUIET_SCENARIO): string {
-  // Explicit `&renderer=pixi`, not just the absence of `&renderer=three`.
-  // `renderer-choice.ts` falls back to whatever `localStorage['lions.renderer']`
-  // last held when the query param is absent, and that storage is per-ORIGIN
-  // (CLAUDE.md, "The three.js backend"'s last bullet) -- shared across every tab
-  // and every capture ever run against this dev server, this harness's own three
-  // capture included. Without this, a "pixi" capture taken on an origin whose
-  // storage was last set to 'three' silently boots three too, and the two
-  // screenshots come back byte-identical: a real trap this file hit once,
-  // caught only by both PNGs being suspiciously the same size and MD5.
-  return `${baseUrl(port)}/?${sceneParam(scenario)}&renderer=pixi`;
-}
-
+/** The scenario's URL. It carried `&renderer=three` until WP-A3.3, when
+ *  the backend choice was retired (`?renderer=` is accepted and ignored). */
 export function threeUrl(port = 5173, scenario: Scenario = QUIET_SCENARIO): string {
-  return `${baseUrl(port)}/?${sceneParam(scenario)}&renderer=three`;
+  return `${baseUrl(port)}/?${sceneParam(scenario)}`;
 }
 
 /** Statements (not an expression) that stop the app's own rAF frame loop.
@@ -745,6 +746,40 @@ if (!window.__lionsCaptureFrozen) {
   window.__lionsCaptureFrozen = true;
   window.requestAnimationFrame = function () { return 0; };
   await new Promise(function (r) { _raf(function () { _raf(function () { r(null); }); }); });
+}
+`.trim();
+
+/** The HUD's alert feed (`.rl-feed`, `ui/hud.ts`), taken out of every
+ *  scenario photograph. Statements, run inside `captureScript`'s async IIFE.
+ *
+ *  WHY. The feed is the one piece of chrome in shot whose content moves on the
+ *  WALL clock: a line enters on a CSS animation, dwells on a `setTimeout`
+ *  (`FEED_DWELL_MS`, 7-12 s) and leaves on a fade. Freezing the frame loop
+ *  stops none of that. Until #488 (PA-25) a sandbox ran no alert layer, so the
+ *  feed was empty in every gated scenario and it did not matter; since #488 a
+ *  sandbox fight writes lines ("2 tunnels found -- route and shafts marked"),
+ *  and between the gate's two repaint-control photographs, taken seconds
+ *  apart, a line's dwell runs out. Measured on main run 37897958966 (the #490
+ *  re-bless): repaint-control 15213 px / 1.5732 on `kitted`, 7305 / 0.2858 on
+ *  `relief`, 9713 / 0.3254 on `aftermath`, and `quiet`'s scatter tone ratio
+ *  0.6366 against its bit-identical 0.9250 -- a toggle pair contaminated by a
+ *  line leaving. No gated scenario judges the feed; the strip stays in shot.
+ *
+ *  A stylesheet, not an inline style, so a row the HUD adds or re-creates
+ *  later is hidden too; `display: none`, not `visibility`, so lines arriving
+ *  and leaving cannot reflow the column the feed heads. It THROWS when the
+ *  page has no `.rl-feed` -- a renamed class would otherwise hide nothing,
+ *  silently, and the drift would come back as "renderer noise". Idempotent
+ *  by the style's id. Capture-only: shipping code is untouched. */
+export const HIDE_ALERT_FEED_STATEMENTS = `
+if (!document.querySelector('.rl-feed')) {
+  throw new Error('capture: no .rl-feed in the page -- the alert feed moved, so the capture cannot keep it out of shot');
+}
+if (!document.getElementById('rl-capture-hide-feed')) {
+  const _s = document.createElement('style');
+  _s.id = 'rl-capture-hide-feed';
+  _s.textContent = '.rl-feed { display: none !important; }';
+  document.head.appendChild(_s);
 }
 `.trim();
 
@@ -873,6 +908,7 @@ export function captureScript(scenario: Scenario = QUIET_SCENARIO): string {
   const parkLine = scenario.mission !== undefined ? `${PARK_POINTER_STATEMENTS}\n` : '';
   return `(async () => {
 ${FREEZE_FRAME_LOOP_STATEMENTS}
+${HIDE_ALERT_FEED_STATEMENTS}
 ${gotoLine}
 ${zoomLine}${ordersLine}${parkLine}${stepLine}
 ${CAPTURE_PRECONDITION_STATEMENTS}

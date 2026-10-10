@@ -1,0 +1,23 @@
+{
+  "unit": "technical",
+  "variant": "team",
+  "source": "assets/meshes/vehicles/technical.glb",
+  "source_sha256": "bbc225764cd3f0f1bd6610ff82a876bcccc24a0f88c093f7406ed8ebec766bd9",
+  "yaw_deg": -125.0,
+  "elevation_deg": 18.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "width",
+    0.92
+  ],
+  "ndc_box": [
+    0.04,
+    0.96,
+    0.1881,
+    0.8119
+  ],
+  "materials": {
+    "baked": 5,
+    "flat": 0
+  }
+}

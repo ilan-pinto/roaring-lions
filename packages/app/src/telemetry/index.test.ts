@@ -119,6 +119,13 @@ describe('Telemetry', () => {
     ]);
   });
 
+  it('sends the beat id with the step, and omits it when none is given', () => {
+    const h = harness();
+    h.tel.tutorialStep(0, 9, 'look_around');
+    h.tel.tutorialStep(1, 9);
+    expect(h.sent.map((e) => (e.type === 'tutorial_step' ? e.id : 'x'))).toEqual(['look_around', undefined]);
+  });
+
   it('times tutorial steps from the previous one', () => {
     const h = harness();
     h.tel.tutorialStep(0, 14);

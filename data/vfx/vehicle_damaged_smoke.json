@@ -1,0 +1,22 @@
+{
+  "id": "vehicle_damaged_smoke",
+  "trigger": "mobility_kill",
+  "layer": "above_units",
+  "budget_priority": 2,
+  "particles": [
+    {
+      "sprite": "smoke_puff",
+      "count": [1, 1],
+      "lifetime_ms": [1800, 2600],
+      "emit_over_ms": 600,
+      "speed_tiles_s": [0.08, 0.18],
+      "cone_deg": 18,
+      "gravity_tiles_s2": -0.45,
+      "drag": 0.6,
+      "size_px": [9, 14],
+      "size_over_life": [0.5, 1.3, 2.2],
+      "color_over_life": ["gunmetal.3", "gunmetal.2", "gunmetal.1"],
+      "alpha_over_life": [0.6, 0.4, 0.0]
+    }
+  ]
+}

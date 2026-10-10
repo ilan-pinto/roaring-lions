@@ -36,6 +36,24 @@ describe('hintFor', () => {
   });
 });
 
+describe('hintFor: contextual first-use lines', () => {
+  const line = { key: 'hud.hint.first.sniper', id: 'sniper' };
+  it('shows the owed rule above the plain selection line', () => {
+    expect(hintFor({ ...base, selected: 1, contextual: line })).toEqual(line);
+  });
+  it('yields to projected fire and to the dock, and to nothing else', () => {
+    expect(hintFor({ ...base, selected: 1, hoveringHostile: true, sawProjectedFire: false, contextual: line })?.key).toBe('hud.hint.projectedFire');
+    expect(hintFor({ ...base, sawDock: false, contextual: line })?.key).toBe('hud.hint.dock');
+  });
+  it('the dock line carries its memory id so it can be marked shown', () => {
+    expect(hintFor({ ...base, sawDock: false })?.id).toBe('dock');
+  });
+  it('null and absent both fall through to the ordinary line', () => {
+    expect(hintFor({ ...base, contextual: null })?.key).toBe('hud.controlHint');
+    expect(hintFor(base)?.key).toBe('hud.controlHint');
+  });
+});
+
 describe('first-use memory', () => {
   // Map-backed, not `window.localStorage`: this vitest jsdom config hands
   // that back as a bare `{}` (CLAUDE.md), so a fake is the only way to prove
@@ -53,14 +71,42 @@ describe('first-use memory', () => {
   };
   it('round-trips and defaults to unseen', () => {
     const s = store();
-    expect(loadSeen(s)).toEqual({ projectedFire: false, dock: false });
+    expect(loadSeen(s)).toEqual({ projectedFire: false, dock: false, orderRow: false });
     markSeen(s, 'dock');
-    expect(loadSeen(s)).toEqual({ projectedFire: false, dock: true });
+    expect(loadSeen(s)).toEqual({ projectedFire: false, dock: true, orderRow: false });
   });
   it('survives a store that is missing, blocked, or holding rubbish', () => {
-    expect(loadSeen(null)).toEqual({ projectedFire: false, dock: false });
+    expect(loadSeen(null)).toEqual({ projectedFire: false, dock: false, orderRow: false });
     const bad = { getItem: () => '{{{', setItem: () => { throw new Error('blocked'); }, removeItem: () => {} };
-    expect(loadSeen(bad)).toEqual({ projectedFire: false, dock: false });
+    expect(loadSeen(bad)).toEqual({ projectedFire: false, dock: false, orderRow: false });
     expect(() => markSeen(bad, 'dock')).not.toThrow();
+  });
+});
+
+// WP-P5 (PA-16): the order-row line retires after the first session.
+describe('hintFor: the order-row line is first-session scaffolding', () => {
+  it('a selection shows it until a session that showed it has ended', () => {
+    expect(hintFor({ ...base, selected: 2, sawOrderRow: false })?.key).toBe('hud.hint.selected');
+    expect(hintFor({ ...base, selected: 2, sawOrderRow: true })).toBeNull();
+  });
+
+  it('retiring it leaves the empty-selection controls line and every first-use line alone', () => {
+    expect(hintFor({ ...base, sawOrderRow: true })?.key).toBe('hud.controlHint');
+    expect(
+      hintFor({ ...base, selected: 2, hoveringHostile: true, sawProjectedFire: false, sawOrderRow: true })?.key
+    ).toBe('hud.hint.projectedFire');
+  });
+
+  it('is remembered across sessions beside the other first-use flags', () => {
+    const mem = new Map<string, string>();
+    const store = {
+      getItem: (k: string) => mem.get(k) ?? null,
+      setItem: (k: string, v: string) => void mem.set(k, v),
+      removeItem: (k: string) => void mem.delete(k),
+    };
+    expect(loadSeen(store).orderRow).toBe(false);
+    markSeen(store, 'dock');
+    markSeen(store, 'orderRow');
+    expect(loadSeen(store)).toMatchObject({ dock: true, orderRow: true, projectedFire: false });
   });
 });

@@ -1,5 +1,11 @@
 // What the narrow saddle costs, measured. Run: npx tsx tools/src/backtest/saddle-price.ts
 //
+// STALE ON `tel_marum_3` SINCE GH-382: this was written against the old copy of the base map
+// (corridor at x 9-12, y 12-18, waypoints below in those coordinates). Tel Marum III now plays on
+// its own massif (`tel_marum_3`, `tel_marum_ground.test.ts`), where the defile is longer, winds, and
+// is measured by that test instead; point MISSION at a mission on the base map before running.
+// The 1.20 / 0.30 numbers quoted in CLAUDE.md belong to the base map and its doctrine test.
+//
 // Tel Marum III offers two ways through the wall. The wide pass lies under two
 // Kornet pockets; the narrow corridor is +10 tiles, infantry-only since the
 // boulder field landed, and covered by nothing that can reach it except the

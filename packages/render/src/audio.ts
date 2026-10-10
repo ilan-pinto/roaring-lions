@@ -42,16 +42,38 @@ export interface MusicTrack {
   file: string;
   alt?: string;
   title?: string;
+  /** A level correction for this file alone, in dB, applied to the element's
+   *  volume (polish pass F, F4): the theme's true peak reads +0.2 dBTP, so it
+   *  carries -1.2. `pnpm validate:audio` re-measures it. */
+  trim_db?: number;
   license?: string;
   source?: string;
   credit?: string;
 }
 
 export interface MusicSpec {
-  /** Element volume, 0..1, multiplied by `master_gain`. */
+  /** Element volume on the menu screens, 0..1, multiplied by `master_gain`. */
   gain?: number;
+  /** Element volume inside a mission (polish pass F, A10: 0.26 against the
+   *  menu's 0.4). Absent reads as `gain`. */
+  battle_gain?: number;
   /** Played in order and wrapped; a single track simply loops. */
   tracks?: MusicTrack[];
+  /** AU-7: the mission's two beds, re-cut from the theme. With both declared,
+   *  a mission fades the theme out and plays these at `battle_gain`, calm
+   *  until combat picks up (MusicIntensity). Without them a mission plays the
+   *  theme at `battle_gain`, as before. */
+  beds?: Partial<Record<MusicBed, MusicBedSpec>>;
+}
+
+/** AU-7: the mission's two music beds. */
+export type MusicBed = 'calm' | 'battle';
+
+/** One bed: a seamless loop, as a track, plus what `pnpm validate:audio`
+ *  re-measures from both encodings (written by tools/recut_music.py). */
+export interface MusicBedSpec extends MusicTrack {
+  loop_s?: number;
+  channels?: number;
 }
 
 /** One recorded take (spec §6, D9): provenance plus `en`, the caption (R-18). */
@@ -77,20 +99,99 @@ export interface VoiceManifest {
   /** Faction -> language code. */
   languages?: Record<string, string>;
   lines?: Record<string, VoiceLine>;
+  /** GH-110: the announcement table (`app`'s `voice/announce.ts` reads it). */
+  announcements?: AnnouncementManifest;
 }
+
+/** One announcement (GH-110): a caption key now, an audio line key later. */
+export interface AnnouncementDef {
+  /** An i18n key, never text. */
+  caption: string;
+  /** A key in `voices.lines`, or empty while nothing is recorded (D5). */
+  audio: string;
+  /** Seconds before THIS announcement may speak again. */
+  cooldown_s: number;
+  /** high outranks normal outranks low. `outcome` is the verdict's own line
+   *  (§5.4: `victory`/`defeat`): never raised by a mission event, only by the
+   *  outcome moment, and it plays at the `outcome` rung of the voice ladder. */
+  priority: 'high' | 'normal' | 'low' | 'outcome';
+}
+
+export interface AnnouncementManifest {
+  /** Seconds a lower-priority announcement waits after a higher one spoke. */
+  hold_s: number;
+  /** Seconds a caption stays up. */
+  caption_s: number;
+  events: Record<string, AnnouncementDef>;
+}
+
+/** One ambience bed (polish pass F, A11): a seamless loop with its own
+ *  level. `file`/`alt` as a clip's; `loop_s` and `channels` are written by
+ *  tools/gen_audio.py and re-measured by `pnpm validate:audio`. */
+export interface AmbienceBed extends AudioVariant {
+  /** The bed's level on the `amb` bus, 0..1: it is heard at -34 LUFS. */
+  gain?: number;
+  loop_s?: number;
+  channels?: number;
+}
+
+/** `data/audio.json`'s `ambience` section: bed id -> bed. */
+export interface AmbienceSpec {
+  beds?: Record<string, AmbienceBed>;
+}
+
+/** One critical event's sound (polish pass F, AU-1): a set name, or a
+ *  deliberate silence with its reason. */
+export type CueEntry = string | { silent: string };
 
 export interface AudioManifest {
   version?: number;
   master_gain?: number;
   music?: MusicSpec;
+  /** The ambience beds (A11), played on the `amb` bus. */
+  ambience?: AmbienceSpec;
   sets?: Record<string, AudioSet>;
+  /** Cue id -> set (AU-1). The app plays a cue by id through `playCue`,
+   *  never by set name. `$comment` is allowed and ignored. */
+  cues?: Record<string, CueEntry>;
   voices?: VoiceManifest;
 }
 
-/** Who wins a voice slot (N5): an order, then a KDF death, then an enemy death. */
-export type VoicePriority = 'order' | 'kdf_death' | 'enemy_death';
-/** N5's ranking as numbers; higher wins. */
-export const VOICE_RANK: Readonly<Record<VoicePriority, number>> = { order: 3, kdf_death: 2, enemy_death: 1 };
+/** Who wins a voice slot (N5, and the audio plan's §5.1 ladder since AU-5).
+ *  An announcement is split by the manifest's own `priority`: `announce_high`
+ *  (objective new/complete/failed, deadline), `announce` (normal: wave,
+ *  reinforcements) and `announce_low` (unit lost). `outcome` is Shai's
+ *  victory/defeat line (§5.4): the lead recorded the defeat line on
+ *  2026-10-09; victory is not recorded yet. */
+export type VoicePriority =
+  | 'outcome'
+  | 'announce_high'
+  | 'order'
+  | 'announce'
+  | 'kdf_death'
+  | 'announce_low'
+  | 'enemy_death';
+/** The §5.1 ladder as numbers; higher wins. The verdict outranks everything;
+ *  mission state outranks the gesture just made; the gesture outranks the
+ *  normal announcement (feedback is never late, N4); a death call outranks a
+ *  loss count the feed also carries; a seen enemy death is last. */
+export const VOICE_RANK: Readonly<Record<VoicePriority, number>> = {
+  outcome: 7,
+  announce_high: 6,
+  order: 5,
+  announce: 4,
+  kdf_death: 3,
+  announce_low: 2,
+  enemy_death: 1,
+};
+
+/** The lines that speak for the MISSION rather than for a unit: every
+ *  announcement and the outcome. They duck as an announcement does, and they
+ *  are never pre-empted by rank (AU-5): half an objective call is worse than
+ *  none. */
+export function isAnnouncementPriority(p: VoicePriority): boolean {
+  return p === 'outcome' || p === 'announce_high' || p === 'announce' || p === 'announce_low';
+}
 
 /** A request to speak one line. `at` places it in the world; absent means the
  *  radio net, heard through the radio band (N13). */
@@ -98,7 +199,15 @@ export interface VoicePlay {
   key: string;
   priority: VoicePriority;
   at?: { x: number; y: number };
+  /** Start this many seconds after now, on the context clock (no timer):
+   *  the outcome line waits out the stinger's head (`OUTCOME_LINE_DELAY_S`). */
+  delayS?: number;
 }
+
+/** The outcome line starts once the stinger's head has played (audio plan
+ *  §2.2's outcome row, §5.1: "the outcome line once the stinger's head has
+ *  played (0.6 s), never over it"). */
+export const OUTCOME_LINE_DELAY_S = 0.6;
 
 /** What became of a `VoicePlay`. `missing` is not an error (R-9). */
 export type VoiceStatus =
@@ -120,6 +229,12 @@ export interface VoiceResult {
   en: string | null;
   /** How many playing lines this one cut short (N4, N5). */
   cut: number;
+  /** AU-5: this line's own id while it sounds, so a caller can tell when it
+   *  is cut; absent when nothing plays. */
+  id?: number;
+  /** AU-5: the ids of the lines this one cut, so a caption that belonged to
+   *  one of them can go with it. */
+  cutIds?: readonly number[];
 }
 
 /** The decode and playback readback (N16, R-10): languages, keys, bytes, budget. */
@@ -140,10 +255,199 @@ export interface VoiceStats {
 
 /** Voices that may sound at once (N5). */
 export const VOICE_CAP = 2;
+/** The no-cut floor (AU-5): a line in its first 300 ms is never pre-empted by
+ *  rank, so nothing is clipped to a blip. In context seconds. */
+export const VOICE_NO_CUT_S = 0.3;
 /** Decoded voice PCM held at most, in bytes (N16). */
 export const VOICE_DECODE_BUDGET_BYTES = 16 * 1024 * 1024;
+/** One row of the mix's ducking table: what a trigger does to the layers
+ *  under it while it sounds, as linear gains, and how fast. */
+export interface DuckRow {
+  readonly sfx: number;
+  readonly music: number;
+  /** The ambience bed (A11), on its own bus. */
+  readonly amb: number;
+  readonly attackS: number;
+  readonly releaseS: number;
+}
+
+/**
+ * The ducking table (polish pass F, docs/polish/audio-plan.md section 2.2).
+ * Rows are triggers; each says what happens to combat SFX and the music while
+ * it sounds. A cue's own bus is never in a row: a critical cue is information
+ * and never loses to the bark it coincides with (the `cue` bus, below).
+ *
+ * - `bark` is N12, shipped: SFX -4 dB, music -3 dB, 80 / 300 ms.
+ * - `announce`, a line on the radio net speaking for the mission: -6 / -6.
+ * - `cue`, an objective cue or an important alert: -3 / -3, 20 / 250 ms.
+ * - `major`, a major alert: -6 / -6, 20 / 500 ms.
+ * - `outcome`, victory or defeat: SFX and music fade out over 600 ms under
+ *   the stinger (the sim has stopped, only tails remain), and come back over
+ *   2 s once the stinger and a breath after it are done.
+ * - `pause`, the pause menu: music -6 dB, and every voice stops.
+ *
+ * The ambience column (A11): a bark leaves the bed alone, an announcement and
+ * a major alert take it 3 dB down, an objective cue leaves it, the outcome
+ * takes it 12 dB down (and keeps it there: `AMB_AFTER_OUTCOME`), and the pause
+ * menu silences it -- the brief's "it stops on pause", where the plan's row had
+ * -6 dB and a low-pass -- and `setPaused` then stops the source outright.
+ * Deepest wins when rows overlap (`duckLevels`).
+ */
+export const DUCK_TABLE = {
+  bark: { sfx: 0.631, music: 0.708, amb: 1, attackS: 0.08, releaseS: 0.3 },
+  announce: { sfx: 0.501, music: 0.501, amb: 0.708, attackS: 0.08, releaseS: 0.4 },
+  cue: { sfx: 0.708, music: 0.708, amb: 1, attackS: 0.02, releaseS: 0.25 },
+  major: { sfx: 0.501, music: 0.501, amb: 0.708, attackS: 0.02, releaseS: 0.5 },
+  outcome: { sfx: 0, music: 0, amb: 0.251, attackS: 0.6, releaseS: 2 },
+  pause: { sfx: 1, music: 0.501, amb: 0, attackS: 0.15, releaseS: 0.3 },
+} as const satisfies Record<string, DuckRow>;
+export type DuckRowName = keyof typeof DUCK_TABLE;
+
 /** The duck under a voice (N12): SFX -4 dB, music -3 dB, 80 ms in, 300 ms out. */
-export const DUCK = { sfx: 0.631, music: 0.708, attackS: 0.08, releaseS: 0.3 } as const;
+export const DUCK = DUCK_TABLE.bark;
+
+/** Several rows at once: the deepest duck per layer wins, never a product --
+ *  a bark over a major alert must not push combat further down than the
+ *  alert alone does. No rows is no duck. */
+export function duckLevels(rows: readonly DuckRow[]): { sfx: number; music: number; amb: number } {
+  let sfx = 1;
+  let music = 1;
+  let amb = 1;
+  for (const r of rows) {
+    sfx = Math.min(sfx, r.sfx);
+    music = Math.min(music, r.music);
+    amb = Math.min(amb, r.amb);
+  }
+  return { sfx, music, amb };
+}
+
+/** After the outcome stinger's own hold lets go, the bed stays at the
+ *  outcome's -12 dB until the mission is left: the place is still there under
+ *  the verdict and the debrief, but the fight is over. Touches nothing else. */
+export const AMB_AFTER_OUTCOME: DuckRow = { sfx: 1, music: 1, amb: DUCK_TABLE.outcome.amb, attackS: DUCK_TABLE.outcome.attackS, releaseS: 0.3 };
+/** A bed fades in over this as the deploy gate clears (section 2.2's
+ *  mission-start row: "fades in from -inf over 1.5 s"). */
+export const AMB_FADE_IN_S = 1.5;
+/** A bed fades out over this when it is stopped (teardown, mute, a new bed). */
+export const AMB_FADE_OUT_S = 0.3;
+
+/** What `setAmbience` did. `loading` will start the bed once it decodes. */
+export type AmbienceResult = 'started' | 'loading' | 'stopped' | 'unknown' | 'muted' | 'paused' | 'no-context';
+
+/** The ambience readback (tests, the sandbox): the bed asked for, the bed
+ *  whose PCM is held, whether a source is sounding, and whether the pause
+ *  menu holds it. */
+export interface AmbienceState {
+  bed: string | null;
+  loaded: string | null;
+  playing: boolean;
+  paused: boolean;
+}
+
+/** Which ducking row a cue id brings with it, if any. */
+export function cueDuckRow(id: string): DuckRowName | null {
+  if (id === 'outcome.victory' || id === 'outcome.defeat') return 'outcome';
+  if (id === 'alert.major') return 'major';
+  if (id === 'alert.important' || id.startsWith('objective.')) return 'cue';
+  return null;
+}
+
+/** After an outcome stinger starts, every other cue is held off this long:
+ *  the verdict is the one sound (section 2.2, the outcome row). */
+export const OUTCOME_CUE_BLOCK_S = 3;
+/** The breath after the stinger before the music comes back. */
+export const OUTCOME_HOLD_TAIL_S = 1;
+/** How long the music takes to move between the menu and battle levels. */
+export const MUSIC_SCENE_S = 2;
+/** One sim tick, in ms: the 20 Hz of invariant 1. */
+const SIM_TICK_MS = 50;
+
+/** The music's scene: the menu screens, or inside a mission (A10). */
+export type MusicScene = 'menu' | 'battle';
+
+/** The element volume a scene asks for, before master, sliders and duck. */
+export function musicSceneGain(spec: MusicSpec | undefined, scene: MusicScene): number {
+  const menu = spec?.gain ?? 1;
+  return scene === 'battle' ? (spec?.battle_gain ?? menu) : menu;
+}
+
+/** A track's `trim_db` as a linear factor; absent is unity. */
+export function trimGain(db: number | undefined): number {
+  return db === undefined ? 1 : Math.pow(10, db / 20);
+}
+
+/**
+ * AU-7, audio plan section 6.1: when the mission's music turns to battle and
+ * back. Battle at `riseEvents` player-side combat events (a shot fired by or
+ * at a player unit, a round landing on one) inside `windowS`; calm again only
+ * once the same window has held under `fallBelow` for `quietS`. The gap
+ * between the two is the hysteresis: a burst raises the music once and a lull
+ * shorter than `quietS` cannot drop it. The fades are `upS` and `downS`.
+ */
+export const MUSIC_INTENSITY = { riseEvents: 6, windowS: 5, fallBelow: 2, quietS: 12, upS: 3, downS: 6 } as const;
+
+/**
+ * The intensity reading behind the beds. Pure and clocked by its caller --
+ * the mixer passes the sim's own tick time, so the pause menu (no ticks)
+ * freezes it and a test drives it exactly. It reads events the mixer already
+ * receives and writes nothing back (invariant 4).
+ */
+export class MusicIntensity {
+  private readonly hits: { t: number; n: number }[] = [];
+  private state: MusicBed = 'calm';
+  private quietSince: number | null = null;
+  private last = -Infinity;
+
+  bed(): MusicBed {
+    return this.state;
+  }
+
+  reset(): void {
+    this.hits.length = 0;
+    this.state = 'calm';
+    this.quietSince = null;
+    this.last = -Infinity;
+  }
+
+  /** `count` combat events at `nowMs`; returns the bed to play. */
+  observe(nowMs: number, count: number): MusicBed {
+    if (nowMs < this.last) this.reset();
+    this.last = nowMs;
+    if (count > 0) this.hits.push({ t: nowMs, n: count });
+    const from = nowMs - MUSIC_INTENSITY.windowS * 1000;
+    while (this.hits.length > 0 && this.hits[0].t <= from) this.hits.shift();
+    let sum = 0;
+    for (const h of this.hits) sum += h.n;
+    if (this.state === 'calm') {
+      if (sum >= MUSIC_INTENSITY.riseEvents) {
+        this.state = 'battle';
+        this.quietSince = null;
+      }
+    } else if (sum < MUSIC_INTENSITY.fallBelow) {
+      this.quietSince ??= nowMs;
+      if (nowMs - this.quietSince >= MUSIC_INTENSITY.quietS * 1000) this.state = 'calm';
+    } else {
+      this.quietSince = null;
+    }
+    return this.state;
+  }
+}
+
+/**
+ * The three music elements' weights, equal-power (AU-7): `scene` 0 is the
+ * menu (the theme alone) and 1 a mission; `battle` 0 is the calm bed and 1
+ * the battle bed. The squares always sum to 1, so no point of a fade is a
+ * dip or a bump in loudness.
+ */
+export function musicMix(scene: number, battle: number): { theme: number; calm: number; battle: number } {
+  const s = clamp01(scene) * (Math.PI / 2);
+  const b = clamp01(battle) * (Math.PI / 2);
+  return { theme: Math.cos(s), calm: Math.sin(s) * Math.cos(b), battle: Math.sin(s) * Math.sin(b) };
+}
+
+/** What `playCue` did. `unmapped` is an id the manifest does not name: a
+ *  coverage gap, which `cues.test.ts` exists to make impossible. */
+export type CueResult = 'played' | 'silent' | 'unmapped' | 'blocked' | 'muted' | 'no-context';
 /** The fade a cut line gets (N4). */
 export const VOICE_CUT_S = 0.04;
 /** The dev placeholder's pitch per trigger (R-10), none used by any other sound here. */
@@ -155,11 +459,25 @@ export const PLACEHOLDER_GAIN = 0.15;
 /** How often the music element's duck steps its volume, in ms (N12, R-2). */
 export const MUSIC_DUCK_STEP_MS = 20;
 
-/** N4 and N5 as one pure rule. `active` is oldest-first. */
+/**
+ * N4, N5 and the AU-5 floor as one pure rule. `active` is oldest-first;
+ * `startedAt` and `nowS` are context seconds, and a line with no `startedAt`
+ * (or a call with no `nowS`) is read as long past the floor.
+ *
+ * - A new order replaces the last order at once (N4): the newest gesture is
+ *   what the cursor promised, so this replacement is not held by the floor.
+ * - Below the cap, everything else plays.
+ * - At the cap, the incoming line may pre-empt the lowest-ranked line that
+ *   ranks strictly below it (oldest first on a tie), but never one inside its
+ *   first `VOICE_NO_CUT_S`, and never an announcement or the outcome line.
+ *   Nothing it may pre-empt: it is dropped, not queued -- a queued line
+ *   describes the past.
+ */
 export function admitVoice(
-  active: readonly { id: number; priority: VoicePriority }[],
+  active: readonly { id: number; priority: VoicePriority; startedAt?: number }[],
   incoming: VoicePriority,
-  cap = VOICE_CAP
+  cap = VOICE_CAP,
+  nowS?: number
 ): { play: boolean; cut: number[] } {
   const cut: number[] = [];
   let rest = active;
@@ -168,11 +486,44 @@ export function admitVoice(
     rest = active.filter((v) => v.priority !== 'order');
   }
   if (rest.length < cap) return { play: true, cut };
-  let low = rest[0];
-  for (const v of rest) if (VOICE_RANK[v.priority] < VOICE_RANK[low.priority]) low = v;
-  // A tie loses to what is already speaking: a queued line describes the past.
-  if (VOICE_RANK[low.priority] >= VOICE_RANK[incoming]) return { play: false, cut: [] };
+  const pastFloor = (v: { startedAt?: number }): boolean =>
+    nowS === undefined || v.startedAt === undefined || nowS - v.startedAt >= VOICE_NO_CUT_S - 1e-9;
+  let low: (typeof rest)[number] | null = null;
+  for (const v of rest) {
+    if (isAnnouncementPriority(v.priority) || !pastFloor(v)) continue;
+    if (VOICE_RANK[v.priority] >= VOICE_RANK[incoming]) continue;
+    if (low === null || VOICE_RANK[v.priority] < VOICE_RANK[low.priority]) low = v;
+  }
+  if (low === null) return { play: false, cut: [] };
   return { play: true, cut: [...cut, low.id] };
+}
+
+/**
+ * The shuffle bag (AU-5): which take of an `n`-take line plays next. Never the
+ * same take twice running, and every take once before any plays again. `bag`
+ * is the takes still to come this cycle; when it is empty (or was filled for a
+ * line with more takes than this one has now) a fresh shuffle refills it, and
+ * if that shuffle would open on the take that just played, its first two
+ * swap. Pure: `rand` is the mixer's own presentation PRNG.
+ */
+export function drawFromBag(
+  bag: readonly number[],
+  n: number,
+  last: number | null,
+  rand: () => number
+): { take: number; bag: number[] } {
+  if (n <= 1) return { take: 0, bag: [] };
+  let next = bag.every((i) => i < n) ? [...bag] : [];
+  if (next.length === 0) {
+    next = Array.from({ length: n }, (_, i) => i);
+    for (let i = n - 1; i > 0; i--) {
+      const j = Math.floor(rand() * (i + 1));
+      [next[i], next[j]] = [next[j], next[i]];
+    }
+    if (next[0] === last) [next[0], next[1]] = [next[1], next[0]];
+  }
+  const [take, ...rest] = next;
+  return { take, bag: rest };
 }
 
 /** A linear ramp's value `elapsedMs` into it, holding `to` once it is over (N12). */
@@ -225,6 +576,8 @@ function placeholderHz(key: string): number {
 interface ActiveVoice {
   id: number;
   priority: VoicePriority;
+  /** Context seconds when the line was asked for: the no-cut floor's clock. */
+  startedAt: number;
   src: AudioScheduledSourceNode;
   /** The line's own gain, which a cut fades. */
   gain: GainNode;
@@ -388,6 +741,43 @@ function tryPlay(el: HTMLAudioElement): void {
   if (p instanceof Promise) p.catch(() => {});
 }
 
+/** One synth note: frequency (Hz), length (s), waveform, gain, delay (ms). */
+type SynthNote = readonly [number, number, OscillatorType, number, number];
+
+/**
+ * The synth stand-in for every UI and critical cue, used only while its clip
+ * is not decoded. Each keeps its clip's SHAPE, so the player can tell them
+ * apart with their back to the screen before the library arrives: an
+ * objective rises when complete, falls when failed and stays level when new;
+ * an alert falls, in one, two or three notes by tier; an outcome resolves up
+ * or sinks.
+ */
+export const SYNTH_CUES: Readonly<Record<string, readonly SynthNote[]>> = {
+  ui_purchase: [[196, 0.08, 'triangle', 0.06, 0], [294, 0.12, 'sine', 0.045, 70]],
+  ui_upgrade: [[1175, 0.02, 'square', 0.02, 0], [1175, 0.02, 'square', 0.02, 35], [880, 0.1, 'sine', 0.045, 90]],
+  // Bolt-on (GH-238 K10): a short rattle of four square pawl clicks, then a
+  // low triangle clank landing on them. Not ui_upgrade's click-then-note
+  // shape, and nowhere near the alert's falling pair.
+  ui_kit_fitted: [
+    [2600, 0.012, 'square', 0.02, 12],
+    [2540, 0.012, 'square', 0.024, 37],
+    [2480, 0.012, 'square', 0.028, 62],
+    [2420, 0.012, 'square', 0.032, 87],
+    [420, 0.09, 'triangle', 0.06, 150],
+  ],
+  ui_confirm: [[1320, 0.04, 'sine', 0.03, 0]],
+  ui_deny: [[147, 0.06, 'square', 0.03, 0], [147, 0.07, 'square', 0.03, 100]],
+  alert_minor: [[880, 0.06, 'triangle', 0.04, 0]],
+  alert_important: [[520, 0.08, 'triangle', 0.06, 0], [390, 0.16, 'triangle', 0.05, 60]],
+  alert_major: [[659, 0.12, 'triangle', 0.06, 0], [587, 0.12, 'triangle', 0.06, 200], [494, 0.3, 'triangle', 0.06, 400]],
+  objective_new: [[784, 0.08, 'sine', 0.05, 70], [784, 0.12, 'sine', 0.05, 200]],
+  objective_complete: [[660, 0.09, 'sine', 0.05, 0], [990, 0.12, 'sine', 0.045, 70]],
+  objective_failed: [[440, 0.12, 'sine', 0.05, 0], [311, 0.2, 'sine', 0.05, 140]],
+  mission_start: [[587, 0.12, 'sine', 0.045, 100], [880, 0.2, 'sine', 0.045, 240], [73, 0.6, 'triangle', 0.06, 400]],
+  victory: [[294, 0.4, 'triangle', 0.05, 0], [440, 0.4, 'triangle', 0.05, 0], [370, 0.9, 'triangle', 0.05, 620]],
+  defeat: [[294, 0.5, 'triangle', 0.05, 0], [220, 0.4, 'triangle', 0.05, 0], [208, 1.2, 'triangle', 0.05, 500]],
+};
+
 export class BattleAudio {
   private ctx: AudioContext | null = null;
   private muted = readStore('localStorage', MUTE_KEY) === '1';
@@ -398,6 +788,25 @@ export class BattleAudio {
   private sfxDuck: GainNode | null = null;
   /** Voice bus, under the master, carrying the Voices slider (N11). */
   private voice: GainNode | null = null;
+  /** The cue bus (polish pass F): every UI and critical cue, straight into
+   *  the master and NOT under the sfx duck, so a voice line never ducks an
+   *  objective chime. Rides the SFX slider; it has none of its own. */
+  private cue: GainNode | null = null;
+  /** The ambience bus (A11): the bed, under its own duck stage, into the
+   *  master. Rides the SFX slider; it has none of its own (section 2.1). */
+  private amb: GainNode | null = null;
+  /** The duck stage under the amb bus: the duck table's ambience column. */
+  private ambDuck: GainNode | null = null;
+  /** The bed asked for (`setAmbience`), whether or not it is sounding. */
+  private ambBed: string | null = null;
+  /** The decoded bed, one at a time: a 40 s loop is ~8 MB of PCM. */
+  private ambLoaded: { bed: string; buffer: AudioBuffer } | null = null;
+  /** The bed sounding now: its source, its fade gain, and where in the loop
+   *  it began (context time, offset), so a pause can resume where it was. */
+  private ambSource: { src: AudioBufferSourceNode; gain: GainNode; at: number; offset: number } | null = null;
+  /** Where in the loop a stopped bed resumes. */
+  private ambOffset = 0;
+  private ambPaused = false;
   /** The radio's shared paths (N13, N17): the band alone, the walkie-talkie
    *  chain, and the static's own band. All three feed the voice bus. */
   private radio: RadioChain | null = null;
@@ -433,12 +842,25 @@ export class BattleAudio {
   /** Lines sounding now, oldest first (N5). */
   private activeVoices: ActiveVoice[] = [];
   private nextVoiceId = 1;
+  /** AU-5: per voice key, the takes still to come this cycle and the last one played. */
+  private readonly takeBags = new Map<string, { bag: number[]; last: number | null }>();
   /** Squelches not yet at their own end, whether or not their words are
    *  still sounding: the tail outlives the line by up to RADIO_FX.tailS, and
    *  a stop in that window must silence it too. Pruned by `endsAt`. */
   private squelchTails: Squelch[] = [];
-  /** The duck is applied (N12). */
-  private ducked = false;
+  /** The ducking rows holding the mix down now, by who holds them: `voice`
+   *  for the lines sounding (bark or announce), and one per cue row. */
+  private readonly holds = new Map<string, DuckRow>();
+  /** When a timed hold lets go, by hold id. */
+  private readonly holdTimers = new Map<string, number>();
+  /** The later notes of a synth cue, each pending until it sounds. */
+  private readonly toneTimers = new Set<number>();
+  /** Context time before which only an outcome cue may sound. */
+  private cueBlockUntil = 0;
+  /** The music scene and its gain, which steps towards the scene's level. */
+  private musicScene: MusicScene = 'menu';
+  private musicSceneLevel: number | null = null;
+  private musicSceneTimer: number | null = null;
   /** The music element's duck factor, 1 when no voice speaks (N12, R-2). */
   private musicDuck = 1;
   /** The music duck's next step, while one is ramping. */
@@ -473,6 +895,22 @@ export class BattleAudio {
   private music: HTMLAudioElement | null = null;
   private musicIndex = 0;
 
+  /** AU-7: the mission's bed elements, made on the first mission that has
+   *  them, looping, and streamed like the theme. */
+  private readonly bedEls: Partial<Record<MusicBed, HTMLAudioElement>> = {};
+  /** When combat makes the beds turn (MusicIntensity). */
+  private readonly intensity = new MusicIntensity();
+  /** The equal-power mix (`musicMix`): where it is and where it is going. */
+  private mixScene = 0;
+  private mixSceneTarget = 0;
+  private mixBattle = 0;
+  private mixBattleTarget = 0;
+  /** The mix's next step, while either part of it is moving. */
+  private mixTimer: number | null = null;
+  /** Which elements this mixer has asked to play, so play/pause is issued on
+   *  a change rather than every 20 ms step. */
+  private readonly musicPlaying: Record<'theme' | MusicBed, boolean> = { theme: true, calm: false, battle: false };
+
   /** Browsers require a user gesture before audio starts. */
   attach(): void {
     const start = (): void => {
@@ -491,11 +929,24 @@ export class BattleAudio {
         // Built once here, both of them, so the settings toggle only ever
         // chooses between standing chains and never builds one mid-line.
         this.radio = buildRadioChain(this.ctx, this.voice);
+        // The cue bus, after the radio so the four buses above keep their
+        // places: into the master directly, never through the sfx duck.
+        this.cue = this.ctx.createGain();
+        this.cue.connect(this.master);
+        // The ambience bus (A11), after the cue bus for the same reason: its
+        // duck stage UNDER the slider's gain, like the sfx bus's.
+        this.amb = this.ctx.createGain();
+        this.ambDuck = this.ctx.createGain();
+        this.amb.connect(this.ambDuck).connect(this.master);
         const bus = busGain(this.masterGain, this.user);
         this.master.gain.value = bus.master;
         this.sfx.gain.value = bus.sfx;
         this.voice.gain.value = bus.voice;
+        this.cue.gain.value = bus.sfx;
+        this.amb.gain.value = bus.sfx;
         this.decoding = this.decodeAll();
+        // A bed asked for before the first gesture loads now.
+        if (this.ambBed !== null) this.loadAmbience(this.ambBed);
       }
       if (this.ctx.state === 'suspended') void this.ctx.resume();
       this.startMusic();
@@ -511,8 +962,11 @@ export class BattleAudio {
 
   /**
    * Register the manifest. Decoding waits for the AudioContext (i.e. the
-   * first user gesture); missing files are logged and fall back to the synth
-   * rather than failing, so a half-filled library still plays.
+   * first user gesture); a file that is missing or will not decode is skipped
+   * in silence (`fetchDecode` tries the `alt` encoding, then gives up) and its
+   * set falls back to the synth rather than failing, so a half-filled library
+   * still plays. Nothing is logged: the browser's own network 404 is the only
+   * trace, and a console message here would fail `pnpm ui:routes`.
    */
   useManifest(manifest: AudioManifest, baseUrl: string): void {
     this.manifest = manifest;
@@ -555,16 +1009,208 @@ export class BattleAudio {
     if (this.master) this.master.gain.value = bus.master;
     if (this.sfx) this.sfx.gain.value = bus.sfx;
     if (this.voice) this.voice.gain.value = bus.voice;
+    if (this.cue) this.cue.gain.value = bus.sfx;
+    if (this.amb) this.amb.gain.value = bus.sfx;
     this.applyMusicVolume();
   }
 
-  /** The music element's volume: its level times the duck under a voice. */
+  /** The music element's volume: the scene's level (menu or battle, A10)
+   *  times the track's own trim, under the sliders, times the duck. */
   private musicLevel(): number {
-    return musicVolume(this.masterGain, this.manifest?.music?.gain ?? 1, this.user) * this.musicDuck;
+    const spec = this.manifest?.music;
+    const trim = trimGain(spec?.tracks?.[this.musicIndex]?.trim_db);
+    // With beds (AU-7) the theme keeps the menu's level and the mix fades it
+    // out of a mission; without them a mission plays it at battle_gain (A10).
+    if (this.hasBeds()) {
+      const w = musicMix(this.mixScene, this.mixBattle).theme;
+      return musicVolume(this.masterGain, musicSceneGain(spec, 'menu') * trim, this.user) * this.musicDuck * w;
+    }
+    const scene = this.musicSceneLevel ?? musicSceneGain(spec, this.musicScene);
+    return musicVolume(this.masterGain, scene * trim, this.user) * this.musicDuck;
+  }
+
+  /** A bed's volume: battle_gain times its trim, under the sliders and the
+   *  duck, times its share of the equal-power mix. */
+  private bedLevel(bed: MusicBed): number {
+    const spec = this.manifest?.music;
+    const trim = trimGain(spec?.beds?.[bed]?.trim_db);
+    const w = musicMix(this.mixScene, this.mixBattle)[bed];
+    return musicVolume(this.masterGain, musicSceneGain(spec, 'battle') * trim, this.user) * this.musicDuck * w;
+  }
+
+  /** Both beds declared: a mission plays them rather than the theme. */
+  private hasBeds(): boolean {
+    const beds = this.manifest?.music?.beds;
+    return Boolean(beds?.calm?.file && beds?.battle?.file);
+  }
+
+  /** The bed a mission is playing, or moving to; null outside a mission or
+   *  with no beds declared. A readback for tests and the sandbox. */
+  musicBedNow(): MusicBed | null {
+    return this.hasBeds() && this.musicScene === 'battle' ? this.intensity.bed() : null;
+  }
+
+  /**
+   * Move the music to a scene's level (A10): the menu's 0.4 or a mission's
+   * 0.26, stepped over MUSIC_SCENE_S like the duck, so a deploy never jumps.
+   * Calling it with the scene already set does nothing.
+   */
+  setMusicScene(scene: MusicScene): void {
+    if (scene === this.musicScene) return;
+    if (this.hasBeds()) {
+      // AU-7: the theme crossfades to the calm bed over MUSIC_SCENE_S, and
+      // back. Every mission starts calm.
+      this.musicScene = scene;
+      if (this.musicSceneTimer !== null) window.clearTimeout(this.musicSceneTimer);
+      this.musicSceneTimer = null;
+      this.musicSceneLevel = null;
+      this.intensity.reset();
+      this.mixBattleTarget = 0;
+      if (scene === 'battle') this.ensureBeds('auto');
+      this.mixSceneTarget = scene === 'battle' ? 1 : 0;
+      this.startMix();
+      return;
+    }
+    const spec = this.manifest?.music;
+    const from = this.musicSceneLevel ?? musicSceneGain(spec, this.musicScene);
+    this.musicScene = scene;
+    const to = musicSceneGain(spec, scene);
+    if (this.musicSceneTimer !== null) window.clearTimeout(this.musicSceneTimer);
+    this.musicSceneTimer = null;
+    if (!this.music) {
+      this.musicSceneLevel = null;
+      return;
+    }
+    const ms = MUSIC_SCENE_S * 1000;
+    let step = 0;
+    const tick = (): void => {
+      step++;
+      const elapsed = step * MUSIC_DUCK_STEP_MS;
+      this.musicSceneLevel = elapsed >= ms ? null : duckRamp(from, to, elapsed, ms);
+      this.applyMusicVolume();
+      this.musicSceneTimer = elapsed < ms ? window.setTimeout(tick, MUSIC_DUCK_STEP_MS) : null;
+    };
+    this.musicSceneLevel = from;
+    this.musicSceneTimer = window.setTimeout(tick, MUSIC_DUCK_STEP_MS);
+  }
+
+  /** The music scene now. */
+  musicSceneNow(): MusicScene {
+    return this.musicScene;
   }
 
   private applyMusicVolume(): void {
     if (this.music) this.music.volume = this.musicLevel();
+    for (const bed of ['calm', 'battle'] as const) {
+      const el = this.bedEls[bed];
+      if (el) el.volume = this.bedLevel(bed);
+    }
+  }
+
+  /** Whether an element should be sounding: with beds, while it has any
+   *  share of the mix; without them the theme always. */
+  private musicWanted(which: 'theme' | MusicBed): boolean {
+    if (!this.hasBeds()) return which === 'theme';
+    return musicMix(this.mixScene, this.mixBattle)[which] > 1e-6;
+  }
+
+  /** Every music element with its name. */
+  private musicElements(): ['theme' | MusicBed, HTMLAudioElement][] {
+    const out: ['theme' | MusicBed, HTMLAudioElement][] = [];
+    if (this.music) out.push(['theme', this.music]);
+    for (const bed of ['calm', 'battle'] as const) {
+      const el = this.bedEls[bed];
+      if (el) out.push([bed, el]);
+    }
+    return out;
+  }
+
+  /**
+   * Play what has a share of the mix and pause what has none, so an element
+   * nobody hears is not streaming. The battle bed starts from its own first
+   * bar each time it rises from silence -- the section's entrance, the way
+   * the lead heard it in the demo; the calm bed and the theme resume.
+   */
+  private syncMusicPlaying(): void {
+    if (!this.hasBeds()) return;
+    for (const [which, el] of this.musicElements()) {
+      const want = this.musicWanted(which);
+      if (want === this.musicPlaying[which]) continue;
+      this.musicPlaying[which] = want;
+      if (!want) el.pause();
+      else {
+        if (which === 'battle') el.currentTime = 0;
+        if (!this.muted) tryPlay(el);
+      }
+    }
+  }
+
+  /**
+   * Make the two bed elements, once, paused at silence until the mix wants
+   * them. They are made WITH the theme (`preload` none, so the menu fetches
+   * nothing) and stay for the page's life like it: a mission that added two
+   * children to the body and left them would fail ui:routes' "the body is
+   * back to the menu's own" check. A mission raises `preload` to auto, so the
+   * battle bed is buffered before combat asks for it.
+   */
+  private ensureBeds(preload: 'none' | 'auto'): void {
+    const beds = this.manifest?.music?.beds;
+    for (const bed of ['calm', 'battle'] as const) {
+      const spec = beds?.[bed];
+      const made = this.bedEls[bed];
+      if (made) {
+        if (preload === 'auto') made.preload = 'auto';
+        continue;
+      }
+      if (!spec?.file) continue;
+      const el = new Audio();
+      el.preload = preload;
+      el.loop = true;
+      el.volume = 0;
+      // OGG first (seamless in Chromium and Firefox); the m4a where the
+      // browser says it cannot play Vorbis, or when the OGG fails to load.
+      const ogg = el.canPlayType?.('audio/ogg; codecs="vorbis"') ?? '';
+      const useAlt = spec.alt !== undefined && ogg === '' && (el.canPlayType?.('audio/mp4') ?? '') !== '';
+      el.src = `${this.baseUrl}${useAlt ? spec.alt : spec.file}`;
+      if (spec.alt && !useAlt) {
+        const alt = spec.alt;
+        el.addEventListener('error', () => {
+          if (el.src.endsWith(alt)) return;
+          el.src = `${this.baseUrl}${alt}`;
+          if (this.musicPlaying[bed] && !this.muted) tryPlay(el);
+        });
+      }
+      el.dataset.music = bed;
+      el.hidden = true;
+      document.body.appendChild(el);
+      this.bedEls[bed] = el;
+      this.musicPlaying[bed] = false;
+    }
+  }
+
+  /**
+   * Step the mix towards its targets every MUSIC_DUCK_STEP_MS: the scene over
+   * MUSIC_SCENE_S, the beds over MUSIC_INTENSITY.upS up and downS down.
+   * Counted steps, like the duck, so fake timers drive it exactly.
+   */
+  private startMix(): void {
+    if (this.mixTimer !== null) return;
+    const toward = (v: number, t: number, d: number): number => (v < t ? Math.min(t, v + d) : Math.max(t, v - d));
+    const step = (): void => {
+      this.mixTimer = null;
+      const dt = MUSIC_DUCK_STEP_MS / 1000;
+      this.mixScene = toward(this.mixScene, this.mixSceneTarget, dt / MUSIC_SCENE_S);
+      const up = this.mixBattleTarget > this.mixBattle;
+      this.mixBattle = toward(this.mixBattle, this.mixBattleTarget, dt / (up ? MUSIC_INTENSITY.upS : MUSIC_INTENSITY.downS));
+      // Out of the mission altogether: the next one starts calm.
+      if (this.mixScene === 0) this.mixBattle = 0;
+      this.applyMusicVolume();
+      this.syncMusicPlaying();
+      if (this.mixScene !== this.mixSceneTarget || this.mixBattle !== this.mixBattleTarget) {
+        this.mixTimer = window.setTimeout(step, MUSIC_DUCK_STEP_MS);
+      }
+    };
+    this.mixTimer = window.setTimeout(step, MUSIC_DUCK_STEP_MS);
   }
 
   gains(): AudioGains {
@@ -576,14 +1222,22 @@ export class BattleAudio {
    * then the roster's voice lines, then the battle library. A screen can be
    * waiting on a UI cue and an order can be waiting on a line; the battle
    * library cannot be heard before a mission starts.
+   *
+   * The ui sets and the voices decode TOGETHER, every ui fetch issued first
+   * and in manifest order, and the battle library only once both are done.
+   * They used to run one ui set at a time before the first voice was asked
+   * for, which was harmless at two sets and was not at thirteen (polish pass
+   * F): under SwiftShader every await waits behind a frame that can cost
+   * seconds, and ui:routes measured the shipped ack still undecoded 83 s
+   * after the first gesture -- the voice slot played its placeholder.
    */
   private async decodeAll(): Promise<void> {
     const ctx = this.ctx;
     const man = this.manifest;
     if (!ctx || !man) return;
     const order = decodeOrder(man.sets);
-    for (const [name, spec] of order) if (spec.event === 'ui') await this.decodeSet(ctx, name, spec);
-    await this.queueVoiceDecode();
+    const ui = order.filter(([, spec]) => spec.event === 'ui').map(([name, spec]) => this.decodeSet(ctx, name, spec));
+    await Promise.all([...ui, this.queueVoiceDecode()]);
     for (const [name, spec] of order) if (spec.event !== 'ui') await this.decodeSet(ctx, name, spec);
   }
 
@@ -725,6 +1379,7 @@ export class BattleAudio {
     for (const [key, loaded] of this.voiceLines) {
       if (this.voiceWanted.has(voiceLanguage(key))) continue;
       this.voiceLines.delete(key);
+      this.takeBags.delete(key);
       this.voiceBytes -= loaded.bytes;
       freed += loaded.bytes;
     }
@@ -779,14 +1434,18 @@ export class BattleAudio {
     // Pause rather than zero the volume: a muted player is not paying to
     // stream and decode a track nobody hears, and unmuting resumes where it
     // stopped instead of mid-bar somewhere else.
-    if (this.music) {
-      if (this.muted) this.music.pause();
-      else tryPlay(this.music);
+    for (const [which, el] of this.musicElements()) {
+      if (this.muted) el.pause();
+      else if (this.musicWanted(which)) tryPlay(el);
     }
     // `m` is one flag the HUD reports as "audio muted" -- a line left
     // sounding (and its duck still held) through a mute would make that
     // claim false the moment a voice was speaking when the player pressed it.
     if (this.muted) this.stopVoices();
+    // The bed is a running source, not a one-shot that checks the flag: stop
+    // it, and start it again on unmute.
+    if (this.muted) this.stopAmbienceSource(AMB_FADE_OUT_S);
+    else this.startAmbience(AMB_FADE_OUT_S);
     return this.muted;
   }
 
@@ -801,7 +1460,9 @@ export class BattleAudio {
    */
   private startMusic(): void {
     if (this.music) {
-      if (!this.muted && this.music.paused) tryPlay(this.music);
+      for (const [which, el] of this.musicElements()) {
+        if (!this.muted && el.paused && this.musicWanted(which)) tryPlay(el);
+      }
       return;
     }
     const spec = this.manifest?.music;
@@ -848,8 +1509,10 @@ export class BattleAudio {
     // music is playing, paused or failed. `document.querySelector('audio')` is
     // the readback, the same way the cursor is read from `canvas.dataset`.
     el.hidden = true;
+    el.dataset.music = 'theme';
     document.body.appendChild(el);
     this.music = el;
+    if (this.hasBeds()) this.ensureBeds('none');
     cue(startIndex);
   }
 
@@ -876,49 +1539,232 @@ export class BattleAudio {
    * battlefield event already does. Safe before `attach()`: with no context
    * there is nothing to play and nothing to complain about.
    */
-  playUi(setName: string): void {
+  playUi(setName: string): number {
     // Mute first, and HERE rather than at the call site. `m` toggles one flag
     // and the HUD says "audio muted" on the strength of it, so a sound that
     // checked the flag only at some of its callers would make that line a lie
-    // the moment a new caller appeared -- which is exactly how this was found,
-    // the alert layer being `playUi`'s first. `onEvents` (below) and both
-    // music paths already guard here for the same reason; the gain buses
-    // cannot stand in for it, because they are driven by the volume sliders
-    // alone and mute is not a volume.
-    if (this.muted) return;
+    // the moment a new caller appeared. The gain buses cannot stand in for
+    // it: they are driven by the volume sliders alone, and mute is not a
+    // volume. Returns how long the cue sounds, 0 when nothing plays.
+    if (this.muted) return 0;
     const ctx = this.ctx;
-    const sfx = this.sfx;
-    if (!ctx || !sfx) return;
+    const bus = this.cue;
+    if (!ctx || !bus) return 0;
     const set = this.sets.get(setName);
     if (set && set.buffers.length > 0) {
       const src = ctx.createBufferSource();
-      src.buffer = set.buffers[Math.floor(this.rand() * set.buffers.length)];
+      const buffer = set.buffers[Math.floor(this.rand() * set.buffers.length)];
+      src.buffer = buffer;
       const g = ctx.createGain();
       g.gain.value = uiSetGain(set.gain);
-      src.connect(g).connect(sfx);
+      src.connect(g).connect(bus);
       src.start();
-      return;
+      return buffer.duration;
     }
-    // Two shapes, so the player can tell the two apart with their back to the
-    // screen: an alert falls, an objective rises.
-    if (setName === 'ui_objective') {
-      this.tone(660, 0.09, 'sine', 0.05);
-      window.setTimeout(() => this.tone(990, 0.12, 'sine', 0.045), 70);
-    } else if (setName === 'ui_purchase') {
-      // A shop, not an alarm (garage uplift §3.5): a low clunk under a rising
-      // pair. Rising is the objective's meaning ("something went your way"),
-      // kept deliberately short of the objective's own pitch.
-      this.tone(196, 0.08, 'triangle', 0.06);
-      window.setTimeout(() => this.tone(294, 0.12, 'sine', 0.045), 70);
-    } else if (setName === 'ui_upgrade') {
-      // Two pawl clicks of a ratchet, then the higher note.
-      this.tone(1175, 0.02, 'square', 0.02);
-      window.setTimeout(() => this.tone(1175, 0.02, 'square', 0.02), 35);
-      window.setTimeout(() => this.tone(880, 0.1, 'sine', 0.045), 90);
+    // No clip decoded (not shipped, or the first gesture's decode has not
+    // reached it): the synth stands in, in the cue's own shape, so a missing
+    // file never sounds like some other cue. An unknown name falls to the
+    // important alert's fall, as every unknown UI name always has.
+    const shape = SYNTH_CUES[setName] ?? SYNTH_CUES.alert_important;
+    let seconds = 0;
+    for (const [freq, dur, type, gain, delayMs] of shape) {
+      if (delayMs === 0) this.tone(freq, dur, type, gain, bus);
+      else {
+        const id = window.setTimeout(() => {
+          this.toneTimers.delete(id);
+          this.tone(freq, dur, type, gain, bus);
+        }, delayMs);
+        this.toneTimers.add(id);
+      }
+      seconds = Math.max(seconds, delayMs / 1000 + dur);
+    }
+    return seconds;
+  }
+
+  /**
+   * Play a critical cue by its id (polish pass F, AU-1): `outcome.victory`,
+   * `objective.failed`, `alert.major`, `ui.deny`... The manifest's `cues`
+   * table names the set, so the app never spells one; an id mapped to
+   * `{ silent }` is a decision, and plays nothing.
+   *
+   * The mix comes with it (section 2.2): an objective cue or an important
+   * alert holds SFX and music 3 dB down for its length, a major alert 6 dB,
+   * and an outcome stinger stops every voice, fades SFX and music out under
+   * itself and holds every other cue off for OUTCOME_CUE_BLOCK_S. The cue
+   * itself is on its own bus, so nothing it triggers can duck it.
+   */
+  playCue(id: string): CueResult {
+    const entry = id.startsWith('$') ? undefined : this.manifest?.cues?.[id];
+    if (entry === undefined) return 'unmapped';
+    if (typeof entry !== 'string') return 'silent';
+    if (this.muted) return 'muted';
+    const ctx = this.ctx;
+    if (!ctx) return 'no-context';
+    const row = cueDuckRow(id);
+    if (row !== 'outcome' && ctx.currentTime < this.cueBlockUntil) return 'blocked';
+    if (row === 'outcome') {
+      this.stopVoices();
+      this.cueBlockUntil = ctx.currentTime + OUTCOME_CUE_BLOCK_S;
+      this.setHold('ambience-outcome', AMB_AFTER_OUTCOME);
+    }
+    const seconds = this.playUi(entry);
+    if (row !== null) this.holdFor(row, row, seconds + (row === 'outcome' ? OUTCOME_HOLD_TAIL_S : 0));
+    return 'played';
+  }
+
+  /**
+   * The pause menu (section 2.2's pause row): every voice stops -- a paused
+   * line describes a moment that has frozen -- and the music steps down
+   * 6 dB until the menu closes. Idempotent both ways.
+   */
+  setPaused(on: boolean): void {
+    if (on) {
+      this.stopVoices();
+      this.setHold('pause', DUCK_TABLE.pause);
+      // The bed STOPS (A11): the duck takes it to silence over the row's
+      // attack, and the source ends there, remembering where it was.
+      this.ambPaused = true;
+      this.stopAmbienceSource(DUCK_TABLE.pause.attackS);
     } else {
-      this.tone(520, 0.08, 'triangle', 0.06);
-      window.setTimeout(() => this.tone(390, 0.16, 'triangle', 0.05), 60);
+      this.setHold('pause', null);
+      if (this.ambPaused) {
+        this.ambPaused = false;
+        this.startAmbience(DUCK_TABLE.pause.releaseS);
+      }
     }
+  }
+
+  /**
+   * Let go of every timer the mixer owns: the music scene and duck steps, the
+   * cue holds and the pending notes of a synth cue. A timer that outlives its
+   * owner fires into whatever is left (a torn-down test environment threw
+   * "window is not defined" and turned the gates job red), so a screen that
+   * is done with the mixer calls this. Idempotent, and safe before `attach()`.
+   */
+  dispose(): void {
+    if (this.musicSceneTimer !== null) window.clearTimeout(this.musicSceneTimer);
+    this.musicSceneTimer = null;
+    if (this.mixTimer !== null) window.clearTimeout(this.mixTimer);
+    this.mixTimer = null;
+    if (this.musicDuckTimer !== null) window.clearTimeout(this.musicDuckTimer);
+    this.musicDuckTimer = null;
+    for (const t of this.holdTimers.values()) window.clearTimeout(t);
+    this.holdTimers.clear();
+    for (const t of this.toneTimers) window.clearTimeout(t);
+    this.toneTimers.clear();
+  }
+
+  /**
+   * A mission is over or left: every cue hold and block lets go, voices stop,
+   * and the music goes back to the menu's level. The router's teardown calls
+   * this; so does nothing else.
+   */
+  leaveMission(): void {
+    this.stopVoices();
+    this.setAmbience(null);
+    for (const id of [...this.holds.keys()]) this.setHold(id, null);
+    this.cueBlockUntil = 0;
+    this.setMusicScene('menu');
+  }
+
+  /**
+   * The ambience bed (A11): one loop per kind of ground, asked for by id as
+   * the deploy gate clears (the app picks it from the map), on the `amb` bus.
+   * It fades in over AMB_FADE_IN_S, loops seamlessly until the mission is
+   * left (`leaveMission` calls this with null), stops on the pause menu and
+   * on mute, and comes back on resume and unmute.
+   *
+   * Decoded on demand and one at a time -- a bed is only ever wanted inside
+   * a mission, and a 40 s loop is ~8 MB of PCM. Safe before `attach()`: the
+   * id is remembered and loads with the first gesture's context.
+   */
+  setAmbience(bed: string | null): AmbienceResult {
+    if (bed === null) {
+      this.ambBed = null;
+      this.ambPaused = false;
+      this.stopAmbienceSource(AMB_FADE_OUT_S);
+      this.ambLoaded = null;
+      this.ambOffset = 0;
+      return 'stopped';
+    }
+    const spec = this.manifest?.ambience?.beds?.[bed];
+    if (!spec || bed.startsWith('$')) return 'unknown';
+    if (this.ambBed === bed && this.ambSource) return 'started';
+    this.stopAmbienceSource(AMB_FADE_OUT_S);
+    this.ambBed = bed;
+    if (this.ambLoaded?.bed !== bed) {
+      this.ambLoaded = null;
+      this.ambOffset = -1; // a fresh bed starts at a random place in its loop
+    }
+    if (!this.ctx) return 'no-context';
+    if (this.ambLoaded) return this.startAmbience(AMB_FADE_IN_S);
+    this.loadAmbience(bed);
+    return this.muted ? 'muted' : 'loading';
+  }
+
+  ambienceState(): AmbienceState {
+    return { bed: this.ambBed, loaded: this.ambLoaded?.bed ?? null, playing: this.ambSource !== null, paused: this.ambPaused };
+  }
+
+  /** Fetch and decode a bed, then start it if it is still the one wanted. */
+  private loadAmbience(bed: string): void {
+    const ctx = this.ctx;
+    const spec = this.manifest?.ambience?.beds?.[bed];
+    if (!ctx || !spec) return;
+    void this.fetchDecode(ctx, spec).then((buffer) => {
+      // Left, or another bed asked for, while this decoded: drop it.
+      if (this.ambBed !== bed || !buffer) return;
+      this.ambLoaded = { bed, buffer };
+      this.startAmbience(AMB_FADE_IN_S);
+    });
+  }
+
+  /** Start the wanted, decoded bed looping, fading in over `fadeS`, unless
+   *  muted, paused or already sounding. */
+  private startAmbience(fadeS: number): AmbienceResult {
+    const ctx = this.ctx;
+    const bus = this.amb;
+    const loaded = this.ambLoaded;
+    if (!ctx || !bus) return 'no-context';
+    if (this.muted) return 'muted';
+    if (this.ambPaused) return 'paused';
+    if (!loaded || loaded.bed !== this.ambBed) return 'loading';
+    if (this.ambSource) return 'started';
+    const duration = loaded.buffer.duration;
+    if (this.ambOffset < 0) this.ambOffset = this.rand() * duration;
+    const offset = duration > 0 ? this.ambOffset % duration : 0;
+    const src = ctx.createBufferSource();
+    src.buffer = loaded.buffer;
+    src.loop = true;
+    const g = ctx.createGain();
+    const level = clamp01(this.manifest?.ambience?.beds?.[loaded.bed]?.gain ?? 1);
+    const t = ctx.currentTime;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(level, t + fadeS);
+    src.connect(g).connect(bus);
+    src.start(t, offset);
+    this.ambSource = { src, gain: g, at: t, offset };
+    return 'started';
+  }
+
+  /** Fade the sounding bed out over `fadeS` and stop it there, remembering
+   *  where in the loop it was. The bed stays wanted. */
+  private stopAmbienceSource(fadeS: number): void {
+    const ctx = this.ctx;
+    const s = this.ambSource;
+    if (!ctx || !s) return;
+    this.ambSource = null;
+    const t = ctx.currentTime;
+    const duration = s.src.buffer?.duration ?? 0;
+    this.ambOffset = duration > 0 ? (s.offset + (t - s.at)) % duration : 0;
+    s.gain.gain.cancelScheduledValues(t);
+    s.gain.gain.setValueAtTime(s.gain.gain.value, t);
+    s.gain.gain.linearRampToValueAtTime(0, t + fadeS);
+    s.src.stop(t + fadeS);
+    const nodes: AudioNode[] = [s.src, s.gain];
+    s.src.onended = () => {
+      for (const n of nodes) n.disconnect();
+    };
   }
 
   /**
@@ -950,12 +1796,12 @@ export class BattleAudio {
     // Not recorded, or not decoded yet: both play nothing (R-9). The tick
     // stands in only when a dev session asked for it (R-10).
     if (!line && !this.voicePlaceholder) return none('missing');
-    const admit = admitVoice(this.activeVoices, p.priority);
+    const t = ctx.currentTime + Math.max(0, p.delayS ?? 0);
+    const admit = admitVoice(this.activeVoices, p.priority, VOICE_CAP, t);
     if (!admit.play) return none('dropped');
     for (const id of admit.cut) this.cutVoice(id);
 
-    const t = ctx.currentTime;
-    const take = line ? Math.floor(this.rand() * line.buffers.length) : 0;
+    const take = line ? this.nextTake(p.key, line.buffers.length) : 0;
     const seconds = line ? line.buffers[take].duration : PLACEHOLDER_S;
     // The walkie-talkie colour (N17): unplaced lines only, and only when the
     // setting is on AS THIS LINE STARTS. The click and static are made first
@@ -997,7 +1843,7 @@ export class BattleAudio {
     src.connect(head);
     nodes.unshift(src);
     const id = this.nextVoiceId++;
-    this.activeVoices.push({ id, priority: p.priority, src, gain: g, nodes, squelch });
+    this.activeVoices.push({ id, priority: p.priority, startedAt: t, src, gain: g, nodes, squelch });
     if (squelch) {
       this.squelchTails = this.squelchTails.filter((q) => q.endsAt > ctx.currentTime);
       this.squelchTails.push(squelch);
@@ -1009,8 +1855,16 @@ export class BattleAudio {
     };
     src.start(at);
     if (!line) src.stop(at + PLACEHOLDER_S);
-    this.duck(true);
-    return { status: line ? 'played' : 'placeholder', seconds, en, cut: admit.cut.length };
+    this.voiceHold();
+    return { status: line ? 'played' : 'placeholder', seconds, en, cut: admit.cut.length, id, cutIds: admit.cut };
+  }
+
+  /** AU-5: the next take of `key` from its shuffle bag. */
+  private nextTake(key: string, n: number): number {
+    const prev = this.takeBags.get(key) ?? { bag: [], last: null };
+    const d = drawFromBag(prev.bag, n, prev.last, () => this.rand());
+    this.takeBags.set(key, { bag: d.bag, last: d.take });
+    return d.take;
   }
 
   /** Fade every line out and let go of the duck: a mission leave. */
@@ -1023,7 +1877,7 @@ export class BattleAudio {
       for (const q of this.squelchTails) if (q.endsAt > t) q.cut(t, VOICE_CUT_S);
     }
     this.squelchTails = [];
-    this.duck(false);
+    this.setHold('voice', null);
   }
 
   /** Cut one line short with a VOICE_CUT_S fade (N4). */
@@ -1051,22 +1905,67 @@ export class BattleAudio {
 
   private voiceEnded(id: number): void {
     this.activeVoices = this.activeVoices.filter((v) => v.id !== id);
-    if (this.activeVoices.length === 0) this.duck(false);
+    this.voiceHold();
   }
 
-  /** Duck sfx and music under a voice, or let them go (N12). Idempotent. */
-  private duck(on: boolean): void {
-    if (this.ducked === on) return;
-    this.ducked = on;
+  /** The voices' own row: an announcement's while one is sounding, a bark's
+   *  otherwise, none once the last line ends (N12). */
+  private voiceHold(): void {
+    if (this.activeVoices.length === 0) return this.setHold('voice', null);
+    const announcing = this.activeVoices.some((v) => isAnnouncementPriority(v.priority));
+    this.setHold('voice', announcing ? DUCK_TABLE.announce : DUCK_TABLE.bark);
+  }
+
+  /** Hold a row for `seconds`, then let it go; a second call restarts it. */
+  private holdFor(id: string, row: DuckRowName, seconds: number): void {
+    const prev = this.holdTimers.get(id);
+    if (prev !== undefined) window.clearTimeout(prev);
+    this.setHold(id, DUCK_TABLE[row]);
+    this.holdTimers.set(
+      id,
+      window.setTimeout(() => {
+        this.holdTimers.delete(id);
+        this.setHold(id, null);
+      }, Math.max(0, seconds) * 1000)
+    );
+  }
+
+  /**
+   * Set or clear one hold, and move the mix to what every hold still standing
+   * asks for (`duckLevels`). A hold that is already the row asked for is left
+   * alone, so a duck already applied is re-used, never re-triggered (no
+   * pumping). Going down takes the new row's attack; coming back up takes the
+   * released row's release.
+   */
+  private setHold(id: string, row: DuckRow | null): void {
+    const was = this.holds.get(id) ?? null;
+    if (was === row) return;
+    if (row === null) {
+      this.holds.delete(id);
+      const timer = this.holdTimers.get(id);
+      if (timer !== undefined) window.clearTimeout(timer);
+      this.holdTimers.delete(id);
+    } else {
+      this.holds.set(id, row);
+    }
+    const target = duckLevels([...this.holds.values()]);
+    const seconds = row !== null ? row.attackS : (was?.releaseS ?? 0);
     const ctx = this.ctx;
     const d = this.sfxDuck;
     if (ctx && d) {
       const t = ctx.currentTime;
       d.gain.cancelScheduledValues(t);
       d.gain.setValueAtTime(d.gain.value, t);
-      d.gain.linearRampToValueAtTime(on ? DUCK.sfx : 1, t + (on ? DUCK.attackS : DUCK.releaseS));
+      d.gain.linearRampToValueAtTime(target.sfx, t + seconds);
     }
-    this.rampMusic(on ? DUCK.music : 1, (on ? DUCK.attackS : DUCK.releaseS) * 1000);
+    const a = this.ambDuck;
+    if (ctx && a) {
+      const t = ctx.currentTime;
+      a.gain.cancelScheduledValues(t);
+      a.gain.setValueAtTime(a.gain.value, t);
+      a.gain.linearRampToValueAtTime(target.amb, t + seconds);
+    }
+    this.rampMusic(target.music, seconds * 1000);
   }
 
   /**
@@ -1078,7 +1977,7 @@ export class BattleAudio {
   private rampMusic(to: number, ms: number): void {
     if (this.musicDuckTimer !== null) window.clearTimeout(this.musicDuckTimer);
     this.musicDuckTimer = null;
-    if (!this.music) {
+    if (this.musicElements().length === 0) {
       this.musicDuck = to;
       return;
     }
@@ -1095,6 +1994,7 @@ export class BattleAudio {
   }
 
   onEvents(events: SimEvent[], sim: Sim): void {
+    this.readIntensity(events, sim);
     if (this.muted || this.ctx === null || this.ctx.state !== 'running') return;
     const st = sim.state;
     let voices = 0;
@@ -1138,6 +2038,28 @@ export class BattleAudio {
           this.noise(0.5, 180, 0.06);
         }
       }
+    }
+  }
+
+  /**
+   * AU-7: count this tick's player-side combat -- a shot fired by or at side
+   * 0, a round landing on or from it -- and turn the beds when the reading
+   * crosses. Clocked by the sim's own tick (20 Hz, invariant 1), so the pause
+   * menu, which stops the ticks, freezes it. Before the mute check: a muted
+   * player unmuting mid-fight should hear the fight's music.
+   */
+  private readIntensity(events: SimEvent[], sim: Sim): void {
+    if (!this.hasBeds() || this.musicScene !== 'battle') return;
+    const side = sim.state.side;
+    const player = (id: number): boolean => id >= 0 && side[id] === 0;
+    let n = 0;
+    for (const e of events) {
+      if ((e.kind === 'fire' || e.kind === 'impact') && (player(e.shooter) || player(e.target))) n++;
+    }
+    const target = this.intensity.observe(sim.tickCount * SIM_TICK_MS, n) === 'battle' ? 1 : 0;
+    if (target !== this.mixBattleTarget) {
+      this.mixBattleTarget = target;
+      this.startMix();
     }
   }
 
@@ -1191,9 +2113,9 @@ export class BattleAudio {
     return this.sfx;
   }
 
-  private tone(freq: number, dur: number, type: OscillatorType, gain: number): void {
+  private tone(freq: number, dur: number, type: OscillatorType, gain: number, to?: AudioNode): void {
     const ctx = this.ctx;
-    const dst = this.out();
+    const dst = to ?? this.out();
     if (!ctx || !dst) return;
     const o = ctx.createOscillator();
     const g = ctx.createGain();

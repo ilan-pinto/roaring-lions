@@ -50,7 +50,7 @@ describe('routes', () => {
   it('round-trips through the router and the flag parser it was built for', () => {
     // Not "it looks like a URL": the href has to survive the same three
     // readers the running app puts it through.
-    const href = routes.sandbox('wadi_halam_basin', { roe: true, nomesh: true });
+    const href = routes.sandbox('wadi_halam_basin', { roe: true, kit: true });
     const url = new URL(href, 'http://localhost:5173');
     expect(matchPath('/free-play/:map', stripBase('/', url.pathname))).toEqual({
       map: 'wadi_halam_basin',
@@ -61,9 +61,8 @@ describe('routes', () => {
       sur: false,
       civ: false,
       ditch: false,
-      nomesh: true,
       decals: false,
-      kit: false,
+      kit: true,
     });
     expect(unknownParams(url.searchParams)).toEqual([]);
 

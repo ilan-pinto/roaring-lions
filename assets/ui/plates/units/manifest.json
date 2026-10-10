@@ -29,8 +29,8 @@
       "width": 1800,
       "height": 1200,
       "extent": [
-        193,
-        222
+        167,
+        255
       ]
     },
     "attack_drone": {
@@ -47,8 +47,8 @@
       "width": 1800,
       "height": 1200,
       "extent": [
-        166,
-        214
+        175,
+        210
       ]
     },
     "demo_squad": {
@@ -56,8 +56,8 @@
       "width": 1800,
       "height": 1200,
       "extent": [
-        143,
-        207
+        174,
+        215
       ]
     },
     "dozer_d9": {
@@ -92,8 +92,8 @@
       "width": 1800,
       "height": 1200,
       "extent": [
-        280,
-        196
+        289,
+        239
       ]
     },
     "jeep_shoded": {
@@ -119,8 +119,8 @@
       "width": 1800,
       "height": 1200,
       "extent": [
-        225,
-        175
+        233,
+        217
       ]
     },
     "recon_drone": {
@@ -146,8 +146,8 @@
       "width": 1800,
       "height": 1200,
       "extent": [
-        154,
-        91
+        195,
+        169
       ]
     },
     "yahalom_squad": {
@@ -155,8 +155,26 @@
       "width": 1800,
       "height": 1200,
       "extent": [
-        240,
-        163
+        301,
+        188
+      ]
+    },
+    "heli_peten_gunship": {
+      "file": "heli_peten_gunship.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        549,
+        389
+      ]
+    },
+    "recon_zikit": {
+      "file": "recon_zikit.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        260,
+        247
       ]
     }
   }

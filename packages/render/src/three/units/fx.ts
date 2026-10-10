@@ -366,6 +366,7 @@ import { tracerAlpha, type TracerModel } from './tracers';
 import {
   shellPointAt,
   shellTrailSpan,
+  shellLaunched,
   SHELL_PROFILES,
   SHELL_TRAIL_SEGMENTS,
   type ShellModel,
@@ -459,8 +460,16 @@ export const SHELL_CAPACITY = 384;
  * shipped mission, with the same "evicts the oldest" degradation
  * `writeShellInstances` already documents if it is ever exceeded. 1536 * 4 =
  * 6144 vertices, well under the tracer pool's 16384.
+ *
+ * Raised to 4096 quads (682 rounds) on 2 Oct 2026, when `small_arms` and
+ * `hmg` moved onto this batch as bursts of short streaks (`shells.ts`,
+ * "Machine-gun and rifle fire"). An `mg` burst is 3 streaks per 0.15 s
+ * cooldown, each about 0.3 s in the air with its stagger, so one HMG holds
+ * about 7 live streaks and one rifle squad about 4. 682 is some 100
+ * machine guns firing at once; past that the oldest are evicted, as above.
+ * 4096 * 4 = 16384 vertices, the tracer pool's own size.
  */
-export const BOLT_CAPACITY = 1536;
+export const BOLT_CAPACITY = 4096;
 /** Screen-pixel lift a shell draws at above the ground line between its own
  *  launch and impact tiles, on top of whatever the arc itself contributes.
  *  Exists for one reason: at `u = 0` and `u = 1` the arc's own height is
@@ -1020,6 +1029,8 @@ export function writeShellInstances(
   let count = 0;
   for (let i = start; i < shells.length; i++) {
     const s = shells[i];
+    // A burst's later streaks wait with a negative `t` (`spawnBurst`).
+    if (!shellLaunched(s)) continue;
     const { tail, head } = shellTrailSpan(s);
     // GH-149: per KIND, not one constant -- a `bolt` is a thinner streak than
     // a mortar bomb. `SHELL_WIDTH_PX` remains the arcing kinds' own value.

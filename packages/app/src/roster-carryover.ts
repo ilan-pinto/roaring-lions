@@ -36,7 +36,9 @@
  * 5. `issueSlots` -- anything still slotless gets a fresh id;
  * 6. `assignNames` -- `slot` first and `name` after, because identity is what
  *    a unit IS and the callsign is what it is CALLED;
- * 7. `splitRoster` -- the cap, over active plus reserve.
+ * 7. R-2 (`isReplayed`) -- this mission's own earlier homecoming, unfielded
+ *    and serving nowhere else, is replaced by this run's;
+ * 8. `splitRoster` -- the cap, over active plus reserve.
  *
  * A produced ledger with no roster array at all (a mission whose contract does
  * not produce `roster.surviving_units`, on a campaign that has none yet) runs
@@ -61,6 +63,33 @@ export interface RosterCarryoverDeps {
   /** The roster cap. Defaults to `ROSTER_CAP`; the spec passes a small one
    *  to make the split bind. */
   cap?: number;
+  /** The mission just won. With it, every fresh body is stamped `enlisted`
+   *  with this id, and roster rule R-2 runs: see `isReplayed`. Without it
+   *  (an older caller) neither happens. */
+  missionId?: string;
+}
+
+/**
+ * Roster rule R-2 (the lead, 7 Oct 2026; GH-417): **a replay replaces that
+ * mission's earlier survivors instead of appending.** Winning a mission again
+ * brings its fresh bodies home again; without this, the bodies its EARLIER win
+ * brought home stayed too, and every replay grew the brigade -- the "119 in
+ * reserve" the lead met on Wadi Halam V's deploy screen.
+ *
+ * A body is replaced when ALL of these hold, and only then:
+ * - this mission enlisted it (`enlisted === missionId`);
+ * - it was NOT fielded in this run -- `checkEnd` passes an unfielded entry
+ *   through whole, slot and all, while a fielded survivor comes back rebuilt
+ *   with no slot, so `rosterIn[i].slot !== undefined` is exactly "not fielded";
+ * - it has served in nothing else (`missions <= 1`): a body that went on to
+ *   fight elsewhere is a veteran of the brigade, not a copy of this mission's
+ *   last homecoming, and it stays.
+ *
+ * The replaced are dropped, not stood down: they are the duplicate this rule
+ * exists to stop. A defeat writes nothing at all, so it replaces nothing.
+ */
+export function isReplayed(entry: RosterEntry, missionId: string, fieldedThisRun: boolean): boolean {
+  return !fieldedThisRun && entry.enlisted === missionId && (entry.missions ?? 0) <= 1;
 }
 
 /** One named loss for the debrief. `name` is absent for a record whose unit
@@ -123,7 +152,25 @@ export function applyRosterCarryover(
     const gained = filled[i].slot;
     if (reattached[i].slot === undefined && gained !== undefined) replacedSlots.push({ i, slot: gained });
   }
-  const carried = issueSlots(filled, merged[SLOTS_ISSUED_KEY] ?? 0);
+  // R-2's half on the way in: who enlisted each body. A body slotless after
+  // `reattachSlots` arrived fresh this run (a remnant, a reinforcement, a
+  // replacement) and is this mission's; a fielded survivor came back rebuilt
+  // without the field, so it gets its own back by slot; an unfielded pass-
+  // through still carries it.
+  const enlistedBySlot = new Map<number, string>();
+  for (const e of [...rosterBefore, ...reserveIn]) {
+    if (e.slot !== undefined && e.enlisted !== undefined) enlistedBySlot.set(e.slot, e.enlisted);
+  }
+  const stamped: RosterEntry[] = filled.map((e, i) => {
+    if (deps.missionId === undefined) return e;
+    if (reattached[i].slot === undefined) return { ...e, enlisted: deps.missionId };
+    if (e.enlisted === undefined && e.slot !== undefined) {
+      const was = enlistedBySlot.get(e.slot);
+      if (was !== undefined) return { ...e, enlisted: was };
+    }
+    return e;
+  });
+  const carried = issueSlots(stamped, merged[SLOTS_ISSUED_KEY] ?? 0);
   const named = assignNames(carried.roster, issuedIn, deps.kindOf, deps.names);
 
   // `lostThisMission`'s own `type` is the sim's raw type id (`unitLost`'s
@@ -153,7 +200,15 @@ export function applyRosterCarryover(
   // unit come back when losses make room, and what makes the migration for an
   // existing save a normal write rather than a special path. Nothing is
   // deleted: the two arrays' lengths always sum to what went in.
-  const split = splitRoster(named.roster, reserveIn, deps.cap ?? ROSTER_CAP);
+  // R-2's half on the way out: this mission's earlier homecoming, unfielded
+  // this run and serving nowhere else, is replaced by this run's. Index `i` of
+  // `named.roster` is index `i` of `rosterIn` (every step above is a `.map`),
+  // which is what `fieldedThisRun` reads. After the replacement rows, which
+  // only ever name a body fresh this run -- never one this drops.
+  const missionId = deps.missionId;
+  const active = missionId === undefined ? named.roster : named.roster.filter((e, i) => !isReplayed(e, missionId, rosterIn[i].slot === undefined));
+  const reserveKept = missionId === undefined ? reserveIn : reserveIn.filter((e) => !isReplayed(e, missionId, false));
+  const split = splitRoster(active, reserveKept, deps.cap ?? ROSTER_CAP);
 
   // Key order matters to the bytes on disk: the keys are assigned in the order
   // `main.ts` assigned them when this chain lived inline, so an existing save's

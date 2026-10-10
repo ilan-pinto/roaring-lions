@@ -167,7 +167,7 @@ export function assertYesOrInteractive(yes: boolean, isTTY: boolean): void {
  * `cli.ts` returns for those before the key check runs at all.
  */
 export function commandNeedsApiKey(command: string, dryRun: boolean): boolean {
-  if ((command === 'text' || command === 'image' || command === 'remesh') && dryRun) return false;
+  if ((command === 'text' || command === 'image' || command === 'remesh' || command === 'refine') && dryRun) return false;
   return true;
 }
 
@@ -184,6 +184,7 @@ const GENERATE_VALUED_FLAGS: ReadonlySet<string> = new Set([
   'pose',
   'tex',
   'texture-prompt',
+  'negative',
   'formats',
 ]);
 const GENERATE_BOOLEAN_FLAGS: ReadonlySet<string> = new Set(['ultra', 'pbr', 'yes', 'json']);
@@ -200,6 +201,10 @@ export interface GenerateCommonOptions {
   readonly pbr: boolean;
   readonly textureResolution: TextureResolution;
   readonly texturePrompt: string | undefined;
+  /** `--negative`: a text preview's `negative_prompt` (B8 v2, 2026-10-02: the
+   *  first Namer honoured every named feature and still read as a WWII tank
+   *  destroyer; naming what it must not be is the API's own lever for that). */
+  readonly negativePrompt?: string | undefined;
   readonly formats: readonly TargetFormat[];
   readonly yes: boolean;
   readonly json: boolean;
@@ -225,6 +230,7 @@ function parseGenerateCommon(options: ReadonlyMap<string, string>): GenerateComm
     pbr: options.get('pbr') === 'true',
     textureResolution,
     texturePrompt: options.get('texture-prompt'),
+    negativePrompt: options.get('negative'),
     formats,
     yes: options.get('yes') === 'true',
     json: options.get('json') === 'true',
@@ -395,6 +401,73 @@ export function parseRemeshArgs(argv: readonly string[], ctx: { readonly isTTY: 
     yes,
     json: options.get('json') === 'true',
   };
+}
+
+// ---------------------------------------------------------------------------
+// refine (a texture pass on a preview task that already exists)
+// ---------------------------------------------------------------------------
+
+const REFINE_BOOLEAN_FLAGS: ReadonlySet<string> = new Set(['pbr', 'yes', 'json']);
+const REFINE_VALUED_FLAGS: ReadonlySet<string> = new Set(['tex', 'texture-prompt', 'name', 'formats']);
+
+/**
+ * `refine <preview-task-id>` -- the second half of `text --refine`, on its
+ * own, against a preview submitted EARLIER. A3.1 B2 shipped two figure teams
+ * palette-painted because the infantry bake list did not exist yet; when
+ * the bake was approved (B7, GH-179), buying it on the preview already on
+ * Meshy's side costs the refine's 10 credits rather than a new preview's 30,
+ * and keeps the figure the lead already judged. Same shape as `remesh`: a
+ * task id in, a task out, one ledger line.
+ */
+export interface RefineOptions {
+  readonly previewTaskId: string;
+  readonly pbr: boolean;
+  readonly textureResolution: TextureResolution;
+  readonly texturePrompt: string | undefined;
+  readonly formats: readonly TargetFormat[];
+  readonly name: string | undefined;
+  readonly yes: boolean;
+  readonly json: boolean;
+}
+
+export function parseRefineArgs(argv: readonly string[], ctx: { readonly isTTY: boolean }): RefineOptions {
+  const { positionals, options } = parseKnownFlags(argv, { boolean: REFINE_BOOLEAN_FLAGS, valued: REFINE_VALUED_FLAGS });
+  if (positionals.length === 0) throw new Error('refine: missing required <preview-task-id> argument');
+  if (positionals.length > 1) {
+    throw new Error(`refine: unexpected extra argument(s): ${positionals.slice(1).join(' ')}`);
+  }
+  const textureResolution = options.has('tex') ? asTextureResolution(options.get('tex') as string) : '2k';
+  const formats = options.has('formats') ? parseTargetFormats(options.get('formats') as string) : (['glb'] as const);
+  const yes = options.get('yes') === 'true';
+  assertYesOrInteractive(yes, ctx.isTTY);
+  return {
+    previewTaskId: positionals[0],
+    pbr: options.get('pbr') === 'true',
+    textureResolution,
+    texturePrompt: options.get('texture-prompt'),
+    formats,
+    name: options.get('name'),
+    yes,
+    json: options.get('json') === 'true',
+  };
+}
+
+export interface EstimateRefineOptions {
+  readonly textureResolution: TextureResolution;
+  readonly json: boolean;
+}
+
+const ESTIMATE_REFINE_BOOLEAN_FLAGS: ReadonlySet<string> = new Set(['json']);
+const ESTIMATE_REFINE_VALUED_FLAGS: ReadonlySet<string> = new Set(['tex']);
+
+export function parseEstimateRefineArgs(argv: readonly string[]): EstimateRefineOptions {
+  const { positionals, options } = parseKnownFlags(argv, {
+    boolean: ESTIMATE_REFINE_BOOLEAN_FLAGS,
+    valued: ESTIMATE_REFINE_VALUED_FLAGS,
+  });
+  if (positionals.length > 0) throw new Error(`estimate refine: unexpected argument(s): ${positionals.join(' ')}`);
+  const textureResolution = options.has('tex') ? asTextureResolution(options.get('tex') as string) : '2k';
+  return { textureResolution, json: options.get('json') === 'true' };
 }
 
 export interface EstimateRemeshOptions {

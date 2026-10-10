@@ -208,6 +208,26 @@ export function nextMissionOf(town: WorldTown, ledger: LedgerData | undefined): 
 }
 
 /**
+ * Is this mission OPEN in the campaign this ledger describes (GH-330, guard G-A)?
+ * True when it is already done, or when it is its town's next mission in a region that
+ * is not locked -- exactly the missions the campaign board offers. False for a later
+ * mission of the same town, for anything in a locked region, and for an id outside
+ * `world.json` (the tutorial). The mission route boots any `/mission/<id>` by address,
+ * so a payout cannot assume the board was the way in; `campaign-pay.ts` measures a run
+ * of a mission that is not open against the LIFETIME record, never the campaign's.
+ */
+export function missionOpen(world: ParsedWorld, missionId: string, ledger: LedgerData | undefined): boolean {
+  for (const region of world.regions) {
+    const town = region.towns.find((t) => t.missions.includes(missionId));
+    if (!town) continue;
+    if (completed(ledger).has(missionId)) return true;
+    if (regionProgress(region, ledger).status === 'locked') return false;
+    return nextMissionOf(town, ledger) === missionId;
+  }
+  return false;
+}
+
+/**
  * The mission that should follow the one that just ended, for the end screen's "next
  * mission" link.
  *
@@ -644,6 +664,18 @@ export function continueTarget(
     }
   }
   return null;
+}
+
+/**
+ * The campaign board's "Next: <mission>" target (PA-20): the first open
+ * mission of wherever the map is live, or null once every authored mission is
+ * done -- which is when the button is not drawn. Unlike `continueTarget` it
+ * never answers with the tutorial: that is off the map, and the board's
+ * button is about the war. One walk, not two -- this IS `continueTarget` with
+ * the tutorial already behind the player.
+ */
+export function nextOperation(world: ParsedWorld, ledger: LedgerData): string | null {
+  return continueTarget(world, ledger, { id: '', done: true })?.missionId ?? null;
 }
 
 /** Idit's line under the region cards: who is still out there, and who just came home. */

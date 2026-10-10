@@ -1,4 +1,14 @@
 /**
+ * The renderer -- the only one since WP-A3.3 (2026-10-04) retired the Pixi
+ * backend and, with it, every BILLBOARD path in this file: the unit and
+ * structure sprite instancers (`units/instances.ts`, `units/structures.ts`,
+ * `units/atlas.ts`), `loadSprites`/`loadStructureSprite`, the billboard
+ * death fade and sprite wrecks, and the 2D falling-building collapse. Every
+ * unit and structure draws a mesh; a unit whose GLB failed to load draws a
+ * proxy box (`units/proxy-box.ts`). The phase history below, and the many
+ * "ported from `renderer.ts`" notes through this file, are kept as history:
+ * `renderer.ts` was Pixi's backend and no longer exists.
+ *
  * The three.js backend. Phase B1 got it on screen with nothing but the clear
  * colour; Phase B2.4 adds the first drawn geometry -- terrain, built lazily
  * from `buildGround` (see `rebuildTerrain` below) and uploaded once per
@@ -110,8 +120,38 @@ import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project'
 import { QUALITY_PRESETS } from '../quality';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
 import { SIM_HZ } from '../anim';
-import { parseManifest, parseStructureManifest, clipOrFallback, type SheetSpec } from '../sheet';
 import { resolveClip, cadenceScale, type UnitAnimInput } from '../clip';
+import {
+  approachAngle,
+  BODY_TURN_RAD_S,
+  cadenceMultiplier,
+  clipPhase,
+  KNEEL_SPREAD,
+  kneelClipFor,
+  kneelHeading,
+  leanTarget,
+  stepLean,
+  flinchPitch,
+  flinches,
+  FLINCH_RADIUS_TILES,
+  lerpFacingTurns,
+  METRES_PER_TILE,
+  mgBurstRounds,
+  recoilAt,
+  recoilSeconds,
+  shotJitterS,
+  slotDrift,
+  STANCE_STAGGER_S,
+  stanceDepth,
+  stepDepth,
+  stepFollower,
+  TURN_STEP_M_PER_RAD,
+  TWIST_MAX_RAD,
+  wrapAngle,
+  type KneelHeading,
+} from './units/squad-motion';
+import { rotateBoneWorld, scrubAction, stopSquadPlayers, type SquadRig } from './units/squad-rig';
+import { stanceOf } from './units/stance';
 import {
   updateDimetricCamera,
   worldToScreenThree,
@@ -119,7 +159,8 @@ import {
   CAMERA_NEAR,
   CAMERA_FAR,
 } from './camera';
-import { createSceneLights, DAY_LIGHTS, type ResolvedLights, type SceneLights } from './lighting';
+import { structureAtScreenThree, structureBoxes } from './structure-pick';
+import { createSceneLights, DAY_LIGHTS, shadowIntensityOf, withLightOverride, type ResolvedLights, type SceneLights } from './lighting';
 import {
   BOUNCE_KEY,
   resolveTimeOfDay,
@@ -129,17 +170,23 @@ import {
   type LitTimeOfDay,
 } from './time-of-day';
 import { disposeAndReleaseContext } from './context-release';
+import { freezeSceneRoot, freezeStatic } from './static-matrix';
 import { AO_RESOLUTION_SCALE, createAoPass, createPostChain, PIXEL_RATIO_CAP, type PostChain } from './post-chain';
 import { VignettePass } from './vignette-pass';
 import type { Pass } from 'three/addons/postprocessing/Pass.js';
 // The ONE piece of the post chain `captureGroundAlbedo` needs -- see that
 // method for why a render target cannot simply be read back raw.
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { CopyShader } from 'three/addons/shaders/CopyShader.js';
+import { captureComposerView } from './capture-view';
 import { FlashLightManager } from './flash-light';
 import { MuzzleFlashManager, MUZZLE_FLASH_DEFAULT_DURATION_MS } from './units/muzzle-flash';
 import {
   ExplosionBurstManager,
+  EXPLOSION_BURST_CAPACITY,
   EXPLOSION_BURST_DEFAULT_DURATION_MS,
+  loadExplosionBurstTemplate,
   explosionBurstPowerFromFootprint,
   explosionBurstPowerFromMaxHp,
 } from './units/explosion-burst';
@@ -174,6 +221,9 @@ import {
 import {
   BLAST_EMITTER_ID,
   SHELL_IMPACT_EMITTER_ID,
+  STRUCTURE_COLLAPSE_EMITTER_ID,
+  COLLAPSE_FLASH_EMITTER_ID,
+  collapseFrontPoint,
   blastLightSpec,
   blastShake,
   blastHitStopMs,
@@ -188,10 +238,12 @@ import {
   type ShakeState,
   type HitStopState,
 } from './blast-shake';
-import { buildGround, groundAlbedoSlotsUsed } from './terrain/ground';
+import { buildGroundTiled, groundAlbedoSlotsUsed, spliceGround } from './terrain/ground';
 import { decalBaseTone, makeDecalGroundSource, type DecalGroundSource } from './terrain/decal-ground-tone';
 import { buildSkirt, disposeSkirt, setSkirtAlbedo, type SkirtMesh } from './terrain/skirt';
-import { buildScatter } from './terrain/scatter';
+import { buildScatterTiled, spliceScatter } from './terrain/scatter';
+import { changedTerrainTiles, spliceMask, terrainBuildState, type TerrainBuildState } from './terrain/incremental';
+import type { TiledMeshData } from './terrain/tiled-mesh';
 import { buildBuildings, type StructureFootprint } from './terrain/buildings';
 import {
   toGeometry,
@@ -207,11 +259,14 @@ import {
   type GroundSlot,
 } from './terrain/mesh';
 import { isDebugLayer, unknownDebugLayerMessage } from './debug-layers';
-import { isTerrace, terrainSurfaceFrom, type TerrainSurface } from './terrain/surface';
+import { buildTerrainSurface, isTerrace, terrainSurfaceFrom, type TerrainSurface } from './terrain/surface';
 import {
   buildControlMap,
   buildMacroField,
+  changedControlTiles,
   controlInputsMatch,
+  updateControlMapRegion,
+  type ControlMap,
   neutralTint,
   snapshotControlInputs,
   type ControlInputs,
@@ -245,9 +300,7 @@ import { isTexturedDecorKey } from './terrain/textured-decor';
 import { prepareTexturedMap } from './world-materials';
 import { dirtyForStructureHit, dirtyForStructureDestroyed } from './terrain/dirty';
 import { isGrindingHit } from '../grind';
-import { packSheet, buildUnitTexture } from './units/atlas';
-import { entityFrame, assignRoofSlots, AIR_LIFT_PX, type EntityFrameInput, type EntityFrame } from './units/frame-state';
-import { UnitInstancer, TURRET_RENDER_ORDER, HULL_RENDER_ORDER } from './units/instances';
+import { AIR_LIFT_PX } from './units/frame-state';
 import { pickUnit as pickUnitPure, unitsInScreenRect as unitsInScreenRectPure } from './units/pick';
 import { stepTracers, spawnTracer, type TracerModel } from './units/tracers';
 import {
@@ -256,6 +309,8 @@ import {
   shellKindFor,
   shellHasLanded,
   isIndirectShell,
+  isBurstShell,
+  spawnBurst,
   SHELL_PROFILES,
   type ShellModel,
 } from './units/shells';
@@ -266,6 +321,16 @@ import {
   MISS_SCORCH_POWER,
 } from './units/missile-fx';
 import type { MissileLanding, TargetTrack } from './units/missiles';
+import { missileClassOf, SIM_PROJ_SPEED_TILES_S } from './units/missiles';
+import {
+  TARGET_RING_SCALE,
+  pulseAt,
+  PULSE_S,
+  PULSE_MIN_GAP_S,
+  HIT_FLASH_S,
+  HIT_FLASH_WIDTH_SCALE,
+  landingDelayS,
+} from './units/fire-link';
 import {
   ParticleInstancer,
   TracerBatch,
@@ -275,6 +340,16 @@ import {
   SHELL_CAPACITY,
   BOLT_CAPACITY,
 } from './units/fx';
+import { rotorSpinPhase } from './units/rotor-spin';
+import { exhaustRand, exhaustSlotAgeSec, exhaustSlotsDue, vehicleTrailsDamageSmoke } from './units/exhaust-slots';
+import {
+  ROTOR_WASH_MIN_STRENGTH,
+  rotorWashStrength,
+  washAgeSec,
+  washRand,
+  washSlotAt,
+  washSlotsDue,
+} from './units/rotor-wash';
 import { nextVehicleMoving, vehicleDustIntervalMs, vehicleDustMagnitude, vehicleFxAnchor } from './units/vehicle-fx';
 import {
   makeVehicleWeightArrays,
@@ -287,27 +362,17 @@ import {
 } from './units/vehicle-weight';
 import { conformHull, type HullConform, type HullConformInput } from './units/vehicle-conform';
 import { vehicleWeightParamsFor } from './units/vehicle-weight-params';
+import { footprintCentre } from './units/footprint';
+import { DEFAULT_BUILDING_FIT, buildingFitScale, type FitScale } from './units/building-fit';
 import {
-  StructureInstancer,
-  loadStructureFrame,
-  structureBillboardGeometry,
-  collapseBillboardGeometry,
-  billboardDrawSize,
-  createCollapseMaterial,
-  collapseFrame,
-  liveStructurePlacements,
-  deadStructurePlacements,
-  footprintCentre,
-  structureAliveAlpha,
-  resolveRoofPx,
-} from './units/structures';
-import {
-  STRUCTURE_RENDER_ORDER,
   FX_RENDER_ORDER,
+  COLLAPSE_FLASH_RENDER_ORDER,
   DECAL_PERSISTENT_RENDER_ORDER,
   DECAL_FADING_RENDER_ORDER,
 } from './units/render-order';
 import { unitIsObserved } from './units/observed';
+import { ZoneBandBatch } from './units/zone-band';
+import { ProxyBoxBatch, proxyBoxDims, type ProxyBoxEntry } from './units/proxy-box';
 import {
   SILHOUETTE_COLOR_KEY_BY_SIDE,
   SILHOUETTE_FALLBACK_HEX_BY_SIDE,
@@ -316,6 +381,8 @@ import {
   attachMeshSilhouette,
   detachMeshSilhouette,
   setSilhouetteOutlineZoom,
+  isSilhouette,
+  SILHOUETTE_OUTLINE_UNIFORM_KEY,
 } from './units/silhouette';
 import {
   loadMeshUnitTemplate,
@@ -333,9 +400,19 @@ import {
   MESH_SCALE,
   resolveMeshMotionClip,
   gaitTimeScale,
+  hashEntityId,
   isLocomotionClip,
+  type LocomotionClip,
 } from './units/mesh-anim';
-import { gltfLoader, setDracoDecoderPath, disposeGltfLoader } from './units/gltf-loader';
+import type { ClipName } from '../sheet';
+import {
+  gltfLoader,
+  setDracoDecoderPath,
+  disposeGltfLoader,
+  hasColdTextures,
+  warmColdTextures,
+  type ImageDecoder,
+} from './units/gltf-loader';
 import { stepTurretFacing } from './units/frame-state';
 import {
   loadVehicleMeshTemplate,
@@ -346,6 +423,7 @@ import {
   type VehicleMeshTemplate,
   type VehicleMeshEntity,
 } from './units/mesh-vehicle';
+import { setKitDrawRange } from './units/vehicle-kit';
 import {
   loadBuildingMeshTemplate,
   instantiateBuildingMesh,
@@ -354,6 +432,17 @@ import {
   type BuildingMeshTemplate,
 } from './units/mesh-building';
 import { wallSurfaceForBuilding } from './units/building-mesh-role';
+import {
+  applyBuildingDamageBand,
+  buildingDamageBand,
+  BuildingScarMaterials,
+  isBurningBand,
+  STRUCTURE_BURN_INTERVAL_MS,
+  STRUCTURE_BURN_MAGNITUDE,
+  STRUCTURE_BURN_PLUME_MS,
+  WRECK_BURN_HEIGHT_FRACTION,
+  WRECK_BURN_SECONDS,
+} from './units/building-damage';
 import { TEXTURED_BUILDING_TYPES } from './units/textured-building';
 import { TEXTURED_VEHICLE_TYPES } from './units/textured-vehicle';
 import { TEXTURED_INFANTRY_TYPES } from './units/textured-infantry';
@@ -385,7 +474,9 @@ import { SmokeMesh } from './smoke-mesh';
 import { perTileRunYaw } from './units/run-direction';
 import { drawBlockedMask } from './terrain/draw-mask';
 import { TrailMesh, collapsedRouteLevel, type TrailInstanceInput } from './trail-mesh';
+import { ORDER_GROUND_COLOR_KEY } from '../order-ground';
 import { TunnelProps, type TunnelPropsInput, type TunnelRouteView } from './tunnel-props';
+import { TunnelXray, XRAY_COLOR_KEYS, XRAY_STEP, type XrayRoute } from './tunnel-xray';
 import {
   trackKindFor,
   stepTrackAccum,
@@ -415,23 +506,23 @@ import {
   ROUTE_NODE_RADIUS_PX,
   ROUTE_NODE_ALPHA,
   HP_BG_COLOR_KEY,
+  WORLD_HALO_COLOR_KEY,
   SUPPRESSION_COLOR_KEY,
   OVERLAY_ACCENT_COLOR_KEY,
   BADGE_TEXT_COLOR_KEY,
   objectiveZoneColorKey,
   objectiveZoneFallbackColor,
   objectiveZonePulse,
+  objectiveZoneDashed,
+  OBJECTIVE_ZONE_DASH_TILES,
   OBJECTIVE_ZONE_HALO_INSET_TILES,
   OBJECTIVE_ZONE_HALO_COLOR_KEY,
   OBJECTIVE_ZONE_HALO_FALLBACK,
-  OBJECTIVE_ZONE_FILL_ALPHA,
   OBJECTIVE_ZONE_STROKE_INSET_TILES,
   AIR_SHADOW_COLOR_KEY,
-  WRECK_MARKER_COLOR_KEY,
-  MOBILITY_KILL_COLOR_KEY,
-  FIREPOWER_KILL_COLOR_KEY,
-  FIREPOWER_KILL_FALLBACK_COLOR,
+  suppressionBarVisible,
   buildingIntegrityColorKey,
+  MOBILITY_KILL_COLOR_KEY,
   CHARGE_RING_TRACK_COLOR_KEY,
   CHARGE_RING_FILL_COLOR_KEY,
   CHARGE_RING_FILL_FALLBACK_COLOR,
@@ -448,61 +539,32 @@ import {
   REFUGE_RING_EDGE_STYLE,
   REFUGE_RING_EDGE_ALPHA,
 } from './units/overlays';
+import { paletteHex } from './palette-hex';
+import {
+  envelopeDraws,
+  GROUP_DESTINATION_MARGIN_TILES,
+  groupRoutes,
+  primaryRingHex,
+  selectionPrimary,
+  type UnitRoute,
+} from './units/group-overlays';
 import { GroundPing } from './units/ground-ping';
-import { ELLIPSE_BY_TYPE, HP_BAR, RING_CLASS_OVERRIDE, ringClassOf, ringRadiusFor } from './units/readability';
+import {
+  ELLIPSE_BY_TYPE,
+  HP_BAR,
+  RING_CLASS_OVERRIDE,
+  SELECTED_RING_SCALE,
+  TEAM_RING,
+  ringClassOf,
+  ringRadiusFor,
+} from './units/readability';
 import { SelectionRingBatch } from './units/selection-ring';
+import { capTextureSize } from './units/texture-cap';
+import { buildInventory, type MemoryInventory } from './memory-inventory';
+import { CONTACT_MARK, contactHaloTriangles, contactScale, contactShapeOf, contactTriangles } from './units/contact-marks';
 
-/** Where a unit type's sheets live, as the app named them. */
-interface SpriteSheetRequest {
-  basePath: string;
-  turretPath?: string;
-}
 
-/** One unit mid-death-fade -- ThreeRenderer.stepDeaths' own tracking,
- *  mirroring PixiRenderer's identically-shaped `dying` entry (renderer.ts,
- *  `stepDeaths`'s own doc comment). Position, facing and typeId are captured
- *  at the moment of death, not read live off `Sim`, because the entity slot
- *  may be reused by a later spawn before the fade finishes. */
-interface DyingUnit {
-  x: number;
-  y: number;
-  facing: number;
-  typeId: string;
-  t: number;
-  /** Whose it was. Carried only so the synthetic `EntityFrame` this becomes
-   *  can be team-coloured by the occlusion silhouette (`units/silhouette.ts`)
-   *  -- a corpse fading behind a building is drawn through the same
-   *  `UnitInstancer` a living unit is, and therefore through the same
-   *  silhouette mesh, so it needs the same one fact the art does not carry.
-   *  Nothing else reads it. */
-  side: number;
-}
 
-/**
- * One permanent BILLBOARD-path unit wreck -- the counterpart of Pixi's own
- * `wrecks` entry (`renderer.ts:485-487`, `{ x, y, spr, shown }`) and of
- * `mesh-death.ts`'s `MeshWreck` for the mesh path. Pushed unconditionally
- * once a dying unit's fade finishes (`ThreeRenderer.addWreck`), whether or
- * not this type's sheet declares a real `wreck` clip -- `stepDeaths`'s own
- * per-frame draw loop resolves that per entry (real art through the SAME
- * `UnitInstancer` a living unit of that type draws through, or Pixi's own
- * grey cross-marker fallback via `updateOverlays`), the identical split
- * Pixi's own nullable `spr` field encodes. `facing`/`typeId` are captured at
- * the moment of death, not read live off `Sim`, for the same reason
- * `DyingUnit` above already gives.
- */
-interface UnitWreck {
-  x: number;
-  y: number;
-  facing: number;
-  typeId: string;
-  /** Whose it was -- see `DyingUnit.side` for why a corpse carries one. */
-  side: number;
-  /** Sticky reveal: latches true once the tile has ever been explored, and
-   *  never back to false -- `renderer.ts:1200`'s "Never goes back to false",
-   *  identical to `mesh-death.ts`'s own `MeshWreck.shown`. */
-  shown: boolean;
-}
 
 /** Recoil/flinch decay durations, seconds -- redeclared from `renderer.ts`'s
  *  own `RECOIL_SECONDS`/`FLINCH_SECONDS` (private, unexported) rather than
@@ -611,17 +673,6 @@ const MESH_TURRET_MUZZLE_TILES = 0.5;
  * sprite-scale render and is not what this constant is trying to reproduce.
  */
 const ROTOR_SPIN_RAD_PER_SEC = Math.PI * 2;
-/** Seconds a dying unit spends fading before it is dropped -- mirrors
- *  `PixiRenderer.DEATH_SECONDS` (renderer.ts:1209). See `stepDeaths`'s own
- *  doc comment for what happens once that fade ends (a permanent
- *  `UnitWreck` is pushed, `addWreck` below). */
-const DEATH_SECONDS = 0.4;
-/** Permanent billboard-path wreckage needs a ceiling the same way
- *  `PixiRenderer.MAX_WRECKS` (`renderer.ts:1211`) and `mesh-death.ts`'s own
- *  `MAX_MESH_WRECKS` do -- oldest evicted first (`addWreck`). Kept at the
- *  identical value: nothing about which draw path a corpse takes changes
- *  how many are expected to litter a long mission. */
-const MAX_UNIT_WRECKS = 256;
 
 /**
  * Particle draw layers -- mirrors `renderer.ts`'s own private
@@ -696,6 +747,12 @@ const FLAT_FX_MAGNITUDE = 0.2;
  */
 const VEHICLE_DUST_OFFSET_TILES = 0.55;
 const VEHICLE_EXHAUST_OFFSET_TILES = 0.35;
+/** Pass C2/C4 (P3): the damage smoke rises from the engine deck too, a
+ *  touch nearer the hull's middle than the exhaust pipe. */
+const VEHICLE_DAMAGE_SMOKE_OFFSET_TILES = 0.2;
+/** One thin puff every 300 ms of sim time: a wisp, not a fire. */
+const VEHICLE_DAMAGE_SMOKE_INTERVAL_MS = 300;
+const VEHICLE_DAMAGE_SMOKE_MAGNITUDE = 0.3;
 
 /**
  * How often (in ms) `updateVehicleAmbientFx` calls `particleSystem.spawn`
@@ -793,11 +850,21 @@ function decalSeed(kind: DecalKind, x: number, z: number): number {
  * Named once so `rebuildTerrain`'s `uShoulderTone` uniform and
  * `decalGround`'s own copy (`terrain/decal-ground-tone.ts`'s
  * `DecalGroundSource.shoulder`, the decal pool's local-tone denominator)
- * resolve through the same key and the same fallback hex rather than two
- * copies that could drift apart by a retyped literal.
+ * resolve through the same key (and its palette hex as the fallback) rather
+ * than two copies that could drift apart by a retyped literal.
  */
 const SHOULDER_TONE_KEY = 'limestone.2';
-const SHOULDER_TONE_FALLBACK = '#D9C7A7';
+
+/** The no-resolver colours for call sites whose palette key is chosen at run
+ *  time (an emitter's own `light.color`, an HP ratio), so `overlayColor`'s
+ *  key-derived default cannot stand in for them. Read from the palette like
+ *  every other fallback (VR-08): `vfx.fire`, `scrub.0` (the HP bar's healthy
+ *  green, whatever the ratio) and `gunmetal.1` (a building bar's top rung). */
+export const FLASH_LIGHT_FALLBACK = paletteHex('vfx.fire');
+export const HP_BAR_FALLBACK = paletteHex('scrub.0');
+export const BUILDING_BAR_FALLBACK = paletteHex(MOBILITY_KILL_COLOR_KEY);
+/** The flat muzzle-smoke puff's palette key (polish VR-09). */
+export const MUZZLE_SMOKE_KEY = 'limestone.7';
 
 /** How strong a HOVER preview's envelope is, as a fraction of the same
  *  unit's envelope when it is selected. One multiplier over all three bands
@@ -805,6 +872,22 @@ const SHOULDER_TONE_FALLBACK = '#D9C7A7';
  *  more quietly, and a selected unit must always be the louder of the two
  *  when the cursor is resting on one of its own. */
 const PREVIEW_ENVELOPE_STRENGTH = 0.6;
+
+/** The backblast's particle magnitude (`ParticleSystem.spawn`: size x0.75-2,
+ *  count x0.5-1.4): mid-scale, so it reads beside the muzzle emitter's own. */
+const BACKBLAST_MAGNITUDE = 0.4;
+const SQUAD_UP = new THREE.Vector3(0, 1, 0);
+const SQUAD_LATERAL = new THREE.Vector3();
+
+/** The control-group badge (WP-P4, PA-18), in overlay pixels -- the same
+ *  zoom-scaled units every overlay here uses. The disc keeps the 7 it always
+ *  had; the halo is a 1.5 px `shadow.1` edge; the numeral quad grows from
+ *  10 x 12 to 12 x 14 now that it is visible at all, which puts a digit
+ *  about 10 px tall inside a 14 px disc at zoom 1. */
+const GROUP_BADGE_RADIUS_PX = 7;
+const GROUP_BADGE_HALO_PX = 1.5;
+const GROUP_NUMERAL_W_PX = 12;
+const GROUP_NUMERAL_H_PX = 14;
 
 export class ThreeRenderer implements Renderer {
   readonly camera: Camera = { x: 24, y: 24, zoom: 1 };
@@ -876,14 +959,9 @@ export class ThreeRenderer implements Renderer {
    * One bag rather than several fields on purpose: it keeps what B2/B3/B4
    * inherit visible at a glance. Terrain (`decor`, `elevation`) is read by
    * `rebuildTerrain` below whenever `terrainDirty` is set; the tutorial focus
-   * ring is still B3's own retained-only state. `unitSheets` stays
-   * retained-only too (`loadSprites` builds its `UnitInstancer` straight from
-   * its own arguments, never reads this map back). `structureSheets`
-   * graduated out of "retained only" in Task B3.7: `loadStructureSprite` now
-   * builds real `StructureInstancer`s from it (`structureIdle`/
-   * `structureWreck` below); the map itself survives only as the bookkeeping
-   * `loadStructureSprite` already kept before that task, unread by anything
-   * new.
+   * ring is still B3's own retained-only state. (`unitSheets` and
+   * `structureSheets`, the sprite-sheet bookkeeping, went with the billboard
+   * path, WP-A3.3.)
    *
    * The emitter list and its palette resolver used to live here too
    * (`emitters`, `resolveColor`), retained-only, until B3.13 wired them into
@@ -909,8 +987,6 @@ export class ThreeRenderer implements Renderer {
      * `rebuildTerrain` that redraws it.
      */
     elevation: null as TerrainSurface | null,
-    unitSheets: new Map<string, SpriteSheetRequest>(),
-    structureSheets: new Map<string, string>(),
     tutorialFocus: null as { x: number; y: number; radius: number } | null,
   };
 
@@ -960,10 +1036,9 @@ export class ThreeRenderer implements Renderer {
    * decor change, or a structure's death); rebuilt ONE ENTRY AT A TIME by
    * `applyStructureHit`, which is the whole point -- `buildBuildings`'s
    * `tiles` restriction (this task) turns that into an O(footprint) call
-   * instead of an O(map area) one. An arted structure never gets an entry
-   * here at all: `StructureInstancer` (`structureIdle`/`structureWreck`
-   * above) draws it instead, reading live `Sim` state every frame already
-   * (`updateStructures`), which is why it needs no invalidation of its own.
+   * instead of an O(map area) one. A structure whose type has a building
+   * MESH never gets an entry here (`composeTerrain`'s `hasArt` skip): the
+   * mesh draws it. (Until WP-A3.3 a structure-sprite billboard could too.)
    */
   private readonly structureBoxes = new Map<number, THREE.Mesh<THREE.BufferGeometry, THREE.Material>>();
   /**
@@ -1034,75 +1109,6 @@ export class ThreeRenderer implements Renderer {
    * `structureWear` above.
    */
   private readonly structPuffTick = new Map<number, number>();
-  /**
-   * Task B4.4: a CONTINUOUS alpha cache, one float per
-   * structure, lazily grown to `sim.structureCount` exactly like
-   * `structureWear` above but holding the real `structureAliveAlpha` value
-   * this backend last actually drew for that structure, refreshed every
-   * frame by `cacheStructureAlpha` (called from `updateStructures`) for
-   * every LIVE, arted structure. `-1` is the "never cached" sentinel
-   * (`structureAliveAlpha`'s own range is `[0.55, 1]`, so `-1` cannot be a
-   * real value), read by `beginCollapse` as "assume full" -- the identical
-   * default Pixi's own `structureWear` uses for a structure that never took
-   * a `structureHit` event (`renderer.ts:298`, `0xff` clamped to the
-   * maximum band).
-   *
-   * This is a continuous cache rather than Pixi's own eight-step quantised
-   * one because `updateStructures` already recomputes an arted structure's
-   * displayed alpha from live `Sim` state EVERY frame, unconditionally (see
-   * that method's own doc comment) -- unlike Pixi, which only redraws a
-   * structure's sprite on a `terrainDirty` rebuild, so quantising into eight
-   * bands there is what keeps a rifle plinking a wall from redrawing every
-   * round. Nothing here redraws on account of this cache; it exists purely
-   * so `beginCollapse` can read back "what was on screen a moment ago"
-   * instead of `hp`/`maxHp`, which `Sim.destroyStructure` has already
-   * zeroed by the time a `structureDestroyed` event reaches this class
-   * (`packages/sim/src/sim.ts:4092-4095`).
-   *
-   * This is a DELIBERATE divergence from what Pixi actually ships, not
-   * merely this backend's own path to the identical result --
-   * `structureAliveAlpha`'s own doc comment has the full reasoning: Pixi's
-   * `bumpStructureWear` also reads live (already-zeroed) `hp` for a combat
-   * kill's own `structureHit` event, so Pixi's `alpha0` is `0.55` -- fully
-   * battered -- for every combat kill, gradual or one-shot alike. This
-   * cache instead captures true pre-kill integrity, so a building felled by
-   * a single overwhelming hit from near-full health starts its fall near
-   * `1` here, where Pixi's event-ordering floors it to `0.55` regardless.
-   */
-  private structureLastAlpha: Float32Array | null = null;
-  /**
-   * Task B4.4: the manifest facts `collapseBillboardGeometry` needs to
-   * rebuild a BASE-anchored quad matching the live idle sprite's own size --
-   * captured once at `loadStructureSprite` time (`spec.scale`, the decoded
-   * idle frame's own pixel dimensions), the identical facts
-   * `structureBillboardGeometry` was already called with for the live,
-   * CENTRED quad that draws every frame. Absent for a structure type with no
-   * loaded sheet, exactly like `structureIdle` itself -- `beginCollapse`
-   * checks both together.
-   */
-  private readonly structureCollapseArt = new Map<
-    string,
-    { scale: number; textureWidth: number; textureHeight: number }
-  >();
-  /**
-   * Buildings on their way down -- the three.js counterpart to
-   * `PixiRenderer`'s own `collapsing` field (`renderer.ts:459-478`). Each
-   * entry owns a real, individually-positioned `THREE.Mesh` (never a member
-   * of `structureIdle`/`structureWreck`'s instancers, and never added to
-   * `structureBoxes`), added to `scene` directly by `beginCollapse` and
-   * removed only by `stepCollapses` once its own fall finishes -- see
-   * `beginCollapse`'s own doc comment for why `updateStructures`' per-frame
-   * idle/wreck swap cannot delete it out from under the animation.
-   */
-  private readonly collapsing: {
-    mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
-    /** Seconds elapsed since the fall began. */
-    t: number;
-    /** Alpha the building was last actually drawn at, so the fall continues
-     *  from what the player is already looking at rather than flashing back
-     *  to full -- mirrors Pixi's own `alpha0` field exactly. */
-    alpha0: number;
-  }[] = [];
   /** Reused across rebuilds -- one lit, vertex-coloured material carries no
    *  per-terrain state, so there is nothing a fresh instance would buy. */
   private readonly terrainMat: THREE.MeshStandardMaterial = vertexColorMaterial();
@@ -1117,6 +1123,20 @@ export class ThreeRenderer implements Renderer {
   /** What `controlTex` (and `decalGround.graph`) were last built from, so
    *  `rebuildTerrain` can skip an unchanged rebuild (fix wave I-1). */
   private controlInputs: ControlInputs | null = null;
+  /** The bytes behind `controlTex` -- the textures were made over these very
+   *  arrays, so `updateControlMapRegion` rewriting them in place plus a
+   *  `needsUpdate` is the whole of a collapse's control-map cost. */
+  private controlMap: ControlMap | null = null;
+  /** What the last ground/scatter build was made from, so the next one can
+   *  splice instead of rebuilding the map (`terrain/incremental.ts`). Null
+   *  before the first build. */
+  private terrainState: TerrainBuildState | null = null;
+  /** Ground tiles and control texels the last `rebuildTerrain` re-made, for
+   *  `debugTerrainRebuild` -- a capture tells a splice from a full build by
+   *  reading these, not by timing it. */
+  private lastTerrainRebuild = { tiles: 0, texels: 0, full: true };
+  /** Disposals held until the next frame has drawn -- see `disposeRetired`. */
+  private retiredAfterRender: (() => void)[] = [];
   /** The macro field's texture, bound as `uMacro`. Built once, in the
    *  constructor: it depends on the map's size alone, never on the terrain,
    *  so no rebuild has anything to change in it. */
@@ -1372,6 +1392,13 @@ export class ThreeRenderer implements Renderer {
    *  shape): its `InstancedMesh`es exist only once `loadExplosionBurstMesh`
    *  resolves, its three palette colours only once `useEmitters` has run. */
   private readonly explosionBursts = new ExplosionBurstManager();
+  /** Polish VR-22: the same burst mesh, pooled again at
+   *  `COLLAPSE_FLASH_RENDER_ORDER` so a collapse's flash reads THROUGH its own
+   *  shroud (`data/vfx/collapse_flash.json`). Loaded and coloured alongside
+   *  `explosionBursts`, from the one parsed template. PA-19: a vehicle kill's
+   *  fireball draws here too, for the same reason -- it has a shroud of its
+   *  own (`beginVehicleCollapseShroud`). */
+  private readonly collapseFlashBursts = new ExplosionBurstManager(EXPLOSION_BURST_CAPACITY, COLLAPSE_FLASH_RENDER_ORDER);
   /** Owns the pooled, modelled smoke-plume mesh
    *  (`art/meshes/vfx/smoke_plume.glb`) -- `units/smoke-plume.ts`'s own top
    *  comment has the full account, including why its zones split along the
@@ -1427,6 +1454,10 @@ export class ThreeRenderer implements Renderer {
    * group's.
    */
   private readonly selectionRing: SelectionRingBatch;
+  /** GH-346: the faint team ring under every UNSELECTED unit on open
+   *  ground (`readability.ts`'s `TEAM_RING`) -- a second batch in the same
+   *  group, so the `overlays` debug layer hides both. */
+  private readonly teamRing: SelectionRingBatch;
   private readonly selectionRingGroup = new THREE.Group();
   /** `push`'s placement, reused for every ring every frame: no per-unit
    *  object literal in the overlay loop. `color` is `cachedHexToLinear`'s own
@@ -1496,6 +1527,15 @@ export class ThreeRenderer implements Renderer {
    * the gate photographs. See `./debug-layers.ts`'s own entry for it.
    */
   private flashLightsDebugHidden = false;
+  /**
+   * `setDebugLayerVisible('kit', false)` (GH-238). The draw ranges it sets
+   * live on the TEMPLATES' geometries, which nothing per-frame writes, so it
+   * needs no per-frame consult -- this flag exists only so a vehicle
+   * template that lands AFTER the layer was hidden (a deferred buildable, a
+   * reload) is born with its kit hidden too, rather than being the one hull
+   * in the frame still wearing it. See `./debug-layers.ts`'s entry.
+   */
+  private kitDebugHidden = false;
   /** Structure index -> ms of standing-mesh hold still owed, counted down by
    *  `stepCollapseShrouds`. While an entry is present and positive,
    *  `updateBuildingMeshes` leaves the STANDING clone in the scene even
@@ -1530,6 +1570,25 @@ export class ThreeRenderer implements Renderer {
   private readonly prevY: Float64Array;
   private readonly curX: Float64Array;
   private readonly curY: Float64Array;
+  /** The sim's facing (turns) at the last two snapshots, so a mesh unit's yaw
+   *  is interpolated like its position instead of stepping 18 deg at 20 Hz
+   *  (the motion pass, finding #4). */
+  private readonly prevFacing: Float64Array;
+  private readonly curFacing: Float64Array;
+  /** Sim seconds at which each unit last fired (the kneel fallback, `stance.ts`). */
+  private readonly lastShotSimS: Float64Array;
+  /** Pass C2/C4 (P5): the sim time each unit last flinched at a near miss. */
+  private readonly flinchSimS: Float64Array;
+  /** The unit-level stance depth, for teams drawn as one (`stance.ts`). */
+  private readonly unitDepth: Float64Array;
+  /** 1 while the unit is going UP between kneeling and standing, 0 down
+   *  (`kneelHeading`): the transition clip is chosen by it, never by depth
+   *  against target, which are equal whenever the sim drives the stance. */
+  private readonly unitRising: Uint8Array;
+  /** A team drawn as one: the yaw its legs face (the line of travel when
+   *  moving), and whether it has been set since the entity appeared. */
+  private readonly meshBodyYaw: Float64Array;
+  private readonly meshBodyYawSet: Uint8Array;
   /**
    * `sim.entityCount` as of the last `snapshot()`: how many entities have a
    * position copy above. Every per-frame entity loop stops here rather than
@@ -1555,12 +1614,6 @@ export class ThreeRenderer implements Renderer {
   private readonly killerX: Float64Array;
   private readonly killerY: Float64Array;
   private readonly entitySpeed: Float64Array;
-  /** Persisted per-entity animation phase state `entityFrame` mutates in
-   *  place -- `frame-state.ts`'s own `EntityFrameInput.entityAnimFrame`/
-   *  `animSeeded` doc comment: "owned and persisted by the caller across
-   *  frames." Mirrors Pixi's identically-named fields. */
-  private readonly entityAnimFrame: Float64Array;
-  private readonly animSeeded: Uint8Array;
   /**
    * Task B3.14: event-driven presentation timers, one-shot latches set from
    * `onEvents` and drained toward 0 by `drainTimers` at the top of every
@@ -1662,19 +1715,6 @@ export class ThreeRenderer implements Renderer {
    *  `updateVehicleMeshes` wrote. */
   private readonly scratchHullEuler = new THREE.Euler();
   /**
-   * Task B3.6: the TURRET's own one-shot firing latch -- deliberately a
-   * SEPARATE timer from `firingTimer` above, not a second read of it. Every
-   * shipped hull sheet with turret art (TNK/EITAN/NAMER/GUNTRUCK/TECH)
-   * declares no `fire` clip of its own, so `firingTimer` (latched from the
-   * HULL's fire-clip duration in `onFire` below) never fires for a turreted
-   * vehicle at all -- reusing it here would leave every turret's own `fire`
-   * clip permanently unreachable, exactly the "16 recoil frames stay dead
-   * art" failure this task exists to close, just moved one layer past the
-   * loadSprites fix that made them loadable. Latched off the TURRET sheet's
-   * OWN fire-clip duration instead, independent of what the hull has.
-   */
-  private readonly turretFiringTimer: Float64Array;
-  /**
    * Vehicle-only ambient FX state -- `updateVehicleAmbientFx`'s own doc
    * comment has the full account. `vehicleMoving` is the hysteresis latch
    * `nextVehicleMoving` (`units/vehicle-fx.ts`) reads and writes each frame;
@@ -1688,27 +1728,24 @@ export class ThreeRenderer implements Renderer {
    */
   private readonly vehicleMoving: Uint8Array;
   private readonly vehicleDustAccumMs: Float64Array;
-  private readonly vehicleExhaustAccumMs: Float64Array;
-  /** Units mid-death-fade -- see `stepDeaths`'s own doc comment. */
-  private readonly dying: DyingUnit[] = [];
-  /** Permanent billboard-path wreckage -- the counterpart of `renderer.ts`'s
-   *  `wrecks`/`wreckLayer` for a unit type NOT drawn through the mesh path
-   *  (see `UnitWreck`'s own doc comment for the full picture, and this
-   *  file's `meshWrecks` field for the mesh-path sibling). Bounded by
-   *  `MAX_UNIT_WRECKS`, oldest evicted first (`addWreck`). */
-  private readonly wrecks: UnitWreck[] = [];
-
-  /** One `UnitInstancer` per unit type with a loaded sheet, keyed by the
-   *  unit type id `loadSprites` was called with. */
-  private readonly unitInstancers = new Map<string, UnitInstancer>();
+  /** Last rotor-wash emission slot per entity, -1 = none (sim-clocked, GH-391). */
+  private readonly rotorWashSlot: Int32Array;
+  /** Last idle-exhaust slot per entity, -1 = none (sim-clocked, GH-391). */
+  private readonly exhaustSlot: Int32Array;
+  /** Pass C2/C4 (P3): the last damage-smoke slot each vehicle emitted. */
+  private readonly damageSmokeSlot: Int32Array;
+  /** Presentation sim time at the last `updateFx`, null before the first. */
+  /** Presentation sim time at the last `frame()`, null before the first. */
+  private lastFrameSimMs: number | null = null;
   /**
-   * Task B3.6: one SECOND `UnitInstancer` per unit type whose `loadSprites`
-   * call carried a `turretPath` -- composited above its hull instancer's
-   * own mesh, updated via `UnitInstancer.updateTurret` rather than `update`.
-   * Absent entries mean "this type has no turret art", the same "doubles as
-   * the has-a-turret gate" shape `EntityFrameInput.turretSheet` uses.
+   * Sim seconds the current `frame()` presents beyond the previous one --
+   * what skinned-mesh clocks and sim-dated particles advance by (GH-391).
+   * Frame time would make a frozen gate frame a function of how many frames,
+   * of what length, were drawn on the way. Null until `frame()` has run, so a
+   * direct call to a stepping method (a spec) keeps frame time.
    */
-  private readonly turretInstancers = new Map<string, UnitInstancer>();
+  private frameSimDtSeconds: number | null = null;
+
 
   /**
    * Mesh units (task: "the runtime that draws mesh units"). The
@@ -1759,6 +1796,26 @@ export class ThreeRenderer implements Renderer {
    * fog for the same entity.
    */
   private unitsDebugHidden = false;
+  /**
+   * A capture-only override (the garage plates, 6 Oct): every unit is drawn
+   * STANDING, whatever the sim's brace says. Since #402 a stationary man
+   * takes a knee, so a unit spawned for a portrait drops within one tick;
+   * the lead wants the plates upright. Presentation only -- the sim still
+   * braces, the stance machine is simply not asked -- and set by nothing but
+   * `setDebugHoldStanding`, which only a capture tool calls.
+   */
+  private debugHoldStanding = false;
+  /**
+   * Unit types whose GLB FAILED to load, with the URL that failed (WP-A3.3,
+   * ruling 2). A type here with no template draws `proxyBoxes` instead of
+   * nothing -- see `units/proxy-box.ts`. A type merely not loaded YET (a
+   * deferred buildable in flight) is not here and draws nothing.
+   */
+  private readonly meshFailures = new Map<string, string>();
+  /** Built on the first failure, never before: a boot where every GLB lands
+   *  adds nothing to the scene. */
+  private proxyBoxes: ProxyBoxBatch | null = null;
+  private readonly proxyEntries: ProxyBoxEntry[] = [];
   private readonly meshUnitEntities = new Map<number, MeshUnitEntity>();
   /** Mesh units mid-death-fade, not keyed by entity id -- see
    *  `meshUnitEntities`'s own doc comment for why an id-keyed collection
@@ -1844,6 +1901,15 @@ export class ThreeRenderer implements Renderer {
   /** The WRECK sibling -- absent for a type whose `loadBuildingMesh` call
    *  carried no wreck URL. */
   private readonly buildingMeshWreckTemplates = new Map<string, BuildingMeshTemplate>();
+  /** GH-469: unit types / wreck types whose template textures are still
+   *  ENCODED (`coldGltfLoader`). Never drawn while listed; see `warmUnitMesh`. */
+  private readonly coldUnitTypes = new Set<string>();
+  private readonly coldWreckTypes = new Set<string>();
+  /** Decodes in flight, so a cue that repeats every tick starts one. */
+  private readonly warmingTemplates = new Set<string>();
+  /** `warmColdTextures`' decoder; undefined is three's own options. A seam
+   *  for the node tests, which have no `createImageBitmap`. */
+  private imageDecoder: ImageDecoder | undefined = undefined;
   /** One clone per LIVING structure of a mesh-enabled type, keyed by
    *  structure index (`Sim.structures`' own row index, stable for a
    *  structure's whole lifetime -- unlike an entity id, a structure index is
@@ -1868,63 +1934,23 @@ export class ThreeRenderer implements Renderer {
    * ground tile boundary the sim already fixed at spawn).
    */
   private readonly buildingMeshSettling = new Map<number, { root: THREE.Object3D; t: number; baseScaleY: number }>();
+  /**
+   * Damage states (GH-31, A3.2 remainder; `units/building-damage.ts` is the
+   * whole table). `buildingScars` is the per-TYPE memo of scarred material
+   * clones; `buildingDamageBand` is the band each standing clone currently
+   * draws, keyed by structure index, so a `structureHit` that stays inside
+   * the band costs nothing and a frozen gate frame cannot drift;
+   * `buildingBurning` is every structure throwing `structure_burning` on
+   * the renderer's own timer -- `remainingMs` is `Infinity` while it stands
+   * and `WRECK_BURN_SECONDS` once it has fallen (the hand-off to the wreck,
+   * made in `updateBuildingMeshes`). All three are presentation: they read
+   * `hp`/`maxHp` and write nothing back (invariant 4).
+   */
+  private readonly buildingScars = new Map<string, BuildingScarMaterials>();
+  private readonly buildingDamageBand = new Map<number, number>();
+  private readonly buildingBurning = new Map<number, { accumMs: number; remainingMs: number }>();
 
-  /**
-   * Task B3.7: one `StructureInstancer` per structure TYPE with a loaded
-   * idle sheet, keyed by the structure type id `loadStructureSprite` was
-   * called with -- the same key `structureAtlas.has(stype.id)` gates on in
-   * Pixi (`renderer.ts:1488`). Presence in this map is exactly "does this
-   * type have art" for every purpose that question matters here:
-   * `composeTerrain`'s `hasArt` callback (skip that structure's own box
-   * entirely, Task B3.9 -- previously a `maskArtedStructures` call inside
-   * `rebuildTerrain` itself, before buildings stopped being one merged
-   * mesh), and `updateStructures` below (draw the billboard instead).
-   */
-  private readonly structureIdle = new Map<string, StructureInstancer>();
-  /**
-   * A SECOND `StructureInstancer` per structure type whose sheet declared a
-   * `wreckFile` -- absent for a type with none (`BLD_WALL` today), matching
-   * Pixi's own `if (!art?.wreckTexture) continue` in `drawWreckedStructures`.
-   * Drawn from live `Sim` state every frame by `updateStructures`, not from
-   * the `terrainDirty`-gated terrain mesh -- see that method's own doc
-   * comment for why this stays true even after Task B3.10 wired
-   * `structureDestroyed` into `onEvents`: `applyStructureDestroyed` (Task
-   * B3.9) only ever touches `structureBoxes`/`structureFootprintTiles`,
-   * which an ARTED structure -- the only kind this map draws -- never has
-   * an entry in (`composeTerrain`'s `hasArt` skip). So the call is a true
-   * no-op for every structure this map cares about, and this per-frame path
-   * remains the only thing that ever tells one of ITS wrecks to appear.
-   */
-  private readonly structureWreck = new Map<string, StructureInstancer>();
-  /**
-   * `roofTopPx`/`badgeTopPx` per structure type with a loaded idle sheet --
-   * what `updateUnits`'s garrison `roofPx` now prefers over the type's own,
-   * squatter `heightPx`, closing the gap B3.3's review measured (see
-   * `resolveRoofPx`'s own doc comment in `units/structures.ts`). A type with
-   * no entry here falls back to `heightPx` exactly as it did before this
-   * task -- `resolveRoofPx(undefined, heightPx)`.
-   */
-  private readonly structureRoofArt = new Map<string, { roofTopPx: number | null; badgeTopPx: number | null }>();
 
-  /** Reused across frames (`.length = 0` each `frame()`, not reallocated) --
-   *  every living entity's `EntityFrame` this tick, grouped by its unit
-   *  type id, the shape `UnitInstancer.update` consumes. `stepDeaths` also
-   *  appends a synthetic `EntityFrame` per still-fading dying unit into the
-   *  same per-type arrays, for the same instancers to draw. */
-  private readonly framesByType = new Map<string, EntityFrame[]>();
-  /**
-   * Task B3.6: the LIVING-ONLY subset of `framesByType`, for unit types with
-   * a turret instancer -- populated in the same per-entity loop that builds
-   * `framesByType`, but never appended to by `stepDeaths`. A dying unit's
-   * synthetic `EntityFrame` (`stepDeaths`'s own doc comment) still draws its
-   * hull's death-fade pose, but Pixi's own `stepDeaths` never draws a turret
-   * sprite for one at all (`turretSprites[i].visible` stays `false` for the
-   * whole fade, since dying entities never re-enter the main per-entity
-   * loop that would show one) -- matched here by simply never handing a
-   * dying frame to a turret instancer, rather than by a per-frame flag
-   * `writeTurretInstances` would have to additionally check.
-   */
-  private readonly turretFramesByType = new Map<string, EntityFrame[]>();
 
   /**
    * Task B3.13/B3.14: combat feedback's draw path. `emitterLibrary` and
@@ -1945,6 +1971,22 @@ export class ThreeRenderer implements Renderer {
   private readonly emitterLibrary = new EmitterLibrary();
   private particleSystem: ParticleSystem | null = null;
   private tracers: TracerModel[] = [];
+  /** Fire link (`units/fire-link.ts`): who the selection is shooting,
+   *  shown as a pulse on the target per shot and a flash when a round
+   *  lands -- the duel line's replacement. */
+  /** Fire link's own presentation clock, seconds: the clamped frame clock
+   *  every FX ager already runs on. Never a sim tick, never read back. */
+  private fireLinkClockS = 0;
+  /** `pulse`: one contracting ring per shot the selection fired. */
+  private fireLinkPulses: { target: number; bornS: number }[] = [];
+  /** `flash`: a hit on `target` that will be SEEN to land at `startS`. */
+  private fireLinkFlashes: { target: number; startS: number }[] = [];
+  /** `flash`: the silhouette meshes currently wearing the flash material,
+   *  by entity, with the material each one wore before. */
+  private readonly fireLinkFlashed = new Map<number, { mesh: THREE.Mesh; was: THREE.Material | THREE.Material[] }[]>();
+  /** One flash material per SIDE, built on first use (polish VR-12): the
+   *  flash wears the TARGET's team colour, like the pulse it accompanies. */
+  private readonly fireLinkFlashMaterials = new Map<number, THREE.MeshBasicMaterial>();
   private readonly particleInstancerBelow = new ParticleInstancer(PARTICLE_CAPACITY, FX_LAYER_BELOW, true, false);
   private readonly particleInstancerAbove = new ParticleInstancer(PARTICLE_CAPACITY, FX_LAYER_ABOVE, false, false);
   /**
@@ -2030,6 +2072,11 @@ export class ThreeRenderer implements Renderer {
    * below.
    */
   private readonly overlayBatch: OverlayBatch;
+  /** #470: every objective zone's hatched ground band (`units/zone-band.ts`).
+   *  In its own group so the `overlays` debug layer can hide it without
+   *  fighting `endFrame`, which owns the mesh's own `visible`. */
+  private readonly zoneBand = new ZoneBandBatch();
+  private readonly zoneBandGroup = new THREE.Group();
   /** GH-279: the refuge ring's one slot (`pingRefuge`). Aged in `frame()`
    *  from the frame clock, drawn in `updateOverlays`. */
   private readonly refugePing = new GroundPing();
@@ -2038,16 +2085,6 @@ export class ThreeRenderer implements Renderer {
    *  for a constructor-body assignment rather than a field initializer.
    *  See `units/overlays.ts`'s own `ChevronBatch` doc comment. */
   private readonly chevronBatch: ChevronBatch;
-  /**
-   * The three occlusion-silhouette team colours (`units/silhouette.ts`),
-   * indexed by `silhouetteSideIndex`, resolved once at construction.
-   * `silhouetteTeamColors` feeds every billboard `UnitInstancer`'s own
-   * per-instance shader; `silhouetteMeshMaterials` is the mesh path's
-   * equivalent -- three `MeshBasicMaterial`s shared by every mesh unit and
-   * mesh vehicle on the map, so the whole feature adds three materials, not
-   * one per unit.
-   */
-  private readonly silhouetteTeamColors: THREE.Color[];
   private readonly silhouetteMeshMaterials: THREE.MeshBasicMaterial[];
   /** Frame counter Pixi's own pulsing overlays (`Math.sin(this.frameN *
    *  k)`) are keyed off -- `PixiRenderer.frameN` (`renderer.ts:1881`,
@@ -2059,6 +2096,15 @@ export class ThreeRenderer implements Renderer {
   /** A fading move/attack order crosshair per recent command -- the three.js
    *  counterpart of `PixiRenderer.orderMarkers` (`renderer.ts:488`). */
   private orderMarkers: { x: number; y: number; ttl: number }[] = [];
+  /**
+   * WP-P3 (PA-09): what the last `updateOverlays` drew for the selection,
+   * counted at the draw calls themselves -- range envelopes, route paths,
+   * route destination marks and live order crosshairs. Read by the
+   * group-clutter spec (`ThreeRenderer.group-clutter.test.ts`) and nothing
+   * else; a count kept beside the draw, not recomputed from the selection,
+   * so a draw path that forgets the rule shows up here.
+   */
+  readonly overlayCensus = { envelopes: 0, routes: 0, destinations: 0, orderMarkers: 0 };
 
   /**
    * Task B4.2: fog of war. Per tile: 0 never seen, 1 explored but not
@@ -2170,6 +2216,20 @@ export class ThreeRenderer implements Renderer {
    *  `trailMeshDirty` cadence from the same sim reads the trail uses, under
    *  the same identification rule -- see `./tunnel-props.ts`. */
   private readonly tunnelProps = new TunnelProps();
+  /** GH-471: the x-ray reveal of an identified route -- the bore, its shafts,
+   *  the fighters inside and the discovery beat (`./tunnel-xray.ts`). It
+   *  replaces the trail's identified-line rung (`buildTrailInput`). Reads
+   *  only: `tunnelContactLevel`, `markerSeesTile`, `state.tunnelIn` and the
+   *  `tunnelContact` event. */
+  private readonly tunnelXray: TunnelXray;
+  /** The route set and the elevation grid the bore was built over; a change
+   *  in either rebuilds it. */
+  private xrayBuiltFor = -1;
+  private xrayBuiltElevation: unknown = null;
+  /** Each route's own tiles, for the 5 Hz "does a carrier see it" read. */
+  private xrayRouteTiles: number[][] = [];
+  /** Scratch for the per-frame occupant list. */
+  private readonly xrayOccupants: [number, number][] = [];
 
   /**
    * Vehicle track marks (tread ruts, tyre prints), now stamped into
@@ -2196,7 +2256,9 @@ export class ThreeRenderer implements Renderer {
 
   constructor(
     private readonly sim: Sim,
-    private readonly opts: RendererOptions
+    // Not `readonly` since VR-01: `setTeamColors` swaps in a copy carrying a
+    // colour-vision variant's `teamColors`/`resolveColor` mid-mission.
+    private opts: RendererOptions
   ) {
     // FIRST, before any loader can be built: every shipped GLB carries
     // `KHR_draco_mesh_compression` (level load time, step 4), and a
@@ -2205,18 +2267,28 @@ export class ThreeRenderer implements Renderer {
     // decoder is a property of the runtime rather than of any one asset.
     if (opts.dracoDecoderPath) setDracoDecoderPath(opts.dracoDecoderPath);
     this.showcasePending = opts.decalShowcase !== undefined;
+    // The world never moves (a shake moves a COPY of the camera), so the scene
+    // stops forcing a world-matrix multiply on every object each frame; what
+    // does move still updates itself (`static-matrix.ts`).
+    freezeSceneRoot(this.scene);
     this.unitGroup = new Uint8Array(sim.capacity);
     const n = sim.capacity;
     this.prevX = new Float64Array(n);
     this.prevY = new Float64Array(n);
     this.curX = new Float64Array(n);
     this.curY = new Float64Array(n);
+    this.prevFacing = new Float64Array(n);
+    this.curFacing = new Float64Array(n);
+    this.lastShotSimS = new Float64Array(n).fill(-Infinity);
+    this.flinchSimS = new Float64Array(n).fill(-Infinity);
+    this.unitDepth = new Float64Array(n);
+    this.unitRising = new Uint8Array(n);
+    this.meshBodyYaw = new Float64Array(n);
+    this.meshBodyYawSet = new Uint8Array(n);
     this.missileTrack = { x: this.curX, y: this.curY, alive: sim.state.alive };
     this.killerX = new Float64Array(n).fill(NaN);
     this.killerY = new Float64Array(n).fill(NaN);
     this.entitySpeed = new Float64Array(n);
-    this.entityAnimFrame = new Float64Array(n);
-    this.animSeeded = new Uint8Array(n);
     this.firingTimer = new Float64Array(n);
     this.recoilT = new Float64Array(n);
     this.recoilDir = new Float64Array(n);
@@ -2249,10 +2321,11 @@ export class ThreeRenderer implements Renderer {
         lagTiles: 0,
       },
     };
-    this.turretFiringTimer = new Float64Array(n);
     this.vehicleMoving = new Uint8Array(n);
     this.vehicleDustAccumMs = new Float64Array(n);
-    this.vehicleExhaustAccumMs = new Float64Array(n);
+    this.rotorWashSlot = new Int32Array(n).fill(-1);
+    this.exhaustSlot = new Int32Array(n).fill(-1);
+    this.damageSmokeSlot = new Int32Array(n).fill(-1);
     this.vehicleTrackAccumTiles = new Float64Array(n);
     this.vehicleTrackSeeded = new Uint8Array(n);
     this.fog = new Uint8Array(sim.width * sim.height);
@@ -2267,6 +2340,17 @@ export class ThreeRenderer implements Renderer {
     // re-resolving per frame -- see trail-mesh.ts's own top comment for why
     // one uniform colour serves the whole mesh.
     this.trailMesh = new TrailMesh(sim.width, sim.height, opts.terrainTones.spoil);
+    {
+      // Palette keys only, through the caller's resolver so `team.hostile`
+      // follows the colour-vision setting like every other team colour.
+      const c = (k: string): string => (opts.resolveColor ? opts.resolveColor(k) : paletteHex(k));
+      this.tunnelXray = new TunnelXray({
+        rim: c(XRAY_COLOR_KEYS.rim),
+        core: c(XRAY_COLOR_KEYS.core),
+        hot: c(XRAY_COLOR_KEYS.hot),
+        figure: c(XRAY_COLOR_KEYS.figure),
+      });
+    }
     // The decal kinds' eight colours, resolved once through `overlayColor`
     // exactly as the meshes above resolve theirs -- a caller with a resolver
     // gets the real palette entry, and one without (this backend's own
@@ -2283,14 +2367,14 @@ export class ThreeRenderer implements Renderer {
     // second write.
     this.decalMaterial = createDecalMaterial(
       {
-        craterBowl: this.overlayColor('shadow.0', '#23241F'),
-        craterLip: this.overlayColor('limestone.1', '#E6D8BE'),
-        scorch: this.overlayColor('shadow.0', '#23241F'),
-        oil: this.overlayColor('shadow.1', '#14150F'),
-        rubbleA: this.overlayColor('limestone.5', '#A28C6E'),
-        rubbleB: this.overlayColor('limestone.7', '#75624A'),
-        tread: this.overlayColor('dust.5', '#806032'),
-        tyre: this.overlayColor('limestone.6', '#8C7659'),
+        craterBowl: this.overlayColor('shadow.0'),
+        craterLip: this.overlayColor('limestone.1'),
+        scorch: this.overlayColor('shadow.0'),
+        oil: this.overlayColor('shadow.1'),
+        rubbleA: this.overlayColor('limestone.5'),
+        rubbleB: this.overlayColor('limestone.7'),
+        tread: this.overlayColor('dust.5'),
+        tyre: this.overlayColor('limestone.6'),
       },
       {
         uControlB: this.groundMat.uniforms.uControlB,
@@ -2318,13 +2402,22 @@ export class ThreeRenderer implements Renderer {
       renderOrder: DECAL_FADING_RENDER_ORDER,
       material: this.decalMaterial,
     });
-    // The ring's halo is `shadow.1`, resolved through `overlayColor` like
+    // The ring's halo is the one world halo (`WORLD_HALO_COLOR_KEY`, VR-35),
+    // resolved through `overlayColor` like
     // every other overlay colour and converted by `cachedHexToLinear`, so
     // `endFrame`'s once-a-frame read parses no hex.
     this.selectionRing = new SelectionRingBatch({
-      resolveShadow: () => cachedHexToLinear(this.overlayColor('shadow.1', '#14150F')),
+      resolveShadow: () => cachedHexToLinear(this.overlayColor(WORLD_HALO_COLOR_KEY)),
+    });
+    this.teamRing = new SelectionRingBatch({
+      resolveShadow: () => cachedHexToLinear(this.overlayColor(WORLD_HALO_COLOR_KEY)),
+      style: TEAM_RING,
+      capacity: TEAM_RING.capacity,
     });
     this.selectionRingGroup.name = 'selection-ring-layer';
+    // Team ring first: at the same band (0.5) a selected unit's own ring is
+    // drawn over any team ring a neighbour lays across it.
+    this.selectionRingGroup.add(this.teamRing.mesh);
     this.selectionRingGroup.add(this.selectionRing.mesh);
     // The ground's macro field (spec 3.1, G4): built once, since it depends
     // on the map's size alone. Its hue pull resolves through `overlayColor`
@@ -2338,10 +2431,10 @@ export class ThreeRenderer implements Renderer {
     // highland pulls toward pale karst and terra rossa); absent, the desert's.
     const macroHue = opts.terrainTones.macroHue;
     (this.groundMat.uniforms.uMacroBright.value as THREE.Vector3).fromArray(
-      neutralTint(macroHue ? macroHue[0] : this.overlayColor('limestone.2', '#D9C7A7'))
+      neutralTint(macroHue ? macroHue[0] : this.overlayColor('limestone.2'))
     );
     (this.groundMat.uniforms.uMacroDark.value as THREE.Vector3).fromArray(
-      neutralTint(macroHue ? macroHue[1] : this.overlayColor('dust.1', '#D1A668'))
+      neutralTint(macroHue ? macroHue[1] : this.overlayColor('dust.1'))
     );
     // The road's three palette tones (#226, spec 3.2), as LINEAR light: they
     // are mixed into `diffuseColor`, which holds the vertex colour `toGeometry`
@@ -2350,10 +2443,10 @@ export class ThreeRenderer implements Renderer {
     // theme, resolved through `overlayColor` like the tints above.
     (this.groundMat.uniforms.uRoadTone.value as THREE.Vector3).fromArray(hexToLinear(opts.terrainTones.road));
     (this.groundMat.uniforms.uShoulderTone.value as THREE.Vector3).fromArray(
-      hexToLinear(this.overlayColor(SHOULDER_TONE_KEY, SHOULDER_TONE_FALLBACK))
+      hexToLinear(this.overlayColor(SHOULDER_TONE_KEY))
     );
     (this.groundMat.uniforms.uRutTone.value as THREE.Vector3).fromArray(
-      hexToLinear(this.overlayColor('limestone.6', '#8C7659'))
+      hexToLinear(this.overlayColor('limestone.6'))
     );
     // Phase C: sized off sim.capacity, not a bare constant -- see
     // OVERLAY_VERTICES_PER_ENTITY's own doc comment for the per-entity
@@ -2369,7 +2462,7 @@ export class ThreeRenderer implements Renderer {
     // with no resolver at all (ThreeRenderer.test.ts's own makeOpts()).
     this.numeralBatch = new NumeralBatch(
       sim.capacity,
-      opts.resolveColor ? opts.resolveColor(BADGE_TEXT_COLOR_KEY) : '#14150F'
+      opts.resolveColor ? opts.resolveColor(BADGE_TEXT_COLOR_KEY) : paletteHex(BADGE_TEXT_COLOR_KEY)
     );
     // Veterancy chevron fill: the same swatch theme.css's --commend maps to
     // (STRIPE_COLOR_KEY's own doc comment), with the identical no-resolver
@@ -2378,15 +2471,12 @@ export class ThreeRenderer implements Renderer {
     // `#E0B87A` is what `dust.0` resolves to in `data/palette.json`, and the
     // same swatch `theme.css`'s `--commend` maps to -- NOT `team.neutral`'s
     // `#E8C33A`, which is what this line shipped with.
-    this.chevronBatch = new ChevronBatch(sim.capacity, opts.resolveColor ? opts.resolveColor(STRIPE_COLOR_KEY) : '#E0B87A');
+    this.chevronBatch = new ChevronBatch(sim.capacity, opts.resolveColor ? opts.resolveColor(STRIPE_COLOR_KEY) : paletteHex(STRIPE_COLOR_KEY));
     // Occlusion silhouettes: three colours for the whole scene, resolved
     // once here rather than per unit type or per entity. Indexed by
     // `silhouetteSideIndex` -- see `units/silhouette.ts` for the mechanism
     // and for why the colour is "whose unit is that" rather than anything
     // about the unit's own art.
-    this.silhouetteTeamColors = SILHOUETTE_COLOR_KEY_BY_SIDE.map(
-      (key, slot) => new THREE.Color(this.overlayColor(key, SILHOUETTE_FALLBACK_HEX_BY_SIDE[slot]))
-    );
     this.silhouetteMeshMaterials = SILHOUETTE_COLOR_KEY_BY_SIDE.map((key, slot) =>
       createMeshSilhouetteMaterial(this.overlayColor(key, SILHOUETTE_FALLBACK_HEX_BY_SIDE[slot]))
     );
@@ -2468,13 +2558,21 @@ export class ThreeRenderer implements Renderer {
     // keep today's `dust.4` bounce (N-21).
     this.timeOfDay = resolveTimeOfDay(opts.timeOfDay);
     this.lightPreset = TIME_OF_DAY_PRESETS[this.timeOfDay];
-    this.resolvedLights = this.timeOfDay === 'day' ? DAY_LIGHTS : this.presetLights(this.lightPreset);
+    // PA-24: a mission's own `map.light` lifts the fill on top of its preset
+    // (and the haze follows, since `applyHaze` reads these lights). Absent,
+    // `withLightOverride` hands back the same object, so day is still
+    // `DAY_LIGHTS` itself.
+    this.resolvedLights = withLightOverride(
+      this.timeOfDay === 'day' ? DAY_LIGHTS : this.presetLights(this.lightPreset),
+      opts.lightOverride
+    );
     this.sceneLights = createSceneLights(
       sim.width,
       sim.height,
       (opts.quality ?? QUALITY_PRESETS.high).shadowMapSize,
       this.resolvedLights
     );
+    this.sceneLights.sun.shadow.intensity = shadowIntensityOf(opts.lightOverride);
     this.sceneLights.addTo(this.scene);
     // Same "always present, draws nothing until fed" shape as the FX meshes
     // just above, but for real `THREE.PointLight`s rather than a batched
@@ -2489,6 +2587,9 @@ export class ThreeRenderer implements Renderer {
     // haven't run yet) and stay that way until `updateOverlays`'s first
     // call, from `frame()`.
     this.scene.add(this.overlayBatch.mesh, this.numeralBatch.mesh, this.chevronBatch.mesh);
+    this.zoneBandGroup.name = 'zone-band-layer';
+    this.zoneBandGroup.add(this.zoneBand.mesh);
+    this.scene.add(this.zoneBandGroup);
     // The ground beyond the map (`./terrain/skirt.ts`), added once here and
     // never rebuilt -- it depends on the map's DIMENSIONS and on nothing
     // `rebuildTerrain` can change. It draws in the world band under the
@@ -2505,6 +2606,7 @@ export class ThreeRenderer implements Renderer {
     // meshes grouped together.
     this.scene.add(this.trailMesh.mesh);
     this.scene.add(this.tunnelProps.group);
+    this.scene.add(this.tunnelXray.group);
     // Both decal pools lie on the same ground plane as the trail, so they
     // are grouped with it for the same reader's-eye reason -- scene-graph
     // position carries no draw-order meaning in this backend (`renderOrder`
@@ -2567,7 +2669,8 @@ export class ThreeRenderer implements Renderer {
     // Everything in this method that needs a live GL context lives here
     // rather than in the constructor, which the nine `ThreeRenderer*.test.ts`
     // fakes exercise with a renderer stub that has four members.
-    this.renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, PIXEL_RATIO_CAP));
+    // `maxPixelRatio` (GH-469): the menu's backdrop asks for a lower one.
+    this.renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, this.opts.maxPixelRatio ?? PIXEL_RATIO_CAP));
     this.renderer.shadowMap.enabled = true;
     // PCFSoft, not PCF or VSM: the sun casts one map-wide 4096 map
     // (`lighting.ts`), so a shadow texel is coarse in world terms and a hard
@@ -2707,31 +2810,7 @@ export class ThreeRenderer implements Renderer {
     this.fogTick = 0;
     this.snapshot();
     this.snapshot();
-    this.fitStructureInstancers();
     this.terrainDirty = true;
-  }
-
-  /**
-   * Give every loaded structure instancer room for every structure of its
-   * type the sim holds now. `loadStructureSprite` sizes each one at load,
-   * which on a mission is BEFORE `runtime.start()` raises the mission's own
-   * buildings -- so without this, `writeStructureInstances` dropped the
-   * newcomer every frame (on `&nomesh`, measured: one billboard each on
-   * `wadi_halam_2_laager` and `qarn_hadid_2_foothold`; with the mesh path
-   * on, a building mesh draws instead and the billboard is empty anyway).
-   * A no-op at `init`, which runs before any sheet has loaded, and for any
-   * type whose count did not grow.
-   */
-  private fitStructureInstancers(): void {
-    for (const byType of [this.structureIdle, this.structureWreck]) {
-      for (const [id, instancer] of byType) {
-        const fitted = instancer.grow(this.structureTypeCapacity(id));
-        if (fitted === instancer) continue;
-        this.scene.remove(instancer.mesh);
-        this.scene.add(fitted.mesh);
-        byType.set(id, fitted);
-      }
-    }
   }
 
   /**
@@ -2786,11 +2865,15 @@ export class ThreeRenderer implements Renderer {
     // design (it is the runtime's, not this instance's), so this is the one
     // place it can be torn down at all.
     disposeGltfLoader();
+    // Anything a rebuild retired and no frame has drawn past yet.
+    this.disposeRetired();
     this.terrainMesh?.geometry.dispose();
     this.scatterMesh?.geometry.dispose();
     this.residualMesh?.geometry.dispose();
     for (const mesh of this.structureBoxes.values()) mesh.geometry.dispose();
     this.structureBoxes.clear();
+    this.proxyBoxes?.dispose();
+    this.proxyBoxes = null;
     // Task 6: the batch itself (per-rebuild geometry/material, disposed by
     // `disposeDecorMesh` the same way `rebuildTerrain` already does on every
     // rebuild) plus the SOURCE geometry clones `loadDecorMeshes` owns
@@ -2812,15 +2895,11 @@ export class ThreeRenderer implements Renderer {
     this.controlTex?.b.dispose();
     this.controlTex = null;
     this.controlInputs = null;
+    this.controlMap = null;
+    this.terrainState = null;
     this.macroTex.dispose();
-    for (const instancer of this.unitInstancers.values()) instancer.dispose();
-    this.unitInstancers.clear();
-    for (const instancer of this.turretInstancers.values()) instancer.dispose();
-    this.turretInstancers.clear();
-    // Mesh units: unlike the instancers above (added once, left for the
-    // life of the renderer), every `MeshUnitEntity` is added and removed
-    // dynamically across a mission (`updateMeshUnits`), so -- like
-    // `collapsing` below -- each one gets an explicit `scene.remove` here as
+    // Mesh units: every `MeshUnitEntity` is added and removed
+    // dynamically across a mission (`updateMeshUnits`), so each one gets an explicit `scene.remove` here as
     // well as its `.dispose()`, so the scene graph does not keep a torn-down
     // entity reachable. Entities first (they share the templates'
     // geometries/materials by reference -- `MeshUnitTemplate`'s own doc
@@ -2907,23 +2986,16 @@ export class ThreeRenderer implements Renderer {
     // dangling it would otherwise be a map full of stale `THREE.Object3D`
     // references after this method returns.
     this.buildingMeshSettling.clear();
+    // The scar clones before their templates: a clone shares its base's
+    // map by reference and must not outlive the template that owns it.
+    for (const scars of this.buildingScars.values()) scars.dispose();
+    this.buildingScars.clear();
+    this.buildingDamageBand.clear();
+    this.buildingBurning.clear();
     for (const template of this.buildingMeshIdleTemplates.values()) disposeBuildingMeshTemplate(template);
     this.buildingMeshIdleTemplates.clear();
     for (const template of this.buildingMeshWreckTemplates.values()) disposeBuildingMeshTemplate(template);
     this.buildingMeshWreckTemplates.clear();
-    for (const instancer of this.structureIdle.values()) instancer.dispose();
-    this.structureIdle.clear();
-    for (const instancer of this.structureWreck.values()) instancer.dispose();
-    this.structureWreck.clear();
-    // Task B4.4: each collapse owns its own geometry/material (the texture
-    // is borrowed from `structureIdle`, disposed above -- not here, see
-    // `StructureInstancer.spriteTexture`'s own doc comment).
-    for (const c of this.collapsing) {
-      this.scene.remove(c.mesh);
-      c.mesh.geometry.dispose();
-      c.mesh.material.dispose();
-    }
-    this.collapsing.length = 0;
     this.particleInstancerBelow.dispose();
     this.particleInstancerAbove.dispose();
     this.particleInstancerBelowAdditive.dispose();
@@ -2938,6 +3010,7 @@ export class ThreeRenderer implements Renderer {
     this.flashLights.dispose();
     this.muzzleFlashes.dispose();
     this.explosionBursts.dispose();
+    this.collapseFlashBursts.dispose();
     this.smokePlumes.dispose();
     this.collapseShrouds.dispose();
     // Same "added once in the constructor, no scene.remove needed" shape as
@@ -2947,6 +3020,9 @@ export class ThreeRenderer implements Renderer {
     this.decalsFading.dispose();
     this.decalMaterial.dispose();
     this.selectionRing.dispose();
+    for (const m of this.fireLinkFlashMaterials.values()) m.dispose();
+    this.fireLinkFlashMaterials.clear();
+    this.teamRing.dispose();
     this.tracerBatch.dispose();
     this.shellBatch.dispose();
     this.boltBatch.dispose();
@@ -2956,6 +3032,7 @@ export class ThreeRenderer implements Renderer {
     // a few lines down for the omit-then-fix history that class of leak has
     // in this file, guarded against here from the start.
     this.overlayBatch.dispose();
+    this.zoneBand.dispose();
     this.numeralBatch.dispose();
     this.chevronBatch.dispose();
     // Task 10, and the one ownership rule the post chain states outright:
@@ -3003,6 +3080,7 @@ export class ThreeRenderer implements Renderer {
     // just above.
     this.trailMesh.dispose();
     this.tunnelProps.dispose();
+    this.tunnelXray.dispose();
     // BEFORE the renderer goes, and nulled: the composer owns three
     // full-screen render targets plus SMAA's two lookup textures, none of
     // which `WebGLRenderer.dispose()` reaches, and they have to be deleted
@@ -3108,6 +3186,7 @@ export class ThreeRenderer implements Renderer {
     // through a hit-stop would spend a sixth of its own life during the
     // frames it is not being drawn on.
     this.shakeState = stepShake(this.shakeState, dtMs);
+    this.beginFrameSimClock(alpha, dtMs);
     this.drainTimers(this.frameDtSeconds(dtMs));
     if (this.terrainDirty) {
       this.rebuildTerrain();
@@ -3122,19 +3201,20 @@ export class ThreeRenderer implements Renderer {
     // before any frame has run, and the showcase must still be stamped by
     // the next frame rather than lost to whichever caller built first.
     if (this.showcasePending) this.stampDecalShowcase();
-    this.updateUnits(alpha, dtMs);
     this.updateMeshUnits(alpha, dtMs);
     this.updateVehicleMeshes(alpha, dtMs);
+    this.updateProxyBoxes(alpha);
     this.updateVehicleAmbientFx(dtMs);
-    this.updateStructures();
     // BEFORE `updateBuildingMeshes`, not after: the hold this drains is read
     // by that method, so draining afterwards would spend every hold one
     // frame late and hand the last frame of it to a swap that already ran.
     this.stepCollapseShrouds(dtMs);
     this.updateBuildingMeshes();
     this.stepBuildingMeshSettle(this.frameDtSeconds(dtMs));
-    this.stepCollapses(this.frameDtSeconds(dtMs));
-    this.updateFx(dtMs);
+    this.stepBuildingBurning(dtMs);
+    this.updateFx(dtMs, alpha);
+    this.fireLinkClockS += this.frameDtSeconds(dtMs);
+    this.stepFireLinkFlashes();
     // Ages every active muzzle-flash and rewrites the shared uFlash* arrays
     // every registered toon-ramp/terrain material already points at -- see
     // `FlashLightManager.step`'s own doc comment. Presentation-only timing
@@ -3170,8 +3250,10 @@ export class ThreeRenderer implements Renderer {
     if (this.trailMeshDirty) {
       this.trailMesh.update(this.buildTrailInput());
       this.tunnelProps.update(this.buildTunnelPropsInput(), this.propSet);
+      this.xrayRouteState();
       this.trailMeshDirty = false;
     }
+    this.xrayFrame(alpha);
     // The decals' age is SIM time (R-14), never `dtMs`: the tick the sim has
     // reached and the fraction of the way to it this frame presents. A
     // repaint at zero elapsed time -- the visual gate's second photograph --
@@ -3212,6 +3294,24 @@ export class ThreeRenderer implements Renderer {
     // does them itself, on the composer's path `OutputPass` does.
     if (this.post) this.post.render();
     else this.renderer.render(this.scene, camera);
+    this.disposeRetired();
+  }
+
+  /**
+   * Disposes what `rebuildTerrain` took out of the scene, now that the frame
+   * that replaced it has drawn. Not before: disposing a material releases its
+   * program, and when nothing else holds that program three DELETES it -- so
+   * the replacement batch, whose new material wants the very same program,
+   * paid a fresh shader compile on the next draw. Measured on a collapse at
+   * 4x CPU: 38 ms in `getProgramInfoLog` alone, the largest single piece of
+   * the frame once the terrain itself was spliced. Held until here, the new
+   * material finds the program still live and shares it.
+   */
+  private disposeRetired(): void {
+    if (this.retiredAfterRender.length === 0) return;
+    const retired = this.retiredAfterRender;
+    this.retiredAfterRender = [];
+    for (const dispose of retired) dispose();
   }
 
   /**
@@ -3236,6 +3336,14 @@ export class ThreeRenderer implements Renderer {
    * the gate's case, which makes the pair differ by the layer and nothing
    * else.
    */
+  /** See `debugHoldStanding`. Returns 1 when the flag changed, 0 when it
+   *  was already there -- `setDebugLayerVisible`'s shape. */
+  setDebugHoldStanding(on: boolean): number {
+    const changed = this.debugHoldStanding === on ? 0 : 1;
+    this.debugHoldStanding = on;
+    return changed;
+  }
+
   setDebugLayerVisible(name: string, visible: boolean): number {
     if (!isDebugLayer(name)) throw new Error(unknownDebugLayerMessage(name));
     switch (name) {
@@ -3263,23 +3371,18 @@ export class ThreeRenderer implements Renderer {
           visible,
           ...this.structureBoxes.values(),
           ...this.buildingMeshIdleEntities.values(),
-          ...this.buildingMeshWreckEntities.values(),
-          ...[...this.structureIdle.values()].map((i) => i.mesh),
-          ...[...this.structureWreck.values()].map((i) => i.mesh)
+          ...this.buildingMeshWreckEntities.values()
         );
       case 'units':
         // The one layer that CANNOT be done with `setObjectsVisible`, because
         // the per-frame path would undo it on the very next repaint -- see
-        // `unitsDebugHidden`. The flag is set first so the billboard
-        // instancers and the mesh entities go dark on the SAME repaint.
+        // `unitsDebugHidden`. The flag is set first so the proxy boxes and
+        // the mesh entities go dark on the SAME repaint.
         this.unitsDebugHidden = !visible;
+        if (this.proxyBoxes) this.proxyBoxes.mesh.visible = visible;
         for (const entity of this.meshUnitEntities.values()) entity.root.visible = visible;
         for (const entity of this.vehicleMeshEntities.values()) entity.root.visible = visible;
-        return (
-          this.meshUnitEntities.size +
-          this.vehicleMeshEntities.size +
-          setObjectsVisible(visible, ...[...this.unitInstancers.values()].map((i) => i.mesh))
-        );
+        return this.meshUnitEntities.size + this.vehicleMeshEntities.size + (this.proxyBoxes ? 1 : 0);
       case 'vignette':
         // A `Pass.enabled` rather than an `Object3D.visible`, and nothing in
         // `frame()` re-asserts it -- the chain is rebuilt only by the three
@@ -3340,7 +3443,8 @@ export class ThreeRenderer implements Renderer {
           this.overlayBatch.mesh,
           this.numeralBatch.mesh,
           this.chevronBatch.mesh,
-          this.selectionRingGroup
+          this.selectionRingGroup,
+          this.zoneBandGroup
         );
         // The occlusion silhouette (band 6, `units/silhouette.ts`) is a
         // SEPARATE subsystem folded into this same name -- see
@@ -3414,12 +3518,34 @@ export class ThreeRenderer implements Renderer {
         this.flashLightsDebugHidden = !visible;
         if (this.flashLightsDebugHidden) this.zeroFlashLights();
         return this.flashLights.lights.length;
+      case 'kit': {
+        // GH-238: every vehicle template geometry that carries merged kit
+        // (`rlKitBaseCount`) draws its host alone while hidden, everything
+        // when shown; a geometry with no kit is untouched. A draw range on a
+        // TEMPLATE geometry, which every clone shares and nothing per-frame
+        // writes (grepped: `setDrawRange` in this backend is the batches',
+        // the selection ring's and the missile body's, each on its own
+        // geometry), so the plain write holds across the gate's repaint.
+        // The flag covers a template that lands later. Returns how many
+        // kitted geometries it set -- 0 on a field with no kit bought, which
+        // is the honest reading for a check to fail on.
+        this.kitDebugHidden = !visible;
+        let n = 0;
+        for (const template of this.vehicleMeshTemplates.values()) {
+          n += setKitDrawRange(template.geometries, !visible);
+        }
+        return n;
+      }
       case 'missiles':
         // P-5: a FLAG, `blast-light`'s shape -- `MissileFx.step` rewrites all
         // three meshes' `visible` every frame (`count > 0 && !debugHidden`),
         // so a plain write would be undone by the gate's own repaint.
         // Returns 3, the meshes it hides.
         return this.missileFx.setDebugHidden(!visible);
+      case 'tunnel-xray':
+        // GH-471: a FLAG, `missiles`' shape -- `TunnelXray.update` rewrites
+        // the figures' and the beam's `visible` every frame. Returns 4.
+        return this.tunnelXray.setDebugHidden(!visible);
       default:
         // A name `DEBUG_LAYERS` lists and this switch does not handle. The
         // compiler already refuses it (`name` is `never` here), but a build
@@ -3507,6 +3633,34 @@ export class ThreeRenderer implements Renderer {
     this.groundPhoto = this.photographGround(size);
     this.groundPhotoPx = this.groundPhoto === null ? 0 : size;
     return this.groundPhoto;
+  }
+
+  /**
+   * `Renderer.captureView` (GH-464): the player's view for a feedback note's
+   * picture. The composer renders once more, short of the screen, and one
+   * copy pass resolves its HalfFloat output into an 8-bit target at most
+   * `maxWidth` wide, which is what is read -- see `./capture-view.ts`, which
+   * owns the order and is tested with a fake composer. Nothing is hidden for
+   * it: the picture is what the player is looking at, minus the DOM.
+   */
+  captureView(maxWidth: number): ImageData | null {
+    if (this.disposed || this.post === null) return null;
+    const copy = new ShaderPass(CopyShader);
+    try {
+      const px = captureComposerView(
+        {
+          gl: this.renderer,
+          composer: this.post.composer,
+          makeTarget: (w, h) => new THREE.WebGLRenderTarget(w, h),
+          // `ShaderPass` reads only `.texture` off its read buffer.
+          copy: (into, from) => copy.render(this.renderer, into, { texture: from } as THREE.WebGLRenderTarget, 0, false),
+        },
+        maxWidth
+      );
+      return px === null ? null : new ImageData(new Uint8ClampedArray(px.data.buffer), px.width, px.height);
+    } finally {
+      copy.dispose();
+    }
   }
 
   /**
@@ -3734,6 +3888,72 @@ export class ThreeRenderer implements Renderer {
     };
   }
 
+  /** GH-471: the bore's geometry, built when the route set or the elevation
+   *  grid it stands on changes -- both are load-time facts in practice, so
+   *  this runs once a mission. */
+  private xrayEnsureBuilt(): void {
+    const sim = this.sim;
+    const elevation = this.retained.elevation;
+    if (this.xrayBuiltFor === sim.tunnelCount && this.xrayBuiltElevation === elevation) return;
+    this.xrayBuiltFor = sim.tunnelCount;
+    this.xrayBuiltElevation = elevation;
+    const routes: XrayRoute[] = [];
+    this.xrayRouteTiles = [];
+    for (let r = 0; r < sim.tunnelCount; r++) {
+      const len = fx.toNumber(sim.tnLength[r]);
+      const pts: [number, number][] = [];
+      const tiles = new Set<number>();
+      const n = Math.max(2, Math.ceil(len / XRAY_STEP) + 1);
+      for (let i = 0; i < n; i++) {
+        const p = sim.tunnelPointAt(r, fx.from(Math.min(len, i * XRAY_STEP)));
+        const x = fx.toNumber(p[0]);
+        const y = fx.toNumber(p[1]);
+        pts.push([x + 0.5, y + 0.5]);
+        tiles.add(Math.floor(y) * sim.width + Math.floor(x));
+      }
+      this.xrayRouteTiles.push([...tiles]);
+      routes.push({ points: pts, length: len });
+    }
+    this.tunnelXray.build(routes, (x, y) => groundWorldY(elevation, sim.width, sim.height, x, y));
+  }
+
+  /** GH-471, on the trail's own 5 Hz refresh: side 0's level on each route
+   *  (after the collapse downgrade), and whether a `mark_tunnel` carrier of
+   *  side 0 sees any tile of it right now -- `markerSeesTile`, the read the
+   *  retired identified-line rung drew with. Stops at the first tile seen. */
+  private xrayRouteState(): void {
+    this.xrayEnsureBuilt();
+    const sim = this.sim;
+    const now = presentationSimMs(sim.tickCount, 1) / 1000;
+    for (let r = 0; r < sim.tunnelCount; r++) {
+      const level = collapsedRouteLevel(sim.tnAlive[r] !== 0, sim.tunnelContactLevel(0, r));
+      let held = false;
+      if (level === 2) {
+        for (const t of this.xrayRouteTiles[r]) {
+          if (sim.markerSeesTile(0, t % sim.width, Math.floor(t / sim.width))) {
+            held = true;
+            break;
+          }
+        }
+      }
+      this.tunnelXray.clock.setRoute(r, level, held, now);
+    }
+  }
+
+  /** GH-471, per frame: the sim clock, the sweep and the figures. Occupants
+   *  are read from `state.tunnelIn`; a map with no tunnel skips the scan. */
+  private xrayFrame(alpha: number): void {
+    const sim = this.sim;
+    if (sim.tunnelCount === 0) return;
+    const occ = this.xrayOccupants;
+    occ.length = 0;
+    const st = sim.state;
+    for (let i = 0; i < this.snapshottedCount; i++) {
+      if (st.alive[i] === 1 && st.tunnelIn[i] >= 0) occ.push([st.tunnelIn[i], i]);
+    }
+    this.tunnelXray.update(presentationSimMs(sim.tickCount, alpha) / 1000, occ);
+  }
+
   private buildTrailInput(): TrailInstanceInput {
     const sim = this.sim;
     return {
@@ -3742,7 +3962,14 @@ export class ThreeRenderer implements Renderer {
       elevation: this.retained.elevation,
       trail: sim.trail,
       routeCount: sim.tunnelCount,
-      routeLevel: (r) => collapsedRouteLevel(sim.tnAlive[r] !== 0, sim.tunnelContactLevel(0, r)),
+      // GH-471: the identified-line rung is retired -- the x-ray bore draws
+      // an identified route now -- so the trail asks for at most the spoil
+      // rung. A level-2 route still shows its spoil exactly as a suspected
+      // one does: the dirt is real whatever the player knows about it.
+      routeLevel: (r) => {
+        const lv = collapsedRouteLevel(sim.tnAlive[r] !== 0, sim.tunnelContactLevel(0, r));
+        return lv === 2 ? 1 : lv;
+      },
       tunnelUnderTile: (r, x, y) => sim.tunnelUnderTile(r, x, y),
       seenByAnyone: (x, y) => sim.sideSeesTile(0, x, y),
       seenByCarrier: (x, y) => sim.markerSeesTile(0, x, y),
@@ -3763,11 +3990,6 @@ export class ThreeRenderer implements Renderer {
     const n = this.snapshottedCount;
     for (let i = 0; i < n; i++) {
       if (this.firingTimer[i] > 0) this.firingTimer[i] = Math.max(0, this.firingTimer[i] - dtSeconds);
-      // Task B3.6: same shape as firingTimer -- counts down its own
-      // remaining seconds, not a normalised 0..1 decay.
-      if (this.turretFiringTimer[i] > 0) {
-        this.turretFiringTimer[i] = Math.max(0, this.turretFiringTimer[i] - dtSeconds);
-      }
       if (this.recoilT[i] > 0) this.recoilT[i] = Math.max(0, this.recoilT[i] - dtSeconds / RECOIL_SECONDS);
       if (this.flinchT[i] > 0) this.flinchT[i] = Math.max(0, this.flinchT[i] - dtSeconds / FLINCH_SECONDS);
     }
@@ -3821,15 +4043,18 @@ export class ThreeRenderer implements Renderer {
     }
     this.prevX.set(this.curX);
     this.prevY.set(this.curY);
+    this.prevFacing.set(this.curFacing);
     const st = this.sim.state;
     const seen = this.snapshottedCount;
     const n = this.sim.entityCount;
     for (let i = 0; i < n; i++) {
       this.curX[i] = fx.toNumber(st.posX[i]);
       this.curY[i] = fx.toNumber(st.posY[i]);
+      this.curFacing[i] = fx.toNumber(st.facing[i]);
       if (i >= seen) {
         this.prevX[i] = this.curX[i];
         this.prevY[i] = this.curY[i];
+        this.prevFacing[i] = this.curFacing[i];
       }
       const dx = this.curX[i] - this.prevX[i];
       const dy = this.curY[i] - this.prevY[i];
@@ -3998,6 +4223,7 @@ export class ThreeRenderer implements Renderer {
       if (e.kind === 'fire') this.onFire(e);
       else if (e.kind === 'nearMiss') {
         this.spawnFlatFx(fx.toNumber(e.x), fx.toNumber(e.y), this.opts.nearMissColor, 7, 14);
+        this.flinchNear(fx.toNumber(e.x), fx.toNumber(e.y));
       } else if (e.kind === 'aps' && e.intercepted) {
         this.spawnFlatFx(this.curX[e.target], this.curY[e.target], this.opts.interceptColor, 10, 12);
         // GH-250 (spec D4): the round this event names -- (target, shooter)
@@ -4018,30 +4244,24 @@ export class ThreeRenderer implements Renderer {
         this.onStrike(e.x, e.y, e.tick);
       } else if (e.kind === 'tunnelCollapsed') {
         this.onTunnelCollapsed(e.tunnel, e.tick);
+      } else if (e.kind === 'tunnelContact' && e.side === 0 && e.level === 'identified') {
+        // GH-471: the discovery beat. `observer` is the carrier that read
+        // the route (-1 when spoil alone got it there); the beam starts at
+        // its body, at flying height for an aircraft.
+        this.xrayEnsureBuilt();
+        const o = e.observer;
+        let finder: { x: number; y: number; liftY: number } | null = null;
+        if (o >= 0 && o < this.snapshottedCount) {
+          const x = this.curX[o];
+          const y = this.curY[o];
+          const lift = this.sim.unitTypes[st.typeIdx[o]].isAir ? AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL : 0.35;
+          finder = { x, y, liftY: groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, y) + lift };
+        }
+        this.tunnelXray.discover(e.tunnel, presentationSimMs(e.tick, 1) / 1000, finder);
       } else if (e.kind === 'destroyed') {
         this.killerX[e.entity] = e.by >= 0 ? this.curX[e.by] : NaN;
         this.killerY[e.entity] = e.by >= 0 ? this.curY[e.by] : NaN;
         const deadType = this.sim.unitTypes[st.typeIdx[e.entity]];
-        // The BILLBOARD death fade -- the intact sprite dimming in place --
-        // is skipped for exactly the types `addWreck` steps aside for: one
-        // whose vehicle template carries the `wreck` clip, whose 3D mesh is
-        // at this moment being handed to `beginVehicleDeath` by
-        // `updateVehicleMeshes`' own prune loop. Without this the player
-        // sees a flat sprite of the INTACT vehicle fade on top of its own
-        // slumping mesh -- the first of the three art styles CLAUDE.md
-        // records, and the one a wreck mesh cannot hide. Every other type,
-        // mesh infantry included, pushes exactly as before: `stepDeaths` is
-        // also what calls `addWreck`, which owns its own exclusions.
-        if (this.vehicleMeshTemplates.get(deadType.id)?.hasWreck !== true) {
-          this.dying.push({
-            x: this.curX[e.entity],
-            y: this.curY[e.entity],
-            facing: fx.toNumber(st.facing[e.entity]),
-            typeId: deadType.id,
-            t: 0,
-            side: st.side[e.entity],
-          });
-        }
         // A hard-target kill (a vehicle) reuses the SAME pooled
         // explosion-burst mesh `structureDestroyed` already draws below --
         // "reuse the pooled mesh path... do not add a second one", per this
@@ -4084,8 +4304,16 @@ export class ThreeRenderer implements Renderer {
           // its own structure id.
           const killPower = explosionBurstPowerFromMaxHp(fx.toNumber(deadType.hp));
           const killYawTurns = tileHash(e.entity, e.entity * 7 + 1);
-          if (this.explosionBursts.ready) {
-            this.explosionBursts.spawn(dx, worldY, dy, killYawTurns, killPower, EXPLOSION_BURST_DEFAULT_DURATION_MS);
+          // PA-19: the kill's fireball draws in the SHROUD-FLASH band (5.5),
+          // not the ordinary burst band (3.5). The vehicle shroud spawned
+          // below is `depthTest: false` at band 5, so a 3.5 fireball was
+          // painted over by the dust it is meant to burn inside -- measured
+          // with `pnpm blast:capture` (mbt_lavi, 200 ms): an orange rim round
+          // a tan cloud, read as "a brown dust puff". The collapse had the
+          // identical defect and the identical fix (VR-22); this is the same
+          // pooled burst, its own size, life and colours unchanged.
+          if (this.collapseFlashBursts.ready) {
+            this.collapseFlashBursts.spawn(dx, worldY, dy, killYawTurns, killPower, EXPLOSION_BURST_DEFAULT_DURATION_MS);
           }
           // The smoke aftermath follows the same hard-target kill -- a
           // burning hull is exactly what a rising column is FOR. Checked
@@ -4127,7 +4355,7 @@ export class ThreeRenderer implements Renderer {
               dy,
               worldY,
               blastLight,
-              this.overlayColor(blastLight.color ?? 'vfx.fire', '#FFB43C')
+              this.overlayColor(blastLight.color ?? 'vfx.fire', FLASH_LIGHT_FALLBACK)
             );
           }
           this.shakeState = pushShake(this.shakeState, blastShake(blast, killPower), dx, dy);
@@ -4145,6 +4373,10 @@ export class ThreeRenderer implements Renderer {
         // itself (`dirtyForStructureHit`) -- see this method's own doc
         // comment. Do not add a second filter here.
         this.applyStructureHit(e.structure);
+        // GH-31: the band material swap hangs off the same event -- a
+        // per-frame HP scan would recompute every building every frame for
+        // a change that only ever arrives through this event.
+        this.refreshBuildingDamage(e.structure);
         // Task B4.3, ported from `renderer.ts:858-878`. A blade throws dust
         // where it is cutting; a shell throws it off the roof -- `isGrindingHit`
         // is the shared, sim-only predicate that tells the two apart (see its
@@ -4178,12 +4410,6 @@ export class ThreeRenderer implements Renderer {
         // own doc comment) is the deliberate asymmetry with `structureHit`
         // above, not an oversight.
         this.applyStructureDestroyed(e.structure);
-        // Task B4.4, ported from `renderer.ts:272-303`. Starts the falling
-        // sprite -- a separate, one-off mesh from the idle/wreck instancers
-        // `updateStructures` already swaps every frame -- see
-        // `beginCollapse`'s own doc comment for the ordering argument
-        // against that swap.
-        this.beginCollapse(e.structure);
         // Task B4.3, ported from `renderer.ts:880-901`. Masonry and a dust
         // bloom, authored in `data/vfx/structure_collapse.json`; falls back to
         // flat puffs when no emitter set is loaded, exactly like
@@ -4249,6 +4475,32 @@ export class ThreeRenderer implements Renderer {
             this.spawnFlatFx(bx + (a - 0.5) * 3, by + (b - 0.5) * 3, this.opts.nearMissColor, 10 + a * 10, 26 + Math.floor(a * 16));
           }
         }
+        // Polish VR-22: the top of the event ladder. A collapse used to author
+        // no light, shake or freeze at all, so it read below a mortar round.
+        // `structure_collapse.json` now declares all three one notch above
+        // `catastrophic_kill.json`, read through the same three calls and the
+        // same null/zero rule as the kill and the shell, at the footprint's
+        // own power -- outside the particle fallback above on purpose, since
+        // the light and the freeze are not particles.
+        {
+          const em = this.emitterLibrary.byName(STRUCTURE_COLLAPSE_EMITTER_ID);
+          const light = blastLightSpec(em, collapsePower);
+          // Low, at street level, OUTSIDE the building's camera-facing corner
+          // (the +X/+Z half: `tools/building_facing.py`, `camera.ts`'s
+          // VIEW_DIRECTION) -- the lead's ruling. A kill's light sits over
+          // open ground it can reach; a collapse's own pad is under the
+          // building and its shroud, and a light there, or at the roof, lit
+          // almost nothing the camera can see (593 px and 737 px against a
+          // Lavi kill's 44282 at the same 200 ms, `pnpm blast:capture`).
+          const [fx0, fz0] = collapseFrontPoint(this.sim.structures, deadStruct, this.sim.width, this.sim.height);
+          const frontY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, fx0, fz0);
+          if (light) {
+            this.flashLights.spawn(fx0, fz0, frontY, light, this.overlayColor(light.color ?? 'vfx.fire', FLASH_LIGHT_FALLBACK));
+          }
+          this.spawnCollapseFlash(fx0, frontY, fz0, collapsePower, collapseYawTurns);
+          this.shakeState = pushShake(this.shakeState, blastShake(em, collapsePower), bx, by);
+          this.hitStop = requestHitStop(this.hitStop, blastHitStopMs(em, collapsePower));
+        }
       }
     }
   }
@@ -4289,6 +4541,10 @@ export class ThreeRenderer implements Renderer {
     // round that is supposed to be seen crossing the gap. Drawing both would
     // show the round travelling along a line already claiming it had
     // arrived.
+    // Fire link: is this the SELECTED unit's own shot? Read off the
+    // renderer's own selection, never fed back (invariant 4).
+    const linked = st.side[e.shooter] === 0 && this.selection.includes(e.shooter);
+    let flightS: number | null = null;
     if (shellKind === null) {
       this.tracers.push(spawnTracer(this.curX[e.shooter], this.curY[e.shooter], tx, ty, st.side[e.shooter]));
     }
@@ -4299,16 +4555,31 @@ export class ThreeRenderer implements Renderer {
     // GH-148.
     const latch = this.fireLatchSeconds(type.id);
     if (latch !== null) this.firingTimer[e.shooter] = latch;
-
-    // Task B3.6: the turret's OWN fire-clip duration, latched independently
-    // of the hull's `firingTimer` above -- see `turretFiringTimer`'s own
-    // field doc comment for why reusing `firingTimer` would leave every
-    // shipped turret's `fire` clip unreachable (no hull sheet with turret
-    // art declares one of its own).
-    const turretInstancer = this.turretInstancers.get(type.id);
-    const turretFireClip = turretInstancer?.sheet.clips.fire;
-    if (turretFireClip && turretFireClip.fps > 0) {
-      this.turretFiringTimer[e.shooter] = turretFireClip.frames / turretFireClip.fps;
+    // The kick (motion pass): one figure per shot, in turn from a per-unit
+    // start, landing 0-120 ms after the shot -- a squad does not recoil on
+    // one frame. Sim time throughout, like the mixers (GH-391).
+    const shotS = presentationSimMs(this.sim.tickCount, 0) / 1000;
+    this.lastShotSimS[e.shooter] = shotS;
+    const squadRig = this.meshUnitEntities.get(e.shooter)?.squad;
+    if (squadRig) {
+      const armed = squadRig.figures.filter((f) => f.recoil !== null && f.spine !== null);
+      // A launcher team's shot always comes from its launcher, and throws
+      // its backblast behind him (`data/vfx/rpg_backblast.json`, 3-4 m of
+      // dust and flame).
+      const launchers = armed.filter((f) => f.recoil === 'launcher');
+      const fromTube = launchers.length > 0 && shellKind === 'missile';
+      if (fromTube) this.spawnBackblast(e.shooter, Math.atan2(ty - this.curY[e.shooter], tx - this.curX[e.shooter]));
+      const pool = fromTube ? launchers : armed;
+      if (pool.length > 0) {
+        const shot = squadRig.shots++;
+        const fig = pool[(shot + (hashEntityId(e.shooter) % pool.length)) % pool.length];
+        const kind = fig.recoil!;
+        fig.kicks.push({
+          at: shotS + shotJitterS(e.shooter, shot),
+          kind,
+          rounds: kind === 'mg' ? mgBurstRounds(e.shooter, shot) : 3,
+        });
+      }
     }
 
     // Turret facing when this unit type has turret art loaded -- BILLBOARD
@@ -4332,7 +4603,7 @@ export class ThreeRenderer implements Renderer {
     // backend.
     const meshVehicle = this.vehicleMeshEntities.get(e.shooter);
     const meshTurretPivot = meshVehicle?.turretPivot ?? null;
-    const facingRad = turretInstancer || meshTurretPivot
+    const facingRad = meshTurretPivot
       ? this.turretFacing[e.shooter] * Math.PI * 2
       : fx.toNumber(st.facing[e.shooter]) * Math.PI * 2;
     const barrelLen = type.isSoft ? 0.4 : 0.8;
@@ -4396,14 +4667,37 @@ export class ThreeRenderer implements Renderer {
         target: atStruct ? -1 : e.target, willHit: e.willHit,
         shooterAir: type.isAir, targetAir, tick: e.tick, shooter: e.shooter,
       });
+      const mcls = missileClassOf(cls);
+      flightS = Math.hypot(tx - this.curX[e.shooter], ty - this.curY[e.shooter]) / SIM_PROJ_SPEED_TILES_S[mcls ?? 'atgm'];
     } else if (shellKind !== null) {
-      const shell = spawnShell(mzX, mzY, tx, ty, st.side[e.shooter], shellKind);
-      // GH-149: the arcing kinds and the direct kinds live in separate
-      // arrays and separate batches -- see the `bolts` field's own doc
-      // comment for the three things that differ between them, none of
-      // which is per-shell.
-      if (isIndirectShell(shellKind)) this.shells.push(shell);
-      else this.bolts.push(shell);
+      if (isBurstShell(shellKind)) {
+        // Machine-gun and rifle fire: a burst of short streaks, each its own
+        // travelling round, staggered inside the weapon's own cooldown --
+        // `units/shells.ts`'s `spawnBurst`. Never a full-span line.
+        const burst = spawnBurst(mzX, mzY, tx, ty, st.side[e.shooter], shellKind, e.shooter * 7919 + e.tick, e.willHit);
+        for (const b of burst) this.bolts.push(b);
+        flightS = burst.length > 0 ? burst[0].duration : null;
+      } else {
+        const shell = spawnShell(mzX, mzY, tx, ty, st.side[e.shooter], shellKind);
+        flightS = shell.duration;
+        // GH-149: the arcing kinds and the direct kinds live in separate
+        // arrays and separate batches -- see the `bolts` field's own doc
+        // comment for the three things that differ between them, none of
+        // which is per-shell.
+        if (isIndirectShell(shellKind)) this.shells.push(shell);
+        else this.bolts.push(shell);
+      }
+    }
+
+    if (linked && !atStruct && e.target >= 0) {
+      // One pulse per beat, not per round: a coax burst would otherwise
+      // stack five rings on top of each other.
+      if (!this.fireLinkPulses.some((p) => p.target === e.target && this.fireLinkClockS - p.bornS < PULSE_MIN_GAP_S)) {
+        this.fireLinkPulses.push({ target: e.target, bornS: this.fireLinkClockS });
+      }
+      if (e.willHit) {
+        this.fireLinkFlashes.push({ target: e.target, startS: this.fireLinkClockS + landingDelayS(flightS) });
+      }
     }
 
     // LEAD DECISION (28 Sep, GH-250): no ground backblast for an AIR
@@ -4434,7 +4728,7 @@ export class ThreeRenderer implements Renderer {
         mzY,
         groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, mzX, mzY),
         light,
-        this.overlayColor(light.color ?? 'vfx.fire', '#FFB43C')
+        this.overlayColor(light.color ?? 'vfx.fire', FLASH_LIGHT_FALLBACK)
       );
     }
 
@@ -4495,7 +4789,10 @@ export class ThreeRenderer implements Renderer {
       } else {
         this.spawnFlatFx(mzX, mzY, this.opts.flashColor, 14, 4);
         this.spawnFlatFx(mzX, mzY, this.opts.flashColor, 10, 8);
-        this.spawnFlatFx(mzX, mzY, '#6B6355', 7, 18);
+        // Polish VR-09: the smoke was `#6B6355`, the one off-palette colour in
+        // this file. `limestone.7` is the nearest entry a world colour may use
+        // (CIEDE2000 5.81); `karst.3` is nearer (3.32) but terrain-only.
+        this.spawnFlatFx(mzX, mzY, this.overlayColor(MUZZLE_SMOKE_KEY), 7, 18);
       }
     }
   }
@@ -4547,10 +4844,6 @@ export class ThreeRenderer implements Renderer {
    * never authored `fire` (`at_team`, `atgm_cell`, `digger_crew`,
    * `mortar_crew` today), where `applyMeshClip` resolves the pose to `idle`
    * regardless and the latch value is unobservable.
-   *
-   * The turret's own latch (`turretFiringTimer`, set separately in `onFire`)
-   * is deliberately NOT routed through here -- see its field doc comment for
-   * why it is a second timer rather than a second read of this one.
    */
   private fireLatchSeconds(unitTypeId: string): number | null {
     // Variant 0 stands for the whole type. The latch is a per-TYPE duration
@@ -4568,9 +4861,6 @@ export class ThreeRenderer implements Renderer {
     // (which would mean "never firing"): treat it like an absent one and
     // fall through, the same leniency `fps > 0` already gives the sprite.
     if (meshFire && meshFire.duration > 0) return meshFire.duration;
-
-    const spriteFire = this.unitInstancers.get(unitTypeId)?.sheet.clips.fire;
-    if (spriteFire && spriteFire.fps > 0) return spriteFire.frames / spriteFire.fps;
 
     return null;
   }
@@ -4832,7 +5122,8 @@ export class ThreeRenderer implements Renderer {
     if (!this.particleSystem) return;
     const dust = this.emitterLibrary.byName('vehicle_dust');
     const exhaust = this.emitterLibrary.byName('vehicle_exhaust');
-    if (!dust && !exhaust) return;
+    const wash = this.emitterLibrary.byName('rotor_wash');
+    if (!dust && !exhaust && !wash) return;
 
     const st = this.sim.state;
     const n = this.snapshottedCount;
@@ -4846,6 +5137,15 @@ export class ThreeRenderer implements Renderer {
       if (type.isSoft) continue;
 
       const speed = this.entitySpeed[i];
+
+      // An air unit throws rotor wash instead of road dust and idle exhaust;
+      // `updateRotorWash` emits it, after the particle step (see there).
+      if (wash && type.isAir) {
+        this.exhaustSlot[i] = -1;
+        this.vehicleDustAccumMs[i] = 0;
+        continue;
+      }
+
       const moving = nextVehicleMoving(this.vehicleMoving[i] === 1, speed);
       this.vehicleMoving[i] = moving ? 1 : 0;
       const facingNorm = fx.toNumber(st.facing[i]);
@@ -4856,7 +5156,7 @@ export class ThreeRenderer implements Renderer {
         // the one below are mutually exclusive per entity per frame, so
         // this is strictly resetting a clock the idle branch will not run
         // this frame, not racing it.
-        this.vehicleExhaustAccumMs[i] = 0;
+        this.exhaustSlot[i] = -1;
         if (!dust) continue;
         this.vehicleDustAccumMs[i] += dt;
         const interval = vehicleDustIntervalMs(speed, this.vehicleWeightAccel[i]);
@@ -4878,32 +5178,8 @@ export class ThreeRenderer implements Renderer {
           this.particleSystem.spawn(layer, anchor.x, anchor.y, anchor.dirTurns, magnitude, prio, fxLayer);
         }
       } else {
+        // Idle exhaust is emitted by `updateIdleExhaust`, on the sim clock.
         this.vehicleDustAccumMs[i] = 0;
-        if (!exhaust) continue;
-        this.vehicleExhaustAccumMs[i] += dt;
-        if (this.vehicleExhaustAccumMs[i] < VEHICLE_EXHAUST_INTERVAL_MS) continue;
-        this.vehicleExhaustAccumMs[i] -= VEHICLE_EXHAUST_INTERVAL_MS;
-
-        const drawn = this.vehicleMeshEntities.get(i)?.root.position;
-        const anchor = vehicleFxAnchor(
-          drawn ? drawn.x : this.curX[i],
-          drawn ? drawn.z : this.curY[i],
-          facingNorm,
-          VEHICLE_EXHAUST_OFFSET_TILES
-        );
-        const prio = exhaust.budget_priority ?? 1;
-        for (const layer of exhaust.particles) {
-          const fxLayer = fxLayerIndex(exhaust.layer, layer.additive ?? false);
-          this.particleSystem.spawn(
-            layer,
-            anchor.x,
-            anchor.y,
-            anchor.dirTurns,
-            VEHICLE_EXHAUST_MAGNITUDE,
-            prio,
-            fxLayer
-          );
-        }
       }
     }
   }
@@ -4928,6 +5204,40 @@ export class ThreeRenderer implements Renderer {
       py,
       this.camera,
       { width: this.width, height: this.height },
+      this.retained.elevation,
+      this.sim.width,
+      this.sim.height
+    );
+  }
+
+  /**
+   * The standing structure whose DRAWN volume this pixel shows, or -1 (WP-P4,
+   * PA-14) -- `structure-pick.ts`'s top comment has the defect and the rule.
+   * Each box is as big as what this renderer draws there: the standing
+   * mesh's measured size (`buildingMeshBounds`, the numbers the collapse
+   * shroud is sized from) where a mesh clone stands, else the extruded wall.
+   */
+  structureAtScreen(px: number, py: number): number {
+    const st = this.sim.structures;
+    const boxes = structureBoxes(this.sim, this.retained.elevation, (s) => {
+      const type = this.sim.structureTypes[st.typeIdx[s]];
+      const w = st.maxX[s] - st.minX[s] + 1;
+      const d = st.maxY[s] - st.minY[s] + 1;
+      const bounds = this.buildingMeshIdleEntities.has(s) ? this.drawnBuildingSize(s) : undefined;
+      if (!bounds) return { width: w, height: type.heightPx * WORLD_Y_PER_LIFT_PIXEL, depth: d };
+      // A per-tile run turns a quarter to follow its neighbours, so its
+      // measured x/z are not this tile's; it is one tile and low either way.
+      if (type.perTile) return { width: w, height: bounds.y, depth: d };
+      // The same rule the collapse shroud is sized by: never smaller than
+      // the footprint, as big as the mesh where the mesh is bigger.
+      return { width: Math.max(w, bounds.x), height: bounds.y, depth: Math.max(d, bounds.z) };
+    });
+    return structureAtScreenThree(
+      px,
+      py,
+      this.camera,
+      { width: this.width, height: this.height },
+      boxes,
       this.retained.elevation,
       this.sim.width,
       this.sim.height
@@ -5080,6 +5390,7 @@ export class ThreeRenderer implements Renderer {
     this.muzzleFlashes.setColors(resolve);
     // Identical two-phase-construction safety, for the explosion-burst mesh.
     this.explosionBursts.setColors(resolve);
+    this.collapseFlashBursts.setColors(resolve);
     // Identical two-phase-construction safety, for the smoke-plume mesh.
     this.smokePlumes.setColors(resolve);
     // Identical two-phase-construction safety, for the collapse shroud --
@@ -5089,107 +5400,6 @@ export class ThreeRenderer implements Renderer {
     // GH-250: the missile trail's look and body colour, same resolver.
     this.missileFx.setLook(this.emitterLibrary.byName(MISSILE_TRAIL_EMITTER_ID), resolve);
   }
-  /**
-   * Load a unit type's sprite sheet and build the `THREE.InstancedMesh`
-   * (`UnitInstancer`) it draws through -- one draw call for however many of
-   * this type end up alive, per Ruling 1.
-   *
-   * Task B3.6: `opts.turretPath`, when given, is now ALSO loaded and built
-   * into a second `UnitInstancer` (`turretInstancers`), the same generic
-   * `packSheet`/`buildUnitTexture`/`UnitInstancer` pipeline the hull sheet
-   * goes through -- a turret sheet is shaped exactly like a hull sheet
-   * (`SheetSpec`), so nothing here is turret-specific except which map the
-   * result lands in and which mesh the caller (`updateUnits`) later calls
-   * `updateTurret` rather than `update` on. `packSheet`/`buildUnitTexture`
-   * already pack and load EVERY clip a sheet declares (not merely `idle`),
-   * so the gun truck's 16 recoil-frame `fire` clip is loaded here exactly
-   * like `idle` is -- there is no separate "load every clip" step to add,
-   * unlike the bug `renderer.ts`'s own `loadSprites` comment records
-   * needing a fix for.
-   *
-   * Errors propagate rather than being swallowed: `main.ts` already wraps
-   * every `loadSprites` call in its own `.catch` per unit type (so one
-   * missing sheet does not stop the rest of the roster from loading), which
-   * is exactly Pixi's own failure mode for the identical call. A turret
-   * sheet that fails to load fails the WHOLE call (hull included), matching
-   * Pixi: `PixiRenderer.loadSprites` `await`s its own turret load inline,
-   * with nothing to catch a rejection there either.
-   */
-  async loadSprites(
-    unitTypeId: string,
-    basePath: string,
-    opts?: { turretPath?: string }
-  ): Promise<void> {
-    this.retained.unitSheets.set(unitTypeId, { basePath, turretPath: opts?.turretPath });
-    const res = await fetch(`${basePath}manifest.json`);
-    if (!res.ok) throw new Error(`sheet manifest ${res.status} at ${basePath}`);
-    const sheet: SheetSpec = parseManifest(await res.json());
-    const packing = packSheet(sheet);
-    const texture = await buildUnitTexture(basePath, sheet, packing);
-    const instancer = new UnitInstancer(
-      sheet,
-      texture,
-      packing,
-      this.sim.capacity,
-      HULL_RENDER_ORDER,
-      this.silhouetteTeamColors
-    );
-    // A re-load (unlikely, but `loadSprites` carries no such guarantee
-    // against it) must not leak the mesh/material/texture it replaces.
-    const previous = this.unitInstancers.get(unitTypeId);
-    if (previous) {
-      this.scene.remove(previous.mesh);
-      if (previous.silhouette) this.scene.remove(previous.silhouette);
-      previous.dispose();
-    }
-    this.unitInstancers.set(unitTypeId, instancer);
-    this.scene.add(instancer.mesh);
-    if (instancer.silhouette) this.scene.add(instancer.silhouette);
-
-    if (opts?.turretPath) {
-      const turretRes = await fetch(`${opts.turretPath}manifest.json`);
-      if (!turretRes.ok) throw new Error(`turret sheet manifest ${turretRes.status} at ${opts.turretPath}`);
-      const turretSheet: SheetSpec = parseManifest(await turretRes.json());
-      const turretPacking = packSheet(turretSheet);
-      const turretTexture = await buildUnitTexture(opts.turretPath, turretSheet, turretPacking);
-      const turretInstancer = new UnitInstancer(
-        turretSheet,
-        turretTexture,
-        turretPacking,
-        this.sim.capacity,
-        // Explicit, tested render-order split (instances.ts's own doc
-        // comment) -- draws above its hull at every co-located, identical-
-        // depth instance, not merely by construction-order accident.
-        TURRET_RENDER_ORDER,
-        // A turret gets its own silhouette for the same reason it gets its
-        // own mesh: without it, an occluded tank would show a hull-shaped
-        // cut-out with a hole where its turret is.
-        this.silhouetteTeamColors
-      );
-      const previousTurret = this.turretInstancers.get(unitTypeId);
-      if (previousTurret) {
-        this.scene.remove(previousTurret.mesh);
-        if (previousTurret.silhouette) this.scene.remove(previousTurret.silhouette);
-        previousTurret.dispose();
-      }
-      this.turretInstancers.set(unitTypeId, turretInstancer);
-      this.scene.add(turretInstancer.mesh);
-      if (turretInstancer.silhouette) this.scene.add(turretInstancer.silhouette);
-    } else {
-      // A re-load that DROPS a previously-declared turretPath (not exercised
-      // by any real caller today -- `main.ts`'s SPRITE_MAP is static -- but
-      // `loadSprites` carries no guarantee against it) must not leave a
-      // stale turret mesh drawing for a hull that no longer declares one.
-      const stale = this.turretInstancers.get(unitTypeId);
-      if (stale) {
-        this.scene.remove(stale.mesh);
-        if (stale.silhouette) this.scene.remove(stale.silhouette);
-        stale.dispose();
-        this.turretInstancers.delete(unitTypeId);
-      }
-    }
-  }
-
   /**
    * The mesh-unit flag itself: loads `glbUrl` (`art/meshes/<team_id>.glb`
    * per `mesh-unit-contract.md`) -- or SEVERAL, one per variant of the same
@@ -5216,7 +5426,9 @@ export class ThreeRenderer implements Renderer {
   async loadMeshUnit(
     unitTypeId: string,
     glbUrl: string | readonly string[],
-    faction: MeshFaction
+    faction: MeshFaction,
+    /** GH-469: parse now, decode the textures only on `warmUnitMesh`. */
+    opts: { cold?: boolean } = {}
   ): Promise<void> {
     // One URL or several. Several means VARIANTS of one unit type -- see
     // `units/mesh-variant.ts` for which entity draws which, and why. Loaded
@@ -5231,7 +5443,12 @@ export class ThreeRenderer implements Renderer {
     // Computed once, like `loadVehicleMesh`'s: see `units/textured-infantry.ts`.
     const allowTextured = TEXTURED_INFANTRY_TYPES.has(unitTypeId);
     const templates = await Promise.all(
-      urls.map((url) => loadMeshUnitTemplate(url, faction, allowTextured))
+      urls.map((url) =>
+        loadMeshUnitTemplate(url, faction, allowTextured, opts.cold === true).catch((err: unknown) => {
+          this.noteMeshFailure(unitTypeId, url, err);
+          throw err;
+        })
+      )
     );
 
     const previous = this.meshUnitTemplates.get(unitTypeId);
@@ -5244,7 +5461,13 @@ export class ThreeRenderer implements Renderer {
       }
       for (const template of previous) disposeMeshUnitTemplate(template);
     }
+    if (this.opts.maxTextureSize !== undefined) {
+      const cap = this.opts.maxTextureSize;
+      await Promise.all(templates.map((t) => capTextureSize(t.root, cap)));
+    }
     this.meshUnitTemplates.set(unitTypeId, templates);
+    if (templates.some((t) => hasColdTextures(t.root))) this.coldUnitTypes.add(unitTypeId);
+    else this.coldUnitTypes.delete(unitTypeId);
   }
 
   /**
@@ -5269,10 +5492,38 @@ export class ThreeRenderer implements Renderer {
    * `allowTextured` is computed here, once, the same way `loadBuildingMesh`
    * computes its own -- see `units/textured-vehicle.ts` for the named list.
    */
-  async loadVehicleMesh(unitTypeId: string, glbUrl: string): Promise<void> {
+  async loadVehicleMesh(
+    unitTypeId: string,
+    glbUrl: string,
+    /** GH-469: parse now, decode the textures only on `warmUnitMesh`. */
+    opts: { cold?: boolean } = {}
+  ): Promise<void> {
     const allowTextured = TEXTURED_VEHICLE_TYPES.has(unitTypeId);
-    const template = await loadVehicleMeshTemplate(glbUrl, unitTypeId, allowTextured);
+    // The type's bought kit (GH-238), fixed for the mission: merged into the
+    // template's host geometry here, once, for every clone it ever makes.
+    const kitTiers = this.opts.unitKitTiers?.[unitTypeId];
+    const template = await loadVehicleMeshTemplate(glbUrl, unitTypeId, allowTextured, kitTiers, opts.cold === true).catch((err: unknown) => {
+      this.noteMeshFailure(unitTypeId, glbUrl, err);
+      throw err;
+    });
+    // Every vehicle GLB must carry the `wreck` clip `pnpm wreck:meshes`
+    // writes (WP-A3.3). Until the billboard path was retired, a GLB without
+    // one fell back to its sheet's 2D wreck sprite -- the "do NOT add
+    // `vehicleMeshTemplates` to the `addWreck` guard unconditionally" trap.
+    // There is no sprite left to fall back to, so a wreck-less GLB is refused
+    // here, by name, the same shape as `TEXTURED_MESH_EXEMPT`'s throw, and
+    // the type draws a proxy box like any other failed mesh.
+    // `tools/src/mesh_roster.test.ts` keeps one from shipping.
+    if (!template.hasWreck) {
+      disposeVehicleMeshTemplate(template);
+      const err = new Error(
+        `loadVehicleMesh: ${glbUrl} (${unitTypeId}) carries no \`wreck\` clip -- run \`pnpm wreck:meshes\` on it`
+      );
+      this.noteMeshFailure(unitTypeId, glbUrl, err);
+      throw err;
+    }
 
+    if (this.opts.maxTextureSize !== undefined) await capTextureSize(template.root, this.opts.maxTextureSize);
     const previous = this.vehicleMeshTemplates.get(unitTypeId);
     if (previous) {
       for (const [id, entity] of this.vehicleMeshEntities) {
@@ -5286,6 +5537,9 @@ export class ThreeRenderer implements Renderer {
       disposeVehicleMeshTemplate(previous);
     }
     this.vehicleMeshTemplates.set(unitTypeId, template);
+    if (hasColdTextures(template.root)) this.coldUnitTypes.add(unitTypeId);
+    else this.coldUnitTypes.delete(unitTypeId);
+    if (this.kitDebugHidden) setKitDrawRange(template.geometries, true);
     // Measured here, from the template just built, exactly as
     // `loadBuildingMesh` measures its own -- recomputed on every reload and
     // never carried on the template, so a re-export cannot leave a stale
@@ -5294,6 +5548,145 @@ export class ThreeRenderer implements Renderer {
     // wreck recipe displaces those parts OUTWARD, so measuring the whole
     // clone would size the shroud from scattered debris.
     this.vehicleMeshBounds.set(unitTypeId, vehicleShroudBounds(template.root));
+  }
+
+  /**
+   * GH-469: decode a cold unit type's textures, ahead of its first draw.
+   *
+   * The cue is the player's ORDER: `main.ts` calls this for every entry in
+   * `runtime.production` each tick, so decoding starts the tick a build is
+   * queued -- at least 12 s of sim time (the shortest `build_time_s`, two
+   * jeeps and the recon drone) before the unit can exist, against tens of
+   * milliseconds to decode its textures. Until the decode lands the type is
+   * not drawn at all (`updateMeshUnits`/`updateVehicleMeshes` treat it as not
+   * loaded), so even a unit that arrives with no cue -- `reason` 'spawned' --
+   * appears textured or not at all, never with a placeholder; that case is
+   * reported, because it means a cue is missing. Idempotent and cheap for a
+   * type that is already warm.
+   */
+  warmUnitMesh(unitTypeId: string, reason: 'ordered' | 'spawned' = 'ordered'): void {
+    if (!this.coldUnitTypes.has(unitTypeId)) return;
+    const key = `unit:${unitTypeId}`;
+    if (this.warmingTemplates.has(key)) return;
+    this.warmingTemplates.add(key);
+    if (reason === 'spawned') {
+      console.warn(`[render] ${unitTypeId} reached the field before its textures were warmed; it draws once they decode`);
+    }
+    const roots = [
+      ...(this.meshUnitTemplates.get(unitTypeId) ?? []).map((t) => t.root),
+      ...[this.vehicleMeshTemplates.get(unitTypeId)?.root].filter((r): r is THREE.Object3D => r !== undefined),
+    ];
+    void Promise.all(roots.map((r) => warmColdTextures(r, this.imageDecoder))).then(
+      () => {
+        this.warmingTemplates.delete(key);
+        if (!this.disposed) this.coldUnitTypes.delete(unitTypeId);
+      },
+      (err: unknown) => {
+        this.warmingTemplates.delete(key);
+        if (this.disposed) return;
+        // A template that cannot be decoded is a mesh that failed: drop it,
+        // and the type draws the failed-mesh proxy box like any other.
+        this.coldUnitTypes.delete(unitTypeId);
+        this.meshUnitTemplates.delete(unitTypeId);
+        this.vehicleMeshTemplates.delete(unitTypeId);
+        this.noteMeshFailure(unitTypeId, '(texture decode)', err);
+      }
+    );
+  }
+
+  /** Whether `unitTypeId`'s template is still cold (read by tests). */
+  isUnitMeshCold(unitTypeId: string): boolean {
+    return this.coldUnitTypes.has(unitTypeId);
+  }
+
+  /** GH-469: `warmUnitMesh`'s twin for a building type's wreck template. */
+  private warmWreck(structureId: string): void {
+    if (!this.coldWreckTypes.has(structureId)) return;
+    const key = `wreck:${structureId}`;
+    if (this.warmingTemplates.has(key)) return;
+    const template = this.buildingMeshWreckTemplates.get(structureId);
+    if (!template) return;
+    this.warmingTemplates.add(key);
+    void warmColdTextures(template.root, this.imageDecoder).then(
+      () => {
+        this.warmingTemplates.delete(key);
+        if (!this.disposed) this.coldWreckTypes.delete(structureId);
+      },
+      (err: unknown) => {
+        this.warmingTemplates.delete(key);
+        if (this.disposed) return;
+        // Same as a wreck GLB that failed to load: the type keeps the
+        // procedural wreck `updateStructures` draws when no template exists.
+        console.error(`[render] could not decode the textures of ${structureId}'s wreck:`, err);
+        this.coldWreckTypes.delete(structureId);
+        this.buildingMeshWreckTemplates.delete(structureId);
+        disposeBuildingMeshTemplate(template);
+        this.terrainDirty = true;
+      }
+    );
+  }
+
+  /**
+   * The unit types whose GLB failed to load (WP-A3.3, ruling 2). Read by
+   * tests and by anything that wants to say which models are proxies.
+   */
+  failedMeshTypes(): ReadonlySet<string> {
+    return new Set(this.meshFailures.keys());
+  }
+
+  /** Records a failed unit GLB and says so loudly, once per (type, url). The
+   *  caller still sees the rejection; this only makes sure the unit draws a
+   *  proxy box rather than nothing, and that the console names the file. */
+  private noteMeshFailure(unitTypeId: string, url: string, err: unknown): void {
+    if (this.meshFailures.get(unitTypeId) === url) return;
+    this.meshFailures.set(unitTypeId, url);
+    console.error(
+      `[lions] unit mesh FAILED for ${unitTypeId} (${url}) -- drawing a proxy box in its place`,
+      err
+    );
+  }
+
+  /**
+   * The proxy boxes for every living, observed unit of a FAILED type that has
+   * no template (a later successful reload supersedes the failure). Called
+   * every frame after the two mesh loops; costs one map lookup when nothing
+   * has failed.
+   */
+  private updateProxyBoxes(alpha: number): void {
+    if (this.meshFailures.size === 0) return;
+    const st = this.sim.state;
+    const n = this.snapshottedCount;
+    const entries = this.proxyEntries;
+    entries.length = 0;
+    for (let i = 0; i < n; i++) {
+      if (st.alive[i] === 0) continue;
+      const type = this.sim.unitTypes[st.typeIdx[i]];
+      if (!this.meshFailures.has(type.id)) continue;
+      if (this.meshUnitTemplates.has(type.id) || this.vehicleMeshTemplates.has(type.id)) continue;
+      const x = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
+      const z = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
+      if (this.unitsDebugHidden || !unitIsObserved(st.side[i], x, z, this.fogVisibleAt)) continue;
+      const cls = RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type);
+      const lift = type.isAir ? AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL : 0;
+      const facing = fx.toNumber(st.facing[i]);
+      const dims = proxyBoxDims(type.id, cls);
+      // Centred on the hull, not the origin: game facing `f` points along
+      // (cos 2*pi*f, sin 2*pi*f) on world X/Z, the same convention the turret
+      // spring's goal angle uses.
+      const bx = x + Math.cos(facing * Math.PI * 2) * dims.offsetAlong;
+      const bz = z + Math.sin(facing * Math.PI * 2) * dims.offsetAlong;
+      entries.push({
+        x: bx,
+        z: bz,
+        groundY: groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, bx, bz) + lift,
+        yaw: meshYawFromFacing(facing),
+        dims,
+        side: st.side[i],
+      });
+    }
+    if (entries.length === 0 && this.proxyBoxes === null) return;
+    if (this.proxyBoxes === null) this.proxyBoxes = new ProxyBoxBatch(this.scene, this.opts.teamColors);
+    this.proxyBoxes.update(entries);
   }
 
   /**
@@ -5326,8 +5719,8 @@ export class ThreeRenderer implements Renderer {
    * (`ExplosionBurstManager.ready`).
    */
   async loadExplosionBurstMesh(glbUrl: string): Promise<void> {
-    const meshes = await this.explosionBursts.load(glbUrl);
-    this.scene.add(...meshes);
+    const template = await loadExplosionBurstTemplate(glbUrl);
+    this.scene.add(...this.explosionBursts.adopt(template), ...this.collapseFlashBursts.adopt(template));
   }
 
   /**
@@ -5400,6 +5793,7 @@ export class ThreeRenderer implements Renderer {
       wallSurface,
       allowTextured
     );
+    if (this.opts.maxTextureSize !== undefined) await capTextureSize(idleTemplate.root, this.opts.maxTextureSize);
     const previousIdle = this.buildingMeshIdleTemplates.get(structureId);
     if (previousIdle) {
       // `buildingMeshIdleEntities` is keyed by STRUCTURE INDEX, not type --
@@ -5415,7 +5809,11 @@ export class ThreeRenderer implements Renderer {
         if (this.sim.structureTypes[st.typeIdx[s]].id !== structureId) continue;
         this.scene.remove(root);
         this.buildingMeshIdleEntities.delete(s);
+        this.buildingDamageBand.delete(s);
       }
+      // The scar memo is keyed by the OLD template's materials.
+      this.buildingScars.get(structureId)?.dispose();
+      this.buildingScars.delete(structureId);
       disposeBuildingMeshTemplate(previousIdle);
     }
     this.buildingMeshIdleTemplates.set(structureId, idleTemplate);
@@ -5477,7 +5875,10 @@ export class ThreeRenderer implements Renderer {
       wreckUrl,
       structureType.color,
       wallSurfaceForBuilding(structureId),
-      TEXTURED_BUILDING_TYPES.has(structureId)
+      TEXTURED_BUILDING_TYPES.has(structureId),
+      // GH-469: a wreck is drawn only when one of these collapses, so its
+      // textures stay encoded until the type is first hit (`warmWreck`).
+      true
     );
     const previousWreck = this.buildingMeshWreckTemplates.get(structureId);
     if (previousWreck) {
@@ -5490,6 +5891,8 @@ export class ThreeRenderer implements Renderer {
       disposeBuildingMeshTemplate(previousWreck);
     }
     this.buildingMeshWreckTemplates.set(structureId, wreckTemplate);
+    if (hasColdTextures(wreckTemplate.root)) this.coldWreckTypes.add(structureId);
+    else this.coldWreckTypes.delete(structureId);
     // `updateStructures` reads `buildingMeshWreckTemplates` to decide whether
     // this type's BILLBOARD wreck instancer still draws -- so the arrival has
     // to reach the terrain the same way the standing template's does, or a
@@ -5707,126 +6110,6 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
-   * Task C5: how many structures of ONE type -- alive or dead -- the sim
-   * holds, right now. `loadStructureSprite` uses this as its capacity bound
-   * for that type's `StructureInstancer`(s), rather than `sim.structureCount`
-   * (every structure of every type): sizing each of the seven shipped
-   * structure types' instancers to the map's TOTAL structure count wasted
-   * six types' worth of unused `Float32Array` slots on every type that is
-   * not the single most common one. Just as no living-plus-dead unit count
-   * of ONE unit type can ever exceed `sim.capacity` (the bound
-   * `UnitInstancer` already gets for free), no living-plus-dead structure
-   * count of ONE structure type can ever exceed this type's own count --
-   * but `Sim` has no per-type structure count to read directly the way it
-   * does for units, so this counts by a linear walk instead. Called once per
-   * structure type at load time (at most seven times today, per `main.ts`'s
-   * `STRUCTURE_SPRITES`) and once per loaded type and sheet by `reseed()`
-   * (`fitStructureInstancers`), never per frame, so an O(structureCount)
-   * scan here costs nothing worth avoiding.
-   */
-  private structureTypeCapacity(structureId: string): number {
-    const st = this.sim.structures;
-    let count = 0;
-    for (let s = 0; s < this.sim.structureCount; s++) {
-      if (this.sim.structureTypes[st.typeIdx[s]].id === structureId) count++;
-    }
-    return count;
-  }
-
-  /**
-   * Task B3.7: load a structure type's idle sprite (and its wreck sprite,
-   * when the sheet declares one) and build the `StructureInstancer`(s) they
-   * draw through. Mirrors `PixiRenderer.loadStructureSprite` (`renderer.ts:
-   * 654-668`) in what it fetches and what it derives from the manifest, but
-   * builds real GPU objects rather than a single `structureAtlas` entry --
-   * `structureIdle`/`structureWreck` (one `InstancedMesh` each) are this
-   * backend's equivalent, per Ruling 1 (one draw call per type).
-   *
-   * `terrainDirty = true` at the end matters here in a way it does not for
-   * `loadSprites`: `rebuildTerrain`'s own `composeTerrain` call reads its
-   * `hasArt` callback (`this.structureIdle.has(id)`) to decide which
-   * structures' tiles `buildBuildings` should skip, so a structure's FIRST
-   * successful art load has to trigger a rebuild or its footprint would keep
-   * drawing a box underneath (or beside) the sprite this method just added
-   * to the scene. A LATER re-load (not exercised by any real caller --
-   * `main.ts`'s `STRUCTURE_SPRITES` is static, same as `loadSprites`'s own
-   * `SPRITE_MAP`) sets it again harmlessly: `hasArt` would evaluate to the
-   * identical result.
-   *
-   * Errors propagate rather than being swallowed, matching `loadSprites`:
-   * `main.ts` already wraps every `loadStructureSprite` call in its own
-   * `.catch` per structure type, and a type whose art fails to load simply
-   * never gains an entry in `structureIdle` -- `composeTerrain`'s `hasArt`
-   * predicate (`this.structureIdle.has(id)`) is exactly "art actually
-   * loaded", not "art was attempted", so a failed load correctly keeps the
-   * procedural box for that type rather than silently drawing neither a box
-   * nor a sprite.
-   */
-  async loadStructureSprite(structureId: string, basePath: string): Promise<void> {
-    this.retained.structureSheets.set(structureId, basePath);
-    const res = await fetch(`${basePath}manifest.json`);
-    if (!res.ok) throw new Error(`structure manifest ${res.status} at ${basePath}`);
-    const spec = parseStructureManifest(await res.json());
-
-    const idleFrame = await loadStructureFrame(basePath, spec.file);
-    const idleGeometry = structureBillboardGeometry(spec.scale, idleFrame.width, idleFrame.height);
-    // Every structure of THIS TYPE, alive or dead, is a safe capacity bound
-    // for either instancer AS OF NOW. It is not final: `main.ts` adds every
-    // map structure before kicking off any art load, but a mission's own
-    // arrive with `runtime.start()` after the deploy screen, which is after
-    // this. `reseed()` grows the instancer then (`fitStructureInstancers`).
-    // Sized per-type rather than to the flat `sim.structureCount`: seven
-    // shipped structure types (Task C5) each allocating the map's TOTAL
-    // structure count would waste six types' worth of `Float32Array` slots
-    // on every type that is not the single most common one.
-    const capacity = this.structureTypeCapacity(structureId);
-    const idleInstancer = new StructureInstancer(idleFrame.texture, idleGeometry, capacity);
-    const previousIdle = this.structureIdle.get(structureId);
-    if (previousIdle) {
-      this.scene.remove(previousIdle.mesh);
-      previousIdle.dispose();
-    }
-    this.structureIdle.set(structureId, idleInstancer);
-    this.scene.add(idleInstancer.mesh);
-
-    if (spec.wreckFile) {
-      const wreckFrame = await loadStructureFrame(basePath, spec.wreckFile);
-      const wreckGeometry = structureBillboardGeometry(spec.scale, wreckFrame.width, wreckFrame.height);
-      const wreckInstancer = new StructureInstancer(wreckFrame.texture, wreckGeometry, capacity);
-      const previousWreck = this.structureWreck.get(structureId);
-      if (previousWreck) {
-        this.scene.remove(previousWreck.mesh);
-        previousWreck.dispose();
-      }
-      this.structureWreck.set(structureId, wreckInstancer);
-      this.scene.add(wreckInstancer.mesh);
-    } else {
-      // A re-load that DROPS a previously-declared wreckFile (not exercised
-      // by any real caller today) must not leave a stale wreck mesh drawing
-      // for a type that no longer declares one -- same guard `loadSprites`
-      // applies to a dropped `turretPath`.
-      const staleWreck = this.structureWreck.get(structureId);
-      if (staleWreck) {
-        this.scene.remove(staleWreck.mesh);
-        staleWreck.dispose();
-        this.structureWreck.delete(structureId);
-      }
-    }
-
-    this.structureRoofArt.set(structureId, { roofTopPx: spec.roofTopPx, badgeTopPx: spec.badgeTopPx });
-    // Task B4.4: the exact inputs `collapseBillboardGeometry` needs to build
-    // a base-anchored quad matching `idleGeometry` above -- captured once
-    // here rather than re-derived at collapse time, since neither `spec` nor
-    // `idleFrame` survive past this method.
-    this.structureCollapseArt.set(structureId, {
-      scale: spec.scale,
-      textureWidth: idleFrame.width,
-      textureHeight: idleFrame.height,
-    });
-    this.terrainDirty = true;
-  }
-
-  /**
    * A one-shot: a marker blooms at the ordered point and fades -- Pixi's own
    * `this.orderMarkers.push({ x, y, ttl: 80 })` (`renderer.ts`'s
    * `addOrderMarker`). Phase C: `this.orderMarkers` graduates out of the
@@ -5947,6 +6230,257 @@ export class ThreeRenderer implements Renderer {
     };
   }
 
+  /**
+   * One squad entity's frame (motion pass, approved 5 Oct; `units/squad-rig.ts`
+   * and `units/squad-motion.ts`). Every figure walks its own path to its own
+   * slot -- the team's wedge turned to the line of travel, drifting, spread
+   * wider when kneeling -- under its own clip player: its own phase, its own
+   * cadence, its own stance, a stagger behind the man before it. Its legs
+   * face where it is going; its upper body turns to the aim (at most 60 deg)
+   * after the mixer, with any recoil on top. The unit's sim position is the
+   * only input; nothing is written back.
+   */
+  private updateSquad(
+    entity: MeshUnitEntity,
+    squad: SquadRig,
+    template: MeshUnitTemplate,
+    i: number,
+    c: {
+      wx: number;
+      wy: number;
+      worldY: number;
+      aimYaw: number;
+      anim: UnitAnimInput;
+      desiredClip: ClipName;
+      depthTarget: number;
+      heading: KneelHeading;
+      fromSim: boolean;
+      dt: number;
+      nowS: number;
+    }
+  ): void {
+    const M = METRES_PER_TILE;
+    const vx = (this.curX[i] - this.prevX[i]) * SIM_HZ * M;
+    const vz = (this.curY[i] - this.prevY[i]) * SIM_HZ * M;
+    const speedM = Math.hypot(vx, vz);
+    const moving = c.anim.speed > 0 && speedM > 0.05;
+    const travelYaw = moving ? -Math.atan2(vz, vx) : c.aimYaw;
+    // The wedge turns with the line of march, and to the aim when halted.
+    if (!squad.started) {
+      squad.formationYaw = travelYaw;
+    } else {
+      squad.formationYaw = approachAngle(squad.formationYaw, travelYaw, BODY_TURN_RAD_S * c.dt);
+    }
+    const fy = squad.formationYaw;
+    entity.root.rotation.y = fy;
+    const cos = Math.cos(fy);
+    const sin = Math.sin(fy);
+    const cx = c.wx * M;
+    const cz = c.wy * M;
+    // The unit's own depth history, so each man can follow it a beat late.
+    const unitTarget = c.depthTarget;
+    squad.depthHistory.push({ t: c.nowS, d: unitTarget, h: c.heading });
+    while (squad.depthHistory.length > 2 && squad.depthHistory[1].t < c.nowS - 0.5) squad.depthHistory.shift();
+    const entryAt = (t: number): { d: number; h: KneelHeading } => {
+      const h = squad.depthHistory;
+      for (let k = h.length - 1; k >= 0; k--) if (h[k].t <= t) return h[k];
+      return h[0];
+    };
+    const unitDepthNow = this.unitDepth[i];
+    this.unitDepth[i] = c.fromSim ? unitTarget : stepDepth(unitDepthNow, unitTarget, c.dt);
+    const spread = 1 + KNEEL_SPREAD * this.unitDepth[i];
+    const driftGain = Math.min(1, speedM / 1.5);
+    for (const f of squad.figures) {
+      if (!f.player || !f.group) continue;
+      // The slot, in metres in the world.
+      const [da, dc] = slotDrift(i, f.index, c.nowS);
+      const lx = f.slot.x * spread + da * driftGain;
+      const lz = f.slot.z * spread + dc * driftGain;
+      // Root-local (x, z) -> world: three's rotation about +Y.
+      const tx = cx + lx * cos + lz * sin;
+      const tz = cz - lx * sin + lz * cos;
+      if (!squad.started || !f.started) {
+        f.follower.x = tx;
+        f.follower.z = tz;
+        f.follower.vx = vx;
+        f.follower.vz = vz;
+        f.yaw = travelYaw;
+      } else {
+        stepFollower(f.follower, tx, tz, vx, vz, c.dt);
+      }
+      const fs = Math.hypot(f.follower.vx, f.follower.vz);
+      const wantYaw = fs > 0.4 ? -Math.atan2(f.follower.vz, f.follower.vx) : c.aimYaw;
+      const prevYaw = f.yaw;
+      f.yaw = f.started ? approachAngle(f.yaw, wantYaw, BODY_TURN_RAD_S * c.dt) : wantYaw;
+      const yawRate = c.dt > 0 ? Math.abs(wrapAngle(f.yaw - prevYaw)) / c.dt : 0;
+      // Group transform: the figure at its follower, turned to its own yaw,
+      // about its own rest slot (root-local metres; the armature node is the
+      // identity in every rig.py file).
+      const ox = f.follower.x - cx;
+      const oz = f.follower.z - cz;
+      const lfx = ox * cos - oz * sin;
+      const lfz = ox * sin + oz * cos;
+      const dYaw = wrapAngle(f.yaw - fy);
+      const rc = Math.cos(dYaw);
+      const rs = Math.sin(dYaw);
+      const rx = f.slot.x * rc + f.slot.z * rs;
+      const rz = -f.slot.x * rs + f.slot.z * rc;
+      const fg = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, f.follower.x / M, f.follower.z / M);
+      f.group.position.set(lfx - rx, (fg - c.worldY) * M, lfz - rz);
+      f.group.rotation.set(0, dYaw, 0);
+      // Stance, a beat behind the unit.
+      const stagger = STANCE_STAGGER_S[f.index % STANCE_STAGGER_S.length];
+      const lagged = entryAt(c.nowS - stagger);
+      const tgt = lagged.d;
+      f.lastDepth = f.depth;
+      f.depth = c.fromSim && stagger === 0 ? tgt : stepDepth(f.depth, tgt, c.dt);
+      // The way the unit was going a beat ago, when the sim says; otherwise
+      // the way this man's own depth is moving.
+      f.heading = c.fromSim ? lagged.h : f.depth < f.lastDepth ? 'up' : f.depth > f.lastDepth ? 'down' : f.heading;
+      // Steps: its own speed, or a turn in place.
+      const stepM = Math.max(fs, yawRate * TURN_STEP_M_PER_RAD);
+      const stepping = stepM > 0.15;
+      let base: ClipName = c.desiredClip;
+      if (base === 'idle' || base === 'fire') base = stepping ? 'move' : base;
+      else if (base === 'move' || base === 'moveFire') base = stepping ? base : c.anim.firing ? 'fire' : 'idle';
+      const k = kneelClipFor(base, f.depth, f.heading, f.player.actions.has('kneel'));
+      const before = f.player.currentClip;
+      applyMeshClip(f.player, k.clip, k.scrub === null ? undefined : { once: true });
+      const action = f.player.actions.get(f.player.currentClip ?? k.clip);
+      if (action && before !== f.player.currentClip && k.scrub === null) {
+        action.time = clipPhase(i, f.index) * action.getClip().duration;
+      }
+      if (action) {
+        if (k.scrub !== null) scrubAction(action, k.scrub);
+        else if (isLocomotionClip(f.player.currentClip ?? '')) {
+          const clip = f.player.currentClip as LocomotionClip;
+          action.timeScale =
+            gaitTimeScale(template.gait?.get(clip), stepM / M, cadenceScale(c.anim)) * cadenceMultiplier(i, f.index);
+        } else action.timeScale = 1;
+      }
+      advanceMeshClipFades(f.player, c.dt);
+      f.started = true;
+    }
+    squad.started = true;
+    entity.mixer.update(c.dt);
+    this.applyFigureAdditives(entity, squad, c.aimYaw, c.nowS, true, i, c.dt);
+  }
+
+  /**
+   * After the mixer: each figure's upper body turned to the aim (a squad's
+   * legs face their own heading, at most TWIST_MAX_RAD off) and any recoil
+   * kick still running on its spine. World-space rotations about the spine's
+   * own origin, so the arms and the weapon -- children of the spine -- come
+   * with it and the hands stay on the grips.
+   */
+  /**
+   * Pass C2/C4 (P5): every drawn infantry team within the sim's own
+   * near-miss radius of a round that landed, already suppressed or pinned,
+   * flinches -- unless the player asked for reduced motion. Dated on the
+   * SIM clock like the shot latch, so a frozen frame repaints the same pose.
+   */
+  private flinchNear(x: number, y: number): void {
+    const reduced = this.opts.reducedMotion?.() === true;
+    if (reduced) return;
+    const st = this.sim.state;
+    const now = presentationSimMs(this.sim.tickCount, 0) / 1000;
+    const r2 = FLINCH_RADIUS_TILES * FLINCH_RADIUS_TILES;
+    for (const id of this.meshUnitEntities.keys()) {
+      if (st.alive[id] !== 1) continue;
+      const dx = this.curX[id] - x;
+      const dy = this.curY[id] - y;
+      if (dx * dx + dy * dy > r2) continue;
+      if (!flinches(fx.toNumber(st.suppression[id]), st.pinned[id] === 1, st.routed[id] === 1, reduced)) continue;
+      this.flinchSimS[id] = now;
+    }
+  }
+
+  private applyFigureAdditives(
+    entity: MeshUnitEntity,
+    squad: SquadRig,
+    aimYaw: number,
+    nowS: number,
+    twist: boolean,
+    id: number,
+    dt: number
+  ): void {
+    // The suppression lean (pass C2/C4, P2), read off the sim and written to
+    // bones only: nothing here reaches back (invariant 4).
+    const st = this.sim.state;
+    const target = leanTarget(
+      fx.toNumber(st.suppression[id]),
+      st.pinned[id] === 1,
+      st.routed[id] === 1,
+      this.entitySpeed[id] > 0
+    );
+    let dirty = true;
+    for (const f of squad.figures) {
+      if (!f.spine) continue;
+      f.lean = stepLean(f.lean, target, dt);
+      f.kicks = f.kicks.filter((k) => nowS - k.at < recoilSeconds(k.kind, k.rounds));
+      const figYaw = twist && f.group ? f.yaw : entity.root.rotation.y;
+      const turn = twist ? Math.max(-TWIST_MAX_RAD, Math.min(TWIST_MAX_RAD, wrapAngle(aimYaw - figYaw))) : 0;
+      let pitch = 0;
+      let yaw = 0;
+      for (const k of f.kicks) {
+        const r = recoilAt(k.kind, nowS - k.at, k.rounds);
+        pitch += r.pitch;
+        yaw += r.yaw;
+      }
+      // A negative pitch is forward (a launcher's own `lower`).
+      pitch -= f.lean.spine + flinchPitch(nowS - this.flinchSimS[id]);
+      const neck = f.neck !== null ? f.lean.neck : 0;
+      const head = f.head !== null ? f.lean.head : 0;
+      if (turn === 0 && pitch === 0 && yaw === 0 && neck === 0 && head === 0) continue;
+      if (dirty) {
+        entity.root.updateMatrixWorld(true);
+        dirty = false;
+      }
+      if (turn + yaw !== 0) rotateBoneWorld(f.spine, SQUAD_UP, turn + yaw);
+      if (pitch !== 0 || neck !== 0 || head !== 0) {
+        const lateral = SQUAD_LATERAL.set(Math.sin(figYaw + turn), 0, Math.cos(figYaw + turn));
+        if (pitch !== 0) rotateBoneWorld(f.spine, lateral, pitch);
+        // Each later joint's parent world rotation is read fresh, after the
+        // one above it has turned.
+        if (neck !== 0 && f.neck) {
+          f.spine.updateMatrixWorld(true);
+          rotateBoneWorld(f.neck, lateral, -neck);
+        }
+        if (head !== 0 && f.head) {
+          (f.neck ?? f.spine).updateMatrixWorld(true);
+          rotateBoneWorld(f.head, lateral, -head);
+        }
+      }
+    }
+  }
+
+  /** A shoulder-fired tube's backblast, a quarter tile behind the gunner,
+   *  thrown backwards (the emitter's layers carry `direction_offset_deg` 180). */
+  private spawnBackblast(shooter: number, facingRad: number): void {
+    const em = this.emitterLibrary.byName('rpg_backblast');
+    if (!em || !this.particleSystem) return;
+    const x = this.curX[shooter] - Math.cos(facingRad) * 0.25;
+    const y = this.curY[shooter] - Math.sin(facingRad) * 0.25;
+    const dirTurns = facingRad / (Math.PI * 2);
+    const prio = em.budget_priority ?? 5;
+    for (const layer of em.particles) {
+      const offset = (layer.direction_offset_deg ?? 0) / 360;
+      this.particleSystem.spawn(layer, x, y, dirTurns + offset, BACKBLAST_MAGNITUDE, prio, fxLayerIndex(em.layer, layer.additive ?? false));
+    }
+    if (em.light) {
+      const gy = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, y);
+      this.flashLights.spawn(x, y, gy, em.light, this.overlayColor(em.light.color ?? 'vfx.fire', FLASH_LIGHT_FALLBACK));
+    }
+  }
+
+  /** Sets `frameSimDtSeconds` for this frame -- see that field. */
+  private beginFrameSimClock(alpha: number, dtMs: number): void {
+    const nowSimMs = presentationSimMs(this.sim.tickCount, alpha);
+    this.frameSimDtSeconds =
+      this.lastFrameSimMs === null ? this.frameDtSeconds(dtMs) : Math.max(0, nowSimMs - this.lastFrameSimMs) / 1000;
+    this.lastFrameSimMs = nowSimMs;
+  }
+
   /** Wall-clock MILLISECONDS since the previous frame, clamped exactly the
    *  way `PixiRenderer.frame()` clamps its own `dtSeconds`
    *  (`renderer.ts:1880`): a `FRAME_DT_CEILING_MS` ceiling so a tab
@@ -5993,197 +6527,6 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
-   * Builds this frame's `EntityFrame` for every living entity whose unit
-   * type has a loaded `UnitInstancer`, grouped by type, and hands each
-   * group to its instancer's `update`. The per-entity work ported from
-   * Pixi's own unit loop (`renderer.ts:1919` onward) is exactly what
-   * `entityFrame` (`frame-state.ts`) already decides -- this method's own
-   * job is assembling its input from `Sim` and this class's own tracking
-   * arrays, nothing more.
-   *
-   * `assignRoofSlots` runs once, over every entity, before any single one is
-   * decided -- `frame-state.ts`'s own doc comment on why: it is a
-   * cross-entity pre-pass, not a per-entity decision, "so the spread is
-   * stable rather than flickering only because of that ordering."
-   *
-   * A unit type with no loaded `UnitInstancer` (a sheet still loading, or
-   * one that never will) is silently skipped, matching this class's own
-   * "no mesh units, no placeholder shape" scope line -- see the class-level
-   * doc comment's "What B3.5 deliberately does not draw" section.
-   *
-   * Task B4.2: a non-player unit is now skipped entirely unless
-   * `isVisible()` says the player currently observes its own (interpolated)
-   * position -- mirroring `PixiRenderer`'s own unit loop (`renderer.ts:1930-
-   * 1934`, "Anyone who isn't ours is only drawn while actually observed --
-   * fog hides them, and losing sight loses the contact") for the first time.
-   * Before this task `isVisible()` was an unconditional `true`, so this
-   * branch was dead code with a guaranteed-true condition; it is live now
-   * that `./fog.ts` backs it with real data.
-   */
-  private updateUnits(alpha: number, dtMs: number): void {
-    if (this.unitInstancers.size === 0) return;
-
-    const dtSeconds = this.frameDtSeconds(dtMs);
-    const st = this.sim.state;
-    const n = this.snapshottedCount;
-    const roofSlots = assignRoofSlots(st.garrisonedIn, st.alive, n);
-
-    for (const frames of this.framesByType.values()) frames.length = 0;
-    for (const frames of this.turretFramesByType.values()) frames.length = 0;
-
-    for (let i = 0; i < n; i++) {
-      if (st.alive[i] === 0) continue;
-      const side = st.side[i];
-      if (side !== 0) {
-        // The INTERPOLATED position -- this frame's actual screen position,
-        // not last tick's raw curX/curY -- matching exactly what Pixi's own
-        // check tests (`renderer.ts:1930-1934` computes `x`/`y` this same
-        // way, from `prevX`/`curX`/`alpha`, before its own `isVisible` call).
-        const ix = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
-        const iy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
-        // `units/observed.ts` owns this rule for every draw path in this
-        // backend, silhouettes included -- see that module's own top comment
-        // for why it is one function rather than the three copies of
-        // `side === 0 || isVisible(...)` that used to live here, in
-        // `updateMeshUnits` and in `updateVehicleMeshes`.
-        if (!unitIsObserved(side, ix, iy, this.fogVisibleAt)) continue;
-      }
-      const type = this.sim.unitTypes[st.typeIdx[i]];
-      // A type drawn through the mesh-unit path (`updateMeshUnits`, called
-      // separately from `frame()`) must not ALSO build a billboard frame for
-      // it -- "mesh wins" whenever a GLB is loaded for a type, whether it is
-      // the skinned infantry path (`meshUnitTemplates`) or the rigid vehicle
-      // one (`vehicleMeshTemplates`, `updateVehicleMeshes`). A type present
-      // in neither takes this `continue` never, exactly the "additive,
-      // billboard unaffected until something loads a GLB for it" contract
-      // both paths share.
-      if (this.meshUnitTemplates.has(type.id) || this.vehicleMeshTemplates.has(type.id)) continue;
-      const instancer = this.unitInstancers.get(type.id);
-      if (!instancer) continue;
-      // Task B3.6: absent when this type has no turret art -- doubles as
-      // the has-a-turret gate `EntityFrameInput.turretSheet` documents.
-      const turretInstancer = this.turretInstancers.get(type.id);
-
-      // Contact-level fade only applies to what is observed through
-      // contact; the player's own units (side 0) are always full alpha, and
-      // `entityFrame` ignores `contactLevel` for them regardless -- no need
-      // to pay for the query.
-      const contactLevel = side !== 0 ? this.sim.contactLevel(0, i) : 0;
-
-      const inside = st.garrisonedIn[i];
-      let roofPx = 0;
-      if (inside >= 0) {
-        // Task B3.7: the roof plane, not the top of the art -- and now the
-        // sheet's own `roofTopPx`/`badgeTopPx` when this structure type has
-        // loaded art, exactly like Pixi's `sArt?.roofTopPx ?? sArt?.badgeTopPx
-        // ?? stype.heightPx` (`renderer.ts:1948-1950`). `structureRoofArt` has
-        // no entry for a type with no loaded sheet (or one that failed to
-        // load), so `resolveRoofPx` falls back to `terrain/buildings.ts`'s
-        // own extrusion height, `heightPx`, exactly as this backend's only
-        // answer used to be unconditionally. Closes the gap B3.3's review
-        // measured (house +2.81, apartment +3.92, mosque +1.79, warehouse
-        // +0.94, wall +0.43 world units of unwanted lift) -- see
-        // `resolveRoofPx`'s own doc comment in `units/structures.ts`.
-        const sType = this.sim.structureTypes[this.sim.structures.typeIdx[inside]];
-        roofPx = resolveRoofPx(this.structureRoofArt.get(sType.id), sType.heightPx);
-      }
-
-      // Task B3.6: turret aim target -- only computed when this type
-      // actually has turret art, the same "no need to pay for the query"
-      // precedent `contactLevel` above already follows. `null` means "no
-      // live target", and `entityFrame` reads that as "spring back to the
-      // hull's own heading" (`EntityFrameInput.turretTargetX`/`turretTargetY`'s
-      // own doc comment). Extracted to `resolveTurretTarget` so
-      // `updateVehicleMeshes` can resolve the identical target for a mesh
-      // vehicle's own turret pivot, off the SAME `curTarget`/`curStructure`
-      // read -- one implementation, two callers.
-      const turretTarget = turretInstancer ? this.resolveTurretTarget(i) : { x: null, y: null };
-      const turretTargetX = turretTarget.x;
-      const turretTargetY = turretTarget.y;
-
-      const anim: UnitAnimInput = {
-        alive: st.alive[i],
-        routed: st.routed[i],
-        pinned: st.pinned[i],
-        speed: this.entitySpeed[i],
-        // Latched by onEvents' `fire` case (Task B3.14), drained once a
-        // frame by drainTimers -- mirrors Pixi's own `this.firingTimer[i] >
-        // 0` exactly (renderer.ts:2004).
-        firing: this.firingTimer[i] > 0,
-        working: this.sim.tunnelChargeProgress(i) > 0,
-      };
-
-      const input: EntityFrameInput = {
-        entityId: i,
-        prevX: this.prevX[i],
-        prevY: this.prevY[i],
-        curX: this.curX[i],
-        curY: this.curY[i],
-        alpha,
-        elevation: this.retained.elevation,
-        mapWidth: this.sim.width,
-        mapHeight: this.sim.height,
-        side,
-        contactLevel,
-        isAir: type.isAir,
-        roofSlot: inside >= 0 ? roofSlots[i] : -1,
-        roofPx,
-        sheet: instancer.sheet,
-        anim,
-        dtSeconds,
-        entityAnimFrame: this.entityAnimFrame,
-        animSeeded: this.animSeeded,
-        facing: st.facing[i],
-        recoilT: this.recoilT[i],
-        recoilDir: this.recoilDir[i],
-        recoilPower: this.recoilPower[i],
-        flinchT: this.flinchT[i],
-        flinchDir: this.flinchDir[i],
-        turretSheet: turretInstancer?.sheet ?? null,
-        turretTargetX,
-        turretTargetY,
-        // Latched by onEvents' `fire` case (Task B3.6), independent of the
-        // hull's own `firingTimer` above -- see `turretFiringTimer`'s own
-        // doc comment for why the two cannot be the same signal.
-        turretFiring: this.turretFiringTimer[i] > 0,
-        turretFacing: this.turretFacing,
-        turretVel: this.turretVel,
-        turretSeeded: this.turretSeeded,
-      };
-
-      let list = this.framesByType.get(type.id);
-      if (!list) {
-        list = [];
-        this.framesByType.set(type.id, list);
-      }
-      const frame = entityFrame(input);
-      list.push(frame);
-
-      if (turretInstancer) {
-        // LIVING only -- `turretFramesByType` deliberately never receives a
-        // `stepDeaths` synthetic frame; see this class's own field doc
-        // comment on `turretFramesByType` for why.
-        let turretList = this.turretFramesByType.get(type.id);
-        if (!turretList) {
-          turretList = [];
-          this.turretFramesByType.set(type.id, turretList);
-        }
-        turretList.push(frame);
-      }
-    }
-
-    this.stepDeaths(dtSeconds);
-
-    for (const [typeId, instancer] of this.unitInstancers) {
-      instancer.update(this.framesByType.get(typeId) ?? []);
-      const turretInstancer = this.turretInstancers.get(typeId);
-      if (turretInstancer) {
-        turretInstancer.updateTurret(this.turretFramesByType.get(typeId) ?? [], instancer.sheet);
-      }
-    }
-  }
-
-  /**
    * Mesh units: called separately from `frame()`, right after `updateUnits`.
    * A SEPARATE per-entity loop rather than folded into `updateUnits` itself
    * -- `updateUnits` has no headless test coverage of its own (this class's
@@ -6225,6 +6568,13 @@ export class ThreeRenderer implements Renderer {
       const type = this.sim.unitTypes[st.typeIdx[i]];
       const variants = this.meshUnitTemplates.get(type.id);
       if (!variants) continue;
+      // GH-469: a cold template is never drawn (its textures are a 1x1
+      // placeholder until decoded). Treated exactly like one not loaded yet;
+      // reaching here at all means no pre-warm caught it, which is said.
+      if (this.coldUnitTypes.has(type.id) && !this.meshUnitEntities.has(i)) {
+        this.warmUnitMesh(type.id, 'spawned');
+        continue;
+      }
       // One variant for almost every type; four for `civilians` (GH-149).
       // `pickMeshVariant` is a pure function of the entity id, so this
       // resolves to the same figure every frame of that entity's life and
@@ -6243,6 +6593,8 @@ export class ThreeRenderer implements Renderer {
         // rather than a second visibility test, is what keeps a silhouette
         // from ever revealing a fogged unit.
         attachMeshSilhouette(entity.root, this.silhouetteMaterialFor(st.side[i]));
+        this.meshBodyYawSet[i] = 0;
+        this.unitDepth[i] = 0;
         this.meshUnitEntities.set(i, entity);
         this.scene.add(entity.root);
       }
@@ -6251,7 +6603,11 @@ export class ThreeRenderer implements Renderer {
       const wy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
       const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, wx, wy);
       entity.root.position.set(wx, worldY, wy);
-      entity.root.rotation.y = meshYawFromFacing(fx.toNumber(st.facing[i]));
+      // Interpolated between the last two ticks, the short way round, like
+      // the position above: the sim turns a foot unit 18 deg a tick, which
+      // drawn raw is a 20 Hz stutter (motion pass, finding #4).
+      const aimYaw = meshYawFromFacing(lerpFacingTurns(this.prevFacing[i], this.curFacing[i], alpha));
+      entity.root.rotation.y = aimYaw;
       // Side 0 (the player's own) is always drawn, matching `entityFrame`'s
       // own `contactLevel` short-circuit for it -- everything else defers to
       // real fog-of-war, exactly like `updateUnits`'s own `isVisible` gate.
@@ -6266,24 +6622,69 @@ export class ThreeRenderer implements Renderer {
         firing: this.firingTimer[i] > 0,
         working: this.sim.tunnelChargeProgress(i) > 0,
       };
-      // `resolveMeshMotionClip` overrides `fire` to `moveFire` only when this
-      // entity is actually moving AND its GLB carries the clip -- today
-      // `meshy_soldier.glb` (since Task 2's `import_meshy_soldier.py`
-      // `CLIP_ORDER`) and `sarim_rifles.glb` -- every other infantry mesh
-      // gets `resolveClip`'s own answer back unchanged. See that function's
-      // own doc comment.
-      const desiredClip = resolveMeshMotionClip(
-        resolveClip(anim),
-        anim.speed > 0,
-        entity.actions.has('moveFire')
+      // SIM time, not frame time (GH-391): a frozen gate frame then holds the
+      // pose sim time says, whatever frames were drawn on the way.
+      const dt = this.frameSimDtSeconds ?? dtSeconds;
+      const nowS = presentationSimMs(this.sim.tickCount, alpha) / 1000;
+      // The kneel (`units/stance.ts`): the sim's brace when it has one (#402),
+      // otherwise "stationary and fired in the last few seconds".
+      const reading = this.debugHoldStanding
+        ? { stance: 'none' as const, progress: 0, fromSim: true }
+        : stanceOf(this.sim, i, alpha, {
+            speed: anim.speed,
+            sinceShotS: nowS - this.lastShotSimS[i],
+            prevDepth: this.unitDepth[i],
+          });
+      const depthTarget = reading.fromSim
+        ? stanceDepth(reading.stance, reading.progress)
+        : reading.stance === 'dropping' || reading.stance === 'kneeling'
+          ? 1
+          : 0;
+      const heading = kneelHeading(
+        reading.stance,
+        reading.fromSim,
+        this.unitDepth[i],
+        depthTarget,
+        this.unitRising[i] === 1 ? 'up' : 'down'
       );
-      applyMeshClip(entity, desiredClip);
-      // `carriedBy >= 0` is a passenger. Its `entitySpeed` is its CARRIER's
-      // -- see `applyGaitRate`'s own doc comment -- so its legs are not
-      // rate-matched at all.
-      this.applyGaitRate(entity, template, anim, st.carriedBy[i] >= 0);
-      advanceMeshClipFades(entity, dtSeconds);
-      entity.mixer.update(dtSeconds);
+      this.unitRising[i] = heading === 'up' ? 1 : 0;
+      const carried = st.carriedBy[i] >= 0;
+      // `resolveMeshMotionClip` overrides `fire` to `moveFire` only when this
+      // entity is actually moving AND its GLB carries the clip; every other
+      // mesh gets `resolveClip`'s own answer back unchanged.
+      const desiredClip = resolveMeshMotionClip(resolveClip(anim), anim.speed > 0, entity.actions.has('moveFire'));
+      const squad = entity.squad ?? null;
+      if (squad?.squad && !carried) {
+        this.updateSquad(entity, squad, template, i, { wx, wy, worldY, aimYaw, anim, desiredClip, depthTarget, heading, fromSim: reading.fromSim, dt, nowS });
+      } else {
+        // A team drawn as one. Its legs still face where it is going (the
+        // moonwalk, finding #5: the sim moves a unit at full speed while its
+        // facing is still turning 18 deg a tick), turned at the figures' own
+        // rate, and its upper body turns back onto the aim below.
+        if (!carried) {
+          const vx = this.curX[i] - this.prevX[i];
+          const vz = this.curY[i] - this.prevY[i];
+          const moving = anim.speed > 0 && Math.hypot(vx, vz) > 1e-4;
+          const want = moving ? -Math.atan2(vz, vx) : aimYaw;
+          this.meshBodyYaw[i] =
+            this.meshBodyYawSet[i] === 1 ? approachAngle(this.meshBodyYaw[i], want, BODY_TURN_RAD_S * dt) : want;
+          this.meshBodyYawSet[i] = 1;
+          entity.root.rotation.y = this.meshBodyYaw[i];
+        }
+        // The kneel at unit level (no stagger), the clip scrubbed through a
+        // drop or a rise.
+        this.unitDepth[i] = reading.fromSim ? depthTarget : stepDepth(this.unitDepth[i], depthTarget, dt);
+        const kneelClip = kneelClipFor(desiredClip, this.unitDepth[i], heading, entity.actions.has('kneel'));
+        applyMeshClip(entity, kneelClip.clip, kneelClip.scrub === null ? undefined : { once: true });
+        // `carriedBy >= 0` is a passenger. Its `entitySpeed` is its CARRIER's
+        // -- see `applyGaitRate`'s own doc comment -- so its legs are not
+        // rate-matched at all.
+        this.applyGaitRate(entity, template, anim, carried);
+        if (kneelClip.scrub !== null) scrubAction(entity.actions.get(kneelClip.clip), kneelClip.scrub);
+        advanceMeshClipFades(entity, dt);
+        entity.mixer.update(dt);
+        if (squad) this.applyFigureAdditives(entity, squad, aimYaw, nowS, true, i, dt);
+      }
     }
 
     // Hand off entities no longer alive to the death sequence instead of
@@ -6311,6 +6712,9 @@ export class ThreeRenderer implements Renderer {
       // mutating a material shared by every other unit on that side. A
       // wreck has nothing left to keep track of either.
       detachMeshSilhouette(entity.root);
+      // A squad's figure players hand every bone back to the team's death
+      // clips (`squad-rig.ts`): stopped here, before anything plays a fall.
+      if (entity.squad) stopSquadPlayers(entity.squad);
       // The one fork: was this entity KILLED, or did it get out? `alive === 0`
       // cannot answer -- `MissionRuntime.stepObjectives` clears it for a
       // civilian who reaches the evacuation zone using the identical write a
@@ -6539,6 +6943,11 @@ export class ThreeRenderer implements Renderer {
       const type = this.sim.unitTypes[st.typeIdx[i]];
       const template = this.vehicleMeshTemplates.get(type.id);
       if (!template) continue;
+      // GH-469: see `updateMeshUnits` -- a cold template is never drawn.
+      if (this.coldUnitTypes.has(type.id) && !this.vehicleMeshEntities.has(i)) {
+        this.warmUnitMesh(type.id, 'spawned');
+        continue;
+      }
 
       let entity = this.vehicleMeshEntities.get(i);
       if (!entity) {
@@ -6794,7 +7203,9 @@ export class ThreeRenderer implements Renderer {
       // stops or redirects this spin the way the turret spring tracks a
       // moving contact.
       if (entity.rotorPivot) {
-        this.rotorPhase[i] = (this.rotorPhase[i] + ROTOR_SPIN_RAD_PER_SEC * dtSeconds) % (Math.PI * 2);
+        // SIM clock, not an accumulator of frame deltas (GH-391): a frozen
+        // gate frame photographs the same blade angle on every run.
+        this.rotorPhase[i] = rotorSpinPhase(presentationSimMs(this.sim.tickCount, alpha), ROTOR_SPIN_RAD_PER_SEC);
         entity.rotorPivot.rotation.y = this.rotorPhase[i];
       }
 
@@ -6972,6 +7383,78 @@ export class ThreeRenderer implements Renderer {
     entity.root.rotation.set(-roll, meshYawFromFacing(facingNorm), pitch, 'YZX');
   }
 
+  /** What the last terrain rebuild re-made: ground/scatter tiles re-emitted,
+   *  control-map texels rewritten, and whether it was a full build. A splice
+   *  after a collapse reads a few dozen tiles and a few thousand texels; a
+   *  full build reads the whole map. Read by capture tools, never by the game. */
+  debugTerrainRebuild(): { tiles: number; texels: number; full: boolean } {
+    return { ...this.lastTerrainRebuild };
+  }
+
+  /**
+   * GH-469: what this renderer holds, in bytes, grouped by owner -- the scene
+   * (each top-level child labelled by the field that owns it), then the mesh
+   * TEMPLATES units are cloned from (not in the scene, but their arrays stay
+   * in the JS heap), then the shadow map and the composer's two targets.
+   * `pnpm perf:memory` reads it through `window.__lions.renderer`, beside its
+   * own GL-call ledger; the ledger is the total, this is the attribution.
+   * Debug only: it allocates its answer and nothing in `frame()` calls it.
+   * Not on `api.ts`, like `debugVehicleTransform` below.
+   */
+  debugMemoryInventory(): MemoryInventory {
+    const label = new Map<THREE.Object3D, string>();
+    const tag = (o: THREE.Object3D | null | undefined, l: string): void => {
+      if (o) label.set(o, l);
+    };
+    for (const o of [this.terrainMesh, this.scatterMesh, this.residualMesh, this.skirtMesh]) tag(o, 'ground');
+    for (const m of this.structureBoxes.values()) tag(m, 'structure boxes');
+    tag(this.decorGroup, 'decor');
+    tag(this.texturedDecorGroup, 'decor');
+    tag(this.propMesh, 'props');
+    tag(this.tunnelProps.group, 'props');
+    tag(this.decalsPersistent.mesh, 'decals');
+    tag(this.decalsFading.mesh, 'decals');
+    for (const e of this.meshUnitEntities.values()) tag(e.root, 'units: infantry');
+    for (const e of this.vehicleMeshEntities.values()) tag(e.root, 'units: vehicles');
+    for (const r of this.buildingMeshIdleEntities.values()) tag(r, 'buildings');
+    for (const r of this.buildingMeshWreckEntities.values()) tag(r, 'buildings');
+    for (const w of this.meshWrecks) tag(w.root, 'wrecks');
+    for (const o of [
+      this.particleInstancerBelow.mesh,
+      this.particleInstancerAbove.mesh,
+      this.particleInstancerBelowAdditive.mesh,
+      this.particleInstancerAboveAdditive.mesh,
+      this.tracerBatch.mesh,
+      this.shellBatch.mesh,
+      this.boltBatch.mesh,
+      ...this.missileFx.meshes,
+      this.smokeMesh.mesh,
+      this.collapseShrouds.mesh,
+      this.trailMesh.mesh,
+    ]) {
+      tag(o, 'vfx');
+    }
+    for (const o of [this.overlayBatch.mesh, this.numeralBatch.mesh, this.chevronBatch.mesh, this.selectionRingGroup]) {
+      tag(o, 'overlays');
+    }
+    const entries: [string, THREE.Object3D][] = this.scene.children.map((c) => [
+      label.get(c) ?? `other: ${c.name || c.type}`,
+      c,
+    ]);
+    for (const list of this.meshUnitTemplates.values()) for (const t of list) entries.push(['templates: infantry', t.root]);
+    for (const t of this.vehicleMeshTemplates.values()) entries.push(['templates: vehicles', t.root]);
+    for (const t of this.buildingMeshIdleTemplates.values()) entries.push(['templates: buildings', t.root]);
+    for (const t of this.buildingMeshWreckTemplates.values()) entries.push(['templates: buildings', t.root]);
+    const extra: [string, THREE.Texture][] = [];
+    const shadow = this.sceneLights.sun.shadow.map;
+    if (shadow) extra.push(['shadow map', shadow.texture]);
+    if (this.post) {
+      extra.push(['post chain', this.post.composer.renderTarget1.texture]);
+      extra.push(['post chain', this.post.composer.renderTarget2.texture]);
+    }
+    return buildInventory(entries, this.renderer, extra);
+  }
+
   /**
    * WP-A1.3 (R-Q): what `updateVehicleMeshes` last WROTE onto a living mesh
    * vehicle -- its drawn position in tiles (`x` is world X, `y` is world Z,
@@ -7089,6 +7572,41 @@ export class ThreeRenderer implements Renderer {
     });
   }
 
+  /** The fit (`units/building-fit.ts`) for structure `s`'s mesh:
+   *  `opts.buildingFit`, absent being `DEFAULT_BUILDING_FIT` (`stretch`,
+   *  lead ruling 7 Oct); unit scale under `off` and until the type's
+   *  standing bounds are measured. A WRECK takes its standing building's
+   *  fit, so the pile shrinks by exactly what the building did. */
+  private buildingFitFor(s: number): FitScale {
+    const fit = this.opts.buildingFit ?? DEFAULT_BUILDING_FIT;
+    const st = this.sim.structures;
+    const type = this.sim.structureTypes[st.typeIdx[s]];
+    const bounds = fit === 'off' ? undefined : this.buildingMeshBounds.get(type.id);
+    if (!bounds) return { sx: 1, sy: 1, sz: 1 };
+    return buildingFitScale(
+      bounds.x,
+      bounds.z,
+      bounds.y,
+      st.maxX[s] - st.minX[s] + 1,
+      st.maxY[s] - st.minY[s] + 1,
+      fit,
+      type.perTile
+    );
+  }
+
+  /** Structure `s`'s STANDING mesh size as drawn (width/height/depth in
+   *  tiles): the type's measured bounds times its fit. Undefined for a type
+   *  with no mesh. What the collapse shroud, the roof fire and the drawn-
+   *  volume pick are sized from, so a fitted house is not shrouded, lit and
+   *  picked as the shipped one. */
+  private drawnBuildingSize(s: number): THREE.Vector3 | undefined {
+    const type = this.sim.structureTypes[this.sim.structures.typeIdx[s]];
+    const bounds = this.buildingMeshBounds.get(type.id);
+    if (!bounds) return undefined;
+    const f = this.buildingFitFor(s);
+    return new THREE.Vector3(bounds.x * f.sx, bounds.y * f.sy, bounds.z * f.sz);
+  }
+
   private updateBuildingMeshes(): void {
     if (this.buildingMeshIdleTemplates.size === 0) return;
     const st = this.sim.structures;
@@ -7107,8 +7625,15 @@ export class ThreeRenderer implements Renderer {
           const worldY = groundWorldY(elevation, this.sim.width, this.sim.height, cx, cy);
           root.position.set(cx, worldY, cy);
           if (type.perTile) root.rotation.y = this.perTileYaw(s);
+          const fitIdle = this.buildingFitFor(s);
+          root.scale.multiply(new THREE.Vector3(fitIdle.sx, fitIdle.sy, fitIdle.sz));
           this.buildingMeshIdleEntities.set(s, root);
-          this.scene.add(root);
+          // A standing building never moves: placed once, frozen once.
+          this.scene.add(freezeStatic(root));
+          // A clone stood up already damaged (a type whose mesh landed after
+          // the first hit) draws its band from the first frame, not from
+          // the next `structureHit`.
+          this.refreshBuildingDamage(s);
         }
         // A structure that somehow re-gains `alive` after being wrecked is
         // not a real case today (structures never heal), but tearing down a
@@ -7139,6 +7664,15 @@ export class ThreeRenderer implements Renderer {
       // nothing here writes back to it (invariant 4). What is delayed is one
       // `scene.remove`/`scene.add` pair, for 420 ms, under smoke.
       if (this.buildingMeshSwapHold.has(s)) continue;
+      // GH-469: the wreck's textures are still encoded. Keep the STANDING
+      // clone -- still under the collapse cloud -- until they are decoded,
+      // rather than stand up a wreck that would draw a 1x1 placeholder. The
+      // first hit on this type started the decode (`refreshBuildingDamage`),
+      // so in practice this only waits on a building killed outright.
+      if (this.coldWreckTypes.has(type.id) && this.buildingMeshWreckTemplates.has(type.id)) {
+        this.warmWreck(type.id);
+        continue;
+      }
 
       // Dead: drop the idle clone, and stand up the wreck one if this type
       // loaded a wreck template.
@@ -7146,6 +7680,11 @@ export class ThreeRenderer implements Renderer {
       if (idleEntity) {
         this.scene.remove(idleEntity);
         this.buildingMeshIdleEntities.delete(s);
+        this.buildingDamageBand.delete(s);
+        // The hand-off: a building that died BURNING keeps its fire on the
+        // wreck for `WRECK_BURN_SECONDS`; one killed clean never lit.
+        const burn = this.buildingBurning.get(s);
+        if (burn && burn.remainingMs === Infinity) burn.remainingMs = WRECK_BURN_SECONDS * 1000;
       }
       const wreckTemplate = this.buildingMeshWreckTemplates.get(type.id);
       if (wreckTemplate && !this.buildingMeshWreckEntities.has(s)) {
@@ -7154,6 +7693,10 @@ export class ThreeRenderer implements Renderer {
         const worldY = groundWorldY(elevation, this.sim.width, this.sim.height, cx, cy);
         root.position.set(cx, worldY, cy);
         if (type.perTile) root.rotation.y = this.perTileYaw(s);
+        // Before `baseScaleY` is read: the settle grows the wreck to its
+        // FITTED height, not the shipped one.
+        const fitWreck = this.buildingFitFor(s);
+        root.scale.multiply(new THREE.Vector3(fitWreck.sx, fitWreck.sy, fitWreck.sz));
         // GH #143 follow-up: start squashed on Y alone (see this method's
         // own doc comment and `buildingSettleScale`'s), so the wreck appears
         // already forming rather than instantly at full height.
@@ -7179,7 +7722,120 @@ export class ThreeRenderer implements Renderer {
       entry.t += dtSeconds;
       const result = buildingSettleScale(entry.t);
       entry.root.scale.y = entry.baseScaleY * result.scaleFactor;
-      if (result.done) this.buildingMeshSettling.delete(s);
+      if (result.done) {
+        this.buildingMeshSettling.delete(s);
+        // Settled: the wreck never moves again.
+        freezeStatic(entry.root);
+      }
+    }
+  }
+
+  /**
+   * GH-31 (A3.2 remainder): re-derives a STANDING mesh building's damage
+   * band from `hp`/`maxHp` and, if it moved, swaps every mesh of its clone
+   * to the memoised scarred material for that band (`units/building-damage.ts`)
+   * and starts or stops its fire. Called on every `structureHit` and once
+   * when a clone is stood up; a band that did not move returns before it
+   * touches a material, which is what keeps a rifle plinking a wall from
+   * costing anything per round. A structure with no clone (a type with no
+   * mesh, or one not yet instantiated) is the billboard path's concern.
+   */
+  private refreshBuildingDamage(s: number): void {
+    const root = this.buildingMeshIdleEntities.get(s);
+    if (!root) return;
+    const st = this.sim.structures;
+    if (st.alive[s] !== 1) return;
+    // GH-469: the first hit on a type is the wreck's cue to decode -- the
+    // earliest moment a collapse becomes possible, and seconds of fire (or at
+    // the least the 420 ms swap hold) before it can be needed.
+    if (st.hp[s] < st.maxHp[s]) this.warmWreck(this.sim.structureTypes[st.typeIdx[s]].id);
+    const band = buildingDamageBand(st.hp[s], st.maxHp[s]);
+    if (this.buildingDamageBand.get(s) === band) return;
+    this.buildingDamageBand.set(s, band);
+    const typeId = this.sim.structureTypes[st.typeIdx[s]].id;
+    let scars = this.buildingScars.get(typeId);
+    if (!scars) {
+      scars = new BuildingScarMaterials();
+      this.buildingScars.set(typeId, scars);
+    }
+    applyBuildingDamageBand(root, band, scars);
+    if (isBurningBand(band)) {
+      // Primed to fire on the next step rather than an interval later: the
+      // band change is the moment the player is looking.
+      if (!this.buildingBurning.has(s)) {
+        this.buildingBurning.set(s, { accumMs: STRUCTURE_BURN_INTERVAL_MS, remainingMs: Infinity });
+      }
+    } else {
+      this.buildingBurning.delete(s);
+    }
+  }
+
+  /**
+   * The renderer's own timer for `structure_burning` -- the same shape as
+   * `updateVehicleAmbientFx`'s exhaust, including the ceiling: elapsed time
+   * goes through `frameDtMs`, so a long frame cannot bank spawns that later
+   * zero-time repaints would spend (the drift that made the visual gate's
+   * `vehicle` repaint control move until `c0044ff6`). At most one spawn per
+   * structure per frame, whatever the backlog.
+   */
+  private stepBuildingBurning(dtMs: number): void {
+    if (this.buildingBurning.size === 0) return;
+    const dt = this.frameDtMs(dtMs);
+    for (const [s, burn] of this.buildingBurning) {
+      if (burn.remainingMs !== Infinity) {
+        burn.remainingMs -= dt;
+        if (burn.remainingMs <= 0) {
+          this.buildingBurning.delete(s);
+          continue;
+        }
+      }
+      burn.accumMs += dt;
+      if (dt <= 0 || burn.accumMs < STRUCTURE_BURN_INTERVAL_MS) continue;
+      burn.accumMs %= STRUCTURE_BURN_INTERVAL_MS;
+      this.spawnBurningFx(s, burn.remainingMs === Infinity);
+    }
+  }
+
+  /**
+   * One beat of a burning building: the emitter's `mesh_plume` layer goes
+   * to the pooled smoke-plume mesh at the ROOF -- the standing template's
+   * own measured height (`buildingMeshBounds`, the way the collapse shroud
+   * is sized), a fraction of it once the building is down -- because
+   * `ParticleSystem` has no height and a puff laid at the roof would drop
+   * to the ground (the missile trail's own finding). The flame layers go
+   * through the particle system at the footprint, scattered over it by the
+   * presentation hash so a 3x3 hall burns across its plan rather than at
+   * one point. Spread with the footprint, like the collapse burst.
+   */
+  private spawnBurningFx(s: number, standing: boolean): void {
+    if (!this.particleSystem) return;
+    const em = this.emitterLibrary.byName('structure_burning');
+    if (!em) return;
+    const st = this.sim.structures;
+    const type = this.sim.structureTypes[st.typeIdx[s]];
+    const { fx: cx, fy: cy } = footprintCentre(this.sim, s);
+    const groundY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, cx, cy);
+    const bounds = this.drawnBuildingSize(s);
+    const roof = bounds ? bounds.y : type.heightPx * WORLD_Y_PER_LIFT_PIXEL;
+    const roofY = groundY + roof * (standing ? 1 : WRECK_BURN_HEIGHT_FRACTION);
+    const power = explosionBurstPowerFromFootprint(st.minX[s], st.minY[s], st.maxX[s], st.maxY[s]);
+    const tick = this.sim.tickCount;
+    const yawTurns = tileHash(s, tick);
+    const prio = em.budget_priority ?? 1;
+    const spreadX = (st.maxX[s] - st.minX[s] + 1) * 0.6;
+    const spreadY = (st.maxY[s] - st.minY[s] + 1) * 0.6;
+    for (const layer of em.particles) {
+      if (layer.mesh_plume && this.smokePlumes.ready) {
+        this.smokePlumes.spawn(cx, roofY, cy, yawTurns, 0.35 + 0.4 * power, STRUCTURE_BURN_PLUME_MS);
+        continue;
+      }
+      const fxLayer = fxLayerIndex(em.layer, layer.additive ?? false);
+      const jx = (tileHash(s, tick + 1) - 0.5) * spreadX;
+      const jy = (tileHash(tick + 2, s) - 0.5) * spreadY;
+      // A small magnitude: the flame layer is embers rising off the plan,
+      // not a burst -- at 0.5 the first capture read as one flat orange disc
+      // the size of a window at zoom 2.5.
+      this.particleSystem.spawn(layer, cx + jx, cy + jy, 0.25, STRUCTURE_BURN_MAGNITUDE, prio, fxLayer);
     }
   }
 
@@ -7250,200 +7906,154 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
-   * Advances every unit mid-death-fade and, while still fading, appends a
-   * synthetic `EntityFrame` for it into `framesByType` -- so the SAME
-   * `UnitInstancer` a living unit of that type draws through also draws its
-   * corpse, no separate mesh needed. Ported from Pixi's `stepDeaths`
-   * (`renderer.ts:1230-1275`), NOW INCLUDING the permanent-wreckage half
-   * (`unitWreckMissingInThree`, `tools/src/golden-diff/expected-differences.ts`
-   * -- catalogued as a real defect, not a deliberate divergence, since this
-   * method's own doc comment used to name the gap outright).
-   *
-   * Facing and `typeId` are captured at the moment of death (`onEvents`'s
-   * `destroyed` case), not read live off `Sim` here, because the entity slot
-   * may be reused by a later spawn before the fade finishes -- Pixi's own
-   * comment on its `dying.push`, ported verbatim in spirit.
-   *
-   * One thing Pixi does that this method still deliberately does NOT:
-   * **rotation and squash** (`spr.rotation = p * 0.14`, the scale-Y settle).
-   * `writeUnitInstances`/`UnitInstancer` (out of bounds for this task, same
-   * as the fade's own) only ever TRANSLATE an instance -- there is no
-   * rotation or non-uniform-scale attribute to write into, and adding one
-   * would mean editing a forbidden file. The fade keeps the alpha dim and a
-   * small downward `worldY` settle (below) but the body does not tip over.
-   *
-   * **Permanent wreckage, ported now**: once a fade closes (`d.t >=
-   * DEATH_SECONDS`), `addWreck` below pushes a `UnitWreck` -- Pixi's own
-   * `addWreck`/`wreckLayer`/`MAX_WRECKS` (`renderer.ts:1211`,
-   * `:1277-1295`). The loop at the TOP of this method (before the fade loop,
-   * mirroring Pixi's own ordering: `stepDeaths`'s wreck-reveal pass runs
-   * before its fade pass in `renderer.ts` too) does two things per wreck,
-   * per frame: (1) latches `shown` true once `isExplored` says yes -- "you
-   * never witness a kill you did not observe, but a burnt-out position you
-   * HAVE seen stays on the map after the fog closes over it"
-   * (`renderer.ts:1224-1228`), and (2) for a `shown` wreck whose type has a
-   * REAL `wreck` clip (`clipOrFallback(sheet, 'wreck') === 'wreck'`, not a
-   * fallback to idle), appends a second synthetic `EntityFrame` -- alpha 1,
-   * clip `'wreck'` -- into the SAME `framesByType` list the fade above
-   * already writes into, so it draws through the identical `UnitInstancer`.
-   * A `shown` wreck whose type has NO real `wreck` clip (`mbt_lavi`'s
-   * `TNK_HULL`/`TNK_TURR` among them -- see `UnitWreck`'s own doc comment)
-   * draws NOTHING here: `updateOverlays`'s own fallback covers it instead,
-   * Pixi's identical split (`!wk.spr` -> the grey cross-marker, drawn into
-   * `unitsG` rather than `wreckLayer` -- `renderer.ts:1236-1242`).
-   *
-   * A unit type with no loaded `UnitInstancer` is silently skipped for BOTH
-   * the fade and the wreck, matching this class's own "no mesh units" scope
-   * line -- and, since that also governs `updateUnits`'s own early return, a
-   * dying entry's timer only advances while at least one sheet is loaded; a
-   * mission where every unit dies before any sheet finishes loading is the
-   * one case that stalls it, and it stalls harmlessly (nothing would have
-   * been visible to fade or wreck regardless).
+   * Idle exhaust, dated off the SIM clock exactly as rotor wash is (GH-391;
+   * `units/exhaust-slots.ts`): 500 ms windows, rolls seeded by (entity, slot),
+   * the trickle dated inside `ParticleSystem.spawn`, puffs aged by sim time.
+   * After the particle step, for the reason `updateRotorWash` gives. A vehicle
+   * that is moving, or an air unit with a rotor-wash emitter, has none.
    */
-  private stepDeaths(dtSeconds: number): void {
-    // Permanent wreckage: reveal, then draw real art where this type has
-    // any -- see this method's own top comment for the fog-gate and the
-    // real-art-vs-cross-marker split. A rigged mesh type (one with a
-    // `meshUnitTemplates` entry -- the default for every such type on
-    // `three`; only `&nomesh` leaves that map empty) is skipped here
-    // entirely: `addWreck` below never pushes one, because `mesh-death.ts`'s
-    // own `MeshWreck` already owns that type's wreckage end to end. Its
-    // billboard sheet used to be loaded unconditionally beside the mesh
-    // (`main.ts`'s `SPRITE_MAP` loop had no mesh branch); since the
-    // roster-driven `spriteSheetPlan` (2026-09-07) a fielded rigged type's
-    // sheet is not loaded at all, but a deferred KDF buildable's sheet still
-    // arrives after the first frame as its billboard fallback and stays
-    // loaded once its mesh lands, so without that exclusion such a unit
-    // with a billboard `wreck` clip (`inf_squad`'s `INF_SQUAD` sheet among
-    // them) would draw a second, redundant wreck underneath its own mesh one.
-    for (const wk of this.wrecks) {
-      if (!wk.shown && this.isExplored(wk.x, wk.y)) wk.shown = true;
-      if (!wk.shown) continue;
-      const instancer = this.unitInstancers.get(wk.typeId);
-      if (!instancer || clipOrFallback(instancer.sheet, 'wreck') !== 'wreck') continue;
-      const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, wk.x, wk.y);
-      const frame: EntityFrame = {
-        wx: wk.x,
-        wy: wk.y,
-        worldY,
-        side: wk.side,
-        clip: 'wreck',
-        frame: 0,
-        facing: wk.facing,
-        // Wreckage draws at full opacity, matching Pixi's own `addWreck`,
-        // which never touches `spr.alpha` (`renderer.ts:1283`).
-        alpha: 1,
-        roofDx: 0,
-        roofDy: 0,
-        visible: true,
-        turretFacing: wk.facing,
-        turretClip: 'idle',
-        turretFrame: 0,
-      };
-      let wreckList = this.framesByType.get(wk.typeId);
-      if (!wreckList) {
-        wreckList = [];
-        this.framesByType.set(wk.typeId, wreckList);
-      }
-      wreckList.push(frame);
+  private updateIdleExhaust(alpha: number): void {
+    if (!this.particleSystem) return;
+    const exhaust = this.emitterLibrary.byName('vehicle_exhaust');
+    if (!exhaust) return;
+    const hasWash = this.emitterLibrary.byName('rotor_wash') !== null;
+    const st = this.sim.state;
+    const n = this.snapshottedCount;
+    const nowMs = presentationSimMs(this.sim.tickCount, alpha);
+    const interval = VEHICLE_EXHAUST_INTERVAL_MS;
+    let maxLifeMs = 0;
+    let emitOverMs = 0;
+    for (const layer of exhaust.particles) {
+      const l = layer.lifetime_ms;
+      maxLifeMs = Math.max(maxLifeMs, typeof l === 'number' ? l : l ? l[1] : 0);
+      emitOverMs = Math.max(emitOverMs, layer.emit_over_ms ?? 0);
     }
-
-    for (let k = this.dying.length - 1; k >= 0; k--) {
-      const d = this.dying[k];
-      d.t += dtSeconds;
-      const p = Math.min(1, d.t / DEATH_SECONDS);
-      const instancer = this.unitInstancers.get(d.typeId);
-      if (instancer) {
-        const clip = clipOrFallback(instancer.sheet, 'down');
-        // Sink slightly as it settles -- Pixi's own `isoY(...) + p * 3`
-        // (renderer.ts:1263), reproduced as a small downward WORLD-height
-        // settle rather than a screen-space nudge, since there is no
-        // post-projection position here to nudge (the same reasoning
-        // `frame-state.ts`'s recoil/flinch doc comment gives, in reverse:
-        // there it is a screen delta converted to world; here Pixi's own
-        // "sink into the ground" reads most naturally as a real height
-        // change, not a lateral one).
-        const worldY =
-          groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, d.x, d.y) -
-          p * 3 * WORLD_Y_PER_LIFT_PIXEL;
-        const frame: EntityFrame = {
-          wx: d.x,
-          wy: d.y,
-          worldY,
-          side: d.side,
-          clip,
-          frame: 0,
-          facing: d.facing,
-          // Fades toward half, never to nothing -- matches Pixi's own
-          // `1 - p * 0.5` (renderer.ts:1264) exactly.
-          alpha: 1 - p * 0.5,
-          roofDx: 0,
-          roofDy: 0,
-          visible: true,
-          // Task B3.6: never drawn -- this synthetic frame only ever
-          // reaches `framesByType` (the hull mesh), never
-          // `turretFramesByType`, matching Pixi's own `stepDeaths`, which
-          // draws no turret sprite for a dying unit at all (see
-          // `turretFramesByType`'s own field doc comment). Still a
-          // well-defined value rather than a sentinel, per `EntityFrame
-          // .turretFacing`'s own contract.
-          turretFacing: d.facing,
-          turretClip: 'idle',
-          turretFrame: 0,
-        };
-        let list = this.framesByType.get(d.typeId);
-        if (!list) {
-          list = [];
-          this.framesByType.set(d.typeId, list);
+    for (let i = 0; i < n; i++) {
+      if (st.alive[i] === 0) continue;
+      const type = this.sim.unitTypes[st.typeIdx[i]];
+      if (type.isSoft || (hasWash && type.isAir)) continue;
+      if (this.vehicleMoving[i] === 1) continue;
+      // Pass C2/C4 (P3): a mobility kill stops the engine -- no exhaust.
+      if (st.mobilityKilled[i] === 1) continue;
+      const [first, last] = exhaustSlotsDue(this.exhaustSlot[i], nowMs, interval, emitOverMs, maxLifeMs);
+      if (last < first) continue;
+      const drawn = this.vehicleMeshEntities.get(i)?.root.position;
+      const anchor = vehicleFxAnchor(
+        drawn ? drawn.x : this.curX[i],
+        drawn ? drawn.z : this.curY[i],
+        fx.toNumber(st.facing[i]),
+        VEHICLE_EXHAUST_OFFSET_TILES
+      );
+      const prio = exhaust.budget_priority ?? 1;
+      for (let slot = first; slot <= last; slot++) {
+        const rand = exhaustRand(i, slot);
+        const ageSec = exhaustSlotAgeSec(slot, nowMs, interval);
+        for (const layer of exhaust.particles) {
+          const fxLayer = fxLayerIndex(exhaust.layer, layer.additive ?? false);
+          this.particleSystem.spawn(layer, anchor.x, anchor.y, anchor.dirTurns, VEHICLE_EXHAUST_MAGNITUDE, prio, fxLayer, 0, 0, { rand, ageSec });
         }
-        list.push(frame);
       }
-      if (d.t >= DEATH_SECONDS) {
-        this.dying.splice(k, 1);
-        this.addWreck(d.x, d.y, d.facing, d.typeId, d.side);
-      }
+      this.exhaustSlot[i] = last;
     }
   }
 
   /**
-   * Pushes a permanent `UnitWreck` once a dying unit's fade finishes --
-   * Pixi's own `addWreck` (`renderer.ts:1278-1295`). Pushed unconditionally,
-   * whether or not this type's sheet declares a real `wreck` clip: which
-   * draw path (if any) the entry takes is resolved every frame by
-   * `stepDeaths`'s own wreck loop, not at push time -- the identical split
-   * Pixi's own nullable `spr` field encodes (see `UnitWreck`'s own doc
-   * comment).
-   *
-   * Skips a rigged mesh type entirely (`meshUnitTemplates.has(typeId)` --
-   * populated for every such type by default on `three`, and empty only
-   * under `&nomesh`): `mesh-death.ts`'s own `MeshWreck` system already owns
-   * that type's permanent wreckage end to end (`stepMeshDeaths` above). The
-   * billboard sheet this guards against used to load unconditionally beside
-   * the mesh (`main.ts`'s `SPRITE_MAP` loop); since the roster-driven
-   * `spriteSheetPlan` (2026-09-07) a fielded rigged type's sheet is never
-   * loaded on the mesh path, and the case that keeps this exclusion live is
-   * a deferred KDF buildable, whose sheet arrives after the first frame as
-   * its billboard fallback and stays loaded once its mesh lands -- without
-   * this exclusion such a unit whose billboard sheet ALSO declares a `wreck`
-   * clip would draw a second, redundant wreck underneath its own mesh one.
-   * A mesh VEHICLE (`vehicleMeshTemplates`) is deliberately NOT excluded:
-   * its GLB carries no wreck, so its sheet's `wreck` sprite is the only
-   * wreck it has (the mesh-vehicle death debt in CLAUDE.md). Pixi has no
-   * such case to exclude: it has no mesh path at all, so every destroyed
-   * entity there is a billboard one by construction.
+   * Pass C2/C4 (P3): a living vehicle that has lost its mobility or its
+   * firepower trails a thin, dark wisp from its engine deck, for as long as
+   * it lives. Which kind of damage it is lives on the HUD (the card and the
+   * chip marks); the world says only "this one is hurt". Dated off the SIM
+   * clock exactly like `updateIdleExhaust` (GH-391), so a frozen gate frame
+   * repaints the same puffs. Reads `mobilityKilled`/`firepowerKilled` and
+   * writes nothing back.
    */
-  private addWreck(x: number, y: number, facing: number, typeId: string, side: number): void {
-    if (this.meshUnitTemplates.has(typeId)) return;
-    // The vehicle half of the same exclusion, and note what it is NOT: a
-    // plain `vehicleMeshTemplates.has(typeId)`. CLAUDE.md records that exact
-    // trap -- excluding every mesh vehicle unconditionally deletes the sprite
-    // wreck and leaves nothing behind, which is strictly worse than the
-    // three-art-styles sequence it was meant to fix. Only a type whose own
-    // GLB carries the `wreck` clip has a `MeshWreck` coming
-    // (`stepVehicleDeaths`), and only that type steps aside here.
-    if (this.vehicleMeshTemplates.get(typeId)?.hasWreck === true) return;
-    this.wrecks.push({ x, y, facing, typeId, side, shown: this.isExplored(x, y) });
-    while (this.wrecks.length > MAX_UNIT_WRECKS) this.wrecks.shift();
+  private updateDamageSmoke(alpha: number): void {
+    if (!this.particleSystem) return;
+    const smoke = this.emitterLibrary.byName('vehicle_damaged_smoke');
+    if (!smoke) return;
+    const st = this.sim.state;
+    const n = this.snapshottedCount;
+    const nowMs = presentationSimMs(this.sim.tickCount, alpha);
+    const interval = VEHICLE_DAMAGE_SMOKE_INTERVAL_MS;
+    let maxLifeMs = 0;
+    let emitOverMs = 0;
+    for (const layer of smoke.particles) {
+      const l = layer.lifetime_ms;
+      maxLifeMs = Math.max(maxLifeMs, typeof l === 'number' ? l : l ? l[1] : 0);
+      emitOverMs = Math.max(emitOverMs, layer.emit_over_ms ?? 0);
+    }
+    for (let i = 0; i < n; i++) {
+      if (st.alive[i] === 0) continue;
+      if (!vehicleTrailsDamageSmoke(this.sim.unitTypes[st.typeIdx[i]], st.mobilityKilled[i], st.firepowerKilled[i])) continue;
+      const [first, last] = exhaustSlotsDue(this.damageSmokeSlot[i], nowMs, interval, emitOverMs, maxLifeMs);
+      if (last < first) continue;
+      const drawn = this.vehicleMeshEntities.get(i)?.root.position;
+      const anchor = vehicleFxAnchor(
+        drawn ? drawn.x : this.curX[i],
+        drawn ? drawn.z : this.curY[i],
+        fx.toNumber(st.facing[i]),
+        VEHICLE_DAMAGE_SMOKE_OFFSET_TILES
+      );
+      const prio = smoke.budget_priority ?? 2;
+      for (let slot = first; slot <= last; slot++) {
+        // Salted away from the exhaust's stream: the two never share puffs.
+        const rand = exhaustRand(i + 0x20000, slot);
+        const ageSec = exhaustSlotAgeSec(slot, nowMs, interval);
+        for (const layer of smoke.particles) {
+          const fxLayer = fxLayerIndex(smoke.layer, layer.additive ?? false);
+          this.particleSystem.spawn(layer, anchor.x, anchor.y, anchor.dirTurns, VEHICLE_DAMAGE_SMOKE_MAGNITUDE, prio, fxLayer, 0, 0, { rand, ageSec });
+        }
+      }
+      this.damageSmokeSlot[i] = last;
+    }
+  }
+
+  /**
+   * Rotor wash, from the DRAWN height above the drawn ground, dated off the
+   * SIM clock (GH-391; `units/rotor-wash.ts`). Runs AFTER `particleSystem.step`
+   * and BEFORE the instancers read the pool, on purpose: a puff is born with
+   * the age sim time says it has, and a step in the same frame would add the
+   * frame's own length on top -- a latched, per-process number in the gate's
+   * frozen frame.
+   */
+  private updateRotorWash(alpha: number): void {
+    if (!this.particleSystem) return;
+    const wash = this.emitterLibrary.byName('rotor_wash');
+    if (!wash) return;
+    const st = this.sim.state;
+    const n = this.snapshottedCount;
+    const nowMs = presentationSimMs(this.sim.tickCount, alpha);
+    let maxLifeMs = 0;
+    for (const layer of wash.particles) {
+      const l = layer.lifetime_ms;
+      maxLifeMs = Math.max(maxLifeMs, typeof l === 'number' ? l : l ? l[1] : 0);
+    }
+    for (let i = 0; i < n; i++) {
+      if (st.alive[i] === 0) continue;
+      const type = this.sim.unitTypes[st.typeIdx[i]];
+      if (type.isSoft || !type.isAir) continue;
+      const drawn = this.vehicleMeshEntities.get(i)?.root.position;
+      const wx = drawn ? drawn.x : this.curX[i];
+      const wy = drawn ? drawn.z : this.curY[i];
+      const groundY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, wx, wy);
+      const height = drawn ? drawn.y - groundY : AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL;
+      const strength = rotorWashStrength(height, this.entitySpeed[i]);
+      if (strength < ROTOR_WASH_MIN_STRENGTH) {
+        // No backlog for a stretch spent too high or too fast to throw dust.
+        this.rotorWashSlot[i] = washSlotAt(nowMs);
+        continue;
+      }
+      const [first, last] = washSlotsDue(this.rotorWashSlot[i], nowMs, maxLifeMs);
+      const prio = wash.budget_priority ?? 1;
+      for (let slot = first; slot <= last; slot++) {
+        const rand = washRand(i, slot);
+        const ageSec = washAgeSec(slot, nowMs);
+        for (const layer of wash.particles) {
+          const fxLayer = fxLayerIndex(wash.layer, layer.additive ?? false);
+          this.particleSystem.spawn(layer, wx, wy, 0, strength, prio, fxLayer, 0, 0, { rand, ageSec });
+        }
+      }
+      if (last >= first) this.rotorWashSlot[i] = last;
+    }
   }
 
   /**
@@ -7486,9 +8096,19 @@ export class ThreeRenderer implements Renderer {
    * deliberately skips `depthTest` altogether -- see `units/fx.ts` for the
    * full reasoning on both counts.
    */
-  private updateFx(dtMs: number): void {
+  private updateFx(dtMs: number, alpha?: number): void {
     const dtSeconds = this.frameDtSeconds(dtMs);
-    this.particleSystem?.step(dtSeconds);
+    // Sim-dated particles (rotor wash, idle exhaust) age by the sim time this
+    // frame presents beyond the last frame's (`frameSimDtSeconds`, set at the
+    // top of `frame()`) -- zero on a repaint, the whole jump when the gate
+    // steps ticks without frames. A direct call with no `alpha` keeps frame time.
+    const simDtSeconds = alpha !== undefined && this.frameSimDtSeconds !== null ? this.frameSimDtSeconds : dtSeconds;
+    this.particleSystem?.step(dtSeconds, simDtSeconds);
+    if (alpha !== undefined) {
+      this.updateRotorWash(alpha);
+      this.updateIdleExhaust(alpha);
+      this.updateDamageSmoke(alpha);
+    }
     const elevation = this.retained.elevation;
     this.particleInstancerBelow.update(this.particleSystem, elevation, this.sim.width, this.sim.height);
     this.particleInstancerAbove.update(this.particleSystem, elevation, this.sim.width, this.sim.height);
@@ -7500,6 +8120,7 @@ export class ThreeRenderer implements Renderer {
     this.muzzleFlashes.step(dtMs);
     // Identical presentation-only ageing, for the explosion-burst mesh.
     this.explosionBursts.step(dtMs);
+    this.collapseFlashBursts.step(dtMs);
     // Identical presentation-only ageing, for the smoke-plume mesh.
     this.smokePlumes.step(dtMs);
     // Identical presentation-only ageing, for the collapse shroud.
@@ -7538,6 +8159,29 @@ export class ThreeRenderer implements Renderer {
       this.sim.tickCount
     );
     for (const l of landings) this.spawnMissileImpactFx(l);
+  }
+
+  /**
+   * Polish VR-22: the brief bright burst a collapse throws through its own
+   * dust shroud (`data/vfx/collapse_flash.json`). On the mesh path it is the
+   * pooled burst at `COLLAPSE_FLASH_RENDER_ORDER`, above the shroud, living
+   * for the layer's own longest `lifetime_ms`; without the mesh (`&nomesh`)
+   * the authored particle layer stands in, exactly as `spawnCollapseFx`'s
+   * `mesh_burst` fallback does.
+   */
+  private spawnCollapseFlash(x: number, y: number, z: number, power: number, yawTurns: number): void {
+    const em = this.emitterLibrary.byName(COLLAPSE_FLASH_EMITTER_ID);
+    if (!em || power <= 0) return;
+    for (const layer of em.particles) {
+      if (layer.mesh_burst && this.collapseFlashBursts.ready) {
+        const life = layer.lifetime_ms;
+        this.collapseFlashBursts.spawn(x, y, z, yawTurns, power, typeof life === 'number' ? life : life[1]);
+        continue;
+      }
+      if (!this.particleSystem) continue;
+      const prio = em.budget_priority ?? 8;
+      this.particleSystem.spawn(layer, x, z, 0.25, power, prio, fxLayerIndex(em.layer, layer.additive ?? false));
+    }
   }
 
   /**
@@ -7592,7 +8236,7 @@ export class ThreeRenderer implements Renderer {
     const em = this.emitterLibrary.byName(SHELL_IMPACT_EMITTER_ID);
     const light = blastLightSpec(em, power);
     if (light) {
-      this.flashLights.spawn(s.tx, s.ty, worldY, light, this.overlayColor(light.color ?? 'vfx.fire', '#FFB43C'));
+      this.flashLights.spawn(s.tx, s.ty, worldY, light, this.overlayColor(light.color ?? 'vfx.fire', FLASH_LIGHT_FALLBACK));
     }
     this.shakeState = pushShake(this.shakeState, blastShake(em, power), s.tx, s.ty);
     this.hitStop = requestHitStop(this.hitStop, blastHitStopMs(em, power));
@@ -7625,7 +8269,7 @@ export class ThreeRenderer implements Renderer {
       }
     }
     const light = blastLightSpec(em, l.scale);
-    if (light) this.flashLights.spawn(l.x, l.y, worldY, light, this.overlayColor(light.color ?? 'vfx.fire', '#FFB43C'));
+    if (light) this.flashLights.spawn(l.x, l.y, worldY, light, this.overlayColor(light.color ?? 'vfx.fire', FLASH_LIGHT_FALLBACK));
     this.shakeState = pushShake(this.shakeState, blastShake(em, l.scale), l.x, l.y);
     if (l.miss) this.stampGroundDecal(this.persistentStamp('scorch', l.x, l.y, scorchRadiusTiles(MISS_SCORCH_POWER)));
   }
@@ -7699,12 +8343,21 @@ export class ThreeRenderer implements Renderer {
    * decals sample. false when the batch refuses it; the caller then draws the
    * billboard fallback.
    */
-  private pushSelectionRing(i: number, type: Sim['unitTypes'][number], x: number, z: number, side: number): boolean {
+  private pushSelectionRing(
+    i: number,
+    type: Sim['unitTypes'][number],
+    x: number,
+    z: number,
+    side: number,
+    batch: SelectionRingBatch = this.selectionRing,
+    scale: number = SELECTED_RING_SCALE,
+    colorHex: string = this.opts.teamColors[side]
+  ): boolean {
     const p = this.ringScratch;
     p.x = x;
     p.z = z;
-    p.radiusTiles = ringRadiusFor(type.id, RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type));
-    p.color = cachedHexToLinear(this.opts.teamColors[side]);
+    p.radiusTiles = ringRadiusFor(type.id, RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type)) * scale;
+    p.color = cachedHexToLinear(colorHex);
     const e = ELLIPSE_BY_TYPE[type.id];
     if (e === undefined) {
       p.alongTiles = undefined;
@@ -7712,8 +8365,8 @@ export class ThreeRenderer implements Renderer {
       p.headingRad = undefined;
     } else {
       const heading = fx.toNumber(this.sim.state.facing[i]) * Math.PI * 2;
-      p.alongTiles = e.along;
-      p.acrossTiles = e.across;
+      p.alongTiles = e.along * scale;
+      p.acrossTiles = e.across * scale;
       p.headingRad = heading;
       // Centred on the HULL, not the unit origin (fix round 1): the hull
       // box's own centre sits `offsetAlong` tiles along the heading.
@@ -7721,7 +8374,157 @@ export class ThreeRenderer implements Renderer {
       p.z = z + e.offsetAlong * Math.sin(heading);
     }
     // The entity id keys the batch's position cache (fix round 1).
-    return this.selectionRing.push(p, this.decalSampleY, i);
+    return batch.push(p, this.decalSampleY, i);
+  }
+
+  // ------------------------------------------------------------------
+  // Fire link (`units/fire-link.ts`). Presentation only:
+  // every input is sim state this renderer already reads, nothing is
+  // written back.
+  // ------------------------------------------------------------------
+
+  /** A ring's outer semi-axis for a unit, tiles: the selection ring's own
+   *  radius, or the larger semi-axis of its hull ellipse. */
+  private fireLinkRingRadius(type: Sim['unitTypes'][number]): number {
+    const e = ELLIPSE_BY_TYPE[type.id];
+    if (e !== undefined) return Math.max(e.along, e.across);
+    return ringRadiusFor(type.id, RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type));
+  }
+
+  /** Interpolated position of entity `i` this frame. */
+  private fireLinkPos(i: number, alpha: number): [number, number] {
+    return [this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha, this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha];
+  }
+
+  /**
+   * Where a target's pulse lands, tiles: around the unit, or -- for a unit
+   * inside a building, which has no ground of its own to stand a ring on --
+   * around that building's footprint, so the house you are shooting into is
+   * what gets ringed.
+   */
+  private fireLinkTargetShape(t: number, alpha: number): { x: number; z: number; along: number; across: number } {
+    const st = this.sim.state;
+    const inside = st.garrisonedIn[t];
+    if (inside >= 0) {
+      const ss = this.sim.structures;
+      const w = ss.maxX[inside] - ss.minX[inside] + 1;
+      const h = ss.maxY[inside] - ss.minY[inside] + 1;
+      return {
+        x: (ss.minX[inside] + ss.maxX[inside] + 1) / 2,
+        z: (ss.minY[inside] + ss.maxY[inside] + 1) / 2,
+        // An ellipse through the footprint's CORNERS needs sqrt(2) x the
+        // half-extent; anything less runs under the walls and is hidden.
+        along: (w / 2) * Math.SQRT2 + 0.3,
+        across: (h / 2) * Math.SQRT2 + 0.3,
+      };
+    }
+    const type = this.sim.unitTypes[st.typeIdx[t]];
+    const [x, z] = this.fireLinkPos(t, alpha);
+    const r = this.fireLinkRingRadius(type) * TARGET_RING_SCALE;
+    return { x, z, along: r, across: r };
+  }
+
+  /** The pulse: one ground ring contracting onto the target per shot the
+   *  selection fires, in the overlay tier the range envelope already draws
+   *  in -- +0 draw calls while anything is selected. */
+  private drawFireLinkOverlays(alpha: number): void {
+    if (this.fireLinkPulses.length === 0) return;
+    const st = this.sim.state;
+    const n = this.snapshottedCount;
+    const elevation = this.retained.elevation;
+    const halo = this.overlayColor(WORLD_HALO_COLOR_KEY);
+    const now = this.fireLinkClockS;
+    this.fireLinkPulses = this.fireLinkPulses.filter((p) => now - p.bornS < PULSE_S && p.target < n && st.alive[p.target] === 1);
+    for (const p of this.fireLinkPulses) {
+      const k = pulseAt(now - p.bornS);
+      if (k === null) continue;
+      const shape = this.fireLinkTargetShape(p.target, alpha);
+      const { rightR, upR } = tileRadiusToEllipsePx(Math.max(shape.along, shape.across) * k.scale, TILE_W, TILE_H);
+      const anchor: [number, number, number] = [
+        shape.x,
+        groundWorldY(elevation, this.sim.width, this.sim.height, shape.x, shape.z),
+        shape.z,
+      ];
+      this.overlayBatch.ellipseRing(anchor, rightR, upR, 4, halo, k.alpha * 0.5);
+      this.overlayBatch.ellipseRing(anchor, rightR, upR, 2, this.opts.teamColors[st.side[p.target]] ?? this.opts.teamColors[1], k.alpha);
+    }
+  }
+
+  /**
+   * VR-01: a colour-vision change reaches the world mid-mission. Everything
+   * drawn per frame (rings, contact marks, HP bars, badges, range fills, the
+   * garrison house) already reads `this.opts.teamColors` /
+   * `this.overlayColor` every frame, so swapping the options is the whole of
+   * it for those. What follows is the short list of things that BAKED a team
+   * colour when they were built, and each is re-coloured in place -- nothing
+   * is rebuilt, so this costs no draw call and no allocation beyond the
+   * options copy:
+   *
+   * - the three shared occlusion-silhouette materials (one per side);
+   * - the hit-flash outline materials (one per side, VR-12), once they exist;
+   * - the proxy boxes' per-side instance colours, once they exist.
+   *
+   * A copy rather than a write into `this.opts`: that object is the app's,
+   * and the minimap was handed its `teamColors` array by reference.
+   */
+  setTeamColors(teamColors: [string, string, string], resolveColor: (paletteKey: string) => string): void {
+    this.opts = { ...this.opts, teamColors, resolveColor };
+    SILHOUETTE_COLOR_KEY_BY_SIDE.forEach((key, slot) => {
+      this.silhouetteMeshMaterials[slot].color.set(this.overlayColor(key, SILHOUETTE_FALLBACK_HEX_BY_SIDE[slot]));
+    });
+    // One hit-flash material per side since VR-12, each in its own side's colour.
+    for (const [side, m] of this.fireLinkFlashMaterials) m.color.set(teamColors[side] ?? teamColors[1]);
+    this.proxyBoxes?.setTeamColors(teamColors);
+  }
+
+  /** `flash`: the occlusion outline's own material with NO depth test, so
+   *  the outline shows whether the target stands in the open or behind a
+   *  wall. The first cut used an ordinary depth test, and a target behind a
+   *  building then lost BOTH outlines for the flash -- the occlusion one was
+   *  swapped away and the flash one failed the depth test. The stencil still
+   *  punches the body's own footprint out, so it stays an outline. */
+  private fireLinkFlashMat(side: number): THREE.MeshBasicMaterial {
+    let m = this.fireLinkFlashMaterials.get(side);
+    if (m === undefined) {
+      // Polish VR-12: the TARGET's side, with the pulse's own fallback. It was
+      // `teamColors[1]` for every target, so a friendly unit hit by enemy fire
+      // flashed enemy red while its pulse ring was friendly.
+      m = createMeshSilhouetteMaterial(this.opts.teamColors[side] ?? this.opts.teamColors[1]);
+      m.depthTest = false;
+      this.fireLinkFlashMaterials.set(side, m);
+    }
+    return m;
+  }
+
+  /** `flash`: swaps a target's silhouette meshes onto the flash material for
+   *  `HIT_FLASH_S` from the moment its round visibly lands, then back. The
+   *  silhouette already draws every frame, so this is +0 draw calls. */
+  private stepFireLinkFlashes(): void {
+    if (this.fireLinkFlashes.length === 0 && this.fireLinkFlashed.size === 0) return;
+    const st = this.sim.state;
+    const now = this.fireLinkClockS;
+    this.fireLinkFlashes = this.fireLinkFlashes.filter((f) => now < f.startS + HIT_FLASH_S && st.alive[f.target] === 1);
+    const active = new Set<number>();
+    for (const f of this.fireLinkFlashes) if (now >= f.startS) active.add(f.target);
+    for (const [id, list] of this.fireLinkFlashed) {
+      if (active.has(id)) continue;
+      for (const { mesh, was } of list) mesh.material = was;
+      this.fireLinkFlashed.delete(id);
+    }
+    for (const id of active) {
+      if (this.fireLinkFlashed.has(id)) continue;
+      const root = this.meshUnitEntities.get(id)?.root ?? this.vehicleMeshEntities.get(id)?.root;
+      if (!root) continue;
+      const mat = this.fireLinkFlashMat(st.side[id]);
+      const list: { mesh: THREE.Mesh; was: THREE.Material | THREE.Material[] }[] = [];
+      root.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh || !isSilhouette(mesh)) return;
+        list.push({ mesh, was: mesh.material });
+        mesh.material = mat;
+      });
+      this.fireLinkFlashed.set(id, list);
+    }
   }
 
   /** `this.opts.resolveColor(key)` if the app supplied one, `fallback`
@@ -7729,8 +8532,8 @@ export class ThreeRenderer implements Renderer {
    *  handful of `resolveColor`-through-a-ring-colour call sites already use
    *  (e.g. its tutorial-focus-ring block, `this.opts.resolveColor ? this
    *  .opts.resolveColor('vfx.tracer') : '#B8FF5A'`), not a new pattern. */
-  private overlayColor(key: string, fallback: string): string {
-    return this.opts.resolveColor ? this.opts.resolveColor(key) : fallback;
+  private overlayColor(key: string, fallback?: string): string {
+    return this.opts.resolveColor ? this.opts.resolveColor(key) : (fallback ?? paletteHex(key));
   }
 
   /**
@@ -7746,7 +8549,7 @@ export class ThreeRenderer implements Renderer {
   private applyHaze(): void {
     if (this.fogPass === null) return;
     const p = this.lightPreset;
-    const hex = p.hazeKey !== null ? this.overlayColor(p.hazeKey, '#D1A668') : this.opts.terrainTones.haze;
+    const hex = p.hazeKey !== null ? this.overlayColor(p.hazeKey) : this.opts.terrainTones.haze;
     const [r, g, b] = hexToLinear(hex);
     const k = hazeRadiance(
       this.resolvedLights.sunIntensity,
@@ -7800,6 +8603,25 @@ export class ThreeRenderer implements Renderer {
     return fx.toNumber(type.weapons[0].effectiveRange) > 0;
   }
 
+  /** GH-346: one observed hostile's contact mark (`units/contact-marks.ts`),
+   *  over its head with a dark halo under it; `unknown` while only suspected. */
+  private pushContactMark(
+    anchor: readonly [number, number, number],
+    type: Sim['unitTypes'][number],
+    r: number,
+    contactLevel: number,
+    scale: number
+  ): void {
+    const cls = RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type);
+    const shape = contactShapeOf(cls, contactLevel);
+    const h = CONTACT_MARK.halfPx * scale;
+    const at = billboardPoint(anchor, 0, r + CONTACT_MARK.liftPx * scale);
+    const halo = this.overlayColor(WORLD_HALO_COLOR_KEY);
+    const team = this.opts.teamColors[1] ?? this.overlayColor('team.hostile');
+    for (const t of contactHaloTriangles(shape, h, CONTACT_MARK.haloPx * scale)) this.overlayBatch.triangle(at, t, halo, CONTACT_MARK.haloAlpha);
+    for (const t of contactTriangles(shape, h)) this.overlayBatch.triangle(at, t, team, 1);
+  }
+
   /** The shared occlusion-silhouette material for `side` -- one of three for
    *  the whole scene, not one per unit. See `silhouetteMeshMaterials`' own
    *  field doc comment. */
@@ -7822,8 +8644,11 @@ export class ThreeRenderer implements Renderer {
   private updateSilhouetteOutlineWidth(): void {
     const zoom = this.camera.zoom;
     setSilhouetteOutlineZoom(this.silhouetteMeshMaterials, zoom);
-    for (const instancer of this.unitInstancers.values()) instancer.setOutlineZoom(zoom);
-    for (const instancer of this.turretInstancers.values()) instancer.setOutlineZoom(zoom);
+    for (const m of this.fireLinkFlashMaterials.values()) {
+      setSilhouetteOutlineZoom([m], zoom);
+      const w = (m.userData as Record<string, { value: number } | undefined>)[SILHOUETTE_OUTLINE_UNIFORM_KEY];
+      if (w) w.value *= HIT_FLASH_WIDTH_SCALE;
+    }
   }
 
   /**
@@ -7853,13 +8678,30 @@ export class ThreeRenderer implements Renderer {
    */
   private updateOverlays(alpha: number): void {
     this.frameN++;
+    const census = this.overlayCensus;
+    census.envelopes = 0;
+    census.routes = 0;
+    census.destinations = 0;
+    census.orderMarkers = 0;
     this.overlayBatch.beginFrame();
+    this.zoneBand.beginFrame();
     this.numeralBatch.beginFrame();
     this.chevronBatch.beginFrame();
     this.selectionRing.beginFrame();
+    this.teamRing.beginFrame();
+    const markScale = contactScale(this.camera.zoom);
 
     const st = this.sim.state;
     const n = this.snapshottedCount;
+    // WP-P3 (PA-09, `units/group-overlays.ts`): the selection's primary
+    // carries the one range envelope, and -- only when more than one unit is
+    // selected -- wears its ground ring lightened so it reads apart from the
+    // rest. A single selection keeps the plain team ring.
+    const isDrawn = (i: number): boolean => i < n && st.alive[i] === 1;
+    const primary = selectionPrimary(this.selection, (i) => this.drawsEnvelope(i), isDrawn);
+    let selectedDrawn = 0;
+    for (const i of this.selection) if (isDrawn(i)) selectedDrawn++;
+    const groupPrimary = selectedDrawn > 1 ? primary : -1;
     const elevation = this.retained.elevation;
     const width = this.sim.width;
     const height = this.sim.height;
@@ -7890,8 +8732,10 @@ export class ThreeRenderer implements Renderer {
       const inside = st.garrisonedIn[i];
       if (inside >= 0) {
         const sType = this.sim.structureTypes[this.sim.structures.typeIdx[inside]];
-        const roofPx = resolveRoofPx(this.structureRoofArt.get(sType.id), sType.heightPx);
-        groundY += roofPx * WORLD_Y_PER_LIFT_PIXEL;
+        // The type's own roof height: the per-sheet `roofTopPx` that could
+        // override it went with the structure sprites (WP-A3.3), and was
+        // never loaded on the mesh path anyway.
+        groundY += sType.heightPx * WORLD_Y_PER_LIFT_PIXEL;
       }
       const anchor: [number, number, number] = [ix, groundY, iy];
 
@@ -7920,7 +8764,7 @@ export class ThreeRenderer implements Renderer {
           billboardPoint(anchor, 0, -3),
           shadowR,
           shadowR / 2,
-          this.overlayColor(AIR_SHADOW_COLOR_KEY, '#0A0A08'),
+          this.overlayColor(AIR_SHADOW_COLOR_KEY),
           0.28 * bodyAlpha
         );
       }
@@ -7939,7 +8783,7 @@ export class ThreeRenderer implements Renderer {
         const top = -(r + 10);
         const bottom = top + HP_BAR.heightPx;
         const hpRatio = Math.max(0, fx.toNumber(st.hp[i]) / fx.toNumber(type.hp));
-        const bgColor = this.overlayColor(HP_BG_COLOR_KEY, '#14150F');
+        const bgColor = this.overlayColor(HP_BG_COLOR_KEY);
         this.overlayBatch.rect(
           anchor,
           -halfW - HP_BAR.framePx,
@@ -7957,7 +8801,7 @@ export class ThreeRenderer implements Renderer {
             top,
             -halfW + HP_BAR.widthPx * hpRatio,
             bottom,
-            this.overlayColor(hpBarColorKey(hpRatio), '#6B8A4A'),
+            this.overlayColor(hpBarColorKey(hpRatio, side === 0), HP_BAR_FALLBACK),
             1
           );
         }
@@ -7965,71 +8809,78 @@ export class ThreeRenderer implements Renderer {
 
       // Suppression bar -- renderer.ts: `g.rect(sx - 12, sy - r - 6, 24 *
       // supp, 3).fill('#FFB43C')`, only once supp clears the same 0.02 floor
-      // Pixi uses (a bar 0-2% full is not worth a draw call).
+      // Pixi uses. Since pass C2/C4 (P4) it draws only for a unit that is
+      // selected or hovered: unselected, the posture carries suppression
+      // (the lean, the `pinned` huddle), and an always-on bar over every
+      // suppressed unit was a status mark in the world.
       const supp = Math.min(1, fx.toNumber(st.suppression[i]));
-      if (supp > 0.02) {
+      if (supp > 0.02 && suppressionBarVisible(selected, i === this.hoverEntity, i === this.rangeRingPreview)) {
         this.overlayBatch.rect(
           anchor,
           -12,
           -(r + 6),
           -12 + 24 * supp,
           -(r + 3),
-          this.overlayColor(SUPPRESSION_COLOR_KEY, '#FFB43C'),
+          this.overlayColor(SUPPRESSION_COLOR_KEY),
           1
         );
       }
 
-      // Kill-state pips: mobility (gray) and firepower (dark red) --
-      // renderer.ts: `if (st.mobilityKilled[i] === 1) g.circle(sx - r, sy +
-      // r - 2, 3).fill('#8E9491')` and the firepower twin at `sx + r`. A
-      // vehicle that lost its engine but can still shoot, or lost its gun
-      // but can still drive, reads identically to a fully healthy one
-      // without these -- the HP bar alone does not carry that distinction.
-      if (st.mobilityKilled[i] === 1) {
-        this.overlayBatch.ellipseFan(
-          billboardPoint(anchor, -r, -(r - 2)),
-          3,
-          3,
-          this.overlayColor(MOBILITY_KILL_COLOR_KEY, '#8E9491'),
-          1
-        );
-      }
-      if (st.firepowerKilled[i] === 1) {
-        this.overlayBatch.ellipseFan(
-          billboardPoint(anchor, r, -(r - 2)),
-          3,
-          3,
-          this.overlayColor(FIREPOWER_KILL_COLOR_KEY, FIREPOWER_KILL_FALLBACK_COLOR),
-          1
-        );
-      }
+      // The 3 px mobility (grey) and firepower (dark red) kill pips are
+      // retired (pass C2/C4, P4): unreadable at gameplay zoom, and a status
+      // mark in the world. A damaged vehicle trails smoke now
+      // (`updateDamageSmoke`), and WHICH damage it is reads on the chip and
+      // the card.
 
-      // Control-group colour -- the badge's, and the billboard fallback
-      // ring's below. The ground ring is TEAM colour (A4 Q1, G-MOCK).
+      // Control-group colour -- the badge's. Every selected ring, the ground
+      // one and the flat fallback below, is TEAM colour (A4 Q1, G-MOCK; VR-34).
       const grp = this.unitGroup[i];
       const groupColor =
         grp > 0 && this.opts.groupColors.length > 0 ? this.opts.groupColors[(grp - 1) % this.opts.groupColors.length] : '';
-      const accentDefault = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY, '#B8FF5A');
+      const accentDefault = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY);
+
+      // GH-346: a faint team ring under every unselected unit standing on
+      // open ground (a garrisoned one has a building over it), and a
+      // shape-coded contact mark over every observed hostile -- this loop
+      // has already skipped any hostile the player does not observe.
+      if (!selected && inside < 0) this.pushSelectionRing(i, type, ix, iy, side, this.teamRing, 1);
+      if (side === 1) this.pushContactMark(anchor, type, r, this.sim.contactLevel(0, i), markScale);
 
       // Selection ring (A4, GH-186): on the ground, in team colour, for a
       // unit standing on it. The old flat billboard ellipse -- renderer.ts:
-      // `g.ellipse(sx, sy + 2, r + 7, (r + 7) / 2).stroke({ width: 2, color:
-      // groupColor || '#B8FF5A' })` -- stays for exactly two cases: a
-      // garrisoned unit, whose ring belongs on the ROOF it stands on (Q7),
-      // and a ring the batch refused (full, or an unusable axis).
-      if (selected && (inside >= 0 || !this.pushSelectionRing(i, type, ix, iy, side))) {
+      // `g.ellipse(sx, sy + 2, r + 7, (r + 7) / 2).stroke({ width: 2, ... })`
+      // -- stays for exactly two cases: a garrisoned unit, whose ring belongs
+      // on the ROOF it stands on (Q7), and a ring the batch refused (full, or
+      // an unusable axis). It wears the SAME colour the ground ring does
+      // (VR-34): it used to take the control group's colour, or tracer lime
+      // with no group, so a unit's "selected" changed colour the moment it
+      // stepped into a building. The group is still told by the badge.
+      const ringHex = i === groupPrimary ? primaryRingHex(this.opts.teamColors[side]) : this.opts.teamColors[side];
+      if (selected && (inside >= 0 || !this.pushSelectionRing(i, type, ix, iy, side, this.selectionRing, SELECTED_RING_SCALE, ringHex))) {
         const ringCenter = billboardPoint(anchor, 0, -2);
-        this.overlayBatch.ellipseRing(ringCenter, r + 7, (r + 7) / 2, 2, groupColor || accentDefault, 1);
+        this.overlayBatch.ellipseRing(ringCenter, r + 7, (r + 7) / 2, 2, ringHex, 1);
       }
 
-      // Control-group badge -- renderer.ts: a filled circle (`g.circle(sx -
-      // r - 4, sy - r - 4, 7).fill({ color: groupColor || '#B8FF5A', alpha:
-      // 0.95 })`) plus a numeral Text at the same point. Two batches, not
-      // one -- see units/overlays.ts's own top comment for why.
+      // Control-group badge: a disc in the group's colour with its numeral
+      // on top, in two batches (units/overlays.ts's top comment says why).
+      // WP-P4 (PA-18): the numeral used to draw UNDER the disc
+      // (`BADGE_NUMERAL_RENDER_ORDER` was 1.5, the disc's tier is 4), so the
+      // badge was a blank lime blob at every zoom. It now draws above it,
+      // a size up, and the disc wears the `shadow.1` halo every ring in the
+      // world vocabulary wears (#364), so a pale disc holds its edge on
+      // pale sand. The disc's own size is unchanged.
       if (grp > 0) {
         const badgeCenter = billboardPoint(anchor, -(r + 4), r + 4);
-        this.overlayBatch.ellipseFan(badgeCenter, 7, 7, groupColor || accentDefault, 0.95);
-        this.numeralBatch.push(badgeCenter, 0, 0, 10, 12, grp);
+        const haloR = GROUP_BADGE_RADIUS_PX + GROUP_BADGE_HALO_PX;
+        this.overlayBatch.ellipseFan(badgeCenter, haloR, haloR, this.overlayColor(WORLD_HALO_COLOR_KEY), 0.85);
+        this.overlayBatch.ellipseFan(
+          badgeCenter,
+          GROUP_BADGE_RADIUS_PX,
+          GROUP_BADGE_RADIUS_PX,
+          groupColor || accentDefault,
+          1
+        );
+        this.numeralBatch.push(badgeCenter, 0, 0, GROUP_NUMERAL_W_PX, GROUP_NUMERAL_H_PX, grp);
       }
 
       // Veterancy chevron (spec §4.7): top-right, opposite the group badge, one quad
@@ -8043,6 +8894,7 @@ export class ThreeRenderer implements Renderer {
     // The ground rings pushed above, drawn in one call -- or none, and hidden,
     // when nothing on open ground is selected.
     this.selectionRing.endFrame(this.camera.zoom);
+    this.teamRing.endFrame(this.camera.zoom);
 
     // Building status: an integrity bar once a building has been hit, and a
     // pip per man inside -- renderer.ts's own comment: "you should be able
@@ -8062,16 +8914,30 @@ export class ThreeRenderer implements Renderer {
         const { fx: scx, fy: scy } = footprintCentre(this.sim, s);
         const groundYs = groundWorldY(elevation, width, height, scx, scy);
         const structAnchor: [number, number, number] = [scx, groundYs, scy];
-        // renderer.ts: `art?.badgeTopPx ?? stype.heightPx` -- the mosque's
-        // own comment there: `heightPx` (the procedural extrusion's height)
-        // is right only for a structure with no sprite; `badgeTopPx` is the
-        // topmost opaque row of its real art.
-        const badgeTopPx = this.structureRoofArt.get(stype.id)?.badgeTopPx ?? stype.heightPx;
+        // The type's own `heightPx`. A sheet's `badgeTopPx` used to override
+        // it; the structure sprites are retired (WP-A3.3), and on the mesh
+        // path it was never loaded.
+        const badgeTopPx = stype.heightPx;
         const topUp = badgeTopPx + 12; // Pixi's `top = by - badgeTopPx - 12`
 
         // Integrity bar -- renderer.ts: `g.rect(bx - 16, top, 32, 4)` (bg)
         // then the same rect scaled by `ratio` (fill), only once damaged.
         const ratio = str.maxHp[s] > 0 ? str.hp[s] / str.maxHp[s] : 1;
+        // Whose side the building is on, read ONCE for both the integrity bar
+        // (VR-03: the player's own never fills enemy red) and the held badge
+        // below: the first living occupant's side, else hostile -- the badge's
+        // own long-standing default.
+        const occ = str.occupants[s];
+        let holder = 1;
+        if (occ > 0) {
+          for (let i = 0; i < n; i++) {
+            if (st.alive[i] === 1 && st.garrisonedIn[i] === s) {
+              holder = st.side[i];
+              break;
+            }
+          }
+        }
+        const friendlyStructure = (occ > 0 && holder === 0) || stype.producesFor === 0;
         if (ratio < 0.999) {
           this.overlayBatch.rect(
             structAnchor,
@@ -8079,7 +8945,7 @@ export class ThreeRenderer implements Renderer {
             -topUp,
             16,
             -topUp + 4,
-            this.overlayColor(HP_BG_COLOR_KEY, '#14150F'),
+            this.overlayColor(HP_BG_COLOR_KEY),
             0.85
           );
           this.overlayBatch.rect(
@@ -8088,7 +8954,7 @@ export class ThreeRenderer implements Renderer {
             -topUp,
             -16 + 32 * Math.max(0, ratio),
             -topUp + 4,
-            this.overlayColor(buildingIntegrityColorKey(ratio), '#8E9491'),
+            this.overlayColor(buildingIntegrityColorKey(ratio, friendlyStructure), BUILDING_BAR_FALLBACK),
             1
           );
         }
@@ -8099,16 +8965,8 @@ export class ThreeRenderer implements Renderer {
         // ALREADY-RESOLVED hex per side (the app's own job), the identical
         // source every other team-coloured overlay already reads from --
         // not a palette-key lookup at this call site.
-        const occ = str.occupants[s];
         if (occ > 0) {
-          let side = 1;
-          for (let i = 0; i < n; i++) {
-            if (st.alive[i] === 1 && st.garrisonedIn[i] === s) {
-              side = st.side[i];
-              break;
-            }
-          }
-          const col = this.opts.teamColors[side];
+          const col = this.opts.teamColors[holder];
           const by2Rel = -(topUp + 16); // Pixi's `by2 = top - 16`
           this.overlayBatch.triangle(
             structAnchor,
@@ -8123,7 +8981,7 @@ export class ThreeRenderer implements Renderer {
             by2Rel + 3,
             1.5,
             by2Rel + 8,
-            this.overlayColor(HP_BG_COLOR_KEY, '#14150F'),
+            this.overlayColor(HP_BG_COLOR_KEY),
             1
           ); // doorway
           for (let k = 0; k < occ; k++) {
@@ -8147,7 +9005,7 @@ export class ThreeRenderer implements Renderer {
     // required to stand still, so the two are visually indistinguishable in
     // practice, but this is what Pixi's own source says).
     {
-      const ringTrack = this.overlayColor(CHARGE_RING_TRACK_COLOR_KEY, '#5C625F');
+      const ringTrack = this.overlayColor(CHARGE_RING_TRACK_COLOR_KEY);
       const ringFill = this.overlayColor(CHARGE_RING_FILL_COLOR_KEY, CHARGE_RING_FILL_FALLBACK_COLOR);
       for (let i = 0; i < n; i++) {
         if (st.alive[i] === 0) continue;
@@ -8196,26 +9054,20 @@ export class ThreeRenderer implements Renderer {
     // out once so this, the shepherd radius below, and the tutorial focus
     // ring above all share the identical formula.
     //
-    // The loop runs over the selection and then, at reduced strength, once
-    // more for `rangeRingPreview` -- the friendly unit under the cursor,
-    // written by `main.ts`'s `updateHover`. That is a SEPARATE field from
-    // `hoverEntity`, which stays the hostile hover the cursor hinting and the
-    // projected-fire panel read (api.ts has both comments). It is skipped
-    // when it is already in the selection, which draws at full strength.
+    // It draws for the selection's PRIMARY only (WP-P3, PA-09 -- fourteen
+    // selected units drew fourteen of these until 6 Oct 2026), and then, at
+    // reduced strength, once more for `rangeRingPreview` -- the friendly unit
+    // under the cursor, written by `main.ts`'s `updateHover`, selected or
+    // not. That is a SEPARATE field from `hoverEntity`, which stays the
+    // hostile hover the cursor hinting and the projected-fire panel read
+    // (api.ts has both comments). Hovering the primary itself adds nothing.
     {
-      const preview = this.rangeRingPreview;
-      const previewDraws =
-        preview >= 0 && preview < n && !this.selection.includes(preview) && this.drawsEnvelope(preview);
-      // How many envelopes this frame will actually draw -- NOT
-      // `selection.length`, which counts the dead and the unarmed. It decides
-      // the fill's per-unit alpha (`rangeFillAlphaFor`'s own doc comment has
-      // the photograph that made this necessary), so counting high would make
-      // the whole shape fainter than it declares. Counted in a loop rather
-      // than with a `filter`, because this runs every frame and the rest of
-      // this method allocates nothing per entity either.
-      let drawing = previewDraws ? 1 : 0;
-      for (const i of this.selection) if (this.drawsEnvelope(i)) drawing++;
-      const fillAlpha = rangeFillAlphaFor(drawing);
+      // WP-P3 (PA-09): the primary's envelope, plus the friendly under the
+      // cursor as a preview -- two at most, never one per selected unit
+      // (`units/group-overlays.ts`). The count still picks the fill's
+      // per-unit alpha (`rangeFillAlphaFor`'s own doc comment).
+      const draws = envelopeDraws(primary, this.rangeRingPreview, (i) => this.drawsEnvelope(i));
+      const fillAlpha = rangeFillAlphaFor(draws.length);
       const drawEnvelope = (i: number, previewing: boolean): void => {
         if (!this.drawsEnvelope(i)) return;
         const type = this.sim.unitTypes[st.typeIdx[i]];
@@ -8228,6 +9080,7 @@ export class ThreeRenderer implements Renderer {
           const { rightR, upR } = tileRadiusToEllipsePx(tiles, TILE_W, TILE_H);
           this.overlayBatch.ellipseRing(envelopeAnchor, rightR, upR, widthPx, colorHex, a);
         };
+        census.envelopes++;
         const w0 = type.weapons[0];
         const fillHex = cachedDesaturate(this.opts.teamColors[st.side[i]], RANGE_FILL_DESATURATE);
         // A preview is a hint at a unit the player has not committed to, so
@@ -8252,8 +9105,7 @@ export class ThreeRenderer implements Renderer {
         this.overlayBatch.ellipseRing(envelopeAnchor, outer.rightR, outer.upR, 1.5, fillHex, RANGE_ARC_ALPHA * strength);
         ring(fx.toNumber(w0.range), fillHex, 1, MAX_RANGE_HOOP_ALPHA * strength);
       };
-      for (const i of this.selection) drawEnvelope(i, false);
-      if (previewDraws) drawEnvelope(preview, true);
+      for (const d of draws) drawEnvelope(d.id, d.previewing);
     }
 
     // Shepherd radius: when a player unit is selected, highlight nearby
@@ -8263,7 +9115,7 @@ export class ThreeRenderer implements Renderer {
     // player has no way to see how close an escort must stay.
     const SHEPHERD_TILES = 4;
     if (this.selection.length > 0) {
-      const shepherdColor = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY, '#B8FF5A');
+      const shepherdColor = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY);
       for (let ci = 0; ci < n; ci++) {
         if (st.alive[ci] === 0 || st.side[ci] !== 2) continue;
         const ctype = this.sim.unitTypes[st.typeIdx[ci]];
@@ -8279,58 +9131,12 @@ export class ThreeRenderer implements Renderer {
       }
     }
 
-    // Engagement reticles: brackets on whatever the selected units are
-    // shooting at, with a faint line so the duel is readable at a glance.
-    // The duel line is the one overlay in this method connecting two
-    // INDEPENDENT world anchors (shooter, target) rather than small pixel
-    // offsets from one -- `OverlayBatch.lineWorld`'s own doc comment (and
-    // `pushLineWorld`'s, `units/overlay-geometry.ts`) has the full reasoning
-    // for why that needs its own primitive.
-    for (const i of this.selection) {
-      if (i >= n || st.alive[i] === 0 || st.side[i] !== 0) continue;
-      const t = st.curTarget[i];
-      if (t < 0 || t >= n || st.alive[t] === 0) continue;
-      const tx = this.prevX[t] + (this.curX[t] - this.prevX[t]) * alpha;
-      const ty = this.prevY[t] + (this.curY[t] - this.prevY[t]) * alpha;
-      const groundYt2 = groundWorldY(elevation, width, height, tx, ty);
-      const targetAnchor: [number, number, number] = [tx, groundYt2, ty];
-      const R = 15;
-      const c = this.opts.teamColors[1];
-      for (const [mx, my] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
-        this.overlayBatch.line(targetAnchor, mx * R, my * (R / 2) - my * 4, mx * R, my * (R / 2), 2, c, 1);
-        this.overlayBatch.line(targetAnchor, mx * R, my * (R / 2), mx * R - mx * 7, my * (R / 2), 2, c, 1);
-      }
-      const shx = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
-      const shy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
-      const groundYs2 = groundWorldY(elevation, width, height, shx, shy);
-      const shooterAnchor: [number, number, number] = [shx, groundYs2, shy];
-      this.overlayBatch.lineWorld(shooterAnchor, targetAnchor, 1, c, 0.35);
-    }
-
-    // Permanent-wreck fallback: a unit type with no real `wreck` clip
-    // (`clipOrFallback(sheet, 'wreck') !== 'wreck'`, `mbt_lavi`'s
-    // `TNK_HULL`/`TNK_TURR` among them) or no loaded `UnitInstancer` at all
-    // gets Pixi's own grey X cross-marker instead of real art
-    // (`renderer.ts:1236-1242`, drawn into `unitsG` -- the identical overlay
-    // tier this method already builds, not `wreckLayer`). `stepDeaths`'s own
-    // wreck loop already drew every wreck WITH real art through
-    // `framesByType`/`UnitInstancer` this same frame -- this pass only
-    // covers what that one deliberately skipped, so a wreck never gets both.
-    if (this.wrecks.length > 0) {
-      const wreckMarkerColor = this.overlayColor(WRECK_MARKER_COLOR_KEY, '#5C625F');
-      for (const wk of this.wrecks) {
-        if (!wk.shown) continue;
-        const instancer = this.unitInstancers.get(wk.typeId);
-        if (instancer && clipOrFallback(instancer.sheet, 'wreck') === 'wreck') continue;
-        const wreckGroundY = groundWorldY(elevation, width, height, wk.x, wk.y);
-        const wreckAnchor: [number, number, number] = [wk.x, wreckGroundY, wk.y];
-        // Two crossing strokes, Pixi's own literal geometry verbatim:
-        // `g.moveTo(sx-7,sy-5).lineTo(sx+7,sy+5)` and
-        // `g.moveTo(sx-7,sy+5).lineTo(sx+7,sy-5)`, both `stroke({width: 3})`.
-        this.overlayBatch.line(wreckAnchor, -7, -5, 7, 5, 3, wreckMarkerColor, 1);
-        this.overlayBatch.line(wreckAnchor, -7, 5, 7, -5, 3, wreckMarkerColor, 1);
-      }
-    }
+    // Fire link (`units/fire-link.ts`): the selection's shots pulse onto
+    // their target, in the overlay tier the range envelope already draws in.
+    // It replaced a 1 px duel line from shooter to target plus corner
+    // brackets, retired by the lead (2 Oct) once tracers, missiles and
+    // muzzle flashes carried the fire itself.
+    this.drawFireLinkOverlays(alpha);
 
     // Queued route for the selection -- renderer.ts's own "the path you
     // drew, in order": a stroke per leg from the unit through its current
@@ -8347,7 +9153,10 @@ export class ThreeRenderer implements Renderer {
     // `posX` at the last tick (its `curX`-derived `px`/`py` are dead code,
     // `void`ed) -- a 20 Hz tail on a 60 fps sprite.
     if (this.selection.length > 0) {
-      const routeColor = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY, '#B8FF5A');
+      // Every order's route wears the one ground key (VR-33), the key the
+      // move cursor is drawn in too.
+      const routeColor = this.overlayColor(ORDER_GROUND_COLOR_KEY);
+      const unitRoutes: UnitRoute[] = [];
       for (const i of this.selection) {
         if (i >= n || st.alive[i] === 0 || st.moving[i] === 0) continue;
         const ix = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
@@ -8359,7 +9168,18 @@ export class ThreeRenderer implements Renderer {
           const [wx, wy] = this.sim.waypointAt(i, k);
           waypoints.push([fx.toNumber(wx), fx.toNumber(wy)]);
         }
-        const legs = queuedRouteLegs([ix, iy], [fx.toNumber(goal[0]), fx.toNumber(goal[1])], waypoints);
+        unitRoutes.push({ points: queuedRouteLegs([ix, iy], [fx.toNumber(goal[0]), fx.toNumber(goal[1])], waypoints) });
+      }
+      // WP-P3 (PA-09): one path per ORDER, not per unit -- the units an
+      // order sent to one place (a formation's neighbouring slots) draw one
+      // merged route from their centroid to the group's destination, and a
+      // ring round the slots they will stand on (`units/group-overlays.ts`).
+      // One unit alone is its own group, and draws exactly what it drew.
+      for (const route of groupRoutes(unitRoutes)) {
+        const legs = route.points;
+        if (legs.length < 2) continue;
+        census.routes++;
+        census.destinations++;
         for (let k = 1; k < legs.length; k++) {
           const [ax, ay] = legs[k - 1];
           const [bx, by] = legs[k];
@@ -8367,6 +9187,14 @@ export class ThreeRenderer implements Renderer {
           const p1: [number, number, number] = [bx, groundWorldY(elevation, width, height, bx, by), by];
           this.overlayBatch.lineWorld(p0, p1, ROUTE_LINE_WIDTH_PX, routeColor, ROUTE_LINE_ALPHA);
           this.overlayBatch.ellipseFan(p1, ROUTE_NODE_RADIUS_PX, ROUTE_NODE_RADIUS_PX, routeColor, ROUTE_NODE_ALPHA);
+          if (k === legs.length - 1 && route.members > 1) {
+            const { rightR, upR } = tileRadiusToEllipsePx(
+              route.spreadTiles + GROUP_DESTINATION_MARGIN_TILES,
+              TILE_W,
+              TILE_H
+            );
+            this.overlayBatch.ellipseRing(p1, rightR, upR, ROUTE_LINE_WIDTH_PX, routeColor, ROUTE_NODE_ALPHA);
+          }
         }
       }
     }
@@ -8375,8 +9203,9 @@ export class ThreeRenderer implements Renderer {
     // = this.orderMarkers.filter((m) => --m.ttl > 0)`, then a crosshair plus
     // a fading ring per survivor.
     this.orderMarkers = this.orderMarkers.filter((m) => --m.ttl > 0);
+    census.orderMarkers = this.orderMarkers.length;
     if (this.orderMarkers.length > 0) {
-      const markerColor = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY, '#B8FF5A');
+      const markerColor = this.overlayColor(ORDER_GROUND_COLOR_KEY);
       for (const m of this.orderMarkers) {
         const groundYm = groundWorldY(elevation, width, height, m.x, m.y);
         const manchor: [number, number, number] = [m.x, groundYm, m.y];
@@ -8415,11 +9244,24 @@ export class ThreeRenderer implements Renderer {
       const pulse = objectiveZonePulse(zv.state, this.frameN);
       // Was renderer.ts's `.stroke({width: 2, ...})` + `.fill({alpha: 0.05})`
       // verbatim until 2026-09-06; see OBJECTIVE_ZONE_HALO_INSET_TILES for
-      // why a dark halo now sits under a wider stroke and the fill is 0.12.
+      // why a dark halo now sits under a wider stroke. The halo and stroke
+      // stay in the overlay tier; there is no fill there any more (#470).
       const halo = this.overlayColor(OBJECTIVE_ZONE_HALO_COLOR_KEY, OBJECTIVE_ZONE_HALO_FALLBACK);
       this.overlayBatch.polygonStrokeWorld(corners, OBJECTIVE_ZONE_HALO_INSET_TILES, halo, 0.6);
-      this.overlayBatch.polygonStrokeWorld(corners, OBJECTIVE_ZONE_STROKE_INSET_TILES, color, pulse + 0.35);
-      this.overlayBatch.polygonFillWorld(corners, color, OBJECTIVE_ZONE_FILL_ALPHA);
+      // VR-36: not held and contested are DASHED over the continuous halo,
+      // so the dark band shows in the gaps; the colour is unchanged.
+      this.overlayBatch.polygonStrokeWorld(
+        corners,
+        OBJECTIVE_ZONE_STROKE_INSET_TILES,
+        color,
+        pulse + 0.35,
+        objectiveZoneDashed(zv.state) ? OBJECTIVE_ZONE_DASH_TILES : undefined
+      );
+      // #470: the zone's ground band, hatched, 0.5 tile inside the edge,
+      // depth-tested and multiplied onto the lit ground. It replaced a 0.12
+      // fill over the whole rectangle in this overlay tier, which tinted
+      // every roof and hull in a town lime (`units/zone-band.ts`).
+      this.zoneBand.pushZone(zv.rect, color, (x, y) => groundWorldY(elevation, width, height, x, y));
     }
 
     // Tutorial focus ring -- renderer.ts's own manual 24-point loop, a
@@ -8438,7 +9280,7 @@ export class ThreeRenderer implements Renderer {
       const groundYt = groundWorldY(elevation, width, height, tut.x, tut.y);
       const tanchor: [number, number, number] = [tut.x, groundYt, tut.y];
       const pulse = 0.35 + 0.25 * Math.sin(this.frameN * 0.09);
-      const color = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY, '#B8FF5A');
+      const color = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY);
       // `tileRadiusToEllipsePx` (units/overlays.ts) is this same `tiles *
       // TILE_W * ISO_K, tiles * TILE_H * ISO_K` formula, pulled out once now
       // that the weapon-envelope ring below actually exists and shares it.
@@ -8487,15 +9329,12 @@ export class ThreeRenderer implements Renderer {
       const { fx: cxTile, fy: cyTile } = footprintCentre(this.sim, s);
       const groundYs = groundWorldY(elevation, width, height, cxTile, cyTile);
       const structAnchor: [number, number, number] = [cxTile, groundYs, cyTile];
-      // renderer.ts: `art?.badgeTopPx ?? stype.heightPx` -- NOT
-      // resolveRoofPx's roofTopPx-preferring chain above (that one answers
-      // "how tall does a garrisoned occupant stand", a different question
-      // from "where does this building's own badge/affordance UI hang").
-      const badgeTopPx = this.structureRoofArt.get(stype.id)?.badgeTopPx ?? stype.heightPx;
+      // The type's own `heightPx` -- see the integrity bar's note above.
+      const badgeTopPx = stype.heightPx;
       const hyUp = badgeTopPx + 12 + 34; // top = anchor_up(badgeTopPx + 12); hy = top - 34 (Pixi y-down)
       const hAnchor = billboardPoint(structAnchor, 0, hyUp);
       const pulse = 0.55 + 0.45 * Math.sin(this.frameN * 0.12);
-      const color = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY, '#B8FF5A');
+      const color = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY);
       // Door outline + jamb: renderer.ts's `g.rect(bx + 2, hy - 9, 11, 18)
       // .stroke(...)` and `g.rect(bx + 2, hy - 9, 3, 18).fill(...)`.
       this.overlayBatch.rectStroke(hAnchor, 2, -9, 13, 9, 2, color, pulse);
@@ -8508,6 +9347,7 @@ export class ThreeRenderer implements Renderer {
     }
 
     this.overlayBatch.endFrame();
+    this.zoneBand.endFrame();
     this.numeralBatch.endFrame();
     this.chevronBatch.endFrame();
   }
@@ -8574,32 +9414,44 @@ export class ThreeRenderer implements Renderer {
     // `disposeDecorMesh` both disposes each batch's geometry/material AND
     // empties the group's own `children`, so nothing here needs a second
     // per-child loop the way `structureBoxes` does.
+    // Out of the scene now, disposed only after the next draw -- see
+    // `disposeRetired` for the shader compile disposing them here cost.
     if (this.decorGroup !== null) {
-      this.scene.remove(this.decorGroup);
-      disposeDecorMesh(this.decorGroup);
+      const old = this.decorGroup;
+      this.scene.remove(old);
+      this.retiredAfterRender.push(() => disposeDecorMesh(old));
     }
     if (this.texturedDecorGroup !== null) {
-      this.scene.remove(this.texturedDecorGroup);
-      disposeTexturedDecorMesh(this.texturedDecorGroup);
+      const old = this.texturedDecorGroup;
+      this.scene.remove(old);
+      this.retiredAfterRender.push(() => disposeTexturedDecorMesh(old));
     }
     if (this.propMesh !== null) {
-      this.scene.remove(this.propMesh);
-      disposePropMesh(this.propMesh);
+      const old = this.propMesh;
+      this.scene.remove(old);
+      this.retiredAfterRender.push(() => disposePropMesh(old));
       this.propMesh = null;
     }
 
-    const composed = composeTerrain(
+    // Spliced from the last build where it can be: a collapse re-emits the
+    // ground and scatter only around the footprint it reopened, and the
+    // result is byte-identical to a full build (`composeTerrainFrom`).
+    const build = composeTerrainFrom(
+      this.terrainState,
       this.sim,
       this.retained.decor,
       // The RAW grid: the terrain builders take a `TerrainInput` and build
       // their own surface from it, so that both routes to the surface start
       // from the same two arrays. `surface.test.ts` pins that they agree.
       this.retained.elevationLevels,
-      (id) => this.structureIdle.has(id) || this.buildingMeshIdleTemplates.has(id),
+      (id) => this.buildingMeshIdleTemplates.has(id),
       this.opts.terrainTones,
       this.opts.resolveColor,
       this.opts.background
     );
+    const composed = build.composed;
+    this.terrainState = build.state;
+    let controlTexels = 0;
     // The haze's low-lying reference (N-19): the median open-ground level of
     // the input the ground was just built from. Elevation never changes
     // after load, so this settles on the first rebuild that has the grid; a
@@ -8626,14 +9478,36 @@ export class ThreeRenderer implements Renderer {
     const graph =
       controlReused && this.decalGround !== null ? this.decalGround.graph : buildRoadGraph(composed.input);
     if (!controlReused) {
-      const control = controlTexturePair(buildControlMap(composed.input));
-      this.controlTex?.a.dispose();
-      this.controlTex?.b.dispose();
-      this.controlTex = control;
+      // A collapse changes `blocked` and `cover` under one footprint: rewrite
+      // only the texels those tiles reach, in place, and re-upload. Anything
+      // else -- the first build, a road or ridge tile changing -- builds the
+      // map whole (`changedControlTiles`).
+      const changed =
+        this.controlTex !== null && this.controlMap !== null && this.controlInputs !== null
+          ? changedControlTiles(this.controlInputs, composed.input)
+          : null;
+      if (changed !== null && this.controlTex !== null && this.controlMap !== null) {
+        controlTexels = updateControlMapRegion(this.controlMap, composed.input, changed);
+        this.controlTex.a.needsUpdate = true;
+        this.controlTex.b.needsUpdate = true;
+      } else {
+        const map = buildControlMap(composed.input);
+        const control = controlTexturePair(map);
+        this.controlTex?.a.dispose();
+        this.controlTex?.b.dispose();
+        this.controlTex = control;
+        this.controlMap = map;
+        controlTexels = map.width * map.height;
+        this.groundMat.uniforms.uControlA.value = control.a;
+        this.groundMat.uniforms.uControlB.value = control.b;
+      }
       this.controlInputs = snapshotControlInputs(composed.input);
-      this.groundMat.uniforms.uControlA.value = control.a;
-      this.groundMat.uniforms.uControlB.value = control.b;
     }
+    this.lastTerrainRebuild = {
+      tiles: build.rebuiltTiles,
+      texels: controlTexels,
+      full: build.rebuiltTiles === composed.input.width * composed.input.height,
+    };
     // The decal pool's local ground tone reads the same input the ground and
     // the control map were built from (fix round 2) -- refreshed on every
     // rebuild, since its draw mask is the one the ground just drew.
@@ -8641,7 +9515,7 @@ export class ThreeRenderer implements Renderer {
       composed.input,
       this.opts.terrainTones,
       this.opts.background,
-      this.overlayColor(SHOULDER_TONE_KEY, SHOULDER_TONE_FALLBACK),
+      this.overlayColor(SHOULDER_TONE_KEY),
       graph
     );
 
@@ -8662,15 +9536,17 @@ export class ThreeRenderer implements Renderer {
     // objects (`lighting.ts`) shows up as acne along every slope -- so it
     // stays off here, as something to measure on screen and turn on
     // deliberately, not to assume.
-    this.terrainMesh = new THREE.Mesh(toGeometry(composed.ground), this.groundMat);
+    // Every layer this method builds stands still until the next rebuild
+    // replaces it: built once, matrices composed once (`static-matrix.ts`).
+    this.terrainMesh = freezeStatic(new THREE.Mesh(toGeometry(composed.ground), this.groundMat));
     this.terrainMesh.receiveShadow = true;
     this.scene.add(this.terrainMesh);
 
-    this.scatterMesh = new THREE.Mesh(toGeometry(composed.scatter), this.terrainMat);
+    this.scatterMesh = freezeStatic(new THREE.Mesh(toGeometry(composed.scatter), this.terrainMat));
     this.scatterMesh.receiveShadow = true;
     this.scene.add(this.scatterMesh);
 
-    this.residualMesh = new THREE.Mesh(toGeometry(composed.residual), this.terrainMat);
+    this.residualMesh = freezeStatic(new THREE.Mesh(toGeometry(composed.residual), this.terrainMat));
     this.residualMesh.receiveShadow = true;
     this.scene.add(this.residualMesh);
 
@@ -8678,7 +9554,7 @@ export class ThreeRenderer implements Renderer {
       // A box is extruded, and `{ normals: 'compute' }` is what makes its
       // walls shade as walls instead of taking the up-fill default and
       // lighting like the ground they stand on.
-      const mesh = new THREE.Mesh(toGeometry(box.mesh, { normals: 'compute' }), this.terrainMat);
+      const mesh = freezeStatic(new THREE.Mesh(toGeometry(box.mesh, { normals: 'compute' }), this.terrainMat));
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       this.structureBoxes.set(box.structureIndex, mesh);
@@ -8697,7 +9573,7 @@ export class ThreeRenderer implements Renderer {
       this.sway,
       this.opts.terrainTones.decorColors
     );
-    this.scene.add(this.decorGroup);
+    this.scene.add(freezeStatic(this.decorGroup));
 
     // The textured half of the same placement list. `buildDecorMesh` above
     // and this partition it by family rather than competing for it -- a
@@ -8707,12 +9583,12 @@ export class ThreeRenderer implements Renderer {
       composed.decorPlacements,
       this.texturedDecorSet
     );
-    this.scene.add(this.texturedDecorGroup);
+    this.scene.add(freezeStatic(this.texturedDecorGroup));
 
     // Ground plan 2, Task 5: the one prop batch, from the same `input` as
     // the decor above. `null` when nothing is placed or nothing loaded.
     this.propMesh = buildPropMesh(composed.propPlacements, this.propSet);
-    if (this.propMesh !== null) this.scene.add(this.propMesh);
+    if (this.propMesh !== null) this.scene.add(freezeStatic(this.propMesh));
   }
 
   /**
@@ -8731,22 +9607,6 @@ export class ThreeRenderer implements Renderer {
     next.fill(0xff); // never a real structureWearStep() output (range 0..8)
     if (current) next.set(current);
     this.structureWear = next;
-    return next;
-  }
-
-  /**
-   * Task B4.4: the lazy-grow counterpart of `ensureStructureWear` above, for
-   * `structureLastAlpha` -- same shape, `-1` as the "never cached" sentinel
-   * instead of `0xff` (see that field's own doc comment for why a float
-   * cache rather than a wear-step one).
-   */
-  private ensureStructureLastAlpha(): Float32Array {
-    const current = this.structureLastAlpha;
-    if (current && current.length >= this.sim.structureCount) return current;
-    const next = new Float32Array(this.sim.structureCount);
-    next.fill(-1);
-    if (current) next.set(current);
-    this.structureLastAlpha = next;
     return next;
   }
 
@@ -8800,7 +9660,7 @@ export class ThreeRenderer implements Renderer {
     // be: this replaces one box in place, so a damaged building that shaded or
     // cast differently from its undamaged neighbours would announce which one
     // has been shot at.
-    const mesh = new THREE.Mesh(toGeometry(data, { normals: 'compute' }), this.terrainMat);
+    const mesh = freezeStatic(new THREE.Mesh(toGeometry(data, { normals: 'compute' }), this.terrainMat));
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     this.structureBoxes.set(structure, mesh);
@@ -8859,185 +9719,6 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
-   * Task B3.7: per-frame idle/wreck billboard placement for every structure
-   * type with a loaded sheet -- the sprite counterpart to `updateUnits`, and
-   * deliberately driven off LIVE `Sim` state every frame rather than the
-   * `terrainDirty`-gated box/ground mesh `rebuildTerrain` owns.
-   *
-   * That is load-bearing, not merely convenient: even now that `onEvents`
-   * calls `applyStructureHit`/`applyStructureDestroyed` for real
-   * `structureHit`/`structureDestroyed` events (Task B3.10), neither ever
-   * touches an ARTED structure -- the only kind this method draws --
-   * because both key off `structureBoxes`/`structureFootprintTiles`, which
-   * `composeTerrain`'s `hasArt` skip never populates for one (see
-   * `structureWreck`'s own field doc comment for the same point made about
-   * that map specifically). If a structure's wreck sprite only ever
-   * refreshed on `terrainDirty`, it would never appear at all during a real
-   * mission -- nothing sets `terrainDirty` for an arted structure, wired
-   * events included. Reading `Sim` fresh here instead means a living
-   * structure's battle-damage alpha darkens in real time and its wreck
-   * appears the instant `Sim` marks it dead, without touching the terrain
-   * mesh at all -- and it is, in this one respect, MORE responsive than
-   * Pixi, which only refreshes either at the same `terrainDirty`-style
-   * granularity (`drawTerrain` calls `drawWreckedStructures` itself, at the
-   * very end).
-   *
-   * Task B3.9's own review flagged this method by name and asked whether it
-   * still composes with the new incremental invalidation, rather than
-   * quietly duplicating it. It does compose, and stays exactly as written:
-   * this path draws ARTED structures only (`structureIdle`/`structureWreck`,
-   * keyed by structure TYPE); `applyStructureHit`/`applyStructureDestroyed`
-   * touch `structureBoxes`, keyed by structure INDEX, and only for UN-ARTED
-   * structures (`composeTerrain`'s `hasArt` skip) -- two disjoint sets, never
-   * the same structure twice. Now that Task B3.10 has wired `onEvents`, this
-   * scan is the ONLY thing still doing per-frame, per-structure work for its
-   * own set (idempotent, and already known-cheap at today's counts -- an O(types x
-   * structureCount) live-state pull each frame, up to 13 scans and one
-   * object per structure per type today; ~4,000 probes / 18,000 objects a
-   * second at the GDD's 300-structure target, GC-visible but not wired to
-   * anything expensive downstream). Made redundant in the narrow sense that
-   * an EVENT-DRIVEN update for arted structures would no longer strictly
-   * need to poll every frame, but not wrong, and folding it into
-   * event-driven invalidation is explicitly not this task's job -- the
-   * right time is when detection's own O(N^2) staggering lands (`CLAUDE.md`'s
-   * "Known scaling debts"), which already needs to touch per-frame structure
-   * scanning for the same reason.
-   *
-   * Called unconditionally, like `updateUnits`/`updateFx` -- both maps start
-   * empty and simply have nothing to iterate before any sheet has loaded.
-   */
-  private updateStructures(): void {
-    if (this.structureIdle.size === 0 && this.structureWreck.size === 0) return;
-    const elevation = this.retained.elevation;
-    for (const [id, instancer] of this.structureIdle) {
-      // "Mesh wins": a structure type with a loaded building mesh
-      // (`updateBuildingMeshes`) must not ALSO draw its billboard --
-      // matching `updateUnits`'s own `vehicleMeshTemplates.has(type.id)`
-      // guard. Forced to an EMPTY placement list rather than skipped
-      // outright, so `mesh.count` is actively zeroed even if a mesh loads
-      // for a type whose billboard previously had a non-zero count.
-      instancer.update(this.buildingMeshIdleTemplates.has(id) ? [] : liveStructurePlacements(this.sim, id, elevation));
-    }
-    for (const [id, instancer] of this.structureWreck) {
-      instancer.update(
-        this.buildingMeshWreckTemplates.has(id) ? [] : deadStructurePlacements(this.sim, id, elevation)
-      );
-    }
-    this.cacheStructureAlpha();
-  }
-
-  /**
-   * Task B4.4: snapshot every LIVE, arted structure's current billboard
-   * alpha into `structureLastAlpha` -- see that field's own doc comment for
-   * why `beginCollapse` needs a cache rather than a live read at the moment
-   * of death. A plain O(structureCount) scan, cheaper than the O(types x
-   * structureCount) work `updateStructures` already pays above (that
-   * method's own doc comment already accepts that shape at the GDD's
-   * 300-structure target).
-   */
-  private cacheStructureAlpha(): void {
-    const st = this.sim.structures;
-    const cache = this.ensureStructureLastAlpha();
-    for (let s = 0; s < this.sim.structureCount; s++) {
-      if (st.alive[s] !== 1) continue;
-      const type = this.sim.structureTypes[st.typeIdx[s]];
-      if (!this.structureIdle.has(type.id)) continue; // un-arted: structureBoxes' concern, not this cache's
-      cache[s] = structureAliveAlpha(st.hp[s], st.maxHp[s]);
-    }
-  }
-
-  /**
-   * Task B4.4: start a building falling -- the three.js counterpart to
-   * `PixiRenderer.beginCollapse` (`renderer.ts:272-303`).
-   *
-   * `updateStructures` swaps the idle billboard for the wreck one the
-   * instant `sim.alive` flips, every frame (see that method's own doc
-   * comment for why it has to poll live state rather than wait for a
-   * `terrainDirty` rebuild) -- this method adds a SEPARATE, one-off
-   * `THREE.Mesh` on top of that swap, exactly the way `structureBoxes`
-   * already gives an un-arted structure its own per-structure mesh outside
-   * the bulk-rebuilt terrain mesh. `updateStructures` cannot delete this
-   * mesh out from under the fall because it never touches it: that method
-   * only ever writes into `structureIdle`/`structureWreck`'s OWN instance
-   * buffers, keyed by structure TYPE, and this mesh is not a member of
-   * either -- it is tracked solely by `this.collapsing`, added to `scene`
-   * directly, and removed only by `stepCollapses` once its own fall
-   * finishes. The wreck billboard is therefore already sitting underneath,
-   * visible the instant `sim.alive` flips, exactly as Pixi's own comment on
-   * `beginCollapse` describes ("The wreck is already going down underneath
-   * on this rebuild, so all this adds is the intact sprite on top").
-   *
-   * Bails silently for a structure type with no loaded idle sheet -- the
-   * un-arted, procedurally-extruded case (`structureBoxes`) has no
-   * billboard to fell, matching Pixi's own `if (!art) return`
-   * (`renderer.ts:277`). Every shipped structure type has art today
-   * (`main.ts`'s `STRUCTURE_SPRITES`), so this branch is not reachable on
-   * any real mission, same as Pixi's.
-   *
-   * Also bails for a structure type with a loaded building MESH (GH #143) --
-   * the same "mesh wins" guard `updateStructures` already applies to the
-   * ordinary idle/wreck billboard swap (`this.buildingMeshIdleTemplates.has(id)`
-   * above), missing here until now. `main.ts`'s `STRUCTURE_SPRITES` and
-   * `MESH_BUILDINGS` overlap on all seven billboard-arted types, so every
-   * structure that reaches this method with `idle`/`art` both present ALSO
-   * had a mesh loaded, on every real mission -- without this guard, a dying
-   * building's mesh swaps to its wreck instantly (`updateBuildingMeshes`)
-   * while this method ALSO span up a mis-scaled falling ghost of the
-   * standing billboard on top of it. `?renderer=pixi` builds a wholly
-   * separate `PixiRenderer` with no `buildingMeshIdleTemplates` field at
-   * all, so that backend's own `beginCollapse` (`renderer.ts:272-303`) is
-   * untouched by this and keeps playing its collapse for every arted
-   * structure, mesh or not -- there is no mesh path there to prefer.
-   *
-   * Anchored at the BASE, not the footprint's centred ground point every
-   * OTHER structure billboard uses -- `collapseBillboardGeometry` builds
-   * that separately; see its own doc comment for why a base anchor is what
-   * makes shrinking `mesh.scale.y` bring the roof down while the footprint
-   * stays exactly where it was, and for the `worldY - halfHeight`
-   * translation below.
-   *
-   * `alpha0` continues from `structureLastAlpha`'s cache rather than
-   * recomputing from `hp`/`maxHp` fresh -- see that field's own doc comment
-   * for why a fresh read at this exact moment would always answer "fully
-   * battered" (`0.55`), and for why that is a deliberate departure from
-   * what Pixi itself actually shows for a combat kill, not merely a
-   * different route to the same number.
-   */
-  private beginCollapse(structure: number): void {
-    const st = this.sim.structures;
-    const type = this.sim.structureTypes[st.typeIdx[structure]];
-    const idle = this.structureIdle.get(type.id);
-    const art = this.structureCollapseArt.get(type.id);
-    if (!idle || !art || this.buildingMeshIdleTemplates.has(type.id)) return;
-
-    const { fx: footX, fy: footY } = footprintCentre(this.sim, structure);
-    const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, footX, footY);
-    const cache = this.structureLastAlpha;
-    const cached = cache && structure < cache.length ? cache[structure] : -1;
-    const alpha0 = cached >= 0 ? cached : 1;
-
-    const geometry = collapseBillboardGeometry(art.scale, art.textureWidth, art.textureHeight);
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(geometry.positions, 3));
-    geo.setAttribute('uv', new THREE.BufferAttribute(geometry.uvs, 2));
-    geo.setIndex(new THREE.BufferAttribute(geometry.indices, 1));
-
-    const material = createCollapseMaterial(idle.spriteTexture, alpha0);
-    const mesh = new THREE.Mesh(geo, material);
-    // Base-anchored: local up runs 0..drawHeightPx (collapseBillboardGeometry),
-    // so translating to worldY - halfHeight lands the mesh's own local origin
-    // at the exact world point the CENTRED idle sprite's own bottom edge
-    // already sat at -- the fall begins with no visible pop, "covering the
-    // same ground the centred sprite did."
-    const halfHeightWorld = (geometry.drawHeightPx / 2) * WORLD_Y_PER_LIFT_PIXEL;
-    mesh.position.set(footX, worldY - halfHeightWorld, footY);
-    mesh.renderOrder = STRUCTURE_RENDER_ORDER;
-
-    this.scene.add(mesh);
-    this.collapsing.push({ mesh, t: 0, alpha0 });
-  }
-
-  /**
    * Throws the collapse shroud over a structure that has just died, and
    * starts the standing-mesh hold that lets the wreck swap happen inside it
    * (`units/collapse-shroud.ts`'s own top comment is the whole argument;
@@ -9077,18 +9758,12 @@ export class ThreeRenderer implements Renderer {
   private beginCollapseShroud(structure: number, cx: number, cy: number): void {
     const st = this.sim.structures;
     const type = this.sim.structureTypes[st.typeIdx[structure]];
-    const bounds = this.buildingMeshBounds.get(type.id);
+    const bounds = this.drawnBuildingSize(structure);
     const footprintW = st.maxX[structure] - st.minX[structure] + 1;
     const footprintD = st.maxY[structure] - st.minY[structure] + 1;
     const width = bounds ? Math.max(footprintW, bounds.x) : footprintW;
     const depth = bounds ? Math.max(footprintD, bounds.z) : footprintD;
-    const art = this.structureCollapseArt.get(type.id);
-    const height = bounds
-      ? bounds.y
-      : art
-        ? billboardDrawSize(art.scale, art.textureWidth, art.textureHeight).drawHeightPx *
-          WORLD_Y_PER_LIFT_PIXEL
-        : type.heightPx * WORLD_Y_PER_LIFT_PIXEL;
+    const height = bounds ? bounds.y : type.heightPx * WORLD_Y_PER_LIFT_PIXEL;
     const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, cx, cy);
     // `structure` as the scatter seed: stable across a replay, never a clock,
     // never sim state that could feed back -- the same presentation-hash rule
@@ -9158,31 +9833,6 @@ export class ThreeRenderer implements Renderer {
     }
   }
 
-  /**
-   * Bring the falling buildings down one frame -- the three.js counterpart
-   * to `PixiRenderer.stepCollapses` (`renderer.ts:311-325`), identical
-   * squared easing via `collapseFrame` (see that function's own doc
-   * comment). `scale.y` needs no `scaleY0` multiplier the way Pixi's own
-   * sprite does: `collapseBillboardGeometry`'s quad is already sized to its
-   * final world extent (the same convention every other billboard in this
-   * backend uses), so three.js's rest scale is simply `1` -- `collapseFrame`
-   * already returns that ratio directly.
-   */
-  private stepCollapses(dtSeconds: number): void {
-    for (let i = this.collapsing.length - 1; i >= 0; i--) {
-      const c = this.collapsing[i];
-      c.t += dtSeconds;
-      const result = collapseFrame(c.t, c.alpha0);
-      c.mesh.scale.y = result.scaleY;
-      c.mesh.material.opacity = result.alpha;
-      if (result.done) {
-        this.scene.remove(c.mesh);
-        c.mesh.geometry.dispose();
-        c.mesh.material.dispose();
-        this.collapsing.splice(i, 1);
-      }
-    }
-  }
 }
 
 /** `StructureFootprint` plus the one fact `buildBuildings` itself does not
@@ -9378,6 +10028,41 @@ export function composeTerrain(
   resolveColor: ((key: string) => string) | undefined,
   background: string
 ): ComposedTerrain {
+  return composeTerrainFrom(null, sim, decor, elevation, hasArt, tones, resolveColor, background).composed;
+}
+
+/** `composeTerrainFrom`'s result: the composed layers, the state the next
+ *  rebuild splices against, and how many ground tiles this one re-emitted
+ *  (`width * height` for a full build) -- reported, so a capture can tell a
+ *  splice from a full rebuild without timing it. */
+export interface ComposedTerrainBuild {
+  readonly composed: ComposedTerrain;
+  readonly state: TerrainBuildState;
+  readonly rebuiltTiles: number;
+}
+
+/**
+ * `composeTerrain`, splicing the ground and scatter meshes from `prev` (the
+ * last build's state) where it can: only the tiles whose inputs changed, plus
+ * `SPLICE_RADIUS_TILES` around them, are re-emitted, and the rest are copied
+ * (`terrain/incremental.ts`, `terrain/tiled-mesh.ts`). The result is
+ * byte-identical to a full build -- `packages/app/src/terrain-splice.test.ts` holds it there
+ * after real collapses on shipped maps -- which is what lets a building
+ * collapse stop paying for the whole map. With `prev` null, or a `prev` that
+ * cannot be compared (another map, replaced decor or elevation), it is a full
+ * build. Every other layer (residual, boxes, decor and prop placements) is
+ * rebuilt in full either way: together they cost a few milliseconds.
+ */
+export function composeTerrainFrom(
+  prev: TerrainBuildState | null,
+  sim: Sim,
+  decor: Uint8Array | null,
+  elevation: Uint8Array | null,
+  hasArt: (structureId: string) => boolean,
+  tones: TerrainTones,
+  resolveColor: ((key: string) => string) | undefined,
+  background: string
+): ComposedTerrainBuild {
   const input: TerrainInput = {
     width: sim.width,
     height: sim.height,
@@ -9398,8 +10083,26 @@ export function composeTerrain(
     // `decorPlacements`. Absent on every theme but `highland`.
     openScatter: tones.openScatter,
   };
-  const ground = buildGround(input, tones, background);
-  const scatter = buildScatter(input, tones, background);
+  // One surface for both builders and for the diff -- each used to build its
+  // own from the same `input`.
+  const surface = buildTerrainSurface(input);
+  const changed = prev === null ? null : changedTerrainTiles(prev, input, surface);
+  let groundTiled: TiledMeshData;
+  let scatterTiled: TiledMeshData;
+  let rebuiltTiles: number;
+  if (prev !== null && changed !== null) {
+    const dirty = spliceMask(changed, input.width, input.height);
+    rebuiltTiles = 0;
+    for (let t = 0; t < dirty.length; t++) rebuiltTiles += dirty[t];
+    groundTiled = rebuiltTiles === 0 ? prev.ground : spliceGround(prev.ground, dirty, input, tones, background, surface);
+    scatterTiled = rebuiltTiles === 0 ? prev.scatter : spliceScatter(prev.scatter, dirty, input, tones, background, surface);
+  } else {
+    groundTiled = buildGroundTiled(input, tones, background, surface);
+    scatterTiled = buildScatterTiled(input, tones, background, surface);
+    rebuiltTiles = input.width * input.height;
+  }
+  const ground = groundTiled.mesh;
+  const scatter = scatterTiled.mesh;
   // Grove tiles draw real tree meshes from `decor-place.ts`'s `tree` family,
   // in the decor batch (ground Task 7). `buildGroves` is not called; ground
   // plan 2, Task 7 retired the empty `groves` layer this used to return and
@@ -9420,12 +10123,16 @@ export function composeTerrain(
   }
 
   return {
-    input,
-    ground,
-    scatter,
-    residual,
-    buildings,
-    decorPlacements: decorPlacements(input),
-    propPlacements: propPlacements(input),
+    composed: {
+      input,
+      ground,
+      scatter,
+      residual,
+      buildings,
+      decorPlacements: decorPlacements(input),
+      propPlacements: propPlacements(input),
+    },
+    state: terrainBuildState(input, surface, groundTiled, scatterTiled),
+    rebuiltTiles,
   };
 }

@@ -5,7 +5,8 @@
 // all four of its scenarios went red with no regression behind them -- the
 // whole overage being the mesh path Pixi has no counterpart for, permanently
 // and by design (`.superpowers/queue/golden-diff-red-report.md`). That file
-// survives as a report-only diagnostic; this one is the gate.
+// survived as a report-only diagnostic until the Pixi backend was retired
+// (WP-A3.3); this one is the gate, and the only one.
 //
 // Read `../golden-diff/baseline.ts` first. It carries the two measured facts
 // that shape every threshold here -- that run-to-run noise sits in tight
@@ -142,6 +143,7 @@ import {
   type CaptureResult,
 } from '../golden-diff/browser';
 import { guardCapture } from '../golden-diff/capture-guard';
+import { musicOffInitScript } from '../ui-review/music-off';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -507,6 +509,7 @@ async function main(): Promise<void> {
     }
 
     const page = await browser.newPage({ viewport: { ...CAPTURE_VIEWPORT } });
+    await page.addInitScript(musicOffInitScript());
     const outcomes: ScenarioOutcome[] = [];
 
     // Screens the scenario harness cannot frame, checked before the

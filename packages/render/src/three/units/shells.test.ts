@@ -15,6 +15,10 @@ import {
   SHELL_TRAIL_S,
   SHELL_MIN_DURATION_S,
   SHELL_MAX_DURATION_S,
+  BURST_PROFILES,
+  spawnBurst,
+  shellLaunched,
+  isBurstShell,
   type ShellKind,
 } from './shells';
 import { SIM_PROJ_SPEED_TILES_S } from './missiles';
@@ -48,8 +52,13 @@ describe('shellKindFor', () => {
     expect(shellKindFor(WEAPON_CLASS.he)).toBe('missile');
   });
 
-  it('leaves the STREAM classes on the flat tracer, which is what that ribbon is right for', () => {
-    for (const name of ['small_arms', 'hmg', 'interceptor', 'demolition']) {
+  it('flies rifle and machine-gun fire as streak bursts, not the full-span tracer', () => {
+    expect(shellKindFor(WEAPON_CLASS.small_arms)).toBe('rifle');
+    expect(shellKindFor(WEAPON_CLASS.hmg)).toBe('mg');
+  });
+
+  it('leaves only the classes that travel nowhere on the flat tracer', () => {
+    for (const name of ['interceptor', 'demolition']) {
       expect(shellKindFor(WEAPON_CLASS[name])).toBeNull();
     }
   });
@@ -112,7 +121,7 @@ describe('the bolt profile', () => {
 
   it('outruns every missile the sim flies, so a Hellfire and a sabot round do not read alike', () => {
     expect(SHELL_PROFILES.bolt.speedTilesS).toBeGreaterThan(SIM_PROJ_SPEED_TILES_S.rpg * 4);
-    expect(Object.keys(SHELL_PROFILES).sort()).toEqual(['bolt', 'mortar', 'rocket']);
+    expect(Object.keys(SHELL_PROFILES).sort()).toEqual(['bolt', 'mg', 'mortar', 'rifle', 'rocket']);
   });
 });
 
@@ -262,5 +271,77 @@ describe('shellTrailPoints', () => {
     const pts = shellTrailPoints(s);
     expect(pts[0].x).toBeCloseTo(3, 6);
     expect(pts[0].liftPx).toBeCloseTo(0, 6);
+  });
+});
+
+// Machine-gun and rifle fire (2 Oct 2026): short streaks that TRAVEL. The
+// oracle here is literals -- the engagement ranges and cooldowns the data
+// declares -- never the profile read back against itself.
+describe('rifle and mg streaks', () => {
+  // inf_squad `rifles` 300 rpm -> 4 ticks; apc_eitan `rws_50` 380 rpm -> 3.
+  const COOLDOWN_S = { rifle: 4 * 0.05, mg: 3 * 0.05 } as const;
+
+  it.each(['rifle', 'mg'] as const)('%s: the streak is a small part of a 7-tile gap and crosses it in many frames', (kind) => {
+    const shot = spawnShell(0, 0, 7, 0, 0, kind);
+    const streakTiles = SHELL_PROFILES[kind].trailS * SHELL_PROFILES[kind].speedTilesS;
+    expect(streakTiles).toBeLessThan(7 / 4);
+    expect(streakTiles).toBeGreaterThan(0.5); // long enough to read as a tracer at zoom 1
+    expect(shot.duration * 60).toBeGreaterThan(12);
+  });
+
+  it.each(['rifle', 'mg'] as const)('%s: a burst fits inside the cooldown, so bursts do not merge into a stream', (kind) => {
+    const b = BURST_PROFILES[kind];
+    expect(b.rounds).toBeGreaterThan(1);
+    expect((b.rounds - 1) * b.spacingS).toBeLessThan(COOLDOWN_S[kind]);
+  });
+
+  it('an hmg burst is heavier than a rifle burst', () => {
+    expect(BURST_PROFILES.mg.rounds).toBeGreaterThan(BURST_PROFILES.rifle.rounds);
+    expect(SHELL_PROFILES.mg.widthPx).toBeGreaterThan(SHELL_PROFILES.rifle.widthPx);
+  });
+
+  it('staggers the streaks and holds the late ones back', () => {
+    const burst = spawnBurst(0, 0, 7, 0, 0, 'mg', 42, true);
+    expect(burst).toHaveLength(3);
+    expect(burst.map((s) => shellLaunched(s))).toEqual([true, false, false]);
+    expect(burst[1].t).toBeCloseTo(-0.05, 9);
+    expect(burst[2].t).toBeCloseTo(-0.1, 9);
+    // After 0.11 s every streak has left the gun and the first is still in the air.
+    const later = stepShells(burst, 0.11);
+    expect(later).toHaveLength(3);
+    expect(later.every((s) => shellLaunched(s))).toBe(true);
+  });
+
+  it('a late streak draws nothing before launch: its span is zero', () => {
+    const [, late] = spawnBurst(0, 0, 7, 0, 0, 'rifle', 7, true);
+    const { tail, head } = shellTrailSpan(late);
+    expect(head - tail).toBe(0);
+  });
+
+  it('lands near the target, tighter on a hit than on a miss, and repeatably', () => {
+    const hit = spawnBurst(0, 0, 7, 0, 0, 'mg', 1234, true);
+    const again = spawnBurst(0, 0, 7, 0, 0, 'mg', 1234, true);
+    expect(again.map((s) => s.ty)).toEqual(hit.map((s) => s.ty));
+    for (const s of hit) {
+      expect(Math.abs(s.ty)).toBeLessThanOrEqual(0.2 + 1e-9);
+      expect(s.tx).toBeCloseTo(7, 9);
+    }
+    // ACROSS the line, a miss strays wider than a hit ever can (0.2 tiles).
+    let widestMiss = 0;
+    for (let seed = 1; seed <= 20; seed++) {
+      for (const s of spawnBurst(0, 0, 7, 0, 0, 'mg', seed, false)) widestMiss = Math.max(widestMiss, Math.abs(s.ty));
+    }
+    expect(widestMiss).toBeGreaterThan(0.2);
+    // Different shots scatter differently.
+    const other = spawnBurst(0, 0, 7, 0, 0, 'mg', 99, true);
+    expect(other.map((s) => s.ty)).not.toEqual(hit.map((s) => s.ty));
+  });
+
+  it('routes as a burst, and the burst kinds are direct fire', () => {
+    expect(isBurstShell('rifle')).toBe(true);
+    expect(isBurstShell('mg')).toBe(true);
+    expect(isBurstShell('bolt')).toBe(false);
+    expect(isIndirectShell('rifle')).toBe(false);
+    expect(isIndirectShell('mg')).toBe(false);
   });
 });

@@ -65,6 +65,7 @@
 import type { MissionJson } from '@lions/sim';
 import { t } from '../i18n/t';
 import { focusTrap } from './focus-trap';
+import { prefersReducedMotion } from './motion';
 import { panel } from './panel';
 
 export interface OutcomeMomentOptions {
@@ -84,12 +85,22 @@ export interface OutcomeMomentOptions {
    *  an empty paragraph, when there is none. It buys no hold of its own:
    *  `holdMs` is still the whole hold. */
   aftermath?: string;
+  /** Defeat only: which primary failed and when ("Objective failed: … · 5:00"), from
+   *  `failureReason` (`mission-failure.ts`). Drawn straight under the verdict,
+   *  so a lost mission never ends on a bare "Mission failed" (PR 361). */
+  reason?: string;
   /** What this win paid into the brigade account (GH-234), already computed
    *  by the caller -- `main.ts` runs `payMission` before this moment ever
    *  mounts, so this is the same `{ paid, balance }` the debrief prints,
    *  never a second reader of the account. Victory only; `outcomeMomentOptions`
    *  never sets it on a defeat. */
-  credits?: { paid: number; balance: number };
+  credits?: { paid: number; balance: number; unsaved?: boolean };
+  /** The outcome line on the radio net (polish pass F, section 5.4: Shai's
+   *  verdict), as text. Always drawn, whatever the captions setting says
+   *  (A5): it is the outcome's caption, and until the lead records the line
+   *  it is the only form it has. The moment covers the HUD's caption slot,
+   *  so it is drawn here rather than there. */
+  radio?: string;
   holdMs?: number;
 }
 
@@ -103,7 +114,7 @@ export interface OutcomeMoment {
 }
 
 /** How long the moment holds a player who does nothing. Short enough that a
- *  player is never stuck looking at it, long enough that "Objective secured"
+ *  player is never stuck looking at it, long enough that "Mission accomplished"
  *  and a one-line closing sentence can both be read before it moves on --
  *  shorter than `titleCard`'s `DISPATCH_HOLD_MS` (a full paragraph of story
  *  prose), longer than its mechanical `DEFAULT_HOLD_MS` (a name and a
@@ -128,7 +139,8 @@ export const OUTCOME_HOLD_MS = 2600;
 export function outcomeMomentOptions(
   result: 'victory' | 'defeat',
   mission: Pick<MissionJson, 'aftermath' | 'debrief'>,
-  credits?: { paid: number; balance: number }
+  credits?: { paid: number; balance: number; unsaved?: boolean },
+  reason?: string | null
 ): OutcomeMomentOptions {
   const say = result === 'victory' ? mission.debrief?.victory : mission.debrief?.defeat;
   const aftermath = result === 'victory' ? mission.aftermath : undefined;
@@ -136,21 +148,41 @@ export function outcomeMomentOptions(
     outcome: result,
     title: t(result === 'victory' ? 'outcome.victory' : 'outcome.defeat'),
     ...(say !== undefined ? { line: say.text } : {}),
+    radio: t(result === 'victory' ? 'outcome.radio.victory' : 'outcome.radio.defeat'),
     ...(aftermath ? { aftermath } : {}),
     // Defeat pays nothing (GH-234's own rule, unchanged): the caller never
     // hands one on that path, and this is the second guard even if it did.
     ...(result === 'victory' && credits ? { credits } : {}),
+    ...(result === 'defeat' && reason ? { reason } : {}),
   };
 }
 
 export function outcomeMoment(host: HTMLElement, o: OutcomeMomentOptions): OutcomeMoment {
   const el = document.createElement('div');
-  el.className = 'rl-outcome rl-enter';
+  el.className = 'rl-outcome';
   el.dataset.outcome = o.outcome;
+  // PA-07 (lead ruling 9 Oct, "B with A's band"): a held beat -- letterbox
+  // bars slide in and the verdict band lands -- or, under reduced motion, a
+  // straight cut to the same frame. Read once, at mount: the hold's LENGTH
+  // is the same either way (rule 1 above).
+  el.dataset.beat = prefersReducedMotion() ? 'cut' : 'held';
   el.setAttribute('role', 'dialog');
   el.setAttribute('aria-modal', 'true');
+  el.setAttribute('aria-label', o.title);
 
-  const p = panel({ rank: 'alert', title: o.title });
+  // The letterbox: the world stays the subject between the two bars, and
+  // the verdict sits in the lower one (`outcome-beat.ts` moves the camera).
+  const top = document.createElement('div');
+  top.className = 'rl-outcome__bar rl-outcome__bar--top';
+  const bottom = document.createElement('div');
+  bottom.className = 'rl-outcome__bar rl-outcome__bar--bottom';
+  el.appendChild(top);
+  el.appendChild(bottom);
+
+  // The mission band, full width (A's stamp, ruled onto B): the same rank the
+  // report wears for both outcomes (VR-24). The outcome is told by the word
+  // and by the band's rule, `--good` or `--bad` (theme.css).
+  const p = panel({ rank: 'mission', title: o.title });
   p.el.classList.add('rl-outcome__panel');
 
   // GH-234: the reward, the most visible thing after the verdict itself --
@@ -159,13 +191,26 @@ export function outcomeMoment(host: HTMLElement, o: OutcomeMomentOptions): Outco
   // catalogue keys `showDebrief` reads (`ui/debrief.ts`), so a player who
   // skips straight past this and opens the debrief sees the identical
   // sentence, not a rephrasing of the same numbers.
+  if (o.reason !== undefined) {
+    const reason = document.createElement('p');
+    reason.className = 'rl-outcome__reason rl-bad-text';
+    reason.textContent = o.reason;
+    p.body.appendChild(reason);
+  }
+
   if (o.credits) {
     const reward = document.createElement('div');
     reward.className = 'rl-outcome__credits';
-    reward.dataset.paid = o.credits.paid > 0 ? '1' : '0';
+    // KS-12: a refused victory write kept nothing, whatever the run was worth.
+    const paid = o.credits.unsaved ? 0 : o.credits.paid;
+    reward.dataset.paid = paid > 0 ? '1' : '0';
     const figure = document.createElement('p');
-    figure.className = o.credits.paid > 0 ? 'rl-outcome__credits-figure' : 'rl-outcome__credits-none';
-    figure.textContent = o.credits.paid > 0 ? t('debrief.credits.paid', { n: o.credits.paid }) : t('debrief.credits.none');
+    figure.className = paid > 0 ? 'rl-outcome__credits-figure' : 'rl-outcome__credits-none';
+    figure.textContent = o.credits.unsaved
+      ? t('debrief.credits.unsaved')
+      : paid > 0
+        ? t('debrief.credits.paid', { n: paid })
+        : t('debrief.credits.none');
     reward.appendChild(figure);
     const total = document.createElement('p');
     total.className = 'rl-outcome__credits-total';
@@ -191,6 +236,13 @@ export function outcomeMoment(host: HTMLElement, o: OutcomeMomentOptions): Outco
     p.body.appendChild(line);
   }
 
+  if (o.radio !== undefined) {
+    const radio = document.createElement('p');
+    radio.className = 'rl-outcome__radio';
+    radio.textContent = o.radio;
+    p.body.appendChild(radio);
+  }
+
   // The moment's one focusable element: a keyboard path for the same skip
   // any pointerdown/keydown already offers, and a stated affordance rather
   // than a silent "wait it out or guess" -- Phase 4's "no hover-only
@@ -201,7 +253,7 @@ export function outcomeMoment(host: HTMLElement, o: OutcomeMomentOptions): Outco
   skip.textContent = t('outcome.skip');
   p.body.appendChild(skip);
 
-  el.appendChild(p.el);
+  bottom.appendChild(p.el);
   host.appendChild(el);
 
   // Queries `p.el` for its own focusables at keypress time, so it does not
@@ -241,6 +293,13 @@ export function outcomeMoment(host: HTMLElement, o: OutcomeMomentOptions): Outco
       e.stopPropagation();
       return;
     }
+    // An activation key's default is spent here (keyboard walk,
+    // polish/keyboard-and-saves): `finish` hands over to the debrief, which
+    // focuses its primary ("Next: ...") before this press's default action
+    // runs, and the browser then activated THAT -- Enter on Continue went
+    // straight into the next mission, debrief unseen. Only Enter and Space:
+    // any other key keeps its default, so a browser shortcut still works.
+    if (e.key === 'Enter' || e.key === ' ') e.preventDefault();
     finish();
     e.stopPropagation();
   };

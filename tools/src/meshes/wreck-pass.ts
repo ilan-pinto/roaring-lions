@@ -42,6 +42,17 @@
  * is the pivot but on another export it might not be. Walking up to the scene
  * costs nothing and does not care how deep the rig is.
  *
+ * **A `kit_*` node is invisible to this pass** (contract v5, vehicles; plan 3
+ * of the garage uplift). `pnpm kit:meshes` grafts upgrade parts beside their
+ * hosts, and the renderer merges the owned ones INTO the host geometry and
+ * deletes every kit node before a mixer exists -- so a kit part's wreck is its
+ * host's `WRECK_` twin, which shares the merged geometry. Here that means
+ * three exclusions: no `WRECK_` twin for a kit node, no clip channel on one
+ * (a hull-hosted part is a scene child, and a channel on a node the renderer
+ * has deleted is a binding to nothing), and no say in the measured bounds or
+ * clearance -- a kitted file must wreck exactly as its ungrafted self does,
+ * which `wreck-pass.test.ts` pins.
+ *
  * No Draco here: `art/meshes/` is the uncompressed source of record and
  * `pnpm encode:meshes` mirrors it to `assets/meshes/` afterwards.
  */
@@ -62,6 +73,7 @@ import {
 } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { WRECK_FRACTIONS, WRECK_RECIPES, type HullKind, type WreckRecipe } from './wreck-recipes';
+import { isKitName } from './kit-contract';
 
 export const DEATH_ROOT = 'death_root';
 export const WRECK_PREFIX = 'WRECK_';
@@ -236,11 +248,51 @@ function lowestY(node: Node, extra: mat4 | null): number {
 
 const finite = (b: bbox): boolean => b.min.every(Number.isFinite) && b.max.every(Number.isFinite);
 
-function unionBounds(nodes: readonly Node[]): bbox {
+/**
+ * The world bounds of ONE node's own mesh, not its subtree's.
+ *
+ * Exactly `getBounds`'s arithmetic (its `getMeshBounds`: indexed vertices
+ * only, through gl-matrix's `transformMat4` with its divide by `w`), restated
+ * because `getBounds(node)` walks the node's whole subtree, and a `kit_*` node
+ * hangs beside its host -- under `turret_pivot` for a turret part. The union of
+ * these over every live part is bit-identical to the old union of
+ * `getBounds(top)` over the scene's children on a file with no kit: min and
+ * max do not care how the boxes are grouped.
+ */
+function ownMeshBounds(node: Node): bbox {
   const out: bbox = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
-  for (const node of nodes) {
-    const b = getBounds(node);
-    if (!finite(b)) continue; // an empty (a pivot with no mesh under it)
+  const mesh = node.getMesh();
+  if (!mesh) return out;
+  const m = node.getWorldMatrix();
+  const el = [0, 0, 0];
+  for (const prim of mesh.listPrimitives()) {
+    const pos = prim.getAttribute('POSITION');
+    const indices = prim.getIndices();
+    if (!pos) continue;
+    const n = indices ? indices.getCount() : pos.getCount();
+    for (let i = 0; i < n; i++) {
+      pos.getElement(indices ? indices.getScalar(i) : i, el);
+      const w = m[3] * el[0] + m[7] * el[1] + m[11] * el[2] + m[15] || 1;
+      const p = [
+        (m[0] * el[0] + m[4] * el[1] + m[8] * el[2] + m[12]) / w,
+        (m[1] * el[0] + m[5] * el[1] + m[9] * el[2] + m[13]) / w,
+        (m[2] * el[0] + m[6] * el[1] + m[10] * el[2] + m[14]) / w,
+      ];
+      for (let k = 0; k < 3; k++) {
+        out.min[k] = Math.min(p[k], out.min[k]);
+        out.max[k] = Math.max(p[k], out.max[k]);
+      }
+    }
+  }
+  return out;
+}
+
+/** The union of every live part's own mesh bounds -- never a kit part's. */
+function partBounds(parts: readonly Part[]): bbox {
+  const out: bbox = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
+  for (const part of parts) {
+    const b = ownMeshBounds(part.node);
+    if (!finite(b)) continue;
     for (let i = 0; i < 3; i++) {
       out.min[i] = Math.min(out.min[i], b.min[i]);
       out.max[i] = Math.max(out.max[i], b.max[i]);
@@ -249,8 +301,8 @@ function unionBounds(nodes: readonly Node[]): bbox {
   return out;
 }
 
-function measure(liveTop: readonly Node[], parts: readonly Part[], vehicleId: string): HullMetrics {
-  const b = unionBounds(liveTop);
+function measure(parts: readonly Part[], vehicleId: string): HullMetrics {
+  const b = partBounds(parts);
   if (!finite(b)) throw new Error(`${vehicleId}: no mesh geometry to measure`);
   const x = b.max[0] - b.min[0];
   const z = b.max[2] - b.min[2];
@@ -541,6 +593,14 @@ function underNode(node: Node, name: string): boolean {
   return false;
 }
 
+/** True if `node` or any ancestor is a `kit_*` node. */
+function inKitPart(node: Node): boolean {
+  for (let walk: Node | null = node; walk; walk = walk.getParentNode()) {
+    if (isKitName(walk.getName())) return true;
+  }
+  return false;
+}
+
 const roleOf = (node: Node): string => {
   const role = node.getExtras().rl_role;
   return typeof role === 'string' ? role : '';
@@ -557,7 +617,8 @@ export function applyWreckPass(doc: Document, vehicleId: string, recipe: WreckRe
 
   stripWreck(doc);
 
-  const liveTop = scene.listChildren();
+  // Kit parts are not live top-level nodes for this pass: no clip keys them.
+  const liveTop = scene.listChildren().filter((n) => !isKitName(n.getName()));
   if (liveTop.length === 0) throw new Error(`${vehicleId}: the scene has no children`);
 
   // Fail on a recipe that names a node the export does not have, rather than
@@ -575,7 +636,9 @@ export function applyWreckPass(doc: Document, vehicleId: string, recipe: WreckRe
   for (const top of liveTop) {
     top.traverse((node) => {
       const mesh = node.getMesh();
-      if (!mesh) return;
+      // A kit part (under a pivot, where `liveTop` cannot filter it) gets no
+      // twin and no say in the bounds: its wreck is its host's twin.
+      if (!mesh || inKitPart(node)) return;
       const seat: SeatGroup =
         canopy && node === canopy
           ? 'canopy'
@@ -586,7 +649,7 @@ export function applyWreckPass(doc: Document, vehicleId: string, recipe: WreckRe
     });
   }
 
-  const metrics = measure(liveTop, parts, vehicleId);
+  const metrics = measure(parts, vehicleId);
 
   for (const part of parts) {
     if (part.seat === 'canopy') {

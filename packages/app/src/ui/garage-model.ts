@@ -87,12 +87,32 @@ export type PurchaseAsk =
   | { readonly kind: 'unit'; readonly unitId: string }
   | { readonly kind: 'upgrade'; readonly unitId: string; readonly track: string; readonly tier: number };
 
-/** The two sounds a purchase makes (§3.5), one per kind of thing bought. */
-export type PurchaseCue = 'purchase' | 'upgrade';
+/** The sounds a purchase makes (§3.5), one per kind of thing bought: a unit, a
+ *  tier, and (GH-238 K10) a tier that bolts a part onto a vehicle. */
+export type PurchaseCue = 'purchase' | 'upgrade' | 'kit';
 
-/** Each cue's manifest set, by name -- what Task 11 hands `playUi`. Two sets,
- *  never one: a unit and a tier are different news. */
-export const CUE_SET: Readonly<Record<PurchaseCue, string>> = { purchase: 'ui_purchase', upgrade: 'ui_upgrade' };
+/** Each cue's manifest set, by name -- what Task 11 hands `playUi`. Three sets,
+ *  never one: a unit, a tier and a part fitted are different news. */
+export const CUE_SET: Readonly<Record<PurchaseCue, string>> = {
+  purchase: 'ui_purchase',
+  upgrade: 'ui_upgrade',
+  kit: 'ui_kit_fitted',
+};
+
+/** The eight vehicles whose every tier of every track adds a part to the model
+ *  (GH-238 plan 3, spec §8): buying a tier on one of these is the "kit fitted"
+ *  cue. A type outside the set (infantry, the drones) gets a plain upgrade.
+ *  Hand-kept on purpose and pinned to the plan's list by `garage-model.test.ts`. */
+export const KIT_VEHICLE_TYPES: ReadonlySet<string> = new Set([
+  'mbt_lavi',
+  'ifv_namer',
+  'apc_eitan',
+  'apc_kipod',
+  'jeep_shoded',
+  'scout_shachaf',
+  'dozer_d9',
+  'heli_peten',
+]);
 
 /** Spec §6's numbers. The stamp sits inside the wallet's 600 ms spend beat,
  *  and the count (400) lands after the bars (300). */
@@ -101,7 +121,8 @@ export const BAR_GROW_MS = 300;
 export const WALLET_COUNT_MS = 400;
 
 export function cueFor(ask: PurchaseAsk): PurchaseCue {
-  return ask.kind === 'unit' ? 'purchase' : 'upgrade';
+  if (ask.kind === 'unit') return 'purchase';
+  return KIT_VEHICLE_TYPES.has(ask.unitId) ? 'kit' : 'upgrade';
 }
 
 /** The wallet's figure `elapsedMs` into a `durMs` count from `from` to `to`:

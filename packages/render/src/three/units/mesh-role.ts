@@ -5,8 +5,8 @@
  *
  * Promoted from Phase R0's spike (`spike/rig-scene.ts`'s `RAMP_FOR_ROLE`)
  * after the GO verdict (`docs/superpowers/specs/2026-08-28-phase-r0-verdict.md`).
- * `spike/rig-scene.ts` now imports this module rather than keeping its own
- * copy, so the mapping has exactly one source of truth.
+ * (The spike page itself, which drew the mesh beside its sprite sheet, was
+ * deleted with the sheets in WP-A3.3.)
  *
  * This is NOT `tools/render_team.py`'s `ROLE_PALETTE`, and copying that table
  * here would be the single most likely way to get this wrong. That pipeline
@@ -48,8 +48,7 @@ const ramps = paletteJson.ramps as Record<string, { colors: string[] }>;
 /**
  * A whole named ramp from `data/palette.json`, lightest step first (index 0).
  *
- * Exported so callers that need a bare ramp (`spike/rig-scene.ts`'s ground
- * plane colour, `ramp('limestone')[3]`) read `data/palette.json` through
+ * Exported so callers that need a bare ramp read `data/palette.json` through
  * this one function too, rather than keeping a second `paletteJson.ramps`
  * cast of their own.
  */
