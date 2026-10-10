@@ -64,8 +64,8 @@ Taken defaults, for the lead to confirm (For the lead, item 1):
   proposed 100 = 5 s). While lost, the unit walks to the target's last-seen position, as the sweep
   does. A target that is identified again inside the window keeps the order.
 - **T-D4. When the focus ends, the unit is an arrived attack-mover where it stands.** It then follows
-  the closing rule like any right-clicked unit. A held unit that was given `attack` is not held any
-  more (H-D2, see T-D8).
+  the closing rule like any right-clicked unit. **Except a held unit (T-D8): its focus ends and it is
+  still held, standing where it was.**
 - **T-D5. Slot 0 decides reach; slot 1 shares the focus only if it can hurt it.** "In reach" is slot
   0's effective range and sight line (indirect classes need no sight line), the same rule the
   `engaging` latch uses. Slot 1 takes the focus when `hurts` (`selectTarget`'s own heuristic) holds,
@@ -78,9 +78,15 @@ Taken defaults, for the lead to confirm (For the lead, item 1):
   sim refuses `attack` for it (T-D2's filter plus `couldEngage`); the app sends the rest of the
   selection an `attackMove` to the target's tile in the same click (Task 3). A rifle squad does not
   chase a helicopter.
-- **T-D8. Hold and targeted fire.** H-D2 (Hold plan) releases Hold on any other order, and `attack`
-  joins that list. The alternative, "a held unit fires on its focus only while it is in reach and
-  never moves", is a second state for one click; it is For the lead, item 2.
+- **T-D8. Hold and targeted fire (RULED by the lead, 11 Oct; reverses the recommendation).** A unit on
+  Hold that is given `attack` **stays on Hold**. `attack` is the one order H-D2 does not release on.
+  - If the target is already in reach of slot 0 (range and sight line; indirect needs no sight line),
+    `focusTarget` is set, `holdPos` stays 1, and the unit fires on it. It never moves.
+  - If not, the order is **refused** for that unit: `focusTarget` stays -1, `holdPos` stays 1, the unit
+    stays put, and the app shows a reason line, `intent.holdOutOfRange` ("On hold — target out of
+    range"), with the deny cue.
+  - While held and focused, `stepFocus` never sets `moving`. If the focus leaves reach, is lost or dies,
+    the focus ends (-1) and the unit is still held (T-D4's exception).
 - **T-D9. Not queueable in v1.** Shift+right-click on an enemy keeps today's behaviour, an appended
   attack-move to its tile. The waypoint queue (`wpX`/`wpY`/`wpAttack`) is not extended.
 - **T-D10. The AI never issues `attack` in v1.** No mission trigger, no enemy director, no balance plan.
@@ -149,7 +155,11 @@ private readonly focusTarget: Int32Array;             // -1, or the entity this 
   fixture with two weapon slots. Contact is seeded with the sim's own reveal path, never by writing
   `contact`.
   - **"attack sets the focus and clears attackMove"**: `focusTarget` reads the target, `attackMove`
-    0, `holdPos` 0 (T-D8).
+    0 (an unheld unit).
+  - **"a held unit given attack on an in-range target stays held and fires"** (T-D8): `holdPos` 1,
+    `focusTarget` set, a `fire` event names the target, position unchanged for 20 s.
+  - **"a held unit given attack on an out-of-range target is refused and stays put"** (T-D8):
+    `focusTarget` -1, `holdPos` 1, position unchanged for 20 s.
   - **"attack on a suspected enemy is refused"** (T-D2): below `IDENTIFIED_AT`, `focusTarget` stays -1.
   - **"attack on a civilian, a friendly, a garrisoned or a carried unit is refused"** (T-D2).
   - **"any other order releases the focus"**: `move`, `attackMove`, `halt`, `hold`; each reads -1.
@@ -157,7 +167,8 @@ private readonly focusTarget: Int32Array;             // -1, or the entity this 
 - [ ] **Step 2: Implement** the command branch and the column only: the focus is set and cleared,
   nothing reads it yet. At the head of the command loop, clear `focusTarget[id]` for every id an order
   names, except `attack` itself (the H-D2 pattern; one loop for both columns). Clear it in `startRout`.
-  Add `attack` to H-D2's release list (Hold's `holdPos` clear).
+  `attack` is exempt from H-D2's `holdPos` clear (T-D8): on a held unit it is accepted only when the
+  target is already in reach, and refused otherwise.
 - [ ] **Step 3: Hash coverage.** In `determinism.test.ts`, add **"hash covers focusTarget"**: flip one
   element through `sim.state` and expect a different `hash()`.
 - [ ] **Step 4: Re-pin both sim pins** in this commit. Each gets a dated comment: "Targeted fire
@@ -196,13 +207,16 @@ No golden replay issues `attack`, so this task is hash-neutral (R). Prove it: bo
   - **"a chase refreshes the field by tile"** (T-D6): a target walking 6 tiles costs at most 7
     `flowFieldCount` increments, not one per tick.
   - **"the closing rule does not move a focused unit"**: `stepSweep` skips it while the focus is valid.
+  - **"a held, focused unit never moves"** (T-D8): the target walks out of reach; the focus ends, the
+    unit is still held and has not moved.
 - [ ] **Step 2: Implement.**
   - `selectTarget`: before the scan, if `focusTarget[shooter] >= 0` and the focus passes the same
     filters the scan applies (side, containment, identification, air/ground, range, minimum range,
     sight line or indirect) and, for slot 1, `hurts`, return it. Otherwise scan as today. One helper
     (`focusEngageable(shooter, w, t)`) so the scan's filter and the focus's filter cannot drift.
   - `stepFocus`, called in `tick()` after `stepKamikaze` and before `stepSweep`: end an invalid focus
-    (T-D3, T-D4); else, out of reach, set the goal to the target's tile (or last-seen while lost) and
+    (T-D3, T-D4); for a held unit, end the focus as soon as it leaves reach and never set `moving`
+    (T-D8); else, out of reach, set the goal to the target's tile (or last-seen while lost) and
     `moving = 1`, refreshing `fieldRef` only on a tile change (T-D6); in reach, `moving = 0`.
   - `stepSweep`: `if (this.focusTarget[i] >= 0) continue;` beside Hold's skip.
   - `FOCUS_LOST_TICKS` in `tuning.ts` with a comment saying where 100 came from (5 s, the same order as
@@ -223,7 +237,11 @@ No golden replay issues `attack`, so this task is hash-neutral (R). Prove it: bo
   `attackMove` to an identified enemy's tile today) returns `attack` for every selected id with a
   weapon that can engage that target, and the `attackMove` it returns today for the rest (T-D7), in
   one resolution. A suspected (not identified) contact keeps today's attack-move: the fire panel
-  already says why it cannot be shot.
+  already says why it cannot be shot. **Held units (T-D8):** a held unit with the target already in
+  reach gets `attack`; a held unit out of reach gets nothing, and the click shows
+  `t('intent.holdOutOfRange')` ("On hold — target out of range", tone `warn`) with the deny cue. The
+  predicate reads `sim.state.holdPos` and the same reach rule through the intent world adapter;
+  `intents.test.ts` pins both cases and a mixed selection.
 - [ ] **Step 2: Modifiers.** Shift keeps today's appended attack-move (T-D9). Alt is unchanged (it only
   matters on a protected structure). The armed Attack-move chip's left-click on an identified enemy
   issues `attack` too (For the lead, item 3).
@@ -296,10 +314,12 @@ order, beat 6 can teach it.
 
 ## For the lead
 
-1. **Confirm T-D1–T-D10**, chiefly T-D3 (a lost focus walks to the last-seen position for 5 s, then
+1. **Confirm T-D1–T-D7 and T-D9–T-D10** (T-D8 ruled, item 2), chiefly T-D3 (a lost focus walks to the last-seen position for 5 s, then
    ends), T-D4 (afterwards the unit is an arrived attack-mover) and T-D5 (slot 1 keeps its own target
    unless it can hurt the focus). **Recommended:** as written.
-2. **Hold and targeted fire (T-D8).** Does an `attack` on a held unit release Hold (H-D2 as written),
+2. **Hold and targeted fire (T-D8).** **RULED 11 Oct (lead), against the recommendation below:** a held
+   unit stays on Hold; it fires on an in-range target and refuses an out-of-range one with a reason
+   line; it never moves. The original question: does an `attack` on a held unit release Hold (H-D2 as written),
    or does a held unit fire on its focus only while in reach and never move?
    **Recommended:** release Hold, as H-D2 says. One rule for every order, and a held unit with a better
    target in reach already shoots the nearest threat; the case is rare.

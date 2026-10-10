@@ -101,6 +101,12 @@ list under the table.
 
 ### For the lead (continues "For the lead" below)
 
+**Ruled 11 Oct (lead):** items 3–5 and 8 as recommended: the order symbol is mocked first, the state
+word is "on hold", held units leave the idle finder, and `hold` also clears the demolish, charge and
+board latches. The tutorial accepts either `hold` or `halt` (row above). Targeted fire does not release
+Hold (H-D2's exception, T-D8 in the targeted-fire plan); Hold's tests gain nothing for it, the
+targeted-fire plan carries them.
+
 3. **Hold's order mark.** An order's picture is the lead-approved sheet (G1 round 5, 35 symbols). Hold
    needs one. **Recommended:** a new `hold` sight in the `control` family beside `halt`, mocked at the
    chip size and the cursor size before Task 3 Step 3 starts, on the lead's picture gate. The fallback
@@ -132,7 +138,10 @@ list under the table.
     third write: clear `boardGoal`, `demolishOrder` and `chargeOrder`.
   - **H-D2. Any other order that names the unit clears `holdPos`**, whatever the order: `move`,
     `attackMove`, `halt`, `garrison`, `load`, `unload`, `demolish`, `chargeTunnel` or `smoke`. A
-    held unit is released by the next order, never by time.
+    held unit is released by the next order, never by time. **Exception, ruled 11 Oct (lead):
+    targeted fire's `attack` (GH-420, `2026-10-11-targeted-fire.md` T-D8) does not release Hold.** A
+    held unit fires on an `attack` target already in range and sight; an out-of-range one is refused
+    with a reason line ("On hold — target out of range"); it never moves.
   - **H-D3. Hold keeps a garrisoned unit inside.** It does not call `leaveStructure`, and the unit
     holds from its window. On a carried or buried unit, Hold is a no-op: it is in no position to
     hold.

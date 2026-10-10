@@ -235,7 +235,8 @@ Taken defaults, for the lead to confirm (For the lead, item 2):
 
 ## For the lead
 
-1. **Where it lands.** Lane C's calendar had no day for it. Two orders, both legal under "one pin, one
+1. **Where it lands.** **RULED 11 Oct (lead): (a), Tue 24 – Wed 25 Nov, slipping to Stage 5 if the
+   economy runs over.** Lane C's calendar had no day for it. Two orders, both legal under "one pin, one
    reason":
    - **(a, recommended)** after F4, in the buffer week (Tue 24 – Wed 25 Nov). The economy lands on its
      planned days, and if F2 or F4 overruns, spacing is the item that slips to Stage 5 without touching

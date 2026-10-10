@@ -108,7 +108,9 @@ What landed that touches F1:
     The armed click calls `screenToWorld`, so a barrage at a tall building's upper facade lands on
     the ground behind it. Recommended: **all armed support** (strike, barrage, smoke screen, sweep)
     resolves through `pointerPoint`, so the point marked is the point hit and a wall click aims at
-    the building. The smoke key and armed smoke follow whatever the lead rules. **Needs the lead.**
+    the building. The smoke key and armed smoke follow whatever the lead rules.
+    **RULED 11 Oct (lead): a click on a building wall resolves to THAT building** for fire support.
+    S-F routes every armed support click through `pointerPoint`, with a test per kind.
 
 **Goal:** Intel stops paying the player for standing still and starts paying for what a commander
 does: finding the enemy, taking high ground, completing objectives. It stays the **fire-support
