@@ -12,7 +12,7 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { chromium, type Browser, type Page } from 'playwright';
-import { BOOT_FREEZE_INIT_SCRIPT, FREEZE_FRAME_LOOP_SCRIPT } from './capture-protocol';
+import { FREEZE_FRAME_LOOP_SCRIPT, lateFreezeRefusal } from './capture-protocol';
 import { dismissDeployGate } from './capture-guard';
 
 // Re-exported for every existing importer: the logic moved to `capture-guard.ts`
@@ -169,13 +169,6 @@ export async function capture(
   };
   page.on('pageerror', onPageError);
   page.on('console', onConsole);
-  // Once per page: an init script survives every later `page.goto` on it, so
-  // registering it per capture would only stack copies (each of which stands
-  // down, but there is no reason to send them). See `BOOT_FREEZE_INIT_SCRIPT`.
-  if (!bootFrozenPages.has(page)) {
-    await page.addInitScript(BOOT_FREEZE_INIT_SCRIPT);
-    bootFrozenPages.add(page);
-  }
   try {
     return await captureAttempts(page, url, script, outFile, label, needsDeploy, pageErrors);
   } finally {
@@ -184,8 +177,7 @@ export async function capture(
   }
 }
 
-/** Pages `capture()` has already given `BOOT_FREEZE_INIT_SCRIPT`. */
-const bootFrozenPages = new WeakSet<Page>();
+const CAPTURE_ATTEMPTS = 5;
 
 async function captureAttempts(
   page: Page,
@@ -197,7 +189,10 @@ async function captureAttempts(
   pageErrors: string[]
 ): Promise<CaptureResult> {
   let lastErr: unknown;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  // Five, not three, since a late freeze became a refused attempt: at the
+  // 4-in-26 rate measured locally, three refusals in a row would still be a
+  // 1-in-270 fatal capture on a gated scenario; five is 1 in 11,000.
+  for (let attempt = 0; attempt < CAPTURE_ATTEMPTS; attempt++) {
     pageErrors.length = 0;
     try {
       await page.goto(url, { waitUntil: 'load', timeout: 40_000 });
@@ -228,29 +223,21 @@ async function captureAttempts(
       // its job -- fonts, module graph, lazily-arriving GLBs are all promise
       // and network work, none of it driven by rAF, and `main.ts` paints one
       // real frame (GH-141) before the loop is ever armed.
-      // Under `BOOT_FREEZE_INIT_SCRIPT` (installed by `capture()`) the loop
-      // never ran and this is a flag-guarded no-op; it stays for a caller
-      // whose page booted without the init script.
-      await page.evaluate(FREEZE_FRAME_LOOP_SCRIPT);
+      const frozen = JSON.parse((await page.evaluate(FREEZE_FRAME_LOOP_SCRIPT)) as string) as { tick: number };
+      // ...and the tick it froze at must be the same every load, because the
+      // renderer reads the last pre-freeze frame back (`lateFreezeRefusal`:
+      // the `kitted` flake). A late freeze throws, which is a failed attempt
+      // and a fresh load below -- never a photograph. Sandbox scenarios only:
+      // a `mission=` page reaches the loop through the deploy gate's clicks,
+      // and its one scenario (`combat`) is report-only and does not hold
+      // still between two photographs anyway.
+      const refusal = needsDeploy ? null : lateFreezeRefusal(frozen.tick);
+      if (refusal !== null) throw new Error(refusal);
+      console.log(`[${label}] frame loop froze at tick ${frozen.tick} (attempt ${attempt + 1})`);
       // capture-protocol.ts's documented settle: await font load + a 1s settle
       // before stepping -- a first run read 6.5x noisier without it.
       await page.evaluate(() => document.fonts.ready);
       await page.waitForTimeout(1000);
-      // The boot freeze's own precondition, ASSERTED after the settle so a
-      // loop that was armed anyway has had a full second to show it: the sim
-      // must still be at tick 0, i.e. the only frame drawn before the capture
-      // step is `main.ts`'s boot frame. A late freeze is what made `kitted`
-      // flake (see `BOOT_FREEZE_INIT_SCRIPT`); this turns any return of it
-      // into a named capture failure instead of a picture that drifts.
-      const settledTick = await page.evaluate(
-        () => (window as unknown as { __lions: { sim: { tickCount: number } } }).__lions.sim.tickCount
-      );
-      if (settledTick !== 0) {
-        throw new Error(
-          `boot freeze did not hold: the sim reached tick ${settledTick} before the capture step ` +
-            `(expected 0) -- the frame loop ran, so the frames drawn before the capture are not repeatable`
-        );
-      }
       const raw = await page.evaluate(script);
       const result = JSON.parse(raw as string) as CaptureResult;
       await page.screenshot({
@@ -266,7 +253,7 @@ async function captureAttempts(
     }
   }
   throw new Error(
-    `[${label}] capture failed 3 times: ${(lastErr as Error)?.message ?? String(lastErr)}` +
+    `[${label}] capture failed ${CAPTURE_ATTEMPTS} times: ${(lastErr as Error)?.message ?? String(lastErr)}` +
       (pageErrors.length > 0 ? ` (last attempt's page errors: ${pageErrors.slice(0, 3).join(' | ')})` : '')
   );
 }
