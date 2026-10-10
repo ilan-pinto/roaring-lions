@@ -749,6 +749,69 @@ if (!window.__lionsCaptureFrozen) {
 }
 `.trim();
 
+/** An init script (`page.addInitScript`) that freezes the frame loop AT BOOT,
+ *  so the loop never runs a single frame and the sim is still at tick 0 when
+ *  `captureScript`'s `step(targetTick)` takes it to the capture tick.
+ *
+ *  WHY, AND IT IS THE THIRD HALF OF THE `targetTick` BUG (the `kitted` flake,
+ *  CI run 38092145339 attempt 1, on a docs-only PR: 2354 px / 0.1576 against
+ *  its baseline, 0 px on the re-run). `FREEZE_FRAME_LOOP_STATEMENTS` stops
+ *  the loop only once Playwright has seen `window.__lions` and sent the
+ *  freeze, and on a slow runner the loop may have drawn a frame or two by
+ *  then -- so the freeze lands on tick 0 on most runs and later on some. The
+ *  sim does not care, but the renderer does: a squad's figures
+ *  (`ThreeRenderer.updateSquad`) integrate their follower walk, their yaw,
+ *  their stance history and their clip phase PER FRAME, and a clip the
+ *  140-tick step switches to is advanced by that whole final frame's sim
+ *  span, `(140 - lastFrameTick) x 50 ms`. The same tick-140 sim therefore
+ *  draws different poses depending on which tick the last pre-freeze frame
+ *  was at. Measured locally (Metal, `kitted`, the gate's own URL and capture
+ *  script, one extra `step(k)` after a tick-0 freeze standing in for a late
+ *  freeze): k=1 moves 8857 px against k=0, k=2 10004, k=4 13779 -- every one
+ *  on the infantry figures and the occluded militia's outline, exactly where
+ *  the CI failure's 10312 changed pixels are. `vehicle` is as exposed (k=15:
+ *  14557 px); it has simply not been caught yet.
+ *
+ *  HOW. `main.ts` assigns `window.__lions` and arms the loop
+ *  (`requestAnimationFrame(loop)`) in one synchronous run with no `await`
+ *  between, after painting its one boot frame at tick 0 (GH-141). An accessor
+ *  on `window.__lions` sees the assignment; every `requestAnimationFrame` call
+ *  made before the current task's microtasks run -- the loop's arm and
+ *  nothing else -- is dropped, and every later call passes through to the
+ *  real one, so a deferred double-rAF (`afterFirstFrame`, the wreck-mesh
+ *  loader) and Playwright's own polling still work. The frame history before
+ *  the capture is then exactly the boot frame at tick 0, every run, on every
+ *  machine. Sets `__lionsCaptureFrozen`, so `FREEZE_FRAME_LOOP_STATEMENTS`
+ *  becomes a no-op that reports tick 0, and `capture()` asserts the sim is
+ *  still at 0 after its settle -- a change to `main.ts` that let the loop run
+ *  anyway fails the capture by name rather than turning back into "noise".
+ *
+ *  Idempotent per document (a second copy finds the accessor and stands
+ *  down). Capture-only: shipping code is untouched. */
+export const BOOT_FREEZE_INIT_SCRIPT = `
+(function () {
+  if (Object.getOwnPropertyDescriptor(window, '__lions')) return;
+  var lions;
+  Object.defineProperty(window, '__lions', {
+    configurable: true,
+    enumerable: true,
+    get: function () { return lions; },
+    set: function (v) {
+      lions = v;
+      if (v === undefined || v === null || window.__lionsCaptureFrozen) return;
+      window.__lionsCaptureFrozen = true;
+      var real = window.requestAnimationFrame;
+      var dropping = true;
+      queueMicrotask(function () { dropping = false; });
+      window.requestAnimationFrame = function (cb) {
+        if (dropping) return 0;
+        return real.call(window, cb);
+      };
+    },
+  });
+})();
+`.trim();
+
 /** The HUD's alert feed (`.rl-feed`, `ui/hud.ts`), taken out of every
  *  scenario photograph. Statements, run inside `captureScript`'s async IIFE.
  *

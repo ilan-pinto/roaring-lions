@@ -1258,7 +1258,12 @@ yours; each one records what the next phase inherits.
   hold. That read as bimodal renderer noise (45–204 px in one mode, 1164–1549
   in the other) and it was the harness. `capture()` now **kills the frame
   loop** before its settle (`FREEZE_FRAME_LOOP_STATEMENTS`,
-  `capture-protocol.ts`), so `step()`'s own paint is the last paint. The
+  `capture-protocol.ts`), so `step()`'s own paint is the last paint. **And
+  since 2026-10-11 it freezes the loop AT BOOT** (`BOOT_FREEZE_INIT_SCRIPT`),
+  because a freeze sent after `__lions` appears still landed on tick 0 on most
+  runs and later on some, and squad figures integrate per frame: one tick of
+  late freeze moved `kitted` 8857 px (the flake on run 38092145339).
+  `capture()` asserts the sim is still at tick 0 after its settle. The
   thresholds were calibrated against 24 consecutive full-gate runs taken that
   way and the noise has since been **pooled across three independent samples on
   the same machine (24 + 21 + 49 runs)**: `quiet` 0–1 px / 0.0000–0.0001,
