@@ -2248,3 +2248,63 @@ Retina rows.
 - **The menu, the campaign board and the garage** under throttling.
 - **Long sessions**: GC was under 0.5% of every profiled window, but no window
   was longer than 10 s.
+
+## A collapse splices the terrain; static upkeep once per view (2026-10-10)
+
+The fixes ranked 1-3 in the low-end assessment (PR #507, "Low-end": a
+building collapse was the only stutter, 141-175 ms unthrottled and 499-643 ms
+at 4x CPU, all of it a full `rebuildTerrain`).
+
+**What changed.**
+
+- **The collapse is a splice** (`terrain/tiled-mesh.ts`, `terrain/incremental.ts`).
+  `buildGround`/`buildScatter` are tile emitters that record where each tile's
+  vertices and indices start; a rebuild diffs the new draw mask, cover, terrace
+  flag and smooth-field source against the last build, re-emits the changed
+  tiles grown by `SPLICE_RADIUS_TILES` = 2 (Catmull-Rom's support), and copies
+  the rest with their indices shifted. The control map rewrites in place only
+  the texels within `CONTROL_SPLICE_MARGIN_TEXELS` = 4 of a changed tile
+  (0.2 tile of edge bend + 0.25 of band = 0.45 tile); a road or ridge tile
+  changing builds it whole. **Byte-identical to a full build**: swept once over
+  every structure of every shipped map, 1,724 single collapses, 0 differences;
+  one tile narrower differs on 13 relief maps and one texel narrower on 25 maps,
+  so both margins are tight. `packages/app/src/terrain-splice.test.ts` keeps
+  chains of real collapses equal to full builds and one witness per margin.
+- Two costs that only showed once the splice removed the bulk: `toGeometry`'s
+  `Math.pow` sRGB decode (a byte table now, same bits, ~12 ms at 4x off a
+  collapse), and a **shader compile**: disposing the replaced decor and prop
+  batches' materials before the new ones drew released their program, and the
+  new batch recompiled it (38 ms in `getProgramInfoLog` at 4x). They are
+  disposed after the next draw now.
+- **Decor and prop batches cull and sort once per view** (`terrain/batch-cull.ts`):
+  the draw list is kept per camera matrices, so the AO pre-pass reuses the main
+  pass's and the fixed shadow box reuses its own, frame to frame.
+- **Static objects stop recomposing matrices** (`static-matrix.ts`): the scene no
+  longer forces a multiply onto every child, and terrain, structure boxes, decor,
+  props, standing buildings and settled wrecks are frozen where they are built.
+
+**Measured** with PR #507's `low-end.ts` harness (copied in, unchanged but for
+its imports), production build, Apple M3 Pro, Metal, headless Chromium,
+1366x768 @1x, `high`, `umm_zeitoun_4_clearance`, music off. Base is `origin/main`
+97e8e5f5 from its own worktree, interleaved run by run with this branch. **The
+machine was shared and loaded** (1-minute load 6-20, against 2-3 for PR #507's
+matrix) and the display ran at 120 Hz in some runs, so frame-interval
+percentiles are noisier than #507's; the collapse task and render submit are
+the robust readings.
+
+| | base | this branch |
+|---|---|---|
+| collapse long task, 4x CPU | 531-583 ms (n=3, load ~3); 602-726 ms (n=5, load 8-17) | 95-178 ms (n=5, load 6-17; 95-103 at load <= 12) |
+| collapse long task, 1x | 163-172 ms (n=3, load ~3); 167-228 (n=3, load 9-15) | none over 50 ms (n=2, load 6-11); 104 ms (n=1, load 20) |
+| render submit p50, 4x, fight | 25.3-28.8 ms, mean 26.5 (n=4) | 22.4-26.9, mean 24.5 (n=4) |
+| render submit p50, 4x, pan | 21.2-24.8, mean 22.9 (n=4) | 19.4-23.7, mean 21.2 (n=4) |
+| render submit p50, 4x, opening | 21.0-24.0, mean 22.4 (n=4) | 18.1-21.9, mean 19.9 (n=4) |
+| draw calls at the fight | 769-783 | 769-771 |
+
+What is left in the 4x collapse frame (profiled, dev server): ~25 ms in
+`rebuildTerrain` (decor and prop placements recomputed whole, ~6 ms; the
+splices ~5; `toGeometry` ~5; the decor batches rebuilt ~5), the next draw's
+uploads, and the sim's own `recomputeFields` (~9-19 ms at 4x, sim side, out of
+scope). The decor placements are not spliced: the clump rule drops members by
+the tile they land on, so a splice would need `decor-place.ts` restructured for
+~1 ms unthrottled.

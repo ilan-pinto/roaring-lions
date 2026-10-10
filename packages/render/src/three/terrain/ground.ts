@@ -62,6 +62,7 @@ import {
 } from './surface';
 import { SCRUB_TIER_STRENGTH, tileSurface } from './control-map';
 import type { MeshData, TerrainInput } from './types';
+import { buildTiledMesh, spliceTiledMesh, type TiledMeshData, type TileEmitter, type TileSink } from './tiled-mesh';
 import type { TerrainTones } from '../../api';
 
 export type { MeshData, TerrainInput };
@@ -226,15 +227,50 @@ export function tileBaseToneHex(input: TerrainInput, tones: TerrainTones, ti: nu
  * stop being emitted too.
  */
 export function buildGround(input: TerrainInput, tones: TerrainTones, background: string): MeshData {
-  const { width, height } = input;
-  const surface = buildTerrainSurface(input);
-  const positions: number[] = [];
-  const colors: number[] = [];
-  const normals: number[] = [];
-  const wallAlbedo: number[] = [];
-  const groundUv: number[] = [];
-  const indices: number[] = [];
+  return buildGroundTiled(input, tones, background).mesh;
+}
 
+/** `buildGround`, keeping where each tile's vertices and indices start, so a
+ *  later rebuild can splice (`tiled-mesh.ts`). `surface` is
+ *  `buildTerrainSurface(input)`; a caller that already holds it passes it in
+ *  rather than paying for the fill twice. */
+export function buildGroundTiled(
+  input: TerrainInput,
+  tones: TerrainTones,
+  background: string,
+  surface: TerrainSurface = buildTerrainSurface(input)
+): TiledMeshData {
+  return buildTiledMesh(input.width, input.height, GROUND_ATTRIBUTES, groundTileEmitter(input, tones, background, surface));
+}
+
+/** `buildGroundTiled`'s result with only the `dirty` tiles rebuilt -- see
+ *  `spliceTiledMesh` for what makes that exact. */
+export function spliceGround(
+  prev: TiledMeshData,
+  dirty: Uint8Array,
+  input: TerrainInput,
+  tones: TerrainTones,
+  background: string,
+  surface: TerrainSurface
+): TiledMeshData {
+  return spliceTiledMesh(prev, dirty, groundTileEmitter(input, tones, background, surface));
+}
+
+const GROUND_ATTRIBUTES = ['normals', 'wallAlbedo', 'groundUv'] as const;
+
+/**
+ * One ground tile: its top (a flat terrace quad, or a smooth patch) and the
+ * east and south walls it owns. What the tile loop in `buildGround` always
+ * ran per tile, unchanged, lifted into an emitter so the same code serves the
+ * full build and a splice.
+ */
+function groundTileEmitter(
+  input: TerrainInput,
+  tones: TerrainTones,
+  background: string,
+  surface: TerrainSurface
+): TileEmitter {
+  const { width, height } = input;
   const faceEastHex = quantise(composite(background, tones.rock, FACE_ALPHA_EAST), quantisePalette(tones));
   const faceSouthHex = quantise(composite(background, tones.rock, FACE_ALPHA_SOUTH), quantisePalette(tones));
   const faceEastColor = hexToUnit(faceEastHex);
@@ -260,6 +296,7 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
   // +X/+Y/+Z-facing convention, not guessed). `pushPolygon` (`shared.ts`) is
   // the shared fan this delegates to -- see its own doc comment for why a
   // 4-point call reproduces this exact index sequence.
+  let sink: TileSink = { positions: [], colors: [], indices: [] };
   const pushQuad = (
     p0: [number, number, number],
     p1: [number, number, number],
@@ -268,6 +305,10 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
     color: [number, number, number],
     flip: boolean
   ): void => {
+    const { positions, colors, indices } = sink;
+    const groundUv = sink.groundUv as number[];
+    const normals = sink.normals as number[];
+    const wallAlbedo = sink.wallAlbedo as number[];
     pushPolygon(positions, colors, indices, [p0, p1, p2, p3], color, flip);
     // A horizontal quad: the albedo projects straight down, so its sampling
     // coordinates are its own world (x, z).
@@ -285,90 +326,84 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
     }
   };
 
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const ti = y * width + x;
-      const levelHere = levelAt(input, x, y);
-      const topY = levelHere * WORLD_PER_LEVEL;
+  return (target: TileSink, x: number, y: number): void => {
+    sink = target;
+    const { positions, colors, indices } = target;
+    const normals = target.normals as number[];
+    const wallAlbedo = target.wallAlbedo as number[];
+    const groundUv = target.groundUv as number[];
+    const ti = y * width + x;
+    const levelHere = levelAt(input, x, y);
+    const topY = levelHere * WORLD_PER_LEVEL;
 
-      // See `tileBaseToneHex` for the road tile's exception.
-      const toneColor = hexToUnit(tileBaseToneHex(input, tones, ti, background));
+    // See `tileBaseToneHex` for the road tile's exception.
+    const toneColor = hexToUnit(tileBaseToneHex(input, tones, ti, background));
 
-      if (surface.flat || isTerrace(surface, x, y)) {
-        // Tile top: a flat quad at its own height, four fresh vertices, no
-        // sharing with any neighbour, up normal. `flip: false` gives it an
-        // up-facing (+Y) geometric normal -- see the winding note above.
-        // This is the pre-2026-09-03 path verbatim, and it is what a map
-        // with no relief draws for every one of its tiles.
-        //
-        // No shipped flat map has a single `^` tile (counted: 0 on all
-        // four), and a flat map's ordinary ground takes the same open-ground
-        // tone a hill's does. "Flat sand is still sand" is the project
-        // lead's own call, made once he saw that `beit_sahwan_outskirts`,
-        // the DEFAULT sandbox map, would otherwise greet a player with
-        // untextured palette ground while `qarn_hadid` and `tel_marum` were
-        // sand.
-        pushQuad([x, topY, y], [x + 1, topY, y], [x + 1, topY, y + 1], [x, topY, y + 1], toneColor, false);
-      } else {
-        pushSmoothTile(positions, colors, normals, wallAlbedo, groundUv, indices, surface, x, y, toneColor);
-      }
-
-      if (surface.flat) {
-        // No relief: `levelAt` is 0 everywhere on and off the map, so no drop
-        // exists in any direction and no face was ever emitted. Kept as an
-        // explicit early-out rather than falling through the wall code below,
-        // so the claim "a flat map's mesh is unchanged" needs no argument
-        // about what `hasWall` returns.
-        continue;
-      }
-
-      // East face (this tile vs. the neighbour at x + 1), then south (vs.
-      // y + 1). `hasWall` (`surface.ts`) is the single predicate deciding
-      // whether either exists; `scatter.ts`'s slope dressing reads the same
-      // one, so a strata band can never float over a hillside with no wall
-      // beneath it.
-      if (hasWall(surface, x, y, 0)) {
-        pushWall(
-          positions,
-          colors,
-          normals,
-          wallAlbedo,
-          groundUv,
-          indices,
-          surface,
-          x,
-          y,
-          0,
-          faceEastColor,
-          ridgeAt(x, y) || ridgeAt(x + 1, y) ? 1 : 0
-        );
-      }
-      if (hasWall(surface, x, y, 1)) {
-        pushWall(
-          positions,
-          colors,
-          normals,
-          wallAlbedo,
-          groundUv,
-          indices,
-          surface,
-          x,
-          y,
-          1,
-          faceSouthColor,
-          ridgeAt(x, y) || ridgeAt(x, y + 1) ? 1 : 0
-        );
-      }
+    if (surface.flat || isTerrace(surface, x, y)) {
+      // Tile top: a flat quad at its own height, four fresh vertices, no
+      // sharing with any neighbour, up normal. `flip: false` gives it an
+      // up-facing (+Y) geometric normal -- see the winding note above.
+      // This is the pre-2026-09-03 path verbatim, and it is what a map
+      // with no relief draws for every one of its tiles.
+      //
+      // No shipped flat map has a single `^` tile (counted: 0 on all
+      // four), and a flat map's ordinary ground takes the same open-ground
+      // tone a hill's does. "Flat sand is still sand" is the project
+      // lead's own call, made once he saw that `beit_sahwan_outskirts`,
+      // the DEFAULT sandbox map, would otherwise greet a player with
+      // untextured palette ground while `qarn_hadid` and `tel_marum` were
+      // sand.
+      pushQuad([x, topY, y], [x + 1, topY, y], [x + 1, topY, y + 1], [x, topY, y + 1], toneColor, false);
+    } else {
+      pushSmoothTile(positions, colors, normals, wallAlbedo, groundUv, indices, surface, x, y, toneColor);
     }
-  }
 
-  return {
-    positions: Float32Array.from(positions),
-    colors: Float32Array.from(colors),
-    normals: Float32Array.from(normals),
-    wallAlbedo: Float32Array.from(wallAlbedo),
-    groundUv: Float32Array.from(groundUv),
-    indices: Uint32Array.from(indices),
+    if (surface.flat) {
+      // No relief: `levelAt` is 0 everywhere on and off the map, so no drop
+      // exists in any direction and no face was ever emitted. Kept as an
+      // explicit early-out rather than falling through the wall code below,
+      // so the claim "a flat map's mesh is unchanged" needs no argument
+      // about what `hasWall` returns.
+      return;
+    }
+
+    // East face (this tile vs. the neighbour at x + 1), then south (vs.
+    // y + 1). `hasWall` (`surface.ts`) is the single predicate deciding
+    // whether either exists; `scatter.ts`'s slope dressing reads the same
+    // one, so a strata band can never float over a hillside with no wall
+    // beneath it.
+    if (hasWall(surface, x, y, 0)) {
+      pushWall(
+        positions,
+        colors,
+        normals,
+        wallAlbedo,
+        groundUv,
+        indices,
+        surface,
+        x,
+        y,
+        0,
+        faceEastColor,
+        ridgeAt(x, y) || ridgeAt(x + 1, y) ? 1 : 0
+      );
+    }
+    if (hasWall(surface, x, y, 1)) {
+      pushWall(
+        positions,
+        colors,
+        normals,
+        wallAlbedo,
+        groundUv,
+        indices,
+        surface,
+        x,
+        y,
+        1,
+        faceSouthColor,
+        ridgeAt(x, y) || ridgeAt(x, y + 1) ? 1 : 0
+      );
+    }
   };
 }
 
