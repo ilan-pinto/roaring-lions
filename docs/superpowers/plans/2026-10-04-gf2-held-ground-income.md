@@ -15,7 +15,7 @@ Refreshed against `main` `b44df7aa` (6 Oct). Corrections only; every ruling and 
 **New interactions**
 - Holding is kneeling: an idle foot unit kneels, target or not. Kneeling never moves anyone, so D3's presence test is unchanged.
 - **The closing rule moves holders.** In `stepSweep`, an arrived attack-mover walks toward a current target in cover, or toward an identified enemy it cannot reach but could engage. A plain `move` sets `attackMove` 0 and stays. The player's right-click is always an attack-move, and `halt` does **not** clear `attackMove` (the halt branch, `sim.ts` ~L2505-2514), so a halted holder is swept again on the next tick. A player's holding force can therefore walk out of its own zone. `playtest.ts`'s plans carry 124 plain `move` order sites and 59 `attackMove` ones in source, and no `halt`.
-- Enemy `commit` triggers and waves are attack-moves too (`mission.ts:1688`, `:1780`), so enemy holders and interdictors chase in the same way.
+- Enemy `commit` triggers and waves are attack-moves too (`mission.ts` ~L1701, ~L1793; were :1688, :1780 at `b44df7aa`), so enemy holders and interdictors chase in the same way.
 - **Patrols halt on contact** (D3, D4 b). A foot patroller that meets the player in a zone or beside a route now stays there for as long as the fight lasts. Every patroller on the 18 economy missions is a vehicle (technical, moto_rpg), and #402 leaves vehicles alone, so no D7 mission is touched today; F4 and G-G content will be.
 - Enemy foot rifles reach 7–8 tiles (`militia_cell` 7, `sarim_rifles` 8), past `CONTEST_RADIUS_SQ`'s 6. An enemy halted and firing on a guard 7 tiles away reads `interdicted` under D4 b.
 - On three of the five D7 maps a zone holds the starting force or the camp: BS II `west_approach`, DA II `staging`, UZ II `staging`. (BS II has since left D7, ruled 6 Oct.)
@@ -32,13 +32,55 @@ Refreshed against `main` `b44df7aa` (6 Oct). Corrections only; every ruling and 
 - **Lane C.** F2 now forces two `packages/app` edits: the `CAMPAIGN_CREDITS` copy (GH-330), and the road mask in `packages/app/src/mission-start.ts` (Task 7). Are those within Lane C's allowance, as F1's call-site rename was?
   **Ruled 6 Oct:** within the allowance.
 
+## Pre-flight, 11 Oct (against main f2d5d9e8)
+
+DOCS ONLY check of this plan against `main` `f2d5d9e8` (70 PRs since `b44df7aa`). Every ruling and D-default stands. The sim did not move: `packages/sim/src/sim.ts` is untouched since `b44df7aa`, and `mission.ts` gained only #431's `razeExempt` (+13 lines). Sim pins unchanged (flat 922714084, relief 3200430224).
+
+**What landed that touches F2**
+- **#431 razeExempt** (7 Oct) and **#444** (8 Oct, footprint-true buildings; Qarn Hadid III ROE 94 -> 96): `LADDER_CREDITS` and `CAMPAIGN_CREDITS` are **5870**, not 5830. Per-mission credits of the D7 missions after #431: UZ II 230 and UZ IV 235, both at ROE 100, so income cannot move their Conduct term; WH II 180. `ROSTER_MAX` still 31. #431 does not touch income. It does mean UZ II `post_stone` and UZ IV `stockpile` (raze zones) are where plans level buildings, which opens routes: the Task 8 walk should print one rubble recheck there.
+- **#461 zone states, #475 hatched ground band** (GH-470): an objective zone has four states (`held`, `unheld`, `contested`, `target`) from `zoneStateOf` (`packages/app/src/objective-zones.ts`), shared by the world outline (dashed when `unheld` or `contested`), the hatched band (`units/zone-band.ts`, same colour key, capacity `ZONE_BAND_VERTEX_CAPACITY`) and the minimap (`ui/minimap.ts` `zoneMarkStyle`: held `--live` solid, unheld `--warn` dashed pulsing, contested `--bad` dashed pulsing, target `--bad` solid). `zoneStateOf` reads an **objective** (`type`, `paused`), not a zone: an income zone is not an objective, so none of this draws it yet.
+- **#428 alerts**: tiers `minor`/`important`/`major`, a `tone`, a `Place` (`ui/alert-place.ts`), merge within 8 s, Space jumps to the latest important/major (`ui/alerts.ts`). `Alert.kind` is a closed union and `AlertWorld.objectiveAt` resolves objective ids only.
+- **#426 cues**: `MISSION_EVENT_SOUND` (`ui/cues.ts`) is a typed Record over `MissionEvent['kind']`; `MISSION_EVENT_KINDS` (`mission.ts`) is pinned to the union by a compile-time check; `alerts.test.ts` builds one sample per kind and `cues.test.ts` requires a decision per kind. Two new kinds (Task 7) fail all four until handled.
+- **#454 one chrome register**: logistics wear `--info` (the strip, `.rl-info`). The strip already prints a static `+N/min` from `logistics_rate_per_min` (`main.ts` ~L2462 `logisticsRate`, `hud.strip.rate`, `data-tip="logistics"`). The strip item has `tabindex=0` since #504/#506.
+- **#474 memory gate**: `umm_zeitoun_4_clearance` (a D7 mission) is one of the three walked missions.
+- **#488 tutorial beats, first-use hints** (`data/hints/first_use.json`): the tutorial has no economy step. The `logistics` hint says only "what the dock spends".
+- **#402 interplay unchanged**: `halt` still leaves `attackMove` set (`sim.ts` halt branch ~L2506-2514); the Hold ruling (6 Oct) is still the answer. The H/X key ruling does not touch F2.
+- No locale overlay exists (`data/locales/` is `README.md` only) and `validate:data` requires none. Roster R-2 (#441) does not touch F2.
+
+| task | what changed | fixed in place / question |
+|---|---|---|
+| Changed since 4 Oct, D4 | `mission.ts:1688`, `:1780` (enemy `commit`, wave attack-move) | fixed: ~L1701, ~L1793 |
+| Refs, Architecture | income block "later slice" ~L1051; float accrual ~L1053-1054 | fixed: ~L1060, ~L1062-1063 |
+| D1 | `productionAnchor` ~L593 | fixed: ~L601 |
+| D3 | `livingIn`/`contestedIn` ~L1562-1600 | fixed: ~L1570-1613 |
+| Task 1 | `logisticsValue` ~L515; `requestBuild` refusal ~L676 | fixed: ~L523, ~L684 |
+| Task 6 | `stepPatrols` ~L1523 | fixed: ~L1536 |
+| Re-pins, Base, Constraints | `LADDER_CREDITS` 5830; `playtest.ts` ~L3181; "line numbers are `b44df7aa`'s" | fixed: 5870 (`CAMPAIGN_CREDITS` follows, `stores-model.ts:63` already 5870), ~L3195, `f2d5d9e8` |
+| Lane A needs | "the tutorial's economy step names holding ground" | fixed: no such step; replaced by P2-6 |
+| Task 8 | "no locale overlays" | still true; added that none is required and none owed |
+| Task 7, constraints | two new `MissionEvent` kinds force app edits (`cues.ts`, `alerts.test.ts` sample) beyond the two the lead allowed | question P2-5, P2-9 |
+| Lane A needs | zones/minimap/alerts/readout vocabulary | questions P2-1 to P2-4, P2-7, P2-8 |
+| Task 8, 10 | UZ IV is walked by the `memory` job | question P2-10 |
+
+**For the lead** (numbered P2-n; the plan's earlier list is bulleted)
+- **P2-1. Income zones and the zone vocabulary.** `zoneStateOf` cannot take an income zone. Recommended: reuse the four states, no new colour. Add a sibling `incomeZonesFor` beside `objectiveZonesFor` that feeds `ObjectiveZoneView` (id `income:<zone>`) from `zoneHolder` events: held by the player is `held`; empty or enemy-held is `unheld`; contested is `contested`; never `target`. The minimap reads the same list. An income zone that is also an objective zone (UZ II `crest_line`, DA II `pump_yard`, WH II `pasture`) is drawn once, by its objective. Why not a new look: the player already reads dashed as "not yours yet". Lane A (S-F), and a world look, so mock it first (memory: "no status marks in the world").
+- **P2-2. D3 and the objective disagree on the same ground.** The hold objective counts aircraft and calls a zone `held` unless an enemy is within 6 tiles of a friend; D3 pays nobody once any enemy stands inside. So an objective outline can read `held` while the zone pays nothing. Recommended: keep D3; do not recolour the outline; the strip tip says "pays nothing: enemy inside". Rewording the objective to match is a sim change and out of scope.
+- **P2-3. The corridor on the map.** Recommended: an open route is a thin `--info` line (logistics' colour, #454); a cut route is dashed `--warn` (the not-held look), not `--bad`, because a cut halves income and kills no one. Mock first (already required by "Lane A needs").
+- **P2-4. Alert tiers, tones, place** (all through `ui/alerts.ts`; each line names a `Place`, merges within 8 s, and Space jumps to it). Recommended: zone gained `minor`/`good`; zone contested `minor`/`warn`; zone lost `important`/`warn`; supply line cut `important`/`warn`, jump to the first cut tile; supply line restored `minor`/`good`. No `major`: income is never the plan-changing fact. Needs `Alert.kind` entries and an `AlertWorld.zoneAt(zone)` (as `objectiveAt` resolves objectives only). Flicker at a zone edge is handled by the 8 s merge and the one-cue-a-tick rule, not by debouncing pay.
+- **P2-5. Cues for the two new event kinds.** Recommended: Task 7 adds `zoneHolder` and `corridor` to `MISSION_EVENT_KINDS` and to `MISSION_EVENT_SOUND` as `{ silent: '...until WP-S-F wires the alert' }`, plus one sample each in `alerts.test.ts`. S-F flips them to `ALERT_CUE.minor`/`important` in the same commit as the alert. No new `CueId`, no `data/audio.json` row (`validate:audio` unaffected), no announcer line: EVA stays "silent until recorded" (no he/ar lines for income).
+- **P2-6. Teaching held ground.** Recommended: a new first-use rule `income` in `data/hints/first_use.json` (new predicate `income_zones`), copy `hud.hint.first.income` ("zones you hold alone pay on top; an enemy inside pays nobody"), S-F lane. No briefing edit, so no `briefing_sections` and no overlay work.
+- **P2-7. Naming a zone in an alert.** Zone ids are not player text, and a mission may show only `name`, `briefing`, objective `text` and trigger `label`. Recommended: place-only wording ("Held ground lost, north-east"), no `label` on `income_zones`, so no new mission text and no overlay. Adding labels means a schema field, a `MissionLocaleOverlay` extension and `validate_data` rules.
+- **P2-8. Income readout.** Recommended: the strip's existing `+N/min` switches from the static rate to `incomePerMin` (base plus zones, halved where cut); the halved case adds a `.rl-warn` suffix, never `--bad`; the `data-tip="logistics"` text gives the cause. Stays `--info` (#454). Keyboard reachable already.
+- **P2-9. Lane C allowance, again.** F2 now forces a third and fourth app edit: `ui/cues.ts` rows and the `alerts.test.ts` sample (P2-5), beside the `CAMPAIGN_CREDITS` copy and the `roadMask` hand-off. Recommended: within the allowance, as ruled on 6 Oct.
+- **P2-10. Memory gate.** F2 adds no GLB, so the UZ IV readings (JS/GPU/process/bitmaps) should not move; the zone band and any route overlay add geometry only. Recommended: no budget change; the PR's `memory` job is the confirmation (not run locally). If it moves, name the cause in the PR.
+
 **Goal:** Ground the player holds pays. Ground nobody holds cleanly pays nobody. A line the enemy
 cuts pays half.
 
 | | today (`main` `b44df7aa`; the same at `067fab9a`) | after F2 |
 |---|---|---|
 | logistics | one flat `logistics_rate_per_min` (18 missions, 80–150/min) | the flat rate stays as the **base**; **income zones pay on top**, to whichever side holds them uncontested |
-| `supply_corridor` | declared by `umm_zeitoun_2_buildup` and `umm_zeitoun_4_clearance`, **read by nothing** ("a later slice", `mission.ts` income block, ~L1051) | read: a cut corridor **halves** what flows down it |
+| `supply_corridor` | declared by `umm_zeitoun_2_buildup` and `umm_zeitoun_4_clearance`, **read by nothing** ("a later slice", `mission.ts` income block, ~L1060) | read: a cut corridor **halves** what flows down it |
 | contested ground | — | **pays nobody** (the spike's rule: "the rule that made both sides fight for the approach. Keep it", M, G-G0) |
 | what cuts a line | — | an enemy holding ground on the route, a route that no longer exists for wheels (ditch, boulders; **not rubble**: a collapse sets its tiles' `blocked` to 0 and "leaves rubble a vehicle can cross", `Sim.destroyStructure`, so rubble can only open a route), and an open tunnel vent beside it |
 
@@ -81,9 +123,10 @@ cuts pays half.
 - F1 (`2026-10-04-gf1-fire-support-intel.md`) for the economy pin this plan re-pins.
 
 **Base:**
-- Read against `main` `067fab9a` (4 Oct), refreshed against `b44df7aa` (6 Oct). Branch
-  `feat/gf2-income`, cut from `main` after F1 and F3 land. Locate code by symbol; the line numbers
-  quoted are `b44df7aa`'s.
+- Read against `main` `067fab9a` (4 Oct), refreshed against `b44df7aa` (6 Oct), pre-flighted against
+  `f2d5d9e8` (11 Oct). Branch `feat/gf2-income`, cut from `main` after F1 and F3 land. Locate code
+  by symbol; the line numbers quoted are `f2d5d9e8`'s (`mission.ts` moved by 8-13 lines since
+  `b44df7aa`; `sim.ts` did not move).
 - **Nothing here is measured yet.** (M) numbers are quoted from the G3 sheet's probe at `751b6742`,
   before GH-382 moved every D7 mission onto new ground and #402 changed infantry fire; treat each as
   stale until re-measured. (R) numbers are reasoned and each task says how to measure them.
@@ -99,7 +142,7 @@ cuts pays half.
     rear (side 0: the production anchor, else `player_start`; side 1: its production anchor from F4,
     else none). A zone with no rear for its holder is never cut. This is the literal reading of "a
     cut corridor halves a zone". (Refresh: the anchor is `MissionRuntime.productionAnchor(side)`,
-    private, `mission.ts` ~L593; `player_start` is `mission.map.player_start`, not a map marker.
+    private, `mission.ts` ~L601; `player_start` is `mission.map.player_start`, not a map marker.
     Rears on main: the UZ II camp is at (20,43), the BS II camp at (2,20) and the DA II camp at (21,35).
     UZ IV and WH II stand no camp, and WH II's `pump_house` produces nothing, so their rears are
     `player_start` (24,45) and (3,24).)
@@ -115,7 +158,7 @@ cuts pays half.
     comment names (a routed survivor in a far corner zeroes the zone); for income that is the
     intended pressure, and Task 8's world walk shows whether it bites on the four D7 missions. Aircraft
     neither hold nor contest (the #279 ruling (a) principle). Civilians are side 2 and count for
-    nobody. (Refresh: the hold objective's `livingIn`/`contestedIn`, `mission.ts` ~L1562-1600,
+    nobody. (Refresh: the hold objective's `livingIn`/`contestedIn`, `mission.ts` ~L1570-1613,
     **do** count aircraft, so `zoneHolder` cannot reuse them as they stand. Since #402 a holder on
     foot kneels, which does not move it. But an attack-moved holder can be walked out of the zone by
     `stepSweep`, and `halt` does not prevent it: see "Changed since 4 Oct". Ruled 6 Oct: held zones
@@ -159,10 +202,10 @@ cuts pays half.
 ## Global Constraints
 
 - **The four invariants hold.** No floating point added; the income block's existing
-  `rate / 1200` float accrual (`mission.ts` ~L1053-1054) is **removed** in Task 1, not extended. No
+  `rate / 1200` float accrual (`mission.ts` ~L1062-1063) is **removed** in Task 1, not extended. No
   `rng` draw anywhere in F2. Data flow stays one-way: the runtime reads the sim, never writes it
   (which is why the route does not go through `Sim.fieldFor`; see Architecture).
-- **The two sim pins stay UNMOVED by every task.** A move is a defect. On `b44df7aa` they read
+- **The two sim pins stay UNMOVED by every task.** A move is a defect. On `b44df7aa` and `f2d5d9e8` they read
   flat **922714084** and relief **3200430224** (`packages/sim/src/determinism.test.ts` L427, L721).
   On 4 Oct they read 2109596329 and 1425295494; #402 moved them. Whatever F1/F3 leave is the
   reference.
@@ -176,10 +219,11 @@ cuts pays half.
 - **Gates before every commit:** `pnpm lint && pnpm typecheck && pnpm test:determinism && pnpm test`,
   `pnpm balance`, `pnpm playtest`, and `pnpm validate:data` when data or a schema changes. Output in
   the commit message.
-- **Git, TypeScript, lane:** as F1. Lane C files only; the overlay and HUD are WP-S-F's. Two
+- **Git, TypeScript, lane:** as F1. Lane C files only; the overlay and HUD are WP-S-F's. Four
   `packages/app` edits are forced (a question for the lead, "Changed since 4 Oct"):
-  `CAMPAIGN_CREDITS` if the ladder moves, and the road mask at `packages/app/src/mission-start.ts:46`
-  (Task 7). Ruled 6 Oct: both are within Lane C's allowance.
+  `CAMPAIGN_CREDITS` if the ladder moves, the road mask at `packages/app/src/mission-start.ts:46`
+  (Task 7), and, since #426/#428, the `ui/cues.ts` rows and the `alerts.test.ts` sample for the two new
+  event kinds (Task 7 Step 2; P2-5, P2-9). Ruled 6 Oct: the first two are within Lane C's allowance.
 
 ---
 
@@ -218,7 +262,7 @@ is a sum whose rounding depends on the order of addition. The day the economy is
 ```ts
 /** Logistics in 1/2400ths: a full source adds 2 * rate per tick, a halved one adds rate.
  *  Both are exact at 20 Hz for every integer per-minute rate. */
-private logisticsAcc = 0;   // replaces logisticsValue (mission.ts ~L515)
+private logisticsAcc = 0;   // replaces logisticsValue (mission.ts ~L523)
 get logistics(): number;    // Math-free: (this.logisticsAcc / 2400) | 0, unchanged contract (floored)
 // spending subtracts cost * 2400; refusals compare acc < cost * 2400
 ```
@@ -226,7 +270,7 @@ get logistics(): number;    // Math-free: (this.logisticsAcc / 2400) | 0, unchan
 *Refresh correction:* the unit was 1/1200ths. In that unit an integer rate r adds r per tick, which
 is exact, but a **halved** odd rate adds r/2, which is not: 45/min cut is 22.5 a tick. Task 7's
 "odd rate halved accrues exactly" test could not pass. 1/2400ths keeps both cases integer. Note
-too that today's refusal (`requestBuild`, ~L676) compares the **unfloored** float purse against the
+too that today's refusal (`requestBuild`, ~L684) compares the **unfloored** float purse against the
 cost, so this exact comparison is the same rule.
 
 Also a refresh note: `logistics_rate_per_min` is typed `"number"` in `mission.schema.json`'s
@@ -435,7 +479,7 @@ ventTile(route: number): TileXY | null;
 ```
 
 *#402 note:* D4 b now meets patrols that halt on contact (`MissionRuntime.stepPatrols`,
-`mission.ts` ~L1523; foot only) and enemy rifles that fire from a halt at up to 7–8 tiles. An
+`mission.ts` ~L1536; foot only) and enemy rifles that fire from a halt at up to 7–8 tiles. An
 interdictor and a guard trading fire 7 tiles apart read `interdicted`, not contested. The tests
 below pin the rule as written (6 tiles); whether that is the right radius is a question for the lead.
 
@@ -458,7 +502,7 @@ below pin the rule as written (6 tiles); whether that is the right radius is a q
 **Model:** sonnet. **Agent:** `sim-guard`. **Depends:** Tasks 1, 3–6, and F1 Task 1.
 
 **Files:** `packages/sim/src/mission.ts` and its test, `determinism.test.ts`; the five
-`new MissionRuntime(` sites, for `roadMask` (File structure).
+`new MissionRuntime(` sites, for `roadMask` (File structure); `MISSION_EVENT_KINDS` (`mission.ts`), `packages/app/src/ui/cues.ts` (`MISSION_EVENT_SOUND`) and the `sample` record in `ui/alerts.test.ts`, which a new kind turns red or `tsc`-red (P2-5).
 
 **Interfaces:**
 
@@ -487,7 +531,7 @@ get incomePerMin(): { base: number; zones: number; halvedBy: CutCause | null }; 
     it exactly (45 units a tick), which is why Task 1 came first; 1/1200ths would need 22.5 a tick);
   - routes are recomputed every `CORRIDOR_RECHECK_TICKS` and after a structure dies, and a route
     through a collapsed building's rubble updates (the blocked mask changed).
-- [ ] **Step 2: Implement.** Events fire on change only.
+- [ ] **Step 2: Implement.** Events fire on change only. Add `zoneHolder` and `corridor` to `MISSION_EVENT_KINDS`, give each a `cues.ts` row (`silent` with a reason until S-F's alert, P2-5) and a sample in `alerts.test.ts`; `describeMissionEvent` (`main.ts`) falls to its `default: null`, which is right.
   *Fixture trap since #402:* an in-test unit type with no `role` derives as wheeled. It never braces
   and paths in `DOMAIN_VEHICLE` (the golden replay's riflemen did exactly this). A fixture unit meant
   as infantry needs `role: 'infantry'`. To keep a holder in its zone, order it there and then
@@ -519,7 +563,7 @@ get incomePerMin(): { base: number; zones: number; halvedBy: CutCause | null }; 
 
 **Files:** the four D7 mission JSONs (BS II left D7, ruled 6 Oct), and their `briefing` together with the matching
 `briefing_sections` text, only if a briefing line now lies (`tools/validate_briefing.mjs`, GH-119).
-There are no locale overlays: `data/locales/` holds only `README.md`. A zone added to a map is a
+There are no locale overlays: `data/locales/` holds only `README.md`, and `validate:data` requires none (it checks only overlays that exist, against real ids and the 48-character label cap); F2 adds no objective, trigger or label, so none is owed. A zone added to a map is a
 `data/maps/<map>.json` edit, and the arc's `tools/src/<arc>_ground.test.ts` may pin it.
 
 - [ ] **Step 1: Author** the approved zones and rates. No objective, placement or trigger changes.
@@ -537,6 +581,7 @@ There are no locale overlays: `data/locales/` holds only `README.md`. A zone add
   changes who wins.
 - [ ] **Step 3: Measure.** Every plan still wins; every passive control still loses. Lines that move
   are the four missions' (purse, banking) and anything downstream of a changed outcome.
+- [ ] **Step 3b: Memory.** UZ IV is one of the three missions the CI `memory` job walks (`DEFAULT_MISSIONS`, `tools/src/perf/memory.ts`). F2 adds no GLB, so its budgets should hold; the PR's job is the check (P2-10). Do not run `perf:memory` locally.
 - [ ] **Step 4: See it red.** Point one zone at a rectangle the plan never enters: its walk prints
   `holder -1` for the whole mission. That is the reading a mis-authored zone gives, and the PR shows
   it once.
@@ -595,20 +640,19 @@ There are no locale overlays: `data/locales/` holds only `README.md`. A zone add
 
 | pin | expected | the reason, for the commit |
 |---|---|---|
-| sim pins, flat and relief | **unmoved** (R): 922714084 and 3200430224 on `b44df7aa` (2109596329 and 1425295494 on 4 Oct, moved by #402) | — |
+| sim pins, flat and relief | **unmoved** (R): 922714084 and 3200430224 on `b44df7aa` and `f2d5d9e8` (2109596329 and 1425295494 on 4 Oct, moved by #402) | — |
 | `ECONOMY_PIN`, `ECONOMY_PIN_RELIEF` | **re-pinned once**, Task 7 | held-ground income and corridors (G3 Q2) |
 | `pnpm balance` | byte-identical (R) | — |
 | `pnpm playtest` | byte-identical through Task 7 except a D2 halving on the two corridor missions (R); Task 8 moves the four D7 missions | zones authored; new banking lines and gates |
-| `LADDER_CREDITS` | **5830** on `b44df7aa` (5736 on 4 Oct; GH-382 and #402 moved it). Moves only if a D7 mission's grade, `unitHome` or conduct term moves (`creditsFor`, `packages/sim/src/credits.ts`: win, carrying secondaries, `unitHome`, conduct points) (R: income alone changes no outcome a plan that does not spend can see). If it moves, `CAMPAIGN_CREDITS` (`packages/app/src/ui/stores-model.ts:63`) moves in the same commit (`tools/src/campaign_credits.test.ts`, GH-330) | named per mission in the pin's comment, the house style above `LADDER_CREDITS` (`tools/src/backtest/playtest.ts` ~L3181) |
+| `LADDER_CREDITS` | **5870** on `f2d5d9e8` (5830 on `b44df7aa`, 5736 on 4 Oct; GH-382, #402, #431 and #444 moved it). Moves only if a D7 mission's grade, `unitHome` or conduct term moves (`creditsFor`, `packages/sim/src/credits.ts`: win, carrying secondaries, `unitHome`, conduct points) (R: income alone changes no outcome a plan that does not spend can see). If it moves, `CAMPAIGN_CREDITS` (`packages/app/src/ui/stores-model.ts:63`) moves in the same commit (`tools/src/campaign_credits.test.ts`, GH-330) | named per mission in the pin's comment, the house style above `LADDER_CREDITS` (`tools/src/backtest/playtest.ts` ~L3195) |
 
 ## Lane A needs (WP-S-F #184)
 
 - **The supply-line overlay** (S-F's own item): each corridor's route, drawn cut or open, from the
   runtime's routes. It is a world overlay, so it is **mocked and shown to the lead before it is
   built** (memory: "no status marks in the world"; mock a world overlay first).
-- **Zone holders on the minimap**: held, contested, enemy-held, from `zoneHolder` events.
-- **Income readout** beside the logistics counter: `+N/min`, with the half and its cause on hover
-  (`incomePerMin`).
-- **Alerts** through the existing feed: "supply line cut: enemy on the road", "zone lost",
-  "zone contested". Throttled, like the civilian flee notice.
-- Strings through `t()`; the tutorial's economy step names holding ground.
+- **Zone holders on the minimap**: the existing four states through a sibling of `zoneStateOf`, from `zoneHolder` events; enemy-held reads `unheld` (P2-1). No new colour.
+- **Income readout** beside the logistics counter: the strip's existing `+N/min` (`hud.strip.rate`) fed by `incomePerMin` instead of the static rate, the half and its cause in the `data-tip="logistics"` tip, `--info` (P2-8).
+- **Alerts** through the existing feed (`ui/alerts.ts`): "supply line cut: enemy on the road", "zone lost",
+  "zone contested", each with a tier, a tone and a `Place` (P2-4). Merged by the feed's 8 s rule.
+- Strings through `t()`, label tables as getters, checked with `?pseudo=1`. The tutorial has no economy step (pre-flight 11 Oct), so held ground is taught by a first-use hint instead (For the lead P2-6).

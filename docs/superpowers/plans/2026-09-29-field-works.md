@@ -144,6 +144,21 @@ Mission authors place four militia equivalents as targets and positions. The ene
 
 ---
 
+> **Pre-flight, 11 Oct (against main f2d5d9e8), Task 1 only.** Every symbol Task 1 names still
+> exists: `StructureTypeJson` and `StructureType` (`structures.ts`, built only by
+> `structureTypeFromJson`, so the new required `garrisonSuppCover` breaks no other literal), the
+> `coverProtects` branch of `applySuppression` (`sim.ts` ~L4436), `COVER_SUPP` (`tuning.ts`; index 3 is
+> `5898`, the literal 0.09) and `garrisonedIn`. #280 is open. Three things to know:
+> - **#291 lands first (2–3 Nov) and rewrites `applySuppression`'s signature and head** (three source
+>   parameters, a write before the cover maths). This task edits the `coverProtects` branch only.
+>   Rebase onto it; the suppression oracle in the first test is unchanged.
+> - **The scenario's "kills 0 without the field" was measured at `e3bf7484`**, before #402 (foot units
+>   now halt and kneel to fire; a garrisoned unit is held at `BRACE_NONE` and fires as before) and
+>   before GH-382 re-drew 19 maps. Re-read it on the branch base and write down the number you get.
+> - **The golden replay stays blind to this change**, so the pins stay at flat `922714084` and relief
+>   `3200430224` (unchanged since #402). `LADDER_CREDITS` is 5870 (#431, #444); `playtest` must print it
+> unchanged.
+
 ## Task 1 (lane C): #280, garrison suppression cover
 
 **Agent:** `sim-guard`, sonnet. **Depends:** L1. **Closes:** #280 (under L1 = (a)).

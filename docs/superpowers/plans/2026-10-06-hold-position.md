@@ -57,17 +57,91 @@ The lead answered all four with one order:
 
 ---
 
+## Pre-flight, 11 Oct (against main f2d5d9e8)
+
+Read and grepped, not run. Corrections are made in place below. Rows marked "question" wait on the
+list under the table.
+
+**Landed since `b44df7aa` that touches this plan:**
+- **Sim pins unchanged:** flat `922714084`, relief `3200430224` (`determinism.test.ts`, read 11 Oct).
+  `packages/sim` changed only in `mission.ts` (#431, `razeExempt`); `sim.ts` is untouched.
+- **`LADDER_CREDITS` and `CAMPAIGN_CREDITS` are 5870** (#431: 5830 to 5868; #444: 5868 to 5870).
+- **#427 / #428 / #445:** the cursor reads `advance-*`, feed lines are tiered, and the chip and card
+  carry combat-state words. Two of those words are "holding" (row 8).
+- **#454 chrome register:** lime `--on` is for a live mission state only (armed button, speed chip).
+- **#426 cues and #497/#499 voice:** `ui/cues.ts` is exhaustive over `MissionEvent`. A new order verb
+  needs voice keys or a stated silence.
+- **#488 tutorial beats:** `data/tutorial/beit_sahwan_0.json` names H and awaits a `halt` intent in
+  three places (row 12). The ruling breaks it unless Task 3 edits it.
+- **GH-254 telemetry and GH-464 replay:** `dispatch` fans out to `telemetry/events.ts`'s exhaustive
+  `orderVerbOf` and to `replayLog.record`.
+
+| task | what changed | fixed in place / question |
+|---|---|---|
+| 3, Step 1 | The `halt` row is at `keymap.ts` ~L43, not L36. Its three "whole of what was taken" comments are on `jumpToAlert`, `keysOverlay` and `idleNext`; each already lists space, f1 and i. | fixed |
+| 3, Step 1 | Tests that pin H to `halt` and re-pin: `keymap.test.ts` (the shipped-letters test, `resolveKey` 'H', the `bindingsFrom` fall-back cases with `halt: 'f'` / `'3'`, and `rebind(…'jumpToAlert','h')` taken by `halt`); `settings-keymap.test.ts` (the "Halt" row reads 'H' and `.halt` is 'h', ~L150–195); `keys-overlay.test.ts` is rebind-based and stays green. | fixed |
+| 3, Step 1 | A saved override collides in **both** directions. `smoke: 'x'` now loses to `halt`'s default X. `smoke: 'h'` (possible only for a player who had moved `halt` off H) now loses to Hold's default H. `bindingsFrom` drops either to the default; the player is not told. | fixed (test both) |
+| 1, Step 2 | `halt` is the final bare `else` of the `applyCommands` chain (after `chargeTunnel`), not a `kind === 'halt'` branch. A new `hold` kind falls into it unless `else if (cmd.kind === 'hold')` is placed **before** it. `reveal` and `callStrike` carry no `ids`: H-D2's clear needs `'ids' in cmd` (the buried-unit scan above uses the same guard). | fixed |
+| 1, Step 2 | `halt` clears `garrisonGoal` but not `boardGoal`, `demolishOrder` or `chargeOrder`. `stepTransport`, `stepDemolition` and `stepTunnelCharge` re-set `moving` from those latches (the comment at the tunnel-burial block says so). A held demolisher or boarder would walk on. | question 8 |
+| 1 | `mission.ts` `stepPatrols` queues a `halt` for a patroller that halts to fire (~L1558). Under H-D2 that clears `holdPos`. Patrollers are never held today; F4's enemy rally units are not patrollers. No change. | noted |
+| 3, Step 2 | `main.ts`: `orders.halt` is at ~L2559 and the key switch `case 'halt'` at ~L3864 (the plan said ~L2311). `OrderHandlers` is `Record<OrderId, () => void>` (`ui/hud.ts` ~L250), so a new `OrderId` forces `orders.hold`. | fixed |
+| 3, Step 2 | Exhaustive switches on `PlayerIntent['kind']` that a new `hold` kind breaks at `tsc`: `input/cursor.ts` `idsOf` (the `halt` case, ~L280), `telemetry/events.ts` `orderVerbOf`, and `INTENT_KINDS` with its three pins (`intents.test.ts`, `tutorial/steps.test.ts`, `telemetry/events.test.ts` `sample()` and the verb map). | fixed |
+| 3, Step 3 | The button is not in `hud.ts` alone. `OrderId` and `ORDERS` are in `ui/selection-model.ts`; `SelectionFacts` needs a `holding` count and Hold is inert when every selected unit already holds. A new order sight touches `order-sight.ts` (`SightOrderId`, `ORDER_SIGHT`, `SURROUND`, `ORDER_MARK_BOUNDS`), `ui/symbol.ts` (`ORDER_IDS`) and `symbol.test.ts`'s count of 35. | fixed; art is question 3 |
+| 3, Step 4 | The word "holding" is taken three times. `selection.chip.holding` is the chip's idle fall-through (`chipStatus` in `selection-model.ts`). `hud.card.holdingPosition` is the card's idle line (`hud.ts` ~L2357). `hud.fire.holdingFire` is a pinned shooter. A Hold-ordered unit would read the same as a unit nobody ordered. | question 4 |
+| 3, Step 4 | Status tone. `ChipTone` is `bad`, `hot` or null; lime is a live mission state (#454). Hold is a unit state, so it takes null (plain `--ink-dim`), like "moving" and "aboard". It sits after `moving` in `chipStatus`'s precedence. | fixed |
+| 3, Step 5 | The tutorial names H today and the ruling breaks it. `beit_sahwan_0.json`: the `advance` beat says "H halts them"; `identify_then_shoot` awaits `intent: halt` (all_of) and its text and nudge say "Press H"; `what_a_shot_costs` awaits `any_of [halt, order]`, text and nudge say "press H". After Task 3, H queues `hold`, so those beats never complete. | fixed (Step 5 rewritten) |
+| 3, Step 5 | Tools that press H and expect a halt: `tools/src/ui-review/routes-check.ts` ~L1582 (`voices (a)` asserts `trigger === 'halt'`; `pnpm ui:routes` runs in CI) and `tools/src/perf/fire-link-captures.ts` ~L175. | fixed (new step 6) |
+| 3 | Voice. `OrderVerb`, `ORDER_VERBS` and `COMMON_VERBS` (`voice/lines.ts`) and `gestureVerb`'s last rung (`voice/director.ts`, `pick('halt','halt')`). `he.common.halt` and `ar.common.halt` exist in `data/audio.json` with empty `variants`: silent until recorded. Hold takes the same path. | fixed (new step 7) |
+| 3 | `ui/idle.ts` `isIdle`: a held unit is stationary with no target, so `idleNext` (I) would walk the player through every held unit. | question 5 |
+| 3 | Telemetry. `orderVerbOf` must map `hold`. `TELEMETRY_ORDER_VERBS` (`packages/data/src/telemetry.ts`) and the `orderVerb` enum in `data/schemas/telemetry_event.schema.json` carry eleven verbs; the Worker's stats page is generated from the list. | question 6 |
+| 3 | Cues (#426). A refused order plays `ui.deny` (`CRITICAL_CUES.uiDeny`); `confirm` is for primary actions only. Today `orders.halt` with nothing selected shows `haltNote` and plays nothing. | question 7 |
+| Decisions, H-D7 | The `"hold_position"` stance enum is at `mission.schema.json` ~L791, not ~L781. Nine mission files use it (counted). Still read by no runtime code. | fixed |
+| Global | `LADDER_CREDITS` 5830 is 5870. | fixed |
+| Global | L1 is decided (lead, early Oct): no move-only order, so no Move chip. The row reads Attack-move, Hold (H), Halt (X). `selection-model.test.ts` pins the row ids and order. | noted |
+
+### For the lead (continues "For the lead" below)
+
+**Ruled 11 Oct (lead):** items 3–5 and 8 as recommended: the order symbol is mocked first, the state
+word is "on hold", held units leave the idle finder, and `hold` also clears the demolish, charge and
+board latches. The tutorial accepts either `hold` or `halt` (row above). Targeted fire does not release
+Hold (H-D2's exception, T-D8 in the targeted-fire plan); Hold's tests gain nothing for it, the
+targeted-fire plan carries them.
+
+3. **Hold's order mark.** An order's picture is the lead-approved sheet (G1 round 5, 35 symbols). Hold
+   needs one. **Recommended:** a new `hold` sight in the `control` family beside `halt`, mocked at the
+   chip size and the cursor size before Task 3 Step 3 starts, on the lead's picture gate. The fallback
+   is the `halt` mark on both buttons, which two adjacent buttons make unreadable.
+4. **The state words.** **Recommended:** a Hold-ordered unit reads "{n} on hold" on the chip and
+   "on hold" on the card. The two idle fall-throughs are renamed to "standing" (chip) and "standing"
+   (card), because they also cover a stationary unit that is shooting. `hud.fire.holdingFire` stays.
+5. **Idle finder.** **Recommended:** a held unit is not idle (`IdleFacts` gains `holding`), the same
+   rule that excludes a garrisoned or carried unit.
+6. **Telemetry.** **Recommended:** add `hold` as a twelfth verb (the data package, the schema enum,
+   `orderVerbOf`, the stats columns). It is the only evidence of whether players use the order. The
+   Worker and the app deploy together, so no client sends a verb the Worker rejects.
+7. **Deny cue.** **Recommended:** Hold with nothing selected shows a note and plays `ui.deny`, and
+   `halt` gets the same one-line change, so the two keys agree.
+8. **H-D1 amended.** **Recommended:** `hold` also clears `boardGoal`, `demolishOrder` and `chargeOrder`
+   (the latches the tunnel-burial block clears), with a test for a held demolisher. H-D1 as ruled
+   says "`halt` plus two writes", which leaves those three standing.
+
+---
+
 ## Decisions
 
 - **By the lead, 6 Oct:** as in "Why".
 - **Taken defaults, accepted as written (PM, 6 Oct):** a rout releases Hold (H-D4), and the runtime
   decides when a rallied unit has arrived (H-D5).
   - **H-D1. Hold is `halt` plus two writes.** The `hold` branch does everything the `halt` branch
-    does (`sim.ts`, the command loop), except leave a structure (see H-D3). It also sets
-    `attackMove = 0` and `holdPos = 1`.
+    does (`sim.ts`, `applyCommands`, where `halt` is the final bare `else`), except leave a structure
+    (see H-D3). It also sets `attackMove = 0` and `holdPos = 1`. Pre-flight question 8 proposes a
+    third write: clear `boardGoal`, `demolishOrder` and `chargeOrder`.
   - **H-D2. Any other order that names the unit clears `holdPos`**, whatever the order: `move`,
     `attackMove`, `halt`, `garrison`, `load`, `unload`, `demolish`, `chargeTunnel` or `smoke`. A
-    held unit is released by the next order, never by time.
+    held unit is released by the next order, never by time. **Exception, ruled 11 Oct (lead):
+    targeted fire's `attack` (GH-420, `2026-10-11-targeted-fire.md` T-D8) does not release Hold.** A
+    held unit fires on an `attack` target already in range and sight; an out-of-range one is refused
+    with a reason line ("On hold — target out of range"); it never moves.
   - **H-D3. Hold keeps a garrisoned unit inside.** It does not call `leaveStructure`, and the unit
     holds from its window. On a carried or buried unit, Hold is a no-op: it is in no position to
     hold.
@@ -82,7 +156,7 @@ The lead answered all four with one order:
     too (`stepSweep` is not foot-only).
   - **H-D7. Names.** The column is `holdPos`, not `holding`: the sim already has a `holdingFire`
     shot result (pinned shooters), and the two must not be confused. The mission schema already
-    has a placement stance `"hold_position"` (`mission.schema.json` ~L781, used by nine missions).
+    has a placement stance `"hold_position"` (`mission.schema.json` ~L791, used by nine missions).
     No runtime code reads it: a spawned unit is idle with `attackMove` 0 anyway. It is left as is.
     Wiring it to `holdPos` is a later content decision, behaviour-neutral today (R).
 
@@ -100,7 +174,7 @@ The lead answered all four with one order:
   column (Task 1, Step 4).
 - **`pnpm balance`** is byte-identical (R): `targets.ts` issues no `hold`.
 - **`pnpm playtest`** is byte-identical (R): no plan issues `hold` until F2 or F4 makes one.
-- **`LADDER_CREDITS` (5830), `CAMPAIGN_CREDITS`, `ROSTER_MAX` (31) and `GATES` are unchanged.**
+- **`LADDER_CREDITS` (5870), `CAMPAIGN_CREDITS` (5870), `ROSTER_MAX` (31) and `GATES` are unchanged.**
 - **Every check is seen red** by a one-line mutation, quoted in the commit.
 - **Gates before every commit:** `pnpm lint && pnpm typecheck && pnpm test:determinism && pnpm test`,
   then `pnpm balance` and `pnpm playtest`. Add `pnpm validate:ui` for Task 3.
@@ -114,11 +188,13 @@ The lead answered all four with one order:
 
 | File | Role | Task |
 |---|---|---|
-| `packages/sim/src/sim.ts` | `{ kind: 'hold' }` in the `Command` union; the `holdPos` column; the `hold` branch; H-D2's clear; H-D4's clear in `startRout`; `stepSweep`'s explicit skip; `state.holdPos`; `hash()` | 1 |
+| `packages/sim/src/sim.ts` | `{ kind: 'hold' }` in the `Command` union; the `holdPos` column; an `else if (cmd.kind === 'hold')` branch placed before `halt`'s final `else`; H-D2's clear (guarded by `'ids' in cmd`); H-D4's clear in `startRout`; `stepSweep`'s explicit skip; `state.holdPos`; `hash()` | 1 |
 | `packages/sim/src/hold.test.ts` | **New.** The Hold tests | 1 |
 | `packages/sim/src/determinism.test.ts` | The re-pin and the hash-coverage test | 1 |
 | `docs/superpowers/plans/2026-10-04-gf2-held-ground-income.md`, `…-gf4-camp-production.md`, `…-gf1-fire-support-intel.md` | Already reference Hold (6 Oct rulings); nothing to edit here | — |
-| `packages/app/src/input/keymap.ts`, `input/intents.ts`, `main.ts`, `ui/hud.ts`, `ui/order-sight.ts`, `i18n/en.json` (+ tests) | Lane A: the binding, the intent, the button, the mark | 3 |
+| `packages/app/src/input/keymap.ts`, `input/intents.ts`, `input/cursor.ts` (`idsOf`), `main.ts`, `ui/selection-model.ts` (`ORDERS`, `OrderId`, `SelectionFacts`, `chipStatus`), `ui/hud.ts` (`renderOrders`, the card's condition line), `ui/order-sight.ts` and `ui/symbol.ts` (the sight, if question 3 is yes), `ui/idle.ts`, `voice/lines.ts`, `voice/director.ts`, `telemetry/events.ts`, `i18n/en.json` (+ tests) | Lane A: the binding, the intent, the button, the mark, the voice verb | 3 |
+| `data/audio.json`, `data/tutorial/beit_sahwan_0.json`, `packages/data/src/telemetry.ts` and `data/schemas/telemetry_event.schema.json` (if question 6 is yes) | `he.common.hold` and `ar.common.hold` declared empty; the tutorial beats; the twelfth telemetry verb | 3 |
+| `tools/src/ui-review/routes-check.ts` (~L1582), `tools/src/perf/fire-link-captures.ts` (~L175) | The H keypress that expected a halt | 3 |
 | `docs/HANDOVER.md`, `CLAUDE.md` (Dev instruments: the order) | Ledger | 4 |
 
 ---
@@ -153,9 +229,10 @@ private readonly holdPos: Uint8Array;        // 1 while the unit holds position 
   - **"a held unit still routs, and the rout releases it"** (H-D4).
   - **"hold keeps a garrisoned unit inside"** (H-D3).
 - [ ] **Step 2: Implement.**
-  - Add the `hold` branch beside `halt`.
+  - Add the `hold` branch **before** `halt`'s final bare `else` in `applyCommands`; placed after it, or
+    left out of the chain, a `hold` command silently runs as a halt.
   - At the head of the command loop, clear `holdPos[id]` for every id an order names, except
-    `hold` itself (H-D2).
+    `hold` itself (H-D2). Guard with `'ids' in cmd`: `reveal` and `callStrike` carry no ids.
   - Clear it in `startRout` (H-D4).
   - Add an explicit `if (this.holdPos[i] === 1) continue;` to `stepSweep`. With `attackMove` 0 the
     unit is already skipped; the check says why, and guards a later edit.
@@ -197,47 +274,95 @@ No code in this plan. Each consumer lands with its own plan and cites this one:
 
 - [ ] **Step 1: The binding (ruled 6 Oct).**
   - **Hold takes H, and `halt` moves to X.** H is `halt`'s key today:
-    `packages/app/src/input/keymap.ts` L36,
-    `{ id: 'halt', label: 'keymap.halt', key: 'h', rebindable: true }`.
+    `packages/app/src/input/keymap.ts`, `{ id: 'halt', label: 'keymap.halt', key: 'h', rebindable: true }`
+    (~L43, first row of `ACTIONS`).
     - In `ACTIONS`, add `{ id: 'hold', label: 'keymap.hold', key: 'h', rebindable: true }`
-      and change `halt`'s `key` to `'x'`.
+      and change `halt`'s `key` to `'x'`. Add `'hold'` to the `Action` union.
     - X is free. The taken keys are h f g u o b m, ctrl+a, tab, space, f1, i, w s a d and escape;
-      S is pan-down.
+      S is pan-down. V stays free: L1 is decided as no move-only order (lead, early Oct).
   - **`halt` stays.** It is a one-tick stop: it still cancels a move and drops queued waypoints.
     - It keeps its label: the strings are `keymap.halt` and `order.halt`, which read "Halt" in
-      `en.json` on `b44df7aa`.
+      `en.json` on `f2d5d9e8`.
     - The ruling calls it "Stop"; no string changes either way.
   - **What re-pins with the defaults:**
     - `keymap.test.ts` pins the shipped letters ("ships the bindings main.ts had hard-coded, in
-      the same letters") and the distinct-defaults test.
-    - The settings rebind UI and its spec (`ui/settings-keymap.ts`, `settings-keymap.test.ts`) list
-      every action.
-    - `ACTIONS`' own comments enumerate "the whole of what was taken" three times; add x to each.
+      the same letters"), `resolveKey` 'H' to `halt`, the `bindingsFrom` fall-back cases written with
+      `halt: 'f'` / `'3'`, `rebind(…, 'jumpToAlert', 'h')` taken by `halt`, and the distinct-defaults test.
+    - The settings rebind UI and its spec (`ui/settings-keymap.ts`, `settings-keymap.test.ts`: the
+      "Halt" row reads 'H' and `.halt` is 'h' at ~L150–195) list every action.
+    - `ACTIONS`' own comments enumerate "the whole of what was taken" three times (on `jumpToAlert`,
+      `keysOverlay` and `idleNext`); add x to each. F1's card and the Controls rows are built from
+      `PLAYER_ACTIONS`, so `hold` appears in both with a `keymap.hold` string and nothing else.
   - **Saved overrides.** `lions.settings` stores only overrides of the defaults
-    (`overridesOf`/`bindingsFrom`), so a player who rebound `halt` keeps that key. A saved override
-    that already put another action on X now collides with `halt`'s new default. `bindingsFrom`
-    drops a colliding override, so that action falls back to its default key. Test that case and
-    say so in the commit.
+    (`overridesOf`/`bindingsFrom`), so a player who rebound `halt` keeps that key. `bindingsFrom`
+    drops a colliding override, so that action falls back to its default key. Two collisions are new:
+    a saved override that put another action on X now collides with `halt`'s default, and one that put
+    another action on H (possible only for a player who had moved `halt` off H) now collides with
+    Hold's. Test both and say so in the commit.
   - The keymap's conflict rules (`resolveKey`, `passesThroughModal`) apply unchanged.
-- [ ] **Step 2: The intent.** `input/intents.ts` gains `{ kind: 'hold'; ids }` and queues the sim
-  command, as `halt` does today (intents.ts ~L31, ~L80). `main.ts` dispatches it from the key and
-  the button (today's `halt` dispatch is ~L2311).
+- [ ] **Step 2: The intent.**
+  - `input/intents.ts` gains `{ kind: 'hold'; ids }` in `PlayerIntent` and in `INTENT_KINDS`, and
+    queues the sim command as `halt` does today (`applyIntent`, ~L31, ~L80). `intents.test.ts` pins
+    `INTENT_KINDS` against the union.
+  - Every exhaustive switch on the kind needs a `hold` case or `tsc` fails: `input/cursor.ts` `idsOf`
+    (the `halt` case, ~L280), `telemetry/events.ts` `orderVerbOf` (see question 6), and the `sample()`
+    and verb map in `telemetry/events.test.ts`. `tutorial/steps.test.ts` cross-checks the tutorial's
+    intent names against `INTENT_KINDS`.
+  - `main.ts`: `orders.halt` is at ~L2559 and the key switch `case 'halt'` at ~L3864. Add `orders.hold`
+    (`OrderHandlers` is `Record<OrderId, () => void>`, so it is required) and `case 'hold'`. Select
+    `side === 0` units as `orders.halt` does. With nothing selected, show the note and play `ui.deny`
+    (question 7); the confirm cue is for primary actions only.
 - [ ] **Step 3: The button.**
-  - A HUD order beside Halt in the order strip (`ui/hud.ts`, `ui/order-sight.ts`'s
-    `ORDER_SIGHT`).
+  - **The order row.** `OrderId` and `ORDERS` live in `ui/selection-model.ts`. Add `hold` beside
+    `halt`: `{ id: 'hold', label: 'order.hold', key: 'hold' }`. `SelectionFacts` gains a `holding`
+    count (read from `sim.state.holdPos` in `ui/hud.ts`'s `renderOrders`). Hold is always shown, and
+    inert when every selected unit already holds (`inertReason` `hud.order.inert.hold`).
+    `selection-model.test.ts` pins the row ids and order; re-pin it.
+  - **The mark.** An order's picture is the lead-approved sheet, so a `hold` sight needs the lead's
+    approval first (question 3). If yes: add it to `SightOrderId`, `ORDER_SIGHT` (`control` family),
+    `SURROUND`, `ORDER_MARK_BOUNDS` (`ui/order-sight.ts`), `ORDER_IDS` (`ui/symbol.ts`), and re-pin
+    `symbol.test.ts` (35 ids) and `order-sight.test.ts`.
   - Its tooltip goes through `t('hud.order.tip.hold')`: "Stay here and fire at anything in range.
-    Never advance."
-  - The label goes through `t('keymap.hold')`.
-- [ ] **Step 4: The mark.**
-  - A held unit shows "holding" on its HUD unit card and its selection chip, as DOM beside the kit
+    Never advance." The label goes through `t('keymap.hold')`.
+- [ ] **Step 4: The state words.**
+  - A held unit reads "on hold" on its chip and its HUD unit card (question 4), as DOM beside the kit
     sign (`kitIconSignHtml`, `ui/kit-sign.ts`). It reads `sim.state.holdPos`.
+  - **The chip.** `chipStatus` (`ui/selection-model.ts`) takes a `holding` count. It sits after
+    `moving` in the precedence and before the idle fall-through; tone null (plain `--ink-dim`). Lime
+    `--on` is for a live mission state only (#454, `chrome-register.test.ts`), and a unit state is not
+    one. `UnitFacts` gains `holding`.
+  - **The card.** `hud.ts` ~L2357 prints `hud.card.holdingPosition` ("holding position") for any unit
+    with no flags. That is the idle line today. A held unit gets its own line; the idle line is renamed
+    (question 4).
   - **No mark in the world** (lead: no status marks in the world).
   - Semantic tokens only (`pnpm validate:ui`). Strings go through `t()`, and a pseudo capture
     shows no unbracketed word.
-- [ ] **Step 5: The tutorial.** The economy step names Hold where it teaches holding ground (F2)
-  and rallying (F4).
-- [ ] **Step 6: See it red.** Put `halt` back on H: the distinct-defaults test fails, because two
-  actions share H. Unbind Hold: the test that pins H → `hold` fails.
+- [ ] **Step 5: The tutorial.** `data/tutorial/beit_sahwan_0.json` names H and awaits a `halt` intent,
+  and after Step 1 the H key queues `hold`.
+  - `advance` ("H halts them"): "H holds them where they stand."
+  - `identify_then_shoot`: replace `{ intent: "halt" }` inside the `all_of` with an `any_of` of
+    `hold` and `halt`. The text and nudge ("Press H") stay true, and H now does the thing the beat
+    asks for, which the polish audit's PA-12 found `halt` could not do under the closing rule.
+  - `what_a_shot_costs`: the existing `any_of [halt, order]` gains `hold`.
+  - `tutorial/lessons.test.ts` and `tools/src/tutorial_lessons_world.test.ts` drive these beats with
+    `halt` intents and stay green; add a `hold` case to each and see it red by removing `hold` from the
+    `any_of`.
+  - The economy step names Hold where it teaches holding ground (F2) and rallying (F4).
+- [ ] **Step 6: Tools that press the key.** `tools/src/ui-review/routes-check.ts` (~L1582, `voices (a)`
+  presses `h` and asserts `trigger === 'halt'`; it runs in CI via `pnpm ui:routes`, so do not run it
+  locally) and `tools/src/perf/fire-link-captures.ts` (~L175, "Halt it through the real hotkey"). Both
+  press `x` after Step 1. Do not run either locally.
+- [ ] **Step 7: The voice.**
+  - `voice/lines.ts`: add `hold` to `OrderVerb`, `ORDER_VERBS` and `COMMON_VERBS`; `allLineKeys` then
+    asks for `he.common.hold` and `ar.common.hold`. `voice/director.ts` `gestureVerb`'s last rung
+    gains `pick('hold', 'hold')`.
+  - `data/audio.json`: declare both keys with empty `variants`. That is "silent until recorded", the
+    state `he.common.halt` is in today; `lines.test.ts` holds the file to the key set and
+    `pnpm validate:audio` checks the shape. The lead records the Hebrew line (#499); no placeholder
+    audio ships.
+- [ ] **Step 8: See it red.** Put `halt` back on H: the distinct-defaults test fails, because two
+  actions share H. Unbind Hold: the test that pins H to `hold` fails. Drop `hold` from the tutorial's
+  `any_of`: the new lessons case fails.
 
 ---
 
@@ -261,6 +386,8 @@ No code in this plan. Each consumer lands with its own plan and cites this one:
 | `LADDER_CREDITS` / `CAMPAIGN_CREDITS` / `ROSTER_MAX` / `GATES` | unchanged | — |
 
 ## For the lead
+
+Items 3 to 8 are in "Pre-flight, 11 Oct" above.
 
 1. **H is `halt`'s key today.** The ruling gives H to Hold. Should `halt` move to another key or be
    retired? Under the closing rule it holds an attack-mover for one tick, so it does little the

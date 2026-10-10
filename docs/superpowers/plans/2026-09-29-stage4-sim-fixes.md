@@ -60,6 +60,48 @@ and `detect-report.md`, `fix-sim2.mts` and `patch291.py` are gone.
 
 ---
 
+## Pre-flight, 11 Oct (against main f2d5d9e8)
+
+Read and grepped, not run. No probe was re-measured: every "measured" figure in the tasks is still
+from `e3bf7484` and each task still re-measures.
+
+**Landed since `b44df7aa` that touches this plan:**
+- **`sim.ts` and `civilians.ts` are byte-identical to `b44df7aa`** (`git diff` empty). `startRout`
+  (~L3538), `applySuppression` (L4426, 13 matches), the hash fold (`suppression` at ~L5559) and the
+  call sites all stand as written. Both sim pins are unchanged: flat `922714084`, relief `3200430224`.
+- **#431 edited `MissionRuntime`** (`mission.ts`, 13 lines, 7 Oct; plus `mission.test.ts`). `stepRoe`
+  skips any `structureDestroyed` in the union of raze objectives' structure sets (`razeExempt`, built in
+  `start()`). So "`packages/sim` stays closed until 2 Nov" was not literal. Task 2 edits the same file's
+  `civFlight` field and constructor; expect a plain rebase.
+- **`LADDER_CREDITS` and `CAMPAIGN_CREDITS` are 5870** (#431: 5830 to 5868; #444: 5868 to 5870, Qarn
+  Hadid III ROE 94 to 96). `stores-model.ts` `CAMPAIGN_CREDITS` and `playtest.ts` `LADDER_CREDITS`
+  still agree.
+- **#431 moved Umm Zeitoun IV** from 227 to 235 credits (ROE 92 to 100) in the ladder comment. Task 2's
+  Step 4 and R3 read that line.
+- **#428 / #461 alerts:** `ui/civ-flight.ts` already returns `AlertLine`s with a tone (`warn` for
+  fire, `info` for troops) and a place (`at`, where the family stands now). Task 3 adds no alert and
+  needs no tier or tone change.
+- **Hold position** (`2026-10-06-hold-position.md`) rewrites no line of this plan, but its Task 1 edits
+  `startRout`, which Task 4 rewrites first (order below).
+
+| task | what changed | fixed in place / question |
+|---|---|---|
+| Global, 1, 2 | `LADDER_CREDITS` is 5870, not 5830 (four live mentions; the 6 Oct history line stays). | fixed |
+| 2 | `main.ts` line refs: `new CivilianFlight()` is at ~L1698 (was ~L1560) and `new CivFlightWatch()` at ~L1724 (was ~L1586). `mission.ts` `private readonly civFlight = new CivilianFlight()` is still at ~L492. | fixed |
+| 2, Step 4 | Umm Zeitoun IV on `main` is 235 credits and ROE 100 (#431), not 227 and 92. The "`c` to `a`" reading is still unmeasured on the re-planned mission. | fixed (text), re-measure stands |
+| 3 | `ui/refuge-ping.test.ts` (~L51) also constructs `new CivFlightWatch()`; it was not in Task 3's file list. | fixed |
+| 1 | Tel Marum I's shepherd point `(22, 27)` re-checked against `data/missions/tel_marum_1_recon.json` and `data/maps/tel_marum_1.json`: 9.92 tiles from `tm_pocket_west` (15.5, 19.5), 11.42 from `tm_spotter_west` (11.5, 22.5), 3.16 from the herders at (21, 24), elevation 3 against 1. Every figure in Task 1, Step 1 and R4 holds. | confirmed, no edit |
+| 1 | The three `script-losable.md` passages are at ~L66 (§1), ~L200 (§2 row I) and ~L482 (§6 t=4 row). | fixed (line refs added) |
+| 1, 2 | Thirteen missions still pair `evacuate_before` with a `recon_drone` in `starting_force`: the eight re-planned ones plus `beit_sahwan_0_tutorial`, `khan_rafid_1_recon`, `qarn_hadid_1_recon`, `umm_zeitoun_1_recon` and `wadi_halam_1_fords`. The plan names only the eight; the other five have plans or none and must be re-measured the same way. | fixed (list completed) |
+| 4 | Task 4 and the Hold plan both edit `startRout` and `hash()`. Order is unchanged (#291 first, Hold on Wed 4 Nov); Hold's rout clear rebases onto Task 4's rewritten branches. | noted |
+
+### For the lead
+No new question. Items 1 to 3 above stand as ruled on 6 Oct. Item 1's premise ("the rest of
+`packages/sim` stays closed") is not literally true after #431; the ruling still holds, since #431
+touched `MissionRuntime` only and no pin moved.
+
+---
+
 **Goal:** Two sim fixes that can start on day one of Stage 4, when the sim unfreezes.
 
 | issue | what changes | owner | golden hash |
@@ -162,8 +204,8 @@ on tracked files. They lived in the session scratchpad under `s4probes/`: `base`
     2:1 to 37% on `main`, and `pnpm balance` has printed the `urbanSmokeStep` rows at both tiers
     since 29 Sep. Re-measure, and record whatever moves.
 - **`pnpm playtest`** stays exit 0.
-  - **No task may move `LADDER_CREDITS` or any `GATES` line.** `LADDER_CREDITS` is **5830** on
-    `main`; it was 5849 at `e3bf7484` (measured on `f2pD`). It is also held equal to
+  - **No task may move `LADDER_CREDITS` or any `GATES` line.** `LADDER_CREDITS` is **5870** on
+    `main` (5830 at `b44df7aa`); it was 5849 at `e3bf7484` (measured on `f2pD`). It is also held equal to
     `CAMPAIGN_CREDITS` in `packages/app/src/ui/stores-model.ts`.
   - At `e3bf7484`, the only printed lines that moved were two `umm_zeitoun_4_clearance` lines, where
     `get_the_porters_clear` went from `c` to `a` (Task 2). GH-382 re-planned Umm Zeitoun IV and
@@ -195,7 +237,7 @@ on tracked files. They lived in the session scratchpad under `s4probes/`: `base`
 | `packages/sim/src/mission.ts` (+ `mission.test.ts`) | `civFlight` built in the constructor from `missionShepherds` | 2 |
 | `packages/sim/src/index.ts` | Exports `missionShepherds` and `CivilianFlightOptions` | 2 |
 | `packages/app/src/main.ts` | The sandbox's `new CivilianFlight({ shepherd: true })` (Task 2, for `typecheck`); `new CivFlightWatch({ shepherds })` (Task 3) | 2, 3 |
-| `packages/app/src/ui/civ-flight.ts` (+ test) | `CivFlightWatchOptions`: a mission that does not shepherd has only one cause | 3 |
+| `packages/app/src/ui/civ-flight.ts` (+ test), `ui/refuge-ping.test.ts` | `CivFlightWatchOptions`: a mission that does not shepherd has only one cause; the second spec's constructor call | 3 |
 | `packages/app/src/evacuation.test.ts` | Read only. "First Light's briefing states the flight rule" pins the briefing's two triggers and its length band (385–1225 characters) | 3 |
 | `packages/sim/src/sim.ts` | `suppFrom*` columns, `applySuppression` source, `startRout` order, `state` view, `hash()` | 4 |
 | `packages/sim/src/rout.test.ts` | **New.** The #291 tests | 4 |
@@ -216,11 +258,11 @@ within 4 tiles of the herders at `[21, 24]`. Both points survived GH-382's re-dr
 comment says it too ("the herders, who break for the start line when it passes, walk out behind
 it"). Under ruling (a), the shipped plan went **DEFEAT in 5.0 min, 0 stars, credits 0**. That cost
 the ladder 200 credits (5849 → 5649 at the time) and failed the `scout_shachaf` and `apc_kipod`
-gates, at 28 and 42 stars (measured on `f2ab` at `e3bf7484`). The ladder is 5830 on `main`;
+gates, at 28 and 42 stars (measured on `f2ab` at `e3bf7484`). The ladder is 5870 on `main`;
 re-measure.
 
 **Files:** `tools/src/backtest/playtest.ts` (the `tel_marum_1_recon` plan and its `at(4)`
-comment); `docs/campaign/tel_marum/script-losable.md`, in three places:
+comment); `docs/campaign/tel_marum/script-losable.md`, in three places (~L66, ~L200, ~L482):
 - §1's `civilians` bullet ("close to the drone's own first waypoint `[24, 25]`");
 - §2's table row for I ("The drone's own first waypoint … already sits within 4 tiles");
 - §6's copy-ready order table row for t=4.
@@ -257,7 +299,7 @@ sim.queueCommand({ kind: 'move', ids: [foot[0]], ...M(22, 27) });
   credits 200, the max-tier line unchanged, the ladder 5849 and every gate green (measured on
   `f2pD`). **On `main`, expect a later victory.** The re-planned drone holds 30 s and then sweeps to
   the battery from t=34 s, so the four `locate`s finish later than 0.9 min. Expect the ladder at
-  **5830**, credits unchanged from `main`'s line, and every gate green. Record what you read.
+  **5870**, credits unchanged from `main`'s line, and every gate green. Record what you read.
 
   Record the shepherd variants tried, so the next author does not repeat them. All three were
   measured on the **old** `tel_marum_1` and are history:
@@ -269,7 +311,8 @@ sim.queueCommand({ kind: 'move', ids: [foot[0]], ...M(22, 27) });
 
   **Wider re-measure (GH-382).** Under ruling (a), run every plan on this stash, not only Tel
   Marum I. Thirteen missions pair an `evacuate_before` with a `recon_drone` in the starting force.
-  Eight were re-planned on 5 Oct: `beit_sahwan_4_subterranean`, `khan_rafid_2_foothold`,
+  Eight were re-planned on 5 Oct (the other five are `beit_sahwan_0_tutorial`, `khan_rafid_1_recon`,
+  `qarn_hadid_1_recon`, `umm_zeitoun_1_recon` and `wadi_halam_1_fords`; measure them too): `beit_sahwan_4_subterranean`, `khan_rafid_2_foothold`,
   `khan_rafid_3_clearance`, `qarn_hadid_3_clearance`, `tel_marum_1_recon`,
   `tel_marum_3_clearance`, `umm_zeitoun_3_clearance` and `umm_zeitoun_4_clearance`. Any plan that
   loses an evacuation primary here leaned on its drone, and needs a ground shepherd of this task's
@@ -338,7 +381,7 @@ The constructor sets it, after `this.mission` is assigned:
 `this.civFlight = new CivilianFlight({ shepherd: missionShepherds(mission.objectives) });`.
 
 **`main.ts`.** `const civFlight = civRefuge ? new CivilianFlight({ shepherd: true }) : null;` (D2).
-The line is at ~L1560 at `b44df7aa`. It is in this commit because the argument is required, and
+The line is at ~L1698 at `f2d5d9e8` (~L1560 at `b44df7aa`). It is in this commit because the argument is required, and
 `typecheck` must pass at every commit. Today the runtime's field is
 `private readonly civFlight = new CivilianFlight();`, at ~L492 of `mission.ts`.
 
@@ -380,9 +423,10 @@ The line is at ~L1560 at `b44df7aa`. It is in this commit because the argument i
     `umm_zeitoun_4_clearance (bought)`, where `get_the_porters_clear=c` became `=a`. ROE 92,
     stars 2, credits 237 and the 1.7 minutes did not move, the ladder stayed 5849, and every gate
     was unchanged. **On `main` that line differs.** GH-382 re-scripted the plan, and the
-    `LADDER_CREDITS` comment gives Umm Zeitoun IV's credits as 237 → 247 (GH-382) → 227 (#402).
+    `LADDER_CREDITS` comment gives Umm Zeitoun IV's credits as 237 → 247 (GH-382) → 227 (#402) → 235
+    (#431, ROE 92 → 100).
     On `main` the escort is ordered to the porters' yard at t=1 and the drone is not, so the
-    `c → a` move may not happen at all. Re-measure. The ladder must stay **5830**, and every gate
+    `c → a` move may not happen at all. Re-measure. The ladder must stay **5870**, and every gate
     unchanged.
   - The re-measures the lead asked for, as read at `e3bf7484`:
     - **`beit_sahwan_3_clearance`**: result, ROE, stars and credits were identical to `main`. Its
@@ -412,7 +456,8 @@ triggers, so not-suppressed means a soldier was close". After Task 2, a mission 
 has only one trigger. The watch must know that, or a misread tick would say "your troops are
 close" where troops can move nobody.
 
-**Files:** `packages/app/src/ui/civ-flight.ts` and its test, and `packages/app/src/main.ts`.
+**Files:** `packages/app/src/ui/civ-flight.ts` and its test, `packages/app/src/ui/refuge-ping.test.ts`
+(its `new CivFlightWatch()` at ~L51 takes `{ shepherds: true }`), and `packages/app/src/main.ts`.
 
 **Interfaces:**
 
@@ -425,7 +470,7 @@ export interface CivFlightWatchOptions {
 export class CivFlightWatch { constructor(opts: CivFlightWatchOptions) /* … */ }
 // observe(): const cause: FlightCause =
 //   this.shepherds && !this.suppressedLast.has(c.id) ? 'troops' : 'fire';
-// main.ts (today, ~L1586 at b44df7aa: `const civWatch = refugeAt ? new CivFlightWatch() : null;`)
+// main.ts (today, ~L1724 at f2d5d9e8: `const civWatch = refugeAt ? new CivFlightWatch() : null;`)
 const civWatch = refugeAt
   ? new CivFlightWatch({ shepherds: mission ? missionShepherds(mission.objectives) : true })
   : null;
