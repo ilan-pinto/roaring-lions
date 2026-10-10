@@ -97,7 +97,7 @@ list under the table.
 | 3 | Cues (#426). A refused order plays `ui.deny` (`CRITICAL_CUES.uiDeny`); `confirm` is for primary actions only. Today `orders.halt` with nothing selected shows `haltNote` and plays nothing. | question 7 |
 | Decisions, H-D7 | The `"hold_position"` stance enum is at `mission.schema.json` ~L791, not ~L781. Nine mission files use it (counted). Still read by no runtime code. | fixed |
 | Global | `LADDER_CREDITS` 5830 is 5870. | fixed |
-| Global | The L1 open decision (move-only Move chip on V, `commercial-polish-audit.md`) shares the row. If it lands, the row reads Attack-move, Move (V), Hold (H), Halt (X). `selection-model.test.ts` pins the row ids and order. | noted |
+| Global | L1 is decided (lead, early Oct): no move-only order, so no Move chip. The row reads Attack-move, Hold (H), Halt (X). `selection-model.test.ts` pins the row ids and order. | noted |
 
 ### For the lead (continues "For the lead" below)
 
@@ -270,8 +270,7 @@ No code in this plan. Each consumer lands with its own plan and cites this one:
     - In `ACTIONS`, add `{ id: 'hold', label: 'keymap.hold', key: 'h', rebindable: true }`
       and change `halt`'s `key` to `'x'`. Add `'hold'` to the `Action` union.
     - X is free. The taken keys are h f g u o b m, ctrl+a, tab, space, f1, i, w s a d and escape;
-      S is pan-down. V is free and is where L1's Move chip would go (`docs/polish/commercial-polish-audit.md`,
-      "Lead decisions", still open).
+      S is pan-down. V stays free: L1 is decided as no move-only order (lead, early Oct).
   - **`halt` stays.** It is a one-tick stop: it still cancels a move and drops queued waypoints.
     - It keeps its label: the strings are `keymap.halt` and `order.halt`, which read "Halt" in
       `en.json` on `f2d5d9e8`.

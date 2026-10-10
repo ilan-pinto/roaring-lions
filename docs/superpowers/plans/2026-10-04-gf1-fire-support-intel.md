@@ -81,7 +81,7 @@ What landed that touches F1:
 | Task 8 | The plan says the one `app` edit is a call-site rename `typecheck` forces. False: the app's `'sweep' \| 'strike'` literals live in `main.ts` (`armedSupport`, ~L3263 and the `pointerup` branch ~L3612, not "~L3204"), `input/intents.ts`, `input/pointer.ts`, `input/keymap.ts` (`anyArmed`), `input/cursor.ts`, `ui/order-sight.ts` (`SightOrderId`), `ui/symbol.ts` (`ORDER_IDS`), `ui/production.ts`, plus telemetry (`orderVerb` enum). The sim's `SupportKind` is a different type; keeping `requestSweep`/`requestStrike` wrappers means nothing forces a rename | fixed in place: Task 8 touches **no** `app` file; the app keeps its two literals until S-F |
 | Task 10, Lane A | Chrome now false after F1 also includes `hud.strip.intel.tip` ("sweep and precision-strike"), `hud.hint.first.intel` (`data/hints/first_use.json` -> `en.json`), `main.note.supportRefused` ("not enough intel": a refused call can also be "no caller") | fixed in place: Lane A list |
 | Lane A | Charge timer, announcement, earn line and counter now have a register to follow (tier, tone, place, `--info`, cue table, voice) | fixed in place: Lane A list rewritten; open points are F-Q7, F-Q10 |
-| Task 5 | `hold` command and `holdPos` are the Hold plan's; a plain `move` (and L1's possible "Move" chip on V) also leaves `attackMove` clear, so it holds a unit on a rise without Hold | no change needed; noted at Task 5 |
+| Task 5 | `hold` command and `holdPos` are the Hold plan's; a plain `move` (no move-only order will exist: L1 decided (early Oct, lead): no move-only order; disengage stays via Hold/halt and orders) also leaves `attackMove` clear, so it holds a unit on a rise without Hold | no change needed; noted at Task 5 |
 | (checked, no change) | memory budgets (#474: F1 adds no structure, no GLB), roster R-2 and `ROSTER_CAP` (F1 writes no roster), keymap H/X (F1 binds no key), footers (#501), i18n catalogue (no string in F1's own code), locale overlays | none |
 
 ### For the lead (11 Oct)
@@ -539,8 +539,8 @@ export function highGroundRises(elevation: Uint8Array, blocked: Uint8Array,
     - **"an attack-mover that identifies an enemy out of reach leaves the rise and is not paid"**;
     - **"a held unit stays on the rise and is paid"**.
   - *(11 Oct: a plain `move` also leaves `attackMove` clear, so a unit that moved onto the rise
-    and was never attack-moved stays too; that is also what the lead's open L1 "Move" chip on V
-    would issue. Hold is still the order the rise test should use, because it is the one the
+    and was never attack-moved stays too. L1 is decided: no move-only order for the player (lead,
+    early Oct). Hold is still the order the rise test should use, because it is the one the
     closing rule is documented to respect.)*
   - **"a unit that spawned on a rise earns nothing standing there"**: the ruling of 6 Oct, D4. It
     pays only after it leaves and moves back on. Track per unit, runtime-only, whether it has

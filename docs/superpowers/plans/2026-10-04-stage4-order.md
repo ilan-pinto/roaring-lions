@@ -62,8 +62,8 @@ section with its corrections and its questions. This section covers what the ord
 2. Re-read the pins on `main` (sim 922714084 / 3200430224, `LADDER_CREDITS` 5870, `ROSTER_MAX` 31)
    and write them into the sim-fixes branch's first commit message. If any differs, find the commit
    that moved it before cutting.
-3. The lead's answers to "For the lead (11 Oct)" items 1–4 below are on #183. Items 1 and 2 decide
-   the calendar; items 3 and 4 decide Hold's Lane A half, which trails Hold from Thu 5 Nov.
+3. The lead's answers to "For the lead (11 Oct)" items 1–3 below are on #183. Items 1 and 2 decide
+   the calendar; item 3 decides Hold's Lane A half, which trails Hold from Thu 5 Nov.
 4. The four October G-NUM halts (F1 Task 2, F2 Task 2, F3 Task 7 Step 1, F4 Task 1) are posted on
    #183, read on the new maps under halt to fire.
 
@@ -80,9 +80,8 @@ section with its corrections and its questions. This section covers what the ord
    they mean. **Recommended:** Hold's Task 3 rewrites them and moves the await to the `hold` intent in
    the same PR; targeted fire's Task 4 then edits beat 6 once more. No beat may name a key that does
    something else.
-4. **L1, move-only on V** (polish audit, "Lead decisions"), is the other half of PA-08 and is app-only
-   (the sim's `move` exists). **Recommended:** rule it now so the polish lane ships it in October;
-   with Hold on H and `halt` on X, V stays free.
+- **L1 is not open.** The lead ruled "no move-only order" in the early-October polish calls, alongside
+  moving #420 and #421 into Stage 4. Disengaging stays via Hold, `halt` and orders; no V key.
 
 ## Changed since 4 Oct
 

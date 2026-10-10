@@ -31,7 +31,7 @@ in Stage 4.
 **Tech stack:** TypeScript strict, vitest. No new dependencies.
 
 **Refs:**
-- GH-420; `docs/polish/commercial-polish-audit.md` PA-08, lead decision L1 (move-only), PA-12.
+- GH-420; `docs/polish/commercial-polish-audit.md` PA-08, PA-12; L1 decided (lead, early Oct): no move-only order.
 - PR #427 (WP-P4): the `advance` cursor, `hud.fire.clickAdvances`, `input/pointer.ts` `pointerPoint`.
 - `docs/superpowers/specs/2026-10-05-infantry-halt-to-fire.md` §2–§3: the brace machine and the
   closing rule (`stepSweep`).
@@ -278,7 +278,7 @@ order, beat 6 can teach it.
 **Model:** haiku.
 
 - [ ] `docs/HANDOVER.md` §1 and §4: GH-420 landed, the new pin values.
-- [ ] `docs/polish/commercial-polish-audit.md`: PA-08 to DONE (L1, move-only, is separate).
+- [ ] `docs/polish/commercial-polish-audit.md`: PA-08 to DONE (L1 was decided early Oct: no move-only order).
 - [ ] `CLAUDE.md` "Dev instruments": one line on `attack`, what it does to the closing rule, and that
   `cursorKey()` reads `attack-*` again over an identified enemy.
 
@@ -309,7 +309,6 @@ order, beat 6 can teach it.
 4. **The cursor's sight for `attack`.** #427 kept the attack-move graphic under the `advance` name.
    Reuse the attack-move sight for `attack` too, or draw a distinct sight? **Recommended:** reuse it in
    Stage 4; a distinct sight is an art call with its own mock (G1 order sights).
-5. **L1 (move-only on V) is the other half of PA-08** and is still open in the polish audit. It is
-   app-only (the sim's `move` exists), so it does not wait for this plan. **Recommended:** rule L1 now
-   (V, an armed Move chip), let the polish lane ship it in October, and this plan's Task 3 sits beside
-   it with no key change.
+
+L1 (move-only) is not a question: the lead ruled "no move-only order" in early October. Disengaging
+stays via Hold, `halt` and orders.
