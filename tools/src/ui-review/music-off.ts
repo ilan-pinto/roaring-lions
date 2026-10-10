@@ -10,12 +10,14 @@
 // currently demands, and `music-off.test.ts` feeds it to the real parser.
 import { DEFAULT_SETTINGS, SETTINGS_KEY, type Settings } from '../../../packages/app/src/settings';
 
-/** The seeded settings: every default, music at 0. `audio` overrides merge
- *  over the audio defaults (a capture that wants ALL sound off passes
+/** The seeded settings: every default, music at 0. `video` overrides merge
+ *  over the video defaults (`perf/low-end.ts` seeds the quality preset under
+ *  test this way). `audio` overrides merge over the audio defaults (a capture that wants ALL sound off passes
  *  `SILENT_AUDIO`); `music` is forced to 0 whatever they say. */
-export function musicOffSettings(audio: Partial<Settings['audio']> = {}): Settings {
+export function musicOffSettings(audio: Partial<Settings['audio']> = {}, video: Partial<Settings['video']> = {}): Settings {
   const s = structuredClone(DEFAULT_SETTINGS);
   s.audio = { ...s.audio, ...audio, music: 0 };
+  s.video = { ...s.video, ...video };
   return s;
 }
 
@@ -23,13 +25,13 @@ export function musicOffSettings(audio: Partial<Settings['audio']> = {}): Settin
 export const SILENT_AUDIO: Partial<Settings['audio']> = { master: 1, sfx: 0, voice: 0, radio: false };
 
 /** The serialised value, as `localStorage` holds it. */
-export function musicOffJson(audio: Partial<Settings['audio']> = {}): string {
-  return JSON.stringify(musicOffSettings(audio));
+export function musicOffJson(audio: Partial<Settings['audio']> = {}, video: Partial<Settings['video']> = {}): string {
+  return JSON.stringify(musicOffSettings(audio, video));
 }
 
 /** A script for Playwright's `addInitScript(string)` (page or context): runs
  *  before any page script, and a blocked store leaves the page booting with
  *  its defaults instead of throwing. */
-export function musicOffInitScript(audio: Partial<Settings['audio']> = {}): string {
-  return `try { localStorage.setItem(${JSON.stringify(SETTINGS_KEY)}, ${JSON.stringify(musicOffJson(audio))}); } catch (e) {}`;
+export function musicOffInitScript(audio: Partial<Settings['audio']> = {}, video: Partial<Settings['video']> = {}): string {
+  return `try { localStorage.setItem(${JSON.stringify(SETTINGS_KEY)}, ${JSON.stringify(musicOffJson(audio, video))}); } catch (e) {}`;
 }

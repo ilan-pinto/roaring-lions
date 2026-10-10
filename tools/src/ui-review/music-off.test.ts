@@ -41,6 +41,15 @@ describe('music-off settings seed', () => {
     expect(parseSettings(written.get('lions.settings') ?? null).audio.music).toBe(0);
   });
 
+  it('a video override (the preset perf:lowend measures) survives the real parser, music still off', () => {
+    const written = runInitScript(musicOffInitScript({}, { quality: 'low' }));
+    const s = parseSettings(written.get('lions.settings') ?? null);
+    expect(s.video.quality).toBe('low');
+    expect(s.audio.music).toBe(0);
+    // The default is not 'low' -- otherwise the assertion above proves nothing.
+    expect(DEFAULT_SETTINGS.video.quality).not.toBe('low');
+  });
+
   it('the init script swallows a blocked store', () => {
     const blocked = { setItem: () => { throw new Error('SecurityError'); } };
     expect(() => new Function('localStorage', musicOffInitScript())(blocked)).not.toThrow();
