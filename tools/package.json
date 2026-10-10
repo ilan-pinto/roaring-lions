@@ -11,6 +11,7 @@
     "perf:units": "tsx src/perf/three-units.ts",
     "perf:load": "tsx src/perf/load-profile.ts",
     "perf:memory": "tsx src/perf/memory.ts",
+    "perf:lowend": "tsx src/perf/low-end.ts",
     "ground:capture": "tsx src/perf/ground-captures.ts",
     "golden-diff": "tsx src/golden-diff/diff.ts",
     "golden-baseline": "tsx src/ci/three-baseline-gate.ts",

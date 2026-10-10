@@ -27,7 +27,7 @@
 | — | K-17 | Narrow portrait layout and touch verbs | Pass I; the notice is done (#456) | L |
 | — | — | No campaign-complete line anywhere | Shai/Idit copy for the end of the last town | S |
 | — | KS-06 | ~~Save/load reliability and keyboard-only navigation not assessed~~ WALKED by `polish/keyboard-and-saves` ([`keyboard-and-saves.md`](keyboard-and-saves.md)): five fixed (KS-01 Enter on the victory moment skipped the debrief into the next mission; KS-02 Tab escaped the debrief onto the hidden HUD; KS-03 saves list dropped focus; KS-04 a refused load left a mixed campaign, now undone byte for byte; KS-05 a refused account write at victory threw after the ledger recorded the win). Then `polish/keyboard-and-saves-2` fixed KS-07 (Escape is the screen's back control), KS-08 (focus on arrival; a return focuses the item you left from), KS-10, KS-12 (a refused victory write claims nothing earned) and KS-13. Left: KS-14 (needs a measurement), KS-09 and KS-11 by design; KS-06 (no keyboard move/attack order) is a known limitation by ruling, deferred to a later accessibility pass | KS-06 options recorded: reticle (L) or order-at-screen-centre (M) | — |
-| — | — | Not assessed in the baseline and not since: low-end performance, hearing the mix | Stage 7 release pass and the tester cohort (#302) | M |
+| — | — | ~~Low-end performance not assessed~~ MEASURED 9 Oct on a proxy (PERFORMANCE.md "Low-end": CPU throttled 4x/6x on Metal, and SwiftShader): a building collapse stalls 141–175 ms unthrottled, 0.5–0.64 s at 4x, 0.75–0.93 s at 6x, at every preset; `high`'s AO costs ~5.5 ms a frame on a slow CPU; no GPU is unplayable. An auto quality step-down was built and declined by the lead (10 Oct, "Nothing automatic"). Still not assessed: hearing the mix, a real low-end machine | Collapse: dirty-rect terrain rebuild (render-vfx). Real hardware: tester cohort (#302) | M |
 
 ### Lead decisions
 
@@ -61,7 +61,7 @@ The plan's §16 has no table, so the scores live here. Baseline is the first-pas
 | Debrief | 3 | **4** | After-action report: verdict, star ladder, three columns, losses and promotions by name, ground photograph with pins, one primary action (#442); actions always reachable at seven sizes (#434). |
 | Campaign flow | 3.5 | **3.5** | First Light's hold clock returns (#424); the end screen says what the result means (#453, K-07). The board's pin labels and status line are fixed (PA-20, small batch) and it carries a primary "Next: <mission>" button (`polish/ux-small-2`); the end of the war is said on the board and in the report (#495). |
 | Accessibility | 3 | **3.5** | Live colour-vision switch (#459); reduced motion honoured by the new flinch layer (#445); small-screen notice (#456). Captions are on by default since PA-23 (L2, 9 Oct). Keyboard-only use walked 9 Oct (`keyboard-and-saves.md`): every shell screen, the briefing, pause, settings and the debrief are reachable, and three focus defects are fixed; a battlefield move order still needs a pointer (KS-06). |
-| Performance | 4 | **4** | Memory measured and gated in CI (#474); two retention leaks fixed; the heaviest mission fell from 2756–2927 to 2296–2464 MiB on CI (#478), and #479 and #480 save more. Low-end hardware still unmeasured. |
+| Performance | 4 | **4** | Memory measured and gated in CI (#474); two retention leaks fixed; the heaviest mission fell from 2756–2927 to 2296–2464 MiB on CI (#478), and #479 and #480 save more. Low-end measured on a proxy (PERFORMANCE.md "Low-end"): holds 60 fps unthrottled at every preset, `medium`/`low` hold it at 4x CPU, but a building collapse stalls 0.5–0.9 s on a slow CPU and no-GPU is unplayable. |
 
 **Below 4:** Input feel 3.5 · Combat feedback 3.5 · Environment 3.5 · Audio 3 · Campaign flow 3.5 · Accessibility 3.5.
 
@@ -81,7 +81,7 @@ The plan's §16 has no table, so the scores live here. Baseline is the first-pas
 | Important audio missing or placeholder | **Unmet** | PA-02: 36 of 40 voice keys, and the four with a take are ElevenLabs placeholders a commercial build leaves out (D5). Music has calm and battle beds (#493); its source question is provenance item 3. |
 | Save/load unreliable | Met for known defects | K-05, K-06, K-12 closed (#453). Not re-walked. |
 | Settings or navigation confusing | **Not judged** | Back buttons are one register (#448); Escape/back and keyboard-only paths were never walked. |
-| Visible stutters | **Not judged** | No known stutter; measured on an M3 Pro only. |
+| Visible stutters | **Unmet (measured)** | A building collapse blocks the main thread 141–175 ms on an M3 Pro and 499–927 ms with the CPU throttled 4–6x, at every preset (PERFORMANCE.md "Low-end"): a full terrain rebuild for one building. Fix proposed (dirty-rect rebuild); nothing else over 100 ms found on a GPU. |
 | Debug terminology reaches players | Met | #425, with a deny-list test over `en.json` and a pseudo-locale card check. |
 | Gates bypassed | Met | Every lane PR names a red-first mutation; `main` is green at `efc36d4f`. |
 | Regressions unresolved | Met | No open red on `main`. |

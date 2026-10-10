@@ -21,6 +21,7 @@
     "perf:units": "pnpm --filter @lions/tools perf:units",
     "perf:load": "pnpm --filter @lions/tools perf:load",
     "perf:memory": "pnpm --filter @lions/tools perf:memory",
+    "perf:lowend": "pnpm --filter @lions/tools perf:lowend",
     "ground:capture": "pnpm --filter @lions/tools ground:capture",
     "golden-baseline": "pnpm --filter @lions/tools golden-baseline",
     "golden-baseline:bless": "pnpm --filter @lions/tools golden-baseline:bless",
