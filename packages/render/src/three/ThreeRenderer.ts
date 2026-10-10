@@ -170,6 +170,7 @@ import {
   type LitTimeOfDay,
 } from './time-of-day';
 import { disposeAndReleaseContext } from './context-release';
+import { freezeSceneRoot, freezeStatic } from './static-matrix';
 import { AO_RESOLUTION_SCALE, createAoPass, createPostChain, PIXEL_RATIO_CAP, type PostChain } from './post-chain';
 import { VignettePass } from './vignette-pass';
 import type { Pass } from 'three/addons/postprocessing/Pass.js';
@@ -2266,6 +2267,10 @@ export class ThreeRenderer implements Renderer {
     // decoder is a property of the runtime rather than of any one asset.
     if (opts.dracoDecoderPath) setDracoDecoderPath(opts.dracoDecoderPath);
     this.showcasePending = opts.decalShowcase !== undefined;
+    // The world never moves (a shake moves a COPY of the camera), so the scene
+    // stops forcing a world-matrix multiply on every object each frame; what
+    // does move still updates itself (`static-matrix.ts`).
+    freezeSceneRoot(this.scene);
     this.unitGroup = new Uint8Array(sim.capacity);
     const n = sim.capacity;
     this.prevX = new Float64Array(n);
@@ -7623,7 +7628,8 @@ export class ThreeRenderer implements Renderer {
           const fitIdle = this.buildingFitFor(s);
           root.scale.multiply(new THREE.Vector3(fitIdle.sx, fitIdle.sy, fitIdle.sz));
           this.buildingMeshIdleEntities.set(s, root);
-          this.scene.add(root);
+          // A standing building never moves: placed once, frozen once.
+          this.scene.add(freezeStatic(root));
           // A clone stood up already damaged (a type whose mesh landed after
           // the first hit) draws its band from the first frame, not from
           // the next `structureHit`.
@@ -7716,7 +7722,11 @@ export class ThreeRenderer implements Renderer {
       entry.t += dtSeconds;
       const result = buildingSettleScale(entry.t);
       entry.root.scale.y = entry.baseScaleY * result.scaleFactor;
-      if (result.done) this.buildingMeshSettling.delete(s);
+      if (result.done) {
+        this.buildingMeshSettling.delete(s);
+        // Settled: the wreck never moves again.
+        freezeStatic(entry.root);
+      }
     }
   }
 
@@ -9526,15 +9536,17 @@ export class ThreeRenderer implements Renderer {
     // objects (`lighting.ts`) shows up as acne along every slope -- so it
     // stays off here, as something to measure on screen and turn on
     // deliberately, not to assume.
-    this.terrainMesh = new THREE.Mesh(toGeometry(composed.ground), this.groundMat);
+    // Every layer this method builds stands still until the next rebuild
+    // replaces it: built once, matrices composed once (`static-matrix.ts`).
+    this.terrainMesh = freezeStatic(new THREE.Mesh(toGeometry(composed.ground), this.groundMat));
     this.terrainMesh.receiveShadow = true;
     this.scene.add(this.terrainMesh);
 
-    this.scatterMesh = new THREE.Mesh(toGeometry(composed.scatter), this.terrainMat);
+    this.scatterMesh = freezeStatic(new THREE.Mesh(toGeometry(composed.scatter), this.terrainMat));
     this.scatterMesh.receiveShadow = true;
     this.scene.add(this.scatterMesh);
 
-    this.residualMesh = new THREE.Mesh(toGeometry(composed.residual), this.terrainMat);
+    this.residualMesh = freezeStatic(new THREE.Mesh(toGeometry(composed.residual), this.terrainMat));
     this.residualMesh.receiveShadow = true;
     this.scene.add(this.residualMesh);
 
@@ -9542,7 +9554,7 @@ export class ThreeRenderer implements Renderer {
       // A box is extruded, and `{ normals: 'compute' }` is what makes its
       // walls shade as walls instead of taking the up-fill default and
       // lighting like the ground they stand on.
-      const mesh = new THREE.Mesh(toGeometry(box.mesh, { normals: 'compute' }), this.terrainMat);
+      const mesh = freezeStatic(new THREE.Mesh(toGeometry(box.mesh, { normals: 'compute' }), this.terrainMat));
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       this.structureBoxes.set(box.structureIndex, mesh);
@@ -9561,7 +9573,7 @@ export class ThreeRenderer implements Renderer {
       this.sway,
       this.opts.terrainTones.decorColors
     );
-    this.scene.add(this.decorGroup);
+    this.scene.add(freezeStatic(this.decorGroup));
 
     // The textured half of the same placement list. `buildDecorMesh` above
     // and this partition it by family rather than competing for it -- a
@@ -9571,12 +9583,12 @@ export class ThreeRenderer implements Renderer {
       composed.decorPlacements,
       this.texturedDecorSet
     );
-    this.scene.add(this.texturedDecorGroup);
+    this.scene.add(freezeStatic(this.texturedDecorGroup));
 
     // Ground plan 2, Task 5: the one prop batch, from the same `input` as
     // the decor above. `null` when nothing is placed or nothing loaded.
     this.propMesh = buildPropMesh(composed.propPlacements, this.propSet);
-    if (this.propMesh !== null) this.scene.add(this.propMesh);
+    if (this.propMesh !== null) this.scene.add(freezeStatic(this.propMesh));
   }
 
   /**
@@ -9648,7 +9660,7 @@ export class ThreeRenderer implements Renderer {
     // be: this replaces one box in place, so a damaged building that shaded or
     // cast differently from its undamaged neighbours would announce which one
     // has been shot at.
-    const mesh = new THREE.Mesh(toGeometry(data, { normals: 'compute' }), this.terrainMat);
+    const mesh = freezeStatic(new THREE.Mesh(toGeometry(data, { normals: 'compute' }), this.terrainMat));
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     this.structureBoxes.set(structure, mesh);

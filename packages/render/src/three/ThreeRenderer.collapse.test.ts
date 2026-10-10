@@ -165,6 +165,32 @@ describe('ThreeRenderer building-mesh wreck settle (GH #143 follow-up)', () => {
 
     expect(wreckRoot.scale.y).toBeCloseTo(MESH_SCALE, 10);
   });
+
+  it('freezes a standing building at once, and its wreck only once settled', () => {
+    // `static-matrix.ts`: a building never moves, so its matrices are
+    // composed once rather than every frame -- but a wreck GROWS IN, and
+    // freezing it before the settle ends would stop it squashed.
+    const { sim, structureIdx } = buildSim();
+    const renderer = new ThreeRenderer(sim, makeOpts());
+    const priv = renderer as unknown as BuildingMeshPrivate & { buildingMeshIdleEntities: Map<number, THREE.Object3D> };
+    priv.buildingMeshIdleTemplates.set('shanty', fakeBuildingMeshTemplate());
+    priv.buildingMeshWreckTemplates.set('shanty', fakeBuildingMeshTemplate());
+    priv.updateBuildingMeshes();
+    const idle = priv.buildingMeshIdleEntities.get(structureIdx)!;
+    expect(idle.matrixAutoUpdate).toBe(false);
+    expect(new THREE.Vector3().setFromMatrixPosition(idle.matrix).toArray()).toEqual(idle.position.toArray());
+
+    sim.structures.alive[structureIdx] = 0;
+    priv.updateBuildingMeshes();
+    const wreck = priv.buildingMeshWreckEntities.get(structureIdx)!;
+    expect(wreck.matrixAutoUpdate).toBe(true);
+    priv.stepBuildingMeshSettle(BUILDING_SETTLE_SECONDS / 2);
+    expect(wreck.matrixAutoUpdate).toBe(true);
+    priv.stepBuildingMeshSettle(BUILDING_SETTLE_SECONDS);
+    expect(wreck.matrixAutoUpdate).toBe(false);
+    // Frozen at its FINAL height, not at whatever the last auto-update saw.
+    expect(new THREE.Vector3().setFromMatrixScale(wreck.matrix).y).toBeCloseTo(MESH_SCALE, 10);
+  });
 });
 
 /**
