@@ -30,6 +30,7 @@
  * the one the last build used, or the map's size or flatness differs, there
  * is nothing to diff against and the caller does a full build.
  */
+import type { TiledDecorPlacements } from './decor-place';
 import type { TerrainSurface } from './surface';
 import type { TiledMeshData } from './tiled-mesh';
 import { dilateTileMask } from './tiled-mesh';
@@ -56,13 +57,17 @@ export interface TerrainBuildState {
   readonly surface: TerrainSurface;
   readonly ground: TiledMeshData;
   readonly scatter: TiledMeshData;
+  /** The decor placed from it, per source tile (`decor-place.ts`), spliced
+   *  the same way with its own wider margin, `DECOR_SPLICE_RADIUS_TILES`. */
+  readonly decorPlacements: TiledDecorPlacements;
 }
 
 export function terrainBuildState(
   input: TerrainInput,
   surface: TerrainSurface,
   ground: TiledMeshData,
-  scatter: TiledMeshData
+  scatter: TiledMeshData,
+  decorPlacements: TiledDecorPlacements
 ): TerrainBuildState {
   return {
     width: input.width,
@@ -74,6 +79,7 @@ export function terrainBuildState(
     surface,
     ground,
     scatter,
+    decorPlacements,
   };
 }
 

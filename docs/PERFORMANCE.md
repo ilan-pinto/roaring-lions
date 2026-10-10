@@ -2308,3 +2308,47 @@ uploads, and the sim's own `recomputeFields` (~9-19 ms at 4x, sim side, out of
 scope). The decor placements are not spliced: the clump rule drops members by
 the tile they land on, so a splice would need `decor-place.ts` restructured for
 ~1 ms unthrottled.
+
+### Decor placements splice too (2026-10-10)
+
+`decor-place.ts` is now three per-tile emitters (terrain decor, grass and
+sand, the highland open-ground pass), and `buildDecorPlacements` records where
+each SOURCE tile's placements start in each pass -- the order
+`decorPlacements` always returned. `spliceDecorPlacements` re-emits the dirty
+source tiles and copies every other tile's placements, the same objects.
+The clump rule is no obstacle once a placement is keyed by the tile that
+PUSHED it rather than the tile it lands on: a member lands at most a tile from
+its source (`CLUSTER_R_MAX` 1.2; a highland chip 1.25), reads that tile's
+blocked/cover/boulder/decor, and stands on the smooth field two tiles further
+-- so the margin is `DECOR_SPLICE_RADIUS_TILES` = 3, one wider than the
+ground's. `composeTerrainFrom` also hands the placement its own surface rather
+than letting it build a second one.
+
+**Byte-identical**, measured by sweeping every structure of every shipped map
+(33 maps, 1,724 single collapses) against a full placement: 0 differences at
+3; at 2, 10 collapses on 6 relief maps (`beit_sahwan_2`, `khan_rafid_2`,
+`qarn_hadid_2`, `umm_zeitoun`, `umm_zeitoun_2`, `wadi_halam_5`), every one a
+clump member or chip at a different height; at 1, 77 on 17; at 0, 384 on 25.
+The refactor itself was held against the previous `decorPlacements` on all 33
+maps at densities 0.75 and 1, 0 differences. Node, unthrottled: full
+placement 0.65 ms mean, splice 0.05 ms. `terrain-splice.test.ts` keeps decor
+in every collapse chain (plus `beit_sahwan_2`'s 9 and `umm_zeitoun_2`'s 14
+and 19, which radius 2 breaks) and one witness at radius 2.
+
+**Measured** with `pnpm perf:lowend` (Apple M3 Pro, Metal, headless Chromium,
+1366x768 @1x, `high`, `umm_zeitoun_4_clearance`, 4x CPU, music off), base
+`origin/main` c4ac2fe5 from its own worktree, interleaved run by run, load
+3-10. The blast window's long-task max (collapse plus two kills, production
+build) does not resolve a change this size: base 79/69/89/87 ms, this branch
+73/93/88 ms. The profile does (dev server, `--profile`, n = 3 each, sampled
+every 0.82 ms, inclusive time in the blast window):
+
+| | base | this branch |
+|---|---|---|
+| decor placements (`decorPlacements` / `spliceDecor`) | 5.9, 7.9, 5.6 ms | 1.8, 3.2, 1.7 ms |
+| `composeTerrainFrom` | 22.3, 25.0, 20.2 ms | 19.8, 21.6, 15.7 ms |
+
+Still whole on a collapse: the decor batches (`buildDecorMesh`, 3-11 ms at
+4x in the same profiles) and the prop placements (2-5 ms), which sort every
+candidate map-wide and space them under a cap, so a prop's acceptance is not a
+function of the tiles near it.

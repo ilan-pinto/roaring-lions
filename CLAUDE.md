@@ -845,9 +845,13 @@ yours; each one records what the next phase inherits.
   single collapses on every shipped map, 0 differences, and both margins are tight -- 1 tile
   differs on 13 relief maps, 3 texels on 25 maps (`packages/app/src/terrain-splice.test.ts` keeps
   chains and one witness per margin). The collapse frame at 4x CPU went 531-627 ms -> 95-103 ms.
-  Left on it: decor placements recomputed whole (~6 ms at 4x; the clump rule drops members by the
-  tile they land on) and the sim's own `recomputeFields` (9-19 ms at 4x). See `docs/PERFORMANCE.md`,
-  "A collapse splices the terrain".
+  **Decor placements splice too** (`decor-place.ts`, `spliceDecorPlacements`): every placement
+  belongs to the SOURCE tile that pushed it, a clump member lands at most a tile from its source
+  and its height reads the field two further, so `DECOR_SPLICE_RADIUS_TILES` = 3; same sweep, 0
+  differences, and 2 tiles differs on 10 collapses on 6 relief maps (a tuft at the wrong height).
+  Profiled at 4x: 5.6-7.9 ms -> 1.7-3.2 ms. Left on it: the decor batches rebuilt whole, prop
+  placements (a global sort and cap, not spliceable per tile) and the sim's own `recomputeFields`
+  (9-19 ms at 4x). See `docs/PERFORMANCE.md`, "A collapse splices the terrain".
   **The road block in the ground shader is skipped where control B saturates**
   (`if (rlB.g < 1.0)`): there every road term is exactly 0, the golden A/B read 0 px, and its
   grain tap is a `textureGrad` whose derivatives are taken OUTSIDE the branch. Keep them there.

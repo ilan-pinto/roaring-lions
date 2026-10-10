@@ -16,6 +16,13 @@
  * relief maps, and a control-map margin one texel narrower on 25 of 33. The
  * last block pins one witness of each, so a margin cannot be shrunk past
  * what the builders read without this file going red.
+ *
+ * The decor placements splice too (`decor-place.ts`, `spliceDecorPlacements`),
+ * with their own margin, `DECOR_SPLICE_RADIUS_TILES` = 3: a clump member lands
+ * up to a tile from the tile that seeds it, and its height reads the smooth
+ * field two tiles further. Swept the same way (the same 1,724 collapses on all
+ * 33 maps, 2026-10-10): 0 differences at 3; at 2, 10 collapses on 6 relief
+ * maps place a member at a different height; at 1, 77 on 17.
  */
 import { describe, expect, it } from 'vitest';
 import { Sim } from '@lions/sim';
@@ -32,6 +39,8 @@ import {
   spliceGround,
   spliceMask,
   SPLICE_RADIUS_TILES,
+  DECOR_SPLICE_RADIUS_TILES,
+  spliceDecorPlacements,
   type ControlMap,
   type MeshData,
 } from '@lions/render/terrain';
@@ -108,6 +117,7 @@ function walkCollapses(id: MapId, structures: readonly number[]): void {
   for (const s of structures) {
     expect(r.sim.structures.alive[s], `${id}: structure ${s} is standing before the shot`).toBe(1);
     r.sim.debugDestroyStructure(s);
+    const previous = spliced;
     spliced = r.build(spliced);
     const full = r.build(null);
     // It really spliced -- a full rebuild would pass the comparison trivially.
@@ -117,6 +127,14 @@ function walkCollapses(id: MapId, structures: readonly number[]): void {
     expect(meshDiff(spliced.composed.scatter, full.composed.scatter), `${id} s${s}: scatter`).toBeNull();
     expect(Array.from(spliced.state.ground.vertexStart)).toEqual(Array.from(full.state.ground.vertexStart));
     expect(Array.from(spliced.state.scatter.indexStart)).toEqual(Array.from(full.state.scatter.indexStart));
+    // Decor: the same placements in the same order, and really spliced -- most
+    // of them the very objects the previous build placed, a few re-emitted.
+    expect(spliced.composed.decorPlacements, `${id} s${s}: decor`).toEqual(full.composed.decorPlacements);
+    expect(Array.from(spliced.state.decorPlacements.starts)).toEqual(Array.from(full.state.decorPlacements.starts));
+    const prevObjects = new Set(previous.composed.decorPlacements);
+    const reused = spliced.composed.decorPlacements.filter((p) => prevObjects.has(p)).length;
+    expect(reused, `${id} s${s}: decor copied`).toBeGreaterThan(spliced.composed.decorPlacements.length * 0.8);
+    expect(reused, `${id} s${s}: decor re-emitted`).toBeLessThan(spliced.composed.decorPlacements.length);
 
     const changed = changedControlTiles(inputs, full.composed.input);
     expect(changed, `${id} s${s}: a collapse updates the control map in place`).not.toBeNull();
@@ -142,9 +160,15 @@ describe('a collapse splices the terrain to the bytes a full rebuild makes', () 
     walkCollapses('khan_rafid_3', [0, 40, 120]);
   }, 60_000);
 
-  // The other relief map with the steepest ground under a town.
-  it('beit_sahwan_2 (relief), three collapses in a row', () => {
-    walkCollapses('beit_sahwan_2', [0, 60, 150]);
+  // The other relief map with the steepest ground under a town. 9 is a
+  // decor witness: one tile less margin puts a grass tuft at the wrong height.
+  it('beit_sahwan_2 (relief), four collapses in a row', () => {
+    walkCollapses('beit_sahwan_2', [0, 9, 60, 150]);
+  }, 60_000);
+
+  // The highland theme's open-ground pass (cedars, outcrops, chips) as well.
+  it('umm_zeitoun_2 (relief, highland chips), two collapses in a row', () => {
+    walkCollapses('umm_zeitoun_2', [14, 19]);
   }, 60_000);
 });
 
@@ -171,6 +195,23 @@ describe('the margins are no wider than the builders read (the falsification, ke
       surface
     );
     expect(meshDiff(narrow.mesh, full.composed.ground)).not.toBeNull();
+  }, 30_000);
+
+  it(`a decor splice at ${DECOR_SPLICE_RADIUS_TILES - 1} tile(s) places the wrong decor`, () => {
+    // umm_zeitoun's structure 0: a grass clump member a tile out of the
+    // margin, standing on ground the collapse re-shaped.
+    const r = rig('umm_zeitoun');
+    const before = r.build(null);
+    r.sim.debugDestroyStructure(0);
+    const full = r.build(null);
+    const { input } = full.composed;
+    const surface = buildTerrainSurface(input);
+    const changed = changedTerrainTiles(before.state, input, surface) as Uint8Array;
+    const at = (radius: number) =>
+      spliceDecorPlacements(before.state.decorPlacements, spliceMask(changed, input.width, input.height, radius), input, surface)
+        .placements;
+    expect(at(DECOR_SPLICE_RADIUS_TILES)).toEqual(full.composed.decorPlacements);
+    expect(at(DECOR_SPLICE_RADIUS_TILES - 1)).not.toEqual(full.composed.decorPlacements);
   }, 30_000);
 
   it(`a control-map update at ${CONTROL_SPLICE_MARGIN_TEXELS - 1} texel(s) writes the wrong map`, () => {
