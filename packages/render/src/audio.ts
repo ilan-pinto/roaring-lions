@@ -277,7 +277,11 @@ export interface DuckRow {
  * it sounds. A cue's own bus is never in a row: a critical cue is information
  * and never loses to the bark it coincides with (the `cue` bus, below).
  *
- * - `bark` is N12, shipped: SFX -4 dB, music -3 dB, 80 / 300 ms.
+ * - `bark`, an order, an ack or a death call: SFX -6 dB, music -3 dB, 80 /
+ *   300 ms. N12 shipped SFX at -4; AU-4's rendered mix (`pnpm audio:mix`,
+ *   2026-10-10) measured a death call -- which speaks on the tick of its
+ *   own kill, the loudest clip in the library -- only 5.3 LU over the
+ *   firefight at -4, under the plan's 6. At -6 it reads 6.8 LU.
  * - `announce`, a line on the radio net speaking for the mission: -6 / -6.
  * - `cue`, an objective cue or an important alert: -3 / -3, 20 / 250 ms.
  * - `major`, a major alert: -6 / -6, 20 / 500 ms.
@@ -294,7 +298,7 @@ export interface DuckRow {
  * Deepest wins when rows overlap (`duckLevels`).
  */
 export const DUCK_TABLE = {
-  bark: { sfx: 0.631, music: 0.708, amb: 1, attackS: 0.08, releaseS: 0.3 },
+  bark: { sfx: 0.501, music: 0.708, amb: 1, attackS: 0.08, releaseS: 0.3 },
   announce: { sfx: 0.501, music: 0.501, amb: 0.708, attackS: 0.08, releaseS: 0.4 },
   cue: { sfx: 0.708, music: 0.708, amb: 1, attackS: 0.02, releaseS: 0.25 },
   major: { sfx: 0.501, music: 0.501, amb: 0.708, attackS: 0.02, releaseS: 0.5 },
@@ -303,7 +307,7 @@ export const DUCK_TABLE = {
 } as const satisfies Record<string, DuckRow>;
 export type DuckRowName = keyof typeof DUCK_TABLE;
 
-/** The duck under a voice (N12): SFX -4 dB, music -3 dB, 80 ms in, 300 ms out. */
+/** The duck under a voice (N12, AU-4): SFX -6 dB, music -3 dB, 80 ms in, 300 ms out. */
 export const DUCK = DUCK_TABLE.bark;
 
 /** Several rows at once: the deepest duck per layer wins, never a product --
@@ -851,6 +855,9 @@ export class BattleAudio {
   /** The ducking rows holding the mix down now, by who holds them: `voice`
    *  for the lines sounding (bark or announce), and one per cue row. */
   private readonly holds = new Map<string, DuckRow>();
+  /** Where the holds have the mix going, per layer: a layer whose target a
+   *  new hold does not move keeps the ramp it is on (see `setHold`). */
+  private duckTarget = { sfx: 1, music: 1, amb: 1 };
   /** When a timed hold lets go, by hold id. */
   private readonly holdTimers = new Map<string, number>();
   /** The later notes of a synth cue, each pending until it sounds. */
@@ -922,6 +929,8 @@ export class BattleAudio {
         // The duck stage (N12) sits UNDER the sfx slider's own gain, so the
         // slider and the duck never fight over one AudioParam.
         this.sfxDuck = this.ctx.createGain();
+        // A hold set before the context existed (the pause menu) still holds.
+        this.sfxDuck.gain.value = this.duckTarget.sfx;
         this.sfx.connect(this.sfxDuck).connect(this.master);
         this.voice = this.ctx.createGain();
         this.voice.connect(this.master);
@@ -937,6 +946,7 @@ export class BattleAudio {
         // duck stage UNDER the slider's gain, like the sfx bus's.
         this.amb = this.ctx.createGain();
         this.ambDuck = this.ctx.createGain();
+        this.ambDuck.gain.value = this.duckTarget.amb;
         this.amb.connect(this.ambDuck).connect(this.master);
         const bus = busGain(this.masterGain, this.user);
         this.master.gain.value = bus.master;
@@ -1950,22 +1960,29 @@ export class BattleAudio {
     }
     const target = duckLevels([...this.holds.values()]);
     const seconds = row !== null ? row.attackS : (was?.releaseS ?? 0);
+    // Only a layer whose target moved is re-ramped. A hold that changes
+    // nothing for a layer must not restart that layer's ramp at its own
+    // speed: the outcome's 600 ms fade was being cut to the defeat line's
+    // 80 ms attack, because the line's hold landed in the same moment with
+    // the same (silent) target (AU-4's rendered mix check, 2026-10-10).
+    const prev = this.duckTarget;
+    this.duckTarget = target;
     const ctx = this.ctx;
     const d = this.sfxDuck;
-    if (ctx && d) {
+    if (ctx && d && target.sfx !== prev.sfx) {
       const t = ctx.currentTime;
       d.gain.cancelScheduledValues(t);
       d.gain.setValueAtTime(d.gain.value, t);
       d.gain.linearRampToValueAtTime(target.sfx, t + seconds);
     }
     const a = this.ambDuck;
-    if (ctx && a) {
+    if (ctx && a && target.amb !== prev.amb) {
       const t = ctx.currentTime;
       a.gain.cancelScheduledValues(t);
       a.gain.setValueAtTime(a.gain.value, t);
       a.gain.linearRampToValueAtTime(target.amb, t + seconds);
     }
-    this.rampMusic(target.music, seconds * 1000);
+    if (target.music !== prev.music) this.rampMusic(target.music, seconds * 1000);
   }
 
   /**

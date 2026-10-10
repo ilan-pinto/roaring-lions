@@ -895,7 +895,7 @@ describe('playVoice (WP-AU1 §7)', () => {
     expect(sfxDuck.gain.events.filter((e) => e[0] === 'linear')).toEqual([]);
   });
 
-  it('ducks sfx −4 dB in 80 ms under a voice and lets go over 300 ms when the LAST one ends (N12)', async () => {
+  it('ducks sfx −6 dB in 80 ms under a voice and lets go over 300 ms when the LAST one ends (N12)', async () => {
     const { audio, ctx, sfxDuck } = await ready();
     audio.playVoice(order('he.infantry.move'));
     const first = last(ctx.sources);
@@ -1450,7 +1450,9 @@ describe('the ducking table (polish pass F, section 2.2)', () => {
 
   it('the rows say what the plan says, in dB', () => {
     const db = (g: number): number => Math.round(20 * Math.log10(g));
-    expect([db(DUCK_TABLE.bark.sfx), db(DUCK_TABLE.bark.music)]).toEqual([-4, -3]);
+    // The bark row's SFX went -4 -> -6 at AU-4's rendered mix check (a death
+    // call over its own kill read 5.3 LU over the fight at -4; the plan asks 6).
+    expect([db(DUCK_TABLE.bark.sfx), db(DUCK_TABLE.bark.music)]).toEqual([-6, -3]);
     expect([db(DUCK_TABLE.announce.sfx), db(DUCK_TABLE.announce.music)]).toEqual([-6, -6]);
     expect([db(DUCK_TABLE.cue.sfx), db(DUCK_TABLE.cue.music)]).toEqual([-3, -3]);
     expect([db(DUCK_TABLE.major.sfx), db(DUCK_TABLE.major.music)]).toEqual([-6, -6]);
@@ -1697,6 +1699,30 @@ describe('playCue (polish pass F, AU-1, AU-4)', () => {
     }
   });
 
+  it('the outcome line lands with the stinger and keeps its 600 ms fade: a hold that moves nothing re-ramps nothing (AU-4)', async () => {
+    stubFetch();
+    const { audio, ctx } = attachedWith((a) => {
+      a.useManifest({ ...CUE_MANIFEST, voices: MANIFEST.voices }, '/a/');
+      a.setVoiceLanguages(['he']);
+    });
+    await vi.waitFor(() => expect(audio.voiceStats().keys).toBe(3));
+    const { sfxDuck } = graph(ctx);
+    vi.useFakeTimers();
+    try {
+      expect(audio.playCue('outcome.victory')).toBe('played');
+      const fades = sfxDuck.gain.events.length;
+      // main.ts's order: the stinger, then Shai's line, delayed on the clock.
+      audio.playVoice({ key: 'he.infantry.move', priority: 'outcome', delayS: 0.6 });
+      expect(audio.voiceStats().active).toBe(1);
+      // The line's own hold (the announce row) asks for nothing the outcome
+      // has not already taken to silence, so the fade under way stands.
+      expect(sfxDuck.gain.events.length).toBe(fades);
+      expect(sfxDuck.gain.events.at(-1)).toEqual(['linear', 0, DUCK_TABLE.outcome.attackS]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('leaveMission lets every hold go: combat back to full, music back to the menu level', () => {
     vi.useFakeTimers();
     try {
@@ -1894,8 +1920,12 @@ describe('ambience beds (polish pass F, A11)', () => {
     audio.setAmbience('open');
     await vi.waitFor(() => expect(audio.ambienceState().playing).toBe(true));
     const { ambDuck } = ambGraph(ctx);
+    const before = ambDuck.gain.events.length;
     audio.playVoice({ key: 'he.infantry.move', priority: 'order' });
-    expect(ambDuck.gain.events).toContainEqual(['linear', 1, DUCK_TABLE.bark.attackS]);
+    // Left alone outright: the bark row's ambience is 1, the target does not
+    // move, so the bed's duck is not even re-ramped (AU-4: a hold that moves
+    // nothing for a layer keeps that layer's ramp).
+    expect(ambDuck.gain.events.length).toBe(before);
     audio.playVoice({ key: 'he.infantry.death', priority: 'announce' });
     expect(ambDuck.gain.events.at(-1)).toEqual(['linear', DUCK_TABLE.announce.amb, DUCK_TABLE.announce.attackS]);
     audio.stopVoices();
