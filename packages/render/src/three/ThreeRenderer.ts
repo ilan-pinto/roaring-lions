@@ -281,7 +281,15 @@ import {
   type DecorGeometrySet,
   type SwayUniforms,
 } from './terrain/decor-mesh';
-import { decorPlacements, type DecorPlacement } from './terrain/decor-place';
+import {
+  DECOR_SPLICE_RADIUS_TILES,
+  SCATTER_DENSITY,
+  buildDecorPlacements,
+  changedDecorTiles,
+  spliceDecorPlacements,
+  type DecorPlacement,
+  type TiledDecorPlacements,
+} from './terrain/decor-place';
 import { isDecorMeshRole, type DecorMeshRole } from './terrain/decor-role';
 import { propPlacements, type PropPlacement } from './terrain/prop-place';
 import { isPropMeshRole, PROP_MESH_ROLES, type PropKind, type PropMeshRole } from './terrain/prop-role';
@@ -9434,8 +9442,9 @@ export class ThreeRenderer implements Renderer {
     }
 
     // Spliced from the last build where it can be: a collapse re-emits the
-    // ground and scatter only around the footprint it reopened, and the
-    // result is byte-identical to a full build (`composeTerrainFrom`).
+    // ground, scatter and decor placements only around the footprint it
+    // reopened, and the result is byte-identical to a full build
+    // (`composeTerrainFrom`).
     const build = composeTerrainFrom(
       this.terrainState,
       this.sim,
@@ -9965,6 +9974,34 @@ export interface ComposedTerrain {
   readonly propPlacements: readonly PropPlacement[];
 }
 
+/**
+ * The decor placements for `input`, spliced from `prev` around `changed` (the
+ * terrain diff) where it can: `changed` plus anything only decor reads (the
+ * boulder mask), grown by `DECOR_SPLICE_RADIUS_TILES` -- wider than the
+ * ground's margin, because a clump member lands up to a tile from the tile
+ * that seeds it. Nothing changed is the last build's placements, the same
+ * array; a `prev` placed from another density or theme is a full placement.
+ * Byte-identical to `buildDecorPlacements(input)` either way
+ * (`packages/app/src/terrain-splice.test.ts`).
+ */
+function spliceDecor(
+  prev: TiledDecorPlacements,
+  changed: Uint8Array,
+  input: TerrainInput,
+  surface: TerrainSurface
+): TiledDecorPlacements {
+  const own = changedDecorTiles(prev, input, SCATTER_DENSITY);
+  if (own === null) return buildDecorPlacements(input, SCATTER_DENSITY, surface);
+  let any = false;
+  for (let t = 0; t < own.length; t++) {
+    if (changed[t] !== 0) own[t] = 1;
+    if (own[t] !== 0) any = true;
+  }
+  if (!any) return prev;
+  const dirty = spliceMask(own, input.width, input.height, DECOR_SPLICE_RADIUS_TILES);
+  return spliceDecorPlacements(prev, dirty, input, surface, SCATTER_DENSITY);
+}
+
 /** `sim.blocked`, with every currently-live structure's own tiles zeroed
  *  out -- what the RESIDUAL layer's input needs so its tile walk only ever
  *  reaches the fallback case (a blocked tile no structure claims at all),
@@ -10050,8 +10087,11 @@ export interface ComposedTerrainBuild {
  * after real collapses on shipped maps -- which is what lets a building
  * collapse stop paying for the whole map. With `prev` null, or a `prev` that
  * cannot be compared (another map, replaced decor or elevation), it is a full
- * build. Every other layer (residual, boxes, decor and prop placements) is
- * rebuilt in full either way: together they cost a few milliseconds.
+ * build. The decor placements splice the same way, with their own wider
+ * margin (`spliceDecor`). Every other layer (residual, boxes, prop
+ * placements) is rebuilt in full either way: together they cost a few
+ * milliseconds. Prop placements cannot splice per tile: they are sorted and
+ * spaced map-wide under a cap (`prop-place.ts`).
  */
 export function composeTerrainFrom(
   prev: TerrainBuildState | null,
@@ -10089,6 +10129,7 @@ export function composeTerrainFrom(
   const changed = prev === null ? null : changedTerrainTiles(prev, input, surface);
   let groundTiled: TiledMeshData;
   let scatterTiled: TiledMeshData;
+  let decorTiled: TiledDecorPlacements;
   let rebuiltTiles: number;
   if (prev !== null && changed !== null) {
     const dirty = spliceMask(changed, input.width, input.height);
@@ -10096,9 +10137,11 @@ export function composeTerrainFrom(
     for (let t = 0; t < dirty.length; t++) rebuiltTiles += dirty[t];
     groundTiled = rebuiltTiles === 0 ? prev.ground : spliceGround(prev.ground, dirty, input, tones, background, surface);
     scatterTiled = rebuiltTiles === 0 ? prev.scatter : spliceScatter(prev.scatter, dirty, input, tones, background, surface);
+    decorTiled = spliceDecor(prev.decorPlacements, changed, input, surface);
   } else {
     groundTiled = buildGroundTiled(input, tones, background, surface);
     scatterTiled = buildScatterTiled(input, tones, background, surface);
+    decorTiled = buildDecorPlacements(input, SCATTER_DENSITY, surface);
     rebuiltTiles = input.width * input.height;
   }
   const ground = groundTiled.mesh;
@@ -10129,10 +10172,10 @@ export function composeTerrainFrom(
       scatter,
       residual,
       buildings,
-      decorPlacements: decorPlacements(input),
+      decorPlacements: decorTiled.placements,
       propPlacements: propPlacements(input),
     },
-    state: terrainBuildState(input, surface, groundTiled, scatterTiled),
+    state: terrainBuildState(input, surface, groundTiled, scatterTiled, decorTiled),
     rebuiltTiles,
   };
 }
