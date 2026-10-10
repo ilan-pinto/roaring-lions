@@ -35,7 +35,7 @@
  */
 import { DECOR_GROVE, DECOR_KNOLL, DECOR_RIDGE, DECOR_ROAD, hexToLinear } from './shared';
 import { boxBlur, fbm2, valueNoise2 } from './noise';
-import { buildRoadGraph, junctionDistanceAt, roadDistanceAt, ROAD_EDGE_BEND_CYCLES } from './road-graph';
+import { buildRoadGraph, junctionDistanceAt, roadDistanceAt, ROAD_EDGE_BEND_CYCLES, type RoadGraph } from './road-graph';
 import type { TerrainInput } from './types';
 
 /** Texels per tile side, in EITHER control texture. `CONTROL_TEXELS_PER_TILE
@@ -310,30 +310,117 @@ export function buildControlMap(input: TerrainInput): ControlMap {
   const a = new Uint8Array(width * height * 4);
   const b = new Uint8Array(width * height * 4);
   const graph = buildRoadGraph(input);
+  const map: ControlMap = { width, height, a, b };
 
   for (let j = 0; j < height; j++) {
-    const pz = (j + 0.5) / N;
-    for (let i = 0; i < width; i++) {
-      const px = (i + 0.5) / N;
-      const w = surfaceWeightsAt(input, px, pz);
-      const o = (j * width + i) * 4;
-
-      a[o] = byteOf(w.open);
-      a[o + 1] = byteOf(w.rock);
-      a[o + 2] = byteOf(w.scrub);
-      a[o + 3] = byteOf(w.grove);
-
-      const roadDist = roadDistanceAt(graph, px, pz);
-      const juncDist = junctionDistanceAt(graph, px, pz);
-      const bend = 0.5 + 0.5 * valueNoise2(px, pz, ROAD_EDGE_BEND_CYCLES, ROAD_BEND_SEED);
-      b[o] = byteOf(w.knoll);
-      b[o + 1] = byteOf(Math.min(1, roadDist / ROAD_DISTANCE_RANGE_TILES));
-      b[o + 2] = byteOf(Math.min(1, juncDist / ROAD_DISTANCE_RANGE_TILES));
-      b[o + 3] = byteOf(bend);
-    }
+    for (let i = 0; i < width; i++) writeControlTexel(map, input, graph, i, j);
   }
 
-  return { width, height, a, b };
+  return map;
+}
+
+/** Texel `(i, j)` of both control textures, sampled at its own centre. The
+ *  one body `buildControlMap` and `updateControlMapRegion` share, so a
+ *  rewritten texel cannot differ from a freshly built one by construction. */
+function writeControlTexel(map: ControlMap, input: TerrainInput, graph: RoadGraph, i: number, j: number): void {
+  const N = CONTROL_TEXELS_PER_TILE;
+  const { a, b } = map;
+  const px = (i + 0.5) / N;
+  const pz = (j + 0.5) / N;
+  const w = surfaceWeightsAt(input, px, pz);
+  const o = (j * map.width + i) * 4;
+
+  a[o] = byteOf(w.open);
+  a[o + 1] = byteOf(w.rock);
+  a[o + 2] = byteOf(w.scrub);
+  a[o + 3] = byteOf(w.grove);
+
+  const roadDist = roadDistanceAt(graph, px, pz);
+  const juncDist = junctionDistanceAt(graph, px, pz);
+  const bend = 0.5 + 0.5 * valueNoise2(px, pz, ROAD_EDGE_BEND_CYCLES, ROAD_BEND_SEED);
+  b[o] = byteOf(w.knoll);
+  b[o + 1] = byteOf(Math.min(1, roadDist / ROAD_DISTANCE_RANGE_TILES));
+  b[o + 2] = byteOf(Math.min(1, juncDist / ROAD_DISTANCE_RANGE_TILES));
+  b[o + 3] = byteOf(bend);
+}
+
+/**
+ * How far, in TEXELS, a changed non-road, non-ridge tile reaches into the
+ * control map beyond its own texels -- what `updateControlMapRegion`
+ * rewrites around each one.
+ *
+ * Derived from `surfaceWeightsAt`, not measured: a texel's query point is
+ * jittered by under `EDGE_BEND_TILES` (`valueNoise2` stays inside (-1, 1)),
+ * and a tile then contributes only while that jittered point lies within
+ * `EDGE_BAND_TILES / 2` of it (`bandOverlap`). So a tile's influence ends
+ * 0.2 + 0.25 = 0.45 tile past its edge -- 3.6 texels at 8 a tile, and the
+ * first texel centre beyond that is the fifth: 4 texels.
+ *
+ * A ridge's APRON reaches further (0.2 + `APRON_TILES` = 0.7 tile), and a
+ * road tile's blocked flag feeds the road graph behind control B's distance
+ * channels, which reaches two tiles. A collapse changes neither -- a
+ * structure never stands on a `^` ridge or an `r` road tile -- so
+ * `changedControlTiles` sends either case to a full build rather than carry a
+ * wider margin for a change that does not happen.
+ */
+export const CONTROL_SPLICE_MARGIN_TEXELS = Math.ceil(
+  (EDGE_BEND_TILES + EDGE_BAND_TILES / 2) * CONTROL_TEXELS_PER_TILE
+);
+
+/**
+ * Which tiles' control-map inputs differ between `prev` and `input`
+ * (`blocked`, `cover`), or `null` when the map cannot be updated in place: a
+ * different size or decor array, or a changed tile that is road or ridge
+ * (see `CONTROL_SPLICE_MARGIN_TEXELS`).
+ */
+export function changedControlTiles(prev: ControlInputs, input: TerrainInput): Uint8Array | null {
+  if (prev.width !== input.width || prev.height !== input.height || prev.decor !== input.decor) return null;
+  const n = input.width * input.height;
+  const changed = new Uint8Array(n);
+  for (let t = 0; t < n; t++) {
+    if (prev.blocked[t] === input.blocked[t] && prev.cover[t] === input.cover[t]) continue;
+    const d = input.decor ? input.decor[t] : 0;
+    if (d === DECOR_ROAD || d === DECOR_RIDGE) return null;
+    changed[t] = 1;
+  }
+  return changed;
+}
+
+/**
+ * Rewrites, in place, every texel of `map` within `margin` texels of a tile
+ * `changed` marks, from `input` -- so the map ends byte-identical to
+ * `buildControlMap(input)` when the margin covers every texel those tiles
+ * reach (`CONTROL_SPLICE_MARGIN_TEXELS`, held by `packages/app/src/terrain-splice.test.ts`).
+ * Returns how many texels it rewrote.
+ */
+export function updateControlMapRegion(
+  map: ControlMap,
+  input: TerrainInput,
+  changed: Uint8Array,
+  margin: number = CONTROL_SPLICE_MARGIN_TEXELS
+): number {
+  const N = CONTROL_TEXELS_PER_TILE;
+  const { width, height } = map;
+  const mark = new Uint8Array(width * height);
+  for (let t = 0; t < changed.length; t++) {
+    if (changed[t] === 0) continue;
+    const x = t % input.width;
+    const y = (t - x) / input.width;
+    const i0 = Math.max(0, x * N - margin);
+    const i1 = Math.min(width, (x + 1) * N + margin);
+    const j0 = Math.max(0, y * N - margin);
+    const j1 = Math.min(height, (y + 1) * N + margin);
+    for (let j = j0; j < j1; j++) mark.fill(1, j * width + i0, j * width + i1);
+  }
+  const graph = buildRoadGraph(input);
+  let written = 0;
+  for (let k = 0; k < mark.length; k++) {
+    if (mark[k] === 0) continue;
+    const i = k % width;
+    writeControlTexel(map, input, graph, i, (k - i) / width);
+    written++;
+  }
+  return written;
 }
 
 /**

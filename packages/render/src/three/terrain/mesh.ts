@@ -69,11 +69,34 @@ export interface GeometryOptions {
   normals?: 'up' | 'compute';
 }
 
+/** `float32(k / 255)` for every byte `k`, and `srgbToLinear` of exactly that
+ *  value -- see `srgbToLinearByte`. */
+const BYTE_UNIT = new Float32Array(256);
+const BYTE_LINEAR = new Float64Array(256);
+for (let k = 0; k < 256; k++) {
+  BYTE_UNIT[k] = k / 255;
+  BYTE_LINEAR[k] = srgbToLinear(BYTE_UNIT[k]);
+}
+
+/**
+ * `srgbToLinear(c)`, from a table when `c` is a byte over 255 -- which every
+ * terrain vertex colour is, since each comes from a palette hex through
+ * `hexToUnit`. The table entry is `srgbToLinear` of the very same float32
+ * value, so the answer is the same bits; anything that is not exactly a byte
+ * falls through to the function itself. A collapse used to spend ~12 ms at
+ * 4x CPU in `Math.pow` here, converting the same few palette tones a quarter
+ * of a million times.
+ */
+function srgbToLinearByte(c: number): number {
+  const k = Math.round(c * 255);
+  return k >= 0 && k <= 255 && BYTE_UNIT[k] === c ? BYTE_LINEAR[k] : srgbToLinear(c);
+}
+
 export function toGeometry(data: MeshData, opts: GeometryOptions = {}): THREE.BufferGeometry {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
   const linear = new Float32Array(data.colors.length);
-  for (let i = 0; i < linear.length; i++) linear[i] = srgbToLinear(data.colors[i]);
+  for (let i = 0; i < linear.length; i++) linear[i] = srgbToLinearByte(data.colors[i]);
   geometry.setAttribute('color', new THREE.BufferAttribute(linear, 3));
   geometry.setIndex(new THREE.BufferAttribute(data.indices, 1));
   // Surface normal, three.js's own reserved `normal` name (not a custom one),

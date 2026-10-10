@@ -237,10 +237,12 @@ import {
   type ShakeState,
   type HitStopState,
 } from './blast-shake';
-import { buildGround, groundAlbedoSlotsUsed } from './terrain/ground';
+import { buildGroundTiled, groundAlbedoSlotsUsed, spliceGround } from './terrain/ground';
 import { decalBaseTone, makeDecalGroundSource, type DecalGroundSource } from './terrain/decal-ground-tone';
 import { buildSkirt, disposeSkirt, setSkirtAlbedo, type SkirtMesh } from './terrain/skirt';
-import { buildScatter } from './terrain/scatter';
+import { buildScatterTiled, spliceScatter } from './terrain/scatter';
+import { changedTerrainTiles, spliceMask, terrainBuildState, type TerrainBuildState } from './terrain/incremental';
+import type { TiledMeshData } from './terrain/tiled-mesh';
 import { buildBuildings, type StructureFootprint } from './terrain/buildings';
 import {
   toGeometry,
@@ -256,11 +258,14 @@ import {
   type GroundSlot,
 } from './terrain/mesh';
 import { isDebugLayer, unknownDebugLayerMessage } from './debug-layers';
-import { isTerrace, terrainSurfaceFrom, type TerrainSurface } from './terrain/surface';
+import { buildTerrainSurface, isTerrace, terrainSurfaceFrom, type TerrainSurface } from './terrain/surface';
 import {
   buildControlMap,
   buildMacroField,
+  changedControlTiles,
   controlInputsMatch,
+  updateControlMapRegion,
+  type ControlMap,
   neutralTint,
   snapshotControlInputs,
   type ControlInputs,
@@ -1117,6 +1122,20 @@ export class ThreeRenderer implements Renderer {
   /** What `controlTex` (and `decalGround.graph`) were last built from, so
    *  `rebuildTerrain` can skip an unchanged rebuild (fix wave I-1). */
   private controlInputs: ControlInputs | null = null;
+  /** The bytes behind `controlTex` -- the textures were made over these very
+   *  arrays, so `updateControlMapRegion` rewriting them in place plus a
+   *  `needsUpdate` is the whole of a collapse's control-map cost. */
+  private controlMap: ControlMap | null = null;
+  /** What the last ground/scatter build was made from, so the next one can
+   *  splice instead of rebuilding the map (`terrain/incremental.ts`). Null
+   *  before the first build. */
+  private terrainState: TerrainBuildState | null = null;
+  /** Ground tiles and control texels the last `rebuildTerrain` re-made, for
+   *  `debugTerrainRebuild` -- a capture tells a splice from a full build by
+   *  reading these, not by timing it. */
+  private lastTerrainRebuild = { tiles: 0, texels: 0, full: true };
+  /** Disposals held until the next frame has drawn -- see `disposeRetired`. */
+  private retiredAfterRender: (() => void)[] = [];
   /** The macro field's texture, bound as `uMacro`. Built once, in the
    *  constructor: it depends on the map's size alone, never on the terrain,
    *  so no rebuild has anything to change in it. */
@@ -2841,6 +2860,8 @@ export class ThreeRenderer implements Renderer {
     // design (it is the runtime's, not this instance's), so this is the one
     // place it can be torn down at all.
     disposeGltfLoader();
+    // Anything a rebuild retired and no frame has drawn past yet.
+    this.disposeRetired();
     this.terrainMesh?.geometry.dispose();
     this.scatterMesh?.geometry.dispose();
     this.residualMesh?.geometry.dispose();
@@ -2869,6 +2890,8 @@ export class ThreeRenderer implements Renderer {
     this.controlTex?.b.dispose();
     this.controlTex = null;
     this.controlInputs = null;
+    this.controlMap = null;
+    this.terrainState = null;
     this.macroTex.dispose();
     // Mesh units: every `MeshUnitEntity` is added and removed
     // dynamically across a mission (`updateMeshUnits`), so each one gets an explicit `scene.remove` here as
@@ -3266,6 +3289,24 @@ export class ThreeRenderer implements Renderer {
     // does them itself, on the composer's path `OutputPass` does.
     if (this.post) this.post.render();
     else this.renderer.render(this.scene, camera);
+    this.disposeRetired();
+  }
+
+  /**
+   * Disposes what `rebuildTerrain` took out of the scene, now that the frame
+   * that replaced it has drawn. Not before: disposing a material releases its
+   * program, and when nothing else holds that program three DELETES it -- so
+   * the replacement batch, whose new material wants the very same program,
+   * paid a fresh shader compile on the next draw. Measured on a collapse at
+   * 4x CPU: 38 ms in `getProgramInfoLog` alone, the largest single piece of
+   * the frame once the terrain itself was spliced. Held until here, the new
+   * material finds the program still live and shares it.
+   */
+  private disposeRetired(): void {
+    if (this.retiredAfterRender.length === 0) return;
+    const retired = this.retiredAfterRender;
+    this.retiredAfterRender = [];
+    for (const dispose of retired) dispose();
   }
 
   /**
@@ -7337,6 +7378,14 @@ export class ThreeRenderer implements Renderer {
     entity.root.rotation.set(-roll, meshYawFromFacing(facingNorm), pitch, 'YZX');
   }
 
+  /** What the last terrain rebuild re-made: ground/scatter tiles re-emitted,
+   *  control-map texels rewritten, and whether it was a full build. A splice
+   *  after a collapse reads a few dozen tiles and a few thousand texels; a
+   *  full build reads the whole map. Read by capture tools, never by the game. */
+  debugTerrainRebuild(): { tiles: number; texels: number; full: boolean } {
+    return { ...this.lastTerrainRebuild };
+  }
+
   /**
    * GH-469: what this renderer holds, in bytes, grouped by owner -- the scene
    * (each top-level child labelled by the field that owns it), then the mesh
@@ -9355,21 +9404,30 @@ export class ThreeRenderer implements Renderer {
     // `disposeDecorMesh` both disposes each batch's geometry/material AND
     // empties the group's own `children`, so nothing here needs a second
     // per-child loop the way `structureBoxes` does.
+    // Out of the scene now, disposed only after the next draw -- see
+    // `disposeRetired` for the shader compile disposing them here cost.
     if (this.decorGroup !== null) {
-      this.scene.remove(this.decorGroup);
-      disposeDecorMesh(this.decorGroup);
+      const old = this.decorGroup;
+      this.scene.remove(old);
+      this.retiredAfterRender.push(() => disposeDecorMesh(old));
     }
     if (this.texturedDecorGroup !== null) {
-      this.scene.remove(this.texturedDecorGroup);
-      disposeTexturedDecorMesh(this.texturedDecorGroup);
+      const old = this.texturedDecorGroup;
+      this.scene.remove(old);
+      this.retiredAfterRender.push(() => disposeTexturedDecorMesh(old));
     }
     if (this.propMesh !== null) {
-      this.scene.remove(this.propMesh);
-      disposePropMesh(this.propMesh);
+      const old = this.propMesh;
+      this.scene.remove(old);
+      this.retiredAfterRender.push(() => disposePropMesh(old));
       this.propMesh = null;
     }
 
-    const composed = composeTerrain(
+    // Spliced from the last build where it can be: a collapse re-emits the
+    // ground and scatter only around the footprint it reopened, and the
+    // result is byte-identical to a full build (`composeTerrainFrom`).
+    const build = composeTerrainFrom(
+      this.terrainState,
       this.sim,
       this.retained.decor,
       // The RAW grid: the terrain builders take a `TerrainInput` and build
@@ -9381,6 +9439,9 @@ export class ThreeRenderer implements Renderer {
       this.opts.resolveColor,
       this.opts.background
     );
+    const composed = build.composed;
+    this.terrainState = build.state;
+    let controlTexels = 0;
     // The haze's low-lying reference (N-19): the median open-ground level of
     // the input the ground was just built from. Elevation never changes
     // after load, so this settles on the first rebuild that has the grid; a
@@ -9407,14 +9468,36 @@ export class ThreeRenderer implements Renderer {
     const graph =
       controlReused && this.decalGround !== null ? this.decalGround.graph : buildRoadGraph(composed.input);
     if (!controlReused) {
-      const control = controlTexturePair(buildControlMap(composed.input));
-      this.controlTex?.a.dispose();
-      this.controlTex?.b.dispose();
-      this.controlTex = control;
+      // A collapse changes `blocked` and `cover` under one footprint: rewrite
+      // only the texels those tiles reach, in place, and re-upload. Anything
+      // else -- the first build, a road or ridge tile changing -- builds the
+      // map whole (`changedControlTiles`).
+      const changed =
+        this.controlTex !== null && this.controlMap !== null && this.controlInputs !== null
+          ? changedControlTiles(this.controlInputs, composed.input)
+          : null;
+      if (changed !== null && this.controlTex !== null && this.controlMap !== null) {
+        controlTexels = updateControlMapRegion(this.controlMap, composed.input, changed);
+        this.controlTex.a.needsUpdate = true;
+        this.controlTex.b.needsUpdate = true;
+      } else {
+        const map = buildControlMap(composed.input);
+        const control = controlTexturePair(map);
+        this.controlTex?.a.dispose();
+        this.controlTex?.b.dispose();
+        this.controlTex = control;
+        this.controlMap = map;
+        controlTexels = map.width * map.height;
+        this.groundMat.uniforms.uControlA.value = control.a;
+        this.groundMat.uniforms.uControlB.value = control.b;
+      }
       this.controlInputs = snapshotControlInputs(composed.input);
-      this.groundMat.uniforms.uControlA.value = control.a;
-      this.groundMat.uniforms.uControlB.value = control.b;
     }
+    this.lastTerrainRebuild = {
+      tiles: build.rebuiltTiles,
+      texels: controlTexels,
+      full: build.rebuiltTiles === composed.input.width * composed.input.height,
+    };
     // The decal pool's local ground tone reads the same input the ground and
     // the control map were built from (fix round 2) -- refreshed on every
     // rebuild, since its draw mask is the one the ground just drew.
@@ -9933,6 +10016,41 @@ export function composeTerrain(
   resolveColor: ((key: string) => string) | undefined,
   background: string
 ): ComposedTerrain {
+  return composeTerrainFrom(null, sim, decor, elevation, hasArt, tones, resolveColor, background).composed;
+}
+
+/** `composeTerrainFrom`'s result: the composed layers, the state the next
+ *  rebuild splices against, and how many ground tiles this one re-emitted
+ *  (`width * height` for a full build) -- reported, so a capture can tell a
+ *  splice from a full rebuild without timing it. */
+export interface ComposedTerrainBuild {
+  readonly composed: ComposedTerrain;
+  readonly state: TerrainBuildState;
+  readonly rebuiltTiles: number;
+}
+
+/**
+ * `composeTerrain`, splicing the ground and scatter meshes from `prev` (the
+ * last build's state) where it can: only the tiles whose inputs changed, plus
+ * `SPLICE_RADIUS_TILES` around them, are re-emitted, and the rest are copied
+ * (`terrain/incremental.ts`, `terrain/tiled-mesh.ts`). The result is
+ * byte-identical to a full build -- `packages/app/src/terrain-splice.test.ts` holds it there
+ * after real collapses on shipped maps -- which is what lets a building
+ * collapse stop paying for the whole map. With `prev` null, or a `prev` that
+ * cannot be compared (another map, replaced decor or elevation), it is a full
+ * build. Every other layer (residual, boxes, decor and prop placements) is
+ * rebuilt in full either way: together they cost a few milliseconds.
+ */
+export function composeTerrainFrom(
+  prev: TerrainBuildState | null,
+  sim: Sim,
+  decor: Uint8Array | null,
+  elevation: Uint8Array | null,
+  hasArt: (structureId: string) => boolean,
+  tones: TerrainTones,
+  resolveColor: ((key: string) => string) | undefined,
+  background: string
+): ComposedTerrainBuild {
   const input: TerrainInput = {
     width: sim.width,
     height: sim.height,
@@ -9953,8 +10071,26 @@ export function composeTerrain(
     // `decorPlacements`. Absent on every theme but `highland`.
     openScatter: tones.openScatter,
   };
-  const ground = buildGround(input, tones, background);
-  const scatter = buildScatter(input, tones, background);
+  // One surface for both builders and for the diff -- each used to build its
+  // own from the same `input`.
+  const surface = buildTerrainSurface(input);
+  const changed = prev === null ? null : changedTerrainTiles(prev, input, surface);
+  let groundTiled: TiledMeshData;
+  let scatterTiled: TiledMeshData;
+  let rebuiltTiles: number;
+  if (prev !== null && changed !== null) {
+    const dirty = spliceMask(changed, input.width, input.height);
+    rebuiltTiles = 0;
+    for (let t = 0; t < dirty.length; t++) rebuiltTiles += dirty[t];
+    groundTiled = rebuiltTiles === 0 ? prev.ground : spliceGround(prev.ground, dirty, input, tones, background, surface);
+    scatterTiled = rebuiltTiles === 0 ? prev.scatter : spliceScatter(prev.scatter, dirty, input, tones, background, surface);
+  } else {
+    groundTiled = buildGroundTiled(input, tones, background, surface);
+    scatterTiled = buildScatterTiled(input, tones, background, surface);
+    rebuiltTiles = input.width * input.height;
+  }
+  const ground = groundTiled.mesh;
+  const scatter = scatterTiled.mesh;
   // Grove tiles draw real tree meshes from `decor-place.ts`'s `tree` family,
   // in the decor batch (ground Task 7). `buildGroves` is not called; ground
   // plan 2, Task 7 retired the empty `groves` layer this used to return and
@@ -9975,12 +10111,16 @@ export function composeTerrain(
   }
 
   return {
-    input,
-    ground,
-    scatter,
-    residual,
-    buildings,
-    decorPlacements: decorPlacements(input),
-    propPlacements: propPlacements(input),
+    composed: {
+      input,
+      ground,
+      scatter,
+      residual,
+      buildings,
+      decorPlacements: decorPlacements(input),
+      propPlacements: propPlacements(input),
+    },
+    state: terrainBuildState(input, surface, groundTiled, scatterTiled),
+    rebuiltTiles,
   };
 }
