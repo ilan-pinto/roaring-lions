@@ -41,6 +41,7 @@
   },
   "dependencies": {
     "@lions/data": "workspace:*",
+    "@lions/net": "workspace:*",
     "@lions/sim": "workspace:*"
   },
   "devDependencies": {
