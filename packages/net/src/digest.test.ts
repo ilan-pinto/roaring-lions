@@ -11,7 +11,9 @@ describe('matchDigest', () => {
     expect(matchDigest(2, 1, 3)).not.toBe(a);
   });
   it('fold matches the sim hash primitive bit for bit', () => {
-    // sim/src/hash.ts: imul32(h ^ w, 16777619) with imul32 = Math.imul.
-    expect(fold(0x811c9dc5 | 0, 7)).toBe(Math.imul((0x811c9dc5 | 0) ^ 7, 16777619));
+    // Literals computed once from packages/sim/src/hash.ts (hashWord, HASH_SEED), not restated from fold.
+    expect(fold(0x811c9dc5 | 0, 7)).toBe(34363494);
+    expect(matchDigest(1, 2, 3)).toBe(1456420779);
+    expect(matchDigest(0x12345678, -5, 20)).toBe(-388990880);
   });
 });

@@ -26,6 +26,17 @@ describe('LockstepClock', () => {
     expect(c.push(frame(2))).toBe('ok');
     expect(c.take(10).map((f) => f.tick)).toEqual([1, 2]);
   });
+  it('ignores a frame for a tick it has already run, and yields nothing new for it', () => {
+    const c = new LockstepClock(0);
+    c.push(frame(0));
+    c.push(frame(1));
+    expect(c.take(10).map((f) => f.tick)).toEqual([0, 1]);
+    expect(c.push(frame(0))).toBe('duplicate');
+    expect(c.push(frame(1))).toBe('duplicate');
+    expect(c.take(10)).toEqual([]);
+    expect(c.nextTick).toBe(2);
+    expect(c.push(frame(2))).toBe('ok');
+  });
   it('caps a catch-up at maxTicks and reports how far behind it is', () => {
     const c = new LockstepClock(0);
     for (let t = 0; t < 10; t++) c.push(frame(t));
