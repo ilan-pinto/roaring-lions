@@ -47,6 +47,11 @@ const isStr = (v: unknown): v is string => typeof v === 'string';
 const isSeat = (v: unknown): v is Seat => v === 0 || v === 1;
 const isIntArray = (v: unknown): v is number[] => Array.isArray(v) && v.every(isInt);
 
+/** The fields `move` and `attackMove` share. `sweep` is attack-move's alone. */
+const isMoveShape = (c: Record<string, unknown>): boolean =>
+  isIntArray(c.ids) && isInt(c.x) && isInt(c.y) &&
+  (c.append === undefined || typeof c.append === 'boolean') && (c.exact === undefined || typeof c.exact === 'boolean');
+
 /** Shape check only: every field the union declares, with the type it
  *  declares. Ownership and existence are the client's job (`ownership.ts`).
  *  The command is returned as parsed, never rebuilt, so a field the union
@@ -60,9 +65,9 @@ export function isCommand(v: unknown): v is Command {
   const kind = c.kind as Command['kind'];
   switch (kind) {
     case 'move':
+      return isMoveShape(c);
     case 'attackMove':
-      return isIntArray(c.ids) && isInt(c.x) && isInt(c.y) &&
-        (c.append === undefined || typeof c.append === 'boolean') && (c.exact === undefined || typeof c.exact === 'boolean');
+      return isMoveShape(c) && (c.sweep === undefined || typeof c.sweep === 'boolean');
     case 'halt':
     case 'unload':
       return isIntArray(c.ids);

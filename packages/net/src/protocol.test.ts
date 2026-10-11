@@ -36,6 +36,12 @@ describe('parseClientMsg', () => {
     const cmd = { kind: 'attackMove', ids: [1, 2], x: 65536, y: 131072, sweep: true };
     expect(parseClientMsg(JSON.stringify({ t: 'cmd', seq: 2, cmd }))).toEqual({ t: 'cmd', seq: 2, cmd });
   });
+  it('checks attack-move sweep as a boolean when present', () => {
+    const ok = { kind: 'attackMove', ids: [1], x: 0, y: 0, sweep: true };
+    expect(parseClientMsg(JSON.stringify({ t: 'cmd', seq: 0, cmd: ok }))).toEqual({ t: 'cmd', seq: 0, cmd: ok });
+    const bad = { kind: 'attackMove', ids: [1], x: 0, y: 0, sweep: 'yes' };
+    expect(parseClientMsg(JSON.stringify({ t: 'cmd', seq: 0, cmd: bad }))).toBeNull();
+  });
 });
 
 describe('parseServerMsg', () => {
