@@ -326,7 +326,9 @@ describe("the tilt is in the HULL's frame at every heading (R-K)", () => {
       );
     }
     for (const lift of lifts) expect(lift).toBeCloseTo(Math.sin(0.06), 9);
-  });
+    // Five whole renderer worlds in one test: the 5 s default timed out under
+    // load ("Test timed out in 5000ms"), the sweep itself is unchanged.
+  }, 30_000);
 });
 
 describe('the roll sign, pinned in WORLD space', () => {

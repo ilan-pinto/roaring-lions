@@ -162,5 +162,7 @@ describe('the terrain conform stands a hull on the ground it is crossing', () =>
       for (const hit of census(json).shipped) offenders.push(`${id} ${hit}`);
     }
     expect(offenders).toEqual([]);
-  });
+    // ~1 s of CPU on a quiet machine, 4.8 s measured on a busy one, and a
+    // full run with the machine saturated timed out at the 5 s default.
+  }, 30_000);
 });

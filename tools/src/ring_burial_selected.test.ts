@@ -18,7 +18,10 @@ describe('every selected ring, at its drawn size, stays on the relief (GH-346)',
     for (const r of RELIEFS) {
       expect(await sweep(r, r.footSteep, ringGridFor(radius, radius), radius, radius, [0]), r.id).toBeLessThanOrEqual(BURIAL_LIMIT);
     }
-  });
+    // 30 s like the ellipse sweeps beside it: a circle is ~0.35-0.7 s of CPU on
+    // a quiet machine, and the 5 s default timed out on a starved one
+    // (three separate full runs under load, "Test timed out in 5000ms").
+  }, 30_000);
 
   it.each(Object.entries(ELLIPSE_BY_TYPE))('the %s ellipse', async (_id, e) => {
     const a = e.along * k;
