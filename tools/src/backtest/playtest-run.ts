@@ -121,6 +121,30 @@ export function kdfUnlockGate(u: {
     : undefined;
 }
 
+/**
+ * What a run that reaches the 20-minute cap still ONGOING prints: `STUCK`. A mission with an
+ * objective that never fires does not end, and for a player that reads as a hang rather than a
+ * loss, so it is named apart from a run that merely has not finished. The outcome a control
+ * EXPECTS is still `'ongoing'`; only the word in the report changes.
+ */
+export function outcomeName(result: 'ongoing' | 'victory' | 'defeat', atCap: boolean): string {
+  return result === 'ongoing' && atCap ? 'STUCK' : result.toUpperCase();
+}
+
+/** One line per `run()` call, in call order: what the plan sweep (`plan-sweep.ts`) reads back. */
+export interface RunRecord {
+  id: string;
+  label: string;
+  expect: 'victory' | 'defeat' | 'ongoing';
+  result: 'ongoing' | 'victory' | 'defeat';
+  /** ONGOING at the 20-minute cap. */
+  stuck: boolean;
+  minutes: number;
+  stars: number;
+  roe: number;
+}
+export const runLog: RunRecord[] = [];
+
 /** Set only by `setSweep` (`passive-sweep.ts`), for the duration of one swept run: the seed
  *  `run()` builds its `Sim` with (otherwise `PT_SEED`, otherwise 424242), and whether it keeps its
  *  two per-run lines to itself. A FAILED line is never quiet. */
@@ -293,21 +317,32 @@ export function run(
     console.error(`${label}: FAILED — expected '${fielded}' fielded on side 0 after start(), found none`);
     process.exitCode = 1;
   }
-  const timed: [number, () => void][] = [];
-  plan(sim, rt, ids, (t, fn) => timed.push([t * TICKS_PER_SECOND, fn]));
+  // Keyed by tick, in the order given. A plan that reads the world every second or two for the
+  // whole run (`player-picture.ts`) puts hundreds of entries here, and scanning all of them on every
+  // tick cost more than the run. An order given from inside another for the same tick is pushed
+  // onto the list being walked and still runs this tick, as it did when this was one flat array.
+  const timed = new Map<number, (() => void)[]>();
+  plan(sim, rt, ids, (t, fn) => {
+    const when = t * TICKS_PER_SECOND;
+    const list = timed.get(when);
+    if (list) list.push(fn);
+    else timed.set(when, [fn]);
+  });
   let produced: LedgerData = {};
   const maxTicks = 20 * 60 * TICKS_PER_SECOND;
   let t = 0;
   for (; t < maxTicks; t++) {
-    for (const [when, fn] of timed) if (when === t) fn();
+    const due = timed.get(t);
+    if (due) for (let k = 0; k < due.length; k++) due[k]();
     const evs = sim.tick();
     onEvents?.(evs);
     for (const me of rt.step(evs)) if (me.kind === 'missionEnd') produced = me.ledger;
     if (rt.result !== 'ongoing') break;
   }
   const mins = (t / TICKS_PER_SECOND / 60).toFixed(1);
+  const shown = outcomeName(rt.result, t >= maxTicks);
   const runLine =
-    `${label}: ${rt.result.toUpperCase()} in ${mins} min, ROE ${rt.roeScore}, stars ${rt.stars}, ` +
+    `${label}: ${shown} in ${mins} min, ROE ${rt.roeScore}, stars ${rt.stars}, ` +
     `objectives ${rt.objectiveList.map((o) => `${o.id}=${o.status[0]}`).join(' ')}, ` +
     `roster out ${(produced['roster.surviving_units'] ?? []).length}` +
     (fielded !== undefined ? `, fielded ${fielded}=${fieldedOk}` : '');
@@ -315,9 +350,10 @@ export function run(
   if (!sweepQuiet || rt.result !== expect) console.log(runLine);
   if (!sweepQuiet) console.log(`${label}: credits ${credits}`);
   if (rt.result !== expect) {
-    console.error(`${label}: FAILED — expected ${expect.toUpperCase()}, got ${rt.result.toUpperCase()}`);
+    console.error(`${label}: FAILED — expected ${expect.toUpperCase()}, got ${shown}`);
     process.exitCode = 1;
   }
+  runLog.push({ id, label, expect, result: rt.result, stuck: t >= maxTicks && rt.result === 'ongoing', minutes: t / TICKS_PER_SECOND / 60, stars: rt.stars, roe: rt.roeScore });
   if (rt.stars < expectStar) {
     console.error(`${label}: FAILED — expected ${expectStar} star(s), got ${rt.stars}`);
     process.exitCode = 1;
