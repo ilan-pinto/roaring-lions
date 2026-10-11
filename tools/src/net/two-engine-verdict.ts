@@ -59,3 +59,90 @@ export function verdict(results: Readonly<Record<string, EngineReading>>, target
   }
   return { ok: true, message: `PASS: ${readings.length} engines, tick ${targetTick}, hash ${readings[0].hash}` };
 }
+
+/**
+ * How one engine's attempt ended. `unbootable` is an ENVIRONMENT finding --
+ * the browser would not launch, or it launched and cannot create a WebGL2
+ * context on this runner -- and says nothing about the sim's arithmetic.
+ * `broken` is everything else that stopped an engine short of a reading (a
+ * boot-failure card, a boot or script timeout, a context lost mid-step): the
+ * engine did start, so what stopped it is a failure, named.
+ */
+export type EngineOutcome =
+  | { kind: 'reading'; reading: EngineReading }
+  | { kind: 'unbootable'; reason: string }
+  | { kind: 'broken'; reason: string };
+
+/**
+ * The tool's exit code and what it prints (Ruling R39):
+ * - 1: the engines that booted disagree, missed the tick, or booted forces
+ *   that are not comparable. Always a hard failure, whatever else happened.
+ * - 2: an engine started and then broke (a boot card, a timeout, a lost
+ *   context): a failure, with the engine named.
+ * - 3: an engine could not launch or create WebGL2. Each one gets a GitHub
+ *   `::warning::` line; the engines that DID boot are still compared, and a
+ *   run left with fewer than two says, in a warning, that it took no
+ *   cross-engine reading at all. CI treats 3 as a pass with a warning.
+ * - 0: every engine booted and they agree.
+ */
+export interface Decision {
+  exit: 0 | 1 | 2 | 3;
+  /** In order; `error` lines go to stderr, the rest (warnings included) to stdout. */
+  lines: { level: 'log' | 'error'; text: string }[];
+}
+
+/** A GitHub workflow command's message must be one line: `%`, CR and LF are
+ *  escaped as the runner expects, so a multi-line launch error stays one
+ *  annotation instead of being cut at its first newline. */
+export function annotationText(s: string): string {
+  return s.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+}
+
+export function decide(
+  outcomes: Readonly<Record<string, EngineOutcome>>, targetTick: number, firstOrderTick: number,
+): Decision {
+  const lines: Decision['lines'] = [];
+  const results: Record<string, EngineReading> = {};
+  const unbootable: string[] = [];
+  const broken: string[] = [];
+  for (const [name, o] of Object.entries(outcomes)) {
+    if (o.kind === 'reading') results[name] = o.reading;
+    else if (o.kind === 'unbootable') {
+      unbootable.push(name);
+      lines.push({
+        level: 'log',
+        text: `::warning title=${name} could not boot (three-engine check)::${annotationText(o.reason)}`,
+      });
+    } else {
+      broken.push(name);
+      lines.push({ level: 'error', text: `FAIL (no reading): ${o.reason}` });
+    }
+  }
+  const booted = Object.keys(results).length;
+  if (booted >= 2) {
+    const v = verdict(results, targetTick, firstOrderTick);
+    if (!v.ok) return { exit: 1, lines: [...lines, { level: 'error', text: v.message }] };
+    lines.push({ level: 'log', text: `${v.message} (${Object.keys(results).join(', ')})` });
+  }
+  if (broken.length > 0) {
+    lines.push({ level: 'error', text: `FAIL: ${broken.join(', ')} started and did not produce a reading.` });
+    return { exit: 2, lines };
+  }
+  if (unbootable.length > 0) {
+    if (booted < 2) {
+      lines.push({
+        level: 'log',
+        text: `::warning title=No cross-engine reading::${annotationText(
+          `Only ${booted} engine(s) booted (${unbootable.join(', ')} could not), so no cross-engine hash was compared on this run.`,
+        )}`,
+      });
+    }
+    return { exit: 3, lines };
+  }
+  if (booted < 2) {
+    // Unreachable from the tool (every engine is a reading, unbootable or
+    // broken), and refused rather than passed: one engine agrees with itself.
+    return { exit: 1, lines: [...lines, { level: 'error', text: verdict(results, targetTick, firstOrderTick).message }] };
+  }
+  return { exit: 0, lines };
+}

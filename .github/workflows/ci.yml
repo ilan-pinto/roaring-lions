@@ -217,11 +217,40 @@ jobs:
       # one order script at the same ticks, and must report one
       # `__lions.sim.hash()` at tick 600 -- the first determinism reading that
       # is not V8. Its own dev server on :5183, apart from the gate's :5175 and
-      # the walk's :5177. Exit 1 is a disagreement; exit 2 is an engine that
-      # could not boot the battlefield at all (it names the engine and why --
-      # a missing WebGL2 context is said in those words).
+      # the walk's :5177.
+      #
+      # Exit codes (Ruling R39, `tools/src/net/two-engine-verdict.ts`'s
+      # `decide`): 1 the engines that booted disagree, missed the tick or
+      # booted incomparable forces -- a hard failure; 2 an engine started and
+      # then broke (boot card, timeout, lost context) or the tool failed --
+      # a failure, engine named; 3 an engine could not LAUNCH or create WebGL2
+      # on this runner -- an environment finding, not a determinism one, so it
+      # passes here: the tool has already printed a `::warning::` per engine
+      # (and one saying no cross-engine reading was taken if fewer than two
+      # booted), and the engines that did boot were still compared, so a real
+      # disagreement among them is still exit 1. Without this an unbootable
+      # engine would redden `visual` and skip `version` on every push.
+      #
+      # Runs after a failed golden gate too (a red picture must not hide the
+      # cross-engine reading); not on cancel. The timeout is a hang guard: the
+      # tool's own per-engine guards should fire first, naming the engine.
       - name: three engines, one hash (network design §12)
-        run: pnpm net:engines -- --port=5183
+        if: ${{ success() || failure() }}
+        timeout-minutes: 15
+        run: |
+          set +e
+          pnpm net:engines -- --port=5183
+          code=$?
+          if [ "$code" = "3" ]; then
+            {
+              echo "### :warning: Three-engine check: an engine could not boot"
+              echo ""
+              echo "At least one engine could not launch or create WebGL2 on this runner."
+              echo "See the step's warnings for which; any engines that booted were compared."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          exit $code
       # I9 (final review). The branch's headline claim -- a battlefield can be
       # LEFT cleanly, in one JS realm, with no page reload -- is proved by
       # exactly one instrument, and until this it ran only when somebody
