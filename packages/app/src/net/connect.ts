@@ -24,14 +24,25 @@ export interface ConnectDeps {
 
 export interface Connected { transport: MatchTransport; seat: Seat | null; config: MatchConfig | null }
 
+/** Thrown for a URL that already carries `seat` (N0 final review M1). */
+export const RELOAD_REFUSED = 'a reload cannot rejoin a running room in N0; open a new room (?net=new)';
+
 const aborted = (): DOMException => new DOMException('left while connecting to the room', 'AbortError');
 
 export async function connectMatch(query: URLSearchParams, mapId: string, build: string, deps: ConnectDeps): Promise<Connected> {
   const net = query.get('net');
   if (net === null) return { transport: new LocalTransport(), seat: null, config: null };
+  // `?net=new` rewrites the URL to `?net=<code>&seat=0`, so `seat` on the URL
+  // means this page has been here before: a reload. A /join from it would
+  // take seat 1 of the host's OWN room, leave seat 0 empty in the lobby, and
+  // answer the real guest 409 -- a wedged room with a blank stage. N0 has no
+  // rejoin, so say so instead.
+  if (query.has('seat')) throw new Error(RELOAD_REFUSED);
   const callsign = query.get('callsign') ?? 'Lion';
   const creating = net === 'new';
-  const url = creating ? `${deps.origin}/api/match` : `${deps.origin}/api/match/${encodeURIComponent(net)}/join`;
+  // Room codes are upper case; a code typed or pasted in lower case is the same room.
+  const joinCode = net.toUpperCase();
+  const url = creating ? `${deps.origin}/api/match` : `${deps.origin}/api/match/${encodeURIComponent(joinCode)}/join`;
   const res = await deps.fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

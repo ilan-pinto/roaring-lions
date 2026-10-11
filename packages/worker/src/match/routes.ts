@@ -39,7 +39,9 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
   if (!secret || !rooms) return new Response('matches are not configured', { status: 503 });
   const m = new URL(req.url).pathname.match(/^\/api\/match(?:\/([^/]+)\/(join|ws))?$/);
   if (!m) return new Response('not found', { status: 404 });
-  const [, code, action] = m;
+  const [, rawCode, action] = m;
+  // Codes are minted upper case; a lower-case one typed into a URL is the same room.
+  const code = rawCode?.toUpperCase();
 
   if (code === undefined) {
     if (req.method !== 'POST') return new Response('method', { status: 405 });
