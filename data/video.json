@@ -1,0 +1,26 @@
+{
+  "$comment": "Provenance for every file under assets/video/, checked by pnpm validate:data (tools/validate_video.mjs): a file with no entry, an entry with no file, a field missing, a 'confirmed' claim with anything unrecorded, a file over 5 MiB or the directory over 15 MiB all fail the gate. `pnpm validate:data -- --commercial` also fails every entry that is not commercial 'confirmed', which is the check a sold build must pass. generator is { tool, model_id, plan } or 'unrecorded'; terms_read is the date the vendor's terms were read and saved (YYYY-MM-DD) or null; audio is 'none' (stripped), 'generated' or 'unrecorded'; record names the ASSET_PROVENANCE.md row and the take record (art/video/takes/<shot>/*.json, from pnpm video). Workflow: docs/cinematics/README.md.",
+  "version": 1,
+  "files": {
+    "video/tel_marum_2_briefing.mp4": {
+      "what": "Tel Marum II briefing cinematic, 10 s, 1280x720 h264 + AAC: a commander briefing three soldiers over a map, photoreal people",
+      "generator": "unrecorded",
+      "source": "unrecorded",
+      "license": "unrecorded",
+      "terms_read": null,
+      "audio": "unrecorded",
+      "commercial": "unconfirmed",
+      "record": "ASSET_PROVENANCE.md item 4; commit b0177497 ('the lead cut'); container encoder tag 'Google'. To be REPLACED by storyboard shot regen_tel_marum_2 (docs/cinematics/storyboard.md)"
+    },
+    "video/tel_marum_3_briefing.mp4": {
+      "what": "Tel Marum III briefing cinematic, 10 s, 1280x720 h264 + AAC: a helmeted commander speaking in desert hills, photoreal people",
+      "generator": "unrecorded",
+      "source": "unrecorded",
+      "license": "unrecorded",
+      "terms_read": null,
+      "audio": "unrecorded",
+      "commercial": "unconfirmed",
+      "record": "ASSET_PROVENANCE.md item 4; commit 22f97611; container encoder tag 'Google'. To be REPLACED by storyboard shot regen_tel_marum_3 (docs/cinematics/storyboard.md)"
+    }
+  }
+}
