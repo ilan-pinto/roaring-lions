@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ServerMsg, Seat } from '@lions/net';
 import type { Env } from '../d1';
-import { FakeState, openSocket, type FakeSocket } from './fake-do';
+import { FakeState, deliverClose, openSocket, type FakeSocket } from './fake-do';
 import { MatchRoom, TICK_MS } from './match-room';
 import type { RoomState } from './room-core';
 import { signTicket } from './ticket';
@@ -135,14 +135,46 @@ describe('MatchRoom', () => {
     expect(log.frames.map((f) => f.tick)).toEqual([0, 1]);
     expect(log.config.map).toBe('tel_marum');
     // The runtime delivers the replaced socket's close AFTER the new one is live.
-    await room.webSocketClose(ws0.asSocket());
+    await deliverClose(room, ws0, 4000, 'replaced');
     expect((await persisted(state)).seats[0]?.connected).toBe(true);
     expect(ofType(ws1, 'stall')).toEqual([]);
     // The live socket's own close does mark the seat gone.
-    again.close(1001, 'tab closed');
-    await room.webSocketClose(again.asSocket());
+    await deliverClose(room, again, 1001, 'tab closed');
     expect((await persisted(state)).seats[0]?.connected).toBe(false);
     expect(ofType(ws1, 'stall')).toEqual([{ t: 'stall', reason: 'gone', seat: 0 }]);
+  });
+
+  it('a replaced socket still CLOSING neither counts as the seat nor receives its broadcasts', async () => {
+    const { state, room, ws0, ws1 } = await running();
+    const again = await hello(room, 0);
+    expect(ws0.closed?.code).toBe(4000);   // closed by the room, its close event not yet delivered
+    await vi.advanceTimersByTimeAsync(TICK_MS);
+    expect(ofType(again, 'frame')).toHaveLength(1);
+    expect(ws0.sendsAfterClose).toBe(0);
+    // The replacement goes away while the old socket is still in getWebSockets().
+    await deliverClose(room, again, 1001, 'tab closed');
+    expect((await persisted(state)).seats[0]?.connected).toBe(false);
+    expect(ofType(ws1, 'stall')).toEqual([{ t: 'stall', reason: 'gone', seat: 0 }]);
+    // ...and the old socket's late close changes nothing.
+    await deliverClose(room, ws0, 4000, 'replaced');
+    expect(ofType(ws1, 'stall')).toHaveLength(1);
+  });
+
+  it('/create refuses an empty build, so the hello build check can never be off', async () => {
+    const room = new MatchRoom(new FakeState(), env);
+    const res = await room.fetch(new Request('https://room/create', { method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE }) }));
+    expect(res.status).toBe(400);
+    expect((await room.fetch(new Request('https://room/state'))).status).toBe(404);
+  });
+
+  it('a room whose meta was never written refuses every hello on build, even an empty one', async () => {
+    const { state } = await created();
+    state.storage.kv.delete('meta');
+    const revived = new MatchRoom(state, env);
+    for (const build of [BUILD, '']) {
+      const ws = await hello(revived, 0, undefined, build);
+      expect(msgs(ws)).toEqual([{ t: 'error', code: 'build_mismatch' }]);
+    }
   });
 
   it('/join reserves seat 1 in storage: a second join is refused before any hello', async () => {
@@ -176,9 +208,7 @@ describe('MatchRoom', () => {
     ['fetch /state', (room) => room.fetch(new Request('https://room/state'))],
     ['a malformed message (an early return)', (room, ws0) => say(room, ws0, 'nope')],
     ['the close of a seatless socket (an early return)', async (room) => {
-      const stray = openSocket(room);
-      stray.close(1000, 'bye');
-      await room.webSocketClose(stray.asSocket());
+      await deliverClose(room, openSocket(room));
     }],
   ];
   it.each(wakers)('after an eviction, %s restarts the clock from the persisted tick', async (_name, wake) => {
