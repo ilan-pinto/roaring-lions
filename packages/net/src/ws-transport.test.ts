@@ -1,5 +1,5 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
-import { WsTransport, RECONNECT_DELAY_MS, type SocketLike } from './ws-transport';
+import { WsTransport, RECONNECT_DELAY_MS, REPLACED_CLOSE_CODE, type SocketLike } from './ws-transport';
 import type { MatchConfig } from './config';
 
 const CONFIG: MatchConfig = {
@@ -11,7 +11,7 @@ const CONFIG: MatchConfig = {
   pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0,
 };
 
-type Fake = SocketLike & { sent: string[]; open(): void; recv(msg: unknown): void; closeFromServer(): void; opened: number };
+type Fake = SocketLike & { sent: string[]; open(): void; recv(msg: unknown): void; closeFromServer(code?: number): void; opened: number };
 
 function fakeSocket(): Fake {
   const s: Fake = {
@@ -20,7 +20,7 @@ function fakeSocket(): Fake {
     close: () => { s.onclose?.({}); },
     open: () => { s.opened++; s.onopen?.({}); },
     recv: (msg) => { s.onmessage?.({ data: JSON.stringify(msg) }); },
-    closeFromServer: () => { s.onclose?.({}); },
+    closeFromServer: (code) => { s.onclose?.(code === undefined ? {} : { code }); },
   };
   return s;
 }
@@ -131,6 +131,51 @@ describe('WsTransport', () => {
     vi.runAllTimers();
     expect(opens).toBe(2);
     expect(t.status()).toEqual({ kind: 'live', behind: 0 });
+  });
+  it('runs the frames it holds while stalled, and stays stalled until the room resumes (R31)', () => {
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} });
+    sock.open();
+    sock.recv({ t: 'start', config: CONFIG });
+    for (let tick = 0; tick < 6; tick++) sock.recv({ t: 'frame', tick, cmds: [] });
+    sock.recv({ t: 'stall', reason: 'behind', seat: 0 });
+    expect(t.take(10).map((f) => f.tick)).toEqual([0, 1, 2, 3]);
+    expect(t.status()).toEqual({ kind: 'stalled', reason: 'behind', seat: 0 });
+    sock.recv({ t: 'resume' });
+    expect(t.status()).toEqual({ kind: 'live', behind: 2 });
+  });
+  it('after a desync or an end, nothing the room sends revives it', () => {
+    for (const final of [{ t: 'desync', tick: 20, hashes: [1, 2] }, { t: 'ended', reason: 'left' }]) {
+      const sock = fakeSocket();
+      const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} });
+      sock.open();
+      sock.recv({ t: 'start', config: CONFIG });
+      for (let tick = 0; tick < 3; tick++) sock.recv({ t: 'frame', tick, cmds: [] });
+      sock.recv(final);
+      const before = t.status();
+      sock.recv({ t: 'stall', reason: 'gone', seat: 1 });
+      sock.recv({ t: 'resume' });
+      sock.recv({ t: 'frame', tick: 3, cmds: [] });
+      sock.recv({ t: 'log', config: CONFIG, frames: [] });
+      expect(t.status()).toEqual(before);
+      expect(t.take(10)).toEqual([]);
+    }
+  });
+  it('a socket closed as replaced does not reconnect: two tabs on one ticket must not take turns', () => {
+    vi.useFakeTimers();
+    const sock = fakeSocket();
+    let opens = 0;
+    const t = new WsTransport(() => { opens++; return sock; }, 'tkt', 'b', { onStart: () => {} });
+    sock.open();
+    sock.recv({ t: 'start', config: CONFIG });
+    sock.closeFromServer(REPLACED_CLOSE_CODE);
+    expect(t.status()).toEqual({ kind: 'closed', reason: 'replaced' });
+    vi.runAllTimers();
+    expect(opens).toBe(1);
+  });
+  it('a browser WebSocket is a SocketLike (checked by tsc, never opened)', () => {
+    const make: () => SocketLike = () => new WebSocket('ws://never.invalid');
+    expect(typeof make).toBe('function');
   });
   it('close() says bye, and the closing socket does not reconnect', () => {
     vi.useFakeTimers();
