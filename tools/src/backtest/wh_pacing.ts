@@ -528,7 +528,7 @@ console.log(`wh_pacing: seeds 1..${seedsN}${BASE ? `, missions from ${BASE}` : '
 const chains = Array.from({ length: seedsN }, (_, k) => chainLedgers(k + 1));
 const TIERS: Tier[] = ['passive', 'naive', 'sensible', 'optimal'];
 console.log(
-  'mission                    tier      win  @cap  min(won) max  lost  roe  cred  dead%  holdDead/len  1st  longest  fights  fLen  fGap  minHP%  ord/min'
+  'mission                    tier      win  @cap  min(won)  max  lost  roe  cred  dead%  holdDead/len  1st  longest  fights  fLen  fGap  minHP%  ord/min'
 );
 for (const id of MEASURE) {
   for (const tier of TIERS) {
@@ -545,7 +545,7 @@ for (const id of MEASURE) {
       })
       .join(', ');
     console.log(
-      `${id.padEnd(26)} ${tier.padEnd(8)} ${String(won.length).padStart(2)}/${seedsN} ${String(rs.filter((r) => r.result === 'ongoing').length).padStart(2)}  ${fmt(avg((r) => r.mins, won), 1).padStart(6)} ${fmt(won.length ? Math.max(...won.map((r) => r.mins)) : NaN, 1).padStart(4)}  ` +
+      `${id.padEnd(26)} ${tier.padEnd(8)} ${String(won.length).padStart(2)}/${seedsN} ${String(rs.filter((r) => r.result === 'ongoing').length).padStart(2)}  ${fmt(avg((r) => r.mins, won), 2).padStart(6)} ${fmt(won.length ? Math.max(...won.map((r) => r.mins)) : NaN, 2).padStart(5)}  ` +
         `${fmt(avg((r) => r.lost), 1).padStart(5)}  ${fmt(avg((r) => r.roe)).padStart(3)}  ${fmt(avg((r) => r.credits)).padStart(4)}  ` +
         `${fmt(avg((r) => r.deadPct)).padStart(4)}%  ${(fmt(avg((r) => r.holdDead, held)) + '/' + fmt(avg((r) => r.holdLen, held))).padStart(11)}  ` +
         `${fmt(avg((r) => r.opening)).padStart(4)}  ${fmt(avg((r) => r.longestDead)).padStart(7)}  ${fmt(avg((r) => r.fights), 1).padStart(6)}  ` +

@@ -4,11 +4,11 @@
   "town": "wadi_halam",
   "phase": "buildup",
   "target_minutes": 6,
-  "briefing": "The pasture is ours; now we raid back. Intel puts the local commander at the north hide — Jubran Hallaq's man on this ground, riding a technical he will not hesitate to run in if he has to. A second position dug in to the south covers the cattle track. Kill the commander, get eyes on the southern hide, and hold the bunds for five minutes. The moment the commander goes down, what is left of the local cell will come back at the bunds twice more to retake them. Catching the commander himself is a mobility problem, not a firepower one.",
+  "briefing": "The pasture is ours; now we raid back. Intel puts the local commander at the north hide — Jubran Hallaq's man on this ground, riding a technical he will not hesitate to run in if he has to. A second position dug in to the south covers the cattle track. Kill the commander, get eyes on the southern hide, and hold the bunds for five minutes. What is left of the local cell will not wait for him to fall — they come back at the bunds a truck or two at a time, every half minute or so, for as long as you sit on them. Catching the commander himself is a mobility problem, not a firepower one.",
   "briefing_sections": [
     {"id": "situation", "text": "The pasture is ours; now we raid back. Intel puts the local commander at the north hide — Jubran Hallaq's man on this ground, riding a technical he will not hesitate to run in if he has to. A second position dug in to the south covers the cattle track."},
     {"id": "mission", "text": "Kill the commander, get eyes on the southern hide, and hold the bunds for five minutes."},
-    {"id": "notes", "text": "The moment the commander goes down, what is left of the local cell will come back at the bunds twice more to retake them. Catching the commander himself is a mobility problem, not a firepower one."}
+    {"id": "notes", "text": "What is left of the local cell will not wait for him to fall — they come back at the bunds a truck or two at a time, every half minute or so, for as long as you sit on them. Catching the commander himself is a mobility problem, not a firepower one."}
   ],
   "briefing_image": "ui/plates/units/scout_shachaf.jpg",
   "debrief": {
@@ -109,7 +109,7 @@
       "target": "pasture",
       "seconds": 300,
       "text": "Hold the bunds for five minutes while the counter-raid comes in",
-      "say": { "speaker": "net", "text": "Bunds held. Both counter-raids are off the pasture." }
+      "say": { "speaker": "net", "text": "Bunds held. Nothing that came back for them is still on the pasture." }
     },
     {
       "id": "mark_hides",
@@ -237,61 +237,29 @@
     ],
     "waves": [
       {
-        "at_seconds": 50,
+        "at_seconds": 45,
         "to": "pump_house",
         "units": [
           {
             "unit": "technical",
             "count": 1,
             "from": "rif_east"
-          },
+          }
+        ]
+      },
+      {
+        "at_seconds": 130,
+        "to": "pump_house",
+        "units": [
           {
             "unit": "moto_rpg",
             "count": 1,
-            "from": "rif_east"
-          }
-        ]
-      },
-      {
-        "at_seconds": 80,
-        "to": "pump_house",
-        "units": [
-          {
-            "unit": "technical",
-            "count": 2,
-            "from": "rif_east"
-          }
-        ]
-      },
-      {
-        "at_seconds": 110,
-        "to": "pump_house",
-        "units": [
-          {
-            "unit": "moto_rpg",
-            "count": 2,
             "from": "rif_south"
           }
         ]
       },
       {
-        "at_seconds": 140,
-        "to": "pump_house",
-        "units": [
-          {
-            "unit": "rpg_team",
-            "count": 1,
-            "from": "hide_south"
-          },
-          {
-            "unit": "militia_cell",
-            "count": 1,
-            "from": "hide_south"
-          }
-        ]
-      },
-      {
-        "at_seconds": 175,
+        "at_seconds": 170,
         "to": "pump_house",
         "units": [
           {
@@ -305,7 +273,7 @@
             "from": "rif_south"
           }
         ],
-        "say": { "speaker": "idit", "text": "Second counter-raid, and it is going for the pump house rather than for you. They want the pasture back more than they want the fight." }
+        "say": { "speaker": "idit", "text": "The heaviest party yet, and it is going for the pump house rather than for you. They want the pasture back more than they want the fight." }
       },
       {
         "at_seconds": 205,
@@ -315,16 +283,11 @@
             "unit": "technical",
             "count": 1,
             "from": "rif_east"
-          },
-          {
-            "unit": "moto_rpg",
-            "count": 1,
-            "from": "rif_east"
           }
         ]
       },
       {
-        "at_seconds": 235,
+        "at_seconds": 240,
         "to": "pump_house",
         "units": [
           {
@@ -335,45 +298,24 @@
         ]
       },
       {
-        "at_seconds": 265,
+        "at_seconds": 275,
         "to": "pump_house",
         "units": [
           {
             "unit": "technical",
             "count": 1,
             "from": "rif_east"
-          },
-          {
-            "unit": "moto_rpg",
-            "count": 1,
-            "from": "rif_east"
           }
         ]
       },
       {
-        "at_seconds": 295,
-        "to": "pump_house",
-        "units": [
-          {
-            "unit": "technical",
-            "count": 1,
-            "from": "rif_south"
-          },
-          {
-            "unit": "moto_rpg",
-            "count": 1,
-            "from": "rif_south"
-          }
-        ]
-      },
-      {
-        "at_seconds": 325,
+        "at_seconds": 305,
         "to": "pump_house",
         "units": [
           {
             "unit": "moto_rpg",
-            "count": 2,
-            "from": "rif_east"
+            "count": 1,
+            "from": "rif_south"
           }
         ]
       }

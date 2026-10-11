@@ -3196,10 +3196,11 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // 94 -> 96), its six warehouse tiles on row 15 now sheds and pump houses (ROE penalty 2, not
 // 3). Khan Rafid II and Umm Zeitoun IV read the same. No star moved.
 // 2026-10-11, Wadi Halam pacing (GH-90, GH-93; docs/campaign/wadi_halam/pacing-2026-10.md):
-// 5870 -> 5820, -50, every term on the Wadi Halam chain and nothing else: II 180 -> 170, III
-// 170 -> 150, V 200 -> 180 (I and IV read 160 and 170 as before). The holds are contested every
-// 30-45 s now, so the force brings fewer units home; ROE stays 100/100/70/100 and no star moved.
-const LADDER_CREDITS = 5820;
+// 5870 -> 5850, -20, every term on the Wadi Halam chain and nothing else: II 180 -> 170, III
+// 170 -> 180, V 200 -> 180 (I and IV read 160 and 170 as before). II and V are contested every
+// 25-45 s now and bring fewer units home; III's thinner echelons (the lead's ruling: mean clock
+// <= 6.0 min) cost it less than its two old waves did. ROE stays 100/100/100/70/100; no star moved.
+const LADDER_CREDITS = 5850;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);

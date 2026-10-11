@@ -249,7 +249,7 @@
             "from": "rif_south"
           }
         ],
-        "say": { "speaker": "idit", "text": "Motorcycles off the southern track. Ninety seconds of quiet and then something every fifteen — that is the cadence, and it does not change." }
+        "say": { "speaker": "idit", "text": "Motorcycles off the southern track. Ninety seconds of quiet, then a rider or two every half minute or so — that is the cadence, and it does not change." }
       },
       {
         "at_seconds": 135,

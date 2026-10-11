@@ -130,7 +130,7 @@
       "primary": true,
       "target": "depot",
       "seconds": 240,
-      "text": "Hold the depot for four minutes once it is down",
+      "text": "Hold the depot yard for four minutes",
       "say": { "speaker": "net", "text": "Depot ground held, four minutes. Nothing came back onto it." }
     },
     {

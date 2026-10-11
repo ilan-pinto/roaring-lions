@@ -284,7 +284,7 @@ not a flourish.
 | trigger `bank_reacts` → `the bank patrol turns for the ford` | `toast` | system | `enemy reacts (the bank patrol turns for the ford)` | id renamed for prose (§9); `zone_entered(ford_watch)` → `commit bank` | live |
 | same trigger | `radio` | **Idit** | "Both bank patrols have turned for the north ford. They did not wait to be told and they will not stay to be fought." | `triggers[].say`; the first time the player sees Rif mobility used as a *decision* | live |
 | wave t=90 s (2 `moto_rpg` from `rif_south` → `ford_south`) | `toast` | system | `enemy reinforcements — 2 unit(s) inbound` | hard-coded string | live |
-| wave t=90 s | `radio` | Idit | "Motorcycles off the southern track. Ninety seconds of quiet and then something every fifteen — that is the cadence, and it does not change." | **applied** (G12) | live |
+| wave t=90 s | `radio` | Idit | "Motorcycles off the southern track. Ninety seconds of quiet, then a rider or two every half minute or so — that is the cadence, and it does not change." | **applied** (G12) | live |
 | wave t=210 s (2 `moto_rpg` from `rif_east` → `ford_north`) | `toast` | system | `enemy reinforcements — 2 unit(s) inbound` | hard-coded | live |
 | wave t=225 s (1 `technical` + 1 `moto_rpg` from `rif_south` → `ford_south`) | `toast` | system | `enemy reinforcements — 2 unit(s) inbound` | hard-coded | live |
 | wave t=225 s | `radio` | Idit | "Both fords at once now. They are not trying to hold the crossing — they are pricing the four minutes you agreed to sit on it." | **applied** (G12) | live |
@@ -410,7 +410,7 @@ else … is the best sentence in the town and stays verbatim."*
 |---|---|---|---|
 | 1 | **Shai** → **Idit** | The pasture is ours; now we raid back. Intel puts the local commander at the north hide — **Jubran Hallaq's man on this ground**, riding a technical he will not hesitate to run in if he has to. | 189 |
 | 2 | **Idit** → **Shai** | A second position dug in to the south covers the cattle track. Kill the commander, get eyes on the southern hide, and hold the bunds for five minutes. | 150 |
-| 3 | **Shai** | The moment the commander goes down, what is left of the local cell will come back at the bunds twice more to retake them. Catching the commander himself is a mobility problem, not a firepower one. | 196 |
+| 3 | **Shai** | What is left of the local cell will not wait for him to fall — they come back at the bunds a truck or two at a time, every half minute or so, for as long as you sit on them. Catching the commander himself is a mobility problem, not a firepower one. | 196 |
 
 **Change 1 — the clause.** *"— Jubran Hallaq's man on this ground,"* is inserted
 into the shipped sentence. It is the campaign's **first live naming of the
@@ -475,7 +475,7 @@ on: Act I has no build-up at all and Act III's is a raid.
 | `objective(kill_amir, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Kill or capture Hallaq's local commander` | **applied this pass** | live |
 | `objective(kill_amir, complete)` | `radio` | **Idit** | "That is Hallaq's man on this ground. He does not know where the rockets went; he knows which nights the fords were clear, and that is what puts us at the depot." | `objectives[].say`; what a lieutenant is *worth*, which is the only reason the act keeps going east | live |
 | `objective(hold_bunds, complete)` @300 s | `toast` | system | `OBJECTIVE COMPLETE — Hold the bunds for five minutes while the counter-raid comes in` | shipped | live |
-| `objective(hold_bunds, complete)` | `radio` | **net** | "Bunds held. Both counter-raids are off the pasture." | `objectives[].say` | live |
+| `objective(hold_bunds, complete)` | `radio` | **net** | "Bunds held. Nothing that came back for them is still on the pasture." | `objectives[].say` | live |
 | `objective(mark_hides, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Get eyes on the southern hide` | shipped | live |
 | `objective(mark_hides, complete)` | `radio` | **Idit** | "That is the hide, and I am not asking for a second one. What is left in those bunds we can read off the ground afterwards; the herd on the track cannot wait for me to be sure." | `objectives[].say`; **Idit declining to ask — the act's one statement of it, and it is never repeated** | live |
 | **[C]** `objective(get_the_herders_out, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Get three herders off the cattle track to the refuge` | **[C]** | live |
@@ -487,7 +487,7 @@ on: Act I has no build-up at all and Act III's is a raid.
 | same trigger | `radio` | **Shai** | "He is running for the east track and he will not stop. Take him if the shot is there — do not take the bunds off the map to chase him." | `triggers[].say`; the scripted withdrawal turned into characterisation, and it is *"Do not chase what runs"* charged for the second time | live |
 | wave t=90 s (2 `technical` from `rif_east` → `pump_house`) | `toast` | system | `enemy reinforcements — 2 unit(s) inbound` | hard-coded | live |
 | wave t=200 s (2 `moto_rpg` + 1 `technical` from `rif_south` → `pump_house`) | `toast` | system | `enemy reinforcements — 3 unit(s) inbound` | hard-coded | live |
-| wave t=200 s | `radio` | Idit | "Second counter-raid, and it is going for the pump house rather than for you. They want the pasture back more than they want the fight." | **applied** (G12) | live |
+| wave t=170 s | `radio` | Idit | "The heaviest party yet, and it is going for the pump house rather than for you. They want the pasture back more than they want the fight." | **applied** (G12) | live |
 | `SimEvent contact` on `wh_hide_south` when it was **not** pre-marked | `radio` | Idit | "The southern hide was live. If the drone had been eight tiles further south last week, that would have been a map reference instead of an ambush." | needs a sim-watching trigger (§10 G-E); it is the act's carry-over said aloud | engine |
 | `missionEnd(victory)` | `toast` | system | `MISSION ACCOMPLISHED — ROE n, k units survive` | hard-coded | live |
 | `missionEnd(any)` | `debrief` | narrator | §3.4 | | live |
@@ -673,7 +673,7 @@ reveal is `kill_gate_rpg.say`'s (§5.4).
 |---|---|---|---|
 | `raze_depot` | Raze the depot inside five minutes | `OBJECTIVE COMPLETE — Raze the depot inside five minutes` | live |
 | `kill_gate_rpg` | Kill or capture whoever is holding the gate | `OBJECTIVE COMPLETE — Kill or capture whoever is holding the gate` | live |
-| `hold_depot` | Hold the depot for four minutes once it is down | `OBJECTIVE COMPLETE — Hold the depot for four minutes once it is down` | live |
+| `hold_depot` | Hold the depot yard for four minutes | `OBJECTIVE COMPLETE — Hold the depot yard for four minutes` | live |
 | `no_bleed` | Stay in the field for the first five minutes | `OBJECTIVE COMPLETE — Stay in the field for the first five minutes` | live |
 
 `kill_gate_rpg` is **kept verbatim** on the design's instruction and on its own
@@ -830,7 +830,7 @@ labelled ENEMY (§10 G-F). Cheapest unrealised story surface in the tree.
 | `objective(raze_depot, failed)` @300 s | `radio` | **Shai** | "Five minutes, and the depot is standing. Whatever we brought to bring it down is not going to bring it down now." | `objectives[].say_on_fail`; states the real failure — a dead D9 and a dead `demo_squad` make the primary impossible | live |
 | `objective(kill_gate_rpg, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Kill or capture whoever is holding the gate` | shipped, verbatim | live |
 | `objective(kill_gate_rpg, complete)` | `radio` | **Shai** | §5.4 — "That is Jubran Hallaq, in his own gateway. Everything that ever came up this road came up it for him, and he would not walk twenty tiles east to leave it." | `objectives[].say`; **the villain's end, said flatly** | live |
-| `objective(hold_depot, complete)` @240 s | `toast` | system | `OBJECTIVE COMPLETE — Hold the depot for four minutes once it is down` | shipped | live |
+| `objective(hold_depot, complete)` @240 s | `toast` | system | `OBJECTIVE COMPLETE — Hold the depot yard for four minutes` | shipped | live |
 | `objective(hold_depot, complete)` | `radio` | **net** | "Depot ground held, four minutes. Nothing came back onto it." | `objectives[].say` | live |
 | `objective(no_bleed, complete)` @300 s | `toast` | system | `OBJECTIVE COMPLETE — Stay in the field for the first five minutes` | shipped | live |
 | `no_bleed` gets no `say` | — | — | **deliberate.** A `survive_until` cannot fail, and a fourth voice line in the busiest mission in the act is chatter | authorial silence | live |
