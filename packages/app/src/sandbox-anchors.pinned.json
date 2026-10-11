@@ -1,0 +1,332 @@
+{
+  "beit_sahwan_outskirts": {
+    "friendly": [
+      4,
+      23
+    ],
+    "hostile": [
+      31,
+      22
+    ]
+  },
+  "beit_sahwan_2": {
+    "friendly": [
+      4,
+      23
+    ],
+    "hostile": [
+      38,
+      22
+    ]
+  },
+  "beit_sahwan_3": {
+    "friendly": [
+      4,
+      23
+    ],
+    "hostile": [
+      28,
+      21
+    ]
+  },
+  "beit_sahwan_4": {
+    "friendly": [
+      28,
+      22
+    ],
+    "hostile": [
+      44,
+      24
+    ]
+  },
+  "khan_rafid": {
+    "friendly": [
+      24,
+      45
+    ],
+    "hostile": [
+      45,
+      25
+    ]
+  },
+  "khan_rafid_2": {
+    "friendly": [
+      24,
+      45
+    ],
+    "hostile": [
+      24,
+      14
+    ]
+  },
+  "khan_rafid_3": {
+    "friendly": [
+      24,
+      45
+    ],
+    "hostile": [
+      46,
+      26
+    ]
+  },
+  "deir_amun": {
+    "friendly": [
+      24,
+      44
+    ],
+    "hostile": [
+      37,
+      17
+    ]
+  },
+  "deir_amun_2": {
+    "friendly": [
+      24,
+      44
+    ],
+    "hostile": [
+      28,
+      16
+    ]
+  },
+  "deir_amun_3": {
+    "friendly": [
+      24,
+      4
+    ],
+    "hostile": [
+      43,
+      26
+    ]
+  },
+  "marj_perimeter": {
+    "friendly": [
+      24,
+      23
+    ],
+    "hostile": [
+      4,
+      43
+    ]
+  },
+  "qarn_hadid": {
+    "friendly": [
+      24,
+      39
+    ],
+    "hostile": [
+      24,
+      12
+    ]
+  },
+  "qarn_hadid_2": {
+    "friendly": [
+      24,
+      42
+    ],
+    "hostile": [
+      14,
+      15
+    ]
+  },
+  "qarn_hadid_3": {
+    "friendly": [
+      24,
+      41
+    ],
+    "hostile": [
+      9,
+      15
+    ]
+  },
+  "tel_marum": {
+    "friendly": [
+      24,
+      44
+    ],
+    "hostile": [
+      28,
+      16
+    ]
+  },
+  "tel_marum_1": {
+    "friendly": [
+      24,
+      44
+    ],
+    "hostile": [
+      33,
+      15
+    ]
+  },
+  "tel_marum_2": {
+    "friendly": [
+      24,
+      44
+    ],
+    "hostile": [
+      35,
+      19
+    ]
+  },
+  "tel_marum_3": {
+    "friendly": [
+      24,
+      44
+    ],
+    "hostile": [
+      33,
+      16
+    ]
+  },
+  "tile_green": {
+    "friendly": [
+      8,
+      24
+    ],
+    "hostile": [
+      34,
+      24
+    ]
+  },
+  "tile_knoll": {
+    "friendly": [
+      6,
+      24
+    ],
+    "hostile": [
+      36,
+      24
+    ]
+  },
+  "tile_orchard": {
+    "friendly": [
+      6,
+      24
+    ],
+    "hostile": [
+      34,
+      26
+    ]
+  },
+  "tile_road": {
+    "friendly": [
+      8,
+      24
+    ],
+    "hostile": [
+      34,
+      25
+    ]
+  },
+  "tile_scrub": {
+    "friendly": [
+      6,
+      24
+    ],
+    "hostile": [
+      34,
+      24
+    ]
+  },
+  "tutorial_ground": {
+    "friendly": [
+      11,
+      24
+    ],
+    "hostile": [
+      36,
+      30
+    ]
+  },
+  "umm_zeitoun": {
+    "friendly": [
+      24,
+      45
+    ],
+    "hostile": [
+      12,
+      17
+    ]
+  },
+  "umm_zeitoun_2": {
+    "friendly": [
+      24,
+      45
+    ],
+    "hostile": [
+      27,
+      19
+    ]
+  },
+  "umm_zeitoun_3": {
+    "friendly": [
+      24,
+      45
+    ],
+    "hostile": [
+      12,
+      17
+    ]
+  },
+  "umm_zeitoun_4": {
+    "friendly": [
+      24,
+      45
+    ],
+    "hostile": [
+      15,
+      21
+    ]
+  },
+  "wadi_halam_basin": {
+    "friendly": [
+      3,
+      24
+    ],
+    "hostile": [
+      34,
+      24
+    ]
+  },
+  "wadi_halam_2": {
+    "friendly": [
+      3,
+      24
+    ],
+    "hostile": [
+      30,
+      8
+    ]
+  },
+  "wadi_halam_3": {
+    "friendly": [
+      3,
+      24
+    ],
+    "hostile": [
+      25,
+      4
+    ]
+  },
+  "wadi_halam_4": {
+    "friendly": [
+      9,
+      21
+    ],
+    "hostile": [
+      24,
+      44
+    ]
+  },
+  "wadi_halam_5": {
+    "friendly": [
+      7,
+      41
+    ],
+    "hostile": [
+      40,
+      44
+    ]
+  }
+}

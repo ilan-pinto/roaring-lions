@@ -4,6 +4,7 @@
 // names that match nothing. A sandbox that throws on an unmarked map is worse
 // than one that guesses, because the whole point is to walk a map the moment
 // it exists.
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { maps } from '@lions/data';
 import { sandboxAnchors } from './sandbox-anchors';
@@ -140,5 +141,23 @@ describe('against the maps that actually ship', () => {
     const a = sandboxAnchors(maps.tel_marum);
     expect(a.friendly).toEqual([24, 44]);
     expect(a.hostile[1]).toBeLessThan(a.friendly[1]);
+  });
+});
+
+describe('sandboxAnchors is engine-independent', () => {
+  it('picks the same anchors on every shipped map as the Math.hypot rule did', () => {
+    // Pinned from the Math.hypot implementation on 2026-10-11; regenerate ONLY
+    // by running the old code, never by copying the new output.
+    const pinned: Record<string, { friendly: number[]; hostile: number[] }> = JSON.parse(
+      readFileSync(new URL('./sandbox-anchors.pinned.json', import.meta.url), 'utf8')
+    );
+    expect(Object.keys(pinned).sort()).toEqual(Object.keys(maps).sort());
+    for (const [id, map] of Object.entries(maps)) {
+      expect(sandboxAnchors(map as Parameters<typeof sandboxAnchors>[0]), id).toEqual(pinned[id]);
+    }
+  });
+  it('uses no Math.hypot', () => {
+    const src = readFileSync(new URL('./sandbox-anchors.ts', import.meta.url), 'utf8');
+    expect(src).not.toMatch(/Math\.hypot/);
   });
 });

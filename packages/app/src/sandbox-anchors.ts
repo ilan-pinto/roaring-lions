@@ -53,7 +53,10 @@ const NEVER_HOSTILE = /civ|refuge|clinic/i;
  */
 const CONTACT_FRACTION = 0.6;
 
-const dist = (a: Point, b: Point): number => Math.hypot(a[0] - b[0], a[1] - b[1]);
+// The square root is IEEE-exact on every engine; the engines' built-in
+// two-argument length function is not, and this pick moves every sandbox
+// spawn, the tunnel, the ditch and the refuge.
+const dist = (a: Point, b: Point): number => Math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2);
 
 export function sandboxAnchors(map: {
   width: number;

@@ -198,6 +198,7 @@ import {
   type PlaceNames,
 } from './ui/conduct-invoice';
 import { sandboxAnchors, type SandboxAnchors } from './sandbox-anchors';
+import { hostileFacing } from './sandbox-facing';
 import {
   sandboxDitchRows,
   sandboxFlaggedZones,
@@ -424,11 +425,9 @@ function sandboxSpawns(
   const [hxA, hyA] = anchors.hostile;
   // Hostiles face the friendly anchor rather than a fixed compass direction:
   // "west" was right for one map and is meaningless on any other. A full turn
-  // is 1.0 in this fixed-point angle (WEST, a half turn, is 32768), so the
-  // radians are converted to turns and normalised into [0, 1) before the
-  // conversion rather than relying on a negative angle wrapping.
-  const turns = Math.atan2(fyA - hyA, fxA - hxA) / (Math.PI * 2);
-  const facing = fx.from(turns - Math.floor(turns));
+  // is 1.0 in this fixed-point angle (WEST, a half turn, is 32768); the sim's
+  // LUT atan2 returns it already normalised into [0, 1), engine-independent.
+  const facing = hostileFacing(fxA, fyA, hxA, hyA);
 
   const force: SandboxForce = { player: [], civilians: [] };
   for (const [id, dx, dy] of SANDBOX_KDF) force.player.push(spawn(id, 0, fxA + dx, fyA + dy));
