@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { connectMatch } from './connect';
+import { connectMatch, RELOAD_REFUSED } from './connect';
 
 const noSocket = () => { throw new Error('no socket expected'); };
 
@@ -121,5 +121,23 @@ describe('connectMatch', () => {
     await expect(p).rejects.toMatchObject({ name: 'AbortError' });
     expect(sock.sent.map((s) => (JSON.parse(s) as { t: string }).t)).toEqual(['hello', 'bye']);
     expect(sock.closed).toBeGreaterThan(0);
+  });
+  it('a URL that already carries seat (a reload after ?net=new) is refused before any request (M1)', async () => {
+    for (const q of ['net=ABCDEF&seat=0', 'net=new&seat=0', 'net=ABCDEF&seat=1&callsign=A']) {
+      const calls: string[] = [];
+      const fetchFake = (async (url: string) => { calls.push(url); return Response.json({ code: 'ABCDEF', seat: 1, ticket: 'tk' }); }) as unknown as typeof fetch;
+      await expect(connectMatch(new URLSearchParams(q), 'm', 'b', { fetch: fetchFake, origin: 'http://x', openSocket: noSocket, replaceUrl: () => {}, note: () => {} }))
+        .rejects.toThrow(RELOAD_REFUSED);
+      expect(calls).toEqual([]);
+    }
+  });
+  it('a lower-case code joins the upper-case room (M8)', async () => {
+    const calls: string[] = [];
+    const fetchFake = (async (url: string) => { calls.push(url); return Response.json({ code: 'ABCDEF', seat: 1, ticket: 'tk' }); }) as unknown as typeof fetch;
+    const opened: string[] = [];
+    void connectMatch(new URLSearchParams('net=abcdef'), 'm', 'b', { fetch: fetchFake, origin: 'http://x', openSocket: (u) => { opened.push(u); return fakeSocket(); }, replaceUrl: () => {}, note: () => {} });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls).toEqual(['http://x/api/match/ABCDEF/join']);
+    expect(opened).toEqual(['ws://x/api/match/ABCDEF/ws']);
   });
 });

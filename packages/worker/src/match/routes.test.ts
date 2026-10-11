@@ -87,6 +87,19 @@ describe('/api/match', () => {
     expect((await handleMatch(post(`${ORIGIN}/api/match`, { build: 'b1' }), env, NOW)).status).toBe(201);
     expect(createBodies[1]).toMatchObject({ build: 'b1', map: 'beit_sahwan_outskirts' });
   });
+  it('a lower-case code is the same room, on join and on the upgrade (M8)', async () => {
+    const { env } = fakeRooms();
+    const { code } = await (await handleMatch(post(`${ORIGIN}/api/match`, { callsign: 'Host', build: 'b1' }), env, NOW)).json() as { code: string };
+    const lower = code.toLowerCase();
+    expect(lower).not.toBe(code);
+    const join = await handleMatch(post(`${ORIGIN}/api/match/${lower}/join`, { callsign: 'Guest' }), env, NOW);
+    expect(join.status).toBe(200);
+    const joined = (await join.json()) as { code: string; ticket: string };
+    expect(joined.code).toBe(code);
+    expect(await verifyTicket('secret', joined.ticket, NOW)).toMatchObject({ matchId: code, seat: 1 });
+    const upgrade = new Request(`${ORIGIN}/api/match/${lower}/ws`, { headers: { origin: ORIGIN, upgrade: 'websocket' } });
+    expect((await handleMatch(upgrade, env, NOW)).status).toBe(200);   // the fake answers 404 for a room it does not hold
+  });
   it('rejects a malformed code before touching a room', async () => {
     const { env } = fakeRooms();
     expect((await handleMatch(post(`${ORIGIN}/api/match/abc/join`, { callsign: 'x' }), env, NOW)).status).toBe(400);
