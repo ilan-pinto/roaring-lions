@@ -37,7 +37,8 @@ export type Effect =
   | { kind: 'frame'; frame: Frame }
   | { kind: 'close'; seat: Seat };
 
-export const ACK_EVERY = 10;
+/** One source for the ack cadence: the client's (`WsTransport`). */
+export { ACK_EVERY } from '@lions/net';
 export const STALL_BEHIND_TICKS = 40;
 export const STALL_SILENT_MS = 2000;
 export const ROOM_TTL_MS = 6 * 3600 * 1000;
