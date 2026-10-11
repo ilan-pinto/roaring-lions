@@ -47,6 +47,10 @@
  *
  * Neither arms a timer. Every window is a clock read on the next call, so
  * `dispose` has nothing to clear (the lesson of PR 446, kept by a test).
+ * The one wait there is -- a death call held while blasts sound around it
+ * (the mixer's `BLAST_HOLD_ENERGY`) -- lives in the mixer, which owns the
+ * timer and clears it in its own `dispose`; here it only means the caption
+ * shows when the mixer says the line speaks, not when it was asked for.
  */
 import type { MissionEvent, SimEvent } from '@lions/sim';
 import {
@@ -89,8 +93,10 @@ export interface VoiceRuntimeDeps {
   look: DirectorLook;
   /** Faction -> language, the manifest's `voices.languages`. */
   languages: Readonly<Record<string, string>>;
-  /** Hand a cue to the mixer (`battleAudio().playVoice`). */
-  play(cue: VoiceCue): VoiceResult;
+  /** Hand a cue to the mixer (`battleAudio().playVoice`). A death call may
+   *  come back `held`, waiting out the blasts around it: `onResolved` then
+   *  says how it ended, and the caption waits for that. */
+  play(cue: VoiceCue, onResolved?: (r: VoiceResult) => void): VoiceResult;
   /** Show a line's meaning for `seconds`. `always` is set for an
    *  announcement: mission information captions whatever the captions
    *  setting says (polish pass F, A5), while a bark follows the setting. */
@@ -301,6 +307,7 @@ export class VoiceRuntime {
       return;
     }
     let status: VoiceStatus | null = null;
+    const entry: VoiceLogEntry = { at, source, trigger, key: cue?.key ?? null, why, status: null };
     if (cue && cue.trigger === 'announce') {
       // GH-110: caption always, from the cue's own i18n key -- the line's
       // wording is the house's, and the take (when one exists) only adds
@@ -315,21 +322,37 @@ export class VoiceRuntime {
         this.showCaption(at, cue, this.deps.text(cue.caption, cue.captionParams), seconds, r, true);
       } else if (r) this.afterCut(r, false);
     } else if (cue) {
-      const r = this.deps.play(cue);
+      const r = this.deps.play(cue, (done) => {
+        // A held death call has spoken (or been let go of): its log entry
+        // takes the final status, and its caption goes up now, in step with
+        // the voice -- unless the runtime is over by then.
+        entry.status = done.status;
+        if (this.disposed || this.ended) return;
+        this.afterPlay(this.deps.now(), cue, done);
+      });
       status = r.status;
-      if (r.status === 'missing' && !this.noted.has(cue.key)) {
-        this.noted.add(cue.key);
-        this.deps.info(`[voice] ${cue.key}: no decoded line (not recorded yet, or still decoding), so nothing plays`);
-      }
-      if (r.status === 'played' && r.en !== null) {
-        this.showCaption(at, cue, r.en, r.seconds, r, false);
-      } else if ((r.status === 'missing' || r.status === 'placeholder') && cue.caption !== undefined) {
-        // GH-262: the take doesn't exist yet, but the cue still names an
-        // i18n key -- caption from that instead of the mixer's own `en`.
-        this.showCaption(at, cue, this.deps.text(cue.caption), PINNED_CAPTION_S, r, false);
-      } else this.afterCut(r, false);
+      // A `held` answer captions nothing here (it carries no text and cut
+      // nothing); the caption waits for `onResolved` above.
+      this.afterPlay(at, cue, r);
     }
-    this.record({ at, source, trigger, key: cue?.key ?? null, why, status });
+    entry.status ??= status;
+    this.record(entry);
+  }
+
+  /** What a played (or not played) non-announcement line does to the screen:
+   *  note a missing key once, and caption what the mixer voiced. */
+  private afterPlay(at: number, cue: VoiceCue, r: VoiceResult): void {
+    if (r.status === 'missing' && !this.noted.has(cue.key)) {
+      this.noted.add(cue.key);
+      this.deps.info(`[voice] ${cue.key}: no decoded line (not recorded yet, or still decoding), so nothing plays`);
+    }
+    if (r.status === 'played' && r.en !== null) {
+      this.showCaption(at, cue, r.en, r.seconds, r, false);
+    } else if ((r.status === 'missing' || r.status === 'placeholder') && cue.caption !== undefined) {
+      // GH-262: the take doesn't exist yet, but the cue still names an
+      // i18n key -- caption from that instead of the mixer's own `en`.
+      this.showCaption(at, cue, this.deps.text(cue.caption), PINNED_CAPTION_S, r, false);
+    } else this.afterCut(r, false);
   }
 
   private record(entry: VoiceLogEntry): void {

@@ -391,9 +391,22 @@ async function renderScene(
           const seconds = typeof entry === 'string' ? (inner.sets.get(entry)?.buffers[0]?.duration ?? 0) : 0;
           marks[a.mark] = { status, at: t, seconds };
         } else {
-          const r = audio.playVoice({ key: a.key, priority: a.priority, ...(a.delayS !== undefined ? { delayS: a.delayS } : {}) });
-          const v = inner.activeVoices.find((x) => x.id === r.id);
-          marks[a.mark] = { status: r.status, at: t, seconds: r.seconds, lineAt: v?.squelch?.lineAt ?? v?.startedAt ?? t };
+          const markOf = (r: { status: string; seconds: number; id?: number }): Mark => {
+            const v = inner.activeVoices.find((x) => x.id === r.id);
+            return { status: r.status, at: t, seconds: r.seconds, lineAt: v?.squelch?.lineAt ?? v?.startedAt ?? ctx.currentTime };
+          };
+          // A death call among blasts comes back `held` and speaks later; its
+          // mark is rewritten when the mixer says it has (the app's own
+          // `onResolved` hook), so the report measures the line where it sounds.
+          const r = audio.playVoice({
+            key: a.key,
+            priority: a.priority,
+            ...(a.delayS !== undefined ? { delayS: a.delayS } : {}),
+            onResolved: (done) => {
+              marks[a.mark] = markOf(done);
+            },
+          });
+          marks[a.mark] = markOf(r);
         }
       };
       const stepTo = (t: number): void => {
@@ -707,12 +720,30 @@ async function main(): Promise<void> {
       sense: 'min',
       unit: '(1 = one call, n = 6)',
     });
-    // Reported, not gated: four of the six kills land inside the 1.1 s call,
-    // each the loudest clip in the library, and the plan's own rule is that a
-    // kill is allowed to peak ("explosions don't flatten", 2.2) -- no duck
-    // the plan would accept clears four of them by 6 LU. The burst's gate is
-    // the coalescing above; the death call's is d1's, below.
-    console.log(`  (reported, not gated) the call over four overlapping kills: ${fmt(dd.voice - dd.bed)} LU`);
+    // Gated since the death-call hold (2026-10-11). Four of the six kills land
+    // inside the 1.1 s call, each the loudest clip in the library, and no duck
+    // the plan would accept clears four of them by 6 LU (the call over them
+    // read 1.0 LU, reported): so the mixer waits the burst out instead
+    // (`BLAST_HOLD_ENERGY`) -- the call is due on the tick of kills 1 and 2 and
+    // speaks at the cap, one second later, as kills 3 to 6 die away.
+    const heldS = (dd.win[0] - (get('d_unit_lost').marks.line?.at ?? dd.win[0]));
+    console.log(`  the call was due at ${fmt(get('d_unit_lost').marks.line?.at ?? 0, 2)} s and speaks ${fmt(heldS, 2)} s later`);
+    gates.push({
+      id: 'd: death call over sfx+music during the line (four overlapping kills)',
+      source: 'AU-4\'s 6 LU, the same bar as the order bark (a): a death call is a bark, and the mixer holds one that comes due among blasts',
+      value: dd.voice - dd.bed,
+      limit: 6,
+      sense: 'min',
+      unit: 'LU',
+    });
+    gates.push({
+      id: 'd: a held death call speaks within the cap',
+      source: 'the lead, 2026-10-11: held "at most ~1 s, then play it anyway" (0.1 s of slack for the squelch click and one render step)',
+      value: heldS,
+      limit: 1.1,
+      sense: 'max',
+      unit: 's',
+    });
 
     console.log('');
     sceneHeader('d1_one_loss');

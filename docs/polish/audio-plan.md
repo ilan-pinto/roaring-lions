@@ -127,9 +127,16 @@ first row is shipped (N12). Every other row is proposed.
 *As measured (AU-4, 10 Oct 2026, `pnpm audio:mix`):* the bark row shipped SFX at −4 dB (N12). A
 death call speaks on the tick of its own kill, and the `destroyed` clip is the loudest in the
 library, so at −4 a death call in a firefight read **5.3 LU** over SFX+music, under AU-4's 6. At
-−6 it reads **6.8 LU** (an order bark 9.1 → 10.3). A burst of four kills inside one call still
-reads 1.0 LU and is reported, not gated: no duck the rules below accept clears four explosions by
-6 LU. The same check found the outcome row's 600 ms fade cut to **80 ms** whenever the outcome
+−6 it reads **6.8 LU** (an order bark 9.1 → 10.3). A burst of four kills inside one call read
+1.0 LU, and no duck the rules below accept clears four explosions by 6 LU; the lead (11 Oct)
+chose to delay the call instead. The mixer now **holds a death call that comes due while the blasts
+it has just voiced add up to two kills' worth** (`BLAST_HOLD_ENERGY`: a kill is 1, a penetrating
+round 0.25, a ricochet 0.1, each remembered 0.6 s; its own event knowledge, not audio analysis) and
+lets it go once that falls under one kill, or after 1 s whatever it hears (`DEATH_HOLD_MAX_S`).
+The call then goes through the ladder as it would have, a higher-ranked death call still waiting
+takes the wait from a lower one, a verdict, pause, leave or major alert lets it go, and its caption
+goes up when the voice does. The four-kill scene reads **7.4 LU** (the call at +1.01 s), gated at
+6; a lone kill still speaks on its own tick (6.8). The same check found the outcome row's 600 ms fade cut to **80 ms** whenever the outcome
 line played (the line's own hold re-ramped a target that had not moved); the mixer now re-ramps
 only a layer whose target moves.
 
