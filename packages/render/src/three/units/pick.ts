@@ -25,8 +25,8 @@
  * `environment: 'node'` even though `ThreeRenderer` itself is not.
  */
 import { groundLevelAt, type ElevationSource } from '../ground-height';
-import { worldToScreenThree } from '../camera';
-import { ELEV_STEP, type Camera, type Viewport } from '../../project';
+import { screenToWorldThree, worldToScreenThree } from '../camera';
+import { ELEV_STEP, WORLD_Y_PER_LIFT_PIXEL, type Camera, type Viewport } from '../../project';
 
 /**
  * Nearest living, surfaced unit within `radiusTiles` of a world point, or -1.
@@ -54,24 +54,84 @@ export function pickUnit(
   alive: Uint8Array,
   tunnelIn: Int32Array,
   entityCount: number,
-  radiusTiles = 1.2
+  radiusTiles = 1.2,
+  reachX = 0,
+  reachY = 0
 ): number {
   let best = -1;
   let bestD = radiusTiles * radiusTiles;
+  let bestFeet = Infinity;
+  const reach2 = reachX * reachX + reachY * reachY;
   for (let i = 0; i < entityCount; i++) {
     if (alive[i] === 0) continue;
     // A buried unit has no body on the surface to click -- see this
     // function's own doc comment for why this is not optional.
     if (tunnelIn[i] >= 0) continue;
-    const dx = curX[i] - wx;
-    const dy = curY[i] - wy;
+    const fx = wx - curX[i];
+    const fy = wy - curY[i];
+    const feet = fx * fx + fy * fy;
+    // Distance to the segment from the feet to `reach` beyond them (the
+    // ground the unit's body hides); with no reach, the feet alone.
+    const t = reach2 > 0 ? Math.min(1, Math.max(0, (fx * reachX + fy * reachY) / reach2)) : 0;
+    const dx = fx - t * reachX;
+    const dy = fy - t * reachY;
     const d = dx * dx + dy * dy;
-    if (d < bestD) {
+    // Two bodies under one pixel (one figure standing in front of another):
+    // the nearer feet win, which is the rule this had before bodies.
+    if (d < bestD || (d === bestD && feet < bestFeet)) {
       bestD = d;
+      bestFeet = feet;
       best = i;
     }
   }
   return best;
+}
+
+/**
+ * How tall a body is drawn, in tiles: a rifleman, `proxy-box.ts`'s `foot`
+ * class (0.6 tile, ~23 px at zoom 1 -- the "about 25 px" soldier). The
+ * smallest body that stands in a group; a vehicle's length is already inside
+ * the 1.2-tile radius around its body.
+ */
+export const PICK_BODY_HEIGHT_TILES = 0.6;
+
+/**
+ * The unit a left-click at screen pixel (`px`, `py`) picks, or -1.
+ *
+ * `pickUnit` alone answers "which unit's FEET are nearest the ground this
+ * pixel's ray meets", and for a pixel on a unit's body that ground is BEHIND
+ * the unit, up the screen -- a click 8 px up a rifleman meets the ground
+ * half a tile behind him. In a group that ground belongs to his neighbour:
+ * measured on `beit_sahwan_outskirts` after a group order, two squads 0.40
+ * tiles apart, a click on the front squad's body selected the one behind it
+ * at 8, 16 and 24 px above its feet, and the right-click that followed moved
+ * the wrong squad. The unit-side twin of PA-14's facade pick.
+ *
+ * So the click is measured against the ground each body HIDES -- the segment
+ * from its feet to where the ray past the top of a body that tall meets the
+ * ground -- rather than against the feet alone. The reach is one vector for
+ * every unit: the camera is orthographic, so it depends on the camera's
+ * pitch and yaw and not on where the unit stands. Asked of the camera, never
+ * re-derived here.
+ */
+export function pickUnitAtScreen(
+  px: number,
+  py: number,
+  curX: Float64Array,
+  curY: Float64Array,
+  alive: Uint8Array,
+  tunnelIn: Int32Array,
+  entityCount: number,
+  elevation: ElevationSource,
+  mapWidth: number,
+  mapHeight: number,
+  cam: Camera,
+  vp: Viewport
+): number {
+  const g = screenToWorldThree(px, py, cam, vp, elevation, mapWidth, mapHeight);
+  const top = worldToScreenThree(cam.x, cam.y, cam, vp, PICK_BODY_HEIGHT_TILES / WORLD_Y_PER_LIFT_PIXEL);
+  const behind = screenToWorldThree(top.x, top.y, cam, vp);
+  return pickUnit(g.x, g.y, curX, curY, alive, tunnelIn, entityCount, 1.2, behind.x - cam.x, behind.y - cam.y);
 }
 
 /**

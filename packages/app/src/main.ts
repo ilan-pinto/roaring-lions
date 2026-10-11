@@ -3750,7 +3750,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         dragBox.style.display = 'none';
         return;
       }
-      const hit = renderer.pickUnit(w.x, w.y);
+      // The pixel, not `w`: a click on a unit's body meets the ground behind
+      // it, which in a group is the next unit's (`unitAtScreen`).
+      const hit = renderer.unitAtScreen(p.x, p.y);
       renderer.selection = hit >= 0 ? [hit] : [];
       dispatch({ kind: 'select', ids: renderer.selection, via: 'click' });
     } else {
