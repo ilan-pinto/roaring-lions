@@ -90,6 +90,9 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
   { name: 'brigade', blurb: 'the brigade — every KDF unit and what opens it' },
   { name: 'fresh', blurb: 'ignore the saved ledger' },
   { name: 'tutorial', blurb: 'replay the tutorial' },
+  { name: 'net', blurb: 'new | <room code> — N0: run this sandbox in a two-seat lockstep room (both seats order the KDF force)' },
+  { name: 'seat', blurb: '0 | 1 — written by the app after ?net=new; informational' },
+  { name: 'callsign', blurb: '<name> — the lobby name a room shows for this seat' },
   {
     name: 'renderer',
     // Accepted and does nothing, the way `mesh` is (WP-A3.3). It chose the
