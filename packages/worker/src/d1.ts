@@ -14,6 +14,11 @@ export interface D1Like {
 export interface RateLimiter {
   limit(o: { key: string }): Promise<{ success: boolean }>;
 }
+export interface DurableObjectStubLike { fetch(request: Request): Promise<Response> }
+export interface DurableObjectNamespaceLike {
+  idFromName(name: string): unknown;
+  get(id: unknown): DurableObjectStubLike;
+}
 export interface Env {
   DB: D1Like;
   ASSETS: { fetch(request: Request): Promise<Response> };
@@ -32,4 +37,11 @@ export interface Env {
    *  FEEDBACK_CLOSED` (a secret survives deploys; a dashboard var does not).
    *  The other half is the D1 `flags` row, flipped from /stats/feedback. */
   FEEDBACK_CLOSED?: string;
+  /** N0: the MatchRoom Durable Object namespace (wrangler.jsonc `durable_objects`). */
+  ROOMS?: DurableObjectNamespaceLike;
+  /** N0: room creation and joins, keyed on the connecting IP (6 a minute). */
+  ROOM_LIMIT?: RateLimiter;
+  /** N0: signs seat tickets. Its own secret, never STATS_PASSWORD. Unset fails
+   *  closed: every /api/match path answers 503. */
+  TICKET_SECRET?: string;
 }
