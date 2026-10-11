@@ -349,7 +349,29 @@ import {
   BOLT_CAPACITY,
 } from './units/fx';
 import { rotorSpinPhase } from './units/rotor-spin';
-import { exhaustRand, exhaustSlotAgeSec, exhaustSlotsDue, vehicleTrailsDamageSmoke } from './units/exhaust-slots';
+import { exhaustRand, exhaustSlotAgeSec, exhaustSlotDue, exhaustSlotsDue, vehicleTrailsDamageSmoke } from './units/exhaust-slots';
+import {
+  APS_LAUNCH_EMITTER_ID,
+  ARMOR_PENETRATION_EMITTER_ID,
+  ARMOR_RICOCHET_EMITTER_ID,
+  DEMOLITION_BLAST_EMITTER_ID,
+  SMOKE_DISCHARGE_EMITTER_ID,
+  WRECK_SMOULDER_EMITTER_ID,
+  WRECK_SMOULDER_INTERVAL_MS,
+  WRECK_SMOULDER_SALT,
+  WRECK_SMOULDER_SECONDS,
+  claimStrikeBolt,
+  demolitionResolveTick,
+  findPendingCharge,
+  isDirectFireShell,
+  nearestFootprintPoint,
+  strikeHeadingTurns,
+  wreckSmoulderMagnitude,
+  APS_LAUNCH_MAGNITUDE,
+  DEMOLITION_BLAST_POWER,
+  SMOKE_DISCHARGE_MAGNITUDE,
+  type PendingCharge,
+} from './units/trigger-fx';
 import {
   ROTOR_WASH_MIN_STRENGTH,
   rotorWashStrength,
@@ -1749,6 +1771,20 @@ export class ThreeRenderer implements Renderer {
   private readonly exhaustSlot: Int32Array;
   /** Pass C2/C4 (P3): the last damage-smoke slot each vehicle emitted. */
   private readonly damageSmokeSlot: Int32Array;
+  /**
+   * GH-85: every burnt-out hull still smouldering (`wreck_smoulder`), keyed
+   * by the dead vehicle's entity id. Dated off the SIM clock like the damage
+   * smoke above -- `startMs`/`endMs` are presentation sim time, `slot` the
+   * last emission slot -- so a frozen gate frame repaints the same puffs.
+   * An entry goes once its last puff can no longer be alive.
+   */
+  private readonly wreckSmoulder = new Map<number, { x: number; y: number; startMs: number; endMs: number; slot: number }>();
+  /**
+   * GH-85: demolition charges in the air (`eod_breach`), thrown by a `fire`
+   * of the `demolition` class and resolved by the sim event that says where
+   * they went off -- see `trigger-fx.ts`'s `PendingCharge`.
+   */
+  private readonly pendingCharges: PendingCharge[] = [];
   /** Presentation sim time at the last `updateFx`, null before the first. */
   /** Presentation sim time at the last `frame()`, null before the first. */
   private lastFrameSimMs: number | null = null;
@@ -3007,6 +3043,8 @@ export class ThreeRenderer implements Renderer {
     this.buildingScars.clear();
     this.buildingDamageBand.clear();
     this.buildingBurning.clear();
+    this.wreckSmoulder.clear();
+    this.pendingCharges.length = 0;
     for (const template of this.buildingMeshIdleTemplates.values()) disposeBuildingMeshTemplate(template);
     this.buildingMeshIdleTemplates.clear();
     for (const template of this.buildingMeshWreckTemplates.values()) disposeBuildingMeshTemplate(template);
@@ -4237,24 +4275,45 @@ export class ThreeRenderer implements Renderer {
     for (const e of events) {
       if (e.kind === 'fire') this.onFire(e);
       else if (e.kind === 'nearMiss') {
-        this.spawnFlatFx(fx.toNumber(e.x), fx.toNumber(e.y), this.opts.nearMissColor, 7, 14);
-        this.flinchNear(fx.toNumber(e.x), fx.toNumber(e.y));
-      } else if (e.kind === 'aps' && e.intercepted) {
-        this.spawnFlatFx(this.curX[e.target], this.curY[e.target], this.opts.interceptColor, 10, 12);
-        // GH-250 (spec D4): the round this event names -- (target, shooter)
-        // -- dies here, at half scale: the APS got it, the hull did not.
-        // (`intercept` returns a reused buffer; consumed here, in full.)
-        for (const l of this.missileFx.intercept(e.target, e.shooter)) this.spawnMissileImpactFx(l);
-      } else if (e.kind === 'impact' && e.penetrated) {
-        this.spawnFlatFx(this.curX[e.target], this.curY[e.target], this.opts.flashColor, 8, 10);
-        // Jolt the target away from the shooter, so a penetrating hit lands
-        // on the unit rather than only in the roll feed (renderer.ts:825-832).
-        const dx = this.curX[e.target] - this.curX[e.shooter];
-        const dy = this.curY[e.target] - this.curY[e.shooter];
-        if (dx !== 0 || dy !== 0) {
-          this.flinchT[e.target] = 1;
-          this.flinchDir[e.target] = (((Math.atan2(dy, dx) / (Math.PI * 2)) % 1) + 1) % 1;
+        const nx = fx.toNumber(e.x);
+        const ny = fx.toNumber(e.y);
+        // GH-85: a demolition charge that missed its mark still goes off where
+        // it landed -- the sim says exactly where, and that is this event.
+        if (!this.detonateChargeAt(e.shooter, e.weaponId, nx, ny)) {
+          this.spawnFlatFx(nx, ny, this.opts.nearMissColor, 7, 14);
         }
+        this.flinchNear(nx, ny);
+      } else if (e.kind === 'aps') {
+        // GH-85 (`interceptor_launch`): the launcher fires on every engagement,
+        // hit or miss -- the defender cannot know which (GDD 5.6).
+        this.spawnApsLaunch(e.target, e.shooter);
+        if (e.intercepted) {
+          this.spawnFlatFx(this.curX[e.target], this.curY[e.target], this.opts.interceptColor, 10, 12);
+          // GH-250 (spec D4): the round this event names -- (target, shooter)
+          // -- dies here, at half scale: the APS got it, the hull did not.
+          // (`intercept` returns a reused buffer; consumed here, in full.)
+          for (const l of this.missileFx.intercept(e.target, e.shooter)) this.spawnMissileImpactFx(l);
+        }
+      } else if (e.kind === 'impact') {
+        // GH-85: a direct-fire round's outcome rides its bolt and lands with
+        // it (`impact_armor`/`penetration`); everything else keeps the flat
+        // flash it always had, and only on a penetration.
+        const routed = this.routeArmourStrike(e);
+        if (e.penetrated) {
+          if (!routed) this.spawnFlatFx(this.curX[e.target], this.curY[e.target], this.opts.flashColor, 8, 10);
+          // Jolt the target away from the shooter, so a penetrating hit lands
+          // on the unit rather than only in the roll feed (renderer.ts:825-832).
+          const dx = this.curX[e.target] - this.curX[e.shooter];
+          const dy = this.curY[e.target] - this.curY[e.shooter];
+          if (dx !== 0 || dy !== 0) {
+            this.flinchT[e.target] = 1;
+            this.flinchDir[e.target] = (((Math.atan2(dy, dx) / (Math.PI * 2)) % 1) + 1) % 1;
+          }
+        }
+      } else if (e.kind === 'smokeLaid') {
+        // GH-85 (`smoke_screen`): the launcher's pop, at the unit that laid
+        // it, thrown toward the screen -- which `SmokeMesh` already draws.
+        this.spawnSmokeDischarge(e.by, fx.toNumber(e.x), fx.toNumber(e.y));
       } else if (e.kind === 'strike') {
         this.onStrike(e.x, e.y, e.tick);
       } else if (e.kind === 'tunnelCollapsed') {
@@ -4381,6 +4440,8 @@ export class ThreeRenderer implements Renderer {
           this.stampGroundDecal(this.persistentStamp('scorch', dx, dy, scorchR));
           this.stampGroundDecal(this.persistentStamp('oil', dx, dy, OIL_RADIUS_TILES));
           this.beginVehicleCollapseShroud(deadType.id, dx, dy, worldY);
+          // GH-85: and the hull goes on smouldering after the column clears.
+          this.beginWreckSmoulder(e.entity, dx, dy, e.tick);
         }
       } else if (e.kind === 'structureHit') {
         // Task B3.10: the quantisation that makes this survivable at
@@ -4397,7 +4458,11 @@ export class ThreeRenderer implements Renderer {
         // is the shared, sim-only predicate that tells the two apart (see its
         // own doc comment in `grind.ts`), same as the debug overlay uses.
         const hitStruct = e.structure;
-        if (!isGrindingHit(this.sim, e.by, hitStruct)) {
+        // GH-85: a demolition charge against the wall replaces the dust puff
+        // with the blast (`eod_breach`).
+        if (this.detonateChargeOnStructure(e.by, hitStruct, e.tick)) {
+          // The blast is the whole effect.
+        } else if (!isGrindingHit(this.sim, e.by, hitStruct)) {
           this.spawnFlatFx(
             fx.toNumber(this.sim.structures.cx[hitStruct]),
             fx.toNumber(this.sim.structures.cy[hitStruct]),
@@ -4518,6 +4583,9 @@ export class ThreeRenderer implements Renderer {
         }
       }
     }
+    // GH-85: a charge whose resolve tick has passed with no event naming it
+    // hit something that emits none (a soft unit). It went off all the same.
+    this.resolveOverdueCharges();
   }
 
   /**
@@ -4562,6 +4630,21 @@ export class ThreeRenderer implements Renderer {
     let flightS: number | null = null;
     if (shellKind === null) {
       this.tracers.push(spawnTracer(this.curX[e.shooter], this.curY[e.shooter], tx, ty, st.side[e.shooter]));
+    }
+    // GH-85 (`eod_breach`): a demolition charge is in the air until the sim
+    // resolves it. Distance from the SIM's own positions, which is what its
+    // flight is counted from (`fireAtStructure`/`fireAt`).
+    if (cls === WEAPON_CLASS.demolition) {
+      const sx = fx.toNumber(st.posX[e.shooter]);
+      const sy = fx.toNumber(st.posY[e.shooter]);
+      const ax = atStruct ? tx : fx.toNumber(st.posX[e.target]);
+      const ay = atStruct ? ty : fx.toNumber(st.posY[e.target]);
+      this.pendingCharges.push({
+        shooter: e.shooter,
+        structure: atStruct ? (e.structure as number) : -1,
+        target: atStruct ? -1 : e.target,
+        resolveTick: demolitionResolveTick(e.tick, Math.hypot(ax - sx, ay - sy)),
+      });
     }
 
     // Latch the fire clip for its own declared duration (renderer.ts:772-777)
@@ -4685,15 +4768,28 @@ export class ThreeRenderer implements Renderer {
       const mcls = missileClassOf(cls);
       flightS = Math.hypot(tx - this.curX[e.shooter], ty - this.curY[e.shooter]) / SIM_PROJ_SPEED_TILES_S[mcls ?? 'atgm'];
     } else if (shellKind !== null) {
+      // GH-85: a hitting direct-fire round at a UNIT is tagged with who fired
+      // it at whom, so the sim's `impact` outcome can ride it to the hull.
+      const tagStrike = e.willHit && !atStruct && e.target >= 0 && isDirectFireShell(shellKind);
       if (isBurstShell(shellKind)) {
         // Machine-gun and rifle fire: a burst of short streaks, each its own
         // travelling round, staggered inside the weapon's own cooldown --
         // `units/shells.ts`'s `spawnBurst`. Never a full-span line.
         const burst = spawnBurst(mzX, mzY, tx, ty, st.side[e.shooter], shellKind, e.shooter * 7919 + e.tick, e.willHit);
-        for (const b of burst) this.bolts.push(b);
+        for (const b of burst) {
+          if (tagStrike) {
+            b.shooter = e.shooter;
+            b.target = e.target;
+          }
+          this.bolts.push(b);
+        }
         flightS = burst.length > 0 ? burst[0].duration : null;
       } else {
         const shell = spawnShell(mzX, mzY, tx, ty, st.side[e.shooter], shellKind);
+        if (tagStrike) {
+          shell.shooter = e.shooter;
+          shell.target = e.target;
+        }
         flightS = shell.duration;
         // GH-149: the arcing kinds and the direct kinds live in separate
         // arrays and separate batches -- see the `bolts` field's own doc
@@ -8123,6 +8219,7 @@ export class ThreeRenderer implements Renderer {
       this.updateRotorWash(alpha);
       this.updateIdleExhaust(alpha);
       this.updateDamageSmoke(alpha);
+      this.updateWreckSmoulder(alpha);
     }
     const elevation = this.retained.elevation;
     this.particleInstancerBelow.update(this.particleSystem, elevation, this.sim.width, this.sim.height);
@@ -8157,6 +8254,13 @@ export class ThreeRenderer implements Renderer {
     this.shellBatch.update(this.shells, this.opts.shellColors, elevation, this.sim.width, this.sim.height);
     // The direct-fire half, identical in shape and different in exactly the
     // three ways the `bolts` field documents -- here, the colour pair.
+    // GH-85: a round carrying an `impact` outcome throws it on the frame it
+    // lands, the same read-before-step rule as the arcing rounds above.
+    for (const s of this.bolts) {
+      if (s.strike !== undefined && shellHasLanded(s, dtSeconds)) {
+        this.spawnArmourStrikeFx(s.tx, s.ty, strikeHeadingTurns(s), s.strike.penetrated, s.strike.magnitude);
+      }
+    }
     this.bolts = stepShells(this.bolts, dtSeconds);
     this.boltBatch.update(this.bolts, this.opts.tracerColors, elevation, this.sim.width, this.sim.height);
     // GH-250: missiles on the same frame clock; a landing throws the HEAT
@@ -8287,6 +8391,222 @@ export class ThreeRenderer implements Renderer {
     if (light) this.flashLights.spawn(l.x, l.y, worldY, light, this.overlayColor(light.color ?? 'vfx.fire', FLASH_LIGHT_FALLBACK));
     this.shakeState = pushShake(this.shakeState, blastShake(em, l.scale), l.x, l.y);
     if (l.miss) this.stampGroundDecal(this.persistentStamp('scorch', l.x, l.y, scorchRadiusTiles(MISS_SCORCH_POWER)));
+  }
+
+  /**
+   * GH-85: route an `impact` event to the direct-fire strike path, or report
+   * that it is not one. A direct-fire class (`isDirectFireShell`: the bolt
+   * and the rifle/MG streaks) whose emitter is loaded gets its outcome
+   * latched onto the round that carries it, and the sparks fly where that
+   * round visibly lands (`updateFx`); with no such round still in the air
+   * they fly now, at the hull. Everything else -- a missile, which
+   * `missile_impact` already lands, an arcing round, a kamikaze's own
+   * warhead -- answers false and keeps the flat flash it always had.
+   */
+  private routeArmourStrike(e: Extract<SimEvent, { kind: 'impact' }>): boolean {
+    if (e.shooter < 0 || e.target < 0) return false;
+    const st = this.sim.state;
+    const wp = this.sim.unitTypes[st.typeIdx[e.shooter]].weapons.find((w) => w.id === e.weaponId);
+    if (!wp || !isDirectFireShell(shellKindFor(wp.cls))) return false;
+    if (!this.emitterLibrary.byName(e.penetrated ? ARMOR_PENETRATION_EMITTER_ID : ARMOR_RICOCHET_EMITTER_ID)) return false;
+    const strike = { penetrated: e.penetrated, magnitude: firePower(wp) };
+    const k = claimStrikeBolt(this.bolts, e.shooter, e.target);
+    if (k >= 0) {
+      this.bolts[k].strike = strike;
+      return true;
+    }
+    const tx = this.curX[e.target];
+    const ty = this.curY[e.target];
+    const heading = strikeHeadingTurns({ sx: this.curX[e.shooter], sy: this.curY[e.shooter], tx, ty });
+    this.spawnArmourStrikeFx(tx, ty, heading, strike.penetrated, strike.magnitude);
+    return true;
+  }
+
+  /**
+   * GH-85: a round meeting a hull -- `armor_ricochet` when the plate held
+   * (sparks thrown back toward the shooter, the layer's own 180-degree
+   * offset), `armor_penetration` when it did not (spall carried on along the
+   * round's heading). Scaled by the weapon's own `firePower`, as the muzzle
+   * flash is. Presentation only: the sim settled the outcome before this ran.
+   */
+  private spawnArmourStrikeFx(x: number, y: number, headingTurns: number, penetrated: boolean, magnitude: number): void {
+    if (!this.particleSystem) return;
+    const em = this.emitterLibrary.byName(penetrated ? ARMOR_PENETRATION_EMITTER_ID : ARMOR_RICOCHET_EMITTER_ID);
+    if (!em) return;
+    const prio = em.budget_priority ?? 5;
+    for (const layer of em.particles) {
+      const offset = (layer.direction_offset_deg ?? 0) / 360;
+      this.particleSystem.spawn(layer, x, y, headingTurns + offset, magnitude, prio, fxLayerIndex(em.layer, layer.additive ?? false));
+    }
+  }
+
+  /**
+   * GH-85 (`interceptor_launch`): the hull's active protection firing at the
+   * inbound round, from the hull toward the shooter. On every `aps` event,
+   * intercepted or not -- the launcher fires either way; whether it got the
+   * round is the half-scale `missile_impact` the intercept branch throws.
+   */
+  private spawnApsLaunch(target: number, shooter: number): void {
+    if (!this.particleSystem || target < 0) return;
+    const em = this.emitterLibrary.byName(APS_LAUNCH_EMITTER_ID);
+    if (!em) return;
+    const x = this.curX[target];
+    const y = this.curY[target];
+    const dir = shooter >= 0 ? Math.atan2(this.curY[shooter] - y, this.curX[shooter] - x) / (Math.PI * 2) : 0;
+    const prio = em.budget_priority ?? 6;
+    for (const layer of em.particles) {
+      const offset = (layer.direction_offset_deg ?? 0) / 360;
+      this.particleSystem.spawn(layer, x, y, dir + offset, APS_LAUNCH_MAGNITUDE, prio, fxLayerIndex(em.layer, layer.additive ?? false));
+    }
+  }
+
+  /**
+   * GH-85 (`smoke_screen`): the discharger's pop at the unit that laid the
+   * screen, thrown toward where it lands. The screen itself is `SmokeMesh`'s;
+   * this only says who fired it. A screen laid on the unit's own tile throws
+   * along its hull facing instead of a zero-length bearing.
+   */
+  private spawnSmokeDischarge(by: number, sx: number, sy: number): void {
+    if (!this.particleSystem || by < 0) return;
+    const em = this.emitterLibrary.byName(SMOKE_DISCHARGE_EMITTER_ID);
+    if (!em) return;
+    const x = this.curX[by];
+    const y = this.curY[by];
+    const dx = sx - x;
+    const dy = sy - y;
+    const dir =
+      dx * dx + dy * dy > 0.01 ? Math.atan2(dy, dx) / (Math.PI * 2) : fx.toNumber(this.sim.state.facing[by]);
+    const prio = em.budget_priority ?? 4;
+    for (const layer of em.particles) {
+      const offset = (layer.direction_offset_deg ?? 0) / 360;
+      this.particleSystem.spawn(layer, x, y, dir + offset, SMOKE_DISCHARGE_MAGNITUDE, prio, fxLayerIndex(em.layer, layer.additive ?? false));
+    }
+  }
+
+  /** GH-85 (`eod_breach`): a demolition charge going off at a point, through
+   *  the same path a shell landing uses (`spawnCollapseFx`: the pooled burst
+   *  for the `mesh_burst` layer, particles for the rest). False when nothing
+   *  could be spawned, so the caller keeps its flat fallback. */
+  private spawnDemolitionBlast(x: number, y: number): boolean {
+    return this.spawnCollapseFx(DEMOLITION_BLAST_EMITTER_ID, x, y, DEMOLITION_BLAST_POWER, tileHash(Math.floor(x * 4), Math.floor(y * 4)));
+  }
+
+  /** A `nearMiss` from a demolition weapon is a charge that went off where
+   *  it landed. Consumes the thrower's earliest pending charge, if any. */
+  private detonateChargeAt(shooter: number, weaponId: string, x: number, y: number): boolean {
+    if (shooter < 0) return false;
+    const wp = this.sim.unitTypes[this.sim.state.typeIdx[shooter]].weapons.find((w) => w.id === weaponId);
+    if (!wp || wp.cls !== WEAPON_CLASS.demolition) return false;
+    const k = findPendingCharge(this.pendingCharges, shooter);
+    if (k >= 0) this.pendingCharges.splice(k, 1);
+    return this.spawnDemolitionBlast(x, y);
+  }
+
+  /** A `structureHit` by a thrower with a charge in the air at that building,
+   *  on or after the tick before it resolves: the charge, against the wall
+   *  nearest the thrower. A rifle round from the same team earlier in the
+   *  flight is not it. */
+  private detonateChargeOnStructure(by: number, structure: number, tick: number): boolean {
+    if (by < 0) return false;
+    const k = findPendingCharge(this.pendingCharges, by, structure);
+    if (k < 0 || tick < this.pendingCharges[k].resolveTick - 1) return false;
+    this.pendingCharges.splice(k, 1);
+    const [px, py] = this.chargeWallPoint(structure, by);
+    return this.spawnDemolitionBlast(px, py);
+  }
+
+  /** Charges whose resolve tick passed a tick ago with no event naming them:
+   *  a hit on a soft unit emits none. They go off at the target. The tick of
+   *  grace lets the exact event-matched paths above win whenever one exists. */
+  private resolveOverdueCharges(): void {
+    if (this.pendingCharges.length === 0) return;
+    const tick = this.sim.tickCount - 1;
+    for (let i = this.pendingCharges.length - 1; i >= 0; i--) {
+      const c = this.pendingCharges[i];
+      if (tick <= c.resolveTick) continue;
+      this.pendingCharges.splice(i, 1);
+      if (c.structure >= 0) {
+        const [px, py] = this.chargeWallPoint(c.structure, c.shooter);
+        this.spawnDemolitionBlast(px, py);
+      } else if (c.target >= 0) {
+        this.spawnDemolitionBlast(this.curX[c.target], this.curY[c.target]);
+      }
+    }
+  }
+
+  private chargeWallPoint(structure: number, shooter: number): [number, number] {
+    const st = this.sim.structures;
+    return nearestFootprintPoint(st.minX[structure], st.minY[structure], st.maxX[structure], st.maxY[structure], this.curX[shooter], this.curY[shooter]);
+  }
+
+  /**
+   * GH-85: arm a burnt-out hull's smoulder (`wreck_smoulder`) for
+   * `WRECK_SMOULDER_SECONDS` of SIM time from the kill tick. The first slot
+   * is the one after the kill, so nothing is dated before the vehicle died.
+   */
+  private beginWreckSmoulder(entity: number, x: number, y: number, tick: number): void {
+    const em = this.emitterLibrary.byName(WRECK_SMOULDER_EMITTER_ID);
+    if (!em) return;
+    let emitOverMs = 0;
+    for (const layer of em.particles) emitOverMs = Math.max(emitOverMs, layer.emit_over_ms ?? 0);
+    // The kill is drained on `tick`; the first frame after it presents
+    // `tick * MS_PER_TICK` at alpha 0 (`presentationSimMs(tick + 1, 0)`).
+    const startMs = presentationSimMs(tick + 1, 0);
+    this.wreckSmoulder.set(entity, {
+      x,
+      y,
+      startMs,
+      endMs: startMs + WRECK_SMOULDER_SECONDS * 1000,
+      slot: exhaustSlotDue(startMs, WRECK_SMOULDER_INTERVAL_MS, emitOverMs),
+    });
+  }
+
+  /**
+   * GH-85: every smouldering wreck, dated off the SIM clock exactly as
+   * `updateDamageSmoke` is (GH-391) -- slots seeded by (entity, slot), puffs
+   * born with the age sim time says they have -- so a frozen gate frame
+   * repaints the same puffs and a zero-time repaint emits nothing. A wreck on
+   * ground the player has never seen spends its slots without emitting, as
+   * its mesh stays hidden there (`updateMeshWrecks`), so revealing it later
+   * does not flush a backlog.
+   */
+  private updateWreckSmoulder(alpha: number): void {
+    if (!this.particleSystem || this.wreckSmoulder.size === 0) return;
+    const em = this.emitterLibrary.byName(WRECK_SMOULDER_EMITTER_ID);
+    if (!em) return;
+    const nowMs = presentationSimMs(this.sim.tickCount, alpha);
+    const interval = WRECK_SMOULDER_INTERVAL_MS;
+    let maxLifeMs = 0;
+    let emitOverMs = 0;
+    for (const layer of em.particles) {
+      const l = layer.lifetime_ms;
+      maxLifeMs = Math.max(maxLifeMs, typeof l === 'number' ? l : l ? l[1] : 0);
+      emitOverMs = Math.max(emitOverMs, layer.emit_over_ms ?? 0);
+    }
+    const prio = em.budget_priority ?? 1;
+    for (const [id, w] of this.wreckSmoulder) {
+      if (nowMs >= w.endMs + maxLifeMs + emitOverMs) {
+        this.wreckSmoulder.delete(id);
+        continue;
+      }
+      const [first, due] = exhaustSlotsDue(w.slot, nowMs, interval, emitOverMs, maxLifeMs);
+      // A slot opens inside the window or not at all.
+      const last = Math.min(due, Math.floor((w.endMs - 1) / interval));
+      if (last < first) continue;
+      if (this.isExplored(w.x, w.y)) {
+        for (let slot = first; slot <= last; slot++) {
+          const magnitude = wreckSmoulderMagnitude(Math.max(0, slot * interval - w.startMs));
+          if (magnitude <= 0) continue;
+          const rand = exhaustRand(id + WRECK_SMOULDER_SALT, slot);
+          const ageSec = exhaustSlotAgeSec(slot, nowMs, interval);
+          for (const layer of em.particles) {
+            const fxLayer = fxLayerIndex(em.layer, layer.additive ?? false);
+            this.particleSystem.spawn(layer, w.x, w.y, 0.25, magnitude, prio, fxLayer, 0, 0, { rand, ageSec });
+          }
+        }
+      }
+      w.slot = last;
+    }
   }
 
   /**

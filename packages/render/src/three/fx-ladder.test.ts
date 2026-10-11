@@ -133,3 +133,20 @@ describe('firing never shakes the screen (VR-23)', () => {
     for (const e of fire) expect(e.screen_shake, e.id).toBeUndefined();
   });
 });
+
+describe('only the ranked blasts jolt or freeze the screen (GH-85)', () => {
+  // The renderer reads `screen_shake` and `hit_stop_ms` on the ladder's own
+  // events and nowhere else (the schema's `screen_shake` description). An
+  // emitter outside that set authoring either would be a rung nobody ranked
+  // -- or dead data that reads as a promise. `missile_impact` shakes (P-4)
+  // and is the HEAT landing, a shell-class event with no freeze of its own.
+  const BLASTS = new Set(['structure_collapse', 'catastrophic_kill', 'shell_impact', 'missile_impact']);
+
+  it('no emitter outside the blasts authors screen_shake or hit_stop_ms', () => {
+    const offenders = emitters()
+      .filter((e) => !BLASTS.has(e.id))
+      .filter((e) => e.screen_shake !== undefined || (e.hit_stop_ms ?? 0) > 0)
+      .map((e) => e.id);
+    expect(offenders).toEqual([]);
+  });
+});

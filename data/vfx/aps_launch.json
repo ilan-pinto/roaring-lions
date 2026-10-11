@@ -1,0 +1,32 @@
+{
+  "id": "aps_launch",
+  "trigger": "interceptor_launch",
+  "layer": "above_units",
+  "budget_priority": 6,
+  "particles": [
+    {
+      "sprite": "hard_dot",
+      "count": [1, 1],
+      "lifetime_ms": [20, 35],
+      "speed_tiles_s": [0, 0],
+      "size_px": [3, 4],
+      "size_over_life": [1.0, 0.6],
+      "color_over_life": ["vfx.white_hot"],
+      "alpha_over_life": [1.0, 0.0],
+      "additive": true
+    },
+    {
+      "sprite": "spark",
+      "count": [5, 8],
+      "lifetime_ms": [90, 160],
+      "speed_tiles_s": [4.0, 6.5],
+      "cone_deg": 25,
+      "drag": 0.2,
+      "size_px": [2, 3],
+      "size_over_life": [1.0, 0.3],
+      "color_over_life": ["vfx.white_hot", "vfx.fire", "vfx.fire", "vfx.ember"],
+      "alpha_over_life": [1.0, 0.0],
+      "additive": true
+    }
+  ]
+}

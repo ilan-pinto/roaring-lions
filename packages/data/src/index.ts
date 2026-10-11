@@ -158,6 +158,12 @@ import rotorWash from '../../../data/vfx/rotor_wash.json';
 import vehicleDust from '../../../data/vfx/vehicle_dust.json';
 import vehicleExhaust from '../../../data/vfx/vehicle_exhaust.json';
 import vehicleDamagedSmoke from '../../../data/vfx/vehicle_damaged_smoke.json';
+import armorRicochet from '../../../data/vfx/armor_ricochet.json';
+import armorPenetration from '../../../data/vfx/armor_penetration.json';
+import wreckSmoulder from '../../../data/vfx/wreck_smoulder.json';
+import apsLaunch from '../../../data/vfx/aps_launch.json';
+import demolitionBlast from '../../../data/vfx/demolition_blast.json';
+import smokeDischarge from '../../../data/vfx/smoke_discharge.json';
 
 // The scene-host diorama (2026-09-24-scene-host §3.2/§10): a real map, a
 // camera and a few idle units, standing behind the main menu. One file, one
@@ -446,6 +452,17 @@ export const vfxEmitters = [
   // Pass C2/C4 (P3): a living vehicle with a mobility or firepower kill.
   vehicleDamagedSmoke,
   rotorWash,
+  // GH-85: the triggers the schema declared and nothing dispatched. A direct-
+  // fire round glancing off (impact_armor) or punching through (penetration)
+  // a hull, a burnt-out hull smouldering on the sim clock (catastrophic_kill),
+  // a Trophy launch (interceptor_launch), a demolition charge going off
+  // (eod_breach) and a smoke launcher's pop (smoke_screen).
+  armorRicochet,
+  armorPenetration,
+  wreckSmoulder,
+  apsLaunch,
+  demolitionBlast,
+  smokeDischarge,
 ];
 
 /** Resolve a palette key like "vfx.fire" or "dust.2" to its hex colour. */
