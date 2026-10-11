@@ -2,7 +2,7 @@
   "unit": "ifv_namer",
   "variant": "team",
   "source": "assets/meshes/vehicles/ifv_namer.glb",
-  "source_sha256": "a585222da0cae93fcfc24f49e5311398ec2a7295392ef5a8e39151c4873a69e9",
+  "source_sha256": "3160bc008e449f6af078fe5481e4828d4b52374657428f4708e0df3daf68acd2",
   "yaw_deg": -125.0,
   "elevation_deg": 18.0,
   "fov_deg": 30.0,

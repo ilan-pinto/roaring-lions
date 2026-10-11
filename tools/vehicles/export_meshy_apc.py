@@ -74,6 +74,7 @@ sys.path.insert(0, HERE)
 from dimetric import metres_per_unit  # noqa: E402
 import kit as vehicle_kit  # noqa: E402
 import textured as vehicle_textured  # noqa: E402
+import bake_fix  # noqa: E402
 
 REPO = os.path.dirname(TOOLS)
 MESHY_DIR = os.path.join(REPO, "art", "meshy")
@@ -102,6 +103,11 @@ class ApcSpec:
     ring_max_across_m: float = 0.9
     tri_cap: int = 10000
     rot_z_deg: float = 180.0
+    # A3.2 phase 2 (2026-10-11): a measured HSV move of one hue band of the
+    # bake (`bake_fix.band_shift` kwargs), and the flat gunmetal square in an
+    # empty UV hole the kit exporter pins its metal faces to.
+    band_shift: Optional[dict] = None
+    metal_patch: bool = False
 
 
 SPECS = {
@@ -121,6 +127,16 @@ SPECS = {
         rws_barrel=0.95,
         ring_seed_m=(-0.67, 0.48),
         gun=(-0.49, 0.09, 0.05),
+        # Fleet olive (A3.2 phase 2, the lead's ruling 2026-10-11: match the
+        # Kipod). Measured over each bake's paint band (sat > 0.22, hue in
+        # the green band; bake_probe.py): Eitan hue 101.5 / sat 0.299 / val
+        # 0.341 against the Kipod's 70.2 / 0.427 / 0.361 -- a blue-green
+        # beside an olive. -31 deg, x1.43, x1.06 lands it on the Kipod's
+        # numbers; the band's lower bound is 85 so the few texels already
+        # at olive are left where they are.
+        band_shift={"sat_min": 0.22, "hue_lo": 85.0, "hue_hi": 165.0,
+                    "hue_shift": -31.0, "sat_mul": 1.43, "val_mul": 1.06},
+        metal_patch=True,
     ),
     # Kipod numbers, measured 2026-09-30 on its 7,9xx-tri remesh: glacis at
     # -X (roof profile 0.036 there, 0.27-0.45 aft), three contact-patch
@@ -153,6 +169,7 @@ SPECS = {
         ring_search_r_m=0.85,
         ring_max_across_m=1.4,
         gun=None,
+        metal_patch=True,
     ),
 }
 
@@ -178,8 +195,17 @@ def _remesh_source(name):
 
 
 def _read_real_metres(spec):
-    with open(os.path.join(REPO, "assets", "sprites", spec.sheet, "manifest.json")) as fh:
-        return json.load(fh)["realMetres"]
+    """The vehicle's real length in metres: `export_mesh_vehicle.SPECS`'
+    literal `real_metres` -- the number the retired sprite manifest
+    (`spec.sheet`, WP-A3.3) carried, copied there at the sheets' retirement
+    -- so the mesh pipeline has ONE declaration per vehicle and this exporter
+    never types a second. Read at export time, never copied here."""
+    import export_mesh_vehicle  # tools/export_mesh_vehicle.py -- definitions only, no module-level work
+    entry = export_mesh_vehicle.SPECS.get(spec.unit_id)
+    if entry is None or entry.real_metres is None:
+        raise SystemExit(f"[{spec.unit_id}] no literal real_metres in export_mesh_vehicle.SPECS "
+                         f"(the {spec.sheet} sprite manifest it used to read is retired, WP-A3.3)")
+    return entry.real_metres
 
 
 def _rename_textures(spec, ob):
@@ -196,6 +222,7 @@ def _rename_textures(spec, ob):
         if img.name != base.name and img.name.endswith("metallic_roughness"):
             img.name = "metallic_roughness"
     print(f"[{spec.unit_id}] images: {[(i.name, tuple(i.size)) for i in bpy.data.images]}")
+    return base
 
 
 def _collapse_gun(spec, ob):
@@ -338,7 +365,11 @@ def export(unit_id, with_rws=True, out_path=None):
     ob = meshes[0]
     print(f"[{unit_id}] source {os.path.relpath(src, REPO)} (remesh task {task_id}): "
           f"{len(ob.data.polygons)} faces, images {[i.name for i in bpy.data.images]}")
-    _rename_textures(spec, ob)
+    base = _rename_textures(spec, ob)
+    if spec.band_shift is not None:
+        bake_fix.band_shift_image(base, unit_id, **spec.band_shift)
+    if spec.metal_patch:
+        bake_fix.paint_metal_patch(ob, base, unit_id)
     if spec.gun is not None:
         _collapse_gun(spec, ob)
     axles = _axles(spec, ob)
