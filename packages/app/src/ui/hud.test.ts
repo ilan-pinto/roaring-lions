@@ -15,10 +15,10 @@
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { units, type KitLevel } from '@lions/data';
 import { Sim, fx, type HitProjection, type UnitTypeJson } from '@lions/sim';
-import { Hud, type HudCommanderInfo, type HudDeps, type MissionView } from './hud';
+import { Hud as HudClass, type HudCommanderInfo, type HudDeps, type MissionView } from './hud';
 import type { KitSummary } from './kit-sign';
 import { alertNotice } from './mission-notice';
 import { closeTip } from './tooltip';
@@ -62,6 +62,68 @@ const TEST_COMMANDER_WITH_ENEMY: HudCommanderInfo = {
  *  something to count, and nothing else. The type is the shipped `inf_squad`
  *  rather than a hand-written stand-in — a stand-in here would only be testing
  *  that the stand-in matches itself. */
+// Nothing a HUD armed may outlive its test. Most of this file builds a `Hud`
+// and never tears it down, which left every feed row's 6-12 s dwell timer and
+// the commander bar's beat-fold timer pending when the file ended -- 40 live
+// `window` timers on a run of 181 tests, counted below. A pending timer closes
+// over the HUD, the HUD holds its deps, and the file's jsdom is torn down
+// around them: harmless on a quiet machine, a "caught after test environment
+// was torn down" error on a starved one that lets the worker outlive its
+// environment. So every `Hud` this file constructs is registered, destroyed
+// after its test, and the timers it armed are counted.
+const madeHuds: HudClass[] = [];
+class Hud extends HudClass {
+  constructor(...args: ConstructorParameters<typeof HudClass>) {
+    super(...args);
+    madeHuds.push(this);
+  }
+}
+
+/** `window` timers armed and neither fired nor cleared, id -> delay. */
+const LONG_TIMER_MS = 1000;
+let liveTimers = new Map<number, number>();
+let realSetTimeout: typeof window.setTimeout;
+let realClearTimeout: typeof window.clearTimeout;
+
+beforeEach(() => {
+  liveTimers = new Map();
+  realSetTimeout = window.setTimeout;
+  realClearTimeout = window.clearTimeout;
+  window.setTimeout = ((fn: TimerHandler, ms?: number, ...rest: unknown[]) => {
+    const id = realSetTimeout.call(
+      window,
+      (...a: unknown[]) => {
+        liveTimers.delete(id);
+        if (typeof fn === 'function') fn(...a);
+      },
+      ms,
+      ...rest
+    ) as unknown as number;
+    liveTimers.set(id, ms ?? 0);
+    return id;
+  }) as typeof window.setTimeout;
+  window.clearTimeout = ((id?: number) => {
+    if (id !== undefined) liveTimers.delete(id);
+    realClearTimeout.call(window, id);
+  }) as typeof window.clearTimeout;
+});
+
+afterEach(() => {
+  try {
+    for (const hud of madeHuds.splice(0)) hud.destroy();
+    // Only the dwell and beat-fold timers (6-12 s) are the leak: they close over
+    // the HUD, and a 7 s timer is what outlives a file. The short tail is by
+    // design -- `destroy()` fades a title card over 250 ms, a punctuated field
+    // flashes for 300 ms, and jsdom arms its own 0 ms timers on `focus()`.
+    const left = [...liveTimers.values()].filter((ms) => ms > LONG_TIMER_MS);
+    expect(left, 'window timers over 1 s still pending after every Hud was destroyed (ms)').toEqual([]);
+  } finally {
+    window.setTimeout = realSetTimeout;
+    window.clearTimeout = realClearTimeout;
+    liveTimers.forEach((_ms, id) => realClearTimeout.call(window, id));
+  }
+});
+
 function makeSim(): { sim: Sim; ids: number[] } {
   const sim = new Sim({ seed: 1, width: 8, height: 8, capacity: 8 });
   const t = sim.addUnitType(units.inf_squad as unknown as UnitTypeJson);

@@ -69,7 +69,8 @@ describe('E5 probe: Gunship at maximum tier (lead ruling 29 Sep: armour track fr
   beforeAll(() => {
     g = airRates(maxTierUnit(stagedUnit('heli_peten_gunship')));
     p = airRates(unitsAtMaxTier.heli_peten);
-  });
+    // Two whole air-rate sweeps; the 10 s hook default timed out under load.
+  }, 60_000);
 
   it('survives 3 trucks no more often than the max-tier Peten survives 2', () => {
     expect(g.survival[3]).toBeLessThanOrEqual(p.survival[2]);
