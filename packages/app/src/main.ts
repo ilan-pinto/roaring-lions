@@ -8,6 +8,7 @@ import { objectiveZonesFor } from './objective-zones';
 import { activeRefuge, evacuationTargets, refugePoint, withEvacuationProgress } from './evacuation';
 import { unitsJustOutside, withOutsideCounts } from './hold-outside';
 import { deadlineWarningLine, deadlineWarnings, failureReason } from './ui/mission-failure';
+import { stallHintLine, stallStart, stallStep, tickIsActive } from './ui/stall-hint';
 import { nameKind, type NamesJson } from './names';
 import { applyRosterCarryover } from './roster-carryover';
 import { logDestroyed, logMissionEvent, newMissionLog, type MissionLog } from './mission-log';
@@ -1813,6 +1814,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // PR 361: deadlines already warned a minute out, and why a lost mission
   // was lost (`ui/mission-failure.ts`).
   let deadlinesWarned: ReadonlySet<string> = new Set();
+  // The stall hint (`ui/stall-hint.ts`): sim-time state, so a paused sim
+  // (no ticks) cannot advance it. `stallActive` collects progress across the
+  // ticks between two looks.
+  let stall = stallStart(0);
+  let stallActive = false;
   let missionFailure: string | null = null;
   /** No refuge, no flight: `CivilianFlight.step` is never run without one. */
   const civWatch = refugeAt ? new CivFlightWatch() : null;
@@ -4430,6 +4436,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // Optional on the interface (`api.ts`) -- Pixi draws no civilians at all
       // and implements nothing.
       renderer.onMissionEvents?.(missionEvents);
+      if (tickIsActive(events, missionEvents)) stallActive = true;
       const intelAnnounce = intelMoments ? sayIntel(intelMoments.afterTick(sim, sim.tickCount, events, runtime.intel)) : [];
       voice.onMission(missionEvents, intelAnnounce);
 
@@ -5042,6 +5049,20 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         audio.playCue(ALERT_CUE.important);
         voice.onMission([], [{ event: 'deadline', params: { label: row.text } }]);
       }
+    }
+    // A mission that has gone quiet with a primary still open says which one
+    // (the interim for GH-540's time limit). Not in the tutorial (its own step
+    // machine), a sandbox (no runtime), a pause or an ended mission.
+    if (runtime && sim.tickCount % 5 === 0) {
+      const look = stallStep(stall, {
+        enabled: stepList === undefined && !paused && !missionEnded && runtime.result === 'ongoing',
+        tick: sim.tickCount,
+        active: stallActive,
+        rows: liveObjectives(),
+      });
+      stall = look.state;
+      stallActive = false;
+      if (look.hint) hud.note(stallHintLine(look.hint), 'info');
     }
     // Show the ground a timed objective is about, and how it is going.
     if (runtime && sim.tickCount % 5 === 0) {

@@ -107,6 +107,8 @@ export function passiveAcrossSeeds(
   ledger: LedgerData = {},
   seeds: readonly number[] = SWEEP_SEEDS
 ): void {
+  // A seed's child process in the plan sweep (`plan-sweep.ts`) runs the winning plans only.
+  if (process.env.PT_PLAN_CHILD === '1') return;
   const control: Control = { label, expect, seeds, got: new Map() };
   const index = controls.push(control) - 1;
   control.got.set(seeds[0], runInline(id, label, expect, ledger, seeds[0], false));
@@ -127,6 +129,11 @@ export function passiveAcrossSeeds(
   }
 }
 
+/** A control runs to its own deadline (4-5 min), so one still ONGOING was at the 20-minute cap. */
+function missLabel(got: string | undefined): string {
+  return got === undefined ? 'no result' : got === 'ongoing' ? 'stuck' : got;
+}
+
 /** Waits for every dispatched seed, stops the workers, and prints one line per control. */
 export async function drainPassiveSweeps(): Promise<void> {
   if (owed.some((o) => o.size > 0)) await new Promise<void>((resolve) => (onIdle = resolve));
@@ -135,7 +142,7 @@ export async function drainPassiveSweeps(): Promise<void> {
     const missed = c.seeds.filter((s) => c.got.get(s) !== c.expect);
     console.log(
       `${c.label}: ${c.expect.toUpperCase()} on ${c.seeds.length - missed.length}/${c.seeds.length} seeds` +
-        (missed.length ? ` -- missed on ${missed.map((s) => `${s} (${c.got.get(s) ?? 'no result'})`).join(', ')}` : '')
+        (missed.length ? ` -- missed on ${missed.map((s) => `${s} (${missLabel(c.got.get(s))})`).join(', ')}` : '')
     );
     if (missed.length) process.exitCode = 1;
   }
