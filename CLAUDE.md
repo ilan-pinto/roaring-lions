@@ -764,6 +764,13 @@ yours; each one records what the next phase inherits.
   `impactPower`. `pnpm atgm:capture` is the instrument, with a `missiles`
   toggle floor and a flash reading, and the lead judges its `flip-<id>.html`
   pages, not the stills.
+  **A Grad rocket (`rocket`, not `mortar`) lays smoke along its real arc too**
+  (GH-85, `data/vfx/rocket_trail.json`): `MissileFx.layShellTrails` puts
+  `emitAlongShell`'s puffs into the SAME lifted `TrailPool`, flagged `PUFF_ROCKET`
+  so they wear the rocket look, and the same sprite mesh draws them -- no new
+  mesh, material or GPU resource, and +1 draw call only while a puff lives (the
+  missile sprite mesh was hidden at zero puffs; 0 more if a missile trail is
+  already drawing). A mortar bomb is unpowered and leaves none.
 - **An arcing round is `vfx.fire`/`vfx.ember`, not `vfx.tracer`** — the new
   `RendererOptions.shellColors`. A landing
   mortar bomb or Grad rocket also throws `data/vfx/shell_impact.json` through

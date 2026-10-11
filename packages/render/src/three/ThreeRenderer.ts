@@ -326,6 +326,7 @@ import {
   MissileFx,
   MISSILE_IMPACT_EMITTER_ID,
   MISSILE_TRAIL_EMITTER_ID,
+  ROCKET_TRAIL_EMITTER_ID,
   MISS_SCORCH_POWER,
 } from './units/missile-fx';
 import type { MissileLanding, TargetTrack } from './units/missiles';
@@ -5115,7 +5116,7 @@ export class ThreeRenderer implements Renderer {
    * `budget_priority` is >= 1, `fire_small_arms.json`'s own floor). A
    * non-zero priority here would have the OPPOSITE effect from what it
    * reads as: `fire_small_arms` (1) and `fire_hmg` (2) -- the two commonest
-   * weapon classes in a firefight -- and both cigarette emitters (1) would
+   * weapon classes in a firefight -- and any other priority-1 emitter would
    * all rank BELOW it and be evicted in ITS favour instead. Always spawns
    * on `FX_LAYER_BELOW`, matching Pixi's `puffs` -- they draw on `fxG` (the
    * below layer) unconditionally, never `fxAboveG`.
@@ -5510,6 +5511,8 @@ export class ThreeRenderer implements Renderer {
     this.collapseShrouds.setColors(resolve);
     // GH-250: the missile trail's look and body colour, same resolver.
     this.missileFx.setLook(this.emitterLibrary.byName(MISSILE_TRAIL_EMITTER_ID), resolve);
+    // GH-85: the Grad's smoke, through the same lifted pool (no extra draw).
+    this.missileFx.setRocketLook(this.emitterLibrary.byName(ROCKET_TRAIL_EMITTER_ID), resolve);
   }
   /**
    * The mesh-unit flag itself: loads `glbUrl` (`art/meshes/<team_id>.glb`
@@ -8251,6 +8254,10 @@ export class ThreeRenderer implements Renderer {
       if (shellHasLanded(s, dtSeconds)) this.spawnShellImpactFx(s);
     }
     this.shells = stepShells(this.shells, dtSeconds);
+    // GH-85: an arcing ROCKET lays smoke along its real arc, on this same
+    // frame clock; a mortar bomb lays none. Before `missileFx.step` below,
+    // which ages and draws the shared pool.
+    this.missileFx.layShellTrails(this.shells, elevation, this.sim.width, this.sim.height);
     this.shellBatch.update(this.shells, this.opts.shellColors, elevation, this.sim.width, this.sim.height);
     // The direct-fire half, identical in shape and different in exactly the
     // three ways the `bolts` field documents -- here, the colour pair.

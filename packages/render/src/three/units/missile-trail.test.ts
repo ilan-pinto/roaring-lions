@@ -3,14 +3,18 @@ import { WEAPON_CLASS } from '@lions/sim';
 import type { EmitterSpec } from '../../vfx';
 import * as terrainShared from '../terrain/shared';
 import { spawnMissile, type MissileLaunch, type MissileModel } from './missiles';
+import { spawnShell, shellPointAt, type ShellModel } from './shells';
 import {
   GLOW_FLICKER,
   TRAIL_DRIFT_TILES_S,
   TRAIL_RISE_PX_S,
   TRAIL_SPACING_TILES,
   TrailPool,
+  PUFF_ROCKET,
   emitAlongFlight,
+  emitAlongShell,
   glowScale,
+  smokeLookFrom,
   missileIgnited,
   trailLookFrom,
   writeMissileSprites,
@@ -194,5 +198,84 @@ describe('writeMissileSprites', () => {
     // core = 12, which must NOT happen.
     expect(spy.mock.calls.length).toBeLessThan(pool.live);
     spy.mockRestore();
+  });
+});
+
+// --- GH-85: the arcing-rocket trail -----------------------------------------
+
+const ROCKET_EMITTER: EmitterSpec = {
+  id: 'rocket_trail', trigger: 'projectile_trail', layer: 'above_units',
+  particles: [
+    { sprite: 'smoke_puff', count: 1, lifetime_ms: 2200, size_px: 3.5, size_over_life: [1.0, 3.6],
+      color_over_life: ['limestone.1', 'limestone.3'], alpha_over_life: [0.8, 0.0] },
+  ],
+};
+const shellY = (_s: ShellModel, liftPx: number): number => liftPx;
+function rocketLook() {
+  const l = smokeLookFrom(ROCKET_EMITTER, resolve);
+  if (l === null) throw new Error('fixture: no rocket look');
+  return l;
+}
+
+describe('smokeLookFrom (GH-85)', () => {
+  it('reads the one smoke layer with every colour resolved, is null with no emitter, and throws with no smoke layer', () => {
+    const l = rocketLook();
+    expect(l.lifeS).toBeCloseTo(2.2);
+    expect(l.radiusPx).toBe(3.5);
+    expect(l.colors).toEqual(['#E6D8BE', '#C8B494']);
+    expect(smokeLookFrom(null, resolve)).toBeNull();
+    expect(() => smokeLookFrom({ ...ROCKET_EMITTER, particles: [] }, resolve)).toThrow(/no smoke_puff layer/);
+  });
+});
+
+describe('emitAlongShell (GH-85)', () => {
+  it('lays a puff every 0.2 tiles at the round\'s real arc height, not on the ground', () => {
+    const pool = new TrailPool(64);
+    const s = spawnShell(0, 0, 10, 0, 0, 'rocket');
+    s.t = s.duration * 0.5; // the apex
+    const n = emitAlongShell(pool, s, rocketLook(), shellY);
+    expect(n).toBe(25); // 5 tiles of ground at 0.2
+    let top = 0;
+    for (let i = 0; i < pool.capacity; i++) if (pool.alive[i] === 1) top = Math.max(top, pool.pWorldY[i]);
+    // The last puff sits at u = 0.5, so its height is the apex's, which is > 0.
+    expect(top).toBeCloseTo(shellPointAt(s, 0.5).liftPx);
+    expect(top).toBeGreaterThan(10);
+    for (let i = 0; i < pool.capacity; i++) if (pool.alive[i] === 1) expect(pool.style[i]).toBe(PUFF_ROCKET);
+  });
+
+  it('never lays the same stretch twice, and a zero-time repaint lays nothing', () => {
+    const pool = new TrailPool(64);
+    const s = spawnShell(0, 0, 10, 0, 0, 'rocket');
+    s.t = 1;
+    const first = emitAlongShell(pool, s, rocketLook(), shellY);
+    expect(first).toBeGreaterThan(0);
+    expect(emitAlongShell(pool, s, rocketLook(), shellY)).toBe(0);
+    s.t = 1.4;
+    const more = emitAlongShell(pool, s, rocketLook(), shellY);
+    expect(more).toBeGreaterThan(0);
+    expect(pool.live).toBe(first + more);
+  });
+
+  it('a mortar bomb leaves no smoke, and a round still waiting on its burst delay leaves none', () => {
+    const pool = new TrailPool(64);
+    const bomb = spawnShell(0, 0, 10, 0, 0, 'mortar');
+    bomb.t = bomb.duration * 0.5;
+    expect(emitAlongShell(pool, bomb, rocketLook(), shellY)).toBe(0);
+    const waiting = spawnShell(0, 0, 10, 0, 0, 'rocket');
+    waiting.t = -0.1;
+    expect(emitAlongShell(pool, waiting, rocketLook(), shellY)).toBe(0);
+    expect(pool.live).toBe(0);
+  });
+
+  it('draws a rocket puff with the rocket look and a missile puff with the missile look, in one buffer', () => {
+    const pool = new TrailPool(64);
+    const rk = rocketLook();
+    const ml = look();
+    pool.emit(1, 1, 0, 2, PUFF_ROCKET);
+    pool.emit(2, 2, 0, 2);
+    const soft = buffers(8);
+    writeMissileSprites([], pool, ml, () => 0, soft, buffers(8), rk);
+    expect(soft.scales[0]).toBeCloseTo(rk.radiusPx);
+    expect(soft.scales[1]).toBeCloseTo(ml.radiusPx);
   });
 });

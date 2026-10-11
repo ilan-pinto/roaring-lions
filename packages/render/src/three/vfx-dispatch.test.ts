@@ -46,20 +46,6 @@ const SILENT: Readonly<Record<string, string>> = {
   suppression_near_miss: "already drawn: every `nearMiss` throws the flat dust puff and the flinch",
 };
 
-/**
- * Authored emitters with NO dispatch on the one renderer we have, recorded as
- * debt with their numbers rather than hidden. Self-cleaning: one that gains a
- * dispatch fails the second case below until it is deleted from here.
- *
- * The cigarette pair rode the retired billboard idle clip (`teams.smoke_pose`,
- * `anim.ts`), which went with the sprite sheets in WP-A3.3; the rigged mesh
- * idle has no smoking beat to fire them on. Found by this test, GH-85.
- */
-const UNDISPATCHED: Readonly<Record<string, string>> = {
-  cigarette_ember: 'billboard-era idle beat, retired in WP-A3.3; the mesh idle has no smoke pose',
-  cigarette_smoke: 'billboard-era idle beat, retired in WP-A3.3; the mesh idle has no smoke pose',
-};
-
 describe('every emitter in data/vfx has a dispatch (GH-85)', () => {
   it('names every non-weapon_fire emitter id in the renderer source', () => {
     const src = renderSource();
@@ -69,18 +55,8 @@ describe('every emitter in data/vfx has a dispatch (GH-85)', () => {
     const unnamed = list
       .filter((e) => e.trigger !== 'weapon_fire')
       .filter((e) => !src.includes(`'${e.id}'`))
-      .map((e) => e.id)
-      .filter((id) => !(id in UNDISPATCHED));
+      .map((e) => e.id);
     expect(unnamed, 'emitters no renderer code looks up by id').toEqual([]);
-  });
-
-  it('carries no stale UNDISPATCHED entry', () => {
-    const src = renderSource();
-    const ids = new Set(authored().map((e) => e.id));
-    for (const id of Object.keys(UNDISPATCHED)) {
-      expect(ids.has(id), `${id} is not in data/vfx any more: delete it from UNDISPATCHED`).toBe(true);
-      expect(src.includes(`'${id}'`), `${id} is dispatched now: delete it from UNDISPATCHED`).toBe(false);
-    }
   });
 
   it('leaves the deliberately silent triggers unauthored', () => {

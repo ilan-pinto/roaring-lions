@@ -44,6 +44,8 @@ import {
   particleBillboardGeometry,
 } from './fx';
 import { FX_RENDER_ORDER, FX_RENDER_ORDER_ADDITIVE } from './render-order';
+import { SHELL_LIFT_PX } from './fx';
+import type { ShellModel } from './shells';
 import {
   MISSILE_CAPACITY,
   spawnMissile,
@@ -63,6 +65,8 @@ import {
   TrailPool,
   trailLookFrom,
   emitAlongFlight,
+  emitAlongShell,
+  smokeLookFrom,
   missileIgnited,
   writeMissileSprites,
   TRAIL_CAPACITY,
@@ -70,10 +74,12 @@ import {
   MISSILE_BODY_WIDTH_PX,
   MISSILE_BODY_COLOR_KEY,
   type TrailLook,
+  type SmokeLook,
   type SpriteBuffers,
 } from './missile-trail';
 
 export const MISSILE_TRAIL_EMITTER_ID = 'missile_trail';
+export const ROCKET_TRAIL_EMITTER_ID = 'rocket_trail';
 export const MISSILE_IMPACT_EMITTER_ID = 'missile_impact';
 export const MISS_SCORCH_POWER = 0.15;
 
@@ -141,6 +147,8 @@ export class MissileFx {
   private readonly scratchMatrix = new THREE.Matrix4();
 
   private look: TrailLook | null = null;
+  /** The arcing-rocket smoke (`rocket_trail`); null until its emitter is wired. */
+  private rocketLook: SmokeLook | null = null;
   /** The arrays `step` and `intercept` return, cleared and refilled on each
    *  call rather than allocated -- see those methods. Two, not one, so an
    *  `aps` event handled between frames cannot clobber a step's landings. */
@@ -177,6 +185,13 @@ export class MissileFx {
    */
   private readonly trailWorldYAt = (_m: MissileModel, liftPx: number, u: number): number =>
     lerpMissileWorldY(this.curLaunchY, this.curImpactY, u, liftPx);
+
+  /** `emitAlongShell`'s height callback, bound once like `trailWorldYAt`. It
+   *  is `shellSegmentQuad`'s own rule -- ground lerped launch to impact, plus
+   *  `SHELL_LIFT_PX` and the parabola -- so a puff sits on the streak the
+   *  round draws. */
+  private readonly shellTrailWorldYAt = (_s: ShellModel, liftPx: number, u: number): number =>
+    lerpMissileWorldY(this.curLaunchY, this.curImpactY, u, SHELL_LIFT_PX + liftPx);
 
   /** The terrain `step()` was handed, for `spriteWorldYAt` -- set once at
    *  the top of each `step()`, the `curLaunchY` pattern. */
@@ -281,6 +296,30 @@ export class MissileFx {
     this.bodyColor = hexToLinear(resolve(MISSILE_BODY_COLOR_KEY));
   }
 
+  /** The rocket trail's look; `em` null before `useEmitters` has run. */
+  setRocketLook(em: EmitterSpec | null, resolve: (k: string) => string): void {
+    this.rocketLook = smokeLookFrom(em, resolve);
+  }
+
+  /**
+   * Lays this frame's smoke for every arcing ROCKET in `shells` (a Grad; a
+   * mortar bomb is unpowered and never trails). Call it once per frame, after
+   * the shells have been stepped and BEFORE `step`, which ages and draws the
+   * pool: a puff laid here gets age 0 this frame, the missile ordering.
+   * Frame clock throughout -- the rocket's own `t` is real seconds -- so a
+   * zero-time repaint lays nothing (`trailTiles` is already at the round).
+   */
+  layShellTrails(shells: readonly ShellModel[], elevation: ElevationSource, w: number, h: number): void {
+    const look = this.rocketLook;
+    if (look === null) return;
+    for (const s of shells) {
+      if (s.kind !== 'rocket') continue;
+      this.curLaunchY = groundWorldY(elevation, w, h, s.sx, s.sy);
+      this.curImpactY = groundWorldY(elevation, w, h, s.tx, s.ty);
+      emitAlongShell(this.trail, s, look, this.shellTrailWorldYAt);
+    }
+  }
+
   launch(l: MissileLaunch): MissileModel | null {
     const m = spawnMissile(l);
     if (m === null) return null;
@@ -374,7 +413,8 @@ export class MissileFx {
         this.look,
         this.spriteWorldYAt,
         this.spriteScratch,
-        this.coreScratch
+        this.coreScratch,
+        this.rocketLook
       );
       softCount = counts.soft;
       coreCount = counts.core;
