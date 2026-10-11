@@ -17,4 +17,15 @@ describe('LocalTransport', () => {
     expect(t.status()).toEqual({ kind: 'local' });
     expect(t.local).toBe(true);
   });
+
+  it('puts a command queued after a take into the first frame of the next take, and seq keeps rising', () => {
+    const t = new LocalTransport();
+    t.queueCommand({ kind: 'halt', ids: [1] });
+    t.take(2);
+    t.queueCommand({ kind: 'halt', ids: [2] });
+    const next = t.take(2);
+    expect(next.map((f) => f.tick)).toEqual([2, 3]);
+    expect(next[0].cmds).toEqual([{ seat: 0, seq: 1, cmd: { kind: 'halt', ids: [2] } }]);
+    expect(next[1].cmds).toEqual([]);
+  });
 });
