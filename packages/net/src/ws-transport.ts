@@ -46,6 +46,28 @@ export interface WsTransportHooks {
 }
 
 type Stalled = Extract<TransportStatus, { kind: 'stalled' }>;
+type StallKind = Stalled['reason'];
+
+/**
+ * What this seat has SEEN of the room, counted, so a run can show positive
+ * evidence that hashes were compared rather than "nothing appeared" (N0 final
+ * review I1). Read back through `stats()`; nothing here changes behaviour.
+ */
+export interface NetStats {
+  /** `hashOk`s received: the room paired both seats' hashes and they agreed. */
+  hashOk: { count: number; lastTick: number | null };
+  /** Stalls by reason, each counted once from its start to the next change
+   *  (a different reason, a `resume`, a `log`, or the lobby after a drop).
+   *  `longestMs` includes a stall still open when read. */
+  stalls: Record<StallKind, { count: number; longestMs: number }>;
+  /** Drops that came back: `count` links re-established (a `log`, or the
+   *  lobby before the start); `lastOutageMs` from the drop to that answer;
+   *  `lastReplayMs` from the `log` to this seat having run it down to its
+   *  buffer, null until it has. */
+  reconnects: { count: number; lastOutageMs: number | null; lastReplayMs: number | null };
+  /** The tick the room reported a desync at, else null. */
+  desyncTick: number | null;
+}
 
 export class WsTransport implements MatchTransport {
   readonly local = false;
@@ -57,14 +79,64 @@ export class WsTransport implements MatchTransport {
   private st: TransportStatus = { kind: 'waiting' };
   private stalled: Stalled | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly counts: NetStats = {
+    hashOk: { count: 0, lastTick: null },
+    stalls: { behind: { count: 0, longestMs: 0 }, gone: { count: 0, longestMs: 0 }, connecting: { count: 0, longestMs: 0 } },
+    reconnects: { count: 0, lastOutageMs: null, lastReplayMs: null },
+    desyncTick: null,
+  };
+  /** The stall being timed: its reason and when it began. */
+  private openStall: { reason: StallKind; since: number } | null = null;
+  /** When the link dropped, until the room answers again. */
+  private droppedAt: number | null = null;
+  /** When a reconnect's `log` arrived, until this seat has run it down. */
+  private replayFrom: number | null = null;
 
   constructor(
     private readonly open: () => SocketLike,
     private readonly ticket: string,
     private readonly build: string,
     private readonly hooks: WsTransportHooks,
+    /** Wall-clock ms, for the stall and reconnect timings only. */
+    private readonly now: () => number = () => Date.now(),
   ) {
     this.connect();
+  }
+
+  /** Every write of the stall goes through here, so the counters see each
+   *  start and end. A change of reason ends one stall and starts another; a
+   *  repeat of the same reason (another seat, the room saying it again) is
+   *  the same stall. */
+  private setStalled(next: Stalled | null): void {
+    const at = this.now();
+    const open = this.openStall;
+    if (open !== null && (next === null || next.reason !== open.reason)) {
+      const s = this.counts.stalls[open.reason];
+      s.longestMs = Math.max(s.longestMs, at - open.since);
+      this.openStall = null;
+    }
+    if (next !== null && this.openStall === null) {
+      this.counts.stalls[next.reason].count++;
+      this.openStall = { reason: next.reason, since: at };
+    }
+    this.stalled = next;
+  }
+  /** The room answered a reconnect (a `log`, or the lobby before the start). */
+  private relinked(): void {
+    if (this.droppedAt === null) return;
+    this.counts.reconnects.count++;
+    this.counts.reconnects.lastOutageMs = this.now() - this.droppedAt;
+    this.droppedAt = null;
+  }
+
+  /** A snapshot of the counters: a fresh object, so a caller cannot change them. */
+  stats(): NetStats {
+    const c = structuredClone(this.counts);
+    if (this.openStall !== null) {
+      const s = c.stalls[this.openStall.reason];
+      s.longestMs = Math.max(s.longestMs, this.now() - this.openStall.since);
+    }
+    return c;
   }
 
   private connect(): void {
@@ -80,12 +152,14 @@ export class WsTransport implements MatchTransport {
     s.onclose = (ev) => {
       if (this.closed || this.terminal()) return;
       if (ev.code === REPLACED_CLOSE_CODE) {
-        this.stalled = null;
+        this.setStalled(null);
         this.st = { kind: 'closed', reason: 'replaced' };
         return;
       }
-      this.stalled = { kind: 'stalled', reason: 'connecting', seat: null };
-      this.st = this.stalled;
+      this.droppedAt ??= this.now();
+      const s: Stalled = { kind: 'stalled', reason: 'connecting', seat: null };
+      this.setStalled(s);
+      this.st = s;
       if (this.reconnectTimer === null) this.reconnectTimer = setTimeout(() => this.connect(), RECONNECT_DELAY_MS);
     };
   }
@@ -111,7 +185,7 @@ export class WsTransport implements MatchTransport {
     switch (msg.t) {
       case 'lobby':
         // A reconnect before the start lands back in the lobby, not in a stall.
-        if (this.config === null) { this.stalled = null; this.st = { kind: 'waiting' }; }
+        if (this.config === null) { this.relinked(); this.setStalled(null); this.st = { kind: 'waiting' }; }
         this.hooks.onLobby?.(msg.seats, msg.you);
         return;
       case 'start':
@@ -123,7 +197,8 @@ export class WsTransport implements MatchTransport {
         // which discards the head of the log it already ran.
         if (this.config === null) this.begin(msg.config);
         for (const f of msg.frames) this.clock.push(f);
-        this.stalled = null;
+        if (this.droppedAt !== null) { this.relinked(); this.replayFrom = this.now(); }
+        this.setStalled(null);
         this.st = { kind: 'live', behind: this.clock.behind() };
         return;
       case 'frame': {
@@ -132,14 +207,22 @@ export class WsTransport implements MatchTransport {
         if (this.stalled === null) this.st = { kind: 'live', behind: this.clock.behind() };
         return;
       }
-      case 'stall': this.stalled = { kind: 'stalled', reason: msg.reason, seat: msg.seat }; this.st = this.stalled; return;
-      case 'resume': this.stalled = null; this.st = { kind: 'live', behind: this.clock.behind() }; return;
-      case 'hashOk': return;
-      case 'desync': this.st = { kind: 'desync', tick: msg.tick }; this.hooks.onDesync?.(msg.tick, msg.hashes); return;
-      case 'ended': this.st = { kind: 'closed', reason: msg.reason }; this.hooks.onEnded?.(msg.reason); return;
+      case 'stall': {
+        const s: Stalled = { kind: 'stalled', reason: msg.reason, seat: msg.seat };
+        this.setStalled(s);
+        this.st = s;
+        return;
+      }
+      case 'resume': this.setStalled(null); this.st = { kind: 'live', behind: this.clock.behind() }; return;
+      case 'hashOk': this.counts.hashOk.count++; this.counts.hashOk.lastTick = msg.tick; return;
+      case 'desync':
+        this.counts.desyncTick = msg.tick;
+        this.setStalled(null);
+        this.st = { kind: 'desync', tick: msg.tick }; this.hooks.onDesync?.(msg.tick, msg.hashes); return;
+      case 'ended': this.setStalled(null); this.st = { kind: 'closed', reason: msg.reason }; this.hooks.onEnded?.(msg.reason); return;
       case 'error':
         this.hooks.onError?.(msg.code);
-        if (msg.code === 'bad_ticket' || msg.code === 'build_mismatch') this.st = { kind: 'closed', reason: msg.code };
+        if (msg.code === 'bad_ticket' || msg.code === 'build_mismatch') { this.setStalled(null); this.st = { kind: 'closed', reason: msg.code }; }
         return;
     }
   }
@@ -154,6 +237,10 @@ export class WsTransport implements MatchTransport {
     if (this.st.kind !== 'live' && this.st.kind !== 'stalled') return [];
     const out = this.clock.take(maxTicks);
     if (this.st.kind === 'live') this.st = { kind: 'live', behind: this.clock.behind() };
+    if (this.replayFrom !== null && this.clock.behind() <= this.clock.bufferTicks) {
+      this.counts.reconnects.lastReplayMs = this.now() - this.replayFrom;
+      this.replayFrom = null;
+    }
     return out;
   }
   reportTick(tick: number, digest: number | null): void {
@@ -166,6 +253,7 @@ export class WsTransport implements MatchTransport {
     if (this.reconnectTimer !== null) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
     this.send({ t: 'bye' });
     this.sock?.close();
+    this.setStalled(null);
     this.st = { kind: 'closed', reason: 'left' };
   }
 }
