@@ -5,7 +5,9 @@ import { Sim, TICKS_PER_SECOND, type UnitTypeJson } from './sim';
 // Attack-move must not end in a staring contest. When a unit has no current
 // contact it advances on the last place the enemy was seen, the way troops
 // actually clear ground — instead of parking while a hidden defender waits
-// out the mission clock.
+// out the mission clock. Since 2026-10-11 that is an order the caller asks for
+// (`sweep: true` — AI waves, scripted commits); a plain attack-move holds where
+// it was sent (orders-obeyed.test.ts).
 
 const RIFLES: UnitTypeJson = {
   id: 'w_inf',
@@ -31,7 +33,7 @@ describe('sweeping toward the last known contact', () => {
     const hunter = sim.spawn(inf, 0, fx.from(4.5), fx.from(8.5));
     // A quarry that is seen, then steps out of sight behind a wall.
     const quarry = sim.spawn(inf, 1, fx.from(11.5), fx.from(8.5));
-    sim.queueCommand({ kind: 'attackMove', ids: [hunter], x: fx.from(6.5), y: fx.from(8.5) });
+    sim.queueCommand({ kind: 'attackMove', ids: [hunter], x: fx.from(6.5), y: fx.from(8.5), sweep: true });
     for (let t = 0; t < 6 * TICKS_PER_SECOND; t++) sim.tick(); // acquire contact
 
     // The quarry withdraws far away; the hunter has arrived at its goal.
@@ -51,7 +53,7 @@ describe('sweeping toward the last known contact', () => {
     const inf = sim.addUnitType(RIFLES);
     const hunter = sim.spawn(inf, 0, fx.from(4.5), fx.from(8.5));
     const quarry = sim.spawn(inf, 1, fx.from(10.5), fx.from(8.5));
-    sim.queueCommand({ kind: 'attackMove', ids: [hunter], x: fx.from(6.5), y: fx.from(8.5) });
+    sim.queueCommand({ kind: 'attackMove', ids: [hunter], x: fx.from(6.5), y: fx.from(8.5), sweep: true });
     for (let t = 0; t < 6 * TICKS_PER_SECOND; t++) sim.tick();
     sim.debugKill(quarry); // contact remembered, enemy gone
 
@@ -79,7 +81,7 @@ describe('sweeping toward the last known contact', () => {
     const force: number[] = [];
     for (let k = 0; k < 2; k++) force.push(sim.spawn(inf, 0, fx.from(3.5), fx.from(8.5 + k)));
     const holdout = sim.spawn(inf, 1, fx.from(25.5), fx.from(9.5));
-    sim.queueCommand({ kind: 'attackMove', ids: force, x: fx.from(20.5), y: fx.from(9.5) });
+    sim.queueCommand({ kind: 'attackMove', ids: force, x: fx.from(20.5), y: fx.from(9.5), sweep: true });
 
     // Contact is made at range, then the defender breaks off behind the
     // building before the volume of fire tells.
@@ -105,7 +107,7 @@ describe('sweeping toward the last known contact', () => {
       for (let k = 0; k < 4; k++) force.push(sim.spawn(inf, 0, fx.from(3.5), fx.from(6.5 + k)));
       sim.spawn(inf, 1, fx.from(28.5), fx.from(5.5));
       sim.spawn(inf, 1, fx.from(30.5), fx.from(14.5));
-      sim.queueCommand({ kind: 'attackMove', ids: force, x: fx.from(26.5), y: fx.from(10.5) });
+      sim.queueCommand({ kind: 'attackMove', ids: force, x: fx.from(26.5), y: fx.from(10.5), sweep: true });
       for (let t = 0; t < 1200; t++) sim.tick();
       return sim.hash();
     };

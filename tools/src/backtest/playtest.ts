@@ -1097,6 +1097,12 @@ const wadiHalam5Plan: Plan = (sim, _rt, ids, at) => {
   // here", and a wave that breaks and runs pulls a pursuing force out past
   // the zone edge.
   at(40, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(33, 12) }));
+  // The screen steps out to the depot's south-east corner to meet what comes at the D9 there.
+  // Until 2026-10-11 nobody ordered this: an attack-move that had arrived walked on by itself to
+  // the nearest contact its side remembered, and at 103 s that hunt took the screen to (38,19).
+  // The gate-open run lost its D9 to a mobility kill at (36,9) without it, and the raze with it.
+  // A player's attack-move stops where it is sent now (the lead's ruling), so the plan says it.
+  at(103, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(38, 19) }));
   for (let when = 85; when <= 400; when += 45) {
     at(when, () => {
       const cur: number[] = [];
@@ -1977,6 +1983,12 @@ run(
     });
     at(60, () => sim.queueCommand({ kind: 'attackMove', ids: foot, ...M(15, 20) }));
     at(100, () => sim.queueCommand({ kind: 'attackMove', ids: tank, ...M(29, 27) }));
+    // The observer down, the rifles and the Lavi go east onto the gully's far bank and clear
+    // it for the demolition party. Until 2026-10-11 this leg was never written: an attack-move
+    // that had arrived walked on by itself to the nearest contact its side remembered, and
+    // this plan's victory rode on that hunt. A player's attack-move stops where it is sent
+    // now (the lead's ruling), so the plan says what the hunt used to do on its own.
+    at(104, () => sim.queueCommand({ kind: 'attackMove', ids: [...foot, ...tank], ...M(36, 19) }));
     // Up the gully, one level below its banks, to the cache at its head.
     at(130, () => sim.queueCommand({ kind: 'move', ids: demo, ...M(28, 23) }));
   },
@@ -2243,6 +2255,15 @@ const qarnHadid3Plan: Plan = (sim, _rt, ids, at) => {
     sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 30) });
   });
   at(60, () => sim.queueCommand({ kind: 'attackMove', ids: main, ...M(19, 16) }));
+  // Three legs a player has to give since 2026-10-11, when an arrived attack-move stopped
+  // walking on by itself to the nearest contact its side remembered (the lead's ruling).
+  // This plan's victory rode on that hunt, measured leg by leg with the old behaviour: the
+  // main body went west onto the relay (10,16) as it reached (19,16), then east to the notch
+  // post (33,15), and the carriers and the demolition squad on into the thorn grove (39,19)
+  // before the push on the terraces. Written out here as orders, at the times the hunt took them.
+  at(75, () => sim.queueCommand({ kind: 'attackMove', ids: main, ...M(10, 16) }));
+  at(110, () => sim.queueCommand({ kind: 'attackMove', ids: main, ...M(33, 15) }));
+  at(138, () => sim.queueCommand({ kind: 'attackMove', ids: [...armour, ...namer, ...demo], ...M(39, 19) }));
   at(160, () => sim.queueCommand({ kind: 'attackMove', ids: main, ...M(28, 11) }));
   at(130, () => sim.queueCommand({ kind: 'move', ids: civTeam, ...M(23, 3) }));
 };
@@ -2754,10 +2775,16 @@ function boughtProbe(
 // campaign chain's ledger fielded a third rifle squad here. Four tiles north, (42,24), it
 // identifies a route and fires no round; (40,26) and (36,26) also identify one but get into a
 // fight (36-39 rounds), and (38,28) and (34,30) still read nothing. Measured, one run each.
+// 2026-10-11, a player's attack-move stops where it is sent: (42,24) is two tiles from the
+// mortar_line marker (44,24), where the 150 s wave appears, and it had survived only because the
+// plan used to end at 2.5 min -- its rifles' hunt finished the shaft head early. Ending at 2.6
+// min now, the Zikit died there at 153 s to the wave's own militia. Three tiles south, (42,27),
+// it identifies 2 units and the route on 11 rounds and is alive at the end; (40,26), (36,26)
+// and (40,28) also survive (49 / 51 / 9 rounds). Measured, one run each.
 boughtProbe('beit_sahwan_4_subterranean', bs4Plan, led4In, 'recon_zikit', 30, 'sees', (mine) => ({
   kind: 'move',
   ids: mine,
-  ...M(42, 24),
+  ...M(42, 27),
 }));
 // The Gunship is built on the first tick (50 s) and joins the `raze` approach: an
 // attack-move to the stockpile the depot escort is already walking to.
@@ -3245,7 +3272,16 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // 170 -> 180, V 200 -> 180 (I and IV read 160 and 170 as before). II and V are contested every
 // 25-45 s now and bring fewer units home; III's thinner echelons (the lead's ruling: mean clock
 // <= 6.0 min) cost it less than its two old waves did. ROE stays 100/100/100/70/100; no star moved.
-const LADDER_CREDITS = 5850;
+// 2026-10-11, a halt holds and a player's attack-move stops where it is sent (the lead's
+// ruling; sim.ts's `sweep` on the order): 5850 -> 5947, +97, read off the printed per-mission
+// credits. Every term is a clock, Conduct or survivor count moving because units that used to
+// walk on from their goal to the nearest contact their side remembered now hold there: Beit Sahwan III 249 -> 275
+// (ROE 89 -> 95), Khan Rafid II 185 -> 215, Deir Amun II 247 -> 257, Qarn Hadid III 221 -> 235
+// (ROE 96 -> 100), Umm Zeitoun III 260 -> 270, IV 235 -> 252, Wadi Halam II 170 -> 180; against
+// Wadi Halam I 160 -> 150 and Umm Zeitoun II 230 -> 220. No star moved. Four plans now carry
+// legs the hunt used to walk for them (Tel Marum II, Qarn Hadid III, Wadi Halam V; Beit Sahwan
+// IV's bought Zikit moved off the wave's spawn tile) -- see each plan's own comment.
+const LADDER_CREDITS = 5947;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
@@ -3372,7 +3408,9 @@ for (const [label, got, want] of [
 // GH-382 (Tel Marum): 32 -> 33, same mission: the new Tel Marum III plan loses no unit, so one more reaches the end of the chain.
 // 2026-10-05, infantry halt to fire: 33 -> 31, same mission. Foot units no longer fire on the move
 // and kneel before the first shot, so two fewer of the chain's units reach the end of it.
-const ROSTER_MAX = 31;
+// 2026-10-11, a player's attack-move stops where it is sent: 31 -> 32, same mission. One more of
+// the chain's units holds where it was sent instead of walking on at a remembered contact.
+const ROSTER_MAX = 32;
 console.log(`roster maximum: ${rosterMax} at ${rosterMaxMissionId}`);
 if (rosterMax !== ROSTER_MAX) {
   console.error(`roster maximum: FAILED — expected ${ROSTER_MAX}, got ${rosterMax} at ${rosterMaxMissionId}`);
