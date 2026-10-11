@@ -110,6 +110,7 @@ describe('room-core', () => {
     const st = running();
     const collected = [...frames(clockTick(st, 50)), ...frames(clockTick(st, 100))];
     const fx = seatJoin(st, 1, 'p1', 'Guest', 200, () => collected);
+    expect(fx).toContainEqual({ kind: 'close', seat: 1 });
     const log = sends(fx).find((s) => s.msg.t === 'log')?.msg;
     expect(log && log.t === 'log' ? log.frames.map((f) => f.tick) : null).toEqual([0, 1]);
     const st2 = createRoom('ABCDEF', 'm1', 0);
@@ -132,5 +133,71 @@ describe('room-core', () => {
     const revived: RoomState = JSON.parse(JSON.stringify(st));
     const [f] = frames(clockTick(revived, 150));
     expect(f.tick).toBe(2);
+  });
+
+  it('does not carry lobby silence into the match: a late second ready still gets a frame, not a stall', () => {
+    const st = createRoom('ABCDEF', 'm1', 0);
+    seatJoin(st, 0, 'p0', 'Host', 0);
+    seatJoin(st, 1, 'p1', 'Guest', 0);
+    seatMessage(st, 0, { t: 'ready' }, 0, mint);
+    seatMessage(st, 1, { t: 'ready' }, 10_000, mint);
+    const fx = clockTick(st, 10_050);
+    expect(st.status).toBe('running');
+    expect(sends(fx).some((s) => s.msg.t === 'stall')).toBe(false);
+    expect(frames(fx)).toHaveLength(1);
+  });
+
+  it('a stall longer than 2 s does not deadlock: the healthy seat is not judged silent, and a reconnect resumes', () => {
+    const st = running();
+    clockTick(st, 50);
+    seatGone(st, 1, 100);
+    clockTick(st, 150);
+    expect(st.stall).toEqual({ reason: 'gone', seat: 1 });
+    const mid = clockTick(st, 5_000);   // seat 0 has sent nothing for 5 s: it is waiting, not gone
+    expect(st.status).toBe('stalled');
+    expect(st.stall).toEqual({ reason: 'gone', seat: 1 });
+    expect(sends(mid)).toHaveLength(0);
+    const fx = seatJoin(st, 1, 'p1', 'Guest', 5_100, () => []);
+    expect(sends(fx).some((s) => s.msg.t === 'resume')).toBe(true);
+    expect(st.status).toBe('running');
+    seatMessage(st, 1, { t: 'ack', tick: 0 }, 5_110, mint);
+    expect(st.status).toBe('running');
+    expect(frames(clockTick(st, 5_150))).toHaveLength(1);   // seat 0's silence was reset on resume
+  });
+
+  it('re-announces a stall whose cause changes, and says nothing while it does not', () => {
+    const st = running();
+    clockTick(st, 50);
+    seatGone(st, 1, 100);
+    expect(st.stall).toEqual({ reason: 'gone', seat: 1 });
+    expect(sends(clockTick(st, 150))).toHaveLength(0);
+    const fx = seatGone(st, 0, 200);
+    expect(sends(fx).map((s) => s.msg)).toEqual([{ t: 'stall', reason: 'gone', seat: 0 }]);
+    expect(st.stall).toEqual({ reason: 'gone', seat: 0 });
+  });
+
+  it('keeps the hash table bounded: no replays, no forged ticks, at most 16 open entries', () => {
+    const st = running();
+    for (const tick of [20, 40]) for (const seat of [0, 1] as const) seatMessage(st, seat, { t: 'hash', tick, h: 1 }, 0, mint);
+    for (const tick of [20, 40]) for (const seat of [0, 1] as const) seatMessage(st, seat, { t: 'hash', tick, h: 1 }, 0, mint);   // replays
+    // a replay of a compared tick with a different value must not re-open the comparison and void the match
+    seatMessage(st, 0, { t: 'hash', tick: 20, h: 1 }, 0, mint);
+    const replayed = seatMessage(st, 1, { t: 'hash', tick: 20, h: 2 }, 0, mint);
+    expect(replayed).toEqual([]);
+    expect(st.status).toBe('running');
+    seatMessage(st, 0, { t: 'hash', tick: 2_000_000_000, h: 1 }, 0, mint);
+    seatMessage(st, 0, { t: 'hash', tick: -7, h: 1 }, 0, mint);
+    for (let i = 0; i < 20; i++) seatMessage(st, 0, { t: 'hash', tick: 100 + i, h: 1 }, 0, mint);
+    const open = Object.keys(st.hashes).map(Number);
+    expect(open.length).toBeLessThanOrEqual(16);
+    expect(open.every((t) => t > st.lastHashTick && t >= 0)).toBe(true);
+    expect(st.lastHashTick).toBe(40);
+  });
+
+  it('ignores a hash in the lobby', () => {
+    const st = createRoom('ABCDEF', 'm1', 0);
+    seatJoin(st, 0, 'p0', 'Host', 0);
+    seatMessage(st, 0, { t: 'hash', tick: 20, h: 1 }, 0, mint);
+    expect(st.hashes).toEqual({});
   });
 });
