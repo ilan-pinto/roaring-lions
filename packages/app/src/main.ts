@@ -231,6 +231,11 @@ import { bindLiveTeamColors } from './live-team-colors';
 import { garageColors, garageGroundTexture, garageModelSource } from './garage-model-source';
 import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
+import type { Seat } from '@lions/net';
+import { connectMatch, type Connected } from './net/connect';
+import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
+import { roomFlags } from './net/room-flags';
+import { NetStatusLine } from './ui/net-status';
 import { lightOverrideOf, timeOfDayOf } from './time-of-day';
 import { buildingFitOf } from './building-fit-flag';
 import { registerServiceWorker } from './service-worker';
@@ -300,6 +305,11 @@ function briefingLayout(
 }
 
 const MS_PER_TICK = 1000 / TICKS_PER_SECOND;
+/** In a room the room's clock is the only clock (R33): a render frame runs up
+ *  to this many of the frames the transport holds, whatever the local pause
+ *  or speed, so a client that fell behind catches up at 4x without one long
+ *  frame. Single-player keeps its accumulator. */
+const MAX_CATCHUP_TICKS = 4;
 
 /** The briefing's ground photograph, px a side: a 48-tile map at about 13 px
  *  a tile, sharp on the ~580 px frame a 1400x900 screen gives it and on the
@@ -1399,6 +1409,13 @@ export interface BattlefieldRequest {
  */
 async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Promise<Disposer> {
   const params = req.query;
+  /** N0: `?net=new|<code>` runs this sandbox in a two-seat lockstep room. A
+   *  room runs the sandbox only, and no sandbox flag reaches its sim: two
+   *  machines must boot the same world, so a flag one player typed would
+   *  desync them at tick 0. Decided here, before the kit below reads `&kit`. */
+  const inRoom = params.get('net') !== null;
+  if (inRoom && req.missionId !== null) throw new Error('N0: a room runs the sandbox only -- open /free-play/<map>?net=new');
+  const flags = roomFlags(readFlags(params), inRoom, (k) => console.warn(`[net] sandbox flag &${k} is ignored in a room`));
   const audio = battleAudio();
   const { boughtUnits, ownedTiers } = accountState();
   /** The bought kit, read ONCE from the account through `accountState()`
@@ -1411,8 +1428,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const roster = Object.values(units);
   /** `&kit` (sandbox only, WP-S3g plan 2) swaps the account's tiers for the
    *  fixed ladder BEFORE the one prepass, so the swap reaches the sim, the HUD
-   *  card and the unit icons together; a mission never takes it (`bootTiers`). */
-  const bootKit = bootTiers(ownedTiers, { mission: req.missionId !== null, kitFlag: readFlags(params).kit }, roster);
+   *  card and the unit icons together; a mission never takes it (`bootTiers`).
+   *  A room takes the base ladder for everyone (the config's `kit: 'matched'`):
+   *  each machine's own brigade account would otherwise give the two sims
+   *  different unit stats, and they would part at the first shot. */
+  const bootKit = inRoom ? {} : bootTiers(ownedTiers, { mission: req.missionId !== null, kitFlag: flags.kit }, roster);
   const prepass = upgradePrepass(roster, bootKit);
   const kitByType = prepass.kitByType;
   /** The one level every unit ICON reads (WP-S3g plan 2b): the prepass's own
@@ -1590,7 +1610,6 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // been and a check for one subsystem is not buried under three others.
   // Parsed from SANDBOX_FLAGS rather than named here, so the banner below
   // cannot document a different set than this line reads.
-  const flags = readFlags(params);
   const wantRoe = flags.roe;
   const wantTunnel = flags.tunnel;
   const wantSur = flags.sur;
@@ -1617,6 +1636,38 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     );
   }
   const mapId = mission?.map.file ?? (sandboxMap && sandboxMap in maps ? sandboxMap : 'beit_sahwan_outskirts');
+  // The transport, resolved before the sim exists (spec §3.3): a
+  // `LocalTransport` in single-player, else a room, which resolves at its
+  // `start` with the seed and the map both machines run. The build string is
+  // version AND commit (R8): two deploys of one patch share `__APP_BUILD__`,
+  // and a room must refuse a pair whose code differs.
+  let match: Connected;
+  try {
+    match = await connectMatch(params, mapId, `${__APP_BUILD__}+${__APP_COMMIT__}`, {
+      fetch: window.fetch.bind(window),
+      origin: location.origin,
+      openSocket: (url) => new WebSocket(url),
+      replaceUrl: (code, seat) => {
+        const u = new URL(location.href);
+        u.searchParams.set('net', code);
+        u.searchParams.set('seat', String(seat));
+        history.replaceState(history.state, '', u);
+      },
+      note: (text) => console.info(`[net] ${text}`),
+      signal: req.signal,
+    });
+  } catch (err) {
+    teardown();
+    throw err;
+  }
+  const transport = match.transport;
+  onDispose(() => transport.close());
+  const netSeat: Seat | null = match.seat;
+  const netConfig = match.config;
+  if (netConfig !== null && netConfig.map !== mapId) {
+    teardown();
+    throw new Error(`N0: room ${netConfig.code} plays "${netConfig.map}", but this URL asks for "${mapId}" -- open /free-play/${netConfig.map}?net=${netConfig.code}`);
+  }
   /** The boot banner and the body of `__lions.help()` — one text, so what a
    *  sandbox prints on load and what the console answers can never disagree. */
   const helpText = (): string =>
@@ -1650,7 +1701,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // many stand at once. First Light puts 104 attackers, 7 defenders and 11
   // civilians through it before the player buys anything, and running out is a
   // thrown error mid-mission, not a graceful cap.
-  const sim = new Sim({ seed: SIM_SEED, width: map.width, height: map.height, capacity: 256 });
+  const sim = new Sim({ seed: netConfig?.seed ?? SIM_SEED, width: map.width, height: map.height, capacity: 256 });
+  /** What the ownership check asks of the live sim: single-player is seat 0
+   *  on side 0 (R10), so the check runs on one code path, room or none. */
+  const seatWorld = seatWorldFor(netConfig, sim);
   // Cover AND blocked terrain, through the one function all three world
   // builders share. Rock ridges arrive here; before this existed, `map.blocked`
   // was filled by parseMap and read by nobody.
@@ -3540,8 +3594,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // to the same stream, which is the only way it learns about selection and
   // overlay — facts the sim does not have.
   const intentListeners: ((intent: PlayerIntent) => void)[] = [];
+  // The command goes to the TRANSPORT, never straight into the sim: in a
+  // room it reaches both sims in the same frame, and in single-player the
+  // `LocalTransport` hands it to the next tick exactly as `queueCommand` did.
   const dispatch = (intent: PlayerIntent): void => {
-    applyIntent(sim, intent);
+    applyIntent(transport, intent);
     for (const fn of intentListeners) fn(intent);
   };
   intentListeners.push((intent) => voice.observe(intent));
@@ -4998,6 +5055,24 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     }
   };
 
+  /** The one per-frame body (R9, `net/frame-step.ts`): frames from the
+   *  transport, each through the ownership check into the sim, one `runTick`
+   *  each, and the tick reported back. The frame loop and `__lions.step` both
+   *  run it, so an order a tool dispatches through the UI and then steps
+   *  travels exactly the path a player's does. */
+  const frameStep: FrameStep = { transport, sim, seatWorld, runTick, config: netConfig };
+  const stepFrames = (maxTicks: number): number => {
+    const { ran, dropped } = runFrames(frameStep, maxTicks);
+    if (dropped > 0) console.warn(`[net] dropped ${dropped} command(s) naming units this seat does not command (tick ${sim.tickCount})`);
+    return ran;
+  };
+  /** The room's one HUD line (waiting, a stall, a desync). A room only: in
+   *  single-player there is nothing to say and nothing is mounted. */
+  const netStatus = netSeat !== null
+    ? new NetStatusLine(document.body, (seat) => netConfig?.seats[seat ?? netSeat].callsign ?? '')
+    : null;
+  if (netStatus !== null) onDispose(() => netStatus.dispose());
+
   // How long the last presented frame took, in ms. The renderer needs it for
   // presentation-only animation and no longer has a ticker of its own to ask.
   // Seeded with a nominal 60 fps frame, which is exactly what Pixi's ticker
@@ -5020,11 +5095,17 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       help: () => {
         console.info(`[lions] ${helpText()}`);
       },
-      step: (n: number) => {
-        for (let i = 0; i < n; i++) runTick();
-        renderer.frame(1, lastFrameMs);
-        return sim.tickCount;
-      },
+      // Absent in a room: the room's clock is the only clock, and a console
+      // step there would run frames this machine does not have.
+      ...(netSeat === null
+        ? {
+            step: (n: number) => {
+              stepFrames(n);
+              renderer.frame(1, lastFrameMs);
+              return sim.tickCount;
+            },
+          }
+        : {}),
 
       /** Every voiced decision this battlefield made, and the mixer's own
        *  voice stats (WP-AU1 R-10). Read back, never recomputed: the log is
@@ -5320,6 +5401,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // (fed in below) is unit-tested without a browser. `paused` is READ here,
   // never written -- `pause`/`resume` above are the only writers.
   const clock: Clock = { acc: 0, last: performance.now() };
+  /** When the last tick ran (a room's interpolation clock; see `alpha` below). */
+  let lastTickAt = clock.last;
   // The app owns the frame loop, not the renderer.
   //
   // Pixi's ticker is backend-specific, and a renderer that schedules the
@@ -5347,7 +5430,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     const pose = beat ? beatPose(now - beat.t0, beat.reduced) : null;
     const { ticks, frameMs } = advanceClock(clock, now, gameSpeed, paused || beat !== null, MS_PER_TICK);
     lastFrameMs = frameMs;
-    for (let i = 0; i < ticks; i++) runTick();
+    // Single-player runs what the accumulator owes, exactly as before; a room
+    // runs what the room has released, up to MAX_CATCHUP_TICKS (R33).
+    if (stepFrames(transport.local ? ticks : MAX_CATCHUP_TICKS) > 0) lastTickAt = now;
+    netStatus?.paint(transport.status());
     // Read live off the settings store, not snapshotted at boot: `set()`
     // reaches every open battlefield the moment the player changes it,
     // pause menu included (Task 6) -- `get()` is a plain getter, so this
@@ -5408,7 +5494,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       renderer.camera.y = c.y;
       renderer.camera.zoom = c.zoom;
     }
-    renderer.frame(clock.acc / MS_PER_TICK, lastFrameMs * (pose?.timeScale ?? 1));
+    // The interpolation alpha. Single-player: the accumulator's remainder, as
+    // ever. A room: the accumulator says nothing about when the room's next
+    // frame lands, so alpha is the wall time since the last tick ran, over
+    // one tick, held at 1 -- a stall or a late frame freezes the picture on
+    // the newest state rather than extrapolating past it.
+    const alpha = transport.local ? clock.acc / MS_PER_TICK : Math.min(1, (now - lastTickAt) / MS_PER_TICK);
+    renderer.frame(alpha, lastFrameMs * (pose?.timeScale ?? 1));
 
     updateHover();
   };

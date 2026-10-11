@@ -7686,3 +7686,30 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-force__bench-close {
   margin-top: var(--s2);
 }
+
+/* ====================================================================== */
+/* Net status (ui/net-status.ts) — N0: the room's one line                 */
+/* ====================================================================== */
+/* Waiting, a stall and who it waits on, or a desync. Hidden while the room
+   runs live and always in single-player; it says something only when the
+   world has stopped for a reason the player cannot see. */
+.rl-net-status {
+  position: fixed;
+  top: calc(var(--hud-strip-h) + var(--s3));
+  left: 50%;
+  transform: translateX(-50%);
+  padding: var(--s2) var(--s4);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  color: var(--ink);
+  font: 600 var(--t-m) var(--font-body);
+  pointer-events: none;
+  z-index: 20;
+}
+.rl-net-status[hidden] {
+  display: none;
+}
+.rl-net-status[data-net='desync'] {
+  color: var(--bad-text);
+  border-color: var(--bad);
+}

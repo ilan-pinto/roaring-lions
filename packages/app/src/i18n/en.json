@@ -220,6 +220,11 @@
   "nav.menu": "Main menu",
   "nav.backToCampaignMap": "Campaign map",
 
+  "net.waiting": "Waiting for the other seat",
+  "net.stall.behind": "Waiting for {seat}: behind",
+  "net.stall.gone": "Waiting for {seat}: connection lost",
+  "net.desync": "Desync at {time}. Both logs saved; report it.",
+
   "menu.nav.campaign": "Campaign",
   "menu.nav.brigade": "Brigade",
   "menu.continue.label": "{kind, select, tutorial {Start — {name}} other {Continue — {name}}}",
