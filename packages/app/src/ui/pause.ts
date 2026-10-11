@@ -87,8 +87,11 @@ export interface PauseDeps {
    *  this module derives). */
   paysCredits: boolean;
   onResume(): void;
-  /** The caller confirms before actually restarting. */
-  onRestart(): void;
+  /** The caller confirms before actually restarting. Absent means there is no
+   *  Restart at all: a net room (N0) cannot restart one seat's world, and a
+   *  re-navigation would silently open a second room and strand the other
+   *  seat. */
+  onRestart?: () => void;
   /** The caller confirms before actually leaving. */
   onQuit(): void;
   settings: SettingsDeps;
@@ -224,10 +227,11 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
   const actions = document.createElement('div');
   actions.className = 'rl-pause__actions';
   const resumeBtn = actionButton(t('pause.resume'), 'resume');
-  const restartBtn = actionButton(t('pause.restart'), 'restart');
+  const onRestart = deps.onRestart;
+  const restartBtn = onRestart ? actionButton(t('pause.restart'), 'restart') : null;
   const settingsActBtn = actionButton(t('pause.settings'), 'settings');
   const quitBtn = actionButton(t('pause.quit'), 'quit');
-  actions.append(resumeBtn, restartBtn, settingsActBtn, quitBtn);
+  actions.append(...[resumeBtn, restartBtn, settingsActBtn, quitBtn].filter((b) => b !== null));
   p.body.appendChild(actions);
 
   const foot = document.createElement('p');
@@ -254,7 +258,7 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
   };
 
   resumeBtn.addEventListener('click', () => resumeAndClose());
-  restartBtn.addEventListener('click', () => deps.onRestart());
+  if (restartBtn && onRestart) restartBtn.addEventListener('click', () => onRestart());
   settingsActBtn.addEventListener('click', () => showTab('settings'));
   quitBtn.addEventListener('click', () => deps.onQuit());
 

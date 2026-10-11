@@ -1,7 +1,7 @@
 /**
  * The room's one HUD line (N0 task 11): waiting for the other seat, a stall
  * and who it is waiting on, or a desync. Hidden in single-player and while the
- * match runs live, so a healthy room shows nothing. Mounted on
+ * match runs live, so a healthy room shows nothing; a closed room says why. Mounted on
  * `document.body`, so the battlefield that makes it removes it (`dispose`, in
  * its own `onDispose` -- the disposer contract).
  */
@@ -15,8 +15,12 @@ export function netStatusText(s: TransportStatus, nameOf: (seat: Seat | null) =>
   switch (s.kind) {
     case 'local':
     case 'live':
-    case 'closed':
       return null;
+    case 'closed':
+      // After the start, a closed room has frozen the battlefield for good:
+      // the other seat left, the room voided or expired, or this seat was
+      // opened in another tab (R35). Silence there reads as a hang.
+      return t('net.closed', { reason: s.reason });
     case 'waiting':
       return t('net.waiting');
     case 'stalled':

@@ -91,6 +91,25 @@ describe('connectMatch', () => {
     await expect(p).rejects.toThrow('room refused: build_mismatch');
     expect(sock.closed).toBeGreaterThan(0);
   });
+  it('a room that ends before its start rejects and closes the socket', async () => {
+    const fetchFake = (async () => Response.json({ code: 'ABCDEF', seat: 1, ticket: 'tk' })) as unknown as typeof fetch;
+    const sock = fakeSocket();
+    const p = connectMatch(new URLSearchParams('net=ABCDEF'), 'm', 'b', { fetch: fetchFake, origin: 'http://x', openSocket: () => sock, replaceUrl: () => {}, note: () => {} });
+    await new Promise((r) => setTimeout(r, 0));
+    sock.onopen?.({});
+    sock.onmessage?.({ data: JSON.stringify({ t: 'ended', reason: 'expired' }) });
+    await expect(p).rejects.toThrow('room ended before the start: expired');
+    expect(sock.closed).toBeGreaterThan(0);
+  });
+  it('an abort that lands during the create opens no socket and rewrites no URL', async () => {
+    const ac = new AbortController();
+    // A fetch that ignores its signal and answers anyway: the check after it is what must hold.
+    const fetchFake = (async () => { ac.abort(); return Response.json({ code: 'ABCDEF', seat: 0, ticket: 'tk' }, { status: 201 }); }) as unknown as typeof fetch;
+    let replaced = false;
+    const p = connectMatch(new URLSearchParams('net=new'), 'm', 'b', { fetch: fetchFake, origin: 'http://x', openSocket: noSocket, replaceUrl: () => { replaced = true; }, note: () => {}, signal: ac.signal });
+    await expect(p).rejects.toMatchObject({ name: 'AbortError' });
+    expect(replaced).toBe(false);
+  });
   it('an abort while waiting for the other seat rejects as an AbortError and closes the transport', async () => {
     const fetchFake = (async () => Response.json({ code: 'ABCDEF', seat: 0, ticket: 'tk' }, { status: 201 })) as unknown as typeof fetch;
     const sock = fakeSocket();

@@ -112,6 +112,13 @@ describe('pauseMenu', () => {
     expect(d.onQuit).toHaveBeenCalledTimes(1);
     expect(document.querySelector('.rl-pause')).not.toBeNull();
   });
+  it('with no onRestart (a net room) there is no Restart button at all', () => {
+    const { onRestart: _drop, ...d } = deps();
+    void _drop;
+    pauseMenu(document.body, d);
+    expect(document.querySelector('.rl-pause button[data-act="restart"]')).toBeNull();
+    expect(document.querySelector('.rl-pause button[data-act="quit"]')).not.toBeNull();
+  });
 
   // Interaction (a): a confirmDialog opened from the pause menu's own Restart
   // or Quit button (`onRestart`/`onQuit` in main.ts's real wiring) sits ON TOP

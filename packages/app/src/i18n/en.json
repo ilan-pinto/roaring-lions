@@ -223,7 +223,8 @@
   "net.waiting": "Waiting for the other seat",
   "net.stall.behind": "Waiting for {seat}: behind",
   "net.stall.gone": "Waiting for {seat}: connection lost",
-  "net.desync": "Desync at {time}. Both logs saved; report it.",
+  "net.desync": "Desync at {time}. The match is void; report it.",
+  "net.closed": "{reason, select, left {The other seat left the match} void {Match void} expired {The room expired} replaced {This seat was opened in another tab} other {Match closed}}",
 
   "menu.nav.campaign": "Campaign",
   "menu.nav.brigade": "Brigade",
