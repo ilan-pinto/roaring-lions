@@ -86,6 +86,9 @@ art/blend/
 # Wrangler's local state (dev D1 shadow copy, cached auth, etc, WP-T1). Never
 # wanted in git, and it accumulates just from running `wrangler dev`.
 .wrangler/
+# Wrangler's local secrets file (e.g. TICKET_SECRET for a local run). A secret
+# value never goes in git.
+.dev.vars
 art/portraits/.roles.json
 # A3.1 stage 2's 8k Meshy remesh sources (46-72 MB each): kept on disk, never
 # committed, as B7/B8's 8k sources were not. Named by path rather than a
