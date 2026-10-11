@@ -4,6 +4,18 @@
 the lead on 7 Oct 2026: D1–D5, P1–P5 (P5 optional, off under reduced motion), A1, R1.
 **Branch:** `polish/combat-states`. Presentation only: nothing under `packages/sim` changes.
 
+**Pre-flight 2 (2026-10-11), against `main` `49715ff9`.** Landed as #445 (7 Oct; `ui/combat-state.ts`
+is on `main`). Not a Stage 4 plan and not a Lane C change. Read against #537, #535 and #534: none edits
+what this plan built. Two facts for whoever touches the chip or card next:
+- The idle fall-through the chip and card print, "holding" (`selection.chip.holding`) and "holding
+  position" (`hud.card.holdingPosition`), is now literally true of every arrived player unit: since
+  #537 a plain attack-move stops where sent and a halted unit stays. Hold position's question 4 (rename
+  them "standing" to free the word) only matters if Hold keeps a sim command (order plan, decision 1).
+- #535 added a Move chip and a `moveOnly` cursor; the chip precedence D5 set (broken › pinned › out of
+  action › gun out › immobilised › suppressed › shaken › …) is unchanged, and a unit under a plain
+  `move` still reads "moving".
+No correction to the table below; no decision needed.
+
 Each task ends with a review: the task's own diff is re-read against the spec line it
 implements, the gates named in it are run, and any new check is shown red by a one-line
 mutation before it is trusted. The review notes go in the commit message.

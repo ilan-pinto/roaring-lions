@@ -11,6 +11,9 @@ player right-click is an attack-move. `halt` does not stop the closing rule: it 
 but leaves `attackMove` set, so the unit is swept again on the next tick. The player therefore has
 no order that keeps a unit in place.
 
+> **Pre-flight 2 (2026-10-11): stale.** Since #537 `halt` clears `attackMove` and a player's attack-move
+> stops where sent; see the Pre-flight 2 block and its LEAD DECISION NEEDED.
+
 The 6 Oct refresh of the Stage 4 plans raised four questions that share this root:
 - F1, item 5: high ground;
 - F2, item 11: held zones;
@@ -54,6 +57,63 @@ The lead answered all four with one order:
 - Worktree under `/Users/ilpinto/dev/roaring-lions-ep/`; run `pnpm install` once.
 - Locate code by symbol; line numbers drift.
 - Nothing here is measured. Every (R) is reasoned, and its task says how to measure it.
+
+---
+
+## Pre-flight 2 (2026-10-11), evening, against main 49715ff9
+
+Read and grepped, not run. **The plan's premise moved under it.** #537 (lead ruling, 11 Oct, the
+October sim freeze lifted for it alone) made `halt` hold and made a player's attack-move stop where it
+was sent. "Why" above is no longer true:
+
+- **`halt` now clears `attackMove`, `sweepOrder` and `boardGoal`** (the final bare `else` of
+  `applyCommands`, ~L2529-2553). `demolishOrder` and `chargeOrder` were measured not to restart a unit
+  and are pinned beside it (`orders-obeyed.test.ts`, "a halt cancels every order that could walk the
+  unit on"). Question 8's ruling ("`hold` also clears the board, demolish and charge latches") is
+  therefore already true of `halt`.
+- **`stepSweep` walks on only an attack-mover whose order set `sweep: true`** (~L5215; mission waves and
+  `commit`s, and `targets.ts`). A player's right-click, and every scripted playtest plan, does not. An
+  arrived player unit therefore "stays put and kneels, fires at anything in range, never advances,
+  chases or closes": the ruling's definition of Hold, with no Hold.
+- What a `hold` command still adds over `halt`: a readable `holdPos` (the "on hold" word, a line later
+  systems check) and H-D3 (`halt` calls `leaveStructure`; Hold keeps a garrisoned unit in).
+- **"Hold" is already a word in the sim's tests.** `orders-obeyed.test.ts` calls an arrived plain
+  attack-mover "holds", and the third golden replay is asserted to exercise "the halt, the hold and
+  the sweep" (`determinism.test.ts` ~L824). A `hold.test.ts` about a command would collide with that
+  vocabulary; name it `hold-command.test.ts` if (A) or (C) is chosen.
+
+| where | what changed | fixed in place / decision |
+|---|---|---|
+| Why, Architecture | `halt` stops the closing rule since #537; a plain attack-move stops where sent | marked stale in place; **LEAD DECISION NEEDED** below |
+| Global, Task 1 Step 5, Re-pins | Sim pins are **three**: flat `1202444260`, relief `3354895120`, orders `2737216487` (were `922714084` / `3200430224`). A column-only re-pin moves all three, and Step 4's proof must restore all three | fixed in place |
+| Global, Re-pins | `LADDER_CREDITS` = `CAMPAIGN_CREDITS` = **5917** (5870 → 5850 #529 → 5947 #537 → 5917 #542); `ROSTER_MAX` **30** | fixed in place |
+| Global, Re-pins | `pnpm playtest` now sweeps every plan and control over 30 seeds (#539, #542), ~57 s locally. "Byte-identical" still holds (R: no plan issues `hold`); compare the whole output, sweep lines included | noted |
+| Task 1, Step 1 | Every "does not walk" test passes on `main` **without** Hold unless the unit was moving under a `sweep: true` attack-move first: a plain arrived attack-mover is never swept now. Each such test starts from a `sweep: true` attack-move, then `hold` | fixed in place |
+| Task 1, Step 7 | "Leave `attackMove` set in the `hold` branch" cannot go red now: with `sweepOrder` 0, `stepSweep` skips the unit anyway. The mutation is "leave `sweepOrder` set" (with the sweep-ordered setup above) | fixed in place |
+| Task 1, Step 2 | H-D1 inherits `sweepOrder = 0` and `boardGoal = -1` from the halt branch. The `startRout` branches #291 rewrites must clear `holdPos` in each, the new "otherwise hold" branch included | noted |
+| Task 3, Step 1 | N is `move` (#535, `keymap.ts` L48). Taken keys: h n f g u o b m, ctrl+a, tab, space, f1, i, w s a d, escape. X and V are free. "L1 is decided as no move-only order" is reversed (lead, 11 Oct) | fixed in place |
+| Task 3, Step 2 | `main.ts` `orders.halt` is at ~L2622 and `case 'halt'` at ~L3996; `input/cursor.ts` `idsOf`'s `halt` case ~L308; `telemetry/events.ts` ~L139 | noted (locate by symbol) |
+| Task 3, Step 3 | The order row is Attack-move, **Move**, Halt, Smoke, Load, Unload (`selection-model.ts` ~L69-76). Hold goes beside Halt | noted |
+| Task 3, Step 5 | The tutorial beats that await `halt` now work as taught: PA-12's complaint was the closing rule, which `halt` now beats | noted; only needed under (A) |
+| Global "L1" row of the 11 Oct table | Reversed: the row reads Attack-move, Move (N), Hold?, Halt | noted |
+
+### LEAD DECISION NEEDED (Pre-flight 2, 2026-10-11)
+
+**Does Hold still need a sim command?** (Also decision 1 in `2026-10-04-stage4-order.md`.)
+- **(A)** As planned: `hold` plus `holdPos`, a re-pin of all three sim pins, H to Hold, `halt` to X,
+  the tutorial, tool and voice edits. Buys the readable "on hold" state and H-D3.
+- **(B, recommended)** Retire Task 1. `halt` is the hold. No re-pin, no key move, the tutorial and
+  `routes-check.ts`/`fire-link-captures.ts` untouched. Lane A keeps, app-only: the order's label reads
+  "Hold" if the lead wants the word (`order.halt`/`keymap.halt` strings), and `orders.halt` sends
+  `halt` only to ungarrisoned ids, so H never empties a building (H-D3's intent, without a sim
+  change). Consumers: F2's holders and F1's rise use stop-where-sent; F4's rally uses a no-sweep
+  attack-move (its own decision). Targeted fire's T-D8 lapses. The Wed 4 Nov slot goes to #540.
+- **(C)** Keep `holdPos` for the readable state only, leave `halt` on H, and give Hold a free key (X).
+  A sim re-pin for a word on the card.
+
+Why (B): every behaviour the 6 Oct ruling asked for is on `main`, by the lead's own 11 Oct ruling. What
+(A) adds is a status word and a garrison edge case the app can cover, at the price of a sim re-pin, a
+key reshuffle that collides with saved overrides in two directions, and three tutorial beats.
 
 ---
 
@@ -170,11 +230,13 @@ targeted-fire plan carries them.
   - The runtime issues `hold` through `queueCommand`; nothing outside the sim writes `holdPos`. It
     is read-only on `sim.state`, like `brace`.
 - **The sim pins move once**, in Task 1, for the new hashed column only. At `b44df7aa` they read
-  flat `922714084` and relief `3200430224`; #291 moves them first. Prove the re-pin is only the
-  column (Task 1, Step 4).
+  flat `922714084` and relief `3200430224`; **Pre-flight 2 (2026-10-11): on `49715ff9` they are three,
+  flat `1202444260`, relief `3354895120`, orders `2737216487` (#537), and all three move.** #291 moves
+  them first. Prove the re-pin is only the column (Task 1, Step 4).
 - **`pnpm balance`** is byte-identical (R): `targets.ts` issues no `hold`.
 - **`pnpm playtest`** is byte-identical (R): no plan issues `hold` until F2 or F4 makes one.
-- **`LADDER_CREDITS` (5870), `CAMPAIGN_CREDITS` (5870), `ROSTER_MAX` (31) and `GATES` are unchanged.**
+- **`LADDER_CREDITS` (5917), `CAMPAIGN_CREDITS` (5917), `ROSTER_MAX` (30) and `GATES` are unchanged.**
+  (Pre-flight 2, 2026-10-11: were 5870, 5870, 31.)
 - **Every check is seen red** by a one-line mutation, quoted in the commit.
 - **Gates before every commit:** `pnpm lint && pnpm typecheck && pnpm test:determinism && pnpm test`,
   then `pnpm balance` and `pnpm playtest`. Add `pnpm validate:ui` for Task 3.
@@ -215,7 +277,9 @@ private readonly holdPos: Uint8Array;        // 1 while the unit holds position 
 
 - [ ] **Step 1: Write the failing tests** in the new `hold.test.ts`. Use in-test fixtures with
   `role: 'infantry'`: a type with no `role` derives as wheeled and never braces. Add one vehicle
-  fixture for H-D6. Tests:
+  fixture for H-D6. **Pre-flight 2 (2026-10-11):** every "does not walk / does not chase" test starts
+  from an attack-move with `sweep: true` and then issues `hold`; a plain attack-mover is never swept
+  since #537, so without that setup the test is green on `main` with no Hold at all. Tests:
   - **"a held unit kneels and fires at an enemy in range"**: after `KNEEL_DROP_TICKS` it reads
     `BRACE_KNEELING`, and a `fire` event follows.
   - **"a held unit does not walk toward an identified enemy it cannot reach"**. This is the
@@ -248,6 +312,8 @@ private readonly holdPos: Uint8Array;        // 1 while the unit holds position 
 - [ ] **Step 6: Gates.** `balance` and `playtest` byte-identical (R). Quote both in the commit.
 - [ ] **Step 7: See it red.**
   - Leave `attackMove` set in the `hold` branch: "does not walk toward an identified enemy" fails.
+    **Pre-flight 2 (2026-10-11): this can no longer go red** (`sweepOrder` 0 skips the unit). Use
+    "leave `sweepOrder` set in the `hold` branch" instead, with Step 1's sweep-ordered setup.
   - Skip H-D2's clear: "any other order releases it" fails.
   - Skip `startRout`'s clear: the rout test fails.
   - Delete the `hashArray` line: "hash covers holdPos" fails.
@@ -280,6 +346,8 @@ No code in this plan. Each consumer lands with its own plan and cites this one:
       and change `halt`'s `key` to `'x'`. Add `'hold'` to the `Action` union.
     - X is free. The taken keys are h f g u o b m, ctrl+a, tab, space, f1, i, w s a d and escape;
       S is pan-down. V stays free: L1 is decided as no move-only order (lead, early Oct).
+      **Pre-flight 2 (2026-10-11):** N is now taken by `move` (#535, L1 reopened by the lead on
+      11 Oct). X and V are still free.
   - **`halt` stays.** It is a one-tick stop: it still cancels a move and drops queued waypoints.
     - It keeps its label: the strings are `keymap.halt` and `order.halt`, which read "Halt" in
       `en.json` on `f2d5d9e8`.
@@ -380,10 +448,10 @@ No code in this plan. Each consumer lands with its own plan and cites this one:
 
 | pin | expected | reason |
 |---|---|---|
-| sim pins, flat and relief | **moved once**, Task 1 | one hashed per-unit column, `holdPos` |
+| sim pins, flat, relief and orders (three since #537; Pre-flight 2, 2026-10-11) | **moved once**, Task 1 (only under decision (A) or (C)) | one hashed per-unit column, `holdPos` |
 | `pnpm balance` | byte-identical (R) | — |
 | `pnpm playtest` | byte-identical (R) | — |
-| `LADDER_CREDITS` / `CAMPAIGN_CREDITS` / `ROSTER_MAX` / `GATES` | unchanged | — |
+| `LADDER_CREDITS` / `CAMPAIGN_CREDITS` (5917) / `ROSTER_MAX` (30) / `GATES` | unchanged | — |
 
 ## For the lead
 

@@ -14,7 +14,9 @@ Refreshed against `main` `b44df7aa` (6 Oct). Corrections only; every ruling and 
 
 **New interactions**
 - Holding is kneeling: an idle foot unit kneels, target or not. Kneeling never moves anyone, so D3's presence test is unchanged.
-- **The closing rule moves holders.** In `stepSweep`, an arrived attack-mover walks toward a current target in cover, or toward an identified enemy it cannot reach but could engage. A plain `move` sets `attackMove` 0 and stays. The player's right-click is always an attack-move, and `halt` does **not** clear `attackMove` (the halt branch, `sim.ts` ~L2505-2514), so a halted holder is swept again on the next tick. A player's holding force can therefore walk out of its own zone. `playtest.ts`'s plans carry 124 plain `move` order sites and 59 `attackMove` ones in source, and no `halt`.
+- **The closing rule moves holders.** *(Pre-flight 2, 2026-10-11: no longer for a player's unit;
+  #537 gates `stepSweep` on `sweep: true`, which only waves and `commit`s set, and `halt` now clears
+  `attackMove`.)* In `stepSweep`, an arrived attack-mover walks toward a current target in cover, or toward an identified enemy it cannot reach but could engage. A plain `move` sets `attackMove` 0 and stays. The player's right-click is always an attack-move, and `halt` does **not** clear `attackMove` (the halt branch, `sim.ts` ~L2505-2514), so a halted holder is swept again on the next tick. A player's holding force can therefore walk out of its own zone. `playtest.ts`'s plans carry 124 plain `move` order sites and 59 `attackMove` ones in source, and no `halt`.
 - Enemy `commit` triggers and waves are attack-moves too (`mission.ts` ~L1701, ~L1793; were :1688, :1780 at `b44df7aa`), so enemy holders and interdictors chase in the same way.
 - **Patrols halt on contact** (D3, D4 b). A foot patroller that meets the player in a zone or beside a route now stays there for as long as the fight lasts. Every patroller on the 18 economy missions is a vehicle (technical, moto_rpg), and #402 leaves vehicles alone, so no D7 mission is touched today; F4 and G-G content will be.
 - Enemy foot rifles reach 7–8 tiles (`militia_cell` 7, `sarim_rifles` 8), past `CONTEST_RADIUS_SQ`'s 6. An enemy halted and firing on a guard 7 tiles away reads `interdicted` under D4 b.
@@ -23,6 +25,7 @@ Refreshed against `main` `b44df7aa` (6 Oct). Corrections only; every ruling and 
 ### For the lead
 - **G3 Q2 and D3 under #402.** A player's attack-moved holders leave a zone to chase (`stepSweep`), and `halt` does not stop that. Should "held" still mean bodies present (D3), or does holding need an order that keeps them (a hold or plain-move button, S-F's lane)?
   **Ruled 6 Oct (lead): add a "Hold position" order** (`2026-10-06-hold-position.md`, Wed 4 Nov, before F2). Held zones are kept by Hold: a held unit stays put, kneels, fires at anything in range, and never advances, chases or closes. D3 keeps its presence test.
+  *(Pre-flight 2, 2026-10-11: the question's premise went with #537; a player's attack-moved holders no longer leave. D3 stands; whether Hold keeps a sim command is the order plan's decision 1.)*
 - **D4 b.** "Contested, not cut" uses the hold radius (6 tiles), while enemy rifles now halt and fire from 7–8. Should a corridor's contest radius be 6, or weapon reach?
   **Ruled 6 Oct:** keep 6. Contest is occupation, not fire.
 - **D7 on the new ground.** BS II has only two zones: `west_approach` (the start, the camp and the `hold_for` target) and a 3x3 `tunnel_mouth_west`. Should Task 8 add zones to the map (outside its file list), pay a start zone (then `ZONE_PASSIVE_INCOME` > 0 by construction), or should BS II leave D7?
@@ -31,6 +34,29 @@ Refreshed against `main` `b44df7aa` (6 Oct). Corrections only; every ruling and 
   **Ruled 6 Oct:** at the map-edge tile nearest the player's start zone, along the shortest passable path. The implementer picks it and pins it (Task 3).
 - **Lane C.** F2 now forces two `packages/app` edits: the `CAMPAIGN_CREDITS` copy (GH-330), and the road mask in `packages/app/src/mission-start.ts` (Task 7). Are those within Lane C's allowance, as F1's call-site rename was?
   **Ruled 6 Oct:** within the allowance.
+
+## Pre-flight 2 (2026-10-11), evening, against main 49715ff9
+
+Read and grepped, not run. **#537 (lead ruling, 11 Oct) removes F2's main #402-era worry for the
+player's side.** `halt` now clears `attackMove`, and `stepSweep` walks on only an attack-mover whose
+order set `sweep: true`. A player's right-click and every playtest plan stop where sent, so an
+attack-moved holder no longer leaves its zone. The **enemy's** side is unchanged: waves and trigger
+`commit`s set `sweep: true` (`mission.ts` ~L1705, ~L1799), so a `commit` to a zone marker still hunts
+on from it.
+
+| where | correction | |
+|---|---|---|
+| Changed since 4 Oct ("The closing rule moves holders"), G3 Q2/D3, D3 refresh note, Task 7 fixture trap, Task 8 Step 3 ("expect holders to leave"), Task 9 Step 2 (BS II "exposed to `stepSweep`") | False for a player's unit since #537; still true for an enemy unit sent by `commit` or a wave | fixed in place (dated notes) |
+| D3 "kept by Hold" (ruled 6 Oct) | A player's holders now keep the zone with a plain attack-move. Whether a `hold` command still exists is the order plan's decision 1; F2 needs nothing from it either way. A fixture holder is ordered there with a plain attack-move (or `halt`), and the fixture adds one `sweep: true` holder as the control that does leave | fixed in place |
+| Global, Re-pins | Sim pins are **three**: flat `1202444260`, relief `3354895120`, orders `2737216487`. All stay unmoved (R) | fixed in place |
+| Global, Re-pins | `LADDER_CREDITS` = `CAMPAIGN_CREDITS` = **5917** (`playtest.ts` ~L3096); `ROSTER_MAX` **30** | fixed in place |
+| Task 8, Task 9 | Playtest holds every plan and control on 30 seeds (#539, #542), ~57 s locally. "Every plan still wins" means 30/30. `BANKING_OVER_30_WINNERS` and `ZONE_PASSIVE_INCOME` read the 424242 ledger, as `LADDER_CREDITS` does; say so in their comments | noted |
+| Task 9, Step 2 | #542 re-scripted **WH II** (every 10 s, attack-move onto anything seen inside the pasture until the hold runs; the ford picket and engineers join it) and **UZ IV** (after the raze, everything goes for Adhal). Both are D7 missions: re-read their plans before Task 8, and expect UZ IV's holders to leave `stockpile` by plan order, not by the sweep | noted |
+| P2-4, Task 7 | #541's stall hint (`ui/stall-hint.ts` `tickIsActive`) counts **any** `MissionEvent` as progress. F2's `zoneHolder` and `corridor` events therefore re-arm it, and a zone that flickers between holders would keep the hint silent while nothing is achieved. Task 7 already fires them on change only; add one stall-hint case (a flicker-free hold produces no event after the first) if the events turn out chatty in Task 8's walk | noted |
+
+No new lead decision.
+
+---
 
 ## Pre-flight, 11 Oct (against main f2d5d9e8)
 
@@ -162,7 +188,8 @@ cuts pays half.
     **do** count aircraft, so `zoneHolder` cannot reuse them as they stand. Since #402 a holder on
     foot kneels, which does not move it. But an attack-moved holder can be walked out of the zone by
     `stepSweep`, and `halt` does not prevent it: see "Changed since 4 Oct". Ruled 6 Oct: held zones
-    are kept by the new Hold position order, `2026-10-06-hold-position.md`.)
+    are kept by the new Hold position order, `2026-10-06-hold-position.md`.) *(Pre-flight 2,
+    2026-10-11: not since #537 for a player's unit; an enemy holder sent by `commit` still hunts on.)*
   - **D4. Cut** means any of: (a) no wheeled route exists; (b) a living, surface, ground enemy unit
     stands within `CORRIDOR_INTERDICT_SQ` (2 tiles) of a route tile and no friendly unit is within
     `CONTEST_RADIUS_SQ` of it; (c) an open vent (`tnVentOpen`) of a hostile-stocked route lies
@@ -207,6 +234,8 @@ cuts pays half.
   (which is why the route does not go through `Sim.fieldFor`; see Architecture).
 - **The two sim pins stay UNMOVED by every task.** A move is a defect. On `b44df7aa` and `f2d5d9e8` they read
   flat **922714084** and relief **3200430224** (`packages/sim/src/determinism.test.ts` L427, L721).
+  *Pre-flight 2 (2026-10-11): three on `49715ff9`, flat **1202444260**, relief **3354895120**, orders
+  **2737216487** (~L438, ~L736, ~L845), all unmoved by F2.*
   On 4 Oct they read 2109596329 and 1425295494; #402 moved them. Whatever F1/F3 leave is the
   reference.
 - **The economy pins** (`ECONOMY_PIN`, `ECONOMY_PIN_RELIEF`, from F1) **move once**, in Task 7,
@@ -537,6 +566,9 @@ get incomePerMin(): { base: number; zones: number; halvedBy: CutCause | null }; 
   as infantry needs `role: 'infantry'`. To keep a holder in its zone, order it there and then
   `hold` (Hold position, ruled 6 Oct, `2026-10-06-hold-position.md`, on `main` before F2). An
   attack-moved unit is walked out by `stepSweep`, and `halt` does not clear `attackMove`.
+  *(Pre-flight 2, 2026-10-11: since #537 a plain attack-move stays in the zone and `halt` clears
+  `attackMove`. Order holders with a plain attack-move; `hold` only if Hold keeps its sim command
+  (order plan, decision 1). Add one holder ordered with `sweep: true` as the control that leaves.)*
 - [ ] **Step 3: Re-pin the economy pins, once.** The F1 fixtures gain two zones and a
   `supply_corridor` with an entry, and the hash gains zone holders, cut causes and the side-1 purse.
   Commit message: *"economy pins re-pinned: held-ground income and corridors (G3 Q2, lead 4 Oct); the
@@ -572,6 +604,9 @@ There are no locale overlays: `data/locales/` holds only `README.md`, and `valid
   gate needs a world-state walk: no unit test notices a zone whose rectangle stopped containing the
   ground it was chosen for (memory, "declarative gates need a world-state walk"; and "placements
   spread across tiles"). Paste the walk into the PR description.
+  *Pre-flight 2 (2026-10-11): the paragraph below is stale for plan orders. Since #537 a plan's
+  attack-movers stop where sent and stay in the zone; a `holder -1` now means a plan order moved
+  them (UZ IV's post-raze push for Adhal, #542) or the zone is mis-authored.*
   *#402:* expect holders to leave. A plan's attack-movers that arrive in a zone are walked out by
   `stepSweep` toward a covered target, or toward an identified enemy they cannot reach, and the walk
   then prints `holder -1`. That is the rule working, not a mis-authored zone. Tell the two apart by
@@ -603,10 +638,13 @@ There are no locale overlays: `data/locales/` holds only `README.md`, and `valid
   the new ground that ground is a zone on DA II (`staging`) and UZ II (`staging`), so the figure is
   0 only if Task 2 pays neither.
 - [ ] **Step 2: Re-prove.** The three building plans (`beit_sahwan_2_foothold`,
-  `deir_amun_2_foothold`, `wadi_halam_2_laager`) are re-run. BS II has no zones since the 6 Oct
+  `deir_amun_2_foothold`, `wadi_halam_2_laager`) are re-run. *(Pre-flight 2, 2026-10-11: five since
+  #542, which added buying to `wadi_halam_4_village` and `umm_zeitoun_3_clearance`; neither is a D7
+  mission, so their income is unchanged unless a zone is added there.)* BS II has no zones since the 6 Oct
   ruling, so its income is unchanged and its line should not move. (Refresh: unchanged in kind on main.
   BS II builds one `inf_squad` at 120 s, and holds `west_approach` with one whole-force `attackMove`
-  to (8,23), so its holders are exposed to `stepSweep`. WH II builds one every 60 s from 90 to 700 at
+  to (8,23), so its holders are exposed to `stepSweep` *(Pre-flight 2, 2026-10-11: no longer, since
+  #537)*. WH II builds one every 60 s from 90 to 700 at
   `player_start`, since it has no camp. DA II's `deirAmun2Plan` builds one every 40 s from 60 to
   420 at the camp, (21,35).) A plan that now has more to spend
   **does not** gain orders in F2: F4 is where spending gets a reason. If a plan's grade moves, it
@@ -640,11 +678,11 @@ There are no locale overlays: `data/locales/` holds only `README.md`, and `valid
 
 | pin | expected | the reason, for the commit |
 |---|---|---|
-| sim pins, flat and relief | **unmoved** (R): 922714084 and 3200430224 on `b44df7aa` and `f2d5d9e8` (2109596329 and 1425295494 on 4 Oct, moved by #402) | — |
+| sim pins, flat, relief and orders (three since #537) | **unmoved** (R): 1202444260 / 3354895120 / 2737216487 on `49715ff9` (Pre-flight 2); 922714084 and 3200430224 on `b44df7aa` and `f2d5d9e8` (2109596329 and 1425295494 on 4 Oct, moved by #402) | — |
 | `ECONOMY_PIN`, `ECONOMY_PIN_RELIEF` | **re-pinned once**, Task 7 | held-ground income and corridors (G3 Q2) |
 | `pnpm balance` | byte-identical (R) | — |
 | `pnpm playtest` | byte-identical through Task 7 except a D2 halving on the two corridor missions (R); Task 8 moves the four D7 missions | zones authored; new banking lines and gates |
-| `LADDER_CREDITS` | **5870** on `f2d5d9e8` (5830 on `b44df7aa`, 5736 on 4 Oct; GH-382, #402, #431 and #444 moved it). Moves only if a D7 mission's grade, `unitHome` or conduct term moves (`creditsFor`, `packages/sim/src/credits.ts`: win, carrying secondaries, `unitHome`, conduct points) (R: income alone changes no outcome a plan that does not spend can see). If it moves, `CAMPAIGN_CREDITS` (`packages/app/src/ui/stores-model.ts:63`) moves in the same commit (`tools/src/campaign_credits.test.ts`, GH-330) | named per mission in the pin's comment, the house style above `LADDER_CREDITS` (`tools/src/backtest/playtest.ts` ~L3195) |
+| `LADDER_CREDITS` | **5917** on `49715ff9` (Pre-flight 2); **5870** on `f2d5d9e8` (5830 on `b44df7aa`, 5736 on 4 Oct; GH-382, #402, #431 and #444 moved it). Moves only if a D7 mission's grade, `unitHome` or conduct term moves (`creditsFor`, `packages/sim/src/credits.ts`: win, carrying secondaries, `unitHome`, conduct points) (R: income alone changes no outcome a plan that does not spend can see). If it moves, `CAMPAIGN_CREDITS` (`packages/app/src/ui/stores-model.ts:63`) moves in the same commit (`tools/src/campaign_credits.test.ts`, GH-330) | named per mission in the pin's comment, the house style above `LADDER_CREDITS` (`tools/src/backtest/playtest.ts` ~L3195) |
 
 ## Lane A needs (WP-S-F #184)
 

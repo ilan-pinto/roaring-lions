@@ -35,6 +35,42 @@ New interactions, each also noted at its task:
 6. **D2.** #402 took base urban 2:1 from 63% to 37% (accepted 6 Oct). Are 60/120 still the starting points, or should Task 2 measure the barrage and smoke screen on `urbanAssault` before G-NUM?
    **Ruled 6 Oct:** measure the prices on `urbanAssault` first.
 
+## Pre-flight 2 (2026-10-11), evening, against main 49715ff9
+
+Read and grepped, not run. Two of F1's #402-era premises were changed by #537 (lead ruling, 11 Oct):
+
+- **"The closing rule walks a unit off a rise" (D4, Task 5) is no longer true of a player's unit.**
+  `stepSweep` (~L5215) walks on only an attack-mover whose order set `sweep: true`: mission waves,
+  trigger `commit`s and `targets.ts`. A player's right-click and every playtest plan stop where sent.
+  Task 5's two pins are rewritten in place: a plain attack-mover stays on the rise and is paid; a
+  `sweep: true` attack-mover (the AI's kind) walks off and is not. The held-unit case follows the
+  order plan's decision 1: with Hold kept, as written; with (B), use `halt`.
+- **"A drone sweep sets the player's idle attack-movers walking" (Task 8, ruled "accept and pin" on
+  6 Oct) is no longer true.** `reveal`/`identifyTo` still identify, but an arrived player attack-mover
+  has `sweepOrder` 0 and `stepSweep` skips it. The 6 Oct ruling accepted a side effect the 11 Oct
+  ruling removed; Task 8's pin is inverted in place (a sweep moves **no** player unit; a `sweep: true`
+  attack-mover does walk, the control). No new question: the lead's later ruling governs.
+- **Task 2's earn census will read lower than the #402-era prior.** "Attack-movers now advance on what
+  they identify (more 'first identified' pay)" was the closing rule; player plans no longer advance on
+  their own. Task 2 measures it anyway; read its numbers fresh, not against the G3 priors.
+- **Task 9's denominators.** #539/#542 count **36 winning plans** (gate-open and bought probes
+  included) and **23 controls**, each on 30 seeds. Recount on the branch base and say which runs the
+  gates count. `INTEL_PASSIVE_BEATS_WINNER` and `INTEL_WINNERS_ONE_SWEEP` are read from the 424242
+  ledger, as `LADDER_CREDITS` and `GATES` are (#542); the plan Task 9 makes spend must still win on
+  30/30 seeds (`plan-sweep.ts`).
+
+| where | correction | |
+|---|---|---|
+| Global, Re-pins | Sim pins are **three**: flat `1202444260`, relief `3354895120`, orders `2737216487` (`determinism.test.ts` ~L438, ~L736, ~L845). The orders replay builds no `MissionRuntime` and calls no strike or `reveal` either, so all three stay unmoved (R) | fixed in place |
+| Global, Task 9, Re-pins | `LADDER_CREDITS` = `CAMPAIGN_CREDITS` = **5917** (`playtest.ts` ~L3096; 5870 → 5850 #529 → 5947 #537 → 5917 #542) | fixed in place |
+| Global | `pnpm playtest` is ~57 s locally (30-seed plan and control sweeps). "Byte-identical" compares the whole output, sweep lines included | noted |
+| Task 5 | The two closing-rule pins and the 11 Oct note ("L1 is decided: no move-only order") | fixed in place; L1 reopened (#535) |
+| Task 8 | "a drone sweep sets idle attack-movers walking" → "a drone sweep moves no player unit", control "a `sweep: true` attack-mover walks toward what it reveals" | fixed in place |
+| Task 9, Step 2 | "A drone sweep here also sets the plan's idle attack-movers walking" is false since #537 | fixed in place |
+| Order of landing | #540 (the mission time limit) is recommended to land just before F1 (order plan, decision 4). Task 9's spending plan must then win inside its mission's limit too | noted |
+
+---
+
 ## Pre-flight, 11 Oct (against main f2d5d9e8)
 
 Read against `main` `f2d5d9e8` (11 Oct). The plan's sim and runtime half is unchanged in kind. The
@@ -222,7 +258,9 @@ currency**, and it buys a menu of four, not two.
   `eslint-disable`. The earn rule is integer lumps. The barrage draws its scatter from the
   **caller's** `rng` stream, exactly as `callStrike` does, one stream draw pair per round.
 - **The two sim pins (`determinism.test.ts`, flat `922714084` and relief `3200430224` on `main` at
-  `f2d5d9e8`, ~L427 and ~L721, unchanged since `b44df7aa`; they were `2109596329` and `1425295494`
+  `f2d5d9e8`, ~L427 and ~L721, unchanged since `b44df7aa`; Pre-flight 2 (2026-10-11): **three** on
+  `49715ff9`, flat `1202444260`, relief `3354895120` and orders `2737216487`, ~L438/~L736/~L845, after
+  #537; they were `2109596329` and `1425295494`
   at `067fab9a`, and #402 moved both; whatever #291 and Hold position re-pin them to, which both
   land first) stay UNMOVED by every task.** The golden
   replays never call a strike (grep, 6 Oct: `determinism.test.ts` has no `callStrike`, `reveal` or
@@ -236,7 +274,8 @@ currency**, and it buys a menu of four, not two.
   and spends no intel.
 - **`pnpm playtest`**: exit 0. Outcomes, durations, ROE, stars and credits byte-identical (R): no plan
   spends intel today, and `creditInputFrom` (`packages/sim/src/credits.ts`) reads no intel (M, G3
-  sheet; still true at `b44df7aa`). `LADDER_CREDITS` (**5870** on `main` at `f2d5d9e8`,
+  sheet; still true at `b44df7aa`). `LADDER_CREDITS` (**5917** on `main` at `49715ff9`, ~L3096,
+  Pre-flight 2; **5870** on `main` at `f2d5d9e8`,
   `tools/src/backtest/playtest.ts` ~L3195, held equal to `CAMPAIGN_CREDITS` in
   `packages/app/src/ui/stores-model.ts` L63; it was 5736 at `067fab9a`, GH-382 moved it to 5844,
   #402 to 5830, #431 to 5868 and #444 to 5870; #330 moved no pin) unchanged. Task 9 adds new printed lines; the existing lines do
@@ -538,12 +577,18 @@ export function highGroundRises(elevation: Uint8Array, blocked: Uint8Array,
     any identified enemy it cannot reach (`stepSweep`). So the contest test's enemy, if identified
     and out of reach, would walk an attack-moved holder off the rise, and the test would measure the
     closing rule instead. Pin both sides of that as decisions:*
-    - **"an attack-mover that identifies an enemy out of reach leaves the rise and is not paid"**;
+    - ~~**"an attack-mover that identifies an enemy out of reach leaves the rise and is not paid"**~~;
     - **"a held unit stays on the rise and is paid"**.
+    - *(Pre-flight 2, 2026-10-11, #537: a player's attack-move now stops where sent, so the first pin
+      is false. Replace it with **"a plain attack-mover that identifies an enemy out of reach stays
+      on the rise and is paid"** and **"an attack-mover ordered with `sweep: true` walks off and is
+      not paid"** (the AI's kind). The held case uses `hold` if Hold keeps its sim command, else
+      `halt` (order plan, decision 1). Seen red: set `sweep: true` on the plain case's order.)*
   - *(11 Oct: a plain `move` also leaves `attackMove` clear, so a unit that moved onto the rise
     and was never attack-moved stays too. L1 is decided: no move-only order for the player (lead,
     early Oct). Hold is still the order the rise test should use, because it is the one the
-    closing rule is documented to respect.)*
+    closing rule is documented to respect.)* *(Pre-flight 2, 2026-10-11: L1 was reopened and shipped
+    as the N move, #535; and since #537 the closing rule no longer touches a player's order at all.)*
   - **"a unit that spawned on a rise earns nothing standing there"**: the ruling of 6 Oct, D4. It
     pays only after it leaves and moves back on. Track per unit, runtime-only, whether it has
     stepped onto the rise since spawning.
@@ -696,6 +741,11 @@ supportCost(kind: SupportKind): number;
     contact decayed. Ruled 6 Oct: accepted. Pin it here as **"a drone sweep sets idle attack-movers
     walking toward what it reveals"**, with its control **"a held unit is not moved by a sweep"**.
     Hold position is the player's counter.)*
+    *(Pre-flight 2, 2026-10-11, #537: inverted. An arrived player attack-mover has `sweepOrder` 0 and
+    is never swept. Pin **"a drone sweep moves no player unit"** (a plain arrived attack-mover and a
+    halted unit, positions unchanged 10 s after the reveal), with its control **"an attack-mover
+    ordered with `sweep: true` walks toward what the sweep reveals"**. Seen red: drop the
+    `sweepOrder` check in `stepSweep` on a scratch copy.)*
 - [ ] **Step 2: Implement.** `requestSupport`/`supportCost` are added; `requestSweep`,
   `requestStrike`, `sweepCost` and `strikeCost` stay as wrappers over them. The app is not edited:
   its `SupportKind` (`ui/production.ts`, `'sweep' | 'strike'`) is a different type from the sim's,
@@ -742,6 +792,9 @@ unproven by construction.
   the data: place the call by the plan's own geometry and say why in a comment. A drone sweep here
   also sets the plan's idle attack-movers walking toward what it reveals (#402), which can move
   more of the line than duration and ROE. `LADDER_CREDITS` is 5870 on `main` at `f2d5d9e8`.)*
+  *(Pre-flight 2, 2026-10-11: since #537 a sweep moves no plan unit, so it moves only what it
+  reveals to the plan's fire. `LADDER_CREDITS` is 5917, and the spending plan must still win on
+  30/30 seeds.)*
 - [ ] **Step 3: See it red.**
   - Restore the stationary-scout term on a scratch copy of the runtime: `INTEL_PASSIVE_BEATS_WINNER`
     fails, naming at least `khan_rafid_3_clearance` (M at `751b6742`: passive 189 vs winner 20 on the
@@ -787,12 +840,12 @@ rate (census first; text only), `docs/HANDOVER.md`. *(6 Oct: `data/locales/` hol
 
 | pin | expected | the reason, for the commit |
 |---|---|---|
-| sim pins, flat and relief | **unmoved** (R): `922714084` / `3200430224` on `main` at `f2d5d9e8` (`2109596329` / `1425295494` at `067fab9a`; #402 moved both), or whatever #291 and Hold position re-pin them to. A move is a defect | — |
+| sim pins, flat, relief and orders (three since #537; Pre-flight 2, 2026-10-11: `1202444260` / `3354895120` / `2737216487` on `49715ff9`) | **unmoved** (R): `922714084` / `3200430224` on `main` at `f2d5d9e8` (`2109596329` / `1425295494` at `067fab9a`; #402 moved both), or whatever #291 and Hold position re-pin them to. A move is a defect | — |
 | `ECONOMY_PIN` | **born** in Task 1, **re-pinned once** in Task 3 | intel accrues by first identification and objective completion, not per minute (G3 Q1) |
 | `ECONOMY_PIN_RELIEF` | **born** in Task 5 | a new guard for the rise term; not a re-pin |
 | `pnpm balance` | byte-identical (R) | — |
 | `pnpm playtest` | every existing line byte-identical (R), except the one plan Task 9 makes spend | new printed intel lines and two new gates |
-| `LADDER_CREDITS` | unchanged (R) at **5870** (`main` `f2d5d9e8`; 5830 at `b44df7aa`, 5736 at `067fab9a`; moved by GH-382, #402, #431 and #444); re-pinned in Task 9 only if the spending plan's credits move, with the term named, and `CAMPAIGN_CREDITS` (`packages/app/src/ui/stores-model.ts`) with it, which `tools/src/campaign_credits.test.ts` holds equal | |
+| `LADDER_CREDITS` | unchanged (R) at **5917** (`main` `49715ff9`, Pre-flight 2; 5870 at `f2d5d9e8`; 5830 at `b44df7aa`, 5736 at `067fab9a`; moved by GH-382, #402, #431 and #444); re-pinned in Task 9 only if the spending plan's credits move, with the term named, and `CAMPAIGN_CREDITS` (`packages/app/src/ui/stores-model.ts`) with it, which `tools/src/campaign_credits.test.ts` holds equal | |
 
 ## Lane A needs (WP-S-F #184)
 

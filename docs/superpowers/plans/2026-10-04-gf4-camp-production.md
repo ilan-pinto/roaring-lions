@@ -13,7 +13,8 @@ Refreshed against `main` `b44df7aa` (v0.121.4, 6 Oct). What F4 replaces is uncha
 - **#374 Pixi retired:** the rally marker is drawn by three only. The dock shows a "deploying" chip for a bought type whose GLB has not landed (`meshPending`, `ui/production.ts`).
 
 **Interactions (R, read from source; none measured):**
-- **D5 rally `move` under #402.** A rallied foot unit runs to the point holding fire the whole way, even under fire (`sim.ts` ~L3828). It kneels on arrival and stays there (`stepSweep` skips `attackMove` 0, `sim.ts` ~L5177). An attack-move would fight its way there, but on arrival `stepSweep` would walk it on: toward a current target in cover, or else to the nearest enemy position its side has recorded, which since #402 includes an identified enemy out of reach. So it would not hold the rally point. The player's right-click is always an attack-move (`input/intents.ts` ~L285/324/337), and there is no plain-move button. Task 9's bought enemy units walking to `rally` behave the same way. A trigger `commit` re-orders them as an attack-move (`mission.ts` ~L1701).
+- **D5 rally `move` under #402.** *(Pre-flight 2, 2026-10-11: the attack-move half of this bullet is
+  stale; since #537 a no-sweep attack-move holds at its goal. See the Pre-flight 2 decision.)* A rallied foot unit runs to the point holding fire the whole way, even under fire (`sim.ts` ~L3828). It kneels on arrival and stays there (`stepSweep` skips `attackMove` 0, `sim.ts` ~L5177). An attack-move would fight its way there, but on arrival `stepSweep` would walk it on: toward a current target in cover, or else to the nearest enemy position its side has recorded, which since #402 includes an identified enemy out of reach. So it would not hold the rally point. The player's right-click is always an attack-move (`input/intents.ts` ~L285/324/337), and there is no plain-move button. Task 9's bought enemy units walking to `rally` behave the same way. A trigger `commit` re-orders them as an attack-move (`mission.ts` ~L1701).
 - **At the exit.** `spawn` resets the unit to `BRACE_NONE` (`sim.ts` ~L1757). `runtime.step` runs after `sim.tick`, so a rally `move` queued on the deploy tick is applied before the next tick's `stepBrace`: the unit never drops, and starts 0 ticks late. With no rally the unit kneels at the exit (4 ticks), and a rally set later costs it a 4-tick rise. Successive units still deploy onto the one exit tile (`structureExit`, `sim.ts` ~L4526), as today.
 - **D1 contested.** The rule is unchanged by #402. A foot patroller that makes contact now stays where it met the player and can hold a camp contested. No shipped camp mission has a foot patroller near its camp (they are `moto_rpg` and `technical`, vehicles, which #402 leaves alone). The building plans' camps sit near what the enemy is sent to:
   - Beit Sahwan II: all three waves go to `kdf_assembly`, 5.0 tiles from the exit (1.5,19.5). Unchanged since 4 Oct.
@@ -25,8 +26,57 @@ Refreshed against `main` `b44df7aa` (v0.121.4, 6 Oct). What F4 replaces is uncha
    **Ruled 6 Oct (lead):** add a "Hold position" order (`2026-10-06-hold-position.md`, on `main` Wed 4 Nov, before F4). The rally point issues Hold on arrival. A held unit stays put, kneels, fires at anything in range, and never advances, chases or closes. The walk to the point stays D5's `move`.
 2. **Task 9 / D7–D8.** The same question for the enemy's bought units walking to their `rally` marker. By `move` they walk past KDF troops holding fire, and #402's halt-on-contact covers patrollers only.
    **Ruled 6 Oct (lead):** likewise. The enemy's bought units issue Hold on arrival at their `rally` marker. A trigger's `commit` (an attack-move) releases them.
+   *(Pre-flight 2, 2026-10-11: items 1 and 2 are reopened by #537; see the Pre-flight 2 decision.)*
 3. **D1 vs GH-382.** Deir Amun II's gate fight now falls inside the camp's 6-tile radius, as Beit Sahwan II's wave target already did. Under D1 both lines would pause whenever a wave arrives. Is that the intended "no production while contested", or should contest be measured another way (a smaller radius, or the camp footprint rather than the exit)?
    **Ruled 6 Oct:** intended. A contested camp pauses; D1 stands as written.
+
+## Pre-flight 2 (2026-10-11), evening, against main 49715ff9
+
+Read and grepped, not run.
+
+- **#537 removed the reason for D5's shape.** D5 (and its 6 Oct ruling) made the rally a `move`
+  followed by Hold on arrival because "an attack-move would fight its way there, but on arrival
+  `stepSweep` would walk it on". Since #537 `stepSweep` walks on only an attack-move that set
+  `sweep: true` (waves, `commit`s, `targets.ts`). A no-sweep attack-move fights its way to the point
+  and holds there with no arrival hook. The same is true of Task 9's bought enemy units walking to
+  `rally`. A trigger `commit` still sweeps, so it still sends them on. See the decision below.
+- **Hold may not exist as a sim command** (order plan, decision 1). Task 5's "a rallied unit holds on
+  arrival" and Task 9's "hold there on arrival" depend on it as written.
+- **Five plans build now, not three.** #542 added buying to **Wadi Halam IV** (`wadiHalam4Plan`,
+  `inf_squad` as logistics allow, ~L612) and **Umm Zeitoun III** (`ummZeitoun3Plan`, a mortar then
+  rifles, ~L2314), beside BS II, DA II and WH II. Neither stands a camp (they deploy at the start
+  marker, as WH II does). Task 10 re-proves all five, and "Lines that move" in Global Constraints is
+  their five lines.
+- **Task 9's probe seeds.** `main` now has a 30-seed harness (#539, #542): seeds 424242 then 1..29,
+  `passive-sweep.ts` and `plan-sweep.ts` with a worker pool. The G3 sheet's list on
+  `spike/skirmish-g0` is a different set. Recommended (default, not a question): run the probe over
+  `main`'s set and reuse its worker pattern, and say in the probe that it is not the G3 set. `PT_SEED`
+  is read in `playtest-run.ts` (~L228), not `playtest.ts` ~L201; the passive controls are
+  `passiveAcrossSeeds` calls.
+
+| where | correction | |
+|---|---|---|
+| Changed since 4 Oct (D5 under #402), D5, For the lead 1 and 2 | The closing rule no longer walks a no-sweep attack-mover off its goal (#537) | dated notes in place; **LEAD DECISION NEEDED** below |
+| Task 5 Step 1, Step 3; Task 9 Step 1 | The "holds on arrival" test and its control ("where an attack-mover would be walked off") rest on the old closing rule. Under the recommended answer the control becomes a `sweep: true` attack-move, which is walked off | dated notes in place |
+| Global, Re-pins | Sim pins are **three**: flat `1202444260`, relief `3354895120`, orders `2737216487`. Unmoved (R) | fixed in place |
+| Global, Re-pins, Task 10 | `LADDER_CREDITS` = `CAMPAIGN_CREDITS` = **5917** (`playtest.ts` ~L3096; `GATES` ~L2820) | fixed in place |
+| Global, Task 10 | Playtest holds every plan, control and gate on 30 seeds (~57 s locally). Serial lines and the contested pause must keep all five building plans at 30/30 | fixed in place |
+| Task 10 Step 2 | `deirAmun2Plan` is at ~L1413 (its `M(15, 31)` orders ~L1423-1437); unchanged by #542 | noted |
+| Order of landing | #540 (time limit) is recommended before F1. The five building plans' slowest 30-seed wins must stay inside their limits after the serial lines slow them | noted |
+
+### LEAD DECISION NEEDED (Pre-flight 2, 2026-10-11): the rally order, again
+
+The 6 Oct ruling ("the walk stays a `move`; Hold on arrival") answered a problem #537 has since fixed.
+- **(a, recommended)** The rally order is a plain **attack-move without `sweep`**, for the player's
+  rally and for the enemy's bought units alike. A foot unit fights on the way (it halts to fire under
+  #402) and holds on arrival. No arrival hook, no dependency on Hold, no runtime list of rallied ids.
+  A trigger `commit` (which sweeps) still releases the enemy's.
+- **(b)** Keep D5 as ruled: a `move`, holding fire on the way, then `hold` on arrival. Needs Hold's sim
+  command (order plan, decision 1 (A) or (C)).
+- **(c)** A `move`, then nothing: a `move` already leaves `attackMove` 0, so the unit holds anyway; it
+  just does not shoot on the way.
+
+---
 
 ## Pre-flight, 11 Oct (against main f2d5d9e8)
 
@@ -156,6 +206,8 @@ G3 sheet (measured before GH-382 and #402), (R) is reasoned.
     issues Hold position (`2026-10-06-hold-position.md`). "Arrived" is the first tick the rallied
     unit reads `moving === 0` (H-D5). The unit then stays, kneels and fires at anything in range,
     and the closing rule cannot walk it off. The next order the player gives releases it (H-D2).
+    *(Pre-flight 2, 2026-10-11: reopened. The closing rule no longer walks a no-sweep attack-mover
+    off its goal (#537), and Hold may not keep a sim command. See the Pre-flight 2 decision.)*
   - **D6. Which line a build goes to**: the line the caller names; with none named, the line with the
     fewest items, ties to the lowest index. The dock names the selected camp (S-F).
   - **D7. No shipped campaign mission gives side 1 a camp in Stage 4.** Every campaign enemy stays
@@ -176,13 +228,15 @@ G3 sheet (measured before GH-382 and #402), (R) is reasoned.
   construction). The runtime issues `move` commands, and since the 6 Oct ruling `hold` commands,
   through `sim.queueCommand`; it never writes a position. No floating point added.
 - **Sim pins unmoved** by every task (R): the golden replays build no `MissionRuntime`. A move is a
-  defect. On `main` they read flat **922714084** and relief **3200430224**
+  defect. *Pre-flight 2 (2026-10-11): on `49715ff9` they are three, flat **1202444260**, relief
+  **3354895120**, orders **2737216487** (#537).* On `main` they read flat **922714084** and relief **3200430224**
   (`packages/sim/src/determinism.test.ts` ~L427 and ~L721; 2109596329 and 1425295494 on 4 Oct, both
   moved by #402).
 - **The economy pins move once**, in Task 6, with the reason.
 - **`pnpm balance`** byte-identical (R).
 - **`pnpm playtest`**: exit 0 at every commit. Lines that move are the missions whose plans build
-  (`beit_sahwan_2_foothold`, `deir_amun_2_foothold`, `wadi_halam_2_laager`, M) and, through serial
+  (`beit_sahwan_2_foothold`, `deir_amun_2_foothold`, `wadi_halam_2_laager`, M; *Pre-flight 2: plus
+  `wadi_halam_4_village` and `umm_zeitoun_3_clearance` since #542, and every plan on 30/30 seeds*) and, through serial
   timing, nothing else (R): a plan that builds nothing cannot see a line. Every plan still wins;
   every passive control still loses. *(6 Oct: there is a fourth `requestBuild` site, `boughtProbe`
   (`playtest.ts` ~L2609). Its two `(bought)` lines each build one unit at t=0, at `player_start`,
@@ -389,6 +443,10 @@ clearRally(line: number): boolean;
     the runtime queues one `hold` for it (Hold position, H-D5), and `sim.state.holdPos` reads 1.
     An identified enemy out of its reach does not walk it off the point; the control is the same
     layout with no `hold`, where an attack-mover would be walked off;
+    *(Pre-flight 2, 2026-10-11: under decision (a) the rally is a no-sweep attack-move and there is no
+    `hold`: the test asserts the unit is still on the point 10 s after arriving with an identified
+    enemy out of reach, and the control is the same order with `sweep: true`, which walks off. Seen
+    red by setting `sweep: true` on the rally order.)*
   - the rally `move` reaches the sim through `queueCommand` and nowhere else: a test spies the
     command queue and asserts one `move` with the spawned ids.
 - [ ] **Step 2: Implement.** `spawnPlacement` already returns the spawned ids (`number[]`,
@@ -397,6 +455,7 @@ clearRally(line: number): boolean;
   and queues `{ kind: 'hold', ids }` for each one as it arrives (`2026-10-06-hold-position.md`,
   on `main` before F4).)*
 - [ ] **Step 3: See it red.** Skip the arrival `hold`: "a rallied unit holds on arrival" fails.
+  *(Pre-flight 2, 2026-10-11: under decision (a), "set `sweep: true` on the rally order" instead.)*
   Write `goalX/goalY` directly instead of queueing a command: the spy test
   fails (and invariant 4 says why it must). Both fields are private on `Sim` (`sim.ts` ~L882; read
   through `goalOf`), so the mutation needs a cast. Accept blocked tiles: the `#` test fails.
@@ -515,7 +574,8 @@ export function spendDown(menu: readonly LineItem[], last: number, purse: number
   - it buys through `spendDown`, one unit at a time, and its line freezes when a KDF squad contests its
     camp (the same rule, G3 Q3);
   - built units get the authored `tag` and walk to the `rally` marker, and hold there on arrival
-    (ruled 6 Oct: the same `hold` the player's rally issues);
+    (ruled 6 Oct: the same `hold` the player's rally issues); *(Pre-flight 2, 2026-10-11: under
+    decision (a), the same no-sweep attack-move the player's rally issues, and no `hold`)*;
   - a trigger that `commit`s that tag sends them on, which is how authored content and bought units
     meet. *(6 Oct: `commit` reads a `group` (see Task 7's note) and issues an attack-move
     (`mission.ts` ~L1701), which releases them from Hold (H-D2). The walk to `rally` is a `move` by
@@ -545,6 +605,10 @@ export function spendDown(menu: readonly LineItem[], last: number, purse: number
   The 30-seed list (`424242 … 8888` plus `11 … 777`, G3 sheet Q6) lives in the spike harness on
   `spike/skirmish-g0`, not on `main`. On `main` a playtest run takes its seed from `PT_SEED`
   (`playtest.ts` ~L201–202, default 424242). The passive control is `playtest.ts` ~L1962.)*
+  *(Pre-flight 2, 2026-10-11: `main` now sweeps 30 seeds itself, 424242 then 1..29 (#539, #542;
+  `passive-sweep.ts`, `plan-sweep.ts`). Use that set and its worker pattern, and say the set is not the
+  G3 one. `PT_SEED` is read in `playtest-run.ts` ~L228; the passive controls are `passiveAcrossSeeds`
+  calls.)*
 - [ ] **Step 4: See it red.** Let side 1 build in parallel (skip the line): the "one unit at a time"
   test fails, and the probe's bought count jumps.
 
@@ -556,7 +620,8 @@ export function spendDown(menu: readonly LineItem[], last: number, purse: number
 
 **Files:** `tools/src/backtest/playtest.ts`.
 
-- [ ] **Step 1:** Re-run every plan. For each of the three building plans, if the serial line changed
+- [ ] **Step 1:** Re-run every plan (30 seeds; Pre-flight 2). For each of the three building plans
+  (five since #542: add `wadi_halam_4_village` and `umm_zeitoun_3_clearance`), if the serial line changed
   its outcome, re-time its `requestBuild` calls to the same intent (the same units, queued earlier or
   on two camps where the mission has two) rather than changing what it buys. Comment each change with
   Task 1's parallel-vs-serial ticks. *(6 Oct: no shipped mission has two camps; each of the six
@@ -573,7 +638,8 @@ export function spendDown(menu: readonly LineItem[], last: number, purse: number
   fight, which is intended (ruled 6 Oct). Measure both before re-timing.)*
 - [ ] **Step 3: Measure.** Every plan wins; every passive control loses; banking lines (F2) printed
   and their pins re-read; `LADDER_CREDITS` and `GATES` re-pinned only where a grade or `unitHome`
-  moved, with the per-mission terms in the comment. *(6 Oct: `LADDER_CREDITS` is **5870** on
+  moved, with the per-mission terms in the comment. *(Pre-flight 2, 2026-10-11: **5917** on
+  `49715ff9`, ~L3096; `GATES` ~L2820.)* *(6 Oct: `LADDER_CREDITS` is **5870** on
   `f2d5d9e8` (`playtest.ts` ~L3195; 5830 on `b44df7aa`, 5736 on 4 Oct) and `GATES` is unchanged (`playtest.ts` ~L2944). Since
   GH-330, `CAMPAIGN_CREDITS` (`packages/app/src/ui/stores-model.ts` ~L63, 5870) must move in the same
   commit, or `tools/src/campaign_credits.test.ts` goes red.)*
@@ -601,12 +667,12 @@ export function spendDown(menu: readonly LineItem[], last: number, purse: number
 
 | pin | expected | the reason, for the commit |
 |---|---|---|
-| sim pins, flat and relief | **unmoved** (R): 922714084 / 3200430224 on `main` (2109596329 / 1425295494 on 4 Oct, moved by #402) | — |
+| sim pins, flat, relief and orders (three since #537) | **unmoved** (R): 1202444260 / 3354895120 / 2737216487 on `49715ff9` (Pre-flight 2); 922714084 / 3200430224 on `main` at `f2d5d9e8` (2109596329 / 1425295494 on 4 Oct, moved by #402) | — |
 | `ECONOMY_PIN`, `ECONOMY_PIN_RELIEF` | **re-pinned once**, Task 6 (born in F1; not on `main` yet) | serial lines per camp, the contested pause, rally points (G3 Q3) |
 | `pnpm balance` | byte-identical (R) | — |
-| `pnpm playtest` | the three building plans' lines move (serial timing, the contested pause, and one rally) | Task 10's plan edits, each commented |
-| `LADDER_CREDITS` | 5870 on `main` (5830 on `b44df7aa`, 5736 on 4 Oct); moves only if a building plan's grade or `unitHome` moves (R) | named per mission |
-| `CAMPAIGN_CREDITS` | 5870 on `main`; moves with `LADDER_CREDITS`, same commit (GH-330, `campaign_credits.test.ts`) | as `LADDER_CREDITS` |
+| `pnpm playtest` | the three (five since #542, Pre-flight 2) building plans' lines move (serial timing, the contested pause, and one rally) | Task 10's plan edits, each commented |
+| `LADDER_CREDITS` | **5917** on `49715ff9` (Pre-flight 2); 5870 on `f2d5d9e8` (5830 on `b44df7aa`, 5736 on 4 Oct); moves only if a building plan's grade or `unitHome` moves (R) | named per mission |
+| `CAMPAIGN_CREDITS` | **5917** on `49715ff9` (Pre-flight 2); moves with `LADDER_CREDITS`, same commit (GH-330, `campaign_credits.test.ts`) | as `LADDER_CREDITS` |
 
 ## Lane A needs (WP-S-F #184)
 

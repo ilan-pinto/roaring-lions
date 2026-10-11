@@ -12,7 +12,8 @@ The sim has no unit-to-unit collision at all: `stepMovement` clips each unit aga
 and nothing else. Group formations (`formation.ts`, 2026-09-15) give vehicles distinct destination
 slots `VEHICLE_SPACING` (2) tiles apart, but the units share one flow field on the way, and the
 closing rule (`stepSweep`) sends every closer to its target's own position. They meet on the route
-and at the end.
+and at the end. *(Pre-flight 2, 2026-10-11: since #537 the end-meeting applies only to orders that
+`sweep`, i.e. AI waves, `commit`s and the balance backtest; a player's group stops in its slots.)*
 
 **Architecture:**
 - **One new system, `stepSeparation`, right after `stepMovement` in `tick()`.** For every pair of
@@ -45,8 +46,39 @@ and at the end.
   item 1).
 - Worktree under `/Users/ilpinto/dev/roaring-lions-ep/`; run `pnpm install` once.
 - Locate code by symbol; line numbers drift (`stepMovement` ~L5288, `tick()` ~L1846 in `sim.ts` at
-  `f2d5d9e8`).
+  `f2d5d9e8`; ~L5336 and ~L1864 at `49715ff9`, Pre-flight 2).
 - Nothing here is measured. Every (R) is reasoned, and its task says how to measure it.
+
+## Pre-flight 2 (2026-10-11), evening, against main 49715ff9
+
+Read and grepped, not run.
+
+- **#537 removed one of the two ways vehicles met.** "Why" says vehicles meet on the shared flow field
+  on the way and, through the closing rule, at the end. Since #537 a player's attack-move stops where it
+  was sent (formation slots, 2 tiles apart), so the end-meeting survives only for orders that `sweep`:
+  mission waves, trigger `commit`s and the balance backtest (`targets.ts` sets `sweep: true` on every
+  attack-move). The route-meeting is untouched. PA-10's captures predate #537: **re-take one before
+  Task 2** (a group of five KDF vehicles ordered across `beit_sahwan_outskirts`, and a wave arriving),
+  so the PR's before/after is measured on today's movement. If the player's case no longer reproduces
+  at the end of a move, say so in the PR; the plan still stands for the route and for AI sweepers.
+- **#534 found the player-side symptom too:** two Namers ending a group move on an identical position,
+  so a click can never single one out ("Not changed" in #534). V-D4's coincident split is the fix for
+  that; add it to the PR's evidence.
+- **Pins.** Three sim pins: flat `1202444260`, relief `3354895120`, orders `2737216487`. This is a
+  behaviour re-pin; Task 2 Step 4 names which of the three moved and why. The orders replay
+  (`determinism.test.ts` ~L783-846) fields three riflemen and one enemy rifleman, no vehicle, so it
+  should not move (R); if it does, that is a defect to find.
+- **Playtest is 30 seeds** (#539, #542): "every outcome class holds" now means every winning plan wins
+  on 30/30 seeds, every control loses on 30/30, every gate opens on time on 30/30. A pushed hull that
+  costs one plan one seed is red, and the fix is a plan follow-up in its own commit (the #542 pattern),
+  never a mission edit folded into the re-pin. A full run is ~57 s locally.
+- `LADDER_CREDITS` = `CAMPAIGN_CREDITS` = **5917**, `ROSTER_MAX` **30**. `stepMovement` ~L5336 and
+  `tick()` ~L1864 at `49715ff9`.
+- **If Hold keeps a sim column** (order plan, decision 1 (A) or (C)): a held vehicle is pushed like any
+  other (V-D4 exempts only `mobilityKilled`). No change proposed; noted so nobody adds a Hold exemption
+  without a ruling.
+
+No lead decision is new here. V-D7's "a closing vehicle" now means a sweeping one (AI), noted in place.
 
 ---
 
@@ -79,7 +111,8 @@ Taken defaults, for the lead to confirm (For the lead, item 2):
   sets `displaced = 1` (it did move this tick), which is honest for every reader of that flag.
 - **V-D7. Both sides, all vehicles.** Separation is physical, not tactical: a KDF tank and a Sarim
   technical push each other as two KDF tanks do. A closing vehicle stops at contact with its target
-  (V-D5) if the `engaging` latch has not already stopped it at effective range.
+  (V-D5) if the `engaging` latch has not already stopped it at effective range. *(Pre-flight 2,
+  2026-10-11: a closing vehicle is now one whose attack-move set `sweep`; a player's does not close.)*
 - **V-D8. Cost.** One scratch list of vehicle ids per tick (preallocated `Int32Array`, no per-tick
   allocation), then `V(V − 1) / 2` distance checks. At V = 60 that is 1,770 integer distance checks
   a tick, small next to detection's O(N²) (R; Task 3 measures it).
@@ -92,13 +125,15 @@ Taken defaults, for the lead to confirm (For the lead, item 2):
   `rng`; deterministic visiting order (ids ascending). `radius_tiles` becomes Q16.16 at load
   (`addUnitType`), never read as a float in the sim.
 - **The sim pins move once**, in Task 2, with the reason "vehicles no longer overlap (GH-421)". At
-  `f2d5d9e8` they read flat `922714084` and relief `3200430224`; #291, Hold and targeted fire move them
-  first. A golden replay with no vehicle in contact would not move (R): Task 2 says which replay moved
+  `f2d5d9e8` they read flat `922714084` and relief `3200430224`; **Pre-flight 2 (2026-10-11): at
+  `49715ff9` they are three, flat `1202444260`, relief `3354895120`, orders `2737216487`.** #291, Hold
+  (if it keeps a column) and targeted fire move them first. A golden replay with no vehicle in contact would not move (R): Task 2 says which replay moved
   and why.
 - **`pnpm balance`** must still pass every §5.7 target; its printed win rates are quoted before and
   after. A target that fails stops the plan and goes to `balance-analyst` (For the lead, item 4).
-- **`pnpm playtest`**: every plan keeps its outcome class; `LADDER_CREDITS` (5870), `CAMPAIGN_CREDITS`
-  (5870), `ROSTER_MAX` (31) and `GATES` re-pin **only if they move**, each in its own commit with the
+- **`pnpm playtest`**: every plan keeps its outcome class (on all 30 seeds since #539/#542);
+  `LADDER_CREDITS` (5917), `CAMPAIGN_CREDITS` (5917), `ROSTER_MAX` (30) and `GATES` re-pin **only if
+  they move** (Pre-flight 2, 2026-10-11: were 5870, 5870, 31), each in its own commit with the
   per-mission line that moved.
 - **The golden baseline is expected to move** (R): the sandbox force spawns vehicles one per tile
   (`Placements spread across tiles`), closer than two radii, so `vehicle`, `kitted` and possibly
@@ -192,7 +227,8 @@ Taken defaults, for the lead to confirm (For the lead, item 2):
   check. Push both members of an immobile pair: the immobile test fails.
 - [ ] **Step 6: Re-measure, one commit per moved line.**
   - `pnpm balance`: quote the §5.7 lines before and after. All must pass.
-  - `pnpm playtest`: every outcome class holds. If `LADDER_CREDITS` moves, re-pin it with
+  - `pnpm playtest`: every outcome class holds, on 30/30 seeds (Pre-flight 2, 2026-10-11).
+    A plan that loses a seed gets a follow-up order in its own commit, as #542 did; no mission edit. If `LADDER_CREDITS` moves, re-pin it with
     `CAMPAIGN_CREDITS` (`campaign_credits.test.ts` holds them equal), quoting the per-mission credits
     that moved. Same for `ROSTER_MAX` and `GATES`.
   - Say in the PR which golden scenarios are expected to move (Global Constraints) and that the bless
@@ -226,10 +262,10 @@ Taken defaults, for the lead to confirm (For the lead, item 2):
 
 | pin | expected | reason |
 |---|---|---|
-| sim pins, flat and relief | **moved once**, Task 2 | behaviour: vehicles no longer overlap |
+| sim pins, flat, relief and orders (three since #537; Pre-flight 2, 2026-10-11) | **moved once**, Task 2 | behaviour: vehicles no longer overlap |
 | `pnpm balance` | **re-measured**; every §5.7 target passes | vehicles in contact are pushed apart |
-| `pnpm playtest` | **re-measured**; outcome classes hold | as above |
-| `LADDER_CREDITS` / `CAMPAIGN_CREDITS` (5870) / `ROSTER_MAX` (31) / `GATES` | only if moved, one commit each | as above |
+| `pnpm playtest` | **re-measured**; outcome classes hold on 30/30 seeds | as above |
+| `LADDER_CREDITS` / `CAMPAIGN_CREDITS` (5917) / `ROSTER_MAX` (30) / `GATES` | only if moved, one commit each | as above |
 | golden baseline | **expected to move** (`vehicle`, `kitted`, maybe `quiet`/`open-ground`) | the parked sandbox vehicles separate before the capture tick; bless after merge from CI |
 | `memory` CI job | unchanged (R) | no asset, no texture |
 

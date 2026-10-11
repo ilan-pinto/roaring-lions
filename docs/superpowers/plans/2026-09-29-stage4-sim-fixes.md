@@ -60,6 +60,24 @@ and `detect-report.md`, `fix-sim2.mts` and `patch291.py` are gone.
 
 ---
 
+## Pre-flight 2 (2026-10-11), evening, against main 49715ff9
+
+Not in this evening's brief by name; checked because it lands first on 2 Nov and its Task 4 is the
+first Stage 4 re-pin. Read and grepped, not run.
+- **#537 edited `sim.ts`** (lead ruling, 11 Oct): `sweepOrder`/`wpSweep` columns, the halt branch,
+  `startRout`'s existing branch now clears `sweepOrder` (~L3603), and `stepSweep`'s gate. Task 4's
+  new "otherwise, hold" branch of `startRout` must clear **`sweepOrder`** beside `attackMove` (a routed
+  wave unit that rallies must not resume a sweep it was ordered before the rout).
+- **Three sim pins**: flat `1202444260`, relief `3354895120`, orders `2737216487` (`determinism.test.ts`
+  ~L438, ~L736, ~L845). Task 4's three `hashArray` lines move all three; Step 3's proof restores all
+  three; Step 4 writes three `Was` lines. The orders replay (three riflemen, ~L783) has no rout, so
+  its value should move for the columns only (R).
+- **`LADDER_CREDITS` = `CAMPAIGN_CREDITS` = 5917**, `ROSTER_MAX` 30 (#529, #537, #542). "The ladder
+  must stay 5870" (Tasks 1–2) reads **5917**; Task 1's Tel Marum I and Task 2's re-measure run the
+  30-seed harness (#539, #542; ~57 s locally), and every plan must still win 30/30.
+
+---
+
 ## Pre-flight, 11 Oct (against main f2d5d9e8)
 
 Read and grepped, not run. No probe was re-measured: every "measured" figure in the tasks is still
