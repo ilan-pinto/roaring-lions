@@ -162,9 +162,9 @@ describe('cursorFor', () => {
 });
 
 describe('ANIMATED_CURSORS follows the approved sheet', () => {
-  it('animates the five wired sights at ORDER_SIGHT\'s own frame counts and rates, plus charge and demolish', () => {
+  it('animates the wired sights at ORDER_SIGHT\'s own frame counts and rates, plus charge and demolish', () => {
     expect(Object.keys(ANIMATED_CURSORS).sort()).toEqual(
-      ['advance', 'charge', 'demolish', 'move', 'smoke', 'strike', 'sweep']
+      ['advance', 'charge', 'demolish', 'move', 'moveOnly', 'smoke', 'strike', 'sweep']
     );
     for (const [name, id] of Object.entries(SIGHT_OF)) {
       const spec = ORDER_SIGHT[id];

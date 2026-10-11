@@ -18,7 +18,7 @@
  * No DOM. `Sim` is read, never written.
  */
 import { fx, type Sim } from '@lions/sim';
-import { resolvePointer, type IntentWorld, type Resolution } from './intents';
+import { resolveMoveOrder, resolvePointer, type IntentWorld, type Resolution } from './intents';
 import { badgeFor, cursorFor, cursorKey, type CursorHints, type CursorName } from './cursor';
 import { roleBucket } from '../ui/role';
 import { wholeOrderPinned } from '../ui/pinned';
@@ -140,6 +140,10 @@ export interface CursorContext {
   /** Alt held. */
   readonly confirm: boolean;
   readonly armedSmoke: boolean;
+  /** The plain Move order is armed: the click is a move to the ground, so the
+   *  cursor reads `resolveMoveOrder`, not the attack-move resolver. Optional
+   *  so the other callers compile and read unchanged. */
+  readonly armedMove?: boolean;
 }
 
 export interface CursorRead {
@@ -157,14 +161,17 @@ export interface CursorRead {
  * while a player queues waypoints.
  */
 export function cursorAt(sim: Sim, world: IntentWorld, p: PointerPoint, ctx: CursorContext): CursorRead {
-  const res = resolvePointer(world, {
-    ids: ctx.ids,
-    x: p.x,
-    y: p.y,
-    append: false,
-    armed: ctx.armed,
-    confirm: ctx.confirm,
-  });
+  const armedMove = ctx.armedMove === true && ctx.armed === null;
+  const res = armedMove
+    ? resolveMoveOrder(world, { ids: ctx.ids, x: p.x, y: p.y, append: false })
+    : resolvePointer(world, {
+        ids: ctx.ids,
+        x: p.x,
+        y: p.y,
+        append: false,
+        armed: ctx.armed,
+        confirm: ctx.confirm,
+      });
   const tx = Math.floor(p.x);
   const ty = Math.floor(p.y);
   const inBounds = tx >= 0 && ty >= 0 && tx < sim.width && ty < sim.height;
@@ -177,6 +184,7 @@ export function cursorAt(sim: Sim, world: IntentWorld, p: PointerPoint, ctx: Cur
     hostile: p.hostile >= 0,
     blocked: inBounds && sim.blocked[ty * sim.width + tx] !== 0,
     armedSmoke: ctx.armedSmoke,
+    armedMove,
     pinned: wholeOrderPinned(sim.state, orderIds),
   };
   const name = cursorFor(res, hints);

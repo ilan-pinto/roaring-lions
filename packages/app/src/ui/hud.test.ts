@@ -942,6 +942,7 @@ function clusterRig(
     commander: TEST_COMMANDER,
     orders: {
       attackMove: () => calls.push('attackMove'),
+      move: () => calls.push('move'),
       halt: () => calls.push('halt'),
       smoke: () => calls.push('smoke'),
       load: () => calls.push('load'),
@@ -1593,17 +1594,18 @@ describe('the order row', () => {
   // S3e (Q6): each order is the G1 sheet's surround at rest, in one ink,
   // and the family colour rides on the glyph span alone through theme.css's
   // `.rl-order__glyph[data-family=...]` -- the label beside it stays in ink.
-  it('draws the order row as five drawn marks, each tagged with its family', () => {
+  it('draws the order row as six drawn marks, each tagged with its family', () => {
     const world = makeForce();
     const r = clusterRig(() => [world.namer], {}, world);
     const el = r.host;
-    expect(el.querySelectorAll('.rl-order__glyph svg[data-symbol]')).toHaveLength(5);
+    expect(el.querySelectorAll('.rl-order__glyph svg[data-symbol]')).toHaveLength(6);
+    expect(el.querySelector('.rl-order__glyph [data-symbol="move"]')).not.toBeNull();
     expect(el.querySelector('.rl-order__glyph[data-family="offensive"] [data-symbol="attackMove"]')).not.toBeNull();
     expect(el.querySelector('.rl-order__glyph[data-family="control"] [data-symbol="halt"]')).not.toBeNull();
     expect(el.querySelector('.rl-order__glyph[data-family="obscurant"] [data-symbol="smoke"]')).not.toBeNull();
     expect(el.querySelector('.rl-order__glyph[data-family="transport"] [data-symbol="load"]')).not.toBeNull();
     expect(el.querySelector('.rl-order__glyph[data-family="transport"] [data-symbol="unload"]')).not.toBeNull();
-    for (const id of ['attackMove', 'halt', 'smoke', 'load', 'unload']) {
+    for (const id of ['attackMove', 'move', 'halt', 'smoke', 'load', 'unload']) {
       expect(r.order(id)!.textContent).not.toMatch(/[⟶■◌⤓⤒]/);
     }
     // Fix round 1: cropped to the surround, not the cursor's full 24-box.
@@ -1618,10 +1620,10 @@ describe('the order row', () => {
     // never construct a command of its own (invariant 4).
     const world = makeForce();
     const r = clusterRig(() => [world.namer], {}, world);
-    for (const id of ['attackMove', 'halt', 'smoke', 'load', 'unload']) {
+    for (const id of ['attackMove', 'move', 'halt', 'smoke', 'load', 'unload']) {
       r.order(id)!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     }
-    expect(r.calls).toEqual(['attackMove', 'halt', 'smoke', 'load', 'unload']);
+    expect(r.calls).toEqual(['attackMove', 'move', 'halt', 'smoke', 'load', 'unload']);
     expect(r.queued).toBe(0);
   });
 
@@ -1656,7 +1658,7 @@ describe('the order row', () => {
       fx.from(9)
     );
     const r = clusterRig(() => [enemy], {}, world);
-    for (const id of ['attackMove', 'halt', 'smoke', 'load', 'unload']) {
+    for (const id of ['attackMove', 'move', 'halt', 'smoke', 'load', 'unload']) {
       expect(r.order(id)!.style.display).toBe('none');
     }
     // The card still draws: the player asked what that thing is.
