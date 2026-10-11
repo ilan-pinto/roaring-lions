@@ -42,12 +42,15 @@ const L = window.__lions;
 return JSON.stringify({ tick: L.sim.tickCount, units: L.units(0).length, hostiles: L.units(1).length });
 })()`;
 
-/** Steps in CHUNKS -- one `__lions.step(n)` up to each planned tick, then that
+/** Reads the tick it STARTS at -- the verdict's boot tick, so a boot freeze
+ *  that failed in one engine reads as "boot not comparable", not as a hash
+ *  disagreement. Steps in CHUNKS -- one `__lions.step(n)` up to each planned tick, then that
  *  tick's orders -- because every `step` paints a frame, and a frame on a
  *  software-GL runner costs most of a second. A command queued at tick t runs
  *  inside the tick t -> t+1, exactly as a per-tick loop would queue it. */
 const ORDER_SCRIPT = `(async () => {
 const L = window.__lions;
+const start = L.sim.tickCount;
 const fx = (v) => Math.round(v * 65536);
 const ids = L.units(0).map((u) => u.id);
 const half = Math.ceil(ids.length / 2);
@@ -59,7 +62,7 @@ for (const t of ticks) {
   for (const c of plan[t]) L.sim.queueCommand(c);
 }
 if (L.sim.tickCount < ${TARGET_TICK}) L.step(${TARGET_TICK} - L.sim.tickCount);
-return JSON.stringify({ tick: L.sim.tickCount, hash: L.sim.hash() });
+return JSON.stringify({ start, tick: L.sim.tickCount, hash: L.sim.hash() });
 })()`;
 
 /** An engine that could not produce a reading. Exit 2, never a hash. */
@@ -115,9 +118,9 @@ async function reading(launch: () => Promise<Browser>, name: string, port: numbe
     await waitForBattlefield(page, name, pageErrors);
     const boot = JSON.parse((await page.evaluate(BOOT_SCRIPT)) as string) as { tick: number; units: number; hostiles: number };
     console.log(`[${TAG}] ${name}: boot tick ${boot.tick}, ${boot.units} KDF unit(s), ${boot.hostiles} hostile`);
-    const end = JSON.parse((await page.evaluate(ORDER_SCRIPT)) as string) as { tick: number; hash: number };
-    console.log(`[${TAG}] ${name}: tick ${end.tick} hash ${end.hash}`);
-    return { bootTick: boot.tick, bootUnits: boot.units, bootHostiles: boot.hostiles, tick: end.tick, hash: end.hash };
+    const end = JSON.parse((await page.evaluate(ORDER_SCRIPT)) as string) as { start: number; tick: number; hash: number };
+    console.log(`[${TAG}] ${name}: orders from tick ${end.start}; tick ${end.tick} hash ${end.hash}`);
+    return { bootTick: end.start, bootUnits: boot.units, bootHostiles: boot.hostiles, tick: end.tick, hash: end.hash };
   } catch (err) {
     // Whatever broke (a lost context mid-step, a navigation timeout), it is
     // this engine's, and the message says which.
@@ -141,16 +144,21 @@ async function main(): Promise<number> {
       ['webkit', () => webkit.launch()],
     ];
     const results: Record<string, EngineReading> = {};
+    // Every engine is tried even after one fails to boot: a first run on a
+    // new runner should say which of the three cannot draw, not just the first.
+    const failed: string[] = [];
     for (const [name, launch] of engines) {
       try {
         results[name] = await reading(launch, name, port);
       } catch (err) {
-        if (err instanceof EngineBootError) {
-          console.error(`[${TAG}] FAIL (no reading): ${err.message}`);
-          return 2;
-        }
-        throw err;
+        if (!(err instanceof EngineBootError)) throw err;
+        console.error(`[${TAG}] no reading: ${err.message}`);
+        failed.push(name);
       }
+    }
+    if (failed.length > 0) {
+      console.error(`[${TAG}] FAIL (no reading): ${failed.join(', ')} could not boot the battlefield; no hashes compared.`);
+      return 2;
     }
     const v = verdict(results, TARGET_TICK, FIRST_ORDER_TICK);
     (v.ok ? console.log : console.error)(`[${TAG}] ${v.message}`);

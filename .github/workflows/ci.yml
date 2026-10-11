@@ -260,7 +260,10 @@ jobs:
       # diff apart. The walk's actions now run under a 120 s guard sized from
       # that cadence -- a hang guard, not a threshold; nothing it asserts is a
       # duration.
+      # Runs even when a step above failed (a red three-engine check above
+      # must not hide whether the realm walk still passes); not on cancel.
       - name: one realm, no reload -- the router's own walk
+        if: ${{ success() || failure() }}
         run: pnpm ui:routes
       # Uploaded on failure AND on success: the diff image is what a triager
       # actually needs, and `combat` is captured but never gated, so its frame

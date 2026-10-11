@@ -16,13 +16,13 @@ const at = (hash: number, over: Partial<EngineReading> = {}): EngineReading => (
 
 describe('two-engine verdict', () => {
   it('passes three engines that agree, naming the hash', () => {
-    const v = verdict({ chromium: at(3354895120), firefox: at(3354895120), webkit: at(3354895120) }, TARGET, FIRST_ORDER);
+    const v = verdict({ chromium: at(41717), firefox: at(41717), webkit: at(41717) }, TARGET, FIRST_ORDER);
     expect(v.ok).toBe(true);
-    expect(v.message).toBe('PASS: 3 engines, tick 600, hash 3354895120');
+    expect(v.message).toBe('PASS: 3 engines, tick 600, hash 41717');
   });
 
   it('fails when one engine of three reports a different hash', () => {
-    const v = verdict({ chromium: at(1202444260), firefox: at(2737216487), webkit: at(1202444260) }, TARGET, FIRST_ORDER);
+    const v = verdict({ chromium: at(9001), firefox: at(9002), webkit: at(9001) }, TARGET, FIRST_ORDER);
     expect(v.ok).toBe(false);
     expect(v.message).toMatch(/^FAIL: engines disagree/);
   });
