@@ -29,12 +29,14 @@
     "audio:mix": "tsx src/audio/mix-check.ts",
     "weight:capture": "tsx src/perf/weight-captures.ts",
     "plate:host": "tsx src/perf/host-plate-capture.ts",
+    "stills:cinematics": "tsx src/perf/cinematic-stills.ts",
     "plates:units": "tsx src/perf/unit-plates.ts",
     "kit:capture": "tsx src/perf/kit-captures.ts",
     "closeups:garage": "tsx src/perf/garage-closeups.ts",
     "gait:meshes": "tsx src/meshes/gait-pass.ts",
     "motion:meshes": "tsx src/meshes/motion-pass.ts",
     "meshy": "tsx src/meshy/cli.ts",
+    "video": "tsx src/video/cli.ts",
     "test": "sh -c 'if [ \"$1\" = \"--\" ]; then shift; fi; exec vitest run --root .. \"$@\"' sh"
   },
   "dependencies": {

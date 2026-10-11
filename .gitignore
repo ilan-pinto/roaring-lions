@@ -120,3 +120,10 @@ art/meshy/shanty-20261011-01a12a27/refine/model.*
 art/meshy/shanty-20261011-01a12a27/refine/texture_0_*.png
 art/meshy/shanty-20261011-01a12a2d/model.glb
 art/meshy/shanty-20261011-01a12a2d/texture_0_*.png
+
+# --- generated video takes (pnpm video) --------------------------------------
+# Every take `pnpm video -- generate --spend` downloads lands here with its
+# request record beside it. Takes are raw, 3-8 MB each and mostly thrown away;
+# the ledger (art/video/ledger.jsonl) is tracked, and a KEPT take ships only
+# after it is re-encoded into assets/video/ (docs/cinematics/README.md).
+art/video/takes/
