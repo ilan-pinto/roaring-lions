@@ -149,9 +149,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-      - name: Install Playwright Chromium
-        run: pnpm --filter @lions/tools exec playwright install --with-deps chromium
+          key: playwright-three-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      # Three engines, not one: `net:engines` below boots the battlefield in
+      # Firefox and WebKit too. The cache key changed with the set, so a cache
+      # holding Chromium alone is never restored over a three-engine install.
+      - name: Install Playwright Chromium, Firefox and WebKit
+        run: pnpm --filter @lions/tools exec playwright install --with-deps chromium firefox webkit
       # Exit 3 is "no baseline blessed for this capture environment yet" -- a
       # distinct code precisely so it can be told apart from "the picture
       # changed" (exit 1). It warns rather than failing, so a fork or a
@@ -210,6 +213,15 @@ jobs:
             exit 0
           fi
           exit $code
+      # Network design §12: Chromium, Firefox and WebKit boot one sandbox, get
+      # one order script at the same ticks, and must report one
+      # `__lions.sim.hash()` at tick 600 -- the first determinism reading that
+      # is not V8. Its own dev server on :5183, apart from the gate's :5175 and
+      # the walk's :5177. Exit 1 is a disagreement; exit 2 is an engine that
+      # could not boot the battlefield at all (it names the engine and why --
+      # a missing WebGL2 context is said in those words).
+      - name: three engines, one hash (network design §12)
+        run: pnpm net:engines -- --port=5183
       # I9 (final review). The branch's headline claim -- a battlefield can be
       # LEFT cleanly, in one JS realm, with no page reload -- is proved by
       # exactly one instrument, and until this it ran only when somebody
