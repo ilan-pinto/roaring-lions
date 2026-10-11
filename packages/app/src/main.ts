@@ -2908,7 +2908,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // instead of the ordinary line.
       isPinned: (id) => isPinned(sim.state, id),
     },
-    play: (cue) => audio.playVoice({ key: cue.key, priority: cue.priority, at: cue.at ?? undefined, delayS: cue.delayS }),
+    play: (cue, onResolved) => audio.playVoice({ key: cue.key, priority: cue.priority, at: cue.at ?? undefined, delayS: cue.delayS, onResolved }),
     // A bark follows the captions setting; an announcement shows always
     // (polish pass F, A5) -- it is mission information, and a Hebrew line
     // nobody understands is noise.

@@ -202,6 +202,13 @@ export interface VoicePlay {
   /** Start this many seconds after now, on the context clock (no timer):
    *  the outcome line waits out the stinger's head (`OUTCOME_LINE_DELAY_S`). */
   delayS?: number;
+  /** A death call may be HELD while a burst of blasts sounds around it
+   *  (`status: 'held'`, see `BLAST_HOLD_ENERGY`). This is called once, when
+   *  the hold ends, with what became of the line: `played`, `dropped` (the
+   *  ladder had no room for it, or a higher-ranked death call took the
+   *  wait), or `no-context`/`muted` and the rest if the world changed under
+   *  it. Not called when the mixer is disposed. */
+  onResolved?: (r: VoiceResult) => void;
 }
 
 /** The outcome line starts once the stinger's head has played (audio plan
@@ -218,7 +225,10 @@ export type VoiceStatus =
   | 'volume-zero'
   | 'dropped'
   | 'no-context'
-  | 'too-far';
+  | 'too-far'
+  /** A death call waiting out a burst of blasts (`onResolved` says how it
+   *  ended). Nothing is made, nothing ducks, and there is no caption yet. */
+  | 'held';
 
 /** What `playVoice` did (N4, N5, R-9): status, length, caption, lines cut. */
 export interface VoiceResult {
@@ -258,6 +268,49 @@ export const VOICE_CAP = 2;
 /** The no-cut floor (AU-5): a line in its first 300 ms is never pre-empted by
  *  rank, so nothing is clipped to a blip. In context seconds. */
 export const VOICE_NO_CUT_S = 0.3;
+
+/**
+ * The death-call hold (the lead, 2026-10-11): a death call that comes due
+ * among overlapping explosions is lost under them (`pnpm audio:mix` measured
+ * one inside four overlapping kills at 1.0 LU over sfx+music, against the
+ * 6 LU a bark gets), so the mixer holds it until the burst has passed.
+ *
+ * "Energy" is the mixer's own knowledge of the combat events it has just
+ * voiced (`onEvents`), never an analysis of audio: each audible `destroyed`
+ * adds `BLAST_WEIGHT.destroyed`, a penetrating round `.penetrated`, a
+ * ricochet `.ricochet`, each remembered for `BLAST_WINDOW_S`. One kill is 1,
+ * so a lone death call (energy 1, plus a firefight's rounds, about 0.4) still
+ * speaks on the tick of its own kill; two kills in the same breath (2) hold it.
+ */
+export const BLAST_WINDOW_S = 0.6;
+export const BLAST_WEIGHT = { destroyed: 1, penetrated: 0.25, ricochet: 0.1 } as const;
+/** A death call due at or above this energy is held. */
+export const BLAST_HOLD_ENERGY = 2;
+/** A held call is let go once the energy is under this (below one kill). */
+export const BLAST_QUIET_ENERGY = 1;
+/** However loud it stays, a held call plays after this long. */
+export const DEATH_HOLD_MAX_S = 1;
+/** How often a held call looks at the burst again, ms. */
+export const DEATH_HOLD_STEP_MS = 50;
+
+/** One blast the mixer heard, in context seconds. */
+export interface Blast {
+  t: number;
+  w: number;
+}
+
+/** The blast energy at `nowS`: the weights of the blasts in the trailing
+ *  `BLAST_WINDOW_S`. Pure. */
+export function blastEnergy(blasts: readonly Blast[], nowS: number, windowS = BLAST_WINDOW_S): number {
+  let e = 0;
+  for (const b of blasts) if (nowS - b.t < windowS && b.t <= nowS) e += b.w;
+  return e;
+}
+
+/** The lines a blast can bury: a unit's death call, ours or a seen enemy's. */
+export function isDeathCallPriority(p: VoicePriority): boolean {
+  return p === 'kdf_death' || p === 'enemy_death';
+}
 /** Decoded voice PCM held at most, in bytes (N16). */
 export const VOICE_DECODE_BUDGET_BYTES = 16 * 1024 * 1024;
 /** One row of the mix's ducking table: what a trigger does to the layers
@@ -846,6 +899,13 @@ export class BattleAudio {
   /** Lines sounding now, oldest first (N5). */
   private activeVoices: ActiveVoice[] = [];
   private nextVoiceId = 1;
+  /** Blasts heard in the last BLAST_WINDOW_S, oldest first. */
+  private blasts: Blast[] = [];
+  /** Death calls waiting out a burst, by hold id. `polls` counts the looks
+   *  taken at the burst: the cap is counted in them, not read off the context
+   *  clock, so a context that stops advancing cannot hold a call forever. */
+  private readonly heldCalls = new Map<number, { p: VoicePlay; timer: number; polls: number }>();
+  private nextHoldId = 1;
   /** AU-5: per voice key, the takes still to come this cycle and the last one played. */
   private readonly takeBags = new Map<string, { bag: number[]; last: number | null }>();
   /** Squelches not yet at their own end, whether or not their words are
@@ -1612,6 +1672,9 @@ export class BattleAudio {
     if (!ctx) return 'no-context';
     const row = cueDuckRow(id);
     if (row !== 'outcome' && ctx.currentTime < this.cueBlockUntil) return 'blocked';
+    // A major alert silences everything at or below a death call for a moment
+    // (the voice runtime's hush): a call still waiting out a blast waits no more.
+    if (row === 'major') this.dropHeldCalls();
     if (row === 'outcome') {
       this.stopVoices();
       this.cueBlockUntil = ctx.currentTime + OUTCOME_CUE_BLOCK_S;
@@ -1662,6 +1725,8 @@ export class BattleAudio {
     this.holdTimers.clear();
     for (const t of this.toneTimers) window.clearTimeout(t);
     this.toneTimers.clear();
+    for (const h of this.heldCalls.values()) window.clearTimeout(h.timer);
+    this.heldCalls.clear();
   }
 
   /**
@@ -1788,24 +1853,96 @@ export class BattleAudio {
    * ducks, for a line nobody can hear.
    */
   playVoice(p: VoicePlay): VoiceResult {
-    const none = (status: VoiceStatus): VoiceResult => ({ status, seconds: 0, en: null, cut: 0 });
-    // Mute first, and HERE, for playUi's reason: `m` is one flag the HUD reports.
-    if (this.muted) return none('muted');
+    const blocked = this.voiceBlocked(p);
+    if (blocked !== null) return { status: blocked, seconds: 0, en: null, cut: 0 };
+    // A death call among overlapping blasts waits for them to pass (see
+    // `BLAST_HOLD_ENERGY`). Only a line that would otherwise play now is
+    // held: a status above is final, and a delayed line keeps its own clock.
     const ctx = this.ctx;
-    const bus = this.voice;
-    const radio = this.radio;
+    if (ctx && isDeathCallPriority(p.priority) && !p.delayS && blastEnergy(this.blasts, ctx.currentTime) >= BLAST_HOLD_ENERGY) {
+      return this.holdCall(p);
+    }
+    return this.sayNow(p);
+  }
+
+  /** Why a line cannot sound at all right now, or null when it can. The
+   *  status order is part of `playVoice`'s contract. */
+  private voiceBlocked(p: VoicePlay): VoiceStatus | null {
+    // Mute first, and HERE, for playUi's reason: `m` is one flag the HUD reports.
+    if (this.muted) return 'muted';
+    const ctx = this.ctx;
     // A context can exist and still not be running -- suspended until the
     // browser's autoplay gate lifts, same as `onEvents` already guards (N16's
     // sibling check): a line scheduled against a clock that is not advancing
     // would hold a slot and a duck for audio that never actually sounds.
-    if (!ctx || !bus || !radio || ctx.state !== 'running') return none('no-context');
-    if ((this.user.voice ?? 1) === 0 || this.user.master === 0) return none('volume-zero');
+    if (!ctx || !this.voice || !this.radio || ctx.state !== 'running') return 'no-context';
+    if ((this.user.voice ?? 1) === 0 || this.user.master === 0) return 'volume-zero';
     const place = p.at ? placement(p.at.x - this.listener.x, p.at.y - this.listener.y) : null;
-    if (place && !place.audible) return none('too-far');
-    const line = this.voiceLines.get(p.key);
+    if (place && !place.audible) return 'too-far';
     // Not recorded, or not decoded yet: both play nothing (R-9). The tick
     // stands in only when a dev session asked for it (R-10).
-    if (!line && !this.voicePlaceholder) return none('missing');
+    if (!this.voiceLines.has(p.key) && !this.voicePlaceholder) return 'missing';
+    return null;
+  }
+
+  /**
+   * Hold a death call until the blasts around it have passed: it looks at the
+   * burst every DEATH_HOLD_STEP_MS and speaks once the energy is under
+   * BLAST_QUIET_ENERGY, or after DEATH_HOLD_MAX_S whatever it hears. The ladder
+   * is not skipped, only moved to the moment the line would sound: a call that
+   * finds no slot then is dropped, and a death call of a higher rank taking
+   * the wait first supersedes a lower one still waiting. Nothing is made, and
+   * nothing ducks, until it speaks.
+   */
+  private holdCall(p: VoicePlay): VoiceResult {
+    const rank = VOICE_RANK[p.priority];
+    for (const [id, h] of [...this.heldCalls]) {
+      if (VOICE_RANK[h.p.priority] >= rank) continue;
+      window.clearTimeout(h.timer);
+      this.heldCalls.delete(id);
+      h.p.onResolved?.({ status: 'dropped', seconds: 0, en: null, cut: 0 });
+    }
+    const id = this.nextHoldId++;
+    const timer = window.setTimeout(() => this.pollHeld(id), DEATH_HOLD_STEP_MS);
+    this.heldCalls.set(id, { p, timer, polls: 0 });
+    return { status: 'held', seconds: 0, en: null, cut: 0 };
+  }
+
+  private pollHeld(id: number): void {
+    const h = this.heldCalls.get(id);
+    if (!h) return;
+    h.polls++;
+    const ctx = this.ctx;
+    const quiet = ctx === null || blastEnergy(this.blasts, ctx.currentTime) < BLAST_QUIET_ENERGY;
+    if (!quiet && h.polls * DEATH_HOLD_STEP_MS < DEATH_HOLD_MAX_S * 1000) {
+      h.timer = window.setTimeout(() => this.pollHeld(id), DEATH_HOLD_STEP_MS);
+      return;
+    }
+    this.heldCalls.delete(id);
+    h.p.onResolved?.(this.sayNow(h.p));
+  }
+
+  /** Let go of every call still waiting: its line describes a moment that is
+   *  over (a verdict, a pause, a mission leave). Each hears `dropped`. */
+  private dropHeldCalls(): void {
+    for (const [id, h] of [...this.heldCalls]) {
+      window.clearTimeout(h.timer);
+      this.heldCalls.delete(id);
+      h.p.onResolved?.({ status: 'dropped', seconds: 0, en: null, cut: 0 });
+    }
+  }
+
+  /** `playVoice` past every wait: admit it to the ladder and start it. */
+  private sayNow(p: VoicePlay): VoiceResult {
+    const none = (status: VoiceStatus): VoiceResult => ({ status, seconds: 0, en: null, cut: 0 });
+    const blocked = this.voiceBlocked(p);
+    if (blocked !== null) return none(blocked);
+    const ctx = this.ctx;
+    const bus = this.voice;
+    const radio = this.radio;
+    if (!ctx || !bus || !radio) return none('no-context');
+    const place = p.at ? placement(p.at.x - this.listener.x, p.at.y - this.listener.y) : null;
+    const line = this.voiceLines.get(p.key);
     const t = ctx.currentTime + Math.max(0, p.delayS ?? 0);
     const admit = admitVoice(this.activeVoices, p.priority, VOICE_CAP, t);
     if (!admit.play) return none('dropped');
@@ -1879,6 +2016,7 @@ export class BattleAudio {
 
   /** Fade every line out and let go of the duck: a mission leave. */
   stopVoices(): void {
+    this.dropHeldCalls();
     for (const v of [...this.activeVoices]) this.cutVoice(v.id);
     // Lines whose words already ended may still be sounding their tail.
     const ctx = this.ctx;
@@ -2014,6 +2152,7 @@ export class BattleAudio {
     this.readIntensity(events, sim);
     if (this.muted || this.ctx === null || this.ctx.state !== 'running') return;
     const st = sim.state;
+    this.noteBlasts(events, sim);
     let voices = 0;
     for (const e of events) {
       if (voices >= MAX_SOURCES_PER_TICK) break;
@@ -2055,6 +2194,31 @@ export class BattleAudio {
           this.noise(0.5, 180, 0.06);
         }
       }
+    }
+  }
+
+  /**
+   * Remember the blasts this tick voices, for the death-call hold: an audible
+   * kill or a round landing, by the weights in `BLAST_WEIGHT`. The mixer's own
+   * reading of the events it is about to play; the sim is read, never written.
+   */
+  private noteBlasts(events: SimEvent[], sim: Sim): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    this.blasts = this.blasts.filter((b) => now - b.t < BLAST_WINDOW_S);
+    const st = sim.state;
+    for (const e of events) {
+      let id: number;
+      let w: number;
+      if (e.kind === 'destroyed') {
+        id = e.entity;
+        w = BLAST_WEIGHT.destroyed;
+      } else if (e.kind === 'impact') {
+        id = e.target;
+        w = e.penetrated ? BLAST_WEIGHT.penetrated : BLAST_WEIGHT.ricochet;
+      } else continue;
+      if (placement(st.posX[id] / 65536 - this.listener.x, st.posY[id] / 65536 - this.listener.y).audible) this.blasts.push({ t: now, w });
     }
   }
 

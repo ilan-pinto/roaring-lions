@@ -9,6 +9,13 @@ import {
   admitVoice,
   AMB_FADE_IN_S,
   BattleAudio,
+  BLAST_HOLD_ENERGY,
+  BLAST_QUIET_ENERGY,
+  BLAST_WEIGHT,
+  BLAST_WINDOW_S,
+  blastEnergy,
+  DEATH_HOLD_MAX_S,
+  DEATH_HOLD_STEP_MS,
   busGain,
   cueDuckRow,
   decodeOrder,
@@ -41,6 +48,7 @@ import {
   type AudioSet,
   type VoiceManifest,
   type VoicePlay,
+  type VoiceResult,
   type VoicePriority,
   type VoiceVariant,
 } from './audio';
@@ -1312,6 +1320,262 @@ describe('playVoice (WP-AU1 §7)', () => {
       audio.stopVoices();
       expect(later.env.gain.events).toHaveLength(events);
     });
+  });
+});
+
+describe('a death call waits out the blasts around it (the lead, 2026-10-11)', () => {
+  const WITH_MAJOR: AudioManifest = {
+    ...MANIFEST,
+    sets: { ...MANIFEST.sets, alert_major: { event: 'ui', variants: [] } },
+    cues: { 'alert.major': 'alert_major' },
+  };
+  async function ready(manifest: AudioManifest = WITH_MAJOR) {
+    stubFetch();
+    const r = attachedWith((a) => {
+      a.useManifest(manifest, '/a/');
+      a.setVoiceLanguages(['he', 'ar']);
+    });
+    await vi.waitFor(() => expect(r.audio.voiceStats().keys).toBe(4));
+    return r;
+  }
+  /** Three player units and an enemy, all inside earshot of a listener at 0,0. */
+  const sim = () => ({
+    tickCount: 0,
+    state: { side: Uint8Array.from([0, 0, 0, 1]), posX: new Int32Array(4), posY: new Int32Array(4), typeIdx: new Uint16Array(4) },
+    unitTypes: [{ weapons: [] }],
+  });
+  const kill = (entity: number) => ({ kind: 'destroyed', tick: 1, entity, by: 3 }) as unknown as SimEvent;
+  const round = (penetrated: boolean) => ({ kind: 'impact', tick: 1, shooter: 3, target: 0, penetrated }) as unknown as SimEvent;
+  const death = (resolved?: (r: VoiceResult) => void): VoicePlay => ({ key: 'he.infantry.death', priority: 'kdf_death', onResolved: resolved });
+  const blast = (audio: BattleAudio, n: number): void => audio.onEvents(Array.from({ length: n }, (_, i) => kill(i % 3)), sim() as unknown as Sim);
+
+  it('the energy: a kill is 1, a penetrating round and a ricochet are less, and it forgets after BLAST_WINDOW_S', () => {
+    expect(BLAST_WEIGHT.destroyed).toBe(1);
+    expect(BLAST_WEIGHT.penetrated).toBeLessThan(BLAST_WEIGHT.destroyed);
+    expect(BLAST_WEIGHT.ricochet).toBeLessThan(BLAST_WEIGHT.penetrated);
+    const blasts = [
+      { t: 1, w: 1 },
+      { t: 1.4, w: 0.25 },
+    ];
+    expect(blastEnergy(blasts, 1.5)).toBeCloseTo(1.25);
+    expect(blastEnergy(blasts, 1 + BLAST_WINDOW_S)).toBeCloseTo(0.25); // the first has aged out, to the edge
+    expect(blastEnergy(blasts, 1.4 + BLAST_WINDOW_S)).toBe(0);
+    // One kill alone is under the bar; two are at it. That is the whole rule.
+    expect(BLAST_WEIGHT.destroyed).toBeLessThan(BLAST_HOLD_ENERGY);
+    expect(2 * BLAST_WEIGHT.destroyed).toBeGreaterThanOrEqual(BLAST_HOLD_ENERGY);
+    expect(BLAST_QUIET_ENERGY).toBeLessThan(BLAST_HOLD_ENERGY);
+  });
+
+  it('a lone kill, and a firefight’s rounds, do not hold the death call: it speaks on its own tick', async () => {
+    const { audio, ctx } = await ready();
+    blast(audio, 1);
+    // A busy 0.6 s of rifle fire: a few rounds landing, a few glancing off.
+    audio.onEvents([round(true), round(true), round(false), round(false)], sim() as unknown as Sim);
+    const r = audio.playVoice(death());
+    expect(r.status).toBe('played');
+    expect(ctx.sources.length).toBeGreaterThan(0);
+  });
+
+  it('two kills in the same breath hold it: status held, no source, no duck, no caption text yet', async () => {
+    vi.useFakeTimers();
+    try {
+      const { audio, ctx } = await ready();
+      const sfxDuck = ctx.gains[2];
+      blast(audio, 2);
+      const sources = ctx.sources.length;
+      const ducks = sfxDuck?.gain.events.filter((e) => e[0] === 'linear').length;
+      const r = audio.playVoice(death());
+      expect(r).toEqual({ status: 'held', seconds: 0, en: null, cut: 0 });
+      expect(ctx.sources.length).toBe(sources);
+      expect(audio.voiceStats().active).toBe(0);
+      expect(sfxDuck?.gain.events.filter((e) => e[0] === 'linear').length).toBe(ducks);
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('speaks once the burst has passed, and tells the caller with the take that sounds', async () => {
+    vi.useFakeTimers();
+    try {
+      const { audio, ctx } = await ready();
+      blast(audio, 3);
+      const done: VoiceResult[] = [];
+      audio.playVoice(death((r) => done.push(r)));
+      // Still inside the window: still waiting.
+      ctx.currentTime = BLAST_WINDOW_S - 0.1;
+      vi.advanceTimersByTime(DEATH_HOLD_STEP_MS * 3);
+      expect(done).toEqual([]);
+      // The kills have aged out: the next look lets it go.
+      ctx.currentTime = BLAST_WINDOW_S + 0.1;
+      vi.advanceTimersByTime(DEATH_HOLD_STEP_MS);
+      expect(done).toHaveLength(1);
+      expect(done[0]).toMatchObject({ status: 'played', en: 'we are hit' });
+      expect(audio.voiceStats().active).toBe(1);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('plays anyway after DEATH_HOLD_MAX_S however loud it stays: not at 0.95 s, at 1.0 s', async () => {
+    expect(DEATH_HOLD_MAX_S).toBe(1);
+    vi.useFakeTimers();
+    try {
+      const { audio, ctx } = await ready();
+      blast(audio, 2);
+      const done: VoiceResult[] = [];
+      audio.playVoice(death((r) => done.push(r)));
+      // A kill every look keeps the burst alive for as long as we like.
+      const steps = (DEATH_HOLD_MAX_S * 1000) / DEATH_HOLD_STEP_MS;
+      for (let i = 1; i < steps; i++) {
+        ctx.currentTime += DEATH_HOLD_STEP_MS / 1000;
+        blast(audio, 2);
+        vi.advanceTimersByTime(DEATH_HOLD_STEP_MS);
+        expect(done, `still waiting at ${i * DEATH_HOLD_STEP_MS} ms`).toEqual([]);
+      }
+      ctx.currentTime += DEATH_HOLD_STEP_MS / 1000;
+      blast(audio, 2);
+      vi.advanceTimersByTime(DEATH_HOLD_STEP_MS);
+      expect(done).toHaveLength(1);
+      expect(done[0]?.status).toBe('played');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('only a death call waits: an order bark among the same blasts speaks at once, and so does a missing line’s status', async () => {
+    const { audio } = await ready();
+    blast(audio, 4);
+    expect(audio.playVoice({ key: 'he.infantry.move', priority: 'order' }).status).toBe('played');
+    expect(audio.playVoice({ key: 'he.crew.death', priority: 'kdf_death' }).status).toBe('missing'); // not held: nothing to wait for
+  });
+
+  it('a seen enemy’s death call waits too, and a higher-ranked one still waiting takes the wait from it', async () => {
+    vi.useFakeTimers();
+    try {
+      const { audio, ctx } = await ready();
+      blast(audio, 3);
+      const enemy: VoiceResult[] = [];
+      const ours: VoiceResult[] = [];
+      expect(audio.playVoice({ key: 'ar.infantry.death', priority: 'enemy_death', at: { x: 1, y: 1 }, onResolved: (r) => enemy.push(r) }).status).toBe('held');
+      expect(audio.playVoice(death((r) => ours.push(r))).status).toBe('held');
+      // Our own man's call supersedes the enemy's: the lower rank is let go at once.
+      expect(enemy).toEqual([expect.objectContaining({ status: 'dropped' })]);
+      expect(ours).toEqual([]);
+      ctx.currentTime = 5;
+      vi.advanceTimersByTime(DEATH_HOLD_STEP_MS);
+      expect(ours).toEqual([expect.objectContaining({ status: 'played' })]);
+      expect(enemy).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('follows the existing ladder when it speaks: with both slots held by announcements it is dropped, not queued again', async () => {
+    vi.useFakeTimers();
+    try {
+      const { audio, ctx } = await ready();
+      blast(audio, 3);
+      const done: VoiceResult[] = [];
+      audio.playVoice(death((r) => done.push(r)));
+      // While it waits, two mission lines take both voices (never pre-empted by rank).
+      expect(audio.playVoice({ key: 'he.common.ack', priority: 'announce_high' }).status).toBe('played');
+      expect(audio.playVoice({ key: 'he.common.ack', priority: 'announce' }).status).toBe('played');
+      ctx.currentTime = 5;
+      vi.advanceTimersByTime(DEATH_HOLD_STEP_MS);
+      expect(done).toEqual([expect.objectContaining({ status: 'dropped' })]);
+      expect(audio.voiceStats().active).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('when a slot is free at the moment it speaks it plays beside a higher-ranked line, as the ladder always allowed', async () => {
+    vi.useFakeTimers();
+    try {
+      const { audio, ctx } = await ready();
+      blast(audio, 3);
+      const done: VoiceResult[] = [];
+      audio.playVoice(death((r) => done.push(r)));
+      audio.playVoice({ key: 'he.infantry.move', priority: 'order' });
+      ctx.currentTime = 5;
+      vi.advanceTimersByTime(DEATH_HOLD_STEP_MS);
+      expect(done).toEqual([expect.objectContaining({ status: 'played' })]);
+      expect(audio.voiceStats().active).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a verdict, a pause or a mission leave lets it go (stopVoices): dropped, and no timer left', async () => {
+    vi.useFakeTimers();
+    try {
+      const { audio, ctx } = await ready();
+      blast(audio, 3);
+      const done: VoiceResult[] = [];
+      audio.playVoice(death((r) => done.push(r)));
+      audio.stopVoices();
+      expect(done).toEqual([expect.objectContaining({ status: 'dropped' })]);
+      expect(vi.getTimerCount()).toBe(0);
+      ctx.currentTime = 5;
+      vi.advanceTimersByTime(5000);
+      expect(done).toHaveLength(1);
+      expect(audio.voiceStats().active).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a major alert lets it go, as the voice runtime’s hush does for a call asked for after one', async () => {
+    vi.useFakeTimers();
+    try {
+      const { audio, ctx } = await ready();
+      blast(audio, 3);
+      const done: VoiceResult[] = [];
+      audio.playVoice(death((r) => done.push(r)));
+      expect(audio.playCue('alert.major')).toBe('played');
+      expect(done).toEqual([expect.objectContaining({ status: 'dropped' })]);
+      ctx.currentTime = 5;
+      vi.advanceTimersByTime(5000);
+      expect(done).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('dispose clears the hold’s timer (the lesson of PR 446) and never speaks afterwards', async () => {
+    vi.useFakeTimers();
+    try {
+      const { audio, ctx } = await ready();
+      blast(audio, 3);
+      const done: VoiceResult[] = [];
+      audio.playVoice(death((r) => done.push(r)));
+      // The control: without it the zero below could be a hold that never armed one.
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+      audio.dispose();
+      expect(vi.getTimerCount()).toBe(0);
+      const sources = ctx.sources.length;
+      ctx.currentTime = 5;
+      vi.advanceTimersByTime(5000);
+      expect(done).toEqual([]);
+      expect(ctx.sources.length).toBe(sources);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a muted mixer holds nothing: the status is the mute, and no timer is armed', async () => {
+    vi.useFakeTimers();
+    try {
+      const { audio } = await ready();
+      blast(audio, 3);
+      audio.toggle();
+      expect(audio.playVoice(death()).status).toBe('muted');
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -361,6 +361,88 @@ describe('intentional silence (AU-5, audio plan §5.1)', () => {
   });
 });
 
+describe('a held death call and its caption (the mixer waits out blasts; the caption waits with it)', () => {
+  const dead: SimEvent = { kind: 'destroyed', tick: 1, entity: 1, by: 9 };
+  const HELD: VoiceResult = { status: 'held', seconds: 0, en: null, cut: 0 };
+  /** A mixer that holds every call and lets the test say when and how it ended. */
+  function held(over: Partial<VoiceRuntimeDeps> = {}) {
+    const resolvers: ((r: VoiceResult) => void)[] = [];
+    const r = rig({
+      play: (c, onResolved) => {
+        r.played.push(c);
+        if (onResolved) resolvers.push(onResolved);
+        return HELD;
+      },
+      ...over,
+    });
+    return { ...r, resolve: (res: VoiceResult): void => void resolvers.shift()?.(res) };
+  }
+
+  it('shows no caption while the call is held; the caption goes up when the voice does, at THAT moment', () => {
+    const r = held();
+    r.setNow(1_000);
+    r.rt.onTick([dead]);
+    expect(r.played.map((c) => c.key)).toEqual(['he.infantry.death']);
+    expect(r.captions).toEqual([]);
+    expect(r.rt.log()[0]).toMatchObject({ source: 'death', status: 'held' });
+    r.setNow(5_000);
+    r.resolve(played(4, 'we are hit'));
+    expect(r.captions).toEqual([['we are hit', 1.2]]);
+    expect(r.rt.log()[0]).toMatchObject({ at: 1_000, status: 'played' });
+    // Its hold runs from the moment it went up (5 s), not from the ask (1 s):
+    // a verdict at 6 s, long after the ask's hold would have run out, takes it down.
+    r.setNow(6_000);
+    r.rt.hush('outcome');
+    expect(r.cleared).toEqual([6_000]);
+  });
+
+  it('a call the ladder dropped when it came to speak shows nothing, and the log says so', () => {
+    const r = held();
+    r.rt.onTick([dead]);
+    r.resolve({ status: 'dropped', seconds: 0, en: null, cut: 0 });
+    expect(r.captions).toEqual([]);
+    expect(r.rt.log()[0]?.status).toBe('dropped');
+  });
+
+  it('a held call that comes to speak under a higher line’s caption does not write over it (AU-5, unchanged)', () => {
+    const r = held({ announcements: TABLE, announceLang: 'he' });
+    r.rt.onTick([dead]);
+    r.setNow(100);
+    r.rt.onMission([complete]);
+    expect(r.captions.map((c) => c[0])).toEqual(['a.complete']);
+    r.setNow(600);
+    r.resolve(played(4, 'we are hit'));
+    expect(r.captions.map((c) => c[0])).toEqual(['a.complete']);
+  });
+
+  it('after dispose, or once the verdict has landed, a call that speaks late captions nothing', () => {
+    const a = held();
+    a.rt.onTick([dead]);
+    a.rt.dispose();
+    a.resolve(played(4, 'we are hit'));
+    expect(a.captions).toEqual([]);
+
+    const b = held();
+    b.rt.onTick([dead]);
+    b.rt.hush('outcome');
+    b.resolve(played(4, 'we are hit'));
+    expect(b.captions).toEqual([]);
+  });
+
+  it('arms no timer of its own: the wait is the mixer’s, and its dispose clears it', () => {
+    vi.useFakeTimers();
+    try {
+      const r = held();
+      r.rt.onTick([dead]);
+      expect(vi.getTimerCount()).toBe(0);
+      r.rt.dispose();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('voicePlaceholderOn (R-10)', () => {
   it('only in a dev build, and only when asked', () => {
     expect(voicePlaceholderOn(new URLSearchParams('voicetick'), true)).toBe(true);
