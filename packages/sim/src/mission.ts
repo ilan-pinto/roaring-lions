@@ -1698,7 +1698,12 @@ export class MissionRuntime {
         );
         if (ids.length > 0 && t.do.to) {
           const [x, y] = this.markerPos(t.do.to);
-          this.sim.queueCommand({ kind: t.do.kind === 'commit' ? 'attackMove' : 'move', ids, x, y });
+          // A scripted `commit` SWEEPS: having reached its marker it goes on
+          // to hunt what its side remembers, so an objective cannot stall on
+          // a hidden defender. A player's attack-move does not (sim.ts,
+          // `Command`'s `sweep`; the lead's ruling, 2026-10-11).
+          if (t.do.kind === 'commit') this.sim.queueCommand({ kind: 'attackMove', ids, x, y, sweep: true });
+          else this.sim.queueCommand({ kind: 'move', ids, x, y });
           // A trigger order overrides the standing stance, and for a patrol it
           // has to say so out loud. `stepPatrols` re-issues the next waypoint
           // the instant a unit stops moving, so without this the ordered move
@@ -1790,7 +1795,8 @@ export class MissionRuntime {
       if (w.say) out.push({ kind: 'say', tick, speaker: w.say.speaker, text: w.say.text });
       if (w.to && spawned.length > 0) {
         const [x, y] = this.markerPos(w.to);
-        this.sim.queueCommand({ kind: 'attackMove', ids: spawned, x, y });
+        // A wave sweeps on from its marker, like a scripted commit above.
+        this.sim.queueCommand({ kind: 'attackMove', ids: spawned, x, y, sweep: true });
       }
     }
   }

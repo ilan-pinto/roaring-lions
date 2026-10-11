@@ -343,7 +343,10 @@ describe('an attack-moving rifleman', () => {
     w.sim.setCover(19, 17, 2); // in cover: close on it, do not kneel and plink
     w.sim.identifyTo(0, near);
     w.sim.identifyTo(0, far);
-    w.sim.queueCommand({ kind: 'attackMove', ids: [r], x: at(12.5), y: at(16.5) });
+    // Closing on the band target after arrival is the sweep's job, so this
+    // order asks for it; a plain attack-move holds where it was sent
+    // (orders-obeyed.test.ts).
+    w.sim.queueCommand({ kind: 'attackMove', ids: [r], x: at(12.5), y: at(16.5), sweep: true });
     run(w.sim, r, 40);
     expect(w.sim.state.brace[r]).toBe(BRACE_KNEELING);
     w.sim.debugKill(near);

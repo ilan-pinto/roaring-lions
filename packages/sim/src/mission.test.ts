@@ -538,6 +538,47 @@ describe('triggers and waves', () => {
     expect(w.sim.entityCount).toBe(3);
     expect(w.sim.state.moving[1]).toBe(1); // wave is advancing
   });
+
+  // The sweep is an order the CALLER asks for since 2026-10-11 (`sweep` on
+  // the attack-move; the lead's ruling): a player's attack-move stops where it
+  // was sent, but a wave or a scripted commit has to go on and hunt what its
+  // side remembers, or an objective stalls on a hidden defender. These two are
+  // the only guard on mission.ts asking for it -- drop `sweep: true` from
+  // either call and the matching test goes red.
+  const sweepsOnFromMarker = (w: World, id: number): void => {
+    // Arrive at the marker first, and stop there.
+    w.step(20 * TICKS_PER_SECOND);
+    expect(w.sim.state.moving[id]).toBe(0);
+    const ax = fx.toNumber(w.sim.state.posX[id]);
+    expect(ax).toBeGreaterThan(18);
+    // Then the side learns of a defender far off, out of everyone's sight.
+    w.sim.identifyTo(1, 0);
+    w.step(8 * TICKS_PER_SECOND);
+    expect(fx.toNumber(w.sim.state.posX[id])).toBeLessThan(ax - 3);
+  };
+
+  it('a wave sweeps on from its marker to a remembered contact', () => {
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 1, at: [2, 5] }],
+        enemy: { waves: [{ at_seconds: 1, to: 'push', units: [{ unit: 'm_rpg', count: 1, from: 'north' }] }] },
+      }),
+      { markers: { north: [24, 9], push: [21, 9] } }
+    );
+    sweepsOnFromMarker(w, 1);
+  });
+
+  it('a scripted commit sweeps on from its marker to a remembered contact', () => {
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 1, at: [2, 5] }],
+        enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [24, 9], group: 'reserve' }] },
+        triggers: [{ id: 'push', on: { kind: 'timer_s', value: 1 }, do: { kind: 'commit', group: 'reserve', to: 'rally' } }],
+      }),
+      { markers: { rally: [21, 9] } }
+    );
+    sweepsOnFromMarker(w, 1);
+  });
 });
 
 describe('reinforce', () => {

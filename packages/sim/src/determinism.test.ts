@@ -424,7 +424,18 @@ describe('determinism (1000-tick replay)', () => {
     // arrived attack-mover closes on a target out in the band. This replay's
     // riflemen kneel to fire, so the shorter drop alone moves their first
     // shots. Was 2118781669.
-    expect(a.hash()).toBe(922714084);
+    //
+    // 2026-10-11: hash() gained two order columns, `sweepOrder` and
+    // `wpSweep` (an attack-move sweeps on from its goal only when the order
+    // says `sweep`; the lead's ruling). That is the WHOLE of this move, and it
+    // was measured: with the halt fix and the arrival hold both in place and
+    // the two columns left out of hash(), 922714084 came back exactly. This
+    // replay never halts an unpinned attack-mover with a contact remembered
+    // (west[0] is pinned at t=600, and stepSweep skipped a pinned unit
+    // anyway) and nobody in it arrives before t=1000 -- so it cannot see
+    // either fix. The orders replay at the bottom of this file is what pins
+    // them. Was 922714084.
+    expect(a.hash()).toBe(1202444260);
   });
 
   it('the replay actually exercises halt to fire', () => {
@@ -718,7 +729,11 @@ describe('determinism over relief (900-tick replay round a hill)', () => {
     // replay's pin -- the brace columns joined hash(), and d_rifles (which this
     // replay fields too) now kneels to fire. Was 1425295494. Moved again for
     // the 6 Oct revision, as at the flat pin. Was 3739556491.
-    expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(3200430224);
+    //
+    // 2026-10-11: moved by the two order columns joining hash(), and by
+    // nothing else -- measured as at the flat pin (columns out, fixes in:
+    // 3200430224 exactly). Was 3200430224.
+    expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(3354895120);
   });
 
   it('the relief changes the route, not merely the hash', () => {
@@ -762,5 +777,71 @@ describe('determinism over relief (900-tick replay round a hill)', () => {
     // tiles or order would have sent them round whatever the elevation said.
     const flat = relief(RELIEF_SEED, RELIEF_TICKS, false);
     expect(HILL_CORE.some((t) => flat.tiles0.has(t))).toBe(true);
+  });
+});
+
+// --- the orders replay ------------------------------------------------------
+// Neither replay above can see whether an order is OBEYED once it is done:
+// measured 2026-10-11, with the halt and arrival fixes in place and the two new
+// order columns left out of hash(), both pins came back byte-identical
+// (922714084, 3200430224). The flat replay's halt at t=600 lands on a pinned
+// rifleman, which stepSweep skipped anyway, and no attack-mover in either one
+// arrives with a contact still remembered. So the two holes the lead ruled on
+// (a halted unit restarted next tick; an arrived attack-mover walking off to
+// hunt) could reopen with every pin green. This replay is their pin: three
+// riflemen, one halted mid-move, one sent with a plain attack-move, one with a
+// sweeping one, and an enemy far off that their side has identified and lost.
+
+const ORDERS_SEED = 0x0b_e7_0011;
+
+function orders(seed: number): { sim: Sim; halted: number; plain: number; sweeper: number; haltAt: [number, number] } {
+  const sim = new Sim({ seed, width: 48, height: 48, capacity: 16 });
+  const rifles = sim.addUnitType(RIFLES);
+  const halted = sim.spawn(rifles, 0, fx.fromInt(4), fx.fromInt(10));
+  const plain = sim.spawn(rifles, 0, fx.fromInt(4), fx.fromInt(24));
+  const sweeper = sim.spawn(rifles, 0, fx.fromInt(4), fx.fromInt(38));
+  const far = sim.spawn(rifles, 1, fx.fromInt(44), fx.fromInt(24));
+  let haltAt: [number, number] = [0, 0];
+  for (let t = 0; t < 900; t++) {
+    if (t === 20) sim.identifyTo(0, far);
+    if (t === 30) {
+      sim.queueCommand({ kind: 'attackMove', ids: [halted], x: fx.fromInt(30), y: fx.fromInt(10), sweep: true });
+      sim.queueCommand({ kind: 'attackMove', ids: [plain], x: fx.fromInt(14), y: fx.fromInt(24) });
+      sim.queueCommand({ kind: 'attackMove', ids: [sweeper], x: fx.fromInt(14), y: fx.fromInt(38), sweep: true });
+    }
+    if (t === 130) sim.queueCommand({ kind: 'halt', ids: [halted] });
+    sim.tick();
+    if (t === 130) haltAt = [sim.state.posX[halted], sim.state.posY[halted]];
+  }
+  return { sim, halted, plain, sweeper, haltAt };
+}
+
+describe('determinism of an order once it is done (900-tick replay)', () => {
+  it('two independent replays from the same seed produce an identical state hash', () => {
+    expect(orders(ORDERS_SEED).sim.hash()).toBe(orders(ORDERS_SEED).sim.hash());
+  });
+
+  it('the replay actually exercises the halt, the hold and the sweep', () => {
+    const { sim, halted, plain, sweeper, haltAt } = orders(ORDERS_SEED);
+    // Halted for good, where it stopped -- not walked on at the memory.
+    expect(sim.state.posX[halted]).toBe(haltAt[0]);
+    expect(sim.state.posY[halted]).toBe(haltAt[1]);
+    expect(haltAt[0]).toBeGreaterThan(fx.fromInt(5)); // and it WAS under way
+    // A plain attack-move stops where it was sent.
+    expect(sim.state.posX[plain]).toBe(fx.fromInt(14));
+    expect(sim.state.posY[plain]).toBe(fx.fromInt(24));
+    // A sweeping one went on, toward the memory at x=44.
+    expect(sim.state.posX[sweeper]).toBeGreaterThan(fx.fromInt(20));
+  });
+
+  it('the pinned hash', () => {
+    // Set 2026-10-11 with the fixes it guards (halt clears the attack-move
+    // latch; an attack-move sweeps on from its goal only when the order says
+    // `sweep`). There is no earlier value. Move it deliberately and say why.
+    // Falsified when set: reverting both fixes reads 2325908329, reverting
+    // the arrival hold alone 629252188, and leaving the halt's attackMove
+    // latch set (sweepOrder still cleared) moves it too, with the behaviour
+    // assertions above still green -- the one mutation only this pin sees.
+    expect(orders(ORDERS_SEED).sim.hash()).toBe(2737216487);
   });
 });

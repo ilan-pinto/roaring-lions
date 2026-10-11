@@ -14,6 +14,11 @@ import { Sim, type UnitTypeJson } from './sim';
 // `inf_squad` -- is nobody's problem: combat has no shot and the sweep will not
 // walk to it, so the attack-mover kneels and watches it for the rest of the
 // mission.
+//
+// Since 2026-10-11 the sweep is an order the caller ASKS for (`sweep: true`:
+// AI waves and scripted commits); a plain attack-move -- every player
+// right-click -- holds where it was sent (orders-obeyed.test.ts). Everything
+// here is about the sweep, so every order here asks for it.
 
 const LOOKER: UnitTypeJson = {
   id: 'o_looker',
@@ -66,7 +71,7 @@ describe('an attack-mover that has arrived', () => {
     const r = w.sim.spawn(w.looker, 0, fx.from(4.5), fx.from(16.5));
     // 12 tiles off the goal: inside sight 14, outside rifle range 8.
     const p = w.sim.spawn(w.post, 1, fx.from(22.5), fx.from(16.5));
-    w.sim.queueCommand({ kind: 'attackMove', ids: [r], x: fx.from(10.5), y: fx.from(16.5) });
+    w.sim.queueCommand({ kind: 'attackMove', ids: [r], x: fx.from(10.5), y: fx.from(16.5), sweep: true });
     let arrived = -1;
     let fired = -1;
     let everLost = false;
@@ -92,7 +97,7 @@ describe('an attack-mover that has arrived', () => {
     // and in cover -- a target in the open it would shoot from where it is.
     const p = w.sim.spawn(w.post, 1, fx.from(17.5), fx.from(16.5));
     w.sim.setCover(17, 16, 2);
-    w.sim.queueCommand({ kind: 'attackMove', ids: [r], x: fx.from(10.5), y: fx.from(16.5) });
+    w.sim.queueCommand({ kind: 'attackMove', ids: [r], x: fx.from(10.5), y: fx.from(16.5), sweep: true });
     let arrived = -1;
     for (let t = 0; t < 600; t++) {
       w.sim.tick();
@@ -109,7 +114,7 @@ describe('an attack-mover that has arrived', () => {
     const w = world();
     const r = w.sim.spawn(w.looker, 0, fx.from(4.5), fx.from(16.5));
     const p = w.sim.spawn(w.post, 1, fx.from(17.5), fx.from(16.5)); // open ground
-    w.sim.queueCommand({ kind: 'attackMove', ids: [r], x: fx.from(10.5), y: fx.from(16.5) });
+    w.sim.queueCommand({ kind: 'attackMove', ids: [r], x: fx.from(10.5), y: fx.from(16.5), sweep: true });
     let fired = 0;
     for (let t = 0; t < 600; t++) {
       for (const e of w.sim.tick()) if (e.kind === 'fire' && e.shooter === r && e.target === p) fired++;
@@ -124,7 +129,7 @@ describe('an attack-mover that has arrived', () => {
     const r = w.sim.spawn(w.looker, 0, fx.from(4.5), fx.from(16.5));
     const h = w.sim.spawn(w.heli, 1, fx.from(22.5), fx.from(16.5));
     w.sim.identifyTo(0, h);
-    w.sim.queueCommand({ kind: 'attackMove', ids: [r], x: fx.from(10.5), y: fx.from(16.5) });
+    w.sim.queueCommand({ kind: 'attackMove', ids: [r], x: fx.from(10.5), y: fx.from(16.5), sweep: true });
     for (let t = 0; t < 600; t++) w.sim.tick();
     // Arrived and stayed: a rifle squad does not walk under a helicopter.
     expect(w.sim.contactLevel(0, h)).toBe(2);

@@ -592,7 +592,15 @@ export type Command =
    *  idle friend should stop beside it rather than displace it — spec
    *  `2026-09-15-group-formation-design.md` §4.3. */
   | { kind: 'move'; ids: number[]; x: Fx; y: Fx; append?: boolean; exact?: boolean }
-  | { kind: 'attackMove'; ids: number[]; x: Fx; y: Fx; append?: boolean; exact?: boolean }
+  /** `sweep`: having arrived, go on to hunt what the side remembers
+   *  (`stepSweep`). Without it an attack-move STOPS WHERE IT WAS SENT and
+   *  fights whatever comes inside its own engagement range from there — the
+   *  lead's ruling of 2026-10-11, because a player who clicks a tile means
+   *  that tile. The sweep exists so an AI wave or a scripted `commit` does
+   *  not park in a staring contest with a hidden defender, so those callers
+   *  ask for it (`mission.ts`). It is data on the order, never a guess at
+   *  who sent it: the sim does not know which side is "the player". */
+  | { kind: 'attackMove'; ids: number[]; x: Fx; y: Fx; append?: boolean; exact?: boolean; sweep?: boolean }
   | { kind: 'halt'; ids: number[] }
   | { kind: 'garrison'; ids: number[]; structure: number }
   /** Climb aboard a vehicle with seats. */
@@ -879,6 +887,10 @@ export class Sim {
   private readonly suppression: Int32Array;
   private readonly moving: Uint8Array;
   private readonly attackMove: Uint8Array;
+  /** 1 while the current attack-move leg was ordered with `sweep` — the
+   *  only kind `stepSweep` will walk on from its goal. Meaningless unless
+   *  `attackMove` is 1. */
+  private readonly sweepOrder: Uint8Array;
   private readonly goalX: Int32Array;
   private readonly goalY: Int32Array;
   private readonly fieldRef: Int32Array;
@@ -970,6 +982,8 @@ export class Sim {
   private readonly wpX: Int32Array;
   private readonly wpY: Int32Array;
   private readonly wpAttack: Uint8Array;
+  /** Per queued leg, `sweepOrder`'s value once that leg becomes current. */
+  private readonly wpSweep: Uint8Array;
   private readonly wpCount: Uint8Array;
   /** Vehicle this unit is riding in, -1 when on its own feet. */
   private readonly carriedBy: Int32Array;
@@ -1192,6 +1206,7 @@ export class Sim {
     this.suppression = new Int32Array(n);
     this.moving = new Uint8Array(n);
     this.attackMove = new Uint8Array(n);
+    this.sweepOrder = new Uint8Array(n);
     this.goalX = new Int32Array(n);
     this.goalY = new Int32Array(n);
     this.fieldRef = new Int32Array(n).fill(-1);
@@ -1224,6 +1239,7 @@ export class Sim {
     this.wpX = new Int32Array(n * MAX_WAYPOINTS);
     this.wpY = new Int32Array(n * MAX_WAYPOINTS);
     this.wpAttack = new Uint8Array(n * MAX_WAYPOINTS);
+    this.wpSweep = new Uint8Array(n * MAX_WAYPOINTS);
     this.wpCount = new Uint8Array(n);
     this.carriedBy = new Int32Array(n).fill(-1);
     this.boardGoal = new Int32Array(n).fill(-1);
@@ -1546,6 +1562,7 @@ export class Sim {
     this.goalY[unitId] = this.posY[unitId];
     this.fieldRef[unitId] = -1;
     this.attackMove[unitId] = 0;
+    this.sweepOrder[unitId] = 0;
     this.engaging[unitId] = 0;
     this.boardGoal[unitId] = -1;
     this.garrisonGoal[unitId] = -1;
@@ -1753,6 +1770,7 @@ export class Sim {
     this.suppression[id] = 0;
     this.moving[id] = 0;
     this.attackMove[id] = 0;
+    this.sweepOrder[id] = 0;
     this.fieldRef[id] = -1;
     this.brace[id] = BRACE_NONE;
     this.braceTicks[id] = 0;
@@ -2199,6 +2217,7 @@ export class Sim {
           for (const s of assigned) slots.set(s.id, [s.x, s.y]);
         }
         const attack = cmd.kind === 'attackMove' ? 1 : 0;
+        const sweep = cmd.kind === 'attackMove' && cmd.sweep === true ? 1 : 0;
         for (const id of cmd.ids) {
           if (this.alive[id] === 0 || this.routed[id] === 1) continue; // broken troops aren't listening
           const utype = this.unitTypes[this.typeIdx[id]];
@@ -2268,6 +2287,7 @@ export class Sim {
               this.wpX[k] = ux;
               this.wpY[k] = uy;
               this.wpAttack[k] = attack;
+              this.wpSweep[k] = sweep;
               this.wpCount[id] = n + 1;
             }
             continue;
@@ -2298,7 +2318,8 @@ export class Sim {
           // is the other half of that guarantee.)
           this.fieldRef[id] = this.fieldFor(ufx, ufy, ufd);
           this.moving[id] = 1;
-          this.attackMove[id] = cmd.kind === 'attackMove' ? 1 : 0;
+          this.attackMove[id] = attack;
+          this.sweepOrder[id] = sweep;
           this.engaging[id] = 0;
           this.stance[id] = 0; // any order overrides a held stance
         }
@@ -2387,6 +2408,7 @@ export class Sim {
           this.fieldRef[id] = this.fieldFor(fx.toInt(gx), fx.toInt(gy), this.domainOf(id));
           this.moving[id] = 1;
           this.attackMove[id] = 0;
+          this.sweepOrder[id] = 0;
           this.stance[id] = 0;
         }
       } else if (cmd.kind === 'unload') {
@@ -2425,6 +2447,7 @@ export class Sim {
           this.fieldRef[id] = this.fieldToward(id, dtx, dty);
           this.moving[id] = 1;
           this.attackMove[id] = 0;
+          this.sweepOrder[id] = 0;
           this.engaging[id] = 0;
           this.stance[id] = 0;
         }
@@ -2449,6 +2472,7 @@ export class Sim {
           this.fieldRef[id] = this.fieldToward(id, gtx, gty);
           this.moving[id] = 1;
           this.attackMove[id] = 0;
+          this.sweepOrder[id] = 0;
           this.engaging[id] = 0;
           this.stance[id] = 0;
         }
@@ -2499,6 +2523,7 @@ export class Sim {
           this.fieldRef[id] = this.fieldFor(fgx, fgy, cd);
           this.moving[id] = 1;
           this.attackMove[id] = 0;
+          this.sweepOrder[id] = 0;
           this.engaging[id] = 0;
           this.stance[id] = 0;
         }
@@ -2509,6 +2534,13 @@ export class Sim {
           this.wpCount[id] = 0;
           this.moving[id] = 0;
           this.fieldRef[id] = -1;
+          // A halted unit stays halted (the lead's ruling, 2026-10-11). The
+          // attack-move latch has to go with `moving`: left set, stepSweep
+          // read an idle attack-mover with a remembered contact and walked it
+          // off again on the very next tick -- measured 9 / 11 / 28 tiles
+          // away 10 s after a halt for inf_squad / mbt_lavi / jeep_shoded.
+          this.attackMove[id] = 0;
+          this.sweepOrder[id] = 0;
           this.engaging[id] = 0;
           this.stance[id] = 0;
         }
@@ -3560,6 +3592,7 @@ export class Sim {
     this.fieldRef[i] = -1; // straight-line flight; the wall guard slides them
     this.moving[i] = 1;
     this.attackMove[i] = 0;
+    this.sweepOrder[i] = 0;
     this.engaging[i] = 0;
     this.stance[i] = 0;
   }
@@ -5176,6 +5209,13 @@ export class Sim {
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0 || this.attackMove[i] === 0) continue;
       if (this.moving[i] === 1) continue; // already going somewhere
+      // Only an order that ASKED to sweep goes on from where it was sent. A
+      // plain attack-move has arrived: it holds there and fights what comes
+      // inside its own reach, as a halted unit does. Before 2026-10-11 every
+      // attack-move swept, and since every player right-click is one, 18 of
+      // 19 KDF types stood 8-28 tiles from the clicked tile ten seconds after
+      // reaching it, walking at whatever contact the side remembered.
+      if (this.sweepOrder[i] === 0) continue;
       if (this.garrisonedIn[i] >= 0 || this.routed[i] === 1 || this.pinned[i] === 1) continue;
       // Busy shooting something -- but only inside EFFECTIVE range counts.
       // An attack-mover that has arrived with its target out in the band
@@ -5413,10 +5453,12 @@ export class Sim {
           this.goalX[i] = this.wpX[base];
           this.goalY[i] = this.wpY[base];
           this.attackMove[i] = this.wpAttack[base];
+          this.sweepOrder[i] = this.wpSweep[base];
           for (let k = 0; k < queued - 1; k++) {
             this.wpX[base + k] = this.wpX[base + k + 1];
             this.wpY[base + k] = this.wpY[base + k + 1];
             this.wpAttack[base + k] = this.wpAttack[base + k + 1];
+            this.wpSweep[base + k] = this.wpSweep[base + k + 1];
           }
           this.wpCount[i] = queued - 1;
           this.fieldRef[i] = this.fieldFor(
@@ -5538,6 +5580,7 @@ export class Sim {
     h = hashArray(h, this.wpX);
     h = hashArray(h, this.wpY);
     h = hashArray(h, this.wpAttack);
+    h = hashArray(h, this.wpSweep);
     h = hashArray(h, this.wpCount);
     h = hashArray(h, this.carriedBy);
     h = hashArray(h, this.boardGoal);
@@ -5559,6 +5602,7 @@ export class Sim {
     h = hashArray(h, this.suppression);
     h = hashArray(h, this.moving);
     h = hashArray(h, this.attackMove);
+    h = hashArray(h, this.sweepOrder);
     h = hashArray(h, this.goalX);
     h = hashArray(h, this.goalY);
     h = hashArray(h, this.cooldown);
