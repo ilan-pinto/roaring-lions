@@ -1,0 +1,80 @@
+{
+  "figure": {
+    "uniform": "#6E7449",
+    "webbing": "#5C625F",
+    "boot": "#9E4F30",
+    "face": "#C78773",
+    "skin_shadow": "#A87262",
+    "metal": "#5C625F",
+    "weapon": "#5C625F",
+    "wood": "#96703C",
+    "charge": "#8E9491",
+    "keffiyeh": "#E6D8BE"
+  },
+  "figure_enemy": {
+    "uniform": "#D1A668",
+    "webbing": "#4E5433",
+    "boot": "#9E4F30",
+    "face": "#C78773",
+    "skin_shadow": "#A87262",
+    "metal": "#5C625F",
+    "weapon": "#5C625F",
+    "wood": "#96703C",
+    "charge": "#8E9491",
+    "keffiyeh": "#E6D8BE"
+  },
+  "apc_eitan": {
+    "hull": "#6E7449",
+    "plate": "#6E7449",
+    "rubber": "#14150F",
+    "metal": "#5C625F",
+    "glass": "#363B39"
+  },
+  "apc_kipod": {
+    "hull": "#6E7449",
+    "plate": "#4E5433",
+    "rubber": "#14150F",
+    "metal": "#5C625F",
+    "glass": "#363B39",
+    "recess": "#14150F"
+  },
+  "dozer_d9": {
+    "hull": "#4E5433",
+    "plate": "#4E5433",
+    "rubber": "#14150F",
+    "metal": "#5C625F",
+    "glass": "#363B39",
+    "recess": "#14150F"
+  },
+  "scout_shachaf": {
+    "hull": "#6E7449",
+    "plate": "#4E5433",
+    "rubber": "#14150F",
+    "metal": "#5C625F",
+    "glass": "#363B39"
+  },
+  "ifv_namer": {
+    "hull": "#6E7449",
+    "plate": "#4E5433",
+    "rubber": "#14150F",
+    "metal": "#5C625F",
+    "glass": "#363B39",
+    "recess": "#14150F"
+  },
+  "mbt_lavi": {
+    "hull": "#6E7449",
+    "plate": "#4E5433",
+    "rubber": "#14150F",
+    "metal": "#5C625F",
+    "glass": "#363B39",
+    "recess": "#14150F"
+  },
+  "jeep_shoded": {
+    "hull": "#6E7449",
+    "plate": "#4E5433",
+    "rubber": "#14150F",
+    "metal": "#5C625F",
+    "glass": "#363B39",
+    "recess": "#14150F"
+  }
+}
