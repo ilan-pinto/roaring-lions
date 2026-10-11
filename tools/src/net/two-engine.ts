@@ -8,22 +8,33 @@
 // it boots a dev server and three browsers. What it decides lives in
 // `two-engine-verdict.ts`, which `two-engine.test.ts` falsifies in `pnpm test`.
 //
-// Exit codes: 0 the engines agree; 1 they do not (or a boot was not
-// comparable); 2 an engine could not boot the battlefield at all (no WebGL2,
-// a boot-failure card, a timeout) -- named, and never reported as a hash.
+// Exit codes (Ruling R39, decided in `two-engine-verdict.ts`'s `decide`):
+// 0 every engine booted and they agree; 1 the engines that booted disagree,
+// missed the tick, or booted incomparable forces; 2 an engine started and then
+// broke (a boot-failure card, a boot or script timeout, a lost context) or the
+// tool itself failed; 3 an engine could not LAUNCH or create a WebGL2 context
+// on this runner -- an environment finding, printed as a `::warning::` per
+// engine, with the engines that did boot still compared. CI passes exit 3.
 import { chromium, firefox, webkit, type Browser, type Page } from 'playwright';
 import { fileURLToPath } from 'node:url';
 import { ensureDevServer, stopDevServer } from '../golden-diff/browser';
 import { BOOT_FREEZE_INIT_SCRIPT, FREEZE_FRAME_LOOP_STATEMENTS } from '../golden-diff/capture-protocol';
 import { claimPort } from '../ui-review/port';
 import { musicOffInitScript } from '../ui-review/music-off';
-import { verdict, type EngineReading } from './two-engine-verdict';
+import { decide, type EngineOutcome, type EngineReading } from './two-engine-verdict';
 
 const REPO = fileURLToPath(new URL('../../../', import.meta.url));
 const MAP = 'beit_sahwan_outskirts';
 const TARGET_TICK = 600;
 const TAG = 'two-engine';
 const BOOT_TIMEOUT_MS = 180_000;
+/** Per-engine guards, so a software-GL hang fails NAMING the engine instead of
+ *  holding the job until the step's own timeout. The order script is four
+ *  `step` calls and four paints; at the 0.5-0.9 s a SwiftShader frame costs
+ *  (CLAUDE.md) that is seconds, so two minutes is a hang guard, not a budget. */
+const PROBE_TIMEOUT_MS = 30_000;
+const SCRIPT_TIMEOUT_MS = 120_000;
+const CLOSE_TIMEOUT_MS = 30_000;
 
 /** Orders by absolute tick, over the living side-0 units (ids read live, so
  *  every engine names the same entities). The same shape as `two-client.test.ts`. */
@@ -35,7 +46,9 @@ const PLAN = `{
 const FIRST_ORDER_TICK = 10;
 
 /** Freezes the app's own loop (a no-op when the boot freeze already did) and
- *  reads the boot back BEFORE anything is stepped. */
+ *  reads the boot FORCES (KDF and hostile unit counts) for the verdict's
+ *  "boot not comparable" check. Its tick is only logged: the verdict's boot
+ *  tick is `ORDER_SCRIPT`'s own `start`, read in the same evaluate that steps. */
 const BOOT_SCRIPT = `(async () => {
 ${FREEZE_FRAME_LOOP_STATEMENTS}
 const L = window.__lions;
@@ -65,15 +78,40 @@ if (L.sim.tickCount < ${TARGET_TICK}) L.step(${TARGET_TICK} - L.sim.tickCount);
 return JSON.stringify({ start, tick: L.sim.tickCount, hash: L.sim.hash() });
 })()`;
 
-/** An engine that could not produce a reading. Exit 2, never a hash. */
-class EngineBootError extends Error {}
+/** An engine that could not launch, or cannot create WebGL2 here: an
+ *  environment finding (exit 3, a warning), never a hash. */
+class EngineUnbootable extends Error {}
+/** An engine that started and then failed to produce a reading (exit 2). */
+class EngineBroken extends Error {}
+/** A guarded call that hung: broken, and the page's errors are appended. */
+class EngineTimeout extends EngineBroken {}
+
+/** Settles with `p`, or rejects with an `EngineTimeout` naming `what` after `ms`. */
+async function within<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  // The abandoned call still settles later (a hung evaluate rejects when its
+  // browser is closed); handled here, or Node ends the process on it.
+  p.catch(() => {});
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new EngineTimeout(`${what} did not return within ${ms / 1000} s`)), ms);
+  });
+  try {
+    return await Promise.race([p, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function waitForBattlefield(page: Page, name: string, pageErrors: readonly string[]): Promise<void> {
   // Asked first and on its own, so "this engine has no WebGL2 here" is said in
   // those words rather than as a timeout or a boot card.
-  const webgl2 = (await page.evaluate(`!!document.createElement('canvas').getContext('webgl2')`)) as boolean;
+  const webgl2 = (await within(
+    page.evaluate(`!!document.createElement('canvas').getContext('webgl2')`),
+    PROBE_TIMEOUT_MS,
+    `${name}: the WebGL2 probe`,
+  )) as boolean;
   if (!webgl2) {
-    throw new EngineBootError(
+    throw new EngineUnbootable(
       `${name}: headless ${name} on this runner cannot create a WebGL2 context, so the battlefield cannot boot and there is no hash to compare. ` +
         `That is a finding about ${name} on this runner, not a determinism result.`
     );
@@ -85,10 +123,14 @@ async function waitForBattlefield(page: Page, name: string, pageErrors: readonly
       { timeout: BOOT_TIMEOUT_MS }
     );
   } catch {
-    throw new EngineBootError(`${name}: the battlefield did not boot within ${BOOT_TIMEOUT_MS / 1000} s.${errorsTail(pageErrors)}`);
+    throw new EngineBroken(`${name}: the battlefield did not boot within ${BOOT_TIMEOUT_MS / 1000} s.${errorsTail(pageErrors)}`);
   }
-  const card = (await page.evaluate(`document.querySelector('.rl-boot-error')?.textContent ?? null`)) as string | null;
-  if (card !== null) throw new EngineBootError(`${name}: the app showed its boot-failure card: "${card.trim()}".${errorsTail(pageErrors)}`);
+  const card = (await within(
+    page.evaluate(`document.querySelector('.rl-boot-error')?.textContent ?? null`),
+    PROBE_TIMEOUT_MS,
+    `${name}: the boot-card read`,
+  )) as string | null;
+  if (card !== null) throw new EngineBroken(`${name}: the app showed its boot-failure card: "${card.trim()}".${errorsTail(pageErrors)}`);
 }
 
 function errorsTail(errors: readonly string[]): string {
@@ -100,7 +142,7 @@ async function reading(launch: () => Promise<Browser>, name: string, port: numbe
   try {
     browser = await launch();
   } catch (err) {
-    throw new EngineBootError(`${name}: the browser did not launch: ${err instanceof Error ? err.message : String(err)}`);
+    throw new EngineUnbootable(`${name}: the browser did not launch: ${err instanceof Error ? err.message : String(err)}`);
   }
   const pageErrors: string[] = [];
   try {
@@ -116,18 +158,30 @@ async function reading(launch: () => Promise<Browser>, name: string, port: numbe
     await page.addInitScript(BOOT_FREEZE_INIT_SCRIPT);
     await page.goto(`http://localhost:${port}/free-play/${MAP}`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
     await waitForBattlefield(page, name, pageErrors);
-    const boot = JSON.parse((await page.evaluate(BOOT_SCRIPT)) as string) as { tick: number; units: number; hostiles: number };
+    const boot = JSON.parse((await within(page.evaluate(BOOT_SCRIPT), PROBE_TIMEOUT_MS, `${name}: the boot read`)) as string) as {
+      tick: number; units: number; hostiles: number;
+    };
     console.log(`[${TAG}] ${name}: boot tick ${boot.tick}, ${boot.units} KDF unit(s), ${boot.hostiles} hostile`);
-    const end = JSON.parse((await page.evaluate(ORDER_SCRIPT)) as string) as { start: number; tick: number; hash: number };
+    const end = JSON.parse((await within(page.evaluate(ORDER_SCRIPT), SCRIPT_TIMEOUT_MS, `${name}: the order script`)) as string) as {
+      start: number; tick: number; hash: number;
+    };
     console.log(`[${TAG}] ${name}: orders from tick ${end.start}; tick ${end.tick} hash ${end.hash}`);
     return { bootTick: end.start, bootUnits: boot.units, bootHostiles: boot.hostiles, tick: end.tick, hash: end.hash };
   } catch (err) {
     // Whatever broke (a lost context mid-step, a navigation timeout), it is
     // this engine's, and the message says which.
-    if (err instanceof EngineBootError) throw err;
-    throw new EngineBootError(`${name}: ${err instanceof Error ? err.message : String(err)}${errorsTail(pageErrors)}`);
+    if (err instanceof EngineTimeout) throw new EngineBroken(`${err.message}.${errorsTail(pageErrors)}`);
+    if (err instanceof EngineUnbootable || err instanceof EngineBroken) throw err;
+    throw new EngineBroken(`${name}: ${err instanceof Error ? err.message : String(err)}${errorsTail(pageErrors)}`);
   } finally {
-    await browser.close();
+    // A close that hangs is reported and abandoned, never awaited forever:
+    // the reading (or the failure) above stands, and `exitWith` ends the
+    // process whatever the browser still holds.
+    try {
+      await within(browser.close(), CLOSE_TIMEOUT_MS, `${name}: browser.close()`);
+    } catch (err) {
+      console.error(`[${TAG}] ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 }
 
@@ -143,26 +197,27 @@ async function main(): Promise<number> {
       ['firefox', () => firefox.launch({ firefoxUserPrefs: { 'webgl.force-enabled': true } })],
       ['webkit', () => webkit.launch()],
     ];
-    const results: Record<string, EngineReading> = {};
+    const outcomes: Record<string, EngineOutcome> = {};
     // Every engine is tried even after one fails to boot: a first run on a
     // new runner should say which of the three cannot draw, not just the first.
-    const failed: string[] = [];
     for (const [name, launch] of engines) {
       try {
-        results[name] = await reading(launch, name, port);
+        outcomes[name] = { kind: 'reading', reading: await reading(launch, name, port) };
       } catch (err) {
-        if (!(err instanceof EngineBootError)) throw err;
-        console.error(`[${TAG}] no reading: ${err.message}`);
-        failed.push(name);
+        if (err instanceof EngineUnbootable) outcomes[name] = { kind: 'unbootable', reason: err.message };
+        else if (err instanceof EngineBroken) outcomes[name] = { kind: 'broken', reason: err.message };
+        else throw err;
       }
     }
-    if (failed.length > 0) {
-      console.error(`[${TAG}] FAIL (no reading): ${failed.join(', ')} could not boot the battlefield; no hashes compared.`);
-      return 2;
+    const d = decide(outcomes, TARGET_TICK, FIRST_ORDER_TICK);
+    // A `::warning::` line must START the line for the runner to read it, so
+    // it is printed bare; everything else carries the tag.
+    for (const { level, text } of d.lines) {
+      const line = text.startsWith('::') ? text : `[${TAG}] ${text}`;
+      if (level === 'error') console.error(line);
+      else console.log(line);
     }
-    const v = verdict(results, TARGET_TICK, FIRST_ORDER_TICK);
-    (v.ok ? console.log : console.error)(`[${TAG}] ${v.message}`);
-    return v.ok ? 0 : 1;
+    return d.exit;
   } finally {
     stopDevServer(server, TAG);
   }
