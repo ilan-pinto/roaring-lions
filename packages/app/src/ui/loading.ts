@@ -29,6 +29,9 @@ import type { GlanceRow } from './briefing-glance';
 import type { GroundMark } from './ground-marks';
 import { groundView, type GroundView } from './ground-view';
 import { forceBar, type AttachedUnit, type ForceBar } from './force-bar';
+import { briefingVideo as makeBriefingVideo } from './briefing-video';
+import { backdropPlan } from './cinematics-model';
+import { prefersReducedMotion, prefersSaveData } from './motion';
 
 /**
  * Does this screen wait for the player before handing over the field?
@@ -760,25 +763,13 @@ export function showLoading(
   // deployment: Deploy stays the player's decision, exactly as for the beats.
   let video: HTMLVideoElement | null = null;
   if (briefingVideo !== undefined) {
-    video = document.createElement('video');
-    video.className = 'rl-loading__video';
-    video.src = briefingVideo;
-    video.autoplay = true;
-    video.controls = true;
-    video.playsInline = true;
-    video.preload = 'auto';
-    video.addEventListener('error', () => {
-      video?.remove();
-      box.classList.remove('rl-loading__box--video');
+    // Plays once and holds its last frame (`briefing-video.ts`); under reduced
+    // motion it shows its first frame and waits for the player, and under
+    // save-data it is not fetched at all.
+    video = makeBriefingVideo(briefingVideo, {
+      plan: backdropPlan({ reducedMotion: prefersReducedMotion(), saveData: prefersSaveData() }),
+      onError: () => box.classList.remove('rl-loading__box--video'),
     });
-    const attempt = video.play?.();
-    if (attempt && typeof attempt.catch === 'function') {
-      attempt.catch(() => {
-        if (!video) return;
-        video.muted = true;
-        void video.play?.()?.catch(() => undefined);
-      });
-    }
   }
 
   // The display face: a stamped button, not a quiet outline -- the one

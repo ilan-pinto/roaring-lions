@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { missions } from '@lions/data';
 import type { LedgerRosterEntry } from '@lions/sim';
 import en from '../i18n/en.json';
@@ -51,6 +51,49 @@ describe('showLoading with a briefing video', () => {
     const order = [...box.children].map((c) => c.className.split(' ')[0]);
     expect(order.indexOf('rl-loading__video')).toBeLessThan(order.indexOf('rl-loading__brief'));
     expect(host.querySelector('.rl-loading__deploy')).not.toBeNull();
+  });
+
+  describe('motion and data preferences (cinematics ruling, 2026-10-11)', () => {
+    const asReducedMotion = (): void => {
+      vi.stubGlobal('matchMedia', (q: string) => ({ matches: q.includes('reduce'), media: q }));
+    };
+    const play = (): ReturnType<typeof vi.spyOn> => vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(() => Promise.resolve());
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    });
+
+    it('plays the backdrop once by default: autoplay, no loop', () => {
+      const p = play();
+      const host = document.createElement('div');
+      showLoading(host, 'Tel Marum II', 'Orders.', undefined, '/video/x.mp4');
+      const v = host.querySelector<HTMLVideoElement>('video.rl-loading__video');
+      expect(v?.autoplay).toBe(true);
+      expect(v?.loop).toBe(false);
+      expect(p).toHaveBeenCalledTimes(1);
+    });
+
+    it('reduced motion never auto-plays: the element holds its first frame', () => {
+      asReducedMotion();
+      const p = play();
+      const host = document.createElement('div');
+      showLoading(host, 'Tel Marum II', 'Orders.', undefined, '/video/x.mp4');
+      const v = host.querySelector<HTMLVideoElement>('video.rl-loading__video');
+      expect(v).not.toBeNull();
+      expect(v?.autoplay).toBe(false);
+      expect(p).not.toHaveBeenCalled();
+    });
+
+    it('data-saver mounts no video and requests nothing, and the box is as it was without one', () => {
+      vi.stubGlobal('navigator', { ...navigator, connection: { saveData: true } });
+      const p = play();
+      const host = document.createElement('div');
+      showLoading(host, 'Tel Marum II', 'Orders.', undefined, '/video/x.mp4');
+      expect(host.querySelector('video')).toBeNull();
+      expect(host.querySelector('.rl-loading__box--video')).toBeNull();
+      expect(host.querySelector('.rl-loading__deploy')).not.toBeNull();
+      expect(p).not.toHaveBeenCalled();
+    });
   });
 
   it('mounts nothing when the mission declares no video', () => {

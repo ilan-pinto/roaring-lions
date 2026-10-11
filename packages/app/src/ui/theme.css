@@ -1251,6 +1251,33 @@ body {
 }
 
 /* ====================================================================== */
+/* Intro cinematic (ui/intro-overlay.ts) — full screen, first launch       */
+/* ====================================================================== */
+
+/* Mounted on document.body by whichever screen asked for it (the menu on a
+   first launch, Settings on "Replay intro"). Above the outcome moment (55):
+   nothing else may draw over a cinematic the player can only dismiss. */
+.rl-intro {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: var(--panel-bg-solid);
+}
+.rl-intro__video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--panel-bg-solid);
+}
+.rl-intro__skip {
+  position: absolute;
+  right: var(--s4);
+  bottom: var(--s4);
+}
+
+/* ====================================================================== */
 /* Outcome moment (ui/outcome-moment.ts) — the held victory/defeat beat    */
 /* ====================================================================== */
 

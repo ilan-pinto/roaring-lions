@@ -15,6 +15,18 @@ export function prefersReducedMotion(): boolean {
   return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
+/** `navigator.connection.saveData`, where a browser has it (Chromium). The
+ *  player asked their browser to spend less data; cinematics, which are the
+ *  biggest optional fetch the game makes, take that at its word. */
+export function prefersSaveData(): boolean {
+  try {
+    const nav = navigator as Navigator & { connection?: { saveData?: boolean } };
+    return nav.connection?.saveData === true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Restart a one-shot animation class.
  *

@@ -8,9 +8,15 @@
 // three tools wrote -- was a no-op and the music played. The object is built
 // here FROM `DEFAULT_SETTINGS`, so it carries whatever `version` the parser
 // currently demands, and `music-off.test.ts` feeds it to the real parser.
+//
+// The same seed also marks the opening cinematic as SEEN (`intro.seen`). When
+// the intro video ships it plays full screen over the menu on a first launch,
+// and a capture or route walk that opened on it would photograph (or click
+// through) a cinematic instead of the screen it came for. Every tool already
+// goes through this helper, so this is the one place that has to know.
 import { DEFAULT_SETTINGS, SETTINGS_KEY, type Settings } from '../../../packages/app/src/settings';
 
-/** The seeded settings: every default, music at 0. `video` overrides merge
+/** The seeded settings: every default, music at 0, the intro already seen. `video` overrides merge
  *  over the video defaults (`perf/low-end.ts` seeds the quality preset under
  *  test this way). `audio` overrides merge over the audio defaults (a capture that wants ALL sound off passes
  *  `SILENT_AUDIO`); `music` is forced to 0 whatever they say. */
@@ -18,6 +24,7 @@ export function musicOffSettings(audio: Partial<Settings['audio']> = {}, video: 
   const s = structuredClone(DEFAULT_SETTINGS);
   s.audio = { ...s.audio, ...audio, music: 0 };
   s.video = { ...s.video, ...video };
+  s.intro = { seen: true };
   return s;
 }
 

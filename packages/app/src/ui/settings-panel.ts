@@ -58,6 +58,11 @@ export interface SettingsDeps {
   build: string;
   /** Fires after every `set()`, with the settings it was called with. */
   onChange(fn: (s: Settings) => void): Disposer;
+  /** "Replay intro". Absent (undefined) draws no row: the pause menu's mount
+   *  passes none, and neither does any build without an intro video. `replay`
+   *  mounts the overlay and returns its disposer, which this panel owns from
+   *  then on and calls when it is itself disposed. */
+  intro?: { replay(): Disposer } | undefined;
 }
 
 /**
@@ -271,6 +276,26 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
     ),
     t('settings.quality.hint')
   );
+  if (deps.intro) {
+    const intro = deps.intro;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.name = 'replayIntro';
+    btn.className = 'rl-btn';
+    btn.textContent = t('settings.intro.replay');
+    // One overlay at a time: a second press while it is up cannot happen (the
+    // overlay covers the panel), but a press after it ended replaces nothing.
+    let playing: Disposer | null = null;
+    btn.addEventListener('click', () => {
+      playing?.();
+      playing = intro.replay();
+    });
+    cleanup.push(() => {
+      playing?.();
+      playing = null;
+    });
+    row(table, t('settings.intro'), btn, t('settings.intro.hint'));
+  }
 
   section(table, t('settings.audio'));
   const live = (k: 'master' | 'music' | 'sfx' | 'voice') => (v: number): void => {
