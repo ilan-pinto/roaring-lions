@@ -26,6 +26,7 @@
  * list never reads a blob. No IP is ever stored.
  */
 import type { Env } from './d1';
+import { originAllowed } from './origin';
 import {
   BODY_MAX_BYTES,
   META_MAX_BYTES,
@@ -66,14 +67,6 @@ export async function feedbackOpen(env: Env): Promise<boolean> {
   if (v !== '' && v !== '0' && v !== 'false') return false;
   const row = await env.DB.prepare(`SELECT value FROM flags WHERE name = 'feedback'`).first<{ value: string }>();
   return row?.value !== 'closed';
-}
-
-function originAllowed(req: Request, env: Env): boolean {
-  const origin = req.headers.get('origin');
-  if (origin === null) return false; // a fetch from the page always sends one
-  const own = new URL(req.url).origin;
-  const extra = (env.ALLOWED_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-  return origin === own || extra.includes(origin);
 }
 
 /** Reads at most `max` bytes; null if the body is longer. A lying or absent

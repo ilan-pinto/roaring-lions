@@ -30,6 +30,23 @@
 			"migrations_dir": "packages/worker/migrations"
 		}
 	],
+	// N0 (network design §3.2): one Durable Object per match, SQLite-backed.
+	// The class is exported from packages/worker/src/index.ts, and the
+	// migration tag must land in the same deploy as that export.
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "ROOMS",
+				"class_name": "MatchRoom"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "net-v1",
+			"new_sqlite_classes": ["MatchRoom"]
+		}
+	],
 	"ratelimits": [
 		{
 			"name": "INGEST_LIMIT",
@@ -54,6 +71,16 @@
 			"namespace_id": "1003",
 			"simple": {
 				"limit": 5,
+				"period": 60
+			}
+		},
+		// N0: POST /api/match and /api/match/:code/join, per connecting IP.
+		// Never the socket upgrade: a reconnect loop would trip it.
+		{
+			"name": "ROOM_LIMIT",
+			"namespace_id": "1004",
+			"simple": {
+				"limit": 6,
 				"period": 60
 			}
 		}

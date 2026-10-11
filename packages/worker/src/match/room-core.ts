@@ -118,7 +118,9 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
       const [a, b] = pair;
       if (a === null || b === null) {
         const open = Object.keys(st.hashes).map(Number);
-        if (open.length > MAX_OPEN_HASHES) delete st.hashes[Math.min(...open)];
+        // Prune the HIGHEST: a forged far-future tick is what a flood adds,
+        // and the honest comparison is always the lowest open tick.
+        if (open.length > MAX_OPEN_HASHES) delete st.hashes[Math.max(...open)];
         return [];
       }
       st.lastHashTick = msg.tick;
@@ -174,14 +176,21 @@ function recheckStall(st: RoomState, nowMs: number, mayStall = true): Effect[] {
   return [];
 }
 
+/** The six-hour TTL, in any status but ended. The DO runs it at the start of
+ *  EVERY handler as well as on the clock, because a lobby or an abandoned
+ *  room has no clock running (N0 has no alarms). */
+export function expire(st: RoomState, nowMs: number): Effect[] {
+  if (st.status === 'ended' || nowMs - st.createdMs <= ROOM_TTL_MS) return [];
+  st.status = 'ended';
+  st.endedReason = 'expired';
+  return [{ kind: 'send', to: 'all', msg: { t: 'ended', reason: 'expired' } }];
+}
+
 /** Every 50 ms while the match lives. One frame per call when running. */
 export function clockTick(st: RoomState, nowMs: number): Effect[] {
   if (st.status === 'ended') return [];
-  if (nowMs - st.createdMs > ROOM_TTL_MS) {
-    st.status = 'ended';
-    st.endedReason = 'expired';
-    return [{ kind: 'send', to: 'all', msg: { t: 'ended', reason: 'expired' } }];
-  }
+  const expired = expire(st, nowMs);
+  if (expired.length > 0) return expired;
   if (st.status === 'lobby') return [];
   const out: Effect[] = recheckStall(st, nowMs);
   if (st.status !== 'running') return out;

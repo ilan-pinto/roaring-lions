@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { MatchConfig } from '@lions/net';
-import { createRoom, seatJoin, seatMessage, seatGone, clockTick, STALL_BEHIND_TICKS, STALL_SILENT_MS, type RoomState, type Effect } from './room-core';
+import { createRoom, seatJoin, seatMessage, seatGone, clockTick, expire, STALL_BEHIND_TICKS, STALL_SILENT_MS, type RoomState, type Effect } from './room-core';
 
 const CONFIG: MatchConfig = {
   matchId: 'm1', code: 'ABCDEF', seed: 7, map: 'beit_sahwan_outskirts', mode: 'sandbox',
@@ -126,6 +126,16 @@ describe('room-core', () => {
     expect(sends(fx).find((s) => s.msg.t === 'ended')?.msg).toEqual({ t: 'ended', reason: 'expired' });
   });
 
+  it('expires a lobby too, once, with no clock running (expire, run from every DO handler)', () => {
+    const st = createRoom('ABCDEF', 'm1', 0);
+    seatJoin(st, 0, 'p0', 'Host', 0);
+    expect(expire(st, 6 * 3600 * 1000)).toEqual([]);
+    expect(st.status).toBe('lobby');
+    expect(sends(expire(st, 6 * 3600 * 1000 + 1)).map((s) => s.msg)).toEqual([{ t: 'ended', reason: 'expired' }]);
+    expect(st.status).toBe('ended');
+    expect(expire(st, 7 * 3600 * 1000)).toEqual([]);
+  });
+
   it('the persisted tick survives a simulated eviction: a new clock continues from it', () => {
     const st = running();
     clockTick(st, 50);
@@ -192,6 +202,15 @@ describe('room-core', () => {
     expect(open.length).toBeLessThanOrEqual(16);
     expect(open.every((t) => t > st.lastHashTick && t >= 0)).toBe(true);
     expect(st.lastHashTick).toBe(40);
+  });
+
+  it('a flood of forged far-future hash ticks cannot crowd out an honest comparison', () => {
+    const st = running();
+    for (let i = 0; i < 16; i++) seatMessage(st, 0, { t: 'hash', tick: 1_000_000 + i * 20, h: 1 }, 0, mint);
+    seatMessage(st, 0, { t: 'hash', tick: 20, h: 1 }, 0, mint);
+    const fx = seatMessage(st, 1, { t: 'hash', tick: 20, h: 2 }, 0, mint);
+    expect(sends(fx).map((s) => s.msg)).toEqual([{ t: 'desync', tick: 20, hashes: [1, 2] }]);
+    expect(st.status).toBe('ended');
   });
 
   it('ignores a hash in the lobby', () => {
