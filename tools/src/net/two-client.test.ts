@@ -93,6 +93,9 @@ describe('two clients, one frame stream', () => {
     const clock = new LockstepClock(0);
     expect(clock.push({ tick: 0, cmds: [] })).toBe('ok');
     expect(clock.push({ tick: 2, cmds: [] })).toBe('gap');
+    expect(clock.push({ tick: 0, cmds: [] })).toBe('duplicate');
     expect(clock.take(10).map((f) => f.tick)).toEqual([0]);
+    expect(clock.push({ tick: 0, cmds: [] })).toBe('duplicate');
+    expect(clock.take(10)).toEqual([]);
   });
 });
