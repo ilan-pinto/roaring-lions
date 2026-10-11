@@ -41,10 +41,10 @@ describe('briefingHoldsDeployment', () => {
 describe('showLoading with a briefing video', () => {
   it('mounts the cinematic above the beats, with controls and an inline hint, and keeps Deploy', () => {
     const host = document.createElement('div');
-    showLoading(host, 'Tel Marum II', 'Orders. More orders.', undefined, '/video/tel_marum_2_briefing.mp4');
+    showLoading(host, 'Tel Marum II', 'Orders. More orders.', undefined, '/video/example_briefing.mp4');
     const video = host.querySelector<HTMLVideoElement>('video.rl-loading__video');
     expect(video).not.toBeNull();
-    expect(video?.getAttribute('src')).toBe('/video/tel_marum_2_briefing.mp4');
+    expect(video?.getAttribute('src')).toBe('/video/example_briefing.mp4');
     expect(video?.controls).toBe(true);
     expect(host.querySelector('.rl-loading__box--video')).not.toBeNull();
     const box = host.querySelector('.rl-loading__box') as HTMLElement;

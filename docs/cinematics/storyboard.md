@@ -5,8 +5,8 @@ The lead approved this route on 2026-10-11, from
 The tool is the paid Gemini API: Gemini Omni Flash for most takes, and Veo 3.1
 where a shot needs a pinned first and last frame (a loop) or a 1080p master.
 The scope is a 24 s intro, one briefing backdrop for each of the seven towns,
-and replacements for the two Tel Marum briefing videos that shipped with no
-provenance. Every shot starts from one of the game's own renders and has
+and the two Tel Marum briefing videos, whose shipped files (no provenance)
+were removed on 2026-10-11. Every shot starts from one of the game's own renders and has
 nobody in it. The hard cap is **$150**.
 
 **Nothing has been generated and nothing has been spent.** This page and
@@ -127,27 +127,25 @@ Each shot is planned as 4 Omni explore takes plus 2 Veo 3.1 Fast finals at
 
 ## The two Tel Marum replacements
 
-The two shipped files (`assets/video/tel_marum_{2,3}_briefing.mp4`) are
+The two files that shipped (`assets/video/tel_marum_{2,3}_briefing.mp4`, **removed on
+2026-10-11 at the lead's request; he will make new ones himself**) were
 photoreal people: a commander briefing soldiers over a map, and a helmeted
 commander speaking in desert hills. Each carries a speaking AAC track, and
 there are plate-carrier emblems in shot. Nothing records how they were made
 (ASSET_PROVENANCE.md item 4; `data/video.json` now says so per file). Under
-the approved route they are replaced by **people-free** backdrops of the same
+the approved route they would be replaced by **people-free** backdrops of the same
 two missions' ground. The spoken line goes with them. The briefing beats
 already carry the same orders as text, and nothing else on the deploy screen
 changes.
 
 | Mission | Still | Source | Motion line | Replaces | Cost |
 |---|---|---|---|---|---|
-| **Tel Marum II, The Start Line** | ![](stills/regen_tel_marum_2.jpg) | `tel_marum_2`, day, (21, 27), zoom 1.2 | A slow push-in toward the breach in the long rock ridge where the boulders lie. Midday heat shimmer, dust lifting off the scree in gusts and settling, cloud shadows sliding across the plateau. | `video/tel_marum_2_briefing.mp4`, same path, so `tel_marum_2_foothold.json` is unchanged | $5.67 |
-| **Tel Marum III, The Pass** | ![](stills/regen_tel_marum_3.jpg) | `tel_marum_3`, dawn, (29, 18), zoom 1.2 | A slow drift toward the pass between the grey rock shelves. Pale dawn light spreads across the stone, mist lifts out of the pass and thins, a little loose gravel trickles down a slope. | `video/tel_marum_3_briefing.mp4`, same path | $5.67 |
+| **Tel Marum II, The Start Line** | ![](stills/regen_tel_marum_2.jpg) | `tel_marum_2`, day, (21, 27), zoom 1.2 | A slow push-in toward the breach in the long rock ridge where the boulders lie. Midday heat shimmer, dust lifting off the scree in gusts and settling, cloud shadows sliding across the plateau. | `video/tel_marum_2_briefing.mp4`, a new file (the original is gone): add the `data/video.json` entry and the `briefing_video` line on `tel_marum_2_foothold.json` in the same commit | $5.67 |
+| **Tel Marum III, The Pass** | ![](stills/regen_tel_marum_3.jpg) | `tel_marum_3`, dawn, (29, 18), zoom 1.2 | A slow drift toward the pass between the grey rock shelves. Pale dawn light spreads across the stone, mist lifts out of the pass and thins, a little loose gravel trickles down a slope. | `video/tel_marum_3_briefing.mp4`, a new file (the original is gone): the entry and the `briefing_video` line on `tel_marum_3_clearance.json` in the same commit | $5.67 |
 
-**The other choice for the lead:** if the lead can establish how the
-originals were made (tool, plan, date, and the source of the audio), they can
-stay instead, with their `data/video.json` entries filled in (report,
-decision 3). That saves $11.35. But a photoreal soldier with a real-looking
-emblem on his vest is outside the approved people-free scope, so this page
-plans the replacement.
+**Superseded 2026-10-11:** the originals are removed and the lead will supply
+his own videos, so the two shots below are an option, not a plan. If they are
+used, they arrive as new files (see the table).
 
 ## Known limits of the stills
 
