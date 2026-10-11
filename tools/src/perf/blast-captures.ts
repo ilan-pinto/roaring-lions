@@ -135,7 +135,32 @@ export const SAMPLE_MS: readonly number[] = sampleLadder(SAMPLE_WINDOW_MS, SAMPL
  * weapon: a spotter that could fire would put its own muzzle lights in the pool
  * the collapse is being measured in.
  */
-export type BlastMode = 'kill' | 'impact' | 'collapse';
+export type BlastMode = 'kill' | 'impact' | 'collapse' | 'strike' | 'aps' | 'smoke' | 'charge';
+
+/*
+ * GH-85 adds four modes, one per effect trigger the renderer now dispatches
+ * that no blast mode can reach. Each drives the REAL sim to the event, by
+ * hand (`sim.tick()` + `snapshot()` + `onEvents()`, with a 50 ms frame
+ * between ticks so rounds in flight move as they would at 20 Hz), and starts
+ * its ladder on the frame the effect spawns:
+ *
+ * - `strike`: a side-0 `shooterId` opens fire on a side-1 hull (`typeId`) and
+ *   rung zero is the frame its last round in the air lands -- where
+ *   `armor_ricochet`/`armor_penetration` throw (`wantPenetrated` picks which).
+ * - `aps`: a side-1 `shooterId` launches at the side-0 hull (`typeId`, the
+ *   one APS carrier) and is taken off the field the moment the round is up,
+ *   so the hull has no one to shoot back at; rung zero is the `aps` tick.
+ * - `smoke`: the hull lays a screen at `smokeAt`; rung zero is the tick.
+ * - `charge`: a side-0 `shooterId` sapper throws a charge at a side-1 body
+ *   (`typeId`) standing a tile off; rung zero is the tick after the charge
+ *   resolves, when a charge no event names goes off (`resolveOverdueCharges`).
+ *
+ * The hostile in `strike`, `aps` and `charge` is spawned in the TRIGGER, not
+ * up front: `waitForMeshes` steps the sim while it waits, and a hostile on the
+ * field then would start the fight before anything is photographed. Its mesh
+ * is fetched first by a decoy parked out of everyone's sight (`decoyAt`),
+ * taken off the field before the trigger.
+ */
 
 export interface BlastSubject {
   /** This subject's own name: the file prefix, the sheet row, and what
@@ -236,6 +261,22 @@ export interface BlastSubject {
    * named outliers.
    */
   readonly abstains?: readonly string[];
+  /** GH-85 modes: the unit that fires (strike, aps, charge). */
+  readonly shooterId?: string;
+  /** `strike` only: photograph a round the plate stops (false) or one that
+   *  goes through (true). */
+  readonly wantPenetrated?: boolean;
+  /** `smoke` only: where the screen is laid, as an offset from the subject. */
+  readonly smokeAt?: readonly [number, number];
+  /** Advance the ladder on the SIM clock -- a hand tick and a 50 ms frame per
+   *  50 ms of ladder -- rather than by frames alone. For an effect dated off
+   *  sim time (`wreck_smoulder`), which a frame-only ladder would freeze. */
+  readonly simClock?: boolean;
+  /** `false` for a subject that witnesses none of the blast layers in
+   *  `LAYER_FLOORS`: its toggle A/B is not run and it votes on nothing. Not an
+   *  abstention -- an abstention records a reading it does not vote on, and
+   *  these subjects have no layer they are a witness for. */
+  readonly toggles?: false;
 }
 
 /**
@@ -437,6 +478,107 @@ export const BLAST_SUBJECTS: readonly BlastSubject[] = [
       "rung, against `mbt_lavi_z1`'s 7165 px / 2.8039 on the same framing (it abstained at 737 px / " +
       '2.0064 while the light sat on the roof)',
     abstains: ['decals'],
+  },
+  // ---------------------------------------------------------------------
+  // GH-85: the effect triggers wired after the blast package. None of them is
+  // a blast-layer witness (`toggles: false`); each exists so the lead can
+  // judge the effect itself, before and after. Isolated: each one starts a
+  // small fight, and a fight changes the world around it.
+  // ---------------------------------------------------------------------
+  {
+    id: 'ricochet_d9',
+    typeId: 'dozer_d9',
+    shooterId: 'apc_eitan',
+    mode: 'strike',
+    wantPenetrated: false,
+    x: 20,
+    y: 4,
+    standoffTiles: 6,
+    isolate: true,
+    toggles: false,
+    ladderMs: [0, 50, 100, 200, 400, 800],
+    why:
+      "`armor_ricochet` (impact_armor): an Eitan's 12.7 mm (`rws_50`, 25 mm of penetration) on a " +
+      "D9's 110-240 mm of plate never goes through, so every hit is a round the hull stops",
+  },
+  {
+    id: 'penetration_d9',
+    typeId: 'dozer_d9',
+    shooterId: 'ifv_namer',
+    mode: 'strike',
+    wantPenetrated: true,
+    x: 20,
+    y: 4,
+    standoffTiles: 6,
+    isolate: true,
+    toggles: false,
+    ladderMs: [0, 50, 100, 200, 400, 800],
+    why:
+      "`armor_penetration` (penetration): a Namer's 30 mm (`cannon_30`, 120 mm) into a D9's 110 mm " +
+      'rear -- the D9 is spawned facing east with the Namer to its west, and carries no weapon, so ' +
+      'it never turns its front to the shooter (an armed Eitan did, and no round went through its ' +
+      '220 mm front in 1200 ticks)',
+  },
+  {
+    id: 'aps_lavi',
+    typeId: 'mbt_lavi',
+    shooterId: 'atgm_cell',
+    mode: 'aps',
+    x: 20,
+    y: 4,
+    standoffTiles: 9,
+    isolate: true,
+    toggles: false,
+    ladderMs: [0, 50, 100, 200, 400, 800],
+    why:
+      "`aps_launch` (interceptor_launch): a Kornet at the Lavi, the one hull with a Trophy-class " +
+      'APS; the launcher fires toward the shooter on the `aps` tick, intercepted or not',
+  },
+  {
+    id: 'smoke_eitan',
+    typeId: 'apc_eitan',
+    mode: 'smoke',
+    smokeAt: [3, 0],
+    x: 20,
+    y: 4,
+    isolate: true,
+    toggles: false,
+    ladderMs: [0, 100, 250, 500, 1000],
+    why:
+      "`smoke_discharge` (smoke_screen): an Eitan lays a screen three tiles east; the pop at the " +
+      'hull says who fired it (the screen itself was always drawn)',
+  },
+  {
+    id: 'charge_demo',
+    typeId: 'digger_crew',
+    shooterId: 'demo_squad',
+    mode: 'charge',
+    x: 20,
+    y: 4,
+    standoffTiles: 1,
+    isolate: true,
+    toggles: false,
+    ladderMs: [0, 100, 200, 400, 800, 1600],
+    why:
+      "`demolition_blast` (eod_breach): a demo squad's satchel (`charges`, 250 damage) thrown at a " +
+      "body a tile off -- a hit on a soft target emits no sim event, so this is the overdue path",
+  },
+  {
+    id: 'smoulder_lavi',
+    typeId: 'mbt_lavi',
+    mode: 'kill',
+    x: 20,
+    y: 4,
+    isolate: true,
+    handTick: true,
+    simClock: true,
+    toggles: false,
+    ladderZoom: 1.5,
+    ladderMs: [0, 2000, 10000, 20000, 30000, 45000, 59000, 64000],
+    why:
+      "`wreck_smoulder` (catastrophic_kill): the burnt-out hull smoking on after the 20 s blast " +
+      'column, for `WRECK_SMOULDER_SECONDS` (60) of SIM time and then out -- the ladder advances ' +
+      'the sim, because the smoulder is dated off it',
   },
   // `blast_nomesh` stood here: the same Lavi kill on the billboard path
   // (`&nomesh`), the strongest `decals` witness and the proof that a pixel
@@ -713,7 +855,8 @@ export function layerVerdict(layer: string, reading: LayerReadingNumbers): Layer
 }
 
 /** Whether this subject votes on this layer, or only records it. */
-export function subjectVotesOn(subject: Pick<BlastSubject, 'abstains'>, layer: string): boolean {
+export function subjectVotesOn(subject: Pick<BlastSubject, 'abstains' | 'toggles'>, layer: string): boolean {
+  if (subject.toggles === false) return false;
   return !(subject.abstains ?? []).includes(layer);
 }
 
@@ -990,6 +1133,7 @@ interface LionsWindow {
       worldToScreen(x: number, y: number): { x: number; y: number };
       smokeClockMs: number;
       shells: { kind: string; tx: number; ty: number; t: number; duration: number }[];
+      bolts: { kind: string; t: number; duration: number }[];
       meshUnitEntities: Map<number, { actions: Map<string, unknown> }>;
       vehicleMeshEntities: Map<number, unknown>;
       setDebugLayerVisible(name: string, visible: boolean): number;
@@ -1012,6 +1156,7 @@ interface LionsWindow {
       removeFromPlay(id: number): void;
       structureAt(x: number, y: number): number;
       debugDestroyStructure(id: number): void;
+      queueCommand(cmd: unknown): void;
       state: { alive: Int8Array | Uint8Array; posX: Int32Array; posY: Int32Array; side: Int8Array | Uint8Array };
       entityCount: number;
     };
@@ -1324,7 +1469,9 @@ async function main(): Promise<void> {
             ? await triggerKill(page, p, stepJumpMs)
             : p.subject.mode === 'collapse'
               ? await triggerCollapse(page, p)
-              : await triggerImpact(page, p, notes);
+              : p.subject.mode === 'impact'
+                ? await triggerImpact(page, p, notes)
+                : await triggerTriggerFx(page, p, notes);
         if (trigger === null) continue;
 
         // `ageMs` is the FX age this frame really carries. It starts at the
@@ -1344,7 +1491,10 @@ async function main(): Promise<void> {
         const probeOut: ProbeSample[] = [];
         let ageMs = trigger.ageMs;
         for (const ms of ladder) {
-          if (ms > ageMs) {
+          if (ms > ageMs && p.subject.simClock === true) {
+            await advanceTicks(page, ms - ageMs);
+            ageMs = ms;
+          } else if (ms > ageMs) {
             const samples = await advanceFrames(page, ms - ageMs, {
               probe: p.subject.probe === true && ms <= PROBE_WINDOW_MS,
               sinceMs: ageMs,
@@ -1354,7 +1504,7 @@ async function main(): Promise<void> {
             probeOut.push(...samples);
             ageMs = ms;
           }
-          const due = LAYERS.filter((l) => rungFor.get(l) === ms);
+          const due = LAYERS.filter((l) => rungFor.get(l) === ms && p.subject.toggles !== false);
           if (togglesOnly) {
             if (due.length > 0) {
               const rect = await frameCrop(page, p.subject);
@@ -1423,6 +1573,10 @@ interface Placed {
    *  field around it. `entity` is then the SPOTTER, so the mesh wait covers it. */
   structure?: number;
   cleared?: number;
+  /** GH-85 modes: what to wait for a mesh on, when it is not `entity`. */
+  wait?: { id: number; vehicle: boolean }[];
+  /** GH-85 modes: the decoy that fetched the hostile's mesh, out of sight. */
+  decoy?: number;
 }
 
 async function spawnSubjects(
@@ -1444,6 +1598,8 @@ async function spawnSubjects(
         shooter: number;
         structure?: number;
         cleared?: number;
+        wait?: { id: number; vehicle: boolean }[];
+        decoy?: number;
       }[] = [];
       for (const row of rows) {
         const typeId = row.typeId ?? row.id;
@@ -1451,6 +1607,36 @@ async function spawnSubjects(
         if (idx < 0) throw new Error(`no unit type "${typeId}" in this build`);
         if (row.mode === 'kill') {
           out.push({ subject: row, entity: L.sim.spawn(idx, 0, row.x * fixed, row.y * fixed), shooter: -1 });
+        } else if (row.mode === 'strike' || row.mode === 'aps' || row.mode === 'smoke' || row.mode === 'charge') {
+          // GH-85. The FRIENDLY body is placed now; the hostile only in the
+          // trigger, with its mesh fetched first by a decoy parked 30 tiles
+          // east on the empty band, out of every friendly's sight.
+          const shooterIdx = row.shooterId === undefined ? -1 : L.sim.unitTypes.findIndex((t) => t.id === row.shooterId);
+          if (row.shooterId !== undefined && shooterIdx < 0) throw new Error(`no unit type "${row.shooterId}" in this build`);
+          const standoff = row.standoffTiles ?? 6;
+          if (row.mode === 'aps' || row.mode === 'smoke') {
+            const entity = L.sim.spawn(idx, 0, row.x * fixed, row.y * fixed);
+            const wait = [{ id: entity, vehicle: true }];
+            let decoy = -1;
+            if (shooterIdx >= 0) {
+              decoy = L.sim.spawn(shooterIdx, 1, (row.x + 30) * fixed, row.y * fixed);
+              wait.push({ id: decoy, vehicle: false });
+            }
+            out.push({ subject: row, entity, shooter: -1, wait, decoy });
+          } else {
+            const friendly = L.sim.spawn(shooterIdx, 0, (row.x - standoff) * fixed, row.y * fixed);
+            const decoy = L.sim.spawn(idx, 1, (row.x + 30) * fixed, row.y * fixed);
+            out.push({
+              subject: row,
+              entity: -1,
+              shooter: friendly,
+              wait: [
+                { id: friendly, vehicle: row.mode === 'strike' },
+                { id: decoy, vehicle: row.mode === 'strike' },
+              ],
+              decoy,
+            });
+          }
         } else if (row.mode === 'collapse') {
           const structure = L.sim.structureAt(Math.floor(row.x), Math.floor(row.y));
           if (structure < 0) throw new Error(`no structure at [${row.x}, ${row.y}] for "${row.id}"`);
@@ -1498,7 +1684,7 @@ async function waitForMeshes(page: import('playwright').Page, placed: readonly P
   // (WP-A3.3), so every placed body is waited for.
   const meshy = placed;
   if (meshy.length === 0) return;
-  const want = meshy.map((p) => ({ id: p.entity >= 0 ? p.entity : p.shooter, vehicle: p.entity >= 0 }));
+  const want = meshy.flatMap((p) => p.wait ?? [{ id: p.entity >= 0 ? p.entity : p.shooter, vehicle: p.entity >= 0 }]);
   const deadline = Date.now() + MESH_WAIT_MS;
   let first = true;
   for (;;) {
@@ -1714,6 +1900,146 @@ async function triggerImpact(
   }
   console.log(`  ${p.subject.id}: landed after ${landed.frames} pumped frames (${landed.frames * FRAME_MS} ms of flight)`);
   return { ageMs: 0, fxBaseMs: landed.fx };
+}
+
+/** Ticks the GH-85 triggers allow while they wait for their event. 60 s. */
+const TRIGGER_TICK_CAP = 1200;
+/** One sim tick, as a frame: the 50 ms a 20 Hz tick covers. */
+const TICK_FRAME_MS = 50;
+
+/**
+ * GH-85: drives the sim, by hand, to the event a `strike`/`aps`/`smoke`/
+ * `charge` subject photographs, and returns with rung zero on the frame its
+ * effect spawns. See the comment on `BlastMode` for each mode's event.
+ *
+ * Between ticks it presents ONE 50 ms frame, so a round launched on one tick
+ * has flown its tick's worth by the next, as at 20 Hz -- and stops BEFORE
+ * presenting the frame of the tick that carries the event, so nothing the
+ * event spawned has aged. NO NAMED FUNCTION EXPRESSIONS in the evaluate body
+ * (see `spawnSubjects`).
+ */
+async function triggerTriggerFx(page: import('playwright').Page, p: Placed, notes: string[]): Promise<Trigger | null> {
+  const result = await page.evaluate(
+    ([row, friendly, decoy, ownEntity, fixed, cap, tickMs, frameMs]) => {
+      const L = (window as unknown as LionsWindow).__lions;
+      const r = L.renderer;
+      if (decoy >= 0) L.sim.removeFromPlay(decoy);
+      let hostile = -1;
+      let shooter = friendly;
+      let target = ownEntity;
+      if (row.mode === 'strike' || row.mode === 'charge') {
+        const hostileId = row.typeId ?? row.id;
+        hostile = L.sim.spawn(L.sim.unitTypes.findIndex((t) => t.id === hostileId), 1, row.x * fixed, row.y * fixed);
+        target = hostile;
+      } else if (row.mode === 'aps') {
+        const launcherId = row.shooterId;
+        hostile = L.sim.spawn(L.sim.unitTypes.findIndex((t) => t.id === launcherId), 1, (row.x + (row.standoffTiles ?? 9)) * fixed, row.y * fixed);
+        shooter = hostile;
+      } else if (row.mode === 'smoke') {
+        const at = row.smokeAt ?? [3, 0];
+        L.sim.queueCommand({ kind: 'smoke', ids: [ownEntity], x: (row.x + at[0]) * fixed, y: (row.y + at[1]) * fixed });
+      }
+      let ticks = 0;
+      let found = '';
+      let resolveTick = -1;
+      let removed = false;
+      while (ticks < cap) {
+        const events = L.sim.tick() as {
+          kind: string;
+          tick: number;
+          shooter?: number;
+          target?: number;
+          by?: number;
+          weaponId?: string;
+          penetrated?: boolean;
+        }[];
+        ticks++;
+        r.snapshot();
+        r.onEvents(events);
+        const now = L.sim.tickCount - 1;
+        if (row.mode === 'strike') {
+          const hit = events.find(
+            (e) => e.kind === 'impact' && e.shooter === shooter && e.target === target && e.penetrated === (row.wantPenetrated === true)
+          );
+          if (hit) {
+            found = `impact ${hit.weaponId} penetrated=${String(hit.penetrated)} on tick ${hit.tick}`;
+            break;
+          }
+        } else if (row.mode === 'aps') {
+          if (!removed && events.some((e) => e.kind === 'fire' && e.shooter === shooter)) {
+            // Up, and off the field: the round flies on, the hull has no one to shoot.
+            L.sim.removeFromPlay(shooter);
+            removed = true;
+          }
+          const aps = events.find((e) => e.kind === 'aps' && e.target === target);
+          if (aps) {
+            found = `aps on tick ${aps.tick}`;
+            break;
+          }
+        } else if (row.mode === 'smoke') {
+          if (events.some((e) => e.kind === 'smokeLaid' && e.by === target)) {
+            found = `smokeLaid on tick ${now}`;
+            break;
+          }
+        } else if (row.mode === 'charge') {
+          if (resolveTick < 0) {
+            const shot = events.find((e) => e.kind === 'fire' && e.shooter === shooter && e.weaponId === 'charges');
+            if (shot) {
+              const dx = (L.sim.state.posX[target] - L.sim.state.posX[shooter]) / fixed;
+              const dy = (L.sim.state.posY[target] - L.sim.state.posY[shooter]) / fixed;
+              // `demolitionResolveTick`'s arithmetic: n whole ticks, resolving n - 1 after the throw.
+              const n = Math.max(1, Math.ceil(Math.hypot(dx, dy) / 0.1 - 1e-9));
+              resolveTick = shot.tick + n - 1;
+            }
+          }
+          // The overdue sweep fires on the tick AFTER the resolve tick; a miss
+          // would have gone off on its own `nearMiss` already.
+          if (resolveTick >= 0 && now >= resolveTick + 1) {
+            found = `charge thrown, resolved on tick ${resolveTick}, overdue on ${now}`;
+            break;
+          }
+        }
+        r.frame(1, tickMs);
+      }
+      if (found === '') return { found, ticks, fx: r.smokeClockMs, landedFrames: 0 };
+      // A strike lands with its round: pump frames until none is in the air.
+      let landedFrames = 0;
+      if (row.mode === 'strike') {
+        while (r.bolts.length > 0 && landedFrames < 600) {
+          r.frame(1, frameMs);
+          landedFrames++;
+        }
+      }
+      return { found, ticks, fx: r.smokeClockMs, landedFrames };
+    },
+    [p.subject, p.shooter, p.decoy ?? -1, p.entity, FIXED, TRIGGER_TICK_CAP, TICK_FRAME_MS, FRAME_MS] as const
+  );
+  if (result.found === '') {
+    notes.push(`${p.subject.id} (${p.subject.mode}): no event in ${result.ticks} ticks -- subject skipped`);
+    return null;
+  }
+  const line = `${p.subject.id}: ${result.found} after ${result.ticks} hand ticks` +
+    (p.subject.mode === 'strike' ? `, last round down ${result.landedFrames} frame(s) of ${FRAME_MS} ms later` : '');
+  console.log(`  ${line}`);
+  notes.push(line);
+  return { ageMs: 0, fxBaseMs: result.fx };
+}
+
+/** A `simClock` subject's ladder step: one hand tick and one 50 ms frame per
+ *  50 ms, so an effect dated off sim time (`wreck_smoulder`) advances. */
+async function advanceTicks(page: import('playwright').Page, ms: number): Promise<void> {
+  await page.evaluate(
+    ([total, tickMs]) => {
+      const L = (window as unknown as LionsWindow).__lions;
+      for (let done = 0; done < total; done += tickMs) {
+        const events = L.sim.tick();
+        L.renderer.snapshot();
+        L.renderer.onEvents(events);
+        L.renderer.frame(1, tickMs);
+      }
+    },
+    [ms, TICK_FRAME_MS] as const
+  );
 }
 
 /**
