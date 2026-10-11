@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ServerMsg, Seat } from '@lions/net';
 import type { Env } from '../d1';
 import { FakeState, deliverClose, deliverError, openSocket, type FakeSocket } from './fake-do';
-import { MatchRoom, TICK_MS } from './match-room';
+import { BATCH_TICKS, MatchRoom, TICK_MS } from './match-room';
 import type { RoomState } from './room-core';
 import { signTicket } from './ticket';
 
@@ -55,6 +55,14 @@ const persisted = async (state: FakeState): Promise<RoomState> => {
   return st;
 };
 
+/** The isolate dies: its timers go, storage and the hibernated sockets
+ *  survive. `vi.clearAllTimers()` also rewinds the fake clock to its start,
+ *  which would hide a revived room's stale times, so the time is kept. */
+function evict(): void {
+  const now = Date.now();
+  vi.clearAllTimers();
+  vi.setSystemTime(now);
+}
 beforeEach(() => { vi.useFakeTimers({ now: NOW }); });
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
 
@@ -112,7 +120,7 @@ describe('MatchRoom', () => {
     }
   });
 
-  it('the clock sends a frame per 50 ms to both seats and persists each one', async () => {
+  it('the clock sends a frame per 50 ms to both seats, and persists them as one row when the batch closes', async () => {
     const { state, room, ws0, ws1 } = await running();
     await say(room, ws0, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [3] } });
     await vi.advanceTimersByTimeAsync(3 * TICK_MS);
@@ -120,9 +128,13 @@ describe('MatchRoom', () => {
       expect(ofType(ws, 'frame').map((f) => f.tick)).toEqual([0, 1, 2]);
       expect(ofType(ws, 'frame')[0].cmds).toEqual([{ seat: 0, seq: 0, cmd: { kind: 'halt', ids: [3] } }]);
     }
-    expect([...state.storage.frames.keys()]).toEqual([0, 1, 2]);
-    expect(JSON.parse(state.storage.frames.get(0) ?? 'null')).toEqual([{ seat: 0, seq: 0, cmd: { kind: 'halt', ids: [3] } }]);
-    expect((await persisted(state)).tick).toBe(3);
+    expect(state.storage.batches.size).toBe(0);   // the open batch is memory only
+    await vi.advanceTimersByTimeAsync((BATCH_TICKS - 3) * TICK_MS);
+    expect([...state.storage.batches.keys()]).toEqual([0]);
+    const batch = JSON.parse(state.storage.batches.get(0) ?? 'null') as { tick: number; cmds: unknown[] }[];
+    expect(batch.map((f) => f.tick)).toEqual([...Array(BATCH_TICKS).keys()]);
+    expect(batch[0].cmds).toEqual([{ seat: 0, seq: 0, cmd: { kind: 'halt', ids: [3] } }]);
+    expect((await persisted(state)).tick).toBe(0);   // the state is written at the start, not per tick
   });
 
   it('a second hello for a seat replaces it: the old socket is closed, the new one gets the log, and the old close is ignored', async () => {
@@ -218,6 +230,21 @@ describe('MatchRoom', () => {
     expect(ofType(ws0, 'ended')).toHaveLength(1);
   });
 
+  it('a lifecycle write flushes the open batch: a room evicted during a stall loses no frame', async () => {
+    const { state, room, ws0, ws1 } = await running();
+    const sent = BATCH_TICKS + 5;
+    await vi.advanceTimersByTimeAsync(sent * TICK_MS);
+    await deliverClose(room, ws1, 1006, 'abnormal');   // seat 1 gone: the room stalls and writes its state
+    expect(ofType(ws0, 'stall')).toEqual([{ t: 'stall', reason: 'gone', seat: 1 }]);
+    evict();   // the isolate dies; storage and the hibernated sockets survive
+    const revived = new MatchRoom(state, env);
+    const back = await hello(revived, 1);
+    const [log] = ofType(back, 'log');
+    expect(log.frames.map((f) => f.tick)).toEqual([...Array(sent).keys()]);
+    await vi.advanceTimersByTimeAsync(TICK_MS);
+    expect(ofType(ws0, 'frame').slice(sent).map((f) => f.tick)).toEqual([sent]);   // resumed where it stalled
+  });
+
   const wakers: [string, (room: MatchRoom, ws0: FakeSocket) => Promise<unknown>][] = [
     ['fetch /state', (room) => room.fetch(new Request('https://room/state'))],
     ['a malformed message (an early return)', (room, ws0) => say(room, ws0, 'nope')],
@@ -225,17 +252,20 @@ describe('MatchRoom', () => {
       await deliverClose(room, openSocket(room));
     }],
   ];
-  it.each(wakers)('after an eviction, %s restarts the clock from the persisted tick', async (_name, wake) => {
+  it.each(wakers)('after an eviction, %s restarts the clock from the last persisted batch', async (_name, wake) => {
     const { state, ws0, ws1 } = await running();
-    await vi.advanceTimersByTimeAsync(2 * TICK_MS);
-    expect(ofType(ws1, 'frame').map((f) => f.tick)).toEqual([0, 1]);
-    vi.clearAllTimers();   // the isolate dies; storage and the hibernated sockets survive
+    const sent = BATCH_TICKS + 2;   // one closed batch, and two frames only memory held
+    await vi.advanceTimersByTimeAsync(sent * TICK_MS);
+    expect(ofType(ws1, 'frame').map((f) => f.tick)).toEqual([...Array(sent).keys()]);
+    evict();   // the isolate dies; storage and the hibernated sockets survive
     const revived = new MatchRoom(state, env);
     await vi.advanceTimersByTimeAsync(4 * TICK_MS);
-    expect(ofType(ws1, 'frame')).toHaveLength(2);   // nothing runs a clock until a handler does
+    expect(ofType(ws1, 'frame')).toHaveLength(sent);   // nothing runs a clock until a handler does
     await wake(revived, ws0);
     await vi.advanceTimersByTimeAsync(2 * TICK_MS);
-    expect(ofType(ws1, 'frame').map((f) => f.tick)).toEqual([0, 1, 2, 3]);
-    expect([...state.storage.frames.keys()]).toEqual([0, 1, 2, 3]);
+    // The two unpersisted ticks are sent again: a client drops them as duplicates.
+    expect(ofType(ws1, 'frame').slice(sent).map((f) => f.tick)).toEqual([BATCH_TICKS, BATCH_TICKS + 1]);
+    expect(ofType(ws1, 'stall')).toEqual([]);
+    expect([...state.storage.batches.keys()]).toEqual([0]);
   });
 });

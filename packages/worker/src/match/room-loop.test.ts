@@ -29,7 +29,8 @@ interface Wire { server: FakeSocket; received: ServerMsg[]; live: boolean; drop(
 class Loop {
   readonly wires: Wire[] = [];
   private readonly pending = new Set<Promise<unknown>>();
-  constructor(readonly room: MatchRoom) {}
+  /** Mutable so a test can evict the object: every wire reaches whatever room is current. */
+  constructor(public room: MatchRoom) {}
 
   private track(p: Promise<unknown>): void {
     this.pending.add(p);
@@ -101,8 +102,10 @@ class Player {
 
 const sameHash = (tick: number): number | null => (tick % 20 === 19 ? 0x5eed : null);
 
-async function setUp(digest1: (tick: number) => number | null = sameHash): Promise<{ loop: Loop; p0: Player; p1: Player }> {
-  const room = new MatchRoom(new FakeState(), env);
+interface Match { state: FakeState; loop: Loop; p0: Player; p1: Player }
+async function setUp(digest1: (tick: number) => number | null = sameHash): Promise<Match> {
+  const state = new FakeState();
+  const room = new MatchRoom(state, env);
   const res = await room.fetch(new Request('https://room/create', {
     method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD }),
   }));
@@ -112,9 +115,9 @@ async function setUp(digest1: (tick: number) => number | null = sameHash): Promi
   const p0 = new Player(loop, await signTicket(SECRET, { matchId: CODE, seat: 0, player: 'Host', exp }), sameHash);
   const p1 = new Player(loop, await signTicket(SECRET, { matchId: CODE, seat: 1, player: 'Guest', exp }), digest1);
   await loop.flush();
-  return { loop, p0, p1 };
+  return { state, loop, p0, p1 };
 }
-async function started(digest1?: (tick: number) => number | null): Promise<{ loop: Loop; p0: Player; p1: Player }> {
+async function started(digest1?: (tick: number) => number | null): Promise<Match> {
   const s = await setUp(digest1);
   s.p0.t.ready();
   s.p1.t.ready();
@@ -132,6 +135,14 @@ async function step(loop: Loop, players: Player[], n: number): Promise<void> {
 const range = (n: number): number[] => Array.from({ length: n }, (_, i) => i);
 const kinds = (w: Wire): string[] => w.received.map((m) => m.t);
 
+/** The isolate dies: its timers go, storage and the hibernated sockets
+ *  survive. `vi.clearAllTimers()` also rewinds the fake clock to its start,
+ *  which would hide a revived room's stale times, so the time is kept. */
+function evict(): void {
+  const now = Date.now();
+  vi.clearAllTimers();
+  vi.setSystemTime(now);
+}
 beforeEach(() => { vi.useFakeTimers({ now: NOW }); });
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
 
@@ -234,5 +245,76 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     expect(p1.taken.length).toBeGreaterThan(before.length + 5);
     expect(p1.taken).toEqual(p0.taken.slice(0, p1.taken.length));
     expect(p1.t.status().kind).toBe('live');
+  });
+
+  it('a running match writes at most 2 storage rows a second (Workers Free): 60 s of acks, hashes and commands', async () => {
+    const { state, loop, p0, p1 } = await started();
+    const before = state.storage.rowsWritten;
+    const SECONDS = 60;
+    const ticksPerSecond = 1000 / TICK_MS;
+    for (let s = 0; s < SECONDS; s++) {
+      // About one command a second from each seat, mid-second so they land in different frames.
+      p0.t.queueCommand({ kind: 'halt', ids: [s] });
+      await step(loop, [p0, p1], ticksPerSecond / 2);
+      p1.t.queueCommand({ kind: 'halt', ids: [100 + s] });
+      await step(loop, [p0, p1], ticksPerSecond / 2);
+    }
+    const rows = state.storage.rowsWritten - before;
+    // The match really ran: every tick, acked and hashed, with both seats' commands.
+    expect(p0.t.status().kind).toBe('live');
+    expect(p0.taken.length).toBeGreaterThan(SECONDS * ticksPerSecond - 5);
+    expect(p1.taken).toEqual(p0.taken.slice(0, p1.taken.length));
+    expect(p0.taken.flatMap((f) => f.cmds)).toHaveLength(2 * SECONDS);
+    for (const w of loop.wires) expect(w.received.filter((m) => m.t === 'hashOk').length).toBeGreaterThan(55);
+    expect(rows, `${rows} rows in ${SECONDS} s`).toBeLessThanOrEqual(2 * SECONDS);
+  });
+
+  const liveFrames = (w: Wire): Frame[] =>
+    w.received.flatMap((m) => (m.t === 'frame' ? [{ tick: m.tick, cmds: m.cmds }] : []));
+
+  it('a seat reconnecting mid-batch gets every frame: the closed batches and the open one, commands included', async () => {
+    const { loop, p0, p1 } = await started();
+    const orders: [Player, number, number][] = [[p0, 1, 5], [p1, 2, 37], [p0, 3, 5]];   // ticks 0, 5 and 42: the last in the open batch
+    for (const [p, id, steps] of orders) {
+      p.t.queueCommand({ kind: 'halt', ids: [id] });
+      await loop.flush();
+      await step(loop, [p0, p1], steps);
+    }
+    const sent = liveFrames(loop.wires[0]);
+    expect(sent.map((f) => f.tick)).toEqual(range(47));
+    expect(sent.filter((f) => f.cmds.length > 0).map((f) => f.tick)).toEqual([0, 5, 42]);
+    loop.wires[1].drop();
+    await loop.flush();
+    await vi.advanceTimersByTimeAsync(RECONNECT_DELAY_MS);
+    await loop.flush();
+    const log = loop.wires[2].received.find((m): m is Extract<ServerMsg, { t: 'log' }> => m.t === 'log');
+    expect(log?.frames).toEqual(sent);
+  });
+
+  it('after an eviction the room continues at the last closed batch; both clients drop the re-sent ticks and run on with no gap', async () => {
+    const { state, loop, p0, p1 } = await started();
+    p0.t.queueCommand({ kind: 'halt', ids: [1] });
+    await loop.flush();
+    await step(loop, [p0, p1], 47);   // ticks 0..46: batches 0..19 and 20..39 closed, 40..46 open
+    const heard = loop.wires.map((w) => w.received.length);
+    evict();   // the isolate dies; storage and the hibernated sockets survive
+    loop.room = new MatchRoom(state, env);
+    // The first handler to reach the revived room is an order; it is stamped into a re-sent tick.
+    p1.t.queueCommand({ kind: 'halt', ids: [2] });
+    await loop.flush();
+    await step(loop, [p0, p1], 40);
+    for (const [i, w] of loop.wires.entries()) {
+      const after = w.received.slice(heard[i]);
+      expect(after.find((m) => m.t === 'frame')).toMatchObject({ tick: 40 });
+      expect(after.filter((m) => m.t === 'stall')).toEqual([]);
+    }
+    for (const p of [p0, p1]) {
+      expect(p.ticks()).toEqual(range(p.taken.length));
+      expect(p.t.status().kind).toBe('live');
+    }
+    expect(p0.taken.length).toBeGreaterThan(70);   // 47 + 40 sent, less the 7 re-sent and the buffer
+    expect(p1.taken).toEqual(p0.taken.slice(0, p1.taken.length));
+    // What both ran at 40..46 is what the first room sent; the order the revived room took was lost on both alike.
+    expect(p0.taken.flatMap((f) => f.cmds)).toEqual([{ seat: 0, seq: 0, cmd: { kind: 'halt', ids: [1] } }]);
   });
 });

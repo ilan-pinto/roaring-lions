@@ -2,8 +2,9 @@
  * The MatchRoom's rules with no I/O: every input is a function call, every
  * output an `Effect`. The Durable Object (`match-room.ts`) is a thin shell
  * over this so the rules test under node (spec §12). The frame LOG is not
- * held here: the DO appends each `frame` effect to its SQLite table and
- * answers `log` from it; `seatJoin` asks for it through `readLog`.
+ * held here: the DO keeps each `frame` effect (in batches, see
+ * `match-room.ts`) and answers `log` from it; `seatJoin` asks for it through
+ * `readLog`.
  */
 import {
   canonicalOrder, MAX_CMDS_PER_SEAT_PER_FRAME,
@@ -175,6 +176,34 @@ function recheckStall(st: RoomState, nowMs: number, mayStall = true): Effect[] {
     return [{ kind: 'send', to: 'all', msg: { t: 'stall', reason: want.reason, seat: want.seat } }];
   }
   return [];
+}
+
+/** What the DO persists the state for: the lifecycle, never the per-tick
+ *  traffic (tick, pending commands, acks, hashes, last-seen times). The state
+ *  is written only when this changes, which keeps a running match inside
+ *  Workers Free's write budget (task 8b, R34). */
+export function persistKey(st: RoomState): string {
+  const seats = st.seats.map((s) => (s ? [s.player, s.callsign, s.connected, s.ready] : null));
+  return JSON.stringify([st.status, st.stall, st.endedReason, st.config !== null, seats]);
+}
+
+/** The state as storage gave it back after an eviction, made live again.
+ *  `tick` is where the persisted frames end: the room continues there. What
+ *  only memory held is re-earned rather than restored: a seat's ack is taken
+ *  as caught up and its silence restarts now (the persisted ones date from
+ *  the last lifecycle write, and would stall the room at once), and pending
+ *  commands persisted with an older tick were already stamped into a frame,
+ *  so they are dropped rather than stamped twice. */
+export function revive(st: RoomState, tick: number, nowMs: number): void {
+  if (tick > st.tick) {
+    st.tick = tick;
+    st.pending = [];
+  }
+  for (const s of st.seats) {
+    if (!s) continue;
+    s.lastAck = Math.max(s.lastAck, st.tick - 1);
+    s.lastSeenMs = nowMs;
+  }
 }
 
 /** The six-hour TTL, in any status but ended. The DO runs it at the start of

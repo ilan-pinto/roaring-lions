@@ -19,15 +19,18 @@ const norm = (q: string): string => q.replace(/\s+/g, ' ').trim();
 
 export class FakeStorage implements DurableStorageLike {
   readonly kv = new Map<string, unknown>();
-  /** The `frame` table: tick -> cmds JSON. */
-  readonly frames = new Map<number, string>();
+  /** The `batch` table: first_tick -> frames JSON. */
+  readonly batches = new Map<number, string>();
   private tableExists = false;
+  /** Rows written: each `put` and each INSERT/UPDATE/REPLACE statement counts one (the Workers Free meter). */
+  rowsWritten = 0;
 
   async get<T>(key: string): Promise<T | undefined> {
     const v = this.kv.get(key);
     return v === undefined ? undefined : (structuredClone(v) as T);
   }
   async put<T>(key: string, value: T): Promise<void> {
+    this.rowsWritten++;
     this.kv.set(key, structuredClone(value));
   }
   readonly sql = {
@@ -35,22 +38,24 @@ export class FakeStorage implements DurableStorageLike {
   };
 
   private exec(q: string, b: unknown[]): SqlRows {
-    if (q === 'CREATE TABLE IF NOT EXISTS frame (tick INTEGER PRIMARY KEY, cmds TEXT NOT NULL)') {
+    if (q === 'CREATE TABLE IF NOT EXISTS batch (first_tick INTEGER PRIMARY KEY, frames TEXT NOT NULL)') {
       this.tableExists = true;
       return rows([]);
     }
-    if (!this.tableExists) throw new Error('FakeStorage: no such table: frame');
-    if (q === 'INSERT OR REPLACE INTO frame (tick, cmds) VALUES (?, ?)') {
-      const [tick, cmds] = b;
-      if (b.length !== 2 || typeof tick !== 'number' || !Number.isInteger(tick) || typeof cmds !== 'string') {
-        throw new Error(`FakeStorage: bad bindings for frame insert: ${JSON.stringify(b)}`);
+    if (!this.tableExists) throw new Error('FakeStorage: no such table: batch');
+    if (q === 'INSERT OR REPLACE INTO batch (first_tick, frames) VALUES (?, ?)') {
+      const [firstTick, frames] = b;
+      if (b.length !== 2 || typeof firstTick !== 'number' || !Number.isInteger(firstTick) || typeof frames !== 'string') {
+        throw new Error(`FakeStorage: bad bindings for batch insert: ${JSON.stringify(b)}`);
       }
-      this.frames.set(tick, cmds);
+      this.rowsWritten++;
+      this.batches.set(firstTick, frames);
       return rows([]);
     }
-    if (q === 'SELECT tick, cmds FROM frame ORDER BY tick') {
-      return rows([...this.frames.entries()].sort(([a], [c]) => a - c).map(([tick, cmds]) => ({ tick, cmds })));
-    }
+    const ordered = (): Record<string, unknown>[] =>
+      [...this.batches.entries()].sort(([a], [c]) => a - c).map(([first_tick, frames]) => ({ first_tick, frames }));
+    if (q === 'SELECT first_tick, frames FROM batch ORDER BY first_tick') return rows(ordered());
+    if (q === 'SELECT first_tick, frames FROM batch ORDER BY first_tick DESC LIMIT 1') return rows(ordered().slice(-1));
     throw new Error(`FakeStorage: unsupported SQL: ${q}`);
   }
 }
