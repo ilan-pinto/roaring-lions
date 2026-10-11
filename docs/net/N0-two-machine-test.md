@@ -39,8 +39,8 @@ push (`pnpm net:engines`).
 - The room compares hashes every 20 ticks. On agreement nothing is shown. The
   one HUD line reads, when it has something to say:
   - `Waiting for {seat}: behind` / `Waiting for {seat}: connection lost` (a stall)
-  - `Desync at {m:ss}. The match is void; report it.` (the console adds
-    `[net] DESYNC at tick N`)
+  - `Desync at {time}. The match is void; report it.` ({time} is the match
+    clock as m:ss; the console adds `[net] DESYNC at tick N`)
   - a closed room says why: `The other seat left the match`, `Match void`,
     `The room expired`, or `This seat was opened in another tab`.
 - At the end, read in each console: `__lions.sim.tickCount` and
@@ -49,9 +49,13 @@ push (`pnpm net:engines`).
   Network → the `/ws` socket → Messages: the time between a frame you send and
   the next frame the room sends back.
 - One run of the ten: unplug B's network for 10 s mid-fight. Expected: A's
-  line reads `Waiting for B: connection lost` (B's own line may say the same
-  once its socket drops), B reconnects by itself, both continue, and the hashes
-  still agree.
+  line most likely reads `Waiting for {seat}: behind` (`Waiting for B: behind`),
+  not "connection lost". An unplugged cable does not close B's socket at the
+  room, and the room checks "behind" (40 ticks without an ack, about 2 s)
+  before silence, so "behind" trips first and the room's clock stops there.
+  It changes to `Waiting for {seat}: connection lost` only once the room sees
+  B's socket close, which may never happen if B is back within 10 s. Then B
+  reconnects by itself, both continue, and the hashes still agree.
 
 ## Known N0 limits (not failures)
 
