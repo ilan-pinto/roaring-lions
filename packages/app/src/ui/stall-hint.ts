@@ -29,7 +29,6 @@
  */
 import { TICKS_PER_SECOND } from '@lions/sim';
 import { t } from '../i18n/t';
-import { escapeHtml } from './escape-html';
 import { DEADLINE_TYPES } from './hud-model';
 
 /** Seconds of sim time with no progress before the hint. Measured over every
@@ -134,23 +133,23 @@ export function stallStep(state: StallState, input: StallInput): { state: StallS
   return { state: { ...state, hinted: true }, hint: target };
 }
 
-/** The feed line for one hint, escaped (the feed sets innerHTML). */
+/** The feed line for one hint: the action only, by objective type. The
+ *  objective's own text is deliberately not in it -- the strip already shows
+ *  it, and a short line fits one feed row. */
 export function stallHintLine(row: StallRow): string {
-  const text = escapeHtml(row.text);
   switch (row.type) {
     case 'locate':
-      return t('hud.stall.locate', { text });
+      return t('hud.stall.locate');
     case 'capture':
     case 'hold_for':
       return t(
-        row.paused === 'unheld' ? 'hud.stall.ground.unheld' : row.paused === 'contested' ? 'hud.stall.ground.contested' : 'hud.stall.ground',
-        { text }
+        row.paused === 'unheld' ? 'hud.stall.ground.unheld' : row.paused === 'contested' ? 'hud.stall.ground.contested' : 'hud.stall.ground'
       );
     case 'eliminate_hvt':
-      return t('hud.stall.hvt', { text });
+      return t('hud.stall.hvt');
     case 'destroy_all':
-      return t('hud.stall.destroy', { text });
+      return t('hud.stall.destroy');
     default:
-      return t('hud.stall.other', { text });
+      return t('hud.stall.other');
   }
 }

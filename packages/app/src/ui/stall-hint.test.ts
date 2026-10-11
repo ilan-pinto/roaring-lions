@@ -151,19 +151,19 @@ describe('hintTarget and stallHintLine', () => {
     expect(hintTarget(rows)?.id).toBe('z');
   });
 
-  it('words each type, naming the objective from its own text', () => {
+  it('words each type by its action alone', () => {
     const line = (o: Partial<StallRow>): string => stallHintLine(row({ id: 'o', text: 'the ward crossing', ...o }));
-    expect(line({ type: 'locate' })).toBe('Still open — the ward crossing. Any unit can spot the last position. Send someone to look.');
-    expect(line({ type: 'capture', paused: 'contested' })).toContain('contested');
-    expect(line({ type: 'hold_for', paused: 'unheld' })).toContain('Nobody is on the ground');
-    expect(line({ type: 'capture' })).toContain('stand on it');
-    expect(line({ type: 'eliminate_hvt' })).toContain('still alive');
-    expect(line({ type: 'destroy_all' })).toContain('Enemy units remain');
-    expect(line({ type: 'raze' })).toContain('Nothing has moved');
+    expect(line({ type: 'locate' })).toBe('A position is still unseen. Any unit can spot it.');
+    expect(line({ type: 'capture' })).toBe("The ground isn't taken. Clear it and stand on it.");
+    expect(line({ type: 'capture', paused: 'unheld' })).toBe("The ground isn't taken. Move a unit onto it.");
+    expect(line({ type: 'hold_for', paused: 'contested' })).toBe('The ground is contested. Clear it and stand on it.');
+    expect(line({ type: 'eliminate_hvt' })).toBe('The target is still alive. Find it.');
+    expect(line({ type: 'destroy_all' })).toBe('Enemy units remain. Hunt them down.');
+    expect(line({ type: 'raze' })).toBe('Nothing has moved in a while. Check your objectives.');
   });
 
-  it('escapes the objective text, which reaches innerHTML', () => {
-    expect(stallHintLine(row({ id: 'o', text: '<b>Rock & roll</b>' }))).toContain('&lt;b&gt;Rock &amp; roll&lt;/b&gt;');
+  it('carries no objective text, so nothing reaches innerHTML unescaped', () => {
+    expect(stallHintLine(row({ id: 'o', text: '<b>Rock & roll</b>' }))).not.toContain('Rock');
   });
 });
 
