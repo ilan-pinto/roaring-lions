@@ -19,6 +19,7 @@ function fromB64url(s: string): Uint8Array<ArrayBuffer> {
   return out;
 }
 function key(secret: string): Promise<CryptoKey> {
+  if (secret === '') throw new Error('TICKET_SECRET is empty');
   return crypto.subtle.importKey('raw', new TextEncoder().encode(`ticket:${secret}`), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
 }
 
@@ -40,6 +41,7 @@ export async function verifyTicket(secret: string, raw: string, now: number): Pr
   } catch {
     return null;
   }
+  if (secret === '') return null;
   const ok = await crypto.subtle.verify('HMAC', await key(secret), sig, new TextEncoder().encode(payload));
   if (!ok || typeof t !== 'object' || t === null) return null;
   const v = t as Record<string, unknown>;

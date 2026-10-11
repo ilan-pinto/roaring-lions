@@ -21,4 +21,9 @@ describe('tickets', () => {
     expect(await verifyTicket(SECRET, 'nope', NOW)).toBeNull();
     expect(await verifyTicket(SECRET, '', NOW)).toBeNull();
   });
+  it('refuses an empty secret on both sides', async () => {
+    await expect(signTicket('', T)).rejects.toThrow();
+    const raw = await signTicket(SECRET, T);
+    expect(await verifyTicket('', raw, NOW)).toBeNull();
+  });
 });
