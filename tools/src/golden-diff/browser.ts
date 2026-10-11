@@ -12,7 +12,7 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { chromium, type Browser, type Page } from 'playwright';
-import { FREEZE_FRAME_LOOP_SCRIPT, lateFreezeRefusal } from './capture-protocol';
+import { BOOT_FREEZE_INIT_SCRIPT, BOOT_SETTLE_SCRIPT, FREEZE_FRAME_LOOP_SCRIPT, bootFreezeRefusal } from './capture-protocol';
 import { dismissDeployGate } from './capture-guard';
 
 // Re-exported for every existing importer: the logic moved to `capture-guard.ts`
@@ -169,6 +169,13 @@ export async function capture(
   };
   page.on('pageerror', onPageError);
   page.on('console', onConsole);
+  // Once per page: an init script survives every later `page.goto` on it, so
+  // registering it per capture would only stack copies (each of which stands
+  // down, but there is no reason to send them). See `BOOT_FREEZE_INIT_SCRIPT`.
+  if (!bootFrozenPages.has(page)) {
+    await page.addInitScript(BOOT_FREEZE_INIT_SCRIPT);
+    bootFrozenPages.add(page);
+  }
   try {
     return await captureAttempts(page, url, script, outFile, label, needsDeploy, pageErrors);
   } finally {
@@ -177,7 +184,10 @@ export async function capture(
   }
 }
 
-const CAPTURE_ATTEMPTS = 5;
+/** Pages `capture()` has already given `BOOT_FREEZE_INIT_SCRIPT`. */
+const bootFrozenPages = new WeakSet<Page>();
+
+const CAPTURE_ATTEMPTS = 3;
 
 async function captureAttempts(
   page: Page,
@@ -189,9 +199,6 @@ async function captureAttempts(
   pageErrors: string[]
 ): Promise<CaptureResult> {
   let lastErr: unknown;
-  // Five, not three, since a late freeze became a refused attempt: at the
-  // 4-in-26 rate measured locally, three refusals in a row would still be a
-  // 1-in-270 fatal capture on a gated scenario; five is 1 in 11,000.
   for (let attempt = 0; attempt < CAPTURE_ATTEMPTS; attempt++) {
     pageErrors.length = 0;
     try {
@@ -213,31 +220,25 @@ async function captureAttempts(
         undefined,
         { timeout: 25_000 }
       );
-      // Stop the app's rAF loop FIRST, before the settle rather than after it.
-      // Two things follow, and both were measured (see
-      // `FREEZE_FRAME_LOOP_STATEMENTS`): the settle below no longer accrues
-      // sim ticks, so `targetTick`'s `step(target - current)` starts from a
-      // repeatable place instead of from wherever ~1s of real time landed;
-      // and the continuous VFX that `vehicle` exists to look at stop
-      // accumulating wall-clock time during it. The settle itself still does
-      // its job -- fonts, module graph, lazily-arriving GLBs are all promise
-      // and network work, none of it driven by rAF, and `main.ts` paints one
-      // real frame (GH-141) before the loop is ever armed.
-      const frozen = JSON.parse((await page.evaluate(FREEZE_FRAME_LOOP_SCRIPT)) as string) as { tick: number };
-      // ...and the tick it froze at must be the same every load, because the
-      // renderer reads the last pre-freeze frame back (`lateFreezeRefusal`:
-      // the `kitted` flake). A late freeze throws, which is a failed attempt
-      // and a fresh load below -- never a photograph. Sandbox scenarios only:
-      // a `mission=` page reaches the loop through the deploy gate's clicks,
-      // and its one scenario (`combat`) is report-only and does not hold
-      // still between two photographs anyway.
-      const refusal = needsDeploy ? null : lateFreezeRefusal(frozen.tick);
-      if (refusal !== null) throw new Error(refusal);
-      console.log(`[${label}] frame loop froze at tick ${frozen.tick} (attempt ${attempt + 1})`);
+      // The frame loop never ran: `BOOT_FREEZE_INIT_SCRIPT` (installed by
+      // `capture()`) dropped its arm, so the sim is at tick 0 and the only
+      // frame drawn so far is `main.ts`'s boot frame (GH-141). The old protocol froze
+      // the loop HERE, after Playwright saw `__lions`, which let it draw a
+      // run-dependent number of frames first -- and the renderer reads the
+      // last of them back (the `kitted` flake). Kept as a flag-guarded no-op
+      // for the record of why the settle accrues no ticks.
+      await page.evaluate(FREEZE_FRAME_LOOP_SCRIPT);
       // capture-protocol.ts's documented settle: await font load + a 1s settle
-      // before stepping -- a first run read 6.5x noisier without it.
+      // before stepping -- a first run read 6.5x noisier without it. The 1 s
+      // is now `BOOT_SETTLE_SCRIPT`: a step to `BOOT_SETTLE_TICK`, then paced
+      // frames at that tick with a fixed step and a fixed tail -- what the
+      // loop used to draw, on a schedule that does not race anything.
       await page.evaluate(() => document.fonts.ready);
-      await page.waitForTimeout(1000);
+      const settled = JSON.parse((await page.evaluate(BOOT_SETTLE_SCRIPT)) as string) as { tick: number };
+      // ASSERTED, not hoped for: a `main.ts` change that let the loop run
+      // anyway fails the capture by name instead of drifting as "noise".
+      const refusal = bootFreezeRefusal(settled.tick);
+      if (refusal !== null) throw new Error(refusal);
       const raw = await page.evaluate(script);
       const result = JSON.parse(raw as string) as CaptureResult;
       await page.screenshot({
