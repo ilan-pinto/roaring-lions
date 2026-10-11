@@ -7,8 +7,10 @@
  *
  * Fidelity worth knowing: values are structured-cloned on the way in and out,
  * as the real storage serialises them, so a test that reads storage sees what
- * was PERSISTED rather than the room's live object. A closed socket drops out
- * of `getWebSockets()`; a socket the room is still holding stays in it.
+ * was PERSISTED rather than the room's live object. A socket the room calls
+ * `close()` on stays in `getWebSockets()` (workerd holds it in CLOSING; its
+ * docs promise only that DISCONNECTED sockets are removed) until a test
+ * delivers its close event with `deliverClose`.
  */
 import type { DurableStateLike, DurableStorageLike, HibernatingSocket, SqlRows } from '../do-types';
 
@@ -55,12 +57,20 @@ export class FakeStorage implements DurableStorageLike {
 
 export class FakeSocket {
   readonly sent: string[] = [];
+  /** Set by the first `close()`, from either end. */
   closed: { code?: number; reason?: string } | null = null;
+  /** Set once the close event has been delivered: only then does the socket leave `getWebSockets()`. */
+  disconnected = false;
+  /** Sends the room attempted after this socket was closed (each one threw, as workerd's does). */
+  sendsAfterClose = 0;
   private attachment: unknown = null;
   private readonly listeners: ((text: string) => void)[] = [];
 
   send(text: string): void {
-    if (this.closed) throw new Error('send on a closed socket');
+    if (this.closed) {
+      this.sendsAfterClose++;
+      throw new Error('send on a closed socket');
+    }
     this.sent.push(text);
     for (const l of this.listeners) l(text);
   }
@@ -94,8 +104,19 @@ export class FakeState implements DurableStateLike {
     this.sockets.push(ws as unknown as FakeSocket);
   }
   getWebSockets(): WebSocket[] {
-    return this.sockets.filter((s) => s.closed === null) as unknown as WebSocket[];
+    return this.sockets.filter((s) => !s.disconnected) as unknown as WebSocket[];
   }
+}
+
+/** The runtime's half of a close, from either end: the socket is closed (if
+ *  the client is the one closing), the room's `webSocketClose` runs, and only
+ *  then does the socket leave `getWebSockets()`. */
+export async function deliverClose(
+  room: { webSocketClose(ws: WebSocket): Promise<void> }, ws: FakeSocket, code = 1000, reason = 'closed',
+): Promise<void> {
+  ws.close(code, reason);
+  await room.webSocketClose(ws.asSocket() as WebSocket);
+  ws.disconnected = true;
 }
 
 /** A fresh socket, accepted by the room exactly as `/ws` accepts one. */

@@ -13,10 +13,10 @@ import type { Env } from '../d1';
 import type { DurableStateLike, HibernatingSocket, UpgradeInit } from '../do-types';
 import { createRoom, seatJoin, seatMessage, seatGone, clockTick, expire, type Effect, type RoomState } from './room-core';
 import { verifyTicket } from './ticket';
+import { DEFAULT_MAP, textField } from './room-fields';
 
 export const TICK_MS = 50;
 const SIM_SEED_N0 = 20260727;   // the app's SIM_SEED; N1 mints one per match
-const DEFAULT_MAP = 'beit_sahwan_outskirts';
 const CREATE_SQL = 'CREATE TABLE IF NOT EXISTS frame (tick INTEGER PRIMARY KEY, cmds TEXT NOT NULL)';
 const INSERT_SQL = 'INSERT OR REPLACE INTO frame (tick, cmds) VALUES (?, ?)';
 const SELECT_SQL = 'SELECT tick, cmds FROM frame ORDER BY tick';
@@ -40,7 +40,14 @@ function reply(ws: WebSocket, msg: ServerMsg): void {
 function shut(ws: WebSocket, code: number, reason: string): void {
   try { ws.close(code, reason); } catch { /* already gone */ }
 }
-const str = (v: unknown, fallback: string): string => (typeof v === 'string' ? v : fallback);
+/** A replaced socket gives up its seat BEFORE it is closed: workerd keeps a
+ *  closing socket in `getWebSockets()`, and one still wearing the seat would
+ *  take the seat's broadcasts and make the replacement's own close look like
+ *  "a replacement is live". */
+function retire(ws: WebSocket): void {
+  (ws as HibernatingSocket).serializeAttachment({ seat: null } satisfies SocketAttachment);
+  shut(ws, 4000, 'replaced');
+}
 
 export class MatchRoom {
   private st: RoomState | null = null;
@@ -115,7 +122,7 @@ export class MatchRoom {
     for (const e of effects) {
       if (e.kind === 'frame') this.ctx.storage.sql.exec(INSERT_SQL, e.frame.tick, JSON.stringify(e.frame.cmds));
       else if (e.kind === 'send') this.send(e.to, e.msg);
-      else for (const ws of this.socketsFor(e.seat)) if (ws !== keep) shut(ws, 4000, 'replaced');
+      else for (const ws of this.socketsFor(e.seat)) if (ws !== keep) retire(ws);
     }
     await this.save();
   }
@@ -158,8 +165,11 @@ export class MatchRoom {
       if (typeof body !== 'object' || body === null || typeof body.code !== 'string' || typeof body.matchId !== 'string') {
         return new Response('bad body', { status: 400 });
       }
+      // An empty build would switch the hello's build check off: refuse it here as the route does.
+      const build = textField(body.build, '');
+      if (build === '') return new Response('no build', { status: 400 });
       this.st = createRoom(body.code, body.matchId, Date.now());
-      this.meta = { map: str(body.map, DEFAULT_MAP), build: str(body.build, ''), seat1Reserved: false };
+      this.meta = { map: textField(body.map, DEFAULT_MAP), build, seat1Reserved: false };
       await this.ctx.storage.put('meta', this.meta);
       await this.save();
       return Response.json({ ok: true });
@@ -217,8 +227,9 @@ export class MatchRoom {
     const secret = this.env.TICKET_SECRET;
     const ticket = secret ? await verifyTicket(secret, msg.ticket, Date.now()) : null;
     if (!ticket || ticket.matchId !== st.matchId) { reply(ws, { t: 'error', code: 'bad_ticket' }); shut(ws, 4001, 'bad ticket'); return; }
+    // /create refuses an empty build, so `''` here means meta was never written: fail closed.
     const build = this.meta?.build ?? '';
-    if (build !== '' && msg.build !== build) { reply(ws, { t: 'error', code: 'build_mismatch' }); shut(ws, 4002, 'build'); return; }
+    if (build === '' || msg.build !== build) { reply(ws, { t: 'error', code: 'build_mismatch' }); shut(ws, 4002, 'build'); return; }
     (ws as HibernatingSocket).serializeAttachment({ seat: ticket.seat } satisfies SocketAttachment);
     // N0's ticket `player` carries the callsign the client sent; N1 splits them.
     await this.apply(seatJoin(st, ticket.seat, ticket.player, ticket.player, Date.now(), () => this.readLog()), ws);
@@ -227,9 +238,10 @@ export class MatchRoom {
   async webSocketClose(ws: WebSocket): Promise<void> {
     try {
       const st = await this.begin();
+      // A replaced socket was `retire`d (seat null) before it was closed, so
+      // its late close returns here and never marks the live seat gone.
       const seat = seatOf(ws);
       if (!st || seat === null) return;
-      if (this.socketsFor(seat).some((s) => s !== ws)) return;   // a replacement is live
       await this.apply(seatGone(st, seat, Date.now()));
     } finally {
       this.ensureClock();

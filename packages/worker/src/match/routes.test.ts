@@ -8,16 +8,17 @@ const ORIGIN = 'https://roaring-lions.pint12.workers.dev';
 
 /** A namespace whose every stub answers from one in-memory table of rooms.
  *  `/join` reserves the seat at once, as the real room does (R5). */
-function fakeRooms(): { env: Env; created: string[]; wsSeen: Request[]; limited: string[] } {
+function fakeRooms(): { env: Env; created: string[]; createBodies: Record<string, unknown>[]; wsSeen: Request[]; limited: string[] } {
   const rooms = new Map<string, { seats: number }>();
   const created: string[] = [];
+  const createBodies: Record<string, unknown>[] = [];
   const wsSeen: Request[] = [];
   const limited: string[] = [];
   const stub = (name: string) => ({
     fetch: async (req: Request): Promise<Response> => {
       const path = new URL(req.url).pathname;
       const room = rooms.get(name);
-      if (path === '/create') { rooms.set(name, { seats: 1 }); created.push(name); return Response.json({ ok: true }); }
+      if (path === '/create') { createBodies.push(await req.json() as Record<string, unknown>); rooms.set(name, { seats: 1 }); created.push(name); return Response.json({ ok: true }); }
       if (path === '/state') return room ? Response.json({ status: 'lobby', seats: room.seats }) : new Response('', { status: 404 });
       if (path === '/join') { if (!room) return new Response('', { status: 404 }); if (room.seats >= 2) return new Response('', { status: 409 }); room.seats++; return Response.json({ seat: 1 }); }
       if (path === '/ws') { wsSeen.push(req); return new Response('upgraded', { status: room ? 200 : 404 }); }
@@ -30,7 +31,7 @@ function fakeRooms(): { env: Env; created: string[]; wsSeen: Request[]; limited:
     TICKET_SECRET: 'secret', ROOM_LIMIT: limiter,
     ROOMS: { idFromName: (n: string) => n, get: (id: unknown) => stub(id as string) },
   } as unknown as Env;
-  return { env, created, wsSeen, limited };
+  return { env, created, createBodies, wsSeen, limited };
 }
 
 const post = (url: string, body: unknown, origin = ORIGIN) =>
@@ -39,7 +40,7 @@ const post = (url: string, body: unknown, origin = ORIGIN) =>
 describe('/api/match', () => {
   it('creates a room: a six-char code and a seat-0 ticket for the host', async () => {
     const { env, created } = fakeRooms();
-    const res = await handleMatch(post(`${ORIGIN}/api/match`, { callsign: 'Host' }), env, NOW);
+    const res = await handleMatch(post(`${ORIGIN}/api/match`, { callsign: 'Host', build: 'b1' }), env, NOW);
     expect(res.status).toBe(201);
     const body = await res.json() as { code: string; ticket: string; seat: number };
     expect(body.code).toMatch(/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/);
@@ -52,7 +53,7 @@ describe('/api/match', () => {
   });
   it('joins a room as seat 1, then refuses a third', async () => {
     const { env } = fakeRooms();
-    const { code } = await (await handleMatch(post(`${ORIGIN}/api/match`, { callsign: 'Host' }), env, NOW)).json() as { code: string };
+    const { code } = await (await handleMatch(post(`${ORIGIN}/api/match`, { callsign: 'Host', build: 'b1' }), env, NOW)).json() as { code: string };
     const join = await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { callsign: 'Guest' }), env, NOW);
     expect(join.status).toBe(200);
     const joined = (await join.json()) as { seat: number; ticket: string };
@@ -63,17 +64,28 @@ describe('/api/match', () => {
   });
   it('refuses a foreign or missing Origin, and fails closed with no TICKET_SECRET', async () => {
     const { env } = fakeRooms();
-    expect((await handleMatch(post(`${ORIGIN}/api/match`, {}, 'https://evil.example'), env, NOW)).status).toBe(403);
+    expect((await handleMatch(post(`${ORIGIN}/api/match`, { build: 'b1' }, 'https://evil.example'), env, NOW)).status).toBe(403);
     const noOrigin = new Request(`${ORIGIN}/api/match`, { method: 'POST', body: '{}' });
     expect((await handleMatch(noOrigin, env, NOW)).status).toBe(403);
-    expect((await handleMatch(post(`${ORIGIN}/api/match`, {}), { ...env, TICKET_SECRET: undefined }, NOW)).status).toBe(503);
-    expect((await handleMatch(post(`${ORIGIN}/api/match`, {}), { ...env, TICKET_SECRET: '' }, NOW)).status).toBe(503);
+    expect((await handleMatch(post(`${ORIGIN}/api/match`, { build: 'b1' }), { ...env, TICKET_SECRET: undefined }, NOW)).status).toBe(503);
+    expect((await handleMatch(post(`${ORIGIN}/api/match`, { build: 'b1' }), { ...env, TICKET_SECRET: '' }, NOW)).status).toBe(503);
   });
   it('accepts an Origin listed in ALLOWED_ORIGINS', async () => {
     const { env } = fakeRooms();
     const withExtra = { ...env, ALLOWED_ORIGINS: 'https://lions.example, https://play.lions.example' };
-    expect((await handleMatch(post(`${ORIGIN}/api/match`, {}, 'https://play.lions.example'), withExtra, NOW)).status).toBe(201);
-    expect((await handleMatch(post(`${ORIGIN}/api/match`, {}, 'https://other.example'), withExtra, NOW)).status).toBe(403);
+    expect((await handleMatch(post(`${ORIGIN}/api/match`, { build: 'b1' }, 'https://play.lions.example'), withExtra, NOW)).status).toBe(201);
+    expect((await handleMatch(post(`${ORIGIN}/api/match`, { build: 'b1' }, 'https://other.example'), withExtra, NOW)).status).toBe(403);
+  });
+  it('refuses a create with no build (the hello check would be off), and caps map and build', async () => {
+    const { env, createBodies } = fakeRooms();
+    expect((await handleMatch(post(`${ORIGIN}/api/match`, { callsign: 'Host' }), env, NOW)).status).toBe(400);
+    expect((await handleMatch(post(`${ORIGIN}/api/match`, { callsign: 'Host', build: '' }), env, NOW)).status).toBe(400);
+    expect(createBodies).toEqual([]);
+    const long = 'x'.repeat(500);
+    expect((await handleMatch(post(`${ORIGIN}/api/match`, { build: long, map: long }), env, NOW)).status).toBe(201);
+    expect(createBodies[0]).toMatchObject({ build: 'x'.repeat(64), map: 'x'.repeat(64) });
+    expect((await handleMatch(post(`${ORIGIN}/api/match`, { build: 'b1' }), env, NOW)).status).toBe(201);
+    expect(createBodies[1]).toMatchObject({ build: 'b1', map: 'beit_sahwan_outskirts' });
   });
   it('rejects a malformed code before touching a room', async () => {
     const { env } = fakeRooms();
@@ -81,7 +93,7 @@ describe('/api/match', () => {
   });
   it('rate-limits create and join per IP, but never the socket upgrade (a reconnect loop would trip it)', async () => {
     const { env, limited, wsSeen } = fakeRooms();
-    const { code } = await (await handleMatch(post(`${ORIGIN}/api/match`, { callsign: 'Host' }), env, NOW)).json() as { code: string };
+    const { code } = await (await handleMatch(post(`${ORIGIN}/api/match`, { callsign: 'Host', build: 'b1' }), env, NOW)).json() as { code: string };
     await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { callsign: 'Guest' }), env, NOW);
     expect(limited).toEqual(['203.0.113.9', '203.0.113.9']);
     const upgrade = new Request(`${ORIGIN}/api/match/${code}/ws`, { headers: { origin: ORIGIN, upgrade: 'websocket' } });
@@ -90,7 +102,7 @@ describe('/api/match', () => {
     expect(wsSeen).toHaveLength(10);
     expect(wsSeen[0].headers.get('upgrade')).toBe('websocket');
     const refusing = { ...env, ROOM_LIMIT: { limit: async () => ({ success: false }) } };
-    expect((await handleMatch(post(`${ORIGIN}/api/match`, {}), refusing, NOW)).status).toBe(429);
+    expect((await handleMatch(post(`${ORIGIN}/api/match`, { build: 'b1' }), refusing, NOW)).status).toBe(429);
     expect((await handleMatch(upgrade, refusing, NOW)).status).toBe(200);
   });
   it('the socket upgrade also needs a good Origin', async () => {

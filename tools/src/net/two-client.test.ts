@@ -75,7 +75,7 @@ describe('two clients, one frame stream', () => {
     const idle: number[] = [];
     run(stream(new Map(), TICKS), (_, h) => idle.push(h));
     expect(a[TICKS - 1]).not.toBe(idle[TICKS - 1]);
-  });
+  }, 60_000);   // 3.2-5.4 s alone; the 5 s default timed out under load
 
   it('a dropped command on one side is visible to the instrument by the next hash', () => {
     const probe = missionWorld(MISSION, {});
