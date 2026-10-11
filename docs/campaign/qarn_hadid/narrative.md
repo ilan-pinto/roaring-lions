@@ -537,8 +537,8 @@ and the lead cuts these himself — this sheet writes no video and declares no
 field. `validate_data.mjs` requires the file to exist if the field is declared,
 so an aspirational path would fail the gate. If the lead wants one, the asset is
 `assets/video/qarn_hadid_3_briefing.mp4` and the field is
-`"briefing_video": "video/qarn_hadid_3_briefing.mp4"`; the two shipped cuts
-(`tel_marum_2_briefing.mp4`, `tel_marum_3_briefing.mp4`) are the reference for
+`"briefing_video": "video/qarn_hadid_3_briefing.mp4"`; the two Tel Marum cuts
+(`tel_marum_2_briefing.mp4`, `tel_marum_3_briefing.mp4`, removed 2026-10-11) were the reference for
 length and shape.
 
 ### 3.4 Objectives

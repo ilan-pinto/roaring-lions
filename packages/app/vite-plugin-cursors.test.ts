@@ -31,7 +31,7 @@ import {
   type BadgeHints,
   type CursorHints,
 } from './src/input/cursor';
-import { resolvePointer, type IntentWorld } from './src/input/intents';
+import { resolveMoveOrder, resolvePointer, type IntentWorld } from './src/input/intents';
 import { HOTSPOT, ORDER_SIGHT, SIGHT_BOX, SIGHT_KEYS, sightFrame, type SightOrderId } from './src/ui/order-sight';
 import { roleBucket, type RoleBucket } from './src/ui/role';
 import { symbolBody } from './src/ui/symbol';
@@ -679,11 +679,11 @@ function markupOf(line: string): string {
 describe('animated cursor frames', () => {
   const css = cursorRules(deriveUiBand(raw));
 
-  it('animates exactly the five wired sights plus charge and demolish, and nothing else', () => {
+  it('animates exactly the wired sights (the armed move shares the move sight) plus charge and demolish, and nothing else', () => {
     // A silent eighth entry (or the loss of one) would otherwise only
     // surface as a visual difference nobody happened to look for.
     expect(Object.keys(ANIMATED_CURSORS).sort()).toEqual(
-      ['advance', 'charge', 'demolish', 'move', 'smoke', 'strike', 'sweep']
+      ['advance', 'charge', 'demolish', 'move', 'moveOnly', 'smoke', 'strike', 'sweep']
     );
   });
 
@@ -1224,6 +1224,18 @@ describe('the composer and the plugin agree on every key -- Important 2', () => 
         keys.add(cursorKey(name, badgeFor(res, hints, badges, name)));
       }
     }
+    // The armed plain Move (L1 reopened): the resolution is
+    // `resolveMoveOrder`'s and the hint is `armedMove`. Open ground reads
+    // `moveOnly`, rock reads `blocked`, nothing selected reads `default`.
+    for (const world of [openGround, fakeWorld({ groundAt: () => 'blocked' })]) {
+      for (const ids of selections) {
+        const res = resolveMoveOrder(world, { ids, x: 5, y: 5, append: false });
+        for (const hints of HINT_COMBOS) {
+          const name = cursorFor(res, { ...hints, armedMove: true });
+          keys.add(cursorKey(name, badgeFor(res, hints, badges, name)));
+        }
+      }
+    }
     return keys;
   }
 
@@ -1236,6 +1248,16 @@ describe('the composer and the plugin agree on every key -- Important 2', () => 
   // arrow) -- exclude it from the "must have a rule" side, the same way
   // cursorRules itself never emits one for it.
   const producedWithRules = new Set([...produced].filter((k) => k !== 'default'));
+
+  it('answers the armed Move key with the move rule itself, not a second copy of its image', () => {
+    expect(produced.has('moveOnly')).toBe(true);
+    const moveLines = css.split('\n').filter((l) => l.startsWith("canvas[data-cursor='move']"));
+    expect(moveLines.length).toBeGreaterThan(0);
+    // Every rule that draws `move` also answers to `moveOnly`, frame for
+    // frame, and `moveOnly` never has a rule line of its own.
+    expect(moveLines.every((l) => l.includes("canvas[data-cursor='moveOnly']"))).toBe(true);
+    expect(css.split('\n').filter((l) => l.startsWith("canvas[data-cursor='moveOnly']"))).toEqual([]);
+  });
 
   it('emits a rule for every key the real cursorFor/badgeFor can compose', () => {
     // Reddens on Critical 1: 'protected-armour', 'protected-soft' and

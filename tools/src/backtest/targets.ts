@@ -154,13 +154,21 @@ function urbanAssault(attackers: number, seed: number, smoke = false): UrbanOutc
   }
   // Sweep objectives BEYOND each block: groups clear the west face, push
   // around the building, and meet whatever holds the east face.
+  //
+  // Every attack-move in this file says `sweep: true`. These are scripted
+  // commanders, not a player's clicks: having reached its objective a group
+  // hunts what its side remembers, which is exactly what the sweep is for and
+  // what every §5.7 number here was measured with. Since 2026-10-11 a plain
+  // attack-move stops where it is sent (the lead's ruling); without the flag
+  // the urban assault stalls on the defenders it cannot see -- measured, 3:1
+  // reads 2% against 100%.
   const objectives: [number, number][] = [
     [36, 7],
     [36, 15],
     [35, 24],
   ];
   for (let gi = 0; gi < 3; gi++) {
-    sim.queueCommand({ kind: 'attackMove', ids: groups[gi], x: fx.fromInt(objectives[gi][0]), y: fx.fromInt(objectives[gi][1]) });
+    sim.queueCommand({ kind: 'attackMove', ids: groups[gi], x: fx.fromInt(objectives[gi][0]), y: fx.fromInt(objectives[gi][1]), sweep: true });
   }
 
   // Consolidation: every 120 s the commander re-tasks all survivors onto the
@@ -183,7 +191,7 @@ function urbanAssault(attackers: number, seed: number, smoke = false): UrbanOutc
       const obj = objectives[wave % 3];
       wave++;
       if (survivors.length > 0) {
-        sim.queueCommand({ kind: 'attackMove', ids: survivors, x: fx.fromInt(obj[0]), y: fx.fromInt(obj[1]) });
+        sim.queueCommand({ kind: 'attackMove', ids: survivors, x: fx.fromInt(obj[0]), y: fx.fromInt(obj[1]), sweep: true });
       }
     }
     if (smoke && t % 10 === 0) {
@@ -386,8 +394,8 @@ function openFight(a: number, b: number, seed: number): number {
   for (let i = 0; i < b; i++) {
     idsB.push(sim.spawn(inf, 1, fx.from(26.5 + (i % 2)), fx.from(9.5 + i * 2.2), WEST));
   }
-  sim.queueCommand({ kind: 'attackMove', ids: idsA, x: fx.fromInt(27), y: fx.fromInt(15) });
-  sim.queueCommand({ kind: 'attackMove', ids: idsB, x: fx.fromInt(9), y: fx.fromInt(15) });
+  sim.queueCommand({ kind: 'attackMove', ids: idsA, x: fx.fromInt(27), y: fx.fromInt(15), sweep: true });
+  sim.queueCommand({ kind: 'attackMove', ids: idsB, x: fx.fromInt(9), y: fx.fromInt(15), sweep: true });
   const { alive } = runBattle(sim, 600 * TICKS_PER_SECOND);
   return alive[1] === 0 ? alive[0] : 0; // survivors of A when B wiped, else 0
 }
@@ -465,7 +473,7 @@ function gunshipRun(seed: number, aaCount: number): RunOutcome {
   }
   // The order is the point: a gunship makes a firing pass, it does not hover
   // at range trading missiles. Without this the scenario measures loitering.
-  sim.queueCommand({ kind: 'attackMove', ids: [id], x: fx.from(26), y: fx.from(10.5) });
+  sim.queueCommand({ kind: 'attackMove', ids: [id], x: fx.from(26), y: fx.from(10.5), sweep: true });
   const { alive } = runBattle(sim, 90 * TICKS_PER_SECOND);
   return { survived: alive[0] > 0, cleared: alive[1] === 0 };
 }

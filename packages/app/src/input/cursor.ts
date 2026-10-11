@@ -24,6 +24,7 @@ import { ORDER_SIGHT, type SightOrderId } from '../ui/order-sight';
 export type CursorName =
   | 'default'
   | 'move'
+  | 'moveOnly'
   | 'advance'
   | 'blocked'
   | 'costly'
@@ -48,6 +49,11 @@ export interface CursorHints {
    *  pointer. Optional: every caller that has no armed order to report
    *  compiles, and reads, unchanged. */
   armedSmoke?: boolean;
+  /** The plain Move order is armed (`main.ts`'s `armedOrder === 'move'`):
+   *  the next click is a move to the ground, never an attack-move, and the
+   *  `Resolution` passed alongside is `resolveMoveOrder`'s, not
+   *  `resolvePointer`'s. */
+  armedMove?: boolean;
   /** Every id of the order intent is pinned (GH-262): the click will be
    *  accepted and nobody will go, so the cursor says so before the click
    *  rather than the feed after it. Computed in `main.ts` from the order
@@ -65,10 +71,13 @@ export interface CursorHints {
  *  `BADGED_VERBS` is typed so one of these can never appear as a key at
  *  all. One rule, several callers -- the same pattern this milestone
  *  already uses for `zoneContains`, `roleBucket` and `cursorKey` itself. */
-export type UnbadgedName = 'default' | 'blocked' | 'costly' | 'protected' | 'sweep' | 'strike' | 'pinned';
+export type UnbadgedName = 'default' | 'moveOnly' | 'blocked' | 'costly' | 'protected' | 'sweep' | 'strike' | 'pinned';
 
 export const UNBADGED_NAMES: ReadonlySet<CursorName> = new Set<UnbadgedName>([
   'default',
+  // A mode the player chose, not a verb an actor performs: the armed plain
+  // move reads the same whoever is selected.
+  'moveOnly',
   'blocked',
   'costly',
   'protected',
@@ -177,6 +186,7 @@ const anim = (id: SightOrderId): CursorAnimation => ({
  *  no repaint, the answer is to delete the animation, not to swap mechanisms. */
 export const ANIMATED_CURSORS: Readonly<Partial<Record<CursorName, CursorAnimation>>> = {
   move: anim('move'),
+  moveOnly: anim('move'),
   advance: anim('attackMove'),
   sweep: anim('sweep'),
   strike: anim('strike'),
@@ -184,6 +194,13 @@ export const ANIMATED_CURSORS: Readonly<Partial<Record<CursorName, CursorAnimati
   charge: { frames: 4, intervalMs: 200 },
   demolish: { frames: 4, intervalMs: 300 },
 };
+
+/** Cursor names that are drawn by ANOTHER name's rule. The armed plain Move
+ *  (`moveOnly`, L1 reopened) shows the approved move sight -- no new art was
+ *  signed off for it -- but reads its own key, so a test, a tool or a player's
+ *  bug report can tell "Move is armed" from "hovering open ground". The
+ *  plugin answers both keys with one rule (`vite-plugin-cursors.ts`). */
+export const CURSOR_ALIAS: Readonly<{ moveOnly: 'move' }> = { moveOnly: 'move' };
 
 export { SIGHT_OF };
 
@@ -224,6 +241,17 @@ export function cursorFor(res: Resolution, hints: CursorHints): CursorName {
   // because only one of the two can spend the click and a support call is
   // armed from the production bar, deliberately.
   if (hints.armedSmoke) return 'smoke';
+  // The armed plain Move (L1 reopened): the resolution is `resolveMoveOrder`'s,
+  // so it already carries the K-08 refusal and the empty-selection case. What
+  // is under the pointer -- an enemy, a house, a flagged zone -- is
+  // irrelevant to a move, so it does not reach `advance`, `costly` or
+  // `protected`; the only things that still read are a refused tile and a
+  // whole order that is pinned.
+  if (hints.armedMove) {
+    if (res.groundRefused) return 'blocked';
+    if (res.intents.length === 0) return 'default';
+    return hints.pinned === true ? 'pinned' : 'moveOnly';
+  }
   // A protected structure gated the whole selection and the player has not
   // held Alt to override it: `intents` is empty here too, but for a second,
   // distinct reason from "nothing selected" -- this rung must come before

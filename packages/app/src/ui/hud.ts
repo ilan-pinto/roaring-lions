@@ -1748,6 +1748,11 @@ export class Hud {
    * pinned order (`pinned`) or a building verb never gets this line.
    */
   private fireClickLine(): string {
+    // The armed Move (L1 reopened) hovers `moveOnly` over an enemy: the click
+    // goes to the ground and nobody stops to fight, and the panel says so.
+    if (this.deps.hoverCursor?.() === 'moveOnly') {
+      return `<div class="rl-fire__click">${t('hud.fire.clickMoves')}</div>`;
+    }
     if (this.deps.hoverCursor?.() !== 'advance') return '';
     return `<div class="rl-fire__click">${t('hud.fire.clickAdvances')}</div>`;
   }
