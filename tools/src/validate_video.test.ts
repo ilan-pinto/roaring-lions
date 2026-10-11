@@ -1,8 +1,10 @@
 // The data gate's video provenance and size checks (tools/validate_video.mjs),
 // against fixtures it must reject and against the shipped tree, which it must
-// pass in the default mode and FAIL in commercial mode (the two Tel Marum
-// files have no recorded generator: ASSET_PROVENANCE.md item 4).
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+// pass in the default mode, and in commercial mode fail exactly once per
+// unconfirmed entry (the two Tel Marum files that were unconfirmed were
+// removed 2026-10-11, ASSET_PROVENANCE.md item 4; the fixtures below carry
+// the unconfirmed and over-budget cases now).
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { MAX_FILE_BYTES, MAX_TOTAL_BYTES, videoFailures } from '../validate_video.mjs';
@@ -27,6 +29,13 @@ describe('videoFailures', () => {
     expect(videoFailures({ files: { 'video/a.mp4': confirmed } }, one(), ['video/a.mp4'])).toEqual([]);
     expect(videoFailures({ files: { 'video/a.mp4': unknown } }, one(), [])).toEqual([]);
     expect(videoFailures({ files: { 'video/a.mp4': confirmed } }, one(), [], { commercial: true })).toEqual([]);
+  });
+
+  it('passes the empty state: no files, no entries, no mission naming a video', () => {
+    expect(videoFailures({ files: {} }, [], [])).toEqual([]);
+    expect(videoFailures({ files: {} }, [], [], { commercial: true })).toEqual([]);
+    // ... and a mission still naming a video refuses, which is what the Tel Marum removal had to avoid
+    expect(videoFailures({ files: {} }, [], ['video/gone.mp4']).some((x) => x.includes('no provenance entry'))).toBe(true);
   });
 
   it('refuses a file with no entry, and an entry with no file', () => {
@@ -79,7 +88,8 @@ describe('videoFailures', () => {
 describe('the shipped tree', () => {
   const manifest: unknown = JSON.parse(readFileSync(join(ROOT, 'data/video.json'), 'utf8'));
   const dir = join(ROOT, 'assets/video');
-  const onDisk = readdirSync(dir)
+  // The directory is absent while no video ships (git keeps no empty dir).
+  const onDisk = (existsSync(dir) ? readdirSync(dir) : [])
     .filter((f) => !f.startsWith('.'))
     .map((f) => ({ path: `video/${f}`, bytes: statSync(join(dir, f)).size }));
   const referenced = readdirSync(join(ROOT, 'data/missions'))
@@ -91,7 +101,7 @@ describe('the shipped tree', () => {
     expect(videoFailures(manifest, onDisk, referenced)).toEqual([]);
   });
 
-  it('fails the commercial gate while a file is unconfirmed (the Tel Marum pair, today)', () => {
+  it('fails the commercial gate once for each unconfirmed entry (none today)', () => {
     const files = (manifest as { files: Record<string, { commercial: string }> }).files;
     const unconfirmed = Object.entries(files).filter(([, e]) => e.commercial !== 'confirmed');
     expect(videoFailures(manifest, onDisk, referenced, { commercial: true })).toHaveLength(unconfirmed.length);

@@ -304,11 +304,11 @@
     {
       "id": "regen_tel_marum_2",
       "group": "regen",
-      "title": "Tel Marum II, The Start Line -- replaces the shipped briefing video",
+      "title": "Tel Marum II, The Start Line -- option for the removed briefing video",
       "still": "docs/cinematics/stills/regen_tel_marum_2.jpg",
       "loop": true,
       "prompt": "Animate this still from a stylised real-time strategy game. Keep the high three-quarter overhead camera angle, the game's art style, every building and the layout of the ground exactly as in the image; nothing new enters the frame. The motion is gentle and cyclic so the final frame returns to the first. A slow push-in toward the breach in the long rock ridge where the boulders lie. Midday heat shimmer, dust lifting off the scree in gusts and settling, cloud shadows sliding across the plateau.",
-      "ships_as": "video/tel_marum_2_briefing.mp4 (replaces the shipped file)",
+      "ships_as": "video/tel_marum_2_briefing.mp4 (a new file: the shipped one was removed 2026-10-11; add the data/video.json entry and the briefing_video line on tel_marum_2_foothold.json in the same commit)",
       "capture": {
         "sandbox": "tel_marum_2",
         "tod": "day",
@@ -334,11 +334,11 @@
     {
       "id": "regen_tel_marum_3",
       "group": "regen",
-      "title": "Tel Marum III, The Pass -- replaces the shipped briefing video",
+      "title": "Tel Marum III, The Pass -- option for the removed briefing video",
       "still": "docs/cinematics/stills/regen_tel_marum_3.jpg",
       "loop": true,
       "prompt": "Animate this still from a stylised real-time strategy game. Keep the high three-quarter overhead camera angle, the game's art style, every building and the layout of the ground exactly as in the image; nothing new enters the frame. The motion is gentle and cyclic so the final frame returns to the first. A slow drift toward the pass between the grey rock shelves. Pale dawn light spreads across the stone, mist lifts out of the pass and thins, a little loose gravel trickles down a slope.",
-      "ships_as": "video/tel_marum_3_briefing.mp4 (replaces the shipped file)",
+      "ships_as": "video/tel_marum_3_briefing.mp4 (a new file: the shipped one was removed 2026-10-11; add the data/video.json entry and the briefing_video line on tel_marum_3_clearance.json in the same commit)",
       "capture": {
         "sandbox": "tel_marum_3",
         "tod": "dawn",

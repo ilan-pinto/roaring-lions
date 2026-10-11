@@ -85,7 +85,7 @@ units, overlays, fog, FX and HUD all hidden. See the storyboard.
 | What | File | Played by |
 |---|---|---|
 | Town backdrops | `assets/video/<town>_briefing.mp4`, for `beit_sahwan`, `khan_rafid`, `deir_amun`, `tel_marum`, `qarn_hadid`, `umm_zeitoun` and `wadi_halam` | The deploy screen (`ui/loading.ts`), through `"briefing_video": "video/<town>_briefing.mp4"` on the town's first mission. The mission JSON line is added **in the same commit as the file**, because `validate:data` refuses a `briefing_video` with no file. |
-| Tel Marum replacements | `assets/video/tel_marum_2_briefing.mp4` and `assets/video/tel_marum_3_briefing.mp4`, overwritten in place | The same, with no mission JSON change |
+| Tel Marum replacements | `assets/video/tel_marum_2_briefing.mp4` and `assets/video/tel_marum_3_briefing.mp4`, as **new files**: the originals were removed on 2026-10-11 (the lead's request; he will make his own), so each arrives with its `data/video.json` entry **and** the `"briefing_video"` line on `tel_marum_2_foothold.json` / `tel_marum_3_clearance.json`, in the same commit | The same |
 | Intro, in-game cut | `assets/video/intro.mp4`, 720p | **The menu, on a first launch** (`ui/intro.ts`, `ui/intro-overlay.ts`), and Settings' "Replay intro". Playback is built and waits for the file: nothing plays, requests or draws until `video/intro.mp4` is in `assets/video/` **and** listed in `data/video.json` (the gate holds the two together). See "Playback" below. |
 | Intro, trailer master | 1080p, from the Veo 3.1 Standard finals | Store pages and the trailer. It stays **outside the repo**, because at 10-20 MB it is not game data. |
 

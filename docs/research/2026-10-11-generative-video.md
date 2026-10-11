@@ -357,8 +357,8 @@ January 2026) no Steam disclosure.
    Dangerous-content categories with a support code; budget takes for it and
    prompt aftermath (smoke on a ridge, spoil in gravel) rather than fire.
 7. **No gate sees video provenance.** `validate_data.mjs` checks that a
-   `briefing_video` file exists and nothing else. The two shipped files have
-   no recorded generator (item 4), and a commercial build would ship them.
+   `briefing_video` file exists and nothing else. The two shipped files (removed 2026-10-11, the lead's request)
+   had no recorded generator (item 4), and a commercial build would have shipped them.
 8. **Honesty.** A trailer that cuts cinematic into gameplay unlabelled
    misrepresents the game, and Steam disclosure now covers marketing.
 
