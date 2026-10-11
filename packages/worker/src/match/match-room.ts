@@ -309,6 +309,11 @@ export class MatchRoom {
    *  replaced socket was `retire`d the same way before it was closed. */
   async webSocketClose(ws: WebSocket): Promise<void> {
     try {
+      // The reciprocal close, as Cloudflare's hibernation example does: whether
+      // this compat date answers a client's close frame by itself is unconfirmed
+      // (N0 final review M2). Code 1000, never the one received: 1005 and 1006
+      // may not be sent. `shut` swallows the throw from a socket already closed.
+      shut(ws, 1000, 'closed');
       const seat = seatOf(ws);
       disown(ws);
       const st = await this.begin();

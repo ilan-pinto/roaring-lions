@@ -185,7 +185,7 @@ function recheckStall(st: RoomState, nowMs: number, mayStall = true): Effect[] {
  *  (R37): 'stalled' reads as 'running' and the stall itself is left out,
  *  because a seat a little slower than 20 Hz flaps behind-stall/resume on
  *  every ack, and `revive` re-derives a behind or silent stall anyway. A
- *  'gone' stall still persists, through the seat's `connected`. */
+ *  gone seat (socket closed) still persists, through the seat's `connected`. */
 export function persistKey(st: RoomState): string {
   const seats = st.seats.map((s) => (s ? [s.player, s.callsign, s.connected, s.ready] : null));
   const status = st.status === 'stalled' ? 'running' : st.status;

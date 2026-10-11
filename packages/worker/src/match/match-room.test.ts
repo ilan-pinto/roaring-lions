@@ -186,6 +186,18 @@ describe('MatchRoom', () => {
     expect(again.closed).toBeNull();
   });
 
+  it('a close the runtime delivers is answered with a close of our own (M2)', async () => {
+    const { state, room, ws0, ws1 } = await running();
+    // The client's close frame arrived; the room has not closed its end yet.
+    expect(ws1.closed).toBeNull();
+    await room.webSocketClose(ws1.asSocket() as WebSocket);
+    expect(ws1.closed).toEqual({ code: 1000, reason: 'closed' });
+    expect((await persisted(state)).seats[1]?.connected).toBe(false);
+    // An error event closes too (it runs the same path).
+    await room.webSocketError(ws0.asSocket() as WebSocket);
+    expect(ws0.closed).toEqual({ code: 1000, reason: 'closed' });
+  });
+
   it('/create refuses an empty build, so the hello build check can never be off', async () => {
     const room = new MatchRoom(new FakeState(), env);
     const res = await room.fetch(new Request('https://room/create', { method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE }) }));
