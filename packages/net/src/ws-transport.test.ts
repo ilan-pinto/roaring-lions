@@ -189,4 +189,103 @@ describe('WsTransport', () => {
     expect(opens).toBe(1);
     expect(t.status()).toEqual({ kind: 'closed', reason: 'left' });
   });
+
+});
+
+describe('WsTransport stats (N0 final review I1: positive evidence)', () => {
+  /** A transport on a hand-set wall clock, started. */
+  function started(): { t: WsTransport; sock: Fake; clock: { ms: number } } {
+    const clock = { ms: 0 };
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} }, () => clock.ms);
+    sock.open();
+    sock.recv({ t: 'start', config: CONFIG });
+    return { t, sock, clock };
+  }
+
+  it('counts every hashOk and remembers the last tick; a desync records its tick', () => {
+    const { t, sock } = started();
+    expect(t.stats().hashOk).toEqual({ count: 0, lastTick: null });
+    for (const tick of [19, 39, 59]) sock.recv({ t: 'hashOk', tick });
+    expect(t.stats().hashOk).toEqual({ count: 3, lastTick: 59 });
+    expect(t.stats().desyncTick).toBeNull();
+    sock.recv({ t: 'desync', tick: 79, hashes: [1, 2] });
+    expect(t.stats().desyncTick).toBe(79);
+    sock.recv({ t: 'hashOk', tick: 99 });   // nothing after a desync counts
+    expect(t.stats().hashOk.count).toBe(3);
+  });
+
+  it('counts stalls by reason, once each, and keeps the longest', () => {
+    const { t, sock, clock } = started();
+    clock.ms = 1000; sock.recv({ t: 'stall', reason: 'behind', seat: 1 });
+    clock.ms = 1200; sock.recv({ t: 'stall', reason: 'behind', seat: 0 });   // the same stall, said again
+    clock.ms = 1600; sock.recv({ t: 'resume' });
+    clock.ms = 2000; sock.recv({ t: 'stall', reason: 'behind', seat: 1 });
+    clock.ms = 2100; sock.recv({ t: 'resume' });
+    clock.ms = 3000; sock.recv({ t: 'stall', reason: 'gone', seat: 1 });
+    clock.ms = 3250;
+    const s = t.stats().stalls;
+    expect(s.behind).toEqual({ count: 2, longestMs: 600 });
+    expect(s.gone).toEqual({ count: 1, longestMs: 250 });   // still open: timed to now
+    expect(s.connecting).toEqual({ count: 0, longestMs: 0 });
+    clock.ms = 4000; sock.recv({ t: 'resume' });
+    clock.ms = 9000;
+    expect(t.stats().stalls.gone).toEqual({ count: 1, longestMs: 1000 });   // closed: no longer grows
+  });
+
+  it('a drop mid-stall ends the room\'s stall and starts a connecting one', () => {
+    vi.useFakeTimers();
+    const { t, sock, clock } = started();
+    clock.ms = 100; sock.recv({ t: 'stall', reason: 'behind', seat: 1 });
+    clock.ms = 400; sock.closeFromServer();
+    clock.ms = 900;
+    const s = t.stats().stalls;
+    expect(s.behind).toEqual({ count: 1, longestMs: 300 });
+    expect(s.connecting).toEqual({ count: 1, longestMs: 500 });
+  });
+
+  it('times a reconnect: one outage however many attempts, then the log run down to the buffer', () => {
+    vi.useFakeTimers();
+    const { t, sock, clock } = started();
+    for (let tick = 0; tick < 5; tick++) sock.recv({ t: 'frame', tick, cmds: [] });
+    expect(t.take(10).map((f) => f.tick)).toEqual([0, 1, 2]);
+    clock.ms = 5000; sock.closeFromServer();
+    vi.advanceTimersByTime(RECONNECT_DELAY_MS);
+    clock.ms = 6000; sock.closeFromServer();   // the first attempt fails too
+    vi.advanceTimersByTime(RECONNECT_DELAY_MS);
+    sock.open();
+    expect(t.stats().reconnects).toEqual({ count: 0, lastOutageMs: null, lastReplayMs: null });
+    clock.ms = 6500;
+    sock.recv({ t: 'log', config: CONFIG, frames: Array.from({ length: 30 }, (_, tick) => ({ tick, cmds: [] })) });
+    expect(t.stats().reconnects).toEqual({ count: 1, lastOutageMs: 1500, lastReplayMs: null });
+    expect(t.stats().stalls.connecting).toEqual({ count: 1, longestMs: 1500 });
+    clock.ms = 6600; t.take(10);   // 3..12: still 17 behind
+    expect(t.stats().reconnects.lastReplayMs).toBeNull();
+    clock.ms = 6800; t.take(100);  // run down to the buffer
+    expect(t.stats().reconnects).toEqual({ count: 1, lastOutageMs: 1500, lastReplayMs: 300 });
+  });
+
+  it('a reconnect before the start counts when the lobby answers', () => {
+    vi.useFakeTimers();
+    const clock = { ms: 0 };
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} }, () => clock.ms);
+    sock.open();
+    clock.ms = 50; sock.closeFromServer();
+    vi.runAllTimers();
+    sock.open();
+    clock.ms = 1250;
+    sock.recv({ t: 'lobby', config: null, seats: [], you: 0 });
+    expect(t.stats().reconnects).toEqual({ count: 1, lastOutageMs: 1200, lastReplayMs: null });
+  });
+
+  it('stats() is a snapshot: changing it changes nothing', () => {
+    const { t, sock } = started();
+    sock.recv({ t: 'hashOk', tick: 19 });
+    const a = t.stats();
+    a.hashOk.count = 99;
+    a.stalls.behind.count = 99;
+    expect(t.stats().hashOk.count).toBe(1);
+    expect(t.stats().stalls.behind.count).toBe(0);
+  });
 });

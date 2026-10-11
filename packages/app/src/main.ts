@@ -236,6 +236,7 @@ import type { Seat } from '@lions/net';
 import { connectMatch, type Connected } from './net/connect';
 import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
 import { roomFlags } from './net/room-flags';
+import { netReport } from './net/net-report';
 import { NetStatusLine } from './ui/net-status';
 import { lightOverrideOf, timeOfDayOf } from './time-of-day';
 import { buildingFitOf } from './building-fit-flag';
@@ -5123,7 +5124,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         console.info(`[lions] ${helpText()}`);
       },
       // Absent in a room: the room's clock is the only clock, and a console
-      // step there would run frames this machine does not have.
+      // step there would run frames this machine does not have. A room has
+      // `net()` instead: hashes agreed, stalls, reconnects (`net/net-report.ts`).
       ...(netSeat === null
         ? {
             step: (n: number) => {
@@ -5132,7 +5134,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               return sim.tickCount;
             },
           }
-        : {}),
+        : { net: () => netReport(transport, netSeat, netConfig, sim.tickCount) }),
 
       /** Every voiced decision this battlefield made, and the mixer's own
        *  voice stats (WP-AU1 R-10). Read back, never recomputed: the log is
