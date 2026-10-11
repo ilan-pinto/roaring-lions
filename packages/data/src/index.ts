@@ -5,6 +5,7 @@
 
 import palette from '../../../data/palette.json';
 import audioManifest from '../../../data/audio.json';
+import videoManifest from '../../../data/video.json';
 import worldJson from '../../../data/campaign/world.json';
 import countriesJson from '../../../data/campaign/countries.json';
 import commanderJson from '../../../data/campaign/commander.json';
@@ -175,6 +176,13 @@ export type Palette = typeof palette;
 
 /** Battle audio manifest — clips are served from assets/audio/. */
 export { audioManifest };
+
+/** Provenance for every shipped cinematic under `assets/video/`
+ *  (`data/video.json`). The data gate holds it to the directory both ways --
+ *  a file with no entry and an entry with no file both fail `validate:data` --
+ *  so an entry here IS a shipped file, and the app plays only what this lists
+ *  (`ui/cinematics-model.ts`). */
+export { videoManifest };
 
 export {
   parseMap,

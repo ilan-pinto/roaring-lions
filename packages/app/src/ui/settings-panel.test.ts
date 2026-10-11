@@ -255,6 +255,41 @@ describe('settingsPanel', () => {
     cb.dispatchEvent(new Event('change', { bubbles: true }));
     expect(set.mock.calls[0][0].accessibility.captions).toBe(false);
   });
+  describe('Replay intro', () => {
+    it('draws no row when no intro ships (today): the panel is as it was', () => {
+      const { d } = deps();
+      const { el } = settingsPanel(document.body, d);
+      expect(el.querySelector('button[name="replayIntro"]')).toBeNull();
+      expect(el.textContent).not.toContain('Replay intro');
+    });
+    it('draws a Replay intro button that plays the intro, and disposing the panel takes the overlay down', () => {
+      const overlayOff = vi.fn();
+      const replay = vi.fn(() => overlayOff);
+      const { d, set } = deps({ intro: { replay } });
+      const { el, dispose } = settingsPanel(document.body, d);
+      const btn = el.querySelector<HTMLButtonElement>('button[name="replayIntro"]');
+      expect(btn?.textContent).toBe('Replay intro');
+      expect(btn?.closest('.rl-settings__row')?.querySelector('label')?.textContent).toBe('Opening cinematic');
+      btn?.click();
+      expect(replay).toHaveBeenCalledTimes(1);
+      // Replaying never writes a setting: the seen flag is not the panel's to move.
+      expect(set).not.toHaveBeenCalled();
+      expect(overlayOff).not.toHaveBeenCalled();
+      dispose();
+      expect(overlayOff).toHaveBeenCalledTimes(1);
+    });
+    it('a second press takes the first overlay down before mounting the next', () => {
+      const offs = [vi.fn(), vi.fn()];
+      let n = 0;
+      const { d } = deps({ intro: { replay: () => offs[n++] } });
+      const { el } = settingsPanel(document.body, d);
+      const btn = el.querySelector<HTMLButtonElement>('button[name="replayIntro"]');
+      btn?.click();
+      btn?.click();
+      expect(offs[0]).toHaveBeenCalledTimes(1);
+      expect(offs[1]).not.toHaveBeenCalled();
+    });
+  });
   it('showSettings mounts on the stage with a back link and its disposer empties the stage', () => {
     const { d } = deps();
     const stage = document.createElement('div');

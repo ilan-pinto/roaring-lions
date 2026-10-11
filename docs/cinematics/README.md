@@ -86,7 +86,7 @@ units, overlays, fog, FX and HUD all hidden. See the storyboard.
 |---|---|---|
 | Town backdrops | `assets/video/<town>_briefing.mp4`, for `beit_sahwan`, `khan_rafid`, `deir_amun`, `tel_marum`, `qarn_hadid`, `umm_zeitoun` and `wadi_halam` | The deploy screen (`ui/loading.ts`), through `"briefing_video": "video/<town>_briefing.mp4"` on the town's first mission. The mission JSON line is added **in the same commit as the file**, because `validate:data` refuses a `briefing_video` with no file. |
 | Tel Marum replacements | `assets/video/tel_marum_2_briefing.mp4` and `assets/video/tel_marum_3_briefing.mp4`, overwritten in place | The same, with no mission JSON change |
-| Intro, in-game cut | `assets/video/intro.mp4`, 720p | **Nothing yet.** No screen plays an intro today. Shipping the file needs a surface (a first-launch intro before `/`, or a "watch intro" entry on the menu). That is a UI decision for the lead, not part of this PR. Until then, the cut is held out of `assets/`. |
+| Intro, in-game cut | `assets/video/intro.mp4`, 720p | **The menu, on a first launch** (`ui/intro.ts`, `ui/intro-overlay.ts`), and Settings' "Replay intro". Playback is built and waits for the file: nothing plays, requests or draws until `video/intro.mp4` is in `assets/video/` **and** listed in `data/video.json` (the gate holds the two together). See "Playback" below. |
 | Intro, trailer master | 1080p, from the Veo 3.1 Standard finals | Store pages and the trailer. It stays **outside the repo**, because at 10-20 MB it is not game data. |
 
 ### Format and encode
@@ -111,9 +111,34 @@ For the intro, join the three finals with 0.5 s crossfades
 (`-filter_complex xfade=transition=fade:duration=0.5`) before encoding.
 
 **Looping.** The backdrops are generated as pinned loops: the same frame at
-both ends. Today the deploy screen plays the video once (`loading.ts` sets no
-`loop`). Adding `video.loop = true` there is a one-line presentation change,
-and a decision for the lead. It is not made here.
+both ends. The lead's ruling of 2026-10-11 is that the deploy screen plays the
+video **once** and holds its last frame (`ui/briefing-video.ts`): no `loop`.
+
+### Playback
+
+The lead's rulings of 2026-10-11, as built:
+
+- **The intro plays on a first launch only**, full screen over the menu, and
+  skips at any moment: the Skip button, Escape, Space or Enter, or a click.
+  Once it has played or been skipped it never auto-plays again
+  (`lions.settings` -> `intro.seen`; a video that failed to load is neither,
+  and is tried again next launch). The overlay mounts on `document.body`; the
+  menu owns its disposer, so leaving the route mid-video takes it down.
+- **Settings has "Replay intro"**, a row that exists only when an intro ships.
+  It plays on request, whatever the motion or data preference says, and never
+  touches `intro.seen`.
+- **Each town's deploy screen plays that town's backdrop once**, then holds the
+  last frame. A missing or failed video leaves the screen as it is without one.
+- **Reduced motion and save-data never auto-play.** The intro is marked seen,
+  unplayed. A backdrop under reduced motion sits at its first frame with
+  controls; under save-data it is not fetched at all.
+- **Only `data/video.json` entries are played.** An unlisted path is never
+  requested, so while nothing has shipped there is no overlay, no 404 and no
+  console line.
+
+Every test browser starts with the intro already seen: `music-off.ts`'s one
+seed helper (`musicOffSettings`) sets `intro.seen`, so the golden gate,
+`ui:routes` and `ui:shots` open on the menu they came for.
 
 ### Size budget
 

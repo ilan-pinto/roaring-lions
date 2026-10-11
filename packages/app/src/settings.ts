@@ -49,6 +49,14 @@ export interface Settings {
     zoomToCursor: boolean;
   };
   accessibility: { motion: 'system' | 'reduce'; colorVision: ColorVision; captions: boolean };
+  /** First-launch state for the opening cinematic (`ui/cinematics-model.ts`).
+   *  `seen` flips once the intro has played to its end or been skipped, and
+   *  never flips back: "Replay intro" in Settings plays it on request without
+   *  touching the flag. A save from before this field parses as unseen, which
+   *  is right -- that player has not seen it -- and costs nothing while no
+   *  intro ships, since an absent file is never played. Added without a
+   *  `version` bump: parsing is field by field, so an old blob loses nothing. */
+  intro: { seen: boolean };
   language: string;
 }
 
@@ -72,6 +80,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze<Settings>({
   audio: { master: 1, music: 1, sfx: 1, voice: 1, radio: true },
   controls: { cameraSpeed: 1, bindings: {}, edgePan: false, zoomToCursor: true },
   accessibility: { motion: 'system', colorVision: 'default', captions: true },
+  intro: { seen: false },
   language: 'en',
 });
 
@@ -101,6 +110,7 @@ export function parseSettings(raw: string | null): Settings {
   const audio = isRecord(v.audio) ? v.audio : {};
   const controls = isRecord(v.controls) ? v.controls : {};
   const acc = isRecord(v.accessibility) ? v.accessibility : {};
+  const intro = isRecord(v.intro) ? v.intro : {};
   return {
     version: 1,
     video: {
@@ -127,6 +137,7 @@ export function parseSettings(raw: string | null): Settings {
       colorVision: oneOf(COLOR_VISIONS, acc.colorVision, 'default'),
       captions: bool(acc.captions, d.accessibility.captions),
     },
+    intro: { seen: bool(intro.seen, d.intro.seen) },
     language: typeof v.language === 'string' && LOCALES.some((l) => l.id === v.language) ? v.language : 'en',
   };
 }

@@ -50,6 +50,16 @@ describe('music-off settings seed', () => {
     expect(DEFAULT_SETTINGS.video.quality).not.toBe('low');
   });
 
+  it('marks the opening cinematic as seen, through the real parser, while the default is unseen', () => {
+    // The default really is unseen -- otherwise the assertion below proves nothing.
+    expect(DEFAULT_SETTINGS.intro.seen).toBe(false);
+    expect(parseSettings(musicOffJson()).intro.seen).toBe(true);
+    const written = runInitScript(musicOffInitScript());
+    expect(parseSettings(written.get('lions.settings') ?? null).intro.seen).toBe(true);
+    // A video override does not undo it.
+    expect(parseSettings(musicOffJson({}, { quality: 'low' })).intro.seen).toBe(true);
+  });
+
   it('the init script swallows a blocked store', () => {
     const blocked = { setItem: () => { throw new Error('SecurityError'); } };
     expect(() => new Function('localStorage', musicOffInitScript())(blocked)).not.toThrow();
@@ -118,10 +128,11 @@ describe('every browser a tool opens starts with music off', () => {
     // main.ts reads settings only for the video/quality/accessibility/language
     // hooks and the audio gains; music is read by audio.ts alone. So a frame
     // (the golden gate included) is identical when parse(seed) and parse(null)
-    // agree everywhere except audio.music.
+    // agree everywhere except audio.music, and `intro.seen`, which only the
+    // opening cinematic reads (it draws nothing while no intro ships).
     const seeded = parseSettings(musicOffJson());
     const bare = parseSettings(null);
-    expect({ ...seeded, audio: { ...seeded.audio, music: 1 } }).toEqual(bare);
+    expect({ ...seeded, audio: { ...seeded.audio, music: 1 }, intro: bare.intro }).toEqual(bare);
     expect(seeded.audio.music).not.toBe(bare.audio.music);
   });
 });

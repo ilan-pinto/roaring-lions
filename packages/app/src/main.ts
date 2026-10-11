@@ -65,6 +65,7 @@ import {
   type MissionLocaleOverlay,
   type UpgradableUnit,
   firstUseHints,
+  videoManifest,
 } from '@lions/data';
 import './ui/theme.css';
 import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type Tone } from './ui/hud';
@@ -179,7 +180,9 @@ import {
 import { ANIMATED_CURSORS, type CursorName } from './input/cursor';
 import { cursorAt, pointerPoint, simIntentWorld } from './input/pointer';
 import { cursorAnimDriver } from './input/cursor-anim';
-import { prefersReducedMotion } from './ui/motion';
+import { prefersReducedMotion, prefersSaveData } from './ui/motion';
+import { firstLaunchIntro, introAvailable, replayIntro } from './ui/intro';
+import { isShippedVideo } from './ui/cinematics-model';
 import { roleBucket } from './ui/role';
 import { rosterLanguages, voiceClassOf } from './voice/lines';
 import { VoiceRuntime, voicePlaceholderOn } from './voice/voice-runtime';
@@ -820,6 +823,16 @@ async function main(): Promise<void> {
     build: __APP_BUILD__,
   };
 
+  /** What the opening cinematic needs besides the settings (`ui/intro.ts`): the
+   *  manifest of shipped videos, the base URL, and the two preferences that
+   *  forbid auto-play. */
+  const introDeps = {
+    manifest: videoManifest,
+    base: BASE,
+    reducedMotion: prefersReducedMotion,
+    saveData: prefersSaveData,
+  };
+
   // --- locale, before any screen mounts -------------------------------------
   // `?lang=<id>` overrides the saved `settings.language` for THIS load only
   // -- it is never written back to storage, so a shared link cannot silently
@@ -883,7 +896,7 @@ async function main(): Promise<void> {
       id: 'beit_sahwan_0_tutorial',
       done: tutorialIsDone,
     });
-    return showMenu(host, {
+    const menu = showMenu(host, {
       base: BASE,
       version: __GAME_VERSION__,
       world: worldData,
@@ -950,6 +963,14 @@ async function main(): Promise<void> {
           },
         }),
     });
+    // First launch only: the intro plays full screen over the menu, and this
+    // screen owns its teardown (it mounts on document.body, which the router
+    // does not empty). Nothing happens while no intro ships (`intro.ts`).
+    const intro = firstLaunchIntro({ ...introDeps, settings: settingsDeps });
+    return () => {
+      intro();
+      menu();
+    };
   }
 
   /** The saves screen (Task 7): every slot under `lions.saves`, over the SAME
@@ -1241,7 +1262,14 @@ async function main(): Promise<void> {
       {
         name: 'settings',
         pattern: '/settings',
-        mount: (host) => showSettings(host, { ...settingsDeps, back: routes.menu() }),
+        mount: (host) =>
+          showSettings(host, {
+            ...settingsDeps,
+            back: routes.menu(),
+            // "Replay intro": a row only when an intro ships. The pause menu's
+            // mount of the panel passes none, so a mission is never covered.
+            intro: introAvailable(introDeps) ? { replay: () => replayIntro(introDeps) } : undefined,
+          }),
       },
       { name: 'saves', pattern: '/saves', mount: (host) => mountSaves(host) },
       {
@@ -2164,7 +2192,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     mission?.name ?? mission?.id ?? 'M0 sandbox',
     mission?.briefing,
     { rank: hudCommander.shai.rank, plate: hudCommander.shai.plate, portrait: hudCommander.shai.portrait },
-    mission?.briefing_video !== undefined ? `${BASE}${mission.briefing_video}` : undefined,
+    // Only a video `data/video.json` lists is ever requested.
+    mission?.briefing_video !== undefined && isShippedVideo(videoManifest, mission.briefing_video)
+      ? `${BASE}${mission.briefing_video}`
+      : undefined,
     resolvedMission ? (broughtFor(resolvedMission, ledger, unitName) ?? undefined) : undefined,
     // A sandbox has no briefing to go back to -- only a real mission gets an
     // Escape/back edge (task 6). A router navigation now, not a page load:

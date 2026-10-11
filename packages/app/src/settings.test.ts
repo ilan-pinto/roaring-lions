@@ -7,6 +7,31 @@ function memStore(): { getItem(k: string): string | null; setItem(k: string, v: 
   return { map, getItem: (k) => map.get(k) ?? null, setItem: (k, v) => void map.set(k, v), removeItem: (k) => void map.delete(k) };
 }
 
+describe('intro.seen (first-launch cinematic)', () => {
+  it('defaults to unseen and survives the real parser round trip', () => {
+    expect(DEFAULT_SETTINGS.intro).toEqual({ seen: false });
+    const store = memStore();
+    const seen = structuredClone(DEFAULT_SETTINGS);
+    seen.intro.seen = true;
+    saveSettings(store, seen);
+    expect(loadSettings(store).intro).toEqual({ seen: true });
+  });
+  it('a save from before the field parses as unseen and keeps every neighbour, with no version bump', () => {
+    const s = parseSettings(JSON.stringify({ version: 1, video: { quality: 'low' }, audio: { music: 0.2 } }));
+    expect(s.intro).toEqual({ seen: false });
+    expect(s.video.quality).toBe('low');
+    expect(s.audio.music).toBe(0.2);
+    expect(s.version).toBe(1);
+  });
+  it('a bad value falls back to unseen without touching its neighbours; unknown keys are dropped', () => {
+    const s = parseSettings(JSON.stringify({ version: 1, intro: { seen: 'yes', extra: 1 }, audio: { sfx: 0.4 } }));
+    expect(s.intro).toEqual({ seen: false });
+    expect(s.audio.sfx).toBe(0.4);
+    expect(parseSettings(JSON.stringify({ version: 1, intro: 'seen' })).intro).toEqual({ seen: false });
+    expect(parseSettings(JSON.stringify({ version: 1, intro: { seen: true } })).intro).toEqual({ seen: true });
+  });
+});
+
 describe('parseSettings', () => {
   it('returns the defaults for nothing, garbage, and the wrong shape', () => {
     expect(parseSettings(null)).toEqual(DEFAULT_SETTINGS);
