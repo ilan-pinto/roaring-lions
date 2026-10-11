@@ -130,3 +130,101 @@ describe('an attack-move WITH `sweep` still hunts (AI waves, scripted commits)',
     expect(dist(sim, me, 18.5, 24.5)).toBeGreaterThan(8);
   });
 });
+
+// --- a halt cancels every order that could walk the unit on ------------------
+// The lead's ruling is "a halted unit stays halted", and the attack-move latch
+// was only one of the per-unit order columns a later step reads with no command
+// in sight. Each one gets the same probe: give the order, halt while it is still
+// pending and the unit is under way, and see whether it moves again in 10 s.
+// (Measured 2026-10-11: `boardGoal` did -- stepTransport re-set `moving` to
+// chase the carrier, so it is cleared by the halt now. `demolishOrder` and
+// `chargeOrder` did not: stepDemolition and stepTunnelCharge only ever STOP a
+// unit in range, never start one, so they are left alone and these two tests
+// pin that. `garrisonGoal` was already cleared.)
+
+const SAPPER: UnitTypeJson = {
+  id: 'o_sapper',
+  role: 'engineer',
+  hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
+  mobility: { speed_tiles_s: 0.85 },
+  sensors: { optics: 1, sight_tiles: 8, signature: 0.6 },
+  abilities: ['demolish', 'garrison'],
+  weapons: [],
+};
+
+const CHARGER: UnitTypeJson = {
+  id: 'o_charger',
+  hull: { hp: 20000, armor: { front: 10, side: 10, rear: 10 } },
+  mobility: { speed_tiles_s: 0.9 },
+  sensors: { optics: 1, sight_tiles: 8, signature: 0.6 },
+  abilities: ['tunnel_charge', 'mark_tunnel'],
+  weapons: [],
+};
+
+const RIDER: UnitTypeJson = { ...RIFLES, id: 'o_rider' };
+
+const CARRIER: UnitTypeJson = {
+  id: 'o_carrier',
+  role: 'technical',
+  hull: { hp: 500, armor: { front: 12, side: 8, rear: 8 }, transport_slots: 2 },
+  mobility: { speed_tiles_s: 2.8, turn_rate_deg_s: 150 },
+  sensors: { optics: 1, sight_tiles: 9, signature: 0.8 },
+  weapons: [],
+};
+
+/** Order `me` with `order`, let it walk 2 s, halt it, and return how far it
+ *  is from where the halt stopped it 10 s later. */
+function haltedDrift(sim: Sim, me: number, order: Parameters<Sim['queueCommand']>[0]): { moved: number; underWay: number } {
+  const x0 = fx.toNumber(sim.state.posX[me]);
+  sim.queueCommand(order);
+  for (let k = 0; k < 2 * TICKS_PER_SECOND; k++) sim.tick();
+  sim.queueCommand({ kind: 'halt', ids: [me] });
+  sim.tick();
+  const hx = fx.toNumber(sim.state.posX[me]);
+  const hy = fx.toNumber(sim.state.posY[me]);
+  for (let k = 0; k < 10 * TICKS_PER_SECOND; k++) sim.tick();
+  return { moved: dist(sim, me, hx, hy), underWay: hx - x0 };
+}
+
+describe('a halt cancels every order that could walk the unit on', () => {
+  it('load: a halted rider does not go on chasing its carrier', () => {
+    const sim = new Sim({ seed: 7, width: 48, height: 24, capacity: 8 });
+    const me = sim.spawn(sim.addUnitType(RIDER), 0, fx.from(5.5), fx.from(10.5), 0);
+    const car = sim.spawn(sim.addUnitType(CARRIER), 0, fx.from(30.5), fx.from(10.5), 0);
+    const { moved, underWay } = haltedDrift(sim, me, { kind: 'load', ids: [me], carrier: car });
+    expect(underWay).toBeGreaterThan(1);
+    expect(moved).toBeLessThan(0.05);
+    expect(sim.state.carriedBy[me]).toBe(-1);
+  });
+
+  it('demolish: a halted sapper does not walk on to its building', () => {
+    const sim = new Sim({ seed: 7, width: 48, height: 24, capacity: 8 });
+    const me = sim.spawn(sim.addUnitType(SAPPER), 0, fx.from(5.5), fx.from(10.5), 0);
+    const st = sim.addStructure(sim.addStructureType({ id: 'o_shack', hp_per_tile: 100 }), [10 * 48 + 30]);
+    const { moved, underWay } = haltedDrift(sim, me, { kind: 'demolish', ids: [me], structure: st });
+    expect(underWay).toBeGreaterThan(1);
+    expect(moved).toBeLessThan(0.05);
+  });
+
+  it('garrison: a halted squad does not walk on to its doorway', () => {
+    const sim = new Sim({ seed: 7, width: 48, height: 24, capacity: 8 });
+    const me = sim.spawn(sim.addUnitType(SAPPER), 0, fx.from(5.5), fx.from(10.5), 0);
+    const st = sim.addStructure(
+      sim.addStructureType({ id: 'o_house', hp_per_tile: 100, garrison_slots: 2 }),
+      [10 * 48 + 30],
+    );
+    const { moved, underWay } = haltedDrift(sim, me, { kind: 'garrison', ids: [me], structure: st });
+    expect(underWay).toBeGreaterThan(1);
+    expect(moved).toBeLessThan(0.05);
+  });
+
+  it('chargeTunnel: a halted charge team does not walk on to its route', () => {
+    const sim = new Sim({ seed: 7, width: 48, height: 24, capacity: 8 });
+    const route = sim.addTunnel({ id: 'o_tn', points: [[30, 10], [40, 10]], dig_tiles_per_s: 1, pre_dug: true });
+    const me = sim.spawn(sim.addUnitType(CHARGER), 0, fx.from(5.5), fx.from(10.5), 0);
+    sim.identifyTunnelTo(0, route);
+    const { moved, underWay } = haltedDrift(sim, me, { kind: 'chargeTunnel', ids: [me], tunnel: route });
+    expect(underWay).toBeGreaterThan(1);
+    expect(moved).toBeLessThan(0.05);
+  });
+});

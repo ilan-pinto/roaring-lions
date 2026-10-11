@@ -2531,6 +2531,14 @@ export class Sim {
         for (const id of cmd.ids) {
           if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
           this.garrisonGoal[id] = -1;
+          // And a boarding order: stepTransport re-sets `moving` every tick
+          // to chase the carrier while `boardGoal` is latched, so a rider
+          // halted on its way to a vehicle walked on to it -- measured 15.9
+          // tiles in 10 s (orders-obeyed.test.ts). `demolishOrder` and
+          // `chargeOrder` are left alone on purpose: their steps only ever
+          // STOP a unit in range, never start one, so a halt already holds
+          // them (pinned beside the boarding test).
+          this.boardGoal[id] = -1;
           this.wpCount[id] = 0;
           this.moving[id] = 0;
           this.fieldRef[id] = -1;
