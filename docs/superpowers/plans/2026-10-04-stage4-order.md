@@ -20,7 +20,7 @@ block. Six PRs landed after the morning pre-flight (#513) and touch what these p
   `boardGoal`; `demolishOrder` and `chargeOrder` were measured not to restart a unit. **The
   "closing rule" every plan below cites no longer touches a player's unit.** What Hold position was
   for (6 Oct: "`halt` does not stop the closing rule") is now what `halt` and an arrived
-  attack-move already do. See decision 1.
+  attack-move already do. Hold's sim command is retired (ruling 1 below).
 - **#535 (app): N then click is a plain `move` ("L1 reopened", lead 11 Oct).** The "L1 is not open"
   bullet below is reversed. The N key, a Move chip in the order row and a `moveOnly` cursor are on
   `main`; X and V are still free.
@@ -35,7 +35,7 @@ block. Six PRs landed after the morning pre-flight (#513) and touch what these p
   means 30/30 seeds, so a G-F change that costs one plan one seed is red.
 - **#541 (app): a feed stall hint** after 60 s of no progress with a primary open; the interim for #540.
 - **#540 (issue, `stage:4`): a mission time limit** (`time_limit_s`; a stalled mission ends as
-  "withdrawn", a defeat). Slotted below (calendar, and decision 4).
+  "withdrawn", a defeat). Lands Wed 4 Nov (ruling 4 below).
 
 **The numbers to rebase on (replace the morning's).**
 - **Three sim pins, not two:** flat `1202444260` (was 922714084), relief `3354895120` (was 3200430224),
@@ -51,46 +51,38 @@ block. Six PRs landed after the morning pre-flight (#513) and touch what these p
 - **"`packages/sim` stays closed until 2 Nov"** is now false twice (#431, #537). Every Lane C plan
   rebases onto #537's `applyCommands`, `startRout` and `stepSweep`.
 
-**Corrections to this page:** the L1 bullet (reversed), the calendar (#540 row; Hold's row carries
-decision 1), "What must happen first" item 2 (pins), the re-pin list (three sim pins; #540), Lane A's
-targeted-fire row (armed Move and `unitAtScreen`). Each is marked "Pre-flight 2" where it stands.
+**Corrections to this page:** the L1 bullet (reversed), the calendar (Hold's row retired, #540 on
+Wed 4 Nov), "What must happen first" items 2 and 3 (pins; Hold), the re-pin list (three sim pins;
+Hold retired; #540), Lane A's Hold and targeted-fire rows. Each is marked "Pre-flight 2" where it
+stands, and the four decisions are ruled (below).
 
-### LEAD DECISION NEEDED (Pre-flight 2, 2026-10-11)
+### Rulings (lead, 2026-10-11), on the four Pre-flight 2 decisions
 
-1. **Hold position after #537.** The 6 Oct ruling answered "the player has no order that keeps a unit
-   in place". Since #537 there are two: `halt` (H) and a plain right-click, which now stops where sent.
-   A halted unit kneels, fires at anything in range and never advances, chases or closes, which is the
-   ruling's own definition of Hold. What a `hold` command would still add: a readable flag (an
-   "on hold" word on the chip and card, and a line later systems can check), and keeping a garrisoned
-   unit inside (`halt` calls `leaveStructure`).
-   - **(A)** Build Hold as planned: one hashed column (`holdPos`), a re-pin of all three sim pins, H
-     to Hold and `halt` to X, the tutorial and tool edits.
-   - **(B, recommended)** Retire the sim half. `halt` is the hold. No new command, no re-pin, no key
-     move, tutorial beats unchanged (they already work: PA-12's complaint was the closing rule).
-     Lane A keeps only what still earns its place: rename the order "Hold" in `en.json` if the lead
-     wants the word, and have `orders.halt` skip garrisoned ids so H never empties a building
-     (app-only). F2 and F4 use stop-where-sent and `halt` (decision 2; F2's and F4's own blocks).
-     Wed 4 Nov frees, and #540 takes it.
-   - **(C)** Keep the `holdPos` column for the readable state only, and leave `halt` on H with Hold on
-     a new key. A sim re-pin for a word on the card.
-2. **F4's rally order (D5).** It was ruled "a `move`, then Hold on arrival" because an attack-move was
-   walked off the point. It no longer is. **Recommended:** a plain attack-move without `sweep` for
-   both the player's rally and the enemy's bought units: they fight on the way and hold on arrival,
-   with no arrival hook. A trigger `commit` (which sweeps) still releases the enemy's. Detail in F4.
-3. **Targeted fire T-D8 and T-D3.** T-D8 (a held unit refuses an out-of-range `attack`) lapses under
-   decision 1 (B). T-D3 (a lost focus walks to its last-seen tile for 5 s) is a small hunt inside a
-   player order, after a ruling that player orders do not hunt. **Recommended:** keep T-D3 (the
-   player named the target), drop T-D8 with (B). Detail in targeted fire.
-4. **Where #540 lands.** **Recommended:** Lane C, immediately before F1: **Wed 4 Nov** if decision 1
-   is (B); otherwise Fri 6 Nov, with F1–F4 and vehicle spacing each shifting one working day and the
-   buffer shrinking to Fri 27 Nov. Before F1 because F1–F4 each re-prove every plan and should prove
-   them against the final end rule, and because it edits `MissionRuntime` (`checkEnd`), the file F1,
-   F3 and F4 also edit. It moves no sim pin (no golden replay builds a `MissionRuntime`, R), and no
-   ladder line as long as every limit clears its mission's slowest 30-seed win (Wadi Halam IV: 10.9
-   min against a 7-minute target, #542) and stays above every control's deadline (4–5 min, #539).
-   Recommended shape: "withdrawn" is a new defeat **reason**, not a third `result` value, so every
-   `'victory' | 'defeat'` reader (playtest, credits, ledger, telemetry) is untouched. The stall hint
-   (#541) stays as the warning before the limit.
+Each took the recommendation. The options as they were put are in PR #544's first commit (`fb25a54f`).
+
+1. **Ruling (lead, 2026-10-11): Hold's sim command is retired.** No `hold` command, no `holdPos`, no
+   sim re-pin, no H/X key swap; H stays `halt`. The only work left is app-side: H skips garrisoned
+   units, so it never empties a building. `2026-10-06-hold-position.md` is reduced to that one Lane A
+   task. Lane C loses its Wed 4 Nov Hold day; Lane A loses the key move, the button, the "on hold"
+   words, the voice keys, the telemetry verb and the tutorial edits.
+2. **Ruling (lead, 2026-10-11): F4's rally is a plain attack-move without `sweep`**, for the player's
+   rally and for the enemy's bought units: they fight on the way, hold on arrival, and need no arrival
+   hook. A trigger `commit` (which sweeps) still sends the enemy's on.
+3. **Ruling (lead, 2026-10-11): targeted fire drops T-D8 and keeps T-D3** (a lost focus walks to its
+   last-seen tile for up to 5 s, then ends).
+4. **Ruling (lead, 2026-10-11): #540 lands right before F1, on Wed 4 Nov**, in the day Hold's sim half
+   left. It moves no sim pin; "withdrawn" is a defeat reason, not a new `result` value; each mission's
+   limit clears its slowest 30-seed win (Wadi Halam IV: 10.9 min against a 7-minute target, #542) and
+   every control's deadline (4–5 min, #539). The stall hint (#541) stays as the warning before it.
+
+**What the rulings do to the calendar.** #540 takes exactly the day Hold vacated, so **no Lane C date
+moves**: sim fixes Mon 2 – Tue 3, #540 Wed 4, targeted fire Thu 5, F1 Fri 6 – Tue 10, F3 Wed 11 – Thu 12,
+F2 Fri 13 – Tue 17, F4 Wed 18 – Mon 23, vehicle spacing Tue 24 – Wed 25, buffer Thu 26 – Fri 27 Nov.
+The buffer is **not** restored to the whole week of 23 Nov: it shrank for targeted fire and vehicle
+spacing (ruled this morning), not for Hold. What the rulings do free: one sim re-pin (Hold's), Hold's
+Lane A work, and targeted fire's dependency on Hold (it is cut after #291 and #540 now). If the lead
+wants buffer back, the one lever left is vehicle spacing, which is already the first item to slip to
+Stage 5.
 
 ## Pre-flight, 11 Oct (against `main` `f2d5d9e8`)
 
@@ -130,7 +122,7 @@ section with its corrections and its questions. This section covers what the ord
 3. **#454 colours:** credits `--commend`; this mission's logistics and intel `--info`; `--on` (lime)
    only for an armed button or a live speed state, never a countdown or a stamp.
 4. **New player intents** need `data/schemas/telemetry_event.schema.json`'s `orderVerb` enum,
-   `packages/data/src/telemetry.ts` and the Worker's `/stats` rows extended together (Hold's `hold`,
+   `packages/data/src/telemetry.ts` and the Worker's `/stats` rows extended together (~~Hold's `hold`~~ retired by ruling (lead, 2026-10-11),
    targeted fire's `attack`, F1's support kinds, F4's `rally`).
 5. **The memory gate** (`memory` CI job, #474) walks `qarn_hadid_3_clearance`,
    `umm_zeitoun_4_clearance` and `khan_rafid_3_clearance`. Only F2 touches one of them (UZ IV, no
@@ -150,7 +142,9 @@ section with its corrections and its questions. This section covers what the ord
    orders 2737216487, `LADDER_CREDITS` 5917 and `ROSTER_MAX` 30 (were 922714084 / 3200430224, 5870, 31). If any differs, find the commit
    that moved it before cutting.
 3. The lead's answers to "For the lead (11 Oct)" items 1–3 below are on #183. Items 1 and 2 decide
-   the calendar; item 3 decides Hold's Lane A half, which trails Hold from Thu 5 Nov.
+   the calendar; item 3 decides Hold's Lane A half, which trails Hold from Thu 5 Nov. *(Ruling (lead,
+   2026-10-11): Hold's sim half is retired; its Lane A half is one app task, and item 3's tutorial
+   rewrite is not needed: H stays `halt`, and the beats already work.)*
 4. The four October G-NUM halts (F1 Task 2, F2 Task 2, F3 Task 7 Step 1, F4 Task 1) are posted on
    #183, read on the new maps under halt to fire.
 
@@ -232,7 +226,9 @@ section; this one covers the schedule.
    - The rally point and the enemy's bought units issue Hold on arrival, and F2's held zones are
      kept by Hold.
 
-   Plan: `2026-10-06-hold-position.md`, scheduled Wed 4 Nov below.
+   Plan: `2026-10-06-hold-position.md`, scheduled Wed 4 Nov below. *(Ruling (lead, 2026-10-11):
+   after #537 the sim command is retired; H stays `halt` and skips garrisoned units. F4's rally and
+   the enemy's bought units use a no-sweep attack-move; F2's zones are kept by stopping where sent.)*
 
 **Rules that make the order matter:**
 - Lane C is one lane: one plan in flight in `packages/sim` at a time, landed through a PR with `gates`
@@ -246,7 +242,8 @@ section; this one covers the schedule.
   officers.** #330 goes between #291 and F1, as the G3 sheet requires ("first or last in the Stage 4
   order, never folded into a G-F plan").
 - Hold position (lead, 6 Oct) goes between #291 and F1, on the day #330 freed. F2 and F4 consume
-  it, and F1's high-ground test uses it.
+  it, and F1's high-ground test uses it. *(Ruling (lead, 2026-10-11): retired from Lane C; #540 takes
+  the day. No G-F plan consumes a Hold command.)*
 
 ## The calendar
 
@@ -255,14 +252,14 @@ section; this one covers the schedule.
 | **before 2 Nov** (October, no sim code) | the four G-NUM halts: F1 Task 2, F2 Task 2, F3 L-1 (Task 7 Step 1's request), F4 Task 1 | read-only probes on scratch copies, posted on #183 for the lead | none |
 | **Mon 2 – Tue 3 Nov** | Stage 4 sim fixes (`2026-09-29-stage4-sim-fixes.md`, #296) | Task 1 (Tel Marum I shepherd), Tasks 2–3 (#279 sim half), **Task 4 (#291)** | **sim pins, once** (#291's three hashed columns) |
 | Tue 3 Nov | FW Task 1 (#280, `2026-09-29-field-works.md`), and #247 (`manpad_team` wheeled) | garrison suppression cover (opt-in field); the `mobility.wheeled: false` data line in `data/units/enemy/manpad_team.json` (the issue names `data/units/manpad_team.json`) and its pin test, beside `tools/src/boulders.test.ts`'s `rocket_battery` pin. The same file has carried #402's `halts_to_fire: true` override since 6 Oct (For the lead, item 2) | none expected for the sim pins (no golden unit is a manpad), but **measure, do not assume**: `wheeled` also sets the move domain and `manpad_team` is fielded in 8 missions on maps with `b` tiles, so `playtest`, `balance` and `LADDER_CREDITS` can move (11 Oct pre-flight). #247 moves pathing: if it moves the sim pins it is a **separate** re-pin with its own commit, after #291's, never folded in |
-| **Wed 4 Nov** | **Hold position** (`2026-10-06-hold-position.md`, lead ruling 6 Oct). **Pre-flight 2 (2026-10-11): LEAD DECISION NEEDED, item 1.** Under (B) the sim half is retired and this day goes to #540 | the `hold` command and its `holdPos` column; nothing reads it yet but the closing rule's skip | **sim pins, once** (one hashed per-unit column; all three pins since #537), after #291's (and #247's, if any) |
-| **Wed 4 Nov if Hold's sim half is retired, else Fri 6 Nov** (Pre-flight 2, 2026-10-11, decision 4) | **#540, the mission time limit** (no plan yet; the issue is the scope) | `time_limit_s` in `mission.schema.json`, `checkEnd` ends a stalled mission as a "withdrawn" defeat, the debrief line, a `validate:data` rule, a measured per-mission value | **no sim pin** (R: no golden replay builds a `MissionRuntime`); `playtest` gains lines, and every plan must still win on 30/30 seeds inside its limit; `LADDER_CREDITS` only if an outcome moves (it must not) |
+| ~~Wed 4 Nov~~ **retired** | ~~**Hold position**~~ (`2026-10-06-hold-position.md`). **Ruling (lead, 2026-10-11): Hold's sim command is retired**; the plan is one Lane A task (Lane A table) | ~~the `hold` command and its `holdPos` column~~ | **none** |
+| **Wed 4 Nov** (ruling (lead, 2026-10-11)) | **#540, the mission time limit** (no plan yet; the issue is the scope) | `time_limit_s` in `mission.schema.json`, `checkEnd` ends a stalled mission as a "withdrawn" defeat, the debrief line, a `validate:data` rule, a measured per-mission value | **no sim pin** (R: no golden replay builds a `MissionRuntime`); `playtest` gains lines, and every plan must still win on 30/30 seeds inside its limit; `LADDER_CREDITS` only if an outcome moves (it must not) |
 | ~~Wed 4 Nov~~ **landed in October** | #330 (a fresh campaign pays again) | moved out of Lane C by the lead on 5 Oct: it edits `packages/app` and the harness, never `packages/sim` or `credits.ts` (`2026-10-04-credits-reachability.md`); shipped as `packages/app/src/campaign-pay.ts` | **none**: #330 moved no pin. `LADDER_CREDITS` read 5736 when it landed and is **5830** on 6 Oct, moved by GH-382 and #402 (**5870** on 11 Oct, moved by #431 and #444). The harness's two-campaign walk is relative to it |
-| **Thu 5 Nov** (ruled 11 Oct) | **Targeted fire** (`2026-10-11-targeted-fire.md`, GH-420) | the `attack` command and its `focusTarget` column (Task 1), then the behaviour (Task 2, hash-neutral) | **sim pins, once** (one hashed per-unit column), after Hold's |
-| **Fri 6 – Tue 10 Nov** (was Thu 5 – Mon 9) | **F1** fire support and intel by doing (`2026-10-04-gf1-fire-support-intel.md`) | the economy pins born; the trickle deleted; high ground; barrage and smoke screen; the four-item menu; the intel gates | economy pins born, then **re-pinned once**; `LADDER_CREDITS` (5870) only if Task 9's spending plan moves |
+| **Thu 5 Nov** (ruled 11 Oct) | **Targeted fire** (`2026-10-11-targeted-fire.md`, GH-420) | the `attack` command and its `focusTarget` column (Task 1), then the behaviour (Task 2, hash-neutral) | **sim pins, once** (one hashed per-unit column), after Hold's *(Pre-flight 2: after #291's and #247's; Hold re-pins nothing now)* |
+| **Fri 6 – Tue 10 Nov** (was Thu 5 – Mon 9) | **F1** fire support and intel by doing (`2026-10-04-gf1-fire-support-intel.md`) | the economy pins born; the trickle deleted; high ground; barrage and smoke screen; the four-item menu; the intel gates | economy pins born, then **re-pinned once**; `LADDER_CREDITS` (5870; **5917**, Pre-flight 2) only if Task 9's spending plan moves |
 | **Wed 11 – Thu 12 Nov** (was Tue 10 – Wed 11) | **F3** population cap and "on loan" (`2026-10-04-gf3-population-cap-on-loan.md`) | the cap (off in the campaign); the loan predicate; the "on loan" mark (on the in-mission unit card and selection chip since the 6 Oct ruling, not the deploy screen); L-1 if confirmed | economy pins once; roster lines and possibly `LADDER_CREDITS` through L-1 |
-| **Fri 13 – Tue 17 Nov** (was Thu 12 – Mon 16) | **F2** held-ground income and corridors (`2026-10-04-gf2-held-ground-income.md`) | the integer purse; zones; corridors; four missions authored (BS II left D7, ruled 6 Oct); holders kept by Hold; banking gates | economy pins once; the four D7 missions' playtest lines; `LADDER_CREDITS` only through a moved grade |
-| **Wed 18 – Mon 23 Nov** (was Tue 17 – Fri 20) | **F4** production at the camp (`2026-10-04-gf4-camp-production.md`) | serial lines; the contested pause; rally points that issue Hold on arrival; the enemy's spender; plan re-proofs | economy pins once; the three building plans' lines; `LADDER_CREDITS` only through a moved grade |
+| **Fri 13 – Tue 17 Nov** (was Thu 12 – Mon 16) | **F2** held-ground income and corridors (`2026-10-04-gf2-held-ground-income.md`) | the integer purse; zones; corridors; four missions authored (BS II left D7, ruled 6 Oct); holders kept by Hold (*ruling 2026-10-11: by stopping where sent; no Hold command*); banking gates | economy pins once; the four D7 missions' playtest lines; `LADDER_CREDITS` only through a moved grade |
+| **Wed 18 – Mon 23 Nov** (was Tue 17 – Fri 20) | **F4** production at the camp (`2026-10-04-gf4-camp-production.md`) | serial lines; the contested pause; rally points that ~~issue Hold on arrival~~ send a no-sweep attack-move (ruling (lead, 2026-10-11)); the enemy's spender; plan re-proofs | economy pins once; the three (five since #542) building plans' lines; `LADDER_CREDITS` only through a moved grade |
 | **Tue 24 – Wed 25 Nov** (ruled 11 Oct) | **Vehicle spacing** (`2026-10-11-vehicle-spacing.md`, GH-421) | `mobility.radius_tiles` on every ground vehicle (Task 1, hash-neutral); `stepSeparation` (Task 2) | **sim pins, once** (behaviour: vehicles no longer overlap); balance and playtest **re-measured**; `LADDER_CREDITS` only if it moves; golden `vehicle`/`kitted` expected to move (bless after merge). Slips to Stage 5 first if F2/F4 overrun |
 | **Thu 26 – Fri 27 Nov** | **buffer** (was the whole week of 23 Nov) | overflow from F2/F4 only; WP-S-F's last landings and their bless; R2 at M2 on Fri 27 Nov | — |
 
@@ -272,7 +269,8 @@ side 1's purse, and F2 is what fills it from held ground; the G3 sheet also asks
 together, so they are adjacent and F4 is the plan the buffer protects. **Why targeted fire sits
 right after Hold (11 Oct).** Both are column-only re-pins in the same command loop (H-D2's release
 list gains `attack`), and their Lane A halves share the order row, the H/X keys and the tutorial
-beats. **Why vehicle spacing sits after F4 (11 Oct, recommended).** It is the one behaviour re-pin
+beats. *(Ruling (lead, 2026-10-11): Hold's sim half is retired; targeted fire now follows #540 and is the
+first column re-pin after #291's. Its slot did not move.)* **Why vehicle spacing sits after F4 (11 Oct, recommended).** It is the one behaviour re-pin
 outside the G-F plans, and M2's exit does not need it; placed last, it is what slips if the economy
 overruns.
 
@@ -282,7 +280,7 @@ S-F trails Lane C by one landing and never edits `packages/sim`:
 
 | after | S-F lands |
 |---|---|
-| Hold position (from Thu 5 Nov) | Hold on H, `halt` moved to X (ruled 6 Oct; the keymap and settings-rebind tests re-pin), the HUD button, the "holding" mark on the unit card and selection chip (`2026-10-06-hold-position.md`, Task 3) |
+| Hold position (from Thu 5 Nov; needs nothing from Lane C, may land earlier) | **Ruling (lead, 2026-10-11):** ~~Hold on H, `halt` moved to X, the HUD button, the "holding" mark~~. Only: H (and the Halt button) skips garrisoned units, so it never empties a building (`2026-10-06-hold-position.md`, reduced to that one task) |
 | Targeted fire (from Fri 6 Nov) | right-click on an identified enemy issues `attack`, the enemy named by `Renderer.unitAtScreen` (#534), and with Move armed (N, #535) the click stays a plain `move` (Pre-flight 2, 2026-10-11); the `attack-*` cursor name returns; `hud.fire.clickTargets`; "Ordered: …" on the unit card; `attack` in the telemetry `orderVerb` enum; tutorial beat 6 (`2026-10-11-targeted-fire.md`, Tasks 3–4) |
 | F1 (from Wed 11 Nov) | the four-item fire-support menu, charge timer and announcement (GH-113), the intel counter (GH-77) and the earn feed line, at `minor`/`info` with a place (#428); the countdown in `--info`, never `--on`; armed support through `pointerPoint` (F-Q10 ruled yes, 11 Oct); the telemetry enum and `onStrike` profile mapping; the four stale chrome strings F1's pre-flight lists |
 | F3 (from Fri 13 Nov) | used/cap (hidden in the campaign) in `--info`; the dock's `capped` tile state and the deny cue on every refused build (F3 Q8); "on loan" on the unit card and selection chip **after its mock is approved** (F3 Q5), and on the deploy screen's "from brigade" card if the lead rules F3 Q4 yes |
@@ -297,13 +295,14 @@ One visual bless per landing, one in flight at a time, from CI numbers.
    `ROSTER_MAX`. Everything below rebases onto it.
 1. #291: sim pins.
 2. (#247, only if it moves them: sim pins again, its own reason.)
-2a. Hold position (Wed 4 Nov): sim pins, for its one hashed column. It is not a G-F plan, so the
-    rule below does not apply to it.
+2a. ~~Hold position (Wed 4 Nov): sim pins, for its one hashed column.~~ **Ruling (lead, 2026-10-11):
+    retired; no re-pin.**
+2a'. **#540, the mission time limit (Wed 4 Nov; ruling (lead, 2026-10-11)):** no sim pin; playtest
+    lines added, none moved.
 2b. Targeted fire (Thu 5 Nov, added 11 Oct): sim pins, for its one hashed column (`focusTarget`).
     Balance and playtest byte-identical (R).
-2c. **Pre-flight 2 (2026-10-11):** #540, the mission time limit, before F1 (decision 4): no sim pin;
-    playtest lines added, none moved. From #537 on, "sim pins" means **three** (flat, relief, orders),
-    and every column-only re-pin above moves all three in one commit.
+    *(Pre-flight 2, 2026-10-11: from #537 on, "sim pins" means **three** (flat, relief, orders), and
+    every column-only re-pin in this list moves all three in one commit.)*
 3. ~~#330: `LADDER_CREDITS`.~~ Landed in October and moved no pin. From here on, each `LADDER_CREDITS`
    re-pin also moves `CAMPAIGN_CREDITS` (`packages/app/src/ui/stores-model.ts`), which
    `tools/src/campaign_credits.test.ts` holds equal to it. GH-382 and #402 did exactly that (both
@@ -328,4 +327,4 @@ passive control still loses, every plan still wins (on all 30 seeds since #539/#
 2026-10-11), the §5.7 targets pass, and the ladder is
 re-pinned with one reason per commit. Added 11 Oct: Hold, targeted fire (PA-08) and, unless it
 slipped to Stage 5, vehicle spacing (PA-10) are on `main`. Added by Pre-flight 2 (2026-10-11): #540, the mission time limit, is
-on `main`, and Hold's half is whatever decision 1 rules.
+on `main`; "Hold" means H halts without emptying a building (ruling (lead, 2026-10-11)).

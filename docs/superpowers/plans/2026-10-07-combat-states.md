@@ -10,7 +10,7 @@ what this plan built. Two facts for whoever touches the chip or card next:
 - The idle fall-through the chip and card print, "holding" (`selection.chip.holding`) and "holding
   position" (`hud.card.holdingPosition`), is now literally true of every arrived player unit: since
   #537 a plain attack-move stops where sent and a halted unit stays. Hold position's question 4 (rename
-  them "standing" to free the word) only matters if Hold keeps a sim command (order plan, decision 1).
+  them "standing" to free the word) is moot: ruling (lead, 2026-10-11), Hold's sim command is retired.
 - #535 added a Move chip and a `moveOnly` cursor; the chip precedence D5 set (broken › pinned › out of
   action › gun out › immobilised › suppressed › shaken › …) is unchanged, and a unit under a plain
   `move` still reads "moving".

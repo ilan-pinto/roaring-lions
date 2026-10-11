@@ -44,7 +44,7 @@ Read and grepped, not run. Two of F1's #402-era premises were changed by #537 (l
   trigger `commit`s and `targets.ts`. A player's right-click and every playtest plan stop where sent.
   Task 5's two pins are rewritten in place: a plain attack-mover stays on the rise and is paid; a
   `sweep: true` attack-mover (the AI's kind) walks off and is not. The held-unit case follows the
-  order plan's decision 1: with Hold kept, as written; with (B), use `halt`.
+  ruling (lead, 2026-10-11) retiring Hold's sim command: use `halt`.
 - **"A drone sweep sets the player's idle attack-movers walking" (Task 8, ruled "accept and pin" on
   6 Oct) is no longer true.** `reveal`/`identifyTo` still identify, but an arrived player attack-mover
   has `sweepOrder` 0 and `stepSweep` skips it. The 6 Oct ruling accepted a side effect the 11 Oct
@@ -67,7 +67,7 @@ Read and grepped, not run. Two of F1's #402-era premises were changed by #537 (l
 | Task 5 | The two closing-rule pins and the 11 Oct note ("L1 is decided: no move-only order") | fixed in place; L1 reopened (#535) |
 | Task 8 | "a drone sweep sets idle attack-movers walking" → "a drone sweep moves no player unit", control "a `sweep: true` attack-mover walks toward what it reveals" | fixed in place |
 | Task 9, Step 2 | "A drone sweep here also sets the plan's idle attack-movers walking" is false since #537 | fixed in place |
-| Order of landing | #540 (the mission time limit) is recommended to land just before F1 (order plan, decision 4). Task 9's spending plan must then win inside its mission's limit too | noted |
+| Order of landing | #540 (the mission time limit) lands Wed 4 Nov, just before F1 (ruling (lead, 2026-10-11)). Task 9's spending plan must then win inside its mission's limit too | noted |
 
 ---
 
@@ -190,8 +190,9 @@ currency**, and it buys a menu of four, not two.
 - Read against `main` `067fab9a`; refreshed against `main` `b44df7aa` (6 Oct, see "Changed since
   4 Oct") and checked against `f2d5d9e8` (11 Oct, see "Pre-flight"). Locate code by symbol; line
   numbers drift.
-- Branch `feat/gf1-intel`, cut from `main` **after #291, #330 and Hold position
-  (`2026-10-06-hold-position.md`, Wed 4 Nov) have landed** (see `2026-10-04-stage4-order.md`). At `b44df7aa`, #330 has landed (October,
+- Branch `feat/gf1-intel`, cut from `main` **after #291, #330 and ~~Hold position
+  (`2026-10-06-hold-position.md`, Wed 4 Nov)~~ #540 (Wed 4 Nov; ruling (lead, 2026-10-11)) and
+  targeted fire (Thu 5 Nov) have landed** (see `2026-10-04-stage4-order.md`). At `b44df7aa`, #330 has landed (October,
   `packages/app/src/campaign-pay.ts`, no pin moved) and #291 has not. Worktree under
   `/Users/ilpinto/dev/roaring-lions-ep/`, `pnpm install` once.
 - **Nothing in this plan is measured yet.** Every number marked (M) is quoted from the G3 sheet's
@@ -582,8 +583,9 @@ export function highGroundRises(elevation: Uint8Array, blocked: Uint8Array,
     - *(Pre-flight 2, 2026-10-11, #537: a player's attack-move now stops where sent, so the first pin
       is false. Replace it with **"a plain attack-mover that identifies an enemy out of reach stays
       on the rise and is paid"** and **"an attack-mover ordered with `sweep: true` walks off and is
-      not paid"** (the AI's kind). The held case uses `hold` if Hold keeps its sim command, else
-      `halt` (order plan, decision 1). Seen red: set `sweep: true` on the plain case's order.)*
+      not paid"** (the AI's kind). The held case uses `halt`: **ruling (lead, 2026-10-11)**, Hold's
+      sim command is retired, so "a held unit" reads "a halted unit". Seen red: set `sweep: true` on
+      the plain case's order.)*
   - *(11 Oct: a plain `move` also leaves `attackMove` clear, so a unit that moved onto the rise
     and was never attack-moved stays too. L1 is decided: no move-only order for the player (lead,
     early Oct). Hold is still the order the rise test should use, because it is the one the
@@ -745,7 +747,8 @@ supportCost(kind: SupportKind): number;
     is never swept. Pin **"a drone sweep moves no player unit"** (a plain arrived attack-mover and a
     halted unit, positions unchanged 10 s after the reveal), with its control **"an attack-mover
     ordered with `sweep: true` walks toward what the sweep reveals"**. Seen red: drop the
-    `sweepOrder` check in `stepSweep` on a scratch copy.)*
+    `sweepOrder` check in `stepSweep` on a scratch copy. "A held unit" in the 6 Oct control reads "a
+    halted unit": ruling (lead, 2026-10-11), no Hold command.)*
 - [ ] **Step 2: Implement.** `requestSupport`/`supportCost` are added; `requestSweep`,
   `requestStrike`, `sweepCost` and `strikeCost` stay as wrappers over them. The app is not edited:
   its `SupportKind` (`ui/production.ts`, `'sweep' | 'strike'`) is a different type from the sim's,

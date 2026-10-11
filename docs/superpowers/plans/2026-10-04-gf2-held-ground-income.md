@@ -25,7 +25,7 @@ Refreshed against `main` `b44df7aa` (6 Oct). Corrections only; every ruling and 
 ### For the lead
 - **G3 Q2 and D3 under #402.** A player's attack-moved holders leave a zone to chase (`stepSweep`), and `halt` does not stop that. Should "held" still mean bodies present (D3), or does holding need an order that keeps them (a hold or plain-move button, S-F's lane)?
   **Ruled 6 Oct (lead): add a "Hold position" order** (`2026-10-06-hold-position.md`, Wed 4 Nov, before F2). Held zones are kept by Hold: a held unit stays put, kneels, fires at anything in range, and never advances, chases or closes. D3 keeps its presence test.
-  *(Pre-flight 2, 2026-10-11: the question's premise went with #537; a player's attack-moved holders no longer leave. D3 stands; whether Hold keeps a sim command is the order plan's decision 1.)*
+  *(Pre-flight 2, 2026-10-11: the question's premise went with #537; a player's attack-moved holders no longer leave. D3 stands. Ruling (lead, 2026-10-11): Hold's sim command is retired; zones are kept by stopping where sent.)*
 - **D4 b.** "Contested, not cut" uses the hold radius (6 tiles), while enemy rifles now halt and fire from 7–8. Should a corridor's contest radius be 6, or weapon reach?
   **Ruled 6 Oct:** keep 6. Contest is occupation, not fire.
 - **D7 on the new ground.** BS II has only two zones: `west_approach` (the start, the camp and the `hold_for` target) and a 3x3 `tunnel_mouth_west`. Should Task 8 add zones to the map (outside its file list), pay a start zone (then `ZONE_PASSIVE_INCOME` > 0 by construction), or should BS II leave D7?
@@ -47,7 +47,7 @@ on from it.
 | where | correction | |
 |---|---|---|
 | Changed since 4 Oct ("The closing rule moves holders"), G3 Q2/D3, D3 refresh note, Task 7 fixture trap, Task 8 Step 3 ("expect holders to leave"), Task 9 Step 2 (BS II "exposed to `stepSweep`") | False for a player's unit since #537; still true for an enemy unit sent by `commit` or a wave | fixed in place (dated notes) |
-| D3 "kept by Hold" (ruled 6 Oct) | A player's holders now keep the zone with a plain attack-move. Whether a `hold` command still exists is the order plan's decision 1; F2 needs nothing from it either way. A fixture holder is ordered there with a plain attack-move (or `halt`), and the fixture adds one `sweep: true` holder as the control that does leave | fixed in place |
+| D3 "kept by Hold" (ruled 6 Oct) | A player's holders now keep the zone with a plain attack-move. **Ruling (lead, 2026-10-11): there is no `hold` command**; F2 needs none. A fixture holder is ordered there with a plain attack-move (or `halt`), and the fixture adds one `sweep: true` holder as the control that does leave | fixed in place |
 | Global, Re-pins | Sim pins are **three**: flat `1202444260`, relief `3354895120`, orders `2737216487`. All stay unmoved (R) | fixed in place |
 | Global, Re-pins | `LADDER_CREDITS` = `CAMPAIGN_CREDITS` = **5917** (`playtest.ts` ~L3096); `ROSTER_MAX` **30** | fixed in place |
 | Task 8, Task 9 | Playtest holds every plan and control on 30 seeds (#539, #542), ~57 s locally. "Every plan still wins" means 30/30. `BANKING_OVER_30_WINNERS` and `ZONE_PASSIVE_INCOME` read the 424242 ledger, as `LADDER_CREDITS` does; say so in their comments | noted |
@@ -567,8 +567,8 @@ get incomePerMin(): { base: number; zones: number; halvedBy: CutCause | null }; 
   `hold` (Hold position, ruled 6 Oct, `2026-10-06-hold-position.md`, on `main` before F2). An
   attack-moved unit is walked out by `stepSweep`, and `halt` does not clear `attackMove`.
   *(Pre-flight 2, 2026-10-11: since #537 a plain attack-move stays in the zone and `halt` clears
-  `attackMove`. Order holders with a plain attack-move; `hold` only if Hold keeps its sim command
-  (order plan, decision 1). Add one holder ordered with `sweep: true` as the control that leaves.)*
+  `attackMove`. Order holders with a plain attack-move (or `halt`); there is no `hold` (ruling (lead,
+  2026-10-11)). Add one holder ordered with `sweep: true` as the control that leaves.)*
 - [ ] **Step 3: Re-pin the economy pins, once.** The F1 fixtures gain two zones and a
   `supply_corridor` with an entry, and the hash gains zone holders, cut causes and the side-1 purse.
   Commit message: *"economy pins re-pinned: held-ground income and corridors (G3 Q2, lead 4 Oct); the

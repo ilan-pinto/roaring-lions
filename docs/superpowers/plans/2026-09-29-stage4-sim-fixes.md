@@ -75,6 +75,9 @@ first Stage 4 re-pin. Read and grepped, not run.
 - **`LADDER_CREDITS` = `CAMPAIGN_CREDITS` = 5917**, `ROSTER_MAX` 30 (#529, #537, #542). "The ladder
   must stay 5870" (Tasks 1–2) reads **5917**; Task 1's Tel Marum I and Task 2's re-measure run the
   30-seed harness (#539, #542; ~57 s locally), and every plan must still win 30/30.
+- **Ruling (lead, 2026-10-11): Hold's sim command is retired.** Nothing rebases onto Task 4's
+  `startRout` for Hold; the next Lane C landing after this plan is #540 (Wed 4 Nov, no sim pin), then
+  targeted fire (Thu 5 Nov), which re-pins on top of Task 4.
 
 ---
 
@@ -745,7 +748,7 @@ final, by the lead's choice on 6 Oct, so it brings no further re-pin.
 | 0 | this plan, Tasks 1–3 (#279) | none | hash-neutral (measured) | `civilians.ts`, `mission.ts` |
 | 0 | FW Task 1 (#280 field) | none | hash-neutral: config, not state | `applySuppression`'s cover branch |
 | **1** | **this plan, Task 4 (#291)** | Task 4 | 3 per-unit columns | `applySuppression`'s signature and head, `startRout`, `hash()` |
-| **1b** | **Hold position** (lead, 6 Oct; `2026-10-06-hold-position.md`) | its Task 1, Wed 4 Nov | 1 per-unit column, `holdPos` | the command loop, `startRout` (a rout clears it), `stepSweep`, `hash()` |
+| ~~**1b**~~ | ~~**Hold position**~~ **retired, ruling (lead, 2026-10-11)**; #540 takes Wed 4 Nov and re-pins nothing | ~~its Task 1, Wed 4 Nov~~ | ~~1 per-unit column, `holdPos`~~ | the command loop, `startRout` (a rout clears it), `stepSweep`, `hash()` |
 | **2** | **FW Task 2** | FW Task 2 | 14 FW arrays (per structure, the site table, per unit) | `hash()`, per-structure SoA |
 | **3** | **E6 (#274), placed charge** | E6's sim commit | its per-structure columns | per-structure SoA, `splashDirect` blast |
 

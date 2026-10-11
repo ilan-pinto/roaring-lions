@@ -74,9 +74,8 @@ Read and grepped, not run.
   never a mission edit folded into the re-pin. A full run is ~57 s locally.
 - `LADDER_CREDITS` = `CAMPAIGN_CREDITS` = **5917**, `ROSTER_MAX` **30**. `stepMovement` ~L5336 and
   `tick()` ~L1864 at `49715ff9`.
-- **If Hold keeps a sim column** (order plan, decision 1 (A) or (C)): a held vehicle is pushed like any
-  other (V-D4 exempts only `mobilityKilled`). No change proposed; noted so nobody adds a Hold exemption
-  without a ruling.
+- **Ruling (lead, 2026-10-11): Hold has no sim column**, so there is no held state to exempt: a halted
+  vehicle is pushed like any other (V-D4 exempts only `mobilityKilled`).
 
 No lead decision is new here. V-D7's "a closing vehicle" now means a sweeping one (AI), noted in place.
 
