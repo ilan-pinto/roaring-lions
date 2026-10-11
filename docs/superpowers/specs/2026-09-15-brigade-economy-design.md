@@ -33,7 +33,7 @@ a **brigade account** that outlives a campaign.
 | D3 | An upgrade attaches to the **unit type**, bought once, applied to every unit of that type fielded afterwards. Per-veteran fittings are a later addition, not this design. | `upgrades` on a unit's JSON; the pre-pass (§4.3) |
 | D4 | Credits and everything bought live in a **brigade account** beside the campaign ledger and survive a fresh campaign; stars, Conduct and the roster stay per campaign. | a second store, its own reset (§4.1) |
 | D5 | Upgrades take effect through an **app-side pre-pass** that patches unit JSON before the sim registers types; the sim never learns the concept. | no sim-package change but one pure integer function; the golden hash cannot move (§4.3) |
-| D6 | The **paid path is designed for, not built**: the account carries provenance so a granted entry has a shape, and no client code can create one. Money waits on the account moving behind a server or a store entitlement. **Amended 2026-09-28 (WP-ST8; G7 approved 2026-09-29): money never buys credits; the paid path is a separate cosmetic currency, Roar coins.** | §4.6 |
+| D6 | The **paid path is designed for, not built**: the account carries provenance so a granted entry has a shape, and no client code can create one. Money waits on the account moving behind a server or a store entitlement. **Amended 2026-09-28 (WP-ST8; G7 approved 2026-09-29): money never buys credits; the paid path is a separate currency, Roar coins. Amended again 2026-10-11 (WP-ST8 revision 2): coins also buy single-player early access to what credits buy, in place of the credit cost (§4.6).** | §4.6 |
 
 **What this supersedes.** The motivation layer's D3 ("stars unlock special units, not stat
 perks") and its scope line ("no commendation spending of any kind") were deliberate and are
@@ -196,6 +196,19 @@ price opens it, it does not field it.
 
 ### 4.6 The paid path, designed for and not built
 
+> **Amended 2026-10-11 by WP-ST8 revision 2** (`2026-10-11-monetisation-content-plan.md`),
+> which supersedes the 2026-09-28 block below where they differ. Credits are still never sold,
+> never granted for money and never converted from coins, and no purchase writes a `granted`
+> grant. But Roar coins now also buy **single-player early access**: unit unlocks, the
+> bought-only units and upgrade tiers, at 1 coin = 10 credits, in place of the credit cost
+> (the lead's 1 Oct rulings, kept fenced on 2026-10-11): single player only; only what play can
+> also reach; never usable in a match against a person; never affects a score. Coins may open a
+> Conduct-gated unit in single player (ruled 2026-10-11). In network play a friends' room on
+> "bring your brigade" uses everything a player owns, earned and bought; public and ranked
+> rooms and matched kit use nothing owned. The coin entitlements are held apart from this
+> account (`roar-test.ts` today, ST6's server ledger later), so `balance` still means earned
+> credits.
+>
 > **Amended 2026-09-28 by WP-ST8 (#207); G7 (#199) approved by the lead 2026-09-29.** Credits are never sold.
 > The paid path is a **second, cosmetic currency** **Roar coins**. Steam Wallet sells
 > it, and it buys only liveries, badges and operation passes. It buys no unit, no upgrade, no

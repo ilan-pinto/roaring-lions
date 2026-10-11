@@ -9,6 +9,22 @@ the sim is untouched.
 
 ## 1. The rule
 
+> **Amended 2026-10-11 by revision 2** (`2026-10-11-monetisation-content-plan.md`, the lead's
+> rulings D1–D5). Rules 1–3 stand. Rules 4 and 5 now read:
+>
+> 4. Roar coins buy cosmetics and operation passes, and **single-player early access** to
+>    anything brigade credits buy (unit unlocks, bought-only units, upgrade tiers), at
+>    1 coin = 10 credits, in place of the credit cost: single player only; only what play can
+>    also reach; never usable in a match against a person; never affects a score.
+> 5. Roar coins buy no brigade credit and no Conduct point, floor, forgiveness, rating or
+>    grade. They **may** open a Conduct-gated unit in single player (D2). A friends' room on
+>    "bring your brigade" uses everything a player owns, bought included (D4); public and
+>    ranked rooms and matched kit use nothing owned.
+>
+> §1.1's T2–T4 apply to cosmetics; early-access items are judged by revision 2's guards (§7).
+> §4's "no row shows both currencies" and §7's "units", "upgrade tiers" and "E5's units" lines
+> are superseded by revision 2 §4 and §3.6. The original text follows as history.
+
 1. There are **two currencies**.
 2. **Brigade credits** are earned only, by play (`creditsFor`, brigade spec §4.2). They are
    never sold, never granted for money, and never converted from anything bought.

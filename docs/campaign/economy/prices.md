@@ -425,10 +425,12 @@ the star grade would be fitting a story to a target rather than measuring one.
 
 ## 8. Special forces (bought-only) price band
 
-*(WP-ST8, 2026-09-28; G7 approved by the lead 2026-09-29: "bought" here means bought with **earned brigade credits**
-and nothing else. No bought-only unit is ever priced in, or reachable through, Roar coins,
-the cosmetic currency Steam Wallet sells. See
-`docs/superpowers/specs/2026-09-28-st8-monetisation-content-plan.md`.)*
+*(WP-ST8 revision 2, 2026-10-11, superseding the 2026-09-28 note: "bought" here means bought
+with **earned brigade credits**, or, in **single player only**, with Roar coins at 1 coin =
+10 credits in place of the credit price (the lead's 1 Oct rulings, kept fenced on 2026-10-11).
+A coin-bought special-forces unit reaches network play only in a friends' room on "bring your
+brigade". The band below is a credit band; the coin price follows from it. See
+`docs/superpowers/specs/2026-10-11-monetisation-content-plan.md`.)*
 
 D1's bought-only units have no earned path at all, so a price here is the *only* gate —
 it must never be effectively free (a mission's own payout should not come close) and
