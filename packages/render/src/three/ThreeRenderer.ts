@@ -309,7 +309,11 @@ import { prepareTexturedMap } from './world-materials';
 import { dirtyForStructureHit, dirtyForStructureDestroyed } from './terrain/dirty';
 import { isGrindingHit } from '../grind';
 import { AIR_LIFT_PX } from './units/frame-state';
-import { pickUnit as pickUnitPure, unitsInScreenRect as unitsInScreenRectPure } from './units/pick';
+import {
+  pickUnit as pickUnitPure,
+  pickUnitAtScreen as pickUnitAtScreenPure,
+  unitsInScreenRect as unitsInScreenRectPure,
+} from './units/pick';
 import { stepTracers, spawnTracer, type TracerModel } from './units/tracers';
 import {
   stepShells,
@@ -5374,6 +5378,24 @@ export class ThreeRenderer implements Renderer {
       this.sim.state.tunnelIn,
       this.snapshottedCount,
       radiusTiles
+    );
+  }
+  /** A left-click's unit -- `units/pick.ts`'s `pickUnitAtScreen` has the
+   *  defect and the rule. */
+  unitAtScreen(px: number, py: number): number {
+    return pickUnitAtScreenPure(
+      px,
+      py,
+      this.curX,
+      this.curY,
+      this.sim.state.alive,
+      this.sim.state.tunnelIn,
+      this.snapshottedCount,
+      this.retained.elevation,
+      this.sim.width,
+      this.sim.height,
+      this.camera,
+      { width: this.width, height: this.height }
     );
   }
   /**

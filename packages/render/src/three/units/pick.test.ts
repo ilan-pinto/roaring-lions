@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { pickUnit, unitsInScreenRect } from './pick';
+import { pickUnit, pickUnitAtScreen, unitsInScreenRect } from './pick';
+import { worldToScreenThree } from '../camera';
 import { worldToScreen, type Camera, type Viewport } from '../../project';
 
 const CAM: Camera = { x: 24, y: 24, zoom: 1 };
@@ -161,5 +162,59 @@ describe('unitsInScreenRect', () => {
       elevation, W, H, CAM, VP
     );
     expect(tightAroundFlat).toEqual([]);
+  });
+});
+
+describe('pickUnitAtScreen (a click on a unit in a group picks THAT unit)', () => {
+  // Two rifle squads as a group order left them on beit_sahwan_outskirts,
+  // read back from the running game: 0.40 tiles apart, B up-screen of A.
+  const A: readonly [number, number] = [17.83, 20.0];
+  const B: readonly [number, number] = [17.43, 19.99];
+  const cam: Camera = { x: 17.6, y: 20, zoom: 1 };
+  const vp: Viewport = { width: 1400, height: 900 };
+  const pickAt = (r: ReturnType<typeof roster>, px: number, py: number, c: Camera = cam) =>
+    pickUnitAtScreen(px, py, r.curX, r.curY, r.alive, r.tunnelIn, r.n, null, 48, 48, c, vp);
+  const feetOf = (p: readonly [number, number], c: Camera = cam) => worldToScreenThree(p[0], p[1], c, vp);
+
+  it('picks the unit whose BODY is under the pointer, not the one standing behind it', () => {
+    const r = roster([
+      [A[0], A[1], 1, -1],
+      [B[0], B[1], 1, -1],
+    ]);
+    const a = feetOf(A);
+    // Feet, then up the figure to its head (~23 px at zoom 1).
+    for (const up of [0, 8, 16, 22]) expect(pickAt(r, a.x, a.y - up), `A, ${up} px above its feet`).toBe(0);
+    const b = feetOf(B);
+    for (const up of [0, 8, 16, 22]) expect(pickAt(r, b.x, b.y - up), `B, ${up} px above its feet`).toBe(1);
+  });
+
+  it('holds at every zoom the camera allows', () => {
+    const r = roster([
+      [A[0], A[1], 1, -1],
+      [B[0], B[1], 1, -1],
+    ]);
+    for (const zoom of [0.35, 1, 2.5]) {
+      const c = { ...cam, zoom };
+      const a = feetOf(A, c);
+      expect(pickAt(r, a.x, a.y - 16 * zoom, c), `zoom ${zoom}`).toBe(0);
+    }
+  });
+
+  it('is as forgiving as before on open ground: 1.1 tiles off a lone unit still picks it, 1.3 does not', () => {
+    const r = roster([[20, 20, 1, -1]]);
+    // Beside the unit (screen-level with its feet), along the ground.
+    const near = worldToScreenThree(20 + 1.1 / Math.SQRT2, 20 - 1.1 / Math.SQRT2, cam, vp);
+    const far = worldToScreenThree(20 + 1.3 / Math.SQRT2, 20 - 1.3 / Math.SQRT2, cam, vp);
+    expect(pickAt(r, near.x, near.y)).toBe(0);
+    expect(pickAt(r, far.x, far.y)).toBe(-1);
+  });
+
+  it('still skips a buried unit and a dead one', () => {
+    const r = roster([
+      [A[0], A[1], 1, 3],
+      [B[0], B[1], 0, -1],
+    ]);
+    const a = feetOf(A);
+    expect(pickAt(r, a.x, a.y - 8)).toBe(-1);
   });
 });

@@ -462,6 +462,11 @@ export interface Renderer {
 
   // --- queries
   pickUnit(wx: number, wy: number, radiusTiles?: number): number;
+  /** The unit a left-click at this canvas pixel picks, or -1: `pickUnit`
+   *  measured against the ground each unit's drawn BODY hides, not its feet
+   *  alone, so a click on a figure in a group picks that figure rather than
+   *  the one standing behind it. Projection, so the renderer's. */
+  unitAtScreen(px: number, py: number): number;
   isVisible(wx: number, wy: number): boolean;
   /** Living units whose screen position falls inside a screen-space rect.
    *  Box-select is a projection question, so only the renderer can answer it. */
