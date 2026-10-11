@@ -218,7 +218,7 @@ describe('announceInputsOf', () => {
 describe('the shipped table', () => {
   const t = (audioManifest as { voices: { announcements: AnnouncementManifest; lines: Record<string, unknown> } }).voices;
   it('declares every event the announcer can raise, each with a real caption key', () => {
-    const ids: AnnounceEventId[] = ['objective_active', 'objective_complete', 'objective_failed', 'deadline', 'wave', 'reinforcements', 'unit_lost', 'mission_start', 'roe', 'defeat'];
+    const ids: AnnounceEventId[] = ['objective_active', 'objective_complete', 'objective_failed', 'deadline', 'wave', 'reinforcements', 'unit_lost', 'mission_start', 'roe', 'defeat', 'sweep_ready', 'strike_ready', 'sweep_inbound', 'strike_inbound'];
     expect(Object.keys(t.announcements.events).sort()).toEqual([...ids].sort());
     for (const [id, def] of Object.entries(t.announcements.events)) {
       expect(def.caption in en, id).toBe(true);

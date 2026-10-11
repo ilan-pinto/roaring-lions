@@ -74,6 +74,7 @@ import { paintMapTerrain } from './map-preview';
 import { zoneStateOf } from '../objective-zones';
 import type { AlertTier } from './alerts';
 import type { Tone } from './hud-model';
+import { prefersReducedMotion } from './motion';
 
 /**
  * The box, in CSS pixels. theme.css sizes `.rl-minimap` from the `--minimap`
@@ -732,8 +733,15 @@ export function ringStyle(tier: AlertTier, tone: Tone): RingStyle {
     tone === 'bad' ? 'toneBad' : tone === 'warn' ? 'toneWarn' : tone === 'good' ? 'toneGood' : 'toneInfo';
   return { ...g, chrome, inward: tone === 'good' || tone === 'info' || tone === 'live' || tone === 'mute' };
 }
+/** Under reduced motion a ring holds one radius for its whole life and only
+ *  fades (GH-113). The direction it would have moved survives as a SIZE: a
+ *  ring that settles inward holds near its small end, one that spreads holds
+ *  at its large end, so the second channel beside colour is still there. */
+export const RING_REDUCED_INWARD_AT = 0.35;
+
 /** The ring's radius at fade `alpha` (1 at the event, 0 at the end). */
-export function ringRadius(style: RingStyle, alpha: number): number {
+export function ringRadius(style: RingStyle, alpha: number, reduced = false): number {
+  if (reduced) return style.inward ? style.r0 + (style.r1 - style.r0) * RING_REDUCED_INWARD_AT : style.r1;
   const t = 1 - alpha;
   return style.inward ? style.r1 - (style.r1 - style.r0) * t : style.r0 + (style.r1 - style.r0) * t;
 }
@@ -1352,11 +1360,12 @@ export class Minimap {
 
   private drawFlashes(nowMs: number): void {
     const { ctx, proj } = this;
+    const reduced = prefersReducedMotion();
     for (const f of this.flashes) {
       const a = linearFade(nowMs - f.at, f.style.ms);
       if (a <= 0) continue;
       const at = tileToBox(proj, f.p.x, f.p.y);
-      const r = ringRadius(f.style, a);
+      const r = ringRadius(f.style, a, reduced);
       const radii = f.style.double ? [r, r - RING_DOUBLE_GAP] : [r];
       ctx.save();
       ctx.globalAlpha = a;

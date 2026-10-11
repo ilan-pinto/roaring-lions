@@ -81,6 +81,13 @@ export interface ProductionOptions {
    * unexplained. Absent reads as never pending.
    */
   meshPending?: (unitId: string) => boolean;
+  /**
+   * GH-113: how far a support call is from affordable, for the tile's charge
+   * bar and the clock in its corner -- `fraction` of the cost in hand, and
+   * `clock`/`title` already worded by the caller (`ui/intel-moments.ts`'s
+   * `chargeClock`, through `t()`). Absent: the tile only dims, as before.
+   */
+  supportCharge?: (kind: SupportKind) => { fraction: number; clock: string; title: string };
 }
 
 /** The two fire-support calls, as the dock draws them. `word`/`name`/`blurb`
@@ -138,6 +145,10 @@ interface SupportTile {
   el: HTMLButtonElement;
   kind: SupportKind;
   cost: number;
+  bar: HTMLElement;
+  clock: HTMLElement;
+  /** Frame-clock ms until which the border says "ready" (GH-113). */
+  flashUntil: number;
 }
 
 export class ReinforcementDock {
@@ -358,6 +369,13 @@ export class ReinforcementDock {
     el.innerHTML =
       `<span class="rl-tile__glyph">${symbolSvg(spec.kind, SUPPORT_GLYPH_PX)}</span>` +
       `<span class="rl-tile__word">${t(spec.word)} ${cost}</span>`;
+    // GH-113: the charge, in the build bar's own language -- a bar along the
+    // bottom and a clock in the corner, where the unit tiles put a queue.
+    const clock = document.createElement('span');
+    clock.className = 'rl-tile__clock';
+    const bar = document.createElement('span');
+    bar.className = 'rl-tile__charge';
+    el.append(clock, bar);
 
     el.addEventListener('click', () => {
       if (this.opts.runtime.intel < cost) {
@@ -375,7 +393,7 @@ export class ReinforcementDock {
     // on its own row, below every unit row.
     this.tipDisposers.push(bindTip(el, () => this.supportTipHtml(spec, cost), { host: this.el, clear: this.el }));
 
-    this.supportTiles.push({ el, kind: spec.kind, cost });
+    this.supportTiles.push({ el, kind: spec.kind, cost, bar, clock, flashUntil: 0 });
     return el;
   }
 
@@ -421,6 +439,17 @@ export class ReinforcementDock {
   // ------------------------------------------------------------------
   // State.
   // ------------------------------------------------------------------
+
+  /** GH-113: a call just became affordable -- the border says so for
+   *  `ms`. Cleared by `refresh()` on its own cadence, so there is no timer
+   *  to dispose. */
+  flashReady(kind: SupportKind, nowMs: number, ms: number): void {
+    for (const tile of this.supportTiles) {
+      if (tile.kind !== kind) continue;
+      tile.flashUntil = nowMs + ms;
+      tile.el.dataset.readyFlash = '1';
+    }
+  }
 
   /** Cleared by the input layer once an armed purchase has been spent. */
   setArmed(kind: SupportKind | null): void {
@@ -480,8 +509,19 @@ export class ReinforcementDock {
       const kit = state.lock === null ? (tile.unit.kit ?? 0) : 0;
       tile.el.setAttribute('aria-label', kit === 0 ? title : `${title}, ${kitLevelLabel(kit)}`);
     }
-    for (const { el, cost } of this.supportTiles) {
-      el.dataset.poor = rt.intel >= cost ? '0' : '1';
+    const now = performance.now();
+    for (const tile of this.supportTiles) {
+      const poor = rt.intel < tile.cost;
+      tile.el.dataset.poor = poor ? '1' : '0';
+      const charge = this.opts.supportCharge?.(tile.kind);
+      // Charging: the tile keeps full strength so the bar and the clock do --
+      // the defect the build bar already fixed (`.rl-tile[data-poor='1']`'s
+      // own comment) -- and only the glyph and the word dim.
+      tile.el.dataset.charging = poor && charge !== undefined ? '1' : '0';
+      tile.bar.style.width = charge === undefined || !poor ? '0' : `${(charge.fraction * 100).toFixed(1)}%`;
+      tile.clock.textContent = charge === undefined || !poor ? '' : charge.clock;
+      if (charge !== undefined) tile.el.setAttribute('aria-label', charge.title);
+      tile.el.dataset.readyFlash = now < tile.flashUntil ? '1' : '0';
     }
   }
 }
