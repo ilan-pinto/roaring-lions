@@ -48,6 +48,24 @@ missions may lend, marked "on loan") conflicts with what landed. Three questions
    **Ruled 6 Oct:** yes. A `from_ledger` placement is never on loan, even when it spawns a fresh
    remnant.
 
+## Pre-flight 2 (2026-10-11), evening, against main 49715ff9
+
+Read and grepped, not run. F3 reads no movement rule, so #537's sweep flag, #535's N move and #534's
+body pick change none of its logic. What moved is numbers and the harness F3's Task 7 measures with.
+
+| where | correction | |
+|---|---|---|
+| Global, Re-pins | Sim pins are **three**: flat `1202444260`, relief `3354895120`, orders `2737216487` (`determinism.test.ts` ~L438, ~L736, ~L845). All unmoved by F3 (R) | fixed in place |
+| Task 7, Re-pins | `ROSTER_MAX` is **30** (#537 31 → 32, #542 32 → 30), still at `umm_zeitoun_4_clearance`. #542 moved it because UZ IV's plan now sends its escort after Adhal once the yard is razed, so two more bodies die | fixed in place |
+| Task 7, Re-pins | `LADDER_CREDITS` = `CAMPAIGN_CREDITS` = **5917** (5870 → 5850 #529 → 5947 #537 → 5917 #542) | fixed in place |
+| Task 7 line refs | `playtest.ts` at `49715ff9`: `LADDER_CREDITS` ~L3096, `ROSTER_MAX` ~L3228, `GATES` ~L2820, `CONDUCT_GATES` ~L2887. `run()` and the harness's `unitInfo` moved to `playtest-run.ts` (~L285); `main.ts`'s `unitInfo` is ~L2382 | noted (locate by symbol) |
+| Task 7, Step 1 | **The measurement is 30 seeds now.** `plan-sweep.ts` runs every winning plan down **each seed's own chained ledger**, so L-1's smaller pools reach 29 more ledgers than the 424242 one the pins read. L-1 must keep every plan at 30/30 seeds and every gate on time on 30/30, not only the 424242 line. `ROSTER_MAX`, `LADDER_CREDITS` and `GATES` are still read from 424242 (#542). A full run is ~57 s locally | fixed in place |
+| Task 7, Step 1 | The ten plain winning runs it names: #542 re-scripted **Khan Rafid I and II** (KR I: the Eitan and jeep go to the alley post's foot when the drone is lost; KR II: an Eitan takes the east ring road for the family). Both start from `{}`; re-read what they field before predicting L-1's footprint | noted |
+
+No new lead decision. Q9 (pre-L-1 saves) is unchanged.
+
+---
+
 ## Pre-flight, 11 Oct (against main f2d5d9e8)
 
 Checked every path, symbol, line reference and pin this plan names against `main` `f2d5d9e8`. Docs only.
@@ -220,12 +238,14 @@ cut from `main` after F1 lands. Nothing measured yet: (M) is quoted from the G3 
   unhashed, unread field (`UnitType.population`); no sim system reads it.
 - **Sim pins unmoved** by every task (flat 922714084, relief 3200430224, unchanged on `f2d5d9e8`,
   `determinism.test.ts` L427/L721; they were 2109596329 and 1425295494 on 4 Oct, moved by #402). A
-  move is a defect.
+  move is a defect. *Pre-flight 2 (2026-10-11): three on `49715ff9`, flat 1202444260, relief
+  3354895120, orders 2737216487 (#537).*
 - **The economy pins move once**, in Task 4, with the reason.
 - **`pnpm balance`** byte-identical (R).
 - **`pnpm playtest`** byte-identical through Task 6 (R: no campaign mission sets a cap, and the
   predicate changes nothing it does not mark). Task 7 (L-1) moves roster lines by design; anything
-  downstream is measured and named.
+  downstream is measured and named. *(Pre-flight 2, 2026-10-11: on all 30 seeds; every plan still wins
+  30/30, #539/#542.)*
 - **Every check seen red**, by a one-line mutation, quoted in the commit.
 - **Gates before every commit**: as F1, plus `pnpm validate:ui` for Task 8.
 - **Git, TypeScript:** as F1. Task 8 is **Lane A** (`packages/app`), done by the lane A agent and
@@ -457,7 +477,9 @@ unit is kept.
 pins), `packages/app/src/ui/stores-model.ts` (`CAMPAIGN_CREDITS`, only if `LADDER_CREDITS` moves;
 ruled 6 Oct: inside the L-1 confirmation, no separate word needed).
 
-- [ ] **Step 1: Measure first, on a scratch copy.** Run `pnpm playtest` with the change. Report which
+- [ ] **Step 1: Measure first, on a scratch copy.** Run `pnpm playtest` with the change. *(Pre-flight
+  2, 2026-10-11: the full 30-seed run, ~57 s; the plan sweep walks each seed's own ledger, so report
+  per-seed misses as well as the 424242 lines.)* Report which
   roster lines move, whether any later `from_ledger` draw fields a different force, and whether any
   outcome, grade or credit moves. On the optimal ladder every Conduct gate is open after mission 1
   (M, G3 sheet Q5; on `b44df7aa` asserted by `CONDUCT_GATES`, playtest.ts ~L3007, all nine
@@ -466,7 +488,7 @@ ruled 6 Oct: inside the L-1 confirmation, no separate word needed).
   threading as on 4 Oct), ten plain winning runs that field a gated fresh placement start from `{}`,
   every Conduct gate closed: Wadi Halam I, Khan Rafid I–III, Deir Amun I–III and Tel Marum I–III.
   Wadi Halam I's ledger feeds Wadi Halam II–V, and Tel Marum III's feeds both Qarn Hadid I–III and Umm
-  Zeitoun I–IV, where `ROSTER_MAX` (31) is measured. Beit Sahwan threads from the breach's rating. The
+  Zeitoun I–IV, where `ROSTER_MAX` (31; 30 since #542, Pre-flight 2) is measured. Beit Sahwan threads from the breach's rating. The
   two feeders lend a drone (Wadi Halam I) and two Lavis, a Namer and a drone (Tel Marum III), and no
   `from_ledger` draw downstream of them asks for a drone, or for a Lavi or a Namer on the Qarn Hadid and
   Umm Zeitoun side. So the expected footprint (R) is the ten runs' own roster lines, the pool sizes
@@ -488,7 +510,8 @@ ruled 6 Oct: inside the L-1 confirmation, no separate word needed).
   `missionEnd.survivors`, which `main.ts` ~L516 prints as the survivor count) and the veterancy/`promotedValue`
   lines alone, and `startingHome` is untouched (credits). A loaned unit that earned a stripe loses it on return.
 - [ ] **Step 4: Re-pin, if Step 1 said so.** Each moved `LADDER_CREDITS` (5870 on `f2d5d9e8`, ~L3195) /
-  `GATES` (~L2944) / `ROSTER_MAX` (31, ~L3322) pin gets the house-style comment: the term, per mission,
+  `GATES` (~L2944) / `ROSTER_MAX` (31, ~L3322) *(Pre-flight 2, 2026-10-11: 5917 ~L3096 / ~L2820 / 30
+  ~L3228 on `49715ff9`)* pin gets the house-style comment: the term, per mission,
   before and after, summing to the delta. A moved `LADDER_CREDITS` moves `CAMPAIGN_CREDITS` in the same
   commit, or `tools/src/campaign_credits.test.ts` goes red (GH-330).
 - [ ] **Step 5: See it red.** Remove the skip: the roster test fails, listing the loaned unit.
@@ -587,12 +610,12 @@ and `hud.onLoan.some` coexist. The dock tile is never marked (Pre-flight Q7).
 
 | pin | expected | the reason, for the commit |
 |---|---|---|
-| sim pins, flat and relief | **unmoved** (R): 922714084 / 3200430224 on `f2d5d9e8` (2109596329 / 1425295494 on 4 Oct, moved by #402) | — |
+| sim pins, flat, relief and orders (three since #537) | **unmoved** (R): 1202444260 / 3354895120 / 2737216487 on `49715ff9` (Pre-flight 2); 922714084 / 3200430224 on `f2d5d9e8` (2109596329 / 1425295494 on 4 Oct, moved by #402) | — |
 | `ECONOMY_PIN`, `ECONOMY_PIN_RELIEF` | **re-pinned once**, Task 4 (born in F1; not in the tree on `b44df7aa`) | population and the cap are economy state (G3 Q4) |
 | `pnpm balance` | byte-identical (R) | — |
 | `pnpm playtest` | byte-identical through Task 6; Task 7 moves roster lines (L-1) | new census lines (Task 5) |
-| `ROSTER_MAX` | 31 on `f2d5d9e8` (30 on 4 Oct; GH-382 → 33, #402 → 31), at `umm_zeitoun_4_clearance`; may move in Task 7 (R) | "a loaned survivor returns to the lender (G3 Q5, L-1)" |
-| `LADDER_CREDITS` | 5870 on `f2d5d9e8` (5830 on `b44df7aa`, 5736 on 4 Oct; #431, #444); unchanged unless L-1's smaller pools change a later outcome (R: small, measured in Task 7 Step 1) | "a loaned survivor returns to the lender (G3 Q5, L-1)", per mission |
+| `ROSTER_MAX` | **30** on `49715ff9` (Pre-flight 2: #537 → 32, #542 → 30); 31 on `f2d5d9e8` (30 on 4 Oct; GH-382 → 33, #402 → 31), at `umm_zeitoun_4_clearance`; may move in Task 7 (R) | "a loaned survivor returns to the lender (G3 Q5, L-1)" |
+| `LADDER_CREDITS` | **5917** on `49715ff9` (Pre-flight 2); 5870 on `f2d5d9e8` (5830 on `b44df7aa`, 5736 on 4 Oct; #431, #444); unchanged unless L-1's smaller pools change a later outcome (R: small, measured in Task 7 Step 1) | "a loaned survivor returns to the lender (G3 Q5, L-1)", per mission |
 | `CAMPAIGN_CREDITS` (`stores-model.ts` L63) | equal to `LADDER_CREDITS` (GH-330, `campaign_credits.test.ts`); moves with it, same commit | as `LADDER_CREDITS` |
 
 ## Lane A needs (WP-S-F #184)

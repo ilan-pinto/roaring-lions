@@ -22,8 +22,9 @@ in Stage 4.
   the focus is valid and out of reach of slot 0, the unit's goal is the target's tile. In reach, the unit
   stops, and `stepBrace` kneels it as for any stationary shooter. When the focus ends, the unit becomes
   an arrived attack-mover where it stands (`attackMove = 1`, `moving = 0`), which is what every
-  right-click leaves today.
-- **The column is hashed.** Both sim pins move once, for the column only, as Hold's do. No balance
+  right-click leaves today. **Pre-flight 2 (2026-10-11):** and `sweepOrder = 0`, so it holds there
+  (#537); it is not swept on.
+- **The column is hashed.** Both sim pins move once, for the column only, as #291's do (all three since #537; Hold re-pins nothing, ruling 2026-10-11). No balance
   plan and no playtest plan issues `attack`, so both stay byte-identical (R).
 - **The UI half is Lane A** (WP-S-F #184): the right-click branch, the `attack` cursor name coming
   back, the fire panel line, the unit card line, the tutorial beats.
@@ -31,20 +32,61 @@ in Stage 4.
 **Tech stack:** TypeScript strict, vitest. No new dependencies.
 
 **Refs:**
-- GH-420; `docs/polish/commercial-polish-audit.md` PA-08, PA-12; L1 decided (lead, early Oct): no move-only order.
+- GH-420; `docs/polish/commercial-polish-audit.md` PA-08, PA-12; ~~L1 decided (lead, early Oct): no move-only order~~ L1 reopened 11 Oct, shipped as #535 (Pre-flight 2).
+- #537 (`sweep` on `attackMove`), #535 (the N move), #534 (`Renderer.unitAtScreen`): Pre-flight 2.
 - PR #427 (WP-P4): the `advance` cursor, `hud.fire.clickAdvances`, `input/pointer.ts` `pointerPoint`.
 - `docs/superpowers/specs/2026-10-05-infantry-halt-to-fire.md` §2–§3: the brace machine and the
   closing rule (`stepSweep`).
-- `docs/superpowers/plans/2026-10-06-hold-position.md`: the hashed-column re-pin pattern, H-D2.
+- ~~`docs/superpowers/plans/2026-10-06-hold-position.md`: the hashed-column re-pin pattern, H-D2.~~ Hold's sim command is retired (ruling (lead, 2026-10-11)); the re-pin pattern is #291's (`2026-09-29-stage4-sim-fixes.md`, Task 4).
 - `docs/superpowers/plans/2026-10-04-stage4-order.md`: where this lands.
 
 **Base:**
 - Written 11 Oct against `main` `f2d5d9e8`.
-- Branch `feat/targeted-fire`, cut from `main` after Hold position has landed.
+- Branch `feat/targeted-fire`, cut from `main` after ~~Hold position~~ #291 (and #247, if it re-pins) and #540 have landed (ruling (lead, 2026-10-11)).
 - Worktree under `/Users/ilpinto/dev/roaring-lions-ep/`; run `pnpm install` once.
 - Locate code by symbol; line numbers drift (`selectTarget` ~L3299, `stepCombat` ~L3611, `stepSweep`
-  ~L5174, `tick()` ~L1846, `applyCommands` ~L2029 in `sim.ts` at `f2d5d9e8`).
+  ~L5174, `tick()` ~L1846, `applyCommands` ~L2029 in `sim.ts` at `f2d5d9e8`; Pre-flight 2: ~L3339,
+  ~L3652, ~L5215, ~L1864, ~L2047 at `49715ff9`).
 - Nothing here is measured. Every (R) is reasoned, and its task says how to measure it.
+
+## Pre-flight 2 (2026-10-11), evening, against main 49715ff9
+
+Read and grepped, not run. Written this morning against `f2d5d9e8`; since then #537, #535 and #534
+landed, each on a seam this plan uses.
+
+- **#537:** a player's attack-move stops where it was sent; only an order with `sweep: true` (waves,
+  `commit`s, `targets.ts`) is walked on by `stepSweep`. `halt` clears `attackMove`, `sweepOrder` and
+  `boardGoal`. T-D4's "follows the closing rule like any right-clicked unit" now means "holds where it
+  stands". The pins are three.
+- **#535:** N arms a plain `move` (`armedOrder === 'move'`, `resolveMoveOrder` in `input/intents.ts`).
+  With Move armed, a click over an enemy stays `move` and the cursor stays `moveOnly`. "L1 is decided:
+  no move-only order" (Refs, Task 5, the closing line) is reversed.
+- **#534:** `Renderer.unitAtScreen(px, py)` picks by body. The right-click and hover still find "the
+  enemy under the pointer" with `hostileUnder` (`input/pointer.ts`), the nearest enemy to the ground
+  point within 0.5 tile: the rule #534 replaced for the left click because, in a group, the ground
+  behind a body belongs to the next unit. A targeted-fire click resolved that way fires on the wrong
+  man.
+
+| where | what changed | fixed in place / decision |
+|---|---|---|
+| Base | Line refs at `49715ff9`: `tick()` ~L1864, `applyCommands` ~L2047, `selectTarget` ~L3339, `stepCombat` ~L3652, `stepSweep` ~L5215 | fixed in place |
+| Architecture, T-D4, Task 2 test | The hand-back sets `attackMove = 1, moving = 0` and must also set **`sweepOrder = 0`**; the unit then holds where it stands. The test "a dead focus hands the unit back" adds `sweepOrder` 0 and "position unchanged 10 s later with a remembered contact", seen red by setting `sweepOrder = 1` at the hand-back | fixed in place |
+| Task 1, Step 2 | The `attack` branch clears `sweepOrder` with `attackMove` (every non-attack-move branch does since #537) | fixed in place |
+| Task 2, test "the closing rule does not move a focused unit" and Step 4's "drop `stepSweep`'s skip" | **Cannot go red.** A focused unit has `attackMove` 0 and `sweepOrder` 0, and the AI never issues `attack` (T-D10), so `stepSweep` skips it with or without the new line. Keep the skip as a comment-guard if wanted, but delete the test and the mutation claim | fixed in place |
+| Task 3, Step 1 | `resolvePointer` has **no hostile branch**: an enemy click falls through to the final `attackMove` (`intents.ts` ~L255-338). Add a hostile rung before that fall-through, fed by an enemy id the caller resolves with `Renderer.unitAtScreen` filtered to visible side-1 units (not `hostileUnder`). The hover cursor reads the same id, so cursor and click cannot disagree | fixed in place |
+| Task 3, Step 2 | Armed Move (N) wins over an enemy: the click stays a `move`, the cursor `moveOnly` (#535's pinned behaviour, `move-order.test.ts`) | fixed in place |
+| Global, Re-pins | Sim pins **three**: flat `1202444260`, relief `3354895120`, orders `2737216487`; all three move in Task 1. `LADDER_CREDITS`/`CAMPAIGN_CREDITS` **5917**, `ROSTER_MAX` **30**. Playtest is 30 seeds (~57 s), still byte-identical (R) | fixed in place |
+| Refs, Task 5, closing line | L1 reopened (lead, 11 Oct; #535): disengaging is the N move, `halt`, or another order | fixed in place |
+
+### Rulings (lead, 2026-10-11)
+
+1. **Ruling (lead, 2026-10-11): T-D8 is dropped.** Hold's sim command is retired, so there is no held
+   state: `attack` on a halted unit is an ordinary order and the unit closes to range. Every T-D8 line
+   below is struck, with its tests, its `stepFocus` branch, its app predicate and its string.
+2. **Ruling (lead, 2026-10-11): T-D3 is kept.** A lost focus walks to its last-seen tile for up to 5 s,
+   then ends; the player named the target.
+3. **Ruling (lead, 2026-10-11): the branch is cut after #291 (and #247, if it re-pins) and #540**, on
+   Thu 5 Nov; it no longer waits for Hold.
 
 ---
 
@@ -64,8 +106,9 @@ Taken defaults, for the lead to confirm (For the lead, item 1):
   proposed 100 = 5 s). While lost, the unit walks to the target's last-seen position, as the sweep
   does. A target that is identified again inside the window keeps the order.
 - **T-D4. When the focus ends, the unit is an arrived attack-mover where it stands.** It then follows
-  the closing rule like any right-clicked unit. **Except a held unit (T-D8): its focus ends and it is
-  still held, standing where it was.**
+  the closing rule like any right-clicked unit. *(Pre-flight 2, 2026-10-11: since #537 that means it
+  holds there; the hand-back writes `sweepOrder = 0`.)* ~~**Except a held unit (T-D8): its focus ends and it is
+  still held, standing where it was.**~~ *(Ruling (lead, 2026-10-11): T-D8 dropped.)*
 - **T-D5. Slot 0 decides reach; slot 1 shares the focus only if it can hurt it.** "In reach" is slot
   0's effective range and sight line (indirect classes need no sight line), the same rule the
   `engaging` latch uses. Slot 1 takes the focus when `hurts` (`selectTarget`'s own heuristic) holds,
@@ -78,7 +121,8 @@ Taken defaults, for the lead to confirm (For the lead, item 1):
   sim refuses `attack` for it (T-D2's filter plus `couldEngage`); the app sends the rest of the
   selection an `attackMove` to the target's tile in the same click (Task 3). A rifle squad does not
   chase a helicopter.
-- **T-D8. Hold and targeted fire (RULED by the lead, 11 Oct; reverses the recommendation).** A unit on
+- ~~**T-D8. Hold and targeted fire (RULED by the lead, 11 Oct; reverses the recommendation).**~~
+  **Ruling (lead, 2026-10-11): dropped with Hold's sim command; the sub-bullets below are void.** A unit on
   Hold that is given `attack` **stays on Hold**. `attack` is the one order H-D2 does not release on.
   - If the target is already in reach of slot 0 (range and sight line; indirect needs no sight line),
     `focusTarget` is set, `holdPos` stays 1, and the unit fires on it. It never moves.
@@ -100,13 +144,16 @@ Taken defaults, for the lead to confirm (For the lead, item 1):
     for T-D3) is a `Uint8Array`/`Uint16Array` zeroed in `spawn`.
   - No floating point, no `rng`, no `eslint-disable`. `FOCUS_LOST_TICKS` lives in `tuning.ts`.
   - The app issues `attack` through `queueCommand`; nothing outside the sim writes `focusTarget`. It is
-    read-only on `sim.state`, like `brace` and `holdPos`.
+    read-only on `sim.state`, like `brace`.
 - **The sim pins move once**, in Task 1, for the new hashed column(s) only. At `f2d5d9e8` they read
-  flat `922714084` and relief `3200430224`; #291 and Hold position move them first. Prove the re-pin
+  flat `922714084` and relief `3200430224`; **Pre-flight 2 (2026-10-11): at `49715ff9` they are three,
+  flat `1202444260`, relief `3354895120`, orders `2737216487`, and all three move.** #291 moves them
+  first; Hold re-pins nothing (ruling (lead, 2026-10-11)). Prove the re-pin
   is only the column (Task 1, Step 5).
 - **`pnpm balance`** is byte-identical (R): `targets.ts` issues no `attack`.
 - **`pnpm playtest`** is byte-identical (R): no plan issues `attack`.
-- **`LADDER_CREDITS` (5870), `CAMPAIGN_CREDITS` (5870), `ROSTER_MAX` (31) and `GATES` are unchanged.**
+- **`LADDER_CREDITS` (5917), `CAMPAIGN_CREDITS` (5917), `ROSTER_MAX` (30) and `GATES` are unchanged.**
+  (Pre-flight 2, 2026-10-11: were 5870, 5870, 31.)
 - **Every check is seen red** by a one-line mutation, quoted in the commit.
 - **Gates before every commit:** `pnpm lint && pnpm typecheck && pnpm test:determinism && pnpm test`,
   then `pnpm balance` and `pnpm playtest`. Add `pnpm validate:ui` and `pnpm validate:data` for Task 3
@@ -138,7 +185,7 @@ Taken defaults, for the lead to confirm (For the lead, item 1):
 
 ## Task 1: the `attack` command and the column (**a sim re-pin**)
 
-**Model:** sonnet. **Agent:** `sim-guard`. **Depends:** Hold position on `main`.
+**Model:** sonnet. **Agent:** `sim-guard`. **Depends:** #291 and #540 on `main` (ruling (lead, 2026-10-11); no Hold).
 
 **Interfaces (produced):**
 
@@ -146,8 +193,8 @@ Taken defaults, for the lead to confirm (For the lead, item 1):
 // sim.ts
 | { kind: 'attack'; ids: number[]; target: number }   // Command union
 private readonly focusTarget: Int32Array;             // -1, or the entity this unit was ordered to fire on
-// state view: readonly focusTarget (read-only, like brace and holdPos)
-// hash(): hashArray(h, this.focusTarget), next to holdPos
+// state view: readonly focusTarget (read-only, like brace)
+// hash(): hashArray(h, this.focusTarget), next to the brace columns
 ```
 
 - [ ] **Step 1: Write the failing tests** in the new `focus.test.ts`. In-test fixtures with
@@ -155,20 +202,17 @@ private readonly focusTarget: Int32Array;             // -1, or the entity this 
   fixture with two weapon slots. Contact is seeded with the sim's own reveal path, never by writing
   `contact`.
   - **"attack sets the focus and clears attackMove"**: `focusTarget` reads the target, `attackMove`
-    0 (an unheld unit).
-  - **"a held unit given attack on an in-range target stays held and fires"** (T-D8): `holdPos` 1,
-    `focusTarget` set, a `fire` event names the target, position unchanged for 20 s.
-  - **"a held unit given attack on an out-of-range target is refused and stays put"** (T-D8):
-    `focusTarget` -1, `holdPos` 1, position unchanged for 20 s.
+    0 and `sweepOrder` 0.
+  - ~~the two held-unit tests (T-D8)~~ *(Ruling (lead, 2026-10-11): T-D8 dropped.)*
   - **"attack on a suspected enemy is refused"** (T-D2): below `IDENTIFIED_AT`, `focusTarget` stays -1.
   - **"attack on a civilian, a friendly, a garrisoned or a carried unit is refused"** (T-D2).
-  - **"any other order releases the focus"**: `move`, `attackMove`, `halt`, `hold`; each reads -1.
-  - **"a rout releases the focus"** (as H-D4 does for Hold).
+  - **"any other order releases the focus"**: `move`, `attackMove`, `halt`; each reads -1.
+  - **"a rout releases the focus"**.
 - [ ] **Step 2: Implement** the command branch and the column only: the focus is set and cleared,
   nothing reads it yet. At the head of the command loop, clear `focusTarget[id]` for every id an order
-  names, except `attack` itself (the H-D2 pattern; one loop for both columns). Clear it in `startRout`.
-  `attack` is exempt from H-D2's `holdPos` clear (T-D8): on a held unit it is accepted only when the
-  target is already in reach, and refused otherwise.
+  names, except `attack` itself (one loop, guarded by `'ids' in cmd`: `reveal` and `callStrike` carry none). Clear it in `startRout`.
+  *(Pre-flight 2, 2026-10-11: the `attack` branch also clears `sweepOrder` with `attackMove`.)*
+  ~~`attack` is exempt from H-D2's `holdPos` clear (T-D8)…~~ *(Ruling (lead, 2026-10-11): no `holdPos`.)*
 - [ ] **Step 3: Hash coverage.** In `determinism.test.ts`, add **"hash covers focusTarget"**: flip one
   element through `sim.state` and expect a different `hash()`.
 - [ ] **Step 4: Re-pin both sim pins** in this commit. Each gets a dated comment: "Targeted fire
@@ -199,31 +243,34 @@ No golden replay issues `attack`, so this task is hash-neutral (R). Prove it: bo
     fires on the ordered APC while its MG fires on infantry.
   - **"an indirect weapon fires on its focus without a sight line"**: a mortar fixture behind a wall.
   - **"a dead focus hands the unit back as an arrived attack-mover"** (T-D4): `focusTarget` -1,
-    `attackMove` 1, `moving` 0, on the tick after the `destroyed` event.
+    `attackMove` 1, `moving` 0, on the tick after the `destroyed` event. *(Pre-flight 2, 2026-10-11:
+    and `sweepOrder` 0, with a second enemy identified far off and the unit's position unchanged 10 s
+    later. Seen red by writing `sweepOrder = 1` at the hand-back.)*
   - **"a focus that garrisons ends the order"** (T-D3).
   - **"a lost focus walks to its last-seen position, then ends"** (T-D3): identification drops; the
     unit moves to `lastSeenX/Y`; after `FOCUS_LOST_TICKS` with no re-identification the focus is -1.
   - **"a re-identified focus keeps the order"**: contact back inside the window, the focus survives.
   - **"a chase refreshes the field by tile"** (T-D6): a target walking 6 tiles costs at most 7
     `flowFieldCount` increments, not one per tick.
-  - **"the closing rule does not move a focused unit"**: `stepSweep` skips it while the focus is valid.
-  - **"a held, focused unit never moves"** (T-D8): the target walks out of reach; the focus ends, the
-    unit is still held and has not moved.
+  - ~~**"the closing rule does not move a focused unit"**: `stepSweep` skips it while the focus is valid.~~
+    *(Pre-flight 2, 2026-10-11: deleted. It cannot fail: a focused unit has `attackMove` 0 and
+    `sweepOrder` 0, so `stepSweep` skips it with or without the skip.)*
+  - ~~**"a held, focused unit never moves"** (T-D8)~~ *(Ruling (lead, 2026-10-11): T-D8 dropped.)*
 - [ ] **Step 2: Implement.**
   - `selectTarget`: before the scan, if `focusTarget[shooter] >= 0` and the focus passes the same
     filters the scan applies (side, containment, identification, air/ground, range, minimum range,
     sight line or indirect) and, for slot 1, `hurts`, return it. Otherwise scan as today. One helper
     (`focusEngageable(shooter, w, t)`) so the scan's filter and the focus's filter cannot drift.
   - `stepFocus`, called in `tick()` after `stepKamikaze` and before `stepSweep`: end an invalid focus
-    (T-D3, T-D4); for a held unit, end the focus as soon as it leaves reach and never set `moving`
-    (T-D8); else, out of reach, set the goal to the target's tile (or last-seen while lost) and
+    (T-D3, T-D4); out of reach, set the goal to the target's tile (or last-seen while lost) and
     `moving = 1`, refreshing `fieldRef` only on a tile change (T-D6); in reach, `moving = 0`.
-  - `stepSweep`: `if (this.focusTarget[i] >= 0) continue;` beside Hold's skip.
+  - `stepSweep`: `if (this.focusTarget[i] >= 0) continue;` *(optional comment-guard; it cannot be seen red, Pre-flight 2)*.
   - `FOCUS_LOST_TICKS` in `tuning.ts` with a comment saying where 100 came from (5 s, the same order as
     the contact decay; R).
 - [ ] **Step 3: Gates.** Both pins unchanged; `balance` and `playtest` byte-identical. Quote them.
-- [ ] **Step 4: See it red.** Drop the focus preference: "shoots its focus" fails. Drop `stepSweep`'s
-  skip: "the closing rule does not move a focused unit" fails. Refresh the field every tick: the
+- [ ] **Step 4: See it red.** Drop the focus preference: "shoots its focus" fails. ~~Drop `stepSweep`'s
+  skip: "the closing rule does not move a focused unit" fails.~~ (Pre-flight 2, 2026-10-11: removed,
+  see the deleted test.) Refresh the field every tick: the
   field-count test fails. Skip the lost-counter: "a lost focus … then ends" fails.
 
 ---
@@ -233,16 +280,20 @@ No golden replay issues `attack`, so this task is hash-neutral (R). Prove it: bo
 **Agent:** lane A. **Depends:** Task 2 on `main`. S-F trails Lane C by one landing.
 
 - [ ] **Step 1: The intent.** `input/intents.ts` gains `{ kind: 'attack'; ids; target }`;
-  `applyIntent` queues the sim command. `resolvePointer`'s hostile branch (the one that returns an
+  `applyIntent` queues the sim command. *(Pre-flight 2, 2026-10-11: there is no hostile branch today;
+  an enemy click falls through to `resolvePointer`'s final `attackMove`. Add the rung before that
+  fall-through, taking an enemy id the caller resolves with `Renderer.unitAtScreen` (#534) filtered to
+  visible side-1 units, not `hostileUnder`'s ground-point rule; the hover cursor reads the same id.)*
+  `resolvePointer`'s hostile branch (the one that returns an
   `attackMove` to an identified enemy's tile today) returns `attack` for every selected id with a
   weapon that can engage that target, and the `attackMove` it returns today for the rest (T-D7), in
   one resolution. A suspected (not identified) contact keeps today's attack-move: the fire panel
-  already says why it cannot be shot. **Held units (T-D8):** a held unit with the target already in
-  reach gets `attack`; a held unit out of reach gets nothing, and the click shows
-  `t('intent.holdOutOfRange')` ("On hold — target out of range", tone `warn`) with the deny cue. The
-  predicate reads `sim.state.holdPos` and the same reach rule through the intent world adapter;
-  `intents.test.ts` pins both cases and a mixed selection.
-- [ ] **Step 2: Modifiers.** Shift keeps today's appended attack-move (T-D9). Alt is unchanged (it only
+  already says why it cannot be shot. ~~**Held units (T-D8)** … `intent.holdOutOfRange` …~~
+  *(Ruling (lead, 2026-10-11): T-D8 dropped; no held-unit branch and no `intent.holdOutOfRange`
+  string.)* `intents.test.ts` pins the hostile rung and a mixed selection (T-D7).
+- [ ] **Step 2: Modifiers.** *(Pre-flight 2, 2026-10-11: armed Move (N, #535) outranks the enemy: the
+  click stays a plain `move` and the cursor `moveOnly`; `move-order.test.ts` pins it and stays green.)*
+  Shift keeps today's appended attack-move (T-D9). Alt is unchanged (it only
   matters on a protected structure). The armed Attack-move chip's left-click on an identified enemy
   issues `attack` too (For the lead, item 3).
 - [ ] **Step 3: The cursor.** `input/cursor.ts`: over an identified enemy that at least one selected
@@ -285,8 +336,8 @@ order, beat 6 can teach it.
 - [ ] Beat 9 (`what_a_shot_costs`): leave the mortar's lesson as it is (the mortar picks the nearest
   enemy it knows of, and you pay for where the round lands). Optionally add one sentence that a
   right-click on an enemy picks the target for it.
-- [ ] Beats 3, 6 and 9 also name H; after Hold they name Hold, not halt (Hold plan, Task 3, Step 5).
-  Edit the beat text once, in whichever of the two plans lands second.
+- [ ] ~~Beats 3, 6 and 9 also name H; after Hold they name Hold, not halt.~~ *(Ruling (lead,
+  2026-10-11): H stays `halt`; those beats keep their H wording and their `halt` awaits.)*
 - [ ] Tutorial text locale: if `data/tutorial/` has a locale overlay, update it; `pnpm validate:data`.
 
 ---
@@ -296,7 +347,8 @@ order, beat 6 can teach it.
 **Model:** haiku.
 
 - [ ] `docs/HANDOVER.md` §1 and §4: GH-420 landed, the new pin values.
-- [ ] `docs/polish/commercial-polish-audit.md`: PA-08 to DONE (L1 was decided early Oct: no move-only order).
+- [ ] `docs/polish/commercial-polish-audit.md`: PA-08 to DONE. (Pre-flight 2, 2026-10-11: L1 was
+  reopened on 11 Oct and shipped as the N move, #535; do not re-state the old ruling.)
 - [ ] `CLAUDE.md` "Dev instruments": one line on `attack`, what it does to the closing rule, and that
   `cursorKey()` reads `attack-*` again over an identified enemy.
 
@@ -306,18 +358,18 @@ order, beat 6 can teach it.
 
 | pin | expected | reason |
 |---|---|---|
-| sim pins, flat and relief | **moved once**, Task 1 | one hashed per-unit column, `focusTarget` (plus its lost counter if T-D3 needs one: one commit for both) |
+| sim pins, flat, relief and orders (three since #537; Pre-flight 2, 2026-10-11) | **moved once**, Task 1 | one hashed per-unit column, `focusTarget` (plus its lost counter if T-D3 needs one: one commit for both) |
 | `pnpm balance` | byte-identical (R) | — |
 | `pnpm playtest` | byte-identical (R) | — |
-| `LADDER_CREDITS` / `CAMPAIGN_CREDITS` (5870) / `ROSTER_MAX` (31) / `GATES` | unchanged | — |
+| `LADDER_CREDITS` / `CAMPAIGN_CREDITS` (5917) / `ROSTER_MAX` (30) / `GATES` | unchanged | — |
 | golden baseline | unchanged (R) | no gated scenario issues an order |
 
 ## For the lead
 
-1. **Confirm T-D1–T-D7 and T-D9–T-D10** (T-D8 ruled, item 2), chiefly T-D3 (a lost focus walks to the last-seen position for 5 s, then
+1. **Confirm T-D1–T-D7 and T-D9–T-D10** (T-D8 ruled, item 2; dropped by ruling (lead, 2026-10-11); T-D3 kept by the same ruling), chiefly T-D3 (a lost focus walks to the last-seen position for 5 s, then
    ends), T-D4 (afterwards the unit is an arrived attack-mover) and T-D5 (slot 1 keeps its own target
    unless it can hurt the focus). **Recommended:** as written.
-2. **Hold and targeted fire (T-D8).** **RULED 11 Oct (lead), against the recommendation below:** a held
+2. **Hold and targeted fire (T-D8).** **Superseded, ruling (lead, 2026-10-11): T-D8 dropped with Hold's sim command.** **RULED 11 Oct (lead), against the recommendation below:** a held
    unit stays on Hold; it fires on an in-range target and refuses an out-of-range one with a reason
    line; it never moves. The original question: does an `attack` on a held unit release Hold (H-D2 as written),
    or does a held unit fire on its focus only while in reach and never move?
@@ -330,5 +382,6 @@ order, beat 6 can teach it.
    Reuse the attack-move sight for `attack` too, or draw a distinct sight? **Recommended:** reuse it in
    Stage 4; a distinct sight is an art call with its own mock (G1 order sights).
 
-L1 (move-only) is not a question: the lead ruled "no move-only order" in early October. Disengaging
-stays via Hold, `halt` and orders.
+~~L1 (move-only) is not a question: the lead ruled "no move-only order" in early October. Disengaging
+stays via Hold, `halt` and orders.~~ **Pre-flight 2 (2026-10-11):** L1 was reopened by the lead and
+shipped as #535 (N, then click: a plain `move`). Disengaging is that move, `halt`, or another order.

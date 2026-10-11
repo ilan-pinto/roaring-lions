@@ -60,6 +60,27 @@ and `detect-report.md`, `fix-sim2.mts` and `patch291.py` are gone.
 
 ---
 
+## Pre-flight 2 (2026-10-11), evening, against main 49715ff9
+
+Not in this evening's brief by name; checked because it lands first on 2 Nov and its Task 4 is the
+first Stage 4 re-pin. Read and grepped, not run.
+- **#537 edited `sim.ts`** (lead ruling, 11 Oct): `sweepOrder`/`wpSweep` columns, the halt branch,
+  `startRout`'s existing branch now clears `sweepOrder` (~L3603), and `stepSweep`'s gate. Task 4's
+  new "otherwise, hold" branch of `startRout` must clear **`sweepOrder`** beside `attackMove` (a routed
+  wave unit that rallies must not resume a sweep it was ordered before the rout).
+- **Three sim pins**: flat `1202444260`, relief `3354895120`, orders `2737216487` (`determinism.test.ts`
+  ~L438, ~L736, ~L845). Task 4's three `hashArray` lines move all three; Step 3's proof restores all
+  three; Step 4 writes three `Was` lines. The orders replay (three riflemen, ~L783) has no rout, so
+  its value should move for the columns only (R).
+- **`LADDER_CREDITS` = `CAMPAIGN_CREDITS` = 5917**, `ROSTER_MAX` 30 (#529, #537, #542). "The ladder
+  must stay 5870" (Tasks 1–2) reads **5917**; Task 1's Tel Marum I and Task 2's re-measure run the
+  30-seed harness (#539, #542; ~57 s locally), and every plan must still win 30/30.
+- **Ruling (lead, 2026-10-11): Hold's sim command is retired.** Nothing rebases onto Task 4's
+  `startRout` for Hold; the next Lane C landing after this plan is #540 (Wed 4 Nov, no sim pin), then
+  targeted fire (Thu 5 Nov), which re-pins on top of Task 4.
+
+---
+
 ## Pre-flight, 11 Oct (against main f2d5d9e8)
 
 Read and grepped, not run. No probe was re-measured: every "measured" figure in the tasks is still
@@ -727,7 +748,7 @@ final, by the lead's choice on 6 Oct, so it brings no further re-pin.
 | 0 | this plan, Tasks 1–3 (#279) | none | hash-neutral (measured) | `civilians.ts`, `mission.ts` |
 | 0 | FW Task 1 (#280 field) | none | hash-neutral: config, not state | `applySuppression`'s cover branch |
 | **1** | **this plan, Task 4 (#291)** | Task 4 | 3 per-unit columns | `applySuppression`'s signature and head, `startRout`, `hash()` |
-| **1b** | **Hold position** (lead, 6 Oct; `2026-10-06-hold-position.md`) | its Task 1, Wed 4 Nov | 1 per-unit column, `holdPos` | the command loop, `startRout` (a rout clears it), `stepSweep`, `hash()` |
+| ~~**1b**~~ | ~~**Hold position**~~ **retired, ruling (lead, 2026-10-11)**; #540 takes Wed 4 Nov and re-pins nothing | ~~its Task 1, Wed 4 Nov~~ | ~~1 per-unit column, `holdPos`~~ | the command loop, `startRout` (a rout clears it), `stepSweep`, `hash()` |
 | **2** | **FW Task 2** | FW Task 2 | 14 FW arrays (per structure, the site table, per unit) | `hash()`, per-structure SoA |
 | **3** | **E6 (#274), placed charge** | E6's sim commit | its per-structure columns | per-structure SoA, `splashDirect` blast |
 

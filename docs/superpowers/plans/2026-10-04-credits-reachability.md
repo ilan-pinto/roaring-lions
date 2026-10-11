@@ -46,6 +46,16 @@ below, each recorded in its commit:
 **Base:** read against `main` `434cad99` (v0.117.0). (M) is measured by the throwaway probe below;
 (R) is reasoned.
 
+**Pre-flight 2 (2026-10-11), against `main` `49715ff9`.** This plan has landed (#378, GH-330:
+`packages/app/src/campaign-pay.ts`, the two-campaign walk at `playtest.ts` ~L3110-3143). Nothing in
+#537, #535 or #534 touches it. What changed is the number it is relative to: `LADDER_CREDITS` =
+`CAMPAIGN_CREDITS` = **5917** (5736 here; 5870 at the morning pre-flight; then 5850 #529, 5947 #537, 5917 #542), so
+"campaign 2 pays 5736" now reads 5917. Since #542 the ladder is read from the 424242 run while
+`plan-sweep.ts` holds every winning plan on 30 seeds; a re-pin of `LADDER_CREDITS` (F1–F4, vehicle
+spacing) therefore runs the full harness, ~57 s locally, and the two-campaign walk follows it with no
+edit. The closing step ("after F4, re-run Task 6's catalogue and farming report") stands. No
+decision needed.
+
 ---
 
 ## Measured numbers (the probe)
@@ -289,7 +299,7 @@ later plan has a second figure to chase.
 |---|---|---|
 | sim pins (`determinism.test.ts`, flat and relief) | **no** | no sim file |
 | `pnpm balance` §5.7 win rates | **no** | no combat change |
-| `LADDER_CREDITS` (5736) | **no** | one campaign's values are unchanged; the reset changes what a SECOND campaign pays |
+| `LADDER_CREDITS` (5736 then; 5917 on `49715ff9`, Pre-flight 2) | **no** | one campaign's values are unchanged; the reset changes what a SECOND campaign pays |
 | `GATES`, roster pins | **no** | no outcome moves |
 | `CAMPAIGN_CREDITS` (new, app) | born at 5736 | tied to `LADDER_CREDITS` by text, so it moves only with it |
 | economy pins (F1's `ECONOMY_PIN*`) | not born yet | — |
