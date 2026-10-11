@@ -752,6 +752,36 @@ Defaults recorded with the recommendation; overturn any in review:
 
 ---
 
+## 11a. N0 outcome and what N1 inherits (11 Oct 2026)
+
+N0 landed as PR #543 (`feat/net-n0`, twelve tasks, subagent-driven, CI
+green; the red "Workers Builds" check on the branch is `versions upload`
+refusing the pending `net-v1` Durable Object migration, which only
+`wrangler deploy` from `main` applies). The ledger of its 42 rulings and the
+final review live in the project-manager session's scratchpad
+(`net-n0/progress.md`, `final-review.md`). A simulated match wrote about one
+SQLite row a second, inside the Workers Free plan. Deferred to N1, and owned
+by this design:
+
+- **Coordinate range checks on commands** — `validateCommand` checks ownership
+  only; a `move` to a point off the map is still queued and the sim clamps it.
+  N1 adds a map-bounds check in `ownership.ts`.
+- **Ownership of structure and tunnel ids** — `garrison`, `demolish` and
+  `chargeTunnel` check the unit ids, not the target; N1 adds "the structure
+  exists" and "the route exists" to the same check.
+- **Seat tiers onto the sim** — `SeatConfig.tiers` is carried and not applied;
+  N1's per-seat type registration (§7.1) is where it lands, for `brigade` kit.
+- **A Durable Object alarm instead of the ack heartbeat** (ruling R38) — the
+  ack is what detects a silent seat today; an alarm detects it without a
+  client's help and survives hibernation.
+- **Re-sent copies after a DO restart** (ruling R36) — the frame log can hold
+  duplicate copies of up to 19 ticks when the object restarts mid-frame;
+  `LockstepClock` discards them as `'duplicate'`, so no client runs one twice,
+  and N1 dedupes the log on write.
+- **Headless Firefox on CI has no WebGL2**, so the three-engine check reports
+  Chromium and WebKit only; a Firefox reading needs either a software GL flag
+  or a headed runner, and until then the cross-engine claim is two engines.
+
 ## 12. Testing and gates
 
 Every check here arrives with its falsification, per CLAUDE.md.
