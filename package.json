@@ -43,7 +43,9 @@
     "closeups:garage": "pnpm --filter @lions/tools closeups:garage",
     "gait:meshes": "pnpm --filter @lions/tools gait:meshes",
     "motion:meshes": "pnpm --filter @lions/tools motion:meshes",
-    "meshy": "pnpm --filter @lions/tools meshy --"
+    "meshy": "pnpm --filter @lions/tools meshy --",
+    "video": "pnpm --filter @lions/tools video --",
+    "stills:cinematics": "pnpm --filter @lions/tools stills:cinematics --"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",

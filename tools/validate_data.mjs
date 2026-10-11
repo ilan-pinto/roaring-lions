@@ -15,13 +15,14 @@
 //   every vfx palette_ref resolves to a real palette key — raw hex is how
 //   one contributor quietly breaks the contrast rule for the whole game.
 
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import AjvModule from 'ajv/dist/2020.js';
 import { elevationFailures } from './validate_map_grid.mjs';
 import { regionBiomeFailures } from './validate_biome.mjs';
 import { briefingFailures } from './validate_briefing.mjs';
+import { videoFailures } from './validate_video.mjs';
 import {
   commanderRankFailures,
   narrativeTextFailures,
@@ -1349,6 +1350,33 @@ if (palette) {
         failures.push(`${rel(file)}: ${path} references unknown palette key "${ref}"`);
       }
     }
+  }
+}
+
+// --- video provenance and size (tools/validate_video.mjs) -------------------
+// Every file under assets/video/ needs an entry in data/video.json saying who
+// made it, with what, under which terms, and whether it may ship in a sold
+// build; `--commercial` fails every entry that may not. Size budgets live in
+// validate_video.mjs. docs/cinematics/README.md has the workflow.
+{
+  const COMMERCIAL = process.argv.includes('--commercial');
+  const videoDir = join(ROOT, 'assets/video');
+  const onDisk = existsSync(videoDir)
+    ? readdirSync(videoDir)
+        .filter((f) => !f.startsWith('.'))
+        .map((f) => ({ path: `video/${f}`, bytes: statSync(join(videoDir, f)).size }))
+    : [];
+  const referenced = [];
+  for (const f of readdirSync(join(ROOT, 'data/missions')).filter((x) => x.endsWith('.json'))) {
+    const m = loadJson(join(ROOT, 'data/missions', f));
+    if (m && typeof m.briefing_video === 'string') referenced.push(m.briefing_video);
+  }
+  const manifestPath = join(ROOT, 'data/video.json');
+  const manifest = existsSync(manifestPath) ? loadJson(manifestPath) : null;
+  if (manifest === null && onDisk.length > 0) failures.push('data/video.json: missing, and assets/video/ has files');
+  else if (manifest !== null) {
+    failures.push(...videoFailures(manifest, onDisk, referenced, { commercial: COMMERCIAL }));
+    checked++;
   }
 }
 

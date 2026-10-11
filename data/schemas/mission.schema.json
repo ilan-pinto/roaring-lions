@@ -111,7 +111,7 @@
     "briefing_video": {
       "type": "string",
       "pattern": "^video/[a-z0-9_]+\\.(mp4|webm)$",
-      "description": "A short cinematic shown on the deploy screen above the briefing beats, as a path under assets/ (served by Vite's public dir). Optional; the beats and the deploy button are unchanged with or without it. validate_data.mjs checks the file exists."
+      "description": "A short cinematic shown on the deploy screen above the briefing beats, as a path under assets/ (served by Vite's public dir). Optional; the beats and the deploy button are unchanged with or without it. validate_data.mjs checks the file exists and that data/video.json records its provenance (tools/validate_video.mjs)."
     },
     "dispatch": {
       "type": "string",
