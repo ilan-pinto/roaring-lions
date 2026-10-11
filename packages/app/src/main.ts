@@ -3110,16 +3110,22 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         const a = resolveKey(bindings, ev);
         return a === 'panUp' || a === 'panDown' || a === 'panLeft' || a === 'panRight';
       },
-      onRestart: () => {
-        void confirmDialog(document.body, {
-          title: t('pause.restart.confirm.title'),
-          body: t('pause.restart.confirm.body'),
-          confirm: t('pause.restart.confirm.action'),
-          danger: true,
-        }).answer.then((ok) => {
-          if (ok) req.restart();
-        });
-      },
+      // No Restart in a room (N0): it re-navigates with the boot's own query,
+      // which after `?net=new` opens a SECOND room and freezes the other seat.
+      ...(netSeat === null
+        ? {
+            onRestart: () => {
+              void confirmDialog(document.body, {
+                title: t('pause.restart.confirm.title'),
+                body: t('pause.restart.confirm.body'),
+                confirm: t('pause.restart.confirm.action'),
+                danger: true,
+              }).answer.then((ok) => {
+                if (ok) req.restart();
+              });
+            },
+          }
+        : {}),
       onQuit: () => {
         // Same wording as the HUD's own "leave the mission" confirm
         // (hud.ts's leaveBtn) -- both ask the identical question.
@@ -5442,8 +5448,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // would have run, and 0 runs none while the frame still draws, so the
     // camera and the selection stay live in a pause. `paused` stops the
     // accumulator itself (Task 6) -- `__lions.step` bypasses this whole loop
-    // and calls `runTick` directly, so it still advances the sim while paused,
-    // which the tools depend on.
+    // and runs the same per-frame body (`stepFrames`) on its own count, so it
+    // still advances the sim while paused, which the tools depend on. A room
+    // has no `step`: there the room's frames are the only clock (R33).
     // PA-07: the held beat holds the accumulator (the mission has ended) and
     // eases the PRESENTATION clock alone; the sim is neither slowed nor
     // ticked by it.
