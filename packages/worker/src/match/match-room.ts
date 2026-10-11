@@ -7,19 +7,46 @@
  * `ensureClock()` from every handler so an eviction never strands a running
  * match (Review Focus 5). N0 has no alarms: the six-hour TTL is checked at the
  * start of every handler as well as on the clock.
+ *
+ * Storage is budgeted for Workers Free (task 8b, R34): a running match writes
+ * about one row a second. Frames persist as one `batch` row per
+ * `BATCH_TICKS` ticks, written when the batch closes; the open batch lives in
+ * memory and `log` answers from both. The room state is written only when
+ * its lifecycle changes (`persistKey`: create, seats joining, going, readying,
+ * start, stall and resume, end), never per tick, ack, command or hash -- and
+ * every such write first flushes the open batch, so the persisted frames
+ * always reach the persisted state's tick.
+ *
+ * What an eviction costs, and why it is safe: a revived room continues at
+ * `max(state.tick, end of the last persisted batch)` (`revive`). The frames
+ * after that point were sent but never persisted, so the room sends those
+ * ticks again; both clients already hold the originals and drop the copies as
+ * duplicates (`LockstepClock`), so any command the revived room stamps into
+ * them is lost on BOTH clients alike and nobody desyncs. Pending commands,
+ * acks, half hash pairs and the open batch were memory only; acks and hashes
+ * are re-earned. One residue: for those re-sent ticks the log now holds the
+ * revived room's copies, so a client that later rejoins from a RELOAD (a fresh
+ * clock, which replays the whole log) would run them instead of the
+ * originals -- a desync only if either copy carried a command. A stall's
+ * lifecycle write flushes the open batch, so an eviction during a stall (the
+ * likeliest moment for a long idle) re-sends nothing. (Before 8b every frame
+ * reached SQLite before any socket.)
  */
 import { parseClientMsg, validateConfig, REPLACED_CLOSE_CODE, type ClientMsg, type Frame, type MatchConfig, type Seat, type SeatConfig, type ServerMsg } from '@lions/net';
 import type { Env } from '../d1';
 import type { DurableStateLike, HibernatingSocket, UpgradeInit } from '../do-types';
-import { createRoom, seatJoin, seatMessage, seatGone, clockTick, expire, type Effect, type RoomState } from './room-core';
+import { createRoom, seatJoin, seatMessage, seatGone, clockTick, expire, persistKey, revive, type Effect, type RoomState } from './room-core';
 import { verifyTicket } from './ticket';
 import { DEFAULT_MAP, textField } from './room-fields';
 
 export const TICK_MS = 50;
 const SIM_SEED_N0 = 20260727;   // the app's SIM_SEED; N1 mints one per match
-const CREATE_SQL = 'CREATE TABLE IF NOT EXISTS frame (tick INTEGER PRIMARY KEY, cmds TEXT NOT NULL)';
-const INSERT_SQL = 'INSERT OR REPLACE INTO frame (tick, cmds) VALUES (?, ?)';
-const SELECT_SQL = 'SELECT tick, cmds FROM frame ORDER BY tick';
+/** Frames per persisted row: one row a second at the 20 Hz tick. */
+export const BATCH_TICKS = 20;
+const CREATE_SQL = 'CREATE TABLE IF NOT EXISTS batch (first_tick INTEGER PRIMARY KEY, frames TEXT NOT NULL)';
+const UPSERT_SQL = 'INSERT OR REPLACE INTO batch (first_tick, frames) VALUES (?, ?)';
+const SELECT_SQL = 'SELECT first_tick, frames FROM batch ORDER BY first_tick';
+const LAST_SQL = 'SELECT first_tick, frames FROM batch ORDER BY first_tick DESC LIMIT 1';
 
 /** What `/create` fixed and `/join` reserved; stored beside the room state. */
 interface RoomMeta {
@@ -58,6 +85,10 @@ export class MatchRoom {
   private meta: RoomMeta | null = null;
   private loading: Promise<RoomState | null> | null = null;
   private clock: ReturnType<typeof setInterval> | null = null;
+  /** The batch not yet closed: memory only, until it closes or the state is written. */
+  private open: Frame[] = [];
+  /** `persistKey` of the state as last written (or loaded). */
+  private savedKey: string | null = null;
 
   constructor(private readonly ctx: DurableStateLike, private readonly env: Env) {
     this.ctx.storage.sql.exec(CREATE_SQL);
@@ -71,18 +102,48 @@ export class MatchRoom {
     if (this.st) return Promise.resolve(this.st);
     this.loading ??= (async () => {
       this.meta = (await this.ctx.storage.get<RoomMeta>('meta')) ?? null;
-      this.st = (await this.ctx.storage.get<RoomState>('state')) ?? null;
+      const st = (await this.ctx.storage.get<RoomState>('state')) ?? null;
+      if (st) {
+        const [lastRow] = this.batches(LAST_SQL);
+        revive(st, lastRow ? lastRow.firstTick + lastRow.frames.length : 0, Date.now());
+        this.savedKey = persistKey(st);
+      }
+      this.st = st;
       this.loading = null;
       return this.st;
     })();
     return this.loading;
   }
+  /** The state, and the open batch with it. */
   private async save(): Promise<void> {
-    if (this.st) await this.ctx.storage.put('state', this.st);
+    if (!this.st) return;
+    this.writeOpenBatch();
+    await this.ctx.storage.put('state', this.st);
+    this.savedKey = persistKey(this.st);
   }
+  private async saveIfChanged(): Promise<void> {
+    if (this.st && persistKey(this.st) !== this.savedKey) await this.save();
+  }
+  /** Rewrites the open batch's row in place until it closes. */
+  private writeOpenBatch(): void {
+    const first = this.open[0];
+    if (first) this.ctx.storage.sql.exec(UPSERT_SQL, first.tick, JSON.stringify(this.open));
+  }
+  private record(frame: Frame): void {
+    this.open.push(frame);
+    if (this.open.length < BATCH_TICKS) return;
+    this.writeOpenBatch();
+    this.open = [];
+  }
+  private batches(query = SELECT_SQL): { firstTick: number; frames: Frame[] }[] {
+    return this.ctx.storage.sql.exec(query).toArray()
+      .map((r) => ({ firstTick: r.first_tick as number, frames: JSON.parse(r.frames as string) as Frame[] }));
+  }
+  /** Every frame so far: the persisted batches, then the open one (whose
+   *  partial row, if a state write flushed one, the memory copy supersedes). */
   private readLog(): Frame[] {
-    return this.ctx.storage.sql.exec(SELECT_SQL).toArray()
-      .map((r) => ({ tick: r.tick as number, cmds: JSON.parse(r.cmds as string) as Frame['cmds'] }));
+    const openFirst = this.open[0]?.tick;
+    return [...this.batches().filter((b) => b.firstTick !== openFirst).flatMap((b) => b.frames), ...this.open];
   }
   /** Every handler starts here: load, then the TTL (R28). */
   private async begin(): Promise<RoomState | null> {
@@ -120,15 +181,15 @@ export class MatchRoom {
     }
   }
   /** `keep` is the socket whose hello produced these effects: a `close` for
-   *  its seat closes every OTHER socket on that seat. A frame reaches SQLite
-   *  before it reaches a socket. */
+   *  its seat closes every OTHER socket on that seat. The state is written
+   *  only if its lifecycle changed. */
   private async apply(effects: Effect[], keep?: WebSocket): Promise<void> {
     for (const e of effects) {
-      if (e.kind === 'frame') this.ctx.storage.sql.exec(INSERT_SQL, e.frame.tick, JSON.stringify(e.frame.cmds));
+      if (e.kind === 'frame') this.record(e.frame);
       else if (e.kind === 'send') this.send(e.to, e.msg);
       else for (const ws of this.socketsFor(e.seat)) if (ws !== keep) retire(ws);
     }
-    await this.save();
+    await this.saveIfChanged();
   }
   private ensureClock(): void {
     const st = this.st;

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { MatchConfig } from '@lions/net';
-import { createRoom, seatJoin, seatMessage, seatGone, clockTick, expire, ACK_EVERY, STALL_BEHIND_TICKS, STALL_SILENT_MS, type RoomState, type Effect } from './room-core';
+import { createRoom, seatJoin, seatMessage, seatGone, clockTick, expire, persistKey, revive, ACK_EVERY, STALL_BEHIND_TICKS, STALL_SILENT_MS, type RoomState, type Effect } from './room-core';
 
 const CONFIG: MatchConfig = {
   matchId: 'm1', code: 'ABCDEF', seed: 7, map: 'beit_sahwan_outskirts', mode: 'sandbox',
@@ -233,5 +233,53 @@ describe('room-core', () => {
     seatJoin(st, 0, 'p0', 'Host', 0);
     seatMessage(st, 0, { t: 'hash', tick: 20, h: 1 }, 0, mint);
     expect(st.hashes).toEqual({});
+  });
+
+  it('persistKey moves with the lifecycle and never with per-tick traffic', () => {
+    const st = running();
+    const key = persistKey(st);
+    clockTick(st, 50);
+    seatMessage(st, 0, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [1] } }, 60, mint);
+    seatMessage(st, 0, { t: 'ack', tick: 0 }, 60, mint);
+    seatMessage(st, 0, { t: 'hash', tick: 0, h: 1 }, 60, mint);
+    expect(persistKey(st)).toBe(key);
+    const lifecycle: [string, (s: RoomState) => void][] = [
+      ['status', (s) => { s.status = 'ended'; }],
+      ['stall', (s) => { s.stall = { reason: 'gone', seat: 1 }; }],
+      ['stall cause', (s) => { s.stall = { reason: 'behind', seat: 0 }; }],
+      ['ended reason', (s) => { s.endedReason = 'left'; }],
+      ['config', (s) => { s.config = null; }],
+      ['connected', (s) => { if (s.seats[1]) s.seats[1].connected = false; }],
+      ['ready', (s) => { if (s.seats[0]) s.seats[0].ready = false; }],
+      ['callsign', (s) => { if (s.seats[0]) s.seats[0].callsign = 'Other'; }],
+      ['player', (s) => { if (s.seats[1]) s.seats[1].player = 'p9'; }],
+      ['seat', (s) => { s.seats[1] = null; }],
+    ];
+    st.stall = { reason: 'gone', seat: 0 };
+    const stalledKey = persistKey(st);
+    for (const [name, change] of lifecycle) {
+      const copy = structuredClone(st);
+      change(copy);
+      expect(persistKey(copy), name).not.toBe(stalledKey);
+    }
+  });
+
+  it('revive continues at the persisted frames, re-earns acks and silence, and never stamps a command twice', () => {
+    const st = running();
+    seatMessage(st, 0, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [1] } }, 0, mint);
+    // Stored while tick 5 was next: the command went into frame 5, which a closed batch holds.
+    st.tick = 5;
+    revive(st, 20, 9000);
+    expect(st.tick).toBe(20);
+    expect(st.pending).toEqual([]);
+    expect(st.seats.map((s) => [s?.lastAck, s?.lastSeenMs])).toEqual([[19, 9000], [19, 9000]]);
+    expect(clockTick(st, 9050).map((e) => e.kind)).toEqual(['frame', 'send']);   // no stall
+    // Frames persisted exactly up to the state's tick: its pending commands were never stamped.
+    const fresh = running();
+    seatMessage(fresh, 1, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [2] } }, 0, mint);
+    fresh.tick = 7;
+    revive(fresh, 7, 0);
+    expect(fresh.tick).toBe(7);
+    expect(fresh.pending).toHaveLength(1);
   });
 });
