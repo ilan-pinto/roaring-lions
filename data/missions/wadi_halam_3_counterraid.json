@@ -237,7 +237,23 @@
     ],
     "waves": [
       {
-        "at_seconds": 90,
+        "at_seconds": 50,
+        "to": "pump_house",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 1,
+            "from": "rif_east"
+          },
+          {
+            "unit": "moto_rpg",
+            "count": 1,
+            "from": "rif_east"
+          }
+        ]
+      },
+      {
+        "at_seconds": 80,
         "to": "pump_house",
         "units": [
           {
@@ -248,7 +264,34 @@
         ]
       },
       {
-        "at_seconds": 200,
+        "at_seconds": 110,
+        "to": "pump_house",
+        "units": [
+          {
+            "unit": "moto_rpg",
+            "count": 2,
+            "from": "rif_south"
+          }
+        ]
+      },
+      {
+        "at_seconds": 140,
+        "to": "pump_house",
+        "units": [
+          {
+            "unit": "rpg_team",
+            "count": 1,
+            "from": "hide_south"
+          },
+          {
+            "unit": "militia_cell",
+            "count": 1,
+            "from": "hide_south"
+          }
+        ]
+      },
+      {
+        "at_seconds": 175,
         "to": "pump_house",
         "units": [
           {
@@ -263,6 +306,76 @@
           }
         ],
         "say": { "speaker": "idit", "text": "Second counter-raid, and it is going for the pump house rather than for you. They want the pasture back more than they want the fight." }
+      },
+      {
+        "at_seconds": 205,
+        "to": "pump_house",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 1,
+            "from": "rif_east"
+          },
+          {
+            "unit": "moto_rpg",
+            "count": 1,
+            "from": "rif_east"
+          }
+        ]
+      },
+      {
+        "at_seconds": 235,
+        "to": "pump_house",
+        "units": [
+          {
+            "unit": "moto_rpg",
+            "count": 2,
+            "from": "rif_south"
+          }
+        ]
+      },
+      {
+        "at_seconds": 265,
+        "to": "pump_house",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 1,
+            "from": "rif_east"
+          },
+          {
+            "unit": "moto_rpg",
+            "count": 1,
+            "from": "rif_east"
+          }
+        ]
+      },
+      {
+        "at_seconds": 295,
+        "to": "pump_house",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 1,
+            "from": "rif_south"
+          },
+          {
+            "unit": "moto_rpg",
+            "count": 1,
+            "from": "rif_south"
+          }
+        ]
+      },
+      {
+        "at_seconds": 325,
+        "to": "pump_house",
+        "units": [
+          {
+            "unit": "moto_rpg",
+            "count": 2,
+            "from": "rif_east"
+          }
+        ]
       }
     ]
   },

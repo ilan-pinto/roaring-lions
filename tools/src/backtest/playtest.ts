@@ -691,8 +691,8 @@ const led3 = run(
 // ambushes for the picture, and hold the ford watch uncontested for 20s.
 // The drone tours the bank/bund/hide side of the wadi so the picture comes
 // from four *different* enemies rather than two ambushes seen twice.
-// `take_ford` is a four-minute hold, contested by three waves out of the
-// east (90s, 210s, 225s) -- so the screen has to actually stand on the
+// `take_ford` is a four-minute hold, contested by six waves out of the
+// east (90s to 265s, GH-90) -- so the screen has to actually stand on the
 // ford watch and fight, not merely visit it for twenty seconds. Re-anchors
 // on the same schedule as II and III, for the same reason: a wave that
 // breaks and runs pulls a pursuing force past the zone edge and the hold
@@ -978,8 +978,11 @@ run('wadi_halam_4_village', () => {}, wh3, 'defeat', 'wadi_halam_4_village (no o
 // immediately, the same as a player who is not deliberately stalling
 // would send them. The raze itself is fast (D9: 2400 HP, nothing in this
 // mission's roster can penetrate it, blade demolition 2s/structure) -- the
-// four escalated waves and three interior defenders now matter for the
-// *hold*, not for slowing the demolition down.
+// six waves (two added at 265 s and 300 s for GH-90) and three interior
+// defenders now matter for the *hold*, not for slowing the demolition down.
+// The second engineer team the mission reinforces at 75 s (GH-93, the
+// fallback for a lost D9) is never ordered here: this plan's demolishers
+// are captured at t=0 and do not need it.
 //
 // The demolish orders are issued straight from the start -- no staging move
 // to the gate first, no polling for arrival. `Sim.applyCommands` now snaps a
@@ -3192,7 +3195,11 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // 5868 -> 5870, +2, read off the printed per-mission credits: Qarn Hadid III 219 -> 221 (ROE
 // 94 -> 96), its six warehouse tiles on row 15 now sheds and pump houses (ROE penalty 2, not
 // 3). Khan Rafid II and Umm Zeitoun IV read the same. No star moved.
-const LADDER_CREDITS = 5870;
+// 2026-10-11, Wadi Halam pacing (GH-90, GH-93; docs/campaign/wadi_halam/pacing-2026-10.md):
+// 5870 -> 5820, -50, every term on the Wadi Halam chain and nothing else: II 180 -> 170, III
+// 170 -> 150, V 200 -> 180 (I and IV read 160 and 170 as before). The holds are contested every
+// 30-45 s now, so the force brings fewer units home; ROE stays 100/100/70/100 and no star moved.
+const LADDER_CREDITS = 5820;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);

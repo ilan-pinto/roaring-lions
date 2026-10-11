@@ -252,6 +252,28 @@
         "say": { "speaker": "idit", "text": "Motorcycles off the southern track. Ninety seconds of quiet and then something every fifteen — that is the cadence, and it does not change." }
       },
       {
+        "at_seconds": 135,
+        "to": "ford_north",
+        "units": [
+          {
+            "unit": "moto_rpg",
+            "count": 1,
+            "from": "rif_north"
+          }
+        ]
+      },
+      {
+        "at_seconds": 170,
+        "to": "ford_south",
+        "units": [
+          {
+            "unit": "moto_rpg",
+            "count": 1,
+            "from": "rif_south"
+          }
+        ]
+      },
+      {
         "at_seconds": 210,
         "to": "ford_north",
         "units": [
@@ -278,6 +300,17 @@
           }
         ],
         "say": { "speaker": "idit", "text": "Both fords at once now. They are not trying to hold the crossing — they are pricing the four minutes you agreed to sit on it." }
+      },
+      {
+        "at_seconds": 265,
+        "to": "ford_north",
+        "units": [
+          {
+            "unit": "moto_rpg",
+            "count": 2,
+            "from": "rif_north"
+          }
+        ]
       }
     ]
   },

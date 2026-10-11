@@ -301,6 +301,33 @@
             "from": "rif_south"
           }
         ]
+      },
+      {
+        "at_seconds": 265,
+        "to": "depot_gate",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 1,
+            "from": "rif_east"
+          },
+          {
+            "unit": "moto_rpg",
+            "count": 1,
+            "from": "rif_east"
+          }
+        ]
+      },
+      {
+        "at_seconds": 300,
+        "to": "depot_gate",
+        "units": [
+          {
+            "unit": "moto_rpg",
+            "count": 2,
+            "from": "rif_south"
+          }
+        ]
       }
     ]
   },
@@ -317,6 +344,24 @@
         "to": "depot_gate"
       },
       "say": { "speaker": "enemy", "text": "Everything that ever crossed this basin crossed it on that road. The yard can be rebuilt in a season. The road was here before the yard and it will be here after it." }
+    },
+    {
+      "id": "the_second_engineer_team_comes_up",
+      "label": "Second engineer team comes up the road",
+      "on": {
+        "kind": "timer_s",
+        "value": 75
+      },
+      "do": {
+        "kind": "reinforce",
+        "units": [
+          {
+            "unit": "demo_squad",
+            "count": 1,
+            "marker": "kdf_crossing"
+          }
+        ]
+      }
     }
   ]
 }

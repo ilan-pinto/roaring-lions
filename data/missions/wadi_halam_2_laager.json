@@ -160,7 +160,7 @@
       "label": "Technicals raid from the north",
       "on": {
         "kind": "timer_s",
-        "value": 60
+        "value": 30
       },
       "do": {
         "kind": "spawn",
@@ -188,11 +188,43 @@
       }
     },
     {
+      "id": "fighters_off_the_north_hide",
+      "label": "Fighters work down from the north hide",
+      "on": {
+        "kind": "timer_s",
+        "value": 45
+      },
+      "do": {
+        "kind": "spawn",
+        "units": [
+          {
+            "unit": "militia_cell",
+            "count": 2,
+            "marker": "hide_north",
+            "group": "raiders",
+            "stance": {
+              "kind": "patrol",
+              "waypoints": [
+                [
+                  30.5,
+                  8.5
+                ],
+                [
+                  20.5,
+                  24.5
+                ]
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
       "id": "riders_out_of_the_south",
       "label": "Riders raid from the south",
       "on": {
         "kind": "timer_s",
-        "value": 150
+        "value": 80
       },
       "do": {
         "kind": "spawn",
@@ -219,6 +251,175 @@
           {
             "unit": "technical",
             "count": 1,
+            "marker": "rif_south",
+            "group": "raiders",
+            "stance": {
+              "kind": "patrol",
+              "waypoints": [
+                [
+                  38.5,
+                  46.5
+                ],
+                [
+                  20.5,
+                  24.5
+                ]
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "rpgs_along_the_south_bunds",
+      "label": "RPG teams creep up the south bunds",
+      "on": {
+        "kind": "timer_s",
+        "value": 105
+      },
+      "do": {
+        "kind": "spawn",
+        "units": [
+          {
+            "unit": "rpg_team",
+            "count": 1,
+            "marker": "hide_south",
+            "group": "raiders",
+            "stance": {
+              "kind": "patrol",
+              "waypoints": [
+                [
+                  30.5,
+                  40.5
+                ],
+                [
+                  20.5,
+                  24.5
+                ]
+              ]
+            }
+          },
+          {
+            "unit": "militia_cell",
+            "count": 1,
+            "marker": "hide_south",
+            "group": "raiders",
+            "stance": {
+              "kind": "patrol",
+              "waypoints": [
+                [
+                  30.5,
+                  40.5
+                ],
+                [
+                  20.5,
+                  24.5
+                ]
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "riders_back_from_the_north",
+      "label": "Riders come back off the north",
+      "on": {
+        "kind": "timer_s",
+        "value": 140
+      },
+      "do": {
+        "kind": "spawn",
+        "units": [
+          {
+            "unit": "moto_rpg",
+            "count": 2,
+            "marker": "rif_north",
+            "group": "raiders",
+            "stance": {
+              "kind": "patrol",
+              "waypoints": [
+                [
+                  38.5,
+                  1.5
+                ],
+                [
+                  20.5,
+                  24.5
+                ]
+              ]
+            }
+          },
+          {
+            "unit": "technical",
+            "count": 1,
+            "marker": "rif_north",
+            "group": "raiders",
+            "stance": {
+              "kind": "patrol",
+              "waypoints": [
+                [
+                  38.5,
+                  1.5
+                ],
+                [
+                  20.5,
+                  24.5
+                ]
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "fighters_up_from_the_well",
+      "label": "Fighters come up from the well",
+      "on": {
+        "kind": "timer_s",
+        "value": 170
+      },
+      "do": {
+        "kind": "spawn",
+        "units": [
+          {
+            "unit": "militia_cell",
+            "count": 2,
+            "at": [
+              24.5,
+              39.5
+            ],
+            "group": "raiders",
+            "stance": {
+              "kind": "patrol",
+              "waypoints": [
+                [
+                  24.5,
+                  39.5
+                ],
+                [
+                  20.5,
+                  24.5
+                ]
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "technicals_up_from_the_south",
+      "label": "Technicals come up from the south",
+      "on": {
+        "kind": "timer_s",
+        "value": 205
+      },
+      "do": {
+        "kind": "spawn",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 2,
             "marker": "rif_south",
             "group": "raiders",
             "stance": {
@@ -266,6 +467,25 @@
                 ]
               ]
             }
+          },
+          {
+            "unit": "moto_rpg",
+            "count": 1,
+            "marker": "rif_east",
+            "group": "raiders",
+            "stance": {
+              "kind": "patrol",
+              "waypoints": [
+                [
+                  46.5,
+                  24.5
+                ],
+                [
+                  20.5,
+                  24.5
+                ]
+              ]
+            }
           }
         ]
       },
@@ -276,7 +496,7 @@
       "label": "Motorcycles raid from the south",
       "on": {
         "kind": "timer_s",
-        "value": 330
+        "value": 265
       },
       "do": {
         "kind": "spawn",
@@ -292,6 +512,165 @@
                 [
                   38.5,
                   46.5
+                ],
+                [
+                  20.5,
+                  24.5
+                ]
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "rpgs_off_the_north_hide",
+      "label": "RPG teams close from the north hide",
+      "on": {
+        "kind": "timer_s",
+        "value": 290
+      },
+      "do": {
+        "kind": "spawn",
+        "units": [
+          {
+            "unit": "rpg_team",
+            "count": 1,
+            "marker": "hide_north",
+            "group": "raiders",
+            "stance": {
+              "kind": "patrol",
+              "waypoints": [
+                [
+                  30.5,
+                  8.5
+                ],
+                [
+                  20.5,
+                  24.5
+                ]
+              ]
+            }
+          },
+          {
+            "unit": "militia_cell",
+            "count": 1,
+            "marker": "hide_north",
+            "group": "raiders",
+            "stance": {
+              "kind": "patrol",
+              "waypoints": [
+                [
+                  30.5,
+                  8.5
+                ],
+                [
+                  20.5,
+                  24.5
+                ]
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "riders_round_from_the_east",
+      "label": "Riders swing round from the east",
+      "on": {
+        "kind": "timer_s",
+        "value": 320
+      },
+      "do": {
+        "kind": "spawn",
+        "units": [
+          {
+            "unit": "moto_rpg",
+            "count": 2,
+            "marker": "rif_east",
+            "group": "raiders",
+            "stance": {
+              "kind": "patrol",
+              "waypoints": [
+                [
+                  46.5,
+                  24.5
+                ],
+                [
+                  20.5,
+                  24.5
+                ]
+              ]
+            }
+          },
+          {
+            "unit": "technical",
+            "count": 1,
+            "marker": "rif_east",
+            "group": "raiders",
+            "stance": {
+              "kind": "patrol",
+              "waypoints": [
+                [
+                  46.5,
+                  24.5
+                ],
+                [
+                  20.5,
+                  24.5
+                ]
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "fighters_again_from_the_well",
+      "label": "More fighters up from the well",
+      "on": {
+        "kind": "timer_s",
+        "value": 350
+      },
+      "do": {
+        "kind": "spawn",
+        "units": [
+          {
+            "unit": "militia_cell",
+            "count": 1,
+            "at": [
+              24.5,
+              39.5
+            ],
+            "group": "raiders",
+            "stance": {
+              "kind": "patrol",
+              "waypoints": [
+                [
+                  24.5,
+                  39.5
+                ],
+                [
+                  20.5,
+                  24.5
+                ]
+              ]
+            }
+          },
+          {
+            "unit": "rpg_team",
+            "count": 1,
+            "at": [
+              24.5,
+              39.5
+            ],
+            "group": "raiders",
+            "stance": {
+              "kind": "patrol",
+              "waypoints": [
+                [
+                  24.5,
+                  39.5
                 ],
                 [
                   20.5,
