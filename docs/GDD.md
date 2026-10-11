@@ -313,20 +313,28 @@ Target 300–600 simultaneous units at 60 fps. Struct-of-arrays layout over type
 
 **AI-generated art policy:** permitted, including for shipped assets. **Disclosure is required in the PR description** wherever generative tools were used. Everything still passes the same gates as any other art — palette, binary alpha, silhouette, and the redistribution-rights requirement in ART_PIPELINE §7 — so the standard is the output, not the tool. The reasoning lives in `CONTRIBUTING.md` alongside the rule, because stated reasoning survives contributor turnover in a way a bare policy line does not.
 
-**Monetisation: two currencies, and money buys nothing that plays.** This is G7's rule
-(#199), approved by the lead on 2026-09-29 and written up in WP-ST8
-(`docs/superpowers/specs/2026-09-28-st8-monetisation-content-plan.md`).
+**Monetisation: two currencies, and money buys no win against a person.** G7's rule (#199,
+approved 2026-09-29), as amended by the lead's rulings of 2026-10-01 and 2026-10-11 and written
+up in WP-ST8 revision 2 (`docs/superpowers/specs/2026-10-11-monetisation-content-plan.md`).
 
 - **Brigade credits** are earned only, by play, and are never sold, granted for money or
   converted from anything bought. They buy units, including the bought-only special forces,
   and upgrade tiers.
-- **A second, cosmetic currency, Roar coins,** is the only thing Steam Wallet sells.
-- Roar coins buy **only cosmetics**: faction liveries, unit badges and episodic operation passes.
-- Roar coins buy **no unit, no upgrade, no brigade credit, no Conduct tier and no Conduct
-  advantage**, directly or through anything they buy.
+- **A second currency, Roar coins,** is the only thing Steam Wallet sells. Coins never become
+  credits.
+- Roar coins buy **cosmetics** (brigade liveries, unit badges, command-post dressing) and
+  **operation passes**, the cosmetic track of an operation whose missions stay free.
+- Roar coins also buy **single-player early access**, kept fenced by the lead on 2026-10-11:
+  single player only; coins unlock early only what play can also reach; never usable in a match
+  against a person; never affects a score. That includes the Conduct-gated units (ruled
+  2026-10-11), so Conduct gating is skippable with money in single player; Conduct points,
+  floors, forgiveness, the rating and the grade are never sold.
+- **Network play.** Public and ranked rooms, and any room on matched kit, ignore everything a
+  player owns. A friends' room whose host turns on "bring your brigade" uses everything each
+  player owns, earned and bought (ruled 2026-10-11).
 
-Every mission is free, and a store item is listed only if it passes the written test in that
-spec (§1.1).
+Every mission is free, nothing sold is random, and a store item is listed only if it passes
+the written test in that spec (§2) and its guards (§7).
 
 ---
 

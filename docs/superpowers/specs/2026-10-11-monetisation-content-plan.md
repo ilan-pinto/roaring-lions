@@ -1,10 +1,16 @@
 # The monetisation content plan, non-pay-to-win — design (WP-ST8, #207, revision 2)
 
-**Date:** 2026-10-11 · **Status:** draft for the lead. The lead pulled ST8 forward on
-2026-10-11. Docs only: no code, no data, and the sim is untouched.
-**Supersedes, once the lead answers §10:** the catalogue, pricing and guardrail sections of
+**Date:** 2026-10-11 · **Status:** the spec. The lead pulled ST8 forward on 2026-10-11 and
+ruled the same day on D1–D5 (§10): early access **kept, fenced** (D1); coins **may** open
+Conduct-gated units in single player (D2, reversed); the economy documents made to agree in
+this PR (D3); "bring your brigade" uses **everything the player owns**, in friends' rooms only
+(D4, reversed); paid-art storage **deferred** to the Steam stage (D5). D6–D10 are recommended,
+not yet ruled. Docs only: no code, no data, and the sim is untouched.
+**Supersedes:** the catalogue, pricing and guardrail sections of
 `2026-09-28-st8-monetisation-content-plan.md` (revision 1, #270). Its store-item test (T1–T11)
-and its never-sell list are carried forward here, amended where §1 says so.
+and its never-sell list are carried forward here, amended where §1 says so. **Amends, in this
+PR (D3):** GDD §9, brigade spec D6 and §4.6, `prices.md` §8, revision 1 §1, and the coin shop
+spec's network ruling (its §0.1 item 3), so the tree states the economy once.
 **Reads against:** G7 (#199, approved 29 Sep); the Roar coin shop design
 (`2026-10-01-roar-coin-shop-design.md`, #329) and the lead's 30 Sep and 1 Oct rulings in it;
 the shipped Stores (#349) and TEST coins (#351); the brigade economy
@@ -27,14 +33,14 @@ So the tree states the economy two ways today.
 | # | Finding | Where |
 |---|---|---|
 | F1 | **Four documents say coins buy no unit, and the code sells units for coins.** GDD §9, brigade spec D6 and §4.6, `prices.md` §8 and revision 1 §1 say Roar coins buy only cosmetics. The coin shop spec §0.1 and the shipped Stores say coins buy unit unlocks, the E5 units and every upgrade rung | `docs/GDD.md` §9; `packages/app/src/ui/stores-model.ts`; `packages/app/src/roar-test.ts` |
-| F2 | **Coins open Conduct gates.** A credit price already opens a Conduct-gated unit (`unlock.ts`'s gate sentence: "Conduct N, or buy for P credits"), and coins replace the credit price, so nine units gated at Conduct 70–90 (`recon_drone` 70 to `mbt_lavi` 90) open for coins with no Conduct at all. G7 rejected selling credits for exactly this reason: "a purchasable credit makes a Conduct floor purchasable, which is the one thing the grade is supposed to mean" | `data/units/kdf/*.json` `unlock.roe_rating_min`; #199 |
-| F3 | **The earned-only network rule exists as a function nothing calls.** `networkView` reads earned entitlements only, and its own comment says nothing calls it. `accountView()`, which the garage, the dock and `resolveUpgrades` all read, includes coins. The network draft's `Seat` takes `tiers` and `unlocks` "from what the client claims under `brigade`", and does not name `networkView` | `roar-test.ts:260`; draft spec §2.1 |
+| F2 | **Coins open Conduct gates.** A credit price already opens a Conduct-gated unit (`unlock.ts`'s gate sentence: "Conduct N, or buy for P credits"), and coins replace the credit price, so nine units gated at Conduct 70–90 (`recon_drone` 70 to `mbt_lavi` 90) open for coins with no Conduct at all. G7 rejected selling credits for exactly this reason: "a purchasable credit makes a Conduct floor purchasable, which is the one thing the grade is supposed to mean" | `data/units/kdf/*.json` `unlock.roe_rating_min`; #199. **Ruled 2026-10-11 (D2): kept on purpose**; see §1.2 |
+| F3 | **The earned-only network rule exists as a function nothing calls.** `networkView` reads earned entitlements only, and its own comment says nothing calls it. `accountView()`, which the garage, the dock and `resolveUpgrades` all read, includes coins. The network draft's `Seat` takes `tiers` and `unlocks` "from what the client claims under `brigade`", and does not name `networkView` | `roar-test.ts:260`; draft spec §2.1. **Ruled 2026-10-11 (D4): the owned view is right for a friends' room**; see §5 |
 | F4 | **`?testcoins` is live on the public site** and unlocks units and tiers for free in that browser. #351 says it "must be removed or gated before release" | `roar-test.ts` header |
-| F5 | **The repo is public and the art is all rights reserved.** A paid livery committed beside the free art is visible and downloadable by everyone, though not licensed for use. Nothing yet decides where paid art lives | GDD §9 licensing; repo public since 25 Sep |
+| F5 | **The repo is public and the art is all rights reserved.** A paid livery committed beside the free art is visible and downloadable by everyone, though not licensed for use. Nothing yet decides where paid art lives | GDD §9 licensing; repo public since 25 Sep. **Deferred 2026-10-11 (D5)** to the Steam stage |
 
 This revision does not overturn the lead's 1 Oct rulings. It names them as one fenced lane
-(§1.2), proposes closing F2 and F3 by structure (§7), and asks the lead to make the four
-documents in F1 agree (§10, D3).
+(§1.2), records the lead's 2026-10-11 rulings on F2 and F3 (§10 D2, D4), and makes the
+documents in F1 agree in the same PR (D3).
 
 ---
 
@@ -45,19 +51,22 @@ documents in F1 agree (§10, D3).
 **No one can buy a win against another person, a better grade, or a story.** Concretely, money
 never buys:
 
-1. **Power in matched play.** Nothing bought changes what a unit does in a network match. In
-   matched kit, both seats field the same base roster at the same tiers whatever either player
-   owns (draft spec Decision 5).
-2. **Conduct.** No Conduct point, floor, forgiveness, ROE rating or Conduct-gated door (F2,
-   §10 D2). Conduct is the game's moral spine (GDD pillar 2); it is earned by how you fight or
-   not at all.
+1. **Power in matched play.** Nothing bought changes what a unit does in a public or ranked
+   match, or in any room on matched kit: both seats field the same base roster at the same
+   tiers whatever either player owns (draft spec Decision 5). The one opt-in exception is a
+   friends' room whose host turns on "bring your brigade" (§5, D4).
+2. **Conduct.** No Conduct point, floor, forgiveness, ROE rating or grade is ever sold. Conduct
+   is the game's moral spine (GDD pillar 2). **One ruled exception (D2, 2026-10-11):** in single
+   player, coins may open a Conduct-gated **unit**, exactly as a credit price already can
+   (§1.2).
 3. **Campaign progress.** No mission, act, ending, star, grade, ledger key, roster slot,
    reserve capacity, revive, skip, extra logistics, intel or time inside a mission.
 4. **Brigade credits.** Never sold, never granted for money, never converted from coins, never
    a pack bonus or a payout multiplier (G7).
-5. **Units that beat units in matched play.** A unit only money can field does not exist in any
-   network mode. E5's bought-only units are bought with earned credits, and coins buy them for
-   single-player only (§1.2).
+5. **Units that beat units in matched play.** A unit only money can field never appears in a
+   public or ranked room, or on matched kit. E5's bought-only units are bought with earned
+   credits or, in single player, with coins (§1.2); they reach a match only through a friends'
+   room on "bring your brigade" (D4).
 6. **Chance.** No loot box, crate, gacha or paid random item of any kind (§9).
 7. **Features.** Replays, spectating, photo views, accessibility, colour-vision variants,
    settings and the AI advisor are never sold.
@@ -66,20 +75,30 @@ never buys:
 
 The lead's 30 Sep and 1 Oct rulings let coins unlock early what play also unlocks: units,
 E5's bought-only units and upgrade tiers, at 1 coin = 10 credits, rounded up to a multiple of
-5. It is a time-saver for one player against the AI, and this plan keeps it **only inside four
-walls**, each a check rather than a sentence (§7):
+5. **The lead kept it on 2026-10-11 (D1), fenced, in these words:** single player only; coins
+unlock early only what play can also reach; never usable in a match against a person; never
+affects a score. Each wall is a check rather than a sentence (§7):
 
+- **Single player only.** The Stores sells it for the campaign and the sandbox.
 - **Reachable by play** (coin spec G1): nothing is sold for coins that a free player cannot earn
   in finite play. Since GH-330 a fresh campaign pays again, so the whole credit catalogue
   (70,090 credits) takes about 12.2 campaigns.
-- **Never in a network match**, in either kit mode (§5, guard S5).
-- **Never a Conduct door** (§10 D2, guard S8).
-- **Never a score**: stars, grade, Conduct and `creditsFor` compute the same with or without it
-  (coin spec G4; guard S6).
+- **Never usable in a match against a person**: never in a public or ranked room and never on
+  matched kit (guard S5). **D4, ruled the same day, makes one opt-in exception:** in a friends'
+  room whose host turns on "bring your brigade", each seat brings everything its player owns,
+  bought included (§5). Both players see the toggle before they ready up, and it is off by
+  default.
+- **Never affects a score**: stars, grade, Conduct and `creditsFor` compute the same with or
+  without it (coin spec G4; guard S6).
 
-If the lead decides (D1) that even this reads as pay-to-win on a store page, the lane closes
-and the plan falls back to revision 1's cosmetic-only rule. Everything else here stands either
-way.
+**Conduct-gated units are inside the lane (D2, 2026-10-11).** The lead reversed this plan's
+recommendation: coins may open the nine Conduct-gated units (Conduct 70–90) in single player,
+as a credit price already can. **The trade-off, recorded with the ruling:** Conduct gating
+becomes skippable with money in single player. A player can field `mbt_lavi` (Conduct 90)
+without ever fighting at Conduct 90, which is the outcome G7 rejected credit sales to prevent
+(F2). What stays unsellable is Conduct itself: points, floors, forgiveness, the ROE rating and
+the grade. The Stores keeps the computed honest line ("Free at Conduct 85") on those cards, so
+the earned door is always named beside the bought one.
 
 ### 1.3 What "horizontal" means
 
@@ -103,7 +122,8 @@ Revision 1's T1–T11 stand, with three edits:
 - **T1 (currency)** reads: priced in Roar coins only. Never in credits and coins on one button,
   and coins never convert into credits.
 - **T2–T4 (sim-, score- and gate-blind)** apply to every cosmetic. An early-access item (§1.2)
-  is judged by S1–S12 in §7 instead, because it is meant to change what single-player fields.
+  is judged by the guards in §7 instead, because it is meant to change what single player
+  fields and which doors open there.
 - **T5 (legibility-neutral)** is a measured check, not a reviewer's judgement (guard S9).
 
 T6 (register-distinct: no stars, chevrons, `--commend` gold, kit Stars of David or rank slip),
@@ -183,8 +203,7 @@ that operation**: finishing a mission, an objective, a grade. Everything in it i
 purchase (T7). It never expires, and its tiers are never sold as skips (revision 1 Q4, Q5).
 
 **Why the missions stay free:** a paid mission pays credits on victory (`creditsFor`), so money
-would buy credits one step removed, and those credits would count as earned in a network
-match. If the lead ever wants a paid story episode, it pays **zero** credits and its rewards are
+would buy credits one step removed, which G7 forbids, and would paywall the story. If the lead ever wants a paid story episode, it pays **zero** credits and its rewards are
 cosmetic (guard S12).
 
 ### 3.6 Never sold, carried forward and extended
@@ -204,9 +223,9 @@ Revision 1 §7 stands, minus the lines the 1 Oct rulings moved into the early-ac
 | | Brigade credits | Roar coins |
 |---|---|---|
 | Source | play only (`creditsFor`, improvement per campaign, GH-330) | Steam Wallet only (ST7); never earned in play (revision 1 Q2) |
-| Buys | unit unlocks, E5 bought-only units, upgrade tiers | cosmetics, operation passes; and, if D1 keeps it, early access in single-player |
-| Counts in a network match | yes, under "bring your brigade" only | **never** |
-| Opens a Conduct door | yes, by D1 of the brigade spec ("or buy for P credits") | **no** (D2) |
+| Buys | unit unlocks, E5 bought-only units, upgrade tiers | cosmetics, operation passes; and early access in single player (D1) |
+| Counts in a network match | only in a friends' room on "bring your brigade" (D4) | only in a friends' room on "bring your brigade" (D4); never in a public or ranked room |
+| Opens a Conduct-gated unit | yes, by D1 of the brigade spec ("or buy for P credits") | yes, in single player (D2, ruled 2026-10-11) |
 | Converted into the other | never | never |
 | Shown | `--commend`, the noun "credits" | `--roar`, the Hex Seal glyph, the noun "Roar coins" |
 
@@ -214,9 +233,8 @@ Revision 1 §7 stands, minus the lines the 1 Oct rulings moved into the early-ac
 Buy spends exactly one currency and says which.
 
 **Skirmish pays nothing.** The network draft's Decision 20 pays no credits for a match result in
-version one. That keeps matched play from becoming a credit farm, and it keeps the earned half
-of "bring your brigade" a campaign record. Any later skirmish payout is an ST/G-G question and
-must still write `earned` only.
+version one. That keeps matched play from becoming a credit farm. Any later skirmish payout is
+an ST/G-G question, and it writes `earned` only: coins never become credits (S7).
 
 ---
 
@@ -225,10 +243,15 @@ must still write `earned` only.
 - **Matched kit is the default and the only mode in any public or ranked room.** Both seats
   field base rosters at tier 0, `unlocks` and `tiers` empty (draft spec §2.1). Money, coins and
   credits are all invisible to the sim there.
-- **"Bring your brigade" is friends-only and reads `networkView`**, earned entitlements only.
-  A coin-bought unit or rung plays as absent. The draft spec should name `networkView` as the
-  only source of a `brigade` seat's `tiers` and `unlocks` (F3; D4), and the room should build
-  the seat from the server ledger once ST6 exists.
+- **"Bring your brigade" uses everything the player owns, in friends' rooms only (D4, ruled
+  2026-10-11).** A `brigade` seat's `tiers` and `unlocks` come from the single-player view,
+  earned plus bought (`max(earned, coins)` per track), never from `networkView`. It is never
+  offered in a public or ranked room (guard S5). It reverses the coin spec's 1 Oct ruling 3
+  ("network play uses only what each player earned") for friends' rooms; that spec is amended
+  in this PR. The network session (#518) has been told. Until ST6 the room trusts the client's
+  claim, which the draft spec already labels friends-only; once ST6 exists the room builds the
+  seat from the server ledger. So money can tilt a match only between two friends who both
+  agreed to bring their brigades.
 - **Cosmetics cross the wire as ids, never as sim input.** The lobby exchanges each seat's
   selected livery and badges. The other client fetches the livery textures during the lobby, or
   draws Sahar Dust if they have not arrived by the deploy. A replay records commands, never
@@ -295,19 +318,20 @@ for the package named.
 | S1 | **A cosmetic carries no number the sim reads.** `data/cosmetics/*.json` validates against a new `cosmetic.schema.json` with `additionalProperties: false` and a closed `kind` enum (`livery`, `badge`, `nameplate`, `dressing`, `voice`) | `pnpm validate:data`; a spec computes the intersection of the cosmetic schema's property names with `unit.schema.json`'s and requires it empty, so a unit field added later cannot leak in | add a `hp` property to the cosmetic schema → the intersection spec fails | cosmetics v1 |
 | S2 | **A store item grants only what its type allows.** `data/store/catalogue.json` validates against `store_item.schema.json`: `grants` is a discriminated union of `cosmetic:<id>`, `pass:<id>` and, only while D1 keeps the lane, `early:<unitId>` / `early:<unitId>.<track>.<tier>`. No `credits`, `conduct`, `stars`, `mission`, `roster`, `xp` or `time` branch exists to write | `pnpm validate:data` | add `{ "credits": 500 }` to one item → schema refuses | ST7 |
 | S3 | **No random grant.** The store schema has no `weight`, `chance`, `pool` or `random` key, and `grants` is a fixed array | `pnpm validate:data` | add `"chance": 0.1` → refused | ST7 |
-| S4 | **The sim, the pre-pass and the network loadout cannot import a cosmetic or a coin module.** eslint `no-restricted-imports` over `packages/sim/**`, `@lions/data`'s `applyUpgrades`, `mission-start.ts` and the future `packages/net` seat builder, naming `cosmetics`, `roar-*` and `stores-*` | `pnpm lint` | import `roar-test` from the seat builder → lint red | cosmetics v1 |
-| S5 | **A network seat takes earned entitlements only, by type.** `networkView` returns a branded `EarnedLoadout`; the room's `Seat` builder accepts only that type, and `matched` builds an empty one. A spec builds a seat from an account whose only entitlements are coin-bought and requires `tiers` `{}` and `unlocks` `[]` | `pnpm typecheck` + a spec | make `networkView` read `coins` → the spec goes red; pass `singlePlayerView`'s result to the builder → typecheck red | network N1 |
+| S4 | **Nothing that reaches the sim can import a cosmetic.** eslint `no-restricted-imports` over `packages/sim/**`, `@lions/data`'s `applyUpgrades`, `mission-start.ts` and the future `packages/net` seat builder, naming `cosmetics` and `stores-*`. The seat builder may read the owned loadout (D4); it may not read a cosmetic | `pnpm lint` | import a cosmetics module from the seat builder → lint red | cosmetics v1 |
+| S5 | **Owned kit is never offered outside a friends' room (D4).** A room carries `kind: 'friends' \| 'public' \| 'ranked'`; the room refuses `kit: 'brigade'` unless `kind` is `friends`, and `matched` builds empty `tiers` and `unlocks`. A spec asks a public and a ranked room for `brigade` and requires refusal; a second spec builds a `brigade` seat in a friends' room from an account whose only entitlements are coin-bought and requires those tiers present, so D4 is honoured and not silently narrowed to earned-only | a room spec | let a public room accept `brigade` → red; build the friends' seat from `networkView` → the second spec red | network N1 |
 | S6 | **Owning everything changes no outcome.** The golden replay (`determinism.test.ts`) and one `pnpm playtest` mission run twice, with an empty account and with every cosmetic owned and a livery selected; the state hash and the debrief (stars, Conduct, credits) are byte-identical | `pnpm test:determinism`, `pnpm playtest` | thread the selected livery id into one unit type's JSON before `addUnitType` → hash differs | cosmetics v1 |
 | S7 | **Coins never become credits.** No coin path writes `grants`, `balance` or `earned_total` | the coin spec's G3 invariant over the account | make a coin buy push a grant → red (already falsified once in #351) | ST6 |
-| S8 | **Coins never open a Conduct door** (if D2). The catalogue spec refuses an `early:<unitId>` whose unit JSON carries `unlock.roe_rating_min`, and the Stores derivation marks such a unit `notForCoins` | a catalogue spec reading `data/units/kdf/*.json` | list `early:mbt_lavi` → red | Stores, next touch |
+| S8 | **Withdrawn by the lead's D2 ruling (2026-10-11).** It would have refused coins on a Conduct-gated unit; coins may open those in single player. Kept as a row so the numbering holds. What still protects Conduct is S2 (no `conduct` grant exists to write) and S6 (owning anything moves no Conduct figure) | — | — | — |
 | S9 | **A livery is no harder to see than the free one.** For every livery and type, rendered through the mesh gate's own camera on each front's ground: mean luminance contrast against the ground is at least the Sahar Dust livery's contrast on the same ground minus 10%, and ΔE to every team colour variant is at least Sahar Dust's. Relative to the free livery, so no fitted absolute threshold | `pnpm validate:meshes` (a cosmetics pass) | repaint one livery to the ground's own tone → red | cosmetics v1 |
 | S10 | **A badge never looks earned.** Badge SVGs use only badge tokens (no `--commend`, no `--roar`); a shape check refuses any closed path with five or more alternating outer points (stars) or a hexagram (the kit sign) and any stacked V (chevrons). Heuristic, so a reviewer still signs T6 | `pnpm validate:ui` | add a five-point star badge → red | cosmetics v1 |
 | S11 | **Kept forever.** `data/store/shipped.lock` lists every item id ever sold; a spec fails if the catalogue drops one, and receipts are append-only on the server | a spec | delete an id from the catalogue → red | ST6/ST7 |
 | S12 | **A paid mission pays nothing.** If any mission is ever sold, the payout path refuses: `creditsFor` is never called for a mission flagged `paid` in its schema | a spec on the victory write | call `creditsFor` for a paid mission → red | only if ever needed |
 
-Plus two release gates, not checks: **`?testcoins` is removed or server-gated before the
-first real coin** (F4), and **the early-access shelf stays disabled until ST6's server ledger
-answers** (coin spec §2.7).
+Plus three release gates, not checks: **`?testcoins` is removed or server-gated before the
+first real coin** (F4); **the early-access shelf stays disabled until ST6's server ledger
+answers** (coin spec §2.7); and **no paid art ships until D5 picks its storage** at the Steam
+stage.
 
 **Source-available caveat.** Under PolyForm Noncommercial, anyone can build a client that
 unlocks every cosmetic for themselves. That is acceptable: a cosmetic only matters to the
@@ -383,30 +407,34 @@ rule. Each line is a question for ST1 (#200), ST7 (#206) or counsel.
 
 ## 10. Decisions for the lead
 
-| # | Decision | Recommendation |
+| # | Decision | Ruling (2026-10-11) or recommendation |
 |---|---|---|
-| D1 | **Keep single-player early access (1 Oct rulings) as a fenced lane, or close it?** | **Keep, fenced** (§1.2): it sells no win against a person, every item stays earnable, and it never enters a match (S5). Close it only if the store-page perception risk outweighs the revenue; then revision 1's cosmetic-only rule returns unchanged |
-| D2 | **Coins never open a Conduct-gated unit** | **Yes.** The nine Conduct-gated units leave the coin shelf; star-gated units, E5's units and tiers stay. It is G7's own reason, and it keeps Conduct the one thing money cannot touch (F2, S8) |
-| D3 | **One statement of the economy.** After D1 and D2, amend GDD §9, brigade spec D6/§4.6, `prices.md` §8 and revision 1 §1 to match, in one docs PR | **Yes, the same week.** Four documents contradicting the shipped code is how the next package gets built on the wrong rule (F1) |
-| D4 | **"Bring your brigade" reads `networkView` only, and no public or ranked room offers it** | **Yes.** Write it into the network spec's §2.1 before N1, and land S5 with N1 (F3) |
-| D5 | **Where paid art lives** | **A private asset repository**, served from R2 to entitled accounts; the public repo keeps the schemas, the loader, Sahar Dust and one sample livery. Paid art in a public repo is all rights reserved but downloadable by anyone (F5) |
-| D6 | **Operations and passes** | **Missions free, the pass is the cosmetic track only, 1,000 coins, one a quarter.** Any paid story episode, if ever wanted, pays zero credits (S12) |
-| D7 | **Price bands and SKU shape** | **Approve §6.2 as planning numbers**: multiples of 50 coins, brigade-wide liveries only at launch, packs unchanged from the coin spec; final prices at ST7 |
-| D8 | **Cosmetics in matches** | **Shown by default, with a "Show standard liveries" setting**; a ranked room may force standard. A livery the other client has not fetched by deploy draws as Sahar Dust |
-| D9 | **First catalogue** | **3 paid liveries (Sur Winter, Naharin Olive, Ari'im Dress), 12 badges, 4 dressing items, KDF only**, built after ST6 and shipped with ST7. Voice sets and Sarim-seat cosmetics later |
-| D10 | **Contributor-made cosmetics** | **Not in the first catalogue.** When allowed, a written revenue agreement beyond the CLA comes first |
+| D1 | **Keep single-player early access (1 Oct rulings) as a fenced lane, or close it?** | **Ruled: KEEP, fenced.** Single player only; coins unlock early only what play can also reach; never usable in a match against a person; never affects a score (§1.2). D4 is the one opt-in exception, in friends' rooms |
+| D2 | **Coins never open a Conduct-gated unit** | **Ruled: REVERSED.** Coins **may** open the Conduct-gated units in single player. Trade-off recorded in §1.2: Conduct gating becomes skippable with money in single player. Guard S8 withdrawn; Conduct points, floors, forgiveness, rating and grade stay unsellable (S2, S6). This plan had recommended "yes, never" |
+| D3 | **One statement of the economy.** Amend GDD §9, brigade spec D6/§4.6, `prices.md` §8 and revision 1 §1 to match, in one docs PR | **Ruled: yes, in this PR.** The coin shop spec's 1 Oct network ruling is amended too, since D4 overturns it |
+| D4 | **What does "bring your brigade" bring?** | **Ruled: REVERSED. Everything the player owns, earned plus bought, in friends' rooms only, never public or ranked** (§5). Guard S5 rewritten as "never offered outside a friends' room". The network session (#518) has been told. This plan had recommended earned-only |
+| D5 | **Where paid art lives** | **Ruled: DEFERRED** to the Steam stage; Steam DLC is one option. No R2 now: it needs a payment method the lead has declined. Until then no paid art ships (§7 release gates). This plan had recommended a private repo served from R2 |
+| D6 | **Operations and passes** | *Recommended, not yet ruled:* **missions free, the pass is the cosmetic track only, 1,000 coins, one a quarter.** Any paid story episode, if ever wanted, pays zero credits (S12) |
+| D7 | **Price bands and SKU shape** | *Recommended, not yet ruled:* **approve §6.2 as planning numbers**: multiples of 50 coins, brigade-wide liveries only at launch, packs unchanged from the coin spec; final prices at ST7 |
+| D8 | **Cosmetics in matches** | *Recommended, not yet ruled:* **shown by default, with a "Show standard liveries" setting**; a ranked room may force standard. A livery the other client has not fetched by deploy draws as Sahar Dust |
+| D9 | **First catalogue** | *Recommended, not yet ruled:* **3 paid liveries (Sur Winter, Naharin Olive, Ari'im Dress), 12 badges, 4 dressing items, KDF only**, built after ST6 and shipped with ST7. Voice sets and Sarim-seat cosmetics later |
+| D10 | **Contributor-made cosmetics** | *Recommended, not yet ruled:* **not in the first catalogue.** When allowed, a written revenue agreement beyond the CLA comes first |
 
 ---
 
 ## 11. What would implement this (not now)
 
-- **The docs PR of D3:** GDD §9, brigade spec D6/§4.6, `prices.md` §8, revision 1 §1.
-- **Stores, next touch:** S8 (Conduct gates off the coin shelf), one line in `stores-model.ts`'s
-  derivation plus its catalogue spec.
+- **D3 is done in this PR:** GDD §9, brigade spec D6/§4.6, `prices.md` §8, revision 1 §1, and
+  the coin shop spec's network ruling.
+- **Stores, next touch:** its copy still says co-op and skirmish use only what each player
+  earned (the intro line, `stores.state.coins.networkNote`, "Earn it for network play").
+  Under D4 that holds for public and ranked rooms and not for a friends' room on "bring your
+  brigade"; the strings say which.
 - **Cosmetics v1** (after ST6): `cosmetic.schema.json` (S1), the import rule (S4), the
   determinism parity run (S6), the livery and badge gates (S9, S10), the renderer's alternate
   base-colour load path, and the Cosmetics shelf in the Stores.
-- **Network N1:** the branded `EarnedLoadout` and the seat builder (S5), the lobby's cosmetic
-  id exchange.
+- **Network N1:** the room `kind` and the `brigade` refusal outside friends' rooms (S5), the
+  `brigade` seat built from the owned view, the lobby's cosmetic id exchange.
+- **The Steam stage:** D5's paid-art storage, before any paid art ships.
 - **ST6/ST7:** `store_item.schema.json` (S2, S3), `shipped.lock` (S11), the server-held coin
   balance and receipts, the removal of `?testcoins`.

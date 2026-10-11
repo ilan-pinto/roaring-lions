@@ -30,6 +30,12 @@ earned path. The earned path stays free and complete.
 3. **Network play uses only what each player earned.** Co-op and skirmish ignore everything
    bought with coins.
 
+   *Amended 2026-10-11 (WP-ST8 revision 2, D4): a friends' room whose host turns on "bring
+   your brigade" uses everything each player owns, earned and bought; public and ranked rooms
+   and matched kit use nothing owned. §1.5's network line and guard G2 read accordingly: the
+   earned-only `networkView` is no longer the source of a `brigade` seat. Coins may also open
+   Conduct-gated units in single player (D2), as the shipped Stores already does.*
+
 ### 0.2 These rulings amend ST8, so the amendment is written down
 
 ST8 (approved 29 Sep) says:
