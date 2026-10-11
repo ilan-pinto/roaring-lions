@@ -192,6 +192,24 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     expect(p0.taken).toHaveLength(ran);   // a desynced client runs nothing more
   });
 
+  it('a seat that stops running for over 40 ticks stalls the room behind; once it runs again the room resumes (R31)', async () => {
+    const { loop, p0, p1 } = await started();
+    await step(loop, [p0, p1], 12);   // seat 1 has run 0..9 and acked 9
+    await step(loop, [p0], 45);       // ...then runs and acks nothing
+    const behind = { t: 'stall', reason: 'behind', seat: 1 };
+    for (const w of loop.wires) expect(w.received).toContainEqual(behind);
+    expect(p1.t.status()).toEqual({ kind: 'stalled', reason: 'behind', seat: 1 });
+    // The lagging seat must run its buffered frames DURING the stall: only its ack ends it.
+    await step(loop, [p0, p1], 30);
+    for (const w of loop.wires) expect(w.received.filter((m) => m.t === 'resume')).toHaveLength(1);
+    expect(p0.t.status().kind).toBe('live');
+    expect(p1.t.status().kind).toBe('live');
+    expect(p1.ticks()).toEqual(range(p1.taken.length));
+    expect(p1.taken.length).toBeGreaterThan(60);
+    const common = Math.min(p0.taken.length, p1.taken.length);
+    expect(p1.taken.slice(0, common)).toEqual(p0.taken.slice(0, common));
+  });
+
   it('a dropped socket reconnects, receives the log, and runs on from nextTick with no duplicate and no gap', async () => {
     const { loop, p0, p1 } = await started();
     await step(loop, [p0, p1], 12);

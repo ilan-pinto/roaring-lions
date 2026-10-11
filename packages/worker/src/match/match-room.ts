@@ -8,7 +8,7 @@
  * match (Review Focus 5). N0 has no alarms: the six-hour TTL is checked at the
  * start of every handler as well as on the clock.
  */
-import { parseClientMsg, validateConfig, type ClientMsg, type Frame, type MatchConfig, type Seat, type SeatConfig, type ServerMsg } from '@lions/net';
+import { parseClientMsg, validateConfig, REPLACED_CLOSE_CODE, type ClientMsg, type Frame, type MatchConfig, type Seat, type SeatConfig, type ServerMsg } from '@lions/net';
 import type { Env } from '../d1';
 import type { DurableStateLike, HibernatingSocket, UpgradeInit } from '../do-types';
 import { createRoom, seatJoin, seatMessage, seatGone, clockTick, expire, type Effect, type RoomState } from './room-core';
@@ -46,7 +46,7 @@ function shut(ws: WebSocket, code: number, reason: string): void {
  *  "a replacement is live". */
 function retire(ws: WebSocket): void {
   disown(ws);
-  shut(ws, 4000, 'replaced');
+  shut(ws, REPLACED_CLOSE_CODE, 'replaced');
 }
 /** The socket no longer speaks for a seat. */
 function disown(ws: WebSocket): void {

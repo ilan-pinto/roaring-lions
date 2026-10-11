@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { MatchConfig } from '@lions/net';
-import { createRoom, seatJoin, seatMessage, seatGone, clockTick, expire, STALL_BEHIND_TICKS, STALL_SILENT_MS, type RoomState, type Effect } from './room-core';
+import { createRoom, seatJoin, seatMessage, seatGone, clockTick, expire, ACK_EVERY, STALL_BEHIND_TICKS, STALL_SILENT_MS, type RoomState, type Effect } from './room-core';
 
 const CONFIG: MatchConfig = {
   matchId: 'm1', code: 'ABCDEF', seed: 7, map: 'beit_sahwan_outskirts', mode: 'sandbox',
@@ -76,6 +76,21 @@ describe('room-core', () => {
     const back = seatMessage(st, 1, { t: 'ack', tick: STALL_BEHIND_TICKS - 1 }, 50 * (STALL_BEHIND_TICKS + 2), mint);
     expect(st.status).toBe('running');
     expect(sends(back).some((s) => s.msg.t === 'resume')).toBe(true);
+  });
+
+  it('a seat acking on the client cadence (ACK_EVERY, bufferTicks behind) never stalls behind', () => {
+    const st = running();
+    let ran = -1;   // the newest tick each seat has run
+    for (let t = 0; t < 400; t++) {
+      const fx = clockTick(st, 50 * (t + 1));
+      expect(sends(fx).filter((s) => s.msg.t === 'stall')).toEqual([]);
+      // Each seat runs what the clock lets it: up to newest - bufferTicks.
+      while (ran < st.tick - 1 - CONFIG.bufferTicks) {
+        ran++;
+        if (ran % ACK_EVERY === ACK_EVERY - 1) for (const seat of [0, 1] as const) seatMessage(st, seat, { t: 'ack', tick: ran }, 50 * (t + 1), mint);
+      }
+    }
+    expect(st.status).toBe('running');
   });
 
   it('stalls when a seat is silent for 2 s and when its socket is gone', () => {
