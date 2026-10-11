@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ServerMsg, Seat } from '@lions/net';
 import type { Env } from '../d1';
-import { FakeState, deliverClose, openSocket, type FakeSocket } from './fake-do';
+import { FakeState, deliverClose, deliverError, openSocket, type FakeSocket } from './fake-do';
 import { MatchRoom, TICK_MS } from './match-room';
 import type { RoomState } from './room-core';
 import { signTicket } from './ticket';
@@ -158,6 +158,20 @@ describe('MatchRoom', () => {
     // ...and the old socket's late close changes nothing.
     await deliverClose(room, ws0, 4000, 'replaced');
     expect(ofType(ws1, 'stall')).toHaveLength(1);
+  });
+
+  it('an error then a close for one socket marks its seat gone once: a replacement seated between them stays live', async () => {
+    const { state, room, ws0, ws1 } = await running();
+    await deliverError(room, ws0);
+    expect((await persisted(state)).seats[0]?.connected).toBe(false);
+    expect(ofType(ws1, 'stall')).toEqual([{ t: 'stall', reason: 'gone', seat: 0 }]);
+    const again = await hello(room, 0);
+    expect((await persisted(state)).seats[0]?.connected).toBe(true);
+    // The same socket's close, delivered after the replacement is seated.
+    await deliverClose(room, ws0, 1006, 'abnormal');
+    expect((await persisted(state)).seats[0]?.connected).toBe(true);
+    expect(ofType(ws1, 'stall')).toHaveLength(1);
+    expect(again.closed).toBeNull();
   });
 
   it('/create refuses an empty build, so the hello build check can never be off', async () => {

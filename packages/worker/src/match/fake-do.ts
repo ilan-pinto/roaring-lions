@@ -119,6 +119,13 @@ export async function deliverClose(
   ws.disconnected = true;
 }
 
+/** The runtime's error event for a socket. It does NOT remove the socket:
+ *  workerd may follow an error with a close for the same socket, which a
+ *  test delivers with `deliverClose`. */
+export async function deliverError(room: { webSocketError(ws: WebSocket): Promise<void> }, ws: FakeSocket): Promise<void> {
+  await room.webSocketError(ws.asSocket() as WebSocket);
+}
+
 /** A fresh socket, accepted by the room exactly as `/ws` accepts one. */
 export function openSocket(room: { acceptSocket(ws: HibernatingSocket): void }): FakeSocket {
   const ws = new FakeSocket();
