@@ -232,6 +232,20 @@ anything else — applies unchanged. Each generate command prints a line
 formatted to paste straight into `docs/ASSET_PROVENANCE.md`'s Meshy table;
 fill in "Draws as" once the model has a role.
 
+### Gemini video API (cinematics)
+
+The briefing backdrops, the intro and the two Tel Marum replacements are made
+with `pnpm video` (`tools/src/video/`), which is built on the same lines as
+the Meshy CLI. The key lives outside the repo
+(`~/.config/roaring-lions/gemini.env`). Every request dry-runs by default, with
+its price. Sending needs both `--spend` and the key. A hard $150 cap in code
+is checked against `art/video/ledger.jsonl` before every take. Every file
+under `assets/video/` needs a provenance entry in `data/video.json`, which
+`pnpm validate:data` checks, together with a size budget. The workflow, the
+delivery spec and the lead's billing setup are in
+[docs/cinematics/README.md](cinematics/README.md). The shots are in
+[docs/cinematics/storyboard.md](cinematics/storyboard.md).
+
 ---
 
 ## 7a. Audio

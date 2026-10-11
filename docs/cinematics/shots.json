@@ -1,0 +1,365 @@
+{
+  "$comment": "The cinematics storyboard as data (docs/cinematics/storyboard.md is the page; docs/cinematics/README.md the workflow). `pnpm video -- estimate` prices this file and `pnpm video -- generate --shot <id> --stage <explore|final>` sends one shot from it, only with --spend and a key, and only inside the $150 cap fixed in tools/src/video/budget.ts. `capture` is read by `pnpm stills:cinematics`, which photographs each `still` through the real game. Every prompt gets the standing content rules appended (tools/src/video/request.ts, CONTENT_RULES_SUFFIX).",
+  "shots": [
+    {
+      "id": "intro_1_wall",
+      "group": "intro",
+      "title": "Dawn on the wall -- Qarn Hadid's rock wall and its road gate",
+      "still": "docs/cinematics/stills/intro_1_wall.jpg",
+      "loop": false,
+      "prompt": "Animate this still from a stylised real-time strategy game. Keep the high three-quarter overhead camera angle, the game's art style, every building and the layout of the ground exactly as in the image; nothing new enters the frame. A very slow push-in toward the gap in the rock wall where the road passes through. Low dawn light rises across the plain, long shadows shorten a little, a thin ground haze drifts left to right and thins as the light grows.",
+      "ships_as": "video/intro.mp4 (0-8 s)",
+      "capture": {
+        "sandbox": "qarn_hadid",
+        "tod": "dawn",
+        "at": [
+          21,
+          22
+        ],
+        "zoom": 0.9
+      },
+      "explore": {
+        "model": "omni-flash",
+        "resolution": "720p",
+        "seconds": 8,
+        "takes": 4
+      },
+      "final": {
+        "model": "veo-3.1",
+        "resolution": "1080p",
+        "seconds": 8,
+        "takes": 2
+      }
+    },
+    {
+      "id": "intro_2_groves",
+      "group": "intro",
+      "title": "The valley wakes -- Deir Amun's groves and hamlet",
+      "still": "docs/cinematics/stills/intro_2_groves.jpg",
+      "loop": false,
+      "prompt": "Animate this still from a stylised real-time strategy game. Keep the high three-quarter overhead camera angle, the game's art style, every building and the layout of the ground exactly as in the image; nothing new enters the frame. A slow lateral drift to the right over the groves and rooftops. Wind moves through the trees in waves, dust lifts off a dirt track and settles, high cloud shadows slide across the fields.",
+      "ships_as": "video/intro.mp4 (8-16 s)",
+      "capture": {
+        "sandbox": "deir_amun",
+        "tod": "dawn",
+        "at": [
+          24,
+          26
+        ],
+        "zoom": 1.0
+      },
+      "explore": {
+        "model": "omni-flash",
+        "resolution": "720p",
+        "seconds": 8,
+        "takes": 4
+      },
+      "final": {
+        "model": "veo-3.1",
+        "resolution": "1080p",
+        "seconds": 8,
+        "takes": 2
+      }
+    },
+    {
+      "id": "intro_3_town",
+      "group": "intro",
+      "title": "The town waits -- Beit Sahwan's outskirts at first light",
+      "still": "docs/cinematics/stills/intro_3_town.jpg",
+      "loop": false,
+      "prompt": "Animate this still from a stylised real-time strategy game. Keep the high three-quarter overhead camera angle, the game's art style, every building and the layout of the ground exactly as in the image; nothing new enters the frame. A slow pull-back and rise over the town. Morning haze burns off the streets, laundry on a rooftop line stirs in the breeze, a rooftop water tank catches the light, the light warms from grey to gold as the sun rises.",
+      "ships_as": "video/intro.mp4 (16-24 s)",
+      "capture": {
+        "sandbox": "beit_sahwan_outskirts",
+        "tod": "dawn",
+        "at": [
+          31,
+          18
+        ],
+        "zoom": 1.3
+      },
+      "explore": {
+        "model": "omni-flash",
+        "resolution": "720p",
+        "seconds": 8,
+        "takes": 4
+      },
+      "final": {
+        "model": "veo-3.1",
+        "resolution": "1080p",
+        "seconds": 8,
+        "takes": 2
+      }
+    },
+    {
+      "id": "beit_sahwan",
+      "group": "beit_sahwan",
+      "title": "Beit Sahwan -- the walled compound at dawn",
+      "still": "docs/cinematics/stills/beit_sahwan.jpg",
+      "loop": true,
+      "prompt": "Animate this still from a stylised real-time strategy game. Keep the high three-quarter overhead camera angle, the game's art style, every building and the layout of the ground exactly as in the image; nothing new enters the frame. The motion is gentle and cyclic so the final frame returns to the first. A barely perceptible push-in toward the walled compound and its watchtower. Dust blows along the outer wall in the morning wind, long dawn shadows creep slowly across the open sand.",
+      "ships_as": "video/beit_sahwan_briefing.mp4 (on beit_sahwan_breach)",
+      "capture": {
+        "sandbox": "marj_perimeter",
+        "tod": "dawn",
+        "at": [
+          24,
+          22
+        ],
+        "zoom": 1.2
+      },
+      "explore": {
+        "model": "omni-flash",
+        "resolution": "720p",
+        "seconds": 8,
+        "takes": 4
+      },
+      "final": {
+        "model": "veo-3.1-fast",
+        "resolution": "720p",
+        "seconds": 8,
+        "takes": 2
+      }
+    },
+    {
+      "id": "khan_rafid",
+      "group": "khan_rafid",
+      "title": "Khan Rafid -- the market quarter",
+      "still": "docs/cinematics/stills/khan_rafid.jpg",
+      "loop": true,
+      "prompt": "Animate this still from a stylised real-time strategy game. Keep the high three-quarter overhead camera angle, the game's art style, every building and the layout of the ground exactly as in the image; nothing new enters the frame. The motion is gentle and cyclic so the final frame returns to the first. A slow drift along the main street over the flat roofs of the market quarter. Laundry lines on the roofs stir, fine dust hangs in the low sun between the buildings, a light breeze moves the few trees.",
+      "ships_as": "video/khan_rafid_briefing.mp4 (on khan_rafid_1_recon)",
+      "capture": {
+        "sandbox": "khan_rafid",
+        "tod": "dawn",
+        "at": [
+          30,
+          24
+        ],
+        "zoom": 1.25
+      },
+      "explore": {
+        "model": "omni-flash",
+        "resolution": "720p",
+        "seconds": 8,
+        "takes": 4
+      },
+      "final": {
+        "model": "veo-3.1-fast",
+        "resolution": "720p",
+        "seconds": 8,
+        "takes": 2
+      }
+    },
+    {
+      "id": "deir_amun",
+      "group": "deir_amun",
+      "title": "Deir Amun -- the ford and the wadi",
+      "still": "docs/cinematics/stills/deir_amun.jpg",
+      "loop": true,
+      "prompt": "Animate this still from a stylised real-time strategy game. Keep the high three-quarter overhead camera angle, the game's art style, every building and the layout of the ground exactly as in the image; nothing new enters the frame. The motion is gentle and cyclic so the final frame returns to the first. A slow push-in over the crossing where the track meets the dry wadi bed. Grove trees sway in the breeze, thin mist lies in the low ground and slowly breathes, a little dust drifts along the bed.",
+      "ships_as": "video/deir_amun_briefing.mp4 (on deir_amun_1_recon)",
+      "capture": {
+        "sandbox": "deir_amun",
+        "tod": "dawn",
+        "at": [
+          26,
+          30
+        ],
+        "zoom": 1.25
+      },
+      "explore": {
+        "model": "omni-flash",
+        "resolution": "720p",
+        "seconds": 8,
+        "takes": 4
+      },
+      "final": {
+        "model": "veo-3.1-fast",
+        "resolution": "720p",
+        "seconds": 8,
+        "takes": 2
+      }
+    },
+    {
+      "id": "tel_marum",
+      "group": "tel_marum",
+      "title": "Tel Marum -- the gateway at dusk",
+      "still": "docs/cinematics/stills/tel_marum.jpg",
+      "loop": true,
+      "prompt": "Animate this still from a stylised real-time strategy game. Keep the high three-quarter overhead camera angle, the game's art style, every building and the layout of the ground exactly as in the image; nothing new enters the frame. The motion is gentle and cyclic so the final frame returns to the first. A slow drift toward the rocky high ground in fading dusk light. Warm last light slides off the ridges, cool shadow pools in the hollows, dust drifts over the road and settles.",
+      "ships_as": "video/tel_marum_briefing.mp4 (on tel_marum_1_recon)",
+      "capture": {
+        "sandbox": "tel_marum_1",
+        "tod": "dusk",
+        "at": [
+          25,
+          33
+        ],
+        "zoom": 1.2
+      },
+      "explore": {
+        "model": "omni-flash",
+        "resolution": "720p",
+        "seconds": 8,
+        "takes": 4
+      },
+      "final": {
+        "model": "veo-3.1-fast",
+        "resolution": "720p",
+        "seconds": 8,
+        "takes": 2
+      }
+    },
+    {
+      "id": "qarn_hadid",
+      "group": "qarn_hadid",
+      "title": "Qarn Hadid -- the village below the wall",
+      "still": "docs/cinematics/stills/qarn_hadid.jpg",
+      "loop": true,
+      "prompt": "Animate this still from a stylised real-time strategy game. Keep the high three-quarter overhead camera angle, the game's art style, every building and the layout of the ground exactly as in the image; nothing new enters the frame. The motion is gentle and cyclic so the final frame returns to the first. A slow lateral drift over the village square and its lanes. Heat shimmer rises off the open ground, cloud shadows pass over the rooftops, a breeze turns a few leaves in the yards.",
+      "ships_as": "video/qarn_hadid_briefing.mp4 (on qarn_hadid_1_recon)",
+      "capture": {
+        "sandbox": "qarn_hadid",
+        "tod": "day",
+        "at": [
+          27,
+          14
+        ],
+        "zoom": 1.25
+      },
+      "explore": {
+        "model": "omni-flash",
+        "resolution": "720p",
+        "seconds": 8,
+        "takes": 4
+      },
+      "final": {
+        "model": "veo-3.1-fast",
+        "resolution": "720p",
+        "seconds": 8,
+        "takes": 2
+      }
+    },
+    {
+      "id": "umm_zeitoun",
+      "group": "umm_zeitoun",
+      "title": "Umm Zeitoun -- the hamlet in the bowl",
+      "still": "docs/cinematics/stills/umm_zeitoun.jpg",
+      "loop": true,
+      "prompt": "Animate this still from a stylised real-time strategy game. Keep the high three-quarter overhead camera angle, the game's art style, every building and the layout of the ground exactly as in the image; nothing new enters the frame. The motion is gentle and cyclic so the final frame returns to the first. A barely perceptible push-in over the hamlet square. Cold clear air, olive trees moving in a steady wind, dust curling off the rim and down the slope, cloud shadows crossing the bowl.",
+      "ships_as": "video/umm_zeitoun_briefing.mp4 (on umm_zeitoun_1_recon)",
+      "capture": {
+        "sandbox": "umm_zeitoun",
+        "tod": "day",
+        "at": [
+          24,
+          27
+        ],
+        "zoom": 1.25
+      },
+      "explore": {
+        "model": "omni-flash",
+        "resolution": "720p",
+        "seconds": 8,
+        "takes": 4
+      },
+      "final": {
+        "model": "veo-3.1-fast",
+        "resolution": "720p",
+        "seconds": 8,
+        "takes": 2
+      }
+    },
+    {
+      "id": "wadi_halam",
+      "group": "wadi_halam",
+      "title": "Wadi Halam -- the village at the fords, evening",
+      "still": "docs/cinematics/stills/wadi_halam.jpg",
+      "loop": true,
+      "prompt": "Animate this still from a stylised real-time strategy game. Keep the high three-quarter overhead camera angle, the game's art style, every building and the layout of the ground exactly as in the image; nothing new enters the frame. The motion is gentle and cyclic so the final frame returns to the first. A slow drift over the green fields toward the walled village. Grass ripples in the evening wind, long warm shadows stretch from the houses, the light deepens slowly toward dusk.",
+      "ships_as": "video/wadi_halam_briefing.mp4 (on wadi_halam_1_fords)",
+      "capture": {
+        "sandbox": "wadi_halam_basin",
+        "tod": "dusk",
+        "at": [
+          28,
+          27
+        ],
+        "zoom": 1.25
+      },
+      "explore": {
+        "model": "omni-flash",
+        "resolution": "720p",
+        "seconds": 8,
+        "takes": 4
+      },
+      "final": {
+        "model": "veo-3.1-fast",
+        "resolution": "720p",
+        "seconds": 8,
+        "takes": 2
+      }
+    },
+    {
+      "id": "regen_tel_marum_2",
+      "group": "regen",
+      "title": "Tel Marum II, The Start Line -- replaces the shipped briefing video",
+      "still": "docs/cinematics/stills/regen_tel_marum_2.jpg",
+      "loop": true,
+      "prompt": "Animate this still from a stylised real-time strategy game. Keep the high three-quarter overhead camera angle, the game's art style, every building and the layout of the ground exactly as in the image; nothing new enters the frame. The motion is gentle and cyclic so the final frame returns to the first. A slow push-in toward the breach in the long rock ridge where the boulders lie. Midday heat shimmer, dust lifting off the scree in gusts and settling, cloud shadows sliding across the plateau.",
+      "ships_as": "video/tel_marum_2_briefing.mp4 (replaces the shipped file)",
+      "capture": {
+        "sandbox": "tel_marum_2",
+        "tod": "day",
+        "at": [
+          21,
+          27
+        ],
+        "zoom": 1.2
+      },
+      "explore": {
+        "model": "omni-flash",
+        "resolution": "720p",
+        "seconds": 8,
+        "takes": 4
+      },
+      "final": {
+        "model": "veo-3.1-fast",
+        "resolution": "720p",
+        "seconds": 8,
+        "takes": 2
+      }
+    },
+    {
+      "id": "regen_tel_marum_3",
+      "group": "regen",
+      "title": "Tel Marum III, The Pass -- replaces the shipped briefing video",
+      "still": "docs/cinematics/stills/regen_tel_marum_3.jpg",
+      "loop": true,
+      "prompt": "Animate this still from a stylised real-time strategy game. Keep the high three-quarter overhead camera angle, the game's art style, every building and the layout of the ground exactly as in the image; nothing new enters the frame. The motion is gentle and cyclic so the final frame returns to the first. A slow drift toward the pass between the grey rock shelves. Pale dawn light spreads across the stone, mist lifts out of the pass and thins, a little loose gravel trickles down a slope.",
+      "ships_as": "video/tel_marum_3_briefing.mp4 (replaces the shipped file)",
+      "capture": {
+        "sandbox": "tel_marum_3",
+        "tod": "dawn",
+        "at": [
+          29,
+          18
+        ],
+        "zoom": 1.2
+      },
+      "explore": {
+        "model": "omni-flash",
+        "resolution": "720p",
+        "seconds": 8,
+        "takes": 4
+      },
+      "final": {
+        "model": "veo-3.1-fast",
+        "resolution": "720p",
+        "seconds": 8,
+        "takes": 2
+      }
+    }
+  ]
+}
