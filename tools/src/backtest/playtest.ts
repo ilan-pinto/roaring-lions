@@ -30,7 +30,9 @@ import { parseWorld } from '../../../packages/app/src/campaign';
 import { payVictory } from '../../../packages/app/src/campaign-pay';
 import { stagedUnit } from './e5-probes';
 import { run, type Plan, missionStars, missionCredits, missionMinutes, missionRoe, missionRosterOut, maxTierProbes } from './playtest-run';
-import { passiveAcrossSeeds, drainPassiveSweeps } from './passive-sweep';
+import { passiveAcrossSeeds, drainPassiveSweeps, SWEEP_SEEDS } from './passive-sweep';
+import { Picture, living } from './player-picture';
+import { PLAN_CHILD, startPlanSweep, drainPlanSweeps, reportToParent, type GateRecord } from './plan-sweep';
 
 
 /**
@@ -66,6 +68,9 @@ function gateLedger(base: LedgerData, entries: number): LedgerData {
 }
 
 const M = (x: number, y: number) => ({ x: fx.from(x), y: fx.from(y) });
+
+// The winning plans' seed sweep starts first, so its children run beside the ladder below.
+startPlanSweep();
 
 // 0 — First Light: hold the compound and run two families in with the jeep.
 //
@@ -481,6 +486,21 @@ const wh2 = run(
     at(1, anchor);
     for (let when = 15; when <= 300; when += 15) at(when, burn);
     for (let when = 45; when <= 700; when += 45) at(when, anchor);
+    // Since #537 nothing walks on to a picket left standing in the pasture: the hold stays contested
+    // and the run never ends. Whatever the player has seen inside the pasture is attacked where he saw
+    // it, for as long as the mission runs (the anchor used to stop at 700 s).
+    const pic = new Picture(sim);
+    const PASTURE = [13, 15, 14, 17] as const;
+    for (let when = 30; when <= 1190; when += 10)
+      at(when, () => {
+        pic.update();
+        // The ford is taken and the store is down: the picket and the engineers join the hold.
+        if (rt.objectiveStatus('keep_ford') === 'complete') for (const i of picket) kept.delete(i);
+        if (rt.objectiveStatus('burn_store') === 'complete') for (const i of engineers) kept.delete(i);
+        const c = pic.nearest(21, 25, PASTURE);
+        if (c) sim.queueCommand({ kind: 'attackMove', ids: living(sim, kept), ...M(c.x, c.y) });
+        else if (when > 700 && when % 40 === 0) anchor();
+      });
     for (let when = 90; when <= 700; when += 60) {
       at(when, () => void rt.requestBuild('inf_squad'));
     }
@@ -558,7 +578,7 @@ passiveAcrossSeeds('wadi_halam_3_counterraid', 'wadi_halam_3_counterraid (no ord
 // plan before it evacuated anyone. Five transport slots covers all four
 // civilians in one circuit. The APC alone (plus the infantry) is enough
 // to clear the north side without the IFV's cannon.
-const wadiHalam4Plan: Plan = (sim, _rt, ids, at) => {
+const wadiHalam4Plan: Plan = (sim, rt, ids, at) => {
   const apc = ids('apc_eitan');
   const ifv = ids('ifv_namer');
   const infantry = [...ids('inf_squad'), ...ids('at_team')];
@@ -586,6 +606,22 @@ const wadiHalam4Plan: Plan = (sim, _rt, ids, at) => {
   at(30, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(36, 23) }));
   at(55, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(27, 27) }));
   at(80, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(3, 24) }));
+  // A shepherd that cannot move any more puts its passengers down to walk west, and the jeep
+  // (which otherwise waits on the road all mission) runs the circuit in its place
+  // 400 logistics and 80 a minute were never spent: rifles are bought as they come.
+  for (let when = 1; when <= 400; when += 10) at(when, () => void rt.requestBuild('inf_squad'));
+  let stranded = false;
+  for (let when = 10; when <= 290; when += 5)
+    at(when, () => {
+      if (stranded || rt.objectiveStatus('evac_families') !== 'active') return;
+      if (!ifv.some((i) => sim.state.alive[i] !== 1 || sim.state.mobilityKilled[i] === 1)) return;
+      stranded = true;
+      const jeep = ids('jeep_shoded').concat(ids('apc_kipod'));
+      sim.queueCommand({ kind: 'unload', ids: ifv.filter((i) => sim.state.alive[i] === 1) });
+      sim.queueCommand({ kind: 'move', ids: jeep, ...M(31, 23) });
+      sim.queueCommand({ kind: 'move', ids: jeep, ...M(27, 27), append: true });
+      sim.queueCommand({ kind: 'move', ids: jeep, ...M(3, 24), append: true });
+    });
   const stages: { house: [number, number]; stand: [number, number] }[] = [
     { house: [19, 24], stand: [20, 27] },
     { house: [33, 25], stand: [34, 28] },
@@ -603,6 +639,8 @@ const wadiHalam4Plan: Plan = (sim, _rt, ids, at) => {
         const next = stages[stage];
         // The IFV's autocannon is the heaviest thing here, so it joins the sweep once its
         // circuit is done (80 s + the run west + the run back).
+        // Rifles bought on the road join the sweep at the next house.
+        for (const b of ids('inf_squad')) if (!guns.includes(b)) guns.push(b);
         const all = when >= 170 ? [...guns, ...ifv] : guns;
         if (next) sim.queueCommand({ kind: 'move', ids: all, ...M(next.stand[0], next.stand[1]) });
       }
@@ -876,7 +914,7 @@ const led4In = { ...led1, ...led2, ...led3 };
 // the trade the design already intends (a replaceable rifle squad drawing
 // fire meant for an irreplaceable charge team), now actually landing on the
 // right unit.
-const bs4Plan: Plan = (sim, _rt, ids, at) => {
+const bs4Plan: Plan = (sim, rt, ids, at) => {
   const teams = ids('yahalom_squad');
   const west = teams.slice(0, 1);
   const east = teams.slice(1, 2);
@@ -974,6 +1012,20 @@ const bs4Plan: Plan = (sim, _rt, ids, at) => {
       }
     });
   }
+  // The shaft head is taken only when nothing hostile stands in it. Once the routes are down and
+  // the hostages are banked, the parked Namer is committed too, and everyone goes at what the player
+  // has seen in the collar, or at the collar itself.
+  const pic = new Picture(sim);
+  const SHAFT = [24, 7, 5, 5] as const;
+  for (let when = 2; when <= 1190; when += 2) at(when, () => pic.update());
+  for (let when = 120; when <= 1190; when += 10)
+    at(when, () => {
+      if (rt.objectiveStatus('take_the_shaft_head') !== 'active' || rt.objectiveStatus('bring_it_down') !== 'complete') return;
+      if (rt.objectiveStatus('get_them_out') === 'active') return;
+      const force = living(sim, new Set(drone));
+      const c = pic.nearest(26, 9, SHAFT);
+      sim.queueCommand({ kind: 'attackMove', ids: force, ...(c ? M(c.x, c.y) : M(26, 9)) });
+    });
 };
 run('beit_sahwan_4_subterranean', bs4Plan, led4In);
 
@@ -1028,7 +1080,7 @@ passiveAcrossSeeds('khan_rafid_1_recon', 'khan_rafid_1_recon (passive control)',
 // max tier (VICTORY, 2 stars, `docs/campaign/economy/upgrades.md` §7.6).
 run(
   'khan_rafid_1_recon',
-  (sim, _rt, ids, at) => {
+  (sim, rt, ids, at) => {
     const drone = ids('recon_drone');
     const jeep = ids('jeep_shoded');
     const eitan = ids('apc_eitan');
@@ -1054,6 +1106,16 @@ run(
     at(12, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(20, 16) }));
     at(30, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(24, 22) }));
     at(30, () => sim.queueCommand({ kind: 'move', ids: eitan, ...M(24, 22) }));
+    // The drone is down (or its sortie is over) and a watch post is still not identified. An
+    // alley sees along its own axis only, so the hulls go out of the ward's north gate to (29,16),
+    // the foot of the eastern post's own column, once the families are in.
+    for (let when = 35; when <= 1190; when += 5)
+      at(when, () => {
+        if (rt.objectiveStatus('find_the_watch') !== 'active') return;
+        if (rt.objectiveStatus('get_two_in') === 'active' && when < 90) return;
+        if (when % 20 !== 15) return;
+        sim.queueCommand({ kind: 'attackMove', ids: [...eitan, ...jeep].filter((i) => sim.state.alive[i] === 1), ...M(29, 16) });
+      });
   },
   {},
   'victory',
@@ -1070,13 +1132,13 @@ passiveAcrossSeeds('khan_rafid_2_foothold', 'khan_rafid_2_foothold (passive cont
 // ward by a gate to unload, so its cannon can reach into the zone only from the gate. AT team and
 // mortar stay south at the staging ground: their collateral (0.3, 0.7) is exactly the kind this
 // mission bills for. Measured: VICTORY in 4.4 min, ROE 100 (pinned seed 424242). The Namer's
-// leg is given 60 s: the lane-east ambush at [34,18] sits on its route and on two of twelve
-// seeds (7 and 12, the same two as on the old ground) the Namer stops at [34,20], short of the
-// family, and never moves again (cause not established), so `get_four_in` fails: the plan is a proof of winnability, not of
-// a floor, and those seeds are in the PR's before/after table rather than papered over.
+// leg is given 60 s: the lane-east ambush at [34,18] sits on its route, and on seeds 7 and 12 it
+// takes the Namer's tracks at [34,20], short of the family (mobility kill, read off the world
+// state). A player sees that on the unit card and sends something else: one of the ward's Eitans
+// goes up the same ring road for the family (below), and `get_four_in` holds on all thirty seeds.
 run(
   'khan_rafid_2_foothold',
-  (sim, _rt, ids, at) => {
+  (sim, rt, ids, at) => {
     const inf = ids('inf_squad');
     const eitan = ids('apc_eitan');
     const jeep = ids('jeep_shoded');
@@ -1103,6 +1165,21 @@ run(
       sim.queueCommand({ kind: 'move', ids: namer, ...M(24, 23), append: true });
     });
 
+    // A Namer that cannot move short of the eastern family (seeds 7 and 12: the lane ambush takes its
+    // tracks at [34,20]) is replaced by one of the ward's Eitans, up the east ring road past it to the
+    // family and back.
+    let sent = false;
+    for (let when = 10; when <= 240; when += 5)
+      at(when, () => {
+        if (sent || rt.objectiveStatus('get_four_in') !== 'active') return;
+        if (!namer.some((i) => sim.state.alive[i] !== 1 || sim.state.mobilityKilled[i] === 1)) return;
+        sent = true;
+        sim.queueCommand({ kind: 'unload', ids: namer.filter((i) => sim.state.alive[i] === 1) });
+        const runner = eitan.filter((i) => sim.state.alive[i] === 1).slice(0, 1);
+        sim.queueCommand({ kind: 'move', ids: runner, ...M(33, 22) });
+        sim.queueCommand({ kind: 'move', ids: runner, ...M(34, 14), append: true });
+        at(when + 45, () => sim.queueCommand({ kind: 'move', ids: runner, ...M(24, 23) }));
+      });
     at(0, () => sim.queueCommand({ kind: 'move', ids: at_team, ...M(26, 40) }));
     at(0, () => sim.queueCommand({ kind: 'move', ids: mortar, ...M(22, 41) }));
   },
@@ -1614,12 +1691,17 @@ run(
     });
     at(60, () => sim.queueCommand({ kind: 'attackMove', ids: foot, ...M(15, 20) }));
     at(100, () => sim.queueCommand({ kind: 'attackMove', ids: tank, ...M(29, 27) }));
-    // The observer down, the rifles and the Lavi go east onto the gully's far bank and clear
-    // it for the demolition party. Until 2026-10-11 this leg was never written: an attack-move
-    // that had arrived walked on by itself to the nearest contact its side remembered, and
-    // this plan's victory rode on that hunt. A player's attack-move stops where it is sent
-    // now (the lead's ruling), so the plan says what the hunt used to do on its own.
-    at(104, () => sim.queueCommand({ kind: 'attackMove', ids: [...foot, ...tank], ...M(36, 19) }));
+    // The observer down, the Lavi goes east onto the gully's far bank and clears it for the
+    // demolition party. Until 2026-10-11 this leg was never written: an attack-move that had
+    // arrived walked on by itself to the nearest contact its side remembered, and this plan's
+    // victory rode on that hunt. A player's attack-move stops where it is sent now (the lead's
+    // ruling), so the plan says what the hunt used to do on its own.
+    // The rifles that took the observer come back down to the approach instead of going with it.
+    // Sent east too, they were pinned at (24-25,21) on three seeds of thirty, 3-4 tiles from the
+    // shanty, and the Grad's rockets aimed at them landed on the demolition party as it set its
+    // charges (seeds 4, 6, 8: `burn_the_ammo_point` failed at 300 s, the party dead at the cache).
+    at(104, () => sim.queueCommand({ kind: 'attackMove', ids: [...tank], ...M(36, 19) }));
+    at(104, () => sim.queueCommand({ kind: 'move', ids: [...foot], ...M(21, 27) }));
     // Up the gully, one level below its banks, to the cache at its head.
     at(130, () => sim.queueCommand({ kind: 'move', ids: demo, ...M(28, 23) }));
   },
@@ -1788,7 +1870,7 @@ passiveAcrossSeeds('qarn_hadid_2_foothold', 'qarn_hadid_2_foothold (passive cont
 
 const ledQH2 = run(
   'qarn_hadid_2_foothold',
-  (sim, _rt, ids, at) => {
+  (sim, rt, ids, at) => {
     const tank = ids('mbt_lavi');
     const namer = ids('ifv_namer');
     const armour = ids('apc_eitan');
@@ -1804,6 +1886,13 @@ const ledQH2 = run(
       sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 30) });
     });
     at(100, () => sim.queueCommand({ kind: 'move', ids: demo, ...M(14, 15) }));
+    // A demolition party that has stopped short of the revetment (it halts to fight on the road up)
+    // is sent on again, as a player re-clicks a unit he sees standing still.
+    for (let when = 110; when <= 290; when += 10)
+      at(when, () => {
+        if (rt.objectiveStatus('open_the_shoulder') !== 'active') return;
+        for (const d of demo) if (sim.state.alive[d] === 1 && sim.state.moving[d] === 0 && sim.state.demoTarget[d] < 0) sim.queueCommand({ kind: 'move', ids: [d], ...M(14, 15) });
+      });
   },
   ledQH1,
   'victory',
@@ -1868,7 +1957,7 @@ const ledQH2In = { ...ledQH1, ...ledQH2 };
 // `kill_the_relay` also stay incomplete, but the evacuation clock ends it.
 passiveAcrossSeeds('qarn_hadid_3_clearance', 'qarn_hadid_3_clearance (passive control)', 'defeat');
 
-const qarnHadid3Plan: Plan = (sim, _rt, ids, at) => {
+const qarnHadid3Plan: Plan = (sim, rt, ids, at) => {
   const tank = ids('mbt_lavi');
   const namer = ids('ifv_namer');
   const armour = ids('apc_eitan');
@@ -1897,6 +1986,18 @@ const qarnHadid3Plan: Plan = (sim, _rt, ids, at) => {
   at(138, () => sim.queueCommand({ kind: 'attackMove', ids: [...armour, ...namer, ...demo], ...M(39, 19) }));
   at(160, () => sim.queueCommand({ kind: 'attackMove', ids: main, ...M(28, 11) }));
   at(130, () => sim.queueCommand({ kind: 'move', ids: civTeam, ...M(23, 3) }));
+  // The village is not taken while anything the player has seen stands in it. Since #537 the column
+  // parks where it is sent, a few tiles short of the last rifleman on the square, and the capture
+  // never starts: it is sent at what the player saw, until the village is taken.
+  const pic = new Picture(sim);
+  const VILLAGE = [20, 2, 18, 14] as const;
+  for (let when = 2; when <= 1190; when += 2) at(when, () => pic.update());
+  for (let when = 190; when <= 1190; when += 10)
+    at(when, () => {
+      if (rt.objectiveStatus('take_the_village') !== 'active') return;
+      const c = pic.nearest(28, 11, VILLAGE);
+      if (c) sim.queueCommand({ kind: 'attackMove', ids: main.filter((i) => sim.state.alive[i] === 1), ...M(c.x, c.y) });
+    });
 };
 
 run(
@@ -1949,7 +2050,7 @@ passiveAcrossSeeds('umm_zeitoun_1_recon', 'umm_zeitoun_1_recon (no orders)', 'de
 // clips `manpad_basin` and gets the drone killed before it ever turns north.
 const ledUZ1 = run(
   'umm_zeitoun_1_recon',
-  (sim, _rt, ids, at) => {
+  (sim, rt, ids, at) => {
     const drone = ids('recon_drone');
     const jeep = ids('jeep_shoded');
     at(2, () => {
@@ -2014,6 +2115,21 @@ const ledUZ1 = run(
     at(110, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(10, 40) }));
     at(125, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(3, 25) }));
     at(133, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(4, 6) }));
+    // The drone is down (or its tour is over) and a post is still to find: the ground force, otherwise
+    // idle on the start line all mission, walks to the first post still missing. Each is named ground
+    // in the briefing (the crest, both horns, the stone knoll).
+    for (let when = 20; when <= 1190; when += 5)
+      at(when, () => {
+        if (sim.state.alive[drone[0]] === 1 && when < 160) return;
+        if (when % 20 !== 0) return;
+        const evacDone = rt.objectiveStatus('get_the_wells_clear') !== 'active';
+        const ground = [...ids('inf_squad'), ...ids('at_team'), ...ids('apc_eitan'), ...(evacDone ? jeep : [])];
+        for (const [obj, to] of [['find_the_crest', [14, 7]], ['find_the_west_horn', [10, 23]], ['find_the_east_horn', [37, 23]], ['find_the_stone_knoll', [23, 33]]] as const) {
+          if (rt.objectiveStatus(obj) !== 'active') continue;
+          sim.queueCommand({ kind: 'attackMove', ids: ground.filter((i) => sim.state.alive[i] === 1), ...M(to[0], to[1]) });
+          return;
+        }
+      });
   },
   ledTelMarum3,
   'victory',
@@ -2150,15 +2266,58 @@ const ummZeitoun3Plan: Plan = (sim, rt, ids, at) => {
   // GH-382: a flank that has lost its party is not left to the clock. Whatever still stands, the drone
   // aside, is sent to the post still alive (one seed of twelve left the west horn standing for twenty
   // minutes when its four bodies died and nobody was told).
+  // Since #537 three seeds of thirty ended STUCK here: the west party dead on the scree, the horn
+  // standing, and the hulls driving at a horn no wheels can reach. Three follow-ups a player would
+  // give, below. First: the street party is dead and the families have not moved, so the east
+  // flank's rifles and its Eitan go into the square in its place once their horn is down, and the
+  // Eitan drives whoever boards it to the wadi.
+  let relieved = false;
+  for (let when = 60; when <= 280; when += 10)
+    at(when, () => {
+      if (relieved || rt.objectiveStatus('get_the_hamlet_out') !== 'active' || rt.objectiveStatus('kill_the_east_horn') !== 'complete') return;
+      if (hamlet.some((i) => sim.state.alive[i] === 1)) return;
+      relieved = true;
+      const relief = [...eastInfantry, ...apcs.slice(0, 1)].filter((i) => sim.state.alive[i] === 1);
+      sim.queueCommand({ kind: 'attackMove', ids: relief, ...M(24, 26) });
+      hamlet.push(...relief);
+      at(when + 30, () => sim.queueCommand({ kind: 'move', ids: apcs.slice(0, 1), ...M(23, 37) }));
+    });
   for (let when = 150; when <= 280; when += 30)
     at(when, () => {
-      for (const [obj, to] of [['kill_the_west_horn', [6, 25]], ['kill_the_east_horn', [42, 25]]] as const) {
-        if (rt.objectiveList.find((o) => o.id === obj)?.status === 'complete') continue;
-        const cur: number[] = [];
-        for (let i = 0; i < sim.entityCount; i++)
-          if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !drone.includes(i)) cur.push(i);
-        sim.queueCommand({ kind: 'attackMove', ids: cur.filter((_, k) => k % 2 === (obj === 'kill_the_west_horn' ? 0 : 1)), ...M(to[0], to[1]) });
+      if (rt.objectiveStatus('kill_the_east_horn') === 'complete') return;
+      const cur = living(sim, new Set(drone));
+      sim.queueCommand({ kind: 'attackMove', ids: cur.filter((_, k) => k % 2 === 1), ...M(42, 25) });
+    });
+  // The western horn is scree and only feet reach it. While it stands, every man on foot who is
+  // not walking the families out goes there, with a mortar and rifles bought as logistics allow; a
+  // second party gathers at the foot of the scree and goes up together, not one squad at a time.
+  const footTypes = new Set(['inf_squad', 'at_team', 'mortar_team', 'sniper_team']);
+  // Two tiles of the lane under the hamlet's west wall, (14,22) and (14,23), see the horn on its
+  // knoll (nothing else a hull can stand on does) at 8.8 tiles: inside the Lavi's 12 and the
+  // Namer's 10, outside the rifles' 8. Once the east horn is down the two go round the north of the
+  // hamlet, never through it, and take those two tiles.
+  let lane = false;
+  for (let when = 60; when <= 1190; when += 10)
+    at(when, () => {
+      if (lane || rt.objectiveStatus('kill_the_west_horn') !== 'active' || rt.objectiveStatus('kill_the_east_horn') !== 'complete') return;
+      lane = true;
+      for (const [h, y] of [[ids('mbt_lavi'), 22], [ids('ifv_namer'), 23]] as const) {
+        sim.queueCommand({ kind: 'move', ids: [...h], ...M(24, 16) });
+        sim.queueCommand({ kind: 'move', ids: [...h], ...M(14.5, y + 0.5), exact: true, append: true });
       }
+    });
+  for (let when = 150; when <= 1190; when += 10)
+    at(when, () => {
+      if (rt.objectiveStatus('kill_the_west_horn') !== 'active') return;
+      const busy = rt.objectiveStatus('get_the_hamlet_out') === 'active' ? new Set(hamlet) : new Set<number>();
+      const foot = living(sim, busy).filter((i) => footTypes.has(sim.unitTypes[sim.state.typeIdx[i]].id));
+      if (!foot.some((i) => sim.unitTypes[sim.state.typeIdx[i]].id === 'mortar_team')) void rt.requestBuild('mortar_team');
+      else void rt.requestBuild('inf_squad');
+      if (when % 30 !== 0) return;
+      const westAlive = west.some((i) => sim.state.alive[i] === 1);
+      const party = foot.filter((i) => !west.includes(i));
+      if (westAlive || party.length >= 3) sim.queueCommand({ kind: 'attackMove', ids: foot, ...M(6, 25) });
+      else if (party.length) sim.queueCommand({ kind: 'move', ids: party, ...M(13, 33) });
     });
   // The street squad is held on the square: an attackMove runs on after whatever it is shooting at, and
   // the first version of this plan followed a retreating picket out of the north gate.
@@ -2167,14 +2326,12 @@ const ummZeitoun3Plan: Plan = (sim, rt, ids, at) => {
   // Re-press both flanks once the first contact clears -- attackMove halts
   // on a live fight rather than closing the last few tiles to the post
   // itself.
-  at(60, () => {
-    sim.queueCommand({ kind: 'attackMove', ids: west, ...M(6, 25) });
-    sim.queueCommand({ kind: 'attackMove', ids: east, ...M(42, 25) });
-  });
-  at(120, () => {
-    sim.queueCommand({ kind: 'attackMove', ids: west, ...M(6, 25) });
-    sim.queueCommand({ kind: 'attackMove', ids: east, ...M(42, 25) });
-  });
+  // A horn that is down is not pressed again (it used to call the east flank back off the square).
+  for (const when of [60, 120])
+    at(when, () => {
+      if (rt.objectiveStatus('kill_the_west_horn') === 'active') sim.queueCommand({ kind: 'attackMove', ids: west, ...M(6, 25) });
+      if (rt.objectiveStatus('kill_the_east_horn') === 'active') sim.queueCommand({ kind: 'attackMove', ids: east, ...M(42, 25) });
+    });
 };
 
 const ledUZ3 = run(
@@ -2227,7 +2384,7 @@ passiveAcrossSeeds('umm_zeitoun_4_clearance', 'umm_zeitoun_4_clearance (no order
 // guard too -- a bonus, not something this plan depends on), and only once
 // that fight is in hand do the demo squads get their own direct `demolish`
 // orders, which they can now walk to the letter.
-const uz4Plan: Plan = (sim, _rt, ids, at) => {
+const uz4Plan: Plan = (sim, rt, ids, at) => {
   const demo = ids('demo_squad');
   const drone = ids('recon_drone');
   // The three structures inside `stockpile` (the `w` block, the `#` block
@@ -2262,7 +2419,19 @@ const uz4Plan: Plan = (sim, _rt, ids, at) => {
   // The escort holds the depot: an attackMove does not stop at its destination while a contact is
   // still ahead, and a Lavi that has chased a picket off the shelf leaves the parties under the
   // first wave. Re-anchored on the yard every 30 s.
-  for (let when = 60; when <= 280; when += 30) at(when, () => sim.queueCommand({ kind: 'attackMove', ids: depotEscort, ...M(33, 8) }));
+  for (let when = 60; when <= 280; when += 30) at(when, () => { if (rt.objectiveStatus('raze_the_stockpile') === 'active') sim.queueCommand({ kind: 'attackMove', ids: depotEscort, ...M(33, 8) }); });
+  // The stockpile is down, so everything left goes for Adhal: the nearest hostile the player has seen,
+  // else the crest. Since #537 the escort no longer walks on from the yard by itself, and three seeds
+  // of thirty ended with Adhal's party alive and the armour parked 22 tiles away.
+  const pic = new Picture(sim);
+  for (let when = 2; when <= 1190; when += 2) at(when, () => pic.update());
+  for (let when = 100; when <= 1190; when += 10)
+    at(when, () => {
+      if (rt.objectiveStatus('raze_the_stockpile') === 'active' || rt.objectiveStatus('kill_adhal') !== 'active') return;
+      const force = living(sim, new Set([...demo, ...drone]));
+      const c = pic.nearest(14, 7);
+      sim.queueCommand({ kind: 'attackMove', ids: force, ...(c ? M(c.x, c.y) : M(14, 7)) });
+    });
   // Adhal carries no deadline of his own, so a second, dedicated push for
   // him only needs to exist at all -- it does not need to race the depot.
   // Held back this long on purpose: sent at t=1 alongside the escort, it
@@ -2456,7 +2625,8 @@ boughtProbe('umm_zeitoun_4_clearance', uz4Plan, ledUZ3, 'heli_peten_gunship', 55
 let maxTierHeld = 0;
 /** GH-330: each plain victory's credits at max tier, for the second-campaign report. */
 const maxTierCredits = new Map<string, number>();
-for (const probe of maxTierProbes) {
+// Not in a plan-sweep child: the replay is held on 424242 only.
+for (const probe of PLAN_CHILD ? [] : maxTierProbes) {
   const measured: { result: 'ongoing' | 'victory' | 'defeat'; stars: Stars; roeScore: number; credits: number } = {
     result: 'ongoing',
     stars: 0,
@@ -2653,6 +2823,9 @@ const GATES: GateSpec[] = [
   { unit: 'apc_kipod', starsMin: 44, opensAfter: 19 },
 ];
 
+/** Every gate's two checks on this run's ladder, for the plan sweep's cross-seed count. */
+const gateRecords: GateRecord[] = [];
+
 for (const gate of GATES) {
   const openLedger = syntheticLedgerAfter(gate.opensAfter);
   const openStars = starsEarned(openLedger);
@@ -2669,6 +2842,7 @@ for (const gate of GATES) {
   const closedLedger = syntheticLedgerAfter(closedAfter);
   const closedStars = starsEarned(closedLedger);
   const closedReason = unlockReason({ starsMin: gate.starsMin }, closedLedger);
+  gateRecords.push({ gate: gate.unit, open: openReason === null, closed: closedReason !== null });
   console.log(`gate ${gate.unit}: CLOSED after mission ${closedAfter} at ${closedStars} stars`);
   if (closedReason === null) {
     console.error(
@@ -2736,6 +2910,7 @@ for (const gate of CONDUCT_GATES) {
   const closedAfter = gate.opensAfter - 1;
   const closedLedger = conductLedgerAfter(closedAfter);
   const closedReason = unlockReason({ roeMin: gate.roeMin }, closedLedger);
+  gateRecords.push({ gate: gate.unit, open: openReason === null, closed: closedReason !== null });
   console.log(`gate ${gate.unit}: CLOSED after mission ${closedAfter} (Conduct floor ${gate.roeMin})`);
   if (closedReason === null) {
     console.error(
@@ -2912,7 +3087,13 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // Wadi Halam I 160 -> 150 and Umm Zeitoun II 230 -> 220. No star moved. Four plans now carry
 // legs the hunt used to walk for them (Tel Marum II, Qarn Hadid III, Wadi Halam V; Beit Sahwan
 // IV's bought Zikit moved off the wave's spawn tile) -- see each plan's own comment.
-const LADDER_CREDITS = 5947;
+// 2026-10-11, the winning plans hold on thirty seeds (#537 follow-up): 5947 -> 5917, -30, read
+// off the printed per-mission credits. Wadi Halam II 180 -> 170 (the ford picket and the engineers
+// now join the hold once their jobs are done, and one more of them dies there: roster out 9 -> 8)
+// and Umm Zeitoun IV 252 -> 232 (after the raze everything goes for Adhal instead of standing in
+// the yard: done in 3.3 min instead of 3.8, roster out 32 -> 30). Every other mission reads the
+// same. No star moved, and neither did any gate.
+const LADDER_CREDITS = 5917;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
@@ -3041,7 +3222,10 @@ for (const [label, got, want] of [
 // and kneel before the first shot, so two fewer of the chain's units reach the end of it.
 // 2026-10-11, a player's attack-move stops where it is sent: 31 -> 32, same mission. One more of
 // the chain's units holds where it was sent instead of walking on at a remembered contact.
-const ROSTER_MAX = 32;
+// 2026-10-11, the winning plans hold on thirty seeds: 32 -> 30, same mission. Umm Zeitoun IV's
+// escort leaves the yard for Adhal once the stockpile is down, and two of the chain's units do not
+// come back from the crest.
+const ROSTER_MAX = 30;
 console.log(`roster maximum: ${rosterMax} at ${rosterMaxMissionId}`);
 if (rosterMax !== ROSTER_MAX) {
   console.error(`roster maximum: FAILED — expected ${ROSTER_MAX}, got ${rosterMax} at ${rosterMaxMissionId}`);
@@ -3063,4 +3247,6 @@ if (rosterMax >= ROSTER_CAP) {
 
 // The no-orders controls' other 29 seeds ran in worker processes while the ladder above ran
 // here; collect them and print one line per control (`passive-sweep.ts`).
+reportToParent(gateRecords);
 await drainPassiveSweeps();
+await drainPlanSweeps(SWEEP_SEEDS, gateRecords);
