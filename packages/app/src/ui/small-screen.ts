@@ -51,7 +51,7 @@
 // removes the card on its own and does NOT dismiss it.
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
-import { focusTrap } from './focus-trap';
+import { mountNotice, type NoticeHandle } from './notice-card';
 
 /** A phone: touch-first, no fine pointer, a screen side under 600. See the
  *  file header for each clause. */
@@ -85,53 +85,6 @@ function storeDismissed(win: Window): void {
   }
 }
 
-/** The card itself: the boot-failure card's own classes inside its scrim (the
- *  approved mock was composed from exactly these), as a modal dialog. */
-function buildCard(doc: Document): { scrim: HTMLElement; keep: HTMLButtonElement; menu: HTMLButtonElement; card: HTMLElement } {
-  const scrim = doc.createElement('div');
-  scrim.className = 'rl-boot-scrim rl-small-screen';
-  scrim.setAttribute('role', 'dialog');
-  scrim.setAttribute('aria-modal', 'true');
-  scrim.setAttribute('aria-labelledby', 'rl-small-screen-title');
-  scrim.setAttribute('aria-describedby', 'rl-small-screen-body');
-
-  const card = doc.createElement('div');
-  card.className = 'rl-boot-error';
-
-  const h = doc.createElement('h2');
-  h.id = 'rl-small-screen-title';
-  h.className = 'rl-boot-error__title';
-  h.textContent = t('smallScreen.title');
-  card.appendChild(h);
-
-  const p = doc.createElement('p');
-  p.id = 'rl-small-screen-body';
-  p.className = 'rl-boot-error__body';
-  p.textContent = t('smallScreen.body');
-  card.appendChild(p);
-
-  const n = doc.createElement('p');
-  n.className = 'rl-boot-error__next';
-  n.textContent = t('smallScreen.next');
-  card.appendChild(n);
-
-  const row = doc.createElement('div');
-  row.className = 'rl-boot-error__actions';
-  const keep = doc.createElement('button');
-  keep.type = 'button';
-  keep.className = 'rl-btn rl-small-screen__keep';
-  keep.textContent = t('smallScreen.keep');
-  const menu = doc.createElement('button');
-  menu.type = 'button';
-  menu.className = 'rl-btn rl-small-screen__menu';
-  menu.textContent = t('smallScreen.menu');
-  row.append(keep, menu);
-  card.appendChild(row);
-
-  scrim.appendChild(card);
-  return { scrim, keep, menu, card };
-}
-
 /**
  * Watch the device and show the notice while it is a phone and has not been
  * answered. Returns the disposer: it takes the media listener, the
@@ -139,65 +92,54 @@ function buildCard(doc: Document): { scrim: HTMLElement; keep: HTMLButtonElement
  */
 export function watchSmallScreen(deps: SmallScreenDeps): Disposer {
   const win = deps.win ?? window;
-  const doc = win.document;
   // jsdom and very old browsers have no matchMedia: nothing to watch.
   if (typeof win.matchMedia !== 'function') return () => {};
   const mq = win.matchMedia(PHONE_QUERY);
 
   let dismissed = storedDismissed(win);
-  let teardownCard: (() => void) | null = null;
+  let card: NoticeHandle | null = null;
   let disposed = false;
+
+  const teardown = (): void => {
+    const c = card;
+    card = null;
+    c?.close();
+  };
 
   const answer = (): void => {
     dismissed = true;
     storeDismissed(win);
-    teardownCard?.();
+    teardown();
   };
 
   const show = (): void => {
-    if (teardownCard) return;
-    const opener = doc.activeElement instanceof HTMLElement ? doc.activeElement : null;
-    const { scrim, keep, menu, card } = buildCard(doc);
-    const disposeTrap = focusTrap(card);
-    // The card claims to be modal, so nothing outside it may answer the
-    // keyboard: a bare Escape would open the pause menu under it and the game
-    // verbs would fire behind it. Escape is the card's own "Carry on anyway";
-    // Enter and Tab stay (Enter presses the focused button, Tab is the trap's).
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Tab' || e.key === 'Enter') return;
-      e.stopPropagation();
-      if (e.key === 'Escape') answer();
-    };
-    // Modal means focus stays in the card too. The mission's briefing screen
-    // focuses its own Deploy button once the art is ready, which would hand an
-    // Enter press to the screen under the card; pull focus back instead.
-    const onFocusIn = (e: FocusEvent): void => {
-      if (e.target instanceof Node && !scrim.contains(e.target)) keep.focus({ preventScroll: true });
-    };
-    keep.addEventListener('click', answer);
-    menu.addEventListener('click', () => {
-      answer();
-      deps.navigate(deps.menuHref);
+    if (card) return;
+    card = mountNotice(win, {
+      scrimClass: 'rl-boot-scrim rl-small-screen',
+      idBase: 'rl-small-screen',
+      title: t('smallScreen.title'),
+      body: t('smallScreen.body'),
+      next: t('smallScreen.next'),
+      // Escape is the card's own "Carry on anyway".
+      onEscape: answer,
+      buttons: [
+        { className: 'rl-btn rl-small-screen__keep', label: t('smallScreen.keep'), onClick: answer },
+        {
+          className: 'rl-btn rl-small-screen__menu',
+          label: t('smallScreen.menu'),
+          onClick: () => {
+            answer();
+            deps.navigate(deps.menuHref);
+          },
+        },
+      ],
     });
-    win.addEventListener('keydown', onKey, true);
-    doc.addEventListener('focusin', onFocusIn);
-    doc.body.appendChild(scrim);
-    keep.focus();
-    teardownCard = () => {
-      teardownCard = null;
-      win.removeEventListener('keydown', onKey, true);
-      doc.removeEventListener('focusin', onFocusIn);
-      disposeTrap();
-      const hadFocus = scrim.contains(doc.activeElement);
-      scrim.remove();
-      if (hadFocus) opener?.focus();
-    };
   };
 
   const sync = (): void => {
     if (disposed) return;
     if (mq.matches && !dismissed) show();
-    else teardownCard?.();
+    else teardown();
   };
 
   mq.addEventListener('change', sync);
@@ -206,6 +148,6 @@ export function watchSmallScreen(deps: SmallScreenDeps): Disposer {
     if (disposed) return;
     disposed = true;
     mq.removeEventListener('change', sync);
-    teardownCard?.();
+    teardown();
   };
 }
