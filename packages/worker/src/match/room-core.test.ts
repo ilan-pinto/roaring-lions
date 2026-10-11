@@ -235,7 +235,7 @@ describe('room-core', () => {
     expect(st.hashes).toEqual({});
   });
 
-  it('persistKey moves with the lifecycle and never with per-tick traffic', () => {
+  it('persistKey moves with the lifecycle and never with per-tick traffic or a stall', () => {
     const st = running();
     const key = persistKey(st);
     clockTick(st, 50);
@@ -243,10 +243,15 @@ describe('room-core', () => {
     seatMessage(st, 0, { t: 'ack', tick: 0 }, 60, mint);
     seatMessage(st, 0, { t: 'hash', tick: 0, h: 1 }, 60, mint);
     expect(persistKey(st)).toBe(key);
+    // A behind or silent stall flaps with a slow seat's acks: not lifecycle (R37).
+    st.status = 'stalled';
+    st.stall = { reason: 'behind', seat: 1 };
+    expect(persistKey(st)).toBe(key);
+    st.stall = { reason: 'gone', seat: 0 };
+    expect(persistKey(st)).toBe(key);
     const lifecycle: [string, (s: RoomState) => void][] = [
       ['status', (s) => { s.status = 'ended'; }],
-      ['stall', (s) => { s.stall = { reason: 'gone', seat: 1 }; }],
-      ['stall cause', (s) => { s.stall = { reason: 'behind', seat: 0 }; }],
+      ['lobby', (s) => { s.status = 'lobby'; }],
       ['ended reason', (s) => { s.endedReason = 'left'; }],
       ['config', (s) => { s.config = null; }],
       ['connected', (s) => { if (s.seats[1]) s.seats[1].connected = false; }],
@@ -255,7 +260,6 @@ describe('room-core', () => {
       ['player', (s) => { if (s.seats[1]) s.seats[1].player = 'p9'; }],
       ['seat', (s) => { s.seats[1] = null; }],
     ];
-    st.stall = { reason: 'gone', seat: 0 };
     const stalledKey = persistKey(st);
     for (const [name, change] of lifecycle) {
       const copy = structuredClone(st);

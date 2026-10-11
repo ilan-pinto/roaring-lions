@@ -181,10 +181,15 @@ function recheckStall(st: RoomState, nowMs: number, mayStall = true): Effect[] {
 /** What the DO persists the state for: the lifecycle, never the per-tick
  *  traffic (tick, pending commands, acks, hashes, last-seen times). The state
  *  is written only when this changes, which keeps a running match inside
- *  Workers Free's write budget (task 8b, R34). */
+ *  Workers Free's write budget (task 8b, R34). A stall is NOT lifecycle
+ *  (R37): 'stalled' reads as 'running' and the stall itself is left out,
+ *  because a seat a little slower than 20 Hz flaps behind-stall/resume on
+ *  every ack, and `revive` re-derives a behind or silent stall anyway. A
+ *  'gone' stall still persists, through the seat's `connected`. */
 export function persistKey(st: RoomState): string {
   const seats = st.seats.map((s) => (s ? [s.player, s.callsign, s.connected, s.ready] : null));
-  return JSON.stringify([st.status, st.stall, st.endedReason, st.config !== null, seats]);
+  const status = st.status === 'stalled' ? 'running' : st.status;
+  return JSON.stringify([status, st.endedReason, st.config !== null, seats]);
 }
 
 /** The state as storage gave it back after an eviction, made live again.
@@ -193,7 +198,20 @@ export function persistKey(st: RoomState): string {
  *  as caught up and its silence restarts now (the persisted ones date from
  *  the last lifecycle write, and would stall the room at once), and pending
  *  commands persisted with an older tick were already stamped into a frame,
- *  so they are dropped rather than stamped twice. */
+ *  so they are dropped rather than stamped twice.
+ *
+ *  So a persisted behind or silent stall is un-stalled at the next clock
+ *  tick: a seat that really is behind gets a fresh allowance of
+ *  `STALL_BEHIND_TICKS` before it stalls the room again, which costs nothing
+ *  but time -- the stall only paces the room, and both clients run the same
+ *  frames either way, so no desync. A 'gone' stall stands, since `connected`
+ *  is persisted. Left stale on purpose, all harmless: `nextSeq` only orders
+ *  a seat's commands WITHIN one frame (`canonicalOrder`), so restarting it
+ *  from an older value repeats no order inside any frame; `hashes` and
+ *  `lastHashTick` can only be older than the truth, so a hash the clients
+ *  already compared arrives as a replay or completes no pair, a half pair
+ *  waits for its partner as before, and any leftover is pruned when the next
+ *  pair completes. */
 export function revive(st: RoomState, tick: number, nowMs: number): void {
   if (tick > st.tick) {
     st.tick = tick;
