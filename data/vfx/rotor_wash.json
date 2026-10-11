@@ -1,6 +1,6 @@
 {
   "id": "rotor_wash",
-  "trigger": "vehicle_move",
+  "trigger": "rotor_wash",
   "layer": "below_units",
   "budget_priority": 1,
   "particles": [

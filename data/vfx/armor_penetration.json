@@ -1,0 +1,47 @@
+{
+  "id": "armor_penetration",
+  "trigger": "penetration",
+  "layer": "above_units",
+  "budget_priority": 6,
+  "particles": [
+    {
+      "sprite": "soft_dot",
+      "count": [2, 3],
+      "lifetime_ms": [60, 110],
+      "speed_tiles_s": [0.2, 0.6],
+      "cone_deg": 360,
+      "size_px": [5, 8],
+      "size_over_life": [1.0, 0.5],
+      "color_over_life": ["vfx.white_hot", "vfx.fire"],
+      "alpha_over_life": [1.0, 0.0],
+      "additive": true
+    },
+    {
+      "sprite": "spark",
+      "count": [6, 10],
+      "lifetime_ms": [160, 320],
+      "speed_tiles_s": [2.0, 4.0],
+      "cone_deg": 60,
+      "gravity_tiles_s2": 2.5,
+      "drag": 0.25,
+      "size_px": [2, 4],
+      "size_over_life": [1.0, 0.4],
+      "color_over_life": ["vfx.white_hot", "vfx.fire", "vfx.ember"],
+      "alpha_over_life": [1.0, 0.0],
+      "additive": true
+    },
+    {
+      "sprite": "smoke_puff",
+      "count": [2, 3],
+      "lifetime_ms": [700, 1200],
+      "speed_tiles_s": [0.2, 0.5],
+      "cone_deg": 360,
+      "gravity_tiles_s2": -0.4,
+      "drag": 0.7,
+      "size_px": [6, 10],
+      "size_over_life": [0.6, 1.8],
+      "color_over_life": ["gunmetal.3", "gunmetal.2"],
+      "alpha_over_life": [0.7, 0.0]
+    }
+  ]
+}

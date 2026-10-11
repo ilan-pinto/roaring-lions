@@ -1,0 +1,36 @@
+{
+  "id": "wreck_smoulder",
+  "trigger": "catastrophic_kill",
+  "layer": "above_units",
+  "budget_priority": 1,
+  "particles": [
+    {
+      "sprite": "smoke_puff",
+      "count": [1, 1],
+      "lifetime_ms": [2800, 3800],
+      "emit_over_ms": 450,
+      "speed_tiles_s": [0.15, 0.3],
+      "cone_deg": 30,
+      "gravity_tiles_s2": -0.6,
+      "drag": 0.6,
+      "size_px": [14, 22],
+      "size_over_life": [0.5, 1.4, 2.4],
+      "color_over_life": ["gunmetal.2", "gunmetal.1", "gunmetal.0"],
+      "alpha_over_life": [0.75, 0.5, 0.0]
+    },
+    {
+      "sprite": "spark",
+      "count": [1, 1],
+      "lifetime_ms": [400, 800],
+      "speed_tiles_s": [0.4, 0.9],
+      "cone_deg": 40,
+      "gravity_tiles_s2": -1.8,
+      "drag": 0.4,
+      "size_px": [2.5, 3.5],
+      "size_over_life": [1.0, 0.4],
+      "color_over_life": ["vfx.fire", "vfx.ember"],
+      "alpha_over_life": [0.9, 0.0],
+      "additive": true
+    }
+  ]
+}

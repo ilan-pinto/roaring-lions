@@ -1,0 +1,48 @@
+{
+  "id": "demolition_blast",
+  "trigger": "eod_breach",
+  "layer": "above_units",
+  "budget_priority": 7,
+  "particles": [
+    {
+      "sprite": "soft_dot",
+      "count": [4, 6],
+      "lifetime_ms": [160, 280],
+      "speed_tiles_s": [1.2, 2.8],
+      "cone_deg": 360,
+      "gravity_tiles_s2": -0.8,
+      "size_px": [6, 10],
+      "size_over_life": [0.4, 1.0, 1.2],
+      "color_over_life": ["vfx.white_hot", "vfx.fire", "vfx.ember"],
+      "alpha_over_life": [1.0, 0.9, 0.0],
+      "additive": true,
+      "mesh_burst": true
+    },
+    {
+      "sprite": "shard",
+      "count": [8, 12],
+      "lifetime_ms": [300, 650],
+      "speed_tiles_s": [1.4, 3.4],
+      "cone_deg": 360,
+      "gravity_tiles_s2": 2.5,
+      "drag": 0.25,
+      "size_px": [3, 5],
+      "size_over_life": [1.0, 0.6],
+      "color_over_life": ["limestone.3", "limestone.6"],
+      "alpha_over_life": [1.0, 0.0]
+    },
+    {
+      "sprite": "smoke_puff",
+      "count": [8, 12],
+      "lifetime_ms": [900, 1600],
+      "speed_tiles_s": [0.4, 1.2],
+      "cone_deg": 360,
+      "gravity_tiles_s2": -0.3,
+      "drag": 0.8,
+      "size_px": [9, 16],
+      "size_over_life": [0.5, 2.2],
+      "color_over_life": ["limestone.2", "dust.3"],
+      "alpha_over_life": [0.8, 0.0]
+    }
+  ]
+}

@@ -178,6 +178,15 @@ export interface ShellModel {
   duration: number;
   /** Elapsed seconds. A shell is live while this is `< duration`. */
   t: number;
+  /** GH-85: who fired a direct-fire round at which hull -- set only on a
+   *  hitting round aimed at a unit, so the sim's `impact` outcome can find
+   *  the bolt that carries it (`trigger-fx.ts`'s `claimStrikeBolt`). */
+  shooter?: number;
+  target?: number;
+  /** GH-85: that outcome, once the `impact` event has latched it. The
+   *  renderer throws `armor_ricochet` or `armor_penetration` on the frame
+   *  this round lands. `stepShells` copies it along with every other field. */
+  strike?: { penetrated: boolean; magnitude: number };
 }
 
 export interface ShellProfile {

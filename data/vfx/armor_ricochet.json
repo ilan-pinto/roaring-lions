@@ -1,0 +1,46 @@
+{
+  "id": "armor_ricochet",
+  "trigger": "impact_armor",
+  "layer": "above_units",
+  "budget_priority": 5,
+  "particles": [
+    {
+      "sprite": "hard_dot",
+      "count": [1, 1],
+      "lifetime_ms": [70, 110],
+      "speed_tiles_s": [0, 0],
+      "size_px": [9, 13],
+      "size_over_life": [1.0, 0.6],
+      "color_over_life": ["vfx.white_hot", "vfx.fire"],
+      "alpha_over_life": [1.0, 0.0],
+      "additive": true
+    },
+    {
+      "sprite": "spark",
+      "count": [6, 10],
+      "lifetime_ms": [150, 300],
+      "speed_tiles_s": [2.5, 4.5],
+      "cone_deg": 120,
+      "direction_offset_deg": 180,
+      "gravity_tiles_s2": 2.0,
+      "drag": 0.3,
+      "size_px": [3, 4],
+      "size_over_life": [1.0, 0.4],
+      "color_over_life": ["vfx.white_hot", "vfx.fire", "vfx.ember"],
+      "alpha_over_life": [1.0, 0.0],
+      "additive": true
+    },
+    {
+      "sprite": "smoke_puff",
+      "count": [1, 2],
+      "lifetime_ms": [400, 650],
+      "speed_tiles_s": [0.2, 0.5],
+      "cone_deg": 360,
+      "drag": 0.6,
+      "size_px": [6, 10],
+      "size_over_life": [0.6, 1.6],
+      "color_over_life": ["gunmetal.1", "gunmetal.0"],
+      "alpha_over_life": [0.6, 0.0]
+    }
+  ]
+}
