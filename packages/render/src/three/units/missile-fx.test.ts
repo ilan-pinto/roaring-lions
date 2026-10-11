@@ -5,6 +5,9 @@ import type { EmitterSpec } from '../../vfx';
 import { FX_RENDER_ORDER, FX_RENDER_ORDER_ADDITIVE } from './render-order';
 import { MissileFx } from './missile-fx';
 import type { MissileLaunch, TargetTrack } from './missiles';
+import { spawnShell } from './shells';
+import { SHELL_LIFT_PX } from './fx';
+import { WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import * as missileTrail from './missile-trail';
 import * as missilesModule from './missiles';
 import * as fxModule from './fx';
@@ -173,6 +176,56 @@ describe('MissileFx', () => {
     const i1 = fx.intercept(1, 0);
     const i2 = fx.intercept(1, 0);
     expect(i2).toBe(i1);
+    fx.dispose();
+  });
+
+  it('lays a Grad rocket smoke trail through the SAME three meshes: +0 draws (GH-85)', () => {
+    const fx = new MissileFx();
+    fx.setLook(TRAIL, resolve);
+    fx.setRocketLook(
+      { id: 'rocket_trail', trigger: 'projectile_trail', layer: 'above_units',
+        particles: [{ sprite: 'smoke_puff', count: 1, lifetime_ms: 2200, size_px: 3.5, color_over_life: ['limestone.1'] }] },
+      resolve
+    );
+    const rocket = spawnShell(0, 0, 12, 0, 1, 'rocket');
+    const bomb = spawnShell(0, 0, 12, 0, 1, 'mortar');
+    rocket.t = 1;
+    bomb.t = 1;
+    fx.step(1 / 60, TRACK, null, 0, 0);
+    expect(fx.meshes.filter((m) => m.visible)).toHaveLength(0);
+    fx.layShellTrails([rocket, bomb], null, 0, 0);
+    fx.step(1 / 60, TRACK, null, 0, 0);
+    expect(fx.trail.live).toBeGreaterThan(0);
+    expect(fx.spriteMesh.count).toBe(fx.trail.live);
+    // Smoke only: no glow, no body, and still three meshes in the whole controller.
+    expect(fx.meshes.filter((m) => m.visible)).toEqual([fx.spriteMesh]);
+    expect(fx.meshes).toHaveLength(3);
+    fx.dispose();
+  });
+
+  it('a puff laid at the apex hangs at the apex: the arc height plus the shell lift, on flat ground', () => {
+    const fx = new MissileFx();
+    fx.setRocketLook(
+      { id: 'rocket_trail', trigger: 'projectile_trail', layer: 'above_units',
+        particles: [{ sprite: 'smoke_puff', count: 1, lifetime_ms: 2200, size_px: 3.5, color_over_life: ['limestone.1'] }] },
+      resolve
+    );
+    const rocket = spawnShell(0, 0, 12, 0, 1, 'rocket');
+    rocket.t = rocket.duration * 0.5;
+    fx.layShellTrails([rocket], null, 0, 0);
+    let top = 0;
+    for (let i = 0; i < fx.trail.capacity; i++) if (fx.trail.alive[i] === 1) top = Math.max(top, fx.trail.pWorldY[i]);
+    expect(top).toBeCloseTo((SHELL_LIFT_PX + rocket.apexPx) * WORLD_Y_PER_LIFT_PIXEL, 4);
+    fx.dispose();
+  });
+
+  it('lays nothing before the rocket look is wired (two-phase construction)', () => {
+    const fx = new MissileFx();
+    fx.setLook(TRAIL, resolve);
+    const rocket = spawnShell(0, 0, 12, 0, 1, 'rocket');
+    rocket.t = 1;
+    fx.layShellTrails([rocket], null, 0, 0);
+    expect(fx.trail.live).toBe(0);
     fx.dispose();
   });
 });

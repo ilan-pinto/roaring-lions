@@ -187,6 +187,11 @@ export interface ShellModel {
    *  renderer throws `armor_ricochet` or `armor_penetration` on the frame
    *  this round lands. `stepShells` copies it along with every other field. */
   strike?: { penetrated: boolean; magnitude: number };
+  /** Ground distance (tiles) the smoke trail has been laid out to -- the
+   *  `MissileModel.trailTiles` twin. Set only on a `rocket`, by
+   *  `emitAlongShell` (`./missile-trail.ts`); `stepShells` copies it along
+   *  with every other field, so it survives the per-frame object rebuild. */
+  trailTiles?: number;
 }
 
 export interface ShellProfile {
@@ -539,16 +544,26 @@ export function shellProgress(s: ShellModel): number {
  *  the flight gets the endpoint rather than a round that dives underground
  *  or overshoots its own aim point. */
 export function shellPointAt(s: ShellModel, u: number): { x: number; y: number; liftPx: number } {
+  return shellPointInto(s, u, { x: 0, y: 0, liftPx: 0 });
+}
+
+/** `shellPointAt` written into a caller-owned point, for a per-frame caller
+ *  that must allocate nothing (the rocket trail lays a puff per 0.2 tile). */
+export function shellPointInto<P extends { x: number; y: number; liftPx: number }>(s: ShellModel, u: number, out: P): P {
   const p = clamp(u, 0, 1);
-  return {
-    x: s.sx + (s.tx - s.sx) * p,
-    y: s.sy + (s.ty - s.sy) * p,
-    // 4u(1-u) is 0 at both ends and exactly 1 at u = 0.5. `baseLiftPx` is 0
-    // for the two arcing kinds, so a mortar's height is unchanged by it and
-    // still meets its own ground at both ends; a `bolt`'s parabola is
-    // identically 0 and the base lift is the whole of its height.
-    liftPx: s.apexPx * 4 * p * (1 - p) + SHELL_PROFILES[s.kind].baseLiftPx,
-  };
+  out.x = s.sx + (s.tx - s.sx) * p;
+  out.y = s.sy + (s.ty - s.sy) * p;
+  // 4u(1-u) is 0 at both ends and exactly 1 at u = 0.5. `baseLiftPx` is 0
+  // for the two arcing kinds, so a mortar's height is unchanged by it and
+  // still meets its own ground at both ends; a `bolt`'s parabola is
+  // identically 0 and the base lift is the whole of its height.
+  out.liftPx = s.apexPx * 4 * p * (1 - p) + SHELL_PROFILES[s.kind].baseLiftPx;
+  return out;
+}
+
+/** Ground distance of a shell's flight, tiles. */
+export function shellGroundDist(s: ShellModel): number {
+  return Math.hypot(s.tx - s.sx, s.ty - s.sy);
 }
 
 /**

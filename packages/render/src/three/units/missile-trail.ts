@@ -38,6 +38,7 @@ import {
   type MissileModel,
   type MissilePoint,
 } from './missiles';
+import { shellGroundDist, shellPointInto, shellProgress, type ShellModel } from './shells';
 
 export const TRAIL_SPACING_TILES = 0.2;
 export const TRAIL_RISE_PX_S = 5;
@@ -45,18 +46,27 @@ export const TRAIL_DRIFT_TILES_S = 0.15;
 /** Toward screen upper-right; one map-wide presentation wind (N10). */
 export const TRAIL_DRIFT_TURNS = 0.875;
 export const TRAIL_CAPACITY = 768;
+/** `TrailPool.style` values. */
+export const PUFF_MISSILE = 0;
+export const PUFF_ROCKET = 1;
 export const GLOW_FLICKER = 0.15;
 export const GLOW_FLICKER_HZ = 23;
 export const MISSILE_BODY_TILES = 0.3;
 export const MISSILE_BODY_WIDTH_PX = 2.5;
 export const MISSILE_BODY_COLOR_KEY = 'gunmetal.1';
 
-export interface TrailLook {
+/** What a smoke puff needs to be laid and drawn -- the one `smoke_puff`
+ *  layer of a trail emitter. A missile's `TrailLook` adds a halo and a core on
+ *  top; an arcing rocket's trail is this alone (`smokeLookFrom`). */
+export interface SmokeLook {
   lifeS: number;
   radiusPx: number;
   sizeCurve: number[];
   alphaCurve: number[];
   colors: string[];
+}
+
+export interface TrailLook extends SmokeLook {
   coreRadiusPx: number;
   coreColor: string;
   haloRadiusPx: number;
@@ -90,6 +100,32 @@ function cachedHexToLinear(hex: string): readonly [number, number, number] {
   return rgb;
 }
 
+/** The `smoke_puff` layer of a trail emitter, palette keys resolved. Shared by
+ *  `trailLookFrom` (a missile) and the rocket trail, so the two cannot read the
+ *  same layer two ways. `who` names the emitter in the error. */
+function smokeFields(smoke: ParticleSpec, resolve: (key: string) => string): SmokeLook {
+  return {
+    lifeS: rangeToNumber(smoke.lifetime_ms, 0) / 1000,
+    radiusPx: rangeToNumber(smoke.size_px, 0),
+    sizeCurve: smoke.size_over_life ?? [1],
+    alphaCurve: smoke.alpha_over_life ?? [1],
+    colors: smoke.color_over_life.map(resolve),
+  };
+}
+
+/**
+ * An arcing rocket's trail look (`data/vfx/rocket_trail.json`): the emitter's
+ * one `smoke_puff` layer and nothing else -- a Grad's motor is not drawn as a
+ * glow. Null with no emitter (nothing registered yet); throws when the emitter
+ * has no smoke layer, a partially-authored emitter being a bug.
+ */
+export function smokeLookFrom(em: EmitterSpec | null, resolve: (key: string) => string): SmokeLook | null {
+  if (em === null) return null;
+  const smoke = em.particles.find((p: ParticleSpec) => p.sprite === 'smoke_puff');
+  if (smoke === undefined) throw new Error(`${em.id}: no smoke_puff layer`);
+  return smokeFields(smoke, resolve);
+}
+
 /**
  * Reads the three layers of a missile-trail emitter by role (see the file
  * doc comment), resolving every palette key up front so nothing downstream
@@ -107,11 +143,7 @@ export function trailLookFrom(em: EmitterSpec | null, resolve: (key: string) => 
   if (halo === undefined) throw new Error('missile_trail: no halo layer');
 
   return {
-    lifeS: rangeToNumber(smoke.lifetime_ms, 0) / 1000,
-    radiusPx: rangeToNumber(smoke.size_px, 0),
-    sizeCurve: smoke.size_over_life ?? [1],
-    alphaCurve: smoke.alpha_over_life ?? [1],
-    colors: smoke.color_over_life.map(resolve),
+    ...smokeFields(smoke, resolve),
     coreRadiusPx: rangeToNumber(core.size_px, 0),
     coreColor: resolve(core.color_over_life[0]),
     haloRadiusPx: rangeToNumber(halo.size_px, 0),
@@ -139,6 +171,9 @@ export class TrailPool {
   readonly age: Float32Array;
   readonly life: Float32Array;
   readonly alive: Uint8Array;
+  /** Which look a puff is drawn with: `PUFF_MISSILE` or `PUFF_ROCKET`. Two
+   *  trails share ONE pool, one sprite mesh and so one draw call. */
+  readonly style: Uint8Array;
   private head = 0;
   private liveCount = 0;
 
@@ -150,13 +185,14 @@ export class TrailPool {
     this.age = new Float32Array(capacity);
     this.life = new Float32Array(capacity);
     this.alive = new Uint8Array(capacity);
+    this.style = new Uint8Array(capacity);
   }
 
   get live(): number {
     return this.liveCount;
   }
 
-  emit(x: number, y: number, worldY: number, life: number): void {
+  emit(x: number, y: number, worldY: number, life: number, style: number = PUFF_MISSILE): void {
     const i = this.head;
     if (this.alive[i] === 0) this.liveCount++;
     this.px[i] = x;
@@ -165,6 +201,7 @@ export class TrailPool {
     this.age[i] = 0;
     this.life[i] = life;
     this.alive[i] = 1;
+    this.style[i] = style;
     this.head = (this.head + 1) % this.capacity;
   }
 
@@ -244,22 +281,71 @@ export function emitAlongFlight(
   const travelled = missileProgress(m) * groundDist;
   const from = Math.max(m.trailTiles, prof.ignitionTiles);
   const life = look.lifeS * prof.trailLifeScale;
-  const kStart = Math.floor(from / TRAIL_SPACING_TILES + 1e-9) + 1;
+  const emitted = layPuffs(pool, m, from, travelled, groundDist, life, PUFF_MISSILE, missilePointAt, worldYAt);
+  if (emitted > 0) m.trailTiles = lastLaid;
+  return emitted;
+}
 
+/**
+ * The same trail for an ARCING ROCKET (a Grad), laid along `shellPointInto`'s
+ * parabola at the round's real height, so a puff laid at the apex hangs at the
+ * apex instead of dropping to the ground (`ParticleSystem` has no height --
+ * the reason this shares `MissileFx`'s lifted pool rather than the particle
+ * system). Spaced by ground distance exactly like a missile's, and the low-
+ * water mark rides on the shell (`ShellModel.trailTiles`). A mortar bomb
+ * never comes here: a mortar bomb is unpowered and leaves no smoke.
+ */
+export function emitAlongShell(
+  pool: TrailPool,
+  s: ShellModel,
+  look: SmokeLook,
+  worldYAt: (s: ShellModel, liftPx: number, u: number) => number
+): number {
+  if (s.kind !== 'rocket' || s.t < 0) return 0;
+  const groundDist = shellGroundDist(s);
+  const travelled = shellProgress(s) * groundDist;
+  const emitted = layPuffs(pool, s, s.trailTiles ?? 0, travelled, groundDist, look.lifeS, PUFF_ROCKET, shellPointInto, worldYAt);
+  if (emitted > 0) s.trailTiles = lastLaid;
+  return emitted;
+}
+
+/**
+ * The shared loop: one puff every `TRAIL_SPACING_TILES` of ground between
+ * `from` (exclusive) and `travelled`, at the flight's own point and height.
+ * Returns how many it placed and leaves the last distance placed in
+ * `lastLaid` (a module scratch: a callback here would be a closure per flight
+ * per frame). A caller advances its low-water mark only when the count is
+ * above zero -- a call that places nothing leaves it alone, which is what lets
+ * an unlit RPG's first puff start at its ignition point.
+ */
+let lastLaid = 0;
+
+function layPuffs<F>(
+  pool: TrailPool,
+  flight: F,
+  from: number,
+  travelled: number,
+  groundDist: number,
+  life: number,
+  style: number,
+  pointAt: (f: F, u: number, out: MissilePoint) => MissilePoint,
+  worldYAt: (f: F, liftPx: number, u: number) => number
+): number {
+  const kStart = Math.floor(from / TRAIL_SPACING_TILES + 1e-9) + 1;
   let emitted = 0;
   let last = from;
   for (let k = kStart; k * TRAIL_SPACING_TILES <= travelled + 1e-9; k++) {
     const d = k * TRAIL_SPACING_TILES;
     const u = d / groundDist;
-    const pt = missilePointAt(m, u, scratchPoint);
+    const pt = pointAt(flight, u, scratchPoint);
     const px = pt.x;
     const py = pt.y;
-    const worldY = worldYAt(m, pt.liftPx, u);
-    pool.emit(px, py, worldY, life);
+    const worldY = worldYAt(flight, pt.liftPx, u);
+    pool.emit(px, py, worldY, life, style);
     last = d;
     emitted++;
   }
-  if (emitted > 0) m.trailTiles = last;
+  lastLaid = last;
   return emitted;
 }
 
@@ -308,7 +394,8 @@ export function writeMissileSprites(
   look: TrailLook,
   worldYAt: (m: MissileModel, u: number) => number,
   soft: SpriteBuffers,
-  core: SpriteBuffers
+  core: SpriteBuffers,
+  rocketLook: SmokeLook | null = null
 ): Readonly<SpriteCounts> {
   const softCap = soft.alphas.length;
   const coreCap = core.alphas.length;
@@ -365,9 +452,12 @@ export function writeMissileSprites(
     const worldY = pool.pWorldY[p];
     const ageFrac = pool.age[p] / pool.life[p];
     const i = softCount;
-    const radius = look.radiusPx * sampleLerp(look.sizeCurve, ageFrac, 1);
-    const alpha = sampleLerp(look.alphaCurve, ageFrac, 1);
-    const color = sampleStep(look.colors, ageFrac, '#000000');
+    // A rocket's puff wears the rocket look; `rocketLook` null only when no
+    // rocket emitter is registered, in which case none was ever laid.
+    const puff: SmokeLook = pool.style[p] === PUFF_ROCKET && rocketLook !== null ? rocketLook : look;
+    const radius = puff.radiusPx * sampleLerp(puff.sizeCurve, ageFrac, 1);
+    const alpha = sampleLerp(puff.alphaCurve, ageFrac, 1);
+    const color = sampleStep(puff.colors, ageFrac, '#000000');
     const [r, g, b] = cachedHexToLinear(color);
     soft.positions[i * 3] = x;
     soft.positions[i * 3 + 1] = worldY;

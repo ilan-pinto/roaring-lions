@@ -20,6 +20,8 @@ import type { ShellModel } from './units/shells';
 import { WRECK_SMOULDER_SECONDS } from './units/trigger-fx';
 import ricochetJson from '../../../../data/vfx/armor_ricochet.json';
 import penetrationJson from '../../../../data/vfx/armor_penetration.json';
+import missileTrailJson from '../../../../data/vfx/missile_trail.json';
+import rocketTrailJson from '../../../../data/vfx/rocket_trail.json';
 import smoulderJson from '../../../../data/vfx/wreck_smoulder.json';
 import apsJson from '../../../../data/vfx/aps_launch.json';
 import demolitionJson from '../../../../data/vfx/demolition_blast.json';
@@ -73,7 +75,11 @@ const SMOULDER = smoulderJson as unknown as EmitterSpec;
 const APS = apsJson as unknown as EmitterSpec;
 const DEMOLITION = demolitionJson as unknown as EmitterSpec;
 const DISCHARGE = dischargeJson as unknown as EmitterSpec;
-const ALL = [RICOCHET, PENETRATION, SMOULDER, APS, DEMOLITION, DISCHARGE];
+const ROCKET_TRAIL = rocketTrailJson as unknown as EmitterSpec;
+const MISSILE_TRAIL = missileTrailJson as unknown as EmitterSpec;
+// The shipped pair, as `vfxEmitters` registers them: the rocket's puffs are drawn
+// by the missile trail's sprite mesh, which needs both looks wired.
+const ALL = [RICOCHET, PENETRATION, SMOULDER, APS, DEMOLITION, DISCHARGE, MISSILE_TRAIL, ROCKET_TRAIL];
 
 const weapon = (id: string, type: string, penetration: number, range = 10) => ({
   id, type, range_tiles: range, effective_range_tiles: range * 0.8, accuracy: 0.95,
@@ -92,6 +98,13 @@ const MACHINE_GUNNER: UnitTypeJson = {
 const LAUNCHER: UnitTypeJson = {
   ...GUNNER, id: 't_at', weapons: [weapon('spike', 'atgm', 1, 9)],
 };
+/** A Grad and a mortar: the two arcing rounds. Same range, same everything. */
+const ROCKETEER: UnitTypeJson = {
+  ...GUNNER, id: 't_grad', weapons: [weapon('grad_122', 'rocket', 40, 14)],
+};
+const MORTARMAN: UnitTypeJson = {
+  ...GUNNER, id: 't_mortar', weapons: [weapon('mortar_60', 'mortar', 20, 14)],
+};
 const SAPPER: UnitTypeJson = {
   ...GUNNER, id: 't_sapper', role: 'infantry', weapons: [weapon('charges', 'demolition', 200, 1.5)],
 };
@@ -106,6 +119,8 @@ interface Privates {
   bolts: ShellModel[];
   fog: Uint8Array;
   updateFx(ms: number, alpha?: number): void;
+  shells: ShellModel[];
+  missileFx: { trail: { live: number; alive: Uint8Array; style: Uint8Array; pWorldY: Float32Array; capacity: number }; spriteMesh: { count: number } };
   wreckSmoulder: Map<number, unknown>;
   pendingCharges: unknown[];
 }
@@ -332,5 +347,37 @@ describe('a burnt-out hull smoulders on the sim clock (GH-85)', () => {
     r.onEvents(events);
     expect(priv(r).wreckSmoulder.size).toBe(0);
     r.dispose();
+  });
+});
+
+describe('an arcing rocket trails smoke along its real arc (GH-85)', () => {
+  /** Fire, then fly the round for `frames` frames; the live trail puffs. */
+  function flown(shooterJson: UnitTypeJson, frames: number): { live: number; maxY: number; rockets: boolean; drawn: number } {
+    const { sim, r, shooter } = world(shooterJson, 12);
+    tickUntil(sim, r, (e) => e.kind === 'fire' && e.shooter === shooter);
+    expect(priv(r).shells.length).toBeGreaterThan(0);
+    const rockets = priv(r).shells.every((sh) => sh.kind === 'rocket');
+    for (let i = 0; i < frames; i++) priv(r).updateFx(1000 / 60);
+    const tr = priv(r).missileFx.trail;
+    let maxY = 0;
+    for (let i = 0; i < tr.capacity; i++) if (tr.alive[i] === 1) maxY = Math.max(maxY, tr.pWorldY[i]);
+    const out = { live: tr.live, maxY, rockets, drawn: priv(r).missileFx.spriteMesh.count };
+    r.dispose();
+    return out;
+  }
+
+  it('a Grad rocket leaves a trail that rises with the round, drawn by the missile sprite mesh', () => {
+    const f = flown(ROCKETEER, 30);
+    expect(f.rockets).toBe(true);
+    expect(f.live).toBeGreaterThan(3);
+    // A puff laid at height: the ground is world Y 0 on this flat map.
+    expect(f.maxY).toBeGreaterThan(0.15);
+    expect(f.drawn).toBe(f.live);
+  });
+
+  it('a mortar bomb leaves none: it is unpowered', () => {
+    const f = flown(MORTARMAN, 30);
+    expect(f.rockets).toBe(false);
+    expect(f.live).toBe(0);
   });
 });

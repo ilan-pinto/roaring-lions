@@ -1,0 +1,36 @@
+{
+  "id": "rocket_trail",
+  "trigger": "projectile_trail",
+  "layer": "above_units",
+  "budget_priority": 6,
+  "particles": [
+    {
+      "sprite": "smoke_puff",
+      "count": [
+        1,
+        1
+      ],
+      "lifetime_ms": [
+        2200,
+        2200
+      ],
+      "size_px": [
+        3.5,
+        3.5
+      ],
+      "size_over_life": [
+        1.0,
+        3.6
+      ],
+      "color_over_life": [
+        "limestone.0",
+        "limestone.1",
+        "limestone.3"
+      ],
+      "alpha_over_life": [
+        0.8,
+        0.0
+      ]
+    }
+  ]
+}

@@ -144,11 +144,10 @@ import rpgBackblast from '../../../data/vfx/rpg_backblast.json';
 import fireHmg from '../../../data/vfx/fire_hmg.json';
 import fireMissile from '../../../data/vfx/fire_missile.json';
 import fireMortar from '../../../data/vfx/fire_mortar.json';
-import cigaretteEmber from '../../../data/vfx/cigarette_ember.json';
-import cigaretteSmoke from '../../../data/vfx/cigarette_smoke.json';
 import fireSmallArms from '../../../data/vfx/fire_small_arms.json';
 import missileImpact from '../../../data/vfx/missile_impact.json';
 import missileTrail from '../../../data/vfx/missile_trail.json';
+import rocketTrail from '../../../data/vfx/rocket_trail.json';
 import shellImpact from '../../../data/vfx/shell_impact.json';
 import structureBurning from '../../../data/vfx/structure_burning.json';
 import structureCollapse from '../../../data/vfx/structure_collapse.json';
@@ -397,7 +396,7 @@ export const menuDiorama: DioramaJson = menuDioramaJson as DioramaJson;
 /** Every emitter the renderer may need.
  *
  * Weapon-fire ones are indexed by weapon class; the `ambient_idle` ones
- * (`cigarette_ember`/`cigarette_smoke`, `vehicle_exhaust`) are looked up by
+ * (`vehicle_exhaust`, `structure_burning`) are looked up by
  * name, because idling is not a sim event and must not become one.
  * `structure_collapse` is looked up by name too, off the `structureDestroyed`
  * event — the sim says a building fell, the renderer decides what that looks
@@ -411,7 +410,7 @@ export const menuDiorama: DioramaJson = menuDioramaJson as DioramaJson;
  * `structure_burning` is looked up by name as well, on the renderer's own
  * timer for a mesh building in its lowest two HP bands and for its wreck's
  * first seconds (GH-31, A3.2 remainder): a building on fire is a
- * presentation of `hp`, not an event, exactly the ambient pair's shape.
+ * presentation of `hp`, not an event, exactly the ambient shape.
  * `catastrophic_kill` is looked up by name too, off a `destroyed` event
  * whose type is a vehicle: the blast's light, screen shake and hit-stop
  * (WP-A1.2). It was the ONE file in `data/vfx/` this array did not carry,
@@ -438,9 +437,10 @@ export const vfxEmitters = [
   rpgBackblast,
   fireMissile,
   fireMortar,
-  cigaretteEmber,
-  cigaretteSmoke,
   missileTrail,
+  // A Grad rocket's smoke, laid along its arc through the missile trail's
+  // lifted pool (GH-85): looked up by id, not by weapon class.
+  rocketTrail,
   missileImpact,
   shellImpact,
   structureBurning,

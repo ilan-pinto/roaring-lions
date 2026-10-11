@@ -21,7 +21,7 @@ describe('FlashLightManager (point-light pool)', () => {
   it('spawns nothing without decay_ms or at intensity 0, but a FRACTIONAL intensity is a light', () => {
     // The rule changed on 2026-09-15: the guard was `Math.round(intensity) <=
     // 0`, a leftover from the toon era's integer ramp STEPS, and it silently
-    // discarded `cigarette_ember`'s 0.3 -- an emitter that declares a light
+    // discarded the 0.3 of `cigarette_ember` (since deleted) -- an emitter that declares a light
     // and got none. A `PointLight` is continuous, so the only meaningless
     // intensity is a non-positive one.
     const m = new FlashLightManager();
@@ -29,7 +29,7 @@ describe('FlashLightManager (point-light pool)', () => {
     m.spawn(1, 2, 0, { intensity: 0, radius_tiles: 0.5, decay_ms: 420 }, '#FFB43C');
     m.spawn(1, 2, 0, { intensity: -1, radius_tiles: 0.5, decay_ms: 420 }, '#FFB43C');
     expect(m.liveCount).toBe(0);
-    // `cigarette_ember`'s own shipped numbers.
+    // The numbers `cigarette_ember` shipped (the emitter is deleted).
     m.spawn(1, 2, 0, { intensity: 0.3, radius_tiles: 0.5, decay_ms: 420 }, '#FFB43C');
     expect(m.liveCount).toBe(1);
     m.step(210);
