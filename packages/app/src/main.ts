@@ -167,6 +167,7 @@ import { breakdownLine, chargeText, strikeLine } from './ui/intel-copy';
 import { doctrineTags } from './ui/dock-model';
 import {
   applyIntent,
+  issueMove,
   issueOrder,
   haltNote,
   orderDenied,
@@ -2512,7 +2513,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // successor on screen after the pointer handlers instead of before them.
   /** The armed order waiting for a click on the map, if any. Only the two
    *  point-targeted orders can be armed; the other three act at once. */
-  let armedOrder: 'attackMove' | 'smoke' | null = null;
+  let armedOrder: 'attackMove' | 'move' | 'smoke' | null = null;
   const myLiving = (): number[] =>
     renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
   /**
@@ -2556,7 +2557,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    * end in the same `runVerb('smoke', …)` call, so what differs between a
    * button and its key is where the point comes from and nothing else.
    */
-  const armOrder = (id: 'attackMove' | 'smoke'): void => {
+  const armOrder = (id: 'attackMove' | 'move' | 'smoke'): void => {
     armedOrder = armedOrder === id ? null : id;
     // Two armed modes cannot both own the next click. Arming an order disarms
     // a fire-support call, and production's onArm does the reverse.
@@ -2567,6 +2568,18 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   };
   const orders: OrderHandlers = {
     attackMove: () => armOrder('attackMove'),
+    // L1 reopened: the plain move. Armed like attack-move and smoke (a button
+    // has no place to send anyone), but the KEY needs a selection to be worth
+    // arming at all -- with none it says so instead of lighting a mode that
+    // would refuse its own click.
+    move: () => {
+      if (armedOrder !== 'move' && myLiving().length === 0) {
+        hud.note(t('intent.move.noSelection'), 'mute');
+        return;
+      }
+      armOrder('move');
+      if (armedOrder === 'move') hud.note(t('intent.move.armed'), 'info');
+    },
     // `side === 0` and not `myLiving()`: this is the pre-existing `h` binding
     // moved, not rewritten, and a dead unit's halt is a no-op in the sim.
     halt: () => {
@@ -3186,6 +3199,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // The minimap has no hover: its order is never "over a hostile" (R-3).
       order: (x, y, mods) => {
         voice.hint({ hostile: false });
+        if (armedOrder === 'move') {
+          armedOrder = null;
+          issueMove(intentWorld, orderSink, myLiving(), x, y, { append: mods.append });
+          return;
+        }
         issueOrder(intentWorld, orderSink, myLiving(), x, y, mods);
       },
       // Local and silent to the sim (R-10): a mark on the minimap and a
@@ -3694,6 +3712,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         armedOrder = null;
         if (spend === 'smoke') {
           runVerb('smoke', w);
+        } else if (spend === 'move') {
+          // The plain move, to the point the hover cursor read (PA-14: a
+          // building's wall is the building, and a building is refused as
+          // impassable): the same `issueMove` the right click and the
+          // minimap call.
+          const at = pointerPoint(renderer, sim, p.x, p.y);
+          voice.hint({ hostile: false });
+          issueMove(intentWorld, orderSink, myLiving(), at.x, at.y, { append: ev.shiftKey });
         } else {
           const mine = myLiving();
           if (mine.length > 0) {
@@ -3795,6 +3821,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // this same contextmenu with ctrlKey true, and ctrl-click is the
     // standard Mac idiom for opening a context menu — that click already
     // means "confirmed attack," not "let me reconsider."
+    // The armed plain Move (L1 reopened) is spent by either button: a right
+    // click while it is armed is the move, to the ground under the pointer,
+    // and disarms it. Smoke and attack-move stay as they were -- a right
+    // click while THEY are armed is still the ordinary attack-move.
+    if (armedOrder === 'move') {
+      armedOrder = null;
+      voice.hint({ hostile: false });
+      issueMove(intentWorld, orderSink, myLiving(), w.x, w.y, { append: ev.shiftKey });
+      return;
+    }
     voice.hint({ hostile: renderer.hoverEntity >= 0 });
     issueOrder(intentWorld, orderSink, myLiving(), w.x, w.y, {
       append: ev.shiftKey,
@@ -3915,6 +3951,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // pan exemption).
     if (isDialogOpen() && !passesThroughModal(action)) return;
     switch (action) {
+      case 'move':
+        orders.move();
+        break;
       case 'halt':
         // The four bound verbs go through `orders`, which is the very object
         // the HUD's order row calls (GH-153). A key and its button are one
@@ -5199,6 +5238,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     armed: armedSupport,
     confirm: altHeld,
     armedSmoke: armedOrder === 'smoke',
+    armedMove: armedOrder === 'move',
   });
   hoverCursorName = name;
   // Guard the write: a dataset attribute set every frame forces needless

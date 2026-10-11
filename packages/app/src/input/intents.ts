@@ -340,6 +340,58 @@ export function resolvePointer(world: IntentWorld, ctx: PointerContext): Resolut
   };
 }
 
+/**
+ * What a click means once the Move order is armed (L1 reopened, 2026-10-11).
+ *
+ * Every right-click is an attack-move, and a fighting attack-mover stays and
+ * fights, so a player had no way to just pull a unit out. This is the other
+ * order: the sim's plain `move`, to the GROUND under the pointer. It is not
+ * `resolvePointer` with a different verb, on purpose -- the structure, tunnel
+ * and protected-site rungs are all ways of attacking something, and a plain
+ * move onto a building is no order at all, so a blocked tile is refused here
+ * exactly as K-08 refuses it for every other order (a flyer, which a rock does
+ * not stop, keeps the order). Shift queues, as it does for any order.
+ *
+ * Pure, and the one decision for three callers: the left click, the right
+ * click and the hover cursor, which draws this resolution rather than guessing.
+ */
+export function resolveMoveOrder(
+  world: IntentWorld,
+  ctx: { ids: number[]; x: number; y: number; append: boolean }
+): Resolution {
+  const { ids, x, y, append } = ctx;
+  const roe = roeTierAt(world, x, y);
+  if (ids.length === 0) return { intents: [], roe, marker: false };
+  const ground = world.groundAt(x, y);
+  if (ground !== 'open' && !ids.some((i) => world.flies(i))) {
+    return {
+      intents: [],
+      roe,
+      marker: false,
+      groundRefused: ground,
+      note: { text: t(ground === 'offmap' ? 'intent.ground.offmap' : 'intent.ground.blocked'), tone: 'mute' },
+    };
+  }
+  return { intents: [{ kind: 'order', verb: 'move', ids, x, y, append }], roe, marker: true };
+}
+
+/** `issueOrder` for the armed Move: resolve, dispatch, note, mark, deny. */
+export function issueMove(
+  world: IntentWorld,
+  sink: OrderSink,
+  ids: number[],
+  x: number,
+  y: number,
+  mods: { append: boolean }
+): Resolution {
+  const res = resolveMoveOrder(world, { ids, x, y, append: mods.append });
+  for (const intent of res.intents) sink.dispatch(intent);
+  if (res.note) sink.note(res.note.text, res.note.tone);
+  if (res.marker) sink.marker(x, y);
+  if (orderDenied(res, ids.length)) sink.deny();
+  return res;
+}
+
 export interface KeyContext {
   ids: number[];
   /** Where the cursor is, for smoke. Ignored by mount and dismount. */

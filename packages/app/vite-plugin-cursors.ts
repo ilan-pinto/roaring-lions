@@ -93,6 +93,7 @@ import { readFileSync } from 'node:fs';
 import type { Plugin } from 'vite';
 import {
   ANIMATED_CURSORS,
+  CURSOR_ALIAS,
   SIGHT_OF,
   cursorKey,
   type CursorName,
@@ -113,7 +114,7 @@ interface Palette {
   reserved: Record<string, PaletteBand>;
 }
 
-// The eleven drawn bare cursors (fifteen names in CursorName, minus
+// The eleven drawn bare cursors (sixteen names in CursorName, minus
 // 'default', 'mount', 'dismount' and 'charge' -- see BareCursorName and
 // BADGED_VERBS below for why those never get a rule of their own) all share
 // one hotspot: dead centre, at half the canvas size on each axis. Nothing is
@@ -522,7 +523,7 @@ export const UNWIRED_BODIES: Readonly<
   halt: (p) => sightBody('halt', 0, p, 'default', null),
 };
 
-type BareCursorName = Exclude<CursorName, 'default' | 'mount' | 'dismount' | 'charge'>;
+type BareCursorName = Exclude<CursorName, 'default' | 'mount' | 'dismount' | 'charge' | keyof typeof CURSOR_ALIAS>;
 
 /** The bare (unbadged) cursors that actually get a rule, in emission order.
  *
@@ -776,6 +777,16 @@ function selectorFor(key: string, frame: number | null, variant: string | null):
   return `${cvd}canvas[data-cursor='${key}']${f}`;
 }
 
+/** The selectors a drawn key's rule answers to: its own, then every
+ *  `CURSOR_ALIAS` name that draws as it (the armed plain Move reads
+ *  `moveOnly` and shows the move sight). One rule with a selector list, not a
+ *  second rule: a key of its own that drew the same image would be a
+ *  byte-identical duplicate, which the sheet's tests refuse. */
+function selectorsFor(key: string, frame: number | null, variant: string | null): string[] {
+  const names = [key, ...Object.entries(CURSOR_ALIAS).filter(([, to]) => to === key).map(([alias]) => alias)];
+  return names.map((n) => selectorFor(n, frame, variant));
+}
+
 /** The CSS text the plugin injects.
  *
  *  First the DEFAULT sheet: per key, one frame-0 rule (selector names only
@@ -805,9 +816,9 @@ export function cursorRules(palette: Palette): string {
   const frameZero: string[] = [];
   const later: string[] = [];
   for (const [key, frames] of defaults) {
-    frameZero.push(rule(key, [selectorFor(key, null, null)], frames[0]));
+    frameZero.push(rule(key, selectorsFor(key, null, null), frames[0]));
     frames.forEach((markup, frame) => {
-      if (frame > 0 && markup !== frames[0]) later.push(rule(key, [selectorFor(key, frame, null)], markup));
+      if (frame > 0 && markup !== frames[0]) later.push(rule(key, selectorsFor(key, frame, null), markup));
     });
   }
 
@@ -836,7 +847,7 @@ export function cursorRules(palette: Palette): string {
   const variantRules = [...overrides.values()].map(({ key, frame, markup, variants }) =>
     rule(
       key,
-      variants.map((v) => selectorFor(key, frame, v)),
+      variants.flatMap((v) => selectorsFor(key, frame, v)),
       markup
     )
   );

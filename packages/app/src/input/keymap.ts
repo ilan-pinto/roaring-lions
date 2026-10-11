@@ -10,7 +10,7 @@
  * digit keys are refused as bindings for that reason.
  */
 export type Action =
-  | 'halt' | 'smoke' | 'load' | 'unload' | 'overlay' | 'production' | 'mute'
+  | 'halt' | 'move' | 'smoke' | 'load' | 'unload' | 'overlay' | 'production' | 'mute'
   | 'selectAll' | 'cycleChips' | 'jumpToAlert' | 'keysOverlay' | 'idleNext'
   | 'panUp' | 'panDown' | 'panLeft' | 'panRight' | 'pause';
 
@@ -41,6 +41,11 @@ export interface ActionSpec {
 
 export const ACTIONS: readonly ActionSpec[] = [
   { id: 'halt', label: 'keymap.halt', key: 'h', rebindable: true },
+  // L1 reopened (2026-10-11): the plain move. `m` was the obvious key and is
+  // taken by mute (h f g u o b m, ctrl+a, tab, space, f1, i, w s a d and
+  // escape are the whole of what is bound), so this sits on `n`, the key
+  // beside it. Free, and not a pan or digit key.
+  { id: 'move', label: 'keymap.move', key: 'n', rebindable: true },
   { id: 'smoke', label: 'keymap.smoke', key: 'f', rebindable: true },
   { id: 'load', label: 'keymap.load', key: 'g', rebindable: true },
   { id: 'unload', label: 'keymap.unload', key: 'u', rebindable: true },
@@ -227,7 +232,7 @@ export function escapeTarget(
  * assertion here instead of being hidden behind the other two passing.
  */
 export function anyArmed(
-  armedOrder: 'attackMove' | 'smoke' | null,
+  armedOrder: 'attackMove' | 'move' | 'smoke' | null,
   armedSupport: 'sweep' | 'strike' | null
 ): boolean {
   return armedOrder !== null || armedSupport !== null;

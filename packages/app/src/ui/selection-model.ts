@@ -24,9 +24,9 @@ import { t } from '../i18n/t';
 import type { RoleBucket } from './role';
 import { combatBand, vehicleDamage } from './combat-state';
 
-/** The five verbs the order row offers. Named rather than positional so the
+/** The six verbs the order row offers. Named rather than positional so the
  *  armed state, the dispatch table and the tests all say the same word. */
-export type OrderId = 'attackMove' | 'halt' | 'smoke' | 'load' | 'unload';
+export type OrderId = 'attackMove' | 'move' | 'halt' | 'smoke' | 'load' | 'unload';
 
 export interface OrderSpec {
   /** Also the key the mark is drawn by: `symbolSvg(id)` (S3e, the G1 sheet)
@@ -67,6 +67,9 @@ export interface OrderSpec {
  */
 export const ORDERS: readonly OrderSpec[] = [
   { id: 'attackMove', label: 'order.attackMove', key: 'RMB' },
+  // L1 reopened: the plain move, armed from the row or by its key. It has an
+  // action id, unlike attack-move, so a rebind repaints the button.
+  { id: 'move', label: 'order.move', key: 'move' },
   { id: 'halt', label: 'order.halt', key: 'halt' },
   { id: 'smoke', label: 'order.smoke', key: 'smoke' },
   { id: 'load', label: 'order.load', key: 'load' },
@@ -145,6 +148,7 @@ export function orderRow(facts: SelectionFacts, armed: OrderId | null): OrderVie
     let capacity: string | undefined;
     switch (spec.id) {
       case 'attackMove':
+      case 'move':
         // Anything alive can be sent somewhere.
         shown = true;
         break;
