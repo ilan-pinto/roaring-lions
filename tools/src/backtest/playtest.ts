@@ -129,6 +129,12 @@ function kdfUnlockGate(u: {
     : undefined;
 }
 
+/** Set only by `acrossSeeds` below, for the duration of one sweep: the seed `run()` builds its
+ *  `Sim` with (otherwise `PT_SEED`, otherwise 424242), and whether it keeps its two per-run lines
+ *  to itself. A FAILED line is never quiet. */
+let sweepSeed: number | undefined;
+let sweepQuiet = false;
+
 function run(
   id: keyof typeof missions,
   plan: Plan,
@@ -199,7 +205,7 @@ function run(
   // Matches the app. `spawn` never reuses a dead slot, so this is a budget for
   // everyone who ever appears, not for how many stand at once.
   // PT_SEED: the ladder re-measure runs the scripted plans over many seeds (GH-382); unset it is 424242.
-  const sim = new Sim({ seed: Number(process.env.PT_SEED ?? 424242), width: map.width, height: map.height, capacity: 256 });
+  const sim = new Sim({ seed: sweepSeed ?? Number(process.env.PT_SEED ?? 424242), width: map.width, height: map.height, capacity: 256 });
   applyTerrain(map, sim);
   // Buildings are entities, exactly as the app raises them.
   const structIdx = new Map<string, number>();
@@ -304,14 +310,14 @@ function run(
     if (rt.result !== 'ongoing') break;
   }
   const mins = (t / TICKS_PER_SECOND / 60).toFixed(1);
-  console.log(
+  const runLine =
     `${label}: ${rt.result.toUpperCase()} in ${mins} min, ROE ${rt.roeScore}, stars ${rt.stars}, ` +
-      `objectives ${rt.objectiveList.map((o) => `${o.id}=${o.status[0]}`).join(' ')}, ` +
-      `roster out ${(produced['roster.surviving_units'] ?? []).length}` +
-      (fielded !== undefined ? `, fielded ${fielded}=${fieldedOk}` : '')
-  );
+    `objectives ${rt.objectiveList.map((o) => `${o.id}=${o.status[0]}`).join(' ')}, ` +
+    `roster out ${(produced['roster.surviving_units'] ?? []).length}` +
+    (fielded !== undefined ? `, fielded ${fielded}=${fieldedOk}` : '');
   const credits = creditsFor(creditInputFrom(rt, rt.roeScore, mission.roe?.fail_below));
-  console.log(`${label}: credits ${credits}`);
+  if (!sweepQuiet || rt.result !== expect) console.log(runLine);
+  if (!sweepQuiet) console.log(`${label}: credits ${credits}`);
   if (rt.result !== expect) {
     console.error(`${label}: FAILED — expected ${expect.toUpperCase()}, got ${rt.result.toUpperCase()}`);
     process.exitCode = 1;
@@ -399,6 +405,37 @@ function gateLedger(base: LedgerData, entries: number): LedgerData {
 
 const M = (x: number, y: number) => ({ x: fx.from(x), y: fx.from(y) });
 
+/** The seeds a swept control runs on: the pinned 424242 first, then 1..29. Thirty, because a
+ *  control that holds on one seed is a control on that seed: First Light's passive run lost on
+ *  424242 and won on seeds 4 and 10 (and 10 of 1..99) before its villages moved off the wire. */
+const SWEEP_SEEDS: readonly number[] = [424242, ...Array.from({ length: 29 }, (_, k) => k + 1)];
+
+/**
+ * A no-orders control held across `seeds`, not one. The first seed prints exactly the lines a
+ * single run always printed (same label), the rest stay quiet unless they miss, and one summary
+ * line says how many held. A miss goes through `run()`'s own FAILED path, so it sets the exit
+ * code exactly as a single-seed control does.
+ */
+function passiveAcrossSeeds(id: keyof typeof missions, label: string, expect: 'defeat' | 'ongoing', seeds = SWEEP_SEEDS): void {
+  const missed: number[] = [];
+  try {
+    for (const seed of seeds) {
+      sweepSeed = seed;
+      sweepQuiet = seed !== seeds[0];
+      const m = { result: 'ongoing', stars: 0, roeScore: 0, credits: 0 } as NonNullable<Parameters<typeof run>[10]>;
+      run(id, () => {}, {}, expect, seed === seeds[0] ? label : `${label.slice(0, -1)}, seed ${seed})`, 0, undefined, new Set(), undefined, undefined, m);
+      if (m.result !== expect) missed.push(seed);
+    }
+  } finally {
+    sweepSeed = undefined;
+    sweepQuiet = false;
+  }
+  console.log(
+    `${label}: ${expect.toUpperCase()} on ${seeds.length - missed.length}/${seeds.length} seeds` +
+      (missed.length ? ` -- missed on ${missed.join(', ')}` : '')
+  );
+}
+
 // 0 — First Light: hold the compound and run two families in with the jeep.
 //
 // GH-345 cut this mission to its two problems (spec 2026-10-02 §c): hold the
@@ -430,7 +467,15 @@ const M = (x: number, y: number) => ({ x: fx.from(x), y: fx.from(y) });
 // LOSE -- if the compound holds itself, the breach is not a breach. It loses on
 // `evac_settlements`, the one deadline that can fail, which is what the cut
 // kept it for.
-run('beit_sahwan_breach', () => {}, {}, 'defeat', 'beit_sahwan_breach (passive control)');
+//
+// Held on thirty seeds, not one (`SWEEP_SEEDS`). On 424242 alone it was green
+// while seeds 4 and 10 WON: a family breaks for the compound under fire as well
+// as at a soldier's elbow, and the body standing nearest the wall in three of
+// the four villages (x 15.0 north-west, 14.0 south-west, 35.5 south-east) sat
+// inside the near-miss splash of the wall's own firefights. Two of those
+// leaking on one seed was a free win. The villages now stand two tiles further
+// out (`fl_ladder.ts` has the before/after ladder).
+passiveAcrossSeeds('beit_sahwan_breach', 'beit_sahwan_breach (passive control)', 'defeat');
 
 const led0 = run('beit_sahwan_breach', (sim, _rt, ids, at) => {
   const shepherds = ids('jeep_shoded');
