@@ -1,5 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { parseClientMsg, parseServerMsg, MAX_MESSAGE_BYTES } from './protocol';
+import type { MatchConfig } from './config';
+
+const CFG: MatchConfig = {
+  matchId: 'm1', code: 'ABCDEF', seed: 7, map: 'beit_sahwan_outskirts', mode: 'sandbox',
+  seats: [
+    { seat: 0, side: 0, faction: 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: 'p0', callsign: 'Host', kind: 'human' },
+    { seat: 1, side: 0, faction: 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: 'p1', callsign: 'Guest', kind: 'human' },
+  ],
+  pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: '0.1', dataDigest: 0,
+};
 
 describe('parseClientMsg', () => {
   it('accepts every client kind', () => {
@@ -33,5 +43,19 @@ describe('parseServerMsg', () => {
     const frame = { t: 'frame', tick: 7, cmds: [{ seat: 1, seq: 0, cmd: { kind: 'halt', ids: [4] } }] };
     expect(parseServerMsg(JSON.stringify(frame))).toEqual(frame);
     expect(parseServerMsg(JSON.stringify({ t: 'frame', tick: 7, cmds: [{ cmd: { kind: 'halt', ids: [4] } }] }))).toBeNull();
+  });
+  it('validates the config in start, lobby and log instead of casting it', () => {
+    expect(parseServerMsg(JSON.stringify({ t: 'start', config: {} }))).toBeNull();
+    expect(parseServerMsg(JSON.stringify({ t: 'start', config: CFG }))).toEqual({ t: 'start', config: CFG });
+    expect(parseServerMsg(JSON.stringify({ t: 'log', config: {}, frames: [] }))).toBeNull();
+    expect(parseServerMsg(JSON.stringify({ t: 'log', config: CFG, frames: [] }))).toEqual({ t: 'log', config: CFG, frames: [] });
+    const seats = [{ seat: 0, callsign: 'Host', connected: true, ready: false }];
+    expect(parseServerMsg(JSON.stringify({ t: 'lobby', config: null, seats, you: 0 }))).toEqual({ t: 'lobby', config: null, seats, you: 0 });
+    expect(parseServerMsg(JSON.stringify({ t: 'lobby', config: CFG, seats, you: 0 }))).toEqual({ t: 'lobby', config: CFG, seats, you: 0 });
+    expect(parseServerMsg(JSON.stringify({ t: 'lobby', config: {}, seats, you: 0 }))).toBeNull();
+  });
+  it('accepts only the declared error codes', () => {
+    expect(parseServerMsg(JSON.stringify({ t: 'error', code: 'full' }))).toEqual({ t: 'error', code: 'full' });
+    expect(parseServerMsg(JSON.stringify({ t: 'error', code: 'teapot' }))).toBeNull();
   });
 });

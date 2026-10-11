@@ -4,7 +4,7 @@
  * position: the only battle facts here are `Command`s and hashes.
  */
 import type { Command } from '@lions/sim';
-import type { MatchConfig, Seat } from './config';
+import { validateConfig, type MatchConfig, type Seat } from './config';
 import type { Frame, Stamped } from './frames';
 
 export const MAX_MESSAGE_BYTES = 4096;
@@ -25,6 +25,9 @@ export type ClientMsg =
   | { t: 'hash'; tick: number; h: number }
   | { t: 'bye' };
 
+export const ERROR_CODES = ['bad_message', 'bad_ticket', 'build_mismatch', 'full', 'not_running', 'origin'] as const;
+export type ErrorCode = (typeof ERROR_CODES)[number];
+
 export type StallReason = 'behind' | 'gone';
 
 export type ServerMsg =
@@ -37,7 +40,7 @@ export type ServerMsg =
   | { t: 'desync'; tick: number; hashes: [number, number] }
   | { t: 'log'; config: MatchConfig; frames: Frame[] }
   | { t: 'ended'; reason: 'left' | 'void' | 'expired' }
-  | { t: 'error'; code: 'bad_message' | 'bad_ticket' | 'build_mismatch' | 'full' | 'not_running' | 'origin' };
+  | { t: 'error'; code: ErrorCode };
 
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
 const isStr = (v: unknown): v is string => typeof v === 'string';
@@ -137,20 +140,23 @@ export function parseServerMsg(raw: string): ServerMsg | null {
   } catch {
     return null;
   }
-  const config = (v: unknown): MatchConfig | null => (typeof v === 'object' && v !== null ? (v as MatchConfig) : null);
   switch (m.t) {
-    case 'lobby': return Array.isArray(m.seats) && m.seats.every(isSeatState) && isSeat(m.you)
-      ? { t: 'lobby', config: config(m.config), seats: m.seats, you: m.you } : null;
-    case 'start': { const c = config(m.config); return c ? { t: 'start', config: c } : null; }
+    case 'lobby': {
+      // A lobby has no config until the host has set one; a config that is present must be valid.
+      const c = m.config === null || m.config === undefined ? null : validateConfig(m.config);
+      if (c === null && m.config !== null && m.config !== undefined) return null;
+      return Array.isArray(m.seats) && m.seats.every(isSeatState) && isSeat(m.you) ? { t: 'lobby', config: c, seats: m.seats, you: m.you } : null;
+    }
+    case 'start': { const c = validateConfig(m.config); return c ? { t: 'start', config: c } : null; }
     case 'frame': return isInt(m.tick) && Array.isArray(m.cmds) && m.cmds.every(isStamped) ? { t: 'frame', tick: m.tick, cmds: m.cmds } : null;
     case 'stall': return (m.reason === 'behind' || m.reason === 'gone') && isSeat(m.seat) ? { t: 'stall', reason: m.reason, seat: m.seat } : null;
     case 'resume': return { t: 'resume' };
     case 'hashOk': return isInt(m.tick) ? { t: 'hashOk', tick: m.tick } : null;
     case 'desync': return isInt(m.tick) && Array.isArray(m.hashes) && m.hashes.length === 2 && m.hashes.every(isInt)
       ? { t: 'desync', tick: m.tick, hashes: [m.hashes[0], m.hashes[1]] } : null;
-    case 'log': { const c = config(m.config); return c && Array.isArray(m.frames) && m.frames.every(isFrame) ? { t: 'log', config: c, frames: m.frames } : null; }
+    case 'log': { const c = validateConfig(m.config); return c && Array.isArray(m.frames) && m.frames.every(isFrame) ? { t: 'log', config: c, frames: m.frames } : null; }
     case 'ended': return m.reason === 'left' || m.reason === 'void' || m.reason === 'expired' ? { t: 'ended', reason: m.reason } : null;
-    case 'error': return isStr(m.code) ? { t: 'error', code: m.code as Extract<ServerMsg, { t: 'error' }>['code'] } : null;
+    case 'error': return (ERROR_CODES as readonly unknown[]).includes(m.code) ? { t: 'error', code: m.code as ErrorCode } : null;
     default: return null;
   }
 }
