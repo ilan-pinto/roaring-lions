@@ -15,13 +15,26 @@ import type { MatchTransport, TransportStatus } from './transport';
 /** The room's `ACK_EVERY`: a seat acks the last tick of every ten it ran. */
 export const ACK_EVERY = 10;
 export const RECONNECT_DELAY_MS = 1000;
+/** The close code `MatchRoom` gives a socket another hello for its seat replaced:
+ *  terminal for the replaced transport, so two tabs on one ticket do not take
+ *  the seat from each other in turn. */
+export const REPLACED_CLOSE_CODE = 4000;
+
+/** Declared as methods so their parameters are checked bivariantly: a real
+ *  `WebSocket` (whose handlers take `Event`, `MessageEvent`, `CloseEvent`) is a
+ *  `SocketLike`, and a fake can call them with plain objects. */
+interface SocketHandlers {
+  open(ev: unknown): void;
+  message(ev: { data: unknown }): void;
+  close(ev: { code?: number }): void;
+}
 
 export interface SocketLike {
   send(data: string): void;
   close(): void;
-  onopen: ((ev: unknown) => void) | null;
-  onmessage: ((ev: { data: unknown }) => void) | null;
-  onclose: ((ev: unknown) => void) | null;
+  onopen: SocketHandlers['open'] | null;
+  onmessage: SocketHandlers['message'] | null;
+  onclose: SocketHandlers['close'] | null;
 }
 
 export interface WsTransportHooks {
@@ -64,8 +77,13 @@ export class WsTransport implements MatchTransport {
     this.sock = s;
     s.onopen = () => this.send({ t: 'hello', ticket: this.ticket, build: this.build });
     s.onmessage = (ev) => this.onMessage(typeof ev.data === 'string' ? ev.data : '');
-    s.onclose = () => {
-      if (this.closed || this.st.kind === 'desync' || this.st.kind === 'closed') return;
+    s.onclose = (ev) => {
+      if (this.closed || this.terminal()) return;
+      if (ev.code === REPLACED_CLOSE_CODE) {
+        this.stalled = null;
+        this.st = { kind: 'closed', reason: 'replaced' };
+        return;
+      }
       this.stalled = { kind: 'stalled', reason: 'connecting', seat: null };
       this.st = this.stalled;
       if (this.reconnectTimer === null) this.reconnectTimer = setTimeout(() => this.connect(), RECONNECT_DELAY_MS);
@@ -84,7 +102,12 @@ export class WsTransport implements MatchTransport {
     this.clock = new LockstepClock(config.bufferTicks);
     this.hooks.onStart(config);
   }
+  /** Desync and closed are final: nothing the room says afterwards revives the transport. */
+  private terminal(): boolean {
+    return this.st.kind === 'desync' || this.st.kind === 'closed';
+  }
   private handle(msg: ServerMsg): void {
+    if (this.terminal()) return;
     switch (msg.t) {
       case 'lobby':
         // A reconnect before the start lands back in the lobby, not in a stall.
@@ -123,10 +146,14 @@ export class WsTransport implements MatchTransport {
 
   ready(): void { this.send({ t: 'ready' }); }
   queueCommand(cmd: Command): void { this.send({ t: 'cmd', seq: this.seq++, cmd }); }
+  /** Runs while live AND while stalled (R31): a 'behind' stall stalls every
+   *  seat, the lagging one included, and only that seat's ack ends it -- so it
+   *  must keep running the frames it already holds. A stall's status is left
+   *  as it is; the room's `resume` (or a `log`) is what makes it live. */
   take(maxTicks: number): Frame[] {
-    if (this.st.kind !== 'live') return [];
+    if (this.st.kind !== 'live' && this.st.kind !== 'stalled') return [];
     const out = this.clock.take(maxTicks);
-    this.st = { kind: 'live', behind: this.clock.behind() };
+    if (this.st.kind === 'live') this.st = { kind: 'live', behind: this.clock.behind() };
     return out;
   }
   reportTick(tick: number, digest: number | null): void {
