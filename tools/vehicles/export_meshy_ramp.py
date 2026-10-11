@@ -63,6 +63,7 @@ sys.path.insert(0, HERE)
 from dimetric import metres_per_unit  # noqa: E402
 import kit as vehicle_kit  # noqa: E402
 import textured as vehicle_textured  # noqa: E402
+import bake_fix  # noqa: E402
 
 #: `scrub_white`: a texel is a marking when every channel is above this and
 #: the channels agree to within this spread (image buffer values, linear).
@@ -123,6 +124,17 @@ class RampVehicleSpec:
     scrub_white: bool = False            # paint out near-white blobs (a marking the prompt forbade)
     olive_shift: bool = False            # pull a grass-green bake toward the roster's olive
     sand_olive: bool = False             # pull a desert-tan bake toward the roster's sand-olive
+    # A3.2 phase 2 (2026-10-11): a measured HSV move of one hue band
+    # (`bake_fix.band_shift` kwargs) applied after the passes above, and the
+    # flat gunmetal square in an empty UV hole that the kit exporter pins
+    # its SENSORS / FIREPOWER faces to (`bake_fix.paint_metal_patch`).
+    band_shift: Optional[dict] = None
+    metal_patch: bool = False
+    # The real length, for a vehicle `export_mesh_vehicle.SPECS` does not
+    # carry (the Namer never had a kit-built mesh there): the value its
+    # retired sprite manifest declared, copied once at the sheets'
+    # retirement, exactly as that module's own literals were.
+    real_metres: Optional[float] = None
     # an unasked-for gun to collapse (SOURCE frame after rot_z: x_max of the
     # tube's root face, z_min, |y| max) -- `export_meshy_apc.py`'s method:
     # every vertex forward of the root inside the box is pointmerged onto
@@ -159,6 +171,11 @@ SPECS = {
         kind="tracked", rot_z_deg=180.0, tri_cap=10000,
         track_ay=0.36, track_z_top=-0.127, track_x=(-0.95, 0.74),
         scrub_white=True,
+        # Fleet olive (A3.2 phase 2): the D9's paint band measured sat 0.520
+        # against the Kipod's 0.427 (bake_probe, 2026-10-11); x0.85 -> 0.44.
+        band_shift={"sat_min": 0.22, "hue_lo": 40.0, "hue_hi": 165.0,
+                    "hue_shift": 0.0, "sat_mul": 0.85, "val_mul": 1.0},
+        metal_patch=True,
     ),
     # Shachaf, measured the same way on its 5,024-face remesh: roof profile
     # low at -x (0.59) and high at +x (0.91, the raised cab), so Rz(180); two
@@ -176,6 +193,7 @@ SPECS = {
         rws={"size": (0.55, 0.45, 0.30), "barrel": 0.7, "ring_seed": (-0.99, 0.0),
              "search_r": 0.45, "band": 0.06, "max_across": 0.9, "z_max": 2.22},
         olive_shift=True,
+        metal_patch=True,
     ),
     # Namer v2 (B8, 2026-10-02, the lead's ruling after the first attempt read
     # as a WWII tank destroyer): numbers below are read off a --probe of its
@@ -195,6 +213,8 @@ SPECS = {
         collapse_boxes=((-0.67, -0.59, 0.08, 0.15, 0.160),),
         rws={"size": (1.0, 0.8, 0.5), "barrel": 1.2, "at": (0.92, 0.0)},
         sand_olive=True,
+        metal_patch=True,
+        real_metres=7.3,   # NAMER_HULL's manifest, retired in WP-A3.3
     ),
 }
 
@@ -219,8 +239,22 @@ def _remesh_source(name):
 
 
 def _read_real_metres(spec):
-    with open(os.path.join(REPO, "assets", "sprites", spec.sheet, "manifest.json")) as fh:
-        return json.load(fh)["realMetres"]
+    """The vehicle's real length in metres: `export_mesh_vehicle.SPECS`'
+    literal `real_metres` -- the number the retired sprite manifest
+    (`spec.sheet`, WP-A3.3) carried, copied there at the sheets' retirement
+    -- so the mesh pipeline has ONE declaration per vehicle and this exporter
+    never types a second. Read at export time, never copied here."""
+    import export_mesh_vehicle  # tools/export_mesh_vehicle.py -- definitions only, no module-level work
+    entry = export_mesh_vehicle.SPECS.get(spec.unit_id)
+    if entry is not None and entry.real_metres is not None:
+        if spec.real_metres is not None and spec.real_metres != entry.real_metres:
+            raise SystemExit(f"[{spec.unit_id}] real_metres declared twice and differently: "
+                             f"{spec.real_metres} here, {entry.real_metres} in export_mesh_vehicle.SPECS")
+        return entry.real_metres
+    if spec.real_metres is not None:
+        return spec.real_metres
+    raise SystemExit(f"[{spec.unit_id}] no literal real_metres in export_mesh_vehicle.SPECS or this spec "
+                     f"(the {spec.sheet} sprite manifest it used to read is retired, WP-A3.3)")
 
 
 def _rename_textures(spec, ob):
@@ -582,6 +616,10 @@ def export(unit_id, probe=False, out_path=None):
     base = _rename_textures(spec, ob)
     if not probe and (spec.scrub_white or spec.olive_shift or spec.sand_olive):
         _fix_bake(spec, base)
+    if not probe and spec.band_shift is not None:
+        bake_fix.band_shift_image(base, unit_id, **spec.band_shift)
+    if not probe and spec.metal_patch:
+        bake_fix.paint_metal_patch(ob, base, unit_id)
     _bake([ob], Matrix.Rotation(math.radians(spec.rot_z_deg), 4, "Z"))
     if probe:
         _probe(spec, ob)

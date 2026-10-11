@@ -446,6 +446,7 @@ def choose_tones(live):
 
     mimg, chan = _linked_image(mat, "Metallic", through=("SEPARATE_COLOR", "SEPRGB", "SEPARATE_RGB"))
     metallic = None
+    patch_mask = None
     if mimg is not None:
         mp = _pixels(mimg)
         mch = {"Red": 0, "R": 0, "Green": 1, "G": 1, "Blue": 2, "B": 2}.get(chan, 2)
@@ -454,8 +455,32 @@ def choose_tones(live):
         log(f"TONE metallic map {mimg.name} channel {chan}: {mcov.min():.3f}..{mcov.max():.3f} over the islands, "
             f"{int((mcov >= 0.5).sum())} texels >= 0.5")
         if not (mcov >= 0.5).any():
-            metallic = None       # a uniform map marks no metal: fall through
+            # A uniform map over the islands marks no metal -- but since
+            # A3.2 phase 2 the exporters paint a flat gunmetal square OUTSIDE
+            # every island (`bake_fix.paint_metal_patch`: metallic 1.0,
+            # neutral normal), exactly so this picker has honest steel to
+            # pin to. Off-island metal is that patch and nothing else.
+            patch_mask = (metallic >= 0.5) & ~every
+            metallic = None       # fall through to the patch, then the old rules
     mnode = next((o for o in textured if o.name.endswith("_metal")), None)
+    if metallic is None and patch_mask is not None and patch_mask.any():
+        cols = lin[patch_mask]
+        metal_target = tuple(cols.mean(axis=0))
+        # Lenses, windows and apertures keep the third rule's reading: the
+        # 5th luminance percentile of every textured island, not the patch.
+        allc = lin[every]
+        aord = np.argsort(_lum(allc), kind="stable")
+        i5 = int(0.05 * (len(aord) - 1))
+        ka = max(1, len(aord) // 200)
+        dark_target = tuple(allc[aord[max(0, i5 - ka):i5 + ka + 1]].mean(axis=0))
+        mmask = patch_mask
+        src = "the bake's metal patch"
+        log(f"TONE metal source: the exporter's metal patch (bake_fix.paint_metal_patch, "
+            f"{int(patch_mask.sum())} texels off every island, metallic >= 0.5); dark: the 5th "
+            f"luminance percentile of every textured island")
+        tones["metal"] = find_tone("metal", lin, [(src, mmask)], metal_target, nrm)
+        tones["dark"] = find_tone("dark", lin, [("every textured island", every)], dark_target, nrm)
+        return tones
     if metallic is not None:
         mmask = every & (metallic >= 0.5)
         cols = lin[mmask]

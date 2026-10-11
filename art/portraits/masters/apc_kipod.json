@@ -1,7 +1,8 @@
 {
   "unit": "apc_kipod",
+  "variant": "team",
   "source": "assets/meshes/vehicles/apc_kipod.glb",
-  "source_sha256": "afeddf4c35f51fe620c7d1a075212c8004d9ba5c8996682b8e50029b33002732",
+  "source_sha256": "f1366c135324035f3243a7129aee50bc78a55908a5101f90afebb67821e8eb9f",
   "yaw_deg": -125.0,
   "elevation_deg": 18.0,
   "fov_deg": 30.0,

@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready small single-room breeze-block shed, vernacular construction of a fictional arid river-basin region: unrendered grey breeze-block walls with patches of faded paint, a SINGLE-PITCH flat lean-to roof of rust-streaked grey corrugated metal sheets sloping down toward the back, weighted with a few stones, no tiles, no hip, no ridge, a plank door ajar and one small shuttered window on the front face, a low rooftop water tank, a stack of crates against one side wall. Real-world scale, 5.5 metres square, 4 metres tall at the front. Grey block, rust-streaked corrugated metal, sun-bleached timber. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "negative_prompt": "clay tiles, terracotta, hipped roof, pitched roof, cottage, villa",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a12a27-6834-778e-9397-f320b1fb83f2",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 2853529548,
+    "prompt": "A single low-poly game-ready small single-room breeze-block shed, vernacular construction of a fictional arid river-basin region: unrendered grey breeze-block walls with patches of faded paint, a SINGLE-PITCH flat lean-to roof of rust-streaked grey corrugated metal sheets sloping down toward the back, weighted with a few stones, no tiles, no hip, no ridge, a plank door ajar and one small shuttered window on the front face, a low rooftop water tank, a stack of crates against one side wall. Real-world scale, 5.5 metres square, 4 metres tall at the front. Grey block, rust-streaked corrugated metal, sun-bleached timber. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1791708589536,
+    "progress": 100,
+    "started_at": 1791708589545,
+    "finished_at": 1791708691183,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a12a27-6834-778e-9397-f320b1fb83f2/output/model.glb?Expires=4945276800&Signature=euDYpLyqsFyVjvdK4eH5RZDeTrfwdPyXtCvC3akgJ-yJVv8huhi8rsXxvkhoLfOXw4xw8L0kvavZdlawiEAWArQaWRaYV-WybPtTaViGDpnHRAONvfWM~To3OiWy8DoRyi~AOcKfFxE6nJCc-Y~m00cD5jCGV34JMGpU8iVZ6BsjOoZFytG6i1vn3xK1Af1lDQT3rnjcBiJcyr0KLMtMX6K7TpCAXyx941JKEyS0Wm38Wn0Pc64PIVjdiV4AjdRK9m36AHnGMwgFlUolt1ydLh4JraMNUsAoi4u87MM4WvkZzN39kcvjhT9FUmRaklEvacjJnkFlJrBqx~N5PrGuBA__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a12a27-6834-778e-9397-f320b1fb83f2/output/preview.png?Expires=4945276800&Signature=h4C~7JdTY9vpusycT8XMHjByxC43xjAUHf4Ye61rb1L7v2EK1gJqXvf1co48VZxsyM4oP0i5QfVJUzczKUWevs8uYCP3FKj3FllpetNTsThP2ziceK~9AZBXYzvKiA0ZM6bV9cmyTtFS3RKAJcZADTsgzXQ~o3ew8vtvxeMD2P084fkvk0elYDupMcPdbLgEeoZVhLtgYAB5PGYCdG3BZwypdbcScGpr5smxFN19nyYGkUQiU6nLAKRri-zjNTmSVJBcq1EUcMN0qUNBZkuT0XT35FDofHQZPCYChLhTbzc9GC9c5G~3IBqeHkstQ6HwWmt6wT4Il3sLXVl5lu2iAw__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1791708589536,
+    "started_at": 1791708589545,
+    "finished_at": 1791708691183
+  },
+  "usd_estimated": 0.4
+}

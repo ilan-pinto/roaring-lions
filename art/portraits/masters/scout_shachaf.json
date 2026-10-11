@@ -1,7 +1,8 @@
 {
   "unit": "scout_shachaf",
+  "variant": "team",
   "source": "assets/meshes/vehicles/scout_shachaf.glb",
-  "source_sha256": "50c6a7ba4f3b035a706797cd9d8cc96ec1420fd48eaf85db2819a52891e97289",
+  "source_sha256": "d1741fca6fbd55564b02489176e6f54b354bfb51b52276c4720397d62f5ca2df",
   "yaw_deg": -125.0,
   "elevation_deg": 18.0,
   "fov_deg": 30.0,

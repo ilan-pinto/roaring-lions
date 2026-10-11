@@ -1,7 +1,8 @@
 {
   "unit": "dozer_d9",
+  "variant": "team",
   "source": "assets/meshes/vehicles/dozer_d9.glb",
-  "source_sha256": "fde9615c04df5450d45406367b2959b1095694134d728b68a4b75c91858dbc15",
+  "source_sha256": "63ffd41912bd696b426e023dfe3558e565b657381fcaeeac39ca3b2ca0c35404",
   "yaw_deg": -125.0,
   "elevation_deg": 18.0,
   "fov_deg": 30.0,

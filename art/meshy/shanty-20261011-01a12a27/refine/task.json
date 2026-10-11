@@ -1,0 +1,48 @@
+{
+  "request": {
+    "mode": "refine",
+    "preview_task_id": "01a12a27-6834-778e-9397-f320b1fb83f2",
+    "texture_resolution": "8k"
+  },
+  "response": {
+    "id": "01a12a29-049d-71fe-9546-11baf80073f4",
+    "type": "text-to-3d-refine",
+    "mode": "refine",
+    "name": "",
+    "model_type": "standard",
+    "seed": 2853529548,
+    "prompt": "A single low-poly game-ready small single-room breeze-block shed, vernacular construction of a fictional arid river-basin region: unrendered grey breeze-block walls with patches of faded paint, a SINGLE-PITCH flat lean-to roof of rust-streaked grey corrugated metal sheets sloping down toward the back, weighted with a few stones, no tiles, no hip, no ridge, a plank door ajar and one small shuttered window on the front face, a low rooftop water tank, a stack of crates against one side wall. Real-world scale, 5.5 metres square, 4 metres tall at the front. Grey block, rust-streaked corrugated metal, sun-bleached timber. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1791708693674,
+    "progress": 100,
+    "started_at": 1791708693682,
+    "finished_at": 1791708900666,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a12a29-049d-71fe-9546-11baf80073f4/output/model.glb?Expires=4945276800&Signature=pGnnRUay5BInKFkVp0obPuJcOJPPHevx7khE90bzzXgART74O1JcgO4MbISHjPiavFLu8RDexWAVBLhP6eQLEplod5IYMetbvzXszA48Yn5yTivET98Em4ELkhW2wvMnuV0XQoDxf~y82VbPIJ4Aw6VIjbJnE9hQLDg3k6VxJdb9CzmsRc3Alk4sjOWD~QdkWEvQgYFbu7q0VMDq7evFhJQLbEFX6faykyHcaUonhuMMEHT0Fl-uOvJfvK74UIQ-JWV8Z4t1blJ6a-JmxgEcaBaLX-yGoBeahf0nJEp3YspjZhMVkyQdQExtjuNGjwK5SElVZev91k5Jp038Dun6yA__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "fbx": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a12a29-049d-71fe-9546-11baf80073f4/output/model.fbx?Expires=4945276800&Signature=VqrF9aOcyY~QlM1Ap~k5ey3a6Qex7T~dRu1rBV-mkpyV9IFIlZV-pKwjK42P5zHvH0i4ETDrka739IhEmm6-5ch49HtZqE8EhxKUfMJylJZDycehi27tw2wv5vEYQEWE1BGwt1CLMrP8T5iYsPoqPhrNb4e7S~lbPp8MMEbI9rTIFXDrBfcJHBIqRyTRfEybqi~n3wPQl4m-p~R5TOtzvEXWB0IeagUcA00cQhVkZqkHn3IM3pBWjFjyJo26J-Nj67XBPlWDSiRoRDJgiVk65eRRFDE-B5Mkm~6CluFed0ysS6jV6Kn4aeoFfq~ZYhFzwJe0Z~o2xoUC0yJJZjSOOg__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "usdz": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a12a29-049d-71fe-9546-11baf80073f4/output/model.usdz?Expires=4945276800&Signature=qSYFFG6lM-Fzf97ayvdYUQyhtwdEQTH1XbILwtRqIaoCELMS4uRMbmmwnTtei1-jPH61gf4LPIOIT1GpGFCHXBwirXMDBGfbAjtzXXiezHFAp39Hg0pIj39d7u59Crg-C69pCAtx7QsgMy7oUFftilM3oGDshwBkCrNUI5rFRTt6IsoE82Hxpz-fGokfEluVweXM~-BL5skHnzXxELOfu7DDGVOngnwS5Np9EOqk1SEHyINsF2j~KJEsUSdxuhgjvNLHlPqTqkZ2zYPiLhwjcvhZeyAbiTNIzP~dhPXt4SyL08hSuhZGBFkpKzgbpe1r0k313d7IwelhDBbAGgr7sQ__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "obj": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a12a29-049d-71fe-9546-11baf80073f4/output/model.obj?Expires=4945276800&Signature=oO8voxW-em9gZFX~qBLxNqFXUzF4rNBcBG02PfcvtggvnsMagouBXinMbL7n3IgPBDoRlQOzK7MpmuTShqcF0S0cIzVmv-UyYC2iZVulmlYXKrdEPhqrAdm7Z2GJOxyeTW22utIAoeq8ka4en4Yg13SlmcjdkqRqN8nOXh47ANXx6Tw3zkl-TZ3xCSB-FqWvM1qOwSZRQm4HW4FlLdixrlN8rqrut11j72dDIxwSxC-0fgNrpcbqI-A5C5WC3OOFIsa5o1kYPmFFH4ZDclt-AU9~biEKSVX9HdMQGePzbjdMDygT56U8Zk9cHe~FF3beZTVYYm9ntczdv3~eUzSHfQ__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "mtl": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a12a29-049d-71fe-9546-11baf80073f4/output/model.mtl?Expires=4945276800&Signature=d7zVGNYqTBgtr8YdSoXC-BpF~mNWX1JEAFiK9Sqi7NNkxrfHtw~fBPX2OsPCYuuofrtBV64joxchYVTcjcXL2bjRbGdgxRIegggDwdkPb4OwMHJ37jSY8IW362uOnHS~jGIzK5Ia~EXiXEGJVEWFd8aGd-KekrTpkAh5EyGgr~PUcHhvn0rBMMIK4TwzU6ivD8m14pHfxOZdooqk7AnKGLmiPFEhGBYLdqwwywOrzNdLXArMTb7EupkVtJvfGCGR8U8ayg38zVWgRGuP7fEjVT1fYWhVmV0~rAVTfvZUID3GngppMN4AzB7HbXIZs6~~FuAJTER5rfRXIt6GUCVxtA__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "stl": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a12a29-049d-71fe-9546-11baf80073f4/output/model.stl?Expires=4945276800&Signature=aNKYuGHs8P8dmecvoSSVWnqtPLzX58k39gbHaWK~IQaDfexKosxSTEPHxBf3gjipyo-kkeyS-VV4~jhDEfG64bt357FbUhfhodl-DsGTOFxLUfOIOdRJ1txzgjpVm-gkPLyvgXc~y1rR-qOdN1OI~pN-z8~aiGxuX1Ar0NxiNFIfwGQz0uvEjF-BkcQ-Zi1UPqP8VsfyCvyb81peE1fQAX0omOOZ7ELTnYM~nknQbE8xy7aFcW5TyDcfGuu6xObkHPUkAgl~UXvePMnOvxjsxYgFYan7hgB-FtLFypp5-FdPWALF-fpd50mluS6tz9-KG2tELGHsP0im9qoTuKREQQ__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a12a29-049d-71fe-9546-11baf80073f4/output/preview.png?Expires=4945276800&Signature=LBLS4QwjqZrcBTurw4KM5LkOtcJm-9hM~57awyp64XtHxfQzE4sPRE22AOJhCnigsg6NpItUxXsnRhzE--Q54oaGrcmNlL5XYl8TRo7eBFks-POabUyXKP5RD0DDd4-XvJbYDH3dzYIGtVFbUCiTx8UoDxxznjxOW882U8~OZH0qAlgFfW4zEmvB6fIX3t6zteKXPUyJY9O5WZY2zXBYBYhtin9MOhbYgjyk-dvhoAo4RABWAdToL2jd5W-6mRbBUNXtq7jQvcTyJQO~FEM3iU9z2XUKGJuXrtx5BCHxcSpN3~-LUpwFstOxHTwKIPaEp19cVR~JzXiDrHEnbrP2QA__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [
+      {
+        "base_color": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a12a29-049d-71fe-9546-11baf80073f4/output/texture_0.png?Expires=4945276800&Signature=pTjYx5~qF-6yIUYqVUvWnYEluWRYfLdSwuNCFq6oHPgFnEpok0dC6ZnxpN8YawAFhQ3Hxwh6Rn~YgOO1nCMsztQObbpkS9uWydDODCXJbGEolwmpbBkaLAKlcYTXOCOmarIEv~UBU1k4f4WoAz9LydRTsGPywMXMgLAwHgFGP5L6qEStTUsi6RL-oLEOLuJbDQpkC6QZLaFvHrt9fHUWTAwbotwR~2tAGWEpdA0bGrmCAyWEfeq-CyQFDlWzHZ8k0PDvyMlN1npy5W3-F4qG3tl2PgZCh5c8rCGVJxtTkU47Pnpg4YC0Wzkvs3V~6aS1ezK2QBa2sWq4xOp~0Tqlsw__&Key-Pair-Id=K1VGYTHIYLM9UM"
+      }
+    ],
+    "hd_texture": true,
+    "texture_resolution": "8k",
+    "consumed_credits": 15
+  },
+  "consumed_credits": 15,
+  "timestamps": {
+    "created_at": 1791708693674,
+    "started_at": 1791708693682,
+    "finished_at": 1791708900666
+  },
+  "usd_estimated": 0.3
+}

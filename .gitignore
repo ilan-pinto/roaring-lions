@@ -111,3 +111,12 @@ art/meshy/kdf-carbine-20261005-01a10c6f/texture_*
 # lived untracked and unlisted until spike-walk (6 Oct) rebuilt the team.
 art/meshy/spike-launcher-20261005-01a10c61/model.glb
 art/meshy/spike-launcher-20261005-01a10c61/texture_*
+# A3.2 phase 2's shanty v2 (11 Oct): the 8k refine (model.* and its 80 MB
+# base colour), the 22 MB preview and the 80 MB remesh source are kept on
+# disk, never committed, as every other 8k source above; task.json and the
+# thumbnails beside them are tracked.
+art/meshy/shanty-20261011-01a12a27/model.glb
+art/meshy/shanty-20261011-01a12a27/refine/model.*
+art/meshy/shanty-20261011-01a12a27/refine/texture_0_*.png
+art/meshy/shanty-20261011-01a12a2d/model.glb
+art/meshy/shanty-20261011-01a12a2d/texture_0_*.png

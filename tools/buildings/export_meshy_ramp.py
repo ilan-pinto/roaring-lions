@@ -64,6 +64,8 @@ sys.path.insert(0, HERE)
 from dimetric import metres_per_unit  # noqa: E402
 import kit as building_kit  # noqa: E402
 import textured  # noqa: E402
+sys.path.insert(0, os.path.join(TOOLS, "vehicles"))
+import bake_fix  # noqa: E402
 from render_building import collapse  # noqa: E402  (main() is guarded there)
 
 REPO = os.path.dirname(TOOLS)
@@ -109,6 +111,9 @@ GLASS_MIN_FACES = 3
 OPENING_Z_FRACTION = 0.8
 #: Upward faces above this fraction of the height are the roof.
 ROOF_NZ = 0.75
+#: `RampSpec.roof_shift`'s band: every face whose centre is above this
+#: fraction of the height, whatever it faces (see the export's own comment).
+ROOF_SHIFT_Z_FRACTION = 0.6
 ROOF_Z_FRACTION = 0.55
 
 
@@ -135,6 +140,19 @@ class RampSpec:
     #: the mast centroid), never from the thumbnail; the auto choice is still
     #: printed beside it so the disagreement is on record.
     yaw: int = None
+    #: A3.2 phase 2 (2026-10-11, the lead's "warm pass"): every base-colour
+    #: texel multiplied by this (r, g, b) before export, after the yaw is
+    #: chosen (so the facing read is unchanged). The concrete measured hue 60
+    #: / sat 0.10 against the house's 33 / 0.29 -- the one cold object on a
+    #: warm map; the wall measured L 0.405, the brightest building.
+    colour_balance: tuple = None
+    #: A3.2 phase 2: an HSV band move (`bake_fix.band_shift` kwargs) applied
+    #: ONLY to the texels the `roof` role's UV islands cover, after the role
+    #: split. The shanty v2's refine painted its corrugated sheets
+    #: terracotta although the prompt asked for rust-streaked grey and the
+    #: negative prompt named terracotta; the bible's answer to a wrong bake
+    #: is Blender, not a re-roll.
+    roof_shift: dict = None
 
 
 def _credit(what):
@@ -145,11 +163,21 @@ def _credit(what):
 
 SPECS = {
     "concrete": RampSpec("concrete", _credit("Concrete structure (standing + destroyed)"),
-                         size_axis="z", size_m=9.0, glass=True, face=True),
+                         size_axis="z", size_m=9.0, glass=True, face=True,
+                         colour_balance=(1.10, 1.00, 0.86)),
+    # The shanty v2 (A3.2 phase 2, 2026-10-11): the first preview came back
+    # with a hipped red clay-tile roof where the prompt asked for a
+    # single-pitch corrugated lean-to, and shipped as such (#314); the lead
+    # had it regenerated at maximum detail (text --refine --tex 8k, a
+    # negative prompt naming tiles and hips, remesh 8,000). Scaled on HEIGHT
+    # to the prompt's own 4 m at the front, the ramp set's lesson.
     "shanty": RampSpec("shanty", _credit("Breeze-block shed (standing + destroyed)"),
-                       size_axis="z", size_m=4.2, glass=True, face=True),
+                       size_axis="z", size_m=4.0, glass=True, face=True,
+                       roof_shift={"sat_min": 0.25, "hue_lo": 0.0, "hue_hi": 45.0,
+                                   "hue_shift": 0.0, "sat_mul": 0.30, "val_mul": 0.70}),
     "wall": RampSpec("wall", _credit("Compound wall segment (standing + destroyed)"),
-                     size_axis="x", size_m=3.0, glass=False, face=False, thin_y_m=0.6),
+                     size_axis="x", size_m=3.0, glass=False, face=False, thin_y_m=0.6,
+                     colour_balance=(0.94, 0.92, 0.88)),
     "camp": RampSpec("camp", _credit("Field camp (standing + destroyed)"),
                      size_axis="plan", size_m=7.5, glass=False, face=False),
     # The relay hut (the two `y` tiles at (15,7)-(16,7) on all three Umm
@@ -305,6 +333,21 @@ def _yaw_scores(ob, dark, nrm):
                 hid += p.area
         scores.append((k, cam, hid))
     return scores
+
+
+def _coverage_faces(ob, polys, w, h):
+    """Texels under the UV triangles of `polys` (pixel centres), on a w x h
+    grid -- `bake_fix.raster_tri` over the mesh's active UV layer."""
+    import numpy as np
+    mask = np.zeros((h, w), dtype=bool)
+    uv = ob.data.uv_layers.active.data
+    for p in polys:
+        li = list(p.loop_indices)
+        for k in range(1, len(li) - 1):
+            bake_fix.raster_tri(mask, np.array([(uv[li[0]].uv[0] * w, uv[li[0]].uv[1] * h),
+                                                (uv[li[k]].uv[0] * w, uv[li[k]].uv[1] * h),
+                                                (uv[li[k + 1]].uv[0] * w, uv[li[k + 1]].uv[1] * h)], dtype=np.float64))
+    return mask
 
 
 def _bake(objs, matrix):
@@ -471,6 +514,18 @@ def export(unit_id, probe=False):
     roof = {p.index for p in ob.data.polygons
             if p.index not in glass and nrm[p.index].z > ROOF_NZ and p.center.z > mn.z + height * ROOF_Z_FRACTION}
     wall = {p.index for p in ob.data.polygons if p.index not in glass and p.index not in roof}
+    if spec.roof_shift is not None:
+        # Every face in the top band, whatever its normal: a corrugated
+        # sheet's ribs face sideways and the `roof` role above keeps only
+        # the upward ones (996 of the shanty v2's roof faces; the slopes
+        # went to `wall` and stayed terracotta on the first pass).
+        top = [p for p in ob.data.polygons
+               if p.index not in glass and p.center.z > mn.z + height * ROOF_SHIFT_Z_FRACTION]
+        w_px, h_px = base.size
+        mask = _coverage_faces(ob, top, w_px, h_px)
+        print(f"[{unit_id}] roof_shift: {len(top)} faces above {ROOF_SHIFT_Z_FRACTION} of the height, "
+              f"{100.0 * mask.mean():.1f}% of the bake")
+        bake_fix.band_shift_image(base, f"{unit_id} roof", mask=mask, **spec.roof_shift)
     roles = _split(ob, {"wall": wall, "roof": roof, "glass": glass}, unit_id)
 
     # Wreck: duplicates of the same pieces, collapsed in place.
@@ -491,6 +546,8 @@ def export(unit_id, probe=False):
     print(f"[{unit_id}] wreck bounds x[{wmn.x:+.2f},{wmx.x:+.2f}] y[{wmn.y:+.2f},{wmx.y:+.2f}] "
           f"z[{wmn.z:+.2f},{wmx.z:+.2f}], {_tris(list(wreck.values()))} tris")
 
+    if spec.colour_balance is not None:
+        bake_fix.colour_balance_image(base, spec.colour_balance, unit_id)
     tex_px = textured.prepare_textured_images()
     print(f"[{unit_id}] shipping base_color at {tex_px[0]}x{tex_px[1]}, JPEG q{textured.JPEG_QUALITY}")
     os.makedirs(OUT_DIR, exist_ok=True)
