@@ -191,10 +191,10 @@ session (`python3` tile lookups, not eyeballing the grid).
 |---|---|---|---|---|
 | marker | `outpost` | `[20,14]` — tile is `.` | the forward post's ground, and the t=120 wave's `to` | **missing — new, additive** |
 | zone | `outpost_ground` | `[19,12,4,4]` — 16 tiles, 15× `.` + one `o` at `(21,13)` | `hold_outpost`'s target; deliberately excludes wall row 16 | **missing — new** |
-| marker | `families_nw` | `[12,18]` — `.` | matches the floor of the shipped civilian group's `at:[12.5,18.5]`; `commit` destination for `ring_nw` | **missing — new** |
+| marker | `families_nw` | `[12,18]` — `.` | `ring_nw`'s destination; the group itself is at `at:[10.5,18.5]` since 2026-10-11 | **missing — new** |
 | marker | `families_ne` | `[35,18]` — `.` | `ring_ne`'s destination. The group itself moved to `at:[37.5,18.5]` on 2026-09-15 and the marker deliberately did NOT follow it (below) | **missing — new** |
-| marker | `families_sw` | `[12,27]` — `.` | `ring_sw`'s destination; the group itself is at `at:[11.5,27.5]` since 2026-09-15 | **missing — new** |
-| marker | `families_se` | `[35,27]` — `.` | matches `at:[35.5,27.5]`; `ring_se`'s destination | **missing — new** |
+| marker | `families_sw` | `[12,27]` — `.` | `ring_sw`'s destination; the group itself is at `at:[9.5,27.5]` since 2026-10-11 (`[11.5,27.5]` from 2026-09-15) | **missing — new** |
+| marker | `families_se` | `[35,27]` — `.` | `ring_se`'s destination; the group itself is at `at:[37.5,27.5]` since 2026-10-11 | **missing — new** |
 
 **Two of the four no longer sit on their group's first body, and that is the
 point.** A marker here is the enemy's `commit` target, so it is where the
@@ -211,6 +211,20 @@ where they are, because moving them would move the raid itself and every
 `first_contact`/`timer_s` commit that names them. `tools/src/first_light_fence.test.ts`
 now derives the spawn tiles from the mission JSON rather than listing them, so
 the next such move cannot leave a stale census behind.
+
+**That fix was measured on one seed, and it held on that seed only.** Swept
+over seeds 424242 and 1..29 (2026-10-11, `tools/src/backtest/fl_ladder.ts`) the
+passive control still WON on seeds 4 and 10, and on 10 of seeds 424242 and
+1..99. The leak was the same mechanism one body further in: the body of each
+of three villages standing nearest the wall (x 15.0 north-west, 14.0
+south-west, 35.5 south-east) sat inside the near-miss splash of the wall's own
+firefights, broke at suppression 0.3 and walked in: 9 runs in 30 with one
+evacuee and 2 with two. NW, SW and SE moved two tiles further out
+(`[10.5,18.5]`, `[9.5,27.5]`, `[37.5,27.5]`; NE was already at `[37.5,18.5]` and
+never leaked); over the same 100 seeds no family now walks in on its own, and
+the naive, sensible and optimal win rates are unchanged (99, 100, 100). The
+markers again stayed put. `pnpm playtest` now holds the passive control on all
+thirty seeds (`passiveAcrossSeeds`).
 
 Not proposed: the four optional `village_nw/ne/sw/se` withdraw markers design
 lists as "if `level-scripter` wants the ring to leave with what it took." I'm not
@@ -491,7 +505,9 @@ G1 lands:
 
 *Shipped since 2026-09-15 with two of the four moved — NE `[37.5,18.5]`, SW
 `[11.5,27.5]` — to keep the passive control losing once scripted enemy groups
-began forming up on the village markers. See §1.4; `data/missions/beit_sahwan_breach.json`
+began forming up on the village markers, and since 2026-10-11 with NW
+`[10.5,18.5]`, SW `[9.5,27.5]` and SE `[37.5,27.5]`, to keep it losing on every
+seed rather than on 424242. See §1.4; `data/missions/beit_sahwan_breach.json`
 is the authority.*
 
 **Map additions (`marj_perimeter.json`), in `map.schema.json`'s shapes

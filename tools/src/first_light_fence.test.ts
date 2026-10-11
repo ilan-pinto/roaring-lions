@@ -234,10 +234,10 @@ describe('First Light fence — the tiles themselves', () => {
     // `assertGroundClear`'s 1.25-tile grid) -- cheaper than re-running the
     // mission runtime here, and this file's job is the terrain, not re-proving
     // `walk_placements.ts`'s own "all placements clear". A fence tile standing
-    // ADJACENT to a spawn (distance 1) is fine and expected here -- the west
-    // run's (16,17) sits diagonally next to `families_nw`'s third body at
-    // (15,18) by design, one tile outside the wall the civilians are
-    // sheltering behind.
+    // ADJACENT to a spawn (distance 1) would be fine here -- the west run's
+    // (16,17) sat diagonally next to `families_nw`'s third body at (15,18)
+    // until that family moved two tiles west (2026-10-11); its nearest body
+    // now stands at (13,18), three tiles off the fence.
     const occupied: readonly Pt[] = PLACEMENTS.flatMap(spawnTiles);
     for (const [ox, oy] of occupied) {
       for (const [fx_, fy] of FENCE_TILES) {
@@ -332,9 +332,10 @@ describe('First Light fence — civilian routes to civ_refuge are untouched', ()
   // `commit` targets (`villages_rise` and its three siblings), they do not
   // move when a civilian group does, and the exact lengths pinned below are
   // measured from them. Two of the four last coincided with a family's first
-  // body before 2026-09-15; `families_ne` now spawns at (37,18) and
-  // `families_sw` at (11,27), which is why the probes and the spawns are two
-  // separate cases here instead of one list doing both jobs badly.
+  // body before 2026-09-15; since 2026-10-11 the groups spawn at (10,18),
+  // (37,18), (9,27) and (37,27), none of them on its marker, which is why the
+  // probes and the spawns are two separate cases here instead of one list
+  // doing both jobs badly.
   const MARKER_PROBES: readonly [string, Pt][] = [
     ['families_nw', marker(BASE, 'families_nw')],
     ['families_ne', marker(BASE, 'families_ne')],
@@ -348,25 +349,31 @@ describe('First Light fence — civilian routes to civ_refuge are untouched', ()
    *  This table is why the case exists. The file header claims the shipped
    *  x16/x32 layout leaves the civilian routes "BYTE-IDENTICAL" -- measured
    *  from the four village MARKERS, which is true (the case below pins
-   *  12/14/13/11 there) and is not the whole truth: `families_nw`'s second and
-   *  third bodies at (13,18) and (15,18) each walk ONE tile further with the
-   *  fence up, because the west run at x=16 stands between them and the wall's
-   *  west gate. Nine of eleven bodies are unchanged. That +1 is recorded here
-   *  rather than smoothed into a `<= 1` bound, so a future fence edit that
-   *  makes a THIRD body detour, or costs either of these two a second tile,
-   *  goes red instead of passing inside a tolerance. */
+   *  12/14/13/11 there) and is not the whole truth: `families_nw`'s third
+   *  body at (13,18) walks ONE tile further with the fence up, because the
+   *  west run at x=16 stands between it and the wall's west gate. Ten of
+   *  eleven bodies are unchanged. That +1 is recorded here rather than
+   *  smoothed into a `<= 1` bound, so a future fence edit that makes a SECOND
+   *  body detour, or costs this one a second tile, goes red instead of passing
+   *  inside a tolerance.
+   *
+   *  Until 2026-10-11 there were two such bodies, (13,18) and (15,18): the
+   *  north-west, south-west and south-east families each stood two tiles
+   *  nearer the wall, close enough that the wall's own firefights frightened
+   *  one body in on its own and the passive control WON on 2 seeds of 30
+   *  (`playtest.ts`, `passiveAcrossSeeds`; `backtest/fl_ladder.ts`). */
   const SPAWN_WALKS: Readonly<Record<string, readonly [number, number]>> = {
-    '12,18': [12, 12],
+    '10,18': [14, 14],
+    '11,18': [13, 13],
     '13,18': [11, 12],
-    '15,18': [11, 12],
     '37,18': [14, 14],
     '38,18': [14, 14],
     '40,18': [16, 16],
-    '11,27': [13, 13],
+    '9,27': [15, 15],
+    '10,27': [14, 14],
     '12,27': [13, 13],
-    '14,27': [13, 13],
-    '35,27': [11, 11],
-    '36,27': [12, 12],
+    '37,27': [13, 13],
+    '38,27': [14, 14],
   };
 
   it('every civilian body still reaches civ_refuge on foot, at its pinned before/after length', () => {
