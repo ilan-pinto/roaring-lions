@@ -260,11 +260,11 @@ describe('room-core', () => {
       ['player', (s) => { if (s.seats[1]) s.seats[1].player = 'p9'; }],
       ['seat', (s) => { s.seats[1] = null; }],
     ];
-    const stalledKey = persistKey(st);
+    const lifecycleKey = persistKey(st);
     for (const [name, change] of lifecycle) {
       const copy = structuredClone(st);
       change(copy);
-      expect(persistKey(copy), name).not.toBe(stalledKey);
+      expect(persistKey(copy), name).not.toBe(lifecycleKey);
     }
   });
 
