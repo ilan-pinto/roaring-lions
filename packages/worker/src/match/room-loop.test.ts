@@ -91,8 +91,8 @@ class Player {
       onDesync: (tick, hashes) => { this.desyncs.push([tick, hashes]); },
     });
   }
-  pump(): void {
-    for (const f of this.t.take(10)) {
+  pump(max = 10): void {
+    for (const f of this.t.take(max)) {
       this.taken.push(f);
       this.t.reportTick(f.tick, this.digest(f.tick));
     }
@@ -266,6 +266,24 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     expect(p1.taken).toEqual(p0.taken.slice(0, p1.taken.length));
     expect(p0.taken.flatMap((f) => f.cmds)).toHaveLength(2 * SECONDS);
     for (const w of loop.wires) expect(w.received.filter((m) => m.t === 'hashOk').length).toBeGreaterThan(55);
+    expect(rows, `${rows} rows in ${SECONDS} s`).toBeLessThanOrEqual(2 * SECONDS);
+  });
+
+  it('a seat running at 18 Hz flaps between a behind stall and resume, and the room still writes at most 2 rows a second', async () => {
+    const { state, loop, p0, p1 } = await started();
+    const before = state.storage.rowsWritten;
+    const SECONDS = 60;
+    for (let i = 0; i < SECONDS * (1000 / TICK_MS); i++) {
+      await vi.advanceTimersByTimeAsync(TICK_MS);
+      p0.pump();
+      if (i % 10 !== 9) p1.pump(1);   // one frame a tick, nine ticks in ten: 18 Hz
+      await loop.flush();
+    }
+    const rows = state.storage.rowsWritten - before;
+    const [w0] = loop.wires;
+    expect(w0.received.filter((m) => m.t === 'stall').length).toBeGreaterThan(10);   // it really flaps
+    expect(w0.received.filter((m) => m.t === 'resume').length).toBeGreaterThan(10);
+    expect(p1.ticks()).toEqual(range(p1.taken.length));
     expect(rows, `${rows} rows in ${SECONDS} s`).toBeLessThanOrEqual(2 * SECONDS);
   });
 

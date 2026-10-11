@@ -13,7 +13,8 @@
  * `BATCH_TICKS` ticks, written when the batch closes; the open batch lives in
  * memory and `log` answers from both. The room state is written only when
  * its lifecycle changes (`persistKey`: create, seats joining, going, readying,
- * start, stall and resume, end), never per tick, ack, command or hash -- and
+ * start, end), never per tick, ack, command, hash or behind/silent stall
+ * (R37) -- and
  * every such write first flushes the open batch, so the persisted frames
  * always reach the persisted state's tick.
  *
@@ -25,12 +26,14 @@
  * them is lost on BOTH clients alike and nobody desyncs. Pending commands,
  * acks, half hash pairs and the open batch were memory only; acks and hashes
  * are re-earned. One residue: for those re-sent ticks the log now holds the
- * revived room's copies, so a client that later rejoins from a RELOAD (a fresh
- * clock, which replays the whole log) would run them instead of the
- * originals -- a desync only if either copy carried a command. A stall's
- * lifecycle write flushes the open batch, so an eviction during a stall (the
- * likeliest moment for a long idle) re-sends nothing. (Before 8b every frame
- * reached SQLite before any socket.)
+ * revived room's copies, so ANY client that takes those ticks from `log`
+ * runs them instead of the originals -- a seat that rejoins from a reload,
+ * or one whose socket died just before the eviction and reconnects behind
+ * them. That diverges only if either copy carried a command, and then the
+ * next hash comparison voids the match loudly (`desync`); it is never silent.
+ * A seat going ('gone' persists through `connected`) flushes the open batch
+ * with its write, so an eviction while waiting for a reconnect re-sends
+ * nothing. (Before 8b every frame reached SQLite before any socket.)
  */
 import { parseClientMsg, validateConfig, REPLACED_CLOSE_CODE, type ClientMsg, type Frame, type MatchConfig, type Seat, type SeatConfig, type ServerMsg } from '@lions/net';
 import type { Env } from '../d1';
