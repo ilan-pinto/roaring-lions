@@ -1,0 +1,175 @@
+/**
+ * The MatchRoom's rules with no I/O: every input is a function call, every
+ * output an `Effect`. The Durable Object (`match-room.ts`) is a thin shell
+ * over this so the rules test under node (spec §12). The frame LOG is not
+ * held here: the DO appends each `frame` effect to its SQLite table and
+ * answers `log` from it; `seatJoin` asks for it through `readLog`.
+ */
+import {
+  canonicalOrder, MAX_CMDS_PER_SEAT_PER_FRAME,
+  type ClientMsg, type Frame, type MatchConfig, type Seat, type ServerMsg, type Stamped, type SeatState,
+} from '@lions/net';
+
+export type RoomStatus = 'lobby' | 'running' | 'stalled' | 'ended';
+export interface RoomSeat {
+  seat: Seat; player: string; callsign: string; connected: boolean; ready: boolean;
+  /** The newest tick the seat has acknowledged; -1 before any. */
+  lastAck: number;
+  lastSeenMs: number;
+  nextSeq: number;
+}
+export interface RoomState {
+  code: string; matchId: string; createdMs: number;
+  status: RoomStatus;
+  config: MatchConfig | null;
+  seats: [RoomSeat | null, RoomSeat | null];
+  /** The tick the NEXT frame will carry. */
+  tick: number;
+  pending: Stamped[];
+  hashes: Record<number, [number | null, number | null]>;
+  stall: { reason: 'behind' | 'gone'; seat: Seat } | null;
+  endedReason: 'left' | 'void' | 'expired' | null;
+}
+export type Effect =
+  | { kind: 'send'; to: Seat | 'all'; msg: ServerMsg }
+  | { kind: 'frame'; frame: Frame }
+  | { kind: 'close'; seat: Seat };
+
+export const ACK_EVERY = 10;
+export const STALL_BEHIND_TICKS = 40;
+export const STALL_SILENT_MS = 2000;
+export const ROOM_TTL_MS = 6 * 3600 * 1000;
+
+export function createRoom(code: string, matchId: string, nowMs: number): RoomState {
+  return { code, matchId, createdMs: nowMs, status: 'lobby', config: null, seats: [null, null], tick: 0, pending: [], hashes: {}, stall: null, endedReason: null };
+}
+
+const seatStates = (st: RoomState): SeatState[] =>
+  st.seats.flatMap((s) => (s ? [{ seat: s.seat, callsign: s.callsign, connected: s.connected, ready: s.ready }] : []));
+
+export function lobbyMsg(st: RoomState, you: Seat): ServerMsg {
+  return { t: 'lobby', config: st.config, seats: seatStates(st), you };
+}
+
+/** A verified hello. A second hello for an occupied seat REPLACES it (the
+ *  reconnect path, spec §3.5); `readLog` supplies the frames for it. */
+export function seatJoin(st: RoomState, seat: Seat, player: string, callsign: string, nowMs: number, readLog: () => Frame[] = () => []): Effect[] {
+  const prior = st.seats[seat];
+  st.seats[seat] = { seat, player, callsign, connected: true, ready: prior?.ready ?? false, lastAck: prior?.lastAck ?? -1, lastSeenMs: nowMs, nextSeq: prior?.nextSeq ?? 0 };
+  const out: Effect[] = [];
+  if (prior && prior.connected) out.push({ kind: 'close', seat });
+  if (st.status === 'lobby') {
+    out.push({ kind: 'send', to: 'all', msg: lobbyMsg(st, 0) });   // the DO rewrites `you` per socket
+  } else if (st.config) {
+    out.push({ kind: 'send', to: seat, msg: { t: 'log', config: st.config, frames: readLog() } });
+    out.push(...recheckStall(st, nowMs));
+  }
+  return out;
+}
+
+export function seatGone(st: RoomState, seat: Seat, nowMs: number): Effect[] {
+  const s = st.seats[seat];
+  if (!s) return [];
+  s.connected = false;
+  s.lastSeenMs = nowMs;
+  if (st.status === 'lobby') return [{ kind: 'send', to: 'all', msg: lobbyMsg(st, 0) }];
+  return recheckStall(st, nowMs);
+}
+
+export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: number, mintConfig: () => MatchConfig): Effect[] {
+  const s = st.seats[seat];
+  if (!s) return [];
+  s.lastSeenMs = nowMs;
+  switch (msg.t) {
+    case 'hello': return [];   // handled by the DO before seatJoin
+    case 'ready': {
+      if (st.status !== 'lobby') return [];
+      s.ready = true;
+      const both = st.seats[0]?.ready && st.seats[1]?.ready && st.seats[0]?.connected && st.seats[1]?.connected;
+      if (!both) return [{ kind: 'send', to: 'all', msg: lobbyMsg(st, 0) }];
+      st.config = mintConfig();
+      st.status = 'running';
+      return [{ kind: 'send', to: 'all', msg: { t: 'start', config: st.config } }];
+    }
+    case 'cmd': {
+      if (st.status !== 'running' && st.status !== 'stalled') return [{ kind: 'send', to: seat, msg: { t: 'error', code: 'not_running' } }];
+      if (st.pending.filter((p) => p.seat === seat).length >= MAX_CMDS_PER_SEAT_PER_FRAME) return [];
+      st.pending.push({ seat, seq: s.nextSeq++, cmd: msg.cmd });
+      return [];
+    }
+    case 'ack': {
+      if (msg.tick > s.lastAck) s.lastAck = msg.tick;
+      // An ack can only END a stall. Starting one is the clock's decision (and
+      // seatGone's), so a healthy seat's ack never races ahead of the metronome.
+      return recheckStall(st, nowMs, false);
+    }
+    case 'hash': {
+      if (st.status === 'ended') return [];
+      const pair = st.hashes[msg.tick] ?? [null, null];
+      pair[seat] = msg.h;
+      st.hashes[msg.tick] = pair;
+      const [a, b] = pair;
+      if (a === null || b === null) return [];
+      delete st.hashes[msg.tick];
+      if (a === b) return [{ kind: 'send', to: 'all', msg: { t: 'hashOk', tick: msg.tick } }];
+      st.status = 'ended';
+      st.endedReason = 'void';
+      return [{ kind: 'send', to: 'all', msg: { t: 'desync', tick: msg.tick, hashes: [a, b] } }];
+    }
+    case 'bye': {
+      if (st.status === 'ended') return [];
+      st.status = 'ended';
+      st.endedReason = 'left';
+      return [{ kind: 'send', to: 'all', msg: { t: 'ended', reason: 'left' } }];
+    }
+  }
+}
+
+/** Why the clock must stop, if it must: the first seat that is gone, silent,
+ *  or too far behind. Null means run. */
+function stallFor(st: RoomState, nowMs: number): { reason: 'behind' | 'gone'; seat: Seat } | null {
+  for (const s of st.seats) {
+    if (!s) continue;
+    // Order matters: a seat that is both far behind and silent is reported as
+    // 'behind' (the more specific cause); only a dead socket is always 'gone'.
+    if (!s.connected) return { reason: 'gone', seat: s.seat };
+    if (st.tick - 1 - s.lastAck >= STALL_BEHIND_TICKS) return { reason: 'behind', seat: s.seat };
+    if (nowMs - s.lastSeenMs > STALL_SILENT_MS) return { reason: 'gone', seat: s.seat };
+  }
+  return null;
+}
+
+function recheckStall(st: RoomState, nowMs: number, mayStall = true): Effect[] {
+  if (st.status !== 'running' && st.status !== 'stalled') return [];
+  const want = stallFor(st, nowMs);
+  if (want && st.status === 'running' && mayStall) {
+    st.status = 'stalled';
+    st.stall = want;
+    return [{ kind: 'send', to: 'all', msg: { t: 'stall', reason: want.reason, seat: want.seat } }];
+  }
+  if (!want && st.status === 'stalled') {
+    st.status = 'running';
+    st.stall = null;
+    return [{ kind: 'send', to: 'all', msg: { t: 'resume' } }];
+  }
+  return [];
+}
+
+/** Every 50 ms while the match lives. One frame per call when running. */
+export function clockTick(st: RoomState, nowMs: number): Effect[] {
+  if (st.status === 'ended') return [];
+  if (nowMs - st.createdMs > ROOM_TTL_MS) {
+    st.status = 'ended';
+    st.endedReason = 'expired';
+    return [{ kind: 'send', to: 'all', msg: { t: 'ended', reason: 'expired' } }];
+  }
+  if (st.status === 'lobby') return [];
+  const out: Effect[] = recheckStall(st, nowMs);
+  if (st.status !== 'running') return out;
+  const frame: Frame = { tick: st.tick, cmds: canonicalOrder(st.pending) };
+  st.pending = [];
+  st.tick++;
+  out.push({ kind: 'frame', frame });
+  out.push({ kind: 'send', to: 'all', msg: { t: 'frame', tick: frame.tick, cmds: frame.cmds } });
+  return out;
+}
