@@ -31,6 +31,10 @@
   "smallScreen.next": "Open it on a computer, or cast it to a large screen. You can carry on here, but part of the screen stays cut off.",
   "smallScreen.keep": "Carry on anyway",
   "smallScreen.menu": "Main menu",
+  "noGpu.title": "The game will be very slow",
+  "noGpu.body": "Your browser is drawing without graphics acceleration, so the game will be very slow.",
+  "noGpu.next": "To fix it, open your browser settings, turn on \"Use hardware acceleration\", then restart the browser. You can also carry on as it is.",
+  "noGpu.keep": "Carry on anyway",
 
   "settings.title": "Settings",
   "settings.video": "Video",
