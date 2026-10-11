@@ -396,6 +396,24 @@ export const REFUGE_RING_EDGE_STYLE: DashedRingStyle = {
   extendPx: REFUGE_RING_EDGE_EXTRA_PX / 2,
 };
 
+/**
+ * GH-113: the strike footprint under the armed cursor -- the splash a precision
+ * strike will cover, drawn only while the strike is armed (approved
+ * 2026-10-11, decision 6 of `docs/polish/intel-moments.md`). `--hot` in the
+ * UI (`theme.css`: `--hot: var(--rl-vfx-fire)`), the dashed ring the mock
+ * showed, over the one world halo like the refuge ring, and static: no pulse,
+ * so reduced motion has nothing to take away.
+ */
+export const AIM_FOOTPRINT_COLOR_KEY = 'vfx.fire';
+export const AIM_FOOTPRINT_FALLBACK_COLOR = paletteHex(AIM_FOOTPRINT_COLOR_KEY);
+export const AIM_FOOTPRINT_STYLE: DashedRingStyle = { widthPx: 2, dashPx: 5, gapPx: 3 };
+export const AIM_FOOTPRINT_EDGE_STYLE: DashedRingStyle = {
+  widthPx: AIM_FOOTPRINT_STYLE.widthPx + REFUGE_RING_EDGE_EXTRA_PX,
+  dashPx: AIM_FOOTPRINT_STYLE.dashPx,
+  gapPx: AIM_FOOTPRINT_STYLE.gapPx,
+  extendPx: REFUGE_RING_EDGE_EXTRA_PX / 2,
+};
+
 /** RGB triple, LINEAR, in 0..1, memoised -- the last step before a resolved
  *  palette hex becomes vertex colour, mirroring `fx.ts`'s own
  *  `cachedHexToLinear` (private there; this module needs its own for the

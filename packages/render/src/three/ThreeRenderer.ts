@@ -546,6 +546,10 @@ import {
   REFUGE_RING_STYLE,
   REFUGE_RING_EDGE_STYLE,
   REFUGE_RING_EDGE_ALPHA,
+  AIM_FOOTPRINT_COLOR_KEY,
+  AIM_FOOTPRINT_FALLBACK_COLOR,
+  AIM_FOOTPRINT_STYLE,
+  AIM_FOOTPRINT_EDGE_STYLE,
 } from './units/overlays';
 import { paletteHex } from './palette-hex';
 import {
@@ -908,6 +912,9 @@ export class ThreeRenderer implements Renderer {
    *  own comment for why this is NOT `hoverEntity`, which stays the hostile
    *  hover the cursor hinting and the projected-fire panel read. */
   rangeRingPreview = -1;
+  /** GH-113: see `Renderer.aimFootprint`. Drawn in the overlay pass beside the
+   *  refuge ring; `null` draws nothing. */
+  aimFootprint: { readonly x: number; readonly y: number; readonly radius: number } | null = null;
   objectiveZone: readonly number[] | null = null;
   objectiveZones?: readonly ObjectiveZoneView[];
   objectiveZoneState: 'held' | 'unheld' | 'contested' = 'held';
@@ -9318,6 +9325,20 @@ export class ThreeRenderer implements Renderer {
         REFUGE_RING_EDGE_ALPHA * ping.strength
       );
       this.overlayBatch.dashedEllipseRing(panchor, rightR, upR, REFUGE_RING_STYLE, green, ping.strength);
+    }
+
+    // GH-113: the strike footprint under the armed cursor. Same pass, same band
+    // and the same halo-under-dash as the refuge ring above; static, full
+    // strength, gone the frame the app writes null.
+    const aim = this.aimFootprint;
+    if (aim) {
+      const groundYa = groundWorldY(elevation, width, height, aim.x, aim.y);
+      const aanchor: [number, number, number] = [aim.x, groundYa, aim.y];
+      const { rightR, upR } = tileRadiusToEllipsePx(aim.radius, TILE_W, TILE_H);
+      const edge = this.overlayColor(REFUGE_RING_EDGE_COLOR_KEY, REFUGE_RING_EDGE_FALLBACK_COLOR);
+      const hot = this.overlayColor(AIM_FOOTPRINT_COLOR_KEY, AIM_FOOTPRINT_FALLBACK_COLOR);
+      this.overlayBatch.dashedEllipseRing(aanchor, rightR, upR, AIM_FOOTPRINT_EDGE_STYLE, edge, REFUGE_RING_EDGE_ALPHA);
+      this.overlayBatch.dashedEllipseRing(aanchor, rightR, upR, AIM_FOOTPRINT_STYLE, hot, 1);
     }
 
     // Garrison hover highlight -- renderer.ts's own doorway-arrow affordance,
