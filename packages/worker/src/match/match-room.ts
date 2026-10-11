@@ -45,8 +45,12 @@ function shut(ws: WebSocket, code: number, reason: string): void {
  *  take the seat's broadcasts and make the replacement's own close look like
  *  "a replacement is live". */
 function retire(ws: WebSocket): void {
-  (ws as HibernatingSocket).serializeAttachment({ seat: null } satisfies SocketAttachment);
+  disown(ws);
   shut(ws, 4000, 'replaced');
+}
+/** The socket no longer speaks for a seat. */
+function disown(ws: WebSocket): void {
+  try { (ws as HibernatingSocket).serializeAttachment({ seat: null } satisfies SocketAttachment); } catch { /* already gone */ }
 }
 
 export class MatchRoom {
@@ -235,12 +239,15 @@ export class MatchRoom {
     await this.apply(seatJoin(st, ticket.seat, ticket.player, ticket.player, Date.now(), () => this.readLog()), ws);
   }
 
+  /** Close and error both land here, and the runtime may deliver BOTH for one
+   *  socket (R30). The socket gives up its seat first, so the second delivery
+   *  finds it seatless and cannot mark a replacement's live seat gone; a
+   *  replaced socket was `retire`d the same way before it was closed. */
   async webSocketClose(ws: WebSocket): Promise<void> {
     try {
-      const st = await this.begin();
-      // A replaced socket was `retire`d (seat null) before it was closed, so
-      // its late close returns here and never marks the live seat gone.
       const seat = seatOf(ws);
+      disown(ws);
+      const st = await this.begin();
       if (!st || seat === null) return;
       await this.apply(seatGone(st, seat, Date.now()));
     } finally {
