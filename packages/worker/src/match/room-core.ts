@@ -27,6 +27,8 @@ export interface RoomState {
   tick: number;
   pending: Stamped[];
   hashes: Record<number, [number | null, number | null]>;
+  /** The newest tick whose hashes both seats have reported; -1 before any. Older hashes are replays. */
+  lastHashTick: number;
   stall: { reason: 'behind' | 'gone'; seat: Seat } | null;
   endedReason: 'left' | 'void' | 'expired' | null;
 }
@@ -39,9 +41,11 @@ export const ACK_EVERY = 10;
 export const STALL_BEHIND_TICKS = 40;
 export const STALL_SILENT_MS = 2000;
 export const ROOM_TTL_MS = 6 * 3600 * 1000;
+/** Hash ticks only one seat has reported, kept at most this many (forged ticks cannot grow the table). */
+const MAX_OPEN_HASHES = 16;
 
 export function createRoom(code: string, matchId: string, nowMs: number): RoomState {
-  return { code, matchId, createdMs: nowMs, status: 'lobby', config: null, seats: [null, null], tick: 0, pending: [], hashes: {}, stall: null, endedReason: null };
+  return { code, matchId, createdMs: nowMs, status: 'lobby', config: null, seats: [null, null], tick: 0, pending: [], hashes: {}, lastHashTick: -1, stall: null, endedReason: null };
 }
 
 const seatStates = (st: RoomState): SeatState[] =>
@@ -89,6 +93,8 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
       if (!both) return [{ kind: 'send', to: 'all', msg: lobbyMsg(st, 0) }];
       st.config = mintConfig();
       st.status = 'running';
+      // Silence is measured from the start of the match, not from the lobby.
+      for (const seatState of st.seats) if (seatState) seatState.lastSeenMs = nowMs;
       return [{ kind: 'send', to: 'all', msg: { t: 'start', config: st.config } }];
     }
     case 'cmd': {
@@ -104,13 +110,19 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
       return recheckStall(st, nowMs, false);
     }
     case 'hash': {
-      if (st.status === 'ended') return [];
+      if (st.status !== 'running' && st.status !== 'stalled') return [];
+      if (msg.tick < 0 || msg.tick <= st.lastHashTick) return [];   // a replay or a forgery
       const pair = st.hashes[msg.tick] ?? [null, null];
       pair[seat] = msg.h;
       st.hashes[msg.tick] = pair;
       const [a, b] = pair;
-      if (a === null || b === null) return [];
-      delete st.hashes[msg.tick];
+      if (a === null || b === null) {
+        const open = Object.keys(st.hashes).map(Number);
+        if (open.length > MAX_OPEN_HASHES) delete st.hashes[Math.min(...open)];
+        return [];
+      }
+      st.lastHashTick = msg.tick;
+      for (const k of Object.keys(st.hashes)) if (Number(k) <= st.lastHashTick) delete st.hashes[Number(k)];
       if (a === b) return [{ kind: 'send', to: 'all', msg: { t: 'hashOk', tick: msg.tick } }];
       st.status = 'ended';
       st.endedReason = 'void';
@@ -126,7 +138,9 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
 }
 
 /** Why the clock must stop, if it must: the first seat that is gone, silent,
- *  or too far behind. Null means run. */
+ *  or too far behind. Null means run. Silence is judged only while running:
+ *  during a stall no frames flow, so a healthy seat has nothing to ack and
+ *  would otherwise turn 'silent' and keep the room stalled forever. */
 function stallFor(st: RoomState, nowMs: number): { reason: 'behind' | 'gone'; seat: Seat } | null {
   for (const s of st.seats) {
     if (!s) continue;
@@ -134,7 +148,7 @@ function stallFor(st: RoomState, nowMs: number): { reason: 'behind' | 'gone'; se
     // 'behind' (the more specific cause); only a dead socket is always 'gone'.
     if (!s.connected) return { reason: 'gone', seat: s.seat };
     if (st.tick - 1 - s.lastAck >= STALL_BEHIND_TICKS) return { reason: 'behind', seat: s.seat };
-    if (nowMs - s.lastSeenMs > STALL_SILENT_MS) return { reason: 'gone', seat: s.seat };
+    if (st.status === 'running' && nowMs - s.lastSeenMs > STALL_SILENT_MS) return { reason: 'gone', seat: s.seat };
   }
   return null;
 }
@@ -150,7 +164,12 @@ function recheckStall(st: RoomState, nowMs: number, mayStall = true): Effect[] {
   if (!want && st.status === 'stalled') {
     st.status = 'running';
     st.stall = null;
+    for (const seatState of st.seats) if (seatState) seatState.lastSeenMs = nowMs;   // the wait was not silence
     return [{ kind: 'send', to: 'all', msg: { t: 'resume' } }];
+  }
+  if (want && st.status === 'stalled' && (st.stall?.reason !== want.reason || st.stall.seat !== want.seat)) {
+    st.stall = want;
+    return [{ kind: 'send', to: 'all', msg: { t: 'stall', reason: want.reason, seat: want.seat } }];
   }
   return [];
 }
