@@ -130,8 +130,11 @@ interface Seat {
 found five paths by which local state becomes a sim input today: the
 campaign ledger, the brigade account and coin wallet, the tutorial flag, the
 sandbox flags and the stale-build case. In a match the ledger is `{}`, the
-tier map is the seat's (built by the room from what the client claims under
-`brigade`, empty under `matched`), the tutorial is absent, every sandbox flag
+tier map is the seat's (empty under `matched`; under `brigade` the client
+sends its **`networkView`**, the earned-only view that already exists in
+`roar-test.ts` and that nothing calls yet, so coin purchases never reach a
+match per the lead's ruling of 1 Oct; the room records the claim and it stays
+client-trusted until ST6's server ledger), the tutorial is absent, every sandbox flag
 is refused, and `build` + `commit` + `dataDigest` must match on both clients
 or the lobby refuses to start and says which differs.
 
@@ -693,7 +696,7 @@ Answered by Ilan, 10–11 Oct 2026:
 | 2 | Co-op on the campaign? | No. Skirmish only; campaign, account, Conduct and saves stay single-player |
 | 3 | Where does the relay run? | A Durable Object in the existing Worker. Colyseus (G5 default) withdrawn; WebRTC rejected |
 | 4 | Invite and identity | Room code plus link, no accounts; ticket shaped so ST5's Steam id slots into `player` |
-| 5 | What each player brings | Matched kit by default; "bring your brigade" a friends-only lobby toggle; Sarim has no tier ladder yet |
+| 5 | What each player brings | Matched kit by default; "bring your brigade" a friends-only lobby toggle that reads `networkView` (earned only, never coins); Sarim has no tier ladder yet |
 | 6 | Lag, pause, disconnect | Friendly: stall everyone with a banner, three 90-s pauses each, 120-s reconnect from the log, quit is surrender |
 | 7 | How an AI connects | A headless harness serving MCP over a documented JSON protocol, with the game UI as the advisor's face |
 | 8 | AI versus AI | Real time and paced, a `pace` field; arena scores win rate with sides swapped, Conduct and tokens reported |
@@ -731,8 +734,11 @@ Defaults recorded with the recommendation; overturn any in review:
   snapshot is the follow-on; the 120-s window covers it until then.
 - **The Sarim seat's balance** is unknown until N3 and depends on WP-G-G's
   rules; the mirror match in N1 is why a playable 1v1 does not wait for it.
-- **"Bring your brigade" trusts the client** until ST6's server ledger. It is
-  labelled friends-only and defaults off.
+- **"Bring your brigade" trusts the client** until ST6's server ledger: an
+  edited local store can claim unearned units. It reads `networkView` (earned
+  only), is labelled friends-only, defaults off, and must never be offered in
+  any later public or ranked room. The monetisation plan (draft PR #520, its
+  D4 and guard S5) proposes landing that guard with N1; this spec adopts it.
 - **The `Fx` brand** and a `Math` ban in `packages/data` are recommended and
   not required; both are one-line lint changes that would make §7.4 hold by
   the compiler.
