@@ -815,6 +815,132 @@ export const CAPTURE_PRECONDITION_STATEMENTS = `
  *  and the precondition is still asserted afterwards, unrelaxed. */
 export const PARK_POINTER_STATEMENTS = `window.__lions.hover(-1000, -1000);`;
 
+/** An init script (`page.addInitScript`) that stops the app's frame loop
+ *  before it draws a single frame, so every frame drawn before the capture is
+ *  the harness's own fixed schedule (`BOOT_SETTLE_SCRIPT`) -- on every run,
+ *  on every runner.
+ *
+ *  WHY, AND IT IS THE THIRD HALF OF THE `targetTick` BUG (the `kitted` flake,
+ *  CI run 38092145339 attempt 1, on a docs-only PR: 2354 px / 0.1576 against
+ *  its baseline, 0 px on the re-run). `targetTick` pins the tick the capture
+ *  steps TO, and `FREEZE_FRAME_LOOP_STATEMENTS` pins that the step's paint is
+ *  the last one -- but neither pins the tick of the loop's LAST FRAME BEFORE
+ *  the freeze, and the renderer reads that frame back. Squad figures
+ *  (`ThreeRenderer.updateSquad`) keep a per-frame stance history and read each
+ *  staggered figure's kneel off it at `now - stagger`; across `step()`'s one
+ *  7-second frame the newest entry older than that is the pre-freeze frame's,
+ *  and clip phases and yaws are carried from it the same way. Read back on the
+ *  running game (Metal, `kitted`, the gate's own URL and capture script): last
+ *  pre-freeze frame at tick 1, every staggered figure of every squad, both
+ *  sides, kneels at depth 0.50 at tick 140; at tick 3, 0.93. In pictures, one
+ *  tick late moves 8857 px, two 10004, four 13779 -- all on the infantry and
+ *  the occluded militia's outline, where the CI failure's 10312 changed pixels
+ *  are. The freeze tick is a race between the loop and Playwright's round
+ *  trip: 4 of 26 local loads froze late (2-3), and on CI `quiet` froze at 5 on
+ *  five loads running (run 38096843792), so no fixed tick can be demanded of
+ *  the old protocol and the only repeatable one is "before the loop ran".
+ *
+ *  HOW. `main.ts` assigns `window.__lions` and arms the loop
+ *  (`requestAnimationFrame(loop)`) in one synchronous run with no `await`
+ *  between, after painting its one boot frame at tick 0 (GH-141). An accessor
+ *  on `window.__lions` sees the assignment; every `requestAnimationFrame` call
+ *  made before the current task's microtasks run -- the loop's arm and
+ *  nothing else -- is dropped, and every later call passes through to the
+ *  real one, so a deferred double-rAF (`afterFirstFrame`, the wreck-mesh
+ *  loader) and Playwright's own polling still work. Sets
+ *  `__lionsCaptureFrozen`, so `FREEZE_FRAME_LOOP_STATEMENTS` becomes a no-op.
+ *  The frames the loop used to draw at the start are then drawn by
+ *  `BOOT_SETTLE_SCRIPT`, at a fixed tick and a fixed step.
+ *
+ *  Idempotent per document (a second copy finds the accessor and stands
+ *  down). Capture-only: shipping code is untouched. */
+export const BOOT_FREEZE_INIT_SCRIPT = `
+(function () {
+  if (Object.getOwnPropertyDescriptor(window, '__lions')) return;
+  var lions;
+  Object.defineProperty(window, '__lions', {
+    configurable: true,
+    enumerable: true,
+    get: function () { return lions; },
+    set: function (v) {
+      lions = v;
+      if (v === undefined || v === null || window.__lionsCaptureFrozen) return;
+      window.__lionsCaptureFrozen = true;
+      var real = window.requestAnimationFrame;
+      var dropping = true;
+      queueMicrotask(function () { dropping = false; });
+      window.requestAnimationFrame = function (cb) {
+        if (dropping) return 0;
+        return real.call(window, cb);
+      };
+    },
+  });
+})();
+`.trim();
+
+/** Presentation milliseconds each `BOOT_SETTLE_SCRIPT` frame is handed. The
+ *  renderer's own `FRAME_DT_CEILING_MS`, i.e. what a frame on a slow runner
+ *  was clamped to under the old protocol. */
+export const BOOT_SETTLE_FRAME_MS = 100;
+/** Real-time spacing of the settle's paced frames, and how long they run:
+ *  the old protocol's 1 s settle, now with frames in it. */
+export const BOOT_SETTLE_PACE_MS = 100;
+export const BOOT_SETTLE_PACED_MS = 1000;
+/** Back-to-back frames after the paced ones: one second of presentation time,
+ *  so anything a late arrival started on the frame clock has run out before
+ *  the capture step. */
+export const BOOT_SETTLE_TAIL_FRAMES = 10;
+/** The tick the settle frames are drawn at: the sim is stepped here first.
+ *  Not 0, because the renderer must be idempotent under the gate's zero-time
+ *  repaint and at tick 0 it is not: the sandbox force's squads begin their
+ *  brace on tick 1, so a stance history whose newest pre-capture entry is
+ *  tick 0 leaves every staggered figure standing and turning on the capture
+ *  frame, and a zero-time repaint of that state moved 8247 px locally. Five
+ *  is where the old protocol most often froze on CI (`quiet`, five loads
+ *  running, run 38096843792): past the brace ramp, and the condition every
+ *  committed baseline was blessed under as nearly as a fixed schedule can
+ *  reproduce it. Every scenario's `targetTick` and `orders.atTick` must be at
+ *  least this (`boot-freeze.test.ts`). */
+export const BOOT_SETTLE_TICK = 5;
+
+/** The frames the frozen-at-boot loop no longer draws, drawn by the harness:
+ *  one `step(BOOT_SETTLE_TICK)`, then `renderer.frame(1, BOOT_SETTLE_FRAME_MS)`
+ *  with NO sim tick, paced through the settle and then a fixed tail. Returns
+ *  the tick, which must be exactly `BOOT_SETTLE_TICK`.
+ *
+ *  WHY FRAMES AT ALL. Freezing at boot and drawing nothing until the capture
+ *  step was tried on CI first (run 38096031781) and is worse: a frame is also
+ *  what instantiates a unit whose mesh template warmed after the boot frame
+ *  (GH-469's cold templates are warmed BY a frame), so without these a squad
+ *  was born on the capture frame itself, its second frame -- the zero-time
+ *  repaint control -- moved 726 px on `vehicle`/`kitted`, and four scenarios
+ *  left their baselines. Every settle frame is at one tick, so whichever of
+ *  them a late template lands on, the unit starts at the same sim time (skinned-mesh
+ *  clocks are sim-clocked, GH-391), and the frame-clock state they advance is
+ *  a fixed count of fixed steps. */
+export const BOOT_SETTLE_SCRIPT = `(async () => {
+  window.__lions.step(${BOOT_SETTLE_TICK});
+  const r = window.__lions.renderer;
+  const until = performance.now() + ${BOOT_SETTLE_PACED_MS};
+  while (performance.now() < until) {
+    r.frame(1, ${BOOT_SETTLE_FRAME_MS});
+    await new Promise(function (res) { setTimeout(res, ${BOOT_SETTLE_PACE_MS}); });
+  }
+  for (let i = 0; i < ${BOOT_SETTLE_TAIL_FRAMES}; i++) r.frame(1, ${BOOT_SETTLE_FRAME_MS});
+  return JSON.stringify({ tick: window.__lions.sim.tickCount });
+})()`;
+
+/** Why a capture whose sim reached `tick` before its capture step must not be
+ *  photographed, or null when it may: the boot freeze held only if the sim
+ *  stands exactly where the settle stepped it. */
+export function bootFreezeRefusal(tick: number): string | null {
+  if (tick === BOOT_SETTLE_TICK) return null;
+  return (
+    `boot freeze did not hold: the sim reached tick ${tick} before the capture step (expected ${BOOT_SETTLE_TICK}) -- ` +
+    `the frame loop ran, so the frames drawn before the capture are not repeatable`
+  );
+}
+
 /** The same freeze as a standalone expression a `page.evaluate` can run on its
  *  own, returning the sim tick it froze at. */
 export const FREEZE_FRAME_LOOP_SCRIPT = `(async () => {
