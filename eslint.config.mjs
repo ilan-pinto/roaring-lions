@@ -161,6 +161,18 @@ export default tseslint.config(
     },
   },
   {
+    files: ['packages/net/src/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'ImportDeclaration[source.value=/^@lions\\u002F(app|data|render|worker)/]',
+          message: '@lions/net may import @lions/sim only (network design §3.1: app → net → sim).',
+        },
+      ],
+    },
+  },
+  {
     files: ['packages/worker/src/**/*.ts'],
     languageOptions: { globals: { ...globals.serviceworker } },
   },

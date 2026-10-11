@@ -1,0 +1,9 @@
+{
+  "name": "@lions/net",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic lockstep core: protocol, match config, frames, the clock, ownership and the transport seam. Runs in the browser, in Node and in the Worker. Imports @lions/sim types only.",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": { "@lions/sim": "workspace:*" }
+}
