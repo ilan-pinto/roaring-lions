@@ -47,6 +47,12 @@ export type AnnounceEventId =
   | 'mission_start'
   /** Polish pass F (A9): a Conduct penalty, "Check your fire." */
   | 'roe'
+  /** GH-113: an intel call became affordable, or was called. Raised by the app
+   *  (`ui/intel-moments.ts`), like `deadline`. */
+  | 'sweep_ready'
+  | 'strike_ready'
+  | 'sweep_inbound'
+  | 'strike_inbound'
   /** The verdict's line (audio plan §5.4), priority `outcome`: raised by the
    *  outcome moment through `VoiceRuntime.outcome`, never by a mission event. */
   | 'victory'

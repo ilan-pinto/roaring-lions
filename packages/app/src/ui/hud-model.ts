@@ -51,6 +51,11 @@ export interface MissionView {
   logistics?: number;
   logisticsRate?: number;
   intel?: number;
+  /** GH-113: intel a minute, MEASURED from what the runtime reports
+   *  (`ui/intel-moments.ts`'s `IntelRate`), never re-derived from the sim's
+   *  accrual rule. Shown beside intel as logistics shows its own rate; absent
+   *  or 0 shows none. */
+  intelRate?: number;
   /** The story voice's closing line (GDD §11), shown on the victory banner
    *  only -- `mission.ts`'s own doc comment on the field: "Shown on the
    *  victory banner." */

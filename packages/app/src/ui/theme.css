@@ -3489,6 +3489,49 @@ body[data-outcome-beat] .rl-aar {
   border-color: var(--panel-frame);
   opacity: var(--disabled-opacity);
 }
+/* GH-113: charging. The call is on its way rather than refused, so the tile
+   keeps full strength -- a whole-tile dim took the build bar's lime and
+   countdown down with it once already -- and only the glyph and the word
+   step back. The bar is the build bar's own shape in the call's own
+   --info; the clock sits where a unit tile's countdown does. */
+.rl-tile--support[data-charging='1'] {
+  opacity: 1;
+}
+.rl-tile--support[data-charging='1'] .rl-tile__glyph,
+.rl-tile--support[data-charging='1'] .rl-tile__word {
+  opacity: var(--disabled-opacity);
+}
+.rl-tile__clock {
+  position: absolute;
+  left: 3px;
+  top: 1px;
+  font-size: var(--t-s);
+  font-variant-numeric: tabular-nums;
+  color: var(--info);
+  text-shadow: var(--halo);
+}
+.rl-tile__charge {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: 0;
+  background: var(--info);
+  transition: width var(--dur) var(--ease-steady);
+}
+.rl-tile--support:not([data-charging='1']) .rl-tile__clock,
+.rl-tile--support:not([data-charging='1']) .rl-tile__charge {
+  display: none;
+}
+/* Just became affordable: the border says it for READY_FLASH_MS
+   (`ui/intel-moments.ts`). A steady inset, not a pulse, so reduced motion
+   loses nothing; the transition in and out is the only movement, and the
+   reduced-motion rules collapse it. */
+.rl-tile--support[data-ready-flash='1'] {
+  box-shadow: inset 0 0 0 2px var(--info);
+  transition: box-shadow var(--dur-fast) var(--ease);
+}
+
 /* Armed outranks both — this is the tile the next click on the map spends, and
    it must read as lime whether or not intel has since been spent elsewhere. */
 .rl-tile--support[data-armed='1'] {

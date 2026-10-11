@@ -34,6 +34,7 @@ import {
   MINIMAP_SIZE,
   RING_BY_TIER,
   objectiveMarks,
+  RING_REDUCED_INWARD_AT,
   ringRadius,
   ringStyle,
   zoneMarkStyle,
@@ -859,6 +860,54 @@ describe('the alert flash', () => {
     recorder.ops.length = 0;
     minimap.onTick();
     expect(recorder.strokes().filter((k) => k.alpha < 1 && k.width === 2)).toHaveLength(2);
+  });
+});
+
+// --- GH-113: the intel rings ---------------------------------------------------
+
+describe('the intel rings (GH-113)', () => {
+  // A sweep's per-contact ring is a MINOR info ring: 1.5 px, so it is found by
+  // its own width at less than full alpha, as `ring()` above finds an
+  // important one by 2 px.
+  const minorRings = (): StrokePath[] => recorder.strokes().filter((k) => k.alpha < 1 && k.width === RING_BY_TIER.minor.width);
+  const MINOR_INFO = { tier: 'minor', tone: 'info' } as const;
+
+  afterEach(() => {
+    delete document.documentElement.dataset.motion;
+  });
+
+  it('draws one ring per identified contact while it lives', () => {
+    const { minimap } = mount(() => false);
+    minimap.flash([{ x: 30, y: 10 }, { x: 33, y: 11 }, { x: 35, y: 9 }], performance.now() - RING_BY_TIER.minor.ms / 2, MINOR_INFO);
+    recorder.ops.length = 0;
+    minimap.onTick();
+    expect(minorRings()).toHaveLength(3);
+  });
+
+  it('expires them: a contact ring past its tier life draws nothing', () => {
+    const { minimap } = mount(() => false);
+    minimap.flash([{ x: 30, y: 10 }, { x: 33, y: 11 }], performance.now() - RING_BY_TIER.minor.ms - 1, MINOR_INFO);
+    recorder.ops.length = 0;
+    minimap.onTick();
+    expect(minorRings()).toHaveLength(0);
+  });
+
+  it('holds one radius under reduced motion, on the side its direction pointed', () => {
+    const style = ringStyle('minor', 'info');
+    // Settles inward when moving, so it holds near its small end.
+    const held = style.r0 + (style.r1 - style.r0) * RING_REDUCED_INWARD_AT;
+    for (const a of [1, 0.75, 0.5, 0.1]) expect(ringRadius(style, a, true)).toBe(held);
+    expect(ringRadius(ringStyle('important', 'warn'), 0.5, true)).toBe(RING_BY_TIER.important.r1);
+    // And the drawn ring is that radius, read back off the canvas.
+    document.documentElement.dataset.motion = 'reduce';
+    const { minimap } = mount(() => false);
+    minimap.flash([{ x: 30, y: 10 }], performance.now() - RING_BY_TIER.minor.ms * 0.1, MINOR_INFO);
+    recorder.ops.length = 0;
+    minimap.onTick();
+    const r = minorRings()[0];
+    expect(r).toBeDefined();
+    const xs = r.points.map(([x]) => x);
+    expect((Math.max(...xs) - Math.min(...xs)) / 2).toBeCloseTo(held, 6);
   });
 });
 

@@ -162,6 +162,8 @@ import { bootFailureCard, bootFailureKind, guardBoot, mountErrorCard, mountInter
 import { webgl2Available } from './ui/webgl-probe';
 import { alertNotice, evacuatedNotice, reinforceTrigger, removedNotice, ledgerSavedNotice, triggerLabel, unknownSandboxMapNotice } from './ui/mission-notice';
 import { ReinforcementDock } from './ui/production';
+import { IntelMoments, READY_FLASH_MS, aimFootprintFor, type IntelOutput } from './ui/intel-moments';
+import { breakdownLine, chargeText, strikeLine } from './ui/intel-copy';
 import { doctrineTags } from './ui/dock-model';
 import {
   applyIntent,
@@ -181,6 +183,7 @@ import { prefersReducedMotion } from './ui/motion';
 import { roleBucket } from './ui/role';
 import { rosterLanguages, voiceClassOf } from './voice/lines';
 import { VoiceRuntime, voicePlaceholderOn } from './voice/voice-runtime';
+import type { AnnounceInput } from './voice/announce';
 import { roeNotice } from './ui/roe-notice';
 import {
   invoiceLines,
@@ -2470,6 +2473,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           logistics: mission.resources ? runtime.logistics : undefined,
           logisticsRate: mission.resources?.logistics_rate_per_min,
           intel: mission.resources ? runtime.intel : undefined,
+          intelRate: intelMoments?.rate.perMin(),
           // The story voice's closing line (GDD §11) -- read straight off the
           // mission JSON, like `name`/`briefing` already are. The sim never
           // sees this field either (`mission.ts`'s own doc comment).
@@ -3270,6 +3274,35 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   let production: ReinforcementDock | null = null;
   /** Armed fire-support purchase awaiting a target, if any. */
   let armedSupport: 'sweep' | 'strike' | null = null;
+  // GH-113: the intel calls' presentation -- the charge clock, the ready and
+  // call announcements, the readouts. Read-only over the sim (invariant 4);
+  // its outputs go to the HUD's own note(), the minimap's own flash() and the
+  // announcer's own table, so it mounts nothing of its own. Torn down with
+  // the screen: no readout lands on the next one, and the footprint goes.
+  const intelMoments =
+    runtime && mission?.resources
+      ? new IntelMoments({ sweepCost: runtime.sweepCost, strikeCost: runtime.strikeCost, toFx: fx.from })
+      : null;
+  onDispose(() => {
+    intelMoments?.dispose();
+    renderer.aimFootprint = null;
+  });
+  /** Says one batch of intel outputs. Announcements are RETURNED, not
+   *  spoken here: the tick hands them to its one `voice.onMission` call, so a
+   *  call and a mission event in the same tick compete under one priority
+   *  rule rather than talking over each other. */
+  const sayIntel = (outs: readonly IntelOutput[]): AnnounceInput[] => {
+    const announce: AnnounceInput[] = [];
+    for (const o of outs) {
+      if (o.kind === 'note') hud.note(t(o.key, o.params), o.tone, { tier: o.tier });
+      else if (o.kind === 'breakdown') hud.note(breakdownLine(o), 'info', { tier: 'minor' });
+      else if (o.kind === 'strikeResult') hud.note(strikeLine(o), o.civiliansKilled > 0 ? 'bad' : 'warn', { tier: 'important' });
+      else if (o.kind === 'flash') minimap.flash(o.points, performance.now(), { tier: o.tier, tone: o.tone });
+      else if (o.kind === 'announce') announce.push({ event: o.event });
+      else if (o.kind === 'ready') production?.flashReady(o.support, performance.now(), READY_FLASH_MS);
+    }
+    return announce;
+  };
 
   if (runtime && mission?.resources) {
     production = new ReinforcementDock(document.body, {
@@ -3330,6 +3363,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // the one state with no number to show.
       credits: ledgerStore.available ? ledgerStore.readAccount().balance : undefined,
       note: (html, tone) => hud.note(html, tone),
+      supportCharge: (kind) => {
+        const c = intelMoments?.charge(kind, runtime.intel);
+        return c === undefined ? { fraction: 0, clock: '', title: '' } : { fraction: c.fraction, ...chargeText(kind, c.clock) };
+      },
       onArm: (kind) => {
         armedSupport = kind;
         // The other half of the mutual exclusion in `orders.attackMove`: only
@@ -3621,15 +3658,23 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             ? runtime.requestSweep(fx.from(w.x), fx.from(w.y))
             : runtime.requestStrike(fx.from(w.x), fx.from(w.y));
         dispatch({ kind: 'support', call, x: w.x, y: w.y, accepted: ok });
-        // Reuses the dock's own SUPPORT word keys (production.ts) so a call's
-        // name reads the same on the tile and in the notice that confirms it.
-        const wordKey = call === 'sweep' ? 'dock.support.sweep.word' : 'dock.support.strike.word';
-        hud.note(
-          ok
-            ? t('main.note.supportCalled', { name: t(wordKey), x: w.x.toFixed(0), y: w.y.toFixed(0) })
-            : t('main.note.supportRefused'),
-          ok ? 'info' : 'mute'
-        );
+        if (ok && intelMoments) {
+          // GH-113: "inbound -- 3 s" / "on the way", one announcer line and a
+          // ring on the minimap, in place of "called on (x, y)" -- grid
+          // coordinates no player reads.
+          const say = sayIntel(intelMoments.called(call, w.x, w.y, sim.tickCount));
+          if (say.length > 0) voice.onMission([], say);
+        } else {
+          // Reuses the dock's own SUPPORT word keys (production.ts) so a call's
+          // name reads the same on the tile and in the notice that confirms it.
+          const wordKey = call === 'sweep' ? 'dock.support.sweep.word' : 'dock.support.strike.word';
+          hud.note(
+            ok
+              ? t('main.note.supportCalled', { name: t(wordKey), x: w.x.toFixed(0), y: w.y.toFixed(0) })
+              : t('main.note.supportRefused'),
+            ok ? 'info' : 'mute'
+          );
+        }
         if (ok) renderer.addOrderMarker(w.x, w.y);
         else audio.playCue(CRITICAL_CUES.uiDeny);
         production?.setArmed(null);
@@ -4225,6 +4270,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
 
   // --- fixed-tick loop with render interpolation ---------------------------
   const runTick = (): void => {
+    intelMoments?.beforeTick(sim);
     const events = sim.tick();
     renderer.snapshot();
     renderer.onEvents(events);
@@ -4250,7 +4296,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // Optional on the interface (`api.ts`) -- Pixi draws no civilians at all
       // and implements nothing.
       renderer.onMissionEvents?.(missionEvents);
-      voice.onMission(missionEvents);
+      const intelAnnounce = intelMoments ? sayIntel(intelMoments.afterTick(sim, sim.tickCount, events, runtime.intel)) : [];
+      voice.onMission(missionEvents, intelAnnounce);
 
       // The alert layer (spec acceptance (a)): one classification of the tick,
       // four consequences, all in one place so a line, a cue and a mark can
@@ -5100,6 +5147,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     }
   }
   renderer.rangeRingPreview = hf;
+
+  // GH-113: the strike's splash under the armed cursor -- the same ground
+  // point the click would spend it on (`screenToWorld`, as pointerup asks),
+  // and null the frame the strike is not armed.
+  renderer.aimFootprint = aimFootprintFor(
+    armedSupport,
+    armedSupport === 'strike' ? renderer.screenToWorld(lastCursor.x, lastCursor.y) : null
+  );
 
   // Teach the hover, but only on a real change: `updateHover` runs every
   // frame, and an unchanged hover is not a new thing the player did.
