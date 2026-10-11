@@ -157,6 +157,7 @@ import { groupBar, groupChips } from './ui/group-bar';
 import { isIdle, nextIdle, type IdleFacts } from './ui/idle';
 import { escapeHtml } from './ui/escape-html';
 import { watchSmallScreen } from './ui/small-screen';
+import { watchNoGpu } from './ui/no-gpu';
 import { bootFailureCard, bootFailureKind, guardBoot, mountErrorCard, mountInterrupted, watchContextLoss } from './ui/boot-failure';
 import { webgl2Available } from './ui/webgl-probe';
 import { alertNotice, evacuatedNotice, reinforceTrigger, removedNotice, ledgerSavedNotice, triggerLabel, unknownSandboxMapNotice } from './ui/mission-notice';
@@ -1280,6 +1281,14 @@ async function main(): Promise<void> {
   // disposer is dropped for the same reason -- but it has one, and a test
   // proves it removes everything the notice adds.
   watchSmallScreen({ navigate: (href) => void router.navigate(href), menuHref: routes.menu() });
+  // The no-graphics-acceleration notice: asked once, at boot, and only on a
+  // production build on a real host (or `?gpunotice`), so CI and every test
+  // harness -- all SwiftShader -- never see it or even read the renderer. After
+  // the phone notice on purpose: it never opens over another dialog.
+  watchNoGpu({
+    env: { prod: import.meta.env.PROD, hostname: location.hostname, query: new URLSearchParams(location.search) },
+    renderer: gpuName,
+  });
   // `fresh` has done its work above and is not a route parameter, so it comes
   // off the URL -- except on the way into a mission, where it still means "run
   // this one against an empty ledger" and `bootBattlefield` reads it back off
