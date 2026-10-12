@@ -242,6 +242,7 @@ import { roomFlags } from './net/room-flags';
 import { netReport } from './net/net-report';
 import { viewerSideOf } from './net/viewer';
 import { campOf, versusSpawns } from './net/versus-force';
+import { pruneHiddenHostiles, type SeatSight } from './net/hidden-selection';
 import { NetStatusLine } from './ui/net-status';
 import { lightOverrideOf, timeOfDayOf } from './time-of-day';
 import { buildingFitOf } from './building-fit-flag';
@@ -5461,6 +5462,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // constructed with its own scheduler stopped, and `frame` presents before it
   // returns, so the order within a frame is still tick -> draw -> present.
   let rafId = 0;
+  // A versus seat keeps no unit of the other side selected once the fog hides
+  // it (N1a final review): its HUD card would go on reporting a unit this seat
+  // cannot see. Single-player never prunes, as main never did.
+  const versusRoom = netConfig?.mode === 'versus';
+  const seatSight: SeatSight = {
+    viewer: me,
+    sideOf: (i) => sim.state.side[i],
+    posOf: (i) => ({ x: fx.toNumber(sim.state.posX[i]), y: fx.toNumber(sim.state.posY[i]) }),
+    fogVisible: (wx, wy) => renderer.isVisible(wx, wy),
+  };
   const loop = (): void => {
     rafId = requestAnimationFrame(loop);
     // The speed control feeds the ACCUMULATOR, never the tick. A tick is 50 ms
@@ -5548,6 +5559,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // one tick, held at 1 -- a stall or a late frame freezes the picture on
     // the newest state rather than extrapolating past it.
     const alpha = transport.local ? clock.acc / MS_PER_TICK : Math.min(1, (now - lastTickAt) / MS_PER_TICK);
+    if (versusRoom) {
+      const kept = pruneHiddenHostiles(renderer.selection, seatSight);
+      if (kept !== renderer.selection) renderer.selection = kept;
+    }
     renderer.frame(alpha, lastFrameMs * (pose?.timeScale ?? 1));
 
     updateHover();
