@@ -537,6 +537,27 @@ describe('pauseMenu feedback tab (GH-464)', () => {
     expect(d.onResume).not.toHaveBeenCalled();
   });
 
+  // N1b task 11 (R-B13): a desync's Report opens the menu ON the Feedback tab.
+  // Absent, the menu opens on Objectives exactly as before (the test above).
+  it('openOn: feedback opens straight onto the Feedback tab, the form focused', () => {
+    const fb = fbDeps();
+    pauseMenu(document.body, { ...deps(), feedback: fb, openOn: 'feedback' });
+    const tab = document.querySelector<HTMLButtonElement>('.rl-pause__tabs [data-tab="feedback"]');
+    expect(tab?.dataset.on).toBe('1');
+    expect(document.querySelector<HTMLElement>('.rl-pause__feedback')?.hidden).toBe(false);
+    expect(document.querySelector<HTMLElement>('.rl-pause .rl-obj-panel')?.hidden).toBe(true);
+    expect(document.querySelector('.rl-feedback')).not.toBeNull();
+    expect(fb.picture).toHaveBeenCalledTimes(1);
+    expect(document.activeElement?.classList.contains('rl-feedback__kind')).toBe(true);
+  });
+
+  it('openOn: feedback with no Feedback tab offered opens on Objectives, as without it', () => {
+    pauseMenu(document.body, { ...deps(), openOn: 'feedback' });
+    expect(document.querySelector('.rl-feedback')).toBeNull();
+    expect(document.querySelector<HTMLButtonElement>('.rl-pause__tabs [data-tab="objectives"]')?.dataset.on).toBe('1');
+    expect(document.activeElement?.textContent).toBe('Resume');
+  });
+
   it('closing the menu disposes the form: its key listener comes off with it', () => {
     const add = vi.spyOn(window, 'addEventListener');
     const remove = vi.spyOn(window, 'removeEventListener');

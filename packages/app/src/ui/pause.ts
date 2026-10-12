@@ -117,6 +117,10 @@ export interface PauseDeps {
    *  (`feedback/gate.ts`). Its Back is Resume and its Cancel returns to
    *  Objectives, so the menu supplies both. */
   feedback?: Omit<FeedbackFormDeps, 'source' | 'onBack' | 'onCancel'>;
+  /** Open on the Feedback tab rather than Objectives (N1b task 11: a desync's
+   *  Report, whose text is already in the draft). Ignored when there is no
+   *  Feedback tab. Absent, the menu opens exactly as it always has. */
+  openOn?: 'feedback';
 }
 
 type Tab = 'objectives' | 'settings' | 'feedback';
@@ -325,7 +329,10 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
 
   scrim.appendChild(p.el);
   host.appendChild(scrim);
-  resumeBtn.focus();
+  // The tab is shown once the scrim is in the document, so the form's own
+  // focus lands; without `openOn` this is the old `resumeBtn.focus()` alone.
+  if (deps.openOn === 'feedback' && fbTabBtn) showTab('feedback');
+  else resumeBtn.focus();
 
   return { close: finish };
 }

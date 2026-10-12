@@ -104,6 +104,7 @@ import { ratingPrompt, type RatingPrompt } from './ui/feedback-prompt';
 import { browserFeedbackSession, type FeedbackSession, type SessionNote } from './feedback/session';
 import { collectContext, type ContextInput } from './feedback/context';
 import { installErrorRing, recentErrors } from './feedback/errors';
+import { holdDraft, readDraft } from './feedback/draft';
 import { isClosed as feedbackClosed } from './feedback/gate';
 import { gpuName } from './feedback/gpu';
 import { takePicture } from './feedback/picture';
@@ -237,6 +238,7 @@ import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { PAUSES_PER_SEAT, WsTransport, type Seat } from '@lions/net';
 import { connectMatch, openRoom, type Connected } from './net/connect';
+import { desyncReportDraft, withoutReplay } from './net/desync-report';
 import { escapeOpensPause, roomPauseCall, surrenderOffered } from './net/room-pause';
 import { roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
 import { safeStorage as safeStorageLike } from './telemetry/identity';
@@ -247,7 +249,7 @@ import { viewerSideOf } from './net/viewer';
 import { campOf, versusSpawns } from './net/versus-force';
 import { pruneHiddenHostiles, type SeatSight } from './net/hidden-selection';
 import { garrisonRoomShown } from './net/hover-garrison';
-import { NetStatusLine, lineOverMatchEnd } from './ui/net-status';
+import { NetStatusLine, lineOverMatchEnd, matchClock } from './ui/net-status';
 import { NetChat, chatFeedLine, chatOpens } from './ui/net-chat';
 import { showNetEnd } from './ui/net-end';
 import { hashTickOutcome, matchResult, roomEndingOutcome, type MatchResult } from './net/outcome';
@@ -3298,10 +3300,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  so the menu says the match keeps running instead). Nothing local stops:
    *  the room is the clock, and its `paused` status is what the frame loop
    *  hands the audio and the strip. Restart is already absent in a room and
-   *  Quit becomes a confirmed Surrender. */
-  const roomPause = (r: WsTransport): void => {
+   *  Quit becomes a confirmed Surrender. `report` is a desync's Report (N1b
+   *  task 11): the menu opens on its Feedback tab with no replay to attach,
+   *  and the room -- void already -- is asked for nothing. */
+  const roomPause = (r: WsTransport, report = false): void => {
     if (pauseHandle !== null) return;
-    const call = roomPauseCall(r.status(), roomPausesLeft);
+    const call = report ? { send: false, note: false } : roomPauseCall(r.status(), roomPausesLeft);
     if (call.send) r.pause();
     const onSurrender = (): void => {
       void confirmDialog(document.body, {
@@ -3318,13 +3322,30 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         pauseHandle = null;
       });
     };
+    const menu = pauseMenuDeps();
     pauseHandle = pauseMenu(document.body, {
-      ...pauseMenuDeps(),
+      ...menu,
+      ...(report ? { openOn: 'feedback' as const, feedback: withoutReplay(menu.feedback) } : {}),
       // An ended or voided match cannot be given up (N1b task 10): Quit,
       // which leaves, stands in for Surrender.
       ...(surrenderOffered(r.status()) ? { onSurrender } : {}),
       ...(call.note ? { pauseNote: t('pause.noPausesLeft') } : {}),
     });
+  };
+  /** The desync line's Report (N1b task 11, R-B13/R-B16): the pause menu's
+   *  own feedback form, opened on its tab, its draft already a `bug` naming
+   *  the room, the match time, the tick and this seat. The room code is the
+   *  reference: the room has written both seats' hashes to D1 under it
+   *  (`match_desync`), so nothing else rides on the note. A menu already open
+   *  is closed first and reopened there; it never asks the room to pause. */
+  const reportDesync = (tick: number): void => {
+    if (room === null || netConfig === null || netSeat === null) return;
+    const line = t('net.desync.draft', { code: netConfig.code, time: matchClock(tick), tick, seat: netSeat });
+    holdDraft(desyncReportDraft(readDraft(fb.storage), line));
+    closeOpenDialog();
+    pauseHandle?.close();
+    pauseHandle = null;
+    roomPause(room, true);
   };
   const resume = (): void => {
     if (room !== null) {
@@ -5293,7 +5314,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /** The room's one HUD line (waiting, a stall, a desync). A room only: in
    *  single-player there is nothing to say and nothing is mounted. */
   const netStatus = netSeat !== null
-    ? new NetStatusLine(document.body, (seat) => netConfig?.seats[seat ?? netSeat].callsign ?? '')
+    ? new NetStatusLine(document.body, (seat) => netConfig?.seats[seat ?? netSeat].callsign ?? '', {
+        code: netConfig?.code ?? '',
+        // Report only where it leads somewhere: a room, with the feedback
+        // form offered at all (`feedback/gate.ts`).
+        ...(room !== null && fb.shown ? { onReport: reportDesync } : {}),
+      })
     : null;
   if (netStatus !== null) onDispose(() => netStatus.dispose());
   /** The match is over on this screen (N1b task 10). The sim is stepped no

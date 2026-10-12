@@ -7896,3 +7896,9 @@ button.rl-menu__item[data-kind='aside'] {
   color: var(--bad-text);
   border-color: var(--bad);
 }
+/* N1b task 11: a desync's Report, beside the line. The line itself stays
+   click-through; `.rl-btn` takes pointer events back for the button alone. */
+.rl-net-status__report {
+  margin-left: var(--s3);
+  font-size: var(--t-s);
+}

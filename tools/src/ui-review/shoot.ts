@@ -30,6 +30,13 @@
 // since GH-345 took First Light's dock away).
 // GH-262 Task 5 added 28-pinned-card and 28-pinned-chips: the pinned status
 // mark on a sandbox Lavi pinned through the sim's `debugSuppress` hook.
+// N1b task 11 added the friend match's screens after the menu: 01c-versus
+// (`/versus`: callsign, host a room, join by code), 01d-versus-join (a direct
+// link to `/versus/TESTAB`: the guest's callsign and Join) and 01e-versus-lobby
+// (the lobby itself, two seats, the host ready). The room is FAKED on its own
+// context (`versusStates`): the two match routes answered by `ctx.route` and
+// the room's socket by `ctx.routeWebSocket`, so the capture never reaches a
+// Worker or opens a real socket. For the lead's picture gate, not a baseline.
 // Every later task's acceptance is read off these files -- see
 // .superpowers/sdd/2026-09-16-shell-upgrade-phase-0/,
 // .superpowers/sdd/2026-09-18-shell-upgrade-phase-2/,
@@ -81,8 +88,9 @@
 //
 // Two things kept from the scratch pass, both learned the hard way: never
 // abort `/@vite/client` (Vite dev injects CSS-module styles through it;
-// aborting it produces blank PNGs -- this script does no request
-// interception at all, which is the simplest way to keep that true), and the
+// aborting it produces blank PNGs -- this script intercepts nothing on the
+// main walk, and `versusStates`' fake room matches `/api/match` alone, on a
+// context of its own, which is the simplest way to keep that true), and the
 // output directory must be OUTSIDE the watched tree (a PNG written inside
 // packages/app or assets/ triggers vite-plugin-asset-watch and reloads the
 // page being photographed) -- .superpowers/ is git-ignored and unwatched.
@@ -279,6 +287,90 @@ const BASE = `http://localhost:${PORT}`;
 // route it is rather than a hand-built query string. Named `p`, not `path`,
 // so it does not shadow the `node:path` import above.
 const url = (p: string): string => `${BASE}${p}${PSEUDO ? `${p.includes('?') ? '&' : '?'}pseudo=1` : ''}`;
+
+/** The faked room's code: in the Worker's alphabet (no 0/O/1/I), six long. */
+const VERSUS_CODE = 'TESTAB';
+
+/**
+ * The friend match's screens (N1b task 11): `/versus`, a direct link to a
+ * room (the guest's callsign and Join), and that room's lobby. A NEW context,
+ * so nothing here reaches the main walk's `page`, and the room is FAKE: the
+ * create and join POSTs (`/api/match`, `/api/match/<code>/join`) are answered
+ * by `ctx.route`, and the room's socket (`/api/match/<code>/ws`) by
+ * `ctx.routeWebSocket` without ever connecting to a server -- the page's
+ * `WebSocket` opens against the handler alone. The handler speaks the room's
+ * half of `@lions/net`'s protocol as far as a lobby needs: a `hello` is
+ * answered with a `lobby` of two seats, the host ready and this guest not.
+ * Both routes match the match API only, so `/@vite/client` and Vite's own HMR
+ * socket pass untouched. No real socket, no Worker: these captures are for
+ * the lead's picture gate, not a voting baseline.
+ */
+async function versusStates(browser: Browser, res: { width: number; height: number }, dir: string): Promise<void> {
+  const ctx = await browser.newContext({
+    viewport: { width: res.width, height: res.height },
+    deviceScaleFactor: 1,
+  });
+  await ctx.addInitScript(musicOffInitScript());
+  await ctx.route(/\/api\/match(\/[A-Z0-9]+\/join)?$/, async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.fulfill({ status: 405, body: '' });
+      return;
+    }
+    const joining = route.request().url().endsWith('/join');
+    await route.fulfill({
+      status: joining ? 200 : 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: VERSUS_CODE, seat: joining ? 1 : 0, ticket: 'capture-ticket' }),
+    });
+  });
+  await ctx.routeWebSocket(/\/api\/match\/[A-Z0-9]+\/ws$/, (ws) => {
+    ws.onMessage((raw) => {
+      let msg: { t?: unknown } = {};
+      try {
+        msg = JSON.parse(typeof raw === 'string' ? raw : raw.toString('utf8')) as { t?: unknown };
+      } catch {
+        return;
+      }
+      if (msg.t !== 'hello') return;
+      ws.send(
+        JSON.stringify({
+          t: 'lobby',
+          config: null,
+          seats: [
+            { seat: 0, callsign: 'Shai', connected: true, ready: true },
+            { seat: 1, callsign: 'Idit', connected: true, ready: false },
+          ],
+          you: 1,
+          map: 'tel_marum',
+        })
+      );
+    });
+  });
+  const page = await ctx.newPage();
+  page.setDefaultTimeout(30000);
+
+  await page.goto(url('/versus'), { waitUntil: 'load' });
+  await settle(page, 2000);
+  await shot(page, dir, '01c-versus');
+
+  await page.goto(url(`/versus/${VERSUS_CODE}`), { waitUntil: 'load' });
+  await settle(page, 2000);
+  await page.locator('.rl-versus__callsign').first().fill('Idit');
+  await shot(page, dir, '01d-versus-join');
+
+  await page.click('.rl-versus__join');
+  // The lobby is up once the code is drawn large and both seat cards are in.
+  const lobby = await page
+    .waitForFunction(() => document.querySelectorAll('.rl-versus__seat').length === 2 && document.querySelector('.rl-versus__code') !== null, null, {
+      timeout: 15000,
+    })
+    .then(() => true)
+    .catch(() => false);
+  if (!lobby) console.warn(`[${TAG}] the faked room's lobby never drew; 01e-versus-lobby shows whatever is on screen`);
+  await settle(page, 1500);
+  await shot(page, dir, '01e-versus-lobby');
+  await ctx.close();
+}
 
 /**
  * The garage-uplift states (WP-S3g T4/T8): a plate stat panel with a fully
@@ -703,6 +795,9 @@ try {
         await shot(platePage, dir, '01b-menu-plate');
         await plateCtx.close();
       }
+
+      // N1b task 11: the friend match's screens, on their own faked room.
+      await versusStates(browser, res, dir);
 
       await page.goto(url('/campaign'), { waitUntil: 'load' });
       await settle(page, 7000);
