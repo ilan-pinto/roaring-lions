@@ -4172,7 +4172,11 @@ export class ThreeRenderer implements Renderer {
             if (this.vehicleTrackSeeded[i] === 1 && (dx !== 0 || dy !== 0)) {
               const r = stepTrackAccum(this.vehicleTrackAccumTiles[i], dx, dy);
               this.vehicleTrackAccumTiles[i] = r.accumTiles;
-              if (r.stamps > 0) {
+              // A versus seat gets no prints from a vehicle the fog hides
+              // from it (N1a final review): the accumulator above still runs,
+              // so the spacing is the same once it comes into sight. Never
+              // true in single-player (`hiddenFromViewer` reads `versus` first).
+              if (r.stamps > 0 && !this.hiddenFromViewer(i)) {
                 const facingNorm = fx.toNumber(st.facing[i]);
                 const decalKind = kind === 'tracked' ? 'tread' : 'tyre';
                 const footprint = TRACK_FOOTPRINT[kind];
@@ -5330,6 +5334,9 @@ export class ThreeRenderer implements Renderer {
         // No elapsed time, no dust -- see "a speed-driven dust interval" above.
         if (dt <= 0 || this.vehicleDustAccumMs[i] < interval) continue;
         this.vehicleDustAccumMs[i] = (this.vehicleDustAccumMs[i] - interval) % interval;
+        // A versus seat sees no dust from a vehicle hidden from it (N1a final
+        // review); the clock above is spent either way. Never in single-player.
+        if (this.hiddenFromViewer(i)) continue;
 
         const drawn = this.vehicleMeshEntities.get(i)?.root.position;
         const anchor = vehicleFxAnchor(
@@ -5488,6 +5495,19 @@ export class ThreeRenderer implements Renderer {
   /** A unit the viewer may select: their own, or another they can see (§5.1).
    *  Every unit in single-player, as before. */
   private readonly pickable = (i: number): boolean => !this.hiddenFromViewer(i);
+  /** True when any tile of structure `s`'s own footprint is in sight this
+   *  frame. Asked only in a versus room (the held-building badge, N1a final
+   *  review); a footprint's bounding box can hold tiles that are not the
+   *  structure's own, so each tile is checked against `structureAt`. */
+  private structureInSight(s: number): boolean {
+    const str = this.sim.structures;
+    for (let y = str.minY[s]; y <= str.maxY[s]; y++) {
+      for (let x = str.minX[s]; x <= str.maxX[s]; x++) {
+        if (this.sim.structureAt(x, y) === s && this.isVisible(x + 0.5, y + 0.5)) return true;
+      }
+    }
+    return false;
+  }
   /**
    * Living units whose projected FEET fall inside a screen-space rect --
    * box-select's answer. A genuine projection question, unlike `pickUnit`
@@ -8154,7 +8174,11 @@ export class ThreeRenderer implements Renderer {
         VEHICLE_EXHAUST_OFFSET_TILES
       );
       const prio = exhaust.budget_priority ?? 1;
-      for (let slot = first; slot <= last; slot++) {
+      // A versus seat sees no exhaust from a vehicle hidden from it (N1a final
+      // review): the slots are still spent below, so no backlog is banked for
+      // when it comes into sight. Never true in single-player.
+      const exhaustHidden = this.hiddenFromViewer(i);
+      for (let slot = first; slot <= last && !exhaustHidden; slot++) {
         const rand = exhaustRand(i, slot);
         const ageSec = exhaustSlotAgeSec(slot, nowMs, interval);
         for (const layer of exhaust.particles) {
@@ -8203,7 +8227,10 @@ export class ThreeRenderer implements Renderer {
         VEHICLE_DAMAGE_SMOKE_OFFSET_TILES
       );
       const prio = smoke.budget_priority ?? 2;
-      for (let slot = first; slot <= last; slot++) {
+      // As the exhaust: no smoke from a vehicle hidden from a versus seat,
+      // slots still spent (N1a final review). Never true in single-player.
+      const smokeHidden = this.hiddenFromViewer(i);
+      for (let slot = first; slot <= last && !smokeHidden; slot++) {
         // Salted away from the exhaust's stream: the two never share puffs.
         const rand = exhaustRand(i + 0x20000, slot);
         const ageSec = exhaustSlotAgeSec(slot, nowMs, interval);
@@ -8253,7 +8280,10 @@ export class ThreeRenderer implements Renderer {
       }
       const [first, last] = washSlotsDue(this.rotorWashSlot[i], nowMs, maxLifeMs);
       const prio = wash.budget_priority ?? 1;
-      for (let slot = first; slot <= last; slot++) {
+      // As the exhaust: no wash from an aircraft hidden from a versus seat,
+      // slots still spent (N1a final review). Never true in single-player.
+      const washHidden = this.hiddenFromViewer(i);
+      for (let slot = first; slot <= last && !washHidden; slot++) {
         const rand = washRand(i, slot);
         const ageSec = washAgeSec(slot, nowMs);
         for (const layer of wash.particles) {
@@ -9408,7 +9438,12 @@ export class ThreeRenderer implements Renderer {
         // ALREADY-RESOLVED hex per side (the app's own job), the identical
         // source every other team-coloured overlay already reads from --
         // not a palette-key lookup at this call site.
-        if (occ > 0) {
+        // A versus seat is not told who holds a building it cannot see, nor
+        // with how many men (N1a final review): the badge is the holder's
+        // colour and one pip per man. Single-player draws it fog or not, as
+        // main does -- `this.versus` short-circuits before anything is read.
+        const badgeHidden = this.versus && !isOwnSide(holder, this.viewer) && !this.structureInSight(s);
+        if (occ > 0 && !badgeHidden) {
           const col = this.opts.teamColors[colorSlot(holder, this.viewer)];
           const by2Rel = -(topUp + 16); // Pixi's `by2 = top - 16`
           this.overlayBatch.triangle(

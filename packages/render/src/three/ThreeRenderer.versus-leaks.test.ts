@@ -257,3 +257,44 @@ describe('a selected hostile shows no route or envelope in a room (§5.1)', () =
     expect(moving({ versus: true, viewerSide: 1 })).toEqual({ route: 1, envelope: true });
   });
 });
+
+describe('a held building out of sight shows no holder badge in a room (N1a final review)', () => {
+  /** A side-1 rifleman garrisoned in a hut at (20, 20), far outside the
+   *  side-0 seat's sight. Returns how many badge roofs the overlay pass
+   *  pushed: the roof is the one triangle spanning -7..7 px with its apex
+   *  at 0 (a contact mark on the revealed occupant pushes triangles too). */
+  function badges(room: Pick<RendererOptions, 'viewerSide' | 'versus'>, revealHut: boolean): number {
+    const sim = new Sim({ seed: 1, width: W, height: W, capacity: 8 });
+    const t = sim.addUnitType(TARGET);
+    const hut = sim.addStructureType({ id: 'hut', hp_per_tile: 80, height_px: 14, color: 'dust.1' });
+    const hutId = sim.addStructure(hut, [20 * W + 20]);
+    sim.spawn(t, 0, fx.from(4.5), fx.from(4.5));
+    const inside = sim.spawn(t, 1, fx.from(20.5), fx.from(20.5));
+    sim.state.garrisonedIn[inside] = hutId;
+    sim.structures.occupants[hutId] = 1;
+    const r = new ThreeRenderer(sim, makeOpts(room));
+    r.snapshot();
+    r.snapshot();
+    priv(r).fog.fill(0);
+    if (revealHut) reveal(r, 20.5, 20.5);
+    const triangle = vi.spyOn(priv(r).overlayBatch, 'triangle');
+    priv(r).updateOverlays(1);
+    const n = triangle.mock.calls.filter(([, pts]) => pts[0][0] === -7 && pts[1][0] === 0 && pts[2][0] === 7).length;
+    r.dispose();
+    return n;
+  }
+
+  it('single-player draws a fogged hostile garrison badge, as main does', () => {
+    expect(badges({}, false)).toBe(1);
+    expect(badges({ viewerSide: 0 }, false)).toBe(1);
+  });
+  it('a versus seat draws no badge for a hostile-held building it cannot see', () => {
+    expect(badges({ versus: true, viewerSide: 0 }, false)).toBe(0);
+  });
+  it('a versus seat draws it once the building is in sight', () => {
+    expect(badges({ versus: true, viewerSide: 0 }, true)).toBe(1);
+  });
+  it('a versus seat always draws its own garrison badge, fog or not', () => {
+    expect(badges({ versus: true, viewerSide: 1 }, false)).toBe(1);
+  });
+});
