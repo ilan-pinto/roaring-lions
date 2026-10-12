@@ -317,6 +317,7 @@ export const DEBUG_LAYERS = [
   'missiles',
   'kit',
   'tunnel-xray',
+  'running-gear',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];

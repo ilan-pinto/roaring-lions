@@ -395,6 +395,19 @@ import {
   type VehicleWeightInput,
   type VehicleWeightParams,
 } from './units/vehicle-weight';
+import {
+  makeRunningGearState,
+  resetRunningGear,
+  stepRunningGear,
+  type RunningGearInput,
+  type RunningGearState,
+} from './units/running-gear';
+import {
+  bindRunningGear,
+  releaseRunningGear,
+  runningGearBinding,
+  writeRunningGearUniforms,
+} from './units/running-gear-binding';
 import { conformHull, type HullConform, type HullConformInput } from './units/vehicle-conform';
 import { vehicleWeightParamsFor } from './units/vehicle-weight-params';
 import { footprintCentre } from './units/footprint';
@@ -1730,9 +1743,41 @@ export class ThreeRenderer implements Renderer {
    *  billboard vehicle, `&nomesh`, an air type), which is exactly the
    *  speed-only cadence. */
   private readonly vehicleWeightAccel: Float64Array;
+  /**
+   * GH-177's second half: wheel angles, track phases and steering per entity
+   * (`units/running-gear.ts`), stepped in `updateVehicleMeshes` from the weight
+   * model's own smoothed speed and yaw rate on the frame clock. A vehicle's
+   * meshes are swapped onto a running-gear material the first frame it moves
+   * (`units/running-gear-binding.ts`) and never before, so a parked force
+   * draws exactly as it did.
+   */
+  private readonly runningGear: RunningGearState;
+  /**
+   * `setDebugLayerVisible('running-gear', false)`: a FLAG the per-frame
+   * uniform write reads (rest pose, no tread), `units`' shape, because the
+   * writer runs every frame and a one-off write would be undone by the very
+   * repaint meant to photograph it. The state keeps integrating underneath,
+   * so showing the layer again resumes where the wheels really are.
+   */
+  private runningGearDebugHidden = false;
   /** The ONE input object every `stepVehicleWeight` call is handed, refilled
    *  per vehicle: the per-vehicle, per-frame call allocates nothing. */
   private readonly vehicleWeightInput: VehicleWeightInput;
+  /** The ONE input every `stepRunningGear` call is handed, refilled per
+   *  vehicle. `spec` is overwritten before each call; this one is never read. */
+  private readonly runningGearInput: {
+    -readonly [K in keyof RunningGearInput]: RunningGearInput[K];
+  } = {
+    entityId: 0,
+    spec: { wheels: [], track: {}, gauge: { r: 0, l: 0 }, wheelbase: 0, steerLimit: 0 },
+    smoothedSpeedTilesS: 0,
+    yawRateTurnsS: 0,
+    moveX: 0,
+    moveY: 0,
+    headingTurns: 0,
+    cruiseTilesS: 0,
+    dtSeconds: 0,
+  };
   /** The ONE input `conformHull` (`units/vehicle-conform.ts`) is handed,
    *  refilled per vehicle, and its written-in-place answer. Every field is
    *  overwritten before each call; the initial values are never read. */
@@ -2368,6 +2413,7 @@ export class ThreeRenderer implements Renderer {
     this.rotorPhase = new Float64Array(n);
     this.vehicleWeight = makeVehicleWeightArrays(n);
     this.vehicleWeightAccel = new Float64Array(n);
+    this.runningGear = makeRunningGearState(n);
     // Every field is overwritten per vehicle before each call; these values
     // are never read.
     this.vehicleWeightInput = {
@@ -3613,6 +3659,16 @@ export class ThreeRenderer implements Renderer {
         for (const template of this.vehicleMeshTemplates.values()) {
           n += setKitDrawRange(template.geometries, !visible);
         }
+        return n;
+      }
+      case 'running-gear': {
+        // GH-177: a FLAG the per-frame uniform write reads -- see
+        // `runningGearDebugHidden`. Returns how many live vehicles are bound
+        // (have moved and so draw through a running-gear material): 0 on a
+        // parked field, which is the honest reading for a check to fail on.
+        this.runningGearDebugHidden = !visible;
+        let n = 0;
+        for (const entity of this.vehicleMeshEntities.values()) if (runningGearBinding(entity)) n++;
         return n;
       }
       case 'missiles':
@@ -7113,6 +7169,7 @@ export class ThreeRenderer implements Renderer {
       let entity = this.vehicleMeshEntities.get(i);
       if (!entity) {
         entity = instantiateVehicleMesh(template, type.id);
+        resetRunningGear(this.runningGear, i);
         // Same attach-once contract as `updateMeshUnits` above -- and here
         // the turret comes along for free, because a vehicle's turret
         // meshes hang off `turretPivot` inside this same subtree.
@@ -7254,6 +7311,26 @@ export class ThreeRenderer implements Renderer {
         pitch += weight.pitchRad;
         roll += weight.rollRad;
         this.vehicleWeightAccel[i] = weight.accelFraction;
+
+        // GH-177, the second half: wheels and tracks, from the same smoothed
+        // motion the hull just took (`units/running-gear.ts` for every sign).
+        const gear = template.runningGear;
+        if (gear) {
+          const rg = this.runningGearInput;
+          rg.entityId = i;
+          rg.spec = gear;
+          rg.smoothedSpeedTilesS = this.vehicleWeight.smoothedSpeed[i];
+          rg.yawRateTurnsS = this.vehicleWeight.smoothedYawRate[i];
+          rg.moveX = this.curX[i] - this.prevX[i];
+          rg.moveY = this.curY[i] - this.prevY[i];
+          rg.headingTurns = facingNorm;
+          rg.cruiseTilesS = input.cruiseTilesS;
+          rg.dtSeconds = dtSeconds;
+          stepRunningGear(this.runningGear, rg);
+          const binding =
+            runningGearBinding(entity) ?? (this.runningGear.moved[i] === 1 ? bindRunningGear(entity, gear) : null);
+          if (binding) writeRunningGearUniforms(binding, this.runningGear, i, this.runningGearDebugHidden);
+        }
       }
       // The hull's own height: the ground under its drawn centre, sampled
       // BEFORE the recoil shove, exactly like `entityFrame`'s own recoil block
@@ -7437,6 +7514,9 @@ export class ThreeRenderer implements Renderer {
         // root, and a silhouette's own `MeshBasicMaterial` is shared by every
         // unit on that side. A wreck has no outline to keep either.
         detachMeshSilhouette(entity.root);
+        // A wreck's wheels do not turn, and the fade below clones every
+        // material under the root: the original bake goes back first.
+        releaseRunningGear(entity);
         // The wreck's pose, BEFORE `beginVehicleDeath` latches `baseWorldY`
         // off it -- see `poseVehicleWreck`.
         this.poseVehicleWreck(entity, id);
