@@ -27,6 +27,16 @@ real fog and draw gate.
   the other force only where its own units can see.
 - Clicking an enemy hidden in fog selects nothing. In a versus room, enemy
   fire out of sight draws no tracer or flash; you still hear it.
+- A building the enemy garrisons shows no holder badge (the house and its
+  pips) while it is in fog; the badge appears once one of its tiles is in
+  sight. Your own garrisons always show theirs.
+- An enemy vehicle in fog leaves no trace on your screen: no tread or tyre
+  prints, no dust, no idle exhaust, no damage smoke, and a helicopter no
+  rotor wash. Each appears again while the vehicle is in sight.
+- Hovering a garrison-capable selection over a building in fog shows the
+  doorway arrow whether or not the enemy has filled it.
+- Select an enemy while it is in sight, then let it walk into fog: it drops
+  from your selection, and its unit card goes with it.
 - At the end, before either window closes, run `__lions.net()` in both
   consoles and paste both on the N1 issue. Pass: `desyncTick: null` on both,
   and `hashOk.count` near `tickCount / 20`.
