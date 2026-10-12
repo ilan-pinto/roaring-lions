@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, it, expect } from 'vitest';
-import { NetStatusLine, netStatusText } from './net-status';
+import { NetStatusLine, lineOverMatchEnd, netStatusText } from './net-status';
 
 const nameOf = (seat: 0 | 1 | null): string => (seat === null ? 'me' : `seat-${seat}`);
 
@@ -63,5 +63,37 @@ describe('NetStatusLine', () => {
     expect(el.textContent).toBe('Paused by B: 1:01');
     line.paint({ kind: 'live', behind: 0 }, 2_000_000 + 30_000);
     expect(el.hidden).toBe(true);
+  });
+});
+
+// N1b task 10 fix round 1: once the match-over panel is up, the line goes
+// quiet -- except for a desync, which voids the result on the panel. The
+// room's verdict on the decision window can arrive after the seat stopped.
+describe('the line over a match result', () => {
+  afterEach(() => {
+    document.body.replaceChildren();
+  });
+  it('only a desync is said over the match-over panel', () => {
+    expect(lineOverMatchEnd({ kind: 'desync', tick: 19 })).toBe(true);
+    expect(lineOverMatchEnd({ kind: 'stalled', reason: 'behind', seat: 1 })).toBe(false);
+    expect(lineOverMatchEnd({ kind: 'closed', reason: 'left' })).toBe(false);
+    expect(lineOverMatchEnd({ kind: 'live', behind: 0 })).toBe(false);
+    expect(lineOverMatchEnd({ kind: 'paused', seat: 0, untilMs: 5 })).toBe(false);
+  });
+  it('a hidden line comes back for a desync painted after it', () => {
+    const line = new NetStatusLine(document.body, () => 'B');
+    const el = document.querySelector('.rl-net-status') as HTMLElement;
+    line.paint({ kind: 'stalled', reason: 'behind', seat: 1 });
+    expect(el.hidden).toBe(false);
+    line.hide();
+    expect(el.hidden).toBe(true);
+    line.paint({ kind: 'desync', tick: 19 });
+    expect(el.hidden).toBe(false);
+    expect(el.dataset.net).toBe('desync');
+    expect(el.textContent).toBe('Desync at 0:01. The match is void; report it.');
+    // hide() forgets what was shown: the same line painted again comes back.
+    line.hide();
+    line.paint({ kind: 'desync', tick: 19 });
+    expect(el.hidden).toBe(false);
   });
 });

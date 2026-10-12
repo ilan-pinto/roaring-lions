@@ -9,14 +9,15 @@ import { MATCH_CAP_TICKS, hashTickOutcome, matchResult, outcomeOf, roomEndingOut
 /** Type 0 is armed, type 1 is not (a drone, a truck). */
 const TYPES = [{ weapons: [1] }, { weapons: [] }] as const;
 
-/** One row per unit: [side, alive, typeIdx]. */
-function world(units: [number, number, number][]): OutcomeSim {
+/** One row per unit: [side, alive, typeIdx, firepowerKilled?]. */
+function world(units: ([number, number, number] | [number, number, number, number])[]): OutcomeSim {
   return {
     entityCount: units.length,
     state: {
       side: Uint8Array.from(units.map((u) => u[0])),
       alive: Uint8Array.from(units.map((u) => u[1])),
       typeIdx: Uint16Array.from(units.map((u) => u[2])),
+      firepowerKilled: Uint8Array.from(units.map((u) => u[3] ?? 0)),
     },
     unitTypes: TYPES,
   };
@@ -35,6 +36,19 @@ describe('outcomeOf (spec §2.3, version one)', () => {
   it("side 0's armed units dead: side 1 wins by annihilation", () => {
     const sim = world([[0, 0, 0], [0, 1, 1], [1, 1, 0]]);
     expect(outcomeOf(sim, 100)).toEqual({ kind: 'won', side: 1, by: 'annihilation' });
+  });
+
+  it('only a firepower-killed armed unit left: that side has lost by annihilation (R-B20)', () => {
+    const sim = world([[0, 1, 0], [1, 1, 0, 1], [1, 1, 1]]);
+    expect(outcomeOf(sim, 100)).toEqual({ kind: 'won', side: 0, by: 'annihilation' });
+  });
+
+  it('the real sim exposes the knocked-out flag the rule reads', () => {
+    const { sim, typeOf, map } = buildWorld('beit_sahwan_outskirts');
+    const force = versusSpawns(sim, typeOf, sandboxAnchors(map));
+    const armed = force.bySide[1].filter((id) => sim.unitTypes[sim.state.typeIdx[id]].weapons.length > 0);
+    for (const id of armed) sim.debugDisableFirepower(id);
+    expect(outcomeOf(sim, sim.tickCount)).toEqual({ kind: 'won', side: 0, by: 'annihilation' });
   });
 
   it("both sides' armed units dead on the same tick: a mutual draw", () => {

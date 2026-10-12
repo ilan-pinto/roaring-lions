@@ -4,6 +4,7 @@ import { bindingsFrom, passesThroughModal, resolveKey, type Bindings } from '../
 import { DEFAULT_SETTINGS } from '../settings';
 import { LOCALES } from '../i18n/locales';
 import { confirmDialog, isDialogOpen } from './confirm';
+import { escapeOpensPause } from '../net/room-pause';
 import { pauseMenu } from './pause';
 import { keymapRows } from './settings-keymap';
 
@@ -228,9 +229,12 @@ describe('pauseMenu', () => {
   // any dialog exists), so on a bare Escape it used to run BEFORE any
   // dialog's own Escape handler and act on its own idea of what Escape means
   // -- see `isDialogOpen`'s own header in confirm.ts. `gameKeydown` below is
-  // a stand-in for the FIXED shape,
-  // `case 'pause': if (!paused && !isDialogOpen() && !missionEnded) pause();`,
-  // registered before the pause menu opens, exactly like the real one.
+  // a stand-in for the FIXED shape -- `case 'pause'` is reached only when
+  // `!isDialogOpen()` (folded into `escapeTarget`), then
+  // `if (escapeOpensPause({ paused, missionEnded, matchOver })) pause();`
+  // (N1b task 10 added `matchOver`, the versus match-over panel) -- and it
+  // calls the real `escapeOpensPause`, registered before the pause menu
+  // opens, exactly like the real one.
   //
   // Minor 16 (final review): this stand-in used to carry only the
   // `isDialogOpen()` third of that condition, so it mirrored one clause of
@@ -238,17 +242,21 @@ describe('pauseMenu', () => {
   // real local state here now, and `paused` is driven by the menu's own
   // `onResume` the way `bootBattlefield`'s is -- so an Escape that reaches the
   // game while the menu is already up is refused for the same two reasons the
-  // real handler refuses it.
+  // real handler refuses it. Each reason alone is enough, so a mutation that
+  // drops one stays green here; dropping both (`isDialogOpen()` and the
+  // `paused` input) turns this red. `missionEnded` and `matchOver` are pinned
+  // by `escapeOpensPause`'s own tests (`net/room-pause.test.ts`).
   it('the game only OPENS the pause menu: Escape belongs to whichever dialog is open, so cancelling a stacked confirm neither resumes the game nor leaks to it', async () => {
     const d = deps();
     const spy = vi.fn();
     let paused = false;
     const missionEnded = false;
+    const matchOver = false;
     d.onResume.mockImplementation(() => {
       paused = false;
     });
     const gameKeydown = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape' && !paused && !isDialogOpen() && !missionEnded) spy();
+      if (e.key === 'Escape' && !isDialogOpen() && escapeOpensPause({ paused, missionEnded, matchOver })) spy();
     };
     window.addEventListener('keydown', gameKeydown);
     try {

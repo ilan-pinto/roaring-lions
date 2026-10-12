@@ -247,7 +247,7 @@ import { viewerSideOf } from './net/viewer';
 import { campOf, versusSpawns } from './net/versus-force';
 import { pruneHiddenHostiles, type SeatSight } from './net/hidden-selection';
 import { garrisonRoomShown } from './net/hover-garrison';
-import { NetStatusLine } from './ui/net-status';
+import { NetStatusLine, lineOverMatchEnd } from './ui/net-status';
 import { NetChat, chatFeedLine, chatOpens } from './ui/net-chat';
 import { showNetEnd } from './ui/net-end';
 import { hashTickOutcome, matchResult, roomEndingOutcome, type MatchResult } from './net/outcome';
@@ -5300,14 +5300,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  more; the transport is NOT closed (R-B11) -- the panel's buttons
    *  navigate, and this battlefield's disposer sends the room its `bye`. The
    *  pause menu and any confirm over it (Surrender's) have nothing left to
-   *  offer, and the status line would only report the stall the stopped
-   *  seats now make. */
+   *  offer. The status line is hidden -- it would only report the stall the
+   *  stopped seats now make -- and comes back for a desync alone
+   *  (`lineOverMatchEnd`), which voids the result on the panel. */
   const showMatchEnd = (result: MatchResult): void => {
     if (netEnd !== null) return;
     pauseHandle?.close();
     pauseHandle = null;
     closeOpenDialog();
-    netStatus?.dispose();
+    netStatus?.hide();
     netEnd = showNetEnd(document.body, result, me, {
       again: () => req.navigate(routes.versus()),
       menu: () => req.navigate(routes.menu()),
@@ -5712,7 +5713,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         if (result !== null) showMatchEnd(result);
       }
     }
-    if (netEnd === null) netStatus?.paint(transport.status());
+    if (netEnd === null || lineOverMatchEnd(transport.status())) netStatus?.paint(transport.status());
     // A room's pause (either seat's) quiets the mix and dims the strip as a
     // local pause does; the room's status is the only thing that says so.
     if (room !== null) {

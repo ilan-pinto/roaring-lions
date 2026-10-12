@@ -26,19 +26,31 @@ export const MATCH_CAP_TICKS = 25 * 60 * 20;
 /** The slice of `Sim` the rule reads. */
 export interface OutcomeSim {
   readonly entityCount: number;
-  readonly state: { readonly side: ArrayLike<number>; readonly alive: ArrayLike<number>; readonly typeIdx: ArrayLike<number> };
+  readonly state: {
+    readonly side: ArrayLike<number>;
+    readonly alive: ArrayLike<number>;
+    readonly typeIdx: ArrayLike<number>;
+    /** 1 once a unit's weapons are knocked out for good (`firepower_kill`,
+     *  `combat_ineffective`): never cleared, and hashed. Such a hull is not a
+     *  combat unit (R-B20). */
+    readonly firepowerKilled?: ArrayLike<number>;
+  };
   readonly unitTypes: readonly { readonly weapons: readonly unknown[] }[];
 }
 
 /** The two playing sides. A third (civilians) neither keeps a side standing nor wins. */
 const SIDES: readonly (0 | 1)[] = [0, 1];
 
-/** Whether `side` still has a living unit that carries a weapon. A drone, a
- *  truck or a dozer cannot win a fight, so it does not keep a side standing. */
+/** Whether `side` still has a living unit that can fight: one that carries a
+ *  weapon and has not had its firepower knocked out. A drone, a truck, a
+ *  dozer or a hull whose guns are gone for good cannot win a fight, so it
+ *  does not keep a side standing (spec §2.3: "no combat unit alive"; R-B20) --
+ *  otherwise a beaten side holds the match to the 25-minute draw. */
 function armedStanding(sim: OutcomeSim, side: 0 | 1): boolean {
-  const { side: sides, alive, typeIdx } = sim.state;
+  const { side: sides, alive, typeIdx, firepowerKilled } = sim.state;
   for (let i = 0; i < sim.entityCount; i++) {
     if (alive[i] === 0 || sides[i] !== side) continue;
+    if (firepowerKilled?.[i] === 1) continue;
     if ((sim.unitTypes[typeIdx[i]]?.weapons.length ?? 0) > 0) return true;
   }
   return false;

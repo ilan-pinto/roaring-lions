@@ -39,6 +39,16 @@ export function netStatusText(s: TransportStatus, nameOf: (seat: Seat | null) =>
   }
 }
 
+/** Whether the line still speaks once a versus match's result is on screen
+ *  (N1b task 10): only for a desync, which voids that result -- the room's
+ *  verdict on the deciding hash window can arrive after this seat stopped
+ *  stepping, and two diverged seats must not both be left reading "Victory".
+ *  The rest (the stall the stopped seats now make, the room closing) is the
+ *  panel's own story and says nothing. */
+export function lineOverMatchEnd(s: TransportStatus): boolean {
+  return s.kind === 'desync';
+}
+
 /** Time left as m:ss, a part second rounded UP: a pause reads 1:30 when it
  *  begins and 0:00 only once it is over, never below. */
 function countdown(ms: number): string {
@@ -77,6 +87,12 @@ export class NetStatusLine {
     this.el.dataset.net = status.kind;
     this.el.textContent = text ?? '';
     this.el.hidden = text === null;
+  }
+
+  /** Hides the line until the next paint that has something new to say. */
+  hide(): void {
+    this.shown = null;
+    this.el.hidden = true;
   }
 
   dispose(): void {
