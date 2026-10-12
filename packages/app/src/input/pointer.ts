@@ -18,6 +18,7 @@
  * No DOM. `Sim` is read, never written.
  */
 import { fx, type Sim } from '@lions/sim';
+import { isHostileSide } from '@lions/render';
 import { resolveMoveOrder, resolvePointer, type IntentWorld, type Resolution } from './intents';
 import { badgeFor, cursorFor, cursorKey, type CursorHints, type CursorName } from './cursor';
 import { roleBucket } from '../ui/role';
@@ -53,11 +54,14 @@ export function simIntentWorld(sim: Sim, inFlaggedZone: (x: number, y: number) =
 }
 
 /** What the pointer needs from the renderer: projection and visibility, the
- *  three questions only the renderer can answer. `Renderer` satisfies it. */
+ *  three questions only the renderer can answer -- plus the side this screen
+ *  commands (`viewerSideOf`, network design §5.1), which decides who counts
+ *  as an enemy under the pointer. */
 export interface PointerView {
   screenToWorld(px: number, py: number): { x: number; y: number };
   structureAtScreen(px: number, py: number): number;
   isVisible(wx: number, wy: number): boolean;
+  readonly viewer: number;
 }
 
 /** How near the pointer's ground point an enemy must stand to be "under" it:
@@ -65,16 +69,22 @@ export interface PointerView {
 export const HOVER_RADIUS_TILES = 0.5;
 
 /**
- * Nearest living ENEMY (side 1 -- never a civilian, side 2 is never an
- * aimpoint) within half a tile of a ground point, or -1. Gated on
+ * Nearest living ENEMY (hostile to `viewer` -- never a civilian, side 2 is
+ * never an aimpoint) within half a tile of a ground point, or -1. Gated on
  * `isVisible`, the condition the renderer draws a hostile by, so sweeping the
  * cursor over fog cannot locate a hidden defender through the fire panel.
  */
-export function hostileUnder(sim: Sim, wx: number, wy: number, isVisible: (x: number, y: number) => boolean): number {
+export function hostileUnder(
+  sim: Sim,
+  wx: number,
+  wy: number,
+  isVisible: (x: number, y: number) => boolean,
+  viewer: number = 0
+): number {
   let he = -1;
   let bestD = HOVER_RADIUS_TILES * HOVER_RADIUS_TILES;
   for (let i = 0; i < sim.entityCount; i++) {
-    if (sim.state.alive[i] === 0 || sim.state.side[i] !== 1) continue;
+    if (sim.state.alive[i] === 0 || !isHostileSide(sim.state.side[i], viewer)) continue;
     const ex = fx.toNumber(sim.state.posX[i]);
     const ey = fx.toNumber(sim.state.posY[i]);
     if (!isVisible(ex, ey)) continue;
@@ -117,7 +127,7 @@ export interface PointerPoint {
  */
 export function pointerPoint(view: PointerView, sim: Sim, px: number, py: number): PointerPoint {
   const ground = view.screenToWorld(px, py);
-  const hostile = hostileUnder(sim, ground.x, ground.y, (x, y) => view.isVisible(x, y));
+  const hostile = hostileUnder(sim, ground.x, ground.y, (x, y) => view.isVisible(x, y), view.viewer);
   const s = hostile >= 0 ? -1 : view.structureAtScreen(px, py);
   if (s < 0 || sim.structures.alive[s] !== 1 || sim.structureAt(Math.floor(ground.x), Math.floor(ground.y)) === s) {
     return { ground, x: ground.x, y: ground.y, hostile, facade: -1 };

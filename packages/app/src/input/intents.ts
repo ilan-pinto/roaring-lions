@@ -181,7 +181,7 @@ export interface IntentWorld {
 export type GroundState = 'open' | 'blocked' | 'offmap';
 
 export interface PointerContext {
-  /** Already filtered to living units on side 0 by the caller. */
+  /** Already filtered to the viewer's own living units by the caller. */
   ids: number[];
   x: number;
   y: number;

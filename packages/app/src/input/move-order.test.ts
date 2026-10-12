@@ -148,6 +148,7 @@ describe('the cursor through the real pointer (tutorial ground)', () => {
       screenToWorld: (px, py) => screenToWorldThree(px, py, cam, VP),
       structureAtScreen: (px, py) => structureAtScreenThree(px, py, cam, VP, structureBoxes(sim, null, () => ({ width: 1, height: 1, depth: 1 }))),
       isVisible: () => true,
+      viewer: 0,
     };
     const p = pointerPoint(view, sim, VP.width / 2, VP.height / 2);
     const w = simIntentWorld(sim, () => false);

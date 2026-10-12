@@ -27,6 +27,17 @@ describe('isIdle', () => {
   });
 });
 
+describe('isIdle follows the viewer (N1a)', () => {
+  // Seat 1 of a versus room commands sim side 1 (network design §5.1).
+  it('viewer 1: the idle list holds side-1 units only', () => {
+    const sides = [0, 1, 0, 1, 2];
+    const ids = sides.map((_, i) => i);
+    expect(ids.filter((i) => isIdle({ ...busy, side: sides[i] }, 1))).toEqual([1, 3]);
+    expect(ids.filter((i) => isIdle({ ...busy, side: sides[i] }, 0))).toEqual([0, 2]);
+    expect(nextIdle(ids, -1, (i) => isIdle({ ...busy, side: sides[i] }, 1))).toBe(1);
+  });
+});
+
 describe('nextIdle', () => {
   const idle = (id: number) => id % 2 === 0;
   it('walks forward from the last one and wraps', () => {
