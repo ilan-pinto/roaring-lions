@@ -237,7 +237,7 @@ import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import type { Seat } from '@lions/net';
 import { connectMatch, openRoom, type Connected } from './net/connect';
-import { catchUpTicks, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
+import { roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
 import { safeStorage as safeStorageLike } from './telemetry/identity';
 import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
 import { roomFlags } from './net/room-flags';
@@ -319,13 +319,6 @@ function briefingLayout(
 }
 
 const MS_PER_TICK = 1000 / TICKS_PER_SECOND;
-/** In a room the room's clock is the only clock (R33): a render frame runs up
- *  to this many of the frames the transport holds, whatever the local pause
- *  or speed, so a client that fell behind catches up at 4x without one long
- *  frame. It is the floor: while live and far behind (a rejoin's whole log),
- *  `catchUpTicks` raises it to what fits a frame's budget (R-B7).
- *  Single-player keeps its accumulator. */
-const MAX_CATCHUP_TICKS = 4;
 
 /** The briefing's ground photograph, px a side: a 48-tile map at about 13 px
  *  a tile, sharp on the ~580 px frame a 1400x900 screen gives it and on the
@@ -5547,18 +5540,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     const { ticks, frameMs } = advanceClock(clock, now, gameSpeed, paused || beat !== null, MS_PER_TICK);
     lastFrameMs = frameMs;
     // Single-player runs what the accumulator owes, exactly as before; a room
-    // runs what the room has released, up to MAX_CATCHUP_TICKS (R33) -- or,
-    // while live and far behind (a rejoin's log), as many as fit in the
-    // frame's budget at the measured cost per tick (R-B7). A stall or a pause
-    // keeps MAX_CATCHUP_TICKS: a 'behind' stall's own seat must go on running
-    // the frames it holds to ack (R31).
+    // runs what the room has released, up to `roomTickCap` (R33, R-B7): the
+    // normal cap, raised while live and far behind (a rejoin's log) to what
+    // fits the frame's budget at the measured cost per tick. A stall or a
+    // pause keeps the normal cap: a 'behind' stall's own seat must go on
+    // running the frames it holds to ack (R31).
     if (transport.local) {
       if (stepFrames(ticks) > 0) lastTickAt = now;
     } else {
-      const st = transport.status();
-      const cap = st.kind === 'live' ? Math.max(MAX_CATCHUP_TICKS, catchUpTicks(st.behind, tickCostMs)) : MAX_CATCHUP_TICKS;
       const t0 = performance.now();
-      const ran = stepFrames(cap);
+      const ran = stepFrames(roomTickCap(transport.status(), tickCostMs));
       if (ran > 0) {
         lastTickAt = now;
         tickCostMs = tickCostEma(tickCostMs, (performance.now() - t0) / ran);

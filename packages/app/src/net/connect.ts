@@ -3,7 +3,9 @@
  * `LocalTransport` with no `?net`, else a room. In order:
  *
  *  1. a transport the lobby handed over for this code (`handoff.ts`) is
- *     returned as it is -- it has already seen the room's `start`;
+ *     returned -- it has already seen the room's `start` -- after the
+ *     battlefield's hooks replace the lobby's (`setHooks`): from here the
+ *     battlefield owns it and closes it on leave;
  *  2. a ticket this tab stored for this code (`ticket-store.ts`) rejoins its
  *     own seat: a socket with that ticket and no request, which the room
  *     answers with its `log` (or its lobby, before the start). That is the
@@ -20,7 +22,7 @@
  * module runs under vitest, where those defines do not exist.
  */
 import { playerId } from './player-id';
-import { takeHanded } from './handoff';
+import { dropHanded, takeHanded } from './handoff';
 import { forgetSeat, loadSeat, saveSeat } from './ticket-store';
 import type { StorageLike } from '../telemetry/identity';
 import { LocalTransport, WsTransport, type MatchConfig, type MatchTransport, type Seat, type SeatState, type SocketLike } from '@lions/net';
@@ -57,9 +59,31 @@ export async function connectMatch(query: URLSearchParams, mapId: string, build:
   const creating = net === 'new';
   // Room codes are upper case; a code typed or pasted in lower case is the same room.
   const joinCode = net.toUpperCase();
+  // A screen already left when this runs must take nothing: a handed transport
+  // is let go (detach, no bye -- the room sees a gone seat, the honest account
+  // of a boot that never arrived), and no socket is opened or request made.
+  if (deps.signal?.aborted) {
+    if (!creating) dropHanded(joinCode);
+    throw aborted();
+  }
   if (!creating) {
     const handed = takeHanded(joinCode);
-    if (handed !== null) return handed;
+    if (handed !== null) {
+      // The lobby's hooks come off and the battlefield's go on, in one call.
+      // The match has started, so only what can still arrive matters: a
+      // desync and an end are noted as `awaitStart` notes them; nothing can
+      // fail the boot any more, and the lobby's screen is gone.
+      handed.transport.setHooks({
+        onLobby: undefined,
+        onChat: undefined,
+        onPaused: undefined,
+        onStart: () => {},
+        onError: () => {},
+        onDesync: (tick) => deps.note(`DESYNC at tick ${tick}`),
+        onEnded: (reason) => deps.note(`match ended: ${reason}`),
+      });
+      return handed;
+    }
     const stored = loadSeat(deps.session ?? null, joinCode);
     if (stored !== null) {
       deps.note(`Room ${joinCode} · seat ${stored.seat} · rejoining`);
@@ -105,6 +129,13 @@ function awaitStart(code: string, seat: Seat, ticket: string, build: string, dep
       transport.close();
       reject(err);
     };
+    // A room that refuses this ticket or has ended will refuse it again: the
+    // next reload must fall to a fresh join rather than loop on it (R-B19). A
+    // build mismatch keeps it -- the room is alive and the seat still ours.
+    const failStale = (err: Error): void => {
+      if (!settled) forgetSeat(deps.session ?? null, code);
+      fail(err);
+    };
     const onAbort = (): void => fail(aborted());
     const transport: WsTransport = new WsTransport(() => deps.openSocket(wsUrl), ticket, build, {
       // Ready only once BOTH seats are in: the room starts at the second ready.
@@ -115,13 +146,16 @@ function awaitStart(code: string, seat: Seat, ticket: string, build: string, dep
         deps.signal?.removeEventListener('abort', onAbort);
         resolve({ transport, seat, config });
       },
-      onError: (c) => { if (c === 'bad_ticket' || c === 'build_mismatch') fail(new Error(`room refused: ${c}`)); },
+      onError: (c) => {
+        if (c === 'bad_ticket') failStale(new Error(`room refused: ${c}`));
+        else if (c === 'build_mismatch') fail(new Error(`room refused: ${c}`));
+      },
       onDesync: (tick) => deps.note(`DESYNC at tick ${tick}`),
       onEnded: (reason) => {
         deps.note(`match ended: ${reason}`);
         // Before the start an ended room can never start: fail the boot rather
         // than wait on it forever.
-        fail(new Error(`room ended before the start: ${reason}`));
+        failStale(new Error(`room ended before the start: ${reason}`));
       },
     });
     deps.signal?.addEventListener('abort', onAbort, { once: true });
@@ -154,7 +188,9 @@ export type OpenDeps = Pick<ConnectDeps, 'fetch' | 'origin' | 'openSocket' | 'st
 export type RefusedReason = 'not_found' | 'full' | 'build' | 'failed';
 
 export class RoomRefused extends Error {
-  constructor(readonly reason: RefusedReason, detail: string) {
+  /** `stale`: the room refused THIS TICKET (`bad_ticket`) or has ended -- the
+   *  only refusals after which a fresh join is worth trying. */
+  constructor(readonly reason: RefusedReason, detail: string, readonly stale = false) {
     super(detail);
     this.name = 'RoomRefused';
   }
@@ -178,7 +214,11 @@ export async function openRoom(req: RoomRequest, build: string, deps: OpenDeps):
       try {
         return await awaitLobby(code, stored.seat, stored.ticket, build, deps);
       } catch (err) {
-        if (deps.signal?.aborted) throw err;
+        // Only a ticket the room no longer honours (or a room that ended) is
+        // forgotten and falls through to a fresh join. A build mismatch, a
+        // match already running (the battlefield's rejoin needs this ticket)
+        // and anything else are the caller's to show.
+        if (!(err instanceof RoomRefused && err.stale)) throw err;
         forgetSeat(session, code);
       }
     }
@@ -214,16 +254,22 @@ export async function openRoom(req: RoomRequest, build: string, deps: OpenDeps):
 
 /** Opens the room's socket with `ticket` and resolves at its first `lobby`.
  *  The transport's hooks here only settle this promise: the lobby screen
- *  replaces them (`setHooks`) as soon as it holds the transport. */
+ *  replaces them (`setHooks`) as soon as it holds the transport.
+ *
+ *  A `start` (or a `log`, which a rejoin into a running match is answered
+ *  with) before any lobby means the match is already under way: the lobby has
+ *  nothing to show. The transport is let go with `detach` -- no `bye`, which
+ *  would end a live match for the other seat -- and the stored ticket stays
+ *  for the battlefield's own rejoin. */
 function awaitLobby(code: string, seat: Seat, ticket: string, build: string, deps: OpenDeps): Promise<OpenedRoom> {
   const wsUrl = `${deps.origin.replace(/^http/, 'ws')}/api/match/${encodeURIComponent(code)}/ws`;
   return new Promise<OpenedRoom>((resolve, reject) => {
     let settled = false;
-    const fail = (err: Error): void => {
+    const fail = (err: Error, bye = true): void => {
       if (settled) return;
       settled = true;
       deps.signal?.removeEventListener('abort', onAbort);
-      transport.close();
+      if (bye) transport.close(); else transport.detach();
       reject(err);
     };
     const onAbort = (): void => fail(aborted());
@@ -234,14 +280,13 @@ function awaitLobby(code: string, seat: Seat, ticket: string, build: string, dep
         deps.signal?.removeEventListener('abort', onAbort);
         resolve({ code, seat, transport, lobby: { seats, map } });
       },
-      // A start cannot precede the first lobby: both seats must have said ready in it.
-      onStart: () => {},
+      onStart: () => fail(new RoomRefused('failed', 'room already started'), false),
       onError: (c) => {
         if (c === 'build_mismatch') fail(new RoomRefused('build', `room refused: ${c}`));
-        else if (c === 'bad_ticket') fail(new RoomRefused('failed', `room refused: ${c}`));
+        else if (c === 'bad_ticket') fail(new RoomRefused('failed', `room refused: ${c}`, true));
         else if (c === 'full') fail(new RoomRefused('full', `room refused: ${c}`));
       },
-      onEnded: (reason) => fail(new RoomRefused('failed', `room ended before the lobby: ${reason}`)),
+      onEnded: (reason) => fail(new RoomRefused('failed', `room ended before the lobby: ${reason}`, true)),
       // The lobby's chat line arrives with N1b task 9.
       onChat: () => {},
     });

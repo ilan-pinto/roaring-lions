@@ -1,7 +1,7 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { WsTransport, type MatchConfig } from '@lions/net';
 import { connectMatch, openRoom, RELOAD_REFUSED, RoomRefused, type OpenDeps } from './connect';
-import { handOver, dropHanded } from './handoff';
+import { handOver, dropHanded, takeHanded } from './handoff';
 import { loadSeat, saveSeat } from './ticket-store';
 import type { StorageLike } from '../telemetry/identity';
 
@@ -188,6 +188,115 @@ describe('connectMatch: rejoin and handoff (N1b task 5)', () => {
     const r = await connectMatch(new URLSearchParams('net=abcdef'), 'tel_marum', 'b', { fetch: f, origin: 'http://x', openSocket: noSocket, replaceUrl: () => {}, note: () => {}, store: null, session: memory() });
     expect(calls).toEqual([]);
     expect(r).toEqual({ transport, seat: 1, config });
+  });
+
+  it('(a) taking a handed transport installs the battlefield hooks ONCE; the lobby\'s are gone and desync and ended are noted', async () => {
+    const sock = fakeSocket();
+    const lobbyCalls: string[] = [];
+    const transport = new WsTransport(() => sock, 'tk-lobby', 'b', {
+      onLobby: () => lobbyCalls.push('lobby'),
+      onChat: () => lobbyCalls.push('chat'),
+      onEnded: () => lobbyCalls.push('ended'),
+      onStart: () => {},
+    });
+    const spy = vi.spyOn(transport, 'setHooks');
+    handOver('ABCDEF', { transport, seat: 0, config: CONFIG(9) as unknown as MatchConfig });
+    const notes: string[] = [];
+    const { f, calls } = recordingFetch(0);
+    await connectMatch(new URLSearchParams('net=ABCDEF'), 'tel_marum', 'b', { fetch: f, origin: 'http://x', openSocket: noSocket, replaceUrl: () => {}, note: (n) => notes.push(n), store: null, session: memory() });
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(calls).toEqual([]);
+    sock.onopen?.({});
+    sock.onmessage?.({ data: JSON.stringify({ t: 'lobby', config: null, seats: [], you: 0, map: 'tel_marum' }) });
+    sock.onmessage?.({ data: JSON.stringify({ t: 'chat', seat: 1, text: 'hi' }) });
+    sock.onmessage?.({ data: JSON.stringify({ t: 'desync', tick: 40, hashes: [1, 2] }) });
+    expect(lobbyCalls).toEqual([]);
+    expect(notes).toEqual(['DESYNC at tick 40']);
+    const sock2 = fakeSocket();
+    const t2 = new WsTransport(() => sock2, 'tk', 'b', { onStart: () => {} });
+    handOver('ABCDEF', { transport: t2, seat: 0, config: CONFIG(9) as unknown as MatchConfig });
+    notes.length = 0;
+    await connectMatch(new URLSearchParams('net=ABCDEF'), 'tel_marum', 'b', { fetch: f, origin: 'http://x', openSocket: noSocket, replaceUrl: () => {}, note: (n) => notes.push(n), store: null, session: memory() });
+    sock2.onopen?.({});
+    sock2.onmessage?.({ data: JSON.stringify({ t: 'ended', reason: 'left', seat: 1 }) });
+    expect(notes).toEqual(['match ended: left']);
+  });
+
+  it('(a) a handed match is returned even when the URL\'s map differs from the config\'s: the battlefield reports the mismatch', async () => {
+    const transport = new WsTransport(() => fakeSocket(), 'tk-lobby', 'b', { onStart: () => {} });
+    const config = CONFIG(9) as unknown as MatchConfig;
+    handOver('ABCDEF', { transport, seat: 0, config });
+    const { f, calls } = recordingFetch(0);
+    const r = await connectMatch(new URLSearchParams('net=ABCDEF'), 'qarn_hadid', 'b', { fetch: f, origin: 'http://x', openSocket: noSocket, replaceUrl: () => {}, note: () => {}, store: null, session: memory() });
+    expect(r.config).toBe(config);
+    expect(r.config?.map).toBe('tel_marum');
+    expect(calls).toEqual([]);
+  });
+
+  it('(R-B19) a stored ticket the room refuses (bad_ticket) is forgotten, so the next reload falls to a fresh join', async () => {
+    const session = memory();
+    saveSeat(session, 'ABCDEF', { ticket: 'tk-old', seat: 1 });
+    const sock = fakeSocket();
+    const p = connectMatch(new URLSearchParams('net=ABCDEF'), 'tel_marum', 'b', { fetch: recordingFetch(0).f, origin: 'http://x', openSocket: () => sock, replaceUrl: () => {}, note: () => {}, store: null, session });
+    await new Promise((r) => setTimeout(r, 0));
+    sock.onopen?.({});
+    sock.onmessage?.({ data: JSON.stringify({ t: 'error', code: 'bad_ticket' }) });
+    await expect(p).rejects.toThrow('room refused: bad_ticket');
+    expect(loadSeat(session, 'ABCDEF')).toBeNull();
+  });
+
+  it('(R-B19) a stored ticket whose room has ended is forgotten', async () => {
+    const session = memory();
+    saveSeat(session, 'ABCDEF', { ticket: 'tk-old', seat: 1 });
+    const sock = fakeSocket();
+    const p = connectMatch(new URLSearchParams('net=ABCDEF'), 'tel_marum', 'b', { fetch: recordingFetch(0).f, origin: 'http://x', openSocket: () => sock, replaceUrl: () => {}, note: () => {}, store: null, session });
+    await new Promise((r) => setTimeout(r, 0));
+    sock.onopen?.({});
+    sock.onmessage?.({ data: JSON.stringify({ t: 'ended', reason: 'expired' }) });
+    await expect(p).rejects.toThrow('room ended before the start: expired');
+    expect(loadSeat(session, 'ABCDEF')).toBeNull();
+  });
+
+  it('(R-B19) a build mismatch keeps the ticket: the room is alive and the seat is still this tab\'s', async () => {
+    const session = memory();
+    saveSeat(session, 'ABCDEF', { ticket: 'tk-keep', seat: 1 });
+    const sock = fakeSocket();
+    const p = connectMatch(new URLSearchParams('net=ABCDEF'), 'tel_marum', 'b', { fetch: recordingFetch(0).f, origin: 'http://x', openSocket: () => sock, replaceUrl: () => {}, note: () => {}, store: null, session });
+    await new Promise((r) => setTimeout(r, 0));
+    sock.onopen?.({});
+    sock.onmessage?.({ data: JSON.stringify({ t: 'error', code: 'build_mismatch' }) });
+    await expect(p).rejects.toThrow('room refused: build_mismatch');
+    expect(loadSeat(session, 'ABCDEF')).toEqual({ ticket: 'tk-keep', seat: 1 });
+  });
+
+  it('(a) an already-aborted signal drops a handed transport (detach, no bye) and throws AbortError, before any fetch', async () => {
+    const sock = fakeSocket();
+    const transport = new WsTransport(() => sock, 'tk-lobby', 'b', { onStart: () => {} });
+    const spy = vi.spyOn(transport, 'setHooks');
+    handOver('ABCDEF', { transport, seat: 0, config: CONFIG(9) as unknown as MatchConfig });
+    sock.onopen?.({});
+    const ac = new AbortController();
+    ac.abort();
+    const { f, calls } = recordingFetch(0);
+    await expect(connectMatch(new URLSearchParams('net=ABCDEF'), 'tel_marum', 'b', { fetch: f, origin: 'http://x', openSocket: noSocket, replaceUrl: () => {}, note: () => {}, store: null, session: memory(), signal: ac.signal }))
+      .rejects.toMatchObject({ name: 'AbortError' });
+    expect(calls).toEqual([]);
+    expect(spy).not.toHaveBeenCalled();
+    expect(takeHanded('ABCDEF')).toBeNull();
+    expect(sock.closed).toBeGreaterThan(0);
+    expect(sock.sent.map((s) => (JSON.parse(s) as { t: string }).t)).toEqual(['hello']);
+  });
+
+  it('(a) an already-aborted signal on a rejoin throws AbortError before any socket is opened or ticket forgotten', async () => {
+    const session = memory();
+    saveSeat(session, 'ABCDEF', { ticket: 'tk-stored', seat: 1 });
+    const ac = new AbortController();
+    ac.abort();
+    const { f, calls } = recordingFetch(0);
+    await expect(connectMatch(new URLSearchParams('net=ABCDEF&seat=1'), 'tel_marum', 'b', { fetch: f, origin: 'http://x', openSocket: noSocket, replaceUrl: () => {}, note: () => {}, store: null, session, signal: ac.signal }))
+      .rejects.toMatchObject({ name: 'AbortError' });
+    expect(calls).toEqual([]);
+    expect(loadSeat(session, 'ABCDEF')).toEqual({ ticket: 'tk-stored', seat: 1 });
   });
 
   for (const q of ['net=ABCDEF&seat=1', 'net=ABCDEF']) {
@@ -388,6 +497,58 @@ describe('openRoom: the lobby\'s create and join (N1b task 6, R-B8)', () => {
     expect(calls.map((c) => c.url)).toEqual(['http://x/api/match/ABCDEF/join']);
     expect((err as RoomRefused).reason).toBe('not_found');
     expect(loadSeat(session, 'ABCDEF')).toBeNull();
+  });
+
+  it('(c) a stored-ticket rejoin into a room that has already started detaches WITHOUT a bye, rejects as failed, and keeps the ticket', async () => {
+    const session = memory();
+    saveSeat(session, 'ABCDEF', { ticket: 'tk-held', seat: 0 });
+    const { f, calls } = answering(200);
+    const sock = fakeSocket();
+    const p = openRoom({ kind: 'join', code: 'ABCDEF', callsign: 'Ari' }, 'b', deps({ fetch: f, openSocket: () => sock, session }));
+    await tick();
+    sock.onopen?.({});
+    sock.onmessage?.({ data: JSON.stringify({ t: 'log', config: CONFIG(1), frames: [] }) });
+    const err = await p.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RoomRefused);
+    expect((err as RoomRefused).reason).toBe('failed');
+    expect(sock.sent.map((s) => (JSON.parse(s) as { t: string }).t)).toEqual(['hello']);
+    expect(sock.closed).toBeGreaterThan(0);
+    // The battlefield's own rejoin still needs it, and nothing is asked of the room again.
+    expect(loadSeat(session, 'ABCDEF')).toEqual({ ticket: 'tk-held', seat: 0 });
+    expect(calls).toEqual([]);
+  });
+
+  it('(d) a stored ticket the room refuses for a BUILD mismatch rethrows as build, keeps the ticket and posts nothing', async () => {
+    const session = memory();
+    saveSeat(session, 'ABCDEF', { ticket: 'tk-held', seat: 0 });
+    const { f, calls } = answering(200);
+    const sock = fakeSocket();
+    const p = openRoom({ kind: 'join', code: 'ABCDEF', callsign: 'Ari' }, 'b', deps({ fetch: f, openSocket: () => sock, session }));
+    await tick();
+    sock.onopen?.({});
+    sock.onmessage?.({ data: JSON.stringify({ t: 'error', code: 'build_mismatch' }) });
+    const err = await p.catch((e: unknown) => e);
+    expect((err as RoomRefused).reason).toBe('build');
+    expect(calls).toEqual([]);
+    expect(loadSeat(session, 'ABCDEF')).toEqual({ ticket: 'tk-held', seat: 0 });
+  });
+
+  it('(d) a stored ticket the room calls bad_ticket is forgotten and the join goes on as a fresh request', async () => {
+    const session = memory();
+    saveSeat(session, 'ABCDEF', { ticket: 'tk-old', seat: 0 });
+    const { f, calls } = answering(200, { code: 'ABCDEF', seat: 1, ticket: 'tk-new' });
+    const socks = [fakeSocket(), fakeSocket()];
+    let n = 0;
+    const p = openRoom({ kind: 'join', code: 'ABCDEF', callsign: 'Ari' }, 'b', deps({ fetch: f, openSocket: () => socks[n++], session }));
+    await tick();
+    socks[0].onopen?.({});
+    socks[0].onmessage?.({ data: JSON.stringify({ t: 'error', code: 'bad_ticket' }) });
+    await tick();
+    expect(calls.map((c) => c.url)).toEqual(['http://x/api/match/ABCDEF/join']);
+    socks[1].onopen?.({});
+    socks[1].onmessage?.({ data: JSON.stringify({ ...LOBBY_TWO, you: 1 }) });
+    expect((await p).seat).toBe(1);
+    expect(loadSeat(session, 'ABCDEF')).toEqual({ ticket: 'tk-new', seat: 1 });
   });
 
   it('an abort while waiting for the lobby rejects and closes the transport', async () => {
