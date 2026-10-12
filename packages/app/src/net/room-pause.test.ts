@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PAUSES_PER_SEAT } from '@lions/net';
-import { roomPauseCall } from './room-pause';
+import { escapeOpensPause, roomPauseCall, surrenderOffered } from './room-pause';
 
 // N1b task 8, R-B17: the room silently ignores a pause it refuses, so the
 // client decides from its own count (the last `paused` it saw) whether to ask
@@ -21,5 +21,33 @@ describe('roomPauseCall', () => {
     expect(roomPauseCall({ kind: 'waiting' }, 3)).toEqual({ send: false, note: false });
     expect(roomPauseCall({ kind: 'closed', reason: 'surrender' }, 0)).toEqual({ send: false, note: false });
     expect(roomPauseCall({ kind: 'desync', tick: 9 }, 3)).toEqual({ send: false, note: false });
+  });
+});
+
+// N1b task 10 (R-B11): once a match is over, nothing offers to pause it or to
+// give it up.
+describe('surrenderOffered', () => {
+  it('a running or paused match can be surrendered', () => {
+    expect(surrenderOffered({ kind: 'live', behind: 0 })).toBe(true);
+    expect(surrenderOffered({ kind: 'stalled', reason: 'gone', seat: 1 })).toBe(true);
+    expect(surrenderOffered({ kind: 'paused', seat: 0, untilMs: 5 })).toBe(true);
+  });
+  it('an ended room (left, surrender, void, expired) or a desync offers Quit instead', () => {
+    expect(surrenderOffered({ kind: 'closed', reason: 'surrender' })).toBe(false);
+    expect(surrenderOffered({ kind: 'closed', reason: 'left' })).toBe(false);
+    expect(surrenderOffered({ kind: 'desync', tick: 9 })).toBe(false);
+    expect(surrenderOffered({ kind: 'waiting' })).toBe(false);
+  });
+});
+
+describe('escapeOpensPause', () => {
+  const s = { paused: false, missionEnded: false, matchOver: false };
+  it('opens the menu while nothing has ended and it is not already open', () => {
+    expect(escapeOpensPause(s)).toBe(true);
+  });
+  it('not over the match-over panel, nor the mission end screen, nor an open menu', () => {
+    expect(escapeOpensPause({ ...s, matchOver: true })).toBe(false);
+    expect(escapeOpensPause({ ...s, missionEnded: true })).toBe(false);
+    expect(escapeOpensPause({ ...s, paused: true })).toBe(false);
   });
 });

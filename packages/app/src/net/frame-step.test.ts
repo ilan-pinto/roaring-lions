@@ -102,6 +102,23 @@ describe('runFrames', () => {
     ]);
     expect(sim.hashCalls).toBe(2);
   });
+  it('stopAfter: no frame runs after the one it says stop on, and that one is still reported', () => {
+    const sim = fakeSim();
+    const frames: Frame[] = Array.from({ length: 30 }, (_, tick) => ({ tick, cmds: [] }));
+    const transport = new ScriptedTransport(frames);
+    const cfg = config();
+    const asked: number[] = [];
+    const step = {
+      transport, sim, seatWorld: seatWorldFor(cfg, sim), runTick: sim.runTick, config: cfg,
+      stopAfter: (tick: number) => { asked.push(tick); return tick === 19; },
+    };
+    // One batch holds all 30 frames: the stop lands mid-batch, and the 10
+    // behind it are not run (the match is over; the caller steps no more).
+    expect(runFrames(step, 30).ran).toBe(20);
+    expect(asked).toEqual(Array.from({ length: 20 }, (_, t) => t));
+    expect(sim.tickCount).toBe(100 + 20);
+    expect(transport.reports.at(-1)).toEqual([19, matchDigest(1000 + 100 + 20, 0, 77)]);
+  });
 });
 
 describe('seatWorldFor', () => {

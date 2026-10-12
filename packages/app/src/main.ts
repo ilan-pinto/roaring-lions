@@ -237,7 +237,7 @@ import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { PAUSES_PER_SEAT, WsTransport, type Seat } from '@lions/net';
 import { connectMatch, openRoom, type Connected } from './net/connect';
-import { roomPauseCall } from './net/room-pause';
+import { escapeOpensPause, roomPauseCall, surrenderOffered } from './net/room-pause';
 import { roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
 import { safeStorage as safeStorageLike } from './telemetry/identity';
 import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
@@ -249,6 +249,8 @@ import { pruneHiddenHostiles, type SeatSight } from './net/hidden-selection';
 import { garrisonRoomShown } from './net/hover-garrison';
 import { NetStatusLine } from './ui/net-status';
 import { NetChat, chatFeedLine, chatOpens } from './ui/net-chat';
+import { showNetEnd } from './ui/net-end';
+import { hashTickOutcome, matchResult, roomEndingOutcome, type MatchResult } from './net/outcome';
 import { lightOverrideOf, timeOfDayOf } from './time-of-day';
 import { buildingFitOf } from './building-fit-flag';
 import { registerServiceWorker } from './service-worker';
@@ -1720,6 +1722,22 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const me = viewerSideOf(netConfig, netSeat);
   /** A versus room: fog is private to this seat (network design §5.1). */
   const versusRoom = netConfig?.mode === 'versus';
+  /** A versus room's own ending (N1b task 10): a surrender or a leave, as a
+   *  result for this seat. Hooked here, before the first await, so an ending
+   *  that arrives while the battlefield boots is not lost. It is only
+   *  RECORDED: the panel waits until the transport has drained the frames it
+   *  already holds and the sim has still not decided the match (R-B11,
+   *  `matchResult`). A `void` (desync) or `expired` ending is no result --
+   *  the status line says so. */
+  let roomEnding: MatchResult | null = null;
+  if (room !== null && versusRoom && netConfig !== null) {
+    room.setHooks({
+      onEnded: (reason, seat) => {
+        console.info(`[net] match ended: ${reason}`);
+        roomEnding = roomEndingOutcome(reason, seat, me, (s) => netConfig.seats[s].side);
+      },
+    });
+  }
   audio.setViewer(me);
   /** The boot banner and the body of `__lions.help()` — one text, so what a
    *  sandbox prints on load and what the console answers can never disagree. */
@@ -2767,6 +2785,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // nothing once the mission is over, win or lose, rather than open a menu
   // for an attempt that no longer exists.
   let missionEnded = false;
+  /** A versus match's result, once its sim decided it on a hash tick (N1b
+   *  task 10): the frame loop steps no more from then on. */
+  let matchDecided: MatchResult | null = null;
+  /** The match-over panel's disposer while it is up. Like `missionEnded`,
+   *  it stops Escape opening the pause menu (R-B11). */
+  let netEnd: Disposer | null = null;
 
   // Task 6: the in-mission objective tracker -- the strip's own `+N` control
   // is the only caller of `openObjectives`. One `objectivesPanel`, mounted
@@ -3279,23 +3303,26 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     if (pauseHandle !== null) return;
     const call = roomPauseCall(r.status(), roomPausesLeft);
     if (call.send) r.pause();
+    const onSurrender = (): void => {
+      void confirmDialog(document.body, {
+        title: t('versus.surrender.confirm.title'),
+        body: t('versus.surrender.confirm.body'),
+        confirm: t('versus.surrender.confirm.action'),
+        danger: true,
+      }).answer.then((ok) => {
+        if (!ok) return;
+        r.surrender();
+        // The room's `ended` brings the match-over panel; the menu has
+        // nothing left to offer and must not sit over it.
+        pauseHandle?.close();
+        pauseHandle = null;
+      });
+    };
     pauseHandle = pauseMenu(document.body, {
       ...pauseMenuDeps(),
-      onSurrender: () => {
-        void confirmDialog(document.body, {
-          title: t('versus.surrender.confirm.title'),
-          body: t('versus.surrender.confirm.body'),
-          confirm: t('versus.surrender.confirm.action'),
-          danger: true,
-        }).answer.then((ok) => {
-          if (!ok) return;
-          r.surrender();
-          // The room's `ended` brings the match-over panel; the menu has
-          // nothing left to offer and must not sit over it.
-          pauseHandle?.close();
-          pauseHandle = null;
-        });
-      },
+      // An ended or voided match cannot be given up (N1b task 10): Quit,
+      // which leaves, stands in for Surrender.
+      ...(surrenderOffered(r.status()) ? { onSurrender } : {}),
       ...(call.note ? { pauseNote: t('pause.noPausesLeft') } : {}),
     });
   };
@@ -4178,7 +4205,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // N1b task 9 (R-B12): in a room, a bare Enter opens the chat. Not a keymap
     // action, so single-player's Controls and F1 card are unchanged; never over
     // a dialog or the pause menu.
-    if (netChat !== null && chatOpens(ev, { inRoom: true, modalOpen: isDialogOpen() || pauseHandle !== null })) {
+    if (netChat !== null && chatOpens(ev, { inRoom: true, modalOpen: isDialogOpen() || pauseHandle !== null || netEnd !== null })) {
       ev.preventDefault();
       netChat.open();
       return;
@@ -4415,9 +4442,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // comment above `pause`).
         //
         // `target === 'pause'` already implies `!isDialogOpen()` (folded into
-        // `escapeTarget` above); `pause.test.ts`'s stand-in mirrors this exact
-        // expression.
-        if (!paused && !missionEnded) pause();
+        // `escapeTarget` above); `pause.test.ts`'s stand-in mirrors this
+        // expression. N1b task 10 (R-B11): nor once a versus match's result
+        // is on screen -- `escapeOpensPause`, `net/room-pause.ts`.
+        if (escapeOpensPause({ paused, missionEnded, matchOver: netEnd !== null })) pause();
         break;
       }
       case 'panUp':
@@ -5239,7 +5267,24 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  each, and the tick reported back. The frame loop and `__lions.step` both
    *  run it, so an order a tool dispatches through the UI and then steps
    *  travels exactly the path a player's does. */
-  const frameStep: FrameStep = { transport, sim, seatWorld, runTick, config: netConfig };
+  const frameStep: FrameStep = {
+    transport,
+    sim,
+    seatWorld,
+    runTick,
+    config: netConfig,
+    // A versus match is decided on a hash tick, from sim state alone (N1b
+    // task 10), and no frame runs after the tick that decided it: both seats
+    // stop on the same tick with the same result.
+    ...(versusRoom
+      ? {
+          stopAfter: (tick: number): boolean => {
+            matchDecided ??= hashTickOutcome(tick, netConfig, sim);
+            return matchDecided !== null;
+          },
+        }
+      : {}),
+  };
   const stepFrames = (maxTicks: number): number => {
     const { ran, dropped } = runFrames(frameStep, maxTicks);
     if (dropped > 0) console.warn(`[net] dropped ${dropped} command(s) naming units this seat does not command (tick ${sim.tickCount})`);
@@ -5251,6 +5296,24 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     ? new NetStatusLine(document.body, (seat) => netConfig?.seats[seat ?? netSeat].callsign ?? '')
     : null;
   if (netStatus !== null) onDispose(() => netStatus.dispose());
+  /** The match is over on this screen (N1b task 10). The sim is stepped no
+   *  more; the transport is NOT closed (R-B11) -- the panel's buttons
+   *  navigate, and this battlefield's disposer sends the room its `bye`. The
+   *  pause menu and any confirm over it (Surrender's) have nothing left to
+   *  offer, and the status line would only report the stall the stopped
+   *  seats now make. */
+  const showMatchEnd = (result: MatchResult): void => {
+    if (netEnd !== null) return;
+    pauseHandle?.close();
+    pauseHandle = null;
+    closeOpenDialog();
+    netStatus?.dispose();
+    netEnd = showNetEnd(document.body, result, me, {
+      again: () => req.navigate(routes.versus()),
+      menu: () => req.navigate(routes.menu()),
+    });
+  };
+  onDispose(() => netEnd?.());
 
   // How long the last presented frame took, in ms. The renderer needs it for
   // presentation-only animation and no longer has a ticker of its own to ask.
@@ -5635,15 +5698,21 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // running the frames it holds to ack (R31).
     if (transport.local) {
       if (stepFrames(ticks) > 0) lastTickAt = now;
-    } else {
+    } else if (netEnd === null) {
       const t0 = performance.now();
       const ran = stepFrames(roomTickCap(transport.status(), tickCostMs));
       if (ran > 0) {
         lastTickAt = now;
         tickCostMs = tickCostEma(tickCostMs, (performance.now() - t0) / ran);
       }
+      // N1b task 10 (R-B11): the sim's own result shows at once; a room's
+      // surrender or leave only once the drain has nothing left to run.
+      if (versusRoom) {
+        const result = matchResult(matchDecided, roomEnding, ran === 0);
+        if (result !== null) showMatchEnd(result);
+      }
     }
-    netStatus?.paint(transport.status());
+    if (netEnd === null) netStatus?.paint(transport.status());
     // A room's pause (either seat's) quiets the mix and dims the strip as a
     // local pause does; the room's status is the only thing that says so.
     if (room !== null) {

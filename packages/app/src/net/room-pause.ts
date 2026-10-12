@@ -27,3 +27,19 @@ export function roomPauseCall(status: TransportStatus, pausesLeft: number): Room
   if (status.kind !== 'live' && status.kind !== 'stalled') return { send: false, note: false };
   return pausesLeft > 0 ? { send: true, note: false } : { send: false, note: true };
 }
+
+/** Whether the pause menu offers Surrender (N1b task 10): only while the match
+ *  runs or is paused. Once the room has ended it (a leave, a surrender, a
+ *  void) or a desync has voided it, the room would ignore a surrender, and the
+ *  menu offers Quit -- which leaves -- in its place. */
+export function surrenderOffered(status: TransportStatus): boolean {
+  return status.kind === 'live' || status.kind === 'stalled' || status.kind === 'paused';
+}
+
+/** Whether a bare Escape that reached the battlefield opens the pause menu:
+ *  not while it is already open, and not once the mission is over or a
+ *  match's result is on screen (R-B11) -- there is nothing left to pause, and
+ *  the end panel has no use for a menu behind it. */
+export function escapeOpensPause(s: { paused: boolean; missionEnded: boolean; matchOver: boolean }): boolean {
+  return !s.paused && !s.missionEnded && !s.matchOver;
+}

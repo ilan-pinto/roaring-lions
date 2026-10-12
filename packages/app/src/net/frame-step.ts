@@ -26,6 +26,11 @@ export interface FrameStep {
   runTick: () => void;
   /** The room's config; null in single-player, where nothing is hashed. */
   config: MatchConfig | null;
+  /** Asked after each frame has run and been reported, with the frame's tick:
+   *  true stops the batch there (N1b task 10, a versus match decided on that
+   *  tick). The frames behind it in the batch are not run -- the match is
+   *  over and the caller steps no more. Absent in single-player. */
+  stopAfter?: (tick: number) => boolean;
 }
 
 /** A hash tick closes a window of `hashEveryTicks` frames: ticks 19, 39, ... at 20. */
@@ -44,6 +49,7 @@ export function runFrames(step: FrameStep, maxTicks: number): { ran: number; dro
     runTick();
     ran++;
     transport.reportTick(f.tick, config !== null && isHashTick(f.tick, config) ? matchDigest(sim.hash(), 0, config.dataDigest) : null);
+    if (step.stopAfter?.(f.tick) === true) break;
   }
   return { ran, dropped };
 }
