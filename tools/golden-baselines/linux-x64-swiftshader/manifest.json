@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "7ac7f98384cf2622d1511def5ffd6ad70bc61cbb",
-  "blessedAt": "2026-10-11T09:53:18.160Z",
-  "reason": "#524 A3.2 phase 2 (lead-approved): Eitan in the Kipod's olive, D9 desaturated, shanty v2 (corrugated, Meshy), concrete/wall warm pass, kit metal texel; buildings and vehicles in quiet/open-ground/vehicle/kitted",
+  "commit": "d482312853109f58b9ceb96fcbba1accd128da25",
+  "blessedAt": "2026-10-12T15:04:29.995Z",
+  "reason": "#551 kit leftovers (lead-approved 2026-10-12): slat-cage LOD at zoom 1, Peten kit size, non-metal gunmetal patch on five vehicles; only kitted moved (569 px / 0.0413)",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "a1899c4893e7318ff9d90fd022f85858cabdf6cd2aa4955280907e9afb674c54"
+      "sha256": "1d1afdf27d56b91613b59413f9e8997049640203cf178cab5a221b397c08ef32"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "277c9936c9f4371e98eb28497a4dd103d566f1fdbee582420276737ed6764508"
+      "sha256": "bd678fecda17229469bd0a08f6f4745ed2ab7d53fcae749b00d8c5e0ddf4b62e"
     },
     "kitted": {
       "tick": 140,
@@ -67,7 +67,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "f7235a894ce8cb05a3f18824db104ac3d9665b90d6152df567f27b0d252eb2fb"
+      "sha256": "e32cb8e16081fa97b20ff0aa26c05ca57d6a274cd0ae2a0488a9aff564ced310"
     },
     "relief": {
       "tick": 500,
