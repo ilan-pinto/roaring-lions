@@ -309,6 +309,22 @@ describe('WsTransport', () => {
     vi.runAllTimers();
     expect(opens).toBe(1);
   });
+  it('behind() is the clock\'s backlog in every status, a stall and a pause included (I-1)', () => {
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} });
+    expect(t.behind()).toBe(0);
+    sock.open();
+    sock.recv({ t: 'log', config: CONFIG, frames: Array.from({ length: 600 }, (_, tick) => ({ tick, cmds: [] })) });
+    expect(t.behind()).toBe(600);
+    sock.recv({ t: 'stall', reason: 'behind', seat: 1 });
+    expect(t.status().kind).toBe('stalled');
+    expect(t.behind()).toBe(600);
+    t.take(100);
+    expect(t.behind()).toBe(500);
+    sock.recv({ t: 'paused', seat: 0, remainingMs: 90000, pausesLeft: [2, 3] });
+    t.take(50);
+    expect(t.behind()).toBe(450);
+  });
   it('setHooks replaces only the hooks it names', () => {
     const sock = fakeSocket();
     const calls: string[] = [];

@@ -281,6 +281,12 @@ export class WsTransport implements MatchTransport {
     if (digest !== null) this.send({ t: 'hash', tick, h: digest });
   }
   status(): TransportStatus { return this.st; }
+  /** Frames received and not yet run, in EVERY status (I-1): the `live`
+   *  status carries it, but a seat behind-stalled or paused still holds
+   *  frames, and a reload rejoin spends most of its replay behind-stalled
+   *  (the room kept its old ack), so the battlefield's catch-up cap reads
+   *  the clock here rather than from the status. */
+  behind(): number { return this.clock.behind(); }
   /** Stops reconnecting and closes the socket WITHOUT a `bye`: the seat is not
    *  leaving, its transport is being handed on (a reload, a new screen). */
   detach(): void {

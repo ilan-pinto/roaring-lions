@@ -15,8 +15,8 @@ import type { TransportStatus } from '@lions/net';
 /** In a room the room's clock is the only clock (R33): a render frame runs up
  *  to this many of the frames the transport holds, whatever the local pause
  *  or speed, so a client that fell behind catches up at 4x without one long
- *  frame. It is the floor: while live and far behind (a rejoin's whole log),
- *  `roomTickCap` raises it to what fits a frame's budget (R-B7).
+ *  frame. It is the floor: while far behind (a rejoin's whole log, live or
+ *  stalled), `roomTickCap` raises it to what fits a frame's budget (R-B7, I-1).
  *  Single-player keeps its accumulator. */
 export const MAX_CATCHUP_TICKS = 4;
 
@@ -42,10 +42,27 @@ export function tickCostEma(prev: number, sampleMs: number, alpha = 0.2): number
 }
 
 /** What one animation frame of a ROOM may run (the battlefield's loop):
- *  while live, the floor or -- far behind -- what fits the frame's budget;
- *  in every other status the floor. A stall must keep the floor and not 0:
- *  a 'behind' stall's own seat has to go on running the frames it holds to
- *  ack them (R31), or the stall never clears. */
-export function roomTickCap(status: TransportStatus, tickCostMs: number): number {
-  return status.kind === 'live' ? Math.max(MAX_CATCHUP_TICKS, catchUpTicks(status.behind, tickCostMs)) : MAX_CATCHUP_TICKS;
+ *  the floor, or -- far behind -- what fits the frame's budget, while live,
+ *  stalled or paused; in every other status the floor. `held` is the clock's
+ *  backlog (`WsTransport.behind()`); a `live` status carries its own, which
+ *  stands in when none is given.
+ *
+ *  A stall raises the cap as live does (I-1): a reload rejoin keeps its old
+ *  ack in the room, so the room behind-stalls on it 2 s into its replay and
+ *  it spends most of the replay `stalled`, with the other seat frozen. R31
+ *  needs only that a stalled seat go on running the frames it holds -- a cap
+ *  of at least 1 -- and `max(floor, ...)` keeps the floor. A pause too: it
+ *  mints no frames, so only a seat that rejoined into it (the room sends its
+ *  log ahead of the pause in force) can be far behind, and that is the same
+ *  replay with both seats held. Near caught up every case is the floor. */
+export function roomTickCap(status: TransportStatus, tickCostMs: number, held?: number): number {
+  switch (status.kind) {
+    case 'live':
+      return Math.max(MAX_CATCHUP_TICKS, catchUpTicks(held ?? status.behind, tickCostMs));
+    case 'stalled':
+    case 'paused':
+      return Math.max(MAX_CATCHUP_TICKS, catchUpTicks(held ?? 0, tickCostMs));
+    default:
+      return MAX_CATCHUP_TICKS;
+  }
 }

@@ -43,13 +43,29 @@ describe('roomTickCap', () => {
     expect(roomTickCap({ kind: 'live', behind: 3 }, 1)).toBe(MAX_CATCHUP_TICKS);
     expect(roomTickCap({ kind: 'live', behind: 0 }, 1)).toBe(MAX_CATCHUP_TICKS);
   });
-  it('a stall keeps the floor however far behind it says it is: its own seat must run the frames it holds to ack (R31)', () => {
+  it('a stall far behind raises the cap as live does (I-1): a reload rejoin is behind-stalled for most of its replay, and R31 needs only a cap of at least 1', () => {
+    expect(roomTickCap({ kind: 'stalled', reason: 'behind', seat: 1 }, 0.25, 6000)).toBe(48);
+    expect(roomTickCap({ kind: 'stalled', reason: 'gone', seat: 0 }, 1, 6000)).toBe(12);
+    expect(roomTickCap({ kind: 'stalled', reason: 'connecting', seat: null }, 0.25, 6000)).toBe(48);
+  });
+  it('a stall near caught up, or with no backlog given, keeps the floor -- never 0, so its own seat runs the frames it holds to ack (R31)', () => {
+    expect(roomTickCap({ kind: 'stalled', reason: 'behind', seat: 1 }, 0.25, 3)).toBe(MAX_CATCHUP_TICKS);
+    expect(roomTickCap({ kind: 'stalled', reason: 'behind', seat: 1 }, 0.25, 0)).toBe(MAX_CATCHUP_TICKS);
     expect(roomTickCap({ kind: 'stalled', reason: 'behind', seat: 1 }, 0.25)).toBe(MAX_CATCHUP_TICKS);
     expect(roomTickCap({ kind: 'stalled', reason: 'connecting', seat: null }, 0.25)).toBe(MAX_CATCHUP_TICKS);
   });
-  it('a pause and every other status keep the floor', () => {
+  it('a pause far behind raises the cap too: the room sends a rejoin its log ahead of the pause in force', () => {
+    expect(roomTickCap({ kind: 'paused', seat: 0, untilMs: 90000 }, 0.25, 6000)).toBe(48);
+    expect(roomTickCap({ kind: 'paused', seat: 0, untilMs: 90000 }, 0.25, 2)).toBe(MAX_CATCHUP_TICKS);
+  });
+  it('live reads the backlog given over its own status, which can be a frame old', () => {
+    expect(roomTickCap({ kind: 'live', behind: 3 }, 0.25, 6000)).toBe(48);
+  });
+  it('a pause with no backlog given, and every other status, keep the floor', () => {
     expect(roomTickCap({ kind: 'paused', seat: 0, untilMs: 90000 }, 0.25)).toBe(MAX_CATCHUP_TICKS);
-    expect(roomTickCap({ kind: 'waiting' }, 0.25)).toBe(MAX_CATCHUP_TICKS);
-    expect(roomTickCap({ kind: 'local' }, 0.25)).toBe(MAX_CATCHUP_TICKS);
+    expect(roomTickCap({ kind: 'waiting' }, 0.25, 6000)).toBe(MAX_CATCHUP_TICKS);
+    expect(roomTickCap({ kind: 'local' }, 0.25, 6000)).toBe(MAX_CATCHUP_TICKS);
+    expect(roomTickCap({ kind: 'desync', tick: 40 }, 0.25, 6000)).toBe(MAX_CATCHUP_TICKS);
+    expect(roomTickCap({ kind: 'closed', reason: 'left' }, 0.25, 6000)).toBe(MAX_CATCHUP_TICKS);
   });
 });

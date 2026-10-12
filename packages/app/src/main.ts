@@ -5719,16 +5719,17 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     const { ticks, frameMs } = advanceClock(clock, now, gameSpeed, paused || beat !== null, MS_PER_TICK);
     lastFrameMs = frameMs;
     // Single-player runs what the accumulator owes, exactly as before; a room
-    // runs what the room has released, up to `roomTickCap` (R33, R-B7): the
-    // normal cap, raised while live and far behind (a rejoin's log) to what
-    // fits the frame's budget at the measured cost per tick. A stall or a
-    // pause keeps the normal cap: a 'behind' stall's own seat must go on
-    // running the frames it holds to ack (R31).
+    // runs what the room has released, up to `roomTickCap` (R33, R-B7, I-1):
+    // the normal cap, raised while far behind (a rejoin's log) to what fits
+    // the frame's budget at the measured cost per tick -- live, stalled or
+    // paused alike, since a reload rejoin spends most of its replay
+    // behind-stalled. The cap is never below the normal one, so a 'behind'
+    // stall's own seat goes on running the frames it holds to ack (R31).
     if (transport.local) {
       if (stepFrames(ticks) > 0) lastTickAt = now;
     } else if (netEnd === null) {
       const t0 = performance.now();
-      const ran = stepFrames(roomTickCap(transport.status(), tickCostMs));
+      const ran = stepFrames(roomTickCap(transport.status(), tickCostMs, room?.behind()));
       if (ran > 0) {
         lastTickAt = now;
         tickCostMs = tickCostEma(tickCostMs, (performance.now() - t0) / ran);
