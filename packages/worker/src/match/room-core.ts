@@ -32,6 +32,8 @@ export interface RoomState {
   lastHashTick: number;
   stall: { reason: 'behind' | 'gone'; seat: Seat } | null;
   endedReason: 'left' | 'void' | 'expired' | null;
+  /** The map id the lobby shows; '' until the room is given one (Task 3). */
+  map: string;
 }
 export type Effect =
   | { kind: 'send'; to: Seat | 'all'; msg: ServerMsg }
@@ -46,15 +48,15 @@ export const ROOM_TTL_MS = 6 * 3600 * 1000;
 /** Hash ticks only one seat has reported, kept at most this many (forged ticks cannot grow the table). */
 const MAX_OPEN_HASHES = 16;
 
-export function createRoom(code: string, matchId: string, nowMs: number): RoomState {
-  return { code, matchId, createdMs: nowMs, status: 'lobby', config: null, seats: [null, null], tick: 0, pending: [], hashes: {}, lastHashTick: -1, stall: null, endedReason: null };
+export function createRoom(code: string, matchId: string, nowMs: number, map = ''): RoomState {
+  return { code, matchId, createdMs: nowMs, status: 'lobby', config: null, seats: [null, null], tick: 0, pending: [], hashes: {}, lastHashTick: -1, stall: null, endedReason: null, map };
 }
 
 const seatStates = (st: RoomState): SeatState[] =>
   st.seats.flatMap((s) => (s ? [{ seat: s.seat, callsign: s.callsign, connected: s.connected, ready: s.ready }] : []));
 
 export function lobbyMsg(st: RoomState, you: Seat): ServerMsg {
-  return { t: 'lobby', config: st.config, seats: seatStates(st), you };
+  return { t: 'lobby', config: st.config, seats: seatStates(st), you, map: st.map };
 }
 
 /** A verified hello. A second hello for an occupied seat REPLACES it (the
@@ -138,6 +140,12 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
       st.endedReason = 'left';
       return [{ kind: 'send', to: 'all', msg: { t: 'ended', reason: 'left' } }];
     }
+    // Pause, resume, surrender and chat are protocol-only until N1b Tasks 2+ give the room rules for them.
+    case 'pause':
+    case 'resume':
+    case 'surrender':
+    case 'chat':
+      return [];
   }
 }
 

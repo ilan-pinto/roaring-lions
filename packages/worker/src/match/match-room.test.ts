@@ -81,11 +81,11 @@ describe('MatchRoom', () => {
   it('a hello with a valid ticket joins the lobby, and each socket is told its own seat', async () => {
     const { room } = await created();
     const ws0 = await hello(room, 0);
-    expect(last(ws0)).toEqual({ t: 'lobby', config: null, seats: [{ seat: 0, callsign: 'Host', connected: true, ready: false }], you: 0 });
+    expect(last(ws0)).toEqual({ t: 'lobby', config: null, seats: [{ seat: 0, callsign: 'Host', connected: true, ready: false }], you: 0, map: '' });
     const ws1 = await hello(room, 1);
     const seats = [{ seat: 0, callsign: 'Host', connected: true, ready: false }, { seat: 1, callsign: 'Guest', connected: true, ready: false }];
-    expect(last(ws0)).toEqual({ t: 'lobby', config: null, seats, you: 0 });
-    expect(last(ws1)).toEqual({ t: 'lobby', config: null, seats, you: 1 });
+    expect(last(ws0)).toEqual({ t: 'lobby', config: null, seats, you: 0, map: '' });
+    expect(last(ws1)).toEqual({ t: 'lobby', config: null, seats, you: 1, map: '' });
   });
 
   it('answers a malformed message with one bad_message and carries on', async () => {

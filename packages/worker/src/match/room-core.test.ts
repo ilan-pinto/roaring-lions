@@ -287,3 +287,20 @@ describe('room-core', () => {
     expect(fresh.pending).toHaveLength(1);
   });
 });
+
+describe('the lobby carries the room\'s map (N1b task 1)', () => {
+  it('lobbyMsg reports the map createRoom was given, and a room made without one reports ""', () => {
+    const st = createRoom('ABCDEF', 'm1', 0, 'tel_marum');
+    const lobby = sends(seatJoin(st, 0, 'p0', 'Host', 0)).map((e) => e.msg);
+    expect(lobby).toEqual([expect.objectContaining({ t: 'lobby', map: 'tel_marum' })]);
+    expect(createRoom('ABCDEF', 'm1', 0).map).toBe('');
+  });
+  it('ignores pause, resume, surrender and chat until a later task gives them rules', () => {
+    const st = createRoom('ABCDEF', 'm1', 0, 'tel_marum');
+    seatJoin(st, 0, 'p0', 'Host', 0);
+    for (const m of [{ t: 'pause' }, { t: 'resume' }, { t: 'surrender' }, { t: 'chat', text: 'gg' }] as const) {
+      expect(seatMessage(st, 0, m, 1, mint)).toEqual([]);
+    }
+    expect(st.status).toBe('lobby');
+  });
+});

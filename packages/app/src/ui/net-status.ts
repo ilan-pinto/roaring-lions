@@ -29,6 +29,8 @@ export function netStatusText(s: TransportStatus, nameOf: (seat: Seat | null) =>
         : t('net.stall.gone', { seat: nameOf(s.reason === 'connecting' ? null : s.seat) });
     case 'desync':
       return t('net.desync', { time: matchClock(s.tick) });
+    case 'paused':
+      return null;   // Task 8 gives the pause its line
   }
 }
 

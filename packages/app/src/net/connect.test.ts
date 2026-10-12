@@ -47,7 +47,7 @@ describe('connectMatch', () => {
     expect(opened).toEqual(['ws://x/api/match/ABCDEF/ws']);
     sock.onopen?.({});
     expect(JSON.parse(sock.sent[0])).toEqual({ t: 'hello', ticket: 'tk', build: 'b' });
-    sock.onmessage?.({ data: JSON.stringify({ t: 'lobby', config: null, seats: [{ seat: 0, callsign: 'a', connected: true, ready: false }, { seat: 1, callsign: 'b', connected: true, ready: false }], you: 0 }) });
+    sock.onmessage?.({ data: JSON.stringify({ t: 'lobby', config: null, seats: [{ seat: 0, callsign: 'a', connected: true, ready: false }, { seat: 1, callsign: 'b', connected: true, ready: false }], you: 0, map: 'tel_marum' }) });
     expect(JSON.parse(sock.sent[1])).toEqual({ t: 'ready' });
     sock.onmessage?.({ data: JSON.stringify({ t: 'start', config: CONFIG(5) }) });
     const r = await p;
@@ -76,7 +76,7 @@ describe('connectMatch', () => {
     void connectMatch(new URLSearchParams('net=new'), 'tel_marum', 'b', { fetch: fetchFake, origin: 'http://x', openSocket: () => sock, replaceUrl: () => {}, note: () => {}, store: null });
     await new Promise((r) => setTimeout(r, 0));
     sock.onopen?.({});
-    sock.onmessage?.({ data: JSON.stringify({ t: 'lobby', config: null, seats: [{ seat: 0, callsign: 'a', connected: true, ready: false }], you: 0 }) });
+    sock.onmessage?.({ data: JSON.stringify({ t: 'lobby', config: null, seats: [{ seat: 0, callsign: 'a', connected: true, ready: false }], you: 0, map: 'tel_marum' }) });
     expect(sock.sent.map((s) => (JSON.parse(s) as { t: string }).t)).toEqual(['hello']);
   });
   it('?net=<code> joins as the seat the Worker gives, and never rewrites the URL', async () => {

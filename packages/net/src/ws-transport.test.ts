@@ -109,7 +109,7 @@ describe('WsTransport', () => {
     expect(t.status()).toEqual({ kind: 'stalled', reason: 'connecting', seat: null });
     vi.runAllTimers();
     sock.open();
-    sock.recv({ t: 'lobby', config: null, seats: [{ seat: 1, callsign: 'B', connected: true, ready: false }], you: 1 });
+    sock.recv({ t: 'lobby', config: null, seats: [{ seat: 1, callsign: 'B', connected: true, ready: false }], you: 1, map: 'tel_marum' });
     expect(seen).toEqual([1]);
     expect(t.status()).toEqual({ kind: 'waiting' });
   });
@@ -275,7 +275,7 @@ describe('WsTransport stats (N0 final review I1: positive evidence)', () => {
     vi.runAllTimers();
     sock.open();
     clock.ms = 1250;
-    sock.recv({ t: 'lobby', config: null, seats: [], you: 0 });
+    sock.recv({ t: 'lobby', config: null, seats: [], you: 0, map: 'tel_marum' });
     expect(t.stats().reconnects).toEqual({ count: 1, lastOutageMs: 1200, lastReplayMs: null });
   });
 
