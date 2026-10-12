@@ -142,8 +142,69 @@ describe('MatchRoom', () => {
       expect(start.config.seats.map((s) => s.side)).toEqual([0, 1]);
       expect(start.config.seats.map((s) => s.faction)).toEqual(['kdf', 'kdf']);
       expect(start.config.seats.map((s) => s.callsign)).toEqual(['Host', 'Guest']);
-      expect(start.config.seats.map((s) => s.player)).toEqual(['p-host', 'p-guest']);
     }
+  });
+
+  it('start carries per-match seat tokens: 16 hex, one per seat, never either player id (N1b task 12)', async () => {
+    for (const mode of ['versus', 'sandbox']) {
+      const { ws0, ws1 } = await running({ mode });
+      for (const ws of [ws0, ws1]) {
+        const raw = JSON.stringify(ofType(ws, 'start')[0]);
+        expect(raw.includes('p-host')).toBe(false);
+        expect(raw.includes('p-guest')).toBe(false);
+        const [a, b] = ofType(ws, 'start')[0].config.seats.map((s) => s.player);
+        expect(a).toMatch(/^[0-9a-f]{16}$/);
+        expect(b).toMatch(/^[0-9a-f]{16}$/);
+        expect(a).not.toBe(b);
+      }
+      // Both seats of one match see the same two tokens.
+      expect(ofType(ws1, 'start')[0].config.seats.map((s) => s.player)).toEqual(ofType(ws0, 'start')[0].config.seats.map((s) => s.player));
+    }
+  });
+
+  it('two rooms mint different tokens, and the real ids stay inside the room', async () => {
+    const a = await running({ mode: 'versus' });
+    const b = await running({ mode: 'versus' });
+    const tokens = (r: { ws0: FakeSocket }): string[] => ofType(r.ws0, 'start')[0].config.seats.map((s) => s.player);
+    expect(tokens(a).some((t) => tokens(b).includes(t))).toBe(false);
+    // The tickets' ids are still what the room seats on.
+    const st = await persisted(a.state);
+    expect(st.seats.map((s) => s?.player)).toEqual(['p-host', 'p-guest']);
+  });
+
+  it('a reconnecting seat gets the SAME tokens in its log, and a late hello never sees an id', async () => {
+    const { state, ws0 } = await running({ mode: 'versus' });
+    const tokens = ofType(ws0, 'start')[0].config.seats.map((s) => s.player);
+    evict();
+    const revived = new MatchRoom(state, env);
+    const back = await hello(revived, 1);
+    const [log] = ofType(back, 'log');
+    expect(log.config.seats.map((s) => s.player)).toEqual(tokens);
+    expect(JSON.stringify(log).includes('p-guest')).toBe(false);
+    expect(JSON.stringify(log).includes('p-host')).toBe(false);
+  });
+
+  it('a room persisted before tokens existed mints them lazily at start, stable in the log', async () => {
+    const { state, room } = await created(new FakeState(), { mode: 'versus' });
+    await hello(room, 0);
+    await hello(room, 1);
+    const meta = state.storage.kv.get('meta') as Record<string, unknown>;
+    expect(meta.tokens).toHaveLength(2);
+    delete meta.tokens;
+    state.storage.kv.set('meta', meta);
+    evict();
+    const revived = new MatchRoom(state, env);
+    const ws0 = await hello(revived, 0);
+    const ws1 = await hello(revived, 1);
+    await say(revived, ws0, { t: 'ready' });
+    await say(revived, ws1, { t: 'ready' });
+    const tokens = ofType(ws0, 'start')[0].config.seats.map((s) => s.player);
+    expect(tokens.every((t) => /^[0-9a-f]{16}$/.test(t))).toBe(true);
+    expect(JSON.stringify(ofType(ws0, 'start')[0]).includes('p-host')).toBe(false);
+    evict();
+    const again = new MatchRoom(state, env);
+    const back = await hello(again, 0);
+    expect(ofType(back, 'log')[0].config.seats.map((s) => s.player)).toEqual(tokens);
   });
 
   it('two versus rooms created in a row mint different seeds, and both seeds are valid config seeds', async () => {
