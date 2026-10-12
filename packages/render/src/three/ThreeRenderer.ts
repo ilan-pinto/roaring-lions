@@ -407,6 +407,7 @@ import {
   DECAL_FADING_RENDER_ORDER,
 } from './units/render-order';
 import { unitIsObserved } from './units/observed';
+import { fireVisible } from './fire-visible';
 import { ZoneBandBatch } from './units/zone-band';
 import { ProxyBoxBatch, proxyBoxDims, type ProxyBoxEntry } from './units/proxy-box';
 import {
@@ -954,6 +955,11 @@ export class ThreeRenderer implements Renderer {
    *  so every viewer-0 path is exactly the old `side === 0` one. Read once:
    *  `setTeamColors` may swap `opts`, but the seat never changes mid-mission. */
   private readonly viewer: number;
+  /** `opts.versus` (network design §5.1): fog is private to this seat, so the
+   *  two leaks close -- picking a hidden unit, and seeing hostile fire through
+   *  fog. False in single-player, where every one of those gates is skipped
+   *  and the picture and the click are exactly what they were before. */
+  private readonly versus: boolean;
   /** The scene's sun and sky bounce (`lighting.ts`). Built in the
    *  constructor, not `init`, because every material in this scene is a
    *  `MeshStandardMaterial` now: a scene with no lights in it is not a
@@ -2329,6 +2335,7 @@ export class ThreeRenderer implements Renderer {
     // decoder is a property of the runtime rather than of any one asset.
     if (opts.dracoDecoderPath) setDracoDecoderPath(opts.dracoDecoderPath);
     this.viewer = opts.viewerSide ?? 0;
+    this.versus = opts.versus === true;
     this.showcasePending = opts.decalShowcase !== undefined;
     // The world never moves (a shake moves a COPY of the camera), so the scene
     // stops forcing a world-matrix multiply on every object each frame; what
@@ -4613,6 +4620,19 @@ export class ThreeRenderer implements Renderer {
     const atStruct = e.target < 0 && e.structure !== undefined;
     const tx = atStruct ? fx.toNumber(this.sim.structures.cx[e.structure as number]) : this.curX[e.target];
     const ty = atStruct ? fx.toNumber(this.sim.structures.cy[e.structure as number]) : this.curY[e.target];
+    // Network design §5.1's second leak: in a versus room, hostile fire with
+    // neither end in sight draws nothing -- no tracer, round, backblast,
+    // flash light, muzzle flash or smoke. The audio, the fire link and the
+    // shooter's own latch and recoil (its body is fogged anyway) are left as
+    // they are. Single-player draws every shot, as it always has.
+    const seen =
+      !this.versus ||
+      fireVisible(
+        st.side[e.shooter],
+        this.viewer,
+        this.isVisible(this.curX[e.shooter], this.curY[e.shooter]),
+        this.isVisible(tx, ty)
+      );
 
     const type = this.sim.unitTypes[st.typeIdx[e.shooter]];
     // Which weapon fired decides the signature, not whether the shooter is
@@ -4641,7 +4661,7 @@ export class ThreeRenderer implements Renderer {
     // renderer's own selection, never fed back (invariant 4).
     const linked = isOwnSide(st.side[e.shooter], this.viewer) && this.selection.includes(e.shooter);
     let flightS: number | null = null;
-    if (shellKind === null) {
+    if (seen && shellKind === null) {
       this.tracers.push(spawnTracer(this.curX[e.shooter], this.curY[e.shooter], tx, ty, st.side[e.shooter]));
     }
     // GH-85 (`eod_breach`): a demolition charge is in the air until the sim
@@ -4679,7 +4699,7 @@ export class ThreeRenderer implements Renderer {
       // dust and flame).
       const launchers = armed.filter((f) => f.recoil === 'launcher');
       const fromTube = launchers.length > 0 && shellKind === 'missile';
-      if (fromTube) this.spawnBackblast(e.shooter, Math.atan2(ty - this.curY[e.shooter], tx - this.curX[e.shooter]));
+      if (fromTube && seen) this.spawnBackblast(e.shooter, Math.atan2(ty - this.curY[e.shooter], tx - this.curX[e.shooter]));
       const pool = fromTube ? launchers : armed;
       if (pool.length > 0) {
         const shot = squadRig.shots++;
@@ -4764,7 +4784,9 @@ export class ThreeRenderer implements Renderer {
     // Y here would freeze the arc's baseline to whatever the muzzle
     // happened to sit at, which is wrong the moment a shot crosses a
     // terrace.
-    if (shellKind === 'missile') {
+    if (!seen) {
+      // A versus seat with neither end of this shot in sight: no round (§5.1).
+    } else if (shellKind === 'missile') {
       // GH-250: a missile is MissileFx's, not a bolt -- see units/missiles.ts.
       // The DURATION uses the shooter-centre distance the sim counts (P-1);
       // the PATH starts at the muzzle, like every round. P-1 is approximate
@@ -4845,7 +4867,7 @@ export class ThreeRenderer implements Renderer {
     // resolved through the same `overlayColor` every other palette-key
     // consumer in this file already uses, falling back to `vfx.fire`'s own
     // shipped `#FFB43C` if the key is missing.
-    if (emitter?.light) {
+    if (seen && emitter?.light) {
       const light = emitter.light;
       this.flashLights.spawn(
         mzX,
@@ -4865,7 +4887,7 @@ export class ThreeRenderer implements Renderer {
       this.recoilPower[e.shooter] = power;
     }
 
-    if (emitter && this.particleSystem) {
+    if (seen && emitter && this.particleSystem) {
       const dirTurns = facingRad / (Math.PI * 2);
       const prio = emitter.budget_priority ?? 5;
       for (const layer of emitter.particles) {
@@ -4902,7 +4924,7 @@ export class ThreeRenderer implements Renderer {
         const fxLayer = fxLayerIndex(emitter.layer, layer.additive ?? false);
         this.particleSystem.spawn(layer, mzX, mzY, dirTurns + offset, power, prio, fxLayer);
       }
-    } else if (!airLaunch) {
+    } else if (seen && !airLaunch) {
       // No emitter authored for this weapon class yet: the flat-colour
       // fallback Pixi's own `puffs` stand in with (renderer.ts:811-818),
       // reproduced through the SAME ParticleSystem pool real emitters use
@@ -5386,7 +5408,10 @@ export class ThreeRenderer implements Renderer {
       this.sim.state.alive,
       this.sim.state.tunnelIn,
       this.snapshottedCount,
-      radiusTiles
+      radiusTiles,
+      0,
+      0,
+      this.pickable
     );
   }
   /** A left-click's unit -- `units/pick.ts`'s `pickUnitAtScreen` has the
@@ -5404,7 +5429,8 @@ export class ThreeRenderer implements Renderer {
       this.sim.width,
       this.sim.height,
       this.camera,
-      { width: this.width, height: this.height }
+      { width: this.width, height: this.height },
+      this.pickable
     );
   }
   /**
@@ -5430,6 +5456,17 @@ export class ThreeRenderer implements Renderer {
    *  predicate so it can stay free of `ThreeRenderer`, and the three unit
    *  loops call it once per living entity. */
   private readonly fogVisibleAt = (wx: number, wy: number): boolean => this.isVisible(wx, wy);
+  /** True when unit `i` is one this seat must not be shown through fog: in a
+   *  versus room, anyone not its own whom the fog hides right now (network
+   *  design §5.1). Always false in single-player, which keeps picking, the
+   *  fire link and the charge rings exactly as they were. Reads `this.viewer`
+   *  and `this.versus` at call time, so it is safe as a field initialiser. */
+  private readonly hiddenFromViewer = (i: number): boolean =>
+    this.versus &&
+    !unitIsObserved(this.sim.state.side[i], this.viewer, this.curX[i], this.curY[i], this.fogVisibleAt);
+  /** A unit the viewer may select: their own, or another they can see (§5.1).
+   *  Every unit in single-player, as before. */
+  private readonly pickable = (i: number): boolean => !this.hiddenFromViewer(i);
   /**
    * Living units whose projected FEET fall inside a screen-space rect --
    * box-select's answer. A genuine projection question, unlike `pickUnit`
@@ -5452,7 +5489,8 @@ export class ThreeRenderer implements Renderer {
       this.sim.width,
       this.sim.height,
       this.camera,
-      { width: this.width, height: this.height }
+      { width: this.width, height: this.height },
+      this.pickable
     );
   }
 
@@ -8812,6 +8850,7 @@ export class ThreeRenderer implements Renderer {
     for (const p of this.fireLinkPulses) {
       const k = pulseAt(now - p.bornS);
       if (k === null) continue;
+      if (this.hiddenFromViewer(p.target)) continue;
       const shape = this.fireLinkTargetShape(p.target, alpha);
       const { rightR, upR } = tileRadiusToEllipsePx(Math.max(shape.along, shape.across) * k.scale, TILE_W, TILE_H);
       const anchor: [number, number, number] = [
@@ -8972,6 +9011,8 @@ export class ThreeRenderer implements Renderer {
   private drawsEnvelope(i: number): boolean {
     const st = this.sim.state;
     if (i >= this.snapshottedCount || st.alive[i] === 0) return false;
+    // In a versus room a selected hostile shows no range envelope (§5.1).
+    if (this.versus && !isOwnSide(st.side[i], this.viewer)) return false;
     const type = this.sim.unitTypes[st.typeIdx[i]];
     if (type.weapons.length === 0) return false;
     return fx.toNumber(type.weapons[0].effectiveRange) > 0;
@@ -9386,6 +9427,7 @@ export class ThreeRenderer implements Renderer {
       const ringFill = this.overlayColor(CHARGE_RING_FILL_COLOR_KEY, CHARGE_RING_FILL_FALLBACK_COLOR);
       for (let i = 0; i < n; i++) {
         if (st.alive[i] === 0) continue;
+        if (this.hiddenFromViewer(i)) continue;
         const demo = this.sim.demolitionProgress(i);
         const prog = demo > 0 ? demo : this.sim.tunnelChargeProgress(i);
         if (prog <= 0) continue;
@@ -9536,6 +9578,8 @@ export class ThreeRenderer implements Renderer {
       const unitRoutes: UnitRoute[] = [];
       for (const i of this.selection) {
         if (i >= n || st.alive[i] === 0 || st.moving[i] === 0) continue;
+        // In a versus room a selected hostile's route is its orders (§5.1).
+        if (this.versus && !isOwnSide(st.side[i], this.viewer)) continue;
         const ix = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
         const iy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
         const goal = this.sim.goalOf(i);

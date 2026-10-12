@@ -73,6 +73,20 @@ describe('pickUnit', () => {
     const solo = roster([[10, 10, 1, 0]]);
     expect(pickUnit(10, 10, solo.curX, solo.curY, solo.alive, solo.tunnelIn, solo.n)).toBe(-1);
   });
+
+  // N1a task 4 (network design §5.1): in a versus room a click must not
+  // select a unit the fog hides from this seat. The renderer hands its fog
+  // gate in as `pickable`; an excluded unit is passed over, not a blocker.
+  it('passes over a unit `pickable` excludes, even the nearest, and picks the next', () => {
+    const { curX, curY, alive, tunnelIn, n } = roster([
+      [10, 10, 1, -1], // nearest, but hidden from this viewer
+      [10.6, 10, 1, -1],
+    ]);
+    expect(pickUnit(10, 10, curX, curY, alive, tunnelIn, n, 1.2, 0, 0, (i) => i !== 0)).toBe(1);
+    expect(pickUnit(10, 10, curX, curY, alive, tunnelIn, n, 1.2, 0, 0, () => false)).toBe(-1);
+    // Absent, every unit is pickable: exactly the old answer.
+    expect(pickUnit(10, 10, curX, curY, alive, tunnelIn, n)).toBe(0);
+  });
 });
 
 describe('unitsInScreenRect', () => {
@@ -163,6 +177,19 @@ describe('unitsInScreenRect', () => {
     );
     expect(tightAroundFlat).toEqual([]);
   });
+
+  it('leaves out a unit `pickable` excludes', () => {
+    const { curX, curY, alive, n } = roster([
+      [20, 20, 1, -1],
+      [20, 20, 1, -1],
+    ]);
+    const p = worldToScreen(20, 20, CAM, VP);
+    const box = (pickable?: (i: number) => boolean) =>
+      unitsInScreenRect(p.x - 5, p.y - 5, p.x + 5, p.y + 5, curX, curY, alive, n, null, 48, 48, CAM, VP, pickable);
+    expect(box((i) => i !== 0)).toEqual([1]);
+    expect(box(() => false)).toEqual([]);
+    expect(box()).toEqual([0, 1]);
+  });
 });
 
 describe('pickUnitAtScreen (a click on a unit in a group picks THAT unit)', () => {
@@ -216,5 +243,18 @@ describe('pickUnitAtScreen (a click on a unit in a group picks THAT unit)', () =
     ]);
     const a = feetOf(A);
     expect(pickAt(r, a.x, a.y - 8)).toBe(-1);
+  });
+
+  it('passes over a unit `pickable` excludes and picks the one behind it', () => {
+    const r = roster([
+      [A[0], A[1], 1, -1],
+      [B[0], B[1], 1, -1],
+    ]);
+    const a = feetOf(A);
+    const pick = (pickable: (i: number) => boolean) =>
+      pickUnitAtScreen(a.x, a.y - 8, r.curX, r.curY, r.alive, r.tunnelIn, r.n, null, 48, 48, cam, vp, pickable);
+    expect(pick(() => true)).toBe(0);
+    expect(pick((i) => i !== 0)).toBe(1);
+    expect(pick(() => false)).toBe(-1);
   });
 });
