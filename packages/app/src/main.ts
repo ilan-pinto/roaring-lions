@@ -239,7 +239,7 @@ import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { PAUSES_PER_SEAT, WsTransport, type Seat, type TransportStatus } from '@lions/net';
 import { connectMatch, openRoom, type Connected } from './net/connect';
 import { desyncReportDraft, withoutReplay } from './net/desync-report';
-import { escapeOpensPause, pauseEndClosesMenu, roomPauseCall, surrenderOffered } from './net/room-pause';
+import { escapeOpensPause, hudExit, pauseEndClosesMenu, roomPauseCall, surrenderOffered } from './net/room-pause';
 import { roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
 import { safeStorage as safeStorageLike } from './telemetry/identity';
 import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
@@ -3042,6 +3042,20 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // running over whatever screen came next.
     leave: () => req.navigate(leaveHref(!mission)),
     freePlay: !mission,
+    // A room's exit is the pause menu's (M-1): a confirmed Surrender while
+    // the match can be given up, its Quit once it cannot. Absent in
+    // single-player, whose leave control is unchanged.
+    ...(room !== null
+      ? {
+          exit: {
+            tip: t('versus.exit.tip'),
+            run: () => {
+              if (hudExit(true, room.status()) === 'surrender') confirmSurrender(room);
+              else confirmQuit();
+            },
+          },
+        }
+      : {}),
     openObjectives,
     // Task 9: facts only the shell has, handed to the pure priority list in
     // `hint-model.ts`. `renderer.hoverEntity >= 0` is the same "over a
@@ -3202,6 +3216,38 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       tick: sim.tickCount,
     };
   };
+  /** The pause menu's Quit, confirmed. Same wording as the HUD's own "leave
+   *  the mission" confirm (hud.ts's leaveBtn) -- both ask the identical
+   *  question. In a room the HUD's exit asks this too once the match can no
+   *  longer be given up (`hudExit`, M-1). */
+  const confirmQuit = (): void => {
+    const leaveText = leaveCopy(!mission);
+    void confirmDialog(document.body, {
+      title: leaveText.title,
+      body: leaveText.body,
+      confirm: leaveText.confirm,
+      danger: true,
+    }).answer.then((ok) => {
+      if (ok) req.navigate(leaveHref(!mission));
+    });
+  };
+  /** A room's Surrender, confirmed: the pause menu's, and the HUD's exit
+   *  while the match runs (`hudExit`, M-1). */
+  const confirmSurrender = (r: WsTransport): void => {
+    void confirmDialog(document.body, {
+      title: t('versus.surrender.confirm.title'),
+      body: t('versus.surrender.confirm.body'),
+      confirm: t('versus.surrender.confirm.action'),
+      danger: true,
+    }).answer.then((ok) => {
+      if (!ok) return;
+      r.surrender();
+      // The room's `ended` brings the match-over panel; the menu has
+      // nothing left to offer and must not sit over it.
+      pauseHandle?.close();
+      pauseHandle = null;
+    });
+  };
   /** The menu both pauses open -- single-player's, and a room's with
    *  Surrender added (below). */
   const pauseMenuDeps = (): PauseDeps => ({
@@ -3234,19 +3280,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           },
         }
       : {}),
-    onQuit: () => {
-      // Same wording as the HUD's own "leave the mission" confirm
-      // (hud.ts's leaveBtn) -- both ask the identical question.
-      const leaveText = leaveCopy(!mission);
-      void confirmDialog(document.body, {
-        title: leaveText.title,
-        body: leaveText.body,
-        confirm: leaveText.confirm,
-        danger: true,
-      }).answer.then((ok) => {
-        if (ok) req.navigate(leaveHref(!mission));
-      });
-    },
+    onQuit: () => confirmQuit(),
     settings: req.settings,
     build: __APP_BUILD__,
     feedback:
@@ -3307,21 +3341,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     if (pauseHandle !== null) return;
     const call = report ? { send: false, note: false } : roomPauseCall(r.status(), roomPausesLeft);
     if (call.send) r.pause();
-    const onSurrender = (): void => {
-      void confirmDialog(document.body, {
-        title: t('versus.surrender.confirm.title'),
-        body: t('versus.surrender.confirm.body'),
-        confirm: t('versus.surrender.confirm.action'),
-        danger: true,
-      }).answer.then((ok) => {
-        if (!ok) return;
-        r.surrender();
-        // The room's `ended` brings the match-over panel; the menu has
-        // nothing left to offer and must not sit over it.
-        pauseHandle?.close();
-        pauseHandle = null;
-      });
-    };
+    const onSurrender = (): void => confirmSurrender(r);
     const menu = pauseMenuDeps();
     pauseHandle = pauseMenu(document.body, {
       ...menu,

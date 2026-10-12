@@ -260,6 +260,7 @@
   "versus.surrender.confirm.title": "Surrender the match?",
   "versus.surrender.confirm.body": "Your friend wins.",
   "versus.surrender.confirm.action": "Surrender",
+  "versus.exit.tip": "surrender the match",
   "versus.end.title": "{verdict, select, won {Victory} lost {Defeat} other {Draw}}",
   "versus.end.reason": "{by, select, annihilation {Their force is destroyed} surrender {They surrendered} left {They left the match} mutual {Both forces destroyed} other {Time}}",
   "versus.end.reason.lost": "{by, select, annihilation {Your force is destroyed} surrender {You surrendered} other {You left the match}}",

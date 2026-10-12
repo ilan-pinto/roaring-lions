@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PAUSES_PER_SEAT } from '@lions/net';
-import { escapeOpensPause, pauseEndClosesMenu, roomPauseCall, surrenderOffered } from './room-pause';
+import { escapeOpensPause, hudExit, pauseEndClosesMenu, roomPauseCall, surrenderOffered } from './room-pause';
 
 // N1b task 8, R-B17: the room silently ignores a pause it refuses, so the
 // client decides from its own count (the last `paused` it saw) whether to ask
@@ -73,5 +73,25 @@ describe('pauseEndClosesMenu', () => {
   it('a pause that ends in the match ending is not "running again": the end panel or the desync line takes over', () => {
     expect(pauseEndClosesMenu(mine, { kind: 'closed', reason: 'left' }, 1, true)).toBe(false);
     expect(pauseEndClosesMenu(mine, { kind: 'desync', tick: 40 }, 1, true)).toBe(false);
+  });
+});
+
+// N1b final fix wave (M-1): in a room the HUD's exit was the sandbox's
+// unconfirmed-by-the-room "leave free play". It now asks what the pause menu
+// asks.
+describe('hudExit', () => {
+  it('single-player keeps the HUD\'s own leave confirm, whatever the status', () => {
+    expect(hudExit(false, { kind: 'local' })).toBe('hud');
+    expect(hudExit(false, { kind: 'live', behind: 0 })).toBe('hud');
+  });
+  it('a room whose match can still be given up: the confirmed Surrender', () => {
+    expect(hudExit(true, { kind: 'live', behind: 0 })).toBe('surrender');
+    expect(hudExit(true, { kind: 'stalled', reason: 'gone', seat: 0 })).toBe('surrender');
+    expect(hudExit(true, { kind: 'paused', seat: 1, untilMs: 5 })).toBe('surrender');
+  });
+  it('a room already over (ended, voided, waiting): the pause menu\'s Quit, never the HUD\'s free-play leave', () => {
+    expect(hudExit(true, { kind: 'closed', reason: 'surrender' })).toBe('quit');
+    expect(hudExit(true, { kind: 'desync', tick: 40 })).toBe('quit');
+    expect(hudExit(true, { kind: 'waiting' })).toBe('quit');
   });
 });

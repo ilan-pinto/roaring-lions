@@ -54,3 +54,15 @@ export function escapeOpensPause(s: { paused: boolean; missionEnded: boolean; ma
 export function pauseEndClosesMenu(prev: TransportStatus, next: TransportStatus, seat: Seat, menuOpen: boolean): boolean {
   return menuOpen && prev.kind === 'paused' && prev.seat === seat && (next.kind === 'live' || next.kind === 'stalled');
 }
+
+/** What the HUD's exit asks (N1b final fix wave, M-1). Single-player keeps
+ *  the HUD's own leave confirm (`'hud'`). In a room the way out is the pause
+ *  menu's: a confirmed Surrender while the match can still be given up, and
+ *  once it cannot (ended, voided, not yet started) the menu's Quit -- never
+ *  the HUD's own free-play leave, whose copy says nothing of the match it
+ *  ends.
+ *  Browser Back is not this: it leaves (a `bye`; the other seat wins). */
+export function hudExit(inRoom: boolean, status: TransportStatus): 'hud' | 'surrender' | 'quit' {
+  if (!inRoom) return 'hud';
+  return surrenderOffered(status) ? 'surrender' : 'quit';
+}
