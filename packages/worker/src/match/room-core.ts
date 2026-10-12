@@ -7,7 +7,7 @@
  * `readLog`.
  */
 import {
-  canonicalOrder, MAX_CMDS_PER_SEAT_PER_FRAME,
+  canonicalOrder, MAX_CMDS_PER_SEAT_PER_FRAME, PAUSE_MS, PAUSES_PER_SEAT, CHAT_MAX_CHARS,
   type ClientMsg, type Frame, type MatchConfig, type Seat, type ServerMsg, type Stamped, type SeatState,
 } from '@lions/net';
 
@@ -31,7 +31,15 @@ export interface RoomState {
   /** The newest tick whose hashes both seats have reported; -1 before any. Older hashes are replays. */
   lastHashTick: number;
   stall: { reason: 'behind' | 'gone'; seat: Seat } | null;
-  endedReason: 'left' | 'void' | 'expired' | null;
+  endedReason: 'left' | 'void' | 'expired' | 'surrender' | null;
+  /** A player pause in force: who asked, and when the room resumes by itself. While set, no frames flow. */
+  pause: { seat: Seat; untilMs: number } | null;
+  /** Pauses each seat has left; spent when taken, not when it ends. */
+  pausesLeft: [number, number];
+  /** When each seat last chatted, for the rate limit; -1 (JSON-safe) before any. */
+  lastChatMs: [number, number];
+  /** The seat that surrendered, once one has. */
+  surrendered: Seat | null;
   /** The map id the lobby shows; '' until the room is given one (Task 3). */
   map: string;
 }
@@ -44,12 +52,14 @@ export type Effect =
 export { ACK_EVERY } from '@lions/net';
 export const STALL_BEHIND_TICKS = 40;
 export const STALL_SILENT_MS = 2000;
+/** The least gap between two chat messages from one seat. */
+export const CHAT_MIN_GAP_MS = 500;
 export const ROOM_TTL_MS = 6 * 3600 * 1000;
 /** Hash ticks only one seat has reported, kept at most this many (forged ticks cannot grow the table). */
 const MAX_OPEN_HASHES = 16;
 
 export function createRoom(code: string, matchId: string, nowMs: number, map = ''): RoomState {
-  return { code, matchId, createdMs: nowMs, status: 'lobby', config: null, seats: [null, null], tick: 0, pending: [], hashes: {}, lastHashTick: -1, stall: null, endedReason: null, map };
+  return { code, matchId, createdMs: nowMs, status: 'lobby', config: null, seats: [null, null], tick: 0, pending: [], hashes: {}, lastHashTick: -1, stall: null, endedReason: null, pause: null, pausesLeft: [PAUSES_PER_SEAT, PAUSES_PER_SEAT], lastChatMs: [-1, -1], surrendered: null, map };
 }
 
 const seatStates = (st: RoomState): SeatState[] =>
@@ -57,6 +67,13 @@ const seatStates = (st: RoomState): SeatState[] =>
 
 export function lobbyMsg(st: RoomState, you: Seat): ServerMsg {
   return { t: 'lobby', config: st.config, seats: seatStates(st), you, map: st.map };
+}
+
+/** What a seat is told when the room is over (also to a socket that arrives after it ended):
+ *  a surrender names who surrendered. */
+export function endedMsg(st: RoomState): ServerMsg {
+  if (st.endedReason === 'surrender' && st.surrendered !== null) return { t: 'ended', reason: 'surrender', seat: st.surrendered };
+  return { t: 'ended', reason: st.endedReason === null || st.endedReason === 'surrender' ? 'expired' : st.endedReason };
 }
 
 /** A verified hello. A second hello for an occupied seat REPLACES it (the
@@ -70,9 +87,25 @@ export function seatJoin(st: RoomState, seat: Seat, player: string, callsign: st
     out.push({ kind: 'send', to: 'all', msg: lobbyMsg(st, 0) });   // the DO rewrites `you` per socket
   } else if (st.config) {
     out.push({ kind: 'send', to: seat, msg: { t: 'log', config: st.config, frames: readLog() } });
+    // The log makes the client live; a pause in force must be told again.
+    if (st.pause !== null) out.push({ kind: 'send', to: seat, msg: pausedMsg(st, nowMs, st.pause) });
     out.push(...recheckStall(st, nowMs));
   }
   return out;
+}
+
+function pausedMsg(st: RoomState, nowMs: number, pause: { seat: Seat; untilMs: number }): ServerMsg {
+  return { t: 'paused', seat: pause.seat, remainingMs: Math.max(0, pause.untilMs - nowMs), pausesLeft: [st.pausesLeft[0], st.pausesLeft[1]] };
+}
+
+/** A pause is a stall with a reason, ended by its owner or by the clock. */
+function endPause(st: RoomState, nowMs: number): Effect[] {
+  st.pause = null;
+  // A pause is not silence: every seat's clock of silence restarts now.
+  for (const s of st.seats) if (s) s.lastSeenMs = nowMs;
+  st.status = 'running';
+  st.stall = null;
+  return [{ kind: 'send', to: 'all', msg: { t: 'resume' } }, ...recheckStall(st, nowMs)];
 }
 
 export function seatGone(st: RoomState, seat: Seat, nowMs: number): Effect[] {
@@ -140,12 +173,33 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
       st.endedReason = 'left';
       return [{ kind: 'send', to: 'all', msg: { t: 'ended', reason: 'left' } }];
     }
-    // Pause, resume, surrender and chat are protocol-only until N1b Tasks 2+ give the room rules for them.
-    case 'pause':
-    case 'resume':
-    case 'surrender':
-    case 'chat':
-      return [];
+    case 'pause': {
+      if ((st.status !== 'running' && st.status !== 'stalled') || st.pause !== null || st.pausesLeft[seat] <= 0) return [];
+      st.pausesLeft[seat]--;
+      st.pause = { seat, untilMs: nowMs + PAUSE_MS };
+      st.status = 'stalled';
+      return [{ kind: 'send', to: 'all', msg: { t: 'paused', seat, remainingMs: PAUSE_MS, pausesLeft: [st.pausesLeft[0], st.pausesLeft[1]] } }];
+    }
+    case 'resume': {
+      // Only the pauser ends it early; an ended room stays ended.
+      if (st.status === 'ended' || st.pause === null || st.pause.seat !== seat) return [];
+      return endPause(st, nowMs);
+    }
+    case 'surrender': {
+      if (st.status === 'ended' || st.status === 'lobby') return [];
+      st.status = 'ended';
+      st.endedReason = 'surrender';
+      st.surrendered = seat;
+      return [{ kind: 'send', to: 'all', msg: { t: 'ended', reason: 'surrender', seat } }];
+    }
+    case 'chat': {
+      if (st.status === 'ended') return [];
+      // eslint-disable-next-line no-control-regex -- matching control characters is the point
+      const text = msg.text.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, CHAT_MAX_CHARS);
+      if (text === '' || (st.lastChatMs[seat] >= 0 && nowMs - st.lastChatMs[seat] < CHAT_MIN_GAP_MS)) return [];
+      st.lastChatMs[seat] = nowMs;
+      return [{ kind: 'send', to: 'all', msg: { t: 'chat', seat, text } }];
+    }
   }
 }
 
@@ -166,6 +220,7 @@ function stallFor(st: RoomState, nowMs: number): { reason: 'behind' | 'gone'; se
 }
 
 function recheckStall(st: RoomState, nowMs: number, mayStall = true): Effect[] {
+  if (st.pause !== null) return [];   // a pause outranks every other reason to stop
   if (st.status !== 'running' && st.status !== 'stalled') return [];
   const want = stallFor(st, nowMs);
   if (want && st.status === 'running' && mayStall) {
@@ -197,7 +252,7 @@ function recheckStall(st: RoomState, nowMs: number, mayStall = true): Effect[] {
 export function persistKey(st: RoomState): string {
   const seats = st.seats.map((s) => (s ? [s.player, s.callsign, s.connected, s.ready] : null));
   const status = st.status === 'stalled' ? 'running' : st.status;
-  return JSON.stringify([status, st.endedReason, st.config !== null, seats]);
+  return JSON.stringify([status, st.endedReason, st.config !== null, seats, st.pausesLeft, st.pause?.seat ?? null, st.surrendered]);
 }
 
 /** The state as storage gave it back after an eviction, made live again.
@@ -221,6 +276,14 @@ export function persistKey(st: RoomState): string {
  *  waits for its partner as before, and any leftover is pruned when the next
  *  pair completes. */
 export function revive(st: RoomState, tick: number, nowMs: number): void {
+  // A room persisted before N1b has none of the newer fields; `undefined !== null`
+  // would read as a pause in force, and `pausesLeft[seat]` would throw.
+  const stored: Partial<RoomState> = st;
+  st.pause = stored.pause ?? null;
+  st.pausesLeft = stored.pausesLeft ?? [PAUSES_PER_SEAT, PAUSES_PER_SEAT];
+  st.lastChatMs = stored.lastChatMs ?? [-1, -1];
+  st.surrendered = stored.surrendered ?? null;
+  st.map = stored.map ?? '';
   if (tick > st.tick) {
     st.tick = tick;
     st.pending = [];
@@ -248,7 +311,12 @@ export function clockTick(st: RoomState, nowMs: number): Effect[] {
   const expired = expire(st, nowMs);
   if (expired.length > 0) return expired;
   if (st.status === 'lobby') return [];
-  const out: Effect[] = recheckStall(st, nowMs);
+  const out: Effect[] = [];
+  if (st.pause !== null) {
+    if (nowMs < st.pause.untilMs) return out;
+    out.push(...endPause(st, nowMs));   // the deadline: resume, and run this tick's frame
+  }
+  out.push(...recheckStall(st, nowMs));
   if (st.status !== 'running') return out;
   const frame: Frame = { tick: st.tick, cmds: canonicalOrder(st.pending) };
   st.pending = [];

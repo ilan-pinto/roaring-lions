@@ -462,6 +462,17 @@ describe('MatchRoom', () => {
     expect(ofType(ws0, 'frame')).toEqual([]);
   });
 
+  it('a surrender reaches both seats, survives an eviction, and a late hello is told who surrendered (N1b task 2)', async () => {
+    const { state, room, ws0, ws1 } = await running();
+    await say(room, ws1, { t: 'surrender' });
+    expect(last(ws0)).toEqual({ t: 'ended', reason: 'surrender', seat: 1 });
+    expect(last(ws1)).toEqual({ t: 'ended', reason: 'surrender', seat: 1 });
+    evict();
+    const revived = new MatchRoom(state, env);
+    const late = await hello(revived, 0);
+    expect(last(late)).toEqual({ t: 'ended', reason: 'surrender', seat: 1 });
+  });
+
   it('a second hello for a seat replaces it: the old socket is closed, the new one gets the log, and the old close is ignored', async () => {
     const { state, room, ws0, ws1 } = await running();
     await vi.advanceTimersByTimeAsync(2 * TICK_MS);

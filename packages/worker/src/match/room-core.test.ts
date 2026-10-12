@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { MatchConfig } from '@lions/net';
-import { createRoom, seatJoin, seatMessage, seatGone, clockTick, expire, persistKey, revive, ACK_EVERY, STALL_BEHIND_TICKS, STALL_SILENT_MS, type RoomState, type Effect } from './room-core';
+import { createRoom, seatJoin, seatMessage, seatGone, clockTick, expire, persistKey, revive, endedMsg, ACK_EVERY, STALL_BEHIND_TICKS, STALL_SILENT_MS, type RoomState, type Effect } from './room-core';
 
 const CONFIG: MatchConfig = {
   matchId: 'm1', code: 'ABCDEF', seed: 7, map: 'beit_sahwan_outskirts', mode: 'sandbox',
@@ -295,12 +295,204 @@ describe('the lobby carries the room\'s map (N1b task 1)', () => {
     expect(lobby).toEqual([expect.objectContaining({ t: 'lobby', map: 'tel_marum' })]);
     expect(createRoom('ABCDEF', 'm1', 0).map).toBe('');
   });
-  it('ignores pause, resume, surrender and chat until a later task gives them rules', () => {
+  it('ignores pause, resume and surrender in the lobby (chat has rules since task 2)', () => {
     const st = createRoom('ABCDEF', 'm1', 0, 'tel_marum');
     seatJoin(st, 0, 'p0', 'Host', 0);
-    for (const m of [{ t: 'pause' }, { t: 'resume' }, { t: 'surrender' }, { t: 'chat', text: 'gg' }] as const) {
+    for (const m of [{ t: 'pause' }, { t: 'resume' }, { t: 'surrender' }] as const) {
       expect(seatMessage(st, 0, m, 1, mint)).toEqual([]);
     }
     expect(st.status).toBe('lobby');
+    expect(st.pausesLeft).toEqual([3, 3]);
+  });
+});
+
+describe('pause (N1b task 2)', () => {
+  it('stops frames, tells both seats who and for how long, and spends one pause', () => {
+    const st = running();
+    const fx = seatMessage(st, 1, { t: 'pause' }, 1000, mint);
+    expect(sends(fx).map((s) => s.msg)).toEqual([{ t: 'paused', seat: 1, remainingMs: 90000, pausesLeft: [3, 2] }]);
+    expect(sends(fx).map((s) => s.to)).toEqual(['all']);
+    expect(frames(clockTick(st, 1050))).toHaveLength(0);
+  });
+  it('only the pauser resumes early; the other seat\'s resume is ignored', () => {
+    const st = running();
+    seatMessage(st, 1, { t: 'pause' }, 1000, mint);
+    expect(sends(seatMessage(st, 0, { t: 'resume' }, 2000, mint))).toEqual([]);
+    expect(sends(seatMessage(st, 1, { t: 'resume' }, 2000, mint)).map((s) => s.msg)).toEqual([{ t: 'resume' }]);
+    expect(frames(clockTick(st, 2050))).toHaveLength(1);
+  });
+  it('ends by itself at 90 s', () => {
+    const st = running();
+    seatMessage(st, 0, { t: 'pause' }, 1000, mint);
+    expect(frames(clockTick(st, 1000 + 89_999))).toHaveLength(0);
+    const fx = clockTick(st, 1000 + 90_000);
+    expect(sends(fx).some((s) => s.msg.t === 'resume')).toBe(true);
+    expect(frames(fx)).toHaveLength(1);
+  });
+  it('refuses a fourth pause, and a pause while paused', () => {
+    const st = running();
+    for (let i = 0; i < 3; i++) {
+      seatMessage(st, 0, { t: 'pause' }, 1000 * i, mint);
+      seatMessage(st, 0, { t: 'resume' }, 1000 * i + 500, mint);
+    }
+    expect(sends(seatMessage(st, 0, { t: 'pause' }, 9000, mint))).toEqual([]);
+    seatMessage(st, 1, { t: 'pause' }, 9100, mint);
+    expect(sends(seatMessage(st, 1, { t: 'pause' }, 9200, mint))).toEqual([]);
+  });
+  it('a pause is not silence: resuming does not stall the room as gone', () => {
+    const st = running();
+    seatMessage(st, 0, { t: 'pause' }, 1000, mint);
+    const fx = seatMessage(st, 0, { t: 'resume' }, 60_000, mint);
+    expect(sends(fx).some((s) => s.msg.t === 'stall')).toBe(false);
+    expect(frames(clockTick(st, 60_050))).toHaveLength(1);
+  });
+  it('a pause outranks every stall rule: a seat going or acking during it changes nothing', () => {
+    const st = running();
+    seatMessage(st, 0, { t: 'pause' }, 1000, mint);
+    expect(sends(seatGone(st, 1, 1100))).toEqual([]);
+    expect(sends(seatMessage(st, 0, { t: 'ack', tick: 0 }, 1200, mint))).toEqual([]);
+    expect(st.status).toBe('stalled');
+    expect(frames(clockTick(st, 1250))).toHaveLength(0);
+    // The gone seat is still gone when the pause ends: resume, then the stall it really has.
+    const fx = sends(seatMessage(st, 0, { t: 'resume' }, 2000, mint)).map((s) => s.msg);
+    expect(fx).toEqual([{ t: 'resume' }, { t: 'stall', reason: 'gone', seat: 1 }]);
+  });
+  it('a resume after the match ended does not bring it back to life', () => {
+    const st = running();
+    seatMessage(st, 0, { t: 'pause' }, 1000, mint);
+    seatMessage(st, 1, { t: 'surrender' }, 1100, mint);
+    expect(sends(seatMessage(st, 0, { t: 'resume' }, 1200, mint))).toEqual([]);
+    expect(st.status).toBe('ended');
+    expect(clockTick(st, 1250)).toEqual([]);
+  });
+  it('a seat rejoining during a pause is told about it, with the time left', () => {
+    const st = running();
+    seatMessage(st, 0, { t: 'pause' }, 1000, mint);
+    seatGone(st, 1, 5000);
+    const fx = sends(seatJoin(st, 1, 'p1', 'Guest', 31_000, () => [])).map((s) => [s.to, s.msg.t]);
+    expect(fx).toEqual([[1, 'log'], [1, 'paused']]);
+    const paused = sends(seatJoin(st, 1, 'p1', 'Guest', 31_000)).find((s) => s.msg.t === 'paused');
+    expect(paused?.msg).toEqual({ t: 'paused', seat: 0, remainingMs: 60_000, pausesLeft: [2, 3] });
+    // Past the deadline the figure never goes negative.
+    const late = sends(seatJoin(st, 1, 'p1', 'Guest', 500_000)).find((s) => s.msg.t === 'paused');
+    expect(late?.msg).toMatchObject({ remainingMs: 0 });
+  });
+  it('a room with no pause sends a rejoiner only the log', () => {
+    const st = running();
+    expect(sends(seatJoin(st, 1, 'p1', 'Guest', 10)).map((s) => s.msg.t)).toEqual(['log']);
+  });
+});
+
+describe('surrender (N1b task 2)', () => {
+  it('ends the match with the surrendering seat named', () => {
+    const st = running();
+    const fx = seatMessage(st, 1, { t: 'surrender' }, 1000, mint);
+    expect(st.status).toBe('ended');
+    expect(st.endedReason).toBe('surrender');
+    expect(st.surrendered).toBe(1);
+    expect(sends(fx).map((s) => s.msg)).toEqual([{ t: 'ended', reason: 'surrender', seat: 1 }]);
+    expect(clockTick(st, 1050)).toEqual([]);
+  });
+  it('works through a stall and a pause, and a second surrender is ignored', () => {
+    const st = running();
+    seatMessage(st, 0, { t: 'pause' }, 1000, mint);
+    expect(sends(seatMessage(st, 1, { t: 'surrender' }, 1100, mint))).toHaveLength(1);
+    expect(sends(seatMessage(st, 0, { t: 'surrender' }, 1200, mint))).toEqual([]);
+    expect(st.surrendered).toBe(1);
+  });
+  it('endedMsg names the seat for a surrender, and only then', () => {
+    const st = running();
+    seatMessage(st, 0, { t: 'surrender' }, 1000, mint);
+    expect(endedMsg(st)).toEqual({ t: 'ended', reason: 'surrender', seat: 0 });
+    const left = running();
+    seatMessage(left, 0, { t: 'bye' }, 1000, mint);
+    expect(endedMsg(left)).toEqual({ t: 'ended', reason: 'left' });
+    expect(endedMsg(running())).toEqual({ t: 'ended', reason: 'expired' });
+  });
+});
+
+describe('chat (N1b task 2)', () => {
+  it('relays trimmed, control-free text to both seats', () => {
+    const st = running();
+    const fx = seatMessage(st, 0, { t: 'chat', text: '  hi\u0007 there \n ' }, 1000, mint);
+    expect(sends(fx).map((s) => [s.to, s.msg])).toEqual([['all', { t: 'chat', seat: 0, text: 'hi there' }]]);
+  });
+  it('drops an empty message and one sent within 500 ms of the last', () => {
+    const st = running();
+    expect(sends(seatMessage(st, 0, { t: 'chat', text: '   ' }, 1000, mint))).toEqual([]);
+    seatMessage(st, 0, { t: 'chat', text: 'a' }, 2000, mint);
+    expect(sends(seatMessage(st, 0, { t: 'chat', text: 'b' }, 2400, mint))).toEqual([]);
+    expect(sends(seatMessage(st, 0, { t: 'chat', text: 'c' }, 2600, mint))).toHaveLength(1);
+  });
+  it('rate-limits each seat on its own, and the first message is never limited', () => {
+    const st = running();
+    expect(sends(seatMessage(st, 0, { t: 'chat', text: 'a' }, 0, mint))).toHaveLength(1);
+    expect(sends(seatMessage(st, 1, { t: 'chat', text: 'b' }, 100, mint))).toHaveLength(1);
+  });
+  it('caps what it relays at 280 characters', () => {
+    const st = running();
+    const fx = sends(seatMessage(st, 0, { t: 'chat', text: 'x'.repeat(400) }, 1000, mint));
+    expect((fx[0]?.msg as { text: string }).text).toHaveLength(280);
+  });
+  it('works in the lobby too, and not once the match has ended', () => {
+    const st = createRoom('ABCDEF', 'm1', 0);
+    seatJoin(st, 0, 'p0', 'Host', 0);
+    expect(sends(seatMessage(st, 0, { t: 'chat', text: 'hello' }, 10, mint))).toHaveLength(1);
+    const over = running();
+    seatMessage(over, 0, { t: 'bye' }, 10, mint);
+    expect(sends(seatMessage(over, 1, { t: 'chat', text: 'hello' }, 2000, mint))).toEqual([]);
+  });
+});
+
+describe('what pause, surrender and chat persist (N1b task 2 row budget)', () => {
+  it('pause start, pause end and surrender move the persist key; chat, paused clock ticks and a spent-nothing resume do not', () => {
+    const st = running();
+    const k0 = persistKey(st);
+    seatMessage(st, 0, { t: 'chat', text: 'hi' }, 100, mint);
+    expect(persistKey(st)).toBe(k0);
+    seatMessage(st, 0, { t: 'pause' }, 1000, mint);
+    const k1 = persistKey(st);
+    expect(k1).not.toBe(k0);
+    for (let t = 1050; t < 5000; t += 50) clockTick(st, t);
+    seatMessage(st, 1, { t: 'chat', text: 'hi' }, 3000, mint);
+    expect(persistKey(st)).toBe(k1);
+    seatMessage(st, 0, { t: 'resume' }, 6000, mint);
+    const k2 = persistKey(st);
+    expect(k2).not.toBe(k1);
+    expect(k2).not.toBe(k0);   // a pause is spent for good
+    seatMessage(st, 1, { t: 'surrender' }, 7000, mint);
+    expect(persistKey(st)).not.toBe(k2);
+    // Two surrenders of different seats are different rooms.
+    const a = running(); const b = running();
+    seatMessage(a, 0, { t: 'surrender' }, 1, mint);
+    seatMessage(b, 1, { t: 'surrender' }, 1, mint);
+    expect(persistKey(a)).not.toBe(persistKey(b));
+  });
+});
+
+describe('a room persisted before N1b (N1b task 2)', () => {
+  it('revive defaults the new fields, so frames flow and a pause works', () => {
+    const st = running();
+    const legacy: Record<string, unknown> = JSON.parse(JSON.stringify(st));
+    for (const k of ['pause', 'pausesLeft', 'lastChatMs', 'surrendered', 'map']) delete legacy[k];
+    const old = legacy as unknown as RoomState;
+    revive(old, 4, 9000);
+    expect(old.pause).toBeNull();
+    expect(old.pausesLeft).toEqual([3, 3]);
+    expect(old.lastChatMs).toEqual([-1, -1]);
+    expect(old.surrendered).toBeNull();
+    expect(old.map).toBe('');
+    expect(frames(clockTick(old, 9050))).toHaveLength(1);
+    expect(sends(seatMessage(old, 0, { t: 'pause' }, 9100, mint)).map((s) => s.msg)).toEqual([{ t: 'paused', seat: 0, remainingMs: 90000, pausesLeft: [2, 3] }]);
+    expect(sends(seatMessage(old, 0, { t: 'chat', text: 'hi' }, 9200, mint))).toHaveLength(1);
+  });
+  it('revive leaves a persisted pause and its deadline alone', () => {
+    const st = running();
+    seatMessage(st, 0, { t: 'pause' }, 1000, mint);
+    const revived: RoomState = JSON.parse(JSON.stringify(st));
+    revive(revived, 0, 20_000);
+    expect(revived.pause).toEqual({ seat: 0, untilMs: 91_000 });
+    expect(frames(clockTick(revived, 20_050))).toHaveLength(0);
+    expect(frames(clockTick(revived, 91_000))).toHaveLength(1);
   });
 });

@@ -57,7 +57,7 @@
 import { parseClientMsg, validateConfig, REPLACED_CLOSE_CODE, type ClientMsg, type Frame, type MatchConfig, type Seat, type SeatConfig, type ServerMsg } from '@lions/net';
 import type { Env } from '../d1';
 import type { DurableStateLike, HibernatingSocket, UpgradeInit } from '../do-types';
-import { createRoom, seatJoin, seatMessage, seatGone, clockTick, expire, persistKey, revive, type Effect, type RoomState } from './room-core';
+import { createRoom, endedMsg, seatJoin, seatMessage, seatGone, clockTick, expire, persistKey, revive, type Effect, type RoomState } from './room-core';
 import { verifyTicket } from './ticket';
 import { DEFAULT_MAP, callsignField, textField } from './room-fields';
 
@@ -408,7 +408,7 @@ export class MatchRoom {
 
   private async hello(ws: WebSocket, st: RoomState, msg: ClientMsg): Promise<void> {
     if (st.status === 'ended') {
-      reply(ws, { t: 'ended', reason: st.endedReason ?? 'expired' });
+      reply(ws, endedMsg(st));
       shut(ws, 1000, 'ended');
       return;
     }
