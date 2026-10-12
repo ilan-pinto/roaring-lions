@@ -26,6 +26,9 @@ const PATTERNS: RegExp[] = [
   // A call result: `sideOf(x) === 0`, `look.side(id) !== 0`, `this.sideOf(i) === 1`.
   /\bside[A-Za-z]*\((?:[^()]|\([^()]*\))*\)\s*[!=]==\s*[01]\b/,
   /teamColors\[\s*[01]\s*\]/,
+  // A literal VIEWER handed to a relation helper: `isOwnSide(x, 0)`,
+  // `colorSlot(st.side[i], 1)`, `unitIsObserved(side, 0, x, y, f)`.
+  /\b(isOwnSide|isHostileSide|relationOf|colorSlot|unitIsObserved)\((?:[^,()]|\([^()]*\))+,\s*[01]\s*[,)]/,
 ];
 /** Whether a source line holds a side literal. A comment line is prose. A
  *  civilian (side 2) comparison needs no exemption: no pattern matches a 2, so
@@ -51,6 +54,11 @@ const MUST_HIT = [
   'if (sideOf(at(i)) === 0) n++;',
   'const lit = sim.contactLevel(0, i);',
   'const c = teamColors[1];',
+  'if (isOwnSide(x, 0)) n++;',
+  'const slot = colorSlot(st.side[i], 1);',
+  'if (isHostileSide(sideOf(i), 0)) n++;',
+  'const r = relationOf(side, 1);',
+  'if (!unitIsObserved(side, 0, x, y, fog)) continue;',
 ];
 const MUST_NOT_HIT = [
   '// side === 0 is the player',
@@ -61,6 +69,10 @@ const MUST_NOT_HIT = [
   'if (isOwnSide(st.side[i], viewer)) n++;',
   'const lit = sim.contactLevel(viewer, i);',
   'const c = teamColors[colorSlot(side, viewer)];',
+  'if (isOwnSide(x, me)) n++;',
+  'const slot = colorSlot(1 - v, v);',
+  'const r = relationOf(2, viewer);',
+  'if (!unitIsObserved(side, this.viewer, x, y, fog)) continue;',
 ];
 
 function files(dir: string): string[] {
