@@ -18,7 +18,8 @@ never from taste.
 `paint_metal_patch` -- a flat gunmetal square painted into UV space that NO
 face maps to: `gunmetal.2` (#5C625F, the tone `rampForVehicleRole('metal')`
 lifts to, so the kit's steel matches the palette weapon station on the same
-hull) in `base_color`, a neutral (0.5, 0.5, 1.0) normal, metallic 1.0 /
+hull) in `base_color`, a neutral (0.5, 0.5, 1.0) normal, metallic
+`METAL_METALLIC` (0.0 since the GH-238 leftovers, 2026-10-12; 1.0 before) /
 roughness 0.6 in `metallic_roughness`. The kit exporter
 (`export_vehicle_kit.py`, `choose_tones`) pins every SENSORS and FIREPOWER
 face to it, so kit metal reads as metal instead of "the greyest paint" (the
@@ -39,6 +40,21 @@ GUARD = 4
 #: shipped vehicle (tools/src/portrait-roles.ts), as sRGB-encoded bytes.
 METAL_HEX = "#5C625F"
 METAL_ROUGHNESS = 0.6
+#: DIELECTRIC, on purpose. The patch shipped metallic 1.0 on 2026-10-11 and
+#: drew near-black in the game: a vehicle material has `envMapIntensity = 0`
+#: and the scene no environment (`packages/render/src/three/world-materials.ts`),
+#: so a fully metallic texel keeps NO diffuse term and is lit by the sun's
+#: specular lobe alone. Measured in game (`pnpm kit:capture -- --measure`,
+#: zoom 2.5, sensors + firepower kit pixels, mean linear luminance, metallic
+#: 1.0 -> 0.0): Namer 0.046 -> 0.055, Eitan 0.027 -> 0.038, Kipod 0.027 ->
+#: 0.035, Shachaf 0.024 -> 0.036, D9 0.010 -> 0.029 -- the masts and sensor
+#: heads go from near-black to gunmetal grey. Blender's sheets light it with a world
+#: hemisphere, which a metal reflects, which is why they looked right. As a
+#: dielectric the texel draws its own gunmetal.2 albedo under the sun and the
+#: hemisphere, the same way the palette weapon station beside it does. The
+#: kit exporter finds the patch by its COLOUR off every island, not by this
+#: flag (`export_vehicle_kit.choose_tones`).
+METAL_METALLIC = 0.0
 
 
 def _hsv(rgb):
@@ -168,7 +184,7 @@ def paint_patch_arrays(images, x, y, scale_from):
             arr[y0:y1, x0:x1, :3] = (128, 128, 255)
         elif name.startswith("metallic_roughness"):
             arr[y0:y1, x0:x1, 1] = int(round(METAL_ROUGHNESS * 255))
-            arr[y0:y1, x0:x1, 2] = 255
+            arr[y0:y1, x0:x1, 2] = int(round(METAL_METALLIC * 255))
         else:
             continue
         painted.append(f"{name} [{x0}:{x1},{y0}:{y1}]")
@@ -227,7 +243,7 @@ def paint_metal_patch(obj, base_img, label):
         elif img.name.startswith("metallic_roughness"):
             # glTF packs roughness in G and metallic in B.
             px[y0:y1, x0:x1, 1] = METAL_ROUGHNESS
-            px[y0:y1, x0:x1, 2] = 1.0
+            px[y0:y1, x0:x1, 2] = METAL_METALLIC
         else:
             continue
         if img.channels == 4:

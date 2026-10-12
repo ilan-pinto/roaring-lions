@@ -56,7 +56,7 @@ BOLT_SINK = 0.002
 class Piece:
     """One closed (or deliberately open, where buried) shell."""
 
-    __slots__ = ("name", "verts", "faces", "tones", "smooth", "mount", "ground", "weld")
+    __slots__ = ("name", "verts", "faces", "tones", "smooth", "mount", "ground", "weld", "lod")
 
     def __init__(self, name, verts, faces, tones, smooth=False, mount=False, ground=False):
         if isinstance(tones, str):
@@ -74,6 +74,10 @@ class Piece:
         self.mount = mount
         self.ground = ground
         self.weld = False
+        # None: drawn at every zoom. "near" / "far": one level of a two-level
+        # geometric LOD (`slat_panel`), written to its own `_near` / `_far`
+        # node and swapped by the renderer at `KIT_LOD_SWITCH` (vehicle-kit.ts).
+        self.lod = None
 
     @property
     def tris(self):
@@ -599,6 +603,17 @@ def latch(name, at, normal, up, size=(0.05, 0.016, 0.07), tone="metal"):
 # assemblies
 # ---------------------------------------------------------------------------
 
+#: The game camera's elevation (spec 2.3; `render_rig`'s dimetric 30 deg).
+CAMERA_ELEVATION_DEG = 30.0
+#: The far slat bar's HEIGHT over the near bar's thickness: at twice the
+#: pitch, the far bar covers the same share of a cage row from the game
+#: camera as the near bars do (`h cos e + d sin e` = 2 x `t (cos e + sin e)`,
+#: depth `d` = `t` unchanged so it reaches no nearer the hull):
+#: (2 (cos 30 + sin 30) - sin 30) / cos 30 = 2.577.
+FAR_BAR_HEIGHT = ((2.0 * (math.cos(math.radians(CAMERA_ELEVATION_DEG)) + math.sin(math.radians(CAMERA_ELEVATION_DEG)))
+                   - math.sin(math.radians(CAMERA_ELEVATION_DEG))) / math.cos(math.radians(CAMERA_ELEVATION_DEG)))
+
+
 def slat_panel(name, p0, p1, z0, z1, pitch=0.12, bar_t=0.03, post_every=1.0, skip_posts=(),
                tone="paint"):
     """Bar (slat) armour per K7: posts and top/bottom rails 48 mm (1.6x the
@@ -606,7 +621,16 @@ def slat_panel(name, p0, p1, z0, z1, pitch=0.12, bar_t=0.03, post_every=1.0, ski
     kit_blockout.slat_panel (posts every <= post_every, bars at z0 + k*pitch).
     The rails are 48 mm high and 40 mm deep and the posts stand 6 mm proud of
     them, so no rail face is coplanar with a post face (a shared plane
-    z-fights). `skip_posts`: post indices a neighbouring panel already built."""
+    z-fights). `skip_posts`: post indices a neighbouring panel already built.
+
+    The bars come TWICE, as a two-level geometric LOD (GH-238 leftovers): the
+    real bars, `lod = "near"`, and a `lod = "far"` set at every other bar
+    position (twice the pitch), each `FAR_BAR_HEIGHT` x the bar tall and the
+    bar deep. At zoom 1 (15.085 px/m, DPR 1) a 120 mm pitch is a 1.57 px
+    period on screen and a 30 mm bar 0.62 px: above Nyquist, so the rows
+    alias into a moving beat (the moire). The far set is a 3.14 px period of
+    1.21 px bars at the same mean coverage. The renderer draws one set or the
+    other, never both; posts and rails (`lod` None) draw at every zoom."""
     p0, p1 = Vector((p0[0], p0[1], 0.0)), Vector((p1[0], p1[1], 0.0))
     post_t = bar_t * 1.6
     rail_d = post_t - 0.008
@@ -627,7 +651,14 @@ def slat_panel(name, p0, p1, z0, z1, pitch=0.12, bar_t=0.03, post_every=1.0, ski
     n = int((z1 - z0) / pitch)
     for k in range(1, n):
         z = z0 + k * pitch
-        out.append(bar(f"{name}_slat{k}", (p0.x, p0.y, z), (p1.x, p1.y, z), bar_t, tone=tone, up=flat))
+        b = bar(f"{name}_slat{k}", (p0.x, p0.y, z), (p1.x, p1.y, z), bar_t, tone=tone, up=flat)
+        b.lod = "near"
+        out.append(b)
+    for k in range(2, n, 2):
+        z = z0 + k * pitch
+        b = bar(f"{name}_slatfar{k}", (p0.x, p0.y, z), (p1.x, p1.y, z), bar_t, bar_t * FAR_BAR_HEIGHT, tone=tone, up=flat)
+        b.lod = "far"
+        out.append(b)
     return out, posts
 
 

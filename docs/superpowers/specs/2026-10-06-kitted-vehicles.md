@@ -601,3 +601,43 @@ lamp, whose convention bug puts it at 45° (CLAUDE.md, "The colour pipeline"). T
 `docs/art/sheets/kitted-vehicles/measure/` (`measurements.json`, `drawcalls.jsonl`,
 `parts.txt`). Nothing here ships: the blockout geometry is a measuring instrument, and every
 shipped part is built again at detail in plan 3.
+
+## 12. Leftovers (2026-10-12)
+
+The three items CLAUDE.md left open after plan 3, measured with
+`pnpm kit:capture -- --measure` (ANGLE/Metal, M3 Pro, DPR 1, the sheets' own
+parade; the JSON lands in `.superpowers/kit/`). Spec and numbers before any
+change were written first, in the PR.
+
+- **Slat moire (K7 kept).** Cause: a 120 mm pitch is a 1.57 px period of
+  0.62 px bars at zoom 1, DPR 1 -- above Nyquist on the single-sampled target.
+  Fix: a two-level LOD (contract v5, "A part may carry a two-level LOD"):
+  the real bars from `KIT_LOD_SWITCH` = 1.75 (zoom x pixel ratio) up and in
+  the garage, and below it every other bar at 2.58x the height, the same mean
+  coverage from the game camera (3.14 px period, 1.21 px bars). Measured on
+  the cage's own pixels over a one-pixel sub-pixel pan, zoom 1: Lavi 87.6 ->
+  72.9, Namer 139.7 -> 105.6, Eitan 472.6 -> 345.3, Kipod 180.2 -> 140.0,
+  Shachaf 112.7 -> 92.4, D9 130.4 -> 107.4 (-17% to -27%); the jeep's
+  bull-bar grille has 111 px of cage and reads within noise. The switch sits
+  where the near bars' per-pixel shimmer (Eitan 0.079 at 1.75) is already
+  under the far bars' at zoom 1 (0.091). The cross-hatch is gone; what is left
+  is the stair-step every ~1 px diagonal edge shows.
+- **The Peten (K5, still open).** Its metal took the bake's flat texel
+  nearest gunmetal.2 (`export_vehicle_kit.choose_tones`' fourth rule: the
+  `hull_metal` median sat within 25% of the paint, 0.0586 against 0.0681), and
+  its camera-facing parts grew (cockpit plates 0.55x0.03x0.22 -> 0.60x0.05x0.28,
+  sponsons 0.90x0.12x0.20 -> 0.90x0.16x0.24 moved 27 cm forward, nose turret
+  dia 0.28 -> 0.36, warning heads 0.10 -> 0.14, pods r 0.04 -> 0.06, boom ball
+  r 0.12 -> 0.15), each a printed DEVIATION. The `kit` toggle at L3 moves
+  255 -> 307 px at zoom 1 and 1,715 -> 1,960 at 2.5. Armour in the light
+  metal tone as well was tried and read 320: tone is not the limit, size is.
+  Reading at zoom 1 needs parts beyond the 0.28 airframe or the gunship's
+  stores -- the lead's decision.
+- **Metal versus paint.** A3.2 phase 2 (#524) had already replaced the third
+  rule with a gunmetal.2 patch, but painted it metallic 1.0, and with no
+  environment map a metal draws near-black. The patch is dielectric now; mean
+  linear luminance of the sensors + firepower kit at zoom 2.5: Namer 0.046 ->
+  0.055, Eitan 0.027 -> 0.038, Kipod 0.027 -> 0.035, Shachaf 0.024 -> 0.036,
+  D9 0.010 -> 0.029. Mip filtering still mixes the 32-texel patch with its
+  surround on the smallest parts (a larger patch would lift these further).
+
