@@ -272,11 +272,13 @@ export class MatchRoom {
     if (!st) return new Response('no such room', { status: 404 });
     if (pathname === '/state') return Response.json({ status: st.status, seats: st.seats.filter((s) => s !== null).length });
     if (pathname === '/join' && req.method === 'POST') {
+      // The body is read BEFORE the check-and-set below: an await between them lets a
+      // second /join pass the same check (a non-storage await does not hold the input gate).
+      let body: Record<string, unknown> = {};
+      try { const v: unknown = await req.json(); if (typeof v === 'object' && v !== null) body = v as Record<string, unknown>; } catch { /* no body: the callsign defaults */ }
       if (st.status === 'ended') return new Response('ended', { status: 410 });
       const meta = this.meta ?? legacyMeta({}, st);
       if (st.seats[1] !== null || meta.seat1Reserved) return new Response('full', { status: 409 });
-      let body: Record<string, unknown> = {};
-      try { const v: unknown = await req.json(); if (typeof v === 'object' && v !== null) body = v as Record<string, unknown>; } catch { /* no body: the callsign defaults */ }
       this.meta = { ...meta, callsigns: [meta.callsigns[0], callsignField(body.callsign)], seat1Reserved: true };
       await this.ctx.storage.put('meta', this.meta);
       return Response.json({ seat: 1 });

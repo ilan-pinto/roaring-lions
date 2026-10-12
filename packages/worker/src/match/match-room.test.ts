@@ -5,7 +5,7 @@
  * `WebSocketPair` and a 101 `Response` exist only in workerd.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ServerMsg, Seat } from '@lions/net';
+import { validateConfig, type ServerMsg, type Seat } from '@lions/net';
 import type { Env } from '../d1';
 import { FakeState, deliverClose, deliverError, openSocket, type FakeSocket } from './fake-do';
 import { BATCH_TICKS, MatchRoom, TICK_MS } from './match-room';
@@ -172,10 +172,55 @@ describe('MatchRoom', () => {
     expect((await room.fetch(new Request('https://room/state'))).status).toBe(404);
   });
 
-  it('a callsign survives a rejoin from the room, not from the ticket', async () => {
+  it('a rejoin shows the callsign the room holds, whatever player id the new ticket carries', async () => {
     const { room } = await created(new FakeState(), { mode: 'versus' });
-    const ws = await hello(room, 1);
-    expect(ofType(ws, 'lobby').at(-1)?.seats).toEqual([{ seat: 1, callsign: 'Guest', connected: true, ready: false }]);
+    await hello(room, 1);
+    const again = await hello(room, 1, await ticket(1, CODE, 'p-guest-other-tab'));
+    expect(ofType(again, 'lobby').at(-1)?.seats).toEqual([{ seat: 1, callsign: 'Guest', connected: true, ready: false }]);
+  });
+
+  it('two concurrent /join calls: exactly one gets seat 1, the other 409 (the check-and-set is synchronous)', async () => {
+    const { room } = await created(new FakeState(), { join: false });
+    // A body that yields before it is read, so an await between the check and the write cannot go unnoticed.
+    const join = (callsign: string) => {
+      const req = new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player: `p-${callsign}`, callsign }) });
+      const json = req.json.bind(req);
+      req.json = async () => { await Promise.resolve(); await new Promise((r) => setTimeout(r, 0)); return json(); };
+      return room.fetch(req);
+    };
+    const settled = Promise.all([join('A'), join('B')]);
+    await vi.advanceTimersByTimeAsync(5);
+    const statuses = (await settled).map((r) => r.status).sort();
+    expect(statuses).toEqual([200, 409]);
+  });
+
+  it('a versus room keeps its seed across an eviction: the revived room starts the same match', async () => {
+    const { state, room } = await created(new FakeState(), { mode: 'versus' });
+    const meta = state.storage.kv.get('meta') as { seed: number; mode: string };
+    expect(meta.mode).toBe('versus');
+    await hello(room, 0);
+    await hello(room, 1);
+    evict();
+    const revived = new MatchRoom(state, env);
+    const ws0 = await hello(revived, 0);
+    const ws1 = await hello(revived, 1);
+    await say(revived, ws0, { t: 'ready' });
+    await say(revived, ws1, { t: 'ready' });
+    const [start] = ofType(ws0, 'start');
+    expect(start.config.seed).toBe(meta.seed);
+    expect(start.config.seats.map((s) => s.side)).toEqual([0, 1]);
+  });
+
+  it('the largest random draw mints seed -1, and that config still passes validateConfig', async () => {
+    const spy = vi.spyOn(crypto, 'getRandomValues').mockImplementation(((a: Uint32Array) => { a[0] = 0xFFFFFFFF; return a; }) as never);
+    try {
+      const { ws0 } = await running({ mode: 'versus' });
+      const [start] = ofType(ws0, 'start');
+      expect(start.config.seed).toBe(-1);
+      expect(validateConfig(start.config)).not.toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('a lobby persisted by N0 (no mode, seed or callsigns in its meta) revives as a sandbox, keeping the callsigns its seats held', async () => {
