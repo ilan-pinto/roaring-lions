@@ -512,3 +512,83 @@ its own output, and a re-run replaces its clip with the same bytes.
 - **Gated** by `tools/src/living_not_wreck.test.ts`: every living state the
   renderer can resolve, on every drawn file with a `wreck`, opens on a pose that is
   not the corpse; and every drawn file with `down`/`wreck` carries `pinned`.
+
+---
+
+# v7 (vehicles) — running gear (2026-10-12, GH-177 second half)
+
+Design: `docs/superpowers/specs/2026-10-12-wheels-and-tracks-design.md`,
+approved by the lead as written (A1-A12). Written by `pnpm running-gear:meshes`
+(`tools/src/meshes/running-gear-pass.ts`) from a literal per-vehicle table
+(`running-gear-recipes.ts`). Shared names in `running-gear-contract.ts`.
+
+Pipeline order for a vehicle:
+export -> `running-gear:meshes` -> `kit:meshes` -> `wreck:meshes` -> `encode:meshes`.
+
+## What it writes
+
+- **No node and no mesh.** Wheels and tracks stay inside the hull meshes they
+  were cut into, so the vehicle submits exactly what it did (12 per KDF
+  vehicle over shadow, main and AO; 6 for the D9; 15 for the two pickups).
+  A wheel node would cost three submissions per wheel.
+- **`_RL_WHEEL` (UNSIGNED_BYTE SCALAR) and `_RL_TRACK` (FLOAT SCALAR), as a
+  PAIR**, on every live `hull_*` primitive that has a wheel or a track face:
+  - `_RL_WHEEL` = 0 is static, and k turns with `wheels[k-1]`;
+  - `_RL_TRACK` = -1 is not track; otherwise it is metres along that side's
+    track loop.
+
+  A primitive carries both or neither, because a WebGL attribute missing from
+  the geometry reads whatever value was last set, not 0.
+- **Existing vertices are a prefix.** A vertex shared by a wheel face and a
+  static face is duplicated and APPENDED, and the wheel faces are re-pointed at
+  the copy. Nothing is reordered, so every bound the wreck pass measures is
+  unchanged.
+- **Scene `extras.rl_running_gear`** (version 1):
+  - `wheels: [{ side: 'r'|'l', index, centre: [x,y,z], radius, cutRadius, steer, maxSteerRad }]`.
+    `r` is +Z, the hull's physical right, and index 0 is the frontmost wheel on
+    its side. `maxSteerRad` is measured by the pass: the largest yaw, capped at
+    20 degrees, at which no more than 3% of the tyre lands in body it did not
+    already fill at rest.
+  - `tracks: [{ side, loopLength, pitch, gauge }]`. `pitch` divides
+    `loopLength` into whole bars, so the seam does not show. A face spanning
+    the seam has its low corners lifted by `loopLength`.
+- **Kit parts** hosted on a tagged mesh get the pair zero-filled (0 / -1),
+  because a kit part carries exactly its host's attribute set. Both
+  `running-gear:meshes` and `kit:meshes` (`zeroFillRunningGear`) do it, so
+  either re-run order converges.
+
+## What the other passes and readers do with it
+
+- `wreck:meshes` is unchanged. A `WRECK_` twin shares its live mesh and so
+  carries the pair, but it draws through the charred clone of the unpatched
+  bake, so a wreck's wheels never turn.
+- The runtime (`units/running-gear*.ts`):
+  - swaps a live vehicle's tagged meshes onto a per-vehicle clone of its bake
+    the first frame it moves or turns, and never before. A parked vehicle draws
+    through exactly the material and program it always did.
+  - releases the clone before the death fade and in `disposeVehicleMeshEntity`.
+  - the shadow and AO passes do not run the chunk, so a spinning round wheel
+    looks the same to them.
+- `export_officer_armour.py` strips the Lavi's pair and extras on import. The
+  pass then runs on `officer_armour` with the Lavi's recipe.
+
+## Gates
+
+- `validate_mesh_assets.py` `check_running_gear`, reading both trees as bytes:
+  - the approved lists (parsed from `running-gear-contract.ts`), and nothing
+    else carrying the pair or the extras;
+  - the pair together, with its component types;
+  - every tagged vertex within its wheel's `cutRadius` and on its side;
+  - no vertex shared between faces that disagree about their wheel;
+  - track coordinates in range;
+  - the Draco mirror's extras verbatim and both attributes in its compressed
+    attribute map.
+- `render_mesh_gate.py` `check_running_gear_import`: Blender's importer must
+  bring both attributes in, and wheel-tagged vertices on a vehicle that
+  declares wheels.
+- `tools/src/meshes/running-gear-shipped.test.ts` decodes the Draco copy and
+  compares it with the source triangle by triangle.
+- `tools/src/mesh_roster.test.ts` holds the approved table as literals.
+- `pnpm weight:capture -- --running-gear` runs the `running-gear` debug layer's
+  A/B on moving vehicles. It is the only witness that wheels turn, because no
+  gated golden scenario moves a vehicle.

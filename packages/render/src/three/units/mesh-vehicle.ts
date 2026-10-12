@@ -57,6 +57,8 @@ import { coldGltfLoader, gltfLoader } from './gltf-loader';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import type { ClipName } from '../../sheet';
 import { charredTexturedMaterial, rampMaterial, texturedMaterial } from '../world-materials';
+import { parseRunningGear, type RunningGearSpec } from './running-gear';
+import { releaseRunningGear } from './running-gear-binding';
 import { CHARRED_RAMP, isVehicleMeshRole, rampForVehicleRole } from './vehicle-mesh-role';
 import { isMeshClipName, MESH_SCALE } from './mesh-anim';
 import { clipScaleSignatures, type ClipPlayer } from './mesh-clip';
@@ -201,6 +203,14 @@ export interface VehicleMeshTemplate {
    *  ground vehicle legitimately has none; `heli_peten` is the first with
    *  one. See `ROTOR_PIVOT_NODE_NAME`'s own doc comment. */
   readonly hasRotorPivot: boolean;
+  /**
+   * The GLB's running gear (scene `extras.rl_running_gear`, mesh-unit contract
+   * v7), or `null` for a vehicle that carries none. Read once per type here;
+   * `running-gear-binding.ts` swaps a clone's tagged meshes onto it the first
+   * frame that clone moves. Optional so a hand-built template in a test reads
+   * as "none".
+   */
+  readonly runningGear?: RunningGearSpec | null;
 }
 
 /**
@@ -445,6 +455,7 @@ export function buildVehicleMeshTemplate(
     hasWreck: clips.has('wreck'),
     hasTurretPivot: pivotNode !== null,
     hasRotorPivot: rotorPivotNode !== null,
+    runningGear: parseRunningGear(root.userData, vehicleId),
   };
 }
 
@@ -674,6 +685,9 @@ export function instantiateVehicleMesh(template: VehicleMeshTemplate, typeId: st
  * release"), which stopped being true the moment a mixer could exist.
  */
 export function disposeVehicleMeshEntity(entity: VehicleMeshEntity): void {
+  // First, and before the mixer early return: a clipless entity can still
+  // have been bound, and its clone is its own to dispose.
+  releaseRunningGear(entity);
   if (!entity.mixer) return;
   entity.mixer.stopAllAction();
   entity.mixer.uncacheRoot(entity.root);

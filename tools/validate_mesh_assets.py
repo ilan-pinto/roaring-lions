@@ -1492,6 +1492,196 @@ def check_kit_collisions(kit_masks, mesh_masks):
     return failures, worst
 
 
+RUNNING_GEAR_CONTRACT_TS = os.path.join(REPO, "tools", "src", "meshes", "running-gear-contract.ts")
+RG_WHEEL_ATTR = "_RL_WHEEL"
+RG_TRACK_ATTR = "_RL_TRACK"
+RG_EXTRAS_KEY = "rl_running_gear"
+#: How far outside its declared cut radius a tagged vertex may sit (float32
+#: round-off on a metre-scale coordinate, nothing more).
+RG_RADIUS_TOL = 1e-4
+
+
+def _ts_list(path, name):
+    """One `export const NAME ... = [...]` string list out of a TypeScript
+    file. Raises rather than returning an empty list, `kit_vehicles`' rule."""
+    import re
+    with open(path) as fh:
+        src = fh.read()
+    m = re.search(r"export const " + name + r"\b[^=]*=\s*\[(.*?)\]", src, re.S)
+    if not m:
+        raise SystemExit(f"{path}: no `export const {name} = [...]` to read")
+    ids = [a or b for a, b in re.findall(r"'([a-z0-9_]+)'|\"([a-z0-9_]+)\"", m.group(1))]
+    if not ids:
+        raise SystemExit(f"{path}: {name} parsed as empty")
+    return ids
+
+
+def running_gear_lists(path=RUNNING_GEAR_CONTRACT_TS):
+    """(spin, track, steer) vehicle ids, the approved A1/A2/A9 lists."""
+    return (_ts_list(path, "RG_SPIN_VEHICLES"), _ts_list(path, "RG_TRACK_VEHICLES"),
+            _ts_list(path, "RG_STEER_VEHICLES"))
+
+
+def check_running_gear(vehicles_root, shipped_root, lists=None):
+    """Contract v7 (running gear), from the bytes of both trees.
+
+    The SOURCE (`art/meshes/vehicles/`), read in full:
+      * every approved vehicle carries scene `extras.rl_running_gear` (version
+        1), with wheels where A1 says it spins, a track on BOTH sides where A2
+        says it scrolls, and a steering front axle where A9 says it steers --
+        and every OTHER vehicle carries neither the extras nor the attributes
+        (no air unit grows wheels by accident);
+      * on every live `hull_*` primitive the pair `_RL_WHEEL` (UNSIGNED_BYTE)
+        and `_RL_TRACK` (FLOAT) comes together or not at all;
+      * every wheel id names a declared wheel, every tagged vertex lies within
+        that wheel's `cutRadius` of its axle in side view and on its side, and
+        no vertex index is shared by two faces that disagree about their
+        wheel -- the split the pass exists to make, without which a turning
+        tyre drags its arch round with it;
+      * every track vertex lies on the side its coordinate belongs to, inside
+        `[0, 2 * loopLength)` (the seam lift adds one loop).
+    The DRACO MIRROR (`assets/meshes/vehicles/`), whose geometry this plain
+    `python3` cannot decode: the extras survive verbatim and every tagged
+    primitive still names both attributes in its `KHR_draco_mesh_compression`
+    attribute map. The values are compared face by face in
+    `tools/src/meshes/running-gear-shipped.test.ts`, which can decode."""
+    failures, summaries = [], []
+    spin, track, steer = lists or running_gear_lists()
+    approved = set(spin) | set(track)
+    for path in sorted(glob.glob(os.path.join(vehicles_root, "*.glb"))):
+        vid = os.path.splitext(os.path.basename(path))[0]
+        gltf, binary = bf.read_glb(path)
+        scene = (gltf.get("scenes") or [{}])[gltf.get("scene", 0)]
+        extras = (scene.get("extras") or {}).get(RG_EXTRAS_KEY)
+        nodes = gltf.get("nodes", [])
+        meshes = gltf.get("meshes", [])
+        tagged = []
+        for i in scene.get("nodes", []):
+            node = nodes[i]
+            name = node.get("name", "")
+            if not name.startswith("hull_") or "mesh" not in node:
+                continue
+            for prim in meshes[node["mesh"]]["primitives"]:
+                attrs = prim.get("attributes", {})
+                has_w, has_t = RG_WHEEL_ATTR in attrs, RG_TRACK_ATTR in attrs
+                if has_w != has_t:
+                    failures.append(f"running gear: {vid}/{name} carries one of {RG_WHEEL_ATTR}/"
+                                    f"{RG_TRACK_ATTR} without the other")
+                if has_w and has_t:
+                    tagged.append((name, prim))
+        if vid not in approved:
+            if extras is not None or tagged:
+                failures.append(f"running gear: {vid} is not in RG_SPIN_VEHICLES or "
+                                f"RG_TRACK_VEHICLES and carries running gear anyway")
+            continue
+        if not isinstance(extras, dict) or extras.get("version") != 1:
+            failures.append(f"running gear: {vid} has no scene extras.{RG_EXTRAS_KEY} (version 1) -- "
+                            f"run `pnpm running-gear:meshes -- --id={vid}`")
+            continue
+        wheels = extras.get("wheels") or []
+        tracks = extras.get("tracks") or []
+        if vid in spin and not wheels:
+            failures.append(f"running gear: {vid} is in RG_SPIN_VEHICLES and declares no wheel")
+        if vid not in spin and wheels:
+            failures.append(f"running gear: {vid} declares {len(wheels)} wheel(s) and is not in "
+                            f"RG_SPIN_VEHICLES (A3/A4: the Lavi's and the D9's road wheels do not spin)")
+        if vid in track and sorted(t.get("side") for t in tracks) != ["l", "r"]:
+            failures.append(f"running gear: {vid} is in RG_TRACK_VEHICLES and declares tracks "
+                            f"{sorted(t.get('side') for t in tracks)}, not both sides")
+        if vid not in track and tracks:
+            failures.append(f"running gear: {vid} declares a track and is not in RG_TRACK_VEHICLES")
+        steered = [w for w in wheels if w.get("steer")]
+        if (vid in steer) != bool(steered):
+            failures.append(f"running gear: {vid} steers {len(steered)} wheel(s); A9 says "
+                            f"{'its front axle steers' if vid in steer else 'none'}")
+        if not tagged:
+            failures.append(f"running gear: {vid} declares running gear and no hull mesh is tagged")
+            continue
+        loop_len = {t.get("side"): float(t.get("loopLength", 0)) for t in tracks}
+        n_wheel_v = n_track_v = 0
+        for name, prim in tagged:
+            acc = gltf["accessors"]
+            if acc[prim["attributes"][RG_WHEEL_ATTR]]["componentType"] != 5121:
+                failures.append(f"running gear: {vid}/{name} {RG_WHEEL_ATTR} is not UNSIGNED_BYTE")
+                continue
+            if acc[prim["attributes"][RG_TRACK_ATTR]]["componentType"] != 5126:
+                failures.append(f"running gear: {vid}/{name} {RG_TRACK_ATTR} is not FLOAT")
+                continue
+            pos = bf._accessor(gltf, binary, prim["attributes"]["POSITION"])
+            wid = bf._accessor(gltf, binary, prim["attributes"][RG_WHEEL_ATTR])[:, 0].astype(int)
+            tu = bf._accessor(gltf, binary, prim["attributes"][RG_TRACK_ATTR])[:, 0]
+            idx = bf._accessor(gltf, binary, prim["indices"])[:, 0].astype(int)
+            if wid.max(initial=0) > len(wheels):
+                failures.append(f"running gear: {vid}/{name} names wheel {wid.max()} of {len(wheels)}")
+                continue
+            for k, w in enumerate(wheels, start=1):
+                sel = wid == k
+                if not sel.any():
+                    continue
+                n_wheel_v += int(sel.sum())
+                cx, cy, cz = w["centre"]
+                d = ((pos[sel, 0] - cx) ** 2 + (pos[sel, 1] - cy) ** 2) ** 0.5
+                if d.max() > w["cutRadius"] + RG_RADIUS_TOL:
+                    failures.append(f"running gear: {vid}/{name} wheel {k} ({w['side']}{w['index']}) tags a "
+                                    f"vertex {d.max():.3f} m from its axle, past its cut radius "
+                                    f"{w['cutRadius']:.3f}")
+                if ((pos[sel, 2] > 0) != (cz > 0)).any():
+                    failures.append(f"running gear: {vid}/{name} wheel {k} tags a vertex on the far side")
+            faces = wid[idx].reshape(-1, 3)
+            if (faces != faces[:, :1]).any():
+                failures.append(f"running gear: {vid}/{name} has a face whose corners disagree about "
+                                f"their wheel")
+            seen = {}
+            for f in range(faces.shape[0]):
+                for c in range(3):
+                    v = idx[f * 3 + c]
+                    if seen.setdefault(v, faces[f, 0]) != faces[f, 0]:
+                        failures.append(f"running gear: {vid}/{name} vertex {v} is shared by a "
+                                        f"wheel {faces[f, 0]} face and a wheel {seen[v]} face -- "
+                                        f"the split is missing")
+                        break
+                else:
+                    continue
+                break
+            on = tu >= 0
+            n_track_v += int(on.sum())
+            for side, sign in (("r", 1), ("l", -1)):
+                sel = on & (pos[:, 2] * sign > 0)
+                if not sel.any():
+                    continue
+                L = loop_len.get(side, 0.0)
+                if L <= 0 or tu[sel].max() >= 2 * L + 1e-3:
+                    failures.append(f"running gear: {vid}/{name} track coordinate on side {side} "
+                                    f"runs to {tu[sel].max():.3f}, outside [0, 2 x {L:.3f})")
+        summaries.append(f"{vid}: {len(wheels)} wheel(s){' (steered)' if steered else ''}, "
+                         f"{len(tracks)} track side(s); {n_wheel_v} wheel and {n_track_v} track "
+                         f"vertices on {'+'.join(n for n, _ in tagged)}")
+
+        shipped = os.path.join(shipped_root, os.path.basename(path))
+        if not os.path.exists(shipped):
+            failures.append(f"running gear: {vid} has no Draco mirror at {shipped}")
+            continue
+        sg = _read_glb_json(shipped)
+        sscene = (sg.get("scenes") or [{}])[sg.get("scene", 0)]
+        if (sscene.get("extras") or {}).get(RG_EXTRAS_KEY) != extras:
+            failures.append(f"running gear: {vid}'s Draco mirror lost or changed extras.{RG_EXTRAS_KEY} "
+                            f"-- run `pnpm encode:meshes`")
+        snodes = sg.get("nodes", [])
+        for name, _prim in tagged:
+            hit = [n for n in snodes if n.get("name") == name and "mesh" in n]
+            if not hit:
+                failures.append(f"running gear: {vid}'s Draco mirror has no {name}")
+                continue
+            sprim = sg["meshes"][hit[0]["mesh"]]["primitives"][0]
+            dattrs = ((sprim.get("extensions") or {}).get("KHR_draco_mesh_compression") or {}).get(
+                "attributes", {})
+            for a in (RG_WHEEL_ATTR, RG_TRACK_ATTR):
+                if a not in sprim.get("attributes", {}) or a not in dattrs:
+                    failures.append(f"running gear: {vid}'s Draco mirror {name} does not carry {a} "
+                                    f"in its compressed attributes")
+    return failures, summaries
+
+
 def _wreck_subtree(nodes, root_index):
     """Every node index under `root_index`, the root itself excluded. A flat
     list today -- the pass writes one child per live mesh node and no deeper
@@ -1867,6 +2057,16 @@ def main():
         # BOTH trees: the uncompressed source of record and the Draco mirror
         # a browser actually downloads. See `check_vehicle_wrecks`' docstring
         # for why `pnpm encode:meshes -- --check` is not a substitute.
+        # A SIXTH way, raw bytes (contract v7, the running gear): the tags the
+        # renderer spins and scrolls, in both trees. No render can see them --
+        # every frame this gate makes is a parked pose.
+        rg_failures, rg_lines = check_running_gear(
+            vehicles_dir, os.path.join(REPO, "assets", "meshes", "vehicles"))
+        failures.extend(rg_failures)
+        print(f"  running gear: {len(rg_lines)} vehicle(s), from the GLB bytes --")
+        for line in rg_lines:
+            print(f"    {line}")
+
         wreck_failures, wreck_counts = check_vehicle_wrecks((
             vehicles_dir,
             os.path.join(REPO, "assets", "meshes", "vehicles"),

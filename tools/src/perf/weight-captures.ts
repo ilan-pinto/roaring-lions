@@ -939,7 +939,7 @@ function readGitInfo(): { revision: string; dirty: boolean } {
   }
 }
 
-interface LionsWindow {
+export interface LionsWindow {
   __lions: {
     step(n: number): number;
     sim: {
@@ -999,12 +999,20 @@ function arg(name: string, fallback: string): string {
   return hit ? hit.slice(name.length + 3) : fallback;
 }
 
-interface Run {
+export interface Run {
   readonly subject: WeightSubject;
   readonly phase: WeightPhase;
 }
 
 async function main(): Promise<void> {
+  // GH-177's second half: the running-gear A/B and its before/after strips
+  // (`running-gear-captures.ts`) ride on this harness's spawn and phase
+  // choreography, under the same command.
+  if (process.argv.includes('--running-gear')) {
+    const { runRunningGearCaptures } = await import('./running-gear-captures');
+    await runRunningGearCaptures(process.argv.slice(2));
+    return;
+  }
   const { chromium } = await import('playwright');
   const { ensureDevServer, stopDevServer, readUnmaskedRenderer } = await import('../golden-diff/browser');
   const { FREEZE_FRAME_LOOP_SCRIPT } = await import('../golden-diff/capture-protocol');
@@ -1236,7 +1244,7 @@ async function main(): Promise<void> {
  * away from triggering it tomorrow, and a harness that measures combat
  * instead of weight would look identical to one measuring weight correctly.
  */
-async function spawnBare(page: import('playwright').Page, typeId: string, x: number, y: number): Promise<number> {
+export async function spawnBare(page: import('playwright').Page, typeId: string, x: number, y: number): Promise<number> {
   return page.evaluate(
     ([id, tx, ty, fixed]) => {
       const L = (window as unknown as LionsWindow).__lions;
@@ -1254,7 +1262,7 @@ async function spawnBare(page: import('playwright').Page, typeId: string, x: num
  *  waits -- safe because nothing has been ordered yet. Mirrors
  *  `blast-captures.ts`'s `waitForMeshes`, scoped to the one entity a run
  *  ever has. */
-async function waitForMesh(
+export async function waitForMesh(
   page: import('playwright').Page,
   entity: number,
   notes: string[],
@@ -1289,7 +1297,7 @@ async function waitForMesh(
  * silently left incomparable -- the same "never fall through quietly" rule
  * `waitForMesh`'s own deadline branch follows.
  */
-async function settleTickFloor(page: import('playwright').Page, notes: string[], label: string): Promise<void> {
+export async function settleTickFloor(page: import('playwright').Page, notes: string[], label: string): Promise<void> {
   const tick = await page.evaluate(() => (window as unknown as LionsWindow).__lions.sim.tickCount);
   if (tick < MESH_SETTLE_TICK_FLOOR) {
     await page.evaluate((n) => (window as unknown as LionsWindow).__lions.step(n), MESH_SETTLE_TICK_FLOOR - tick);
@@ -1315,7 +1323,7 @@ async function settleTickFloor(page: import('playwright').Page, notes: string[],
  *   SECOND order `TURN_OFFSET_TILES` tiles off the current heading (the
  *   subject's own `turnSign`), issued from wherever cruise actually left it.
  */
-interface PhaseTrigger {
+export interface PhaseTrigger {
   readonly tick: number;
   /** `smokeClockMs` at the instant the ladder's own rung zero begins --
    *  Fix round 1's `modelMs` baseline, read the same guarded way as every
@@ -1328,7 +1336,7 @@ interface PhaseTrigger {
   readonly exhausted?: boolean;
 }
 
-async function beginPhase(page: import('playwright').Page, entity: number, run: Run): Promise<PhaseTrigger> {
+export async function beginPhase(page: import('playwright').Page, entity: number, run: Run): Promise<PhaseTrigger> {
   const { subject, phase } = run;
   return page.evaluate(
     ([id, phase2, x, y, moveTiles, cruiseTicks, stopTiles, turnTiles, turnSign, stopCap, fixed]) => {

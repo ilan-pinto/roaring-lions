@@ -29,6 +29,7 @@
     "encode:meshes": "pnpm --filter @lions/tools encode:meshes",
     "wreck:meshes": "pnpm --filter @lions/tools wreck:meshes",
     "kit:meshes": "pnpm --filter @lions/tools kit:meshes",
+    "running-gear:meshes": "pnpm --filter @lions/tools running-gear:meshes",
     "ui:shots": "pnpm --filter @lions/tools ui:shots",
     "ui:routes": "pnpm --filter @lions/tools ui:routes",
     "net:engines": "pnpm --filter @lions/tools net:engines",

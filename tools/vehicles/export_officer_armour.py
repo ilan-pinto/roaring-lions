@@ -5,7 +5,8 @@ from the SHIPPED `mbt_lavi.glb`, at 0 credits.
         --python tools/vehicles/export_officer_armour.py
 
 Writes `art/meshes/vehicles/officer_armour.glb`. Then, in order:
-`pnpm wreck:meshes -- --id=officer_armour`, `pnpm encode:meshes`,
+`pnpm running-gear:meshes -- --id=officer_armour` (the Lavi's tracks, contract
+v7), `pnpm wreck:meshes -- --id=officer_armour`, `pnpm encode:meshes`,
 `pnpm validate:meshes`.
 
 SOURCE: `art/meshes/vehicles/mbt_lavi.glb` -- itself `tools/vehicles/
@@ -221,6 +222,18 @@ def export():
         bpy.data.objects.remove(o, do_unlink=True)
     if kit:
         log(f"dropped {len(kit)} imported kit_* object(s)")
+    # The Lavi's running gear (`_RL_WHEEL`/`_RL_TRACK` attributes and the scene's
+    # `rl_running_gear`, contract v7): written by `pnpm running-gear:meshes`
+    # from its own recipe, AFTER this export, and never carried through Blender
+    # -- the join below would re-index the vertices the attributes tag.
+    for scene in bpy.data.scenes:
+        if "rl_running_gear" in scene:
+            del scene["rl_running_gear"]
+    for o in bpy.data.objects:
+        if o.type == "MESH":
+            for name in ("_RL_WHEEL", "_RL_TRACK"):
+                if name in o.data.attributes:
+                    o.data.attributes.remove(o.data.attributes[name])
     objs = {o.name: o for o in bpy.data.objects}
     for need in ("hull_hull", "hull_rubber", "turret_hull", "turret_metal", "turret_pivot"):
         if need not in objs:

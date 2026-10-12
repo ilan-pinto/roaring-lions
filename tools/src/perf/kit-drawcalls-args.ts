@@ -18,6 +18,7 @@
  * purpose.
  */
 import { KIT_VEHICLES } from '../meshes/kit-contract';
+import { RG_SPIN_VEHICLES, RG_TRACK_VEHICLES } from '../meshes/running-gear-contract';
 import { resolveGpuBackend, type GpuBackend } from '../ui-review/gpu';
 
 export interface KitDrawcallArgs {
@@ -26,23 +27,34 @@ export interface KitDrawcallArgs {
   readonly n: number;
   readonly gpu: GpuBackend;
   readonly syntheticKit: boolean;
+  /** GH-177: measure each vehicle twice in one page, parked and then with every
+   *  clone bound to its running-gear material, and require the same count. */
+  readonly runningGear: boolean;
 }
 
 const USAGE =
   'usage: tsx tools/src/perf/kit-drawcalls.ts [--ids=<id>,<id>] [--tiers=0|1|2|3] [--n=<clones>] ' +
-  '[--gpu=metal|swiftshader] [--synthetic-kit]';
+  '[--gpu=metal|swiftshader] [--synthetic-kit] [--running-gear]';
 
 /** The value flags this harness reads, by name (`--<name>=<value>`). */
 const VALUE_FLAGS = ['ids', 'tiers', 'n', 'gpu'] as const;
 const SYNTHETIC_FLAG = '--synthetic-kit';
+const RUNNING_GEAR_FLAG = '--running-gear';
+/** `--running-gear`'s default ids: every vehicle that carries running gear. */
+export const RUNNING_GEAR_IDS: readonly string[] = [...new Set([...RG_SPIN_VEHICLES, ...RG_TRACK_VEHICLES])].sort();
 
 /** argv -> the run, or a throw naming the argument. The last of a repeated
  *  value flag wins, as `resolveGpuBackend` already does for `--gpu`. */
 export function parseKitDrawcallArgs(argv: readonly string[], platform: NodeJS.Platform): KitDrawcallArgs {
   const values = new Map<string, string>();
   let syntheticKit = false;
+  let runningGear = false;
   for (const arg of argv) {
     if (arg === '--') continue;
+    if (arg === RUNNING_GEAR_FLAG) {
+      runningGear = true;
+      continue;
+    }
     if (arg === SYNTHETIC_FLAG) {
       syntheticKit = true;
       continue;
@@ -53,11 +65,12 @@ export function parseKitDrawcallArgs(argv: readonly string[], platform: NodeJS.P
     if (flag !== undefined) values.set(flag, arg.slice(flag.length + 3));
   }
 
-  const ids = (values.get('ids') ?? KIT_VEHICLES.join(',')).split(',').filter((s) => s.length > 0);
+  const defaults = runningGear ? RUNNING_GEAR_IDS : KIT_VEHICLES;
+  const ids = (values.get('ids') ?? defaults.join(',')).split(',').filter((s) => s.length > 0);
   if (ids.length === 0) throw new Error(`--ids names no vehicle -- ${USAGE}`);
 
   const tiersRaw = values.get('tiers');
-  const tierLevels = tiersRaw === undefined ? [0, 3] : [Number(tiersRaw)];
+  const tierLevels = tiersRaw === undefined ? (runningGear ? [0] : [0, 3]) : [Number(tiersRaw)];
   for (const t of tierLevels) {
     if (tiersRaw === '' || !Number.isInteger(t) || t < 0 || t > 3) {
       throw new Error(`--tiers must be 0, 1, 2 or 3 (got "${tiersRaw}")`);
@@ -68,13 +81,19 @@ export function parseKitDrawcallArgs(argv: readonly string[], platform: NodeJS.P
   const n = nRaw === undefined ? 20 : Number(nRaw);
   if (nRaw === '' || !Number.isInteger(n) || n < 1) throw new Error(`--n must be a positive integer (got "${nRaw}")`);
 
-  return { ids, tierLevels, n, gpu: resolveGpuBackend(argv, platform), syntheticKit };
+  return { ids, tierLevels, n, gpu: resolveGpuBackend(argv, platform), syntheticKit, runningGear };
 }
 
 /** Submissions per vehicle per frame, all three passes: 4 live meshes x 3,
  *  and the D9's 2 x 3 (spec §5's measured table). */
 export const EXPECTED_DEFAULT = 12;
-export const EXPECTED: Readonly<Record<string, number>> = { dozer_d9: 6 };
+export const EXPECTED: Readonly<Record<string, number>> = {
+  dozer_d9: 6,
+  // The two enemy pickups ship five live meshes (a glass and a metal hull part
+  // beside the hull, the rubber and the gun): 5 x 3.
+  gun_truck: 15,
+  technical: 15,
+};
 
 export interface KitReading {
   readonly id: string;
@@ -96,5 +115,33 @@ export function kitReadingFailure(r: KitReading): string | null {
       `or pass --synthetic-kit to measure a stand-in`
     );
   }
+  return null;
+}
+
+export interface RunningGearReading {
+  readonly id: string;
+  /** Submissions per vehicle, parked (the original material). */
+  readonly perVehicle: number;
+  /** The template carried `rl_running_gear`. */
+  readonly rgSpec: boolean;
+  /** Clones bound to a running-gear material (of the run's N). */
+  readonly rgBound: number;
+  /** Submissions per vehicle with every clone bound. */
+  readonly rgPerVehicle: number | null;
+  /** Programs added by binding (the design expects at most one). */
+  readonly rgPrograms: number | null;
+  /** `console.error`s in the page so far: a shader that failed to compile. */
+  readonly consoleErrors: number;
+}
+
+/** GH-177's +0: the running-gear material must cost no submission, the
+ *  shipped Draco file must still carry the tags the loader maps, and the
+ *  patched shader must compile. `null` for a pass. */
+export function runningGearReadingFailure(r: RunningGearReading): string | null {
+  if (!r.rgSpec) return `${r.id}'s shipped GLB carries no rl_running_gear (run pnpm running-gear:meshes, then encode)`;
+  if (r.rgBound === 0) return `${r.id}: no clone could be bound -- the Draco-decoded geometry has no _rl_wheel/_rl_track`;
+  if (r.rgPerVehicle !== r.perVehicle) return `${r.id}: ${r.rgPerVehicle} submissions/vehicle bound, ${r.perVehicle} parked`;
+  if (r.rgPrograms === null || r.rgPrograms > 1) return `${r.id}: binding added ${r.rgPrograms} programs, want at most 1`;
+  if (r.consoleErrors > 0) return `${r.id}: ${r.consoleErrors} console error(s) -- did the patched shader compile?`;
   return null;
 }
