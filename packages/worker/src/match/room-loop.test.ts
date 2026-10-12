@@ -107,9 +107,10 @@ async function setUp(digest1: (tick: number) => number | null = sameHash): Promi
   const state = new FakeState();
   const room = new MatchRoom(state, env);
   const res = await room.fetch(new Request('https://room/create', {
-    method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD }),
+    method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD, player: 'Host', callsign: 'Host' }),
   }));
   expect(res.status).toBe(200);
+  expect((await room.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player: 'Guest', callsign: 'Guest' }) }))).status).toBe(200);
   const loop = new Loop(room);
   const exp = NOW + 3600 * 1000;
   const p0 = new Player(loop, await signTicket(SECRET, { matchId: CODE, seat: 0, player: 'Host', exp }), sameHash);

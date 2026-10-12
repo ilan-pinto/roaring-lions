@@ -1398,7 +1398,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  machines must boot the same world, so a flag one player typed would
    *  desync them at tick 0. Decided here, before the kit below reads `&kit`. */
   const inRoom = params.get('net') !== null;
-  if (inRoom && req.missionId !== null) throw new Error('N0: a room runs the sandbox only -- open /free-play/<map>?net=new');
+  if (inRoom && req.missionId !== null) throw new Error('a room runs Free Play only -- open /free-play/<map>?net=new');
   const flags = roomFlags(readFlags(params), inRoom, (k) => console.warn(`[net] sandbox flag &${k} is ignored in a room`));
   const audio = battleAudio();
   const { boughtUnits, ownedTiers } = accountState();
@@ -1638,6 +1638,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         history.replaceState(history.state, '', u);
       },
       note: (text) => console.info(`[net] ${text}`),
+      // The property access itself throws when site data is blocked.
+      store: ((): Storage | null => { try { return window.localStorage; } catch { return null; } })(),
       signal: req.signal,
     });
   } catch (err) {

@@ -40,10 +40,11 @@ import type { Env } from '../d1';
 import type { DurableStateLike, HibernatingSocket, UpgradeInit } from '../do-types';
 import { createRoom, seatJoin, seatMessage, seatGone, clockTick, expire, persistKey, revive, type Effect, type RoomState } from './room-core';
 import { verifyTicket } from './ticket';
-import { DEFAULT_MAP, textField } from './room-fields';
+import { DEFAULT_MAP, callsignField, textField } from './room-fields';
 
 export const TICK_MS = 50;
-const SIM_SEED_N0 = 20260727;   // the app's SIM_SEED; N1 mints one per match
+/** A sandbox room's seed: the app's SIM_SEED, so the two-machine protocol stays N0's. A versus room mints its own. */
+const SIM_SEED_N0 = 20260727;
 /** Frames per persisted row: one row a second at the 20 Hz tick. */
 export const BATCH_TICKS = 20;
 const CREATE_SQL = 'CREATE TABLE IF NOT EXISTS batch (first_tick INTEGER PRIMARY KEY, frames TEXT NOT NULL)';
@@ -55,8 +56,27 @@ const LAST_SQL = 'SELECT first_tick, frames FROM batch ORDER BY first_tick DESC 
 interface RoomMeta {
   map: string;
   build: string;
+  /** `sandbox` is N0's two-humans-on-side-0 room; `versus` seats the guest on side 1. */
+  mode: 'sandbox' | 'versus';
+  /** The match seed, fixed at `/create`: one per versus room, the app's SIM_SEED for a sandbox. */
+  seed: number;
+  /** What each seat typed, from `/create` and `/join`; the ticket carries the player id instead. */
+  callsigns: [string, string];
   /** Set by the first `/join`, so a second one is refused before the guest's hello (R5). */
   seat1Reserved: boolean;
+}
+/** A room persisted by N0 has no mode, seed or callsigns in its meta: it reads
+ *  as the sandbox it was, on N0's seed, and its callsigns are the ones its
+ *  seats already hold (N0 put the callsign in the ticket's `player`). */
+function legacyMeta(m: Partial<RoomMeta>, st: RoomState | null): RoomMeta {
+  return {
+    map: m.map ?? DEFAULT_MAP,
+    build: m.build ?? '',
+    mode: m.mode === 'versus' ? 'versus' : 'sandbox',
+    seed: typeof m.seed === 'number' ? m.seed : SIM_SEED_N0,
+    callsigns: Array.isArray(m.callsigns) && m.callsigns.length === 2 ? m.callsigns : [st?.seats[0]?.callsign ?? '', st?.seats[1]?.callsign ?? ''],
+    seat1Reserved: m.seat1Reserved === true,
+  };
 }
 interface SocketAttachment { seat: Seat | null }
 
@@ -104,8 +124,9 @@ export class MatchRoom {
   private load(): Promise<RoomState | null> {
     if (this.st) return Promise.resolve(this.st);
     this.loading ??= (async () => {
-      this.meta = (await this.ctx.storage.get<RoomMeta>('meta')) ?? null;
+      const stored = (await this.ctx.storage.get<Partial<RoomMeta>>('meta')) ?? null;
       const st = (await this.ctx.storage.get<RoomState>('state')) ?? null;
+      this.meta = stored === null ? null : legacyMeta(stored, st);
       if (st) {
         const [lastRow] = this.batches(LAST_SQL);
         revive(st, lastRow ? lastRow.firstTick + lastRow.frames.length : 0, Date.now());
@@ -161,12 +182,13 @@ export class MatchRoom {
   // --- effects --------------------------------------------------------------
 
   private mintConfig(st: RoomState): MatchConfig {
+    const mode = this.meta?.mode ?? 'sandbox';
     const seatConfig = (seat: Seat): SeatConfig => {
       const s = st.seats[seat];
-      return { seat, side: 0, faction: 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: s?.player ?? '', callsign: s?.callsign ?? '', kind: 'human' };
+      return { seat, side: mode === 'versus' ? seat : 0, faction: 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: s?.player ?? '', callsign: this.meta?.callsigns[seat] ?? s?.callsign ?? '', kind: 'human' };
     };
     const config = validateConfig({
-      matchId: st.matchId, code: st.code, seed: SIM_SEED_N0, map: this.meta?.map ?? DEFAULT_MAP, mode: 'sandbox',
+      matchId: st.matchId, code: st.code, seed: this.meta?.seed ?? SIM_SEED_N0, map: this.meta?.map ?? DEFAULT_MAP, mode,
       seats: [seatConfig(0), seatConfig(1)],
       pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: this.meta?.build ?? '', dataDigest: 0,
     });
@@ -236,8 +258,13 @@ export class MatchRoom {
       // An empty build would switch the hello's build check off: refuse it here as the route does.
       const build = textField(body.build, '');
       if (build === '') return new Response('no build', { status: 400 });
+      // The ticket's `player` is the anonymous id; a room without one cannot tell its seats apart.
+      if (textField(body.player, '') === '') return new Response('no player', { status: 400 });
+      const mode = body.mode === 'versus' ? 'versus' : 'sandbox';
+      // A signed int32: validateConfig takes any integer, so the sign needs no care.
+      const seed = mode === 'versus' ? crypto.getRandomValues(new Uint32Array(1))[0] | 0 : SIM_SEED_N0;
       this.st = createRoom(body.code, body.matchId, Date.now());
-      this.meta = { map: textField(body.map, DEFAULT_MAP), build, seat1Reserved: false };
+      this.meta = { map: textField(body.map, DEFAULT_MAP), build, mode, seed, callsigns: [callsignField(body.callsign), ''], seat1Reserved: false };
       await this.ctx.storage.put('meta', this.meta);
       await this.save();
       return Response.json({ ok: true });
@@ -246,9 +273,11 @@ export class MatchRoom {
     if (pathname === '/state') return Response.json({ status: st.status, seats: st.seats.filter((s) => s !== null).length });
     if (pathname === '/join' && req.method === 'POST') {
       if (st.status === 'ended') return new Response('ended', { status: 410 });
-      const meta = this.meta ?? { map: DEFAULT_MAP, build: '', seat1Reserved: false };
+      const meta = this.meta ?? legacyMeta({}, st);
       if (st.seats[1] !== null || meta.seat1Reserved) return new Response('full', { status: 409 });
-      this.meta = { ...meta, seat1Reserved: true };
+      let body: Record<string, unknown> = {};
+      try { const v: unknown = await req.json(); if (typeof v === 'object' && v !== null) body = v as Record<string, unknown>; } catch { /* no body: the callsign defaults */ }
+      this.meta = { ...meta, callsigns: [meta.callsigns[0], callsignField(body.callsign)], seat1Reserved: true };
       await this.ctx.storage.put('meta', this.meta);
       return Response.json({ seat: 1 });
     }
@@ -299,8 +328,7 @@ export class MatchRoom {
     const build = this.meta?.build ?? '';
     if (build === '' || msg.build !== build) { reply(ws, { t: 'error', code: 'build_mismatch' }); shut(ws, 4002, 'build'); return; }
     (ws as HibernatingSocket).serializeAttachment({ seat: ticket.seat } satisfies SocketAttachment);
-    // N0's ticket `player` carries the callsign the client sent; N1 splits them.
-    await this.apply(seatJoin(st, ticket.seat, ticket.player, ticket.player, Date.now(), () => this.readLog()), ws);
+    await this.apply(seatJoin(st, ticket.seat, ticket.player, this.meta?.callsigns[ticket.seat] ?? '', Date.now(), () => this.readLog()), ws);
   }
 
   /** Close and error both land here, and the runtime may deliver BOTH for one

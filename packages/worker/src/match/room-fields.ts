@@ -8,3 +8,10 @@ export const MAX_FIELD_CHARS = 64;
 export function textField(v: unknown, fallback: string): string {
   return (typeof v === 'string' ? v : fallback).slice(0, MAX_FIELD_CHARS);
 }
+
+/** A callsign is a label a player typed, shown in the lobby and the HUD; the
+ *  room and the route both cap it the same way. Absent or empty is 'Lion'. */
+export const MAX_CALLSIGN_CHARS = 24;
+export function callsignField(v: unknown): string {
+  return typeof v === 'string' && v !== '' ? v.slice(0, MAX_CALLSIGN_CHARS) : 'Lion';
+}

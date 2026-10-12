@@ -18,19 +18,27 @@ const CODE = 'ABCDEF';
 const BUILD = 'b1';
 const env = { DB: {}, ASSETS: { fetch: async () => new Response('') }, TICKET_SECRET: SECRET } as unknown as Env;
 
-const ticket = (seat: Seat, matchId = CODE, player = seat === 0 ? 'Host' : 'Guest'): Promise<string> =>
+/** The ticket's `player` is the anonymous player id; the callsign is the room's (N1a task 8). */
+const ticket = (seat: Seat, matchId = CODE, player = seat === 0 ? 'p-host' : 'p-guest'): Promise<string> =>
   signTicket(SECRET, { matchId, seat, player, exp: NOW + 3600 * 1000 });
 const msgs = (ws: FakeSocket): ServerMsg[] => ws.messages() as ServerMsg[];
 const last = (ws: FakeSocket): ServerMsg | undefined => msgs(ws).at(-1);
 const ofType = <T extends ServerMsg['t']>(ws: FakeSocket, t: T): Extract<ServerMsg, { t: T }>[] =>
   msgs(ws).filter((m): m is Extract<ServerMsg, { t: T }> => m.t === t);
 
-async function created(state = new FakeState()): Promise<{ state: FakeState; room: MatchRoom }> {
+interface CreateOpts { mode?: string; join?: boolean; code?: string }
+/** Creates the room and, unless `join: false`, has the guest reserve seat 1 as the Worker does. */
+async function created(state = new FakeState(), opts: CreateOpts = {}): Promise<{ state: FakeState; room: MatchRoom }> {
   const room = new MatchRoom(state, env);
   const res = await room.fetch(new Request('https://room/create', {
-    method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD }),
+    method: 'POST',
+    body: JSON.stringify({ code: opts.code ?? CODE, matchId: opts.code ?? CODE, map: 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', ...(opts.mode ? { mode: opts.mode } : {}) }),
   }));
   expect(res.status).toBe(200);
+  if (opts.join !== false) {
+    const join = await room.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player: 'p-guest', callsign: 'Guest' }) }));
+    expect(join.status).toBe(200);
+  }
   return { state, room };
 }
 async function say(room: MatchRoom, ws: FakeSocket, msg: unknown): Promise<void> {
@@ -41,8 +49,8 @@ async function hello(room: MatchRoom, seat: Seat, t?: string, build = BUILD): Pr
   await say(room, ws, { t: 'hello', ticket: t ?? (await ticket(seat)), build });
   return ws;
 }
-async function running(): Promise<{ state: FakeState; room: MatchRoom; ws0: FakeSocket; ws1: FakeSocket }> {
-  const { state, room } = await created();
+async function running(opts: CreateOpts = {}): Promise<{ state: FakeState; room: MatchRoom; ws0: FakeSocket; ws1: FakeSocket }> {
+  const { state, room } = await created(new FakeState(), opts);
   const ws0 = await hello(room, 0);
   const ws1 = await hello(room, 1);
   await say(room, ws0, { t: 'ready' });
@@ -118,6 +126,73 @@ describe('MatchRoom', () => {
       expect(starts[0].config).toMatchObject({ matchId: CODE, code: CODE, map: 'tel_marum', build: BUILD, mode: 'sandbox' });
       expect(starts[0].config.seats.map((s) => s.callsign)).toEqual(['Host', 'Guest']);
     }
+  });
+
+  it('a versus room puts seat 1 on side 1, both on kdf, with the callsigns sent at create and join', async () => {
+    const { ws0, ws1 } = await running({ mode: 'versus' });
+    for (const ws of [ws0, ws1]) {
+      const [start] = ofType(ws, 'start');
+      expect(start.config.mode).toBe('versus');
+      expect(start.config.seats.map((s) => s.side)).toEqual([0, 1]);
+      expect(start.config.seats.map((s) => s.faction)).toEqual(['kdf', 'kdf']);
+      expect(start.config.seats.map((s) => s.callsign)).toEqual(['Host', 'Guest']);
+      expect(start.config.seats.map((s) => s.player)).toEqual(['p-host', 'p-guest']);
+    }
+  });
+
+  it('two versus rooms created in a row mint different seeds, and both seeds are valid config seeds', async () => {
+    const a = await running({ mode: 'versus' });
+    const b = await running({ mode: 'versus' });
+    const seedA = ofType(a.ws0, 'start')[0].config.seed;
+    const seedB = ofType(b.ws0, 'start')[0].config.seed;
+    expect(Number.isInteger(seedA) && Number.isInteger(seedB)).toBe(true);
+    expect(seedA).not.toBe(seedB);
+    // Both seats of one match carry the one seed.
+    expect(ofType(a.ws1, 'start')[0].config.seed).toBe(seedA);
+  });
+
+  it('a sandbox room keeps N0: both seats on side 0, seed 20260727', async () => {
+    const { ws0 } = await running();
+    const [start] = ofType(ws0, 'start');
+    expect(start.config.mode).toBe('sandbox');
+    expect(start.config.seats.map((s) => s.side)).toEqual([0, 0]);
+    expect(start.config.seed).toBe(20260727);
+    const explicit = await running({ mode: 'sandbox' });
+    expect(ofType(explicit.ws0, 'start')[0].config.seed).toBe(20260727);
+  });
+
+  it('an unknown mode is a sandbox, and /create refuses an empty player', async () => {
+    const { ws0 } = await running({ mode: 'conquest' });
+    expect(ofType(ws0, 'start')[0].config.mode).toBe('sandbox');
+    const room = new MatchRoom(new FakeState(), env);
+    for (const player of [undefined, '', 7]) {
+      const res = await room.fetch(new Request('https://room/create', { method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, build: BUILD, ...(player === undefined ? {} : { player }) }) }));
+      expect(res.status).toBe(400);
+    }
+    expect((await room.fetch(new Request('https://room/state'))).status).toBe(404);
+  });
+
+  it('a callsign survives a rejoin from the room, not from the ticket', async () => {
+    const { room } = await created(new FakeState(), { mode: 'versus' });
+    const ws = await hello(room, 1);
+    expect(ofType(ws, 'lobby').at(-1)?.seats).toEqual([{ seat: 1, callsign: 'Guest', connected: true, ready: false }]);
+  });
+
+  it('a lobby persisted by N0 (no mode, seed or callsigns in its meta) revives as a sandbox, keeping the callsigns its seats held', async () => {
+    const { state, room } = await created();
+    await hello(room, 0);
+    await hello(room, 1);
+    state.storage.kv.set('meta', { map: 'tel_marum', build: BUILD, seat1Reserved: true });
+    evict();
+    const revived = new MatchRoom(state, env);
+    const ws0 = await hello(revived, 0);
+    const ws1 = await hello(revived, 1);
+    expect(ofType(ws0, 'lobby').at(-1)?.seats.map((s) => s.callsign)).toEqual(['Host', 'Guest']);
+    await say(revived, ws0, { t: 'ready' });
+    await say(revived, ws1, { t: 'ready' });
+    const [start] = ofType(ws0, 'start');
+    expect(start.config).toMatchObject({ mode: 'sandbox', seed: 20260727 });
+    expect(start.config.seats.map((s) => [s.side, s.callsign])).toEqual([[0, 'Host'], [0, 'Guest']]);
   });
 
   it('the clock sends a frame per 50 ms to both seats, and persists them as one row when the batch closes', async () => {
@@ -200,7 +275,7 @@ describe('MatchRoom', () => {
 
   it('/create refuses an empty build, so the hello build check can never be off', async () => {
     const room = new MatchRoom(new FakeState(), env);
-    const res = await room.fetch(new Request('https://room/create', { method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE }) }));
+    const res = await room.fetch(new Request('https://room/create', { method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, player: 'p-host' }) }));
     expect(res.status).toBe(400);
     expect((await room.fetch(new Request('https://room/state'))).status).toBe(404);
   });
@@ -216,7 +291,7 @@ describe('MatchRoom', () => {
   });
 
   it('/join reserves seat 1 in storage: a second join is refused before any hello', async () => {
-    const { state, room } = await created();
+    const { state, room } = await created(new FakeState(), { join: false });
     const join = () => room.fetch(new Request('https://room/join', { method: 'POST', body: '{}' }));
     const first = await join();
     expect(first.status).toBe(200);
@@ -228,7 +303,7 @@ describe('MatchRoom', () => {
   });
 
   it('an expired lobby answers `ended expired` from any handler and refuses work (no clock, no alarm)', async () => {
-    const { state, room } = await created();
+    const { state, room } = await created(new FakeState(), { join: false });
     const ws0 = await hello(room, 0);
     vi.setSystemTime(NOW + 6 * 3600 * 1000 + 1);
     expect((await room.fetch(new Request('https://room/join', { method: 'POST', body: '{}' }))).status).toBe(410);
