@@ -227,7 +227,7 @@
   "net.stall.gone": "Waiting for {seat}: connection lost",
   "net.desync": "Desync at {time} in room {code}. The match is void.",
   "net.desync.report": "Report",
-  "net.desync.draft": "Desync in room {code} at {time} (tick {tick}, seat {seat})",
+  "net.desync.draft": "Desync in room {code} at {time} (seat {seat})",
   "net.paused": "Paused by {seat}: {time}",
   "net.closed": "{reason, select, left {The other seat left the match} void {Match void} expired {The room expired} replaced {This seat was opened in another tab} other {Match closed}}",
   "net.chat.placeholder": "Say something (Enter to send)",

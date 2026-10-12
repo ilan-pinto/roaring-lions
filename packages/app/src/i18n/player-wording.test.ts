@@ -82,8 +82,6 @@ const ID_ARGS = new Set(['id', 'ids']);
 const ALLOWED: Readonly<Record<string, string>> = {
   // Empty at WP-P2: every hit the sweep found was reworded rather than
   // exempted. Add `key: 'reason'` here for a use a player genuinely needs.
-  'net.desync.draft':
-    "N1b task 11: not chrome but the prefilled text of the player's own desync report, addressed to the developers; the tick is the key the room's D1 evidence (match_desync) is read by, and the player sees the match time beside it",
 };
 
 /** Every reason a value would read as developer language, or [] if none. */

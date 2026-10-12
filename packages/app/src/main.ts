@@ -3334,13 +3334,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   };
   /** The desync line's Report (N1b task 11, R-B13/R-B16): the pause menu's
    *  own feedback form, opened on its tab, its draft already a `bug` naming
-   *  the room, the match time, the tick and this seat. The room code is the
-   *  reference: the room has written both seats' hashes to D1 under it
-   *  (`match_desync`), so nothing else rides on the note. A menu already open
+   *  the room, the match time and this seat. The room code is the reference:
+   *  the room has written both seats' hashes to D1 under it (`match_desync`,
+   *  one row a match; the time locates it), so nothing else rides on the
+   *  note, and the text stays player wording (PA-01: no "tick"). A menu already open
    *  is closed first and reopened there; it never asks the room to pause. */
   const reportDesync = (tick: number): void => {
     if (room === null || netConfig === null || netSeat === null) return;
-    const line = t('net.desync.draft', { code: netConfig.code, time: matchClock(tick), tick, seat: netSeat });
+    const line = t('net.desync.draft', { code: netConfig.code, time: matchClock(tick), seat: netSeat });
     holdDraft(desyncReportDraft(readDraft(fb.storage), line));
     closeOpenDialog();
     pauseHandle?.close();

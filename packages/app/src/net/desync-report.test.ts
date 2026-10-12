@@ -1,14 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { EMPTY_DRAFT } from '../feedback/draft';
 import { TEXT_MAX } from '../feedback/meta';
+import { t } from '../i18n/t';
 import { desyncReportDraft, withoutReplay } from './desync-report';
 
-const LINE = 'Desync in room TESTAB at 0:02 (tick 39, seat 1)';
+const LINE = 'Desync in room TESTAB at 0:02 (seat 1)';
 
 // N1b task 11 (R-B13, R-B16): a desync's Report prefills the pause menu's
 // feedback form through the existing draft, as a bug, with no replay -- the
 // room has already written the evidence to D1 (`match_desync`).
 describe('desyncReportDraft', () => {
+  it('the catalogue line names the room, the match time and the seat, in player wording (no tick)', () => {
+    expect(t('net.desync.draft', { code: 'TESTAB', time: '0:02', seat: 1 })).toBe(LINE);
+  });
   it('an empty draft becomes a bug report that names the room', () => {
     expect(desyncReportDraft(EMPTY_DRAFT, LINE)).toEqual({ kind: 'bug', text: LINE, contact: '' });
   });

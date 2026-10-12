@@ -94,7 +94,7 @@
 // output directory must be OUTSIDE the watched tree (a PNG written inside
 // packages/app or assets/ triggers vite-plugin-asset-watch and reloads the
 // page being photographed) -- .superpowers/ is git-ignored and unwatched.
-import { chromium, type Browser, type Page } from 'playwright';
+import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { FREEZE_FOR_SCREENSHOT_SCRIPT, RESTORE_AFTER_SCREENSHOT_SCRIPT } from './frame-freeze';
 import { claimGpuBackend, gpuLaunchArgs } from './gpu';
 import fs from 'node:fs';
@@ -306,70 +306,80 @@ const VERSUS_CODE = 'TESTAB';
  * the lead's picture gate, not a voting baseline.
  */
 async function versusStates(browser: Browser, res: { width: number; height: number }, dir: string): Promise<void> {
-  const ctx = await browser.newContext({
-    viewport: { width: res.width, height: res.height },
-    deviceScaleFactor: 1,
-  });
-  await ctx.addInitScript(musicOffInitScript());
-  await ctx.route(/\/api\/match(\/[A-Z0-9]+\/join)?$/, async (route) => {
-    if (route.request().method() !== 'POST') {
-      await route.fulfill({ status: 405, body: '' });
-      return;
-    }
-    const joining = route.request().url().endsWith('/join');
-    await route.fulfill({
-      status: joining ? 200 : 201,
-      contentType: 'application/json',
-      body: JSON.stringify({ code: VERSUS_CODE, seat: joining ? 1 : 0, ticket: 'capture-ticket' }),
+  // Fix round 1 (R-B21): an addition to the walk must not be able to fail
+  // it. Anything here that throws -- the context, its routes, a timed-out
+  // goto, fill or click -- is warned by name and the walk goes on; the
+  // context always closes.
+  let ctx: BrowserContext | null = null;
+  try {
+    ctx = await browser.newContext({
+      viewport: { width: res.width, height: res.height },
+      deviceScaleFactor: 1,
     });
-  });
-  await ctx.routeWebSocket(/\/api\/match\/[A-Z0-9]+\/ws$/, (ws) => {
-    ws.onMessage((raw) => {
-      let msg: { t?: unknown } = {};
-      try {
-        msg = JSON.parse(typeof raw === 'string' ? raw : raw.toString('utf8')) as { t?: unknown };
-      } catch {
+    await ctx.addInitScript(musicOffInitScript());
+    await ctx.route(/\/api\/match(\/[A-Z0-9]+\/join)?$/, async (route) => {
+      if (route.request().method() !== 'POST') {
+        await route.fulfill({ status: 405, body: '' });
         return;
       }
-      if (msg.t !== 'hello') return;
-      ws.send(
-        JSON.stringify({
-          t: 'lobby',
-          config: null,
-          seats: [
-            { seat: 0, callsign: 'Shai', connected: true, ready: true },
-            { seat: 1, callsign: 'Idit', connected: true, ready: false },
-          ],
-          you: 1,
-          map: 'tel_marum',
-        })
-      );
+      const joining = route.request().url().endsWith('/join');
+      await route.fulfill({
+        status: joining ? 200 : 201,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: VERSUS_CODE, seat: joining ? 1 : 0, ticket: 'capture-ticket' }),
+      });
     });
-  });
-  const page = await ctx.newPage();
-  page.setDefaultTimeout(30000);
+    await ctx.routeWebSocket(/\/api\/match\/[A-Z0-9]+\/ws$/, (ws) => {
+      ws.onMessage((raw) => {
+        let msg: { t?: unknown } = {};
+        try {
+          msg = JSON.parse(typeof raw === 'string' ? raw : raw.toString('utf8')) as { t?: unknown };
+        } catch {
+          return;
+        }
+        if (msg.t !== 'hello') return;
+        ws.send(
+          JSON.stringify({
+            t: 'lobby',
+            config: null,
+            seats: [
+              { seat: 0, callsign: 'Shai', connected: true, ready: true },
+              { seat: 1, callsign: 'Idit', connected: true, ready: false },
+            ],
+            you: 1,
+            map: 'tel_marum',
+          })
+        );
+      });
+    });
+    const page = await ctx.newPage();
+    page.setDefaultTimeout(30000);
 
-  await page.goto(url('/versus'), { waitUntil: 'load' });
-  await settle(page, 2000);
-  await shot(page, dir, '01c-versus');
+    await page.goto(url('/versus'), { waitUntil: 'load' });
+    await settle(page, 2000);
+    await shot(page, dir, '01c-versus');
 
-  await page.goto(url(`/versus/${VERSUS_CODE}`), { waitUntil: 'load' });
-  await settle(page, 2000);
-  await page.locator('.rl-versus__callsign').first().fill('Idit');
-  await shot(page, dir, '01d-versus-join');
+    await page.goto(url(`/versus/${VERSUS_CODE}`), { waitUntil: 'load' });
+    await settle(page, 2000);
+    await page.locator('.rl-versus__callsign').first().fill('Idit');
+    await shot(page, dir, '01d-versus-join');
 
-  await page.click('.rl-versus__join');
-  // The lobby is up once the code is drawn large and both seat cards are in.
-  const lobby = await page
-    .waitForFunction(() => document.querySelectorAll('.rl-versus__seat').length === 2 && document.querySelector('.rl-versus__code') !== null, null, {
-      timeout: 15000,
-    })
-    .then(() => true)
-    .catch(() => false);
-  if (!lobby) console.warn(`[${TAG}] the faked room's lobby never drew; 01e-versus-lobby shows whatever is on screen`);
-  await settle(page, 1500);
-  await shot(page, dir, '01e-versus-lobby');
-  await ctx.close();
+    await page.click('.rl-versus__join');
+    // The lobby is up once the code is drawn large and both seat cards are in.
+    const lobby = await page
+      .waitForFunction(() => document.querySelectorAll('.rl-versus__seat').length === 2 && document.querySelector('.rl-versus__code') !== null, null, {
+        timeout: 15000,
+      })
+      .then(() => true)
+      .catch(() => false);
+    if (!lobby) console.warn(`[${TAG}] the faked room's lobby never drew; 01e-versus-lobby shows whatever is on screen`);
+    await settle(page, 1500);
+    await shot(page, dir, '01e-versus-lobby');
+  } catch (err) {
+    console.warn(`[${TAG}] the friend match's screens (01c-01e) failed and were skipped: ${String(err)}`);
+  } finally {
+    await ctx?.close().catch(() => undefined);
+  }
 }
 
 /**
