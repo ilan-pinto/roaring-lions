@@ -51,7 +51,11 @@ function structureTypes(): string[] {
 }
 
 /** The glTF JSON chunk of a binary GLB: 12-byte header, then chunk 0 (JSON). */
-function glbJson(file: string): { animations?: { name?: string }[] } {
+function glbJson(file: string): {
+  animations?: { name?: string }[];
+  scenes?: { extras?: Record<string, unknown> }[];
+  scene?: number;
+} {
   const buf = readFileSync(file);
   if (buf.readUInt32LE(0) !== 0x46546c67) throw new Error(`${file}: not a GLB (bad magic)`);
   const len = buf.readUInt32LE(12);
@@ -140,5 +144,62 @@ describe('mesh roster precondition (every unit and structure has its mesh on dis
         .map(rel)
     );
     expect(missing, 'structure meshes missing').toEqual([]);
+  });
+});
+
+// GH-177's second half (contract v7): which vehicles carry running gear, as
+// LITERALS from the lead's approved table (A1, A2, A3-A5, A9 in
+// docs/superpowers/specs/2026-10-12-wheels-and-tracks-design.md). Imports
+// nothing from the pass, the recipes or the contract module, for this file's
+// reason: a list that drifts with the code cannot vouch for itself.
+const RUNNING_GEAR: Record<string, { wheels: number; steered: number; tracks: number }> = {
+  apc_eitan: { wheels: 8, steered: 0, tracks: 0 },
+  apc_kipod: { wheels: 6, steered: 0, tracks: 0 },
+  dozer_d9: { wheels: 0, steered: 0, tracks: 2 },
+  gun_truck: { wheels: 4, steered: 2, tracks: 0 },
+  ifv_namer: { wheels: 12, steered: 0, tracks: 2 },
+  jeep_shoded: { wheels: 4, steered: 2, tracks: 0 },
+  mbt_lavi: { wheels: 0, steered: 0, tracks: 2 },
+  officer_armour: { wheels: 0, steered: 0, tracks: 2 },
+  rocket_battery: { wheels: 6, steered: 0, tracks: 0 },
+  scout_shachaf: { wheels: 4, steered: 2, tracks: 0 },
+  technical: { wheels: 4, steered: 2, tracks: 0 },
+};
+
+function runningGearOf(file: string): { wheels: { steer?: boolean }[]; tracks: unknown[] } | undefined {
+  const j = glbJson(file);
+  return (j.scenes?.[j.scene ?? 0]?.extras ?? {}).rl_running_gear as { wheels: { steer?: boolean }[]; tracks: unknown[] } | undefined;
+}
+
+function airUnitIds(): string[] {
+  return walkJson(path.join(REPO, 'data', 'units'))
+    .map((f) => JSON.parse(readFileSync(f, 'utf8')) as { id: string; mobility?: { domain?: string } })
+    .filter((u) => u.mobility?.domain === 'air')
+    .map((u) => u.id)
+    .sort();
+}
+
+describe('running gear on the roster (contract v7)', () => {
+  const dir = path.join(MESHES, 'vehicles');
+
+  it('every approved vehicle carries the approved wheels, steering and tracks', () => {
+    const got: Record<string, { wheels: number; steered: number; tracks: number } | null> = {};
+    for (const id of Object.keys(RUNNING_GEAR)) {
+      const g = runningGearOf(path.join(dir, `${id}.glb`));
+      got[id] = g ? { wheels: g.wheels.length, steered: g.wheels.filter((w) => w.steer).length, tracks: g.tracks.length } : null;
+    }
+    expect(got).toEqual(RUNNING_GEAR);
+  });
+
+  it('no other vehicle GLB carries any, and no air unit at all', () => {
+    const others = readdirSync(dir)
+      .filter((f) => f.endsWith('.glb'))
+      .map((f) => f.slice(0, -4))
+      .filter((id) => !(id in RUNNING_GEAR))
+      .filter((id) => runningGearOf(path.join(dir, `${id}.glb`)) !== undefined);
+    expect(others).toEqual([]);
+    const air = airUnitIds();
+    expect(air.length, 'reads real air units (vacuity guard)').toBeGreaterThan(2);
+    expect(air.filter((id) => id in RUNNING_GEAR)).toEqual([]);
   });
 });

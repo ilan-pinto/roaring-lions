@@ -576,6 +576,55 @@ def hide_death_root(objs, glb_path):
     return live, stashed
 
 
+RG_ATTRS = ("_RL_WHEEL", "_RL_TRACK")
+
+
+def check_running_gear_import(glb_json, unit_id):
+    """Every live `hull_*` node whose primitive carries the running-gear pair
+    (`_RL_WHEEL`, `_RL_TRACK`; mesh-unit contract v7) must come out of
+    `import_scene.gltf` with BOTH as mesh attributes, and a vehicle that
+    declares wheels must import at least one vertex tagged with a wheel. The
+    design doc's second unverified item (2026-10-12, section 2.4): the
+    custom attributes are new to every GLB this gate imports, and an importer
+    that dropped or mangled them would still render a perfect silhouette.
+    Raises (the caller reports MESH_GATE_FAIL) and prints the count it saw on
+    the passing path, so a run that checked nothing reads differently from
+    one that checked eleven vehicles."""
+    nodes = glb_json.get("nodes", [])
+    meshes = glb_json.get("meshes", [])
+    scene = (glb_json.get("scenes") or [{}])[glb_json.get("scene", 0)]
+    gear = (scene.get("extras") or {}).get("rl_running_gear")
+    wants_wheel = bool((gear or {}).get("wheels"))
+    expected = []
+    for i in scene.get("nodes", []):
+        node = nodes[i]
+        name = node.get("name", "")
+        if not name.startswith("hull_") or "mesh" not in node:
+            continue
+        attrs = meshes[node["mesh"]]["primitives"][0].get("attributes", {})
+        if all(a in attrs for a in RG_ATTRS):
+            expected.append(name)
+    if not expected:
+        if gear is not None:
+            raise SystemExit(f"{unit_id}: declares rl_running_gear and no hull primitive carries "
+                             f"{' and '.join(RG_ATTRS)}")
+        return
+    by_name = {o.name: o for o in bpy.context.scene.objects if o.type == "MESH"}
+    tagged_wheel = 0
+    for name in expected:
+        obj = by_name.get(name)
+        if obj is None:
+            raise SystemExit(f"{unit_id}: {name} carries the running-gear pair and did not import")
+        for a in RG_ATTRS:
+            if a not in obj.data.attributes:
+                raise SystemExit(f"{unit_id}: {name} carries {a} and Blender's importer dropped it")
+        tagged_wheel += sum(1 for d in obj.data.attributes["_RL_WHEEL"].data if d.value > 0)
+    if wants_wheel and tagged_wheel == 0:
+        raise SystemExit(f"{unit_id}: declares wheels and imported no vertex tagged with one")
+    print(f"MESH_GATE_WARN: {unit_id}: running gear imported on {'+'.join(expected)} "
+          f"({tagged_wheel} wheel-tagged vertices)")
+
+
 def hide_kit_parts(objs):
     """Take every `kit_*` object (and anything under one) out of the scene --
     UNLINKED from its collections exactly as `hide_death_root` does it, and
@@ -944,6 +993,11 @@ def render_one(glb_path, out_root):
         # BEFORE materials and before framing, both of which would otherwise
         # take the wreck into account -- see `hide_death_root`'s own docstring
         # for why `hide_render` alone does not do it.
+        # Contract v7 (running gear): BEFORE anything is hidden or repainted,
+        # the importer must have read the two custom attributes the file
+        # carries. A GLB Blender cannot read stops this vehicle's renders
+        # here, by name, rather than rendering a stand-in that looks right.
+        check_running_gear_import(glb_json, unit_id)
         mesh_objs, kit_stashed = hide_kit_parts(mesh_objs)
         if kit_stashed:
             print(f"MESH_GATE_WARN: {unit_id}: hid {len(kit_stashed)} kit_* "
