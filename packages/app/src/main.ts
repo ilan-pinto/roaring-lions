@@ -243,6 +243,7 @@ import { netReport } from './net/net-report';
 import { viewerSideOf } from './net/viewer';
 import { campOf, versusSpawns } from './net/versus-force';
 import { pruneHiddenHostiles, type SeatSight } from './net/hidden-selection';
+import { garrisonRoomShown } from './net/hover-garrison';
 import { NetStatusLine } from './ui/net-status';
 import { lightOverrideOf, timeOfDayOf } from './time-of-day';
 import { buildingFitOf } from './building-fit-flag';
@@ -1661,6 +1662,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // Set on the shared mixer every boot, so a single-player mission after a
   // room hears its own side again.
   const me = viewerSideOf(netConfig, netSeat);
+  /** A versus room: fog is private to this seat (network design §5.1). */
+  const versusRoom = netConfig?.mode === 'versus';
   audio.setViewer(me);
   /** The boot banner and the body of `__lions.help()` — one text, so what a
    *  sandbox prints on load and what the console answers can never disagree. */
@@ -5295,7 +5298,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   renderer.hoverStructure = hs;
   renderer.hoverCanGarrison =
     hs >= 0 &&
-    sim.structures.occupants[hs] < sim.structureTypes[sim.structures.typeIdx[hs]].garrisonSlots &&
+    // In a versus room a building out of sight reads as empty, so the arrow
+    // does not say whether the enemy has filled it (N1a final review).
+    garrisonRoomShown(sim, hs, versusRoom, (wx, wy) => renderer.isVisible(wx, wy)) &&
     renderer.selection.some(
       (i) =>
         isOwnSide(sim.state.side[i], me) &&
@@ -5465,7 +5470,6 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // A versus seat keeps no unit of the other side selected once the fog hides
   // it (N1a final review): its HUD card would go on reporting a unit this seat
   // cannot see. Single-player never prunes, as main never did.
-  const versusRoom = netConfig?.mode === 'versus';
   const seatSight: SeatSight = {
     viewer: me,
     sideOf: (i) => sim.state.side[i],
