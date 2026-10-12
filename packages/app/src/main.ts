@@ -236,10 +236,10 @@ import { bindLiveTeamColors } from './live-team-colors';
 import { garageColors, garageGroundTexture, garageModelSource } from './garage-model-source';
 import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
-import { PAUSES_PER_SEAT, WsTransport, type Seat } from '@lions/net';
+import { PAUSES_PER_SEAT, WsTransport, type Seat, type TransportStatus } from '@lions/net';
 import { connectMatch, openRoom, type Connected } from './net/connect';
 import { desyncReportDraft, withoutReplay } from './net/desync-report';
-import { escapeOpensPause, roomPauseCall, surrenderOffered } from './net/room-pause';
+import { escapeOpensPause, pauseEndClosesMenu, roomPauseCall, surrenderOffered } from './net/room-pause';
 import { roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
 import { safeStorage as safeStorageLike } from './telemetry/identity';
 import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
@@ -5701,6 +5701,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  average of what `stepFrames` took per frame it ran (app code on the
    *  frame clock; the sim never sees it). Sizes a rejoin's catch-up. */
   let tickCostMs = INITIAL_TICK_COST_MS;
+  /** The room's status as the last frame saw it: what `pauseEndClosesMenu`
+   *  compares this frame's with. */
+  let roomStatusSeen: TransportStatus = room?.status() ?? { kind: 'local' };
   const loop = (): void => {
     rafId = requestAnimationFrame(loop);
     // The speed control feeds the ACCUMULATOR, never the tick. A tick is 50 ms
@@ -5745,7 +5748,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // A room's pause (either seat's) quiets the mix and dims the strip as a
     // local pause does; the room's status is the only thing that says so.
     if (room !== null) {
-      const nowPaused = room.status().kind === 'paused';
+      const roomStatus = room.status();
+      // This seat's own pause ended by itself (the room's 90 s auto-resume):
+      // the menu it opened closes, or the match runs on under the modal.
+      if (netSeat !== null && pauseEndClosesMenu(roomStatusSeen, roomStatus, netSeat, pauseHandle !== null)) {
+        pauseHandle?.close();
+        pauseHandle = null;
+      }
+      roomStatusSeen = roomStatus;
+      const nowPaused = roomStatus.kind === 'paused';
       if (nowPaused !== roomPaused) {
         roomPaused = nowPaused;
         audio.setPaused(nowPaused);

@@ -11,7 +11,7 @@
  * from the last `paused` message it saw, starting at `PAUSES_PER_SEAT` -- and
  * with none left it does not ask, and says so instead (`note`).
  */
-import type { TransportStatus } from '@lions/net';
+import type { Seat, TransportStatus } from '@lions/net';
 
 export interface RoomPauseCall {
   /** Send `pause` to the room. */
@@ -42,4 +42,15 @@ export function surrenderOffered(status: TransportStatus): boolean {
  *  the end panel has no use for a menu behind it. */
 export function escapeOpensPause(s: { paused: boolean; missionEnded: boolean; matchOver: boolean }): boolean {
   return !s.paused && !s.missionEnded && !s.matchOver;
+}
+
+/** Whether the pause menu closes by itself as the room's pause ends (N1b
+ *  final fix wave, the T8 follow-up): when the pause that ended was THIS
+ *  seat's own and the match runs again -- the room's 90 s auto-resume (only
+ *  the pauser can end a pause early, and its Resume closes the menu itself).
+ *  Left open, the match ran on under the modal. A menu open over the OTHER
+ *  seat's pause was opened for itself (its settings) and stays; a pause that
+ *  ends in the match ending is the end panel's or the desync line's to answer. */
+export function pauseEndClosesMenu(prev: TransportStatus, next: TransportStatus, seat: Seat, menuOpen: boolean): boolean {
+  return menuOpen && prev.kind === 'paused' && prev.seat === seat && (next.kind === 'live' || next.kind === 'stalled');
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PAUSES_PER_SEAT } from '@lions/net';
-import { escapeOpensPause, roomPauseCall, surrenderOffered } from './room-pause';
+import { escapeOpensPause, pauseEndClosesMenu, roomPauseCall, surrenderOffered } from './room-pause';
 
 // N1b task 8, R-B17: the room silently ignores a pause it refuses, so the
 // client decides from its own count (the last `paused` it saw) whether to ask
@@ -49,5 +49,29 @@ describe('escapeOpensPause', () => {
     expect(escapeOpensPause({ ...s, matchOver: true })).toBe(false);
     expect(escapeOpensPause({ ...s, missionEnded: true })).toBe(false);
     expect(escapeOpensPause({ ...s, paused: true })).toBe(false);
+  });
+});
+
+// N1b final fix wave (T8 follow-up): the pauser's menu stayed open after the
+// room's 90 s auto-resume, and the match ran on under the modal.
+describe('pauseEndClosesMenu', () => {
+  const mine = { kind: 'paused' as const, seat: 1 as const, untilMs: 90000 };
+  const theirs = { kind: 'paused' as const, seat: 0 as const, untilMs: 90000 };
+  it('this seat\'s own pause ended by itself and the match runs again: the open menu closes', () => {
+    expect(pauseEndClosesMenu(mine, { kind: 'live', behind: 2 }, 1, true)).toBe(true);
+    expect(pauseEndClosesMenu(mine, { kind: 'stalled', reason: 'behind', seat: 0 }, 1, true)).toBe(true);
+  });
+  it('the other seat\'s pause ending leaves a menu this seat opened for itself (its settings) open', () => {
+    expect(pauseEndClosesMenu(theirs, { kind: 'live', behind: 2 }, 1, true)).toBe(false);
+  });
+  it('no menu open, or the pause still in force, or no pause to end: nothing to close', () => {
+    expect(pauseEndClosesMenu(mine, { kind: 'live', behind: 2 }, 1, false)).toBe(false);
+    expect(pauseEndClosesMenu(mine, mine, 1, true)).toBe(false);
+    expect(pauseEndClosesMenu({ kind: 'live', behind: 0 }, { kind: 'live', behind: 0 }, 1, true)).toBe(false);
+    expect(pauseEndClosesMenu({ kind: 'stalled', reason: 'behind', seat: 1 }, { kind: 'live', behind: 0 }, 1, true)).toBe(false);
+  });
+  it('a pause that ends in the match ending is not "running again": the end panel or the desync line takes over', () => {
+    expect(pauseEndClosesMenu(mine, { kind: 'closed', reason: 'left' }, 1, true)).toBe(false);
+    expect(pauseEndClosesMenu(mine, { kind: 'desync', tick: 40 }, 1, true)).toBe(false);
   });
 });
