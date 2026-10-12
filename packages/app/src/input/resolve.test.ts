@@ -5,6 +5,7 @@
 // do" and get the same answer the click gives -- two code paths would drift,
 // and the failure mode is a cursor that promises what the click will not do.
 import { describe, expect, it } from 'vitest';
+import { t } from '../i18n/t';
 import { haltNote, resolvePointer, resolveKeyVerb, type IntentWorld } from './intents';
 
 /** A world where nothing exists unless a test says it does. */
@@ -327,6 +328,18 @@ describe('the keyboard verbs, resolved the same way', () => {
     });
     expect(r.intents).toEqual([{ kind: 'smoke', ids: [4], x: 9.5, y: 2.5 }]);
     expect(r.marker).toBe(true);
+  });
+
+  it('refuses smoke aimed past the map edge: no command, no marker, the off-map note', () => {
+    const r = resolveKeyVerb(world({ groundAt: () => 'offmap' }), 'smoke', {
+      ids: [4], x: -2, y: 2.5,
+      isCarrier: () => false, canEmbark: () => false,
+      canSmoke: () => true, passengerCount: () => 0,
+    });
+    expect(r.intents).toEqual([]);
+    expect(r.marker).toBe(false);
+    expect(r.groundRefused).toBe('offmap');
+    expect(r.note?.text).toBe(t('intent.ground.offmap'));
   });
 
   it('says so when nothing selected carries smoke', () => {

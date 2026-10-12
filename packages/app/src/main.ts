@@ -3627,7 +3627,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // room it reaches both sims in the same frame, and in single-player the
   // `LocalTransport` hands it to the next tick exactly as `queueCommand` did.
   const dispatch = (intent: PlayerIntent): void => {
-    applyIntent(transport, intent);
+    applyIntent(transport, intent, sim);
     for (const fn of intentListeners) fn(intent);
   };
   intentListeners.push((intent) => voice.observe(intent));

@@ -122,6 +122,14 @@ describe('seatWorldFor', () => {
     expect(w.structureExists(1.5)).toBe(false);
     expect(w.tunnelExists(NaN)).toBe(false);
   });
+  it('reads the structure and tunnel counts live: the world is built before they are added', () => {
+    const sim = fakeSim();
+    const w = seatWorldFor(null, sim);
+    expect([w.structureExists(3), w.tunnelExists(1)]).toEqual([false, false]);
+    sim.structureCount = 4;
+    sim.tunnelCount = 2;
+    expect([w.structureExists(3), w.tunnelExists(1)]).toEqual([true, true]);
+  });
   it('a room: each seat is the side its config names', () => {
     const sim = fakeSim();
     const cfg = config();

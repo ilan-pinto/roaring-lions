@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { validateCommand } from '@lions/net';
 import { fx, type Command } from '@lions/sim';
 import {
   applyIntent,
@@ -19,10 +20,12 @@ function sink(): CommandSink & { out: Command[] } {
   return { out, queueCommand: (c: Command) => out.push(c) };
 }
 
+const MAP = { width: 48, height: 48 };
+
 describe('applyIntent', () => {
   it('turns an attackMove order into one attackMove command', () => {
     const s = sink();
-    applyIntent(s, { kind: 'order', verb: 'attackMove', ids: [1, 2], x: 4.5, y: 6.5, append: false });
+    applyIntent(s, { kind: 'order', verb: 'attackMove', ids: [1, 2], x: 4.5, y: 6.5, append: false }, MAP);
     expect(s.out).toEqual([
       { kind: 'attackMove', ids: [1, 2], x: fx.from(4.5), y: fx.from(6.5), append: false },
     ]);
@@ -30,23 +33,39 @@ describe('applyIntent', () => {
 
   it('carries the append flag, so shift queues a route instead of replacing it', () => {
     const s = sink();
-    applyIntent(s, { kind: 'order', verb: 'move', ids: [3], x: 1, y: 2, append: true });
+    applyIntent(s, { kind: 'order', verb: 'move', ids: [3], x: 1, y: 2, append: true }, MAP);
     expect(s.out[0]).toMatchObject({ kind: 'move', append: true });
+  });
+
+  it('clamps an order past the map edge into the box validateCommand accepts, on both axes', () => {
+    const s = sink();
+    const F = 65536;
+    applyIntent(s, { kind: 'order', verb: 'move', ids: [1], x: -3, y: 60, append: false }, MAP);
+    applyIntent(s, { kind: 'order', verb: 'attackMove', ids: [1], x: 48, y: -0.5, append: false }, MAP);
+    applyIntent(s, { kind: 'order', verb: 'move', ids: [1], x: 47.99, y: 0, append: false }, { width: 48, height: 30 });
+    // ...so the ownership check keeps every one of them.
+    const world = { sideOfSeat: () => 0, sideOfEntity: () => 0, width: 48, height: 48, structureExists: () => true, tunnelExists: () => true };
+    expect(s.out.slice(0, 2).map((c) => validateCommand(c, 0, world))).toEqual([true, true]);
+    expect(s.out).toMatchObject([
+      { kind: 'move', x: 0, y: 48 * F - 1 },
+      { kind: 'attackMove', x: 48 * F - 1, y: 0 },
+      { kind: 'move', x: fx.from(47.99), y: 0 },
+    ]);
   });
 
   it('issues nothing for intents the sim has no command for', () => {
     // Selection, overlay and group recall are pure UI. If any of them reached
     // the sim, UI state would be influencing simulation (invariant 4).
     const s = sink();
-    applyIntent(s, { kind: 'select', ids: [1], via: 'click' });
-    applyIntent(s, { kind: 'overlay', on: true });
-    applyIntent(s, { kind: 'group', slot: 2, action: 'recall' });
+    applyIntent(s, { kind: 'select', ids: [1], via: 'click' }, MAP);
+    applyIntent(s, { kind: 'overlay', on: true }, MAP);
+    applyIntent(s, { kind: 'group', slot: 2, action: 'recall' }, MAP);
     expect(s.out).toEqual([]);
   });
 
   it('loads riders into the carrier on a mount intent', () => {
     const s = sink();
-    applyIntent(s, { kind: 'mount', riders: [5, 6], carrier: 9 });
+    applyIntent(s, { kind: 'mount', riders: [5, 6], carrier: 9 }, MAP);
     expect(s.out).toEqual([{ kind: 'load', ids: [5, 6], carrier: 9 }]);
   });
 });
@@ -86,7 +105,7 @@ describe('INTENT_KINDS', () => {
 describe('chargeTunnel intent', () => {
   it('turns a tunnel-charge designation into one chargeTunnel command', () => {
     const s = sink();
-    applyIntent(s, { kind: 'chargeTunnel', ids: [4], tunnel: 1 });
+    applyIntent(s, { kind: 'chargeTunnel', ids: [4], tunnel: 1 }, MAP);
     expect(s.out).toEqual([{ kind: 'chargeTunnel', ids: [4], tunnel: 1 }]);
   });
 });

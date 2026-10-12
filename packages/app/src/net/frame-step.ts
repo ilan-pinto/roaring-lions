@@ -64,6 +64,7 @@ export function seatWorldFor(
   return {
     width: sim.width,
     height: sim.height,
+    // Read the counts LIVE: this world is built before structures and tunnels are added to the sim.
     structureExists: (id: number) => Number.isInteger(id) && id >= 0 && id < sim.structureCount,
     tunnelExists: (id: number) => Number.isInteger(id) && id >= 0 && id < sim.tunnelCount,
     sideOfSeat: (seat: Seat) => config?.seats[seat].side ?? 0,

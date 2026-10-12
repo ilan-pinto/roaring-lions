@@ -40,6 +40,30 @@ export const INTENT_KINDS = [
   'smoke', 'halt', 'group', 'overlay', 'support',
 ] as const satisfies readonly PlayerIntent['kind'][];
 
+/** The map's size in tiles: what `clampToMap` fits an order's point into. */
+export interface MapSize {
+  readonly width: number;
+  readonly height: number;
+}
+
+/**
+ * Fit one Q16.16 coordinate of an order into `[0, tiles * 65536 - 1]`, the box
+ * the net ownership check (`validateCommand`) accepts. R-N11: the sim already
+ * clamps a move or attack-move goal to `[HALF, tiles * ONE - HALF]`
+ * (`clampX`/`clampY`, sim.ts, "Orders past the border are common ... must not
+ * walk anyone off the world") and reads `cmd.x`/`cmd.y` of those two kinds
+ * nowhere else. This box CONTAINS that range, and a value is only changed when
+ * it lies outside this box, i.e. below 0 (< HALF) or above `tiles * ONE - 1`
+ * (> `tiles * ONE - HALF`): the sim would have clamped each of those to the same
+ * HALF or `tiles * ONE - HALF` anyway. So the sim's final target is identical
+ * to what the unclamped point produced -- a drone sent past the edge still
+ * flies to the border.
+ */
+export function clampToMap(coord: number, tiles: number): number {
+  const hi = tiles * 65536 - 1;
+  return coord < 0 ? 0 : coord > hi ? hi : coord;
+}
+
 /**
  * Issue the sim command an intent implies, if any.
  *
@@ -47,14 +71,14 @@ export const INTENT_KINDS = [
  * overlay are presentation, and a support call goes through MissionRuntime
  * rather than a raw command. The tutorial still sees them as intents.
  */
-export function applyIntent(sink: CommandSink, intent: PlayerIntent): void {
+export function applyIntent(sink: CommandSink, intent: PlayerIntent, map: MapSize): void {
   switch (intent.kind) {
     case 'order':
       sink.queueCommand({
         kind: intent.verb,
         ids: intent.ids,
-        x: fx.from(intent.x),
-        y: fx.from(intent.y),
+        x: clampToMap(fx.from(intent.x), map.width),
+        y: clampToMap(fx.from(intent.y), map.height),
         append: intent.append,
       });
       return;
@@ -410,7 +434,7 @@ export interface KeyContext {
  * right now instead of re-deriving the eligibility rules a second time.
  */
 export function resolveKeyVerb(
-  _world: IntentWorld,
+  world: IntentWorld,
   verb: 'mount' | 'dismount' | 'smoke',
   ctx: KeyContext
 ): Resolution {
@@ -453,6 +477,18 @@ export function resolveKeyVerb(
       roe: free,
       marker: false,
       note: { text: t('intent.smoke.none'), tone: 'mute' },
+    };
+  }
+  // Smoke aimed past the edge is refused, as K-08 refuses a ground unit's
+  // order there. Clamping would move the screen's centre (a different
+  // outcome), and the ownership check would drop it silently anyway.
+  if (world.groundAt(ctx.x, ctx.y) === 'offmap') {
+    return {
+      intents: [],
+      roe: free,
+      marker: false,
+      groundRefused: 'offmap',
+      note: { text: t('intent.ground.offmap'), tone: 'mute' },
     };
   }
   return {

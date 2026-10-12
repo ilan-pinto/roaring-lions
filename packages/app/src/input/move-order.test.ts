@@ -60,7 +60,7 @@ describe('armed Move + a click on open ground', () => {
   it('becomes the sim\'s own move command', () => {
     const out: Command[] = [];
     const [intent] = resolveMoveOrder(world(), { ids: [3], x: 2, y: 5, append: false }).intents;
-    applyIntent({ queueCommand: (c) => out.push(c) }, intent);
+    applyIntent({ queueCommand: (c) => out.push(c) }, intent, { width: 48, height: 48 });
     expect(out).toEqual([{ kind: 'move', ids: [3], x: fx.from(2), y: fx.from(5), append: false }]);
   });
 
