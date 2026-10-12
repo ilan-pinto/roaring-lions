@@ -13,7 +13,9 @@
 ## Global Constraints
 
 - **No file under `packages/sim/` changes.** `pnpm test:determinism` stays green against the pins on the `main` this branch is based on.
-- **Start from `main` AFTER N1a has merged.** Tasks 6–10 use `mode: 'versus'`, `viewerSideOf`, `playerId` and the mirror spawn from N1a. Tasks 1–5 touch only `packages/net`, `packages/worker` and `packages/app/src/net`, and can start earlier on a branch rebased once N1a lands.
+- **Start from `main` at or after `03851a78`** (N1a, #554, merged 12 Oct). Tasks 6–10 and 13 use N1a's `mode: 'versus'`, `viewerSideOf`, `playerId`, the mirror spawn, `this.versus` and `structureInSight`.
+- **Row budget:** the lead accepted 2.2 rows/s per match at one order a second per seat (N1a), to be revisited before public play or by moving to the paid plan. N1b must not raise it: chat and pause write no frame rows, and Task 2's `persistKey` additions change only on a pause, a surrender or a lifecycle change.
+- **Tasks are signed off one by one.** N1a's Tasks 1–5 carried no reviewer sign-off and the PR was squash-merged; every N1b task gets its own reviewer verdict in the ledger before the next starts, and the PR is merged without squashing.
 - Dependency direction: `app → render → sim`, `app → net → sim`, `worker → net`. The Worker never imports `@lions/sim`.
 - No battle state on the wire. Chat and pause are relay and clock messages; nothing a client sends becomes a `Command` except `cmd`.
 - **Chat text is untrusted.** It reaches the DOM only through `textContent`, or through `hud.note` after `escapeHtml` (`hud.note` sets `innerHTML`). The room caps it at 280 characters and strips control characters.
@@ -702,9 +704,80 @@ the evidence is already in D1, `match_desync`).
 
 ---
 
+### Task 12: Each seat sees a per-match token, not the other player's id
+
+**Files:**
+- Modify: `packages/worker/src/match/match-room.ts` (`mintConfig`; `RoomMeta`), `packages/worker/src/match/room-core.ts` (`RoomSeat` keeps the real id)
+- Test: `packages/worker/src/match/match-room.test.ts`
+
+**Interfaces:**
+- Produces: `RoomMeta.tokens: [string, string]`, minted at `/create` as two random 16-hex-character strings (`crypto.getRandomValues`); `start.config.seats[i].player` is `tokens[i]`. The real player id stays in `RoomSeat.player` inside the room (the ticket's field, for ST5 later) and is never sent to either client.
+
+Why: N1a's `start` message carries each seat's persistent anonymous UUID to the other seat, so a friend learns an id that is stable across every match and every room. Nothing on the client needs that id (the client already knows its own seat); a per-match token keeps `MatchConfig`'s shape and stops the leak. Recommended to the lead by the project-manager session, 12 Oct.
+
+- [ ] **Step 1: Write the failing test**
+
+In `match-room.test.ts`: create with `player: 'uuid-a'`, join with `player: 'uuid-b'`, start → the serialised `start` message sent to either socket does not contain `uuid-a` or `uuid-b` anywhere (`JSON.stringify` and `includes`), and `config.seats[0].player !== config.seats[1].player`, each 16 hex characters. Two rooms give different tokens.
+
+- [ ] **Step 2: Run and watch it fail; implement; run.**
+
+- [ ] **Step 3: Falsify and commit**
+
+Falsify: put `s.player` back in `mintConfig` → the "does not contain" assertion fails. Restore.
+```bash
+/usr/bin/git add packages/worker/src/match/match-room.ts packages/worker/src/match/match-room.test.ts packages/worker/src/match/room-core.ts
+/usr/bin/git commit -m "worker: start carries per-match seat tokens, never the other player's id (N1b task 12)"
+```
+
+---
+
+### Task 13: The versus fog leaks N1a left open (R-N14)
+
+**Files:**
+- Modify: `packages/render/src/three/ThreeRenderer.ts` (the building integrity bar `:9494-9512`; `smokeLaid` `:4414-4417`; `spawnCollapseFx` callers `:4652`, `:5134`; the shell spawn in `onFire`), `packages/render/src/three/units/shells.ts` (`ShellModel`, `shellTrailPoints`)
+- Test: `packages/render/src/three/units/shells.test.ts`, `packages/render/src/three/versus-leaks.test.ts` (new, pure predicates)
+
+**Interfaces:**
+- Consumes: `this.versus`, `this.viewer`, `this.structureInSight(s)` and `fireVisible` (all on `main` from N1a).
+- Produces: `ShellModel.hiddenUntil: number` (a flight fraction 0..1, default 0); `shellTrailPoints` emits nothing for a shell whose progress is below `hiddenUntil`; and in a new pure module `packages/render/src/three/versus-fog.ts`:
+```ts
+/** Single-player (versus false) answers true everywhere: nothing here may change a campaign frame. */
+export function structureBarVisible(versus: boolean, ownBuilding: boolean, inSight: boolean): boolean;
+export function hostileEffectVisible(versus: boolean, own: boolean, inSight: boolean): boolean;
+/** The flight fraction before which a hostile arc stays hidden: 0 when the shooter is seen, else the apex (0.5). */
+export function arcHiddenUntil(versus: boolean, own: boolean, shooterSeen: boolean): number;
+```
+
+The four leaks (the project-manager session's R-N14):
+1. **Building integrity bar.** A damaged building's HP bar draws whoever holds it and wherever it is, so a hostile-held building's damage reads through fog. Gate: `structureBarVisible(this.versus, friendlyStructure, this.structureInSight(s))`.
+2. **Hostile smoke.** `smokeLaid` throws the launcher's discharge at the laying unit, revealing it. Gate the discharge with `hostileEffectVisible(this.versus, isOwnSide(st.side[e.by], this.viewer), unitIsObserved(...))`. The smoke screen itself stays: it is terrain-scale, visible from afar, and the sim's sight rules already treat it as an obstacle.
+3. **Collapse.** A structure or tunnel collapse in fog throws its fireball and shroud. Gate both `spawnCollapseFx` calls with `hostileEffectVisible(this.versus, false, this.structureInSight(s))` for a structure and the tunnel-tile visibility for a tunnel. The rubble decal and the wreck still appear when the tile is next seen; that is the ground remembering, which fog already allows.
+4. **The shell arc reveals its shooter.** An indirect round from an unseen hostile draws its whole parabola from the muzzle. Set `hiddenUntil = arcHiddenUntil(this.versus, own, shooterSeen)` at spawn, so the round appears at its apex and falls; the impact, already gated by `fireVisible`'s target-seen half, is unchanged.
+
+- [ ] **Step 1: Write the failing tests**
+
+`versus-leaks.test.ts`: every predicate answers `true` when `versus` is false, whatever the other inputs (the single-player guarantee); in versus, a hostile, unseen case answers false and an own or seen case true; `arcHiddenUntil(true, false, false) === 0.5`, and `0` in the other three combinations.
+`shells.test.ts`: a shell with `hiddenUntil: 0.5` stepped to 0.4 of its flight yields no trail points; stepped to 0.6 it yields points, all with progress at or above 0.5.
+
+- [ ] **Step 2: Run and watch them fail; implement; run.**
+
+`pnpm vitest run packages/render && pnpm typecheck` → green; the golden gate must not move (every predicate is `true` in single-player).
+
+- [ ] **Step 3: Falsify and commit**
+
+Falsify: make `structureBarVisible` return `inSight` without consulting `versus` → the single-player test fails. Restore.
+```bash
+/usr/bin/git add packages/render/src/three/versus-fog.ts packages/render/src/three/versus-leaks.test.ts packages/render/src/three/units/shells.ts packages/render/src/three/units/shells.test.ts packages/render/src/three/ThreeRenderer.ts
+/usr/bin/git commit -m "render: close the versus fog leaks: building bar, hostile smoke pop, collapse, arc from an unseen shooter (N1b task 13)"
+```
+
+**Not in this plan:** `MissionRuntime` emits `unitLost` for side 0 only. A versus match runs no mission runtime (its loss alerts come from the sandbox feed, which N1a made seat-aware), so this belongs to N2's sim seat work, where missions gain seat rules.
+
+---
+
 ## Self-review
 
-**Spec coverage (N1, the shell half):** the menu entry, the `/versus` host and join screen, and a lobby with the code and copy link (Task 6, which also replaces the black waiting page the lead hit on 12 Oct); the lobby-to-battlefield handoff (Task 7); pause with a 3 × 90 s budget, resume by the pauser only, auto-resume (Tasks 2, 8); surrender as quit (Tasks 2, 8); rejoin after a reload and a replay fast enough for the 120 s window (Task 5); the friendly stall banners that N0 already shows, plus the paused countdown (Task 8); chat, escaped (Tasks 2, 9); the version-one win rule from sim state (Task 10); the desync logged by the room to D1 and reported by reference (Tasks 3, 11). **Deliberately not here:** networked pings (decision 15 makes them sender-and-advisor only, so they arrive with the advisor in N4; the local ping is unchanged); host-set game speed (realtime 1× only until there is a reason); the 120 s "claim the win" offer after a disconnect (the stall banner stands, and either player can surrender; the claim button is a small follow-up once the reconnect timing is measured in Task 5); faction choice (N3).
+**Spec coverage (N1, the shell half):** the menu entry, the `/versus` host and join screen, and a lobby with the code and copy link (Task 6, which also replaces the black waiting page the lead hit on 12 Oct); the lobby-to-battlefield handoff (Task 7); pause with a 3 × 90 s budget, resume by the pauser only, auto-resume (Tasks 2, 8); surrender as quit (Tasks 2, 8); rejoin after a reload and a replay fast enough for the 120 s window (Task 5); the friendly stall banners that N0 already shows, plus the paused countdown (Task 8); chat, escaped (Tasks 2, 9); the version-one win rule from sim state (Task 10); the desync logged by the room to D1 and reported by reference (Tasks 3, 11); added after N1a merged (#554), from its ledger: per-match seat tokens in place of the other player's id (Task 12) and the four R-N14 fog leaks (Task 13). **Deliberately not here:** `MissionRuntime`'s side-0-only `unitLost` (N2, with mission seat rules); networked pings (decision 15 makes them sender-and-advisor only, so they arrive with the advisor in N4; the local ping is unchanged); host-set game speed (realtime 1× only until there is a reason); the 120 s "claim the win" offer after a disconnect (the stall banner stands, and either player can surrender; the claim button is a small follow-up once the reconnect timing is measured in Task 5); faction choice (N3).
 
 **Placeholders:** none. Task 6 tells the implementer to factor `openRoom` out of `connect.ts` only if the create and join halves are not already separable, and names the function.
 
