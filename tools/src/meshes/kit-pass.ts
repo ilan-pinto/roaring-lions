@@ -60,6 +60,8 @@ import {
   type mat4,
 } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
+import { RG_TRACK_ATTR, RG_WHEEL_ATTR } from './running-gear-contract';
+import { zeroFillRunningGear } from './running-gear-pass';
 import { KIT_LODS, KIT_MAX_TIER, KIT_TRACK_PATTERN, KIT_VEHICLES, isKitName, kitNodeName, type KitLod } from './kit-contract';
 
 const REPO = fileURLToPath(new URL('../../../', import.meta.url));
@@ -212,6 +214,9 @@ interface Host {
   readonly node: Node;
   readonly material: Material | null;
   readonly textured: boolean;
+  /** The host carries the running-gear pair `_RL_WHEEL`/`_RL_TRACK` (contract
+   *  v7), so the part gets both, zero-filled. */
+  readonly running: boolean;
   /** Whether the host's one primitive is indexed. `mergeGeometries` cannot
    *  concatenate an indexed geometry with a non-indexed one, so a part must
    *  match its host here or the renderer's merge throws at load. */
@@ -277,7 +282,12 @@ function liveHosts(doc: Document): Map<string, Host | string> {
       out.set(name, `it has ${prims.length} primitives, so no single material and attribute set`);
       continue;
     }
-    const semantics = prims[0].listSemantics().slice().sort();
+    // The running-gear pass's two attributes (contract v7) come as a pair and
+    // say nothing about the host's material: a part on such a host gets both,
+    // zero-filled (`zeroFillRunningGear`), so the merge stays a concatenation.
+    const all = prims[0].listSemantics();
+    const running = all.includes(RG_WHEEL_ATTR) && all.includes(RG_TRACK_ATTR);
+    const semantics = all.filter((sem) => !running || (sem !== RG_WHEEL_ATTR && sem !== RG_TRACK_ATTR)).sort();
     const textured = semantics.join() === TEXTURED_ATTRIBUTES.join();
     if (!textured && semantics.join() !== PALETTE_ATTRIBUTES.join()) {
       out.set(
@@ -291,6 +301,7 @@ function liveHosts(doc: Document): Map<string, Host | string> {
       node,
       material: prims[0].getMaterial(),
       textured,
+      running,
       indexed: prims[0].getIndices() !== null,
       role: roleOf(node),
       world: node.getWorldMatrix(),
@@ -451,6 +462,7 @@ function graftPart(target: Document, part: SourcePart, host: Host, vehicleId: st
       if (!arr) throw new Error(`${where}: primitive ${k}'s indices have no data`);
       prim.setIndices(target.createAccessor(`${tag}_INDICES`, buffer).setType('SCALAR').setArray(arr.slice()));
     }
+    if (host.running) zeroFillRunningGear(target, prim, tag);
     mesh.addPrimitive(prim);
   });
 
