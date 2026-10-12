@@ -171,11 +171,11 @@ export interface TrailInstanceInput {
   readonly routeLevel: (route: number) => 0 | 1 | 2;
   /** `Sim.tunnelUnderTile(route, x, y)`. */
   readonly tunnelUnderTile: (route: number, x: number, y: number) => boolean;
-  /** `Sim.sideSeesTile(0, x, y)` -- ANY living side-0 unit's eyes; gates the
+  /** `Sim.sideSeesTile(viewer, x, y)` -- ANY living unit of the viewer's side; gates the
    *  spoil rung (`./trail.ts`'s own doc comment: "anyone can see disturbed
    *  earth"). */
   readonly seenByAnyone: (x: number, y: number) => boolean;
-  /** `Sim.markerSeesTile(0, x, y)` -- `mark_tunnel` carriers only; gates the
+  /** `Sim.markerSeesTile(viewer, x, y)` -- the viewer's `mark_tunnel` carriers only; gates the
    *  identified-line rung ("only a detector tells you what the dirt
    *  MEANS"). */
   readonly seenByCarrier: (x: number, y: number) => boolean;

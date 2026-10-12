@@ -210,6 +210,7 @@ import { TILE_W } from '../../project';
 import { MESH_UNITS_PER_TILE } from './mesh-anim';
 import { SILHOUETTE_RENDER_ORDER } from './render-order';
 import { paletteHex } from '../palette-hex';
+import { colorSlot } from '../../relation';
 
 /**
  * How thick the outline is, in SCREEN pixels, at every zoom.
@@ -342,28 +343,27 @@ export const SILHOUETTE_COLOR_KEY_BY_SIDE = ['team.kedem', 'team.hostile', 'team
 export const SILHOUETTE_FALLBACK_HEX_BY_SIDE = [paletteHex('team.kedem'), paletteHex('team.hostile'), paletteHex('team.neutral')] as const;
 
 /**
- * `side` -> colour slot. The ONE place the sim's side numbering is mapped
- * onto the three team colours: 0 is the player's own (`entityFrame`'s own
- * `contactLevel` short-circuit uses the same test), 2 is civilians
- * (`mission.ts`'s own civilian side), and everything else -- including any
- * side the sim grows later -- is hostile. Shared by the palette-key lookup
- * below (and, until WP-A3.3, by the billboard path's per-instance `aSide`).
+ * `side` -> colour slot, for the person looking (`viewer`, the sim side they
+ * command -- 0 outside a versus room). `colorSlot` (`../../relation`) is the
+ * one place the sim's side numbering is mapped onto the three team colours:
+ * the viewer's own side is slot 0, 2 is civilians (`mission.ts`'s own
+ * civilian side) for every viewer, and everything else -- including any side
+ * the sim grows later -- is hostile. Shared by the palette-key lookup below
+ * (and, until WP-A3.3, by the billboard path's per-instance `aSide`).
  */
-export function silhouetteSideIndex(side: number): number {
-  if (side === 0) return 0;
-  if (side === 2) return 2;
-  return 1;
+export function silhouetteSideIndex(side: number, viewer: number): 0 | 1 | 2 {
+  return colorSlot(side, viewer);
 }
 
-/** Palette key for `side`'s silhouette. */
-export function silhouetteColorKey(side: number): string {
-  return SILHOUETTE_COLOR_KEY_BY_SIDE[silhouetteSideIndex(side)];
+/** Palette key for `side`'s silhouette, as `viewer` sees it. */
+export function silhouetteColorKey(side: number, viewer: number): string {
+  return SILHOUETTE_COLOR_KEY_BY_SIDE[silhouetteSideIndex(side, viewer)];
 }
 
-/** The `data/palette.json` literal `silhouetteColorKey(side)` names, for the
- *  no-`resolveColor` fallback path. */
-export function silhouetteFallbackHex(side: number): string {
-  return SILHOUETTE_FALLBACK_HEX_BY_SIDE[silhouetteSideIndex(side)];
+/** The `data/palette.json` literal `silhouetteColorKey(side, viewer)` names,
+ *  for the no-`resolveColor` fallback path. */
+export function silhouetteFallbackHex(side: number, viewer: number): string {
+  return SILHOUETTE_FALLBACK_HEX_BY_SIDE[silhouetteSideIndex(side, viewer)];
 }
 
 // ---------------------------------------------------------------------------

@@ -363,6 +363,7 @@ import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, isoX, isoY } from '../../projec
 import { screenOffsetToWorld, hexToLinear } from '../terrain/shared';
 import { groundWorldY, type ElevationSource } from '../ground-height';
 import { tracerAlpha, type TracerModel } from './tracers';
+import { isHostileSide } from '../../relation';
 import {
   shellPointAt,
   shellTrailSpan,
@@ -786,6 +787,17 @@ export interface TracerInstanceBuffers {
 }
 
 /**
+ * Which half of a `[own, hostile]` tracer/shell colour pair a shot from
+ * `side` draws in, for the person looking (`viewer`, network design §5.1):
+ * the hostile half for the other army, the own half otherwise. A civilian
+ * (side 2) never fires, but if one did it would draw in the own half, exactly
+ * as the old `tracerColors[side] ?? tracerColors[0]` read did.
+ */
+export function tracerColorIndex(side: number, viewer: number): 0 | 1 {
+  return isHostileSide(side, viewer) ? 1 : 0;
+}
+
+/**
  * Writes every live tracer's quad into a flat, batched buffer. Pure aside
  * from calling `tracerQuadPositions`/`tracerAlpha` (both pure themselves) --
  * no `THREE.*`. Returns the number of QUADS written (not vertices or
@@ -809,7 +821,8 @@ export function writeTracerInstances(
   elevation: ElevationSource,
   mapWidth: number,
   mapHeight: number,
-  out: TracerInstanceBuffers
+  out: TracerInstanceBuffers,
+  viewer: number
 ): number {
   const capacity = out.alphas.length / 4;
   const start = Math.max(0, tracers.length - capacity);
@@ -818,7 +831,7 @@ export function writeTracerInstances(
     const t = tracers[i];
     const quad = tracerQuadPositions(t, elevation, mapWidth, mapHeight);
     const alpha = tracerAlpha(t);
-    const [r, g, b] = cachedHexToLinear(tracerColors[t.side] ?? tracerColors[0]);
+    const [r, g, b] = cachedHexToLinear(tracerColors[tracerColorIndex(t.side, viewer)]);
     out.positions.set(quad, count * 12);
     for (let v = 0; v < 4; v++) {
       const ci = count * 12 + v * 3;
@@ -1021,7 +1034,8 @@ export function writeShellInstances(
   elevation: ElevationSource,
   mapWidth: number,
   mapHeight: number,
-  out: TracerInstanceBuffers
+  out: TracerInstanceBuffers,
+  viewer: number
 ): number {
   const quadCapacity = out.alphas.length / 4;
   const shellCapacity = Math.floor(quadCapacity / SHELL_TRAIL_SEGMENTS);
@@ -1035,7 +1049,7 @@ export function writeShellInstances(
     // GH-149: per KIND, not one constant -- a `bolt` is a thinner streak than
     // a mortar bomb. `SHELL_WIDTH_PX` remains the arcing kinds' own value.
     const widthPx = SHELL_PROFILES[s.kind].widthPx;
-    const [r, g, b] = cachedHexToLinear(tracerColors[s.side] ?? tracerColors[0]);
+    const [r, g, b] = cachedHexToLinear(tracerColors[tracerColorIndex(s.side, viewer)]);
     for (let seg = 0; seg < SHELL_TRAIL_SEGMENTS; seg++) {
       const fA = seg / SHELL_TRAIL_SEGMENTS;
       const fB = (seg + 1) / SHELL_TRAIL_SEGMENTS;
@@ -1554,13 +1568,22 @@ export class TracerBatch {
     tracerColors: readonly [string, string],
     elevation: ElevationSource,
     mapWidth: number,
-    mapHeight: number
+    mapHeight: number,
+    viewer: number
   ): void {
-    const count = writeTracerInstances(tracers, tracerColors, elevation, mapWidth, mapHeight, {
-      positions: this.positionAttr.array as Float32Array,
-      colors: this.colorAttr.array as Float32Array,
-      alphas: this.alphaAttr.array as Float32Array,
-    });
+    const count = writeTracerInstances(
+      tracers,
+      tracerColors,
+      elevation,
+      mapWidth,
+      mapHeight,
+      {
+        positions: this.positionAttr.array as Float32Array,
+        colors: this.colorAttr.array as Float32Array,
+        alphas: this.alphaAttr.array as Float32Array,
+      },
+      viewer
+    );
     this.positionAttr.needsUpdate = true;
     this.colorAttr.needsUpdate = true;
     this.alphaAttr.needsUpdate = true;
@@ -1677,13 +1700,22 @@ export class ShellBatch {
     tracerColors: readonly [string, string],
     elevation: ElevationSource,
     mapWidth: number,
-    mapHeight: number
+    mapHeight: number,
+    viewer: number
   ): void {
-    const count = writeShellInstances(shells, tracerColors, elevation, mapWidth, mapHeight, {
-      positions: this.positionAttr.array as Float32Array,
-      colors: this.colorAttr.array as Float32Array,
-      alphas: this.alphaAttr.array as Float32Array,
-    });
+    const count = writeShellInstances(
+      shells,
+      tracerColors,
+      elevation,
+      mapWidth,
+      mapHeight,
+      {
+        positions: this.positionAttr.array as Float32Array,
+        colors: this.colorAttr.array as Float32Array,
+        alphas: this.alphaAttr.array as Float32Array,
+      },
+      viewer
+    );
     this.positionAttr.needsUpdate = true;
     this.colorAttr.needsUpdate = true;
     this.alphaAttr.needsUpdate = true;

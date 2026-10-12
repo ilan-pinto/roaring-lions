@@ -83,8 +83,18 @@ export class ProxyBoxBatch {
   private readonly material: THREE.MeshStandardMaterial;
   private teamLinear: readonly [number, number, number][];
   private capacity: number;
+  /** A side -> its colour slot for the person looking (`colorSlot` with the
+   *  renderer's viewer threaded in, network design §5.1). The identity when
+   *  omitted, which is exactly viewer 0's mapping for sides 0-2. */
+  private readonly slotOf: (side: number) => number;
 
-  constructor(scene: THREE.Scene, teamColors: readonly string[], initialCapacity = 8) {
+  constructor(
+    scene: THREE.Scene,
+    teamColors: readonly string[],
+    slotOf: (side: number) => number = (s) => s,
+    initialCapacity = 8
+  ) {
+    this.slotOf = slotOf;
     this.teamLinear = teamColors.map((c) => hexToLinear(c));
     // A unit cube whose base sits on y = 0, so `scale.y` is the height and
     // `position.y` is the ground.
@@ -142,7 +152,7 @@ export class ProxyBoxBatch {
       tmpScale.set(e.dims.halfAlong * 2, e.dims.height, e.dims.halfAcross * 2);
       tmpMatrix.compose(tmpPos, tmpQuat, tmpScale);
       this.mesh.setMatrixAt(k, tmpMatrix);
-      const rgb = this.teamLinear[e.side] ?? this.teamLinear[1] ?? [1, 0, 1];
+      const rgb = this.teamLinear[this.slotOf(e.side)] ?? this.teamLinear[1] ?? [1, 0, 1];
       tmpColor.setRGB(rgb[0], rgb[1], rgb[2], THREE.LinearSRGBColorSpace);
       this.mesh.setColorAt(k, tmpColor);
     }
