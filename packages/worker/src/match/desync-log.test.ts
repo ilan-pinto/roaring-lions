@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { openTestD1 } from '../test-d1';
-import { compactLog, writeDesync, MAX_FRAMES_JSON_CHARS } from './desync-log';
+import { compactLog, purgeDesyncs, writeDesync, MAX_FRAMES_JSON_CHARS } from './desync-log';
+import worker from '../index';
+import type { Env } from '../d1';
 
 describe('compactLog', () => {
   it('keeps only order-bearing frames and the last tick', () => {
@@ -49,5 +51,34 @@ describe('writeDesync', () => {
     await writeDesync(db, rec);
     const rows = db.raw.prepare('SELECT code, tick, hash_a, hash_b FROM match_desync').all();
     expect(rows).toEqual([{ code: 'ABCDEF', tick: 40, hash_a: 1, hash_b: 2 }]);
+  });
+});
+
+// N1b final fix wave (M-6): the row keeps player-typed callsigns inside
+// `config`, so it goes at the feedback tables' 180 days, on the same daily cron.
+describe('purgeDesyncs', () => {
+  const NOW = 1_790_000_000_000;
+  const DAY = 86_400_000;
+  const RETENTION_MS = 180 * DAY;   // spec §7's 180 days, a literal on purpose
+  const rec = (code: string, createdAt: number) => ({ code, tick: 40, hashA: 1, hashB: 2, config: '{"seats":[{"callsign":"Ari"}]}', frames: '{"last":40,"orders":[]}', frameCount: 41, createdAt });
+  const codes = (db: ReturnType<typeof openTestD1>) => (db.raw.prepare('SELECT code FROM match_desync ORDER BY code').all() as { code: string }[]).map((r) => r.code);
+
+  it('deletes a desync older than 180 days and keeps one at exactly 180 days, or younger', async () => {
+    const db = openTestD1();
+    await writeDesync(db, rec('OLDOLD', NOW - RETENTION_MS - 1));
+    await writeDesync(db, rec('EDGEDG', NOW - RETENTION_MS));
+    await writeDesync(db, rec('FRESHH', NOW - DAY));
+    expect(await purgeDesyncs(db, NOW)).toBe(1);
+    expect(codes(db)).toEqual(['EDGEDG', 'FRESHH']);
+    expect(await purgeDesyncs(db, NOW)).toBe(0);
+  });
+
+  it('runs on the Worker\'s daily cron, beside the feedback purge', async () => {
+    const db = openTestD1();
+    await writeDesync(db, rec('OLDOLD', Date.now() - RETENTION_MS - DAY));
+    await writeDesync(db, rec('FRESHH', Date.now() - DAY));
+    const env = { DB: db, ASSETS: { fetch: async () => new Response('') } } as unknown as Env;
+    await worker.scheduled(null, env);
+    expect(codes(db)).toEqual(['FRESHH']);
   });
 });

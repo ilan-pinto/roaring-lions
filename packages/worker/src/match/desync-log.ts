@@ -8,6 +8,7 @@
  */
 import type { Frame } from '@lions/net';
 import type { D1Like } from '../d1';
+import { RETENTION_MS } from '../feedback-triage';
 
 export interface DesyncRecord {
   code: string; tick: number; hashA: number; hashB: number;
@@ -68,4 +69,17 @@ const INSERT_SQL = 'INSERT OR IGNORE INTO match_desync (code, tick, hash_a, hash
 /** One row. A second write for the same (code, tick) is ignored, not an error. */
 export async function writeDesync(db: D1Like, rec: DesyncRecord): Promise<void> {
   await db.prepare(INSERT_SQL).bind(rec.code, rec.tick, rec.hashA, rec.hashB, rec.config, rec.frames, rec.frameCount, rec.createdAt).run();
+}
+
+/**
+ * Retention (N1b final fix wave, M-6): a desync row is deleted 180 days after
+ * it was written -- the feedback tables' own `RETENTION_MS`, on the same daily
+ * Cron Trigger (`index.ts`'s `scheduled`). The row holds player-typed
+ * callsigns inside `config`, and evidence that old has long served its
+ * replay. Returns the rows deleted. No index on `created_at`: the table holds
+ * one row per desynced match, so the scan reads a handful of rows a day.
+ */
+export async function purgeDesyncs(db: D1Like, now: number): Promise<number> {
+  const gone = await db.prepare('DELETE FROM match_desync WHERE created_at < ? RETURNING code').bind(now - RETENTION_MS).all<{ code: string }>();
+  return gone.results.length;
 }
