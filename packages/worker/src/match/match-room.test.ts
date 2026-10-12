@@ -6,7 +6,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { validateConfig, type ServerMsg, type Seat } from '@lions/net';
-import type { Env } from '../d1';
+import type { D1Like, Env } from '../d1';
+import { openTestD1 } from '../test-d1';
 import { FakeState, deliverAlarm, deliverClose, deliverError, openSocket, type FakeSocket } from './fake-do';
 import { BATCH_TICKS, MatchRoom, TICK_MS, WATCHDOG_MS } from './match-room';
 import type { RoomState } from './room-core';
@@ -26,10 +27,10 @@ const last = (ws: FakeSocket): ServerMsg | undefined => msgs(ws).at(-1);
 const ofType = <T extends ServerMsg['t']>(ws: FakeSocket, t: T): Extract<ServerMsg, { t: T }>[] =>
   msgs(ws).filter((m): m is Extract<ServerMsg, { t: T }> => m.t === t);
 
-interface CreateOpts { mode?: string; join?: boolean; code?: string }
+interface CreateOpts { mode?: string; join?: boolean; code?: string; db?: D1Like }
 /** Creates the room and, unless `join: false`, has the guest reserve seat 1 as the Worker does. */
 async function created(state = new FakeState(), opts: CreateOpts = {}): Promise<{ state: FakeState; room: MatchRoom }> {
-  const room = new MatchRoom(state, env);
+  const room = new MatchRoom(state, opts.db ? ({ ...env, DB: opts.db } as Env) : env);
   const res = await room.fetch(new Request('https://room/create', {
     method: 'POST',
     body: JSON.stringify({ code: opts.code ?? CODE, matchId: opts.code ?? CODE, map: 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', ...(opts.mode ? { mode: opts.mode } : {}) }),
@@ -60,6 +61,8 @@ async function running(opts: CreateOpts = {}): Promise<{ state: FakeState; room:
 /** One persisted batch row, parsed. */
 const row = (state: FakeState, firstTick: number): { tick: number; cmds: unknown[] }[] =>
   JSON.parse(state.storage.batches.get(firstTick) ?? 'null') as { tick: number; cmds: unknown[] }[];
+/** Lets the room's unawaited desync write (a few microtasks) settle. */
+const settle = async (): Promise<void> => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
 const persisted = async (state: FakeState): Promise<RoomState> => {
   const st = await state.storage.get<RoomState>('state');
   if (!st) throw new Error('no persisted state');
@@ -81,11 +84,11 @@ describe('MatchRoom', () => {
   it('a hello with a valid ticket joins the lobby, and each socket is told its own seat', async () => {
     const { room } = await created();
     const ws0 = await hello(room, 0);
-    expect(last(ws0)).toEqual({ t: 'lobby', config: null, seats: [{ seat: 0, callsign: 'Host', connected: true, ready: false }], you: 0, map: '' });
+    expect(last(ws0)).toEqual({ t: 'lobby', config: null, seats: [{ seat: 0, callsign: 'Host', connected: true, ready: false }], you: 0, map: 'tel_marum' });
     const ws1 = await hello(room, 1);
     const seats = [{ seat: 0, callsign: 'Host', connected: true, ready: false }, { seat: 1, callsign: 'Guest', connected: true, ready: false }];
-    expect(last(ws0)).toEqual({ t: 'lobby', config: null, seats, you: 0, map: '' });
-    expect(last(ws1)).toEqual({ t: 'lobby', config: null, seats, you: 1, map: '' });
+    expect(last(ws0)).toEqual({ t: 'lobby', config: null, seats, you: 0, map: 'tel_marum' });
+    expect(last(ws1)).toEqual({ t: 'lobby', config: null, seats, you: 1, map: 'tel_marum' });
   });
 
   it('answers a malformed message with one bad_message and carries on', async () => {
@@ -615,5 +618,62 @@ describe('MatchRoom', () => {
     expect(ofType(ws1, 'frame').slice(sent).map((f) => f.tick)).toEqual([BATCH_TICKS, BATCH_TICKS + 1]);
     expect(ofType(ws1, 'stall')).toEqual([]);
     expect([...state.storage.batches.keys()]).toEqual([0]);
+  });
+
+  describe('N1b: the map and the desync log', () => {
+    it('a lobby message after /create carries the map the room was created with', async () => {
+      const { room } = await created();
+      const ws0 = await hello(room, 0);
+      const lobby = ofType(ws0, 'lobby').at(-1);
+      expect(lobby?.map).toBe('tel_marum');
+    });
+
+    it('a room persisted before the map was stored takes it from its meta on revive', async () => {
+      const { state } = await created();
+      const st = await persisted(state);
+      const stale: Partial<RoomState> = st;
+      delete stale.map;
+      await state.storage.put('state', st);
+      const revived = new MatchRoom(state, env);
+      const ws0 = await hello(revived, 0);
+      expect(ofType(ws0, 'lobby').at(-1)?.map).toBe('tel_marum');
+    });
+
+    it('two different hashes for one tick write exactly one match_desync row naming it', async () => {
+      const db = openTestD1();
+      const { room, ws0, ws1 } = await running({ db });
+      await say(room, ws0, { t: 'hash', tick: 19, h: 111 });
+      await say(room, ws1, { t: 'hash', tick: 19, h: 222 });
+      await settle();
+      const rows = db.raw.prepare('SELECT code, tick, hash_a, hash_b, config, frames, frame_count FROM match_desync').all() as { code: string; tick: number; hash_a: number; hash_b: number; config: string; frames: string; frame_count: number }[];
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ code: CODE, tick: 19, hash_a: 111, hash_b: 222 });
+      expect((JSON.parse(rows[0].config) as { code: string }).code).toBe(CODE);
+      expect(JSON.parse(rows[0].frames)).toEqual({ last: -1, orders: [] });
+      expect(rows[0].frame_count).toBe(0);
+    });
+
+    it('equal hashes write nothing', async () => {
+      const db = openTestD1();
+      const { room, ws0, ws1 } = await running({ db });
+      await say(room, ws0, { t: 'hash', tick: 19, h: 5 });
+      await say(room, ws1, { t: 'hash', tick: 19, h: 5 });
+      await settle();
+      expect(db.raw.prepare('SELECT COUNT(*) AS n FROM match_desync').get()).toEqual({ n: 0 });
+    });
+
+    it('a failing log write never breaks the room: both seats still hear the desync', async () => {
+      const db = openTestD1();
+      const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const broken: D1Like = { ...db, prepare: () => { throw new Error('d1 down'); } };
+      const { room, ws0, ws1 } = await running({ db: broken });
+      await say(room, ws0, { t: 'hash', tick: 19, h: 1 });
+      await say(room, ws1, { t: 'hash', tick: 19, h: 2 });
+      await settle();
+      expect(ofType(ws0, 'desync')).toHaveLength(1);
+      expect(ofType(ws1, 'desync')).toHaveLength(1);
+      expect(err).toHaveBeenCalled();
+      err.mockRestore();
+    });
   });
 });

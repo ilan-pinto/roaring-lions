@@ -60,6 +60,7 @@ import type { DurableStateLike, HibernatingSocket, UpgradeInit } from '../do-typ
 import { createRoom, endedMsg, seatJoin, seatMessage, seatGone, clockTick, expire, persistKey, revive, type Effect, type RoomState } from './room-core';
 import { verifyTicket } from './ticket';
 import { DEFAULT_MAP, callsignField, textField } from './room-fields';
+import { compactLog, writeDesync } from './desync-log';
 
 export const TICK_MS = 50;
 /** A sandbox room's seed: the app's SIM_SEED, so the two-machine protocol stays N0's. A versus room mints its own. */
@@ -146,6 +147,8 @@ export class MatchRoom {
   private disarmed = false;
   /** `persistKey` of the state as last written (or loaded). */
   private savedKey: string | null = null;
+  /** Set once this instance has logged a desync: the match is void after the first, so one write is the bound. */
+  private desyncLogged = false;
 
   constructor(private readonly ctx: DurableStateLike, private readonly env: Env) {
     this.ctx.storage.sql.exec(CREATE_SQL);
@@ -165,6 +168,8 @@ export class MatchRoom {
       if (st) {
         const [lastRow] = this.batches(LAST_SQL);
         revive(st, lastRow ? lastRow.firstTick + lastRow.frames.length : 0, Date.now());
+        // A room persisted before the lobby carried its map has none: the meta has it.
+        if (st.map === '') st.map = this.meta?.map ?? DEFAULT_MAP;
         this.savedKey = persistKey(st);
         gone = this.reconcileSockets(st);
       }
@@ -265,10 +270,29 @@ export class MatchRoom {
   private async apply(effects: Effect[], keep?: WebSocket): Promise<void> {
     for (const e of effects) {
       if (e.kind === 'frame') this.record(e.frame);
-      else if (e.kind === 'send') this.send(e.to, e.msg);
-      else for (const ws of this.socketsFor(e.seat)) if (ws !== keep) retire(ws);
+      else if (e.kind === 'send') {
+        this.send(e.to, e.msg);
+        if (e.msg.t === 'desync') this.logDesync(e.msg.tick, e.msg.hashes);
+      } else for (const ws of this.socketsFor(e.seat)) if (ws !== keep) retire(ws);
     }
     await this.saveIfChanged();
+  }
+  /** Writes a desync's evidence to D1, once per room, unawaited: the sends
+   *  have already gone, and a log write must never break the room (a missing
+   *  binding, a D1 outage and a throw all end in a console.error). */
+  private logDesync(tick: number, hashes: [number, number]): void {
+    const st = this.st;
+    if (this.desyncLogged || st === null || st.config === null) return;
+    this.desyncLogged = true;
+    try {
+      const frames = this.readLog();
+      void writeDesync(this.env.DB, {
+        code: st.code, tick, hashA: hashes[0], hashB: hashes[1],
+        config: JSON.stringify(st.config), frames: JSON.stringify(compactLog(frames)), frameCount: frames.length, createdAt: Date.now(),
+      }).catch((e: unknown) => { console.error('MatchRoom: desync log failed', e); });
+    } catch (e) {
+      console.error('MatchRoom: desync log failed', e);
+    }
   }
   private ensureClock(): void {
     const st = this.st;
@@ -353,8 +377,9 @@ export class MatchRoom {
       const mode = body.mode === 'versus' ? 'versus' : 'sandbox';
       // A signed int32: validateConfig takes any integer, so the sign needs no care.
       const seed = mode === 'versus' ? crypto.getRandomValues(new Uint32Array(1))[0] | 0 : SIM_SEED_N0;
-      this.st = createRoom(body.code, body.matchId, Date.now());
-      this.meta = { map: textField(body.map, DEFAULT_MAP), build, mode, seed, callsigns: [callsignField(body.callsign), ''], seat1Reserved: false };
+      const map = textField(body.map, DEFAULT_MAP);
+      this.st = createRoom(body.code, body.matchId, Date.now(), map);
+      this.meta = { map, build, mode, seed, callsigns: [callsignField(body.callsign), ''], seat1Reserved: false };
       await this.ctx.storage.put('meta', this.meta);
       await this.save();
       return Response.json({ ok: true });
