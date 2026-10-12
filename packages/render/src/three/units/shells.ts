@@ -192,6 +192,15 @@ export interface ShellModel {
    *  `emitAlongShell` (`./missile-trail.ts`); `stepShells` copies it along
    *  with every other field, so it survives the per-frame object rebuild. */
   trailTiles?: number;
+  /** N1b task 13 (R-N14): the flight fraction (0..1) before which nothing of
+   *  this round is drawn -- no streak (`shellTrailSpan`, `shellTrailPoints`)
+   *  and no smoke (`emitAlongShell`). Set at spawn from `arcHiddenUntil`
+   *  (`../versus-fog.ts`): the apex for an arc whose versus shooter the seat
+   *  cannot see, so the round appears at the top and falls instead of
+   *  pointing back at the hidden tube. Absent, or 0 -- every single-player
+   *  round -- draws the whole flight, exactly as before. `stepShells` copies
+   *  it along with every other field. */
+  hiddenUntil?: number;
 }
 
 export interface ShellProfile {
@@ -577,7 +586,24 @@ export function shellGroundDist(s: ShellModel): number {
  */
 export function shellTrailSpan(s: ShellModel): { tail: number; head: number } {
   const trailS = SHELL_PROFILES[s.kind].trailS;
-  return { tail: clamp((s.t - trailS) / s.duration, 0, 1), head: shellProgress(s) };
+  const tail = clamp((s.t - trailS) / s.duration, 0, 1);
+  const head = shellProgress(s);
+  // N1b task 13: nothing before `hiddenUntil` -- an empty span while the
+  // round is still short of it, then a tail that never reaches back past it.
+  // Absent or 0 (every single-player round) leaves the span untouched.
+  const hiddenUntil = s.hiddenUntil ?? 0;
+  if (hiddenUntil > 0) {
+    if (head < hiddenUntil) return { tail: head, head };
+    return { tail: Math.max(tail, hiddenUntil), head };
+  }
+  return { tail, head };
+}
+
+/** N1b task 13: true while a round is still short of its `hiddenUntil`
+ *  fraction, so a draw path skips it outright rather than drawing an
+ *  empty span. Always false for a round with no `hiddenUntil`. */
+export function shellHidden(s: ShellModel): boolean {
+  return shellProgress(s) < (s.hiddenUntil ?? 0);
 }
 
 /**
@@ -591,8 +617,9 @@ export function shellTrailSpan(s: ShellModel): { tail: number; head: number } {
  * the impact tile's, which a bare position cannot recover.
  */
 export function shellTrailPoints(s: ShellModel): { x: number; y: number; liftPx: number; u: number }[] {
-  const { tail, head } = shellTrailSpan(s);
   const points: { x: number; y: number; liftPx: number; u: number }[] = [];
+  if (shellHidden(s)) return points;
+  const { tail, head } = shellTrailSpan(s);
   for (let i = 0; i <= SHELL_TRAIL_SEGMENTS; i++) {
     const u = tail + ((head - tail) * i) / SHELL_TRAIL_SEGMENTS;
     points.push({ ...shellPointAt(s, u), u });

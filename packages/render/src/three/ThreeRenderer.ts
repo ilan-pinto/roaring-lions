@@ -421,6 +421,7 @@ import {
 } from './units/render-order';
 import { unitIsObserved } from './units/observed';
 import { fireVisible } from './fire-visible';
+import { arcHiddenUntil, hostileEffectVisible, structureBarVisible } from './versus-fog';
 import { ZoneBandBatch } from './units/zone-band';
 import { ProxyBoxBatch, proxyBoxDims, type ProxyBoxEntry } from './units/proxy-box';
 import {
@@ -4414,7 +4415,22 @@ export class ThreeRenderer implements Renderer {
       } else if (e.kind === 'smokeLaid') {
         // GH-85 (`smoke_screen`): the launcher's pop, at the unit that laid
         // it, thrown toward the screen -- which `SmokeMesh` already draws.
-        this.spawnSmokeDischarge(e.by, fx.toNumber(e.x), fx.toNumber(e.y));
+        // N1b task 13 (R-N14 leak 2): in a versus room the pop would point at
+        // a hostile layer the seat cannot see, so it is thrown only for the
+        // seat's own or one in sight. The screen itself stays: it is
+        // terrain-scale and the sim's sight rules already treat it as an
+        // obstacle. Single-player throws every pop, as before.
+        const layer = e.by;
+        if (
+          layer < 0 ||
+          hostileEffectVisible(
+            this.versus,
+            isOwnSide(this.sim.state.side[layer], this.viewer),
+            unitIsObserved(this.sim.state.side[layer], this.viewer, this.curX[layer], this.curY[layer], this.fogVisibleAt)
+          )
+        ) {
+          this.spawnSmokeDischarge(layer, fx.toNumber(e.x), fx.toNumber(e.y));
+        }
       } else if (e.kind === 'strike') {
         this.onStrike(e.x, e.y, e.tick);
       } else if (e.kind === 'tunnelCollapsed') {
@@ -4615,6 +4631,18 @@ export class ThreeRenderer implements Renderer {
           this.sim.structures.maxY[deadStruct]
         );
         const collapseYawTurns = tileHash(deadStruct, deadStruct * 7 + 1);
+        // N1b task 13 (R-N14 leak 3): a versus seat sees no fireball, shroud,
+        // light, shake or freeze for a collapse in fog -- they would mark a
+        // hostile building's fall the seat cannot see. The rubble below still
+        // lands (the ground remembering, which fog already allows), and the
+        // wreck stands when the tile is next seen. FOOTPRINT visibility, not
+        // `structureInSight`: that one asks `structureAt`, which no longer
+        // answers for a dead structure (R-B15). Single-player throws it all.
+        const collapseSeen = hostileEffectVisible(
+          this.versus,
+          this.structureIsOwn(deadStruct),
+          this.footprintInSight(deadStruct)
+        );
         // The shroud, and the swap hold it exists to cover. Spawned HERE and
         // not from `spawnCollapseFx`, deliberately: this effect is sized from
         // the STRUCTURE's own world extents, and `spawnCollapseFx` knows only
@@ -4622,7 +4650,7 @@ export class ThreeRenderer implements Renderer {
         // answer to "does this change shell impacts": `shell_impact.json` and
         // `tunnel_collapse.json` reach that method with no structure at all,
         // so neither can reach this line and neither is touched.
-        this.beginCollapseShroud(deadStruct, bx, by);
+        if (collapseSeen) this.beginCollapseShroud(deadStruct, bx, by);
         // Rubble over the footprint (R-12). F-10: the surface is refreshed
         // HERE, not left to the next frame's `rebuildTerrain` -- the sim has
         // already cleared the pad's `blocked` tiles, but until the surface
@@ -4649,7 +4677,7 @@ export class ThreeRenderer implements Renderer {
           const maxY = st.maxY[deadStruct];
           this.stampGroundDecal(this.persistentStamp('rubble', bx, by, rubbleRadiusTiles(minX, minY, maxX, maxY)));
         }
-        if (!this.spawnCollapseFx('structure_collapse', bx, by, collapsePower, collapseYawTurns)) {
+        if (collapseSeen && !this.spawnCollapseFx('structure_collapse', bx, by, collapsePower, collapseYawTurns)) {
           for (let k = 0; k < 14; k++) {
             const a = tileHash(k * 7 + deadStruct, k * 13 + deadStruct);
             const b = tileHash(k * 31 + deadStruct, k * 3 + deadStruct);
@@ -4663,7 +4691,7 @@ export class ThreeRenderer implements Renderer {
         // same null/zero rule as the kill and the shell, at the footprint's
         // own power -- outside the particle fallback above on purpose, since
         // the light and the freeze are not particles.
-        {
+        if (collapseSeen) {
           const em = this.emitterLibrary.byName(STRUCTURE_COLLAPSE_EMITTER_ID);
           const light = blastLightSpec(em, collapsePower);
           // Low, at street level, OUTSIDE the building's camera-facing corner
@@ -4907,6 +4935,19 @@ export class ThreeRenderer implements Renderer {
           shell.target = e.target;
         }
         flightS = shell.duration;
+        // N1b task 13 (R-N14 leak 4): an arc from a versus shooter the seat
+        // cannot see appears at its apex and falls, instead of drawing its
+        // rising half straight back at the hidden tube. `seen` above already
+        // means the impact end is in sight. Set only when it hides anything,
+        // so a single-player round is the same object it always was.
+        if (isIndirectShell(shellKind)) {
+          const hiddenUntil = arcHiddenUntil(
+            this.versus,
+            isOwnSide(st.side[e.shooter], this.viewer),
+            this.isVisible(this.curX[e.shooter], this.curY[e.shooter])
+          );
+          if (hiddenUntil > 0) shell.hiddenUntil = hiddenUntil;
+        }
         // GH-149: the arcing kinds and the direct kinds live in separate
         // arrays and separate batches -- see the `bolts` field's own doc
         // comment for the three things that differ between them, none of
@@ -5131,6 +5172,10 @@ export class ThreeRenderer implements Renderer {
       const [px, py] = this.sim.tunnelPointAt(tunnel, d);
       const tx = fx.toNumber(px) + 0.5;
       const ty = fx.toNumber(py) + 0.5;
+      // N1b task 13 (R-N14 leak 3): in a versus room only the samples the
+      // seat can see throw their burst -- a route has no owner side, so none
+      // is the seat's own. Single-player throws every sample, as before.
+      if (!hostileEffectVisible(this.versus, false, this.isVisible(tx, ty))) continue;
       if (!this.spawnCollapseFx('tunnel_collapse', tx, ty)) {
         for (let k = 0; k < 4; k++) {
           const a = tileHash(k * 7 + tunnel + s * 5, k * 13 + tick);
@@ -5563,6 +5608,40 @@ export class ThreeRenderer implements Renderer {
       }
     }
     return false;
+  }
+  /** True when any tile of structure `s`'s bounding box is in sight this
+   *  frame. `structureInSight`'s twin for a structure that has just DIED
+   *  (N1b task 13, R-B15): `structureAt` answers -1 once a structure is dead,
+   *  so that test would read every collapse as out of sight. The bounding box
+   *  can hold a tile that was never the structure's own; a collapse that
+   *  close to sight is near enough to it. */
+  private footprintInSight(s: number): boolean {
+    const str = this.sim.structures;
+    for (let y = str.minY[s]; y <= str.maxY[s]; y++) {
+      for (let x = str.minX[s]; x <= str.maxX[s]; x++) {
+        if (this.isVisible(x + 0.5, y + 0.5)) return true;
+      }
+    }
+    return false;
+  }
+  /** Whose side structure `s` is held by: its first living occupant's, or -1
+   *  ("no side found", which every viewer reads as hostile). Read by the
+   *  integrity bar and the held badge (`updateOverlays`) and by a collapse's
+   *  versus gate (N1b task 13). */
+  private structureHolder(s: number): number {
+    if (this.sim.structures.occupants[s] <= 0) return -1;
+    const st = this.sim.state;
+    const n = this.snapshottedCount;
+    for (let i = 0; i < n; i++) {
+      if (st.alive[i] === 1 && st.garrisonedIn[i] === s) return st.side[i];
+    }
+    return -1;
+  }
+  /** Whether structure `s` is the viewer's own: held by its side, or one its
+   *  side produces from (VR-03: the player's own never fills enemy red). */
+  private structureIsOwn(s: number, holder: number = this.structureHolder(s)): boolean {
+    const stype = this.sim.structureTypes[this.sim.structures.typeIdx[s]];
+    return (this.sim.structures.occupants[s] > 0 && isOwnSide(holder, this.viewer)) || isOwnSide(stype.producesFor, this.viewer);
   }
   /**
    * Living units whose projected FEET fall inside a screen-space rect --
@@ -9481,17 +9560,13 @@ export class ThreeRenderer implements Renderer {
         // own long-standing default. -1 is "no side found", which every
         // viewer reads as hostile (`colorSlot` slot 1, never `isOwnSide`).
         const occ = str.occupants[s];
-        let holder = -1;
-        if (occ > 0) {
-          for (let i = 0; i < n; i++) {
-            if (st.alive[i] === 1 && st.garrisonedIn[i] === s) {
-              holder = st.side[i];
-              break;
-            }
-          }
-        }
-        const friendlyStructure = (occ > 0 && isOwnSide(holder, this.viewer)) || isOwnSide(stype.producesFor, this.viewer);
-        if (ratio < 0.999) {
+        const holder = this.structureHolder(s);
+        const friendlyStructure = this.structureIsOwn(s, holder);
+        // N1b task 13 (R-N14 leak 1): a versus seat is not shown how damaged
+        // a hostile building it cannot see is. `structureInSight` is asked
+        // only in a room; single-player answers true without it, so every
+        // campaign bar draws exactly as before.
+        if (ratio < 0.999 && structureBarVisible(this.versus, friendlyStructure, this.versus && this.structureInSight(s))) {
           this.overlayBatch.rect(
             structAnchor,
             -16,

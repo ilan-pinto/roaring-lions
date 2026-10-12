@@ -274,6 +274,47 @@ describe('shellTrailPoints', () => {
   });
 });
 
+// N1b task 13 (R-N14): an arc from a versus shooter the seat cannot see
+// appears at its apex and falls -- drawn from the muzzle, it would point
+// straight back at the hidden tube. `hiddenUntil` is the flight fraction
+// before which nothing of the round is drawn.
+describe('hiddenUntil hides the first part of the flight', () => {
+  const hidden = (frac: number) => {
+    const s = { ...spawnShell(0, 0, 16, 0, 1, 'mortar'), hiddenUntil: 0.5 };
+    return { ...s, t: s.duration * frac };
+  };
+
+  it('stepped to 0.4 of its flight, a shell hidden until 0.5 yields no trail points', () => {
+    expect(shellTrailPoints(hidden(0.4))).toEqual([]);
+  });
+  it('stepped to 0.6, it yields points, all at or past 0.5 of the flight', () => {
+    const pts = shellTrailPoints(hidden(0.6));
+    expect(pts).toHaveLength(SHELL_TRAIL_SEGMENTS + 1);
+    for (const p of pts) expect(p.u).toBeGreaterThanOrEqual(0.5);
+    expect(pts[pts.length - 1].u).toBeCloseTo(0.6, 6);
+  });
+  it('shellTrailSpan, the PRODUCTION draw path, is empty while the head is below it', () => {
+    const { tail, head } = shellTrailSpan(hidden(0.4));
+    expect(head - tail).toBe(0);
+  });
+  it('shellTrailSpan clamps the tail to it once the head is past it', () => {
+    const { tail, head } = shellTrailSpan(hidden(0.55));
+    expect(tail).toBe(0.5);
+    expect(head).toBeCloseTo(0.55, 6);
+  });
+  it('a shell with no hiddenUntil, or 0, spans exactly as before', () => {
+    const plain = { ...spawnShell(0, 0, 16, 0, 1, 'mortar'), t: 0.3 };
+    const zero = { ...plain, hiddenUntil: 0 };
+    expect(shellTrailSpan(zero)).toEqual(shellTrailSpan(plain));
+    expect(shellTrailPoints(zero)).toEqual(shellTrailPoints(plain));
+    expect(spawnShell(0, 0, 16, 0, 1, 'mortar').hiddenUntil ?? 0).toBe(0);
+  });
+  it('stepShells carries it from frame to frame', () => {
+    const [next] = stepShells([hidden(0.1)], 0.01);
+    expect(next.hiddenUntil).toBe(0.5);
+  });
+});
+
 // Machine-gun and rifle fire (2 Oct 2026): short streaks that TRAVEL. The
 // oracle here is literals -- the engagement ranges and cooldowns the data
 // declares -- never the profile read back against itself.

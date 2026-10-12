@@ -814,6 +814,34 @@ describe('writeShellInstances', () => {
   });
 });
 
+// N1b task 13 (R-N14): the production draw path honours `hiddenUntil`, not
+// only `shellTrailPoints` (which no draw path calls).
+describe('writeShellInstances honours hiddenUntil', () => {
+  function sBuffers(capacity: number): TracerInstanceBuffers {
+    return {
+      positions: new Float32Array(capacity * 4 * 3),
+      colors: new Float32Array(capacity * 4 * 3),
+      alphas: new Float32Array(capacity * 4),
+    };
+  }
+  const at = (frac: number): ShellModel => {
+    const s = { ...spawnShell(0, 0, 12, 0, 1, 'mortar'), hiddenUntil: 0.5 };
+    return { ...s, t: s.duration * frac };
+  };
+
+  it('writes nothing for a round still short of its hidden stretch', () => {
+    const out = sBuffers(SHELL_TRAIL_SEGMENTS);
+    expect(writeShellInstances([at(0.4)], ['#FFFFFF', '#FFFFFF'], null, 0, 0, out, 0)).toBe(0);
+  });
+  it('past it, draws the streak with its tail no further back than hiddenUntil', () => {
+    const s = at(0.55);
+    const out = sBuffers(SHELL_TRAIL_SEGMENTS);
+    expect(writeShellInstances([s], ['#FFFFFF', '#FFFFFF'], null, 0, 0, out, 0)).toBe(SHELL_TRAIL_SEGMENTS);
+    const meanX = (out.positions[0] + out.positions[3]) / 2;
+    expect(meanX).toBeCloseTo(shellPointAt(s, 0.5).x, 5);
+  });
+});
+
 describe('ShellBatch construction', () => {
   it('starts with an empty draw range and grows it by one quad per trail segment', () => {
     const batch = new ShellBatch(SHELL_TRAIL_SEGMENTS);

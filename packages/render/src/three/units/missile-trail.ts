@@ -304,7 +304,13 @@ export function emitAlongShell(
   if (s.kind !== 'rocket' || s.t < 0) return 0;
   const groundDist = shellGroundDist(s);
   const travelled = shellProgress(s) * groundDist;
-  const emitted = layPuffs(pool, s, s.trailTiles ?? 0, travelled, groundDist, look.lifeS, PUFF_ROCKET, shellPointInto, worldYAt);
+  // N1b task 13: a versus Grad from an unseen launcher lays no smoke before
+  // its `hiddenUntil` (the apex), so the trail cannot point back at it: the
+  // first puff waits past that much ground, and nothing is laid until the
+  // round gets there. Absent or 0 (every single-player round) is unchanged.
+  const hiddenUntil = s.hiddenUntil ?? 0;
+  const from = hiddenUntil > 0 ? Math.max(s.trailTiles ?? 0, hiddenUntil * groundDist) : (s.trailTiles ?? 0);
+  const emitted = layPuffs(pool, s, from, travelled, groundDist, look.lifeS, PUFF_ROCKET, shellPointInto, worldYAt);
   if (emitted > 0) s.trailTiles = lastLaid;
   return emitted;
 }

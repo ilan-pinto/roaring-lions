@@ -298,3 +298,214 @@ describe('a held building out of sight shows no holder badge in a room (N1a fina
     expect(badges({ versus: true, viewerSide: 1 }, false)).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// N1b task 13 (R-N14): the four leaks N1a left open, through the real
+// renderer. `versus-fog.test.ts` pins the predicates; these pin that the
+// renderer asks them on its production paths, and that single-player (no
+// `versus`) still draws every one of them through fog, as main does.
+// ---------------------------------------------------------------------------
+
+interface LeakPrivates {
+  fog: Uint8Array;
+  shells: ShellModel[];
+  overlayBatch: OverlayBatch;
+  updateOverlays(alpha: number): void;
+  spawnSmokeDischarge(by: number, sx: number, sy: number): void;
+  spawnCollapseFx(id: string, bx: number, by: number, power?: number, yawTurns?: number): boolean;
+  beginCollapseShroud(structure: number, cx: number, cy: number): void;
+}
+const leak = (r: ThreeRenderer): LeakPrivates => r as unknown as LeakPrivates;
+type Room = Pick<RendererOptions, 'viewerSide' | 'versus'>;
+
+describe('a damaged building out of sight shows no integrity bar in a room (R-N14 leak 1)', () => {
+  /** A side-1-held hut at (20, 20), half its integrity gone, far outside the
+   *  side-0 seat's sight. Returns how many integrity-bar rects (32 x 4 px,
+   *  -16..16) the overlay pass pushed: 2 when drawn (background and fill). */
+  function bars(room: Room, revealHut: boolean): number {
+    const sim = new Sim({ seed: 1, width: W, height: W, capacity: 8 });
+    const t = sim.addUnitType(TARGET);
+    const hut = sim.addStructureType({ id: 'hut', hp_per_tile: 80, height_px: 14, color: 'dust.1' });
+    const hutId = sim.addStructure(hut, [20 * W + 20]);
+    sim.structures.hp[hutId] = Math.floor(sim.structures.maxHp[hutId] / 2);
+    sim.spawn(t, 0, fx.from(4.5), fx.from(4.5));
+    const inside = sim.spawn(t, 1, fx.from(20.5), fx.from(20.5));
+    sim.state.garrisonedIn[inside] = hutId;
+    sim.structures.occupants[hutId] = 1;
+    const r = new ThreeRenderer(sim, makeOpts(room));
+    r.snapshot();
+    r.snapshot();
+    leak(r).fog.fill(0);
+    if (revealHut) reveal(r, 20.5, 20.5);
+    const rect = vi.spyOn(leak(r).overlayBatch, 'rect');
+    leak(r).updateOverlays(1);
+    const n = rect.mock.calls.filter(([, x0, y0, , y1]) => x0 === -16 && y1 - y0 === 4).length;
+    r.dispose();
+    return n;
+  }
+
+  it('single-player draws a fogged hostile building\'s bar, as main does', () => {
+    expect(bars({}, false)).toBe(2);
+    expect(bars({ viewerSide: 0 }, false)).toBe(2);
+  });
+  it('a versus seat draws no bar for a hostile building it cannot see', () => {
+    expect(bars({ versus: true, viewerSide: 0 }, false)).toBe(0);
+  });
+  it('a versus seat draws it once the building is in sight', () => {
+    expect(bars({ versus: true, viewerSide: 0 }, true)).toBe(2);
+  });
+  it('a versus seat always draws its own building\'s bar, fog or not', () => {
+    expect(bars({ versus: true, viewerSide: 1 }, false)).toBe(2);
+  });
+});
+
+describe('hostile smoke laid out of sight throws no discharge in a room (R-N14 leak 2)', () => {
+  /** A side-1 unit at (20.5, 20.5) lays a screen toward (22, 20); returns how
+   *  many times the renderer threw the launcher's pop. */
+  function pops(room: Room, revealLayer: boolean): number {
+    const sim = new Sim({ seed: 1, width: W, height: W, capacity: 8 });
+    const t = sim.addUnitType(TARGET);
+    sim.spawn(t, 0, fx.from(4.5), fx.from(4.5));
+    const layer = sim.spawn(t, 1, fx.from(20.5), fx.from(20.5));
+    const r = new ThreeRenderer(sim, makeOpts(room));
+    r.snapshot();
+    r.snapshot();
+    leak(r).fog.fill(0);
+    if (revealLayer) reveal(r, 20.5, 20.5);
+    const pop = vi.spyOn(leak(r), 'spawnSmokeDischarge');
+    r.onEvents([{ kind: 'smokeLaid', tick: 1, by: layer, x: fx.from(22), y: fx.from(20) }]);
+    const n = pop.mock.calls.length;
+    r.dispose();
+    return n;
+  }
+
+  it('single-player throws a fogged hostile\'s pop, as main does', () => {
+    expect(pops({}, false)).toBe(1);
+  });
+  it('a versus seat throws none for a hostile it cannot see', () => {
+    expect(pops({ versus: true, viewerSide: 0 }, false)).toBe(0);
+  });
+  it('a versus seat throws it when the layer is in sight, and always for its own', () => {
+    expect(pops({ versus: true, viewerSide: 0 }, true)).toBe(1);
+    expect(pops({ versus: true, viewerSide: 1 }, false)).toBe(1);
+  });
+});
+
+describe('a collapse out of sight throws no fireball or shroud in a room (R-N14 leak 3)', () => {
+  /** A 2x2 block at (20..21, 20..21), levelled through the sim's own path,
+   *  then the event handed over. Returns the burst and shroud call counts. */
+  function structure(room: Room, revealTile?: [number, number]): { burst: number; shroud: number } {
+    const sim = new Sim({ seed: 1, width: W, height: W, capacity: 8 });
+    const t = sim.addUnitType(TARGET);
+    sim.spawn(t, 0, fx.from(4.5), fx.from(4.5));
+    const block = sim.addStructureType({ id: 'block', hp_per_tile: 80, height_px: 14, color: 'dust.1' });
+    const id = sim.addStructure(block, [20 * W + 20, 20 * W + 21, 21 * W + 20, 21 * W + 21]);
+    const r = new ThreeRenderer(sim, makeOpts(room));
+    r.snapshot();
+    r.snapshot();
+    leak(r).fog.fill(0);
+    if (revealTile) reveal(r, revealTile[0], revealTile[1]);
+    const burst = vi.spyOn(leak(r), 'spawnCollapseFx');
+    const shroud = vi.spyOn(leak(r), 'beginCollapseShroud');
+    sim.debugDestroyStructure(id);
+    r.onEvents([{ kind: 'structureDestroyed', tick: sim.tickCount, structure: id, by: -1 }]);
+    const out = { burst: burst.mock.calls.length, shroud: shroud.mock.calls.length };
+    r.dispose();
+    return out;
+  }
+
+  it('single-player throws a fogged structure collapse, as main does', () => {
+    expect(structure({}, undefined)).toEqual({ burst: 1, shroud: 1 });
+  });
+  it('a versus seat throws none for a collapse it cannot see', () => {
+    expect(structure({ versus: true, viewerSide: 0 }, undefined)).toEqual({ burst: 0, shroud: 0 });
+  });
+  it('a versus seat throws it when any footprint tile is in sight -- the structure is already dead', () => {
+    // The far corner, not the centre: `structureInSight` would read false
+    // for every tile of a dead structure (R-B15), so this is the footprint.
+    expect(structure({ versus: true, viewerSide: 0 }, [21.5, 21.5])).toEqual({ burst: 1, shroud: 1 });
+  });
+
+  /** A pre-dug route from (18, 18) to (26, 18), collapsed. Returns how many
+   *  sample points threw the `tunnel_collapse` burst. */
+  function tunnel(room: Room, revealTile?: [number, number]): number {
+    const sim = new Sim({ seed: 1, width: W, height: W, capacity: 8 });
+    const t = sim.addUnitType(TARGET);
+    sim.spawn(t, 0, fx.from(4.5), fx.from(4.5));
+    const route = sim.addTunnel({ id: 'tn', points: [[18, 18], [26, 18]], dig_tiles_per_s: 1, pre_dug: true });
+    const r = new ThreeRenderer(sim, makeOpts(room));
+    r.snapshot();
+    r.snapshot();
+    leak(r).fog.fill(0);
+    if (revealTile) reveal(r, revealTile[0], revealTile[1]);
+    const burst = vi.spyOn(leak(r), 'spawnCollapseFx');
+    r.onEvents([{ kind: 'tunnelCollapsed', tick: sim.tickCount, tunnel: route, by: -1 }]);
+    const n = burst.mock.calls.filter(([id]) => id === 'tunnel_collapse').length;
+    r.dispose();
+    return n;
+  }
+
+  it('single-player throws every sample of a fogged tunnel collapse, as main does', () => {
+    expect(tunnel({}, undefined)).toBeGreaterThan(1);
+  });
+  it('a versus seat throws none out of sight, and only the samples it can see', () => {
+    const all = tunnel({}, undefined);
+    expect(tunnel({ versus: true, viewerSide: 0 }, undefined)).toBe(0);
+    expect(tunnel({ versus: true, viewerSide: 0 }, [18.5, 18.5])).toBe(1);
+    expect(all).toBeGreaterThan(1);
+  });
+});
+
+/** `mortar_team`'s own `mortar_60`, trimmed to the fields the sim reads (the
+ *  `ThreeRenderer.indirect-projectile.test.ts` fixture). */
+const MORTAR: UnitTypeJson = {
+  id: 't_mortar',
+  role: 'artillery',
+  hull: { hp: 350, armor: { front: 10, side: 10, rear: 10 } },
+  mobility: { speed_tiles_s: 0.65 },
+  sensors: { optics: 0.9, sight_tiles: 20 },
+  weapons: [
+    {
+      id: 'mortar_60', type: 'mortar', range_tiles: 18, effective_range_tiles: 14,
+      accuracy: 0.5, penetration: 30, damage: 180, splash_tiles: 1.8,
+      suppression: 90, rof_per_min: 60, min_range_tiles: 4,
+    },
+  ],
+};
+
+describe('an arc from an unseen hostile shooter appears at its apex in a room (R-N14 leak 4)', () => {
+  /** A side-1 mortar at (4, 4) firing at a side-0 target at (11, 4): the
+   *  real events of its first fire tick. Returns the spawned round's
+   *  `hiddenUntil` (0 when absent), or null when no round was spawned. */
+  function hiddenUntil(room: Room, revealAt?: [number, number]): number | null {
+    const sim = new Sim({ seed: 7, width: W, height: W, capacity: 8 });
+    const shooterType = sim.addUnitType(MORTAR);
+    const targetType = sim.addUnitType(TARGET);
+    const shooter = sim.spawn(shooterType, 1, fx.from(4), fx.from(4));
+    sim.spawn(targetType, 0, fx.from(11), fx.from(4));
+    let events: SimEvent[] = [];
+    for (let k = 0; k < 400 && !events.some((e) => e.kind === 'fire' && e.shooter === shooter); k++) events = sim.tick();
+    expect(events.some((e) => e.kind === 'fire' && e.shooter === shooter)).toBe(true);
+    const r = new ThreeRenderer(sim, makeOpts(room));
+    r.snapshot();
+    leak(r).fog.fill(0);
+    if (revealAt) reveal(r, revealAt[0], revealAt[1]);
+    r.onEvents(events);
+    const shells = leak(r).shells;
+    const out = shells.length === 0 ? null : (shells[0].hiddenUntil ?? 0);
+    r.dispose();
+    return out;
+  }
+
+  it('single-player draws a fogged hostile mortar from the muzzle, as main does', () => {
+    expect(hiddenUntil({}, undefined)).toBe(0);
+    expect(hiddenUntil({}, [11, 4])).toBe(0);
+  });
+  it('a versus seat that sees only the impact gets the round from its apex', () => {
+    expect(hiddenUntil({ versus: true, viewerSide: 0 }, [11, 4])).toBe(0.5);
+  });
+  it('a versus seat that sees the shooter, or owns it, gets the whole arc', () => {
+    expect(hiddenUntil({ versus: true, viewerSide: 0 }, [4, 4])).toBe(0);
+    expect(hiddenUntil({ versus: true, viewerSide: 1 }, undefined)).toBe(0);
+  });
+});

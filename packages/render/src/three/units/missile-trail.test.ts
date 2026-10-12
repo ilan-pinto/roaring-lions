@@ -267,6 +267,21 @@ describe('emitAlongShell (GH-85)', () => {
     expect(pool.live).toBe(0);
   });
 
+  // N1b task 13 (R-N14): a Grad from a versus shooter the seat cannot see is
+  // hidden to its apex (`hiddenUntil`), and its smoke must not draw the
+  // first half of the arc back to the launcher either.
+  it('lays no smoke before hiddenUntil, then only from it onward', () => {
+    const pool = new TrailPool(64);
+    const s = { ...spawnShell(0, 0, 10, 0, 1, 'rocket'), hiddenUntil: 0.5 };
+    s.t = s.duration * 0.4;
+    expect(emitAlongShell(pool, s, rocketLook(), shellY)).toBe(0);
+    expect(pool.live).toBe(0);
+    s.t = s.duration * 0.6;
+    const n = emitAlongShell(pool, s, rocketLook(), shellY);
+    expect(n).toBe(5); // 5 to 6 tiles of ground at 0.2: 5.2, 5.4, 5.6, 5.8, 6.0
+    for (let i = 0; i < pool.capacity; i++) if (pool.alive[i] === 1) expect(pool.px[i]).toBeGreaterThan(5);
+  });
+
   it('draws a rocket puff with the rocket look and a missile puff with the missile look, in one buffer', () => {
     const pool = new TrailPool(64);
     const rk = rocketLook();
