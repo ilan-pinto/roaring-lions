@@ -136,7 +136,7 @@ import { installEscapeBack } from './shell/escape-back';
 import { leaveCopy, leaveHref } from './ui/leave-copy';
 import { closeTip } from './ui/tooltip';
 import { objectiveStatusShout } from './ui/objective-status';
-import { pauseMenu } from './ui/pause';
+import { pauseMenu, type PauseDeps } from './ui/pause';
 import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
 import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace } from './input/keymap';
@@ -235,8 +235,9 @@ import { bindLiveTeamColors } from './live-team-colors';
 import { garageColors, garageGroundTexture, garageModelSource } from './garage-model-source';
 import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
-import type { Seat } from '@lions/net';
+import { PAUSES_PER_SEAT, WsTransport, type Seat } from '@lions/net';
 import { connectMatch, openRoom, type Connected } from './net/connect';
+import { roomPauseCall } from './net/room-pause';
 import { roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
 import { safeStorage as safeStorageLike } from './telemetry/identity';
 import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
@@ -1694,6 +1695,18 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   onDispose(() => transport.close());
   const netSeat: Seat | null = match.seat;
   const netConfig = match.config;
+  /** This battlefield's room, when it is one seat of a match (N1b task 8):
+   *  where Escape's pause, the menu's Resume and Surrender go. Null in
+   *  single-player, which keeps its local pause exactly as it was. */
+  const room = netSeat !== null && transport instanceof WsTransport ? transport : null;
+  /** This seat's pauses left, from the last `paused` the room sent (R-B17):
+   *  a refused pause is silent, so this count is the only way to know there
+   *  is none left. Hooked here, before the first await, so a rejoin into a
+   *  pause in force (the room re-sends `paused` behind its `log`) is counted. */
+  let roomPausesLeft = PAUSES_PER_SEAT;
+  if (room !== null && netSeat !== null) {
+    room.setHooks({ onPaused: (_by, _ms, left) => { roomPausesLeft = left[netSeat]; } });
+  }
   if (netConfig !== null && netConfig.map !== mapId) {
     teardown();
     throw new Error(`N0: room ${netConfig.code} plays "${netConfig.map}", but this URL asks for "${mapId}" -- open /free-play/${netConfig.map}?net=${netConfig.code}`);
@@ -2742,6 +2755,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // over it trivially; `pause`/`resume` (which need `hud.paintSpeed()`) are
   // defined just after the Hud exists.
   let paused = false;
+  /** A room's pause in force, by either seat (N1b task 8): read off the
+   *  transport's status each frame, never set by Escape -- in a match the room
+   *  is the clock (R33), and the local `paused` above stays false. Always
+   *  false in single-player. */
+  let roomPaused = false;
   let pauseHandle: { close: Disposer } | null = null;
   // Fix round 1: set the moment `showEndScreen` shows (below, at the
   // `missionEnd` event) and read by `case 'pause':` -- Escape must do
@@ -2989,7 +3007,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     toggleMute: () => {
       audioMuted = audio.toggle();
     },
-    isPaused: () => paused,
+    isPaused: () => paused || roomPaused,
     // The in-mission exit, behind the strip's confirm dialog. A router
     // navigation since this task: the campaign screen mounts into the same
     // document, and the disposer registered below is what makes that safe --
@@ -3128,7 +3146,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     }
     const input: ContextInput = {
       ...shellContextInput(s),
-      paused,
+      paused: paused || roomPaused,
       force: { alive, lost: Object.values(runtime?.lostByType() ?? {}).reduce((a, b) => a + b, 0), fielded: [...fielded], selected: [...selected] },
       camera: { x: renderer.camera.x, y: renderer.camera.y, zoom: renderer.camera.zoom },
       feed: hud.feedLines(),
@@ -3145,7 +3163,88 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       tick: sim.tickCount,
     };
   };
+  /** The menu both pauses open -- single-player's, and a room's with
+   *  Surrender added (below). */
+  const pauseMenuDeps = (): PauseDeps => ({
+    objectives: liveObjectives,
+    paysCredits,
+    onResume: resume,
+    // Fix round 1: read from `bindings` (declared below, closed over --
+    // safe, since this only runs from a captured keydown, long after
+    // `bindings` exists) through the same `resolveKey` the game's own
+    // keydown listener uses, so a rebind of w/a/s/d is honoured
+    // immediately rather than the hardcoded default set this shipped
+    // with first. No modifier: none of the four pan actions declares one.
+    isPanKey: (ev) => {
+      const a = resolveKey(bindings, ev);
+      return a === 'panUp' || a === 'panDown' || a === 'panLeft' || a === 'panRight';
+    },
+    // No Restart in a room (N0): it re-navigates with the boot's own query,
+    // which after `?net=new` opens a SECOND room and freezes the other seat.
+    ...(netSeat === null
+      ? {
+          onRestart: () => {
+            void confirmDialog(document.body, {
+              title: t('pause.restart.confirm.title'),
+              body: t('pause.restart.confirm.body'),
+              confirm: t('pause.restart.confirm.action'),
+              danger: true,
+            }).answer.then((ok) => {
+              if (ok) req.restart();
+            });
+          },
+        }
+      : {}),
+    onQuit: () => {
+      // Same wording as the HUD's own "leave the mission" confirm
+      // (hud.ts's leaveBtn) -- both ask the identical question.
+      const leaveText = leaveCopy(!mission);
+      void confirmDialog(document.body, {
+        title: leaveText.title,
+        body: leaveText.body,
+        confirm: leaveText.confirm,
+        danger: true,
+      }).answer.then((ok) => {
+        if (ok) req.navigate(leaveHref(!mission));
+      });
+    },
+    settings: req.settings,
+    build: __APP_BUILD__,
+    feedback:
+      fb.shown && !feedbackClosed()
+        ? {
+            who: fb.who,
+            build: fb.build,
+            storage: fb.storage,
+            ...(mission ? { where: { mission: mission.name ?? mission.id, clock: missionClock(sim.tickCount) } } : {}),
+            // Taken when the tab first opens: the frame the player paused on.
+            picture: () => takePicture(renderer),
+            replay: {
+              available: () => replayLog.available,
+              approxBytes: () => replayLog.approxBytes,
+              log: () => replayLog.log(sim.tickCount, sim.hash()),
+            },
+            send: async (sub, signal) =>
+              fb.send(
+                {
+                  source: 'pause',
+                  category: sub.kind,
+                  text: sub.text,
+                  ...(sub.contact === undefined ? {} : { contact: sub.contact }),
+                  where: fbWhere(),
+                  shot: sub.shot,
+                  replay: sub.replay,
+                },
+                { signal }
+              ),
+          }
+        : undefined,
+  });
   const pause = (): void => {
+    if (room !== null) {
+      roomPause(room);
+      return;
+    }
     if (paused) return;
     paused = true;
     // The mix's pause row: every voice stops, the music steps 6 dB down.
@@ -3153,83 +3252,51 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // Repainted here, not on the next tick: at `paused` no tick ever comes,
     // so a strip that waits for one never dims.
     hud.paintSpeed();
+    pauseHandle = pauseMenu(document.body, pauseMenuDeps());
+  };
+  /** Escape in a match (N1b task 8, spec §3.2.5): the menu opens as in
+   *  single-player, and the room -- not this machine -- is asked to pause,
+   *  unless it already is (either seat's pause: the menu is then only the
+   *  settings) or this seat has none left (R-B17: the room would ignore it,
+   *  so the menu says the match keeps running instead). Nothing local stops:
+   *  the room is the clock, and its `paused` status is what the frame loop
+   *  hands the audio and the strip. Restart is already absent in a room and
+   *  Quit becomes a confirmed Surrender. */
+  const roomPause = (r: WsTransport): void => {
+    if (pauseHandle !== null) return;
+    const call = roomPauseCall(r.status(), roomPausesLeft);
+    if (call.send) r.pause();
     pauseHandle = pauseMenu(document.body, {
-      objectives: liveObjectives,
-      paysCredits,
-      onResume: resume,
-      // Fix round 1: read from `bindings` (declared below, closed over --
-      // safe, since this only runs from a captured keydown, long after
-      // `bindings` exists) through the same `resolveKey` the game's own
-      // keydown listener uses, so a rebind of w/a/s/d is honoured
-      // immediately rather than the hardcoded default set this shipped
-      // with first. No modifier: none of the four pan actions declares one.
-      isPanKey: (ev) => {
-        const a = resolveKey(bindings, ev);
-        return a === 'panUp' || a === 'panDown' || a === 'panLeft' || a === 'panRight';
-      },
-      // No Restart in a room (N0): it re-navigates with the boot's own query,
-      // which after `?net=new` opens a SECOND room and freezes the other seat.
-      ...(netSeat === null
-        ? {
-            onRestart: () => {
-              void confirmDialog(document.body, {
-                title: t('pause.restart.confirm.title'),
-                body: t('pause.restart.confirm.body'),
-                confirm: t('pause.restart.confirm.action'),
-                danger: true,
-              }).answer.then((ok) => {
-                if (ok) req.restart();
-              });
-            },
-          }
-        : {}),
-      onQuit: () => {
-        // Same wording as the HUD's own "leave the mission" confirm
-        // (hud.ts's leaveBtn) -- both ask the identical question.
-        const leaveText = leaveCopy(!mission);
+      ...pauseMenuDeps(),
+      onSurrender: () => {
         void confirmDialog(document.body, {
-          title: leaveText.title,
-          body: leaveText.body,
-          confirm: leaveText.confirm,
+          title: t('versus.surrender.confirm.title'),
+          body: t('versus.surrender.confirm.body'),
+          confirm: t('versus.surrender.confirm.action'),
           danger: true,
         }).answer.then((ok) => {
-          if (ok) req.navigate(leaveHref(!mission));
+          if (!ok) return;
+          r.surrender();
+          // The room's `ended` brings the match-over panel; the menu has
+          // nothing left to offer and must not sit over it.
+          pauseHandle?.close();
+          pauseHandle = null;
         });
       },
-      settings: req.settings,
-      build: __APP_BUILD__,
-      feedback:
-        fb.shown && !feedbackClosed()
-          ? {
-              who: fb.who,
-              build: fb.build,
-              storage: fb.storage,
-              ...(mission ? { where: { mission: mission.name ?? mission.id, clock: missionClock(sim.tickCount) } } : {}),
-              // Taken when the tab first opens: the frame the player paused on.
-              picture: () => takePicture(renderer),
-              replay: {
-                available: () => replayLog.available,
-                approxBytes: () => replayLog.approxBytes,
-                log: () => replayLog.log(sim.tickCount, sim.hash()),
-              },
-              send: async (sub, signal) =>
-                fb.send(
-                  {
-                    source: 'pause',
-                    category: sub.kind,
-                    text: sub.text,
-                    ...(sub.contact === undefined ? {} : { contact: sub.contact }),
-                    where: fbWhere(),
-                    shot: sub.shot,
-                    replay: sub.replay,
-                  },
-                  { signal }
-                ),
-            }
-          : undefined,
+      ...(call.note ? { pauseNote: t('pause.noPausesLeft') } : {}),
     });
   };
   const resume = (): void => {
+    if (room !== null) {
+      if (pauseHandle === null) return;
+      // Sent whatever this seat sees: the room ends only its pauser's pause
+      // and ignores the rest, and one socket keeps order, so a Resume behind a
+      // pause the room has not answered yet still ends it.
+      room.resume();
+      pauseHandle.close();
+      pauseHandle = null;
+      return;
+    }
     if (!paused) return;
     paused = false;
     audio.setPaused(false);
@@ -5556,6 +5623,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       }
     }
     netStatus?.paint(transport.status());
+    // A room's pause (either seat's) quiets the mix and dims the strip as a
+    // local pause does; the room's status is the only thing that says so.
+    if (room !== null) {
+      const nowPaused = room.status().kind === 'paused';
+      if (nowPaused !== roomPaused) {
+        roomPaused = nowPaused;
+        audio.setPaused(nowPaused);
+        hud.paintSpeed();
+      }
+    }
     // Read live off the settings store, not snapshotted at boot: `set()`
     // reaches every open battlefield the moment the player changes it,
     // pause menu included (Task 6) -- `get()` is a plain getter, so this

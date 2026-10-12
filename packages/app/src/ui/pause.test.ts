@@ -545,3 +545,41 @@ describe('pauseMenu feedback tab (GH-464)', () => {
   });
 });
 
+
+// N1b task 8 (spec §3.2.5): in a room there is no local pause and no leaving
+// one seat's world -- Quit becomes a confirmed Surrender. Single-player keeps
+// main's exact action row, asserted as a LIST so an extra button fails too.
+describe('pauseMenu in a room', () => {
+  const acts = (): (string | undefined)[] =>
+    [...document.querySelectorAll<HTMLElement>('.rl-pause__actions button')].map((b) => b.dataset.act);
+
+  it('without onSurrender the action row is exactly main\'s: resume, restart, settings, quit', () => {
+    pauseMenu(document.body, deps());
+    expect(acts()).toEqual(['resume', 'restart', 'settings', 'quit']);
+    expect(document.querySelector('.rl-pause__note')).toBeNull();
+  });
+
+  it('with onSurrender there is a Surrender button and no Quit; it hands off to the caller and leaves the menu up', () => {
+    const { onRestart: _drop, ...rest } = deps();
+    void _drop;
+    const onSurrender = vi.fn();
+    const d = { ...rest, onSurrender };
+    pauseMenu(document.body, d);
+    expect(acts()).toEqual(['resume', 'settings', 'surrender']);
+    const btn = document.querySelector<HTMLButtonElement>('.rl-pause button[data-act="surrender"]');
+    expect(btn?.textContent).toBe('Surrender');
+    btn?.click();
+    expect(onSurrender).toHaveBeenCalledTimes(1);
+    expect(d.onQuit).not.toHaveBeenCalled();
+    expect(d.onResume).not.toHaveBeenCalled();
+    expect(document.querySelector('.rl-pause')).not.toBeNull();
+  });
+
+  it('pauseNote is a line of text under the title, ahead of the tabs', () => {
+    pauseMenu(document.body, { ...deps(), pauseNote: 'No pauses left: the match keeps running <b>x</b>' });
+    const note = document.querySelector<HTMLElement>('.rl-pause__note');
+    expect(note?.textContent).toBe('No pauses left: the match keeps running <b>x</b>');
+    expect(note?.querySelector('b')).toBeNull();
+    expect(note?.nextElementSibling?.classList.contains('rl-pause__tabs')).toBe(true);
+  });
+});

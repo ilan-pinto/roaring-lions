@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { netStatusText } from './net-status';
+// @vitest-environment jsdom
+import { afterEach, describe, it, expect } from 'vitest';
+import { NetStatusLine, netStatusText } from './net-status';
 
 const nameOf = (seat: 0 | 1 | null): string => (seat === null ? 'me' : `seat-${seat}`);
 
@@ -24,5 +25,43 @@ describe('netStatusText', () => {
   it('a desync names the match time its window closed at', () => {
     expect(netStatusText({ kind: 'desync', tick: 39 }, nameOf)).toBe('Desync at 0:02. The match is void; report it.');
     expect(netStatusText({ kind: 'desync', tick: 1219 }, nameOf)).toBe('Desync at 1:01. The match is void; report it.');
+  });
+});
+
+// N1b task 8: a room pause is the room's own clock (3 x 90 s a seat), so the
+// line says who holds it and how long the room will go on holding it.
+describe('a room pause', () => {
+  const now = 1_000_000;
+  const ab = (seat: 0 | 1 | null): string => (seat === 1 ? 'B' : 'A');
+  it('names who paused and the time left as m:ss', () => {
+    expect(netStatusText({ kind: 'paused', seat: 1, untilMs: now + 61_000 }, ab, now)).toBe('Paused by B: 1:01');
+    expect(netStatusText({ kind: 'paused', seat: 0, untilMs: now + 90_000 }, ab, now)).toBe('Paused by A: 1:30');
+  });
+  it('counts down to 0:00 and no further, rounding a part second up', () => {
+    const s = { kind: 'paused', seat: 1, untilMs: now + 61_000 } as const;
+    expect(netStatusText(s, ab, now + 500)).toBe('Paused by B: 1:01');
+    expect(netStatusText(s, ab, now + 1_000)).toBe('Paused by B: 1:00');
+    expect(netStatusText(s, ab, now + 60_001)).toBe('Paused by B: 0:01');
+    expect(netStatusText(s, ab, now + 61_000)).toBe('Paused by B: 0:00');
+    expect(netStatusText(s, ab, now + 70_000)).toBe('Paused by B: 0:00');
+  });
+});
+
+describe('NetStatusLine', () => {
+  afterEach(() => {
+    document.body.replaceChildren();
+  });
+  it('repaints a pause as its clock runs down, and hides when the room resumes', () => {
+    const line = new NetStatusLine(document.body, (seat) => (seat === 1 ? 'B' : 'A'));
+    const el = document.querySelector('.rl-net-status') as HTMLElement;
+    const paused = { kind: 'paused', seat: 1, untilMs: 2_000_000 + 90_000 } as const;
+    line.paint(paused, 2_000_000);
+    expect(el.hidden).toBe(false);
+    expect(el.dataset.net).toBe('paused');
+    expect(el.textContent).toBe('Paused by B: 1:30');
+    line.paint(paused, 2_000_000 + 29_000);
+    expect(el.textContent).toBe('Paused by B: 1:01');
+    line.paint({ kind: 'live', behind: 0 }, 2_000_000 + 30_000);
+    expect(el.hidden).toBe(true);
   });
 });

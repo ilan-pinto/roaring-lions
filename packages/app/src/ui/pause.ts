@@ -92,8 +92,17 @@ export interface PauseDeps {
    *  re-navigation would silently open a second room and strand the other
    *  seat. */
   onRestart?: () => void;
-  /** The caller confirms before actually leaving. */
+  /** The caller confirms before actually leaving. Not offered when
+   *  `onSurrender` is: in a room the way out is surrendering. */
   onQuit(): void;
+  /** A match (N1b task 8, spec §3.2.5): present only in a room, where Quit
+   *  becomes Surrender -- a `data-act="surrender"` button in Quit's place, and
+   *  no Quit at all. The caller confirms before surrendering. Absent, the
+   *  menu is exactly single-player's. */
+  onSurrender?: () => void;
+  /** A line under the title, as text -- in a room, "No pauses left: the
+   *  match keeps running" when this seat's pause was not taken. */
+  pauseNote?: string;
   settings: SettingsDeps;
   build: string;
   /** Is this physical keydown currently bound to a pan action? Fix round 1:
@@ -144,6 +153,14 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
   // panel's own late mount on first "Settings" click) are all covered
   // without this needing to know when they arrive.
   const disposeTrap = focusTrap(p.el);
+
+  // --- the note (a room only): first in the body, so it reads under the title
+  if (deps.pauseNote !== undefined) {
+    const note = document.createElement('p');
+    note.className = 'rl-pause__note';
+    note.textContent = deps.pauseNote;
+    p.body.appendChild(note);
+  }
 
   // --- tabs: Objectives | Settings ---------------------------------------
   const tabs = document.createElement('div');
@@ -230,8 +247,12 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
   const onRestart = deps.onRestart;
   const restartBtn = onRestart ? actionButton(t('pause.restart'), 'restart') : null;
   const settingsActBtn = actionButton(t('pause.settings'), 'settings');
-  const quitBtn = actionButton(t('pause.quit'), 'quit');
-  actions.append(...[resumeBtn, restartBtn, settingsActBtn, quitBtn].filter((b) => b !== null));
+  // In a room Surrender takes Quit's place: one seat cannot leave a match
+  // without ending it for both, so the only way out says what it does.
+  const onSurrender = deps.onSurrender;
+  const quitBtn = onSurrender ? null : actionButton(t('pause.quit'), 'quit');
+  const surrenderBtn = onSurrender ? actionButton(t('pause.surrender'), 'surrender') : null;
+  actions.append(...[resumeBtn, restartBtn, settingsActBtn, quitBtn, surrenderBtn].filter((b) => b !== null));
   p.body.appendChild(actions);
 
   const foot = document.createElement('p');
@@ -260,7 +281,8 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
   resumeBtn.addEventListener('click', () => resumeAndClose());
   if (restartBtn && onRestart) restartBtn.addEventListener('click', () => onRestart());
   settingsActBtn.addEventListener('click', () => showTab('settings'));
-  quitBtn.addEventListener('click', () => deps.onQuit());
+  quitBtn?.addEventListener('click', () => deps.onQuit());
+  if (surrenderBtn && onSurrender) surrenderBtn.addEventListener('click', () => onSurrender());
 
   const onKey = (e: KeyboardEvent): void => {
     if (e.key !== 'Escape') return;

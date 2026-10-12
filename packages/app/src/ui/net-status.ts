@@ -1,7 +1,8 @@
 /**
  * The room's one HUD line (N0 task 11): waiting for the other seat, a stall
- * and who it is waiting on, or a desync. Hidden in single-player and while the
- * match runs live, so a healthy room shows nothing; a closed room says why. Mounted on
+ * and who it is waiting on, a pause and how long it has left (N1b task 8), or
+ * a desync. Hidden in single-player and while the match runs live, so a
+ * healthy room shows nothing; a closed room says why. Mounted on
  * `document.body`, so the battlefield that makes it removes it (`dispose`, in
  * its own `onDispose` -- the disposer contract).
  */
@@ -10,8 +11,10 @@ import { TICKS_PER_SECOND } from '@lions/sim';
 import { t } from '../i18n/t';
 
 /** The line for a status, or null when there is nothing to say. `nameOf(null)`
- *  is this machine's own seat: a `connecting` stall is our socket, not theirs. */
-export function netStatusText(s: TransportStatus, nameOf: (seat: Seat | null) => string): string | null {
+ *  is this machine's own seat: a `connecting` stall is our socket, not theirs.
+ *  `now` is the wall clock a pause's `untilMs` was stamped on (`WsTransport`'s
+ *  own `now`, `Date.now()` in the browser). */
+export function netStatusText(s: TransportStatus, nameOf: (seat: Seat | null) => string, now: number = Date.now()): string | null {
   switch (s.kind) {
     case 'local':
     case 'live':
@@ -30,8 +33,17 @@ export function netStatusText(s: TransportStatus, nameOf: (seat: Seat | null) =>
     case 'desync':
       return t('net.desync', { time: matchClock(s.tick) });
     case 'paused':
-      return null;   // Task 8 gives the pause its line
+      // Either seat's pause: the room holds both, so the seat that did not
+      // pause sees who did and when the room resumes by itself (3 x 90 s).
+      return t('net.paused', { seat: nameOf(s.seat), time: countdown(s.untilMs - now) });
   }
+}
+
+/** Time left as m:ss, a part second rounded UP: a pause reads 1:30 when it
+ *  begins and 0:00 only once it is over, never below. */
+function countdown(ms: number): string {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
 /** The match time a desync was found at, as m:ss. A hash closes a window of
@@ -56,9 +68,10 @@ export class NetStatusLine {
     parent.appendChild(this.el);
   }
 
-  /** Called every frame; touches the DOM only when the line changes. */
-  paint(status: TransportStatus): void {
-    const text = netStatusText(status, this.nameOf);
+  /** Called every frame; touches the DOM only when the line changes (a
+   *  pause's countdown, once a second). */
+  paint(status: TransportStatus, now: number = Date.now()): void {
+    const text = netStatusText(status, this.nameOf, now);
     if (text === this.shown) return;
     this.shown = text;
     this.el.dataset.net = status.kind;

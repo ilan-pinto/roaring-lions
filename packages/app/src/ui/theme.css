@@ -1464,6 +1464,12 @@ body[data-outcome-beat] .rl-aar {
 /* Pause (ui/pause.ts) — Escape's target while a battlefield is running    */
 /* ====================================================================== */
 
+/* A room's note under the title (N1b task 8): "No pauses left: the match
+   keeps running" -- a caution, so the caution colour. */
+.rl-pause__note {
+  margin: 0 0 var(--s3);
+  color: var(--warn);
+}
 .rl-pause__tabs {
   display: flex;
   gap: var(--s2);
