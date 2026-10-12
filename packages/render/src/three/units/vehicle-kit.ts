@@ -33,6 +33,19 @@
  * WITH NO TIERS, OR EVERY TIER 0, the template is the shipped one: every live
  * mesh keeps its exact geometry object, and only the (undrawn) kit nodes go.
  * That is what keeps every gated golden scenario still on a kitted GLB.
+ *
+ * A TWO-LEVEL LOD, for the slat bars (GH-238 leftovers, 2026-10-12). A part
+ * may carry `_near` and `_far` nodes beside its main one (`rl_kit.lod`): the
+ * real 30 mm bars at 120 mm, and coarse bars at twice the pitch that keep
+ * the cage's mean coverage. At zoom 1 and DPR 1 the real rows are a 1.57 px
+ * period of 0.62 px bars -- above Nyquist on a single-sampled target, so they
+ * alias into a moving moire that SMAA cannot undo. Both levels are merged
+ * into the ONE geometry (host, main, near, far), and it carries TWO index
+ * buffers over that vertex buffer: host + main + near (the default, and all
+ * the garage ever draws) and host + main + far. `setKitLod` swaps them, and
+ * `ThreeRenderer` calls it when `camera.zoom x pixelRatio` crosses
+ * `KIT_LOD_SWITCH`. Still one draw per mesh; the host stays first in both, so
+ * `rlKitBaseCount` and the `kit` debug layer mean what they did.
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -49,11 +62,27 @@ export const KIT_BASE_COUNT_KEY = 'rlKitBaseCount';
  *  Type-wide and fixed for the mission (brigade D3). */
 export type VehicleKitTiers = Readonly<Record<string, number>>;
 
+/** The `userData` key on a merged geometry whose kit carries an LOD: the two
+ *  index buffers `setKitLod` swaps between. */
+export const KIT_LOD_KEY = 'rlKitLod';
+
+/** Below this `camera.zoom x pixelRatio` the renderer draws the far bars.
+ *  Measured, not derived: `pnpm kit:capture -- --measure` reads the pan
+ *  shimmer of both levels at six zooms; see the PR for the readings. */
+export const KIT_LOD_SWITCH = 1.75;
+
+export interface KitLodIndices {
+  readonly near: THREE.BufferAttribute;
+  readonly far: THREE.BufferAttribute;
+}
+
 /** `extras.rl_kit`, as the contract writes it. */
 export interface KitPartTag {
   readonly track: string;
   readonly tier: number;
   readonly host: string;
+  /** Absent: drawn at every zoom. */
+  readonly lod?: 'near' | 'far';
 }
 
 function isKitNode(o: THREE.Object3D): boolean {
@@ -63,8 +92,9 @@ function isKitNode(o: THREE.Object3D): boolean {
 function kitTag(o: THREE.Object3D): KitPartTag {
   const raw = (o.userData as { rl_kit?: unknown }).rl_kit;
   if (typeof raw === 'object' && raw !== null) {
-    const { track, tier, host } = raw as { track?: unknown; tier?: unknown; host?: unknown };
+    const { track, tier, host, lod } = raw as { track?: unknown; tier?: unknown; host?: unknown; lod?: unknown };
     if (
+      (lod === undefined || lod === 'near' || lod === 'far') &&
       typeof track === 'string' &&
       track.length > 0 &&
       typeof host === 'string' &&
@@ -73,12 +103,12 @@ function kitTag(o: THREE.Object3D): KitPartTag {
       Number.isInteger(tier) &&
       tier >= 1
     ) {
-      return { track, tier, host };
+      return lod === undefined ? { track, tier, host } : { track, tier, host, lod };
     }
   }
   throw new Error(
     `vehicle-kit: node "${o.name}" is a kit part but carries no valid extras.rl_kit ` +
-      `({ track, tier >= 1, host }) -- see mesh-unit-contract.md, "Kit parts"`
+      `({ track, tier >= 1, host, lod? near|far }) -- see mesh-unit-contract.md, "Kit parts"`
   );
 }
 
@@ -180,12 +210,29 @@ export function applyVehicleKit(root: THREE.Object3D, tiers?: VehicleKitTiers): 
   const candidates = new Set<THREE.BufferGeometry>();
   for (const node of kitNodes) candidates.add((node as THREE.Mesh).geometry);
 
+  const LOD_ORDER = { main: 0, near: 1, far: 2 } as const;
   for (const [host, parts] of kept) {
-    // A fixed order, so two loads of one GLB build byte-identical buffers.
-    parts.sort((a, b) =>
-      a.tag.track !== b.tag.track ? (a.tag.track < b.tag.track ? -1 : 1) : a.tag.tier - b.tag.tier
-    );
+    // A fixed order, so two loads of one GLB build byte-identical buffers:
+    // every main part, then every near level, then every far level, each
+    // by track and tier -- the two index buffers below are then two slices.
+    parts.sort((a, b) => {
+      const la = LOD_ORDER[a.tag.lod ?? 'main'];
+      const lb = LOD_ORDER[b.tag.lod ?? 'main'];
+      if (la !== lb) return la - lb;
+      return a.tag.track !== b.tag.track ? (a.tag.track < b.tag.track ? -1 : 1) : a.tag.tier - b.tag.tier;
+    });
+    const nearCount = parts.filter((p) => p.tag.lod === 'near').length;
+    const farCount = parts.filter((p) => p.tag.lod === 'far').length;
+    if ((nearCount === 0) !== (farCount === 0)) {
+      throw new Error(
+        `vehicle-kit: host "${host.name}" keeps ${nearCount} near and ${farCount} far LOD part(s) -- ` +
+          `a level swaps for its partner, so both or neither`
+      );
+    }
     const old = host.geometry;
+    if ((nearCount > 0 || farCount > 0) && old.index === null) {
+      throw new Error(`vehicle-kit: host "${host.name}" is not indexed, and a kit LOD swaps index buffers`);
+    }
     const merged = mergeGeometries([old, ...parts.map((p) => p.mesh.geometry)], false);
     if (merged === null) {
       throw new Error(
@@ -195,6 +242,23 @@ export function applyVehicleKit(root: THREE.Object3D, tiers?: VehicleKitTiers): 
     }
     merged.name = old.name;
     merged.userData[KIT_BASE_COUNT_KEY] = baseCount(old);
+    if (nearCount > 0 && merged.index !== null) {
+      // [host | main | near | far] in the merged index: near = the first
+      // three runs, far = the first two and the last.
+      const full = merged.index.array;
+      const before = baseCount(old) + parts.filter((p) => p.tag.lod === undefined).reduce((n, p) => n + baseCount(p.mesh.geometry), 0);
+      const near = parts.filter((p) => p.tag.lod === 'near').reduce((n, p) => n + baseCount(p.mesh.geometry), 0);
+      const nearArr = full.slice(0, before + near);
+      const farArr = new (full.constructor as new (n: number) => typeof full)(full.length - near);
+      farArr.set(full.subarray(0, before), 0);
+      farArr.set(full.subarray(before + near), before);
+      const lod: KitLodIndices = {
+        near: new THREE.BufferAttribute(nearArr, 1),
+        far: new THREE.BufferAttribute(farArr, 1),
+      };
+      merged.setIndex(lod.near);
+      merged.userData[KIT_LOD_KEY] = lod;
+    }
     // EVERY mesh over the old geometry -- the live node and its `WRECK_` twin.
     root.traverse((o) => {
       const mesh = o as THREE.Mesh;
@@ -233,4 +297,31 @@ export function setKitDrawRange(geometries: Iterable<THREE.BufferGeometry>, hidd
     n++;
   }
   return n;
+}
+
+/**
+ * The kit LOD's worker: on every geometry that carries one
+ * (`KIT_LOD_KEY`), draw the far bars when `far`, the near (real) ones when
+ * not. Leaves the draw range alone, so a hidden `kit` debug layer stays
+ * hidden: the host is first in both index buffers. Returns how many
+ * geometries it switched.
+ */
+export function setKitLod(geometries: Iterable<THREE.BufferGeometry>, far: boolean): number {
+  let n = 0;
+  for (const g of geometries) {
+    const lod = (g.userData as Record<string, unknown>)[KIT_LOD_KEY] as KitLodIndices | undefined;
+    if (!lod) continue;
+    const want = far ? lod.far : lod.near;
+    if (g.index !== want) {
+      g.setIndex(want);
+      n++;
+    }
+  }
+  return n;
+}
+
+/** Whether the renderer should draw the far bars at this zoom and pixel
+ *  ratio (`KIT_LOD_SWITCH`). */
+export function kitLodIsFar(zoom: number, pixelRatio: number): boolean {
+  return zoom * pixelRatio < KIT_LOD_SWITCH;
 }

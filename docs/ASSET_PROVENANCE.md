@@ -1069,6 +1069,16 @@ pinning follows the bake**: a kit part's UVs point into the same image, so
 the Eitan's armour panels took the new olive with the hull at graft time;
 the kit was still re-exported for the metal texel.
 
+## GH-238 kit leftovers -- slat LOD, the Peten's kit, dielectric metal patch, 2026-10-12
+
+No generation, **0 credits**. Everything here is code over the existing, already-disclosed
+Meshy bakes and Blender-built kit parts.
+
+| File | What changed | How | AI-generated | Credits |
+|---|---|---|---|---|
+| `art/meshes/vehicles/{apc_eitan,apc_kipod,dozer_d9,scout_shachaf,ifv_namer}.glb` (+ `assets/meshes/` mirrors) | The A3.2 metal patch's 32x32 block in `metallic_roughness` repainted to metallic 0 / roughness 0.6 (it was metallic 1.0 and drew near-black in game, which has no environment map). `base_color` and `normal` copied byte for byte; `metallic_roughness` re-encoded JPEG q85 once more | `python3 tools/vehicles/patch_metal_glb.py --metallic-only <glb>` (the block found by its gunmetal.2 colour off every live face), then `pnpm kit:meshes`, `wreck:meshes`, `encode:meshes` | the bakes are the existing Meshy assets; no new generation | 0 |
+| `art/parts/kit/*.glb` (all eight) and the `kit_*` nodes grafted from them | Every slat panel's bars split into `_near` (the real 30 mm bars at 120 mm, unchanged) and `_far` (every other bar, 2.58x as tall) LOD nodes; the Peten's camera-facing parts enlarged (cockpit plates, sponsons, nose turret, warning heads, pods, boom ball) and its metal pinned to its bake's flat texel nearest gunmetal.2; the five patch bakes' metal re-pinned (same patch) | Blender, `tools/vehicles/export_vehicle_kit.py` (`kit_parts.slat_panel`, `kit_vehicles.parts_heli_peten`) | no: Blender-built parts, pinned to the existing disclosed bakes | 0 |
+
 ## What closing the source changes
 
 - **Code (MIT until 2026-09-18, then PolyForm Noncommercial 1.0.0 with `CLA.md`; effectively sole-authored)** — 747 of ~753 commits are the

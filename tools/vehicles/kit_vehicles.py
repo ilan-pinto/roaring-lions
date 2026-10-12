@@ -81,17 +81,20 @@ BLOCKOUT_SPLIT = {
 #: Deliberate departures from the mock, per NODE and axis, each with the
 #: measurement that forced it. The exporter prints every one on every run and
 #: skips only that axis of that node's comparison.
+LEFTOVERS = ("; GH-238 leftovers (2026-10-12): enlarged so the Peten's kit reads at zoom 1 (it moved 255 px "
+             "of a 796 px airframe at L3), ~0.28 -> ~0.4 of real kit")
+
 DEVIATIONS = {
     "heli_peten": {
         ("sensors", 1, "hull_glass"): (
-            "x",
+            "xz",
             "the mock's drum (x 1.84-2.12, z 0.28-0.56) stood half inside the nose (hull x to 2.04 at z "
             "0.40-0.45) and round the shipped nose sensor (hull_metal x 1.95-2.01, to z 0.40) and the gun "
-            "barrel: it hangs in front of the nose tip on a yoke, x 2.06-2.34"),
+            "barrel: it hangs in front of the nose tip on a yoke, x 2.06-2.42" + LEFTOVERS),
         ("sensors", 2, "hull_hull"): (
-            "y",
+            "yz",
             "the mock's sensor pods (|y| 0.46, x 0.12-0.48) were inside the stub-wing roots (the side stands "
-            "out to |y| 0.72 there): they lie along the aft fuselage's flanks, |y| 0.23, x -0.45..-0.09"),
+            "out to |y| 0.72 there): they lie along the aft fuselage's flanks, |y| 0.23, x -0.45..-0.09" + LEFTOVERS),
         ("firepower", 1, "hull_metal"): (
             "x",
             "the chin gun's barrel runs x 1.83-2.10 with the shipped nose sensor standing on it at x "
@@ -109,23 +112,23 @@ DEVIATIONS = {
             "mean) and stood 0.13 m into the fuselage: it is a skirt round the ball (x 1.51-1.85), open at the "
             "front for the barrel, from z 0.15 to 1 cm under the fuselage's underside"),
         ("armour", 1, "hull_hull"): (
-            "y",
+            "yz",
             "the mock's cockpit plates (|y| 0.235-0.265) lie 7-13 cm INSIDE the fuselage side at "
             "z 0.74 (|y| 0.33-0.35 over x 0.14-0.69) and would never be seen; seated on the real "
-            "side, the part widens by 0.27 m"),
+            "side, the part widens by 0.27 m" + LEFTOVERS),
         ("armour", 2, "hull_hull"): (
             "z",
             "the mock's engine-bay panels stood 6-7 cm above the nacelles; seated 4 mm proud they "
             "sit 0.067 m lower (tolerance 0.055)"),
         ("armour", 3, "hull_hull"): (
-            "z",
+            "xyz",
             "the mock's floor plate hung 8.5 cm under the belly; seated against it the part's "
-            "bottom rises 0.07 m"),
+            "bottom rises 0.07 m" + LEFTOVERS),
         ("sensors", 3, "hull_hull"): (
-            "z",
+            "yz",
             "the mock's roof sensor fairing (z 1.08-1.18) is INSIDE the rotor disc (z 1.04-1.29, "
             "0.8 m from the hub): the spinning blades would cut through it. It sits on the engine "
-            "hump instead, under the disc"),
+            "hump instead, under the disc" + LEFTOVERS),
     },
     "dozer_d9": {
         ("armour", 2, "hull_hull"): (
@@ -1658,11 +1661,16 @@ def parts_heli_peten(H):
     BALL = (1.68, 0.006)
     AXZ, MUZZLE_X = 0.2235, 2.106
 
+    # GH-238 leftovers (2026-10-12): the Peten's kit did not read at zoom 1
+    # (spec K5; L3 moved 255 px of a 796 px airframe in game). Every part that
+    # faces the game camera is enlarged -- from
+    # ~0.28 of real kit, the model's own scale, to ~0.4 -- each a DEVIATION
+    # below; no stub wing, pod or mast dome (the gunship's, K9).
     def a1():
         out = []
         for tag, s in (("L", 1), ("R", -1)):
             # the cockpit side is 7 cm OUTSIDE the mock's plates (they were buried)
-            out += _side_plate(H, f"a1_p{tag}", (0.55, 0.03, 0.22), (0.42, s * 0.25, 0.74), s,
+            out += _side_plate(H, f"a1_p{tag}", (0.60, 0.05, 0.28), (0.42, s * 0.25, 0.74), s,
                                bolts=((-0.38, 0.0), (0.38, 0.0)), max_out=0.15, nu=3, nv=2)
         return out
 
@@ -1679,16 +1687,26 @@ def parts_heli_peten(H):
                                        across=0.02, height=0.008))
         return out
 
+    # leftovers: 0.90 x 0.12 x 0.20 -> 0.90 x 0.16 x 0.24. Not longer: aft of
+    # x 0.5 the fuselage widens into the stub-wing roots (a 1.20 m fairing read
+    # 76-350 triangle pairs inside it, seated or pushed out)
+    SPONSON = (0.90, 0.16, 0.24)
+    SPONSON_X = 1.22
+
     def a3():
         out = []
         for tag, s in (("L", 1), ("R", -1)):
-            M = kp.place((0.95, s * 0.31, 0.42))
-            d, _g = _seat_shift(hull, M, (0.90, 0.12, 0.20), (0, -s, 0), max_out=0.0)
+            M = kp.place((SPONSON_X, s * 0.31, 0.42))
+            # the taller section meets the fuselage's curve above and below
+            # its middle (0.27 high read 70 triangle pairs inside it), and
+            # pushed further out its aft end meets the stub-wing root: a finer
+            # seat grid, at most 4 cm out, and 27 cm further forward (x 0.77-1.67), clear of a step on the left flank at x 0.41-0.75
+            d, _g = _seat_shift(hull, M, SPONSON, (0, -s, 0), max_out=0.04, grid=5)
             M = _shifted(M, (0, -s, 0), d)
-            out.append(kp.wedge(f"a3_sp{tag}", (0.90, 0.12, 0.20), M, tone="paint", setback=0.10, drop=((0, -s, 0),)))
+            out.append(kp.wedge(f"a3_sp{tag}", SPONSON, M, tone="paint", setback=0.13, drop=((0, -s, 0),)))
             n_out = (M.to_3x3() @ Vector((0, s, 0))).normalized()
             for k, u in enumerate((-0.28, 0.12)):
-                out.append(kp.hex_bolt(f"a3_spb{tag}{k}", M @ Vector((u, s * 0.06, 0.0)), n_out, across=0.02,
+                out.append(kp.hex_bolt(f"a3_spb{tag}{k}", M @ Vector((u, s * 0.08, 0.0)), n_out, across=0.02,
                                        height=0.008))
         # the floor plate follows the belly (its back conforms; it faces down),
         # seated against it: the mock's hung 8.5 cm under it
@@ -1703,17 +1721,21 @@ def parts_heli_peten(H):
     # S1 hangs in front of the nose tip (hull x <= 2.04 at z 0.40-0.45), over
     # the gun: the mock's drum (x 1.84-2.12) stood half inside the nose and
     # round the shipped nose sensor and the barrel
-    S1_C = Vector((2.20, 0.0, 0.43))
+    # Leftovers: dia 0.36 (was 0.28), so its centre moves 4 cm forward (clear
+    # of the nose tip) and 4 cm up (clear of the F1 shroud's top, z 0.2685).
+    S1_C = Vector((2.24, 0.0, 0.47))
+    S1_R = 0.18
 
     def s1():
         c = S1_C
-        prof = [(-0.15, 0.13), (-0.14, 0.14), (0.14, 0.14), (0.15, 0.13)]
-        out = [kp.lathe("s1_tads", [(t + 0.15, r) for t, r in prof], c - Vector((0, 0.15, 0)), (0, 1, 0), sides=12,
+        r = S1_R
+        prof = [(-0.15, r - 0.01), (-0.14, r), (0.14, r), (0.15, r - 0.01)]
+        out = [kp.lathe("s1_tads", [(t + 0.15, rr) for t, rr in prof], c - Vector((0, 0.15, 0)), (0, 1, 0), sides=12,
                         tones=["metal"] * 3)]
-        out.append(kp.chamfered_box("s1_win", (0.03, 0.20, 0.12), kp.place((c.x + 0.13, c.y, c.z)), tone="dark",
+        out.append(kp.chamfered_box("s1_win", (0.03, 0.22, 0.15), kp.place((c.x + r - 0.01, c.y, c.z)), tone="dark",
                                     chamfer=0.006))
         # its yoke: a bracket from the drum's back into the nose
-        a0 = c + Vector((-0.12, 0.0, 0.05))
+        a0 = c + Vector((-(r - 0.02), 0.0, 0.05))
         hit = _toward(steel, a0, (-1, 0, 0), a0 + Vector((-0.12, 0, 0)))
         out.append(kp.bar("s1_yoke", a0, hit - Vector((0.01, 0, 0)), 0.06, 0.05, tone="metal", mount=True))
         return out
@@ -1721,35 +1743,39 @@ def parts_heli_peten(H):
     def s2():
         out = []
         for i, (x, y) in enumerate([(1.30, 0.20), (1.30, -0.20), (-1.40, 0.14), (-1.40, -0.14)]):
-            z = 0.80
+            # 6 cm higher than the mock's 0.80: the larger head's foot (z
+            # 0.73) stood 5 cm into the fuselage top at (1.30, -0.20)
+            z = 0.86
             if x < 0:
                 # the tail boom is ~0.1 m wide here: the mock's heads (|y| 0.14,
                 # z 0.80) hung in the air beside it; they sit ON the boom
                 half = H.side(x, 0.55, 1, 0.10)
                 y = math.copysign(min(abs(y), half * 0.6), y)
-                z = H.top(x, y, 0.6, hull) + 0.05 - 0.004
+                z = H.top(x, y, 0.6, hull) + 0.07 - 0.004
             look = Vector((math.copysign(1, x), math.copysign(0.8, y), 0)).normalized()
             M = kp.frame((x, y, z), look)
             if x < 0:
                 # the boom's top is round: the housing's foot follows it
-                out += kp.conform_plate(f"s2_maw{i}", (0.10, 0.10, 0.10), M @ kp.place((0, 0, 0.0)), steel,
+                out += kp.conform_plate(f"s2_maw{i}", (0.14, 0.14, 0.14), M @ kp.place((0, 0, 0.0)), steel,
                                         nu=2, nv=2, tone="metal")
             else:
-                out.append(kp.chamfered_box(f"s2_maw{i}", (0.10, 0.10, 0.10), M, tone="metal", drop=((0, 0, -1),)))
-            out.append(kp.plain_box(f"s2_lens{i}", (0.012, 0.06, 0.05), M @ kp.place((0.054, 0.0, 0.005)), tone="dark",
+                out.append(kp.chamfered_box(f"s2_maw{i}", (0.14, 0.14, 0.14), M, tone="metal", drop=((0, 0, -1),)))
+            out.append(kp.plain_box(f"s2_lens{i}", (0.012, 0.08, 0.07), M @ kp.place((0.074, 0.0, 0.007)), tone="dark",
                                     drop=((-1, 0, 0),)))
         # the two pods lie along the aft fuselage's flanks (|y| 0.18 at z
         # 0.47, x -0.45..-0.09): the mock's (|y| 0.46, x 0.12-0.48) were
         # inside the stub-wing roots
         for tag, s in (("L", 1), ("R", -1)):
-            yy = s * (max(H.side(x, 0.47, s, 0.18) for x in (-0.45, -0.33, -0.21, -0.09)) + 0.045)
-            out.append(kp.tube(f"s2_ew{tag}", (-0.45, yy, 0.47), (-0.09, yy, 0.47), 0.04, sides=6))
+            yy = s * (max(H.side(x, 0.47, s, 0.18) for x in (-0.45, -0.33, -0.21, -0.09)) + 0.065)
+            out.append(kp.tube(f"s2_ew{tag}", (-0.45, yy, 0.47), (-0.09, yy, 0.47), 0.06, sides=6))
         return out
 
     def s3():
-        out = kp.sensor_ball("s3_ball", (-1.05, 0.0, 0.88), 0.12, segments=10, rings=6, yoke=True)
+        # leftovers: r 0.15 (was 0.12), its centre 2 cm lower so its top stays
+        # under the rotor disc
+        out = kp.sensor_ball("s3_ball", (-1.05, 0.0, 0.86), 0.15, segments=10, rings=6, yoke=True)
         g = H.top(-1.05, 0.0, 0.7, hull)
-        out.append(kp.tube("s3_post", (-1.05, 0.0, 0.88 - 0.12 * 0.9), (-1.05, 0.0, g - 0.01), 0.03, sides=8,
+        out.append(kp.tube("s3_post", (-1.05, 0.0, 0.86 - 0.15 * 0.9), (-1.05, 0.0, g - 0.01), 0.03, sides=8,
                            cap0=False, cap1=False, ground=True))
         # the fairing sits ON the engine hump, under the rotor disc; its back
         # follows the hump

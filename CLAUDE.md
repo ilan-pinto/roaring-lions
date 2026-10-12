@@ -1740,11 +1740,32 @@ for vehicles.
   The garage's `GarageView.setKit` re-merges from a pristine clone (no fetch),
   draws the new hull and only THEN releases the old, fitted on the maximum kit
   so a purchase never resizes the frame; `cueFor` returns `'kit'`
-  (`ui_kit_fitted`) for the eight, in the same task. **Open, not fixed:** the
-  slat cages moire at zoom 1; the Peten's kit does not read at zoom 1 (K5, the
-  rotor hides it; it reads from 2.5); and the metal-versus-paint contrast is
-  weak on the third-rule bakes (the Namer's metal texel is 0.055 off its
-  target), so those kits read by shape more than by tone.
+  (`ui_kit_fitted`) for the eight, in the same task.
+  **The slat is a two-level LOD since the leftovers pass (2026-10-12).** Every
+  `kit_parts.slat_panel` writes its real bars (30 mm at 120 mm) to a
+  `kit_<t>_<n>_<host>_near` node and coarse ones (every other position, 2.58x
+  as tall, the same mean coverage from the game camera) to `..._far`, beside
+  the part's main node (posts, rails); `rl_kit.lod`, both or neither, checked
+  by `kit:meshes`, `validate:meshes` and the shipped-GLB test. At zoom 1, DPR 1
+  the real rows are a 1.57 px period of 0.62 px bars: above Nyquist on a
+  single-sampled target, so they aliased into a cross-hatch SMAA cannot undo.
+  `applyVehicleKit` merges host, main, near, far into ONE geometry with TWO
+  index buffers (`rlKitLod`), near by default (the garage only ever draws
+  near), and `ThreeRenderer.updateKitLod` swaps every template when
+  `camera.zoom x pixelRatio` crosses `KIT_LOD_SWITCH` (1.75): +0 draw calls,
+  host still first, so `rlKitBaseCount` and the `kit` layer are unchanged.
+  Measured (`pnpm kit:capture -- --measure`, cage pixels, 1 px sub-pixel pan):
+  the cross-hatch is gone and cage shimmer at zoom 1 drops 17-27%; the far
+  bars still stair-step like any 1 px diagonal. The mesh gate renders the near
+  view only. **The five A3.2 metal patches are dielectric** (`bake_fix.
+  METAL_METALLIC` 0, `patch_metal_glb.py --metallic-only`): painted metallic
+  1.0, they drew near-black, because a vehicle material has no environment
+  (`envMapIntensity = 0`) and a metal keeps no diffuse term. The exporter finds
+  the patch by its colour off every island now. **Open:** the Peten's kit still
+  reads weakly at zoom 1 (kit-toggle 255 -> 307 px of a ~800 px airframe after
+  its camera-facing parts grew ~40% and its metal took a gunmetal texel, the
+  "fourth rule"); more needs parts beyond the airframe's 0.28 scale or the
+  gunship's stores, the lead's call (K5).
 - **A building's FACING is gated now** (GH-142, `tools/building_facing.py`,
   inside `pnpm validate:meshes`). A building never turns — `mesh-building.ts`
   leaves rotation at identity — so whichever elevation an export bakes toward

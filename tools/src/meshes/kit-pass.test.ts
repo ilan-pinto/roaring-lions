@@ -215,6 +215,16 @@ describe('applyKitGraft', () => {
     expect((await bytes(target)).equals(once)).toBe(true);
   });
 
+  it('grafts a near/far LOD pair beside its main node, rl_kit.lod kept', () => {
+    const target = kitVehicle();
+    const base = DEFAULT_KIT[0];
+    const lod = (l: 'near' | 'far') => ({ ...base, name: `kit_armour_1_hull_hull_${l}`, rlKit: { track: 'armour', tier: 1, host: 'hull_hull', lod: l } });
+    applyKitGraft(target, kitSource([base, lod('near'), lod('far')]), 'fixture');
+    for (const l of ['near', 'far'] as const) {
+      expect(nodeNamed(target, `kit_armour_1_hull_hull_${l}`).getExtras().rl_kit).toEqual({ track: 'armour', tier: 1, host: 'hull_hull', lod: l });
+    }
+  });
+
   it('stripKit takes the file back to its ungrafted bytes -- no orphaned mesh or accessor', async () => {
     const target = kitVehicle();
     const pristine = await bytes(target);
@@ -301,6 +311,29 @@ describe('applyKitGraft', () => {
     ['an unindexed part on an indexed host', [{ ...base, unindexed: true }], /is not indexed and host "hull_hull" is indexed/],
     ['a track the unit does not declare', [{ ...base, track: 'firepower', name: undefined }], /not one fixture's JSON declares/, { tracks: new Set(['armour', 'sensors']) }],
     ['an empty source', [], /has no parts/],
+    [
+      'a near LOD level with no far partner',
+      [base, { ...base, name: 'kit_armour_1_hull_hull_near', rlKit: { track: 'armour', tier: 1, host: 'hull_hull', lod: 'near' } }],
+      /has no "kit_armour_1_hull_hull_far"/,
+    ],
+    [
+      'an LOD pair with no main node',
+      [
+        { ...base, name: 'kit_armour_1_hull_hull_near', rlKit: { track: 'armour', tier: 1, host: 'hull_hull', lod: 'near' } },
+        { ...base, name: 'kit_armour_1_hull_hull_far', rlKit: { track: 'armour', tier: 1, host: 'hull_hull', lod: 'far' } },
+      ],
+      /has no "kit_armour_1_hull_hull"/,
+    ],
+    [
+      'an unknown LOD level',
+      [base, { ...base, name: 'kit_armour_1_hull_hull_mid', rlKit: { track: 'armour', tier: 1, host: 'hull_hull', lod: 'mid' } }],
+      /rl_kit\.lod "mid" is not one of near, far/,
+    ],
+    [
+      'an LOD level whose name drops its suffix',
+      [base, { ...base, rlKit: { track: 'armour', tier: 1, host: 'hull_hull', lod: 'far' } }],
+      /does not match its rl_kit/,
+    ],
   ];
   it('refuses an indexed part on an unindexed host, and leaves the target untouched', async () => {
     const target = kitVehicle();

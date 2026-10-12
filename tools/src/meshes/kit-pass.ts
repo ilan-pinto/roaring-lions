@@ -60,7 +60,7 @@ import {
   type mat4,
 } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { KIT_MAX_TIER, KIT_TRACK_PATTERN, KIT_VEHICLES, isKitName, kitNodeName } from './kit-contract';
+import { KIT_LODS, KIT_MAX_TIER, KIT_TRACK_PATTERN, KIT_VEHICLES, isKitName, kitNodeName, type KitLod } from './kit-contract';
 
 const REPO = fileURLToPath(new URL('../../../', import.meta.url));
 
@@ -230,6 +230,7 @@ interface SourcePart {
   readonly track: string;
   readonly tier: number;
   readonly host: string;
+  readonly lod: KitLod | undefined;
 }
 
 export interface KitGraftOptions {
@@ -307,7 +308,10 @@ function parseSourcePart(node: Node, vehicleId: string, opts: KitGraftOptions): 
   }
   const kit = node.getExtras().rl_kit as unknown;
   if (typeof kit !== 'object' || kit === null) throw new Error(`${where} carries no extras.rl_kit`);
-  const { track, tier, host } = kit as Record<string, unknown>;
+  const { track, tier, host, lod } = kit as Record<string, unknown>;
+  if (lod !== undefined && !(KIT_LODS as readonly unknown[]).includes(lod)) {
+    throw new Error(`${where}: rl_kit.lod ${JSON.stringify(lod)} is not one of ${KIT_LODS.join(', ')}`);
+  }
   if (typeof host !== 'string' || host.length === 0) {
     throw new Error(`${where} names no host (extras.rl_kit.host) -- a part with no host cannot be placed`);
   }
@@ -323,10 +327,10 @@ function parseSourcePart(node: Node, vehicleId: string, opts: KitGraftOptions): 
         `(${[...opts.tracks].sort().join(', ') || 'none'})`
     );
   }
-  const want = kitNodeName(track, tier, host);
+  const want = kitNodeName(track, tier, host, lod as KitLod | undefined);
   if (name !== want) throw new Error(`${where} does not match its rl_kit, which names "${want}"`);
   if (!node.getMesh()) throw new Error(`${where} has no mesh`);
-  return { node, name, track, tier, host };
+  return { node, name, track, tier, host, lod: lod as KitLod | undefined };
 }
 
 /**
@@ -458,7 +462,7 @@ function graftPart(target: Document, part: SourcePart, host: Host, vehicleId: st
     .setScale(host.node.getScale())
     .setExtras({
       ...(host.role === undefined ? {} : { rl_role: host.role }),
-      rl_kit: { track: part.track, tier: part.tier, host: part.host },
+      rl_kit: { track: part.track, tier: part.tier, host: part.host, ...(part.lod === undefined ? {} : { lod: part.lod }) },
     });
 
   const parent = host.node.getParentNode();
@@ -498,11 +502,22 @@ export function applyKitGraft(
   for (const part of parts) {
     if (seen.has(part.name)) {
       throw new Error(
-        `${vehicleId}: two kit parts for (track ${part.track}, tier ${part.tier}, host ${part.host}) -- ` +
-          `one node per (track, tier, host)`
+        `${vehicleId}: two kit parts for (track ${part.track}, tier ${part.tier}, host ${part.host}` +
+          `${part.lod === undefined ? '' : `, lod ${part.lod}`}) -- one node per (track, tier, host, lod)`
       );
     }
     seen.add(part.name);
+  }
+  // An LOD level swaps for its partner, over the part's main node: both
+  // levels or neither, and never without the main node.
+  for (const part of parts) {
+    if (part.lod === undefined) continue;
+    const other: KitLod = part.lod === 'near' ? 'far' : 'near';
+    for (const need of [kitNodeName(part.track, part.tier, part.host, other), kitNodeName(part.track, part.tier, part.host)]) {
+      if (!seen.has(need)) {
+        throw new Error(`${vehicleId}: kit part "${part.name}" has no "${need}" -- an LOD level comes with its partner and its main node`);
+      }
+    }
   }
   parts.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 

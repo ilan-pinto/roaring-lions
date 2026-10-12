@@ -17,9 +17,11 @@ firepower track).
 
 ## Conditions
 
-- **Art:** commit `915cc013` (the final kit, including the jeep re-placement in
-  `75231fd9`); the capture tool as of `cae7f143`, whose only change over
-  `915cc013` is the spawn tick below.
+- **Art:** the GH-238 leftovers branch (`art/kit-leftovers`, 2026-10-12, off
+  `2a65cc41`): the slat LOD (zoom 1 at DPR 1 draws the FAR bars, every other
+  bar 2.58x as tall; zoom 2.5 and the garage draw the real ones), the
+  dielectric metal patch on the Namer, Eitan, Kipod, Shachaf and D9, and the
+  Peten's enlarged camera-facing kit (plan 3's own kit was `915cc013`).
 - **GPU:** ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro), `kit:capture`'s
   Metal default on macOS. **DPR 1**, the gate's `CAPTURE_VIEWPORT`.
 - **Sheets:** `/free-play/beit_sahwan_outskirts` WITHOUT `&kit`. The tiers
@@ -46,6 +48,10 @@ rm -rf docs/art/sheets/kitted-vehicles/final     # keep this README aside first
 pnpm kit:capture -- --port=5232                  # the sheets and the 64 cells
 pnpm kit:capture -- --garage --port=5232         # the nine garage captures
 ```
+
+`pnpm kit:capture -- --measure` reads the leftovers' numbers on the same
+parade (cage pan shimmer near vs far, the `kit` toggle in px, the metal and
+paint kit's luminance); `KIT_MEASURE_DUMP=<dir>` also writes the pan strips.
 
 Each run boots its own dev server on the given port, refuses a port something
 else holds, seeds music off, opens one browser at a time and stops the server
