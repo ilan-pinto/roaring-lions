@@ -222,6 +222,44 @@ describe('connectMatch: rejoin and handoff (N1b task 5)', () => {
     expect(notes).toEqual(['match ended: left']);
   });
 
+  // N1b final fix wave (M-2): an `ended` or a `paused` that lands between the
+  // lobby's handOver and the battlefield's take reached only the lobby's hooks,
+  // which ignore it once started: no result panel, and a reset pause count.
+  it('(M-2) an ended between handOver and take still reaches the hooks installed after it: connectMatch\'s note, then the battlefield\'s onEnded with the seat', async () => {
+    const sock = fakeSocket();
+    const transport = new WsTransport(() => sock, 'tk-lobby', 'b', { onStart: () => {}, onEnded: () => {} });
+    handOver('ABCDEF', { transport, seat: 0, config: CONFIG(9) as unknown as MatchConfig });
+    sock.onopen?.({});
+    sock.onmessage?.({ data: JSON.stringify({ t: 'start', config: CONFIG(9) }) });
+    sock.onmessage?.({ data: JSON.stringify({ t: 'ended', reason: 'surrender', seat: 1 }) });
+    const notes: string[] = [];
+    const r = await connectMatch(new URLSearchParams('net=ABCDEF'), 'tel_marum', 'b', { fetch: recordingFetch(0).f, origin: 'http://x', openSocket: noSocket, replaceUrl: () => {}, note: (n) => notes.push(n), store: null, session: memory() });
+    expect(notes).toEqual(['match ended: surrender']);
+    // What main.ts does next, synchronously after the await.
+    const ended: unknown[] = [];
+    (r.transport as WsTransport).setHooks({ onEnded: (reason, seat) => { ended.push([reason, seat]); } });
+    expect(ended).toEqual([['surrender', 1]]);
+  });
+
+  it('(M-2) a pause in force at the take reaches the battlefield\'s onPaused, with the pauses left', async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    try {
+      const sock = fakeSocket();
+      const transport = new WsTransport(() => sock, 'tk-lobby', 'b', { onStart: () => {} });
+      handOver('ABCDEF', { transport, seat: 1, config: CONFIG(9) as unknown as MatchConfig });
+      sock.onopen?.({});
+      sock.onmessage?.({ data: JSON.stringify({ t: 'start', config: CONFIG(9) }) });
+      sock.onmessage?.({ data: JSON.stringify({ t: 'paused', seat: 0, remainingMs: 90000, pausesLeft: [2, 3] }) });
+      vi.advanceTimersByTime(4000);
+      const r = await connectMatch(new URLSearchParams('net=ABCDEF'), 'tel_marum', 'b', { fetch: recordingFetch(0).f, origin: 'http://x', openSocket: noSocket, replaceUrl: () => {}, note: () => {}, store: null, session: memory() });
+      const paused: unknown[] = [];
+      (r.transport as WsTransport).setHooks({ onPaused: (seat, ms, left) => { paused.push([seat, ms, left]); } });
+      expect(paused).toEqual([[0, 86000, [2, 3]]]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('(a) a handed match is returned even when the URL\'s map differs from the config\'s: the battlefield reports the mismatch', async () => {
     const transport = new WsTransport(() => fakeSocket(), 'tk-lobby', 'b', { onStart: () => {} });
     const config = CONFIG(9) as unknown as MatchConfig;

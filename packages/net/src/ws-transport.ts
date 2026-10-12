@@ -99,6 +99,10 @@ export class WsTransport implements MatchTransport {
   private droppedAt: number | null = null;
   /** When a reconnect's `log` arrived, until this seat has run it down. */
   private replayFrom: number | null = null;
+  /** The room's `ended`, once it has sent one: what `setHooks` replays. */
+  private ending: { reason: string; seat?: Seat } | null = null;
+  /** Each seat's pauses left, from the last `paused`: what `setHooks` replays with it. */
+  private pausesLeft: [number, number] | null = null;
 
   constructor(
     private readonly open: () => SocketLike,
@@ -113,9 +117,21 @@ export class WsTransport implements MatchTransport {
   }
 
   /** Replaces the hooks it names and leaves the rest: a lobby hands its live
-   *  transport to the battlefield, whose hooks take over from the lobby's. */
+   *  transport to the battlefield, whose hooks take over from the lobby's.
+   *
+   *  A hook it installs also hears what is IN FORCE (M-2): an `onEnded`, the
+   *  room's ending (final, so it would never fire again), and an `onPaused`,
+   *  a pause the room still holds, with its time left now. An `ended` or a
+   *  `paused` that lands between the lobby's handover and the battlefield's
+   *  hooks reached only the lobby's, which ignore it once the match started.
+   *  Only what the ROOM said is replayed: `close()`'s own `closed{left}` and
+   *  `detach()` are this seat's doing, not an ending to report. */
   setHooks(hooks: Partial<WsTransportHooks>): void {
     Object.assign(this.hooks, hooks);
+    if (hooks.onPaused && this.st.kind === 'paused' && this.pausesLeft !== null) {
+      hooks.onPaused(this.st.seat, Math.max(0, this.st.untilMs - this.now()), [this.pausesLeft[0], this.pausesLeft[1]]);
+    }
+    if (hooks.onEnded && this.ending !== null) hooks.onEnded(this.ending.reason, this.ending.seat);
   }
 
   /** Every write of the stall goes through here, so the counters see each
@@ -231,6 +247,7 @@ export class WsTransport implements MatchTransport {
       }
       case 'paused':
         this.st = { kind: 'paused', seat: msg.seat, untilMs: this.now() + msg.remainingMs };
+        this.pausesLeft = [msg.pausesLeft[0], msg.pausesLeft[1]];
         this.hooks.onPaused?.(msg.seat, msg.remainingMs, msg.pausesLeft);
         return;
       case 'chat': this.hooks.onChat?.(msg.seat, msg.text); return;
@@ -244,6 +261,7 @@ export class WsTransport implements MatchTransport {
         this.setStalled(null);
         this.st = { kind: 'closed', reason: msg.reason };
         this.draining = msg.reason === 'left' || msg.reason === 'surrender';
+        this.ending = msg.seat === undefined ? { reason: msg.reason } : { reason: msg.reason, seat: msg.seat };
         this.hooks.onEnded?.(msg.reason, msg.seat);
         return;
       case 'error':

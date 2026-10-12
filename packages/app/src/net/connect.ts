@@ -72,7 +72,11 @@ export async function connectMatch(query: URLSearchParams, mapId: string, build:
       // The lobby's hooks come off and the battlefield's go on, in one call.
       // The match has started, so only what can still arrive matters: a
       // desync and an end are noted as `awaitStart` notes them; nothing can
-      // fail the boot any more, and the lobby's screen is gone.
+      // fail the boot any more, and the lobby's screen is gone. An `ended`
+      // or a `paused` that landed while nobody but the lobby was listening
+      // is not lost (M-2): `setHooks` replays what is in force to every hook
+      // it installs -- this note, and the battlefield's own `onEnded` and
+      // `onPaused`, set right after this returns.
       handed.transport.setHooks({
         onLobby: undefined,
         onChat: undefined,

@@ -325,6 +325,40 @@ describe('WsTransport', () => {
     t.take(50);
     expect(t.behind()).toBe(450);
   });
+  it('setHooks replays the room\'s ending to an onEnded it installs, and a pause in force to an onPaused (M-2)', () => {
+    let now = 5000;
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} }, () => now);
+    sock.open();
+    sock.recv({ t: 'start', config: CONFIG });
+    sock.recv({ t: 'paused', seat: 1, remainingMs: 90000, pausesLeft: [3, 2] });
+    now += 1000;
+    const seen: unknown[] = [];
+    t.setHooks({ onPaused: (seat, ms, left) => { seen.push(['paused', seat, ms, left]); } });
+    expect(seen).toEqual([['paused', 1, 89000, [3, 2]]]);
+    // Only the hooks a call names hear the replay.
+    t.setHooks({ onChat: () => {} });
+    expect(seen).toHaveLength(1);
+    sock.recv({ t: 'ended', reason: 'surrender', seat: 0 });
+    t.setHooks({ onEnded: (reason, seat) => { seen.push(['ended', reason, seat]); } });
+    expect(seen.at(-1)).toEqual(['ended', 'surrender', 0]);
+  });
+  it('setHooks replays nothing that the ROOM did not say: no live pause, and this seat\'s own close or detach is not an ending', () => {
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} });
+    sock.open();
+    sock.recv({ t: 'start', config: CONFIG });
+    const seen: unknown[] = [];
+    t.setHooks({ onEnded: () => { seen.push('ended'); }, onPaused: () => { seen.push('paused'); } });
+    t.close();
+    t.setHooks({ onEnded: () => { seen.push('ended'); } });
+    const sock2 = fakeSocket();
+    const t2 = new WsTransport(() => sock2, 'tkt', 'b', { onStart: () => {} });
+    sock2.open();
+    t2.detach();
+    t2.setHooks({ onEnded: () => { seen.push('ended'); } });
+    expect(seen).toEqual([]);
+  });
   it('setHooks replaces only the hooks it names', () => {
     const sock = fakeSocket();
     const calls: string[] = [];
