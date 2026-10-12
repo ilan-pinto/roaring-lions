@@ -5,35 +5,52 @@
  * `acceptWebSocket`, before the hello says which seat it is). A 50 ms
  * `setInterval` is the metronome while the match lives, restarted by
  * `ensureClock()` from every handler so an eviction never strands a running
- * match (Review Focus 5). N0 has no alarms: the six-hour TTL is checked at the
- * start of every handler as well as on the clock.
+ * match (Review Focus 5). The six-hour TTL is checked at the start of every
+ * handler as well as on the clock.
  *
- * Storage is budgeted for Workers Free (task 8b, R34): a running match writes
- * about one row a second. Frames persist as one `batch` row per
- * `BATCH_TICKS` ticks, written when the batch closes; the open batch lives in
- * memory and `log` answers from both. The room state is written only when
- * its lifecycle changes (`persistKey`: create, seats joining, going, readying,
+ * The watchdog (R38): an eviction kills the interval, and before N1 only the
+ * next socket event restarted it. A storage alarm survives the eviction, so
+ * `alarm()` restarts the clock with nobody's help. It is armed when the
+ * interval starts, re-arms itself only while the match is running or stalled,
+ * and is deleted when the clock stops; a lobby never arms one, and an alarm
+ * that reaches an ended or expired room does not re-arm, so an abandoned room
+ * cannot keep a Free-tier object awake. Every `WATCHDOG_MS` = 5 s, not 1 s,
+ * because Cloudflare bills each `setAlarm()` as a row written: 1 s would cost
+ * a whole row a second per running match, as much as the frames, and any
+ * socket event (an order, an ack, a reconnect) restarts the clock sooner
+ * anyway, so 5 s bounds only a freeze nobody is acting through (R-N12).
+ *
+ * Storage is budgeted for Workers Free (task 8b, R34; R-N12). Frames persist
+ * as `batch` rows of variable length: a batch closes when it holds
+ * `BATCH_TICKS` frames OR at the first frame that carries a command (R36,
+ * write-through), and each close writes one row. So a match writes
+ * `max(command frames a second, 1)` rows a second plus 0.2 for the watchdog:
+ * about 1.2 idle and 2.2 with one order a second from each seat, over the
+ * 2-a-second bound N0 set (R-N12 accepts it). The open batch lives in memory
+ * and `log` answers from both. The room state is written only when its
+ * lifecycle changes (`persistKey`: create, seats joining, going, readying,
  * start, end), never per tick, ack, command, hash or behind/silent stall
- * (R37) -- and
- * every such write first flushes the open batch, so the persisted frames
- * always reach the persisted state's tick.
+ * (R37) -- and every such write first flushes the open batch (rewriting its
+ * one row in place), so the persisted frames always reach the persisted
+ * state's tick.
  *
  * What an eviction costs, and why it is safe: a revived room continues at
- * `max(state.tick, end of the last persisted batch)` (`revive`). The frames
- * after that point were sent but never persisted, so the room sends those
- * ticks again; both clients already hold the originals and drop the copies as
- * duplicates (`LockstepClock`), so any command the revived room stamps into
- * them is lost on BOTH clients alike and nobody desyncs. Pending commands,
- * acks, half hash pairs and the open batch were memory only; acks and hashes
- * are re-earned. One residue: for those re-sent ticks the log now holds the
- * revived room's copies, so ANY client that takes those ticks from `log`
- * runs them instead of the originals -- a seat that rejoins from a reload,
- * or one whose socket died just before the eviction and reconnects behind
- * them. That diverges only if either copy carried a command, and then the
- * next hash comparison voids the match loudly (`desync`); it is never silent.
- * A seat going ('gone' persists through `connected`) flushes the open batch
- * with its write, so an eviction while waiting for a reconnect re-sends
- * nothing. (Before 8b every frame reached SQLite before any socket.)
+ * `max(state.tick, end of the last persisted batch)` (`revive`), reading each
+ * batch's end as `first_tick + frames.length`. The frames after that point
+ * were sent but never persisted -- and since a command frame always closes
+ * its batch, every one of them was EMPTY (R36). The room mints those ticks
+ * again, empty unless an order reaches the revived room first; an empty copy
+ * equals the original, and both clients drop the copies as duplicates
+ * (`LockstepClock`) anyway, so any command the revived room stamps into them
+ * is lost on BOTH clients alike and nobody desyncs. Pending commands, acks,
+ * half hash pairs and the open batch were memory only; acks and hashes are
+ * re-earned. One residue: a re-minted tick that DID take a new order differs
+ * from the empty original, and the log holds the revived room's copy, so a
+ * client that takes that tick from `log` (a rejoin) runs an order the live
+ * clients dropped; the next hash comparison voids the match loudly
+ * (`desync`), never silently. A seat going ('gone' persists through
+ * `connected`) flushes the open batch with its write, so an eviction while
+ * waiting for a reconnect re-sends nothing.
  */
 import { parseClientMsg, validateConfig, REPLACED_CLOSE_CODE, type ClientMsg, type Frame, type MatchConfig, type Seat, type SeatConfig, type ServerMsg } from '@lions/net';
 import type { Env } from '../d1';
@@ -47,6 +64,8 @@ export const TICK_MS = 50;
 const SIM_SEED_N0 = 20260727;
 /** Frames per persisted row: one row a second at the 20 Hz tick. */
 export const BATCH_TICKS = 20;
+/** R38: the watchdog alarm's period. 5 s, not 1 s: each `setAlarm` is a row written (R-N12). */
+export const WATCHDOG_MS = 5000;
 const CREATE_SQL = 'CREATE TABLE IF NOT EXISTS batch (first_tick INTEGER PRIMARY KEY, frames TEXT NOT NULL)';
 const UPSERT_SQL = 'INSERT OR REPLACE INTO batch (first_tick, frames) VALUES (?, ?)';
 const SELECT_SQL = 'SELECT first_tick, frames FROM batch ORDER BY first_tick';
@@ -153,9 +172,12 @@ export class MatchRoom {
     const first = this.open[0];
     if (first) this.ctx.storage.sql.exec(UPSERT_SQL, first.tick, JSON.stringify(this.open));
   }
+  /** A batch closes when full, or at once on a frame carrying commands (R36):
+   *  write-through and the close are one row, so a revived room can re-mint
+   *  only empty frames. */
   private record(frame: Frame): void {
     this.open.push(frame);
-    if (this.open.length < BATCH_TICKS) return;
+    if (this.open.length < BATCH_TICKS && frame.cmds.length === 0) return;
     this.writeOpenBatch();
     this.open = [];
   }
@@ -221,9 +243,26 @@ export class MatchRoom {
     const live = st !== null && (st.status === 'running' || st.status === 'stalled');
     if (live && this.clock === null) {
       this.clock = setInterval(() => { void this.onClock(); }, TICK_MS);
+      void this.ctx.storage.setAlarm(Date.now() + WATCHDOG_MS);
     } else if (!live && this.clock !== null) {
       clearInterval(this.clock);
       this.clock = null;
+      void this.ctx.storage.deleteAlarm();
+    }
+  }
+  /** R38: the watchdog. An eviction kills `setInterval`; a storage alarm
+   *  survives it. While the match lives it re-arms itself -- here when the
+   *  interval was still running, or through `ensureClock` when it was not,
+   *  which arms as it starts the clock (one row either way, never two). A
+   *  lobby, an ended room or one this very call expired re-arms nothing. */
+  async alarm(): Promise<void> {
+    try {
+      const st = await this.begin();
+      if (st && (st.status === 'running' || st.status === 'stalled') && this.clock !== null) {
+        await this.ctx.storage.setAlarm(Date.now() + WATCHDOG_MS);
+      }
+    } finally {
+      this.ensureClock();
     }
   }
   private async onClock(): Promise<void> {

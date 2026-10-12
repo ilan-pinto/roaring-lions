@@ -7,8 +7,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { validateConfig, type ServerMsg, type Seat } from '@lions/net';
 import type { Env } from '../d1';
-import { FakeState, deliverClose, deliverError, openSocket, type FakeSocket } from './fake-do';
-import { BATCH_TICKS, MatchRoom, TICK_MS } from './match-room';
+import { FakeState, deliverAlarm, deliverClose, deliverError, openSocket, type FakeSocket } from './fake-do';
+import { BATCH_TICKS, MatchRoom, TICK_MS, WATCHDOG_MS } from './match-room';
 import type { RoomState } from './room-core';
 import { signTicket } from './ticket';
 
@@ -57,6 +57,9 @@ async function running(opts: CreateOpts = {}): Promise<{ state: FakeState; room:
   await say(room, ws1, { t: 'ready' });
   return { state, room, ws0, ws1 };
 }
+/** One persisted batch row, parsed. */
+const row = (state: FakeState, firstTick: number): { tick: number; cmds: unknown[] }[] =>
+  JSON.parse(state.storage.batches.get(firstTick) ?? 'null') as { tick: number; cmds: unknown[] }[];
 const persisted = async (state: FakeState): Promise<RoomState> => {
   const st = await state.storage.get<RoomState>('state');
   if (!st) throw new Error('no persisted state');
@@ -240,21 +243,103 @@ describe('MatchRoom', () => {
     expect(start.config.seats.map((s) => [s.side, s.callsign])).toEqual([[0, 'Host'], [0, 'Guest']]);
   });
 
-  it('the clock sends a frame per 50 ms to both seats, and persists them as one row when the batch closes', async () => {
+  it('the clock sends a frame per 50 ms to both seats; a command frame closes its batch at once (R36), an empty batch closes at 20 ticks', async () => {
     const { state, room, ws0, ws1 } = await running();
+    const halt = [{ seat: 0, seq: 0, cmd: { kind: 'halt', ids: [3] } }];
     await say(room, ws0, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [3] } });
     await vi.advanceTimersByTimeAsync(3 * TICK_MS);
     for (const ws of [ws0, ws1]) {
       expect(ofType(ws, 'frame').map((f) => f.tick)).toEqual([0, 1, 2]);
-      expect(ofType(ws, 'frame')[0].cmds).toEqual([{ seat: 0, seq: 0, cmd: { kind: 'halt', ids: [3] } }]);
+      expect(ofType(ws, 'frame')[0].cmds).toEqual(halt);
     }
-    expect(state.storage.batches.size).toBe(0);   // the open batch is memory only
-    await vi.advanceTimersByTimeAsync((BATCH_TICKS - 3) * TICK_MS);
+    // Tick 0 carried an order: its batch closed at it, and 1..2 are memory only.
     expect([...state.storage.batches.keys()]).toEqual([0]);
-    const batch = JSON.parse(state.storage.batches.get(0) ?? 'null') as { tick: number; cmds: unknown[] }[];
-    expect(batch.map((f) => f.tick)).toEqual([...Array(BATCH_TICKS).keys()]);
-    expect(batch[0].cmds).toEqual([{ seat: 0, seq: 0, cmd: { kind: 'halt', ids: [3] } }]);
+    expect(row(state, 0)).toEqual([{ tick: 0, cmds: halt }]);
+    await vi.advanceTimersByTimeAsync((BATCH_TICKS - 2) * TICK_MS);   // ticks 3..20
+    expect([...state.storage.batches.keys()]).toEqual([0, 1]);
+    expect(row(state, 1).map((f) => f.tick)).toEqual([...Array(BATCH_TICKS).keys()].map((i) => i + 1));
     expect((await persisted(state)).tick).toBe(0);   // the state is written at the start, not per tick
+  });
+
+  it('write-through: the frame carrying an order is in a persisted row after one clock tick (R36)', async () => {
+    const { state, room, ws0 } = await running();
+    await vi.advanceTimersByTimeAsync(5 * TICK_MS);   // ticks 0..4, empty, memory only
+    expect(state.storage.batches.size).toBe(0);
+    await say(room, ws0, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [7] } });
+    await vi.advanceTimersByTimeAsync(TICK_MS);
+    const frames = [...state.storage.batches.values()].flatMap((t) => JSON.parse(t) as { tick: number; cmds: unknown[] }[]);
+    expect(frames.filter((f) => f.cmds.length > 0)).toEqual([{ tick: 5, cmds: [{ seat: 0, seq: 0, cmd: { kind: 'halt', ids: [7] } }] }]);
+  });
+
+  it('a revived room re-mints only empty frames: its log holds every tick once, and the one order at the tick it was first minted', async () => {
+    const { state, room, ws0 } = await running();
+    await vi.advanceTimersByTimeAsync((BATCH_TICKS + 2) * TICK_MS);   // 0..19 closed by filling, 20..21 open
+    await say(room, ws0, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [9] } });
+    await vi.advanceTimersByTimeAsync(4 * TICK_MS);   // 22 carries it and closes 20..22; 23..25 memory only
+    const sent = ofType(ws0, 'frame').map((f) => ({ tick: f.tick, cmds: f.cmds }));
+    expect(sent.map((f) => f.tick)).toEqual([...Array(26).keys()]);
+    evict();   // the isolate dies; storage and the hibernated sockets survive
+    const revived = new MatchRoom(state, env);
+    await hello(revived, 1);   // a handler: the revived clock starts at the last persisted tick
+    await vi.advanceTimersByTimeAsync(6 * TICK_MS);
+    const [log] = ofType(await hello(revived, 0), 'log');
+    const ticks = log.frames.map((f) => f.tick);
+    expect(ticks).toEqual([...Array(ticks.length).keys()]);   // no tick twice, none missing
+    expect(ticks.length).toBeGreaterThan(sent.length);
+    expect(log.frames.filter((f) => f.cmds.length > 0)).toEqual([{ tick: 22, cmds: [{ seat: 0, seq: 0, cmd: { kind: 'halt', ids: [9] } }] }]);
+    expect(log.frames.slice(0, sent.length)).toEqual(sent);   // the re-minted 23..25 equal the originals
+  });
+
+  it('the watchdog alarm is armed only while the match runs, re-arms itself, and a bye deletes it (R38)', async () => {
+    const { state, room } = await created();
+    const ws0 = await hello(room, 0);
+    const ws1 = await hello(room, 1);
+    expect(state.storage.alarmAt).toBeNull();   // a lobby keeps nothing awake
+    await say(room, ws0, { t: 'ready' });
+    await say(room, ws1, { t: 'ready' });
+    expect(state.storage.alarmAt).toBe(Date.now() + WATCHDOG_MS);
+    await vi.advanceTimersByTimeAsync(WATCHDOG_MS);
+    await deliverAlarm(room, state.storage);
+    expect(state.storage.alarmAt).toBe(Date.now() + WATCHDOG_MS);
+    await say(room, ws0, { t: 'bye' });
+    expect(state.storage.alarmAt).toBeNull();
+  });
+
+  it('after an eviction the alarm alone restarts the clock from the last persisted batch, and re-arms (R38)', async () => {
+    const { state, ws1 } = await running();
+    const sent = BATCH_TICKS + 2;
+    await vi.advanceTimersByTimeAsync(sent * TICK_MS);
+    evict();
+    const revived = new MatchRoom(state, env);
+    await vi.advanceTimersByTimeAsync(4 * TICK_MS);
+    expect(ofType(ws1, 'frame')).toHaveLength(sent);   // no handler, no clock
+    await deliverAlarm(revived, state.storage);
+    expect(state.storage.alarmAt).toBe(Date.now() + WATCHDOG_MS);
+    await vi.advanceTimersByTimeAsync(2 * TICK_MS);
+    expect(ofType(ws1, 'frame').slice(sent).map((f) => f.tick)).toEqual([BATCH_TICKS, BATCH_TICKS + 1]);
+  });
+
+  it('an alarm that reaches a lobby, an ended room or an expired one neither re-arms nor starts a clock', async () => {
+    const { state, room } = await created();
+    const ws0 = await hello(room, 0);
+    await deliverAlarm(room, state.storage);
+    expect(state.storage.alarmAt).toBeNull();
+    const ended = await running();
+    await say(ended.room, ended.ws0, { t: 'bye' });
+    const heard = ofType(ended.ws1, 'frame').length;
+    await deliverAlarm(ended.room, ended.state.storage);
+    await vi.advanceTimersByTimeAsync(4 * TICK_MS);
+    expect(ended.state.storage.alarmAt).toBeNull();
+    expect(ofType(ended.ws1, 'frame')).toHaveLength(heard);
+    // A running room whose instance was evicted, reached by its alarm after the TTL.
+    const old = await running();
+    evict();
+    const revived = new MatchRoom(old.state, env);
+    vi.setSystemTime(Date.now() + 6 * 3600 * 1000 + 1);
+    await deliverAlarm(revived, old.state.storage);
+    expect(last(old.ws0)).toEqual({ t: 'ended', reason: 'expired' });
+    expect(old.state.storage.alarmAt).toBeNull();
+    expect(ofType(ws0, 'frame')).toEqual([]);
   });
 
   it('a second hello for a seat replaces it: the old socket is closed, the new one gets the log, and the old close is ignored', async () => {

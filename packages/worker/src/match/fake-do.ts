@@ -24,6 +24,8 @@ export class FakeStorage implements DurableStorageLike {
   private tableExists = false;
   /** Rows written: each `put` and each INSERT/UPDATE/REPLACE statement counts one (the Workers Free meter). */
   rowsWritten = 0;
+  /** The scheduled alarm, epoch ms, or null. Nothing fires it by itself: a test does, with `deliverAlarm`. */
+  alarmAt: number | null = null;
 
   async get<T>(key: string): Promise<T | undefined> {
     const v = this.kv.get(key);
@@ -32,6 +34,21 @@ export class FakeStorage implements DurableStorageLike {
   async put<T>(key: string, value: T): Promise<void> {
     this.rowsWritten++;
     this.kv.set(key, structuredClone(value));
+  }
+  /** Cloudflare bills each `setAlarm()` as one row written (Durable Objects
+   *  pricing, SQLite backend), so it counts on the meter. */
+  async setAlarm(scheduledTime: number): Promise<void> {
+    this.rowsWritten++;
+    this.alarmAt = scheduledTime;
+  }
+  async getAlarm(): Promise<number | null> {
+    return this.alarmAt;
+  }
+  /** Counted too, conservatively: the pricing page bills deletes as rows
+   *  written and does not say whether that covers `deleteAlarm()`. */
+  async deleteAlarm(): Promise<void> {
+    if (this.alarmAt !== null) this.rowsWritten++;
+    this.alarmAt = null;
   }
   readonly sql = {
     exec: (query: string, ...bindings: unknown[]): SqlRows => this.exec(norm(query), bindings),
@@ -129,6 +146,13 @@ export async function deliverClose(
  *  test delivers with `deliverClose`. */
 export async function deliverError(room: { webSocketError(ws: WebSocket): Promise<void> }, ws: FakeSocket): Promise<void> {
   await room.webSocketError(ws.asSocket() as WebSocket);
+}
+
+/** test-only: the runtime's alarm event. The scheduled time is consumed as
+ *  the handler runs, as workerd's is: a handler that wants another sets it again. */
+export async function deliverAlarm(room: { alarm(): Promise<void> }, storage: FakeStorage): Promise<void> {
+  storage.alarmAt = null;
+  await room.alarm();
 }
 
 /** A fresh socket, accepted by the room exactly as `/ws` accepts one. */
