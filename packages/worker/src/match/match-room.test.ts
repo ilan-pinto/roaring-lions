@@ -319,6 +319,81 @@ describe('MatchRoom', () => {
     expect(ofType(ws1, 'frame').slice(sent).map((f) => f.tick)).toEqual([BATCH_TICKS, BATCH_TICKS + 1]);
   });
 
+  it('an abandoned match (both sockets closed, no bye) runs no clock and arms no alarm; a hello brings both back', async () => {
+    const { state, room, ws0, ws1 } = await running();
+    await vi.advanceTimersByTimeAsync(3 * TICK_MS);
+    await deliverClose(room, ws0, 1006, 'abnormal');
+    await deliverClose(room, ws1, 1006, 'abnormal');
+    expect((await persisted(state)).seats.map((s) => s?.connected)).toEqual([false, false]);
+    expect(state.storage.alarmAt).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+    evict();
+    const revived = new MatchRoom(state, env);
+    await deliverAlarm(revived, state.storage);
+    expect(state.storage.alarmAt).toBeNull();   // nothing re-arms: the room may sleep
+    expect(vi.getTimerCount()).toBe(0);
+    const back = await hello(revived, 0);
+    expect(state.storage.alarmAt).toBe(Date.now() + WATCHDOG_MS);
+    expect(vi.getTimerCount()).toBe(1);
+    expect(ofType(back, 'log')).toHaveLength(1);
+  });
+
+  it('a match evicted while armed, then abandoned in the revived instance: its alarm fires once and stops', async () => {
+    const { state, ws0, ws1 } = await running();
+    await vi.advanceTimersByTimeAsync(3 * TICK_MS);
+    evict();
+    const revived = new MatchRoom(state, env);
+    await deliverClose(revived, ws0, 1006, 'abnormal');
+    await deliverClose(revived, ws1, 1006, 'abnormal');
+    await deliverAlarm(revived, state.storage);
+    expect(state.storage.alarmAt).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('a match that ends in a revived instance (no clock of its own) deletes the alarm the old instance armed', async () => {
+    const { state, ws0 } = await running();
+    expect(state.storage.alarmAt).not.toBeNull();
+    evict();
+    const revived = new MatchRoom(state, env);
+    vi.setSystemTime(Date.now() + 6 * 3600 * 1000 + 1);
+    await say(revived, ws0, { t: 'ready' });   // any handler: the TTL ends the room
+    expect((await persisted(state)).status).toBe('ended');
+    expect(state.storage.alarmAt).toBeNull();
+  });
+
+  it('a refused setAlarm is logged, never an unhandled rejection, and the match runs on', async () => {
+    const { state, room } = await created();
+    const ws0 = await hello(room, 0);
+    const ws1 = await hello(room, 1);
+    state.storage.setAlarm = (): Promise<void> => Promise.reject(new Error('over quota'));
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      await say(room, ws0, { t: 'ready' });
+      await say(room, ws1, { t: 'ready' });
+      await vi.advanceTimersByTimeAsync(2 * TICK_MS);
+      expect(logged).toHaveBeenCalledWith('MatchRoom: setAlarm failed', expect.any(Error));
+      expect(ofType(ws1, 'frame').map((f) => f.tick)).toEqual([0, 1]);
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
+  it('a command frame is in storage before it is broadcast (R36: write, then send)', async () => {
+    const { state, room, ws0, ws1 } = await running();
+    const seen: [number, boolean][] = [];
+    ws1.onSend((text) => {
+      const m = JSON.parse(text) as ServerMsg;
+      if (m.t === 'frame' && m.cmds.length > 0) {
+        const stored = [...state.storage.batches.values()].some((t) => (JSON.parse(t) as { tick: number }[]).some((f) => f.tick === m.tick));
+        seen.push([m.tick, stored]);
+      }
+    });
+    await vi.advanceTimersByTimeAsync(2 * TICK_MS);
+    await say(room, ws0, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [4] } });
+    await vi.advanceTimersByTimeAsync(TICK_MS);
+    expect(seen).toEqual([[2, true]]);
+  });
+
   it('an alarm that reaches a lobby, an ended room or an expired one neither re-arms nor starts a clock', async () => {
     const { state, room } = await created();
     const ws0 = await hello(room, 0);

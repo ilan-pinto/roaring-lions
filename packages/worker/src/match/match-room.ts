@@ -11,10 +11,12 @@
  * The watchdog (R38): an eviction kills the interval, and before N1 only the
  * next socket event restarted it. A storage alarm survives the eviction, so
  * `alarm()` restarts the clock with nobody's help. It is armed when the
- * interval starts, re-arms itself only while the match is running or stalled,
- * and is deleted when the clock stops; a lobby never arms one, and an alarm
- * that reaches an ended or expired room does not re-arm, so an abandoned room
- * cannot keep a Free-tier object awake. Every `WATCHDOG_MS` = 5 s, not 1 s,
+ * interval starts, re-arms itself only while the match is running or stalled
+ * with a seat still connected (`wantsClock`), and is deleted when the clock
+ * stops or the match ends; a lobby never arms one, and an alarm that reaches
+ * an ended, expired or abandoned room (both seats gone, no bye) neither
+ * re-arms nor starts the clock, so an abandoned room cannot keep a Free-tier
+ * object awake. Every `WATCHDOG_MS` = 5 s, not 1 s,
  * because Cloudflare bills each `setAlarm()` as a row written: 1 s would cost
  * a whole row a second per running match, as much as the frames, and any
  * socket event (an order, an ack, a reconnect) restarts the clock sooner
@@ -122,6 +124,17 @@ function disown(ws: WebSocket): void {
   try { (ws as HibernatingSocket).serializeAttachment({ seat: null } satisfies SocketAttachment); } catch { /* already gone */ }
 }
 
+/** Whether the clock (and its watchdog) has work to do: the match lives AND a
+ *  seat is connected. With both seats gone nothing can change until a hello,
+ *  and a hello is a handler that starts the clock itself, so an abandoned
+ *  room runs no interval and arms no alarm, and the object may sleep (R38).
+ *  `connected` is the persisted seat state, so a revived instance reads the
+ *  same answer. One seat still connected keeps it running: that client is
+ *  there, and the TTL's `ended` must reach it. */
+function wantsClock(st: RoomState): boolean {
+  return (st.status === 'running' || st.status === 'stalled') && st.seats.some((s) => s !== null && s.connected);
+}
+
 export class MatchRoom {
   private st: RoomState | null = null;
   private meta: RoomMeta | null = null;
@@ -129,6 +142,8 @@ export class MatchRoom {
   private clock: ReturnType<typeof setInterval> | null = null;
   /** The batch not yet closed: memory only, until it closes or the state is written. */
   private open: Frame[] = [];
+  /** Set when this instance deleted the alarm, so an ended room deletes it once, not per handler. */
+  private disarmed = false;
   /** `persistKey` of the state as last written (or loaded). */
   private savedKey: string | null = null;
 
@@ -240,25 +255,41 @@ export class MatchRoom {
   }
   private ensureClock(): void {
     const st = this.st;
-    const live = st !== null && (st.status === 'running' || st.status === 'stalled');
+    const live = st !== null && wantsClock(st);
     if (live && this.clock === null) {
       this.clock = setInterval(() => { void this.onClock(); }, TICK_MS);
-      void this.ctx.storage.setAlarm(Date.now() + WATCHDOG_MS);
+      this.armWatchdog();
     } else if (!live && this.clock !== null) {
       clearInterval(this.clock);
       this.clock = null;
-      void this.ctx.storage.deleteAlarm();
+      this.disarmWatchdog();
+    } else if (!live && st?.status === 'ended' && !this.disarmed) {
+      // An instance revived after the clock's own instance died ends the match
+      // with no clock of its own to stop: the alarm the old one armed goes too.
+      this.disarmWatchdog();
     }
+  }
+  /** Unawaited, as the clock's start and stop are synchronous; a refusal
+   *  (storage over quota, say) must not become an unhandled rejection. The
+   *  cost of a lost arm is only R38's protection, until the next start. */
+  private armWatchdog(): void {
+    this.disarmed = false;
+    this.ctx.storage.setAlarm(Date.now() + WATCHDOG_MS).catch((e: unknown) => { console.error('MatchRoom: setAlarm failed', e); });
+  }
+  private disarmWatchdog(): void {
+    this.disarmed = true;
+    this.ctx.storage.deleteAlarm().catch((e: unknown) => { console.error('MatchRoom: deleteAlarm failed', e); });
   }
   /** R38: the watchdog. An eviction kills `setInterval`; a storage alarm
    *  survives it. While the match lives it re-arms itself -- here when the
    *  interval was still running, or through `ensureClock` when it was not,
    *  which arms as it starts the clock (one row either way, never two). A
-   *  lobby, an ended room or one this very call expired re-arms nothing. */
+   *  lobby, an ended room, one this very call expired, and an abandoned one
+   *  (`wantsClock`) re-arm nothing and start no clock. */
   async alarm(): Promise<void> {
     try {
       const st = await this.begin();
-      if (st && (st.status === 'running' || st.status === 'stalled') && this.clock !== null) {
+      if (st && wantsClock(st) && this.clock !== null) {
         await this.ctx.storage.setAlarm(Date.now() + WATCHDOG_MS);
       }
     } finally {
