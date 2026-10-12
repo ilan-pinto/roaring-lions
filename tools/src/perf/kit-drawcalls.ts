@@ -49,7 +49,14 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { musicOffInitScript } from '../ui-review/music-off';
 import { gpuLaunchArgs } from '../ui-review/gpu';
-import { EXPECTED, EXPECTED_DEFAULT, kitReadingFailure, parseKitDrawcallArgs, type KitDrawcallArgs } from './kit-drawcalls-args';
+import {
+  EXPECTED,
+  EXPECTED_DEFAULT,
+  kitReadingFailure,
+  parseKitDrawcallArgs,
+  runningGearReadingFailure,
+  type KitDrawcallArgs,
+} from './kit-drawcalls-args';
 
 const TAG = 'kit-drawcalls';
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -65,7 +72,7 @@ try {
   console.error(`[${TAG}] ${err instanceof Error ? err.message : String(err)}`);
   process.exit(2);
 }
-const { ids, tierLevels, n: N, gpu, syntheticKit } = args;
+const { ids, tierLevels, n: N, gpu, syntheticKit, runningGear } = args;
 for (const id of ids) {
   if (!existsSync(join(GLB_DIR, `${id}.glb`))) {
     console.error(`[${TAG}] no ${join(GLB_DIR, `${id}.glb`)}`);
@@ -102,6 +109,8 @@ async function bundleShippedBuilder(outDir: string): Promise<string> {
       `export { gltfLoader, setDracoDecoderPath } from ${JSON.stringify(join(UNITS, 'gltf-loader.ts'))};`,
       `export { TEXTURED_VEHICLE_TYPES } from ${JSON.stringify(join(UNITS, 'textured-vehicle.ts'))};`,
       `export { KIT_BASE_COUNT_KEY } from ${JSON.stringify(join(UNITS, 'vehicle-kit.ts'))};`,
+      `export { bindRunningGear, writeRunningGearUniforms } from ${JSON.stringify(join(UNITS, 'running-gear-binding.ts'))};`,
+      `export { makeRunningGearState, stepRunningGear } from ${JSON.stringify(join(UNITS, 'running-gear.ts'))};`,
       '',
     ].join('\n')
   );
@@ -139,7 +148,8 @@ const renderer = new THREE.WebGLRenderer({ antialias: false });
 renderer.setSize(800, 600);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-window.run = async (id, level, n, synthetic) => {
+let consoleErrors = 0;
+window.run = async (id, level, n, synthetic, rg) => {
   const gltf = await K.gltfLoader().loadAsync('${ORIGIN}/glb/' + id + '.glb');
   if (synthetic) {
     let host = null;
@@ -206,36 +216,65 @@ window.run = async (id, level, n, synthetic) => {
   cam.lookAt(centre);
   cam.updateMatrixWorld(true);
 
-  renderer.render(scene, cam); // warm: programs compiled, shadow map allocated
-  renderer.info.autoReset = false;
-  renderer.info.reset();
-  renderer.shadowMap.needsUpdate = true;
-  renderer.render(scene, cam);
-  const mainAndShadow = renderer.info.render.calls;
-  const triangles = renderer.info.render.triangles;
-  renderer.info.reset();
-  const rt = new THREE.WebGLRenderTarget(400, 300);
-  const ao = new THREE.MeshNormalMaterial();
-  scene.overrideMaterial = ao;
-  renderer.setRenderTarget(rt);
-  renderer.shadowMap.autoUpdate = false;
-  renderer.render(scene, cam);
-  const aoPrepass = renderer.info.render.calls;
-  renderer.setRenderTarget(null);
-  renderer.shadowMap.autoUpdate = true;
-  renderer.info.autoReset = true;
-  scene.overrideMaterial = null;
-  rt.dispose();
-  ao.dispose();
+  const measure = () => {
+    renderer.render(scene, cam); // warm: programs compiled, shadow map allocated
+    renderer.info.autoReset = false;
+    renderer.info.reset();
+    renderer.shadowMap.needsUpdate = true;
+    renderer.render(scene, cam);
+    const mainAndShadow = renderer.info.render.calls;
+    const triangles = renderer.info.render.triangles;
+    renderer.info.reset();
+    const rt = new THREE.WebGLRenderTarget(400, 300);
+    const ao = new THREE.MeshNormalMaterial();
+    scene.overrideMaterial = ao;
+    renderer.setRenderTarget(rt);
+    renderer.shadowMap.autoUpdate = false;
+    renderer.render(scene, cam);
+    const aoPrepass = renderer.info.render.calls;
+    renderer.setRenderTarget(null);
+    renderer.shadowMap.autoUpdate = true;
+    renderer.info.autoReset = true;
+    scene.overrideMaterial = null;
+    rt.dispose();
+    ao.dispose();
+    return { mainAndShadow, triangles, aoPrepass, programs: renderer.info.programs.length };
+  };
+  const parked = measure();
+  const { mainAndShadow, triangles, aoPrepass } = parked;
+  // GH-177: every clone bound to its running-gear material, each at its own
+  // non-rest pose (the vehicle moving at cruise for a different time), so
+  // the count is of what a moving column really draws.
+  let rgBound = 0, rgCalls = null, rgPrograms = null;
+  if (rg) {
+    const spec = tpl.runningGear;
+    if (spec) {
+      const st = K.makeRunningGearState(n);
+      ents.forEach((e, i) => {
+        for (let f = 0; f <= i; f++) {
+          K.stepRunningGear(st, { entityId: i, spec, smoothedSpeedTilesS: 1, yawRateTurnsS: 0.05, moveX: 0.05, moveY: 0,
+            headingTurns: 0, cruiseTilesS: 1, dtSeconds: 1 / 30 });
+        }
+        const b = K.bindRunningGear(e, spec);
+        if (b) { rgBound++; K.writeRunningGearUniforms(b, st, i, false); }
+      });
+      const bound = measure();
+      rgCalls = bound.mainAndShadow + bound.aoPrepass;
+      rgPrograms = bound.programs - parked.programs;
+    }
+  }
   for (const e of ents) if (e.mixer) e.mixer.uncacheRoot(e.root);
   for (const m of tpl.materials) m.dispose();
   for (const g of tpl.geometries) g.dispose();
   return {
+    rgSpec: !!tpl.runningGear, rgBound, rgPerVehicle: rgCalls === null ? null : rgCalls / n, rgPrograms, consoleErrors,
     liveMeshes, kittedMeshes: kitted, kitTrisPerVehicle: kitTris,
     callsMainPlusShadow: mainAndShadow, callsAoPrepass: aoPrepass,
     perVehicle: (mainAndShadow + aoPrepass) / n, trianglesPerVehicleMainPlusShadow: triangles / n,
   };
 };
+const origError = console.error.bind(console);
+console.error = (...a) => { consoleErrors++; origError(...a); };
 const gl = renderer.getContext();
 const dbg = gl.getExtension('WEBGL_debug_renderer_info');
 window.gpu = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : 'unknown';
@@ -243,6 +282,11 @@ window.ready = true;
 </script>`;
 
 interface RunResult {
+  rgSpec: boolean;
+  rgBound: number;
+  rgPerVehicle: number | null;
+  rgPrograms: number | null;
+  consoleErrors: number;
   liveMeshes: number;
   kittedMeshes: number;
   kitTrisPerVehicle: number;
@@ -293,23 +337,31 @@ try {
   for (const level of tierLevels) {
     for (const id of ids) {
       const r = await page.evaluate(
-        ([i, l, n, s]) =>
-          (window as unknown as { run(id: string, l: number, n: number, s: boolean): Promise<RunResult> }).run(
+        ([i, l, n, s, rg]) =>
+          (window as unknown as { run(id: string, l: number, n: number, s: boolean, rg: boolean): Promise<RunResult> }).run(
             i,
             l,
             n,
-            s
+            s,
+            rg
           ),
-        [id, level, N, syntheticKit] as [string, number, number, boolean]
+        [id, level, N, syntheticKit, runningGear] as [string, number, number, boolean, boolean]
       );
       const want = EXPECTED[id] ?? EXPECTED_DEFAULT;
-      const failure = kitReadingFailure({ id, level, perVehicle: r.perVehicle, kittedMeshes: r.kittedMeshes, syntheticKit });
+      let failure = kitReadingFailure({ id, level, perVehicle: r.perVehicle, kittedMeshes: r.kittedMeshes, syntheticKit });
+      if (failure === null && runningGear) {
+        failure = runningGearReadingFailure({ ...r, id });
+      }
       if (failure !== null) failures++;
       console.log(
         `${failure === null ? 'PASS' : 'FAIL'} ${id} tiers=${level}: ${r.perVehicle} submissions/vehicle (want ${want}) ` +
           `= (${r.callsMainPlusShadow} shadow+main + ${r.callsAoPrepass} AO) / ${N}; ` +
           `${r.liveMeshes} live meshes, ${r.kittedMeshes} carrying kit, ${r.kitTrisPerVehicle} kit tris/vehicle, ` +
           `${r.trianglesPerVehicleMainPlusShadow} tris/vehicle shadow+main` +
+          (runningGear
+            ? `; running gear: ${r.rgBound}/${N} clones bound, ${r.rgPerVehicle} submissions/vehicle bound, ` +
+              `+${r.rgPrograms} program(s), ${r.consoleErrors} console error(s) so far`
+            : '') +
           (failure === null ? '' : `\n     -> ${failure}`)
       );
     }
@@ -322,4 +374,7 @@ if (failures > 0) {
   console.error(`[${TAG}] ${failures} reading(s) failed: off the expected submissions per vehicle, or tiers > 0 with no kit merged`);
   process.exit(1);
 }
-console.log(`[${TAG}] every reading at 12 (6 for dozer_d9)`);
+console.log(
+  `[${TAG}] every reading at its expected count (12; 6 for dozer_d9; 15 for the two pickups)` +
+    (runningGear ? ', and the same count with every clone bound to its running-gear material' : '')
+);

@@ -21,12 +21,32 @@ describe('parseKitDrawcallArgs', () => {
     expect(a.syntheticKit).toBe(false);
   });
 
+  it('--running-gear defaults to every vehicle carrying running gear, at tier 0', () => {
+    const a = parseKitDrawcallArgs(['--running-gear'], 'darwin');
+    // Literals (the approved A1 + A2 lists), not the contract's own arrays.
+    expect([...a.ids].sort()).toEqual([
+      'apc_eitan',
+      'apc_kipod',
+      'dozer_d9',
+      'gun_truck',
+      'ifv_namer',
+      'jeep_shoded',
+      'mbt_lavi',
+      'officer_armour',
+      'rocket_battery',
+      'scout_shachaf',
+      'technical',
+    ]);
+    expect(a.tierLevels).toEqual([0]);
+    expect(a.runningGear).toBe(true);
+  });
+
   it('reads every flag it documents, and tolerates the separator pnpm forwards', () => {
     const a = parseKitDrawcallArgs(
       ['--', '--ids=mbt_lavi,dozer_d9', '--tiers=2', '--n=5', '--gpu=swiftshader', '--synthetic-kit'],
       'darwin'
     );
-    expect(a).toEqual({ ids: ['mbt_lavi', 'dozer_d9'], tierLevels: [2], n: 5, gpu: 'swiftshader', syntheticKit: true });
+    expect(a).toEqual({ ids: ['mbt_lavi', 'dozer_d9'], tierLevels: [2], n: 5, gpu: 'swiftshader', syntheticKit: true, runningGear: false });
   });
 
   for (const argv of [['--tier=3'], ['--id=mbt_lavi'], ['mbt_lavi'], ['--synthetic'], ['--n', '5'], ['--tiers=3', '--force']]) {
