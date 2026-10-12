@@ -14,7 +14,7 @@
  * catches an off-by-one in a sight radius.
  *
  * Ported faithfully from `renderer.ts`; the three load-bearing details
- * (decay-before-reveal, side-0-only, the low-profile exemption) are called
+ * (decay-before-reveal, viewer-side-only, the low-profile exemption) are called
  * out at each function below, matching the source's own comments rather than
  * re-deriving them.
  */
@@ -53,6 +53,8 @@ export interface FogInput {
   readonly sightByType: Float64Array;
   readonly blocked: Uint8Array;
   readonly isLowProfile: (x: number, y: number) => boolean;
+  /** The side whose units reveal (network design §5.1); 0 in single-player. */
+  readonly viewerSide: number;
 }
 
 /**
@@ -75,10 +77,11 @@ export interface FogInput {
  *    walked away from never dims -- fog would only ever grow, not track
  *    where the player currently is. Explored (>=1) is still monotonic: this
  *    step never sets a tile back to 0.
- * 2. **Only living side-0 units reveal.** `alive[i] === 0 || side[i] !== 0`
- *    skips the entity outright (`renderer.ts:1029`) -- fog is what the
- *    PLAYER can see, and only side 0 is the player; a dead unit has no eyes
- *    either.
+ * 2. **Only living units on the VIEWER's side reveal.** `alive[i] === 0 ||
+ *    side[i] !== viewerSide` skips the entity outright (`renderer.ts:1029`)
+ *    -- fog is what the PLAYER can see, and the player is `viewerSide` (0 in
+ *    single-player, so the rule did not change there); a dead unit has no
+ *    eyes either.
  *
  * For each qualifying entity, scans a `ceil(sight)` square around its tile
  * (cheap bounding box) and rejects anything outside the true circular sight
@@ -89,16 +92,28 @@ export interface FogInput {
  * somewhere.
  */
 export function computeFog(prev: Uint8Array, input: FogInput): Uint8Array {
-  const { width, height, entityCount, alive, side, typeIdx, posX, posY, sightByType, blocked, isLowProfile } =
-    input;
+  const {
+    width,
+    height,
+    entityCount,
+    alive,
+    side,
+    typeIdx,
+    posX,
+    posY,
+    sightByType,
+    blocked,
+    isLowProfile,
+    viewerSide,
+  } = input;
   const fog = prev.slice();
 
   // 1. Decay: 2 -> 1, before anything re-reveals this tick.
   for (let t = 0; t < fog.length; t++) if (fog[t] === 2) fog[t] = 1;
 
-  // 2. Reveal: only living side-0 units.
+  // 2. Reveal: only living units on the viewer's side.
   for (let i = 0; i < entityCount; i++) {
-    if (alive[i] === 0 || side[i] !== 0) continue;
+    if (alive[i] === 0 || side[i] !== viewerSide) continue;
     const sight = sightByType[typeIdx[i]];
     const ux = posX[i] / 65536;
     const uy = posY[i] / 65536;

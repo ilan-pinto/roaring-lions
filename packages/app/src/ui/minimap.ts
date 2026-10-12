@@ -667,9 +667,14 @@ export function dotShape(side: number, suspected = false): DotShape {
  *
  * The fog rule is `unitIsObserved`, imported rather than restated — see this
  * file's top comment. The two exclusions above it are conservative by
- * construction: both can only remove a dot.
+ * construction: both can only remove a dot. `viewer` is the side the player
+ * commands (network design §5.1), 0 in single-player.
  */
-export function unitDots(sim: Sim, isVisible: (wx: number, wy: number) => boolean): MinimapDot[] {
+export function unitDots(
+  sim: Sim,
+  isVisible: (wx: number, wy: number) => boolean,
+  viewer = 0
+): MinimapDot[] {
   const st = sim.state;
   const out: MinimapDot[] = [];
   for (let i = 0; i < sim.entityCount; i++) {
@@ -679,7 +684,7 @@ export function unitDots(sim: Sim, isVisible: (wx: number, wy: number) => boolea
     if (st.carriedBy[i] >= 0 || st.tunnelIn[i] >= 0) continue;
     const x = fx.toNumber(st.posX[i]);
     const y = fx.toNumber(st.posY[i]);
-    if (!unitIsObserved(st.side[i], x, y, isVisible)) continue;
+    if (!unitIsObserved(st.side[i], viewer, x, y, isVisible)) continue;
     const side = st.side[i];
     out.push({ x, y, side, suspected: side === 1 && sim.contactLevel(0, i) < 2 });
   }
@@ -1244,7 +1249,8 @@ export class Minimap {
     const refuge = this.deps.refuge?.() ?? null;
     if (refuge) this.cross(refuge, this.chrome.refuge, this.chrome.refugeEdge);
 
-    for (const d of unitDots(this.deps.sim, this.fogAt)) {
+    // Viewer 0 until the minimap is handed the seat's side (N1a task 6).
+    for (const d of unitDots(this.deps.sim, this.fogAt, 0)) {
       const at = tileToBox(proj, d.x, d.y);
       // Colour FIRST and unchanged: the shape is the second channel, not the
       // replacement for a first one that was measured to work.

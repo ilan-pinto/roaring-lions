@@ -948,6 +948,11 @@ export class ThreeRenderer implements Renderer {
 
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
+  /** The sim side this player commands (`opts.viewerSide`, network design
+   *  §5.1): its units reveal fog and always draw. Absent is 0, single-player,
+   *  so every viewer-0 path is exactly the old `side === 0` one. Read once:
+   *  `setTeamColors` may swap `opts`, but the seat never changes mid-mission. */
+  private readonly viewer: number;
   /** The scene's sun and sky bounce (`lighting.ts`). Built in the
    *  constructor, not `init`, because every material in this scene is a
    *  `MeshStandardMaterial` now: a scene with no lights in it is not a
@@ -2322,6 +2327,7 @@ export class ThreeRenderer implements Renderer {
     // `units/gltf-loader.ts` holds it for the whole module graph, because the
     // decoder is a property of the runtime rather than of any one asset.
     if (opts.dracoDecoderPath) setDracoDecoderPath(opts.dracoDecoderPath);
+    this.viewer = opts.viewerSide ?? 0;
     this.showcasePending = opts.decalShowcase !== undefined;
     // The world never moves (a shake moves a COPY of the camera), so the scene
     // stops forcing a world-matrix multiply on every object each frame; what
@@ -4201,6 +4207,7 @@ export class ThreeRenderer implements Renderer {
       sightByType: this.sightByType,
       blocked: this.sim.blocked,
       isLowProfile: (x, y) => this.isLowProfileTile(x, y),
+      viewerSide: this.viewer,
     };
     this.fog = computeFog(this.fog, input);
     this.shroudDirty = true;
@@ -5801,7 +5808,7 @@ export class ThreeRenderer implements Renderer {
       if (this.meshUnitTemplates.has(type.id) || this.vehicleMeshTemplates.has(type.id)) continue;
       const x = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
       const z = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
-      if (this.unitsDebugHidden || !unitIsObserved(st.side[i], x, z, this.fogVisibleAt)) continue;
+      if (this.unitsDebugHidden || !unitIsObserved(st.side[i], this.viewer, x, z, this.fogVisibleAt)) continue;
       const cls = RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type);
       const lift = type.isAir ? AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL : 0;
       const facing = fx.toNumber(st.facing[i]);
@@ -6744,11 +6751,11 @@ export class ThreeRenderer implements Renderer {
       // drawn raw is a 20 Hz stutter (motion pass, finding #4).
       const aimYaw = meshYawFromFacing(lerpFacingTurns(this.prevFacing[i], this.curFacing[i], alpha));
       entity.root.rotation.y = aimYaw;
-      // Side 0 (the player's own) is always drawn, matching `entityFrame`'s
+      // The viewer's own side is always drawn, matching `entityFrame`'s
       // own `contactLevel` short-circuit for it -- everything else defers to
       // real fog-of-war, exactly like `updateUnits`'s own `isVisible` gate.
       entity.root.visible =
-        !this.unitsDebugHidden && unitIsObserved(st.side[i], wx, wy, this.fogVisibleAt);
+        !this.unitsDebugHidden && unitIsObserved(st.side[i], this.viewer, wx, wy, this.fogVisibleAt);
 
       const anim: UnitAnimInput = {
         alive: st.alive[i],
@@ -7278,7 +7285,7 @@ export class ThreeRenderer implements Renderer {
       // `ThreeRenderer.vehicle-weight.test.ts` pins the sign in world space.
       entity.root.rotation.set(-roll, meshYawFromFacing(facingNorm), pitch, 'YZX');
       entity.root.visible =
-        !this.unitsDebugHidden && unitIsObserved(st.side[i], px, py, this.fogVisibleAt);
+        !this.unitsDebugHidden && unitIsObserved(st.side[i], this.viewer, px, py, this.fogVisibleAt);
 
       if (entity.turretPivot) {
         const target = this.resolveTurretTarget(i);

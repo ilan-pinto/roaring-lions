@@ -38,6 +38,7 @@ function oneUnitInput(tx: number, ty: number, sight: number, overrides: Partial<
     sightByType: Float64Array.from([sight]),
     blocked: new Uint8Array(W * H),
     isLowProfile: () => false,
+    viewerSide: 0,
     ...overrides,
   };
 }
@@ -229,5 +230,36 @@ describe('isFogVisible', () => {
     expect(isFogVisible(fog, W, H, 5, -1)).toBe(false);
     expect(isFogVisible(fog, W, H, W, 5)).toBe(false);
     expect(isFogVisible(fog, W, H, 5, H)).toBe(false);
+  });
+});
+
+/** A 20x1 strip: a side-0 unit at x=2 and a side-1 unit at x=17, sight 2. */
+function oneUnitEach(viewerSide: number): FogInput {
+  return {
+    width: 20,
+    height: 1,
+    entityCount: 2,
+    alive: new Uint8Array([1, 1]),
+    side: new Uint8Array([0, 1]),
+    typeIdx: new Uint16Array([0, 0]),
+    posX: new Int32Array([Math.round(2.5 * 65536), Math.round(17.5 * 65536)]),
+    posY: new Int32Array([32768, 32768]),
+    sightByType: new Float64Array([2]),
+    blocked: new Uint8Array(20),
+    isLowProfile: () => false,
+    viewerSide,
+  };
+}
+
+describe('computeFog viewerSide', () => {
+  // Falsified (N1a task 2): `side[i] !== viewerSide` back to `side[i] !== 0`
+  // in fog.ts turns the viewer-1 half of this test red.
+  it("reveals around the viewer's units only", () => {
+    const f0 = computeFog(new Uint8Array(20), oneUnitEach(0));
+    expect(f0[2]).toBe(2);
+    expect(f0[17]).toBe(0);
+    const f1 = computeFog(new Uint8Array(20), oneUnitEach(1));
+    expect(f1[2]).toBe(0);
+    expect(f1[17]).toBe(2);
   });
 });

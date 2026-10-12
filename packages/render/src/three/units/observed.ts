@@ -23,16 +23,19 @@
  * injected as a predicate so this is testable in `environment: 'node'`, the
  * same split `frame-state.ts` and `pick.ts` already draw.
  */
+import { isOwnSide } from '../../relation';
 
 /**
  * True when `side`'s unit at interpolated world position (`wx`, `wy`) may be
- * drawn this frame.
+ * drawn this frame, for the player on side `viewer`.
  *
- * Side 0 -- the player's own -- is unconditional, matching
- * `PixiRenderer`'s own unit loop (`renderer.ts:1930-1934`, "Anyone who isn't
+ * The viewer's own side is unconditional (`isOwnSide`, network design §5.1;
+ * side 0 in single-player, where this is exactly the old `side === 0`),
+ * matching `PixiRenderer`'s own unit loop (`renderer.ts:1930-1934`, "Anyone who isn't
  * ours is only drawn while actually observed -- fog hides them, and losing
  * sight loses the contact") and `entityFrame`'s own `contactLevel`
- * short-circuit for side 0. Everything else defers to real fog of war.
+ * short-circuit for the player's own side. Everything else -- hostile and
+ * civilian alike -- defers to real fog of war.
  *
  * `wx`/`wy` are the INTERPOLATED position -- this frame's actual screen
  * position, not last tick's raw `curX`/`curY`. Both Pixi and this backend
@@ -42,9 +45,10 @@
  */
 export function unitIsObserved(
   side: number,
+  viewer: number,
   wx: number,
   wy: number,
   fogVisible: (wx: number, wy: number) => boolean
 ): boolean {
-  return side === 0 || fogVisible(wx, wy);
+  return isOwnSide(side, viewer) || fogVisible(wx, wy);
 }

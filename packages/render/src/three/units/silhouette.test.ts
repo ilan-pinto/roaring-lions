@@ -104,9 +104,9 @@ describe('the fog gate', () => {
   it('observes the player’s own units unconditionally and everyone else only through fog', () => {
     // Break to confirm red: change `side === 0 ||` to `true ||` in
     // observed.ts -- the second expectation below fails.
-    expect(unitIsObserved(0, 4, 4, () => false)).toBe(true);
-    expect(unitIsObserved(1, 4, 4, () => false)).toBe(false);
-    expect(unitIsObserved(1, 4, 4, () => true)).toBe(true);
+    expect(unitIsObserved(0, 0, 4, 4, () => false)).toBe(true);
+    expect(unitIsObserved(1, 0, 4, 4, () => false)).toBe(false);
+    expect(unitIsObserved(1, 0, 4, 4, () => true)).toBe(true);
   });
 
   it('a fogged hostile gets NO silhouette -- the silhouette rides the body’s own visibility, it does not re-derive it', () => {
@@ -122,13 +122,13 @@ describe('the fog gate', () => {
     expect(silhouettes.length).toBe(2);
 
     // The hostile is inside a building's footprint, unobserved: fog says no.
-    root.visible = unitIsObserved(1, 12, 9, () => false);
+    root.visible = unitIsObserved(1, 0, 12, 9, () => false);
     const hidden = drawnObjects(scene);
     for (const s of silhouettes) expect(hidden).not.toContain(s);
     expect(hidden).not.toContain(root);
 
     // Same unit, same call site, once the player observes that tile.
-    root.visible = unitIsObserved(1, 12, 9, () => true);
+    root.visible = unitIsObserved(1, 0, 12, 9, () => true);
     const shown = drawnObjects(scene);
     for (const s of silhouettes) expect(shown).toContain(s);
   });
