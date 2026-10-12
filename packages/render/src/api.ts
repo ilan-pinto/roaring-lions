@@ -163,6 +163,9 @@ export interface RendererOptions {
   background: string;
   /** Team marker colours by side index (0 player, 1 hostile, 2 neutral). */
   teamColors: [string, string, string];
+  /** The sim side the person at this screen commands (network design §5.1).
+   *  Absent means 0, which is single-player and every campaign mission. */
+  viewerSide?: 0 | 1;
   /** Vehicle hull colours by side index. */
   hullColors: [string, string, string];
   /** Infantry/soft-unit colours by side index — a lighter tone of the same
