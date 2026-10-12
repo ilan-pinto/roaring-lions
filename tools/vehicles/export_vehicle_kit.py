@@ -418,6 +418,23 @@ def find_tone(name, lin, masks, target, nrm):
     return final
 
 
+#: A metal texel whose luminance is within this share of the paint texel's
+#: gives the kit no tone of its own (the fourth rule, `choose_tones`).
+NO_CONTRAST = 0.25
+
+#: Largest linear-RGB distance from gunmetal.2 a texel of the metal patch may
+#: show after JPEG (q85 rings up to ~0.013 linear inside the block, measured on
+#: the Kipod; 0.03 is ~8 sRGB levels at this grey, far from any olive or black).
+PATCH_COLOUR_TOL = 0.03
+
+
+def patch_colour_mask(lin):
+    """Texels within PATCH_COLOUR_TOL of `bake_fix.METAL_HEX`, linear."""
+    import bake_fix
+    target = _srgb_to_linear(np.array(bake_fix._hex_bytes(bake_fix.METAL_HEX), dtype=np.float32))
+    return np.sqrt(((lin - target) ** 2).sum(axis=-1)) < PATCH_COLOUR_TOL
+
+
 def choose_tones(live):
     """{tone: uv} from the vehicle's own bake, or None for a vehicle with no
     bake on its hull (then no host is textured either)."""
@@ -457,10 +474,13 @@ def choose_tones(live):
         if not (mcov >= 0.5).any():
             # A uniform map over the islands marks no metal -- but since
             # A3.2 phase 2 the exporters paint a flat gunmetal square OUTSIDE
-            # every island (`bake_fix.paint_metal_patch`: metallic 1.0,
-            # neutral normal), exactly so this picker has honest steel to
-            # pin to. Off-island metal is that patch and nothing else.
-            patch_mask = (metallic >= 0.5) & ~every
+            # every island (`bake_fix.paint_metal_patch`, neutral normal),
+            # exactly so this picker has honest steel to pin to. Found by its
+            # COLOUR off every island: since the GH-238 leftovers the patch is
+            # dielectric (`bake_fix.METAL_METALLIC`, which says why), so its
+            # metallic flag no longer marks it; a patch painted before that
+            # (metallic 1.0) is still found by the flag.
+            patch_mask = (patch_colour_mask(lin) | (metallic >= 0.5)) & ~every
             metallic = None       # fall through to the patch, then the old rules
     mnode = next((o for o in textured if o.name.endswith("_metal")), None)
     if metallic is None and patch_mask is not None and patch_mask.any():
@@ -476,7 +496,7 @@ def choose_tones(live):
         mmask = patch_mask
         src = "the bake's metal patch"
         log(f"TONE metal source: the exporter's metal patch (bake_fix.paint_metal_patch, "
-            f"{int(patch_mask.sum())} texels off every island, metallic >= 0.5); dark: the 5th "
+            f"{int(patch_mask.sum())} texels off every island, gunmetal.2 by colour or metallic >= 0.5); dark: the 5th "
             f"luminance percentile of every textured island")
         tones["metal"] = find_tone("metal", lin, [(src, mmask)], metal_target, nrm)
         tones["dark"] = find_tone("dark", lin, [("every textured island", every)], dark_target, nrm)
@@ -500,6 +520,23 @@ def choose_tones(live):
         mmask = coverage([mnode], w, h)
         src = f"{mnode.name}'s islands"
         log(f"TONE metal source: {mnode.name}'s own face texels (no metal in a metallic map)")
+        lp, lm = float(_lum(np.array(paint_target))), float(_lum(np.array(metal_target)))
+        if abs(lm / lp - 1.0) < NO_CONTRAST:
+            # The fourth rule (GH-238 leftovers, 2026-10-12). A metal node
+            # painted the airframe's own grey gives the kit no tone of its
+            # own: the Peten's `hull_metal` median read 0.0600 linear
+            # luminance against its paint texel's 0.0680 (0.88), so its
+            # sensors and firepower drew as the fuselage they sit on. Then
+            # `metal` is the bake's flat texel nearest gunmetal.2 -- the
+            # fleet's metal patch colour (`bake_fix.METAL_HEX`) -- on any
+            # textured island; the Peten carries one 0.011 off it.
+            import bake_fix
+            metal_target = tuple(_srgb_to_linear(np.array(bake_fix._hex_bytes(bake_fix.METAL_HEX))))
+            mmask = every
+            src = "every textured island (gunmetal.2)"
+            log(f"DEVIATION tone metal (a fourth rule): {mnode.name}'s median luminance {lm:.4f} is within "
+                f"{NO_CONTRAST:.0%} of the paint texel's {lp:.4f}, so `metal` is the bake's flat texel nearest "
+                f"gunmetal.2 ({bake_fix.METAL_HEX}) on any island")
     else:
         # No metallic texel and no textured metal node (the Namer, Eitan,
         # Kipod and Shachaf weapon stations are palette; the D9 has no metal
@@ -541,8 +578,13 @@ def choose_tones(live):
 # nodes
 # ---------------------------------------------------------------------------
 
-def make_node(track, tier, host, pieces, tones, uv_name):
-    name = f"kit_{track}_{tier}_{host.name}"
+#: The node-name suffix of each LOD level (`Piece.lod`, `kit_parts.slat_panel`);
+#: a piece with no LOD goes to the part's main node.
+LOD_SUFFIX = {None: "", "near": "_near", "far": "_far"}
+
+
+def make_node(track, tier, host, pieces, tones, uv_name, lod=None):
+    name = f"kit_{track}_{tier}_{host.name}{LOD_SUFFIX[lod]}"
     verts, faces, ftone, fsmooth = [], [], [], []
     for p in pieces:
         off = len(verts)
@@ -569,6 +611,8 @@ def make_node(track, tier, host, pieces, tones, uv_name):
     ob = bpy.data.objects.new(name, me)
     bpy.context.scene.collection.objects.link(ob)
     ob["rl_kit"] = {"track": track, "tier": tier, "host": host.name}
+    if lod is not None:
+        ob["rl_kit"]["lod"] = lod
     ob["rl_role"] = host["rl_role"]
     return ob
 
@@ -657,13 +701,14 @@ def preview(vid, live, kit, out_dir):
     kb.game_sun(scene)
     kb.paint_palette_nodes(live)
     hosts = {o.name: o for o in live}
-    for (track, tier, host), ob in kit.items():
+    for (track, tier, host, _lod), ob in kit.items():
         ob.data.materials.clear()
         ob.data.materials.append(hosts[host].data.materials[0])
 
     def show(level):
-        for (track, tier, _host), ob in kit.items():
-            on = tier <= level
+        # The garage's view: the near LOD (the real slat bars), never the far.
+        for (track, tier, _host, lod), ob in kit.items():
+            on = tier <= level and lod != "far"
             ob.hide_render = not on
             ob.hide_viewport = not on
 
@@ -748,7 +793,20 @@ def run(vid, preview_dir, out_dir=OUT_DIR):
     for (track, tier, host), pieces in built.items():
         h = hosts[host]
         uv_name = h.data.uv_layers.active.name if h.data.uv_layers.active else "UVMap"
-        kit[(track, tier, host)] = make_node(track, tier, h, pieces, tones, uv_name)
+        by_lod = {}
+        for p in pieces:
+            by_lod.setdefault(p.lod, []).append(p)
+        if ("near" in by_lod) != ("far" in by_lod):
+            raise Refused(f"{track} {tier} {host}: a {'near' if 'near' in by_lod else 'far'} LOD level with no "
+                          f"partner -- the renderer swaps one for the other, so both or neither")
+        if None not in by_lod:
+            raise Refused(f"{track} {tier} {host}: LOD levels but no main node (posts, rails) to draw at every zoom")
+        for lod in (None, "near", "far"):
+            if lod in by_lod:
+                kit[(track, tier, host, lod)] = make_node(track, tier, h, by_lod[lod], tones, uv_name, lod)
+        if "near" in by_lod:
+            log(f"  LOD {track} {tier} {host}: main {kp.tris(by_lod[None])} tris, near "
+                f"{kp.tris(by_lod['near'])}, far {kp.tris(by_lod['far'])} (drawn: main + one level)")
 
     path = os.path.join(out_dir, f"{vid}.glb")
     export_glb(list(kit.values()), path)
@@ -776,7 +834,7 @@ def run(vid, preview_dir, out_dir=OUT_DIR):
         for ob in set(bpy.data.objects) - before:
             rk = ob.get("rl_kit")
             if ob.type == "MESH" and rk is not None:
-                kit[(rk["track"], int(rk["tier"]), rk["host"])] = ob
+                kit[(rk["track"], int(rk["tier"]), rk["host"], rk.get("lod"))] = ob
         if len(kit) != len(rows):
             raise Refused(f"re-import found {len(kit)} kit nodes, the file has {len(rows)}")
         preview(vid, live, kit, os.path.join(os.path.abspath(preview_dir), vid))

@@ -17,6 +17,18 @@ rebuilt with every bufferView re-laid in its original order and 4-byte
 padded. Geometry accessors are copied byte-for-byte. A second run finds the
 same block (scan order) and repaints the same texels; the only drift is one
 more JPEG generation, which is why the provenance records the run.
+
+    python3 tools/vehicles/patch_metal_glb.py --metallic-only art/meshes/vehicles/<id>.glb
+
+(GH-238 leftovers, 2026-10-12) rewrites ONLY the patch's `metallic_roughness`
+texels to `bake_fix.METAL_METALLIC` / `METAL_ROUGHNESS` on a file that already
+carries the patch: the block is found by its COLOUR (the one 8-aligned square
+off every live face whose `base_color` is gunmetal.2 within `PATCH_TOL` a
+channel -- the exporters placed it against their pre-split source, so the
+first-hole rule need not find it), and only
+the `metallic_roughness` image is re-encoded -- `base_color` and `normal` are
+copied byte for byte. `kit_*` nodes are left out of the atlas mask (their UVs
+are PINNED inside the patch, so counting them would move the block).
 """
 import io
 import json
@@ -81,7 +93,12 @@ def _image_name(j, idx):
     raise SystemExit(f"image {idx} {name!r}: not one of base_color / normal / metallic_roughness")
 
 
-def patch(path):
+#: Largest per-channel byte difference from gunmetal.2 a texel of an existing
+#: patch's INTERIOR may show in the decoded JPEG (8 measured on the Kipod).
+PATCH_TOL = 12
+
+
+def patch(path, metallic_only=False):
     j, b = _read(path)
     mat = j["materials"][0]
     base_idx = j["textures"][mat["pbrMetallicRoughness"]["baseColorTexture"]["index"]]["source"]
@@ -97,6 +114,8 @@ def patch(path):
         name = node.get("name", "")
         if name.startswith("WRECK_"):
             continue            # the same meshes as their live twins
+        if name.startswith("kit_"):
+            continue            # pinned INTO the patch: not atlas, and would move the block
         for pr in j["meshes"][node["mesh"]]["primitives"]:
             if "TEXCOORD_0" not in pr["attributes"]:
                 continue
@@ -106,10 +125,31 @@ def patch(path):
                 bake_fix.raster_tri(mask, np.array([(uv[idx[t + k]][0] * w, uv[idx[t + k]][1] * h) for k in range(3)]))
                 tris += 1
     at = bake_fix.find_patch_block(mask)
-    if at is None:
+    if at is None and not metallic_only:
         raise SystemExit(f"{path}: no {bake_fix.PATCH + 2 * bake_fix.GUARD}-texel hole in the {w}x{h} atlas")
-    x, y = at
+    x, y = at if at is not None else (0, 0)
     named = {_image_name(j, idx): arr for idx, arr in images.items()}
+    if metallic_only:
+        # The EXISTING patch, found by its colour: the exporters placed it
+        # against their own pre-split source object's atlas, which is not
+        # this file's node set, so the first-hole rule above need not land on
+        # it. Every PATCH square at 8k + GUARD whose texels all sit within
+        # PATCH_TOL of gunmetal.2 and that no live face covers; exactly one.
+        want = np.array([int(round(c * 255)) for c in bake_fix._hex_bytes(bake_fix.METAL_HEX)])
+        base = named["base_color"][..., :3].astype(int)
+        P = bake_fix.PATCH
+        near = (np.abs(base - want).max(axis=-1) <= PATCH_TOL)
+        # The interior only: JPEG rings the patch's outer 2-3 texels against
+        # whatever lies beside it (measured up to 22 levels on the Eitan).
+        r = 4
+        # `find_patch_block` returns the 8-aligned hole PLUS its 4-texel guard.
+        hits = [(xx, yy) for yy in range(bake_fix.GUARD, h - P + 1, 8) for xx in range(bake_fix.GUARD, w - P + 1, 8)
+                if near[yy + r:yy + P - r, xx + r:xx + P - r].all() and not mask[yy:yy + P, xx:xx + P].any()]
+        if len(hits) != 1:
+            raise SystemExit(f"{path}: {len(hits)} gunmetal patch block(s) found by colour ({hits[:4]}), "
+                             f"want exactly one -- run without --metallic-only to paint one")
+        x, y = hits[0]
+        named = {"metallic_roughness": named["metallic_roughness"]}
     painted = bake_fix.paint_patch_arrays(named, x, y, (w, h))
 
     # Rebuild the BIN chunk: every bufferView in its original order, image
@@ -117,7 +157,7 @@ def patch(path):
     by_image = {img["bufferView"]: idx for idx, img in enumerate(j["images"])}
     out = bytearray()
     for vi, bv in enumerate(j["bufferViews"]):
-        if vi in by_image:
+        if vi in by_image and _image_name(j, by_image[vi]) in named:
             buf = io.BytesIO()
             Image.fromarray(named[_image_name(j, by_image[vi])]).save(buf, format="JPEG", quality=JPEG_QUALITY, optimize=True)
             data = buf.getvalue()
@@ -146,10 +186,14 @@ def patch(path):
     print(f"[{os.path.basename(path)}] metal patch: {bake_fix.PATCH}x{bake_fix.PATCH} {bake_fix.METAL_HEX} at texel "
           f"({x}, {y}) of {w}x{h}, uv ({uv[0]:.5f}, {uv[1]:.5f}), guard {bake_fix.GUARD}; {tris} live triangles "
           f"rasterised, atlas coverage {100.0 * mask.mean():.1f}%; painted {', '.join(painted)}; "
-          f"images re-encoded JPEG q{JPEG_QUALITY}; wrote {total} bytes")
+          f"{'metallic_roughness' if metallic_only else 'images'} re-encoded JPEG q{JPEG_QUALITY} "
+          f"(metallic {bake_fix.METAL_METALLIC}, roughness {bake_fix.METAL_ROUGHNESS}); wrote {total} bytes")
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        raise SystemExit("usage: patch_metal_glb.py <vehicle.glb>")
-    patch(sys.argv[1])
+    argv = sys.argv[1:]
+    only = "--metallic-only" in argv
+    files = [a for a in argv if a != "--metallic-only"]
+    if len(files) != 1 or any(a.startswith("--") for a in files):
+        raise SystemExit("usage: patch_metal_glb.py [--metallic-only] <vehicle.glb>")
+    patch(files[0], metallic_only=only)

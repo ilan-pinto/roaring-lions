@@ -1097,6 +1097,9 @@ WRECK_CLIP_NAMES = ("idle", "wreck")
 # (the renderer deletes every kit node before a mixer exists) -- so the census
 # below looks past it. `KIT_PREFIX` in tools/src/meshes/kit-contract.ts.
 KIT_NODE_PREFIX = "kit_"
+# A kit part's LOD levels (`rl_kit.lod`; None is the main node). The runtime
+# draws main + near or main + far (`vehicle-kit.ts`, `KIT_LOD_SWITCH`).
+KIT_LODS = (None, "near", "far")
 
 
 # Plan 3 (GH-238), Task 6: the kit is checked twice, from the bytes and from
@@ -1184,7 +1187,10 @@ def check_vehicle_kits(vehicles_root, units_root):
         differing puts the part in the wrong place or the wrong colour;
       * the part is ONE triangle primitive;
       * the tier is 1-3 and within the tiers the unit's JSON declares on that
-        track, with no duplicate (track, tier, host);
+        track, with no duplicate (track, tier, host, lod);
+      * an LOD level (`rl_kit.lod` near/far, named `..._near` / `..._far`,
+        GH-238 leftovers) comes with its partner and its part's main node --
+        the runtime swaps one level for the other over the main node;
       * the track is one the unit's own `data/units/<faction>/<id>.json`
         declares under `upgrades` -- no firepower part on the D9;
       * all kit triangles together are at most `KIT_TRI_LIMIT`.
@@ -1232,10 +1238,14 @@ def check_vehicle_kits(vehicles_root, units_root):
                                 f"tell which tier owns it")
                 continue
             track, tier, host = info.get("track"), info.get("tier"), info.get("host")
-            if nname != f"{KIT_NODE_PREFIX}{track}_{tier}_{host}":
+            lod = info.get("lod")
+            if lod not in KIT_LODS:
+                failures.append(f"{name}: {nname!r} has rl_kit.lod {lod!r}, not one of {KIT_LODS}")
+            want_name = f"{KIT_NODE_PREFIX}{track}_{tier}_{host}" + (f"_{lod}" if lod else "")
+            if nname != want_name:
                 failures.append(f"{name}: node {nname!r} does not match its rl_kit "
-                                f"({track!r}, {tier!r}, {host!r}); the contract name is "
-                                f"'{KIT_NODE_PREFIX}{track}_{tier}_{host}'")
+                                f"({track!r}, {tier!r}, {host!r}, lod {lod!r}); the contract name is "
+                                f"{want_name!r}")
             if not isinstance(tier, int) or isinstance(tier, bool) or tier not in KIT_TIERS:
                 failures.append(f"{name}: {nname!r} has tier {tier!r}, outside {list(KIT_TIERS)}")
             if upgrades is not None:
@@ -1250,10 +1260,10 @@ def check_vehicle_kits(vehicles_root, units_root):
                     if tier > n_tiers:
                         failures.append(f"{name}: {nname!r} is tier {tier} of {track!r}, which "
                                         f"declares {n_tiers} tier(s)")
-            key = (track, tier, host)
+            key = (track, tier, host, lod)
             if key in seen:
-                failures.append(f"{name}: duplicate kit node for (track, tier, host) {key!r} -- "
-                                f"one node per (track, tier, host)")
+                failures.append(f"{name}: duplicate kit node for (track, tier, host, lod) {key!r} -- "
+                                f"one node per (track, tier, host, lod)")
             seen.add(key)
             tracks.setdefault(track, set()).add(tier)
 
@@ -1302,6 +1312,12 @@ def check_vehicle_kits(vehicles_root, units_root):
                     failures.append(f"{name}: {nname!r} carries attributes "
                                     f"{sorted(sorted(a) for a in kattrs)}, its host {host!r} "
                                     f"{sorted(sorted(a) for a in hattrs)}")
+        for (track, tier, host, lod) in sorted(k for k in seen if k[3]):
+            for need in ({"near": "far", "far": "near"}[lod], None):
+                if (track, tier, host, need) not in seen:
+                    failures.append(f"{name}: kit LOD level {lod!r} of ({track!r}, {tier!r}, {host!r}) has no "
+                                    f"{'main node' if need is None else repr(need) + ' partner'} -- the runtime "
+                                    f"swaps one level for the other over the main node")
         if tris > KIT_TRI_LIMIT:
             failures.append(f"{name}: kit totals {tris:,} triangles, over the {KIT_TRI_LIMIT:,} "
                             f"a vehicle may carry at maximum kit (plan 3, Budgets)")
