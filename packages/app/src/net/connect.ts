@@ -22,7 +22,7 @@
  * module runs under vitest, where those defines do not exist.
  */
 import { playerId } from './player-id';
-import { dropHanded, takeHanded } from './handoff';
+import { takeHanded } from './handoff';
 import { forgetSeat, loadSeat, saveSeat } from './ticket-store';
 import type { StorageLike } from '../telemetry/identity';
 import { LocalTransport, WsTransport, type MatchConfig, type MatchTransport, type Seat, type SeatState, type SocketLike } from '@lions/net';
@@ -59,11 +59,14 @@ export async function connectMatch(query: URLSearchParams, mapId: string, build:
   const creating = net === 'new';
   // Room codes are upper case; a code typed or pasted in lower case is the same room.
   const joinCode = net.toUpperCase();
-  // A screen already left when this runs must take nothing: a handed transport
-  // is let go (detach, no bye -- the room sees a gone seat, the honest account
-  // of a boot that never arrived), and no socket is opened or request made.
+  // A screen already left when this runs must take nothing: no socket is
+  // opened and no request made. A handed transport is LEFT (M-5): `close()`,
+  // a `bye`, exactly what the battlefield's own disposer sends for the same
+  // intent -- the player navigated away from a started match. A detach (no
+  // bye) left the other seat in an endless 'gone' stall whose only way out
+  // was its own surrender.
   if (deps.signal?.aborted) {
-    if (!creating) dropHanded(joinCode);
+    if (!creating) takeHanded(joinCode)?.transport.close();
     throw aborted();
   }
   if (!creating) {

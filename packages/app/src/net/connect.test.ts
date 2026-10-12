@@ -307,7 +307,10 @@ describe('connectMatch: rejoin and handoff (N1b task 5)', () => {
     expect(loadSeat(session, 'ABCDEF')).toEqual({ ticket: 'tk-keep', seat: 1 });
   });
 
-  it('(a) an already-aborted signal drops a handed transport (detach, no bye) and throws AbortError, before any fetch', async () => {
+  // M-5: the player left this screen, so the handed match is left -- a `bye`,
+  // as the battlefield's own disposer sends -- not detached, which left the
+  // other seat in an endless 'gone' stall.
+  it('(a) an already-aborted signal leaves a handed transport (bye, as the battlefield\'s disposer does) and throws AbortError, before any fetch', async () => {
     const sock = fakeSocket();
     const transport = new WsTransport(() => sock, 'tk-lobby', 'b', { onStart: () => {} });
     const spy = vi.spyOn(transport, 'setHooks');
@@ -322,7 +325,8 @@ describe('connectMatch: rejoin and handoff (N1b task 5)', () => {
     expect(spy).not.toHaveBeenCalled();
     expect(takeHanded('ABCDEF')).toBeNull();
     expect(sock.closed).toBeGreaterThan(0);
-    expect(sock.sent.map((s) => (JSON.parse(s) as { t: string }).t)).toEqual(['hello']);
+    expect(sock.sent.map((s) => (JSON.parse(s) as { t: string }).t)).toEqual(['hello', 'bye']);
+    expect(transport.status()).toEqual({ kind: 'closed', reason: 'left' });
   });
 
   it('(a) an already-aborted signal on a rejoin throws AbortError before any socket is opened or ticket forgotten', async () => {
