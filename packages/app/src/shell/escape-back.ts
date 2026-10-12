@@ -25,12 +25,15 @@
  */
 import type { Disposer } from './router';
 
-/** The router names (`main.ts`'s route table) where Escape goes back. */
-export const ESCAPE_BACK_ROUTES: ReadonlySet<string> = new Set(['campaign', 'brigade', 'free-play', 'settings', 'saves', 'credits']);
+/** The router names (`main.ts`'s route table) where Escape goes back.
+ *  `versus` is here and `versus-room` is NOT: a lobby's way back closes the
+ *  room for both seats, so the lobby answers Escape itself, with a confirm
+ *  (`ui/versus.ts`). */
+export const ESCAPE_BACK_ROUTES: ReadonlySet<string> = new Set(['campaign', 'brigade', 'free-play', 'settings', 'saves', 'credits', 'versus']);
 
 const TEXT_INPUT_TYPES = new Set(['text', 'search', 'email', 'url', 'tel', 'password', 'number']);
 
-function isTextEntry(target: EventTarget | null): boolean {
+export function isTextEntry(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable || target instanceof HTMLTextAreaElement) return true;
   return target instanceof HTMLInputElement && TEXT_INPUT_TYPES.has(target.type);

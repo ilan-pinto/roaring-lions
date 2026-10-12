@@ -179,6 +179,11 @@ describe('the type register: theme.css', () => {
       '.rl-feedback__hint',
       '.rl-feedback__ref',
       '.rl-rate__n',
+      // Play with a friend (N1b): the room code, an identifier read aloud,
+      // and the small text controls in the Saves name field's own face
+      '.rl-versus__code',
+      '.rl-versus__field input[type=\'text\']',
+      '.rl-versus__field select',
       ':root',
     ]);
     const seen: string[] = [];

@@ -21,9 +21,9 @@
  */
 import { playerId } from './player-id';
 import { takeHanded } from './handoff';
-import { loadSeat, saveSeat } from './ticket-store';
+import { forgetSeat, loadSeat, saveSeat } from './ticket-store';
 import type { StorageLike } from '../telemetry/identity';
-import { LocalTransport, WsTransport, type MatchConfig, type MatchTransport, type Seat, type SocketLike } from '@lions/net';
+import { LocalTransport, WsTransport, type MatchConfig, type MatchTransport, type Seat, type SeatState, type SocketLike } from '@lions/net';
 
 export interface ConnectDeps {
   fetch: typeof fetch;
@@ -123,6 +123,127 @@ function awaitStart(code: string, seat: Seat, ticket: string, build: string, dep
         // than wait on it forever.
         fail(new Error(`room ended before the start: ${reason}`));
       },
+    });
+    deps.signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+// --- the lobby's half (N1b task 6, R-B8) -----------------------------------
+// `connectMatch` cannot serve the lobby: it says `ready` by itself once both
+// seats are in and resolves only at the start. The lobby needs the opposite --
+// an open, NOT-yet-started transport whose Ready is the player's click -- so
+// this is its own path, beside that one and sharing only the ticket store.
+
+/** What the `/versus` screens ask for. */
+export type RoomRequest =
+  | { kind: 'create'; map: string; callsign: string }
+  | { kind: 'join'; code: string; callsign: string };
+
+/** The room as its first `lobby` message described it. */
+export interface LobbyState { seats: SeatState[]; map: string }
+
+/** An open room: its code, this tab's seat, the live transport (nothing said
+ *  but `hello`), and the lobby it first answered with. */
+export interface OpenedRoom { code: string; seat: Seat; transport: WsTransport; lobby: LobbyState }
+
+export type OpenDeps = Pick<ConnectDeps, 'fetch' | 'origin' | 'openSocket' | 'store' | 'session' | 'signal'>;
+
+/** Why a room could not be opened, as the lobby words it: no such room, a
+ *  full one, a different build, or anything else (offline, a 5xx, a room
+ *  that ended before it answered). */
+export type RefusedReason = 'not_found' | 'full' | 'build' | 'failed';
+
+export class RoomRefused extends Error {
+  constructor(readonly reason: RefusedReason, detail: string) {
+    super(detail);
+    this.name = 'RoomRefused';
+  }
+}
+
+/**
+ * Creates (`mode: 'versus'`, the chosen map) or joins a room and opens its
+ * socket, resolving at the room's FIRST `lobby` message with no `ready` sent.
+ * The ticket is stored (`ticket-store.ts`) as soon as it is known, so the
+ * battlefield's reload path finds it. A join for a code this tab already
+ * holds a seat in rejoins that seat with the stored ticket (a reload of the
+ * lobby); if the room refuses it, the ticket is forgotten and the join goes
+ * on as a fresh request.
+ */
+export async function openRoom(req: RoomRequest, build: string, deps: OpenDeps): Promise<OpenedRoom> {
+  const session = deps.session ?? null;
+  if (req.kind === 'join') {
+    const code = req.code.toUpperCase();
+    const stored = loadSeat(session, code);
+    if (stored !== null) {
+      try {
+        return await awaitLobby(code, stored.seat, stored.ticket, build, deps);
+      } catch (err) {
+        if (deps.signal?.aborted) throw err;
+        forgetSeat(session, code);
+      }
+    }
+  }
+  const creating = req.kind === 'create';
+  const url = creating ? `${deps.origin}/api/match` : `${deps.origin}/api/match/${encodeURIComponent(req.code.toUpperCase())}/join`;
+  const player = playerId(deps.store);
+  const body = creating
+    ? { player, callsign: req.callsign, map: req.map, build, mode: 'versus' }
+    : { player, callsign: req.callsign, build };
+  let res: Response;
+  try {
+    res = await deps.fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      ...(deps.signal ? { signal: deps.signal } : {}),
+    });
+  } catch (err) {
+    if (deps.signal?.aborted) throw aborted();
+    throw new RoomRefused('failed', `match ${req.kind} failed: ${String(err)}`);
+  }
+  if (res.status !== 201 && res.status !== 200) {
+    // A malformed code is answered 400 by the route: to a player that is no such room.
+    const reason: RefusedReason = creating ? 'failed' : res.status === 404 || res.status === 400 ? 'not_found' : res.status === 409 ? 'full' : 'failed';
+    throw new RoomRefused(reason, `match ${req.kind} failed: HTTP ${res.status}`);
+  }
+  const { code, seat, ticket } = (await res.json()) as { code: string; seat: Seat; ticket: string };
+  if (deps.signal?.aborted) throw aborted();
+  saveSeat(session, code, { ticket, seat });
+  return awaitLobby(code, seat, ticket, build, deps);
+}
+
+/** Opens the room's socket with `ticket` and resolves at its first `lobby`.
+ *  The transport's hooks here only settle this promise: the lobby screen
+ *  replaces them (`setHooks`) as soon as it holds the transport. */
+function awaitLobby(code: string, seat: Seat, ticket: string, build: string, deps: OpenDeps): Promise<OpenedRoom> {
+  const wsUrl = `${deps.origin.replace(/^http/, 'ws')}/api/match/${encodeURIComponent(code)}/ws`;
+  return new Promise<OpenedRoom>((resolve, reject) => {
+    let settled = false;
+    const fail = (err: Error): void => {
+      if (settled) return;
+      settled = true;
+      deps.signal?.removeEventListener('abort', onAbort);
+      transport.close();
+      reject(err);
+    };
+    const onAbort = (): void => fail(aborted());
+    const transport: WsTransport = new WsTransport(() => deps.openSocket(wsUrl), ticket, build, {
+      onLobby: (seats, _you, map) => {
+        if (settled) return;
+        settled = true;
+        deps.signal?.removeEventListener('abort', onAbort);
+        resolve({ code, seat, transport, lobby: { seats, map } });
+      },
+      // A start cannot precede the first lobby: both seats must have said ready in it.
+      onStart: () => {},
+      onError: (c) => {
+        if (c === 'build_mismatch') fail(new RoomRefused('build', `room refused: ${c}`));
+        else if (c === 'bad_ticket') fail(new RoomRefused('failed', `room refused: ${c}`));
+        else if (c === 'full') fail(new RoomRefused('full', `room refused: ${c}`));
+      },
+      onEnded: (reason) => fail(new RoomRefused('failed', `room ended before the lobby: ${reason}`)),
+      // The lobby's chat line arrives with N1b task 9.
+      onChat: () => {},
     });
     deps.signal?.addEventListener('abort', onAbort, { once: true });
   });

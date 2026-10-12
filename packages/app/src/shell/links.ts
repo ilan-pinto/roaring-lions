@@ -54,4 +54,7 @@ export const routes = {
   settings: (): string => href('/settings'),
   credits: (): string => href('/credits'),
   saves: (): string => href('/saves'),
+  // Play with a friend (N1b): the host-or-join screen, and one room's lobby.
+  versus: (): string => href('/versus'),
+  versusRoom: (code: string): string => href(`/versus/${encodeURIComponent(code)}`),
 } as const;

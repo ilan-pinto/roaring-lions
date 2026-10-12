@@ -236,7 +236,7 @@ import { garageColors, garageGroundTexture, garageModelSource } from './garage-m
 import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import type { Seat } from '@lions/net';
-import { connectMatch, type Connected } from './net/connect';
+import { connectMatch, openRoom, type Connected } from './net/connect';
 import { catchUpTicks, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
 import { safeStorage as safeStorageLike } from './telemetry/identity';
 import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
@@ -292,6 +292,7 @@ import { commanderPortraitUrl } from './portrait-catalogue';
 import { browserLedgerStore, newCampaign, writeVictory, type CampaignLedger, type LostRecord } from './ledger-store';
 import { showSaves, type SavesDeps } from './ui/saves';
 import { showCredits, type CreditsDeps } from './ui/credits';
+import { showVersus, showVersusRoom, versusMaps, type VersusDeps } from './ui/versus';
 import { LOCALES, applyLocale, loadLocale } from './i18n/locales';
 import { currentLocale, missingKeys, setCatalogue, t } from './i18n/t';
 import { pseudo } from './i18n/pseudo';
@@ -299,6 +300,8 @@ import { pseudo } from './i18n/pseudo';
 /** Deploy base ('/' locally, '/<repo>/' on GitHub Pages) — every asset URL
  *  is built from it so the same bundle works in both places. */
 const BASE = import.meta.env.BASE_URL;
+/** The callsign a player last typed on `/versus` (N1b), in `localStorage`. */
+const VERSUS_CALLSIGN_KEY = 'lions.versus.callsign';
 /** Every battlefield's `Sim` seed. A constant, so a feedback replay can rebuild
  *  the battle from the start and the orders alone (GH-464 §4.3). */
 const SIM_SEED = 20260727;
@@ -1204,6 +1207,43 @@ async function main(): Promise<void> {
     });
   }
 
+  // Play with a friend (N1b task 6): what the two /versus screens reach for.
+  // `open` is the lobby's own create-or-join (`openRoom`, no auto-ready); the
+  // battlefield keeps `connectMatch`, which takes the lobby's transport at the
+  // start (`net/handoff.ts`). Same build string as the battlefield's, so the
+  // room compares like with like (R8).
+  const versusStore = safeStorageLike(() => window.localStorage);
+  const versusDeps: VersusDeps = {
+    open: (req, signal) =>
+      openRoom(req, `${__APP_BUILD__}+${__APP_COMMIT__}`, {
+        fetch: window.fetch.bind(window),
+        origin: location.origin,
+        openSocket: (url) => new WebSocket(url),
+        store: versusStore,
+        // Seat tickets are per TAB (R-B6): the battlefield's reload rejoins with it.
+        session: safeStorageLike(() => window.sessionStorage),
+        ...(signal ? { signal } : {}),
+      }),
+    maps: versusMaps(),
+    callsign: {
+      get: () => versusStore?.getItem(VERSUS_CALLSIGN_KEY) ?? '',
+      set: (v) => versusStore?.setItem(VERSUS_CALLSIGN_KEY, v),
+    },
+    navigate: (href, opts) => void router.navigate(href, opts),
+    // Refused (no permission, an insecure origin, no clipboard at all): the
+    // lobby says so and the code on screen is the fallback.
+    copy: async (text) => {
+      try {
+        if (!navigator.clipboard) return false;
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    linkFor: (code) => new URL(routes.versusRoom(code), location.origin).href,
+  };
+
   // --- the screens ---------------------------------------------------------
   // One table. Every href in the UI comes from `shell/links.ts`, every path
   // this table declares is matched by `shell/router.ts`, and the old query
@@ -1283,6 +1323,9 @@ async function main(): Promise<void> {
             fetchText: fetchLicenceText,
           } satisfies CreditsDeps),
       },
+      { name: 'versus', pattern: '/versus', mount: (host) => showVersus(host, versusDeps) },
+      // Room codes are upper case; a link typed in lower case is the same room.
+      { name: 'versus-room', pattern: '/versus/:code', mount: (host, req) => showVersusRoom(host, req.params.code.toUpperCase(), versusDeps) },
       // Reserved for Phase 1's briefing screen. Until that exists the path is
       // a redirect rather than a 404, so a link written against it today lands
       // the player in the mission rather than on an error card.

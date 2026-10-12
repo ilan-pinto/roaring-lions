@@ -145,6 +145,8 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
   // destination you can always come back to.
   add(t('menu.nav.campaign'), routes.campaign(), 'secondary');
   add(t('menu.nav.brigade'), routes.brigade(), 'secondary');
+  // Play with a friend (N1b): host or join a room, by its code.
+  add(t('menu.nav.versus'), routes.versus(), 'secondary');
   wrap.appendChild(nav);
 
   const aside = document.createElement('nav');

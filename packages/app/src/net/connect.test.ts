@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { WsTransport, type MatchConfig } from '@lions/net';
-import { connectMatch, RELOAD_REFUSED } from './connect';
+import { connectMatch, openRoom, RELOAD_REFUSED, RoomRefused, type OpenDeps } from './connect';
 import { handOver, dropHanded } from './handoff';
 import { loadSeat, saveSeat } from './ticket-store';
 import type { StorageLike } from '../telemetry/identity';
@@ -286,5 +286,119 @@ describe('connectMatch: rejoin and handoff (N1b task 5)', () => {
     expect(calls).toEqual(['POST http://x/api/match']);
     sock.onopen?.({});
     expect(JSON.parse(sock.sent[0])).toEqual({ t: 'hello', ticket: 'tk-host', build: 'b' });
+  });
+});
+
+describe('openRoom: the lobby\'s create and join (N1b task 6, R-B8)', () => {
+  const LOBBY_TWO = { t: 'lobby', config: null, seats: [{ seat: 0, callsign: 'Ari', connected: true, ready: false }, { seat: 1, callsign: 'Bo', connected: true, ready: false }], you: 0, map: 'qarn_hadid' };
+  const deps = (over: Partial<OpenDeps> = {}): OpenDeps => ({
+    fetch: noSocket as never, origin: 'http://x', openSocket: noSocket, store: { getItem: () => 'pid-o', setItem: () => {} }, session: memory(), ...over,
+  });
+  const answering = (status: number, body: unknown = { code: 'ABCDEF', seat: 0, ticket: 'tk-o' }) => {
+    const calls: { url: string; body: Record<string, unknown> }[] = [];
+    const f = (async (url: string, init?: RequestInit) => {
+      calls.push({ url, body: JSON.parse(String(init?.body)) as Record<string, unknown> });
+      return status < 300 ? Response.json(body, { status }) : new Response('', { status });
+    }) as unknown as typeof fetch;
+    return { f, calls };
+  };
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+
+  it('a create posts mode versus with the chosen map, and resolves at the first lobby WITHOUT saying ready', async () => {
+    const { f, calls } = answering(201);
+    const sock = fakeSocket();
+    const session = memory();
+    const p = openRoom({ kind: 'create', map: 'qarn_hadid', callsign: 'Ari' }, 'b', deps({ fetch: f, openSocket: () => sock, session }));
+    await tick();
+    expect(calls).toEqual([{ url: 'http://x/api/match', body: { player: 'pid-o', callsign: 'Ari', map: 'qarn_hadid', build: 'b', mode: 'versus' } }]);
+    expect(loadSeat(session, 'ABCDEF')).toEqual({ ticket: 'tk-o', seat: 0 });
+    sock.onopen?.({});
+    sock.onmessage?.({ data: JSON.stringify(LOBBY_TWO) });
+    const r = await p;
+    expect(r.code).toBe('ABCDEF');
+    expect(r.seat).toBe(0);
+    expect(r.lobby).toEqual({ seats: LOBBY_TWO.seats, map: 'qarn_hadid' });
+    expect(r.transport).toBeInstanceOf(WsTransport);
+    // Both seats connected, and still only the hello: the lobby's Ready is the player's.
+    expect(sock.sent.map((s) => (JSON.parse(s) as { t: string }).t)).toEqual(['hello']);
+  });
+
+  it('a join posts to the code\'s join route with the callsign and no mode', async () => {
+    const { f, calls } = answering(200, { code: 'ABCDEF', seat: 1, ticket: 'tk-j' });
+    const sock = fakeSocket();
+    const p = openRoom({ kind: 'join', code: 'abcdef', callsign: 'Bo' }, 'b', deps({ fetch: f, openSocket: () => sock }));
+    await tick();
+    expect(calls).toEqual([{ url: 'http://x/api/match/ABCDEF/join', body: { player: 'pid-o', callsign: 'Bo', build: 'b' } }]);
+    sock.onopen?.({});
+    sock.onmessage?.({ data: JSON.stringify({ ...LOBBY_TWO, you: 1 }) });
+    expect((await p).seat).toBe(1);
+  });
+
+  for (const [status, reason] of [[404, 'not_found'], [400, 'not_found'], [409, 'full'], [503, 'failed']] as const) {
+    it(`a join answered ${status} rejects as ${reason}, and opens no socket`, async () => {
+      const { f } = answering(status);
+      const err = await openRoom({ kind: 'join', code: 'ABCDEF', callsign: 'Bo' }, 'b', deps({ fetch: f })).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(RoomRefused);
+      expect((err as RoomRefused).reason).toBe(reason);
+    });
+  }
+
+  it('a fetch that throws (offline) rejects as failed', async () => {
+    const f = (async () => { throw new TypeError('offline'); }) as unknown as typeof fetch;
+    const err = await openRoom({ kind: 'create', map: 'tel_marum', callsign: 'A' }, 'b', deps({ fetch: f })).catch((e: unknown) => e);
+    expect((err as RoomRefused).reason).toBe('failed');
+  });
+
+  it('a build mismatch before the lobby rejects as build and closes the socket', async () => {
+    const { f } = answering(200, { code: 'ABCDEF', seat: 1, ticket: 'tk-j' });
+    const sock = fakeSocket();
+    const p = openRoom({ kind: 'join', code: 'ABCDEF', callsign: 'Bo' }, 'b', deps({ fetch: f, openSocket: () => sock }));
+    await tick();
+    sock.onopen?.({});
+    sock.onmessage?.({ data: JSON.stringify({ t: 'error', code: 'build_mismatch' }) });
+    const err = await p.catch((e: unknown) => e);
+    expect((err as RoomRefused).reason).toBe('build');
+    expect(sock.closed).toBeGreaterThan(0);
+  });
+
+  it('a join for a code this tab holds a seat in rejoins with the stored ticket and posts nothing', async () => {
+    const session = memory();
+    saveSeat(session, 'ABCDEF', { ticket: 'tk-held', seat: 0 });
+    const { f, calls } = answering(200);
+    const sock = fakeSocket();
+    const p = openRoom({ kind: 'join', code: 'ABCDEF', callsign: 'Ari' }, 'b', deps({ fetch: f, openSocket: () => sock, session }));
+    await tick();
+    expect(calls).toEqual([]);
+    sock.onopen?.({});
+    expect(JSON.parse(sock.sent[0])).toEqual({ t: 'hello', ticket: 'tk-held', build: 'b' });
+    sock.onmessage?.({ data: JSON.stringify(LOBBY_TWO) });
+    expect((await p).seat).toBe(0);
+  });
+
+  it('a stored ticket the room has ended is forgotten, and the join falls through to a fresh request', async () => {
+    const session = memory();
+    saveSeat(session, 'ABCDEF', { ticket: 'tk-old', seat: 0 });
+    const { f, calls } = answering(404);
+    const sock = fakeSocket();
+    const p = openRoom({ kind: 'join', code: 'ABCDEF', callsign: 'Ari' }, 'b', deps({ fetch: f, openSocket: () => sock, session }));
+    await tick();
+    sock.onopen?.({});
+    sock.onmessage?.({ data: JSON.stringify({ t: 'ended', reason: 'left' }) });
+    const err = await p.catch((e: unknown) => e);
+    expect(calls.map((c) => c.url)).toEqual(['http://x/api/match/ABCDEF/join']);
+    expect((err as RoomRefused).reason).toBe('not_found');
+    expect(loadSeat(session, 'ABCDEF')).toBeNull();
+  });
+
+  it('an abort while waiting for the lobby rejects and closes the transport', async () => {
+    const { f } = answering(201);
+    const sock = fakeSocket();
+    const ac = new AbortController();
+    const p = openRoom({ kind: 'create', map: 'tel_marum', callsign: 'A' }, 'b', deps({ fetch: f, openSocket: () => sock, signal: ac.signal }));
+    await tick();
+    sock.onopen?.({});
+    ac.abort();
+    await expect(p).rejects.toThrow();
+    expect(sock.sent.map((s) => (JSON.parse(s) as { t: string }).t)).toContain('bye');
   });
 });
