@@ -644,13 +644,53 @@ describe('MatchRoom', () => {
       const { room, ws0, ws1 } = await running({ db });
       await say(room, ws0, { t: 'hash', tick: 19, h: 111 });
       await say(room, ws1, { t: 'hash', tick: 19, h: 222 });
-      await settle();
       const rows = db.raw.prepare('SELECT code, tick, hash_a, hash_b, config, frames, frame_count FROM match_desync').all() as { code: string; tick: number; hash_a: number; hash_b: number; config: string; frames: string; frame_count: number }[];
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({ code: CODE, tick: 19, hash_a: 111, hash_b: 222 });
       expect((JSON.parse(rows[0].config) as { code: string }).code).toBe(CODE);
       expect(JSON.parse(rows[0].frames)).toEqual({ last: -1, orders: [] });
       expect(rows[0].frame_count).toBe(0);
+    });
+
+    it('the row carries the order-bearing frames that came before the desync', async () => {
+      const db = openTestD1();
+      const { room, ws0, ws1 } = await running({ db });
+      await say(room, ws0, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [3] } });
+      await vi.advanceTimersByTimeAsync(3 * TICK_MS);
+      await say(room, ws0, { t: 'hash', tick: 19, h: 1 });
+      await say(room, ws1, { t: 'hash', tick: 19, h: 2 });
+      const r = db.raw.prepare('SELECT frames, frame_count FROM match_desync').get() as { frames: string; frame_count: number };
+      const log = JSON.parse(r.frames) as { last: number; orders: { tick: number; cmds: { seat: number; cmd: { kind: string; ids: number[] } }[] }[] };
+      expect(r.frame_count).toBeGreaterThanOrEqual(3);
+      expect(log.last).toBe(r.frame_count - 1);
+      expect(log.orders).toHaveLength(1);
+      expect(log.orders[0].cmds[0]).toMatchObject({ seat: 0, cmd: { kind: 'halt', ids: [3] } });
+    });
+
+    it('the desync handler waits for the D1 write (an unawaited call can be cancelled on hibernation)', async () => {
+      const db = openTestD1();
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((r) => { release = r; });
+      const slow: D1Like = {
+        ...db,
+        prepare: (sql) => {
+          const stmt = db.prepare(sql);
+          const gated = (bound: ReturnType<D1Like['prepare']>): ReturnType<D1Like['prepare']> => ({
+            ...bound, bind: (...v) => gated(bound.bind(...v)), run: async () => { await gate; return bound.run(); },
+          });
+          return gated(stmt);
+        },
+      };
+      const { room, ws0, ws1 } = await running({ db: slow });
+      await say(room, ws0, { t: 'hash', tick: 19, h: 1 });
+      let done = false;
+      const second = say(room, ws1, { t: 'hash', tick: 19, h: 2 }).then(() => { done = true; });
+      await settle();
+      expect(ofType(ws0, 'desync')).toHaveLength(1);   // the sends went out first
+      expect(done).toBe(false);                        // ... but the handler is still waiting on D1
+      release();
+      await second;
+      expect(db.raw.prepare('SELECT COUNT(*) AS n FROM match_desync').get()).toEqual({ n: 1 });
     });
 
     it('equal hashes write nothing', async () => {

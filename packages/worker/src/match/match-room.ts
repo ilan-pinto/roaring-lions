@@ -268,28 +268,34 @@ export class MatchRoom {
    *  its seat closes every OTHER socket on that seat. The state is written
    *  only if its lifecycle changed. */
   private async apply(effects: Effect[], keep?: WebSocket): Promise<void> {
+    let desync: Extract<ServerMsg, { t: 'desync' }> | null = null;
     for (const e of effects) {
       if (e.kind === 'frame') this.record(e.frame);
       else if (e.kind === 'send') {
         this.send(e.to, e.msg);
-        if (e.msg.t === 'desync') this.logDesync(e.msg.tick, e.msg.hashes);
+        if (e.msg.t === 'desync') desync = e.msg;
       } else for (const ws of this.socketsFor(e.seat)) if (ws !== keep) retire(ws);
     }
     await this.saveIfChanged();
+    // After the sends and the state write, so a slow or failing D1 delays nothing a player sees.
+    if (desync !== null) await this.logDesync(desync.tick, desync.hashes);
   }
-  /** Writes a desync's evidence to D1, once per room, unawaited: the sends
-   *  have already gone, and a log write must never break the room (a missing
-   *  binding, a D1 outage and a throw all end in a console.error). */
-  private logDesync(tick: number, hashes: [number, number]): void {
+  /** Writes a desync's evidence to D1, once per room. AWAITED by `apply`: an
+   *  unawaited D1 call may be cancelled when the object hibernates, and this
+   *  is the one write whose purpose is to survive. It runs once a match, so
+   *  its latency is irrelevant. A log write must never break the room (a
+   *  missing binding, a D1 outage, a throw and a rejection all end in a
+   *  console.error), and the sends have already gone. */
+  private async logDesync(tick: number, hashes: [number, number]): Promise<void> {
     const st = this.st;
     if (this.desyncLogged || st === null || st.config === null) return;
     this.desyncLogged = true;
     try {
       const frames = this.readLog();
-      void writeDesync(this.env.DB, {
+      await writeDesync(this.env.DB, {
         code: st.code, tick, hashA: hashes[0], hashB: hashes[1],
         config: JSON.stringify(st.config), frames: JSON.stringify(compactLog(frames)), frameCount: frames.length, createdAt: Date.now(),
-      }).catch((e: unknown) => { console.error('MatchRoom: desync log failed', e); });
+      });
     } catch (e) {
       console.error('MatchRoom: desync log failed', e);
     }
