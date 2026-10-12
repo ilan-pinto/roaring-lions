@@ -86,15 +86,15 @@ zoom 1** and **38 px/m at zoom 2.5** (CSS px, DPR 1).
 | `scout_shachaf` | KDF | 4×4 | 0.536 | −1.40, 1.41 | 0.537 | 4 separate tyres, clean, plus 4 separate fenders | ≈2,300 | ≈210 |
 | `apc_kipod` | KDF | 6×6, 3 a side | 0.755 | −1.96, 0.17, 2.30 | 0.75 | 6 separate tyres and 6 separate hubs, clean | ≈3,300 | ≈360 |
 | `apc_eitan` | KDF | 8×8, 4 a side | 0.66 | −2.14, −0.74, 0.72, 2.29 (−Z front 2.32) | 0.66 | **one part per side**: the tyres are fused to the wheel-arch liners. The radius cut keeps the arches static. One front-left tyre is a separate part | ≈4,700 | ≈470 |
-| `technical` | enemy | 4×4 | 0.316 | −1.16, 1.71 | 0.316 | 4 separate tyres, clean | ≈2,900 | ≈480 |
-| `gun_truck` | enemy | 4×4 | 0.44 | −1.46, 1.78 | 0.43 | 4 tyre parts + 4 hubs. **Part of each tyre sits in `hull_hull`** | ≈750 | ≈80 |
-| `rocket_battery` | enemy | 6×6, 3 a side | 0.50 | −1.79, −0.90, 1.96 | 0.50 | the rear bogie and the front axle are **each one part spanning both sides**, so the pass splits them by the sign of z. The rims are in `hull_plate` | ≈11,400 | ≈900 |
+| `technical` | enemy | 4×4 | 0.312–0.319 | −1.19, 1.69 | 0.307 | 4 separate tyres, clean | ≈2,900 | ≈480 |
+| `gun_truck` | enemy | 4×4 | 0.425 | −1.47, 1.77 | 0.415 | 4 tyre parts + 4 hubs. **Part of each tyre sits in `hull_hull`** | ≈750 | ≈80 |
+| `rocket_battery` | enemy | 6×6, 3 a side | 0.48 | −1.79, −0.90, 1.96 | 0.48 | the rear bogie and the front axle are **each one part spanning both sides**, so the pass splits them by the sign of z. The rims are in `hull_plate` | ≈11,400 | ≈900 |
 
 ### Tracked
 
 | id | side | road wheels a side | radius (m) | axle y | track loop a side | notes |
 |---|---|---|---|---|---|---|
-| `ifv_namer` | KDF | 6 at x ±0.56, ±1.67, ±2.85 | ≈0.49 (fit 0.51–0.54 includes the track) | 0.54 | **≈15 m**. The convex-hull bound of 16.1 m includes the skirts | road wheels are **fused into the track loop** (one part per side). The cut radius of 0.44 stays inside the track's inner face. ≈1,840 wheel tris, ≈290 split vertices |
+| `ifv_namer` | KDF | 6 at x ±0.56, ±1.67, −2.85, +2.86 | ≈0.49 (fit 0.51–0.54 includes the track) | 0.54 | **≈15 m**. The convex-hull bound of 16.1 m includes the skirts | road wheels are **fused into the track loop** (one part per side). The cut radius of 0.44 stays inside the track's inner face. ≈1,840 wheel tris, ≈290 split vertices |
 | `mbt_lavi` | KDF | 7 stations at ≈0.55 m pitch, from x −2.40 to 1.17 (+Z) and −2.32 to 1.03 (−Z) | 0.25 | 0.33–0.36 | **≈5 m visible** (lower run 4.19 m, x −2.73…1.46, plus front and rear ramps). The upper run is hidden by the hull | asymmetric scan: on each side one station is a hub with no tyre (+Z at x −1.14, −Z at x 0.50). The rubber is a horizontal slice at y = 0.44, so the wheels' upper halves are `hull_hull`. See A3 |
 | `officer_armour` | held (GH-298) | as `mbt_lavi` | | | | `export_officer_armour.py` re-opens the shipped Lavi; see §2.4 |
 | `dozer_d9` | KDF | 5 at x −2.89 (rear), −1.69, −0.77, 0.29, 1.37 | ≈0.41 | 0.64–0.86 | **≈13 m** (hull bound 13.8 m) | track with grousers. The `rubber` role also covers the **track roller frame**, which crosses every disc in side view. See A4 |
@@ -418,7 +418,51 @@ generated content.
 
 ---
 
-## 6. Open questions
+## 6. As built (phase 2, 2026-10-12)
+
+Approved as written on 2026-10-12. These are the places where the build
+differs from the text above, and what was measured on the way.
+
+- **The §1 table was re-measured during the build.** Three rows moved by more
+  than the literal test's 2 cm:
+  - `technical`: the rubber parts' boxes carried a mud-flap sliver that pulled
+    the rear centre 6 cm forward. A least-squares circle through the tread
+    gives x −1.19 / 1.69, r 0.312–0.319, rms 1.4 cm.
+  - `gun_truck`: y 0.415, r 0.425.
+  - `rocket_battery`: r 0.48, y 0.48. Its rear pair is welded into one blob, so
+    its cut is 0.92 r and a face goes to its nearer axle.
+
+  `running-gear-recipes.test.ts` holds the table as it stands now.
+- **Tracks carry a `gauge` in the extras.** The Lavi and the D9 spin no wheel,
+  so the turn split needs the track's own lever arm.
+- **Measured steering limits** (A9, per axle, the smaller of its two wheels):
+  jeep 20°, Shachaf 20°, gun truck 20°, **technical 3°**. The technical's front
+  tyres sit inside a close arch, so its steering barely shows.
+- **The A/B vote counts exactly-changed pixels**, not pixelmatch's perceptual
+  count. The tread is a 35% mean-preserving modulation of dark baked track, and
+  on the D9 and the Lavi almost all of it moves a pixel by fewer than 13
+  levels: pixelmatch at 0.05 read 0–2 px there, against 2,600 changed. The
+  frame is frozen, so the parked control reads exactly 0.
+- **The capture is `pnpm weight:capture -- --running-gear`**, a mode of that
+  harness that reuses its spawn and phase choreography. It photographs the
+  four vehicles the lead asked for (jeep, Namer, Lavi, D9), each starting and
+  turning, at zoom 1 and 2.5, 24 frames a lane. Each pair is the game's frame
+  and the same frame repainted with the layer hidden.
+- **What it found that the doc did not predict: the Lavi's tracks barely show
+  from the game camera.** Its rubber is a slice at y ≤ 0.44 under a hull
+  skirt that reaches lower and wider. The A/B moves 0–4 px at zoom 1 and 36–59
+  px at 2.5. The pass and the shader work (the same code moves 2,600 px on the
+  D9), but that geometry hides most of the Lavi's track.
+- **The golden gate was not run locally** (the polish-lane rule; CI runs it).
+  A probe of the gated scenarios at their own capture tick:
+  - `quiet`, `open-ground`, `vehicle`, `kitted` and `dusk` bind no vehicle, so
+    they draw through the unpatched materials.
+  - `relief` and `aftermath` each bind two (the Lavi and the Namer turn their
+    hulls before the capture tick), both off frame. The layer A/B over the
+    whole frame reads 0 px. Their only in-frame contribution is shadow, which
+    the running-gear chunk does not touch.
+
+## 7. Open questions
 
 1. **A3/A4:** are the Lavi's and D9's road wheels worth the scan surgery? The
    recommendation is no. The tracks carry the motion on both.
