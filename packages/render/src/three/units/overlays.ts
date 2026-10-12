@@ -323,7 +323,7 @@ export const MOBILITY_KILL_COLOR_KEY = 'gunmetal.1';
 export function buildingIntegrityColorKey(ratio: number, friendly: boolean): string {
   if (ratio > 0.6) return MOBILITY_KILL_COLOR_KEY;
   // VR-03: the same rule as `hpBarColorKey` -- a building the player holds
-  // (garrisoned by side 0, or producing for side 0) never fills enemy red.
+  // (garrisoned by, or producing for, the viewer's side) never fills enemy red.
   if (ratio > 0.3 || friendly) return 'team.neutral';
   return 'team.hostile';
 }
@@ -956,7 +956,7 @@ function buildChevronTexture(fillColorHex: string): THREE.CanvasTexture {
 /**
  * The veterancy chevron -- `NumeralBatch`'s structural twin (see this file's
  * top comment for why a textured quad is its own batch rather than folded
- * into `OverlayBatch`): one quad per living, visible, side-0 entity with
+ * into `OverlayBatch`): one quad per living, visible entity of the viewer's side with
  * `sim.state.veterancy[i] > 0`, UV-addressed into `buildChevronTexture`'s
  * three-cell atlas by that entity's own stripe count. Drawn at the same
  * `BADGE_NUMERAL_RENDER_ORDER` band as the numeral -- both are textured,

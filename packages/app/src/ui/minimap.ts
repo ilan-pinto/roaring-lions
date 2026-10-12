@@ -68,7 +68,7 @@
 // Nothing here reads or writes sim state beyond the read-only `sim.state` view
 // (invariant 4), and the only @lions/sim imports are `fx` and the `Sim` type.
 
-import { unitIsObserved, type TerrainTones } from '@lions/render';
+import { colorSlot, relationOf, unitIsObserved, type Relation, type TerrainTones } from '@lions/render';
 import { fx, type Sim } from '@lions/sim';
 import { paintMapTerrain } from './map-preview';
 import { zoneStateOf } from '../objective-zones';
@@ -145,7 +145,8 @@ export interface MinimapDeps {
    *  SAME values the battlefield is drawn with, so the minimap cannot show a
    *  different-coloured version of the same ground. */
   tones: TerrainTones;
-  /** `RendererOptions.teamColors`: [player, hostile, neutral]. Passed rather
+  /** `RendererOptions.teamColors`: [own, hostile, neutral] -- indexed by
+   *  `colorSlot(side, viewer)`, never by the side itself. Passed rather
    *  than re-resolved for the same reason -- a dot is the field's own colour
    *  for that side, by construction. */
   teamColors: readonly [string, string, string];
@@ -198,6 +199,10 @@ export interface MinimapDeps {
    * this mounts without it and takes that same path.
    */
   groundImage?: () => ImageData | null;
+  /** The side the player commands (network design §5.1): its units are the
+   *  squares in slot 0's colour and its contact levels decide what is
+   *  suspected. 0 in single-player, and absent means 0. */
+  viewer?: number;
 }
 
 /**
@@ -324,14 +329,15 @@ export interface TunnelMark {
 }
 
 /**
- * GH-471: the routes side 0 holds IDENTIFIED right now, and only those --
- * the same level the world's x-ray draws at (a collapsed route draws
- * nothing, as the world's does not). A pure read of the sim.
+ * GH-471: the routes the viewer's side holds IDENTIFIED right now, and only
+ * those -- the same level the world's x-ray draws at (a collapsed route draws
+ * nothing, as the world's does not). A pure read of the sim. `viewer` is the
+ * side the player commands, 0 in single-player.
  */
-export function tunnelMarks(sim: TunnelSource): TunnelMark[] {
+export function tunnelMarks(sim: TunnelSource, viewer = 0): TunnelMark[] {
   const out: TunnelMark[] = [];
   for (let r = 0; r < sim.tunnelCount; r++) {
-    if (sim.tnAlive[r] === 0 || sim.tunnelContactLevel(0, r) !== 2) continue;
+    if (sim.tnAlive[r] === 0 || sim.tunnelContactLevel(viewer, r) !== 2) continue;
     const len = fx.toNumber(sim.tnLength[r]);
     const line: [number, number][] = [];
     for (let d = 0; ; d += 0.5) {
@@ -623,9 +629,11 @@ export function observedMarkers(
   return out;
 }
 
-/** One unit as the minimap draws it: where, and whose. */
+/** One unit as the minimap draws it: where, whose, and who that is to the
+ *  viewer -- `relation` picks the shape and `colorSlot` the colour. */
 export interface MinimapDot extends MinimapPoint {
   side: number;
+  relation: Relation;
   /** A hostile the player has only SUSPECTED (`sim.contactLevel` < 2), not
    *  identified -- drawn hollow, like the world's hollow diamond (VR-36). */
   suspected: boolean;
@@ -635,7 +643,7 @@ export interface MinimapDot extends MinimapPoint {
 export type DotShape = 'square' | 'triangle' | 'circle' | 'hollow';
 
 /**
- * Which silhouette a side gets.
+ * Which silhouette a relation gets.
  *
  * A SECOND channel beside the colour, not a replacement for it, and the
  * distinction is load-bearing: G0 decision #3 measured this palette's team
@@ -647,18 +655,18 @@ export type DotShape = 'square' | 'triangle' | 'circle' | 'hollow';
  * What the three shapes are chosen for is corner count -- four, three, none
  * -- rather than size, because every dot is the same `DOT` tall and a
  * silhouette that differed by size would read as distance instead of side.
- * Which side gets which is arbitrary beyond that, except that the default
- * arm is the circle: it is also the honest answer for a side this file has
- * never been told about, since `teamColors` has exactly three entries and
- * `dotShape` must answer for any number.
+ * Which relation gets which is arbitrary beyond that. It is the RELATION and
+ * not the side (N1a task 6): the seat on side 1 sees its own force as the
+ * squares. In single-player side 0 is `own`, side 1 `hostile` and side 2
+ * `neutral`, exactly the old side-keyed table.
  */
-export function dotShape(side: number, suspected = false): DotShape {
-  if (side === 0) return 'square';
+export function dotShape(relation: Relation, suspected = false): DotShape {
+  if (relation === 'own') return 'square';
   // VR-36: what the player KNOWS about the contact, as the world says it
   // (`contactShapeOf` -> 'unknown', a hollow diamond). Hostiles only: a
   // friendly is always known, and the world marks no civilian.
-  if (side === 1 && suspected) return 'hollow';
-  if (side === 1) return 'triangle';
+  if (relation === 'hostile' && suspected) return 'hollow';
+  if (relation === 'hostile') return 'triangle';
   return 'circle';
 }
 
@@ -667,9 +675,14 @@ export function dotShape(side: number, suspected = false): DotShape {
  *
  * The fog rule is `unitIsObserved`, imported rather than restated — see this
  * file's top comment. The two exclusions above it are conservative by
- * construction: both can only remove a dot.
+ * construction: both can only remove a dot. `viewer` is the side the player
+ * commands (network design §5.1), 0 in single-player.
  */
-export function unitDots(sim: Sim, isVisible: (wx: number, wy: number) => boolean): MinimapDot[] {
+export function unitDots(
+  sim: Sim,
+  isVisible: (wx: number, wy: number) => boolean,
+  viewer = 0
+): MinimapDot[] {
   const st = sim.state;
   const out: MinimapDot[] = [];
   for (let i = 0; i < sim.entityCount; i++) {
@@ -679,9 +692,10 @@ export function unitDots(sim: Sim, isVisible: (wx: number, wy: number) => boolea
     if (st.carriedBy[i] >= 0 || st.tunnelIn[i] >= 0) continue;
     const x = fx.toNumber(st.posX[i]);
     const y = fx.toNumber(st.posY[i]);
-    if (!unitIsObserved(st.side[i], x, y, isVisible)) continue;
+    if (!unitIsObserved(st.side[i], viewer, x, y, isVisible)) continue;
     const side = st.side[i];
-    out.push({ x, y, side, suspected: side === 1 && sim.contactLevel(0, i) < 2 });
+    const relation = relationOf(side, viewer);
+    out.push({ x, y, side, relation, suspected: relation === 'hostile' && sim.contactLevel(viewer, i) < 2 });
   }
   return out;
 }
@@ -1244,12 +1258,13 @@ export class Minimap {
     const refuge = this.deps.refuge?.() ?? null;
     if (refuge) this.cross(refuge, this.chrome.refuge, this.chrome.refugeEdge);
 
-    for (const d of unitDots(this.deps.sim, this.fogAt)) {
+    const viewer = this.deps.viewer ?? 0;
+    for (const d of unitDots(this.deps.sim, this.fogAt, viewer)) {
       const at = tileToBox(proj, d.x, d.y);
       // Colour FIRST and unchanged: the shape is the second channel, not the
       // replacement for a first one that was measured to work.
-      ctx.fillStyle = this.teamColors[d.side] ?? this.teamColors[2];
-      this.dot(at, dotShape(d.side, d.suspected));
+      ctx.fillStyle = this.teamColors[colorSlot(d.side, viewer)];
+      this.dot(at, dotShape(d.relation, d.suspected));
     }
 
     this.drawFlashes(nowMs);
@@ -1332,12 +1347,12 @@ export class Minimap {
    * (`ringStyle`). Every ring sits on a `--mark-edge` keyline two pixels
    * wider, at the same alpha.
    */
-  /** GH-471: every route side 0 holds identified, as a line with a square
+  /** GH-471: every route the viewer's side holds identified, as a line with a square
    *  at each shaft (`tunnelMarks`); nothing for a suspected or unknown one.
    *  Over the terrain and the zones, under the unit dots. */
   private drawTunnels(): void {
     const { ctx, proj } = this;
-    for (const mark of tunnelMarks(this.deps.sim)) {
+    for (const mark of tunnelMarks(this.deps.sim, this.deps.viewer ?? 0)) {
       const pts = mark.line.map(([x, y]) => tileToBox(proj, x, y));
       for (const [style, width] of [
         [this.chrome.markEdge, TUNNEL_KEYLINE],

@@ -25,6 +25,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { units } from '@lions/data';
 import { Sim, fx, type UnitTypeJson } from '@lions/sim';
+import { colorSlot } from '@lions/render';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -935,12 +936,68 @@ describe('boxToTile', () => {
   });
 });
 
+describe('a seat on side 1 (N1a task 6)', () => {
+  /** Side 0 at 2,2 and side 1 at 10,10, both on lit ground. */
+  function twoSides(): { sim: Sim; zero: number; one: number } {
+    const sim = new Sim({ seed: 1, width: W, height: W, capacity: 16 });
+    const t = sim.addUnitType(units.inf_squad as unknown as UnitTypeJson);
+    const zero = sim.spawn(t, 0, fx.from(2), fx.from(2));
+    const one = sim.spawn(t, 1, fx.from(10), fx.from(10));
+    return { sim, zero, one };
+  }
+
+  it('reads its own side as own and side 0 as hostile, suspected until SIDE 1 identifies it', () => {
+    const { sim, zero } = twoSides();
+    const read = (): unknown[] => unitDots(sim, () => true, 1).map((d) => [d.side, d.relation, d.suspected]);
+    expect(read()).toEqual([
+      [0, 'hostile', true],
+      [1, 'own', false],
+    ]);
+    sim.identifyTo(0, zero); // side 0 knowing itself buys side 1 nothing
+    expect(read()).toEqual([
+      [0, 'hostile', true],
+      [1, 'own', false],
+    ]);
+    sim.identifyTo(1, zero);
+    expect(read()).toEqual([
+      [0, 'hostile', false],
+      [1, 'own', false],
+    ]);
+  });
+
+  it('asks the sim for the viewer\'s contact level, never side 0\'s', () => {
+    const { sim } = twoSides();
+    const asked: number[] = [];
+    const spy = Object.assign(Object.create(sim) as Sim, {
+      contactLevel: (side: number) => {
+        asked.push(side);
+        return 2;
+      },
+    });
+    unitDots(spy, () => true, 1);
+    expect(asked).toEqual([1]);
+  });
+
+  it('draws its own force in slot 0 as the square and side 0 in slot 1 as the triangle, on the real path', () => {
+    const { sim, zero } = twoSides();
+    sim.identifyTo(1, zero);
+    expect(TEAM[colorSlot(1, 1)]).toBe('blue');
+    mount(() => true, { sim, viewer: 1 });
+    const proj = minimapProjection(W, W, MINIMAP_SIZE);
+    const blue = recorder.dots().filter((d) => d.style === 'blue');
+    const red = recorder.dots().filter((d) => d.style === 'red');
+    expect(blue.map((d) => d.shape)).toEqual(['square']);
+    expect(red.map((d) => d.shape)).toEqual(['triangle']);
+    expect(blue[0].x).toBeCloseTo(tileToBox(proj, 10, 10).x, 0); // side 1's own unit (a square snaps to the pixel)
+    expect(red[0].x).toBeCloseTo(tileToBox(proj, 2, 2).x, 0); // side 0's
+  });
+});
+
 describe('dotShape', () => {
-  it('gives each side its own silhouette, so colour is not the only channel', () => {
-    expect(dotShape(0)).toBe('square');
-    expect(dotShape(1)).toBe('triangle');
-    expect(dotShape(2)).toBe('circle');
-    expect(dotShape(7)).toBe('circle');
+  it('gives each relation its own silhouette, so colour is not the only channel', () => {
+    expect(dotShape('own')).toBe('square');
+    expect(dotShape('hostile')).toBe('triangle');
+    expect(dotShape('neutral')).toBe('circle');
   });
 
   it('draws each side in its own shape AND its own colour, on the real path', () => {
@@ -1613,9 +1670,9 @@ describe('suspected and identified contacts (VR-36)', () => {
     const atLevel = (level: number): Sim => Object.assign(Object.create(sim) as Sim, { contactLevel: () => level });
     expect(unitDots(atLevel(1), () => true).map((d) => d.suspected)).toEqual([false, true]);
     expect(unitDots(atLevel(2), () => true).map((d) => d.suspected)).toEqual([false, false]);
-    expect(dotShape(1, true)).toBe('hollow');
-    expect(dotShape(0, true)).toBe('square');
-    expect(dotShape(2, true)).toBe('circle');
+    expect(dotShape('hostile', true)).toBe('hollow');
+    expect(dotShape('own', true)).toBe('square');
+    expect(dotShape('neutral', true)).toBe('circle');
   });
 
   it('draws a suspected contact hollow -- a stroked diamond, no fill -- and an identified one solid', () => {

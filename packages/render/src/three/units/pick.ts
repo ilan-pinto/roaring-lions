@@ -23,6 +23,15 @@
  * builder in this phase uses (`frame-state.ts`, the terrain builders under
  * `../terrain/`), and the reason all of them are testable in
  * `environment: 'node'` even though `ThreeRenderer` itself is not.
+ *
+ * ## `pickable`
+ *
+ * All three take a last, optional `pickable(i)` (N1a task 4, network design
+ * §5.1): a unit it rejects is skipped as if it were not there. Absent, every
+ * unit is pickable, which is the answer each function gave before it.
+ * `ThreeRenderer` passes its fog gate in a versus room, so a click cannot
+ * select -- and so show the card, route or range of -- an enemy the fog
+ * hides from this seat.
  */
 import { groundLevelAt, type ElevationSource } from '../ground-height';
 import { screenToWorldThree, worldToScreenThree } from '../camera';
@@ -56,7 +65,8 @@ export function pickUnit(
   entityCount: number,
   radiusTiles = 1.2,
   reachX = 0,
-  reachY = 0
+  reachY = 0,
+  pickable: (i: number) => boolean = () => true
 ): number {
   let best = -1;
   let bestD = radiusTiles * radiusTiles;
@@ -67,6 +77,9 @@ export function pickUnit(
     // A buried unit has no body on the surface to click -- see this
     // function's own doc comment for why this is not optional.
     if (tunnelIn[i] >= 0) continue;
+    // A unit this viewer may not select (a fogged enemy in a versus room,
+    // network design §5.1) is passed over, never a blocker.
+    if (!pickable(i)) continue;
     const fx = wx - curX[i];
     const fy = wy - curY[i];
     const feet = fx * fx + fy * fy;
@@ -126,12 +139,13 @@ export function pickUnitAtScreen(
   mapWidth: number,
   mapHeight: number,
   cam: Camera,
-  vp: Viewport
+  vp: Viewport,
+  pickable: (i: number) => boolean = () => true
 ): number {
   const g = screenToWorldThree(px, py, cam, vp, elevation, mapWidth, mapHeight);
   const top = worldToScreenThree(cam.x, cam.y, cam, vp, PICK_BODY_HEIGHT_TILES / WORLD_Y_PER_LIFT_PIXEL);
   const behind = screenToWorldThree(top.x, top.y, cam, vp);
-  return pickUnit(g.x, g.y, curX, curY, alive, tunnelIn, entityCount, 1.2, behind.x - cam.x, behind.y - cam.y);
+  return pickUnit(g.x, g.y, curX, curY, alive, tunnelIn, entityCount, 1.2, behind.x - cam.x, behind.y - cam.y, pickable);
 }
 
 /**
@@ -174,13 +188,15 @@ export function unitsInScreenRect(
   mapWidth: number,
   mapHeight: number,
   cam: Camera,
-  vp: Viewport
+  vp: Viewport,
+  pickable: (i: number) => boolean = () => true
 ): number[] {
   const lo = { x: Math.min(x0, x1), y: Math.min(y0, y1) };
   const hi = { x: Math.max(x0, x1), y: Math.max(y0, y1) };
   const out: number[] = [];
   for (let i = 0; i < entityCount; i++) {
     if (alive[i] === 0) continue;
+    if (!pickable(i)) continue;
     const x = curX[i];
     const y = curY[i];
     const liftPx = groundLevelAt(elevation, mapWidth, mapHeight, x, y) * ELEV_STEP;

@@ -258,6 +258,7 @@ const look: DirectorLook = {
   pos: () => ({ x: 0, y: 0 }),
   isVisible: () => true,
   camera: () => ({ x: 0, y: 0 }),
+  viewer: 0,
 };
 function rig(table: AnnouncementManifest, over: Partial<VoiceRuntimeDeps> = {}) {
   const played: VoiceCue[] = [];

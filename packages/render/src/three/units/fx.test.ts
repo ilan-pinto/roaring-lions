@@ -322,7 +322,7 @@ describe('writeTracerInstances', () => {
   it('writes one quad (4 verts) per live tracer, coloured by side', () => {
     const tracers: TracerModel[] = [spawnTracer(0, 0, 1, 1, 0), spawnTracer(2, 2, 3, 3, 1)];
     const out = tBuffers(4);
-    const count = writeTracerInstances(tracers, ['#FF0000', '#00FF00'], null, 0, 0, out);
+    const count = writeTracerInstances(tracers, ['#FF0000', '#00FF00'], null, 0, 0, out, 0);
     expect(count).toBe(2);
     const [r0, g0, b0] = hexToLinear('#FF0000');
     for (let v = 0; v < 4; v++) {
@@ -339,9 +339,23 @@ describe('writeTracerInstances', () => {
     }
   });
 
+  it('colours by side AS THE VIEWER SEES IT: the seat on side 1 draws its own fire in the own half', () => {
+    // Network design §5.1. Break to confirm red: index `tracerColors` by the
+    // raw side again.
+    const tracers: TracerModel[] = [spawnTracer(0, 0, 1, 1, 1), spawnTracer(2, 2, 3, 3, 0)];
+    const out = tBuffers(4);
+    writeTracerInstances(tracers, ['#FF0000', '#00FF00'], null, 0, 0, out, 1);
+    const own = hexToLinear('#FF0000');
+    const hostile = hexToLinear('#00FF00');
+    for (let c = 0; c < 3; c++) {
+      expect(out.colors[c]).toBeCloseTo(own[c], 6);
+      expect(out.colors[12 + c]).toBeCloseTo(hostile[c], 6);
+    }
+  });
+
   it('a freshly spawned tracer writes full alpha at every one of its four vertices', () => {
     const out = tBuffers(2);
-    writeTracerInstances([spawnTracer(0, 0, 1, 0, 0)], ['#FFFFFF', '#FFFFFF'], null, 0, 0, out);
+    writeTracerInstances([spawnTracer(0, 0, 1, 0, 0)], ['#FFFFFF', '#FFFFFF'], null, 0, 0, out, 0);
     for (let v = 0; v < 4; v++) expect(out.alphas[v]).toBeCloseTo(1, 10);
   });
 
@@ -352,7 +366,7 @@ describe('writeTracerInstances', () => {
       spawnTracer(0, 0, 1, 0, 0),
     ];
     const out = tBuffers(2);
-    expect(writeTracerInstances(tracers, ['#FFFFFF', '#FFFFFF'], null, 0, 0, out)).toBe(2);
+    expect(writeTracerInstances(tracers, ['#FFFFFF', '#FFFFFF'], null, 0, 0, out, 0)).toBe(2);
   });
 
   it('over capacity, drops the OLDEST tracers and keeps the newest -- not the reverse', () => {
@@ -366,7 +380,7 @@ describe('writeTracerInstances', () => {
     const tracers: TracerModel[] = [0, 1, 2, 3, 4].map((sx) => spawnTracer(sx, 0, sx + 1, 0, 0));
     const expectedS0x = tracers.map((t) => tracerQuadPositions(t, null, 0, 0)[0]);
     const out = tBuffers(3);
-    const count = writeTracerInstances(tracers, ['#FFFFFF', '#FFFFFF'], null, 0, 0, out);
+    const count = writeTracerInstances(tracers, ['#FFFFFF', '#FFFFFF'], null, 0, 0, out, 0);
     expect(count).toBe(3);
     const keptS0x = [0, 1, 2].map((i) => out.positions[i * 12]);
     // The newest three (index 2, 3, 4 -- sx 2..4) must be present, in
@@ -400,7 +414,7 @@ describe('TRACER_CAPACITY', () => {
       colors: new Float32Array(TRACER_CAPACITY * 4 * 3),
       alphas: new Float32Array(TRACER_CAPACITY * 4),
     };
-    expect(writeTracerInstances(tracers, ['#FFFFFF', '#FFFFFF'], null, 0, 0, out)).toBe(TRACER_CAPACITY);
+    expect(writeTracerInstances(tracers, ['#FFFFFF', '#FFFFFF'], null, 0, 0, out, 0)).toBe(TRACER_CAPACITY);
   });
 
   it('is the value the REAL TracerBatch is actually constructed with, not merely reused to size a fixture', () => {
@@ -416,7 +430,7 @@ describe('TRACER_CAPACITY', () => {
     const tracers: TracerModel[] = Array.from({ length: TRACER_CAPACITY + 5 }, (_, i) =>
       spawnTracer(i, 0, i + 1, 0, 0)
     );
-    batch.update(tracers, ['#FFFFFF', '#FFFFFF'], null, 0, 0);
+    batch.update(tracers, ['#FFFFFF', '#FFFFFF'], null, 0, 0, 0);
     expect(batch.mesh.geometry.drawRange.count).toBe(TRACER_CAPACITY * 6);
   });
 });
@@ -603,7 +617,7 @@ describe('TracerBatch construction', () => {
   it('starts with an empty draw range and grows it to match live tracers on update', () => {
     const batch = new TracerBatch(4);
     expect(batch.mesh.geometry.drawRange.count).toBe(0);
-    batch.update([spawnTracer(0, 0, 1, 1, 0)], ['#FFFFFF', '#FFFFFF'], null, 0, 0);
+    batch.update([spawnTracer(0, 0, 1, 1, 0)], ['#FFFFFF', '#FFFFFF'], null, 0, 0, 0);
     expect(batch.mesh.geometry.drawRange.count).toBe(6); // one quad = 6 indices
   });
 
@@ -743,7 +757,7 @@ describe('writeShellInstances', () => {
       { ...spawnShell(2, 2, 10, 2, 1, 'rocket'), t: 1 },
     ];
     const out = sBuffers(SHELL_TRAIL_SEGMENTS * 2);
-    const count = writeShellInstances(shells, ['#FF0000', '#00FF00'], null, 0, 0, out);
+    const count = writeShellInstances(shells, ['#FF0000', '#00FF00'], null, 0, 0, out, 0);
     expect(count).toBe(SHELL_TRAIL_SEGMENTS * 2);
     const [r0, g0, b0] = hexToLinear('#FF0000');
     expect(out.colors[0]).toBeCloseTo(r0, 6);
@@ -761,13 +775,13 @@ describe('writeShellInstances', () => {
       { ...spawnShell(0, 0, 7, 0, 0, 'mg'), t: -0.1 },
     ];
     const out = sBuffers(SHELL_TRAIL_SEGMENTS * 3);
-    expect(writeShellInstances(shells, ['#FF0000', '#00FF00'], null, 0, 0, out)).toBe(SHELL_TRAIL_SEGMENTS);
+    expect(writeShellInstances(shells, ['#FF0000', '#00FF00'], null, 0, 0, out, 0)).toBe(SHELL_TRAIL_SEGMENTS);
   });
 
   it('fades the streak from tail to head, reaching full alpha only at the round itself', () => {
     const shells = [{ ...spawnShell(0, 0, 12, 0, 0, 'mortar'), t: 1 }];
     const out = sBuffers(SHELL_TRAIL_SEGMENTS);
-    writeShellInstances(shells, ['#FFFFFF', '#FFFFFF'], null, 0, 0, out);
+    writeShellInstances(shells, ['#FFFFFF', '#FFFFFF'], null, 0, 0, out, 0);
     // Vertex alphas per quad: [tail, tail, head, head] (a0, a1, b1, b0).
     const tailOf = (q: number) => out.alphas[q * 4];
     const headOf = (q: number) => out.alphas[q * 4 + 2];
@@ -786,7 +800,7 @@ describe('writeShellInstances', () => {
     const capacityShells = 2;
     const shells = [0, 1, 2, 3].map((i) => ({ ...spawnShell(i, 0, i + 10, 0, 0, 'mortar'), t: 1 }));
     const out = sBuffers(SHELL_TRAIL_SEGMENTS * capacityShells);
-    const count = writeShellInstances(shells, ['#FFFFFF', '#FFFFFF'], null, 0, 0, out);
+    const count = writeShellInstances(shells, ['#FFFFFF', '#FFFFFF'], null, 0, 0, out, 0);
     expect(count).toBe(SHELL_TRAIL_SEGMENTS * capacityShells);
     // The first quad written is the tail of shell index 2, not index 0. The
     // two width-offset vertices at one end straddle the arc symmetrically,
@@ -804,7 +818,7 @@ describe('ShellBatch construction', () => {
   it('starts with an empty draw range and grows it by one quad per trail segment', () => {
     const batch = new ShellBatch(SHELL_TRAIL_SEGMENTS);
     expect(batch.mesh.geometry.drawRange.count).toBe(0);
-    batch.update([{ ...spawnShell(0, 0, 12, 0, 0, 'mortar'), t: 1 }], ['#FFFFFF', '#FFFFFF'], null, 0, 0);
+    batch.update([{ ...spawnShell(0, 0, 12, 0, 0, 'mortar'), t: 1 }], ['#FFFFFF', '#FFFFFF'], null, 0, 0, 0);
     expect(batch.mesh.geometry.drawRange.count).toBe(SHELL_TRAIL_SEGMENTS * 6);
   });
 
@@ -879,7 +893,7 @@ describe('per-kind streak width', () => {
   it('writes each kind at its OWN width, measured on screen where the taper is 1', () => {
     const headWidthPx = (kind: 'mortar' | 'bolt'): number => {
       const out = sBuffers(SHELL_TRAIL_SEGMENTS);
-      writeShellInstances([{ ...spawnShell(0, 0, 12, 0, 0, kind), t: 0.6 }], ['#FFFFFF', '#FFFFFF'], null, 0, 0, out);
+      writeShellInstances([{ ...spawnShell(0, 0, 12, 0, 0, kind), t: 0.6 }], ['#FFFFFF', '#FFFFFF'], null, 0, 0, out, 0);
       // Head quad (the last one); its b1/b0 pair is the end where the taper
       // factor is exactly 1, so the offset is the profile's own width.
       const base = (SHELL_TRAIL_SEGMENTS - 1) * 12;

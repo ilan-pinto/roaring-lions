@@ -28,6 +28,7 @@
 
 import { fx, type HitProjection, type Sim } from '@lions/sim';
 import type { KitLevel } from '@lions/data';
+import { isOwnSide } from '@lions/render';
 import type { ResolvedCommander } from '../campaign';
 import type { RosterEntry } from '../ledger-store';
 import type { HintLine } from './hint-model';
@@ -388,6 +389,10 @@ export interface HudDeps {
    *  strip's Conduct field (hover for the tip, click to pin it open). Absent
    *  in tests that do not exercise it, which keeps the definition-only tip. */
   conductInvoice?: () => { lines: readonly InvoiceLine[]; floor?: number };
+  /** The side the player commands (network design §5.1), 0 in single-player
+   *  and when absent: the orders, the own-unit card, the kit and the
+   *  suppression count are that side's. */
+  viewer?: number;
 }
 
 export class Hud {
@@ -1525,7 +1530,7 @@ export class Hud {
     // Suppression: shown only when there is some. A permanent "0 pinned" is
     // the kind of field a player learns to stop reading.
     const { pinned, broken } = this.shown('status')
-      ? countSuppressed(this.deps.sim.state, this.deps.sim.entityCount)
+      ? countSuppressed(this.deps.sim.state, this.deps.sim.entityCount, this.viewer)
       : { pinned: 0, broken: 0 };
     if (pinned > 0)
       info.push(
@@ -1993,7 +1998,7 @@ export class Hud {
   private renderOrders(sel: number[]): void {
     const sim = this.deps.sim;
     const st = sim.state;
-    const mine = sel.filter((i) => st.side[i] === 0);
+    const mine = sel.filter((i) => isOwnSide(st.side[i], this.viewer));
     const facts: SelectionFacts = {
       count: mine.length,
       underway: 0,
@@ -2071,6 +2076,11 @@ export class Hud {
     return `<div class="rl-tip__head"><span class="rl-tip__name">${label}</span></div>${does}${why}`;
   }
 
+  /** `deps.viewer`, 0 when absent. */
+  private get viewer(): number {
+    return this.deps.viewer ?? 0;
+  }
+
   /** The kit level `deps.kitLevelOf` reports for a type, or 0 when the dep is
    *  absent -- the same "no dep, no change" rule every optional `HudDeps`
    *  field follows. */
@@ -2100,7 +2110,7 @@ export class Hud {
         mobilityKilled: st.mobilityKilled[i] === 1,
         firepowerKilled: st.firepowerKilled[i] === 1,
         aboard: st.carriedBy[i] >= 0,
-        own: st.side[i] === 0,
+        own: isOwnSide(st.side[i], this.viewer),
         ...(type.hasAps
           ? { aps: { ammo: st.apsAmmo[i], magazine: type.apsMagazine } }
           : {}),
@@ -2212,13 +2222,14 @@ export class Hud {
     const hpMax = fx.toNumber(type.hp);
     const hpPct = hpMax > 0 ? Math.max(0, hpNow / hpMax) : 0;
     // VR-03: the player's own unit never reads its health in the enemy red.
-    const own = st.side[id] === 0;
+    const own = isOwnSide(st.side[id], this.viewer);
     const vet = st.veterancy[id];
     const bucket = roleBucket(type);
-    // The kit (WP-S3g §3.4): side 0 only -- an enemy's kit is not the player's
-    // to read -- and a level-0 or absent summary adds NOTHING, so a fresh
-    // account's card, and every gated golden frame, draws byte-identical.
-    const kit = st.side[id] === 0 ? (this.deps.kitOf?.(type.id) ?? null) : null;
+    // The kit (WP-S3g §3.4): the viewer's own side only -- an enemy's kit is
+    // not the player's to read -- and a level-0 or absent summary adds
+    // NOTHING, so a fresh account's card, and every gated golden frame, draws
+    // byte-identical.
+    const kit = own ? (this.deps.kitOf?.(type.id) ?? null) : null;
     const kitted = kit !== null && kit.level !== 0;
 
     // PA-28: a named veteran LEADS the card at the title size, and its type
@@ -2343,7 +2354,7 @@ export class Hud {
       // The frame's summary level, beside the name's three-track pips (D2).
       // `kitPipsHtml` below already names the level to a screen reader, so
       // this copy is decorative only -- one announcement, not two.
-      kitIconSignDecorHtml(st.side[id] === 0 ? this.kitLevel(type.id) : 0) +
+      kitIconSignDecorHtml(isOwnSide(st.side[id], this.viewer) ? this.kitLevel(type.id) : 0) +
       // GH-262, pass C2/C4: the status mark, bottom-left -- the one the
       // condition line below leads with.
       (cornerMark !== null ? statusMarkHtml(cornerMark, PIN_MARK_CARD) : '') +
@@ -2381,7 +2392,7 @@ export class Hud {
    *  the sim already exposes; writes nothing. */
   private engagingHtml(id: number): string {
     const st = this.deps.sim.state;
-    if (st.side[id] !== 0) return '';
+    if (!isOwnSide(st.side[id], this.viewer)) return '';
     const tgt = st.curTarget[id];
     if (tgt < 0 || tgt >= st.alive.length || st.alive[tgt] === 0) return '';
     const ttype = this.deps.sim.unitTypes[st.typeIdx[tgt]];

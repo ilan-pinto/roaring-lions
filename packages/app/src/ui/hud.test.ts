@@ -3050,3 +3050,58 @@ describe('the strip with no mission (PA-25)', () => {
     expect(rig(null).stripEl().querySelector('[data-free-play]')).toBeNull();
   });
 });
+
+// N1a task 6: in a versus room seat 1 commands sim side 1. Its own force is
+// side 1 here (every unit `makeForce` spawned, flipped), and every HUD site
+// that read "side 0 is the player" reads the viewer instead.
+describe('the HUD for a seat on side 1 (N1a task 6)', () => {
+  function seat1Force(): ReturnType<typeof makeForce> {
+    const world = makeForce();
+    for (const i of [...world.squads, world.at, world.namer]) world.sim.state.side[i] = 1;
+    return world;
+  }
+
+  it('reads its own unit\'s low health in the warn ink, and side 0\'s in the enemy red', () => {
+    const world = seat1Force();
+    world.sim.state.hp[world.namer] = world.sim.state.hp[world.namer] / 10;
+    const own = clusterRig(() => [world.namer], { viewer: 1 }, world);
+    expect(own.host.querySelector('.rl-card .rl-track > i')?.className).toBe('rl-fill-warn');
+    const foe = clusterRig(() => [world.namer], { viewer: 0 }, world);
+    expect(foe.host.querySelector('.rl-card .rl-track > i')?.className).toBe('rl-fill-bad');
+  });
+
+  it('gives orders to its own selection and none to side 0\'s', () => {
+    const world = seat1Force();
+    const own = clusterRig(() => world.squads, { viewer: 1 }, world);
+    expect(own.order('move')?.style.display).toBe('');
+    const zero = makeForce();
+    const foe = clusterRig(() => zero.squads, { viewer: 1 }, zero);
+    expect(foe.order('move')?.style.display).toBe('none');
+  });
+
+  it('shows its own unit\'s kit on the card and the chips, never side 0\'s', () => {
+    const kit = (): KitLevel => 2;
+    const world = seat1Force();
+    const card = clusterRig(() => [world.namer], { viewer: 1, kitLevelOf: kit }, world);
+    expect(card.host.querySelector<HTMLElement>('.rl-card .rl-kit-icon')?.dataset.kit).toBe('2');
+    const chips = clusterRig(() => [...world.squads, world.at], { viewer: 1, kitLevelOf: kit }, world);
+    expect(chips.chips()[0].dataset.kit).toBe('2');
+    const asZero = clusterRig(() => [...world.squads, world.at], { viewer: 0, kitLevelOf: kit }, world);
+    expect(asZero.chips()[0].dataset.kit).toBeUndefined();
+  });
+
+  it('says what its own unit is engaging', () => {
+    const world = seat1Force();
+    world.sim.state.curTarget[world.namer] = world.sim.spawn(world.sim.state.typeIdx[world.squads[0]], 0, fx.from(8), fx.from(1));
+    const r = clusterRig(() => [world.namer], { viewer: 1 }, world);
+    expect(r.host.querySelector('.rl-card__engaging')?.textContent).toContain('Engaging');
+  });
+
+  it('counts its own pinned and broken in the strip', () => {
+    const r = rig(mission(), { viewer: 1 });
+    for (const i of r.ids) r.sim.state.side[i] = 1;
+    r.sim.state.pinned[r.ids[0]] = 1;
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(r.strip()).toContain('1 pinned');
+  });
+});

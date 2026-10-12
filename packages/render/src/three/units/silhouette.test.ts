@@ -25,6 +25,7 @@ import {
   silhouetteMeshDepthBiasWorld,
   silhouetteColorKey,
   silhouetteFallbackHex,
+  silhouetteSideIndex,
   silhouetteOutlineObjectWidth,
   silhouetteOutlineWorldWidth,
   smoothedOutwardNormals,
@@ -104,9 +105,9 @@ describe('the fog gate', () => {
   it('observes the player’s own units unconditionally and everyone else only through fog', () => {
     // Break to confirm red: change `side === 0 ||` to `true ||` in
     // observed.ts -- the second expectation below fails.
-    expect(unitIsObserved(0, 4, 4, () => false)).toBe(true);
-    expect(unitIsObserved(1, 4, 4, () => false)).toBe(false);
-    expect(unitIsObserved(1, 4, 4, () => true)).toBe(true);
+    expect(unitIsObserved(0, 0, 4, 4, () => false)).toBe(true);
+    expect(unitIsObserved(1, 0, 4, 4, () => false)).toBe(false);
+    expect(unitIsObserved(1, 0, 4, 4, () => true)).toBe(true);
   });
 
   it('a fogged hostile gets NO silhouette -- the silhouette rides the body’s own visibility, it does not re-derive it', () => {
@@ -122,13 +123,13 @@ describe('the fog gate', () => {
     expect(silhouettes.length).toBe(2);
 
     // The hostile is inside a building's footprint, unobserved: fog says no.
-    root.visible = unitIsObserved(1, 12, 9, () => false);
+    root.visible = unitIsObserved(1, 0, 12, 9, () => false);
     const hidden = drawnObjects(scene);
     for (const s of silhouettes) expect(hidden).not.toContain(s);
     expect(hidden).not.toContain(root);
 
     // Same unit, same call site, once the player observes that tile.
-    root.visible = unitIsObserved(1, 12, 9, () => true);
+    root.visible = unitIsObserved(1, 0, 12, 9, () => true);
     const shown = drawnObjects(scene);
     for (const s of silhouettes) expect(shown).toContain(s);
   });
@@ -548,11 +549,22 @@ describe('the outline width', () => {
 describe('the silhouette colour', () => {
   it('answers "whose unit is that" -- own, hostile, civilian', () => {
     // Break to confirm red: return the same key for every side.
-    expect(silhouetteColorKey(0)).toBe('team.kedem');
-    expect(silhouetteColorKey(1)).toBe('team.hostile');
-    expect(silhouetteColorKey(2)).toBe('team.neutral');
+    expect(silhouetteColorKey(0, 0)).toBe('team.kedem');
+    expect(silhouetteColorKey(1, 0)).toBe('team.hostile');
+    expect(silhouetteColorKey(2, 0)).toBe('team.neutral');
     // Any side the sim grows later is hostile-coloured, never uncoloured.
-    expect(silhouetteColorKey(7)).toBe('team.hostile');
+    expect(silhouetteColorKey(7, 0)).toBe('team.hostile');
+  });
+
+  it('asks the VIEWER whose unit it is (network design §5.1)', () => {
+    // The seat on side 1 sees its own force in the friendly colour and side
+    // 0 in the hostile one; civilians stay neutral for every viewer. Break to
+    // confirm red: make `silhouetteSideIndex` ignore its `viewer`.
+    expect(silhouetteColorKey(1, 1)).toBe('team.kedem');
+    expect(silhouetteColorKey(0, 1)).toBe('team.hostile');
+    expect(silhouetteColorKey(2, 1)).toBe('team.neutral');
+    expect(silhouetteSideIndex(1, 1)).toBe(0);
+    expect(silhouetteSideIndex(0, 1)).toBe(1);
   });
 
   it('is a data/palette.json colour, never an invented hex', () => {
@@ -562,10 +574,10 @@ describe('the silhouette colour', () => {
     // names. Break to confirm red: change any fallback by one digit.
     const teamColors = paletteJson.reserved.team.colors as Record<string, string>;
     for (const side of [0, 1, 2, 7]) {
-      const key = silhouetteColorKey(side);
+      const key = silhouetteColorKey(side, 0);
       const name = key.slice('team.'.length);
       expect(teamColors[name]).toBeDefined();
-      expect(silhouetteFallbackHex(side).toUpperCase()).toBe(teamColors[name].toUpperCase());
+      expect(silhouetteFallbackHex(side, 0).toUpperCase()).toBe(teamColors[name].toUpperCase());
     }
     expect(Object.keys(SILHOUETTE_COLOR_KEY_BY_SIDE)).toEqual(Object.keys(SILHOUETTE_FALLBACK_HEX_BY_SIDE));
   });

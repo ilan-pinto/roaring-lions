@@ -11,6 +11,7 @@
  * the runtime already hold. Nothing here adds an event.
  */
 import { fx, type MissionJson, type MissionRuntime, type Sim } from '@lions/sim';
+import { isOwnSide } from '@lions/render';
 import type { Place } from './alert-place';
 import type { AlertTier, AlertWave, AlertWorld } from './alerts';
 import { reinforceTrigger } from './mission-notice';
@@ -30,6 +31,8 @@ export interface AlertWorldDeps {
   /** Where a tile point lies from the camera, right now (`main.ts` asks the
    *  renderer's projection; a test hands in a rule). */
   placeOf: (x: number, y: number) => Place;
+  /** The side the player commands (network design §5.1), 0 in single-player. */
+  viewer: number;
 }
 
 export function alertWorldFor(d: AlertWorldDeps): AlertWorld {
@@ -79,15 +82,16 @@ export function alertWorldFor(d: AlertWorldDeps): AlertWorld {
     objectiveDone: (id) => d.runtime()?.objectiveList.find((o) => o.id === id)?.status === 'complete',
     markerAt,
     arrivedAt: (typeId) => {
-      // The dock's unit is the newest of its type on the player's side: the
+      // The dock's unit is the newest of its type on the viewer's side: the
       // runtime spawns it in the same tick it reports `built`.
       for (let i = sim.entityCount - 1; i >= 0; i--) {
-        if (sim.state.side[i] !== 0 || sim.state.alive[i] !== 1) continue;
+        if (!isOwnSide(sim.state.side[i], d.viewer) || sim.state.alive[i] !== 1) continue;
         if (typeOf(i) !== typeId) continue;
         return { x: fx.toNumber(sim.state.posX[i]), y: fx.toNumber(sim.state.posY[i]) };
       }
       return null;
     },
+    viewer: d.viewer,
     reinforcement: (triggerId) => {
       const r = reinforceTrigger<{ marker?: string; at?: readonly number[] }>(d.mission ?? undefined, triggerId);
       if (r === null) return null;

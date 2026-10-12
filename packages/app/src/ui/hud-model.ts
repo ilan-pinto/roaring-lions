@@ -13,6 +13,7 @@
 // (invariant 4: the HUD renders what the sim reports and mutates nothing).
 
 import { TICKS_PER_SECOND } from '@lions/sim';
+import { isOwnSide } from '@lions/render';
 import { t } from '../i18n/t';
 import { symbolSvg } from './symbol';
 
@@ -295,13 +296,14 @@ export interface Suppression {
  *
  * Broken outranks pinned rather than adding to it: a routed unit is also
  * flagged pinned in the sim, and counting it twice would have the strip
- * reporting more suppressed men than the player owns.
+ * reporting more suppressed men than the player owns. `viewer` is the side
+ * the player commands (0 in single-player): the strip counts that force.
  */
-export function countSuppressed(s: SuppressionSource, entityCount: number): Suppression {
+export function countSuppressed(s: SuppressionSource, entityCount: number, viewer = 0): Suppression {
   let pinned = 0;
   let broken = 0;
   for (let i = 0; i < entityCount; i++) {
-    if (s.alive[i] === 0 || s.side[i] !== 0) continue;
+    if (s.alive[i] === 0 || !isOwnSide(s.side[i], viewer)) continue;
     if (s.routed[i] === 1) broken++;
     else if (s.pinned[i] === 1) pinned++;
   }

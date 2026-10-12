@@ -163,6 +163,17 @@ export interface RendererOptions {
   background: string;
   /** Team marker colours by side index (0 player, 1 hostile, 2 neutral). */
   teamColors: [string, string, string];
+  /** The sim side the person at this screen commands (network design §5.1).
+   *  Absent means 0, which is single-player and every campaign mission. */
+  viewerSide?: 0 | 1;
+  /** True in a versus room (network design §5.1), where fog is private to
+   *  this seat: a click cannot pick a unit the fog hides, a selected hostile
+   *  draws no route or range envelope, and hostile fire with neither end in
+   *  sight draws no tracer, round, flash or smoke. Absent is single-player,
+   *  which keeps every one of those exactly as before -- deliberately not
+   *  inferred from `viewerSide`, which the app sets to 0 in single-player
+   *  too, and whose 0 must stay byte-identical to a build without it. */
+  versus?: boolean;
   /** Vehicle hull colours by side index. */
   hullColors: [string, string, string];
   /** Infantry/soft-unit colours by side index — a lighter tone of the same

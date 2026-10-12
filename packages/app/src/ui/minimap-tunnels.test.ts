@@ -17,10 +17,10 @@ const MARKER: UnitTypeJson = {
   weapons: [],
 };
 
-function world(withMarker: boolean): { sim: Sim; route: number } {
+function world(withMarker: boolean, markerSide = 0): { sim: Sim; route: number } {
   const sim = new Sim({ seed: 7, width: 16, height: 16, capacity: 8 });
   const route = sim.addTunnel({ id: 'tn_a', points: [[2, 2], [8, 2]], dig_tiles_per_s: 1, pre_dug: true });
-  if (withMarker) sim.spawn(sim.addUnitType(MARKER), 0, fx.from(4.5), fx.from(4.5));
+  if (withMarker) sim.spawn(sim.addUnitType(MARKER), markerSide, fx.from(4.5), fx.from(4.5));
   sim.tick();
   return { sim, route };
 }
@@ -46,6 +46,15 @@ describe('tunnelMarks', () => {
     const { sim, route } = world(true);
     sim.debugCollapseTunnel(route);
     expect(tunnelMarks(sim)).toEqual([]);
+  });
+
+  it('marks what the VIEWER\'s side has identified, not side 0\'s (N1a task 6)', () => {
+    const own = world(true, 1);
+    expect(own.sim.tunnelContactLevel(1, own.route)).toBe(2);
+    expect(tunnelMarks(own.sim, 1).map((m) => m.route)).toEqual([own.route]);
+    expect(tunnelMarks(own.sim, 0)).toEqual([]);
+    const theirs = world(true, 0);
+    expect(tunnelMarks(theirs.sim, 1)).toEqual([]);
   });
 
   it('wears --intercept, which theme.css declares', () => {

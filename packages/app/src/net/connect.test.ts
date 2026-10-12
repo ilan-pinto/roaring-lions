@@ -20,7 +20,7 @@ const fakeSocket = () => ({
 
 describe('connectMatch', () => {
   it('returns a LocalTransport with no ?net', async () => {
-    const r = await connectMatch(new URLSearchParams(''), 'm', 'b', { fetch: noSocket as never, origin: 'http://x', openSocket: noSocket, replaceUrl: () => {}, note: () => {} });
+    const r = await connectMatch(new URLSearchParams(''), 'm', 'b', { fetch: noSocket as never, origin: 'http://x', openSocket: noSocket, replaceUrl: () => {}, note: () => {}, store: null });
     expect(r.transport.local).toBe(true);
     expect(r.seat).toBeNull();
     expect(r.config).toBeNull();
@@ -36,12 +36,13 @@ describe('connectMatch', () => {
     }) as unknown as typeof fetch;
     const sock = fakeSocket();
     const opened: string[] = [];
+    const store = { getItem: (k: string) => (k === 'lions.versus.player' ? 'pid-1' : null), setItem: () => {} };
     const p = connectMatch(new URLSearchParams('net=new&callsign=Ari'), 'tel_marum', 'b', {
-      fetch: fetchFake, origin: 'http://x', openSocket: (u) => { opened.push(u); return sock; }, replaceUrl: (c, s) => { replaced = [c, s]; }, note: () => {},
+      fetch: fetchFake, origin: 'http://x', openSocket: (u) => { opened.push(u); return sock; }, replaceUrl: (c, s) => { replaced = [c, s]; }, note: () => {}, store,
     });
     await new Promise((r) => setTimeout(r, 0));
     expect(calls).toEqual(['POST http://x/api/match']);
-    expect(bodies).toEqual([{ callsign: 'Ari', map: 'tel_marum', build: 'b' }]);
+    expect(bodies).toEqual([{ player: 'pid-1', callsign: 'Ari', map: 'tel_marum', build: 'b', mode: 'sandbox' }]);
     expect(replaced).toEqual(['ABCDEF', 0]);
     expect(opened).toEqual(['ws://x/api/match/ABCDEF/ws']);
     sock.onopen?.({});
@@ -54,10 +55,25 @@ describe('connectMatch', () => {
     expect(r.config?.seed).toBe(5);
     expect(r.transport.local).toBe(false);
   });
+  it('?net=new&mode=versus posts mode: versus and the player id; a join posts the player id and no mode', async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const fetchFake = (async (_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return Response.json({ code: 'ABCDEF', seat: 0, ticket: 'tk' }, { status: 201 });
+    }) as unknown as typeof fetch;
+    const store = { getItem: () => 'pid-v', setItem: () => {} };
+    const deps = { fetch: fetchFake, origin: 'http://x', openSocket: () => fakeSocket(), replaceUrl: () => {}, note: () => {}, store };
+    void connectMatch(new URLSearchParams('net=new&mode=versus'), 'tel_marum', 'b', deps);
+    void connectMatch(new URLSearchParams('net=ABCDEF&mode=versus'), 'tel_marum', 'b', deps);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(bodies[0]).toMatchObject({ mode: 'versus', player: 'pid-v' });
+    expect(bodies[1]).toMatchObject({ player: 'pid-v' });
+    expect(bodies[1]).not.toHaveProperty('mode');
+  });
   it('does not say ready while the other seat is absent', async () => {
     const fetchFake = (async () => Response.json({ code: 'ABCDEF', seat: 0, ticket: 'tk' }, { status: 201 })) as unknown as typeof fetch;
     const sock = fakeSocket();
-    void connectMatch(new URLSearchParams('net=new'), 'tel_marum', 'b', { fetch: fetchFake, origin: 'http://x', openSocket: () => sock, replaceUrl: () => {}, note: () => {} });
+    void connectMatch(new URLSearchParams('net=new'), 'tel_marum', 'b', { fetch: fetchFake, origin: 'http://x', openSocket: () => sock, replaceUrl: () => {}, note: () => {}, store: null });
     await new Promise((r) => setTimeout(r, 0));
     sock.onopen?.({});
     sock.onmessage?.({ data: JSON.stringify({ t: 'lobby', config: null, seats: [{ seat: 0, callsign: 'a', connected: true, ready: false }], you: 0 }) });
@@ -68,7 +84,7 @@ describe('connectMatch', () => {
     const fetchFake = (async (url: string) => { calls.push(url); return Response.json({ code: 'ABCDEF', seat: 1, ticket: 'tk' }); }) as unknown as typeof fetch;
     const sock = fakeSocket();
     let replaced = false;
-    const p = connectMatch(new URLSearchParams('net=ABCDEF'), 'tel_marum', 'b', { fetch: fetchFake, origin: 'http://x', openSocket: () => sock, replaceUrl: () => { replaced = true; }, note: () => {} });
+    const p = connectMatch(new URLSearchParams('net=ABCDEF'), 'tel_marum', 'b', { fetch: fetchFake, origin: 'http://x', openSocket: () => sock, replaceUrl: () => { replaced = true; }, note: () => {}, store: null });
     await new Promise((r) => setTimeout(r, 0));
     expect(calls).toEqual(['http://x/api/match/ABCDEF/join']);
     sock.onopen?.({});
@@ -78,13 +94,13 @@ describe('connectMatch', () => {
   });
   it('a refused create rejects with the HTTP status', async () => {
     const fetchFake = (async () => new Response('build required', { status: 400 })) as unknown as typeof fetch;
-    await expect(connectMatch(new URLSearchParams('net=new'), 'm', 'b', { fetch: fetchFake, origin: 'http://x', openSocket: noSocket, replaceUrl: () => {}, note: () => {} }))
+    await expect(connectMatch(new URLSearchParams('net=new'), 'm', 'b', { fetch: fetchFake, origin: 'http://x', openSocket: noSocket, replaceUrl: () => {}, note: () => {}, store: null }))
       .rejects.toThrow('match create failed: HTTP 400');
   });
   it('a build mismatch rejects and closes the socket', async () => {
     const fetchFake = (async () => Response.json({ code: 'ABCDEF', seat: 1, ticket: 'tk' })) as unknown as typeof fetch;
     const sock = fakeSocket();
-    const p = connectMatch(new URLSearchParams('net=ABCDEF'), 'm', 'b', { fetch: fetchFake, origin: 'http://x', openSocket: () => sock, replaceUrl: () => {}, note: () => {} });
+    const p = connectMatch(new URLSearchParams('net=ABCDEF'), 'm', 'b', { fetch: fetchFake, origin: 'http://x', openSocket: () => sock, replaceUrl: () => {}, note: () => {}, store: null });
     await new Promise((r) => setTimeout(r, 0));
     sock.onopen?.({});
     sock.onmessage?.({ data: JSON.stringify({ t: 'error', code: 'build_mismatch' }) });
@@ -94,7 +110,7 @@ describe('connectMatch', () => {
   it('a room that ends before its start rejects and closes the socket', async () => {
     const fetchFake = (async () => Response.json({ code: 'ABCDEF', seat: 1, ticket: 'tk' })) as unknown as typeof fetch;
     const sock = fakeSocket();
-    const p = connectMatch(new URLSearchParams('net=ABCDEF'), 'm', 'b', { fetch: fetchFake, origin: 'http://x', openSocket: () => sock, replaceUrl: () => {}, note: () => {} });
+    const p = connectMatch(new URLSearchParams('net=ABCDEF'), 'm', 'b', { fetch: fetchFake, origin: 'http://x', openSocket: () => sock, replaceUrl: () => {}, note: () => {}, store: null });
     await new Promise((r) => setTimeout(r, 0));
     sock.onopen?.({});
     sock.onmessage?.({ data: JSON.stringify({ t: 'ended', reason: 'expired' }) });
@@ -106,7 +122,7 @@ describe('connectMatch', () => {
     // A fetch that ignores its signal and answers anyway: the check after it is what must hold.
     const fetchFake = (async () => { ac.abort(); return Response.json({ code: 'ABCDEF', seat: 0, ticket: 'tk' }, { status: 201 }); }) as unknown as typeof fetch;
     let replaced = false;
-    const p = connectMatch(new URLSearchParams('net=new'), 'm', 'b', { fetch: fetchFake, origin: 'http://x', openSocket: noSocket, replaceUrl: () => { replaced = true; }, note: () => {}, signal: ac.signal });
+    const p = connectMatch(new URLSearchParams('net=new'), 'm', 'b', { fetch: fetchFake, origin: 'http://x', openSocket: noSocket, replaceUrl: () => { replaced = true; }, note: () => {}, store: null, signal: ac.signal });
     await expect(p).rejects.toMatchObject({ name: 'AbortError' });
     expect(replaced).toBe(false);
   });
@@ -114,7 +130,7 @@ describe('connectMatch', () => {
     const fetchFake = (async () => Response.json({ code: 'ABCDEF', seat: 0, ticket: 'tk' }, { status: 201 })) as unknown as typeof fetch;
     const sock = fakeSocket();
     const ac = new AbortController();
-    const p = connectMatch(new URLSearchParams('net=new'), 'm', 'b', { fetch: fetchFake, origin: 'http://x', openSocket: () => sock, replaceUrl: () => {}, note: () => {}, signal: ac.signal });
+    const p = connectMatch(new URLSearchParams('net=new'), 'm', 'b', { fetch: fetchFake, origin: 'http://x', openSocket: () => sock, replaceUrl: () => {}, note: () => {}, store: null, signal: ac.signal });
     await new Promise((r) => setTimeout(r, 0));
     sock.onopen?.({});
     ac.abort();
@@ -126,7 +142,7 @@ describe('connectMatch', () => {
     for (const q of ['net=ABCDEF&seat=0', 'net=new&seat=0', 'net=ABCDEF&seat=1&callsign=A']) {
       const calls: string[] = [];
       const fetchFake = (async (url: string) => { calls.push(url); return Response.json({ code: 'ABCDEF', seat: 1, ticket: 'tk' }); }) as unknown as typeof fetch;
-      await expect(connectMatch(new URLSearchParams(q), 'm', 'b', { fetch: fetchFake, origin: 'http://x', openSocket: noSocket, replaceUrl: () => {}, note: () => {} }))
+      await expect(connectMatch(new URLSearchParams(q), 'm', 'b', { fetch: fetchFake, origin: 'http://x', openSocket: noSocket, replaceUrl: () => {}, note: () => {}, store: null }))
         .rejects.toThrow(RELOAD_REFUSED);
       expect(calls).toEqual([]);
     }
@@ -135,7 +151,7 @@ describe('connectMatch', () => {
     const calls: string[] = [];
     const fetchFake = (async (url: string) => { calls.push(url); return Response.json({ code: 'ABCDEF', seat: 1, ticket: 'tk' }); }) as unknown as typeof fetch;
     const opened: string[] = [];
-    void connectMatch(new URLSearchParams('net=abcdef'), 'm', 'b', { fetch: fetchFake, origin: 'http://x', openSocket: (u) => { opened.push(u); return fakeSocket(); }, replaceUrl: () => {}, note: () => {} });
+    void connectMatch(new URLSearchParams('net=abcdef'), 'm', 'b', { fetch: fetchFake, origin: 'http://x', openSocket: (u) => { opened.push(u); return fakeSocket(); }, replaceUrl: () => {}, note: () => {}, store: null });
     await new Promise((r) => setTimeout(r, 0));
     expect(calls).toEqual(['http://x/api/match/ABCDEF/join']);
     expect(opened).toEqual(['ws://x/api/match/ABCDEF/ws']);

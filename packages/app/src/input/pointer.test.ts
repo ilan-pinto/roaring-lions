@@ -25,7 +25,7 @@ import {
 } from '@lions/render/three-camera';
 import type { Camera, Viewport } from '@lions/render/project';
 import { standMapStructures } from '../map-sim';
-import { cursorAt, pointerPoint, simIntentWorld, type PointerView } from './pointer';
+import { cursorAt, hostileUnder, pointerPoint, simIntentWorld, type PointerView } from './pointer';
 
 const VP: Viewport = { width: 1440, height: 900 };
 const CENTRE = { x: VP.width / 2, y: VP.height / 2 };
@@ -50,7 +50,7 @@ function world() {
 }
 
 /** The renderer's three questions, answered by the real projection. */
-function viewOf(sim: Sim, cam: Camera): PointerView {
+function viewOf(sim: Sim, cam: Camera, viewer = 0): PointerView {
   const st = sim.structures;
   const drawn = (s: number): DrawnSize =>
     sim.structureTypes[st.typeIdx[s]].id === 'house'
@@ -68,6 +68,7 @@ function viewOf(sim: Sim, cam: Camera): PointerView {
     screenToWorld: (px, py) => screenToWorldThree(px, py, cam, VP),
     structureAtScreen: (px, py) => structureAtScreenThree(px, py, cam, VP, structureBoxes(sim, null, drawn)),
     isVisible: () => true,
+    viewer,
   };
 }
 
@@ -211,5 +212,34 @@ describe('K-08: the pointer over ground nobody can enter', () => {
     const out = read(sim, cam, [drone], CENTRE.x, CENTRE.y);
     expect(out.res.groundRefused).toBeUndefined();
     expect(out.res.marker).toBe(true);
+  });
+});
+
+describe('N1a: the enemy under the pointer is the viewer\'s enemy', () => {
+  // In a versus room seat 1 commands sim side 1 (network design §5.1): its
+  // enemy is side 0, and its own side-1 units are never "hostile".
+  it('viewer 1: finds a side-0 unit under the cursor and ignores a side-1 one', () => {
+    const { sim, spawn } = world();
+    const theirs = spawn('inf_squad', 0, 11.5, 24.5);
+    const ours = spawn('militia_cell', 1, 26.5, 24.5);
+    const seen = () => true;
+    expect(hostileUnder(sim, 11.5, 24.5, seen, 1)).toBe(theirs);
+    expect(hostileUnder(sim, 26.5, 24.5, seen, 1)).toBe(-1);
+    // Viewer 0 is the single-player rule, unchanged.
+    expect(hostileUnder(sim, 11.5, 24.5, seen, 0)).toBe(-1);
+    expect(hostileUnder(sim, 26.5, 24.5, seen)).toBe(ours);
+  });
+  it('a civilian is nobody\'s enemy', () => {
+    const { sim, spawn } = world();
+    spawn('civilians', 2, 11.5, 24.5);
+    expect(hostileUnder(sim, 11.5, 24.5, () => true, 0)).toBe(-1);
+    expect(hostileUnder(sim, 11.5, 24.5, () => true, 1)).toBe(-1);
+  });
+  it('pointerPoint reads the view\'s viewer', () => {
+    const { sim, spawn } = world();
+    const theirs = spawn('inf_squad', 0, 11.5, 24.5);
+    const cam: Camera = { x: 11.5, y: 24.5, zoom: 1 };
+    expect(pointerPoint(viewOf(sim, cam, 1), sim, CENTRE.x, CENTRE.y).hostile).toBe(theirs);
+    expect(pointerPoint(viewOf(sim, cam, 0), sim, CENTRE.x, CENTRE.y).hostile).toBe(-1);
   });
 });

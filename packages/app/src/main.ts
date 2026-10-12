@@ -38,6 +38,8 @@ import {
   DebugOverlay,
   BattleAudio,
   TERRAIN_DECOR,
+  isHostileSide,
+  isOwnSide,
   type AudioManifest,
   type EmitterSpec,
   type Renderer,
@@ -180,7 +182,7 @@ import {
   type IntentWorld,
 } from './input/intents';
 import { ANIMATED_CURSORS, type CursorName } from './input/cursor';
-import { cursorAt, pointerPoint, simIntentWorld } from './input/pointer';
+import { cursorAt, pointerPoint, simIntentWorld, type PointerView } from './input/pointer';
 import { cursorAnimDriver } from './input/cursor-anim';
 import { prefersReducedMotion, prefersSaveData } from './ui/motion';
 import { firstLaunchIntro, introAvailable, replayIntro } from './ui/intro';
@@ -199,6 +201,7 @@ import {
 } from './ui/conduct-invoice';
 import { sandboxAnchors, type SandboxAnchors } from './sandbox-anchors';
 import { hostileFacing } from './sandbox-facing';
+import { placeOnOpen } from './sandbox-place';
 import {
   sandboxDitchRows,
   sandboxFlaggedZones,
@@ -237,6 +240,10 @@ import { connectMatch, type Connected } from './net/connect';
 import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
 import { roomFlags } from './net/room-flags';
 import { netReport } from './net/net-report';
+import { viewerSideOf } from './net/viewer';
+import { campOf, versusSpawns } from './net/versus-force';
+import { pruneHiddenHostiles, type SeatSight } from './net/hidden-selection';
+import { garrisonRoomShown } from './net/hover-garrison';
 import { NetStatusLine } from './ui/net-status';
 import { lightOverrideOf, timeOfDayOf } from './time-of-day';
 import { buildingFitOf } from './building-fit-flag';
@@ -405,32 +412,9 @@ function sandboxSpawns(
   anchors: SandboxAnchors,
   extras: SandboxExtras = { tunnel: false, sur: false, civ: false }
 ): SandboxForce {
-  // Terrain the formation knows nothing about: an offset that lands in rock
-  // or a wall would strand a unit inside it, and Tel Marum's ridge sits right
-  // where the opposition's band falls. Spiral out to the nearest open tile.
-  const open = (x: number, y: number): [number, number] => {
-    const cx = Math.min(Math.max(Math.round(x), 0), sim.width - 1);
-    const cy = Math.min(Math.max(Math.round(y), 0), sim.height - 1);
-    for (let r = 0; r <= 6; r++) {
-      for (let dy = -r; dy <= r; dy++) {
-        for (let dx = -r; dx <= r; dx++) {
-          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-          const tx = cx + dx;
-          const ty = cy + dy;
-          if (tx < 0 || ty < 0 || tx >= sim.width || ty >= sim.height) continue;
-          if (sim.blocked[ty * sim.width + tx] === 0) return [tx, ty];
-        }
-      }
-    }
-    return [cx, cy];
-  };
-
-  const spawn = (id: string, side: number, x: number, y: number, facing = 0): number => {
-    const t = typeOf.get(id);
-    if (t === undefined) throw new Error(`unknown unit ${id}`);
-    const [ox, oy] = open(x, y);
-    return sim.spawn(t, side, fx.from(ox + 0.5), fx.from(oy + 0.5), facing);
-  };
+  // The nearest-open-tile placer is shared with the mirror match
+  // (`sandbox-place.ts`): the same rule, one copy.
+  const spawn = placeOnOpen(sim, typeOf);
 
   const [fxA, fyA] = anchors.friendly;
   const [hxA, hyA] = anchors.hostile;
@@ -1416,7 +1400,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  machines must boot the same world, so a flag one player typed would
    *  desync them at tick 0. Decided here, before the kit below reads `&kit`. */
   const inRoom = params.get('net') !== null;
-  if (inRoom && req.missionId !== null) throw new Error('N0: a room runs the sandbox only -- open /free-play/<map>?net=new');
+  if (inRoom && req.missionId !== null) throw new Error('a room runs Free Play only -- open /free-play/<map>?net=new');
   const flags = roomFlags(readFlags(params), inRoom, (k) => console.warn(`[net] sandbox flag &${k} is ignored in a room`));
   const audio = battleAudio();
   const { boughtUnits, ownedTiers } = accountState();
@@ -1656,6 +1640,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         history.replaceState(history.state, '', u);
       },
       note: (text) => console.info(`[net] ${text}`),
+      // The property access itself throws when site data is blocked.
+      store: ((): Storage | null => { try { return window.localStorage; } catch { return null; } })(),
       signal: req.signal,
     });
   } catch (err) {
@@ -1670,6 +1656,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     teardown();
     throw new Error(`N0: room ${netConfig.code} plays "${netConfig.map}", but this URL asks for "${mapId}" -- open /free-play/${netConfig.map}?net=${netConfig.code}`);
   }
+  // The sim side this screen commands (network design §5.1): the seat's own
+  // side in a room, 0 everywhere else. Every "is this mine / theirs" below
+  // asks `isOwnSide` / `isHostileSide` with it -- never a literal side.
+  // Set on the shared mixer every boot, so a single-player mission after a
+  // room hears its own side again.
+  const me = viewerSideOf(netConfig, netSeat);
+  /** A versus room: fog is private to this seat (network design §5.1). */
+  const versusRoom = netConfig?.mode === 'versus';
+  audio.setViewer(me);
   /** The boot banner and the body of `__lions.help()` — one text, so what a
    *  sandbox prints on load and what the console answers can never disagree. */
   const helpText = (): string =>
@@ -1854,6 +1849,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
       return u ? kdfUnlockGate(u, boughtUnits) : undefined;
     });
+  } else if (netConfig?.mode === 'versus') {
+    // A versus room (network design §9): the KDF force on EACH side, mirrored
+    // through the hostile anchor, no Sarim and no civilians. `sandboxForce`
+    // keeps its meaning -- the seat's own units -- and has no crowd.
+    sandboxForce = { player: versusSpawns(sim, typeOf, anchors).bySide[me], civilians: [] };
   } else {
     sandboxForce = sandboxSpawns(sim, typeOf, anchors, {
       tunnel: wantTunnel,
@@ -1905,6 +1905,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // registered the sim's types and drew the card -- so the hull on the
     // field is the hull the sim is running.
     unitKitTiers: prepass.unitKitTiers,
+    // Network design §5.1: whose force this screen draws as its own, and
+    // whether fog is private to this seat (absent/false is single-player).
+    viewerSide: me,
+    versus: netConfig?.mode === 'versus',
     // Sandbox only: a mission brings its own battle, and a dev flag must
     // never change how one looks.
     ...(!mission && wantDecals
@@ -2009,6 +2013,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // not a grep.
   const three = new ThreeRenderer(sim, opts);
   const renderer: Renderer = three;
+  /** The pointer's view of the renderer, plus the side whose enemy is "under
+   *  the pointer" (`hostileUnder`). Delegates, so it reads the live renderer. */
+  const pointerView: PointerView = {
+    screenToWorld: (px, py) => renderer.screenToWorld(px, py),
+    structureAtScreen: (px, py) => renderer.structureAtScreen(px, py),
+    isVisible: (wx, wy) => renderer.isVisible(wx, wy),
+    viewer: me,
+  };
   // Its teardown is registered HERE, the moment the WebGL context exists,
   // not after `init()`: the mesh downloads below are awaited first, and a
   // boot that failed on one used to throw with the context held and no
@@ -2606,7 +2618,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  point-targeted orders can be armed; the other three act at once. */
   let armedOrder: 'attackMove' | 'move' | 'smoke' | null = null;
   const myLiving = (): number[] =>
-    renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
+    renderer.selection.filter((i) => isOwnSide(sim.state.side[i], me) && sim.state.alive[i] === 1);
   /**
    * The three verbs `intents.ts` resolves, through one call.
    *
@@ -2671,10 +2683,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       armOrder('move');
       if (armedOrder === 'move') hud.note(t('intent.move.armed'), 'info');
     },
-    // `side === 0` and not `myLiving()`: this is the pre-existing `h` binding
+    // Own side and not `myLiving()`: this is the pre-existing `h` binding
     // moved, not rewritten, and a dead unit's halt is a no-op in the sim.
     halt: () => {
-      const mine = renderer.selection.filter((i) => sim.state.side[i] === 0);
+      const mine = renderer.selection.filter((i) => isOwnSide(sim.state.side[i], me));
       if (mine.length) dispatch({ kind: 'halt', ids: mine });
       const none = haltNote(mine.length);
       if (none) hud.note(none.text, none.tone);
@@ -2824,7 +2836,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const hintTimer = createShownTimer(6000);
   const contextualHint = () => {
     if (mission === undefined || mission.id === 'beit_sahwan_0_tutorial') return null;
-    const sel = renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
+    const sel = renderer.selection.filter((i) => isOwnSide(sim.state.side[i], me) && sim.state.alive[i] === 1);
     const ctx: HintContext = {
       missionId: mission.id,
       hasResources: mission.resources !== undefined,
@@ -2832,7 +2844,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       selectedTypes: () => new Set(sel.map((i) => sim.unitTypes[sim.state.typeIdx[i]].id)),
       forceSize: () => {
         let n = 0;
-        for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0 && sim.state.alive[i] === 1) n++;
+        for (let i = 0; i < sim.entityCount; i++) if (isOwnSide(sim.state.side[i], me) && sim.state.alive[i] === 1) n++;
         return n;
       },
       carrierEmptySeat: () =>
@@ -2842,7 +2854,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         }),
       enemyPinned: () => {
         for (let i = 0; i < sim.entityCount; i++) {
-          if (sim.state.side[i] === 1 && sim.state.alive[i] === 1 && sim.state.pinned[i] === 1) return true;
+          if (isHostileSide(sim.state.side[i], me) && sim.state.alive[i] === 1 && sim.state.pinned[i] === 1) return true;
         }
         return false;
       },
@@ -2875,6 +2887,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const pinnedSince = new PinnedSince();
   const hud = new Hud(document.body, {
     sim,
+    viewer: me,
     isShown,
     pinnedTicks: (id) => pinnedSince.ticksPinned(id, sim.tickCount),
     // GH-345: the running Conduct invoice, worded from the sim's own reasons.
@@ -3009,6 +3022,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         return u ? { faction: u.faction, voice: voiceClassOf(u) } : null;
       },
       side: (id) => sim.state.side[id],
+      viewer: me,
       pos: (id) => ({ x: fx.toNumber(sim.state.posX[id]), y: fx.toNumber(sim.state.posY[id]) }),
       isVisible: (x, y) => renderer.isVisible(x, y),
       camera: () => renderer.camera,
@@ -3062,7 +3076,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     let alive = 0;
     const fielded = new Set<string>();
     for (let i = 0; i < sim.entityCount; i++) {
-      if (sim.state.side[i] !== 0 || sim.state.alive[i] !== 1) continue;
+      if (!isOwnSide(sim.state.side[i], me) || sim.state.alive[i] !== 1) continue;
       alive++;
       fielded.add(sim.unitTypes[sim.state.typeIdx[i]].id);
     }
@@ -3222,6 +3236,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   let lastFlipped: ImageData | null = null;
   const minimap = new Minimap(document.body, {
     sim,
+    viewer: me,
     map,
     view: renderer,
     tones: opts.terrainTones,
@@ -3383,6 +3398,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   if (start) {
     renderer.camera.x = start[0];
     renderer.camera.y = start[1];
+  } else if (netConfig !== null) {
+    // A room's seat starts on its own camp, not on side 0's.
+    const [cx, cy] = campOf(anchors, me);
+    renderer.camera.x = cx;
+    renderer.camera.y = cy;
   }
 
   // Reinforcements and fire support: the dock, bottom left (GH-153 slice 3).
@@ -3396,7 +3416,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // the screen: no readout lands on the next one, and the footprint goes.
   const intelMoments =
     runtime && mission?.resources
-      ? new IntelMoments({ sweepCost: runtime.sweepCost, strikeCost: runtime.strikeCost, toFx: fx.from })
+      ? new IntelMoments({ sweepCost: runtime.sweepCost, strikeCost: runtime.strikeCost, toFx: fx.from, viewer: me })
       : null;
   onDispose(() => {
     intelMoments?.dispose();
@@ -3611,7 +3631,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // room it reaches both sims in the same frame, and in single-player the
   // `LocalTransport` hands it to the next tick exactly as `queueCommand` did.
   const dispatch = (intent: PlayerIntent): void => {
-    applyIntent(transport, intent);
+    applyIntent(transport, intent, sim);
     for (const fn of intentListeners) fn(intent);
   };
   intentListeners.push((intent) => voice.observe(intent));
@@ -3817,7 +3837,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           // building's wall is the building, and a building is refused as
           // impassable): the same `issueMove` the right click and the
           // minimap call.
-          const at = pointerPoint(renderer, sim, p.x, p.y);
+          const at = pointerPoint(pointerView, sim, p.x, p.y);
           voice.hint({ hostile: false });
           issueMove(intentWorld, orderSink, myLiving(), at.x, at.y, { append: ev.shiftKey });
         } else {
@@ -3825,7 +3845,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           if (mine.length > 0) {
             // The right-click's own point (PA-14): a building's wall is the
             // building, here as on the contextmenu path.
-            const at = pointerPoint(renderer, sim, p.x, p.y);
+            const at = pointerPoint(pointerView, sim, p.x, p.y);
             const move = resolvePointer(intentWorld, {
               ids: mine,
               x: at.x,
@@ -3853,7 +3873,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     } else {
       renderer.selection = renderer
         .unitsInScreenRect(dragStart.x, dragStart.y, p.x, p.y)
-        .filter((i) => sim.state.side[i] === 0);
+        .filter((i) => isOwnSide(sim.state.side[i], me));
       dispatch({ kind: 'select', ids: renderer.selection, via: 'box' });
     }
     dragStart = null;
@@ -3895,6 +3915,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     map,
     units: units as Readonly<Record<string, { name?: string } | undefined>>,
     placeOf: (x, y) => placeOnScreen(renderer.worldToScreen(x, y), canvas.clientWidth, canvas.clientHeight),
+    viewer: me,
   });
   /** Carried across ticks: when each entity last made the feed, and which
    *  waves have been announced. Copy-on-write inside `alertsForTick`, so this
@@ -3910,7 +3931,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     const rect = canvas.getBoundingClientRect();
     // PA-14: the point the hover cursor read, so a click on a building's
     // upper wall orders onto the building, not the ground hidden behind it.
-    const w = pointerPoint(renderer, sim, ev.clientX - rect.left, ev.clientY - rect.top);
+    const w = pointerPoint(pointerView, sim, ev.clientX - rect.left, ev.clientY - rect.top);
     // `issueOrder` rather than a resolve-and-dispatch written out here: since
     // Task 10 the minimap issues the same order from the same function, and
     // this call and that one are the whole of it.
@@ -4082,7 +4103,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         ev.preventDefault(); // browser select-all
         renderer.selection = [];
         for (let i = 0; i < sim.entityCount; i++) {
-          if (sim.state.side[i] === 0 && sim.state.alive[i] === 1) renderer.selection.push(i);
+          if (isOwnSide(sim.state.side[i], me) && sim.state.alive[i] === 1) renderer.selection.push(i);
         }
         break;
       case 'overlay':
@@ -4162,7 +4183,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // so the search starts at the front.
         const ids: number[] = [];
         for (let i = 0; i < sim.entityCount; i++) {
-          if (sim.state.side[i] === 0 && sim.state.alive[i] === 1) ids.push(i);
+          if (isOwnSide(sim.state.side[i], me) && sim.state.alive[i] === 1) ids.push(i);
         }
         const idleFactsOf = (id: number): IdleFacts => ({
           alive: sim.state.alive[id] === 1,
@@ -4176,7 +4197,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           garrisonedIn: sim.state.garrisonedIn[id],
         });
         const after = renderer.selection.length === 1 ? renderer.selection[0] : -1;
-        const id = nextIdle(ids, after, (i) => isIdle(idleFactsOf(i)));
+        const id = nextIdle(ids, after, (i) => isIdle(idleFactsOf(i), me));
         if (id >= 0) {
           renderer.selection = [id];
           dispatch({ kind: 'select', ids: [id], via: 'click' });
@@ -4294,7 +4315,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       if (ev.ctrlKey || ev.metaKey) {
         ev.preventDefault();
         const mine = renderer.selection.filter(
-          (i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1
+          (i) => isOwnSide(sim.state.side[i], me) && sim.state.alive[i] === 1
         );
         for (let g = 1; g <= 9; g++) {
           if (g !== slot) groups.set(g, (groups.get(g) ?? []).filter((i) => !mine.includes(i)));
@@ -4437,7 +4458,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // Optional on the interface (`api.ts`) -- Pixi draws no civilians at all
       // and implements nothing.
       renderer.onMissionEvents?.(missionEvents);
-      if (tickIsActive(events, missionEvents)) stallActive = true;
+      if (tickIsActive(events, missionEvents, me)) stallActive = true;
       const intelAnnounce = intelMoments ? sayIntel(intelMoments.afterTick(sim, sim.tickCount, events, runtime.intel)) : [];
       voice.onMission(missionEvents, intelAnnounce);
 
@@ -4453,37 +4474,37 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       announceAlerts(alertsForTick(alertState, events, missionEvents, alertWorld, sim.tickCount));
 
       for (const e of events) if (e.kind === 'destroyed') logDestroyed(missionLog, sim.state.side[e.entity]);
-      for (const me of missionEvents) {
-        missionTelemetry?.onEvent(me);
-        logMissionEvent(missionLog, me, {
+      for (const mev of missionEvents) {
+        missionTelemetry?.onEvent(mev);
+        logMissionEvent(missionLog, mev, {
           // Sim positions are tile CENTRES; the log keeps the tile.
           positionOf: (id) => ({ x: Math.floor(fx.toNumber(sim.state.posX[id])), y: Math.floor(fx.toNumber(sim.state.posY[id])) }),
           rosterOf: (id) => runtime?.rosterEntryOf(id),
           zone: (id) => map.zones[id],
         });
-        if (tut) tut = advance(tut, { kind: 'mission', event: me }, performance.now());
-        if (me.kind === 'roe') deductions.push({ penalty: me.penalty, reason: me.reason, tick: me.tick });
-        if (me.kind === 'evacuated') evacuatedSoFar++;
+        if (tut) tut = advance(tut, { kind: 'mission', event: mev }, performance.now());
+        if (mev.kind === 'roe') deductions.push({ penalty: mev.penalty, reason: mev.reason, tick: mev.tick });
+        if (mev.kind === 'evacuated') evacuatedSoFar++;
         // The memorial half of the service record (WP-G-E4). `unitLost` is already
         // side-0-only (mission.ts:1018) and `entityRoster` is only ever added to, so the
         // dead unit's ledger entry is still readable here -- which is the whole reason
         // this can be a read at the event rather than a diff after checkEnd.
-        if (me.kind === 'unitLost' && runtime) {
-          const record = lostRecordFor(runtime.rosterEntryOf(me.entity), me.unit, mission.id, me.tick);
+        if (mev.kind === 'unitLost' && runtime) {
+          const record = lostRecordFor(runtime.rosterEntryOf(mev.entity), mev.unit, mission.id, mev.tick);
           if (record) lostThisMission.push(record);
         }
-        const described = describeMissionEvent(me, mission, narratedRoeReasons, placeNames);
-        if (described) hud.note(described[0], described[1], { tier: missionEventTier(me) ?? undefined });
+        const described = describeMissionEvent(mev, mission, narratedRoeReasons, placeNames);
+        if (described) hud.note(described[0], described[1], { tier: missionEventTier(mev) ?? undefined });
         // The story voice (GDD §11): the commander bar is the one surface for
         // it now -- `describeMissionEvent`'s own `case 'say'` returns null,
         // so this is the only place a `say` event lands. See `Hud.say`'s own
         // doc comment for why this call is independent of `brief()`.
-        if (me.kind === 'say') hud.say(me.speaker, me.text);
-        if (me.kind === 'missionEnd') {
+        if (mev.kind === 'say') hud.say(mev.speaker, mev.text);
+        if (mev.kind === 'missionEnd') {
           // PR 361: a lost mission names the primary that lost it, at once,
           // in the feed and on the outcome card -- never a bare verdict over
           // clocks that have simply stopped.
-          missionFailure = me.result === 'defeat' ? failureReason(runtime?.defeatCause, liveObjectives(), me.tick) : null;
+          missionFailure = mev.result === 'defeat' ? failureReason(runtime?.defeatCause, liveObjectives(), mev.tick) : null;
           if (missionFailure) hud.note(escapeHtml(missionFailure), 'bad');
           // The end screen must not land over a live step panel — an early
           // mission end (e.g. destroy_all completing before lesson 12) is not
@@ -4506,8 +4527,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           // sent IN with, which is the `before` the slot reattachment compares
           // against.
           const carryover =
-            me.result === 'victory'
-              ? applyRosterCarryover(ledger, me.ledger, lostThisMission, {
+            mev.result === 'victory'
+              ? applyRosterCarryover(ledger, mev.ledger, lostThisMission, {
                   missionId: mission.id,
                   kindOf: (typeId) => nameKind(unitFor(typeId), names as NamesJson),
                   names: names as NamesJson,
@@ -4517,8 +4538,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                   displayName: (typeId) => units[typeId as keyof typeof units]?.name ?? typeId,
                 })
               : null;
-          const updatedLedger: CampaignLedger = carryover ? carryover.ledger : { ...ledger, ...me.ledger };
-          if (me.result === 'victory')
+          const updatedLedger: CampaignLedger = carryover ? carryover.ledger : { ...ledger, ...mev.ledger };
+          if (mev.result === 'victory')
             telemetry().campaignProgress(mission.id, Object.keys(updatedLedger['campaign.mission_results'] ?? {}).length);
           let payout: ReturnType<typeof payVictory> | null = null;
           // KS-12: whether this victory's write was refused (and put back), and
@@ -4529,7 +4550,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           // Who took a fallen place (WP-G-E4). Empty on a defeat, like `payout`.
           // The fallen themselves are named from the mission log (GH-417).
           const replacements = carryover ? carryover.replacements : [];
-          if (me.result === 'victory') {
+          if (mev.result === 'victory') {
             // Read BEFORE the ledger write (GH-330): a version-1 account migrates its
             // per-campaign record against the ledger's completed missions, and after
             // the write this very victory would count as already won this campaign.
@@ -4546,7 +4567,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // is not a campaign mission. Gate on the mission's own contract rather
             // than a name list, the same test `validate_data.mjs` already applies.
             if (mission.ledger.produces.length > 0 && ledgerStore.available) {
-              const runValue = creditsFor(creditInputFrom(runtime, me.roeRating, mission.roe?.fail_below));
+              const runValue = creditsFor(creditInputFrom(runtime, mev.roeRating, mission.roe?.fail_below));
               payout = missionId
                 ? payVictory(accountBefore, parseWorld(world), missionId, ledger, runValue, Date.now())
                 : null;
@@ -4597,10 +4618,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                 unlock: kdfUnlockGate(u, boughtUnits),
               }));
             const tier = tierLine(runtime.stars);
-            const promotion = me.result === 'victory' ? promotionAfter(commanderData, worldData, missionId) : null;
+            const promotion = mev.result === 'victory' ? promotionAfter(commanderData, worldData, missionId) : null;
             // The end of the war: said on the report of the victory that
             // finished the campaign, and never again (`campaign-close.ts`).
-            const closing = closingExchange(worldData, ledger, updatedLedger, me.result);
+            const closing = closingExchange(worldData, ledger, updatedLedger, mev.result);
             const nextJson = nextMissionId ? (missions as Record<string, MissionJson | undefined>)[nextMissionId] : undefined;
             const region = enemyRegion;
             const villain = region ? commanderData.villains?.[region.id] : undefined;
@@ -4610,7 +4631,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // line is skipped rather than printed as "Nobody still out."
             const account = hostagesAccount(worldData, updatedLedger);
             // A defeat writes nothing, so nobody "came back" on one.
-            const cameBack = me.result === 'victory' ? (me.ledger['civ.hostages_recovered']?.[missionId] ?? 0) : 0;
+            const cameBack = mev.result === 'victory' ? (mev.ledger['civ.hostages_recovered']?.[missionId] ?? 0) : 0;
             const place = (mission as { hostages_place?: string }).hostages_place;
             // Truthiness rather than `!== undefined`: the schema puts no
             // `minLength` on `hostages_place`, so an empty string is authorable
@@ -4621,10 +4642,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               : undefined;
             // A victory that left hostiles standing says so ("6 withdrew"). A READ of
             // the sim at the end tick; `after-action.ts` shows it on a victory only.
-            const withdrew = livingHostiles(sim.state, sim.entityCount);
+            const withdrew = livingHostiles(sim.state, sim.entityCount, me);
             // G11: the mission's own closing word, outcome-aware, resolved to a
             // plate/portrait the way the commander bar resolves one.
-            const say = me.result === 'victory' ? mission.debrief?.victory : mission.debrief?.defeat;
+            const say = mev.result === 'victory' ? mission.debrief?.victory : mission.debrief?.defeat;
             const speaker: ReportSpeaker | undefined = say
               ? {
                   plate: speakerPlate(hudCommander, say.speaker),
@@ -4636,7 +4657,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // Spec §4.5's WHY for an unlock, kept: the stars or the campaign
             // Conduct that opened it. Through `t()` now (it was raw English).
             const unlocks =
-              me.result === 'victory'
+              mev.result === 'victory'
                 ? newlyUnlocked(kdfUnits, ledger, updatedLedger).map((u) => {
                     if (u.gate === 'stars') return { name: u.name, why: t('aar.unlock.stars', { n: starsEarned(updatedLedger) }) };
                     if (u.gate !== 'conduct') return { name: u.name };
@@ -4651,9 +4672,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // GH-417 (H5): the after-action report. Its words are
             // `after-action.ts`'s; the log is what this run remembered.
             const report = afterAction({
-              result: me.result,
+              result: mev.result,
               stars: runtime.stars,
-              roe: me.roeRating,
+              roe: mev.roeRating,
               roeFloor: starRoeFloor(mission.roe?.fail_below),
               ticks: sim.tickCount,
               targetMinutes: (mission as { target_minutes?: number }).target_minutes,
@@ -4665,7 +4686,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               credits: creditsInfo,
               unsaved: victoryUnsaved,
               promotions:
-                me.result === 'victory'
+                mev.result === 'victory'
                   ? promotionsBetween(ledger['roster.surviving_units'] ?? [], updatedLedger['roster.surviving_units'] ?? [])
                   : [],
               replacements,
@@ -4677,7 +4698,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               typeName,
             });
             const debriefOpts: DebriefOptions = {
-              result: me.result,
+              result: mev.result,
               stars: runtime.stars,
               report,
               speaker,
@@ -4749,7 +4770,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // One value for both surfaces: the moment previews the
             // `aftermath` for its hold, and the end screen below carries the
             // same one where it can be read (the second correction to ruling 9).
-            const momentOptions = outcomeMomentOptions(me.result, mission, creditsInfo, missionFailure);
+            const momentOptions = outcomeMomentOptions(mev.result, mission, creditsInfo, missionFailure);
             const moment = outcomeMoment(document.body, momentOptions);
             // PA-07: the HUD steps back for the beat and stays back under the
             // report; the battlefield's teardown brings it back.
@@ -4762,14 +4783,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                 if (sim.state.alive[i] !== 1) continue;
                 const p = { x: fx.toNumber(sim.state.posX[i]), y: fx.toNumber(sim.state.posY[i]) };
                 if (unitJson[sim.unitTypes[sim.state.typeIdx[i]].id]?.faction === 'civilian') civilians.push(p);
-                else if (sim.state.side[i] === 0) force.push(p);
+                else if (isOwnSide(sim.state.side[i], me)) force.push(p);
               }
               beat = {
                 t0: performance.now(),
                 reduced: prefersReducedMotion(),
                 from: { x: renderer.camera.x, y: renderer.camera.y, zoom: renderer.camera.zoom },
                 focus: beatFocus({
-                  result: me.result,
+                  result: mev.result,
                   objectives: mission.objectives.map((o) => ({
                     type: o.type,
                     primary: o.primary,
@@ -4785,12 +4806,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // Polish pass F: the verdict is heard. The stinger stops every
             // voice, fades combat and the music under itself, and holds every
             // other cue off; the music comes back at the menu's level.
-            audio.playCue(OUTCOME_CUE[me.result]);
+            audio.playCue(OUTCOME_CUE[mev.result]);
             // AU-5: the verdict is the last word -- no bark or call after it.
             voice.hush('outcome');
             // Audio plan §5.4: Shai's verdict on the net, starting as the
             // stinger's head ends (the mixer delays it; no timer here).
-            voice.outcome(me.result);
+            voice.outcome(mev.result);
             audio.setMusicScene('menu');
             // Final review, ruling 9: the moment is the verdict, so the HUD's
             // own "Mission accomplished"/"Mission failed" banner stands down
@@ -5172,8 +5193,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       },
 
       /** Living units with their type id and tile, for finding something to
-       *  select. Side 0 unless asked otherwise. */
-      units: (side = 0) => {
+       *  select. The seat's own side (0 in single-player) unless asked
+       *  otherwise. */
+      units: (side = me) => {
         const out: { id: number; type: string; x: number; y: number }[] = [];
         for (let i = 0; i < sim.entityCount; i++) {
           if (sim.state.alive[i] !== 1 || sim.state.side[i] !== side) continue;
@@ -5270,16 +5292,18 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // wall the pixel shows, which an order resolves to instead of the hidden
   // ground behind it. `hw` is that order point; `pp.ground` stays the
   // ground, for the friendly hover below, which is about units, not orders.
-  const pp = pointerPoint(renderer, sim, lastCursor.x, lastCursor.y);
+  const pp = pointerPoint(pointerView, sim, lastCursor.x, lastCursor.y);
   const hw = { x: pp.x, y: pp.y };
   const hs = sim.structureAt(Math.floor(hw.x), Math.floor(hw.y));
   renderer.hoverStructure = hs;
   renderer.hoverCanGarrison =
     hs >= 0 &&
-    sim.structures.occupants[hs] < sim.structureTypes[sim.structures.typeIdx[hs]].garrisonSlots &&
+    // In a versus room a building out of sight reads as empty, so the arrow
+    // does not say whether the enemy has filled it (N1a final review).
+    garrisonRoomShown(sim, hs, versusRoom, (wx, wy) => renderer.isVisible(wx, wy)) &&
     renderer.selection.some(
       (i) =>
-        sim.state.side[i] === 0 &&
+        isOwnSide(sim.state.side[i], me) &&
         sim.state.alive[i] === 1 &&
         sim.unitTypes[sim.state.typeIdx[i]].canGarrison &&
         sim.state.garrisonedIn[i] !== hs
@@ -5310,7 +5334,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   let hf = -1;
   let bestF = 0.5 * 0.5;
   for (let i = 0; i < sim.entityCount; i++) {
-    if (sim.state.alive[i] === 0 || sim.state.side[i] !== 0) continue;
+    if (sim.state.alive[i] === 0 || !isOwnSide(sim.state.side[i], me)) continue;
     const ex = fx.toNumber(sim.state.posX[i]);
     const ey = fx.toNumber(sim.state.posY[i]);
     if (!renderer.isVisible(ex, ey)) continue;
@@ -5346,7 +5370,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     tut && he >= 0
       ? fireState(
           renderer.selection
-            .filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1)
+            .filter((i) => isOwnSide(sim.state.side[i], me) && sim.state.alive[i] === 1)
             .map((i) => sim.projectHit(i, he))
         )
       : null;
@@ -5374,7 +5398,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // adapter (intentWorld) at the same point (`pp`) -- so the click and the
   // cursor that predicts it can never give different answers. `cursorAt`
   // (input/pointer.ts) is also what pointer.test.ts reads at a fixed pixel.
-  const mine = renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
+  const mine = renderer.selection.filter((i) => isOwnSide(sim.state.side[i], me) && sim.state.alive[i] === 1);
   const { name, key } = cursorAt(sim, intentWorld, pp, {
     ids: mine,
     armed: armedSupport,
@@ -5443,6 +5467,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // constructed with its own scheduler stopped, and `frame` presents before it
   // returns, so the order within a frame is still tick -> draw -> present.
   let rafId = 0;
+  // A versus seat keeps no unit of the other side selected once the fog hides
+  // it (N1a final review): its HUD card would go on reporting a unit this seat
+  // cannot see. Single-player never prunes, as main never did.
+  const seatSight: SeatSight = {
+    viewer: me,
+    sideOf: (i) => sim.state.side[i],
+    posOf: (i) => ({ x: fx.toNumber(sim.state.posX[i]), y: fx.toNumber(sim.state.posY[i]) }),
+    fogVisible: (wx, wy) => renderer.isVisible(wx, wy),
+  };
   const loop = (): void => {
     rafId = requestAnimationFrame(loop);
     // The speed control feeds the ACCUMULATOR, never the tick. A tick is 50 ms
@@ -5530,6 +5563,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // one tick, held at 1 -- a stall or a late frame freezes the picture on
     // the newest state rather than extrapolating past it.
     const alpha = transport.local ? clock.acc / MS_PER_TICK : Math.min(1, (now - lastTickAt) / MS_PER_TICK);
+    if (versusRoom) {
+      const kept = pruneHiddenHostiles(renderer.selection, seatSight);
+      if (kept !== renderer.selection) renderer.selection = kept;
+    }
     renderer.frame(alpha, lastFrameMs * (pose?.timeScale ?? 1));
 
     updateHover();

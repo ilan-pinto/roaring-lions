@@ -29,6 +29,7 @@ const world: AlertWorld = {
   markerAt: () => null,
   arrivedAt: () => null,
   reinforcement: () => null,
+  viewer: 0,
 };
 const destroyed = (entity: number, by: number): SimEvent => ({ kind: 'destroyed', tick: 0, entity, by }) as SimEvent;
 const lost = (entity: number, unit: string): MissionEvent =>
@@ -597,5 +598,52 @@ describe('alertsForTick — a tunnel found (GH-471)', () => {
 
   it('has its line in the catalogue', () => {
     expect((en as Record<string, string>)['alert.tunnelFound']).toMatch(/tunnel found/);
+  });
+});
+
+// N1a task 6: in a versus room seat 1 commands sim side 1, so "ours" is
+// entities 10-29 here and side 0 (0-9) is the enemy. Every branch that asked
+// "is this side 0" now asks the world's viewer; each case below is a branch.
+describe('alertsForTick — a seat on side 1 (N1a task 6)', () => {
+  const one: AlertWorld = { ...world, viewer: 1 };
+  const kinds = (sim: readonly SimEvent[], mission: readonly MissionEvent[] = []): string[] =>
+    alertsForTick(initAlertState(), sim, mission, one, 40).alerts.map((a) => a.kind);
+  const routed = (entity: number): SimEvent => ({ kind: 'routed', tick: 0, entity }) as SimEvent;
+  const component = (target: number): SimEvent =>
+    ({ kind: 'component', tick: 0, target, result: 'mobility_kill', overmatch: 0 }) as unknown as SimEvent;
+  const tunnel = (side: number): SimEvent =>
+    ({ kind: 'tunnelContact', tick: 0, side, tunnel: 0, level: 'identified', observer: 12 }) as SimEvent;
+
+  it('a removed unit of side 1 raises the alert, and one of side 0 does not', () => {
+    expect(kinds([], [ev<'removed'>({ kind: 'removed', tick: 0, entity: 12, side: 1, unit: 'inf_squad' })])).toEqual(['removed']);
+    expect(kinds([], [ev<'removed'>({ kind: 'removed', tick: 0, entity: 2, side: 0, unit: 'inf_squad' })])).toEqual([]);
+  });
+
+  it('under fire, pinned, broken and damaged are about side 1\'s units, not side 0\'s', () => {
+    expect(kinds([fire(12)])).toEqual(['underFire']);
+    expect(kinds([fire(2)])).toEqual([]);
+    expect(kinds([pinned(12)])).toEqual(['pinned']);
+    expect(kinds([pinned(2)])).toEqual([]);
+    expect(kinds([routed(12)])).toEqual(['broken']);
+    expect(kinds([routed(2)])).toEqual([]);
+    expect(kinds([component(17)])).toEqual(['damaged']);
+    expect(kinds([component(7)])).toEqual([]);
+  });
+
+  it('a kill is side 0 killed by side 1; the reverse is not news', () => {
+    expect(kinds([destroyed(2, 12)])).toEqual(['kill']);
+    expect(kinds([destroyed(12, 2)])).toEqual([]);
+    // A civilian is nobody's kill line, for either seat.
+    expect(kinds([destroyed(31, 12)])).toEqual([]);
+  });
+
+  it('a tunnel side 1 identifies is found; one side 0 identifies is not', () => {
+    expect(kinds([tunnel(1)])).toEqual(['tunnel']);
+    expect(kinds([tunnel(0)])).toEqual([]);
+  });
+
+  it('an ambush sprung by side 0 is bad news; one of side 1\'s springing is not', () => {
+    expect(kinds([ambush(2)])).toEqual(['ambush']);
+    expect(kinds([ambush(12)])).toEqual([]);
   });
 });

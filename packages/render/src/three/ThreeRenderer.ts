@@ -120,6 +120,7 @@ import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project'
 import { QUALITY_PRESETS } from '../quality';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
 import { SIM_HZ } from '../anim';
+import { colorSlot, isHostileSide, isOwnSide } from '../relation';
 import { resolveClip, cadenceScale, type UnitAnimInput } from '../clip';
 import {
   approachAngle,
@@ -419,6 +420,7 @@ import {
   DECAL_FADING_RENDER_ORDER,
 } from './units/render-order';
 import { unitIsObserved } from './units/observed';
+import { fireVisible } from './fire-visible';
 import { ZoneBandBatch } from './units/zone-band';
 import { ProxyBoxBatch, proxyBoxDims, type ProxyBoxEntry } from './units/proxy-box';
 import {
@@ -961,6 +963,16 @@ export class ThreeRenderer implements Renderer {
 
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
+  /** The sim side this player commands (`opts.viewerSide`, network design
+   *  §5.1): its units reveal fog and always draw. Absent is 0, single-player,
+   *  so every viewer-0 path is exactly the old `side === 0` one. Read once:
+   *  `setTeamColors` may swap `opts`, but the seat never changes mid-mission. */
+  private readonly viewer: number;
+  /** `opts.versus` (network design §5.1): fog is private to this seat, so the
+   *  two leaks close -- picking a hidden unit, and seeing hostile fire through
+   *  fog. False in single-player, where every one of those gates is skipped
+   *  and the picture and the click are exactly what they were before. */
+  private readonly versus: boolean;
   /** The scene's sun and sky bounce (`lighting.ts`). Built in the
    *  constructor, not `init`, because every material in this scene is a
    *  `MeshStandardMaterial` now: a scene with no lights in it is not a
@@ -2378,6 +2390,8 @@ export class ThreeRenderer implements Renderer {
     // `units/gltf-loader.ts` holds it for the whole module graph, because the
     // decoder is a property of the runtime rather than of any one asset.
     if (opts.dracoDecoderPath) setDracoDecoderPath(opts.dracoDecoderPath);
+    this.viewer = opts.viewerSide ?? 0;
+    this.versus = opts.versus === true;
     this.showcasePending = opts.decalShowcase !== undefined;
     // The world never moves (a shake moves a COPY of the camera), so the scene
     // stops forcing a world-matrix multiply on every object each frame; what
@@ -3984,9 +3998,9 @@ export class ThreeRenderer implements Renderer {
    * the three.js counterpart of `PixiRenderer.drawTrail`'s own direct `Sim`
    * reads (`renderer.ts:1132-1155`). `routeLevel` reproduces that method's
    * collapse downgrade verbatim: "a collapsed route keeps drawing its
-   * residual spoil... but never the identified line." Side hardcoded to 0 at
-   * every callback, matching Pixi exactly -- trails are what the PLAYER has
-   * found, never the AI's own contact state.
+   * residual spoil... but never the identified line." Every callback reads
+   * the viewer's side (`this.viewer`, 0 outside a versus room) -- trails are
+   * what the PLAYER has found, never the other side's contact state.
    */
   /**
    * GH-227: one `TunnelRouteView` per route for `tunnel-props.ts`, from the
@@ -3994,7 +4008,7 @@ export class ThreeRenderer implements Renderer {
    * (`tunnelPointAt` for the mouth and the dig head, `tunnelVent` for the
    * exit). Route points are raw tile coordinates; the half-tile puts a
    * piece on the tile's centre, where `Sim.tunnelVent` already puts the
-   * vent. Side hardcoded to 0, as the trail's is.
+   * vent. The viewer's side, as the trail's is.
    */
   private buildTunnelPropsInput(): TunnelPropsInput {
     const sim = this.sim;
@@ -4007,14 +4021,14 @@ export class ThreeRenderer implements Renderer {
       const headY = fx.toNumber(head[1]) + 0.5;
       routes.push({
         alive: sim.tnAlive[r] !== 0,
-        contactLevel: sim.tunnelContactLevel(0, r),
+        contactLevel: sim.tunnelContactLevel(this.viewer, r),
         ventOpen: sim.tnVentOpen[r] !== 0,
         progressTiles: fx.toNumber(sim.tnProgress[r]),
         lengthTiles: fx.toNumber(sim.tnLength[r]),
         mouth: [fx.toNumber(mouth[0]) + 0.5, fx.toNumber(mouth[1]) + 0.5],
         vent: [fx.toNumber(vent[0]), fx.toNumber(vent[1])],
         digHead: [headX, headY],
-        digHeadSeen: sim.sideSeesTile(0, Math.floor(headX), Math.floor(headY)),
+        digHeadSeen: sim.sideSeesTile(this.viewer, Math.floor(headX), Math.floor(headY)),
       });
     }
     return {
@@ -4052,20 +4066,20 @@ export class ThreeRenderer implements Renderer {
     this.tunnelXray.build(routes, (x, y) => groundWorldY(elevation, sim.width, sim.height, x, y));
   }
 
-  /** GH-471, on the trail's own 5 Hz refresh: side 0's level on each route
+  /** GH-471, on the trail's own 5 Hz refresh: the viewer's level on each route
    *  (after the collapse downgrade), and whether a `mark_tunnel` carrier of
-   *  side 0 sees any tile of it right now -- `markerSeesTile`, the read the
+   *  the viewer's side sees any tile of it right now -- `markerSeesTile`, the read the
    *  retired identified-line rung drew with. Stops at the first tile seen. */
   private xrayRouteState(): void {
     this.xrayEnsureBuilt();
     const sim = this.sim;
     const now = presentationSimMs(sim.tickCount, 1) / 1000;
     for (let r = 0; r < sim.tunnelCount; r++) {
-      const level = collapsedRouteLevel(sim.tnAlive[r] !== 0, sim.tunnelContactLevel(0, r));
+      const level = collapsedRouteLevel(sim.tnAlive[r] !== 0, sim.tunnelContactLevel(this.viewer, r));
       let held = false;
       if (level === 2) {
         for (const t of this.xrayRouteTiles[r]) {
-          if (sim.markerSeesTile(0, t % sim.width, Math.floor(t / sim.width))) {
+          if (sim.markerSeesTile(this.viewer, t % sim.width, Math.floor(t / sim.width))) {
             held = true;
             break;
           }
@@ -4102,12 +4116,12 @@ export class ThreeRenderer implements Renderer {
       // rung. A level-2 route still shows its spoil exactly as a suspected
       // one does: the dirt is real whatever the player knows about it.
       routeLevel: (r) => {
-        const lv = collapsedRouteLevel(sim.tnAlive[r] !== 0, sim.tunnelContactLevel(0, r));
+        const lv = collapsedRouteLevel(sim.tnAlive[r] !== 0, sim.tunnelContactLevel(this.viewer, r));
         return lv === 2 ? 1 : lv;
       },
       tunnelUnderTile: (r, x, y) => sim.tunnelUnderTile(r, x, y),
-      seenByAnyone: (x, y) => sim.sideSeesTile(0, x, y),
-      seenByCarrier: (x, y) => sim.markerSeesTile(0, x, y),
+      seenByAnyone: (x, y) => sim.sideSeesTile(this.viewer, x, y),
+      seenByCarrier: (x, y) => sim.markerSeesTile(this.viewer, x, y),
     };
   }
 
@@ -4214,7 +4228,11 @@ export class ThreeRenderer implements Renderer {
             if (this.vehicleTrackSeeded[i] === 1 && (dx !== 0 || dy !== 0)) {
               const r = stepTrackAccum(this.vehicleTrackAccumTiles[i], dx, dy);
               this.vehicleTrackAccumTiles[i] = r.accumTiles;
-              if (r.stamps > 0) {
+              // A versus seat gets no prints from a vehicle the fog hides
+              // from it (N1a final review): the accumulator above still runs,
+              // so the spacing is the same once it comes into sight. Never
+              // true in single-player (`hiddenFromViewer` reads `versus` first).
+              if (r.stamps > 0 && !this.hiddenFromViewer(i)) {
                 const facingNorm = fx.toNumber(st.facing[i]);
                 const decalKind = kind === 'tracked' ? 'tread' : 'tyre';
                 const footprint = TRACK_FOOTPRINT[kind];
@@ -4278,6 +4296,7 @@ export class ThreeRenderer implements Renderer {
       sightByType: this.sightByType,
       blocked: this.sim.blocked,
       isLowProfile: (x, y) => this.isLowProfileTile(x, y),
+      viewerSide: this.viewer,
     };
     this.fog = computeFog(this.fog, input);
     this.shroudDirty = true;
@@ -4400,7 +4419,7 @@ export class ThreeRenderer implements Renderer {
         this.onStrike(e.x, e.y, e.tick);
       } else if (e.kind === 'tunnelCollapsed') {
         this.onTunnelCollapsed(e.tunnel, e.tick);
-      } else if (e.kind === 'tunnelContact' && e.side === 0 && e.level === 'identified') {
+      } else if (e.kind === 'tunnelContact' && isOwnSide(e.side, this.viewer) && e.level === 'identified') {
         // GH-471: the discovery beat. `observer` is the carrier that read
         // the route (-1 when spoil alone got it there); the beam starts at
         // its body, at flying height for an aircraft.
@@ -4682,6 +4701,19 @@ export class ThreeRenderer implements Renderer {
     const atStruct = e.target < 0 && e.structure !== undefined;
     const tx = atStruct ? fx.toNumber(this.sim.structures.cx[e.structure as number]) : this.curX[e.target];
     const ty = atStruct ? fx.toNumber(this.sim.structures.cy[e.structure as number]) : this.curY[e.target];
+    // Network design §5.1's second leak: in a versus room, hostile fire with
+    // neither end in sight draws nothing -- no tracer, round, backblast,
+    // flash light, muzzle flash or smoke. The audio, the fire link and the
+    // shooter's own latch and recoil (its body is fogged anyway) are left as
+    // they are. Single-player draws every shot, as it always has.
+    const seen =
+      !this.versus ||
+      fireVisible(
+        st.side[e.shooter],
+        this.viewer,
+        this.isVisible(this.curX[e.shooter], this.curY[e.shooter]),
+        this.isVisible(tx, ty)
+      );
 
     const type = this.sim.unitTypes[st.typeIdx[e.shooter]];
     // Which weapon fired decides the signature, not whether the shooter is
@@ -4708,9 +4740,9 @@ export class ThreeRenderer implements Renderer {
     // arrived.
     // Fire link: is this the SELECTED unit's own shot? Read off the
     // renderer's own selection, never fed back (invariant 4).
-    const linked = st.side[e.shooter] === 0 && this.selection.includes(e.shooter);
+    const linked = isOwnSide(st.side[e.shooter], this.viewer) && this.selection.includes(e.shooter);
     let flightS: number | null = null;
-    if (shellKind === null) {
+    if (seen && shellKind === null) {
       this.tracers.push(spawnTracer(this.curX[e.shooter], this.curY[e.shooter], tx, ty, st.side[e.shooter]));
     }
     // GH-85 (`eod_breach`): a demolition charge is in the air until the sim
@@ -4748,7 +4780,7 @@ export class ThreeRenderer implements Renderer {
       // dust and flame).
       const launchers = armed.filter((f) => f.recoil === 'launcher');
       const fromTube = launchers.length > 0 && shellKind === 'missile';
-      if (fromTube) this.spawnBackblast(e.shooter, Math.atan2(ty - this.curY[e.shooter], tx - this.curX[e.shooter]));
+      if (fromTube && seen) this.spawnBackblast(e.shooter, Math.atan2(ty - this.curY[e.shooter], tx - this.curX[e.shooter]));
       const pool = fromTube ? launchers : armed;
       if (pool.length > 0) {
         const shot = squadRig.shots++;
@@ -4833,7 +4865,9 @@ export class ThreeRenderer implements Renderer {
     // Y here would freeze the arc's baseline to whatever the muzzle
     // happened to sit at, which is wrong the moment a shot crosses a
     // terrace.
-    if (shellKind === 'missile') {
+    if (!seen) {
+      // A versus seat with neither end of this shot in sight: no round (§5.1).
+    } else if (shellKind === 'missile') {
       // GH-250: a missile is MissileFx's, not a bolt -- see units/missiles.ts.
       // The DURATION uses the shooter-centre distance the sim counts (P-1);
       // the PATH starts at the muzzle, like every round. P-1 is approximate
@@ -4914,7 +4948,7 @@ export class ThreeRenderer implements Renderer {
     // resolved through the same `overlayColor` every other palette-key
     // consumer in this file already uses, falling back to `vfx.fire`'s own
     // shipped `#FFB43C` if the key is missing.
-    if (emitter?.light) {
+    if (seen && emitter?.light) {
       const light = emitter.light;
       this.flashLights.spawn(
         mzX,
@@ -4934,7 +4968,7 @@ export class ThreeRenderer implements Renderer {
       this.recoilPower[e.shooter] = power;
     }
 
-    if (emitter && this.particleSystem) {
+    if (seen && emitter && this.particleSystem) {
       const dirTurns = facingRad / (Math.PI * 2);
       const prio = emitter.budget_priority ?? 5;
       for (const layer of emitter.particles) {
@@ -4971,7 +5005,7 @@ export class ThreeRenderer implements Renderer {
         const fxLayer = fxLayerIndex(emitter.layer, layer.additive ?? false);
         this.particleSystem.spawn(layer, mzX, mzY, dirTurns + offset, power, prio, fxLayer);
       }
-    } else if (!airLaunch) {
+    } else if (seen && !airLaunch) {
       // No emitter authored for this weapon class yet: the flat-colour
       // fallback Pixi's own `puffs` stand in with (renderer.ts:811-818),
       // reproduced through the SAME ParticleSystem pool real emitters use
@@ -5356,6 +5390,9 @@ export class ThreeRenderer implements Renderer {
         // No elapsed time, no dust -- see "a speed-driven dust interval" above.
         if (dt <= 0 || this.vehicleDustAccumMs[i] < interval) continue;
         this.vehicleDustAccumMs[i] = (this.vehicleDustAccumMs[i] - interval) % interval;
+        // A versus seat sees no dust from a vehicle hidden from it (N1a final
+        // review); the clock above is spent either way. Never in single-player.
+        if (this.hiddenFromViewer(i)) continue;
 
         const drawn = this.vehicleMeshEntities.get(i)?.root.position;
         const anchor = vehicleFxAnchor(
@@ -5455,7 +5492,10 @@ export class ThreeRenderer implements Renderer {
       this.sim.state.alive,
       this.sim.state.tunnelIn,
       this.snapshottedCount,
-      radiusTiles
+      radiusTiles,
+      0,
+      0,
+      this.pickable
     );
   }
   /** A left-click's unit -- `units/pick.ts`'s `pickUnitAtScreen` has the
@@ -5473,7 +5513,8 @@ export class ThreeRenderer implements Renderer {
       this.sim.width,
       this.sim.height,
       this.camera,
-      { width: this.width, height: this.height }
+      { width: this.width, height: this.height },
+      this.pickable
     );
   }
   /**
@@ -5499,6 +5540,30 @@ export class ThreeRenderer implements Renderer {
    *  predicate so it can stay free of `ThreeRenderer`, and the three unit
    *  loops call it once per living entity. */
   private readonly fogVisibleAt = (wx: number, wy: number): boolean => this.isVisible(wx, wy);
+  /** True when unit `i` is one this seat must not be shown through fog: in a
+   *  versus room, anyone not its own whom the fog hides right now (network
+   *  design §5.1). Always false in single-player, which keeps picking, the
+   *  fire link and the charge rings exactly as they were. Reads `this.viewer`
+   *  and `this.versus` at call time, so it is safe as a field initialiser. */
+  private readonly hiddenFromViewer = (i: number): boolean =>
+    this.versus &&
+    !unitIsObserved(this.sim.state.side[i], this.viewer, this.curX[i], this.curY[i], this.fogVisibleAt);
+  /** A unit the viewer may select: their own, or another they can see (§5.1).
+   *  Every unit in single-player, as before. */
+  private readonly pickable = (i: number): boolean => !this.hiddenFromViewer(i);
+  /** True when any tile of structure `s`'s own footprint is in sight this
+   *  frame. Asked only in a versus room (the held-building badge, N1a final
+   *  review); a footprint's bounding box can hold tiles that are not the
+   *  structure's own, so each tile is checked against `structureAt`. */
+  private structureInSight(s: number): boolean {
+    const str = this.sim.structures;
+    for (let y = str.minY[s]; y <= str.maxY[s]; y++) {
+      for (let x = str.minX[s]; x <= str.maxX[s]; x++) {
+        if (this.sim.structureAt(x, y) === s && this.isVisible(x + 0.5, y + 0.5)) return true;
+      }
+    }
+    return false;
+  }
   /**
    * Living units whose projected FEET fall inside a screen-space rect --
    * box-select's answer. A genuine projection question, unlike `pickUnit`
@@ -5521,7 +5586,8 @@ export class ThreeRenderer implements Renderer {
       this.sim.width,
       this.sim.height,
       this.camera,
-      { width: this.width, height: this.height }
+      { width: this.width, height: this.height },
+      this.pickable
     );
   }
 
@@ -5882,7 +5948,7 @@ export class ThreeRenderer implements Renderer {
       if (this.meshUnitTemplates.has(type.id) || this.vehicleMeshTemplates.has(type.id)) continue;
       const x = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
       const z = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
-      if (this.unitsDebugHidden || !unitIsObserved(st.side[i], x, z, this.fogVisibleAt)) continue;
+      if (this.unitsDebugHidden || !unitIsObserved(st.side[i], this.viewer, x, z, this.fogVisibleAt)) continue;
       const cls = RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type);
       const lift = type.isAir ? AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL : 0;
       const facing = fx.toNumber(st.facing[i]);
@@ -5902,7 +5968,9 @@ export class ThreeRenderer implements Renderer {
       });
     }
     if (entries.length === 0 && this.proxyBoxes === null) return;
-    if (this.proxyBoxes === null) this.proxyBoxes = new ProxyBoxBatch(this.scene, this.opts.teamColors);
+    if (this.proxyBoxes === null) {
+      this.proxyBoxes = new ProxyBoxBatch(this.scene, this.opts.teamColors, (side) => colorSlot(side, this.viewer));
+    }
     this.proxyBoxes.update(entries);
   }
 
@@ -6825,11 +6893,11 @@ export class ThreeRenderer implements Renderer {
       // drawn raw is a 20 Hz stutter (motion pass, finding #4).
       const aimYaw = meshYawFromFacing(lerpFacingTurns(this.prevFacing[i], this.curFacing[i], alpha));
       entity.root.rotation.y = aimYaw;
-      // Side 0 (the player's own) is always drawn, matching `entityFrame`'s
+      // The viewer's own side is always drawn, matching `entityFrame`'s
       // own `contactLevel` short-circuit for it -- everything else defers to
       // real fog-of-war, exactly like `updateUnits`'s own `isVisible` gate.
       entity.root.visible =
-        !this.unitsDebugHidden && unitIsObserved(st.side[i], wx, wy, this.fogVisibleAt);
+        !this.unitsDebugHidden && unitIsObserved(st.side[i], this.viewer, wx, wy, this.fogVisibleAt);
 
       const anim: UnitAnimInput = {
         alive: st.alive[i],
@@ -7380,7 +7448,7 @@ export class ThreeRenderer implements Renderer {
       // `ThreeRenderer.vehicle-weight.test.ts` pins the sign in world space.
       entity.root.rotation.set(-roll, meshYawFromFacing(facingNorm), pitch, 'YZX');
       entity.root.visible =
-        !this.unitsDebugHidden && unitIsObserved(st.side[i], px, py, this.fogVisibleAt);
+        !this.unitsDebugHidden && unitIsObserved(st.side[i], this.viewer, px, py, this.fogVisibleAt);
 
       if (entity.turretPivot) {
         const target = this.resolveTurretTarget(i);
@@ -8186,7 +8254,11 @@ export class ThreeRenderer implements Renderer {
         VEHICLE_EXHAUST_OFFSET_TILES
       );
       const prio = exhaust.budget_priority ?? 1;
-      for (let slot = first; slot <= last; slot++) {
+      // A versus seat sees no exhaust from a vehicle hidden from it (N1a final
+      // review): the slots are still spent below, so no backlog is banked for
+      // when it comes into sight. Never true in single-player.
+      const exhaustHidden = this.hiddenFromViewer(i);
+      for (let slot = first; slot <= last && !exhaustHidden; slot++) {
         const rand = exhaustRand(i, slot);
         const ageSec = exhaustSlotAgeSec(slot, nowMs, interval);
         for (const layer of exhaust.particles) {
@@ -8235,7 +8307,10 @@ export class ThreeRenderer implements Renderer {
         VEHICLE_DAMAGE_SMOKE_OFFSET_TILES
       );
       const prio = smoke.budget_priority ?? 2;
-      for (let slot = first; slot <= last; slot++) {
+      // As the exhaust: no smoke from a vehicle hidden from a versus seat,
+      // slots still spent (N1a final review). Never true in single-player.
+      const smokeHidden = this.hiddenFromViewer(i);
+      for (let slot = first; slot <= last && !smokeHidden; slot++) {
         // Salted away from the exhaust's stream: the two never share puffs.
         const rand = exhaustRand(i + 0x20000, slot);
         const ageSec = exhaustSlotAgeSec(slot, nowMs, interval);
@@ -8285,7 +8360,10 @@ export class ThreeRenderer implements Renderer {
       }
       const [first, last] = washSlotsDue(this.rotorWashSlot[i], nowMs, maxLifeMs);
       const prio = wash.budget_priority ?? 1;
-      for (let slot = first; slot <= last; slot++) {
+      // As the exhaust: no wash from an aircraft hidden from a versus seat,
+      // slots still spent (N1a final review). Never true in single-player.
+      const washHidden = this.hiddenFromViewer(i);
+      for (let slot = first; slot <= last && !washHidden; slot++) {
         const rand = washRand(i, slot);
         const ageSec = washAgeSec(slot, nowMs);
         for (const layer of wash.particles) {
@@ -8368,7 +8446,7 @@ export class ThreeRenderer implements Renderer {
     // Identical presentation-only ageing, for the collapse shroud.
     this.collapseShrouds.step(dtMs);
     this.tracers = stepTracers(this.tracers, dtSeconds);
-    this.tracerBatch.update(this.tracers, this.opts.tracerColors, elevation, this.sim.width, this.sim.height);
+    this.tracerBatch.update(this.tracers, this.opts.tracerColors, elevation, this.sim.width, this.sim.height, this.viewer);
     // GH-145: the same real-frame-seconds ageing, for indirect rounds. Sim
     // ticks never reach this -- an arc is presentation, and a presentation
     // clock is the frame clock (invariant 1's other half).
@@ -8385,7 +8463,7 @@ export class ThreeRenderer implements Renderer {
     // frame clock; a mortar bomb lays none. Before `missileFx.step` below,
     // which ages and draws the shared pool.
     this.missileFx.layShellTrails(this.shells, elevation, this.sim.width, this.sim.height);
-    this.shellBatch.update(this.shells, this.opts.shellColors, elevation, this.sim.width, this.sim.height);
+    this.shellBatch.update(this.shells, this.opts.shellColors, elevation, this.sim.width, this.sim.height, this.viewer);
     // The direct-fire half, identical in shape and different in exactly the
     // three ways the `bolts` field documents -- here, the colour pair.
     // GH-85: a round carrying an `impact` outcome throws it on the frame it
@@ -8396,7 +8474,7 @@ export class ThreeRenderer implements Renderer {
       }
     }
     this.bolts = stepShells(this.bolts, dtSeconds);
-    this.boltBatch.update(this.bolts, this.opts.tracerColors, elevation, this.sim.width, this.sim.height);
+    this.boltBatch.update(this.bolts, this.opts.tracerColors, elevation, this.sim.width, this.sim.height, this.viewer);
     // GH-250: missiles on the same frame clock; a landing throws the HEAT
     // impact on this frame, the shellHasLanded rule (spec D7).
     // `landings` is MissileFx's own buffer, valid until the next step: it is
@@ -8820,7 +8898,7 @@ export class ThreeRenderer implements Renderer {
     side: number,
     batch: SelectionRingBatch = this.selectionRing,
     scale: number = SELECTED_RING_SCALE,
-    colorHex: string = this.opts.teamColors[side]
+    colorHex: string = this.opts.teamColors[colorSlot(side, this.viewer)]
   ): boolean {
     const p = this.ringScratch;
     p.x = x;
@@ -8907,6 +8985,7 @@ export class ThreeRenderer implements Renderer {
     for (const p of this.fireLinkPulses) {
       const k = pulseAt(now - p.bornS);
       if (k === null) continue;
+      if (this.hiddenFromViewer(p.target)) continue;
       const shape = this.fireLinkTargetShape(p.target, alpha);
       const { rightR, upR } = tileRadiusToEllipsePx(Math.max(shape.along, shape.across) * k.scale, TILE_W, TILE_H);
       const anchor: [number, number, number] = [
@@ -8915,7 +8994,7 @@ export class ThreeRenderer implements Renderer {
         shape.z,
       ];
       this.overlayBatch.ellipseRing(anchor, rightR, upR, 4, halo, k.alpha * 0.5);
-      this.overlayBatch.ellipseRing(anchor, rightR, upR, 2, this.opts.teamColors[st.side[p.target]] ?? this.opts.teamColors[1], k.alpha);
+      this.overlayBatch.ellipseRing(anchor, rightR, upR, 2, this.opts.teamColors[colorSlot(st.side[p.target], this.viewer)], k.alpha);
     }
   }
 
@@ -8942,7 +9021,7 @@ export class ThreeRenderer implements Renderer {
       this.silhouetteMeshMaterials[slot].color.set(this.overlayColor(key, SILHOUETTE_FALLBACK_HEX_BY_SIDE[slot]));
     });
     // One hit-flash material per side since VR-12, each in its own side's colour.
-    for (const [side, m] of this.fireLinkFlashMaterials) m.color.set(teamColors[side] ?? teamColors[1]);
+    for (const [side, m] of this.fireLinkFlashMaterials) m.color.set(teamColors[colorSlot(side, this.viewer)]);
     this.proxyBoxes?.setTeamColors(teamColors);
   }
 
@@ -8958,7 +9037,7 @@ export class ThreeRenderer implements Renderer {
       // Polish VR-12: the TARGET's side, with the pulse's own fallback. It was
       // `teamColors[1]` for every target, so a friendly unit hit by enemy fire
       // flashed enemy red while its pulse ring was friendly.
-      m = createMeshSilhouetteMaterial(this.opts.teamColors[side] ?? this.opts.teamColors[1]);
+      m = createMeshSilhouetteMaterial(this.opts.teamColors[colorSlot(side, this.viewer)]);
       m.depthTest = false;
       this.fireLinkFlashMaterials.set(side, m);
     }
@@ -9067,6 +9146,8 @@ export class ThreeRenderer implements Renderer {
   private drawsEnvelope(i: number): boolean {
     const st = this.sim.state;
     if (i >= this.snapshottedCount || st.alive[i] === 0) return false;
+    // In a versus room a selected hostile shows no range envelope (§5.1).
+    if (this.versus && !isOwnSide(st.side[i], this.viewer)) return false;
     const type = this.sim.unitTypes[st.typeIdx[i]];
     if (type.weapons.length === 0) return false;
     return fx.toNumber(type.weapons[0].effectiveRange) > 0;
@@ -9078,6 +9159,7 @@ export class ThreeRenderer implements Renderer {
     anchor: readonly [number, number, number],
     type: Sim['unitTypes'][number],
     r: number,
+    side: number,
     contactLevel: number,
     scale: number
   ): void {
@@ -9086,7 +9168,7 @@ export class ThreeRenderer implements Renderer {
     const h = CONTACT_MARK.halfPx * scale;
     const at = billboardPoint(anchor, 0, r + CONTACT_MARK.liftPx * scale);
     const halo = this.overlayColor(WORLD_HALO_COLOR_KEY);
-    const team = this.opts.teamColors[1] ?? this.overlayColor('team.hostile');
+    const team = this.opts.teamColors[colorSlot(side, this.viewer)] ?? this.overlayColor('team.hostile');
     for (const t of contactHaloTriangles(shape, h, CONTACT_MARK.haloPx * scale)) this.overlayBatch.triangle(at, t, halo, CONTACT_MARK.haloAlpha);
     for (const t of contactTriangles(shape, h)) this.overlayBatch.triangle(at, t, team, 1);
   }
@@ -9095,7 +9177,7 @@ export class ThreeRenderer implements Renderer {
    *  the whole scene, not one per unit. See `silhouetteMeshMaterials`' own
    *  field doc comment. */
   private silhouetteMaterialFor(side: number): THREE.MeshBasicMaterial {
-    return this.silhouetteMeshMaterials[silhouetteSideIndex(side)];
+    return this.silhouetteMeshMaterials[silhouetteSideIndex(side, this.viewer)];
   }
 
   /**
@@ -9185,7 +9267,7 @@ export class ThreeRenderer implements Renderer {
       // (that method's own top comment, "Task B4.2: a non-player unit is
       // now skipped..."), ported here separately because this loop is
       // separate (see this method's own top comment for why).
-      if (side !== 0 && !this.isVisible(ix, iy)) continue;
+      if (!isOwnSide(side, this.viewer) && !this.isVisible(ix, iy)) continue;
 
       const type = this.sim.unitTypes[st.typeIdx[i]];
       const r = unitOverlayRadiusPx(type.isSoft);
@@ -9224,8 +9306,8 @@ export class ThreeRenderer implements Renderer {
         // a separate per-entity loop (this method's own top comment) with no
         // `EntityFrame` to read it back from.
         let bodyAlpha = 1;
-        if (side !== 0) {
-          const lvl = this.sim.contactLevel(0, i);
+        if (!isOwnSide(side, this.viewer)) {
+          const lvl = this.sim.contactLevel(this.viewer, i);
           bodyAlpha = lvl === 2 ? 1 : lvl === 1 ? 0.65 : 0.35;
         }
         const shadowR = r * 0.7 + 2;
@@ -9270,7 +9352,7 @@ export class ThreeRenderer implements Renderer {
             top,
             -halfW + HP_BAR.widthPx * hpRatio,
             bottom,
-            this.overlayColor(hpBarColorKey(hpRatio, side === 0), HP_BAR_FALLBACK),
+            this.overlayColor(hpBarColorKey(hpRatio, isOwnSide(side, this.viewer)), HP_BAR_FALLBACK),
             1
           );
         }
@@ -9313,7 +9395,7 @@ export class ThreeRenderer implements Renderer {
       // shape-coded contact mark over every observed hostile -- this loop
       // has already skipped any hostile the player does not observe.
       if (!selected && inside < 0) this.pushSelectionRing(i, type, ix, iy, side, this.teamRing, 1);
-      if (side === 1) this.pushContactMark(anchor, type, r, this.sim.contactLevel(0, i), markScale);
+      if (isHostileSide(side, this.viewer)) this.pushContactMark(anchor, type, r, side, this.sim.contactLevel(this.viewer, i), markScale);
 
       // Selection ring (A4, GH-186): on the ground, in team colour, for a
       // unit standing on it. The old flat billboard ellipse -- renderer.ts:
@@ -9324,7 +9406,8 @@ export class ThreeRenderer implements Renderer {
       // (VR-34): it used to take the control group's colour, or tracer lime
       // with no group, so a unit's "selected" changed colour the moment it
       // stepped into a building. The group is still told by the badge.
-      const ringHex = i === groupPrimary ? primaryRingHex(this.opts.teamColors[side]) : this.opts.teamColors[side];
+      const ringSlot = colorSlot(side, this.viewer);
+      const ringHex = i === groupPrimary ? primaryRingHex(this.opts.teamColors[ringSlot]) : this.opts.teamColors[ringSlot];
       if (selected && (inside >= 0 || !this.pushSelectionRing(i, type, ix, iy, side, this.selectionRing, SELECTED_RING_SCALE, ringHex))) {
         const ringCenter = billboardPoint(anchor, 0, -2);
         this.overlayBatch.ellipseRing(ringCenter, r + 7, (r + 7) / 2, 2, ringHex, 1);
@@ -9356,7 +9439,7 @@ export class ThreeRenderer implements Renderer {
       // from a three-cell atlas. Reads the sim's own stripe count; the card and the
       // board show the same number in the same colour.
       const stripes = st.veterancy[i];
-      if (st.side[i] === 0 && stripes > 0) {
+      if (isOwnSide(st.side[i], this.viewer) && stripes > 0) {
         this.chevronBatch.push(billboardPoint(anchor, r + 4, r + 4), 0, 0, 12, 12, stripes);
       }
     }
@@ -9395,9 +9478,10 @@ export class ThreeRenderer implements Renderer {
         // Whose side the building is on, read ONCE for both the integrity bar
         // (VR-03: the player's own never fills enemy red) and the held badge
         // below: the first living occupant's side, else hostile -- the badge's
-        // own long-standing default.
+        // own long-standing default. -1 is "no side found", which every
+        // viewer reads as hostile (`colorSlot` slot 1, never `isOwnSide`).
         const occ = str.occupants[s];
-        let holder = 1;
+        let holder = -1;
         if (occ > 0) {
           for (let i = 0; i < n; i++) {
             if (st.alive[i] === 1 && st.garrisonedIn[i] === s) {
@@ -9406,7 +9490,7 @@ export class ThreeRenderer implements Renderer {
             }
           }
         }
-        const friendlyStructure = (occ > 0 && holder === 0) || stype.producesFor === 0;
+        const friendlyStructure = (occ > 0 && isOwnSide(holder, this.viewer)) || isOwnSide(stype.producesFor, this.viewer);
         if (ratio < 0.999) {
           this.overlayBatch.rect(
             structAnchor,
@@ -9434,8 +9518,13 @@ export class ThreeRenderer implements Renderer {
         // ALREADY-RESOLVED hex per side (the app's own job), the identical
         // source every other team-coloured overlay already reads from --
         // not a palette-key lookup at this call site.
-        if (occ > 0) {
-          const col = this.opts.teamColors[holder];
+        // A versus seat is not told who holds a building it cannot see, nor
+        // with how many men (N1a final review): the badge is the holder's
+        // colour and one pip per man. Single-player draws it fog or not, as
+        // main does -- `this.versus` short-circuits before anything is read.
+        const badgeHidden = this.versus && !isOwnSide(holder, this.viewer) && !this.structureInSight(s);
+        if (occ > 0 && !badgeHidden) {
+          const col = this.opts.teamColors[colorSlot(holder, this.viewer)];
           const by2Rel = -(topUp + 16); // Pixi's `by2 = top - 16`
           this.overlayBatch.triangle(
             structAnchor,
@@ -9478,6 +9567,7 @@ export class ThreeRenderer implements Renderer {
       const ringFill = this.overlayColor(CHARGE_RING_FILL_COLOR_KEY, CHARGE_RING_FILL_FALLBACK_COLOR);
       for (let i = 0; i < n; i++) {
         if (st.alive[i] === 0) continue;
+        if (this.hiddenFromViewer(i)) continue;
         const demo = this.sim.demolitionProgress(i);
         const prog = demo > 0 ? demo : this.sim.tunnelChargeProgress(i);
         if (prog <= 0) continue;
@@ -9551,7 +9641,7 @@ export class ThreeRenderer implements Renderer {
         };
         census.envelopes++;
         const w0 = type.weapons[0];
-        const fillHex = cachedDesaturate(this.opts.teamColors[st.side[i]], RANGE_FILL_DESATURATE);
+        const fillHex = cachedDesaturate(this.opts.teamColors[colorSlot(st.side[i], this.viewer)], RANGE_FILL_DESATURATE);
         // A preview is a hint at a unit the player has not committed to, so
         // every band of it is drawn at the same fraction of its own strength
         // rather than at a second set of tuned numbers.
@@ -9628,6 +9718,8 @@ export class ThreeRenderer implements Renderer {
       const unitRoutes: UnitRoute[] = [];
       for (const i of this.selection) {
         if (i >= n || st.alive[i] === 0 || st.moving[i] === 0) continue;
+        // In a versus room a selected hostile's route is its orders (§5.1).
+        if (this.versus && !isOwnSide(st.side[i], this.viewer)) continue;
         const ix = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
         const iy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
         const goal = this.sim.goalOf(i);

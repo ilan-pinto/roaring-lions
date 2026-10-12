@@ -143,6 +143,11 @@ describe('tickIsActive', () => {
     expect(tickIsActive([{ kind: 'spawn' }, { kind: 'impact' }], [])).toBe(false);
     expect(tickIsActive([], [])).toBe(false);
   });
+  it('counts the VIEWER\'s identification, not side 0\'s (N1a task 6)', () => {
+    expect(tickIsActive([{ kind: 'contact', side: 1, level: 'identified' }], [], 1)).toBe(true);
+    expect(tickIsActive([{ kind: 'contact', side: 0, level: 'identified' }], [], 1)).toBe(false);
+    expect(tickIsActive([{ kind: 'contact', level: 'identified' }], [], 1)).toBe(false);
+  });
 });
 
 describe('hintTarget and stallHintLine', () => {

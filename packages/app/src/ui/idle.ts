@@ -1,4 +1,5 @@
 // packages/app/src/ui/idle.ts
+import { isOwnSide } from '@lions/render';
 /**
  * The idle-unit finder (Task 11, GDD §6): "control groups, idle finder, edge
  * pan, zoom to cursor" listed one thing that did not exist in any form
@@ -34,13 +35,14 @@ export interface IdleFacts {
  * where the player put it, and finding it via this key would walk the player
  * through the same handful of passengers every time they pressed it -- so
  * `carriedBy`/`garrisonedIn` count as work, same as an active order does.
- * Side 0 only: an idle finder that could land the player's selection on the
- * enemy would be a targeting tool wearing a management tool's key.
+ * The viewer's own side only (`viewerSideOf`, network design §5.1): an idle
+ * finder that could land the player's selection on the enemy would be a
+ * targeting tool wearing a management tool's key.
  */
-export function isIdle(f: IdleFacts): boolean {
+export function isIdle(f: IdleFacts, viewer: number): boolean {
   return (
     f.alive &&
-    f.side === 0 &&
+    isOwnSide(f.side, viewer) &&
     !f.moving &&
     f.waypoints === 0 &&
     f.curTarget < 0 &&

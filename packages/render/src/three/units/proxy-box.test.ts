@@ -1,5 +1,8 @@
+import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { proxyBoxDims } from './proxy-box';
+import { ProxyBoxBatch, proxyBoxDims } from './proxy-box';
+import { colorSlot } from '../../relation';
+import { hexToLinear } from '../terrain/shared';
 import { ELLIPSE_BY_TYPE, ELLIPSE_PAD_TILES, ringRadiusFor } from './readability';
 
 describe('proxyBoxDims', () => {
@@ -23,5 +26,35 @@ describe('proxyBoxDims', () => {
     const d = proxyBoxDims('no_such_type', 'foot');
     expect(d.halfAlong).toBeGreaterThanOrEqual(0.15);
     expect(d.height).toBeGreaterThan(0);
+  });
+});
+
+describe('ProxyBoxBatch colour', () => {
+  // Network design §5.1: a box wears its side's colour AS THE VIEWER SEES IT,
+  // so the seat on side 1 sees its own boxes friendly. Break to confirm red:
+  // index `teamLinear` by `e.side` instead of `slotOf(e.side)`.
+  const TEAM = ['#ff0000', '#00ff00', '#0000ff'];
+  const colourOf = (batch: ProxyBoxBatch, side: number): number[] => {
+    const dims = proxyBoxDims('inf_squad', 'foot');
+    batch.update([{ x: 0, groundY: 0, z: 0, yaw: 0, dims, side }]);
+    const c = new THREE.Color();
+    batch.mesh.getColorAt(0, c);
+    return [c.r, c.g, c.b];
+  };
+  const close = (got: number[], want: readonly number[]): void => {
+    got.forEach((v, k) => expect(v).toBeCloseTo(want[k], 6));
+  };
+
+  it('draws the viewer’s own side in the friendly slot and the other in the hostile one', () => {
+    const batch = new ProxyBoxBatch(new THREE.Scene(), TEAM, (s) => colorSlot(s, 1));
+    close(colourOf(batch, 1), hexToLinear(TEAM[0]));
+    close(colourOf(batch, 0), hexToLinear(TEAM[1]));
+    close(colourOf(batch, 2), hexToLinear(TEAM[2]));
+  });
+
+  it('indexes by raw side when no slot function is given (viewer 0)', () => {
+    const batch = new ProxyBoxBatch(new THREE.Scene(), TEAM);
+    close(colourOf(batch, 0), hexToLinear(TEAM[0]));
+    close(colourOf(batch, 1), hexToLinear(TEAM[1]));
   });
 });

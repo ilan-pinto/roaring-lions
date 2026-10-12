@@ -40,6 +40,7 @@ import { fileURLToPath } from 'node:url';
 import { WEAPON_CLASS } from '@lions/sim';
 import { chromium } from 'playwright';
 import { DEFAULT_SETTINGS } from '../../../packages/app/src/settings';
+import { rewriteAudioImports } from './mix-modules';
 import { buildScenes, passes, UNIT_TYPES, UNITS, type Gate, type ManifestLike, type Scene } from './mix-scenes';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -486,12 +487,15 @@ async function main(): Promise<void> {
   if (out) mkdirSync(out, { recursive: true });
   const manifest = JSON.parse(readFileSync(join(ROOT, 'data/audio.json'), 'utf8')) as ManifestLike & Record<string, unknown>;
 
-  // The shipped mixer, type-stripped: audio.ts's two imports point at the
-  // radio beside it and at a module carrying the sim's own WEAPON_CLASS.
-  const audioJs = stripTypeScriptTypes(readFileSync(join(ROOT, 'packages/render/src/audio.ts'), 'utf8'))
-    .replace(/from '@lions\/sim'/, "from './sim.js'")
-    .replace(/from '\.\/radio'/g, "from './radio.js'");
+  // The shipped mixer, type-stripped: audio.ts's imports point at the radio
+  // and the relation beside it and at a module carrying the sim's own
+  // WEAPON_CLASS. `rewriteAudioImports` throws on any import it has no served
+  // path for (mix-modules.ts), so a new one fails here, not in the browser.
+  const audioJs = rewriteAudioImports(
+    stripTypeScriptTypes(readFileSync(join(ROOT, 'packages/render/src/audio.ts'), 'utf8')),
+  );
   const radioJs = stripTypeScriptTypes(readFileSync(join(ROOT, 'packages/render/src/radio.ts'), 'utf8'));
+  const relationJs = stripTypeScriptTypes(readFileSync(join(ROOT, 'packages/render/src/relation.ts'), 'utf8'));
   const simJs = `export const WEAPON_CLASS = ${JSON.stringify(WEAPON_CLASS)};\n`;
   // OUTCOME_LINE_DELAY_S is read from the mixer itself, as the app does.
   const delay = /export const OUTCOME_LINE_DELAY_S = ([\d.]+);/.exec(audioJs);
@@ -516,6 +520,7 @@ async function main(): Promise<void> {
         const path = new URL(route.request().url()).pathname;
         if (path === '/audio.js') return route.fulfill({ contentType: 'text/javascript', body: audioJs });
         if (path === '/radio.js') return route.fulfill({ contentType: 'text/javascript', body: radioJs });
+        if (path === '/relation.js') return route.fulfill({ contentType: 'text/javascript', body: relationJs });
         if (path === '/sim.js') return route.fulfill({ contentType: 'text/javascript', body: simJs });
         if (path.startsWith('/audio/')) {
           const body = serveFile(path.slice('/audio/'.length));

@@ -6,6 +6,11 @@ export interface DurableStorageLike {
   get<T>(key: string): Promise<T | undefined>;
   put<T>(key: string, value: T): Promise<void>;
   sql: { exec(query: string, ...bindings: unknown[]): SqlRows };
+  /** The object's one alarm: `alarm()` runs at (or after) this epoch-ms time,
+   *  even if the object was evicted in between. Setting replaces any earlier one. */
+  setAlarm(scheduledTime: number): Promise<void>;
+  getAlarm(): Promise<number | null>;
+  deleteAlarm(): Promise<void>;
 }
 export interface DurableStateLike {
   storage: DurableStorageLike;

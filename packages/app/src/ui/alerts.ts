@@ -51,6 +51,7 @@
 
 import type { MissionEvent, ObjectiveStatus, SimEvent } from '@lions/sim';
 import { TICKS_PER_SECOND } from '@lions/sim';
+import { isHostileSide, isOwnSide } from '@lions/render';
 import { distinctPlaces, type Place } from './alert-place';
 import { ALERT_CUE, OBJECTIVE_CUE, type CueId } from './cues';
 import type { Tone } from './hud-model';
@@ -147,12 +148,15 @@ export interface AlertWorld {
   objectiveDone(id: string): boolean;
   /** WP-P5: a named map marker, in tiles, or null. */
   markerAt(name: string): { x: number; y: number } | null;
-  /** WP-P5: the unit the dock just delivered -- the newest living side-0
-   *  unit of this type -- in tiles, or null. */
+  /** WP-P5: the unit the dock just delivered -- the newest living unit of
+   *  this type on the viewer's side -- in tiles, or null. */
   arrivedAt(typeId: string): { x: number; y: number } | null;
   /** WP-P5: for a LABELLED `reinforce` trigger, its label and where its
    *  units arrive; null for any other trigger. */
   reinforcement(triggerId: string): { label: string; points: readonly { x: number; y: number }[] } | null;
+  /** The side the player commands (network design §5.1), 0 in single-player:
+   *  "ours" and "the enemy" in every line below are relative to it. */
+  readonly viewer: number;
 }
 
 /** What has to survive between ticks. Read-only on the way in and
@@ -222,6 +226,7 @@ export function alertsForTick(
   tick: number,
 ): { state: AlertState; alerts: Alert[] } {
   const alerts: Alert[] = [];
+  const { viewer } = world;
   let wavesSeen = state.wavesSeen;
 
   // --- the mission half: what was lost, what moved, what arrived -----------
@@ -299,7 +304,7 @@ export function alertsForTick(
         marks: at === null ? [] : [at],
         count: 1,
       });
-    } else if (e.kind === 'removed' && e.side === 0) {
+    } else if (e.kind === 'removed' && isOwnSide(e.side, viewer)) {
       // One of ours taken off the board (polish pass F, A2): not a death,
       // but a man gone. Sound only -- `describeMissionEvent` words it.
       const at = world.posOf(e.entity);
@@ -357,13 +362,13 @@ export function alertsForTick(
   const damagedOwn = new Map<'immobilised' | 'gunOut' | 'outOfAction', number[]>();
   for (const e of sim) {
     if (e.kind === 'routed') {
-      if (world.sideOf(e.entity) === 0 && !lostEntities.has(e.entity)) brokenOwn.push(e.entity);
+      if (isOwnSide(world.sideOf(e.entity), viewer) && !lostEntities.has(e.entity)) brokenOwn.push(e.entity);
       continue;
     }
     if (e.kind === 'component') {
       const what =
         e.result === 'mobility_kill' ? 'immobilised' : e.result === 'firepower_kill' ? 'gunOut' : e.result === 'combat_ineffective' ? 'outOfAction' : null;
-      if (what !== null && world.sideOf(e.target) === 0 && !lostEntities.has(e.target)) {
+      if (what !== null && isOwnSide(world.sideOf(e.target), viewer) && !lostEntities.has(e.target)) {
         const group = damagedOwn.get(what);
         if (group) group.push(e.target);
         else damagedOwn.set(what, [e.target]);
@@ -371,12 +376,12 @@ export function alertsForTick(
       continue;
     }
     if (e.kind === 'destroyed') {
-      // Only an ENEMY (side 1, never a civilian on side 2) and only one of
-      // OURS killed: a unit dying to its own side's fire, to a collapse with
+      // Only an ENEMY (the other side, never a civilian on side 2) and only
+      // one of OURS killed: a unit dying to its own side's fire, to a collapse with
       // no killer, or to anything the player did not do is not his to be
       // told about -- and naming an enemy nobody of ours engaged would be
       // x-ray. A loss of ours is `unitLost`'s, from the mission half.
-      if (world.sideOf(e.entity) !== 1 || e.by < 0 || world.sideOf(e.by) !== 0) continue;
+      if (!isHostileSide(world.sideOf(e.entity), viewer) || e.by < 0 || !isOwnSide(world.sideOf(e.by), viewer)) continue;
       const typeId = world.typeOf(e.entity);
       const group = killsByType.get(typeId);
       if (group) group.push(e.entity);
@@ -384,7 +389,7 @@ export function alertsForTick(
       continue;
     }
     if (e.kind === 'pinned') {
-      if (pinnedAt === null && world.sideOf(e.entity) === 0 && !lostEntities.has(e.entity)) pinnedAt = e.entity;
+      if (pinnedAt === null && isOwnSide(world.sideOf(e.entity), viewer) && !lostEntities.has(e.entity)) pinnedAt = e.entity;
       continue;
     }
     // GH-471: a tunnel route identified by our side is the discovery beat --
@@ -394,7 +399,7 @@ export function alertsForTick(
     // re-identifies it every time, and that is not news. `observer` is the
     // carrier (-1 when spoil alone got there): the line is placed where it
     // stands and the ring drawn there, since the carrier is over the route.
-    if (e.kind === 'tunnelContact' && e.side === 0 && e.level === 'identified') {
+    if (e.kind === 'tunnelContact' && isOwnSide(e.side, viewer) && e.level === 'identified') {
       if (!tunnelsAnnounced.has(e.tunnel)) {
         tunnelsFound.push(e.observer);
         tunnelsAnnounced = new Set(tunnelsAnnounced).add(e.tunnel);
@@ -404,7 +409,7 @@ export function alertsForTick(
     if (e.kind === 'ambushSprung') {
       // `entity` is the ambusher: one of ours springing is good news. No
       // position: pointing the minimap at a hidden enemy would be x-ray.
-      if (world.sideOf(e.entity) !== 0) ambushed = true;
+      if (!isOwnSide(world.sideOf(e.entity), viewer)) ambushed = true;
       continue;
     }
     if (e.kind !== 'fire' && e.kind !== 'impact') continue;
@@ -413,7 +418,7 @@ export function alertsForTick(
     // own field doc in `SimEvent`.
     if (target < 0) continue;
     // An enemy under fire is good news, and nobody needs telling about it.
-    if (world.sideOf(target) !== 0) continue;
+    if (!isOwnSide(world.sideOf(target), viewer)) continue;
     if (firstOwnHit < 0) firstOwnHit = target;
     // He is already the subject of a `unitLost` line this same tick.
     if (lostEntities.has(target)) continue;

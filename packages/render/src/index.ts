@@ -75,3 +75,7 @@ export type { Renderer } from './api';
 // arithmetic is a source of truth that drifts. `project.ts` stays package
 // -internal and is imported directly by the backend that uses it.
 export { TILE_W, TILE_H, type Camera, type Viewport } from './project';
+
+// Network design §5.1: who a side is to the viewer. Zero imports, so the
+// app's HUD and minimap share it with the renderer.
+export { relationOf, isOwnSide, isHostileSide, colorSlot, type Relation } from './relation';

@@ -13,7 +13,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RECONNECT_DELAY_MS, WsTransport, type Frame, type MatchConfig, type Seat, type ServerMsg, type SocketLike } from '@lions/net';
 import type { Env } from '../d1';
-import { FakeState, deliverClose, openSocket, type FakeSocket } from './fake-do';
+import { FakeState, deliverAlarm, deliverClose, openSocket, type FakeSocket } from './fake-do';
 import { MatchRoom, TICK_MS } from './match-room';
 import { signTicket } from './ticket';
 
@@ -103,14 +103,18 @@ class Player {
 const sameHash = (tick: number): number | null => (tick % 20 === 19 ? 0x5eed : null);
 
 interface Match { state: FakeState; loop: Loop; p0: Player; p1: Player }
+/** The watchdog fires as the runtime would: whenever the scheduled time has come, on the fake clock. */
+const watchdogs = new WeakMap<Loop, FakeState>();
 async function setUp(digest1: (tick: number) => number | null = sameHash): Promise<Match> {
   const state = new FakeState();
   const room = new MatchRoom(state, env);
   const res = await room.fetch(new Request('https://room/create', {
-    method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD }),
+    method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD, player: 'Host', callsign: 'Host' }),
   }));
   expect(res.status).toBe(200);
+  expect((await room.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player: 'Guest', callsign: 'Guest' }) }))).status).toBe(200);
   const loop = new Loop(room);
+  watchdogs.set(loop, state);
   const exp = NOW + 3600 * 1000;
   const p0 = new Player(loop, await signTicket(SECRET, { matchId: CODE, seat: 0, player: 'Host', exp }), sameHash);
   const p1 = new Player(loop, await signTicket(SECRET, { matchId: CODE, seat: 1, player: 'Guest', exp }), digest1);
@@ -124,10 +128,13 @@ async function started(digest1?: (tick: number) => number | null): Promise<Match
   await s.loop.flush();
   return s;
 }
-/** `n` room ticks; after each, both seats run what they may and report it. */
+/** `n` room ticks; after each, the watchdog alarm fires if it is due (R38),
+ *  and both seats run what they may and report it. */
 async function step(loop: Loop, players: Player[], n: number): Promise<void> {
   for (let i = 0; i < n; i++) {
     await vi.advanceTimersByTimeAsync(TICK_MS);
+    const storage = watchdogs.get(loop)?.storage;
+    if (storage && storage.alarmAt !== null && storage.alarmAt <= Date.now()) await deliverAlarm(loop.room, storage);
     for (const p of players) p.pump();
     await loop.flush();
   }
@@ -247,26 +254,46 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     expect(p1.t.status().kind).toBe('live');
   });
 
-  it('a running match writes at most 2 storage rows a second (Workers Free): 60 s of acks, hashes and commands', async () => {
+  /** R-N12's budget: a command frame closes its batch (one row each), a batch
+   *  with none closes every 20 ticks (one a second), and the watchdog re-arms
+   *  every 5 s. So rows <= (max(command frames a second, 1) + 0.2) x seconds. */
+  async function budget(ordersPerSecond: boolean): Promise<{ rows: number; cmdFrames: number; seconds: number; alarms: number }> {
     const { state, loop, p0, p1 } = await started();
     const before = state.storage.rowsWritten;
+    let alarms = 0;
+    const arm = state.storage.setAlarm.bind(state.storage);
+    state.storage.setAlarm = async (t: number): Promise<void> => { alarms++; await arm(t); };
     const SECONDS = 60;
     const ticksPerSecond = 1000 / TICK_MS;
     for (let s = 0; s < SECONDS; s++) {
-      // About one command a second from each seat, mid-second so they land in different frames.
-      p0.t.queueCommand({ kind: 'halt', ids: [s] });
+      // One command a second from each seat, mid-second so they land in different frames.
+      if (ordersPerSecond) p0.t.queueCommand({ kind: 'halt', ids: [s] });
       await step(loop, [p0, p1], ticksPerSecond / 2);
-      p1.t.queueCommand({ kind: 'halt', ids: [100 + s] });
+      if (ordersPerSecond) p1.t.queueCommand({ kind: 'halt', ids: [100 + s] });
       await step(loop, [p0, p1], ticksPerSecond / 2);
     }
-    const rows = state.storage.rowsWritten - before;
-    // The match really ran: every tick, acked and hashed, with both seats' commands.
+    // The match really ran: every tick, acked and hashed.
     expect(p0.t.status().kind).toBe('live');
     expect(p0.taken.length).toBeGreaterThan(SECONDS * ticksPerSecond - 5);
     expect(p1.taken).toEqual(p0.taken.slice(0, p1.taken.length));
-    expect(p0.taken.flatMap((f) => f.cmds)).toHaveLength(2 * SECONDS);
     for (const w of loop.wires) expect(w.received.filter((m) => m.t === 'hashOk').length).toBeGreaterThan(55);
-    expect(rows, `${rows} rows in ${SECONDS} s`).toBeLessThanOrEqual(2 * SECONDS);
+    expect(state.storage.alarmAt).not.toBeNull();
+    return { rows: state.storage.rowsWritten - before, cmdFrames: p0.taken.filter((f) => f.cmds.length > 0).length, seconds: SECONDS, alarms };
+  }
+  const bound = (b: { cmdFrames: number; seconds: number }): number => Math.max(b.cmdFrames, b.seconds) + 0.2 * b.seconds;
+
+  it('Workers Free, one order a second from each seat: rows <= (command frames a second + 0.2) x seconds, the watchdog firing (R-N12)', async () => {
+    const b = await budget(true);
+    expect(b.cmdFrames).toBe(2 * b.seconds);
+    expect(b.alarms).toBeGreaterThanOrEqual(b.seconds / 5 - 1);   // the watchdog really ran
+    expect(b.rows, `${b.rows} rows in ${b.seconds} s`).toBeLessThanOrEqual(bound(b));
+  });
+
+  it('Workers Free, a running match with no orders: rows <= 1.2 x seconds, the watchdog firing (R-N12)', async () => {
+    const b = await budget(false);
+    expect(b.cmdFrames).toBe(0);
+    expect(b.alarms).toBeGreaterThanOrEqual(b.seconds / 5 - 1);
+    expect(b.rows, `${b.rows} rows in ${b.seconds} s`).toBeLessThanOrEqual(bound(b));
   });
 
   it('a seat running at 18 Hz flaps between a behind stall and resume, and the room still writes at most 2 rows a second', async () => {
@@ -313,7 +340,7 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     const { state, loop, p0, p1 } = await started();
     p0.t.queueCommand({ kind: 'halt', ids: [1] });
     await loop.flush();
-    await step(loop, [p0, p1], 47);   // ticks 0..46: batches 0..19 and 20..39 closed, 40..46 open
+    await step(loop, [p0, p1], 47);   // ticks 0..46: tick 0 carries the order and closes its batch, 1..20 and 21..40 fill and close, 41..46 open
     const heard = loop.wires.map((w) => w.received.length);
     evict();   // the isolate dies; storage and the hibernated sockets survive
     loop.room = new MatchRoom(state, env);
@@ -323,14 +350,14 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     await step(loop, [p0, p1], 40);
     for (const [i, w] of loop.wires.entries()) {
       const after = w.received.slice(heard[i]);
-      expect(after.find((m) => m.t === 'frame')).toMatchObject({ tick: 40 });
+      expect(after.find((m) => m.t === 'frame')).toMatchObject({ tick: 41 });
       expect(after.filter((m) => m.t === 'stall')).toEqual([]);
     }
     for (const p of [p0, p1]) {
       expect(p.ticks()).toEqual(range(p.taken.length));
       expect(p.t.status().kind).toBe('live');
     }
-    expect(p0.taken.length).toBeGreaterThan(70);   // 47 + 40 sent, less the 7 re-sent and the buffer
+    expect(p0.taken.length).toBeGreaterThan(70);   // 47 + 40 sent, less the 6 re-sent and the buffer
     expect(p1.taken).toEqual(p0.taken.slice(0, p1.taken.length));
     // What both ran at 40..46 is what the first room sent; the order the revived room took was lost on both alike.
     expect(p0.taken.flatMap((f) => f.cmds)).toEqual([{ seat: 0, seq: 0, cmd: { kind: 'halt', ids: [1] } }]);

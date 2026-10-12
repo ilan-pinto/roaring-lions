@@ -260,6 +260,17 @@ describe('countSuppressed', () => {
     ]);
     expect(countSuppressed(s, 1)).toEqual({ pinned: 1, broken: 0 });
   });
+
+  it('counts the viewer\'s own force: side 1 for a seat on side 1 (N1a task 6)', () => {
+    const s = force([
+      [1, 0, 0, 1], // side 0: the enemy to this seat
+      [1, 1, 1, 1], // side 1: ours, broken
+      [1, 1, 0, 1], // side 1: ours, pinned
+      [1, 2, 0, 1], // civilian
+    ]);
+    expect(countSuppressed(s, 4, 1)).toEqual({ pinned: 1, broken: 1 });
+    expect(countSuppressed(s, 4, 0)).toEqual({ pinned: 1, broken: 0 });
+  });
 });
 
 describe('worstPenalties', () => {

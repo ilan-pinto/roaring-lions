@@ -11,6 +11,7 @@
 
 import { WEAPON_CLASS, type Sim, type SimEvent } from '@lions/sim';
 import { buildRadioChain, scheduleSquelch, type RadioChain, type Squelch } from './radio';
+import { isOwnSide } from './relation';
 
 export { RADIO_BAND_HZ, RADIO_FX } from './radio';
 
@@ -838,6 +839,8 @@ export const SYNTH_CUES: Readonly<Record<string, readonly SynthNote[]>> = {
 export class BattleAudio {
   private ctx: AudioContext | null = null;
   private muted = readStore('localStorage', MUTE_KEY) === '1';
+  /** `setViewer`'s side: the player's own, for the intensity count. */
+  private viewer = 0;
   private master: GainNode | null = null;
   /** SFX bus, under the master: every synth/recorded source connects here, never to `master` directly. */
   private sfx: GainNode | null = null;
@@ -1492,6 +1495,13 @@ export class BattleAudio {
 
   setListener(l: Listener): void {
     this.listener = l;
+  }
+
+  /** The sim side the listener commands (network design §5.1): whose combat
+   *  turns the battle beds. 0 until a versus room's seat on side 1 says
+   *  otherwise, which is single-player's side exactly. */
+  setViewer(side: number): void {
+    this.viewer = side;
   }
 
   isMuted(): boolean {
@@ -2223,16 +2233,17 @@ export class BattleAudio {
   }
 
   /**
-   * AU-7: count this tick's player-side combat -- a shot fired by or at side
-   * 0, a round landing on or from it -- and turn the beds when the reading
-   * crosses. Clocked by the sim's own tick (20 Hz, invariant 1), so the pause
-   * menu, which stops the ticks, freezes it. Before the mute check: a muted
-   * player unmuting mid-fight should hear the fight's music.
+   * AU-7: count this tick's player-side combat -- a shot fired by or at the
+   * listener's own side (`setViewer`), a round landing on or from it -- and
+   * turn the beds when the reading crosses. Clocked by the sim's own tick
+   * (20 Hz, invariant 1), so the pause menu, which stops the ticks, freezes
+   * it. Before the mute check: a muted player unmuting mid-fight should hear
+   * the fight's music.
    */
   private readIntensity(events: SimEvent[], sim: Sim): void {
     if (!this.hasBeds() || this.musicScene !== 'battle') return;
     const side = sim.state.side;
-    const player = (id: number): boolean => id >= 0 && side[id] === 0;
+    const player = (id: number): boolean => id >= 0 && isOwnSide(side[id], this.viewer);
     let n = 0;
     for (const e of events) {
       if ((e.kind === 'fire' || e.kind === 'impact') && (player(e.shooter) || player(e.target))) n++;

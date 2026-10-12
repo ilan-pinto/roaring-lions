@@ -7,6 +7,12 @@ import { canonicalOrder, type Frame } from './frames';
 export interface SeatWorld {
   sideOfSeat(seat: Seat): number;
   sideOfEntity(id: number): number | undefined;
+  /** Map size in tiles; a point is Q16.16, so the edge is `width * 65536`. */
+  readonly width: number;
+  readonly height: number;
+  /** Structure and tunnel ids are `0..count-1` in the sim; anything else names nothing. */
+  structureExists(id: number): boolean;
+  tunnelExists(id: number): boolean;
 }
 
 /**
@@ -19,15 +25,24 @@ export interface SeatWorld {
 export function validateCommand(cmd: Command, seat: Seat, world: SeatWorld): boolean {
   const side = world.sideOfSeat(seat);
   const own = (id: number): boolean => world.sideOfEntity(id) === side;
+  // Q16.16 compared as integers; NaN fails every comparison, so it is off the map.
+  const onMap = (x: number, y: number): boolean =>
+    x >= 0 && y >= 0 && x < world.width * 65536 && y < world.height * 65536;
   switch (cmd.kind) {
-    case 'move': case 'attackMove': case 'halt': case 'unload': case 'garrison': case 'demolish': case 'chargeTunnel': case 'smoke':
+    case 'move': case 'attackMove': case 'smoke':
+      return cmd.ids.length > 0 && cmd.ids.every(own) && onMap(cmd.x, cmd.y);
+    case 'halt': case 'unload':
       return cmd.ids.length > 0 && cmd.ids.every(own);
+    case 'garrison': case 'demolish':
+      return cmd.ids.length > 0 && cmd.ids.every(own) && world.structureExists(cmd.structure);
+    case 'chargeTunnel':
+      return cmd.ids.length > 0 && cmd.ids.every(own) && world.tunnelExists(cmd.tunnel);
     case 'load':
       return cmd.ids.length > 0 && cmd.ids.every(own) && own(cmd.carrier);
     case 'callStrike':
-      return own(cmd.caller);
+      return own(cmd.caller) && onMap(cmd.x, cmd.y);
     case 'reveal':
-      return cmd.side === side;
+      return cmd.side === side && onMap(cmd.x, cmd.y);
   }
 }
 

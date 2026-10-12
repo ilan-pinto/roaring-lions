@@ -8,6 +8,7 @@
  * (`main.ts` composes it from `__APP_BUILD__` and `__APP_COMMIT__`), so this
  * module runs under vitest, where those defines do not exist.
  */
+import { playerId } from './player-id';
 import { LocalTransport, WsTransport, type MatchConfig, type MatchTransport, type Seat, type SocketLike } from '@lions/net';
 
 export interface ConnectDeps {
@@ -16,6 +17,8 @@ export interface ConnectDeps {
   openSocket: (url: string) => SocketLike;
   replaceUrl: (code: string, seat: Seat) => void;
   note: (text: string) => void;
+  /** Where the anonymous player id lives (`player-id.ts`); null when storage is blocked. */
+  store: Pick<Storage, 'getItem' | 'setItem'> | null;
   /** The battlefield's own `req.signal`: a player who leaves while the room
    *  waits for the other seat must not leave a socket behind (the disposer
    *  contract), and the boot must not resolve into a screen already gone. */
@@ -40,13 +43,15 @@ export async function connectMatch(query: URLSearchParams, mapId: string, build:
   if (query.has('seat')) throw new Error(RELOAD_REFUSED);
   const callsign = query.get('callsign') ?? 'Lion';
   const creating = net === 'new';
+  // The room's mode is fixed at create; a joiner takes whatever the room is.
+  const mode = query.get('mode') === 'versus' ? 'versus' : 'sandbox';
   // Room codes are upper case; a code typed or pasted in lower case is the same room.
   const joinCode = net.toUpperCase();
   const url = creating ? `${deps.origin}/api/match` : `${deps.origin}/api/match/${encodeURIComponent(joinCode)}/join`;
   const res = await deps.fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ callsign, map: mapId, build }),
+    body: JSON.stringify({ player: playerId(deps.store), callsign, map: mapId, build, ...(creating ? { mode } : {}) }),
     ...(deps.signal ? { signal: deps.signal } : {}),
   });
   if (res.status !== 201 && res.status !== 200) throw new Error(`match ${creating ? 'create' : 'join'} failed: HTTP ${res.status}`);
