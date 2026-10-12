@@ -38,10 +38,13 @@ export interface SocketLike {
 }
 
 export interface WsTransportHooks {
-  onLobby?(seats: SeatState[], you: Seat): void;
+  onLobby?(seats: SeatState[], you: Seat, map: string): void;
   onStart(config: MatchConfig): void;
   onDesync?(tick: number, hashes: [number, number]): void;
-  onEnded?(reason: string): void;
+  onEnded?(reason: string, seat?: Seat): void;
+  /** A seat paused: how long the room will hold the pause, and each seat's pauses left. */
+  onPaused?(seat: Seat, remainingMs: number, pausesLeft: [number, number]): void;
+  onChat?(seat: Seat, text: string): void;
   onError?(code: string): void;
 }
 
@@ -76,6 +79,11 @@ export class WsTransport implements MatchTransport {
   private sock: SocketLike | null = null;
   private seq = 0;
   private closed = false;
+  /** Every handler reads this copy, so `setHooks` reaches all of them. */
+  private readonly hooks: WsTransportHooks;
+  /** Set by an `ended` of `left` or `surrender`: the frames already received
+   *  are still the match's, and the app needs them to reach its own outcome tick. */
+  private draining = false;
   private st: TransportStatus = { kind: 'waiting' };
   private stalled: Stalled | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -96,11 +104,18 @@ export class WsTransport implements MatchTransport {
     private readonly open: () => SocketLike,
     private readonly ticket: string,
     private readonly build: string,
-    private readonly hooks: WsTransportHooks,
+    hooks: WsTransportHooks,
     /** Wall-clock ms, for the stall and reconnect timings only. */
     private readonly now: () => number = () => Date.now(),
   ) {
+    this.hooks = { ...hooks };
     this.connect();
+  }
+
+  /** Replaces the hooks it names and leaves the rest: a lobby hands its live
+   *  transport to the battlefield, whose hooks take over from the lobby's. */
+  setHooks(hooks: Partial<WsTransportHooks>): void {
+    Object.assign(this.hooks, hooks);
   }
 
   /** Every write of the stall goes through here, so the counters see each
@@ -186,7 +201,7 @@ export class WsTransport implements MatchTransport {
       case 'lobby':
         // A reconnect before the start lands back in the lobby, not in a stall.
         if (this.config === null) { this.relinked(); this.setStalled(null); this.st = { kind: 'waiting' }; }
-        this.hooks.onLobby?.(msg.seats, msg.you);
+        this.hooks.onLobby?.(msg.seats, msg.you, msg.map);
         return;
       case 'start':
         this.begin(msg.config);
@@ -204,22 +219,33 @@ export class WsTransport implements MatchTransport {
       case 'frame': {
         const r = this.clock.push({ tick: msg.tick, cmds: msg.cmds });
         if (r === 'gap') { this.sock?.close(); return; }   // the reconnect fetches the log
-        if (this.stalled === null) this.st = { kind: 'live', behind: this.clock.behind() };
+        // A pause outlasts the frames in flight: only the room's `resume` ends it.
+        if (this.stalled === null && this.st.kind !== 'paused') this.st = { kind: 'live', behind: this.clock.behind() };
         return;
       }
       case 'stall': {
         const s: Stalled = { kind: 'stalled', reason: msg.reason, seat: msg.seat };
         this.setStalled(s);
-        this.st = s;
+        if (this.st.kind !== 'paused') this.st = s;
         return;
       }
+      case 'paused':
+        this.st = { kind: 'paused', seat: msg.seat, untilMs: this.now() + msg.remainingMs };
+        this.hooks.onPaused?.(msg.seat, msg.remainingMs, msg.pausesLeft);
+        return;
+      case 'chat': this.hooks.onChat?.(msg.seat, msg.text); return;
       case 'resume': this.setStalled(null); this.st = { kind: 'live', behind: this.clock.behind() }; return;
       case 'hashOk': this.counts.hashOk.count++; this.counts.hashOk.lastTick = msg.tick; return;
       case 'desync':
         this.counts.desyncTick = msg.tick;
         this.setStalled(null);
         this.st = { kind: 'desync', tick: msg.tick }; this.hooks.onDesync?.(msg.tick, msg.hashes); return;
-      case 'ended': this.setStalled(null); this.st = { kind: 'closed', reason: msg.reason }; this.hooks.onEnded?.(msg.reason); return;
+      case 'ended':
+        this.setStalled(null);
+        this.st = { kind: 'closed', reason: msg.reason };
+        this.draining = msg.reason === 'left' || msg.reason === 'surrender';
+        this.hooks.onEnded?.(msg.reason, msg.seat);
+        return;
       case 'error':
         this.hooks.onError?.(msg.code);
         if (msg.code === 'bad_ticket' || msg.code === 'build_mismatch') { this.setStalled(null); this.st = { kind: 'closed', reason: msg.code }; }
@@ -229,12 +255,19 @@ export class WsTransport implements MatchTransport {
 
   ready(): void { this.send({ t: 'ready' }); }
   queueCommand(cmd: Command): void { this.send({ t: 'cmd', seq: this.seq++, cmd }); }
+  pause(): void { this.send({ t: 'pause' }); }
+  resume(): void { this.send({ t: 'resume' }); }
+  surrender(): void { this.send({ t: 'surrender' }); }
+  chat(text: string): void { this.send({ t: 'chat', text }); }
   /** Runs while live AND while stalled (R31): a 'behind' stall stalls every
    *  seat, the lagging one included, and only that seat's ack ends it -- so it
    *  must keep running the frames it already holds. A stall's status is left
-   *  as it is; the room's `resume` (or a `log`) is what makes it live. */
+   *  as it is; the room's `resume` (or a `log`) is what makes it live. A pause
+   *  runs them too. After an `ended` of `left` or `surrender` it drains what was
+   *  received, buffer included -- no further frame will arrive to clear it. */
   take(maxTicks: number): Frame[] {
-    if (this.st.kind !== 'live' && this.st.kind !== 'stalled') return [];
+    if (this.draining) return this.clock.drain(maxTicks);
+    if (this.st.kind !== 'live' && this.st.kind !== 'stalled' && this.st.kind !== 'paused') return [];
     const out = this.clock.take(maxTicks);
     if (this.st.kind === 'live') this.st = { kind: 'live', behind: this.clock.behind() };
     if (this.replayFrom !== null && this.clock.behind() <= this.clock.bufferTicks) {
@@ -248,6 +281,15 @@ export class WsTransport implements MatchTransport {
     if (digest !== null) this.send({ t: 'hash', tick, h: digest });
   }
   status(): TransportStatus { return this.st; }
+  /** Stops reconnecting and closes the socket WITHOUT a `bye`: the seat is not
+   *  leaving, its transport is being handed on (a reload, a new screen). */
+  detach(): void {
+    this.closed = true;
+    if (this.reconnectTimer !== null) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+    this.sock?.close();
+    this.setStalled(null);
+    this.st = { kind: 'closed', reason: 'detached' };
+  }
   close(): void {
     this.closed = true;
     if (this.reconnectTimer !== null) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }

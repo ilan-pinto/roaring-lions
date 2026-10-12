@@ -145,7 +145,7 @@ describe('WsTransport', () => {
     expect(t.status()).toEqual({ kind: 'live', behind: 2 });
   });
   it('after a desync or an end, nothing the room sends revives it', () => {
-    for (const final of [{ t: 'desync', tick: 20, hashes: [1, 2] }, { t: 'ended', reason: 'left' }]) {
+    for (const final of [{ t: 'desync', tick: 20, hashes: [1, 2] }, { t: 'ended', reason: 'void' }, { t: 'ended', reason: 'expired' }]) {
       const sock = fakeSocket();
       const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} });
       sock.open();
@@ -188,6 +188,144 @@ describe('WsTransport', () => {
     vi.runAllTimers();
     expect(opens).toBe(1);
     expect(t.status()).toEqual({ kind: 'closed', reason: 'left' });
+  });
+
+  it('pause, resume, surrender and chat each send their message', () => {
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} });
+    sock.open();
+    sock.recv({ t: 'start', config: CONFIG });
+    const before = sock.sent.length;
+    t.pause(); t.resume(); t.surrender(); t.chat('gg');
+    expect(sock.sent.slice(before).map((m) => JSON.parse(m) as unknown)).toEqual([
+      { t: 'pause' }, { t: 'resume' }, { t: 'surrender' }, { t: 'chat', text: 'gg' },
+    ]);
+  });
+  it('a received paused sets the paused status and calls onPaused; the room\'s resume returns to live', () => {
+    const sock = fakeSocket();
+    const clock = { ms: 1000 };
+    const seen: unknown[] = [];
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {}, onPaused: (...a) => { seen.push(a); } }, () => clock.ms);
+    sock.open();
+    sock.recv({ t: 'start', config: CONFIG });
+    sock.recv({ t: 'paused', seat: 1, remainingMs: 30000, pausesLeft: [2, 1] });
+    expect(t.status()).toEqual({ kind: 'paused', seat: 1, untilMs: 31000 });
+    expect(seen).toEqual([[1, 30000, [2, 1]]]);
+    sock.recv({ t: 'resume' });
+    expect(t.status()).toEqual({ kind: 'live', behind: 0 });
+  });
+  it('paused persists through frames, and take() runs the frames it holds while paused (R-B5)', () => {
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} }, () => 0);
+    sock.open();
+    sock.recv({ t: 'start', config: CONFIG });
+    for (let tick = 0; tick < 4; tick++) sock.recv({ t: 'frame', tick, cmds: [] });
+    sock.recv({ t: 'paused', seat: 0, remainingMs: 5000, pausesLeft: [1, 2] });
+    sock.recv({ t: 'frame', tick: 4, cmds: [] });
+    expect(t.status()).toEqual({ kind: 'paused', seat: 0, untilMs: 5000 });
+    expect(t.take(10).map((f) => f.tick)).toEqual([0, 1, 2]);
+    expect(t.status()).toEqual({ kind: 'paused', seat: 0, untilMs: 5000 });
+    sock.recv({ t: 'resume' });
+    expect(t.status()).toEqual({ kind: 'live', behind: 2 });
+  });
+  it('a stall that arrives during a pause is counted but does not replace the paused status', () => {
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} }, () => 0);
+    sock.open();
+    sock.recv({ t: 'start', config: CONFIG });
+    sock.recv({ t: 'paused', seat: 0, remainingMs: 5000, pausesLeft: [1, 2] });
+    sock.recv({ t: 'stall', reason: 'gone', seat: 1 });
+    expect(t.status()).toEqual({ kind: 'paused', seat: 0, untilMs: 5000 });
+    expect(t.stats().stalls.gone.count).toBe(1);
+  });
+  it('a pause ends with a terminal message too', () => {
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} }, () => 0);
+    sock.open();
+    sock.recv({ t: 'start', config: CONFIG });
+    sock.recv({ t: 'paused', seat: 0, remainingMs: 5000, pausesLeft: [1, 2] });
+    sock.recv({ t: 'ended', reason: 'expired' });
+    expect(t.status()).toEqual({ kind: 'closed', reason: 'expired' });
+  });
+  it('a received chat calls onChat with the seat and text', () => {
+    const sock = fakeSocket();
+    const seen: unknown[] = [];
+    new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {}, onChat: (seat, text) => { seen.push([seat, text]); } });
+    sock.open();
+    sock.recv({ t: 'chat', seat: 1, text: 'hello' });
+    expect(seen).toEqual([[1, 'hello']]);
+  });
+  it('an ended surrender calls onEnded with the reason and the seat', () => {
+    const sock = fakeSocket();
+    const seen: unknown[] = [];
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {}, onEnded: (...a) => { seen.push(a); } });
+    sock.open();
+    sock.recv({ t: 'start', config: CONFIG });
+    sock.recv({ t: 'ended', reason: 'surrender', seat: 1 });
+    expect(seen).toEqual([['surrender', 1]]);
+    expect(t.status()).toEqual({ kind: 'closed', reason: 'surrender' });
+  });
+  it('after ended left or surrender take() drains the frames already received, then yields none (R-B5)', () => {
+    for (const reason of ['left', 'surrender'] as const) {
+      const sock = fakeSocket();
+      const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} });
+      sock.open();
+      sock.recv({ t: 'start', config: CONFIG });
+      for (let tick = 0; tick < 5; tick++) sock.recv({ t: 'frame', tick, cmds: [] });
+      expect(t.take(2).map((f) => f.tick)).toEqual([0, 1]);
+      sock.recv({ t: 'ended', reason, seat: 0 });
+      sock.recv({ t: 'frame', tick: 5, cmds: [] });   // nothing the room says afterwards is taken
+      expect(t.take(10).map((f) => f.tick)).toEqual([2, 3, 4]);
+      expect(t.take(10)).toEqual([]);
+      expect(t.status()).toEqual({ kind: 'closed', reason });
+    }
+  });
+  it('after desync or void nothing drains', () => {
+    for (const final of [{ t: 'desync', tick: 20, hashes: [1, 2] }, { t: 'ended', reason: 'void' }]) {
+      const sock = fakeSocket();
+      const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} });
+      sock.open();
+      sock.recv({ t: 'start', config: CONFIG });
+      for (let tick = 0; tick < 5; tick++) sock.recv({ t: 'frame', tick, cmds: [] });
+      sock.recv(final);
+      expect(t.take(10)).toEqual([]);
+    }
+  });
+  it('detach() says no bye, closes the socket, and does not reconnect when the close arrives', () => {
+    vi.useFakeTimers();
+    const sock = fakeSocket();
+    let opens = 0;
+    const t = new WsTransport(() => { opens++; return sock; }, 'tkt', 'b', { onStart: () => {} });
+    sock.open();
+    sock.recv({ t: 'start', config: CONFIG });
+    const before = sock.sent.length;
+    let closes = 0;
+    const realClose = sock.close;
+    sock.close = () => { closes++; realClose(); };
+    t.detach();
+    expect(closes).toBe(1);
+    expect(sock.sent.length).toBe(before);   // no bye
+    sock.closeFromServer();
+    vi.runAllTimers();
+    expect(opens).toBe(1);
+  });
+  it('setHooks replaces only the hooks it names', () => {
+    const sock = fakeSocket();
+    const calls: string[] = [];
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => { calls.push('start1'); }, onChat: () => { calls.push('chat1'); } });
+    t.setHooks({ onChat: () => { calls.push('chat2'); } });
+    sock.open();
+    sock.recv({ t: 'chat', seat: 0, text: 'x' });
+    sock.recv({ t: 'start', config: CONFIG });
+    expect(calls).toEqual(['chat2', 'start1']);
+  });
+  it('onLobby carries the lobby message\'s map (R-B2)', () => {
+    const sock = fakeSocket();
+    const seen: unknown[] = [];
+    new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {}, onLobby: (seats, you, map) => { seen.push([seats.length, you, map]); } });
+    sock.open();
+    sock.recv({ t: 'lobby', config: null, seats: [{ seat: 0, callsign: 'A', connected: true, ready: false }], you: 0, map: 'tel_marum' });
+    expect(seen).toEqual([[1, 0, 'tel_marum']]);
   });
 
 });
