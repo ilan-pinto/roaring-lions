@@ -135,6 +135,8 @@ function alertWorld(): AlertWorld {
     markerAt: () => null,
     arrivedAt: () => null,
     reinforcement: () => null,
+    // A single-player scene: the player is side 0.
+    viewer: 0,
   };
 }
 
@@ -145,6 +147,7 @@ function directorLook(): DirectorLook {
     pos: (id) => ({ x: UNITS[id]?.x ?? 0, y: UNITS[id]?.y ?? 0 }),
     isVisible: () => true,
     camera: () => ({ x: 0, y: 0 }),
+    viewer: 0,
   };
 }
 

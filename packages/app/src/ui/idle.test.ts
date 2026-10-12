@@ -5,25 +5,25 @@ const busy = { alive: true, side: 0, moving: false, waypoints: 0, curTarget: -1,
 
 describe('isIdle', () => {
   it('a living player unit doing nothing is idle', () => {
-    expect(isIdle(busy)).toBe(true);
+    expect(isIdle(busy, 0)).toBe(true);
   });
   it('every one of these is work', () => {
-    expect(isIdle({ ...busy, moving: true })).toBe(false);
-    expect(isIdle({ ...busy, waypoints: 2 })).toBe(false);
-    expect(isIdle({ ...busy, curTarget: 4 })).toBe(false);
-    expect(isIdle({ ...busy, curStructure: 4 })).toBe(false);
-    expect(isIdle({ ...busy, demoTarget: 4 })).toBe(false);
+    expect(isIdle({ ...busy, moving: true }, 0)).toBe(false);
+    expect(isIdle({ ...busy, waypoints: 2 }, 0)).toBe(false);
+    expect(isIdle({ ...busy, curTarget: 4 }, 0)).toBe(false);
+    expect(isIdle({ ...busy, curStructure: 4 }, 0)).toBe(false);
+    expect(isIdle({ ...busy, demoTarget: 4 }, 0)).toBe(false);
   });
   // A unit in a vehicle or in a building is not "idle and forgotten" -- it is
   // where the player put it, and offering to jump to it would walk the player
   // through the same three passengers every time they pressed the key.
   it('a passenger and a garrison are posted, not idle', () => {
-    expect(isIdle({ ...busy, carriedBy: 3 })).toBe(false);
-    expect(isIdle({ ...busy, garrisonedIn: 3 })).toBe(false);
+    expect(isIdle({ ...busy, carriedBy: 3 }, 0)).toBe(false);
+    expect(isIdle({ ...busy, garrisonedIn: 3 }, 0)).toBe(false);
   });
   it('the dead and the enemy are never idle', () => {
-    expect(isIdle({ ...busy, alive: false })).toBe(false);
-    expect(isIdle({ ...busy, side: 1 })).toBe(false);
+    expect(isIdle({ ...busy, alive: false }, 0)).toBe(false);
+    expect(isIdle({ ...busy, side: 1 }, 0)).toBe(false);
   });
 });
 

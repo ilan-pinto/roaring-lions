@@ -12,7 +12,8 @@
  * (`unitLost`), emitted by `MissionRuntime.step` from the sim's own
  * `destroyed`; a sandbox has no runtime, so this derives the same event by
  * the same rule (`mission.ts`: a `destroyed` whose entity is side 0, with or
- * without a killer). Nothing else a runtime emits -- objectives, waves,
+ * without a killer) -- side 0 being the viewer's side here, so a seat on
+ * side 1 in a versus room hears about its own losses (N1a task 6). Nothing else a runtime emits -- objectives, waves,
  * Conduct, triggers -- exists in a sandbox, and none of it is invented here:
  * Free Play scores nothing.
  *
@@ -20,19 +21,22 @@
  */
 
 import type { MissionEvent, SimEvent } from '@lions/sim';
+import { isOwnSide } from '@lions/render';
 import { alertsForTick, type Alert, type AlertState, type AlertWorld } from './alerts';
 
-/** The `unitLost` events a runtime would have emitted for this tick. */
+/** The `unitLost` events a runtime would have emitted for this tick, for the
+ *  side the player commands (`viewer`, 0 in single-player). */
 export function sandboxLosses(
   events: readonly SimEvent[],
   sideOf: (entity: number) => number,
   typeOf: (entity: number) => string,
-  tick: number
+  tick: number,
+  viewer: number
 ): MissionEvent[] {
   const out: MissionEvent[] = [];
   for (const e of events) {
-    if (e.kind === 'destroyed' && sideOf(e.entity) === 0) {
-      out.push({ kind: 'unitLost', tick, entity: e.entity, side: 0, unit: typeOf(e.entity) });
+    if (e.kind === 'destroyed' && isOwnSide(sideOf(e.entity), viewer)) {
+      out.push({ kind: 'unitLost', tick, entity: e.entity, side: viewer, unit: typeOf(e.entity) });
     }
   }
   return out;
@@ -46,5 +50,5 @@ export function sandboxAlertsForTick(
   world: AlertWorld,
   tick: number
 ): { state: AlertState; alerts: Alert[] } {
-  return alertsForTick(state, events, sandboxLosses(events, world.sideOf, world.typeOf, tick), world, tick);
+  return alertsForTick(state, events, sandboxLosses(events, world.sideOf, world.typeOf, tick, world.viewer), world, tick);
 }

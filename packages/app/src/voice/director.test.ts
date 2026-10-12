@@ -31,6 +31,7 @@ const look: DirectorLook = {
   pos: () => ({ x: 0, y: 0 }),
   isVisible: () => true,
   camera: () => ({ x: 0, y: 0 }),
+  viewer: 0,
 };
 const order = (...ids: number[]): PlayerIntent => ({ kind: 'order', verb: 'attackMove', ids, x: 10, y: 10, append: false });
 const g = (intents: PlayerIntent[], hostile = false): Gesture => ({ intents, hostile });
@@ -179,6 +180,7 @@ describe('death calls (N6, N7, D6, D10)', () => {
     pos: (id) => POS[id] ?? { x: 0, y: 0 },
     isVisible: () => true,
     camera: () => ({ x: 0, y: 0 }),
+    viewer: 0,
     ...over,
   });
   const destroyed = (entity: number): SimEvent => ({ kind: 'destroyed', tick: 1, entity, by: 99 });
@@ -335,5 +337,26 @@ describe('decideCalls: ours report breaking and vehicle damage (pass C2/C4, A1)'
     expect(later.notes[0].why).toBe('line');
     const sameUnit = decideCalls(first.state, [routed(1)], look, LANGS, VOICE_TIMING.callGlobalMs);
     expect(sameUnit.notes).toEqual([{ why: 'silent:throttle', cue: null }]);
+  });
+});
+
+// N1a task 6: "ours" is the viewer's side. A seat on side 1 hears its own
+// side's deaths and state calls on the radio net, and side 0's deaths as the
+// placed enemy line.
+describe('the director for a seat on side 1 (N1a task 6)', () => {
+  const destroyed = (entity: number): SimEvent => ({ kind: 'destroyed', tick: 1, entity, by: 99 });
+  const routed = (entity: number): SimEvent => ({ kind: 'routed', tick: 0, entity }) as SimEvent;
+  const onSide = (side: number): DirectorLook => ({ ...look, viewer: 1, side: () => side });
+
+  it('a death on side 1 is the radio call; a death on side 0 is the placed enemy line', () => {
+    const own = decideDeaths(INITIAL_DIRECTOR, [destroyed(1)], onSide(1), LANGS, 0).notes;
+    expect(own.map((n) => [n.cue?.priority, n.cue?.at])).toEqual([['kdf_death', null]]);
+    const foe = decideDeaths(INITIAL_DIRECTOR, [destroyed(1)], onSide(0), LANGS, 0).notes;
+    expect(foe.map((n) => [n.cue?.priority, n.cue?.at])).toEqual([['enemy_death', { x: 0, y: 0 }]]);
+  });
+
+  it('side 1 breaking is a call on its net; side 0 breaking says nothing', () => {
+    expect(decideCalls(INITIAL_DIRECTOR, [routed(1)], onSide(1), LANGS, 0).notes.map((n) => n.cue?.key)).toEqual(['he.common.broken']);
+    expect(decideCalls(INITIAL_DIRECTOR, [routed(1)], onSide(0), LANGS, 0).notes).toEqual([]);
   });
 });

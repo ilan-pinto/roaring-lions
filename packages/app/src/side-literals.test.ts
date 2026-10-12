@@ -3,8 +3,8 @@
 // every such site asks relationOf / isOwnSide / isHostileSide / colorSlot with
 // the viewer threaded in. Reads the SOURCE: the point is that no new literal
 // can be written, which no behavioural test of today's sites can promise.
-// The body is packages/render/src/side-literals.test.ts's, with ROOT, the
-// scanned roots and PENDING_TASK_6 changed.
+// The body is packages/render/src/side-literals.test.ts's, with ROOT and the
+// scanned roots changed.
 //
 // Scanned: main.ts, input/, ui/, voice/. Outside those roots, and not scanned
 // (single-player by construction -- no room ever reaches them):
@@ -19,20 +19,6 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const SCANNED = ['main.ts', 'input', 'ui', 'voice'];
-/** Files N1a Task 6 converts (the HUD, minimap, alerts and voice director);
- *  Task 6 empties this list. Nothing else may ever be added to it. */
-const PENDING_TASK_6 = [
-  'ui/hud.ts',
-  'ui/hud-model.ts',
-  'ui/minimap.ts',
-  'ui/alerts.ts',
-  'ui/alert-world.ts',
-  'ui/sandbox-feed.ts',
-  'ui/withdrew.ts',
-  'ui/intel-moments.ts',
-  'ui/stall-hint.ts',
-  'voice/director.ts',
-];
 const PATTERNS: RegExp[] = [
   /\b(contactLevel|tunnelContactLevel|sideSeesTile|markerSeesTile)\(\s*0\s*,/,
   // `side === 0`, `.side !== 1`, `st.side[i] === 0` -- but not `inside === 0`.
@@ -95,7 +81,7 @@ describe('no side literal in the app\'s selection, orders, hover and HUD', () =>
     const scanned = SCANNED.flatMap((s) => {
       const p = join(ROOT, s);
       return statSync(p).isDirectory() ? files(p) : [p];
-    }).filter((f) => !PENDING_TASK_6.includes(f.slice(ROOT.length)));
+    });
     for (const f of scanned) {
       readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
         if (sideLiteralIn(line)) hits.push(`${f.slice(ROOT.length)}:${i + 1}: ${line.trim()}`);

@@ -22,7 +22,7 @@
  */
 import type { PlayerIntent } from '../input/intents';
 import { idsOf, winningVerb } from '../input/cursor';
-import type { VoicePriority } from '@lions/render';
+import { isOwnSide, type VoicePriority } from '@lions/render';
 import type { SimEvent } from '@lions/sim';
 import {
   ackLineKey,
@@ -82,6 +82,10 @@ export interface DirectorLook {
   /** GH-262: is this unit pinned right now? Absent means "never pinned" --
    *  a `look` with no member behaves exactly as before the feature. */
   isPinned?(id: number): boolean;
+  /** The side the player commands (network design §5.1), 0 in single-player:
+   *  the radio net is that side's, and every other side's death is the enemy
+   *  line. */
+  readonly viewer: number;
 }
 
 /** The director's whole memory, threaded call to call. Every field is
@@ -358,11 +362,12 @@ export function decideOrder(
  * so a caller can tell "this death was seen but throttled" apart from "this
  * death was never in the running."
  *
- * Side 0 (KDF) speaks unplaced (`at: null`) from its own class pool,
+ * The viewer's side (`look.viewer`: side 0, the KDF, in single-player)
+ * speaks unplaced (`at: null`) from its own class pool,
  * `kdf_death` priority -- the player does not need a battlefield position
  * for their own unit's death, only the radio call (N6). At most one KDF
  * call is returned per `decideDeaths` invocation: once this tick has
- * produced a KDF line, every later side-0 death is skipped with NO note
+ * produced a KDF line, every later own-side death is skipped with NO note
  * (it was never considered) rather than a throttle note, which is reserved
  * for a death that WAS considered and lost to the clock. A considered death
  * is throttled if it is within `kdfDeathGlobalMs` of the last KDF call
@@ -404,7 +409,7 @@ export function decideDeaths(
     const cls = unit.voice;
     const spokeKey = `${lang}.${cls}`;
 
-    if (look.side(event.entity) === 0) {
+    if (isOwnSide(look.side(event.entity), look.viewer)) {
       if (kdfSpokenThisTick) continue;
       const throttled =
         nowMs - s.kdfDeathAt < VOICE_TIMING.kdfDeathGlobalMs ||
@@ -481,7 +486,7 @@ export function decideCalls(
   const notes: { why: Why; cue: VoiceCue | null }[] = [];
   for (const event of events) {
     const c = callOf(event);
-    if (c === null || look.side(c.entity) !== 0) continue;
+    if (c === null || !isOwnSide(look.side(c.entity), look.viewer)) continue;
     const unit = look.unitOf(c.entity);
     if (!unit) continue;
     const lang = languageOf(unit.faction, languages);

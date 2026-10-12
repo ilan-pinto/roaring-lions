@@ -2897,6 +2897,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const pinnedSince = new PinnedSince();
   const hud = new Hud(document.body, {
     sim,
+    viewer: me,
     isShown,
     pinnedTicks: (id) => pinnedSince.ticksPinned(id, sim.tickCount),
     // GH-345: the running Conduct invoice, worded from the sim's own reasons.
@@ -3031,6 +3032,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         return u ? { faction: u.faction, voice: voiceClassOf(u) } : null;
       },
       side: (id) => sim.state.side[id],
+      viewer: me,
       pos: (id) => ({ x: fx.toNumber(sim.state.posX[id]), y: fx.toNumber(sim.state.posY[id]) }),
       isVisible: (x, y) => renderer.isVisible(x, y),
       camera: () => renderer.camera,
@@ -3244,6 +3246,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   let lastFlipped: ImageData | null = null;
   const minimap = new Minimap(document.body, {
     sim,
+    viewer: me,
     map,
     view: renderer,
     tones: opts.terrainTones,
@@ -3418,7 +3421,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // the screen: no readout lands on the next one, and the footprint goes.
   const intelMoments =
     runtime && mission?.resources
-      ? new IntelMoments({ sweepCost: runtime.sweepCost, strikeCost: runtime.strikeCost, toFx: fx.from })
+      ? new IntelMoments({ sweepCost: runtime.sweepCost, strikeCost: runtime.strikeCost, toFx: fx.from, viewer: me })
       : null;
   onDispose(() => {
     intelMoments?.dispose();
@@ -3917,6 +3920,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     map,
     units: units as Readonly<Record<string, { name?: string } | undefined>>,
     placeOf: (x, y) => placeOnScreen(renderer.worldToScreen(x, y), canvas.clientWidth, canvas.clientHeight),
+    viewer: me,
   });
   /** Carried across ticks: when each entity last made the feed, and which
    *  waves have been announced. Copy-on-write inside `alertsForTick`, so this
@@ -4459,7 +4463,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // Optional on the interface (`api.ts`) -- Pixi draws no civilians at all
       // and implements nothing.
       renderer.onMissionEvents?.(missionEvents);
-      if (tickIsActive(events, missionEvents)) stallActive = true;
+      if (tickIsActive(events, missionEvents, me)) stallActive = true;
       const intelAnnounce = intelMoments ? sayIntel(intelMoments.afterTick(sim, sim.tickCount, events, runtime.intel)) : [];
       voice.onMission(missionEvents, intelAnnounce);
 
@@ -4643,7 +4647,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               : undefined;
             // A victory that left hostiles standing says so ("6 withdrew"). A READ of
             // the sim at the end tick; `after-action.ts` shows it on a victory only.
-            const withdrew = livingHostiles(sim.state, sim.entityCount);
+            const withdrew = livingHostiles(sim.state, sim.entityCount, me);
             // G11: the mission's own closing word, outcome-aware, resolved to a
             // plate/portrait the way the commander bar resolves one.
             const say = mev.result === 'victory' ? mission.debrief?.victory : mission.debrief?.defeat;
@@ -5194,8 +5198,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       },
 
       /** Living units with their type id and tile, for finding something to
-       *  select. Side 0 unless asked otherwise. */
-      units: (side = 0) => {
+       *  select. The seat's own side (0 in single-player) unless asked
+       *  otherwise. */
+      units: (side = me) => {
         const out: { id: number; type: string; x: number; y: number }[] = [];
         for (let i = 0; i < sim.entityCount; i++) {
           if (sim.state.alive[i] !== 1 || sim.state.side[i] !== side) continue;

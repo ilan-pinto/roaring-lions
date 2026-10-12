@@ -39,7 +39,7 @@ export interface IdleFacts {
  * finder that could land the player's selection on the enemy would be a
  * targeting tool wearing a management tool's key.
  */
-export function isIdle(f: IdleFacts, viewer: number = 0): boolean {
+export function isIdle(f: IdleFacts, viewer: number): boolean {
   return (
     f.alive &&
     isOwnSide(f.side, viewer) &&

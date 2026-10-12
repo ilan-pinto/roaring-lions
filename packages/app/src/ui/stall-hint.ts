@@ -18,7 +18,8 @@
  *  - a `hold_for`/`capture` clock moved or its pause reason flipped;
  *  - a mission event of any kind (wave, trigger, ROE line, loss, evacuation);
  *  - a kill on either side (`destroyed`);
- *  - one of our sensors identifying something (`contact` identified, side 0).
+ *  - one of our sensors identifying something (`contact` identified by the
+ *    viewer's side -- side 0 in single-player).
  * Shots fired are deliberately NOT progress: measured on Khan Rafid I with the
  * recon drone dead and no orders given, the garrison fires ~1,000 rounds in
  * 75 s at the idle column, so counting `fire` would silence the hint in the
@@ -28,6 +29,7 @@
  * something about.
  */
 import { TICKS_PER_SECOND } from '@lions/sim';
+import { isOwnSide } from '@lions/render';
 import { t } from '../i18n/t';
 import { DEADLINE_TYPES } from './hud-model';
 
@@ -59,12 +61,13 @@ export interface StallEvent {
   level?: string;
 }
 
-/** Whether one tick's events count as progress. */
-export function tickIsActive(events: readonly StallEvent[], missionEvents: readonly unknown[]): boolean {
+/** Whether one tick's events count as progress. `viewer` is the side the
+ *  player commands, 0 in single-player. */
+export function tickIsActive(events: readonly StallEvent[], missionEvents: readonly unknown[], viewer = 0): boolean {
   if (missionEvents.length > 0) return true;
   for (const e of events) {
     if (e.kind === 'destroyed') return true;
-    if (e.kind === 'contact' && e.level === 'identified' && e.side === 0) return true;
+    if (e.kind === 'contact' && e.level === 'identified' && e.side !== undefined && isOwnSide(e.side, viewer)) return true;
   }
   return false;
 }

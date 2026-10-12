@@ -37,6 +37,7 @@
 
 import type { SimEvent } from '@lions/sim';
 import { TICKS_PER_SECOND } from '@lions/sim';
+import { isHostileSide, isOwnSide } from '@lions/render';
 import type { AlertTier } from './alerts';
 import { clockText, type Tone } from './hud-model';
 
@@ -219,8 +220,9 @@ class Snapshot {
 }
 
 /** Whom a sweep at `(x, y)` identified, by the sim's own rule
- *  (`Sim`'s `reveal` command): living, side 1, on the surface, inside
- *  `SWEEP_RADIUS_SQ` -- read off the board as the command saw it. */
+ *  (`Sim`'s `reveal` command): living, hostile to the calling side (the
+ *  viewer, 0 in single-player), on the surface, inside `SWEEP_RADIUS_SQ` --
+ *  read off the board as the command saw it. */
 export interface BoardView {
   readonly count: number;
   readonly alive: ArrayLike<number>;
@@ -229,10 +231,10 @@ export interface BoardView {
   readonly posY: ArrayLike<number>;
   readonly tunnelIn: ArrayLike<number>;
 }
-export function sweptContacts(snap: BoardView, xFx: number, yFx: number): number[] {
+export function sweptContacts(snap: BoardView, xFx: number, yFx: number, viewer = 0): number[] {
   const out: number[] = [];
   for (let i = 0; i < snap.count; i++) {
-    if (snap.alive[i] === 0 || snap.side[i] !== 1) continue;
+    if (snap.alive[i] === 0 || !isHostileSide(snap.side[i], viewer)) continue;
     if (snap.tunnelIn[i] >= 0) continue;
     if (distSqFx(snap.posX[i] - xFx, snap.posY[i] - yFx) > SWEEP_RADIUS_SQ_FX) continue;
     out.push(i);
@@ -246,6 +248,10 @@ export interface IntelMomentsOptions {
   /** Fixed-point from a tile number (`fx.from`), injected so this file needs
    *  no second copy of the sim's conversion. */
   readonly toFx: (n: number) => number;
+  /** The side the player commands (network design §5.1), 0 in single-player
+   *  and when absent: its `revealed` is the sweep's answer, and the side
+   *  hostile to it is what a sweep and a strike count. */
+  readonly viewer?: number;
 }
 
 const TYPE_NAME_LIMIT = 4;
@@ -263,6 +269,10 @@ export class IntelMoments {
   private disposed = false;
 
   constructor(private readonly opts: IntelMomentsOptions) {}
+
+  private get viewer(): number {
+    return this.opts.viewer ?? 0;
+  }
 
   private cost(k: SupportKind): number {
     return k === 'sweep' ? this.opts.sweepCost : this.opts.strikeCost;
@@ -325,7 +335,7 @@ export class IntelMoments {
     }
 
     for (const e of events) {
-      if (e.kind === 'revealed' && e.side === 0 && this.pendingSweep !== null) {
+      if (e.kind === 'revealed' && isOwnSide(e.side, this.viewer) && this.pendingSweep !== null) {
         const at = this.pendingSweep;
         this.pendingSweep = null;
         out.push(...this.sweepResult(sim, at, e.count));
@@ -347,7 +357,7 @@ export class IntelMoments {
   }
 
   private sweepResult(sim: IntelLook, at: { x: number; y: number }, count: number): IntelOutput[] {
-    const ids = sweptContacts(this.snap, this.opts.toFx(at.x), this.opts.toFx(at.y));
+    const ids = sweptContacts(this.snap, this.opts.toFx(at.x), this.opts.toFx(at.y), this.viewer);
     const byType = new Map<string, number>();
     for (const i of ids) {
       const name = sim.unitTypes[sim.state.typeIdx[i]]?.name ?? '';
@@ -399,11 +409,11 @@ export class IntelMoments {
     let hit = 0;
     let civiliansKilled = 0;
     for (const i of killed) {
-      if (this.snap.side[i] === 1) down++;
+      if (isHostileSide(this.snap.side[i], this.viewer)) down++;
       else if (this.snap.side[i] === 2) civiliansKilled++;
     }
     for (let i = 0; i < this.snap.count; i++) {
-      if (this.snap.alive[i] === 0 || this.snap.side[i] !== 1 || killed.has(i)) continue;
+      if (this.snap.alive[i] === 0 || !isHostileSide(this.snap.side[i], this.viewer) || killed.has(i)) continue;
       if (!inSplash(i)) continue;
       if (sim.state.hp[i] < this.snap.hp[i]) hit++;
     }

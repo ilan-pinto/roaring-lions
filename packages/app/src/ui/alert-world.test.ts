@@ -43,6 +43,7 @@ function firstLight() {
     map,
     units: units as Record<string, { name?: string }>,
     placeOf,
+    viewer: 0,
   });
   let state = initAlertState();
   /** Steps until `until` holds or the tick budget runs out; every alert raised
@@ -131,6 +132,7 @@ describe('an enemy kill, through First Light\'s own runtime (PA-19)', () => {
       map: { zones: {}, markers: {} },
       units: units as Record<string, { name?: string }>,
       placeOf,
+      viewer: 0,
     });
     const type = sim.unitTypes[sim.state.typeIdx[enemies[0]]].id;
     const kill = alertsForTick(
@@ -145,5 +147,21 @@ describe('an enemy kill, through First Light\'s own runtime (PA-19)', () => {
     expect(alertNotice(kill[0].line!)[0]).toMatch(/^<b>enemy destroyed<\/b> — /);
     const unclaimed = alertsForTick(initAlertState(), [{ kind: 'destroyed', tick: 1, entity: enemies[1], by: -1 }], [], world, 1).alerts;
     expect(unclaimed).toEqual([]);
+  });
+});
+
+// N1a task 6: the dock's delivery is the newest unit of its type on the
+// VIEWER's side, so a seat on side 1 is pointed at its own arrival.
+describe('arrivedAt follows the viewer (N1a task 6)', () => {
+  it('finds the newest living unit of the type on the viewer\'s side only', () => {
+    const sim = new Sim({ seed: 1, width: 32, height: 32, capacity: 16 });
+    const jeep = sim.addUnitType(units.jeep_shoded as never);
+    sim.spawn(jeep, 0, 3 << 16, 3 << 16);
+    sim.spawn(jeep, 1, 20 << 16, 20 << 16);
+    sim.spawn(jeep, 0, 5 << 16, 5 << 16);
+    const worldFor = (viewer: number) =>
+      alertWorldFor({ sim, runtime: () => null, mission: null, map: { zones: {}, markers: {} }, units: {}, placeOf, viewer });
+    expect(worldFor(0).arrivedAt('jeep_shoded')).toEqual({ x: 5, y: 5 });
+    expect(worldFor(1).arrivedAt('jeep_shoded')).toEqual({ x: 20, y: 20 });
   });
 });

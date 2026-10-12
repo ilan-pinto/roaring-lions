@@ -18,6 +18,7 @@ const world: AlertWorld = {
   markerAt: () => null,
   arrivedAt: () => null,
   reinforcement: () => null,
+  viewer: 0,
 };
 const destroyed = (entity: number, by: number): SimEvent => ({ kind: 'destroyed', tick: 0, entity, by }) as SimEvent;
 const fire = (target: number): SimEvent =>
@@ -26,7 +27,7 @@ const fire = (target: number): SimEvent =>
 
 describe('sandboxLosses (PA-25)', () => {
   it('reports a loss of ours the way MissionRuntime does, killer or not', () => {
-    const out = sandboxLosses([destroyed(7, 17), destroyed(2, -1)], world.sideOf, world.typeOf, 40);
+    const out = sandboxLosses([destroyed(7, 17), destroyed(2, -1)], world.sideOf, world.typeOf, 40, 0);
     expect(out).toEqual([
       { kind: 'unitLost', tick: 40, entity: 7, side: 0, unit: 'mbt_lavi' },
       { kind: 'unitLost', tick: 40, entity: 2, side: 0, unit: 'inf_squad' },
@@ -34,7 +35,7 @@ describe('sandboxLosses (PA-25)', () => {
   });
 
   it('reports nothing for an enemy or a civilian dying', () => {
-    expect(sandboxLosses([destroyed(12, 3), destroyed(31, 3)], world.sideOf, world.typeOf, 40)).toEqual([]);
+    expect(sandboxLosses([destroyed(12, 3), destroyed(31, 3)], world.sideOf, world.typeOf, 40, 0)).toEqual([]);
   });
 });
 
@@ -55,5 +56,20 @@ describe('sandboxAlertsForTick (PA-25)', () => {
 
   it('says nothing on a quiet tick', () => {
     expect(sandboxAlertsForTick(initAlertState(), [], world, 40).alerts).toEqual([]);
+  });
+});
+
+// N1a task 6: a seat on side 1 loses side 1's units, and its synthesised
+// `unitLost` carries the side it is about, as the runtime's does.
+describe('the sandbox feed for a seat on side 1 (N1a task 6)', () => {
+  it('reports side 1\'s losses, as side 1, and none of side 0\'s', () => {
+    expect(sandboxLosses([destroyed(17, 7), destroyed(2, 12)], world.sideOf, world.typeOf, 40, 1)).toEqual([
+      { kind: 'unitLost', tick: 40, entity: 17, side: 1, unit: 'mbt_lavi' },
+    ]);
+  });
+
+  it('puts side 1\'s loss in its feed through the world\'s viewer', () => {
+    const { alerts } = sandboxAlertsForTick(initAlertState(), [destroyed(17, 7), destroyed(2, 12)], { ...world, viewer: 1 }, 40);
+    expect(alerts.filter((a) => a.kind === 'unitLost').map((a) => a.line?.params.name)).toEqual(['Lavi']);
   });
 });

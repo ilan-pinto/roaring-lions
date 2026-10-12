@@ -20,6 +20,7 @@ const look: DirectorLook = {
   pos: () => ({ x: 0, y: 0 }),
   isVisible: () => true,
   camera: () => ({ x: 0, y: 0 }),
+  viewer: 0,
 };
 const order = (...ids: number[]): PlayerIntent => ({ kind: 'order', verb: 'attackMove', ids, x: 1, y: 1, append: false });
 const MISSING: VoiceResult = { status: 'missing', seconds: 0, en: null, cut: 0 };

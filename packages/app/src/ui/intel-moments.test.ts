@@ -248,3 +248,59 @@ describe('dispose', () => {
     expect(m.called('sweep', 1, 1, 80)).toEqual([]);
   });
 });
+
+// N1a task 6: a seat on side 1 sweeps and strikes side 0, its `revealed` is
+// the one carrying side 1, and a civilian is never a contact for either seat.
+describe('a seat on side 1 (N1a task 6)', () => {
+  const pieces: Piece[] = [
+    { side: 0, x: 33, y: 10 }, // 0: the enemy to this seat, centre
+    { side: 0, x: 36, y: 12 }, // 1: inside
+    { side: 1, x: 33, y: 12 }, // 2: ours
+    { side: 2, x: 33, y: 11, type: 2 }, // 3: a civilian
+  ];
+  const seat1 = (): IntelMoments => new IntelMoments({ sweepCost: 150, strikeCost: 250, toFx, viewer: 1 });
+
+  it('sweeps side 0, never its own side or a civilian', () => {
+    const b = board(pieces);
+    const snap = { count: b.entityCount, ...b.state };
+    expect(sweptContacts(snap, toFx(33), toFx(10), 1)).toEqual([0, 1]);
+    expect(sweptContacts(snap, toFx(33), toFx(10), 0)).toEqual([2]);
+  });
+
+  it('reads its own `revealed`, and ignores side 0\'s', () => {
+    const run = (side: number): IntelOutput[] => {
+      const b = board(pieces);
+      const m = seat1();
+      m.afterTick(b, 1, [], 252);
+      m.called('sweep', 33, 10, 1);
+      m.beforeTick(b);
+      return m.afterTick(b, 2, [{ kind: 'revealed', tick: 2, side, count: 2 }], 102);
+    };
+    expect(of(run(1), 'note')[0]).toMatchObject({ key: 'intel.note.sweepResult', params: { n: 2 } });
+    expect(of(run(0), 'note')).toEqual([]);
+  });
+
+  it('counts side 0 down and hit in its strike readout', () => {
+    const b = board([
+      { side: 0, x: 17.5, y: 8.5 }, // 0: killed
+      { side: 0, x: 18.5, y: 8.5 }, // 1: hit
+      { side: 1, x: 17.5, y: 9.0 }, // 2: ours, hit by our own strike: not counted
+    ]);
+    const m = seat1();
+    m.afterTick(b, 1, [], 252);
+    m.called('strike', 17.5, 8.5, 1);
+    m.beforeTick(b);
+    b.state.hp[1] -= toFx(30);
+    b.state.hp[2] -= toFx(30);
+    b.state.alive[0] = 0;
+    const events: SimEvent[] = [
+      { kind: 'strike', tick: 61, by: 9, x: toFx(17.5), y: toFx(8.5) },
+      { kind: 'destroyed', tick: 61, entity: 0, by: 9 },
+    ];
+    m.afterTick(b, 61, events, 2);
+    for (let k = 62; k < 61 + STRIKE_READOUT_DELAY_TICKS; k++) m.afterTick(b, k, [], 2);
+    expect(of(m.afterTick(b, 61 + STRIKE_READOUT_DELAY_TICKS, [], 2), 'strikeResult')).toEqual([
+      { kind: 'strikeResult', down: 1, hit: 1, building: false, civiliansKilled: 0 },
+    ]);
+  });
+});
