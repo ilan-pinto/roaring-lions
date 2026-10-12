@@ -196,6 +196,18 @@ export class RoomRefused extends Error {
   }
 }
 
+/** The room this tab holds a seat in has ALREADY STARTED (a lobby reloaded
+ *  after the start, Task 7 review (g)). Still a `failed` refusal to anything
+ *  that only knows `RoomRefused`; the lobby reads `map` and goes to the match
+ *  (`routes.sandbox(map)?net=<code>`), where `connectMatch` rejoins with the
+ *  stored ticket this refusal leaves in place. */
+export class RoomStarted extends RoomRefused {
+  constructor(readonly map: string, readonly code: string) {
+    super('failed', `room ${code} already started on ${map}`);
+    this.name = 'RoomStarted';
+  }
+}
+
 /**
  * Creates (`mode: 'versus'`, the chosen map) or joins a room and opens its
  * socket, resolving at the room's FIRST `lobby` message with no `ready` sent.
@@ -260,7 +272,8 @@ export async function openRoom(req: RoomRequest, build: string, deps: OpenDeps):
  *  with) before any lobby means the match is already under way: the lobby has
  *  nothing to show. The transport is let go with `detach` -- no `bye`, which
  *  would end a live match for the other seat -- and the stored ticket stays
- *  for the battlefield's own rejoin. */
+ *  for the battlefield's own rejoin, which the rejection (`RoomStarted`,
+ *  naming the started config's map) sends the lobby to. */
 function awaitLobby(code: string, seat: Seat, ticket: string, build: string, deps: OpenDeps): Promise<OpenedRoom> {
   const wsUrl = `${deps.origin.replace(/^http/, 'ws')}/api/match/${encodeURIComponent(code)}/ws`;
   return new Promise<OpenedRoom>((resolve, reject) => {
@@ -280,15 +293,13 @@ function awaitLobby(code: string, seat: Seat, ticket: string, build: string, dep
         deps.signal?.removeEventListener('abort', onAbort);
         resolve({ code, seat, transport, lobby: { seats, map } });
       },
-      onStart: () => fail(new RoomRefused('failed', 'room already started'), false),
+      onStart: (config) => fail(new RoomStarted(config.map, code), false),
       onError: (c) => {
         if (c === 'build_mismatch') fail(new RoomRefused('build', `room refused: ${c}`));
         else if (c === 'bad_ticket') fail(new RoomRefused('failed', `room refused: ${c}`, true));
         else if (c === 'full') fail(new RoomRefused('full', `room refused: ${c}`));
       },
       onEnded: (reason) => fail(new RoomRefused('failed', `room ended before the lobby: ${reason}`, true)),
-      // The lobby's chat line arrives with N1b task 9.
-      onChat: () => {},
     });
     deps.signal?.addEventListener('abort', onAbort, { once: true });
   });

@@ -248,6 +248,7 @@ import { campOf, versusSpawns } from './net/versus-force';
 import { pruneHiddenHostiles, type SeatSight } from './net/hidden-selection';
 import { garrisonRoomShown } from './net/hover-garrison';
 import { NetStatusLine } from './ui/net-status';
+import { NetChat, chatFeedLine, chatOpens } from './ui/net-chat';
 import { lightOverrideOf, timeOfDayOf } from './time-of-day';
 import { buildingFitOf } from './building-fit-flag';
 import { registerServiceWorker } from './service-worker';
@@ -3052,6 +3053,18 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   });
   // Six panes on `document.body`, plus a title card that may still be holding.
   onDispose(() => hud.destroy());
+  /** The match's chat (N1b task 9), a room only: Enter opens its input (the
+   *  keydown listener below, `chatOpens`), and the room's lines -- both seats',
+   *  this one's own echoed back -- go to the HUD feed. The feed sets
+   *  `innerHTML`, so the callsign and the text both go through `chatFeedLine`,
+   *  which escapes them. */
+  const netChat = room !== null && netConfig !== null
+    ? new NetChat(document.body, { send: (text) => room.chat(text), nameOf: (seat) => netConfig.seats[seat].callsign })
+    : null;
+  if (netChat !== null) onDispose(() => netChat.dispose());
+  if (room !== null && netConfig !== null) {
+    room.setHooks({ onChat: (seat, text) => hud.note(chatFeedLine(netConfig.seats[seat].callsign, text), 'info') });
+  }
   // Pass K: a /free-play/<id> link naming no shipped map still loads the
   // default ground (a typo in a dev URL should not look like a broken build),
   // but the PLAYER is told, by name -- it used to be a console line only, and
@@ -4162,6 +4175,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // no modal at all -- the debrief's one-line rating note -- where `h` would
     // otherwise still halt and `w` still pan while the player types.
     if (isTextEntry(ev.target)) return;
+    // N1b task 9 (R-B12): in a room, a bare Enter opens the chat. Not a keymap
+    // action, so single-player's Controls and F1 card are unchanged; never over
+    // a dialog or the pause menu.
+    if (netChat !== null && chatOpens(ev, { inRoom: true, modalOpen: isDialogOpen() || pauseHandle !== null })) {
+      ev.preventDefault();
+      netChat.open();
+      return;
+    }
     // The keydown listener used to be an if-chain of literals -- one per
     // bound key, and a second copy of each letter living in
     // `selection-model.ts`'s ORDERS with nothing keeping the two in step.

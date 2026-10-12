@@ -228,6 +228,8 @@
   "net.desync": "Desync at {time}. The match is void; report it.",
   "net.paused": "Paused by {seat}: {time}",
   "net.closed": "{reason, select, left {The other seat left the match} void {Match void} expired {The room expired} replaced {This seat was opened in another tab} other {Match closed}}",
+  "net.chat.placeholder": "Say something (Enter to send)",
+  "net.chat.line": "{name}: {text}",
 
   "menu.nav.versus": "Play with a friend",
   "versus.title": "Play with a friend",

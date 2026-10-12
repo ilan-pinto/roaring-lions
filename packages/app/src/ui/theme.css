@@ -7226,6 +7226,52 @@ button.rl-menu__item[data-kind='aside'] {
   display: none;
 }
 
+/* Chat (ui/net-chat.ts, N1b task 9): the lobby's docked log and input, and
+   the match's input that Enter opens (its lines go to the HUD feed). Every
+   line is text typed by a player, drawn as text. */
+.rl-chat--docked {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  margin-top: var(--s3);
+}
+.rl-chat--float {
+  position: fixed;
+  top: calc(var(--hud-strip-h) + var(--s6) + var(--s4));
+  left: 50%;
+  transform: translateX(-50%);
+  width: 28rem;
+  max-width: calc(100vw - var(--s6));
+  z-index: 20;
+}
+.rl-chat__log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 8rem;
+  overflow-y: auto;
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  color: var(--ink);
+}
+.rl-chat__log:empty,
+.rl-chat__entry[hidden] {
+  display: none;
+}
+.rl-chat__line {
+  overflow-wrap: anywhere;
+}
+.rl-chat__input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--panel-bg-solid);
+  color: var(--ink);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  padding: var(--s1) var(--s2);
+}
+
 /* ---------------------------------------------------------------------- */
 /* Credits (ui/credits.ts)                                                */
 /* ---------------------------------------------------------------------- */

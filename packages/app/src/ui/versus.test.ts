@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { maps } from '@lions/data';
 import type { MatchConfig, SeatState, WsTransport, WsTransportHooks } from '@lions/net';
-import { CODE_ALPHABET, filterCode, showVersus, showVersusRoom, versusMaps, type VersusDeps } from './versus';
-import { RoomRefused, type OpenedRoom, type RoomRequest } from '../net/connect';
+import { CODE_ALPHABET, PENDING_LOBBY_EXPIRE_MS, filterCode, showVersus, showVersusRoom, versusMaps, type VersusDeps } from './versus';
+import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';
 import { takeHanded } from '../net/handoff';
 import { isDialogOpen } from './confirm';
 
@@ -14,6 +14,7 @@ function fakeTransport() {
   const t = {
     hooks,
     ready: vi.fn(),
+    chat: vi.fn(),
     close: vi.fn(),
     detach: vi.fn(),
     setHooks: vi.fn((h: Partial<WsTransportHooks>) => { Object.assign(hooks, h); }),
@@ -266,12 +267,44 @@ describe('showVersusRoom (/versus/:code) with the lobby handed from /versus', ()
     expect(ready.getAttribute('aria-pressed')).toBe('true');
   });
 
-  it('keeps an empty, labelled chat slot for the lobby chat (task 9)', async () => {
+  it('mounts the lobby chat in its labelled slot: Enter sends through the transport (task 9, R-B10)', async () => {
+    const { fake, stage } = await hostedRoom();
+    const slot = stage.querySelector('.rl-versus__chat');
+    expect(slot?.getAttribute('aria-label')).toBeTruthy();
+    const input = slot?.querySelector<HTMLInputElement>('.rl-chat__input');
+    expect(input).not.toBeNull();
+    expect(input!.closest<HTMLElement>('.rl-chat__entry')!.hidden).toBe(false);
+    input!.value = '  glhf ';
+    input!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    expect(fake.chat).toHaveBeenCalledWith('glhf');
+  });
+
+  it('an incoming lobby chat line is drawn as TEXT under the sender\'s callsign (task 9, R-B10)', async () => {
+    const { fake, stage } = await hostedRoom();
+    fake.hooks.onLobby?.(SEATS_TWO, 0, 'tel_marum');
+    fake.hooks.onChat?.(1, '<img src=x onerror=alert(1)><b>x</b>');
+    const lines = stage.querySelectorAll('.rl-versus__chat .rl-chat__line');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.textContent).toBe('Bo: <img src=x onerror=alert(1)><b>x</b>');
+    expect(stage.querySelector('img')).toBeNull();
+    expect(stage.querySelector('b')).toBeNull();
+  });
+
+  it('Escape typed into the lobby chat clears it and does not ask to leave', async () => {
     const { stage } = await hostedRoom();
-    const chat = stage.querySelector('.rl-versus__chat');
-    expect(chat).not.toBeNull();
-    expect(chat?.getAttribute('aria-label')).toBeTruthy();
-    expect(chat?.childElementCount).toBe(0);
+    const input = stage.querySelector<HTMLInputElement>('.rl-chat__input')!;
+    input.value = 'oops';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    expect(input.value).toBe('');
+    expect(stage.querySelector('.rl-confirm')).toBeNull();
+  });
+
+  it('the lobby\'s disposer takes the chat with it, and a late line draws nothing', async () => {
+    const { fake, stage, dispose } = await hostedRoom();
+    dispose();
+    expect(stage.querySelector('.rl-chat')).toBeNull();
+    expect(() => fake.hooks.onChat?.(1, 'late')).not.toThrow();
+    expect(stage.querySelector('.rl-chat__line')).toBeNull();
   });
 
   it('at the start hands the transport over and goes to the match, replacing history; the disposer then says nothing', async () => {
@@ -332,11 +365,119 @@ describe('showVersusRoom (/versus/:code) with the lobby handed from /versus', ()
     expect(isDialogOpen()).toBe(false);
   });
 
+  for (const [code, line] of [
+    ['bad_ticket', 'The room has closed'],
+    ['build_mismatch', 'Your friend is on a different version: both reload the page'],
+  ] as const) {
+    it(`a terminal error after the lobby opened (${code}) ends it: the line says why and Ready stops (Task 6 review (e))`, async () => {
+      const { fake, d, stage } = await hostedRoom();
+      fake.hooks.onError?.(code);
+      expect(stage.querySelector('.rl-versus__status')?.textContent).toBe(line);
+      const ready = stage.querySelector<HTMLButtonElement>('.rl-versus__ready')!;
+      expect(ready.disabled).toBe(true);
+      ready.click();
+      expect(fake.ready).not.toHaveBeenCalled();
+      // Ended: Leave has nothing to close for anyone, so it does not ask.
+      stage.querySelector<HTMLButtonElement>('.rl-panel > .rl-foot [data-kind="back"]')!.click();
+      expect(stage.querySelector('.rl-confirm')).toBeNull();
+      expect(d.navigated.at(-1)).toEqual(['/versus', undefined]);
+    });
+  }
+
+  it('an error that is not terminal leaves the lobby open', async () => {
+    const { fake, stage } = await hostedRoom();
+    fake.hooks.onError?.('full');
+    expect(stage.querySelector('.rl-versus__status')?.textContent).toBe('');
+    expect(stage.querySelector<HTMLButtonElement>('.rl-versus__ready')!.disabled).toBe(false);
+  });
+
   it('says the room closed when the friend leaves, and Ready stops', async () => {
     const { fake, stage } = await hostedRoom();
     fake.hooks.onEnded?.('left');
     expect(stage.querySelector('.rl-versus__status')?.textContent).toBe('The room has closed');
     expect(stage.querySelector<HTMLButtonElement>('.rl-versus__ready')!.disabled).toBe(true);
+  });
+});
+
+describe('the parked lobby (Task 6 review (f))', () => {
+  it('is taken once: a second mount of the same code shows the prompt, not the closed transport', async () => {
+    const { fake, d, dispose } = await hostedRoom();
+    dispose();
+    expect(fake.close).toHaveBeenCalledTimes(1);
+    const again = document.createElement('div');
+    room(again, 'ABCDEF', d);
+    expect(again.querySelector('.rl-versus__seat')).toBeNull();
+    expect(again.querySelector('.rl-versus__callsign')).not.toBeNull();
+    expect(fake.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('an entry nobody takes is closed after its expiry, and a later mount shows the prompt', async () => {
+    vi.useFakeTimers();
+    try {
+      const { fake, transport } = fakeTransport();
+      const d = deps({ open: vi.fn().mockResolvedValue(opened(transport)) });
+      const entry = document.createElement('div');
+      const leaveEntry = showVersus(entry, d);
+      entry.querySelector<HTMLButtonElement>('.rl-versus__open')!.click();
+      await vi.advanceTimersByTimeAsync(0);
+      leaveEntry();
+      expect(d.navigated).toEqual([['/versus/ABCDEF', undefined]]);
+      await vi.advanceTimersByTimeAsync(PENDING_LOBBY_EXPIRE_MS - 1);
+      expect(fake.close).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(fake.close).toHaveBeenCalledTimes(1);
+      const stage = document.createElement('div');
+      room(stage, 'ABCDEF', d);
+      expect(stage.querySelector('.rl-versus__seat')).toBeNull();
+      expect(stage.querySelector('.rl-versus__callsign')).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('an entry taken in time is not closed by its expiry', async () => {
+    vi.useFakeTimers();
+    try {
+      const { fake, transport } = fakeTransport();
+      const d = deps({ open: vi.fn().mockResolvedValue(opened(transport)) });
+      const entry = document.createElement('div');
+      const leaveEntry = showVersus(entry, d);
+      entry.querySelector<HTMLButtonElement>('.rl-versus__open')!.click();
+      await vi.advanceTimersByTimeAsync(0);
+      leaveEntry();
+      const stage = document.createElement('div');
+      room(stage, 'ABCDEF', d);
+      expect(stage.querySelector('.rl-versus__code')?.textContent).toBe('ABCDEF');
+      await vi.advanceTimersByTimeAsync(PENDING_LOBBY_EXPIRE_MS * 2);
+      expect(fake.close).not.toHaveBeenCalled();
+      expect(stage.querySelector<HTMLButtonElement>('.rl-versus__ready')!.disabled).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('a lobby reload into a room that has already started (Task 7 review (g))', () => {
+  it('goes to the match on the started map, replacing history, so the battlefield rejoins with the stored ticket', async () => {
+    const d = deps({ open: vi.fn().mockRejectedValue(new RoomStarted('qarn_hadid', 'ABCDEF')) });
+    const stage = document.createElement('div');
+    room(stage, 'ABCDEF', d);
+    stage.querySelector<HTMLButtonElement>('.rl-versus__join')!.click();
+    await flush();
+    expect(d.navigated).toEqual([['/free-play/qarn_hadid?net=ABCDEF', { replace: true }]]);
+    expect(stage.querySelector('.rl-versus__msg')?.textContent).toBe('');
+  });
+
+  it('a join by code from /versus into a started room goes to the match too', async () => {
+    const d = deps({ open: vi.fn().mockRejectedValue(new RoomStarted('tel_marum', 'ABCDEF')) });
+    const stage = document.createElement('div');
+    showVersus(stage, d);
+    const code = stage.querySelector<HTMLInputElement>('.rl-versus__code-input')!;
+    code.value = 'ABCDEF';
+    code.dispatchEvent(new Event('input'));
+    stage.querySelector<HTMLButtonElement>('.rl-versus__join')!.click();
+    await flush();
+    expect(d.navigated).toEqual([['/free-play/tel_marum?net=ABCDEF', { replace: true }]]);
   });
 });
 

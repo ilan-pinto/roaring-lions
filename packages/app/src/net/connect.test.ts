@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { WsTransport, type MatchConfig } from '@lions/net';
-import { connectMatch, openRoom, RELOAD_REFUSED, RoomRefused, type OpenDeps } from './connect';
+import { connectMatch, openRoom, RELOAD_REFUSED, RoomRefused, RoomStarted, type OpenDeps } from './connect';
 import { handOver, dropHanded, takeHanded } from './handoff';
 import { loadSeat, saveSeat } from './ticket-store';
 import type { StorageLike } from '../telemetry/identity';
@@ -499,7 +499,7 @@ describe('openRoom: the lobby\'s create and join (N1b task 6, R-B8)', () => {
     expect(loadSeat(session, 'ABCDEF')).toBeNull();
   });
 
-  it('(c) a stored-ticket rejoin into a room that has already started detaches WITHOUT a bye, rejects as failed, and keeps the ticket', async () => {
+  it('(c) a stored-ticket rejoin into a room that has already started detaches WITHOUT a bye, rejects as RoomStarted (the started map), and keeps the ticket', async () => {
     const session = memory();
     saveSeat(session, 'ABCDEF', { ticket: 'tk-held', seat: 0 });
     const { f, calls } = answering(200);
@@ -507,10 +507,14 @@ describe('openRoom: the lobby\'s create and join (N1b task 6, R-B8)', () => {
     const p = openRoom({ kind: 'join', code: 'ABCDEF', callsign: 'Ari' }, 'b', deps({ fetch: f, openSocket: () => sock, session }));
     await tick();
     sock.onopen?.({});
-    sock.onmessage?.({ data: JSON.stringify({ t: 'log', config: CONFIG(1), frames: [] }) });
+    sock.onmessage?.({ data: JSON.stringify({ t: 'log', config: { ...CONFIG(1), map: 'qarn_hadid' }, frames: [] }) });
     const err = await p.catch((e: unknown) => e);
     expect(err).toBeInstanceOf(RoomRefused);
     expect((err as RoomRefused).reason).toBe('failed');
+    // Task 7 review (g): the lobby goes to the match on THIS map rather than saying "failed".
+    expect(err).toBeInstanceOf(RoomStarted);
+    expect((err as RoomStarted).map).toBe('qarn_hadid');
+    expect((err as RoomStarted).code).toBe('ABCDEF');
     expect(sock.sent.map((s) => (JSON.parse(s) as { t: string }).t)).toEqual(['hello']);
     expect(sock.closed).toBeGreaterThan(0);
     // The battlefield's own rejoin still needs it, and nothing is asked of the room again.

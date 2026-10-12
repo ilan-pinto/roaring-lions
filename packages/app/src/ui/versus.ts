@@ -12,20 +12,25 @@
  * there, once. At the room's `start` the lobby hands the transport to the
  * battlefield (`net/handoff.ts`) and replaces itself with the match's URL.
  * A direct link to a lobby (the guest's whole path) finds nothing parked, so
- * it asks for a callsign and joins first.
+ * it asks for a callsign and joins first. A parked room nobody takes within
+ * `PENDING_LOBBY_EXPIRE_MS` is closed: it must not leave a socket open. A
+ * join into a room this tab holds a seat in that has ALREADY STARTED (a
+ * lobby reloaded after the start) goes to the match instead, whose
+ * `connectMatch` rejoins with the stored ticket.
  *
  * Who owns the socket, which is the disposer contract here: `/versus` owns a
  * room that opens after it was left (closed, never navigated to); the lobby
  * owns it until the start (its disposer says `bye`, which ends the room for
  * both seats); after the start the battlefield does (nothing in the disposer).
  *
- * Callsigns and the code are typed by players. They reach the DOM through
- * `textContent` only, never through markup.
+ * Callsigns, chat lines and the code are typed by players. They reach the
+ * DOM through `textContent` only, never through markup (the lobby chat is
+ * `NetChat`, which keeps to that too).
  */
 import { maps } from '@lions/data';
 import type { Seat, SeatState, WsTransport } from '@lions/net';
 import { t } from '../i18n/t';
-import { RoomRefused, type OpenedRoom, type RoomRequest } from '../net/connect';
+import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';
 import { handOver } from '../net/handoff';
 import { isTextEntry } from '../shell/escape-back';
 import { routes } from '../shell/links';
@@ -34,6 +39,7 @@ import { confirmDialog, isDialogOpen, type ConfirmHandle } from './confirm';
 import { markConfirm } from './confirm-cue';
 import { footBack, screenFoot } from './foot';
 import { stagger } from './motion';
+import { NetChat } from './net-chat';
 import { panel } from './panel';
 import { symbolLabel } from './symbol';
 
@@ -48,6 +54,9 @@ export const CALLSIGN_MAX = 24;
 const DEFAULT_MAP = 'tel_marum';
 /** The two seats, in the order their cards are drawn. */
 const SEAT_ORDER: readonly Seat[] = [0, 1];
+/** How long a room opened on `/versus` waits for its lobby to take it, like
+ *  `handoff.ts`'s `HANDOFF_EXPIRE_MS`: then it is closed. */
+export const PENDING_LOBBY_EXPIRE_MS = 10_000;
 
 /** What a typed room code becomes: upper case, the alphabet only, six at most. */
 export function filterCode(raw: string): string {
@@ -90,10 +99,36 @@ interface Room {
   error: string | null;
   /** The mounted lobby's repaint, or null while none is mounted. */
   repaint: (() => void) | null;
+  /** The mounted lobby's chat, or null while none is mounted. */
+  chat: NetChat | null;
 }
 
-/** Opened on `/versus`, waiting for its lobby to mount: the lobby takes it once. */
-const pendingLobby = new Map<string, Room>();
+/** Opened on `/versus`, waiting for its lobby to mount: the lobby takes it
+ *  once, and one nobody takes is closed at its expiry. */
+const pendingLobby = new Map<string, { room: Room; timer: ReturnType<typeof setTimeout> }>();
+
+/** Parks `room` for its lobby; a room already parked under that code is closed. */
+function park(room: Room): void {
+  takePending(room.code)?.transport.close();
+  const timer = setTimeout(() => {
+    // Only the entry this timer was armed for: a take, or a newer park for the
+    // same code, leaves another entry (or none) and nothing happens.
+    if (pendingLobby.get(room.code)?.room !== room) return;
+    pendingLobby.delete(room.code);
+    room.phase = 'closed';
+    room.transport.close();
+  }, PENDING_LOBBY_EXPIRE_MS);
+  pendingLobby.set(room.code, { room, timer });
+}
+
+/** One take only; cancels the expiry. */
+function takePending(code: string): Room | null {
+  const entry = pendingLobby.get(code);
+  if (entry === undefined) return null;
+  pendingLobby.delete(code);
+  clearTimeout(entry.timer);
+  return entry.room;
+}
 
 const ERROR_KEY: Record<RoomRefused['reason'], string> = {
   not_found: 'versus.error.notFound',
@@ -103,12 +138,20 @@ const ERROR_KEY: Record<RoomRefused['reason'], string> = {
 };
 const errorLine = (err: unknown): string => t(err instanceof RoomRefused ? ERROR_KEY[err.reason] : 'versus.error.failed');
 
+/** A join into a room that has already started goes to the match on its map,
+ *  replacing this screen: the battlefield rejoins with the stored ticket. */
+function startedElsewhere(err: unknown, deps: VersusDeps): boolean {
+  if (!(err instanceof RoomStarted)) return false;
+  deps.navigate(`${routes.sandbox(err.map)}?net=${encodeURIComponent(err.code)}`, { replace: true });
+  return true;
+}
+
 /** Takes an opened room into the screens: its hooks from here are the lobby's. */
 function adopt(o: OpenedRoom, deps: VersusDeps): Room {
   const room: Room = {
     code: o.code, seat: o.seat, transport: o.transport,
     seats: o.lobby.seats, map: o.lobby.map,
-    phase: 'lobby', error: null, repaint: null,
+    phase: 'lobby', error: null, repaint: null, chat: null,
   };
   o.transport.setHooks({
     onLobby: (seats, _you, map) => {
@@ -129,13 +172,16 @@ function adopt(o: OpenedRoom, deps: VersusDeps): Room {
       room.phase = 'ended';
       room.repaint?.();
     },
+    // A refused ticket or a different build is final: the transport stops
+    // (`WsTransport`), so the lobby ends -- a line that says why, and no Ready.
     onError: (code) => {
-      if (code !== 'build_mismatch') return;
-      room.error = 'versus.error.build';
+      if (room.phase !== 'lobby' || (code !== 'build_mismatch' && code !== 'bad_ticket')) return;
+      room.phase = 'ended';
+      room.error = code === 'build_mismatch' ? 'versus.error.build' : null;
       room.repaint?.();
     },
-    // The lobby's chat line arrives with N1b task 9.
-    onChat: () => {},
+    // The room echoes every line to both seats, this one's own included.
+    onChat: (seat, text) => room.chat?.receive(seat, text),
   });
   return room;
 }
@@ -259,12 +305,11 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
       (o) => {
         // Left while the room opened: nobody will take it, so it is closed here.
         if (disposed) { o.transport.close(); return; }
-        pendingLobby.get(o.code)?.transport.close();
-        pendingLobby.set(o.code, adopt(o, deps));
+        park(adopt(o, deps));
         deps.navigate(routes.versusRoom(o.code));
       },
       (err: unknown) => {
-        if (disposed) return;
+        if (disposed || startedElsewhere(err, deps)) return;
         busy = false;
         sync();
         msg.textContent = errorLine(err);
@@ -302,8 +347,7 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
 export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDeps): Disposer {
   let disposed = false;
   const leaving = new AbortController();
-  let room: Room | null = pendingLobby.get(code) ?? null;
-  pendingLobby.delete(code);
+  let room: Room | null = takePending(code);
   let leaveDialog: ConfirmHandle | null = null;
 
   const { wrap, body, footStart } = frame(t('versus.room.title', { code }));
@@ -372,11 +416,16 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
       r.transport.ready();
       paint();
     });
-    // The lobby chat line (N1b task 9) mounts here.
+    // The lobby chat (N1b task 9, R-B10): docked, so its input is always there.
     const chat = document.createElement('div');
     chat.className = 'rl-versus__chat';
     chat.setAttribute('role', 'region');
     chat.setAttribute('aria-label', t('versus.room.chat'));
+    r.chat?.dispose();
+    r.chat = new NetChat(chat, {
+      send: (text) => r.transport.chat(text),
+      nameOf: (seat) => r.seats.find((x) => x.seat === seat)?.callsign ?? '',
+    }, { docked: true });
 
     const card = (n: Seat): HTMLElement => {
       const el = document.createElement('div');
@@ -418,7 +467,7 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
       const pressed = readySent || mine?.ready === true;
       ready.setAttribute('aria-pressed', pressed ? 'true' : 'false');
       ready.disabled = pressed || r.phase !== 'lobby';
-      status.textContent = r.phase === 'ended' ? t('versus.room.ended') : r.error !== null ? t(r.error) : '';
+      status.textContent = r.error !== null ? t(r.error) : r.phase === 'ended' ? t('versus.room.ended') : '';
     };
     r.repaint = paint;
     body.append(share, big, copyRow, seats, mapLine, status, ready, chat);
@@ -453,7 +502,7 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
           lobby(room);
         },
         (err: unknown) => {
-          if (disposed) return;
+          if (disposed || startedElsewhere(err, deps)) return;
           busy = false;
           go.disabled = false;
           msg.textContent = errorLine(err);
@@ -486,6 +535,8 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
     leaveDialog?.close();
     if (room !== null) {
       room.repaint = null;
+      room.chat?.dispose();
+      room.chat = null;
       // Before the start this tab leaves the room (`bye`); an ended room only
       // needs its transport stopped. After the start the battlefield owns it.
       if (room.phase === 'lobby') leaveNow();
