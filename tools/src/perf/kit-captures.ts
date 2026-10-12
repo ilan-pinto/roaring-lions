@@ -5,6 +5,7 @@
  *   pnpm kit:capture -- --only=mbt_lavi      sheets for a subset (comma list)
  *   pnpm kit:capture -- --garage             the bay's turntable at L3 (and the Lavi at L0)
  *   pnpm kit:capture -- --toggle             the `kit` layer toggle A/B, for the `kitted` floor
+ *   pnpm kit:capture -- --measure            the GH-238 leftovers' numbers (see `runMeasure`)
  *   pnpm kit:capture -- --port=5233 --gpu=swiftshader
  *
  * Every flag is checked: an unknown one, or `--garage` with `--toggle`, exits 2
@@ -92,7 +93,8 @@
  * player takes, with no debug path in the app. The `kit` toggle must then
  * report 0 kitted geometries and move 0 px / 0.0000; anything else exits 1.
  */
-import { chromium, type Browser, type Page } from 'playwright';
+import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import { PNG } from 'pngjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -190,7 +192,7 @@ const FIXED = 65536;
 
 // ---------------------------------------------------------------- argv ----
 
-type Mode = 'sheets' | 'garage' | 'toggle';
+type Mode = 'sheets' | 'garage' | 'toggle' | 'measure';
 
 interface Args {
   mode: Mode;
@@ -201,7 +203,7 @@ interface Args {
 function usage(msg: string): never {
   console.error(`[${TAG}] ${msg}`);
   console.error(
-    `[${TAG}] usage: pnpm kit:capture -- [--garage | --toggle] [--only=<id>[,<id>...]] [--port=<n>] [--gpu=metal|swiftshader]`
+    `[${TAG}] usage: pnpm kit:capture -- [--garage | --toggle | --measure] [--only=<id>[,<id>...]] [--port=<n>] [--gpu=metal|swiftshader]`
   );
   process.exit(2);
 }
@@ -209,11 +211,13 @@ function usage(msg: string): never {
 function parseArgs(argv: readonly string[]): Args {
   let garage = false;
   let toggle = false;
+  let measure = false;
   let only: VehicleId[] = [...VEHICLES];
   for (const a of argv) {
     if (a === '--') continue;
     if (a === '--garage') garage = true;
     else if (a === '--toggle') toggle = true;
+    else if (a === '--measure') measure = true;
     else if (a.startsWith('--only=')) {
       const ids = a.slice('--only='.length).split(',').filter((s) => s.length > 0);
       if (ids.length === 0) usage('--only= names no vehicle');
@@ -225,7 +229,7 @@ function parseArgs(argv: readonly string[]): Args {
       // Parsed (and refused when malformed) by `claimPort` / `resolveGpuBackend`.
     } else usage(`unknown argument "${a}"`);
   }
-  if (garage && toggle) usage('--garage and --toggle are separate runs; pick one');
+  if ([garage, toggle, measure].filter(Boolean).length > 1) usage('--garage, --toggle and --measure are separate runs; pick one');
   let gpu: GpuBackend;
   try {
     gpu = resolveGpuBackend(argv, process.platform);
@@ -235,7 +239,7 @@ function parseArgs(argv: readonly string[]): Args {
   if (toggle && argv.some((a) => a.startsWith('--gpu='))) {
     usage('--toggle runs in the gate\'s own browser (SwiftShader, launchCaptureBrowser); --gpu does not apply');
   }
-  return { mode: garage ? 'garage' : toggle ? 'toggle' : 'sheets', only, gpu };
+  return { mode: garage ? 'garage' : toggle ? 'toggle' : measure ? 'measure' : 'sheets', only, gpu };
 }
 
 // ------------------------------------------------------------- data ----
@@ -535,26 +539,37 @@ interface LevelResult {
   tiles: [number, number][];
 }
 
-async function captureLevel(
+interface Parade {
+  ctx: BrowserContext;
+  page: Page;
+  tiles: [number, number][];
+  facing: { turns: number; screenDeg: number };
+}
+
+/** A fresh context seeded with `account`, the sandbox booted and struck, the
+ *  `ids` spawned on the parade tiles at the measured facing and stepped to
+ *  `CAPTURE_TICK` with every template loaded. The caller closes `ctx`. */
+async function openParade(
   browser: Browser,
   base: string,
-  level: number,
-  ids: readonly VehicleId[]
-): Promise<LevelResult> {
+  account: BrigadeAccount,
+  ids: readonly VehicleId[],
+  label: string
+): Promise<Parade> {
   const ctx = await browser.newContext({ viewport: { ...CAPTURE_VIEWPORT }, deviceScaleFactor: 1 });
   try {
     await ctx.addInitScript(musicOffInitScript(SILENT_AUDIO));
-    await ctx.addInitScript(garageSeedScript(GARAGE_SEED_LEDGER, accountAt(level, ids)));
+    await ctx.addInitScript(garageSeedScript(GARAGE_SEED_LEDGER, account));
     const page = await ctx.newPage();
     page.setDefaultTimeout(120_000);
-    page.on('pageerror', (err) => console.log(`  [L${level}] page error: ${err.message}`));
+    page.on('pageerror', (err) => console.log(`  [${label}] page error: ${err.message}`));
     page.on('console', (msg) => {
-      if (msg.type() === 'error') console.log(`  [L${level}] console.error: ${msg.text()}`);
+      if (msg.type() === 'error') console.log(`  [${label}] console.error: ${msg.text()}`);
     });
 
     await bootSandbox(page, base);
     const tick0 = await page.evaluate(() => (window as unknown as LionsWindow).__lions.sim.tickCount);
-    if (tick0 > SPAWN_TICK) throw new Error(`L${level}: the loop ran to tick ${tick0} before the freeze (> ${SPAWN_TICK})`);
+    if (tick0 > SPAWN_TICK) throw new Error(`${label}: the loop ran to tick ${tick0} before the freeze (> ${SPAWN_TICK})`);
     await page.evaluate((t) => {
       const L = (window as unknown as LionsWindow).__lions;
       L.step(t - L.sim.tickCount);
@@ -603,7 +618,7 @@ async function captureLevel(
         ids as readonly string[]
       );
       if (loaded.length === 0) break;
-      if (Date.now() > deadline) throw new Error(`L${level}: templates never loaded for ${loaded.join(', ')}`);
+      if (Date.now() > deadline) throw new Error(`${label}: templates never loaded for ${loaded.join(', ')}`);
       await sleep(500);
     }
     await page.evaluate((t) => {
@@ -611,7 +626,21 @@ async function captureLevel(
       L.step(t - L.sim.tickCount);
       L.renderer.frame(1, 0);
     }, CAPTURE_TICK);
+    return { ctx, page, tiles, facing };
+  } catch (err) {
+    await ctx.close();
+    throw err;
+  }
+}
 
+async function captureLevel(
+  browser: Browser,
+  base: string,
+  level: number,
+  ids: readonly VehicleId[]
+): Promise<LevelResult> {
+  const { ctx, page, tiles, facing } = await openParade(browser, base, accountAt(level, ids), ids, `L${level}`);
+  try {
     const merge = await readMerge(page, ids);
 
     for (let i = 0; i < ids.length; i++) {
@@ -962,10 +991,609 @@ async function runToggle(port: number): Promise<void> {
   }
 }
 
+// ------------------------------------------------------------- measure ----
+
+/** `--measure`: one number per open kit item (GH-238 leftovers), read from
+ *  the running game on the sheets' own parade (same map, tick, facing).
+ *
+ *  - **shimmer**: the camera pans ONE screen pixel in `PAN_STEPS` sub-pixel
+ *    steps, a zero-time repaint at each. Per pixel `sum_k |Y_k+1 - Y_k| -
+ *    |Y_N - Y_0|` is 0 for any change that is smooth and monotone under the
+ *    pan (a correctly filtered image moving) and positive only where a pixel
+ *    pops on and off -- aliasing. Summed over the vehicle's box (luminance
+ *    0..1, so "pixels of full-contrast flicker"), at L3 and at L0; the kit's
+ *    own shimmer is L3 - L0 (the hull's edges and the ground cancel). Where a
+ *    template carries a kit LOD (`rlKitLod`, `vehicle-kit.ts`) it is also
+ *    read with the near and the far bars forced.
+ *  - **kit px**: the `kit` debug layer shown vs hidden on one frozen frame at
+ *    L3: pixels whose largest channel moved by >= `KIT_PX_DELTA`.
+ *  - **tone**: shadow casting switched off (so the toggle moves only what the
+ *    kit covers), accounts holding armour 2 alone (`paint`: plates and ERA;
+ *    tier 3's see-through cage would mix the ground into its pixels) and
+ *    sensors 3 + firepower 3 alone (`metal`); LINEAR luminance of the
+ *    kit-covered pixels at zoom 2.5, mean and 90th percentile (the lit
+ *    faces), metal over paint.
+ *  Writes `.superpowers/kit/measure-<commit>.json` and prints a table. */
+const MEASURE_ZOOMS = [1.0, 1.25, 1.5, 1.75, 2.0, 2.5] as const;
+const PAN_STEPS = 8;
+const KIT_PX_DELTA = 8;
+
+function measureBox(zoom: number): { w: number; h: number; lift: number } {
+  const t = (zoom - 1) / 1.5;
+  return { w: Math.round(200 + 180 * t), h: Math.round(160 + 160 * t), lift: Math.round(12 + 18 * t) };
+}
+
+function accountWith(tiersFor: (id: string) => Record<string, number>, ids: readonly string[] = VEHICLES): BrigadeAccount {
+  const a = accountAt(0, ids);
+  const upgrades: Record<string, Record<string, number>> = {};
+  for (const id of ids) upgrades[id] = tiersFor(id);
+  return { ...a, upgrades };
+}
+
+function onlyTracks(id: string, want: Readonly<Record<string, number>>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [track, t] of Object.entries(unitJson(id).upgrades ?? {})) out[track] = Math.min(want[track] ?? 0, t.tiers.length);
+  return out;
+}
+
+type LodMode = 'auto' | 'near' | 'far';
+
+interface LodGeometry {
+  index: unknown;
+  setIndex(i: unknown): void;
+  userData: { rlKitLod?: { near: unknown; far: unknown } };
+}
+
+/** Force a template's kit LOD (an instrument write; `auto` leaves it). Returns
+ *  whether the template carries an LOD at all. */
+async function forceLod(page: Page, id: string, mode: LodMode): Promise<boolean> {
+  return page.evaluate(
+    ([vid, m]) => {
+      const r = (window as unknown as LionsWindow).__lions.renderer as unknown as {
+        vehicleMeshTemplates?: Map<string, { geometries: LodGeometry[] }>;
+      };
+      const t = r.vehicleMeshTemplates?.get(vid);
+      let has = false;
+      for (const g of t?.geometries ?? []) {
+        const lod = g.userData.rlKitLod;
+        if (!lod) continue;
+        has = true;
+        if (m === 'near' && g.index !== lod.near) g.setIndex(lod.near);
+        if (m === 'far' && g.index !== lod.far) g.setIndex(lod.far);
+      }
+      return has;
+    },
+    [id, mode] as [string, LodMode]
+  );
+}
+
+function decode(buf: Buffer): PNG {
+  return PNG.sync.read(buf);
+}
+
+function lumaSrgb(d: Buffer, i: number): number {
+  return (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
+}
+
+function toLinear(c: number): number {
+  const v = c / 255;
+  return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+}
+
+async function shot(page: Page, clip: { x: number; y: number; width: number; height: number }): Promise<PNG> {
+  return decode(await page.screenshot({ clip }));
+}
+
+/** Park the camera on (x, y) at `zoom`, repaint, and return the box. */
+async function park(page: Page, x: number, y: number, zoom: number): Promise<{ x: number; y: number; width: number; height: number }> {
+  const sp = await page.evaluate(
+    ([cx, cy, z]) => {
+      const r = (window as unknown as LionsWindow).__lions.renderer;
+      r.camera.x = cx;
+      r.camera.y = cy;
+      r.camera.zoom = z;
+      r.frame(1, 0);
+      return r.worldToScreen(cx, cy);
+    },
+    [x, y, zoom] as [number, number, number]
+  );
+  const b = measureBox(zoom);
+  return { x: Math.round(sp.x - b.w / 2), y: Math.round(sp.y - b.lift - b.h / 2), width: b.w, height: b.h };
+}
+
+/** The pan shimmer of one box: see `--measure`'s comment. */
+async function panShimmer(page: Page, x: number, y: number, zoom: number): Promise<{ raw: number; blur: number }> {
+  const clip = await park(page, x, y, zoom);
+  // Camera offset (tiles) that moves the picture exactly one screen pixel
+  // along x: solve J d = (1, 0) for the projection's own Jacobian.
+  const d = await page.evaluate(
+    ([cx, cy]) => {
+      const r = (window as unknown as LionsWindow).__lions.renderer;
+      const o = r.worldToScreen(cx, cy);
+      const ex = r.worldToScreen(cx + 1, cy);
+      const ey = r.worldToScreen(cx, cy + 1);
+      const a = ex.x - o.x;
+      const b = ey.x - o.x;
+      const c = ex.y - o.y;
+      const e = ey.y - o.y;
+      const det = a * e - b * c;
+      return { dx: e / det, dy: -c / det };
+    },
+    [x, y] as [number, number]
+  );
+  const frames: PNG[] = [];
+  for (let k = 0; k <= PAN_STEPS; k++) {
+    await page.evaluate(
+      ([cx, cy]) => {
+        const r = (window as unknown as LionsWindow).__lions.renderer;
+        r.camera.x = cx;
+        r.camera.y = cy;
+        r.frame(1, 0);
+      },
+      [x + (d.dx * k) / PAN_STEPS, y + (d.dy * k) / PAN_STEPS] as [number, number]
+    );
+    frames.push(await shot(page, clip));
+  }
+  await page.evaluate(
+    ([cx, cy]) => {
+      const r = (window as unknown as LionsWindow).__lions.renderer;
+      r.camera.x = cx;
+      r.camera.y = cy;
+      r.frame(1, 0);
+    },
+    [x, y] as [number, number]
+  );
+  const w = clip.width;
+  const h = clip.height;
+  const lum = frames.map((f) => {
+    const out = new Float32Array(w * h);
+    for (let p = 0; p < w * h; p++) out[p] = lumaSrgb(f.data, p * 4);
+    return out;
+  });
+  // The same reading on a 3x3 box-filtered copy: a correctly sampled moving
+  // pattern finer than the box averages to a constant under it, a single edge
+  // stepping a pixel smooths to a ramp, and what still pops is a beat at least
+  // the box's size -- the moire, rather than every edge's own stair-step.
+  const blur = lum.map((l) => {
+    const out = new Float32Array(w * h);
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        let a = 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) a += l[(y + dy) * w + x + dx];
+        out[y * w + x] = a / 9;
+      }
+    }
+    return out;
+  });
+  const excessOf = (ls: Float32Array[]): number => {
+    let excess = 0;
+    for (let p = 0; p < w * h; p++) {
+      let tv = 0;
+      for (let k = 0; k < PAN_STEPS; k++) tv += Math.abs(ls[k + 1][p] - ls[k][p]);
+      excess += tv - Math.abs(ls[PAN_STEPS][p] - ls[0][p]);
+    }
+    return excess;
+  };
+  return { raw: excessOf(lum), blur: excessOf(blur) };
+}
+
+/** The pan shimmer of the CAGE alone, both LOD levels on one mask: the
+ *  pixels where the near and the far bars differ at the first pan step
+ *  (largest channel >= `KIT_PX_DELTA`), grown by 2 px -- the cage's own
+ *  footprint, with every other part of the kit, the hull and the ground left
+ *  out. Same per-pixel reading as `panShimmer` (raw luminance), summed over
+ *  the mask; `px` is the mask's size. Writes a 3x strip of the pan, near
+ *  above far, when `KIT_MEASURE_DUMP` is set. */
+async function cageShimmer(
+  page: Page,
+  id: string,
+  x: number,
+  y: number,
+  zoom: number
+): Promise<{ near: number; far: number; px: number }> {
+  const clip = await park(page, x, y, zoom);
+  const d = await page.evaluate(
+    ([cx, cy]) => {
+      const r = (window as unknown as LionsWindow).__lions.renderer;
+      const o = r.worldToScreen(cx, cy);
+      const ex = r.worldToScreen(cx + 1, cy);
+      const ey = r.worldToScreen(cx, cy + 1);
+      const det = (ex.x - o.x) * (ey.y - o.y) - (ey.x - o.x) * (ex.y - o.y);
+      return { dx: (ey.y - o.y) / det, dy: -(ex.y - o.y) / det };
+    },
+    [x, y] as [number, number]
+  );
+  const frames: Record<'near' | 'far', PNG[]> = { near: [], far: [] };
+  for (const mode of ['near', 'far'] as const) {
+    for (let k = 0; k <= PAN_STEPS; k++) {
+      await page.evaluate(
+        ([cx, cy]) => {
+          const r = (window as unknown as LionsWindow).__lions.renderer;
+          r.camera.x = cx;
+          r.camera.y = cy;
+          r.frame(1, 0);
+        },
+        [x + (d.dx * k) / PAN_STEPS, y + (d.dy * k) / PAN_STEPS] as [number, number]
+      );
+      await forceLod(page, id, mode);
+      await page.evaluate(() => (window as unknown as LionsWindow).__lions.renderer.frame(1, 0));
+      frames[mode].push(await shot(page, clip));
+    }
+  }
+  await park(page, x, y, zoom);
+  const w = clip.width;
+  const h = clip.height;
+  const raw = new Uint8Array(w * h);
+  for (let p = 0; p < w * h; p++) {
+    const i = p * 4;
+    const a = frames.near[0].data;
+    const b = frames.far[0].data;
+    if (Math.max(Math.abs(a[i] - b[i]), Math.abs(a[i + 1] - b[i + 1]), Math.abs(a[i + 2] - b[i + 2])) >= KIT_PX_DELTA) raw[p] = 1;
+  }
+  const mask = new Uint8Array(w * h);
+  let px = 0;
+  for (let yy = 0; yy < h; yy++) {
+    for (let xx = 0; xx < w; xx++) {
+      let on = 0;
+      for (let dy = -2; dy <= 2 && !on; dy++) {
+        for (let dx = -2; dx <= 2 && !on; dx++) {
+          const u = xx + dx;
+          const v = yy + dy;
+          if (u >= 0 && v >= 0 && u < w && v < h && raw[v * w + u]) on = 1;
+        }
+      }
+      mask[yy * w + xx] = on;
+      px += on;
+    }
+  }
+  const excess = (fr: PNG[]): number => {
+    let e = 0;
+    for (let p = 0; p < w * h; p++) {
+      if (!mask[p]) continue;
+      const i = p * 4;
+      let tv = 0;
+      for (let k = 0; k < PAN_STEPS; k++) tv += Math.abs(lumaSrgb(fr[k + 1].data, i) - lumaSrgb(fr[k].data, i));
+      e += tv - Math.abs(lumaSrgb(fr[PAN_STEPS].data, i) - lumaSrgb(fr[0].data, i));
+    }
+    return e;
+  };
+  const dump = process.env.KIT_MEASURE_DUMP;
+  if (dump) {
+    fs.mkdirSync(dump, { recursive: true });
+    const S = 3;
+    const shown = [0, 2, 4, 6, 8];
+    const strip = new PNG({ width: w * S * shown.length, height: h * S * 2 });
+    (['near', 'far'] as const).forEach((mode, row) => {
+      shown.forEach((k, col) => {
+        const src = frames[mode][k].data;
+        for (let yy = 0; yy < h * S; yy++) {
+          for (let xx = 0; xx < w * S; xx++) {
+            const si = ((Math.floor(yy / S)) * w + Math.floor(xx / S)) * 4;
+            const di = ((row * h * S + yy) * w * S * shown.length + col * w * S + xx) * 4;
+            strip.data[di] = src[si];
+            strip.data[di + 1] = src[si + 1];
+            strip.data[di + 2] = src[si + 2];
+            strip.data[di + 3] = 255;
+          }
+        }
+      });
+    });
+    fs.writeFileSync(path.join(dump, `${id}_z${zoom.toFixed(2)}_pan_near_over_far.png`), PNG.sync.write(strip));
+  }
+  return { near: excess(frames.near), far: excess(frames.far), px };
+}
+
+/** Aliasing error against a supersampled reference: the same camera at
+ *  `s` x the zoom (the renderer scales about the canvas centre, so native
+ *  pixel p is reference pixels s*p + o .. s*p + o + s - 1, `o` measured from
+ *  the vehicle's own projection), box-filtered back down in LINEAR light,
+ *  with the NEAR (real) bars forced in the reference -- the slat as it
+ *  should look. Mean |native - reference| luminance per pixel of the box,
+ *  averaged over `ALIAS_STEPS` sub-pixel pan positions, so both a static
+ *  moire and its crawl count. `mode` forces the native frame's LOD. */
+const ALIAS_STEPS = 4;
+
+async function aliasError(page: Page, id: string, x: number, y: number, zoom: number, mode: LodMode): Promise<number> {
+  const b = measureBox(zoom);
+  // The reference box is the native box scaled about the canvas centre: the
+  // largest factor (<= 4) whose box still lies inside the viewport.
+  const fits = (f: number, cx0: number, cy0: number): boolean => {
+    const C = { x: CAPTURE_VIEWPORT.width / 2, y: CAPTURE_VIEWPORT.height / 2 };
+    const x0 = C.x + f * (cx0 - C.x);
+    const y0 = C.y + f * (cy0 - C.y);
+    return x0 >= 2 && y0 >= 2 && x0 + f * b.w <= CAPTURE_VIEWPORT.width - 2 && y0 + f * b.h <= CAPTURE_VIEWPORT.height - 2;
+  };
+  let ss = 1;
+  const d = await page.evaluate(
+    ([cx, cy, z]) => {
+      const r = (window as unknown as LionsWindow).__lions.renderer;
+      r.camera.zoom = z;
+      const o = r.worldToScreen(cx, cy);
+      const ex = r.worldToScreen(cx + 1, cy);
+      const ey = r.worldToScreen(cx, cy + 1);
+      const a = ex.x - o.x;
+      const bb = ey.x - o.x;
+      const c = ex.y - o.y;
+      const e = ey.y - o.y;
+      const det = a * e - bb * c;
+      return { dx: e / det, dy: -c / det };
+    },
+    [x, y, zoom] as [number, number, number]
+  );
+  let total = 0;
+  let clip: { x: number; y: number; width: number; height: number } | null = null;
+  for (let k = 0; k < ALIAS_STEPS; k++) {
+    const cx = x + (d.dx * k) / ALIAS_STEPS;
+    const cy = y + (d.dy * k) / ALIAS_STEPS;
+    const at = async (z: number): Promise<{ x: number; y: number }> =>
+      page.evaluate(
+        ([px, py, wx, wy, zz]) => {
+          const r = (window as unknown as LionsWindow).__lions.renderer;
+          r.camera.x = px;
+          r.camera.y = py;
+          r.camera.zoom = zz;
+          r.frame(1, 0);
+          return r.worldToScreen(wx, wy);
+        },
+        [cx, cy, x, y, z] as [number, number, number, number, number]
+      );
+    const pn = await at(zoom);
+    await forceLod(page, id, mode);
+    if (!clip) {
+      clip = { x: Math.round(pn.x - b.w / 2), y: Math.round(pn.y - b.lift - b.h / 2), width: b.w, height: b.h };
+      for (let f = 4; f >= 1; f--) {
+        if (fits(f, clip.x, clip.y)) {
+          ss = f;
+          break;
+        }
+      }
+    }
+    await page.evaluate(() => (window as unknown as LionsWindow).__lions.renderer.frame(1, 0));
+    const native = await shot(page, clip);
+    const dump = process.env.KIT_MEASURE_DUMP;
+    if (dump && k === 0) {
+      fs.mkdirSync(dump, { recursive: true });
+      fs.writeFileSync(path.join(dump, `${id}_z${zoom.toFixed(2)}_${mode}.png`), PNG.sync.write(native));
+    }
+    const pr = await at(zoom * ss);
+    await forceLod(page, id, 'near');
+    await page.evaluate(() => (window as unknown as LionsWindow).__lions.renderer.frame(1, 0));
+    const ox = Math.round(pr.x - ss * pn.x);
+    const oy = Math.round(pr.y - ss * pn.y);
+    const bigClip = { x: ss * clip.x + ox, y: ss * clip.y + oy, width: ss * clip.width, height: ss * clip.height };
+    if (bigClip.x < 0 || bigClip.y < 0 || bigClip.x + bigClip.width > CAPTURE_VIEWPORT.width || bigClip.y + bigClip.height > CAPTURE_VIEWPORT.height) {
+      throw new Error(`${id} z${zoom}: reference clip ${JSON.stringify(bigClip)} leaves the viewport`);
+    }
+    const big = await shot(page, bigClip);
+    if (dump && k === 0 && mode === 'near') {
+      fs.writeFileSync(path.join(dump, `${id}_z${zoom.toFixed(2)}_reference_x${ss}.png`), PNG.sync.write(big));
+    }
+    let err = 0;
+    const W = ss * clip.width;
+    for (let j = 0; j < clip.height; j++) {
+      for (let i = 0; i < clip.width; i++) {
+        let lr = 0;
+        for (let v = 0; v < ss; v++) {
+          for (let u = 0; u < ss; u++) {
+            const q = ((j * ss + v) * W + (i * ss + u)) * 4;
+            lr += 0.2126 * toLinear(big.data[q]) + 0.7152 * toLinear(big.data[q + 1]) + 0.0722 * toLinear(big.data[q + 2]);
+          }
+        }
+        lr /= ss * ss;
+        const q = (j * clip.width + i) * 4;
+        const ln = 0.2126 * toLinear(native.data[q]) + 0.7152 * toLinear(native.data[q + 1]) + 0.0722 * toLinear(native.data[q + 2]);
+        // compared in display (sRGB-encoded) terms, where a step is what an eye sees
+        const enc = (l: number): number => (l <= 0.0031308 ? 12.92 * l : 1.055 * l ** (1 / 2.4) - 0.055);
+        err += Math.abs(enc(ln) - enc(lr));
+      }
+    }
+    total += err;
+  }
+  await page.evaluate(
+    ([px, py, zz]) => {
+      const r = (window as unknown as LionsWindow).__lions.renderer;
+      r.camera.x = px;
+      r.camera.y = py;
+      r.camera.zoom = zz;
+      r.frame(1, 0);
+    },
+    [x, y, zoom] as [number, number, number]
+  );
+  return total / ALIAS_STEPS;
+}
+
+/** `kit` layer shown vs hidden on the parked frame: [changed px, mask, shown]. */
+async function kitToggle(page: Page, x: number, y: number, zoom: number): Promise<{ px: number; meanLinear: number; p90Linear: number }> {
+  const clip = await park(page, x, y, zoom);
+  const shown = await shot(page, clip);
+  await page.evaluate(() => {
+    const r = (window as unknown as LionsWindow).__lions.renderer;
+    r.setDebugLayerVisible('kit', false);
+    r.frame(1, 0);
+  });
+  const hidden = await shot(page, clip);
+  await page.evaluate(() => {
+    const r = (window as unknown as LionsWindow).__lions.renderer;
+    r.setDebugLayerVisible('kit', true);
+    r.frame(1, 0);
+  });
+  let px = 0;
+  let lum = 0;
+  const vals: number[] = [];
+  for (let i = 0; i < shown.data.length; i += 4) {
+    const dm = Math.max(
+      Math.abs(shown.data[i] - hidden.data[i]),
+      Math.abs(shown.data[i + 1] - hidden.data[i + 1]),
+      Math.abs(shown.data[i + 2] - hidden.data[i + 2])
+    );
+    if (dm < KIT_PX_DELTA) continue;
+    px++;
+    const y = 0.2126 * toLinear(shown.data[i]) + 0.7152 * toLinear(shown.data[i + 1]) + 0.0722 * toLinear(shown.data[i + 2]);
+    lum += y;
+    vals.push(y);
+  }
+  vals.sort((a, b) => a - b);
+  // The 90th percentile: the kit's LIT faces, so a part's tone is compared
+  // where the sun reaches it rather than averaged with its own shaded sides.
+  return { px, meanLinear: px > 0 ? lum / px : 0, p90Linear: vals.length > 0 ? vals[Math.floor(0.9 * (vals.length - 1))] : 0 };
+}
+
+interface MeasureRow {
+  shimmer: Record<string, Record<string, { raw: number; blur: number }>>; // `L3|near` -> zoom -> value
+  alias: Record<string, Record<string, number>>; // `near` | `far` -> zoom -> error vs supersampled near
+  cage: Record<string, { near: number; far: number; px: number }>; // zoom -> cage-only pan shimmer
+  kitPx: Record<string, number>; // zoom -> px at L3
+  tone: { paint: number; metal: number; paintP90: number; metalP90: number; paintPx: number; metalPx: number } | null;
+  lod: boolean;
+}
+
+async function runMeasure(args: Args, port: number): Promise<void> {
+  const t0 = Date.now();
+  const base = `http://localhost:${port}`;
+  const dev = await ensureDevServer(port, REPO_ROOT, TAG);
+  const ids = args.only;
+  const rows: Record<string, MeasureRow> = {};
+  for (const id of ids) rows[id] = { shimmer: {}, alias: {}, cage: {}, kitPx: {}, tone: null, lod: false };
+  let gpuName = 'unknown';
+  const session = async (
+    label: string,
+    account: BrigadeAccount,
+    work: (page: Page, tiles: [number, number][]) => Promise<void>
+  ): Promise<void> => {
+    const browser = await chromium.launch({ headless: true, args: gpuLaunchArgs(args.gpu) });
+    try {
+      if (gpuName === 'unknown') gpuName = await readUnmaskedRenderer(browser);
+      const { ctx, page, tiles } = await openParade(browser, base, account, ids, label);
+      try {
+        await work(page, tiles);
+      } finally {
+        await ctx.close();
+      }
+    } finally {
+      await browser.close();
+    }
+    console.log(`[${TAG}] measure ${label} done at ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  };
+  try {
+    for (const level of [0, 3] as const) {
+      await session(`L${level}`, accountAt(level, ids), async (page, tiles) => {
+        for (let i = 0; i < ids.length; i++) {
+          const id = ids[i];
+          const [cx, cy] = [tiles[i][0] + 0.5, tiles[i][1] + 0.5];
+          const lod = level === 3 && (await forceLod(page, id, 'auto'));
+          if (lod) rows[id].lod = true;
+          const modes: LodMode[] = lod ? ['auto', 'near', 'far'] : ['auto'];
+          for (const mode of modes) {
+            const key = `L${level}|${mode}`;
+            rows[id].shimmer[key] = {};
+            for (const z of MEASURE_ZOOMS) {
+              await page.evaluate(([zz]) => {
+                const r = (window as unknown as LionsWindow).__lions.renderer;
+                r.camera.zoom = zz;
+                r.frame(1, 0); // let the renderer pick its own LOD for this zoom
+              }, [z] as [number]);
+              if (mode !== 'auto') await forceLod(page, id, mode);
+              rows[id].shimmer[key][z.toFixed(2)] = await panShimmer(page, cx, cy, z);
+            }
+          }
+          if (level === 3) {
+            for (const z of [1.0, 2.5]) rows[id].kitPx[z.toFixed(1)] = (await kitToggle(page, cx, cy, z)).px;
+            if (lod) for (const z of MEASURE_ZOOMS) rows[id].cage[z.toFixed(2)] = await cageShimmer(page, id, cx, cy, z);
+            // Before the LOD existed there is one geometry: read it as `near`.
+            for (const mode of lod ? (['near', 'far'] as const) : (['near'] as const)) {
+              rows[id].alias[mode] = {};
+              for (const z of MEASURE_ZOOMS) rows[id].alias[mode][z.toFixed(2)] = await aliasError(page, id, cx, cy, z, mode);
+            }
+            await page.evaluate(() => (window as unknown as LionsWindow).__lions.renderer.frame(1, 0));
+          }
+        }
+      });
+    }
+    const shadowsOff = async (page: Page): Promise<void> => {
+      await page.evaluate(() => {
+        const r = (window as unknown as LionsWindow).__lions.renderer as unknown as {
+          scene: { traverse(f: (o: { castShadow?: boolean }) => void): void };
+        };
+        r.scene.traverse((o) => {
+          if (o.castShadow) o.castShadow = false;
+        });
+      });
+    };
+    type ToneReading = { px: number; meanLinear: number; p90Linear: number };
+    const tone: Record<string, { paint: ToneReading; metal: ToneReading }> = {};
+    for (const which of ['paint', 'metal'] as const) {
+      const want: Record<string, number> = which === 'paint' ? { armour: 2 } : { sensors: 3, firepower: 3 };
+      await session(`tone-${which}`, accountWith((id) => onlyTracks(id, want), ids), async (page, tiles) => {
+        await shadowsOff(page);
+        for (let i = 0; i < ids.length; i++) {
+          const r = await kitToggle(page, tiles[i][0] + 0.5, tiles[i][1] + 0.5, 2.5);
+          const none = { px: 0, meanLinear: 0, p90Linear: 0 };
+          tone[ids[i]] = { ...(tone[ids[i]] ?? { paint: none, metal: none }), [which]: r };
+        }
+      });
+    }
+    for (const id of ids) {
+      const t = tone[id];
+      if (t) {
+        rows[id].tone = {
+          paint: t.paint.meanLinear,
+          metal: t.metal.meanLinear,
+          paintP90: t.paint.p90Linear,
+          metalP90: t.metal.p90Linear,
+          paintPx: t.paint.px,
+          metalPx: t.metal.px,
+        };
+      }
+    }
+  } finally {
+    stopDevServer(dev, TAG);
+  }
+  const commit = shortCommit();
+  const out = path.join(REPO_ROOT, '.superpowers/kit', `measure-${commit}.json`);
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  fs.writeFileSync(out, JSON.stringify({ commit, gpu: gpuName, panSteps: PAN_STEPS, kitPxDelta: KIT_PX_DELTA, rows }, null, 2));
+  console.log(`\n[${TAG}] measure at ${commit}, GPU ${gpuName}, DPR 1`);
+  for (const id of ids) {
+    const r = rows[id];
+    const l0 = r.shimmer['L0|auto'] ?? {};
+    for (const mode of Object.keys(r.shimmer).filter((k) => k.startsWith('L3'))) {
+      const cells = MEASURE_ZOOMS.map((z) => {
+        const k = z.toFixed(2);
+        const a = r.shimmer[mode][k];
+        const b = l0[k] ?? { raw: 0, blur: 0 };
+        return `z${k} ${(a.raw - b.raw).toFixed(1)}/${(a.blur - b.blur).toFixed(1)}`;
+      });
+      console.log(`  ${id.padEnd(14)} kit shimmer raw/3x3 (${mode} - L0): ${cells.join('  ')}`);
+    }
+    for (const mode of Object.keys(r.alias)) {
+      const cells = MEASURE_ZOOMS.map((z) => `z${z.toFixed(2)} ${r.alias[mode][z.toFixed(2)].toFixed(1)}`);
+      console.log(`  ${id.padEnd(14)} alias error L3 ${mode.padEnd(4)} vs supersampled near: ${cells.join('  ')}`);
+    }
+    if (Object.keys(r.cage).length > 0) {
+      const cells = MEASURE_ZOOMS.map((z) => {
+        const c = r.cage[z.toFixed(2)];
+        return `z${z.toFixed(2)} ${c.near.toFixed(1)}->${c.far.toFixed(1)} (${c.px}px)`;
+      });
+      console.log(`  ${id.padEnd(14)} cage shimmer near->far: ${cells.join('  ')}`);
+    }
+    console.log(`  ${id.padEnd(14)} kit px at L3: z1.0 ${r.kitPx['1.0']}  z2.5 ${r.kitPx['2.5']}`);
+    if (r.tone) {
+      const ratio = r.tone.paint > 0 ? r.tone.metal / r.tone.paint : NaN;
+      console.log(
+        `  ${id.padEnd(14)} tone z2.5: paint ${r.tone.paint.toFixed(4)} p90 ${r.tone.paintP90.toFixed(4)} (${r.tone.paintPx} px)  ` +
+          `metal ${r.tone.metal.toFixed(4)} p90 ${r.tone.metalP90.toFixed(4)} (${r.tone.metalPx} px)  ` +
+          `metal/paint mean ${ratio.toFixed(2)} p90 ${(r.tone.paintP90 > 0 ? r.tone.metalP90 / r.tone.paintP90 : NaN).toFixed(2)}`
+      );
+    }
+  }
+  console.log(`[${TAG}] wrote ${path.relative(REPO_ROOT, out)} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+}
+
 // ---------------------------------------------------------------- main ----
 
 const args = parseArgs(process.argv.slice(2));
 const port = await claimPort(TAG, PORT_ENV, DEFAULT_PORT);
 if (args.mode === 'garage') await runGarage(args, port);
 else if (args.mode === 'toggle') await runToggle(port);
+else if (args.mode === 'measure') await runMeasure(args, port);
 else await runSheets(args, port);
