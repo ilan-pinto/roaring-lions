@@ -384,7 +384,9 @@ jobs:
   # not a version anyone should be able to point at.
   #
   # The rule lives in tools/next_version.mjs and is tested: any feat is a
-  # minor, any fix is a patch, and docs/test/refactor alone cut NOTHING. That
+  # minor, any other player-facing type (fix, sim, app, net, worker, polish,
+  # art, data, vfx, audio, perf ...; the table is BUMP_BY_TYPE there) is a
+  # patch, and docs/chore/test/ci/tools alone cut NOTHING. That
   # last case is the common one here — a spec, a plan and a ledger correction
   # are a normal merge, and they change nothing a player can see.
   version:
@@ -430,7 +432,8 @@ jobs:
         if: steps.tip.outputs.is_tip == 'true'
         run: node tools/decide_version.mjs >> "$GITHUB_OUTPUT"
 
-      # Everything below is skipped when the range holds no feat and no fix.
+      # Everything below is skipped when the range holds no feat and no other
+      # player-facing type (see BUMP_BY_TYPE in tools/next_version.mjs).
       - name: Write, commit and tag
         if: steps.decide.outputs.next != ''
         env:
