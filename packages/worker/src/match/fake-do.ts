@@ -128,6 +128,13 @@ export class FakeState implements DurableStateLike {
   getWebSockets(): WebSocket[] {
     return this.sockets.filter((s) => !s.disconnected) as unknown as WebSocket[];
   }
+  /** test-only: a deploy or reset. These sockets are gone from the runtime and
+   *  no close event is ever delivered for them (the object that would have
+   *  received it is the one being replaced); unlike an eviction, which keeps
+   *  hibernated sockets listed. */
+  vanish(...sockets: FakeSocket[]): void {
+    for (const s of sockets) s.disconnected = true;
+  }
 }
 
 /** The runtime's half of a close, from either end: the socket is closed (if

@@ -350,6 +350,33 @@ describe('MatchRoom', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('after a deploy drops every socket (no close delivered), the revived room marks both seats gone, writes once, and its alarm wakes nothing', async () => {
+    const { state, ws0, ws1 } = await running();
+    await vi.advanceTimersByTimeAsync(3 * TICK_MS);
+    expect(state.storage.alarmAt).not.toBeNull();
+    state.vanish(ws0, ws1);
+    evict();
+    const revived = new MatchRoom(state, env);
+    const before = state.storage.rowsWritten;
+    await deliverAlarm(revived, state.storage);
+    expect((await persisted(state)).seats.map((s) => s?.connected)).toEqual([false, false]);
+    expect(state.storage.rowsWritten - before).toBe(1);   // the one state write that records both seats gone
+    expect(state.storage.alarmAt).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('after a reset that kept seat 0 hibernated, the revived room keeps seat 0 and marks seat 1 gone', async () => {
+    const { state, ws0, ws1 } = await running();
+    await vi.advanceTimersByTimeAsync(3 * TICK_MS);
+    state.vanish(ws1);
+    evict();
+    const revived = new MatchRoom(state, env);
+    await deliverAlarm(revived, state.storage);
+    expect((await persisted(state)).seats.map((s) => s?.connected)).toEqual([true, false]);
+    expect(last(ws0)).toEqual({ t: 'stall', reason: 'gone', seat: 1 });
+    expect(state.storage.alarmAt).toBe(Date.now() + WATCHDOG_MS);   // seat 0 is still there: the room serves it
+  });
+
   it('a match that ends in a revived instance (no clock of its own) deletes the alarm the old instance armed', async () => {
     const { state, ws0 } = await running();
     expect(state.storage.alarmAt).not.toBeNull();

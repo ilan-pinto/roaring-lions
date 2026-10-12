@@ -161,16 +161,33 @@ export class MatchRoom {
       const stored = (await this.ctx.storage.get<Partial<RoomMeta>>('meta')) ?? null;
       const st = (await this.ctx.storage.get<RoomState>('state')) ?? null;
       this.meta = stored === null ? null : legacyMeta(stored, st);
+      let gone: Effect[] = [];
       if (st) {
         const [lastRow] = this.batches(LAST_SQL);
         revive(st, lastRow ? lastRow.firstTick + lastRow.frames.length : 0, Date.now());
         this.savedKey = persistKey(st);
+        gone = this.reconcileSockets(st);
       }
       this.st = st;
       this.loading = null;
+      // Applied once `st` is in place, so the effects (a stall, the state write) act on it.
+      if (gone.length > 0) await this.apply(gone);
       return this.st;
     })();
     return this.loading;
+  }
+  /** A revived instance's persisted `connected` can be stale. An EVICTION
+   *  keeps hibernated sockets listed, but a deploy or reset drops every
+   *  socket and delivers no close to anyone, so a seat would read connected
+   *  forever and its alarm would keep the room awake until the TTL. Every seat
+   *  marked connected with no socket wearing it is gone, through the same
+   *  `seatGone` a close takes. Costs one state write per revive that finds
+   *  one (a lifecycle change, R34/R37), and nothing when every seat has its socket. */
+  private reconcileSockets(st: RoomState): Effect[] {
+    if (st.status === 'ended') return [];
+    const held = new Set(this.ctx.getWebSockets().map(seatOf));
+    const now = Date.now();
+    return st.seats.flatMap((s) => (s !== null && s.connected && !held.has(s.seat) ? seatGone(st, s.seat, now) : []));
   }
   /** The state, and the open batch with it. */
   private async save(): Promise<void> {
