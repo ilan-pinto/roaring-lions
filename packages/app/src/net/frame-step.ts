@@ -52,9 +52,20 @@ export function runFrames(step: FrameStep, maxTicks: number): { ran: number; dro
  *  (R10): the same check runs with no room, so there is one code path. */
 export function seatWorldFor(
   config: MatchConfig | null,
-  sim: { readonly entityCount: number; readonly state: { readonly side: ArrayLike<number> } },
+  sim: {
+    readonly entityCount: number;
+    readonly width: number;
+    readonly height: number;
+    readonly structureCount: number;
+    readonly tunnelCount: number;
+    readonly state: { readonly side: ArrayLike<number> };
+  },
 ): SeatWorld {
   return {
+    width: sim.width,
+    height: sim.height,
+    structureExists: (id: number) => Number.isInteger(id) && id >= 0 && id < sim.structureCount,
+    tunnelExists: (id: number) => Number.isInteger(id) && id >= 0 && id < sim.tunnelCount,
     sideOfSeat: (seat: Seat) => config?.seats[seat].side ?? 0,
     sideOfEntity: (id: number) => (Number.isInteger(id) && id >= 0 && id < sim.entityCount ? sim.state.side[id] : undefined),
   };

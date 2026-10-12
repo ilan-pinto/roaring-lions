@@ -5,7 +5,12 @@ import { validateCommand, applyFrame, type SeatWorld } from './ownership';
 const world: SeatWorld = {
   sideOfSeat: (seat) => seat,                          // seat 0 → side 0, seat 1 → side 1
   sideOfEntity: (id) => (id < 10 ? 0 : id < 20 ? 1 : undefined),
+  width: 48,
+  height: 48,
+  structureExists: (id) => id === 3,
+  tunnelExists: (id) => id === 0,
 };
+const F = 65536;
 
 describe('validateCommand', () => {
   it('accepts an order naming only the seat\'s own units', () => {
@@ -20,6 +25,36 @@ describe('validateCommand', () => {
     expect(validateCommand({ kind: 'callStrike', caller: 12, x: 0, y: 0 }, 0, world)).toBe(false);
     expect(validateCommand({ kind: 'reveal', side: 1, x: 0, y: 0 }, 0, world)).toBe(false);
     expect(validateCommand({ kind: 'reveal', side: 0, x: 0, y: 0 }, 0, world)).toBe(true);
+  });
+});
+
+describe('validateCommand: the map and the target', () => {
+  it('drops a point off the map', () => {
+    expect(validateCommand({ kind: 'move', ids: [1], x: 10 * F, y: 10 * F }, 0, world)).toBe(true);
+    expect(validateCommand({ kind: 'move', ids: [1], x: -1, y: 10 * F }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'move', ids: [1], x: 48 * F, y: 10 * F }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'smoke', ids: [1], x: 10 * F, y: 99 * F }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'callStrike', caller: 1, x: 10 * F, y: -F }, 0, world)).toBe(false);
+  });
+  it('accepts the map corners and refuses one fixed-point step past the far edge', () => {
+    expect(validateCommand({ kind: 'attackMove', ids: [1], x: 0, y: 0 }, 0, world)).toBe(true);
+    expect(validateCommand({ kind: 'attackMove', ids: [1], x: 48 * F - 1, y: 48 * F - 1 }, 0, world)).toBe(true);
+    expect(validateCommand({ kind: 'attackMove', ids: [1], x: 10 * F, y: 48 * F }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'reveal', side: 0, x: 10 * F, y: -1 }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'reveal', side: 0, x: 48 * F, y: 0 }, 0, world)).toBe(false);
+  });
+  it('treats NaN and infinities as off the map', () => {
+    expect(validateCommand({ kind: 'move', ids: [1], x: NaN, y: F }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'move', ids: [1], x: F, y: Infinity }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'smoke', ids: [1], x: -Infinity, y: F }, 0, world)).toBe(false);
+  });
+  it('drops a structure or tunnel id that does not exist', () => {
+    expect(validateCommand({ kind: 'garrison', ids: [1], structure: 3 }, 0, world)).toBe(true);
+    expect(validateCommand({ kind: 'garrison', ids: [1], structure: 4 }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'demolish', ids: [1], structure: 3 }, 0, world)).toBe(true);
+    expect(validateCommand({ kind: 'demolish', ids: [1], structure: -1 }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'chargeTunnel', ids: [1], tunnel: 0 }, 0, world)).toBe(true);
+    expect(validateCommand({ kind: 'chargeTunnel', ids: [1], tunnel: 7 }, 0, world)).toBe(false);
   });
 });
 

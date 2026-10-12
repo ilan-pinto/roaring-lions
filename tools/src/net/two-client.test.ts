@@ -10,11 +10,18 @@ import { missionWorld } from '../mission-harness';
 const MISSION = 'beit_sahwan_1_recon';
 const TICKS = 1000;
 
-interface SimView { entityCount: number; state: { side: Uint8Array; alive: Uint8Array } }
+interface SimView { width: number; height: number; structureCount: number; tunnelCount: number; entityCount: number; state: { side: Uint8Array; alive: Uint8Array } }
 
 /** Both seats on side 0, as N0's sandbox room is. */
 function worldFor(sim: SimView): SeatWorld {
-  return { sideOfSeat: () => 0, sideOfEntity: (id) => (id >= 0 && id < sim.entityCount ? sim.state.side[id] : undefined) };
+  return {
+    sideOfSeat: () => 0,
+    sideOfEntity: (id) => (id >= 0 && id < sim.entityCount ? sim.state.side[id] : undefined),
+    width: sim.width,
+    height: sim.height,
+    structureExists: (id) => Number.isInteger(id) && id >= 0 && id < sim.structureCount,
+    tunnelExists: (id) => Number.isInteger(id) && id >= 0 && id < sim.tunnelCount,
+  };
 }
 
 /** A canned order script: every player unit marches to a few points. */

@@ -24,6 +24,10 @@ function fakeSim() {
     ranWith: [] as Command[][],
     hashCalls: 0,
     entityCount: side.length,
+    width: 48,
+    height: 40,
+    structureCount: 3,
+    tunnelCount: 1,
     state: { side },
     queueCommand(cmd: Command) { s.queued.push(cmd); },
     hash() { s.hashCalls++; return 1000 + s.tickCount; },
@@ -108,6 +112,15 @@ describe('seatWorldFor', () => {
     expect(w.sideOfEntity(4)).toBe(1);
     expect(w.sideOfEntity(6)).toBeUndefined();
     expect(w.sideOfEntity(-1)).toBeUndefined();
+  });
+  it('knows the map size and which structures and tunnels exist', () => {
+    const sim = fakeSim();
+    const w = seatWorldFor(null, sim);
+    expect([w.width, w.height]).toEqual([48, 40]);
+    expect([0, 2, 3, -1].map((i) => w.structureExists(i))).toEqual([true, true, false, false]);
+    expect([0, 1, -1].map((i) => w.tunnelExists(i))).toEqual([true, false, false]);
+    expect(w.structureExists(1.5)).toBe(false);
+    expect(w.tunnelExists(NaN)).toBe(false);
   });
   it('a room: each seat is the side its config names', () => {
     const sim = fakeSim();
