@@ -686,7 +686,12 @@ def render_vehicle_kit(unit_id, kit_stashed, cam, out_dir):
     so the wreck render that follows is the one it was before this existed.
     """
     groups = []
-    roots = [o for o, _ in kit_stashed if o.name.startswith(KIT_PREFIX)]
+    # The far level of a kit LOD (`rl_kit.lod == "far"`, GH-238 leftovers) is
+    # never rendered here: these renders are the near view the garage draws,
+    # and the far bars stand inside the same cage frame (posts and rails are
+    # the main node, drawn at every zoom), so the silhouette is that frame's.
+    roots = [o for o, _ in kit_stashed if o.name.startswith(KIT_PREFIX)
+             and (o.get("rl_kit") or {}).get("lod") != "far"]
     by_obj = dict(kit_stashed)
     for root in roots:
         track, tier = _kit_key(root)

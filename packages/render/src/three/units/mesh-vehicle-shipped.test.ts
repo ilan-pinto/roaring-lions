@@ -244,17 +244,29 @@ function kitViolations(id: string): { kitNodes: number; violations: string[] } {
     if (!name.startsWith(KIT_PREFIX)) return;
     kitNodes++;
     const bad = (why: string): void => void violations.push(`${id}: ${name}: ${why}`);
-    if (seen.has(name)) bad('a second node of this name -- one node per (track, tier, host)');
+    if (seen.has(name)) bad('a second node of this name -- one node per (track, tier, host, lod)');
     seen.add(name);
     if (node.children?.length) bad('has children; a kit part is a leaf');
 
-    const kit = node.extras?.rl_kit as { track?: unknown; tier?: unknown; host?: unknown } | undefined;
+    const kit = node.extras?.rl_kit as { track?: unknown; tier?: unknown; host?: unknown; lod?: unknown } | undefined;
     if (!kit || typeof kit !== 'object') return bad('no extras.rl_kit');
-    const { track, tier, host } = kit;
+    const { track, tier, host, lod } = kit;
     if (typeof track !== 'string' || typeof host !== 'string' || typeof tier !== 'number') {
       return bad(`rl_kit ${JSON.stringify(kit)} is not { track, tier, host }`);
     }
-    if (name !== `${KIT_PREFIX}${track}_${tier}_${host}`) bad(`name does not match rl_kit (${track}, ${tier}, ${host})`);
+    if (lod !== undefined && lod !== 'near' && lod !== 'far') bad(`rl_kit.lod ${JSON.stringify(lod)} is not near or far`);
+    const suffix = typeof lod === 'string' ? `_${lod}` : '';
+    if (name !== `${KIT_PREFIX}${track}_${tier}_${host}${suffix}`) {
+      bad(`name does not match rl_kit (${track}, ${tier}, ${host}${suffix ? `, ${String(lod)}` : ''})`);
+    }
+    // An LOD level swaps for its partner over the part's main node: both
+    // levels and the main node, or no level at all (vehicle-kit.ts).
+    if (typeof lod === 'string') {
+      const base = `${KIT_PREFIX}${track}_${tier}_${host}`;
+      for (const need of [base, `${base}_${lod === 'near' ? 'far' : 'near'}`]) {
+        if (!(gltf.nodes ?? []).some((n) => n.name === need)) bad(`LOD level without "${need}"`);
+      }
+    }
     if (!Number.isInteger(tier) || tier < 1 || tier > 3) bad(`tier ${tier} is outside 1-3`);
     if (!tracks.has(track)) {
       bad(`track "${track}" is not one data/units/kdf/${id}.json declares under upgrades ([${[...tracks].join(', ')}])`);

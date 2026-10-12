@@ -458,7 +458,7 @@ import {
   type VehicleMeshTemplate,
   type VehicleMeshEntity,
 } from './units/mesh-vehicle';
-import { setKitDrawRange } from './units/vehicle-kit';
+import { kitLodIsFar, setKitDrawRange, setKitLod } from './units/vehicle-kit';
 import {
   loadBuildingMeshTemplate,
   instantiateBuildingMesh,
@@ -1578,6 +1578,17 @@ export class ThreeRenderer implements Renderer {
    * in the frame still wearing it. See `./debug-layers.ts`'s entry.
    */
   private kitDebugHidden = false;
+  /**
+   * Which level of the kit's slat LOD every vehicle template draws (GH-238
+   * leftovers): `true` below `KIT_LOD_SWITCH` (`camera.zoom x pixelRatio`),
+   * where the real bars alias into a moire. `null` until the first frame.
+   * Swapped on the TEMPLATES' geometries -- every clone shares them -- and
+   * only on a change, so a steady zoom costs one comparison a frame.
+   */
+  private kitLodFar: boolean | null = null;
+  /** The pixel ratio `init` handed the WebGL renderer, kept for
+   *  `updateKitLod` (1 until then). */
+  private pixelRatio = 1;
   /** Structure index -> ms of standing-mesh hold still owed, counted down by
    *  `stepCollapseShrouds`. While an entry is present and positive,
    *  `updateBuildingMeshes` leaves the STANDING clone in the scene even
@@ -2726,7 +2737,8 @@ export class ThreeRenderer implements Renderer {
     // rather than in the constructor, which the nine `ThreeRenderer*.test.ts`
     // fakes exercise with a renderer stub that has four members.
     // `maxPixelRatio` (GH-469): the menu's backdrop asks for a lower one.
-    this.renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, this.opts.maxPixelRatio ?? PIXEL_RATIO_CAP));
+    this.pixelRatio = Math.min(globalThis.devicePixelRatio || 1, this.opts.maxPixelRatio ?? PIXEL_RATIO_CAP);
+    this.renderer.setPixelRatio(this.pixelRatio);
     this.renderer.shadowMap.enabled = true;
     // PCFSoft, not PCF or VSM: the sun casts one map-wide 4096 map
     // (`lighting.ts`), so a shadow texel is coarse in world terms and a hard
@@ -3207,6 +3219,14 @@ export class ThreeRenderer implements Renderer {
    *  live at draw time with nothing cached in between, and `buildTrailInput`
    *  below does the same, so this gate governs only the GPU rebuild, not a
    *  separate computation. */
+  /** See `kitLodFar`. */
+  private updateKitLod(): void {
+    const far = kitLodIsFar(this.camera.zoom, this.pixelRatio);
+    if (far === this.kitLodFar) return;
+    this.kitLodFar = far;
+    for (const template of this.vehicleMeshTemplates.values()) setKitLod(template.geometries, far);
+  }
+
   frame(alpha: number, dtMs: number): void {
     // After `dispose()` the context is lost and three does not know it, so a
     // draw here would reach GL rather than no-op (`context-release.ts`). The
@@ -3261,6 +3281,7 @@ export class ThreeRenderer implements Renderer {
     if (this.showcasePending) this.stampDecalShowcase();
     this.updateMeshUnits(alpha, dtMs);
     this.updateVehicleMeshes(alpha, dtMs);
+    this.updateKitLod();
     this.updateProxyBoxes(alpha);
     this.updateVehicleAmbientFx(dtMs);
     // BEFORE `updateBuildingMeshes`, not after: the hold this drains is read
@@ -5676,6 +5697,10 @@ export class ThreeRenderer implements Renderer {
     if (hasColdTextures(template.root)) this.coldUnitTypes.add(unitTypeId);
     else this.coldUnitTypes.delete(unitTypeId);
     if (this.kitDebugHidden) setKitDrawRange(template.geometries, true);
+    // Born at the level the camera is on now; `updateKitLod` only acts on a
+    // change. (A template disposed while far frees its current index; the
+    // near one, if ever uploaded, goes with the context at `dispose`.)
+    if (this.kitLodFar === true) setKitLod(template.geometries, true);
     // Measured here, from the template just built, exactly as
     // `loadBuildingMesh` measures its own -- recomputed on every reload and
     // never carried on the template, so a re-export cannot leave a stale

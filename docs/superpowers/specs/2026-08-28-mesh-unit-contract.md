@@ -396,6 +396,16 @@ one GLB, and the renderer keeps what the type's bought tiers own.
 - **A kit part is a leaf**, and it owns its mesh: no other node, and no
   `WRECK_` twin, references it.
 - **Tiers are cumulative within a track**: tier 3 draws tiers 1, 2 and 3.
+- **A part may carry a two-level LOD** (GH-238 leftovers, 2026-10-12): beside
+  its main node, `kit_<track>_<tier>_<host>_near` and `..._far`, with
+  `rl_kit.lod` `"near"` / `"far"` and otherwise the main node's `rl_kit`. Both
+  or neither, and never without the main node; one node per (track, tier,
+  host, lod). The runtime merges host, main, near and far into one geometry
+  with two index buffers (host + main + near by default, host + main + far
+  below `KIT_LOD_SWITCH` of `camera.zoom x pixelRatio`), so it is still one
+  draw and the host is still first. Only the slat bars use it today
+  (`kit_parts.slat_panel`: the real bars near, every other bar 2.58x as tall
+  far). The mesh gate renders the near view.
 
 ## Who writes it
 
@@ -415,7 +425,8 @@ nothing else, so **every live accessor is byte-identical before and after**,
 and a second run writes the same bytes. It refuses, before changing anything:
 an unknown or ambiguous host, a part with no host, a name that does not match
 its `rl_kit`, a tier outside 1-3, a track the unit does not declare, a
-duplicate (track, tier, host), a material on a source part, a source part of
+duplicate (track, tier, host, lod), an LOD level without its partner or its
+main node, an `rl_kit.lod` other than near/far, a material on a source part, a source part of
 more than one primitive, a part indexed when its host is not (or the reverse),
 and a textured host whose part has no `TEXCOORD_0`. With no source at all it reports "no kit
 sources" and exits 0; `--id=` naming a vehicle with no source is an error.

@@ -16,7 +16,17 @@
  */
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { applyVehicleKit, KIT_BASE_COUNT_KEY, setKitDrawRange, type VehicleKitTiers } from './vehicle-kit';
+import {
+  applyVehicleKit,
+  KIT_BASE_COUNT_KEY,
+  KIT_LOD_KEY,
+  KIT_LOD_SWITCH,
+  kitLodIsFar,
+  setKitDrawRange,
+  setKitLod,
+  type KitLodIndices,
+  type VehicleKitTiers,
+} from './vehicle-kit';
 import { buildVehicleMeshTemplate } from './mesh-vehicle';
 
 /** `tris` triangles, every vertex at x = `marker`, indexed, with a `uv` iff
@@ -319,5 +329,87 @@ describe('buildVehicleMeshTemplate with kit tiers', () => {
     expect(f.turret.geometry).toBe(f.turretGeometry);
     expect(f.hull.geometry).toBe(f.hullGeometry);
     expect(new Set(template.geometries)).toEqual(new Set([f.turretGeometry, f.hullGeometry]));
+  });
+});
+
+/** The markers an index buffer draws, in triangle order, run-length collapsed. */
+function drawnMarkers(g: THREE.BufferGeometry, index: THREE.BufferAttribute): number[] {
+  const pos = g.getAttribute('position');
+  const runs: number[] = [];
+  for (let k = 0; k < index.count; k++) {
+    const x = pos.getX(index.getX(k));
+    if (runs[runs.length - 1] !== x) runs.push(x);
+  }
+  return runs;
+}
+
+/** The fixture plus an armour-3 slat LOD on the turret host: a near and a far
+ *  level beside `kit_armour_3_turret_hull` (the main node). */
+function lodFixture(): Fixture {
+  const f = fixture();
+  const near = kitMesh('kit_armour_3_turret_hull_near', f.turret, { track: 'armour', tier: 3 }, 31, 4, true);
+  near.userData.rl_kit = { ...near.userData.rl_kit, lod: 'near' };
+  const far = kitMesh('kit_armour_3_turret_hull_far', f.turret, { track: 'armour', tier: 3 }, 32, 2, true);
+  far.userData.rl_kit = { ...far.userData.rl_kit, lod: 'far' };
+  f.turret.parent?.add(near, far);
+  f.kits.set(near.name, near);
+  f.kits.set(far.name, far);
+  return f;
+}
+
+describe('applyVehicleKit: the slat LOD (GH-238 leftovers)', () => {
+  it('draws host + main + NEAR by default, and host + main + FAR after setKitLod(far)', () => {
+    const f = lodFixture();
+    applyVehicleKit(f.root, { armour: 3 });
+    const g = f.turret.geometry;
+    const lod = g.userData[KIT_LOD_KEY] as KitLodIndices;
+    expect(lod).toBeDefined();
+    expect(g.index).toBe(lod.near);
+    expect(drawnMarkers(g, lod.near)).toEqual([M.turret, M.armour1, M.armour2, M.armour3, 31]);
+    expect(drawnMarkers(g, lod.far)).toEqual([M.turret, M.armour1, M.armour2, M.armour3, 32]);
+    expect(setKitLod([g], true)).toBe(1);
+    expect(g.index).toBe(lod.far);
+    expect(setKitLod([g], true)).toBe(0); // already there
+    expect(setKitLod([g], false)).toBe(1);
+    expect(g.index).toBe(lod.near);
+  });
+
+  it('keeps the host first in both levels, so rlKitBaseCount still hides exactly the kit', () => {
+    const f = lodFixture();
+    applyVehicleKit(f.root, { armour: 3 });
+    const g = f.turret.geometry;
+    const base = g.userData[KIT_BASE_COUNT_KEY] as number;
+    expect(base).toBe(verts(T.turret));
+    for (const far of [false, true]) {
+      setKitLod([g], far);
+      setKitDrawRange([g], true);
+      const idx = g.index as THREE.BufferAttribute;
+      const shown = new THREE.BufferAttribute((idx.array as Uint32Array | Uint16Array).slice(0, g.drawRange.count), 1);
+      expect(drawnMarkers(g, shown)).toEqual([M.turret]);
+      setKitDrawRange([g], false);
+    }
+  });
+
+  it('carries no LOD below tier 3 (the levels belong to the cage tier) and the wreck twin shares it', () => {
+    const f = lodFixture();
+    applyVehicleKit(f.root, { armour: 2 });
+    expect(f.turret.geometry.userData[KIT_LOD_KEY]).toBeUndefined();
+    const g = lodFixture();
+    applyVehicleKit(g.root, { armour: 3 });
+    expect(g.wreckTurret.geometry).toBe(g.turret.geometry);
+  });
+
+  it('throws on a near level with no far partner', () => {
+    const f = lodFixture();
+    const far = f.kits.get('kit_armour_3_turret_hull_far');
+    far?.parent?.remove(far);
+    expect(() => applyVehicleKit(f.root, { armour: 3 })).toThrow(/both or neither/);
+  });
+
+  it('switches at KIT_LOD_SWITCH of zoom x pixel ratio: far at zoom 1 on DPR 1, near on DPR 2', () => {
+    expect(kitLodIsFar(1, 1)).toBe(true);
+    expect(kitLodIsFar(1, 2)).toBe(false);
+    expect(kitLodIsFar(KIT_LOD_SWITCH, 1)).toBe(false);
+    expect(kitLodIsFar(2.5, 1)).toBe(false);
   });
 });

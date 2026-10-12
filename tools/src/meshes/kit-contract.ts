@@ -23,9 +23,17 @@ export const KIT_TRACK_PATTERN = /^[a-z]+$/;
 /** The highest tier a track has: tiers are 1, 2 and 3 (cumulative). */
 export const KIT_MAX_TIER = 3;
 
+/** The two levels of a kit part's geometric LOD (`rl_kit.lod`, GH-238
+ *  leftovers): `near` is the real slat bars, drawn from the switch zoom up and
+ *  in the garage; `far` the coarse bars that replace them below it. A part
+ *  carries both or neither, beside its main node (no `lod`), which draws at
+ *  every zoom. The runtime is `vehicle-kit.ts`'s `KIT_LOD_SWITCH`. */
+export const KIT_LODS = ['near', 'far'] as const;
+export type KitLod = (typeof KIT_LODS)[number];
+
 /** The one name a kit part with this `rl_kit` may carry. */
-export const kitNodeName = (track: string, tier: number, host: string): string =>
-  `${KIT_PREFIX}${track}_${tier}_${host}`;
+export const kitNodeName = (track: string, tier: number, host: string, lod?: KitLod): string =>
+  `${KIT_PREFIX}${track}_${tier}_${host}${lod === undefined ? '' : `_${lod}`}`;
 
 /** The eight KDF vehicles that carry kit (spec §3, ruling K9 keeps the gunship
  *  and the command Lavi out). Here, with no dependency, so the kit pass and
