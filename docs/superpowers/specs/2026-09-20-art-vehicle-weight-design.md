@@ -38,6 +38,12 @@ judges this on ten seconds of motion, not on a still and not on a number.**
 
 ---
 
+> **Correction, 2026-10-12.** R-J's table below is stale on one fact: since the
+> Meshy re-exports (2026-09-30 to 10-02) all twelve ground-vehicle GLBs carry
+> `TEXCOORD_0` on `hull_rubber`, the four "no" rows included. Each still points
+> it at the hull's one baked material. The wheel-and-track half R-J deferred
+> shipped on 2026-10-12: `2026-10-12-wheels-and-tracks-design.md`.
+
 ## What exists today (verified)
 
 Every claim here was read at `main@a567b892` in this worktree. The research brief is

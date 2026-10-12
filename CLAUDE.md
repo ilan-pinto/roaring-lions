@@ -1636,7 +1636,8 @@ for vehicles.
   scripts authors them and nothing else may use those two names — `stripWreck`
   matches by name and would silently eat an authored `idle`.
 - **A mesh VEHICLE leans, lags and settles since WP-A1.3 (GH-177,
-  2026-09-23), and its wheels still do not turn.** Design
+  2026-09-23); its wheels turn and its tracks scroll since 2026-10-12 (the
+  next bullet).** Design
   `docs/superpowers/specs/2026-09-20-art-vehicle-weight-design.md`. What ships,
   all of it presentation on the frame clock with nothing read back by the sim:
   a **four-sample terrain conform** (`units/vehicle-conform.ts` — the hull's
@@ -1682,13 +1683,46 @@ for vehicles.
   lateral axis, then roll about its length — and reads 0.05996 of nose lift at
   every facing; the recoil pitch is one term of that sum. (The minus is real:
   the corner `hullCornerOffsets` names `right` is the hull's PHYSICAL LEFT.)
-  And **the other half of GH-177 — wheel spin and track scroll — is OPEN, and
-  it needs geometry, not a pivot name** (R-J, the spec's open question 1): no
-  shipped vehicle GLB has a `wheel_*` or `track_*` node, every one merges its
-  wheels and tracks into a single `hull_rubber` mesh, four of them
-  (`apc_eitan`, `apc_kipod`, `dozer_d9`, `scout_shachaf`) carry no UVs on it
-  at all, and the seven that do share the hull's own material, so scrolling it
-  would scroll the whole vehicle. Nothing in WP-A1.3 delivered that half.
+  WP-A1.3 left the other half of GH-177 -- wheel spin and track scroll --
+  open (R-J). Part of R-J's reasoning went stale before it was built: R-J said
+  four vehicles carried no UVs on `hull_rubber`, but since the Meshy
+  re-exports (2026-09-30 to 10-02) **all twelve ground vehicles carry
+  `TEXCOORD_0` there**. Every one still points it at the hull's own baked
+  material, and those UVs are an atlas, not a strip, so scrolling them is the
+  wrong tool. No GLB has a `wheel_*` or `track_*` node, and none needs one.
+  See the next bullet.
+- **Wheels spin and tracks scroll since 2026-10-12 (GH-177's second half)**:
+  design `docs/superpowers/specs/2026-10-12-wheels-and-tracks-design.md`,
+  approved as written (A1-A12); contract v7 (vehicles).
+  - **What turns.** Wheels spin on the jeep, Shachaf, Kipod, Eitan, technical,
+    gun truck, Grad and the Namer (its road wheels). Tracks scroll on the
+    Namer, the Lavi (and the held command Lavi) and the D9. The Lavi's and the
+    D9's road wheels stay static (A3/A4), and the Tzav waits for E6.
+  - **How it is cut.** `pnpm running-gear:meshes` tags faces in place, with
+    the `_RL_WHEEL`/`_RL_TRACK` vertex pair plus scene
+    `extras.rl_running_gear`, from the literal recipes in
+    `running-gear-recipes.ts`. It runs before `kit:meshes`, and it appends
+    split vertices rather than moving any, so nothing the wreck pass measures
+    changes. **+0 draw calls**, measured with `kit-drawcalls.ts
+    --running-gear`.
+  - **How it draws.** The runtime (`units/running-gear*.ts`) drives the
+    wheels from the weight model's own smoothed speed and yaw rate, SIGNED by
+    the travel-vs-hull cosine, so a hull turning round while it slides
+    backwards runs its tracks backwards. A right turn (increasing facing) runs
+    the left side faster. Both sides counter-rotate on the spot. Spin is capped
+    at 15 rad/s, and the front axle steers by the bicycle model, clamped to its
+    measured clearance (the technical's is 3 degrees).
+  - **Two things a later change will get wrong.** First, a vehicle is swapped
+    onto its own CLONE of the bake only the first frame it moves, which is what
+    keeps parked frames, and so the golden gate, unchanged. Second, the clone
+    is per vehicle because three r170 re-uploads a standard material's
+    `onBeforeCompile` uniforms only on a material change: `uniformsNeedUpdate`
+    is honoured for `ShaderMaterial` alone.
+  - **Witnessed by `pnpm weight:capture -- --running-gear`**, the
+    `running-gear` debug layer's A/B on moving vehicles. No gated golden
+    scenario moves a vehicle. The Lavi's track barely shows from the game
+    camera (0-4 px of A/B at zoom 1): its rubber is a slice under the hull
+    skirt.
 - **A mesh VEHICLE wears its bought kit since plan 3 (GH-238, 2026-10-07), in
   the garage and on the field.** Spec `2026-10-06-kitted-vehicles.md`, contract
   v5 (vehicles) in `2026-08-28-mesh-unit-contract.md`. Each of the eight KDF
