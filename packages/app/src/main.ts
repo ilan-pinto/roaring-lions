@@ -201,6 +201,7 @@ import {
 } from './ui/conduct-invoice';
 import { sandboxAnchors, type SandboxAnchors } from './sandbox-anchors';
 import { hostileFacing } from './sandbox-facing';
+import { placeOnOpen } from './sandbox-place';
 import {
   sandboxDitchRows,
   sandboxFlaggedZones,
@@ -240,6 +241,7 @@ import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
 import { roomFlags } from './net/room-flags';
 import { netReport } from './net/net-report';
 import { viewerSideOf } from './net/viewer';
+import { campOf, versusSpawns } from './net/versus-force';
 import { NetStatusLine } from './ui/net-status';
 import { lightOverrideOf, timeOfDayOf } from './time-of-day';
 import { buildingFitOf } from './building-fit-flag';
@@ -408,32 +410,9 @@ function sandboxSpawns(
   anchors: SandboxAnchors,
   extras: SandboxExtras = { tunnel: false, sur: false, civ: false }
 ): SandboxForce {
-  // Terrain the formation knows nothing about: an offset that lands in rock
-  // or a wall would strand a unit inside it, and Tel Marum's ridge sits right
-  // where the opposition's band falls. Spiral out to the nearest open tile.
-  const open = (x: number, y: number): [number, number] => {
-    const cx = Math.min(Math.max(Math.round(x), 0), sim.width - 1);
-    const cy = Math.min(Math.max(Math.round(y), 0), sim.height - 1);
-    for (let r = 0; r <= 6; r++) {
-      for (let dy = -r; dy <= r; dy++) {
-        for (let dx = -r; dx <= r; dx++) {
-          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-          const tx = cx + dx;
-          const ty = cy + dy;
-          if (tx < 0 || ty < 0 || tx >= sim.width || ty >= sim.height) continue;
-          if (sim.blocked[ty * sim.width + tx] === 0) return [tx, ty];
-        }
-      }
-    }
-    return [cx, cy];
-  };
-
-  const spawn = (id: string, side: number, x: number, y: number, facing = 0): number => {
-    const t = typeOf.get(id);
-    if (t === undefined) throw new Error(`unknown unit ${id}`);
-    const [ox, oy] = open(x, y);
-    return sim.spawn(t, side, fx.from(ox + 0.5), fx.from(oy + 0.5), facing);
-  };
+  // The nearest-open-tile placer is shared with the mirror match
+  // (`sandbox-place.ts`): the same rule, one copy.
+  const spawn = placeOnOpen(sim, typeOf);
 
   const [fxA, fyA] = anchors.friendly;
   const [hxA, hyA] = anchors.hostile;
@@ -1864,6 +1843,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
       return u ? kdfUnlockGate(u, boughtUnits) : undefined;
     });
+  } else if (netConfig?.mode === 'versus') {
+    // A versus room (network design §9): the KDF force on EACH side, mirrored
+    // through the hostile anchor, no Sarim and no civilians. `sandboxForce`
+    // keeps its meaning -- the seat's own units -- and has no crowd.
+    sandboxForce = { player: versusSpawns(sim, typeOf, anchors).bySide[me], civilians: [] };
   } else {
     sandboxForce = sandboxSpawns(sim, typeOf, anchors, {
       tunnel: wantTunnel,
@@ -3408,6 +3392,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   if (start) {
     renderer.camera.x = start[0];
     renderer.camera.y = start[1];
+  } else if (netConfig !== null) {
+    // A room's seat starts on its own camp, not on side 0's.
+    const [cx, cy] = campOf(anchors, me);
+    renderer.camera.x = cx;
+    renderer.camera.y = cy;
   }
 
   // Reinforcements and fire support: the dock, bottom left (GH-153 slice 3).
