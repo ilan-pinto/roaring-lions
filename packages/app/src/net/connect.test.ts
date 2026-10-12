@@ -1,5 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
+import { WsTransport, type MatchConfig } from '@lions/net';
 import { connectMatch, RELOAD_REFUSED } from './connect';
+import { handOver, dropHanded } from './handoff';
+import { loadSeat, saveSeat } from './ticket-store';
+import type { StorageLike } from '../telemetry/identity';
 
 const noSocket = () => { throw new Error('no socket expected'); };
 
@@ -155,5 +159,132 @@ describe('connectMatch', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(calls).toEqual(['http://x/api/match/ABCDEF/join']);
     expect(opened).toEqual(['ws://x/api/match/ABCDEF/ws']);
+  });
+});
+
+const memory = (): StorageLike & { data: Record<string, string> } => {
+  const data: Record<string, string> = {};
+  return { data, getItem: (k) => data[k] ?? null, setItem: (k, v) => { data[k] = v; } };
+};
+/** A fetch that records every call and answers as the Worker would. */
+const recordingFetch = (seat: 0 | 1, ticket = 'tk-fresh') => {
+  const calls: string[] = [];
+  const f = (async (url: string, init?: RequestInit) => {
+    calls.push(`${init?.method ?? 'GET'} ${url}`);
+    return Response.json({ code: 'ABCDEF', seat, ticket }, { status: 201 });
+  }) as unknown as typeof fetch;
+  return { f, calls };
+};
+
+describe('connectMatch: rejoin and handoff (N1b task 5)', () => {
+  afterEach(() => dropHanded('ABCDEF'));
+
+  it('(a) a handed transport is returned at once, without any fetch or socket', async () => {
+    const sock = fakeSocket();
+    const transport = new WsTransport(() => sock, 'tk-lobby', 'b', { onStart: () => {} });
+    const config = CONFIG(9) as unknown as MatchConfig;
+    handOver('ABCDEF', { transport, seat: 1, config });
+    const { f, calls } = recordingFetch(1);
+    const r = await connectMatch(new URLSearchParams('net=abcdef'), 'tel_marum', 'b', { fetch: f, origin: 'http://x', openSocket: noSocket, replaceUrl: () => {}, note: () => {}, store: null, session: memory() });
+    expect(calls).toEqual([]);
+    expect(r).toEqual({ transport, seat: 1, config });
+  });
+
+  for (const q of ['net=ABCDEF&seat=1', 'net=ABCDEF']) {
+    it(`(b) ${q} with a stored ticket sends hello with THAT ticket, posts nothing, and resolves on the room's log`, async () => {
+      const session = memory();
+      saveSeat(session, 'ABCDEF', { ticket: 'tk-stored', seat: 1 });
+      const { f, calls } = recordingFetch(0);
+      const sock = fakeSocket();
+      const opened: string[] = [];
+      let replaced = false;
+      const p = connectMatch(new URLSearchParams(q), 'tel_marum', 'b', {
+        fetch: f, origin: 'http://x', openSocket: (u) => { opened.push(u); return sock; }, replaceUrl: () => { replaced = true; }, note: () => {}, store: null, session,
+      });
+      await new Promise((r) => setTimeout(r, 0));
+      expect(calls).toEqual([]);
+      expect(opened).toEqual(['ws://x/api/match/ABCDEF/ws']);
+      sock.onopen?.({});
+      expect(sock.sent.map((s) => JSON.parse(s) as unknown)).toEqual([{ t: 'hello', ticket: 'tk-stored', build: 'b' }]);
+      sock.onmessage?.({ data: JSON.stringify({ t: 'log', config: CONFIG(3), frames: [{ tick: 0, cmds: [] }, { tick: 1, cmds: [] }] }) });
+      const r = await p;
+      expect(r.seat).toBe(1);
+      expect(r.config?.seed).toBe(3);
+      expect(r.transport.local).toBe(false);
+      expect(r.transport.status()).toEqual({ kind: 'live', behind: 2 });
+      expect(replaced).toBe(false);
+    });
+  }
+
+  it('(b) a rejoin that lands back in the lobby (a reload before the start) readies and waits for the start', async () => {
+    const session = memory();
+    saveSeat(session, 'ABCDEF', { ticket: 'tk-stored', seat: 0 });
+    const sock = fakeSocket();
+    const p = connectMatch(new URLSearchParams('net=ABCDEF&seat=0'), 'tel_marum', 'b', { fetch: recordingFetch(0).f, origin: 'http://x', openSocket: () => sock, replaceUrl: () => {}, note: () => {}, store: null, session });
+    await new Promise((r) => setTimeout(r, 0));
+    sock.onopen?.({});
+    sock.onmessage?.({ data: JSON.stringify({ t: 'lobby', config: null, seats: [{ seat: 0, callsign: 'a', connected: true, ready: false }, { seat: 1, callsign: 'b', connected: true, ready: true }], you: 0, map: 'tel_marum' }) });
+    expect(sock.sent.map((s) => (JSON.parse(s) as { t: string }).t)).toEqual(['hello', 'ready']);
+    sock.onmessage?.({ data: JSON.stringify({ t: 'start', config: CONFIG(4) }) });
+    expect((await p).seat).toBe(0);
+  });
+
+  it('(b) a stored ticket the room refuses rejects and closes the socket', async () => {
+    const session = memory();
+    saveSeat(session, 'ABCDEF', { ticket: 'tk-old', seat: 1 });
+    const sock = fakeSocket();
+    const p = connectMatch(new URLSearchParams('net=ABCDEF'), 'tel_marum', 'b', { fetch: recordingFetch(0).f, origin: 'http://x', openSocket: () => sock, replaceUrl: () => {}, note: () => {}, store: null, session });
+    await new Promise((r) => setTimeout(r, 0));
+    sock.onopen?.({});
+    sock.onmessage?.({ data: JSON.stringify({ t: 'error', code: 'bad_ticket' }) });
+    await expect(p).rejects.toThrow('room refused: bad_ticket');
+    expect(sock.closed).toBeGreaterThan(0);
+  });
+
+  it('(b) ?net=new never rejoins, even with a ticket stored for some code', async () => {
+    const session = memory();
+    saveSeat(session, 'NEW', { ticket: 'tk-x', seat: 1 });
+    const { f, calls } = recordingFetch(0);
+    void connectMatch(new URLSearchParams('net=new'), 'tel_marum', 'b', { fetch: f, origin: 'http://x', openSocket: () => fakeSocket(), replaceUrl: () => {}, note: () => {}, store: null, session });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls).toEqual(['POST http://x/api/match']);
+  });
+
+  it('(c) ?seat with no stored ticket still throws RELOAD_REFUSED, before any request', async () => {
+    const session = memory();
+    saveSeat(session, 'GHIJKL', { ticket: 'tk-other', seat: 0 });
+    for (const q of ['net=ABCDEF&seat=1', 'net=new&seat=0']) {
+      const { f, calls } = recordingFetch(1);
+      await expect(connectMatch(new URLSearchParams(q), 'm', 'b', { fetch: f, origin: 'http://x', openSocket: noSocket, replaceUrl: () => {}, note: () => {}, store: null, session }))
+        .rejects.toThrow(RELOAD_REFUSED);
+      expect(calls).toEqual([]);
+    }
+  });
+
+  it('(d) a fresh join stores its ticket under the room code', async () => {
+    const session = memory();
+    const { f } = recordingFetch(1, 'tk-joined');
+    void connectMatch(new URLSearchParams('net=abcdef'), 'tel_marum', 'b', { fetch: f, origin: 'http://x', openSocket: () => fakeSocket(), replaceUrl: () => {}, note: () => {}, store: null, session });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(loadSeat(session, 'ABCDEF')).toEqual({ ticket: 'tk-joined', seat: 1 });
+  });
+
+  it('(d) a create stores its ticket under the code the Worker gave, and a reload of the rewritten URL rejoins with it', async () => {
+    const session = memory();
+    let url = 'net=new';
+    const { f, calls } = recordingFetch(0, 'tk-host');
+    void connectMatch(new URLSearchParams(url), 'tel_marum', 'b', {
+      fetch: f, origin: 'http://x', openSocket: () => fakeSocket(), note: () => {}, store: null, session,
+      replaceUrl: (code, seat) => { url = `net=${code}&seat=${seat}`; },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(loadSeat(session, 'ABCDEF')).toEqual({ ticket: 'tk-host', seat: 0 });
+    // The reload: the rewritten URL, the same tab's session.
+    const sock = fakeSocket();
+    void connectMatch(new URLSearchParams(url), 'tel_marum', 'b', { fetch: f, origin: 'http://x', openSocket: () => sock, replaceUrl: () => {}, note: () => {}, store: null, session });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls).toEqual(['POST http://x/api/match']);
+    sock.onopen?.({});
+    expect(JSON.parse(sock.sent[0])).toEqual({ t: 'hello', ticket: 'tk-host', build: 'b' });
   });
 });

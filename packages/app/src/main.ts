@@ -237,6 +237,8 @@ import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import type { Seat } from '@lions/net';
 import { connectMatch, type Connected } from './net/connect';
+import { catchUpTicks, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
+import { safeStorage as safeStorageLike } from './telemetry/identity';
 import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
 import { roomFlags } from './net/room-flags';
 import { netReport } from './net/net-report';
@@ -317,7 +319,9 @@ const MS_PER_TICK = 1000 / TICKS_PER_SECOND;
 /** In a room the room's clock is the only clock (R33): a render frame runs up
  *  to this many of the frames the transport holds, whatever the local pause
  *  or speed, so a client that fell behind catches up at 4x without one long
- *  frame. Single-player keeps its accumulator. */
+ *  frame. It is the floor: while live and far behind (a rejoin's whole log),
+ *  `catchUpTicks` raises it to what fits a frame's budget (R-B7).
+ *  Single-player keeps its accumulator. */
 const MAX_CATCHUP_TICKS = 4;
 
 /** The briefing's ground photograph, px a side: a 48-tile map at about 13 px
@@ -1642,6 +1646,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       note: (text) => console.info(`[net] ${text}`),
       // The property access itself throws when site data is blocked.
       store: ((): Storage | null => { try { return window.localStorage; } catch { return null; } })(),
+      // Seat tickets are per TAB (R-B6): a reload rejoins this tab's own seat.
+      session: safeStorageLike(() => window.sessionStorage),
       signal: req.signal,
     });
   } catch (err) {
@@ -5476,6 +5482,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     posOf: (i) => ({ x: fx.toNumber(sim.state.posX[i]), y: fx.toNumber(sim.state.posY[i]) }),
     fogVisible: (wx, wy) => renderer.isVisible(wx, wy),
   };
+  /** A room's wall-clock cost of one tick, ms: an exponential moving
+   *  average of what `stepFrames` took per frame it ran (app code on the
+   *  frame clock; the sim never sees it). Sizes a rejoin's catch-up. */
+  let tickCostMs = INITIAL_TICK_COST_MS;
   const loop = (): void => {
     rafId = requestAnimationFrame(loop);
     // The speed control feeds the ACCUMULATOR, never the tick. A tick is 50 ms
@@ -5494,8 +5504,23 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     const { ticks, frameMs } = advanceClock(clock, now, gameSpeed, paused || beat !== null, MS_PER_TICK);
     lastFrameMs = frameMs;
     // Single-player runs what the accumulator owes, exactly as before; a room
-    // runs what the room has released, up to MAX_CATCHUP_TICKS (R33).
-    if (stepFrames(transport.local ? ticks : MAX_CATCHUP_TICKS) > 0) lastTickAt = now;
+    // runs what the room has released, up to MAX_CATCHUP_TICKS (R33) -- or,
+    // while live and far behind (a rejoin's log), as many as fit in the
+    // frame's budget at the measured cost per tick (R-B7). A stall or a pause
+    // keeps MAX_CATCHUP_TICKS: a 'behind' stall's own seat must go on running
+    // the frames it holds to ack (R31).
+    if (transport.local) {
+      if (stepFrames(ticks) > 0) lastTickAt = now;
+    } else {
+      const st = transport.status();
+      const cap = st.kind === 'live' ? Math.max(MAX_CATCHUP_TICKS, catchUpTicks(st.behind, tickCostMs)) : MAX_CATCHUP_TICKS;
+      const t0 = performance.now();
+      const ran = stepFrames(cap);
+      if (ran > 0) {
+        lastTickAt = now;
+        tickCostMs = tickCostEma(tickCostMs, (performance.now() - t0) / ran);
+      }
+    }
     netStatus?.paint(transport.status());
     // Read live off the settings store, not snapshotted at boot: `set()`
     // reaches every open battlefield the moment the player changes it,
