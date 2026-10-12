@@ -336,10 +336,13 @@ export class MatchRoom {
     const { pathname } = new URL(req.url);
     const st = await this.begin();
     if (pathname === '/create' && req.method === 'POST') {
-      if (st) return new Response('exists', { status: 409 });
-      let body: Record<string, unknown>;
-      try { body = (await req.json()) as Record<string, unknown>; } catch { return new Response('bad body', { status: 400 }); }
-      if (typeof body !== 'object' || body === null || typeof body.code !== 'string' || typeof body.matchId !== 'string') {
+      // The body is read BEFORE the check-and-set below, as /join's is: an await between
+      // them let a second /create pass the same check and overwrite the first room.
+      // `this.st`, not `st`: the local was read before the await.
+      let body: Record<string, unknown> | null = null;
+      try { const v: unknown = await req.json(); if (typeof v === 'object' && v !== null) body = v as Record<string, unknown>; } catch { /* refused below */ }
+      if (this.st) return new Response('exists', { status: 409 });
+      if (body === null || typeof body.code !== 'string' || typeof body.matchId !== 'string') {
         return new Response('bad body', { status: 400 });
       }
       // An empty build would switch the hello's build check off: refuse it here as the route does.

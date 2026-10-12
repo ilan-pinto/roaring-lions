@@ -197,6 +197,24 @@ describe('MatchRoom', () => {
     expect(statuses).toEqual([200, 409]);
   });
 
+  it('two concurrent /create calls: exactly one makes the room, the other 409 (N1a final review)', async () => {
+    const room = new MatchRoom(new FakeState(), env);
+    // As the /join case: a body that yields before it is read, so a check made before the read cannot pass.
+    const create = (callsign: string) => {
+      const req = new Request('https://room/create', {
+        method: 'POST',
+        body: JSON.stringify({ code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD, player: `p-${callsign}`, callsign }),
+      });
+      const json = req.json.bind(req);
+      req.json = async () => { await Promise.resolve(); await new Promise((r) => setTimeout(r, 0)); return json(); };
+      return room.fetch(req);
+    };
+    const settled = Promise.all([create('A'), create('B')]);
+    await vi.advanceTimersByTimeAsync(5);
+    const statuses = (await settled).map((r) => r.status).sort();
+    expect(statuses).toEqual([200, 409]);
+  });
+
   it('a versus room keeps its seed across an eviction: the revived room starts the same match', async () => {
     const { state, room } = await created(new FakeState(), { mode: 'versus' });
     const meta = state.storage.kv.get('meta') as { seed: number; mode: string };
