@@ -29,6 +29,25 @@ export const CIV_FLEE_AT = 19661;
  *  reward shooting near them to herd them. */
 export const SHEPHERD_RADIUS_SQ = 1048576;
 
+/** How a set of civilians is allowed to be moved. */
+export interface CivilianFlightOptions {
+  /** A GROUND player unit within SHEPHERD_RADIUS_SQ walks a family out.
+   *  False: families move only under fire (GH-279 ruling b). */
+  shepherd: boolean;
+}
+
+/**
+ * Whether a mission shepherds: it declares at least one `evacuate_before`,
+ * primary or secondary. The one predicate the runtime and the app read.
+ *
+ * Without one there is nothing for walking a family out to satisfy, so a
+ * soldier passing by moves nobody -- civilians then flee only under fire
+ * (GH-279 ruling b).
+ */
+export function missionShepherds(objectives: readonly { type: string }[]): boolean {
+  return objectives.some((o) => o.type === 'evacuate_before');
+}
+
 /**
  * The flight and the count, for one set of civilians.
  *
@@ -39,6 +58,13 @@ export const SHEPHERD_RADIUS_SQ = 1048576;
 export class CivilianFlight {
   private readonly fledSet = new Set<number>();
   private readonly evacuatedSet = new Set<number>();
+
+  /** Whether a nearby ground soldier walks a family out (see the options). */
+  readonly shepherds: boolean;
+
+  constructor(opts: CivilianFlightOptions) {
+    this.shepherds = opts.shepherd;
+  }
 
   /** How many got out. Latched: dying afterwards does not un-count them. */
   get evacuatedCount(): number {
@@ -107,11 +133,13 @@ export class CivilianFlight {
       // latch-before-confirm shape as the dead-transport debt).
       if (st.tunnelIn[civ] >= 0) continue;
       let leaving = st.suppression[civ] > CIV_FLEE_AT;
-      if (!leaving) {
+      if (!leaving && this.shepherds) {
         for (const p of playerIds) {
           // A buried soldier reaches nobody: his coordinates name a tile he
           // is not standing on.
           if (st.alive[p] === 0 || st.tunnelIn[p] >= 0) continue;
+          // An aircraft overhead walks nobody out (GH-279 ruling a).
+          if (sim.unitTypes[st.typeIdx[p]].isAir) continue;
           const dx = (fx.sub(st.posX[civ], st.posX[p]) >> 8) | 0;
           const dy = (fx.sub(st.posY[civ], st.posY[p]) >> 8) | 0;
           if (dx * dx + dy * dy <= SHEPHERD_RADIUS_SQ) {
@@ -130,6 +158,9 @@ export class CivilianFlight {
         // Nor does anyone board a hull that is under the earth.
         if (st.alive[p] === 0 || st.tunnelIn[p] >= 0) continue;
         const ptype = sim.unitTypes[st.typeIdx[p]];
+        // A rotor beside the family is no ride either (D3): the same rule as
+        // the shepherd loop above.
+        if (ptype.isAir) continue;
         if (ptype.transportSlots === 0) continue;
         if (sim.passengerCount(p) >= ptype.transportSlots) continue;
         const dx2 = (fx.sub(st.posX[civ], st.posX[p]) >> 8) | 0;

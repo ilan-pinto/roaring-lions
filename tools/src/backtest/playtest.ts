@@ -2528,9 +2528,12 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
   // comes down as fast as two squads can walk to three doors.
   const depotEscort = [...ids('mbt_lavi'), ...ids('apc_eitan')];
   at(1, () => {
-    // The drone's own presence is enough to start the porters fleeing
-    // (CivilianFlight does not filter by domain) well before any charge is
-    // set near their ground.
+    // The escort's attack-move to (33, 8), beside the porters at (32.5, 7.5), is
+    // what walks them out: a GROUND player unit within four tiles (GH-279 ruling
+    // a). The drone does not move them -- CivilianFlight skips aircraft -- and
+    // it is not ordered here at all (GH-382, see t=50). Measured on the
+    // pinned-seed line: `get_the_porters_clear` (a secondary) is complete (c) at
+    // the victory at base tier, and still active (a) at the victory at max tier.
     sim.queueCommand({ kind: 'attackMove', ids: depotEscort, ...M(33, 8) });
   });
   // GH-382: the spur's eye covers the ramp, so a drone sent at t=1 is shot down on the way up; it

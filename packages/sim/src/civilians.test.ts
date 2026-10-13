@@ -7,7 +7,7 @@
 // object rather than a copy. A test that could only reach it through a mission
 // would not prove that.
 import { describe, expect, it } from 'vitest';
-import { CivilianFlight, CIV_FLEE_AT, SHEPHERD_RADIUS_SQ } from './civilians';
+import { CivilianFlight, CIV_FLEE_AT, SHEPHERD_RADIUS_SQ, missionShepherds } from './civilians';
 import { fx, HALF } from './fixed';
 import { Sim, type UnitTypeJson } from './sim';
 
@@ -41,6 +41,17 @@ const CARRIER: UnitTypeJson = {
   weapons: [],
 };
 
+/** A drone: aircraft walk nobody out (GH-279 ruling a). */
+const AIR: UnitTypeJson = {
+  id: 'x_drone',
+  name: 'Drone',
+  role: 'recon',
+  hull: { hp: 60, armor: { front: 0, side: 0, rear: 0 } },
+  mobility: { speed_tiles_s: 3, domain: 'air' },
+  sensors: { optics: 1, sight_tiles: 10, signature: 0.2 },
+  weapons: [],
+};
+
 /** A tile centre, the way `main.ts` and `markerPos` both build one. */
 const at = (x: number, y: number): readonly [number, number] =>
   [fx.add(fx.fromInt(x), HALF), fx.add(fx.fromInt(y), HALF)] as const;
@@ -50,16 +61,18 @@ function world(): {
   civ: (x: number, y: number) => number;
   soldier: (x: number, y: number) => number;
   apc: (x: number, y: number) => number;
+  drone: (x: number, y: number) => number;
 } {
   const sim = new Sim({ seed: 11, width: 40, height: 40, capacity: 32 });
   const tCiv = sim.addUnitType(CIVILIANS);
   const tInf = sim.addUnitType(RIFLES);
   const tApc = sim.addUnitType(CARRIER);
+  const tAir = sim.addUnitType(AIR);
   const spawn = (t: number, side: number) => (x: number, y: number) => {
     const [px, py] = at(x, y);
     return sim.spawn(t, side, px, py, 0);
   };
-  return { sim, civ: spawn(tCiv, 2), soldier: spawn(tInf, 0), apc: spawn(tApc, 0) };
+  return { sim, civ: spawn(tCiv, 2), soldier: spawn(tInf, 0), apc: spawn(tApc, 0), drone: spawn(tAir, 0) };
 }
 
 // The refuge the sandbox synthesises: a point, and the 4x4 box around it.
@@ -72,7 +85,7 @@ describe('CivilianFlight without a mission', () => {
     // walked up to must not wander off on its own.
     const { sim, civ } = world();
     const c = civ(10, 10);
-    const flight = new CivilianFlight();
+    const flight = new CivilianFlight({ shepherd: true });
     for (let i = 0; i < 40; i++) {
       flight.step(sim, [c], [], REFUGE);
       sim.tick();
@@ -88,7 +101,7 @@ describe('CivilianFlight without a mission', () => {
     const { sim, civ, soldier } = world();
     const c = civ(10, 10);
     const p = soldier(11, 10);
-    const flight = new CivilianFlight();
+    const flight = new CivilianFlight({ shepherd: true });
     flight.step(sim, [c], [p], REFUGE);
     expect(flight.hasFled(c)).toBe(true);
     for (let i = 0; i < 60; i++) sim.tick();
@@ -101,7 +114,7 @@ describe('CivilianFlight without a mission', () => {
     // SHEPHERD_RADIUS_SQ is 4 tiles squared in Q8.8; five tiles is outside it.
     const p = soldier(15, 10);
     expect(SHEPHERD_RADIUS_SQ).toBe(1048576);
-    new CivilianFlight().step(sim, [c], [p], REFUGE);
+    new CivilianFlight({ shepherd: true }).step(sim, [c], [p], REFUGE);
     expect(sim.state.moving[c]).toBe(0);
   });
 
@@ -109,7 +122,7 @@ describe('CivilianFlight without a mission', () => {
     const { sim, civ } = world();
     const c = civ(10, 10);
     sim.state.suppression[c] = CIV_FLEE_AT + 1;
-    const flight = new CivilianFlight();
+    const flight = new CivilianFlight({ shepherd: true });
     flight.step(sim, [c], [], REFUGE);
     expect(flight.hasFled(c)).toBe(true);
   });
@@ -118,7 +131,7 @@ describe('CivilianFlight without a mission', () => {
     const { sim, civ, apc } = world();
     const c = civ(10, 10);
     const v = apc(11, 10);
-    new CivilianFlight().step(sim, [c], [v], REFUGE);
+    new CivilianFlight({ shepherd: true }).step(sim, [c], [v], REFUGE);
     sim.tick();
     expect(sim.state.carriedBy[c]).toBe(v);
   });
@@ -129,7 +142,7 @@ describe('CivilianFlight without a mission', () => {
     // cannot tell a rescue from a killing without being handed the id.
     const { sim, civ } = world();
     const c = civ(30, 30);
-    const flight = new CivilianFlight();
+    const flight = new CivilianFlight({ shepherd: true });
     expect(flight.collect(sim, [c], REFUGE_ZONE)).toEqual([c]);
     expect(sim.state.alive[c]).toBe(0);
     expect(flight.evacuatedCount).toBe(1);
@@ -140,7 +153,7 @@ describe('CivilianFlight without a mission', () => {
     // who is already gone and double the count.
     const { sim, civ } = world();
     const c = civ(30, 30);
-    const flight = new CivilianFlight();
+    const flight = new CivilianFlight({ shepherd: true });
     expect(flight.collect(sim, [c], REFUGE_ZONE)).toEqual([c]);
     expect(flight.collect(sim, [c], REFUGE_ZONE)).toEqual([]);
     expect(flight.evacuatedCount).toBe(1);
@@ -152,7 +165,7 @@ describe('CivilianFlight without a mission', () => {
     const { sim, civ } = world();
     const c = civ(30, 30);
     sim.state.alive[c] = 0;
-    const flight = new CivilianFlight();
+    const flight = new CivilianFlight({ shepherd: true });
     expect(flight.collect(sim, [c], REFUGE_ZONE)).toEqual([]);
     expect(flight.evacuatedCount).toBe(0);
   });
@@ -160,7 +173,7 @@ describe('CivilianFlight without a mission', () => {
   it('does not count someone standing outside the zone', () => {
     const { sim, civ } = world();
     const c = civ(27, 30); // one tile west of the box
-    expect(new CivilianFlight().collect(sim, [c], REFUGE_ZONE)).toEqual([]);
+    expect(new CivilianFlight({ shepherd: true }).collect(sim, [c], REFUGE_ZONE)).toEqual([]);
   });
 
   it('re-orders one that stopped short, and stops once it is on the refuge', () => {
@@ -179,7 +192,7 @@ describe('CivilianFlight without a mission', () => {
     const arrived = civ(32, 30);
     const far = soldier(11, 10);
     const near = soldier(33, 30);
-    const flight = new CivilianFlight();
+    const flight = new CivilianFlight({ shepherd: true });
     flight.step(sim, [stalled, arrived], [far, near], REFUGE);
     sim.tick();
     expect(flight.hasFled(stalled) && flight.hasFled(arrived)).toBe(true);
@@ -190,5 +203,66 @@ describe('CivilianFlight without a mission', () => {
     sim.tick();
     expect(sim.state.moving[stalled]).toBe(1);
     expect(sim.state.moving[arrived]).toBe(0);
+  });
+
+  it('a drone beside a family does not move it', () => {
+    // GH-279 ruling a: an aircraft overhead walks nobody out. The drone is at
+    // ONE tile, well inside SHEPHERD_RADIUS_SQ, so only the type can stop it.
+    const { sim, civ, drone } = world();
+    const c = civ(10, 10);
+    const d = drone(11, 10);
+    const flight = new CivilianFlight({ shepherd: true });
+    flight.step(sim, [c], [d], REFUGE);
+    expect(flight.hasFled(c)).toBe(false);
+    for (let i = 0; i < 40; i++) {
+      flight.step(sim, [c], [d], REFUGE);
+      sim.tick();
+    }
+    expect(sim.state.moving[c]).toBe(0);
+  });
+
+  it('a soldier beside the same drone still does', () => {
+    // The control for the test above: same world, same drone, plus a rifleman.
+    const { sim, civ, drone, soldier } = world();
+    const c = civ(10, 10);
+    const d = drone(11, 10);
+    const p = soldier(9, 10);
+    const flight = new CivilianFlight({ shepherd: true });
+    flight.step(sim, [c], [d, p], REFUGE);
+    expect(flight.hasFled(c)).toBe(true);
+  });
+
+  it('without shepherding, a soldier beside a family does not move it', () => {
+    const { sim, civ, soldier } = world();
+    const c = civ(10, 10);
+    const p = soldier(11, 10);
+    const flight = new CivilianFlight({ shepherd: false });
+    expect(flight.shepherds).toBe(false);
+    for (let i = 0; i < 40; i++) {
+      flight.step(sim, [c], [p], REFUGE);
+      sim.tick();
+    }
+    expect(flight.hasFled(c)).toBe(false);
+    expect(sim.state.posX[c] >> 16).toBe(10);
+    expect(sim.state.posY[c] >> 16).toBe(10);
+  });
+
+  it('without shepherding, fire still does', () => {
+    const { sim, civ, soldier } = world();
+    const c = civ(10, 10);
+    const p = soldier(11, 10);
+    sim.state.suppression[c] = CIV_FLEE_AT + 1;
+    const flight = new CivilianFlight({ shepherd: false });
+    flight.step(sim, [c], [p], REFUGE);
+    expect(flight.hasFled(c)).toBe(true);
+  });
+});
+
+describe('missionShepherds', () => {
+  it('is true only for a mission that declares an evacuate_before', () => {
+    expect(missionShepherds([])).toBe(false);
+    expect(missionShepherds([{ type: 'hold_for' }])).toBe(false);
+    expect(missionShepherds([{ type: 'hold_for' }, { type: 'evacuate_before' }])).toBe(true);
+    expect(missionShepherds([{ type: 'evacuate_before' }])).toBe(true);
   });
 });

@@ -25,7 +25,13 @@ export {
 // The civilian flight rule, shared by `MissionRuntime` and the `&civ` sandbox.
 // Exported because a sandbox has no mission and therefore no runtime, and the
 // alternative to sharing it was a second copy of a game rule in `packages/app`.
-export { CivilianFlight, CIV_FLEE_AT, SHEPHERD_RADIUS_SQ } from './civilians';
+export {
+  CivilianFlight,
+  CIV_FLEE_AT,
+  SHEPHERD_RADIUS_SQ,
+  missionShepherds,
+  type CivilianFlightOptions,
+} from './civilians';
 export { unlockReason, isBoughtOnly, starsEarned, conductAtLeast, resolveUpgrades, type UnlockGate } from './unlock';
 export {
   starsFor,

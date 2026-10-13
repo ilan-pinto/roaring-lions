@@ -1873,7 +1873,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const civRefuge = !mission && wantCiv ? sandboxRefuge(mapJson, anchors) : null;
   /** The shared rule (`@lions/sim`'s `CivilianFlight`), not a copy of it. The
    *  runtime owns one for a mission; this is the sandbox's own. */
-  const civFlight = civRefuge ? new CivilianFlight() : null;
+  const civFlight = civRefuge ? new CivilianFlight({ shepherd: true }) : null;
   /** Who the sandbox spawned, for the two lists `CivilianFlight.step` takes. */
   let sandboxForce: SandboxForce = { player: [], civilians: [] };
   /**

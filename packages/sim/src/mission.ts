@@ -8,7 +8,7 @@
 // caller passes parsed mission JSON plus a context resolving unit ids and
 // map markers/zones.
 
-import { CivilianFlight } from './civilians';
+import { CivilianFlight, missionShepherds } from './civilians';
 import { fx, HALF, type Fx } from './fixed';
 import { starsFor, betterResult, type Stars, type MissionResult } from './grade';
 import { TICKS_PER_SECOND, type Sim, type SimEvent } from './sim';
@@ -488,8 +488,9 @@ export class MissionRuntime {
   private readonly enemyAtStart: number[] = [];
   private readonly civIds: number[] = [];
   /** The flight-and-count rule, shared with the sandbox (`./civilians`).
-   *  Owns both latches: who has broken for the refuge, and who reached it. */
-  private readonly civFlight = new CivilianFlight();
+   *  Owns both latches: who has broken for the refuge, and who reached it.
+   *  Built in the constructor: whether it shepherds depends on the mission. */
+  private readonly civFlight: CivilianFlight;
   private readonly zoneDeductedAt = new Map<string, number>();
   /** Objective id -> the structure indices its zone held at mission start.
    *
@@ -555,6 +556,9 @@ export class MissionRuntime {
     this.sim = sim;
     this.mission = mission;
     this.ctx = ctx;
+    // A mission with no `evacuate_before` has nothing for shepherding to
+    // satisfy, so its families move only under fire (GH-279 ruling b).
+    this.civFlight = new CivilianFlight({ shepherd: missionShepherds(mission.objectives) });
     for (const def of mission.objectives) {
       if (!SUPPORTED.has(def.type)) {
         throw new Error(
