@@ -1341,6 +1341,39 @@ const khanRafid3Plan: Plan = (sim, _rt, ids, at) => {
 
   at(0, () => sim.queueCommand({ kind: 'move', ids: at_team, ...M(24, 36) }));
   at(0, () => sim.queueCommand({ kind: 'move', ids: mortar, ...M(22, 38) }));
+
+  // A carrier lost on the way to its orchard leaves that family behind. Since a hit suppresses
+  // (2026-10-13), seed 29 lost the east-orchard Eitan by t=15 and five came in, not six. A player
+  // who sees his carrier die sends another: once the souk is his (t=60 on), a dead carrier's
+  // orchard goes to the nearest living carrier with no passengers, and any carrier holding
+  // passengers is driven to the ward when it stops.
+  const orchards: [number[], number, number][] = [
+    [jeep, 40, 34],
+    [namer, 7, 17],
+    [eitan.slice(1, 2), 40, 17],
+  ];
+  const carriers = [...jeep, ...namer, ...eitan];
+  const passengersIn = (v: number): boolean => {
+    for (let i = 0; i < sim.entityCount; i++) if (sim.state.alive[i] === 1 && sim.state.carriedBy[i] === v) return true;
+    return false;
+  };
+  const sent = new Set<number>();
+  for (let when = 60; when <= 290; when += 5)
+    at(when, () => {
+      if (_rt.objectiveStatus('get_six_in') !== 'active') return;
+      for (const v of carriers) {
+        if (sim.state.alive[v] === 1 && passengersIn(v) && sim.state.moving[v] === 0) sim.queueCommand({ kind: 'move', ids: [v], ...M(10, 35) });
+      }
+      orchards.forEach(([own, x, y], k) => {
+        if (sent.has(k) || own.some((u) => sim.state.alive[u] === 1)) return;
+        const free = carriers.filter((v) => sim.state.alive[v] === 1 && !passengersIn(v));
+        if (free.length === 0) return;
+        const d = (v: number) => (fx.toNumber(sim.state.posX[v]) - x) ** 2 + (fx.toNumber(sim.state.posY[v]) - y) ** 2;
+        const v = free.reduce((a, b) => (d(b) < d(a) ? b : a));
+        sim.queueCommand({ kind: 'move', ids: [v], ...M(x, y) });
+        sent.add(k);
+      });
+    });
 };
 
 run(
