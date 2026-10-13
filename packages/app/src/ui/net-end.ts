@@ -7,7 +7,7 @@
 // match is not a campaign mission and pays nothing (spec §2.3); the test
 // beside this file spies on storage to hold that.
 
-import { t } from '../i18n/t';
+import { currentLocale, t } from '../i18n/t';
 import type { MatchResult } from '../net/outcome';
 import type { Disposer } from '../shell/router';
 import { mountEndPanel } from './end-panel';
@@ -27,6 +27,28 @@ function verdictOf(o: MatchResult, viewer: 0 | 1): 'won' | 'lost' | 'draw' {
   return o.side === viewer ? 'won' : 'lost';
 }
 
+/** A force value as the player's locale writes a number (2,450). */
+function amount(n: number): string {
+  try {
+    return new Intl.NumberFormat(currentLocale()).format(n);
+  } catch {
+    return String(n);
+  }
+}
+
+/** The reason line, from `viewer`'s side. A result on surviving value (a
+ *  stalemate, the time limit) names its cause and both totals, this seat's
+ *  first: "Stalemate — won on remaining forces (2,450 vs 1,900)". */
+export function netEndReason(o: MatchResult, viewer: 0 | 1): string {
+  const verdict = verdictOf(o, viewer);
+  if (o.by === 'stalemate' || o.by === 'time') {
+    const theirs = viewer === 0 ? 1 : 0;
+    return t(`versus.end.forces.${verdict}`, { cause: o.by, mine: amount(o.forces[viewer]), theirs: amount(o.forces[theirs]) });
+  }
+  // The loser reads its own side of the same reason: "Your force is destroyed".
+  return t(verdict === 'lost' ? 'versus.end.reason.lost' : 'versus.end.reason', { by: o.by });
+}
+
 /** Mounts the panel on `host`; the disposer removes it and releases its focus trap. */
 export function showNetEnd(host: HTMLElement, o: MatchResult, viewer: 0 | 1, deps: NetEndDeps): Disposer {
   const verdict = verdictOf(o, viewer);
@@ -36,8 +58,7 @@ export function showNetEnd(host: HTMLElement, o: MatchResult, viewer: 0 | 1, dep
 
   const reason = document.createElement('p');
   reason.className = 'rl-net-end__reason';
-  // The loser reads its own side of the same reason: "Your force is destroyed".
-  reason.textContent = t(verdict === 'lost' ? 'versus.end.reason.lost' : 'versus.end.reason', { by: o.by });
+  reason.textContent = netEndReason(o, viewer);
   p.body.appendChild(reason);
 
   const foot = screenFoot();

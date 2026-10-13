@@ -47,17 +47,31 @@ describe('showNetEnd', () => {
     expect([title(), reason()]).toEqual(['Defeat', 'You disconnected']);
   });
 
-  it('a draw reads Draw, mutual or on time, for either viewer', () => {
+  it('a draw reads Draw, mutual or on equal forces at the time limit, for either viewer', () => {
     showNetEnd(document.body, { kind: 'draw', by: 'mutual' }, 1, deps());
     expect([title(), reason()]).toEqual(['Draw', 'Both forces destroyed']);
     document.body.innerHTML = '';
-    showNetEnd(document.body, { kind: 'draw', by: 'time' }, 0, deps());
-    expect([title(), reason()]).toEqual(['Draw', 'Time']);
+    showNetEnd(document.body, { kind: 'draw', by: 'time', forces: [1900, 1900] }, 0, deps());
+    expect([title(), reason()]).toEqual(['Draw', 'Time — equal forces (1,900 vs 1,900)']);
+  });
+
+  it('a result on surviving value names the cause and both totals, this seat\'s first (2026-10-13)', () => {
+    showNetEnd(document.body, { kind: 'won', side: 0, by: 'stalemate', forces: [2450, 1900] }, 0, deps());
+    expect([title(), reason()]).toEqual(['Victory', 'Stalemate — won on remaining forces (2,450 vs 1,900)']);
+    document.body.innerHTML = '';
+    showNetEnd(document.body, { kind: 'won', side: 0, by: 'stalemate', forces: [2450, 1900] }, 1, deps());
+    expect([title(), reason()]).toEqual(['Defeat', 'Stalemate — lost on remaining forces (1,900 vs 2,450)']);
+    document.body.innerHTML = '';
+    showNetEnd(document.body, { kind: 'won', side: 1, by: 'time', forces: [800, 3100] }, 1, deps());
+    expect([title(), reason()]).toEqual(['Victory', 'Time — won on remaining forces (3,100 vs 800)']);
+    document.body.innerHTML = '';
+    showNetEnd(document.body, { kind: 'draw', by: 'stalemate', forces: [600, 600] }, 1, deps());
+    expect([title(), reason()]).toEqual(['Draw', 'Stalemate — equal forces (600 vs 600)']);
   });
 
   it('"Play again" calls again, "Main menu" calls menu, and Play again has focus', () => {
     const d = deps();
-    showNetEnd(document.body, { kind: 'draw', by: 'time' }, 0, d);
+    showNetEnd(document.body, { kind: 'draw', by: 'time', forces: [1, 1] }, 0, d);
     const again = button('again');
     const menu = button('menu');
     expect(again?.textContent?.trim()).toBe('Play again');
@@ -72,7 +86,7 @@ describe('showNetEnd', () => {
 
   it('its disposer removes everything it mounted', () => {
     const before = document.body.childElementCount;
-    const dispose = showNetEnd(document.body, { kind: 'draw', by: 'time' }, 0, deps());
+    const dispose = showNetEnd(document.body, { kind: 'draw', by: 'time', forces: [1, 1] }, 0, deps());
     expect(document.body.childElementCount).toBeGreaterThan(before);
     dispose();
     expect(document.body.childElementCount).toBe(before);
