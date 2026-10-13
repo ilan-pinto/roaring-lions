@@ -2166,6 +2166,34 @@ const qarnHadid3Plan: Plan = (sim, rt, ids, at) => {
       for (const v of carriersWithFamilies()) if (sim.state.moving[v] === 0) sim.queueCommand({ kind: 'move', ids: [v], ...M(44, 10) });
     });
   for (let when = 2; when <= 1190; when += 2) at(when, () => pic.update());
+  // Since a hit suppresses (2026-10-13) the rescue detail can be pinned and killed short of the
+  // families: on seed 5 with the gate open Qarn Hadid II had left one inf_squad, so the detail was the
+  // at_team alone, pinned at (24,8) at t=180 and dead by 190, and the column that had just taken the
+  // village stood seven tiles from the families until the clock ran out. A player watching the
+  // families stay put sends a carrier for them: once the village is his (or from t=200), the nearest
+  // free carrier goes to the nearest family still standing in the open that one of his units can see
+  // (ten tiles), and the carrier loop above drives it to the clinic once they are aboard.
+  const CARRIERS = [...armour, ...namer];
+  for (let when = 170; when <= 290; when += 10)
+    at(when, () => {
+      if (rt.objectiveStatus('get_the_families_clear') !== 'active') return;
+      if (rt.objectiveStatus('take_the_village') === 'active' && when < 200) return;
+      const st = sim.state;
+      const mine = living(sim);
+      let fam = -1;
+      for (let i = 0; i < sim.entityCount; i++) {
+        if (st.side[i] !== 2 || st.alive[i] !== 1 || st.carriedBy[i] >= 0) continue;
+        const seen = mine.some((u) => (st.posX[u] - st.posX[i]) ** 2 + (st.posY[u] - st.posY[i]) ** 2 <= (10 * 65536) ** 2);
+        if (seen) { fam = i; break; }
+      }
+      if (fam < 0) return;
+      const busy = carriersWithFamilies();
+      const free = CARRIERS.filter((v) => st.alive[v] === 1 && !busy.has(v));
+      if (free.length === 0) return;
+      const d = (v: number) => (st.posX[v] - st.posX[fam]) ** 2 + (st.posY[v] - st.posY[fam]) ** 2;
+      const v = free.reduce((a, b) => (d(b) < d(a) ? b : a));
+      sim.queueCommand({ kind: 'move', ids: [v], x: st.posX[fam], y: st.posY[fam] });
+    });
   for (let when = 190; when <= 1190; when += 10)
     at(when, () => {
       if (rt.objectiveStatus('take_the_village') !== 'active') return;
