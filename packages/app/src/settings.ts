@@ -14,6 +14,7 @@
  */
 import type { StorageLike } from './brigade-account';
 import { LOCALES } from './i18n/locales';
+import { isKeyName } from './input/keymap';
 import type { Disposer } from './shell/router';
 
 export type { StorageLike };
@@ -92,7 +93,7 @@ const bool = (v: unknown, dflt: boolean): boolean => (typeof v === 'boolean' ? v
 function bindings(v: unknown): Record<string, string> {
   if (!isRecord(v)) return {};
   const out: Record<string, string> = {};
-  for (const [k, val] of Object.entries(v)) if (typeof val === 'string' && val.length > 0) out[k] = val;
+  for (const [k, val] of Object.entries(v)) if (typeof val === 'string' && isKeyName(val)) out[k] = val;
   return out;
 }
 

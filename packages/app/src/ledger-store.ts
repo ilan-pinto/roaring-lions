@@ -78,6 +78,7 @@ import {
   saveLedger,
   tutorialDone as storedTutorialDone,
 } from './main-keys';
+import { sanitiseLedger } from './ledger-shape';
 import { SAVES_KEY } from './profile';
 
 /**
@@ -183,12 +184,15 @@ export interface CampaignSnapshot {
  * `campaign.slots_issued` would number slots `2.5` or `"71"`. A malformed key is
  * dropped to ABSENT, which is exactly the shape a pre-change save has (R-7), so
  * everything downstream already handles it. Only the container is checked --
- * an array, an integer -- not each record inside it: the sim's own keys have
- * never been checked on read either, and a per-record schema here would be a
- * second validator for one door. A well-formed ledger comes back as the same
- * object, untouched.
+ * an array, an integer -- and, since security review review 559 (F4), the elements
+ * inside each known key (`ledger-shape.ts`): a roster of `[null, 1]` is an
+ * array and crashed the first reader. A well-formed ledger comes back as the
+ * same object, untouched.
  */
-function dropMalformed(ledger: CampaignLedger): CampaignLedger {
+function dropMalformed(raw: CampaignLedger): CampaignLedger {
+  // review 559 F4: every known key's ELEMENTS are checked too (`sanitiseLedger`),
+  // not only the container -- `[1, null, {}]` is an array.
+  const ledger = sanitiseLedger(raw);
   if (ledger === null || typeof ledger !== 'object') return ledger;
   const lostOk = ledger['roster.lost'] === undefined || Array.isArray(ledger['roster.lost']);
   const reserveOk = ledger['roster.reserve'] === undefined || Array.isArray(ledger['roster.reserve']);

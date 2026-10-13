@@ -12,7 +12,10 @@
  *     reload path (R-B6), with or without `seat` on the URL;
  *  3. `seat` on the URL with no stored ticket is refused (`RELOAD_REFUSED`);
  *  4. otherwise `?net=new` creates a room and rewrites the URL to
- *     `?net=<code>&seat=0`, and `?net=<code>` joins; either stores its ticket.
+ *     `?net=<code>&seat=0` and stores its ticket; a bare `?net=<code>` does
+ *     NOT join: it throws `JoinNeedsConfirmation` (review 559 F8) and the battlefield
+ *     redirects to the `/versus/<code>` Join confirmation, which seats and
+ *     readies only on the player's own click.
  *
  * The returned promise resolves at the room's `start` (or `log`), which
  * carries the seed and the map both machines run.
@@ -50,6 +53,19 @@ export interface Connected { transport: MatchTransport; seat: Seat | null; confi
  *  that room (N0 final review M1): a /join from it would take the other seat
  *  of the room this URL already sits in. */
 export const RELOAD_REFUSED = 'this tab holds no seat in that room, so a reload cannot rejoin it; open a new room (?net=new)';
+
+/** `?net=<code>` with nothing to join WITH: no transport handed over by the
+ *  lobby and no ticket this tab already holds (security review review 559, F8).
+ *  A link must not seat whoever follows it in somebody's room and ready them,
+ *  so `connectMatch` refuses before any request and the battlefield sends the
+ *  visitor to `/versus/<code>`, where a callsign and an explicit Join come
+ *  first. The URL form keeps working; it just arrives at the confirmation. */
+export class JoinNeedsConfirmation extends Error {
+  constructor(readonly code: string) {
+    super(`joining room ${code} needs the Join confirmation`);
+    this.name = 'JoinNeedsConfirmation';
+  }
+}
 
 const aborted = (): DOMException => new DOMException('left while connecting to the room', 'AbortError');
 
@@ -103,6 +119,9 @@ export async function connectMatch(query: URLSearchParams, mapId: string, build:
   // room, leave seat 0 empty in the lobby, and answer the real guest 409 --
   // a wedged room with a blank stage. Say so instead.
   if (query.has('seat')) throw new Error(RELOAD_REFUSED);
+  // Reaching here with a code means a LINK, not the lobby's hand-over and not
+  // a reload of this tab's own seat (both returned above): confirm first.
+  if (!creating) throw new JoinNeedsConfirmation(joinCode);
   const callsign = callsignOrDefault(query.get('callsign'));
   // The room's mode is fixed at create; a joiner takes whatever the room is.
   const mode = query.get('mode') === 'versus' ? 'versus' : 'sandbox';

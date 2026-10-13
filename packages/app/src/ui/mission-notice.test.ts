@@ -125,6 +125,11 @@ describe('unknownSandboxMapNotice (pass K)', () => {
     expect(html).toContain('<b>Beit Sahwan outskirts</b>');
     expect(html).toMatch(/Free Play/);
   });
+  it('treats an inherited Object member as unknown, not as a shipped map (#559 F5)', () => {
+    for (const id of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+      expect(unknownSandboxMapNotice(id, known, 'Beit Sahwan outskirts'), id).not.toBeNull();
+    }
+  });
   it('escapes the shown map name', () => {
     const [html] = unknownSandboxMapNotice('nope', known, '<img>') ?? [''];
     expect(html).toContain('&lt;img&gt;');

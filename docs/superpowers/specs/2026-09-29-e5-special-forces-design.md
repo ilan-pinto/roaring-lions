@@ -86,7 +86,9 @@ stands as approved. Bands: `docs/campaign/special_units/e5/numbers.md`.
 (was +58·2·1, +123·3·2, +205·5·3), HP solved to hold the curve's survivability, so the curve is
 unchanged (+2.2%, max tier +10.9%). Max tier now reads 100/0/0.
 
-**Unique.** The first `he` weapon on the roster; at 0.55 it clears both ROE thresholds (0.3 zone,
+**Superseded 13 Oct 2026:** the pods and the rof-3 Hellfire below are gone (the sim fires two weapon slots; see `docs/campaign/special_units/e5/numbers.md`, "Ruling, 13 Oct 2026"). The Gunship ships `chain_gun_30` + `hellfire` (rof 6).
+
+**Unique (draft).** The first `he` weapon on the roster; at 0.55 it clears both ROE thresholds (0.3 zone,
 0.5 danger close). **Counter-play.** Pods (8) and missiles (10.5) sit inside `manpad` (13, ~75% to
 penetrate) and `zu23_twin` (11). **Station time is dropped:** no air unit has endurance, and adding
 it would nerf the Peten (G2).

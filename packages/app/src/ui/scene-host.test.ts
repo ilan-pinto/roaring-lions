@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { menuDiorama } from '@lions/data';
 import { dioramaSceneOptions } from '../front/diorama';
 import { CROSSFADE_MS } from './scene-host-model';
@@ -59,7 +59,7 @@ const hostEl = (stage: HTMLElement): HTMLElement => {
   if (el === null) throw new Error('no .rl-scene-host in the stage');
   return el;
 };
-const fakeView = (): View & { dispose: ReturnType<typeof vi.fn> } => ({ canvas: document.createElement('canvas'), dispose: vi.fn() });
+const fakeView = (): View & { dispose: Mock<() => void> } => ({ canvas: document.createElement('canvas'), dispose: vi.fn() });
 
 /** Every host a test mounts is disposed after it: a live host holds a 15 s
  *  deadline timer that would otherwise fire into a later test's console spy.
