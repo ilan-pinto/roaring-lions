@@ -68,7 +68,7 @@ import type { Env } from '../d1';
 import type { DurableStateLike, HibernatingSocket, UpgradeInit } from '../do-types';
 import { createRoom, endedMsg, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, persistKey, revive, ROOM_TTL_MS, type Effect, type RoomState } from './room-core';
 import { verifyTicket } from './ticket';
-import { DEFAULT_MAP, callsignField, textField } from './room-fields';
+import { DEFAULT_MAP, callsignField, mapField, textField } from './room-fields';
 import { compactLog, writeDesync } from './desync-log';
 
 export const TICK_MS = 50;
@@ -501,7 +501,8 @@ export class MatchRoom {
       const mode = body.mode === 'versus' ? 'versus' : 'sandbox';
       // A signed int32: validateConfig takes any integer, so the sign needs no care.
       const seed = mode === 'versus' ? crypto.getRandomValues(new Uint32Array(1))[0] | 0 : SIM_SEED_N0;
-      const map = textField(body.map, DEFAULT_MAP);
+      const map = mapField(body.map);
+      if (map === null) return new Response('unknown map', { status: 400 });
       this.st = createRoom(body.code, body.matchId, Date.now(), map);
       this.meta = { map, build, mode, seed, callsigns: [callsignField(body.callsign), ''], seat1Reserved: false, tokens: mintTokens() };
       // The table, the keys and the TTL alarm exist from here, and only from here (#559 H-1).

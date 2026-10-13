@@ -785,6 +785,14 @@ describe('MatchRoom', () => {
     expect(ws0.closed).toEqual({ code: 1000, reason: 'closed' });
   });
 
+  it('#559 F5: /create refuses a map the game does not ship, and stores nothing', async () => {
+    const state = new FakeState();
+    const room = new MatchRoom(state, env);
+    const res = await room.fetch(new Request('https://room/create', { method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, build: BUILD, player: 'p', map: '__proto__' }) }));
+    expect(res.status).toBe(400);
+    expect(state.storage.rowsWritten).toBe(0);
+  });
+
   it('/create refuses an empty build, so the hello build check can never be off', async () => {
     const room = new MatchRoom(new FakeState(), env);
     const res = await room.fetch(new Request('https://room/create', { method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, player: 'p-host' }) }));

@@ -120,14 +120,14 @@ describe('/api/match', () => {
     expect((await handleMatch(post(`${ORIGIN}/api/match`, { player: 'p-host', build: 'b1' }, 'https://play.lions.example'), withExtra, NOW)).status).toBe(201);
     expect((await handleMatch(post(`${ORIGIN}/api/match`, { player: 'p-host', build: 'b1' }, 'https://other.example'), withExtra, NOW)).status).toBe(403);
   });
-  it('refuses a create with no build (the hello check would be off), and caps map and build', async () => {
+  it('refuses a create with no build (the hello check would be off), and caps the build', async () => {
     const { env, createBodies } = fakeRooms();
     expect((await handleMatch(post(`${ORIGIN}/api/match`, { callsign: 'Host' }), env, NOW)).status).toBe(400);
     expect((await handleMatch(post(`${ORIGIN}/api/match`, { callsign: 'Host', build: '' }), env, NOW)).status).toBe(400);
     expect(createBodies).toEqual([]);
     const long = 'x'.repeat(500);
-    expect((await handleMatch(post(`${ORIGIN}/api/match`, { player: 'p-host', build: long, map: long }), env, NOW)).status).toBe(201);
-    expect(createBodies[0]).toMatchObject({ build: 'x'.repeat(64), map: 'x'.repeat(64) });
+    expect((await handleMatch(post(`${ORIGIN}/api/match`, { player: 'p-host', build: long, map: 'tel_marum' }), env, NOW)).status).toBe(201);
+    expect(createBodies[0]).toMatchObject({ build: 'x'.repeat(64), map: 'tel_marum' });
     expect((await handleMatch(post(`${ORIGIN}/api/match`, { player: 'p-host', build: 'b1' }), env, NOW)).status).toBe(201);
     expect(createBodies[1]).toMatchObject({ build: 'b1', map: 'beit_sahwan_outskirts' });
   });
@@ -173,6 +173,14 @@ describe('/api/match', () => {
     expect(statuses).toEqual([404, 404, 429, 429]);
     expect(keys).toEqual(Array(4).fill('198.51.100.7'));
     expect(wsSeen).toHaveLength(2);
+  });
+  it('#559 F5: a map the game does not ship -- a prototype key, an unknown name, a non-string -- is refused before any room is made', async () => {
+    const { env, createBodies } = fakeRooms();
+    for (const map of ['__proto__', 'constructor', 'toString', 'nope', 'x'.repeat(64), 7, {}]) {
+      expect((await handleMatch(post(`${ORIGIN}/api/match`, { player: 'p-host', build: 'b1', map }), env, NOW)).status, String(map)).toBe(400);
+    }
+    expect(createBodies).toEqual([]);
+    expect((await handleMatch(post(`${ORIGIN}/api/match`, { player: 'p-host', build: 'b1', map: 'qarn_hadid' }), env, NOW)).status).toBe(201);
   });
   it('the socket upgrade also needs a good Origin', async () => {
     const { env, wsSeen } = fakeRooms();

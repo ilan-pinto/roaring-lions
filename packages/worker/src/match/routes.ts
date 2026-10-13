@@ -7,7 +7,7 @@ import type { Env, RateLimiter } from '../d1';
 import { originAllowed } from '../origin';
 import { signTicket } from './ticket';
 import { mintCode, isCode } from './code';
-import { DEFAULT_MAP, callsignField, textField } from './room-fields';
+import { callsignField, mapField, textField } from './room-fields';
 
 const TICKET_MS = 6 * 3600 * 1000;
 const CODE_ATTEMPTS = 5;
@@ -51,7 +51,8 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
     // The room checks every hello's build against this one; empty would switch that check off.
     const build = textField(body.build, '');
     if (build === '') return new Response('build required', { status: 400 });
-    const map = textField(body.map, DEFAULT_MAP);
+    const map = mapField(body.map);
+    if (map === null) return new Response('unknown map', { status: 400 });
     const player = playerOf(body);
     if (player === '') return new Response('player required', { status: 400 });
     const mode = body.mode === 'versus' ? 'versus' : 'sandbox';
