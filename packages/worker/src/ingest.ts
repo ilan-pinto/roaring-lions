@@ -1,10 +1,23 @@
 import { isTelemetryEvent, type TelemetryEvent } from '@lions/data/telemetry';
-import type { D1Stmt, Env } from './d1';
+import type { D1Like, D1Stmt, Env } from './d1';
+import { bump, ipKey, ipSecret } from './rate-day';
 
 const MAX_BODY = 64 * 1024;
 const MAX_EVENTS = 50;
 const HEARTBEAT_SECONDS = 60;
 const NO_CONTENT = (): Response => new Response(null, { status: 204 });
+/**
+ * #559 M-3: requests a day that may write. The game flushes at most every
+ * 30 s while something is queued and beats once a minute, so a player sends
+ * ~1-2 a minute: 600 is five to ten hours of play from one browser or one
+ * address. The global ceiling bounds what any number of addresses can make
+ * this endpoint write: each counted request writes ~5 rows (three counters,
+ * its batch, the player summary; an account snapshot adds one), so 5,000 is
+ * at most ~30,000 of D1 Free's 100,000 a day.
+ */
+export const INGEST_DAY = { ip: 600, player: 600, global: 5000 } as const;
+/** #559 M-3: how long raw events are kept (the feedback tables' own 180 days). */
+export const EVENTS_RETENTION_MS = 180 * 86_400_000;
 
 function originAllowed(req: Request, env: Env): boolean {
   const origin = req.headers.get('origin');
@@ -33,15 +46,19 @@ export async function handleIngest(req: Request, env: Env, now: number): Promise
     if (text.length > MAX_BODY) return NO_CONTENT();
     const body = JSON.parse(text) as { events?: unknown };
     if (!Array.isArray(body.events) || body.events.length > MAX_EVENTS) return NO_CONTENT();
-    events = body.events.filter(isTelemetryEvent);
-    if (events.length === 0) return NO_CONTENT();
+    // One request speaks for one player (#559 M-3): the game only ever sends
+    // its own, and a request naming fifty players cost fifty summary upserts.
+    const valid = body.events.filter(isTelemetryEvent);
+    const player = valid[0]?.player;
+    events = valid.filter((e) => e.player === player);
+    if (player === undefined || events.length === 0) return NO_CONTENT();
+    if (!(await withinBudget(env, req, player, now))) return NO_CONTENT();
 
-    const stmts: D1Stmt[] = events.map((e) =>
-      env.DB.prepare(
-        'INSERT INTO events (type, player, session, tester, build, mission, t, received_at, dev, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-      ).bind(e.type, e.player, e.session, e.tester ?? null, e.build, 'mission' in e ? e.mission : null, e.t, now, e.dev ? 1 : 0, JSON.stringify(e))
-    );
-    for (const [player, mine] of groupByPlayer(events)) stmts.push(upsertPlayer(env, player, mine));
+    // One row for the whole request: the events as a JSON array (`events_all` expands it).
+    const stmts: D1Stmt[] = [
+      env.DB.prepare('INSERT INTO event_batch (received_at, player, events) VALUES (?, ?, ?)').bind(now, player, JSON.stringify(events)),
+      upsertPlayer(env, player, events),
+    ];
     await env.DB.batch(stmts);
   } catch {
     /* malformed JSON or a D1 hiccup: dropped, as the client expects */
@@ -56,6 +73,28 @@ export async function handleIngest(req: Request, env: Env, now: number): Promise
     /* summary only */
   }
   return NO_CONTENT();
+}
+
+/** The day's budgets, per address (keyed hash), per player and for all
+ *  (#559 M-3); the address first, so one address spending its own does not
+ *  spend anyone else's. False when any is spent. */
+async function withinBudget(env: Env, req: Request, player: string, now: number): Promise<boolean> {
+  const ip = req.headers.get('cf-connecting-ip');
+  const secret = ipSecret(env);
+  if (ip && secret && !(await bump(env.DB, 'ingest-ip', await ipKey(secret, ip, now), now, INGEST_DAY.ip))) return false;
+  if (!(await bump(env.DB, 'ingest-player', player, now, INGEST_DAY.player))) return false;
+  return bump(env.DB, 'ingest-all', '', now, INGEST_DAY.global);
+}
+
+/** #559 M-3: the daily cron ages raw events out after `EVENTS_RETENTION_MS`,
+ *  oldest first, a bounded slice a day so no run can spend the day's D1
+ *  writes: up to 2,000 batch rows and 1,000 legacy event rows (each of those
+ *  also carries four index entries). Returns the rows deleted. */
+export async function purgeEvents(db: D1Like, now: number): Promise<number> {
+  const cutoff = now - EVENTS_RETENTION_MS;
+  const a = await db.prepare('DELETE FROM event_batch WHERE id IN (SELECT id FROM event_batch ORDER BY id LIMIT 2000) AND received_at < ? RETURNING id').bind(cutoff).all<{ id: number }>();
+  const b = await db.prepare('DELETE FROM events WHERE id IN (SELECT id FROM events ORDER BY id LIMIT 1000) AND received_at < ? RETURNING id').bind(cutoff).all<{ id: number }>();
+  return a.results.length + b.results.length;
 }
 
 type AccountEvent = Extract<TelemetryEvent, { type: 'account' }>;
@@ -82,12 +121,6 @@ function upsertAccount(env: Env, e: AccountEvent): D1Stmt {
        dev = MAX(accounts.dev, excluded.dev)
      WHERE excluded.t >= accounts.t`
   ).bind(e.player, e.t, e.credits, e.earned, JSON.stringify(e.unlocks), JSON.stringify(e.tiers), e.tester ?? null, e.dev ? 1 : 0);
-}
-
-function groupByPlayer(events: TelemetryEvent[]): Map<string, TelemetryEvent[]> {
-  const m = new Map<string, TelemetryEvent[]>();
-  for (const e of events) m.set(e.player, [...(m.get(e.player) ?? []), e]);
-  return m;
 }
 
 function upsertPlayer(env: Env, player: string, events: TelemetryEvent[]): D1Stmt {

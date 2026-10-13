@@ -9,6 +9,7 @@ const world: SeatWorld = {
   height: 48,
   structureExists: (id) => id === 3,
   tunnelExists: (id) => id === 0,
+  versus: false,
 };
 const F = 65536;
 
@@ -25,6 +26,14 @@ describe('validateCommand', () => {
     expect(validateCommand({ kind: 'callStrike', caller: 12, x: 0, y: 0 }, 0, world)).toBe(false);
     expect(validateCommand({ kind: 'reveal', side: 1, x: 0, y: 0 }, 0, world)).toBe(false);
     expect(validateCommand({ kind: 'reveal', side: 0, x: 0, y: 0 }, 0, world)).toBe(true);
+  });
+  it('#559 F1: drops every callStrike and reveal in versus, and only those kinds', () => {
+    const versus = { ...world, versus: true };
+    expect(validateCommand({ kind: 'callStrike', caller: 1, x: 0, y: 0 }, 0, versus)).toBe(false);
+    expect(validateCommand({ kind: 'reveal', side: 0, x: 0, y: 0 }, 0, versus)).toBe(false);
+    expect(validateCommand({ kind: 'callStrike', caller: 1, x: 0, y: 0 }, 0, world)).toBe(true);
+    expect(validateCommand({ kind: 'halt', ids: [1] }, 0, versus)).toBe(true);
+    expect(validateCommand({ kind: 'smoke', ids: [1], x: 0, y: 0 }, 0, versus)).toBe(true);
   });
 });
 

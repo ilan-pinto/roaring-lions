@@ -23,6 +23,7 @@ h3{font:700 22px/1.1 'Big Shoulders Display',Impact,sans-serif;text-transform:up
 nav{display:flex;gap:16px;align-items:baseline}
 nav a{color:var(--muted);font:600 13px 'IBM Plex Mono',monospace;text-transform:uppercase;text-decoration:none;border-bottom:1px solid var(--rule)}
 nav a[aria-current]{color:var(--ink);border-bottom-color:var(--ink)}
+nav form.logout{margin:0}nav form.logout button{background:none;border:0;border-bottom:1px solid var(--rule);padding:0;cursor:pointer;color:var(--muted);font:600 13px 'IBM Plex Mono',monospace;text-transform:uppercase}
 .badge{background:var(--bad);color:var(--surface);padding:0 6px;margin-left:6px}
 .badge:empty{display:none}
 .controls{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0;align-items:center}
@@ -55,7 +56,7 @@ pre.issue{background:var(--surface);border:1px solid var(--rule);padding:12px;wh
 #fb-msg:empty{display:none}#fb-msg{border-left:3px solid var(--bad);padding:4px 8px;background:var(--surface)}
 </style></head><body><main>
 <div class="hdr"><h1>Roaring Lions Stats</h1>
-<nav><a href="/stats">Players</a><a href="/stats/feedback" aria-current="page">Feedback<span class="badge" id="fb-new"></span></a><a href="/stats/logout">Sign out</a></nav></div>
+<nav><a href="/stats">Players</a><a href="/stats/feedback" aria-current="page">Feedback<span class="badge" id="fb-new"></span></a><form method="post" action="/stats/logout" class="logout"><button type="submit">Sign out</button></form></nav></div>
 <p class="muted">Notes players sent from inside the game. Nothing here is public until you file it.</p>
 <p id="fb-switch" class="controls"></p>
 <p id="fb-msg" role="status" aria-live="polite"></p>

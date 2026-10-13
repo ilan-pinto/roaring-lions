@@ -37,9 +37,10 @@ th{font:600 12px 'IBM Plex Mono',monospace;text-transform:uppercase;color:var(--
 .hdr nav{display:flex;gap:16px;align-items:baseline}
 .hdr a{color:var(--muted);font:600 13px 'IBM Plex Mono',monospace;text-transform:uppercase;text-decoration:none;border-bottom:1px solid var(--rule)}
 .hdr a[aria-current]{color:var(--ink);border-bottom-color:var(--ink)}
+.hdr form.logout{margin:0}.hdr form.logout button{background:none;border:0;border-bottom:1px solid var(--rule);padding:0;cursor:pointer;color:var(--muted);font:600 13px 'IBM Plex Mono',monospace;text-transform:uppercase}
 .badge{background:var(--bad);color:var(--surface);padding:0 6px;margin-left:6px}.badge:empty{display:none}
 </style></head><body><main>
-<div class="hdr"><h1>Roaring Lions Stats</h1><nav><a href="/stats" aria-current="page">Players</a><a href="/stats/feedback">Feedback<span class="badge" id="fb-new"></span></a><a href="/stats/logout">Sign out</a></nav></div>
+<div class="hdr"><h1>Roaring Lions Stats</h1><nav><a href="/stats" aria-current="page">Players</a><a href="/stats/feedback">Feedback<span class="badge" id="fb-new"></span></a><form method="post" action="/stats/logout" class="logout"><button type="submit">Sign out</button></form></nav></div>
 <p class="muted">Anonymous telemetry from the deployed game. Sandbox traffic is excluded.</p>
 <div class="controls">
 <select id="range"><option value="7d">Last 7 days</option><option value="30d" selected>Last 30 days</option><option value="all">All time</option></select>

@@ -7,7 +7,7 @@
  * `readLog`.
  */
 import {
-  canonicalOrder, MAX_CMDS_PER_SEAT_PER_FRAME, PAUSE_MS, PAUSES_PER_SEAT, CHAT_MAX_CHARS, OVER_CLOSE_MS,
+  canonicalOrder, cleanChat, LOG_PART_CHARS, MAX_CMDS_PER_SEAT_PER_FRAME, PAUSE_MS, PAUSES_PER_SEAT, OVER_CLOSE_MS,
   type ClientMsg, type EndedReason, type Frame, type MatchConfig, type Seat, type ServerMsg, type Stamped, type SeatState,
 } from '@lions/net';
 
@@ -46,6 +46,13 @@ export interface RoomState {
   over: [number, number];
   /** When the room closes itself after the result (L-1, R-B26), once armed; null before. */
   closeAtMs: number | null;
+  /** #559 F2: each seat's command budget, a token bucket (`CMD_BUDGET`), and when it was last topped up. */
+  cmdTokens: [number, number];
+  cmdTokensAtMs: [number, number];
+  /** #559 H-1: characters of command JSON stamped into frames so far, against `MAX_LOG_CMD_CHARS`. */
+  cmdChars: number;
+  /** When the room ended, null while it lives: the room is wiped `PURGE_AFTER_MS` later (#559 H-1). */
+  endedAtMs: number | null;
 }
 export type Effect =
   | { kind: 'send'; to: Seat | 'all'; msg: ServerMsg }
@@ -62,11 +69,42 @@ export const STALL_SILENT_MS = 2000;
 /** The least gap between two chat messages from one seat. */
 export const CHAT_MIN_GAP_MS = 500;
 export const ROOM_TTL_MS = 6 * 3600 * 1000;
+/**
+ * #559 F2: what one seat's orders may cost both sims. A frame carries at most
+ * `MAX_CMDS_PER_SEAT_PER_FRAME` (4) of a seat's commands; more wait in
+ * `pending` for the next frames, up to `MAX_PENDING_CMDS_PER_SEAT` (12), and
+ * past that are dropped. Each accepted command spends one token of a bucket
+ * that holds `CMD_BUDGET.burst` (20) and refills `CMD_BUDGET.perSecond` (20)
+ * a second. A real player's heaviest burst is one right-click on a building
+ * with a mixed selection -- demolish, garrison and attack-move, three
+ * commands (`input/intents.ts`) -- plus a shift-queued order of the same
+ * shape: six, which all run, four in the next frame and two 50 ms later.
+ * Sustained, 20 a second is 1,200 orders a minute, several times a
+ * professional's APM, where the old cap let a seat feed the sims 640.
+ */
+export const MAX_PENDING_CMDS_PER_SEAT = 12;
+export const CMD_BUDGET = { burst: 20, perSecond: 20 } as const;
+/**
+ * #559 H-1: the most command JSON one room stores, both seats together. An
+ * honest order is ~60 characters, so this is tens of thousands of orders --
+ * hours of play -- while a seat stuffing every command with ids reaches it in
+ * well under a minute. Past it the match is void, as a desync is: the room
+ * will not store more, and a log the clients cannot all rejoin from is no
+ * match. Empty frames are not counted; they are bounded by time (the TTL).
+ */
+export const MAX_LOG_CMD_CHARS = 2_000_000;
 /** Hash ticks only one seat has reported, kept at most this many (forged ticks cannot grow the table). */
 const MAX_OPEN_HASHES = 16;
 
 export function createRoom(code: string, matchId: string, nowMs: number, map = ''): RoomState {
-  return { code, matchId, createdMs: nowMs, status: 'lobby', config: null, seats: [null, null], tick: 0, pending: [], hashes: {}, lastHashTick: -1, stall: null, endedReason: null, pause: null, pausesLeft: [PAUSES_PER_SEAT, PAUSES_PER_SEAT], lastChatMs: [-1, -1], surrendered: null, map, over: [-1, -1], closeAtMs: null };
+  return { code, matchId, createdMs: nowMs, status: 'lobby', config: null, seats: [null, null], tick: 0, pending: [], hashes: {}, lastHashTick: -1, stall: null, endedReason: null, pause: null, pausesLeft: [PAUSES_PER_SEAT, PAUSES_PER_SEAT], lastChatMs: [-1, -1], surrendered: null, map, over: [-1, -1], closeAtMs: null, cmdTokens: [CMD_BUDGET.burst, CMD_BUDGET.burst], cmdTokensAtMs: [nowMs, nowMs], cmdChars: 0, endedAtMs: null };
+}
+
+/** Every way a room ends goes through here, so the end is dated (#559 H-1). */
+function endRoom(st: RoomState, reason: EndedReason, nowMs: number): void {
+  st.status = 'ended';
+  st.endedReason = reason;
+  st.endedAtMs = nowMs;
 }
 
 const seatStates = (st: RoomState): SeatState[] =>
@@ -90,15 +128,35 @@ export function seatJoin(st: RoomState, seat: Seat, player: string, callsign: st
   st.seats[seat] = { seat, player, callsign, connected: true, ready: prior?.ready ?? false, lastAck: prior?.lastAck ?? -1, lastSeenMs: nowMs, nextSeq: prior?.nextSeq ?? 0 };
   const out: Effect[] = [];
   if (prior && prior.connected) out.push({ kind: 'close', seat });
+  // #559 L-1: a close armed by the lone-report rule (one `over`, the other seat
+  // gone) is disarmed when that seat comes back: it is here to report its own
+  // result now, and one seat's early `over` plus a one-second blip of the
+  // other must not end a match. Two equal reports stay armed.
+  if (prior && !prior.connected && st.closeAtMs !== null && !(st.over[0] >= 0 && st.over[0] === st.over[1])) st.closeAtMs = null;
   if (st.status === 'lobby') {
     out.push({ kind: 'send', to: 'all', msg: lobbyMsg(st, 0) });   // the DO rewrites `you` per socket
   } else if (st.config) {
-    out.push({ kind: 'send', to: seat, msg: { t: 'log', config: st.config, frames: readLog() } });
+    for (const msg of logParts(st.config, readLog())) out.push({ kind: 'send', to: seat, msg });
     // The log makes the client live; a pause in force must be told again.
     if (st.pause !== null) out.push({ kind: 'send', to: seat, msg: pausedMsg(st, nowMs, st.pause) });
     out.push(...recheckStall(st, nowMs));
   }
   return out;
+}
+
+/** A rejoin's log as `log` messages of at most `maxChars` characters of
+ *  frames each (#559 H-1), in tick order; one part for a short log, and one
+ *  (empty) part for a match that has minted nothing. A single frame larger
+ *  than `maxChars` goes alone rather than being split. */
+export function logParts(config: MatchConfig, frames: readonly Frame[], maxChars = LOG_PART_CHARS): Extract<ServerMsg, { t: 'log' }>[] {
+  const runs: Frame[][] = [[]];
+  let used = 0;
+  for (const f of frames) {
+    const size = JSON.stringify(f).length + 1;
+    const run = runs[runs.length - 1];
+    if (run.length > 0 && used + size > maxChars) { runs.push([f]); used = size; } else { run.push(f); used += size; }
+  }
+  return runs.map((run, part) => ({ t: 'log', config, frames: run, part, parts: runs.length }));
 }
 
 function pausedMsg(st: RoomState, nowMs: number, pause: { seat: Seat; untilMs: number }): ServerMsg {
@@ -129,7 +187,8 @@ export function seatGone(st: RoomState, seat: Seat, nowMs: number): Effect[] {
  *  seats reported the SAME `over` tick, or one did and the other seat is not
  *  connected (it may never come back to say so). Two different ticks arm
  *  nothing: the seats diverged, and the hash comparison voids that match.
- *  Armed once; nothing later (a rejoin, a late report) moves or clears it. */
+ *  A lone-report arming is cleared if the absent seat rejoins (#559 L-1,
+ *  `seatJoin`), and armed again -- from then -- when it reports or goes. */
 function armClose(st: RoomState, nowMs: number): void {
   if (st.closeAtMs !== null || (st.status !== 'running' && st.status !== 'stalled')) return;
   // Two reports that disagree stay unarmed for good: a seat that then goes
@@ -151,8 +210,7 @@ function armClose(st: RoomState, nowMs: number): void {
  *  alarm, for a room whose clock is not running. */
 export function closeIfDue(st: RoomState, nowMs: number): Effect[] {
   if ((st.status !== 'running' && st.status !== 'stalled') || st.closeAtMs === null || nowMs < st.closeAtMs) return [];
-  st.status = 'ended';
-  st.endedReason = 'over';
+  endRoom(st, 'over', nowMs);
   st.stall = null;
   st.pause = null;
   return [{ kind: 'send', to: 'all', msg: { t: 'ended', reason: 'over' } }, { kind: 'shut', seat: 0 }, { kind: 'shut', seat: 1 }];
@@ -189,7 +247,8 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
       // pending and runs in the first frame after the resume; it was sent
       // before, and both seats get it alike.
       if (st.pause !== null) return [{ kind: 'send', to: seat, msg: { t: 'cmdRefused' } }];
-      if (st.pending.filter((p) => p.seat === seat).length >= MAX_CMDS_PER_SEAT_PER_FRAME) return [];
+      if (st.pending.filter((p) => p.seat === seat).length >= MAX_PENDING_CMDS_PER_SEAT) return [];
+      if (!spendCmdToken(st, seat, nowMs)) return [];
       st.pending.push({ seat, seq: s.nextSeq++, cmd: msg.cmd });
       return [];
     }
@@ -201,7 +260,10 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
     }
     case 'hash': {
       if (st.status !== 'running' && st.status !== 'stalled') return [];
-      if (msg.tick < 0 || msg.tick <= st.lastHashTick) return [];   // a replay or a forgery
+      // A replay, or a tick the room has not minted (#559 M-2, L-2): no seat can
+      // hash a frame that does not exist, so a far-future pair is a forgery that
+      // would void the match and write a desync row from nothing.
+      if (msg.tick < 0 || msg.tick <= st.lastHashTick || msg.tick >= st.tick) return [];
       const pair = st.hashes[msg.tick] ?? [null, null];
       pair[seat] = msg.h;
       st.hashes[msg.tick] = pair;
@@ -216,14 +278,12 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
       st.lastHashTick = msg.tick;
       for (const k of Object.keys(st.hashes)) if (Number(k) <= st.lastHashTick) delete st.hashes[Number(k)];
       if (a === b) return [{ kind: 'send', to: 'all', msg: { t: 'hashOk', tick: msg.tick } }];
-      st.status = 'ended';
-      st.endedReason = 'void';
+      endRoom(st, 'void', nowMs);
       return [{ kind: 'send', to: 'all', msg: { t: 'desync', tick: msg.tick, hashes: [a, b] } }];
     }
     case 'bye': {
       if (st.status === 'ended') return [];
-      st.status = 'ended';
-      st.endedReason = 'left';
+      endRoom(st, 'left', nowMs);
       return [{ kind: 'send', to: 'all', msg: { t: 'ended', reason: 'left' } }];
     }
     case 'pause': {
@@ -240,15 +300,15 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
     }
     case 'surrender': {
       if (st.status === 'ended' || st.status === 'lobby') return [];
-      st.status = 'ended';
-      st.endedReason = 'surrender';
+      endRoom(st, 'surrender', nowMs);
       st.surrendered = seat;
       return [{ kind: 'send', to: 'all', msg: { t: 'ended', reason: 'surrender', seat } }];
     }
     case 'chat': {
       if (st.status === 'ended') return [];
-      // eslint-disable-next-line no-control-regex -- matching control characters is the point
-      const text = msg.text.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, CHAT_MAX_CHARS);
+      // #559 L-3: the callsign rule -- controls to spaces, bidi overrides,
+      // zero-width and other format characters dropped, NFKC -- capped by code point.
+      const text = cleanChat(msg.text);
       if (text === '' || (st.lastChatMs[seat] >= 0 && nowMs - st.lastChatMs[seat] < CHAT_MIN_GAP_MS)) return [];
       st.lastChatMs[seat] = nowMs;
       return [{ kind: 'send', to: 'all', msg: { t: 'chat', seat, text } }];
@@ -262,6 +322,16 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
       return [];
     }
   }
+}
+
+/** One token of the seat's command budget, if it has one (#559 F2). */
+function spendCmdToken(st: RoomState, seat: Seat, nowMs: number): boolean {
+  const elapsed = Math.max(0, nowMs - st.cmdTokensAtMs[seat]);
+  st.cmdTokens[seat] = Math.min(CMD_BUDGET.burst, st.cmdTokens[seat] + (elapsed * CMD_BUDGET.perSecond) / 1000);
+  st.cmdTokensAtMs[seat] = nowMs;
+  if (st.cmdTokens[seat] < 1) return false;
+  st.cmdTokens[seat] -= 1;
+  return true;
 }
 
 /** Why the clock must stop, if it must: the first seat that is gone, silent,
@@ -349,6 +419,11 @@ export function revive(st: RoomState, tick: number, nowMs: number): void {
   st.map = stored.map ?? '';
   st.over = stored.over ?? [-1, -1];
   st.closeAtMs = stored.closeAtMs ?? null;
+  st.cmdTokens = stored.cmdTokens ?? [CMD_BUDGET.burst, CMD_BUDGET.burst];
+  st.cmdTokensAtMs = [nowMs, nowMs];
+  st.cmdChars = stored.cmdChars ?? 0;
+  // An ended room persisted before the date was kept is wiped from this wake.
+  st.endedAtMs = stored.endedAtMs ?? (st.status === 'ended' ? nowMs : null);
   if (tick > st.tick) {
     st.tick = tick;
     st.pending = [];
@@ -365,8 +440,7 @@ export function revive(st: RoomState, tick: number, nowMs: number): void {
  *  room has no clock running (N0 has no alarms). */
 export function expire(st: RoomState, nowMs: number): Effect[] {
   if (st.status === 'ended' || nowMs - st.createdMs <= ROOM_TTL_MS) return [];
-  st.status = 'ended';
-  st.endedReason = 'expired';
+  endRoom(st, 'expired', nowMs);
   return [{ kind: 'send', to: 'all', msg: { t: 'ended', reason: 'expired' } }];
 }
 
@@ -385,8 +459,23 @@ export function clockTick(st: RoomState, nowMs: number): Effect[] {
   }
   out.push(...recheckStall(st, nowMs));
   if (st.status !== 'running') return out;
-  const frame: Frame = { tick: st.tick, cmds: canonicalOrder(st.pending) };
-  st.pending = [];
+  // At most MAX_CMDS_PER_SEAT_PER_FRAME of each seat's commands (#559 F2); the
+  // rest wait, in arrival order, for the next frames.
+  const take: Stamped[] = [];
+  const wait: Stamped[] = [];
+  const taken = [0, 0];
+  for (const p of st.pending) (taken[p.seat]++ < MAX_CMDS_PER_SEAT_PER_FRAME ? take : wait).push(p);
+  const chars = take.reduce((n, p) => n + JSON.stringify(p.cmd).length, 0);
+  if (st.cmdChars + chars > MAX_LOG_CMD_CHARS) {
+    // #559 H-1: the room stores no more; the match is void.
+    endRoom(st, 'void', nowMs);
+    st.stall = null;
+    st.pending = [];
+    return [...out, { kind: 'send', to: 'all', msg: { t: 'ended', reason: 'void' } }];
+  }
+  st.cmdChars += chars;
+  const frame: Frame = { tick: st.tick, cmds: canonicalOrder(take) };
+  st.pending = wait;
   st.tick++;
   out.push({ kind: 'frame', frame });
   out.push({ kind: 'send', to: 'all', msg: { t: 'frame', tick: frame.tick, cmds: frame.cmds } });

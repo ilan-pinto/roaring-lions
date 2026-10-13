@@ -1,3 +1,5 @@
+-- #559 M-3: raw events are read through the `events_all` view (migration 0005):
+-- the legacy `events` rows plus `event_batch` rows expanded one event each.
 -- Ready-made telemetry queries (WP-T1). Run one against the live database with:
 --   npx wrangler d1 execute roaring-lions-telemetry --remote --file packages/worker/QUERIES.sql
 -- or paste a single query into --command "...". Every query skips sandbox traffic (dev = 0).
@@ -7,12 +9,12 @@
 
 -- @players_per_day
 SELECT date(t / 1000, 'unixepoch') AS day, COUNT(DISTINCT player) AS players
-FROM events WHERE dev = 0
+FROM events_all WHERE dev = 0
 GROUP BY day ORDER BY day;
 
 -- @results_by_mission
 SELECT mission, json_extract(payload, '$.result') AS result, COUNT(*) AS runs
-FROM events WHERE dev = 0 AND type = 'mission_end'
+FROM events_all WHERE dev = 0 AND type = 'mission_end'
 GROUP BY mission, result ORDER BY mission, result;
 
 -- @median_win_minutes
@@ -23,7 +25,7 @@ WITH wins AS (
          json_extract(payload, '$.tick') / 1200.0 AS minutes,
          ROW_NUMBER() OVER (PARTITION BY mission ORDER BY json_extract(payload, '$.tick')) AS rn,
          COUNT(*) OVER (PARTITION BY mission) AS n
-  FROM events
+  FROM events_all
   WHERE dev = 0 AND type = 'mission_end' AND json_extract(payload, '$.result') = 'victory'
 )
 SELECT mission, MAX(n) AS wins, ROUND(AVG(minutes), 1) AS median_minutes
@@ -32,7 +34,7 @@ GROUP BY mission ORDER BY mission;
 
 -- @loss_causes
 SELECT mission, json_extract(payload, '$.cause') AS cause, COUNT(*) AS losses
-FROM events WHERE dev = 0 AND type = 'mission_end' AND json_extract(payload, '$.result') = 'defeat'
+FROM events_all WHERE dev = 0 AND type = 'mission_end' AND json_extract(payload, '$.result') = 'defeat'
 GROUP BY mission, cause ORDER BY losses DESC;
 
 -- @tutorial_funnel
@@ -42,14 +44,14 @@ GROUP BY mission, cause ORDER BY losses DESC;
 -- LEGACY_TUTORIAL_STEP_IDS in src/tutorial-funnel.ts). Never add the two up.
 SELECT json_extract(payload, '$.id') AS beat, json_extract(payload, '$.step') AS step,
        json_extract(payload, '$.steps') AS steps, COUNT(DISTINCT player) AS players
-FROM events WHERE dev = 0 AND type = 'tutorial_step'
+FROM events_all WHERE dev = 0 AND type = 'tutorial_step'
 GROUP BY beat, step, steps ORDER BY beat IS NULL, step;
 
 -- @testers
 SELECT tester, COUNT(DISTINCT session) AS sessions,
        SUM(CASE WHEN type = 'heartbeat' THEN 1 ELSE 0 END) AS minutes_played,
        datetime(MAX(t) / 1000, 'unixepoch') AS last_seen
-FROM events WHERE tester IS NOT NULL
+FROM events_all WHERE tester IS NOT NULL
 GROUP BY tester ORDER BY last_seen DESC;
 
 -- @feedback (GH-464): open notes per status and kind. Read-only, like every
@@ -69,9 +71,9 @@ FROM feedback GROUP BY status, category ORDER BY status, notes DESC;
 INSERT OR REPLACE INTO accounts (player, t, credits, earned, unlocks, tiers, tester, dev)
 SELECT e.player, e.t, json_extract(e.payload, '$.credits'), json_extract(e.payload, '$.earned'),
        json_extract(e.payload, '$.unlocks'), json_extract(e.payload, '$.tiers'), e.tester, e.dev
-FROM events e
+FROM events_all e
 WHERE e.type = 'account'
-  AND e.t = (SELECT MAX(t) FROM events x WHERE x.type = 'account' AND x.player = e.player);
+  AND e.t = (SELECT MAX(t) FROM events_all x WHERE x.type = 'account' AND x.player = e.player);
 
 -- N1b: desyncs, newest first (network design §3.4).
 SELECT code, tick, hash_a, hash_b, frame_count, datetime(created_at / 1000, 'unixepoch') AS at

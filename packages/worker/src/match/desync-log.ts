@@ -23,13 +23,20 @@ export interface DesyncRecord {
 
 /**
  * The bound on the `frames` column. D1 rejects a row or string over 2 MB, and
- * a long match's order log would pass that (a frame can hold dozens of
- * commands; an hour at ~2 orders a second is megabytes), so the evidence
- * would be lost exactly when a long match desyncs. 1.5 MB of JSON text leaves
- * the config, the other columns and any multi-byte slack well inside the limit
- * (commands are numbers and ASCII keys, so characters are bytes in practice).
+ * a long match's order log would pass that, so the NEWEST orders are kept
+ * (`compactLog`). 256,000 characters (#559 M-2, was 1.5 MB) is still ~4,000
+ * honest orders before the desync -- far more than a replay needs to find a
+ * divergence -- and keeps one row small against the daily `DESYNC_BUDGET`.
  */
-export const MAX_FRAMES_JSON_CHARS = 1_500_000;
+export const MAX_FRAMES_JSON_CHARS = 256_000;
+/**
+ * #559 M-2: what desync rows may add to D1 in a day, whatever their count of
+ * rooms. A desync is a bug report, one a match; any visitor can start a match,
+ * so without a ceiling a script could fill the database the telemetry shares.
+ * Past either bound the row is not written (and the room says so in the log).
+ */
+export const DESYNC_BUDGET = { rowsPerDay: 50, charsPerDay: 4_000_000 } as const;
+const DAY_MS = 86_400_000;
 
 export interface CompactLog {
   last: number;
@@ -66,9 +73,20 @@ export function compactLog(frames: readonly Frame[], cap = MAX_FRAMES_JSON_CHARS
 
 const INSERT_SQL = 'INSERT OR IGNORE INTO match_desync (code, tick, hash_a, hash_b, config, frames, frame_count, created_at) VALUES (?,?,?,?,?,?,?,?)';
 
-/** One row. A second write for the same (code, tick) is ignored, not an error. */
-export async function writeDesync(db: D1Like, rec: DesyncRecord): Promise<void> {
+/** One row, if the day's `DESYNC_BUDGET` has room for it; false when it does
+ *  not. A second write for the same (code, tick) is ignored, not an error.
+ *  The day is the 24 hours before `createdAt`: a scan of a table that holds
+ *  at most 50 rows a day for 180 days, read once per desync. */
+export async function writeDesync(db: D1Like, rec: DesyncRecord): Promise<boolean> {
+  const day = await db
+    .prepare('SELECT COUNT(*) AS n, COALESCE(SUM(length(config) + length(frames)), 0) AS chars FROM match_desync WHERE created_at > ?')
+    .bind(rec.createdAt - DAY_MS)
+    .first<{ n: number; chars: number }>();
+  const n = day?.n ?? 0;
+  const chars = day?.chars ?? 0;
+  if (n >= DESYNC_BUDGET.rowsPerDay || chars + rec.config.length + rec.frames.length > DESYNC_BUDGET.charsPerDay) return false;
   await db.prepare(INSERT_SQL).bind(rec.code, rec.tick, rec.hashA, rec.hashB, rec.config, rec.frames, rec.frameCount, rec.createdAt).run();
+  return true;
 }
 
 /**

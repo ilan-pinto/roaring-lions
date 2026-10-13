@@ -48,11 +48,13 @@
 		}
 	],
 	"ratelimits": [
+		// #559 M-3: was 120. The game sends one or two a minute; 20 leaves room
+		// for a few players behind one address. The day is counted in D1 too.
 		{
 			"name": "INGEST_LIMIT",
 			"namespace_id": "1001",
 			"simple": {
-				"limit": 120,
+				"limit": 20,
 				"period": 60
 			}
 		},
@@ -81,6 +83,16 @@
 			"namespace_id": "1004",
 			"simple": {
 				"limit": 6,
+				"period": 60
+			}
+		},
+		// #559 M-1: the socket upgrade, per connecting IP. Its own limiter, so a
+		// client reconnecting once a second (60 a minute) stays inside it.
+		{
+			"name": "WS_LIMIT",
+			"namespace_id": "1005",
+			"simple": {
+				"limit": 60,
 				"period": 60
 			}
 		}

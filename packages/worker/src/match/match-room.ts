@@ -11,12 +11,14 @@
  * The watchdog (R38): an eviction kills the interval, and before N1 only the
  * next socket event restarted it. A storage alarm survives the eviction, so
  * `alarm()` restarts the clock with nobody's help. It is armed when the
- * interval starts, re-arms itself only while the match is running or stalled
- * with a seat still connected (`wantsClock`), and is deleted when the clock
- * stops or the match ends; a lobby never arms one, and an alarm that reaches
- * an ended, expired or abandoned room (both seats gone, no bye) neither
- * re-arms nor starts the clock, so an abandoned room cannot keep a Free-tier
- * object awake. Every `WATCHDOG_MS` = 5 s, not 1 s,
+ * interval starts and re-arms itself only while the match is running or
+ * stalled with a seat still connected (`wantsClock`); otherwise the one alarm
+ * every room keeps (#559 H-1, `alarmFor`) is aimed at the six-hour TTL, the
+ * armed close, or -- once the room has ended -- the wipe, `PURGE_AFTER_MS`
+ * later, when `deleteAll` removes every key, the frame table and the alarm.
+ * No storage exists before `/create`: a probe of a code with no room writes
+ * nothing. An abandoned room therefore sleeps until its TTL and is then
+ * removed, rather than sitting in storage for ever. Every `WATCHDOG_MS` = 5 s, not 1 s,
  * because Cloudflare bills each `setAlarm()` as a row written: 1 s would cost
  * a whole row a second per running match, as much as the frames, and any
  * socket event (an order, an ack, a reconnect) restarts the clock sooner
@@ -27,7 +29,7 @@
  * aimed at that deadline (`alarmFor`): the watchdog never sleeps past it, so
  * an evicted room closes on time by the alarm alone, and a room both seats
  * have left -- no clock -- keeps exactly one alarm, at the deadline. Ended,
- * the room runs no clock, keeps no alarm and writes no row.
+ * the room runs no clock and writes no row until the wipe.
  *
  * Storage is budgeted for Workers Free (task 8b, R34; R-N12). Frames persist
  * as `batch` rows of variable length: a batch closes when it holds
@@ -64,9 +66,9 @@
 import { parseClientMsg, validateConfig, REPLACED_CLOSE_CODE, type ClientMsg, type Frame, type MatchConfig, type Seat, type SeatConfig, type ServerMsg } from '@lions/net';
 import type { Env } from '../d1';
 import type { DurableStateLike, HibernatingSocket, UpgradeInit } from '../do-types';
-import { createRoom, endedMsg, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, persistKey, revive, type Effect, type RoomState } from './room-core';
+import { createRoom, endedMsg, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, persistKey, revive, ROOM_TTL_MS, type Effect, type RoomState } from './room-core';
 import { verifyTicket } from './ticket';
-import { DEFAULT_MAP, callsignField, textField } from './room-fields';
+import { DEFAULT_MAP, callsignField, mapField, textField } from './room-fields';
 import { compactLog, writeDesync } from './desync-log';
 
 export const TICK_MS = 50;
@@ -76,6 +78,15 @@ const SIM_SEED_N0 = 20260727;
 export const BATCH_TICKS = 20;
 /** R38: the watchdog alarm's period. 5 s, not 1 s: each `setAlarm` is a row written (R-N12). */
 export const WATCHDOG_MS = 5000;
+/**
+ * #559 H-1: how long an ended room keeps its tombstone before `deleteAll`
+ * wipes it -- the meta, the state and every frame row. Two minutes, the same
+ * grace the result's own close gives: a seat that drops just as the match
+ * ends can still reconnect and be told how it ended, and a desync's D1 write
+ * (awaited when the room ends) is long done. After it, a socket for the code
+ * hears `ended expired`, exactly what a seat of a room that timed out heard.
+ */
+export const PURGE_AFTER_MS = 120_000;
 const CREATE_SQL = 'CREATE TABLE IF NOT EXISTS batch (first_tick INTEGER PRIMARY KEY, frames TEXT NOT NULL)';
 const UPSERT_SQL = 'INSERT OR REPLACE INTO batch (first_tick, frames) VALUES (?, ?)';
 const SELECT_SQL = 'SELECT first_tick, frames FROM batch ORDER BY first_tick';
@@ -120,10 +131,36 @@ function legacyMeta(m: Partial<RoomMeta>, st: RoomState | null): RoomMeta {
     tokens: Array.isArray(m.tokens) && m.tokens.length === 2 && isToken(m.tokens[0]) && isToken(m.tokens[1]) ? [m.tokens[0], m.tokens[1]] : mintTokens(),
   };
 }
-interface SocketAttachment { seat: Seat | null }
+/** A socket's seat; `at`, while it has none, is when it was accepted, for the
+ *  hello deadline (#559 M-1). A socket the room has closed has neither. */
+interface SocketAttachment { seat: Seat | null; at?: number }
+/**
+ * #559 M-1: what one room lets sockets do.
+ * - `HELLO_TIMEOUT_MS`: a socket with no seat after 10 s is closed, and so is
+ *   one whose first message does not parse.
+ * - `MAX_ROOM_SOCKETS`: two seats need two sockets, plus a few reconnects in
+ *   flight; past 8 live ones a new socket is closed at once.
+ * - `SOCKET_BUDGET`: a token bucket per socket, 160 at once and 80 a second;
+ *   empty, the socket is closed with 1008. An ack or hash that ADVANCES this
+ *   socket's last one and names a tick the room has minted is free: a
+ *   rejoining seat replays its log at many ticks a frame and sends one ack per
+ *   10 ticks and one hash per 20, which is bounded by the room's own tick
+ *   count rather than by time.
+ */
+export const HELLO_TIMEOUT_MS = 10_000;
+export const MAX_ROOM_SOCKETS = 8;
+export const SOCKET_BUDGET = { burst: 160, perSecond: 80 } as const;
+/** Policy violation: the close code for a socket the room will not serve. */
+const POLICY_CLOSE = 1008;
+interface SocketMeter { tokens: number; atMs: number; ack: number; hash: number }
+/** The command JSON a log holds, as `clockTick` counts it (#559 H-1). */
+const cmdCharsOf = (frames: Frame[]): number => frames.reduce((n, f) => n + f.cmds.reduce((m, c) => m + JSON.stringify(c.cmd).length, 0), 0);
 
+function attachmentOf(ws: WebSocket): SocketAttachment | null {
+  try { return (ws as HibernatingSocket).deserializeAttachment() as SocketAttachment | null; } catch { return null; }
+}
 function seatOf(ws: WebSocket): Seat | null {
-  const a = (ws as HibernatingSocket).deserializeAttachment() as SocketAttachment | null;
+  const a = attachmentOf(ws);
   return a === null ? null : a.seat;
 }
 function reply(ws: WebSocket, msg: ServerMsg): void {
@@ -156,17 +193,21 @@ function wantsClock(st: RoomState): boolean {
   return (st.status === 'running' || st.status === 'stalled') && st.seats.some((s) => s !== null && s.connected);
 }
 
-/** When the alarm should next wake the room, or null for none. While the
- *  clock runs it is the watchdog, `WATCHDOG_MS` on -- but never later than the
- *  room's armed close (L-1), so the last wake lands ON the deadline rather
- *  than up to 5 s past it, at no extra row. With no clock (both seats gone)
- *  only an armed close wakes the room, once, at its deadline; a lobby, an
- *  ended room and an abandoned one with no close armed keep no alarm (R38). */
-function alarmFor(st: RoomState, nowMs: number): number | null {
-  if (st.status !== 'running' && st.status !== 'stalled') return null;
-  if (!wantsClock(st)) return st.closeAtMs;
-  const watchdog = nowMs + WATCHDOG_MS;
-  return st.closeAtMs === null ? watchdog : Math.min(watchdog, st.closeAtMs);
+/** When the alarm should next wake the room. Every room keeps exactly one
+ *  (#559 H-1), so none is ever left in storage with nothing to clear it:
+ *  - ended: the wipe, `PURGE_AFTER_MS` after the end;
+ *  - a lobby, or a match nobody is connected to: the six-hour TTL -- or, for
+ *    the match, its armed close (L-1) if that is sooner;
+ *  - a match with its clock running: the watchdog, `WATCHDOG_MS` on (R38),
+ *    but never later than the armed close, so the last wake lands ON the
+ *    deadline rather than up to 5 s past it, at no extra row. */
+function alarmFor(st: RoomState, nowMs: number): number {
+  if (st.status === 'ended') return (st.endedAtMs ?? nowMs) + PURGE_AFTER_MS;
+  const ttl = st.createdMs + ROOM_TTL_MS + 1;
+  if (st.status === 'lobby') return ttl;
+  const close = st.closeAtMs ?? ttl;
+  if (!wantsClock(st)) return Math.min(close, ttl);
+  return Math.min(nowMs + WATCHDOG_MS, close, ttl);
 }
 
 export class MatchRoom {
@@ -176,16 +217,18 @@ export class MatchRoom {
   private clock: ReturnType<typeof setInterval> | null = null;
   /** The batch not yet closed: memory only, until it closes or the state is written. */
   private open: Frame[] = [];
-  /** Set when this instance deleted the alarm, so an ended room deletes it once, not per handler. */
-  private disarmed = false;
+  /** Each socket's message budget (#559 M-1): memory only, so a woken room starts every socket full. */
+  private readonly meters = new WeakMap<WebSocket, SocketMeter>();
+  /** The alarm this instance last set, or null when it set none (or the runtime consumed it). */
+  private alarmAt: number | null = null;
   /** `persistKey` of the state as last written (or loaded). */
   private savedKey: string | null = null;
   /** Set once this instance has logged a desync: the match is void after the first, so one write is the bound. */
   private desyncLogged = false;
 
-  constructor(private readonly ctx: DurableStateLike, private readonly env: Env) {
-    this.ctx.storage.sql.exec(CREATE_SQL);
-  }
+  /** No storage here (#559 H-1): an object is made for every code anyone
+   *  probes, and only `/create` may give it a table, a key or an alarm. */
+  constructor(private readonly ctx: DurableStateLike, private readonly env: Env) {}
 
   // --- storage --------------------------------------------------------------
 
@@ -201,10 +244,18 @@ export class MatchRoom {
       if (st) {
         const [lastRow] = this.batches(LAST_SQL);
         revive(st, lastRow ? lastRow.firstTick + lastRow.frames.length : 0, Date.now());
+        // The stored command count dates from the last lifecycle write; the log is the truth (#559 H-1).
+        if (st.status !== 'ended' && st.status !== 'lobby') st.cmdChars = Math.max(st.cmdChars, cmdCharsOf(this.batches().flatMap((b) => b.frames)));
         // A room persisted before the lobby carried its map has none: the meta has it.
         if (st.map === '') st.map = this.meta?.map ?? DEFAULT_MAP;
         this.savedKey = persistKey(st);
         gone = this.reconcileSockets(st);
+        // A room from before every room kept an alarm (#559 H-1) gets one now, so it cannot outlive its TTL.
+        if (!wantsClock(st) && (await this.ctx.storage.getAlarm()) === null) {
+          const at = alarmFor(st, Date.now());
+          await this.ctx.storage.setAlarm(at);
+          this.alarmAt = at;
+        }
       }
       this.st = st;
       this.loading = null;
@@ -331,10 +382,11 @@ export class MatchRoom {
     this.desyncLogged = true;
     try {
       const frames = this.readLog();
-      await writeDesync(this.env.DB, {
+      const written = await writeDesync(this.env.DB, {
         code: st.code, tick, hashA: hashes[0], hashB: hashes[1],
         config: JSON.stringify(st.config), frames: JSON.stringify(compactLog(frames)), frameCount: frames.length, createdAt: Date.now(),
       });
+      if (!written) console.warn('MatchRoom: desync not logged, the daily budget is spent', st.code, tick);
     } catch (e) {
       console.error('MatchRoom: desync log failed', e);
     }
@@ -344,30 +396,41 @@ export class MatchRoom {
     const live = st !== null && wantsClock(st);
     if (live && this.clock === null) {
       this.clock = setInterval(() => { void this.onClock(); }, TICK_MS);
-      this.armWatchdog();
+      this.armAlarm();
     } else if (!live && this.clock !== null) {
       clearInterval(this.clock);
       this.clock = null;
-      // Deleted -- or, with a close armed and both seats gone, aimed at the deadline (L-1).
-      this.armWatchdog();
-    } else if (!live && st?.status === 'ended' && !this.disarmed) {
-      // An instance revived after the clock's own instance died ends the match
-      // with no clock of its own to stop: the alarm the old one armed goes too.
-      this.disarmWatchdog();
+      // Re-aimed: at the wipe if the room ended, else the armed close or the TTL.
+      this.armAlarm();
+    } else if (!live && st !== null && st.status === 'ended' && this.alarmAt !== alarmFor(st, Date.now())) {
+      // A room that ended with no clock of its own (a lobby, an abandoned
+      // match, a revived instance): its alarm is aimed at the wipe, once.
+      this.armAlarm();
     }
   }
   /** Unawaited, as the clock's start and stop are synchronous; a refusal
    *  (storage over quota, say) must not become an unhandled rejection. The
    *  cost of a lost arm is only R38's protection, until the next start. */
-  private armWatchdog(): void {
-    const at = this.st === null ? null : alarmFor(this.st, Date.now());
-    if (at === null) { this.disarmWatchdog(); return; }
-    this.disarmed = false;
+  private armAlarm(): void {
+    if (this.st === null) return;
+    const at = alarmFor(this.st, Date.now());
+    this.alarmAt = at;
     this.ctx.storage.setAlarm(at).catch((e: unknown) => { console.error('MatchRoom: setAlarm failed', e); });
   }
-  private disarmWatchdog(): void {
-    this.disarmed = true;
-    this.ctx.storage.deleteAlarm().catch((e: unknown) => { console.error('MatchRoom: deleteAlarm failed', e); });
+  /** #559 H-1: the room is over and its grace has passed. Every socket goes,
+   *  then every key, the frame table and the alarm; the instance forgets the
+   *  room, so the code answers as one that never existed. */
+  private async purge(): Promise<void> {
+    if (this.clock !== null) { clearInterval(this.clock); this.clock = null; }
+    for (const ws of this.ctx.getWebSockets()) { disown(ws); shut(ws, 1000, 'ended'); }
+    this.st = null;
+    this.meta = null;
+    this.open = [];
+    this.savedKey = null;
+    this.desyncLogged = false;
+    this.alarmAt = null;
+    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.deleteAll();
   }
   /** R38: the watchdog. An eviction kills `setInterval`; a storage alarm
    *  survives it. While the match lives it re-arms itself -- here when the
@@ -378,28 +441,30 @@ export class MatchRoom {
    *  room has a close armed (L-1): it closes here when the deadline has come,
    *  with no clock, and is woken at the deadline otherwise. */
   async alarm(): Promise<void> {
+    this.alarmAt = null;   // the runtime consumed it
     try {
-      const st = await this.begin();
-      if (st) {
-        const closed = closeIfDue(st, Date.now());
-        if (closed.length > 0) {
-          await this.apply(closed);
-        } else {
-          // Re-armed here when the clock runs on, or when no clock is wanted (an
-          // abandoned room's deadline); a clock that must start or stop is armed
-          // or re-aimed by `ensureClock` instead -- one row either way, never two.
-          const at = alarmFor(st, Date.now());
-          if (at !== null && (this.clock !== null) === wantsClock(st)) await this.ctx.storage.setAlarm(at);
-        }
+      const st = await this.begin();   // the TTL, too: an abandoned lobby ends here
+      if (st === null) return;
+      if (st.status === 'ended') {
+        if (Date.now() >= alarmFor(st, Date.now())) await this.purge();
+        return;
       }
+      const closed = closeIfDue(st, Date.now());
+      if (closed.length > 0) await this.apply(closed);
     } finally {
       this.ensureClock();
+      // Re-armed here when the clock runs on (or no clock is wanted); a clock
+      // that starts or stops was re-armed by `ensureClock` -- one row either way.
+      if (this.alarmAt === null) this.armAlarm();
     }
   }
   private async onClock(): Promise<void> {
     try {
       const st = await this.load();
-      if (st) await this.apply(clockTick(st, Date.now()));
+      if (st) {
+        if (st.tick % 20 === 0) this.closeStaleSockets(Date.now());
+        await this.apply(clockTick(st, Date.now()));
+      }
     } finally {
       this.ensureClock();
     }
@@ -436,12 +501,29 @@ export class MatchRoom {
       const mode = body.mode === 'versus' ? 'versus' : 'sandbox';
       // A signed int32: validateConfig takes any integer, so the sign needs no care.
       const seed = mode === 'versus' ? crypto.getRandomValues(new Uint32Array(1))[0] | 0 : SIM_SEED_N0;
-      const map = textField(body.map, DEFAULT_MAP);
+      const map = mapField(body.map);
+      if (map === null) return new Response('unknown map', { status: 400 });
       this.st = createRoom(body.code, body.matchId, Date.now(), map);
       this.meta = { map, build, mode, seed, callsigns: [callsignField(body.callsign), ''], seat1Reserved: false, tokens: mintTokens() };
+      // The table, the keys and the TTL alarm exist from here, and only from here (#559 H-1).
+      this.ctx.storage.sql.exec(CREATE_SQL);
       await this.ctx.storage.put('meta', this.meta);
       await this.save();
+      this.armAlarm();
       return Response.json({ ok: true });
+    }
+    if (pathname === '/ws' && !st) {
+      // #559 H-1: no room (never made, or wiped after it ended). The socket is
+      // told so and closed, touching no storage: a seat that missed the end
+      // stops reconnecting instead of retrying every second for ever, and a
+      // probe learns nothing a live room's 101 would not also show.
+      if (req.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return new Response('expected websocket', { status: 426 });
+      const pair = new WebSocketPair();
+      const ws = pair[1] as WebSocket & { accept(): void };
+      ws.accept();
+      reply(ws, { t: 'ended', reason: 'expired' });
+      shut(ws, 1000, 'no room');
+      return new Response(null, { status: 101, webSocket: pair[0] } as UpgradeInit);
     }
     if (!st) return new Response('no such room', { status: 404 });
     if (pathname === '/state') return Response.json({ status: st.status, seats: st.seats.filter((s) => s !== null).length });
@@ -470,8 +552,39 @@ export class MatchRoom {
    *  seatless until its hello. Public because a `WebSocketPair` and a 101
    *  `Response` exist only in workerd, so node tests enter here. */
   acceptSocket(ws: HibernatingSocket): void {
+    const now = Date.now();
+    this.closeStaleSockets(now);
+    const live = this.ctx.getWebSockets().filter((s) => { const a = attachmentOf(s); return a !== null && (a.seat !== null || a.at !== undefined); }).length;
     this.ctx.acceptWebSocket(ws);
-    ws.serializeAttachment({ seat: null } satisfies SocketAttachment);
+    if (live >= MAX_ROOM_SOCKETS) {
+      ws.serializeAttachment({ seat: null } satisfies SocketAttachment);
+      shut(ws, POLICY_CLOSE, 'too many sockets');
+      return;
+    }
+    ws.serializeAttachment({ seat: null, at: now } satisfies SocketAttachment);
+  }
+  /** #559 M-1: every socket still without a seat `HELLO_TIMEOUT_MS` after it was accepted is closed. */
+  private closeStaleSockets(now: number): void {
+    for (const ws of this.ctx.getWebSockets()) {
+      const a = attachmentOf(ws);
+      if (a === null || a.seat !== null || a.at === undefined || now - a.at < HELLO_TIMEOUT_MS) continue;
+      disown(ws);
+      shut(ws, POLICY_CLOSE, 'no hello');
+    }
+  }
+  /** Spends this message from the socket's budget (#559 M-1); false when it is empty. */
+  private spend(ws: WebSocket, msg: ClientMsg | null, st: RoomState, now: number): boolean {
+    let m = this.meters.get(ws);
+    if (m === undefined) { m = { tokens: SOCKET_BUDGET.burst, atMs: now, ack: -1, hash: -1 }; this.meters.set(ws, m); }
+    if (msg !== null && (msg.t === 'ack' || msg.t === 'hash') && msg.tick < st.tick && msg.tick > m[msg.t]) {
+      m[msg.t] = msg.tick;
+      return true;
+    }
+    m.tokens = Math.min(SOCKET_BUDGET.burst, m.tokens + ((now - m.atMs) * SOCKET_BUDGET.perSecond) / 1000);
+    m.atMs = now;
+    if (m.tokens < 1) return false;
+    m.tokens -= 1;
+    return true;
   }
 
   // --- sockets --------------------------------------------------------------
@@ -479,10 +592,18 @@ export class MatchRoom {
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     try {
       const st = await this.begin();
-      if (!st) { shut(ws, 4004, 'no room'); return; }
+      if (!st) { reply(ws, { t: 'ended', reason: 'expired' }); shut(ws, 4004, 'no room'); return; }
       const msg = parseClientMsg(typeof message === 'string' ? message : new TextDecoder().decode(message));
-      if (msg === null) { reply(ws, { t: 'error', code: 'bad_message' }); return; }
+      const now = Date.now();
+      this.closeStaleSockets(now);
+      if (!this.spend(ws, msg, st, now)) { disown(ws); shut(ws, POLICY_CLOSE, 'rate'); return; }
       const seat = seatOf(ws);
+      if (msg === null) {
+        reply(ws, { t: 'error', code: 'bad_message' });
+        // A socket with no seat has nothing to lose by a bad first message but its socket (#559 M-1).
+        if (seat === null) { disown(ws); shut(ws, POLICY_CLOSE, 'bad message'); }
+        return;
+      }
       if (seat === null) { await this.hello(ws, st, msg); return; }
       await this.apply(seatMessage(st, seat, msg, Date.now(), () => this.mintConfig(st)));
     } finally {
