@@ -52,4 +52,8 @@ describe('anti-tank missiles outrange tank guns (lead 2026-10-13)', () => {
   it('the Spike reaches past every tank gun', () => {
     expect(weapon('at_team', 'spike_atgm').range_tiles).toBeGreaterThan(longestTankGun());
   });
+
+  it('the Kornet reaches past the Spike (~5.5 km against ~4 km)', () => {
+    expect(weapon('atgm_cell', 'kornet').range_tiles).toBeGreaterThan(weapon('at_team', 'spike_atgm').range_tiles);
+  });
 });
