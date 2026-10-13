@@ -357,3 +357,65 @@ describe('newCampaign (GH-330)', () => {
     expect(saved.unlocks).toEqual(['u']);
   });
 });
+
+// Security review #559, F4: element-wise validation. The container checks above
+// let `[1, null, {}]` through as a roster, and the first reader to touch
+// `entry.veterancy` threw -- "Something went wrong" on /campaign.
+describe('readLedger shape-checks the ledger element by element (#559 F4)', () => {
+  const read = (ledger: Record<string, unknown>): CampaignLedger =>
+    memoryLedgerStore({ [LEDGER_KEY]: JSON.stringify(ledger) }).readLedger();
+
+  it('drops non-string completed_missions and marked positions, keeps the strings', () => {
+    const got = read({
+      'campaign.completed_missions': [1, null, {}, 'beit_sahwan_breach'],
+      'intel.marked_positions': ['a', 2, [], 'b'],
+    });
+    expect(got['campaign.completed_missions']).toEqual(['beit_sahwan_breach']);
+    expect(got['intel.marked_positions']).toEqual(['a', 'b']);
+  });
+
+  it('drops roster elements that are not entries; the readers that crashed on them no longer do', async () => {
+    const got = read({
+      'roster.surviving_units': [null, 1, { type: null }, { type: 'inf_squad', veterancy: 'x' }, { type: 'inf_squad', veterancy: 2, name: 'Barkai', kills: 'many' }],
+      'roster.reserve': [{}, 'x', { type: 'mbt_lavi', veterancy: 0 }],
+      'roster.lost': [null, { slot: 1 }, { slot: 1, type: 'inf_squad', veterancy: 1, missions: 1, kills: 0, missionId: 'm', tick: 5 }],
+    });
+    expect(got['roster.surviving_units']).toEqual([{ type: 'inf_squad', veterancy: 2, name: 'Barkai' }]);
+    expect(got['roster.reserve']).toEqual([{ type: 'mbt_lavi', veterancy: 0 }]);
+    expect(got['roster.lost']).toEqual([{ slot: 1, type: 'inf_squad', veterancy: 1, missions: 1, kills: 0, missionId: 'm', tick: 5 }]);
+    const { splitRoster } = await import('./roster-cap');
+    expect(() => splitRoster(got['roster.surviving_units'] ?? [], got['roster.reserve'] ?? [])).not.toThrow();
+  });
+
+  it('drops malformed records and numbers, and a prototype key never becomes a property', () => {
+    const got = read({
+      'roe.mission_ratings': { a: 90, b: 'x', c: null },
+      'campaign.names_issued': [],
+      'campaign.mission_results': { a: { stars: 2, roe: 80, ticks: 10, lost: 0 }, b: { stars: 'x' }, c: 4 },
+      'civ.hostages_recovered': { a: 3, b: {} },
+      'civ.settlements_evacuated': 'lots',
+      'roe.cumulative_rating': null,
+    });
+    expect(got['roe.mission_ratings']).toEqual({ a: 90 });
+    expect(got).not.toHaveProperty('campaign.names_issued');
+    expect(got['campaign.mission_results']).toEqual({ a: { stars: 2, roe: 80, ticks: 10, lost: 0 } });
+    expect(got['civ.hostages_recovered']).toEqual({ a: 3 });
+    expect(got).not.toHaveProperty('civ.settlements_evacuated');
+    expect(got).not.toHaveProperty('roe.cumulative_rating');
+    const proto = read(JSON.parse('{"roe.mission_ratings":{"__proto__":5,"a":1}}') as Record<string, unknown>);
+    expect(Object.getPrototypeOf(proto['roe.mission_ratings'])).toBe(Object.prototype);
+    expect(proto['roe.mission_ratings']).toEqual({ a: 1 });
+  });
+
+  it('hands back a well-formed ledger as the very same bytes', () => {
+    const ok = {
+      'roster.surviving_units': [{ type: 'inf_squad', veterancy: 2, name: 'Barkai', missions: 4, kills: 11, slot: 0, enlisted: 'm1' }],
+      'campaign.completed_missions': ['beit_sahwan_breach'],
+      'roe.mission_ratings': { beit_sahwan_breach: 97 },
+      'campaign.mission_results': { m: { stars: 3, roe: 90, ticks: 100, lost: 1 } },
+      'campaign.names_issued': { squad: 1 },
+      'some.future.key': { anything: [1, null] },
+    };
+    expect(read(ok)).toEqual(ok);
+  });
+});

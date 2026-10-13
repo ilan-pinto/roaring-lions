@@ -130,3 +130,18 @@ describe('profile slots', () => {
     expect(damagedRaw(s, DAMAGED_BLOB_ID)).toBe('[1,2]');
   });
 });
+
+describe('importSlot validates the ledger element by element (#559 F4)', () => {
+  it('a slot whose ledger carries junk elements imports with the junk dropped', () => {
+    const json = JSON.stringify({
+      version: 1, id: 'x', name: 'n', savedAt: 1, build: 'b', account: emptyAccount(), tutorialDone: false,
+      ledger: {
+        'campaign.completed_missions': [1, null, {}, 'beit_sahwan_breach'],
+        'roster.surviving_units': [null, 1, { type: null }, { type: 'inf_squad', veterancy: 1 }],
+      },
+    });
+    const slot = importSlot(json);
+    expect(slot.ledger['campaign.completed_missions']).toEqual(['beit_sahwan_breach']);
+    expect(slot.ledger['roster.surviving_units']).toEqual([{ type: 'inf_squad', veterancy: 1 }]);
+  });
+});
