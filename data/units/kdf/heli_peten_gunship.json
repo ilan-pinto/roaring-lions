@@ -13,7 +13,7 @@
     { "id": "chain_gun_30", "type": "autocannon", "range_tiles": 7.5, "effective_range_tiles": 6.0,
       "accuracy": 0.6, "penetration": 120, "damage": 85, "rof_per_min": 625, "suppression": 90,
       "can_target": ["ground", "air", "structure"], "collateral_risk": 0.5 },
-    { "id": "hellfire", "type": "atgm", "range_tiles": 10.5, "effective_range_tiles": 9.0,
+    { "id": "hellfire", "type": "atgm", "range_tiles": 15, "effective_range_tiles": 9.0,
       "accuracy": 0.8, "penetration": 900, "damage": 420, "splash_tiles": 0.8, "rof_per_min": 6,
       "suppression": 15, "can_target": ["ground", "structure"], "collateral_risk": 0.2 }
   ],

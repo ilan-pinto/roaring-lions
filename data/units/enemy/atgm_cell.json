@@ -34,7 +34,7 @@
     {
       "id": "kornet",
       "type": "atgm",
-      "range_tiles": 10,
+      "range_tiles": 14,
       "effective_range_tiles": 8,
       "accuracy": 0.75,
       "penetration": 900,

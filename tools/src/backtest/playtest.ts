@@ -385,44 +385,59 @@ const led3 = run(
 // anchor -- a three-leg detour that costs the plan 0 survivors and about
 // 0.6 minutes. The drone's own tour gains one extra leg to mark
 // `wh_hide_south`, which is the carry-over III spends (script.md §2.3).
+// Since the lead's 2026-10-13 ruling (Spike 9 -> 13 tiles) the old plan lost seed 18. That was the
+// marginal seed #570 had already re-planned: the plan won by one survivor on nine seeds of thirty,
+// and on 30 further seeds (100-129) it lost two with the Spike at 9 or 13 alike. Three changes give
+// it a margin rather than a new seed to sit on. Each is what a player who can see the ford would do.
+//
+// - The Spike team stands off at (4,22), then at (4,24), and never walks with the screen. Its 13
+//   tiles reach both fords from there, and the DShK (9) and the RPG (5.5) do not reach it.
+//   Walking with the screen, it traded missiles with the bank patrol at 7 tiles.
+// - The drone does not fly its old tour onto the bank patrol's DShK, where it died at 8-10 s on
+//   every seed. It builds the picture from the west bank at (5,24) and spots for the Spike. The
+//   tour's later legs (the hide-south mark meant for III) were never flown: the drone was
+//   already dead.
+// - The screen holds the ford watch's EAST edge, at (11.5,24). The zone is an olive grove 6 tiles
+//   wide, and riders in it are seen at 4-6 tiles: the screen held the west half and met them in
+//   the trees. At the east edge it sees them crossing the open bank.
+//
+// Measured on the sweep's 30 seeds, then on seeds 100-129 that took no part in choosing it:
+// - this plan: 30/30 and 28/30, mean survivors 3.97 and 3.67, no seed with one survivor;
+// - the old plan: 29/30 and 28/30, mean 2.50 and 2.23, nine one-survivor seeds on 100-129.
+// Holding x=8, 9 or 10 with the same Spike and drone read 56-57 of the 60. The east edge read 58.
+// Most of what is left is the mission's own late waves in the grove.
 const wh1 = run('wadi_halam_1_fords', (sim, rt, ids, at) => {
   const drone = ids('recon_drone');
-  const screen = [...ids('apc_eitan'), ...ids('inf_squad'), ...ids('at_team')];
+  const screen = [...ids('apc_eitan'), ...ids('inf_squad')];
+  const spike = ids('at_team');
   const jeep = ids('jeep_shoded');
+  const ANCHOR = M(11.5, 24);
+  const STANDOFF = M(4, 24);
   at(0, () => {
     // North first: the near gallery ambush is 4 tiles off the axis, and
     // going in under attackMove springs and kills it instead of walking past.
     sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(9, 15) });
+    sim.queueCommand({ kind: 'attackMove', ids: spike, ...M(4, 22) });
     // Detour, not the shipped [9,20]: closes on carrier group A ([13.5,30.5])
     // first, within SHEPHERD_RADIUS_SQ (4 tiles).
     sim.queueCommand({ kind: 'move', ids: jeep, ...M(15, 31) });
-    sim.queueCommand({ kind: 'move', ids: drone, ...M(20, 17) });
+    sim.queueCommand({ kind: 'move', ids: drone, ...M(5, 24) });
   });
-  at(45, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(20, 30) }));
-  // South gallery next -- the second identified contact the picture needs
-  // beyond the bank/bund pair the drone is already turning up.
-  at(60, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(9, 31) }));
+  // South gallery next.
+  at(60, () => sim.queueCommand({ kind: 'attackMove', ids: screen.filter((i) => sim.state.alive[i] === 1), ...M(9, 31) }));
   // Jeep's second leg: closes on carrier group B ([16.5,33.5]).
   at(60, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(17, 34) }));
-  // Drone marks wh_hide_south while its tour is already this far south --
-  // the identification III's carry-over spends (script.md §2.3, 5.9 -> 5.2 min).
-  at(90, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(21, 35) }));
-  // Jeep rejoins the ford-watch anchor loop the screen re-issues every 45s
-  // from t=130.
-  at(120, () => sim.queueCommand({ kind: 'attackMove', ids: jeep, ...M(8, 24) }));
-  // Settle on the ford watch itself -- on its WEST half (the zone is x 7-12). Until 2026-10-13 the
-  // anchor was (10,24), and a technical that parks in the cover at about (18,24.6) on the east bank
-  // (DShK range 9, sight 9) reached it unseen from 8.2 tiles: ten seeds of thirty ended with one
-  // survivor on main. The anti-armour targeting fix (lead exception) changes who the enemy RPGs
-  // pick, and seed 18 diverged at t=100 s (which moto_rpg the rifles shot) and lost its last
-  // squad to that technical at 246 s: a defeat. From (8,24) that gun is out of reach;
-  // measured over the thirty seeds: 30/30, 80 survivors against main's 72, one-survivor seeds 10 -> 6.
-  at(110, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(8, 24) }));
+  at(110, () => {
+    sim.queueCommand({ kind: 'attackMove', ids: screen.filter((i) => sim.state.alive[i] === 1), ...ANCHOR });
+    sim.queueCommand({ kind: 'attackMove', ids: spike.filter((i) => sim.state.alive[i] === 1), ...STANDOFF });
+  });
+  at(120, () => sim.queueCommand({ kind: 'attackMove', ids: jeep, ...ANCHOR }));
   for (let when = 130; when <= 320; when += 45) {
     at(when, () => {
       const cur: number[] = [];
-      for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0 && sim.state.alive[i] === 1) cur.push(i);
-      sim.queueCommand({ kind: 'attackMove', ids: cur, ...M(8, 24) });
+      for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !spike.includes(i)) cur.push(i);
+      sim.queueCommand({ kind: 'attackMove', ids: cur, ...ANCHOR });
+      sim.queueCommand({ kind: 'attackMove', ids: spike.filter((i) => sim.state.alive[i] === 1), ...STANDOFF });
     });
   }
   void rt;
@@ -1918,12 +1933,55 @@ const ledQH2 = run(
       sim.queueCommand({ kind: 'move', ids: mortar, ...M(26, 32) });
       sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 30) });
     });
-    at(100, () => sim.queueCommand({ kind: 'move', ids: demo, ...M(14, 15) }));
+    // The gate's Kornet does not stay at the gate. Once the armour enters `the_gates`, the trigger
+    // walks the gate group through the notch, and the cell comes on west across the valley floor,
+    // onto the road the demolition party climbs to the revetment. The t=120 s wave from the north
+    // junction follows the same way. At 14 tiles (lead 2026-10-13) the Kornet outranges everything
+    // the player has on that road. On seed 5 it killed the mortar at (26,32), then the engineers at
+    // (12,27) on their way up, and the raze failed. The old plan's fixed start at 100 s won only
+    // when the cell happened to be elsewhere.
+    //
+    // So the plan clears the road before the engineers use it, the way a player who can see the
+    // road would. Every order below reads only the player's screen (`Picture`: remembered
+    // contacts, typed only once identified):
+    // - the foot, done with the hollow and the bench by about 40 s, attack the threat to the road
+    //   nearest its foot;
+    // - the mortar backs off out of an identified Kornet's reach;
+    // - the engineers wait at the start line while anything they know of stands within reach of
+    //   their road. A Kornet's reach counts as 15 tiles (range 14, plus one); anything else as 9.
+    // Most of what crosses the valley walks on into the armour parked at the gate and dies there.
+    // The raze is quick: about 50 s up the road and 5 s at the wall. The latest start, 200 s,
+    // therefore still beats the 300 s deadline.
+    const pic = new Picture(sim);
+    const ROAD: readonly (readonly [number, number])[] = [[22, 43], [16, 37], [12, 30], [12, 22], [20, 20], [14, 15]];
+    const kornets = () => new Set(pic.identified('atgm_cell').map((c) => c.id));
+    const reach = (c: { x: number; y: number }, x: number, y: number, r: number) => (c.x - x) ** 2 + (c.y - y) ** 2 <= r * r;
+    const roadThreats = () => {
+      const k = kornets();
+      return pic.contacts().filter((c) => ROAD.some(([x, y]) => reach(c, x, y, k.has(c.id) ? 15 : 9)));
+    };
+    let demoSent = false;
+    for (let when = 2; when <= 300; when += 2) at(when, () => pic.update());
+    for (let when = 40; when <= 300; when += 5)
+      at(when, () => {
+        const hunters = [...foot, ...at_].filter((i) => sim.state.alive[i] === 1);
+        const threats = roadThreats().sort((p, q) => (p.x - 12) ** 2 + (p.y - 30) ** 2 - ((q.x - 12) ** 2 + (q.y - 30) ** 2));
+        if (threats.length && hunters.length) sim.queueCommand({ kind: 'attackMove', ids: hunters, ...M(threats[0].x, threats[0].y) });
+        for (const m of mortar)
+          if (sim.state.alive[m] === 1 && pic.identified('atgm_cell').some((c) => reach(c, fx.toNumber(sim.state.posX[m]), fx.toNumber(sim.state.posY[m]), 15)))
+            sim.queueCommand({ kind: 'move', ids: [m], ...M(24, 43) });
+      });
+    for (let when = 100; when <= 200; when += 5)
+      at(when, () => {
+        if (demoSent || (when < 200 && roadThreats().length > 0)) return;
+        demoSent = true;
+        sim.queueCommand({ kind: 'move', ids: demo, ...M(14, 15) });
+      });
     // A demolition party that has stopped short of the revetment (it halts to fight on the road up)
     // is sent on again, as a player re-clicks a unit he sees standing still.
     for (let when = 110; when <= 290; when += 10)
       at(when, () => {
-        if (rt.objectiveStatus('open_the_shoulder') !== 'active') return;
+        if (!demoSent || rt.objectiveStatus('open_the_shoulder') !== 'active') return;
         for (const d of demo) if (sim.state.alive[d] === 1 && sim.state.moving[d] === 0 && sim.state.demoTarget[d] < 0) sim.queueCommand({ kind: 'move', ids: [d], ...M(14, 15) });
       });
   },
@@ -2024,12 +2082,32 @@ const qarnHadid3Plan: Plan = (sim, rt, ids, at) => {
   // never starts: it is sent at what the player saw, until the village is taken.
   const pic = new Picture(sim);
   const VILLAGE = [20, 2, 18, 14] as const;
+  // Families who flee into a carrier ride wherever it goes, and the capture orders below park every
+  // vehicle in the village. On seed 24 (after the Kornet went to 14 tiles, lead 2026-10-13) all
+  // three families of the larger group boarded an Eitan and the Namer on the square, and
+  // sat there until the five-minute clock failed `get_the_families_clear`. A player sees his own
+  // carrier take on passengers. So a carrier holding families is taken off the column and
+  // driven to the clinic yard, re-sent whenever it stops short, and it rejoins the column
+  // once it is empty.
+  const carriersWithFamilies = (): Set<number> => {
+    const out = new Set<number>();
+    for (let i = 0; i < sim.entityCount; i++) {
+      const by = sim.state.carriedBy[i];
+      if (sim.state.alive[i] === 1 && by >= 0 && sim.state.side[by] === 0 && sim.unitTypes[sim.state.typeIdx[i]].id === 'civilians') out.add(by);
+    }
+    return out;
+  };
+  for (let when = 5; when <= 1190; when += 5)
+    at(when, () => {
+      for (const v of carriersWithFamilies()) if (sim.state.moving[v] === 0) sim.queueCommand({ kind: 'move', ids: [v], ...M(44, 10) });
+    });
   for (let when = 2; when <= 1190; when += 2) at(when, () => pic.update());
   for (let when = 190; when <= 1190; when += 10)
     at(when, () => {
       if (rt.objectiveStatus('take_the_village') !== 'active') return;
       const c = pic.nearest(28, 11, VILLAGE);
-      if (c) sim.queueCommand({ kind: 'attackMove', ids: main.filter((i) => sim.state.alive[i] === 1), ...M(c.x, c.y) });
+      const busy = carriersWithFamilies();
+      if (c) sim.queueCommand({ kind: 'attackMove', ids: main.filter((i) => sim.state.alive[i] === 1 && !busy.has(i)), ...M(c.x, c.y) });
     });
 };
 
@@ -3132,7 +3210,17 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // Eitan); the plan now sends the armour through the gate first and the soft column after the
 // gun is down, which hands on 17. Wadi Halam I's anchor moved two tiles west and its credits
 // did not. No star moved, and neither did any gate.
-const LADDER_CREDITS = 5947;
+// 2026-10-13, anti-tank missiles outrange tank guns (the lead's ruling: Spike 9 -> 13, Kornet
+// 10 -> 14, Hellfire 10.5 -> 15) and the three plans it broke re-scripted (Wadi Halam I, Qarn
+// Hadid II and III, each explained in its own comment): 5947 -> 5972, +25, read off the printed
+// per-mission credits.
+// - Beit Sahwan III 275 -> 270: the Spike alone. No plan touched it.
+// - Wadi Halam I 150 -> 180: the new plan brings more home, roster out 2 -> 4.
+// - Wadi Halam II 170 -> 190: it inherits those survivors.
+// - Qarn Hadid II 200 -> 190 and III 235 -> 225: the Kornet's reach, and the foot that now hunt it
+//   off the engineers' road.
+// No star moved, and the apc_kipod gate opens on time on 30/30 seeds.
+const LADDER_CREDITS = 5972;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);

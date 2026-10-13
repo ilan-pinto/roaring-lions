@@ -37,7 +37,7 @@
     {
       "id": "hellfire",
       "type": "atgm",
-      "range_tiles": 10.5,
+      "range_tiles": 15,
       "effective_range_tiles": 9.0,
       "accuracy": 0.8,
       "penetration": 900,

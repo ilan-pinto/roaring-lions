@@ -31,6 +31,9 @@ const SEARCHED_SQ = 1.5 * 1.5;
 
 export class Picture {
   private readonly seen = new Map<number, Seen>();
+  /** What each contact turned out to be, recorded only once the side has IDENTIFIED it (contact
+   *  level 2): the renderer names a unit's type from that level, and a suspected mark is anonymous. */
+  private readonly known = new Map<number, string>();
 
   constructor(
     private readonly sim: Sim,
@@ -47,7 +50,9 @@ export class Picture {
         this.seen.delete(i);
         continue;
       }
-      if (this.sim.contactLevel(this.side, i) >= 1) this.seen.set(i, { id: i, x: fx.toNumber(st.posX[i]), y: fx.toNumber(st.posY[i]) });
+      const level = this.sim.contactLevel(this.side, i);
+      if (level >= 1) this.seen.set(i, { id: i, x: fx.toNumber(st.posX[i]), y: fx.toNumber(st.posY[i]) });
+      if (level >= 2 && !this.known.has(i)) this.known.set(i, this.sim.unitTypes[st.typeIdx[i]].id);
     }
     for (const c of [...this.seen.values()]) {
       if (this.sim.contactLevel(this.side, c.id) >= 1) continue;
@@ -69,6 +74,11 @@ export class Picture {
     if (!zone) return all;
     const [zx, zy, zw, zh] = zone;
     return all.filter((c) => c.x >= zx && c.x < zx + zw && c.y >= zy && c.y < zy + zh);
+  }
+
+  /** Every remembered contact the side has identified as unit type `typeId`. */
+  identified(typeId: string): Seen[] {
+    return [...this.seen.values()].filter((c) => this.known.get(c.id) === typeId);
   }
 
   /** The remembered contact nearest `(x, y)`, or undefined. */
