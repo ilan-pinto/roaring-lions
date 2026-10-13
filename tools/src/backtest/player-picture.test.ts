@@ -49,6 +49,29 @@ describe('Picture', () => {
     expect(pic.contacts()).toEqual([]);
   });
 
+  it('names the type of a contact only once it is identified', () => {
+    // A drone 10 tiles from a Kornet team: the contact climbs to suspected (level 1) in a
+    // couple of seconds and to identified (level 2) a few seconds later. The plans hunt
+    // Kornets by type, and a suspected mark on the screen is anonymous.
+    const sim = new Sim({ seed: 3, width: 40, height: 40, capacity: 8 });
+    const drone = sim.addUnitType(units.recon_drone as Parameters<Sim['addUnitType']>[0]);
+    const cell = sim.addUnitType(units.atgm_cell as Parameters<Sim['addUnitType']>[0]);
+    sim.spawn(drone, 0, fx.from(5), fx.from(5));
+    const theirs = sim.spawn(cell, 1, fx.from(15), fx.from(5));
+    const pic = new Picture(sim);
+    const until = (level: number) => {
+      for (let t = 0; t < 400 && sim.contactLevel(0, theirs) < level; t++) sim.tick();
+      expect(sim.contactLevel(0, theirs)).toBe(level);
+      pic.update();
+    };
+    until(1);
+    expect(pic.contacts().map((c) => c.id)).toEqual([theirs]);
+    expect(pic.identified('atgm_cell')).toEqual([]);
+    until(2);
+    expect(pic.identified('atgm_cell').map((c) => c.id)).toEqual([theirs]);
+    expect(pic.identified('inf_squad')).toEqual([]);
+  });
+
   it('filters by a zone rectangle', () => {
     const { sim, theirs } = world();
     const pic = new Picture(sim);
