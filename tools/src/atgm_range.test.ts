@@ -56,4 +56,10 @@ describe('anti-tank missiles outrange tank guns (lead 2026-10-13)', () => {
   it('the Kornet reaches past the Spike (~5.5 km against ~4 km)', () => {
     expect(weapon('atgm_cell', 'kornet').range_tiles).toBeGreaterThan(weapon('at_team', 'spike_atgm').range_tiles);
   });
+
+  it('the Hellfire reaches past the Kornet (~8 km), the same on both Petens', () => {
+    const scout = weapon('heli_peten', 'hellfire').range_tiles;
+    expect(weapon('heli_peten_gunship', 'hellfire').range_tiles).toBe(scout);
+    expect(scout).toBeGreaterThan(weapon('atgm_cell', 'kornet').range_tiles);
+  });
 });
