@@ -13,14 +13,14 @@ import { Sim, type UnitTypeJson } from './sim';
 //
 // The oracle is literal decimals and floating point, never a constant read
 // from the code under test (CLAUDE.md, "Every check gets an input that makes
-// it fail"): weapon suppression 70 / SUPP_STAT_DIVISOR 700 = 0.1 per near
+// it fail"): weapon suppression 70 / SUPP_STAT_DIVISOR 730 = 0.0959 per near
 // miss; a default suppression_resistance of 0.5 lets 0.75 of it through; open
-// ground (cover 0) lets all of it through. So a near miss adds 0.075 and
-// anything doubled adds 0.15. The gain on a tick is read back through that
+// ground (cover 0) lets all of it through. So a near miss adds 0.0719 and
+// anything doubled adds 0.1438. The gain on a tick is read back through that
 // tick's decay, e^(-0.15 * 0.05) = 0.99253.
 
 const DECAY = 0.99253;
-const NEAR_MISS = (70 / 700) * 0.75;
+const NEAR_MISS = (70 / 730) * 0.75;
 const DOUBLED = 2 * NEAR_MISS;
 
 function weapon(type: string, penetration: number, splash = 0) {
@@ -120,7 +120,7 @@ describe('hits, bounces and splash suppress (GDD 5.5, BOUNCE_SUPP_MULT)', () => 
   // The lead's ruling of 2026-10-13: a round that could never penetrate the
   // hull (a rifle on an MBT) is noise, not a threat. Its bounce takes the
   // same HARMLESS_SUPP discount (0.1) its near misses always took, so a rifle
-  // squad cannot pin a tank or a dozer by ringing its hull: 0.15 x 0.1.
+  // squad cannot pin a tank or a dozer by ringing its hull: 0.1438 x 0.1.
   it('a round that could never penetrate the hull bounces off harmlessly', () => {
     const shots = gains(RIFLE, MBT_HULL, false);
     const bounces = shots.filter((s) => s.hit && s.bounced);
@@ -140,7 +140,7 @@ describe('hits, bounces and splash suppress (GDD 5.5, BOUNCE_SUPP_MULT)', () => 
 
   // Control: the instrument reads a plain near miss at 1x. A miss scatters
   // 0.5-1.5 tiles, and only a round landing inside 1.2 tiles is a near miss,
-  // so the gain on a miss is either 0.075 or 0 -- never anything else.
+  // so the gain on a miss is either 0.0719 or 0 -- never anything else.
   it('control: a rifle miss beside a soft target adds one near miss or nothing', () => {
     const shots = gains(RIFLE, SOFT, false);
     const misses = shots.filter((s) => !s.hit);
