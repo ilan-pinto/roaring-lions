@@ -780,8 +780,12 @@ describe('MatchRoom', () => {
 });
 
 describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () => {
-  /** Both seats report the same result tick at the current time; returns the deadline. */
-  async function bothOver(room: MatchRoom, ws0: FakeSocket, ws1: FakeSocket, tick = 399): Promise<number> {
+  /** A hash tick early in the match: the frames up to it are minted within 0.3 s. */
+  const RESULT_TICK = 5;
+  /** Both seats report the same result tick at the current time, once the room
+   *  has minted it (a report of an unminted tick is ignored); returns the deadline. */
+  async function bothOver(room: MatchRoom, ws0: FakeSocket, ws1: FakeSocket, tick = RESULT_TICK): Promise<number> {
+    await vi.advanceTimersByTimeAsync((tick + 1) * TICK_MS);
     await say(room, ws0, { t: 'over', tick });
     await say(room, ws1, { t: 'over', tick });
     return Date.now() + OVER_CLOSE_MS;
@@ -822,8 +826,9 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
 
   it('one seat reports while the other is gone: the close fires on time and the rejoined seat hears it', async () => {
     const { room, ws0, ws1 } = await running();
+    await vi.advanceTimersByTimeAsync((RESULT_TICK + 1) * TICK_MS);
     await deliverClose(room, ws1, 1006, 'abnormal');
-    await say(room, ws0, { t: 'over', tick: 399 });
+    await say(room, ws0, { t: 'over', tick: RESULT_TICK });
     const closeAt = Date.now() + OVER_CLOSE_MS;
     await vi.advanceTimersByTimeAsync(30_000);
     const back = await hello(room, 1);
@@ -835,8 +840,9 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
 
   it('two different ticks never close the room', async () => {
     const { state, room, ws0, ws1 } = await running();
-    await say(room, ws0, { t: 'over', tick: 399 });
-    await say(room, ws1, { t: 'over', tick: 419 });
+    await vi.advanceTimersByTimeAsync(30 * TICK_MS);
+    await say(room, ws0, { t: 'over', tick: RESULT_TICK });
+    await say(room, ws1, { t: 'over', tick: RESULT_TICK + 20 });
     await vi.advanceTimersByTimeAsync(2 * OVER_CLOSE_MS);
     expect(ofType(ws0, 'ended')).toEqual([]);
     expect((await persisted(state)).closeAtMs).toBeNull();

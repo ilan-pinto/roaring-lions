@@ -132,6 +132,9 @@ export function seatGone(st: RoomState, seat: Seat, nowMs: number): Effect[] {
  *  Armed once; nothing later (a rejoin, a late report) moves or clears it. */
 function armClose(st: RoomState, nowMs: number): void {
   if (st.closeAtMs !== null || (st.status !== 'running' && st.status !== 'stalled')) return;
+  // Two reports that disagree stay unarmed for good: a seat that then goes
+  // must not let the lone-report rule below rescue the disagreement.
+  if (st.over[0] >= 0 && st.over[1] >= 0 && st.over[0] !== st.over[1]) return;
   const settled = ([0, 1] as const).some((seat) => {
     const tick = st.over[seat];
     if (tick < 0) return false;
@@ -249,8 +252,9 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
       return [{ kind: 'send', to: 'all', msg: { t: 'chat', seat, text } }];
     }
     case 'over': {
-      // The result this seat's sim reached (L-1): only its first report counts.
-      if ((st.status !== 'running' && st.status !== 'stalled') || st.over[seat] >= 0) return [];
+      // The result this seat's sim reached (L-1): only its first report counts,
+      // and only for a tick the room has minted (`st.tick` is the NEXT frame's).
+      if ((st.status !== 'running' && st.status !== 'stalled') || st.over[seat] >= 0 || msg.tick >= st.tick) return [];
       st.over[seat] = msg.tick;
       armClose(st, nowMs);
       return [];

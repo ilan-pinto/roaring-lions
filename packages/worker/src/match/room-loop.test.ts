@@ -394,7 +394,7 @@ describe('room loop: MatchRoom and two WsTransports', () => {
    *  result's hash tick, report it (`over`) and stop running -- as a seat
    *  does once its end panel is up -- and the room waits two minutes,
    *  behind-stalled, its watchdog firing, then closes itself. */
-  it('after the result: rows until the close stay at the watchdog\'s ~0.2 a second, both seats hear ended over, and the closed room writes nothing', async () => {
+  it('after the result: rows until the close are ~0.27 a second (the watchdog\'s 0.2, plus one-offs amortised), both seats hear ended over, and the closed room writes nothing', async () => {
     const { state, loop, p0, p1 } = await started();
     const RESULT_TICK = 399;
     while (Math.min(p0.taken.length, p1.taken.length) <= RESULT_TICK) await step(loop, [p0, p1], 1);
@@ -423,13 +423,14 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     const between = state.storage.rowsWritten - rowsAtResult;
     const seconds = OVER_CLOSE_MS / 1000;
     const batches = between - tally.put - tally.alarm;
-    console.info(`[L-1] result -> close: ${between} rows in ${seconds} s = ${(between / seconds).toFixed(3)} rows/s (state ${tally.put}, alarm ${tally.alarm}, batch ${batches})`);
     // The state blob: each seat's report (the second one arms the close) and the close itself.
     expect(tally.put).toBe(3);
     // The watchdog every 5 s while the room waits, and the close's delete.
     expect(tally.alarm).toBeLessThanOrEqual(seconds / 5 + 1);
     // Batch rows: the frames minted until the unacked seats stall the room (2 s), and each state write's flush of the open batch.
     expect(batches).toBeLessThanOrEqual(2 + tally.put);
+    // Measured: 32 rows in 120 s (state 3, alarm 25, batch 4) = 0.267 a second; at most 0.275.
+    expect(between / seconds).toBeLessThanOrEqual(0.275);
     // Closed: the clients go on pumping (and acking into a closed room), a stray alarm fires; nothing is written.
     const rowsAtClose = state.storage.rowsWritten;
     const heard = loop.wires.map((w) => w.received.length);

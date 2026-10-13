@@ -568,6 +568,12 @@ describe('a room persisted before N1b (N1b task 2)', () => {
 });
 
 describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () => {
+  /** A running room that has minted frames past the result tick (399): a report names a tick it sent. */
+  function minted(next = 420): RoomState {
+    const st = running();
+    st.tick = next;
+    return st;
+  }
   /** Clock ticks every 50 ms over [from, to): the first tick that ends the room, or null. */
   function firstEnding(st: RoomState, from: number, to: number): { at: number; fx: Effect[] } | null {
     for (let t = from; t < to; t += 50) {
@@ -583,7 +589,7 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
   ];
 
   it('both seats report the same tick: the close is armed at the second report and fires at +120 s exactly, not a tick before', () => {
-    const st = running();
+    const st = minted();
     expect(seatMessage(st, 0, { t: 'over', tick: 399 }, 1000, mint)).toEqual([]);
     expect(st.over).toEqual([399, -1]);
     expect(st.closeAtMs).toBeNull();   // one report, the other seat still here: not yet
@@ -598,7 +604,7 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
   });
 
   it('one seat reports while the other is gone: armed at once, and a rejoin does not disarm it', () => {
-    const st = running();
+    const st = minted();
     seatGone(st, 1, 900);
     seatMessage(st, 0, { t: 'over', tick: 399 }, 1000, mint);
     expect(st.closeAtMs).toBe(1000 + OVER_CLOSE_MS);
@@ -609,7 +615,7 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
   });
 
   it('one seat reports, then the other goes without reporting: armed when it goes', () => {
-    const st = running();
+    const st = minted();
     seatMessage(st, 0, { t: 'over', tick: 399 }, 1000, mint);
     expect(st.closeAtMs).toBeNull();
     seatGone(st, 1, 3000);
@@ -618,18 +624,41 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
   });
 
   it('different ticks never arm it (a desync the hash check answers), nor does one report with the other seat still here', () => {
-    const differ = running();
+    const differ = minted();
     seatMessage(differ, 0, { t: 'over', tick: 399 }, 1000, mint);
     seatMessage(differ, 1, { t: 'over', tick: 419 }, 1000, mint);
     expect(differ.closeAtMs).toBeNull();
     expect(firstEnding(differ, 1050, 1000 + 2 * OVER_CLOSE_MS)).toBeNull();
-    const alone = running();
+    const alone = minted();
     seatMessage(alone, 0, { t: 'over', tick: 399 }, 1000, mint);
     expect(firstEnding(alone, 1050, 1000 + 2 * OVER_CLOSE_MS)).toBeNull();
   });
 
+  it('different ticks stay unarmed when a seat then goes (review fix): a lone-report rule must not rescue a disagreement', () => {
+    for (const gone of [0, 1] as const) {
+      const st = minted();
+      seatMessage(st, 0, { t: 'over', tick: 399 }, 1000, mint);
+      seatMessage(st, 1, { t: 'over', tick: 419 }, 1000, mint);
+      seatGone(st, gone, 2000);
+      expect(st.closeAtMs, `seat ${gone} gone`).toBeNull();
+      expect(firstEnding(st, 2050, 2000 + 2 * OVER_CLOSE_MS), `seat ${gone} gone`).toBeNull();
+    }
+  });
+
+  it('a report naming a tick the room has not minted is ignored (review fix)', () => {
+    const st = minted(400);   // frames 0..399 sent
+    seatGone(st, 1, 900);
+    seatMessage(st, 0, { t: 'over', tick: 400 }, 1000, mint);
+    seatMessage(st, 0, { t: 'over', tick: 5000 }, 1000, mint);
+    expect(st.over).toEqual([-1, -1]);
+    expect(st.closeAtMs).toBeNull();
+    seatMessage(st, 0, { t: 'over', tick: 399 }, 1100, mint);   // the last minted tick is a real result
+    expect(st.over).toEqual([399, -1]);
+    expect(st.closeAtMs).toBe(1100 + OVER_CLOSE_MS);
+  });
+
   it('only a seat\'s first report counts', () => {
-    const st = running();
+    const st = minted();
     seatMessage(st, 0, { t: 'over', tick: 399 }, 1000, mint);
     seatMessage(st, 0, { t: 'over', tick: 419 }, 1100, mint);
     expect(st.over).toEqual([399, -1]);
@@ -652,7 +681,7 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
   });
 
   it('a close falls due through a pause in force, and closeIfDue is the clock\'s own rule', () => {
-    const st = running();
+    const st = minted();
     seatMessage(st, 0, { t: 'over', tick: 399 }, 1000, mint);
     seatMessage(st, 1, { t: 'over', tick: 399 }, 1000, mint);
     seatMessage(st, 0, { t: 'pause' }, 100_000, mint);   // a pause runs past the deadline
@@ -663,7 +692,7 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
   });
 
   it('the reports and the arming are lifecycle: each moves the persist key once, the wait does not', () => {
-    const st = running();
+    const st = minted();
     const k0 = persistKey(st);
     seatMessage(st, 0, { t: 'over', tick: 399 }, 1000, mint);
     const k1 = persistKey(st);
@@ -681,7 +710,7 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
   });
 
   it('the deadline survives storage and revive; a room persisted before L-1 revives with none', () => {
-    const st = running();
+    const st = minted();
     seatMessage(st, 0, { t: 'over', tick: 399 }, 1000, mint);
     seatMessage(st, 1, { t: 'over', tick: 399 }, 1000, mint);
     const stored: RoomState = JSON.parse(JSON.stringify(st));
