@@ -1263,10 +1263,21 @@ const khanRafid3Plan: Plan = (sim, _rt, ids, at) => {
   const at_team = ids('at_team');
   const mortar = ids('mortar_team');
   const drone = ids('recon_drone');
-  const vanguard = [...inf, eitan[0], ...lavi, ...sniper];
+  const vanguard = [...inf, ...lavi, ...sniper];
 
-  at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 18) }));
+  // The souk family at [21, 20] is walked out by the rifles (GH-279 ruling a: an aircraft overhead
+  // moves nobody, so the drone no longer does it). Rifles are the only thing that reaches them
+  // before a transport does, so no transport may come within 4 tiles of them first: a civilian who
+  // breaks boards the nearest hull with a free seat, and one that chases a vehicle driving past
+  // stalls short of it (measured, 7 of 30 seeds lost with the Eitan on the x=26 column at t=20).
+  // The vanguard's Eitan therefore comes up the east side to the alley's east end, [28, 18], 6
+  // tiles from them, instead of to [24, 18], and the drone holds in the street until it has done
+  // the same. Measured: pinned seed unchanged (ROE 95, 265 credits, 14 out), 30 of 30 seeds.
+  at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 30) }));
+  at(30, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 18) }));
   at(0, () => sim.queueCommand({ kind: 'attackMove', ids: vanguard, ...M(24, 18) }));
+  at(0, () => sim.queueCommand({ kind: 'move', ids: [eitan[0]], ...M(29, 27) }));
+  at(11, () => sim.queueCommand({ kind: 'attackMove', ids: [eitan[0]], ...M(28, 18) }));
 
   // South-east orchard family, through its one gap on the west wall, then to the ward.
   at(0, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(40, 34) }));
@@ -1661,11 +1672,14 @@ run(
     at(4, () => {
       // Screen forward to the hollow and stop there — out of the envelope.
       sim.queueCommand({ kind: 'move', ids: screen, ...M(24, 30) });
-      sim.queueCommand({ kind: 'move', ids: foot, ...M(23, 31) });
+      sim.queueCommand({ kind: 'move', ids: foot.slice(1), ...M(23, 31) });
+      // One squad walks the herders out. (22, 27) is 3.0-3.4 tiles from all three herders
+      // (SHEPHERD_RADIUS_SQ is 4 tiles), and outside tm_spotter_west's sight 9. An aircraft walks
+      // nobody out (GH-279 ruling a), so the drone does not: a ground unit must.
+      sim.queueCommand({ kind: 'move', ids: [foot[0]], ...M(22, 27) });
       // The drone alone goes into the envelope. From the approach, on the floor of the long
       // valley, sight 16 reaches both spurs and the west lip -- but the spotter on the lip sits
-      // 12.7 tiles out and is the slowest to read, so the drone lingers for 30 s while the herders,
-      // who break for the start line when it passes, walk out behind it.
+      // 12.7 tiles out and is the slowest to read, so the drone lingers for 30 s.
       sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 25) });
     });
     // find_battery is the one the floor cannot give: the tube sits behind the rock band and the
