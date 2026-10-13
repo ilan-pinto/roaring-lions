@@ -224,7 +224,12 @@ function run(
   ]);
   const holder = sim.spawn(rifles, 1, fx.fromInt(33), fx.fromInt(30));
   // Close in: the man inside shoots out of the windows, and a sapper with no
-  // weapons has to survive the approach to reach the wall.
+  // weapons has to survive the approach to reach the wall. The tile it sets
+  // its charges from is heavy cover, the foot of the wall: since a hit
+  // suppresses (BOUNCE_SUPP_MULT, 2026-10-13) the window's rifle pinned it in
+  // the open at tick 95, twenty ticks short of the charge, and a pinned sapper
+  // sets nothing -- the shed stood and the structure paths below went unrun.
+  sim.setCover(33, 32, 3);
   const sapper = sim.spawn(sim.addUnitType(SAPPER), 0, fx.fromInt(32), fx.fromInt(33));
 
   // The tunnel front. Nothing tunnel-shaped was in the replay before: every
@@ -453,7 +458,20 @@ describe('determinism (1000-tick replay)', () => {
     // removed, this replay reproduces the old value exactly. All 7 golden
     // routs in it take the known-threat branch; none takes the fallback.
     // Was 1202444260.
-    expect(a.hash()).toBe(1783401971);
+    //
+    // 2026-10-13: hits, bounces and splash suppress. BOUNCE_SUPP_MULT was a
+    // plain 2 handed to fx.mul, i.e. 2/65536, so a hit on a soft target, a
+    // round bouncing off armour and every blast's splash added nothing; it is
+    // 131072 (x2.0) now. That alone moved this number to 1148007277 and broke
+    // the structure-path test below: the window's rifle now pins the sapper at
+    // tick 95, twenty ticks short of its charge, and the shed stood. So the
+    // tile the sapper charges from, (33,32), is heavy cover (`setCover` in
+    // run()); the shed comes down on the holder at tick 117. Measured both
+    // ways: the cover tile alone, on the old multiplier, reads 4114445845;
+    // the old multiplier without it reads 1783401971 exactly. Event counts
+    // against the old pin: pinned 11 -> 12, destroyed 6 -> 5, fire 1108 ->
+    // 1102, impact 1 -> 4; routs unchanged at 7. Was 1783401971.
+    expect(a.hash()).toBe(1851687100);
   });
 
   it('the replay actually exercises halt to fire', () => {
@@ -791,7 +809,11 @@ describe('determinism over relief (900-tick replay round a hill)', () => {
     // their hashArray lines removed, this replay reproduces the old value
     // exactly. Both of its 2 golden routs take the known-threat branch; none
     // takes the fallback. Was 2051106457.
-    expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(3208037602);
+    //
+    // 2026-10-13: hits, bounces and splash suppress (BOUNCE_SUPP_MULT is x2.0,
+    // not 2/65536), as at the flat pin. That is the whole move: on the old
+    // multiplier this replay reads 3208037602 exactly. Was 3208037602.
+    expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(4276961824);
   });
 
   it('the relief changes the route, not merely the hash', () => {
