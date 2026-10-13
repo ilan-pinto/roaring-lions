@@ -26,6 +26,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { units } from '@lions/data';
 import { Sim, fx, type UnitTypeJson } from '@lions/sim';
 import { colorSlot } from '@lions/render';
+import { screenToWorldThree } from '@lions/render/three-camera';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -613,6 +614,57 @@ describe('coordinates', () => {
     expect(hit?.points.map(([x, y]) => [Math.round(x), Math.round(y)])).toEqual(
       corners.map((c) => [Math.round(c.x), Math.round(c.y)])
     );
+  });
+
+  // The boot failure seen on the live build on 2026-10-13: the battlefield
+  // mounted into a host with no size (a hidden browser pane), the renderer
+  // reported a 0 x 0 viewport, and the minimap's constructor asked the REAL
+  // projection for that viewport's corners. A frustum solved from zero pixels
+  // is NaN, its ray meets no plane, `screenToWorldThree` throws, and the throw
+  // took the whole boot with it. These views use that real function rather
+  // than a stand-in, because a stand-in that never throws is how it shipped.
+  function realView(width: number, height: number, zoom = 1): MinimapView {
+    const cam = { x: 24, y: 24, zoom };
+    return {
+      width,
+      height,
+      isVisible: () => false,
+      screenToWorld: (px, py) => screenToWorldThree(px, py, cam, { width, height }),
+    };
+  }
+  /** The viewport outline: the one 1px, four-point, undashed stroke. */
+  const outlines = (): StrokePath[] =>
+    recorder.strokes().filter((s) => s.points.length === 4 && s.width === 1 && s.dash.length === 0);
+
+  it('outlines a real viewport once (the control for the two below)', () => {
+    mount(() => false, { view: realView(1024, 768) });
+    expect(outlines()).toHaveLength(1);
+  });
+
+  it('has no viewport to outline when the renderer has no size', () => {
+    for (const [w, h] of [
+      [0, 0],
+      [1024, 0],
+      [0, 768],
+    ]) {
+      expect(viewportQuad(realView(w, h))).toBeNull();
+    }
+    expect(viewportQuad(realView(1024, 768))).toHaveLength(4);
+  });
+
+  it('mounts over a zero-sized renderer instead of throwing, and draws no outline', () => {
+    expect(() => mount(() => false, { view: realView(0, 0) })).not.toThrow();
+    expect(outlines()).toEqual([]);
+  });
+
+  it('skips the outline, not the minimap, when a corner misses the ground', () => {
+    // Below the camera's zoom clamp a tall frustum's bottom edge starts
+    // behind the ground: the two lower corners have no ground under them.
+    const view = realView(1024, 768, 0.1);
+    expect(() => view.screenToWorld(1024, 768)).toThrow(/does not intersect/);
+    expect(viewportQuad(view)).toBeNull();
+    expect(() => mount(() => false, { view })).not.toThrow();
+    expect(outlines()).toEqual([]);
   });
 });
 

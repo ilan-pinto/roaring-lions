@@ -3231,10 +3231,19 @@ export class ThreeRenderer implements Renderer {
     this.sceneLights.dispose();
   }
 
-  /** Size the canvas to the host element, exactly as Pixi's `resizeTo` does:
-   *  `clientWidth`/`clientHeight`. No clamp to a minimum -- a zero-sized host
-   *  produces a zero-sized canvas on both backends, and inventing a 1x1 floor
-   *  here would make them disagree.
+  /** Size the canvas to the host element: `clientWidth`/`clientHeight`,
+   *  floored at ONE CSS pixel on each axis.
+   *
+   *  The floor is what lets a battlefield boot into a host with no size (a
+   *  hidden or collapsed browser pane, 2026-10-13). `width`/`height` are the
+   *  viewport every projection is solved from, and a frustum solved from
+   *  zero pixels is NaN: every screen-to-world ray then meets no plane and
+   *  `screenToWorldThree` throws -- from the minimap's constructor, which
+   *  failed the boot, and from the hover read once a frame after it. A
+   *  one-pixel view projects; the ResizeObserver's next call gives the real
+   *  size back, and any host with a size is unchanged. This used to say "no
+   *  clamp, so the two backends agree"; the Pixi backend it agreed with was
+   *  retired in WP-A3.3.
    *
    *  These are CSS pixels; `setSize` multiplies them by the pixel ratio for
    *  the drawing buffer, and the composer's targets are sized the same way
@@ -3243,8 +3252,8 @@ export class ThreeRenderer implements Renderer {
    *  the canvas can no longer be asked for it. */
   private fitToHost(): void {
     if (!this.host) return;
-    this.cssWidth = this.host.clientWidth;
-    this.cssHeight = this.host.clientHeight;
+    this.cssWidth = Math.max(1, this.host.clientWidth);
+    this.cssHeight = Math.max(1, this.host.clientHeight);
     this.renderer.setSize(this.cssWidth, this.cssHeight);
     this.post?.setSize(this.cssWidth, this.cssHeight, this.renderer.getPixelRatio());
   }

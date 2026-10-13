@@ -478,16 +478,41 @@ function photographedTerrain(img: ImageData): HTMLCanvasElement {
  * self-crossing. Deliberately unclamped to the map — a camera panned past the
  * edge should show its outline hanging off the edge, which is exactly the
  * feedback that says "you have panned off the map".
+ *
+ * `null` when there is no footprint to draw, and the caller draws no outline.
+ * Two cases, and neither may cost more than the outline. A renderer with no
+ * size (a battlefield mounted into a hidden or collapsed host: `fitToHost`
+ * reads 0) has no viewport at all -- `clampCamera` makes the same `> 0` test
+ * -- and the three.js projection solved from zero pixels is NaN, so
+ * `screenToWorldThree` throws rather than invent a tile. And a corner whose
+ * ray meets no ground throws the same way; that is where the screen shows no
+ * ground, so there is nothing true to outline there either. Before this, the
+ * constructor's first `draw()` let that throw out and failed the whole boot
+ * (2026-10-13, "boot failed: ... camera ray does not intersect the ground
+ * plane", a hidden browser pane). The resize that gives the host a size puts
+ * the outline back on the next 4 Hz redraw.
  */
-export function viewportQuad(view: MinimapView): MinimapPoint[] {
+export function viewportQuad(view: MinimapView): MinimapPoint[] | null {
   const w = view.width;
   const h = view.height;
-  return [
-    view.screenToWorld(0, 0),
-    view.screenToWorld(w, 0),
-    view.screenToWorld(w, h),
-    view.screenToWorld(0, h),
-  ];
+  if (!(w > 0 && h > 0)) return null;
+  const quad: MinimapPoint[] = [];
+  for (const [px, py] of [
+    [0, 0],
+    [w, 0],
+    [w, h],
+    [0, h],
+  ] as const) {
+    let at: { x: number; y: number };
+    try {
+      at = view.screenToWorld(px, py);
+    } catch {
+      return null;
+    }
+    if (!Number.isFinite(at.x) || !Number.isFinite(at.y)) return null;
+    quad.push(at);
+  }
+  return quad;
 }
 
 /**
@@ -1538,6 +1563,7 @@ export class Minimap {
   private drawViewport(): void {
     const { ctx, proj } = this;
     const quad = viewportQuad(this.deps.view);
+    if (!quad) return;
     ctx.strokeStyle = this.chrome.viewport;
     ctx.lineWidth = 1;
     ctx.beginPath();
