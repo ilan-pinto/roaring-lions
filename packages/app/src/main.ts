@@ -237,7 +237,7 @@ import { garageColors, garageGroundTexture, garageModelSource } from './garage-m
 import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { PAUSES_PER_SEAT, WsTransport, type Seat, type TransportStatus } from '@lions/net';
-import { connectMatch, openRoom, type Connected } from './net/connect';
+import { JoinNeedsConfirmation, connectMatch, openRoom, type Connected } from './net/connect';
 import { desyncReportDraft, withoutReplay } from './net/desync-report';
 import { blockedOrderNotes, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
 import { CatchUpQuiet, roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
@@ -1698,6 +1698,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     });
   } catch (err) {
     teardown();
+    // #559 F8: a `?net=<code>` link is not a join. Hand it to the room's own
+    // Join confirmation (callsign, explicit click) instead of seating and
+    // readying whoever followed it.
+    if (err instanceof JoinNeedsConfirmation) {
+      req.navigate(routes.versusRoom(err.code), { replace: true });
+      return teardown;
+    }
     throw err;
   }
   const transport = match.transport;
