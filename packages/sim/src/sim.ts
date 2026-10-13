@@ -401,8 +401,10 @@ export interface UnitType {
    * a 6x6 truck and declares `role: "artillery"` exactly as `mortar_team`,
    * which is four men and a tube, does. Deriving this from the role would
    * drive a rocket truck through terrain that stops a jeep. The default is
-   * `!FOOT_ROLES.has(role)`, so every unit keeps its existing classification
-   * and only the one the default gets wrong says so in JSON.
+   * `!FOOT_ROLES.has(role)`, and only a unit the default gets wrong says so
+   * in JSON. Two do, one each way: `rocket_battery` (`wheeled: true`), and
+   * `manpad_team` (`wheeled: false`, GH-247) -- two men and a launcher, whose
+   * role `aa` cannot join FOOT_ROLES because `gun_truck` declares it too.
    */
   wheeled: boolean;
   /**

@@ -37,9 +37,10 @@
  * **Nothing on foot can reach this table.** `updateVehicleMeshes` gates on
  * `vehicleMeshTemplates.has(type.id)`, and only a type with a shipped
  * `art/meshes/vehicles/*.glb` ever gets an entry there -- which is also why
- * `manpad_team`, classed `wheeled` by the `FOOT_ROLES` default and genuinely
- * four men with a launcher, never gets a hull tilt: it has no GLB, so it
- * never reaches `vehicleWeightParamsFor` at all. Air is excluded the same
+ * `manpad_team` (role `aa`; classed `wheeled` by the `FOOT_ROLES` default
+ * until GH-247 gave its JSON `wheeled: false`) never got a hull tilt: it has
+ * no vehicle GLB, so it never reaches `vehicleWeightParamsFor` at all.
+ * Air is excluded the same
  * way, one layer up: `heli_peten` (`gunship`) and a ground drone both get a
  * role default here so the resolver never throws for them, but the caller
  * that walks `type.isAir` is expected to skip calling `stepVehicleWeight` for
