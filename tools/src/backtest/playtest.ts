@@ -860,10 +860,31 @@ const wadiHalam5Plan: Plan = (sim, _rt, ids, at) => {
   // The gate-open run lost its D9 to a mobility kill at (36,9) without it, and the raze with it.
   // A player's attack-move stops where it is sent now (the lead's ruling), so the plan says it.
   at(103, () => sim.queueCommand({ kind: 'attackMove', ids: softIn ? screen : armour, ...M(38, 19) }));
+  // Since a hit suppresses (2026-10-13), a ZU-23 the screen cannot see can pin the D9 for the rest of
+  // the clock: on seed 3 with the gate open a gun truck that routed out past the east wall rallied at
+  // (42,8) and kept the dozer pinned at (36,9) from 150 s to 300 s while the screen stood at (33,12),
+  // and the raze failed. A player sees which gun is shooting his dozer (`Picture`: identified
+  // contacts only), so the carriers go and kill it, and the hold re-anchor below leaves them to it.
+  const pic = new Picture(sim);
+  for (let when = 2; when <= 400; when += 2) at(when, () => pic.update());
+  const hunters = [...armour, ...ids('apc_kipod')];
+  const gunOnDozer = (): { x: number; y: number } | undefined => {
+    const d = dozer.find((u) => sim.state.alive[u] === 1);
+    if (d === undefined || _rt.objectiveStatus('raze_depot') !== 'active') return undefined;
+    const dx = fx.toNumber(sim.state.posX[d]);
+    const dy = fx.toNumber(sim.state.posY[d]);
+    return pic.identified('gun_truck').find((c) => (c.x - dx) ** 2 + (c.y - dy) ** 2 <= 12 * 12);
+  };
+  for (let when = 60; when <= 300; when += 10)
+    at(when, () => {
+      const g = gunOnDozer();
+      if (g) sim.queueCommand({ kind: 'attackMove', ids: hunters, ...M(g.x, g.y) });
+    });
   for (let when = 85; when <= 400; when += 45) {
     at(when, () => {
       const cur: number[] = [];
-      for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0 && sim.state.alive[i] === 1) cur.push(i);
+      const hunting = gunOnDozer() !== undefined;
+      for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !(hunting && hunters.includes(i))) cur.push(i);
       sim.queueCommand({ kind: 'attackMove', ids: cur, ...M(33, 12) });
     });
   }
