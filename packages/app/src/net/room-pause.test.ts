@@ -2,7 +2,10 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { PAUSES_PER_SEAT, WsTransport, type MatchConfig, type SocketLike } from '@lions/net';
 import { applyIntent, type PlayerIntent } from '../input/intents';
-import { escapeOpensPause, hudExit, ordersWait, pauseEndClosesMenu, roomOrderSink, roomPauseCall, surrenderOffered } from './room-pause';
+import type { TransportStatus } from '@lions/net';
+import { t } from '../i18n/t';
+import { leaveCopy } from '../ui/leave-copy';
+import { escapeOpensPause, hudExit, ordersWait, pauseEndClosesMenu, roomExitCopy, roomOrderSink, roomPauseCall, surrenderOffered } from './room-pause';
 
 // N1b task 8, R-B17: the room silently ignores a pause it refuses, so the
 // client decides from its own count (the last `paused` it saw) whether to ask
@@ -95,6 +98,90 @@ describe('hudExit', () => {
     expect(hudExit(true, { kind: 'closed', reason: 'surrender' })).toBe('quit');
     expect(hudExit(true, { kind: 'desync', tick: 40 })).toBe('quit');
     expect(hudExit(true, { kind: 'waiting' })).toBe('quit');
+  });
+});
+
+// L-3 (lead ruling): what a room's exit SAYS. Mid-match it is the surrender
+// copy, once the match is over it is the leave-the-match copy, and no status of
+// a room ever yields the free-play sandbox's wording. The tooltip and the
+// dialog come from the one decision, so they cannot disagree (R-B24).
+describe('roomExitCopy', () => {
+  const RUNNING: TransportStatus[] = [
+    { kind: 'live', behind: 0 },
+    { kind: 'stalled', reason: 'gone', seat: 0 },
+    { kind: 'paused', seat: 1, untilMs: 5 },
+  ];
+  const OVER: TransportStatus[] = [
+    { kind: 'closed', reason: 'surrender' },
+    { kind: 'desync', tick: 40 },
+    { kind: 'waiting' },
+  ];
+  const ALL: TransportStatus[] = [...RUNNING, ...OVER, { kind: 'local' }];
+
+  it('a running match: the surrender wording, tooltip and dialog together', () => {
+    for (const s of RUNNING) {
+      expect(roomExitCopy(s), s.kind).toEqual({
+        tip: 'surrender the match',
+        title: 'Surrender the match?',
+        body: 'Your friend wins.',
+        confirm: 'Surrender',
+      });
+    }
+  });
+
+  it('a match that is over: leave the match, tooltip and dialog together', () => {
+    for (const s of OVER) {
+      expect(roomExitCopy(s), s.kind).toEqual({
+        tip: 'leave the match',
+        title: 'Leave the match?',
+        body: 'The match is over.',
+        confirm: 'Leave',
+      });
+    }
+  });
+
+  it('the copy follows hudExit: surrender exactly when the HUD exit surrenders', () => {
+    for (const s of ALL) {
+      const surrenders = hudExit(true, s) === 'surrender';
+      expect(roomExitCopy(s).title === 'Surrender the match?', s.kind).toBe(surrenders);
+    }
+  });
+
+  it('no room state ever says free play, mission or campaign', () => {
+    for (const s of ALL) {
+      const c = roomExitCopy(s);
+      const said = [c.tip, c.title, c.body, c.confirm].join(' | ');
+      expect(said, s.kind).not.toMatch(/free play|mission|campaign/i);
+    }
+  });
+
+  it('single-player copy is untouched', () => {
+    expect(leaveCopy(true).title).toBe('Leave free play?');
+    expect(leaveCopy(true).tip).toBe('leave free play');
+    expect(leaveCopy(false).title).toBe('Leave the mission?');
+    expect(t('hud.leave.link')).toBe('leave');
+  });
+});
+
+// L-3: the wiring, read from main.ts's source like L-2's below (the battlefield
+// is not mounted in a unit test): the HUD's tooltip is the SAME decision as its
+// dialog, read live; a room's Quit wears the match wording; the surrender
+// dialog takes its words from the one copy.
+describe('main.ts wires a room\'s exit copy', () => {
+  const main = readFileSync(new URL('../main.ts', import.meta.url), 'utf8');
+  it('the HUD exit tooltip is read from roomExitCopy(room.status()) per hover, not frozen at build', () => {
+    const exit = main.slice(main.indexOf('exit: {', main.indexOf('A room\'s exit is the pause menu\'s')), main.indexOf('openObjectives,'));
+    expect(exit).toContain('tip: () => roomExitCopy(room.status()).tip,');
+    expect(exit).not.toContain("t('versus.exit.tip')");
+  });
+  it('confirmQuit says matchLeaveCopy in a room and leaveCopy only outside one', () => {
+    const quit = main.slice(main.indexOf('const confirmQuit = (): void => {'), main.indexOf('const confirmSurrender'));
+    expect(quit).toContain('const leaveText = room !== null ? matchLeaveCopy() : leaveCopy(!mission);');
+  });
+  it('confirmSurrender takes its words from surrenderCopy', () => {
+    const sur = main.slice(main.indexOf('const confirmSurrender'), main.indexOf('const pauseMenuDeps'));
+    expect(sur).toContain('const copy = surrenderCopy();');
+    expect(sur).not.toContain("t('versus.surrender.confirm");
   });
 });
 

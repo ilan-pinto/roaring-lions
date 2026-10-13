@@ -485,8 +485,16 @@ describe('top strip: the persistent controls', () => {
   it('a room\'s exit runs the battlefield\'s own confirm, with its own tooltip, and never the HUD\'s leave confirm', () => {
     let runs = 0;
     let left = false;
-    const r = rig(null, { leave: () => { left = true; }, freePlay: true, exit: { tip: 'surrender the match', run: () => { runs++; } } });
+    let tipNow = 'surrender the match';
+    const r = rig(null, { leave: () => { left = true; }, freePlay: true, exit: { tip: () => tipNow, run: () => { runs++; } } });
     const btn = r.host.querySelector<HTMLButtonElement>('.rl-hud__leave')!;
+    expect(btn.title).toBe('surrender the match');
+    // L-3: the match ends under a HUD built mid-match -- the tooltip follows on the next hover or focus.
+    tipNow = 'leave the match';
+    btn.dispatchEvent(new Event('pointerenter'));
+    expect(btn.title).toBe('leave the match');
+    tipNow = 'surrender the match';
+    btn.dispatchEvent(new Event('focus'));
     expect(btn.title).toBe('surrender the match');
     btn.click();
     expect(runs).toBe(1);

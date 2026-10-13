@@ -357,9 +357,11 @@ export interface HudDeps {
   /** A room's exit (N1b final fix wave, M-1): the leave control's tooltip
    *  and what its click runs, in place of the HUD's own leave confirm. The
    *  battlefield passes the pause menu's own confirmed Surrender (or Quit,
-   *  once the match is over); `run` asks its own confirm. Absent -- every
+   *  once the match is over); `run` asks its own confirm. `tip` is a function
+   *  because the answer changes under a HUD that outlives the match (L-3);
+   *  it is read at build and on every hover or focus. Absent -- every
    *  screen but a room -- the leave control is exactly as it was. */
-  exit?: { tip: string; run: () => void };
+  exit?: { tip: () => string; run: () => void };
   /** Task 6: opens (or, on a second call, closes) the in-mission objective
    *  tracker -- the strip's `+N` control is the one thing on this bar that
    *  reads the mission's FULL objective list rather than the one primary
@@ -679,7 +681,14 @@ export class Hud {
     leaveBtn.innerHTML = symbolLabel('leave', t('hud.leave.link')); // GH-261: line of departure
     const leaveText = leaveCopy(deps.freePlay === true);
     const exit = deps.exit;
-    leaveBtn.title = exit ? exit.tip : leaveText.tip;
+    leaveBtn.title = exit ? exit.tip() : leaveText.tip;
+    if (exit) {
+      const retitle = (): void => {
+        leaveBtn.title = exit.tip();
+      };
+      leaveBtn.addEventListener('pointerenter', retitle);
+      leaveBtn.addEventListener('focus', retitle);
+    }
     leaveBtn.addEventListener('click', () => {
       if (exit) {
         exit.run();

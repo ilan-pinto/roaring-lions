@@ -12,6 +12,7 @@
  * with none left it does not ask, and says so instead (`note`).
  */
 import type { Seat, TransportStatus } from '@lions/net';
+import { t } from '../i18n/t';
 import type { CommandSink } from '../input/intents';
 
 export interface RoomPauseCall {
@@ -66,6 +67,42 @@ export function pauseEndClosesMenu(prev: TransportStatus, next: TransportStatus,
 export function hudExit(inRoom: boolean, status: TransportStatus): 'hud' | 'surrender' | 'quit' {
   if (!inRoom) return 'hud';
   return surrenderOffered(status) ? 'surrender' : 'quit';
+}
+
+/** What a room's exit says (N1b lead ruling L-3): the tooltip and the confirm
+ *  dialog in ONE place, so the two cannot disagree (R-B24 was a "surrender the
+ *  match" tooltip over a "Leave free play?" dialog). While the match can be
+ *  given up it is the surrender wording; once it cannot (ended, voided, not
+ *  started) it is leave-the-match wording. No status of a room reaches the
+ *  free-play sandbox's `leaveCopy`, whose words describe a run that is not a
+ *  match. Single-player never calls this. */
+export interface RoomExitCopy {
+  tip: string;
+  title: string;
+  body: string;
+  confirm: string;
+}
+
+export function surrenderCopy(): RoomExitCopy {
+  return {
+    tip: t('versus.exit.tip'),
+    title: t('versus.surrender.confirm.title'),
+    body: t('versus.surrender.confirm.body'),
+    confirm: t('versus.surrender.confirm.action'),
+  };
+}
+
+export function matchLeaveCopy(): RoomExitCopy {
+  return {
+    tip: t('versus.exit.leaveTip'),
+    title: t('versus.leave.confirm.title'),
+    body: t('versus.leave.confirm.body'),
+    confirm: t('versus.leave.confirm.action'),
+  };
+}
+
+export function roomExitCopy(status: TransportStatus): RoomExitCopy {
+  return surrenderOffered(status) ? surrenderCopy() : matchLeaveCopy();
 }
 
 /** Orders wait while the room is paused, for both seats (N1b lead ruling M-4,
