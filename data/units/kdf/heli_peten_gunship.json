@@ -1,7 +1,7 @@
 {
   "id": "heli_peten_gunship",
   "name": "Peten Gunship",
-  "blurb": "Rocket pods for men in the open, beside the cannon and missiles. Every salvo is danger close.",
+  "blurb": "A Peten with the hull for one more pass: the cannon for the open ground, Hellfires for armour.",
   "faction": "kdf",
   "role": "gunship",
   "cost": { "logistics": 450, "build_time_s": 50, "population": 3 },
@@ -13,11 +13,8 @@
     { "id": "chain_gun_30", "type": "autocannon", "range_tiles": 7.5, "effective_range_tiles": 6.0,
       "accuracy": 0.6, "penetration": 120, "damage": 85, "rof_per_min": 625, "suppression": 90,
       "can_target": ["ground", "air", "structure"], "collateral_risk": 0.5 },
-    { "id": "rocket_pods", "type": "he", "range_tiles": 8, "effective_range_tiles": 7,
-      "accuracy": 0.45, "penetration": 60, "damage": 140, "splash_tiles": 1.0, "rof_per_min": 30,
-      "suppression": 140, "can_target": ["ground", "structure"], "collateral_risk": 0.55 },
     { "id": "hellfire", "type": "atgm", "range_tiles": 10.5, "effective_range_tiles": 9.0,
-      "accuracy": 0.8, "penetration": 900, "damage": 420, "splash_tiles": 0.8, "rof_per_min": 3,
+      "accuracy": 0.8, "penetration": 900, "damage": 420, "splash_tiles": 0.8, "rof_per_min": 6,
       "suppression": 15, "can_target": ["ground", "structure"], "collateral_risk": 0.2 }
   ],
   "upgrades": {

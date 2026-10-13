@@ -73,9 +73,27 @@ to retune, never a band to widen.
 | role / domain | `gunship` / `air` | hp / armour | 820 / **47**·32·22 (front 55 until the 29 Sep ruling) |
 | crew / supp. res. | 2 / 0.8 | speed / turn | 3.0 / 100 |
 | sight / optics | 15 / 1.6, thermal | signature / firing mult | 1.3 / 2.5 |
-| weapons | `chain_gun_30` as the Peten; `rocket_pods` he, range 8, acc 0.45, pen 60, dmg 140, splash 1.0, supp 140, rof 30, collateral 0.55; `hellfire` as the Peten at rof 3 | | |
+| weapons | `chain_gun_30` as the Peten; `hellfire` as the Peten (rof 6). **Changed 13 Oct 2026, see the ruling below:** the draft's `rocket_pods` (slot 1) and rof-3 `hellfire` (slot 2) are gone | | |
 | cost | 450 logistics, 50 s, pop 3 | unlock | `{ "price": 8000 }` |
 | upgrades | armour (front +0 at every tier; see Rulings), sensors, firepower (pods): 3,185 credits | curve | +2.2%; max tier +10.9% (+1.9% / +10.6% at front 55) |
+
+### Ruling, 13 Oct 2026: the sim fires two weapon slots
+
+The draft listed three weapons, and `sim.ts` reads slots 0 and 1 only (`slot < 2`): the Hellfire sat in
+slot 2 and **never fired**. Measured by a Lavi duel (24 seeds, 120 s, gunship vs an unarmed Lavi, no orders):
+0 Hellfires and 0 kills at 6 and at 9.5 tiles. `weapons` is capped at two in `unit.schema.json` now.
+
+Which weapon went: the **rocket pods**. The probe above this section is the reason. With
+`[hellfire, rocket_pods]` the Gunship cleared **0 of 30** single-truck passes (the Peten clears 24) and
+survived 57%: the ZU-23 pins it after one volley, and the pods and missile (one volley each) cannot kill a
+truck first, where the 625 rpm cannon does. That misses the frozen claim "clears one truck at least as often
+as the Peten", which is never widened. So the Gunship keeps the cannon and the missile.
+Hellfire rof 3 -> 6: the "half the missiles" was there to pay for a third weapon that never fired; at 3 the
+8,000-credit anti-armour helicopter killed a Lavi less often than the 460-credit Peten (7 vs 12 of 24 at 9.5
+tiles), at 6 it matches it (12 vs 12 at 9.5, 12 vs 12 at 6). The firepower track patched `weapons[1]` (the
+pods); `weapons[1]` is the Hellfire now, so it buys the missile's accuracy, on purpose, with the same
+numbers (pinned by `tools/src/unit_weapon_slots.test.ts`). Cost curve: 450 logistics stays inside the band
+(+8.1%, max tier +16.2%, was +2.2% / +10.9%).
 
 ## The names screen (Q7, storyline §2.4 rule 3), 2026-09-29
 
