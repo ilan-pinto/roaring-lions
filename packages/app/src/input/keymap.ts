@@ -109,6 +109,15 @@ const spec = (id: Action): ActionSpec => ACTIONS.find((a) => a.id === id) as Act
  */
 const norm = (key: string): string => (key === ' ' ? 'space' : key.toLowerCase());
 const DIGIT = /^[0-9]$/;
+/**
+ * What a stored binding may be (security review review 559, F3): one printable
+ * character (a letter, digit, punctuation mark or symbol, any script) or a
+ * `KeyboardEvent.key` NAME (`space`, `f5`, `pageup`) -- lower-cased, as `norm`
+ * leaves it. `lions.settings` is player-editable storage, and a binding is
+ * shown on screen, so a value that is neither is dropped rather than kept.
+ */
+const KEY_NAME = /^(?:[\p{L}\p{N}\p{P}\p{S}]|[a-z][a-z0-9]{1,19})$/u;
+export const isKeyName = (key: string): boolean => KEY_NAME.test(norm(key));
 const unassignable = (k: string): boolean => DIGIT.test(k) || RESERVED.has(k) || k.length === 0;
 
 function holder(b: Bindings, key: string, modifier: 'ctrl' | undefined, except?: Action): Action | null {
@@ -124,7 +133,7 @@ export function bindingsFrom(overrides: Record<string, string>): Bindings {
   for (const [id, key] of Object.entries(overrides)) {
     if (!isAction(id) || !spec(id).rebindable) continue;
     const k = norm(key);
-    if (unassignable(k)) continue;
+    if (!isKeyName(k) || unassignable(k)) continue;
     if (holder(out, k, spec(id).modifier, id) !== null) continue;
     out[id] = k;
   }
@@ -295,7 +304,7 @@ export function isTextEntry(el: EventTarget | null): boolean {
 export function rebind(b: Bindings, action: Action, key: string): { ok: true; bindings: Bindings } | { ok: false; takenBy: Action } {
   const k = norm(key);
   const s = spec(action);
-  if (!s.rebindable || unassignable(k)) return { ok: false, takenBy: action };
+  if (!s.rebindable || !isKeyName(k) || unassignable(k)) return { ok: false, takenBy: action };
   const taken = holder(b, k, s.modifier, action);
   if (taken) return { ok: false, takenBy: taken };
   return { ok: true, bindings: { ...b, [action]: k } };

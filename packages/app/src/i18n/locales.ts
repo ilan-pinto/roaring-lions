@@ -48,3 +48,15 @@ export async function loadLocale(id: string, base: string): Promise<Catalogue> {
     return ENGLISH;
   }
 }
+
+/**
+ * Which locale this load uses (security review review 559, F6). `?lang=` used to go
+ * straight into the catalogue fetch path (`locales/${id}.json`) and the
+ * mission-overlay path, so a crafted link steered a same-origin fetch to
+ * wherever it liked. Only a shipped locale id, or the pseudo-locale, is
+ * honoured; anything else is ignored and the saved language stands.
+ */
+export function resolveLang(requested: string | null, saved: string): string {
+  if (requested !== null && (requested === 'pseudo' || LOCALES.some((l) => l.id === requested))) return requested;
+  return saved;
+}

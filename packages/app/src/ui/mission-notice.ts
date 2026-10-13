@@ -186,7 +186,7 @@ export function unknownSandboxMapNotice(
   known: Readonly<Record<string, unknown>>,
   shownName: string,
 ): [string, Tone] | null {
-  if (!requested || requested in known) return null;
+  if (!requested || Object.hasOwn(known, requested)) return null;
   // The requested id is NOT echoed: it is a data id (PA-01's wording gate),
   // and the player gains nothing from reading their own typo back.
   return [t('main.note.sandboxMapUnknown', { name: escapeHtml(shownName) }), 'warn'];

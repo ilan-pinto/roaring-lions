@@ -237,7 +237,7 @@ import { garageColors, garageGroundTexture, garageModelSource } from './garage-m
 import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { PAUSES_PER_SEAT, WsTransport, type Seat, type TransportStatus } from '@lions/net';
-import { connectMatch, openRoom, type Connected } from './net/connect';
+import { JoinNeedsConfirmation, connectMatch, openRoom, type Connected } from './net/connect';
 import { desyncReportDraft, withoutReplay } from './net/desync-report';
 import { blockedOrderNotes, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
 import { CatchUpQuiet, roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
@@ -299,7 +299,7 @@ import { browserLedgerStore, newCampaign, writeVictory, type CampaignLedger, typ
 import { showSaves, type SavesDeps } from './ui/saves';
 import { showCredits, type CreditsDeps } from './ui/credits';
 import { showVersus, showVersusRoom, versusMaps, type VersusDeps } from './ui/versus';
-import { LOCALES, applyLocale, loadLocale } from './i18n/locales';
+import { LOCALES, applyLocale, loadLocale, resolveLang } from './i18n/locales';
 import { currentLocale, missingKeys, setCatalogue, t } from './i18n/t';
 import { pseudo } from './i18n/pseudo';
 
@@ -848,7 +848,7 @@ async function main(): Promise<void> {
   // so `unknownParams` does not report either as a typo, and neither is in
   // `router.start`'s own `drop` list below, so a reload keeps carrying them.
   const q = new URLSearchParams(window.location.search);
-  const lang = q.get('lang') ?? settings.language;
+  const lang = resolveLang(q.get('lang'), settings.language);
   const activeLocale = q.has('pseudo') ? 'pseudo' : lang;
   const cat = await loadLocale(activeLocale, BASE);
   setCatalogue(activeLocale, cat, q.has('pseudo') ? pseudo : undefined);
@@ -1567,7 +1567,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const missionId = req.missionId;
   let mission: MissionJson | undefined;
   if (missionId !== null) {
-    const rawMission = (missions as Record<string, MissionJson | undefined>)[missionId];
+    // Own keys only (review 559 F5): `?mission=constructor` must be an unknown id,
+    // not `Object`'s inherited member.
+    const rawMission = Object.hasOwn(missions, missionId)
+      ? (missions as Record<string, MissionJson | undefined>)[missionId]
+      : undefined;
     if (!rawMission) {
       bootError(stage, t('boot.unknownMission.title'), t('boot.unknownMission.body'), t('boot.unknownMission.next'));
       // `teardown`, not a fresh no-op: nothing has been registered yet, so it
@@ -1633,7 +1637,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // failing, and names what it did: a typo in a dev URL should not look like
   // a broken build.
   const sandboxMap = req.sandboxMap;
-  if (sandboxMap && !(sandboxMap in maps)) {
+  if (sandboxMap && !Object.hasOwn(maps, sandboxMap)) {
     console.warn(
       `unknown sandbox map "${sandboxMap}" — available: ${Object.keys(maps).join(', ')}`
     );
@@ -1667,7 +1671,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         `see __lions.help() for what this build reads`
     );
   }
-  const mapId = mission?.map.file ?? (sandboxMap && sandboxMap in maps ? sandboxMap : 'beit_sahwan_outskirts');
+  const mapId = mission?.map.file ?? (sandboxMap && Object.hasOwn(maps, sandboxMap) ? sandboxMap : 'beit_sahwan_outskirts');
   // The transport, resolved before the sim exists (spec §3.3): a
   // `LocalTransport` in single-player, else a room, which resolves at its
   // `start` with the seed and the map both machines run. The build string is
@@ -1694,6 +1698,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     });
   } catch (err) {
     teardown();
+    // review 559 F8: a `?net=<code>` link is not a join. Hand it to the room's own
+    // Join confirmation (callsign, explicit click) instead of seating and
+    // readying whoever followed it.
+    if (err instanceof JoinNeedsConfirmation) {
+      req.navigate(routes.versusRoom(err.code), { replace: true });
+      return teardown;
+    }
     throw err;
   }
   const transport = match.transport;

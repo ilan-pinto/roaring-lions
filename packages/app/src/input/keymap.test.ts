@@ -269,3 +269,11 @@ describe('keymap', () => {
     });
   });
 });
+
+describe('bindingsFrom rejects non-key-names (security review #559, F3)', () => {
+  it('refuses a markup-bearing override and falls back to the default key', () => {
+    const b = bindingsFrom({ halt: '<img src=x data-pwn=1>', move: 'j' });
+    expect(b.halt).toBe('h');
+    expect(b.move).toBe('j');
+  });
+});

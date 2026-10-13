@@ -16,6 +16,7 @@ import type { LedgerData } from '@lions/sim';
 // and the door reads and writes it as an opaque string, because a damaged slot
 // has to stay skippable by `importSlot` without the door knowing what a slot is.
 import { migrateAccount, type BrigadeAccount } from './brigade-account';
+import { sanitiseLedger } from './ledger-shape';
 import type { LedgerStore } from './ledger-store';
 
 export const SAVES_KEY = 'lions.saves';
@@ -223,7 +224,8 @@ export function importSlot(json: string): SaveSlot {
     name: v.name,
     savedAt: typeof v.savedAt === 'number' ? v.savedAt : 0,
     build: typeof v.build === 'string' ? v.build : '',
-    ledger: v.ledger as LedgerData,
+    // review 559 F4: an imported file is somebody else's bytes -- element by element.
+    ledger: sanitiseLedger(v.ledger as LedgerData),
     // A version-1 slot's per-campaign record (GH-330) is derived against the
     // slot's OWN ledger, the campaign it was saved in, not the active one.
     account: migrateAccount(v.account, slotCompleted(v.ledger)),

@@ -2068,7 +2068,7 @@ export class Hud {
         // alone -- the label and key cap beside it stay in the button's ink.
         `<span class="rl-order__glyph" data-family="${ORDER_SIGHT[row.id].family}">` +
         `${symbolSvg(row.id, ORDER_GLYPH_PX)}</span>${label}` +
-        `${cap} <b class="rl-dim">${this.deps.keyFor?.(row.key) ?? row.key}</b>`;
+        `${cap} <b class="rl-dim">${escapeHtml(this.deps.keyFor?.(row.key) ?? row.key)}</b>`;
       // `btn.title` used to carry this; `orderTipHtml` (bound once, in the
       // constructor) reads `dataset.inert` back off the button at SHOW time
       // instead, so the tooltip's "why inert" clause is never one tick stale
