@@ -1,6 +1,7 @@
 import type { Env } from './d1';
 import { handleIngest, purgeEvents } from './ingest';
 import { purgeRateDays } from './rate-day';
+import { withSecurityHeaders } from './security-headers';
 import { handleStats } from './stats';
 import { handleFeedback } from './feedback-ingest';
 import { purgeExpired } from './feedback-triage';
@@ -13,10 +14,12 @@ export { MatchRoom } from './match/match-room';
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const { pathname } = new URL(req.url);
-    if (pathname === '/api/events') return handleIngest(req, env, Date.now());
-    if (pathname === '/api/feedback') return handleFeedback(req, env, Date.now());
-    if (pathname === '/api/match' || pathname.startsWith('/api/match/')) return handleMatch(req, env, Date.now());
-    if (pathname === '/stats' || pathname.startsWith('/stats/')) return handleStats(req, env, Date.now());
+    // #559 L-5: every response the Worker writes carries the security headers.
+    if (pathname === '/api/events') return withSecurityHeaders(await handleIngest(req, env, Date.now()));
+    if (pathname === '/api/feedback') return withSecurityHeaders(await handleFeedback(req, env, Date.now()));
+    if (pathname === '/api/match' || pathname.startsWith('/api/match/')) return withSecurityHeaders(await handleMatch(req, env, Date.now()));
+    if (pathname === '/stats' || pathname.startsWith('/stats/')) return withSecurityHeaders(await handleStats(req, env, Date.now()));
+    // The game's files: `assets/_headers` gives them theirs.
     return env.ASSETS.fetch(req);
   },
   /** The daily Cron Trigger (wrangler.jsonc `triggers.crons`): GH-464's
