@@ -50,7 +50,7 @@ export async function loadLocale(id: string, base: string): Promise<Catalogue> {
 }
 
 /**
- * Which locale this load uses (security review #559, F6). `?lang=` used to go
+ * Which locale this load uses (security review review 559, F6). `?lang=` used to go
  * straight into the catalogue fetch path (`locales/${id}.json`) and the
  * mission-overlay path, so a crafted link steered a same-origin fetch to
  * wherever it liked. Only a shipped locale id, or the pseudo-locale, is

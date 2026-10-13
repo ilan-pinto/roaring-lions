@@ -110,7 +110,7 @@ const spec = (id: Action): ActionSpec => ACTIONS.find((a) => a.id === id) as Act
 const norm = (key: string): string => (key === ' ' ? 'space' : key.toLowerCase());
 const DIGIT = /^[0-9]$/;
 /**
- * What a stored binding may be (security review #559, F3): one printable
+ * What a stored binding may be (security review review 559, F3): one printable
  * character (a letter, digit, punctuation mark or symbol, any script) or a
  * `KeyboardEvent.key` NAME (`space`, `f5`, `pageup`) -- lower-cased, as `norm`
  * leaves it. `lions.settings` is player-editable storage, and a binding is

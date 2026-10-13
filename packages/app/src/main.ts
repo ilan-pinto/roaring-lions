@@ -1567,7 +1567,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const missionId = req.missionId;
   let mission: MissionJson | undefined;
   if (missionId !== null) {
-    // Own keys only (#559 F5): `?mission=constructor` must be an unknown id,
+    // Own keys only (review 559 F5): `?mission=constructor` must be an unknown id,
     // not `Object`'s inherited member.
     const rawMission = Object.hasOwn(missions, missionId)
       ? (missions as Record<string, MissionJson | undefined>)[missionId]
@@ -1698,7 +1698,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     });
   } catch (err) {
     teardown();
-    // #559 F8: a `?net=<code>` link is not a join. Hand it to the room's own
+    // review 559 F8: a `?net=<code>` link is not a join. Hand it to the room's own
     // Join confirmation (callsign, explicit click) instead of seating and
     // readying whoever followed it.
     if (err instanceof JoinNeedsConfirmation) {

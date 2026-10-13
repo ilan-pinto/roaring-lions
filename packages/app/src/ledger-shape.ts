@@ -1,5 +1,5 @@
 /**
- * Element-wise shape check for a campaign ledger (security review #559, F4).
+ * Element-wise shape check for a campaign ledger (security review review 559, F4).
  *
  * A ledger is player-editable storage, and an imported save is another
  * player's file. `JSON.parse(...) as LedgerData` is a cast, so `[1, null, {}]`

@@ -13,7 +13,7 @@
  *  3. `seat` on the URL with no stored ticket is refused (`RELOAD_REFUSED`);
  *  4. otherwise `?net=new` creates a room and rewrites the URL to
  *     `?net=<code>&seat=0` and stores its ticket; a bare `?net=<code>` does
- *     NOT join: it throws `JoinNeedsConfirmation` (#559 F8) and the battlefield
+ *     NOT join: it throws `JoinNeedsConfirmation` (review 559 F8) and the battlefield
  *     redirects to the `/versus/<code>` Join confirmation, which seats and
  *     readies only on the player's own click.
  *
@@ -55,7 +55,7 @@ export interface Connected { transport: MatchTransport; seat: Seat | null; confi
 export const RELOAD_REFUSED = 'this tab holds no seat in that room, so a reload cannot rejoin it; open a new room (?net=new)';
 
 /** `?net=<code>` with nothing to join WITH: no transport handed over by the
- *  lobby and no ticket this tab already holds (security review #559, F8).
+ *  lobby and no ticket this tab already holds (security review review 559, F8).
  *  A link must not seat whoever follows it in somebody's room and ready them,
  *  so `connectMatch` refuses before any request and the battlefield sends the
  *  visitor to `/versus/<code>`, where a callsign and an explicit Join come

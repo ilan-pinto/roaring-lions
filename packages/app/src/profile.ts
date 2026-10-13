@@ -224,7 +224,7 @@ export function importSlot(json: string): SaveSlot {
     name: v.name,
     savedAt: typeof v.savedAt === 'number' ? v.savedAt : 0,
     build: typeof v.build === 'string' ? v.build : '',
-    // #559 F4: an imported file is somebody else's bytes -- element by element.
+    // review 559 F4: an imported file is somebody else's bytes -- element by element.
     ledger: sanitiseLedger(v.ledger as LedgerData),
     // A version-1 slot's per-campaign record (GH-330) is derived against the
     // slot's OWN ledger, the campaign it was saved in, not the active one.
