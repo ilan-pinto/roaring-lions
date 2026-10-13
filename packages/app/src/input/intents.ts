@@ -585,6 +585,19 @@ function roeTierAt(world: IntentWorld, x: number, y: number): RoeTier {
 
 /** Pass K: the halt key with nothing of ours selected used to do nothing, in
  *  silence. It still dispatches nothing; it now says what the key wants. */
-export function haltNote(mine: number): { text: string; tone: 'mute' } | null {
-  return mine > 0 ? null : { text: t('intent.halt.none'), tone: 'mute' };
+export function haltNote(
+  mine: number,
+  outside: number = mine,
+): { text: string; tone: 'mute' } | null {
+  if (mine <= 0) return { text: t('intent.halt.none'), tone: 'mute' };
+  if (outside <= 0) return { text: t('intent.halt.garrisoned'), tone: 'mute' };
+  return null;
+}
+
+/** Which of the selected ids the halt key may be handed. The sim's `halt`
+ *  ejects a garrisoned unit (`leaveStructure`), so H would empty a building;
+ *  a unit inside is already holding, so it is left out here and the sim is
+ *  untouched (the lead's ruling, 2026-10-11). Leaving stays a move order. */
+export function haltTargets(ids: readonly number[], isGarrisoned: (id: number) => boolean): number[] {
+  return ids.filter((i) => !isGarrisoned(i));
 }
