@@ -39,12 +39,12 @@ const repeat = <T>(n: number, f: (i: number) => T): T[] => Array.from({ length: 
 
 describe('CivFlightWatch — the break', () => {
   it('says nothing while families shelter in place', () => {
-    const w = new CivFlightWatch();
+    const w = new CivFlightWatch({ shepherds: true });
     expect(run(w, repeat(400, () => [civ(1), civ(2)]))).toEqual([]);
   });
 
   it('names troops when the family was not suppressed the tick the rule ran', () => {
-    const w = new CivFlightWatch();
+    const w = new CivFlightWatch({ shepherds: true });
     const lines = run(w, [[civ(1)], ...repeat(FLIGHT_GATHER_TICKS + 1, () => [civ(1, { moving: true })])]);
     expect(lines).toHaveLength(1);
     expect(lines[0].notice).toMatchObject({
@@ -59,7 +59,7 @@ describe('CivFlightWatch — the break', () => {
   // suppression can have decayed under the line -- so the cause must come
   // from the observation BEFORE the move, not the one that saw it.
   it('names fire from the observation before the move, even if suppression has decayed since', () => {
-    const w = new CivFlightWatch();
+    const w = new CivFlightWatch({ shepherds: true });
     const lines = run(w, [
       [civ(1, { suppressed: true })],
       ...repeat(FLIGHT_GATHER_TICKS + 1, () => [civ(1, { moving: true, suppressed: false })]),
@@ -75,7 +75,7 @@ describe('CivFlightWatch — the break', () => {
   // order does is not what the rule saw, so a family walked out by a soldier
   // and shot at on her first step is still the soldier's.
   it('does not read the cause off the observation that saw the move', () => {
-    const w = new CivFlightWatch();
+    const w = new CivFlightWatch({ shepherds: true });
     const lines = run(w, [
       [civ(1)],
       ...repeat(FLIGHT_GATHER_TICKS + 1, () => [civ(1, { moving: true, suppressed: true })]),
@@ -83,14 +83,40 @@ describe('CivFlightWatch — the break', () => {
     expect(lines.map((l) => l.notice.cause)).toEqual(['troops']);
   });
 
+  // GH-279: a mission with no `evacuate_before` has no shepherding, so the rule
+  // has one trigger and an unsuppressed break cannot be "your troops".
+  it('in a mission that does not shepherd, an unsuppressed break is fire', () => {
+    const w = new CivFlightWatch({ shepherds: false });
+    const lines = run(w, [[civ(1)], ...repeat(FLIGHT_GATHER_TICKS + 1, () => [civ(1, { moving: true })])]);
+    expect(lines).toHaveLength(1);
+    expect(lines[0].notice).toMatchObject({
+      cause: 'fire',
+      line: { key: 'alert.civFlight.fire', tone: 'warn' },
+    });
+  });
+
+  it('…and never the troops line', () => {
+    const w = new CivFlightWatch({ shepherds: false });
+    const lines = run(w, [
+      [civ(1), civ(2), civ(3)],
+      ...repeat(FLIGHT_GATHER_TICKS + 1, () => [
+        civ(1, { moving: true }),
+        civ(2, { moving: true }),
+        civ(3, { moving: true }),
+      ]),
+    ]);
+    expect(lines.map((l) => l.notice.line.key)).toEqual(['alert.civFlight.fire']);
+    expect(lines[0].notice.count).toBe(3);
+  });
+
   it('counts a family that boarded a carrier as a break', () => {
-    const w = new CivFlightWatch();
+    const w = new CivFlightWatch({ shepherds: true });
     const lines = run(w, [[civ(1)], ...repeat(FLIGHT_GATHER_TICKS + 1, () => [civ(1, { carried: true })])]);
     expect(lines.map((l) => l.notice.count)).toEqual([1]);
   });
 
   it('ignores the dead and the buried', () => {
-    const w = new CivFlightWatch();
+    const w = new CivFlightWatch({ shepherds: true });
     const lines = run(
       w,
       repeat(FLIGHT_GATHER_TICKS + 5, () => [
@@ -104,7 +130,7 @@ describe('CivFlightWatch — the break', () => {
   // The sim re-orders a family whose transport died under it (the first
   // branch of `CivilianFlight.step`). That is the same flight, not a new one.
   it('announces a family once, however many times it stops and starts', () => {
-    const w = new CivFlightWatch();
+    const w = new CivFlightWatch({ shepherds: true });
     const frames = [
       [civ(1)],
       ...repeat(40, () => [civ(1, { moving: true })]),
@@ -121,7 +147,7 @@ describe('CivFlightWatch — the throttle', () => {
   // The lead's bar: a whole village breaking is one line, not twenty. A squad
   // walking through it sets the families off in a ripple, a few ticks apart.
   it('a village of twenty breaking inside the gather window is ONE line', () => {
-    const w = new CivFlightWatch();
+    const w = new CivFlightWatch({ shepherds: true });
     const ids = repeat(20, (i) => i);
     const frames = repeat(FLIGHT_GATHER_TICKS + 30, (t) => ids.map((id) => civ(id, { moving: t > id })));
     const lines = run(w, [ids.map((id) => civ(id)), ...frames]);
@@ -132,14 +158,14 @@ describe('CivFlightWatch — the throttle', () => {
   });
 
   it('waits out the gather window before speaking', () => {
-    const w = new CivFlightWatch();
+    const w = new CivFlightWatch({ shepherds: true });
     const lines = run(w, [[civ(1)], ...repeat(FLIGHT_GATHER_TICKS + 1, () => [civ(1, { moving: true })])]);
     // Broke at tick 1, said at tick 1 + GATHER.
     expect(lines[0].tick).toBe(1 + FLIGHT_GATHER_TICKS);
   });
 
   it('holds a later break through the cooldown and then says it, never drops it', () => {
-    const w = new CivFlightWatch();
+    const w = new CivFlightWatch({ shepherds: true });
     const firstSaid = 1 + FLIGHT_GATHER_TICKS;
     const secondBreak = firstSaid + 50; // well inside the cooldown
     const total = firstSaid + FLIGHT_COOLDOWN_TICKS + 10;
@@ -159,7 +185,7 @@ describe('CivFlightWatch — the throttle', () => {
   // apart. A fixed 1.5 s window split a 3 s ripple into two lines ten
   // seconds apart; a sliding one keeps it one.
   it('a ripple spread over three seconds is still one line', () => {
-    const w = new CivFlightWatch();
+    const w = new CivFlightWatch({ shepherds: true });
     const breakAt = [1, 21, 41, 61]; // every second, for three seconds
     const frames = repeat(61 + FLIGHT_GATHER_TICKS + 5, (t) => breakAt.map((b, i) => civ(i, { moving: t >= b })));
     const lines = run(w, frames);
@@ -169,7 +195,7 @@ describe('CivFlightWatch — the throttle', () => {
   });
 
   it('stops sliding at the cap, so the family that opened it is not kept waiting', () => {
-    const w = new CivFlightWatch();
+    const w = new CivFlightWatch({ shepherds: true });
     // A break every 20 ticks, indefinitely: the slide alone would never close.
     const breakAt = repeat(12, (i) => 1 + i * 20);
     const frames = repeat(240, (t) => breakAt.map((b, i) => civ(i, { moving: t >= b })));
@@ -178,7 +204,7 @@ describe('CivFlightWatch — the throttle', () => {
   });
 
   it('a mixed batch is called fire -- the louder fact', () => {
-    const w = new CivFlightWatch();
+    const w = new CivFlightWatch({ shepherds: true });
     const lines = run(w, [
       [civ(1), civ(2, { suppressed: true })],
       ...repeat(FLIGHT_GATHER_TICKS + 1, () => [civ(1, { moving: true }), civ(2, { moving: true })]),
@@ -193,7 +219,7 @@ describe('CivFlightWatch — where the line points', () => {
   // Review finding 4: a batch held through the cooldown is said up to ten
   // seconds after the break, by which time she has run several tiles.
   it('points at where the first family is NOW, not where she broke', () => {
-    const w = new CivFlightWatch();
+    const w = new CivFlightWatch({ shepherds: true });
     const firstSaid = 1 + FLIGHT_GATHER_TICKS;
     const held = firstSaid + 20;
     const frames = repeat(firstSaid + FLIGHT_COOLDOWN_TICKS + 1, (t) => [
@@ -209,7 +235,7 @@ describe('CivFlightWatch — where the line points', () => {
   });
 
   it('falls back to where she broke when she is no longer on the map', () => {
-    const w = new CivFlightWatch();
+    const w = new CivFlightWatch({ shepherds: true });
     const lines = run(w, [
       [civ(1)],
       [civ(1, { moving: true })],
@@ -222,7 +248,7 @@ describe('CivFlightWatch — where the line points', () => {
 describe('CivFlightWatch — idle', () => {
   // Review finding 5: `main.ts` skips building observations while this holds.
   it('is idle only once every civilian is latched or dead and nothing waits to be said', () => {
-    const w = new CivFlightWatch();
+    const w = new CivFlightWatch({ shepherds: true });
     expect(w.idle).toBe(false); // never observed
     w.observe([civ(1), civ(2)], 0);
     expect(w.idle).toBe(false); // two sheltering
@@ -233,7 +259,7 @@ describe('CivFlightWatch — idle', () => {
   });
 
   it('a buried civilian keeps it awake -- she may surface', () => {
-    const w = new CivFlightWatch();
+    const w = new CivFlightWatch({ shepherds: true });
     w.observe([civ(1, { buried: true })], 0);
     expect(w.idle).toBe(false);
   });

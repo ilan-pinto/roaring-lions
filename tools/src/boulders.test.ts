@@ -218,8 +218,12 @@ describe('a boulder field authored as `b`', () => {
 // The trap in the obvious answer. FOOT_ROLES already splits foot from vehicle
 // for `canEmbark`, and it contains `artillery` -- but `rocket_battery` is a
 // Grad on a 6x6 truck and declares role "artillery" too. Reusing FOOT_ROLES
-// would drive a rocket truck through a boulder field that stops a jeep. These
-// two are the two sides of that conflation, pinned against the shipped JSON.
+// would drive a rocket truck through a boulder field that stops a jeep. The
+// first pin below holds the rocket battery on the vehicle side of that
+// conflation; the rest hold the foot side, since the default fails the other
+// way too: `manpad_team` (GH-247) is a foot team whose role sits outside the
+// set, so it needs `wheeled: false` authored. All are pinned against the
+// shipped JSON.
 describe('what counts as a vehicle', () => {
   it('calls the rocket battery wheeled despite its artillery role', () => {
     expect(units.rocket_battery.role).toBe('artillery');
@@ -229,6 +233,18 @@ describe('what counts as a vehicle', () => {
   it('and the mortar team, the same role, not', () => {
     expect(units.mortar_team.role).toBe('artillery');
     expect(unitTypeFromJson(units.mortar_team as UnitTypeJson).wheeled).toBe(false);
+  });
+
+  it('and the MANPAD team, role "aa", on foot by its own JSON (GH-247)', () => {
+    // `aa` is outside FOOT_ROLES -- and `gun_truck` shares it, so the role
+    // cannot join the set -- so the default calls a manpad a vehicle. A MANPAD
+    // team is two men and a launcher: its JSON says `wheeled: false`, and a
+    // boulder field is open ground to it.
+    expect(units.manpad_team.role).toBe('aa');
+    expect(units.gun_truck.role).toBe('aa');
+    const manpad = unitTypeFromJson(units.manpad_team as UnitTypeJson);
+    expect(manpad.wheeled).toBe(false);
+    expect(manpad.moveDomain).toBe(0);
   });
 
   it('leaves air out of it entirely — a helicopter paths on the foot mask', () => {

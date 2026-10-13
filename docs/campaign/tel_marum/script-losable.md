@@ -62,8 +62,9 @@ exactly the way the recon patrol itself has to stay out of the envelope.
 - **`civilians`** (new to this mission): three herders, one group, placed at
   `[21, 24]` — north of the hollow (inside the battery's reach, per the
   briefing's own line), on open ground (`.` the whole way from x15–29,
-  y18–30, checked against the map's own grid this session), and close to the
-  drone's own first waypoint `[24, 25]` (§2 explains why that matters).
+  y18–30, checked against the map's own grid this session), and within 4 tiles
+  of `[22, 27]`, where the `inf_squad` sent to walk them out stands (§2 explains
+  why that matters; GH-279 ruling (a): an aircraft walks nobody out).
 - **Refuge**: no new marker needed. `civilians.refuge` names the map's own
   existing `start_line` marker (`[24, 44]`) — the safe ground the briefing
   already calls out. The **zone** does not exist yet and is additive: `refuge
@@ -197,7 +198,7 @@ block behind the pass"*). This primary puts people in it.
 
 | mission | passive control today | passive control with this patch | shipped plan, patched |
 |---|---|---|---|
-| I | `ONGOING`, 20.0 min cap | **`DEFEAT`, 5.00 min** — `clear_the_valley_floor=failed`; every `locate` never starts, `screen_out` still completes (it cannot fail) | **`VICTORY`, 0.85 min, ROE 100 — unchanged from shipped, zero order changes.** The drone's own first waypoint (`[24, 25]`, t=4s) already sits within 4 tiles of the herders at `[21, 24]` (`SHEPHERD_RADIUS_SQ`, `packages/sim/src/civilians.ts`), so they break for `start_line` at t≈4–16s and arrive on foot (0.8 tiles/s, ~18 tiles) well inside the 300s deadline, before the plan's next order even fires |
+| I | `ONGOING`, 20.0 min cap | **`DEFEAT`, 5.00 min** — `clear_the_valley_floor=failed`; every `locate` never starts, `screen_out` still completes (it cannot fail) | **`VICTORY`, 1.1 min, ROE 100 (seed 424242).** One order differs from the drone-led plan: the `inf_squad` sent to `[22, 27]` at t=4s (3.0–3.4 tiles from all three herders at `[21, 24]`, inside `SHEPHERD_RADIUS_SQ`, `packages/sim/src/civilians.ts`, and outside `tm_spotter_west`'s sight 9) walks them out; they break for `start_line` once it arrives and make the 300s deadline on foot (0.8 tiles/s, ~18 tiles). The drone's own first waypoint `[24, 25]` (t=4s) no longer moves anyone: an aircraft overhead walks nobody out (GH-279 ruling (a)) |
 | II | `ONGOING`, 20.0 min cap | **`DEFEAT`, 5.00 min** — `burn_the_ammo_point=failed`; `hold_approach`/`kill_spotter` never start (force never leaves the start line) | **`VICTORY`, 4.24 min, ROE 98** (shipped baseline: 4.2 min, ROE 100 — design §3.1). **One added order**: the new `demo_squad` moves with the mortar's own t=3s order to `[23, 28]`, within `demolish`'s 2-tile range of the cache; it self-targets and burns it with no explicit `demolish` order needed (`stepDemolition`'s automatic branch, `sim.ts:4335`). The 2-point ROE cost is the demolition charge's own `collateral_risk` |
 | III | `ONGOING`, 20.0 min cap | **`DEFEAT`, 5.00 min** — `get_the_block_out=failed`; `take_pass`/`kill_battery` never start | **`VICTORY`, 4.46 min, ROE 95** (shipped baseline: 3.5 min, ROE 100 — design §3.1). **Zero order changes**, but the mission now runs about a minute longer: `kill_battery` completes at t≈154s and `take_pass` at t≈212s exactly as shipped, but victory now waits on the evacuation too — the families are shepherded by the same forces already pushing toward the battery in the plan's own second half, and walk the ~19 tiles to `approach` on foot, arriving at t≈265–268s, comfortably inside the 300s deadline |
 
@@ -474,12 +475,14 @@ left to read as if the mission still cannot be lost.
 against TypeScript/pseudocode — `mission-author`/`playtest` translate to
 `sim.queueCommand` calls):
 
-Mission I — **no change.** The shipped plan's existing order at t=4s already
-does the work:
+Mission I — **one squad split off the foot move** (GH-279 ruling (a): the drone
+no longer starts the herders walking). At t=4s:
 
 | t (s) | unit | order kind | target | note |
 |---|---|---|---|---|
-| 4 | `recon_drone` | move | `[24, 25]` | unchanged from shipped — this waypoint alone sits within 4 tiles of the herders at `[21, 24]` and starts them walking |
+| 4 | one `inf_squad` (`foot[0]`) | move | `[22, 27]` | 3.0–3.4 tiles from all three herders at `[21, 24]`, inside the 4-tile shepherd radius, outside `tm_spotter_west`'s sight 9; it walks them out |
+| 4 | the other `inf_squad`s | move | `[23, 31]` | the rest of the foot, as shipped |
+| 4 | `recon_drone` | move | `[24, 25]` | unchanged from shipped, but it moves nobody |
 
 Mission II — **one order added**, grouped with the mortar's own existing
 order:

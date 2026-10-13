@@ -1357,16 +1357,45 @@ describe('civilians and ROE (GDD §6)', () => {
     if (end?.kind === 'missionEnd') expect(end.roeRating).toBe(40);
   });
 
+  // GH-279 ruling b: only a mission that declares an `evacuate_before` has a
+  // reason to walk a family out, so only such a mission shepherds. The two
+  // tests below therefore carry one; without it they test nothing.
+  const EVAC_OBJECTIVES: MissionJson['objectives'] = [
+    { id: 'evac', type: 'evacuate_before', primary: false, target: 'refuge_zone', count: 1, seconds: 900 },
+    { id: 'clock', type: 'survive_until', primary: true, seconds: 900 },
+  ];
+
   it('a civilian walks out when a soldier comes within shepherding range', () => {
-    const w = civWorld({
-      starting_force: [{ unit: 'm_squad', count: 1, at: [11, 6] }],
-      civilians: { groups: [{ unit: 'm_civ', count: 1, at: [12, 6] }], refuge: 'refuge' },
-    });
+    const w = civWorld(
+      {
+        starting_force: [{ unit: 'm_squad', count: 1, at: [11, 6] }],
+        civilians: { groups: [{ unit: 'm_civ', count: 1, at: [12, 6] }], refuge: 'refuge' },
+        objectives: EVAC_OBJECTIVES,
+      },
+      REFUGE_CTX
+    );
     const civ = w.sim.entityCount - 1;
     const startX = w.sim.state.posX[civ];
     w.step(40);
     // Heading for the refuge at [2, 10]: west and south of where it started.
     expect(w.sim.state.posX[civ]).toBeLessThan(startX);
+  });
+
+  it('with no evacuation objective, a soldier beside a family does not move it', () => {
+    // The same world as the test above with the objectives swapped for a
+    // plain clock: nothing here asks for the family to be walked out, so a
+    // soldier at one tile moves nobody (GH-279 ruling b).
+    const w = civWorld({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [11, 6] }],
+      civilians: { groups: [{ unit: 'm_civ', count: 1, at: [12, 6] }], refuge: 'refuge' },
+      objectives: [{ id: 'clock', type: 'survive_until', primary: true, seconds: 900 }],
+    });
+    const civ = w.sim.entityCount - 1;
+    const startX = w.sim.state.posX[civ];
+    const startY = w.sim.state.posY[civ];
+    w.step(40);
+    expect(w.sim.state.posX[civ]).toBe(startX);
+    expect(w.sim.state.posY[civ]).toBe(startY);
   });
 
   it('a civilian with no soldier near it stays put', () => {
@@ -1381,10 +1410,14 @@ describe('civilians and ROE (GDD §6)', () => {
   });
 
   it('shepherding is issued once, so a soldier standing there does not re-order every tick', () => {
-    const w = civWorld({
-      starting_force: [{ unit: 'm_squad', count: 1, at: [11, 6] }],
-      civilians: { groups: [{ unit: 'm_civ', count: 1, at: [12, 6] }], refuge: 'refuge' },
-    });
+    const w = civWorld(
+      {
+        starting_force: [{ unit: 'm_squad', count: 1, at: [11, 6] }],
+        civilians: { groups: [{ unit: 'm_civ', count: 1, at: [12, 6] }], refuge: 'refuge' },
+        objectives: EVAC_OBJECTIVES,
+      },
+      REFUGE_CTX
+    );
     const civ = w.sim.entityCount - 1;
     w.step(120);
     const x1 = w.sim.state.posX[civ];

@@ -60,7 +60,9 @@ describe('halt to fire on the shipped roster', () => {
     // Foot and unarmed.
     expect(halts('digger_crew')).toBe(false);
     expect(halts('civilians')).toBe(false);
-    // role "aa": the derivation calls it wheeled, so it is the one override.
-    expect(byId.get('manpad_team')?.mobility.halts_to_fire).toBe(true);
+    // role "aa", outside FOOT_ROLES, but `wheeled: false` in its own JSON
+    // (GH-247): it halts by the derivation, with no `halts_to_fire` override.
+    expect(byId.get('manpad_team')?.mobility).not.toHaveProperty('halts_to_fire');
+    expect(halts('manpad_team')).toBe(true);
   });
 });

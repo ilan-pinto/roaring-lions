@@ -9,9 +9,11 @@
 // exist to prevent — or to write `alive = 0` from outside the sim, which
 // invariant 4 forbids outright.
 //
-// So the rule is a small object both callers own an instance of. Nothing here
-// is new behaviour: `MissionRuntime` delegates to it and its own civilian
-// tests are unchanged.
+// So the rule is a small object both callers own an instance of. It is the
+// rule the runtime already had, moved: `MissionRuntime` delegates to it. Since
+// GH-279 the shepherding trigger is ground-only and applies only in a mission
+// that declares an `evacuate_before` (`missionShepherds`), which each caller
+// passes in as the `shepherd` option.
 //
 // Commands in, events out, exactly as before: this queues `move` and `load`
 // like any other order source, and the ONE state write it makes — clearing
@@ -29,6 +31,25 @@ export const CIV_FLEE_AT = 19661;
  *  reward shooting near them to herd them. */
 export const SHEPHERD_RADIUS_SQ = 1048576;
 
+/** How a set of civilians is allowed to be moved. */
+export interface CivilianFlightOptions {
+  /** A GROUND player unit within SHEPHERD_RADIUS_SQ walks a family out.
+   *  False: families move only under fire (GH-279 ruling b). */
+  shepherd: boolean;
+}
+
+/**
+ * Whether a mission shepherds: it declares at least one `evacuate_before`,
+ * primary or secondary. The one predicate the runtime and the app read.
+ *
+ * Without one there is nothing for walking a family out to satisfy, so a
+ * soldier passing by moves nobody -- civilians then flee only under fire
+ * (GH-279 ruling b).
+ */
+export function missionShepherds(objectives: readonly { type: string }[]): boolean {
+  return objectives.some((o) => o.type === 'evacuate_before');
+}
+
 /**
  * The flight and the count, for one set of civilians.
  *
@@ -39,6 +60,13 @@ export const SHEPHERD_RADIUS_SQ = 1048576;
 export class CivilianFlight {
   private readonly fledSet = new Set<number>();
   private readonly evacuatedSet = new Set<number>();
+
+  /** Whether a nearby ground soldier walks a family out (see the options). */
+  readonly shepherds: boolean;
+
+  constructor(opts: CivilianFlightOptions) {
+    this.shepherds = opts.shepherd;
+  }
 
   /** How many got out. Latched: dying afterwards does not un-count them. */
   get evacuatedCount(): number {
@@ -58,7 +86,8 @@ export class CivilianFlight {
   /**
    * Civilians shelter in place until fire lands close, then break for the
    * refuge — once, in fear, not as a controlled unit. They also go when a
-   * soldier reaches them: that is the player evacuating them, and it is the
+   * GROUND soldier reaches them, in a mission that shepherds
+   * (`missionShepherds`): that is the player evacuating them, and it is the
    * only way `evacuate_before` can be satisfied without shooting at them.
    *
    * `refuge` is resolved by the caller rather than looked up here, because a
@@ -107,11 +136,13 @@ export class CivilianFlight {
       // latch-before-confirm shape as the dead-transport debt).
       if (st.tunnelIn[civ] >= 0) continue;
       let leaving = st.suppression[civ] > CIV_FLEE_AT;
-      if (!leaving) {
+      if (!leaving && this.shepherds) {
         for (const p of playerIds) {
           // A buried soldier reaches nobody: his coordinates name a tile he
           // is not standing on.
           if (st.alive[p] === 0 || st.tunnelIn[p] >= 0) continue;
+          // An aircraft overhead walks nobody out (GH-279 ruling a).
+          if (sim.unitTypes[st.typeIdx[p]].isAir) continue;
           const dx = (fx.sub(st.posX[civ], st.posX[p]) >> 8) | 0;
           const dy = (fx.sub(st.posY[civ], st.posY[p]) >> 8) | 0;
           if (dx * dx + dy * dy <= SHEPHERD_RADIUS_SQ) {
@@ -130,6 +161,9 @@ export class CivilianFlight {
         // Nor does anyone board a hull that is under the earth.
         if (st.alive[p] === 0 || st.tunnelIn[p] >= 0) continue;
         const ptype = sim.unitTypes[st.typeIdx[p]];
+        // A rotor beside the family is no ride either (D3): the same rule as
+        // the shepherd loop above.
+        if (ptype.isAir) continue;
         if (ptype.transportSlots === 0) continue;
         if (sim.passengerCount(p) >= ptype.transportSlots) continue;
         const dx2 = (fx.sub(st.posX[civ], st.posX[p]) >> 8) | 0;

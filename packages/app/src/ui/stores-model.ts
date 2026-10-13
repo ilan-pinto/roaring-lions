@@ -52,7 +52,7 @@ export function packBonusPercent(pack: CoinPack, base: CoinPack = COIN_PACKS[0])
 }
 
 /** What one campaign pays at most, measured: `pnpm playtest`'s optimal-play
- *  ladder pin (`LADDER_CREDITS` in tools/src/backtest/playtest.ts, 5,972 over
+ *  ladder pin (`LADDER_CREDITS` in tools/src/backtest/playtest.ts, 5,952 over
  *  the 26 missions in `world.json`), and pinned to it as text by
  *  `tools/src/campaign_credits.test.ts`, so a ladder re-pin that forgets this
  *  copy goes red. Since GH-330 a new campaign pays again, so this is a PER
@@ -60,7 +60,7 @@ export function packBonusPercent(pack: CoinPack, base: CoinPack = COIN_PACKS[0])
  *  a finite number of campaigns, and guard G1 (spec §1.7) keeps no credit item
  *  off sale. (It was `LIFETIME_CREDITS = 5849`, stale since GH-345 moved the
  *  ladder, with nothing pinning it.) */
-export const CAMPAIGN_CREDITS = 5972;
+export const CAMPAIGN_CREDITS = 5952;
 /** The same ladder's mission count, for a mean pay a fresh account can quote
  *  before it has been paid for anything. */
 export const LADDER_MISSIONS = 26;

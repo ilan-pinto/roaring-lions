@@ -475,6 +475,10 @@ passiveAcrossSeeds('wadi_halam_1_fords', 'wadi_halam_1_fords (no orders)', 'defe
 // the same idiom V already uses for its own seven structures. It is kept
 // out of the periodic anchor sweep so a later `attackMove` never cancels its
 // charge.
+/** GH-291: the laager plan's chase radius round the pump house corner (tiles), and how long the hold
+ *  reads `contested` with nothing in that reach before the force goes to look (s). */
+const CHASE_R = 6;
+const STALL_S = 30;
 const wh2 = run(
   'wadi_halam_2_laager',
   (sim, rt, ids, at) => {
@@ -506,21 +510,57 @@ const wh2 = run(
     });
     at(1, anchor);
     for (let when = 15; when <= 300; when += 15) at(when, burn);
-    for (let when = 45; when <= 700; when += 45) at(when, anchor);
+    // GH-291 (see below): seconds the hold has read `contested`, and where the next search goes.
+    let stalled = 0;
+    let searched = 0;
+    for (let when = 45; when <= 700; when += 45)
+      at(when, () => {
+        if (stalled < STALL_S) anchor();
+      });
     // Since #537 nothing walks on to a picket left standing in the pasture: the hold stays contested
     // and the run never ends. Whatever the player has seen inside the pasture is attacked where he saw
     // it, for as long as the mission runs (the anchor used to stop at 700 s).
+    //
+    // GH-291 (a routed unit flees away from the fire it cannot see, or holds, instead of running -x)
+    // changed who is left in the pasture. A raider broken by the anchor's fire runs EAST now, away
+    // from the KDF line, and rallies inside the pasture or on the road beyond it; under -x it ran west
+    // into the guns and died. Two changes follow, each what a player watching the hold clock would do.
+    //
+    // - The force chases only what it has seen within 6 tiles of the pump house corner (the contest
+    //   radius), and otherwise holds. Every raider's patrol ends on that corner, so the fight comes to
+    //   it. Chasing to the pasture's far corner split the force on seed 9: the south riders caught it in
+    //   the open at 255-300 s, the rallied technical came back behind it, and the last of the waves
+    //   camped beside two knocked-out hulls and a lone squad (STUCK at 20 min).
+    // - When the clock has read `contested` for 30 s with nothing seen in reach (the HUD shows it), the
+    //   force goes to look: the nearest contact it remembers in the pasture, else the pasture's corners
+    //   in turn, east first, where the broken raiders go. With the chase held to 6 tiles alone, seed 13
+    //   stuck on a militia cell nobody had seen, 7.6 tiles out at (26.5,30.5), contesting a knocked-out
+    //   Namer.
+    //
+    // Measured with the GH-291 sim, on the sweep's 30 seeds and on 424242 plus 100-128, which took no
+    // part in choosing it: the old plan 29/30 (missed 9) and 30/30; the 6-tile chase alone 29/30
+    // (missed 13); both changes 30/30 and 30/30, slowest 7.4 and 7.1 min. On the sweep's seeds the
+    // search fires on five (6, 9, 11 and 25 go to a remembered contact, 13 to the first corner).
     const pic = new Picture(sim);
     const PASTURE = [13, 15, 14, 17] as const;
+    const SEARCH = [[25, 29], [25, 19], [16, 29], [16, 18]] as const;
     for (let when = 30; when <= 1190; when += 10)
       at(when, () => {
         pic.update();
         // The ford is taken and the store is down: the picket and the engineers join the hold.
         if (rt.objectiveStatus('keep_ford') === 'complete') for (const i of picket) kept.delete(i);
         if (rt.objectiveStatus('burn_store') === 'complete') for (const i of engineers) kept.delete(i);
+        const hold = rt.objectiveList.find((o) => o.id === 'hold_pasture');
+        stalled = hold?.paused === 'contested' ? stalled + 10 : 0;
         const c = pic.nearest(21, 25, PASTURE);
-        if (c) sim.queueCommand({ kind: 'attackMove', ids: living(sim, kept), ...M(c.x, c.y) });
-        else if (when > 700 && when % 40 === 0) anchor();
+        if (c && (c.x - 21) ** 2 + (c.y - 25) ** 2 <= CHASE_R * CHASE_R) {
+          sim.queueCommand({ kind: 'attackMove', ids: living(sim, kept), ...M(c.x, c.y) });
+        } else if (stalled >= STALL_S) {
+          if ((stalled - STALL_S) % 30 === 0) {
+            const [x, y] = c ? [c.x, c.y] : SEARCH[searched++ % SEARCH.length];
+            sim.queueCommand({ kind: 'attackMove', ids: living(sim, kept), ...M(x, y) });
+          }
+        } else if (when > 700 && when % 40 === 0) anchor();
       });
     for (let when = 90; when <= 700; when += 60) {
       at(when, () => void rt.requestBuild('inf_squad'));
@@ -1239,7 +1279,7 @@ run(
 passiveAcrossSeeds('khan_rafid_3_clearance', 'khan_rafid_3_clearance (passive control)', 'defeat');
 
 // KR III (GH-382: the garden souk) -- O-KR4's measurement gate. `structure_penalty_mult: 2` ships
-// as authored: the vanguard (rifles + one Eitan + the Lavi + the sniper) walks straight at the
+// as authored: the vanguard (rifles + the Lavi + the sniper) walks straight at the
 // souk alley, which enters the `souk` zone before it is in weapon range of either garrisoned
 // shanty -- `zone_entered(souk)` fires the `commit` trigger first, and a `commit`/`withdraw_to`
 // order calls `leaveStructure` on a garrisoned unit exactly as an explicit move does
@@ -1250,9 +1290,12 @@ passiveAcrossSeeds('khan_rafid_3_clearance', 'khan_rafid_3_clearance (passive co
 // orchards, one gap each, and the plan takes one per carrier: the jeep the south-east orchard
 // (through the gap in its west wall), the second Eitan the east orchard (gap in its south wall),
 // the Namer the west orchard, the longest drive, so it is given 45 s before it turns for the
-// ward. Six in, the objective's count, is those three. Measured: VICTORY in 0.9 min, ROE 100
-// (pinned seed), 12 of 12 over seeds 1..12. That is a floor with the puzzle removed, and
-// the ladder is where the real difficulty lives (see the PR table).
+// ward. Six in, the objective's count, is those three. The first Eitan does not go with the
+// vanguard (see the souk comment in the plan): it travels separately, via (29, 27), then
+// attack-moves to (28, 18) at t=11, and the drone moves to (24, 30) first and sweeps to (24, 18)
+// at t=30. Measured (GH-279 Task 1): VICTORY in 1.1-1.2 min, ROE 95 (pinned seed), 30 of 30
+// seeds. That is a floor with the puzzle removed, and the ladder is where the real difficulty
+// lives (see the PR table).
 const khanRafid3Plan: Plan = (sim, _rt, ids, at) => {
   const inf = ids('inf_squad');
   const eitan = ids('apc_eitan');
@@ -1263,10 +1306,26 @@ const khanRafid3Plan: Plan = (sim, _rt, ids, at) => {
   const at_team = ids('at_team');
   const mortar = ids('mortar_team');
   const drone = ids('recon_drone');
-  const vanguard = [...inf, eitan[0], ...lavi, ...sniper];
+  const vanguard = [...inf, ...lavi, ...sniper];
 
-  at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 18) }));
+  // The souk family at [21, 20] is walked out by the rifles (GH-279 ruling a: an aircraft overhead
+  // moves nobody, so the drone no longer does it). The rifles are the intended shepherd, so no
+  // transport should come within 4 tiles of the family first: a civilian who breaks boards the
+  // first hull in id order with a free seat inside four tiles, and one that chases a vehicle
+  // driving past stalls short of it (measured, 7 of 30 seeds lost with the Eitan on the x=26 column at t=20, passing (25.9, 21-22)).
+  // The first Eitan therefore leaves the vanguard and comes up the east side to the alley's east
+  // end, [28, 18] (7.3 tiles from the placement point [21, 20]), instead of to [24, 18], and the
+  // drone holds in the street until t=30 before it sweeps to [24, 18].
+  // Measured: `kill_the_block_commander` goes a -> c; the plan takes 0.9 -> 1.1-1.2 min; the pinned
+  // seed reads ROE 95 / 265 credits / 14 out, 30 of 30 seeds; the max-tier line goes 95 -> 90 and
+  // 265 -> 260. This Eitan/drone combination is a search-fitted point, not a derived one (the
+  // variants tried are in the GH-279 Task 1 report), and the pinned credits depend on the drone
+  // surviving the alley: do not retune it blind.
+  at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 30) }));
+  at(30, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 18) }));
   at(0, () => sim.queueCommand({ kind: 'attackMove', ids: vanguard, ...M(24, 18) }));
+  at(0, () => sim.queueCommand({ kind: 'move', ids: [eitan[0]], ...M(29, 27) }));
+  at(11, () => sim.queueCommand({ kind: 'attackMove', ids: [eitan[0]], ...M(28, 18) }));
 
   // South-east orchard family, through its one gap on the west wall, then to the ward.
   at(0, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(40, 34) }));
@@ -1648,8 +1707,9 @@ run(
 // at [21,24]), so a passive player loses on that clock regardless of wave
 // volume -- `checkEnd` fails the mission the instant the count never
 // reaches 2 by t=300s. Measured (this session): DEFEAT at 5.00 min. See
-// that document's §1/§2 for the new primary's shape and the shipped plan's
-// unchanged victory.
+// that document's §1/§2 for the new primary's shape. The shipped plan still
+// wins, but it was edited under GH-279 ruling (a): the rifles, not the drone,
+// walk the herders out (see the order at t=4 below).
 passiveAcrossSeeds('tel_marum_1_recon', 'tel_marum_1_recon (passive control)', 'defeat');
 
 run(
@@ -1661,11 +1721,14 @@ run(
     at(4, () => {
       // Screen forward to the hollow and stop there — out of the envelope.
       sim.queueCommand({ kind: 'move', ids: screen, ...M(24, 30) });
-      sim.queueCommand({ kind: 'move', ids: foot, ...M(23, 31) });
+      sim.queueCommand({ kind: 'move', ids: foot.slice(1), ...M(23, 31) });
+      // One squad walks the herders out. (22, 27) is 3.0-3.4 tiles from all three herders
+      // (SHEPHERD_RADIUS_SQ is 4 tiles), and outside tm_spotter_west's sight 9. An aircraft walks
+      // nobody out (GH-279 ruling a), so the drone does not: a ground unit must.
+      sim.queueCommand({ kind: 'move', ids: [foot[0]], ...M(22, 27) });
       // The drone alone goes into the envelope. From the approach, on the floor of the long
       // valley, sight 16 reaches both spurs and the west lip -- but the spotter on the lip sits
-      // 12.7 tiles out and is the slowest to read, so the drone lingers for 30 s while the herders,
-      // who break for the start line when it passes, walk out behind it.
+      // 12.7 tiles out and is the slowest to read, so the drone lingers for 30 s.
       sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 25) });
     });
     // find_battery is the one the floor cannot give: the tube sits behind the rock band and the
@@ -1766,8 +1829,9 @@ run(
 // winnable by the obvious line, not by the clever one. The column stages in the second leg, behind
 // the rib, where no post on the plateau can see it; two Lavis alone go up the exit column and onto
 // the plateau, because they outrange both Kornet pockets, and the rest follow once the pass is
-// quiet. One Eitan goes for the families -- and only one: a civilian boards the nearest hull with a
-// free seat, and a Namer parked in the pass would keep them -- and drives them to the approach.
+// quiet. One Eitan goes for the families -- and only one: a civilian boards the first hull in id
+// order with a free seat within four tiles, and a Namer parked in the pass would keep them -- and
+// drives them to the approach.
 //
 // Control: primaries `capture` (take_pass) and `eliminate_hvt`
 // (kill_battery) are still not among the three objective types `checkEnd`
@@ -1812,8 +1876,8 @@ const ledTelMarum3 = run(
     });
     at(100, () => {
       sim.queueCommand({ kind: 'move', ids: [...foot, ...at_], ...M(33, 11) });
-      // One Eitan to the families, and only one: a civilian boards the nearest hull with a free
-      // seat, and a Namer parked in the pass would keep them.
+      // One Eitan to the families, and only one: a civilian boards the first hull in id order
+      // with a free seat within four tiles, and a Namer parked in the pass would keep them.
       sim.queueCommand({ kind: 'move', ids: armour, ...M(28, 6) });
     });
     at(115, () => sim.queueCommand({ kind: 'move', ids: armour, ...M(29, 36) }));
@@ -2505,9 +2569,12 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
   // comes down as fast as two squads can walk to three doors.
   const depotEscort = [...ids('mbt_lavi'), ...ids('apc_eitan')];
   at(1, () => {
-    // The drone's own presence is enough to start the porters fleeing
-    // (CivilianFlight does not filter by domain) well before any charge is
-    // set near their ground.
+    // The escort's attack-move to (33, 8), beside the porters at (32.5, 7.5), is
+    // what walks them out: a GROUND player unit within four tiles (GH-279 ruling
+    // a). The drone does not move them -- CivilianFlight skips aircraft -- and
+    // it is not ordered here at all (GH-382, see t=50). Measured on the
+    // pinned-seed line: `get_the_porters_clear` (a secondary) is complete (c) at
+    // the victory at base tier, and still active (a) at the victory at max tier.
     sim.queueCommand({ kind: 'attackMove', ids: depotEscort, ...M(33, 8) });
   });
   // GH-382: the spur's eye covers the ramp, so a drone sent at t=1 is shot down on the way up; it
@@ -3220,7 +3287,15 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // - Qarn Hadid II 200 -> 190 and III 235 -> 225: the Kornet's reach, and the foot that now hunt it
 //   off the engineers' road.
 // No star moved, and the apc_kipod gate opens on time on 30/30 seeds.
-const LADDER_CREDITS = 5972;
+// 2026-10-13, GH-291: a routed unit no longer runs -x. It runs from the last hostile fire, or holds
+// when there is none (a raider shaken only by its own side's rounds). 5972 -> 5952, -20, read off
+// the printed per-mission credits.
+// - Wadi Halam II 190 -> 180: the re-scripted plan (see its comment) holds the corner and searches a
+//   stalled hold instead of chasing to the pasture's far corner; roster out 10 -> 9.
+// - Wadi Halam V 210 -> 200: the sim alone, and its HOLD branch (putting -x back in the hold's place
+//   restores 210); no plan touched it. Done in 5.4 min instead of 5.8, roster out 19 both ways.
+// No star moved, and neither did any gate.
+const LADDER_CREDITS = 5952;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);

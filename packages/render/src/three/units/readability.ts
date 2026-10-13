@@ -121,7 +121,10 @@ export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   jeep_shoded: 1.03, technical: 1.02, dozer_d9: 1.56, rocket_battery: 1.16, moto_rpg: 0.55,
   // `gun_truck` measured 1.17 once its mesh landed (B2, 2026-09-30; 1.15 x its own
   // 5.4 m footprint) -- it was the infantry class 0.55 while billboard-only.
-  gun_truck: 1.17, manpad_team: 0.55,
+  // `manpad_team` 0.55 -> 0.45 at GH-247 (2026-10-13): its JSON says `wheeled:
+  // false` now, so its ring class is `foot` (0.45) rather than the soft-vehicle
+  // `light` (0.55) the role default gave it; its own footprint is 0.311 tile.
+  gun_truck: 1.17, manpad_team: 0.45,
   heli_peten: 0.9, paramotor: 0.35, recon_drone: 0.36, attack_drone: 0.35,
   // `loiter_drone` reads 0.58 since its mesh landed (B2, 2026-09-30): 1.15 x its own
   // 2.43 m shipped span; it was the 0.35 air class while billboard-only.
