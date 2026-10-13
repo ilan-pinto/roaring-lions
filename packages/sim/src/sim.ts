@@ -906,6 +906,14 @@ export class Sim {
   private readonly facing: Int32Array;
   private readonly hp: Int32Array;
   private readonly suppression: Int32Array;
+  /** Where the last HOSTILE suppression on this unit came from (Q16.16), and
+   *  1 in `suppFromSet` once any has landed. Same-side and sourceless shocks
+   *  (a crew shaken, a bail-out) leave it alone. `startRout` reads it to run
+   *  away from fire the unit's side cannot see (GH-291). Never cleared but
+   *  by spawn: a stale source still points away from the last fire there was. */
+  private readonly suppFromX: Int32Array;
+  private readonly suppFromY: Int32Array;
+  private readonly suppFromSet: Uint8Array;
   private readonly moving: Uint8Array;
   private readonly attackMove: Uint8Array;
   /** 1 while the current attack-move leg was ordered with `sweep` — the
@@ -1133,6 +1141,9 @@ export class Sim {
     readonly facing: Int32Array;
     readonly hp: Int32Array;
     readonly suppression: Int32Array;
+    readonly suppFromX: Int32Array;
+    readonly suppFromY: Int32Array;
+    readonly suppFromSet: Uint8Array;
     readonly moving: Uint8Array;
     readonly pinned: Uint8Array;
     readonly mobilityKilled: Uint8Array;
@@ -1225,6 +1236,9 @@ export class Sim {
     this.facing = new Int32Array(n);
     this.hp = new Int32Array(n);
     this.suppression = new Int32Array(n);
+    this.suppFromX = new Int32Array(n);
+    this.suppFromY = new Int32Array(n);
+    this.suppFromSet = new Uint8Array(n);
     this.moving = new Uint8Array(n);
     this.attackMove = new Uint8Array(n);
     this.sweepOrder = new Uint8Array(n);
@@ -1326,6 +1340,9 @@ export class Sim {
       facing: this.facing,
       hp: this.hp,
       suppression: this.suppression,
+      suppFromX: this.suppFromX,
+      suppFromY: this.suppFromY,
+      suppFromSet: this.suppFromSet,
       moving: this.moving,
       pinned: this.pinned,
       mobilityKilled: this.mobilityKilled,
@@ -1789,6 +1806,9 @@ export class Sim {
     this.facing[id] = facing & 0xffff;
     this.hp[id] = type.hp;
     this.suppression[id] = 0;
+    this.suppFromX[id] = 0;
+    this.suppFromY[id] = 0;
+    this.suppFromSet[id] = 0;
     this.moving[id] = 0;
     this.attackMove[id] = 0;
     this.sweepOrder[id] = 0;
@@ -3655,15 +3675,33 @@ export class Sim {
     return false;
   }
 
-  /** Flee away from the nearest threat this unit's side knows about. */
+  /**
+   * Break and run (GDD 5.5a, "away from fire"). The direction, in order:
+   *
+   *  1. A side-0/1 unit: away from the nearest enemy its side holds at
+   *     SUSPECTED_AT or better.
+   *  2. A civilian (side 2): away from the nearest living side-0/1 unit, by
+   *     ground truth. Civilians have no contact row; before GH-291 this same
+   *     result came from reading `contact[2 * capacity + t]`, past the end of
+   *     the array (`undefined < SUSPECTED_AT` is false), and it is kept byte
+   *     for byte -- bar a map with no combatant alive, which now holds.
+   *  3. A side-0/1 unit with no known threat: away from where the last
+   *     HOSTILE suppression came from (`suppFrom*`).
+   *  4. Otherwise, hold. The unit stays routed, standing, until it rallies.
+   *
+   * There is no default direction. Until GH-291 there was one, -x, and every
+   * backtest puts side 1 in the east: a unit pinned by fire it could not see
+   * ran west into the shooter's sight.
+   */
   private startRout(i: number): void {
     const mySide = this.side[i];
-    let nx = -ONE;
+    let nx = 0;
     let ny = 0;
+    let found = false;
     let bestSq = 0x7fffffff;
     for (let t = 0; t < this.count; t++) {
       if (this.alive[t] === 0 || this.side[t] === mySide || this.side[t] > 1) continue;
-      if (this.contact[mySide * this.capacity + t] < SUSPECTED_AT) continue;
+      if (mySide <= 1 && this.contact[mySide * this.capacity + t] < SUSPECTED_AT) continue;
       const dx = fx.sub(this.posX[i], this.posX[t]);
       const dy = fx.sub(this.posY[i], this.posY[t]);
       const dSq = distSqFx(dx, dy);
@@ -3672,7 +3710,28 @@ export class Sim {
         const d = fx.sqrt(fx.max(dSq, 1));
         nx = fx.div(dx, d);
         ny = fx.div(dy, d);
+        found = true;
       }
+    }
+    if (!found && mySide <= 1 && this.suppFromSet[i] === 1) {
+      const dx = fx.sub(this.posX[i], this.suppFromX[i]);
+      const dy = fx.sub(this.posY[i], this.suppFromY[i]);
+      const d = fx.sqrt(fx.max(distSqFx(dx, dy), 1));
+      nx = fx.div(dx, d);
+      ny = fx.div(dy, d);
+      found = true;
+    }
+    if (!found) {
+      // Nowhere to run from: hold. No goal is written; `moving` 0 is what
+      // keeps it still. sweepOrder goes with attackMove, as in the flight
+      // branch, so a wave unit that rallies here does not resume a sweep.
+      this.moving[i] = 0;
+      this.fieldRef[i] = -1;
+      this.attackMove[i] = 0;
+      this.sweepOrder[i] = 0;
+      this.engaging[i] = 0;
+      this.stance[i] = 0;
+      return;
     }
     const gx = fx.clamp(fx.add(this.posX[i], fx.mul(nx, ROUT_DISTANCE)), ONE, (this.width - 2) * ONE);
     const gy = fx.clamp(fx.add(this.posY[i], fx.mul(ny, ROUT_DISTANCE)), ONE, (this.height - 2) * ONE);
@@ -4264,7 +4323,14 @@ export class Sim {
         if (dSq > splashSq) continue;
         const falloff = fx.sub(ONE, fx.div(fx.sqrt(dSq), STRIKE_SPLASH));
         this.applyDamage(i, fx.mul(STRIKE_DAMAGE, falloff), s.by);
-        this.applySuppression(i, fx.mul(STRIKE_SUPPRESSION, falloff), false);
+        this.applySuppression(
+          i,
+          fx.mul(STRIKE_SUPPRESSION, falloff),
+          false,
+          s.by >= 0 ? this.side[s.by] : -1,
+          s.x,
+          s.y,
+        );
       }
       for (let st = 0; st < this.structureCount_; st++) {
         if (this.stAlive[st] === 0) continue;
@@ -4363,7 +4429,14 @@ export class Sim {
     if (tType.isSoft) {
       // Soft targets: no armor plate to defeat. Damage applies on the hit;
       // getting shot at is suppressive whether or not it kills.
-      this.applySuppression(target, fx.mul(this.prSupp[pr], BOUNCE_SUPP_MULT));
+      this.applySuppression(
+        target,
+        fx.mul(this.prSupp[pr], BOUNCE_SUPP_MULT),
+        true,
+        this.side[shooter],
+        this.prOriginX[pr],
+        this.prOriginY[pr],
+      );
       this.applyDamage(target, this.prDamage[pr], shooter);
       if (this.prSplash[pr] > 0) this.splashAt(pr, this.posX[target], this.posY[target], target);
       return;
@@ -4395,7 +4468,14 @@ export class Sim {
 
     if (!penetrated) {
       // A clang on the hull is loud inside.
-      this.applySuppression(target, fx.mul(this.prSupp[pr], BOUNCE_SUPP_MULT));
+      this.applySuppression(
+        target,
+        fx.mul(this.prSupp[pr], BOUNCE_SUPP_MULT),
+        true,
+        this.side[shooter],
+        this.prOriginX[pr],
+        this.prOriginY[pr],
+      );
       return;
     }
 
@@ -4460,6 +4540,7 @@ export class Sim {
     // not button up a tank crew; a shell landing beside it does.
     const supp = this.prSupp[pr];
     if (supp > 0) {
+      const srcSide = this.side[this.prShooter[pr]];
       const pen = this.prPen[pr];
       const splash = this.prSplash[pr];
       for (let i = 0; i < this.count; i++) {
@@ -4470,7 +4551,14 @@ export class Sim {
         // Soft targets, blast weapons, and anything that could actually
         // punch the armour suppress fully; harmless small arms barely.
         const threatens = iType.isSoft || splash > 0 || pen >= iType.armorSide;
-        this.applySuppression(i, threatens ? supp : fx.mul(supp, HARMLESS_SUPP));
+        this.applySuppression(
+          i,
+          threatens ? supp : fx.mul(supp, HARMLESS_SUPP),
+          true,
+          srcSide,
+          this.prOriginX[pr],
+          this.prOriginY[pr],
+        );
       }
     }
     if (this.prSplash[pr] > 0) this.splashAt(pr, x, y, -1);
@@ -4492,13 +4580,25 @@ export class Sim {
       if (iType.isSoft) {
         this.applyDamage(i, scaled, shooter);
       }
-      this.applySuppression(i, fx.mul(this.prSupp[pr], BOUNCE_SUPP_MULT));
+      this.applySuppression(
+        i,
+        fx.mul(this.prSupp[pr], BOUNCE_SUPP_MULT),
+        true,
+        this.side[shooter],
+        this.prOriginX[pr],
+        this.prOriginY[pr],
+      );
     }
   }
 
   /** Splash from something that detonated in place rather than in flight. */
   private splashDirect(x: Fx, y: Fx, splash: Fx, dmg: Fx, supp: Fx, by: number, exclude: number): void {
     const splashSq = fx.mul(splash, splash);
+    // The source: whoever set it off, where they stand -- or, with nobody to
+    // credit, the blast point itself.
+    const srcSide = by >= 0 ? this.side[by] : -1;
+    const srcX = by >= 0 ? this.posX[by] : x;
+    const srcY = by >= 0 ? this.posY[by] : y;
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0 || i === exclude || i === by) continue;
       if (this.tunnelIn[i] >= 0) continue; // three metres of earth
@@ -4506,7 +4606,7 @@ export class Sim {
       if (dSq > splashSq) continue;
       const falloff = fx.sub(ONE, fx.div(fx.sqrt(dSq), splash));
       if (this.unitTypes[this.typeIdx[i]].isSoft) this.applyDamage(i, fx.mul(dmg, falloff), by);
-      this.applySuppression(i, fx.mul(supp, BOUNCE_SUPP_MULT));
+      this.applySuppression(i, fx.mul(supp, BOUNCE_SUPP_MULT), true, srcSide, srcX, srcY);
     }
   }
 
@@ -4523,12 +4623,30 @@ export class Sim {
   }
 
   /** coverProtects: fire arriving from outside is muffled by entrenchment;
-   *  a penetration's crew shock (crew_shaken) is not. */
-  private applySuppression(target: number, amount: Fx, coverProtects = true): void {
+   *  a penetration's crew shock (crew_shaken) is not.
+   *  srcSide/srcX/srcY: who it came from and where, for `startRout`. -1 means
+   *  no source (a shock from inside: crew shaken, a bail-out, a test hook),
+   *  and leaves the last recorded source in place. */
+  private applySuppression(
+    target: number,
+    amount: Fx,
+    coverProtects = true,
+    srcSide = -1,
+    srcX: Fx = 0,
+    srcY: Fx = 0,
+  ): void {
     // You cannot pin someone who is underground. Without this, a mortar
     // barrage over a trail routs the occupants and the counter-unit is
     // decorative.
     if (this.tunnelIn[target] >= 0) return;
+    // Only HOSTILE fire is a direction to run from. A unit shaken by its own
+    // side's splash would otherwise flee toward the enemy: the GH-291
+    // emulation found a playtest gun_truck whose "source" was its own flank.
+    if (srcSide >= 0 && srcSide !== this.side[target]) {
+      this.suppFromX[target] = srcX;
+      this.suppFromY[target] = srcY;
+      this.suppFromSet[target] = 1;
+    }
     const type = this.unitTypes[this.typeIdx[target]];
     let a = fx.mul(amount, type.suppResFactor);
     const vet = this.veterancy[target];
@@ -4898,7 +5016,14 @@ export class Sim {
           this.applyDamage(target, w.damage, i);
           if (this.alive[target] === 1) this.rollComponent(target, i, z);
         } else {
-          this.applySuppression(target, fx.mul(w.suppPerMiss, BOUNCE_SUPP_MULT));
+          this.applySuppression(
+            target,
+            fx.mul(w.suppPerMiss, BOUNCE_SUPP_MULT),
+            true,
+            this.side[i],
+            this.posX[i],
+            this.posY[i],
+          );
         }
       }
       if (w.splash > 0) {
@@ -5239,7 +5364,9 @@ export class Sim {
       if (this.garrisonGoal[i] === s) this.garrisonGoal[i] = -1;
       // Everyone nearby eats the shock of a building coming down.
       const d = distSqFx(fx.sub(this.posX[i], this.stCx[s]), fx.sub(this.posY[i], this.stCy[s]));
-      if (d <= COLLAPSE_SHOCK_SQ) this.applySuppression(i, COLLAPSE_SHOCK, false);
+      if (d <= COLLAPSE_SHOCK_SQ) {
+        this.applySuppression(i, COLLAPSE_SHOCK, false, by >= 0 ? this.side[by] : -1, this.stCx[s], this.stCy[s]);
+      }
     }
     this.stOccupants[s] = 0;
     this.recomputeFields();
@@ -5667,6 +5794,9 @@ export class Sim {
     h = hashArray(h, this.facing);
     h = hashArray(h, this.hp);
     h = hashArray(h, this.suppression);
+    h = hashArray(h, this.suppFromX);
+    h = hashArray(h, this.suppFromY);
+    h = hashArray(h, this.suppFromSet);
     h = hashArray(h, this.moving);
     h = hashArray(h, this.attackMove);
     h = hashArray(h, this.sweepOrder);

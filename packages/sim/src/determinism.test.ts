@@ -445,7 +445,15 @@ describe('determinism (1000-tick replay)', () => {
     // anti-armour rank scales every candidate alike -- and no small arm ever
     // had an armoured one in view. The relief replay below is the one that
     // sees the rule.
-    expect(a.hash()).toBe(1202444260);
+    //
+    // 2026-10-13: GH-291: three per-unit columns (suppFromX, suppFromY,
+    // suppFromSet) join the hash -- where the last HOSTILE suppression came
+    // from, which a routed unit with no known threat now runs away from
+    // instead of running -x. No behaviour moved: with their hashArray lines
+    // removed, this replay reproduces the old value exactly. All 7 golden
+    // routs in it take the known-threat branch; none takes the fallback.
+    // Was 1202444260.
+    expect(a.hash()).toBe(1783401971);
   });
 
   it('the replay actually exercises halt to fire', () => {
@@ -583,6 +591,30 @@ describe('determinism (1000-tick replay)', () => {
     expect(contacts.some((c) => c.side === 0 && c.tunnel === 0 && c.level === 'lost')).toBe(false);
     expect(end.tunnelContactLevel(0, 1)).toBe(0); // unknown again by the end
     expect(end.tnAlive[1]).toBe(1); // and never charged — decay is why it faded
+  });
+
+  // GH-291: hash() folds the three suppFrom columns. Each test flips one
+  // element through the state view, which a hash that skipped the column
+  // would not notice. The replay is short: nothing has to have happened yet.
+  it('hash covers suppFromX', () => {
+    const sim = run(0x1310_0001, 20);
+    const before = sim.hash();
+    sim.state.suppFromX[0] += 1;
+    expect(sim.hash()).not.toBe(before);
+  });
+
+  it('hash covers suppFromY', () => {
+    const sim = run(0x1310_0001, 20);
+    const before = sim.hash();
+    sim.state.suppFromY[0] += 1;
+    expect(sim.hash()).not.toBe(before);
+  });
+
+  it('hash covers suppFromSet', () => {
+    const sim = run(0x1310_0001, 20);
+    const before = sim.hash();
+    sim.state.suppFromSet[0] ^= 1;
+    expect(sim.hash()).not.toBe(before);
   });
 
   it('a different seed produces a different hash', () => {
@@ -753,7 +785,13 @@ describe('determinism over relief (900-tick replay round a hill)', () => {
     // defending d_tank (id 9) instead of the rifleman (id 6) it shot at tick
     // 460. The other five gun shots are unchanged, tick for tick. Was
     // 3354895120.
-    expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(2051106457);
+    //
+    // 2026-10-13: GH-291: three per-unit columns (suppFromX, suppFromY,
+    // suppFromSet) join the hash, as at the flat pin. No behaviour moved: with
+    // their hashArray lines removed, this replay reproduces the old value
+    // exactly. Both of its 2 golden routs take the known-threat branch; none
+    // takes the fallback. Was 2051106457.
+    expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(3208037602);
   });
 
   it('the relief changes the route, not merely the hash', () => {
@@ -862,6 +900,12 @@ describe('determinism of an order once it is done (900-tick replay)', () => {
     // the arrival hold alone 629252188, and leaving the halt's attackMove
     // latch set (sweepOrder still cleared) moves it too, with the behaviour
     // assertions above still green -- the one mutation only this pin sees.
-    expect(orders(ORDERS_SEED).sim.hash()).toBe(2737216487);
+    //
+    // 2026-10-13: GH-291: three per-unit columns (suppFromX, suppFromY,
+    // suppFromSet) join the hash, as at the flat pin. No behaviour moved: with
+    // their hashArray lines removed, this replay reproduces the old value
+    // exactly. It has 0 golden routs, so it cannot see the rout rule at all;
+    // it moved for the columns alone. Was 2737216487.
+    expect(orders(ORDERS_SEED).sim.hash()).toBe(1736634855);
   });
 });
