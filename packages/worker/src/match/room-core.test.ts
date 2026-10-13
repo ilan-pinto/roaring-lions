@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { OVER_CLOSE_MS, type MatchConfig } from '@lions/net';
-import { createRoom, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, persistKey, revive, endedMsg, ACK_EVERY, STALL_BEHIND_TICKS, STALL_SILENT_MS, MAX_LOG_CMD_CHARS, type RoomState, type Effect } from './room-core';
+import { createRoom, logParts, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, persistKey, revive, endedMsg, ACK_EVERY, STALL_BEHIND_TICKS, STALL_SILENT_MS, MAX_LOG_CMD_CHARS, type RoomState, type Effect } from './room-core';
 
 const CONFIG: MatchConfig = {
   matchId: 'm1', code: 'ABCDEF', seed: 7, map: 'beit_sahwan_outskirts', mode: 'sandbox',
@@ -774,5 +774,25 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
     seatMessage(old, 0, { t: 'over', tick: 0 }, 9100, mint);
     seatMessage(old, 1, { t: 'over', tick: 0 }, 9100, mint);
     expect(old.closeAtMs).toBe(9100 + OVER_CLOSE_MS);
+  });
+});
+
+describe('#559 H-1: logParts', () => {
+  const frame = (tick: number, n = 0) => ({ tick, cmds: Array.from({ length: n }, (_, i) => ({ seat: 0 as const, seq: i, cmd: { kind: 'halt' as const, ids: [i] } })) });
+  it('splits a log into runs of at most maxChars that rejoin to the log, numbered 0..parts-1', () => {
+    const frames = Array.from({ length: 500 }, (_, t) => frame(t, t % 7));
+    const parts = logParts(CONFIG, frames, 2000);
+    expect(parts.length).toBeGreaterThan(5);
+    expect(parts.flatMap((p) => p.frames)).toEqual(frames);
+    parts.forEach((p, i) => {
+      expect([p.part, p.parts, p.config]).toEqual([i, parts.length, CONFIG]);
+      expect(JSON.stringify(p.frames).length).toBeLessThanOrEqual(2000 + 1);
+    });
+  });
+  it('a short log is one part, an empty one is one empty part, and a frame over the limit goes alone', () => {
+    expect(logParts(CONFIG, [frame(0)]).map((p) => [p.part, p.parts])).toEqual([[0, 1]]);
+    expect(logParts(CONFIG, [])).toEqual([{ t: 'log', config: CONFIG, frames: [], part: 0, parts: 1 }]);
+    const big = frame(1, 50);
+    expect(logParts(CONFIG, [frame(0), big, frame(2)], 100).map((p) => p.frames.map((f) => f.tick))).toEqual([[0], [1], [2]]);
   });
 });

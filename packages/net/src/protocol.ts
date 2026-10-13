@@ -8,6 +8,9 @@ import { validateConfig, type MatchConfig, type Seat } from './config';
 import type { Frame, Stamped } from './frames';
 
 export const MAX_MESSAGE_BYTES = 4096;
+/** The most characters of frames one `log` message carries (#559 H-1): a long
+ *  match's log goes in parts, never as one message megabytes long. */
+export const LOG_PART_CHARS = 256 * 1024;
 /** How many of one seat's commands a frame carries (#559 F2: was 32); the
  *  room holds the rest for the frames after (`room-core.ts`). */
 export const MAX_CMDS_PER_SEAT_PER_FRAME = 4;
@@ -58,7 +61,11 @@ export type ServerMsg =
   | { t: 'resume' }
   | { t: 'hashOk'; tick: number }
   | { t: 'desync'; tick: number; hashes: [number, number] }
-  | { t: 'log'; config: MatchConfig; frames: Frame[] }
+  /** A rejoin's log, in `parts` messages of at most `LOG_PART_CHARS` (#559
+   *  H-1): `part` counts from 0. Each part carries the config and a run of
+   *  frames that continues the last; a client is live again after the last
+   *  part. Absent `part`/`parts` is a whole log in one message (pre-#559). */
+  | { t: 'log'; config: MatchConfig; frames: Frame[]; part?: number; parts?: number }
   | { t: 'paused'; seat: Seat; remainingMs: number; pausesLeft: [number, number] }
   /** The room dropped this seat's `cmd` because a pause is in force (L-2). Sent
    *  per refused cmd, to that seat only; it carries nothing the seat does not
@@ -193,9 +200,10 @@ function isSeatState(v: unknown): v is SeatState {
   return isSeat(s.seat) && isStr(s.callsign) && typeof s.connected === 'boolean' && typeof s.ready === 'boolean';
 }
 
-/** `log` and `lobby` are the two messages that can exceed the client cap
- *  (a 20-minute log is ~24,000 frames), so the size cap applies to CLIENT
- *  messages only; a server message is trusted to come from the room. */
+/** `log` and `lobby` are the two messages that can exceed the client cap (a
+ *  20-minute log is ~24,000 frames, sent in parts of `LOG_PART_CHARS`), so
+ *  the size cap applies to CLIENT messages only; a server message is trusted
+ *  to come from the room. */
 export function parseServerMsg(raw: string): ServerMsg | null {
   let m: Record<string, unknown>;
   try {
@@ -220,7 +228,13 @@ export function parseServerMsg(raw: string): ServerMsg | null {
     case 'hashOk': return isInt(m.tick) ? { t: 'hashOk', tick: m.tick } : null;
     case 'desync': return isInt(m.tick) && Array.isArray(m.hashes) && m.hashes.length === 2 && m.hashes.every(isInt)
       ? { t: 'desync', tick: m.tick, hashes: [m.hashes[0], m.hashes[1]] } : null;
-    case 'log': { const c = validateConfig(m.config); return c && Array.isArray(m.frames) && m.frames.every(isFrame) ? { t: 'log', config: c, frames: m.frames } : null; }
+    case 'log': {
+      const c = validateConfig(m.config);
+      if (!c || !Array.isArray(m.frames) || !m.frames.every(isFrame)) return null;
+      if (m.part === undefined && m.parts === undefined) return { t: 'log', config: c, frames: m.frames };
+      return isInt(m.part) && isInt(m.parts) && m.part >= 0 && m.part < m.parts
+        ? { t: 'log', config: c, frames: m.frames, part: m.part, parts: m.parts } : null;
+    }
     case 'paused': return isSeat(m.seat) && isInt(m.remainingMs) && Array.isArray(m.pausesLeft) && m.pausesLeft.length === 2 && m.pausesLeft.every(isInt)
       ? { t: 'paused', seat: m.seat, remainingMs: m.remainingMs, pausesLeft: [m.pausesLeft[0], m.pausesLeft[1]] } : null;
     case 'cmdRefused': return { t: 'cmdRefused' };

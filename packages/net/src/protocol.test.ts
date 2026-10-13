@@ -74,6 +74,14 @@ describe('parseClientMsg', () => {
   });
 });
 
+describe('parseServerMsg: a log in parts (#559 H-1)', () => {
+  it('keeps part and parts when both are sane, and refuses a part outside its count', () => {
+    expect(parseServerMsg(JSON.stringify({ t: 'log', config: CFG, frames: [], part: 1, parts: 3 }))).toEqual({ t: 'log', config: CFG, frames: [], part: 1, parts: 3 });
+    expect(parseServerMsg(JSON.stringify({ t: 'log', config: CFG, frames: [], part: 3, parts: 3 }))).toBeNull();
+    expect(parseServerMsg(JSON.stringify({ t: 'log', config: CFG, frames: [], part: 0 }))).toBeNull();
+  });
+});
+
 describe('parseServerMsg', () => {
   it('round-trips a frame and refuses a frame whose cmds are not stamped', () => {
     const frame = { t: 'frame', tick: 7, cmds: [{ seat: 1, seq: 0, cmd: { kind: 'halt', ids: [4] } }] };

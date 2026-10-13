@@ -7,7 +7,7 @@
  * `readLog`.
  */
 import {
-  canonicalOrder, MAX_CMDS_PER_SEAT_PER_FRAME, PAUSE_MS, PAUSES_PER_SEAT, CHAT_MAX_CHARS, OVER_CLOSE_MS,
+  canonicalOrder, LOG_PART_CHARS, MAX_CMDS_PER_SEAT_PER_FRAME, PAUSE_MS, PAUSES_PER_SEAT, CHAT_MAX_CHARS, OVER_CLOSE_MS,
   type ClientMsg, type EndedReason, type Frame, type MatchConfig, type Seat, type ServerMsg, type Stamped, type SeatState,
 } from '@lions/net';
 
@@ -131,12 +131,27 @@ export function seatJoin(st: RoomState, seat: Seat, player: string, callsign: st
   if (st.status === 'lobby') {
     out.push({ kind: 'send', to: 'all', msg: lobbyMsg(st, 0) });   // the DO rewrites `you` per socket
   } else if (st.config) {
-    out.push({ kind: 'send', to: seat, msg: { t: 'log', config: st.config, frames: readLog() } });
+    for (const msg of logParts(st.config, readLog())) out.push({ kind: 'send', to: seat, msg });
     // The log makes the client live; a pause in force must be told again.
     if (st.pause !== null) out.push({ kind: 'send', to: seat, msg: pausedMsg(st, nowMs, st.pause) });
     out.push(...recheckStall(st, nowMs));
   }
   return out;
+}
+
+/** A rejoin's log as `log` messages of at most `maxChars` characters of
+ *  frames each (#559 H-1), in tick order; one part for a short log, and one
+ *  (empty) part for a match that has minted nothing. A single frame larger
+ *  than `maxChars` goes alone rather than being split. */
+export function logParts(config: MatchConfig, frames: readonly Frame[], maxChars = LOG_PART_CHARS): Extract<ServerMsg, { t: 'log' }>[] {
+  const runs: Frame[][] = [[]];
+  let used = 0;
+  for (const f of frames) {
+    const size = JSON.stringify(f).length + 1;
+    const run = runs[runs.length - 1];
+    if (run.length > 0 && used + size > maxChars) { runs.push([f]); used = size; } else { run.push(f); used += size; }
+  }
+  return runs.map((run, part) => ({ t: 'log', config, frames: run, part, parts: runs.length }));
 }
 
 function pausedMsg(st: RoomState, nowMs: number, pause: { seat: Seat; untilMs: number }): ServerMsg {

@@ -233,6 +233,10 @@ export class WsTransport implements MatchTransport {
         // which discards the head of the log it already ran.
         if (this.config === null) this.begin(msg.config);
         for (const f of msg.frames) this.clock.push(f);
+        // A log in parts (#559 H-1): the seat is relinked and live only after the
+        // last. Parts arrive in order on one socket; a drop part-way sends a
+        // fresh log on the next socket, whose head the clock discards.
+        if (msg.parts !== undefined && msg.part !== undefined && msg.part < msg.parts - 1) return;
         if (this.droppedAt !== null) { this.relinked(); this.replayFrom = this.now(); }
         this.setStalled(null);
         this.st = { kind: 'live', behind: this.clock.behind() };

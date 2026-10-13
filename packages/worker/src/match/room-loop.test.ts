@@ -11,7 +11,7 @@
  * after the transport has installed its handlers, as a browser's would.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { OVER_CLOSE_MS, RECONNECT_DELAY_MS, WsTransport, type Frame, type MatchConfig, type Seat, type ServerMsg, type SocketLike } from '@lions/net';
+import { LOG_PART_CHARS, OVER_CLOSE_MS, RECONNECT_DELAY_MS, WsTransport, type Frame, type MatchConfig, type Seat, type ServerMsg, type SocketLike } from '@lions/net';
 import type { Env } from '../d1';
 import { FakeState, deliverAlarm, deliverClose, openSocket, type FakeSocket } from './fake-do';
 import { MatchRoom, PURGE_AFTER_MS, TICK_MS } from './match-room';
@@ -279,6 +279,37 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     expect(p1.taken.length).toBeGreaterThan(before.length + 5);
     expect(p1.taken).toEqual(p0.taken.slice(0, p1.taken.length));
     expect(p1.t.status().kind).toBe('live');
+  });
+
+  it('#559 H-1: a long log reaches a rejoining seat in parts of at most LOG_PART_CHARS, and the seat runs on with no gap', async () => {
+    const { loop, p0, p1 } = await started();
+    // Heavy orders -- 200 ids each, one a tick from each seat (the budget's 20 a second) -- so the log passes one part.
+    const ids = Array.from({ length: 200 }, (_, i) => 1000 + i);
+    for (let i = 0; i < 160; i++) {
+      p0.t.queueCommand({ kind: 'halt', ids });
+      p1.t.queueCommand({ kind: 'halt', ids });
+      await step(loop, [p0, p1], 1);
+    }
+    const sent = loop.wires[0].received.flatMap((m) => (m.t === 'frame' ? [{ tick: m.tick, cmds: m.cmds }] : []));
+    expect(JSON.stringify(sent).length).toBeGreaterThan(LOG_PART_CHARS);
+    loop.wires[1].drop();
+    await loop.flush();
+    await vi.advanceTimersByTimeAsync(RECONNECT_DELAY_MS);
+    await loop.flush();
+    const logs = (loop.wires.at(-1)?.received ?? []).filter((m): m is Extract<ServerMsg, { t: 'log' }> => m.t === 'log');
+    expect(logs.length).toBeGreaterThanOrEqual(2);
+    logs.forEach((m, i) => {
+      expect([m.part, m.parts]).toEqual([i, logs.length]);
+      expect(JSON.stringify(m.frames).length).toBeLessThanOrEqual(LOG_PART_CHARS + 2);
+    });
+    expect(logs.flatMap((m) => m.frames)).toEqual(sent);
+    expect(p1.t.status().kind).toBe('live');
+    expect(p1.configs).toHaveLength(1);
+    await step(loop, [p0, p1], 40);
+    expect(p1.ticks()).toEqual(range(p1.taken.length));
+    expect(p1.taken).toEqual(p0.taken.slice(0, p1.taken.length));
+    expect(p1.taken.length).toBeGreaterThan(sent.length);
+    expect(p1.t.stats().reconnects.count).toBe(1);
   });
 
   /** R-N12's budget: a command frame closes its batch (one row each), a batch
