@@ -480,6 +480,28 @@ describe('top strip: the persistent controls', () => {
     expect(left).toBe(true);
   });
 
+  // N1b final fix wave (M-1): a room's exit is the battlefield's own (the
+  // pause menu's confirmed Surrender), not the HUD's free-play leave.
+  it('a room\'s exit runs the battlefield\'s own confirm, with its own tooltip, and never the HUD\'s leave confirm', () => {
+    let runs = 0;
+    let left = false;
+    let tipNow = 'surrender the match';
+    const r = rig(null, { leave: () => { left = true; }, freePlay: true, exit: { tip: () => tipNow, run: () => { runs++; } } });
+    const btn = r.host.querySelector<HTMLButtonElement>('.rl-hud__leave')!;
+    expect(btn.title).toBe('surrender the match');
+    // L-3: the match ends under a HUD built mid-match -- the tooltip follows on the next hover or focus.
+    tipNow = 'leave the match';
+    btn.dispatchEvent(new Event('pointerenter'));
+    expect(btn.title).toBe('leave the match');
+    tipNow = 'surrender the match';
+    btn.dispatchEvent(new Event('focus'));
+    expect(btn.title).toBe('surrender the match');
+    btn.click();
+    expect(runs).toBe(1);
+    expect(left).toBe(false);
+    expect(document.body.querySelector('.rl-confirm')).toBeNull();
+  });
+
   // K-13. Falsified: leaveCopy ignoring its argument -> the sandbox arm goes red.
   it('free play words its leave confirm for free play, with no campaign claim', () => {
     const r = rig(null, { leave: () => undefined, freePlay: true });

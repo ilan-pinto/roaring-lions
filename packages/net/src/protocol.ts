@@ -9,6 +9,15 @@ import type { Frame, Stamped } from './frames';
 
 export const MAX_MESSAGE_BYTES = 4096;
 export const MAX_CMDS_PER_SEAT_PER_FRAME = 32;
+/** A chat line, in UTF-16 code units (what `String.length` counts). */
+export const CHAT_MAX_CHARS = 280;
+/** How long one pause lasts before the room ends it by itself. */
+export const PAUSE_MS = 90_000;
+/** Pauses each seat may call in one match. */
+export const PAUSES_PER_SEAT = 3;
+/** How long after the result a room closes itself (L-1, R-B26): both seats
+ *  have reported the same `over` tick, or one has and the other is gone. */
+export const OVER_CLOSE_MS = 120_000;
 
 /** `Command['kind']` as a value, so a wire command can be checked at runtime. */
 export const COMMAND_KINDS = [
@@ -23,15 +32,24 @@ export type ClientMsg =
   | { t: 'cmd'; seq: number; cmd: Command }
   | { t: 'ack'; tick: number }
   | { t: 'hash'; tick: number; h: number }
-  | { t: 'bye' };
+  | { t: 'bye' }
+  | { t: 'pause' }
+  | { t: 'resume' }
+  | { t: 'surrender' }
+  | { t: 'chat'; text: string }
+  /** This seat's sim decided the match on `tick` (L-1): sent once, so the room can close itself. */
+  | { t: 'over'; tick: number };
 
 export const ERROR_CODES = ['bad_message', 'bad_ticket', 'build_mismatch', 'full', 'not_running', 'origin'] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
 export type StallReason = 'behind' | 'gone';
+/** Why a room ended. `over`: it closed itself `OVER_CLOSE_MS` after the result both seats reached (L-1). */
+export const ENDED_REASONS = ['left', 'void', 'expired', 'surrender', 'over'] as const;
+export type EndedReason = (typeof ENDED_REASONS)[number];
 
 export type ServerMsg =
-  | { t: 'lobby'; config: MatchConfig | null; seats: SeatState[]; you: Seat }
+  | { t: 'lobby'; config: MatchConfig | null; seats: SeatState[]; you: Seat; map: string }
   | { t: 'start'; config: MatchConfig }
   | { t: 'frame'; tick: number; cmds: Stamped[] }
   | { t: 'stall'; reason: StallReason; seat: Seat }
@@ -39,7 +57,9 @@ export type ServerMsg =
   | { t: 'hashOk'; tick: number }
   | { t: 'desync'; tick: number; hashes: [number, number] }
   | { t: 'log'; config: MatchConfig; frames: Frame[] }
-  | { t: 'ended'; reason: 'left' | 'void' | 'expired' }
+  | { t: 'paused'; seat: Seat; remainingMs: number; pausesLeft: [number, number] }
+  | { t: 'chat'; seat: Seat; text: string }
+  | { t: 'ended'; reason: EndedReason; seat?: Seat }
   | { t: 'error'; code: ErrorCode };
 
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
@@ -117,6 +137,11 @@ export function parseClientMsg(raw: string): ClientMsg | null {
     case 'ack': return isInt(m.tick) ? { t: 'ack', tick: m.tick } : null;
     case 'hash': return isInt(m.tick) && isInt(m.h) ? { t: 'hash', tick: m.tick, h: m.h } : null;
     case 'bye': return { t: 'bye' };
+    case 'pause': return { t: 'pause' };
+    case 'resume': return { t: 'resume' };
+    case 'surrender': return { t: 'surrender' };
+    case 'chat': return isStr(m.text) && m.text.length <= CHAT_MAX_CHARS ? { t: 'chat', text: m.text } : null;
+    case 'over': return isInt(m.tick) && m.tick >= 0 ? { t: 'over', tick: m.tick } : null;
     default: return null;
   }
 }
@@ -150,7 +175,8 @@ export function parseServerMsg(raw: string): ServerMsg | null {
       // A lobby has no config until the host has set one; a config that is present must be valid.
       const c = m.config === null || m.config === undefined ? null : validateConfig(m.config);
       if (c === null && m.config !== null && m.config !== undefined) return null;
-      return Array.isArray(m.seats) && m.seats.every(isSeatState) && isSeat(m.you) ? { t: 'lobby', config: c, seats: m.seats, you: m.you } : null;
+      return Array.isArray(m.seats) && m.seats.every(isSeatState) && isSeat(m.you) && isStr(m.map)
+        ? { t: 'lobby', config: c, seats: m.seats, you: m.you, map: m.map } : null;
     }
     case 'start': { const c = validateConfig(m.config); return c ? { t: 'start', config: c } : null; }
     case 'frame': return isInt(m.tick) && Array.isArray(m.cmds) && m.cmds.every(isStamped) ? { t: 'frame', tick: m.tick, cmds: m.cmds } : null;
@@ -160,7 +186,15 @@ export function parseServerMsg(raw: string): ServerMsg | null {
     case 'desync': return isInt(m.tick) && Array.isArray(m.hashes) && m.hashes.length === 2 && m.hashes.every(isInt)
       ? { t: 'desync', tick: m.tick, hashes: [m.hashes[0], m.hashes[1]] } : null;
     case 'log': { const c = validateConfig(m.config); return c && Array.isArray(m.frames) && m.frames.every(isFrame) ? { t: 'log', config: c, frames: m.frames } : null; }
-    case 'ended': return m.reason === 'left' || m.reason === 'void' || m.reason === 'expired' ? { t: 'ended', reason: m.reason } : null;
+    case 'paused': return isSeat(m.seat) && isInt(m.remainingMs) && Array.isArray(m.pausesLeft) && m.pausesLeft.length === 2 && m.pausesLeft.every(isInt)
+      ? { t: 'paused', seat: m.seat, remainingMs: m.remainingMs, pausesLeft: [m.pausesLeft[0], m.pausesLeft[1]] } : null;
+    case 'chat': return isSeat(m.seat) && isStr(m.text) ? { t: 'chat', seat: m.seat, text: m.text } : null;
+    case 'ended': {
+      if (!(ENDED_REASONS as readonly unknown[]).includes(m.reason)) return null;
+      const reason = m.reason as EndedReason;
+      if (m.seat === undefined) return { t: 'ended', reason };
+      return isSeat(m.seat) ? { t: 'ended', reason, seat: m.seat } : null;
+    }
     case 'error': return (ERROR_CODES as readonly unknown[]).includes(m.code) ? { t: 'error', code: m.code as ErrorCode } : null;
     default: return null;
   }

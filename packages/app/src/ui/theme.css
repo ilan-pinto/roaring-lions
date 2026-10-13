@@ -1464,6 +1464,12 @@ body[data-outcome-beat] .rl-aar {
 /* Pause (ui/pause.ts) — Escape's target while a battlefield is running    */
 /* ====================================================================== */
 
+/* A room's note under the title (N1b task 8): "No pauses left: the match
+   keeps running" -- a caution, so the caution colour. */
+.rl-pause__note {
+  margin: 0 0 var(--s3);
+  color: var(--warn);
+}
 .rl-pause__tabs {
   display: flex;
   gap: var(--s2);
@@ -7090,6 +7096,183 @@ button.rl-menu__item[data-kind='aside'] {
 }
 
 /* ---------------------------------------------------------------------- */
+/* Play with a friend (ui/versus.ts)                                      */
+/* ---------------------------------------------------------------------- */
+
+/* A `.rl-menu` column like Saves: the forms and the seat cards read as a
+   list, so left-aligned. */
+.rl-menu--versus .rl-panel {
+  text-align: left;
+}
+.rl-versus__section {
+  margin: var(--s4) 0 var(--s2);
+  font-family: var(--font-display);
+  font-size: var(--t-m);
+  letter-spacing: var(--track-title);
+  color: var(--ink);
+}
+.rl-versus__field {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin: var(--s2) 0;
+}
+.rl-versus__label {
+  flex: none;
+  min-width: 8rem;
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+}
+/* The same frame-and-mono face as the Saves name field. */
+.rl-versus__field input[type='text'],
+.rl-versus__field select {
+  flex: 1;
+  min-width: 0;
+  background: var(--panel-bg-solid);
+  color: var(--ink);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  font-family: var(--font-mono);
+  font-size: var(--t-s);
+  padding: var(--s1) var(--s2);
+}
+.rl-versus__code-input {
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+}
+.rl-versus__msg,
+.rl-versus__status {
+  min-height: 1.2em;
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  color: var(--bad-text);
+}
+.rl-versus__share {
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+}
+/* The code is what a player reads aloud to a friend: large, fixed-width. */
+.rl-versus__code {
+  margin: var(--s2) 0;
+  font: 600 var(--t-xl) var(--font-mono);
+  letter-spacing: 0.3em;
+  color: var(--ink);
+}
+.rl-versus__copy-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+}
+.rl-versus__copied {
+  min-height: 1.2em;
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+}
+.rl-versus__seats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--s2);
+  margin: var(--s3) 0;
+}
+.rl-versus__seat {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  background: var(--panel-bg-solid);
+  min-width: 0;
+}
+.rl-versus__seat[data-empty='1'] {
+  border-style: dashed;
+}
+.rl-versus__name {
+  font-family: var(--font-display);
+  font-size: var(--t-m);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.rl-versus__you,
+.rl-versus__state {
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+}
+.rl-versus__seat[data-ready='1'] .rl-versus__state {
+  color: var(--good);
+}
+.rl-versus__dot {
+  flex: none;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--ink-mute);
+}
+.rl-versus__dot[data-connected='1'] {
+  background: var(--good);
+}
+.rl-versus__room-map {
+  display: flex;
+  gap: var(--s2);
+  font-size: var(--t-s);
+}
+.rl-versus__map-name {
+  color: var(--ink);
+}
+.rl-versus__chat:empty {
+  display: none;
+}
+
+/* Chat (ui/net-chat.ts, N1b task 9): the lobby's docked log and input, and
+   the match's input that Enter opens (its lines go to the HUD feed). Every
+   line is text typed by a player, drawn as text. */
+.rl-chat--docked {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  margin-top: var(--s3);
+}
+.rl-chat--float {
+  position: fixed;
+  top: calc(var(--hud-strip-h) + var(--s6) + var(--s4));
+  left: 50%;
+  transform: translateX(-50%);
+  width: 28rem;
+  max-width: calc(100vw - var(--s6));
+  z-index: 20;
+}
+.rl-chat__log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 8rem;
+  overflow-y: auto;
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  color: var(--ink);
+}
+.rl-chat__log:empty,
+.rl-chat__entry[hidden] {
+  display: none;
+}
+.rl-chat__line {
+  overflow-wrap: anywhere;
+}
+.rl-chat__input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--panel-bg-solid);
+  color: var(--ink);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  padding: var(--s1) var(--s2);
+}
+
+/* ---------------------------------------------------------------------- */
 /* Credits (ui/credits.ts)                                                */
 /* ---------------------------------------------------------------------- */
 
@@ -7712,4 +7895,10 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-net-status[data-net='desync'] {
   color: var(--bad-text);
   border-color: var(--bad);
+}
+/* N1b task 11: a desync's Report, beside the line. The line itself stays
+   click-through; `.rl-btn` takes pointer events back for the button alone. */
+.rl-net-status__report {
+  margin-left: var(--s3);
+  font-size: var(--t-s);
 }

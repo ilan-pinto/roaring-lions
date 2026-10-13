@@ -189,3 +189,18 @@ describe('showMenu backdrop (the scene host)', () => {
     expect(stage.querySelector('img.rl-menu__banner')).toBeNull();
   });
 });
+
+describe('showMenu: Play with a friend (N1b)', () => {
+  it('lists "Play with a friend" right after Brigade, linking to /versus', () => {
+    const stage = document.createElement('div');
+    showMenu(stage, { base: '/', version: '0.0.0', world, tutorial });
+    const [main] = stage.querySelectorAll('nav.rl-menu__nav');
+    const items = [...main!.querySelectorAll<HTMLAnchorElement>('a.rl-menu__item')];
+    const brigade = items.findIndex((a) => a.textContent === 'Brigade');
+    expect(brigade).toBeGreaterThanOrEqual(0);
+    const versus = items[brigade + 1];
+    expect(versus?.textContent).toBe('Play with a friend');
+    expect(versus?.getAttribute('href')).toBe('/versus');
+    expect(versus?.dataset.kind).toBe('secondary');
+  });
+});

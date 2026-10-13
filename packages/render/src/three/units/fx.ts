@@ -368,6 +368,7 @@ import {
   shellPointAt,
   shellTrailSpan,
   shellLaunched,
+  shellHidden,
   SHELL_PROFILES,
   SHELL_TRAIL_SEGMENTS,
   type ShellModel,
@@ -1045,6 +1046,8 @@ export function writeShellInstances(
     const s = shells[i];
     // A burst's later streaks wait with a negative `t` (`spawnBurst`).
     if (!shellLaunched(s)) continue;
+    // N1b task 13: a versus arc from an unseen shooter waits for its apex.
+    if (shellHidden(s)) continue;
     const { tail, head } = shellTrailSpan(s);
     // GH-149: per KIND, not one constant -- a `bolt` is a thinner streak than
     // a mortar bomb. `SHELL_WIDTH_PX` remains the arcing kinds' own value.

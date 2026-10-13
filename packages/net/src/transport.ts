@@ -9,6 +9,7 @@ export type TransportStatus =
   | { kind: 'live'; behind: number }
   | { kind: 'stalled'; reason: StallReason | 'connecting'; seat: Seat | null }
   | { kind: 'desync'; tick: number }
+  | { kind: 'paused'; seat: Seat; untilMs: number }
   | { kind: 'closed'; reason: string };
 
 /**

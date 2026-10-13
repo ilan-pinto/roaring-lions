@@ -33,7 +33,7 @@ afterEach(() => {
 
 describe('Escape goes back on shell screens (KS-07)', () => {
   it('presses the screen’s own back control on every shell screen', () => {
-    for (const route of ['campaign', 'brigade', 'free-play', 'settings', 'saves', 'credits']) {
+    for (const route of ['campaign', 'brigade', 'free-play', 'settings', 'saves', 'credits', 'versus']) {
       const { stage, clicks } = stageWithBack();
       dispose = installEscapeBack({ route: () => route, stage, dialogOpen: () => isDialogOpen() });
       const ev = esc();
@@ -47,7 +47,9 @@ describe('Escape goes back on shell screens (KS-07)', () => {
   });
 
   it('does nothing on the menu, a mission or a sandbox', () => {
-    for (const route of ['menu', 'mission', 'sandbox', null]) {
+    // A versus LOBBY is not here (R-B9): its way back closes the room for
+    // both seats, so its own Escape asks first (`ui/versus.ts`).
+    for (const route of ['menu', 'mission', 'sandbox', 'versus-room', null]) {
       const { stage, clicks } = stageWithBack();
       dispose = installEscapeBack({ route: () => route, stage, dialogOpen: () => isDialogOpen() });
       const ev = esc();

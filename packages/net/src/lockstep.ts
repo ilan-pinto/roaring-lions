@@ -37,6 +37,21 @@ export class LockstepClock {
     return out;
   }
 
+  /** Every frame received and not yet run, oldest first, at most `maxTicks`,
+   *  the buffered tail included: for a match whose room has ended, where no
+   *  newer frame is coming to lift it out of the buffer. */
+  drain(maxTicks: number): Frame[] {
+    const out: Frame[] = [];
+    while (out.length < maxTicks && this.nextTick <= this.newest) {
+      const f = this.frames.get(this.nextTick);
+      if (f === undefined) break;
+      this.frames.delete(this.nextTick);
+      out.push(f);
+      this.nextTick++;
+    }
+    return out;
+  }
+
   /** Frames received and not yet run. */
   behind(): number {
     return this.newest - this.nextTick + 1;

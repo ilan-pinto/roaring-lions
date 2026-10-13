@@ -72,3 +72,7 @@ SELECT e.player, e.t, json_extract(e.payload, '$.credits'), json_extract(e.paylo
 FROM events e
 WHERE e.type = 'account'
   AND e.t = (SELECT MAX(t) FROM events x WHERE x.type = 'account' AND x.player = e.player);
+
+-- N1b: desyncs, newest first (network design §3.4).
+SELECT code, tick, hash_a, hash_b, frame_count, datetime(created_at / 1000, 'unixepoch') AS at
+FROM match_desync ORDER BY created_at DESC LIMIT 50;

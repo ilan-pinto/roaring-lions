@@ -11,7 +11,7 @@
  * after the transport has installed its handlers, as a browser's would.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { RECONNECT_DELAY_MS, WsTransport, type Frame, type MatchConfig, type Seat, type ServerMsg, type SocketLike } from '@lions/net';
+import { OVER_CLOSE_MS, RECONNECT_DELAY_MS, WsTransport, type Frame, type MatchConfig, type Seat, type ServerMsg, type SocketLike } from '@lions/net';
 import type { Env } from '../d1';
 import { FakeState, deliverAlarm, deliverClose, openSocket, type FakeSocket } from './fake-do';
 import { MatchRoom, TICK_MS } from './match-room';
@@ -188,6 +188,33 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     expect(p0.taken.slice(1).every((f) => f.cmds.length === 0)).toBe(true);
   });
 
+  it('orders sent during a pause, by either seat, are in no frame either seat ever runs; one after the resume is (L-2, R-B27)', async () => {
+    const { loop, p0, p1 } = await started();
+    p0.t.queueCommand({ kind: 'halt', ids: [100] });   // before the pause: it runs
+    await loop.flush();
+    await step(loop, [p0, p1], 3);
+    p0.t.pause();
+    await loop.flush();
+    expect(p1.t.status().kind).toBe('paused');
+    // The pauser, and the seat that did not pause: both blocked at the room.
+    p0.t.queueCommand({ kind: 'halt', ids: [1] });
+    p1.t.queueCommand({ kind: 'halt', ids: [2] });
+    await loop.flush();
+    await step(loop, [p0, p1], 8);
+    p1.t.queueCommand({ kind: 'halt', ids: [3] });
+    await loop.flush();
+    p0.t.resume();
+    await loop.flush();
+    p1.t.queueCommand({ kind: 'halt', ids: [4] });   // after the resume: accepted
+    await loop.flush();
+    await step(loop, [p0, p1], 6);
+    // Both seats' frame logs are identical, and hold the paused cmds nowhere.
+    expect(p1.taken).toEqual(p0.taken);
+    const ids = p0.taken.flatMap((f) => f.cmds.flatMap((c) => (c.cmd.kind === 'halt' ? c.cmd.ids : [])));
+    expect(ids).toEqual([100, 4]);
+    expect(p0.ticks()).toEqual(range(p0.taken.length));
+  });
+
   it('equal digests on a hash tick are hashOk to both; no desync', async () => {
     const { loop, p0, p1 } = await started();
     await step(loop, [p0, p1], 25);
@@ -361,5 +388,57 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     expect(p1.taken).toEqual(p0.taken.slice(0, p1.taken.length));
     // What both ran at 40..46 is what the first room sent; the order the revived room took was lost on both alike.
     expect(p0.taken.flatMap((f) => f.cmds)).toEqual([{ seat: 0, seq: 0, cmd: { kind: 'halt', ids: [1] } }]);
+  });
+
+  /** L-1 (R-B26): the result, then the room's own close. Both seats run to the
+   *  result's hash tick, report it (`over`) and stop running -- as a seat
+   *  does once its end panel is up -- and the room waits two minutes,
+   *  behind-stalled, its watchdog firing, then closes itself. */
+  it('after the result: rows until the close are ~0.27 a second (the watchdog\'s 0.2, plus one-offs amortised), both seats hear ended over, and the closed room writes nothing', async () => {
+    const { state, loop, p0, p1 } = await started();
+    const RESULT_TICK = 399;
+    while (Math.min(p0.taken.length, p1.taken.length) <= RESULT_TICK) await step(loop, [p0, p1], 1);
+    for (const p of [p0, p1]) {
+      p.taken.splice(RESULT_TICK + 1);   // a seat runs nothing past the tick that decided it
+      p.t.over(RESULT_TICK);
+    }
+    // The meter, by kind: the state blob (`put`), the alarm (set and delete) and the batch rows (the rest).
+    const tally = { put: 0, alarm: 0 };
+    const { put, setAlarm, deleteAlarm } = state.storage;
+    state.storage.put = async <T>(k: string, v: T): Promise<void> => { tally.put++; await put.call(state.storage, k, v); };
+    state.storage.setAlarm = async (t: number): Promise<void> => { tally.alarm++; await setAlarm.call(state.storage, t); };
+    state.storage.deleteAlarm = async (): Promise<void> => { if (state.storage.alarmAt !== null) tally.alarm++; await deleteAlarm.call(state.storage); };
+    const rowsAtResult = state.storage.rowsWritten;
+    await loop.flush();
+    const closeAt = Date.now() + OVER_CLOSE_MS;
+    const ended = (w: Wire): boolean => w.received.some((m) => m.t === 'ended');
+    await step(loop, [], OVER_CLOSE_MS / TICK_MS - 1);
+    expect(loop.wires.some(ended)).toBe(false);   // a tick before the deadline: nobody has heard it
+    await step(loop, [], 1);
+    expect(Date.now()).toBe(closeAt);
+    for (const w of loop.wires) expect(w.received.at(-1)).toEqual({ t: 'ended', reason: 'over' });
+    for (const p of [p0, p1]) expect(p.t.status()).toEqual({ kind: 'closed', reason: 'over' });
+    expect(state.storage.alarmAt).toBeNull();   // deleted by the close itself, not consumed by a later wake
+    expect(vi.getTimerCount()).toBe(0);
+    const between = state.storage.rowsWritten - rowsAtResult;
+    const seconds = OVER_CLOSE_MS / 1000;
+    const batches = between - tally.put - tally.alarm;
+    // The state blob: each seat's report (the second one arms the close) and the close itself.
+    expect(tally.put).toBe(3);
+    // The watchdog every 5 s while the room waits, and the close's delete.
+    expect(tally.alarm).toBeLessThanOrEqual(seconds / 5 + 1);
+    // Batch rows: the frames minted until the unacked seats stall the room (2 s), and each state write's flush of the open batch.
+    expect(batches).toBeLessThanOrEqual(2 + tally.put);
+    // Measured: 32 rows in 120 s (state 3, alarm 25, batch 4) = 0.267 a second; at most 0.275.
+    expect(between / seconds).toBeLessThanOrEqual(0.275);
+    // Closed: the clients go on pumping (and acking into a closed room), a stray alarm fires; nothing is written.
+    const rowsAtClose = state.storage.rowsWritten;
+    const heard = loop.wires.map((w) => w.received.length);
+    await deliverAlarm(loop.room, state.storage);
+    await step(loop, [p0, p1], 60 * 1000 / TICK_MS);
+    expect(state.storage.rowsWritten - rowsAtClose).toBe(0);
+    expect(loop.wires.map((w) => w.received.length)).toEqual(heard);
+    expect(state.storage.alarmAt).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);   // no room clock, and no reconnect timer on either seat
   });
 });

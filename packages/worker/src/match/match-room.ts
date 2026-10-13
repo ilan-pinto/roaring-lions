@@ -22,6 +22,13 @@
  * socket event (an order, an ack, a reconnect) restarts the clock sooner
  * anyway, so 5 s bounds only a freeze nobody is acting through (R-N12).
  *
+ * The room's own close (L-1, R-B26): once both seats have reported the
+ * result (`over`), the room closes itself `OVER_CLOSE_MS` later. The alarm is
+ * aimed at that deadline (`alarmFor`): the watchdog never sleeps past it, so
+ * an evicted room closes on time by the alarm alone, and a room both seats
+ * have left -- no clock -- keeps exactly one alarm, at the deadline. Ended,
+ * the room runs no clock, keeps no alarm and writes no row.
+ *
  * Storage is budgeted for Workers Free (task 8b, R34; R-N12). Frames persist
  * as `batch` rows of variable length: a batch closes when it holds
  * `BATCH_TICKS` frames OR at the first frame that carries a command (R36,
@@ -57,9 +64,10 @@
 import { parseClientMsg, validateConfig, REPLACED_CLOSE_CODE, type ClientMsg, type Frame, type MatchConfig, type Seat, type SeatConfig, type ServerMsg } from '@lions/net';
 import type { Env } from '../d1';
 import type { DurableStateLike, HibernatingSocket, UpgradeInit } from '../do-types';
-import { createRoom, seatJoin, seatMessage, seatGone, clockTick, expire, persistKey, revive, type Effect, type RoomState } from './room-core';
+import { createRoom, endedMsg, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, persistKey, revive, type Effect, type RoomState } from './room-core';
 import { verifyTicket } from './ticket';
 import { DEFAULT_MAP, callsignField, textField } from './room-fields';
+import { compactLog, writeDesync } from './desync-log';
 
 export const TICK_MS = 50;
 /** A sandbox room's seed: the app's SIM_SEED, so the two-machine protocol stays N0's. A versus room mints its own. */
@@ -85,7 +93,17 @@ interface RoomMeta {
   callsigns: [string, string];
   /** Set by the first `/join`, so a second one is refused before the guest's hello (R5). */
   seat1Reserved: boolean;
+  /** Per-match seat tokens (N1b task 12): what `start`/`log` carry as `seats[i].player`, so
+   *  a friend never learns the other seat's persistent anonymous id. Minted at `/create`. */
+  tokens: [string, string];
 }
+/** 16 random hex characters: 64 bits from `crypto.getRandomValues`. */
+function mintToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(8));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+const mintTokens = (): [string, string] => [mintToken(), mintToken()];
+const isToken = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{16}$/.test(v);
 /** A room persisted by N0 has no mode, seed or callsigns in its meta: it reads
  *  as the sandbox it was, on N0's seed, and its callsigns are the ones its
  *  seats already hold (N0 put the callsign in the ticket's `player`). */
@@ -97,6 +115,9 @@ function legacyMeta(m: Partial<RoomMeta>, st: RoomState | null): RoomMeta {
     seed: typeof m.seed === 'number' ? m.seed : SIM_SEED_N0,
     callsigns: Array.isArray(m.callsigns) && m.callsigns.length === 2 ? m.callsigns : [st?.seats[0]?.callsign ?? '', st?.seats[1]?.callsign ?? ''],
     seat1Reserved: m.seat1Reserved === true,
+    // A room created before tokens existed mints them here, at wake. They only become visible
+    // when `mintConfig` runs (once, at start); `st.config` then holds them for every `log`.
+    tokens: Array.isArray(m.tokens) && m.tokens.length === 2 && isToken(m.tokens[0]) && isToken(m.tokens[1]) ? [m.tokens[0], m.tokens[1]] : mintTokens(),
   };
 }
 interface SocketAttachment { seat: Seat | null }
@@ -135,6 +156,19 @@ function wantsClock(st: RoomState): boolean {
   return (st.status === 'running' || st.status === 'stalled') && st.seats.some((s) => s !== null && s.connected);
 }
 
+/** When the alarm should next wake the room, or null for none. While the
+ *  clock runs it is the watchdog, `WATCHDOG_MS` on -- but never later than the
+ *  room's armed close (L-1), so the last wake lands ON the deadline rather
+ *  than up to 5 s past it, at no extra row. With no clock (both seats gone)
+ *  only an armed close wakes the room, once, at its deadline; a lobby, an
+ *  ended room and an abandoned one with no close armed keep no alarm (R38). */
+function alarmFor(st: RoomState, nowMs: number): number | null {
+  if (st.status !== 'running' && st.status !== 'stalled') return null;
+  if (!wantsClock(st)) return st.closeAtMs;
+  const watchdog = nowMs + WATCHDOG_MS;
+  return st.closeAtMs === null ? watchdog : Math.min(watchdog, st.closeAtMs);
+}
+
 export class MatchRoom {
   private st: RoomState | null = null;
   private meta: RoomMeta | null = null;
@@ -146,6 +180,8 @@ export class MatchRoom {
   private disarmed = false;
   /** `persistKey` of the state as last written (or loaded). */
   private savedKey: string | null = null;
+  /** Set once this instance has logged a desync: the match is void after the first, so one write is the bound. */
+  private desyncLogged = false;
 
   constructor(private readonly ctx: DurableStateLike, private readonly env: Env) {
     this.ctx.storage.sql.exec(CREATE_SQL);
@@ -165,6 +201,8 @@ export class MatchRoom {
       if (st) {
         const [lastRow] = this.batches(LAST_SQL);
         revive(st, lastRow ? lastRow.firstTick + lastRow.frames.length : 0, Date.now());
+        // A room persisted before the lobby carried its map has none: the meta has it.
+        if (st.map === '') st.map = this.meta?.map ?? DEFAULT_MAP;
         this.savedKey = persistKey(st);
         gone = this.reconcileSockets(st);
       }
@@ -236,10 +274,12 @@ export class MatchRoom {
   // --- effects --------------------------------------------------------------
 
   private mintConfig(st: RoomState): MatchConfig {
+    // The seat's real id (`RoomSeat.player`) stays in the room; the config carries a per-match token.
+    const tokens = this.meta?.tokens ?? mintTokens();
     const mode = this.meta?.mode ?? 'sandbox';
     const seatConfig = (seat: Seat): SeatConfig => {
       const s = st.seats[seat];
-      return { seat, side: mode === 'versus' ? seat : 0, faction: 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: s?.player ?? '', callsign: this.meta?.callsigns[seat] ?? s?.callsign ?? '', kind: 'human' };
+      return { seat, side: mode === 'versus' ? seat : 0, faction: 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: tokens[seat], callsign: this.meta?.callsigns[seat] ?? s?.callsign ?? '', kind: 'human' };
     };
     const config = validateConfig({
       matchId: st.matchId, code: st.code, seed: this.meta?.seed ?? SIM_SEED_N0, map: this.meta?.map ?? DEFAULT_MAP, mode,
@@ -263,12 +303,41 @@ export class MatchRoom {
    *  its seat closes every OTHER socket on that seat. The state is written
    *  only if its lifecycle changed. */
   private async apply(effects: Effect[], keep?: WebSocket): Promise<void> {
+    let desync: Extract<ServerMsg, { t: 'desync' }> | null = null;
     for (const e of effects) {
       if (e.kind === 'frame') this.record(e.frame);
-      else if (e.kind === 'send') this.send(e.to, e.msg);
-      else for (const ws of this.socketsFor(e.seat)) if (ws !== keep) retire(ws);
+      else if (e.kind === 'send') {
+        this.send(e.to, e.msg);
+        if (e.msg.t === 'desync') desync = e.msg;
+      } else if (e.kind === 'shut') {
+        // The room is over (L-1): each socket gives up its seat, so its close
+        // (from either end) finds no seat to mark gone and writes nothing.
+        for (const ws of this.socketsFor(e.seat)) { disown(ws); shut(ws, 1000, 'ended'); }
+      } else for (const ws of this.socketsFor(e.seat)) if (ws !== keep) retire(ws);
     }
     await this.saveIfChanged();
+    // After the sends and the state write, so a slow or failing D1 delays nothing a player sees.
+    if (desync !== null) await this.logDesync(desync.tick, desync.hashes);
+  }
+  /** Writes a desync's evidence to D1, once per room. AWAITED by `apply`: an
+   *  unawaited D1 call may be cancelled when the object hibernates, and this
+   *  is the one write whose purpose is to survive. It runs once a match, so
+   *  its latency is irrelevant. A log write must never break the room (a
+   *  missing binding, a D1 outage, a throw and a rejection all end in a
+   *  console.error), and the sends have already gone. */
+  private async logDesync(tick: number, hashes: [number, number]): Promise<void> {
+    const st = this.st;
+    if (this.desyncLogged || st === null || st.config === null) return;
+    this.desyncLogged = true;
+    try {
+      const frames = this.readLog();
+      await writeDesync(this.env.DB, {
+        code: st.code, tick, hashA: hashes[0], hashB: hashes[1],
+        config: JSON.stringify(st.config), frames: JSON.stringify(compactLog(frames)), frameCount: frames.length, createdAt: Date.now(),
+      });
+    } catch (e) {
+      console.error('MatchRoom: desync log failed', e);
+    }
   }
   private ensureClock(): void {
     const st = this.st;
@@ -279,7 +348,8 @@ export class MatchRoom {
     } else if (!live && this.clock !== null) {
       clearInterval(this.clock);
       this.clock = null;
-      this.disarmWatchdog();
+      // Deleted -- or, with a close armed and both seats gone, aimed at the deadline (L-1).
+      this.armWatchdog();
     } else if (!live && st?.status === 'ended' && !this.disarmed) {
       // An instance revived after the clock's own instance died ends the match
       // with no clock of its own to stop: the alarm the old one armed goes too.
@@ -290,8 +360,10 @@ export class MatchRoom {
    *  (storage over quota, say) must not become an unhandled rejection. The
    *  cost of a lost arm is only R38's protection, until the next start. */
   private armWatchdog(): void {
+    const at = this.st === null ? null : alarmFor(this.st, Date.now());
+    if (at === null) { this.disarmWatchdog(); return; }
     this.disarmed = false;
-    this.ctx.storage.setAlarm(Date.now() + WATCHDOG_MS).catch((e: unknown) => { console.error('MatchRoom: setAlarm failed', e); });
+    this.ctx.storage.setAlarm(at).catch((e: unknown) => { console.error('MatchRoom: setAlarm failed', e); });
   }
   private disarmWatchdog(): void {
     this.disarmed = true;
@@ -302,12 +374,23 @@ export class MatchRoom {
    *  interval was still running, or through `ensureClock` when it was not,
    *  which arms as it starts the clock (one row either way, never two). A
    *  lobby, an ended room, one this very call expired, and an abandoned one
-   *  (`wantsClock`) re-arm nothing and start no clock. */
+   *  (`wantsClock`) re-arm nothing and start no clock -- unless the abandoned
+   *  room has a close armed (L-1): it closes here when the deadline has come,
+   *  with no clock, and is woken at the deadline otherwise. */
   async alarm(): Promise<void> {
     try {
       const st = await this.begin();
-      if (st && wantsClock(st) && this.clock !== null) {
-        await this.ctx.storage.setAlarm(Date.now() + WATCHDOG_MS);
+      if (st) {
+        const closed = closeIfDue(st, Date.now());
+        if (closed.length > 0) {
+          await this.apply(closed);
+        } else {
+          // Re-armed here when the clock runs on, or when no clock is wanted (an
+          // abandoned room's deadline); a clock that must start or stop is armed
+          // or re-aimed by `ensureClock` instead -- one row either way, never two.
+          const at = alarmFor(st, Date.now());
+          if (at !== null && (this.clock !== null) === wantsClock(st)) await this.ctx.storage.setAlarm(at);
+        }
       }
     } finally {
       this.ensureClock();
@@ -353,8 +436,9 @@ export class MatchRoom {
       const mode = body.mode === 'versus' ? 'versus' : 'sandbox';
       // A signed int32: validateConfig takes any integer, so the sign needs no care.
       const seed = mode === 'versus' ? crypto.getRandomValues(new Uint32Array(1))[0] | 0 : SIM_SEED_N0;
-      this.st = createRoom(body.code, body.matchId, Date.now());
-      this.meta = { map: textField(body.map, DEFAULT_MAP), build, mode, seed, callsigns: [callsignField(body.callsign), ''], seat1Reserved: false };
+      const map = textField(body.map, DEFAULT_MAP);
+      this.st = createRoom(body.code, body.matchId, Date.now(), map);
+      this.meta = { map, build, mode, seed, callsigns: [callsignField(body.callsign), ''], seat1Reserved: false, tokens: mintTokens() };
       await this.ctx.storage.put('meta', this.meta);
       await this.save();
       return Response.json({ ok: true });
@@ -408,7 +492,7 @@ export class MatchRoom {
 
   private async hello(ws: WebSocket, st: RoomState, msg: ClientMsg): Promise<void> {
     if (st.status === 'ended') {
-      reply(ws, { t: 'ended', reason: st.endedReason ?? 'expired' });
+      reply(ws, endedMsg(st));
       shut(ws, 1000, 'ended');
       return;
     }

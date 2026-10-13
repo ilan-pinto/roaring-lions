@@ -44,6 +44,15 @@ describe('LockstepClock', () => {
     expect(c.take(4).map((f) => f.tick)).toEqual([0, 1, 2, 3]);
     expect(c.behind()).toBe(6);
   });
+  it('drain yields the buffered tail take() holds back, capped, and never skips', () => {
+    const c = new LockstepClock(2);
+    for (let t = 0; t < 5; t++) c.push(frame(t));
+    expect(c.take(10).map((f) => f.tick)).toEqual([0, 1, 2]);
+    expect(c.drain(1).map((f) => f.tick)).toEqual([3]);
+    expect(c.drain(10).map((f) => f.tick)).toEqual([4]);
+    expect(c.drain(10)).toEqual([]);
+    expect(c.behind()).toBe(0);
+  });
 });
 
 describe('canonicalOrder', () => {

@@ -1,5 +1,7 @@
 # N1 · The mirror match
 
+> Superseded for play tests by [N1-friend-match.md](N1-friend-match.md) (the lobby, N1b); this URL-only protocol stays for reference.
+
 **What it is:** two seats, two KDF forces, one map. Seat 0 commands side 0 at
 the map's friendly camp, seat 1 commands side 1 at the hostile camp, and each
 sees only its own fog. N1b adds the lobby; until then a room is opened by URL.

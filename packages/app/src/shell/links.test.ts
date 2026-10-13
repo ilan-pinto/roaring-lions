@@ -20,6 +20,15 @@ describe('routes', () => {
     expect(routes.settings()).toBe('/settings');
     expect(routes.credits()).toBe('/credits');
     expect(routes.saves()).toBe('/saves');
+    expect(routes.versus()).toBe('/versus');
+  });
+
+  it('spells a versus room by its code, and the router reads the code back', () => {
+    expect(routes.versusRoom('ABCDEF')).toBe('/versus/ABCDEF');
+    // A pasted code is the player's: a slash in it must not become a path.
+    expect(routes.versusRoom('AB/CD')).toBe('/versus/AB%2FCD');
+    const url = new URL(routes.versusRoom('AB/CD'), 'http://x');
+    expect(matchPath('/versus/:code', stripBase('/', url.pathname))).toEqual({ code: 'AB/CD' });
   });
 
   it('encodes a mission id and carries the tutorial replay flag', () => {

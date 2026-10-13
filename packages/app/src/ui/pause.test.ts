@@ -4,6 +4,7 @@ import { bindingsFrom, passesThroughModal, resolveKey, type Bindings } from '../
 import { DEFAULT_SETTINGS } from '../settings';
 import { LOCALES } from '../i18n/locales';
 import { confirmDialog, isDialogOpen } from './confirm';
+import { escapeOpensPause } from '../net/room-pause';
 import { pauseMenu } from './pause';
 import { keymapRows } from './settings-keymap';
 
@@ -228,9 +229,12 @@ describe('pauseMenu', () => {
   // any dialog exists), so on a bare Escape it used to run BEFORE any
   // dialog's own Escape handler and act on its own idea of what Escape means
   // -- see `isDialogOpen`'s own header in confirm.ts. `gameKeydown` below is
-  // a stand-in for the FIXED shape,
-  // `case 'pause': if (!paused && !isDialogOpen() && !missionEnded) pause();`,
-  // registered before the pause menu opens, exactly like the real one.
+  // a stand-in for the FIXED shape -- `case 'pause'` is reached only when
+  // `!isDialogOpen()` (folded into `escapeTarget`), then
+  // `if (escapeOpensPause({ paused, missionEnded, matchOver })) pause();`
+  // (N1b task 10 added `matchOver`, the versus match-over panel) -- and it
+  // calls the real `escapeOpensPause`, registered before the pause menu
+  // opens, exactly like the real one.
   //
   // Minor 16 (final review): this stand-in used to carry only the
   // `isDialogOpen()` third of that condition, so it mirrored one clause of
@@ -238,17 +242,21 @@ describe('pauseMenu', () => {
   // real local state here now, and `paused` is driven by the menu's own
   // `onResume` the way `bootBattlefield`'s is -- so an Escape that reaches the
   // game while the menu is already up is refused for the same two reasons the
-  // real handler refuses it.
+  // real handler refuses it. Each reason alone is enough, so a mutation that
+  // drops one stays green here; dropping both (`isDialogOpen()` and the
+  // `paused` input) turns this red. `missionEnded` and `matchOver` are pinned
+  // by `escapeOpensPause`'s own tests (`net/room-pause.test.ts`).
   it('the game only OPENS the pause menu: Escape belongs to whichever dialog is open, so cancelling a stacked confirm neither resumes the game nor leaks to it', async () => {
     const d = deps();
     const spy = vi.fn();
     let paused = false;
     const missionEnded = false;
+    const matchOver = false;
     d.onResume.mockImplementation(() => {
       paused = false;
     });
     const gameKeydown = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape' && !paused && !isDialogOpen() && !missionEnded) spy();
+      if (e.key === 'Escape' && !isDialogOpen() && escapeOpensPause({ paused, missionEnded, matchOver })) spy();
     };
     window.addEventListener('keydown', gameKeydown);
     try {
@@ -529,6 +537,27 @@ describe('pauseMenu feedback tab (GH-464)', () => {
     expect(d.onResume).not.toHaveBeenCalled();
   });
 
+  // N1b task 11 (R-B13): a desync's Report opens the menu ON the Feedback tab.
+  // Absent, the menu opens on Objectives exactly as before (the test above).
+  it('openOn: feedback opens straight onto the Feedback tab, the form focused', () => {
+    const fb = fbDeps();
+    pauseMenu(document.body, { ...deps(), feedback: fb, openOn: 'feedback' });
+    const tab = document.querySelector<HTMLButtonElement>('.rl-pause__tabs [data-tab="feedback"]');
+    expect(tab?.dataset.on).toBe('1');
+    expect(document.querySelector<HTMLElement>('.rl-pause__feedback')?.hidden).toBe(false);
+    expect(document.querySelector<HTMLElement>('.rl-pause .rl-obj-panel')?.hidden).toBe(true);
+    expect(document.querySelector('.rl-feedback')).not.toBeNull();
+    expect(fb.picture).toHaveBeenCalledTimes(1);
+    expect(document.activeElement?.classList.contains('rl-feedback__kind')).toBe(true);
+  });
+
+  it('openOn: feedback with no Feedback tab offered opens on Objectives, as without it', () => {
+    pauseMenu(document.body, { ...deps(), openOn: 'feedback' });
+    expect(document.querySelector('.rl-feedback')).toBeNull();
+    expect(document.querySelector<HTMLButtonElement>('.rl-pause__tabs [data-tab="objectives"]')?.dataset.on).toBe('1');
+    expect(document.activeElement?.textContent).toBe('Resume');
+  });
+
   it('closing the menu disposes the form: its key listener comes off with it', () => {
     const add = vi.spyOn(window, 'addEventListener');
     const remove = vi.spyOn(window, 'removeEventListener');
@@ -545,3 +574,52 @@ describe('pauseMenu feedback tab (GH-464)', () => {
   });
 });
 
+
+// N1b task 8 (spec §3.2.5): in a room there is no local pause and no leaving
+// one seat's world -- Quit becomes a confirmed Surrender. Single-player keeps
+// main's exact action row, asserted as a LIST so an extra button fails too.
+describe('pauseMenu in a room', () => {
+  const acts = (): (string | undefined)[] =>
+    [...document.querySelectorAll<HTMLElement>('.rl-pause__actions button')].map((b) => b.dataset.act);
+
+  it('without onSurrender the action row is exactly main\'s: resume, restart, settings, quit', () => {
+    pauseMenu(document.body, deps());
+    expect(acts()).toEqual(['resume', 'restart', 'settings', 'quit']);
+    expect(document.querySelector('.rl-pause__note')).toBeNull();
+  });
+
+  // L-3 fix: a finished match's Quit (reachable via the desync Report) says what it does.
+  it('a quitLabel replaces the Quit button\'s words; absent, it reads "Quit to campaign" as before', () => {
+    pauseMenu(document.body, deps());
+    const quit = (): HTMLElement => document.querySelector<HTMLElement>('.rl-pause button[data-act="quit"]')!;
+    expect(quit().textContent).toBe('Quit to campaign');
+    document.body.innerHTML = '';
+    pauseMenu(document.body, { ...deps(), quitLabel: 'Leave the match' });
+    expect(quit().textContent).toBe('Leave the match');
+    expect(document.querySelector('.rl-pause')!.textContent).not.toContain('Quit to campaign');
+  });
+
+  it('with onSurrender there is a Surrender button and no Quit; it hands off to the caller and leaves the menu up', () => {
+    const { onRestart: _drop, ...rest } = deps();
+    void _drop;
+    const onSurrender = vi.fn();
+    const d = { ...rest, onSurrender };
+    pauseMenu(document.body, d);
+    expect(acts()).toEqual(['resume', 'settings', 'surrender']);
+    const btn = document.querySelector<HTMLButtonElement>('.rl-pause button[data-act="surrender"]');
+    expect(btn?.textContent).toBe('Surrender');
+    btn?.click();
+    expect(onSurrender).toHaveBeenCalledTimes(1);
+    expect(d.onQuit).not.toHaveBeenCalled();
+    expect(d.onResume).not.toHaveBeenCalled();
+    expect(document.querySelector('.rl-pause')).not.toBeNull();
+  });
+
+  it('pauseNote is a line of text under the title, ahead of the tabs', () => {
+    pauseMenu(document.body, { ...deps(), pauseNote: 'No pauses left: the match keeps running <b>x</b>' });
+    const note = document.querySelector<HTMLElement>('.rl-pause__note');
+    expect(note?.textContent).toBe('No pauses left: the match keeps running <b>x</b>');
+    expect(note?.querySelector('b')).toBeNull();
+    expect(note?.nextElementSibling?.classList.contains('rl-pause__tabs')).toBe(true);
+  });
+});

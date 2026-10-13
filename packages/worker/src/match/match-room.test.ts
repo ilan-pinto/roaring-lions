@@ -5,8 +5,9 @@
  * `WebSocketPair` and a 101 `Response` exist only in workerd.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { validateConfig, type ServerMsg, type Seat } from '@lions/net';
-import type { Env } from '../d1';
+import { OVER_CLOSE_MS, validateConfig, type ServerMsg, type Seat } from '@lions/net';
+import type { D1Like, Env } from '../d1';
+import { openTestD1 } from '../test-d1';
 import { FakeState, deliverAlarm, deliverClose, deliverError, openSocket, type FakeSocket } from './fake-do';
 import { BATCH_TICKS, MatchRoom, TICK_MS, WATCHDOG_MS } from './match-room';
 import type { RoomState } from './room-core';
@@ -26,10 +27,10 @@ const last = (ws: FakeSocket): ServerMsg | undefined => msgs(ws).at(-1);
 const ofType = <T extends ServerMsg['t']>(ws: FakeSocket, t: T): Extract<ServerMsg, { t: T }>[] =>
   msgs(ws).filter((m): m is Extract<ServerMsg, { t: T }> => m.t === t);
 
-interface CreateOpts { mode?: string; join?: boolean; code?: string }
+interface CreateOpts { mode?: string; join?: boolean; code?: string; db?: D1Like }
 /** Creates the room and, unless `join: false`, has the guest reserve seat 1 as the Worker does. */
 async function created(state = new FakeState(), opts: CreateOpts = {}): Promise<{ state: FakeState; room: MatchRoom }> {
-  const room = new MatchRoom(state, env);
+  const room = new MatchRoom(state, opts.db ? ({ ...env, DB: opts.db } as Env) : env);
   const res = await room.fetch(new Request('https://room/create', {
     method: 'POST',
     body: JSON.stringify({ code: opts.code ?? CODE, matchId: opts.code ?? CODE, map: 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', ...(opts.mode ? { mode: opts.mode } : {}) }),
@@ -60,6 +61,8 @@ async function running(opts: CreateOpts = {}): Promise<{ state: FakeState; room:
 /** One persisted batch row, parsed. */
 const row = (state: FakeState, firstTick: number): { tick: number; cmds: unknown[] }[] =>
   JSON.parse(state.storage.batches.get(firstTick) ?? 'null') as { tick: number; cmds: unknown[] }[];
+/** Lets the room's unawaited desync write (a few microtasks) settle. */
+const settle = async (): Promise<void> => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
 const persisted = async (state: FakeState): Promise<RoomState> => {
   const st = await state.storage.get<RoomState>('state');
   if (!st) throw new Error('no persisted state');
@@ -81,11 +84,11 @@ describe('MatchRoom', () => {
   it('a hello with a valid ticket joins the lobby, and each socket is told its own seat', async () => {
     const { room } = await created();
     const ws0 = await hello(room, 0);
-    expect(last(ws0)).toEqual({ t: 'lobby', config: null, seats: [{ seat: 0, callsign: 'Host', connected: true, ready: false }], you: 0 });
+    expect(last(ws0)).toEqual({ t: 'lobby', config: null, seats: [{ seat: 0, callsign: 'Host', connected: true, ready: false }], you: 0, map: 'tel_marum' });
     const ws1 = await hello(room, 1);
     const seats = [{ seat: 0, callsign: 'Host', connected: true, ready: false }, { seat: 1, callsign: 'Guest', connected: true, ready: false }];
-    expect(last(ws0)).toEqual({ t: 'lobby', config: null, seats, you: 0 });
-    expect(last(ws1)).toEqual({ t: 'lobby', config: null, seats, you: 1 });
+    expect(last(ws0)).toEqual({ t: 'lobby', config: null, seats, you: 0, map: 'tel_marum' });
+    expect(last(ws1)).toEqual({ t: 'lobby', config: null, seats, you: 1, map: 'tel_marum' });
   });
 
   it('answers a malformed message with one bad_message and carries on', async () => {
@@ -139,8 +142,69 @@ describe('MatchRoom', () => {
       expect(start.config.seats.map((s) => s.side)).toEqual([0, 1]);
       expect(start.config.seats.map((s) => s.faction)).toEqual(['kdf', 'kdf']);
       expect(start.config.seats.map((s) => s.callsign)).toEqual(['Host', 'Guest']);
-      expect(start.config.seats.map((s) => s.player)).toEqual(['p-host', 'p-guest']);
     }
+  });
+
+  it('start carries per-match seat tokens: 16 hex, one per seat, never either player id (N1b task 12)', async () => {
+    for (const mode of ['versus', 'sandbox']) {
+      const { ws0, ws1 } = await running({ mode });
+      for (const ws of [ws0, ws1]) {
+        const raw = JSON.stringify(ofType(ws, 'start')[0]);
+        expect(raw.includes('p-host')).toBe(false);
+        expect(raw.includes('p-guest')).toBe(false);
+        const [a, b] = ofType(ws, 'start')[0].config.seats.map((s) => s.player);
+        expect(a).toMatch(/^[0-9a-f]{16}$/);
+        expect(b).toMatch(/^[0-9a-f]{16}$/);
+        expect(a).not.toBe(b);
+      }
+      // Both seats of one match see the same two tokens.
+      expect(ofType(ws1, 'start')[0].config.seats.map((s) => s.player)).toEqual(ofType(ws0, 'start')[0].config.seats.map((s) => s.player));
+    }
+  });
+
+  it('two rooms mint different tokens, and the real ids stay inside the room', async () => {
+    const a = await running({ mode: 'versus' });
+    const b = await running({ mode: 'versus' });
+    const tokens = (r: { ws0: FakeSocket }): string[] => ofType(r.ws0, 'start')[0].config.seats.map((s) => s.player);
+    expect(tokens(a).some((t) => tokens(b).includes(t))).toBe(false);
+    // The tickets' ids are still what the room seats on.
+    const st = await persisted(a.state);
+    expect(st.seats.map((s) => s?.player)).toEqual(['p-host', 'p-guest']);
+  });
+
+  it('a reconnecting seat gets the SAME tokens in its log, and a late hello never sees an id', async () => {
+    const { state, ws0 } = await running({ mode: 'versus' });
+    const tokens = ofType(ws0, 'start')[0].config.seats.map((s) => s.player);
+    evict();
+    const revived = new MatchRoom(state, env);
+    const back = await hello(revived, 1);
+    const [log] = ofType(back, 'log');
+    expect(log.config.seats.map((s) => s.player)).toEqual(tokens);
+    expect(JSON.stringify(log).includes('p-guest')).toBe(false);
+    expect(JSON.stringify(log).includes('p-host')).toBe(false);
+  });
+
+  it('a room persisted before tokens existed mints them lazily at start, stable in the log', async () => {
+    const { state, room } = await created(new FakeState(), { mode: 'versus' });
+    await hello(room, 0);
+    await hello(room, 1);
+    const meta = state.storage.kv.get('meta') as Record<string, unknown>;
+    expect(meta.tokens).toHaveLength(2);
+    delete meta.tokens;
+    state.storage.kv.set('meta', meta);
+    evict();
+    const revived = new MatchRoom(state, env);
+    const ws0 = await hello(revived, 0);
+    const ws1 = await hello(revived, 1);
+    await say(revived, ws0, { t: 'ready' });
+    await say(revived, ws1, { t: 'ready' });
+    const tokens = ofType(ws0, 'start')[0].config.seats.map((s) => s.player);
+    expect(tokens.every((t) => /^[0-9a-f]{16}$/.test(t))).toBe(true);
+    expect(JSON.stringify(ofType(ws0, 'start')[0]).includes('p-host')).toBe(false);
+    evict();
+    const again = new MatchRoom(state, env);
+    const back = await hello(again, 0);
+    expect(ofType(back, 'log')[0].config.seats.map((s) => s.player)).toEqual(tokens);
   });
 
   it('two versus rooms created in a row mint different seeds, and both seeds are valid config seeds', async () => {
@@ -462,6 +526,17 @@ describe('MatchRoom', () => {
     expect(ofType(ws0, 'frame')).toEqual([]);
   });
 
+  it('a surrender reaches both seats, survives an eviction, and a late hello is told who surrendered (N1b task 2)', async () => {
+    const { state, room, ws0, ws1 } = await running();
+    await say(room, ws1, { t: 'surrender' });
+    expect(last(ws0)).toEqual({ t: 'ended', reason: 'surrender', seat: 1 });
+    expect(last(ws1)).toEqual({ t: 'ended', reason: 'surrender', seat: 1 });
+    evict();
+    const revived = new MatchRoom(state, env);
+    const late = await hello(revived, 0);
+    expect(last(late)).toEqual({ t: 'ended', reason: 'surrender', seat: 1 });
+  });
+
   it('a second hello for a seat replaces it: the old socket is closed, the new one gets the log, and the old close is ignored', async () => {
     const { state, room, ws0, ws1 } = await running();
     await vi.advanceTimersByTimeAsync(2 * TICK_MS);
@@ -604,5 +679,223 @@ describe('MatchRoom', () => {
     expect(ofType(ws1, 'frame').slice(sent).map((f) => f.tick)).toEqual([BATCH_TICKS, BATCH_TICKS + 1]);
     expect(ofType(ws1, 'stall')).toEqual([]);
     expect([...state.storage.batches.keys()]).toEqual([0]);
+  });
+
+  describe('N1b: the map and the desync log', () => {
+    it('a lobby message after /create carries the map the room was created with', async () => {
+      const { room } = await created();
+      const ws0 = await hello(room, 0);
+      const lobby = ofType(ws0, 'lobby').at(-1);
+      expect(lobby?.map).toBe('tel_marum');
+    });
+
+    it('a room persisted before the map was stored takes it from its meta on revive', async () => {
+      const { state } = await created();
+      const st = await persisted(state);
+      const stale: Partial<RoomState> = st;
+      delete stale.map;
+      await state.storage.put('state', st);
+      const revived = new MatchRoom(state, env);
+      const ws0 = await hello(revived, 0);
+      expect(ofType(ws0, 'lobby').at(-1)?.map).toBe('tel_marum');
+    });
+
+    it('two different hashes for one tick write exactly one match_desync row naming it', async () => {
+      const db = openTestD1();
+      const { room, ws0, ws1 } = await running({ db });
+      await say(room, ws0, { t: 'hash', tick: 19, h: 111 });
+      await say(room, ws1, { t: 'hash', tick: 19, h: 222 });
+      const rows = db.raw.prepare('SELECT code, tick, hash_a, hash_b, config, frames, frame_count FROM match_desync').all() as { code: string; tick: number; hash_a: number; hash_b: number; config: string; frames: string; frame_count: number }[];
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ code: CODE, tick: 19, hash_a: 111, hash_b: 222 });
+      expect((JSON.parse(rows[0].config) as { code: string }).code).toBe(CODE);
+      expect(JSON.parse(rows[0].frames)).toEqual({ last: -1, orders: [] });
+      expect(rows[0].frame_count).toBe(0);
+    });
+
+    it('the row carries the order-bearing frames that came before the desync', async () => {
+      const db = openTestD1();
+      const { room, ws0, ws1 } = await running({ db });
+      await say(room, ws0, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [3] } });
+      await vi.advanceTimersByTimeAsync(3 * TICK_MS);
+      await say(room, ws0, { t: 'hash', tick: 19, h: 1 });
+      await say(room, ws1, { t: 'hash', tick: 19, h: 2 });
+      const r = db.raw.prepare('SELECT frames, frame_count FROM match_desync').get() as { frames: string; frame_count: number };
+      const log = JSON.parse(r.frames) as { last: number; orders: { tick: number; cmds: { seat: number; cmd: { kind: string; ids: number[] } }[] }[] };
+      expect(r.frame_count).toBeGreaterThanOrEqual(3);
+      expect(log.last).toBe(r.frame_count - 1);
+      expect(log.orders).toHaveLength(1);
+      expect(log.orders[0].cmds[0]).toMatchObject({ seat: 0, cmd: { kind: 'halt', ids: [3] } });
+    });
+
+    it('the desync handler waits for the D1 write (an unawaited call can be cancelled on hibernation)', async () => {
+      const db = openTestD1();
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((r) => { release = r; });
+      const slow: D1Like = {
+        ...db,
+        prepare: (sql) => {
+          const stmt = db.prepare(sql);
+          const gated = (bound: ReturnType<D1Like['prepare']>): ReturnType<D1Like['prepare']> => ({
+            ...bound, bind: (...v) => gated(bound.bind(...v)), run: async () => { await gate; return bound.run(); },
+          });
+          return gated(stmt);
+        },
+      };
+      const { room, ws0, ws1 } = await running({ db: slow });
+      await say(room, ws0, { t: 'hash', tick: 19, h: 1 });
+      let done = false;
+      const second = say(room, ws1, { t: 'hash', tick: 19, h: 2 }).then(() => { done = true; });
+      await settle();
+      expect(ofType(ws0, 'desync')).toHaveLength(1);   // the sends went out first
+      expect(done).toBe(false);                        // ... but the handler is still waiting on D1
+      release();
+      await second;
+      expect(db.raw.prepare('SELECT COUNT(*) AS n FROM match_desync').get()).toEqual({ n: 1 });
+    });
+
+    it('equal hashes write nothing', async () => {
+      const db = openTestD1();
+      const { room, ws0, ws1 } = await running({ db });
+      await say(room, ws0, { t: 'hash', tick: 19, h: 5 });
+      await say(room, ws1, { t: 'hash', tick: 19, h: 5 });
+      await settle();
+      expect(db.raw.prepare('SELECT COUNT(*) AS n FROM match_desync').get()).toEqual({ n: 0 });
+    });
+
+    it('a failing log write never breaks the room: both seats still hear the desync', async () => {
+      const db = openTestD1();
+      const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const broken: D1Like = { ...db, prepare: () => { throw new Error('d1 down'); } };
+      const { room, ws0, ws1 } = await running({ db: broken });
+      await say(room, ws0, { t: 'hash', tick: 19, h: 1 });
+      await say(room, ws1, { t: 'hash', tick: 19, h: 2 });
+      await settle();
+      expect(ofType(ws0, 'desync')).toHaveLength(1);
+      expect(ofType(ws1, 'desync')).toHaveLength(1);
+      expect(err).toHaveBeenCalled();
+      err.mockRestore();
+    });
+  });
+});
+
+describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () => {
+  /** A hash tick early in the match: the frames up to it are minted within 0.3 s. */
+  const RESULT_TICK = 5;
+  /** Both seats report the same result tick at the current time, once the room
+   *  has minted it (a report of an unminted tick is ignored); returns the deadline. */
+  async function bothOver(room: MatchRoom, ws0: FakeSocket, ws1: FakeSocket, tick = RESULT_TICK): Promise<number> {
+    await vi.advanceTimersByTimeAsync((tick + 1) * TICK_MS);
+    await say(room, ws0, { t: 'over', tick });
+    await say(room, ws1, { t: 'over', tick });
+    return Date.now() + OVER_CLOSE_MS;
+  }
+
+  it('closes at +120 s to the tick: ended over to both, both sockets shut normally, then no clock, no alarm and no row', async () => {
+    const { state, room, ws0, ws1 } = await running();
+    await vi.advanceTimersByTimeAsync(10 * TICK_MS);
+    const closeAt = await bothOver(room, ws0, ws1);
+    expect((await persisted(state)).closeAtMs).toBe(closeAt);   // armed, and written: it survives an eviction
+    await vi.advanceTimersByTimeAsync(closeAt - Date.now() - TICK_MS);
+    expect(ofType(ws0, 'ended')).toEqual([]);   // one tick before the deadline: still open
+    expect(ws0.closed).toBeNull();
+    await vi.advanceTimersByTimeAsync(TICK_MS);
+    expect(Date.now()).toBe(closeAt);
+    for (const ws of [ws0, ws1]) {
+      expect(last(ws)).toEqual({ t: 'ended', reason: 'over' });
+      expect(ws.closed).toEqual({ code: 1000, reason: 'ended' });
+    }
+    expect((await persisted(state))).toMatchObject({ status: 'ended', endedReason: 'over' });
+    expect(state.storage.alarmAt).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+    // After the close: the runtime delivers both closes, a stray alarm and a late message arrive. Nothing is written.
+    const rows = state.storage.rowsWritten;
+    const sent = [ws0.sent.length, ws1.sent.length];
+    await deliverClose(room, ws0);
+    await deliverClose(room, ws1);
+    await deliverAlarm(room, state.storage);
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    expect(state.storage.rowsWritten - rows).toBe(0);
+    expect([ws0.sent.length, ws1.sent.length]).toEqual(sent);
+    expect(state.storage.alarmAt).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+    const late = await hello(room, 1);
+    expect(last(late)).toEqual({ t: 'ended', reason: 'over' });   // a seat that missed it is told
+    expect(state.storage.rowsWritten - rows).toBe(0);
+  });
+
+  it('one seat reports while the other is gone: the close fires on time and the rejoined seat hears it', async () => {
+    const { room, ws0, ws1 } = await running();
+    await vi.advanceTimersByTimeAsync((RESULT_TICK + 1) * TICK_MS);
+    await deliverClose(room, ws1, 1006, 'abnormal');
+    await say(room, ws0, { t: 'over', tick: RESULT_TICK });
+    const closeAt = Date.now() + OVER_CLOSE_MS;
+    await vi.advanceTimersByTimeAsync(30_000);
+    const back = await hello(room, 1);
+    expect(ofType(back, 'log')).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(closeAt - Date.now());
+    expect(last(ws0)).toEqual({ t: 'ended', reason: 'over' });
+    expect(last(back)).toEqual({ t: 'ended', reason: 'over' });
+  });
+
+  it('two different ticks never close the room', async () => {
+    const { state, room, ws0, ws1 } = await running();
+    await vi.advanceTimersByTimeAsync(30 * TICK_MS);
+    await say(room, ws0, { t: 'over', tick: RESULT_TICK });
+    await say(room, ws1, { t: 'over', tick: RESULT_TICK + 20 });
+    await vi.advanceTimersByTimeAsync(2 * OVER_CLOSE_MS);
+    expect(ofType(ws0, 'ended')).toEqual([]);
+    expect((await persisted(state)).closeAtMs).toBeNull();
+  });
+
+  it('the alarm is aimed at the deadline: evicted with no clock, the room still closes at +120 s exactly, by the alarm alone', async () => {
+    const { state, room, ws0, ws1 } = await running();
+    // Off the watchdog's 5 s grid, so a watchdog that merely kept its period would miss the deadline.
+    await vi.advanceTimersByTimeAsync(1234);
+    const closeAt = await bothOver(room, ws0, ws1);
+    expect((closeAt - NOW) % WATCHDOG_MS).not.toBe(0);
+    let instance = room;
+    const wakes: number[] = [];
+    // The isolate dies after every wake: only the storage alarm brings the room back.
+    for (let i = 0; i < 100 && state.storage.alarmAt !== null; i++) {
+      evict();
+      instance = new MatchRoom(state, env);
+      vi.setSystemTime(state.storage.alarmAt);
+      wakes.push(Date.now());
+      await deliverAlarm(instance, state.storage);
+    }
+    expect(wakes.at(-1)).toBe(closeAt);   // the last wake is the deadline itself, not the next 5 s watchdog
+    expect(wakes.every((t, i) => i === 0 || t - wakes[i - 1] <= WATCHDOG_MS)).toBe(true);
+    expect(last(ws0)).toEqual({ t: 'ended', reason: 'over' });
+    expect(last(ws1)).toEqual({ t: 'ended', reason: 'over' });
+    expect((await persisted(state)).endedReason).toBe('over');
+    expect(state.storage.alarmAt).toBeNull();
+    evict();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('both seats gone after the result: no clock, one alarm at the deadline, and the room ends with nobody there', async () => {
+    const { state, room, ws0, ws1 } = await running();
+    const closeAt = await bothOver(room, ws0, ws1);
+    await deliverClose(room, ws0, 1006, 'abnormal');
+    await deliverClose(room, ws1, 1006, 'abnormal');
+    expect(vi.getTimerCount()).toBe(0);   // abandoned: no clock
+    expect(state.storage.alarmAt).toBe(closeAt);   // but the deadline still wakes it
+    evict();
+    const revived = new MatchRoom(state, env);
+    // A wake before the deadline (an alarm left from before) re-aims it rather than losing it.
+    vi.setSystemTime(closeAt - 10_000);
+    await deliverAlarm(revived, state.storage);
+    expect(state.storage.alarmAt).toBe(closeAt);
+    expect((await persisted(state)).endedReason).toBeNull();
+    const rows = state.storage.rowsWritten;
+    vi.setSystemTime(closeAt);
+    await deliverAlarm(revived, state.storage);
+    expect((await persisted(state))).toMatchObject({ status: 'ended', endedReason: 'over' });
+    expect(state.storage.rowsWritten - rows).toBe(1);   // the ended state, and nothing else
+    expect(state.storage.alarmAt).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+    const late = await hello(revived, 0);
+    expect(last(late)).toEqual({ t: 'ended', reason: 'over' });
   });
 });

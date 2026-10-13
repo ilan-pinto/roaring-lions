@@ -45,8 +45,10 @@ push (`pnpm net:engines`).
   positive evidence that hashes were compared at all. The one HUD line reads,
   when it has something to say:
   - `Waiting for {seat}: behind` / `Waiting for {seat}: connection lost` (a stall)
-  - `Desync at {time}. The match is void; report it.` ({time} is the match
-    clock as m:ss; the console adds `[net] DESYNC at tick N`)
+  - `Desync at {time} in room {code}. The match is void.` ({time} is the match
+    clock as m:ss; the console adds `[net] DESYNC at tick N`). Since N1b a
+    **Report** button sits beside it where the feedback form is offered: it
+    opens the pause menu's Feedback tab with the room code already written in.
   - a closed room says why: `The other seat left the match`, `Match void`,
     `The room expired`, or `This seat was opened in another tab`.
 - **At the end, BEFORE either seat leaves, run `__lions.net()` in EACH

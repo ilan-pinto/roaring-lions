@@ -48,4 +48,13 @@ describe('outcome names (PA-07)', () => {
       .map(([key, text]) => `${key}: ${text}`);
     expect(offenders).toEqual([]);
   });
+
+  // The one carve-out, made explicit (N1b task 10): a versus MATCH is not a
+  // mission -- nothing was accomplished or failed, a friend was beaten -- so
+  // its one surface, the match-over panel, names its own three results. The
+  // scan above passes `result` and so reads only `versus.end.title`'s `other`
+  // branch; this pins what the key really says, for each `verdict`.
+  it('a versus match is not a mission: versus.end.title says Victory, Defeat or Draw', () => {
+    expect(['won', 'lost', 'draw'].map((verdict) => t('versus.end.title', { verdict }))).toEqual(['Victory', 'Defeat', 'Draw']);
+  });
 });
