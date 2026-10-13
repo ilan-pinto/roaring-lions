@@ -51,6 +51,8 @@ export interface RoomState {
   cmdTokensAtMs: [number, number];
   /** #559 H-1: characters of command JSON stamped into frames so far, against `MAX_LOG_CMD_CHARS`. */
   cmdChars: number;
+  /** When the room ended, null while it lives: the room is wiped `PURGE_AFTER_MS` later (#559 H-1). */
+  endedAtMs: number | null;
 }
 export type Effect =
   | { kind: 'send'; to: Seat | 'all'; msg: ServerMsg }
@@ -95,7 +97,14 @@ export const MAX_LOG_CMD_CHARS = 2_000_000;
 const MAX_OPEN_HASHES = 16;
 
 export function createRoom(code: string, matchId: string, nowMs: number, map = ''): RoomState {
-  return { code, matchId, createdMs: nowMs, status: 'lobby', config: null, seats: [null, null], tick: 0, pending: [], hashes: {}, lastHashTick: -1, stall: null, endedReason: null, pause: null, pausesLeft: [PAUSES_PER_SEAT, PAUSES_PER_SEAT], lastChatMs: [-1, -1], surrendered: null, map, over: [-1, -1], closeAtMs: null, cmdTokens: [CMD_BUDGET.burst, CMD_BUDGET.burst], cmdTokensAtMs: [nowMs, nowMs], cmdChars: 0 };
+  return { code, matchId, createdMs: nowMs, status: 'lobby', config: null, seats: [null, null], tick: 0, pending: [], hashes: {}, lastHashTick: -1, stall: null, endedReason: null, pause: null, pausesLeft: [PAUSES_PER_SEAT, PAUSES_PER_SEAT], lastChatMs: [-1, -1], surrendered: null, map, over: [-1, -1], closeAtMs: null, cmdTokens: [CMD_BUDGET.burst, CMD_BUDGET.burst], cmdTokensAtMs: [nowMs, nowMs], cmdChars: 0, endedAtMs: null };
+}
+
+/** Every way a room ends goes through here, so the end is dated (#559 H-1). */
+function endRoom(st: RoomState, reason: EndedReason, nowMs: number): void {
+  st.status = 'ended';
+  st.endedReason = reason;
+  st.endedAtMs = nowMs;
 }
 
 const seatStates = (st: RoomState): SeatState[] =>
@@ -180,8 +189,7 @@ function armClose(st: RoomState, nowMs: number): void {
  *  alarm, for a room whose clock is not running. */
 export function closeIfDue(st: RoomState, nowMs: number): Effect[] {
   if ((st.status !== 'running' && st.status !== 'stalled') || st.closeAtMs === null || nowMs < st.closeAtMs) return [];
-  st.status = 'ended';
-  st.endedReason = 'over';
+  endRoom(st, 'over', nowMs);
   st.stall = null;
   st.pause = null;
   return [{ kind: 'send', to: 'all', msg: { t: 'ended', reason: 'over' } }, { kind: 'shut', seat: 0 }, { kind: 'shut', seat: 1 }];
@@ -246,14 +254,12 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
       st.lastHashTick = msg.tick;
       for (const k of Object.keys(st.hashes)) if (Number(k) <= st.lastHashTick) delete st.hashes[Number(k)];
       if (a === b) return [{ kind: 'send', to: 'all', msg: { t: 'hashOk', tick: msg.tick } }];
-      st.status = 'ended';
-      st.endedReason = 'void';
+      endRoom(st, 'void', nowMs);
       return [{ kind: 'send', to: 'all', msg: { t: 'desync', tick: msg.tick, hashes: [a, b] } }];
     }
     case 'bye': {
       if (st.status === 'ended') return [];
-      st.status = 'ended';
-      st.endedReason = 'left';
+      endRoom(st, 'left', nowMs);
       return [{ kind: 'send', to: 'all', msg: { t: 'ended', reason: 'left' } }];
     }
     case 'pause': {
@@ -270,8 +276,7 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
     }
     case 'surrender': {
       if (st.status === 'ended' || st.status === 'lobby') return [];
-      st.status = 'ended';
-      st.endedReason = 'surrender';
+      endRoom(st, 'surrender', nowMs);
       st.surrendered = seat;
       return [{ kind: 'send', to: 'all', msg: { t: 'ended', reason: 'surrender', seat } }];
     }
@@ -392,6 +397,8 @@ export function revive(st: RoomState, tick: number, nowMs: number): void {
   st.cmdTokens = stored.cmdTokens ?? [CMD_BUDGET.burst, CMD_BUDGET.burst];
   st.cmdTokensAtMs = [nowMs, nowMs];
   st.cmdChars = stored.cmdChars ?? 0;
+  // An ended room persisted before the date was kept is wiped from this wake.
+  st.endedAtMs = stored.endedAtMs ?? (st.status === 'ended' ? nowMs : null);
   if (tick > st.tick) {
     st.tick = tick;
     st.pending = [];
@@ -408,8 +415,7 @@ export function revive(st: RoomState, tick: number, nowMs: number): void {
  *  room has no clock running (N0 has no alarms). */
 export function expire(st: RoomState, nowMs: number): Effect[] {
   if (st.status === 'ended' || nowMs - st.createdMs <= ROOM_TTL_MS) return [];
-  st.status = 'ended';
-  st.endedReason = 'expired';
+  endRoom(st, 'expired', nowMs);
   return [{ kind: 'send', to: 'all', msg: { t: 'ended', reason: 'expired' } }];
 }
 
@@ -437,8 +443,7 @@ export function clockTick(st: RoomState, nowMs: number): Effect[] {
   const chars = take.reduce((n, p) => n + JSON.stringify(p.cmd).length, 0);
   if (st.cmdChars + chars > MAX_LOG_CMD_CHARS) {
     // #559 H-1: the room stores no more; the match is void.
-    st.status = 'ended';
-    st.endedReason = 'void';
+    endRoom(st, 'void', nowMs);
     st.stall = null;
     st.pending = [];
     return [...out, { kind: 'send', to: 'all', msg: { t: 'ended', reason: 'void' } }];

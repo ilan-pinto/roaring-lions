@@ -11,6 +11,8 @@ export interface DurableStorageLike {
   setAlarm(scheduledTime: number): Promise<void>;
   getAlarm(): Promise<number | null>;
   deleteAlarm(): Promise<void>;
+  /** Every key and every SQL table this object holds (#559 H-1: an ended room is wiped). */
+  deleteAll(): Promise<void>;
 }
 export interface DurableStateLike {
   storage: DurableStorageLike;

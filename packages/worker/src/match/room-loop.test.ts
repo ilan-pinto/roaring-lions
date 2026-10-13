@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OVER_CLOSE_MS, RECONNECT_DELAY_MS, WsTransport, type Frame, type MatchConfig, type Seat, type ServerMsg, type SocketLike } from '@lions/net';
 import type { Env } from '../d1';
 import { FakeState, deliverAlarm, deliverClose, openSocket, type FakeSocket } from './fake-do';
-import { MatchRoom, TICK_MS } from './match-room';
+import { MatchRoom, PURGE_AFTER_MS, TICK_MS } from './match-room';
 import { signTicket } from './ticket';
 
 const NOW = 1_790_000_000_000;
@@ -418,27 +418,36 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     expect(Date.now()).toBe(closeAt);
     for (const w of loop.wires) expect(w.received.at(-1)).toEqual({ t: 'ended', reason: 'over' });
     for (const p of [p0, p1]) expect(p.t.status()).toEqual({ kind: 'closed', reason: 'over' });
-    expect(state.storage.alarmAt).toBeNull();   // deleted by the close itself, not consumed by a later wake
+    expect(state.storage.alarmAt).toBe(closeAt + PURGE_AFTER_MS);   // re-aimed by the close itself at the wipe (#559 H-1)
     expect(vi.getTimerCount()).toBe(0);
     const between = state.storage.rowsWritten - rowsAtResult;
     const seconds = OVER_CLOSE_MS / 1000;
     const batches = between - tally.put - tally.alarm;
     // The state blob: each seat's report (the second one arms the close) and the close itself.
     expect(tally.put).toBe(3);
-    // The watchdog every 5 s while the room waits, and the close's delete.
+    // The watchdog every 5 s while the room waits, and the close's re-aim at the wipe.
     expect(tally.alarm).toBeLessThanOrEqual(seconds / 5 + 1);
     // Batch rows: the frames minted until the unacked seats stall the room (2 s), and each state write's flush of the open batch.
     expect(batches).toBeLessThanOrEqual(2 + tally.put);
     // Measured: 32 rows in 120 s (state 3, alarm 25, batch 4) = 0.267 a second; at most 0.275.
     expect(between / seconds).toBeLessThanOrEqual(0.275);
-    // Closed: the clients go on pumping (and acking into a closed room), a stray alarm fires; nothing is written.
+    // Closed: the clients go on pumping (and acking into a closed room), a stray alarm fires and only
+    // re-aims at the wipe (one row); then, PURGE_AFTER_MS after the close, the wipe (#559 H-1).
     const rowsAtClose = state.storage.rowsWritten;
     const heard = loop.wires.map((w) => w.received.length);
     await deliverAlarm(loop.room, state.storage);
     await step(loop, [p0, p1], 60 * 1000 / TICK_MS);
-    expect(state.storage.rowsWritten - rowsAtClose).toBe(0);
+    expect(state.storage.rowsWritten - rowsAtClose).toBe(1);
     expect(loop.wires.map((w) => w.received.length)).toEqual(heard);
-    expect(state.storage.alarmAt).toBeNull();
+    expect(state.storage.alarmAt).toBe(closeAt + PURGE_AFTER_MS);
     expect(vi.getTimerCount()).toBe(0);   // no room clock, and no reconnect timer on either seat
+    const stored = state.storage.kv.size + state.storage.batches.size;
+    await step(loop, [p0, p1], 60 * 1000 / TICK_MS);
+    expect(state.storage.wipes).toBe(1);
+    expect(state.storage.kv.size + state.storage.batches.size).toBe(0);
+    // The wipe is billed as the rows it deletes: what the match stored, once.
+    expect(state.storage.rowsWritten - rowsAtClose).toBe(1 + stored);
+    expect(state.storage.alarmAt).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
