@@ -162,6 +162,18 @@ describe('/api/match', () => {
     expect((await handleMatch(post(`${ORIGIN}/api/match`, { player: 'p-host', build: 'b1' }), refusing, NOW)).status).toBe(429);
     expect((await handleMatch(upgrade, refusing, NOW)).status).toBe(200);
   });
+  it('#559 M-1: the upgrade has its own per-IP limit, WS_LIMIT, and a refused one reaches no room', async () => {
+    const { env, wsSeen } = fakeRooms();
+    const keys: string[] = [];
+    let allow = 2;
+    const wsEnv = { ...env, WS_LIMIT: { limit: async ({ key }: { key: string }) => { keys.push(key); return { success: allow-- > 0 }; } } } as Env;
+    const upgrade = new Request(`${ORIGIN}/api/match/ABCDEF/ws`, { headers: { origin: ORIGIN, upgrade: 'websocket', 'cf-connecting-ip': '198.51.100.7' } });
+    const statuses: number[] = [];
+    for (let i = 0; i < 4; i++) statuses.push((await handleMatch(upgrade, wsEnv, NOW)).status);
+    expect(statuses).toEqual([404, 404, 429, 429]);
+    expect(keys).toEqual(Array(4).fill('198.51.100.7'));
+    expect(wsSeen).toHaveLength(2);
+  });
   it('the socket upgrade also needs a good Origin', async () => {
     const { env, wsSeen } = fakeRooms();
     const evil = new Request(`${ORIGIN}/api/match/ABCDEF/ws`, { headers: { origin: 'https://evil.example', upgrade: 'websocket' } });

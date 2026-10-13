@@ -9,7 +9,7 @@ import { OVER_CLOSE_MS, validateConfig, type ServerMsg, type Seat } from '@lions
 import type { D1Like, Env } from '../d1';
 import { openTestD1 } from '../test-d1';
 import { FakeState, deliverAlarm, deliverClose, deliverError, openSocket, type FakeSocket } from './fake-do';
-import { BATCH_TICKS, MatchRoom, PURGE_AFTER_MS, TICK_MS, WATCHDOG_MS } from './match-room';
+import { BATCH_TICKS, HELLO_TIMEOUT_MS, MAX_ROOM_SOCKETS, MatchRoom, PURGE_AFTER_MS, SOCKET_BUDGET, TICK_MS, WATCHDOG_MS } from './match-room';
 import { ROOM_TTL_MS } from './room-core';
 import type { RoomState } from './room-core';
 import { signTicket } from './ticket';
@@ -94,14 +94,82 @@ describe('MatchRoom', () => {
     expect(last(ws1)).toEqual({ t: 'lobby', config: null, seats, you: 1, map: 'tel_marum' });
   });
 
-  it('answers a malformed message with one bad_message and carries on', async () => {
+  it('answers a seated socket\'s malformed message with one bad_message and carries on', async () => {
     const { room } = await created();
-    const ws = openSocket(room);
+    const ws = await hello(room, 0);
     await say(room, ws, '{not json');
-    expect(msgs(ws)).toEqual([{ t: 'error', code: 'bad_message' }]);
+    expect(last(ws)).toEqual({ t: 'error', code: 'bad_message' });
     expect(ws.closed).toBeNull();
-    await say(room, ws, { t: 'hello', ticket: await ticket(0), build: BUILD });
+    await say(room, ws, { t: 'ready' });
     expect(last(ws)?.t).toBe('lobby');
+  });
+
+  describe('#559 M-1: socket limits', () => {
+    it('a socket with no seat whose first message is garbage is told once and closed', async () => {
+      const { room } = await created();
+      const ws = openSocket(room);
+      await say(room, ws, '{not json');
+      expect(msgs(ws)).toEqual([{ t: 'error', code: 'bad_message' }]);
+      expect(ws.closed).toEqual({ code: 1008, reason: 'bad message' });
+    });
+
+    it('a socket with no hello after 10 s is closed by the next thing that wakes the room; a quicker one is seated', async () => {
+      const { room } = await created();
+      const lurker = openSocket(room);
+      vi.setSystemTime(Date.now() + HELLO_TIMEOUT_MS - 1);
+      const quick = openSocket(room);
+      expect(lurker.closed).toBeNull();
+      vi.setSystemTime(Date.now() + 1);
+      await say(room, quick, { t: 'hello', ticket: await ticket(0), build: BUILD });
+      expect(lurker.closed).toEqual({ code: 1008, reason: 'no hello' });
+      expect(quick.closed).toBeNull();
+      expect(last(quick)?.t).toBe('lobby');
+    });
+
+    it('a running clock sweeps them too', async () => {
+      const { room } = await running();
+      const lurker = openSocket(room);
+      await vi.advanceTimersByTimeAsync(HELLO_TIMEOUT_MS + 2000);
+      expect(lurker.closed?.code).toBe(1008);
+    });
+
+    it('a room serves at most 8 live sockets; the ninth is closed at once, and a closed one frees its place', async () => {
+      const { state, room } = await created();
+      const socks = Array.from({ length: MAX_ROOM_SOCKETS }, () => openSocket(room));
+      expect(socks.every((w) => w.closed === null)).toBe(true);
+      const ninth = openSocket(room);
+      expect(ninth.closed).toEqual({ code: 1008, reason: 'too many sockets' });
+      await deliverClose(room, socks[0]);
+      expect(openSocket(room).closed).toBeNull();
+      expect(state.getWebSockets().length).toBeLessThanOrEqual(MAX_ROOM_SOCKETS + 1);
+    });
+
+    it('a seat flooding the room is closed with 1008 once its budget runs out', async () => {
+      const { room, ws0 } = await running();   // its hello and ready spent two
+      for (let i = 0; i < SOCKET_BUDGET.burst - 2; i++) await say(room, ws0, { t: 'chat', text: 'x' });
+      expect(ws0.closed).toBeNull();
+      await say(room, ws0, { t: 'chat', text: 'x' });
+      expect(ws0.closed).toEqual({ code: 1008, reason: 'rate' });
+    });
+
+    it('a rejoining seat replaying its log may ack and hash every minted tick at once: advancing acks and hashes are free', async () => {
+      const { room, ws0, ws1 } = await running();
+      for (let tick = 9; tick < 4000; tick += 10) {
+        await vi.advanceTimersByTimeAsync(10 * TICK_MS);
+        await say(room, ws0, { t: 'ack', tick });
+        await say(room, ws1, { t: 'ack', tick });
+      }
+      const again = await hello(room, 1);
+      for (let tick = 9; tick < 4000; tick += 10) {
+        await say(room, again, { t: 'ack', tick });
+        if (tick % 20 === 19) await say(room, again, { t: 'hash', tick, h: 7 });
+      }
+      expect(again.closed).toBeNull();
+      // ...but the same ack over and over is not progress, and is charged.
+      for (let i = 0; i <= SOCKET_BUDGET.burst; i++) await say(room, again, { t: 'ack', tick: 9 });
+      expect(again.closed?.code).toBe(1008);
+      expect(ws1.closed?.code).toBe(4000);   // the replaced socket
+    });
   });
 
   it('closes a socket whose first message is not a hello', async () => {

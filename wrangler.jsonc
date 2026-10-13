@@ -83,6 +83,16 @@
 				"limit": 6,
 				"period": 60
 			}
+		},
+		// #559 M-1: the socket upgrade, per connecting IP. Its own limiter, so a
+		// client reconnecting once a second (60 a minute) stays inside it.
+		{
+			"name": "WS_LIMIT",
+			"namespace_id": "1005",
+			"simple": {
+				"limit": 60,
+				"period": 60
+			}
 		}
 	],
 	// GH-464: daily at 03:17 UTC, purge feedback pictures, replays and

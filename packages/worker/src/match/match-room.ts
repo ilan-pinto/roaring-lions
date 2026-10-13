@@ -131,12 +131,36 @@ function legacyMeta(m: Partial<RoomMeta>, st: RoomState | null): RoomMeta {
     tokens: Array.isArray(m.tokens) && m.tokens.length === 2 && isToken(m.tokens[0]) && isToken(m.tokens[1]) ? [m.tokens[0], m.tokens[1]] : mintTokens(),
   };
 }
-interface SocketAttachment { seat: Seat | null }
+/** A socket's seat; `at`, while it has none, is when it was accepted, for the
+ *  hello deadline (#559 M-1). A socket the room has closed has neither. */
+interface SocketAttachment { seat: Seat | null; at?: number }
+/**
+ * #559 M-1: what one room lets sockets do.
+ * - `HELLO_TIMEOUT_MS`: a socket with no seat after 10 s is closed, and so is
+ *   one whose first message does not parse.
+ * - `MAX_ROOM_SOCKETS`: two seats need two sockets, plus a few reconnects in
+ *   flight; past 8 live ones a new socket is closed at once.
+ * - `SOCKET_BUDGET`: a token bucket per socket, 160 at once and 80 a second;
+ *   empty, the socket is closed with 1008. An ack or hash that ADVANCES this
+ *   socket's last one and names a tick the room has minted is free: a
+ *   rejoining seat replays its log at many ticks a frame and sends one ack per
+ *   10 ticks and one hash per 20, which is bounded by the room's own tick
+ *   count rather than by time.
+ */
+export const HELLO_TIMEOUT_MS = 10_000;
+export const MAX_ROOM_SOCKETS = 8;
+export const SOCKET_BUDGET = { burst: 160, perSecond: 80 } as const;
+/** Policy violation: the close code for a socket the room will not serve. */
+const POLICY_CLOSE = 1008;
+interface SocketMeter { tokens: number; atMs: number; ack: number; hash: number }
 /** The command JSON a log holds, as `clockTick` counts it (#559 H-1). */
 const cmdCharsOf = (frames: Frame[]): number => frames.reduce((n, f) => n + f.cmds.reduce((m, c) => m + JSON.stringify(c.cmd).length, 0), 0);
 
+function attachmentOf(ws: WebSocket): SocketAttachment | null {
+  try { return (ws as HibernatingSocket).deserializeAttachment() as SocketAttachment | null; } catch { return null; }
+}
 function seatOf(ws: WebSocket): Seat | null {
-  const a = (ws as HibernatingSocket).deserializeAttachment() as SocketAttachment | null;
+  const a = attachmentOf(ws);
   return a === null ? null : a.seat;
 }
 function reply(ws: WebSocket, msg: ServerMsg): void {
@@ -193,6 +217,8 @@ export class MatchRoom {
   private clock: ReturnType<typeof setInterval> | null = null;
   /** The batch not yet closed: memory only, until it closes or the state is written. */
   private open: Frame[] = [];
+  /** Each socket's message budget (#559 M-1): memory only, so a woken room starts every socket full. */
+  private readonly meters = new WeakMap<WebSocket, SocketMeter>();
   /** The alarm this instance last set, or null when it set none (or the runtime consumed it). */
   private alarmAt: number | null = null;
   /** `persistKey` of the state as last written (or loaded). */
@@ -434,7 +460,10 @@ export class MatchRoom {
   private async onClock(): Promise<void> {
     try {
       const st = await this.load();
-      if (st) await this.apply(clockTick(st, Date.now()));
+      if (st) {
+        if (st.tick % 20 === 0) this.closeStaleSockets(Date.now());
+        await this.apply(clockTick(st, Date.now()));
+      }
     } finally {
       this.ensureClock();
     }
@@ -521,8 +550,39 @@ export class MatchRoom {
    *  seatless until its hello. Public because a `WebSocketPair` and a 101
    *  `Response` exist only in workerd, so node tests enter here. */
   acceptSocket(ws: HibernatingSocket): void {
+    const now = Date.now();
+    this.closeStaleSockets(now);
+    const live = this.ctx.getWebSockets().filter((s) => { const a = attachmentOf(s); return a !== null && (a.seat !== null || a.at !== undefined); }).length;
     this.ctx.acceptWebSocket(ws);
-    ws.serializeAttachment({ seat: null } satisfies SocketAttachment);
+    if (live >= MAX_ROOM_SOCKETS) {
+      ws.serializeAttachment({ seat: null } satisfies SocketAttachment);
+      shut(ws, POLICY_CLOSE, 'too many sockets');
+      return;
+    }
+    ws.serializeAttachment({ seat: null, at: now } satisfies SocketAttachment);
+  }
+  /** #559 M-1: every socket still without a seat `HELLO_TIMEOUT_MS` after it was accepted is closed. */
+  private closeStaleSockets(now: number): void {
+    for (const ws of this.ctx.getWebSockets()) {
+      const a = attachmentOf(ws);
+      if (a === null || a.seat !== null || a.at === undefined || now - a.at < HELLO_TIMEOUT_MS) continue;
+      disown(ws);
+      shut(ws, POLICY_CLOSE, 'no hello');
+    }
+  }
+  /** Spends this message from the socket's budget (#559 M-1); false when it is empty. */
+  private spend(ws: WebSocket, msg: ClientMsg | null, st: RoomState, now: number): boolean {
+    let m = this.meters.get(ws);
+    if (m === undefined) { m = { tokens: SOCKET_BUDGET.burst, atMs: now, ack: -1, hash: -1 }; this.meters.set(ws, m); }
+    if (msg !== null && (msg.t === 'ack' || msg.t === 'hash') && msg.tick < st.tick && msg.tick > m[msg.t]) {
+      m[msg.t] = msg.tick;
+      return true;
+    }
+    m.tokens = Math.min(SOCKET_BUDGET.burst, m.tokens + ((now - m.atMs) * SOCKET_BUDGET.perSecond) / 1000);
+    m.atMs = now;
+    if (m.tokens < 1) return false;
+    m.tokens -= 1;
+    return true;
   }
 
   // --- sockets --------------------------------------------------------------
@@ -532,8 +592,16 @@ export class MatchRoom {
       const st = await this.begin();
       if (!st) { reply(ws, { t: 'ended', reason: 'expired' }); shut(ws, 4004, 'no room'); return; }
       const msg = parseClientMsg(typeof message === 'string' ? message : new TextDecoder().decode(message));
-      if (msg === null) { reply(ws, { t: 'error', code: 'bad_message' }); return; }
+      const now = Date.now();
+      this.closeStaleSockets(now);
+      if (!this.spend(ws, msg, st, now)) { disown(ws); shut(ws, POLICY_CLOSE, 'rate'); return; }
       const seat = seatOf(ws);
+      if (msg === null) {
+        reply(ws, { t: 'error', code: 'bad_message' });
+        // A socket with no seat has nothing to lose by a bad first message but its socket (#559 M-1).
+        if (seat === null) { disown(ws); shut(ws, POLICY_CLOSE, 'bad message'); }
+        return;
+      }
       if (seat === null) { await this.hello(ws, st, msg); return; }
       await this.apply(seatMessage(st, seat, msg, Date.now(), () => this.mintConfig(st)));
     } finally {

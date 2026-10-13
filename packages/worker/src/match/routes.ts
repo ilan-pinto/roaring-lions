@@ -1,8 +1,9 @@
 /** `/api/match*` (spec §3.2.1): create, join, and the socket upgrade. Origin
  *  is REQUIRED (the `/api/feedback` rule, `../origin.ts`), on the upgrade too.
  *  ROOM_LIMIT counts create and join only: a client reconnecting once a
- *  second would trip a six-a-minute limit on the upgrade (R20). */
-import type { Env } from '../d1';
+ *  second would trip a six-a-minute limit on the upgrade (R20). The upgrade
+ *  has its own, WS_LIMIT, at 60 a minute (#559 M-1). */
+import type { Env, RateLimiter } from '../d1';
 import { originAllowed } from '../origin';
 import { signTicket } from './ticket';
 import { mintCode, isCode } from './code';
@@ -25,10 +26,10 @@ async function readBody(req: Request): Promise<CreateBody> {
  *  callsign is a label and travels separately. Empty means no id: refused. */
 const playerOf = (b: CreateBody): string => textField(b.player, '');
 
-async function limited(req: Request, env: Env): Promise<boolean> {
-  if (!env.ROOM_LIMIT) return false;
+async function limited(req: Request, limiter: RateLimiter | undefined): Promise<boolean> {
+  if (!limiter) return false;
   const ip = req.headers.get('cf-connecting-ip') ?? 'unknown';
-  const { success } = await env.ROOM_LIMIT.limit({ key: ip });
+  const { success } = await limiter.limit({ key: ip });
   return !success;
 }
 
@@ -45,7 +46,7 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
 
   if (code === undefined) {
     if (req.method !== 'POST') return new Response('method', { status: 405 });
-    if (await limited(req, env)) return new Response('slow down', { status: 429 });
+    if (await limited(req, env.ROOM_LIMIT)) return new Response('slow down', { status: 429 });
     const body = await readBody(req);
     // The room checks every hello's build against this one; empty would switch that check off.
     const build = textField(body.build, '');
@@ -72,7 +73,7 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
   const stub = rooms.get(rooms.idFromName(code));
   if (action === 'join') {
     if (req.method !== 'POST') return new Response('method', { status: 405 });
-    if (await limited(req, env)) return new Response('slow down', { status: 429 });
+    if (await limited(req, env.ROOM_LIMIT)) return new Response('slow down', { status: 429 });
     const body = await readBody(req);
     const player = playerOf(body);
     if (player === '') return new Response('player required', { status: 400 });
@@ -84,5 +85,7 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
   }
   // action === 'ws': the room answers the upgrade itself; the ticket rides in the first message.
   if (req.method !== 'GET') return new Response('method', { status: 405 });
+  // #559 M-1: its own per-IP limit, before any Durable Object is reached.
+  if (await limited(req, env.WS_LIMIT)) return new Response('slow down', { status: 429 });
   return stub.fetch(new Request('https://room/ws', req));
 }

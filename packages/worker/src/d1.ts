@@ -41,6 +41,9 @@ export interface Env {
   ROOMS?: DurableObjectNamespaceLike;
   /** N0: room creation and joins, keyed on the connecting IP (6 a minute). */
   ROOM_LIMIT?: RateLimiter;
+  /** #559 M-1: socket upgrades, keyed on the connecting IP (60 a minute):
+   *  its own limiter, so a reconnect once a second never trips ROOM_LIMIT. */
+  WS_LIMIT?: RateLimiter;
   /** N0: signs seat tickets. Its own secret, never STATS_PASSWORD. Unset fails
    *  closed: every /api/match path answers 503. */
   TICKET_SECRET?: string;
