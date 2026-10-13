@@ -866,6 +866,7 @@
   "intent.smoke.none": "nothing selected that carries smoke",
   "intent.dismount.none": "nothing selected is carrying troops — select a loaded transport to unload",
   "intent.halt.none": "nothing of yours selected to halt — select units first",
+  "intent.halt.garrisoned": "already holding from inside — right-click to leave the building",
 
   "keymap.halt": "Halt",
   "keymap.move": "Move (then click the ground)",

@@ -175,6 +175,7 @@ import {
   issueMove,
   issueOrder,
   haltNote,
+  haltTargets,
   orderDenied,
   resolvePointer,
   resolveKeyVerb,
@@ -2780,8 +2781,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // moved, not rewritten, and a dead unit's halt is a no-op in the sim.
     halt: () => {
       const mine = renderer.selection.filter((i) => isOwnSide(sim.state.side[i], me));
-      if (mine.length) dispatch({ kind: 'halt', ids: mine });
-      const none = haltNote(mine.length);
+      // The sim's halt ejects a garrisoned unit; a unit inside is already
+      // holding, so H never empties a building (ruling 2026-10-11).
+      const outside = haltTargets(mine, (i) => sim.state.garrisonedIn[i] >= 0);
+      if (outside.length) dispatch({ kind: 'halt', ids: outside });
+      const none = haltNote(mine.length, outside.length);
       if (none) hud.note(none.text, none.tone);
     },
     smoke: () => armOrder('smoke'),
