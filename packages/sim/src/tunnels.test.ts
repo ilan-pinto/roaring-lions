@@ -1001,6 +1001,36 @@ describe('collapsing a route', () => {
   });
 });
 
+describe('a collapse shakes the surface', () => {
+  // TUNNEL_COLLAPSE_SHOCK is 0.6 handed to splashDirect, which doubles every
+  // blast (BOUNCE_SUPP_MULT), so the surface takes 1.2 -- the lead's ruling of
+  // 2026-10-13, and what tunnels.ts says. Literal oracle: 1.2 x 0.75 (default
+  // resistance 0.5) x 1 (open ground) = 0.9. The charge resolves after the
+  // tick's decay (stepTunnelCharge runs after stepUpkeep), so the gain is
+  // what was there, decayed, subtracted from what is there now.
+  it('a soldier beside the vent takes 1.2 before resistance', () => {
+    const sim = new Sim({ seed: 11, width: 24, height: 12, capacity: 8 });
+    const idx = sim.addTunnel({
+      id: 'tn_shock',
+      points: [[4, 6], [12, 6]] as const,
+      dig_tiles_per_s: 1,
+      pre_dug: true,
+    });
+    const yahalom = sim.spawn(sim.addUnitType(YAHALOM_TYPE), 0, fx.from(11.5), fx.from(7.0));
+    const vent = sim.tunnelVent(idx);
+    const near = sim.spawn(sim.addUnitType(SCOUT_TYPE), 0, vent[0], fx.add(vent[1], fx.from(1)));
+    sim.identifyTunnelTo(0, idx);
+    sim.queueCommand({ kind: 'chargeTunnel', ids: [yahalom], tunnel: idx });
+    let gain = -1;
+    for (let t = 0; t < 300 && gain < 0; t++) {
+      const s0 = fx.toNumber(sim.state.suppression[near]);
+      const evs = sim.tick();
+      if (evs.some((e) => e.kind === 'tunnelCollapsed')) gain = fx.toNumber(sim.state.suppression[near]) - s0 * 0.99253;
+    }
+    expect(gain).toBeCloseTo(1.2 * 0.75, 3);
+  });
+});
+
 describe('putInTunnel kinematics', () => {
   it('burying a walking unit cancels its order: the earth holds it still', () => {
     // The half of the containment rule a command-time refusal cannot cover:

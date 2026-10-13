@@ -49,11 +49,15 @@ export const SURFACE_SECONDS = 3;
 /** Shots committed per surfacing. A unit comes up to do something specific
  *  and goes back down; it does not fight a battle from the hole. */
 export const SURFACE_VOLLEY = 2;
-/** Suppression dealt to everyone near a collapsing route, and its radius².
- *  0.6 — held apart from structures.ts's COLLAPSE_SHOCK (0.7), which sim.ts
- *  already imports unaliased: a different value for a different event, not
- *  a duplicate to fold together. */
-export const TUNNEL_COLLAPSE_SHOCK = 39322; // 0.6
+/** Shock of a collapsing route, and its radius². This 0.6 is handed to
+ *  splashDirect as a per-near-miss figure and doubled there like every blast
+ *  (BOUNCE_SUPP_MULT), so everyone within the radius takes 1.2 before
+ *  resistance and cover -- deliberately, by the lead's ruling of 2026-10-13
+ *  (until that day the doubling was a no-op and it dealt nothing). Held apart
+ *  from structures.ts's COLLAPSE_SHOCK (0.7, applied as is), which sim.ts
+ *  already imports unaliased: a different value for a different event, not a
+ *  duplicate to fold together. */
+export const TUNNEL_COLLAPSE_SHOCK = 39322; // 0.6, dealt as 1.2
 export const TUNNEL_COLLAPSE_RADIUS = 131072; // 2 tiles — splashDirect squares it
 
 /** Total length of a polyline, in Q16.16 tiles. */
