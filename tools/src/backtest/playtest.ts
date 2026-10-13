@@ -1239,7 +1239,7 @@ run(
 passiveAcrossSeeds('khan_rafid_3_clearance', 'khan_rafid_3_clearance (passive control)', 'defeat');
 
 // KR III (GH-382: the garden souk) -- O-KR4's measurement gate. `structure_penalty_mult: 2` ships
-// as authored: the vanguard (rifles + one Eitan + the Lavi + the sniper) walks straight at the
+// as authored: the vanguard (rifles + the Lavi + the sniper) walks straight at the
 // souk alley, which enters the `souk` zone before it is in weapon range of either garrisoned
 // shanty -- `zone_entered(souk)` fires the `commit` trigger first, and a `commit`/`withdraw_to`
 // order calls `leaveStructure` on a garrisoned unit exactly as an explicit move does
@@ -1250,9 +1250,12 @@ passiveAcrossSeeds('khan_rafid_3_clearance', 'khan_rafid_3_clearance (passive co
 // orchards, one gap each, and the plan takes one per carrier: the jeep the south-east orchard
 // (through the gap in its west wall), the second Eitan the east orchard (gap in its south wall),
 // the Namer the west orchard, the longest drive, so it is given 45 s before it turns for the
-// ward. Six in, the objective's count, is those three. Measured: VICTORY in 0.9 min, ROE 100
-// (pinned seed), 12 of 12 over seeds 1..12. That is a floor with the puzzle removed, and
-// the ladder is where the real difficulty lives (see the PR table).
+// ward. Six in, the objective's count, is those three. The first Eitan does not go with the
+// vanguard (see the souk comment in the plan): it travels separately, via (29, 27), then
+// attack-moves to (28, 18) at t=11, and the drone moves to (24, 30) first and sweeps to (24, 18)
+// at t=30. Measured (GH-279 Task 1): VICTORY in 1.1-1.2 min, ROE 95 (pinned seed), 30 of 30
+// seeds. That is a floor with the puzzle removed, and the ladder is where the real difficulty
+// lives (see the PR table).
 const khanRafid3Plan: Plan = (sim, _rt, ids, at) => {
   const inf = ids('inf_squad');
   const eitan = ids('apc_eitan');
@@ -1266,13 +1269,18 @@ const khanRafid3Plan: Plan = (sim, _rt, ids, at) => {
   const vanguard = [...inf, ...lavi, ...sniper];
 
   // The souk family at [21, 20] is walked out by the rifles (GH-279 ruling a: an aircraft overhead
-  // moves nobody, so the drone no longer does it). Rifles are the only thing that reaches them
-  // before a transport does, so no transport may come within 4 tiles of them first: a civilian who
-  // breaks boards the nearest hull with a free seat, and one that chases a vehicle driving past
-  // stalls short of it (measured, 7 of 30 seeds lost with the Eitan on the x=26 column at t=20).
-  // The vanguard's Eitan therefore comes up the east side to the alley's east end, [28, 18], 6
-  // tiles from them, instead of to [24, 18], and the drone holds in the street until it has done
-  // the same. Measured: pinned seed unchanged (ROE 95, 265 credits, 14 out), 30 of 30 seeds.
+  // moves nobody, so the drone no longer does it). The rifles are the intended shepherd, so no
+  // transport should come within 4 tiles of the family first: a civilian who breaks boards the
+  // nearest hull with a free seat, and one that chases a vehicle driving past stalls short of it
+  // (measured, 7 of 30 seeds lost with the Eitan on the x=26 column at t=20, passing (25.9, 21-22)).
+  // The first Eitan therefore leaves the vanguard and comes up the east side to the alley's east
+  // end, [28, 18] (7.3 tiles from the placement point [21, 20]), instead of to [24, 18], and the
+  // drone holds in the street until t=30 before it sweeps to [24, 18].
+  // Measured: `kill_the_block_commander` goes a -> c; the plan takes 0.9 -> 1.1-1.2 min; the pinned
+  // seed reads ROE 95 / 265 credits / 14 out, 30 of 30 seeds; the max-tier line goes 95 -> 90 and
+  // 265 -> 260. This Eitan/drone combination is a search-fitted point, not a derived one (the
+  // variants tried are in the GH-279 Task 1 report), and the pinned credits depend on the drone
+  // surviving the alley: do not retune it blind.
   at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 30) }));
   at(30, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 18) }));
   at(0, () => sim.queueCommand({ kind: 'attackMove', ids: vanguard, ...M(24, 18) }));
@@ -1659,8 +1667,9 @@ run(
 // at [21,24]), so a passive player loses on that clock regardless of wave
 // volume -- `checkEnd` fails the mission the instant the count never
 // reaches 2 by t=300s. Measured (this session): DEFEAT at 5.00 min. See
-// that document's §1/§2 for the new primary's shape and the shipped plan's
-// unchanged victory.
+// that document's §1/§2 for the new primary's shape. The shipped plan still
+// wins, but it was edited under GH-279 ruling (a): the rifles, not the drone,
+// walk the herders out (see the order at t=4 below).
 passiveAcrossSeeds('tel_marum_1_recon', 'tel_marum_1_recon (passive control)', 'defeat');
 
 run(
