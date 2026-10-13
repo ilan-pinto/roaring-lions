@@ -25,7 +25,7 @@ import { playerId } from './player-id';
 import { takeHanded } from './handoff';
 import { forgetSeat, loadSeat, saveSeat } from './ticket-store';
 import type { StorageLike } from '../telemetry/identity';
-import { LocalTransport, WsTransport, type MatchConfig, type MatchTransport, type Seat, type SeatState, type SocketLike } from '@lions/net';
+import { LocalTransport, WsTransport, callsignOrDefault, type MatchConfig, type MatchTransport, type Seat, type SeatState, type SocketLike } from '@lions/net';
 
 export interface ConnectDeps {
   fetch: typeof fetch;
@@ -103,7 +103,7 @@ export async function connectMatch(query: URLSearchParams, mapId: string, build:
   // room, leave seat 0 empty in the lobby, and answer the real guest 409 --
   // a wedged room with a blank stage. Say so instead.
   if (query.has('seat')) throw new Error(RELOAD_REFUSED);
-  const callsign = query.get('callsign') ?? 'Lion';
+  const callsign = callsignOrDefault(query.get('callsign'));
   // The room's mode is fixed at create; a joiner takes whatever the room is.
   const mode = query.get('mode') === 'versus' ? 'versus' : 'sandbox';
   const url = creating ? `${deps.origin}/api/match` : `${deps.origin}/api/match/${encodeURIComponent(joinCode)}/join`;
@@ -246,8 +246,8 @@ export async function openRoom(req: RoomRequest, build: string, deps: OpenDeps):
   const url = creating ? `${deps.origin}/api/match` : `${deps.origin}/api/match/${encodeURIComponent(req.code.toUpperCase())}/join`;
   const player = playerId(deps.store);
   const body = creating
-    ? { player, callsign: req.callsign, map: req.map, build, mode: 'versus' }
-    : { player, callsign: req.callsign, build };
+    ? { player, callsign: callsignOrDefault(req.callsign), map: req.map, build, mode: 'versus' }
+    : { player, callsign: callsignOrDefault(req.callsign), build };
   let res: Response;
   try {
     res = await deps.fetch(url, {

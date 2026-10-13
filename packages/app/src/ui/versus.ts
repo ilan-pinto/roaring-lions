@@ -28,7 +28,7 @@
  * `NetChat`, which keeps to that too).
  */
 import { maps } from '@lions/data';
-import type { Seat, SeatState, WsTransport } from '@lions/net';
+import { MAX_CALLSIGN_CHARS, callsignOrDefault, cleanCallsign, type Seat, type SeatState, type WsTransport } from '@lions/net';
 import { t } from '../i18n/t';
 import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';
 import { handOver } from '../net/handoff';
@@ -48,8 +48,8 @@ import { symbolLabel } from './symbol';
  *  `versus.test.ts` pins it against that file's text. */
 export const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export const CODE_LENGTH = 6;
-/** The room's own cap (`room-fields.ts`'s `MAX_CALLSIGN_CHARS`). */
-export const CALLSIGN_MAX = 24;
+/** The room's own cap (`@lions/net`'s `MAX_CALLSIGN_CHARS`, one number for both sides). */
+export const CALLSIGN_MAX = MAX_CALLSIGN_CHARS;
 /** The map a host is offered first, when it ships. */
 const DEFAULT_MAP = 'tel_marum';
 /** The two seats, in the order their cards are drawn. */
@@ -222,8 +222,14 @@ function callsignField(deps: VersusDeps): { el: HTMLElement; input: HTMLInputEle
   input.maxLength = CALLSIGN_MAX;
   input.setAttribute('autocomplete', 'nickname');
   input.spellcheck = false;
-  input.value = deps.callsign.get().slice(0, CALLSIGN_MAX);
-  input.addEventListener('change', () => deps.callsign.set(input.value.trim().slice(0, CALLSIGN_MAX)));
+  input.value = cleanCallsign(deps.callsign.get());
+  // Cleaned the way the room will clean it (`cleanCallsign`), so the field
+  // shows what the other player will see; kept empty when nothing is left, and
+  // 'Lion' only where it is sent (`callsignOrDefault`).
+  input.addEventListener('change', () => {
+    input.value = cleanCallsign(input.value);
+    deps.callsign.set(input.value);
+  });
   el.append(name, input);
   return { el, input };
 }
@@ -316,10 +322,10 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
       },
     );
   };
-  openBtn.addEventListener('click', () => start({ kind: 'create', map: select.value, callsign: callsign.input.value.trim() }));
+  openBtn.addEventListener('click', () => start({ kind: 'create', map: select.value, callsign: callsignOrDefault(callsign.input.value) }));
   const join = (): void => {
     if (code.value.length !== CODE_LENGTH) return;
-    start({ kind: 'join', code: code.value, callsign: callsign.input.value.trim() });
+    start({ kind: 'join', code: code.value, callsign: callsignOrDefault(callsign.input.value) });
   };
   goBtn.addEventListener('click', join);
   code.addEventListener('input', () => {
@@ -495,7 +501,7 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
       busy = true;
       go.disabled = true;
       msg.textContent = '';
-      deps.open({ kind: 'join', code, callsign: callsign.input.value.trim() }, leaving.signal).then(
+      deps.open({ kind: 'join', code, callsign: callsignOrDefault(callsign.input.value) }, leaving.signal).then(
         (o) => {
           if (disposed) { o.transport.close(); return; }
           room = adopt(o, deps);

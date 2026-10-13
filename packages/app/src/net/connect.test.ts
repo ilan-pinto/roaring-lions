@@ -474,6 +474,23 @@ describe('openRoom: the lobby\'s create and join (N1b task 6, R-B8)', () => {
     expect(sock.sent.map((s) => (JSON.parse(s) as { t: string }).t)).toEqual(['hello']);
   });
 
+  it('cleans the callsign it sends, on create and on join (N1b follow-up): the same function the room runs', async () => {
+    for (const req of [
+      { kind: 'create', map: 'qarn_hadid', callsign: '\u202EAr\u0000i  ' } as const,
+      { kind: 'join', code: 'ABCDEF', callsign: '\u202EAr\u0000i  ' } as const,
+    ]) {
+      const { f, calls } = answering(201);
+      const p = openRoom(req, 'b', deps({ fetch: f, openSocket: () => fakeSocket() }));
+      await tick();
+      expect(calls[0].body.callsign, req.kind).toBe('Ar i');
+      void p.catch(() => {});
+    }
+    const { f, calls } = answering(201);
+    void openRoom({ kind: 'create', map: 'qarn_hadid', callsign: '\u200B\u0007' }, 'b', deps({ fetch: f, openSocket: () => fakeSocket() })).catch(() => {});
+    await tick();
+    expect(calls[0].body.callsign).toBe('Lion');
+  });
+
   it('a join posts to the code\'s join route with the callsign and no mode', async () => {
     const { f, calls } = answering(200, { code: 'ABCDEF', seat: 1, ticket: 'tk-j' });
     const sock = fakeSocket();

@@ -65,6 +65,22 @@ describe('/api/match', () => {
     await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-3', build: 'b1', mode: 'conquest' }), env, NOW);
     expect(createBodies[1]).toMatchObject({ mode: 'sandbox', callsign: 'Lion' });
   });
+  // N1b follow-up: a callsign is cleaned the way the client cleans it
+  // (`cleanCallsign`, @lions/net) before the room ever sees it -- the Worker
+  // trusts nothing a client sent.
+  it('cleans the callsign on create and on join: control and bidi characters out, NFKC, 24 code points, Lion when nothing is left', async () => {
+    const { env, createBodies, joinBodies } = fakeRooms();
+    const dirty = 'A\u0000r\u202Ei\u200B  ＢＯ\n' + 'x'.repeat(40);
+    const res = await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-1', callsign: dirty, build: 'b1' }), env, NOW);
+    const { code } = (await res.json()) as { code: string };
+    expect(createBodies[0]).toMatchObject({ callsign: 'A ri BO ' + 'x'.repeat(16) });
+    expect((createBodies[0] as { callsign: string }).callsign).toHaveLength(24);
+    await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'id-2', callsign: '\u202E\u0007\u200B' }), env, NOW);
+    expect(joinBodies[0]).toEqual({ player: 'id-2', callsign: 'Lion' });
+    const again = await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'id-4', callsign: 'Bo\tX\u2028Y' }), env, NOW);
+    expect(again.status).toBeLessThan(500);
+    expect(joinBodies[1]).toEqual({ player: 'id-4', callsign: 'Bo X Y' });
+  });
   it('a missing or empty player answers 400 on create and join, before any room is touched', async () => {
     const { env, createBodies, joinBodies } = fakeRooms();
     for (const player of [undefined, '', 5]) {
