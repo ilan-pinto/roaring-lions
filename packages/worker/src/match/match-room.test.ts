@@ -890,21 +890,22 @@ describe('MatchRoom', () => {
     it('two different hashes for one tick write exactly one match_desync row naming it', async () => {
       const db = openTestD1();
       const { room, ws0, ws1 } = await running({ db });
+      await vi.advanceTimersByTimeAsync(20 * TICK_MS);   // tick 19 minted: a hash may name it (#559 M-2)
       await say(room, ws0, { t: 'hash', tick: 19, h: 111 });
       await say(room, ws1, { t: 'hash', tick: 19, h: 222 });
       const rows = db.raw.prepare('SELECT code, tick, hash_a, hash_b, config, frames, frame_count FROM match_desync').all() as { code: string; tick: number; hash_a: number; hash_b: number; config: string; frames: string; frame_count: number }[];
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({ code: CODE, tick: 19, hash_a: 111, hash_b: 222 });
       expect((JSON.parse(rows[0].config) as { code: string }).code).toBe(CODE);
-      expect(JSON.parse(rows[0].frames)).toEqual({ last: -1, orders: [] });
-      expect(rows[0].frame_count).toBe(0);
+      expect(JSON.parse(rows[0].frames)).toEqual({ last: 19, orders: [] });
+      expect(rows[0].frame_count).toBe(20);
     });
 
     it('the row carries the order-bearing frames that came before the desync', async () => {
       const db = openTestD1();
       const { room, ws0, ws1 } = await running({ db });
       await say(room, ws0, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [3] } });
-      await vi.advanceTimersByTimeAsync(3 * TICK_MS);
+      await vi.advanceTimersByTimeAsync(20 * TICK_MS);
       await say(room, ws0, { t: 'hash', tick: 19, h: 1 });
       await say(room, ws1, { t: 'hash', tick: 19, h: 2 });
       const r = db.raw.prepare('SELECT frames, frame_count FROM match_desync').get() as { frames: string; frame_count: number };
@@ -930,6 +931,7 @@ describe('MatchRoom', () => {
         },
       };
       const { room, ws0, ws1 } = await running({ db: slow });
+      await vi.advanceTimersByTimeAsync(20 * TICK_MS);
       await say(room, ws0, { t: 'hash', tick: 19, h: 1 });
       let done = false;
       const second = say(room, ws1, { t: 'hash', tick: 19, h: 2 }).then(() => { done = true; });
@@ -941,9 +943,22 @@ describe('MatchRoom', () => {
       expect(db.raw.prepare('SELECT COUNT(*) AS n FROM match_desync').get()).toEqual({ n: 1 });
     });
 
+    it('#559 M-2/L-2: a forged pair for a far-future tick voids nothing and writes no row', async () => {
+      const db = openTestD1();
+      const { state, room, ws0, ws1 } = await running({ db });
+      await vi.advanceTimersByTimeAsync(20 * TICK_MS);
+      await say(room, ws0, { t: 'hash', tick: 999_999, h: 1 });
+      await say(room, ws1, { t: 'hash', tick: 999_999, h: 2 });
+      await settle();
+      expect(ofType(ws0, 'desync')).toEqual([]);
+      expect((await persisted(state)).status).toBe('running');
+      expect(db.raw.prepare('SELECT COUNT(*) AS n FROM match_desync').get()).toEqual({ n: 0 });
+    });
+
     it('equal hashes write nothing', async () => {
       const db = openTestD1();
       const { room, ws0, ws1 } = await running({ db });
+      await vi.advanceTimersByTimeAsync(20 * TICK_MS);
       await say(room, ws0, { t: 'hash', tick: 19, h: 5 });
       await say(room, ws1, { t: 'hash', tick: 19, h: 5 });
       await settle();
@@ -955,6 +970,7 @@ describe('MatchRoom', () => {
       const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
       const broken: D1Like = { ...db, prepare: () => { throw new Error('d1 down'); } };
       const { room, ws0, ws1 } = await running({ db: broken });
+      await vi.advanceTimersByTimeAsync(20 * TICK_MS);
       await say(room, ws0, { t: 'hash', tick: 19, h: 1 });
       await say(room, ws1, { t: 'hash', tick: 19, h: 2 });
       await settle();

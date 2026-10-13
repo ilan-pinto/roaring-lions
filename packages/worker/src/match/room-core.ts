@@ -254,7 +254,10 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
     }
     case 'hash': {
       if (st.status !== 'running' && st.status !== 'stalled') return [];
-      if (msg.tick < 0 || msg.tick <= st.lastHashTick) return [];   // a replay or a forgery
+      // A replay, or a tick the room has not minted (#559 M-2, L-2): no seat can
+      // hash a frame that does not exist, so a far-future pair is a forgery that
+      // would void the match and write a desync row from nothing.
+      if (msg.tick < 0 || msg.tick <= st.lastHashTick || msg.tick >= st.tick) return [];
       const pair = st.hashes[msg.tick] ?? [null, null];
       pair[seat] = msg.h;
       st.hashes[msg.tick] = pair;

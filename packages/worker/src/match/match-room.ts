@@ -382,10 +382,11 @@ export class MatchRoom {
     this.desyncLogged = true;
     try {
       const frames = this.readLog();
-      await writeDesync(this.env.DB, {
+      const written = await writeDesync(this.env.DB, {
         code: st.code, tick, hashA: hashes[0], hashB: hashes[1],
         config: JSON.stringify(st.config), frames: JSON.stringify(compactLog(frames)), frameCount: frames.length, createdAt: Date.now(),
       });
+      if (!written) console.warn('MatchRoom: desync not logged, the daily budget is spent', st.code, tick);
     } catch (e) {
       console.error('MatchRoom: desync log failed', e);
     }

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { openTestD1 } from '../test-d1';
-import { compactLog, purgeDesyncs, writeDesync, MAX_FRAMES_JSON_CHARS } from './desync-log';
+import { DESYNC_BUDGET, compactLog, purgeDesyncs, writeDesync, MAX_FRAMES_JSON_CHARS } from './desync-log';
 import worker from '../index';
 import type { Env } from '../d1';
 
@@ -51,6 +51,29 @@ describe('writeDesync', () => {
     await writeDesync(db, rec);
     const rows = db.raw.prepare('SELECT code, tick, hash_a, hash_b FROM match_desync').all();
     expect(rows).toEqual([{ code: 'ABCDEF', tick: 40, hash_a: 1, hash_b: 2 }]);
+  });
+});
+
+describe('#559 M-2: the daily desync budget', () => {
+  const NOW = 1_790_000_000_000;
+  const rec = (tick: number, frames = '{}', createdAt = NOW) => ({ code: 'ABCDEF', tick, hashA: 1, hashB: 2, config: '{}', frames, frameCount: 1, createdAt });
+  it('writes at most DESYNC_BUDGET.rowsPerDay rows in 24 hours, and again the next day', async () => {
+    const db = openTestD1();
+    const results: boolean[] = [];
+    for (let i = 0; i < DESYNC_BUDGET.rowsPerDay + 5; i++) results.push(await writeDesync(db, rec(i)));
+    expect(results.filter(Boolean)).toHaveLength(DESYNC_BUDGET.rowsPerDay);
+    expect((db.raw.prepare('SELECT COUNT(*) AS n FROM match_desync').get() as { n: number }).n).toBe(DESYNC_BUDGET.rowsPerDay);
+    expect(await writeDesync(db, rec(999, '{}', NOW + 86_400_001))).toBe(true);
+  });
+  it('refuses a row that would take the day past DESYNC_BUDGET.charsPerDay', async () => {
+    const db = openTestD1();
+    const big = 'x'.repeat(MAX_FRAMES_JSON_CHARS);
+    let written = 0;
+    for (let i = 0; i < 30; i++) if (await writeDesync(db, rec(i, big))) written++;
+    expect(written).toBe(Math.floor(DESYNC_BUDGET.charsPerDay / (MAX_FRAMES_JSON_CHARS + 2)));
+  });
+  it('one row is at most MAX_FRAMES_JSON_CHARS of frames: a quarter megabyte', () => {
+    expect(MAX_FRAMES_JSON_CHARS).toBeLessThanOrEqual(256_000);
   });
 });
 

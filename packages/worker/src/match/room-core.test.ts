@@ -153,6 +153,7 @@ describe('room-core', () => {
 
   it('compares hashes per tick and voids the match on a mismatch', () => {
     const st = running();
+    st.tick = 1000;   // the ticks hashed below have been minted
     let fx = seatMessage(st, 0, { t: 'hash', tick: 20, h: 1 }, 0, mint);
     expect(sends(fx)).toHaveLength(0);
     fx = seatMessage(st, 1, { t: 'hash', tick: 20, h: 1 }, 0, mint);
@@ -246,6 +247,7 @@ describe('room-core', () => {
 
   it('keeps the hash table bounded: no replays, no forged ticks, at most 16 open entries', () => {
     const st = running();
+    st.tick = 1000;
     for (const tick of [20, 40]) for (const seat of [0, 1] as const) seatMessage(st, seat, { t: 'hash', tick, h: 1 }, 0, mint);
     for (const tick of [20, 40]) for (const seat of [0, 1] as const) seatMessage(st, seat, { t: 'hash', tick, h: 1 }, 0, mint);   // replays
     // a replay of a compared tick with a different value must not re-open the comparison and void the match
@@ -264,11 +266,27 @@ describe('room-core', () => {
 
   it('a flood of forged far-future hash ticks cannot crowd out an honest comparison', () => {
     const st = running();
+    st.tick = 1000;
     for (let i = 0; i < 16; i++) seatMessage(st, 0, { t: 'hash', tick: 1_000_000 + i * 20, h: 1 }, 0, mint);
     seatMessage(st, 0, { t: 'hash', tick: 20, h: 1 }, 0, mint);
     const fx = seatMessage(st, 1, { t: 'hash', tick: 20, h: 2 }, 0, mint);
     expect(sends(fx).map((s) => s.msg)).toEqual([{ t: 'desync', tick: 20, hashes: [1, 2] }]);
     expect(st.status).toBe('ended');
+  });
+
+  it('#559 M-2/L-2: a hash for a tick the room has not minted yet is ignored, so no seat can void a match with one', () => {
+    const st = running();
+    for (let t = 0; t < 20; t++) clockTick(st, 50 * (t + 1));
+    expect(st.tick).toBe(20);
+    for (const tick of [20, 999_999]) {
+      seatMessage(st, 0, { t: 'hash', tick, h: 1 }, 1000, mint);
+      expect(sends(seatMessage(st, 1, { t: 'hash', tick, h: 2 }, 1000, mint))).toEqual([]);
+    }
+    expect(st.hashes).toEqual({});
+    expect(st.status).toBe('running');
+    // The last minted tick is still compared.
+    seatMessage(st, 0, { t: 'hash', tick: 19, h: 1 }, 1000, mint);
+    expect(sends(seatMessage(st, 1, { t: 'hash', tick: 19, h: 1 }, 1000, mint)).map((x) => x.msg)).toEqual([{ t: 'hashOk', tick: 19 }]);
   });
 
   it('ignores a hash in the lobby', () => {
