@@ -27,6 +27,17 @@ updates:
       runtime-dependencies:
         dependency-type: production
     ignore:
+      # Major versions are upgrades, not updates: TypeScript, eslint, vite,
+      # vitest and friends each change behaviour at a major, and a grouped
+      # weekly PR full of them only goes red (first run, 2026-10-13: #568).
+      # Majors are taken deliberately, one tool at a time, in their own PR.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      # three is 0.x, so every MINOR is a breaking release (r170 -> r186 in
+      # #569 failed gates, visual and memory). The renderer rules in CLAUDE.md
+      # cite r170 behaviour by name; upgrading three is its own planned task.
+      - dependency-name: three
+        update-types: ["version-update:semver-minor"]
       # jsdom is pinned to ~30.0.1 (security review #559): 30.1 and later
       # break vitest 4's fake setImmediate. Lift this when vitest fixes it.
       - dependency-name: jsdom
