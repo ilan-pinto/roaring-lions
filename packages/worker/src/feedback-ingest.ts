@@ -26,6 +26,7 @@
  * list never reads a blob. No IP is ever stored.
  */
 import type { Env } from './d1';
+import { DAY_MS, bump, ipKey, ipSecret } from './rate-day';
 import { originAllowed } from './origin';
 import {
   BODY_MAX_BYTES,
@@ -46,8 +47,15 @@ const DAY = 24 * HOUR;
 export const FEEDBACK_LIMITS = {
   session: { max: 10, windowMs: HOUR },
   player: { max: 20, windowMs: DAY },
+  /** #559 M-4: notes that name neither a player nor a session share their own
+   *  smaller ceiling, so a flood of them cannot spend the global one. */
+  anonymous: { max: 100, windowMs: DAY },
   global: { max: 500, windowMs: DAY },
 } as const;
+/** #559 M-4: notes a day from one address, counted in D1 under a keyed hash
+ *  with a daily salt (`rate-day.ts`): an address is never stored. Inventing
+ *  fresh player and session ids no longer buys a flood its own budget. */
+export const FEEDBACK_IP_PER_DAY = 10;
 
 /** What attachments may add to D1, which is also the telemetry store (free
  *  tier 500 MB). Past either budget a note still lands, without its
@@ -104,13 +112,16 @@ export function isWebp(b: Uint8Array): boolean {
 
 export type DropReason = 'too_large' | 'storage_full';
 
-/** The Nth-newest row inside a window, or null when under the limit. */
-async function limitedFor(env: Env, column: 'session' | 'player' | null, value: string | undefined, max: number, windowMs: number, now: number): Promise<number | null> {
-  if (column !== null && value === undefined) return null;
+/** The Nth-newest row inside a window, or null when under the limit. `anonymous`
+ *  counts only the notes that named neither a player nor a session. */
+async function limitedFor(env: Env, column: 'session' | 'player' | 'anonymous' | null, value: string | undefined, max: number, windowMs: number, now: number): Promise<number | null> {
+  if ((column === 'session' || column === 'player') && value === undefined) return null;
   const sql = column === null
     ? 'SELECT received_at FROM feedback WHERE received_at > ? ORDER BY received_at DESC LIMIT 1 OFFSET ?'
-    : `SELECT received_at FROM feedback WHERE ${column} = ? AND received_at > ? ORDER BY received_at DESC LIMIT 1 OFFSET ?`;
-  const args = column === null ? [now - windowMs, max - 1] : [value, now - windowMs, max - 1];
+    : column === 'anonymous'
+      ? 'SELECT received_at FROM feedback WHERE player IS NULL AND session IS NULL AND received_at > ? ORDER BY received_at DESC LIMIT 1 OFFSET ?'
+      : `SELECT received_at FROM feedback WHERE ${column} = ? AND received_at > ? ORDER BY received_at DESC LIMIT 1 OFFSET ?`;
+  const args = column === null || column === 'anonymous' ? [now - windowMs, max - 1] : [value, now - windowMs, max - 1];
   const row = await env.DB.prepare(sql).bind(...args).first<{ received_at: number }>();
   if (!row) return null;
   return Math.max(1, Math.ceil((row.received_at + windowMs - now) / 1000));
@@ -235,11 +246,18 @@ export async function handleFeedback(req: Request, env: Env, now: number): Promi
 
   try {
     const L = FEEDBACK_LIMITS;
+    const anonymous = meta.player === undefined && meta.session === undefined;
     const wait =
       (await limitedFor(env, 'session', meta.session, L.session.max, L.session.windowMs, now)) ??
       (await limitedFor(env, 'player', meta.player, L.player.max, L.player.windowMs, now)) ??
+      (anonymous ? await limitedFor(env, 'anonymous', undefined, L.anonymous.max, L.anonymous.windowMs, now) : null) ??
       (await limitedFor(env, null, undefined, L.global.max, L.global.windowMs, now));
     if (wait !== null) return reply(429, { retryAfter: wait });
+    // Counted last, so a note refused above spends nothing of its address's day.
+    const secret = ipSecret(env);
+    if (ip && secret && !(await bump(env.DB, 'feedback-ip', await ipKey(secret, ip, now), now, FEEDBACK_IP_PER_DAY))) {
+      return reply(429, { retryAfter: Math.max(1, Math.ceil((DAY_MS - (now % DAY_MS)) / 1000)) });
+    }
   } catch {
     return STORAGE();
   }
