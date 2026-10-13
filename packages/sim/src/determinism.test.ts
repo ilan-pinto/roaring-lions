@@ -476,7 +476,11 @@ describe('determinism (1000-tick replay)', () => {
     // takes HARMLESS_SUPP (x0.1), as its near miss does (lead ruling). This
     // replay's riflemen ring the d_tanks' hulls, so it moves; with the
     // discount removed it reads 1851687100 exactly. Was 1851687100.
-    expect(a.hash()).toBe(562186734);
+    //
+    // 2026-10-13: SUPP_STAT_DIVISOR 700 -> 730 (lead ruling, the max-tier
+    // smoke step): every weapon's suppression per near miss is 700/730 of
+    // what it was. At 700 this replay reads 562186734 exactly. Was 562186734.
+    expect(a.hash()).toBe(916087385);
   });
 
   it('the replay actually exercises halt to fire', () => {
@@ -821,7 +825,10 @@ describe('determinism over relief (900-tick replay round a hill)', () => {
     //
     // 2026-10-13: the harmless-bounce discount, as at the flat pin; without it
     // this replay reads 4276961824 exactly. Was 4276961824.
-    expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(4031491985);
+    //
+    // 2026-10-13: SUPP_STAT_DIVISOR 700 -> 730, as at the flat pin; at 700
+    // this replay reads 4031491985 exactly. Was 4031491985.
+    expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(373999871);
   });
 
   it('the relief changes the route, not merely the hash', () => {
