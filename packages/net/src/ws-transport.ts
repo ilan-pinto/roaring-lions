@@ -81,8 +81,9 @@ export class WsTransport implements MatchTransport {
   private closed = false;
   /** Every handler reads this copy, so `setHooks` reaches all of them. */
   private readonly hooks: WsTransportHooks;
-  /** Set by an `ended` of `left` or `surrender`: the frames already received
-   *  are still the match's, and the app needs them to reach its own outcome tick. */
+  /** Set by an `ended` of `left`, `surrender` or `over`: the frames already
+   *  received are still the match's, and the app needs them to reach its own
+   *  outcome tick (for `over`, the result a seat that missed it can still reach). */
   private draining = false;
   private st: TransportStatus = { kind: 'waiting' };
   private stalled: Stalled | null = null;
@@ -103,6 +104,8 @@ export class WsTransport implements MatchTransport {
   private ending: { reason: string; seat?: Seat } | null = null;
   /** Each seat's pauses left, from the last `paused`: what `setHooks` replays with it. */
   private pausesLeft: [number, number] | null = null;
+  /** The tick this seat's sim decided the match on, once reported (`over`, L-1). */
+  private overTick: number | null = null;
 
   constructor(
     private readonly open: () => SocketLike,
@@ -231,6 +234,9 @@ export class WsTransport implements MatchTransport {
         if (this.droppedAt !== null) { this.relinked(); this.replayFrom = this.now(); }
         this.setStalled(null);
         this.st = { kind: 'live', behind: this.clock.behind() };
+        // A report sent while the link was down was lost with it: the room has
+        // this seat back now, and keeps only a seat's first report anyway.
+        if (this.overTick !== null) this.send({ t: 'over', tick: this.overTick });
         return;
       case 'frame': {
         const r = this.clock.push({ tick: msg.tick, cmds: msg.cmds });
@@ -260,7 +266,7 @@ export class WsTransport implements MatchTransport {
       case 'ended':
         this.setStalled(null);
         this.st = { kind: 'closed', reason: msg.reason };
-        this.draining = msg.reason === 'left' || msg.reason === 'surrender';
+        this.draining = msg.reason === 'left' || msg.reason === 'surrender' || msg.reason === 'over';
         this.ending = msg.seat === undefined ? { reason: msg.reason } : { reason: msg.reason, seat: msg.seat };
         this.hooks.onEnded?.(msg.reason, msg.seat);
         return;
@@ -277,6 +283,15 @@ export class WsTransport implements MatchTransport {
   resume(): void { this.send({ t: 'resume' }); }
   surrender(): void { this.send({ t: 'surrender' }); }
   chat(text: string): void { this.send({ t: 'chat', text }); }
+  /** This seat's sim decided the match on `tick` (L-1, R-B26): tells the room
+   *  once, so it can close itself `OVER_CLOSE_MS` after the result. Only the
+   *  first call speaks (repeated after a reconnect's `log`); a room that has
+   *  already ended, voided or been left hears nothing. */
+  over(tick: number): void {
+    if (this.overTick !== null || this.terminal()) return;
+    this.overTick = tick;
+    this.send({ t: 'over', tick });
+  }
   /** Runs while live AND while stalled (R31): a 'behind' stall stalls every
    *  seat, the lagging one included, and only that seat's ack ends it -- so it
    *  must keep running the frames it already holds. A stall's status is left

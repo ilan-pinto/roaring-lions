@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { Frame, MatchConfig, MatchTransport, TransportStatus } from '@lions/net';
+import { WsTransport, type Frame, type MatchConfig, type MatchTransport, type SocketLike, type TransportStatus } from '@lions/net';
 import { sandboxAnchors } from '../sandbox-anchors';
 import { runFrames, seatWorldFor } from './frame-step';
 import { versusSpawns } from './versus-force';
 import { buildWorld } from './versus-world.test-helper';
-import { MATCH_CAP_TICKS, hashTickOutcome, matchResult, outcomeOf, roomEndingOutcome, type OutcomeSim } from './outcome';
+import { MATCH_CAP_TICKS, decideOnHashTick, hashTickOutcome, matchResult, outcomeOf, reportOver, roomEndingOutcome, type LocalDecision, type OutcomeSim } from './outcome';
 
 /** Type 0 is armed, type 1 is not (a drone, a truck). */
 const TYPES = [{ weapons: [1] }, { weapons: [] }] as const;
@@ -85,6 +85,11 @@ describe('roomEndingOutcome', () => {
     expect(roomEndingOutcome('void', undefined, 0, sideOfSeat)).toBeNull();
     expect(roomEndingOutcome('expired', undefined, 0, sideOfSeat)).toBeNull();
     expect(roomEndingOutcome('surrender', undefined, 0, sideOfSeat)).toBeNull();
+  });
+  it('the room closing itself after the result (over, L-1) is no result: never "They left"', () => {
+    expect(roomEndingOutcome('over', undefined, 0, sideOfSeat)).toBeNull();
+    expect(roomEndingOutcome('over', undefined, 1, sideOfSeat)).toBeNull();
+    expect(matchResult(null, roomEndingOutcome('over', undefined, 0, sideOfSeat), true)).toBeNull();
   });
 });
 
@@ -167,3 +172,58 @@ describe('both seats show the same result (N1b task 10)', () => {
     expect(b.hash).toBe(a.hash);
   });
 });
+
+describe('the result reported to the room (L-1, R-B26)', () => {
+  const cfg = { hashEveryTicks: 20 } as MatchConfig;
+  const decidedSim = { ...world([[0, 1, 0], [1, 0, 0]]), tickCount: 400 };
+  const ongoingSim = { ...world([[0, 1, 0], [1, 1, 0]]), tickCount: 400 };
+  it('decideOnHashTick keeps the first decision and the FRAME tick it was read on', () => {
+    expect(decideOnHashTick(null, 398, cfg, decidedSim)).toBeNull();   // not a hash tick
+    expect(decideOnHashTick(null, 399, cfg, ongoingSim)).toBeNull();
+    const d = decideOnHashTick(null, 399, cfg, decidedSim);
+    expect(d).toEqual({ result: { kind: 'won', side: 0, by: 'annihilation' }, tick: 399 });
+    expect(decideOnHashTick(d, 419, cfg, decidedSim)).toBe(d);
+  });
+
+  /** A real transport over a fake socket: what reaches the wire. */
+  function wired(): { t: WsTransport; overs: () => unknown[]; recv: (m: unknown) => void } {
+    const sent: string[] = [];
+    const sock: SocketLike = { onopen: null, onmessage: null, onclose: null, send: (d) => { sent.push(d); }, close: () => {} };
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} });
+    const recv = (m: unknown): void => { sock.onmessage?.({ data: JSON.stringify(m) }); };
+    sock.onopen?.({});
+    return { t, recv, overs: () => sent.map((x) => JSON.parse(x) as { t: string }).filter((m) => m.t === 'over') };
+  }
+  const local: LocalDecision = { result: { kind: 'won', side: 1, by: 'annihilation' }, tick: 399 };
+
+  it('a panel showing the sim\'s own result sends one over with its tick, however often it is shown', () => {
+    const { t, overs } = wired();
+    reportOver(t, local.result, local);
+    reportOver(t, local.result, local);
+    expect(overs()).toEqual([{ t: 'over', tick: 399 }]);
+  });
+  it('a panel showing a room\'s ending (a surrender, a leave) sends nothing, decided sim or not', () => {
+    const { t, overs, recv } = wired();
+    recv({ t: 'start', config: CONFIG_FOR_WIRE });
+    const surrendered = roomEndingOutcome('surrender', 1, 0, (s) => s);
+    const left = roomEndingOutcome('left', undefined, 0, (s) => s);
+    for (const shown of [surrendered, left]) {
+      if (shown === null) throw new Error('a room ending with no result');
+      reportOver(t, shown, null);
+      reportOver(t, shown, { result: { ...local.result }, tick: 399 });   // an equal result is not the sim's own
+    }
+    expect(overs()).toEqual([]);
+  });
+  it('no room (single-player) is never asked', () => {
+    expect(() => reportOver(null, local.result, local)).not.toThrow();
+  });
+});
+
+const CONFIG_FOR_WIRE: MatchConfig = {
+  matchId: 'm', code: 'ABCDEF', seed: 1, map: 'x', mode: 'versus',
+  seats: [
+    { seat: 0, side: 0, faction: 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: 'a', callsign: 'A', kind: 'human' },
+    { seat: 1, side: 1, faction: 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: 'b', callsign: 'B', kind: 'human' },
+  ],
+  pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0,
+};

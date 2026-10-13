@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import type { MatchConfig } from '@lions/net';
-import { createRoom, seatJoin, seatMessage, seatGone, clockTick, expire, persistKey, revive, endedMsg, ACK_EVERY, STALL_BEHIND_TICKS, STALL_SILENT_MS, type RoomState, type Effect } from './room-core';
+import { OVER_CLOSE_MS, type MatchConfig } from '@lions/net';
+import { createRoom, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, persistKey, revive, endedMsg, ACK_EVERY, STALL_BEHIND_TICKS, STALL_SILENT_MS, type RoomState, type Effect } from './room-core';
 
 const CONFIG: MatchConfig = {
   matchId: 'm1', code: 'ABCDEF', seed: 7, map: 'beit_sahwan_outskirts', mode: 'sandbox',
@@ -494,5 +494,141 @@ describe('a room persisted before N1b (N1b task 2)', () => {
     expect(revived.pause).toEqual({ seat: 0, untilMs: 91_000 });
     expect(frames(clockTick(revived, 20_050))).toHaveLength(0);
     expect(frames(clockTick(revived, 91_000))).toHaveLength(1);
+  });
+});
+
+describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () => {
+  /** Clock ticks every 50 ms over [from, to): the first tick that ends the room, or null. */
+  function firstEnding(st: RoomState, from: number, to: number): { at: number; fx: Effect[] } | null {
+    for (let t = from; t < to; t += 50) {
+      const fx = clockTick(st, t);
+      if (st.status === 'ended') return { at: t, fx };
+    }
+    return null;
+  }
+  const closing: Effect[] = [
+    { kind: 'send', to: 'all', msg: { t: 'ended', reason: 'over' } },
+    { kind: 'shut', seat: 0 },
+    { kind: 'shut', seat: 1 },
+  ];
+
+  it('both seats report the same tick: the close is armed at the second report and fires at +120 s exactly, not a tick before', () => {
+    const st = running();
+    expect(seatMessage(st, 0, { t: 'over', tick: 399 }, 1000, mint)).toEqual([]);
+    expect(st.over).toEqual([399, -1]);
+    expect(st.closeAtMs).toBeNull();   // one report, the other seat still here: not yet
+    expect(seatMessage(st, 1, { t: 'over', tick: 399 }, 1500, mint)).toEqual([]);
+    expect(st.closeAtMs).toBe(1500 + OVER_CLOSE_MS);
+    const end = firstEnding(st, 1550, 1500 + OVER_CLOSE_MS + 1000);
+    expect(end?.at).toBe(1500 + OVER_CLOSE_MS);
+    expect(end?.fx).toEqual(closing);
+    expect(st.endedReason).toBe('over');
+    expect(endedMsg(st)).toEqual({ t: 'ended', reason: 'over' });   // what a late hello is told
+    expect(clockTick(st, 1500 + OVER_CLOSE_MS + 50)).toEqual([]);   // ended: the clock has nothing more to do
+  });
+
+  it('one seat reports while the other is gone: armed at once, and a rejoin does not disarm it', () => {
+    const st = running();
+    seatGone(st, 1, 900);
+    seatMessage(st, 0, { t: 'over', tick: 399 }, 1000, mint);
+    expect(st.closeAtMs).toBe(1000 + OVER_CLOSE_MS);
+    seatJoin(st, 1, 'p1', 'Guest', 5000);
+    seatMessage(st, 1, { t: 'over', tick: 399 }, 6000, mint);
+    expect(st.closeAtMs).toBe(1000 + OVER_CLOSE_MS);   // armed once, never pushed back
+    expect(firstEnding(st, 6050, 200_000)?.at).toBe(1000 + OVER_CLOSE_MS);
+  });
+
+  it('one seat reports, then the other goes without reporting: armed when it goes', () => {
+    const st = running();
+    seatMessage(st, 0, { t: 'over', tick: 399 }, 1000, mint);
+    expect(st.closeAtMs).toBeNull();
+    seatGone(st, 1, 3000);
+    expect(st.closeAtMs).toBe(3000 + OVER_CLOSE_MS);
+    expect(firstEnding(st, 3050, 200_000)?.fx).toEqual(closing);
+  });
+
+  it('different ticks never arm it (a desync the hash check answers), nor does one report with the other seat still here', () => {
+    const differ = running();
+    seatMessage(differ, 0, { t: 'over', tick: 399 }, 1000, mint);
+    seatMessage(differ, 1, { t: 'over', tick: 419 }, 1000, mint);
+    expect(differ.closeAtMs).toBeNull();
+    expect(firstEnding(differ, 1050, 1000 + 2 * OVER_CLOSE_MS)).toBeNull();
+    const alone = running();
+    seatMessage(alone, 0, { t: 'over', tick: 399 }, 1000, mint);
+    expect(firstEnding(alone, 1050, 1000 + 2 * OVER_CLOSE_MS)).toBeNull();
+  });
+
+  it('only a seat\'s first report counts', () => {
+    const st = running();
+    seatMessage(st, 0, { t: 'over', tick: 399 }, 1000, mint);
+    seatMessage(st, 0, { t: 'over', tick: 419 }, 1100, mint);
+    expect(st.over).toEqual([399, -1]);
+    seatMessage(st, 1, { t: 'over', tick: 419 }, 1200, mint);
+    expect(st.closeAtMs).toBeNull();
+  });
+
+  it('a lobby or an ended room takes no report', () => {
+    const lobby = createRoom('ABCDEF', 'm1', 0);
+    seatJoin(lobby, 0, 'p0', 'Host', 0);
+    seatGone(lobby, 0, 10);
+    seatJoin(lobby, 0, 'p0', 'Host', 20);
+    seatMessage(lobby, 0, { t: 'over', tick: 0 }, 30, mint);
+    expect(lobby.over).toEqual([-1, -1]);
+    const ended = running();
+    seatMessage(ended, 1, { t: 'surrender' }, 10, mint);
+    seatGone(ended, 1, 20);
+    seatMessage(ended, 0, { t: 'over', tick: 0 }, 30, mint);
+    expect(ended.closeAtMs).toBeNull();
+  });
+
+  it('a close falls due through a pause in force, and closeIfDue is the clock\'s own rule', () => {
+    const st = running();
+    seatMessage(st, 0, { t: 'over', tick: 399 }, 1000, mint);
+    seatMessage(st, 1, { t: 'over', tick: 399 }, 1000, mint);
+    seatMessage(st, 0, { t: 'pause' }, 100_000, mint);   // a pause runs past the deadline
+    expect(closeIfDue(st, 1000 + OVER_CLOSE_MS - 1)).toEqual([]);
+    expect(closeIfDue(st, 1000 + OVER_CLOSE_MS)).toEqual(closing);
+    expect(st.status).toBe('ended');
+    expect(closeIfDue(st, 1000 + OVER_CLOSE_MS + 50)).toEqual([]);
+  });
+
+  it('the reports and the arming are lifecycle: each moves the persist key once, the wait does not', () => {
+    const st = running();
+    const k0 = persistKey(st);
+    seatMessage(st, 0, { t: 'over', tick: 399 }, 1000, mint);
+    const k1 = persistKey(st);
+    expect(k1).not.toBe(k0);
+    seatMessage(st, 1, { t: 'over', tick: 399 }, 1000, mint);
+    const k2 = persistKey(st);
+    expect(k2).not.toBe(k1);
+    for (let t = 1050; t < 60_000; t += 50) clockTick(st, t);   // the wait, stalled behind
+    expect(persistKey(st)).toBe(k2);
+    // Each half on its own is lifecycle too.
+    const armedOnly = running();
+    const before = persistKey(armedOnly);
+    armedOnly.closeAtMs = 5;
+    expect(persistKey(armedOnly)).not.toBe(before);
+  });
+
+  it('the deadline survives storage and revive; a room persisted before L-1 revives with none', () => {
+    const st = running();
+    seatMessage(st, 0, { t: 'over', tick: 399 }, 1000, mint);
+    seatMessage(st, 1, { t: 'over', tick: 399 }, 1000, mint);
+    const stored: RoomState = JSON.parse(JSON.stringify(st));
+    revive(stored, 0, 50_000);
+    expect(stored.over).toEqual([399, 399]);
+    expect(stored.closeAtMs).toBe(1000 + OVER_CLOSE_MS);
+    expect(firstEnding(stored, 50_050, 200_000)?.at).toBe(1000 + OVER_CLOSE_MS);
+    const legacy: Record<string, unknown> = JSON.parse(JSON.stringify(running()));
+    delete legacy.over;
+    delete legacy.closeAtMs;
+    const old = legacy as unknown as RoomState;
+    revive(old, 0, 9000);
+    expect(old.over).toEqual([-1, -1]);
+    expect(old.closeAtMs).toBeNull();
+    expect(frames(clockTick(old, 9050))).toHaveLength(1);
+    seatMessage(old, 0, { t: 'over', tick: 0 }, 9100, mint);
+    seatMessage(old, 1, { t: 'over', tick: 0 }, 9100, mint);
+    expect(old.closeAtMs).toBe(9100 + OVER_CLOSE_MS);
   });
 });

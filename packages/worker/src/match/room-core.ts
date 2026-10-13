@@ -7,8 +7,8 @@
  * `readLog`.
  */
 import {
-  canonicalOrder, MAX_CMDS_PER_SEAT_PER_FRAME, PAUSE_MS, PAUSES_PER_SEAT, CHAT_MAX_CHARS,
-  type ClientMsg, type Frame, type MatchConfig, type Seat, type ServerMsg, type Stamped, type SeatState,
+  canonicalOrder, MAX_CMDS_PER_SEAT_PER_FRAME, PAUSE_MS, PAUSES_PER_SEAT, CHAT_MAX_CHARS, OVER_CLOSE_MS,
+  type ClientMsg, type EndedReason, type Frame, type MatchConfig, type Seat, type ServerMsg, type Stamped, type SeatState,
 } from '@lions/net';
 
 export type RoomStatus = 'lobby' | 'running' | 'stalled' | 'ended';
@@ -31,7 +31,7 @@ export interface RoomState {
   /** The newest tick whose hashes both seats have reported; -1 before any. Older hashes are replays. */
   lastHashTick: number;
   stall: { reason: 'behind' | 'gone'; seat: Seat } | null;
-  endedReason: 'left' | 'void' | 'expired' | 'surrender' | null;
+  endedReason: EndedReason | null;
   /** A player pause in force: who asked, and when the room resumes by itself. While set, no frames flow. */
   pause: { seat: Seat; untilMs: number } | null;
   /** Pauses each seat has left; spent when taken, not when it ends. */
@@ -42,11 +42,18 @@ export interface RoomState {
   surrendered: Seat | null;
   /** The map id the lobby shows; '' until the room is given one (Task 3). */
   map: string;
+  /** The tick each seat's sim decided the match on (`over`, L-1), -1 (JSON-safe) before it reports. First report only. */
+  over: [number, number];
+  /** When the room closes itself after the result (L-1, R-B26), once armed; null before. */
+  closeAtMs: number | null;
 }
 export type Effect =
   | { kind: 'send'; to: Seat | 'all'; msg: ServerMsg }
   | { kind: 'frame'; frame: Frame }
-  | { kind: 'close'; seat: Seat };
+  /** A second hello REPLACED this seat: its other sockets go, as replaced. */
+  | { kind: 'close'; seat: Seat }
+  /** The room is over: this seat's sockets close normally (L-1), not as replaced. */
+  | { kind: 'shut'; seat: Seat };
 
 /** One source for the ack cadence: the client's (`WsTransport`). */
 export { ACK_EVERY } from '@lions/net';
@@ -59,7 +66,7 @@ export const ROOM_TTL_MS = 6 * 3600 * 1000;
 const MAX_OPEN_HASHES = 16;
 
 export function createRoom(code: string, matchId: string, nowMs: number, map = ''): RoomState {
-  return { code, matchId, createdMs: nowMs, status: 'lobby', config: null, seats: [null, null], tick: 0, pending: [], hashes: {}, lastHashTick: -1, stall: null, endedReason: null, pause: null, pausesLeft: [PAUSES_PER_SEAT, PAUSES_PER_SEAT], lastChatMs: [-1, -1], surrendered: null, map };
+  return { code, matchId, createdMs: nowMs, status: 'lobby', config: null, seats: [null, null], tick: 0, pending: [], hashes: {}, lastHashTick: -1, stall: null, endedReason: null, pause: null, pausesLeft: [PAUSES_PER_SEAT, PAUSES_PER_SEAT], lastChatMs: [-1, -1], surrendered: null, map, over: [-1, -1], closeAtMs: null };
 }
 
 const seatStates = (st: RoomState): SeatState[] =>
@@ -114,7 +121,38 @@ export function seatGone(st: RoomState, seat: Seat, nowMs: number): Effect[] {
   s.connected = false;
   s.lastSeenMs = nowMs;
   if (st.status === 'lobby') return [{ kind: 'send', to: 'all', msg: lobbyMsg(st, 0) }];
+  armClose(st, nowMs);   // a seat that goes after the other reported the result
   return recheckStall(st, nowMs);
+}
+
+/** Arms the room's own close (L-1, R-B26) once the result is settled: both
+ *  seats reported the SAME `over` tick, or one did and the other seat is not
+ *  connected (it may never come back to say so). Two different ticks arm
+ *  nothing: the seats diverged, and the hash comparison voids that match.
+ *  Armed once; nothing later (a rejoin, a late report) moves or clears it. */
+function armClose(st: RoomState, nowMs: number): void {
+  if (st.closeAtMs !== null || (st.status !== 'running' && st.status !== 'stalled')) return;
+  const settled = ([0, 1] as const).some((seat) => {
+    const tick = st.over[seat];
+    if (tick < 0) return false;
+    const other = seat === 0 ? 1 : 0;
+    return st.over[other] === tick || st.seats[other]?.connected !== true;
+  });
+  if (settled) st.closeAtMs = nowMs + OVER_CLOSE_MS;
+}
+
+/** The room's own close, once its deadline has come (L-1): `ended over` to
+ *  both seats, and their sockets closed normally. Ended, the room runs no
+ *  clock and no alarm and writes nothing more (`match-room.ts`). The clock
+ *  asks this first, before a pause or a stall can hold it, and so does the
+ *  alarm, for a room whose clock is not running. */
+export function closeIfDue(st: RoomState, nowMs: number): Effect[] {
+  if ((st.status !== 'running' && st.status !== 'stalled') || st.closeAtMs === null || nowMs < st.closeAtMs) return [];
+  st.status = 'ended';
+  st.endedReason = 'over';
+  st.stall = null;
+  st.pause = null;
+  return [{ kind: 'send', to: 'all', msg: { t: 'ended', reason: 'over' } }, { kind: 'shut', seat: 0 }, { kind: 'shut', seat: 1 }];
 }
 
 export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: number, mintConfig: () => MatchConfig): Effect[] {
@@ -200,6 +238,13 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
       st.lastChatMs[seat] = nowMs;
       return [{ kind: 'send', to: 'all', msg: { t: 'chat', seat, text } }];
     }
+    case 'over': {
+      // The result this seat's sim reached (L-1): only its first report counts.
+      if ((st.status !== 'running' && st.status !== 'stalled') || st.over[seat] >= 0) return [];
+      st.over[seat] = msg.tick;
+      armClose(st, nowMs);
+      return [];
+    }
   }
 }
 
@@ -252,7 +297,9 @@ function recheckStall(st: RoomState, nowMs: number, mayStall = true): Effect[] {
 export function persistKey(st: RoomState): string {
   const seats = st.seats.map((s) => (s ? [s.player, s.callsign, s.connected, s.ready] : null));
   const status = st.status === 'stalled' ? 'running' : st.status;
-  return JSON.stringify([status, st.endedReason, st.config !== null, seats, st.pausesLeft, st.pause?.seat ?? null, st.surrendered]);
+  // The `over` reports and the armed close (L-1): two reports and one arming, each written once,
+  // so the deadline survives an eviction; the two minutes' wait itself writes nothing.
+  return JSON.stringify([status, st.endedReason, st.config !== null, seats, st.pausesLeft, st.pause?.seat ?? null, st.surrendered, st.over, st.closeAtMs !== null]);
 }
 
 /** The state as storage gave it back after an eviction, made live again.
@@ -284,6 +331,8 @@ export function revive(st: RoomState, tick: number, nowMs: number): void {
   st.lastChatMs = stored.lastChatMs ?? [-1, -1];
   st.surrendered = stored.surrendered ?? null;
   st.map = stored.map ?? '';
+  st.over = stored.over ?? [-1, -1];
+  st.closeAtMs = stored.closeAtMs ?? null;
   if (tick > st.tick) {
     st.tick = tick;
     st.pending = [];
@@ -311,6 +360,8 @@ export function clockTick(st: RoomState, nowMs: number): Effect[] {
   const expired = expire(st, nowMs);
   if (expired.length > 0) return expired;
   if (st.status === 'lobby') return [];
+  const closed = closeIfDue(st, nowMs);
+  if (closed.length > 0) return closed;
   const out: Effect[] = [];
   if (st.pause !== null) {
     if (nowMs < st.pause.untilMs) return out;

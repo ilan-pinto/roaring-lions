@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseClientMsg, parseServerMsg, MAX_MESSAGE_BYTES } from './protocol';
+import { parseClientMsg, parseServerMsg, MAX_MESSAGE_BYTES, OVER_CLOSE_MS } from './protocol';
 import type { MatchConfig } from './config';
 
 const CFG: MatchConfig = {
@@ -101,5 +101,23 @@ describe('N1b messages', () => {
     expect(parseClientMsg(JSON.stringify({ t: 'paused', seat: 0, remainingMs: 1, pausesLeft: [3, 3] }))).toBeNull();
     expect(parseServerMsg(JSON.stringify({ t: 'pause' }))).toBeNull();
     expect(parseServerMsg(JSON.stringify({ t: 'surrender' }))).toBeNull();
+  });
+});
+
+describe('the room closes itself after the result (L-1, R-B26)', () => {
+  it('parses over with a non-negative integer tick, and nothing else', () => {
+    expect(parseClientMsg(JSON.stringify({ t: 'over', tick: 0 }))).toEqual({ t: 'over', tick: 0 });
+    expect(parseClientMsg(JSON.stringify({ t: 'over', tick: 1199 }))).toEqual({ t: 'over', tick: 1199 });
+    expect(parseClientMsg(JSON.stringify({ t: 'over', tick: -1 }))).toBeNull();
+    expect(parseClientMsg(JSON.stringify({ t: 'over', tick: 1.5 }))).toBeNull();
+    expect(parseClientMsg(JSON.stringify({ t: 'over', tick: '19' }))).toBeNull();
+    expect(parseClientMsg(JSON.stringify({ t: 'over' }))).toBeNull();
+  });
+  it('parses ended over, and the server never takes over from a client', () => {
+    expect(parseServerMsg(JSON.stringify({ t: 'ended', reason: 'over' }))).toEqual({ t: 'ended', reason: 'over' });
+    expect(parseServerMsg(JSON.stringify({ t: 'over', tick: 19 }))).toBeNull();
+  });
+  it('closes two minutes after the result', () => {
+    expect(OVER_CLOSE_MS).toBe(120_000);
   });
 });

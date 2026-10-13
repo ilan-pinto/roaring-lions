@@ -252,7 +252,7 @@ import { garrisonRoomShown } from './net/hover-garrison';
 import { NetStatusLine, lineOverMatchEnd, matchClock } from './ui/net-status';
 import { NetChat, chatFeedLine, chatOpens } from './ui/net-chat';
 import { showNetEnd } from './ui/net-end';
-import { hashTickOutcome, matchResult, roomEndingOutcome, type MatchResult } from './net/outcome';
+import { decideOnHashTick, matchResult, reportOver, roomEndingOutcome, type LocalDecision, type MatchResult } from './net/outcome';
 import { lightOverrideOf, timeOfDayOf } from './time-of-day';
 import { buildingFitOf } from './building-fit-flag';
 import { registerServiceWorker } from './service-worker';
@@ -2788,8 +2788,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // for an attempt that no longer exists.
   let missionEnded = false;
   /** A versus match's result, once its sim decided it on a hash tick (N1b
-   *  task 10): the frame loop steps no more from then on. */
-  let matchDecided: MatchResult | null = null;
+   *  task 10), with that tick: the frame loop steps no more from then on, and
+   *  the tick is what this seat reports to the room as `over` (L-1). */
+  let matchDecided: LocalDecision | null = null;
   /** The match-over panel's disposer while it is up. Like `missionEnded`,
    *  it stops Escape opening the pause menu (R-B11). */
   let netEnd: Disposer | null = null;
@@ -5321,7 +5322,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     ...(versusRoom
       ? {
           stopAfter: (tick: number): boolean => {
-            matchDecided ??= hashTickOutcome(tick, netConfig, sim);
+            matchDecided = decideOnHashTick(matchDecided, tick, netConfig, sim);
             return matchDecided !== null;
           },
         }
@@ -5352,6 +5353,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  (`lineOverMatchEnd`), which voids the result on the panel. */
   const showMatchEnd = (result: MatchResult): void => {
     if (netEnd !== null) return;
+    // The sim's own result is told to the room, which closes itself two
+    // minutes later (L-1); a result from the room's own ending owes nothing.
+    reportOver(room, result, matchDecided);
     pauseHandle?.close();
     pauseHandle = null;
     closeOpenDialog();
@@ -5760,7 +5764,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // N1b task 10 (R-B11): the sim's own result shows at once; a room's
       // surrender or leave only once the drain has nothing left to run.
       if (versusRoom) {
-        const result = matchResult(matchDecided, roomEnding, ran === 0);
+        const result = matchResult(matchDecided?.result ?? null, roomEnding, ran === 0);
         if (result !== null) showMatchEnd(result);
       }
     }

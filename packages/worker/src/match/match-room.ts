@@ -22,6 +22,13 @@
  * socket event (an order, an ack, a reconnect) restarts the clock sooner
  * anyway, so 5 s bounds only a freeze nobody is acting through (R-N12).
  *
+ * The room's own close (L-1, R-B26): once both seats have reported the
+ * result (`over`), the room closes itself `OVER_CLOSE_MS` later. The alarm is
+ * aimed at that deadline (`alarmFor`): the watchdog never sleeps past it, so
+ * an evicted room closes on time by the alarm alone, and a room both seats
+ * have left -- no clock -- keeps exactly one alarm, at the deadline. Ended,
+ * the room runs no clock, keeps no alarm and writes no row.
+ *
  * Storage is budgeted for Workers Free (task 8b, R34; R-N12). Frames persist
  * as `batch` rows of variable length: a batch closes when it holds
  * `BATCH_TICKS` frames OR at the first frame that carries a command (R36,
@@ -57,7 +64,7 @@
 import { parseClientMsg, validateConfig, REPLACED_CLOSE_CODE, type ClientMsg, type Frame, type MatchConfig, type Seat, type SeatConfig, type ServerMsg } from '@lions/net';
 import type { Env } from '../d1';
 import type { DurableStateLike, HibernatingSocket, UpgradeInit } from '../do-types';
-import { createRoom, endedMsg, seatJoin, seatMessage, seatGone, clockTick, expire, persistKey, revive, type Effect, type RoomState } from './room-core';
+import { createRoom, endedMsg, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, persistKey, revive, type Effect, type RoomState } from './room-core';
 import { verifyTicket } from './ticket';
 import { DEFAULT_MAP, callsignField, textField } from './room-fields';
 import { compactLog, writeDesync } from './desync-log';
@@ -147,6 +154,19 @@ function disown(ws: WebSocket): void {
  *  there, and the TTL's `ended` must reach it. */
 function wantsClock(st: RoomState): boolean {
   return (st.status === 'running' || st.status === 'stalled') && st.seats.some((s) => s !== null && s.connected);
+}
+
+/** When the alarm should next wake the room, or null for none. While the
+ *  clock runs it is the watchdog, `WATCHDOG_MS` on -- but never later than the
+ *  room's armed close (L-1), so the last wake lands ON the deadline rather
+ *  than up to 5 s past it, at no extra row. With no clock (both seats gone)
+ *  only an armed close wakes the room, once, at its deadline; a lobby, an
+ *  ended room and an abandoned one with no close armed keep no alarm (R38). */
+function alarmFor(st: RoomState, nowMs: number): number | null {
+  if (st.status !== 'running' && st.status !== 'stalled') return null;
+  if (!wantsClock(st)) return st.closeAtMs;
+  const watchdog = nowMs + WATCHDOG_MS;
+  return st.closeAtMs === null ? watchdog : Math.min(watchdog, st.closeAtMs);
 }
 
 export class MatchRoom {
@@ -289,6 +309,10 @@ export class MatchRoom {
       else if (e.kind === 'send') {
         this.send(e.to, e.msg);
         if (e.msg.t === 'desync') desync = e.msg;
+      } else if (e.kind === 'shut') {
+        // The room is over (L-1): each socket gives up its seat, so its close
+        // (from either end) finds no seat to mark gone and writes nothing.
+        for (const ws of this.socketsFor(e.seat)) { disown(ws); shut(ws, 1000, 'ended'); }
       } else for (const ws of this.socketsFor(e.seat)) if (ws !== keep) retire(ws);
     }
     await this.saveIfChanged();
@@ -324,7 +348,8 @@ export class MatchRoom {
     } else if (!live && this.clock !== null) {
       clearInterval(this.clock);
       this.clock = null;
-      this.disarmWatchdog();
+      // Deleted -- or, with a close armed and both seats gone, aimed at the deadline (L-1).
+      this.armWatchdog();
     } else if (!live && st?.status === 'ended' && !this.disarmed) {
       // An instance revived after the clock's own instance died ends the match
       // with no clock of its own to stop: the alarm the old one armed goes too.
@@ -335,8 +360,10 @@ export class MatchRoom {
    *  (storage over quota, say) must not become an unhandled rejection. The
    *  cost of a lost arm is only R38's protection, until the next start. */
   private armWatchdog(): void {
+    const at = this.st === null ? null : alarmFor(this.st, Date.now());
+    if (at === null) { this.disarmWatchdog(); return; }
     this.disarmed = false;
-    this.ctx.storage.setAlarm(Date.now() + WATCHDOG_MS).catch((e: unknown) => { console.error('MatchRoom: setAlarm failed', e); });
+    this.ctx.storage.setAlarm(at).catch((e: unknown) => { console.error('MatchRoom: setAlarm failed', e); });
   }
   private disarmWatchdog(): void {
     this.disarmed = true;
@@ -347,12 +374,23 @@ export class MatchRoom {
    *  interval was still running, or through `ensureClock` when it was not,
    *  which arms as it starts the clock (one row either way, never two). A
    *  lobby, an ended room, one this very call expired, and an abandoned one
-   *  (`wantsClock`) re-arm nothing and start no clock. */
+   *  (`wantsClock`) re-arm nothing and start no clock -- unless the abandoned
+   *  room has a close armed (L-1): it closes here when the deadline has come,
+   *  with no clock, and is woken at the deadline otherwise. */
   async alarm(): Promise<void> {
     try {
       const st = await this.begin();
-      if (st && wantsClock(st) && this.clock !== null) {
-        await this.ctx.storage.setAlarm(Date.now() + WATCHDOG_MS);
+      if (st) {
+        const closed = closeIfDue(st, Date.now());
+        if (closed.length > 0) {
+          await this.apply(closed);
+        } else {
+          // Re-armed here when the clock runs on, or when no clock is wanted (an
+          // abandoned room's deadline); a clock that must start or stop is armed
+          // or re-aimed by `ensureClock` instead -- one row either way, never two.
+          const at = alarmFor(st, Date.now());
+          if (at !== null && (this.clock !== null) === wantsClock(st)) await this.ctx.storage.setAlarm(at);
+        }
       }
     } finally {
       this.ensureClock();

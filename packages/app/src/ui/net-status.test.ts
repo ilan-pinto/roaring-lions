@@ -16,6 +16,9 @@ describe('netStatusText', () => {
     expect(netStatusText({ kind: 'closed', reason: 'replaced' }, nameOf)).toBe('This seat was opened in another tab');
     expect(netStatusText({ kind: 'closed', reason: 'build_mismatch' }, nameOf)).toBe('Match closed');
   });
+  it('a room that closed itself after the result is neutral: no error, nobody left (L-1)', () => {
+    expect(netStatusText({ kind: 'closed', reason: 'over' }, nameOf)).toBe('The match has ended');
+  });
   it('names who a stall waits on, and our own seat for our own reconnect', () => {
     expect(netStatusText({ kind: 'waiting' }, nameOf)).toBe('Waiting for the other seat');
     expect(netStatusText({ kind: 'stalled', reason: 'behind', seat: 1 }, nameOf)).toBe('Waiting for seat-1: behind');
@@ -77,6 +80,7 @@ describe('the line over a match result', () => {
     expect(lineOverMatchEnd({ kind: 'desync', tick: 19 })).toBe(true);
     expect(lineOverMatchEnd({ kind: 'stalled', reason: 'behind', seat: 1 })).toBe(false);
     expect(lineOverMatchEnd({ kind: 'closed', reason: 'left' })).toBe(false);
+    expect(lineOverMatchEnd({ kind: 'closed', reason: 'over' })).toBe(false);   // L-1: the panel is up; nothing new
     expect(lineOverMatchEnd({ kind: 'live', behind: 0 })).toBe(false);
     expect(lineOverMatchEnd({ kind: 'paused', seat: 0, untilMs: 5 })).toBe(false);
   });

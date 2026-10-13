@@ -5,7 +5,7 @@
  * `WebSocketPair` and a 101 `Response` exist only in workerd.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { validateConfig, type ServerMsg, type Seat } from '@lions/net';
+import { OVER_CLOSE_MS, validateConfig, type ServerMsg, type Seat } from '@lions/net';
 import type { D1Like, Env } from '../d1';
 import { openTestD1 } from '../test-d1';
 import { FakeState, deliverAlarm, deliverClose, deliverError, openSocket, type FakeSocket } from './fake-do';
@@ -776,5 +776,120 @@ describe('MatchRoom', () => {
       expect(err).toHaveBeenCalled();
       err.mockRestore();
     });
+  });
+});
+
+describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () => {
+  /** Both seats report the same result tick at the current time; returns the deadline. */
+  async function bothOver(room: MatchRoom, ws0: FakeSocket, ws1: FakeSocket, tick = 399): Promise<number> {
+    await say(room, ws0, { t: 'over', tick });
+    await say(room, ws1, { t: 'over', tick });
+    return Date.now() + OVER_CLOSE_MS;
+  }
+
+  it('closes at +120 s to the tick: ended over to both, both sockets shut normally, then no clock, no alarm and no row', async () => {
+    const { state, room, ws0, ws1 } = await running();
+    await vi.advanceTimersByTimeAsync(10 * TICK_MS);
+    const closeAt = await bothOver(room, ws0, ws1);
+    expect((await persisted(state)).closeAtMs).toBe(closeAt);   // armed, and written: it survives an eviction
+    await vi.advanceTimersByTimeAsync(closeAt - Date.now() - TICK_MS);
+    expect(ofType(ws0, 'ended')).toEqual([]);   // one tick before the deadline: still open
+    expect(ws0.closed).toBeNull();
+    await vi.advanceTimersByTimeAsync(TICK_MS);
+    expect(Date.now()).toBe(closeAt);
+    for (const ws of [ws0, ws1]) {
+      expect(last(ws)).toEqual({ t: 'ended', reason: 'over' });
+      expect(ws.closed).toEqual({ code: 1000, reason: 'ended' });
+    }
+    expect((await persisted(state))).toMatchObject({ status: 'ended', endedReason: 'over' });
+    expect(state.storage.alarmAt).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+    // After the close: the runtime delivers both closes, a stray alarm and a late message arrive. Nothing is written.
+    const rows = state.storage.rowsWritten;
+    const sent = [ws0.sent.length, ws1.sent.length];
+    await deliverClose(room, ws0);
+    await deliverClose(room, ws1);
+    await deliverAlarm(room, state.storage);
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    expect(state.storage.rowsWritten - rows).toBe(0);
+    expect([ws0.sent.length, ws1.sent.length]).toEqual(sent);
+    expect(state.storage.alarmAt).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+    const late = await hello(room, 1);
+    expect(last(late)).toEqual({ t: 'ended', reason: 'over' });   // a seat that missed it is told
+    expect(state.storage.rowsWritten - rows).toBe(0);
+  });
+
+  it('one seat reports while the other is gone: the close fires on time and the rejoined seat hears it', async () => {
+    const { room, ws0, ws1 } = await running();
+    await deliverClose(room, ws1, 1006, 'abnormal');
+    await say(room, ws0, { t: 'over', tick: 399 });
+    const closeAt = Date.now() + OVER_CLOSE_MS;
+    await vi.advanceTimersByTimeAsync(30_000);
+    const back = await hello(room, 1);
+    expect(ofType(back, 'log')).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(closeAt - Date.now());
+    expect(last(ws0)).toEqual({ t: 'ended', reason: 'over' });
+    expect(last(back)).toEqual({ t: 'ended', reason: 'over' });
+  });
+
+  it('two different ticks never close the room', async () => {
+    const { state, room, ws0, ws1 } = await running();
+    await say(room, ws0, { t: 'over', tick: 399 });
+    await say(room, ws1, { t: 'over', tick: 419 });
+    await vi.advanceTimersByTimeAsync(2 * OVER_CLOSE_MS);
+    expect(ofType(ws0, 'ended')).toEqual([]);
+    expect((await persisted(state)).closeAtMs).toBeNull();
+  });
+
+  it('the alarm is aimed at the deadline: evicted with no clock, the room still closes at +120 s exactly, by the alarm alone', async () => {
+    const { state, room, ws0, ws1 } = await running();
+    // Off the watchdog's 5 s grid, so a watchdog that merely kept its period would miss the deadline.
+    await vi.advanceTimersByTimeAsync(1234);
+    const closeAt = await bothOver(room, ws0, ws1);
+    expect((closeAt - NOW) % WATCHDOG_MS).not.toBe(0);
+    let instance = room;
+    const wakes: number[] = [];
+    // The isolate dies after every wake: only the storage alarm brings the room back.
+    for (let i = 0; i < 100 && state.storage.alarmAt !== null; i++) {
+      evict();
+      instance = new MatchRoom(state, env);
+      vi.setSystemTime(state.storage.alarmAt);
+      wakes.push(Date.now());
+      await deliverAlarm(instance, state.storage);
+    }
+    expect(wakes.at(-1)).toBe(closeAt);   // the last wake is the deadline itself, not the next 5 s watchdog
+    expect(wakes.every((t, i) => i === 0 || t - wakes[i - 1] <= WATCHDOG_MS)).toBe(true);
+    expect(last(ws0)).toEqual({ t: 'ended', reason: 'over' });
+    expect(last(ws1)).toEqual({ t: 'ended', reason: 'over' });
+    expect((await persisted(state)).endedReason).toBe('over');
+    expect(state.storage.alarmAt).toBeNull();
+    evict();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('both seats gone after the result: no clock, one alarm at the deadline, and the room ends with nobody there', async () => {
+    const { state, room, ws0, ws1 } = await running();
+    const closeAt = await bothOver(room, ws0, ws1);
+    await deliverClose(room, ws0, 1006, 'abnormal');
+    await deliverClose(room, ws1, 1006, 'abnormal');
+    expect(vi.getTimerCount()).toBe(0);   // abandoned: no clock
+    expect(state.storage.alarmAt).toBe(closeAt);   // but the deadline still wakes it
+    evict();
+    const revived = new MatchRoom(state, env);
+    // A wake before the deadline (an alarm left from before) re-aims it rather than losing it.
+    vi.setSystemTime(closeAt - 10_000);
+    await deliverAlarm(revived, state.storage);
+    expect(state.storage.alarmAt).toBe(closeAt);
+    expect((await persisted(state)).endedReason).toBeNull();
+    const rows = state.storage.rowsWritten;
+    vi.setSystemTime(closeAt);
+    await deliverAlarm(revived, state.storage);
+    expect((await persisted(state))).toMatchObject({ status: 'ended', endedReason: 'over' });
+    expect(state.storage.rowsWritten - rows).toBe(1);   // the ended state, and nothing else
+    expect(state.storage.alarmAt).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+    const late = await hello(revived, 0);
+    expect(last(late)).toEqual({ t: 'ended', reason: 'over' });
   });
 });

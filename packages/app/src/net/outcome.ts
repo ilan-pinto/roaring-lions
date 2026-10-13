@@ -8,6 +8,10 @@
  * A room's own endings (a seat surrendered, a seat left) arrive from the
  * room instead, and wait behind the frames the transport still holds
  * (`matchResult`, R-B11): a result the sim reaches while draining them wins.
+ *
+ * A result the sim reached is told to the room once (`reportOver`, L-1): the
+ * room closes itself two minutes after both seats have reported it. That
+ * ending (`over`) is no result of its own -- the panel is already up.
  */
 import type { MatchConfig, Seat } from '@lions/net';
 import { isHashTick } from './frame-step';
@@ -81,6 +85,30 @@ export function hashTickOutcome(frameTick: number, config: MatchConfig | null, s
   return o.kind === 'ongoing' ? null : o;
 }
 
+/** A result this seat's sim reached, and the frame tick it was read on:
+ *  what it reports to the room as `over` (L-1). */
+export interface LocalDecision { readonly result: MatchResult; readonly tick: number }
+
+/** `hashTickOutcome`, remembered with the frame tick that decided it: the
+ *  first decision stands. Both seats read it on the same frame tick, so both
+ *  report the same `over` tick. */
+export function decideOnHashTick(
+  prev: LocalDecision | null, frameTick: number, config: MatchConfig | null, sim: OutcomeSim & { readonly tickCount: number },
+): LocalDecision | null {
+  if (prev !== null) return prev;
+  const result = hashTickOutcome(frameTick, config, sim);
+  return result === null ? null : { result, tick: frameTick };
+}
+
+/** Tells the room this seat's result as its panel goes up (L-1, R-B26) --
+ *  only when the panel shows the result the SIM reached (`matchResult` hands
+ *  back that very object). A result taken from the room's own ending (a
+ *  surrender, a leave) owes nothing: that room has ended already. The
+ *  transport sends one `over` however often it is asked. */
+export function reportOver(room: { over(tick: number): void } | null, shown: MatchResult, local: LocalDecision | null): void {
+  if (room !== null && local !== null && shown === local.result) room.over(local.tick);
+}
+
 /** The other playing side. */
 function opponentOf(side: 0 | 1): 0 | 1 {
   return SIDES.find((s) => s !== side) ?? side;
@@ -89,7 +117,8 @@ function opponentOf(side: 0 | 1): 0 | 1 {
 /** The room's `ended`, as a result for this seat. A surrender names the seat
  *  that surrendered, and its side loses. A `left` names nobody: the seat that
  *  left closed its own socket and never hears it, so whoever hears it stayed
- *  and wins. `void` (a desync) and `expired` are no result. */
+ *  and wins. `void` (a desync), `expired` and `over` (the room closing itself
+ *  after the result the sims reached, L-1) are no result. */
 export function roomEndingOutcome(
   reason: string,
   seat: Seat | undefined,
