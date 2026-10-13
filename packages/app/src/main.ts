@@ -299,7 +299,7 @@ import { browserLedgerStore, newCampaign, writeVictory, type CampaignLedger, typ
 import { showSaves, type SavesDeps } from './ui/saves';
 import { showCredits, type CreditsDeps } from './ui/credits';
 import { showVersus, showVersusRoom, versusMaps, type VersusDeps } from './ui/versus';
-import { LOCALES, applyLocale, loadLocale } from './i18n/locales';
+import { LOCALES, applyLocale, loadLocale, resolveLang } from './i18n/locales';
 import { currentLocale, missingKeys, setCatalogue, t } from './i18n/t';
 import { pseudo } from './i18n/pseudo';
 
@@ -848,7 +848,7 @@ async function main(): Promise<void> {
   // so `unknownParams` does not report either as a typo, and neither is in
   // `router.start`'s own `drop` list below, so a reload keeps carrying them.
   const q = new URLSearchParams(window.location.search);
-  const lang = q.get('lang') ?? settings.language;
+  const lang = resolveLang(q.get('lang'), settings.language);
   const activeLocale = q.has('pseudo') ? 'pseudo' : lang;
   const cat = await loadLocale(activeLocale, BASE);
   setCatalogue(activeLocale, cat, q.has('pseudo') ? pseudo : undefined);
