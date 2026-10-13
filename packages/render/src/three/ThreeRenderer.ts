@@ -422,6 +422,7 @@ import {
 import { unitIsObserved } from './units/observed';
 import { fireVisible } from './fire-visible';
 import { arcHiddenUntil, hostileEffectVisible, structureBarVisible } from './versus-fog';
+import { isBurstOnlyEvent } from './quiet';
 import { ZoneBandBatch } from './units/zone-band';
 import { ProxyBoxBatch, proxyBoxDims, type ProxyBoxEntry } from './units/proxy-box';
 import {
@@ -974,6 +975,8 @@ export class ThreeRenderer implements Renderer {
    *  fog. False in single-player, where every one of those gates is skipped
    *  and the picture and the click are exactly what they were before. */
   private readonly versus: boolean;
+  /** `setQuiet`: the tick being presented is far behind the live edge. */
+  private quiet = false;
   /** The scene's sun and sky bounce (`lighting.ts`). Built in the
    *  constructor, not `init`, because every material in this scene is a
    *  `MeshStandardMaterial` now: a scene with no lights in it is not a
@@ -2884,6 +2887,11 @@ export class ThreeRenderer implements Renderer {
     await Promise.resolve();
   }
 
+  /** `Renderer.setQuiet` (`api.ts`): see `quiet.ts` for what `onEvents` drops. */
+  setQuiet(quiet: boolean): void {
+    this.quiet = quiet;
+  }
+
   /** `Renderer.reseed` (`api.ts`): `init`'s own seeding, run again against
    *  the sim as it stands now. Nothing else -- see `seedFromSim`. */
   reseed(): void {
@@ -4375,6 +4383,11 @@ export class ThreeRenderer implements Renderer {
   onEvents(events: SimEvent[]): void {
     const st = this.sim.state;
     for (const e of events) {
+      // A tick far behind the live edge (`setQuiet`) throws no burst: the
+      // events whose whole effect is a one-shot flash, round or puff are
+      // dropped here, and the ones that leave something standing (a wreck, a
+      // collapsed building, a discovered route) still run below.
+      if (this.quiet && isBurstOnlyEvent(e.kind)) continue;
       if (e.kind === 'fire') this.onFire(e);
       else if (e.kind === 'nearMiss') {
         const nx = fx.toNumber(e.x);
@@ -4503,14 +4516,19 @@ export class ThreeRenderer implements Renderer {
           // a tan cloud, read as "a brown dust puff". The collapse had the
           // identical defect and the identical fix (VR-22); this is the same
           // pooled burst, its own size, life and colours unchanged.
-          if (this.collapseFlashBursts.ready) {
+          // `burst`: false for a tick far behind the live edge (`setQuiet`) --
+          // the fireball, column, light, shake, freeze and shroud are the
+          // wall-clock one-shots; the scorch, the oil and the smoulder below
+          // are dated off the sim clock and stay.
+          const burst = !this.quiet;
+          if (burst && this.collapseFlashBursts.ready) {
             this.collapseFlashBursts.spawn(dx, worldY, dy, killYawTurns, killPower, EXPLOSION_BURST_DEFAULT_DURATION_MS);
           }
           // The smoke aftermath follows the same hard-target kill -- a
           // burning hull is exactly what a rising column is FOR. Checked
           // live (this task's report) that pairing the two here reads the
           // same way it does for a building collapse, not merely assumed.
-          if (this.smokePlumes.ready) {
+          if (burst && this.smokePlumes.ready) {
             // R-I: the blast window, not the default one. A burning hull is
             // the one thing on this map that is still smoking twenty seconds
             // later, and `SMOKE_PLUME_DEFAULT_DURATION_MS` (4 s) is sized for
@@ -4540,7 +4558,7 @@ export class ThreeRenderer implements Renderer {
           // light/shake/freeze built from defaults nobody authored.
           const blast = this.emitterLibrary.byName(BLAST_EMITTER_ID);
           const blastLight = blastLightSpec(blast, killPower);
-          if (blastLight) {
+          if (burst && blastLight) {
             this.flashLights.spawn(
               dx,
               dy,
@@ -4549,14 +4567,16 @@ export class ThreeRenderer implements Renderer {
               this.overlayColor(blastLight.color ?? 'vfx.fire', FLASH_LIGHT_FALLBACK)
             );
           }
-          this.shakeState = pushShake(this.shakeState, blastShake(blast, killPower), dx, dy);
-          this.hitStop = requestHitStop(this.hitStop, blastHitStopMs(blast, killPower));
+          if (burst) {
+            this.shakeState = pushShake(this.shakeState, blastShake(blast, killPower), dx, dy);
+            this.hitStop = requestHitStop(this.hitStop, blastHitStopMs(blast, killPower));
+          }
           // The ground remembers the kill (spec 3.3): a scorch sized by the
           // blast, and the hull's oil at a fixed size, through the one entry.
           const scorchR = scorchRadiusTiles(killPower);
           this.stampGroundDecal(this.persistentStamp('scorch', dx, dy, scorchR));
           this.stampGroundDecal(this.persistentStamp('oil', dx, dy, OIL_RADIUS_TILES));
-          this.beginVehicleCollapseShroud(deadType.id, dx, dy, worldY);
+          if (burst) this.beginVehicleCollapseShroud(deadType.id, dx, dy, worldY);
           // GH-85: and the hull goes on smouldering after the column clears.
           this.beginWreckSmoulder(e.entity, dx, dy, e.tick);
         }
@@ -4579,6 +4599,9 @@ export class ThreeRenderer implements Renderer {
         // with the blast (`eod_breach`).
         if (this.detonateChargeOnStructure(e.by, hitStruct, e.tick)) {
           // The blast is the whole effect.
+        } else if (this.quiet) {
+          // A tick far behind the live edge: the building's damage above is
+          // kept, the dust it threw is not.
         } else if (!isGrindingHit(this.sim, e.by, hitStruct)) {
           this.spawnFlatFx(
             fx.toNumber(this.sim.structures.cx[hitStruct]),
@@ -4638,11 +4661,12 @@ export class ThreeRenderer implements Renderer {
         // wreck stands when the tile is next seen. FOOTPRINT visibility, not
         // `structureInSight`: that one asks `structureAt`, which no longer
         // answers for a dead structure (R-B15). Single-player throws it all.
-        const collapseSeen = hostileEffectVisible(
-          this.versus,
-          this.structureIsOwn(deadStruct),
-          this.footprintInSight(deadStruct)
-        );
+        // A tick far behind the live edge (`setQuiet`) throws none of it
+        // either, whoever the building was: the rubble and the surface above
+        // and below are the state, and stay.
+        const collapseSeen =
+          !this.quiet &&
+          hostileEffectVisible(this.versus, this.structureIsOwn(deadStruct), this.footprintInSight(deadStruct));
         // The shroud, and the swap hold it exists to cover. Spawned HERE and
         // not from `spawnCollapseFx`, deliberately: this effect is sized from
         // the STRUCTURE's own world extents, and `spawnCollapseFx` knows only
