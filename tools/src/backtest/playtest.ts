@@ -2871,10 +2871,14 @@ function boughtProbe(
 // min now, the Zikit died there at 153 s to the wave's own militia. Three tiles south, (42,27),
 // it identifies 2 units and the route on 11 rounds and is alive at the end; (40,26), (36,26)
 // and (40,28) also survive (49 / 51 / 9 rounds). Measured, one run each.
+// 2026-10-13, hits suppress: at (42,27) the Zikit is pinned in its first exchange (8 rounds) and
+// dies there; (40,28) and (40,26) die too (12 and 41 rounds). (36,26), the one of the three
+// survivors above still standing, identifies 3 units and the route on 50 rounds and is alive at
+// the end. Measured, one run each.
 boughtProbe('beit_sahwan_4_subterranean', bs4Plan, led4In, 'recon_zikit', 30, 'sees', (mine) => ({
   kind: 'move',
   ids: mine,
-  ...M(42, 27),
+  ...M(36, 26),
 }));
 // The Gunship is built on the first tick (50 s) and joins the `raze` approach: an
 // attack-move to the stockpile the depot escort is already walking to.
