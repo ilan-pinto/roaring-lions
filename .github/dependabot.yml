@@ -1,0 +1,50 @@
+# Weekly dependency updates. Dev dependencies arrive as ONE pull request and
+# runtime dependencies (three, the workspace packages' own deps) as another,
+# so a week of churn is two reviews, not twenty.
+#
+# Commit-message prefixes feed tools/next_version.mjs: `chore` moves no
+# version (a dev-tooling bump must not cut a release), `fix` is a patch (a
+# runtime bump changes what ships). Neither is `feat`, so none reaches the
+# displayed major.minor.
+#
+# Also on, in repository settings (not configurable here): Dependabot alerts
+# and Dependabot security updates.
+version: 2
+updates:
+  - package-ecosystem: npm
+    # The pnpm workspace root; Dependabot reads pnpm-workspace.yaml and
+    # pnpm-lock.yaml and covers every package under it.
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    groups:
+      dev-dependencies:
+        dependency-type: development
+      runtime-dependencies:
+        dependency-type: production
+    ignore:
+      # jsdom is pinned to ~30.0.1 (security review #559): 30.1 and later
+      # break vitest 4's fake setImmediate. Lift this when vitest fixes it.
+      - dependency-name: jsdom
+        versions: [">=30.1.0"]
+    # The postcss override in pnpm-workspace.yaml (^8.5.29, a floor forcing
+    # the nanoid / source-map-js advisory fixes) is left alone: Dependabot
+    # updates direct dependencies, and the override is dropped by hand once
+    # vite's own range resolves past it.
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "chore(ci)"
+    # Actions are pinned by SHA with a version comment (#562); Dependabot
+    # rewrites both together, keeping the pins current.
+    groups:
+      github-actions:
+        patterns: ["*"]
