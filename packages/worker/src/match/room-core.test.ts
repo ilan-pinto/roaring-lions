@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { OVER_CLOSE_MS, type MatchConfig } from '@lions/net';
-import { createRoom, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, persistKey, revive, endedMsg, ACK_EVERY, STALL_BEHIND_TICKS, STALL_SILENT_MS, type RoomState, type Effect } from './room-core';
+import { createRoom, logParts, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, persistKey, revive, endedMsg, ACK_EVERY, STALL_BEHIND_TICKS, STALL_SILENT_MS, MAX_LOG_CMD_CHARS, type RoomState, type Effect } from './room-core';
 
 const CONFIG: MatchConfig = {
   matchId: 'm1', code: 'ABCDEF', seed: 7, map: 'beit_sahwan_outskirts', mode: 'sandbox',
@@ -56,11 +56,54 @@ describe('room-core', () => {
     expect(f.cmds.map((c) => c.seq)).toEqual([0, 1]);
   });
 
-  it('caps a seat at 32 commands per frame', () => {
+  it('#559 F2: a frame carries at most 4 of a seat\'s commands; up to 12 wait for the next frames, and the rest are dropped', () => {
     const st = running();
-    for (let i = 0; i < 40; i++) seatMessage(st, 0, { t: 'cmd', seq: i, cmd: { kind: 'halt', ids: [1] } }, 10, mint);
-    const [f] = frames(clockTick(st, 50));
-    expect(f.cmds).toHaveLength(32);
+    for (let i = 0; i < 40; i++) seatMessage(st, 0, { t: 'cmd', seq: i, cmd: { kind: 'halt', ids: [i] } }, 10, mint);
+    seatMessage(st, 1, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [99] } }, 10, mint);
+    const per = [1, 2, 3, 4].map((k) => frames(clockTick(st, 50 * k))[0].cmds);
+    expect(per.map((c) => c.filter((x) => x.seat === 0).length)).toEqual([4, 4, 4, 0]);
+    expect(per[0].filter((x) => x.seat === 1)).toHaveLength(1);   // the other seat is not held up
+    expect(per.flat().filter((x) => x.seat === 0).map((x) => (x.cmd as { ids: number[] }).ids[0])).toEqual([...Array(12).keys()]);
+  });
+
+  it('#559 F2: the heaviest honest burst -- a three-command right-click plus a shift-queued one -- runs whole, over two frames', () => {
+    const st = running();
+    const click = (append: boolean) => [
+      { kind: 'demolish', ids: [1], structure: 0 }, { kind: 'garrison', ids: [2], structure: 0 },
+      { kind: 'attackMove', ids: [3, 4, 5], x: 0, y: 0, append },
+    ] as const;
+    let seq = 0;
+    for (const cmd of [...click(false), ...click(true)]) seatMessage(st, 0, { t: 'cmd', seq: seq++, cmd: { ...cmd, ids: [...cmd.ids] } }, 10, mint);
+    const f0 = frames(clockTick(st, 50))[0].cmds;
+    const f1 = frames(clockTick(st, 100))[0].cmds;
+    expect([f0.length, f1.length]).toEqual([4, 2]);
+  });
+
+  it('#559 F2: a seat\'s budget is 20 commands at once and 20 a second after that', () => {
+    const st = running();
+    let accepted = 0;
+    const send = (n: number, at: number) => {
+      for (let i = 0; i < n; i++) {
+        seatMessage(st, 0, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [1] } }, at, mint);
+      }
+      // drain everything queued so the pending cap is not what refuses
+      for (let k = 0; k < 10; k++) accepted += frames(clockTick(st, at))[0]?.cmds.length ?? 0;
+    };
+    for (let i = 0; i < 3; i++) send(10, 10);   // 30 at one instant: 20 pass, minus what the pending cap held back
+    expect(accepted).toBe(20);
+    send(30, 1010);   // a second later: 20 more tokens
+    expect(accepted).toBe(32);   // 12 of them: the pending cap holds 12 between drains
+  });
+
+  it('#559 H-1: past MAX_LOG_CMD_CHARS of stamped commands the match is void, and nothing more is minted', () => {
+    const st = running();
+    st.cmdChars = MAX_LOG_CMD_CHARS - 10;
+    seatMessage(st, 0, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [1, 2, 3, 4, 5, 6] } }, 10, mint);
+    const fx = clockTick(st, 50);
+    expect(frames(fx)).toEqual([]);
+    expect(sends(fx).map((s) => s.msg)).toContainEqual({ t: 'ended', reason: 'void' });
+    expect(st).toMatchObject({ status: 'ended', endedReason: 'void' });
+    expect(frames(clockTick(st, 100))).toEqual([]);
   });
 
   it('stalls when a seat falls 40 ticks behind its acks, and resumes on the ack', () => {
@@ -110,6 +153,7 @@ describe('room-core', () => {
 
   it('compares hashes per tick and voids the match on a mismatch', () => {
     const st = running();
+    st.tick = 1000;   // the ticks hashed below have been minted
     let fx = seatMessage(st, 0, { t: 'hash', tick: 20, h: 1 }, 0, mint);
     expect(sends(fx)).toHaveLength(0);
     fx = seatMessage(st, 1, { t: 'hash', tick: 20, h: 1 }, 0, mint);
@@ -203,6 +247,7 @@ describe('room-core', () => {
 
   it('keeps the hash table bounded: no replays, no forged ticks, at most 16 open entries', () => {
     const st = running();
+    st.tick = 1000;
     for (const tick of [20, 40]) for (const seat of [0, 1] as const) seatMessage(st, seat, { t: 'hash', tick, h: 1 }, 0, mint);
     for (const tick of [20, 40]) for (const seat of [0, 1] as const) seatMessage(st, seat, { t: 'hash', tick, h: 1 }, 0, mint);   // replays
     // a replay of a compared tick with a different value must not re-open the comparison and void the match
@@ -221,11 +266,27 @@ describe('room-core', () => {
 
   it('a flood of forged far-future hash ticks cannot crowd out an honest comparison', () => {
     const st = running();
+    st.tick = 1000;
     for (let i = 0; i < 16; i++) seatMessage(st, 0, { t: 'hash', tick: 1_000_000 + i * 20, h: 1 }, 0, mint);
     seatMessage(st, 0, { t: 'hash', tick: 20, h: 1 }, 0, mint);
     const fx = seatMessage(st, 1, { t: 'hash', tick: 20, h: 2 }, 0, mint);
     expect(sends(fx).map((s) => s.msg)).toEqual([{ t: 'desync', tick: 20, hashes: [1, 2] }]);
     expect(st.status).toBe('ended');
+  });
+
+  it('#559 M-2/L-2: a hash for a tick the room has not minted yet is ignored, so no seat can void a match with one', () => {
+    const st = running();
+    for (let t = 0; t < 20; t++) clockTick(st, 50 * (t + 1));
+    expect(st.tick).toBe(20);
+    for (const tick of [20, 999_999]) {
+      seatMessage(st, 0, { t: 'hash', tick, h: 1 }, 1000, mint);
+      expect(sends(seatMessage(st, 1, { t: 'hash', tick, h: 2 }, 1000, mint))).toEqual([]);
+    }
+    expect(st.hashes).toEqual({});
+    expect(st.status).toBe('running');
+    // The last minted tick is still compared.
+    seatMessage(st, 0, { t: 'hash', tick: 19, h: 1 }, 1000, mint);
+    expect(sends(seatMessage(st, 1, { t: 'hash', tick: 19, h: 1 }, 1000, mint)).map((x) => x.msg)).toEqual([{ t: 'hashOk', tick: 19 }]);
   });
 
   it('ignores a hash in the lobby', () => {
@@ -605,15 +666,33 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
     expect(clockTick(st, 1500 + OVER_CLOSE_MS + 50)).toEqual([]);   // ended: the clock has nothing more to do
   });
 
-  it('one seat reports while the other is gone: armed at once, and a rejoin does not disarm it', () => {
+  it('one seat reports while the other is gone: armed at once; the rejoin disarms it and the same report re-arms it (#559 L-1)', () => {
     const st = minted();
     seatGone(st, 1, 900);
     seatMessage(st, 0, { t: 'over', tick: 399 }, 1000, mint);
     expect(st.closeAtMs).toBe(1000 + OVER_CLOSE_MS);
     seatJoin(st, 1, 'p1', 'Guest', 5000);
+    expect(st.closeAtMs).toBeNull();
     seatMessage(st, 1, { t: 'over', tick: 399 }, 6000, mint);
-    expect(st.closeAtMs).toBe(1000 + OVER_CLOSE_MS);   // armed once, never pushed back
-    expect(firstEnding(st, 6050, 200_000)?.at).toBe(1000 + OVER_CLOSE_MS);
+    expect(st.closeAtMs).toBe(6000 + OVER_CLOSE_MS);
+    expect(firstEnding(st, 6050, 200_000)?.at).toBe(6000 + OVER_CLOSE_MS);
+  });
+
+  it('#559 L-1: an early `over` from one seat plus a blip of the other ends nothing while the other has not reported', () => {
+    const st = minted();
+    seatMessage(st, 1, { t: 'over', tick: 1 }, 1000, mint);   // a claim the other seat's sim never reached
+    seatGone(st, 0, 1100);
+    expect(st.closeAtMs).toBe(1100 + OVER_CLOSE_MS);
+    seatJoin(st, 0, 'p0', 'Host', 2100);   // back a second later
+    expect(st.closeAtMs).toBeNull();
+    expect(firstEnding(st, 2150, 400_000)).toBeNull();
+    // Two equal reports stay armed across a rejoin.
+    const both = minted();
+    seatMessage(both, 0, { t: 'over', tick: 399 }, 1000, mint);
+    seatMessage(both, 1, { t: 'over', tick: 399 }, 1000, mint);
+    seatGone(both, 1, 2000);
+    seatJoin(both, 1, 'p1', 'Guest', 3000);
+    expect(both.closeAtMs).toBe(1000 + OVER_CLOSE_MS);
   });
 
   it('one seat reports, then the other goes without reporting: armed when it goes', () => {
@@ -731,5 +810,37 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
     seatMessage(old, 0, { t: 'over', tick: 0 }, 9100, mint);
     seatMessage(old, 1, { t: 'over', tick: 0 }, 9100, mint);
     expect(old.closeAtMs).toBe(9100 + OVER_CLOSE_MS);
+  });
+});
+
+describe('#559 H-1: logParts', () => {
+  const frame = (tick: number, n = 0) => ({ tick, cmds: Array.from({ length: n }, (_, i) => ({ seat: 0 as const, seq: i, cmd: { kind: 'halt' as const, ids: [i] } })) });
+  it('splits a log into runs of at most maxChars that rejoin to the log, numbered 0..parts-1', () => {
+    const frames = Array.from({ length: 500 }, (_, t) => frame(t, t % 7));
+    const parts = logParts(CONFIG, frames, 2000);
+    expect(parts.length).toBeGreaterThan(5);
+    expect(parts.flatMap((p) => p.frames)).toEqual(frames);
+    parts.forEach((p, i) => {
+      expect([p.part, p.parts, p.config]).toEqual([i, parts.length, CONFIG]);
+      expect(JSON.stringify(p.frames).length).toBeLessThanOrEqual(2000 + 1);
+    });
+  });
+  it('a short log is one part, an empty one is one empty part, and a frame over the limit goes alone', () => {
+    expect(logParts(CONFIG, [frame(0)]).map((p) => [p.part, p.parts])).toEqual([[0, 1]]);
+    expect(logParts(CONFIG, [])).toEqual([{ t: 'log', config: CONFIG, frames: [], part: 0, parts: 1 }]);
+    const big = frame(1, 50);
+    expect(logParts(CONFIG, [frame(0), big, frame(2)], 100).map((p) => p.frames.map((f) => f.tick))).toEqual([[0], [1], [2]]);
+  });
+});
+
+describe('#559 L-3: chat is cleaned like a callsign', () => {
+  it('drops bidi overrides and zero-width characters, and controls become spaces', () => {
+    const st = running();
+    const fx = seatMessage(st, 0, { t: 'chat', text: 'gg \u202eevil\u202c \u200bx\u0007y' }, 1000, mint);
+    expect(sends(fx).map((x) => x.msg)).toEqual([{ t: 'chat', seat: 0, text: 'gg evil x y' }]);
+  });
+  it('a line of nothing but format characters sends nothing', () => {
+    const st = running();
+    expect(seatMessage(st, 0, { t: 'chat', text: '\u202e\u200b\u2066' }, 1000, mint)).toEqual([]);
   });
 });

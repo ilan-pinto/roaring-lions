@@ -22,6 +22,10 @@ export class FakeStorage implements DurableStorageLike {
   /** The `batch` table: first_tick -> frames JSON. */
   readonly batches = new Map<number, string>();
   private tableExists = false;
+  /** Whether the `batch` table exists: a probe of a missing room must never create it (#559 H-1). */
+  get hasTable(): boolean { return this.tableExists; }
+  /** Calls to `deleteAll`. */
+  wipes = 0;
   /** Rows written: each `put` and each INSERT/UPDATE/REPLACE statement counts one (the Workers Free meter). */
   rowsWritten = 0;
   /** The scheduled alarm, epoch ms, or null. Nothing fires it by itself: a test does, with `deliverAlarm`. */
@@ -49,6 +53,17 @@ export class FakeStorage implements DurableStorageLike {
   async deleteAlarm(): Promise<void> {
     if (this.alarmAt !== null) this.rowsWritten++;
     this.alarmAt = null;
+  }
+  /** Deletes every key and the table, as the SQLite backend's `deleteAll` does.
+   *  Each deleted row is counted as one written: Cloudflare bills deletes as
+   *  rows written, so a wipe costs what the room stored. The alarm is left
+   *  alone (the room deletes it itself). */
+  async deleteAll(): Promise<void> {
+    this.wipes++;
+    this.rowsWritten += this.kv.size + this.batches.size;
+    this.kv.clear();
+    this.batches.clear();
+    this.tableExists = false;
   }
   readonly sql = {
     exec: (query: string, ...bindings: unknown[]): SqlRows => this.exec(norm(query), bindings),

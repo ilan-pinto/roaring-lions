@@ -1,0 +1,16 @@
+# Cloudflare static-asset headers for the game (#559 L-5, F7). Applied by
+# Cloudflare to every file it serves from the build; the Worker's own
+# responses (/api/*, /stats*) set theirs in packages/worker/src/security-headers.ts.
+#
+# script-src 'wasm-unsafe-eval': the Draco mesh decoder is WebAssembly.
+# worker-src blob:: three's DRACOLoader starts its decoder workers from blob URLs.
+# connect-src blob: data:: GLTFLoader fetches a GLB's embedded textures through blob URLs.
+# img-src/media-src blob: data:: generated textures, canvas captures, audio.
+# style-src 'unsafe-inline': the palette block in index.html and inline style attributes.
+# Referrer-Policy same-origin, not no-referrer: no-referrer makes a browser send
+# `Origin: null` on sendBeacon, which /api/events would refuse.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self'; connect-src 'self' blob: data:; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: same-origin
+  X-Frame-Options: DENY

@@ -19,6 +19,7 @@ interface SimView { width: number; height: number; structureCount: number; tunne
 function worldFor(sim: SimView): SeatWorld {
   return {
     sideOfSeat: () => 0,
+    versus: false,
     sideOfEntity: (id) => (id >= 0 && id < sim.entityCount ? sim.state.side[id] : undefined),
     width: sim.width,
     height: sim.height,

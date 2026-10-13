@@ -74,6 +74,8 @@ export function seatWorldFor(
     structureExists: (id: number) => Number.isInteger(id) && id >= 0 && id < sim.structureCount,
     tunnelExists: (id: number) => Number.isInteger(id) && id >= 0 && id < sim.tunnelCount,
     sideOfSeat: (seat: Seat) => config?.seats[seat].side ?? 0,
+    // Security review 559, F1: no mission runtime prices intel in a versus room.
+    versus: config?.mode === 'versus',
     sideOfEntity: (id: number) => (Number.isInteger(id) && id >= 0 && id < sim.entityCount ? sim.state.side[id] : undefined),
   };
 }

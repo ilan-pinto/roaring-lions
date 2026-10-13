@@ -197,7 +197,7 @@ export async function sessionTimeline(db: D1Like, session: string | null) {
   if (session === null) return [];
   const events = await db
     .prepare(
-      `SELECT t, type, mission, json_extract(payload, '$.result') AS result FROM events
+      `SELECT t, type, mission, json_extract(payload, '$.result') AS result FROM events_all
        WHERE session = ? ORDER BY t ASC LIMIT ${TIMELINE_MAX}`
     )
     .bind(session)

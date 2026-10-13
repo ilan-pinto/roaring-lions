@@ -32,7 +32,7 @@ describe('POST /api/events', () => {
     const h = setup();
     const res = await h.post({ events: [hb(1), { ...hb(2), email: 'x@y.z' }, hb(3)] });
     expect(res.status).toBe(204);
-    expect(h.count('SELECT COUNT(*) AS n FROM events')).toBe(2);
+    expect(h.count('SELECT COUNT(*) AS n FROM events_all')).toBe(2);
   });
 
   it('upserts the player summary once per request', async () => {
@@ -46,7 +46,7 @@ describe('POST /api/events', () => {
   it('never stores the IP', async () => {
     const h = setup();
     await h.post({ events: [hb(1)] });
-    const dump = JSON.stringify(h.db.raw.prepare('SELECT * FROM events').all());
+    const dump = JSON.stringify(h.db.raw.prepare('SELECT * FROM events_all').all());
     expect(dump).not.toContain('203.0.113.9');
   });
 
@@ -56,7 +56,7 @@ describe('POST /api/events', () => {
     expect((await h.post('x'.repeat(70_000))).status).toBe(204);
     expect((await h.post({ events: 'nope' })).status).toBe(204);
     expect((await h.post({ events: Array.from({ length: 51 }, (_, i) => hb(i)) })).status).toBe(204);
-    expect(h.count('SELECT COUNT(*) AS n FROM events')).toBe(0);
+    expect(h.count('SELECT COUNT(*) AS n FROM events_all')).toBe(0);
   });
 
   it('M5: rejects on a Content-Length over 64 KB before reading the body', async () => {
@@ -79,7 +79,7 @@ describe('POST /api/events', () => {
     const res = await handleIngest(req, env, 1_790_000_001_000);
     expect(res.status).toBe(204);
     expect(bodyRead).toBe(false);
-    expect((db.raw.prepare('SELECT COUNT(*) AS n FROM events').get() as { n: number }).n).toBe(0);
+    expect((db.raw.prepare('SELECT COUNT(*) AS n FROM events_all').get() as { n: number }).n).toBe(0);
   });
 
   it('keys the rate limit on the connecting IP and stores nothing when limited', async () => {
@@ -87,6 +87,6 @@ describe('POST /api/events', () => {
     const h = setup({ limit: async ({ key }) => { keys.push(key); return { success: false }; } });
     await h.post({ events: [hb(1)] });
     expect(keys).toEqual(['203.0.113.9']);
-    expect(h.count('SELECT COUNT(*) AS n FROM events')).toBe(0);
+    expect(h.count('SELECT COUNT(*) AS n FROM events_all')).toBe(0);
   });
 });

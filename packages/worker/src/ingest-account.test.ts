@@ -58,8 +58,8 @@ describe('accounts summary (GH-254)', () => {
       new Request('https://g.dev/api/events', { method: 'POST', body: JSON.stringify({ events: [acct(1, 1), acct(2, 2), acct(3, 3)] }) }),
       { DB: spy, ASSETS: { fetch: async () => new Response('') } }, 1
     );
-    // events batch: 3 inserts + 1 players upsert; accounts batch: 1 upsert
-    expect(statements).toEqual(['batch:4', 'batch:1']);
+    // events batch: ONE event_batch row + 1 players upsert (#559 M-3); accounts batch: 1 upsert
+    expect(statements).toEqual(['batch:2', 'batch:1']);
   });
 
   it('R-6: with the accounts table missing, the events still land', async () => {
@@ -67,7 +67,7 @@ describe('accounts summary (GH-254)', () => {
     h.db.raw.exec('DROP TABLE accounts');
     const res = await h.post([acct(1, 1), hb(2)]);
     expect(res.status).toBe(204);
-    expect(h.rows<{ n: number }>('SELECT COUNT(*) AS n FROM events')[0]?.n).toBe(2);
+    expect(h.rows<{ n: number }>('SELECT COUNT(*) AS n FROM events_all')[0]?.n).toBe(2);
   });
 
   it('a request with no account event writes no accounts row', async () => {

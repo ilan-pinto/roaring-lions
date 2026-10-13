@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { openTestD1 } from './test-d1';
 import { handleIngest } from './ingest';
 import * as stats from './stats';
+import { STATS_HTML } from './stats-page';
+import { FEEDBACK_HTML } from './feedback-page';
 import { tutorials } from '@lions/data';
 import { LEGACY_TUTORIAL_STEP_IDS, labelTutorialRows } from './tutorial-funnel';
 import type { Env, RateLimiter } from './d1';
@@ -11,6 +13,16 @@ const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 8, 20);
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const base = (p: number, t: number, extra: Record<string, unknown> = {}) => ({ v: 1, player: id(p), session: id(100 + p), build: '0.78.0', t, ...extra });
+
+/** #559 M-3: a request speaks for one player, as the game's own do; a test
+ *  seeding several players posts one request each. */
+async function postEach(env: Env, events: { player: string }[], now: number): Promise<Response> {
+  let last = new Response(null, { status: 204 });
+  for (const p of [...new Set(events.map((e) => e.player))]) {
+    last = await handleIngest(new Request('https://g.dev/api/events', { method: 'POST', body: JSON.stringify({ events: events.filter((e) => e.player === p) }) }), env, now);
+  }
+  return last;
+}
 
 async function seeded() {
   const db = openTestD1();
@@ -72,7 +84,7 @@ describe('stats queries', () => {
       // Player 3 reaches every beat, player 4 only the first two.
       [3, 4].filter((p) => p === 3 || i < 2).map((p) => base(p, T0 + 10 + i, { type: 'tutorial_step', step: i, steps: 9, prevMs: 1000, id: beat }))
     );
-    const res = await handleIngest(new Request('https://g.dev/api/events', { method: 'POST', body: JSON.stringify({ events }) }), env, T0);
+    const res = await postEach(env, events, T0);
     expect(res.status).toBe(204);
     const t = await stats.tutorialFunnel(db, all);
     const current = t.filter((r) => !r.legacy);
@@ -91,7 +103,7 @@ describe('stats queries', () => {
       base(5, T0 + 20, { type: 'tutorial_step', step: 0, steps: 14, prevMs: 0, id: 'look_around' }),
       base(6, T0 + 21, { type: 'tutorial_step', step: 0, steps: 14, prevMs: 0, id: 'something_else' }),
     ];
-    await handleIngest(new Request('https://g.dev/api/events', { method: 'POST', body: JSON.stringify({ events }) }), env, T0);
+    await postEach(env, events, T0);
     const t = await stats.tutorialFunnel(db, all);
     expect(t.filter((r) => r.step === 0).map((r) => [r.id, r.legacy, r.players]).sort()).toEqual([
       ['look_around', false, 1],
@@ -332,13 +344,32 @@ describe('handleStats', () => {
     expect(res.status).toBe(413);
   });
 
-  it('GET or POST /stats/logout clears the session cookie (exact Set-Cookie string) and redirects to /stats', async () => {
+  it('a same-origin POST /stats/logout clears the session cookie (exact Set-Cookie string) and redirects to /stats', async () => {
     const env: Env = { DB: openTestD1(), ASSETS: NOOP_ASSETS, STATS_PASSWORD: PASSWORD };
-    for (const method of ['GET', 'POST']) {
-      const res = await stats.handleStats(new Request('https://g.dev/stats/logout', { method }), env, T0);
-      expect(res.status).toBe(303);
-      expect(res.headers.get('location')).toBe('/stats');
-      expect(res.headers.get('set-cookie')).toBe(clearedSessionCookieHeader());
+    const res = await stats.handleStats(new Request('https://g.dev/stats/logout', { method: 'POST', headers: { origin: 'https://g.dev' } }), env, T0);
+    expect(res.status).toBe(303);
+    expect(res.headers.get('location')).toBe('/stats');
+    expect(res.headers.get('set-cookie')).toBe(clearedSessionCookieHeader());
+  });
+
+  it('#559 L-4: a GET, a POST from another origin and a POST with no Origin sign nobody out', async () => {
+    const env: Env = { DB: openTestD1(), ASSETS: NOOP_ASSETS, STATS_PASSWORD: PASSWORD };
+    const cases: [RequestInit, number][] = [
+      [{ method: 'GET' }, 405],
+      [{ method: 'POST', headers: { origin: 'https://evil.example' } }, 403],
+      [{ method: 'POST' }, 403],
+    ];
+    for (const [init, status] of cases) {
+      const res = await stats.handleStats(new Request('https://g.dev/stats/logout', init), env, T0);
+      expect(res.status).toBe(status);
+      expect(res.headers.get('set-cookie')).toBeNull();
+    }
+  });
+
+  it('#559 L-4: both pages sign out by a form POST, never a link', () => {
+    for (const page of [STATS_HTML, FEEDBACK_HTML]) {
+      expect(page).not.toContain('href="/stats/logout"');
+      expect(page).toContain('<form method="post" action="/stats/logout"');
     }
   });
 

@@ -534,3 +534,31 @@ describe('WsTransport stats (N0 final review I1: positive evidence)', () => {
     expect(t.stats().stalls.behind.count).toBe(0);
   });
 });
+
+describe('WsTransport: a log in parts (#559 H-1)', () => {
+  it('stays connecting until the last part, then is live with every part\'s frames, relinked once, and repeats its over once', () => {
+    vi.useFakeTimers();
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} });
+    sock.open();
+    sock.recv({ t: 'start', config: CONFIG });
+    for (let tick = 0; tick < 3; tick++) sock.recv({ t: 'frame', tick, cmds: [] });
+    t.over(0);
+    sock.closeFromServer();
+    vi.runAllTimers();
+    sock.open();
+    const frames = (from: number, n: number) => Array.from({ length: n }, (_, i) => ({ tick: from + i, cmds: [] }));
+    const overs = () => sock.sent.filter((m) => (JSON.parse(m) as { t: string }).t === 'over').length;
+    sock.recv({ t: 'log', config: CONFIG, frames: frames(0, 10), part: 0, parts: 3 });
+    expect(t.status()).toEqual({ kind: 'stalled', reason: 'connecting', seat: null });
+    sock.recv({ t: 'log', config: CONFIG, frames: frames(10, 10), part: 1, parts: 3 });
+    expect(t.status().kind).toBe('stalled');
+    expect(t.stats().reconnects.count).toBe(0);
+    expect(overs()).toBe(1);
+    sock.recv({ t: 'log', config: CONFIG, frames: frames(20, 5), part: 2, parts: 3 });
+    expect(t.status()).toEqual({ kind: 'live', behind: 25 });
+    expect(t.stats().reconnects.count).toBe(1);
+    expect(overs()).toBe(2);
+    expect(t.take(100).map((f) => f.tick)).toEqual([...Array(23).keys()]);
+  });
+});

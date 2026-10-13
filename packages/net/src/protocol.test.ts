@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseClientMsg, parseServerMsg, MAX_MESSAGE_BYTES, OVER_CLOSE_MS } from './protocol';
+import { parseClientMsg, parseServerMsg, MAX_MESSAGE_BYTES, MAX_CMD_IDS, OVER_CLOSE_MS } from './protocol';
 import type { MatchConfig } from './config';
 
 const CFG: MatchConfig = {
@@ -32,15 +32,53 @@ describe('parseClientMsg', () => {
   it('refuses a command whose kind the sim does not have', () => {
     expect(parseClientMsg(JSON.stringify({ t: 'cmd', seq: 1, cmd: { kind: 'nuke', ids: [1] } }))).toBeNull();
   });
-  it('passes a command through whole, unknown optional fields included', () => {
-    const cmd = { kind: 'attackMove', ids: [1, 2], x: 65536, y: 131072, sweep: true };
+  it('passes every declared field of a command through', () => {
+    const cmd = { kind: 'attackMove', ids: [1, 2], x: 65536, y: 131072, sweep: true, append: true, exact: false };
     expect(parseClientMsg(JSON.stringify({ t: 'cmd', seq: 2, cmd }))).toEqual({ t: 'cmd', seq: 2, cmd });
+  });
+  it('#559 H-1: rebuilds a command from its declared fields, so an unknown field never reaches a frame', () => {
+    const pad = 'A'.repeat(3000);
+    const cases: [Record<string, unknown>, Record<string, unknown>][] = [
+      [{ kind: 'halt', ids: [0], pad }, { kind: 'halt', ids: [0] }],
+      [{ kind: 'move', ids: [1], x: 0, y: 0, pad }, { kind: 'move', ids: [1], x: 0, y: 0 }],
+      [{ kind: 'attackMove', ids: [1], x: 0, y: 0, sweep: true, pad }, { kind: 'attackMove', ids: [1], x: 0, y: 0, sweep: true }],
+      [{ kind: 'garrison', ids: [1], structure: 2, pad }, { kind: 'garrison', ids: [1], structure: 2 }],
+      [{ kind: 'demolish', ids: [1], structure: 2, pad }, { kind: 'demolish', ids: [1], structure: 2 }],
+      [{ kind: 'load', ids: [1], carrier: 2, pad }, { kind: 'load', ids: [1], carrier: 2 }],
+      [{ kind: 'unload', ids: [1], pad }, { kind: 'unload', ids: [1] }],
+      [{ kind: 'chargeTunnel', ids: [1], tunnel: 0, pad }, { kind: 'chargeTunnel', ids: [1], tunnel: 0 }],
+      [{ kind: 'reveal', side: 0, x: 1, y: 2, pad }, { kind: 'reveal', side: 0, x: 1, y: 2 }],
+      [{ kind: 'callStrike', caller: 3, x: 1, y: 2, pad }, { kind: 'callStrike', caller: 3, x: 1, y: 2 }],
+      [{ kind: 'smoke', ids: [1], x: 1, y: 2, pad }, { kind: 'smoke', ids: [1], x: 1, y: 2 }],
+    ];
+    for (const [sent, kept] of cases) {
+      const parsed = parseClientMsg(JSON.stringify({ t: 'cmd', seq: 0, cmd: sent }));
+      expect(parsed).toEqual({ t: 'cmd', seq: 0, cmd: kept });
+      expect(JSON.stringify(parsed)).not.toContain('AAAA');
+    }
+  });
+  it('#559 F2: dedupes ids, keeps their first order, and refuses more than MAX_CMD_IDS distinct ids', () => {
+    expect(parseClientMsg(JSON.stringify({ t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [3, 1, 3, 3, 1, 2] } })))
+      .toEqual({ t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [3, 1, 2] } });
+    const ids = (n: number) => Array.from({ length: n }, (_, i) => i);
+    expect(parseClientMsg(JSON.stringify({ t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: ids(MAX_CMD_IDS) } }))).not.toBeNull();
+    expect(parseClientMsg(JSON.stringify({ t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: ids(MAX_CMD_IDS + 1) } }))).toBeNull();
+    // Duplicates do not count against the cap: what is kept is what is bounded.
+    expect(parseClientMsg(JSON.stringify({ t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [...ids(MAX_CMD_IDS), 0, 1, 2] } }))).not.toBeNull();
   });
   it('checks attack-move sweep as a boolean when present', () => {
     const ok = { kind: 'attackMove', ids: [1], x: 0, y: 0, sweep: true };
     expect(parseClientMsg(JSON.stringify({ t: 'cmd', seq: 0, cmd: ok }))).toEqual({ t: 'cmd', seq: 0, cmd: ok });
     const bad = { kind: 'attackMove', ids: [1], x: 0, y: 0, sweep: 'yes' };
     expect(parseClientMsg(JSON.stringify({ t: 'cmd', seq: 0, cmd: bad }))).toBeNull();
+  });
+});
+
+describe('parseServerMsg: a log in parts (#559 H-1)', () => {
+  it('keeps part and parts when both are sane, and refuses a part outside its count', () => {
+    expect(parseServerMsg(JSON.stringify({ t: 'log', config: CFG, frames: [], part: 1, parts: 3 }))).toEqual({ t: 'log', config: CFG, frames: [], part: 1, parts: 3 });
+    expect(parseServerMsg(JSON.stringify({ t: 'log', config: CFG, frames: [], part: 3, parts: 3 }))).toBeNull();
+    expect(parseServerMsg(JSON.stringify({ t: 'log', config: CFG, frames: [], part: 0 }))).toBeNull();
   });
 });
 

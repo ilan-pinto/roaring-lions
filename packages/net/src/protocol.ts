@@ -8,7 +8,12 @@ import { validateConfig, type MatchConfig, type Seat } from './config';
 import type { Frame, Stamped } from './frames';
 
 export const MAX_MESSAGE_BYTES = 4096;
-export const MAX_CMDS_PER_SEAT_PER_FRAME = 32;
+/** The most characters of frames one `log` message carries (#559 H-1): a long
+ *  match's log goes in parts, never as one message megabytes long. */
+export const LOG_PART_CHARS = 256 * 1024;
+/** How many of one seat's commands a frame carries (#559 F2: was 32); the
+ *  room holds the rest for the frames after (`room-core.ts`). */
+export const MAX_CMDS_PER_SEAT_PER_FRAME = 4;
 /** A chat line, in UTF-16 code units (what `String.length` counts). */
 export const CHAT_MAX_CHARS = 280;
 /** How long one pause lasts before the room ends it by itself. */
@@ -56,7 +61,11 @@ export type ServerMsg =
   | { t: 'resume' }
   | { t: 'hashOk'; tick: number }
   | { t: 'desync'; tick: number; hashes: [number, number] }
-  | { t: 'log'; config: MatchConfig; frames: Frame[] }
+  /** A rejoin's log, in `parts` messages of at most `LOG_PART_CHARS` (#559
+   *  H-1): `part` counts from 0. Each part carries the config and a run of
+   *  frames that continues the last; a client is live again after the last
+   *  part. Absent `part`/`parts` is a whole log in one message (pre-#559). */
+  | { t: 'log'; config: MatchConfig; frames: Frame[]; part?: number; parts?: number }
   | { t: 'paused'; seat: Seat; remainingMs: number; pausesLeft: [number, number] }
   /** The room dropped this seat's `cmd` because a pause is in force (L-2). Sent
    *  per refused cmd, to that seat only; it carries nothing the seat does not
@@ -69,50 +78,76 @@ export type ServerMsg =
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
 const isStr = (v: unknown): v is string => typeof v === 'string';
 const isSeat = (v: unknown): v is Seat => v === 0 || v === 1;
-const isIntArray = (v: unknown): v is number[] => Array.isArray(v) && v.every(isInt);
+/** The most distinct unit ids one command may name (#559 F2). A seat fields a
+ *  few dozen units in versus; this bounds what one message can make both
+ *  sims chew on, and what the room stores, far above any real selection. */
+export const MAX_CMD_IDS = 256;
 
-/** The fields `move` and `attackMove` share. `sweep` is attack-move's alone. */
-const isMoveShape = (c: Record<string, unknown>): boolean =>
-  isIntArray(c.ids) && isInt(c.x) && isInt(c.y) &&
-  (c.append === undefined || typeof c.append === 'boolean') && (c.exact === undefined || typeof c.exact === 'boolean');
+/** `ids`, deduplicated in first-seen order, or null if it is not an array of
+ *  integers or names more than `MAX_CMD_IDS` distinct ids. A repeated id
+ *  orders nothing a single one does not, so dropping repeats changes no
+ *  honest order. */
+function cleanIds(v: unknown): number[] | null {
+  if (!Array.isArray(v) || !v.every(isInt)) return null;
+  const out = [...new Set(v as number[])];
+  return out.length <= MAX_CMD_IDS ? out : null;
+}
+const optBool = (v: unknown): boolean => v === undefined || typeof v === 'boolean';
 
-/** Shape check only: every field the union declares, with the type it
- *  declares. Ownership and existence are the client's job (`ownership.ts`).
- *  The command is returned as parsed, never rebuilt, so a field the union
- *  gains later (an optional flag) passes through without an edit here.
- *  The switch's `never` default makes `tsc` fail when the sim's `Command`
- *  union gains a kind this function does not handle. */
-export function isCommand(v: unknown): v is Command {
-  if (typeof v !== 'object' || v === null) return false;
+/**
+ * A wire command REBUILT from the fields its kind declares, each with the
+ * type it declares, or null (#559 H-1). Nothing a client adds rides through:
+ * before this the parsed object was returned as it came, so an unknown field
+ * (a 4 KB `pad`) was stamped into every frame, persisted in the room's log and
+ * sent to both seats. A field the union gains later must be added here, or
+ * the room drops it -- loudly, since the order then fails to do what it says.
+ * Ownership and existence are the client's job (`ownership.ts`). The switch's
+ * `never` default makes `tsc` fail when the sim's `Command` union gains a kind
+ * this function does not handle.
+ */
+export function cleanCommand(v: unknown): Command | null {
+  if (typeof v !== 'object' || v === null) return null;
   const c = v as Record<string, unknown>;
-  if (!isStr(c.kind) || !(COMMAND_KINDS as readonly string[]).includes(c.kind)) return false;
+  if (!isStr(c.kind) || !(COMMAND_KINDS as readonly string[]).includes(c.kind)) return null;
   const kind = c.kind as Command['kind'];
+  const ids = c.ids === undefined ? null : cleanIds(c.ids);
   switch (kind) {
     case 'move':
-      return isMoveShape(c);
-    case 'attackMove':
-      return isMoveShape(c) && (c.sweep === undefined || typeof c.sweep === 'boolean');
+    case 'attackMove': {
+      if (ids === null || !isInt(c.x) || !isInt(c.y) || !optBool(c.append) || !optBool(c.exact)) return null;
+      if (kind === 'attackMove' && !optBool(c.sweep)) return null;
+      const out: Record<string, unknown> = { kind, ids, x: c.x, y: c.y };
+      if (c.append !== undefined) out.append = c.append;
+      if (c.exact !== undefined) out.exact = c.exact;
+      if (kind === 'attackMove' && c.sweep !== undefined) out.sweep = c.sweep;
+      return out as Command;
+    }
     case 'halt':
     case 'unload':
-      return isIntArray(c.ids);
+      return ids === null ? null : { kind, ids };
     case 'garrison':
     case 'demolish':
-      return isIntArray(c.ids) && isInt(c.structure);
+      return ids === null || !isInt(c.structure) ? null : { kind, ids, structure: c.structure };
     case 'load':
-      return isIntArray(c.ids) && isInt(c.carrier);
+      return ids === null || !isInt(c.carrier) ? null : { kind, ids, carrier: c.carrier };
     case 'chargeTunnel':
-      return isIntArray(c.ids) && isInt(c.tunnel);
+      return ids === null || !isInt(c.tunnel) ? null : { kind, ids, tunnel: c.tunnel };
     case 'reveal':
-      return isInt(c.side) && isInt(c.x) && isInt(c.y);
+      return isInt(c.side) && isInt(c.x) && isInt(c.y) ? { kind, side: c.side, x: c.x, y: c.y } : null;
     case 'callStrike':
-      return isInt(c.caller) && isInt(c.x) && isInt(c.y);
+      return isInt(c.caller) && isInt(c.x) && isInt(c.y) ? { kind, caller: c.caller, x: c.x, y: c.y } : null;
     case 'smoke':
-      return isIntArray(c.ids) && isInt(c.x) && isInt(c.y);
+      return ids === null || !isInt(c.x) || !isInt(c.y) ? null : { kind, ids, x: c.x, y: c.y };
     default: {
       const unreachable: never = kind;
       return unreachable;
     }
   }
+}
+
+/** Shape check only, by the same rules as `cleanCommand`. */
+export function isCommand(v: unknown): v is Command {
+  return cleanCommand(v) !== null;
 }
 
 export function isStamped(v: unknown): v is Stamped {
@@ -137,7 +172,10 @@ export function parseClientMsg(raw: string): ClientMsg | null {
   switch (m.t) {
     case 'hello': return isStr(m.ticket) && isStr(m.build) ? { t: 'hello', ticket: m.ticket, build: m.build } : null;
     case 'ready': return { t: 'ready' };
-    case 'cmd': return isInt(m.seq) && isCommand(m.cmd) ? { t: 'cmd', seq: m.seq, cmd: m.cmd } : null;
+    case 'cmd': {
+      const cmd = isInt(m.seq) ? cleanCommand(m.cmd) : null;
+      return cmd !== null && isInt(m.seq) ? { t: 'cmd', seq: m.seq, cmd } : null;
+    }
     case 'ack': return isInt(m.tick) ? { t: 'ack', tick: m.tick } : null;
     case 'hash': return isInt(m.tick) && isInt(m.h) ? { t: 'hash', tick: m.tick, h: m.h } : null;
     case 'bye': return { t: 'bye' };
@@ -162,9 +200,10 @@ function isSeatState(v: unknown): v is SeatState {
   return isSeat(s.seat) && isStr(s.callsign) && typeof s.connected === 'boolean' && typeof s.ready === 'boolean';
 }
 
-/** `log` and `lobby` are the two messages that can exceed the client cap
- *  (a 20-minute log is ~24,000 frames), so the size cap applies to CLIENT
- *  messages only; a server message is trusted to come from the room. */
+/** `log` and `lobby` are the two messages that can exceed the client cap (a
+ *  20-minute log is ~24,000 frames, sent in parts of `LOG_PART_CHARS`), so
+ *  the size cap applies to CLIENT messages only; a server message is trusted
+ *  to come from the room. */
 export function parseServerMsg(raw: string): ServerMsg | null {
   let m: Record<string, unknown>;
   try {
@@ -189,7 +228,13 @@ export function parseServerMsg(raw: string): ServerMsg | null {
     case 'hashOk': return isInt(m.tick) ? { t: 'hashOk', tick: m.tick } : null;
     case 'desync': return isInt(m.tick) && Array.isArray(m.hashes) && m.hashes.length === 2 && m.hashes.every(isInt)
       ? { t: 'desync', tick: m.tick, hashes: [m.hashes[0], m.hashes[1]] } : null;
-    case 'log': { const c = validateConfig(m.config); return c && Array.isArray(m.frames) && m.frames.every(isFrame) ? { t: 'log', config: c, frames: m.frames } : null; }
+    case 'log': {
+      const c = validateConfig(m.config);
+      if (!c || !Array.isArray(m.frames) || !m.frames.every(isFrame)) return null;
+      if (m.part === undefined && m.parts === undefined) return { t: 'log', config: c, frames: m.frames };
+      return isInt(m.part) && isInt(m.parts) && m.part >= 0 && m.part < m.parts
+        ? { t: 'log', config: c, frames: m.frames, part: m.part, parts: m.parts } : null;
+    }
     case 'paused': return isSeat(m.seat) && isInt(m.remainingMs) && Array.isArray(m.pausesLeft) && m.pausesLeft.length === 2 && m.pausesLeft.every(isInt)
       ? { t: 'paused', seat: m.seat, remainingMs: m.remainingMs, pausesLeft: [m.pausesLeft[0], m.pausesLeft[1]] } : null;
     case 'cmdRefused': return { t: 'cmdRefused' };

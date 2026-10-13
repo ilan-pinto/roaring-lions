@@ -9,11 +9,14 @@ import { OVER_CLOSE_MS, validateConfig, type ServerMsg, type Seat } from '@lions
 import type { D1Like, Env } from '../d1';
 import { openTestD1 } from '../test-d1';
 import { FakeState, deliverAlarm, deliverClose, deliverError, openSocket, type FakeSocket } from './fake-do';
-import { BATCH_TICKS, MatchRoom, TICK_MS, WATCHDOG_MS } from './match-room';
+import { BATCH_TICKS, HELLO_TIMEOUT_MS, MAX_ROOM_SOCKETS, MatchRoom, PURGE_AFTER_MS, SOCKET_BUDGET, TICK_MS, WATCHDOG_MS } from './match-room';
+import { ROOM_TTL_MS } from './room-core';
 import type { RoomState } from './room-core';
 import { signTicket } from './ticket';
 
 const NOW = 1_790_000_000_000;
+/** Where a room created at NOW keeps its alarm while nothing else wants one (#559 H-1). */
+const TTL_AT = NOW + ROOM_TTL_MS + 1;
 const SECRET = 'room-test-secret';
 const CODE = 'ABCDEF';
 const BUILD = 'b1';
@@ -91,14 +94,82 @@ describe('MatchRoom', () => {
     expect(last(ws1)).toEqual({ t: 'lobby', config: null, seats, you: 1, map: 'tel_marum' });
   });
 
-  it('answers a malformed message with one bad_message and carries on', async () => {
+  it('answers a seated socket\'s malformed message with one bad_message and carries on', async () => {
     const { room } = await created();
-    const ws = openSocket(room);
+    const ws = await hello(room, 0);
     await say(room, ws, '{not json');
-    expect(msgs(ws)).toEqual([{ t: 'error', code: 'bad_message' }]);
+    expect(last(ws)).toEqual({ t: 'error', code: 'bad_message' });
     expect(ws.closed).toBeNull();
-    await say(room, ws, { t: 'hello', ticket: await ticket(0), build: BUILD });
+    await say(room, ws, { t: 'ready' });
     expect(last(ws)?.t).toBe('lobby');
+  });
+
+  describe('#559 M-1: socket limits', () => {
+    it('a socket with no seat whose first message is garbage is told once and closed', async () => {
+      const { room } = await created();
+      const ws = openSocket(room);
+      await say(room, ws, '{not json');
+      expect(msgs(ws)).toEqual([{ t: 'error', code: 'bad_message' }]);
+      expect(ws.closed).toEqual({ code: 1008, reason: 'bad message' });
+    });
+
+    it('a socket with no hello after 10 s is closed by the next thing that wakes the room; a quicker one is seated', async () => {
+      const { room } = await created();
+      const lurker = openSocket(room);
+      vi.setSystemTime(Date.now() + HELLO_TIMEOUT_MS - 1);
+      const quick = openSocket(room);
+      expect(lurker.closed).toBeNull();
+      vi.setSystemTime(Date.now() + 1);
+      await say(room, quick, { t: 'hello', ticket: await ticket(0), build: BUILD });
+      expect(lurker.closed).toEqual({ code: 1008, reason: 'no hello' });
+      expect(quick.closed).toBeNull();
+      expect(last(quick)?.t).toBe('lobby');
+    });
+
+    it('a running clock sweeps them too', async () => {
+      const { room } = await running();
+      const lurker = openSocket(room);
+      await vi.advanceTimersByTimeAsync(HELLO_TIMEOUT_MS + 2000);
+      expect(lurker.closed?.code).toBe(1008);
+    });
+
+    it('a room serves at most 8 live sockets; the ninth is closed at once, and a closed one frees its place', async () => {
+      const { state, room } = await created();
+      const socks = Array.from({ length: MAX_ROOM_SOCKETS }, () => openSocket(room));
+      expect(socks.every((w) => w.closed === null)).toBe(true);
+      const ninth = openSocket(room);
+      expect(ninth.closed).toEqual({ code: 1008, reason: 'too many sockets' });
+      await deliverClose(room, socks[0]);
+      expect(openSocket(room).closed).toBeNull();
+      expect(state.getWebSockets().length).toBeLessThanOrEqual(MAX_ROOM_SOCKETS + 1);
+    });
+
+    it('a seat flooding the room is closed with 1008 once its budget runs out', async () => {
+      const { room, ws0 } = await running();   // its hello and ready spent two
+      for (let i = 0; i < SOCKET_BUDGET.burst - 2; i++) await say(room, ws0, { t: 'chat', text: 'x' });
+      expect(ws0.closed).toBeNull();
+      await say(room, ws0, { t: 'chat', text: 'x' });
+      expect(ws0.closed).toEqual({ code: 1008, reason: 'rate' });
+    });
+
+    it('a rejoining seat replaying its log may ack and hash every minted tick at once: advancing acks and hashes are free', async () => {
+      const { room, ws0, ws1 } = await running();
+      for (let tick = 9; tick < 4000; tick += 10) {
+        await vi.advanceTimersByTimeAsync(10 * TICK_MS);
+        await say(room, ws0, { t: 'ack', tick });
+        await say(room, ws1, { t: 'ack', tick });
+      }
+      const again = await hello(room, 1);
+      for (let tick = 9; tick < 4000; tick += 10) {
+        await say(room, again, { t: 'ack', tick });
+        if (tick % 20 === 19) await say(room, again, { t: 'hash', tick, h: 7 });
+      }
+      expect(again.closed).toBeNull();
+      // ...but the same ack over and over is not progress, and is charged.
+      for (let i = 0; i <= SOCKET_BUDGET.burst; i++) await say(room, again, { t: 'ack', tick: 9 });
+      expect(again.closed?.code).toBe(1008);
+      expect(ws1.closed?.code).toBe(4000);   // the replaced socket
+    });
   });
 
   it('closes a socket whose first message is not a hello', async () => {
@@ -388,11 +459,11 @@ describe('MatchRoom', () => {
     expect(log.frames.slice(0, sent.length)).toEqual(sent);   // the re-minted 23..25 equal the originals
   });
 
-  it('the watchdog alarm is armed only while the match runs, re-arms itself, and a bye deletes it (R38)', async () => {
+  it('the watchdog alarm runs only while the match runs, re-arms itself, and a bye aims it at the wipe (R38, #559 H-1)', async () => {
     const { state, room } = await created();
     const ws0 = await hello(room, 0);
     const ws1 = await hello(room, 1);
-    expect(state.storage.alarmAt).toBeNull();   // a lobby keeps nothing awake
+    expect(state.storage.alarmAt).toBe(TTL_AT);   // a lobby keeps only its TTL
     await say(room, ws0, { t: 'ready' });
     await say(room, ws1, { t: 'ready' });
     expect(state.storage.alarmAt).toBe(Date.now() + WATCHDOG_MS);
@@ -400,7 +471,7 @@ describe('MatchRoom', () => {
     await deliverAlarm(room, state.storage);
     expect(state.storage.alarmAt).toBe(Date.now() + WATCHDOG_MS);
     await say(room, ws0, { t: 'bye' });
-    expect(state.storage.alarmAt).toBeNull();
+    expect(state.storage.alarmAt).toBe(Date.now() + PURGE_AFTER_MS);
   });
 
   it('after an eviction the alarm alone restarts the clock from the last persisted batch, and re-arms (R38)', async () => {
@@ -417,18 +488,18 @@ describe('MatchRoom', () => {
     expect(ofType(ws1, 'frame').slice(sent).map((f) => f.tick)).toEqual([BATCH_TICKS, BATCH_TICKS + 1]);
   });
 
-  it('an abandoned match (both sockets closed, no bye) runs no clock and arms no alarm; a hello brings both back', async () => {
+  it('an abandoned match (both sockets closed, no bye) runs no clock and keeps only its TTL alarm; a hello brings the watchdog back', async () => {
     const { state, room, ws0, ws1 } = await running();
     await vi.advanceTimersByTimeAsync(3 * TICK_MS);
     await deliverClose(room, ws0, 1006, 'abnormal');
     await deliverClose(room, ws1, 1006, 'abnormal');
     expect((await persisted(state)).seats.map((s) => s?.connected)).toEqual([false, false]);
-    expect(state.storage.alarmAt).toBeNull();
+    expect(state.storage.alarmAt).toBe(TTL_AT);
     expect(vi.getTimerCount()).toBe(0);
     evict();
     const revived = new MatchRoom(state, env);
     await deliverAlarm(revived, state.storage);
-    expect(state.storage.alarmAt).toBeNull();   // nothing re-arms: the room may sleep
+    expect(state.storage.alarmAt).toBe(TTL_AT);   // no watchdog: the room may sleep until its TTL
     expect(vi.getTimerCount()).toBe(0);
     const back = await hello(revived, 0);
     expect(state.storage.alarmAt).toBe(Date.now() + WATCHDOG_MS);
@@ -444,11 +515,11 @@ describe('MatchRoom', () => {
     await deliverClose(revived, ws0, 1006, 'abnormal');
     await deliverClose(revived, ws1, 1006, 'abnormal');
     await deliverAlarm(revived, state.storage);
-    expect(state.storage.alarmAt).toBeNull();
+    expect(state.storage.alarmAt).toBe(TTL_AT);
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('after a deploy drops every socket (no close delivered), the revived room marks both seats gone, writes once, and its alarm wakes nothing', async () => {
+  it('after a deploy drops every socket (no close delivered), the revived room marks both seats gone, writes the state and its TTL alarm, and wakes nothing', async () => {
     const { state, ws0, ws1 } = await running();
     await vi.advanceTimersByTimeAsync(3 * TICK_MS);
     expect(state.storage.alarmAt).not.toBeNull();
@@ -458,8 +529,8 @@ describe('MatchRoom', () => {
     const before = state.storage.rowsWritten;
     await deliverAlarm(revived, state.storage);
     expect((await persisted(state)).seats.map((s) => s?.connected)).toEqual([false, false]);
-    expect(state.storage.rowsWritten - before).toBe(1);   // the one state write that records both seats gone
-    expect(state.storage.alarmAt).toBeNull();
+    expect(state.storage.rowsWritten - before).toBe(2);   // the state write that records both seats gone, and the TTL alarm
+    expect(state.storage.alarmAt).toBe(TTL_AT);
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -475,7 +546,7 @@ describe('MatchRoom', () => {
     expect(state.storage.alarmAt).toBe(Date.now() + WATCHDOG_MS);   // seat 0 is still there: the room serves it
   });
 
-  it('a match that ends in a revived instance (no clock of its own) deletes the alarm the old instance armed', async () => {
+  it('a match that ends in a revived instance (no clock of its own) re-aims the old instance\'s alarm at the wipe', async () => {
     const { state, ws0 } = await running();
     expect(state.storage.alarmAt).not.toBeNull();
     evict();
@@ -483,7 +554,7 @@ describe('MatchRoom', () => {
     vi.setSystemTime(Date.now() + 6 * 3600 * 1000 + 1);
     await say(revived, ws0, { t: 'ready' });   // any handler: the TTL ends the room
     expect((await persisted(state)).status).toBe('ended');
-    expect(state.storage.alarmAt).toBeNull();
+    expect(state.storage.alarmAt).toBe(Date.now() + PURGE_AFTER_MS);
   });
 
   it('a refused setAlarm is logged, never an unhandled rejection, and the match runs on', async () => {
@@ -503,6 +574,105 @@ describe('MatchRoom', () => {
     }
   });
 
+  it('#559 H-1/F2: a seat stuffing every command (a 4 KB pad, 32 a frame) leaves a few KB in storage, not megabytes', async () => {
+    const { state, room, ws0, ws1 } = await running();
+    const padded = (seq: number): string => {
+      const base = { t: 'cmd', seq, cmd: { kind: 'halt', ids: [0], pad: '' } };
+      base.cmd.pad = 'A'.repeat(4096 - JSON.stringify(base).length);
+      return JSON.stringify(base);
+    };
+    let seq = 0;
+    for (let tick = 0; tick < 20; tick++) {
+      for (let i = 0; i < 32; i++) { await say(room, ws0, padded(seq)); await say(room, ws1, padded(seq)); seq++; }
+      await vi.advanceTimersByTimeAsync(TICK_MS);
+    }
+    const bytes = [...state.storage.batches.values()].reduce((a, t) => a + t.length, 0);
+    expect(bytes).toBeLessThan(16 * 1024);   // was 5.2 MiB for the same second of play
+    expect([...state.storage.batches.values()].join('')).not.toContain('AAAA');
+  });
+
+  it('#559 H-1: a revived room counts the commands its log already holds against the cap', async () => {
+    const { state, room, ws0 } = await running();
+    await say(room, ws0, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [1, 2, 3] } });
+    await vi.advanceTimersByTimeAsync(2 * TICK_MS);
+    evict();
+    const revived = new MatchRoom(state, env);
+    await revived.fetch(new Request('https://room/state'));
+    const st = (revived as unknown as { st: RoomState }).st;
+    expect(st.cmdChars).toBe(JSON.stringify({ kind: 'halt', ids: [1, 2, 3] }).length);
+  });
+
+  describe('#559 H-1: storage exists only between /create and the wipe', () => {
+    it('a probe of a code with no room -- /state, /join, a hello, a close, an alarm -- touches no storage at all', async () => {
+      const state = new FakeState();
+      const room = new MatchRoom(state, env);
+      expect((await room.fetch(new Request('https://room/state'))).status).toBe(404);
+      expect((await room.fetch(new Request('https://room/join', { method: 'POST', body: '{}' }))).status).toBe(404);
+      const ws = await hello(room, 0);
+      expect(msgs(ws)).toEqual([{ t: 'ended', reason: 'expired' }]);   // told, so a client stops reconnecting
+      expect(ws.closed?.code).toBe(4004);
+      await deliverClose(room, openSocket(room));
+      await deliverAlarm(room, state.storage);
+      expect(state.storage.hasTable).toBe(false);
+      expect(state.storage.kv.size).toBe(0);
+      expect(state.storage.rowsWritten).toBe(0);
+      expect(state.storage.alarmAt).toBeNull();
+    });
+
+    it('/create makes the table and arms the TTL alarm', async () => {
+      const { state } = await created();
+      expect(state.storage.hasTable).toBe(true);
+      expect(state.storage.alarmAt).toBe(TTL_AT);
+    });
+
+    it('a lobby nobody comes back to is ended at its TTL by the alarm alone, and wiped two minutes later', async () => {
+      const { state } = await created();
+      evict();
+      vi.setSystemTime(TTL_AT);
+      await deliverAlarm(new MatchRoom(state, env), state.storage);
+      expect((await persisted(state))).toMatchObject({ status: 'ended', endedReason: 'expired', endedAtMs: TTL_AT });
+      expect(state.storage.alarmAt).toBe(TTL_AT + PURGE_AFTER_MS);
+      evict();
+      vi.setSystemTime(TTL_AT + PURGE_AFTER_MS);
+      await deliverAlarm(new MatchRoom(state, env), state.storage);
+      expect(state.storage.kv.size + state.storage.batches.size).toBe(0);
+      expect(state.storage.hasTable).toBe(false);
+      expect(state.storage.alarmAt).toBeNull();
+    });
+
+    it('a match that ends by a bye is wiped two minutes later, frames and all; until then a late hello is told', async () => {
+      const { state, room, ws0, ws1 } = await running();
+      await say(room, ws0, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [1] } });
+      await vi.advanceTimersByTimeAsync(30 * TICK_MS);
+      await say(room, ws1, { t: 'bye' });
+      expect(state.storage.batches.size).toBeGreaterThan(0);
+      const endedAt = Date.now();
+      vi.setSystemTime(endedAt + PURGE_AFTER_MS - 1);
+      const late = await hello(room, 0);
+      expect(last(late)).toEqual({ t: 'ended', reason: 'left' });
+      vi.setSystemTime(endedAt + PURGE_AFTER_MS);
+      await deliverAlarm(room, state.storage);
+      expect(state.storage.kv.size + state.storage.batches.size).toBe(0);
+      expect(state.storage.hasTable).toBe(false);
+      // The code can be minted again: a fresh /create makes a fresh room.
+      const again = await room.fetch(new Request('https://room/create', { method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, build: BUILD, player: 'p' }) }));
+      expect(again.status).toBe(200);
+      expect((await persisted(state)).status).toBe('lobby');
+    });
+
+    it('a desync writes its D1 row before the wipe, and the wipe keeps it', async () => {
+      const db = openTestD1();
+      const { state, room, ws0, ws1 } = await running({ db });
+      await vi.advanceTimersByTimeAsync(25 * TICK_MS);
+      await say(room, ws0, { t: 'hash', tick: 19, h: 1 });
+      await say(room, ws1, { t: 'hash', tick: 19, h: 2 });
+      vi.setSystemTime(Date.now() + PURGE_AFTER_MS);
+      await deliverAlarm(room, state.storage);
+      expect(state.storage.wipes).toBe(1);
+      expect((db.raw.prepare('SELECT COUNT(*) AS n FROM match_desync').get() as { n: number }).n).toBe(1);
+    });
+  });
+
   it('a command frame is in storage before it is broadcast (R36: write, then send)', async () => {
     const { state, room, ws0, ws1 } = await running();
     const seen: [number, boolean][] = [];
@@ -519,17 +689,18 @@ describe('MatchRoom', () => {
     expect(seen).toEqual([[2, true]]);
   });
 
-  it('an alarm that reaches a lobby, an ended room or an expired one neither re-arms nor starts a clock', async () => {
+  it('an alarm that reaches a lobby, an ended room or an expired one starts no clock, and aims at the TTL or the wipe', async () => {
     const { state, room } = await created();
     const ws0 = await hello(room, 0);
     await deliverAlarm(room, state.storage);
-    expect(state.storage.alarmAt).toBeNull();
+    expect(state.storage.alarmAt).toBe(TTL_AT);
     const ended = await running();
     await say(ended.room, ended.ws0, { t: 'bye' });
     const heard = ofType(ended.ws1, 'frame').length;
+    const endedAt = Date.now();
     await deliverAlarm(ended.room, ended.state.storage);
     await vi.advanceTimersByTimeAsync(4 * TICK_MS);
-    expect(ended.state.storage.alarmAt).toBeNull();
+    expect(ended.state.storage.alarmAt).toBe(endedAt + PURGE_AFTER_MS);
     expect(ofType(ended.ws1, 'frame')).toHaveLength(heard);
     // A running room whose instance was evicted, reached by its alarm after the TTL.
     const old = await running();
@@ -538,7 +709,7 @@ describe('MatchRoom', () => {
     vi.setSystemTime(Date.now() + 6 * 3600 * 1000 + 1);
     await deliverAlarm(revived, old.state.storage);
     expect(last(old.ws0)).toEqual({ t: 'ended', reason: 'expired' });
-    expect(old.state.storage.alarmAt).toBeNull();
+    expect(old.state.storage.alarmAt).toBe(Date.now() + PURGE_AFTER_MS);
     expect(ofType(ws0, 'frame')).toEqual([]);
   });
 
@@ -612,6 +783,14 @@ describe('MatchRoom', () => {
     // An error event closes too (it runs the same path).
     await room.webSocketError(ws0.asSocket() as WebSocket);
     expect(ws0.closed).toEqual({ code: 1000, reason: 'closed' });
+  });
+
+  it('#559 F5: /create refuses a map the game does not ship, and stores nothing', async () => {
+    const state = new FakeState();
+    const room = new MatchRoom(state, env);
+    const res = await room.fetch(new Request('https://room/create', { method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, build: BUILD, player: 'p', map: '__proto__' }) }));
+    expect(res.status).toBe(400);
+    expect(state.storage.rowsWritten).toBe(0);
   });
 
   it('/create refuses an empty build, so the hello build check can never be off', async () => {
@@ -719,21 +898,22 @@ describe('MatchRoom', () => {
     it('two different hashes for one tick write exactly one match_desync row naming it', async () => {
       const db = openTestD1();
       const { room, ws0, ws1 } = await running({ db });
+      await vi.advanceTimersByTimeAsync(20 * TICK_MS);   // tick 19 minted: a hash may name it (#559 M-2)
       await say(room, ws0, { t: 'hash', tick: 19, h: 111 });
       await say(room, ws1, { t: 'hash', tick: 19, h: 222 });
       const rows = db.raw.prepare('SELECT code, tick, hash_a, hash_b, config, frames, frame_count FROM match_desync').all() as { code: string; tick: number; hash_a: number; hash_b: number; config: string; frames: string; frame_count: number }[];
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({ code: CODE, tick: 19, hash_a: 111, hash_b: 222 });
       expect((JSON.parse(rows[0].config) as { code: string }).code).toBe(CODE);
-      expect(JSON.parse(rows[0].frames)).toEqual({ last: -1, orders: [] });
-      expect(rows[0].frame_count).toBe(0);
+      expect(JSON.parse(rows[0].frames)).toEqual({ last: 19, orders: [] });
+      expect(rows[0].frame_count).toBe(20);
     });
 
     it('the row carries the order-bearing frames that came before the desync', async () => {
       const db = openTestD1();
       const { room, ws0, ws1 } = await running({ db });
       await say(room, ws0, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [3] } });
-      await vi.advanceTimersByTimeAsync(3 * TICK_MS);
+      await vi.advanceTimersByTimeAsync(20 * TICK_MS);
       await say(room, ws0, { t: 'hash', tick: 19, h: 1 });
       await say(room, ws1, { t: 'hash', tick: 19, h: 2 });
       const r = db.raw.prepare('SELECT frames, frame_count FROM match_desync').get() as { frames: string; frame_count: number };
@@ -759,6 +939,7 @@ describe('MatchRoom', () => {
         },
       };
       const { room, ws0, ws1 } = await running({ db: slow });
+      await vi.advanceTimersByTimeAsync(20 * TICK_MS);
       await say(room, ws0, { t: 'hash', tick: 19, h: 1 });
       let done = false;
       const second = say(room, ws1, { t: 'hash', tick: 19, h: 2 }).then(() => { done = true; });
@@ -770,9 +951,22 @@ describe('MatchRoom', () => {
       expect(db.raw.prepare('SELECT COUNT(*) AS n FROM match_desync').get()).toEqual({ n: 1 });
     });
 
+    it('#559 M-2/L-2: a forged pair for a far-future tick voids nothing and writes no row', async () => {
+      const db = openTestD1();
+      const { state, room, ws0, ws1 } = await running({ db });
+      await vi.advanceTimersByTimeAsync(20 * TICK_MS);
+      await say(room, ws0, { t: 'hash', tick: 999_999, h: 1 });
+      await say(room, ws1, { t: 'hash', tick: 999_999, h: 2 });
+      await settle();
+      expect(ofType(ws0, 'desync')).toEqual([]);
+      expect((await persisted(state)).status).toBe('running');
+      expect(db.raw.prepare('SELECT COUNT(*) AS n FROM match_desync').get()).toEqual({ n: 0 });
+    });
+
     it('equal hashes write nothing', async () => {
       const db = openTestD1();
       const { room, ws0, ws1 } = await running({ db });
+      await vi.advanceTimersByTimeAsync(20 * TICK_MS);
       await say(room, ws0, { t: 'hash', tick: 19, h: 5 });
       await say(room, ws1, { t: 'hash', tick: 19, h: 5 });
       await settle();
@@ -784,6 +978,7 @@ describe('MatchRoom', () => {
       const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
       const broken: D1Like = { ...db, prepare: () => { throw new Error('d1 down'); } };
       const { room, ws0, ws1 } = await running({ db: broken });
+      await vi.advanceTimersByTimeAsync(20 * TICK_MS);
       await say(room, ws0, { t: 'hash', tick: 19, h: 1 });
       await say(room, ws1, { t: 'hash', tick: 19, h: 2 });
       await settle();
@@ -807,7 +1002,7 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
     return Date.now() + OVER_CLOSE_MS;
   }
 
-  it('closes at +120 s to the tick: ended over to both, both sockets shut normally, then no clock, no alarm and no row', async () => {
+  it('closes at +120 s to the tick: ended over to both, both sockets shut normally, then no clock, one alarm at the wipe, and the wipe (#559 H-1)', async () => {
     const { state, room, ws0, ws1 } = await running();
     await vi.advanceTimersByTimeAsync(10 * TICK_MS);
     const closeAt = await bothOver(room, ws0, ws1);
@@ -821,37 +1016,65 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
       expect(last(ws)).toEqual({ t: 'ended', reason: 'over' });
       expect(ws.closed).toEqual({ code: 1000, reason: 'ended' });
     }
-    expect((await persisted(state))).toMatchObject({ status: 'ended', endedReason: 'over' });
-    expect(state.storage.alarmAt).toBeNull();
+    expect((await persisted(state))).toMatchObject({ status: 'ended', endedReason: 'over', endedAtMs: closeAt });
+    expect(state.storage.alarmAt).toBe(closeAt + PURGE_AFTER_MS);
     expect(vi.getTimerCount()).toBe(0);
-    // After the close: the runtime delivers both closes, a stray alarm and a late message arrive. Nothing is written.
+    // After the close: the runtime delivers both closes, a stray early alarm and a late hello arrive.
+    // The early alarm only re-aims at the wipe (one row); nothing else is written.
     const rows = state.storage.rowsWritten;
     const sent = [ws0.sent.length, ws1.sent.length];
     await deliverClose(room, ws0);
     await deliverClose(room, ws1);
     await deliverAlarm(room, state.storage);
-    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
-    expect(state.storage.rowsWritten - rows).toBe(0);
+    await vi.advanceTimersByTimeAsync(60 * 1000);
+    expect(state.storage.rowsWritten - rows).toBe(1);
     expect([ws0.sent.length, ws1.sent.length]).toEqual(sent);
-    expect(state.storage.alarmAt).toBeNull();
+    expect(state.storage.alarmAt).toBe(closeAt + PURGE_AFTER_MS);
     expect(vi.getTimerCount()).toBe(0);
     const late = await hello(room, 1);
-    expect(last(late)).toEqual({ t: 'ended', reason: 'over' });   // a seat that missed it is told
-    expect(state.storage.rowsWritten - rows).toBe(0);
+    expect(last(late)).toEqual({ t: 'ended', reason: 'over' });   // a seat that missed it is told, inside the grace
+    expect(state.storage.rowsWritten - rows).toBe(1);
+    // The wipe: every key and frame row, and the alarm. Then the code is no room at all.
+    vi.setSystemTime(closeAt + PURGE_AFTER_MS);
+    await deliverAlarm(room, state.storage);
+    expect(state.storage.wipes).toBe(1);
+    expect(state.storage.kv.size).toBe(0);
+    expect(state.storage.batches.size).toBe(0);
+    expect(state.storage.hasTable).toBe(false);
+    expect(state.storage.alarmAt).toBeNull();
+    expect(late.closed?.code).toBe(1000);
+    const after = await hello(room, 1);
+    expect(msgs(after)).toEqual([{ t: 'ended', reason: 'expired' }]);
+    expect(after.closed?.code).toBe(4004);
+    expect((await room.fetch(new Request('https://room/state'))).status).toBe(404);
   });
 
-  it('one seat reports while the other is gone: the close fires on time and the rejoined seat hears it', async () => {
+  it('one seat reports while the other is gone: the rejoined seat reports the same result and the close fires two minutes after it (#559 L-1)', async () => {
     const { room, ws0, ws1 } = await running();
     await vi.advanceTimersByTimeAsync((RESULT_TICK + 1) * TICK_MS);
     await deliverClose(room, ws1, 1006, 'abnormal');
     await say(room, ws0, { t: 'over', tick: RESULT_TICK });
-    const closeAt = Date.now() + OVER_CLOSE_MS;
     await vi.advanceTimersByTimeAsync(30_000);
     const back = await hello(room, 1);
     expect(ofType(back, 'log')).toHaveLength(1);
-    await vi.advanceTimersByTimeAsync(closeAt - Date.now());
+    await say(room, back, { t: 'over', tick: RESULT_TICK });   // as WsTransport repeats its report after a log
+    const closeAt = Date.now() + OVER_CLOSE_MS;
+    await vi.advanceTimersByTimeAsync(closeAt - Date.now() - TICK_MS);
+    expect(ofType(ws0, 'ended')).toEqual([]);
+    await vi.advanceTimersByTimeAsync(TICK_MS);
     expect(last(ws0)).toEqual({ t: 'ended', reason: 'over' });
     expect(last(back)).toEqual({ t: 'ended', reason: 'over' });
+  });
+
+  it('#559 L-1: an early over from one seat and a one-second blip of the other end nothing', async () => {
+    const { room, ws0, ws1 } = await running();
+    await vi.advanceTimersByTimeAsync(TICK_MS * 5);
+    await say(room, ws1, { t: 'over', tick: 1 });
+    await deliverClose(room, ws0);
+    const back = await hello(room, 0);
+    await vi.advanceTimersByTimeAsync(121_000);
+    expect(ofType(back, 'ended')).toEqual([]);
+    expect(ofType(ws1, 'ended')).toEqual([]);
   });
 
   it('two different ticks never close the room', async () => {
@@ -873,7 +1096,7 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
     let instance = room;
     const wakes: number[] = [];
     // The isolate dies after every wake: only the storage alarm brings the room back.
-    for (let i = 0; i < 100 && state.storage.alarmAt !== null; i++) {
+    for (let i = 0; i < 100 && state.storage.alarmAt !== null && ofType(ws0, 'ended').length === 0; i++) {
       evict();
       instance = new MatchRoom(state, env);
       vi.setSystemTime(state.storage.alarmAt);
@@ -885,7 +1108,7 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
     expect(last(ws0)).toEqual({ t: 'ended', reason: 'over' });
     expect(last(ws1)).toEqual({ t: 'ended', reason: 'over' });
     expect((await persisted(state)).endedReason).toBe('over');
-    expect(state.storage.alarmAt).toBeNull();
+    expect(state.storage.alarmAt).toBe(closeAt + PURGE_AFTER_MS);   // the wipe, next
     evict();
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -908,8 +1131,8 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
     vi.setSystemTime(closeAt);
     await deliverAlarm(revived, state.storage);
     expect((await persisted(state))).toMatchObject({ status: 'ended', endedReason: 'over' });
-    expect(state.storage.rowsWritten - rows).toBe(1);   // the ended state, and nothing else
-    expect(state.storage.alarmAt).toBeNull();
+    expect(state.storage.rowsWritten - rows).toBe(2);   // the ended state, and the alarm re-aimed at the wipe
+    expect(state.storage.alarmAt).toBe(closeAt + PURGE_AFTER_MS);
     expect(vi.getTimerCount()).toBe(0);
     const late = await hello(revived, 0);
     expect(last(late)).toEqual({ t: 'ended', reason: 'over' });

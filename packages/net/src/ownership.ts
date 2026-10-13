@@ -13,6 +13,11 @@ export interface SeatWorld {
   /** Structure and tunnel ids are `0..count-1` in the sim; anything else names nothing. */
   structureExists(id: number): boolean;
   tunnelExists(id: number): boolean;
+  /** A versus room (`config.mode === 'versus'`). Intel -- `callStrike` and
+   *  `reveal` -- is priced, cooled down and ranged only by the mission
+   *  runtime, and a room runs none, so in versus both kinds are dropped
+   *  (#559 F1): the same answer on both machines, from the shared config. */
+  readonly versus: boolean;
 }
 
 /**
@@ -40,9 +45,9 @@ export function validateCommand(cmd: Command, seat: Seat, world: SeatWorld): boo
     case 'load':
       return cmd.ids.length > 0 && cmd.ids.every(own) && own(cmd.carrier);
     case 'callStrike':
-      return own(cmd.caller) && onMap(cmd.x, cmd.y);
+      return !world.versus && own(cmd.caller) && onMap(cmd.x, cmd.y);
     case 'reveal':
-      return cmd.side === side && onMap(cmd.x, cmd.y);
+      return !world.versus && cmd.side === side && onMap(cmd.x, cmd.y);
   }
 }
 
