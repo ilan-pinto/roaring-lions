@@ -175,6 +175,8 @@ describe('orders wait while the room is paused', () => {
     const dispatch = main.slice(main.indexOf('const dispatch = (intent: PlayerIntent)'), main.indexOf('intentListeners.push((intent) => voice.observe'));
     expect(dispatch).toContain('roomOrderSink(() => room.status(), transport');
     expect(dispatch).toContain("t('net.pause.ordersBlocked')");
+    expect(dispatch).toContain('if (refused)');
+    expect(dispatch).toContain('for (const fn of intentListeners)');
     expect(dispatch.indexOf('if (refused)')).toBeLessThan(dispatch.indexOf('for (const fn of intentListeners)'));
     expect(main).toContain('marker: orderMarker,');
     expect(main).toContain('if (room === null || !ordersWait(room.status())) renderer.addOrderMarker(x, y);');

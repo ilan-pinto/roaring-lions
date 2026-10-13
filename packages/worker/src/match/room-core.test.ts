@@ -419,7 +419,7 @@ describe('orders wait while the match is paused, for both seats (L-2, R-B27)', (
     expect(f.cmds.map((c) => c.cmd)).toEqual([halt(2)]);
   });
 
-  it('a cmd after the resume is accepted, with the seq the seat would have had had nothing been refused', () => {
+  it('a cmd after the resume is accepted, and a refusal takes no seq (the seat\'s stamped seqs stay contiguous)', () => {
     const st = running();
     seatMessage(st, 1, { t: 'cmd', seq: 0, cmd: halt(2) }, 10, mint);
     seatMessage(st, 0, { t: 'pause' }, 1000, mint);
