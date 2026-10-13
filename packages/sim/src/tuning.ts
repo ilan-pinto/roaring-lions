@@ -104,7 +104,9 @@ export const NEAR_MISS_RADIUS_SQ = 94372; // 1.2 tiles squared
  *  their nerve. This is the asymmetry that makes clearing cost 3:1. */
 export const COVER_SUPP = new Int32Array([65536, 31130, 9011, 5898]); // 1, .475, .1375, .09
 /** Suppression multiplier for fire that cannot hurt the target at all —
- *  rifle rounds cracking off an MBT. Noise, not a threat. */
+ *  rifle rounds cracking off an MBT. Noise, not a threat. Applies to a near
+ *  miss and, since 2026-10-13, to a bounce off armour the round could never
+ *  have penetrated. */
 export const HARMLESS_SUPP = 6554; // 0.1
 /** Hits, non-penetrating hits and blasts shake the crew this many times
  *  harder than a near miss. Q16.16 like every multiplier here: it goes through

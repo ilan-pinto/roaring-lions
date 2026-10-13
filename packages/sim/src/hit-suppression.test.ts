@@ -65,6 +65,12 @@ const HULL: UnitTypeJson = {
   hull: { hp: 30000, armor: { front: 300, side: 300, rear: 300 } },
 };
 
+/** A rifle round against MBT armour: it can never penetrate. */
+const MBT_HULL: UnitTypeJson = {
+  ...SOFT,
+  id: 'hs_mbt_hull',
+  hull: { hp: 30000, armor: { front: 700, side: 700, rear: 700 } },
+};
 /** Fire for up to 60 s and return, for every tick on which the shooter fired,
  *  whether the round hit and what each watched unit gained that tick. */
 function gains(
@@ -102,15 +108,24 @@ describe('hits, bounces and splash suppress (GDD 5.5, BOUNCE_SUPP_MULT)', () => 
     for (const h of hits) expect(h.target).toBeCloseTo(DOUBLED, 3);
   });
 
-  // A round that COULD have penetrated and did not. Whether a rifle round that
-  // never could (a rifle on an MBT) should be discounted like a harmless near
-  // miss is HARMLESS_SUPP's question, open with the lead, and deliberately not
-  // what this pins.
+  // A round that COULD have penetrated and did not. One that never could is
+  // the next test.
   it('a round that bounces off the hull shakes the crew twice a near miss', () => {
     const shots = gains(AP_RIFLE, HULL, false);
     const bounces = shots.filter((s) => s.hit && s.bounced);
     expect(bounces.length).toBeGreaterThan(3);
     for (const b of bounces) expect(b.target).toBeCloseTo(DOUBLED, 3);
+  });
+
+  // The lead's ruling of 2026-10-13: a round that could never penetrate the
+  // hull (a rifle on an MBT) is noise, not a threat. Its bounce takes the
+  // same HARMLESS_SUPP discount (0.1) its near misses always took, so a rifle
+  // squad cannot pin a tank or a dozer by ringing its hull: 0.15 x 0.1.
+  it('a round that could never penetrate the hull bounces off harmlessly', () => {
+    const shots = gains(RIFLE, MBT_HULL, false);
+    const bounces = shots.filter((s) => s.hit && s.bounced);
+    expect(bounces.length).toBeGreaterThan(3);
+    for (const b of bounces) expect(b.target).toBeCloseTo(DOUBLED * 0.1, 3);
   });
 
   it('a blast adds twice a near miss to a soft unit beside the one it hit', () => {
