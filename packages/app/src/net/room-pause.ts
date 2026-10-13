@@ -124,25 +124,45 @@ export function ordersWait(status: TransportStatus): boolean {
   return status.kind === 'paused';
 }
 
+/** The least gap between two deny cues for blocked orders. */
+export const BLOCKED_CUE_GAP_MS = 1000;
+
 /** What a blocked order says, and how often (N1b follow-up). An order the
  *  client itself withholds (`blocked`) is noted every time -- the feed merges
  *  identical lines. An order the ROOM refused (`refused`: it was in flight
  *  when the pause began, so the client had already sent it) arrives once per
  *  order, and says its piece once per PAUSE: the first one is noted, the rest
  *  are not, and a note `blocked` already made for the pause counts. A pause is
- *  identified by who called it and when it ends, both fixed for its life. */
-export function blockedOrderNotes(status: () => TransportStatus, note: () => void): { blocked(): void; refused(): void } {
+ *  identified by who called it and when it ends, both fixed for its life.
+ *  Either way the deny cue sounds too, at most once a second. */
+export function blockedOrderNotes(
+  status: () => TransportStatus,
+  note: () => void,
+  cue: () => void,
+  now: () => number
+): { blocked(): void; refused(): void } {
   let noted: string | null = null;
+  let cuedAt = -Infinity;
   const pauseKey = (): string => {
     const s = status();
     return s.kind === 'paused' ? `${s.seat}:${s.untilMs}` : 'none';
+  };
+  // The deny cue (the one a refused ground order plays), at most once per
+  // `BLOCKED_CUE_GAP_MS`: a drag of clicks or a burst of refusals is one beep.
+  const deny = (): void => {
+    const at = now();
+    if (at - cuedAt < BLOCKED_CUE_GAP_MS) return;
+    cuedAt = at;
+    cue();
   };
   return {
     blocked() {
       noted = pauseKey();
       note();
+      deny();
     },
     refused() {
+      deny();
       const key = pauseKey();
       if (key === noted) return;
       noted = key;

@@ -6,7 +6,7 @@ import type { TransportStatus } from '@lions/net';
 import { t } from '../i18n/t';
 import { leaveCopy } from '../ui/leave-copy';
 import { routes } from '../shell/links';
-import { blockedOrderNotes, escapeOpensPause, hudExit, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderOffered } from './room-pause';
+import { BLOCKED_CUE_GAP_MS, blockedOrderNotes, escapeOpensPause, hudExit, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderOffered } from './room-pause';
 
 // N1b task 8, R-B17: the room silently ignores a pause it refuses, so the
 // client decides from its own count (the last `paused` it saw) whether to ask
@@ -306,8 +306,10 @@ describe('blockedOrderNotes', () => {
   function make(initial: TransportStatus) {
     let status = initial;
     let notes = 0;
-    const n = blockedOrderNotes(() => status, () => { notes++; });
-    return { n, notes: () => notes, set: (s: TransportStatus) => { status = s; } };
+    let cues = 0;
+    let at = 0;
+    const n = blockedOrderNotes(() => status, () => { notes++; }, () => { cues++; }, () => at);
+    return { n, notes: () => notes, cues: () => cues, set: (s: TransportStatus) => { status = s; }, advance: (ms: number) => { at += ms; } };
   }
 
   it('a burst of refusals inside one pause notes once', () => {
@@ -340,8 +342,35 @@ describe('blockedOrderNotes', () => {
     expect(m.notes()).toBe(1);
   });
 
+  it('a blocked order sounds the deny cue, and a burst of them sounds it once a second at most', () => {
+    const m = make(PAUSE_A);
+    m.n.blocked(); m.n.blocked(); m.n.blocked();
+    expect(m.cues()).toBe(1);
+    m.advance(BLOCKED_CUE_GAP_MS - 1);
+    m.n.blocked();
+    expect(m.cues()).toBe(1);
+    m.advance(1);
+    m.n.blocked();
+    expect(m.cues()).toBe(2);
+  });
+  it('a refused order sounds it too, once per second across both paths, even when its note is the pause\'s second', () => {
+    const m = make(PAUSE_A);
+    m.n.blocked();
+    m.advance(300);
+    m.n.refused();   // within the second of the cue above
+    expect(m.cues()).toBe(1);
+    expect(m.notes()).toBe(1);
+    m.advance(BLOCKED_CUE_GAP_MS);
+    m.n.refused();   // no new note for this pause, but a new second
+    expect(m.cues()).toBe(2);
+    expect(m.notes()).toBe(1);
+  });
+
   it('wired: the room\'s cmdRefused reaches onCmdRefused, and main.ts hooks it to the notes', () => {
     const main = readFileSync(new URL('../main.ts', import.meta.url), 'utf8');
     expect(main).toContain('room.setHooks({ onCmdRefused: () => blockedNotes.refused() })');
+    // ... and the cue it sounds is the one a refused ground order plays.
+    const wired = main.slice(main.indexOf('? blockedOrderNotes('), main.indexOf('if (room !== null && blockedNotes !== null)'));
+    expect(wired).toContain('audio.playCue(CRITICAL_CUES.uiDeny)');
   });
 });

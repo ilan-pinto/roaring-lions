@@ -3116,7 +3116,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  places that learn of one: the dispatch below (withheld here) and the room
    *  (an order in flight when the pause began, refused there). */
   const blockedNotes = room !== null
-    ? blockedOrderNotes(() => room.status(), () => hud.note(t('net.pause.ordersBlocked'), 'warn'))
+    ? blockedOrderNotes(
+        () => room.status(),
+        () => hud.note(t('net.pause.ordersBlocked'), 'warn'),
+        () => audio.playCue(CRITICAL_CUES.uiDeny),
+        () => performance.now()
+      )
     : null;
   if (room !== null && blockedNotes !== null) room.setHooks({ onCmdRefused: () => blockedNotes.refused() });
   // Pass K: a /free-play/<id> link naming no shipped map still loads the
