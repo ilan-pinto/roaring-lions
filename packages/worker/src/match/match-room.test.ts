@@ -1041,18 +1041,32 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
     expect((await room.fetch(new Request('https://room/state'))).status).toBe(404);
   });
 
-  it('one seat reports while the other is gone: the close fires on time and the rejoined seat hears it', async () => {
+  it('one seat reports while the other is gone: the rejoined seat reports the same result and the close fires two minutes after it (#559 L-1)', async () => {
     const { room, ws0, ws1 } = await running();
     await vi.advanceTimersByTimeAsync((RESULT_TICK + 1) * TICK_MS);
     await deliverClose(room, ws1, 1006, 'abnormal');
     await say(room, ws0, { t: 'over', tick: RESULT_TICK });
-    const closeAt = Date.now() + OVER_CLOSE_MS;
     await vi.advanceTimersByTimeAsync(30_000);
     const back = await hello(room, 1);
     expect(ofType(back, 'log')).toHaveLength(1);
-    await vi.advanceTimersByTimeAsync(closeAt - Date.now());
+    await say(room, back, { t: 'over', tick: RESULT_TICK });   // as WsTransport repeats its report after a log
+    const closeAt = Date.now() + OVER_CLOSE_MS;
+    await vi.advanceTimersByTimeAsync(closeAt - Date.now() - TICK_MS);
+    expect(ofType(ws0, 'ended')).toEqual([]);
+    await vi.advanceTimersByTimeAsync(TICK_MS);
     expect(last(ws0)).toEqual({ t: 'ended', reason: 'over' });
     expect(last(back)).toEqual({ t: 'ended', reason: 'over' });
+  });
+
+  it('#559 L-1: an early over from one seat and a one-second blip of the other end nothing', async () => {
+    const { room, ws0, ws1 } = await running();
+    await vi.advanceTimersByTimeAsync(TICK_MS * 5);
+    await say(room, ws1, { t: 'over', tick: 1 });
+    await deliverClose(room, ws0);
+    const back = await hello(room, 0);
+    await vi.advanceTimersByTimeAsync(121_000);
+    expect(ofType(back, 'ended')).toEqual([]);
+    expect(ofType(ws1, 'ended')).toEqual([]);
   });
 
   it('two different ticks never close the room', async () => {

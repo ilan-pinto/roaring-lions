@@ -7,7 +7,7 @@
  * `readLog`.
  */
 import {
-  canonicalOrder, LOG_PART_CHARS, MAX_CMDS_PER_SEAT_PER_FRAME, PAUSE_MS, PAUSES_PER_SEAT, CHAT_MAX_CHARS, OVER_CLOSE_MS,
+  canonicalOrder, cleanChat, LOG_PART_CHARS, MAX_CMDS_PER_SEAT_PER_FRAME, PAUSE_MS, PAUSES_PER_SEAT, OVER_CLOSE_MS,
   type ClientMsg, type EndedReason, type Frame, type MatchConfig, type Seat, type ServerMsg, type Stamped, type SeatState,
 } from '@lions/net';
 
@@ -128,6 +128,11 @@ export function seatJoin(st: RoomState, seat: Seat, player: string, callsign: st
   st.seats[seat] = { seat, player, callsign, connected: true, ready: prior?.ready ?? false, lastAck: prior?.lastAck ?? -1, lastSeenMs: nowMs, nextSeq: prior?.nextSeq ?? 0 };
   const out: Effect[] = [];
   if (prior && prior.connected) out.push({ kind: 'close', seat });
+  // #559 L-1: a close armed by the lone-report rule (one `over`, the other seat
+  // gone) is disarmed when that seat comes back: it is here to report its own
+  // result now, and one seat's early `over` plus a one-second blip of the
+  // other must not end a match. Two equal reports stay armed.
+  if (prior && !prior.connected && st.closeAtMs !== null && !(st.over[0] >= 0 && st.over[0] === st.over[1])) st.closeAtMs = null;
   if (st.status === 'lobby') {
     out.push({ kind: 'send', to: 'all', msg: lobbyMsg(st, 0) });   // the DO rewrites `you` per socket
   } else if (st.config) {
@@ -182,7 +187,8 @@ export function seatGone(st: RoomState, seat: Seat, nowMs: number): Effect[] {
  *  seats reported the SAME `over` tick, or one did and the other seat is not
  *  connected (it may never come back to say so). Two different ticks arm
  *  nothing: the seats diverged, and the hash comparison voids that match.
- *  Armed once; nothing later (a rejoin, a late report) moves or clears it. */
+ *  A lone-report arming is cleared if the absent seat rejoins (#559 L-1,
+ *  `seatJoin`), and armed again -- from then -- when it reports or goes. */
 function armClose(st: RoomState, nowMs: number): void {
   if (st.closeAtMs !== null || (st.status !== 'running' && st.status !== 'stalled')) return;
   // Two reports that disagree stay unarmed for good: a seat that then goes
@@ -300,8 +306,9 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
     }
     case 'chat': {
       if (st.status === 'ended') return [];
-      // eslint-disable-next-line no-control-regex -- matching control characters is the point
-      const text = msg.text.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, CHAT_MAX_CHARS);
+      // #559 L-3: the callsign rule -- controls to spaces, bidi overrides,
+      // zero-width and other format characters dropped, NFKC -- capped by code point.
+      const text = cleanChat(msg.text);
       if (text === '' || (st.lastChatMs[seat] >= 0 && nowMs - st.lastChatMs[seat] < CHAT_MIN_GAP_MS)) return [];
       st.lastChatMs[seat] = nowMs;
       return [{ kind: 'send', to: 'all', msg: { t: 'chat', seat, text } }];

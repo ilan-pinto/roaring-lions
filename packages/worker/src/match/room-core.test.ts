@@ -666,15 +666,33 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
     expect(clockTick(st, 1500 + OVER_CLOSE_MS + 50)).toEqual([]);   // ended: the clock has nothing more to do
   });
 
-  it('one seat reports while the other is gone: armed at once, and a rejoin does not disarm it', () => {
+  it('one seat reports while the other is gone: armed at once; the rejoin disarms it and the same report re-arms it (#559 L-1)', () => {
     const st = minted();
     seatGone(st, 1, 900);
     seatMessage(st, 0, { t: 'over', tick: 399 }, 1000, mint);
     expect(st.closeAtMs).toBe(1000 + OVER_CLOSE_MS);
     seatJoin(st, 1, 'p1', 'Guest', 5000);
+    expect(st.closeAtMs).toBeNull();
     seatMessage(st, 1, { t: 'over', tick: 399 }, 6000, mint);
-    expect(st.closeAtMs).toBe(1000 + OVER_CLOSE_MS);   // armed once, never pushed back
-    expect(firstEnding(st, 6050, 200_000)?.at).toBe(1000 + OVER_CLOSE_MS);
+    expect(st.closeAtMs).toBe(6000 + OVER_CLOSE_MS);
+    expect(firstEnding(st, 6050, 200_000)?.at).toBe(6000 + OVER_CLOSE_MS);
+  });
+
+  it('#559 L-1: an early `over` from one seat plus a blip of the other ends nothing while the other has not reported', () => {
+    const st = minted();
+    seatMessage(st, 1, { t: 'over', tick: 1 }, 1000, mint);   // a claim the other seat's sim never reached
+    seatGone(st, 0, 1100);
+    expect(st.closeAtMs).toBe(1100 + OVER_CLOSE_MS);
+    seatJoin(st, 0, 'p0', 'Host', 2100);   // back a second later
+    expect(st.closeAtMs).toBeNull();
+    expect(firstEnding(st, 2150, 400_000)).toBeNull();
+    // Two equal reports stay armed across a rejoin.
+    const both = minted();
+    seatMessage(both, 0, { t: 'over', tick: 399 }, 1000, mint);
+    seatMessage(both, 1, { t: 'over', tick: 399 }, 1000, mint);
+    seatGone(both, 1, 2000);
+    seatJoin(both, 1, 'p1', 'Guest', 3000);
+    expect(both.closeAtMs).toBe(1000 + OVER_CLOSE_MS);
   });
 
   it('one seat reports, then the other goes without reporting: armed when it goes', () => {
@@ -812,5 +830,17 @@ describe('#559 H-1: logParts', () => {
     expect(logParts(CONFIG, [])).toEqual([{ t: 'log', config: CONFIG, frames: [], part: 0, parts: 1 }]);
     const big = frame(1, 50);
     expect(logParts(CONFIG, [frame(0), big, frame(2)], 100).map((p) => p.frames.map((f) => f.tick))).toEqual([[0], [1], [2]]);
+  });
+});
+
+describe('#559 L-3: chat is cleaned like a callsign', () => {
+  it('drops bidi overrides and zero-width characters, and controls become spaces', () => {
+    const st = running();
+    const fx = seatMessage(st, 0, { t: 'chat', text: 'gg \u202eevil\u202c \u200bx\u0007y' }, 1000, mint);
+    expect(sends(fx).map((x) => x.msg)).toEqual([{ t: 'chat', seat: 0, text: 'gg evil x y' }]);
+  });
+  it('a line of nothing but format characters sends nothing', () => {
+    const st = running();
+    expect(seatMessage(st, 0, { t: 'chat', text: '\u202e\u200b\u2066' }, 1000, mint)).toEqual([]);
   });
 });

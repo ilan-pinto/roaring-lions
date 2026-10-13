@@ -21,6 +21,8 @@
  * Idempotent: cleaning a clean callsign returns it. It may return '' -- the
  * caller picks the fallback (`callsignOrDefault`: 'Lion').
  */
+import { CHAT_MAX_CHARS } from './protocol';
+
 export const MAX_CALLSIGN_CHARS = 24;
 export const DEFAULT_CALLSIGN = 'Lion';
 
@@ -43,4 +45,24 @@ export function cleanCallsign(raw: unknown): string {
 /** A cleaned callsign, or 'Lion' when nothing usable is left. */
 export function callsignOrDefault(raw: unknown): string {
   return cleanCallsign(raw) || DEFAULT_CALLSIGN;
+}
+
+/**
+ * A chat line, cleaned by the callsign's own rule (#559 L-3): control
+ * characters become spaces, format characters (bidi overrides and isolates,
+ * zero-width spaces and joiners), private-use and lone surrogates are dropped,
+ * NFKC, whitespace collapsed and trimmed, then capped at `CHAT_MAX_CHARS`
+ * UTF-16 units without splitting a character. A right-to-left override in
+ * chat reorders what the OTHER player reads, so the room strips it as it does
+ * for a name. '' means nothing is left to send.
+ */
+export function cleanChat(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  const s = strip(strip(raw).normalize('NFKC')).replace(/\s+/gu, ' ').trim();
+  let out = '';
+  for (const ch of s) {
+    if (out.length + ch.length > CHAT_MAX_CHARS) break;
+    out += ch;
+  }
+  return out.trim();
 }
