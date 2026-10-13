@@ -218,10 +218,12 @@ describe('a boulder field authored as `b`', () => {
 // The trap in the obvious answer. FOOT_ROLES already splits foot from vehicle
 // for `canEmbark`, and it contains `artillery` -- but `rocket_battery` is a
 // Grad on a 6x6 truck and declares role "artillery" too. Reusing FOOT_ROLES
-// would drive a rocket truck through a boulder field that stops a jeep. These
-// two are the two sides of that conflation, pinned against the shipped JSON.
-// The default fails the other way too: `manpad_team` (GH-247) is a foot team
-// whose role sits outside the set, so it says `wheeled: false`.
+// would drive a rocket truck through a boulder field that stops a jeep. The
+// first pin below holds the rocket battery on the vehicle side of that
+// conflation; the rest hold the foot side, since the default fails the other
+// way too: `manpad_team` (GH-247) is a foot team whose role sits outside the
+// set, so it needs `wheeled: false` authored. All are pinned against the
+// shipped JSON.
 describe('what counts as a vehicle', () => {
   it('calls the rocket battery wheeled despite its artillery role', () => {
     expect(units.rocket_battery.role).toBe('artillery');

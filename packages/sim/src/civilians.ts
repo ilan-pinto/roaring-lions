@@ -9,9 +9,11 @@
 // exist to prevent — or to write `alive = 0` from outside the sim, which
 // invariant 4 forbids outright.
 //
-// So the rule is a small object both callers own an instance of. Nothing here
-// is new behaviour: `MissionRuntime` delegates to it and its own civilian
-// tests are unchanged.
+// So the rule is a small object both callers own an instance of. It is the
+// rule the runtime already had, moved: `MissionRuntime` delegates to it. Since
+// GH-279 the shepherding trigger is ground-only and applies only in a mission
+// that declares an `evacuate_before` (`missionShepherds`), which each caller
+// passes in as the `shepherd` option.
 //
 // Commands in, events out, exactly as before: this queues `move` and `load`
 // like any other order source, and the ONE state write it makes — clearing
@@ -84,7 +86,8 @@ export class CivilianFlight {
   /**
    * Civilians shelter in place until fire lands close, then break for the
    * refuge — once, in fear, not as a controlled unit. They also go when a
-   * soldier reaches them: that is the player evacuating them, and it is the
+   * GROUND soldier reaches them, in a mission that shepherds
+   * (`missionShepherds`): that is the player evacuating them, and it is the
    * only way `evacuate_before` can be satisfied without shooting at them.
    *
    * `refuge` is resolved by the caller rather than looked up here, because a

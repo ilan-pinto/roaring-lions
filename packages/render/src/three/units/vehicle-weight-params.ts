@@ -40,9 +40,8 @@
  * `manpad_team` (role `aa`; classed `wheeled` by the `FOOT_ROLES` default
  * until GH-247 gave its JSON `wheeled: false`) never got a hull tilt: it has
  * no vehicle GLB, so it never reaches `vehicleWeightParamsFor` at all.
- * Air is excluded the same
- * way, one layer up: `heli_peten` (`gunship`) and a ground drone both get a
- * role default here so the resolver never throws for them, but the caller
+ * Air is excluded the same way, one layer up: `heli_peten` (`gunship`) and a ground
+ * drone both get a role default here so the resolver never throws for them, but the caller
  * that walks `type.isAir` is expected to skip calling `stepVehicleWeight` for
  * an airborne type before this module is ever consulted -- a helicopter
  * conforming to the ground under it would be a bug with a straight face, not

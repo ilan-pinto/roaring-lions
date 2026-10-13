@@ -1311,8 +1311,8 @@ const khanRafid3Plan: Plan = (sim, _rt, ids, at) => {
   // The souk family at [21, 20] is walked out by the rifles (GH-279 ruling a: an aircraft overhead
   // moves nobody, so the drone no longer does it). The rifles are the intended shepherd, so no
   // transport should come within 4 tiles of the family first: a civilian who breaks boards the
-  // nearest hull with a free seat, and one that chases a vehicle driving past stalls short of it
-  // (measured, 7 of 30 seeds lost with the Eitan on the x=26 column at t=20, passing (25.9, 21-22)).
+  // first hull in id order with a free seat inside four tiles, and one that chases a vehicle
+  // driving past stalls short of it (measured, 7 of 30 seeds lost with the Eitan on the x=26 column at t=20, passing (25.9, 21-22)).
   // The first Eitan therefore leaves the vanguard and comes up the east side to the alley's east
   // end, [28, 18] (7.3 tiles from the placement point [21, 20]), instead of to [24, 18], and the
   // drone holds in the street until t=30 before it sweeps to [24, 18].
@@ -1829,8 +1829,9 @@ run(
 // winnable by the obvious line, not by the clever one. The column stages in the second leg, behind
 // the rib, where no post on the plateau can see it; two Lavis alone go up the exit column and onto
 // the plateau, because they outrange both Kornet pockets, and the rest follow once the pass is
-// quiet. One Eitan goes for the families -- and only one: a civilian boards the nearest hull with a
-// free seat, and a Namer parked in the pass would keep them -- and drives them to the approach.
+// quiet. One Eitan goes for the families -- and only one: a civilian boards the first hull in id
+// order with a free seat within four tiles, and a Namer parked in the pass would keep them -- and
+// drives them to the approach.
 //
 // Control: primaries `capture` (take_pass) and `eliminate_hvt`
 // (kill_battery) are still not among the three objective types `checkEnd`
@@ -1875,8 +1876,8 @@ const ledTelMarum3 = run(
     });
     at(100, () => {
       sim.queueCommand({ kind: 'move', ids: [...foot, ...at_], ...M(33, 11) });
-      // One Eitan to the families, and only one: a civilian boards the nearest hull with a free
-      // seat, and a Namer parked in the pass would keep them.
+      // One Eitan to the families, and only one: a civilian boards the first hull in id order
+      // with a free seat within four tiles, and a Namer parked in the pass would keep them.
       sim.queueCommand({ kind: 'move', ids: armour, ...M(28, 6) });
     });
     at(115, () => sim.queueCommand({ kind: 'move', ids: armour, ...M(29, 36) }));

@@ -4,9 +4,10 @@
  * The flight rule lives in the sim (`@lions/sim`'s `CivilianFlight.step`) and
  * has two triggers: suppression above `CIV_FLEE_AT`, always; or a living,
  * surface, GROUND player unit within four tiles, and only in a mission that
- * declares an `evacuate_before` (`missionShepherds`). Neither was ever shown. A squad walked near a family, the family
- * sprinted off, and nothing on screen said why -- which is the whole of the
- * "civilians are running with no reason" report.
+ * declares an `evacuate_before` (`missionShepherds`). Neither was ever shown.
+ * A squad walked near a family, the family sprinted off, and nothing on screen
+ * said why -- which is the whole of the "civilians are running with no reason"
+ * report.
  *
  * The sim raises no event when a family breaks, and it is frozen, so this
  * DERIVES the break from state the app can already read. It never re-runs the
