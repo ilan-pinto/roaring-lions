@@ -409,14 +409,20 @@ const wh1 = run('wadi_halam_1_fords', (sim, rt, ids, at) => {
   at(90, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(21, 35) }));
   // Jeep rejoins the ford-watch anchor loop the screen re-issues every 45s
   // from t=130.
-  at(120, () => sim.queueCommand({ kind: 'attackMove', ids: jeep, ...M(10, 24) }));
-  // Settle on the ford watch itself.
-  at(110, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(10, 24) }));
+  at(120, () => sim.queueCommand({ kind: 'attackMove', ids: jeep, ...M(8, 24) }));
+  // Settle on the ford watch itself -- on its WEST half (the zone is x 7-12). Until 2026-10-13 the
+  // anchor was (10,24), and a technical that parks in the cover at about (18,24.6) on the east bank
+  // (DShK range 9, sight 9) reached it unseen from 8.2 tiles: ten seeds of thirty ended with one
+  // survivor on main. The anti-armour targeting fix (lead exception) changes who the enemy RPGs
+  // pick, and seed 18 diverged at t=100 s (which moto_rpg the rifles shot) and lost its last
+  // squad to that technical at 246 s: a defeat. From (8,24) that gun is out of reach;
+  // measured over the thirty seeds: 30/30, 80 survivors against main's 72, one-survivor seeds 10 -> 6.
+  at(110, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(8, 24) }));
   for (let when = 130; when <= 320; when += 45) {
     at(when, () => {
       const cur: number[] = [];
       for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0 && sim.state.alive[i] === 1) cur.push(i);
-      sim.queueCommand({ kind: 'attackMove', ids: cur, ...M(10, 24) });
+      sim.queueCommand({ kind: 'attackMove', ids: cur, ...M(8, 24) });
     });
   }
   void rt;
@@ -744,12 +750,39 @@ const wadiHalam5Plan: Plan = (sim, _rt, ids, at) => {
       }
     }
   };
+  // The ZU-23 on the gate (`wh_depot_gun_truck`, [31.5,14.5], holding) goes first. Its twin 23 mm
+  // cannot penetrate any KDF hull here, and since 2026-10-13 its gunner knows it (target choice reads
+  // the real penetration chance against the face shown, lead exception): it no longer spends its belts
+  // on the Eitan and saves them for the infantry and the engineers. Until then this plan walked them
+  // in at t=0 behind armour the gun was wasting itself on, and on seed 9 of the gate-open run it now
+  // cut both rifle squads and the engineers down at 37-41 s, and the raze with them. So the armour
+  // (which the gun cannot hurt) clears the gate, and the soft column follows once it is down.
+  const gateGunAlive = (): boolean => {
+    for (let i = 0; i < sim.entityCount; i++) {
+      if (sim.state.side[i] !== 1 || sim.state.alive[i] === 0) continue;
+      if (sim.unitTypes[sim.state.typeIdx[i]].id !== 'gun_truck') continue;
+      const dx = sim.state.posX[i] / 65536 - 31.5;
+      const dy = sim.state.posY[i] / 65536 - 14.5;
+      if (dx * dx + dy * dy < 4) return true;
+    }
+    return false;
+  };
+  const armour = [...ids('apc_eitan'), ...ids('ifv_namer')];
+  const soft = screen.filter((u) => !armour.includes(u));
+  let softIn = false;
   at(0, () => {
-    sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(33, 20) });
+    sim.queueCommand({ kind: 'attackMove', ids: armour, ...M(33, 20) });
     sim.queueCommand({ kind: 'move', ids: jeep, ...M(32, 27) });
     orderNext(dozer, true);
-    orderNext(engineers, false);
   });
+  for (let when = 5; when <= 120; when += 5) {
+    at(when, () => {
+      if (softIn || (gateGunAlive() && when < 120)) return;
+      softIn = true;
+      sim.queueCommand({ kind: 'attackMove', ids: soft, ...M(33, 20) });
+      orderNext(engineers, false);
+    });
+  }
   // Reissue cadence: 15s, comfortably longer than either demolisher's own
   // timer (D9 2s, engineers 5s), so this only ever catches a demolisher
   // that has actually finished and gone idle -- it does not interrupt one
@@ -757,7 +790,7 @@ const wadiHalam5Plan: Plan = (sim, _rt, ids, at) => {
   for (let when = 15; when <= 200; when += 15) {
     at(when, () => {
       orderNext(dozer, true);
-      orderNext(engineers, false);
+      if (softIn) orderNext(engineers, false);
     });
   }
   // Once the column has a foothold, the screen advances into the compound
@@ -765,13 +798,13 @@ const wadiHalam5Plan: Plan = (sim, _rt, ids, at) => {
   // the same reason II and III need it: attackMove does not mean "stand
   // here", and a wave that breaks and runs pulls a pursuing force out past
   // the zone edge.
-  at(40, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(33, 12) }));
+  at(40, () => sim.queueCommand({ kind: 'attackMove', ids: softIn ? screen : armour, ...M(33, 12) }));
   // The screen steps out to the depot's south-east corner to meet what comes at the D9 there.
   // Until 2026-10-11 nobody ordered this: an attack-move that had arrived walked on by itself to
   // the nearest contact its side remembered, and at 103 s that hunt took the screen to (38,19).
   // The gate-open run lost its D9 to a mobility kill at (36,9) without it, and the raze with it.
   // A player's attack-move stops where it is sent now (the lead's ruling), so the plan says it.
-  at(103, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(38, 19) }));
+  at(103, () => sim.queueCommand({ kind: 'attackMove', ids: softIn ? screen : armour, ...M(38, 19) }));
   for (let when = 85; when <= 400; when += 45) {
     at(when, () => {
       const cur: number[] = [];
@@ -3093,7 +3126,13 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // and Umm Zeitoun IV 252 -> 232 (after the raze everything goes for Adhal instead of standing in
 // the yard: done in 3.3 min instead of 3.8, roster out 32 -> 30). Every other mission reads the
 // same. No star moved, and neither did any gate.
-const LADDER_CREDITS = 5917;
+// 2026-10-13, anti-armour target choice (lead exception, sim): 5917 -> 5947, +30, read off the
+// printed per-mission credits, and the whole move is Wadi Halam V, 180 -> 210. The sim change
+// alone took it to 170 (roster out 15 -> 14: the gate's ZU-23 stopped wasting its belts on the
+// Eitan); the plan now sends the armour through the gate first and the soft column after the
+// gun is down, which hands on 17. Wadi Halam I's anchor moved two tiles west and its credits
+// did not. No star moved, and neither did any gate.
+const LADDER_CREDITS = 5947;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);

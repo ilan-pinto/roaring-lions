@@ -69,6 +69,8 @@ import {
   ARC_60,
   ARC_120,
   SOFT_ARMOR_LIMIT,
+  PEN_HURTS_MIN,
+  ANTI_ARMOR_SOFT_RANK_SQ,
   COMP_CREW_SHAKEN,
   COMP_MOBILITY,
   COMP_FIREPOWER,
@@ -278,6 +280,25 @@ export const WEAPON_CLASS: Record<string, number> = {
 const INDIRECT_MASK = (1 << WEAPON_CLASS.mortar) | (1 << WEAPON_CLASS.rocket);
 /** Shaped-charge family for ERA purposes. */
 const SHAPED_MASK = (1 << WEAPON_CLASS.heat) | (1 << WEAPON_CLASS.atgm) | (1 << WEAPON_CLASS.rpg);
+
+/** The arc names `presentedArmor` resolves to, by `presentedArc` index. */
+const FACING_ARCS: readonly FacingArc[] = ['front', 'side', 'rear'];
+
+/** Weapons built to kill armour: the kinetic gun plus the shaped-charge
+ *  family. They spend their shots on a hurtable armed vehicle before a soft
+ *  or unarmed target at similar range (ANTI_ARMOR_SOFT_RANK_SQ). */
+const ANTI_ARMOR_MASK = (1 << WEAPON_CLASS.apfsds) | SHAPED_MASK;
+
+/**
+ * The penetration curve's argument (GDD 5.3): how many sigmas `pen` stands
+ * over `armor`. P(penetration) is `fx.normCdf` of it. The ONE place the
+ * curve is written: resolveHit rolls against it, the kamikaze strike rolls
+ * against it, and target selection asks it whether a shot is worth taking.
+ */
+function penZ(pen: Fx, armor: Fx): Fx {
+  const sigma = fx.max(fx.mul(PEN_SIGMA_MULT, pen), SIGMA_MIN);
+  return fx.div(fx.sub(pen, armor), sigma);
+}
 
 export interface WeaponStats {
   id: string;
@@ -2902,7 +2923,6 @@ export class Sim {
     const ty = this.posY[target];
     const dSq = distSqFx(fx.sub(tx, px), fx.sub(ty, py));
     const type = this.unitTypes[this.typeIdx[shooter]];
-    const tType = this.unitTypes[this.typeIdx[target]];
 
     let best: HitProjection = { kind: 'noSolution' };
     let bestP = -1;
@@ -2918,9 +2938,9 @@ export class Sim {
         kind: 'shot',
         weaponId: w.id,
         pHit: factors.p,
-        // bestTargetFor's own heuristic: a quarter of side armour, whatever
-        // face is presented. Soft targets always qualify.
-        hurts: tType.isSoft || w.penetration >= tType.armorSide >> 2,
+        // selectTarget's own rule, through the same function: the real
+        // penetration chance against the face the target shows this shooter.
+        hurts: this.weaponHurts(w, target, px, py),
         factors,
       };
     }
@@ -3336,13 +3356,65 @@ export class Sim {
 
   // ------------------------------------------------------------------- combat
 
+  /** Which arc the last `presentedArmor` call resolved: an index into
+   *  FACING_ARCS (0 front, 1 side, 2 rear). Scratch, read straight after the
+   *  call that wrote it — a number rather than a returned pair, so the hot
+   *  path allocates nothing. Never hashed, never read across ticks. */
+  private presentedArc = 0;
+
+  /**
+   * The plate `target` presents to a round arriving from (ox, oy) — GDD 5.3:
+   * the facing arc the incoming bearing falls in relative to the hull, the
+   * obliquity bonus inside the front arc, and ERA against the shaped-charge
+   * family. resolveHit reads it with the round's ORIGIN; target selection
+   * and projectHit read it with the shooter's position now, so what a gunner
+   * picks and what the round then meets are the same arithmetic.
+   */
+  private presentedArmor(target: number, ox: Fx, oy: Fx, cls: number): Fx {
+    const tType = this.unitTypes[this.typeIdx[target]];
+    const inc = fx.atan2(fx.sub(oy, this.posY[target]), fx.sub(ox, this.posX[target]));
+    const rel = fx.abs(fx.angleDiff(inc, this.facing[target]));
+    let armor: Fx;
+    if (rel <= ARC_60) {
+      this.presentedArc = 0;
+      // Obliquity: rounds arriving off-axis inside the arc see thicker plate.
+      armor = fx.mul(tType.armorFront, fx.add(ONE, fx.mul(OBLIQ_MAX, fx.div(rel, ARC_60))));
+    } else if (rel >= ARC_120) {
+      this.presentedArc = 2;
+      armor = tType.armorRear;
+    } else {
+      this.presentedArc = 1;
+      armor = tType.armorSide;
+    }
+    if (tType.era && (SHAPED_MASK & (1 << cls)) !== 0) {
+      armor = fx.mul(armor, ERA_SHAPED_MULT);
+    }
+    return armor;
+  }
+
+  /**
+   * Can weapon `w`, fired from (px, py), hurt entity `t`? The ONE rule both
+   * selectTarget and projectHit use. A soft target: always. An armoured one:
+   * only when the real P(penetration) — penZ over the plate presentedArmor
+   * says it shows that bearing, the curve resolveHit rolls — reaches
+   * PEN_HURTS_MIN. It used to be "pen >= a quarter of side armour, whatever
+   * the facing", which let a 30 mm (pen 120) count a Lavi (side 300) as
+   * hurtable at a real chance of 0 front and side, 0.02 rear.
+   */
+  private weaponHurts(w: WeaponStats, t: number, px: Fx, py: Fx): boolean {
+    if (this.unitTypes[this.typeIdx[t]].isSoft) return true;
+    return fx.normCdf(penZ(w.penetration, this.presentedArmor(t, px, py, w.cls))) >= PEN_HURTS_MIN;
+  }
+
   private selectTarget(shooter: number, w: WeaponStats): number {
     const cap = this.capacity;
     const sSide = this.side[shooter];
     const px = this.posX[shooter];
     const py = this.posY[shooter];
+    const antiArmor = (ANTI_ARMOR_MASK & (1 << w.cls)) !== 0;
     let best = -1;
     let bestHurts = false;
+    // Ranked squared distance (see `rank` below), not always the raw one.
     let bestDistSq = 0x7fffffff;
     for (let t = 0; t < this.count; t++) {
       // Civilians (side 2) are never targets — collateral comes from
@@ -3363,19 +3435,28 @@ export class Sim {
       if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
         if (this.losRay(px >> 16, py >> 16, this.posX[t] >> 16, this.posY[t] >> 16) < 0) continue;
       }
-      const tType = this.unitTypes[this.typeIdx[t]];
-      // "Can this weapon plausibly hurt that?" — quarter of side armor is the
-      // heuristic; soft targets always qualify. Suppressive fire at armor is
-      // a fallback, not a preference.
-      const hurts = tType.isSoft || w.penetration >= tType.armorSide >> 2;
+      // "Can this weapon hurt that?" — the real penetration chance against the
+      // face the target shows this shooter (weaponHurts). Suppressive fire at
+      // armour it cannot defeat is a fallback, not a preference.
+      const hurts = this.weaponHurts(w, t, px, py);
+      // Nearest first — except that an anti-armour weapon counts a soft or
+      // unarmed target as further off than it is, so a Spike spends its
+      // missile on the tank and not the rifle squad beside it.
+      let rank = dSq;
+      if (antiArmor && hurts) {
+        const tType = this.unitTypes[this.typeIdx[t]];
+        if (tType.isSoft || tType.weapons.length === 0 || this.firepowerKilled[t] === 1) {
+          rank = dSq * ANTI_ARMOR_SOFT_RANK_SQ;
+        }
+      }
       if (
         best === -1 ||
         (hurts && !bestHurts) ||
-        (hurts === bestHurts && dSq < bestDistSq)
+        (hurts === bestHurts && rank < bestDistSq)
       ) {
         best = t;
         bestHurts = hurts;
-        bestDistSq = dSq;
+        bestDistSq = rank;
       }
     }
     return best;
@@ -4288,33 +4369,12 @@ export class Sim {
       return;
     }
 
-    // Facing (GDD 5.3): angle of the incoming round relative to hull facing.
-    const inc = fx.atan2(
-      fx.sub(this.prOriginY[pr], this.posY[target]),
-      fx.sub(this.prOriginX[pr], this.posX[target])
-    );
-    const rel = fx.abs(fx.angleDiff(inc, this.facing[target]));
-    let arc: FacingArc;
-    let armor: Fx;
-    if (rel <= ARC_60) {
-      arc = 'front';
-      armor = tType.armorFront;
-      // Obliquity: rounds arriving off-axis inside the arc see thicker plate.
-      armor = fx.mul(armor, fx.add(ONE, fx.mul(OBLIQ_MAX, fx.div(rel, ARC_60))));
-    } else if (rel >= ARC_120) {
-      arc = 'rear';
-      armor = tType.armorRear;
-    } else {
-      arc = 'side';
-      armor = tType.armorSide;
-    }
-    if (tType.era && (SHAPED_MASK & (1 << this.prCls[pr])) !== 0) {
-      armor = fx.mul(armor, ERA_SHAPED_MULT);
-    }
+    // Facing (GDD 5.3): the plate the round meets, from where it was fired.
+    const armor = this.presentedArmor(target, this.prOriginX[pr], this.prOriginY[pr], this.prCls[pr]);
+    const arc = FACING_ARCS[this.presentedArc];
 
     const pen = this.prPen[pr];
-    const sigma = fx.max(fx.mul(PEN_SIGMA_MULT, pen), SIGMA_MIN);
-    const z = fx.div(fx.sub(pen, armor), sigma);
+    const z = penZ(pen, armor);
     const pPen = fx.normCdf(z);
     const roll = this.rng.nextU32(shooter) >>> 16;
     const penetrated = roll < pPen;
@@ -4817,8 +4877,7 @@ export class Sim {
       if (tType.isSoft) {
         this.applyDamage(target, w.damage, i);
       } else {
-        const sigma = fx.max(fx.mul(PEN_SIGMA_MULT, w.penetration), SIGMA_MIN);
-        const z = fx.div(fx.sub(w.penetration, tType.armorSide), sigma);
+        const z = penZ(w.penetration, tType.armorSide);
         const pPen = fx.normCdf(z);
         const roll = this.rng.nextU32(i) >>> 16;
         const penetrated = roll < pPen;

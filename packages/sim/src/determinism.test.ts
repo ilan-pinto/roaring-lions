@@ -435,6 +435,16 @@ describe('determinism (1000-tick replay)', () => {
     // anyway) and nobody in it arrives before t=1000 -- so it cannot see
     // either fix. The orders replay at the bottom of this file is what pins
     // them. Was 922714084.
+    //
+    // 2026-10-13: NOT moved by the anti-armour targeting fix (lead exception;
+    // `weaponHurts`/`presentedArmor` in sim.ts), and measured rather than
+    // assumed: this replay's fire stream is identical before and after, all
+    // 1108 `fire` events, the tank guns' 11 included. The wall at x=24 keeps
+    // the two d_tanks out of each other's sight for all 1000 ticks, so every
+    // gun only ever had soft candidates -- where the rule is unchanged and the
+    // anti-armour rank scales every candidate alike -- and no small arm ever
+    // had an armoured one in view. The relief replay below is the one that
+    // sees the rule.
     expect(a.hash()).toBe(1202444260);
   });
 
@@ -733,7 +743,17 @@ describe('determinism over relief (900-tick replay round a hill)', () => {
     // 2026-10-11: moved by the two order columns joining hash(), and by
     // nothing else -- measured as at the flat pin (columns out, fixes in:
     // 3200430224 exactly). Was 3200430224.
-    expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(3354895120);
+    //
+    // 2026-10-13: moved by the anti-armour targeting fix (lead exception):
+    // a weapon now counts an armoured target as one it can hurt only by its
+    // real P(penetration) against the face shown (PEN_HURTS_MIN), and an
+    // anti-armour gun ranks soft or unarmed targets at twice their distance
+    // (ANTI_ARMOR_SOFT_RANK_SQ). Measured, the whole move is ONE choice: the
+    // assaulting d_tank's 4th main-gun shot, at tick 593, goes to the
+    // defending d_tank (id 9) instead of the rifleman (id 6) it shot at tick
+    // 460. The other five gun shots are unchanged, tick for tick. Was
+    // 3354895120.
+    expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(2051106457);
   });
 
   it('the relief changes the route, not merely the hash', () => {
