@@ -66,3 +66,39 @@ export function roomTickCap(status: TransportStatus, tickCostMs: number, held?: 
       return MAX_CATCHUP_TICKS;
   }
 }
+
+/** How far behind the live edge a tick may be and still be presented as it
+ *  happens: more than this many frames still waiting behind it (one second
+ *  of play) and the tick is OLD -- a rejoin running the room's log, or a tab
+ *  that was hidden for a while. A live seat holds `bufferTicks` (2) and a few
+ *  more at most, so ordinary play never reaches it. */
+export const QUIET_BEHIND_TICKS = 20;
+
+/**
+ * Whether each tick of a batch is old enough to be presented silently (the
+ * quiet catch-up, N1b follow-up). A 12,000-tick replay would otherwise fire
+ * minutes of shots, blasts, barks and alert chimes in a few seconds; while a
+ * tick is more than `QUIET_BEHIND_TICKS` from the live edge the battlefield
+ * mutes the audio cues and voice lines and has the renderer drop its one-shot
+ * bursts, and the moment it is within reach everything resumes by itself.
+ *
+ * Presentation only: it reads the transport's backlog and the sim never sees
+ * it. `begin` takes the frames held when a batch starts (`WsTransport.behind()`;
+ * 0 in single-player, which is therefore never quiet), and `next` answers for
+ * the tick about to run and counts it off.
+ */
+export class CatchUpQuiet {
+  private held = 0;
+
+  begin(heldFrames: number): void {
+    this.held = Number.isFinite(heldFrames) ? Math.max(0, Math.floor(heldFrames)) : 0;
+  }
+
+  /** True when the tick about to run still has more than `QUIET_BEHIND_TICKS`
+   *  frames waiting behind it. */
+  next(): boolean {
+    const quiet = this.held - 1 > QUIET_BEHIND_TICKS;
+    if (this.held > 0) this.held--;
+    return quiet;
+  }
+}

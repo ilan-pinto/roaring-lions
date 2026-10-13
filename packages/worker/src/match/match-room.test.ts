@@ -246,6 +246,22 @@ describe('MatchRoom', () => {
     expect(ofType(again, 'lobby').at(-1)?.seats).toEqual([{ seat: 1, callsign: 'Guest', connected: true, ready: false }]);
   });
 
+  it('a callsign handed to the room directly is cleaned too: the lobby and the config never carry a control or bidi character', async () => {
+    const room = new MatchRoom(new FakeState(), env);
+    await room.fetch(new Request('https://room/create', {
+      method: 'POST',
+      body: JSON.stringify({ code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Ho\u202Est\u0000', mode: 'versus' }),
+    }));
+    await room.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player: 'p-guest', callsign: ' Gu\u200Best\n' + 'z'.repeat(40) }) }));
+    const ws0 = await hello(room, 0);
+    const ws1 = await hello(room, 1);
+    expect(ofType(ws0, 'lobby').at(-1)?.seats.map((s) => s.callsign)).toEqual(['Host', 'Guest '+'z'.repeat(18)]);
+    await say(room, ws0, { t: 'ready' });
+    await say(room, ws1, { t: 'ready' });
+    const start = ofType(ws0, 'start')[0];
+    expect(start.config.seats.map((s) => s.callsign)).toEqual(['Host', 'Guest '+'z'.repeat(18)]);
+  });
+
   it('two concurrent /join calls: exactly one gets seat 1, the other 409 (the check-and-set is synchronous)', async () => {
     const { room } = await created(new FakeState(), { join: false });
     // A body that yields before it is read, so an await between the check and the write cannot go unnoticed.

@@ -58,6 +58,10 @@ export type ServerMsg =
   | { t: 'desync'; tick: number; hashes: [number, number] }
   | { t: 'log'; config: MatchConfig; frames: Frame[] }
   | { t: 'paused'; seat: Seat; remainingMs: number; pausesLeft: [number, number] }
+  /** The room dropped this seat's `cmd` because a pause is in force (L-2). Sent
+   *  per refused cmd, to that seat only; it carries nothing the seat does not
+   *  know, and the client says why once per pause. */
+  | { t: 'cmdRefused' }
   | { t: 'chat'; seat: Seat; text: string }
   | { t: 'ended'; reason: EndedReason; seat?: Seat }
   | { t: 'error'; code: ErrorCode };
@@ -188,6 +192,7 @@ export function parseServerMsg(raw: string): ServerMsg | null {
     case 'log': { const c = validateConfig(m.config); return c && Array.isArray(m.frames) && m.frames.every(isFrame) ? { t: 'log', config: c, frames: m.frames } : null; }
     case 'paused': return isSeat(m.seat) && isInt(m.remainingMs) && Array.isArray(m.pausesLeft) && m.pausesLeft.length === 2 && m.pausesLeft.every(isInt)
       ? { t: 'paused', seat: m.seat, remainingMs: m.remainingMs, pausesLeft: [m.pausesLeft[0], m.pausesLeft[1]] } : null;
+    case 'cmdRefused': return { t: 'cmdRefused' };
     case 'chat': return isSeat(m.seat) && isStr(m.text) ? { t: 'chat', seat: m.seat, text: m.text } : null;
     case 'ended': {
       if (!(ENDED_REASONS as readonly unknown[]).includes(m.reason)) return null;

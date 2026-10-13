@@ -1,3 +1,5 @@
+import { callsignOrDefault } from '@lions/net';
+
 /** What `/api/match` and the room's `/create` both read from a create body:
  *  one default map and one cap, so the route and the room cannot disagree. */
 export const DEFAULT_MAP = 'beit_sahwan_outskirts';
@@ -10,8 +12,10 @@ export function textField(v: unknown, fallback: string): string {
 }
 
 /** A callsign is a label a player typed, shown in the lobby and the HUD; the
- *  room and the route both cap it the same way. Absent or empty is 'Lion'. */
-export const MAX_CALLSIGN_CHARS = 24;
+ *  route and the room clean it the same way as the client does, by the one
+ *  function in `@lions/net` (`callsign.ts`). Absent, empty or nothing-but-
+ *  control-characters is 'Lion'. */
+export { MAX_CALLSIGN_CHARS } from '@lions/net';
 export function callsignField(v: unknown): string {
-  return typeof v === 'string' && v !== '' ? v.slice(0, MAX_CALLSIGN_CHARS) : 'Lion';
+  return callsignOrDefault(v);
 }

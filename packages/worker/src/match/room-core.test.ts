@@ -390,8 +390,9 @@ describe('orders wait while the match is paused, for both seats (L-2, R-B27)', (
     const st = running();
     seatMessage(st, 0, { t: 'pause' }, 1000, mint);
     // The pauser and the other seat alike.
-    expect(seatMessage(st, 0, { t: 'cmd', seq: 0, cmd: halt(1) }, 1100, mint)).toEqual([]);
-    expect(seatMessage(st, 1, { t: 'cmd', seq: 0, cmd: halt(2) }, 1200, mint)).toEqual([]);
+    const refused = (seat: 0 | 1) => [{ kind: 'send', to: seat, msg: { t: 'cmdRefused' } }];
+    expect(seatMessage(st, 0, { t: 'cmd', seq: 0, cmd: halt(1) }, 1100, mint)).toEqual(refused(0));
+    expect(seatMessage(st, 1, { t: 'cmd', seq: 0, cmd: halt(2) }, 1200, mint)).toEqual(refused(1));
     expect(st.pending).toEqual([]);
     expect(frames(clockTick(st, 1250))).toHaveLength(0);
     seatMessage(st, 0, { t: 'resume' }, 2000, mint);
@@ -404,7 +405,8 @@ describe('orders wait while the match is paused, for both seats (L-2, R-B27)', (
     const st = running();
     seatMessage(st, 0, { t: 'pause' }, 1000, mint);
     // Sent by seat 1 before it heard `paused`; arrives 1 ms after the pause.
-    seatMessage(st, 1, { t: 'cmd', seq: 0, cmd: halt(7) }, 1001, mint);
+    // The sender is told, and only the sender: that is the one signal its client has.
+    expect(seatMessage(st, 1, { t: 'cmd', seq: 0, cmd: halt(7) }, 1001, mint)).toEqual([{ kind: 'send', to: 1, msg: { t: 'cmdRefused' } }]);
     seatMessage(st, 0, { t: 'resume' }, 1500, mint);
     expect(frames(clockTick(st, 1550))[0].cmds).toEqual([]);
   });

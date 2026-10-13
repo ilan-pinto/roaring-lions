@@ -156,12 +156,16 @@ describe('hostile fire out of sight (§5.1, the second leak)', () => {
   it('in a versus room, hostile fire with neither end in sight draws nothing', () => {
     expect(fireThrough({ versus: true, viewerSide: 0 }, true)).toBe(0);
   });
-  it('in a versus room, it draws when the shooter or the impact is in sight', () => {
+  it('in a versus room, it draws when the shooter is in sight', () => {
     expect(fireThrough({ versus: true, viewerSide: 0 }, true, [4, 4])).toBeGreaterThan(0);
-    expect(fireThrough({ versus: true, viewerSide: 0 }, true, [11, 4])).toBeGreaterThan(0);
-    // The usual case needs no help: a shot at the seat's own unit lands
-    // where that unit's own eyes put the fog.
-    expect(fireThrough({ versus: true, viewerSide: 0 }, false)).toBeGreaterThan(0);
+  });
+  // N1b follow-up: a target in sight no longer draws a hidden shooter's round
+  // -- the streak starts at the muzzle, and the line back along it is the
+  // shooter. The target tile, and the "usual case" of a shot at the seat's own
+  // unit, whose eyes (sight 1) do not reach the tube 7 tiles off, draw none.
+  it('in a versus room, a hostile shooter it cannot see throws no round, even when the target is in sight', () => {
+    expect(fireThrough({ versus: true, viewerSide: 0 }, true, [11, 4])).toBe(0);
+    expect(fireThrough({ versus: true, viewerSide: 0 }, false)).toBe(0);
   });
   it('in a versus room, own fire always draws, fog or not', () => {
     expect(fireThrough({ versus: true, viewerSide: 1 }, true)).toBeGreaterThan(0);
@@ -453,6 +457,62 @@ describe('a collapse out of sight throws no fireball or shroud in a room (R-N14 
     expect(tunnel({ versus: true, viewerSide: 0 }, undefined)).toBe(0);
     expect(tunnel({ versus: true, viewerSide: 0 }, [18.5, 18.5])).toBe(1);
     expect(all).toBeGreaterThan(1);
+  });
+});
+
+describe('a hidden shooter\'s muzzle flash and direct-fire streak stay hidden when only its target is seen (N1b follow-up)', () => {
+  interface FirePrivates {
+    fog: Uint8Array;
+    tracers: unknown[];
+    bolts: unknown[];
+    flashLights: { liveCount: number };
+    spawnFlatFx(x: number, y: number, color: string, size: number, life: number): void;
+  }
+  const fp = (r: ThreeRenderer): FirePrivates => r as unknown as FirePrivates;
+
+  /** The side-1 squad's first shot, with the fog set up as the case asks:
+   *  `shooterSeen` reveals the shooter's tile (4, 4), `targetSeen` the target's
+   *  (11, 4); everything else is dark. Returns what the shot drew. */
+  function shot(room: Room, shooterSeen: boolean, targetSeen: boolean): { streaks: number; flashes: number } {
+    const { sim, events } = sideOneFires();
+    const r = new ThreeRenderer(sim, makeOpts(room));
+    r.snapshot();
+    fp(r).fog.fill(0);
+    if (shooterSeen) reveal(r, 4, 4);
+    if (targetSeen) reveal(r, 11, 4);
+    // No emitter set is loaded: a visible muzzle falls back to flat puffs,
+    // which is the same `muzzleShown` gate the particle layers and the light sit behind.
+    const puffs = vi.spyOn(fp(r), 'spawnFlatFx');
+    // The `fire` events alone: a miss or a hit on a target in sight throws its
+    // own flat flash at the TARGET, which is not what is asked here.
+    r.onEvents(events.filter((e) => e.kind === 'fire'));
+    const out = { streaks: fp(r).tracers.length + fp(r).bolts.length, flashes: puffs.mock.calls.length };
+    r.dispose();
+    return out;
+  }
+
+  it('single-player draws the flash and the streak whatever the fog, as main does', () => {
+    for (const [a, b] of [[false, false], [false, true], [true, false], [true, true]] as const) {
+      const out = shot({}, a, b);
+      expect(out.streaks, `${a}/${b}`).toBeGreaterThan(0);
+      expect(out.flashes, `${a}/${b}`).toBeGreaterThan(0);
+    }
+  });
+  it('a versus seat sees neither when the hostile shooter is hidden, target seen or not', () => {
+    expect(shot({ versus: true, viewerSide: 0 }, false, true)).toEqual({ streaks: 0, flashes: 0 });
+    expect(shot({ versus: true, viewerSide: 0 }, false, false)).toEqual({ streaks: 0, flashes: 0 });
+  });
+  it('a versus seat sees both once the shooter is in sight', () => {
+    for (const targetSeen of [false, true]) {
+      const out = shot({ versus: true, viewerSide: 0 }, true, targetSeen);
+      expect(out.streaks, `target ${targetSeen}`).toBeGreaterThan(0);
+      expect(out.flashes, `target ${targetSeen}`).toBeGreaterThan(0);
+    }
+  });
+  it('a versus seat always sees its own shot, fog or not', () => {
+    const out = shot({ versus: true, viewerSide: 1 }, false, false);
+    expect(out.streaks).toBeGreaterThan(0);
+    expect(out.flashes).toBeGreaterThan(0);
   });
 });
 

@@ -45,6 +45,8 @@ export interface WsTransportHooks {
   /** A seat paused: how long the room will hold the pause, and each seat's pauses left. */
   onPaused?(seat: Seat, remainingMs: number, pausesLeft: [number, number]): void;
   onChat?(seat: Seat, text: string): void;
+  /** The room dropped a command this seat sent, because a pause was in force (an order in flight when it began). */
+  onCmdRefused?(): void;
   onError?(code: string): void;
 }
 
@@ -257,6 +259,7 @@ export class WsTransport implements MatchTransport {
         this.hooks.onPaused?.(msg.seat, msg.remainingMs, msg.pausesLeft);
         return;
       case 'chat': this.hooks.onChat?.(msg.seat, msg.text); return;
+      case 'cmdRefused': this.hooks.onCmdRefused?.(); return;
       case 'resume': this.setStalled(null); this.st = { kind: 'live', behind: this.clock.behind() }; return;
       case 'hashOk': this.counts.hashOk.count++; this.counts.hashOk.lastTick = msg.tick; return;
       case 'desync':

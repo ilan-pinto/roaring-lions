@@ -23,7 +23,9 @@ export function structureBarVisible(versus: boolean, ownBuilding: boolean, inSig
 }
 
 /** A one-shot effect at a place (the smoke launcher's pop, a collapse's
- *  fireball and shroud): drawn when it is the seat's own, or in sight.
+ *  fireball and shroud; since the N1b follow-up also a shot's muzzle flash,
+ *  light, backblast and the direct-fire round that leaves the muzzle, asked
+ *  with the SHOOTER's fog): drawn when it is the seat's own, or in sight.
  *  Single-player (versus false) answers true everywhere. */
 export function hostileEffectVisible(versus: boolean, own: boolean, inSight: boolean): boolean {
   return !versus || own || inSight;

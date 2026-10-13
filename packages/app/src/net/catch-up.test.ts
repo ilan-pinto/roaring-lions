@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
-import { catchUpTicks, tickCostEma, roomTickCap, MAX_CATCHUP_TICKS } from './catch-up';
+import { CatchUpQuiet, QUIET_BEHIND_TICKS, catchUpTicks, tickCostEma, roomTickCap, MAX_CATCHUP_TICKS } from './catch-up';
 
 describe('catchUpTicks', () => {
   it('nothing behind runs nothing', () => {
@@ -67,5 +68,73 @@ describe('roomTickCap', () => {
     expect(roomTickCap({ kind: 'local' }, 0.25, 6000)).toBe(MAX_CATCHUP_TICKS);
     expect(roomTickCap({ kind: 'desync', tick: 40 }, 0.25, 6000)).toBe(MAX_CATCHUP_TICKS);
     expect(roomTickCap({ kind: 'closed', reason: 'left' }, 0.25, 6000)).toBe(MAX_CATCHUP_TICKS);
+  });
+});
+
+// N1b follow-up: a rejoin runs the room's whole log in seconds; the ticks far
+// behind the live edge are presented silently and the last second plays out
+// as it happened.
+describe('CatchUpQuiet', () => {
+  function run(held: number, ticks: number): boolean[] {
+    const q = new CatchUpQuiet();
+    q.begin(held);
+    return Array.from({ length: ticks }, () => q.next());
+  }
+
+  it('a batch of 100 held frames is quiet until 20 are left behind the tick, then plays', () => {
+    const out = run(100, 100);
+    // The tick with 21 held (20 behind it) is the first that plays.
+    expect(out.indexOf(false)).toBe(100 - (QUIET_BEHIND_TICKS + 1));
+    expect(out.filter((q) => q).length).toBe(100 - (QUIET_BEHIND_TICKS + 1));
+    expect(out.slice(out.indexOf(false)).every((q) => !q)).toBe(true);
+  });
+  it('a 12,000-tick replay is quiet for all but its last second', () => {
+    const out = run(12_000, 12_000);
+    expect(out.filter((q) => !q).length).toBe(QUIET_BEHIND_TICKS + 1);
+    expect(out.slice(0, 11_000).every((q) => q)).toBe(true);
+  });
+  it('ordinary play is never quiet: the live seat holds a handful of frames at most', () => {
+    for (const held of [0, 1, 2, 4, 8, 21]) expect(run(held, held + 3).some((q) => q), `held ${held}`).toBe(false);
+  });
+  it('one past the line is the smallest backlog that mutes its first tick', () => {
+    expect(run(QUIET_BEHIND_TICKS + 1, 1)).toEqual([false]);
+    expect(run(QUIET_BEHIND_TICKS + 2, 2)).toEqual([true, false]);
+  });
+  it('a bad backlog (NaN, negative) reads as none, and running past the end stays live', () => {
+    expect(run(Number.NaN, 3)).toEqual([false, false, false]);
+    expect(run(-5, 3)).toEqual([false, false, false]);
+    expect(run(2, 10).every((q) => !q)).toBe(true);
+  });
+  it('each batch starts from its own backlog', () => {
+    const q = new CatchUpQuiet();
+    q.begin(500);
+    expect(q.next()).toBe(true);
+    q.begin(0);
+    expect(q.next()).toBe(false);
+  });
+});
+
+describe('main.ts wires the quiet catch-up', () => {
+  const main = readFileSync(new URL('../main.ts', import.meta.url), 'utf8');
+  const tick = main.slice(main.indexOf('const runTick = (): void => {'), main.indexOf('intelMoments?.beforeTick(sim);') + 400);
+  it('stepFrames starts each batch from the room\'s backlog, and 0 outside a room', () => {
+    const step = main.slice(main.indexOf('const stepFrames = (maxTicks: number): number => {'), main.indexOf('const { ran, dropped } = runFrames'));
+    expect(step).toContain('catchUpQuiet.begin(room?.behind() ?? 0);');
+  });
+  it('runTick asks once per tick, drops the renderer\'s bursts, and mutes audio and voice', () => {
+    expect(tick).toContain('tickQuiet = catchUpQuiet.next();');
+    const body = main.slice(main.indexOf('const runTick = (): void => {'), main.indexOf('// PA-25: a Free Play sandbox has no runtime'));
+    expect(body).toContain('renderer.setQuiet?.(tickQuiet);');
+    expect(body).toContain('renderer.setQuiet?.(false);');
+    expect(body).toContain('if (!tickQuiet) audio.onEvents(events, sim);');
+    expect(body).toContain('if (!tickQuiet) voice.onTick(events);');
+    expect(body.indexOf('renderer.setQuiet?.(tickQuiet);')).toBeLessThan(body.indexOf('renderer.onEvents(events);'));
+    expect(body.indexOf('renderer.onEvents(events);')).toBeLessThan(body.indexOf('renderer.setQuiet?.(false);'));
+  });
+  it('the mission voice and the alert layer stand down too, the alert\'s state still kept', () => {
+    expect(main).toContain('if (!tickQuiet) voice.onMission(missionEvents, intelAnnounce);');
+    const alerts = main.slice(main.indexOf('const announceAlerts = '), main.indexOf('// --- fixed-tick loop'));
+    expect(alerts.indexOf('alertState = result.state;')).toBeLessThan(alerts.indexOf('if (tickQuiet) return;'));
+    expect(alerts.indexOf('if (tickQuiet) return;')).toBeLessThan(alerts.indexOf('audio.playCue(cue)'));
   });
 });

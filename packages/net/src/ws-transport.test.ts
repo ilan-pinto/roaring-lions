@@ -201,6 +201,18 @@ describe('WsTransport', () => {
       { t: 'pause' }, { t: 'resume' }, { t: 'surrender' }, { t: 'chat', text: 'gg' },
     ]);
   });
+  it('a received cmdRefused calls onCmdRefused, once per message, and changes no status', () => {
+    const sock = fakeSocket();
+    let refused = 0;
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {}, onCmdRefused: () => { refused++; } });
+    sock.open();
+    sock.recv({ t: 'start', config: CONFIG });
+    sock.recv({ t: 'paused', seat: 0, remainingMs: 5000, pausesLeft: [2, 3] });
+    sock.recv({ t: 'cmdRefused' });
+    sock.recv({ t: 'cmdRefused' });
+    expect(refused).toBe(2);
+    expect(t.status().kind).toBe('paused');
+  });
   it('a received paused sets the paused status and calls onPaused; the room\'s resume returns to live', () => {
     const sock = fakeSocket();
     const clock = { ms: 1000 };

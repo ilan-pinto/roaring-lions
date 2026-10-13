@@ -81,6 +81,8 @@ describe('N1b messages', () => {
     const paused = { t: 'paused', seat: 1, remainingMs: 90000, pausesLeft: [3, 2] };
     expect(parseServerMsg(JSON.stringify(paused))).toEqual(paused);
     expect(parseServerMsg(JSON.stringify({ t: 'chat', seat: 0, text: 'hi' }))).toEqual({ t: 'chat', seat: 0, text: 'hi' });
+    expect(parseServerMsg(JSON.stringify({ t: 'cmdRefused' }))).toEqual({ t: 'cmdRefused' });
+    expect(parseClientMsg(JSON.stringify({ t: 'cmdRefused' }))).toBeNull();
     const lobby = { t: 'lobby', config: null, seats: [], you: 0, map: 'tel_marum' };
     expect(parseServerMsg(JSON.stringify(lobby))).toEqual(lobby);
     expect(parseServerMsg(JSON.stringify({ t: 'ended', reason: 'surrender', seat: 1 }))).toEqual({ t: 'ended', reason: 'surrender', seat: 1 });

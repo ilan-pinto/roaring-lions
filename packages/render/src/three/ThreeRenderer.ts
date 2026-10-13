@@ -422,6 +422,7 @@ import {
 import { unitIsObserved } from './units/observed';
 import { fireVisible } from './fire-visible';
 import { arcHiddenUntil, hostileEffectVisible, structureBarVisible } from './versus-fog';
+import { isBurstOnlyEvent } from './quiet';
 import { ZoneBandBatch } from './units/zone-band';
 import { ProxyBoxBatch, proxyBoxDims, type ProxyBoxEntry } from './units/proxy-box';
 import {
@@ -974,6 +975,8 @@ export class ThreeRenderer implements Renderer {
    *  fog. False in single-player, where every one of those gates is skipped
    *  and the picture and the click are exactly what they were before. */
   private readonly versus: boolean;
+  /** `setQuiet`: the tick being presented is far behind the live edge. */
+  private quiet = false;
   /** The scene's sun and sky bounce (`lighting.ts`). Built in the
    *  constructor, not `init`, because every material in this scene is a
    *  `MeshStandardMaterial` now: a scene with no lights in it is not a
@@ -2884,6 +2887,11 @@ export class ThreeRenderer implements Renderer {
     await Promise.resolve();
   }
 
+  /** `Renderer.setQuiet` (`api.ts`): see `quiet.ts` for what `onEvents` drops. */
+  setQuiet(quiet: boolean): void {
+    this.quiet = quiet;
+  }
+
   /** `Renderer.reseed` (`api.ts`): `init`'s own seeding, run again against
    *  the sim as it stands now. Nothing else -- see `seedFromSim`. */
   reseed(): void {
@@ -4375,6 +4383,11 @@ export class ThreeRenderer implements Renderer {
   onEvents(events: SimEvent[]): void {
     const st = this.sim.state;
     for (const e of events) {
+      // A tick far behind the live edge (`setQuiet`) throws no burst: the
+      // events whose whole effect is a one-shot flash, round or puff are
+      // dropped here, and the ones that leave something standing (a wreck, a
+      // collapsed building, a discovered route) still run below.
+      if (this.quiet && isBurstOnlyEvent(e.kind)) continue;
       if (e.kind === 'fire') this.onFire(e);
       else if (e.kind === 'nearMiss') {
         const nx = fx.toNumber(e.x);
@@ -4503,14 +4516,19 @@ export class ThreeRenderer implements Renderer {
           // a tan cloud, read as "a brown dust puff". The collapse had the
           // identical defect and the identical fix (VR-22); this is the same
           // pooled burst, its own size, life and colours unchanged.
-          if (this.collapseFlashBursts.ready) {
+          // `burst`: false for a tick far behind the live edge (`setQuiet`) --
+          // the fireball, column, light, shake, freeze and shroud are the
+          // wall-clock one-shots; the scorch, the oil and the smoulder below
+          // are dated off the sim clock and stay.
+          const burst = !this.quiet;
+          if (burst && this.collapseFlashBursts.ready) {
             this.collapseFlashBursts.spawn(dx, worldY, dy, killYawTurns, killPower, EXPLOSION_BURST_DEFAULT_DURATION_MS);
           }
           // The smoke aftermath follows the same hard-target kill -- a
           // burning hull is exactly what a rising column is FOR. Checked
           // live (this task's report) that pairing the two here reads the
           // same way it does for a building collapse, not merely assumed.
-          if (this.smokePlumes.ready) {
+          if (burst && this.smokePlumes.ready) {
             // R-I: the blast window, not the default one. A burning hull is
             // the one thing on this map that is still smoking twenty seconds
             // later, and `SMOKE_PLUME_DEFAULT_DURATION_MS` (4 s) is sized for
@@ -4540,7 +4558,7 @@ export class ThreeRenderer implements Renderer {
           // light/shake/freeze built from defaults nobody authored.
           const blast = this.emitterLibrary.byName(BLAST_EMITTER_ID);
           const blastLight = blastLightSpec(blast, killPower);
-          if (blastLight) {
+          if (burst && blastLight) {
             this.flashLights.spawn(
               dx,
               dy,
@@ -4549,14 +4567,16 @@ export class ThreeRenderer implements Renderer {
               this.overlayColor(blastLight.color ?? 'vfx.fire', FLASH_LIGHT_FALLBACK)
             );
           }
-          this.shakeState = pushShake(this.shakeState, blastShake(blast, killPower), dx, dy);
-          this.hitStop = requestHitStop(this.hitStop, blastHitStopMs(blast, killPower));
+          if (burst) {
+            this.shakeState = pushShake(this.shakeState, blastShake(blast, killPower), dx, dy);
+            this.hitStop = requestHitStop(this.hitStop, blastHitStopMs(blast, killPower));
+          }
           // The ground remembers the kill (spec 3.3): a scorch sized by the
           // blast, and the hull's oil at a fixed size, through the one entry.
           const scorchR = scorchRadiusTiles(killPower);
           this.stampGroundDecal(this.persistentStamp('scorch', dx, dy, scorchR));
           this.stampGroundDecal(this.persistentStamp('oil', dx, dy, OIL_RADIUS_TILES));
-          this.beginVehicleCollapseShroud(deadType.id, dx, dy, worldY);
+          if (burst) this.beginVehicleCollapseShroud(deadType.id, dx, dy, worldY);
           // GH-85: and the hull goes on smouldering after the column clears.
           this.beginWreckSmoulder(e.entity, dx, dy, e.tick);
         }
@@ -4579,6 +4599,9 @@ export class ThreeRenderer implements Renderer {
         // with the blast (`eod_breach`).
         if (this.detonateChargeOnStructure(e.by, hitStruct, e.tick)) {
           // The blast is the whole effect.
+        } else if (this.quiet) {
+          // A tick far behind the live edge: the building's damage above is
+          // kept, the dust it threw is not.
         } else if (!isGrindingHit(this.sim, e.by, hitStruct)) {
           this.spawnFlatFx(
             fx.toNumber(this.sim.structures.cx[hitStruct]),
@@ -4638,11 +4661,12 @@ export class ThreeRenderer implements Renderer {
         // wreck stands when the tile is next seen. FOOTPRINT visibility, not
         // `structureInSight`: that one asks `structureAt`, which no longer
         // answers for a dead structure (R-B15). Single-player throws it all.
-        const collapseSeen = hostileEffectVisible(
-          this.versus,
-          this.structureIsOwn(deadStruct),
-          this.footprintInSight(deadStruct)
-        );
+        // A tick far behind the live edge (`setQuiet`) throws none of it
+        // either, whoever the building was: the rubble and the surface above
+        // and below are the state, and stay.
+        const collapseSeen =
+          !this.quiet &&
+          hostileEffectVisible(this.versus, this.structureIsOwn(deadStruct), this.footprintInSight(deadStruct));
         // The shroud, and the swap hold it exists to cover. Spawned HERE and
         // not from `spawnCollapseFx`, deliberately: this effect is sized from
         // the STRUCTURE's own world extents, and `spawnCollapseFx` knows only
@@ -4743,6 +4767,21 @@ export class ThreeRenderer implements Renderer {
         this.isVisible(tx, ty)
       );
 
+    // N1b follow-up to leak 4: a hostile shooter the seat cannot see leaves
+    // no flash, light, backblast or flying direct-fire round, even when its
+    // TARGET is in sight (`seen` above) -- they all start at the muzzle, and
+    // drawing one marks the hidden tube. What lands on the target (the hit
+    // flash, the outline, the audio) is untouched, and an arcing round keeps
+    // its own rule below (it appears at its apex). `hostileEffectVisible`
+    // answers true outside a room, so single-player draws every shot as
+    // before; the fog read is skipped there too.
+    const shooterShown = hostileEffectVisible(
+      this.versus,
+      isOwnSide(st.side[e.shooter], this.viewer),
+      this.versus && this.isVisible(this.curX[e.shooter], this.curY[e.shooter])
+    );
+    const muzzleShown = seen && shooterShown;
+
     const type = this.sim.unitTypes[st.typeIdx[e.shooter]];
     // Which weapon fired decides the signature, not whether the shooter is
     // soft (renderer.ts:785-791). Resolved here, at the top, rather than
@@ -4770,7 +4809,10 @@ export class ThreeRenderer implements Renderer {
     // renderer's own selection, never fed back (invariant 4).
     const linked = isOwnSide(st.side[e.shooter], this.viewer) && this.selection.includes(e.shooter);
     let flightS: number | null = null;
-    if (seen && shellKind === null) {
+    // A round that flies from the muzzle needs the muzzle shown; an arc is
+    // gated by `hiddenUntil` further down instead and keeps `seen` alone.
+    const roundShown = shellKind !== null && shellKind !== 'missile' && isIndirectShell(shellKind) ? seen : muzzleShown;
+    if (muzzleShown && shellKind === null) {
       this.tracers.push(spawnTracer(this.curX[e.shooter], this.curY[e.shooter], tx, ty, st.side[e.shooter]));
     }
     // GH-85 (`eod_breach`): a demolition charge is in the air until the sim
@@ -4808,7 +4850,7 @@ export class ThreeRenderer implements Renderer {
       // dust and flame).
       const launchers = armed.filter((f) => f.recoil === 'launcher');
       const fromTube = launchers.length > 0 && shellKind === 'missile';
-      if (fromTube && seen) this.spawnBackblast(e.shooter, Math.atan2(ty - this.curY[e.shooter], tx - this.curX[e.shooter]));
+      if (fromTube && muzzleShown) this.spawnBackblast(e.shooter, Math.atan2(ty - this.curY[e.shooter], tx - this.curX[e.shooter]));
       const pool = fromTube ? launchers : armed;
       if (pool.length > 0) {
         const shot = squadRig.shots++;
@@ -4893,8 +4935,9 @@ export class ThreeRenderer implements Renderer {
     // Y here would freeze the arc's baseline to whatever the muzzle
     // happened to sit at, which is wrong the moment a shot crosses a
     // terrace.
-    if (!seen) {
-      // A versus seat with neither end of this shot in sight: no round (§5.1).
+    if (!roundShown) {
+      // A versus seat with neither end of this shot in sight: no round (§5.1);
+      // or a direct round whose hostile shooter it cannot see.
     } else if (shellKind === 'missile') {
       // GH-250: a missile is MissileFx's, not a bolt -- see units/missiles.ts.
       // The DURATION uses the shooter-centre distance the sim counts (P-1);
@@ -4989,7 +5032,7 @@ export class ThreeRenderer implements Renderer {
     // resolved through the same `overlayColor` every other palette-key
     // consumer in this file already uses, falling back to `vfx.fire`'s own
     // shipped `#FFB43C` if the key is missing.
-    if (seen && emitter?.light) {
+    if (muzzleShown && emitter?.light) {
       const light = emitter.light;
       this.flashLights.spawn(
         mzX,
@@ -5009,7 +5052,7 @@ export class ThreeRenderer implements Renderer {
       this.recoilPower[e.shooter] = power;
     }
 
-    if (seen && emitter && this.particleSystem) {
+    if (muzzleShown && emitter && this.particleSystem) {
       const dirTurns = facingRad / (Math.PI * 2);
       const prio = emitter.budget_priority ?? 5;
       for (const layer of emitter.particles) {
@@ -5046,7 +5089,7 @@ export class ThreeRenderer implements Renderer {
         const fxLayer = fxLayerIndex(emitter.layer, layer.additive ?? false);
         this.particleSystem.spawn(layer, mzX, mzY, dirTurns + offset, power, prio, fxLayer);
       }
-    } else if (seen && !airLaunch) {
+    } else if (muzzleShown && !airLaunch) {
       // No emitter authored for this weapon class yet: the flat-colour
       // fallback Pixi's own `puffs` stand in with (renderer.ts:811-818),
       // reproduced through the SAME ParticleSystem pool real emitters use

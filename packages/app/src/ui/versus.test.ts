@@ -135,6 +135,34 @@ describe('showVersus (/versus)', () => {
     expect(d.saved).toEqual(['Gal']);
   });
 
+  it('cleans the callsign as the room will: change shows and saves the cleaned name, and the prefill is cleaned (N1b follow-up)', () => {
+    const stage = document.createElement('div');
+    const d = deps();
+    showVersus(stage, d);
+    const input = stage.querySelector<HTMLInputElement>('.rl-versus__callsign')!;
+    input.value = '  G\u202Eal\u0000  ＢＯ ';
+    input.dispatchEvent(new Event('change'));
+    expect(input.value).toBe('Gal BO');
+    expect(d.saved).toEqual(['Gal BO']);
+    // Nothing usable left: the field empties and the empty name is saved ('Lion' is only where it is sent).
+    input.value = '\u200B\u0007';
+    input.dispatchEvent(new Event('change'));
+    expect(input.value).toBe('');
+    expect(d.saved.at(-1)).toBe('');
+  });
+
+  it('sends the cleaned callsign, and Lion when it is empty', async () => {
+    const stage = document.createElement('div');
+    const { transport } = fakeTransport();
+    const open = vi.fn().mockResolvedValue(opened(transport));
+    showVersus(stage, deps({ open }));
+    const field = stage.querySelector<HTMLInputElement>('.rl-versus__callsign')!;
+    field.value = 'D\u202Eov\u0000';
+    stage.querySelector<HTMLButtonElement>('.rl-versus__open')!.click();
+    await flush();
+    expect((open.mock.calls[0] as [RoomRequest])[0]).toMatchObject({ kind: 'create', callsign: 'Dov' });
+  });
+
   it('selects tel_marum by default and lists the maps by label', () => {
     const stage = document.createElement('div');
     showVersus(stage, deps());

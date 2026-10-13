@@ -410,6 +410,17 @@ export interface Renderer {
   reseed(): void;
   onEvents(events: SimEvent[]): void;
   /**
+   * Presentation only: while on, `onEvents` throws no one-shot burst -- no
+   * flash, round, puff, light, shake, freeze or shroud -- for the events it is
+   * handed, and still keeps every piece of state they carry (a death, a
+   * building's damage or fall, a route found). The app turns it on around a
+   * tick that is far behind the live edge (a rejoin running the room's log), so
+   * minutes of old combat do not all fire in a few frames. Off by default;
+   * OPTIONAL like `onMissionEvents`, for any implementation that draws no
+   * bursts. Reads nothing from the sim and writes nothing to it.
+   */
+  setQuiet?(quiet: boolean): void;
+  /**
    * The other half of "events out": what the MISSION runtime concluded this
    * tick, as opposed to what the sim did.
    *

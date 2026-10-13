@@ -239,8 +239,8 @@ import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { PAUSES_PER_SEAT, WsTransport, type Seat, type TransportStatus } from '@lions/net';
 import { connectMatch, openRoom, type Connected } from './net/connect';
 import { desyncReportDraft, withoutReplay } from './net/desync-report';
-import { escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
-import { roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
+import { blockedOrderNotes, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
+import { CatchUpQuiet, roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
 import { safeStorage as safeStorageLike } from './telemetry/identity';
 import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
 import { roomFlags } from './net/room-flags';
@@ -3112,6 +3112,18 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   if (room !== null && netConfig !== null) {
     room.setHooks({ onChat: (seat, text) => hud.note(chatFeedLine(netConfig.seats[seat].callsign, text), 'info') });
   }
+  /** The feed line for an order that waits for the pause (L-2), from the two
+   *  places that learn of one: the dispatch below (withheld here) and the room
+   *  (an order in flight when the pause began, refused there). */
+  const blockedNotes = room !== null
+    ? blockedOrderNotes(
+        () => room.status(),
+        () => hud.note(t('net.pause.ordersBlocked'), 'warn'),
+        () => audio.playCue(CRITICAL_CUES.uiDeny),
+        () => performance.now()
+      )
+    : null;
+  if (room !== null && blockedNotes !== null) room.setHooks({ onCmdRefused: () => blockedNotes.refused() });
   // Pass K: a /free-play/<id> link naming no shipped map still loads the
   // default ground (a typo in a dev URL should not look like a broken build),
   // but the PLAYER is told, by name -- it used to be a console line only, and
@@ -3848,7 +3860,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       sim
     );
     if (refused) {
-      hud.note(t('net.pause.ordersBlocked'), 'warn');
+      blockedNotes?.blocked();
       return;
     }
     for (const fn of intentListeners) fn(intent);
@@ -4639,8 +4651,18 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  saying; this decides WHERE it goes): the feed line, the minimap ring, the
    *  jump key, and one cue. Shared by a mission and a Free Play sandbox, so
    *  the two can never word or place the same loss differently. */
+  /** The quiet catch-up (N1b follow-up, `net/catch-up.ts`): which ticks of a
+   *  batch are far behind the live edge, and whether the one being run is.
+   *  Presentation only -- nothing the sim reads. Single-player holds no
+   *  backlog, so it is never quiet. */
+  const catchUpQuiet = new CatchUpQuiet();
+  let tickQuiet = false;
   const announceAlerts = (result: { state: AlertState; alerts: Alert[] }): void => {
     alertState = result.state;
+    // An alert from a tick far behind the live edge is history: its cooldown
+    // state above is kept, and its chime, voice hush, feed line and minimap
+    // flash are not (a rejoin's replay would otherwise fill the feed).
+    if (tickQuiet) return;
     // One cue for the tick, the most urgent (`tickCue`): two chimes at once
     // read as noise. The feed below still carries every line.
     const cue = tickCue(result.alerts.map((a) => a.cue));
@@ -4662,12 +4684,17 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const runTick = (): void => {
     intelMoments?.beforeTick(sim);
     const events = sim.tick();
+    tickQuiet = catchUpQuiet.next();
     renderer.snapshot();
+    // A tick far behind the live edge throws no burst, plays no sound and
+    // speaks no line; the state the same events carry is kept (net/catch-up.ts).
+    renderer.setQuiet?.(tickQuiet);
     renderer.onEvents(events);
+    renderer.setQuiet?.(false);
     audio.setListener(renderer.camera);
-    audio.onEvents(events, sim);
+    if (!tickQuiet) audio.onEvents(events, sim);
     pinnedSince.onEvents(events);
-    voice.onTick(events);
+    if (!tickQuiet) voice.onTick(events);
     // PA-25: a Free Play sandbox has no runtime, and the alert layer below
     // used to run only beside one -- so a sandbox fight left the feed empty.
     // The sim half of the layer needs nothing a mission has; the one mission
@@ -4688,7 +4715,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       renderer.onMissionEvents?.(missionEvents);
       if (tickIsActive(events, missionEvents, me)) stallActive = true;
       const intelAnnounce = intelMoments ? sayIntel(intelMoments.afterTick(sim, sim.tickCount, events, runtime.intel)) : [];
-      voice.onMission(missionEvents, intelAnnounce);
+      if (!tickQuiet) voice.onMission(missionEvents, intelAnnounce);
 
       // The alert layer (spec acceptance (a)): one classification of the tick,
       // four consequences, all in one place so a line, a cue and a mark can
@@ -5356,6 +5383,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       : {}),
   };
   const stepFrames = (maxTicks: number): number => {
+    // What is still waiting behind the first tick of this batch: the room's
+    // backlog (a rejoin's log), nothing in single-player.
+    catchUpQuiet.begin(room?.behind() ?? 0);
     const { ran, dropped } = runFrames(frameStep, maxTicks);
     if (dropped > 0) console.warn(`[net] dropped ${dropped} command(s) naming units this seat does not command (tick ${sim.tickCount})`);
     return ran;

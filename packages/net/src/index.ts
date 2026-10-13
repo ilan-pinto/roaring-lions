@@ -6,3 +6,4 @@ export * from './lockstep';
 export * from './ownership';
 export * from './transport';
 export * from './ws-transport';
+export * from './callsign';
