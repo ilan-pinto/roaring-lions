@@ -297,7 +297,7 @@ the Peten" reads 97% against 100% (one seed of 30), which nobody has ruled on.
 
 ### Zikit: first tick a `militia_cell` identifies the unit (open ground, 20 seeds, 20 ticks/s)
 
-Median first-identified tick (every seed gave the same tick except `inf_squad` firing at 8):
+Median first-identified tick (every seed gave the same tick):
 
 | mode | unit | 4 tiles | 6 tiles | 8 tiles (non-claim) |
 |---|---|---|---|---|
@@ -306,7 +306,7 @@ Median first-identified tick (every seed gave the same tick except `inf_squad` f
 | hold | `inf_squad` | 38 | 86 | never |
 | fire | `recon_zikit` | 69 | 156 | never |
 | fire | `sniper_team` | 38 | 86 | never |
-| fire | `inf_squad` | 38 | 86 | 578 (526-642) |
+| fire | `inf_squad` | 38 | 86 | never (0/20) |
 
 "hold" registers the unit with no weapons; "fire" as drafted. Claims (all met, at 4 and 6 tiles):
 the Zikit is found later than `inf_squad` holding and firing, and later than `sniper_team` once
@@ -320,6 +320,8 @@ Bands (±15% of the measured tick): hold 4 tiles [78, 106], hold 6 tiles [178, 2
 holding fire is ever found there, and outside the Zikit's carbines (6), so it never fires there
 either. A band frozen on them would be vacuous.
 
-**Finding, not investigated:** `inf_squad` firing at 8 tiles IS identified (median tick 578),
-beyond the militia's 7-tile sight. Some under-fire reaction -- movement or a reveal -- lets the
-militia find a shooter it cannot see. Recorded, not explained.
+**Finding, resolved:** `inf_squad` firing at 8 tiles used to be identified (median tick 578, then
+582 (530-646) once #402 made both units brace), beyond the militia's 7-tile sight. GH-291: the
+militia routed -x into its own sight; fixed in Stage 4. A unit pinned by fire it cannot see now
+runs away from where that fire came from, so the militia, which stands east of the squad, runs
+east and never closes to 7 tiles: `never`, 0 of 20 seeds, re-measured with both units bracing.
