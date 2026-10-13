@@ -3411,7 +3411,17 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // - Wadi Halam V 210 -> 200: the sim alone, and its HOLD branch (putting -x back in the hold's place
 //   restores 210); no plan touched it. Done in 5.4 min instead of 5.8, roster out 19 both ways.
 // No star moved, and neither did any gate.
-const LADDER_CREDITS = 5952;
+// 2026-10-13, #584: hits, bounces and splash suppress (BOUNCE_SUPP_MULT x2.0, not 2/65536), a
+// bounce off armour the round could never penetrate is harmless, and SUPP_STAT_DIVISOR is 730.
+// 5952 -> 6025, +73, read off the printed per-mission credits:
+// - Beit Sahwan breach 170 -> 180, I 290 -> 300, III 270 -> 275, IV 210 -> 200;
+// - Khan Rafid I 300 -> 310, III 265 -> 260; Qarn Hadid II 190 -> 210, III 225 -> 235;
+// - Umm Zeitoun III 270 -> 280, IV 232 -> 245; Wadi Halam II 180 -> 190, V 200 -> 190.
+// The model alone, except Umm Zeitoun IV: its re-planned script (see its comment) reads 245 where
+// the old script read 249 on the new model. The other three re-plans (Qarn Hadid III, Khan Rafid
+// III, Wadi Halam V) leave the pinned seed's credits where the model put them. No star moved, and
+// every gate opens on time on 30/30 seeds.
+const LADDER_CREDITS = 6025;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
