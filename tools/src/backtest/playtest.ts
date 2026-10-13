@@ -3286,7 +3286,15 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // - Qarn Hadid II 200 -> 190 and III 235 -> 225: the Kornet's reach, and the foot that now hunt it
 //   off the engineers' road.
 // No star moved, and the apc_kipod gate opens on time on 30/30 seeds.
-const LADDER_CREDITS = 5972;
+// 2026-10-13, GH-291: a routed unit no longer runs -x. It runs from the last hostile fire, or holds
+// when there is none (a raider shaken only by its own side's rounds). 5972 -> 5952, -20, read off
+// the printed per-mission credits.
+// - Wadi Halam II 190 -> 180: the re-scripted plan (see its comment) holds the corner and searches a
+//   stalled hold instead of chasing to the pasture's far corner; roster out 10 -> 9.
+// - Wadi Halam V 210 -> 200: the sim alone, and its HOLD branch (putting -x back in the hold's place
+//   restores 210); no plan touched it. Done in 5.4 min instead of 5.8, roster out 19 both ways.
+// No star moved, and neither did any gate.
+const LADDER_CREDITS = 5952;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
