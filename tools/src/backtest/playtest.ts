@@ -2567,16 +2567,30 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
   // exactly 5s of standing charges once a demolisher is within 2 tiles --
   // `demolish` is a hold-station timer, not a damage race, so 7,500 hp
   // comes down as fast as two squads can walk to three doors.
-  const depotEscort = [...ids('mbt_lavi'), ...ids('apc_eitan')];
+  const lavi = ids('mbt_lavi');
+  const eitan = ids('apc_eitan');
+  const depotEscort = [...lavi, ...eitan];
   at(1, () => {
-    // The escort's attack-move to (33, 8), beside the porters at (32.5, 7.5), is
+    // The tanks' attack-move to (33, 8), beside the porters at (32.5, 7.5), is
     // what walks them out: a GROUND player unit within four tiles (GH-279 ruling
     // a). The drone does not move them -- CivilianFlight skips aircraft -- and
     // it is not ordered here at all (GH-382, see t=50). Measured on the
     // pinned-seed line: `get_the_porters_clear` (a secondary) is complete (c) at
     // the victory at base tier, and still active (a) at the victory at max tier.
-    sim.queueCommand({ kind: 'attackMove', ids: depotEscort, ...M(33, 8) });
+    sim.queueCommand({ kind: 'attackMove', ids: lavi, ...M(33, 8) });
   });
+  // The armour climbs to the shelf in single file up x=33 (measured: every hull on x=33.0). Sent as one
+  // group, the faster Eitans lead,
+  // and since a hit suppresses (2026-10-13) the lead Eitan is pinned at y=17 by the RCL and ATGM in
+  // the yard and corks the ramp: on seed 5 both Lavis sat behind it at y=21 for 150 s. So the tanks
+  // lead, and the carriers follow four tiles behind the rear tank until it reaches the yard.
+  for (let when = 1; when <= 120; when += 5)
+    at(when, () => {
+      const tanks = lavi.filter((u) => sim.state.alive[u] === 1).map((u) => fx.toNumber(sim.state.posY[u]));
+      const ys = Math.max(...tanks, -Infinity);
+      if (tanks.length === 0 || ys <= 10) sim.queueCommand({ kind: 'attackMove', ids: eitan, ...M(33, 8) });
+      else sim.queueCommand({ kind: 'attackMove', ids: eitan, ...M(33, Math.min(40, ys + 4)) });
+    });
   // GH-382: the spur's eye covers the ramp, so a drone sent at t=1 is shot down on the way up; it
   // follows the escort in once the spur is clear.
   at(50, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(33.5, 8.5) }));
@@ -2586,10 +2600,26 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
     [[30, 4], [36, 3], [34, 9]],
     [[36, 3], [30, 4], [34, 9]],
   ];
-  for (let when = 45; when <= 285; when += 15)
+  // Since a hit suppresses (2026-10-13) a demolition party that walks onto the shelf while the depot's
+  // garrison still stands is pinned at the first door and dies there: on seed 2 the parties overtook
+  // an escort halted at y=17-21 and both were dead by t=115, the stockpile untouched. So the parties
+  // wait behind the escort at (33,22) until the player's own picture says the yard is his: armour
+  // standing in it, and nothing he has seen still standing around the doors. If that has not
+  // happened by t=200 they go anyway -- the clock is 300 s.
+  const DEPOT = [26, 1, 15, 14] as const;
+  const yardHeld = (): boolean =>
+    depotEscort.some((u) => sim.state.alive[u] === 1 && (fx.toNumber(sim.state.posX[u]) - 33) ** 2 + (fx.toNumber(sim.state.posY[u]) - 8) ** 2 <= 25);
+  for (let when = 45; when <= 285; when += 5)
     at(when, () => {
+      if (rt.objectiveStatus('raze_the_stockpile') !== 'active') return;
+      const go = (yardHeld() && pic.contacts(DEPOT).length === 0) || when >= 200;
       demo.forEach((u, k) => {
         if (sim.state.alive[u] !== 1) return;
+        if (!go) {
+          if (when % 15 === 0) sim.queueCommand({ kind: 'move', ids: [u], ...M(32.5 + k, 22) });
+          return;
+        }
+        if (when % 15 !== 0 && sim.state.moving[u] === 1) return;
         const door = (doors[k] ?? doors[0]).find(([x, y]) => sim.structureAt(x, y) >= 0);
         if (door) sim.queueCommand({ kind: 'demolish', ids: [u], structure: sim.structureAt(door[0], door[1]) });
       });
