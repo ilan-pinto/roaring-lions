@@ -39,6 +39,14 @@ describe('showNetEnd', () => {
     expect([title(), reason()]).toEqual(['Victory', 'They left the match']);
   });
 
+  it('a forfeit names the reason on the winner\'s panel, and the dropper reads its own side of it', () => {
+    showNetEnd(document.body, { kind: 'won', side: 0, by: 'forfeit' }, 0, deps());
+    expect([title(), reason()]).toEqual(['Victory', 'They disconnected']);
+    document.body.innerHTML = '';
+    showNetEnd(document.body, { kind: 'won', side: 0, by: 'forfeit' }, 1, deps());
+    expect([title(), reason()]).toEqual(['Defeat', 'You disconnected']);
+  });
+
   it('a draw reads Draw, mutual or on time, for either viewer', () => {
     showNetEnd(document.body, { kind: 'draw', by: 'mutual' }, 1, deps());
     expect([title(), reason()]).toEqual(['Draw', 'Both forces destroyed']);

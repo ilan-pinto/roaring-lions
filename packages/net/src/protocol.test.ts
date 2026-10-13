@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseClientMsg, parseServerMsg, MAX_MESSAGE_BYTES, MAX_CMD_IDS, OVER_CLOSE_MS } from './protocol';
+import { endingLoser, parseClientMsg, parseServerMsg, FORFEIT_MS, MAX_MESSAGE_BYTES, MAX_CMD_IDS, OVER_CLOSE_MS } from './protocol';
 import type { MatchConfig } from './config';
 
 const CFG: MatchConfig = {
@@ -159,5 +159,23 @@ describe('the room closes itself after the result (L-1, R-B26)', () => {
   });
   it('closes two minutes after the result', () => {
     expect(OVER_CLOSE_MS).toBe(120_000);
+  });
+
+  it('parses dropped, back and ended forfeit, and refuses them malformed', () => {
+    expect(parseServerMsg(JSON.stringify({ t: 'dropped', seat: 1, remainingMs: 60_000 }))).toEqual({ t: 'dropped', seat: 1, remainingMs: 60_000 });
+    expect(parseServerMsg(JSON.stringify({ t: 'dropped', seat: 2, remainingMs: 1 }))).toBeNull();
+    expect(parseServerMsg(JSON.stringify({ t: 'dropped', seat: 1, remainingMs: -1 }))).toBeNull();
+    expect(parseServerMsg(JSON.stringify({ t: 'dropped', seat: 1 }))).toBeNull();
+    expect(parseServerMsg(JSON.stringify({ t: 'back', seat: 0 }))).toEqual({ t: 'back', seat: 0 });
+    expect(parseServerMsg(JSON.stringify({ t: 'back' }))).toBeNull();
+    expect(parseServerMsg(JSON.stringify({ t: 'ended', reason: 'forfeit', seat: 0 }))).toEqual({ t: 'ended', reason: 'forfeit', seat: 0 });
+    expect(FORFEIT_MS).toBe(60_000);
+  });
+  it('endingLoser: a surrender, a leave and a forfeit name who lost; anything else, or no seat, names nobody', () => {
+    expect(endingLoser('surrender', 1)).toBe(1);
+    expect(endingLoser('left', 0)).toBe(0);
+    expect(endingLoser('forfeit', 1)).toBe(1);
+    expect(endingLoser('left', undefined)).toBeNull();
+    for (const r of ['void', 'expired', 'over']) expect(endingLoser(r, 0)).toBeNull();
   });
 });

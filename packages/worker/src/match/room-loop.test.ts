@@ -11,7 +11,7 @@
  * after the transport has installed its handlers, as a browser's would.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { LOG_PART_CHARS, OVER_CLOSE_MS, RECONNECT_DELAY_MS, WsTransport, type Frame, type MatchConfig, type Seat, type ServerMsg, type SocketLike } from '@lions/net';
+import { endingLoser, FORFEIT_MS, LOG_PART_CHARS, OVER_CLOSE_MS, RECONNECT_DELAY_MS, WsTransport, type Frame, type MatchConfig, type Seat, type ServerMsg, type SocketLike } from '@lions/net';
 import type { Env } from '../d1';
 import { FakeState, deliverAlarm, deliverClose, openSocket, type FakeSocket } from './fake-do';
 import { MatchRoom, PURGE_AFTER_MS, TICK_MS } from './match-room';
@@ -83,12 +83,14 @@ class Player {
   readonly configs: MatchConfig[] = [];
   readonly lobbies: Seat[] = [];
   readonly desyncs: [number, [number, number]][] = [];
+  readonly endings: { reason: string; seat?: Seat }[] = [];
   readonly t: WsTransport;
   constructor(loop: Loop, ticket: string, public digest: (tick: number) => number | null) {
     this.t = new WsTransport(loop.open, ticket, BUILD, {
       onStart: (c) => { this.configs.push(c); },
       onLobby: (_seats, you) => { this.lobbies.push(you); },
       onDesync: (tick, hashes) => { this.desyncs.push([tick, hashes]); },
+      onEnded: (reason, seat) => { this.endings.push(seat === undefined ? { reason } : { reason, seat }); },
     });
   }
   pump(max = 10): void {
@@ -105,11 +107,11 @@ const sameHash = (tick: number): number | null => (tick % 20 === 19 ? 0x5eed : n
 interface Match { state: FakeState; loop: Loop; p0: Player; p1: Player }
 /** The watchdog fires as the runtime would: whenever the scheduled time has come, on the fake clock. */
 const watchdogs = new WeakMap<Loop, FakeState>();
-async function setUp(digest1: (tick: number) => number | null = sameHash): Promise<Match> {
+async function setUp(digest1: (tick: number) => number | null = sameHash, mode?: 'versus'): Promise<Match> {
   const state = new FakeState();
   const room = new MatchRoom(state, env);
   const res = await room.fetch(new Request('https://room/create', {
-    method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD, player: 'Host', callsign: 'Host' }),
+    method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD, player: 'Host', callsign: 'Host', ...(mode ? { mode } : {}) }),
   }));
   expect(res.status).toBe(200);
   expect((await room.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player: 'Guest', callsign: 'Guest' }) }))).status).toBe(200);
@@ -121,8 +123,8 @@ async function setUp(digest1: (tick: number) => number | null = sameHash): Promi
   await loop.flush();
   return { state, loop, p0, p1 };
 }
-async function started(digest1?: (tick: number) => number | null): Promise<Match> {
-  const s = await setUp(digest1);
+async function started(digest1?: (tick: number) => number | null, mode?: 'versus'): Promise<Match> {
+  const s = await setUp(digest1, mode);
   s.p0.t.ready();
   s.p1.t.ready();
   await s.loop.flush();
@@ -480,5 +482,99 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     expect(state.storage.rowsWritten - rowsAtClose).toBe(1 + stored);
     expect(state.storage.alarmAt).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+/** The lead's ruling (2026-10-13): in a versus match the player who drops loses. */
+describe('room loop: the player who drops loses', () => {
+  const ticket1 = (): Promise<string> => signTicket(SECRET, { matchId: CODE, seat: 1, player: 'Guest', exp: NOW + 3600 * 1000 });
+  /** The winner seen by a client: the side that did not give the match up, from the room's own ending. */
+  const loserOf = (p: Player): Seat | null => {
+    const e = p.endings.at(-1);
+    return e === undefined ? null : endingLoser(e.reason, e.seat);
+  };
+
+  it('a seat whose tab closes is gone 60 s: both clients end on the same final tick with the same result, the dropper on its reload', async () => {
+    const { loop, p0, p1 } = await started(undefined, 'versus');
+    await step(loop, [p0, p1], 30);
+    p1.t.detach();   // the tab closes: the socket goes with no bye, and no reconnect
+    await loop.flush();
+    const dropped = loop.wires[0].received.find((m) => m.t === 'dropped');
+    expect(dropped).toEqual({ t: 'dropped', seat: 1, remainingMs: FORFEIT_MS });
+    expect(p0.t.forfeitClock()).toEqual({ seat: 1, untilMs: Date.now() + FORFEIT_MS });
+    await step(loop, [p0], FORFEIT_MS / TICK_MS - 1);
+    expect(p0.endings).toEqual([]);   // a tick before the limit: still waiting
+    await step(loop, [p0], 1);
+    expect(p0.endings).toEqual([{ reason: 'forfeit', seat: 1 }]);
+    await step(loop, [p0], 5);   // the drain: what it held, buffer included
+    // The dropper comes back inside the room's two-minute grace (a reload, a new transport on its ticket).
+    const back = new Player(loop, await ticket1(), sameHash);
+    await loop.flush();
+    for (let i = 0; i < 20; i++) back.pump(100);
+    expect(back.endings).toEqual([{ reason: 'forfeit', seat: 1 }]);
+    expect(back.t.status()).toEqual({ kind: 'closed', reason: 'forfeit' });
+    // Same last tick, same frames, same loser -- so the same winner on both panels.
+    expect(back.ticks()).toEqual(range(back.taken.length));
+    expect(back.taken).toEqual(p0.taken);
+    expect(back.ticks().at(-1)).toBe(p0.ticks().at(-1));
+    expect([loserOf(p0), loserOf(back)]).toEqual([1, 1]);
+  });
+
+  it('Workers Free: the forfeit clock costs no row of its own -- the 60 s wait is the watchdog alone, and the ending one state write and the alarm re-aimed at the wipe', async () => {
+    const { state, loop, p0, p1 } = await started(undefined, 'versus');
+    await step(loop, [p0, p1], 30);
+    const tally = { put: 0, alarm: 0 };
+    const { put, setAlarm } = state.storage;
+    state.storage.put = async <T>(k: string, v: T): Promise<void> => { tally.put++; await put.call(state.storage, k, v); };
+    state.storage.setAlarm = async (t: number): Promise<void> => { tally.alarm++; await setAlarm.call(state.storage, t); };
+    const before = state.storage.rowsWritten;
+    p1.t.detach();
+    await loop.flush();
+    const atDrop = { rows: state.storage.rowsWritten - before, put: tally.put };
+    await step(loop, [p0], FORFEIT_MS / TICK_MS);
+    expect(p0.endings).toEqual([{ reason: 'forfeit', seat: 1 }]);
+    const rows = state.storage.rowsWritten - before;
+    const batches = rows - tally.put - tally.alarm;
+    // The drop: one state write (`connected`), flushing the open batch with it.
+    expect(atDrop.put).toBe(1);
+    // The ending: one more state write. No other state write in the wait.
+    expect(tally.put).toBe(2);
+    // The watchdog every 5 s, as for any running room, plus the re-aim at the wipe.
+    expect(tally.alarm).toBeLessThanOrEqual(FORFEIT_MS / 5000 + 1);
+    // Batch rows: the flushes that ride on the two state writes, and nothing else -- no frame is minted while a seat is gone.
+    expect(batches).toBeLessThanOrEqual(2);
+    // Measured: 17 rows in 60 s (state 2, alarm 13, batch 2) = 0.283 a second, under a running match's 1.2-2.2.
+    // Before the ruling the same wait cost the watchdog's 0.2 a second with no end: a seat that never came
+    // back held the room stalled, waking every 5 s, until its six-hour TTL (~4,300 alarm rows).
+    expect(rows / (FORFEIT_MS / 1000)).toBeLessThanOrEqual(0.3);
+  });
+
+  it('a reconnect at 59 s cancels it: no ending, the match runs on, and both clients run the same frames', async () => {
+    const { loop, p0, p1 } = await started(undefined, 'versus');
+    await step(loop, [p0, p1], 30);
+    p1.t.detach();
+    await loop.flush();
+    await step(loop, [p0], (FORFEIT_MS - 1000) / TICK_MS);
+    const again = new Player(loop, await ticket1(), sameHash);
+    await loop.flush();
+    expect(loop.wires[0].received.at(-1)?.t === 'back' || loop.wires[0].received.some((m) => m.t === 'back')).toBe(true);
+    expect(p0.t.forfeitClock()).toBeNull();
+    await step(loop, [p0, again], FORFEIT_MS / TICK_MS);
+    expect([...p0.endings, ...again.endings]).toEqual([]);
+    expect(p0.t.status().kind).toBe('live');
+    expect(again.taken).toEqual(p0.taken.slice(0, again.taken.length));
+    expect(again.taken.length).toBeGreaterThan(30 + 1000);
+  });
+
+  it('pressing Leave (bye) mid-match: the other seat wins at once, and both read the same loser', async () => {
+    const { loop, p0, p1 } = await started(undefined, 'versus');
+    await step(loop, [p0, p1], 30);
+    // The bye, then the close, as a browser's socket delivers them: in order.
+    // (`close()` sends both at once, and this harness would race them.)
+    await loop.room.webSocketMessage(loop.wires[1].server.asSocket(), JSON.stringify({ t: 'bye' }));
+    p1.t.detach();
+    await loop.flush();
+    expect(p0.endings).toEqual([{ reason: 'left', seat: 1 }]);
+    expect(loserOf(p0)).toBe(1);
   });
 });

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { OVER_CLOSE_MS, type MatchConfig } from '@lions/net';
-import { createRoom, logParts, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, persistKey, revive, endedMsg, ACK_EVERY, STALL_BEHIND_TICKS, STALL_SILENT_MS, MAX_LOG_CMD_CHARS, type RoomState, type Effect } from './room-core';
+import { FORFEIT_MS, OVER_CLOSE_MS, PAUSE_MS, type MatchConfig } from '@lions/net';
+import { createRoom, logParts, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, forfeitDueAt, forfeitIfDue, persistKey, revive, endedMsg, ACK_EVERY, STALL_BEHIND_TICKS, STALL_SILENT_MS, MAX_LOG_CMD_CHARS, type RoomState, type Effect } from './room-core';
 
 const CONFIG: MatchConfig = {
   matchId: 'm1', code: 'ABCDEF', seed: 7, map: 'beit_sahwan_outskirts', mode: 'sandbox',
@@ -533,13 +533,17 @@ describe('surrender (N1b task 2)', () => {
     expect(sends(seatMessage(st, 0, { t: 'surrender' }, 1200, mint))).toEqual([]);
     expect(st.surrendered).toBe(1);
   });
-  it('endedMsg names the seat for a surrender, and only then', () => {
+  it('endedMsg names the seat for a surrender and for a leave mid-match; a lobby leave names nobody', () => {
     const st = running();
     seatMessage(st, 0, { t: 'surrender' }, 1000, mint);
     expect(endedMsg(st)).toEqual({ t: 'ended', reason: 'surrender', seat: 0 });
     const left = running();
     seatMessage(left, 0, { t: 'bye' }, 1000, mint);
-    expect(endedMsg(left)).toEqual({ t: 'ended', reason: 'left' });
+    expect(endedMsg(left)).toEqual({ t: 'ended', reason: 'left', seat: 0 });
+    const lobby = createRoom('ABCDEF', 'm1', 0);
+    seatJoin(lobby, 0, 'p0', 'Host', 0);
+    expect(sends(seatMessage(lobby, 0, { t: 'bye' }, 10, mint)).map((x) => x.msg)).toEqual([{ t: 'ended', reason: 'left' }]);
+    expect(endedMsg(lobby)).toEqual({ t: 'ended', reason: 'left' });
     expect(endedMsg(running())).toEqual({ t: 'ended', reason: 'expired' });
   });
 });
@@ -842,5 +846,168 @@ describe('#559 L-3: chat is cleaned like a callsign', () => {
   it('a line of nothing but format characters sends nothing', () => {
     const st = running();
     expect(seatMessage(st, 0, { t: 'chat', text: '\u202e\u200b\u2066' }, 1000, mint)).toEqual([]);
+  });
+});
+
+describe('the player who drops loses (the lead\'s ruling, 2026-10-13)', () => {
+  const VERSUS: MatchConfig = { ...CONFIG, mode: 'versus', seats: [CONFIG.seats[0], { ...CONFIG.seats[1], side: 1 }] };
+  const versus = (): RoomState => {
+    const st = createRoom('ABCDEF', 'm1', 0);
+    seatJoin(st, 0, 'p0', 'Host', 0);
+    seatJoin(st, 1, 'p1', 'Guest', 0);
+    seatMessage(st, 0, { t: 'ready' }, 0, () => VERSUS);
+    seatMessage(st, 1, { t: 'ready' }, 0, () => VERSUS);
+    return st;
+  };
+  /** The clock, every 50 ms from `from` to `to` inclusive; the effects of every tick. */
+  const run = (st: RoomState, from: number, to: number): Effect[] => {
+    const out: Effect[] = [];
+    for (let t = from; t <= to; t += 50) out.push(...clockTick(st, t));
+    return out;
+  };
+  const ended = (fx: Effect[]) => sends(fx).filter((x) => x.msg.t === 'ended').map((x) => x.msg);
+  const DROP = 10_000;
+
+  it('a seat gone for 60 s forfeits: the other seat wins, named by the room, and both seats are told', () => {
+    const st = versus();
+    run(st, 50, DROP);
+    const fx = seatGone(st, 1, DROP);
+    expect(sends(fx).map((x) => x.msg)).toContainEqual({ t: 'dropped', seat: 1, remainingMs: FORFEIT_MS });
+    expect(forfeitDueAt(st)).toBe(DROP + FORFEIT_MS);
+    expect(ended(run(st, DROP + 50, DROP + FORFEIT_MS - 50))).toEqual([]);   // a tick before: nothing
+    const at = clockTick(st, DROP + FORFEIT_MS);
+    expect(ended(at)).toEqual([{ t: 'ended', reason: 'forfeit', seat: 1 }]);
+    expect(sends(at).every((x) => x.to === 'all')).toBe(true);
+    expect([st.status, st.endedReason, st.surrendered]).toEqual(['ended', 'forfeit', 1]);
+    expect(endedMsg(st)).toEqual({ t: 'ended', reason: 'forfeit', seat: 1 });
+    expect(clockTick(st, DROP + FORFEIT_MS + 50)).toEqual([]);   // ended: no frame, no second ending
+  });
+
+  it('gone for 59 s, then back: no forfeit, ever, and the other seat is told it came back', () => {
+    const st = versus();
+    seatGone(st, 1, DROP);
+    run(st, DROP + 50, DROP + 59_000);
+    const back = seatJoin(st, 1, 'p1', 'Guest', DROP + 59_000);
+    expect(sends(back).map((x) => x.msg)).toContainEqual({ t: 'back', seat: 1 });
+    expect(forfeitDueAt(st)).toBeNull();
+    expect(ended(run(st, DROP + 59_050, DROP + 3 * FORFEIT_MS))).toEqual([]);
+    expect(st.status).not.toBe('ended');
+    // The cancel is complete: a second drop starts a fresh 60 s, not the 1 s left over.
+    seatGone(st, 1, DROP + 200_000);
+    expect(forfeitDueAt(st)).toBe(DROP + 200_000 + FORFEIT_MS);
+  });
+
+  it('a reload rejoin (~4 s) cancels it, and the rejoining seat is told nothing of a clock that no longer runs', () => {
+    const st = versus();
+    seatGone(st, 0, DROP);
+    const fx = seatJoin(st, 0, 'p0', 'Host', DROP + 4000, () => []);
+    expect(sends(fx).filter((x) => x.msg.t === 'dropped')).toEqual([]);
+    expect(forfeitDueAt(st)).toBeNull();
+  });
+
+  it('pressing Leave (bye) mid-match is a surrender: the other seat wins at once, and the room names who left', () => {
+    const st = versus();
+    run(st, 50, 1000);
+    const fx = seatMessage(st, 0, { t: 'bye' }, 1000, mint);
+    expect(sends(fx).map((x) => x.msg)).toEqual([{ t: 'ended', reason: 'left', seat: 0 }]);
+    expect([st.status, st.endedReason, st.surrendered]).toEqual(['ended', 'left', 0]);
+  });
+
+  it('a pause does not shelter a dropped seat: gone during a pause, it still forfeits at 60 s (PAUSE_MS is 90 s)', () => {
+    expect(PAUSE_MS).toBeGreaterThan(FORFEIT_MS);
+    for (const pauser of [0, 1] as const) {
+      const st = versus();
+      run(st, 50, 1000);
+      seatMessage(st, pauser, { t: 'pause' }, 1000, mint);
+      const gone = seatGone(st, 1, DROP);
+      expect(sends(gone).map((x) => x.msg)).toContainEqual({ t: 'dropped', seat: 1, remainingMs: FORFEIT_MS });
+      expect(ended(run(st, DROP + 50, DROP + FORFEIT_MS - 50))).toEqual([]);
+      expect(st.pause).not.toBeNull();   // still paused a tick before
+      expect(ended(clockTick(st, DROP + FORFEIT_MS))).toEqual([{ t: 'ended', reason: 'forfeit', seat: 1 }]);
+      expect(st.pause).toBeNull();
+    }
+  });
+
+  it('a seat already gone when a pause begins is not sheltered either, and the pause does not restart its clock', () => {
+    const st = versus();
+    seatGone(st, 1, DROP);
+    seatMessage(st, 0, { t: 'pause' }, DROP + 30_000, mint);
+    expect(ended(run(st, DROP + 30_050, DROP + FORFEIT_MS))).toEqual([{ t: 'ended', reason: 'forfeit', seat: 1 }]);
+  });
+
+  it('both seats gone: the one gone longer loses, whichever comes back first or however late the room asks', () => {
+    for (const [returner, at] of [[0, DROP + 100_000], [1, DROP + 100_000], [null, DROP + FORFEIT_MS]] as const) {
+      const st = versus();
+      seatGone(st, 0, DROP);
+      seatGone(st, 1, DROP + 10_000);
+      expect(forfeitDueAt(st)).toBe(DROP + FORFEIT_MS);
+      // The DO asks `forfeitIfDue` before any hello (`begin`); nobody connected means no clock.
+      expect(ended(forfeitIfDue(st, at))).toEqual([{ t: 'ended', reason: 'forfeit', seat: 0 }]);
+      if (returner !== null) expect(st.status).toBe('ended');
+    }
+  });
+
+  it('both seats gone at the same instant (a deploy that dropped every socket) voids the match', () => {
+    const st = versus();
+    seatGone(st, 0, DROP);
+    seatGone(st, 1, DROP);
+    expect(ended(forfeitIfDue(st, DROP + FORFEIT_MS))).toEqual([{ t: 'ended', reason: 'void' }]);
+    expect([st.status, st.endedReason, st.surrendered]).toEqual(['ended', 'void', null]);
+  });
+
+  it('no forfeit once the result is settled (both seats reported the same over): the room closes itself as before', () => {
+    const st = versus();
+    run(st, 50, 1000);
+    seatMessage(st, 0, { t: 'over', tick: 10 }, 1000, mint);
+    seatMessage(st, 1, { t: 'over', tick: 10 }, 1000, mint);
+    const gone = seatGone(st, 1, DROP);
+    expect(sends(gone).filter((x) => x.msg.t === 'dropped')).toEqual([]);
+    expect(forfeitDueAt(st)).toBeNull();
+    expect(ended(run(st, DROP, 1000 + OVER_CLOSE_MS))).toEqual([{ t: 'ended', reason: 'over' }]);
+  });
+
+  it('a sandbox room (both seats on one side) has no winner to name: a seat gone for minutes only stalls it, as before', () => {
+    const st = running();
+    seatGone(st, 1, DROP);
+    expect(sends(seatGone(st, 1, DROP)).filter((x) => x.msg.t === 'dropped')).toEqual([]);
+    expect(forfeitDueAt(st)).toBeNull();
+    expect(ended(run(st, DROP, DROP + 3 * FORFEIT_MS))).toEqual([]);
+    expect(st.status).toBe('stalled');
+  });
+
+  it('the lobby has no forfeit: a seat gone before the start sends no clock', () => {
+    const st = createRoom('ABCDEF', 'm1', 0);
+    seatJoin(st, 0, 'p0', 'Host', 0);
+    seatJoin(st, 1, 'p1', 'Guest', 0);
+    expect(sends(seatGone(st, 1, DROP)).map((x) => x.msg.t)).toEqual(['lobby']);
+    expect(forfeitDueAt(st)).toBeNull();
+  });
+
+  it('a seat rejoining while the other is gone is told the other\'s clock, with the time left', () => {
+    const st = versus();
+    seatGone(st, 1, DROP);
+    seatGone(st, 0, DROP + 5000);
+    const fx = seatJoin(st, 0, 'p0', 'Host', DROP + 20_000, () => []);
+    expect(sends(fx).filter((x) => x.to === 0).map((x) => x.msg)).toContainEqual({ t: 'dropped', seat: 1, remainingMs: FORFEIT_MS - 20_000 });
+  });
+
+  it('a second close for a seat already gone does not restart its clock', () => {
+    const st = versus();
+    seatGone(st, 1, DROP);
+    seatGone(st, 1, DROP + 30_000);
+    expect(forfeitDueAt(st)).toBe(DROP + FORFEIT_MS);
+  });
+
+  it('the drop date survives storage and revive (an eviction does not restart the clock); a seat persisted gone without one starts at the wake', () => {
+    const st = versus();
+    seatGone(st, 1, DROP);
+    const stored = JSON.parse(JSON.stringify(st)) as RoomState;
+    revive(stored, stored.tick, DROP + 40_000);
+    expect(forfeitDueAt(stored)).toBe(DROP + FORFEIT_MS);
+    const old = JSON.parse(JSON.stringify(st)) as RoomState;
+    for (const s of old.seats) if (s) delete (s as Partial<typeof s>).goneAtMs;
+    revive(old, old.tick, DROP + 40_000);
+    expect(forfeitDueAt(old)).toBe(DROP + 40_000 + FORFEIT_MS);
+    expect(old.seats[0]?.goneAtMs).toBeNull();
   });
 });

@@ -7,7 +7,7 @@
  * `readLog`.
  */
 import {
-  canonicalOrder, cleanChat, LOG_PART_CHARS, MAX_CMDS_PER_SEAT_PER_FRAME, PAUSE_MS, PAUSES_PER_SEAT, OVER_CLOSE_MS,
+  canonicalOrder, cleanChat, FORFEIT_MS, LOG_PART_CHARS, MAX_CMDS_PER_SEAT_PER_FRAME, PAUSE_MS, PAUSES_PER_SEAT, OVER_CLOSE_MS,
   type ClientMsg, type EndedReason, type Frame, type MatchConfig, type Seat, type ServerMsg, type Stamped, type SeatState,
 } from '@lions/net';
 
@@ -18,6 +18,11 @@ export interface RoomSeat {
   lastAck: number;
   lastSeenMs: number;
   nextSeq: number;
+  /** When this seat's socket went, while it is disconnected; null while it is
+   *  connected. Wall time, never reset by a pause or a stall (unlike
+   *  `lastSeenMs`): the forfeit clock (`forfeitIfDue`) reads it. Persisted with
+   *  `connected`, so an eviction does not restart the clock. */
+  goneAtMs: number | null;
 }
 export interface RoomState {
   code: string; matchId: string; createdMs: number;
@@ -38,7 +43,9 @@ export interface RoomState {
   pausesLeft: [number, number];
   /** When each seat last chatted, for the rate limit; -1 (JSON-safe) before any. */
   lastChatMs: [number, number];
-  /** The seat that surrendered, once one has. */
+  /** The seat that gave the match up, once one has: by surrendering, by
+   *  leaving mid-match (`bye`), or by forfeit (60 s disconnected). The name is
+   *  older than the last two; a persisted room keeps it. */
   surrendered: Seat | null;
   /** The map id the lobby shows; '' until the room is given one (Task 3). */
   map: string;
@@ -117,17 +124,81 @@ export function lobbyMsg(st: RoomState, you: Seat): ServerMsg {
 /** What a seat is told when the room is over (also to a socket that arrives after it ended):
  *  a surrender names who surrendered. */
 export function endedMsg(st: RoomState): ServerMsg {
-  if (st.endedReason === 'surrender' && st.surrendered !== null) return { t: 'ended', reason: 'surrender', seat: st.surrendered };
-  return { t: 'ended', reason: st.endedReason === null || st.endedReason === 'surrender' ? 'expired' : st.endedReason };
+  const reason = st.endedReason;
+  if ((reason === 'surrender' || reason === 'forfeit' || reason === 'left') && st.surrendered !== null) return { t: 'ended', reason, seat: st.surrendered };
+  // A surrender or a forfeit always names its seat; one that somehow does not reads as expired.
+  return { t: 'ended', reason: reason === null || reason === 'surrender' || reason === 'forfeit' ? 'expired' : reason };
+}
+
+/** Whether a disconnect can forfeit this match now (the lead's ruling,
+ *  2026-10-13): a versus match that has started and not ended, whose result
+ *  is not already settled. Once the close is armed (L-1) the sims have
+ *  decided it and nobody forfeits a decided match. A sandbox room (both seats
+ *  on one side) has no winner to name, so its seats only stall it, as before. */
+function forfeitApplies(st: RoomState): boolean {
+  return (st.status === 'running' || st.status === 'stalled') && st.config?.mode === 'versus' && st.closeAtMs === null;
+}
+
+/** When the first disconnected seat forfeits, or null when no clock runs. */
+export function forfeitDueAt(st: RoomState): number | null {
+  if (!forfeitApplies(st)) return null;
+  let at: number | null = null;
+  for (const s of st.seats) {
+    // `goneAtMs` is the one fact read: null exactly while connected (`seatJoin`).
+    if (s === null || s.goneAtMs === null) continue;
+    const due = s.goneAtMs + FORFEIT_MS;
+    if (at === null || due < at) at = due;
+  }
+  return at;
+}
+
+/** A seat disconnected for `FORFEIT_MS` of wall time loses: the room ends
+ *  `forfeit`, naming it, and the other seat wins. A pause does not stop the
+ *  clock -- it reads `goneAtMs`, which nothing but a reconnect clears -- so a
+ *  pause cannot shelter a dropped player. Both seats gone: the one gone LONGER
+ *  loses, since it is the first to reach the limit while the other is still
+ *  inside it; both gone at the same instant (a deploy that dropped every
+ *  socket, `reconcileSockets`) names no loser and voids the match. The answer
+ *  does not depend on when it is asked, as long as no reconnect came between:
+ *  the DO asks before any hello (`begin`), so a seat reconnecting after the
+ *  limit is told it lost rather than cancelling it. The clock asks it every
+ *  tick, and the alarm is aimed at it when no clock runs (`alarmFor`). */
+export function forfeitIfDue(st: RoomState, nowMs: number): Effect[] {
+  const due = forfeitDueAt(st);
+  if (due === null || nowMs < due) return [];
+  const gone = st.seats.filter((s): s is RoomSeat => s !== null && s.goneAtMs !== null)
+    .sort((a, b) => (a.goneAtMs ?? 0) - (b.goneAtMs ?? 0));
+  const [first, second] = gone;
+  st.stall = null;
+  st.pause = null;
+  st.pending = [];
+  if (second !== undefined && second.goneAtMs === first.goneAtMs) {
+    endRoom(st, 'void', nowMs);
+    return [{ kind: 'send', to: 'all', msg: { t: 'ended', reason: 'void' } }];
+  }
+  endRoom(st, 'forfeit', nowMs);
+  st.surrendered = first.seat;
+  return [{ kind: 'send', to: 'all', msg: { t: 'ended', reason: 'forfeit', seat: first.seat } }];
+}
+
+/** Each disconnected seat's forfeit clock, for `to`: what a rejoining seat is told. */
+function droppedMsgs(st: RoomState, nowMs: number): ServerMsg[] {
+  if (!forfeitApplies(st)) return [];
+  return st.seats.flatMap((s) => (s !== null && s.goneAtMs !== null
+    ? [{ t: 'dropped', seat: s.seat, remainingMs: Math.max(0, s.goneAtMs + FORFEIT_MS - nowMs) } satisfies ServerMsg]
+    : []));
 }
 
 /** A verified hello. A second hello for an occupied seat REPLACES it (the
  *  reconnect path, spec §3.5); `readLog` supplies the frames for it. */
 export function seatJoin(st: RoomState, seat: Seat, player: string, callsign: string, nowMs: number, readLog: () => Frame[] = () => []): Effect[] {
   const prior = st.seats[seat];
-  st.seats[seat] = { seat, player, callsign, connected: true, ready: prior?.ready ?? false, lastAck: prior?.lastAck ?? -1, lastSeenMs: nowMs, nextSeq: prior?.nextSeq ?? 0 };
+  st.seats[seat] = { seat, player, callsign, connected: true, ready: prior?.ready ?? false, lastAck: prior?.lastAck ?? -1, lastSeenMs: nowMs, nextSeq: prior?.nextSeq ?? 0, goneAtMs: null };
   const out: Effect[] = [];
   if (prior && prior.connected) out.push({ kind: 'close', seat });
+  // A reconnect inside `FORFEIT_MS` cancels the forfeit completely (the
+  // caller has already asked `forfeitIfDue`, so a later one ended the room).
+  if (prior && !prior.connected && prior.goneAtMs !== null && forfeitApplies(st)) out.push({ kind: 'send', to: 'all', msg: { t: 'back', seat } });
   // #559 L-1: a close armed by the lone-report rule (one `over`, the other seat
   // gone) is disarmed when that seat comes back: it is here to report its own
   // result now, and one seat's early `over` plus a one-second blip of the
@@ -139,6 +210,8 @@ export function seatJoin(st: RoomState, seat: Seat, player: string, callsign: st
     for (const msg of logParts(st.config, readLog())) out.push({ kind: 'send', to: seat, msg });
     // The log makes the client live; a pause in force must be told again.
     if (st.pause !== null) out.push({ kind: 'send', to: seat, msg: pausedMsg(st, nowMs, st.pause) });
+    // ...and so must the other seat's forfeit clock, if it is gone.
+    for (const msg of droppedMsgs(st, nowMs)) out.push({ kind: 'send', to: seat, msg });
     out.push(...recheckStall(st, nowMs));
   }
   return out;
@@ -176,11 +249,16 @@ function endPause(st: RoomState, nowMs: number): Effect[] {
 export function seatGone(st: RoomState, seat: Seat, nowMs: number): Effect[] {
   const s = st.seats[seat];
   if (!s) return [];
+  // The first close dates the drop: a second one (a stray socket) does not restart the clock.
+  if (s.connected || s.goneAtMs === null) s.goneAtMs = nowMs;
   s.connected = false;
   s.lastSeenMs = nowMs;
   if (st.status === 'lobby') return [{ kind: 'send', to: 'all', msg: lobbyMsg(st, 0) }];
   armClose(st, nowMs);   // a seat that goes after the other reported the result
-  return recheckStall(st, nowMs);
+  const out: Effect[] = [];
+  if (forfeitApplies(st)) out.push({ kind: 'send', to: 'all', msg: { t: 'dropped', seat, remainingMs: Math.max(0, (s.goneAtMs ?? nowMs) + FORFEIT_MS - nowMs) } });
+  out.push(...recheckStall(st, nowMs));
+  return out;
 }
 
 /** Arms the room's own close (L-1, R-B26) once the result is settled: both
@@ -283,8 +361,16 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
     }
     case 'bye': {
       if (st.status === 'ended') return [];
+      // Leaving a started match is a surrender (the lead's ruling,
+      // 2026-10-13): the room names the seat that left, and the other wins.
+      // A lobby's leave closes the room for both and names nobody.
+      const started = st.status !== 'lobby';
       endRoom(st, 'left', nowMs);
-      return [{ kind: 'send', to: 'all', msg: { t: 'ended', reason: 'left' } }];
+      if (!started) return [{ kind: 'send', to: 'all', msg: { t: 'ended', reason: 'left' } }];
+      st.surrendered = seat;
+      st.stall = null;
+      st.pause = null;
+      return [{ kind: 'send', to: 'all', msg: { t: 'ended', reason: 'left', seat } }];
     }
     case 'pause': {
       if ((st.status !== 'running' && st.status !== 'stalled') || st.pause !== null || st.pausesLeft[seat] <= 0) return [];
@@ -432,6 +518,10 @@ export function revive(st: RoomState, tick: number, nowMs: number): void {
     if (!s) continue;
     s.lastAck = Math.max(s.lastAck, st.tick - 1);
     s.lastSeenMs = nowMs;
+    // The drop's date is persisted with `connected`; a seat persisted gone
+    // before the forfeit existed starts its clock at this wake.
+    const goneAt = (s as Partial<RoomSeat>).goneAtMs;
+    s.goneAtMs = s.connected ? null : goneAt ?? nowMs;
   }
 }
 
@@ -452,6 +542,9 @@ export function clockTick(st: RoomState, nowMs: number): Effect[] {
   if (st.status === 'lobby') return [];
   const closed = closeIfDue(st, nowMs);
   if (closed.length > 0) return closed;
+  // Before the pause: a pause must not shelter a dropped seat.
+  const forfeited = forfeitIfDue(st, nowMs);
+  if (forfeited.length > 0) return forfeited;
   const out: Effect[] = [];
   if (st.pause !== null) {
     if (nowMs < st.pause.untilMs) return out;

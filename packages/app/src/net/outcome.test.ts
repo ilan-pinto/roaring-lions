@@ -72,6 +72,19 @@ describe('outcomeOf (spec §2.3, version one)', () => {
   });
 });
 
+describe('roomEndingOutcome: the player who drops loses (2026-10-13)', () => {
+  const sideOfSeat = (s: 0 | 1): 0 | 1 => s;
+  it('a forfeit names the seat that dropped: the other side wins, read the same by both seats', () => {
+    for (const viewer of [0, 1] as const) {
+      expect(roomEndingOutcome('forfeit', 1, viewer, sideOfSeat)).toEqual({ kind: 'won', side: 0, by: 'forfeit' });
+      expect(roomEndingOutcome('forfeit', 0, viewer, sideOfSeat)).toEqual({ kind: 'won', side: 1, by: 'forfeit' });
+    }
+  });
+  it('a leave that names its seat is a surrender by that seat, whoever reads it', () => {
+    for (const viewer of [0, 1] as const) expect(roomEndingOutcome('left', 0, viewer, sideOfSeat)).toEqual({ kind: 'won', side: 1, by: 'left' });
+  });
+});
+
 describe('roomEndingOutcome', () => {
   const sideOfSeat = (seat: 0 | 1): 0 | 1 => (seat === 0 ? 1 : 0); // seat 0 plays side 1
   it('a surrender loses for the side of the seat that surrendered', () => {

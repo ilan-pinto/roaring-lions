@@ -51,6 +51,10 @@ export interface WsTransportHooks {
 }
 
 type Stalled = Extract<TransportStatus, { kind: 'stalled' }>;
+
+/** A disconnected seat, and when (this machine's wall clock) the room will
+ *  end the match with the other seat as the winner unless it comes back. */
+export interface ForfeitClock { seat: Seat; untilMs: number }
 type StallKind = Stalled['reason'];
 
 /**
@@ -83,7 +87,7 @@ export class WsTransport implements MatchTransport {
   private closed = false;
   /** Every handler reads this copy, so `setHooks` reaches all of them. */
   private readonly hooks: WsTransportHooks;
-  /** Set by an `ended` of `left`, `surrender` or `over`: the frames already
+  /** Set by an `ended` of `left`, `surrender`, `forfeit` or `over`: the frames already
    *  received are still the match's, and the app needs them to reach its own
    *  outcome tick (for `over`, the result a seat that missed it can still reach). */
   private draining = false;
@@ -108,6 +112,8 @@ export class WsTransport implements MatchTransport {
   private pausesLeft: [number, number] | null = null;
   /** The tick this seat's sim decided the match on, once reported (`over`, L-1). */
   private overTick: number | null = null;
+  /** The other seat's forfeit clock while it is disconnected (`dropped`), on this machine's wall clock. */
+  private forfeit: ForfeitClock | null = null;
 
   constructor(
     private readonly open: () => SocketLike,
@@ -237,6 +243,9 @@ export class WsTransport implements MatchTransport {
         // last. Parts arrive in order on one socket; a drop part-way sends a
         // fresh log on the next socket, whose head the clock discards.
         if (msg.parts !== undefined && msg.part !== undefined && msg.part < msg.parts - 1) return;
+        // Whatever this seat heard of a forfeit clock before it dropped is stale:
+        // the room re-sends `dropped` behind the log while the other seat is still gone.
+        this.forfeit = null;
         if (this.droppedAt !== null) { this.relinked(); this.replayFrom = this.now(); }
         this.setStalled(null);
         this.st = { kind: 'live', behind: this.clock.behind() };
@@ -263,17 +272,21 @@ export class WsTransport implements MatchTransport {
         this.hooks.onPaused?.(msg.seat, msg.remainingMs, msg.pausesLeft);
         return;
       case 'chat': this.hooks.onChat?.(msg.seat, msg.text); return;
+      case 'dropped': this.forfeit = { seat: msg.seat, untilMs: this.now() + msg.remainingMs }; return;
+      case 'back': if (this.forfeit?.seat === msg.seat) this.forfeit = null; return;
       case 'cmdRefused': this.hooks.onCmdRefused?.(); return;
       case 'resume': this.setStalled(null); this.st = { kind: 'live', behind: this.clock.behind() }; return;
       case 'hashOk': this.counts.hashOk.count++; this.counts.hashOk.lastTick = msg.tick; return;
       case 'desync':
         this.counts.desyncTick = msg.tick;
         this.setStalled(null);
+        this.forfeit = null;
         this.st = { kind: 'desync', tick: msg.tick }; this.hooks.onDesync?.(msg.tick, msg.hashes); return;
       case 'ended':
         this.setStalled(null);
         this.st = { kind: 'closed', reason: msg.reason };
-        this.draining = msg.reason === 'left' || msg.reason === 'surrender' || msg.reason === 'over';
+        this.forfeit = null;
+        this.draining = msg.reason === 'left' || msg.reason === 'surrender' || msg.reason === 'forfeit' || msg.reason === 'over';
         this.ending = msg.seat === undefined ? { reason: msg.reason } : { reason: msg.reason, seat: msg.seat };
         this.hooks.onEnded?.(msg.reason, msg.seat);
         return;
@@ -303,7 +316,7 @@ export class WsTransport implements MatchTransport {
    *  seat, the lagging one included, and only that seat's ack ends it -- so it
    *  must keep running the frames it already holds. A stall's status is left
    *  as it is; the room's `resume` (or a `log`) is what makes it live. A pause
-   *  runs them too. After an `ended` of `left` or `surrender` it drains what was
+   *  runs them too. After an `ended` of `left`, `surrender` or `forfeit` it drains what was
    *  received, buffer included -- no further frame will arrive to clear it. */
   take(maxTicks: number): Frame[] {
     if (this.draining) return this.clock.drain(maxTicks);
@@ -321,6 +334,9 @@ export class WsTransport implements MatchTransport {
     if (digest !== null) this.send({ t: 'hash', tick, h: digest });
   }
   status(): TransportStatus { return this.st; }
+  /** The other seat's forfeit clock while it is disconnected mid-match, else
+   *  null (cleared when it comes back, when the room ends, and on a desync). */
+  forfeitClock(): ForfeitClock | null { return this.forfeit === null ? null : { ...this.forfeit }; }
   /** Frames received and not yet run, in EVERY status (I-1): the `live`
    *  status carries it, but a seat behind-stalled or paused still holds
    *  frames, and a reload rejoin spends most of its replay behind-stalled

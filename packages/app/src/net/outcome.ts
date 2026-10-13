@@ -13,12 +13,12 @@
  * room closes itself two minutes after both seats have reported it. That
  * ending (`over`) is no result of its own -- the panel is already up.
  */
-import type { MatchConfig, Seat } from '@lions/net';
+import { endingLoser, type MatchConfig, type Seat } from '@lions/net';
 import { isHashTick } from './frame-step';
 
 export type MatchOutcome =
   | { kind: 'ongoing' }
-  | { kind: 'won'; side: 0 | 1; by: 'annihilation' | 'surrender' | 'left' }
+  | { kind: 'won'; side: 0 | 1; by: 'annihilation' | 'surrender' | 'left' | 'forfeit' }
   | { kind: 'draw'; by: 'mutual' | 'time' };
 
 /** A decided match: what the end panel shows. */
@@ -114,18 +114,21 @@ function opponentOf(side: 0 | 1): 0 | 1 {
   return SIDES.find((s) => s !== side) ?? side;
 }
 
-/** The room's `ended`, as a result for this seat. A surrender names the seat
- *  that surrendered, and its side loses. A `left` names nobody: the seat that
- *  left closed its own socket and never hears it, so whoever hears it stayed
- *  and wins. `void` (a desync), `expired` and `over` (the room closing itself
- *  after the result the sims reached, L-1) are no result. */
+/** The room's `ended`, as a result for this seat. A surrender, a leave and
+ *  a forfeit (60 s disconnected) name the seat that gave the match up
+ *  (`endingLoser`, one rule for both seats), and its side loses. A `left`
+ *  from an older room names nobody: the seat that left closed its own socket
+ *  and never hears it, so whoever hears it stayed and wins. `void` (a desync,
+ *  or both seats dropped at once), `expired` and `over` (the room closing
+ *  itself after the result the sims reached, L-1) are no result. */
 export function roomEndingOutcome(
   reason: string,
   seat: Seat | undefined,
   viewer: 0 | 1,
   sideOfSeat: (seat: Seat) => 0 | 1,
 ): MatchResult | null {
-  if (reason === 'surrender' && seat !== undefined) return { kind: 'won', side: opponentOf(sideOfSeat(seat)), by: 'surrender' };
+  const loser = endingLoser(reason, seat);
+  if (loser !== null && (reason === 'surrender' || reason === 'left' || reason === 'forfeit')) return { kind: 'won', side: opponentOf(sideOfSeat(loser)), by: reason };
   if (reason === 'left') return { kind: 'won', side: viewer, by: 'left' };
   return null;
 }

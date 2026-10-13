@@ -649,7 +649,7 @@ describe('MatchRoom', () => {
       const endedAt = Date.now();
       vi.setSystemTime(endedAt + PURGE_AFTER_MS - 1);
       const late = await hello(room, 0);
-      expect(last(late)).toEqual({ t: 'ended', reason: 'left' });
+      expect(last(late)).toEqual({ t: 'ended', reason: 'left', seat: 1 });
       vi.setSystemTime(endedAt + PURGE_AFTER_MS);
       await deliverAlarm(room, state.storage);
       expect(state.storage.kv.size + state.storage.batches.size).toBe(0);
@@ -711,6 +711,44 @@ describe('MatchRoom', () => {
     expect(last(old.ws0)).toEqual({ t: 'ended', reason: 'expired' });
     expect(old.state.storage.alarmAt).toBe(Date.now() + PURGE_AFTER_MS);
     expect(ofType(ws0, 'frame')).toEqual([]);
+  });
+
+  it('a versus seat gone 60 s forfeits, through an eviction too; a late hello with its ticket gets the log first, any other ticket the ending alone', async () => {
+    const { state, room, ws0, ws1 } = await running({ mode: 'versus' });
+    await vi.advanceTimersByTimeAsync(30 * TICK_MS);
+    await deliverClose(room, ws1, 1006, 'gone');
+    expect(last(ws0)).toMatchObject({ t: 'stall', reason: 'gone', seat: 1 });
+    expect(ofType(ws0, 'dropped')).toEqual([{ t: 'dropped', seat: 1, remainingMs: 60_000 }]);
+    evict();   // the clock dies with the isolate: the watchdog alarm brings it back, and the drop date was persisted
+    const revived = new MatchRoom(state, env);
+    vi.setSystemTime(Date.now() + 60_000);
+    await deliverAlarm(revived, state.storage);
+    expect(last(ws0)).toEqual({ t: 'ended', reason: 'forfeit', seat: 1 });
+    expect((await persisted(state))).toMatchObject({ status: 'ended', endedReason: 'forfeit', surrendered: 1 });
+    const late = await hello(revived, 1);
+    expect(ofType(late, 'log')).toHaveLength(1);
+    expect(ofType(late, 'log')[0].frames.length).toBeGreaterThan(0);
+    expect(last(late)).toEqual({ t: 'ended', reason: 'forfeit', seat: 1 });
+    expect(late.closed).toEqual({ code: 1000, reason: 'ended' });
+    const forged = await hello(revived, 1, await signTicket(SECRET, { matchId: 'OTHER1', seat: 1, player: 'p-guest', exp: NOW + 3600 * 1000 }));
+    expect(msgs(forged)).toEqual([{ t: 'ended', reason: 'forfeit', seat: 1 }]);
+    const oldBuild = await hello(revived, 1, undefined, 'b0');
+    expect(msgs(oldBuild)).toEqual([{ t: 'ended', reason: 'forfeit', seat: 1 }]);
+  });
+
+  it('both versus seats gone: no clock runs, the one alarm is aimed at the first forfeit, and it ends the match there (the seat gone longer loses)', async () => {
+    const { state, room, ws0, ws1 } = await running({ mode: 'versus' });
+    await vi.advanceTimersByTimeAsync(30 * TICK_MS);
+    const firstDrop = Date.now();
+    await deliverClose(room, ws0, 1006, 'gone');
+    vi.setSystemTime(firstDrop + 10_000);
+    await deliverClose(room, ws1, 1006, 'gone');
+    expect(vi.getTimerCount()).toBe(0);
+    expect(state.storage.alarmAt).toBe(firstDrop + 60_000);
+    vi.setSystemTime(firstDrop + 60_000);
+    await deliverAlarm(room, state.storage);
+    expect((await persisted(state))).toMatchObject({ status: 'ended', endedReason: 'forfeit', surrendered: 0 });
+    expect(state.storage.alarmAt).toBe(firstDrop + 60_000 + PURGE_AFTER_MS);   // then the wipe, as any ending
   });
 
   it('a surrender reaches both seats, survives an eviction, and a late hello is told who surrendered (N1b task 2)', async () => {

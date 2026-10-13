@@ -5841,7 +5841,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         if (result !== null) showMatchEnd(result);
       }
     }
-    if (netEnd === null || lineOverMatchEnd(transport.status())) netStatus?.paint(transport.status());
+    if (netEnd === null || lineOverMatchEnd(transport.status())) netStatus?.paint(transport.status(), Date.now(), room?.forfeitClock() ?? null);
     // A room's pause (either seat's) quiets the mix and dims the strip as a
     // local pause does; the room's status is the only thing that says so.
     if (room !== null) {

@@ -23,6 +23,11 @@ export const PAUSES_PER_SEAT = 3;
 /** How long after the result a room closes itself (L-1, R-B26): both seats
  *  have reported the same `over` tick, or one has and the other is gone. */
 export const OVER_CLOSE_MS = 120_000;
+/** How long a versus seat may stay disconnected before it forfeits (the lead's
+ *  ruling, 2026-10-13: the player who drops loses). Wall time, kept by the
+ *  room; a reconnect inside it cancels it completely, and a pause does not
+ *  stop it. */
+export const FORFEIT_MS = 60_000;
 
 /** `Command['kind']` as a value, so a wire command can be checked at runtime. */
 export const COMMAND_KINDS = [
@@ -49,8 +54,9 @@ export const ERROR_CODES = ['bad_message', 'bad_ticket', 'build_mismatch', 'full
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
 export type StallReason = 'behind' | 'gone';
-/** Why a room ended. `over`: it closed itself `OVER_CLOSE_MS` after the result both seats reached (L-1). */
-export const ENDED_REASONS = ['left', 'void', 'expired', 'surrender', 'over'] as const;
+/** Why a room ended. `over`: it closed itself `OVER_CLOSE_MS` after the result both seats reached (L-1).
+ *  `forfeit`: a versus seat stayed disconnected for `FORFEIT_MS`; `seat` names it, and it lost. */
+export const ENDED_REASONS = ['left', 'void', 'expired', 'surrender', 'over', 'forfeit'] as const;
 export type EndedReason = (typeof ENDED_REASONS)[number];
 
 export type ServerMsg =
@@ -72,6 +78,13 @@ export type ServerMsg =
    *  know, and the client says why once per pause. */
   | { t: 'cmdRefused' }
   | { t: 'chat'; seat: Seat; text: string }
+  /** A versus seat's socket went mid-match: it forfeits in `remainingMs`
+   *  unless it comes back (`FORFEIT_MS`). Sent to both seats when it goes, and
+   *  to a seat that rejoins while the other is still gone. */
+  | { t: 'dropped'; seat: Seat; remainingMs: number }
+  /** The dropped seat came back: its forfeit clock is cancelled. */
+  | { t: 'back'; seat: Seat }
+  /** `seat`: who lost by the ending -- surrendered, left (`bye`) or forfeited. */
   | { t: 'ended'; reason: EndedReason; seat?: Seat }
   | { t: 'error'; code: ErrorCode };
 
@@ -204,6 +217,16 @@ function isSeatState(v: unknown): v is SeatState {
  *  20-minute log is ~24,000 frames, sent in parts of `LOG_PART_CHARS`), so
  *  the size cap applies to CLIENT messages only; a server message is trusted
  *  to come from the room. */
+/** Who lost by a room's own ending, or null when it names nobody: a
+ *  surrender, a leave (`bye`) and a forfeit name the seat that gave the match
+ *  up. A `left` from a room older than this names nobody (`seat` absent): the
+ *  seat that hears it stayed. One rule for every client, so both seats of a
+ *  match read the same loser from the same message. */
+export function endingLoser(reason: string, seat: Seat | undefined): Seat | null {
+  if (seat === undefined) return null;
+  return reason === 'surrender' || reason === 'left' || reason === 'forfeit' ? seat : null;
+}
+
 export function parseServerMsg(raw: string): ServerMsg | null {
   let m: Record<string, unknown>;
   try {
@@ -239,6 +262,8 @@ export function parseServerMsg(raw: string): ServerMsg | null {
       ? { t: 'paused', seat: m.seat, remainingMs: m.remainingMs, pausesLeft: [m.pausesLeft[0], m.pausesLeft[1]] } : null;
     case 'cmdRefused': return { t: 'cmdRefused' };
     case 'chat': return isSeat(m.seat) && isStr(m.text) ? { t: 'chat', seat: m.seat, text: m.text } : null;
+    case 'dropped': return isSeat(m.seat) && isInt(m.remainingMs) && m.remainingMs >= 0 ? { t: 'dropped', seat: m.seat, remainingMs: m.remainingMs } : null;
+    case 'back': return isSeat(m.seat) ? { t: 'back', seat: m.seat } : null;
     case 'ended': {
       if (!(ENDED_REASONS as readonly unknown[]).includes(m.reason)) return null;
       const reason = m.reason as EndedReason;
