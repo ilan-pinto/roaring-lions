@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { isDialogOpen } from './confirm';
 import { PHONE_QUERY, SMALL_SCREEN_DISMISSED_KEY, watchSmallScreen } from './small-screen';
 
@@ -54,7 +54,7 @@ const buttons = (): HTMLButtonElement[] => [...document.querySelectorAll<HTMLBut
 const key = (k: string): KeyboardEvent => new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true });
 
 let store: Map<string, string>;
-let navigate: ReturnType<typeof vi.fn>;
+let navigate: Mock<(href: string) => void>;
 beforeEach(() => {
   store = installSessionStorage();
   navigate = vi.fn();
