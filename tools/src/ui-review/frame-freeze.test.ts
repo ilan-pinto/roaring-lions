@@ -24,7 +24,7 @@
 //    `requestAnimationFrame` (twice -- see frame-freeze.ts's header for why
 //    two) and wait for it before returning, which is why this suite awaits
 //    the freeze rather than treating it as instant.
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, type Mock } from 'vitest';
 import { FREEZE_FOR_SCREENSHOT_SCRIPT, RESTORE_AFTER_SCREENSHOT_SCRIPT } from './frame-freeze';
 
 function mockWindow(raf: (cb: FrameRequestCallback) => number): { requestAnimationFrame: unknown } {
@@ -42,7 +42,7 @@ function run(script: string, w: unknown): Promise<unknown> {
  *  the same shape jsdom/real browsers use for a callback scheduled with
  *  nothing else pending -- lets the freeze's own two-frame await resolve
  *  without a real event loop tick. */
-function immediateRaf(): ReturnType<typeof vi.fn> {
+function immediateRaf(): Mock<(cb: FrameRequestCallback) => number> {
   return vi.fn((cb: FrameRequestCallback) => {
     cb(0);
     return 1;
