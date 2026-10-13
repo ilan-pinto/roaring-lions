@@ -363,7 +363,13 @@ async function handleLogin(req: Request, env: Env, secret: string, now: number):
   return new Response(null, { status: 303, headers: { location: '/stats', 'set-cookie': cookie, ...NO_STORE } });
 }
 
-function handleLogout(): Response {
+/** #559 L-4: POST only, from this origin. A GET (a link or an image on any
+ *  page) used to sign the lead out; now it changes nothing. A form post from
+ *  the dashboard carries this origin (the pages set Referrer-Policy
+ *  same-origin, under which a browser still sends it). */
+function handleLogout(req: Request): Response {
+  if (req.method !== 'POST') return new Response('Method not allowed', { status: 405, headers: { allow: 'POST', ...NO_STORE } });
+  if (req.headers.get('origin') !== new URL(req.url).origin) return new Response('Forbidden', { status: 403, headers: NO_STORE });
   return new Response(null, { status: 303, headers: { location: '/stats', 'set-cookie': clearedSessionCookieHeader(), ...NO_STORE } });
 }
 
@@ -382,7 +388,7 @@ export async function handleStats(req: Request, env: Env, now: number): Promise<
       : new Response('Stats password is not configured.', { status: 403, headers: NO_STORE });
   }
 
-  if (path === '/stats/logout') return handleLogout();
+  if (path === '/stats/logout') return handleLogout(req);
   if (path === '/stats/login') {
     if (req.method === 'POST') return handleLogin(req, env, secret, now);
     return new Response(null, REDIRECT_TO_STATS); // GET: no form handling here, just send it to the login/dashboard gate

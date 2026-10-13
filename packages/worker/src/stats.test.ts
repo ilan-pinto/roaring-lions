@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { openTestD1 } from './test-d1';
 import { handleIngest } from './ingest';
 import * as stats from './stats';
+import { STATS_HTML } from './stats-page';
+import { FEEDBACK_HTML } from './feedback-page';
 import { tutorials } from '@lions/data';
 import { LEGACY_TUTORIAL_STEP_IDS, labelTutorialRows } from './tutorial-funnel';
 import type { Env, RateLimiter } from './d1';
@@ -342,13 +344,32 @@ describe('handleStats', () => {
     expect(res.status).toBe(413);
   });
 
-  it('GET or POST /stats/logout clears the session cookie (exact Set-Cookie string) and redirects to /stats', async () => {
+  it('a same-origin POST /stats/logout clears the session cookie (exact Set-Cookie string) and redirects to /stats', async () => {
     const env: Env = { DB: openTestD1(), ASSETS: NOOP_ASSETS, STATS_PASSWORD: PASSWORD };
-    for (const method of ['GET', 'POST']) {
-      const res = await stats.handleStats(new Request('https://g.dev/stats/logout', { method }), env, T0);
-      expect(res.status).toBe(303);
-      expect(res.headers.get('location')).toBe('/stats');
-      expect(res.headers.get('set-cookie')).toBe(clearedSessionCookieHeader());
+    const res = await stats.handleStats(new Request('https://g.dev/stats/logout', { method: 'POST', headers: { origin: 'https://g.dev' } }), env, T0);
+    expect(res.status).toBe(303);
+    expect(res.headers.get('location')).toBe('/stats');
+    expect(res.headers.get('set-cookie')).toBe(clearedSessionCookieHeader());
+  });
+
+  it('#559 L-4: a GET, a POST from another origin and a POST with no Origin sign nobody out', async () => {
+    const env: Env = { DB: openTestD1(), ASSETS: NOOP_ASSETS, STATS_PASSWORD: PASSWORD };
+    const cases: [RequestInit, number][] = [
+      [{ method: 'GET' }, 405],
+      [{ method: 'POST', headers: { origin: 'https://evil.example' } }, 403],
+      [{ method: 'POST' }, 403],
+    ];
+    for (const [init, status] of cases) {
+      const res = await stats.handleStats(new Request('https://g.dev/stats/logout', init), env, T0);
+      expect(res.status).toBe(status);
+      expect(res.headers.get('set-cookie')).toBeNull();
+    }
+  });
+
+  it('#559 L-4: both pages sign out by a form POST, never a link', () => {
+    for (const page of [STATS_HTML, FEEDBACK_HTML]) {
+      expect(page).not.toContain('href="/stats/logout"');
+      expect(page).toContain('<form method="post" action="/stats/logout"');
     }
   });
 
