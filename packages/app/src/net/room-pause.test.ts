@@ -5,7 +5,8 @@ import { applyIntent, type PlayerIntent } from '../input/intents';
 import type { TransportStatus } from '@lions/net';
 import { t } from '../i18n/t';
 import { leaveCopy } from '../ui/leave-copy';
-import { escapeOpensPause, hudExit, ordersWait, pauseEndClosesMenu, roomExitCopy, roomOrderSink, roomPauseCall, surrenderOffered } from './room-pause';
+import { routes } from '../shell/links';
+import { escapeOpensPause, hudExit, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderOffered } from './room-pause';
 
 // N1b task 8, R-B17: the room silently ignores a pause it refuses, so the
 // client decides from its own count (the last `paused` it saw) whether to ask
@@ -114,9 +115,8 @@ describe('roomExitCopy', () => {
   const OVER: TransportStatus[] = [
     { kind: 'closed', reason: 'surrender' },
     { kind: 'desync', tick: 40 },
-    { kind: 'waiting' },
   ];
-  const ALL: TransportStatus[] = [...RUNNING, ...OVER, { kind: 'local' }];
+  const ALL: TransportStatus[] = [...RUNNING, ...OVER, { kind: 'waiting' }, { kind: 'local' }];
 
   it('a running match: the surrender wording, tooltip and dialog together', () => {
     for (const s of RUNNING) {
@@ -140,6 +140,15 @@ describe('roomExitCopy', () => {
     }
   });
 
+  it('a room not yet started does not claim the match is over', () => {
+    expect(roomExitCopy({ kind: 'waiting' })).toEqual({
+      tip: 'leave the match',
+      title: 'Leave the match?',
+      body: 'You will leave this room.',
+      confirm: 'Leave',
+    });
+  });
+
   it('the copy follows hudExit: surrender exactly when the HUD exit surrenders', () => {
     for (const s of ALL) {
       const surrenders = hudExit(true, s) === 'surrender';
@@ -153,6 +162,15 @@ describe('roomExitCopy', () => {
       const said = [c.tip, c.title, c.body, c.confirm].join(' | ');
       expect(said, s.kind).not.toMatch(/free play|mission|campaign/i);
     }
+  });
+
+  // L-3 fix: where a confirmed Leave lands. A room's players go to Play with a
+  // friend, as the match-end panel's own button does -- not the free-play picker.
+  it('quitHref: a room leaves to Play with a friend; single-player is leaveHref as before', () => {
+    expect(quitHref(true, false)).toBe(routes.versus());
+    expect(quitHref(true, true)).toBe(routes.versus());
+    expect(quitHref(false, true)).toBe(routes.freePlay());
+    expect(quitHref(false, false)).toBe(routes.campaign());
   });
 
   it('single-player copy is untouched', () => {
@@ -176,7 +194,16 @@ describe('main.ts wires a room\'s exit copy', () => {
   });
   it('confirmQuit says matchLeaveCopy in a room and leaveCopy only outside one', () => {
     const quit = main.slice(main.indexOf('const confirmQuit = (): void => {'), main.indexOf('const confirmSurrender'));
-    expect(quit).toContain('const leaveText = room !== null ? matchLeaveCopy() : leaveCopy(!mission);');
+    expect(quit).toContain('const leaveText = room !== null ? matchLeaveCopy(room.status()) : leaveCopy(!mission);');
+  });
+  it('confirmQuit navigates through quitHref, so a room lands on Play with a friend', () => {
+    const quit = main.slice(main.indexOf('const confirmQuit = (): void => {'), main.indexOf('const confirmSurrender'));
+    expect(quit).toContain('req.navigate(quitHref(room !== null, !mission))');
+    expect(quit).not.toContain('leaveHref');
+  });
+  it('the pause menu\'s Quit is labelled for the match in a room, and only there', () => {
+    const deps = main.slice(main.indexOf('const pauseMenuDeps = (): PauseDeps'), main.indexOf('onQuit: () => confirmQuit(),'));
+    expect(deps).toContain("...(room !== null ? { quitLabel: t('pause.quit.match') } : {}),");
   });
   it('confirmSurrender takes its words from surrenderCopy', () => {
     const sur = main.slice(main.indexOf('const confirmSurrender'), main.indexOf('const pauseMenuDeps'));

@@ -95,6 +95,9 @@ export interface PauseDeps {
   /** The caller confirms before actually leaving. Not offered when
    *  `onSurrender` is: in a room the way out is surrendering. */
   onQuit(): void;
+  /** The Quit button's words, when the caller has better than the campaign's
+   *  (a finished match, N1b L-3 fix). Absent, `pause.quit` as always. */
+  quitLabel?: string;
   /** A match (N1b task 8, spec §3.2.5): present only in a room, where Quit
    *  becomes Surrender -- a `data-act="surrender"` button in Quit's place, and
    *  no Quit at all. The caller confirms before surrendering. Absent, the
@@ -254,7 +257,7 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
   // In a room Surrender takes Quit's place: one seat cannot leave a match
   // without ending it for both, so the only way out says what it does.
   const onSurrender = deps.onSurrender;
-  const quitBtn = onSurrender ? null : actionButton(t('pause.quit'), 'quit');
+  const quitBtn = onSurrender ? null : actionButton(deps.quitLabel ?? t('pause.quit'), 'quit');
   const surrenderBtn = onSurrender ? actionButton(t('pause.surrender'), 'surrender') : null;
   actions.append(...[resumeBtn, restartBtn, settingsActBtn, quitBtn, surrenderBtn].filter((b) => b !== null));
   p.body.appendChild(actions);

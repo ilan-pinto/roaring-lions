@@ -19,7 +19,11 @@ describe('leaveHref (PA-25)', () => {
 // `req.navigate(routes.campaign())` is the defect.
 describe('the in-battle exits ask leaveHref', () => {
   const main = readFileSync(new URL('../main.ts', import.meta.url), 'utf8');
-  it('the HUD leave button and the pause menu Quit both land through leaveHref(!mission)', () => {
-    expect(main.match(/req\.navigate\(leaveHref\(!mission\)\)/g) ?? []).toHaveLength(2);
+  // The pause menu's Quit goes through `quitHref` since N1b L-3: it is
+  // `leaveHref(!mission)` outside a room (pinned in room-pause.test.ts) and
+  // Play with a friend inside one.
+  it('the HUD leave button lands through leaveHref(!mission) and the pause menu Quit through quitHref(room !== null, !mission)', () => {
+    expect(main.match(/req\.navigate\(leaveHref\(!mission\)\)/g) ?? []).toHaveLength(1);
+    expect(main.match(/req\.navigate\(quitHref\(room !== null, !mission\)\)/g) ?? []).toHaveLength(1);
   });
 });

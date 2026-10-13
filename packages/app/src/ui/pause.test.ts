@@ -588,6 +588,17 @@ describe('pauseMenu in a room', () => {
     expect(document.querySelector('.rl-pause__note')).toBeNull();
   });
 
+  // L-3 fix: a finished match's Quit (reachable via the desync Report) says what it does.
+  it('a quitLabel replaces the Quit button\'s words; absent, it reads "Quit to campaign" as before', () => {
+    pauseMenu(document.body, deps());
+    const quit = (): HTMLElement => document.querySelector<HTMLElement>('.rl-pause button[data-act="quit"]')!;
+    expect(quit().textContent).toBe('Quit to campaign');
+    document.body.innerHTML = '';
+    pauseMenu(document.body, { ...deps(), quitLabel: 'Leave the match' });
+    expect(quit().textContent).toBe('Leave the match');
+    expect(document.querySelector('.rl-pause')!.textContent).not.toContain('Quit to campaign');
+  });
+
   it('with onSurrender there is a Surrender button and no Quit; it hands off to the caller and leaves the menu up', () => {
     const { onRestart: _drop, ...rest } = deps();
     void _drop;

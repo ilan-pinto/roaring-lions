@@ -239,7 +239,7 @@ import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { PAUSES_PER_SEAT, WsTransport, type Seat, type TransportStatus } from '@lions/net';
 import { connectMatch, openRoom, type Connected } from './net/connect';
 import { desyncReportDraft, withoutReplay } from './net/desync-report';
-import { escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
+import { escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
 import { roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
 import { safeStorage as safeStorageLike } from './telemetry/identity';
 import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
@@ -3230,14 +3230,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const confirmQuit = (): void => {
     // A room's Quit is the end of a match, not of a free-play run (L-3): it
     // never wears the sandbox's wording.
-    const leaveText = room !== null ? matchLeaveCopy() : leaveCopy(!mission);
+    const leaveText = room !== null ? matchLeaveCopy(room.status()) : leaveCopy(!mission);
     void confirmDialog(document.body, {
       title: leaveText.title,
       body: leaveText.body,
       confirm: leaveText.confirm,
       danger: true,
     }).answer.then((ok) => {
-      if (ok) req.navigate(leaveHref(!mission));
+      // A room's players go to Play with a friend, not the free-play picker.
+      if (ok) req.navigate(quitHref(room !== null, !mission));
     });
   };
   /** A room's Surrender, confirmed: the pause menu's, and the HUD's exit
@@ -3290,6 +3291,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           },
         }
       : {}),
+    // A room's Quit (a finished match's, via the desync Report) says what it
+    // does; absent, single-player's label.
+    ...(room !== null ? { quitLabel: t('pause.quit.match') } : {}),
     onQuit: () => confirmQuit(),
     settings: req.settings,
     build: __APP_BUILD__,

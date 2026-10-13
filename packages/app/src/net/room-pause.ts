@@ -14,6 +14,8 @@
 import type { Seat, TransportStatus } from '@lions/net';
 import { t } from '../i18n/t';
 import type { CommandSink } from '../input/intents';
+import { leaveHref } from '../ui/leave-copy';
+import { routes } from '../shell/links';
 
 export interface RoomPauseCall {
   /** Send `pause` to the room. */
@@ -92,17 +94,27 @@ export function surrenderCopy(): RoomExitCopy {
   };
 }
 
-export function matchLeaveCopy(): RoomExitCopy {
+/** A room that has not started yet is not "over": its body says only that the
+ *  seat leaves the room. */
+export function matchLeaveCopy(status: TransportStatus): RoomExitCopy {
   return {
     tip: t('versus.exit.leaveTip'),
     title: t('versus.leave.confirm.title'),
-    body: t('versus.leave.confirm.body'),
+    body: t(status.kind === 'waiting' ? 'versus.leave.confirm.body.waiting' : 'versus.leave.confirm.body'),
     confirm: t('versus.leave.confirm.action'),
   };
 }
 
 export function roomExitCopy(status: TransportStatus): RoomExitCopy {
-  return surrenderOffered(status) ? surrenderCopy() : matchLeaveCopy();
+  return surrenderOffered(status) ? surrenderCopy() : matchLeaveCopy(status);
+}
+
+/** Where a confirmed Leave lands (N1b L-3 fix): a room's players go to Play
+ *  with a friend, as the match-end panel's own button does -- not the free-play
+ *  picker, whose screen is not where a match came from. Single-player is
+ *  `leaveHref`, unchanged. */
+export function quitHref(inRoom: boolean, freePlay: boolean): string {
+  return inRoom ? routes.versus() : leaveHref(freePlay);
 }
 
 /** Orders wait while the room is paused, for both seats (N1b lead ruling M-4,
