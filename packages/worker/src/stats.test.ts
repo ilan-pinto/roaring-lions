@@ -12,6 +12,16 @@ const T0 = Date.UTC(2026, 8, 20);
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const base = (p: number, t: number, extra: Record<string, unknown> = {}) => ({ v: 1, player: id(p), session: id(100 + p), build: '0.78.0', t, ...extra });
 
+/** #559 M-3: a request speaks for one player, as the game's own do; a test
+ *  seeding several players posts one request each. */
+async function postEach(env: Env, events: { player: string }[], now: number): Promise<Response> {
+  let last = new Response(null, { status: 204 });
+  for (const p of [...new Set(events.map((e) => e.player))]) {
+    last = await handleIngest(new Request('https://g.dev/api/events', { method: 'POST', body: JSON.stringify({ events: events.filter((e) => e.player === p) }) }), env, now);
+  }
+  return last;
+}
+
 async function seeded() {
   const db = openTestD1();
   const env: Env = { DB: db, ASSETS: { fetch: async () => new Response('') } };
@@ -72,7 +82,7 @@ describe('stats queries', () => {
       // Player 3 reaches every beat, player 4 only the first two.
       [3, 4].filter((p) => p === 3 || i < 2).map((p) => base(p, T0 + 10 + i, { type: 'tutorial_step', step: i, steps: 9, prevMs: 1000, id: beat }))
     );
-    const res = await handleIngest(new Request('https://g.dev/api/events', { method: 'POST', body: JSON.stringify({ events }) }), env, T0);
+    const res = await postEach(env, events, T0);
     expect(res.status).toBe(204);
     const t = await stats.tutorialFunnel(db, all);
     const current = t.filter((r) => !r.legacy);
@@ -91,7 +101,7 @@ describe('stats queries', () => {
       base(5, T0 + 20, { type: 'tutorial_step', step: 0, steps: 14, prevMs: 0, id: 'look_around' }),
       base(6, T0 + 21, { type: 'tutorial_step', step: 0, steps: 14, prevMs: 0, id: 'something_else' }),
     ];
-    await handleIngest(new Request('https://g.dev/api/events', { method: 'POST', body: JSON.stringify({ events }) }), env, T0);
+    await postEach(env, events, T0);
     const t = await stats.tutorialFunnel(db, all);
     expect(t.filter((r) => r.step === 0).map((r) => [r.id, r.legacy, r.players]).sort()).toEqual([
       ['look_around', false, 1],

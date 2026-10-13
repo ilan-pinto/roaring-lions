@@ -71,10 +71,12 @@ describe('loadouts (GH-254)', () => {
     const db = openTestD1();
     const env: Env = { DB: db, ASSETS: { fetch: async () => new Response('') } };
     const send = (events: unknown[]) => handleIngest(new Request('https://g.dev/api/events', { method: 'POST', body: JSON.stringify({ events }) }), env, T0);
-    // Two old-client runs of a different mission: no `deployed`, no `orders`.
+    // Two old-client runs of a different mission: no `deployed`, no `orders`. One request per player (#559 M-3).
     await send([
       base(9, T0, { type: 'mission_start', mission: 'wadi_halam_1_fords', replay: false }),
       end(9, T0 + 1, { mission: 'wadi_halam_1_fords' }),
+    ]);
+    await send([
       base(10, T0, { type: 'mission_start', mission: 'wadi_halam_1_fords', replay: false }),
       end(10, T0 + 1, { mission: 'wadi_halam_1_fords' }),
     ]);

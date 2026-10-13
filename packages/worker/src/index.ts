@@ -1,5 +1,6 @@
 import type { Env } from './d1';
-import { handleIngest } from './ingest';
+import { handleIngest, purgeEvents } from './ingest';
+import { purgeRateDays } from './rate-day';
 import { handleStats } from './stats';
 import { handleFeedback } from './feedback-ingest';
 import { purgeExpired } from './feedback-triage';
@@ -19,13 +20,13 @@ export default {
     return env.ASSETS.fetch(req);
   },
   /** The daily Cron Trigger (wrangler.jsonc `triggers.crons`): GH-464's
-   *  180-day purge of feedback pictures, replays and contacts, and N1b's of
-   *  desync evidence (M-6). Each runs whatever the other does -- a missing
+   *  180-day purge of feedback pictures, replays and contacts, N1b's of
+   *  desync evidence (M-6), #559 M-3's of raw events, and the day counters. Each runs whatever the other does -- a missing
    *  table on one side must not keep the other's data -- and a failure still
    *  fails the run. */
   async scheduled(_controller: unknown, env: Env): Promise<void> {
     const now = Date.now();
-    const runs = await Promise.allSettled([purgeExpired(env, now), purgeDesyncs(env.DB, now)]);
+    const runs = await Promise.allSettled([purgeExpired(env, now), purgeDesyncs(env.DB, now), purgeEvents(env.DB, now), purgeRateDays(env.DB, now)]);
     for (const r of runs) if (r.status === 'rejected') throw r.reason;
   },
 };

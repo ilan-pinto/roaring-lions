@@ -51,7 +51,7 @@ export async function summary(db: D1Like, f: StatsFilter) {
     .prepare(
       `SELECT COUNT(DISTINCT player) AS players, COUNT(DISTINCT session) AS sessions,
               SUM(CASE WHEN type = 'heartbeat' THEN 1 ELSE 0 END) AS beats
-       FROM events WHERE ${w.sql}`
+       FROM events_all WHERE ${w.sql}`
     )
     .bind(...w.args)
     .first<{ players: number; sessions: number; beats: number | null }>();
@@ -59,7 +59,7 @@ export async function summary(db: D1Like, f: StatsFilter) {
     .prepare(
       `SELECT player, SUM(CASE WHEN type = 'heartbeat' THEN 1 ELSE 0 END) AS beats,
               COUNT(DISTINCT date(t / 1000, 'unixepoch')) AS days
-       FROM events WHERE ${w.sql} GROUP BY player`
+       FROM events_all WHERE ${w.sql} GROUP BY player`
     )
     .bind(...w.args)
     .all<{ player: string; beats: number; days: number }>();
@@ -81,7 +81,7 @@ export async function perDay(db: D1Like, f: StatsFilter) {
     .prepare(
       `SELECT date(e.t / 1000, 'unixepoch') AS day, COUNT(DISTINCT e.player) AS players,
               COUNT(DISTINCT CASE WHEN date(p.first_seen / 1000, 'unixepoch') = date(e.t / 1000, 'unixepoch') THEN e.player END) AS new
-       FROM events e JOIN players p ON p.player = e.player
+       FROM events_all e JOIN players p ON p.player = e.player
        WHERE ${w.sql}
        GROUP BY day ORDER BY day`
     )
@@ -97,7 +97,7 @@ export async function funnel(db: D1Like, f: StatsFilter) {
       `SELECT mission,
               COUNT(DISTINCT CASE WHEN type = 'mission_start' THEN player END) AS started,
               COUNT(DISTINCT CASE WHEN type = 'mission_end' AND json_extract(payload, '$.result') = 'victory' THEN player END) AS won
-       FROM events WHERE ${w.sql} AND mission IS NOT NULL GROUP BY mission`
+       FROM events_all WHERE ${w.sql} AND mission IS NOT NULL GROUP BY mission`
     )
     .bind(...w.args)
     .all<{ mission: string; started: number; won: number }>();
@@ -111,7 +111,7 @@ export async function tutorialFunnel(db: D1Like, f: StatsFilter) {
     .prepare(
       `SELECT json_extract(payload, '$.id') AS beat, json_extract(payload, '$.step') AS step,
               json_extract(payload, '$.steps') AS steps, COUNT(DISTINCT player) AS players
-       FROM events WHERE ${w.sql} AND type = 'tutorial_step' GROUP BY beat, step, steps`
+       FROM events_all WHERE ${w.sql} AND type = 'tutorial_step' GROUP BY beat, step, steps`
     )
     .bind(...w.args)
     .all<{ beat: string | null; step: number; steps: number; players: number }>();
@@ -124,18 +124,18 @@ export async function missions(db: D1Like, f: StatsFilter) {
     .prepare(
       `SELECT mission, json_extract(payload, '$.result') AS result, json_extract(payload, '$.cause') AS cause,
               json_extract(payload, '$.tick') AS tick, json_extract(payload, '$.roe') AS roe
-       FROM events WHERE ${w.sql} AND type = 'mission_end'`
+       FROM events_all WHERE ${w.sql} AND type = 'mission_end'`
     )
     .bind(...w.args)
     .all<{ mission: string; result: string; cause: string | null; tick: number; roe: number }>();
   const starts = await db
-    .prepare(`SELECT mission, COUNT(*) AS n FROM events WHERE ${w.sql} AND type = 'mission_start' GROUP BY mission`)
+    .prepare(`SELECT mission, COUNT(*) AS n FROM events_all WHERE ${w.sql} AND type = 'mission_start' GROUP BY mission`)
     .bind(...w.args)
     .all<{ mission: string; n: number }>();
   const failedObj = await db
     .prepare(
       `SELECT mission, json_extract(payload, '$.objective') AS objective, COUNT(*) AS n
-       FROM events WHERE ${w.sql} AND type = 'objective' AND json_extract(payload, '$.status') = 'failed'
+       FROM events_all WHERE ${w.sql} AND type = 'objective' AND json_extract(payload, '$.status') = 'failed'
        GROUP BY mission, objective ORDER BY n DESC`
     )
     .bind(...w.args)
@@ -179,7 +179,7 @@ export async function testers(db: D1Like, f: StatsFilter) {
   // own campaign_progress events, not MAX(last_won) (alphabetical, and blind
   // to a later win followed by an earlier replay).
   const progress = await db
-    .prepare(`SELECT tester, mission FROM events WHERE type = 'campaign_progress' AND tester IS NOT NULL`)
+    .prepare(`SELECT tester, mission FROM events_all WHERE type = 'campaign_progress' AND tester IS NOT NULL`)
     .all<{ tester: string; mission: string }>();
   const order = new Map(CAMPAIGN_ORDER.map((m, i) => [m, i]));
   const furthestByTester = new Map<string, string>();
@@ -242,7 +242,7 @@ interface LoadoutMissionAcc {
 export async function loadouts(db: D1Like, f: StatsFilter) {
   const w = where(f);
   const rows = await db
-    .prepare(`SELECT mission, type, payload FROM events WHERE ${w.sql} AND type IN ('mission_start','mission_end') AND mission IS NOT NULL`)
+    .prepare(`SELECT mission, type, payload FROM events_all WHERE ${w.sql} AND type IN ('mission_start','mission_end') AND mission IS NOT NULL`)
     .bind(...w.args)
     .all<{ mission: string; type: string; payload: string }>();
 
@@ -314,7 +314,7 @@ export async function timeline(db: D1Like, tester: string) {
   const rows = await db
     .prepare(
       `SELECT t, type, mission, json_extract(payload, '$.result') AS result, json_extract(payload, '$.tick') AS tick
-       FROM events WHERE tester = ? AND type IN ('mission_start', 'mission_end', 'campaign_progress')
+       FROM events_all WHERE tester = ? AND type IN ('mission_start', 'mission_end', 'campaign_progress')
        ORDER BY t DESC LIMIT 200`
     )
     .bind(tester)
