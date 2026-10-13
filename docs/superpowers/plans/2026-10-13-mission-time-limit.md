@@ -1,10 +1,11 @@
-# Mission time limit: a stalled mission ends as "withdrawn" (GH-540). Implementation plan
+# Mission time limit: a stalled mission ends "out of time" (GH-540). Implementation plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task by task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Every shipped mission declares `time_limit_s`. When the limit runs out with a primary still
-open, `checkEnd` ends the mission as a defeat whose cause is `withdrawn`, and the feed, the outcome card
-and the debrief say so.
+open, `checkEnd` ends the mission as a defeat (internal cause id `withdrawn`), and the feed, the outcome
+card and the debrief say so in plain words: "Out of time — {objective} was not finished". The last minute
+is announced in the feed and counted down in the strip.
 
 **Why (issue #540; lead ruling 2026-10-11).** Once a mission's timed primaries resolve, nearly every
 mission has a primary that can never fail (`locate`, `capture`, `hold_for`, `eliminate_hvt`). It then
@@ -26,8 +27,8 @@ interim stall hint in the feed; this is the real fix.
 - **`pnpm playtest` proves the numbers on 30 seeds.** Every winning plan still wins inside its limit
   with headroom (new report lines). The 23 controls still lose on their own deadlines, never by the
   limit. Two new witnesses lose BY the limit on all 30 seeds.
-- **App:** one feed line a minute before the limit, the `withdrawn` wording in `failureReason`
-  (feed, outcome card, debrief), and the telemetry cause.
+- **App:** one feed line a minute before the limit, a strip countdown during the last minute only,
+  the "Out of time" wording in `failureReason` (feed, outcome card, debrief), and the telemetry cause.
 
 **Tech Stack:** TypeScript (strict), vitest, ajv (JSON Schema 2020-12), the headless playtest harness
 (`tsx`), Playwright for the one browser check.
@@ -49,20 +50,24 @@ derivation the issue asks for.
   winning plans win 30/30 seeds, the 12 unlock gates hold 30/30, the 23 controls lose 30/30 on their
   own deadlines. `playtest` only GAINS lines: two witness controls and 26 "time limit" lines.
 - **"withdrawn" is a defeat REASON, not a result.** `result` keeps exactly three values. No ledger,
-  star or credit rule changes: a withdrawn mission is a defeat like any other.
+  star or credit rule changes: a mission that runs out of time is a defeat like any other.
+- **`withdrawn` is an INTERNAL id only** (`DefeatCause`, telemetry's `cause`, the playtest report).
+  **No player-facing string says "withdrawn"** (Ruling (lead, 2026-10-13), D1). Task 4 adds a
+  `player-wording.test.ts` guard for exactly that.
 - **Invariant 2:** no float and no `Math.*` in `packages/sim`. The limit is integer seconds times
   `TICKS_PER_SECOND`, the same arithmetic `stepObjectives` uses for deadlines.
 - **The limit counts SIM ticks** (`sim.tickCount`), so a paused game does not spend it.
 - **The stall hint (#541, `ui/stall-hint.ts`) stays unchanged** as the warning before the limit.
-- **Every player-facing string goes through `t()` and `en.json`.** Wording is in "Lead decisions" D1
-  and must be approved before Task 1 lands. `player-wording.test.ts` must stay green.
+- **Every player-facing string goes through `t()` and `en.json`.** The wording is the lead's, verbatim
+  (Rulings, D1). `player-wording.test.ts` must stay green.
 - **Polish-lane rules** (`/Users/ilpinto/dev/roaring-lions-ep/polish-rules.md`) apply: own worktree,
   `/usr/bin/git commit -s -F <msgfile> -- <paths>` (never `git add -A`, never `git checkout <file>`),
   every new check seen RED by a one-line mutation named in its commit message, no local `ui:routes`,
   `golden-baseline` or `ui:shots`, music off in every browser, never port 5177, stop what you start by
   PID.
-- **No visual bless expected.** The golden captures hide `.rl-feed` and photograph no outcome card;
-  the strip does not change (D2).
+- **No visual bless expected.** The golden captures hide `.rl-feed` and photograph no outcome card.
+  The strip countdown (D2) draws only in a mission's last minute (540 s at the earliest), and every
+  gated scenario captures by tick 600 (30 s; `capture-protocol.ts`'s largest `targetTick`).
 - **Paths in this plan:** `<worktree>` is the executor's own worktree (polish rule 4); `<scratch>` is
   the executor's own scratchpad subfolder (polish rule 14). Every command runs from `<worktree>`.
 - Gates before the PR: `pnpm test`, `pnpm test:determinism`, `pnpm typecheck`, `pnpm lint`,
@@ -71,7 +76,7 @@ derivation the issue asks for.
 ## Review Focus
 
 1. **A primary completes on the limit tick.** The player won; the mission must read VICTORY, not
-   withdrawn. Pinned in Task 1 (`survive_until` ending on the limit tick).
+   out of time. Pinned in Task 1 (`survive_until` ending on the limit tick).
 2. **Another loss lands on the limit tick** (a deadline primary fails at the same second). The cause
    must stay that objective, so the debrief names the right failure. Pinned in Task 1.
 3. **A mission with no `time_limit_s`** (test fixtures, Free Play, the versus core, any future
@@ -79,9 +84,10 @@ derivation the issue asks for.
 4. **A control that starts losing by the limit instead of its own deadline** reads as a pass if the
    harness only compares `result`. Task 3 makes the sweep report `withdrawn` apart from `defeat`, and
    falsifies it.
-5. **The warning while paused or after the end.** The limit is sim time, so a pause freezes it; the
-   warning fires once, never after the mission has ended, never in the tutorial. Pinned in Task 4's
-   pure function; the wiring is checked in the browser step.
+5. **The warning and the countdown while paused or after the end.** The limit is sim time, so a pause
+   freezes both; the feed line fires once, never after the mission has ended, never in the tutorial;
+   the countdown shows only in the last minute of an ONGOING mission and is gone on the end screen.
+   Pinned in Task 4's and Task 5's pure functions; the wiring is checked in Task 5's browser step.
 
 ---
 
@@ -95,7 +101,8 @@ every winning plan for that mission (base, `(gate open)`, `(bought)`, `(price-on
 `seconds` of any primary `survive_until`/`evacuate_before`/`raze`/`collapse`. Headroom's "×" is the
 limit over the slowest win.
 
-**Prototyped before writing.** Tasks 1-3 and Task 4's tests were applied to a throwaway worktree off
+**Prototyped before writing** (with the first draft's wording; the rulings changed strings and added
+Task 5, not the sim or harness logic). Tasks 1-3 and Task 4's tests were applied to a throwaway worktree off
 `ff9d0c8f` (deleted after; nothing of it is in this PR): the new sim, app and tools tests pass,
 `typecheck` is clean, `test:determinism` passes with all three pins unmoved, and `pnpm playtest` exits
 0 with `credit ladder: 5972`, 36/36 plans on 30/30 seeds, the 23 controls `DEFEAT on 30/30`, both
@@ -162,34 +169,35 @@ feedback replay (`feedback/replay.ts`) of a pre-#540 session that ran past its m
 issuing mission orders (waves, triggers) at the limit on a post-#540 build. Replays are triaged on
 their own recorded commit, so this is a note, not a fix.
 
-## Lead decisions
+## Rulings (lead, 2026-10-13, on PR #578)
 
-- **D1 (wording, needed before Task 1 lands).** Proposed, in the existing `outcome.failed.*` style
-  ("Objective failed: {text} · {at}"):
-  - `outcome.failed.withdrawn`: **"Withdrawn, out of time: {text} · {at}"**, naming the first open
-    primary. Example: "Withdrawn, out of time: Identify six garrison positions · 14:00". Shown in the
-    feed, on the outcome card and as the debrief's reason.
-  - `outcome.failed.withdrawnBare`: **"Withdrawn, out of time · {at}"**, if no open primary is on the
-    list (cannot happen with shipped data; kept so the line never shows an id).
-  - `hud.withdraw.warn`: **"{left} left — then the force is withdrawn"**, one feed line at 1:00, in
-    the style of `hud.deadline.warn` ("{left} left — {text}"), with the same alert chime.
-  - No voice line: none is recorded, so the warning is caption only (the deadline warning's
-    `voice.onMission` call is not copied).
-  - Note: `aar.well.withdrew` ("{n} withdrew") already means ENEMIES who withdrew from a lost fight, on
-    a victory only. The two never appear on the same screen.
-- **D2 (HUD clock).** Recommended: **no standing clock.** A limit at twice the target is a backstop,
-  and a clock from 0:00 would turn every mission into a timed one. The player gets the stall hint
-  (#541) after 60 s of no progress and the 1:00 feed line above. Alternative, if the lead wants a
-  clock: show "Withdrawal 0:59" in the strip's deadline slot during the last minute only. That is a
-  `stripObjectives` change, moves no gated frame, and would be a fourth task in Task 4; it is not
-  planned here.
-- **D3 (the rule).** Recommended: **`time_limit_s = 120 × target_minutes`**, with `validate:data`
-  holding it as a FLOOR (a mission may declare more, never less), and `playtest` holding the 120 s/20%
-  margin over the slowest win. The alternative and why it is worse are under "Why not a tighter rule".
+The plan proposed three decisions; the lead ruled on each the same day.
+
+- **D1, wording. Ruling (lead, 2026-10-13): plain words, not "withdrawn".** These lines, through `t()`,
+  verbatim. `withdrawn` stays the internal defeat-reason id (`DefeatCause`, telemetry, playtest),
+  because it keeps the code tidy; no player-facing string says it.
+  - `hud.limit.warn`, the feed line at 1:00: **"One minute left to finish the mission"** (same `warn`
+    tone and alert chime as the deadline warning; caption only, no voice line is recorded).
+  - `outcome.failed.timeUp`, the outcome card, the feed and the debrief's reason: **"Out of time —
+    {text} was not finished"**, `{text}` being the first open PRIMARY objective. Example: "Out of time —
+    Identify six garrison positions was not finished". Unlike the three existing `outcome.failed.*`
+    lines it carries no "· {at}": the ruling's line has none, and the time is the limit itself.
+  - `outcome.failed.timeUpBare`, the fallback when no open primary is on the list (cannot happen with
+    shipped data; kept so the line never shows an id): **"Out of time"**.
+  - `hud.limit.clock`, the strip countdown: **"Time left {left}"**, e.g. "Time left 0:59".
+- **D2, HUD clock. Ruling (lead, 2026-10-13): a countdown in the strip during the LAST MINUTE ONLY**,
+  plus the one-minute feed line. No standing clock before that. Task 5 builds it: a label and a clock
+  ("Time left 0:59") in its own strip segment, amber from 1:00, red from 0:30 (the deadline line's
+  tones), gone once the mission ends.
+- **D3, the rule. Ruling (lead, 2026-10-13): the limit is twice the target, `time_limit_s = 120 ×
+  target_minutes`**, as proposed, with `validate:data` treating it as a MINIMUM (a mission may declare
+  more, never less) and `playtest` holding the 120 s / 20% margin over the slowest win.
 - **Not a decision, flagged:** no real player's mission length has ever been measured (CLAUDE.md,
   GH-84). Wadi Halam IV is a search mission whose optimal plan already takes 11.3 minutes. After
   release, `/stats`' "Top loss cause" column will show `withdrawn`; that is the first real reading of
   whether 2× is enough.
+- Note: `aar.well.withdrew` ("{n} withdrew") means ENEMIES who withdrew from a lost fight, on a victory
+  only. It is unrelated, and the plain wording keeps the two from ever being confused.
 
 ## File structure
 
@@ -197,9 +205,10 @@ their own recorded commit, so this is a note, not a fix.
 |---|---|---|
 | `packages/sim/src/mission.ts` | `time_limit_s` on `MissionJson`; `'withdrawn'` in `DefeatCause`; `withdrawnValue`; `checkEnd`; `defeatCause`; `timeLimitTicksLeft` | 1 |
 | `packages/sim/src/mission.test.ts` | `describe('time limit (#540)')` | 1 |
-| `packages/app/src/ui/mission-failure.ts` | `failureReason` 'withdrawn' branch (typecheck forces it in Task 1); `withdrawalDue`, `withdrawalWarningLine` | 1, 4 |
+| `packages/app/src/ui/mission-failure.ts` | `failureReason` 'withdrawn' branch (typecheck forces it in Task 1); `limitWarningDue`, `limitWarningLine` | 1, 4 |
 | `packages/app/src/ui/mission-failure.test.ts` | wording tests; warning tests; Beit Sahwan I end-to-end | 1, 4 |
-| `packages/app/src/i18n/en.json` | three keys | 1, 4 |
+| `packages/app/src/i18n/en.json` | four keys | 1, 4, 5 |
+| `packages/app/src/i18n/player-wording.test.ts` | no string says "withdrawn" | 4 |
 | `data/schemas/mission.schema.json` | `time_limit_s` property, in `required` | 2 |
 | `tools/validate_time_limit.mjs` + `.d.mts` (new) | `timeLimitFailures(mission, file)` | 2 |
 | `tools/validate_data.mjs` | call it per mission | 2 |
@@ -210,13 +219,15 @@ their own recorded commit, so this is a note, not a fix.
 | `tools/src/backtest/time-limit.ts` + `time-limit.test.ts` (new) | `limitHeadroom` | 3 |
 | `tools/src/backtest/plan-sweep.ts` | print the headroom lines, fail on a miss | 3 |
 | `tools/src/backtest/playtest.ts` | the two witness controls | 3 |
-| `packages/app/src/main.ts` | one-minute warning wiring | 4 |
-| `data/schemas/telemetry_event.schema.json`, `packages/data/src/telemetry.ts` (+ test), `packages/app/src/telemetry/events.test.ts` | accept `withdrawn` as a cause | 5 |
-| `CLAUDE.md`, `docs/campaign/README.md` | the authoring rule | 6 |
+| `packages/app/src/main.ts` | one-minute warning wiring; `limitTicksLeft` on the mission view | 4, 5 |
+| `packages/app/src/ui/hud-model.ts` (+ test) | `MissionView.limitTicksLeft`, `LIMIT_CLOCK_TICKS`, `limitClock` | 5 |
+| `packages/app/src/ui/hud.ts` (+ `hud.test.ts`), `packages/app/src/ui/theme.css` | the strip segment `.rl-strip__limit` | 5 |
+| `data/schemas/telemetry_event.schema.json`, `packages/data/src/telemetry.ts` (+ test), `packages/app/src/telemetry/events.test.ts` | accept `withdrawn` as a cause | 6 |
+| `CLAUDE.md`, `docs/campaign/README.md` | the authoring rule | 7 |
 
 ---
 
-### Task 1: The sim ends a stalled mission as "withdrawn", and the debrief says so
+### Task 1: The sim ends a stalled mission at its time limit, and the debrief says "Out of time"
 
 **Files:**
 - Modify: `packages/sim/src/mission.ts` (`MissionJson`, `DefeatCause`, the `resultValue` field, `defeatCause`, a new getter after `get result()`, `checkEnd`)
@@ -386,8 +397,8 @@ In `checkEnd`, replace the two lines `const lost = …` / `if (!lost && !won) re
 red until the branch exists. In `packages/app/src/i18n/en.json`, after `"outcome.failed.conduct"`:
 
 ```json
-  "outcome.failed.withdrawn": "Withdrawn, out of time: {text} · {at}",
-  "outcome.failed.withdrawnBare": "Withdrawn, out of time · {at}",
+  "outcome.failed.timeUp": "Out of time — {text} was not finished",
+  "outcome.failed.timeUpBare": "Out of time",
 ```
 
 In `packages/app/src/ui/mission-failure.ts`, widen the parameter and add the branch:
@@ -404,34 +415,35 @@ export function failureReason(
   if (cause === 'roe_collapse') return t('outcome.failed.conduct', { at });
   if (cause === 'withdrawn') {
     // #540: the limit ends the mission with its primaries still active; name the first one, so the
-    // debrief says what was left undone and not just that time ran out.
+    // debrief says what was left undone and not just that time ran out. Plain words, no "{at}"
+    // (Ruling (lead, 2026-10-13), D1); `withdrawn` is the internal id only.
     const open = objectives.find((o) => o.primary === true && o.status === 'active');
-    return open ? t('outcome.failed.withdrawn', { text: open.text, at }) : t('outcome.failed.withdrawnBare', { at });
+    return open ? t('outcome.failed.timeUp', { text: open.text }) : t('outcome.failed.timeUpBare');
   }
   const text = objectives.find((o) => o.id === cause.objective)?.text ?? cause.objective;
   return t('outcome.failed.objective', { text, at });
 }
 ```
 
-Add a sentence to the file header's point 1: "A mission the time limit ends (#540) names the first
-primary still open."
+Add a sentence to the file header's point 1: "A mission the time limit ends (#540) says "Out of
+time" and names the first primary still open."
 
 In `packages/app/src/ui/mission-failure.test.ts`, inside `describe('1. failureReason…')`, after
 `'a wiped force and a Conduct collapse'`:
 
 ```ts
-  it('a withdrawal names the first primary still open, never a secondary', () => {
+  it('running out of time names the first primary still open, never a secondary', () => {
     const rows = [
       { id: 'scout', text: 'Find the column', primary: false, status: 'active' },
       { id: 'hold_the_crest_line', text: 'Hold the crest line for four minutes', primary: true, status: 'complete' },
       { id: 'level_the_stone_post', text: 'Level the post on the stone knoll inside five minutes', primary: true, status: 'active' },
     ];
     expect(failureReason('withdrawn', rows, 840 * S)).toBe(
-      'Withdrawn, out of time: Level the post on the stone knoll inside five minutes · 14:00'
+      'Out of time — Level the post on the stone knoll inside five minutes was not finished'
     );
   });
-  it('a withdrawal with no open primary on the list still says why, and shows no id', () => {
-    expect(failureReason('withdrawn', objs, 840 * S)).toBe('Withdrawn, out of time · 14:00');
+  it('running out of time with no open primary on the list still says why, and shows no id', () => {
+    expect(failureReason('withdrawn', objs, 840 * S)).toBe('Out of time');
   });
 ```
 
@@ -451,12 +463,13 @@ Expected: PASS. The three pins are unchanged (`1202444260`, `2051106457`, `27372
 
 ```bash
 cat > <scratch>/t1.txt <<'EOF'
-sim: a stalled mission ends as a "withdrawn" defeat at its time limit (#540)
+sim: a stalled mission ends as a defeat at its time limit (#540)
 
 MissionJson gains time_limit_s. checkEnd ends a mission whose limit has run out with a primary
-still open; result stays 'defeat', and defeatCause reads 'withdrawn' only when the limit was the
-sole reason. A win on the limit tick wins; another loss on it keeps its own cause.
-failureReason words it for the feed, outcome card and debrief.
+still open; result stays 'defeat', and defeatCause reads 'withdrawn' (internal id) only when the
+limit was the sole reason. A win on the limit tick wins; another loss on it keeps its own cause.
+failureReason words it for the feed, outcome card and debrief: "Out of time — <objective> was
+not finished" (the lead's wording, 13 Oct).
 
 No sim pin moves: no pinned replay builds a MissionRuntime, and a test proves a withdrawn
 world hashes as the same world with no limit.
@@ -881,30 +894,31 @@ named) with `-- tools/src/backtest/playtest-run.ts tools/src/backtest/passive-sw
 - Modify: `packages/app/src/ui/mission-failure.ts`, `packages/app/src/ui/mission-failure.test.ts`
 - Modify: `packages/app/src/i18n/en.json` (after `"hud.deadline.warn"`)
 - Modify: `packages/app/src/main.ts` (beside `deadlinesWarned` and the deadline-warning block)
+- Modify: `packages/app/src/i18n/player-wording.test.ts` (one `it`)
 
 **Interfaces:**
 - Consumes: `MissionRuntime.timeLimitTicksLeft` (Task 1); `DEADLINE_WARN_TICKS` (exists); Beit Sahwan I's `time_limit_s` 840 (Task 2).
-- Produces: `withdrawalDue(ticksLeft: number | undefined, warned: boolean): boolean`; `withdrawalWarningLine(ticksLeft: number): string`.
+- Produces: `limitWarningDue(ticksLeft: number | undefined, warned: boolean): boolean`; `limitWarningLine(): string`.
 
 - [ ] **Step 1: Write the failing tests** — a new section at the end of `mission-failure.test.ts`
-(add `withdrawalDue, withdrawalWarningLine` to the import):
+(add `limitWarningDue, limitWarningLine` to the import):
 
 ```ts
 describe('4. the time limit warns once, a minute out (#540)', () => {
   it('fires at 1:00 and not at 1:01, and never once warned', () => {
-    expect(withdrawalDue(DEADLINE_WARN_TICKS + 1, false)).toBe(false);
-    expect(withdrawalDue(DEADLINE_WARN_TICKS, false)).toBe(true);
-    expect(withdrawalDue(DEADLINE_WARN_TICKS, true)).toBe(false);
+    expect(limitWarningDue(DEADLINE_WARN_TICKS + 1, false)).toBe(false);
+    expect(limitWarningDue(DEADLINE_WARN_TICKS, false)).toBe(true);
+    expect(limitWarningDue(DEADLINE_WARN_TICKS, true)).toBe(false);
   });
   it('never without a limit, and never once it has run out', () => {
-    expect(withdrawalDue(undefined, false)).toBe(false);
-    expect(withdrawalDue(0, false)).toBe(false);
+    expect(limitWarningDue(undefined, false)).toBe(false);
+    expect(limitWarningDue(0, false)).toBe(false);
   });
   it('words the line', () => {
-    expect(withdrawalWarningLine(DEADLINE_WARN_TICKS)).toBe('1:00 left — then the force is withdrawn');
+    expect(limitWarningLine()).toBe('One minute left to finish the mission');
   });
 
-  it("Beit Sahwan I with no orders: the runtime's own cause words the withdrawal at 14:00", () => {
+  it("Beit Sahwan I with no orders: the runtime's own cause words the end at 14:00", () => {
     const mission = missions.beit_sahwan_1_recon as unknown as MissionJson;
     const map = parseMap(maps[mission.map.file as keyof typeof maps]);
     const sim = new Sim({ seed: 424242, width: map.width, height: map.height, capacity: 256 });
@@ -924,17 +938,31 @@ describe('4. the time limit warns once, a minute out (#540)', () => {
     let end = -1;
     let warnedAt = -1;
     for (let t = 0; t < 900 * S && end < 0; t++) {
-      if (warnedAt < 0 && withdrawalDue(rt.timeLimitTicksLeft, false)) warnedAt = sim.tickCount;
+      if (warnedAt < 0 && limitWarningDue(rt.timeLimitTicksLeft, false)) warnedAt = sim.tickCount;
       for (const e of rt.step(sim.tick())) if (e.kind === 'missionEnd') end = e.tick;
     }
     expect(warnedAt).toBe(780 * S);
     expect(end).toBe(840 * S);
     expect(rt.defeatCause).toBe('withdrawn');
     expect(failureReason(rt.defeatCause, rt.objectiveList, end)).toBe(
-      'Withdrawn, out of time: Identify six garrison positions · 14:00'
+      'Out of time — Identify six garrison positions was not finished'
     );
   });
 });
+```
+
+And in `packages/app/src/i18n/player-wording.test.ts`, a guard for the ruling (inside its top-level
+`describe`, using the file's own `playerText` and `en` import):
+
+```ts
+  // #540, Ruling (lead, 2026-10-13): running out of time is "Out of time", never "withdrawn" --
+  // `withdrawn` is the internal defeat-reason id only. (`aar.well.*` "withdrew" is the ENEMY's.)
+  it('no string tells the player he was withdrawn', () => {
+    const hits = Object.entries(en as Record<string, string>)
+      .filter(([, v]) => /\bwithdrawn\b|\bwithdrawal\b/i.test(playerText(v).text))
+      .map(([k]) => k);
+    expect(hits).toEqual([]);
+  });
 ```
 
 - [ ] **Step 2: Run; fails** (exports missing).
@@ -943,7 +971,7 @@ Run: `pnpm vitest run packages/app/src/ui/mission-failure.test.ts`
 - [ ] **Step 3: Implement.** `en.json`, after `"hud.deadline.warn"`:
 
 ```json
-  "hud.withdraw.warn": "{left} left — then the force is withdrawn",
+  "hud.limit.warn": "One minute left to finish the mission",
 ```
 
 `mission-failure.ts`, after `deadlineWarningLine` (and a point 4 in the header: "the time limit warns
@@ -953,22 +981,22 @@ once, a minute out, through the same feed line and chime"):
 /** #540: whether the one feed line before the time limit is due -- once, at a minute or less, never
  *  once the limit has run out. `ticksLeft` is `MissionRuntime.timeLimitTicksLeft` (sim ticks, so a
  *  pause holds it); the caller keeps `warned`. */
-export function withdrawalDue(ticksLeft: number | undefined, warned: boolean): boolean {
+export function limitWarningDue(ticksLeft: number | undefined, warned: boolean): boolean {
   return !warned && ticksLeft !== undefined && ticksLeft > 0 && ticksLeft <= DEADLINE_WARN_TICKS;
 }
 
-/** The feed line for the time-limit warning. */
-export function withdrawalWarningLine(ticksLeft: number): string {
-  return t('hud.withdraw.warn', { left: clockText(ticksLeft) });
+/** The feed line for the time-limit warning (the lead's wording, 2026-10-13). */
+export function limitWarningLine(): string {
+  return t('hud.limit.warn');
 }
 ```
 
-`main.ts`: extend the import from `./ui/mission-failure` with `withdrawalDue, withdrawalWarningLine`;
+`main.ts`: extend the import from `./ui/mission-failure` with `limitWarningDue, limitWarningLine`;
 after `let deadlinesWarned … = new Set();` add
 
 ```ts
   // #540: the time limit's one-minute warning, once per mission.
-  let withdrawalWarned = false;
+  let limitWarned = false;
 ```
 
 and inside the existing `if (runtime && runtime.result === 'ongoing' && sim.tickCount % 5 === 0) {`
@@ -976,9 +1004,9 @@ block, after its `for (const row of due.warn) { … }` loop:
 
 ```ts
       // #540: not in the tutorial, whose own step machine ends it long before its limit.
-      if (stepList === undefined && withdrawalDue(runtime.timeLimitTicksLeft, withdrawalWarned)) {
-        withdrawalWarned = true;
-        hud.note(escapeHtml(withdrawalWarningLine(runtime.timeLimitTicksLeft ?? 0)), 'warn');
+      if (stepList === undefined && limitWarningDue(runtime.timeLimitTicksLeft, limitWarned)) {
+        limitWarned = true;
+        hud.note(escapeHtml(limitWarningLine()), 'warn');
         audio.playCue(ALERT_CUE.important);
       }
 ```
@@ -988,6 +1016,142 @@ Run: `pnpm vitest run packages/app/src/ui/mission-failure.test.ts packages/app/s
 
 - [ ] **Step 5: Falsify, then restore.** `ticksLeft <= DEADLINE_WARN_TICKS` → `<`: "fires at 1:00"
 goes red and `warnedAt` reads 780.05 s. Drop `ticksLeft > 0 &&`: "never once it has run out" goes red.
+Change `outcome.failed.timeUpBare` to "Withdrawn": the player-wording guard goes red.
+
+- [ ] **Step 6: Commit** (`polish: the feed warns a minute before the time limit (#540)`, the three
+mutations named) with `-- packages/app/src/ui/mission-failure.ts packages/app/src/ui/mission-failure.test.ts packages/app/src/i18n/en.json packages/app/src/i18n/player-wording.test.ts packages/app/src/main.ts`.
+
+---
+
+### Task 5: The strip counts down the last minute (Ruling (lead, 2026-10-13), D2)
+
+**Files:**
+- Modify: `packages/app/src/ui/hud-model.ts` (`MissionView`, a constant and `limitClock` after `holdClock`)
+- Modify: `packages/app/src/ui/hud-model.test.ts`
+- Modify: `packages/app/src/ui/hud.ts` (the strip build, right after the `deadline` row)
+- Modify: `packages/app/src/ui/hud.test.ts`
+- Modify: `packages/app/src/ui/theme.css` (the `.rl-strip__deadline` rule)
+- Modify: `packages/app/src/i18n/en.json` (after `"hud.limit.warn"`)
+- Modify: `packages/app/src/main.ts` (`getMission`)
+
+**Interfaces:**
+- Consumes: `MissionRuntime.timeLimitTicksLeft` (Task 1); `clockText`, `textToneClass` (exist); `DEADLINE_WARN_TICKS` (exists in `mission-failure.ts`; read only by the test, because `mission-failure.ts` imports `hud-model.ts` and the reverse import would be a cycle).
+- Produces: `MissionView.limitTicksLeft?: number`; `LIMIT_CLOCK_TICKS = 60 * TICKS_PER_SECOND`; `limitClock(m: MissionView | null): { text: string; tone: 'warn' | 'bad' } | null`; the strip segment `<span class="rl-strip__obj rl-strip__limit">`.
+
+- [ ] **Step 1: Write the failing model tests** in `hud-model.test.ts` (add `limitClock, LIMIT_CLOCK_TICKS` to
+the `./hud-model` import, and `import { DEADLINE_WARN_TICKS } from './mission-failure';`):
+
+```ts
+describe('limitClock (#540, the last minute only)', () => {
+  const at = (limitTicksLeft: number | undefined, result: MissionView['result'] = 'ongoing') =>
+    limitClock({ ...mission([obj({})]), limitTicksLeft, result });
+
+  it('is absent before the last minute, and without a limit', () => {
+    expect(at(61 * TICKS_PER_SECOND)).toBeNull();
+    expect(at(60 * TICKS_PER_SECOND + 1)).toBeNull();
+    expect(at(undefined)).toBeNull();
+  });
+  it('counts the last minute down, amber, then red from 0:30', () => {
+    expect(at(60 * TICKS_PER_SECOND)).toEqual({ text: 'Time left 1:00', tone: 'warn' });
+    expect(at(59 * TICKS_PER_SECOND)).toEqual({ text: 'Time left 0:59', tone: 'warn' });
+    expect(at(31 * TICKS_PER_SECOND)).toEqual({ text: 'Time left 0:31', tone: 'warn' });
+    expect(at(30 * TICKS_PER_SECOND)).toEqual({ text: 'Time left 0:30', tone: 'bad' });
+  });
+  it('is gone at zero and once the mission has ended, whatever the clock says', () => {
+    expect(at(0)).toBeNull();
+    expect(at(20 * TICKS_PER_SECOND, 'defeat')).toBeNull();
+    expect(at(20 * TICKS_PER_SECOND, 'victory')).toBeNull();
+  });
+  it('starts on the same tick as the feed warning', () => {
+    expect(LIMIT_CLOCK_TICKS).toBe(DEADLINE_WARN_TICKS);
+  });
+});
+```
+
+and the strip test in `hud.test.ts`, beside the deadline-row tests (the file's own `rig` and `mission`
+helpers; add `textToneClass` to its `./hud-model` import if it is not there):
+
+```ts
+  it('draws the time limit only in the last minute, as a label and a clock (#540)', () => {
+    const early = rig(mission({ limitTicksLeft: 61 * 20 }));
+    expect(early.host.querySelector('.rl-strip__limit')).toBeNull();
+    const late = rig(mission({ limitTicksLeft: 59 * 20 }));
+    const seg = late.host.querySelector('.rl-strip__limit');
+    expect(seg?.textContent?.trim()).toBe('Time left 0:59');
+    expect(seg?.querySelector('b')?.className).toBe(textToneClass('warn'));
+  });
+```
+
+- [ ] **Step 2: Run; they fail.**
+Run: `pnpm vitest run packages/app/src/ui/hud-model.test.ts packages/app/src/ui/hud.test.ts -t "limit"`
+
+- [ ] **Step 3: Implement.** `en.json`, after `"hud.limit.warn"`:
+
+```json
+  "hud.limit.clock": "Time left {left}",
+```
+
+`hud-model.ts`: on `MissionView`, after `aftermath?`:
+
+```ts
+  /** #540: `MissionRuntime.timeLimitTicksLeft`. The strip reads it only in the last minute
+   *  (`limitClock`); absent where the mission has no limit. */
+  limitTicksLeft?: number;
+```
+
+after `holdClock`:
+
+```ts
+/** #540: the strip counts the time limit down in its LAST MINUTE ONLY (Ruling (lead, 2026-10-13),
+ *  D2). Before that the limit is a backstop at twice the target, and a clock from the first second
+ *  would make every mission a timed one. The same window as the feed's one-minute line
+ *  (`DEADLINE_WARN_TICKS`; a test holds the two equal, since importing it here would be a cycle). */
+export const LIMIT_CLOCK_TICKS = 60 * TICKS_PER_SECOND;
+
+/** The strip's time-limit segment, or null: no limit, more than a minute left, none left, or the
+ *  mission already over (the end screen says why). Amber, red from 0:30, as the deadline line. */
+export function limitClock(m: MissionView | null): { text: string; tone: 'warn' | 'bad' } | null {
+  const left = m?.limitTicksLeft;
+  if (!m || m.result !== 'ongoing' || left === undefined || left <= 0 || left > LIMIT_CLOCK_TICKS) return null;
+  return {
+    text: t('hud.limit.clock', { left: clockText(left) }),
+    tone: left <= 30 * TICKS_PER_SECOND ? 'bad' : 'warn',
+  };
+}
+```
+
+`hud.ts`: add `limitClock` to the `./hud-model` import; right after the `if (deadline && …) { … }` block:
+
+```ts
+      // #540: the time limit's last minute (Ruling (lead, 2026-10-13), D2). Its own segment, after
+      // the deadline line, so it never displaces an objective's clock.
+      const limit = this.shown('clock') ? limitClock(m) : null;
+      if (limit) {
+        rows.push(
+          `<span class="rl-strip__obj rl-strip__limit" tabindex="0">` +
+            `<b class="${textToneClass(limit.tone)}">${escapeHtml(limit.text)}</b></span>`
+        );
+      }
+```
+
+`theme.css`: the existing `.rl-strip__deadline {` rule's selector becomes `.rl-strip__deadline,
+.rl-strip__limit {` (same border and padding, no new colour), and its comment gains "and the time
+limit's last minute (#540)".
+
+`main.ts`, in `getMission`, after `aftermath: mission.aftermath,`:
+
+```ts
+          // #540: the strip's last-minute countdown reads this (`limitClock`).
+          limitTicksLeft: runtime.timeLimitTicksLeft,
+```
+
+- [ ] **Step 4: Run; green.**
+Run: `pnpm vitest run packages/app/src/ui/hud-model.test.ts packages/app/src/ui/hud.test.ts packages/app/src/i18n && pnpm typecheck && pnpm lint && pnpm validate:ui`
+
+- [ ] **Step 5: Falsify, then restore.** `left > LIMIT_CLOCK_TICKS` → `left >= LIMIT_CLOCK_TICKS`: the
+"1:00" assertion goes red. Drop `m.result !== 'ongoing' ||`: "once the mission has ended" goes red.
+`<= 30 * TICKS_PER_SECOND` → `<`: the 0:30 assertion goes red. In `hud.ts`, `limitClock(m)` → `null`:
+the strip test goes red.
 
 - [ ] **Step 6: Drive the real UI once** (memory: console shortcuts skip the code that breaks). One
 browser, Metal, music off, own port, closed after. Start the dev server itself (not through `pnpm`, so the PID is vite's own) on a free port that is
@@ -1014,27 +1178,32 @@ try {
   await page.goto('http://localhost:5193/?mission=beit_sahwan_1_recon');
   await dismissDeployGate(page, 'check-540');
   await page.waitForFunction(() => (window as unknown as { __lions?: unknown }).__lions !== undefined);
-  await page.evaluate(() => (window as any).__lions.step(780 * 20 - (window as any).__lions.sim.tickCount));
+  await page.evaluate(() => (window as any).__lions.step(781 * 20 - (window as any).__lions.sim.tickCount));
   await page.waitForTimeout(500);
   console.log('feed:', await page.locator('.rl-feed').innerText());
+  console.log('strip:', await page.locator('.rl-strip__limit').innerText());
+  await page.screenshot({ path: '<scratch>/strip-0-59.png', clip: { x: 0, y: 0, width: 1440, height: 48 } });
   await page.evaluate(() => (window as any).__lions.step(61 * 20));
   await page.waitForTimeout(1500);
   console.log('reason:', await page.locator('.rl-outcome__reason').innerText());
+  console.log('strip after end:', await page.locator('.rl-strip__limit').count());
 } finally {
   await browser.close();
 }
 ```
 
-Expected: the feed shows "1:00 left — then the force is withdrawn"; the outcome card's reason reads
-"Withdrawn, out of time: Identify six garrison positions · 14:00". Then `kill $(cat <scratch>/vite.pid)`, `rm -r <worktree>/tools/src/.scratch-540`,
+Expected: the feed shows "One minute left to finish the mission"; the strip reads "Time left 0:59"
+(amber; look at `strip-0-59.png` and attach it to the PR as the D2 evidence); the outcome card's
+reason reads "Out of time — Identify six garrison positions was not finished"; the strip segment count
+after the end is 0. No visible text anywhere says "withdrawn". Then `kill $(cat <scratch>/vite.pid)`, `rm -r <worktree>/tools/src/.scratch-540`,
 and confirm with `lsof -i :5193` that nothing is listening.
 
-- [ ] **Step 7: Commit** (`polish: the feed warns a minute before the time limit (#540)`, both mutations
-and the browser reading named) with `-- packages/app/src/ui/mission-failure.ts packages/app/src/ui/mission-failure.test.ts packages/app/src/i18n/en.json packages/app/src/main.ts`.
+- [ ] **Step 7: Commit** (`polish: the strip counts down the time limit's last minute (#540)`, the four
+mutations and the browser reading named) with `-- packages/app/src/ui/hud-model.ts packages/app/src/ui/hud-model.test.ts packages/app/src/ui/hud.ts packages/app/src/ui/hud.test.ts packages/app/src/ui/theme.css packages/app/src/i18n/en.json packages/app/src/main.ts`.
 
 ---
 
-### Task 5: Telemetry accepts the new cause
+### Task 6: Telemetry accepts the new cause
 
 **Files:**
 - Modify: `data/schemas/telemetry_event.schema.json` (the `mission_end` `cause` pattern)
@@ -1071,7 +1240,7 @@ Run: `pnpm vitest run packages/data/src/telemetry.test.ts` — FAIL (schema and 
 
 ---
 
-### Task 6: The authoring rule is written down
+### Task 7: The authoring rule is written down
 
 **Files:**
 - Modify: `CLAUDE.md` ("Adding content", the **A mission** paragraph)
@@ -1082,8 +1251,9 @@ checks it."), add:
 
 > **And it declares `time_limit_s` (#540), twice `target_minutes` at least.** When it runs out with a
 > primary still open, `checkEnd` ends the mission as a defeat whose `defeatCause` is `withdrawn` (not a
-> new `result`); the feed warns once a minute out, and the outcome card and debrief name the first
-> primary still open. `validate:data` (`tools/validate_time_limit.mjs`) holds the floor and a 60 s
+> new `result`, and an internal id only: the player reads "Out of time — <objective> was not finished",
+> and no string says "withdrawn", a guard in `player-wording.test.ts`); the last minute is announced
+> once in the feed and counted down in the strip ("Time left 0:59"), never earlier. `validate:data` (`tools/validate_time_limit.mjs`) holds the floor and a 60 s
 > clearance over every primary deadline, so a losing mission still loses on its own clock;
 > `pnpm playtest` holds a 120 s and 20% margin over the slowest 30-seed win and prints one
 > `time limit` line per mission. The tightest is Wadi Halam IV (840 s against an 11.3-minute win with
@@ -1101,7 +1271,8 @@ twice its `target_minutes` (#540); a design that needs more must show the measur
 
 - [ ] `pnpm test && pnpm test:determinism && pnpm typecheck && pnpm lint && pnpm validate:data && pnpm validate:ui && pnpm playtest` — all green; pins and 5972 unchanged.
 - [ ] `ps`/`lsof` on the worktree path and port 5193: nothing left running.
-- [ ] PR body: the per-mission table from "Measured", the playtest diff summary (two witnesses and 26 headroom lines added, nothing moved), the browser reading, "no bless expected", and the line "🤖 Generated with [Claude Code](https://claude.com/claude-code)". Do not merge.
+- [ ] `grep -n -i withdrawn packages/app/src/i18n/en.json` prints nothing.
+- [ ] PR body: the per-mission table from "Measured", the playtest diff summary (two witnesses and 26 headroom lines added, nothing moved), the browser reading and `strip-0-59.png`, "no bless expected", and the line "🤖 Generated with [Claude Code](https://claude.com/claude-code)". Do not merge.
 
 ## Self-review (done while writing)
 
@@ -1110,8 +1281,12 @@ twice its `target_minutes` (#540); a design that needs more must show the measur
   `locate` case (Measured: ended by the limit; a direct rule is out of scope).
 - **Ruling 4:** right before F1 (Global Constraints); no sim pin (T1 Step 5, the hash test); a defeat
   reason, not a result (T1); clears the slowest 30-seed win and every control's deadline (Measured, T2
-  rule, T3 harness); the stall hint stays (untouched; T4 adds the minute warning beside it).
-- **Names used across tasks:** `time_limit_s`, `timeLimitTicksLeft`, `'withdrawn'`, `withdrawalDue`,
-  `withdrawalWarningLine`, `timeLimitFailures`, `causeText`, `sweepOutcome`, `limitHeadroom`, keys
-  `outcome.failed.withdrawn`, `outcome.failed.withdrawnBare`, `hud.withdraw.warn`. Each is defined in
+  rule, T3 harness); the stall hint stays (untouched; T4 adds the minute warning beside it, T5 the last-minute
+  countdown).
+- **Rulings (lead, 2026-10-13):** D1 wording verbatim (T1, T4, T5) with a no-"withdrawn" guard (T4);
+  D2 last-minute strip countdown (T5) plus the feed line (T4); D3 twice the target as a minimum (T2).
+- **Names used across tasks:** `time_limit_s`, `timeLimitTicksLeft`, `'withdrawn'` (internal),
+  `limitWarningDue`, `limitWarningLine`, `limitTicksLeft`, `LIMIT_CLOCK_TICKS`, `limitClock`,
+  `timeLimitFailures`, `causeText`, `sweepOutcome`, `limitHeadroom`, keys `outcome.failed.timeUp`,
+  `outcome.failed.timeUpBare`, `hud.limit.warn`, `hud.limit.clock`. Each is defined in
   the task that produces it and used under the same name after.
