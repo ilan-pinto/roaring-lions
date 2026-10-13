@@ -365,6 +365,8 @@
     },
     "weapons": {
       "type": "array",
+      "maxItems": 2,
+      "description": "At most two: the sim fires weapon slots 0 and 1 (sim.ts, `slot < 2`) and never reads a third.",
       "items": {
         "type": "object",
         "required": [

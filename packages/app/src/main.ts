@@ -1937,8 +1937,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       return u ? kdfUnlockGate(u, boughtUnits) : undefined;
     });
   } else if (netConfig?.mode === 'versus') {
-    // A versus room (network design §9): the KDF force on EACH side, mirrored
-    // through the hostile anchor, no Sarim and no civilians. `sandboxForce`
+    // A versus room (network design §9): the KDF force (plus the second Spike
+    // team, `VERSUS_EXTRA`) on EACH side, mirrored through the hostile anchor,
+    // no Sarim and no civilians. `sandboxForce`
     // keeps its meaning -- the seat's own units -- and has no crowd.
     sandboxForce = { player: versusSpawns(sim, typeOf, anchors).bySide[me], civilians: [] };
   } else {
