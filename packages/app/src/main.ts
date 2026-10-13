@@ -1567,7 +1567,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const missionId = req.missionId;
   let mission: MissionJson | undefined;
   if (missionId !== null) {
-    const rawMission = (missions as Record<string, MissionJson | undefined>)[missionId];
+    // Own keys only (#559 F5): `?mission=constructor` must be an unknown id,
+    // not `Object`'s inherited member.
+    const rawMission = Object.hasOwn(missions, missionId)
+      ? (missions as Record<string, MissionJson | undefined>)[missionId]
+      : undefined;
     if (!rawMission) {
       bootError(stage, t('boot.unknownMission.title'), t('boot.unknownMission.body'), t('boot.unknownMission.next'));
       // `teardown`, not a fresh no-op: nothing has been registered yet, so it
@@ -1633,7 +1637,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // failing, and names what it did: a typo in a dev URL should not look like
   // a broken build.
   const sandboxMap = req.sandboxMap;
-  if (sandboxMap && !(sandboxMap in maps)) {
+  if (sandboxMap && !Object.hasOwn(maps, sandboxMap)) {
     console.warn(
       `unknown sandbox map "${sandboxMap}" — available: ${Object.keys(maps).join(', ')}`
     );
@@ -1667,7 +1671,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         `see __lions.help() for what this build reads`
     );
   }
-  const mapId = mission?.map.file ?? (sandboxMap && sandboxMap in maps ? sandboxMap : 'beit_sahwan_outskirts');
+  const mapId = mission?.map.file ?? (sandboxMap && Object.hasOwn(maps, sandboxMap) ? sandboxMap : 'beit_sahwan_outskirts');
   // The transport, resolved before the sim exists (spec §3.3): a
   // `LocalTransport` in single-player, else a room, which resolves at its
   // `start` with the seed and the map both machines run. The build string is
