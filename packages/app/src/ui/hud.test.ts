@@ -1724,6 +1724,18 @@ describe('the order row', () => {
     expect(r.order('halt')!.textContent).toContain('J');
   });
 
+  it('escapes the keycap: a key label is data, never markup (security review #559, F3)', () => {
+    const world = makeForce();
+    const r = clusterRig(
+      () => [world.namer],
+      { keyFor: (action) => (action === 'halt' ? '<img src=x data-pwn=1>' : action) },
+      world
+    );
+    const btn = r.order('halt')!;
+    expect(btn.querySelector('img')).toBeNull();
+    expect(btn.textContent).toContain('<img src=x data-pwn=1>');
+  });
+
   it('lights the armed order and only that one', () => {
     const world = makeForce();
     const r = clusterRig(() => [world.namer], { armedOrder: () => 'attackMove' }, world);

@@ -170,3 +170,24 @@ describe('settingsBus', () => {
     expect(calls).toBe(1);
   });
 });
+
+describe('controls.bindings (security review #559, F3)', () => {
+  it('keeps real key names and drops anything that is not one', () => {
+    const s = parseSettings(
+      JSON.stringify({
+        version: 1,
+        controls: {
+          bindings: {
+            halt: 'j',
+            move: '<img src=x data-pwn=1>',
+            smoke: 'F5',
+            load: '[',
+            unload: 'space',
+            mute: 'a'.repeat(200),
+          },
+        },
+      })
+    );
+    expect(s.controls.bindings).toEqual({ halt: 'j', smoke: 'F5', load: '[', unload: 'space' });
+  });
+});
