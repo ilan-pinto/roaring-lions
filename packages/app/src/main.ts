@@ -239,7 +239,7 @@ import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { PAUSES_PER_SEAT, WsTransport, type Seat, type TransportStatus } from '@lions/net';
 import { connectMatch, openRoom, type Connected } from './net/connect';
 import { desyncReportDraft, withoutReplay } from './net/desync-report';
-import { escapeOpensPause, hudExit, pauseEndClosesMenu, roomPauseCall, surrenderOffered } from './net/room-pause';
+import { escapeOpensPause, hudExit, ordersWait, pauseEndClosesMenu, roomOrderSink, roomPauseCall, surrenderOffered } from './net/room-pause';
 import { roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
 import { safeStorage as safeStorageLike } from './telemetry/identity';
 import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
@@ -2695,6 +2695,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   let armedOrder: 'attackMove' | 'move' | 'smoke' | null = null;
   const myLiving = (): number[] =>
     renderer.selection.filter((i) => isOwnSide(sim.state.side[i], me) && sim.state.alive[i] === 1);
+  /** The mark an order leaves on the field: none while the room is paused,
+   *  when the order waits and nothing was ordered (N1b lead ruling M-4). */
+  const orderMarker = (x: number, y: number): void => {
+    if (room === null || !ordersWait(room.status())) renderer.addOrderMarker(x, y);
+  };
   /**
    * The three verbs `intents.ts` resolves, through one call.
    *
@@ -2717,7 +2722,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     });
     for (const intent of res.intents) dispatch(intent);
     if (res.note) hud.note(res.note.text, res.note.tone);
-    if (res.marker) renderer.addOrderMarker(w.x, w.y);
+    if (res.marker) orderMarker(w.x, w.y);
   };
   /**
    * Arm (or disarm) a point-targeted order.
@@ -3822,8 +3827,22 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // The command goes to the TRANSPORT, never straight into the sim: in a
   // room it reaches both sims in the same frame, and in single-player the
   // `LocalTransport` hands it to the next tick exactly as `queueCommand` did.
+  // Orders wait while the room is paused, for both seats (N1b lead ruling M-4,
+  // R-B27): the room would refuse the cmd, so none is sent -- nothing is
+  // buffered for the resume -- and the feed says why. A refused order is no
+  // order: the listeners (voice, telemetry, the replay log) never see it.
+  // Identical feed lines merge, so a spammed click does not flood the feed.
   const dispatch = (intent: PlayerIntent): void => {
-    applyIntent(transport, intent, sim);
+    let refused = false;
+    applyIntent(
+      room === null ? transport : roomOrderSink(() => room.status(), transport, () => { refused = true; }),
+      intent,
+      sim
+    );
+    if (refused) {
+      hud.note(t('net.pause.ordersBlocked'), 'warn');
+      return;
+    }
     for (const fn of intentListeners) fn(intent);
   };
   intentListeners.push((intent) => voice.observe(intent));
@@ -3854,7 +3873,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const orderSink: OrderSink = {
     dispatch,
     note: (text, tone) => hud.note(text, tone),
-    marker: (x, y) => renderer.addOrderMarker(x, y),
+    marker: orderMarker,
     // Polish pass F: an order that resolved to nothing says so.
     deny: () => audio.playCue(CRITICAL_CUES.uiDeny),
   };
@@ -4049,7 +4068,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             voice.hint({ hostile: renderer.hoverEntity >= 0 });
             for (const intent of move.intents) dispatch(intent);
             if (move.note) hud.note(move.note.text, move.note.tone);
-            if (move.marker) renderer.addOrderMarker(at.x, at.y);
+            if (move.marker) orderMarker(at.x, at.y);
             if (orderDenied(move, mine.length)) audio.playCue(CRITICAL_CUES.uiDeny);
           }
         }

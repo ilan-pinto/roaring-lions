@@ -12,6 +12,7 @@
  * with none left it does not ask, and says so instead (`note`).
  */
 import type { Seat, TransportStatus } from '@lions/net';
+import type { CommandSink } from '../input/intents';
 
 export interface RoomPauseCall {
   /** Send `pause` to the room. */
@@ -65,4 +66,24 @@ export function pauseEndClosesMenu(prev: TransportStatus, next: TransportStatus,
 export function hudExit(inRoom: boolean, status: TransportStatus): 'hud' | 'surrender' | 'quit' {
   if (!inRoom) return 'hud';
   return surrenderOffered(status) ? 'surrender' : 'quit';
+}
+
+/** Orders wait while the room is paused, for both seats (N1b lead ruling M-4,
+ *  R-B27): the room refuses a `cmd` under a pause, so the client does not
+ *  send one -- and says why, rather than letting a click do nothing. */
+export function ordersWait(status: TransportStatus): boolean {
+  return status.kind === 'paused';
+}
+
+/** The sink a room's intents are applied to: commands go on to the transport
+ *  unless the room is paused, when each is dropped (never buffered, so nothing
+ *  waits to be sent at the resume) and `onBlocked` hears of it. The status is
+ *  read per command, so the answer is the one the moment of the click had. */
+export function roomOrderSink(status: () => TransportStatus, sink: CommandSink, onBlocked: () => void): CommandSink {
+  return {
+    queueCommand(cmd) {
+      if (ordersWait(status())) onBlocked();
+      else sink.queueCommand(cmd);
+    },
+  };
 }

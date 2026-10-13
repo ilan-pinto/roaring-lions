@@ -383,6 +383,76 @@ describe('pause (N1b task 2)', () => {
   });
 });
 
+describe('orders wait while the match is paused, for both seats (L-2, R-B27)', () => {
+  const halt = (id: number) => ({ kind: 'halt' as const, ids: [id] });
+
+  it('a cmd from either seat during a pause is refused: never pending, never in any frame, including the first after resume', () => {
+    const st = running();
+    seatMessage(st, 0, { t: 'pause' }, 1000, mint);
+    // The pauser and the other seat alike.
+    expect(seatMessage(st, 0, { t: 'cmd', seq: 0, cmd: halt(1) }, 1100, mint)).toEqual([]);
+    expect(seatMessage(st, 1, { t: 'cmd', seq: 0, cmd: halt(2) }, 1200, mint)).toEqual([]);
+    expect(st.pending).toEqual([]);
+    expect(frames(clockTick(st, 1250))).toHaveLength(0);
+    seatMessage(st, 0, { t: 'resume' }, 2000, mint);
+    const fx = clockTick(st, 2050);
+    expect(frames(fx)).toEqual([{ tick: 0, cmds: [] }]);
+    expect(frames(clockTick(st, 2100))).toEqual([{ tick: 1, cmds: [] }]);
+  });
+
+  it('a cmd already in flight when the pause starts reaches the room after it began, and is refused', () => {
+    const st = running();
+    seatMessage(st, 0, { t: 'pause' }, 1000, mint);
+    // Sent by seat 1 before it heard `paused`; arrives 1 ms after the pause.
+    seatMessage(st, 1, { t: 'cmd', seq: 0, cmd: halt(7) }, 1001, mint);
+    seatMessage(st, 0, { t: 'resume' }, 1500, mint);
+    expect(frames(clockTick(st, 1550))[0].cmds).toEqual([]);
+  });
+
+  it('a cmd accepted before the pause still runs; only what arrives during it is refused', () => {
+    const st = running();
+    seatMessage(st, 1, { t: 'cmd', seq: 0, cmd: halt(2) }, 990, mint);
+    seatMessage(st, 0, { t: 'pause' }, 1000, mint);
+    seatMessage(st, 1, { t: 'cmd', seq: 1, cmd: halt(3) }, 1010, mint);
+    seatMessage(st, 0, { t: 'resume' }, 1500, mint);
+    const [f] = frames(clockTick(st, 1550));
+    expect(f.cmds.map((c) => c.cmd)).toEqual([halt(2)]);
+  });
+
+  it('a cmd after the resume is accepted, with the seq the seat would have had had nothing been refused', () => {
+    const st = running();
+    seatMessage(st, 1, { t: 'cmd', seq: 0, cmd: halt(2) }, 10, mint);
+    seatMessage(st, 0, { t: 'pause' }, 1000, mint);
+    seatMessage(st, 1, { t: 'cmd', seq: 1, cmd: halt(3) }, 1100, mint);
+    seatMessage(st, 0, { t: 'resume' }, 2000, mint);
+    clockTick(st, 2050);   // the pre-pause cmd's frame
+    seatMessage(st, 1, { t: 'cmd', seq: 2, cmd: halt(4) }, 2060, mint);
+    seatMessage(st, 0, { t: 'cmd', seq: 0, cmd: halt(1) }, 2061, mint);
+    const [f] = frames(clockTick(st, 2100));
+    // A refused cmd takes no number: seat 1's second accepted cmd is its second stamped (seq 1), seat 0's first is 0.
+    expect(f.cmds.map((c) => [c.seat, c.seq, c.cmd])).toEqual([[0, 0, halt(1)], [1, 1, halt(4)]]);
+  });
+
+  it('the 90 s timeout ends the refusal too: a cmd just before the deadline is refused, one after is accepted', () => {
+    const st = running();
+    seatMessage(st, 0, { t: 'pause' }, 1000, mint);
+    seatMessage(st, 1, { t: 'cmd', seq: 0, cmd: halt(2) }, 1000 + 89_999, mint);
+    const fx = clockTick(st, 1000 + 90_000);
+    expect(frames(fx)[0].cmds).toEqual([]);
+    seatMessage(st, 1, { t: 'cmd', seq: 1, cmd: halt(3) }, 1000 + 90_010, mint);
+    expect(frames(clockTick(st, 1000 + 90_050))[0].cmds.map((c) => c.cmd)).toEqual([halt(3)]);
+  });
+
+  it('only a pause refuses: a stall of another kind still takes a seat\'s cmd, as before', () => {
+    const st = running();
+    seatGone(st, 1, 100);
+    expect(st.status).toBe('stalled');
+    expect(st.pause).toBeNull();
+    seatMessage(st, 0, { t: 'cmd', seq: 0, cmd: halt(1) }, 200, mint);
+    expect(st.pending).toHaveLength(1);
+  });
+});
+
 describe('surrender (N1b task 2)', () => {
   it('ends the match with the surrendering seat named', () => {
     const st = running();

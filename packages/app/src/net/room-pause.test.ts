@@ -1,6 +1,8 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { PAUSES_PER_SEAT } from '@lions/net';
-import { escapeOpensPause, hudExit, pauseEndClosesMenu, roomPauseCall, surrenderOffered } from './room-pause';
+import { PAUSES_PER_SEAT, WsTransport, type MatchConfig, type SocketLike } from '@lions/net';
+import { applyIntent, type PlayerIntent } from '../input/intents';
+import { escapeOpensPause, hudExit, ordersWait, pauseEndClosesMenu, roomOrderSink, roomPauseCall, surrenderOffered } from './room-pause';
 
 // N1b task 8, R-B17: the room silently ignores a pause it refuses, so the
 // client decides from its own count (the last `paused` it saw) whether to ask
@@ -93,5 +95,88 @@ describe('hudExit', () => {
     expect(hudExit(true, { kind: 'closed', reason: 'surrender' })).toBe('quit');
     expect(hudExit(true, { kind: 'desync', tick: 40 })).toBe('quit');
     expect(hudExit(true, { kind: 'waiting' })).toBe('quit');
+  });
+});
+
+// L-2 (lead ruling M-4, R-B27): the room refuses a cmd under a pause, for both
+// seats; the client does not send one either, and says why. Driven through a
+// real WsTransport on a fake socket, so "does not reach send" is the wire.
+describe('orders wait while the room is paused', () => {
+  const CONFIG: MatchConfig = {
+    matchId: 'm', code: 'ABCDEF', seed: 1, map: 'x', mode: 'sandbox',
+    seats: [
+      { seat: 0, side: 0, faction: 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: 'a', callsign: 'A', kind: 'human' },
+      { seat: 1, side: 0, faction: 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: 'b', callsign: 'B', kind: 'human' },
+    ],
+    pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0,
+  };
+  const MAP = { width: 48, height: 48 };
+  function room(): { t: WsTransport; cmds: () => unknown[]; recv(msg: unknown): void } {
+    const sent: string[] = [];
+    const sock: SocketLike & { open(): void } = {
+      onopen: null, onmessage: null, onclose: null,
+      send: (d) => { sent.push(d); },
+      close: () => {},
+      open: () => { sock.onopen?.({}); },
+    };
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} });
+    sock.open();
+    const recv = (msg: unknown): void => { sock.onmessage?.({ data: JSON.stringify(msg) }); };
+    recv({ t: 'start', config: CONFIG });
+    return { t, cmds: () => sent.map((x) => JSON.parse(x) as { t: string }).filter((m) => m.t === 'cmd'), recv };
+  }
+
+  it('ordersWait is true for a paused room (either seat\'s pause) and for nothing else', () => {
+    expect(ordersWait({ kind: 'paused', seat: 0, untilMs: 5 })).toBe(true);
+    expect(ordersWait({ kind: 'paused', seat: 1, untilMs: 5 })).toBe(true);
+    expect(ordersWait({ kind: 'live', behind: 0 })).toBe(false);
+    expect(ordersWait({ kind: 'stalled', reason: 'gone', seat: 1 })).toBe(false);
+    expect(ordersWait({ kind: 'waiting' })).toBe(false);
+    expect(ordersWait({ kind: 'local' })).toBe(false);
+  });
+
+  it('a command attempt under a pause never reaches transport.send, and notes the reason; after the resume commands flow', () => {
+    const { t, cmds, recv } = room();
+    let blocked = 0;
+    const sink = roomOrderSink(() => t.status(), t, () => { blocked++; });
+    const order: PlayerIntent = { kind: 'order', verb: 'move', ids: [3], x: 5, y: 6, append: false };
+
+    applyIntent(sink, order, MAP);
+    expect(cmds()).toHaveLength(1);
+    expect(blocked).toBe(0);
+
+    // The other seat pauses: this seat's orders wait too.
+    recv({ t: 'paused', seat: 0, remainingMs: 90000, pausesLeft: [2, 3] });
+    expect(t.status().kind).toBe('paused');
+    applyIntent(sink, order, MAP);
+    applyIntent(sink, { kind: 'halt', ids: [3] }, MAP);
+    expect(cmds()).toHaveLength(1);
+    expect(blocked).toBe(2);
+
+    // Nothing was buffered to go out at the resume.
+    recv({ t: 'resume' });
+    expect(t.status().kind).toBe('live');
+    expect(cmds()).toHaveLength(1);
+    applyIntent(sink, { kind: 'halt', ids: [3] }, MAP);
+    expect(cmds()).toHaveLength(2);
+    expect(blocked).toBe(2);
+  });
+
+  it('an intent that makes no command (a selection) is not an order, and says nothing', () => {
+    const { t, recv } = room();
+    recv({ t: 'paused', seat: 1, remainingMs: 90000, pausesLeft: [3, 2] });
+    let blocked = 0;
+    applyIntent(roomOrderSink(() => t.status(), t, () => { blocked++; }), { kind: 'select', ids: [1], via: 'click' }, MAP);
+    expect(blocked).toBe(0);
+  });
+
+  it('main.ts routes every room intent through it: the dispatch applies to roomOrderSink, and the field marker waits too', () => {
+    const main = readFileSync(new URL('../main.ts', import.meta.url), 'utf8');
+    const dispatch = main.slice(main.indexOf('const dispatch = (intent: PlayerIntent)'), main.indexOf('intentListeners.push((intent) => voice.observe'));
+    expect(dispatch).toContain('roomOrderSink(() => room.status(), transport');
+    expect(dispatch).toContain("t('net.pause.ordersBlocked')");
+    expect(dispatch.indexOf('if (refused)')).toBeLessThan(dispatch.indexOf('for (const fn of intentListeners)'));
+    expect(main).toContain('marker: orderMarker,');
+    expect(main).toContain('if (room === null || !ordersWait(room.status())) renderer.addOrderMarker(x, y);');
   });
 });

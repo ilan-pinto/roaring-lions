@@ -188,6 +188,33 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     expect(p0.taken.slice(1).every((f) => f.cmds.length === 0)).toBe(true);
   });
 
+  it('orders sent during a pause, by either seat, are in no frame either seat ever runs; one after the resume is (L-2, R-B27)', async () => {
+    const { loop, p0, p1 } = await started();
+    p0.t.queueCommand({ kind: 'halt', ids: [100] });   // before the pause: it runs
+    await loop.flush();
+    await step(loop, [p0, p1], 3);
+    p0.t.pause();
+    await loop.flush();
+    expect(p1.t.status().kind).toBe('paused');
+    // The pauser, and the seat that did not pause: both blocked at the room.
+    p0.t.queueCommand({ kind: 'halt', ids: [1] });
+    p1.t.queueCommand({ kind: 'halt', ids: [2] });
+    await loop.flush();
+    await step(loop, [p0, p1], 8);
+    p1.t.queueCommand({ kind: 'halt', ids: [3] });
+    await loop.flush();
+    p0.t.resume();
+    await loop.flush();
+    p1.t.queueCommand({ kind: 'halt', ids: [4] });   // after the resume: accepted
+    await loop.flush();
+    await step(loop, [p0, p1], 6);
+    // Both seats' frame logs are identical, and hold the paused cmds nowhere.
+    expect(p1.taken).toEqual(p0.taken);
+    const ids = p0.taken.flatMap((f) => f.cmds.flatMap((c) => (c.cmd.kind === 'halt' ? c.cmd.ids : [])));
+    expect(ids).toEqual([100, 4]);
+    expect(p0.ticks()).toEqual(range(p0.taken.length));
+  });
+
   it('equal digests on a hash tick are hashOk to both; no desync', async () => {
     const { loop, p0, p1 } = await started();
     await step(loop, [p0, p1], 25);

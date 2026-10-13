@@ -229,6 +229,7 @@
   "net.desync.report": "Report",
   "net.desync.draft": "Desync in room {code} at {time} (seat {seat})",
   "net.paused": "Paused by {seat}: {time}",
+  "net.pause.ordersBlocked": "Orders wait: the match is paused",
   "net.closed": "{reason, select, left {The other seat left the match} void {Match void} expired {The room expired} replaced {This seat was opened in another tab} over {The match has ended} other {Match closed}}",
   "net.chat.placeholder": "Say something (Enter to send)",
   "net.chat.line": "{name}: {text}",

@@ -174,6 +174,16 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
     }
     case 'cmd': {
       if (st.status !== 'running' && st.status !== 'stalled') return [{ kind: 'send', to: seat, msg: { t: 'error', code: 'not_running' } }];
+      // Orders wait while the match is paused, for both seats (L-2, R-B27): a cmd
+      // that arrives under a pause -- one already in flight when it began
+      // included -- is refused outright, never pending and never stamped into
+      // any frame, so the seat that did not pause gets no planning time. It
+      // takes no `nextSeq` either: the number only orders a seat's commands
+      // within a frame, so a refusal leaves the next accepted one contiguous.
+      // The client is told nothing: it already knows it is paused. A cmd
+      // accepted BEFORE the pause stays pending and runs in the first frame
+      // after the resume; it was sent before, and both seats get it alike.
+      if (st.pause !== null) return [];
       if (st.pending.filter((p) => p.seat === seat).length >= MAX_CMDS_PER_SEAT_PER_FRAME) return [];
       st.pending.push({ seat, seq: s.nextSeq++, cmd: msg.cmd });
       return [];
