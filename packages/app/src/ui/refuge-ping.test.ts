@@ -48,7 +48,7 @@ function recorder() {
 
 describe('sayFlight', () => {
   it('pings the refuge exactly once per emitted line, over a whole evacuation', () => {
-    const w = new CivFlightWatch();
+    const w = new CivFlightWatch({ shepherds: true });
     const rec = recorder();
     // Five families. Three break in a ripple a few ticks apart (one line),
     // then after the cooldown two more break (a second line).

@@ -20,6 +20,7 @@ import {
   TICKS_PER_SECOND,
   CivilianFlight,
   CIV_FLEE_AT,
+  missionShepherds,
   MissionRuntime,
   resolveUpgrades,
   starRoeFloor,
@@ -1904,7 +1905,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   let stallActive = false;
   let missionFailure: string | null = null;
   /** No refuge, no flight: `CivilianFlight.step` is never run without one. */
-  const civWatch = refugeAt ? new CivFlightWatch() : null;
+  const civWatch = refugeAt
+    ? new CivFlightWatch({ shepherds: mission ? missionShepherds(mission.objectives) : true })
+    : null;
   /** `sim.entityCount` at the watch's last observation. */
   let civWatchSeen = -1;
   /**

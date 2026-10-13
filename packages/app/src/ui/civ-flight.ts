@@ -2,8 +2,9 @@
  * The feed line for families breaking for the refuge (GH-279).
  *
  * The flight rule lives in the sim (`@lions/sim`'s `CivilianFlight.step`) and
- * has two triggers: suppression above `CIV_FLEE_AT`, or any player unit within
- * four tiles. Neither was ever shown. A squad walked near a family, the family
+ * has two triggers: suppression above `CIV_FLEE_AT`, always; or a living,
+ * surface, GROUND player unit within four tiles, and only in a mission that
+ * declares an `evacuate_before` (`missionShepherds`). Neither was ever shown. A squad walked near a family, the family
  * sprinted off, and nothing on screen said why -- which is the whole of the
  * "civilians are running with no reason" report.
  *
@@ -22,9 +23,10 @@
  *    the rule saw is the one this model recorded at the end of tick T. Reading
  *    it at T+1 instead would call a family "moved by your troops" whenever
  *    their suppression had decayed a hair under the line in the one tick
- *    between -- the misreading this exists to prevent. The rule has exactly two
- *    triggers, so not-suppressed means a soldier was close; the distance test
- *    is not repeated here.
+ *    between -- the misreading this exists to prevent. In a mission that
+ *    shepherds the rule has exactly two triggers, so not-suppressed means a
+ *    soldier was close; the distance test is not repeated here. In one that
+ *    does not (`shepherds: false`) it has only one, so a break is fire.
  *
  * THROTTLED, because a village breaks in a ripple as a squad walks through it.
  * The window SLIDES: each break holds the line open another 1.5 s, up to 4 s
@@ -91,7 +93,14 @@ interface Pending {
   at: { x: number; y: number };
 }
 
+export interface CivFlightWatchOptions {
+  /** `missionShepherds(mission.objectives)`, or true in the sandbox (D2).
+   *  False: the only cause the rule has is fire. */
+  shepherds: boolean;
+}
+
 export class CivFlightWatch {
+  private readonly shepherds: boolean;
   /** Latched: who has already been announced (or counted into a batch). */
   private readonly fled = new Set<number>();
   /** Who was suppressed at the previous observation -- the state the rule saw. */
@@ -103,6 +112,10 @@ export class CivFlightWatch {
   /** Living civilians not yet latched, at the last observation; -1 before the
    *  first one. */
   private open = -1;
+
+  constructor(opts: CivFlightWatchOptions) {
+    this.shepherds = opts.shepherds;
+  }
 
   /** Whether this civilian has been seen breaking. */
   hasFled(id: number): boolean {
@@ -136,7 +149,8 @@ export class CivFlightWatch {
         this.fled.add(c.id);
         // Strictly one observation back, never this one: suppression that
         // arrived in the tick the order landed is not what the rule saw.
-        const cause: FlightCause = this.suppressedLast.has(c.id) ? 'fire' : 'troops';
+        const cause: FlightCause =
+          this.shepherds && !this.suppressedLast.has(c.id) ? 'troops' : 'fire';
         if (this.pending.length === 0) this.firstPendingTick = tick;
         this.lastPendingTick = tick;
         this.pending.push({ id: c.id, cause, at: { x: c.x, y: c.y } });
