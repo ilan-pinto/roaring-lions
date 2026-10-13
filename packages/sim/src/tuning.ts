@@ -106,8 +106,14 @@ export const COVER_SUPP = new Int32Array([65536, 31130, 9011, 5898]); // 1, .475
 /** Suppression multiplier for fire that cannot hurt the target at all —
  *  rifle rounds cracking off an MBT. Noise, not a threat. */
 export const HARMLESS_SUPP = 6554; // 0.1
-/** Non-penetrating hits shake the crew this many times harder than a near miss. */
-export const BOUNCE_SUPP_MULT = 2;
+/** Hits, non-penetrating hits and blasts shake the crew this many times
+ *  harder than a near miss. Q16.16 like every multiplier here: it goes through
+ *  fx.mul, and as a plain 2 (the value from the first sim commit until
+ *  2026-10-13) it meant 2/65536, so none of those paths suppressed at all.
+ *  Its users: a hit on a soft target, a bounce off armour, a blast's splash
+ *  (`splashAt`, and `splashDirect` for kamikaze and tunnel-collapse blasts),
+ *  and a kamikaze's own bounce. */
+export const BOUNCE_SUPP_MULT = 131072; // 2.0
 export const CREW_SHAKEN_SUPP = 52429; // 0.8
 /** Weapon suppression stat divided by this = suppression per near miss.
  *  Calibrated by the urban-ratio backtest: smaller means shots pin harder.

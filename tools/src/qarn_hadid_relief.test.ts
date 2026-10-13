@@ -355,8 +355,12 @@ describe('cover 3, the first authored anywhere in the game', () => {
     const onTerrace = SEEDS.map((s) => hpLost(TERRACE, SHOOTER, null, s));
     const inOpen = SEEDS.map((s) => hpLost(TERRACE, SHOOTER, 0, s));
     expect(mean(onTerrace)).toBeLessThan(mean(inOpen) * 0.2);
-    // `inf_squad` has 400 hp. In the open it is wiped nearly every run.
-    expect(inOpen.filter((v) => v >= 400).length).toBeGreaterThanOrEqual(9);
+    // `inf_squad` has 400 hp. In the open it is wiped in most runs: 7 of these
+    // ten (losing 198-272 hp in the other three), and 9 before a hit
+    // suppressed (BOUNCE_SUPP_MULT, 2026-10-13) -- a squad that hits back now
+    // pins the rifles shooting at it, which buys three of the ten a reprieve.
+    // On the terrace the mean loss fell 19.8 -> 1.8 hp in the same change.
+    expect(inOpen.filter((v) => v >= 400).length).toBeGreaterThanOrEqual(7);
     expect(onTerrace.filter((v) => v >= 400).length).toBe(0);
   });
 

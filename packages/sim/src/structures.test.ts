@@ -207,19 +207,28 @@ describe('structures exist, block, and fall', () => {
   });
 
   it('high-explosive brings a house down; rifles barely scratch it', () => {
-    const hpAfter = (attacker: UnitTypeJson, seconds: number): number => {
+    const hpAfter = (attacker: UnitTypeJson, x: number, seconds: number): { hp: number; hits: number } => {
       const { sim, house } = world();
       const t = sim.addUnitType(attacker);
       const inf = sim.addUnitType(RIFLES);
-      sim.spawn(t, 0, fx.from(8.5), fx.from(6.5));
+      sim.spawn(t, 0, fx.from(x), fx.from(6.5));
       // A defender inside makes the building a legitimate target.
       const g = sim.spawn(inf, 1, fx.from(14.5), fx.from(6.5));
       sim.queueCommand({ kind: 'garrison', ids: [g], structure: house });
-      run(sim, seconds * TICKS_PER_SECOND);
-      return fx.toNumber(sim.structures.hp[house]) / fx.toNumber(sim.structures.maxHp[house]);
+      const hits = run(sim, seconds * TICKS_PER_SECOND).filter((e) => e.kind === 'structureHit').length;
+      return { hp: fx.toNumber(sim.structures.hp[house]) / fx.toNumber(sim.structures.maxHp[house]), hits };
     };
-    expect(hpAfter(GUNS, 60)).toBeLessThan(0.2);
-    expect(hpAfter(RIFLES, 60)).toBeGreaterThan(0.9);
+    // The guns stand ten tiles off: their 12 reaches the house, the garrison's
+    // 8-tile rifles do not reach them. Since a round that bounces off armour
+    // suppresses (BOUNCE_SUPP_MULT, 2026-10-13) a rifleman in the window pins
+    // a tank at six tiles, and this test is about what each weapon does to
+    // masonry, not about who wins that exchange.
+    expect(hpAfter(GUNS, 4.5, 60).hp).toBeLessThan(0.2);
+    // The rifles stand where they can reach the wall, and do hit it: a green
+    // "barely scratched" from rifles that never fired would prove nothing.
+    const rifles = hpAfter(RIFLES, 8.5, 60);
+    expect(rifles.hits).toBeGreaterThan(0);
+    expect(rifles.hp).toBeGreaterThan(0.9);
   });
 });
 
@@ -311,7 +320,11 @@ describe('demolition squad', () => {
 
   it('kills the garrison inside when it blows the building', () => {
     const { sim, house } = world();
-    const inf = sim.addUnitType(RIFLES);
+    // Unarmed: a rifleman in the window pins the sappers on their way to the
+    // wall now that a hit suppresses (BOUNCE_SUPP_MULT, 2026-10-13), and a
+    // pinned sapper sets no charge. This test is about who dies in the
+    // collapse, not about reaching the wall under fire.
+    const inf = sim.addUnitType({ ...RIFLES, id: 's_inf_unarmed', weapons: [] });
     const demo = sim.addUnitType(SAPPERS);
     const holder = sim.spawn(inf, 1, fx.from(13.0), fx.from(6.5));
     sim.queueCommand({ kind: 'garrison', ids: [holder], structure: house });
