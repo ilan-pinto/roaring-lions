@@ -66,6 +66,20 @@ export const ARC_120 = 21845; // 120°
 /** Below this frontal armor a unit is "soft": no component table, direct damage. */
 export const SOFT_ARMOR_LIMIT = 1966080; // 30 mm
 
+// --- target selection (5.3 applied to the gunner's choice) -----------------
+/** An ARMOURED target counts as one a weapon can hurt only when the weapon's
+ *  real P(penetration) against the face it presents to the shooter -- the
+ *  same curve resolveHit rolls -- reaches this. Below it a shot is a clang on
+ *  the hull: still taken as a last resort (bounce suppression), never in
+ *  preference to a target the weapon can hurt. 0.05 separates a 30 mm on an
+ *  Eitan's side (0.08) from the same gun on a Lavi's rear (0.02). */
+export const PEN_HURTS_MIN = 3277; // 0.05
+/** Anti-armour weapons (apfsds, heat, atgm, rpg) rank a soft or unarmed
+ *  target -- infantry, a jeep, a D9, a firepower-killed hull -- as if it stood
+ *  further away, so a hurtable armed vehicle at similar range wins the shot.
+ *  A plain integer multiplier on squared distance: 4 = twice the distance. */
+export const ANTI_ARMOR_SOFT_RANK_SQ = 4; // 2x distance
+
 // --- component table (5.4), integer percent weights ------------------------
 export const COMP_CREW_SHAKEN = 45;
 export const COMP_MOBILITY = 20;
