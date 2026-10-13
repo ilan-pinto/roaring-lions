@@ -471,7 +471,12 @@ describe('determinism (1000-tick replay)', () => {
     // the old multiplier without it reads 1783401971 exactly. Event counts
     // against the old pin: pinned 11 -> 12, destroyed 6 -> 5, fire 1108 ->
     // 1102, impact 1 -> 4; routs unchanged at 7. Was 1783401971.
-    expect(a.hash()).toBe(1851687100);
+    //
+    // 2026-10-13: a bounce off armour the round could never have penetrated
+    // takes HARMLESS_SUPP (x0.1), as its near miss does (lead ruling). This
+    // replay's riflemen ring the d_tanks' hulls, so it moves; with the
+    // discount removed it reads 1851687100 exactly. Was 1851687100.
+    expect(a.hash()).toBe(562186734);
   });
 
   it('the replay actually exercises halt to fire', () => {
@@ -813,7 +818,10 @@ describe('determinism over relief (900-tick replay round a hill)', () => {
     // 2026-10-13: hits, bounces and splash suppress (BOUNCE_SUPP_MULT is x2.0,
     // not 2/65536), as at the flat pin. That is the whole move: on the old
     // multiplier this replay reads 3208037602 exactly. Was 3208037602.
-    expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(4276961824);
+    //
+    // 2026-10-13: the harmless-bounce discount, as at the flat pin; without it
+    // this replay reads 4276961824 exactly. Was 4276961824.
+    expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(4031491985);
   });
 
   it('the relief changes the route, not merely the hash', () => {
