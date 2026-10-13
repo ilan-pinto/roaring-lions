@@ -46,6 +46,11 @@ export interface RoomState {
   over: [number, number];
   /** When the room closes itself after the result (L-1, R-B26), once armed; null before. */
   closeAtMs: number | null;
+  /** #559 F2: each seat's command budget, a token bucket (`CMD_BUDGET`), and when it was last topped up. */
+  cmdTokens: [number, number];
+  cmdTokensAtMs: [number, number];
+  /** #559 H-1: characters of command JSON stamped into frames so far, against `MAX_LOG_CMD_CHARS`. */
+  cmdChars: number;
 }
 export type Effect =
   | { kind: 'send'; to: Seat | 'all'; msg: ServerMsg }
@@ -62,11 +67,35 @@ export const STALL_SILENT_MS = 2000;
 /** The least gap between two chat messages from one seat. */
 export const CHAT_MIN_GAP_MS = 500;
 export const ROOM_TTL_MS = 6 * 3600 * 1000;
+/**
+ * #559 F2: what one seat's orders may cost both sims. A frame carries at most
+ * `MAX_CMDS_PER_SEAT_PER_FRAME` (4) of a seat's commands; more wait in
+ * `pending` for the next frames, up to `MAX_PENDING_CMDS_PER_SEAT` (12), and
+ * past that are dropped. Each accepted command spends one token of a bucket
+ * that holds `CMD_BUDGET.burst` (20) and refills `CMD_BUDGET.perSecond` (20)
+ * a second. A real player's heaviest burst is one right-click on a building
+ * with a mixed selection -- demolish, garrison and attack-move, three
+ * commands (`input/intents.ts`) -- plus a shift-queued order of the same
+ * shape: six, which all run, four in the next frame and two 50 ms later.
+ * Sustained, 20 a second is 1,200 orders a minute, several times a
+ * professional's APM, where the old cap let a seat feed the sims 640.
+ */
+export const MAX_PENDING_CMDS_PER_SEAT = 12;
+export const CMD_BUDGET = { burst: 20, perSecond: 20 } as const;
+/**
+ * #559 H-1: the most command JSON one room stores, both seats together. An
+ * honest order is ~60 characters, so this is tens of thousands of orders --
+ * hours of play -- while a seat stuffing every command with ids reaches it in
+ * well under a minute. Past it the match is void, as a desync is: the room
+ * will not store more, and a log the clients cannot all rejoin from is no
+ * match. Empty frames are not counted; they are bounded by time (the TTL).
+ */
+export const MAX_LOG_CMD_CHARS = 2_000_000;
 /** Hash ticks only one seat has reported, kept at most this many (forged ticks cannot grow the table). */
 const MAX_OPEN_HASHES = 16;
 
 export function createRoom(code: string, matchId: string, nowMs: number, map = ''): RoomState {
-  return { code, matchId, createdMs: nowMs, status: 'lobby', config: null, seats: [null, null], tick: 0, pending: [], hashes: {}, lastHashTick: -1, stall: null, endedReason: null, pause: null, pausesLeft: [PAUSES_PER_SEAT, PAUSES_PER_SEAT], lastChatMs: [-1, -1], surrendered: null, map, over: [-1, -1], closeAtMs: null };
+  return { code, matchId, createdMs: nowMs, status: 'lobby', config: null, seats: [null, null], tick: 0, pending: [], hashes: {}, lastHashTick: -1, stall: null, endedReason: null, pause: null, pausesLeft: [PAUSES_PER_SEAT, PAUSES_PER_SEAT], lastChatMs: [-1, -1], surrendered: null, map, over: [-1, -1], closeAtMs: null, cmdTokens: [CMD_BUDGET.burst, CMD_BUDGET.burst], cmdTokensAtMs: [nowMs, nowMs], cmdChars: 0 };
 }
 
 const seatStates = (st: RoomState): SeatState[] =>
@@ -189,7 +218,8 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
       // pending and runs in the first frame after the resume; it was sent
       // before, and both seats get it alike.
       if (st.pause !== null) return [{ kind: 'send', to: seat, msg: { t: 'cmdRefused' } }];
-      if (st.pending.filter((p) => p.seat === seat).length >= MAX_CMDS_PER_SEAT_PER_FRAME) return [];
+      if (st.pending.filter((p) => p.seat === seat).length >= MAX_PENDING_CMDS_PER_SEAT) return [];
+      if (!spendCmdToken(st, seat, nowMs)) return [];
       st.pending.push({ seat, seq: s.nextSeq++, cmd: msg.cmd });
       return [];
     }
@@ -262,6 +292,16 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
       return [];
     }
   }
+}
+
+/** One token of the seat's command budget, if it has one (#559 F2). */
+function spendCmdToken(st: RoomState, seat: Seat, nowMs: number): boolean {
+  const elapsed = Math.max(0, nowMs - st.cmdTokensAtMs[seat]);
+  st.cmdTokens[seat] = Math.min(CMD_BUDGET.burst, st.cmdTokens[seat] + (elapsed * CMD_BUDGET.perSecond) / 1000);
+  st.cmdTokensAtMs[seat] = nowMs;
+  if (st.cmdTokens[seat] < 1) return false;
+  st.cmdTokens[seat] -= 1;
+  return true;
 }
 
 /** Why the clock must stop, if it must: the first seat that is gone, silent,
@@ -349,6 +389,9 @@ export function revive(st: RoomState, tick: number, nowMs: number): void {
   st.map = stored.map ?? '';
   st.over = stored.over ?? [-1, -1];
   st.closeAtMs = stored.closeAtMs ?? null;
+  st.cmdTokens = stored.cmdTokens ?? [CMD_BUDGET.burst, CMD_BUDGET.burst];
+  st.cmdTokensAtMs = [nowMs, nowMs];
+  st.cmdChars = stored.cmdChars ?? 0;
   if (tick > st.tick) {
     st.tick = tick;
     st.pending = [];
@@ -385,8 +428,24 @@ export function clockTick(st: RoomState, nowMs: number): Effect[] {
   }
   out.push(...recheckStall(st, nowMs));
   if (st.status !== 'running') return out;
-  const frame: Frame = { tick: st.tick, cmds: canonicalOrder(st.pending) };
-  st.pending = [];
+  // At most MAX_CMDS_PER_SEAT_PER_FRAME of each seat's commands (#559 F2); the
+  // rest wait, in arrival order, for the next frames.
+  const take: Stamped[] = [];
+  const wait: Stamped[] = [];
+  const taken = [0, 0];
+  for (const p of st.pending) (taken[p.seat]++ < MAX_CMDS_PER_SEAT_PER_FRAME ? take : wait).push(p);
+  const chars = take.reduce((n, p) => n + JSON.stringify(p.cmd).length, 0);
+  if (st.cmdChars + chars > MAX_LOG_CMD_CHARS) {
+    // #559 H-1: the room stores no more; the match is void.
+    st.status = 'ended';
+    st.endedReason = 'void';
+    st.stall = null;
+    st.pending = [];
+    return [...out, { kind: 'send', to: 'all', msg: { t: 'ended', reason: 'void' } }];
+  }
+  st.cmdChars += chars;
+  const frame: Frame = { tick: st.tick, cmds: canonicalOrder(take) };
+  st.pending = wait;
   st.tick++;
   out.push({ kind: 'frame', frame });
   out.push({ kind: 'send', to: 'all', msg: { t: 'frame', tick: frame.tick, cmds: frame.cmds } });

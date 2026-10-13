@@ -503,6 +503,34 @@ describe('MatchRoom', () => {
     }
   });
 
+  it('#559 H-1/F2: a seat stuffing every command (a 4 KB pad, 32 a frame) leaves a few KB in storage, not megabytes', async () => {
+    const { state, room, ws0, ws1 } = await running();
+    const padded = (seq: number): string => {
+      const base = { t: 'cmd', seq, cmd: { kind: 'halt', ids: [0], pad: '' } };
+      base.cmd.pad = 'A'.repeat(4096 - JSON.stringify(base).length);
+      return JSON.stringify(base);
+    };
+    let seq = 0;
+    for (let tick = 0; tick < 20; tick++) {
+      for (let i = 0; i < 32; i++) { await say(room, ws0, padded(seq)); await say(room, ws1, padded(seq)); seq++; }
+      await vi.advanceTimersByTimeAsync(TICK_MS);
+    }
+    const bytes = [...state.storage.batches.values()].reduce((a, t) => a + t.length, 0);
+    expect(bytes).toBeLessThan(16 * 1024);   // was 5.2 MiB for the same second of play
+    expect([...state.storage.batches.values()].join('')).not.toContain('AAAA');
+  });
+
+  it('#559 H-1: a revived room counts the commands its log already holds against the cap', async () => {
+    const { state, room, ws0 } = await running();
+    await say(room, ws0, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [1, 2, 3] } });
+    await vi.advanceTimersByTimeAsync(2 * TICK_MS);
+    evict();
+    const revived = new MatchRoom(state, env);
+    await revived.fetch(new Request('https://room/state'));
+    const st = (revived as unknown as { st: RoomState }).st;
+    expect(st.cmdChars).toBe(JSON.stringify({ kind: 'halt', ids: [1, 2, 3] }).length);
+  });
+
   it('a command frame is in storage before it is broadcast (R36: write, then send)', async () => {
     const { state, room, ws0, ws1 } = await running();
     const seen: [number, boolean][] = [];

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { OVER_CLOSE_MS, type MatchConfig } from '@lions/net';
-import { createRoom, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, persistKey, revive, endedMsg, ACK_EVERY, STALL_BEHIND_TICKS, STALL_SILENT_MS, type RoomState, type Effect } from './room-core';
+import { createRoom, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, persistKey, revive, endedMsg, ACK_EVERY, STALL_BEHIND_TICKS, STALL_SILENT_MS, MAX_LOG_CMD_CHARS, type RoomState, type Effect } from './room-core';
 
 const CONFIG: MatchConfig = {
   matchId: 'm1', code: 'ABCDEF', seed: 7, map: 'beit_sahwan_outskirts', mode: 'sandbox',
@@ -56,11 +56,54 @@ describe('room-core', () => {
     expect(f.cmds.map((c) => c.seq)).toEqual([0, 1]);
   });
 
-  it('caps a seat at 32 commands per frame', () => {
+  it('#559 F2: a frame carries at most 4 of a seat\'s commands; up to 12 wait for the next frames, and the rest are dropped', () => {
     const st = running();
-    for (let i = 0; i < 40; i++) seatMessage(st, 0, { t: 'cmd', seq: i, cmd: { kind: 'halt', ids: [1] } }, 10, mint);
-    const [f] = frames(clockTick(st, 50));
-    expect(f.cmds).toHaveLength(32);
+    for (let i = 0; i < 40; i++) seatMessage(st, 0, { t: 'cmd', seq: i, cmd: { kind: 'halt', ids: [i] } }, 10, mint);
+    seatMessage(st, 1, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [99] } }, 10, mint);
+    const per = [1, 2, 3, 4].map((k) => frames(clockTick(st, 50 * k))[0].cmds);
+    expect(per.map((c) => c.filter((x) => x.seat === 0).length)).toEqual([4, 4, 4, 0]);
+    expect(per[0].filter((x) => x.seat === 1)).toHaveLength(1);   // the other seat is not held up
+    expect(per.flat().filter((x) => x.seat === 0).map((x) => (x.cmd as { ids: number[] }).ids[0])).toEqual([...Array(12).keys()]);
+  });
+
+  it('#559 F2: the heaviest honest burst -- a three-command right-click plus a shift-queued one -- runs whole, over two frames', () => {
+    const st = running();
+    const click = (append: boolean) => [
+      { kind: 'demolish', ids: [1], structure: 0 }, { kind: 'garrison', ids: [2], structure: 0 },
+      { kind: 'attackMove', ids: [3, 4, 5], x: 0, y: 0, append },
+    ] as const;
+    let seq = 0;
+    for (const cmd of [...click(false), ...click(true)]) seatMessage(st, 0, { t: 'cmd', seq: seq++, cmd: { ...cmd, ids: [...cmd.ids] } }, 10, mint);
+    const f0 = frames(clockTick(st, 50))[0].cmds;
+    const f1 = frames(clockTick(st, 100))[0].cmds;
+    expect([f0.length, f1.length]).toEqual([4, 2]);
+  });
+
+  it('#559 F2: a seat\'s budget is 20 commands at once and 20 a second after that', () => {
+    const st = running();
+    let accepted = 0;
+    const send = (n: number, at: number) => {
+      for (let i = 0; i < n; i++) {
+        seatMessage(st, 0, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [1] } }, at, mint);
+      }
+      // drain everything queued so the pending cap is not what refuses
+      for (let k = 0; k < 10; k++) accepted += frames(clockTick(st, at))[0]?.cmds.length ?? 0;
+    };
+    for (let i = 0; i < 3; i++) send(10, 10);   // 30 at one instant: 20 pass, minus what the pending cap held back
+    expect(accepted).toBe(20);
+    send(30, 1010);   // a second later: 20 more tokens
+    expect(accepted).toBe(32);   // 12 of them: the pending cap holds 12 between drains
+  });
+
+  it('#559 H-1: past MAX_LOG_CMD_CHARS of stamped commands the match is void, and nothing more is minted', () => {
+    const st = running();
+    st.cmdChars = MAX_LOG_CMD_CHARS - 10;
+    seatMessage(st, 0, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [1, 2, 3, 4, 5, 6] } }, 10, mint);
+    const fx = clockTick(st, 50);
+    expect(frames(fx)).toEqual([]);
+    expect(sends(fx).map((s) => s.msg)).toContainEqual({ t: 'ended', reason: 'void' });
+    expect(st).toMatchObject({ status: 'ended', endedReason: 'void' });
+    expect(frames(clockTick(st, 100))).toEqual([]);
   });
 
   it('stalls when a seat falls 40 ticks behind its acks, and resumes on the ack', () => {

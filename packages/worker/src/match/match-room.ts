@@ -121,6 +121,8 @@ function legacyMeta(m: Partial<RoomMeta>, st: RoomState | null): RoomMeta {
   };
 }
 interface SocketAttachment { seat: Seat | null }
+/** The command JSON a log holds, as `clockTick` counts it (#559 H-1). */
+const cmdCharsOf = (frames: Frame[]): number => frames.reduce((n, f) => n + f.cmds.reduce((m, c) => m + JSON.stringify(c.cmd).length, 0), 0);
 
 function seatOf(ws: WebSocket): Seat | null {
   const a = (ws as HibernatingSocket).deserializeAttachment() as SocketAttachment | null;
@@ -201,6 +203,8 @@ export class MatchRoom {
       if (st) {
         const [lastRow] = this.batches(LAST_SQL);
         revive(st, lastRow ? lastRow.firstTick + lastRow.frames.length : 0, Date.now());
+        // The stored command count dates from the last lifecycle write; the log is the truth (#559 H-1).
+        if (st.status !== 'ended' && st.status !== 'lobby') st.cmdChars = Math.max(st.cmdChars, cmdCharsOf(this.batches().flatMap((b) => b.frames)));
         // A room persisted before the lobby carried its map has none: the meta has it.
         if (st.map === '') st.map = this.meta?.map ?? DEFAULT_MAP;
         this.savedKey = persistKey(st);
