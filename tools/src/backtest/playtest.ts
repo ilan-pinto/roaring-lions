@@ -3553,7 +3553,10 @@ for (const [label, got, want] of [
 // 2026-10-11, the winning plans hold on thirty seeds: 32 -> 30, same mission. Umm Zeitoun IV's
 // escort leaves the yard for Adhal once the stockpile is down, and two of the chain's units do not
 // come back from the crest.
-const ROSTER_MAX = 30;
+// 2026-10-13, #584 (hits, bounces and splash suppress; harmless bounces; SUPP_STAT_DIVISOR 730) and
+// Umm Zeitoun IV's re-plan: 30 -> 31, same mission. The model alone read 32 there; the re-planned
+// script, whose parties wait behind the armour, brings 31 home.
+const ROSTER_MAX = 31;
 console.log(`roster maximum: ${rosterMax} at ${rosterMaxMissionId}`);
 if (rosterMax !== ROSTER_MAX) {
   console.error(`roster maximum: FAILED — expected ${ROSTER_MAX}, got ${rosterMax} at ${rosterMaxMissionId}`);
