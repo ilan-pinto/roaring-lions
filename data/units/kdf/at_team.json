@@ -36,7 +36,7 @@
     {
       "id": "spike_atgm",
       "type": "atgm",
-      "range_tiles": 9,
+      "range_tiles": 13,
       "effective_range_tiles": 7.2,
       "accuracy": 0.78,
       "penetration": 900,
