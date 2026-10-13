@@ -6,7 +6,7 @@
  * `document.body`, so the battlefield that makes it removes it (`dispose`, in
  * its own `onDispose` -- the disposer contract).
  */
-import type { Seat, TransportStatus } from '@lions/net';
+import type { ForfeitClock, Seat, TransportStatus } from '@lions/net';
 import { TICKS_PER_SECOND } from '@lions/sim';
 import { t } from '../i18n/t';
 
@@ -21,7 +21,14 @@ export function netStatusText(
   nameOf: (seat: Seat | null) => string,
   now: number = Date.now(),
   code: string = '',
+  forfeit: ForfeitClock | null = null,
 ): string | null {
+  // The other seat's socket is gone mid-match: it loses in a minute unless it
+  // comes back (the lead's ruling, 2026-10-13), and a pause does not stop that
+  // clock, so this line outranks the stall and the pause lines alike.
+  if (forfeit !== null && (s.kind === 'stalled' || s.kind === 'paused')) {
+    return t('net.forfeit.waiting', { seat: nameOf(forfeit.seat), time: countdown(forfeit.untilMs - now) });
+  }
   switch (s.kind) {
     case 'local':
     case 'live':
@@ -122,8 +129,8 @@ export class NetStatusLine {
 
   /** Called every frame; touches the DOM only when the line changes (a
    *  pause's countdown, once a second). */
-  paint(status: TransportStatus, now: number = Date.now()): void {
-    const text = netStatusText(status, this.nameOf, now, this.code);
+  paint(status: TransportStatus, now: number = Date.now(), forfeit: ForfeitClock | null = null): void {
+    const text = netStatusText(status, this.nameOf, now, this.code, forfeit);
     if (text === this.shown) return;
     this.shown = text;
     this.el.dataset.net = status.kind;

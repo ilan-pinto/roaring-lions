@@ -66,7 +66,7 @@
 import { parseClientMsg, validateConfig, REPLACED_CLOSE_CODE, type ClientMsg, type Frame, type MatchConfig, type Seat, type SeatConfig, type ServerMsg } from '@lions/net';
 import type { Env } from '../d1';
 import type { DurableStateLike, HibernatingSocket, UpgradeInit } from '../do-types';
-import { createRoom, endedMsg, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, persistKey, revive, ROOM_TTL_MS, type Effect, type RoomState } from './room-core';
+import { createRoom, endedMsg, logParts, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, forfeitDueAt, forfeitIfDue, persistKey, revive, ROOM_TTL_MS, type Effect, type RoomState } from './room-core';
 import { verifyTicket } from './ticket';
 import { DEFAULT_MAP, callsignField, mapField, textField } from './room-fields';
 import { compactLog, writeDesync } from './desync-log';
@@ -197,15 +197,18 @@ function wantsClock(st: RoomState): boolean {
  *  (#559 H-1), so none is ever left in storage with nothing to clear it:
  *  - ended: the wipe, `PURGE_AFTER_MS` after the end;
  *  - a lobby, or a match nobody is connected to: the six-hour TTL -- or, for
- *    the match, its armed close (L-1) if that is sooner;
+ *    the match, its armed close (L-1) or a disconnected seat's forfeit
+ *    (`forfeitDueAt`) if that is sooner;
  *  - a match with its clock running: the watchdog, `WATCHDOG_MS` on (R38),
- *    but never later than the armed close, so the last wake lands ON the
- *    deadline rather than up to 5 s past it, at no extra row. */
+ *    but never later than the armed close or the forfeit, so the last wake
+ *    lands ON the deadline rather than up to 5 s past it, at no extra row.
+ *  The forfeit adds no alarm of its own: it only aims the one every room
+ *  already keeps, and while a seat is connected the 50 ms clock asks it anyway. */
 function alarmFor(st: RoomState, nowMs: number): number {
   if (st.status === 'ended') return (st.endedAtMs ?? nowMs) + PURGE_AFTER_MS;
   const ttl = st.createdMs + ROOM_TTL_MS + 1;
   if (st.status === 'lobby') return ttl;
-  const close = st.closeAtMs ?? ttl;
+  const close = Math.min(st.closeAtMs ?? ttl, forfeitDueAt(st) ?? ttl);
   if (!wantsClock(st)) return Math.min(close, ttl);
   return Math.min(nowMs + WATCHDOG_MS, close, ttl);
 }
@@ -312,12 +315,17 @@ export class MatchRoom {
     const openFirst = this.open[0]?.tick;
     return [...this.batches().filter((b) => b.firstTick !== openFirst).flatMap((b) => b.frames), ...this.open];
   }
-  /** Every handler starts here: load, then the TTL (R28). */
+  /** Every handler starts here: load, then the TTL (R28), then a forfeit
+   *  that has fallen due -- before any hello, so a seat that reconnects after
+   *  `FORFEIT_MS` hears that it lost rather than cancelling it, and before an
+   *  alarm's own work, which is how a room with nobody connected forfeits. */
   private async begin(): Promise<RoomState | null> {
     const st = await this.load();
     if (st) {
       const fx = expire(st, Date.now());
       if (fx.length > 0) await this.apply(fx);
+      const forfeit = forfeitIfDue(st, Date.now());
+      if (forfeit.length > 0) await this.apply(forfeit);
     }
     return st;
   }
@@ -613,6 +621,14 @@ export class MatchRoom {
 
   private async hello(ws: WebSocket, st: RoomState, msg: ClientMsg): Promise<void> {
     if (st.status === 'ended') {
+      // A seat of this match coming back to an ending that names a result (a
+      // surrender, a leave, a forfeit, the room's own close) is given the log
+      // first, so it can run the match to the room's last tick -- the one the
+      // other seat ended on -- and show the same result. Only to a verified
+      // ticket on this build; anyone else hears the ending alone, as before.
+      if (st.config !== null && (await this.mayReplay(st, msg))) {
+        for (const part of logParts(st.config, this.readLog())) reply(ws, part);
+      }
       reply(ws, endedMsg(st));
       shut(ws, 1000, 'ended');
       return;
@@ -626,6 +642,18 @@ export class MatchRoom {
     if (build === '' || msg.build !== build) { reply(ws, { t: 'error', code: 'build_mismatch' }); shut(ws, 4002, 'build'); return; }
     (ws as HibernatingSocket).serializeAttachment({ seat: ticket.seat } satisfies SocketAttachment);
     await this.apply(seatJoin(st, ticket.seat, ticket.player, this.meta?.callsigns[ticket.seat] ?? '', Date.now(), () => this.readLog()), ws);
+  }
+
+  /** Whether a hello to an ENDED room may have the log: the ending names a
+   *  result the clients drain to (`WsTransport`), and the hello is a seat of
+   *  this match on its build. Reads storage only for such a hello. */
+  private async mayReplay(st: RoomState, msg: ClientMsg): Promise<boolean> {
+    const r = st.endedReason;
+    if (msg.t !== 'hello' || (r !== 'left' && r !== 'surrender' && r !== 'forfeit' && r !== 'over')) return false;
+    const secret = this.env.TICKET_SECRET;
+    const ticket = secret ? await verifyTicket(secret, msg.ticket, Date.now()) : null;
+    const build = this.meta?.build ?? '';
+    return ticket !== null && ticket.matchId === st.matchId && build !== '' && msg.build === build;
   }
 
   /** Close and error both land here, and the runtime may deliver BOTH for one

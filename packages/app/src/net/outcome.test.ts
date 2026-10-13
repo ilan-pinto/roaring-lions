@@ -4,13 +4,21 @@ import { sandboxAnchors } from '../sandbox-anchors';
 import { runFrames, seatWorldFor } from './frame-step';
 import { versusSpawns } from './versus-force';
 import { buildWorld } from './versus-world.test-helper';
-import { MATCH_CAP_TICKS, decideOnHashTick, hashTickOutcome, matchResult, outcomeOf, reportOver, roomEndingOutcome, type LocalDecision, type OutcomeSim } from './outcome';
+import { MATCH_CAP_TICKS, decideOnHashTick, forcesOf, hashTickOutcome, matchResult, outcomeOf, reportOver, roomEndingOutcome, unitCost, type LocalDecision, type OutcomeSim } from './outcome';
 
-/** Type 0 is armed, type 1 is not (a drone, a truck). */
-const TYPES = [{ weapons: [1] }, { weapons: [] }] as const;
+/** Type 0 is armed, type 1 is not (a drone, a truck), type 2 is armed and
+ *  has no movement at all (speed 0). All but type 2 can move. */
+const TYPES = [
+  { id: 'armed', weapons: [1], stepPerTick: 3000 },
+  { id: 'unarmed', weapons: [], stepPerTick: 3000 },
+  { id: 'fixed', weapons: [1], stepPerTick: 0 },
+] as const;
+/** What each test type is worth. */
+const COST: Record<string, number> = { armed: 300, unarmed: 100, fixed: 200 };
+const costOf = (id: string): number => COST[id] ?? 0;
 
-/** One row per unit: [side, alive, typeIdx, firepowerKilled?]. */
-function world(units: ([number, number, number] | [number, number, number, number])[]): OutcomeSim {
+/** One row per unit: [side, alive, typeIdx, firepowerKilled?, mobilityKilled?]. */
+function world(units: ([number, number, number] | [number, number, number, number] | [number, number, number, number, number])[]): OutcomeSim {
   return {
     entityCount: units.length,
     state: {
@@ -18,6 +26,7 @@ function world(units: ([number, number, number] | [number, number, number, numbe
       alive: Uint8Array.from(units.map((u) => u[1])),
       typeIdx: Uint16Array.from(units.map((u) => u[2])),
       firepowerKilled: Uint8Array.from(units.map((u) => u[3] ?? 0)),
+      mobilityKilled: Uint8Array.from(units.map((u) => u[4] ?? 0)),
     },
     unitTypes: TYPES,
   };
@@ -56,10 +65,10 @@ describe('outcomeOf (spec §2.3, version one)', () => {
     expect(outcomeOf(sim, 100)).toEqual({ kind: 'draw', by: 'mutual' });
   });
 
-  it('the cap with both standing: a draw on time', () => {
+  it('the cap with both standing and equal forces: a draw on time, naming the totals', () => {
     const sim = world([[0, 1, 0], [1, 1, 0]]);
-    expect(outcomeOf(sim, MATCH_CAP_TICKS)).toEqual({ kind: 'draw', by: 'time' });
-    expect(outcomeOf(sim, MATCH_CAP_TICKS - 1)).toEqual({ kind: 'ongoing' });
+    expect(outcomeOf(sim, MATCH_CAP_TICKS, costOf)).toEqual({ kind: 'draw', by: 'time', forces: [300, 300] });
+    expect(outcomeOf(sim, MATCH_CAP_TICKS - 1, costOf)).toEqual({ kind: 'ongoing' });
   });
 
   it('a third side (civilians) neither keeps a side standing nor wins', () => {
@@ -69,6 +78,72 @@ describe('outcomeOf (spec §2.3, version one)', () => {
 
   it('is 25 minutes of 20 Hz ticks', () => {
     expect(MATCH_CAP_TICKS).toBe(30_000);
+  });
+});
+
+// The lead's ruling (2026-10-13): a stalemate, and the time limit, are
+// decided by surviving unit value -- each living unit's logistics cost.
+describe('stalemate and the time limit, by surviving unit value', () => {
+  it('every unit on both sides immobile: the higher value wins at once, with both totals', () => {
+    // Side 0: an immobilised tank (300) and a fixed gun (200). Side 1: two immobilised tanks... one of them dead.
+    const sim = world([[0, 1, 0, 0, 1], [0, 1, 2], [1, 1, 0, 0, 1], [1, 0, 0]]);
+    expect(outcomeOf(sim, 100, costOf)).toEqual({ kind: 'won', side: 0, by: 'stalemate', forces: [500, 300] });
+    const flipped = world([[0, 1, 0, 0, 1], [1, 1, 0, 0, 1], [1, 1, 2]]);
+    expect(outcomeOf(flipped, 100, costOf)).toEqual({ kind: 'won', side: 1, by: 'stalemate', forces: [300, 500] });
+  });
+  it('every unit immobile and equal value: a draw', () => {
+    const sim = world([[0, 1, 0, 0, 1], [1, 1, 0, 0, 1]]);
+    expect(outcomeOf(sim, 100, costOf)).toEqual({ kind: 'draw', by: 'stalemate', forces: [300, 300] });
+  });
+  it('one unit that can still move -- on either side, armed or not, knocked-out guns or not -- is no stalemate', () => {
+    expect(outcomeOf(world([[0, 1, 0, 0, 1], [1, 1, 0, 0, 1], [1, 1, 0]]), 100, costOf)).toEqual({ kind: 'ongoing' });
+    expect(outcomeOf(world([[0, 1, 0, 0, 1], [0, 1, 1], [1, 1, 0, 0, 1]]), 100, costOf)).toEqual({ kind: 'ongoing' });
+    expect(outcomeOf(world([[0, 1, 0, 0, 1], [1, 1, 0, 0, 1], [1, 1, 0, 1]]), 100, costOf)).toEqual({ kind: 'ongoing' });
+  });
+  it('a dead unit and a third side (civilians) neither block a stalemate nor count', () => {
+    const sim = world([[0, 1, 2], [0, 0, 0], [1, 1, 0, 0, 1], [2, 1, 0]]);
+    expect(outcomeOf(sim, 100, costOf)).toEqual({ kind: 'won', side: 1, by: 'stalemate', forces: [200, 300] });
+  });
+  it('annihilation still comes first: a side with no armed unit has lost, however much it is worth', () => {
+    const sim = world([[0, 1, 0, 0, 1], [1, 1, 1, 0, 1], [1, 1, 1, 0, 1]]);
+    expect(outcomeOf(sim, 100, costOf)).toEqual({ kind: 'won', side: 0, by: 'annihilation' });
+  });
+  it('at 25:00 the value decides: higher wins on time, every unit counted, armed or not', () => {
+    const sim = world([[0, 1, 0], [1, 1, 0], [1, 1, 1]]);
+    expect(outcomeOf(sim, MATCH_CAP_TICKS - 1, costOf)).toEqual({ kind: 'ongoing' });
+    expect(outcomeOf(sim, MATCH_CAP_TICKS, costOf)).toEqual({ kind: 'won', side: 1, by: 'time', forces: [300, 400] });
+  });
+  it('the value is the unit data\'s logistics cost, the number the cost curve prices', () => {
+    expect(unitCost('mbt_lavi')).toBe(906);
+    expect(unitCost('no_such_unit')).toBe(0);
+    const { sim, typeOf, map } = buildWorld('beit_sahwan_outskirts');
+    versusSpawns(sim, typeOf, sandboxAnchors(map));
+    const [a, b] = forcesOf(sim);
+    expect(a).toBeGreaterThan(0);
+    expect(b).toBe(a);   // the mirror match: the same force on each side
+  });
+  it('the real sim exposes the flag and the speed the rule reads: every unit mobility-killed is a stalemate', () => {
+    const { sim, typeOf, map } = buildWorld('beit_sahwan_outskirts');
+    const force = versusSpawns(sim, typeOf, sandboxAnchors(map));
+    expect(outcomeOf(sim, sim.tickCount)).toEqual({ kind: 'ongoing' });
+    expect(force.bySide.flat().every((id) => sim.unitTypes[sim.state.typeIdx[id]].stepPerTick > 0)).toBe(true);
+    // Test-only: the hit table is random, so the flag the sim sets on a `mobility_kill` is set here directly.
+    for (const id of force.bySide.flat()) sim.state.mobilityKilled[id] = 1;
+    const o = outcomeOf(sim, sim.tickCount);
+    expect(o).toMatchObject({ kind: 'draw', by: 'stalemate' });
+  });
+});
+
+describe('roomEndingOutcome: the player who drops loses (2026-10-13)', () => {
+  const sideOfSeat = (s: 0 | 1): 0 | 1 => s;
+  it('a forfeit names the seat that dropped: the other side wins, read the same by both seats', () => {
+    for (const viewer of [0, 1] as const) {
+      expect(roomEndingOutcome('forfeit', 1, viewer, sideOfSeat)).toEqual({ kind: 'won', side: 0, by: 'forfeit' });
+      expect(roomEndingOutcome('forfeit', 0, viewer, sideOfSeat)).toEqual({ kind: 'won', side: 1, by: 'forfeit' });
+    }
+  });
+  it('a leave that names its seat is a surrender by that seat, whoever reads it', () => {
+    for (const viewer of [0, 1] as const) expect(roomEndingOutcome('left', 0, viewer, sideOfSeat)).toEqual({ kind: 'won', side: 1, by: 'left' });
   });
 });
 
@@ -121,7 +196,8 @@ describe('hashTickOutcome: decided on hash ticks only, so both seats stop on the
   it('on a hash tick it is the rule, at the sim\'s own tick count', () => {
     expect(hashTickOutcome(19, cfg, over)).toEqual({ kind: 'won', side: 0, by: 'annihilation' });
     const standing = { ...world([[0, 1, 0], [1, 1, 0]]), tickCount: MATCH_CAP_TICKS };
-    expect(hashTickOutcome(MATCH_CAP_TICKS - 1, cfg, standing)).toEqual({ kind: 'draw', by: 'time' });
+    // Equal mirror forces at the cap: a draw on time (the unit data knows neither test type, so both read 0).
+    expect(hashTickOutcome(MATCH_CAP_TICKS - 1, cfg, standing)).toEqual({ kind: 'draw', by: 'time', forces: [0, 0] });
   });
   it('an ongoing match and a room with no config are null', () => {
     expect(hashTickOutcome(19, cfg, { ...world([[0, 1, 0], [1, 1, 0]]), tickCount: 20 })).toBeNull();
@@ -168,6 +244,38 @@ describe('both seats show the same result (N1b task 10)', () => {
     expect(a.decided).toEqual({ kind: 'won', side: 0, by: 'annihilation' });
     expect(b.decided).toEqual(a.decided);
     // The first hash tick after the kill closes the window ending at frame 19.
+    expect([a.tick, b.tick]).toEqual([20, 20]);
+    expect(b.hash).toBe(a.hash);
+  });
+
+  it('a stalemate: two seats, batched 3 and 8, stop on the same tick with the same value result (2026-10-13)', () => {
+    const cfg = { hashEveryTicks: 20, dataDigest: 0, seats: [{ side: 0 }, { side: 1 }] } as unknown as MatchConfig;
+    const seat = (batch: number) => {
+      const { sim, typeOf, map } = buildWorld('beit_sahwan_outskirts');
+      const force = versusSpawns(sim, typeOf, sandboxAnchors(map));
+      // The same battle on both machines: at tick 7 side 1 loses its first unit, and every unit
+      // left on both sides is immobilised (test-only: the flag a `mobility_kill` sets).
+      const runTick = (): void => {
+        sim.tick();
+        if (sim.tickCount === 7) {
+          sim.debugKill(force.bySide[1][0]);
+          for (const id of force.bySide.flat()) sim.state.mobilityKilled[id] = 1;
+        }
+      };
+      let decided: ReturnType<typeof hashTickOutcome> = null;
+      const step = {
+        transport: new Frames(100), sim, seatWorld: seatWorldFor(cfg, sim), runTick, config: cfg,
+        stopAfter: (tick: number) => (decided ??= hashTickOutcome(tick, cfg, sim)) !== null,
+      };
+      for (let i = 0; i < 100 && decided === null; i++) runFrames(step, batch);
+      return { decided, tick: sim.tickCount, hash: sim.hash() };
+    };
+    const a = seat(3);
+    const b = seat(8);
+    expect(a.decided).toMatchObject({ kind: 'won', side: 0, by: 'stalemate' });
+    const forces = (a.decided as unknown as { forces: readonly [number, number] }).forces;
+    expect(forces[0]).toBeGreaterThan(forces[1]);
+    expect(b.decided).toEqual(a.decided);
     expect([a.tick, b.tick]).toEqual([20, 20]);
     expect(b.hash).toBe(a.hash);
   });

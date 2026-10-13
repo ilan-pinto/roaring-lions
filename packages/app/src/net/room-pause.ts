@@ -95,12 +95,16 @@ export function surrenderCopy(): RoomExitCopy {
 }
 
 /** A room that has not started yet is not "over": its body says only that the
- *  seat leaves the room. */
+ *  seat leaves the room. A match still running is: leaving it is a surrender
+ *  (the lead's ruling, 2026-10-13: the room ends it `left`, and the other seat
+ *  wins), and the dialog says so before the player confirms. */
 export function matchLeaveCopy(status: TransportStatus): RoomExitCopy {
+  const body = status.kind === 'waiting' ? 'versus.leave.confirm.body.waiting'
+    : surrenderOffered(status) ? 'versus.leave.confirm.body.running' : 'versus.leave.confirm.body';
   return {
     tip: t('versus.exit.leaveTip'),
     title: t('versus.leave.confirm.title'),
-    body: t(status.kind === 'waiting' ? 'versus.leave.confirm.body.waiting' : 'versus.leave.confirm.body'),
+    body: t(body),
     confirm: t('versus.leave.confirm.action'),
   };
 }

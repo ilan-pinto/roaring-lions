@@ -6,7 +6,7 @@ import type { TransportStatus } from '@lions/net';
 import { t } from '../i18n/t';
 import { leaveCopy } from '../ui/leave-copy';
 import { routes } from '../shell/links';
-import { BLOCKED_CUE_GAP_MS, blockedOrderNotes, escapeOpensPause, hudExit, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderOffered } from './room-pause';
+import { BLOCKED_CUE_GAP_MS, blockedOrderNotes, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderOffered } from './room-pause';
 
 // N1b task 8, R-B17: the room silently ignores a pause it refuses, so the
 // client decides from its own count (the last `paused` it saw) whether to ask
@@ -123,9 +123,23 @@ describe('roomExitCopy', () => {
       expect(roomExitCopy(s), s.kind).toEqual({
         tip: 'surrender the match',
         title: 'Surrender the match?',
-        body: 'Your friend wins.',
+        body: 'Leaving now counts as a loss: your friend wins.',
         confirm: 'Surrender',
       });
+    }
+  });
+
+  // The lead's ruling (2026-10-13): leaving a running match is a surrender, and
+  // every dialog that leaves one says so BEFORE the player confirms -- the
+  // HUD's leave and the menu's Surrender (`surrenderCopy`) and the Quit dialog
+  // (`matchLeaveCopy`), should one ever be reached while the match runs.
+  it('every dialog that can leave a running match says it counts as a loss', () => {
+    for (const s of RUNNING) {
+      expect(roomExitCopy(s).body, s.kind).toBe('Leaving now counts as a loss: your friend wins.');
+      expect(matchLeaveCopy(s).body, s.kind).toBe('Leaving now counts as a loss: your friend wins.');
+    }
+    for (const s of [...OVER, { kind: 'waiting' } as const]) {
+      expect(matchLeaveCopy(s).body, s.kind).not.toMatch(/loss/);
     }
   });
 

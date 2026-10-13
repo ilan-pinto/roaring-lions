@@ -50,6 +50,26 @@ describe('a room pause', () => {
   });
 });
 
+// The lead's ruling (2026-10-13): a seat disconnected for 60 s loses. The
+// waiting seat sees the clock, through a stall and through a pause alike.
+describe('the forfeit countdown', () => {
+  const now = 1_000_000;
+  const ab = (seat: 0 | 1 | null): string => (seat === 1 ? 'B' : 'A');
+  const clock = { seat: 1, untilMs: now + 42_000 } as const;
+  it('replaces the connection-lost line with the time until the waiting seat wins', () => {
+    expect(netStatusText({ kind: 'stalled', reason: 'gone', seat: 1 }, ab, now, '', clock)).toBe('Waiting for B — 0:42 until you win by forfeit');
+    expect(netStatusText({ kind: 'stalled', reason: 'gone', seat: 1 }, ab, now + 41_500, '', clock)).toBe('Waiting for B — 0:01 until you win by forfeit');
+  });
+  it('outranks a pause, which does not stop the clock', () => {
+    expect(netStatusText({ kind: 'paused', seat: 0, untilMs: now + 80_000 }, ab, now, '', clock)).toBe('Waiting for B — 0:42 until you win by forfeit');
+  });
+  it('says nothing of it once the room is closed, voided or running again', () => {
+    expect(netStatusText({ kind: 'closed', reason: 'forfeit' }, ab, now, '', clock)).not.toMatch(/forfeit/);
+    expect(netStatusText({ kind: 'desync', tick: 39 }, ab, now, '', clock)).not.toMatch(/forfeit/);
+    expect(netStatusText({ kind: 'live', behind: 0 }, ab, now, '', clock)).toBeNull();
+  });
+});
+
 describe('NetStatusLine', () => {
   afterEach(() => {
     document.body.replaceChildren();

@@ -277,8 +277,8 @@ describe('WsTransport', () => {
     expect(seen).toEqual([['surrender', 1]]);
     expect(t.status()).toEqual({ kind: 'closed', reason: 'surrender' });
   });
-  it('after ended left or surrender take() drains the frames already received, then yields none (R-B5)', () => {
-    for (const reason of ['left', 'surrender'] as const) {
+  it('after ended left, surrender or forfeit take() drains the frames already received, then yields none (R-B5)', () => {
+    for (const reason of ['left', 'surrender', 'forfeit'] as const) {
       const sock = fakeSocket();
       const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} });
       sock.open();
@@ -560,5 +560,44 @@ describe('WsTransport: a log in parts (#559 H-1)', () => {
     expect(t.stats().reconnects.count).toBe(1);
     expect(overs()).toBe(2);
     expect(t.take(100).map((f) => f.tick)).toEqual([...Array(23).keys()]);
+  });
+
+  // The lead's ruling (2026-10-13): a versus seat disconnected for 60 s loses.
+  it('dropped starts the other seat\'s forfeit clock on this machine\'s wall clock; back, an ending and a desync clear it', () => {
+    let now = 5_000;
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} }, () => now);
+    sock.open();
+    sock.recv({ t: 'start', config: CONFIG });
+    expect(t.forfeitClock()).toBeNull();
+    sock.recv({ t: 'dropped', seat: 1, remainingMs: 60_000 });
+    expect(t.forfeitClock()).toEqual({ seat: 1, untilMs: 65_000 });
+    now = 20_000;
+    sock.recv({ t: 'back', seat: 0 });   // not the seat that dropped
+    expect(t.forfeitClock()).toEqual({ seat: 1, untilMs: 65_000 });
+    sock.recv({ t: 'back', seat: 1 });
+    expect(t.forfeitClock()).toBeNull();
+    sock.recv({ t: 'dropped', seat: 1, remainingMs: 60_000 });
+    sock.recv({ t: 'ended', reason: 'forfeit', seat: 1 });
+    expect(t.forfeitClock()).toBeNull();
+    expect(t.status()).toEqual({ kind: 'closed', reason: 'forfeit' });
+    const s2 = fakeSocket();
+    const t2 = new WsTransport(() => s2, 'tkt', 'b', { onStart: () => {} }, () => now);
+    s2.open();
+    s2.recv({ t: 'start', config: CONFIG });
+    s2.recv({ t: 'dropped', seat: 0, remainingMs: 1000 });
+    s2.recv({ t: 'desync', tick: 19, hashes: [1, 2] });
+    expect(t2.forfeitClock()).toBeNull();
+  });
+  it('a log (this seat relinked) clears a stale forfeit clock; the room re-sends it behind the log if it still runs', () => {
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} }, () => 0);
+    sock.open();
+    sock.recv({ t: 'start', config: CONFIG });
+    sock.recv({ t: 'dropped', seat: 1, remainingMs: 60_000 });
+    sock.recv({ t: 'log', config: CONFIG, frames: [] });
+    expect(t.forfeitClock()).toBeNull();
+    sock.recv({ t: 'dropped', seat: 1, remainingMs: 30_000 });
+    expect(t.forfeitClock()).toEqual({ seat: 1, untilMs: 30_000 });
   });
 });

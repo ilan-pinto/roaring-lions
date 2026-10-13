@@ -13,13 +13,21 @@
  * room closes itself two minutes after both seats have reported it. That
  * ending (`over`) is no result of its own -- the panel is already up.
  */
-import type { MatchConfig, Seat } from '@lions/net';
+import { units } from '@lions/data';
+import { endingLoser, type MatchConfig, type Seat } from '@lions/net';
 import { isHashTick } from './frame-step';
+
+/** Each side's surviving force value, by SIDE (index 0 is side 0). */
+export type Forces = readonly [number, number];
 
 export type MatchOutcome =
   | { kind: 'ongoing' }
-  | { kind: 'won'; side: 0 | 1; by: 'annihilation' | 'surrender' | 'left' }
-  | { kind: 'draw'; by: 'mutual' | 'time' };
+  | { kind: 'won'; side: 0 | 1; by: 'annihilation' | 'surrender' | 'left' | 'forfeit' }
+  /** Decided on surviving unit value (the lead's ruling, 2026-10-13): every
+   *  unit on both sides immobile (`stalemate`), or the 25-minute cap (`time`). */
+  | { kind: 'won'; side: 0 | 1; by: 'stalemate' | 'time'; forces: Forces }
+  | { kind: 'draw'; by: 'mutual' }
+  | { kind: 'draw'; by: 'stalemate' | 'time'; forces: Forces };
 
 /** A decided match: what the end panel shows. */
 export type MatchResult = Exclude<MatchOutcome, { kind: 'ongoing' }>;
@@ -38,8 +46,63 @@ export interface OutcomeSim {
      *  `combat_ineffective`): never cleared, and hashed. Such a hull is not a
      *  combat unit (R-B20). */
     readonly firepowerKilled?: ArrayLike<number>;
+    /** 1 once a unit can never move again (`mobility_kill`,
+     *  `combat_ineffective`): set nowhere else, cleared nowhere, and hashed.
+     *  `stepMovement` skips such a unit outright. */
+    readonly mobilityKilled: ArrayLike<number>;
   };
-  readonly unitTypes: readonly { readonly weapons: readonly unknown[] }[];
+  readonly unitTypes: readonly {
+    readonly id: string;
+    readonly weapons: readonly unknown[];
+    /** Q16.16 tiles a tick; 0 is a type with no movement at all. */
+    readonly stepPerTick: number;
+  }[];
+}
+
+/** A unit type's value: its logistics cost from the unit data, the number
+ *  the cost curve prices (`tools/validate_balance.py`). 0 for a type the data
+ *  does not know, so an unknown never tips a result. */
+export function unitCost(typeId: string): number {
+  const u = (units as Record<string, { cost?: { logistics?: number } } | undefined>)[typeId];
+  return u?.cost?.logistics ?? 0;
+}
+
+/** Whether unit `i` can never move again: mobility-killed, or of a type with
+ *  no movement. Read from hashed sim state only, so both seats agree. A
+ *  pinned, garrisoned, carried, buried, braced or halted unit is NOT immobile:
+ *  each of those ends, and the sim keeps no flag for them that says otherwise. */
+function immobile(sim: OutcomeSim, i: number): boolean {
+  if (sim.state.mobilityKilled[i] === 1) return true;
+  return (sim.unitTypes[sim.state.typeIdx[i]]?.stepPerTick ?? 0) <= 0;
+}
+
+/** Whether every living unit of the two playing sides is immobile. */
+function allImmobile(sim: OutcomeSim): boolean {
+  const { side: sides, alive } = sim.state;
+  for (let i = 0; i < sim.entityCount; i++) {
+    if (alive[i] === 0 || (sides[i] !== 0 && sides[i] !== 1)) continue;
+    if (!immobile(sim, i)) return false;
+  }
+  return true;
+}
+
+/** Each playing side's surviving value: the sum of its living units' costs. */
+export function forcesOf(sim: OutcomeSim, costOf: (typeId: string) => number = unitCost): [number, number] {
+  const out: [number, number] = [0, 0];
+  const { side: sides, alive, typeIdx } = sim.state;
+  for (let i = 0; i < sim.entityCount; i++) {
+    const side = sides[i];
+    if (alive[i] === 0 || (side !== 0 && side !== 1)) continue;
+    out[side] += costOf(sim.unitTypes[typeIdx[i]]?.id ?? '');
+  }
+  return out;
+}
+
+/** The higher surviving value wins; equal values draw. */
+function byForces(sim: OutcomeSim, by: 'stalemate' | 'time', costOf: (typeId: string) => number): MatchResult {
+  const forces = forcesOf(sim, costOf);
+  if (forces[0] === forces[1]) return { kind: 'draw', by, forces };
+  return { kind: 'won', side: forces[0] > forces[1] ? 0 : 1, by, forces };
 }
 
 /** The two playing sides. A third (civilians) neither keeps a side standing nor wins. */
@@ -62,14 +125,18 @@ function armedStanding(sim: OutcomeSim, side: 0 | 1): boolean {
 
 /** Spec §2.3, version one, read from sim state alone so both machines agree:
  *  a side with no living armed unit has lost; both on the same tick is a
- *  draw; the cap with both standing is a draw (the mirror map has no held
- *  ground to settle it -- that tiebreak arrives with zones in N3). There is
- *  no production in a sandbox, so "no combat unit alive" is the whole test. */
-export function outcomeOf(sim: OutcomeSim, tick: number): MatchOutcome {
+ *  draw. With both standing, the lead's ruling (2026-10-13) settles two more
+ *  cases by surviving unit value (`forcesOf`), the higher total winning and
+ *  equal totals drawing: every living unit on both sides immobile (nothing
+ *  can ever close the distance -- a stalemate, ended at once), and the
+ *  25-minute cap, which until then was always a draw. There is no production
+ *  in a sandbox, so the counts are the whole test. */
+export function outcomeOf(sim: OutcomeSim, tick: number, costOf: (typeId: string) => number = unitCost): MatchOutcome {
   const standing = SIDES.filter((side) => armedStanding(sim, side));
   if (standing.length === 0) return { kind: 'draw', by: 'mutual' };
   if (standing.length === 1) return { kind: 'won', side: standing[0], by: 'annihilation' };
-  if (tick >= MATCH_CAP_TICKS) return { kind: 'draw', by: 'time' };
+  if (allImmobile(sim)) return byForces(sim, 'stalemate', costOf);
+  if (tick >= MATCH_CAP_TICKS) return byForces(sim, 'time', costOf);
   return { kind: 'ongoing' };
 }
 
@@ -114,18 +181,21 @@ function opponentOf(side: 0 | 1): 0 | 1 {
   return SIDES.find((s) => s !== side) ?? side;
 }
 
-/** The room's `ended`, as a result for this seat. A surrender names the seat
- *  that surrendered, and its side loses. A `left` names nobody: the seat that
- *  left closed its own socket and never hears it, so whoever hears it stayed
- *  and wins. `void` (a desync), `expired` and `over` (the room closing itself
- *  after the result the sims reached, L-1) are no result. */
+/** The room's `ended`, as a result for this seat. A surrender, a leave and
+ *  a forfeit (60 s disconnected) name the seat that gave the match up
+ *  (`endingLoser`, one rule for both seats), and its side loses. A `left`
+ *  from an older room names nobody: the seat that left closed its own socket
+ *  and never hears it, so whoever hears it stayed and wins. `void` (a desync,
+ *  or both seats dropped at once), `expired` and `over` (the room closing
+ *  itself after the result the sims reached, L-1) are no result. */
 export function roomEndingOutcome(
   reason: string,
   seat: Seat | undefined,
   viewer: 0 | 1,
   sideOfSeat: (seat: Seat) => 0 | 1,
 ): MatchResult | null {
-  if (reason === 'surrender' && seat !== undefined) return { kind: 'won', side: opponentOf(sideOfSeat(seat)), by: 'surrender' };
+  const loser = endingLoser(reason, seat);
+  if (loser !== null && (reason === 'surrender' || reason === 'left' || reason === 'forfeit')) return { kind: 'won', side: opponentOf(sideOfSeat(loser)), by: reason };
   if (reason === 'left') return { kind: 'won', side: viewer, by: 'left' };
   return null;
 }
