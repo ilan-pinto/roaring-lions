@@ -124,6 +124,33 @@ export function ordersWait(status: TransportStatus): boolean {
   return status.kind === 'paused';
 }
 
+/** What a blocked order says, and how often (N1b follow-up). An order the
+ *  client itself withholds (`blocked`) is noted every time -- the feed merges
+ *  identical lines. An order the ROOM refused (`refused`: it was in flight
+ *  when the pause began, so the client had already sent it) arrives once per
+ *  order, and says its piece once per PAUSE: the first one is noted, the rest
+ *  are not, and a note `blocked` already made for the pause counts. A pause is
+ *  identified by who called it and when it ends, both fixed for its life. */
+export function blockedOrderNotes(status: () => TransportStatus, note: () => void): { blocked(): void; refused(): void } {
+  let noted: string | null = null;
+  const pauseKey = (): string => {
+    const s = status();
+    return s.kind === 'paused' ? `${s.seat}:${s.untilMs}` : 'none';
+  };
+  return {
+    blocked() {
+      noted = pauseKey();
+      note();
+    },
+    refused() {
+      const key = pauseKey();
+      if (key === noted) return;
+      noted = key;
+      note();
+    },
+  };
+}
+
 /** The sink a room's intents are applied to: commands go on to the transport
  *  unless the room is paused, when each is dropped (never buffered, so nothing
  *  waits to be sent at the resume) and `onBlocked` hears of it. The status is

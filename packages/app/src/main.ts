@@ -239,7 +239,7 @@ import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { PAUSES_PER_SEAT, WsTransport, type Seat, type TransportStatus } from '@lions/net';
 import { connectMatch, openRoom, type Connected } from './net/connect';
 import { desyncReportDraft, withoutReplay } from './net/desync-report';
-import { escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
+import { blockedOrderNotes, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
 import { roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
 import { safeStorage as safeStorageLike } from './telemetry/identity';
 import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
@@ -3112,6 +3112,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   if (room !== null && netConfig !== null) {
     room.setHooks({ onChat: (seat, text) => hud.note(chatFeedLine(netConfig.seats[seat].callsign, text), 'info') });
   }
+  /** The feed line for an order that waits for the pause (L-2), from the two
+   *  places that learn of one: the dispatch below (withheld here) and the room
+   *  (an order in flight when the pause began, refused there). */
+  const blockedNotes = room !== null
+    ? blockedOrderNotes(() => room.status(), () => hud.note(t('net.pause.ordersBlocked'), 'warn'))
+    : null;
+  if (room !== null && blockedNotes !== null) room.setHooks({ onCmdRefused: () => blockedNotes.refused() });
   // Pass K: a /free-play/<id> link naming no shipped map still loads the
   // default ground (a typo in a dev URL should not look like a broken build),
   // but the PLAYER is told, by name -- it used to be a console line only, and
@@ -3848,7 +3855,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       sim
     );
     if (refused) {
-      hud.note(t('net.pause.ordersBlocked'), 'warn');
+      blockedNotes?.blocked();
       return;
     }
     for (const fn of intentListeners) fn(intent);

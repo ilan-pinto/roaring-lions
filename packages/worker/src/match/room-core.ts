@@ -183,10 +183,12 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
       // any frame, so the seat that did not pause gets no planning time. It
       // takes no `nextSeq` either: the number only orders a seat's commands
       // within a frame, so a refusal leaves the next accepted one contiguous.
-      // The client is told nothing: it already knows it is paused. A cmd
-      // accepted BEFORE the pause stays pending and runs in the first frame
-      // after the resume; it was sent before, and both seats get it alike.
-      if (st.pause !== null) return [];
+      // The sender is told (`cmdRefused`, to that seat alone): a cmd already in
+      // flight when the pause began would otherwise vanish with no word -- the
+      // client says why once per pause. A cmd accepted BEFORE the pause stays
+      // pending and runs in the first frame after the resume; it was sent
+      // before, and both seats get it alike.
+      if (st.pause !== null) return [{ kind: 'send', to: seat, msg: { t: 'cmdRefused' } }];
       if (st.pending.filter((p) => p.seat === seat).length >= MAX_CMDS_PER_SEAT_PER_FRAME) return [];
       st.pending.push({ seat, seq: s.nextSeq++, cmd: msg.cmd });
       return [];
