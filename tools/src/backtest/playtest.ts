@@ -475,6 +475,10 @@ passiveAcrossSeeds('wadi_halam_1_fords', 'wadi_halam_1_fords (no orders)', 'defe
 // the same idiom V already uses for its own seven structures. It is kept
 // out of the periodic anchor sweep so a later `attackMove` never cancels its
 // charge.
+/** GH-291: the laager plan's chase radius round the pump house corner (tiles), and how long the hold
+ *  reads `contested` with nothing in that reach before the force goes to look (s). */
+const CHASE_R = 6;
+const STALL_S = 30;
 const wh2 = run(
   'wadi_halam_2_laager',
   (sim, rt, ids, at) => {
@@ -506,21 +510,57 @@ const wh2 = run(
     });
     at(1, anchor);
     for (let when = 15; when <= 300; when += 15) at(when, burn);
-    for (let when = 45; when <= 700; when += 45) at(when, anchor);
+    // GH-291 (see below): seconds the hold has read `contested`, and where the next search goes.
+    let stalled = 0;
+    let searched = 0;
+    for (let when = 45; when <= 700; when += 45)
+      at(when, () => {
+        if (stalled < STALL_S) anchor();
+      });
     // Since #537 nothing walks on to a picket left standing in the pasture: the hold stays contested
     // and the run never ends. Whatever the player has seen inside the pasture is attacked where he saw
     // it, for as long as the mission runs (the anchor used to stop at 700 s).
+    //
+    // GH-291 (a routed unit flees away from the fire it cannot see, or holds, instead of running -x)
+    // changed who is left in the pasture. A raider broken by the anchor's fire runs EAST now, away
+    // from the KDF line, and rallies inside the pasture or on the road beyond it; under -x it ran west
+    // into the guns and died. Two changes follow, each what a player watching the hold clock would do.
+    //
+    // - The force chases only what it has seen within 6 tiles of the pump house corner (the contest
+    //   radius), and otherwise holds. Every raider's patrol ends on that corner, so the fight comes to
+    //   it. Chasing to the pasture's far corner split the force on seed 9: the south riders caught it in
+    //   the open at 255-300 s, the rallied technical came back behind it, and the last of the waves
+    //   camped beside two knocked-out hulls and a lone squad (STUCK at 20 min).
+    // - When the clock has read `contested` for 30 s with nothing seen in reach (the HUD shows it), the
+    //   force goes to look: the nearest contact it remembers in the pasture, else the pasture's corners
+    //   in turn, east first, where the broken raiders go. With the chase held to 6 tiles alone, seed 13
+    //   stuck on a militia cell nobody had seen, 7.6 tiles out at (26.5,30.5), contesting a knocked-out
+    //   Namer.
+    //
+    // Measured with the GH-291 sim, on the sweep's 30 seeds and on 424242 plus 100-128, which took no
+    // part in choosing it: the old plan 29/30 (missed 9) and 30/30; the 6-tile chase alone 29/30
+    // (missed 13); both changes 30/30 and 30/30, slowest 7.4 and 7.1 min. On the sweep's seeds the
+    // search fires on five (6, 9, 11 and 25 go to a remembered contact, 13 to the first corner).
     const pic = new Picture(sim);
     const PASTURE = [13, 15, 14, 17] as const;
+    const SEARCH = [[25, 29], [25, 19], [16, 29], [16, 18]] as const;
     for (let when = 30; when <= 1190; when += 10)
       at(when, () => {
         pic.update();
         // The ford is taken and the store is down: the picket and the engineers join the hold.
         if (rt.objectiveStatus('keep_ford') === 'complete') for (const i of picket) kept.delete(i);
         if (rt.objectiveStatus('burn_store') === 'complete') for (const i of engineers) kept.delete(i);
+        const hold = rt.objectiveList.find((o) => o.id === 'hold_pasture');
+        stalled = hold?.paused === 'contested' ? stalled + 10 : 0;
         const c = pic.nearest(21, 25, PASTURE);
-        if (c) sim.queueCommand({ kind: 'attackMove', ids: living(sim, kept), ...M(c.x, c.y) });
-        else if (when > 700 && when % 40 === 0) anchor();
+        if (c && (c.x - 21) ** 2 + (c.y - 25) ** 2 <= CHASE_R * CHASE_R) {
+          sim.queueCommand({ kind: 'attackMove', ids: living(sim, kept), ...M(c.x, c.y) });
+        } else if (stalled >= STALL_S) {
+          if ((stalled - STALL_S) % 30 === 0) {
+            const [x, y] = c ? [c.x, c.y] : SEARCH[searched++ % SEARCH.length];
+            sim.queueCommand({ kind: 'attackMove', ids: living(sim, kept), ...M(x, y) });
+          }
+        } else if (when > 700 && when % 40 === 0) anchor();
       });
     for (let when = 90; when <= 700; when += 60) {
       at(when, () => void rt.requestBuild('inf_squad'));
