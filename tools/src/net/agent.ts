@@ -196,7 +196,8 @@ async function seatAndTicket(a: AgentArgs, origin: string): Promise<{ seat: 0 | 
 }
 
 /** How the match has ended for this client, or null while it runs. `ranNone`: the last pump ran no frame. */
-function endOf(client: AgentClient, ranNone: boolean): AgentEnd | null {
+export function endOf(client: AgentClient, ranNone: boolean): AgentEnd | null {
+  if (client.failed() !== null) return { kind: 'failed' };
   if (client.result() !== null) return { kind: 'result' };
   const s = client.transport.status();
   if (s.kind === 'desync') return { kind: 'desync', tick: s.tick };

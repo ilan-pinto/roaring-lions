@@ -82,6 +82,7 @@ export class AgentClient {
   private ending: { reason: string; seat?: Seat } | null = null;
   private drained = false;
   private closed = false;
+  private failure: string | null = null;
   private readonly log: (line: string) => void;
 
   constructor(private readonly o: AgentClientOptions) {
@@ -122,11 +123,15 @@ export class AgentClient {
         } catch (err) {
           // A world this checkout cannot build (`buildMatchWorld` throws on
           // an unshipped map) is never played: refuse it rather than throw
-          // out of the socket's message handler.
+          // out of the socket's message handler. Detached, not closed: a
+          // `bye` would surrender the seat, and the room ending on a leave
+          // would read as a match played. `failed()` is what `pnpm agent`
+          // reads to exit non-zero.
           const e = err instanceof Error ? err : new Error(String(err));
           this.log(e.message);
+          this.failure = e.message;
           reject(e);
-          this.close();
+          this.abort();
           return;
         }
         resolve(config);
@@ -192,6 +197,12 @@ export class AgentClient {
     return this.ran;
   }
 
+  /** Why this client gave up on a match it could not play (a world this
+   *  checkout cannot build), or null. */
+  failed(): string | null {
+    return this.failure;
+  }
+
   /** Runs up to `maxTicks` buffered frames; returns how many ran. */
   pump(maxTicks: number): number {
     const live = this.live;
@@ -245,18 +256,23 @@ export class AgentClient {
     return matchResult(local, ending, this.drained);
   }
 
-  /** Closes WITHOUT a `bye`: this socket is not the seat it was meant to be. */
+  /** Closes WITHOUT a `bye`: this socket is not the seat it was meant to be,
+   *  or the world it was handed could not be built. */
   private abort(): void {
     if (this.closed) return;
     this.closed = true;
     this.transport.detach();
   }
 
-  /** A seat says `bye` (the room reads it as a surrender); an advisor detaches quietly. */
+  /** A seat quitting a match still in play says `bye` (the room reads it as a
+   *  surrender). Once the match has a result, or the room has ended it, there
+   *  is nothing to give up: the seat detaches, so its `over` stands and the
+   *  room never records a leave. An advisor always detaches quietly. */
   close(): void {
     if (this.closed) return;
     this.closed = true;
-    if (this.o.role === 'seat') this.transport.close();
+    const over = this.result() !== null || this.ending !== null;
+    if (this.o.role === 'seat' && !over) this.transport.close();
     else this.transport.detach();
   }
 }

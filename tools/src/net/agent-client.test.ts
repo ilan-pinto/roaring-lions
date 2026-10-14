@@ -13,6 +13,7 @@ import { buildMatchWorld, type MatchWorld } from '../../../packages/app/src/net/
 import { runFrames, seatWorldFor } from '../../../packages/app/src/net/frame-step';
 import { decideOnHashTick, type LocalDecision } from '../../../packages/app/src/net/outcome';
 import { AgentClient, matchSocketTarget } from './agent-client';
+import { endOf, exitCodeFor } from './agent';
 import { FogTracker } from './fog-tracker';
 import { sideView } from './view';
 import { versusConfig } from './test-config';
@@ -182,6 +183,49 @@ describe('AgentClient against the real room', () => {
     expect(c.view().result).toBe('won (left)');
   });
 
+  it('a seat that has its result leaves WITHOUT a bye: the room ends on the sims\' result, never on a leave', async () => {
+    const { loop, ticket } = await newRoom();
+    const a = agent(loop, await ticket(0), 0);
+    const c = agent(loop, await ticket(1), 1);
+    await loop.flush();
+    await Promise.all([a.ready, c.ready]);
+    await play(loop, 5, [a, c], () => a.tick() >= 5 && c.tick() >= 5);
+    // Side 1 falls in both sims at the same point, by the sim's own hook.
+    const aw = a.world() as MatchWorld;
+    const cw = c.world() as MatchWorld;
+    expect(a.tick()).toBe(c.tick());
+    for (const id of sideIds(aw, 1)) { aw.sim.debugKill(id); cw.sim.debugKill(id); }
+    await play(loop, 40, [a], () => a.result() !== null);
+    expect(a.result()).toEqual({ kind: 'won', side: 0, by: 'annihilation' });
+    // The quitting harness closes right after its `over`, before the other seat has told the room its own.
+    a.close();
+    await loop.flush();
+    const [aSock] = [...loop.sent.keys()];
+    expect((loop.sent.get(aSock) ?? []).map((m) => m.t)).toContain('over');
+    expect((loop.sent.get(aSock) ?? []).map((m) => m.t)).not.toContain('bye');
+    for (const heard of loop.received.values()) expect(heard).not.toContainEqual(expect.objectContaining({ t: 'ended', reason: 'left' }));
+    await play(loop, 40, [c], () => c.result() !== null);
+    expect(c.result()).toEqual({ kind: 'won', side: 0, by: 'annihilation' });
+  });
+
+  it('after the room has ended the match, close() sends no bye either', async () => {
+    const { loop, ticket } = await newRoom();
+    const a = agent(loop, await ticket(0), 0);
+    const c = agent(loop, await ticket(1), 1);
+    await loop.flush();
+    await Promise.all([a.ready, c.ready]);
+    await play(loop, 30, [a, c], () => a.tick() >= 30 && c.tick() >= 30);
+    a.close();   // a mid-match quit: a `bye`, which is a leave
+    await loop.flush();
+    for (let i = 0; i < 5; i++) c.pump(10);
+    expect(c.result()).toEqual({ kind: 'won', side: 1, by: 'left' });
+    c.close();
+    await loop.flush();
+    const [aSock, cSock] = [...loop.sent.keys()];
+    expect((loop.sent.get(aSock) ?? []).map((m) => m.t)).toContain('bye');
+    expect((loop.sent.get(cSock) ?? []).map((m) => m.t)).not.toContain('bye');
+  });
+
   it('a build the room does not run: build_mismatch, `ready` rejects naming our build, and the client closes', async () => {
     const closed = vi.spyOn(AgentClient.prototype, 'close');
     const { loop, ticket } = await newRoom();
@@ -273,6 +317,21 @@ describe('AgentClient roles and seats (transport level: the room admits advisor 
     expect(sock.sent.map((m) => m.t)).toEqual(['hello']);   // a `bye` from the seat it really holds would read as that seat leaving
     expect(a.transport.status()).toEqual({ kind: 'closed', reason: 'detached' });
     expect(log.join('\n')).toContain('seat 1');
+  });
+  it('a world this checkout cannot build is refused with no bye, and the agent ends `failed` with a non-zero exit', async () => {
+    const sock = bareSocket();
+    const log: string[] = [];
+    const a = new AgentClient({ server: 'https://room.test', code: CODE, ticket: 'tkt', build: BUILD, role: 'seat', seat: 0, open: () => sock, log: (l) => { log.push(l); } });
+    const refused = expect(a.ready).rejects.toThrow('map "no_such_map" is not shipped');
+    sock.onopen?.({});
+    sock.recv(lobbyFor(0));
+    sock.recv({ t: 'start', config: versusConfig('no_such_map') });
+    await refused;
+    expect(sock.sent.map((m) => m.t)).toEqual(['hello', 'ready']);   // a `bye` would surrender a match this client never played
+    const end = endOf(a, true);
+    expect(end).toEqual({ kind: 'failed' });
+    expect(exitCodeFor(end ?? { kind: 'ended' })).not.toBe(0);
+    expect(log).toEqual([expect.stringContaining('is not shipped')]);
   });
   it('a lobby that agrees with the seat does not trip it', async () => {
     const sock = bareSocket();
