@@ -664,8 +664,11 @@ yours; each one records what the next phase inherits.
   per-level chip border tint (G-P3, `docs/superpowers/plans/2026-09-27-garage-kit-on-icons.md`),
   drawn as SVG rather than a Meshy render so it stays crisp at 8–10 px.
 - **`three` may only be imported under `packages/render/src/three/**`**, enforced
-  by eslint. Note the rule's `paths` entry does NOT catch subpath imports like
-  `three/addons/loaders/GLTFLoader.js` — keep those inside by discipline.
+  by eslint in `packages/render/src` and `packages/app/src` (non-test), subpaths
+  like `three/addons/loaders/GLTFLoader.js` included (a `three/*` pattern beside
+  the `three` path, since #574 step 3; before it `packages/app` was not covered
+  at all and subpaths were "discipline"). `tools/` is not covered and imports
+  three for its harnesses.
 - **The colour pipeline is the standard one since Phase 0 (2026-09-14).**
   `renderer.outputColorSpace = SRGBColorSpace`, ACES tone mapping at exposure
   1.0 applied in the composer's `OutputPass`, and every world material a

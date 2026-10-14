@@ -107,7 +107,7 @@ export function watchNoGpu(deps: NoGpuDeps): Disposer {
   const win = deps.win ?? window;
   if (!noGpuNoticeAllowed(deps.env)) return () => {};
   if (storedDismissed(win)) return () => {};
-  let name: string | null = null;
+  let name: string | null;
   try {
     name = deps.renderer();
   } catch {

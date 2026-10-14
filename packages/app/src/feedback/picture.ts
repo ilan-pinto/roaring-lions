@@ -77,7 +77,7 @@ export async function encodeToFit(img: ImageData, encode: Encoder = canvasEncode
 }
 
 export async function takePicture(r: PictureSource, encode: Encoder = canvasEncoder): Promise<Picture | null> {
-  let raw: ImageData | null = null;
+  let raw: ImageData | null;
   try {
     raw = r.captureView?.(PICTURE_WIDTH) ?? null;
   } catch {

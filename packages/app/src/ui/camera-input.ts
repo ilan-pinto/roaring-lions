@@ -93,7 +93,6 @@ function rampAxis(v: number, target: number, dtMs: number): { v: number; area: n
   for (let phase = 0; phase < 3 && left > 0; phase++) {
     if (v === target) {
       area += v * left;
-      left = 0;
       break;
     }
     const speeding = (target > v && v >= 0) || (target < v && v <= 0);

@@ -728,7 +728,7 @@ async function runSheets(args: Args, port: number): Promise<void> {
   const dev = await ensureDevServer(port, REPO_ROOT, TAG);
   const results = new Map<number, LevelResult>();
   let gpuName = 'unknown';
-  let failures: string[] = [];
+  let failures: string[];
   try {
     for (const level of LEVELS) {
       const tl = Date.now();

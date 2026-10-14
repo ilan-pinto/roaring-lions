@@ -445,7 +445,7 @@ export async function runGaitPass(ids: readonly string[] | 'all'): Promise<void>
         result = await processGaitFile(io, abs);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        throw new Error(`${id} (${file}): gait measurement failed -- ${message}`);
+        throw new Error(`${id} (${file}): gait measurement failed -- ${message}`, { cause: err });
       }
       if (result.skipReason) {
         skipped++;

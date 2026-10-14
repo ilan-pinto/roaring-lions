@@ -1060,11 +1060,11 @@ async function main(): Promise<void> {
   const { revision, dirty } = readGitInfo();
   const cells: SheetCell[] = [];
   const notes: string[] = [];
-  let verdicts: LaneVerdict[] = [];
+  let verdicts: LaneVerdict[];
 
   const server = await ensureDevServer(port, REPO_ROOT, 'weight-captures');
   const browser = await chromium.launch({ headless: true });
-  let gl = 'unknown';
+  let gl: string;
   let firstStepJumpMs = 0;
   try {
     gl = await readUnmaskedRenderer(browser);

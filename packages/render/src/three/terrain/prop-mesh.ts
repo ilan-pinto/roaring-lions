@@ -85,12 +85,10 @@ export function buildPropMesh(
   const used = new Map<PropKind, readonly { role: PropMeshRole; geometry: THREE.BufferGeometry }[]>();
   const live: PropPlacement[] = [];
   for (const p of placements) {
-    let parts = used.get(p.kind);
-    if (parts === undefined) {
+    if (!used.has(p.kind)) {
       const found = set.parts.get(p.kind);
       if (!found) continue;
       used.set(p.kind, found);
-      parts = found;
     }
     live.push(p);
   }
