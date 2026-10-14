@@ -3,7 +3,9 @@ import { fx } from './fixed';
 import { MissionRuntime, type MissionEvent, type MissionJson } from './mission';
 import { Rng } from './rng';
 import { Sim, type SimEvent, type UnitTypeJson } from './sim';
-import { FIRE_SUPPORT, FS_AIR_STRIKE, FS_MORTAR_BARRAGE, FS_SMOKE_SCREEN } from './tuning';
+import {
+  FIRE_SUPPORT, FOCUS_LOST_TICKS, FS_AIR_STRIKE, FS_MORTAR_BARRAGE, FS_SMOKE_SCREEN, SMOKE_BLOCKS_AT, SMOKE_MAX, SMOKE_RADIUS,
+} from './tuning';
 
 // Fire support, Task 6 of F1 (GH-183): `callStrike.profile` indexes FIRE_SUPPORT
 // and a barrage is N queued rounds. Plan: docs/superpowers/plans/2026-10-04-gf1-fire-support-intel.md
@@ -312,5 +314,285 @@ describe('the table', () => {
     expect([FS_AIR_STRIKE, FS_MORTAR_BARRAGE, FS_SMOKE_SCREEN]).toEqual([0, 1, 2]);
     expect(FIRE_SUPPORT.map((p) => p.payload)).toEqual(['he', 'he', 'smoke']);
     expect(FIRE_SUPPORT.map((p) => p.rounds)).toEqual([1, 6, 3]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 7: the smoke-screen round lays the grid a carrier's `smoke` command lays.
+
+type SmokeEvent = Extract<SimEvent, { kind: 'smokeLaid' }>;
+const smokes = (events: SimEvent[]): SmokeEvent[] =>
+  events.filter((e): e is SmokeEvent => e.kind === 'smokeLaid');
+
+/** A carrier with the `smoke` ability: what a screen needs only when it is NOT a support round. */
+const SAPPER: UnitTypeJson = { ...CALLER, id: 'fs_sapper', abilities: ['smoke'] };
+const RIFLEMAN: UnitTypeJson = {
+  ...CALLER,
+  id: 'fs_rifleman',
+  sensors: { optics: 1, sight_tiles: 8, signature: 0.6 },
+  weapons: [
+    { id: 'rifle', type: 'small_arms', range_tiles: 8, effective_range_tiles: 6, accuracy: 0.6, penetration: 8, damage: 1, suppression: 0, rof_per_min: 300 },
+  ],
+};
+
+function snapshot(sim: Sim): number[] {
+  const out: number[] = [];
+  for (let y = 0; y < sim.height; y++) for (let x = 0; x < sim.width; x++) out.push(sim.smokeAt(x, y));
+  return out;
+}
+
+/** A private sight-line method, called as the sim's own code does. */
+function call(sim: Sim, name: string, ...args: number[]): number {
+  const f: unknown = Reflect.get(sim, name);
+  if (typeof f !== 'function') throw new Error(`no method ${name}`);
+  const v: unknown = f.apply(sim, args);
+  if (typeof v !== 'number') throw new Error(`${name} returned ${typeof v}`);
+  return v;
+}
+
+describe('a smoke-screen round lays a screen', () => {
+  const callScreen = (sim: Sim, caller: number, x = AIM_X, y = AIM_Y) =>
+    sim.queueCommand({ kind: 'callStrike', caller, x, y, profile: FS_SMOKE_SCREEN });
+
+  it('lays the same grid a laid screen does: whole grid, three rounds, tick for tick', () => {
+    // World A: one caller with no ability, a screen called onto the aim.
+    // World B: the same units plus three sappers, and each round's own
+    // (tick, point) replayed as a `smoke` command from a sapper in range.
+    // Both paths end in one method, so every tile of the grid must agree.
+    const build = () => {
+      const sim = new Sim({ seed: 7, width: 48, height: 32, capacity: CAPACITY });
+      const caller = sim.spawn(sim.addUnitType(CALLER), 0, fx.from(5.5), fx.from(5.5));
+      const st = sim.addUnitType(SAPPER);
+      const sappers = [0, 1, 2].map((i) => sim.spawn(st, 0, fx.from(22 + i), fx.from(16.5)));
+      return { sim, caller, sappers };
+    };
+    const a = build();
+    callScreen(a.sim, a.caller);
+    const laid = smokes(run(a.sim, 200));
+    expect(laid.map((e) => e.tick)).toEqual([80, 120, 160]);
+    expect(laid.every((e) => e.by === a.caller)).toBe(true);
+    const gridA = snapshot(a.sim);
+
+    const b = build();
+    let next = 0;
+    const out: SmokeEvent[] = [];
+    for (let i = 0; i < 200; i++) {
+      // A command queued before a tick is processed at its start, in the same
+      // tick (the same `tickCount`) the round's own stamp lands in.
+      while (next < laid.length && b.sim.tickCount === laid[next].tick) {
+        b.sim.queueCommand({ kind: 'smoke', ids: [b.sappers[next]], x: laid[next].x, y: laid[next].y });
+        next++;
+      }
+      out.push(...smokes(b.sim.tick()));
+    }
+    expect(next).toBe(3);
+    expect(out.map((e) => [e.x, e.y])).toEqual(laid.map((e) => [e.x, e.y]));
+    expect(snapshot(b.sim)).toEqual(gridA);
+    // And it is a real grid: the last round's centre is at full density, 3 rounds are on the map.
+    expect(Math.max(...gridA)).toBeGreaterThan(0);
+  });
+
+  it('stamps a SMOKE_RADIUS disc at SMOKE_MAX around the landing tile', () => {
+    const w = openWorld(7);
+    callScreen(w.sim, w.caller);
+    const [first] = smokes(run(w.sim, 81));
+    const cx = first.x >> 16;
+    const cy = first.y >> 16;
+    for (let y = 0; y < w.sim.height; y++) {
+      for (let x = 0; x < w.sim.width; x++) {
+        const inside = (x - cx) ** 2 + (y - cy) ** 2 <= SMOKE_RADIUS ** 2;
+        // Landed this very tick: the stamp has not decayed yet, or by one step.
+        if (inside) expect(w.sim.smokeAt(x, y)).toBeGreaterThanOrEqual(SMOKE_MAX - 1);
+        else expect(w.sim.smokeAt(x, y)).toBe(0);
+      }
+    }
+  });
+
+  it('needs no carrier: the caller has no smoke ability and the command from it lays nothing', () => {
+    const w = openWorld(7);
+    w.sim.queueCommand({ kind: 'smoke', ids: [w.caller], x: AIM_X, y: AIM_Y });
+    expect(smokes(run(w.sim, 5))).toEqual([]);
+    callScreen(w.sim, w.caller);
+    expect(smokes(run(w.sim, 200)).length).toBe(3);
+  });
+
+  it('emits smokeLaid, by the caller at the landing point, and no strike', () => {
+    const w = openWorld(7);
+    callScreen(w.sim, w.caller);
+    const events = run(w.sim, 200);
+    expect(strikes(events)).toEqual([]);
+    const laid = smokes(events);
+    expect(laid.length).toBe(3);
+    for (const e of laid) {
+      expect(e.by).toBe(w.caller);
+      // Scattered from the aim by at most the profile's 1.5 tiles.
+      expect(Math.hypot(e.x - AIM_X, e.y - AIM_Y) / 65536).toBeLessThanOrEqual(1.5 + 0.001);
+    }
+  });
+
+  it('does no damage and no suppression, to anyone, however close', () => {
+    // A target ON the landing point: an HE round of any weight would mark it.
+    const w = openWorld(7);
+    callScreen(w.sim, w.caller);
+    const [first] = smokes(run(w.sim, 81));
+    w.sim.teleport(w.near, first.x, first.y);
+    run(w.sim, 150);
+    expect(w.sim.state.hp[w.near]).toBe(1966080000);
+    expect(w.sim.state.suppression[w.near]).toBe(0);
+    expect(w.sim.state.hp[w.caller]).toBe(400 * 65536);
+  });
+
+  it('breaks a sight line, which is why it exists', () => {
+    // The line from (10,16) to (16,16) crosses the aim at (13,16). Clear until
+    // the first round lands, then thick enough to stop it (`losRay` -1).
+    const w = openWorld(7);
+    const los = () => call(w.sim, 'losRay', 10, 16, 16, 16);
+    expect(los()).toBeGreaterThanOrEqual(0);
+    callScreen(w.sim, w.caller, fx.from(13.5), fx.from(16.5));
+    run(w.sim, 80);
+    expect(los()).toBeGreaterThanOrEqual(0); // nothing has landed yet
+    run(w.sim, 1);
+    expect(call(w.sim, 'raySmoke', 10, 16, 16, 16)).toBeGreaterThanOrEqual(SMOKE_BLOCKS_AT);
+    expect(los()).toBe(-1);
+  });
+});
+
+describe('a smoke-screen round and the focus (#591)', () => {
+  /** `me` focused on a post six tiles east; a caller far off. */
+  function focused(seed: number, speed = 1) {
+    const sim = new Sim({ seed, width: 64, height: 32, capacity: CAPACITY });
+    const type = { ...RIFLEMAN, mobility: { speed_tiles_s: speed } };
+    const me = sim.spawn(sim.addUnitType(type), 0, fx.from(10.5), fx.from(16.5));
+    const foe = sim.spawn(sim.addUnitType(TARGET), 1, fx.from(16.5), fx.from(16.5));
+    const caller = sim.spawn(sim.addUnitType(CALLER), 0, fx.from(5.5), fx.from(5.5));
+    sim.identifyTo(0, foe);
+    sim.queueCommand({ kind: 'attack', ids: [me], target: foe });
+    sim.tick();
+    expect(sim.state.focusTarget[me]).toBe(foe);
+    return { sim, me, foe, caller };
+  }
+
+  /** Lay a screen across the pair and watch the focus until it ends or `ticks` run out. */
+  function underScreen(speed: number, ticks: number) {
+    const { sim, me, foe, caller } = focused(7, speed);
+    sim.queueCommand({ kind: 'callStrike', caller, x: fx.from(13.5), y: fx.from(16.5), profile: FS_SMOKE_SCREEN });
+    let landed = -1;
+    let standingAtLanding = false;
+    let firstLost = -1;
+    let ended = -1;
+    for (let t = 1; t <= ticks && ended < 0; t++) {
+      const laid = smokes(sim.tick());
+      if (laid.length > 0 && landed < 0) {
+        landed = t;
+        standingAtLanding = sim.state.focusTarget[me] === foe;
+      }
+      if (firstLost < 0 && sim.state.focusLost[me] > 0) firstLost = t;
+      if (sim.state.focusTarget[me] === -1) ended = t;
+    }
+    return { sim, me, foe, landed, standingAtLanding, firstLost, ended };
+  }
+
+  it('releases no focus: the round names no unit, the caller included', () => {
+    // Aimed far from the pair, so nothing here can lose the contact; the
+    // caller is the focused unit itself, the one id a support command carries.
+    const { sim, me, foe } = focused(7);
+    sim.queueCommand({ kind: 'callStrike', caller: me, x: fx.from(50.5), y: fx.from(4.5), profile: FS_SMOKE_SCREEN });
+    let landed = 0;
+    for (let i = 0; i < 300; i++) {
+      landed += smokes(sim.tick()).length;
+      expect(sim.state.focusTarget[me]).toBe(foe);
+    }
+    expect(landed).toBe(3);
+    expect(sim.state.focusLost[me]).toBe(0);
+  });
+
+  it('a screen between a focused unit and its target: it walks toward the last-seen tile for up to FOCUS_LOST_TICKS, then the focus ends (T-D3, measured)', () => {
+    // A slow unit (0.3 tile/s), so it cannot reach the last-seen tile in time.
+    // Measured, seed 7: the round lands, the contact decays over ~70 ticks of
+    // blocked sight, `focusLost` then counts 100 and the order ends 2.5 tiles
+    // short of the target. Not designed here; pinned so a change is seen.
+    const r = underScreen(0.3, 400);
+    expect(r.standingAtLanding).toBe(true); // the landing itself releases nothing
+    expect(r.firstLost).toBeGreaterThan(r.landed);
+    expect(r.ended - r.firstLost + 1).toBe(FOCUS_LOST_TICKS);
+    const x = r.sim.state.posX[r.me] / 65536;
+    expect(x).toBeGreaterThan(10.5 + 1);
+    expect(x).toBeLessThan(16.5 - 1); // never reached the tile it was walking to
+  });
+
+  it('measured: a unit that reaches the last-seen tile in time re-sights the target through its own thinning screen, and keeps the focus', () => {
+    // A 1 tile/s unit arrives (tile 16) with ~40 of its 100 lost ticks spent.
+    // Standing on the target's tile the sight line is one tile, and one tile
+    // of thinning smoke (under SMOKE_BLOCKS_AT) no longer stops it.
+    const r = underScreen(1, 400);
+    expect(r.standingAtLanding).toBe(true);
+    expect(r.firstLost).toBeGreaterThan(r.landed);
+    expect(r.ended).toBe(-1);
+    expect(r.sim.state.focusTarget[r.me]).toBe(r.foe);
+    expect(r.sim.state.posX[r.me] >> 16).toBe(16);
+    expect(r.sim.state.focusLost[r.me]).toBe(0);
+  });
+});
+
+describe('a smoke-screen round and a garrison with floors (#606)', () => {
+  // MEASURED, not designed: `raySmoke` counts a tile only where the plume's top
+  // (ground + SMOKE_RISE 2) is above the sight line, and the line runs from the
+  // eye (ground + EYE_HEIGHT 1 + eyeLift) down to the target's head. From the
+  // top window of a 3-floor apartment (eyeLift 2) the eye is at 3, above the
+  // plume, so smoke only counts on the TARGET's half of the line (the plume top
+  // 2 is above the line once it has descended below 2). A 2-floor garrison
+  // (eyeLift 1) has its eye exactly at the plume's top: every tile but its own
+  // window tile (k = 0, where the line is level with the top) still counts, so
+  // it is blinded. Neither answer was fitted: the screen is the same
+  // SMOKE_RADIUS 3 disc as ever.
+  const APARTMENT = { id: 'fs_apartment', name: 'Apartment', hp_per_tile: 100000, garrison_slots: 2, rubble_cover: 2, floors: 3 };
+  const TWO_STOREY = { ...APARTMENT, id: 'fs_two_storey', floors: 2 };
+
+  /** A garrison on side 0 in a 2x2 building at (10..11, 15..16), a ground
+   *  target 10 tiles east on the same row, a screen called onto `aimX`. */
+  function world(structure: typeof APARTMENT, aimX: number) {
+    const sim = new Sim({ seed: 7, width: 48, height: 32, capacity: CAPACITY });
+    const caller = sim.spawn(sim.addUnitType(CALLER), 0, fx.from(5.5), fx.from(5.5));
+    const house = rect(sim, sim.addStructureType(structure), 10, 15, 2, 2);
+    const holder = sim.spawn(sim.addUnitType(HOLDER), 0, fx.from(9.5), fx.from(15.5));
+    sim.queueCommand({ kind: 'garrison', ids: [holder], structure: house });
+    for (let i = 0; i < 400 && sim.state.garrisonedIn[holder] !== house; i++) sim.tick();
+    expect(sim.state.garrisonedIn[holder]).toBe(house);
+    const tgt = sim.spawn(sim.addUnitType(TARGET), 1, fx.from(21.5), fx.from(16.5));
+    const hx = sim.state.posX[holder] >> 16;
+    const hy = sim.state.posY[holder] >> 16;
+    sim.queueCommand({ kind: 'callStrike', caller, x: fx.from(aimX + 0.5), y: fx.from(hy + 0.5), profile: FS_SMOKE_SCREEN });
+    run(sim, 81); // the first round
+    const lift = call(sim, 'eyeLift', holder);
+    const tx = sim.state.posX[tgt] >> 16;
+    const ty = sim.state.posY[tgt] >> 16;
+    return { sim, hx, hy, tx, ty, lift };
+  }
+
+  it('the top floor of a 3-floor apartment looks over a screen laid on its own side, and through one laid on the target', () => {
+    const near = world(APARTMENT, 12); // the screen is at the garrison's end
+    expect(near.lift).toBe(2);
+    const seen = (w: typeof near, lift: number) => call(w.sim, 'raySmoke', w.hx, w.hy, w.tx, w.ty, lift, 0);
+    expect(seen(near, 0)).toBeGreaterThanOrEqual(SMOKE_BLOCKS_AT); // a man on the ground there is blind
+    expect(seen(near, near.lift)).toBe(0); // the top floor is not
+
+    const far = world(APARTMENT, 20); // the screen is at the target's end
+    expect(seen(far, far.lift)).toBeGreaterThanOrEqual(SMOKE_BLOCKS_AT);
+    expect(call(far.sim, 'losRay', far.hx, far.hy, far.tx, far.ty, far.lift, 0)).toBe(-1);
+  });
+
+  it('a screen across the middle of the line blinds the top floor too, by the target-side half of it', () => {
+    const mid = world(APARTMENT, 16);
+    expect(call(mid.sim, 'raySmoke', mid.hx, mid.hy, mid.tx, mid.ty, mid.lift, 0)).toBeGreaterThanOrEqual(SMOKE_BLOCKS_AT);
+    expect(call(mid.sim, 'losRay', mid.hx, mid.hy, mid.tx, mid.ty, mid.lift, 0)).toBe(-1);
+  });
+
+  it('a 2-floor garrison, whose eye sits at the plume top, is blinded; it differs from the ground only by its own window tile', () => {
+    const w = world(TWO_STOREY, 12);
+    expect(w.lift).toBe(1);
+    const ground = call(w.sim, 'raySmoke', w.hx, w.hy, w.tx, w.ty, 0, 0);
+    const aloft = call(w.sim, 'raySmoke', w.hx, w.hy, w.tx, w.ty, w.lift, 0);
+    expect(aloft).toBe(ground - w.sim.smokeAt(w.hx, w.hy));
+    expect(aloft).toBeGreaterThanOrEqual(SMOKE_BLOCKS_AT);
   });
 });

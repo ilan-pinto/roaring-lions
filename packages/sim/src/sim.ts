@@ -2464,24 +2464,7 @@ export class Sim {
           if (this.smokeCooldown[id] > 0) continue;
           if (distSqFx(fx.sub(cmd.x, this.posX[id]), fx.sub(cmd.y, this.posY[id])) > SMOKE_RANGE_SQ) continue;
           this.smokeCooldown[id] = SMOKE_COOLDOWN;
-          const cx = cmd.x >> 16;
-          const cy = cmd.y >> 16;
-          for (let y = cy - SMOKE_RADIUS; y <= cy + SMOKE_RADIUS; y++) {
-            for (let x = cx - SMOKE_RADIUS; x <= cx + SMOKE_RADIUS; x++) {
-              if (x < 0 || y < 0 || x >= this.width || y >= this.height) continue;
-              const ddx = x - cx;
-              const ddy = y - cy;
-              if (ddx * ddx + ddy * ddy > SMOKE_RADIUS * SMOKE_RADIUS) continue;
-              this.smoke[y * this.width + x] = SMOKE_MAX;
-            }
-          }
-          this.pendingEvents.push({
-            kind: 'smokeLaid',
-            tick: this.tickCount,
-            by: id,
-            x: cmd.x,
-            y: cmd.y,
-          });
+          this.layScreen(cmd.x, cmd.y, id);
         }
       } else if (cmd.kind === 'reveal') {
         // Certainty, purchased: contacts inside the footprint go straight to
@@ -4536,6 +4519,26 @@ export class Sim {
     return type.weapons[packed & 1];
   }
 
+  /** The one smoke stamp: a SMOKE_RADIUS disc of SMOKE_MAX centred on the tile
+   *  containing (`px`, `py`), and the `smokeLaid` event for it. The carrier's
+   *  `smoke` command and a smoke-screen support round both land here, so a laid
+   *  screen and a called one are the same grid by construction. Gating (the
+   *  carrier's cooldown and range) stays with the caller. */
+  private layScreen(px: Fx, py: Fx, by: number): void {
+    const cx = px >> 16;
+    const cy = py >> 16;
+    for (let y = cy - SMOKE_RADIUS; y <= cy + SMOKE_RADIUS; y++) {
+      for (let x = cx - SMOKE_RADIUS; x <= cx + SMOKE_RADIUS; x++) {
+        if (x < 0 || y < 0 || x >= this.width || y >= this.height) continue;
+        const ddx = x - cx;
+        const ddy = y - cy;
+        if (ddx * ddx + ddy * ddy > SMOKE_RADIUS * SMOKE_RADIUS) continue;
+        this.smoke[y * this.width + x] = SMOKE_MAX;
+      }
+    }
+    this.pendingEvents.push({ kind: 'smokeLaid', tick: this.tickCount, by, x: px, y: py });
+  }
+
   /** Ordnance called in from off the map. Damage falls off with distance,
    *  buildings take structural damage, and everyone nearby is shaken —
    *  including civilians, which is what ROE will charge for. */
@@ -4553,8 +4556,12 @@ export class Sim {
       if (p === undefined) continue;
       // A smoke round is not a strike: no `strike` event (the renderer draws an
       // air-strike burst for every one and the overlay logs PRECISION STRIKE),
-      // no damage, no suppression. Task 7 lays the screen here.
-      if (p.payload === 'smoke') continue;
+      // no damage, no suppression. It lays the same disc a carrier's `smoke`
+      // command does, and raises that command's `smokeLaid` (`by` the caller).
+      if (p.payload === 'smoke') {
+        this.layScreen(s.x, s.y, s.by);
+        continue;
+      }
       this.pendingEvents.push({ kind: 'strike', tick: this.tickCount, by: s.by, x: s.x, y: s.y, profile: s.profile });
       const splashSq = fx.mul(p.splash, p.splash);
       for (let i = 0; i < this.count; i++) {
