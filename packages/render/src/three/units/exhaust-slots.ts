@@ -10,6 +10,7 @@
  * A fixed visual cost, accepted: the first puff of a window appears
  * `emitOverMs - interval` (0 when they match) later than it used to.
  */
+import { VEHICLE_BAND_CLEAN, vehicleWispsAtBand } from './vehicle-damage';
 import { washRand } from './rotor-wash';
 
 /** Newest slot whose last particle is due at `simMs`; -1 before any. */
@@ -44,16 +45,26 @@ export function exhaustRand(entityId: number, slot: number): () => number {
 }
 
 /**
- * Pass C2/C4 (P3): does this unit trail damage smoke? A ground vehicle (not
- * soft, not an aircraft) that has lost its mobility, its firepower or both.
- * A soft unit never rolls a component; an aircraft has no engine deck in
- * reach of a ground wisp.
+ * Does this unit trail the thin damage wisp? Never an aircraft: the wisp is a
+ * ground particle with no height, and a helicopter's engine deck is out of its
+ * reach (a helicopter still scars, `vehicle-damage.ts`). Otherwise either:
+ *  - Pass C2/C4 (P3): a hard-skinned vehicle that has lost its mobility, its
+ *    firepower or both (a soft unit never rolls a component); or
+ *  - GH-31: any hull DRAWN at a badly damaged band, 2..1
+ *    (`vehicleWispsAtBand`), soft-skinned or not -- the lead's ruling that a
+ *    nearly dead hull always says so. `drawnBand` is the band the renderer
+ *    last drew the hull's scar at (`vehicleDrawnBand`), so the smoke and the
+ *    scar cannot disagree; a unit with no mesh hull (infantry) passes the
+ *    clean default and is decided by the first rule alone.
+ * Either way it is the ONE wisp: no second emitter, no fire on a living hull.
  */
 export function vehicleTrailsDamageSmoke(
   type: { readonly isSoft: boolean; readonly isAir: boolean },
   mobilityKilled: number,
-  firepowerKilled: number
+  firepowerKilled: number,
+  drawnBand: number = VEHICLE_BAND_CLEAN
 ): boolean {
-  if (type.isSoft || type.isAir) return false;
-  return mobilityKilled === 1 || firepowerKilled === 1;
+  if (type.isAir) return false;
+  if (!type.isSoft && (mobilityKilled === 1 || firepowerKilled === 1)) return true;
+  return vehicleWispsAtBand(drawnBand);
 }

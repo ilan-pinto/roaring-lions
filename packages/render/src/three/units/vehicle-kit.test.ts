@@ -194,12 +194,19 @@ describe('applyVehicleKit', () => {
     expect(g.getAttribute('uv').count).toBe(g.getAttribute('position').count);
   });
 
-  it('swaps the merged geometry onto the WRECK_ twin too', () => {
+  it("leaves the WRECK_ twin on the host's own, unkitted geometry (kit blown off)", () => {
     const f = fixture();
-    applyVehicleKit(f.root, { armour: 1, firepower: 1 });
-    expect(f.wreckTurret.geometry).toBe(f.turret.geometry);
-    expect(f.wreckHull.geometry).toBe(f.hull.geometry);
+    const hullBefore = f.hull.geometry;
+    const unused = applyVehicleKit(f.root, { armour: 1, firepower: 1 });
     expect(f.turret.geometry).not.toBe(f.turretGeometry);
+    expect(f.wreckTurret.geometry).toBe(f.turretGeometry);
+    expect(f.wreckHull.geometry).toBe(hullBefore);
+    expect(f.hull.geometry).not.toBe(hullBefore);
+    // ... so the old host geometry is still drawn, and never handed back to
+    // be disposed under the wreck.
+    expect(unused).not.toContain(f.turretGeometry);
+    expect(unused).not.toContain(hullBefore);
+    expect(markerRuns(f.wreckTurret.geometry)).toEqual([M.turret]);
   });
 
   it('merges a palette host (no uv) and its part', () => {
@@ -247,9 +254,12 @@ describe('applyVehicleKit', () => {
     const unused = applyVehicleKit(f.root, { armour: 1 });
     const live = new Set(meshes(f.root).map((m) => m.geometry));
     for (const g of unused) expect(live.has(g)).toBe(false);
-    expect(unused).toContain(f.turretGeometry);
+    // The replaced host geometry is NOT among them: its wreck twin still
+    // draws it (kit blown off), so disposing it would blank the wreck.
+    expect(unused).not.toContain(f.turretGeometry);
+    expect(live.has(f.turretGeometry)).toBe(true);
     for (const k of f.kits.values()) expect(unused).toContain(k.geometry);
-    expect(unused).toHaveLength(f.kits.size + 1);
+    expect(unused).toHaveLength(f.kits.size);
   });
 
   it('with no tiers, or every tier 0, every mesh keeps its exact geometry object and the kit nodes go', () => {
@@ -311,14 +321,17 @@ describe('buildVehicleMeshTemplate with kit tiers', () => {
 
     expect(meshes(kitted.root)).toHaveLength(meshes(plain.root).length);
     expect(kitted.materials).toHaveLength(plain.materials.length);
-    expect(kitted.geometries).toHaveLength(plain.geometries.length);
+    // Two more than the shipped template: the merged turret and hull for the
+    // live half, and the original two still drawn by the (unkitted) wreck.
+    expect(kitted.geometries).toHaveLength(plain.geometries.length + 2);
     const live = new Set(meshes(kitted.root).map((m) => m.geometry));
     // Every geometry the template will dispose is drawn, none twice, and none
     // already disposed: no double dispose, no leak of the old host buffers.
     expect(new Set(kitted.geometries)).toEqual(live);
     for (const g of kitted.geometries) expect(disposed.has(g)).toBe(false);
-    expect(disposed.has(f.turretGeometry)).toBe(true);
-    expect(disposed.has(f.hullGeometry)).toBe(true);
+    expect(disposed.has(f.turretGeometry)).toBe(false);
+    expect(disposed.has(f.hullGeometry)).toBe(false);
+    expect(f.wreckTurret.geometry).toBe(f.turretGeometry);
     for (const k of f.kits.values()) expect(disposed.has(k.geometry)).toBe(true);
     expect(markerRuns(f.turret.geometry)).toEqual([M.turret, M.armour1, M.armour2, M.armour3]);
   });
@@ -390,13 +403,15 @@ describe('applyVehicleKit: the slat LOD (GH-238 leftovers)', () => {
     }
   });
 
-  it('carries no LOD below tier 3 (the levels belong to the cage tier) and the wreck twin shares it', () => {
+  it('carries no LOD below tier 3 (the levels belong to the cage tier), and the wreck twin wears no cage', () => {
     const f = lodFixture();
     applyVehicleKit(f.root, { armour: 2 });
     expect(f.turret.geometry.userData[KIT_LOD_KEY]).toBeUndefined();
     const g = lodFixture();
     applyVehicleKit(g.root, { armour: 3 });
-    expect(g.wreckTurret.geometry).toBe(g.turret.geometry);
+    expect(g.turret.geometry.userData[KIT_LOD_KEY]).toBeDefined();
+    expect(g.wreckTurret.geometry).not.toBe(g.turret.geometry);
+    expect(g.wreckTurret.geometry.userData[KIT_LOD_KEY]).toBeUndefined();
   });
 
   it('throws on a near level with no far partner', () => {

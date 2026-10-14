@@ -155,6 +155,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { musicOffInitScript } from '../ui-review/music-off';
+import { claimPort } from '../ui-review/port';
 
 // ---------------------------------------------------------------------------
 // The pure half. Imported by `weight-captures.test.ts`, which must not pull
@@ -853,7 +854,9 @@ export function verdictLines(verdicts: readonly LaneVerdict[]): string[] {
  *  ruling: 5173 a human's own dev server, 5176 ui:shots, 5177 ui:routes,
  *  5179 death-captures and unit-plates, 5181 blast-captures, 5183 plate:host
  *  (`host-plate-capture.ts`). This one takes the next free number and never
- *  touches another. */
+ *  touches another: `--port=<n>`, else WEIGHT_CAPTURE_PORT, else this, and a
+ *  port something already holds is REFUSED (exit 2, `ui-review/port.ts`)
+ *  rather than attached to. */
 const PORT = 5182;
 const VIEWPORT = { width: 1400, height: 900 } as const;
 /** The establishing still, then the ladder. 2.5 is the top of `main.ts`'s own
@@ -1021,8 +1024,8 @@ async function main(): Promise<void> {
   if (label !== 'before' && label !== 'after') {
     throw new Error('--label=before|after is required: the sheet is a comparison or it is nothing');
   }
-  const port = Number(arg('port', String(PORT)));
-  if (port === 5173) throw new Error("refusing --port=5173: that is the convention for a human's own dev server");
+  if (arg('port', '') === '5173') throw new Error("refusing --port=5173: that is the convention for a human's own dev server");
+  const port = await claimPort('weight-captures', 'WEIGHT_CAPTURE_PORT', PORT);
   const outRoot = path.resolve(REPO_ROOT, arg('out', path.join('.superpowers', 'art-captures', 'weight')));
   const out = path.join(outRoot, label);
   const only = arg('only', '');

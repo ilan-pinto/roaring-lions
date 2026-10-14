@@ -481,38 +481,53 @@ describe('shipped vehicle GLBs', () => {
   });
 
   it.each(shippedVehicleIds())(
-    "%s: every wreck child SHARES its live twin's geometry -- the same object, not a copy",
+    "%s: every wreck child SHARES its live twin's geometry, or is a DECLARED damaged copy of it",
     async (id) => {
       const template = await templateFor(id);
       const deathRoot = deathRootOf(template);
       expect(deathRoot).not.toBeNull();
       if (!deathRoot) return;
 
-      // Every `BufferGeometry` reachable from the live half. `GLTFLoader`
-      // gives two nodes that reference one glTF mesh two `Mesh` objects
-      // sharing ONE geometry (`GLTFParser._getNodeRef` clones the object;
-      // `Mesh.copy` shares the geometry by reference) -- so IDENTITY here is
-      // the load-bearing assertion. A structural comparison would pass a
-      // duplicated buffer, which is the 1.6-3.4 MiB per file this contract
-      // exists to avoid.
-      const liveGeometries = new Set<THREE.BufferGeometry>();
+      // Every `BufferGeometry` reachable from the live half, by node name.
+      // `GLTFLoader` gives two nodes that reference one glTF mesh two `Mesh`
+      // objects sharing ONE geometry (`GLTFParser._getNodeRef` clones the
+      // object; `Mesh.copy` shares the geometry by reference) -- so IDENTITY
+      // here is the load-bearing assertion. A structural comparison would
+      // pass a duplicated buffer, which is the 1.6-3.4 MiB per file this
+      // contract exists to avoid.
+      const liveByName = new Map<string, THREE.BufferGeometry>();
       for (const node of liveTopLevel(template)) {
         node.traverse((o) => {
           const mesh = o as THREE.Mesh;
-          if (mesh.isMesh && !isKit(o)) liveGeometries.add(mesh.geometry);
+          if (mesh.isMesh && !isKit(o)) liveByName.set(mesh.name, mesh.geometry);
         });
       }
-      expect(liveGeometries.size).toBeGreaterThan(0);
+      expect(liveByName.size).toBeGreaterThan(0);
+      const liveGeometries = new Set(liveByName.values());
 
       let wreckMeshes = 0;
       deathRoot.traverse((o) => {
         const mesh = o as THREE.Mesh;
         if (!mesh.isMesh) return;
         wreckMeshes++;
-        // `toBe` against the matching live geometry, so a failure prints
-        // which wreck part lost its sharing rather than "false is not true".
-        const twin = [...liveGeometries].find((g) => g === mesh.geometry);
-        expect(twin).toBe(mesh.geometry);
+        const damage = (mesh.userData as { rl_damage?: { source?: unknown } }).rl_damage;
+        if (damage === undefined) {
+          // `toBe` against the matching live geometry, so a failure prints
+          // which wreck part lost its sharing rather than "false is not true".
+          const twin = [...liveGeometries].find((g) => g === mesh.geometry);
+          expect(twin).toBe(mesh.geometry);
+          return;
+        }
+        // The damage pass (2026-10-14): its own geometry, which must name
+        // the live part its node name twins and carry exactly that part's
+        // attributes -- the same contract `validate_mesh_assets.py`'s clause
+        // 3 holds the bytes to, read here as `GLTFLoader` delivers it.
+        expect(damage.source).toBe(mesh.name.slice(WRECK_PREFIX.length));
+        const source = liveByName.get(String(damage.source));
+        expect(source).toBeDefined();
+        if (!source) return;
+        expect(liveGeometries.has(mesh.geometry)).toBe(false);
+        expect(Object.keys(mesh.geometry.attributes).sort()).toEqual(Object.keys(source.attributes).sort());
       });
       expect(wreckMeshes).toBeGreaterThanOrEqual(1);
     }

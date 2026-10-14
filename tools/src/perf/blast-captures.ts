@@ -80,6 +80,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { musicOffInitScript } from '../ui-review/music-off';
 import { gpuLaunchArgs, resolveGpuBackend } from '../ui-review/gpu';
+import { claimPort } from '../ui-review/port';
 
 // ---------------------------------------------------------------------------
 // The pure half. Imported by `blast-captures.test.ts`, which must not pull
@@ -952,7 +953,11 @@ export function readingAccepted(voted: boolean, clearsFloor: boolean): boolean {
  *  server, 5174 golden-diff, 5175 three-baseline, 5176 ui:shots, 5177
  *  ui:routes, 5178 wreck-captures, 5179 death-captures and unit-plates,
  *  5182 weight-captures, 5183 plate:host (`host-plate-capture.ts`). This
- *  one takes the next free number and never touches another. */
+ *  one takes the next free number and never touches another: `--port=<n>`,
+ *  else BLAST_CAPTURE_PORT, else this, and a port something already holds is
+ *  REFUSED (exit 2, `ui-review/port.ts`). It used to attach to whatever
+ *  answered there, and a run on 2026-10-14 measured another session's tree
+ *  and read zeros. */
 const PORT = 5181;
 const VIEWPORT = { width: 1400, height: 900 } as const;
 /** The establishing still, then the ladder. The lead's figure for the ladder
@@ -1300,8 +1305,8 @@ async function main(): Promise<void> {
   if (label !== 'before' && label !== 'after') {
     throw new Error('--label=before|after is required: the sheet is a comparison or it is nothing');
   }
-  const port = Number(arg('port', String(PORT)));
-  if (port === 5173) throw new Error("refusing --port=5173: that is the convention for a human's own dev server");
+  if (arg('port', '') === '5173') throw new Error("refusing --port=5173: that is the convention for a human's own dev server");
+  const port = await claimPort('blast-captures', 'BLAST_CAPTURE_PORT', PORT);
   const outRoot = path.resolve(REPO_ROOT, arg('out', path.join('.superpowers', 'art-captures', 'blast')));
   const out = path.join(outRoot, label);
   const only = arg('only', '');

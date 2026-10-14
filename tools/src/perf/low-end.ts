@@ -57,7 +57,7 @@ import { chromium, type CDPSession, type Page } from 'playwright';
 import { ensureDevServer, readUnmaskedRenderer, stopDevServer } from '../golden-diff/browser';
 import { gpuLaunchArgs, resolveGpuBackend } from '../ui-review/gpu';
 import { musicOffInitScript } from '../ui-review/music-off';
-import { portBusy } from '../ui-review/port';
+import { claimPort } from '../ui-review/port';
 import { driveBoot, startPreview, type Milestones } from './boot';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -88,7 +88,6 @@ const SLOW_MS = 33.4;
 type Quality = 'low' | 'medium' | 'high';
 
 interface Args {
-  port: number;
   serve: 'dev' | 'preview';
   gpu: 'metal' | 'swiftshader';
   cpus: number[];
@@ -119,7 +118,6 @@ function parseArgs(argv: string[]): Args {
   const qualities = list('quality', 'high,medium,low') as Quality[];
   for (const q of qualities) if (!['low', 'medium', 'high'].includes(q)) throw new Error(`unknown quality ${q}`);
   return {
-    port: Number(get('port') ?? 5193),
     serve,
     gpu: resolveGpuBackend(argv, 'darwin'),
     cpus: list('cpu', '1').map(Number),
@@ -449,18 +447,17 @@ const pc = (v: number): string => `${(v * 100).toFixed(1)}%`;
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   profileDir = process.argv.find((a) => a.startsWith('--profile-dir='))?.slice('--profile-dir='.length) ?? null;
-  if (await portBusy(args.port)) {
-    console.error(`[${TAG}] port ${args.port} is in use by a process this run did not start; pick another with --port=<n>.`);
-    process.exit(2);
-  }
+  // `--port=<n>`, else PERF_LOWEND_PORT, else 5193; a held port is refused
+  // (exit 2) before the browser starts (`ui-review/port.ts`).
+  const port = await claimPort(TAG, 'PERF_LOWEND_PORT', 5193);
   let server: ChildProcess | null = null;
   const results: unknown[] = [];
   const browser = await chromium.launch({ headless: true, args: gpuLaunchArgs(args.gpu) });
   try {
-    server = args.serve === 'preview' ? await startPreview(args.port, REPO_ROOT, TAG) : await ensureDevServer(args.port, REPO_ROOT, TAG);
+    server = args.serve === 'preview' ? await startPreview(port, REPO_ROOT, TAG) : await ensureDevServer(port, REPO_ROOT, TAG);
     const gl = await readUnmaskedRenderer(browser);
     console.log(`[${TAG}] renderer: ${gl}  serve=${args.serve}  mission=${MISSION}  fightTick=${args.fightTick}`);
-    const url = `http://localhost:${args.port}/?mission=${MISSION}`;
+    const url = `http://localhost:${port}/?mission=${MISSION}`;
     const cells = args.probe ? [{ cpu: 1, vp: args.viewports[0], q: args.qualities[0], run: 1 }] : [];
     if (!args.probe)
       for (let run = 1; run <= args.runs; run++)

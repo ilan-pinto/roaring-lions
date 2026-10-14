@@ -1,6 +1,6 @@
 {
   "name": "roaring-lions",
-  "version": "0.124.0",
+  "version": "0.124.1",
   "private": true,
   "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
@@ -29,6 +29,7 @@
     "gen:luts": "node tools/gen_luts.mjs",
     "encode:meshes": "pnpm --filter @lions/tools encode:meshes",
     "wreck:meshes": "pnpm --filter @lions/tools wreck:meshes",
+    "damage:meshes": "pnpm --filter @lions/tools damage:meshes",
     "kit:meshes": "pnpm --filter @lions/tools kit:meshes",
     "running-gear:meshes": "pnpm --filter @lions/tools running-gear:meshes",
     "ui:shots": "pnpm --filter @lions/tools ui:shots",
@@ -44,6 +45,7 @@
     "plate:host": "pnpm --filter @lions/tools plate:host",
     "plates:units": "pnpm --filter @lions/tools plates:units",
     "kit:capture": "pnpm --filter @lions/tools kit:capture",
+    "vdmg:capture": "pnpm --filter @lions/tools vdmg:capture",
     "closeups:garage": "pnpm --filter @lions/tools closeups:garage",
     "gait:meshes": "pnpm --filter @lions/tools gait:meshes",
     "motion:meshes": "pnpm --filter @lions/tools motion:meshes",

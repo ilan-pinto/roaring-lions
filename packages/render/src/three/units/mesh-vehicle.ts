@@ -363,7 +363,8 @@ export function buildVehicleMeshTemplate(
     // wreck is `rampMaterial(CHARRED_RAMP)` and a textured one is a tinted
     // clone of the same normalised bake. Everything else about the mesh --
     // shadows, render-order band, the role validation below -- is exactly
-    // what its live twin gets, because it IS its live twin's geometry.
+    // what its live twin gets, because it IS its live twin's geometry -- or,
+    // since `pnpm damage:meshes`, a declared damaged copy of it.
     const isWreck = (mesh.userData as { rl_wreck?: unknown }).rl_wreck === true;
     const extrasRole = (mesh.userData as { rl_role?: unknown }).rl_role;
     // The name-only fallback strips `WRECK_` for the same reason
