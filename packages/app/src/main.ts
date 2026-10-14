@@ -260,6 +260,8 @@ import { garrisonRoomShown } from './net/hover-garrison';
 import { NetStatusLine, lineOverMatchEnd, matchClock } from './ui/net-status';
 import { NetChat, chatFeedLine, chatOpens } from './ui/net-chat';
 import { showNetEnd } from './ui/net-end';
+import { NetScoreboard } from './ui/net-score';
+import { scoreOf, showsScoreboard } from './net/scoreboard';
 import { decideOnHashTick, matchResult, reportOver, roomEndingOutcome, type LocalDecision, type MatchResult } from './net/outcome';
 import { lightOverrideOf, timeOfDayOf } from './time-of-day';
 import { buildingFitOf } from './building-fit-flag';
@@ -5436,6 +5438,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       })
     : null;
   if (netStatus !== null) onDispose(() => netStatus.dispose());
+  /** The versus scoreboard (2026-10-14): each side's destroyed and lost, and
+   *  their value, read from sim state alone (`net/scoreboard.ts`) so both seats
+   *  show the same board. A versus room only: single-player and a sandbox room
+   *  mount nothing. */
+  const otherSeat = netSeat === 0 ? 1 : 0;
+  const scoreNames = { theirs: netConfig?.seats[otherSeat].callsign ?? '' };
+  const netScore = showsScoreboard(netConfig) ? new NetScoreboard(document.body, me, scoreNames) : null;
+  if (netScore !== null) onDispose(() => netScore.dispose());
   /** The match is over on this screen (N1b task 10). The sim is stepped no
    *  more; the transport is NOT closed (R-B11) -- the panel's buttons
    *  navigate, and this battlefield's disposer sends the room its `bye`. The
@@ -5452,9 +5462,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     pauseHandle = null;
     closeOpenDialog();
     netStatus?.hide();
+    netScore?.hide();
     netEnd = showNetEnd(document.body, result, me, {
       again: () => req.navigate(routes.versus()),
       menu: () => req.navigate(routes.menu()),
+      // No frame runs after the tick that decided the match, so this is the
+      // board both seats stopped on.
+      score: { score: scoreOf(sim), names: scoreNames },
     });
   };
   onDispose(() => netEnd?.());
@@ -5860,6 +5874,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         if (result !== null) showMatchEnd(result);
       }
     }
+    if (netEnd === null) netScore?.update(scoreOf(sim));
     if (netEnd === null || lineOverMatchEnd(transport.status())) netStatus?.paint(transport.status(), Date.now(), room?.forfeitClock() ?? null);
     // A room's pause (either seat's) quiets the mix and dims the strip as a
     // local pause does; the room's status is the only thing that says so.
