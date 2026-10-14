@@ -168,7 +168,9 @@ calling anything missing (see `docs/ASSET_PROVENANCE.md`).
 6. Every asset row is PRESENT (path) or MISSING (gate + pipeline). Every unit,
    structure, map, marker and zone id resolves to a file or is listed as new.
 7. Missions target 5–7 minutes and one phase; phases ascend within a town; new
-   content never authors against a stale schema ceiling.
+   content never authors against a stale schema ceiling. Every mission declares
+   `time_limit_s`, at least twice its `target_minutes` (#540); a design that needs more
+   must show the measured win that needs it.
 8. Nothing here touches `packages/sim/src/tuning.ts`. Difficulty is measured by
    `playtest`, not estimated.
 9. Unit names come from `data/campaign/names.json` only (storyline §2.4 rule 4): single

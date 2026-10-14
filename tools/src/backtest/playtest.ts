@@ -130,6 +130,13 @@ const led0 = run('beit_sahwan_breach', (sim, _rt, ids, at) => {
   });
 });
 
+// #540: the time limit's witnesses on shipped data. Beit Sahwan I's one primary is a `locate` and
+// Beit Sahwan III's are `eliminate_hvt` and `capture`: none can fail, so with no orders both ran
+// STUCK at the 20-minute cap on all 30 seeds (measured 13 Oct at ff9d0c8f, force alive throughout).
+// With the limit both must lose BY it, `withdrawn`, on every seed. `{}` ledger, as measured.
+passiveAcrossSeeds('beit_sahwan_1_recon', 'beit_sahwan_1_recon (no orders)', 'withdrawn');
+passiveAcrossSeeds('beit_sahwan_3_clearance', 'beit_sahwan_3_clearance (no orders)', 'withdrawn');
+
 // I — Recon: scouts screen forward on the berm and observe; the drone tours
 // a standoff line and re-tours until the picture is built.
 const led1 = run('beit_sahwan_1_recon', (sim, _rt, ids, at) => {

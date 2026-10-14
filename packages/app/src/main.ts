@@ -7,7 +7,13 @@
 import { objectiveZonesFor } from './objective-zones';
 import { activeRefuge, evacuationTargets, refugePoint, withEvacuationProgress } from './evacuation';
 import { unitsJustOutside, withOutsideCounts } from './hold-outside';
-import { deadlineWarningLine, deadlineWarnings, failureReason } from './ui/mission-failure';
+import {
+  deadlineWarningLine,
+  deadlineWarnings,
+  failureReason,
+  limitWarningDue,
+  limitWarningLine,
+} from './ui/mission-failure';
 import { stallHintLine, stallStart, stallStep, tickIsActive } from './ui/stall-hint';
 import { nameKind, type NamesJson } from './names';
 import { applyRosterCarryover } from './roster-carryover';
@@ -1899,6 +1905,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // PR 361: deadlines already warned a minute out, and why a lost mission
   // was lost (`ui/mission-failure.ts`).
   let deadlinesWarned: ReadonlySet<string> = new Set();
+  // GH-540: the time limit's one-minute warning, once per mission.
+  let limitWarned = false;
   // The stall hint (`ui/stall-hint.ts`): sim-time state, so a paused sim
   // (no ticks) cannot advance it. `stallActive` collects progress across the
   // ticks between two looks.
@@ -2674,6 +2682,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           // mission JSON, like `name`/`briefing` already are. The sim never
           // sees this field either (`mission.ts`'s own doc comment).
           aftermath: mission.aftermath,
+          // GH-540: the strip's last-minute countdown reads this (`limitClock`).
+          limitTicksLeft: runtime.timeLimitTicksLeft,
         }
       : null;
   // Wall-clock pacing, not sim pacing: this multiplies how much real time the
@@ -5344,6 +5354,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         hud.note(escapeHtml(deadlineWarningLine(row)), 'warn');
         audio.playCue(ALERT_CUE.important);
         voice.onMission([], [{ event: 'deadline', params: { label: row.text } }]);
+      }
+      // GH-540: not in the tutorial, whose own step machine ends it long before its limit.
+      if (stepList === undefined && limitWarningDue(runtime.timeLimitTicksLeft, limitWarned)) {
+        limitWarned = true;
+        hud.note(escapeHtml(limitWarningLine()), 'warn');
+        audio.playCue(ALERT_CUE.important);
       }
     }
     // A mission that has gone quiet with a primary still open says which one

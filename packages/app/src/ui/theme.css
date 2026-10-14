@@ -2160,10 +2160,19 @@ body[data-outcome-beat] .rl-aar {
 }
 /* A failable primary's clock running while the strip shows another primary
    (Tel Marum II, 2026-09-06). Same shrink rule as the objective it rides
-   beside; the rule keeps the two from reading as one sentence. */
-.rl-strip__deadline {
+   beside; the rule keeps the two from reading as one sentence. Also the time
+   limit's last minute (GH-540). */
+.rl-strip__deadline,
+.rl-strip__limit {
   border-left: 1px solid var(--panel-frame);
   padding-left: var(--s3);
+}
+/* The countdown is a fixed stamp, not text to elide: it shares the
+   `.rl-strip__obj` class for its type, but "Time le..." tells the player
+   nothing. Same specificity as the shrink rule above and later in the file,
+   so this wins. */
+.rl-strip__limit {
+  flex-shrink: 0;
 }
 .rl-strip__name {
   font-family: var(--font-display);

@@ -13,6 +13,8 @@ import {
   clockText,
   countSuppressed,
   holdClock,
+  limitClock,
+  LIMIT_CLOCK_TICKS,
   objectiveGlyph,
   roeTone,
   stepBeat,
@@ -25,6 +27,7 @@ import {
   type MissionView,
   type ObjectiveView,
 } from './hud-model';
+import { DEADLINE_WARN_TICKS } from './mission-failure';
 
 function obj(over: Partial<ObjectiveView> = {}): ObjectiveView {
   return { id: 'o1', text: 'Hold the west', primary: true, status: 'active', ...over };
@@ -397,5 +400,30 @@ describe('noShotReason (pass C2/C4, D4)', () => {
         false
       )
     ).toBe('mixed');
+  });
+});
+
+describe('limitClock (GH-540, the last minute only)', () => {
+  const at = (limitTicksLeft: number | undefined, result: MissionView['result'] = 'ongoing') =>
+    limitClock({ ...mission([obj({})]), limitTicksLeft, result });
+
+  it('is absent before the last minute, and without a limit', () => {
+    expect(at(61 * TICKS_PER_SECOND)).toBeNull();
+    expect(at(60 * TICKS_PER_SECOND + 1)).toBeNull();
+    expect(at(undefined)).toBeNull();
+  });
+  it('counts the last minute down, amber, then red from 0:30', () => {
+    expect(at(60 * TICKS_PER_SECOND)).toEqual({ text: 'Time left 1:00', tone: 'warn' });
+    expect(at(59 * TICKS_PER_SECOND)).toEqual({ text: 'Time left 0:59', tone: 'warn' });
+    expect(at(31 * TICKS_PER_SECOND)).toEqual({ text: 'Time left 0:31', tone: 'warn' });
+    expect(at(30 * TICKS_PER_SECOND)).toEqual({ text: 'Time left 0:30', tone: 'bad' });
+  });
+  it('is gone at zero and once the mission has ended, whatever the clock says', () => {
+    expect(at(0)).toBeNull();
+    expect(at(20 * TICKS_PER_SECOND, 'defeat')).toBeNull();
+    expect(at(20 * TICKS_PER_SECOND, 'victory')).toBeNull();
+  });
+  it('starts on the same tick as the feed warning', () => {
+    expect(LIMIT_CLOCK_TICKS).toBe(DEADLINE_WARN_TICKS);
   });
 });

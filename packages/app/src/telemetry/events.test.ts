@@ -44,6 +44,7 @@ describe('event builders', () => {
 
   it('flattens a defeat cause', () => {
     expect(ev.causeString('force_destroyed')).toBe('force_destroyed');
+    expect(ev.causeString('withdrawn')).toBe('withdrawn');
     expect(ev.causeString({ objective: 'evac' })).toBe('objective:evac');
     expect(ev.causeString(undefined)).toBeUndefined();
   });

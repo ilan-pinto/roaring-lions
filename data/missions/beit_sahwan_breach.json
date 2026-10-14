@@ -4,6 +4,7 @@
   "town": "beit_sahwan",
   "phase": "breach",
   "target_minutes": 5,
+  "time_limit_s": 600,
   "debrief": {
     "defeat": {
       "speaker": "idit",

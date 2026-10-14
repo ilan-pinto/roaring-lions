@@ -1811,6 +1811,88 @@ describe('civilians and ROE (GDD §6)', () => {
       expect(w.runtime.defeatCause).toBe('force_destroyed');
     });
   });
+
+  describe('time limit (#540)', () => {
+    const LIMIT_S = 10;
+    /** A capture nobody is standing on and no enemy at all: the one primary stays open forever,
+     *  which is exactly the stall the limit exists for. */
+    const stalled = (over: Partial<MissionJson> = {}): World =>
+      makeWorld(
+        baseMission({
+          starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+          objectives: [{ id: 'take', type: 'capture', primary: true, target: 'obj', seconds: 3 }],
+          time_limit_s: LIMIT_S,
+          ...over,
+        }),
+        { zones: { obj: [19, 3, 5, 5] } }
+      );
+
+    it('ends a stalled mission as a defeat, cause withdrawn, on the limit tick', () => {
+      const w = stalled();
+      w.step(LIMIT_S * TICKS_PER_SECOND - 1);
+      expect(w.runtime.result).toBe('ongoing');
+      const { mission } = w.step(1);
+      expect(mission.find((e) => e.kind === 'missionEnd')).toMatchObject({
+        kind: 'missionEnd',
+        tick: LIMIT_S * TICKS_PER_SECOND,
+        result: 'defeat',
+      });
+      expect(w.runtime.defeatCause).toBe('withdrawn');
+      // The limit ends the mission; it does not fail the objective.
+      expect(w.runtime.objectiveList.find((o) => o.id === 'take')?.status).toBe('active');
+    });
+
+    it('never ends a mission that declares no limit', () => {
+      const w = stalled({ time_limit_s: undefined });
+      w.step(3 * LIMIT_S * TICKS_PER_SECOND);
+      expect(w.runtime.result).toBe('ongoing');
+      expect(w.runtime.timeLimitTicksLeft).toBeUndefined();
+    });
+
+    it('a primary completing on the limit tick wins', () => {
+      const w = stalled({ objectives: [{ id: 'clock', type: 'survive_until', primary: true, seconds: LIMIT_S }] });
+      w.step(LIMIT_S * TICKS_PER_SECOND);
+      expect(w.runtime.result).toBe('victory');
+      expect(w.runtime.defeatCause).toBeUndefined();
+    });
+
+    it('a primary failing on the limit tick keeps its own cause', () => {
+      // The existing 'a failed primary evacuation loses the mission outright' fixture, limit = deadline.
+      const w = civWorld(
+        {
+          starting_force: [{ unit: 'm_squad', count: 1, at: [24, 2] }],
+          civilians: { groups: [{ unit: 'm_civ', count: 1, at: [20, 6] }], refuge: 'refuge' },
+          objectives: [
+            { id: 'evac', type: 'evacuate_before', primary: true, target: 'refuge_zone', count: 1, seconds: 5 },
+          ],
+          time_limit_s: 5,
+        },
+        REFUGE_CTX
+      );
+      w.step(5 * TICKS_PER_SECOND);
+      expect(w.runtime.result).toBe('defeat');
+      expect(w.runtime.defeatCause).toEqual({ objective: 'evac' });
+    });
+
+    it('counts down in sim ticks and stops at zero', () => {
+      const w = stalled();
+      expect(w.runtime.timeLimitTicksLeft).toBe(LIMIT_S * TICKS_PER_SECOND);
+      w.step(TICKS_PER_SECOND);
+      expect(w.runtime.timeLimitTicksLeft).toBe((LIMIT_S - 1) * TICKS_PER_SECOND);
+      w.step(LIMIT_S * TICKS_PER_SECOND);
+      expect(w.runtime.timeLimitTicksLeft).toBe(0);
+    });
+
+    it('writes nothing to the sim: a withdrawn world hashes as the same world with no limit', () => {
+      const a = stalled();
+      const b = stalled({ time_limit_s: undefined });
+      a.step(LIMIT_S * TICKS_PER_SECOND + 20);
+      b.step(LIMIT_S * TICKS_PER_SECOND + 20);
+      expect(a.runtime.defeatCause).toBe('withdrawn');
+      expect(b.runtime.result).toBe('ongoing');
+      expect(a.sim.hash()).toBe(b.sim.hash());
+    });
+  });
 });
 
 describe('economy (GDD §3, just enough for M1)', () => {

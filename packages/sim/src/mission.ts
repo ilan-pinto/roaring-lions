@@ -219,6 +219,11 @@ export interface MissionJson {
    *  the app is what branches on `victory` vs `defeat` off the same
    *  `missionEnd` event's `result` it already gets. */
   debrief?: { victory?: SayJson; defeat?: SayJson };
+  /** #540: the mission's time limit, in seconds of SIM time. When it runs out with a primary still
+   *  open, `checkEnd` ends the mission as a defeat whose cause is `'withdrawn'`. Absent means no limit
+   *  (test fixtures, Free Play, the versus core); every shipped mission declares one, enforced by
+   *  mission.schema.json and tools/validate_time_limit.mjs. */
+  time_limit_s?: number;
   map: { file: string; player_start?: readonly number[] };
   ledger: { requires: readonly string[]; produces: readonly string[] };
   objectives: readonly ObjectiveJson[];
@@ -389,7 +394,7 @@ export type MissionEventKindsAreExhaustive = AssertNoMissingMissionKind<MissingM
 
 /** Why a mission was lost, for the app's telemetry. Read-only: computed from
  *  the state `checkEnd` froze, in the order `checkEnd` tests it. */
-export type DefeatCause = 'force_destroyed' | 'roe_collapse' | { objective: string };
+export type DefeatCause = 'force_destroyed' | 'roe_collapse' | 'withdrawn' | { objective: string };
 
 const SUPPORTED = new Set([
   'locate', 'eliminate_hvt', 'capture', 'hold_for', 'survive_until', 'destroy_all',
@@ -551,6 +556,8 @@ export class MissionRuntime {
    *  events are emitted on the tick the completion takes effect. */
   private readonly externallyCompleted: string[] = [];
   private resultValue: 'ongoing' | 'victory' | 'defeat' = 'ongoing';
+  /** #540: set by `checkEnd` when the time limit was the ONLY reason the mission was lost. */
+  private withdrawnValue = false;
 
   constructor(sim: Sim, mission: MissionJson, ctx: MissionContext) {
     this.sim = sim;
@@ -722,6 +729,15 @@ export class MissionRuntime {
     return this.resultValue;
   }
 
+  /** #540: ticks until the time limit withdraws the force; undefined when the mission declares none.
+   *  Sim ticks, so a paused game (no ticks) does not spend it. Never negative. */
+  get timeLimitTicksLeft(): number | undefined {
+    const limit = this.mission.time_limit_s;
+    if (limit === undefined) return undefined;
+    const left = limit * TICKS_PER_SECOND - this.sim.tickCount;
+    return left > 0 ? left : 0;
+  }
+
   /** Live ROE score 0-100 — must be visible in the HUD at all times. */
   get roeScore(): number {
     return this.roeScoreValue;
@@ -741,6 +757,8 @@ export class MissionRuntime {
    *  A pure read -- writes nothing, so it cannot move the golden hash. */
   get defeatCause(): DefeatCause | undefined {
     if (this.resultValue !== 'defeat') return undefined;
+    // Latched, not re-derived: nothing in the world records that the clock ran out.
+    if (this.withdrawnValue) return 'withdrawn';
     const wiped =
       this.playerIds.length > 0 && this.playerIds.every((id) => this.sim.state.alive[id] === 0);
     if (wiped) return 'force_destroyed';
@@ -1916,10 +1934,17 @@ export class MissionRuntime {
     // primary complete, defeat was wipe-or-ROE only, and the player is left
     // in a mission that is unwinnable and unlosable at once.
     const failedPrimary = primaries.some((o) => o.status === 'failed');
-    const lost = wiped || this.roeFailed || failedPrimary;
+    // #540: the time limit. With every timed primary resolved, a mission whose open primaries
+    // cannot fail (`locate`, `capture`, `hold_for`, `eliminate_hvt`) ends only in a win, a wipe or
+    // an ROE collapse, and a player who cannot finish waits forever. A win on the same tick wins;
+    // any other loss on the same tick keeps its own cause.
+    const limit = this.mission.time_limit_s;
+    const timedOut = !won && limit !== undefined && tick >= limit * TICKS_PER_SECOND;
+    const lost = wiped || this.roeFailed || failedPrimary || timedOut;
     if (!lost && !won) return;
 
     this.ended = true;
+    this.withdrawnValue = timedOut && !wiped && !this.roeFailed && !failedPrimary;
     this.resultValue = lost ? 'defeat' : 'victory';
     const roeRating = this.roeScoreValue;
 

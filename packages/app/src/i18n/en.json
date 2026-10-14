@@ -353,6 +353,8 @@
   "outcome.failed.objective": "Objective failed: {text} · {at}",
   "outcome.failed.force": "Every unit lost · {at}",
   "outcome.failed.conduct": "Conduct fell below the mission floor · {at}",
+  "outcome.failed.timeUp": "Out of time — {text} was not finished",
+  "outcome.failed.timeUpBare": "Out of time",
 
   "brigade.art.noSprite": "{name}: no picture yet",
 
@@ -847,6 +849,8 @@
   "hud.hold.unheld": "NOBODY HOLDING",
   "hud.clock.failed": "MISSION FAILED",
   "hud.deadline.warn": "{left} left — {text}",
+  "hud.limit.warn": "One minute left to finish the mission",
+  "hud.limit.clock": "Time left {left}",
   "hud.stall.locate": "A position is still unseen. Any unit can spot it.",
   "hud.stall.ground": "The ground isn't taken. Clear it and stand on it.",
   "hud.stall.ground.unheld": "The ground isn't taken. Move a unit onto it.",

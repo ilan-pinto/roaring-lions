@@ -23,6 +23,7 @@ import { elevationFailures } from './validate_map_grid.mjs';
 import { regionBiomeFailures } from './validate_biome.mjs';
 import { briefingFailures } from './validate_briefing.mjs';
 import { videoFailures } from './validate_video.mjs';
+import { timeLimitFailures } from './validate_time_limit.mjs';
 import {
   commanderRankFailures,
   narrativeTextFailures,
@@ -939,6 +940,8 @@ const garrisonableSymbols = new Set(
     // human label. T1-a: `(mission, file)`, matching removeTriggerFailures/
     // narrativeTextFailures above -- this call had the two reversed.
     failures.push(...triggerLabelFailures(mi, rel(file)));
+    // #540: the time limit, twice the target and clear of every primary deadline.
+    failures.push(...timeLimitFailures(mi, rel(file)));
   }
 }
 

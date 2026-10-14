@@ -4,6 +4,7 @@
   "town": "khan_rafid",
   "phase": "foothold",
   "target_minutes": 7,
+  "time_limit_s": 840,
   "map": { "file": "khan_rafid_2", "player_start": [24, 45] },
   "ledger": {
     "requires": ["roster.surviving_units", "intel.marked_positions"],

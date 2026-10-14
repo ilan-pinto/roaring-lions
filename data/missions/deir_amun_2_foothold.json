@@ -4,6 +4,7 @@
   "town": "deir_amun",
   "phase": "foothold",
   "target_minutes": 7,
+  "time_limit_s": 840,
   "map": { "file": "deir_amun_2", "time_of_day": "dusk", "player_start": [24, 44] },
   "ledger": {
     "requires": ["roster.surviving_units", "intel.marked_positions"],

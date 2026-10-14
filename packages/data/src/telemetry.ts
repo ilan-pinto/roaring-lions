@@ -58,7 +58,7 @@ export const MISSION_PATTERN = /^[a-z0-9_]{1,64}$/;
 export const BUILD_PATTERN = /^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,6}$/;
 const OBJECTIVE_PATTERN = /^[A-Za-z0-9_.-]{1,64}$/;
 const OBJECTIVE_TYPE_PATTERN = /^[a-z_]{1,32}$/;
-const CAUSE_PATTERN = /^(force_destroyed|roe_collapse|objective:[A-Za-z0-9_.-]{1,64})$/;
+const CAUSE_PATTERN = /^(force_destroyed|roe_collapse|withdrawn|objective:[A-Za-z0-9_.-]{1,64})$/;
 /** A tutorial beat id (`data/tutorial/*.json` step ids). Sent since GH-345's
  *  nine-beat cut; events from before it carry only the index. */
 export const TUTORIAL_STEP_ID_PATTERN = /^[a-z0-9_]{1,40}$/;
@@ -95,7 +95,7 @@ export type TelemetryEvent = TelemetryEnvelope &
         type: 'mission_end';
         mission: string;
         result: 'victory' | 'defeat' | 'abandoned';
-        /** `force_destroyed`, `roe_collapse` or `objective:<id>`; defeats only. */
+        /** `force_destroyed`, `roe_collapse`, `withdrawn` (#540) or `objective:<id>`; defeats only. */
         cause?: string;
         tick: number;
         roe: number;

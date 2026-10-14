@@ -3,7 +3,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MissionRuntime, Sim, TICKS_PER_SECOND, type MissionJson } from '@lions/sim';
 import { applyTerrain, maps, missions, parseMap, units } from '@lions/data';
 import { standMapStructures } from '../map-sim';
-import { DEADLINE_WARN_TICKS, deadlineWarningLine, deadlineWarnings, failureReason } from './mission-failure';
+import {
+  DEADLINE_WARN_TICKS,
+  deadlineWarningLine,
+  deadlineWarnings,
+  failureReason,
+  limitWarningDue,
+  limitWarningLine,
+} from './mission-failure';
 import { holdClock, stripObjectives, type MissionView, type ObjectiveView } from './hud-model';
 import { outcomeMoment, outcomeMomentOptions } from './outcome-moment';
 
@@ -34,6 +41,19 @@ describe('1. failureReason: a lost mission names the primary that lost it, and w
   it('a wiped force and a Conduct collapse', () => {
     expect(failureReason('force_destroyed', objs, 61 * S)).toBe('Every unit lost · 1:01');
     expect(failureReason('roe_collapse', objs, 61 * S)).toBe('Conduct fell below the mission floor · 1:01');
+  });
+  it('running out of time names the first primary still open, never a secondary', () => {
+    const rows = [
+      { id: 'scout', text: 'Find the column', primary: false, status: 'active' },
+      { id: 'hold_the_crest_line', text: 'Hold the crest line for four minutes', primary: true, status: 'complete' },
+      { id: 'level_the_stone_post', text: 'Level the post on the stone knoll inside five minutes', primary: true, status: 'active' },
+    ];
+    expect(failureReason('withdrawn', rows, 840 * S)).toBe(
+      'Out of time — Level the post on the stone knoll inside five minutes was not finished'
+    );
+  });
+  it('running out of time with no open primary on the list still says why, and shows no id', () => {
+    expect(failureReason('withdrawn', objs, 840 * S)).toBe('Out of time');
   });
   it('nothing when the mission is not lost', () => {
     expect(failureReason(undefined, objs, 300 * S)).toBeNull();
@@ -124,5 +144,51 @@ describe('3. a deadline that loses the mission warns once, a minute out', () => 
   });
   it('words the line through the catalogue', () => {
     expect(deadlineWarningLine({ text: 'Level the post', ticksLeft: DEADLINE_WARN_TICKS })).toBe('1:00 left — Level the post');
+  });
+});
+
+describe('4. the time limit warns once, a minute out (GH-540)', () => {
+  it('fires at 1:00 and not at 1:01, and never once warned', () => {
+    expect(limitWarningDue(DEADLINE_WARN_TICKS + 1, false)).toBe(false);
+    expect(limitWarningDue(DEADLINE_WARN_TICKS, false)).toBe(true);
+    expect(limitWarningDue(DEADLINE_WARN_TICKS, true)).toBe(false);
+  });
+  it('never without a limit, and never once it has run out', () => {
+    expect(limitWarningDue(undefined, false)).toBe(false);
+    expect(limitWarningDue(0, false)).toBe(false);
+  });
+  it('words the line', () => {
+    expect(limitWarningLine()).toBe('One minute left to finish the mission');
+  });
+
+  it("Beit Sahwan I with no orders: the runtime's own cause words the end at 14:00", () => {
+    const mission = missions.beit_sahwan_1_recon as unknown as MissionJson;
+    const map = parseMap(maps[mission.map.file as keyof typeof maps]);
+    const sim = new Sim({ seed: 424242, width: map.width, height: map.height, capacity: 256 });
+    applyTerrain(map, sim);
+    standMapStructures(sim, map);
+    const typeOf = new Map<string, number>();
+    for (const u of Object.values(units)) typeOf.set(u.id, sim.addUnitType(u as never));
+    const rt = new MissionRuntime(sim, mission, {
+      typeIdOf: (u) => typeOf.get(u) as number,
+      markers: map.markers,
+      zones: map.zones,
+      tunnels: [],
+      ledger: {},
+      unitInfo: () => null,
+    });
+    rt.start();
+    let end = -1;
+    let warnedAt = -1;
+    for (let t = 0; t < 900 * S && end < 0; t++) {
+      if (warnedAt < 0 && limitWarningDue(rt.timeLimitTicksLeft, false)) warnedAt = sim.tickCount;
+      for (const e of rt.step(sim.tick())) if (e.kind === 'missionEnd') end = e.tick;
+    }
+    expect(warnedAt).toBe(780 * S);
+    expect(end).toBe(840 * S);
+    expect(rt.defeatCause).toBe('withdrawn');
+    expect(failureReason(rt.defeatCause, rt.objectiveList, end)).toBe(
+      'Out of time — Identify six garrison positions was not finished'
+    );
   });
 });

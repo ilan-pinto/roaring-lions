@@ -9,11 +9,14 @@
  *  1. `failureReason`: the moment a mission is lost, say WHICH primary failed
  *     and when ("Objective failed: Level the post … · 5:00"), in the feed and on the
  *     outcome card. The cause is `MissionRuntime.defeatCause`, the read
- *     telemetry already uses, never re-derived here.
+ *     telemetry already uses, never re-derived here. A mission the time limit
+ *     ends (GH-540) says "Out of time" and names the first primary still open.
  *  2. `FAILED_CLOCK` (`hud-model.ts`): once the mission is lost, every running
  *     clock reads "MISSION FAILED" instead of a frozen count.
  *  3. `deadlineWarnings`: one feed line a minute before a deadline that loses
  *     the mission runs out.
+ *  4. `limitWarningDue`: the time limit warns once, a minute out, through the
+ *     same feed line and chime (GH-540).
  */
 import { TICKS_PER_SECOND, type DefeatCause } from '@lions/sim';
 import { t } from '../i18n/t';
@@ -23,13 +26,20 @@ import { DEADLINE_TYPES, clockText } from './hud-model';
  *  gave no cause (a mission that is not lost). `tick` is the tick it ended on. */
 export function failureReason(
   cause: DefeatCause | undefined,
-  objectives: readonly { id: string; text: string }[],
+  objectives: readonly { id: string; text: string; primary?: boolean; status?: string }[],
   tick: number
 ): string | null {
   if (cause === undefined) return null;
   const at = clockText(tick);
   if (cause === 'force_destroyed') return t('outcome.failed.force', { at });
   if (cause === 'roe_collapse') return t('outcome.failed.conduct', { at });
+  if (cause === 'withdrawn') {
+    // GH-540: the limit ends the mission with its primaries still active; name the first one, so the
+    // debrief says what was left undone and not just that time ran out. Plain words, no "{at}"
+    // (Ruling (lead, 2026-10-13), D1); `withdrawn` is the internal id only.
+    const open = objectives.find((o) => o.primary === true && o.status === 'active');
+    return open ? t('outcome.failed.timeUp', { text: open.text }) : t('outcome.failed.timeUpBare');
+  }
   const text = objectives.find((o) => o.id === cause.objective)?.text ?? cause.objective;
   return t('outcome.failed.objective', { text, at });
 }
@@ -73,4 +83,16 @@ export function deadlineWarnings<R extends DeadlineRow>(
 /** The feed line for one deadline warning. */
 export function deadlineWarningLine(row: { text: string; ticksLeft?: number }): string {
   return t('hud.deadline.warn', { text: row.text, left: clockText(row.ticksLeft ?? 0) });
+}
+
+/** GH-540: whether the one feed line before the time limit is due -- once, at a minute or less, never
+ *  once the limit has run out. `ticksLeft` is `MissionRuntime.timeLimitTicksLeft` (sim ticks, so a
+ *  pause holds it); the caller keeps `warned`. */
+export function limitWarningDue(ticksLeft: number | undefined, warned: boolean): boolean {
+  return !warned && ticksLeft !== undefined && ticksLeft > 0 && ticksLeft <= DEADLINE_WARN_TICKS;
+}
+
+/** The feed line for the time-limit warning (the lead's wording, 2026-10-13). */
+export function limitWarningLine(): string {
+  return t('hud.limit.warn');
 }

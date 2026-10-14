@@ -140,4 +140,13 @@ describe('player-facing wording (PA-01)', () => {
   it('checks the whole catalogue (vacuity guard)', () => {
     expect(Object.keys(catalogue).length).toBeGreaterThan(500);
   });
+
+  // GH-540, Ruling (lead, 2026-10-13): running out of time is "Out of time", never "withdrawn" --
+  // `withdrawn` is the internal defeat-reason id only. (`aar.well.*` "withdrew" is the ENEMY's.)
+  it('no string tells the player he was withdrawn', () => {
+    const hits = Object.entries(en as Record<string, string>)
+      .filter(([, v]) => /\bwithdrawn\b|\bwithdrawal\b/i.test(playerText(v).text))
+      .map(([k]) => k);
+    expect(hits).toEqual([]);
+  });
 });

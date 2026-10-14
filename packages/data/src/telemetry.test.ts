@@ -28,6 +28,7 @@ const VALID: Record<string, unknown>[] = [
   { ...ENV, type: 'objective', mission: 'beit_sahwan_breach', objective: 'hold_gate', objectiveType: 'hold_for', primary: true, status: 'complete', tick: 4000 },
   { ...ENV, type: 'mission_end', mission: 'beit_sahwan_breach', result: 'victory', tick: 6000, roe: 94, fielded: 12, lost: 2, objectivesDone: 3, objectivesTotal: 4 },
   { ...ENV, type: 'mission_end', mission: 'wadi_halam_5_depot', result: 'defeat', cause: 'objective:raze_depot', tick: 6000, roe: 61, fielded: 9, lost: 9, objectivesDone: 0, objectivesTotal: 2 },
+  { ...ENV, type: 'mission_end', mission: 'khan_rafid_1_recon', result: 'defeat', cause: 'withdrawn', tick: 14400, roe: 100, fielded: 6, lost: 1, objectivesDone: 1, objectivesTotal: 2 },
   { ...ENV, type: 'mission_end', mission: 'wadi_halam_5_depot', result: 'abandoned', tick: 900, roe: 100, fielded: 9, lost: 0, objectivesDone: 0, objectivesTotal: 2 },
   { ...ENV, type: 'campaign_progress', mission: 'beit_sahwan_breach', missionsWon: 1 },
   { ...ENV, t: 9007199254740991, type: 'mission_start', mission: 'beit_sahwan_breach', replay: false },

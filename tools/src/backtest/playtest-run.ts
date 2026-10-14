@@ -17,6 +17,7 @@ import {
   type UnitTypeJson,
   type SimEvent,
   type Stars,
+  type DefeatCause,
 } from '@lions/sim';
 import {
   units,
@@ -131,6 +132,20 @@ export function outcomeName(result: 'ongoing' | 'victory' | 'defeat', atCap: boo
   return result === 'ongoing' && atCap ? 'STUCK' : result.toUpperCase();
 }
 
+/** A defeat's cause in one word, as telemetry flattens it: `withdrawn`, `force_destroyed`,
+ *  `roe_collapse` or `objective:<id>`. */
+export function causeText(c: DefeatCause | undefined): string | undefined {
+  if (c === undefined) return undefined;
+  return typeof c === 'string' ? c : `objective:${c.objective}`;
+}
+
+/** What a swept control reports (#540): a defeat by the time limit is `withdrawn`, anything else its
+ *  result. A control expecting `defeat` must lose on its own deadline, so a run the limit ended is a
+ *  miss, and a witness expecting `withdrawn` must lose by the limit. */
+export function sweepOutcome(result: 'ongoing' | 'victory' | 'defeat', cause: string | undefined): string {
+  return result === 'defeat' && cause === 'withdrawn' ? 'withdrawn' : result;
+}
+
 /** One line per `run()` call, in call order: what the plan sweep (`plan-sweep.ts`) reads back. */
 export interface RunRecord {
   id: string;
@@ -142,6 +157,8 @@ export interface RunRecord {
   minutes: number;
   stars: number;
   roe: number;
+  /** The defeat's cause (`causeText`); undefined unless lost. */
+  cause?: string;
 }
 export const runLog: RunRecord[] = [];
 
@@ -210,6 +227,7 @@ export function run(
     credits: number;
     /** Mission clock at the end, in minutes (E5 Task 5: the `(bought)` probes print it). */
     minutes?: number;
+    cause?: string;
   },
   /** E5 Task 5: unit types the shipped roster does not carry (the staged bought-only drafts
    *  in docs/campaign/special_units/e5), registered after every shipped type so no shipped
@@ -339,12 +357,14 @@ export function run(
     for (const me of rt.step(evs)) if (me.kind === 'missionEnd') produced = me.ledger;
     if (rt.result !== 'ongoing') break;
   }
+  const cause = rt.result === 'defeat' ? causeText(rt.defeatCause) : undefined;
   const mins = (t / TICKS_PER_SECOND / 60).toFixed(1);
   const shown = outcomeName(rt.result, t >= maxTicks);
   const runLine =
     `${label}: ${shown} in ${mins} min, ROE ${rt.roeScore}, stars ${rt.stars}, ` +
     `objectives ${rt.objectiveList.map((o) => `${o.id}=${o.status[0]}`).join(' ')}, ` +
     `roster out ${(produced['roster.surviving_units'] ?? []).length}` +
+    (cause !== undefined ? `, cause ${cause}` : '') +
     (fielded !== undefined ? `, fielded ${fielded}=${fieldedOk}` : '');
   const credits = creditsFor(creditInputFrom(rt, rt.roeScore, mission.roe?.fail_below));
   if (!sweepQuiet || rt.result !== expect) console.log(runLine);
@@ -353,7 +373,7 @@ export function run(
     console.error(`${label}: FAILED — expected ${expect.toUpperCase()}, got ${shown}`);
     process.exitCode = 1;
   }
-  runLog.push({ id, label, expect, result: rt.result, stuck: t >= maxTicks && rt.result === 'ongoing', minutes: t / TICKS_PER_SECOND / 60, stars: rt.stars, roe: rt.roeScore });
+  runLog.push({ id, label, expect, result: rt.result, stuck: t >= maxTicks && rt.result === 'ongoing', minutes: t / TICKS_PER_SECOND / 60, stars: rt.stars, roe: rt.roeScore, cause });
   if (rt.stars < expectStar) {
     console.error(`${label}: FAILED — expected ${expectStar} star(s), got ${rt.stars}`);
     process.exitCode = 1;
@@ -399,6 +419,7 @@ export function run(
     measured.roeScore = rt.roeScore;
     measured.credits = credits;
     measured.minutes = t / TICKS_PER_SECOND / 60;
+    measured.cause = cause;
   }
   return produced;
 }
