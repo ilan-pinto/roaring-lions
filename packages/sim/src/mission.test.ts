@@ -4238,7 +4238,7 @@ describe('containment is structural: mission predicates ignore buried bodies', (
       civilians: { groups: [{ unit: 'm_civ', count: 1, at: [21, 5], in_tunnel: 'tn_a' }] },
       roe: { enabled: true, disproportionate_ordnance_penalty: 3 },
     });
-    const strike: SimEvent = { kind: 'strike', tick: 1, by: 0, x: fx.from(21.5), y: fx.from(5.5) };
+    const strike: SimEvent = { kind: 'strike', tick: 1, by: 0, x: fx.from(21.5), y: fx.from(5.5), profile: 0 };
     const fire: SimEvent = {
       kind: 'fire',
       tick: 1,

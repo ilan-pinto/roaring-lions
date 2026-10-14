@@ -320,6 +320,80 @@ export const STRIKE_SCATTER = 19661; // 0.3 tiles
 /** Satellite sweep: everything hostile inside this radius is identified. */
 export const SWEEP_RADIUS_SQ = 3932160; // 60 tile^2 ≈ 7.7 tiles
 
+// --- the fire-support profile table (F1 Task 6; GH-183) ------------------------
+/** One fire-support round pattern. `callStrike` queues `rounds` entries, the
+ *  i-th at `tickCount + delayTicks + i * spacingTicks`, each with its own
+ *  scatter pair from the CALLER's rng stream (invariant 3). `damage`, `splash`
+ *  and `suppression` are read per entry at impact. */
+export interface FireSupportProfile {
+  readonly rounds: number;
+  readonly spacingTicks: number;
+  readonly delayTicks: number;
+  readonly scatter: number; // Q16.16, tiles
+  readonly damage: number; // Q16.16
+  readonly splash: number; // Q16.16, tiles
+  readonly suppression: number; // Q16.16
+  /** `'smoke'` rounds lay a screen instead of exploding (Task 7 stamps it). */
+  readonly payload: 'he' | 'smoke';
+  /** Scatter draw width. `false` is today's air strike, byte for byte: the top
+   *  16 bits of one draw, so it tops out at 65535 (1 tile). `true` uses the full
+   *  32-bit draw, which is the only way a 1.5-tile scatter is reachable. Both
+   *  take exactly two caller-stream draws a round. */
+  readonly wideScatter: boolean;
+  /** Does `garrison_cover`/tile cover muffle this round's suppression? F-Q13
+   *  (lead, 14 Oct): false for the air strike (byte for byte as before), true
+   *  for the barrage, so it pins a garrison like a mortar team's own round. */
+  readonly coverProtects: boolean;
+}
+export const FS_AIR_STRIKE = 0;
+export const FS_MORTAR_BARRAGE = 1;
+export const FS_SMOKE_SCREEN = 2;
+/** Indexed by `callStrike.profile` (absent = FS_AIR_STRIKE). Rows 1 and 2 are
+ *  `docs/campaign/economy/fire-support-numbers.md` §Profiles, PROVISIONAL until
+ *  the lead confirms the G-NUM table. */
+export const FIRE_SUPPORT: readonly FireSupportProfile[] = [
+  {
+    // air_strike: today's constants, by reference (F-R4).
+    rounds: 1,
+    spacingTicks: 0,
+    delayTicks: STRIKE_DELAY_TICKS,
+    scatter: STRIKE_SCATTER,
+    damage: STRIKE_DAMAGE,
+    splash: STRIKE_SPLASH,
+    suppression: STRIKE_SUPPRESSION,
+    payload: 'he',
+    wideScatter: false,
+    coverProtects: false,
+  },
+  {
+    // mortar_barrage: 6 rounds 1.8 s apart, first lands 6 s after the call.
+    rounds: 6,
+    spacingTicks: 36, // 1.8 s
+    delayTicks: 120, // 6 s
+    scatter: 98304, // 1.5 tiles
+    damage: 7864320, // 120
+    splash: 65536, // 1.0 tile
+    suppression: 39322, // 0.6
+    payload: 'he',
+    wideScatter: true,
+    coverProtects: true, // F-Q13
+  },
+  {
+    // smoke_screen: 3 rounds 2 s apart, first lands 4 s after the call. No
+    // damage and no suppression; Task 7 stamps a SMOKE_RADIUS disc per round.
+    rounds: 3,
+    spacingTicks: 40, // 2 s
+    delayTicks: 80, // 4 s
+    scatter: 98304, // 1.5 tiles (the barrage's own; the doc's flagged choice)
+    damage: 0,
+    splash: 0,
+    suppression: 0,
+    payload: 'smoke',
+    wideScatter: true,
+    coverProtects: true, // moot: a smoke round suppresses nothing
+  },
+];
+
 // --- intel earned by doing (F1; GDD §3) --------------------------------------
 /** Intel for the first identification of an enemy by a real observer (once per
  *  enemy per mission, D3). Whole intel points, not Q16.16. The 10/30/30 row is
