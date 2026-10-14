@@ -168,6 +168,11 @@ DEVIATIONS = {
             "box round the receiver passes through its feed tray (|y| to 0.36) and pintle (to z 1.82)"),
     },
     "scout_shachaf": {
+        ("firepower", 3, "turret_metal"): (
+            "z",
+            "unit polish (14 Oct): the Meshy station's barrel stands in the S2 radar's height on the mast, "
+            "inside the cowl's sweep, so the cowl is a skirt from its 2.16 foot to 2 cm under the station's "
+            "section at its front plate -- lower than the mock's 0.40, no port"),
         ("sensors", 2, "hull_hull"): (
             "xz",
             "the mock's radar (x -0.99..-0.89, z 2.39-2.73) stood inside the cupola station at every heading. "
@@ -186,6 +191,10 @@ DEVIATIONS = {
             "that plate's top edge -- drops 0.085 m"),
     },
     "apc_kipod": {
+        ("firepower", 3, "turret_metal"): (
+            "z",
+            "unit polish (14 Oct): as the Eitan's -- the cowl grows from its 3.465 foot until its port holds "
+            "the Meshy station's section at the front plate under a 5 cm lintel"),
         ("firepower", 2, "turret_metal"): (
             "yz",
             "the box hangs outboard of the F3 cowl's left cheek (y 0.63; the mock's 0.48 was inside the "
@@ -195,6 +204,11 @@ DEVIATIONS = {
             "inside it)"),
     },
     "apc_eitan": {
+        ("firepower", 3, "turret_metal"): (
+            "z",
+            "unit polish (14 Oct): the Meshy station's barrel leaves its receiver 0.45 m over the ring where "
+            "the kit box's bar stood at 0.28, so the cowl grows from its 2.91 foot until its front plate's "
+            "port holds the station's own section there under a 5 cm lintel"),
         ("sensors", 2, "hull_hull"): (
             "z",
             "the mock stood each 45-degree housing 0.20 over the roof at its CENTRE; the roof under the "
@@ -222,10 +236,10 @@ DEVIATIONS = {
             "and the F2 shroud's 1.70 m sweep (z 3.44-3.66) and the F3 magazine's (0.43-1.09 m, z 3.25-3.75): "
             "moved aft along the roof to x -0.95, its nearest corner 1.84 m from the pivot"),
         ("firepower", 2, "turret_metal"): (
-            "x",
+            "xyz",
             "the station is a box (turret_metal x 0.42-1.42, |y| 0.40, z 3.24-3.74): the mock's shroud began "
             "0.12 m inside its front face and its radar (x 1.05-1.25, z 3.65-3.79) sat inside its top. The "
-            "shroud starts at the face (x 1.45) and the radar stands on the face over the barrel (x 1.42-1.62)"),
+            "shroud starts at the face (x 1.45) and the radar stands on the face over the barrel (x 1.42-1.62); unit polish (14 Oct): the sleeve and its radar are sized off the Meshy station's 30 mm barrel, thicker than the kit bar (y/z grow)"),
     },
     "mbt_lavi": {
         ("sensors", 2, "turret_hull"): (
@@ -296,12 +310,13 @@ CLASH_EXEMPTIONS = {
             {0.0}, "seat"),
     },
     "scout_shachaf": {
-        ("kit_firepower_2_turret_metal", "hull_hull", "f2_box"): (
+        ("kit_firepower_2_turret_metal", "hull_hull", "f2_"): (
             "the hull's whip antenna (hull_hull x -1.57, y 0.39, z 2.13-2.76, 0.70 m from the station's "
             "pivot) stands inside the station's own sweep: the shipped barrel passes through it at 145-150 "
-            "degrees. The box on the station's left flank reaches 0.75 m and meets it at 35 degrees. Excused "
-            "there, and only on the antenna triangles the shipped station cuts",
-            {35.0}, "seat"),
+            "degrees. The box on the station's left flank reaches 0.75 m and meets it at 35 degrees, and "
+            "since unit polish (14 Oct) the sleeve on the Meshy station's barrel meets it where the barrel "
+            "does, at 140 and 150. Excused there, and only on the antenna triangles the shipped station cuts",
+            {35.0, 140.0, 150.0}, "seat"),
         ("kit_firepower_3_turret_metal", "hull_hull", "f3_cowl"): (
             "the same whip antenna (see f2_box): the cowl's front corners reach 0.69-0.70 m from the pivot "
             "and graze it at 110 and 180 degrees. Excused there, and only on the antenna triangles the "
@@ -314,6 +329,52 @@ CLASH_EXEMPTIONS = {
 # ---------------------------------------------------------------------------
 # hull reads (the blockout's Hull, plus two trees it does not keep)
 # ---------------------------------------------------------------------------
+
+def _bar(H, gun, node="turret_metal", span=0.30):
+    """The barrel's own cross-section box (y0, y1, z0, z1), read off the
+    station's vertices over its last `span` metres -- unit polish (14 Oct):
+    the Meshy station's barrel is not the kit box's 12 cm bar, and a port
+    or a sleeve built to the old constant meets it."""
+    x0, x1, gy, gz = gun
+    cs = H.verts(node, lambda c: c.x > x1 - span)
+    return (min(c.y for c in cs), max(c.y for c in cs), min(c.z for c in cs), max(c.z for c in cs))
+
+
+def _section(H, x, node="turret_metal", half=0.05):
+    """The station's cross-section box (y0, y1, z0, z1) over the slab
+    |x - `x`| <= `half`: where a cowl's front plate crosses it. Read off the
+    mesh's EDGES, not its vertices -- a barrel is long quads with no vertex
+    near the plate -- every edge point inside the slab, ends and crossings."""
+    o = H.objs[node]
+    M = o.matrix_world
+    co = [M @ v.co for v in o.data.vertices]
+    pts = [c for c in co if abs(c.x - x) <= half]
+    for e in o.data.edges:
+        a, b = co[e.vertices[0]], co[e.vertices[1]]
+        for plane in (x - half, x + half):
+            if (a.x - plane) * (b.x - plane) < 0:
+                t = (plane - a.x) / (b.x - a.x)
+                pts.append(a + (b - a) * t)
+    if not pts:
+        raise ValueError(f"nothing of {node} within {half} m of x {x:.3f}")
+    return (min(c.y for c in pts), max(c.y for c in pts), min(c.z for c in pts), max(c.z for c in pts))
+
+
+def _receiver_front(H, gun, node="turret_metal", step=0.02, widen=2.5):
+    """Where the barrel leaves the station: scanning back from the muzzle,
+    the first slice whose reach off the barrel's axis passes `widen` x the
+    tip's."""
+    x0, x1, gy, gz = gun
+    cs = H.verts(node, lambda c: True)
+    tip = max(math.hypot(c.y - gy, c.z - gz) for c in cs if c.x > x1 - 0.1)
+    x = x1
+    while x > x1 - 3.0:
+        sl = [math.hypot(c.y - gy, c.z - gz) for c in cs if x - step < c.x <= x]
+        if sl and max(sl) > widen * tip:
+            return x
+        x -= step
+    raise ValueError("no receiver face found behind the barrel")
+
 
 def _tree(H, names):
     key = "_tree_" + "_".join(names)
@@ -814,22 +875,30 @@ def parts_ifv_namer(H):
     # with the barrel leaving its front face: the mock's shroud began 0.12 m
     # inside it and its radar sat inside its top. The shroud starts at the
     # face and the radar stands on the face, over the barrel.
-    RWS_FRONT = 1.42
+    # Unit polish (14 Oct): the Meshy station's 30 mm barrel is thicker than
+    # the kit bar and leaves the receiver at x 1.30, so the face and the
+    # sleeve's radii are MEASURED off it: the sleeve 1 cm outside the bar's
+    # half-diagonal, its bands 3 cm, the radar over the barrel's own top.
+    RWS_FRONT = _receiver_front(H, gun, widen=1.4)
+    _b = _bar(H, gun)
+    _hd = math.hypot((_b[1] - _b[0]) / 2, (_b[3] - _b[2]) / 2)
 
     def f2():
         x0, x1, gy, gz = gun
-        a, c = RWS_FRONT + 0.03, x0 + (x1 - x0) * 0.85
-        out = kp.barrel_shroud("f2_sh", gy, gz, a, c, 0.085, 0.106, 0.058)
-        out += kp.radar_array("f2_mvr", kp.place((RWS_FRONT + 0.104, 0.0, gz + 0.18)), (0.20, 0.16, 0.14))
+        a, c = RWS_FRONT + 0.15, x0 + (x1 - x0) * 0.85
+        out = kp.barrel_shroud("f2_sh", gy, gz, a, c, _hd + 0.025, _hd + 0.045, _hd + 0.008)
+        out += kp.radar_array("f2_mvr", kp.place((a + 0.104, gy, gz + _hd + 0.045 + 0.075)), (0.20, 0.16, 0.14))
         return out
 
     # -- F3: armoured dual-feed magazine on the RWS's left side ------------------
     def f3():
         size = (0.95, 0.42, 0.50)
-        M = kp.place((0.72, 0.64, 3.50))
-        # seated against the station's side plate (turret_plate, |y| 0.46), not into it
-        d, _g = _seat_shift(_tree(H, ("turret_metal", "turret_plate")), M, size, (0, -1, 0), max_out=0.15)
-        M = _shifted(M, (0, -1, 0), d)
+        # Unit polish (14 Oct): hung 1.2 cm outboard of the Meshy station's own
+        # left side over its length (it is narrower than the kit box's 0.46),
+        # and 4 cm up, over its turntable ring (to z 3.28).
+        side = max(c.y for n in ("turret_metal", "turret_plate")
+                   for c in H.verts(n, lambda c: 0.72 - size[0] / 2 < c.x < 0.72 + size[0] / 2))
+        M = kp.place((0.72, side + 0.012 + size[1] / 2, 3.54))
         out = kp.ammo_box("f3_mag", size, M, lid_h=0.05, tone="paint")
         y_in = M.translation.y - size[1] / 2
         out += kp.feed_chute("f3_chute", [(0.80, y_in + 0.02, 3.62), (0.92, y_in - 0.04, 3.62), (1.00, y_in - 0.12, 3.62)],
@@ -961,10 +1030,17 @@ def parts_apc_eitan(H):
     # 12 cm square bar (y 0.343-0.463, z 3.057-3.177) out of its front face.
     # Hull roof features stand to z 2.894 within 0.9 m of the pivot, so every
     # part the station turns stays above 2.905.
-    COWL_Z0, COWL_H = 2.91, 0.42
+    # Unit polish (14 Oct): the Meshy station replaces the box; its barrel
+    # stands 0.52 m over the ring, not 0.28, so the bar is MEASURED and the
+    # cowl grows until its front plate's port holds it under a 5 cm lintel.
+    # The port is the station's own section where the front plate crosses it
+    # (x -0.025), not the bar at the muzzle: the barrel is thicker at the
+    # receiver.
+    BAR = _section(H, -0.55 + 1.05 / 2)
+    COWL_Z0 = 2.91
+    COWL_H = max(0.42, BAR[3] + 0.02 + 0.05 - COWL_Z0)
     COWL_TOP = COWL_Z0 + COWL_H
     CHEEK_OUT = 0.40 + 0.95 / 2 + 0.025         # the left cheek's outer face, y 0.90
-    BAR = (0.343, 0.463, 3.057, 3.177)
 
     def a1():
         out = []
@@ -1100,11 +1176,14 @@ def parts_apc_kipod(H):
     # ring the hull carries at z 3.454 out to 0.8 m: every part the station
     # turns stands above 3.465. The barrel is a 12 cm square bar (y -0.066..
     # 0.054, z 3.655-3.775) out of its front face.
-    COWL_Z0, COWL_H = 3.465, 0.44
+    # Unit polish (14 Oct): the bar measured and the cowl grown round it, as
+    # on the Eitan.
+    COWL_X = -1.10
+    BAR = _section(H, COWL_X + 1.05 / 2)
+    COWL_Z0 = 3.465
+    COWL_H = max(0.44, BAR[3] + 0.02 + 0.05 - COWL_Z0)
     COWL_TOP = COWL_Z0 + COWL_H
     CHEEK_OUT = 0.95 / 2 + 0.025                   # the left cheek's outer face, y 0.50
-    BAR = (-0.066, 0.054, 3.655, 3.775)
-    COWL_X = -1.10
 
     def a1():
         out = []
@@ -1239,9 +1318,16 @@ def parts_scout_shachaf(H):
     # plates to 0.26), z 2.21-2.51, turning about (-0.99, 0.0) round the
     # hull's mast pole (x -1.10..-1.01, head z 2.8-3.06); the barrel a 12 cm
     # square bar (y -0.058..0.062, z 2.339-2.459) to x -0.01.
-    COWL = (-0.85, 0.0, 2.36, 0.80, 0.85, 0.40)        # x, y, z, w, l, h
+    # Unit polish (14 Oct): the Meshy station's barrel stands at the height of
+    # the S2 radar on the mast (z 2.60-2.93, 0.52-0.60 m from the pivot, in
+    # the cowl's own sweep), so the cowl cannot grow round it as on the
+    # Eitan: it is a skirt from its old foot (z 2.16) to 2 cm under the
+    # station's section at its front plate, with no port.
+    _sec = _section(H, -0.85 + 0.85 / 2)
+    _h = _sec[2] - 0.02 - 2.16
+    COWL = (-0.85, 0.0, 2.16 + _h / 2, 0.80, 0.85, _h)  # x, y, z, w, l, h
+    BAR = None
     CHEEK_OUT = COWL[3] / 2 + 0.025                   # 0.425
-    BAR = (-0.058, 0.062, 2.339, 2.459)
     MAST_X = -1.01                                    # the pole's forward face
 
     def a1():
@@ -1330,7 +1416,11 @@ def parts_scout_shachaf(H):
         x0, x1, gy, gz = gun
         # a square sleeve round the square barrel, from the F3 cowl's port
         # out (the mock's 0.08 m round shroud lay inside the 12 cm bar)
-        a, c = COWL[0] + COWL[4] / 2 + 0.045, x0 + (x1 - x0) * 0.85
+        # Unit polish (14 Oct): the Meshy station's barrel stands 0.18 m higher
+        # than the kit bar did, at the height of the S2 radar on the mast
+        # (z 2.60-2.93, 0.52-0.60 m from the pivot), so the sleeve starts
+        # 0.72 m out from the pivot and clears it at every heading.
+        a, c = max(COWL[0] + COWL[4] / 2 + 0.045, -0.99 + 0.72), x0 + (x1 - x0) * 0.85
         out = kp.barrel_shroud("f2_sh", gy, gz, a, c, 0.099, 0.113, 0.082, sides=4, spin=45.0)
         # the box hangs outboard of the cowl's left cheek (the mock's y 0.36
         # was inside it)
@@ -1341,8 +1431,7 @@ def parts_scout_shachaf(H):
 
     def f3():
         x, y, z, w, l, h = COWL
-        port = (BAR[0] - 0.02, BAR[1] + 0.02, BAR[2] - 0.02, BAR[3] + 0.02)
-        out = kp.cowl("f3_cowl", (x, y, z), w, l, h, bolts=False, port=port, port_chamfer=False)
+        out = kp.cowl("f3_cowl", (x, y, z), w, l, h, bolts=False)
         for i, yy in enumerate((-0.25, 0.25)):
             out.append(kp.hex_bolt(f"f3_b{i}", (x + l / 2 + 0.025, yy, z + 0.12), (1, 0, 0), across=0.024,
                                    height=0.01))

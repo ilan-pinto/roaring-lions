@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready bare unmanned remote weapon station, a machine of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level, gun forward. Only three parts: a flat low round turntable ring underneath, a compact angular armoured cradle on it with elevation trunnions and a rear motor housing, and one heavy machine gun offset left with a plain smooth thick barrel and flash hider. A cable conduit, a three-tube smoke discharger at each rear corner. Paint chipped at the edges. Real-world scale, 1.7 metres long, 0.9 wide, 0.6 tall. Olive paint, gunmetal, black rubber. Plain even lighting, no baked shadows, no ground, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "negative_prompt": "tank turret, manned turret, crew hatch, cupola, person, gunner, vehicle, hull, roof, wheels, tracks, tripod, pedestal, display stand, plinth, ammunition box, ammo can, ammunition belt, thermal sight, large sensor box, barrel jacket, heat shroud, armour cowl, gun shield, cannon, missile, second gun, ground, text",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a13a79-2a63-707b-9d81-71cb7fb81844",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 3302679344,
+    "prompt": "A single low-poly game-ready bare unmanned remote weapon station, a machine of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level, gun forward. Only three parts: a flat low round turntable ring underneath, a compact angular armoured cradle on it with elevation trunnions and a rear motor housing, and one heavy machine gun offset left with a plain smooth thick barrel and flash hider. A cable conduit, a three-tube smoke discharger at each rear corner. Paint chipped at the edges. Real-world scale, 1.7 metres long, 0.9 wide, 0.6 tall. Olive paint, gunmetal, black rubber. Plain even lighting, no baked shadows, no ground, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1791982383463,
+    "progress": 100,
+    "started_at": 1791982383470,
+    "finished_at": 1791982453988,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a13a79-2a63-707b-9d81-71cb7fb81844/output/model.glb?Expires=4945536000&Signature=hn2SNgYliVbFXjeHhx3lCdwU2KRTyvsZLVBg3JnynOIvXv7X5i2OWk8Gwt981LmRaLZwVHwix9omgYnNAEoDk~QFU95nmduTFl8dz0cRHt4z31zSso5oTmTgKIcPnQgl-Y3REMkyVgIFxzmgdFl2d62wNybOJWSukP5OKE7X9uO1N0G6~EdOwnaiiIIIp~3mUehGFrPfm7sKu58BGRUFlUkCu3~nv4Zz17-yVubv5FG752KHRnqNoiYB~hEmy1sQ~V5bPExxp5ounuk6C16nRYZ8nwDQQNm9y4k6Ot4-BoC8vBwZNdT1OaKLuXw4U747bNZPMZd08hRtdiWQlcE~nQ__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a13a79-2a63-707b-9d81-71cb7fb81844/output/preview.png?Expires=4945536000&Signature=q1Hvx949pgfeydAtDNOzRhDePCTizxbNefsi1dqXj~vl~dQv~isId3p2DWpLjkXfiaD~X1VH0Ls6imCUy6W4OwoZseR1ppvKlo6nJ6~p485-VS1gdbDgODcvH0cidIalUCWTO9ZsYEwizwU4eDJGt7BQ3O17qktBHzoMdCKgjiZ2sedob8MzAfa8sapKmYdryuQ4S9im11qcES8zLVWSiTqAABPlyFJc1HGgt03V4sQP5CZjxYnLDuHtoSMZGXZGxdgcSoF43cdEWg7o2~i3FP9Kds~6JkZwrlD6NItz650ZaaSFYqfE4UrKvEoxO00smn9DMwWVfjvH7rAvg~1JrQ__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1791982383463,
+    "started_at": 1791982383470,
+    "finished_at": 1791982453988
+  },
+  "usd_estimated": 0.4
+}
