@@ -170,7 +170,7 @@ import {
   type LightPreset,
   type LitTimeOfDay,
 } from './time-of-day';
-import { disposeAndReleaseContext } from './context-release';
+import { disposeAndReleaseContext, noteSharedTextures } from './context-release';
 import { freezeSceneRoot, freezeStatic } from './static-matrix';
 import { AO_RESOLUTION_SCALE, createAoPass, createPostChain, PIXEL_RATIO_CAP, type PostChain } from './post-chain';
 import { VignettePass } from './vignette-pass';
@@ -3008,6 +3008,8 @@ export class ThreeRenderer implements Renderer {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    // Before `releaseResources` disposes the materials it is read through.
+    noteSharedTextures(this.renderer, this.scene);
     try {
       this.releaseResources();
     } finally {

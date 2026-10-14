@@ -62,7 +62,7 @@
  * single strongest cue that the board is an object and not a texture.
  */
 import * as THREE from 'three';
-import { disposeAndReleaseContext } from '../context-release';
+import { disposeAndReleaseContext, noteSharedTextures } from '../context-release';
 import { createSceneLights, DAY_LIGHTS } from '../lighting';
 import { gltfLoader, setDracoDecoderPath } from '../units/gltf-loader';
 
@@ -578,6 +578,8 @@ function mountOnto(
     dispose() {
       if (disposed) return;
       disposed = true;
+      // Before the region materials below are disposed (context-release.ts).
+      noteSharedTextures(renderer, scene);
       try {
         cancelAnimationFrame(raf);
         observer?.disconnect();
