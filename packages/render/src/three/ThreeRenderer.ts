@@ -5596,8 +5596,8 @@ export class ThreeRenderer implements Renderer {
     );
   }
   /** A left-click's unit -- `units/pick.ts`'s `pickUnitAtScreen` has the
-   *  defect and the rule. */
-  unitAtScreen(px: number, py: number): number {
+   *  defect and the rule. `radiusTiles` absent is the left-click's own. */
+  unitAtScreen(px: number, py: number, radiusTiles?: number): number {
     return pickUnitAtScreenPure(
       px,
       py,
@@ -5611,7 +5611,8 @@ export class ThreeRenderer implements Renderer {
       this.sim.height,
       this.camera,
       { width: this.width, height: this.height },
-      this.pickable
+      this.pickable,
+      radiusTiles
     );
   }
   /**

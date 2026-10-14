@@ -487,8 +487,11 @@ export interface Renderer {
   /** The unit a left-click at this canvas pixel picks, or -1: `pickUnit`
    *  measured against the ground each unit's drawn BODY hides, not its feet
    *  alone, so a click on a figure in a group picks that figure rather than
-   *  the one standing behind it. Projection, so the renderer's. */
-  unitAtScreen(px: number, py: number): number;
+   *  the one standing behind it. Projection, so the renderer's.
+   *  `radiusTiles` is how far from that body a click may land: absent, the
+   *  left-click's 1.2 tiles; an order asks a tighter one of the same pick
+   *  (GH-420, R-23: `ORDER_PICK_RADIUS_TILES` in the app's input/pointer.ts). */
+  unitAtScreen(px: number, py: number, radiusTiles?: number): number;
   isVisible(wx: number, wy: number): boolean;
   /** Living units whose screen position falls inside a screen-space rect.
    *  Box-select is a projection question, so only the renderer can answer it. */

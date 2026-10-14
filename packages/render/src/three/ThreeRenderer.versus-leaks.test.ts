@@ -220,6 +220,17 @@ describe('picking a hidden unit (§5.1, the first leak)', () => {
     expect(box(r, 20.5, 20.5)).toEqual([hostile]);
     r.dispose();
   });
+  it('GH-420 R-23: an order asks the same body pick tighter; the left-click keeps its 1.2 tiles', () => {
+    const { r, hostile } = world({});
+    // 0.9 tile beside the feet, on the camera's side of the body: nearest the feet.
+    const p = r.worldToScreen(21.4, 20.5);
+    expect(r.unitAtScreen(p.x, p.y)).toBe(hostile);
+    expect(r.unitAtScreen(p.x, p.y, 0.5)).toBe(-1);
+    // On the body itself the tight radius still picks it.
+    const feet = r.worldToScreen(20.5, 20.5);
+    expect(r.unitAtScreen(feet.x, feet.y - 8, 0.5)).toBe(hostile);
+    r.dispose();
+  });
   it('the seat on side 1 is the mirror: its own is side 1', () => {
     // `hostile` is side 1 -- this seat's own -- and `own` is side 0, its enemy.
     const { r, own, hostile } = world({ versus: true, viewerSide: 1 });

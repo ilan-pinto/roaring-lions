@@ -27,8 +27,11 @@ import {
   type DrawnSize,
 } from '@lions/render/three-camera';
 import type { Camera, Viewport } from '@lions/render/project';
+// The renderer's own pure body pick, not a stand-in: its radius is the thing
+// R-23 pins, and a stand-in with its own geometry is how I-1 and I-2 hid.
+import { pickUnitAtScreen } from '../../../render/src/three/units/pick';
 import { standMapStructures } from '../map-sim';
-import { cursorAt, pointerPoint, simIntentWorld, type PointerView } from './pointer';
+import { ORDER_PICK_RADIUS_TILES, cursorAt, pointerPoint, simIntentWorld, type PointerView } from './pointer';
 
 const VP: Viewport = { width: 1440, height: 900 };
 const CENTRE = { x: VP.width / 2, y: VP.height / 2 };
@@ -52,7 +55,26 @@ function world() {
   return { map, sim, spawn, house };
 }
 
-/** The renderer's three questions, answered by the real projection. */
+/** Every unit's drawn position, as the renderer holds it (`curX`/`curY`). */
+function drawnAt(sim: Sim): { curX: Float64Array; curY: Float64Array } {
+  const curX = new Float64Array(sim.entityCount);
+  const curY = new Float64Array(sim.entityCount);
+  for (let i = 0; i < sim.entityCount; i++) {
+    curX[i] = fx.toNumber(sim.state.posX[i]);
+    curY[i] = fx.toNumber(sim.state.posY[i]);
+  }
+  return { curX, curY };
+}
+
+/** `Renderer.unitAtScreen` on flat ground: the shipped pure pick, every unit
+ *  pickable (single player). `radiusTiles` absent is the left-click's own. */
+function pickAt(sim: Sim, cam: Camera, px: number, py: number, radiusTiles?: number): number {
+  const { curX, curY } = drawnAt(sim);
+  const { alive, tunnelIn } = sim.state;
+  return pickUnitAtScreen(px, py, curX, curY, alive, tunnelIn, sim.entityCount, null, sim.width, sim.height, cam, VP, () => true, radiusTiles);
+}
+
+/** The renderer's questions, answered by the real projection and the real pick. */
 function viewOf(sim: Sim, cam: Camera, viewer = 0, visible: (x: number, y: number) => boolean = () => true): PointerView {
   const st = sim.structures;
   const drawn = (s: number): DrawnSize =>
@@ -71,23 +93,9 @@ function viewOf(sim: Sim, cam: Camera, viewer = 0, visible: (x: number, y: numbe
     screenToWorld: (px, py) => screenToWorldThree(px, py, cam, VP),
     structureAtScreen: (px, py) => structureAtScreenThree(px, py, cam, VP, structureBoxes(sim, null, drawn)),
     isVisible: visible,
-    // Stands in for the renderer's body pick (#534): the nearest living unit,
-    // ANY side, whose projected position is within 24 px of the pixel. The
-    // enemy filter under test is `pointerPoint`'s, not this.
-    unitAtScreen: (px, py) => {
-      let best = -1;
-      let bestD = 24 * 24;
-      for (let i = 0; i < sim.entityCount; i++) {
-        if (sim.state.alive[i] === 0) continue;
-        const at = worldToScreenThree(fx.toNumber(sim.state.posX[i]), fx.toNumber(sim.state.posY[i]), cam, VP);
-        const d = (at.x - px) ** 2 + (at.y - py) ** 2;
-        if (d < bestD) {
-          bestD = d;
-          best = i;
-        }
-      }
-      return best;
-    },
+    // The renderer's body pick (#534), ANY side, at the radius `pointerPoint`
+    // asks for. The enemy filter under test is `pointerPoint`'s, not this.
+    unitAtScreen: (px, py, radiusTiles) => pickAt(sim, cam, px, py, radiusTiles),
     viewer,
   };
 }
@@ -205,17 +213,17 @@ describe('PA-08 / GH-420: the cursor over an enemy says what the click does', ()
   });
 });
 
-describe('PA-14: a click on the house wall is a click on the house', () => {
-  /** The house's camera-facing wall (+z, the camera sits towards +x,+z), at
-   *  `frac` of its height, mid-span -- as a pixel. */
-  function wallPixel(sim: Sim, house: number, cam: Camera, frac: number) {
-    const st = sim.structures;
-    const cx = (st.minX[house] + st.maxX[house] + 1) / 2;
-    const cz = (st.minY[house] + st.maxY[house] + 1) / 2;
-    const nearZ = cz + Math.max(HOUSE_MESH.depth, st.maxY[house] - st.minY[house] + 1) / 2;
-    return worldToScreenThree(cx, nearZ, cam, VP, (frac * HOUSE_MESH.height) / WORLD_Y_PER_LIFT_PIXEL);
-  }
+/** The house's camera-facing wall (+z, the camera sits towards +x,+z), at
+ *  `frac` of its height, mid-span -- as a pixel. */
+function wallPixel(sim: Sim, house: number, cam: Camera, frac: number) {
+  const st = sim.structures;
+  const cx = (st.minX[house] + st.maxX[house] + 1) / 2;
+  const cz = (st.minY[house] + st.maxY[house] + 1) / 2;
+  const nearZ = cz + Math.max(HOUSE_MESH.depth, st.maxY[house] - st.minY[house] + 1) / 2;
+  return worldToScreenThree(cx, nearZ, cam, VP, (frac * HOUSE_MESH.height) / WORLD_Y_PER_LIFT_PIXEL);
+}
 
+describe('PA-14: a click on the house wall is a click on the house', () => {
   it('the defect: the ground under that pixel is behind the house, off its footprint', () => {
     const { sim, house } = world();
     const cam: Camera = { x: 25, y: 16, zoom: 1 };
@@ -261,7 +269,27 @@ describe('PA-14: a click on the house wall is a click on the house', () => {
     expect(house).toBeGreaterThanOrEqual(0);
   });
 
-  it('an enemy whose ground point the pixel reaches still wins over the wall', () => {
+  // R-24: an enemy the pixel reaches no longer switches the wall off. It
+  // travels as `hostile`, and the hostile rung (before the structure rung)
+  // decides: an enemy someone can focus wins, one nobody can leaves the click
+  // the building's. Before R-24 any pick kept the ground point, which here is
+  // the hidden ground behind the house.
+  it('an enemy the pixel reaches behind the wall that someone can focus still wins over it', () => {
+    const { sim, spawn, house } = world();
+    const squad = spawn('inf_squad', 0, 25.5, 21.5);
+    const cam: Camera = { x: 25, y: 16, zoom: 1 };
+    const px = wallPixel(sim, house, cam, 0.8);
+    const g = screenToWorldThree(px.x, px.y, cam, VP);
+    const hidden = spawn('militia_cell', 1, g.x, g.y);
+    sim.identifyTo(0, hidden);
+    const r = read(sim, cam, [squad], px.x, px.y);
+    expect(r.p.hostile).toBe(hidden);
+    expect(r.p.facade).toBe(house);
+    expect(r.name).toBe('attack');
+    expect(r.res.intents).toEqual([{ kind: 'attack', ids: [squad], target: hidden }]);
+  });
+
+  it('R-24: one nobody can focus (a suspected contact) leaves the click the house\'s', () => {
     const { sim, spawn, house } = world();
     const squad = spawn('inf_squad', 0, 25.5, 21.5);
     const cam: Camera = { x: 25, y: 16, zoom: 1 };
@@ -270,9 +298,130 @@ describe('PA-14: a click on the house wall is a click on the house', () => {
     const hidden = spawn('militia_cell', 1, g.x, g.y);
     const r = read(sim, cam, [squad], px.x, px.y);
     expect(r.p.hostile).toBe(hidden);
-    expect(r.p.facade).toBe(-1);
-    expect(r.name).toBe('advance');
-    expect(house).toBeGreaterThanOrEqual(0);
+    expect(r.p.facade).toBe(house);
+    expect(r.key).toBe('garrison-soft');
+    expect(r.res.intents).toEqual([{ kind: 'garrison', ids: [squad], structure: house }]);
+  });
+});
+
+describe('R-24: a suspected enemy at the foot of the wall does not move the click behind the house', () => {
+  /** The final review's I-1 probe at the order radius: the militia stands at
+   *  the house's camera-facing wall, mid-span, and the click is on the wall a
+   *  quarter of a tile above its head (20% of the wall's height; the body is
+   *  0.6 tile). Its drawn body is within half a tile of that pixel, so the
+   *  order pick names it. */
+  function atTheWall(identified: boolean) {
+    const { sim, spawn, house } = world();
+    const squad = spawn('inf_squad', 0, 25.5, 21.5);
+    const militia = spawn('militia_cell', 1, 25, 17.9);
+    if (identified) sim.identifyTo(0, militia);
+    const cam: Camera = { x: 25, y: 16, zoom: 1 };
+    const px = wallPixel(sim, house, cam, 0.2);
+    // The defect's ground: off the footprint, behind the wall.
+    const g = screenToWorldThree(px.x, px.y, cam, VP);
+    expect(sim.structureAt(Math.floor(g.x), Math.floor(g.y))).toBe(-1);
+    return { sim, squad, militia, house, cam, px, r: read(sim, cam, [squad], px.x, px.y) };
+  }
+
+  it('suspected: the pick names it and the click still garrisons the house', () => {
+    const { militia, house, squad, r } = atTheWall(false);
+    expect(r.p.hostile).toBe(militia);
+    // What the click does first: before R-24 this was an attack-move to the
+    // hidden ground behind the house.
+    expect(r.res.intents).toEqual([{ kind: 'garrison', ids: [squad], structure: house }]);
+    expect(r.key).toBe('garrison-soft');
+    expect(r.p.facade).toBe(house);
+  });
+
+  it('with no enemy there the same pixel reads the same (the pick changes nothing)', () => {
+    const { sim, militia, squad, cam, px, r } = atTheWall(false);
+    sim.debugKill(militia);
+    const without = read(sim, cam, [squad], px.x, px.y);
+    expect(without.p.hostile).toBe(-1);
+    expect(without.res).toEqual(r.res);
+  });
+
+  it('identified: the squad fires on it (the hostile rung precedes the structure rung)', () => {
+    const { militia, house, squad, r } = atTheWall(true);
+    expect(r.p.facade).toBe(house);
+    expect(r.name).toBe('attack');
+    expect(r.res.intents).toEqual([{ kind: 'attack', ids: [squad], target: militia }]);
+  });
+});
+
+describe('R-23: an order picks an enemy within half a tile of its drawn body', () => {
+  /** The final review's I-2 probe: an identified militia in the open, a rifle
+   *  squad selected, the camera on the militia. */
+  function open() {
+    const { sim, spawn } = world();
+    const squad = spawn('inf_squad', 0, 11.5, 24.5);
+    const militia = spawn('militia_cell', 1, 20.5, 24.5);
+    sim.identifyTo(0, militia);
+    const cam: Camera = { x: 20.5, y: 24.5, zoom: 1 };
+    return { sim, squad, militia, cam };
+  }
+  /** Ground offsets, in tiles, that the 1.2-tile body pick turned into `attack`
+   *  (the review measured every one of them `attack-soft`). */
+  const NEAR: [number, number][] = [
+    [0.6, 0],
+    [0.9, 0],
+    [1.1, 0],
+    [0, 0.9],
+    [0, 1.1],
+    [-0.9, 0],
+    [0.8, 0.8],
+    [-1.5, -1.5],
+  ];
+
+  it('the order radius is half a tile, the old hover generosity', () => {
+    expect(ORDER_PICK_RADIUS_TILES).toBe(0.5);
+  });
+
+  it('ground 0.6-2 tiles from the militia is an attack-move to that ground, as on main', () => {
+    const { sim, squad, militia, cam } = open();
+    for (const [dx, dy] of NEAR) {
+      const s = worldToScreenThree(20.5 + dx, 24.5 + dy, cam, VP);
+      const r = read(sim, cam, [squad], s.x, s.y);
+      const at = `offset (${dx}, ${dy})`;
+      expect(r.p.hostile, at).toBe(-1);
+      expect(r.name, at).toBe('move');
+      expect(r.res.intents, at).toEqual([{ kind: 'order', verb: 'attackMove', ids: [squad], x: r.p.x, y: r.p.y, append: false }]);
+      // The left-click still selects it from every one of those pixels: the
+      // selection keeps the pick's own 1.2 tiles.
+      expect(pickAt(sim, cam, s.x, s.y), at).toBe(militia);
+    }
+  });
+
+  it('a click on its body is the targeted order: the feet, and 8 and 16 px up the figure', () => {
+    const { sim, squad, militia, cam } = open();
+    const feet = worldToScreenThree(20.5, 24.5, cam, VP);
+    for (const up of [0, 8, 16]) {
+      const r = read(sim, cam, [squad], feet.x, feet.y - up);
+      expect(r.p.hostile, `${up} px up`).toBe(militia);
+      expect(r.key, `${up} px up`).toBe('attack-soft');
+      expect(r.res.intents, `${up} px up`).toEqual([{ kind: 'attack', ids: [squad], target: militia }]);
+    }
+  });
+});
+
+describe('R-25: a loitering munition takes the attack-move, not the order', () => {
+  it('with a rifle squad: the squad fires on the militia, the munition attack-moves to its tile', () => {
+    const { sim, spawn } = world();
+    const squad = spawn('inf_squad', 0, 11.5, 24.5);
+    const drone = spawn('attack_drone', 0, 11.5, 22.5);
+    const militia = spawn('militia_cell', 1, 20.5, 24.5);
+    sim.identifyTo(0, militia);
+    const cam: Camera = { x: 20.5, y: 24.5, zoom: 1 };
+    expect(sim.canFocus(drone, militia)).toBe(false);
+    const r = read(sim, cam, [squad, drone], CENTRE.x, CENTRE.y);
+    expect(r.res.intents).toEqual([
+      { kind: 'attack', ids: [squad], target: militia },
+      { kind: 'order', verb: 'attackMove', ids: [drone], x: 20.5, y: 24.5, append: false },
+    ]);
+    // Alone, it is today's attack-move to the tile.
+    const alone = read(sim, cam, [drone], CENTRE.x, CENTRE.y);
+    expect(alone.name).toBe('advance');
+    expect(alone.res.intents.map((i) => i.kind)).toEqual(['order']);
   });
 });
 

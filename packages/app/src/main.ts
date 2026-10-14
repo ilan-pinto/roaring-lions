@@ -2117,7 +2117,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const pointerView: PointerView = {
     screenToWorld: (px, py) => renderer.screenToWorld(px, py),
     structureAtScreen: (px, py) => renderer.structureAtScreen(px, py),
-    unitAtScreen: (px, py) => renderer.unitAtScreen(px, py),
+    unitAtScreen: (px, py, radiusTiles) => renderer.unitAtScreen(px, py, radiusTiles),
     isVisible: (wx, wy) => renderer.isVisible(wx, wy),
     viewer: me,
   };
