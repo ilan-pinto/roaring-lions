@@ -12,8 +12,8 @@
  * answer again.
  *
  * So the answer is kept, per view: the camera's projection and world
- * matrices, the batch's own world matrix, the material's transparency and the
- * renderer's coordinate system are the whole of what three reads besides the
+ * matrices, coordinate system and depth direction, the batch's own world
+ * matrix, and the material's transparency and wireframe flag are the whole of what three reads besides the
  * instances themselves, and a draw whose view matches a kept one gets that
  * one's draw list back instead of a recomputation. Same list, same order,
  * same bytes in the indirect texture -- what is skipped is the arithmetic,
@@ -39,13 +39,18 @@ interface KeptView {
   readonly starts: Int32Array;
   readonly counts: Int32Array;
   readonly indirect: Uint32Array;
+  readonly bytesPerElement: number;
 }
 
-/** The `BatchedMesh` internals `onBeforeRender` writes (three r170). */
+/** The `BatchedMesh` internals `onBeforeRender` writes (three r186; r170
+ *  wrote all but `_multiDrawBytesPerElement`). Re-read the method at every
+ *  three upgrade: this list and `viewKey` below must match what it reads and
+ *  writes, and nothing type-checks that. */
 interface BatchInternals {
   _multiDrawStarts: Int32Array;
   _multiDrawCounts: Int32Array;
   _multiDrawCount: number;
+  _multiDrawBytesPerElement: number;
   _indirectTexture: THREE.DataTexture;
   _visibilityChanged: boolean;
 }
@@ -66,9 +71,9 @@ const MUTATORS = [
   'optimize',
 ] as const;
 
-const KEY_LENGTH = 16 * 3 + 5;
+const KEY_LENGTH = 16 * 3 + 7;
 
-/** The indirect texture's backing array -- a `Uint32Array` in r170, typed
+/** The indirect texture's backing array -- a `Uint32Array` in r170 and r186, typed
  *  more loosely by `@types/three`. */
 function indirectData(internals: BatchInternals): Uint32Array {
   return internals._indirectTexture.image.data as unknown as Uint32Array;
@@ -77,7 +82,6 @@ function indirectData(internals: BatchInternals): Uint32Array {
 function viewKey(
   out: Float64Array,
   mesh: THREE.BatchedMesh,
-  renderer: THREE.WebGLRenderer,
   camera: THREE.Camera,
   material: THREE.Material
 ): Float64Array {
@@ -85,10 +89,15 @@ function viewKey(
   out.set(camera.matrixWorld.elements, 16);
   out.set(mesh.matrixWorld.elements, 32);
   out[48] = material.transparent ? 1 : 0;
-  out[49] = renderer.coordinateSystem;
+  // r186 builds the frustum from the CAMERA's coordinate system and depth
+  // direction (r170 took the renderer's), and doubles every count for a
+  // wireframe material.
+  out[49] = camera.coordinateSystem;
   out[50] = mesh.perObjectFrustumCulled ? 1 : 0;
   out[51] = mesh.sortObjects ? 1 : 0;
   out[52] = mesh.customSort === null ? 0 : 1;
+  out[53] = camera.reversedDepth ? 1 : 0;
+  out[54] = (material as THREE.Material & { wireframe?: boolean }).wireframe === true ? 1 : 0;
   return out;
 }
 
@@ -128,7 +137,7 @@ export function memoizeBatchCulling(mesh: THREE.BatchedMesh): THREE.BatchedMesh 
     material: THREE.Material,
     group: THREE.Group
   ): void {
-    viewKey(probe, this, renderer, camera, material);
+    viewKey(probe, this, camera, material);
     if (current !== null && sameKey(current.key, probe)) return;
     const hit = kept.find((v) => sameKey(v.key, probe));
     if (hit !== undefined) {
@@ -137,6 +146,7 @@ export function memoizeBatchCulling(mesh: THREE.BatchedMesh): THREE.BatchedMesh 
       indirectData(internals).set(hit.indirect);
       internals._indirectTexture.needsUpdate = true;
       internals._multiDrawCount = hit.count;
+      internals._multiDrawBytesPerElement = hit.bytesPerElement;
       internals._visibilityChanged = false;
       current = hit;
       return;
@@ -149,6 +159,7 @@ export function memoizeBatchCulling(mesh: THREE.BatchedMesh): THREE.BatchedMesh 
       starts: internals._multiDrawStarts.slice(0, count),
       counts: internals._multiDrawCounts.slice(0, count),
       indirect: indirectData(internals).slice(0, count),
+      bytesPerElement: internals._multiDrawBytesPerElement,
     };
     kept.push(view);
     if (kept.length > KEPT_VIEWS) kept.shift();
