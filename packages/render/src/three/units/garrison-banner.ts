@@ -206,7 +206,10 @@ export class GarrisonBannerBatch {
         )
         .replace('#include <begin_vertex>', `#include <begin_vertex>\n#ifdef USE_INSTANCING\n${swayChunk()}\n#endif`)
         // The cloth takes the instance's team colour; the steel keeps its own.
-        .replace('#include <color_vertex>', 'vColor = vec3(1.0);\nvColor *= mix(color, instanceColor.xyz, aTeam);\nvRlTeam = aTeam;');
+        // `vColor` is a vec4 on three r186 (it was a vec3 on r170; `color_vertex` writes
+        // `vec4(1.0)` and multiplies `.rgb`); assigning a vec3 to it does not
+        // compile, and a material that fails to compile draws nothing.
+        .replace('#include <color_vertex>', 'vColor = vec4(1.0);\nvColor.rgb *= mix(color.rgb, instanceColor.rgb, aTeam);\nvRlTeam = aTeam;');
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', '#include <common>\nuniform float uBannerGlow;\nvarying float vRlTeam;')
         .replace(

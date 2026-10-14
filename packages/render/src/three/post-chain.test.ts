@@ -27,7 +27,7 @@ import { QUALITY_PRESETS } from '../quality';
 
 /**
  * The order-sensitive digest of the 64x64 RGBA Poisson-denoise noise texture
- * `WorldGTAOPass.generateNoise` builds from `AO_NOISE_SEED`.
+ * `seededAoNoiseTexture` builds from `AO_NOISE_SEED`.
  *
  * Recorded here rather than recomputed, because the property under test is
  * that this number is the same in EVERY process -- comparing two textures
@@ -198,6 +198,10 @@ describe('createPostChain', () => {
     // And it is real noise, not a constant field the assertions above would
     // also accept.
     expect(new Set(dataA).size).toBeGreaterThan(32);
+    // And it is the texture the denoise actually SAMPLES. r186 renamed the
+    // base hook this used to override, so a texture that is merely built is
+    // not enough: it has to be the one bound to `tNoise`.
+    expect(a.pdMaterial.uniforms.tNoise.value).toBe(a.pdNoiseTexture);
     a.dispose();
     b.dispose();
   });
@@ -251,62 +255,90 @@ describe('createPostChain', () => {
     expect(isAoOccluder(new THREE.Object3D())).toBe(true);
   });
 
-  it('the AO pass hides non-occluders for its own render and puts them back', () => {
-    // The predicate above is only half of it; this is the half that was
-    // broken on screen. `overrideVisibility` runs immediately before GTAO
-    // re-renders the scene through its normal material, and
-    // `restoreVisibility` immediately after -- so a unit's outline hull must
-    // be invisible in between and visible again by the time the next
-    // RenderPass draws it, or the outline disappears from the game.
-    const scene = new THREE.Scene();
-    const world = meshWith({ normals: true });
-    const outlineHull = meshWith({ normals: false, transparent: true, depthWrite: false });
-    scene.add(world, outlineHull);
-    const pass = createAoPass(scene, new THREE.OrthographicCamera(), 800, 600) as GTAOPass;
-
-    pass.overrideVisibility();
-    expect(world.visible).toBe(true);
-    expect(outlineHull.visible).toBe(false);
-
-    pass.restoreVisibility();
-    expect(world.visible).toBe(true);
-    expect(outlineHull.visible).toBe(true);
-    pass.dispose();
-  });
-
   /**
-   * Enough renderer for `GTAOPass.render` to run without a GL context: it
-   * touches `shadowMap.autoUpdate` (this subclass) and is otherwise only
-   * handed to `renderOverride`/`renderPass`, both stubbed by the callers
-   * below.
+   * Enough renderer for the REAL `GTAOPass.render` to run without a GL
+   * context, and a window onto its G-buffer pre-pass: `render(scene, ...)`
+   * with the pass's own scene is that pre-pass (every other draw is a
+   * full-screen quad in a private scene), so `onScene` sees the scene
+   * exactly as the normal material would.
+   *
+   * Driven through `render` and three's own clear-colour calls rather than
+   * by stubbing the base pass's helpers BY NAME: r186 renamed every one of
+   * them (`renderOverride` -> `_renderOverride`, `overrideVisibility` ->
+   * `_overrideVisibility`, ...), and stubs and overrides keyed on the old
+   * names went silently dead -- which is how this suite stopped testing
+   * anything on dependabot's #569 while `@types/three` still declared them.
    */
-  function fakeRendererWithShadows(): THREE.WebGLRenderer {
-    return { shadowMap: { enabled: true, autoUpdate: true, needsUpdate: false } } as unknown as THREE.WebGLRenderer;
+  function fakeRendererWithShadows(scene: THREE.Scene, onScene: () => void = () => undefined): THREE.WebGLRenderer {
+    const renderer = {
+      shadowMap: { enabled: true, autoUpdate: true, needsUpdate: false },
+      autoClear: true,
+      getClearColor: (c: THREE.Color) => c.set(0x000000),
+      getClearAlpha: () => 1,
+      setClearColor: () => undefined,
+      setClearAlpha: () => undefined,
+      setRenderTarget: () => undefined,
+      getRenderTarget: () => null,
+      clear: () => undefined,
+      render: (drawn: THREE.Object3D) => {
+        if (drawn === scene) onScene();
+      },
+    };
+    return renderer as unknown as THREE.WebGLRenderer;
   }
 
   /** A scene with one piece of world and one outline hull, plus the pass
    *  that will hide the hull for its G-buffer render. */
-  function aoOverScene(): { pass: GTAOPass; world: THREE.Mesh; outlineHull: THREE.Mesh } {
+  function aoOverScene(): { scene: THREE.Scene; pass: GTAOPass; world: THREE.Mesh; outlineHull: THREE.Mesh } {
     const scene = new THREE.Scene();
     const world = meshWith({ normals: true });
     const outlineHull = meshWith({ normals: false, transparent: true, depthWrite: false });
     scene.add(world, outlineHull);
-    return { pass: createAoPass(scene, new THREE.OrthographicCamera(), 8, 6) as GTAOPass, world, outlineHull };
+    return { scene, pass: createAoPass(scene, new THREE.OrthographicCamera(), 8, 6) as GTAOPass, world, outlineHull };
   }
 
+  it('the AO pass hides non-occluders for its own G-buffer render and puts them back', () => {
+    // The predicate above is only half of it; this is the half that was
+    // broken on screen. GTAO re-renders the scene through its normal
+    // material, so a unit's outline hull must be invisible during THAT
+    // render and visible again by the time the next RenderPass draws it, or
+    // the outline disappears from the game.
+    const { scene, pass, world, outlineHull } = aoOverScene();
+    const seen: Array<{ world: boolean; hull: boolean }> = [];
+    const renderer = fakeRendererWithShadows(scene, () => seen.push({ world: world.visible, hull: outlineHull.visible }));
+
+    const target = new THREE.WebGLRenderTarget(8, 6);
+    pass.render(renderer, target, target, 0, false);
+
+    expect(seen).toEqual([{ world: true, hull: false }]);
+    expect(world.visible).toBe(true);
+    expect(outlineHull.visible).toBe(true);
+    target.dispose();
+    pass.dispose();
+  });
+
+  it('leaves a mesh that was already hidden hidden', () => {
+    // The restore list is "what THIS render hid", not "every non-occluder":
+    // a decal pool or overlay the game had switched off must not be switched
+    // back on by an AO pass.
+    const { scene, pass, outlineHull } = aoOverScene();
+    outlineHull.visible = false;
+    const target = new THREE.WebGLRenderTarget(8, 6);
+    pass.render(fakeRendererWithShadows(scene), target, target, 0, false);
+    expect(outlineHull.visible).toBe(false);
+    target.dispose();
+    pass.dispose();
+  });
+
   it('renders its G-buffer with the shadow map switched off, and hands it back', () => {
-    // `renderOverride` is a full `renderer.render(scene, camera)`, and a
-    // shadow pass runs on every one of those -- so without this, the sun's
-    // 4096 map was being redrawn for the whole scene once per frame and
-    // thrown away, for a pre-pass that draws through `MeshNormalMaterial`
-    // and consumes no shadows.
-    const { pass } = aoOverScene();
-    const renderer = fakeRendererWithShadows();
+    // The pre-pass is a full `renderer.render(scene, camera)`, and a shadow
+    // pass runs on every one of those -- so without this, the sun's 4096 map
+    // was being redrawn for the whole scene once per frame and thrown away,
+    // for a pre-pass that draws through `MeshNormalMaterial` and consumes no
+    // shadows.
+    const { scene, pass } = aoOverScene();
     const seen: boolean[] = [];
-    Object.assign(pass, {
-      renderOverride: () => seen.push(renderer.shadowMap.autoUpdate),
-      renderPass: () => undefined,
-    });
+    const renderer: THREE.WebGLRenderer = fakeRendererWithShadows(scene, () => seen.push(renderer.shadowMap.autoUpdate));
 
     const target = new THREE.WebGLRenderTarget(8, 6);
     pass.render(renderer, target, target, 0, false);
@@ -321,18 +353,15 @@ describe('createPostChain', () => {
     pass.dispose();
   });
 
-  it('restores visibility and the shadow flag when the G-buffer render throws', () => {
-    // Between `overrideVisibility` and `restoreVisibility` every billboard,
-    // tracer, decal, overlay and outline hull in the scene is invisible. A
-    // transient throw in there -- a shader compile failure, a lost context
-    // -- must not leave them that way for the rest of the session.
-    const { pass, world, outlineHull } = aoOverScene();
-    const renderer = fakeRendererWithShadows();
-    Object.assign(pass, {
-      renderOverride: () => {
-        throw new Error('G-buffer render failed');
-      },
-      renderPass: () => undefined,
+  it('restores visibility, the override material and the shadow flag when the G-buffer render throws', () => {
+    // While the base pass renders, every billboard, tracer, decal, overlay
+    // and outline hull in the scene is invisible and the scene draws through
+    // `MeshNormalMaterial`. A transient throw in there -- a shader compile
+    // failure, a lost context -- must not leave it that way for the rest of
+    // the session.
+    const { scene, pass, world, outlineHull } = aoOverScene();
+    const renderer = fakeRendererWithShadows(scene, () => {
+      throw new Error('G-buffer render failed');
     });
 
     const target = new THREE.WebGLRenderTarget(8, 6);
@@ -340,23 +369,21 @@ describe('createPostChain', () => {
 
     expect(outlineHull.visible).toBe(true);
     expect(world.visible).toBe(true);
+    expect(scene.overrideMaterial).toBeNull();
     expect(renderer.shadowMap.autoUpdate).toBe(true);
     target.dispose();
     pass.dispose();
   });
 
-  it('does not restore visibility twice on the happy path', () => {
-    // `GTAOPass.restoreVisibility` is NOT idempotent in r170: it writes
-    // `cache.get(object)` onto every object and then clears the cache, so a
-    // second call assigns `undefined` -- falsy -- to `visible` on the whole
-    // scene. The guard flag is what stops the `finally` above from blanking
-    // the frame on every successful render.
-    const { pass, world, outlineHull } = aoOverScene();
-    const renderer = fakeRendererWithShadows();
-    Object.assign(pass, { renderOverride: () => undefined, renderPass: () => undefined });
-
+  it('does not touch visibility on a scene that has nothing to hide', () => {
+    // r170's `restoreVisibility` was not idempotent (a second call wrote
+    // `undefined` onto every object); the restore is a local list now, but
+    // the property it guarded is still worth pinning: a clean render leaves
+    // the world exactly as it found it.
+    const { scene, pass, world, outlineHull } = aoOverScene();
     const target = new THREE.WebGLRenderTarget(8, 6);
-    pass.render(renderer, target, target, 0, false);
+    pass.render(fakeRendererWithShadows(scene), target, target, 0, false);
+    pass.render(fakeRendererWithShadows(scene), target, target, 0, false);
 
     expect(world.visible).toBe(true);
     expect(outlineHull.visible).toBe(true);

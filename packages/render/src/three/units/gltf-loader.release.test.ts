@@ -39,7 +39,7 @@ describe('releasing a GLB texture\'s CPU copy after upload', () => {
     const { root, tex } = texturedScene(bmp);
     releaseImagesAfterUpload(root);
     expect(bmp.closed).toBe(0);
-    tex.onUpdate?.(); // three's own after-upload callback
+    tex.onUpdate?.(tex); // three's own after-upload callback
     expect(bmp.closed).toBe(1);
     expect(tex.userData[RELEASED_IMAGE_KEY]).toEqual({ width: 2048, height: 1024 });
   });
@@ -50,8 +50,8 @@ describe('releasing a GLB texture\'s CPU copy after upload', () => {
     const { root, tex } = texturedScene(bmp);
     tex.name = 'base_color';
     releaseImagesAfterUpload(root);
-    tex.onUpdate?.();
-    tex.onUpdate?.();
+    tex.onUpdate?.(tex);
+    tex.onUpdate?.(tex);
     expect(bmp.closed).toBe(1);
     expect(err).toHaveBeenCalledWith(expect.stringContaining('"base_color" was uploaded again'));
   });

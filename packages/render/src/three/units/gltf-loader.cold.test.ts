@@ -67,7 +67,7 @@ describe('cold GLB textures', () => {
     const bitmap = { width: 8, height: 8, close: () => { closed += 1; } } as unknown as ImageBitmap;
     await warmColdTextures(root, async () => bitmap);
     expect(closed).toBe(0);
-    t.onUpdate?.(); // three's after-upload callback
+    t.onUpdate?.(t); // three's after-upload callback
     expect(closed).toBe(1);
   });
 
@@ -77,7 +77,7 @@ describe('cold GLB textures', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(new Blob(['x']))));
     const tex = (await coldTexturesPlugin(fakeParser()).loadTexture?.(0)) as THREE.Texture;
     tex.name = 'base_color';
-    tex.onUpdate?.();
+    tex.onUpdate?.(tex);
     expect(err).toHaveBeenCalledWith(expect.stringContaining('"base_color" was uploaded before it was warmed'));
   });
 });
