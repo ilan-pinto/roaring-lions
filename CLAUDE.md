@@ -2009,8 +2009,11 @@ Two traps found while building it, neither specific to this screen.
 `dist-campaign` and `dist-cursorverify` together made `pnpm lint` red with
 **8,631 errors**, every one `no-undef` on a minified bundle. `**/dist-*/**` and
 `.superpowers/**` are ignored now, alongside `**/dist/**`.
-**`window.localStorage` in this vitest jsdom config is a bare `{}`** -- no
-`getItem`, no `setItem`, no `length`. Any UI code reaching it must guard
+**`window.localStorage` in this vitest jsdom config WAS a bare `{}`** -- no
+`getItem`, no `setItem`, no `length` -- under vitest 4 on Node 25 (CI's Node 22
+always had jsdom's real `Storage`). Since vitest 5 (#574 step 2) Node 25 reads
+a real `Storage` too, measured; a spec that needs a counting store still
+installs its own. Any UI code reaching it must still guard
 (`retired-keys.ts`'s `forgetRetiredKeys` does, which is also right for a real
 browser with site data blocked, where the property access itself throws). It
 made `worldmap.test.ts`'s "does not write to localStorage" test **unable to
