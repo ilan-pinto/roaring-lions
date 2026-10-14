@@ -1728,14 +1728,31 @@ The ledger gets the smallest margin because it does not move run to run.
 
 | environment | kind | JS (MiB) | GPU ledger | process | leak: JS over first menu | GPU over first menu | DOM nodes over | released contexts reachable |
 |---|---|---|---|---|---|---|---|---|
-| `linux-x64-swiftshader` (CI, n=4) | menu (and every menu after a leave) | 75 | 601 | 2,046 | +20% (measured <= +9.8%) | +2% (measured +0.0%) | 50 (measured 0) | 0 (measured 0) |
-| | board | 40 | 159 | 939 | | | | |
-| | mission | 157 | 1,015 | 3,659 | | | | |
-| `darwin-arm64-metal` (local only, n=4) | menu | 79 | 601 | 2,419 | +30% (measured <= +14.6%) | +2% | 50 | 0 |
-| | board | 40 | 159 | 812 | | | | |
-| | mission | 162 | 1,015 | 4,010 | | | | |
+| `linux-x64-swiftshader` (CI, n=4) | menu (and every menu after a leave) | 105 | 601 | 2,046 | +20% (measured <= +9.8%) | +2% (measured +0.0%) | 50 (measured 0) | 0 (measured 0) |
+| | board | 66 | 159 | 939 | | | | |
+| | mission | 192 | 1,015 | 3,659 | | | | |
+| `darwin-arm64-metal` (local only, n=4) | menu | 107 | 601 | 2,419 | +30% (measured <= +14.6%) | +2% | 50 | 0 |
+| | board | 66 | 159 | 812 | | | | |
+| | mission | 192 | 1,015 | 4,010 | | | | |
 
 The leak percentages are about twice the largest measured, rounded up to 5.
+
+**The JS column moved at vite 8 (#574 step 2), and none of it ships.** Every
+JS reading rose by one constant, +16.2-18.7 MiB, at the menu, the board and
+the missions alike, and a production build (`--serve=preview`) reads the same
+before and after (Metal: menu 38.6 / 38.5, board 12.8 / 12.7). It is dev-server
+script text kept alive by the page: vite 8 inlines the prebundled `three`
+chunk's source map (vite 7 left it in a `.map` file), and Oxc keeps the
+comments esbuild dropped. Stripping the inline maps in the harness reads main
+61.0 -> 42.6 and vite 8 77.2 -> 44.8 MiB at the menu (Metal, n=2): 14.0 of the
+16.2 MiB is source maps, 2.2 is comments. Neither is switchable in config, so
+the three JS ceilings were re-derived by the same rule (CI n=4, Metal n=3; the
+readings are in `memory-budgets.ts`). One consequence: this gate measures the
+dev server, whose inline maps alone are 32 of the menu's 77 MiB, so the leak
+percentage resolves less than it did (+20% of a 77 MiB menu is ~15 MiB).
+Measuring a `--serve=preview` build, or stripping the inline maps, would win
+that back; neither is done.
+
 **What they can resolve:** at +20% of a 54 MiB menu, a leak smaller than
 ~11 MiB of JS passes the JS check -- a retained `Sim` alone (a few MiB) would.
 The DOM-node and released-context checks are exact, so anything that holds a
