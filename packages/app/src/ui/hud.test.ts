@@ -3181,3 +3181,76 @@ describe('the HUD for a seat on side 1 (N1a task 6)', () => {
     expect(r.strip()).toContain('1 pinned');
   });
 });
+
+describe('held building count (lead ruling 2026-10-14: the badge left the world)', () => {
+  /** A house (2 places) held by side 0's squad, a second held by side 1's,
+   *  both garrisoned by the sim's own order. */
+  function heldWorld(): { sim: Sim; own: number; theirs: number; ours: number; foe: number } {
+    const sim = new Sim({ seed: 1, width: 16, height: 16, capacity: 8 });
+    const t = sim.addUnitType(units.inf_squad as unknown as UnitTypeJson);
+    const house = sim.addStructureType({ id: 'card_house', name: 'House', hp_per_tile: 200, garrison_slots: 2 });
+    const own = sim.addStructure(house, [2 * 16 + 2, 2 * 16 + 3]);
+    const theirs = sim.addStructure(house, [12 * 16 + 12, 12 * 16 + 13]);
+    const ours = sim.spawn(t, 0, fx.from(4.5), fx.from(2.5));
+    const foe = sim.spawn(t, 1, fx.from(14.5), fx.from(12.5));
+    sim.queueCommand({ kind: 'garrison', ids: [ours], structure: own });
+    sim.queueCommand({ kind: 'garrison', ids: [foe], structure: theirs });
+    for (let k = 0; k < 200 && (sim.state.garrisonedIn[ours] !== own || sim.state.garrisonedIn[foe] !== theirs); k++) sim.tick();
+    expect(sim.state.garrisonedIn[ours]).toBe(own);
+    expect(sim.state.garrisonedIn[foe]).toBe(theirs);
+    return { sim, own, theirs, ours, foe };
+  }
+
+  function heldRig(over: Partial<HudDeps>): { host: HTMLElement; hud: HudClass } {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const hud = new Hud(host, {
+      sim: over.sim as Sim,
+      getSelection: () => [],
+      getMission: () => null,
+      hoverStructure: () => -1,
+      hoverEntity: () => -1,
+      gameVersion: '0.1',
+      commander: TEST_COMMANDER,
+      ...over,
+    });
+    hud.onTick();
+    return { host, hud };
+  }
+
+  it('the card of a unit inside a building says how full it is', () => {
+    const w = heldWorld();
+    const { host } = heldRig({ sim: w.sim, getSelection: () => [w.ours] });
+    const cond = host.querySelector('.rl-card__cond')!.textContent!;
+    expect(cond).toContain(t('hud.card.inBuilding'));
+    expect(cond).toContain(t('hud.held.inside', { n: 1, cap: 2 }));
+  });
+
+  it('hovering your own held building shows the tag, edged as your own', () => {
+    const w = heldWorld();
+    const { host, hud } = heldRig({ sim: w.sim, hoverStructure: () => w.own });
+    const tag = host.querySelector<HTMLElement>('.rl-held')!;
+    expect(tag.style.display).toBe('');
+    expect(tag.dataset.side).toBe('own');
+    expect(tag.textContent).toContain('House');
+    expect(tag.textContent).toContain(t('hud.held.inside', { n: 1, cap: 2 }));
+    expect(hud.heldTarget).toBe(w.own);
+  });
+
+  it('a hostile building out of sight gives no count; in sight it does', () => {
+    const w = heldWorld();
+    const dark = heldRig({ sim: w.sim, hoverStructure: () => w.theirs, isVisible: () => false });
+    expect(dark.host.querySelector<HTMLElement>('.rl-held')!.style.display).toBe('none');
+    expect(dark.hud.heldTarget).toBe(-1);
+    const lit = heldRig({ sim: w.sim, hoverStructure: () => w.theirs, isVisible: () => true });
+    const tag = lit.host.querySelector<HTMLElement>('.rl-held')!;
+    expect(tag.style.display).toBe('');
+    expect(tag.dataset.side).toBe('hostile');
+  });
+
+  it('hovering a unit inside names its building', () => {
+    const w = heldWorld();
+    const { hud } = heldRig({ sim: w.sim, hoverFriendly: () => w.ours });
+    expect(hud.heldTarget).toBe(w.own);
+  });
+});

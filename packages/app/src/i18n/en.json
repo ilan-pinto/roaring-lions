@@ -838,6 +838,7 @@
   "hud.hp.critical": "critical",
   "hud.supp.label": "Suppression",
   "hud.card.inBuilding": "in a building",
+  "hud.held.inside": "{n} / {cap} inside",
   "hud.card.moving": "moving",
   "hud.card.waypoints": "{n, plural, one {# waypoint} other {# waypoints}}",
   "hud.card.weapon": "{weapon} — {effective}/{range} tiles",

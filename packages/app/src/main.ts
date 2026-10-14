@@ -3027,6 +3027,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     getMission,
     hoverStructure: () => renderer.hoverStructure,
     hoverEntity: () => renderer.hoverEntity,
+    hoverFriendly: () => renderer.rangeRingPreview ?? -1,
+    isVisible: (wx, wy) => renderer.isVisible(wx, wy),
     hoverCursor: () => hoverCursorName,
     gameVersion: __GAME_VERSION__,
     // PA-25: a sandbox's strip names the map it walks, as a mission's names
@@ -5752,6 +5754,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   if (he >= 0) {
     const p = renderer.worldToScreen(fx.toNumber(sim.state.posX[he]), fx.toNumber(sim.state.posY[he]));
     hud.placeFire(p.x, p.y);
+  }
+  // The held tag ("2 / 4 inside") rides beside the building it names, for
+  // the same reason.
+  const heldAt = hud.heldTarget;
+  if (heldAt >= 0) {
+    const st = sim.structures;
+    const p = renderer.worldToScreen((st.minX[heldAt] + st.maxX[heldAt] + 1) / 2, (st.minY[heldAt] + st.maxY[heldAt] + 1) / 2);
+    hud.placeHeld(p.x, p.y);
   }
 
   // The hover cursor asks the same resolver the click uses, with the same
