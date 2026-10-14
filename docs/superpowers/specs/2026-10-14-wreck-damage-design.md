@@ -142,22 +142,105 @@ Bytes are measured against `origin/main` (`0949d222`) and read back by the gate.
   - **The Lavi's barrel droop reads** where the thrown turret points it toward the camera.
   - **The door-swung plate reads at 2.5**, and only modestly at 1.0.
 
-## 7. Not done: the rest of the rollout
+## 7. The rest of the rollout (`art/wreck-damage-2`)
 
-1. **Wheeled APCs (`apc_eitan`, `apc_kipod`), the corner drop.** This needs the WRECK pass, not
-   the damage pass. Two changes:
-   - a `lostWheel` field on `WreckRecipe` that tilts the body toward that corner;
-   - `seatOnGround` must ignore that wheel's `_RL_WHEEL = k` tyre vertices, or the seat holds the
-     missing tyre's bottom on the ground.
+Shipped in the second PR: the wheel-off corner drop on six wheeled hulls, the gun truck's glass,
+and the Petens' snapped rotor. **Not done: `rocket_battery`** (§7.5).
 
-   Then a `dropTyre` verb removes the tyre faces from `hull_rubber`, so the hull sits on its hub.
-   Only the rubber is copied, because the Eitan's `hull_hull` plus `hull_rubber` copies would
-   exceed the cap.
-2. **Soft-skins (`jeep_shoded`, `technical`, `gun_truck`, `scout_shachaf`, `rocket_battery`).**
-   The same corner drop, plus glass removal: an index-only cut on `hull_glass`, so the copy can be
-   smaller than its source. Hull plates on these only on a copy simplified to the cap (R4).
-3. **Helicopters (`heli_peten`, `heli_peten_gunship`), the broken rotor.** A `snapRotor` verb cuts
-   `rotor_metal` into blades by angle sector and bends each one down. The rotor copy is about
-   57 KB Draco, so simplify it if it is over.
+### 7.1 The corner drop: the WRECK pass
 
-Each step ends with the same capture.
+**`WreckRecipe.lostWheel`** names a wheel of the scene's `rl_running_gear` (#550). Two things
+happen in the wreck pass:
+
+- **The body tips onto that corner.** It rotates about the line through its two neighbours (the
+  other wheel on that axle, the nearest wheel on that side), at ground level, by the angle that
+  lowers the lost axle by `(1 − LOST_WHEEL_RIM_FRAC)` of its radius.
+- **The ground seat ignores the lost tyre.** Without that, the seat would stand the corner back
+  up on the tyre that is no longer there.
+
+**Which wheel is lost is load-bearing.** It is the REAR +Z wheel, the corner the slump already
+lowers: the hull pitches 7° nose-up and rolls 12° toward +Z. Losing the front one fought the
+slump: on the Eitan the hub stood 0.52 m in the air with its corner "dropped".
+
+### 7.2 The tyre is a volume, not a tag
+
+`lost-tyre.ts` is read by both passes. The tyre is everything:
+
+- farther than the rim from the axle in side view;
+- no farther than 1.04 r;
+- inside the slab the wheel's own tagged rubber spans, padded 2 cm.
+
+**Two measured reasons it is not simply the tag:**
+
+- **#550 tags a face only inside 0.99 r**, so fenders stay static. That leaves the outermost tread
+  UNTAGGED on the jeep and the technical. Cut by tag, that tread stayed and held the corner up:
+  the drop was 0.05 / 0.01 m against the Eitan's 0.33.
+- **The hub is not separable from the tags.** On the Eitan and the jeep, the tread is partly baked
+  into `hull_hull` (228 of 315 and 426 of 698 tagged hull vertices sit at 0.9 r or beyond). So
+  `LOST_WHEEL_RIM_FRAC` (0.6) is a constant, not a measurement.
+
+**Tread a bake put in `hull_hull` sinks into the sand** with the corner, rather than being cut,
+wherever the hull copy would break the cap (the Eitan, the jeep, the technical).
+
+**`dropTyre` cuts a face only when ALL its vertices are in the volume.** Cut on the centroid, it
+took the vertex the seat had stood the corner on, and left the technical's corner 0.047 m in the
+air.
+
+### 7.3 Glass and the rotor
+
+**`blowOut`** keeps a fixed-hash 15% of a mesh's faces as shards. It runs on the gun truck only:
+the one soft-skin that models glass (`hull_glass`). The jeep's, the technical's and the Shachaf's
+windows are painted into their bakes.
+
+**`snapRotor`** does three things in turn:
+
+- **Splits the disc into blades.** Faces past `hubRadius` are grouped into runs of occupied
+  15° sectors. The Peten has five blades.
+- **Droops each blade toward the sand,** about the hub, in the ground frame, up to 32°.
+- **Breaks off one blade's outer part** past 1.1 m and lays it flat on the sand beside the body.
+
+This retires the wreck spec's §7.9 follow-up: the rigid rotor no longer stands up.
+
+### 7.4 Readings
+
+"Drop" is how much lower the lost axle sits than in the same wreck with all its wheels. "Lean" is
+the extra height difference across that axle, the part a seat alone could not produce. Copies are
+the gate's own measure; percentages are of the cap.
+
+| vehicle | cut | drop | lean | Draco file growth | copies Draco | copies raw |
+|---|---|---:|---:|---:|---:|---:|
+| `apc_eitan` | rear +Z tyre (rubber) | 0.327 | 0.250 | +44,300 | 43,431 (66%) | 290,712 (55%) |
+| `apc_kipod` | rear +Z tyre (rubber) | 0.309 | 0.291 | +28,896 | 28,039 (43%) | 182,710 (35%) |
+| `scout_shachaf` | rear +Z tyre (rubber) | 0.208 | 0.206 | +26,564 | 25,707 (39%) | 172,023 (33%) |
+| `gun_truck` | rear +Z tyre (rubber and hull), cab glass | 0.207 | 0.163 | +56,236 | 53,780 (82%) | 350,523 (67%) |
+| `jeep_shoded` | rear +Z tyre (rubber) | 0.066 | 0.165 | +50,616 | 49,749 (76%) | 409,546 (78%) |
+| `technical` | rear +Z tyre (rubber) | 0.044 | 0.122 | +17,944 | 17,061 (26%) | 135,283 (26%) |
+| `heli_peten` | rotor: 5 blades drooped, one snapped | — | — | +49,704 | 48,982 (75%) | 347,276 (66%) |
+| `heli_peten_gunship` | the same (held art, not photographed) | — | — | +52,536 | 51,812 (79%) | 347,660 (66%) |
+
+**The jeep and the technical come down least**, because their bodies already sat on that corner;
+they lean onto it instead. **The gun truck's tyre cut is the weakest:** 22 rubber and 16 hull faces.
+Most of its tyre lies outside the slab its tagged rubber spans, so the lying tyre is a fragment.
+
+**Tests and falsification** (`damage-pass.test.ts`, "lost wheel" and "snapped rotor"). Each of
+these was seen red, then restored:
+
+- removing `lostWheel` from the wreck table;
+- the seat standing on the lost tyre;
+- removing the tip (caught by the lean test);
+- leaving the tyre at its axle;
+- keeping the glass;
+- a rotor that neither droops nor snaps;
+- cutting the tyre on centroids again.
+
+**One mutation survived the drop test alone:** removing the tip, because the seat lowers the
+whole body. That is why the lean test exists.
+
+**A bisection that grew the tip until the corner rested was written and removed.** It never ran
+on a shipped file; the fault it was for was the centroid cut.
+
+### 7.5 Not done: `rocket_battery`
+
+Its `hull_rubber` is 77,049 Draco bytes live. A rubber copy alone would break the 64 KiB cap, so
+it needs a damaged copy simplified to the budget (R4 allows it). That means `meshoptimizer` as a
+tools dependency and a measured ratio. Its rims are in `hull_plate`, at 0.8–0.9 r.
