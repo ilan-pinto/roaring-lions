@@ -137,3 +137,11 @@ art/video/takes/
 .env*
 !.env.example
 !*.env.example
+
+# Unit polish (14 Oct): the RWS refine (8k, 187 MB) and its remesh (86 MB),
+# read by tools/vehicles/rws_part.py; the copies of record are in
+# ~/dev/roaring-lions-art-backup/rws-50-20261014-01a13a7d and -01a13a83.
+art/meshy/rws-50-20261014-01a13a7d/model.*
+art/meshy/rws-50-20261014-01a13a7d/texture_*
+art/meshy/rws-50-20261014-01a13a83/model.*
+art/meshy/rws-50-20261014-01a13a83/texture_*
