@@ -28,7 +28,7 @@
  * `NetChat`, which keeps to that too).
  */
 import { maps } from '@lions/data';
-import { FACTION_MATCHUP_MAPS, MATCHUPS, MAX_CALLSIGN_CHARS, callsignOrDefault, cleanCallsign, matchupField, type Faction, type Matchup, type Seat, type SeatState, type WsTransport } from '@lions/net';
+import { FACTION_MATCHUP_MAPS, MATCHUPS, MAX_CALLSIGN_CHARS, callsignOrDefault, cleanCallsign, matchupField, versusMapAllowed, type Faction, type Matchup, type Seat, type SeatState, type WsTransport } from '@lions/net';
 import { t } from '../i18n/t';
 import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';
 import { handOver } from '../net/handoff';
@@ -66,11 +66,14 @@ export function filterCode(raw: string): string {
   return [...raw.toUpperCase()].filter((ch) => CODE_ALPHABET.includes(ch)).join('').slice(0, CODE_LENGTH);
 }
 
-/** The maps a room can be hosted on (R-B9): the free-play picker's, by their
- *  own names, without the tile studies or the tutorial ground. */
+/** The maps a room can be hosted on (R-B9): the free-play picker's maps that
+ *  the lead opened for versus (GH-561, 2026-10-14) -- the ones measured close
+ *  to even, `VERSUS_FAIR_MAPS` -- by their own names. The tile studies and the
+ *  tutorial ground are not among them, and neither is a map nobody has
+ *  measured; the Worker refuses those too (`versusMapAllowed`). */
 export function versusMaps(catalogue: Record<string, { name: string }> = maps): { id: string; label: string }[] {
   return Object.keys(catalogue)
-    .filter((id) => !id.startsWith('tile_') && id !== 'tutorial_ground')
+    .filter(versusMapAllowed)
     .map((id) => ({ id, label: catalogue[id].name }));
 }
 
@@ -296,9 +299,10 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
   side.value = 'mirror';
   sideField.append(sideName, side);
   body.appendChild(sideField);
-  // KDF vs Sarim is Tel Marum only (the lead, 2026-10-14; the room refuses it
-  // anywhere else): picking a side narrows the map list to the maps it plays
-  // on, and the note says why the map moved. The mirror opens every map again.
+  // KDF vs Sarim plays only on `FACTION_MATCHUP_MAPS` (the lead, 2026-10-14;
+  // the room refuses it anywhere else): picking a side narrows the map list to
+  // the maps it plays on, and the note says why the map moved. The mirror opens
+  // every map again.
   const sideNote = document.createElement('p');
   sideNote.className = 'rl-versus__side-note';
   sideNote.textContent = t('versus.host.side.note');

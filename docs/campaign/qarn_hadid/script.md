@@ -101,7 +101,7 @@ civ.settlements_evacuated`.
 | Bench post found | `locate(qh_watch_bench)` completes | toast + `say` | idit: *"That is the tube's eye. Take him off the bench and the battery is firing at the last place somebody told it about."* | live |
 | Ditch gun found | `locate(qh_atgm_ditch)` completes | toast + `say` | idit: *"ATGM cell seventeen tiles past the notch, laid on the west end of a second ditch nobody has been close enough to draw. That gun is on the board now."* — carry-over into III | live |
 | Two families clear | `evacuate_before(south_staging, 2, 240s)` completes | toast + `say` | shai: *"Two into the staging ground. Whatever is still on that road is not worth a second run east."* | live |
-| Road party clock runs out | `evacuate_before(south_staging, 2, 240s)` fails @240s | toast `OBJECTIVE FAILED —…` + `say_on_fail` — **the only way to lose this mission** | shai: *"Four minutes, and nothing of ours got within four tiles of that road. They will be moved by somebody else now."* | live |
+| Road party clock runs out | `evacuate_before(south_staging, 2, 240s)` fails @240s | toast `OBJECTIVE FAILED —…` + `say_on_fail` — **the only way to lose this mission** | shai: *"Four minutes, and no one on the ground reached that road in time. They will be moved by somebody else now."* | live |
 | Five minutes screened | `survive_until(300)` completes | toast | shipped shape, no `say` authored | live |
 | Reinforcement to the notch | wave `at_seconds: 150`, `from: "north_junction"`, `to: "saddle_gate"`, 1 `sarim_rifles` | toast (hard-coded) + `say` | idit: *"One section walking down to the notch from the junction. They are reinforcing the low gate while you are still photographing it."* | live |
 | Reinforcement to the shoulder | wave `at_seconds: 260`, `from: "north_junction"`, `to: "shoulder_gate"`, 1 `sarim_rifles` | toast only, **no `say`** — deliberate, per `narrative.md`: a second gate reinforced while the first was is the beat, and narrating both makes it a pattern instead of a discovery | — | live |
@@ -248,7 +248,7 @@ plan complete the primaries before 240s" matters here.
     { "id": "get_the_road_party_clear", "type": "evacuate_before", "primary": true, "target": "south_staging", "count": 2, "seconds": 240,
       "text": "Get two families off the pass road inside four minutes",
       "say": { "speaker": "shai", "text": "Two into the staging ground. Whatever is still on that road is not worth a second run east." },
-      "say_on_fail": { "speaker": "shai", "text": "Four minutes, and nothing of ours got within four tiles of that road. They will be moved by somebody else now." } },
+      "say_on_fail": { "speaker": "shai", "text": "Four minutes, and no one on the ground reached that road in time. They will be moved by somebody else now." } },
     { "id": "find_the_tube", "type": "locate", "primary": false, "target": "qh_hvt_tube",
       "text": "Find the rocket battery in the hollow behind the start line",
       "say": { "speaker": "idit", "text": "The battery is on the floor of the bowl behind you, on your own side of the wall. Nothing here can see into that hollow and it does not need to: its eyes are eight tiles forward, on the boulder bench." } },

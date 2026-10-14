@@ -62,7 +62,7 @@
  * single strongest cue that the board is an object and not a texture.
  */
 import * as THREE from 'three';
-import { disposeAndReleaseContext } from '../context-release';
+import { disposeAndReleaseContext, noteSharedTextures } from '../context-release';
 import { createSceneLights, DAY_LIGHTS } from '../lighting';
 import { gltfLoader, setDracoDecoderPath } from '../units/gltf-loader';
 
@@ -267,7 +267,8 @@ function mountOnto(
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // PCF: three r186 removed PCFSoft and made PCF the soft filter (ThreeRenderer.init).
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.setClearAlpha(0);
   renderer.domElement.style.display = 'block';
   renderer.domElement.style.width = '100%';
@@ -577,6 +578,8 @@ function mountOnto(
     dispose() {
       if (disposed) return;
       disposed = true;
+      // Before the region materials below are disposed (context-release.ts).
+      noteSharedTextures(renderer, scene);
       try {
         cancelAnimationFrame(raf);
         observer?.disconnect();

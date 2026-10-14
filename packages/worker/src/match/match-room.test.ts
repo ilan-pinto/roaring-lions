@@ -232,8 +232,11 @@ describe('MatchRoom', () => {
     }
   });
 
-  it('the room refuses a non-mirror matchup on any map but Tel Marum, and makes no room (the lead, 2026-10-14)', async () => {
-    for (const [map, matchup, status] of [['beit_sahwan_outskirts', 'sarim', 400], ['qarn_hadid', 'kdf', 400], ['beit_sahwan_outskirts', 'mirror', 200], ['tel_marum', 'sarim', 200]] as const) {
+  it('the room refuses a non-mirror matchup on any map but Tel Marum and Wadi Tarfan, and makes no room (the lead, 2026-10-14)', async () => {
+    for (const [map, matchup, status] of [
+      ['beit_sahwan_outskirts', 'sarim', 400], ['qarn_hadid', 'kdf', 400], ['milh_flats', 'sarim', 400], ['milh_flats', 'kdf', 400],
+      ['beit_sahwan_outskirts', 'mirror', 200], ['milh_flats', 'mirror', 200], ['tel_marum', 'sarim', 200], ['wadi_tarfan', 'sarim', 200], ['wadi_tarfan', 'kdf', 200],
+    ] as const) {
       const state = new FakeState();
       const room = new MatchRoom(state, env);
       const res = await room.fetch(new Request('https://room/create', {
@@ -242,6 +245,25 @@ describe('MatchRoom', () => {
       }));
       expect(res.status).toBe(status);
       expect((await state.storage.get('state')) === undefined).toBe(status === 400);
+    }
+  });
+
+  it('the room refuses a versus create on any map not measured fair, and makes no room (#561, the lead, 2026-10-14)', async () => {
+    for (const [map, mode, status] of [
+      ['qarn_hadid', 'versus', 400], ['wadi_halam_basin', 'versus', 400], ['tel_marum_3', 'versus', 400],
+      ['beit_sahwan_outskirts', 'versus', 200], ['tel_marum', 'versus', 200], ['wadi_tarfan', 'versus', 200], ['milh_flats', 'versus', 200],
+      // A sandbox room is two humans on one side: not limited.
+      ['qarn_hadid', 'sandbox', 200],
+    ] as const) {
+      const state = new FakeState();
+      const room = new MatchRoom(state, env);
+      const res = await room.fetch(new Request('https://room/create', {
+        method: 'POST',
+        body: JSON.stringify({ code: CODE, matchId: CODE, map, build: BUILD, player: 'p-host', callsign: 'Host', mode }),
+      }));
+      expect(res.status, `${map} ${mode}`).toBe(status);
+      expect((await state.storage.get('state')) === undefined, `${map} ${mode}`).toBe(status === 400);
+      if (status === 400) expect(await res.text()).toBe('map not offered for versus');
     }
   });
 

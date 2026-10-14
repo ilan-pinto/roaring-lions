@@ -49,13 +49,42 @@ export function factionsOfMatchup(m: Matchup): [Faction, Faction] {
   return ['kdf', 'kdf'];
 }
 
-/** The maps a KDF-vs-Sarim matchup is offered on (the lead's ruling,
- *  2026-10-14): Tel Marum only -- the one map the versus probe balanced the
- *  Sarim force on. The mirror plays on every map. The lobby offers no other
- *  pairing and the room refuses one (`matchupAllowed`). */
-export const FACTION_MATCHUP_MAPS: readonly string[] = ['tel_marum'];
+/** The maps a versus room is offered on (the lead's ruling on #561,
+ *  2026-10-14, "Limit, then fix"): the two the versus probe measured close to
+ *  even in a mirror match (#589, `pnpm versus:probe`). On
+ *  `beit_sahwan_outskirts` the west spawn's Lavis once survived 75% of the
+ *  time against 15% for the east -- terrain, not side logic -- so a map
+ *  nobody has measured is not a fair contest. The lobby offers only these
+ *  (`versusMaps`) and the route and the room both refuse any other with a 400
+ *  before a room exists (`versusMapAllowed`); a sandbox room, two humans on
+ *  one side, has no contest to be fair about and is not limited.
+ *
+ *  A further map re-opens only after its per-map fair start points are
+ *  authored and measured within 60/40 at 48 seeds per spawn order. The two
+ *  dedicated versus maps (2026-10-14) are those: point-symmetric, with their
+ *  seats named `versus_0`/`versus_1` and read by name (`sandboxAnchors`), and
+ *  the probe's mirror read at 48 seeds is wadi_tarfan west 22 / east 25 /
+ *  1 draw and milh_flats 24 / 24. */
+export const VERSUS_FAIR_MAPS: readonly string[] = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats'];
 
-/** Whether `m` may be played on `map`. */
+/** Whether a versus room may be hosted on `map`. */
+export function versusMapAllowed(map: string): boolean {
+  return VERSUS_FAIR_MAPS.includes(map);
+}
+
+/** The maps a KDF-vs-Sarim matchup is offered on (the lead's ruling,
+ *  2026-10-14): Tel Marum -- the map the versus probe balanced the Sarim
+ *  force on -- and Wadi Tarfan, which reads the same at 48 seeds (KDF west:
+ *  KDF 19 / Sarim 29, Tel Marum's own cell to the game; Sarim west: KDF 25 /
+ *  Sarim 23). Milh Flats is NOT here: Sarim on the west seat lost 33 of 48
+ *  (KDF 68.8%), so it is a mirror-only map. The mirror plays on the fair maps
+ *  (`VERSUS_FAIR_MAPS`); a non-mirror pairing is narrower still. The lobby
+ *  offers no other pairing and the room refuses one (`matchupAllowed`). */
+export const FACTION_MATCHUP_MAPS: readonly string[] = ['tel_marum', 'wadi_tarfan'];
+
+/** Whether `m` may be played on `map`, among the maps a room is offered on at
+ *  all: the mirror anywhere, a KDF-vs-Sarim pairing on `FACTION_MATCHUP_MAPS`.
+ *  Whether the map is offered is `versusMapAllowed`'s question, asked beside it. */
 export function matchupAllowed(m: Matchup, map: string): boolean {
   return m === 'mirror' || FACTION_MATCHUP_MAPS.includes(map);
 }

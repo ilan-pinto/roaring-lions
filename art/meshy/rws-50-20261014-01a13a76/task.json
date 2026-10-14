@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready unmanned remote weapon station, a machine of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level, gun forward. A flat low round turntable ring under a compact angular armoured cradle with elevation trunnions and a rear motor housing, a heavy machine gun offset left with a plain thick barrel and flash hider, a small slim day camera with one lens offset right, a cable conduit, a three-tube smoke discharger at each rear corner. Paint chipped at the edges. Real-world scale, 1.7 metres long, 0.6 metres tall. Olive paint, gunmetal, black glass. Plain even lighting, no baked shadows, no ground, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "negative_prompt": "tank turret, manned turret, crew hatch, cupola, person, gunner, vehicle, hull, roof, wheels, tracks, tripod, pedestal, display stand, plinth, ammunition box, ammo can, ammunition belt, thermal sight, large sensor box, barrel jacket, heat shroud, armour cowl, gun shield, cannon, missile, second gun, ground, text",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a13a76-8414-762a-a021-27c2091b6ff6",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 1302879120,
+    "prompt": "A single low-poly game-ready unmanned remote weapon station, a machine of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level, gun forward. A flat low round turntable ring under a compact angular armoured cradle with elevation trunnions and a rear motor housing, a heavy machine gun offset left with a plain thick barrel and flash hider, a small slim day camera with one lens offset right, a cable conduit, a three-tube smoke discharger at each rear corner. Paint chipped at the edges. Real-world scale, 1.7 metres long, 0.6 metres tall. Olive paint, gunmetal, black glass. Plain even lighting, no baked shadows, no ground, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1791982209632,
+    "progress": 100,
+    "started_at": 1791982209640,
+    "finished_at": 1791982306429,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a13a76-8414-762a-a021-27c2091b6ff6/output/model.glb?Expires=4945536000&Signature=fvm9hjAJOfHpF53FeRbzow40Jfw0Nclg459kzCtFCWt3lrmSLBnOdJoKmFisYN8ClcodIyHxWBWOJ~MIpzquunjo1l1ow5E9yrGldPkH0Rug2tIrs4LhwkctiK6JjGKFmoQ1XYx~fSNpfyPJVJc5iiES27vVYI2gcfGaNMnYOIHe6ghBjk8nU4G6ZlsYg-9l2yc1mrX80opu9iV3bORFlWtNxtC1HemJ4~1Qz4FT-GO2zU6CCfxv67OvMfZcVcpMJeRc2GsGdrkGPTVhdPf0DHTLCheuMqxNNjpfaJ0rPygfU36j6bDqVZlI-fXKCz-euqyQjVR7HtNqKnUZctHNsQ__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a13a76-8414-762a-a021-27c2091b6ff6/output/preview.png?Expires=4945536000&Signature=bTBhpWIzJrsdYtUeeG3E-H4PQG-yDJ-poPZ3zw3trGJS~j6Pb5BcnVzfwiof53~KznmZ0RBK22mPon0Wi6egioMT0eLB5NfnDmfn6YR2l~Lmf7waySCG-7Y3Lue6Zax8NZHQMuzXD1Oqr2r6I7w1keHq-Vh~QkzTVhcga4tw27deBuba-W9DH2iCYEdMjLB5n7YyTBXEiGaFtrHeLDMqqETtEqoO49MEnUCLYuCgRqCHxqeAx8uADL6JynCXtoXzZdAP~w1xZs1MiW2e8CVHw6PvXPSICOrItr3BCck3gwK7iDwfjfbG84gqqJOn2TbKLb0osSpezwbAp28JeSH91w__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1791982209632,
+    "started_at": 1791982209640,
+    "finished_at": 1791982306429
+  },
+  "usd_estimated": 0.4
+}

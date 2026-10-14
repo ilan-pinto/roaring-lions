@@ -63,7 +63,7 @@
  * `connected`) flushes the open batch with its write, so an eviction while
  * waiting for a reconnect re-sends nothing.
  */
-import { factionsOfMatchup, matchupAllowed, matchupField, parseClientMsg, validateConfig, REPLACED_CLOSE_CODE, type ClientMsg, type Frame, type MatchConfig, type Seat, type SeatConfig, type ServerMsg } from '@lions/net';
+import { factionsOfMatchup, matchupAllowed, matchupField, parseClientMsg, versusMapAllowed, validateConfig, REPLACED_CLOSE_CODE, type ClientMsg, type Frame, type MatchConfig, type Seat, type SeatConfig, type ServerMsg } from '@lions/net';
 import type { Env } from '../d1';
 import type { DurableStateLike, HibernatingSocket, UpgradeInit } from '../do-types';
 import { createRoom, endedMsg, logParts, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, forfeitDueAt, forfeitIfDue, persistKey, revive, ROOM_TTL_MS, type Effect, type RoomState } from './room-core';
@@ -511,8 +511,11 @@ export class MatchRoom {
       const seed = mode === 'versus' ? crypto.getRandomValues(new Uint32Array(1))[0] | 0 : SIM_SEED_N0;
       const map = mapField(body.map);
       if (map === null) return new Response('unknown map', { status: 400 });
+      // A versus room is offered only on the maps measured fair (#561, the lead, 2026-10-14):
+      // refused here as the route refuses it, before any room state exists.
+      if (mode === 'versus' && !versusMapAllowed(map)) return new Response('map not offered for versus', { status: 400 });
       // The host's matchup (2026-10-14): a versus room's only; a sandbox room is the mirror.
-      // KDF vs Sarim is Tel Marum only (the lead's ruling): refused here as the route refuses it.
+      // KDF vs Sarim plays only on FACTION_MATCHUP_MAPS (the lead's ruling): refused here as the route refuses it.
       const matchup = mode === 'versus' ? matchupField(body.matchup) : 'mirror';
       if (!matchupAllowed(matchup, map)) return new Response('matchup not offered on this map', { status: 400 });
       const factions = factionsOfMatchup(matchup);

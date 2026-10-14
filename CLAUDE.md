@@ -67,6 +67,7 @@ pnpm kit:capture      # in-game kitted-vehicle sheets, the `kit` toggle reading,
 pnpm validate:ui      # no colour literals AND no bare chrome strings in UI source
 pnpm ui:routes        # drive the shell: one JS realm, two missions, no reload (60-74 s local, ~130 s on CI: no GPU there)
 pnpm balance          # headless battle sim, prints win rates
+pnpm versus:probe     # report-only: who wins a versus map when both seats attack-move (west/east, KDF/Sarim); the bar for opening a map (#561)
 ```
 
 `pnpm test:determinism` must pass before any commit touching `@lions/sim`. It is the canary for invariants 2 and 3.
@@ -1744,9 +1745,9 @@ for vehicles.
   - **Two things a later change will get wrong.** First, a vehicle is swapped
     onto its own CLONE of the bake only the first frame it moves, which is what
     keeps parked frames, and so the golden gate, unchanged. Second, the clone
-    is per vehicle because three r170 re-uploads a standard material's
-    `onBeforeCompile` uniforms only on a material change: `uniformsNeedUpdate`
-    is honoured for `ShaderMaterial` alone.
+    is per vehicle because three (r170, and still r186) re-uploads a standard
+    material's `onBeforeCompile` uniforms only on a material change:
+    `uniformsNeedUpdate` is honoured for `ShaderMaterial` alone.
   - **Witnessed by `pnpm weight:capture -- --running-gear`**, the
     `running-gear` debug layer's A/B on moving vehicles. No gated golden
     scenario moves a vehicle. The Lavi's track barely shows from the game
@@ -1773,8 +1774,11 @@ for vehicles.
   not a taste.
   **+0 draw calls**: `tools/src/perf/kit-drawcalls.ts` reads 12 submissions per
   vehicle (6 for the D9) at tiers 0 and at tiers 3, through the shipped builder
-  with `renderer.info` reset BY HAND, because three r170 resets it after the
-  shadow pass and a main-pass-only reading looks half as expensive.
+  with `renderer.info` reset BY HAND. three r170 auto-reset it AFTER the
+  shadow pass, so a plain read looked half as expensive; r186 resets it BEFORE
+  the shadow pass, but every nested `render()` in a composer frame (the AO
+  pre-pass, each full-screen quad) resets it again, so a plain read after a
+  frame still sees only the last of them.
   **The exporter refuses** a part over 1.10x its budget, a part off its mock by
   more than 3 cm or 10% (a named, printed DEVIATION is the only excuse), more
   than 5,000 kit triangles, and any clash or containment (`kit_clash.py`: kit

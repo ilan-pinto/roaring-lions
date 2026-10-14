@@ -170,7 +170,7 @@ import {
   type LightPreset,
   type LitTimeOfDay,
 } from './time-of-day';
-import { disposeAndReleaseContext } from './context-release';
+import { disposeAndReleaseContext, noteSharedTextures } from './context-release';
 import { freezeSceneRoot, freezeStatic } from './static-matrix';
 import { AO_RESOLUTION_SCALE, createAoPass, createPostChain, PIXEL_RATIO_CAP, type PostChain } from './post-chain';
 import { VignettePass } from './vignette-pass';
@@ -2827,10 +2827,13 @@ export class ThreeRenderer implements Renderer {
     this.pixelRatio = Math.min(globalThis.devicePixelRatio || 1, this.opts.maxPixelRatio ?? PIXEL_RATIO_CAP);
     this.renderer.setPixelRatio(this.pixelRatio);
     this.renderer.shadowMap.enabled = true;
-    // PCFSoft, not PCF or VSM: the sun casts one map-wide 4096 map
+    // Filtered, not Basic: the sun casts one map-wide 4096 map
     // (`lighting.ts`), so a shadow texel is coarse in world terms and a hard
-    // edge on it reads as a staircase across a tank's own footprint.
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // edge on it reads as a staircase across a tank's own footprint. This was
+    // PCFSoft until three r186 removed it (it now warns and falls back to
+    // PCF, which since r182 IS the soft filter: five hardware-compared taps
+    // on a Vogel disk, rotated per pixel, `shadow.radius` texels wide).
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.fitToHost();
     // Shell upgrade Phase 1: the one read of the quality preset this method
     // needs, so the chain builder below and the AO guard after it agree on
@@ -3005,6 +3008,8 @@ export class ThreeRenderer implements Renderer {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    // Before `releaseResources` disposes the materials it is read through.
+    noteSharedTextures(this.renderer, this.scene);
     try {
       this.releaseResources();
     } finally {

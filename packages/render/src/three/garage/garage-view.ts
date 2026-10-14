@@ -69,7 +69,7 @@
  *   compile it again.
  */
 import * as THREE from 'three';
-import { disposeAndReleaseContext } from '../context-release';
+import { disposeAndReleaseContext, noteSharedTextures } from '../context-release';
 import { gltfLoader, setDracoDecoderPath } from '../units/gltf-loader';
 import { buildMeshUnitTemplate, disposeMeshUnitTemplate } from '../units/mesh-unit';
 import {
@@ -686,6 +686,8 @@ export async function mountGarageView(host: HTMLElement, opts: GarageViewOptions
     disposed = true;
     opts.signal?.removeEventListener('abort', onAbort);
     renderer.domElement.removeEventListener('webglcontextlost', onLost);
+    // Before the owned materials below are disposed (context-release.ts).
+    noteSharedTextures(renderer, scene);
     try {
       // Every texture once, by identity: a bake is shared by a live
       // material, its charred wreck clone and the pristine source's.
@@ -711,7 +713,8 @@ export async function mountGarageView(host: HTMLElement, opts: GarageViewOptions
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = GARAGE_EXPOSURE;
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // PCF: three r186 removed PCFSoft and made PCF the soft filter (ThreeRenderer.init).
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 2));
     renderer.setClearAlpha(0);
     renderer.setSize(w, h, false);

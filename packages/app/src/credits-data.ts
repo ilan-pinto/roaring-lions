@@ -34,7 +34,7 @@ export interface AssetCredit {
 export const CREDITS = {
   people: ['Ilan Pinto and the Roaring Lions contributors'],
   libraries: [
-    { name: 'three', version: '0.170', licence: 'MIT', url: 'https://threejs.org' },
+    { name: 'three', version: '0.186', licence: 'MIT', url: 'https://threejs.org' },
   ],
   fonts: [
     { family: 'Big Shoulders Display', licenceFile: 'OFL-BigShouldersDisplay.txt', holder: 'The Big Shoulders Project Authors' },

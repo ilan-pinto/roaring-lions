@@ -658,9 +658,22 @@ describe('coordinates', () => {
   });
 
   it('skips the outline, not the minimap, when a corner misses the ground', () => {
-    // Below the camera's zoom clamp a tall frustum's bottom edge starts
-    // behind the ground: the two lower corners have no ground under them.
-    const view = realView(1024, 768, 0.1);
+    // The real camera can no longer produce a miss. Since the #571
+    // follow-up it solves its distance from the frustum's height, so every
+    // pixel of a non-zero viewport reaches the ground (camera.test.ts). The
+    // guard stays, because a projection that throws must never take the
+    // minimap with it. So the miss comes from a stub: the real view, with
+    // its two lower corners throwing the real camera's own error.
+    const real = realView(1024, 768);
+    const view: MinimapView = {
+      ...real,
+      screenToWorld: (px, py) => {
+        if (py >= real.height) {
+          throw new Error('screenToWorldThree: camera ray does not intersect the ground plane');
+        }
+        return real.screenToWorld(px, py);
+      },
+    };
     expect(() => view.screenToWorld(1024, 768)).toThrow(/does not intersect/);
     expect(viewportQuad(view)).toBeNull();
     expect(() => mount(() => false, { view })).not.toThrow();

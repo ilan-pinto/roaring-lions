@@ -79,4 +79,17 @@ describe('memoizeBatchCulling', () => {
     cam.updateMatrixWorld(true);
     expect(draw(mesh, cam)).toEqual(draw(reference, cam));
   });
+
+  it('a wireframe draw is a new view (r186 doubles its counts)', () => {
+    // r186's `onBeforeRender` reads `material.wireframe` and doubles every
+    // count; a kept list from a solid draw handed to a wireframe one would
+    // draw half the edges. The key carries the flag for that reason.
+    const mesh = memoizeBatchCulling(batch());
+    const reference = batch();
+    const cam = camera(-20, 6);
+    draw(mesh, cam);
+    (mesh.material as THREE.MeshBasicMaterial).wireframe = true;
+    (reference.material as THREE.MeshBasicMaterial).wireframe = true;
+    expect(draw(mesh, cam)).toEqual(draw(reference, cam));
+  });
 });

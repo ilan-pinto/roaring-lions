@@ -47,8 +47,6 @@ const CHANNELS: Record<number, number> = {
   [THREE.RedFormat]: 1,
   [THREE.RedIntegerFormat]: 1,
   [THREE.AlphaFormat]: 1,
-  [THREE.LuminanceFormat]: 1,
-  [THREE.LuminanceAlphaFormat]: 2,
   [THREE.DepthFormat]: 1,
   [THREE.DepthStencilFormat]: 1,
 };
