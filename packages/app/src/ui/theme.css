@@ -7245,6 +7245,74 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-versus__seat[data-ready='1'] .rl-versus__state {
   color: var(--good);
 }
+/* The advisor (N4a, decision D1): a badge on the seat card both players see,
+   and the invite control on the viewer's own card. */
+.rl-versus__advisor-badge {
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  color: var(--info);
+  border: 1px solid var(--info); /* px-ok */
+  padding: 0 var(--s2);
+}
+.rl-versus__advisor-invite {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s2);
+  min-width: 0;
+  padding-top: var(--s2);
+  border-top: 1px solid var(--panel-frame); /* px-ok */
+}
+.rl-versus__advisor-scope {
+  display: flex;
+  gap: var(--s3);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.rl-versus__advisor-legend {
+  position: absolute;
+  width: 1px; /* px-ok */
+  height: 1px; /* px-ok */
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.rl-versus__advisor-choice {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  font-size: var(--t-s);
+  color: var(--ink);
+}
+.rl-versus__advisor-hint,
+.rl-versus__advisor-note,
+.rl-versus__advisor-file,
+.rl-versus__advisor-status,
+.rl-versus__advisor-copied {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+}
+.rl-versus__advisor-result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s2);
+  max-width: 100%;
+}
+.rl-versus__advisor-command {
+  display: block;
+  max-width: 100%;
+  padding: var(--s2);
+  font: var(--t-s) var(--font-mono);
+  color: var(--ink);
+  background: var(--panel-bg-solid);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  overflow-wrap: anywhere;
+  user-select: all;
+}
 .rl-versus__dot {
   flex: none;
   width: 0.6rem;

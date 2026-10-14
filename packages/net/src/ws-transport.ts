@@ -238,7 +238,13 @@ export class WsTransport implements MatchTransport {
     switch (msg.t) {
       case 'lobby':
         // A reconnect before the start lands back in the lobby, not in a stall.
-        if (this.config === null) { this.relinked(); this.setStalled(null); this.st = { kind: 'waiting' }; }
+        if (this.config === null) {
+          // A seat that dropped may have missed the room's `advisors` while away:
+          // clear its badges so the room's next `advisors` (sent behind a hello
+          // when any advisor is seated) is the whole truth, never a stale badge.
+          if (this.droppedAt !== null) this.hooks.onAdvisors?.([null, null]);
+          this.relinked(); this.setStalled(null); this.st = { kind: 'waiting' };
+        }
         this.hooks.onLobby?.(msg.seats, msg.you, msg.map, msg.factions);
         return;
       case 'start':
@@ -257,7 +263,7 @@ export class WsTransport implements MatchTransport {
         // Whatever this seat heard of a forfeit clock before it dropped is stale:
         // the room re-sends `dropped` behind the log while the other seat is still gone.
         this.forfeit = null;
-        if (this.droppedAt !== null) { this.relinked(); this.replayFrom = this.now(); }
+        if (this.droppedAt !== null) { this.hooks.onAdvisors?.([null, null]); this.relinked(); this.replayFrom = this.now(); }
         this.setStalled(null);
         this.st = { kind: 'live', behind: this.clock.behind() };
         // A report sent while the link was down was lost with it: the room has

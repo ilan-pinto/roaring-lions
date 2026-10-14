@@ -666,6 +666,42 @@ describe('N4a: the advisor role, advisor and done messages, the round stall', ()
       ['advisors', [null, 'assist']],
     ]);
   });
+  it('a reconnect clears the advisor badges before the room names them again (N4a Task 9: a seat that missed a [null, null] while away)', () => {
+    vi.useFakeTimers();
+    const sock = fakeSocket();
+    const heard: unknown[] = [];
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {}, onLobby: () => { heard.push('lobby'); }, onAdvisors: (p) => { heard.push(['advisors', p]); } });
+    sock.open();
+    sock.recv({ t: 'lobby', config: null, seats: [{ seat: 0, callsign: 'A', connected: true, ready: false }], you: 0, map: 'tel_marum' });
+    sock.recv({ t: 'advisors', present: ['advise', null] });
+    // A first lobby is no reconnect: nothing was cleared.
+    expect(heard).toEqual(['lobby', ['advisors', ['advise', null]]]);
+    heard.length = 0;
+    sock.closeFromServer();
+    vi.runAllTimers();
+    sock.open();
+    sock.recv({ t: 'lobby', config: null, seats: [{ seat: 0, callsign: 'A', connected: true, ready: false }], you: 0, map: 'tel_marum' });
+    expect(heard).toEqual([['advisors', [null, null]], 'lobby']);
+    // Later lobbies (a ready toggle) keep what the room last said.
+    heard.length = 0;
+    sock.recv({ t: 'advisors', present: [null, 'assist'] });
+    sock.recv({ t: 'lobby', config: null, seats: [{ seat: 0, callsign: 'A', connected: true, ready: true }], you: 0, map: 'tel_marum' });
+    expect(heard).toEqual([['advisors', [null, 'assist']], 'lobby']);
+    expect(t.status()).toEqual({ kind: 'waiting' });
+  });
+  it('a reconnect into a running match clears the advisor badges on its log too', () => {
+    vi.useFakeTimers();
+    const sock = fakeSocket();
+    const heard: unknown[] = [];
+    new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {}, onAdvisors: (p) => { heard.push(p); } });
+    sock.open();
+    sock.recv({ t: 'start', config: CONFIG });
+    sock.closeFromServer();
+    vi.runAllTimers();
+    sock.open();
+    sock.recv({ t: 'log', config: CONFIG, frames: [] });
+    expect(heard).toEqual([[null, null]]);
+  });
   it('stats().stalls.round counts a round stall, once from its start, with its longest', () => {
     let now = 0;
     const sock = fakeSocket();

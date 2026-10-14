@@ -244,7 +244,7 @@ import { garageColors, garageGroundTexture, garageModelSource } from './garage-m
 import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { PAUSES_PER_SEAT, WsTransport, type Seat, type TransportStatus } from '@lions/net';
-import { JoinNeedsConfirmation, connectMatch, openRoom, type Connected } from './net/connect';
+import { JoinNeedsConfirmation, connectMatch, inviteAdvisor, openRoom, type Connected } from './net/connect';
 import { desyncReportDraft, withoutReplay } from './net/desync-report';
 import { blockedOrderNotes, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
 import { CatchUpQuiet, roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
@@ -1251,6 +1251,10 @@ async function main(): Promise<void> {
       }
     },
     linkFor: (code) => new URL(routes.versusRoom(code), location.origin).href,
+    serverOrigin: location.origin,
+    // The ticket this tab stored for the room is what is traded (decision D1).
+    advisorTicket: (code, scope) =>
+      inviteAdvisor(code, scope, { fetch: window.fetch.bind(window), origin: location.origin, session: safeStorageLike(() => window.sessionStorage) }),
   };
 
   // --- the screens ---------------------------------------------------------
