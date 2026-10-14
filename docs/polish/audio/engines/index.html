@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Engine Loop Candidates</title>
+<style>
+:root { --bg: #f6f4ef; --card: #ffffff; --ink: #1f1d1a; --muted: #6b665d; --line: #dcd7cc;
+        --good: #2f6b3a; --bad: #a3322a; --accent: #7a5c1e; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #171614; --card: #211f1c; --ink: #ece8df; --muted: #a39d92; --line: #36332e;
+          --good: #7cc48a; --bad: #e9897f; --accent: #d9b56a; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+       font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+main { max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 24px; margin: 0 0 4px; }
+h2 { font-size: 18px; margin: 32px 0 8px; }
+p { margin: 6px 0; }
+.muted { color: var(--muted); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin: 12px 0; }
+.card h3 { font-size: 16px; margin: 0 0 2px; }
+.card .family { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--accent); }
+audio { width: 100%; margin: 8px 0 6px; }
+img { width: 100%; height: auto; border-radius: 6px; display: block; }
+.verdict { font-variant-numeric: tabular-nums; font-size: 13px; margin-top: 6px; }
+.pass { color: var(--good); font-weight: 600; }
+.fail { color: var(--bad); font-weight: 600; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+.scroll { overflow-x: auto; }
+code { font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Engine loop candidates</h1>
+<p>GH-35: vehicles are silent. Two candidates for each engine sound, for your ear. Nothing here is wired into the game; the one you pick moves into <code>gen_audio.py</code> unchanged.</p>
+<p class="muted">Each file is a seamless 8 s loop, so let it play round a few times (the players loop). A browser's <code>&lt;audio loop&gt;</code> can leave a hair of a gap at the wrap; the game would loop it sample-exact. Engines and rotors are normalised to -24 LUFS and the track layer to -27, so you compare character, not volume. In the game they would sit about 12 LU under the combat sound and come and go with speed, distance and the four-vehicle cap. Synthesised, CC0, byte-identical on every run of <code>engine_candidates.py</code>.</p>
+<div class="card"><h3>What to listen for</h3><p>You switched the ambience off for whining (#483). The check on this page looks for the kind of whine that can be measured: a narrow tone that holds. It finds none in the three beds above 200 Hz (see the bottom of the page). The one steady tone in them is the town bed's generator: a 50 Hz hum and the 38 Hz chug beside it, +11 dB, all the way round the loop. So if it was that hum, listen hard to the low note here: every engine has one, steadier and stronger (+20 to +29 dB), because it is the engine. If it was the wind rising and falling, two candidates carry a slow swell (tracked idle B's fan, wheeled moving A's wind).</p></div>
+<h2>Verdicts</h2><div class="scroll"><table><tr><th>Candidate</th><th>Family</th><th>LUFS</th><th>True peak</th><th>Seam</th><th>Whine check, 1x and 1.2x</th><th>Low note (not gated)</th><th>Verdict</th></tr>
+<tr><td><a href="#tracked_idle_a_v12">tracked_idle_a_v12</a></td><td>tracked heavy, idle</td><td>-24.0</td><td>-10.1 dBTP</td><td>0.995</td><td>no whine (longest tone 0.09 s); no whine (longest tone 0.09 s)</td><td>low note 64 Hz held 8.0 s, +29 dB</td><td class="pass">PASS</td></tr>
+<tr><td><a href="#tracked_idle_b_lumpy">tracked_idle_b_lumpy</a></td><td>tracked heavy, idle</td><td>-24.0</td><td>-8.2 dBTP</td><td>0.996</td><td>no whine (longest tone 0.09 s); no whine (longest tone 0.12 s)</td><td>low note 40 Hz held 8.0 s, +24 dB</td><td class="pass">PASS</td></tr>
+<tr><td><a href="#tracked_move_a_pulling">tracked_move_a_pulling</a></td><td>tracked heavy, moving</td><td>-24.0</td><td>-8.8 dBTP</td><td>0.996</td><td>no whine (longest tone 0.12 s); no whine (longest tone 0.09 s)</td><td>low note 105 Hz held 8.0 s, +21 dB</td><td class="pass">PASS</td></tr>
+<tr><td><a href="#tracked_move_b_low_gear">tracked_move_b_low_gear</a></td><td>tracked heavy, moving</td><td>-24.0</td><td>-7.9 dBTP</td><td>0.994</td><td>no whine (longest tone 0.09 s); no whine (longest tone 0.12 s)</td><td>low note 78 Hz held 8.0 s, +23 dB</td><td class="pass">PASS</td></tr>
+<tr><td><a href="#track_clank_a_sprocket">track_clank_a_sprocket</a></td><td>track clank layer</td><td>-27.0</td><td>-8.8 dBTP</td><td>0.988</td><td>no whine (longest tone 0.14 s); no whine (longest tone 0.12 s)</td><td>low note 54 Hz held 1.9 s, +10 dB</td><td class="pass">PASS</td></tr>
+<tr><td><a href="#track_clank_b_slack">track_clank_b_slack</a></td><td>track clank layer</td><td>-27.0</td><td>-8.8 dBTP</td><td>0.963</td><td>no whine (longest tone 0.07 s); no whine (longest tone 0.12 s)</td><td>low note 65 Hz held 1.9 s, +8 dB</td><td class="pass">PASS</td></tr>
+<tr><td><a href="#wheeled_idle_a_petrol">wheeled_idle_a_petrol</a></td><td>wheeled, idle</td><td>-24.0</td><td>-7.2 dBTP</td><td>0.995</td><td>no whine (longest tone 0.09 s); no whine (longest tone 0.12 s)</td><td>low note 81 Hz held 8.0 s, +20 dB</td><td class="pass">PASS</td></tr>
+<tr><td><a href="#wheeled_idle_b_diesel">wheeled_idle_b_diesel</a></td><td>wheeled, idle</td><td>-24.0</td><td>-7.9 dBTP</td><td>0.996</td><td>no whine (longest tone 0.09 s); no whine (longest tone 0.05 s)</td><td>low note 75 Hz held 8.0 s, +23 dB</td><td class="pass">PASS</td></tr>
+<tr><td><a href="#wheeled_move_a_cruise">wheeled_move_a_cruise</a></td><td>wheeled, moving</td><td>-24.0</td><td>-9.5 dBTP</td><td>0.996</td><td>no whine (longest tone 0.07 s); no whine (longest tone 0.12 s)</td><td>low note 70 Hz held 8.0 s, +25 dB</td><td class="pass">PASS</td></tr>
+<tr><td><a href="#wheeled_move_b_gravel">wheeled_move_b_gravel</a></td><td>wheeled, moving</td><td>-24.0</td><td>-8.9 dBTP</td><td>0.997</td><td>no whine (longest tone 0.07 s); no whine (longest tone 0.09 s)</td><td>low note 56 Hz held 8.0 s, +24 dB</td><td class="pass">PASS</td></tr>
+<tr><td><a href="#rotor_a_blade_slap">rotor_a_blade_slap</a></td><td>rotor (optional)</td><td>-24.0</td><td>-8.0 dBTP</td><td>0.994</td><td>no whine (longest tone 0.14 s); no whine (longest tone 0.09 s)</td><td>low note 39 Hz held 8.0 s, +29 dB</td><td class="pass">PASS</td></tr>
+<tr><td><a href="#rotor_b_overhead">rotor_b_overhead</a></td><td>rotor (optional)</td><td>-24.0</td><td>-6.9 dBTP</td><td>0.999</td><td>no whine (longest tone 0.12 s); no whine (longest tone 0.07 s)</td><td>low note 64 Hz held 0.4 s, +8 dB</td><td class="pass">PASS</td></tr>
+</table></div>
+<h2>Tracked heavy, idle</h2>
+<section class="card" id="tracked_idle_a_v12"><div class="family">tracked heavy, idle</div><h3>tracked_idle_a_v12 &mdash; V12 at idle</h3><p>650 rpm, twelve cylinders, so a 65 Hz firing note lopes at the 5.4 Hz engine cycle; a deep exhaust pulsing with it and a soft breath of the cooling air. Steady, heavy, unhurried.</p><audio controls loop preload="none" src="tracked_idle_a_v12.wav"></audio><img src="tracked_idle_a_v12.png" alt="Spectrogram of tracked_idle_a_v12" loading="lazy"><p class="verdict"><span class="pass">PASS</span> &middot; -24.0 LUFS &middot; true peak -10.1 dBTP &middot; seam 0.995 (an ordinary junction inside the file reads 0.997) &middot; no whine (longest tone 0.09 s); at 1.2x no whine (longest tone 0.09 s) &middot; low note 64 Hz held 8.0 s, +29 dB</p></section>
+<section class="card" id="tracked_idle_b_lumpy"><div class="family">tracked heavy, idle</div><h3>tracked_idle_b_lumpy &mdash; Lumpy and lower</h3><p>a slower, rougher idle -- 40 Hz firing with a big cylinder-to-cylinder spread, so it chugs at 5 Hz -- with a heavier exhaust and a cooling-fan rush that swells and settles twice a loop.</p><audio controls loop preload="none" src="tracked_idle_b_lumpy.wav"></audio><img src="tracked_idle_b_lumpy.png" alt="Spectrogram of tracked_idle_b_lumpy" loading="lazy"><p class="verdict"><span class="pass">PASS</span> &middot; -24.0 LUFS &middot; true peak -8.2 dBTP &middot; seam 0.996 (an ordinary junction inside the file reads 0.997) &middot; no whine (longest tone 0.09 s); at 1.2x no whine (longest tone 0.12 s) &middot; low note 40 Hz held 8.0 s, +24 dB</p></section>
+<h2>Tracked heavy, moving</h2>
+<section class="card" id="tracked_move_a_pulling"><div class="family">tracked heavy, moving</div><h3>tracked_move_a_pulling &mdash; Pulling</h3><p>the same V12 under load, 105 Hz firing, its harder pulses driving a broad intake roar; a slow surge as the driver works the throttle. The pitch is still under 150 Hz; the weight is in the roar.</p><audio controls loop preload="none" src="tracked_move_a_pulling.wav"></audio><img src="tracked_move_a_pulling.png" alt="Spectrogram of tracked_move_a_pulling" loading="lazy"><p class="verdict"><span class="pass">PASS</span> &middot; -24.0 LUFS &middot; true peak -8.8 dBTP &middot; seam 0.996 (an ordinary junction inside the file reads 0.997) &middot; no whine (longest tone 0.12 s); at 1.2x no whine (longest tone 0.09 s) &middot; low note 105 Hz held 8.0 s, +21 dB</p></section>
+<section class="card" id="tracked_move_b_low_gear"><div class="family">tracked heavy, moving</div><h3>tracked_move_b_low_gear &mdash; Low gear, labouring</h3><p>80 Hz firing, heavy and uneven -- big pulse-to- pulse spread, a lug twice a second as the load comes on and off -- with a darker roar. A tank climbing, not cruising.</p><audio controls loop preload="none" src="tracked_move_b_low_gear.wav"></audio><img src="tracked_move_b_low_gear.png" alt="Spectrogram of tracked_move_b_low_gear" loading="lazy"><p class="verdict"><span class="pass">PASS</span> &middot; -24.0 LUFS &middot; true peak -7.9 dBTP &middot; seam 0.994 (an ordinary junction inside the file reads 0.997) &middot; no whine (longest tone 0.09 s); at 1.2x no whine (longest tone 0.12 s) &middot; low note 78 Hz held 8.0 s, +23 dB</p></section>
+<h2>Track clank layer</h2>
+<section class="card" id="track_clank_a_sprocket"><div class="family">track clank layer</div><h3>track_clank_a_sprocket &mdash; Links on the sprocket</h3><p>11 link strikes a second, every fourth one a road wheel landing on a pin (heavier, lower), over the rumble of the road wheels on the ground. Dry and mechanical.</p><audio controls loop preload="none" src="track_clank_a_sprocket.wav"></audio><img src="track_clank_a_sprocket.png" alt="Spectrogram of track_clank_a_sprocket" loading="lazy"><p class="verdict"><span class="pass">PASS</span> &middot; -27.0 LUFS &middot; true peak -8.8 dBTP &middot; seam 0.988 (an ordinary junction inside the file reads 0.978) &middot; no whine (longest tone 0.14 s); at 1.2x no whine (longest tone 0.12 s) &middot; low note 54 Hz held 1.9 s, +10 dB</p></section>
+<section class="card" id="track_clank_b_slack"><div class="family">track clank layer</div><h3>track_clank_b_slack &mdash; Slack track</h3><p>two tracks a beat apart (15 and 14 strikes a second), lighter, rattling links with a high jingle of pins, over a softer rumble. Busier and thinner than A: lighter armour, or a faster pace.</p><audio controls loop preload="none" src="track_clank_b_slack.wav"></audio><img src="track_clank_b_slack.png" alt="Spectrogram of track_clank_b_slack" loading="lazy"><p class="verdict"><span class="pass">PASS</span> &middot; -27.0 LUFS &middot; true peak -8.8 dBTP &middot; seam 0.963 (an ordinary junction inside the file reads 0.958) &middot; no whine (longest tone 0.07 s); at 1.2x no whine (longest tone 0.12 s) &middot; low note 65 Hz held 1.9 s, +8 dB</p></section>
+<h2>Wheeled, idle</h2>
+<section class="card" id="wheeled_idle_a_petrol"><div class="family">wheeled, idle</div><h3>wheeled_idle_a_petrol &mdash; Petrol four at idle</h3><p>800 rpm, 27 Hz firing, smooth and light, a tailpipe puttering with it, the tick of the valve train over it.</p><audio controls loop preload="none" src="wheeled_idle_a_petrol.wav"></audio><img src="wheeled_idle_a_petrol.png" alt="Spectrogram of wheeled_idle_a_petrol" loading="lazy"><p class="verdict"><span class="pass">PASS</span> &middot; -24.0 LUFS &middot; true peak -7.2 dBTP &middot; seam 0.995 (an ordinary junction inside the file reads 0.996) &middot; no whine (longest tone 0.09 s); at 1.2x no whine (longest tone 0.12 s) &middot; low note 81 Hz held 8.0 s, +20 dB</p></section>
+<section class="card" id="wheeled_idle_b_diesel"><div class="family">wheeled, idle</div><h3>wheeled_idle_b_diesel &mdash; Diesel clatter</h3><p>a four-cylinder diesel at 750 rpm (the technical&#x27;s pickup), 25 Hz firing with the hard knock of injection on every pulse -- the rattle a Hilux makes at a checkpoint.</p><audio controls loop preload="none" src="wheeled_idle_b_diesel.wav"></audio><img src="wheeled_idle_b_diesel.png" alt="Spectrogram of wheeled_idle_b_diesel" loading="lazy"><p class="verdict"><span class="pass">PASS</span> &middot; -24.0 LUFS &middot; true peak -7.9 dBTP &middot; seam 0.996 (an ordinary junction inside the file reads 0.994) &middot; no whine (longest tone 0.09 s); at 1.2x no whine (longest tone 0.05 s) &middot; low note 75 Hz held 8.0 s, +23 dB</p></section>
+<h2>Wheeled, moving</h2>
+<section class="card" id="wheeled_move_a_cruise"><div class="family">wheeled, moving</div><h3>wheeled_move_a_cruise &mdash; Cruise</h3><p>70 Hz firing at a steady road speed, tyre roar and a little wind round the cab. Smooth, level, a car-sized engine.</p><audio controls loop preload="none" src="wheeled_move_a_cruise.wav"></audio><img src="wheeled_move_a_cruise.png" alt="Spectrogram of wheeled_move_a_cruise" loading="lazy"><p class="verdict"><span class="pass">PASS</span> &middot; -24.0 LUFS &middot; true peak -9.5 dBTP &middot; seam 0.996 (an ordinary junction inside the file reads 0.997) &middot; no whine (longest tone 0.07 s); at 1.2x no whine (longest tone 0.12 s) &middot; low note 70 Hz held 8.0 s, +25 dB</p></section>
+<section class="card" id="wheeled_move_b_gravel"><div class="family">wheeled, moving</div><h3>wheeled_move_b_gravel &mdash; Off the road</h3><p>55 Hz firing under load, on gravel -- a dense crunch under the tyres and the suspension knocking over ruts four times a loop.</p><audio controls loop preload="none" src="wheeled_move_b_gravel.wav"></audio><img src="wheeled_move_b_gravel.png" alt="Spectrogram of wheeled_move_b_gravel" loading="lazy"><p class="verdict"><span class="pass">PASS</span> &middot; -24.0 LUFS &middot; true peak -8.9 dBTP &middot; seam 0.997 (an ordinary junction inside the file reads 0.997) &middot; no whine (longest tone 0.07 s); at 1.2x no whine (longest tone 0.09 s) &middot; low note 56 Hz held 8.0 s, +24 dB</p></section>
+<h2>Rotor (optional)</h2>
+<section class="card" id="rotor_a_blade_slap"><div class="family">rotor (optional)</div><h3>rotor_a_blade_slap &mdash; Blade slap</h3><p>a four-blade main rotor (19 passes a second) slapping, with the tail rotor&#x27;s buzz over it and turbine hiss on top. Close by.</p><audio controls loop preload="none" src="rotor/rotor_a_blade_slap.wav"></audio><img src="rotor/rotor_a_blade_slap.png" alt="Spectrogram of rotor_a_blade_slap" loading="lazy"><p class="verdict"><span class="pass">PASS</span> &middot; -24.0 LUFS &middot; true peak -8.0 dBTP &middot; seam 0.994 (an ordinary junction inside the file reads 0.992) &middot; no whine (longest tone 0.14 s); at 1.2x no whine (longest tone 0.09 s) &middot; low note 39 Hz held 8.0 s, +29 dB</p></section>
+<section class="card" id="rotor_b_overhead"><div class="family">rotor (optional)</div><h3>rotor_b_overhead &mdash; Overhead, further off</h3><p>the same rotor heard from a few hundred metres -- the slap rounded to a beat, the highs gone, more of the air it moves, a slow swell as the wind carries it.</p><audio controls loop preload="none" src="rotor/rotor_b_overhead.wav"></audio><img src="rotor/rotor_b_overhead.png" alt="Spectrogram of rotor_b_overhead" loading="lazy"><p class="verdict"><span class="pass">PASS</span> &middot; -24.0 LUFS &middot; true peak -6.9 dBTP &middot; seam 0.999 (an ordinary junction inside the file reads 0.998) &middot; no whine (longest tone 0.12 s); at 1.2x no whine (longest tone 0.07 s) &middot; low note 64 Hz held 0.4 s, +8 dB</p></section>
+<h2>How it was checked</h2>
+<p><b>Whine.</b> A spectral peak 10 dB or more above the median of the &plusmn;161 Hz around it, between 200 Hz and 8 kHz, that holds 1 s or longer, read at normal speed and at 1.2x (the fastest the game would play a moving loop). Under 200 Hz a steady pitch is the engine's own note, so every candidate keeps its pitched part there and builds everything above it from noise; that low note is printed, not gated. On a spectrogram the dashed line is the band's floor and a held tone would be drawn in cyan. None is.</p>
+<p><b>Level.</b> Integrated loudness by ITU-R BS.1770-4, measured here and checked against ffmpeg's own meter on every file; true peak at 4x oversampling. <b>Seam.</b> The spectral shape of the last and first 250 ms must correlate 0.9 or better, the sample step across the wrap must be no bigger than any step inside the file, and the 250 ms either side must sit within 2 dB (validate:audio's own bed check).</p>
+<p>Each check was first shown an input built to fail it:</p><ul>
+<li>K-weighting = BS.1770-4 table at 48 kHz: max coefficient error 8.9e-16 &check;</li>
+<li>997 Hz sine at -20 dBFS meters -23.01 LUFS: -23.01 LUFS &check;</li>
+<li>same, then 5 s at -40 dBFS: gated out, -23.14: -23.14 LUFS &check;</li>
+<li>fs/4 sine, 45 deg off crest: 0.0 dBTP: +0.02 dBTP (sample peak -3.01) &check;</li>
+<li>pure 440 Hz tone, 3 s: WHINE: 440 Hz for 2.93 s, 71 dB over its neighbours &check;</li>
+<li>440 Hz 3 s under pink noise: WHINE: 440 Hz for 2.93 s, 13 dB &check;</li>
+<li>440 Hz for 0.4 s in pink noise: clean: longest 0.46 s &check;</li>
+<li>white noise: clean: longest 0.09 s &check;</li>
+<li>pink noise: clean: longest 0.09 s &check;</li>
+<li>loop that starts dark and ends bright: seam FAILS: corr -0.91, step 0.27 dB &check;</li>
+<li>loop whose ends do not meet: seam FAILS: click 4.2x &check;</li>
+<li>periodic noise loop: seam passes: corr 0.996, click 0.29x, step 0.25 dB &check;</li>
+</ul>
+<p>The same whine check on the three ambience beds you switched off (#483):</p><ul>
+<li><a href="../ambience/amb_open.wav">amb_open</a>: no whine (longest tone 0.14 s); low note 50 Hz held 0.6 s, +9 dB</li>
+<li><a href="../ambience/amb_town.wav">amb_town</a>: no whine (longest tone 0.42 s); low note 39 Hz held 8.6 s, +11 dB</li>
+<li><a href="../ambience/amb_ridge.wav">amb_ridge</a>: no whine (longest tone 0.28 s); low note 54 Hz held 0.5 s, +8 dB</li>
+</ul></main>
+</body>
+</html>
