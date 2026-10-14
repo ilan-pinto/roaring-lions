@@ -15,6 +15,8 @@
  *     clock reads "MISSION FAILED" instead of a frozen count.
  *  3. `deadlineWarnings`: one feed line a minute before a deadline that loses
  *     the mission runs out.
+ *  4. `limitWarningDue`: the time limit warns once, a minute out, through the
+ *     same feed line and chime (GH-540).
  */
 import { TICKS_PER_SECOND, type DefeatCause } from '@lions/sim';
 import { t } from '../i18n/t';
@@ -81,4 +83,16 @@ export function deadlineWarnings<R extends DeadlineRow>(
 /** The feed line for one deadline warning. */
 export function deadlineWarningLine(row: { text: string; ticksLeft?: number }): string {
   return t('hud.deadline.warn', { text: row.text, left: clockText(row.ticksLeft ?? 0) });
+}
+
+/** GH-540: whether the one feed line before the time limit is due -- once, at a minute or less, never
+ *  once the limit has run out. `ticksLeft` is `MissionRuntime.timeLimitTicksLeft` (sim ticks, so a
+ *  pause holds it); the caller keeps `warned`. */
+export function limitWarningDue(ticksLeft: number | undefined, warned: boolean): boolean {
+  return !warned && ticksLeft !== undefined && ticksLeft > 0 && ticksLeft <= DEADLINE_WARN_TICKS;
+}
+
+/** The feed line for the time-limit warning (the lead's wording, 2026-10-13). */
+export function limitWarningLine(): string {
+  return t('hud.limit.warn');
 }
