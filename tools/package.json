@@ -27,6 +27,7 @@
     "blast:capture": "tsx src/perf/blast-captures.ts",
     "atgm:capture": "tsx src/perf/atgm-captures.ts",
     "tunnel:capture": "tsx src/perf/tunnel-xray-captures.ts",
+    "banner:capture": "tsx src/perf/garrison-banner-captures.ts",
     "radio:clips": "tsx src/audio/radio-clips.ts",
     "audio:mix": "tsx src/audio/mix-check.ts",
     "weight:capture": "tsx src/perf/weight-captures.ts",

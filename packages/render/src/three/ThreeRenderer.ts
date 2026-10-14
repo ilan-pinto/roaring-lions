@@ -420,6 +420,9 @@ import {
   DECAL_FADING_RENDER_ORDER,
 } from './units/render-order';
 import { unitIsObserved } from './units/observed';
+import { GarrisonBannerBatch, bannerMatrix, bannerSpotFor } from './units/garrison-banner';
+import type { BannerSpot } from './units/banner-placement';
+import { heldBuildings, heldShown } from './units/held-building';
 import { fireVisible } from './fire-visible';
 import { arcHiddenUntil, hostileEffectVisible, structureBarVisible } from './versus-fog';
 import { isBurstOnlyEvent } from './quiet';
@@ -2200,6 +2203,25 @@ export class ThreeRenderer implements Renderer {
    * below.
    */
   private readonly overlayBatch: OverlayBatch;
+  /** The held-building banner (lead ruling 2026-10-14, `units/garrison-
+   *  banner.ts`): every banner on the map in one instanced mesh, swaying on
+   *  the crowns' own sim clock (`sway.time`, shared by reference). It
+   *  replaced the held badge this class used to draw in `updateOverlays`. */
+  private readonly garrisonBanners = new GarrisonBannerBatch(this.sway.time);
+  /** Each garrisonable building TYPE's banner spot, read once off its
+   *  standing template as it loads (`loadBuildingMesh`); null where neither
+   *  camera-facing face has room for one. */
+  private readonly bannerSpots = new Map<string, BannerSpot | null>();
+  /** What the banner set was last derived from: the tick, the fog it was
+   *  judged against and the team colours. Garrisons change only on a tick and
+   *  fog only on a recompute, so a frame between them reuses the answer. */
+  private bannerKey: { tick: number; fog: Uint8Array | null; colors: readonly string[] | null; spots: number } = {
+    tick: -1,
+    fog: null,
+    colors: null,
+    spots: -1,
+  };
+  private readonly bannerEntries: { s: number; matrix: THREE.Matrix4; hex: string }[] = [];
   /** #470: every objective zone's hatched ground band (`units/zone-band.ts`).
    *  In its own group so the `overlays` debug layer can hide it without
    *  fighting `endFrame`, which owns the mesh's own `visible`. */
@@ -2718,6 +2740,7 @@ export class ThreeRenderer implements Renderer {
     // haven't run yet) and stay that way until `updateOverlays`'s first
     // call, from `frame()`.
     this.scene.add(this.overlayBatch.mesh, this.numeralBatch.mesh, this.chevronBatch.mesh);
+    this.scene.add(this.garrisonBanners.mesh);
     this.zoneBandGroup.name = 'zone-band-layer';
     this.zoneBandGroup.add(this.zoneBand.mesh);
     this.scene.add(this.zoneBandGroup);
@@ -3171,6 +3194,7 @@ export class ThreeRenderer implements Renderer {
     // a few lines down for the omit-then-fix history that class of leak has
     // in this file, guarded against here from the start.
     this.overlayBatch.dispose();
+    this.garrisonBanners.dispose();
     this.zoneBand.dispose();
     this.numeralBatch.dispose();
     this.chevronBatch.dispose();
@@ -3388,6 +3412,7 @@ export class ThreeRenderer implements Renderer {
     // tick -- and BEFORE `updateOverlays` reads it.
     this.refugePing.step(this.frameDtMs(dtMs));
     this.updateOverlays(alpha);
+    this.updateGarrisonBanners();
     if (this.shroudDirty) {
       this.shroud.update(this.fog);
       this.shroudDirty = false;
@@ -3713,6 +3738,10 @@ export class ThreeRenderer implements Renderer {
         // GH-471: a FLAG, `missiles`' shape -- `TunnelXray.update` rewrites
         // the figures' and the beam's `visible` every frame. Returns 4.
         return this.tunnelXray.setDebugHidden(!visible);
+      case 'garrison-banner':
+        // A FLAG, `missiles`' shape: `GarrisonBannerBatch.update` writes the
+        // mesh's `visible` every frame. Returns 1, the one mesh.
+        return this.garrisonBanners.setDebugHidden(!visible);
       default:
         // A name `DEBUG_LAYERS` lists and this switch does not handle. The
         // compiler already refuses it (`name` is `never` here), but a build
@@ -5650,9 +5679,10 @@ export class ThreeRenderer implements Renderer {
    *  Every unit in single-player, as before. */
   private readonly pickable = (i: number): boolean => !this.hiddenFromViewer(i);
   /** True when any tile of structure `s`'s own footprint is in sight this
-   *  frame. Asked only in a versus room (the held-building badge, N1a final
-   *  review); a footprint's bounding box can hold tiles that are not the
-   *  structure's own, so each tile is checked against `structureAt`. */
+   *  frame. Asked by the versus integrity-bar gate; a footprint's bounding
+   *  box can hold tiles that are not the structure's own, so each tile is
+   *  checked against `structureAt` (`units/held-building.ts` has the same
+   *  rule, pure, for the banner, the minimap and the HUD). */
   private structureInSight(s: number): boolean {
     const str = this.sim.structures;
     for (let y = str.minY[s]; y <= str.maxY[s]; y++) {
@@ -5679,8 +5709,9 @@ export class ThreeRenderer implements Renderer {
   }
   /** Whose side structure `s` is held by: its first living occupant's, or -1
    *  ("no side found", which every viewer reads as hostile). Read by the
-   *  integrity bar and the held badge (`updateOverlays`) and by a collapse's
-   *  versus gate (N1b task 13). */
+   *  integrity bar (`updateOverlays`) and by a collapse's versus gate (N1b
+   *  task 13); the banner reads the same rule in one pass for every building
+   *  (`units/held-building.ts`'s `heldBuildings`). */
   private structureHolder(s: number): number {
     if (this.sim.structures.occupants[s] <= 0) return -1;
     const st = this.sim.state;
@@ -5695,6 +5726,49 @@ export class ThreeRenderer implements Renderer {
   private structureIsOwn(s: number, holder: number = this.structureHolder(s)): boolean {
     const stype = this.sim.structureTypes[this.sim.structures.typeIdx[s]];
     return (this.sim.structures.occupants[s] > 0 && isOwnSide(holder, this.viewer)) || isOwnSide(stype.producesFor, this.viewer);
+  }
+
+  /**
+   * The held-building banners (lead ruling 2026-10-14, `units/garrison-
+   * banner.ts`): one per building held by the viewer's own side, and one per
+   * building held by anyone else ONLY while a tile of it is in sight
+   * (`units/held-building.ts`) -- in single-player as in a versus room. The
+   * held badge this replaced was gated only in a room, so a campaign player
+   * read an enemy garrison off the dark.
+   *
+   * Re-derived only when its inputs moved: the tick (garrisons change on a
+   * tick), the fog array (`recomputeFog` replaces it, 5 Hz), the team
+   * colours (`setTeamColors` swaps `opts`, VR-01) or the set of loaded
+   * spots. A zero-time repaint changes none of them and uploads nothing.
+   */
+  private updateGarrisonBanners(): void {
+    const key = this.bannerKey;
+    const colors = this.opts.teamColors;
+    if (
+      key.tick === this.sim.tickCount &&
+      key.fog === this.fog &&
+      key.colors === colors &&
+      key.spots === this.bannerSpots.size
+    ) {
+      this.garrisonBanners.update(this.bannerEntries);
+      return;
+    }
+    this.bannerKey = { tick: this.sim.tickCount, fog: this.fog, colors, spots: this.bannerSpots.size };
+    const entries = this.bannerEntries;
+    let n = 0;
+    for (const b of heldBuildings(this.sim, this.snapshottedCount)) {
+      if (!heldShown(this.sim, b, this.viewer, this.fogVisibleAt)) continue;
+      const root = this.buildingMeshIdleEntities.get(b.s);
+      const spot = this.bannerSpots.get(this.sim.structureTypes[this.sim.structures.typeIdx[b.s]].id);
+      if (!root || !spot) continue;
+      const slot = entries[n] ?? { s: -1, matrix: new THREE.Matrix4(), hex: '' };
+      slot.s = b.s;
+      bannerMatrix(spot, root.position, this.buildingFitFor(b.s), slot.matrix);
+      slot.hex = colors[colorSlot(b.holder, this.viewer)];
+      entries[n++] = slot;
+    }
+    entries.length = n;
+    this.garrisonBanners.update(entries);
   }
   /**
    * Living units whose projected FEET fall inside a screen-space rect --
@@ -6243,6 +6317,13 @@ export class ThreeRenderer implements Renderer {
       structureId,
       new THREE.Box3().setFromObject(idleTemplate.root).getSize(new THREE.Vector3())
     );
+    // Where this type hangs a banner when it is held (`units/banner-
+    // placement.ts`), read once here off the standing template, lit by THIS
+    // map's sun -- 4-45 ms a type under node on an M3 Pro, so at load and
+    // never in a frame. Only for a type that can be held at all.
+    if (structureType.garrisonSlots > 0) {
+      this.bannerSpots.set(structureId, bannerSpotFor(idleTemplate.root, sunDirectionFor(this.lightPreset)));
+    }
 
     if (wreckUrl) await this.loadBuildingWreckMesh(structureId, wreckUrl);
 
@@ -9580,11 +9661,14 @@ export class ThreeRenderer implements Renderer {
     this.selectionRing.endFrame(this.camera.zoom);
     this.teamRing.endFrame(this.camera.zoom);
 
-    // Building status: an integrity bar once a building has been hit, and a
-    // pip per man inside -- renderer.ts's own comment: "you should be able
-    // to see that a house is held and how close it is to coming down."
+    // Building status: an integrity bar once a building has been hit --
+    // renderer.ts's own comment: "you should be able to see that a house is
+    // held and how close it is to coming down." Who holds it is the banner
+    // on its wall since 2026-10-14 (`updateGarrisonBanners`), and how many
+    // are inside is the HUD's ("2 / 4 inside"); the held badge that drew a
+    // house glyph and a pip per man here is retired.
     // `footprintCentre` (already this file's own choice for the garrison
-    // hover affordance below) anchors both the bar and the badge -- the
+    // hover affordance below) anchors the bar -- the
     // SAME point Pixi's `fx.toNumber(str.cx[s])`/`cy[s]` resolves to for a
     // rectangular footprint (that function's own doc comment has the
     // algebra), chosen over reading `str.cx`/`cy` directly so this loop's
@@ -9607,12 +9691,10 @@ export class ThreeRenderer implements Renderer {
         // Integrity bar -- renderer.ts: `g.rect(bx - 16, top, 32, 4)` (bg)
         // then the same rect scaled by `ratio` (fill), only once damaged.
         const ratio = str.maxHp[s] > 0 ? str.hp[s] / str.maxHp[s] : 1;
-        // Whose side the building is on, read ONCE for both the integrity bar
-        // (VR-03: the player's own never fills enemy red) and the held badge
-        // below: the first living occupant's side, else hostile -- the badge's
-        // own long-standing default. -1 is "no side found", which every
-        // viewer reads as hostile (`colorSlot` slot 1, never `isOwnSide`).
-        const occ = str.occupants[s];
+        // Whose side the building is on, for the integrity bar (VR-03: the
+        // player's own never fills enemy red): the first living occupant's
+        // side, else hostile. -1 is "no side found", which every viewer reads
+        // as hostile (`colorSlot` slot 1, never `isOwnSide`).
         const holder = this.structureHolder(s);
         const friendlyStructure = this.structureIsOwn(s, holder);
         // N1b task 13 (R-N14 leak 1): a versus seat is not shown how damaged
@@ -9638,42 +9720,6 @@ export class ThreeRenderer implements Renderer {
             this.overlayColor(buildingIntegrityColorKey(ratio, friendlyStructure), BUILDING_BAR_FALLBACK),
             1
           );
-        }
-
-        // Held building: a house badge in the holder's colour, one pip per
-        // man inside -- renderer.ts's own comment: "who is in there and how
-        // many reads at a glance." `this.opts.teamColors` is an
-        // ALREADY-RESOLVED hex per side (the app's own job), the identical
-        // source every other team-coloured overlay already reads from --
-        // not a palette-key lookup at this call site.
-        // A versus seat is not told who holds a building it cannot see, nor
-        // with how many men (N1a final review): the badge is the holder's
-        // colour and one pip per man. Single-player draws it fog or not, as
-        // main does -- `this.versus` short-circuits before anything is read.
-        const badgeHidden = this.versus && !isOwnSide(holder, this.viewer) && !this.structureInSight(s);
-        if (occ > 0 && !badgeHidden) {
-          const col = this.opts.teamColors[colorSlot(holder, this.viewer)];
-          const by2Rel = -(topUp + 16); // Pixi's `by2 = top - 16`
-          this.overlayBatch.triangle(
-            structAnchor,
-            [[-7, by2Rel], [0, by2Rel - 6], [7, by2Rel]],
-            col,
-            1
-          ); // roof
-          this.overlayBatch.rect(structAnchor, -5, by2Rel, 5, by2Rel + 8, col, 1); // walls
-          this.overlayBatch.rect(
-            structAnchor,
-            -1.5,
-            by2Rel + 3,
-            1.5,
-            by2Rel + 8,
-            this.overlayColor(HP_BG_COLOR_KEY),
-            1
-          ); // doorway
-          for (let k = 0; k < occ; k++) {
-            const pipRightPx = -(occ - 1) * 3 + k * 6;
-            this.overlayBatch.ellipseFan(billboardPoint(structAnchor, pipRightPx, -(by2Rel + 12)), 2, 2, col, 1);
-          }
         }
       }
     }

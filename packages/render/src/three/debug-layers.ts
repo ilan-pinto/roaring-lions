@@ -253,6 +253,19 @@
  *                 No `layerChecks` entry: no gated scenario has a tunnel.
  *                 `tools/src/perf/tunnel-xray-captures.ts` exercises it.
  *
+ * ONE MORE FOR THE HELD-BUILDING BANNER (lead ruling 2026-10-14), the
+ * `missiles` rule again:
+ * - `garrison-banner` every held building's banner (`units/garrison-
+ *                 banner.ts`), one instanced mesh. A flag, not a `visible`
+ *                 write alone, because `GarrisonBannerBatch.update` rewrites
+ *                 the mesh's `visible` every frame. Returns 1. No
+ *                 `layerChecks` entry, and there must not be one: a gated
+ *                 scenario with a garrison in it would move the moment a
+ *                 banner changed, so none may hold one, and a check there
+ *                 would read 0 px on a healthy tree.
+ *                 `tools/src/perf/garrison-banner-captures.ts` exercises it
+ *                 against a scene that has held buildings in it.
+ *
  * ONE MORE FOR KITTED VEHICLES (GH-238, plan 3):
  * - `kit`         the bought kit merged into each mesh vehicle's host
  *                 geometry at load (`units/vehicle-kit.ts`). Host first, kit
@@ -318,6 +331,7 @@ export const DEBUG_LAYERS = [
   'kit',
   'tunnel-xray',
   'running-gear',
+  'garrison-banner',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];

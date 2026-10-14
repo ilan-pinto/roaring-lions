@@ -68,7 +68,16 @@
 // Nothing here reads or writes sim state beyond the read-only `sim.state` view
 // (invariant 4), and the only @lions/sim imports are `fx` and the `Sim` type.
 
-import { colorSlot, relationOf, unitIsObserved, type Relation, type TerrainTones } from '@lions/render';
+import {
+  colorSlot,
+  heldBuildings,
+  heldShown,
+  relationOf,
+  unitIsObserved,
+  type HeldView,
+  type Relation,
+  type TerrainTones,
+} from '@lions/render';
 import { fx, type Sim } from '@lions/sim';
 import { paintMapTerrain } from './map-preview';
 import { zoneStateOf } from '../objective-zones';
@@ -347,6 +356,35 @@ export function tunnelMarks(sim: TunnelSource, viewer = 0): TunnelMark[] {
       if (at >= len) break;
     }
     out.push({ route: r, line, shafts: [line[0], line[line.length - 1]] });
+  }
+  return out;
+}
+
+/** The held outline's stroke and its keyline, in box pixels. */
+const HELD_STROKE = 2;
+const HELD_KEYLINE = 4;
+
+/** One held building as the minimap outlines it: its footprint's tile box
+ *  and the side holding it. */
+export interface HeldMark {
+  readonly s: number;
+  readonly holder: number;
+  /** minX, minY, maxX, maxY, inclusive tiles. */
+  readonly box: readonly [number, number, number, number];
+}
+
+/**
+ * The held buildings the viewer may be shown (lead ruling 2026-10-14): every
+ * one its own side holds, and one anyone else holds only while a tile of it
+ * is in sight -- the world banner's rule, read through the same functions
+ * (`heldBuildings`/`heldShown`), so the outline and the banner agree.
+ */
+export function heldMarks(view: HeldView & { readonly entityCount: number }, viewer: number, isVisible: (wx: number, wy: number) => boolean): HeldMark[] {
+  const out: HeldMark[] = [];
+  const st = view.structures;
+  for (const b of heldBuildings(view, view.entityCount)) {
+    if (!heldShown(view, b, viewer, isVisible)) continue;
+    out.push({ s: b.s, holder: b.holder, box: [st.minX[b.s], st.minY[b.s], st.maxX[b.s], st.maxY[b.s]] });
   }
   return out;
 }
@@ -1277,6 +1315,7 @@ export class Minimap {
       this.objectiveMark(m, nowMs);
     }
     this.drawTunnels();
+    this.drawHeld();
     for (const p of observedMarkers(this.deps.map, this.fogAt, this.seenMarkers)) {
       this.diamond(p, this.chrome.story);
     }
@@ -1393,6 +1432,28 @@ export class Minimap {
       for (const [x, y] of mark.shafts) {
         const p = tileToBox(proj, x, y);
         ctx.fillRect(Math.round(p.x - TUNNEL_SHAFT / 2), Math.round(p.y - TUNNEL_SHAFT / 2), TUNNEL_SHAFT, TUNNEL_SHAFT);
+      }
+    }
+    ctx.lineWidth = 1;
+  }
+
+  /** Lead ruling 2026-10-14: a team-coloured outline round every held
+   *  building the viewer may be shown (`heldMarks`), keylined like the tunnel
+   *  marks. Over the terrain and the tunnels, under the unit dots, so the
+   *  men inside a building and the building's colour read together. */
+  private drawHeld(): void {
+    const { ctx, proj } = this;
+    const viewer = this.deps.viewer ?? 0;
+    for (const m of heldMarks(this.deps.sim, viewer, this.fogAt)) {
+      const p0 = tileToBox(proj, m.box[0], m.box[1]);
+      const p1 = tileToBox(proj, m.box[2] + 1, m.box[3] + 1);
+      for (const [style, width] of [
+        [this.chrome.markEdge, HELD_KEYLINE],
+        [this.teamColors[colorSlot(m.holder, viewer)], HELD_STROKE],
+      ] as const) {
+        ctx.strokeStyle = style;
+        ctx.lineWidth = width;
+        ctx.strokeRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y);
       }
     }
     ctx.lineWidth = 1;
