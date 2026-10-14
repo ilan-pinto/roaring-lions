@@ -137,3 +137,9 @@ art/video/takes/
 .env*
 !.env.example
 !*.env.example
+
+# Unit polish (14 Oct): the B8 mortar remesh source and its 8k bake (40 + 30 MB),
+# read by tools/units/mortar_crew_part.py; the copy of record is in
+# ~/dev/roaring-lions-art-backup/mortar-team-mortar-20261002-01a0fae4.
+art/meshy/mortar-team-mortar-20261002-01a0fae4/model.glb
+art/meshy/mortar-team-mortar-20261002-01a0fae4/texture_*

@@ -1,0 +1,27 @@
+{
+  "frame": "glTF metres, +X forward, +Y up, +Z anatomical right; socket on the origin",
+  "elevation_deg": 60.0,
+  "tube_m": 1.22,
+  "points": {
+    "muzzle": [
+      0.6093,
+      1.2492,
+      -0.05
+    ],
+    "socket": [
+      0.0,
+      0.1411,
+      -0.0
+    ],
+    "handwheel": [
+      0.4204,
+      0.6776,
+      0.0775
+    ],
+    "plate": [
+      0.0753,
+      0.0,
+      0.017
+    ]
+  }
+}
