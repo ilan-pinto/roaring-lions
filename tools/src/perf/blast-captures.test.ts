@@ -18,8 +18,10 @@ import {
   settleScript,
   sheetIndex,
   steadyRunEnd,
+  toggleRungFor,
   unsteadySettleRefusal,
 } from './blast-captures';
+import missileImpactJson from '../../../data/vfx/missile_impact.json';
 
 describe('the ten-second ladder', () => {
   // G0 #14: "judge on 10 s of motion". 200 ms is the coarsest step at which a
@@ -328,6 +330,28 @@ describe('each layer is photographed where it is a witness (fix round 1)', () =>
     // `catastrophic_kill.light.decay_ms` is 500 and `shell_impact`'s is 380.
     expect(LAYER_FLOORS['blast-light'].toggleAtMs).toBeGreaterThan(0);
     expect(LAYER_FLOORS['blast-light'].toggleAtMs).toBeLessThan(380);
+  });
+
+  it('lets a subject move a layer\'s rung, and uses the layer\'s own otherwise', () => {
+    const ladder = [0, 50, 100, 200, 400, 1000, 2000];
+    expect(toggleRungFor('blast-light', ladder)).toBe(LAYER_FLOORS['blast-light'].toggleAtMs);
+    expect(toggleRungFor('blast-light', ladder, { toggleAtMs: { 'blast-light': 100 } })).toBe(100);
+    expect(toggleRungFor('decals', ladder, { toggleAtMs: { 'blast-light': 100 } })).toBe(LAYER_FLOORS.decals.toggleAtMs);
+  });
+
+  it('catches a kamikaze detonation\'s light inside missile_impact\'s own decay (GH-85)', () => {
+    // `missile_impact.light.decay_ms` is 200: at the layer's own 200 ms rung
+    // the light has gone out, and the A/B would read a zero that means nothing.
+    const decay = missileImpactJson.light.decay_ms;
+    const kamikaze = BLAST_SUBJECTS.filter((s) => s.mode === 'kamikaze');
+    expect(kamikaze.length).toBeGreaterThanOrEqual(2);
+    for (const s of kamikaze) {
+      expect(subjectVotesOn(s, 'blast-light'), `subject "${s.id}"`).toBe(true);
+      expect(subjectVotesOn(s, 'decals'), `subject "${s.id}"`).toBe(true);
+      const rung = toggleRungFor('blast-light', s.ladderMs ?? SAMPLE_MS, s);
+      expect(rung, `subject "${s.id}"`).toBeGreaterThan(0);
+      expect(rung, `subject "${s.id}"`).toBeLessThan(decay);
+    }
   });
 
   it('photographs the scorch after the fireball that covers it', () => {
