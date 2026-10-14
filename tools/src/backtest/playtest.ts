@@ -624,60 +624,105 @@ const wh3 = run(
 // for the same structural reason as II; `kill_amir` cannot fail on its own.
 passiveAcrossSeeds('wadi_halam_3_counterraid', 'wadi_halam_3_counterraid (no orders)', 'defeat', wh2);
 
-// IV — Wadi Halam (the village): clear the four corner cells, kill the cache
-// guard in the SE house, and get the families out. Mind the hall block --
-// nothing in this force fires ordnance heavy enough to charge it, so the
-// only ROE discipline needed is not parking a gun on top of it.
+// IV — Wadi Halam (the village): kill the cache guard in the east house, get
+// the families out, and hold the village. Mind the hall block -- nothing in
+// this force fires ordnance heavy enough to charge it, so the only ROE
+// discipline needed is not parking a gun on top of it.
 //
-// The north corners first, deliberately: any garrisoned house that comes
-// within a weapon's max range makes itself the target and an attack-mover
-// halts to trade fire with it rather than closing the distance -- so a goal
-// picked equidistant between the north and south clusters brings the south
-// cell into range while the force is still eight tiles from the actual
-// objective, and it sits there sniping a single rifleman through a wall for
-// minutes. Clearing north to south in two bounds keeps only one cluster in
-// range at a time.
-// IV's shepherd is the IFV, not the jeep. Front armour 420 and side 220
-// against every gun in this mission's roster (dshk, penetration 25) means
-// nothing here can put a scratch on it, so it can drive straight through
-// contested ground and pick every family up without the risk a lighter
-// vehicle runs of dying mid-transport and stranding its passengers for
-// good -- which is exactly what killed the jeep-shepherd version of this
-// plan before it evacuated anyone. Five transport slots covers all four
-// civilians in one circuit. The APC alone (plus the infantry) is enough
-// to clear the north side without the IFV's cannon.
+// GH-382: seven garrisoned houses strung along the terraced street. NW (15,11) on the upper
+// terrace, the middle-terrace SW (19,24), SE (33,25), the rpg_team pair mid (37,25) and far
+// (42,26), the cache house (43,20, the third rpg_team, the HVT) and NE (37,7) on the top lane.
+// The families wait by the hall (31,22), the east end of the street (36,22) and the plaza
+// (27,26); the refuge is on the road WEST (3,24), the longest walk in the mission.
+//
+// Garrison overhaul (Task 9, L-3): this plan used to level five houses by gunfire, moving up to a
+// firing step 2-3 tiles off each house's face. Cause, measured on the plan's own seeds: those
+// steps stand inside the garrisons' reach, and a garrison now fires from its window unpinned with
+// +1 range -- the SW and SE militia_cells shoot the rifle squads and the at_team dead during the
+// slow demolitions, and the mid rpg_team (37,25) kills the Eitan (and on some seeds the IFV) at
+// the (34,28)/(38,28) steps, so the sweep runs out of guns that hurt masonry before the cache
+// house falls and the 840 s clock expires (1/30 seeds, slowest win 808 s).
+//
+// So the plan fights only the house the mission needs, from outside every garrison's reach:
+// - Only the cache house has to come down (its guard is the HVT, and a man inside cannot be
+//   shot). The capture is contested only by an enemy within six tiles of a player unit INSIDE
+//   the zone (x 14-43, y 8-29), so the other six cells are left standing and the force stays
+//   out of their reach rather than demolishing them -- one house down is also ROE 94, not 70.
+// - The guns stand in the NE corner, east of the zone: the cache's nearest window is >= 7 tiles
+//   off (rpg reach 5 + 1 + 0.5) and the cache is nearer than the NE militia house, so every
+//   gun's own target choice (the nearest identified garrison) is the cache. The at_team gets
+//   the one infantry-safe tile there, (47,13): 8.9 from the NE militia's window (7 + 1 + 0.5),
+//   7.1 from the cache. It rides in the Eitan, because no route to it on foot stays out of
+//   both NW and NE rifle reach; vehicles shrug off rifles, so they take the north road.
+// - The IFV collects the three families it needs (count 3) at the hall and the plaza and never
+//   drives to (36,23): that pick-up sat 2.9 tiles from the mid rpg_team's window and on some
+//   seeds the IFV was immobilised there with the families aboard. It waits for the technicals
+//   to die first (they run for the village centre on first contact), then joins the guns.
+// - When the cache house falls the Eitan alone drives into the zone at (42.5,16.5), more than
+//   six tiles from every remaining garrison, and holds the 20 s capture clock.
 const wadiHalam4Plan: Plan = (sim, rt, ids, at) => {
   const apc = ids('apc_eitan');
   const ifv = ids('ifv_namer');
-  const infantry = [...ids('inf_squad'), ...ids('at_team')];
-  // One building at a time, and everything that can hurt masonry aimed at the
-  // same one. All four cells are garrisoned, and a garrisoned man cannot be
-  // shot -- his house has to come down -- so clearing the village is four
-  // sequential demolitions by gunfire, and splitting the force across two
-  // corners halves the rate on both.
-  const guns = [...apc, ...infantry];
-  // GH-382: seven garrisoned houses strung along the terraced street. NW (15,11) on the upper
-  // terrace, the middle-terrace SW (19,24), SE (33,25), the far east pair (42,26) and the cache
-  // house (43,20), and NE (37,7) on the top lane. The families wait by the hall (31,22), the east
-  // end of the street (40,23) and the plaza (27,26); the refuge is on the road WEST (3,24), the
-  // longest walk in the mission.
-  //
-  // The sweep is not on a fixed clock. A garrisoned house is levelled by fire from a few tiles
-  // (an `attackMove` halts at 6-7 tiles and crawls: measured 17 hp/s into a 3,120 hp house), so
-  // each stage `move`s up to a firing step 2-3 tiles off the house's face and the next stage
-  // starts when that house is down. The cache house is the one the mission needs; the rest are
-  // what stands between the column and the capture clock.
+  const atTeam = ids('at_team');
+  const st = sim.state;
+  // Garrison overhaul: the firing positions (see above). Single-unit orders, so no formation
+  // slot can drift a gun back inside a window's reach.
+  const CACHE: [number, number] = [43, 20];
+  const AT_POST: [number, number] = [47.5, 13.5];
+  const EITAN_POST: [number, number] = [45.5, 13.5];
+  const IFV_POST: [number, number] = [46.5, 13.5];
+  const HOLD: [number, number] = [42.5, 16.5];
+  // Garrison overhaul: vehicles run the north road, out of every rpg_team's reach (the only
+  // threat to them here); the two militia houses it passes cannot hurt armour.
+  const northRoad = (who: number[], to: [number, number]): void => {
+    sim.queueCommand({ kind: 'move', ids: who, ...M(9.5, 15.5) });
+    sim.queueCommand({ kind: 'move', ids: who, ...M(24.5, 13.5), append: true });
+    sim.queueCommand({ kind: 'move', ids: who, ...M(31.5, 11.5), append: true });
+    sim.queueCommand({ kind: 'move', ids: who, ...M(41.5, 11.5), append: true });
+    sim.queueCommand({ kind: 'move', ids: who, ...M(to[0], to[1]), append: true });
+  };
   at(0, () => {
-    sim.queueCommand({ kind: 'move', ids: guns, ...M(20, 27) });
     sim.queueCommand({ kind: 'move', ids: ifv, ...M(31, 23) });
+    // Garrison overhaul: the at_team rides to its post (no foot route avoids the rifles).
+    sim.queueCommand({ kind: 'load', ids: atTeam, carrier: apc[0] });
   });
-  at(30, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(36, 23) }));
-  at(55, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(27, 27) }));
-  at(80, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(3, 24) }));
-  // A shepherd that cannot move any more puts its passengers down to walk west, and the jeep
-  // (which otherwise waits on the road all mission) runs the circuit in its place
+  at(5, () => northRoad(apc, AT_POST));
+  let unloaded = false;
+  for (let when = 10; when <= 300; when += 1)
+    at(when, () => {
+      if (unloaded || apc.length === 0 || st.alive[apc[0]] !== 1) return;
+      if (Math.abs(st.posX[apc[0]] / 65536 - AT_POST[0]) > 0.8 || Math.abs(st.posY[apc[0]] / 65536 - AT_POST[1]) > 0.8) return;
+      unloaded = true;
+      sim.queueCommand({ kind: 'unload', ids: apc });
+      at(when + 3, () => sim.queueCommand({ kind: 'move', ids: apc, ...M(EITAN_POST[0], EITAN_POST[1]) }));
+    });
+  // Garrison overhaul: three families is the count; the IFV leaves the hall once the
+  // technicals are dead (or at 60 s) and never stops beside the mid rpg_team's house.
+  let leftHall = false;
+  for (let when = 20; when <= 120; when += 1)
+    at(when, () => {
+      if (leftHall) return;
+      let technicals = false;
+      for (let i = 0; i < sim.entityCount; i++)
+        if (st.alive[i] === 1 && st.side[i] === 1 && sim.unitTypes[st.typeIdx[i]].id === 'technical') technicals = true;
+      if (technicals && when < 60) return;
+      leftHall = true;
+      sim.queueCommand({ kind: 'move', ids: ifv, ...M(3, 24) });
+    });
+  // Garrison overhaul: the IFV's autocannon is the heaviest gun here; it joins the corner once
+  // the families are in.
+  let ifvFree = false;
+  for (let when = 30; when <= 300; when += 1)
+    at(when, () => {
+      if (ifvFree || rt.objectiveStatus('evac_families') === 'active') return;
+      ifvFree = true;
+      sim.queueCommand({ kind: 'unload', ids: ifv });
+      northRoad(ifv, IFV_POST);
+    });
   // 400 logistics and 80 a minute were never spent: rifles are bought as they come.
   for (let when = 1; when <= 400; when += 10) at(when, () => void rt.requestBuild('inf_squad'));
+  // A shepherd that cannot move any more puts its passengers down to walk west, and the jeep
+  // (which otherwise waits on the road all mission) runs the circuit in its place
   let stranded = false;
   for (let when = 10; when <= 290; when += 5)
     at(when, () => {
@@ -690,35 +735,15 @@ const wadiHalam4Plan: Plan = (sim, rt, ids, at) => {
       sim.queueCommand({ kind: 'move', ids: jeep, ...M(27, 27), append: true });
       sim.queueCommand({ kind: 'move', ids: jeep, ...M(3, 24), append: true });
     });
-  const stages: { house: [number, number]; stand: [number, number] }[] = [
-    { house: [19, 24], stand: [20, 27] },
-    { house: [33, 25], stand: [34, 28] },
-    { house: [37, 25], stand: [38, 28] },
-    { house: [42, 26], stand: [43, 29] },
-    { house: [43, 20], stand: [44, 23] },
-  ];
-  let stage = 0;
-  let finished = false;
-  for (let when = 10; when <= 800; when += 5) {
+  // Garrison overhaul: the capture clock starts when the cache house is down, held by the
+  // Eitan alone at a tile more than six from every garrison still standing.
+  let holding = false;
+  for (let when = 10; when <= 830; when += 1)
     at(when, () => {
-      const cur = stages[stage];
-      if (cur && sim.structureAt(cur.house[0], cur.house[1]) < 0) {
-        stage++;
-        const next = stages[stage];
-        // The IFV's autocannon is the heaviest thing here, so it joins the sweep once its
-        // circuit is done (80 s + the run west + the run back).
-        // Rifles bought on the road join the sweep at the next house.
-        for (const b of ids('inf_squad')) if (!guns.includes(b)) guns.push(b);
-        const all = when >= 170 ? [...guns, ...ifv] : guns;
-        if (next) sim.queueCommand({ kind: 'move', ids: all, ...M(next.stand[0], next.stand[1]) });
-      }
-      if (stage >= stages.length && !finished) {
-        finished = true;
-        // Consolidate for the capture clock once the houses are down.
-        sim.queueCommand({ kind: 'attackMove', ids: [...guns, ...ifv], ...M(34, 24) });
-      }
+      if (holding || sim.structureAt(CACHE[0], CACHE[1]) >= 0) return;
+      holding = true;
+      sim.queueCommand({ kind: 'move', ids: apc, ...M(HOLD[0], HOLD[1]) });
     });
-  }
 };
 
 const wh4 = run('wadi_halam_4_village', wadiHalam4Plan, wh3);
@@ -1593,6 +1618,23 @@ const deirAmun2Plan: Plan = (sim, rt, ids, at) => {
   at(35, () => sim.queueCommand({ kind: 'chargeTunnel', ids: yahalom, tunnel: 0 }));
   at(50, () => sim.queueCommand({ kind: 'move', ids: yahalom, ...M(24, 40) }));
 
+  // Garrison overhaul (Task 9, L-3). Cause: the militia_cell garrisoned in the concrete pump
+  // house (17,27) shoots the Yahalom teams at the mouth from its window 3-4 tiles away (41
+  // rifle hits on seed 4, both teams routed or dead before the 8 s charge completes), and no
+  // weapon here brings that house down before ~125 s. So the mouth is SCREENED instead: a
+  // chain of smoke on (14,30), laid every eight or nine seconds from the Yahalom's approach
+  // through the end of the charge by units already there. Each screen blocks the window's line
+  // for ~5 s and thins it for ~13 s, and the next tops the tiles back up. That spot covers the
+  // lower half of every line from the house to the spoil, the only half a plume two levels
+  // tall can stop from an eye two floors up (G3).
+  const screens: [number, number[]][] = [
+    [15, yahalom.slice(0, 1)],
+    [24, yahalom.slice(1, 2)],
+    [32, eitan.slice(0, 1)],
+    [40, eitan.slice(1, 2)],
+  ];
+  for (const [when, who] of screens) at(when, () => sim.queueCommand({ kind: 'smoke', ids: who, ...M(14, 30) }));
+
   // Once the door is down, split the holding force: two at the gate, the
   // rest at the interior, so one kamikaze cannot reach everyone at once.
   at(55, () => {
@@ -2328,17 +2370,40 @@ const ledUZ1 = run(
       // and boarding the jeep's two free seats.
       sim.queueCommand({ kind: 'move', ids: jeep, ...M(15, 35) });
     });
-    at(12, () => {
-      // Two families are aboard by now; drive them into the wadi. The third
-      // stays at the wells -- "nothing else out there is worth the jeep."
-      sim.queueCommand({ kind: 'move', ids: jeep, ...M(23, 37) });
-    });
+    // Two families aboard: drive them into the wadi. The third stays at the
+    // wells -- "nothing else out there is worth the jeep."
+    // Garrison overhaul: the knoll garrison now suppresses the jeep from the shed
+    // window (cover 3, +1 tile) while it waits at the wells, and at max tier it was
+    // pinned 0.7 tiles short of `refuge_wadi` on seeds 1, 4 and 6 (evacuation
+    // failed). It leaves as soon as both families ride instead of at a fixed 12 s
+    // (by 12 s at the latest, as before).
+    let jeepGone = false;
+    for (let w = 5; w <= 12; w += 0.5)
+      at(w, () => {
+        if (jeepGone) return;
+        let riders = 0;
+        for (let c = 0; c < sim.entityCount; c++) if (sim.state.alive[c] === 1 && sim.state.carriedBy[c] === jeep[0]) riders++;
+        if (riders < 2 && w < 12) return;
+        jeepGone = true;
+        sim.queueCommand({ kind: 'move', ids: jeep, ...M(23, 37) });
+      });
     // Loop south of the knoll's own 8.5-tile bubble, then east along the
     // bottom of the basin, to the east stand-off -- 8.5 tiles from
     // `uz_eye_east` and, measured, outside both MANPADs' envelopes the
     // whole way there.
-    at(30, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(30, 42) }));
-    at(45, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(40.5, 31.5) }));
+    //
+    // Garrison overhaul (UZ1 cause): since B2 the knoll's `sarim_rifles` really sits
+    // in the shed at (21-22,33) and fires from its window with GARRISON_RANGE_BONUS,
+    // reach 8 + 1 tiles; the old straight leg (15.5,30.5) -> (30,42) passed 1.5 tiles
+    // from that window and the drone was shot down at ~33 s on 30/30 seeds, so the
+    // missile-team look never happened and `find_the_missile_team` rested on the
+    // ground force bumping into the post (missed on seed 23: 2 stars, kipod gate
+    // late). The loop now runs south-west first, then along y=45, every point >= 9.5
+    // tiles (reach + 0.5) from the window.
+    at(30, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(9, 40) }));
+    at(36, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(12, 45) }));
+    at(39, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(31, 45) }));
+    at(48, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(40.5, 31.5) }));
     // `find_the_missile_team` is the one target this route never crosses --
     // its own briefing line says the drone gets one look at that envelope,
     // and every other waypoint above is built to stay outside it. Measured
@@ -2357,8 +2422,13 @@ const ledUZ1 = run(
     // life" reading and not this leg's. This is the one waypoint of the
     // route that trades the standoff discipline above for the one crossing
     // the mission's own briefing promises.
-    at(70, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(30.5, 29.5) }));
-    at(76, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(30, 42) }));
+    // Garrison overhaul (UZ1 cause above): (30.5,29.5) is 8.9 tiles from the knoll
+    // shed's window, inside its 9-tile reach, so the look moves east to (32,30.5)
+    // (10.0 from the window, 8.9 from `uz_eye_east`, 8.1 from the missile team) and the
+    // way back runs down to y=44.5 rather than past the shed to (30,42). Measured over
+    // 30 seeds: the missile team is identified at ~74 s on every seed.
+    at(70, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(32, 30.5) }));
+    at(76, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(31, 44.5) }));
     // Only the crest is left. Loop back through the same southern corridor
     // and up the far-western column, which measures outside `manpad_north`'s
     // 13-tile envelope for its entire length -- the reverse of the design
@@ -2376,7 +2446,9 @@ const ledUZ1 = run(
     // 19.55s. The whole detour above delays this leg's own arrival past
     // where the shipped route used to reach it, so the extra margin is what
     // keeps this waypoint honest rather than merely lucky on the clock.
-    at(110, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(10, 40) }));
+    // Garrison overhaul (UZ1 cause above): (30,42) -> (10,40) passed 7.8 tiles from the
+    // knoll shed's window; the leg west runs along y=44.5 (11 tiles) instead.
+    at(110, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(10, 44.5) }));
     at(125, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(3, 25) }));
     at(133, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(4, 6) }));
     // The drone is down (or its tour is over) and a post is still to find: the ground force, otherwise
@@ -2527,6 +2599,30 @@ const ummZeitoun3Plan: Plan = (sim, rt, ids, at) => {
   // Families that board the second Eitan ride wherever it goes, so it is ordered to the wadi once
   // they are aboard (a `move`, which does not chase) instead of being left on its attackMove.
   at(25, () => sim.queueCommand({ kind: 'move', ids: apcs.slice(1), ...M(23, 37) }));
+  // Garrison overhaul (B2): the two hamlet rifles now really sit in (18,20) and (26,19) and come out
+  // at their doors when the zone trigger fires, so on four seeds of thirty they killed the lone
+  // street squad before it came within 4 tiles of the south families (25.5-28,22.5); the second
+  // Eitan, idle at the wadi, still counted as the street party, so the relief below never fired and
+  // only three families were out at 300 s. The Eitan goes back for whoever is still in the hamlet:
+  // (24.5,23.5) is within 4 tiles of all three south families and 10 or more from both ambush ATGM
+  // posts, and rifles do not hurt it. A hull with live riders drives them to the wadi. Riders are
+  // counted, not `passengerCount`, which keeps the families already collected at the wadi.
+  const shuttle = apcs.slice(1);
+  for (let when = 40; when <= 280; when += 5)
+    at(when, () => {
+      if (rt.objectiveStatus('get_the_hamlet_out') !== 'active') return;
+      const hull = shuttle.find((i) => sim.state.alive[i] === 1 && sim.state.mobilityKilled[i] !== 1);
+      if (hull === undefined) return;
+      let riding = false;
+      let waiting = false;
+      for (let c = 0; c < sim.entityCount; c++) {
+        if (sim.state.alive[c] !== 1 || sim.unitTypes[sim.state.typeIdx[c]].id !== 'civilians') continue;
+        if (sim.state.carriedBy[c] === hull) riding = true;
+        else if (sim.state.carriedBy[c] < 0 && sim.state.posY[c] < fx.from(30)) waiting = true;
+      }
+      if (riding) sim.queueCommand({ kind: 'move', ids: [hull], ...M(23, 37) });
+      else if (waiting) sim.queueCommand({ kind: 'move', ids: [hull], ...M(24.5, 23.5), exact: true });
+    });
   // GH-382: a flank that has lost its party is not left to the clock. Whatever still stands, the drone
   // aside, is sent to the post still alive (one seed of twelve left the west horn standing for twenty
   // minutes when its four bodies died and nobody was told).
@@ -2685,27 +2781,50 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
   at(50, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(33.5, 8.5) }));
   // GH-382: each party takes the first of its own list still standing, re-sent every 15 s, so a party
   // that dies on the shelf hands its door to the other instead of leaving it standing at the deadline.
+  // Garrison overhaul (B2, task 9). Cause: the sarim_rifles in the warehouse (30,4) now really sits
+  // inside it, so it is a contact the yard check below never clears; the parties waited to the old
+  // 200 s fallback and then walked onto its door inside its window's reach (rifles 8 + 1 from inside)
+  // and died there (424242: demo_squad#10 killed by the garrison at 225 s), while the escort's
+  // attack-move halted at y=15 to duel it from ~10 tiles, where a Lavi's gun hits masonry about once
+  // a minute, so the warehouse stood until 272 s and the stockpile was not down at 300 s (10/30).
+  // A man inside dies only with his building, and no party can stand off it (every door is within
+  // 6 tiles of a warehouse window). So the guns take the warehouse down and the parties take the
+  // other two. Party 0 now starts at the shed (34,9), the nearer door from the ramp, because the
+  // warehouse is normally rubble by the time either party moves.
   const doors: [number, number][][] = [
-    [[30, 4], [36, 3], [34, 9]],
+    [[34, 9], [30, 4], [36, 3]],
     [[36, 3], [30, 4], [34, 9]],
   ];
   // Since a hit suppresses (2026-10-13) a demolition party that walks onto the shelf while the depot's
   // garrison still stands is pinned at the first door and dies there: on seed 2 the parties overtook
   // an escort halted at y=17-21 and both were dead by t=115, the stockpile untouched. So the parties
-  // wait behind the escort at (33,22) until the player's own picture says the yard is his: armour
-  // standing in it, and nothing he has seen still standing around the doors. If that has not
-  // happened by t=200 they go anyway -- the clock is 300 s.
+  // wait behind the escort until the player's own picture says the yard is his: armour standing in
+  // it, and nothing he has seen still standing around the doors -- which, with the warehouse
+  // garrisoned, means the warehouse is down.
   const DEPOT = [26, 1, 15, 14] as const;
   const yardHeld = (): boolean =>
     depotEscort.some((u) => sim.state.alive[u] === 1 && (fx.toNumber(sim.state.posX[u]) - 33) ** 2 + (fx.toNumber(sim.state.posY[u]) - 8) ** 2 <= 25);
+  // Garrison overhaul (B2): the warehouse, and whether the player has seen an anti-armour gun still
+  // standing in the yard proper (x > 27.5, y < 14; an ATGM that has slipped west into the ravine at
+  // x 26 cannot see the yard and kept the armour out until 220 s on seed 13 when it counted).
+  const warehouse = (): number => sim.structureAt(30, 4);
+  const yardGuns = (): boolean =>
+    [...pic.identified('recoilless_team'), ...pic.identified('atgm_cell')].some((c) => c.y < 14 && c.x > 27.5);
   for (let when = 45; when <= 285; when += 5)
     at(when, () => {
       if (rt.objectiveStatus('raze_the_stockpile') !== 'active') return;
-      const go = (yardHeld() && pic.contacts(DEPOT).length === 0) || when >= 200;
+      // Garrison overhaul (B2): the fallback moves from 200 to 250 s. At 200 the warehouse was still
+      // standing on most seeds and the parties walked into its reach; the guns now drop it by 215 s
+      // at the latest (30 seeds, every row), and two doors take a party 25 s from the ramp.
+      const go = (yardHeld() && pic.contacts(DEPOT).length === 0) || when >= 250;
       demo.forEach((u, k) => {
         if (sim.state.alive[u] !== 1) return;
         if (!go) {
-          if (when % 15 === 0) sim.queueCommand({ kind: 'move', ids: [u], ...M(32.5 + k, 22) });
+          // Garrison overhaul (B2): once the yard's guns are gone the parties wait on the ramp at
+          // y=15.5, 10 tiles from the nearest warehouse window (reach 8 + 1 + 0.5), 6.5 tiles
+          // nearer the doors than (33,22), so they are at work soon after the warehouse falls.
+          const stage: [number, number] = when < 100 || yardGuns() ? [32.5 + k, 22] : [33.5 + k, 15.5];
+          if (when % 15 === 0) sim.queueCommand({ kind: 'move', ids: [u], ...M(...stage) });
           return;
         }
         if (when % 15 !== 0 && sim.state.moving[u] === 1) return;
@@ -2716,7 +2835,27 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
   // The escort holds the depot: an attackMove does not stop at its destination while a contact is
   // still ahead, and a Lavi that has chased a picket off the shelf leaves the parties under the
   // first wave. Re-anchored on the yard every 30 s.
-  for (let when = 60; when <= 280; when += 30) at(when, () => { if (rt.objectiveStatus('raze_the_stockpile') === 'active') sim.queueCommand({ kind: 'attackMove', ids: depotEscort, ...M(33, 8) }); });
+  // Garrison overhaul (B2): from 100 s, once no anti-armour gun is seen in the yard, the armour and
+  // the Namer drive INTO the yard with a plain `move` (an attack-move halts at y=15 for the warehouse
+  // garrison) and shoot the warehouse from 3-5 tiles, where its rifles cannot hurt them. Measured on
+  // 30 seeds and every row: the warehouse falls at 152-215 s (272 s on 424242 before, after the
+  // deadline on most seeds). The Namer's cannon is the second gun that hurts masonry (1,090 of the
+  // warehouse's 3,060 on seed 4 at max tier) and carries no heavy collateral, so it costs no ROE
+  // beside the porters. The spots stay off the porters' way to the shelf (x 32-34, y 2-7): a Lavi
+  // parked at (33.5,6.5) blocked one, which then walked along the warehouse wall for 40 s under the
+  // Lavis' guns (seed 19 bought: ROE 64, one star).
+  const yardSpots: [number, number][] = [[30.5, 8.5], [32.5, 9.5], [33.5, 10.5], [36.5, 8.5], [31.5, 10.5]];
+  const closers = [...depotEscort, ...ids('ifv_namer')];
+  for (let when = 60; when <= 280; when += 10)
+    at(when, () => {
+      if (rt.objectiveStatus('raze_the_stockpile') !== 'active') return;
+      if (warehouse() >= 0 && when >= 100 && !yardGuns()) {
+        closers.forEach((u, k) => {
+          const spot = yardSpots[k];
+          if (spot && sim.state.alive[u] === 1) sim.queueCommand({ kind: 'move', ids: [u], ...M(...spot), exact: true });
+        });
+      } else if (when % 30 === 0) sim.queueCommand({ kind: 'attackMove', ids: depotEscort, ...M(33, 8) });
+    });
   // The stockpile is down, so everything left goes for Adhal: the nearest hostile the player has seen,
   // else the crest. Since #537 the escort no longer walks on from the yard by itself, and three seeds
   // of thirty ended with Adhal's party alive and the armour parked 22 tiles away.
@@ -2736,7 +2875,9 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
   at(90, () => {
     sim.queueCommand({
       kind: 'attackMove',
-      ids: [...ids('at_team'), ...ids('mortar_team'), ...ids('sniper_team'), ...ids('inf_squad'), ...ids('ifv_namer')],
+      // Garrison overhaul (B2): the Namer stays at the depot to shoot the warehouse (above); it joins
+      // the push for Adhal with everything else once the stockpile is down.
+      ids: [...ids('at_team'), ...ids('mortar_team'), ...ids('sniper_team'), ...ids('inf_squad')],
       ...M(17, 7),
     });
   });
@@ -3428,7 +3569,19 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // the old script read 249 on the new model. The other three re-plans (Qarn Hadid III, Khan Rafid
 // III, Wadi Halam V) leave the pinned seed's credits where the model put them. No star moved, and
 // every gate opens on time on 30/30 seeds.
-const LADDER_CREDITS = 6025;
+// 2026-10-14, the garrison overhaul (a garrison fires from its windows, reaches further and sees
+// from its floor; sarim_rifles can garrison): 6025 -> 5940, -85, read off the printed per-mission
+// credits (10 a surviving unit, plus ROE):
+// - Wadi Halam IV 170 -> 204: the plan now levels only the cache house from the NE corner, ROE 94
+//   (was 70) with no unit lost; Wadi Halam V 190 -> 210: roster out 18 -> 19, following that ledger;
+// - Beit Sahwan IV 200 -> 144: ROE 100 -> 94 and roster out 19 -> 14 against the garrisons there;
+// - Khan Rafid III 260 -> 236: ROE 90 -> 86, roster out 14 -> 12;
+// - Deir Amun II 257 -> 217: roster out 15 -> 11 (the plan smokes the pump house for the tunnel charge);
+// - Qarn Hadid II 210 -> 190: its Sarim rifles now garrison and shoot back, roster out 17 -> 15;
+// - Qarn Hadid III 235 -> 216: ROE 100 -> 91, roster out 23 -> 22, find_the_grove_post left open;
+// - Umm Zeitoun IV 245 -> 265: the plan drives in on the warehouse once no AT gun is seen, roster out 31 -> 33.
+// Every plan, control and gate holds on 30 seeds; no star moved.
+const LADDER_CREDITS = 5940;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
@@ -3563,7 +3716,11 @@ for (const [label, got, want] of [
 // 2026-10-13, #584 (hits, bounces and splash suppress; harmless bounces; SUPP_STAT_DIVISOR 730) and
 // Umm Zeitoun IV's re-plan: 30 -> 31, same mission. The model alone read 32 there; the re-planned
 // script, whose parties wait behind the armour, brings 31 home.
-const ROSTER_MAX = 31;
+// 2026-10-14, the garrison overhaul: 31 -> 33, same mission. Umm Zeitoun IV's plan now drives the
+// escort into the yard once no AT gun is seen and shoots the warehouse down from 3-5 tiles (the
+// sarim_rifles inside it kill sapper parties at the door), so the stockpile falls by 215 s and two
+// more of the chain's units come home.
+const ROSTER_MAX = 33;
 console.log(`roster maximum: ${rosterMax} at ${rosterMaxMissionId}`);
 if (rosterMax !== ROSTER_MAX) {
   console.error(`roster maximum: FAILED — expected ${ROSTER_MAX}, got ${rosterMax} at ${rosterMaxMissionId}`);
