@@ -7,7 +7,8 @@ import type { ClientMsg, ServerMsg, SocketLike } from '@lions/net';
 import type { MatchWorld } from '../../../packages/app/src/net/match-world';
 import { AgentClient } from './agent-client';
 import { createContext, toolsFor, TOOLS, type Scope, type ToolContext, type ToolResult } from './mcp-tools';
-import { ROOM_BUILD, ROOM_CODE, ROOM_NOW, newRoom, play, type Loop } from './test-room';
+import { ROOM_BUILD, ROOM_CODE, ROOM_MAP, ROOM_NOW, newRoom, play, type Loop } from './test-room';
+import { versusConfig } from './test-config';
 
 beforeEach(() => { vi.useFakeTimers({ now: ROOM_NOW }); });
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks(); });
@@ -300,6 +301,45 @@ describe('a paced room and end_round (the done ruling)', () => {
     await room.loop.flush();
     expect(sentBy(room.loop, bot)).toContainEqual({ t: 'done', round: 0 });
     expect(body(await call(ctx, 'end_round')).error).toBe('round not finished');
+  });
+});
+
+describe('a paced round the room released on wall time', () => {
+  // The room's own config buffers 2 frames, which hides a mid-round client
+  // from "every frame received has run" in steady flow; with no buffer it is
+  // reached on every frame, so the round test cannot lean on `behind()`.
+  it('mid-round with every received frame run, wait answers ticks and status does not claim the room waits on this seat', async () => {
+    const PACE = { kind: 'paced', roundTicks: 20, roundWallMs: 5000 } as const;
+    const config = { ...versusConfig(ROOM_MAP, { pace: PACE, kinds: ['human', 'bot'] }), bufferTicks: 0 };
+    let onmessage: ((e: { data: string }) => void) | null = null;
+    const sock: SocketLike = {
+      onopen: null, onclose: null, send: () => {}, close: () => {},
+      get onmessage() { return onmessage; },
+      set onmessage(f) { onmessage = f; },
+    };
+    const recv = (m: unknown): void => { onmessage?.({ data: JSON.stringify(m) }); };
+    const client = new AgentClient({ server: 'https://room.test', code: ROOM_CODE, ticket: 't', build: ROOM_BUILD, role: 'seat', seat: 1, log: () => {}, open: () => sock });
+    sock.onopen?.({});
+    recv({ t: 'lobby', config: null, you: 1, map: ROOM_MAP, seats: [{ seat: 0, callsign: 'c0', connected: true, ready: true }, { seat: 1, callsign: 'c1', connected: true, ready: false }] });
+    recv({ t: 'start', config });
+    await client.ready;
+    const ctx = createContext(client, 'command');
+    // Round 0 is never ended: the room released it on wall time and round 1 is under way.
+    for (let tick = 0; tick < 25; tick++) recv({ t: 'frame', tick, cmds: [] });
+    client.pump(40);
+    expect(client.tick()).toBe(25);
+    expect(client.transport.behind()).toBe(0);
+    expect(body(await call(ctx, 'status')).round).toMatchObject({ index: 1, finished: 0, awaitingEndRound: false });
+    const waiting = call(ctx, 'wait', { ticks: 3 });
+    for (let tick = 25; tick < 28; tick++) recv({ t: 'frame', tick, cmds: [] });
+    client.pump(40);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(body(await waiting)).toMatchObject({ reason: 'ticks', ran: 3, tick: 28 });
+    // At the round's boundary the room does wait on it.
+    for (let tick = 28; tick < 40; tick++) recv({ t: 'frame', tick, cmds: [] });
+    client.pump(40);
+    expect(body(await call(ctx, 'status')).round).toMatchObject({ index: 2, finished: 1, awaitingEndRound: true });
+    expect(body(await call(ctx, 'wait', { ticks: 10 }))).toMatchObject({ reason: 'round', tick: 40 });
   });
 });
 

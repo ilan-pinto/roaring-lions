@@ -116,14 +116,18 @@ function over(ctx: ToolContext): boolean {
 }
 
 /** In a paced room, the round this seat's frames have run to and whether the
- *  room is waiting on this seat's `end_round`: every frame of a round newer
- *  than its last `done` has run, and nothing more has arrived. */
+ *  room is waiting on this seat's `end_round`: this seat sits exactly on a
+ *  round's boundary, every frame of a round newer than its last `done` has
+ *  run, and nothing more has arrived. The boundary matters: a round the room
+ *  released on wall time leaves `finished` ahead of `done` for the whole of
+ *  the next round, and the room waits on nobody in the middle of one. */
 function roundOf(ctx: ToolContext): { index: number; ticks: number; doneRound: number; finished: number; awaitingEndRound: boolean } | null {
   const pace = ctx.client.config()?.pace;
   if (pace?.kind !== 'paced') return null;
   const tick = ctx.client.tick();
   const finished = Math.floor(tick / pace.roundTicks) - 1;
-  const awaitingEndRound = ctx.scope === 'command' && finished > ctx.doneRound && ctx.client.transport.behind() === 0 && !over(ctx);
+  const awaitingEndRound = ctx.scope === 'command' && tick % pace.roundTicks === 0 && finished > ctx.doneRound
+    && ctx.client.transport.behind() === 0 && !over(ctx);
   return { index: Math.floor(tick / pace.roundTicks), ticks: pace.roundTicks, doneRound: ctx.doneRound, finished, awaitingEndRound };
 }
 
