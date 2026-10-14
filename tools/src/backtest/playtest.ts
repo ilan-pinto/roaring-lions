@@ -3716,7 +3716,11 @@ for (const [label, got, want] of [
 // 2026-10-13, #584 (hits, bounces and splash suppress; harmless bounces; SUPP_STAT_DIVISOR 730) and
 // Umm Zeitoun IV's re-plan: 30 -> 31, same mission. The model alone read 32 there; the re-planned
 // script, whose parties wait behind the armour, brings 31 home.
-const ROSTER_MAX = 31;
+// 2026-10-14, the garrison overhaul: 31 -> 33, same mission. Umm Zeitoun IV's plan now drives the
+// escort into the yard once no AT gun is seen and shoots the warehouse down from 3-5 tiles (the
+// sarim_rifles inside it kill sapper parties at the door), so the stockpile falls by 215 s and two
+// more of the chain's units come home.
+const ROSTER_MAX = 33;
 console.log(`roster maximum: ${rosterMax} at ${rosterMaxMissionId}`);
 if (rosterMax !== ROSTER_MAX) {
   console.error(`roster maximum: FAILED — expected ${ROSTER_MAX}, got ${rosterMax} at ${rosterMaxMissionId}`);
