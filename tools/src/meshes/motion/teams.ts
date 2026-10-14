@@ -62,6 +62,9 @@ export interface MotionTeam {
    *  `formation`. Needs every figure listed, and a team with a shared `prop`
    *  bone cannot be split per figure, so it stays one player. */
   readonly squad?: boolean;
+  /** The crew-served gunner seated on the gun, and the team's `fire`
+   *  (`motion/crew-fire.ts`): atgm_cell and mortar_crew. */
+  readonly crewFire?: boolean;
   /** The unit's `mobility.speed_tiles_s` (pinned against the JSON by test). */
   readonly speedTiles: number;
 }
@@ -145,8 +148,9 @@ export const MOTION_TEAMS: Record<string, MotionTeam> = {
     hold: true, kneel: true, formation: false, stride: true, ground: true, speedTiles: 0.9,
   },
   // The crew-served teams' walkers (`*w`, D6): they march between positions.
-  atgm_cell: { figures: [], hold: false, kneel: false, formation: false, stride: true, ground: true, speedTiles: 0.7 },
-  mortar_crew: { figures: [], hold: false, kneel: false, formation: false, stride: true, ground: true, speedTiles: 0.6 },
+  // Unit polish (14 Oct): the gunner on the gun, and a `fire` (`crew-fire.ts`).
+  atgm_cell: { figures: [], hold: false, kneel: false, formation: false, stride: true, ground: true, crewFire: true, speedTiles: 0.7 },
+  mortar_crew: { figures: [], hold: false, kneel: false, formation: false, stride: true, ground: true, crewFire: true, speedTiles: 0.6 },
   digger_crew: { figures: [], hold: false, kneel: false, formation: false, stride: true, ground: true, speedTiles: 0.5 },
   // Ground only (ground-debt, 6 Oct): neither was through this pass before.
   // The sniper's walk is rig.py's pendulum, kept as it is -- it gains ankles

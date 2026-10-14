@@ -150,6 +150,7 @@ import rpgBackblast from '../../../data/vfx/rpg_backblast.json';
 import fireHmg from '../../../data/vfx/fire_hmg.json';
 import fireMissile from '../../../data/vfx/fire_missile.json';
 import fireMortar from '../../../data/vfx/fire_mortar.json';
+import mortarBaseDust from '../../../data/vfx/mortar_base_dust.json';
 import fireSmallArms from '../../../data/vfx/fire_small_arms.json';
 import missileImpact from '../../../data/vfx/missile_impact.json';
 import missileTrail from '../../../data/vfx/missile_trail.json';
@@ -452,6 +453,9 @@ export const vfxEmitters = [
   rpgBackblast,
   fireMissile,
   fireMortar,
+  // Unit polish (14 Oct): a mortar's baseplate slamming dust up on the shot,
+  // thrown at mortar_crew's measured baseplate (`rl_fire.base`); by id.
+  mortarBaseDust,
   missileTrail,
   // A Grad rocket's smoke, laid along its arc through the missile trail's
   // lifted pool (GH-85): looked up by id, not by weapon class.

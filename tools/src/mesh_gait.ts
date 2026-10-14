@@ -2314,6 +2314,97 @@ export function measureHold(path: string, clip: string, prefix: string): HoldRea
   return { handGapM: handGap, eyeAboveBoreMin: eyeLo, eyeAboveBoreMax: eyeHi, instants };
 }
 
+/**
+ * A crew-served gunner ON the gun (unit polish, 14 Oct): his eye's and his
+ * hands' distance to the weapon on the team's `prop` bone, the worst over
+ * `SAMPLES_HOLD` instants of a clip. The eye is the centroid of his `face`
+ * vertices on `${prefix}_head`; a hand is the far tenth of his forearm's own
+ * vertices (`measureHold`'s rule). Distances are to the NEAREST weapon
+ * vertex -- read off the bytes, never off the pass's own measured points.
+ */
+export interface CrewOnGunReading {
+  readonly eyeM: number;
+  readonly handM: { readonly L: number; readonly R: number };
+  readonly instants: number;
+}
+
+export function measureCrewOnGun(path: string, clip: string, prefix: string): CrewOnGunReading {
+  const glb = readGlb(path);
+  const nodes = glb.json.nodes ?? [];
+  const meshes = glb.json.meshes ?? [];
+  const names = nodes.map((n) => n.name ?? '');
+  const { tracks, start, end } = readClip(glb, clip);
+  type Pick = { pos: Accessor; joints: Accessor; weights: Accessor; skin: { joints: number[] }; ibm: Accessor | null; idx: Map<string, number[]> };
+  const picks: Pick[] = [];
+  nodes.forEach((n) => {
+    if (n.mesh === undefined || n.skin === undefined) return;
+    const mesh = meshes[n.mesh];
+    const role = ((n as { extras?: { rl_role?: string } }).extras?.rl_role ?? mesh.name ?? '') as string;
+    const skin = glb.json.skins![n.skin];
+    for (const prim of mesh.primitives) {
+      const pick: Pick = {
+        pos: readAccessor(glb, prim.attributes.POSITION),
+        joints: readAccessor(glb, prim.attributes.JOINTS_0),
+        weights: readAccessor(glb, prim.attributes.WEIGHTS_0),
+        skin,
+        ibm: skin.inverseBindMatrices === undefined ? null : readAccessor(glb, skin.inverseBindMatrices),
+        idx: new Map(),
+      };
+      for (let i = 0; i < pick.pos.count; i++) {
+        let b = 0;
+        for (let k = 1; k < 4; k++) if (pick.weights.data[i * 4 + k] > pick.weights.data[i * 4 + b]) b = k;
+        const jn = names[skin.joints[pick.joints.data[i * 4 + b]]];
+        let key: string | null = null;
+        if (role === 'weapon' && jn === 'prop') key = 'weapon';
+        else if (role === 'face' && jn === `${prefix}_head`) key = 'face';
+        else if (role !== 'weapon' && role !== 'metal' && (jn === `${prefix}_forearm_L` || jn === `${prefix}_forearm_R`)) key = jn;
+        if (!key) continue;
+        if (!pick.idx.has(key)) pick.idx.set(key, []);
+        pick.idx.get(key)!.push(i);
+      }
+      if (pick.idx.size) picks.push(pick);
+    }
+  });
+  let eyeM = 0;
+  const handM = { L: 0, R: 0 };
+  let instants = 0;
+  const nearest = (c: number[], pts: [number, number, number][]): number => {
+    let best = Infinity;
+    for (const w of pts) best = Math.min(best, Math.hypot(w[0] - c[0], w[1] - c[1], w[2] - c[2]));
+    return best;
+  };
+  for (let s = 0; s < SAMPLES_HOLD; s++) {
+    const t = start + ((end - start) * s) / Math.max(1, SAMPLES_HOLD - 1);
+    const worlds = nodeWorlds(glb, tracks, t);
+    const pts = new Map<string, [number, number, number][]>();
+    for (const p of picks) {
+      const mats = computeSkinMats(p.skin, worlds, p.ibm);
+      for (const [k, idx] of p.idx) {
+        if (!pts.has(k)) pts.set(k, []);
+        for (const i of idx) pts.get(k)!.push(skinPoint(p.pos, p.joints, p.weights, i, mats));
+      }
+    }
+    const weapon = pts.get('weapon') ?? [];
+    const face = pts.get('face') ?? [];
+    if (weapon.length < 100 || face.length < 8) throw new Error(`${path} ${clip}: ${weapon.length} weapon / ${face.length} face vertices`);
+    instants++;
+    const eye = [0, 1, 2].map((k) => face.reduce((a, q) => a + q[k], 0) / face.length);
+    eyeM = Math.max(eyeM, nearest(eye, weapon));
+    for (const side of ['L', 'R'] as const) {
+      const jn = `${prefix}_forearm_${side}`;
+      const hp = pts.get(jn) ?? [];
+      if (hp.length < 8) throw new Error(`${path}: ${jn} owns ${hp.length} hand vertices`);
+      const m = worlds[names.indexOf(jn)];
+      const d = hp.map((q) => Math.hypot(q[0] - m[12], q[1] - m[13], q[2] - m[14]));
+      const cut = [...d].sort((a, b) => a - b)[Math.floor(d.length * 0.9)];
+      const far = hp.filter((_, i) => d[i] >= cut);
+      const c = [0, 1, 2].map((k) => far.reduce((a, q) => a + q[k], 0) / far.length);
+      handM[side] = Math.max(handM[side], nearest(c, weapon));
+    }
+  }
+  return { eyeM, handM, instants };
+}
+
 export interface FigureHipHeight {
   /** The figure's joint prefix (`at_fire`, `mtr_crew0w`). */
   readonly figure: string;

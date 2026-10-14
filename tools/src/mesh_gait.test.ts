@@ -1155,6 +1155,14 @@ const FACE_LEVER_FLOOR_M = 0.03;
  * printed, and asserted against the bytes rather than trusted.
  */
 export const FACING_EXEMPT: Readonly<Record<string, string>> = {
+  // Unit polish (14 Oct, `motion/crew-fire.ts`): a crew-served `fire` turns
+  // heads OFF the axis on purpose -- away from the Kornet's backblast, away
+  // from the mortar's muzzle blast. Read before exempting: atgm_crew1 spread
+  // 43.0 deg (his 35 deg turn away and back); emtr_crew0 spread 31.0 (30 deg
+  // right); emtr_crew1 mean 38.7 (40 deg left, held through the duck). The
+  // ATGM gunner reads 3 deg (his jolt across the sight) and passed.
+  'atgm_cell.glb fire': 'the assistant turns his head 35 deg away from the backblast (spread 43.0)',
+  'mortar_crew.glb fire': 'both men duck and turn 30-40 deg away from the muzzle blast (spread 31.0, mean 38.7)',
   'moto_rpg.glb':
     'a pillion rig: its `face` role binds entirely to `rid_seat`, `pas_seat` and two death ' +
     'roots, so it carries no head joint. Correct as built; `measureFacing` raises on it.',
@@ -1543,8 +1551,10 @@ const WEAPON_AIM_TOL_DEG = 3;
  * only recognised a rifle. It has a `fire` clip now and is in `WEAPON_RIGS`.
  */
 export const WEAPON_EXEMPT: Readonly<Record<string, string>> = {
-  'atgm_cell.glb': 'its launcher is `prop`, weighted to no arm bone; and no `fire` clip',
-  'mortar_crew.glb': 'as atgm_cell -- the tube is `prop`',
+  'atgm_cell.glb':
+    'its launcher is `prop`, weighted to no arm bone. Since unit polish (14 Oct) it has a `fire` and its ' +
+    'gunner\'s hands close on the grips by IK -- held by crew_on_gun.test.ts, not by an arm-bound axis',
+  'mortar_crew.glb': 'as atgm_cell -- the mortar is `prop`; the gunner\'s inboard hand is on its handwheel (crew_on_gun.test.ts)',
   'charge_squad.glb': 'carries a `charge`, not a weapon; no `weapon` role on the rig at all',
   'digger_crew.glb': 'a digger: `wood`, no `weapon` role, no `fire` clip',
   'sniper_team.glb':
@@ -2575,7 +2585,7 @@ const GROUNDED_DRAWN: Readonly<Record<string, { standing: readonly string[]; wal
   atgm_cell: {
     standing: ['atgm_crew0_root', 'atgm_crew1_root', 'prop'],
     walking: ['atgm_crew0w_root', 'atgm_crew1w_root'],
-    clips: ['idle', 'move', 'moveFire', 'pinned'],
+    clips: ['idle', 'fire', 'move', 'moveFire', 'pinned'],
   },
   recoilless_team: {
     standing: ['prop', 'rcl_fire_root', 'rcl_load_root'],
@@ -2585,7 +2595,7 @@ const GROUNDED_DRAWN: Readonly<Record<string, { standing: readonly string[]; wal
   mortar_crew: {
     standing: ['emtr_crew0_root', 'emtr_crew1_root', 'prop'],
     walking: ['emtr_crew0w_root', 'emtr_crew1w_root'],
-    clips: ['idle', 'move', 'moveFire', 'pinned'],
+    clips: ['idle', 'fire', 'move', 'moveFire', 'pinned'],
   },
   digger_crew: { standing: ['dig_root', 'ground'], walking: ['digw_root', 'ground'], clips: ['idle', 'move', 'pinned'] },
   charge_squad: { standing: ['chg0_root', 'chg1_root'], walking: ['chg0_root', 'chg1_root'], clips: ['idle', 'fire', 'move', 'moveFire', 'pinned'] },

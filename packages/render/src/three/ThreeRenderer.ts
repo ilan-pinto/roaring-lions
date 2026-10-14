@@ -113,6 +113,7 @@
  * also governs a DYING unit with no loaded sheet (`stepDeaths`, Task
  * B3.14): it is silently skipped, not drawn as a placeholder either.
  */
+import { firePointOnMap } from './units/fire-points';
 import * as THREE from 'three';
 import { fx, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent } from '@lions/sim';
 import type { ObjectiveZoneView, Renderer, RendererOptions, TerrainTones } from '../api'; // both, after Step 2
@@ -935,6 +936,10 @@ const PREVIEW_ENVELOPE_STRENGTH = 0.6;
 /** The backblast's particle magnitude (`ParticleSystem.spawn`: size x0.75-2,
  *  count x0.5-1.4): mid-scale, so it reads beside the muzzle emitter's own. */
 const BACKBLAST_MAGNITUDE = 0.4;
+/** The Kornet's backblast off `atgm_cell`'s tube rear (unit polish, the
+ *  approved proposal): the RPG's at 0.7 -- a tube-launched ATGM's launch
+ *  charge is softer than a rocket leaving an open tube. */
+const CREW_BACKBLAST_MAGNITUDE = BACKBLAST_MAGNITUDE * 0.7;
 const SQUAD_UP = new THREE.Vector3(0, 1, 0);
 const SQUAD_LATERAL = new THREE.Vector3();
 
@@ -4931,6 +4936,7 @@ export class ThreeRenderer implements Renderer {
     const facingRad = meshTurretPivot
       ? this.turretFacing[e.shooter] * Math.PI * 2
       : fx.toNumber(st.facing[e.shooter]) * Math.PI * 2;
+    const firePts = this.meshUnitTemplates.get(type.id)?.[0]?.fire;
     const barrelLen = type.isSoft ? 0.4 : 0.8;
     let mzX: number;
     let mzY: number;
@@ -4959,10 +4965,32 @@ export class ThreeRenderer implements Renderer {
       mzX = this.scratchMuzzleWorld.x + Math.cos(facingRad) * MESH_TURRET_MUZZLE_TILES;
       mzY = this.scratchMuzzleWorld.z + Math.sin(facingRad) * MESH_TURRET_MUZZLE_TILES;
       mzZ = this.scratchMuzzleWorld.y;
+    } else if (firePts?.muzzle) {
+      // Unit polish (14 Oct): a crew-served weapon's real muzzle, measured on
+      // its own mesh (`units/fire-points.ts`) -- the Kornet's tube mouth, the
+      // raised mortar's muzzle 1.25 m up -- instead of the guess below.
+      const m = firePointOnMap(firePts.muzzle, this.curX[e.shooter], this.curY[e.shooter], facingRad);
+      mzX = m.x;
+      mzY = m.y;
+      mzZ = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, mzX, mzY) + m.up;
     } else {
       mzX = this.curX[e.shooter] + Math.cos(facingRad) * barrelLen;
       mzY = this.curY[e.shooter] + Math.sin(facingRad) * barrelLen;
       mzZ = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, mzX, mzY);
+    }
+    // Unit polish (14 Oct): the two crew-served teams' own hooks, which the
+    // squad path above cannot give a team on one shared `prop` bone -- the
+    // Kornet's backblast out of its tube's rear, and the mortar's baseplate
+    // slamming dust up. Presentation only.
+    if (firePts && muzzleShown && !squadRig) {
+      if (firePts.backblast && shellKind === 'missile') {
+        const b = firePointOnMap(firePts.backblast, this.curX[e.shooter], this.curY[e.shooter], facingRad);
+        this.spawnBackblast(e.shooter, facingRad, { x: b.x, y: b.y, magnitude: CREW_BACKBLAST_MAGNITUDE });
+      }
+      if (firePts.base && cls === WEAPON_CLASS.mortar) {
+        const b = firePointOnMap(firePts.base, this.curX[e.shooter], this.curY[e.shooter], facingRad);
+        this.spawnNamedBurst('mortar_base_dust', b.x, b.y, facingRad);
+      }
     }
 
     // GH-145: the round itself, launched from the muzzle the flash uses --
@@ -6959,16 +6987,34 @@ export class ThreeRenderer implements Renderer {
 
   /** A shoulder-fired tube's backblast, a quarter tile behind the gunner,
    *  thrown backwards (the emitter's layers carry `direction_offset_deg` 180). */
-  private spawnBackblast(shooter: number, facingRad: number): void {
-    const em = this.emitterLibrary.byName('rpg_backblast');
+  /** One named emitter's particles and light at (x, y), turned to `facingRad`
+   *  (`data/vfx/<id>.json`, registered in `@lions/data`'s `vfxEmitters`). */
+  private spawnNamedBurst(id: string, x: number, y: number, facingRad: number): void {
+    const em = this.emitterLibrary.byName(id);
     if (!em || !this.particleSystem) return;
-    const x = this.curX[shooter] - Math.cos(facingRad) * 0.25;
-    const y = this.curY[shooter] - Math.sin(facingRad) * 0.25;
     const dirTurns = facingRad / (Math.PI * 2);
     const prio = em.budget_priority ?? 5;
     for (const layer of em.particles) {
       const offset = (layer.direction_offset_deg ?? 0) / 360;
-      this.particleSystem.spawn(layer, x, y, dirTurns + offset, BACKBLAST_MAGNITUDE, prio, fxLayerIndex(em.layer, layer.additive ?? false));
+      this.particleSystem.spawn(layer, x, y, dirTurns + offset, 1, prio, fxLayerIndex(em.layer, layer.additive ?? false));
+    }
+    if (em.light) {
+      const gy = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, y);
+      this.flashLights.spawn(x, y, gy, em.light, this.overlayColor(em.light.color ?? 'vfx.fire', FLASH_LIGHT_FALLBACK));
+    }
+  }
+
+  private spawnBackblast(shooter: number, facingRad: number, at?: { x: number; y: number; magnitude: number }): void {
+    const em = this.emitterLibrary.byName('rpg_backblast');
+    if (!em || !this.particleSystem) return;
+    const x = at ? at.x : this.curX[shooter] - Math.cos(facingRad) * 0.25;
+    const y = at ? at.y : this.curY[shooter] - Math.sin(facingRad) * 0.25;
+    const magnitude = at ? at.magnitude : BACKBLAST_MAGNITUDE;
+    const dirTurns = facingRad / (Math.PI * 2);
+    const prio = em.budget_priority ?? 5;
+    for (const layer of em.particles) {
+      const offset = (layer.direction_offset_deg ?? 0) / 360;
+      this.particleSystem.spawn(layer, x, y, dirTurns + offset, magnitude, prio, fxLayerIndex(em.layer, layer.additive ?? false));
     }
     if (em.light) {
       const gy = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, y);

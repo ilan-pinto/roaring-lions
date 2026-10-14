@@ -138,6 +138,12 @@ art/video/takes/
 !.env.example
 !*.env.example
 
+# Unit polish (14 Oct): the B8 mortar remesh source and its 8k bake (40 + 30 MB),
+# read by tools/units/mortar_crew_part.py; the copy of record is in
+# ~/dev/roaring-lions-art-backup/mortar-team-mortar-20261002-01a0fae4.
+art/meshy/mortar-team-mortar-20261002-01a0fae4/model.glb
+art/meshy/mortar-team-mortar-20261002-01a0fae4/texture_*
+
 # Unit polish (14 Oct): the RWS refine (8k, 187 MB) and its remesh (86 MB),
 # read by tools/vehicles/rws_part.py; the copies of record are in
 # ~/dev/roaring-lions-art-backup/rws-50-20261014-01a13a7d and -01a13a83.

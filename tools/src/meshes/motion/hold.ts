@@ -176,7 +176,7 @@ function pca(points: V3[]): { c: V3; axis: V3 } {
 }
 
 /** The distal end of a forearm part: where its hand closes. */
-function handPoint(rig: Rig, verts: RestVertex[], forearm: Node): V3 {
+export function handPoint(rig: Rig, verts: RestVertex[], forearm: Node): V3 {
   const elbow = rig.restWorld.get(forearm)!.t;
   const own = verts.filter((v) => v.joint === forearm && v.role !== 'weapon' && v.role !== 'metal');
   if (own.length < 8) throw new Error(`motion: ${forearm.getName()} carries ${own.length} vertices, no hand to place`);
@@ -260,7 +260,7 @@ export function rotateWorld(rig: Rig, pose: Pose, node: Node, q: Q): void {
   setWorldRot(rig, pose, node, qmul(q, w.r));
 }
 
-function twoBoneIK(rig: Rig, pose: Pose, upper: Node, fore: Node, handRest: V3, target: V3, pole: V3): number {
+export function twoBoneIK(rig: Rig, pose: Pose, upper: Node, fore: Node, handRest: V3, target: V3, pole: V3): number {
   const S = rig.worldOf(upper, pose).t;
   const E = rig.worldOf(fore, pose).t;
   const H = carry(rig, (n) => rig.worldOf(n, pose), fore, handRest);

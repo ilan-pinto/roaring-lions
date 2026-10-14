@@ -30,6 +30,7 @@
  * bone-texture/instancing shape is a later task's job, not a silent scope
  * expansion of this one.
  */
+import { parseFireExtras, type FirePoints } from './fire-points';
 import * as THREE from 'three';
 import { coldGltfLoader, gltfLoader } from './gltf-loader';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
@@ -87,6 +88,9 @@ export interface MeshUnitTemplate {
   readonly figures?: readonly FigureSpec[];
   /** The clips split per figure, for a squad; null otherwise (`squad-rig.ts`). */
   readonly figureClips?: ReadonlyMap<string, ReadonlyMap<ClipName, THREE.AnimationClip>> | null;
+  /** `extras.rl_fire`: a crew-served weapon's muzzle, backblast and
+   *  baseplate, measured on its own mesh (`units/fire-points.ts`). */
+  readonly fire?: FirePoints;
 }
 
 /**
@@ -214,7 +218,13 @@ export function buildMeshUnitTemplate(
     console.warn(`mesh-unit: ${label} marks a squad, but a clip keys a bone no figure owns -- drawn as one team`);
   }
 
-  return { root, clips, materials, geometries, clipScale, figures, figureClips, ...(gait !== undefined ? { gait } : {}) };
+  const fire = parseFireExtras((root.userData as { rl_fire?: unknown }).rl_fire, label);
+
+  return {
+    root, clips, materials, geometries, clipScale, figures, figureClips,
+    ...(gait !== undefined ? { gait } : {}),
+    ...(fire !== undefined ? { fire } : {}),
+  };
 }
 
 /**

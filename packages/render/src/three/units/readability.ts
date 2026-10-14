@@ -113,7 +113,10 @@ export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   // `atgm_cell` reads 0.49 since its Meshy mesh landed (B3, 2026-09-30): the same
   // rear-shin-back kneel as `recoilless_team` below, two figures wide.
   // ...and 0.5 since the Meshy ATGM post (A3.1 stage 2, 2026-10-05), its four legs wider than kit's three.
-  rpg_team: 0.45, atgm_cell: 0.5, mortar_crew: 0.45, charge_squad: 0.45, digger_crew: 0.45,
+  // Unit polish (14 Oct): atgm_cell 0.5 -> 0.52, its gunner seated behind the post;
+  // mortar_crew 0.45 -> 0.64, the raised B8 mortar (its bipod 1.3 m forward of
+  // the plate) and its gunner kneeling at the handwheel beside it.
+  rpg_team: 0.45, atgm_cell: 0.52, mortar_crew: 0.64, charge_squad: 0.45, digger_crew: 0.45,
   // `recoilless_team` read 0.48 when its Meshy mesh landed (B2, 2026-09-30): a real
   // kneel with the rear shin laid back is a wider footprint than the kit pair. 0.46
   // since its tube moved from the hip onto the shoulder (2026-10-01), shorter in front.
