@@ -624,60 +624,105 @@ const wh3 = run(
 // for the same structural reason as II; `kill_amir` cannot fail on its own.
 passiveAcrossSeeds('wadi_halam_3_counterraid', 'wadi_halam_3_counterraid (no orders)', 'defeat', wh2);
 
-// IV — Wadi Halam (the village): clear the four corner cells, kill the cache
-// guard in the SE house, and get the families out. Mind the hall block --
-// nothing in this force fires ordnance heavy enough to charge it, so the
-// only ROE discipline needed is not parking a gun on top of it.
+// IV — Wadi Halam (the village): kill the cache guard in the east house, get
+// the families out, and hold the village. Mind the hall block -- nothing in
+// this force fires ordnance heavy enough to charge it, so the only ROE
+// discipline needed is not parking a gun on top of it.
 //
-// The north corners first, deliberately: any garrisoned house that comes
-// within a weapon's max range makes itself the target and an attack-mover
-// halts to trade fire with it rather than closing the distance -- so a goal
-// picked equidistant between the north and south clusters brings the south
-// cell into range while the force is still eight tiles from the actual
-// objective, and it sits there sniping a single rifleman through a wall for
-// minutes. Clearing north to south in two bounds keeps only one cluster in
-// range at a time.
-// IV's shepherd is the IFV, not the jeep. Front armour 420 and side 220
-// against every gun in this mission's roster (dshk, penetration 25) means
-// nothing here can put a scratch on it, so it can drive straight through
-// contested ground and pick every family up without the risk a lighter
-// vehicle runs of dying mid-transport and stranding its passengers for
-// good -- which is exactly what killed the jeep-shepherd version of this
-// plan before it evacuated anyone. Five transport slots covers all four
-// civilians in one circuit. The APC alone (plus the infantry) is enough
-// to clear the north side without the IFV's cannon.
+// GH-382: seven garrisoned houses strung along the terraced street. NW (15,11) on the upper
+// terrace, the middle-terrace SW (19,24), SE (33,25), the rpg_team pair mid (37,25) and far
+// (42,26), the cache house (43,20, the third rpg_team, the HVT) and NE (37,7) on the top lane.
+// The families wait by the hall (31,22), the east end of the street (36,22) and the plaza
+// (27,26); the refuge is on the road WEST (3,24), the longest walk in the mission.
+//
+// Garrison overhaul (Task 9, L-3): this plan used to level five houses by gunfire, moving up to a
+// firing step 2-3 tiles off each house's face. Cause, measured on the plan's own seeds: those
+// steps stand inside the garrisons' reach, and a garrison now fires from its window unpinned with
+// +1 range -- the SW and SE militia_cells shoot the rifle squads and the at_team dead during the
+// slow demolitions, and the mid rpg_team (37,25) kills the Eitan (and on some seeds the IFV) at
+// the (34,28)/(38,28) steps, so the sweep runs out of guns that hurt masonry before the cache
+// house falls and the 840 s clock expires (1/30 seeds, slowest win 808 s).
+//
+// So the plan fights only the house the mission needs, from outside every garrison's reach:
+// - Only the cache house has to come down (its guard is the HVT, and a man inside cannot be
+//   shot). The capture is contested only by an enemy within six tiles of a player unit INSIDE
+//   the zone (x 14-43, y 8-29), so the other six cells are left standing and the force stays
+//   out of their reach rather than demolishing them -- one house down is also ROE 94, not 70.
+// - The guns stand in the NE corner, east of the zone: the cache's nearest window is >= 7 tiles
+//   off (rpg reach 5 + 1 + 0.5) and the cache is nearer than the NE militia house, so every
+//   gun's own target choice (the nearest identified garrison) is the cache. The at_team gets
+//   the one infantry-safe tile there, (47,13): 8.9 from the NE militia's window (7 + 1 + 0.5),
+//   7.1 from the cache. It rides in the Eitan, because no route to it on foot stays out of
+//   both NW and NE rifle reach; vehicles shrug off rifles, so they take the north road.
+// - The IFV collects the three families it needs (count 3) at the hall and the plaza and never
+//   drives to (36,23): that pick-up sat 2.9 tiles from the mid rpg_team's window and on some
+//   seeds the IFV was immobilised there with the families aboard. It waits for the technicals
+//   to die first (they run for the village centre on first contact), then joins the guns.
+// - When the cache house falls the Eitan alone drives into the zone at (42.5,16.5), more than
+//   six tiles from every remaining garrison, and holds the 20 s capture clock.
 const wadiHalam4Plan: Plan = (sim, rt, ids, at) => {
   const apc = ids('apc_eitan');
   const ifv = ids('ifv_namer');
-  const infantry = [...ids('inf_squad'), ...ids('at_team')];
-  // One building at a time, and everything that can hurt masonry aimed at the
-  // same one. All four cells are garrisoned, and a garrisoned man cannot be
-  // shot -- his house has to come down -- so clearing the village is four
-  // sequential demolitions by gunfire, and splitting the force across two
-  // corners halves the rate on both.
-  const guns = [...apc, ...infantry];
-  // GH-382: seven garrisoned houses strung along the terraced street. NW (15,11) on the upper
-  // terrace, the middle-terrace SW (19,24), SE (33,25), the far east pair (42,26) and the cache
-  // house (43,20), and NE (37,7) on the top lane. The families wait by the hall (31,22), the east
-  // end of the street (40,23) and the plaza (27,26); the refuge is on the road WEST (3,24), the
-  // longest walk in the mission.
-  //
-  // The sweep is not on a fixed clock. A garrisoned house is levelled by fire from a few tiles
-  // (an `attackMove` halts at 6-7 tiles and crawls: measured 17 hp/s into a 3,120 hp house), so
-  // each stage `move`s up to a firing step 2-3 tiles off the house's face and the next stage
-  // starts when that house is down. The cache house is the one the mission needs; the rest are
-  // what stands between the column and the capture clock.
+  const atTeam = ids('at_team');
+  const st = sim.state;
+  // Garrison overhaul: the firing positions (see above). Single-unit orders, so no formation
+  // slot can drift a gun back inside a window's reach.
+  const CACHE: [number, number] = [43, 20];
+  const AT_POST: [number, number] = [47.5, 13.5];
+  const EITAN_POST: [number, number] = [45.5, 13.5];
+  const IFV_POST: [number, number] = [46.5, 13.5];
+  const HOLD: [number, number] = [42.5, 16.5];
+  // Garrison overhaul: vehicles run the north road, out of every rpg_team's reach (the only
+  // threat to them here); the two militia houses it passes cannot hurt armour.
+  const northRoad = (who: number[], to: [number, number]): void => {
+    sim.queueCommand({ kind: 'move', ids: who, ...M(9.5, 15.5) });
+    sim.queueCommand({ kind: 'move', ids: who, ...M(24.5, 13.5), append: true });
+    sim.queueCommand({ kind: 'move', ids: who, ...M(31.5, 11.5), append: true });
+    sim.queueCommand({ kind: 'move', ids: who, ...M(41.5, 11.5), append: true });
+    sim.queueCommand({ kind: 'move', ids: who, ...M(to[0], to[1]), append: true });
+  };
   at(0, () => {
-    sim.queueCommand({ kind: 'move', ids: guns, ...M(20, 27) });
     sim.queueCommand({ kind: 'move', ids: ifv, ...M(31, 23) });
+    // Garrison overhaul: the at_team rides to its post (no foot route avoids the rifles).
+    sim.queueCommand({ kind: 'load', ids: atTeam, carrier: apc[0] });
   });
-  at(30, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(36, 23) }));
-  at(55, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(27, 27) }));
-  at(80, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(3, 24) }));
-  // A shepherd that cannot move any more puts its passengers down to walk west, and the jeep
-  // (which otherwise waits on the road all mission) runs the circuit in its place
+  at(5, () => northRoad(apc, AT_POST));
+  let unloaded = false;
+  for (let when = 10; when <= 300; when += 1)
+    at(when, () => {
+      if (unloaded || apc.length === 0 || st.alive[apc[0]] !== 1) return;
+      if (Math.abs(st.posX[apc[0]] / 65536 - AT_POST[0]) > 0.8 || Math.abs(st.posY[apc[0]] / 65536 - AT_POST[1]) > 0.8) return;
+      unloaded = true;
+      sim.queueCommand({ kind: 'unload', ids: apc });
+      at(when + 3, () => sim.queueCommand({ kind: 'move', ids: apc, ...M(EITAN_POST[0], EITAN_POST[1]) }));
+    });
+  // Garrison overhaul: three families is the count; the IFV leaves the hall once the
+  // technicals are dead (or at 60 s) and never stops beside the mid rpg_team's house.
+  let leftHall = false;
+  for (let when = 20; when <= 120; when += 1)
+    at(when, () => {
+      if (leftHall) return;
+      let technicals = false;
+      for (let i = 0; i < sim.entityCount; i++)
+        if (st.alive[i] === 1 && st.side[i] === 1 && sim.unitTypes[st.typeIdx[i]].id === 'technical') technicals = true;
+      if (technicals && when < 60) return;
+      leftHall = true;
+      sim.queueCommand({ kind: 'move', ids: ifv, ...M(3, 24) });
+    });
+  // Garrison overhaul: the IFV's autocannon is the heaviest gun here; it joins the corner once
+  // the families are in.
+  let ifvFree = false;
+  for (let when = 30; when <= 300; when += 1)
+    at(when, () => {
+      if (ifvFree || rt.objectiveStatus('evac_families') === 'active') return;
+      ifvFree = true;
+      sim.queueCommand({ kind: 'unload', ids: ifv });
+      northRoad(ifv, IFV_POST);
+    });
   // 400 logistics and 80 a minute were never spent: rifles are bought as they come.
   for (let when = 1; when <= 400; when += 10) at(when, () => void rt.requestBuild('inf_squad'));
+  // A shepherd that cannot move any more puts its passengers down to walk west, and the jeep
+  // (which otherwise waits on the road all mission) runs the circuit in its place
   let stranded = false;
   for (let when = 10; when <= 290; when += 5)
     at(when, () => {
@@ -690,35 +735,15 @@ const wadiHalam4Plan: Plan = (sim, rt, ids, at) => {
       sim.queueCommand({ kind: 'move', ids: jeep, ...M(27, 27), append: true });
       sim.queueCommand({ kind: 'move', ids: jeep, ...M(3, 24), append: true });
     });
-  const stages: { house: [number, number]; stand: [number, number] }[] = [
-    { house: [19, 24], stand: [20, 27] },
-    { house: [33, 25], stand: [34, 28] },
-    { house: [37, 25], stand: [38, 28] },
-    { house: [42, 26], stand: [43, 29] },
-    { house: [43, 20], stand: [44, 23] },
-  ];
-  let stage = 0;
-  let finished = false;
-  for (let when = 10; when <= 800; when += 5) {
+  // Garrison overhaul: the capture clock starts when the cache house is down, held by the
+  // Eitan alone at a tile more than six from every garrison still standing.
+  let holding = false;
+  for (let when = 10; when <= 830; when += 1)
     at(when, () => {
-      const cur = stages[stage];
-      if (cur && sim.structureAt(cur.house[0], cur.house[1]) < 0) {
-        stage++;
-        const next = stages[stage];
-        // The IFV's autocannon is the heaviest thing here, so it joins the sweep once its
-        // circuit is done (80 s + the run west + the run back).
-        // Rifles bought on the road join the sweep at the next house.
-        for (const b of ids('inf_squad')) if (!guns.includes(b)) guns.push(b);
-        const all = when >= 170 ? [...guns, ...ifv] : guns;
-        if (next) sim.queueCommand({ kind: 'move', ids: all, ...M(next.stand[0], next.stand[1]) });
-      }
-      if (stage >= stages.length && !finished) {
-        finished = true;
-        // Consolidate for the capture clock once the houses are down.
-        sim.queueCommand({ kind: 'attackMove', ids: [...guns, ...ifv], ...M(34, 24) });
-      }
+      if (holding || sim.structureAt(CACHE[0], CACHE[1]) >= 0) return;
+      holding = true;
+      sim.queueCommand({ kind: 'move', ids: apc, ...M(HOLD[0], HOLD[1]) });
     });
-  }
 };
 
 const wh4 = run('wadi_halam_4_village', wadiHalam4Plan, wh3);
