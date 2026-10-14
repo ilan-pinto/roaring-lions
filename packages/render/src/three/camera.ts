@@ -16,6 +16,7 @@
 import * as THREE from 'three';
 import { TILE_W, TILE_H, ELEVATION, WORLD_Y_PER_LIFT_PIXEL, type Camera, type Viewport } from '../project';
 import { groundWorldY, type ElevationSource } from './ground-height';
+import { WORLD_PER_LEVEL } from './terrain/shared';
 
 // ELEVATION and WORLD_Y_PER_LIFT_PIXEL live in project.ts now -- both are
 // pure arithmetic over TILE_W/TILE_H, and project.ts, unlike this file,
@@ -59,6 +60,7 @@ export { WORLD_Y_PER_LIFT_PIXEL } from '../project';
  * viewport's.)
  */
 const SIN_EL = Math.sin(ELEVATION);
+const COS_EL = Math.cos(ELEVATION);
 
 /** Both ground axes contribute equally at a 45-degree azimuth. */
 const AZIMUTH = Math.SQRT1_2;
@@ -69,10 +71,62 @@ const AZIMUTH = Math.SQRT1_2;
  *  `VIEW_DIRECTION`, and a roof is under 8 up. 120 puts every depth in
  *  [~70, ~170]. It was 10,000 with far at 20,000 -- a 20,000-unit range for a
  *  50-unit scene, which starved the depth buffer the AO and fog passes read
- *  (spec §5). */
+ *  (spec §5).
+ *
+ *  This is the BASE distance, and for every ordinary viewport the only one:
+ *  `cameraDistance` below raises it for a frustum too tall to stand on it,
+ *  and never lowers it. */
 const CAMERA_DISTANCE = 120;
 export const CAMERA_NEAR = 1;
+/** The far plane at the base distance. `ThreeRenderer.photographGround`
+ *  borrows this pair for its own top-down camera, which stands at 120. */
 export const CAMERA_FAR = 300;
+
+/** How far past the camera's target the far plane reaches: what
+ *  `CAMERA_FAR` gives at `CAMERA_DISTANCE`, held as the distance grows. The
+ *  map's farthest point from the target does not depend on the viewport, so
+ *  the far plane moves back by exactly as much as the camera does. */
+const FAR_PAST_TARGET = CAMERA_FAR - CAMERA_DISTANCE;
+
+/** The top elevation level (one digit a tile, map.schema.json) and the roof
+ *  height above it -- "a roof is under 8 up", above. */
+const TOP_LEVEL = 9;
+const ROOF_HEIGHT = 8;
+
+/** The height the frustum's bottom edge must still clear where it starts: a
+ *  roof on top-level ground (~2.30 + 8 world units), plus the near plane's
+ *  own drop along the view (`CAMERA_NEAR * SIN_EL`), so that roof is drawn
+ *  rather than clipped. */
+const BOTTOM_EDGE_CLEARANCE = TOP_LEVEL * WORLD_PER_LEVEL + ROOF_HEIGHT + CAMERA_NEAR * SIN_EL;
+
+/**
+ * Camera distance for a frustum of half-height `halfHeight` (view units).
+ *
+ * A fixed distance stops working on a very tall viewport (#571, "Known
+ * remaining issues"). An orthographic ray starts on the camera's own plane
+ * (three's `Raycaster.setFromCamera`: "set origin in plane of camera"), and
+ * the frustum's bottom edge starts `halfHeight * COS_EL` below the camera,
+ * so that edge meets the plane `y = h` only while
+ *
+ *   D * SIN_EL - halfHeight * COS_EL >= h
+ *
+ * At 120 that failed for ground (h = 0) on any frustum taller than about
+ * 2,190 CSS px at the 0.35 zoom floor -- a 5K display at DPR 1, a 1440p
+ * screen at 50% browser zoom -- and sooner over raised ground: those rows'
+ * pointer reads threw out of `screenToWorldThree`, and a roof there was cut
+ * by the near plane. So the distance is solved for the clearance instead,
+ * and floored at the base.
+ *
+ * The floor is what keeps everything already photographed still: at 120 the
+ * clearance holds up to a half-height of ~56.8, a viewport ~1,800 CSS px tall
+ * at zoom 0.35, which covers the golden captures (1400x900) and every
+ * `ui:shots` resolution (to 2560x1440). There `Math.max` returns the literal
+ * 120, the far plane is 120 + 180 = 300, and the camera is the fixed-distance
+ * one to the bit (`camera.test.ts` pins it across the whole zoom clamp).
+ */
+function cameraDistance(halfHeight: number): number {
+  return Math.max(CAMERA_DISTANCE, (halfHeight * COS_EL + BOTTOM_EDGE_CLEARANCE) / SIN_EL);
+}
 
 /** Unit view direction from the camera's target toward the camera, fixed by
  *  the 45-degree azimuth and the solved elevation angle. */
@@ -105,9 +159,12 @@ export function updateDimetricCamera(
   camera.right = halfWidth;
   camera.top = halfHeight;
   camera.bottom = -halfHeight;
+  // The distance is solved from the frustum's height (see `cameraDistance`)
+  // and the far plane follows it; the near plane does not move.
+  const distance = cameraDistance(halfHeight);
   camera.near = CAMERA_NEAR;
-  camera.far = CAMERA_FAR;
-  camera.position.copy(target).addScaledVector(VIEW_DIRECTION, CAMERA_DISTANCE);
+  camera.far = distance + FAR_PAST_TARGET;
+  camera.position.copy(target).addScaledVector(VIEW_DIRECTION, distance);
   camera.up.set(0, 1, 0);
   camera.lookAt(target);
   camera.updateProjectionMatrix();
