@@ -11,6 +11,16 @@ export const CONTACT_DECAY = 65209; // 0.99501
 export const SUSPECTED_AT = 16384; // 0.25
 export const IDENTIFIED_AT = 45875; // 0.70
 export const LOST_AT = 13107; // 0.20 (hysteresis below SUSPECTED_AT)
+/** Targeted fire (GH-420, ruling R-4): how many CONSECUTIVE ticks an ordered
+ *  focus may sit below IDENTIFIED_AT -- the confidence selectTarget itself
+ *  stops shooting at -- before the order is dropped. The unit spends them
+ *  walking to where its side last saw the target; re-identification resets
+ *  the count. 100 ticks is 5 s, the same order as the contact decay it
+ *  follows: from ONE, CONTACT_DECAY takes ln(0.70)/ln(0.99501) ~ 71 ticks
+ *  (3.6 s) unobserved to fall below 0.70, so the grace from the LAST
+ *  SIGHTING is ~171 ticks, about 8.6 s, not 5 s. Change this, not the decay,
+ *  to move it. Integer ticks, not Q16.16. */
+export const FOCUS_LOST_TICKS = 100; // 5 s
 /** Signature multiplier while moving. */
 export const MOTION_SIG = 98304; // 1.5
 /** Signature multipliers by cover level 0-3 (concealment). */
