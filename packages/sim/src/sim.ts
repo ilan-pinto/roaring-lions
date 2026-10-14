@@ -5878,7 +5878,10 @@ export class Sim {
    * range, no sight, no penetration -- `weaponHurts` flips with the target's
    * facing, so the sim does not refuse on it.
    *
-   * False when the shooter is dead, routed, carried or unarmed; when the
+   * False when the shooter is dead, routed, carried, unarmed or a kamikaze
+   * (R-25: `stepKamikaze` steers a loitering munition itself, rewriting its
+   * goal and `attackMove` every tick, so a focus could only fight it; the app
+   * sends it the attack-move it had before); when the
    * target is dead, on the shooter's side, a civilian, or inside a building,
    * a vehicle or the earth; when the shooter's side holds less than
    * IDENTIFIED_AT confidence on it (the test `selectTarget` applies -- the
@@ -5888,7 +5891,8 @@ export class Sim {
   canFocus(shooter: number, target: number): boolean {
     if (shooter < 0 || shooter >= this.count || target < 0 || target >= this.count) return false;
     if (this.alive[shooter] === 0 || this.routed[shooter] === 1 || this.carriedBy[shooter] >= 0) return false;
-    if (this.unitTypes[this.typeIdx[shooter]].weapons.length === 0) return false;
+    const sType = this.unitTypes[this.typeIdx[shooter]];
+    if (sType.weapons.length === 0 || sType.isKamikaze) return false;
     const sSide = this.side[shooter];
     if (sSide > 1) return false; // contact is kept for sides 0 and 1 only
     if (!this.focusStillTargetable(sSide, target)) return false;

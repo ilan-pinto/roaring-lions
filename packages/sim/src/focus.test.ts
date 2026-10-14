@@ -51,6 +51,32 @@ const AA_ONLY: UnitTypeJson = {
   weapons: [{ id: 'aa', ...GUN, can_target: ['air'] }],
 };
 
+/** A loitering munition (`attack_drone`'s shape): it flies itself at its
+ *  side's contacts (`stepKamikaze`), so it takes no fire order (R-25). */
+const MUNITION: UnitTypeJson = {
+  id: 'f_munition',
+  role: 'drone',
+  hull: { hp: 90, armor: { front: 0, side: 0, rear: 0 } },
+  mobility: { speed_tiles_s: 2.8, domain: 'air' },
+  sensors: { optics: 1, sight_tiles: 13, signature: 0.3 },
+  abilities: ['kamikaze'],
+  weapons: [
+    {
+      id: 'warhead',
+      type: 'heat',
+      range_tiles: 1.2,
+      effective_range_tiles: 1.2,
+      accuracy: 0.9,
+      penetration: 480,
+      damage: 520,
+      splash_tiles: 1.2,
+      suppression: 70,
+      rof_per_min: 6,
+      can_target: ['ground', 'structure'],
+    },
+  ],
+};
+
 /** Something to shoot at: unarmed, near-indestructible, can hide in a house. */
 const POST: UnitTypeJson = {
   id: 'f_post',
@@ -206,6 +232,33 @@ describe('attack: refusals (T-D2)', () => {
     expect(column(sim, 'attackMove')[me]).toBe(1);
     expect(sim.state.moving[me]).toBe(1);
     expect(sim.state.focusLost[me]).toBe(7);
+  });
+
+  it("a refused attack keeps the unit's previous focus (M-6: a refused id changes nothing)", () => {
+    const { sim, me, foe, post } = world();
+    sim.queueCommand({ kind: 'attack', ids: [me], target: foe });
+    sim.tick();
+    expect(sim.state.focusTarget[me]).toBe(foe);
+    // A second order naming a stranger the side has never seen: refused.
+    const stranger = sim.spawn(post, 1, fx.from(20.5), fx.from(18.5));
+    expect(sim.canFocus(me, stranger)).toBe(false);
+    sim.queueCommand({ kind: 'attack', ids: [me], target: stranger });
+    sim.tick();
+    expect(sim.state.focusTarget[me]).toBe(foe);
+  });
+
+  it('a kamikaze shooter is refused (R-25): stepKamikaze steers it, not a focus', () => {
+    const { sim, foe } = world();
+    const drone = sim.spawn(sim.addUnitType(MUNITION), 0, fx.from(10.5), fx.from(24.5));
+    // The control: the same airframe and warhead without the ability may focus,
+    // so the kamikaze clause is the only thing that refuses.
+    const plain = sim.spawn(sim.addUnitType({ ...MUNITION, id: 'f_drone_plain', abilities: [] }), 0, fx.from(10.5), fx.from(8.5));
+    expect(sim.canFocus(plain, foe)).toBe(true);
+    expect(sim.canFocus(drone, foe)).toBe(false);
+    sim.queueCommand({ kind: 'attack', ids: [drone, plain], target: foe });
+    sim.tick();
+    expect(sim.state.focusTarget[drone]).toBe(-1);
+    expect(sim.state.focusTarget[plain]).toBe(foe);
   });
 
   it('attack on a civilian, a friendly, a garrisoned or a carried unit is refused', () => {
