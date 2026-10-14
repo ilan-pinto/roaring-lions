@@ -276,9 +276,19 @@ Sound follows the same logic as sprites: mechanical gates, not taste. Emitters a
 - All contributions under **DCO sign-off**
 - Source `.blend` files required alongside rendered output — no binary-only art. Without source, the asset cannot be re-rendered when the rig or palette version bumps, and it becomes dead weight.
   **Currently unmet for the supplied Meshy assets**, whose sources sit in a
-  gitignored 465 MB `art/blend/`. Recorded in `docs/ASSET_PROVENANCE.md` as an
-  open decision (Git LFS, a decimated in-repo source, or a documented
-  exception) rather than an accident.
+  gitignored, single-copy `art/blend/` that exists only in the main checkout:
+  **10.43 GB in 153 files** (9.71 GiB), censused 2026-10-14. The 465 MB this
+  line used to carry was true until 2026-09-01. Of the total, **6.12 GB is
+  live** (a current exporter, or `render_portrait.py`, on `main` still opens
+  those files) and **4.30 GB is dead** (superseded rigged figures, unread
+  alternates, duplicate delivery zips, a partial download). 51 files are over
+  GitHub's 100 MiB hard limit, so plain git is not an option for the live set.
+  The per-folder numbers, and the finding that material stripping is ruled out
+  for the live set, are in `docs/ASSET_PROVENANCE.md` (outstanding item 4). The
+  choice -- Git LFS for the live subset, or a documented exception with an
+  off-repo backup -- is still open
+  ([#137](https://github.com/ilan-pinto/roaring-lions/issues/137)): a decision
+  to be made, not an accident.
 - Audio clips must be redistribution-safe (CC0 or equivalent) and declared in `data/audio.json` with their source.
 
 ---
