@@ -1,5 +1,7 @@
-// PA-12, the world half: tutorial beats 6 and 9 can be COMPLETED by a player
-// who does the lesson, in the real mission, through the real step reducer.
+// PA-12 and GH-420 T4, the world half: tutorial beats 6 and 9 can be COMPLETED
+// by a player who does the lesson, in the real mission, through the real step
+// reducer. Beat 6 is walked both ways it can end: the right-click on an
+// identified enemy (the `attack` intent, which names the man) and H (a halt).
 //
 // `packages/app/src/tutorial/lessons.test.ts` proves the step data ends each
 // beat on the lesson and never on a clock. That is only half a fix: a beat
@@ -20,9 +22,10 @@
 import { describe, expect, it } from 'vitest';
 import { applyTerrain, maps, missions, parseMap, structures as structureCatalogue, tutorials, units } from '@lions/data';
 import { fx } from '../../packages/sim/src/fixed';
-import { Sim, TICKS_PER_SECOND } from '../../packages/sim/src/sim';
+import { Sim, TICKS_PER_SECOND, type SimEvent } from '../../packages/sim/src/sim';
 import { MissionRuntime, type MissionJson } from '../../packages/sim/src/mission';
-import { fireState } from '../../packages/app/src/ui/fire-state';
+import { applyIntent, type PlayerIntent } from '../../packages/app/src/input/intents';
+import { fireState, type FireState } from '../../packages/app/src/ui/fire-state';
 import { advance, initTutorial, type StepJson, type TutorialState } from '../../packages/app/src/tutorial/runtime';
 
 const MS_PER_TICK = 1000 / TICKS_PER_SECOND;
@@ -34,10 +37,17 @@ function openAt(id: string, nowMs: number): TutorialState {
   return { ...initTutorial(steps, nowMs), index };
 }
 
+type FireEvent = Extract<SimEvent, { kind: 'fire' }>;
+
 interface World {
   sim: Sim;
   rt: MissionRuntime;
   ids: (type: string, side?: number) => number[];
+  size: { width: number; height: number };
+  /** Every `fire` event `step` has seen, in order. */
+  fires: FireEvent[];
+  /** The tick each entity `step` has seen destroyed died on. */
+  deaths: Map<number, number>;
 }
 
 function world(edit?: (m: MissionJson) => void, seed = 424242): World {
@@ -71,7 +81,7 @@ function world(edit?: (m: MissionJson) => void, seed = 424242): World {
     }
     return out;
   };
-  return { sim, rt, ids };
+  return { sim, rt, ids, size: { width: map.width, height: map.height }, fires: [], deaths: new Map() };
 }
 
 const sideOf = (w: World) => (e: number) => w.sim.state.side[e];
@@ -81,6 +91,10 @@ const typeIdOf = (w: World) => (e: number) => w.sim.unitTypes[w.sim.state.typeId
 function step(w: World, tut: TutorialState): TutorialState {
   const evs = w.sim.tick();
   const now = w.sim.tickCount * MS_PER_TICK;
+  for (const e of evs) {
+    if (e.kind === 'fire') w.fires.push(e);
+    else if (e.kind === 'destroyed') w.deaths.set(e.entity, e.tick);
+  }
   for (const me of w.rt.step(evs)) tut = advance(tut, { kind: 'mission', event: me }, now);
   for (const e of evs) tut = advance(tut, { kind: 'sim', event: e, sideOf: sideOf(w), typeIdOf: typeIdOf(w) }, now);
   return advance(tut, { kind: 'tick' }, now);
@@ -101,6 +115,30 @@ function runBeat(w: World, tut: TutorialState, id: string, seconds: number, each
 function until(w: World, ok: () => boolean, seconds: number): void {
   for (let k = 0; k < seconds * TICKS_PER_SECOND && !ok(); k++) w.rt.step(w.sim.tick());
   if (!ok()) throw new Error('world never reached the beat');
+}
+
+/** What the right-click on an identified enemy does in the app: the `attack`
+ *  intent, handed to the sim by `applyIntent` (the same function `dispatch`
+ *  calls) and heard by the tutorial the way `main.ts`'s intent listener
+ *  hears it. */
+function rightClick(w: World, tut: TutorialState, ids: number[], target: number): TutorialState {
+  const intent: PlayerIntent = { kind: 'attack', ids, target };
+  applyIntent(w.sim, intent, w.size);
+  return advance(tut, { kind: 'intent', intent }, w.sim.tickCount * MS_PER_TICK);
+}
+
+/** The shots `shooter` fired after tick `since` while `target` still lived:
+ *  once the ordered man is dead the order is spent, and what the unit shoots
+ *  next is its own choice again. */
+function shotsWhileLiving(w: World, shooter: number, target: number, since: number): FireEvent[] {
+  const died = w.deaths.get(target) ?? Infinity;
+  return w.fires.filter((f) => f.shooter === shooter && f.tick > since && f.tick <= died);
+}
+
+/** Tick on with nothing else going on, to see what an ordered unit does next. */
+function settle(w: World, seconds: number): void {
+  let t = initTutorial(steps, 0);
+  for (let n = 0; n < seconds * TICKS_PER_SECOND; n++) t = step(w, t);
 }
 
 /** Beat 9's world: the jeep has brought the civilians home (the refuge entry
@@ -146,35 +184,94 @@ describe('tutorial beat 9 in the world (PA-12)', () => {
     tut = advance(tut, { kind: 'intent', intent: { kind: 'halt', ids: [mortar] } }, w.sim.tickCount * MS_PER_TICK);
     expect(runBeat(w, tut, 'what_a_shot_costs', 120)).toBeNull();
   });
+
+  // GH-420 T4: the beat's order leg also takes the right-click, so a player who
+  // picks the mortar's target is not stranded waiting for an H they were never
+  // told to press. The drone is dead here too, so the mortar's own sight is the
+  // only eye on the diggers and the click has to wait for it.
+  it.each([424242, 1, 12, 20])('seed %i: a mortar right-clicked onto an identified enemy fires on that man from where it stands and bills a round', (seed) => {
+    const { w, mortar } = mortarBeat(undefined, seed);
+    const x0 = w.sim.state.posX[mortar];
+    const y0 = w.sim.state.posY[mortar];
+    let ordered = -1;
+    let orderedAtTick = -1;
+    const took = runBeat(w, openAt('what_a_shot_costs', w.sim.tickCount * MS_PER_TICK), 'what_a_shot_costs', 120, (t) => {
+      if (ordered >= 0) return t;
+      const e = livingEnemies(w).find((x) => w.sim.canFocus(mortar, x) && w.sim.focusHurts(mortar, x));
+      if (e === undefined) return t;
+      ordered = e;
+      orderedAtTick = w.sim.tickCount;
+      return rightClick(w, t, [mortar], e);
+    });
+    expect(ordered, 'the mortar never identified an enemy it could be ordered onto').toBeGreaterThanOrEqual(0);
+    expect(took, 'beat 9 never cleared after the right-click: no Conduct line within two minutes').not.toBeNull();
+    // Fired from where it stood, as the beat teaches.
+    expect(w.sim.state.posX[mortar]).toBe(x0);
+    expect(w.sim.state.posY[mortar]).toBe(y0);
+    // And every round it fires after the order is on the man it was told to.
+    // The bill can come from a round fired before the click, so tick on past
+    // the mortar's reload (15 s) to see the ordered one.
+    settle(w, 20);
+    expect(w.sim.state.posX[mortar]).toBe(x0);
+    expect(w.sim.state.posY[mortar]).toBe(y0);
+    const after = shotsWhileLiving(w, mortar, ordered, orderedAtTick);
+    expect(after.length, 'the ordered mortar never fired').toBeGreaterThan(0);
+    for (const f of after) expect(f.target, 'the mortar fired on someone it was not ordered onto').toBe(ordered);
+  });
 });
 
-describe('tutorial beat 6 in the world (PA-12)', () => {
+
+/** Beat 6's world: beats 3-5 walked (advance on the field, then up to the
+ *  range post), and the squad on the attack-move toward the far post that
+ *  beat 6 opens with. */
+function rangeBeat(): { w: World; squad: number } {
+  const w = world();
+  const squad = w.ids('inf_squad')[0];
+  w.sim.queueCommand({ kind: 'attackMove', ids: [squad], x: fx.from(26), y: fx.from(24) });
+  until(w, () => w.sim.tickCount >= 40 * TICKS_PER_SECOND, 41);
+  w.sim.queueCommand({ kind: 'attackMove', ids: [squad], x: fx.from(18), y: fx.from(22) });
+  until(w, () => w.sim.tickCount >= 70 * TICKS_PER_SECOND, 31);
+  w.sim.queueCommand({ kind: 'attackMove', ids: [squad], x: fx.from(29.5), y: fx.from(18.5) });
+  return { w, squad };
+}
+
+function livingEnemies(w: World): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < w.sim.entityCount; i++) if (w.sim.state.side[i] === 1 && w.sim.state.alive[i] === 1) out.push(i);
+  return out;
+}
+
+/** The player sweeps the cursor over each living enemy in turn, once a
+ *  second, and the panel answers exactly as main.ts's hover dispatch asks it.
+ *  `n` is the frame count, so the same second never hovers twice. */
+function hoverNext(
+  w: World,
+  squad: number,
+  tut: TutorialState,
+  n: number
+): { tut: TutorialState; enemy: number; projection: FireState | null } | null {
+  if (n % TICKS_PER_SECOND !== 0) return null;
+  const enemies = livingEnemies(w);
+  if (enemies.length === 0) return null;
+  const enemy = enemies[(n / TICKS_PER_SECOND) % enemies.length];
+  const projection = fireState([w.sim.projectHit(squad, enemy)]);
+  const next = advance(tut, { kind: 'hover', entity: enemy, structure: -1, sideOf: sideOf(w), projection }, w.sim.tickCount * MS_PER_TICK);
+  return { tut: next, enemy, projection };
+}
+
+describe('tutorial beat 6 in the world (PA-12, GH-420)', () => {
+  const id = 'identify_then_shoot';
+
   it('a squad halted at the range, with the cursor on an enemy, takes a shot the panel gave odds for', () => {
-    const w = world();
-    const squad = w.ids('inf_squad')[0];
-    // Beats 3-5: advance on the field, then up to the range post.
-    w.sim.queueCommand({ kind: 'attackMove', ids: [squad], x: fx.from(26), y: fx.from(24) });
-    until(w, () => w.sim.tickCount >= 40 * TICKS_PER_SECOND, 41);
-    w.sim.queueCommand({ kind: 'attackMove', ids: [squad], x: fx.from(18), y: fx.from(22) });
-    until(w, () => w.sim.tickCount >= 70 * TICKS_PER_SECOND, 31);
-    // Beat 6 opens with the squad on an attack-move toward the far one.
-    w.sim.queueCommand({ kind: 'attackMove', ids: [squad], x: fx.from(29.5), y: fx.from(18.5) });
-    let tut = openAt('identify_then_shoot', w.sim.tickCount * MS_PER_TICK);
+    const { w, squad } = rangeBeat();
+    let tut = openAt(id, w.sim.tickCount * MS_PER_TICK);
     w.sim.queueCommand({ kind: 'halt', ids: [squad] });
     tut = advance(tut, { kind: 'intent', intent: { kind: 'halt', ids: [squad] } }, w.sim.tickCount * MS_PER_TICK);
     let halted: { x: number; y: number } | null = null;
-    // The player sweeps the cursor over each enemy in turn, once a second,
-    // and the panel answers exactly as main.ts's hover dispatch asks it.
     let k = 0;
-    const took = runBeat(w, tut, 'identify_then_shoot', 60, (t) => {
+    const took = runBeat(w, tut, id, 60, (t) => {
       if (halted === null) halted = { x: w.sim.state.posX[squad], y: w.sim.state.posY[squad] };
-      if (++k % TICKS_PER_SECOND !== 0) return t;
-      const enemies: number[] = [];
-      for (let i = 0; i < w.sim.entityCount; i++) if (w.sim.state.side[i] === 1 && w.sim.state.alive[i] === 1) enemies.push(i);
-      if (enemies.length === 0) return t;
-      const e = enemies[(k / TICKS_PER_SECOND) % enemies.length];
-      const projection = fireState([w.sim.projectHit(squad, e)]);
-      return advance(t, { kind: 'hover', entity: e, structure: -1, sideOf: sideOf(w), projection }, w.sim.tickCount * MS_PER_TICK);
+      return hoverNext(w, squad, t, ++k)?.tut ?? t;
     });
     expect(took, 'beat 6 never cleared after the halt').not.toBeNull();
     expect(took as number).toBeLessThan(20);
@@ -182,5 +279,51 @@ describe('tutorial beat 6 in the world (PA-12)', () => {
     expect(halted).not.toBeNull();
     expect(w.sim.state.posX[squad]).toBe((halted as unknown as { x: number }).x);
     expect(w.sim.state.posY[squad]).toBe((halted as unknown as { y: number }).y);
+  });
+
+  it('a squad right-clicked onto an identified enemy stands still and fires on that man, and the beat clears (GH-420)', () => {
+    const { w, squad } = rangeBeat();
+    const tut = openAt(id, w.sim.tickCount * MS_PER_TICK);
+    // The player holds the cursor on each enemy in turn and right-clicks the
+    // first one the panel has given odds for AND the click would accept: the
+    // sim's own `canFocus` (identified, an enemy) and `focusHurts` are what
+    // the app asks before it issues an `attack`.
+    const odds: ReadonlySet<FireState | null> = new Set<FireState | null>(['shot', 'cover', 'moving']);
+    let ordered = -1;
+    let orderedAtTick = -1;
+    let at: { x: number; y: number } | null = null;
+    let k = 0;
+    const took = runBeat(w, tut, id, 60, (t) => {
+      const h = hoverNext(w, squad, t, ++k);
+      if (h === null) return t;
+      if (ordered >= 0 || !odds.has(h.projection) || !w.sim.canFocus(squad, h.enemy) || !w.sim.focusHurts(squad, h.enemy)) return h.tut;
+      ordered = h.enemy;
+      orderedAtTick = w.sim.tickCount;
+      at = { x: w.sim.state.posX[squad], y: w.sim.state.posY[squad] };
+      return rightClick(w, h.tut, [squad], h.enemy);
+    });
+    expect(ordered, 'the walk never found an enemy the click would accept').toBeGreaterThanOrEqual(0);
+    expect(took, 'beat 6 never cleared after the right-click').not.toBeNull();
+    expect(took as number).toBeLessThan(20);
+    // Then three more seconds, to see what the ordered squad does with the order.
+    settle(w, 3);
+    const after = shotsWhileLiving(w, squad, ordered, orderedAtTick);
+    expect(after.length, 'the ordered squad never fired').toBeGreaterThan(0);
+    for (const f of after) expect(f.target, 'the squad fired on someone it was not ordered onto').toBe(ordered);
+    // In reach already, it did not walk on: the order stops an attack-move.
+    expect(w.sim.state.moving[squad]).toBe(0);
+    expect(w.sim.state.posX[squad]).toBe((at as unknown as { x: number }).x);
+    expect(w.sim.state.posY[squad]).toBe((at as unknown as { y: number }).y);
+  });
+
+  it('control: a squad left to fire on its own, with the panel read, never clears the beat', () => {
+    // The first-session failure, in the world: the attack-moving squad fires
+    // by itself and the cursor finds odds -- two legs of three, forever.
+    const { w, squad } = rangeBeat();
+    const tut = openAt(id, w.sim.tickCount * MS_PER_TICK);
+    let k = 0;
+    const took = runBeat(w, tut, id, 60, (t) => hoverNext(w, squad, t, ++k)?.tut ?? t);
+    expect(w.fires.some((f) => f.shooter === squad), 'the control squad never fired, so it proves nothing').toBe(true);
+    expect(took).toBeNull();
   });
 });

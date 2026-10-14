@@ -11,9 +11,14 @@
  * does nothing does not, however long they wait. The mission's own 600 s
  * `survive_until` is the backstop now, as it is for every other beat.
  *
- * The world half -- that a halted squad really does fire with odds on the
- * panel, and that a halted mortar really does bill a round into the flagged
- * zone -- is `tools/src/tutorial_lessons_world.test.ts`.
+ * GH-420 T4: beat 6 teaches the right-click on an identified enemy (the
+ * `attack` intent). H still clears it, so a player who halts and lets the
+ * squad pick its own shot is not stranded, and beat 9 accepts the right-click
+ * as the order it gives the mortar.
+ *
+ * The world half -- that a halted or ordered squad really does fire with odds
+ * on the panel, and that a halted or ordered mortar really does bill a round
+ * into the flagged zone -- is `tools/src/tutorial_lessons_world.test.ts`.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -60,38 +65,92 @@ function feed(s: TutorialState, inputs: [number, TutorialInput][]): TutorialStat
   return s;
 }
 
-describe('beat 6, identify then shoot (PA-12)', () => {
+describe('beat 6, identify then shoot (PA-12, GH-420)', () => {
   const id = 'identify_then_shoot';
+  const attackEnemy: TutorialInput = { kind: 'intent', intent: { kind: 'attack', ids: [1], target: 2 } };
+  const haltSquad: TutorialInput = { kind: 'intent', intent: { kind: 'halt', ids: [1] } };
+  const oddsOnEnemy = (projection: 'shot' | 'cover' | 'moving' | 'unidentified'): TutorialInput => ({
+    kind: 'hover',
+    entity: 2,
+    structure: -1,
+    sideOf,
+    projection,
+  });
+  const shotTaken: TutorialInput = { kind: 'sim', event: fireAtEnemy, sideOf };
+  const stillOpen = (s: TutorialState): boolean => s.steps[s.index].id === id;
 
   it('does not end on a timer when the player does nothing', () => {
     const s = idle(openAt(id, 0), 0);
-    expect(s.steps[s.index].id).toBe(id);
+    expect(stillOpen(s)).toBe(true);
   });
 
-  it('does not end on the squad firing by itself, without the player standing it still', () => {
+  it('does not end on the squad firing by itself, without the player ordering the shot or standing it still', () => {
     // The old failure: an attack-moving squad fires on its own. That alone is
-    // not the lesson -- standing still is.
+    // not the lesson -- ordering the shot, or standing still for it, is.
     let s = openAt(id, 0);
     s = feed(s, [
-      [1000, { kind: 'sim', event: fireAtEnemy, sideOf }],
-      [2000, { kind: 'hover', entity: 2, structure: -1, sideOf, projection: 'shot' }],
+      [1000, shotTaken],
+      [2000, oddsOnEnemy('shot')],
     ]);
     s = idle(s, 3000);
-    expect(s.steps[s.index].id).toBe(id);
+    expect(stillOpen(s)).toBe(true);
   });
 
-  it('ends when the player halts, the panel gives odds, and the squad takes the shot', () => {
+  it('ends when the player right-clicks an identified enemy, the panel gave odds, and the squad takes the shot', () => {
     let s = openAt(id, 0);
     s = feed(s, [
-      [1000, { kind: 'intent', intent: { kind: 'halt', ids: [1] } }],
-      [4000, { kind: 'hover', entity: 2, structure: -1, sideOf, projection: 'unidentified' }],
+      [1000, oddsOnEnemy('unidentified')],
+      [4000, oddsOnEnemy('cover')],
+      [4500, attackEnemy],
     ]);
-    expect(s.steps[s.index].id).toBe(id);
+    expect(stillOpen(s)).toBe(true);
+    s = feed(s, [[9500, shotTaken]]);
+    expect(stillOpen(s)).toBe(false);
+  });
+
+  it('still ends when the player halts, the panel gives odds, and the squad takes the shot', () => {
+    let s = openAt(id, 0);
     s = feed(s, [
-      [9000, { kind: 'hover', entity: 2, structure: -1, sideOf, projection: 'cover' }],
-      [9500, { kind: 'sim', event: fireAtEnemy, sideOf }],
+      [1000, haltSquad],
+      [4000, oddsOnEnemy('unidentified')],
     ]);
-    expect(s.steps[s.index].id).not.toBe(id);
+    expect(stillOpen(s)).toBe(true);
+    s = feed(s, [
+      [9000, oddsOnEnemy('cover')],
+      [9500, shotTaken],
+    ]);
+    expect(stillOpen(s)).toBe(false);
+  });
+
+  it('needs all three legs: the order, the readable odds, and the shot', () => {
+    const legs: Record<string, TutorialInput> = { order: attackEnemy, odds: oddsOnEnemy('shot'), shot: shotTaken };
+    for (const missing of Object.keys(legs)) {
+      let s = openAt(id, 0);
+      let t = 1000;
+      for (const [leg, input] of Object.entries(legs)) if (leg !== missing) s = advance(s, input, (t += 1000));
+      s = idle(s, t);
+      expect(stillOpen(s), `cleared without the ${missing} leg`).toBe(true);
+    }
+  });
+
+  it('is not cleared by an ordinary move order: only the right-click on an enemy, or H, is the lesson', () => {
+    let s = openAt(id, 0);
+    s = feed(s, [
+      [1000, { kind: 'intent', intent: { kind: 'order', verb: 'move', ids: [1], x: 20, y: 20, append: false } }],
+      [2000, { kind: 'intent', intent: { kind: 'order', verb: 'attackMove', ids: [1], x: 20, y: 20, append: false } }],
+      [3000, oddsOnEnemy('shot')],
+      [4000, shotTaken],
+    ]);
+    s = idle(s, 5000);
+    expect(stillOpen(s)).toBe(true);
+  });
+
+  it('teaches the right-click in its text, and keeps H for the squad that is halted instead', () => {
+    const beat = steps.find((x) => x.id === id) as StepJson;
+    for (const [what, text] of [['teach', beat.teach], ['nudge', beat.nudge ?? '']] as const) {
+      expect(text, `beat 6 ${what} no longer names the right-click it awaits`).toMatch(/right-click/i);
+      expect(text, `beat 6 ${what} dropped H, which still clears the beat`).toMatch(/\bH\b/);
+    }
   });
 });
 
@@ -118,6 +177,25 @@ describe('beat 9, what a shot costs (PA-12)', () => {
       [40_000, { kind: 'mission', event: conductLine }],
     ]);
     expect(s.done).toBe(true);
+  });
+
+  it('ends when the player right-clicks an enemy for the mortar and a round is billed (GH-420)', () => {
+    let s = openAt(id, 0);
+    s = feed(s, [
+      [3000, { kind: 'intent', intent: { kind: 'attack', ids: [5], target: 2 } }],
+      [40_000, { kind: 'mission', event: conductLine }],
+    ]);
+    expect(s.done).toBe(true);
+  });
+
+  it('is not cleared by selecting the mortar and nothing else', () => {
+    let s = openAt(id, 0);
+    s = feed(s, [
+      [1000, { kind: 'intent', intent: { kind: 'select', ids: [5], via: 'click' } }],
+      [40_000, { kind: 'mission', event: conductLine }],
+    ]);
+    s = idle(s, 41_000);
+    expect(s.done).toBe(false);
   });
 
   it('holds the invoice beat open for its twelve seconds even when the bill comes at once', () => {
