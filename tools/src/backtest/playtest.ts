@@ -2370,17 +2370,40 @@ const ledUZ1 = run(
       // and boarding the jeep's two free seats.
       sim.queueCommand({ kind: 'move', ids: jeep, ...M(15, 35) });
     });
-    at(12, () => {
-      // Two families are aboard by now; drive them into the wadi. The third
-      // stays at the wells -- "nothing else out there is worth the jeep."
-      sim.queueCommand({ kind: 'move', ids: jeep, ...M(23, 37) });
-    });
+    // Two families aboard: drive them into the wadi. The third stays at the
+    // wells -- "nothing else out there is worth the jeep."
+    // Garrison overhaul: the knoll garrison now suppresses the jeep from the shed
+    // window (cover 3, +1 tile) while it waits at the wells, and at max tier it was
+    // pinned 0.7 tiles short of `refuge_wadi` on seeds 1, 4 and 6 (evacuation
+    // failed). It leaves as soon as both families ride instead of at a fixed 12 s
+    // (by 12 s at the latest, as before).
+    let jeepGone = false;
+    for (let w = 5; w <= 12; w += 0.5)
+      at(w, () => {
+        if (jeepGone) return;
+        let riders = 0;
+        for (let c = 0; c < sim.entityCount; c++) if (sim.state.alive[c] === 1 && sim.state.carriedBy[c] === jeep[0]) riders++;
+        if (riders < 2 && w < 12) return;
+        jeepGone = true;
+        sim.queueCommand({ kind: 'move', ids: jeep, ...M(23, 37) });
+      });
     // Loop south of the knoll's own 8.5-tile bubble, then east along the
     // bottom of the basin, to the east stand-off -- 8.5 tiles from
     // `uz_eye_east` and, measured, outside both MANPADs' envelopes the
     // whole way there.
-    at(30, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(30, 42) }));
-    at(45, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(40.5, 31.5) }));
+    //
+    // Garrison overhaul (UZ1 cause): since B2 the knoll's `sarim_rifles` really sits
+    // in the shed at (21-22,33) and fires from its window with GARRISON_RANGE_BONUS,
+    // reach 8 + 1 tiles; the old straight leg (15.5,30.5) -> (30,42) passed 1.5 tiles
+    // from that window and the drone was shot down at ~33 s on 30/30 seeds, so the
+    // missile-team look never happened and `find_the_missile_team` rested on the
+    // ground force bumping into the post (missed on seed 23: 2 stars, kipod gate
+    // late). The loop now runs south-west first, then along y=45, every point >= 9.5
+    // tiles (reach + 0.5) from the window.
+    at(30, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(9, 40) }));
+    at(36, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(12, 45) }));
+    at(39, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(31, 45) }));
+    at(48, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(40.5, 31.5) }));
     // `find_the_missile_team` is the one target this route never crosses --
     // its own briefing line says the drone gets one look at that envelope,
     // and every other waypoint above is built to stay outside it. Measured
@@ -2399,8 +2422,13 @@ const ledUZ1 = run(
     // life" reading and not this leg's. This is the one waypoint of the
     // route that trades the standoff discipline above for the one crossing
     // the mission's own briefing promises.
-    at(70, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(30.5, 29.5) }));
-    at(76, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(30, 42) }));
+    // Garrison overhaul (UZ1 cause above): (30.5,29.5) is 8.9 tiles from the knoll
+    // shed's window, inside its 9-tile reach, so the look moves east to (32,30.5)
+    // (10.0 from the window, 8.9 from `uz_eye_east`, 8.1 from the missile team) and the
+    // way back runs down to y=44.5 rather than past the shed to (30,42). Measured over
+    // 30 seeds: the missile team is identified at ~74 s on every seed.
+    at(70, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(32, 30.5) }));
+    at(76, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(31, 44.5) }));
     // Only the crest is left. Loop back through the same southern corridor
     // and up the far-western column, which measures outside `manpad_north`'s
     // 13-tile envelope for its entire length -- the reverse of the design
@@ -2418,7 +2446,9 @@ const ledUZ1 = run(
     // 19.55s. The whole detour above delays this leg's own arrival past
     // where the shipped route used to reach it, so the extra margin is what
     // keeps this waypoint honest rather than merely lucky on the clock.
-    at(110, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(10, 40) }));
+    // Garrison overhaul (UZ1 cause above): (30,42) -> (10,40) passed 7.8 tiles from the
+    // knoll shed's window; the leg west runs along y=44.5 (11 tiles) instead.
+    at(110, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(10, 44.5) }));
     at(125, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(3, 25) }));
     at(133, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(4, 6) }));
     // The drone is down (or its tour is over) and a post is still to find: the ground force, otherwise
