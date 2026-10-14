@@ -6,12 +6,16 @@
  * material step, the fire, the wreck under its own shroud) is RUNTIME
  * treatment that `pnpm validate:meshes` repaints away.
  *
- *   npx tsx tools/src/perf/building-captures.ts http://127.0.0.1:5280 <out> [--only=relay|pump|sheet] [--gpu=metal|swiftshader]
+ *   npx tsx tools/src/perf/building-captures.ts <out> [--only=relay|pump|sheet] [--gpu=metal|swiftshader] [--port=5280] [--attach]
  *
- * The server is the caller's (a `vite --port 5280 --strictPort` from the tree
- * under test): this script never starts or stops one, so it cannot take down
- * someone else's. Music is off before boot (`lions.settings` `audio.music`
- * 0), the lead's standing rule for every test browser.
+ * It serves its own tree on `--port=<n>` (else BUILDING_CAPTURE_PORT, else
+ * 5280), and a port something already holds is refused (`ui-review/port.ts`),
+ * so it neither takes down nor photographs someone else's server. `--attach`
+ * drives a server you started on `--port` instead (the tree under test, when
+ * it has no copy of this file). It used to take that server's URL as its
+ * first argument and photograph whatever answered. Music is off before boot
+ * (`lions.settings` `audio.music` 0), the lead's standing rule for every test
+ * browser.
  *
  * Three things worth knowing.
  *
@@ -34,9 +38,12 @@
 import { chromium, type Page } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { devServerStopper, ensureDevServer } from '../golden-diff/browser';
 import { dismissDeployGate } from '../golden-diff/capture-guard';
 import { gpuLaunchArgs, resolveGpuBackend } from '../ui-review/gpu';
 import { musicOffInitScript } from '../ui-review/music-off';
+import { claimPortOrAttach, refuseRetiredBaseUrl } from '../ui-review/port';
 
 const ZOOMS = [2.5, 1.0] as const;
 /** The rows of the sheet: `structureHpBand`'s eighths, descending. */
@@ -59,14 +66,23 @@ interface LionsWindow {
   };
 }
 
-const [base, outArg, ...rest] = process.argv.slice(2);
-if (!base || !outArg) {
-  console.error('usage: building-captures.ts <base url> <out dir> [--only=relay|pump|sheet] [--gpu=...]');
+const TAG = 'building-captures';
+const argv = process.argv.slice(2);
+refuseRetiredBaseUrl(TAG, argv);
+const [outArg] = argv.filter((a) => !a.startsWith('--'));
+if (!outArg) {
+  console.error('usage: building-captures.ts <out dir> [--only=relay|pump|sheet] [--gpu=...] [--port=<n>] [--attach]');
   process.exit(2);
 }
 const out = path.resolve(outArg);
-const only = rest.find((a) => a.startsWith('--only='))?.slice('--only='.length) ?? '';
+const only = argv.find((a) => a.startsWith('--only='))?.slice('--only='.length) ?? '';
+const { port } = await claimPortOrAttach(TAG, 'BUILDING_CAPTURE_PORT', 5280);
 fs.mkdirSync(out, { recursive: true });
+const stopServer = devServerStopper(
+  await ensureDevServer(port, path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..'), TAG),
+  TAG
+);
+const base = `http://localhost:${port}`;
 
 const gpu = resolveGpuBackend(process.argv, process.platform);
 const browser = await chromium.launch({ headless: true, args: gpuLaunchArgs(gpu) });
@@ -281,3 +297,4 @@ if (wants('sheet')) {
 }
 
 await browser.close();
+stopServer();

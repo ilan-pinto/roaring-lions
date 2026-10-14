@@ -62,7 +62,8 @@
 // questions and a ladder step (spec 2026-09-14 section 11) re-measures ONE of
 // them repeatedly.
 //
-// Usage: npx tsx tools/src/perf/backend-curve-gate.ts [--port=5190]
+// Usage: npx tsx tools/src/perf/backend-curve-gate.ts [--port=5190] [--attach]
+//   (or BACKEND_CURVE_PORT; a held port is refused unless --attach)
 //   [--host=localhost] [--out=path.json] [--skip-skinned]
 //   [--only=three-mesh,skinned]
 
@@ -73,6 +74,7 @@ import { fileURLToPath } from 'node:url';
 import { chromium, type Page, type Browser } from 'playwright';
 import type { BackendReport } from './three-units';
 import { musicOffInitScript } from '../ui-review/music-off';
+import { claimPortOrAttach } from '../ui-review/port';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -89,7 +91,6 @@ const MEASUREMENTS = ['three-mesh', 'skinned'] as const;
 type Measurement = (typeof MEASUREMENTS)[number];
 
 interface Args {
-  port: number;
   host: string;
   outFile: string;
   only: ReadonlySet<Measurement>;
@@ -117,7 +118,6 @@ function parseArgs(argv: readonly string[]): Args {
   }
   if (flags.has('skip-skinned')) only.delete('skinned');
   return {
-    port: Number(flags.get('port') ?? 5190),
     // `localhost` by default (what every recorded run used); overridable
     // because a dev server started with `--host 127.0.0.1` is NOT reachable
     // over `localhost`'s IPv6 answer on this platform, and the failure reads
@@ -241,7 +241,11 @@ async function runInPage<T>(page: Page, exportName: string): Promise<T> {
 }
 
 async function main(): Promise<void> {
-  const { port, host, outFile, only } = parseArgs(process.argv.slice(2));
+  const { host, outFile, only } = parseArgs(process.argv.slice(2));
+  // `--port=<n>`, else BACKEND_CURVE_PORT, else 5190; a port something else
+  // holds is REFUSED (exit 2, `ui-review/port.ts`) unless `--attach` says the
+  // caller started that server on purpose (the `--host 127.0.0.1` case below).
+  const { port } = await claimPortOrAttach('backend-curve-gate', 'BACKEND_CURVE_PORT', 5190);
   const origin = `http://${host}:${port}`;
   const devServer = await ensureDevServer(origin, port);
   // Playwright's default headless Chromium renders WebGL through SwiftShader

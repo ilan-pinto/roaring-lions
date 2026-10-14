@@ -338,6 +338,12 @@ import {
 import type { MissileLanding, TargetTrack } from './units/missiles';
 import { missileClassOf, SIM_PROJ_SPEED_TILES_S } from './units/missiles';
 import {
+  isKamikazeDetonation,
+  detonationHeadingTurns,
+  KAMIKAZE_BLAST_POWER,
+  KAMIKAZE_BLAST_SCALE,
+} from './units/kamikaze-blast';
+import {
   TARGET_RING_SCALE,
   pulseAt,
   PULSE_S,
@@ -1988,6 +1994,17 @@ export class ThreeRenderer implements Renderer {
    * largest -- and is emptied wholesale by `dispose`.
    */
   private readonly evacuated = new Set<number>();
+  /**
+   * GH-85: entity ids whose death was their own warhead going off
+   * (`units/kamikaze-blast.ts`). A third fork beside `evacuated` and
+   * `removed`, latched in `onEvents` for the same ordering reason as
+   * `evacuated`: the frame that notices `alive === 0` runs after the event
+   * has gone. A munition that went off leaves no wreck and no corpse -- the
+   * blast is the whole of its end. Never cleared per entity, for
+   * `evacuated`'s reason (ids are never reused); bounded by the kamikazes a
+   * mission fields, and emptied wholesale by `dispose`.
+   */
+  private readonly detonated = new Set<number>();
 
   /**
    * Vehicle meshes (mesh-unit-contract v2). One `VehicleMeshTemplate` per
@@ -3105,6 +3122,7 @@ export class ThreeRenderer implements Renderer {
     }
     this.meshDeparting.length = 0;
     this.evacuated.clear();
+    this.detonated.clear();
     // Permanent wrecks share the template's geometry/material by reference
     // (like every living `MeshUnitEntity` does -- `MeshUnitTemplate`'s own
     // doc comment), so only `scene.remove` is needed; the shared resources
@@ -4514,6 +4532,29 @@ export class ThreeRenderer implements Renderer {
         this.killerX[e.entity] = e.by >= 0 ? this.curX[e.by] : NaN;
         this.killerY[e.entity] = e.by >= 0 ? this.curY[e.by] : NaN;
         const deadType = this.sim.unitTypes[st.typeIdx[e.entity]];
+        // GH-85: a kamikaze's warhead going off. Inferred, not reported --
+        // see `units/kamikaze-blast.ts` for the rule and its one accepted
+        // false positive (a munition SHOT DOWN by the unit it was diving on,
+        // inside the strike reach, also draws the blast).
+        const tgt = e.by;
+        if (
+          tgt >= 0 &&
+          isKamikazeDetonation({
+            isKamikaze: deadType.isKamikaze,
+            by: tgt,
+            curTarget: st.curTarget[e.entity],
+            x: this.curX[e.entity],
+            y: this.curY[e.entity],
+            tx: this.curX[tgt],
+            ty: this.curY[tgt],
+          })
+        ) {
+          this.detonated.add(e.entity);
+          this.spawnKamikazeBlast(e.entity, tgt);
+          // Not the vehicle kill below either: a munition that went off is
+          // not a hull brewing up, and leaves no wreck to smoulder.
+          continue;
+        }
         // A hard-target kill (a vehicle) reuses the SAME pooled
         // explosion-burst mesh `structureDestroyed` already draws below --
         // "reuse the pooled mesh path... do not add a second one", per this
@@ -7284,8 +7325,11 @@ export class ThreeRenderer implements Renderer {
       // immediate-removal branch, and with the BILLBOARD path (`onEvents`),
       // which never enters `dying` for this case at all -- `removeFromPlay`
       // never emits `destroyed`, the one event that ever pushes there.
+      // GH-85: the third fork -- a charge carrier whose own warhead went off
+      // (`this.detonated`, latched in `onEvents`) leaves no body, exactly as
+      // a removed unit leaves none: the blast is the whole of its end.
       if (this.evacuated.has(id)) this.meshDeparting.push(beginMeshEvac(entity));
-      else if (id < n && st.removed[id] === 1) {
+      else if (id < n && (st.removed[id] === 1 || this.detonated.has(id))) {
         this.scene.remove(entity.root);
         disposeMeshUnitEntity(entity);
       } else {
@@ -7840,7 +7884,10 @@ export class ThreeRenderer implements Renderer {
       if (id < n && st.alive[id] !== 0) continue;
       this.vehicleMeshEntities.delete(id);
       const deadTemplate = this.vehicleMeshTemplates.get(entity.typeId);
-      if (deadTemplate?.hasWreck === true && id < n && st.removed[id] === 0) {
+      // GH-85: a drone whose own warhead went off (`this.detonated`) takes
+      // the immediate removal too -- a munition that detonated is not a hull
+      // that burnt out, and leaves no wreck.
+      if (deadTemplate?.hasWreck === true && id < n && st.removed[id] === 0 && !this.detonated.has(id)) {
         // Detach BEFORE the death sequence takes the entity, exactly as
         // `updateMeshUnits` does: the fade clones every material under the
         // root, and a silhouette's own `MeshBasicMaterial` is shared by every
@@ -8849,7 +8896,7 @@ export class ThreeRenderer implements Renderer {
    * `scale` rather than x `impactPower` (P-4), and there is no hit-stop and no
    * crater: a kill already owns the blast. A miss marks the ground.
    */
-  private spawnMissileImpactFx(l: MissileLanding): void {
+  private spawnMissileImpactFx(l: Pick<MissileLanding, 'x' | 'y' | 'headingTurns' | 'power' | 'scale' | 'miss'>): void {
     const em = this.emitterLibrary.byName(MISSILE_IMPACT_EMITTER_ID);
     const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, l.x, l.y);
     if (em && this.particleSystem) {
@@ -8867,6 +8914,42 @@ export class ThreeRenderer implements Renderer {
     if (light) this.flashLights.spawn(l.x, l.y, worldY, light, this.overlayColor(light.color ?? 'vfx.fire', FLASH_LIGHT_FALLBACK));
     this.shakeState = pushShake(this.shakeState, blastShake(em, l.scale), l.x, l.y);
     if (l.miss) this.stampGroundDecal(this.persistentStamp('scorch', l.x, l.y, scorchRadiusTiles(MISS_SCORCH_POWER)));
+  }
+
+  /**
+   * GH-85: a kamikaze's warhead going off -- `charge_squad`, `loiter_drone`,
+   * `attack_drone`. `missile_impact.json` through `spawnMissileImpactFx`, the
+   * path a landing missile takes (the pooled burst for its `mesh_burst` layer,
+   * spall along the dive, the emitter's own light and shake), at
+   * `KAMIKAZE_BLAST_POWER`; then a scorch through `stampGroundDecal`, the one
+   * entry. At the TARGET, where `stepKamikaze` centres its splash.
+   *
+   * Thrown from the `destroyed` event rather than off the frame clock: there
+   * is no round in flight to wait for, since the munition IS the round and
+   * the sim has already flown it home. A tick far behind the live edge
+   * (`setQuiet`) keeps the scorch and throws nothing else, as a vehicle kill
+   * does.
+   */
+  private spawnKamikazeBlast(munition: number, target: number): void {
+    const x = this.curX[target];
+    const y = this.curY[target];
+    if (!this.quiet) {
+      this.spawnMissileImpactFx({
+        x,
+        y,
+        headingTurns: detonationHeadingTurns(
+          this.curX[munition],
+          this.curY[munition],
+          x,
+          y,
+          fx.toNumber(this.sim.state.facing[munition])
+        ),
+        power: KAMIKAZE_BLAST_POWER,
+        scale: KAMIKAZE_BLAST_SCALE,
+        miss: false,
+      });
+    }
+    this.stampGroundDecal(this.persistentStamp('scorch', x, y, scorchRadiusTiles(KAMIKAZE_BLAST_POWER)));
   }
 
   /**

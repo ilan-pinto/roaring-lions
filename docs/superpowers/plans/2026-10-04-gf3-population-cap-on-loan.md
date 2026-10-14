@@ -2,7 +2,75 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task by task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-## Changed since 4 Oct
+## Changed since 4 Oct (refreshed 14 Oct)
+
+A quick staleness pass, read and grepped against `main` `f4b3ea2b` (14 Oct) and the garrison
+overhaul's branch, then re-checked against `main` `cd407953`, which carries the overhaul as #606
+(merged 14 Oct). Line numbers are `cd407953`'s. Docs only; nothing run. It governs where it disagrees
+with the older dated sections below. F3 is cut **after F1 lands**; Stage 4 started early (13 Oct), so
+the November dates are history.
+
+**Pins: named, never copied.** Global Constraints and Re-pins now say "main's current pins": the
+three sim pins (`determinism.test.ts` ~L494 flat, ~L863 relief, ~L983 orders),
+`LADDER_CREDITS` (`playtest.ts` ~L3584) with `CAMPAIGN_CREDITS` (`stores-model.ts` ~L66),
+`ROSTER_MAX` (~L3723), `GATES` (~L3262), and F1's `ECONOMY_PIN`/`ECONOMY_PIN_RELIEF` (still not in
+the tree; F1 Tasks 1 and 5 create them). Targeted fire (#591) moved the sim pins; #606 moved the flat
+pin again and re-pinned `LADDER_CREDITS`/`CAMPAIGN_CREDITS` and `ROSTER_MAX`. Read every one on the
+branch base.
+
+**What landed and what it does to F3.**
+- **#585, the mission time limit (#540).** Every mission declares `time_limit_s`; a stall ends as a
+  `'withdrawn'` defeat in `checkEnd` (~L1925-1947). Task 7's roster skip sits in the same `checkEnd`
+  and is unaffected. Task 7 Step 1's measurement must also keep every `time limit` headroom line
+  clear (`tools/src/backtest/time-limit.ts`). `tools/validate_time_limit.mjs` and its spec are a
+  second precedent for Task 2's pure validator module.
+- **#580 (#291, #279, #247), #584, #570, #572.** Routs, civilian flight, `manpad_team` on foot,
+  working splash suppression, anti-armour target choice. They change who survives, so Task 7's L-1
+  footprint (R) is a fresh reading, not the 11 Oct one.
+- **The garrison overhaul (#606, merged).** D1 already counts a garrisoned unit; the overhaul adds two
+  states D1 must keep counting: an overflow unit **waiting at the door** of a full building (B3:
+  alive, `moving` 0, not garrisoned) and a slot freed on `removeFromPlay` or death (B5). Neither
+  changes the count (a waiting unit is alive; a removed one is not). `sarim_rifles` gains the
+  `garrison` ability. It re-scripted five plans, including `umm_zeitoun_4_clearance`, where
+  `ROSTER_MAX` is measured: Task 7 Step 1 reads L-1's footprint on `main`'s plans as of `cd407953`.
+- **#591 targeted fire, #577 H skips a garrison.** No F3 interaction: population counts units, not
+  orders.
+- **Versus (N0/N1a/N1b).** A room runs Free Play only and builds no `MissionRuntime`
+  (`main.ts` ~L1458), and has no production. `MissionContext.popCaps`, the door the plan names for
+  "on in skirmish and co-op", therefore cannot reach a versus room. Nothing to build in F3: a versus
+  cap would be a `MatchConfig` field once versus has production (Q10, below, taken default).
+- **F1 (not landed; F3 waits on it).** F3 Task 4 re-pins **both** economy pins once: folding
+  population into `economyHash` moves the flat pin and the relief pin alike, so Task 4's commit names
+  both, and the relief fixture needs the same coverage check (a cap that really refuses a build).
+
+**Stale items fixed in place.**
+
+| where | was | now (`f4b3ea2b`; `cd407953` for the files #606 touched) |
+|---|---|---|
+| Global Constraints, Re-pins | sim pin, ladder and roster values | named pins, "main's current pins" |
+| File structure, Task 3 | harness `unitInfo` at `playtest.ts` ~L259; `main.ts` ~L2332 | `tools/src/backtest/playtest-run.ts` ~L303; `main.ts` ~L2557 |
+| Task 1 | `UnitTypeJson` ~L158, `unitTypeFromJson` ~L494, `addUnitType` ~L1327, `haltsToFire` parse ~L540 | ~L165, ~L536, ~L1430, ~L582 on `cd407953` (`UnitTypeJson` still has no `cost` field) |
+| Task 2 | `resources` ~L280-302; `validate_briefing.mjs` wired ~L1080 | `resources` ~L286; imported L24, used ~L1083 |
+| Task 3 | `buildBlockedReason` ~L609, camp return ~L619, `requestBuild` ~L679, `buildQueue` ~L525 | ~L620, ~L630, ~L690, ~L531 |
+| D5 | fresh remnant `drawn = [null]` ~L1295 | ~L1317 |
+| Task 6 | `resolvedMission` built at `main.ts` ~L1746-1754 | ~L1952 (`startMission` ~L2547) |
+| Task 7 | `checkEnd` ~L1897, survivor loop ~L1920-1939, unfielded append ~L1942; `main.ts` survivor count ~L516; `CONDUCT_GATES` ~L3007, `conductLedgerAfter` ~L2886 | `checkEnd` ~L1925; `survivors.push` ~L1958, `roster.push` ~L1972, unfielded append ~L1977; `main.ts` ~L534; `CONDUCT_GATES` ~L3329, `conductLedgerAfter` ~L3204 |
+| Task 8 | `chipArtHtml` ~L213; `broughtFor` ~L136; `deploySpread` ~L240; `FieldOrder.attached` ~L2143 | ~L219; ~L139; ~L243; ~L2365 |
+| Lane A | `getMission` ~L2462; deny cue wired at the order sink ~L3483 and support ~L3625 | `getMission` ~L2674; order sink `deny` ~L3939, support refusal ~L4089 (and a room's paused-order note ~L3163); `ui/production.ts` still plays none |
+| D5 | the harness's gate copy `playtest.ts` ~L119/~L238 | `kdfUnlockGate` `playtest-run.ts` ~L112, `withBought` ~L282 |
+| Census | 34 of 35 unit JSONs declare `cost.population`; `wadi_halam_5_depot` placements 4 (`dozer_d9`, Conduct 87) and 5 (`demo_squad`, 77) | re-verified, unchanged |
+
+**Pre-flight decisions: all ruled 14 Oct (lead).** Q4-Q9 (11 Oct) took their recommendations; each
+ruling is written under its question below, and Task 8 and the Lane A rows follow them. One more,
+found here, also ruled:
+
+10. **A population cap in versus.** Taken default: none in F3. Versus has no production yet, and a
+    room has no `MissionRuntime`; when it gains production, the cap is a `MatchConfig` field checked
+    the same on both machines, in its own plan. Overrule only if the lead wants F3 to ship that door.
+    **Ruled 14 Oct (lead):** no population cap in versus in F3; a versus cap is a `MatchConfig` field
+    in its own plan once versus has production.
+
+## Changed since 4 Oct (refreshed 6 Oct)
 
 Refreshed against `main` `b44df7aa` (v0.121.4, 6 Oct). F1 has not landed (`economyHash` and the
 `ECONOMY_PIN*` constants are not in the tree), so Task 4 still waits on it.
@@ -126,17 +194,26 @@ Landed since `b44df7aa`, touching F3:
    loaned placement (one string `deploy.onLoan`, read from `loanedPlacements` over the RESOLVED mission, the
    same array `FieldOrder.attached` is built from). It is what G3 Q5 originally asked for and it is
    additive. Task 8 gets a Step 2c, marked "(only if Q4 is yes)".
+   **Ruled 14 Oct (lead):** keep the unit card and chip as ruled, and also swap the Field order card's
+   note from "from brigade" to "on loan" for a loaned placement (`deploy.onLoan`, from
+   `loanedPlacements` over the resolved mission). Task 8 Step 2c is in.
 5. **Mock the mark before building it.** The lead rejected the kit badge on the world on sight, and a chip
    has two of its four art corners taken. **Recommend:** Task 8 starts with a card-and-chip mock for the
    lead, then builds. Proposed: a dim text stamp "On loan" (display capitals by CSS, VR-20) after the name on
    the card and after `×count` on the chip, neutral `--ink-dim` outline. Not `--on` (live state), not
    `--selected`, not `--info` (logistics/intel), not `--commend` (credits). It must not ride the chip's
    combat-state status line.
+   **Ruled 14 Oct (lead):** Task 8 starts with a card-and-chip mock for the lead, then builds; the
+   proposal above (a dim "On loan" stamp, neutral `--ink-dim` outline, off the status line) is the
+   mock's starting point.
 6. **Mixed chips.** One chip groups every selected unit of a type. **Recommend:** the stamp shows when ANY
    unit in the chip is loaned, and the tooltip says "N of M on loan"; no splitting chips (a chip click selects
    the type). Taken default; overrule if the lead wants it all-or-nothing.
+   **Ruled 14 Oct (lead):** the stamp shows when any unit in the chip is loaned, the tooltip says
+   "N of M on loan", and chips are not split.
 7. **Dock tile "on loan"?** The ruling says "if a loaned type appears there". The dock lists build options; a
    locked D9 tile already says why it is locked. **Recommend:** never mark the tile. Taken default.
+   **Ruled 14 Oct (lead):** never mark the dock tile.
 8. **Cap on the dock.** **Recommend:** a capped tile is its own state (`data-capped`, `--disabled-opacity` and
    `not-allowed`, short label "pop full", full line "Population 12/12. A unit must fall first." from
    `populationView()`), below a campaign lock in precedence, and a click on a locked, capped or refused tile
@@ -144,9 +221,13 @@ Landed since `b44df7aa`, touching F3:
    (today none of the three refusals sounds). The deny cue on the two existing refusals is a behaviour
    change, so it is named here. Used/cap on the strip shares the `logistics` HUD-element visibility, `--info`,
    a dim word, no glyph; at the cap it takes the warn tone.
+   **Ruled 14 Oct (lead):** as recommended: a `capped` tile state below a campaign lock, `ui.deny` on
+   every locked, capped or refused dock click through `ProductionOptions.deny`, and used/cap on the
+   strip in `--info`, warn at the cap.
 9. **Saves from before L-1.** Lent bodies that earlier wins already enlisted stay in the brigade, the way R-2
    left pre-R-2 duplicates. **Recommend:** yes, no migration. Otherwise Task 7 needs a ledger migration,
    which is a bigger change.
+   **Ruled 14 Oct (lead):** yes, no migration.
 
 **Goal:** Two small rulings, made real.
 
@@ -183,8 +264,8 @@ Landed since `b44df7aa`, touching F3:
   `ui/kit-sign.ts` (`kitIconSignHtml`, the DOM sign the mark sits beside): where the mark goes since
   the 6 Oct ruling.
 
-**Base:** read against `main` `067fab9a`, refreshed against `b44df7aa` (6 Oct), pre-flighted against `f2d5d9e8` (11 Oct). Branch `feat/gf3-popcap`,
-cut from `main` after F1 lands. Nothing measured yet: (M) is quoted from the G3 sheet, (R) is reasoned.
+**Base:** read against `main` `067fab9a`, refreshed against `b44df7aa` (6 Oct), pre-flighted against `f2d5d9e8` (11 Oct) and `f4b3ea2b`/`cd407953` (14 Oct). Branch `feat/gf3-popcap`,
+cut from `main` after F1 lands (F1 is cut on top of #606). Nothing measured yet: (M) is quoted from the G3 sheet, (R) is reasoned.
 
 ---
 
@@ -216,9 +297,10 @@ cut from `main` after F1 lands. Nothing measured yet: (M) is quoted from the G3 
   - **L-1. A loaned survivor goes back to the lender.** "For that mission" (the lead's Q5 wording)
     means the unit does not join `roster.surviving_units` at mission end. Today every starting-force
     survivor without `from_ledger` appends a new roster entry, so a lent Lavi would become the
-    brigade's permanently, gate or no gate. **This can move the playtest roster lines (`ROSTER_MAX`,
-    31 on `b44df7aa`, 30 on 4 Oct) and, through later `from_ledger` draws, outcomes and
-    `LADDER_CREDITS` (5870 on `f2d5d9e8`, 5830 on `b44df7aa`, 5736 on 4 Oct), and with it `CAMPAIGN_CREDITS` (GH-330).**
+    brigade's permanently, gate or no gate. **This can move the playtest roster lines (`ROSTER_MAX`)
+    and, through later `from_ledger` draws, outcomes and `LADDER_CREDITS`, and with it
+    `CAMPAIGN_CREDITS` (GH-330), each from main's current pin (14 Oct: never from a number in this
+    plan).**
     It halts at Task 7 for the lead's confirmation. **R-2 (#441) does not make L-1 redundant.**
     R-2 only replaces a mission's OWN unfielded fresh bodies on a replay (`isReplayed`: `enlisted` stamp,
     `missions <= 1`, unfielded). The first win of a lending mission still enlists the lent Lavi for good, and
@@ -236,16 +318,16 @@ cut from `main` after F1 lands. Nothing measured yet: (M) is quoted from the G3 
 
 - **The four invariants hold.** Population sums are integers. No `rng`. The sim gains one parsed,
   unhashed, unread field (`UnitType.population`); no sim system reads it.
-- **Sim pins unmoved** by every task (flat 922714084, relief 3200430224, unchanged on `f2d5d9e8`,
-  `determinism.test.ts` L427/L721; they were 2109596329 and 1425295494 on 4 Oct, moved by #402). A
-  move is a defect. *Pre-flight 2 (2026-10-11): three on `49715ff9`, flat 1202444260, relief
-  3354895120, orders 2737216487 (#537).*
-- **The economy pins move once**, in Task 4, with the reason.
+- **The three sim pins stay unmoved** by every task: main's current flat, relief and orders pins
+  (`determinism.test.ts` ~L494, ~L863, ~L983 on `cd407953`), read on the branch base, never copied
+  from this plan. A move is a defect.
+- **The economy pins move once**, in Task 4, with the reason: both `ECONOMY_PIN` and
+  `ECONOMY_PIN_RELIEF` (F1 births them).
 - **`pnpm balance`** byte-identical (R).
 - **`pnpm playtest`** byte-identical through Task 6 (R: no campaign mission sets a cap, and the
   predicate changes nothing it does not mark). Task 7 (L-1) moves roster lines by design; anything
   downstream is measured and named. *(Pre-flight 2, 2026-10-11: on all 30 seeds; every plan still wins
-  30/30, #539/#542.)*
+  30/30, #539/#542.)* *(14 Oct: and every `time limit` headroom line stays clear, #540.)*
 - **Every check seen red**, by a one-line mutation, quoted in the commit.
 - **Gates before every commit**: as F1, plus `pnpm validate:ui` for Task 8.
 - **Git, TypeScript:** as F1. Task 8 is **Lane A** (`packages/app`), done by the lane A agent and
@@ -261,7 +343,7 @@ cut from `main` after F1 lands. Nothing measured yet: (M) is quoted from the G3 
 | `tools/src/` (a shipped-roster spec, beside `halt_to_fire_roster.test.ts`) | The shipped-JSON assertions of Tasks 1 and 6 | 1, 6 |
 | `data/schemas/mission.schema.json`, `tools/validate_data.mjs` + a new pure rule module and its `tools/src/*.test.ts` | `resources.pop_cap`; the campaign refusal | 2 |
 | `packages/sim/src/mission.ts` (+ test) | `population(side)`, `popCap(side)`, `populationView()`, the build refusal | 3, 4, 7 |
-| `packages/app/src/main.ts` (~L2332), `tools/src/backtest/playtest.ts` (~L259) | The two runtime `unitInfo` builders gain `population` | 3 |
+| `packages/app/src/main.ts` (~L2557 on `f4b3ea2b`, unchanged by #606), `tools/src/backtest/playtest-run.ts` (~L303) | The two runtime `unitInfo` builders gain `population` | 3 |
 | `packages/sim/src/determinism.test.ts` | The economy re-pin | 4 |
 | `tools/src/backtest/playtest.ts` | The population census line; Task 7's pins | 5, 7 |
 | `packages/app/src/ui/stores-model.ts` (`CAMPAIGN_CREDITS`) | Moves with `LADDER_CREDITS` if Task 7 moves it (GH-330) | 7 |
@@ -509,9 +591,9 @@ ruled 6 Oct: inside the L-1 confirmation, no separate word needed).
   ~L1942's unfielded-pool append). Skip only the `roster.push(entry)`: leave `survivors.push` (it feeds
   `missionEnd.survivors`, which `main.ts` ~L516 prints as the survivor count) and the veterancy/`promotedValue`
   lines alone, and `startingHome` is untouched (credits). A loaned unit that earned a stripe loses it on return.
-- [ ] **Step 4: Re-pin, if Step 1 said so.** Each moved `LADDER_CREDITS` (5870 on `f2d5d9e8`, ~L3195) /
-  `GATES` (~L2944) / `ROSTER_MAX` (31, ~L3322) *(Pre-flight 2, 2026-10-11: 5917 ~L3096 / ~L2820 / 30
-  ~L3228 on `49715ff9`)* pin gets the house-style comment: the term, per mission,
+- [ ] **Step 4: Re-pin, if Step 1 said so.** Each moved `LADDER_CREDITS` (~L3584 on `cd407953`) /
+  `GATES` (~L3262) / `ROSTER_MAX` (~L3723) pin, starting from main's current value, gets the
+  house-style comment: the term, per mission,
   before and after, summing to the delta. A moved `LADDER_CREDITS` moves `CAMPAIGN_CREDITS` in the same
   commit, or `tools/src/campaign_credits.test.ts` goes red (GH-330).
 - [ ] **Step 5: See it red.** Remove the skip: the roster test fails, listing the loaned unit.
@@ -531,8 +613,8 @@ deploy screen. On `b44df7aa` neither deploy surface had a row for a loaned unit,
 (loading.ts ~L136) and `deploySpread` (~L240) still do not: they name only `from_ledger` draws and pool
 entries. **Since #442 the Field order's `forceBar` (`ui/force-bar.ts`) draws a fixed card per non-ledger
 placement** (`FieldOrder.attached`, built in `main.ts` ~L2143 from `resolvedMission`), noted "from brigade"
-(`deploy.attached`). A loaned unit is on that card today. Whether to mark it there is Pre-flight Q4; until the
-lead answers, this task builds the unit card and chip only, as ruled.
+(`deploy.attached`). A loaned unit is on that card today. **Pre-flight Q4, ruled 14 Oct (lead): yes**, so
+this task builds the unit card and chip as ruled on 6 Oct, and Step 2c's Field order card too.
 
 **Files:** `packages/app/src/ui/hud.ts` (the selection chips in `renderChips`, `chipArtHtml` ~L213, and the
 single-unit card in `renderCard`); `ui/selection-model.ts` (`UnitFacts` and `ChipView` gain `onLoan`);
@@ -572,7 +654,7 @@ and `hud.onLoan.some` coexist. The dock tile is never marked (Pre-flight Q7).
     `data-motion` branch.
 - [ ] **Step 3: Measure.** `pnpm validate:ui` is clean, and a pseudo capture of a mission with a
   loaned unit selected shows no unbracketed word.
-- [ ] **Step 2c (only if Pre-flight Q4 is yes): the Field order card.** `forceBar`'s `fixedCard` note becomes
+- [ ] **Step 2c (Pre-flight Q4, ruled yes 14 Oct): the Field order card.** `forceBar`'s `fixedCard` note becomes
   `t('deploy.onLoan')` ("on loan") for a loaned placement and stays `deploy.attached` otherwise. The new
   `FieldOrder.attached` entry gains `onLoan: boolean`, computed in `main.ts` from `loanedPlacements` over the
   same `resolvedMission` the list is built from. Test: `wadi_halam_5_depot`, empty ledger: the D9 and the
@@ -610,12 +692,12 @@ and `hud.onLoan.some` coexist. The dock tile is never marked (Pre-flight Q7).
 
 | pin | expected | the reason, for the commit |
 |---|---|---|
-| sim pins, flat, relief and orders (three since #537) | **unmoved** (R): 1202444260 / 3354895120 / 2737216487 on `49715ff9` (Pre-flight 2); 922714084 / 3200430224 on `f2d5d9e8` (2109596329 / 1425295494 on 4 Oct, moved by #402) | — |
+| sim pins, flat, relief and orders (`determinism.test.ts` ~L494, ~L863, ~L983 on `cd407953`) | **unmoved** (R): main's current pins, read on the branch base | — |
 | `ECONOMY_PIN`, `ECONOMY_PIN_RELIEF` | **re-pinned once**, Task 4 (born in F1; not in the tree on `b44df7aa`) | population and the cap are economy state (G3 Q4) |
 | `pnpm balance` | byte-identical (R) | — |
 | `pnpm playtest` | byte-identical through Task 6; Task 7 moves roster lines (L-1) | new census lines (Task 5) |
-| `ROSTER_MAX` | **30** on `49715ff9` (Pre-flight 2: #537 → 32, #542 → 30); 31 on `f2d5d9e8` (30 on 4 Oct; GH-382 → 33, #402 → 31), at `umm_zeitoun_4_clearance`; may move in Task 7 (R) | "a loaned survivor returns to the lender (G3 Q5, L-1)" |
-| `LADDER_CREDITS` | **5917** on `49715ff9` (Pre-flight 2); 5870 on `f2d5d9e8` (5830 on `b44df7aa`, 5736 on 4 Oct; #431, #444); unchanged unless L-1's smaller pools change a later outcome (R: small, measured in Task 7 Step 1) | "a loaned survivor returns to the lender (G3 Q5, L-1)", per mission |
+| `ROSTER_MAX` (`playtest.ts` ~L3723 on `cd407953`) | main's current pin, measured at `umm_zeitoun_4_clearance` (#606 re-scripted that plan and re-pinned it); may move in Task 7 (R) | "a loaned survivor returns to the lender (G3 Q5, L-1)" |
+| `LADDER_CREDITS` (`playtest.ts` ~L3584 on `cd407953`) | main's current pin (#606's re-pin); unchanged unless L-1's smaller pools change a later outcome (R: small, measured in Task 7 Step 1) | "a loaned survivor returns to the lender (G3 Q5, L-1)", per mission |
 | `CAMPAIGN_CREDITS` (`stores-model.ts` L63) | equal to `LADDER_CREDITS` (GH-330, `campaign_credits.test.ts`); moves with it, same commit | as `LADDER_CREDITS` |
 
 ## Lane A needs (WP-S-F #184)
@@ -640,8 +722,10 @@ token, every new class pinned by the register specs (`chrome-register.test.ts`, 
   `dock.note.cannotBuild` ("insufficient logistics").
 - **A deny cue on the three dock refusals** (locked, capped, refused): `ProductionOptions.deny?: () => void`,
   wired in `main.ts` to `audio.playCue(CRITICAL_CUES.uiDeny)` as the order sink (~L3483) and the support
-  refusal (~L3625) already are. Today none of the three sounds. Behaviour change, named in Pre-flight Q8.
+  refusal (~L3625) already are. Today none of the three sounds. Behaviour change, named in Pre-flight Q8
+  and ruled 14 Oct (lead): build it.
 - **No feed alert, no tier, no `cues.ts` row**: F3 adds no `MissionEvent` kind. A refused build is a
   `hud.note`.
 - **"On loan"** on the unit card and selection chip (ruled 6 Oct): Task 8, if lane A was busy when F3
-  landed. The deploy card and the dock tile follow Pre-flight Q4 and Q7.
+  landed. The deploy card says "on loan" (Pre-flight Q4, ruled yes 14 Oct); the dock tile is never
+  marked (Q7, ruled 14 Oct).

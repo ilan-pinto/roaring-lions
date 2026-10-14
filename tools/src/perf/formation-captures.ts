@@ -3,16 +3,30 @@
  * group has settled: the whole force into the open basin, the whole force
  * into the five-wide pass through the ridge, and the foot units alone into
  * the two-wide boulder corridor (a column).
- *   npx tsx tools/src/perf/formation-captures.ts http://127.0.0.1:5178 .superpowers/formation-captures
+ *   npx tsx tools/src/perf/formation-captures.ts .superpowers/formation-captures [--port=5178] [--attach]
  * Headless Chromium, SwiftShader, 1440x900, device pixel ratio 1 — same
  * launch args and viewport as art-captures.ts.
+ *
+ * It serves its own tree on `--port=<n>` (else FORMATION_CAPTURE_PORT, else
+ * 5178), and a port something already holds is refused (`ui-review/port.ts`);
+ * `--attach` drives a server you started there instead.
  */
 import { chromium, type Page } from 'playwright';
 import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { devServerStopper, ensureDevServer } from '../golden-diff/browser';
 import { musicOffInitScript } from '../ui-review/music-off';
+import { claimPortOrAttach, refuseRetiredBaseUrl } from '../ui-review/port';
 
-const [base = 'http://127.0.0.1:5178', out = 'formation-captures'] = process.argv.slice(2);
+const TAG = 'formation-captures';
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+refuseRetiredBaseUrl(TAG, process.argv.slice(2));
+const [out = 'formation-captures'] = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+const { port } = await claimPortOrAttach(TAG, 'FORMATION_CAPTURE_PORT', 5178);
 fs.mkdirSync(out, { recursive: true });
+const stopServer = devServerStopper(await ensureDevServer(port, REPO_ROOT, TAG), TAG);
+const base = `http://localhost:${port}`;
 const browser = await chromium.launch({
   headless: true,
   args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
@@ -99,3 +113,4 @@ await order(10, 13, true);
 await cam(10, 15, 1.6);
 await shot('03-corridor-column');
 await browser.close();
+stopServer();

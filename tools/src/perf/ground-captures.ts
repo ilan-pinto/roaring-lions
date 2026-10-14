@@ -15,6 +15,10 @@
  *   pnpm ground:capture -- --port=5196 --out=.superpowers/ground/t1 --maps=qarn_hadid
  *   pnpm ground:capture -- --port=5196 --out=.superpowers/ground/t1 --decals --reuse
  *
+ * The port is `--port=<n>`, else GROUND_CAPTURE_PORT, else 5196 (5193-5199
+ * only), and a port something already holds is refused before the server
+ * starts (`ui-review/port.ts`) unless `--reuse` (or `--attach`) says so.
+ *
  * For each map it photographs the centre at four zooms (0.35, 0.5, 1, 2.5 --
  * the 0.5 view is F-16's: Task 5 measures on `<map>-centre-z0.5`), one fogged
  * centre view, and (when the map has any) a close-up of its densest road
@@ -52,6 +56,7 @@ import { ensureDevServer, readUnmaskedRenderer, stopDevServer } from '../golden-
 import { CAPTURE_VIEWPORT, FREEZE_FRAME_LOOP_SCRIPT, hideHudExceptCanvas } from '../golden-diff/capture-protocol';
 import { gpuLaunchArgs } from '../ui-review/gpu';
 import { musicOffInitScript } from '../ui-review/music-off';
+import { ATTACH_FLAG, decidePort } from '../ui-review/port';
 
 const TAG = 'ground-capture';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -84,8 +89,16 @@ function flag(argv: readonly string[], name: string): string | undefined {
   return hit === undefined ? undefined : hit.slice(name.length + 3);
 }
 
-export function parseGroundCaptureArgs(argv: readonly string[]): GroundCaptureArgs {
-  const rawPort = flag(argv, 'port');
+/** The environment override, the way `ui-review/port.ts` takes one: the flag
+ *  wins, then this, then `DEFAULT_PORT`. */
+export const GROUND_CAPTURE_PORT_ENV = 'GROUND_CAPTURE_PORT';
+
+export function parseGroundCaptureArgs(
+  argv: readonly string[],
+  env: Readonly<Record<string, string | undefined>> = {}
+): GroundCaptureArgs {
+  const envPort = env[GROUND_CAPTURE_PORT_ENV];
+  const rawPort = flag(argv, 'port') ?? (envPort === '' ? undefined : envPort);
   const portRangeMsg = `--port must be ${PORT_MIN}-${PORT_MAX}`;
   let port = DEFAULT_PORT;
   if (rawPort !== undefined) {
@@ -104,7 +117,8 @@ export function parseGroundCaptureArgs(argv: readonly string[]): GroundCaptureAr
           .map((m) => m.trim())
           .filter((m) => m.length > 0);
   const decals = argv.includes('--decals');
-  const reuse = argv.includes('--reuse');
+  // `--attach` is the spelling every other harness uses for the same thing.
+  const reuse = argv.includes('--reuse') || argv.includes(ATTACH_FLAG);
 
   return { port, out, maps, decals, reuse };
 }
@@ -343,7 +357,7 @@ interface MapCost {
 }
 
 async function main(): Promise<void> {
-  const args = parseGroundCaptureArgs(process.argv.slice(2));
+  const args = parseGroundCaptureArgs(process.argv.slice(2), process.env);
   // Resolved against the repo root, never against `process.cwd()`: `pnpm
   // ground:capture` delegates through `pnpm --filter @lions/tools`, so the
   // cwd is `tools/` -- the exact trap `blast-captures.ts`'s header records
@@ -363,6 +377,19 @@ async function main(): Promise<void> {
     process.exit(code);
   };
 
+  // Before the server, and over TCP on both loopbacks (`ui-review/port.ts`):
+  // the REUSED check below reads `ensureDevServer`'s one-second HTTP probe,
+  // which misses a listener that is slow, not HTTP or bound only to `::1` --
+  // and Vite (`strictPort: false`) would then quietly start one port up while
+  // this script measured whatever answered on `args.port`. A held port is
+  // refused here unless `--reuse`/`--attach` says the caller meant it, and
+  // with either, an EMPTY port is refused too: there is nothing to reuse.
+  const portArgv = process.argv.slice(2).map((a) => (a === '--reuse' ? ATTACH_FLAG : a));
+  const claim = await decidePort(TAG, GROUND_CAPTURE_PORT_ENV, DEFAULT_PORT, portArgv, process.env, 'own-or-attach');
+  if (!claim.ok) {
+    say(claim.message);
+    finish(2);
+  }
   const server = await ensureDevServer(args.port, REPO_ROOT, TAG);
   if (server === null) {
     say(`[${TAG}] REUSED an existing dev server on :${args.port} (not managed, will not be killed)`);
