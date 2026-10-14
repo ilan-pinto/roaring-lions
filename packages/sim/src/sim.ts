@@ -1869,6 +1869,7 @@ export class Sim {
     const side = this.side[id];
     this.alive[id] = 0;
     this.removed[id] = 1;
+    this.releaseSlot(id);
     this.pendingEvents.push({ kind: 'removed', tick: this.tickCount, entity: id, side });
   }
 
@@ -4926,6 +4927,21 @@ export class Sim {
     });
   }
 
+  /**
+   * Free the slot of a unit that dies or is removed inside a building (B5,
+   * ruling 2026-10-14). `stOccupants` is the count of LIVING units with
+   * `garrisonedIn === s`; before this a body kept its slot until the
+   * building fell, so the man waiting at the door never got in. No exit move
+   * and no `garrison` event: nobody walked out. Clearing `garrisonedIn` is
+   * what destroyStructure already does for the men it kills.
+   */
+  private releaseSlot(id: number): void {
+    const s = this.garrisonedIn[id];
+    if (s < 0) return;
+    this.garrisonedIn[id] = -1;
+    if (this.stOccupants[s] > 0) this.stOccupants[s]--;
+  }
+
   private leaveStructure(id: number): void {
     const s = this.garrisonedIn[id];
     if (s < 0) return;
@@ -5191,10 +5207,20 @@ export class Sim {
         continue;
       }
       const type = this.structureTypes[this.stTypeIdx[s]];
-      if (this.stOccupants[s] >= type.garrisonSlots) continue; // wait outside
-      if (this.structDistSq(s, this.posX[i], this.posY[i]) <= GARRISON_ENTER_RANGE_SQ) {
-        this.enterStructure(i, s);
+      const atDoor = this.structDistSq(s, this.posX[i], this.posY[i]) <= GARRISON_ENTER_RANGE_SQ;
+      if (this.stOccupants[s] >= type.garrisonSlots) {
+        // Full: wait at the door, stopped, with the order kept (B3, ruling
+        // 2026-10-14). A unit left `moving` pressed on the wall for good --
+        // a halt-to-fire man never knelt, so never fired. Stopped, stepBrace
+        // kneels him and stepCombat lets him shoot; this loop still runs
+        // every tick, so he walks in the tick a slot frees.
+        if (atDoor && this.moving[i] === 1) {
+          this.moving[i] = 0;
+          this.fieldRef[i] = -1;
+        }
+        continue;
       }
+      if (atDoor) this.enterStructure(i, s);
     }
   }
 
@@ -5528,6 +5554,7 @@ export class Sim {
       }
     }
     this.alive[target] = 0;
+    this.releaseSlot(target);
     for (let s = 0; s < 2; s++) this.lastSeenValid[s * this.capacity + target] = 0;
     this.hp[target] = 0;
     this.moving[target] = 0;
