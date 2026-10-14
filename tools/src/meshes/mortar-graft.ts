@@ -116,14 +116,24 @@ function graft(doc: Document, part: PartData, anchorX: number, atlas: Uint8Array
   metalNode.dispose();
   metalMesh?.dispose();
   const weaponMesh = weaponNode.getMesh()!;
+  // The skin attributes keep the file's OWN component types: three.js's
+  // mergeGeometries (the occlusion outline) refuses a skinIndex that is
+  // Uint8 in one mesh and Uint16 in another (skin_attribute_types.test.ts).
+  const crewSkin = root.listMeshes().flatMap((m) => m.listPrimitives()).find((p) => p.getAttribute('JOINTS_0') && p.getMaterial() === material);
+  if (!crewSkin) throw new Error('mortar-graft: no textured skinned crew primitive to read the skin types from');
+  const crewJoints = crewSkin.getAttribute('JOINTS_0')!.getArray();
+  if (!(crewSkin.getAttribute('WEIGHTS_0')!.getArray() instanceof Float32Array)) {
+    throw new Error("mortar-graft: the crew's WEIGHTS_0 is not FLOAT; a normalized type needs 255, not 1");
+  }
   for (const p of weaponMesh.listPrimitives()) p.dispose();
 
   // The part in, rigid on `prop`, at the anchor.
   const n = part.pos.length / 3;
   const pos = new Float32Array(part.pos);
   for (let i = 0; i < n; i++) pos[i * 3] += anchorX;
-  const joints = new Uint16Array(n * 4);
+  const joints = crewJoints instanceof Uint8Array ? new Uint8Array(n * 4) : new Uint16Array(n * 4);
   const weights = new Float32Array(n * 4);
+  if (propIdx > (joints instanceof Uint8Array ? 255 : 65535)) throw new Error("mortar-graft: prop's joint index does not fit the file's JOINTS_0 type");
   for (let i = 0; i < n; i++) {
     joints[i * 4] = propIdx;
     weights[i * 4] = 1;
