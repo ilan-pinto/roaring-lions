@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
 import { Sim, TICKS_PER_SECOND, type SimEvent, type UnitTypeJson } from './sim';
-import { COVER_SIG } from './tuning';
+import { COVER_SIG, GARRISON_RANGE_BONUS } from './tuning';
 
 // The garrison overhaul (GH-280, GH-34, GH-588; lead rulings 2026-10-14).
 // docs/superpowers/plans/2026-10-14-garrison-overhaul.md
@@ -517,5 +517,88 @@ describe('a mortar does not fire from inside; a Spike does (G4)', () => {
       for (const e of sim.tick()) if (e.kind === 'fire' && e.shooter === id) n++;
     }
     expect(n).toBe(0);
+  });
+});
+
+describe('extra range from inside, on top of the window rule (ruling 4)', () => {
+  const BONUS = fx.toNumber(GARRISON_RANGE_BONUS);
+  function shot(inside: boolean, beyond: number): string {
+    const { sim, t, u } = world();
+    const house = rect(sim, t.house, 20, 14, 2, 2);
+    const id = sim.spawn(u.rifles, 0, fx.from(inside ? 19.5 : 21.5), fx.from(inside ? 14.5 : 17.5));
+    if (inside) garrison(sim, id, house);
+    // From the east window (21.5, 14.5), or from the open at (21.5, 17.5).
+    const oy = inside ? 14.5 : 17.5;
+    const target = sim.spawn(u.dummy, 1, fx.from(21.5 + 8 + beyond), fx.from(oy));
+    sim.identifyTo(0, target);
+    return sim.projectHit(id, target).kind;
+  }
+  it('the bonus is a whole number of tiles, and not zero', () => {
+    expect(BONUS).toBeGreaterThanOrEqual(1);
+    expect(GARRISON_RANGE_BONUS % 65536).toBe(0);
+  });
+  it('reaches range + bonus from the window', () => expect(shot(true, BONUS - 0.25)).toBe('shot'));
+  it('and no further', () => expect(shot(true, BONUS + 0.25)).toBe('noSolution'));
+  it('the same man in the open reaches his range only (the control arm)', () => expect(shot(false, 0.25)).toBe('noSolution'));
+
+  it('a fire order from a building reaches with the bonus, and wins over a nearer decoy (Review Focus 1)', () => {
+    const { sim, t, u } = world();
+    const house = rect(sim, t.house, 20, 14, 2, 2);
+    const id = sim.spawn(u.rifles, 0, fx.from(19.5), fx.from(14.5));
+    garrison(sim, id, house);
+    const focus = sim.spawn(u.dummy, 1, fx.from(21.5 + 8 + BONUS - 0.25), fx.from(14.5));
+    const decoy = sim.spawn(u.dummy, 1, fx.from(24.5), fx.from(17.5));
+    sim.identifyTo(0, focus);
+    sim.identifyTo(0, decoy);
+    sim.queueCommand({ kind: 'attack', ids: [id], target: focus });
+    let onFocus = 0;
+    let onDecoy = 0;
+    for (let k = 0; k < 10 * TICKS_PER_SECOND; k++) {
+      sim.identifyTo(0, focus);
+      sim.identifyTo(0, decoy);
+      for (const e of sim.tick()) {
+        if (e.kind !== 'fire' || e.shooter !== id) continue;
+        if (e.target === focus) onFocus++;
+        if (e.target === decoy) onDecoy++;
+      }
+    }
+    expect(sim.state.garrisonedIn[id]).toBe(house);
+    expect(onFocus).toBeGreaterThan(0);
+    expect(onDecoy).toBe(0);
+  });
+
+  it('the hit falloff scales by the longer effective range from inside', () => {
+    const { sim, t, u } = world();
+    const house = rect(sim, t.house, 20, 14, 2, 2);
+    const inside = sim.spawn(u.rifles, 0, fx.from(19.5), fx.from(14.5));
+    garrison(sim, inside, house);
+    const open = sim.spawn(u.rifles, 0, fx.from(21.5), fx.from(20.5));
+    // 6 tiles from each: the window (21.5, 14.5) and the man in the open.
+    const a = sim.spawn(u.dummy, 1, fx.from(27.5), fx.from(14.5));
+    const b = sim.spawn(u.dummy, 1, fx.from(27.5), fx.from(20.5));
+    sim.identifyTo(0, a);
+    sim.identifyTo(0, b);
+    const pIn = sim.projectHit(inside, a);
+    const pOut = sim.projectHit(open, b);
+    if (pIn.kind !== 'shot' || pOut.kind !== 'shot') throw new Error('both should have a shot');
+    expect(pIn.factors.rangeFalloff).toBeGreaterThan(pOut.factors.rangeFalloff);
+  });
+
+  it('the stop-and-fire latch uses the longer effective range from inside', () => {
+    function latched(inside: boolean): number {
+      const { sim, t, u } = world();
+      const house = rect(sim, t.house, 20, 14, 2, 2);
+      const id = sim.spawn(u.rifles, 0, fx.from(inside ? 19.5 : 21.5), fx.from(inside ? 14.5 : 17.5));
+      if (inside) garrison(sim, id, house);
+      // Effective range 6.4: 6.9 from the window or the open spot is past it
+      // in the open and inside it with the bonus.
+      const oy = inside ? 14.5 : 17.5;
+      const target = sim.spawn(u.dummy, 1, fx.from(21.5 + 6.9), fx.from(oy));
+      sim.identifyTo(0, target);
+      sim.tick();
+      return (sim as unknown as { engaging: Uint8Array }).engaging[id];
+    }
+    expect(latched(false)).toBe(0);
+    expect(latched(true)).toBe(1);
   });
 });

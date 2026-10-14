@@ -54,6 +54,7 @@ import {
   LOST_AT,
   FOCUS_LOST_TICKS,
   FOCUS_REACH_SLACK,
+  GARRISON_RANGE_BONUS,
   MOTION_SIG,
   COVER_SIG,
   OCCL_PER_COVER,
@@ -333,6 +334,11 @@ export interface WeaponStats {
   /** Fires while its unit is garrisoned. From `fires_from_building`, default
    *  true; false for indirect fire (G4, ruling 2026-10-14). */
   firesFromBuilding: boolean;
+  /** Range, effective range and its square from inside a building:
+   *  GARRISON_RANGE_BONUS longer (ruling 4, 2026-10-14). */
+  garrisonRangeSq: Fx;
+  garrisonEffRange: Fx;
+  garrisonEffRangeSq: Fx;
 }
 
 /** Every multiplier behind one shot's hit probability, and their product.
@@ -500,6 +506,8 @@ function weaponFromJson(w: WeaponJson): WeaponStats {
   const range = fx.from(w.range_tiles);
   const minRange = fx.from(w.min_range_tiles ?? 0);
   const effRange = fx.from(w.effective_range_tiles ?? w.range_tiles);
+  const gRange = fx.add(range, GARRISON_RANGE_BONUS);
+  const gEff = fx.add(effRange, GARRISON_RANGE_BONUS);
   return {
     id: w.id,
     cls,
@@ -519,6 +527,9 @@ function weaponFromJson(w: WeaponJson): WeaponStats {
     canTargetGround: w.can_target === undefined || w.can_target.includes('ground'),
     canTargetAir: w.can_target?.includes('air') ?? false,
     firesFromBuilding: w.fires_from_building ?? true,
+    garrisonRangeSq: fx.mul(gRange, gRange),
+    garrisonEffRange: gEff,
+    garrisonEffRangeSq: fx.mul(gEff, gEff),
   };
 }
 
@@ -2808,6 +2819,21 @@ export class Sim {
     return s < 0 ? 0 : this.structureTypes[this.stTypeIdx[s]].floors - 1;
   }
 
+  /** `w`'s maximum range squared for unit `i`: longer from inside (ruling 4). */
+  private reachSq(i: number, w: WeaponStats): Fx {
+    return this.garrisonedIn[i] >= 0 ? w.garrisonRangeSq : w.rangeSq;
+  }
+
+  /** `w`'s effective range squared for unit `i`. */
+  private effSq(i: number, w: WeaponStats): Fx {
+    return this.garrisonedIn[i] >= 0 ? w.garrisonEffRangeSq : w.effectiveRangeSq;
+  }
+
+  /** `w`'s effective range for unit `i`, the hit-falloff scale. */
+  private effRange(i: number, w: WeaponStats): Fx {
+    return this.garrisonedIn[i] >= 0 ? w.garrisonEffRange : w.effectiveRange;
+  }
+
   /** Smoke density on a tile, for tests and presentation. */
   smokeAt(x: number, y: number): number {
     if (x < 0 || y < 0 || x >= this.width || y >= this.height) return 0;
@@ -3084,7 +3110,7 @@ export class Sim {
     let bestP = -1;
     for (const w of type.weapons) {
       if (this.garrisonedIn[shooter] >= 0 && !w.firesFromBuilding) continue;
-      if (dSq > w.rangeSq || this.minRangeBlocks(w, dSq, target)) continue;
+      if (dSq > this.reachSq(shooter, w) || this.minRangeBlocks(w, dSq, target)) continue;
       if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
         if (this.losRay(px >> 16, py >> 16, tx >> 16, ty >> 16, this.eyeLift(shooter), 0) < 0) continue;
       }
@@ -3605,7 +3631,7 @@ export class Sim {
     const px = this.eyeX;
     const py = this.eyeY;
     const dSq = distSqFx(fx.sub(this.posX[t], px), fx.sub(this.posY[t], py));
-    if (dSq > w.rangeSq || this.minRangeBlocks(w, dSq, t)) return false;
+    if (dSq > this.reachSq(shooter, w) || this.minRangeBlocks(w, dSq, t)) return false;
     if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
       if (this.losRay(px >> 16, py >> 16, this.posX[t] >> 16, this.posY[t] >> 16, this.eyeLift(shooter), 0) < 0) return false;
     }
@@ -3691,7 +3717,7 @@ export class Sim {
       const px = this.eyeX;
       const py = this.eyeY;
       const dSq = this.structDistSq(s, px, py);
-      if (dSq > w.rangeSq || dSq < w.minRangeSq || dSq >= bestDistSq) continue;
+      if (dSq > this.reachSq(shooter, w) || dSq < w.minRangeSq || dSq >= bestDistSq) continue;
       if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
         const [tx, ty] = this.nearestStructTile(s, px, py);
         if (this.losRay(px >> 16, py >> 16, tx >> 16, ty >> 16, this.eyeLift(shooter), 0) < 0) continue;
@@ -4051,7 +4077,7 @@ export class Sim {
         const ox = this.eyeX;
         const oy = this.eyeY;
         const dSq = distSqFx(fx.sub(this.posX[target], ox), fx.sub(this.posY[target], oy));
-        if (dSq <= w.effectiveRangeSq) engagedClose = true;
+        if (dSq <= this.effSq(i, w)) engagedClose = true;
 
         // Hull turns toward the primary threat. Stationary, always; on the
         // move, only where facing cannot cost anything — see aimHullAt.
@@ -4082,7 +4108,7 @@ export class Sim {
           this.eyePoint(i, this.stCx[s], this.stCy[s]);
           const sox = this.eyeX;
           const soy = this.eyeY;
-          if (this.structDistSq(s, sox, soy) <= w.effectiveRangeSq) {
+          if (this.structDistSq(s, sox, soy) <= this.effSq(i, w)) {
             engagedClose = true;
           }
           if (slot === 0) this.curStructure[i] = s;
@@ -4119,7 +4145,7 @@ export class Sim {
               if (STRUCT_DAMAGE[w.cls] === 0) continue;
               if (inside && !w.firesFromBuilding) continue;
               const dSq = this.structDistSq(s, this.posX[i], this.posY[i]);
-              if (dSq > w.rangeSq || dSq < w.minRangeSq) continue;
+              if (dSq > this.reachSq(i, w) || dSq < w.minRangeSq) continue;
               engagedClose = true;
               breaching = true;
               if (slot === 0) this.curStructure[i] = s;
@@ -4309,7 +4335,7 @@ export class Sim {
       fx.mul(w.accuracy, fx.add(ONE, this.veterancy[shooter] * VET_ACC_BONUS)),
       ONE
     );
-    const ratio = fx.div(dist, w.effectiveRange);
+    const ratio = fx.div(dist, this.effRange(shooter, w));
     const rangeFalloff = fx.expNeg(fx.mul(FALLOFF_SCALE[w.cls], fx.mul(ratio, ratio)));
     // Cover is the target's own tile, or the parapet he is fighting from
     // behind, whichever is better. Taking the max rather than stacking them
@@ -4428,7 +4454,7 @@ export class Sim {
     const px = this.eyeX;
     const py = this.eyeY;
     const dist = fx.sqrt(distSqFx(fx.sub(tx, px), fx.sub(ty, py)));
-    const ratio = fx.div(dist, w.effectiveRange);
+    const ratio = fx.div(dist, this.effRange(shooter, w));
     const rangeFalloff = fx.expNeg(fx.mul(FALLOFF_SCALE[w.cls], fx.mul(ratio, ratio)));
     const suppressionMod = fx.div(ONE, fx.add(ONE, fx.mul(SUPP_K, this.suppression[shooter])));
     let p = fx.mul(STRUCT_BASE_ACCURACY, rangeFalloff);
@@ -5861,9 +5887,9 @@ export class Sim {
       const w = weapons[s];
       if (air ? !w.canTargetAir : !w.canTargetGround) continue;
       // The squared range this unit stops at, from where it stands (R-22).
-      let reachSq = w.effectiveRangeSq;
+      let reachSq = this.effSq(i, w);
       if (stopped) {
-        const r = fx.add(w.effectiveRange, FOCUS_REACH_SLACK);
+        const r = fx.add(this.effRange(i, w), FOCUS_REACH_SLACK);
         reachSq = fx.mul(r, r);
       }
       if (this.engageable(i, w, t) && this.weaponHurts(w, t, this.engageOX, this.engageOY)) {
@@ -5871,7 +5897,7 @@ export class Sim {
         if (dSq <= reachSq) return true;
         continue;
       }
-      if (hold || dSq > reachSq || dSq > w.rangeSq) continue;
+      if (hold || dSq > reachSq || dSq > this.reachSq(i, w)) continue;
       if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
         if (los === 0) los = this.losRay(px >> 16, py >> 16, this.posX[t] >> 16, this.posY[t] >> 16) < 0 ? -1 : 1;
         if (los < 0) continue;

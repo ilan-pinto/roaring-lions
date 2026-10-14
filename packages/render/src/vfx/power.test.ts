@@ -21,6 +21,9 @@ function w(penetration: number, damage: number, splash: number, suppression: num
     canTargetGround: true,
     canTargetAir: false,
     firesFromBuilding: true,
+    garrisonRangeSq: 0,
+    garrisonEffRange: 0,
+    garrisonEffRangeSq: 0,
   };
 }
 
