@@ -499,6 +499,15 @@ import {
   WRECK_BURN_HEIGHT_FRACTION,
   WRECK_BURN_SECONDS,
 } from './units/building-damage';
+import {
+  VEHICLE_BAND_CLEAN,
+  VehicleScarMaterials,
+  applyVehicleDamageBand,
+  vehicleDamageBand,
+  vehicleDrawnBand,
+  vehicleScarMixForBand,
+  vehicleTakesDamageStates,
+} from './units/vehicle-damage';
 import { TEXTURED_BUILDING_TYPES } from './units/textured-building';
 import { TEXTURED_VEHICLE_TYPES } from './units/textured-vehicle';
 import { TEXTURED_INFANTRY_TYPES } from './units/textured-infantry';
@@ -2084,6 +2093,12 @@ export class ThreeRenderer implements Renderer {
    */
   private readonly buildingScars = new Map<string, BuildingScarMaterials>();
   private readonly buildingDamageBand = new Map<number, number>();
+  /**
+   * GH-31, the vehicle half: the per-TYPE memo of scarred hull materials
+   * (`units/vehicle-damage.ts`). The band each hull is drawn at lives on the
+   * entity itself (`vehicleDrawnBand`), so a rebuilt clone starts clean.
+   */
+  private readonly vehicleScars = new Map<string, VehicleScarMaterials>();
   private readonly buildingBurning = new Map<number, { accumMs: number; remainingMs: number }>();
 
 
@@ -3160,6 +3175,8 @@ export class ThreeRenderer implements Renderer {
     // map by reference and must not outlive the template that owns it.
     for (const scars of this.buildingScars.values()) scars.dispose();
     this.buildingScars.clear();
+    for (const scars of this.vehicleScars.values()) scars.dispose();
+    this.vehicleScars.clear();
     this.buildingDamageBand.clear();
     this.buildingBurning.clear();
     this.wreckSmoulder.clear();
@@ -6053,6 +6070,9 @@ export class ThreeRenderer implements Renderer {
         this.vehicleMeshEntities.delete(id);
       }
       disposeVehicleMeshTemplate(previous);
+      // Its scars were cut from the outgoing template's materials.
+      this.vehicleScars.get(unitTypeId)?.dispose();
+      this.vehicleScars.delete(unitTypeId);
     }
     this.vehicleMeshTemplates.set(unitTypeId, template);
     if (hasColdTextures(template.root)) this.coldUnitTypes.add(unitTypeId);
@@ -7664,6 +7684,16 @@ export class ThreeRenderer implements Renderer {
           if (binding) writeRunningGearUniforms(binding, this.runningGear, i, this.runningGearDebugHidden);
         }
       }
+      // GH-31: the hull's damage band (`units/vehicle-damage.ts`). Read from
+      // hp every frame and acted on only when it moves -- a band that did not
+      // move costs one compare and touches no material. After the running-gear
+      // bind above, so a hull that started moving this frame is scarred on
+      // its own clone rather than on a template material the bind replaced.
+      if (vehicleTakesDamageStates(type.isAir, template.hasRotorPivot)) {
+        const band = vehicleDamageBand(st.hp[i], type.hp);
+        if (band !== vehicleDrawnBand(entity)) applyVehicleDamageBand(entity, band, this.vehicleScarsFor(type.id));
+      }
+
       // The hull's own height: the ground under its drawn centre, sampled
       // BEFORE the recoil shove, exactly like `entityFrame`'s own recoil block
       // on the billboard path -- recoil travels a fraction of a tile, so
@@ -7849,6 +7879,12 @@ export class ThreeRenderer implements Renderer {
         // A wreck's wheels do not turn, and the fade below clones every
         // material under the root: the original bake goes back first.
         releaseRunningGear(entity);
+        // ...which hands back the materials the hull had when it was BOUND,
+        // possibly clean: re-draw its last living band so the fade starts
+        // from the scar the player was looking at (GH-31).
+        if (vehicleScarMixForBand(vehicleDrawnBand(entity)) > 0) {
+          applyVehicleDamageBand(entity, vehicleDrawnBand(entity), this.vehicleScarsFor(entity.typeId));
+        }
         // The wreck's pose, BEFORE `beginVehicleDeath` latches `baseWorldY`
         // off it -- see `poseVehicleWreck`.
         this.poseVehicleWreck(entity, id);
@@ -8303,6 +8339,16 @@ export class ThreeRenderer implements Renderer {
     }
   }
 
+  /** GH-31: the scar memo for one vehicle type, minted on first use. */
+  private vehicleScarsFor(typeId: string): VehicleScarMaterials {
+    let scars = this.vehicleScars.get(typeId);
+    if (!scars) {
+      scars = new VehicleScarMaterials();
+      this.vehicleScars.set(typeId, scars);
+    }
+    return scars;
+  }
+
   /**
    * GH-31 (A3.2 remainder): re-derives a STANDING mesh building's damage
    * band from `hp`/`maxHp` and, if it moved, swaps every mesh of its clone
@@ -8560,10 +8606,14 @@ export class ThreeRenderer implements Renderer {
     }
     for (let i = 0; i < n; i++) {
       if (st.alive[i] === 0) continue;
-      if (!vehicleTrailsDamageSmoke(this.sim.unitTypes[st.typeIdx[i]], st.mobilityKilled[i], st.firepowerKilled[i])) continue;
+      const hull = this.vehicleMeshEntities.get(i);
+      // GH-31: the drawn band too, so a hull at band 2..1 wisps -- the SAME
+      // band its scar shows (`vehicleDrawnBand`); no mesh hull reads clean.
+      const band = hull ? vehicleDrawnBand(hull) : VEHICLE_BAND_CLEAN;
+      if (!vehicleTrailsDamageSmoke(this.sim.unitTypes[st.typeIdx[i]], st.mobilityKilled[i], st.firepowerKilled[i], band)) continue;
       const [first, last] = exhaustSlotsDue(this.damageSmokeSlot[i], nowMs, interval, emitOverMs, maxLifeMs);
       if (last < first) continue;
-      const drawn = this.vehicleMeshEntities.get(i)?.root.position;
+      const drawn = hull?.root.position;
       const anchor = vehicleFxAnchor(
         drawn ? drawn.x : this.curX[i],
         drawn ? drawn.z : this.curY[i],
