@@ -2167,6 +2167,13 @@ body[data-outcome-beat] .rl-aar {
   border-left: 1px solid var(--panel-frame);
   padding-left: var(--s3);
 }
+/* The countdown is a fixed stamp, not text to elide: it shares the
+   `.rl-strip__obj` class for its type, but "Time le..." tells the player
+   nothing. Same specificity as the shrink rule above and later in the file,
+   so this wins. */
+.rl-strip__limit {
+  flex-shrink: 0;
+}
 .rl-strip__name {
   font-family: var(--font-display);
   font-size: var(--t-strip-name);

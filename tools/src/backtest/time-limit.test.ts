@@ -5,7 +5,7 @@ import { sweepOutcome } from './playtest-run';
 const at = (id: string, label: string, seconds: number) => ({ id, label, seconds });
 
 describe('limitHeadroom (GH-540)', () => {
-  it("passes Wadi Halam IV's measured slowest win under 840 s, and says so", () => {
+  it("passes a 679 s win under an 840 s limit, and says so", () => {
     const r = limitHeadroom([at('wh4', 'wh4', 408), at('wh4', 'wh4 (gate open)', 679)], () => 840);
     expect(r.failures).toEqual([]);
     expect(r.lines).toEqual(['time limit wh4: 840 s, slowest win 679 s (wh4 (gate open)), headroom 161 s']);
