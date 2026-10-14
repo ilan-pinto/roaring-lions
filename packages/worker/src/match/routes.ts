@@ -7,7 +7,7 @@ import type { Env, RateLimiter } from '../d1';
 import { originAllowed } from '../origin';
 import { signTicket } from './ticket';
 import { mintCode, isCode } from './code';
-import { matchupAllowed, matchupField } from '@lions/net';
+import { matchupAllowed, matchupField, versusMapAllowed } from '@lions/net';
 import { callsignField, mapField, textField } from './room-fields';
 
 const TICKET_MS = 6 * 3600 * 1000;
@@ -57,6 +57,9 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
     const player = playerOf(body);
     if (player === '') return new Response('player required', { status: 400 });
     const mode = body.mode === 'versus' ? 'versus' : 'sandbox';
+    // A versus room is offered only on the maps measured fair (#561, the lead, 2026-10-14);
+    // the room checks it again. A sandbox room is no contest and is not limited.
+    if (mode === 'versus' && !versusMapAllowed(map)) return new Response('map not offered for versus', { status: 400 });
     // KDF vs Sarim is Tel Marum only (the lead, 2026-10-14); a sandbox room ignores the matchup.
     const matchup = matchupField(body.matchup);
     if (mode === 'versus' && !matchupAllowed(matchup, map)) return new Response('matchup not offered on this map', { status: 400 });

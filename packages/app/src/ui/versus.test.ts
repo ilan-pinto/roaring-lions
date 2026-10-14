@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { maps } from '@lions/data';
-import type { MatchConfig, SeatState, WsTransport, WsTransportHooks } from '@lions/net';
+import { VERSUS_FAIR_MAPS, type MatchConfig, type SeatState, type WsTransport, type WsTransportHooks } from '@lions/net';
 import { CODE_ALPHABET, PENDING_LOBBY_EXPIRE_MS, filterCode, showVersus, showVersusRoom, versusMaps, type VersusDeps } from './versus';
 import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';
 import { takeHanded } from '../net/handoff';
@@ -27,10 +27,10 @@ const SEATS_TWO: SeatState[] = [
   { seat: 1, callsign: 'Bo', connected: true, ready: false },
 ];
 
+/** What the lobby is handed in the build: `versusMaps()`, the two maps opened for versus (#561). */
 const MAPS = [
   { id: 'beit_sahwan_outskirts', label: 'Beit Sahwan Outskirts' },
   { id: 'tel_marum', label: 'Tel Marum' },
-  { id: 'qarn_hadid', label: 'Qarn Hadid' },
 ];
 
 function deps(overrides: Partial<VersusDeps> = {}): VersusDeps & { saved: string[]; navigated: [string, { replace?: boolean } | undefined][] } {
@@ -85,21 +85,29 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-describe('versusMaps (R-B9)', () => {
-  it('offers the free-play maps by their names, without the tile studies or the tutorial ground', () => {
+describe('versusMaps (R-B9, #561)', () => {
+  it('offers only the maps the lead opened for versus, by their own names (2026-10-14)', () => {
     const offered = versusMaps();
-    const ids = offered.map((m) => m.id);
     const catalogue = maps as Record<string, { name: string }>;
-    expect(ids.length).toBeGreaterThan(5);
-    for (const m of offered) {
-      expect(m.id in catalogue).toBe(true);
-      expect(m.label).toBe(catalogue[m.id]!.name);
-    }
-    expect(ids.filter((id) => id.startsWith('tile_'))).toEqual([]);
-    expect(ids).not.toContain('tutorial_ground');
-    expect(ids).toContain('tel_marum');
-    // Everything else the picker offers is here.
-    expect(ids).toEqual(Object.keys(catalogue).filter((id) => !id.startsWith('tile_') && id !== 'tutorial_ground'));
+    // Exactly the shared rule's list, each of which the build ships: a typo in
+    // the rule would leave the lobby with no map at all.
+    expect(offered.map((m) => m.id).sort()).toEqual([...VERSUS_FAIR_MAPS].sort());
+    expect(offered.map((m) => m.id)).toContain('tel_marum');
+    for (const m of offered) expect(m.label).toBe(catalogue[m.id]!.name);
+  });
+  it('drops every other map of a catalogue: the tile studies, the tutorial ground and the maps nobody has measured', () => {
+    const catalogue = {
+      beit_sahwan_outskirts: { name: 'Beit Sahwan Outskirts' },
+      tel_marum: { name: 'Tel Marum' },
+      qarn_hadid: { name: 'Qarn Hadid' },
+      wadi_halam_basin: { name: 'Wadi Halam Basin' },
+      tile_road: { name: 'Road tile' },
+      tutorial_ground: { name: 'Tutorial' },
+    };
+    expect(versusMaps(catalogue)).toEqual([
+      { id: 'beit_sahwan_outskirts', label: 'Beit Sahwan Outskirts' },
+      { id: 'tel_marum', label: 'Tel Marum' },
+    ]);
   });
 });
 
@@ -177,12 +185,12 @@ describe('showVersus (/versus)', () => {
     const open = vi.fn().mockResolvedValue(opened(transport));
     const d = deps({ open });
     showVersus(stage, d);
-    stage.querySelector<HTMLSelectElement>('.rl-versus__map')!.value = 'qarn_hadid';
+    stage.querySelector<HTMLSelectElement>('.rl-versus__map')!.value = 'beit_sahwan_outskirts';
     stage.querySelector<HTMLInputElement>('.rl-versus__callsign')!.value = '  Dov ';
     stage.querySelector<HTMLButtonElement>('.rl-versus__open')!.click();
     await flush();
     expect(open).toHaveBeenCalledTimes(1);
-    expect((open.mock.calls[0] as [RoomRequest])[0]).toEqual({ kind: 'create', map: 'qarn_hadid', matchup: 'mirror', callsign: 'Dov' });
+    expect((open.mock.calls[0] as [RoomRequest])[0]).toEqual({ kind: 'create', map: 'beit_sahwan_outskirts', matchup: 'mirror', callsign: 'Dov' });
     expect(d.navigated).toEqual([['/versus/ABCDEF', undefined]]);
   });
 
@@ -215,8 +223,8 @@ describe('showVersus (/versus)', () => {
     const note = stage.querySelector<HTMLElement>('.rl-versus__side-note')!;
     const enabled = () => [...map.options].filter((o) => !o.disabled).map((o) => o.value);
     expect(note.hidden).toBe(true);
-    expect(enabled()).toEqual(['beit_sahwan_outskirts', 'tel_marum', 'qarn_hadid']);
-    map.value = 'qarn_hadid';
+    expect(enabled()).toEqual(['beit_sahwan_outskirts', 'tel_marum']);
+    map.value = 'beit_sahwan_outskirts';
     side.value = 'sarim';
     side.dispatchEvent(new Event('change'));
     expect(enabled()).toEqual(['tel_marum']);
@@ -228,13 +236,13 @@ describe('showVersus (/versus)', () => {
     expect((open.mock.calls[0] as [RoomRequest])[0]).toMatchObject({ kind: 'create', map: 'tel_marum', matchup: 'sarim' });
     side.value = 'mirror';
     side.dispatchEvent(new Event('change'));
-    expect(enabled()).toEqual(['beit_sahwan_outskirts', 'tel_marum', 'qarn_hadid']);
+    expect(enabled()).toEqual(['beit_sahwan_outskirts', 'tel_marum']);
     expect(note.hidden).toBe(true);
   });
 
   it('a build that ships no Tel Marum offers the mirror alone', () => {
     const stage = document.createElement('div');
-    showVersus(stage, deps({ maps: [MAPS[0]!, MAPS[2]!] }));
+    showVersus(stage, deps({ maps: [MAPS[0]!] }));
     const side = stage.querySelector<HTMLSelectElement>('.rl-versus__faction')!;
     expect([...side.options].filter((o) => !o.disabled).map((o) => o.value)).toEqual(['mirror']);
   });
