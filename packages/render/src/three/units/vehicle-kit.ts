@@ -14,11 +14,16 @@
  * 2. Merge the kept parts into their host's geometry, HOST FIRST and kit
  *    after, so `setDrawRange(0, rlKitBaseCount)` hides exactly the kit (the
  *    `kit` debug layer) and the host's own triangles keep their indices.
- * 3. Swap the merged geometry onto EVERY mesh that referenced the host's old
- *    one. `GLTFLoader` hands back the live node and its `WRECK_` twin as two
- *    `THREE.Mesh` objects over one `BufferGeometry` (the wreck pass shares
- *    the glTF mesh), so the wreck wears its kit with the host's own
- *    displacement -- no second recipe.
+ * 3. Swap the merged geometry onto every LIVE mesh that referenced the
+ *    host's old one -- and NOT onto its `WRECK_` twin. A kitted vehicle's
+ *    wreck has its kit blown off (the lead's ruling, 2026-10-14, with the
+ *    wreck-damage pass): `GLTFLoader` hands back the live node and its twin
+ *    as two `THREE.Mesh` objects over one `BufferGeometry` (the wreck pass
+ *    shares the glTF mesh), so the twin simply keeps the host's own,
+ *    unkitted geometry; a DAMAGED twin (`pnpm damage:meshes`) has a
+ *    geometry of its own that no kit was ever merged into. Until then the
+ *    wreck wore its kit, which a damaged copy could not have done without a
+ *    second merge per copy.
  * 4. Remove every `kit_*` node, kept or not: a kept part now lives inside its
  *    host, and a part the brigade has not bought must not draw.
  *
@@ -259,10 +264,14 @@ export function applyVehicleKit(root: THREE.Object3D, tiers?: VehicleKitTiers): 
       merged.setIndex(lod.near);
       merged.userData[KIT_LOD_KEY] = lod;
     }
-    // EVERY mesh over the old geometry -- the live node and its `WRECK_` twin.
+    // Every LIVE mesh over the old geometry. The `WRECK_` twin keeps the old
+    // one -- kit blown off (top comment, step 3) -- so `old` stays drawn by
+    // the wreck and the filter below does not hand it back for disposal.
     root.traverse((o) => {
       const mesh = o as THREE.Mesh;
-      if (mesh.isMesh && mesh.geometry === old) mesh.geometry = merged;
+      if (!mesh.isMesh || mesh.geometry !== old) return;
+      if ((mesh.userData as { rl_wreck?: unknown }).rl_wreck === true) return;
+      mesh.geometry = merged;
     });
     candidates.add(old);
   }
