@@ -47,7 +47,7 @@ const resampleLikeThree: Resampler = (img, w, h) =>
 /** Resample every texture under `root` larger than `max` per edge, once per
  *  source, and mark the textures over it for upload. */
 export async function capTextureSize(root: THREE.Object3D, max: number, resample: Resampler = resampleLikeThree): Promise<void> {
-  const bySource = new Map<THREE.Source, THREE.Texture[]>();
+  const bySource = new Map<THREE.TextureSource<unknown>, THREE.Texture[]>();
   root.traverse((o) => {
     const m = (o as THREE.Mesh).material;
     for (const mat of Array.isArray(m) ? m : m ? [m] : []) {
