@@ -67,4 +67,11 @@ describe('OrderDesk', () => {
     desk.onOwnCommands([{ cmd: echo as Command, valid: true }], 3);
     expect(desk.records(10).map((r) => [r.ref, r.status])).toEqual([[a.ref, 'applied']]);
   });
+  it('a desk with no way to send (an advisor\'s) refuses every order, so its ledger never reports an order nobody sent', () => {
+    const desk = new OrderDesk(null);
+    expect(desk.submit(halt(1), 0)).toEqual({ error: 'not in this scope' });
+    expect(desk.submit({ kind: 'halt', ids: 'x' } as unknown as Command, 0)).toEqual({ error: 'not in this scope' });
+    for (let t = 0; t < 200; t++) desk.onTick(t);
+    expect(desk.records(10)).toEqual([]);
+  });
 });

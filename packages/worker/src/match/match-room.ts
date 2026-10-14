@@ -644,7 +644,9 @@ export class MatchRoom {
     if (msg.t !== 'hello') { reply(ws, { t: 'error', code: 'bad_ticket' }); shut(ws, 4001, 'hello first'); return; }
     const secret = this.env.TICKET_SECRET;
     const ticket = secret ? await verifyTicket(secret, msg.ticket, Date.now()) : null;
-    if (!ticket || ticket.matchId !== st.matchId) { reply(ws, { t: 'error', code: 'bad_ticket' }); shut(ws, 4001, 'bad ticket'); return; }
+    // An advisor ticket is not a seat's (N4a): until the room seats advisors it fails closed
+    // rather than taking over the seat it names.
+    if (!ticket || ticket.role !== 'seat' || ticket.matchId !== st.matchId) { reply(ws, { t: 'error', code: 'bad_ticket' }); shut(ws, 4001, 'bad ticket'); return; }
     // /create refuses an empty build, so `''` here means meta was never written: fail closed.
     const build = this.meta?.build ?? '';
     if (build === '' || msg.build !== build) { reply(ws, { t: 'error', code: 'build_mismatch' }); shut(ws, 4002, 'build'); return; }
@@ -661,7 +663,7 @@ export class MatchRoom {
     const secret = this.env.TICKET_SECRET;
     const ticket = secret ? await verifyTicket(secret, msg.ticket, Date.now()) : null;
     const build = this.meta?.build ?? '';
-    return ticket !== null && ticket.matchId === st.matchId && build !== '' && msg.build === build;
+    return ticket !== null && ticket.role === 'seat' && ticket.matchId === st.matchId && build !== '' && msg.build === build;
   }
 
   /** Close and error both land here, and the runtime may deliver BOTH for one

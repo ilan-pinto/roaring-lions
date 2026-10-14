@@ -91,15 +91,26 @@ export class AgentClient {
     // Nobody need await `ready` for a refusal to be safe: the rejection is
     // still delivered to whoever does.
     this.ready.catch(() => {});
-    // An advisor's orders are never the room's (task 5 gives it proposals):
-    // its desk keeps a ledger and sends nothing.
-    this.desk = new OrderDesk(o.role === 'seat' ? (cmd) => { this.transport.queueCommand(cmd); } : () => {});
+    // An advisor's orders are never the room's (its proposals are a later
+    // task's): its desk has no way to send, refuses `submit`, and so keeps a
+    // ledger that reports nothing it did not do.
+    this.desk = new OrderDesk(o.role === 'seat' ? (cmd) => { this.transport.queueCommand(cmd); } : null);
     const open = o.open ?? (() => {
       const target = matchSocketTarget(o.server, o.code);
       return nodeSocket(target.url, target.origin);
     });
     this.transport = new WsTransport(open, o.ticket, o.build, {
       onLobby: (seats, you) => {
+        // The seat this client was asked to play must be the one the room gave
+        // the socket: orders for the wrong side's units are dropped, and a
+        // `bye` would end the match for a seat nobody meant to leave.
+        if (you !== o.seat) {
+          const e = new Error(`the room seated this socket as seat ${you}, but the client was asked to play seat ${o.seat}`);
+          this.log(e.message);
+          reject(e);
+          this.abort();
+          return;
+        }
         // A seat readies as soon as the room has it; a human seat's lobby
         // button is the browser's, and the room starts when both are ready.
         if (o.role === 'seat' && seats.find((s) => s.seat === you)?.ready !== true) this.transport.ready();
@@ -141,7 +152,7 @@ export class AgentClient {
         reject(new Error(`the room ended before the match started: ${reason}`));
       },
       onDesync: (tick) => { this.log(`desync at tick ${tick}`); },
-    });
+    }, undefined, o.role);
   }
 
   private begin(config: MatchConfig): void {
@@ -213,6 +224,13 @@ export class AgentClient {
       ? null
       : roomEndingOutcome(this.ending.reason, this.ending.seat, live.side, (s) => live.config.seats[s].side as 0 | 1);
     return matchResult(local, ending, this.drained);
+  }
+
+  /** Closes WITHOUT a `bye`: this socket is not the seat it was meant to be. */
+  private abort(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.transport.detach();
   }
 
   /** A seat says `bye` (the room reads it as a surrender); an advisor detaches quietly. */

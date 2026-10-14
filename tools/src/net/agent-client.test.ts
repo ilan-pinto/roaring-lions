@@ -19,6 +19,7 @@ import { decideOnHashTick, type LocalDecision } from '../../../packages/app/src/
 import { AgentClient, matchSocketTarget } from './agent-client';
 import { FogTracker } from './fog-tracker';
 import { sideView } from './view';
+import { versusConfig } from './test-config';
 import { buildId } from './build-id';
 
 const NOW = 1_790_000_000_000;
@@ -300,5 +301,70 @@ describe('matchSocketTarget', () => {
   it('is the browser\'s socket URL, and the server\'s own origin', () => {
     expect(matchSocketTarget('https://game.test', 'ABC123')).toEqual({ url: 'wss://game.test/api/match/ABC123/ws', origin: 'https://game.test' });
     expect(matchSocketTarget('http://127.0.0.1:8787/', 'A B')).toEqual({ url: 'ws://127.0.0.1:8787/api/match/A%20B/ws', origin: 'http://127.0.0.1:8787' });
+  });
+});
+
+/** A bare in-memory socket (no room): the transport-level wiring tests drive an `AgentClient` with it. */
+function bareSocket(): SocketLike & { sent: { t: string }[]; recv(msg: unknown): void } {
+  const s: SocketLike & { sent: { t: string }[]; recv(msg: unknown): void } = {
+    sent: [], onopen: null, onmessage: null, onclose: null,
+    send: (d) => { s.sent.push(JSON.parse(d) as { t: string }); },
+    close: () => {},
+    recv: (msg) => { s.onmessage?.({ data: JSON.stringify(msg) }); },
+  };
+  return s;
+}
+const lobbyFor = (you: 0 | 1, ready = false): ServerMsg => ({
+  t: 'lobby', config: null, you, map: MAP,
+  seats: [{ seat: 0, callsign: 'c0', connected: true, ready: false }, { seat: 1, callsign: 'c1', connected: true, ready }],
+});
+
+describe('AgentClient roles and seats (transport level: the room admits advisor tickets in task 7)', () => {
+  /** Joins, starts, and runs 25 frames: ticks 9 and 19 are an ack and a hash for a seat. */
+  async function runFor(role: 'seat' | 'advisor'): Promise<{ sent: string[]; sock: ReturnType<typeof bareSocket> }> {
+    const sock = bareSocket();
+    const a = new AgentClient({ server: 'https://room.test', code: CODE, ticket: 'tkt', build: BUILD, role, seat: 0, open: () => sock, log: () => {} });
+    sock.onopen?.({});
+    sock.recv(lobbyFor(0));
+    sock.recv({ t: 'start', config: versusConfig(MAP) });
+    await a.ready;
+    for (let tick = 0; tick < 27; tick++) sock.recv({ t: 'frame', tick, cmds: [] });
+    expect(a.pump(40)).toBeGreaterThanOrEqual(20);
+    a.close();
+    return { sent: sock.sent.map((m) => m.t), sock };
+  }
+  it('an advisor client sends a hello and nothing else: no ready, ack, hash, over or bye', async () => {
+    const { sent } = await runFor('advisor');
+    expect(sent).toEqual(['hello']);
+  });
+  it('control: a seat client sends ready, ack, hash and bye', async () => {
+    const { sent } = await runFor('seat');
+    expect(sent).toEqual(expect.arrayContaining(['hello', 'ready', 'ack', 'hash', 'bye']));
+  });
+  it('an advisor\'s desk refuses orders: nothing queued, sent, or aged into a phantom loss', async () => {
+    const sock = bareSocket();
+    const a = new AgentClient({ server: 'https://room.test', code: CODE, ticket: 'tkt', build: BUILD, role: 'advisor', seat: 0, open: () => sock, log: () => {} });
+    expect(a.desk.submit({ kind: 'halt', ids: [1] }, 0)).toEqual({ error: 'not in this scope' });
+    expect(a.desk.records(10)).toEqual([]);
+  });
+  it('a lobby that names another seat for this socket rejects `ready`, sends no ready and no bye, and closes', async () => {
+    const sock = bareSocket();
+    const log: string[] = [];
+    const a = new AgentClient({ server: 'https://room.test', code: CODE, ticket: 'tkt', build: BUILD, role: 'seat', seat: 0, open: () => sock, log: (l) => { log.push(l); } });
+    const refused = expect(a.ready).rejects.toThrow('the room seated this socket as seat 1, but the client was asked to play seat 0');
+    sock.onopen?.({});
+    sock.recv(lobbyFor(1));
+    await refused;
+    expect(sock.sent.map((m) => m.t)).toEqual(['hello']);   // a `bye` from the seat it really holds would read as that seat leaving
+    expect(a.transport.status()).toEqual({ kind: 'closed', reason: 'detached' });
+    expect(log.join('\n')).toContain('seat 1');
+  });
+  it('a lobby that agrees with the seat does not trip it', async () => {
+    const sock = bareSocket();
+    const a = new AgentClient({ server: 'https://room.test', code: CODE, ticket: 'tkt', build: BUILD, role: 'seat', seat: 1, open: () => sock, log: () => {} });
+    sock.onopen?.({});
+    sock.recv(lobbyFor(1));
+    expect(sock.sent.map((m) => m.t)).toEqual(['hello', 'ready']);
+    expect(a.transport.status()).toEqual({ kind: 'waiting' });
   });
 });

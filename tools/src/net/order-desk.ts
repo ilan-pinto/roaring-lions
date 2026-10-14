@@ -33,14 +33,18 @@ export class OrderDesk {
   private nextRef = 1;
   private lastFlush = -Infinity;
 
-  constructor(private readonly send: (cmd: Command) => void) {}
+  /** `send` null is a desk that can send nothing (an advisor's, N4a): it
+   *  refuses every `submit`, so its ledger never reports an order that was
+   *  never sent and then ages into a phantom `lost`. */
+  constructor(private readonly send: ((cmd: Command) => void) | null) {}
 
   /** The command is rebuilt by the room's own `cleanCommand` before it is
    *  queued: the room stamps that form into the frame, and `onOwnCommands`
    *  matches the echo by its JSON, so a command with its keys in another
    *  order or an id twice would otherwise never settle. One the room would
    *  refuse is refused here (`invalid`), and nothing is sent. */
-  submit(cmd: Command, tick: number): OrderRecord | { error: 'queue_full' | 'invalid' } {
+  submit(cmd: Command, tick: number): OrderRecord | { error: 'queue_full' | 'invalid' | 'not in this scope' } {
+    if (this.send === null) return { error: 'not in this scope' };
     const clean = cleanCommand(cmd);
     if (clean === null) return { error: 'invalid' };
     const queued = this.ring.filter((r) => r.status === 'queued').length;
@@ -66,7 +70,7 @@ export class OrderDesk {
       if (n >= MAX_CMDS_PER_SEAT_PER_FRAME) break;
       r.status = 'sent';
       r.sentTick = tick;
-      this.send(r.cmd);
+      this.send?.(r.cmd);
       n++;
     }
     if (n > 0) this.lastFlush = tick;

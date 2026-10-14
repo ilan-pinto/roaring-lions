@@ -304,6 +304,10 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
   s.lastSeenMs = nowMs;
   switch (msg.t) {
     case 'hello': return [];   // handled by the DO before seatJoin
+    // N4a: a seat's pair and a paced room's `done` are parsed (protocol.ts) but not yet acted on;
+    // the room wires them in a later task. Until then they change nothing and cost nothing.
+    case 'advisor':
+    case 'done': return [];
     case 'ready': {
       if (st.status !== 'lobby') return [];
       s.ready = true;

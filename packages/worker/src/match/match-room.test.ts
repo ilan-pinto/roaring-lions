@@ -188,6 +188,15 @@ describe('MatchRoom', () => {
     expect((await persisted(state)).seats).toEqual([null, null]);
   });
 
+  it('refuses an advisor ticket until the room seats advisors (N4a task 7): it never takes the seat it advises', async () => {
+    const { state, room } = await created();
+    const adv = await signTicket(SECRET, { matchId: CODE, seat: 0, player: 'p-host', exp: NOW + 3600 * 1000, role: 'advisor', scope: 'assist' });
+    const ws = await hello(room, 0, adv);
+    expect(msgs(ws)).toEqual([{ t: 'error', code: 'bad_ticket' }]);
+    expect(ws.closed?.code).toBe(4001);
+    expect((await persisted(state)).seats).toEqual([null, null]);
+  });
+
   it('refuses a client built from something else', async () => {
     const { room } = await created();
     const ws = await hello(room, 0, undefined, 'b2');

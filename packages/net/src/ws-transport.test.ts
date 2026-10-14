@@ -611,3 +611,77 @@ describe('WsTransport: a log in parts (#559 H-1)', () => {
     expect(t.forfeitClock()).toEqual({ seat: 1, untilMs: 30_000 });
   });
 });
+
+describe('N4a: the advisor role, advisor and done messages, the round stall', () => {
+  it('a role: advisor transport sends no ack, hash, ready, over or bye (but does say hello)', () => {
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} }, () => 0, 'advisor');
+    sock.open();
+    sock.recv({ t: 'start', config: CONFIG });
+    sock.sent.length = 0;
+    t.reportTick(19, 123);
+    t.ready();
+    t.over(5);
+    t.close();
+    expect(sock.sent).toEqual([]);
+  });
+  it('a seat transport still sends all five (the same calls, the default role)', () => {
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} }, () => 0);
+    sock.open();
+    sock.recv({ t: 'start', config: CONFIG });
+    sock.sent.length = 0;
+    t.reportTick(19, 123);
+    t.ready();
+    t.over(5);
+    t.close();
+    expect(sock.sent.map((s) => (JSON.parse(s) as { t: string }).t)).toEqual(['ack', 'hash', 'ready', 'over', 'bye']);
+  });
+  it('an advisor still says hello, and advisor() and done() send their messages', () => {
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} }, () => 0, 'advisor');
+    sock.open();
+    t.advisor({ kind: 'ping', x: 3, y: 4 });
+    t.done(2);
+    expect(sock.sent.map((s) => JSON.parse(s))).toEqual([
+      { t: 'hello', ticket: 'tkt', build: 'b' },
+      { t: 'advisor', a: { kind: 'ping', x: 3, y: 4 } },
+      { t: 'done', round: 2 },
+    ]);
+  });
+  it('onAdvisor and onAdvisors fire with what the room relayed', () => {
+    const sock = fakeSocket();
+    const heard: unknown[] = [];
+    new WsTransport(() => sock, 'tkt', 'b', {
+      onStart: () => {},
+      onAdvisor: (from, a) => { heard.push(['advisor', from, a]); },
+      onAdvisors: (present) => { heard.push(['advisors', present]); },
+    });
+    sock.open();
+    sock.recv({ t: 'advisor', from: 'advisor', a: { kind: 'text', text: 'hold' } });
+    sock.recv({ t: 'advisors', present: [null, 'assist'] });
+    sock.recv({ t: 'advisor', from: 'advisor', a: { kind: 'ping', x: 999, y: 0 } });   // unparseable: dropped by the parser
+    expect(heard).toEqual([
+      ['advisor', 'advisor', { kind: 'text', text: 'hold' }],
+      ['advisors', [null, 'assist']],
+    ]);
+  });
+  it('stats().stalls.round counts a round stall, once from its start, with its longest', () => {
+    let now = 0;
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} }, () => now);
+    sock.open();
+    sock.recv({ t: 'start', config: CONFIG });
+    expect(t.stats().stalls.round).toEqual({ count: 0, longestMs: 0 });
+    now = 1000;
+    sock.recv({ t: 'stall', reason: 'round', seat: 1 });
+    sock.recv({ t: 'stall', reason: 'round', seat: 1 });
+    expect(t.status()).toEqual({ kind: 'stalled', reason: 'round', seat: 1 });
+    now = 3500;
+    expect(t.stats().stalls.round).toEqual({ count: 1, longestMs: 2500 });
+    sock.recv({ t: 'resume' });
+    now = 9000;
+    expect(t.stats().stalls.round).toEqual({ count: 1, longestMs: 2500 });
+    expect(t.stats().stalls.behind.count).toBe(0);
+  });
+});

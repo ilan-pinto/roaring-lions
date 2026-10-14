@@ -7,6 +7,7 @@
  */
 import type { Command } from '@lions/sim';
 import type { Faction, MatchConfig, Seat } from './config';
+import type { AdvisorMsg, AdvisorScope } from './advisor';
 import type { Frame } from './frames';
 import { LockstepClock } from './lockstep';
 import { parseServerMsg, type ClientMsg, type SeatState, type ServerMsg } from './protocol';
@@ -49,6 +50,10 @@ export interface WsTransportHooks {
   /** The room dropped a command this seat sent, because a pause was in force (an order in flight when it began). */
   onCmdRefused?(): void;
   onError?(code: string): void;
+  /** What this seat's pair (its human or its advisor) said, relayed by the room (N4a). */
+  onAdvisor?(from: 'human' | 'advisor', a: AdvisorMsg): void;
+  /** The advisor scope each seat has seated, or null (N4a). */
+  onAdvisors?(present: [AdvisorScope | null, AdvisorScope | null]): void;
 }
 
 type Stalled = Extract<TransportStatus, { kind: 'stalled' }>;
@@ -97,7 +102,7 @@ export class WsTransport implements MatchTransport {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly counts: NetStats = {
     hashOk: { count: 0, lastTick: null },
-    stalls: { behind: { count: 0, longestMs: 0 }, gone: { count: 0, longestMs: 0 }, connecting: { count: 0, longestMs: 0 } },
+    stalls: { behind: { count: 0, longestMs: 0 }, gone: { count: 0, longestMs: 0 }, connecting: { count: 0, longestMs: 0 }, round: { count: 0, longestMs: 0 } },
     reconnects: { count: 0, lastOutageMs: null, lastReplayMs: null },
     desyncTick: null,
   };
@@ -123,6 +128,11 @@ export class WsTransport implements MatchTransport {
     hooks: WsTransportHooks,
     /** Wall-clock ms, for the stall and reconnect timings only. */
     private readonly now: () => number = () => Date.now(),
+    /** `advisor`: an AI advisor's socket (N4a). It runs no sim of its own to
+     *  report on, so it never acks, hashes, readies, reports `over` or says
+     *  `bye`; the room would ignore all five, and a leaving advisor must not
+     *  read as a seat leaving. It still hellos, and it still listens. */
+    private readonly role: 'seat' | 'advisor' = 'seat',
   ) {
     this.hooks = { ...hooks };
     this.connect();
@@ -276,6 +286,8 @@ export class WsTransport implements MatchTransport {
       case 'dropped': this.forfeit = { seat: msg.seat, untilMs: this.now() + msg.remainingMs }; return;
       case 'back': if (this.forfeit?.seat === msg.seat) this.forfeit = null; return;
       case 'cmdRefused': this.hooks.onCmdRefused?.(); return;
+      case 'advisor': this.hooks.onAdvisor?.(msg.from, msg.a); return;
+      case 'advisors': this.hooks.onAdvisors?.(msg.present); return;
       case 'resume': this.setStalled(null); this.st = { kind: 'live', behind: this.clock.behind() }; return;
       case 'hashOk': this.counts.hashOk.count++; this.counts.hashOk.lastTick = msg.tick; return;
       case 'desync':
@@ -298,7 +310,11 @@ export class WsTransport implements MatchTransport {
     }
   }
 
-  ready(): void { this.send({ t: 'ready' }); }
+  ready(): void { if (this.role === 'seat') this.send({ t: 'ready' }); }
+  /** To this seat's pair, through the room (N4a): text, a ping, a proposal, or the human's accept/veto. */
+  advisor(a: AdvisorMsg): void { this.send({ t: 'advisor', a }); }
+  /** A bot seat has finished `round` of a paced room (N4a). */
+  done(round: number): void { this.send({ t: 'done', round }); }
   queueCommand(cmd: Command): void { this.send({ t: 'cmd', seq: this.seq++, cmd }); }
   pause(): void { this.send({ t: 'pause' }); }
   resume(): void { this.send({ t: 'resume' }); }
@@ -309,7 +325,7 @@ export class WsTransport implements MatchTransport {
    *  first call speaks (repeated after a reconnect's `log`); a room that has
    *  already ended, voided or been left hears nothing. */
   over(tick: number): void {
-    if (this.overTick !== null || this.terminal()) return;
+    if (this.role !== 'seat' || this.overTick !== null || this.terminal()) return;
     this.overTick = tick;
     this.send({ t: 'over', tick });
   }
@@ -331,6 +347,7 @@ export class WsTransport implements MatchTransport {
     return out;
   }
   reportTick(tick: number, digest: number | null): void {
+    if (this.role !== 'seat') return;
     if (tick % ACK_EVERY === ACK_EVERY - 1) this.send({ t: 'ack', tick });
     if (digest !== null) this.send({ t: 'hash', tick, h: digest });
   }
@@ -356,7 +373,7 @@ export class WsTransport implements MatchTransport {
   close(): void {
     this.closed = true;
     if (this.reconnectTimer !== null) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
-    this.send({ t: 'bye' });
+    if (this.role === 'seat') this.send({ t: 'bye' });
     this.sock?.close();
     this.setStalled(null);
     this.st = { kind: 'closed', reason: 'left' };
