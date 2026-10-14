@@ -173,6 +173,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { FREEZE_FRAME_LOOP_SCRIPT, REPAINT_SCRIPT } from '../golden-diff/capture-protocol';
 import { musicOffInitScript } from '../ui-review/music-off';
+import { gpuLaunchArgs, resolveGpuBackend } from '../ui-review/gpu';
 
 // ---------------------------------------------------------------- the sheet
 
@@ -294,6 +295,8 @@ interface Subject {
    *  so its `moveFire` cell photographs `resolveMeshMotionClip`'s fallback to
    *  `fire` -- which is exactly what shipped). */
   readonly moveFire: boolean;
+  /** Left out of the default parade; photographed only when `--only` names it. */
+  readonly onRequest?: boolean;
 }
 
 /** Twelve lanes, 4 tiles apart, on a row that is open end to end. A target
@@ -318,6 +321,13 @@ const SUBJECTS: readonly Subject[] = [
   // Last, because four bodies need four tiles and the lane pitch is three.
   // Nothing stands to its right, so it spills into empty ground.
   { id: 'civilians', x: 45, bodies: 4, fireRange: null, moveFire: false },
+  // Unit polish (2026-10-14): the two crew-served teams with no `fire` clip
+  // (mesh_gait's WEAPON_EXEMPT) and the Zikit, whose kit rifle is swapped.
+  // Requested by name only -- their lanes overlap the default parade's, and
+  // `--only` refuses two wanted subjects on one lane.
+  { id: 'atgm_cell', x: 6, bodies: 1, fireRange: 5, moveFire: false, onRequest: true },
+  { id: 'mortar_crew', x: 12, bodies: 1, fireRange: 5, moveFire: false, onRequest: true },
+  { id: 'recon_zikit', x: 18, bodies: 1, fireRange: 5, moveFire: true, onRequest: true },
 ];
 
 /** Unarmed, enemy-faction, human-scale, and unchanged by this milestone --
@@ -358,6 +368,7 @@ interface LionsWindow {
       frame(alpha: number, dtMs: number): void;
       worldToScreen(x: number, y: number): { x: number; y: number };
       firingTimer: Float64Array;
+      lastShotSimS: Float64Array;
       entitySpeed: Float64Array;
       meshUnitEntities: Map<number, GaitEntity>;
     };
@@ -413,8 +424,24 @@ fs.mkdirSync(out, { recursive: true });
 
 // `--only=a,b,c` names several subjects (B7 review: the eight teams of one batch).
 const onlyIds = new Set(only.split(',').filter(Boolean));
-const wanted = onlyIds.size ? SUBJECTS.filter((s) => onlyIds.has(s.id)) : SUBJECTS;
+const wanted = onlyIds.size ? SUBJECTS.filter((s) => onlyIds.has(s.id)) : SUBJECTS.filter((s) => !s.onRequest);
 if (wanted.length === 0) throw new Error(`--only=${only} names no subject in the parade`);
+const lanes = new Map<number, string>();
+for (const s of wanted) {
+  const other = lanes.get(s.x);
+  if (other) throw new Error(`${s.id} and ${other} share lane x=${s.x}; photograph them in separate runs`);
+  lanes.set(s.x, s.id);
+}
+/** Real GPU on macOS (`ui-review/gpu.ts`): `--gpu=metal|swiftshader`. */
+const gpu = resolveGpuBackend(process.argv, process.platform);
+/** Ticks per step while waiting for a shot (`FIRE_BATCH_TICKS` by default). */
+const fireBatch = Number(arg('batch', String(FIRE_BATCH_TICKS)));
+/** Device pixel ratio: 2 doubles the close crop's pixels for a look at a pose. */
+const dpr = Number(arg('dpr', '1'));
+/** `--strip`: remove the sandbox's own units before the parade spawns. */
+const strip = process.argv.includes('--strip');
+/** Ticks stepped after the shot is seen and before the shutter (`--post-shot=`). */
+const postShotTicks = Number(arg('post-shot', '0'));
 
 // --------------------------------------------------------------- the run
 
@@ -520,10 +547,8 @@ console.log(
     `zooms [${ZOOMS.join(', ')}], phase fraction ${phaseTarget}`
 );
 
-const browser = await chromium.launch({
-  headless: true,
-  args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
-});
+const browser = await chromium.launch({ headless: true, args: gpuLaunchArgs(gpu) });
+console.log(`gpu ${gpu}`);
 
 try {
   for (const revision of revisions) {
@@ -547,7 +572,7 @@ async function captureRevision(revision: 'before' | 'after'): Promise<void> {
   inFlight = `${revision}: opening a page`;
   const page: Page = await browser.newPage({
     viewport: { width: VIEWPORT.width, height: VIEWPORT.height },
-    deviceScaleFactor: 1,
+    deviceScaleFactor: dpr,
   });
   page.setDefaultTimeout(STEP_TIMEOUT_MS);
   page.setDefaultNavigationTimeout(STEP_TIMEOUT_MS);
@@ -618,6 +643,26 @@ async function captureRevision(revision: 'before' | 'after'): Promise<void> {
   inFlight = `${revision}: freezing the frame loop`;
   await page.evaluate(FREEZE_FRAME_LOOP_SCRIPT);
 
+  if (strip) {
+    // `unit-plates.ts`'s rule: take the sandbox's own force off the board
+    // (both sides) before the parade spawns, so no loitering munition or
+    // suicide squad walks into a capture. `removeFromPlay`, never a kill:
+    // nothing is left on the ground.
+    inFlight = `${revision}: stripping the sandbox force`;
+    const removed = await page.evaluate(() => {
+      const L = (window as unknown as LionsWindow).__lions;
+      let n = 0;
+      for (let i = 0; i < L.sim.entityCount; i++) {
+        if (L.sim.state.alive[i] === 1) {
+          L.sim.removeFromPlay(i);
+          n++;
+        }
+      }
+      L.step(1);
+      return n;
+    });
+    console.log(`${revision}: stripped ${removed} sandbox unit(s)`);
+  }
   inFlight = `${revision}: spawning the parade`;
   const placed = await spawnParade(page);
   console.log(
@@ -809,6 +854,11 @@ async function capturePhase(
         console.warn(`  ${revision}/${phase}: ${row.id} never fired -- clip "${got.clip}"`);
       }
       firingBudgetMs = Math.max(0, got.latchMs - FIRE_HOLD_MARGIN_MS);
+      if (postShotTicks > 0) {
+        // Let the muzzle flash clear: a crew with no `fire` clip holds no
+        // latch, so nothing about the pose changes in these ticks.
+        await page.evaluate((n) => (window as unknown as LionsWindow).__lions.step(n), postShotTicks);
+      }
     }
 
     inFlight = `${revision} / ${phase} / ${row.id} (entity ${subjectId}): hunting phase ${phaseTarget}`;
@@ -894,6 +944,10 @@ async function advanceUntilFiring(
       const FIXED = 65536;
       let current = target;
       let firing = false;
+      // A GLB with no `fire` clip sets no latch (`fireLatchSeconds` answers
+      // null), so the latch alone never sees its shots; the renderer's own
+      // per-shot stamp does.
+      const shotBefore = L.renderer.lastShotSimS[id];
       for (let t = 0; t < budget; t += batch) {
         if (current !== null && L.sim.state.alive[current] !== 1) {
           // The subject shot its target dead before the shutter opened. A
@@ -903,7 +957,8 @@ async function advanceUntilFiring(
           current = L.sim.spawn(idx, 1, L.sim.state.posX[id], targetY * FIXED);
         }
         L.step(batch);
-        if (L.renderer.firingTimer[id] > 0 && (!moving || L.renderer.entitySpeed[id] > 0)) {
+        const shot = L.renderer.firingTimer[id] > 0 || L.renderer.lastShotSimS[id] !== shotBefore;
+        if (shot && (!moving || L.renderer.entitySpeed[id] > 0)) {
           firing = true;
           break;
         }
@@ -922,7 +977,7 @@ async function advanceUntilFiring(
       needMoving,
       FIRE_WAIT_TICKS,
       TARGET_TYPE,
-      FIRE_BATCH_TICKS,
+      fireBatch,
     ] as const
   );
 }
