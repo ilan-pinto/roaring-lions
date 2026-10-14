@@ -35,6 +35,19 @@ describe('1. failureReason: a lost mission names the primary that lost it, and w
     expect(failureReason('force_destroyed', objs, 61 * S)).toBe('Every unit lost · 1:01');
     expect(failureReason('roe_collapse', objs, 61 * S)).toBe('Conduct fell below the mission floor · 1:01');
   });
+  it('running out of time names the first primary still open, never a secondary', () => {
+    const rows = [
+      { id: 'scout', text: 'Find the column', primary: false, status: 'active' },
+      { id: 'hold_the_crest_line', text: 'Hold the crest line for four minutes', primary: true, status: 'complete' },
+      { id: 'level_the_stone_post', text: 'Level the post on the stone knoll inside five minutes', primary: true, status: 'active' },
+    ];
+    expect(failureReason('withdrawn', rows, 840 * S)).toBe(
+      'Out of time — Level the post on the stone knoll inside five minutes was not finished'
+    );
+  });
+  it('running out of time with no open primary on the list still says why, and shows no id', () => {
+    expect(failureReason('withdrawn', objs, 840 * S)).toBe('Out of time');
+  });
   it('nothing when the mission is not lost', () => {
     expect(failureReason(undefined, objs, 300 * S)).toBeNull();
   });
