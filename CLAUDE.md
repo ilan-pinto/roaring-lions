@@ -2303,7 +2303,7 @@ the paragraph above, ~:306) -- nothing new here.
   material for a textured one — so **`pnpm validate:meshes` cannot see it**: that
   gate repaints every vehicle from the palette tables before rendering and says so
   on its passing path. It judges the SHAPE, two ways, against a measured floor.
-  **Real damaged GEOMETRY ships for twelve, since 2026-10-14** (`pnpm
+  **Real damaged GEOMETRY ships for thirteen, since 2026-10-14** (`pnpm
   damage:meshes`, `tools/src/meshes/damage-pass.ts`; design and record
   `docs/superpowers/specs/2026-10-14-wreck-damage-design.md`, which closes the
   wreck spec's D1). **The rule is OUTLINE damage only** -- a thrown track on the
@@ -2329,9 +2329,12 @@ the paragraph above, ~:306) -- nothing new here.
   about the axle (`lost-tyre.ts`, read by both passes), not the `_RL_WHEEL`
   tag -- #550's 0.99 r cut leaves outer tread untagged, and that tread held
   the corner up. The gun truck's glass is blown out, and the Petens' rotor is
-  split into five blades that droop, one snapped onto the sand. **Still open:
-  `rocket_battery`**, whose rubber copy alone is over the cap and needs a
-  simplified copy. Record: the design spec's §7.
+  split into five blades that droop, one snapped onto the sand. The rocket
+  battery's rubber copy is SIMPLIFIED to fit the cap (`simplify`,
+  meshoptimizer 1.1.1, an exact tools devDependency; ratio 0.74, the largest
+  that fits, raw binding; run first so its collapses see the shipped bytes).
+  The corner-drop pivot runs to the FARTHEST same-side wheel: the nearest
+  threw a 6x6's cab a metre into the air. Record: the design spec's §7.
 - Tunnels are implemented (`feat/tunnel-subsystem`): routes are map data, a digger
   advances one and leaves surface spoil, stocked fighters surface at the vent to fire a
   volley and submerge, and a `yahalom_squad` charge collapses a route. Both content keys
