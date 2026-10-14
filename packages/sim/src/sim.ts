@@ -52,6 +52,8 @@ import {
   SUSPECTED_AT,
   IDENTIFIED_AT,
   LOST_AT,
+  FOCUS_LOST_TICKS,
+  FOCUS_REACH_SLACK,
   MOTION_SIG,
   COVER_SIG,
   OCCL_PER_COVER,
@@ -650,7 +652,16 @@ export type Command =
    * identified by the team's own side before the clock runs (suspected is a
    * blip, not a firing solution), and the collapse kills everyone below.
    */
-  | { kind: 'chargeTunnel'; ids: number[]; tunnel: number };
+  | { kind: 'chargeTunnel'; ids: number[]; tunnel: number }
+  /**
+   * Fire on THIS enemy (Stage 4 targeted fire, GH-420). Sets the unit's
+   * `focusTarget`; any other order that names the unit releases it. The sim
+   * accepts the order on geometry-free grounds only (`canFocus`): whether a
+   * given weapon can hurt the target from where it stands flips with the
+   * target's facing, so that judgement is the app's to show and the combat
+   * step's to apply. A refused id is a no-op.
+   */
+  | { kind: 'attack'; ids: number[]; target: number };
 
 /** The same command aimed at fewer units. A generic copy rather than an
  *  in-place splice, because the queued object belongs to the sender. */
@@ -930,6 +941,17 @@ export class Sim {
   private readonly lastFired: Int32Array;
   private readonly engaging: Uint8Array;
   private readonly curTarget: Int32Array;
+  /** The entity this unit was ORDERED to fire on (`attack`), -1 when none.
+   *  Hashed: it will decide whom the unit shoots and where it walks. Set by
+   *  the `attack` command, cleared by any other order that names the unit and
+   *  by a rout; ids are never recycled, so a stale value cannot alias a new
+   *  unit. */
+  private readonly focusTarget: Int32Array;
+  /** Ticks the issuer's side has gone without a firing solution on
+   *  `focusTarget` (the T-D3 lost counter). Zero whenever there is no focus or
+   *  the focus is held. Hashed, and added with the column above so the focus
+   *  behaviour that follows is hash-neutral. */
+  private readonly focusLost: Uint16Array;
   /** Structure this unit is currently engaging, -1 when none. */
   private readonly curStructure: Int32Array;
   private readonly mobilityKilled: Uint8Array;
@@ -1172,6 +1194,10 @@ export class Sim {
     readonly brace: Uint8Array;
     /** Ticks left in a DROPPING or RISING transition, 0 otherwise. */
     readonly braceTicks: Int32Array;
+    /** The entity this unit was ordered to fire on, -1 when none. */
+    readonly focusTarget: Int32Array;
+    /** Ticks without a firing solution on the focus. */
+    readonly focusLost: Uint16Array;
   };
 
   /** Read-only structure view for the renderer and HUD. */
@@ -1251,6 +1277,8 @@ export class Sim {
     this.lastFired = new Int32Array(n).fill(-100000);
     this.engaging = new Uint8Array(n);
     this.curTarget = new Int32Array(n).fill(-1);
+    this.focusTarget = new Int32Array(n).fill(-1);
+    this.focusLost = new Uint16Array(n);
     this.curStructure = new Int32Array(n).fill(-1);
     this.mobilityKilled = new Uint8Array(n);
     this.firepowerKilled = new Uint8Array(n);
@@ -1360,6 +1388,8 @@ export class Sim {
       tunnelIn: this.tunnelIn,
       brace: this.brace,
       braceTicks: this.braceTicks,
+      focusTarget: this.focusTarget,
+      focusLost: this.focusLost,
     };
     this.structures = {
       alive: this.stAlive,
@@ -1914,6 +1944,10 @@ export class Sim {
     this.stepProjectiles();
     this.stepStrikes();
     this.stepKamikaze();
+    // After combat and brace, like stepSweep: a `moving = 0` written here is
+    // what stepBrace kneels on next tick. Before stepSweep, so an order that
+    // ends here hands the unit back before the sweep looks at it.
+    this.stepFocus();
     this.stepSweep();
     this.stepMovement();
     this.stepTransport();
@@ -2038,10 +2072,25 @@ export class Sim {
     gy: number,
     mask: Uint8Array = this.blocked
   ): [number, number] {
+    this.snapOpenTile(gx, gy, mask);
+    return [this.snapX, this.snapY];
+  }
+
+  /** nearestOpenTile's answer, from the last `snapOpenTile` call. Scratch,
+   *  read straight after the call that wrote it, so a per-tick caller
+   *  (stepFocus) allocates nothing. Never hashed. */
+  private snapX = 0;
+  private snapY = 0;
+
+  /** nearestOpenTile without the tuple: writes `snapX`/`snapY`. The one
+   *  search; nearestOpenTile is a wrapper over it. */
+  private snapOpenTile(gx: number, gy: number, mask: Uint8Array): void {
+    this.snapX = gx;
+    this.snapY = gy;
     const w = this.width;
     const h = this.height;
-    if (gx < 0 || gy < 0 || gx >= w || gy >= h) return [gx, gy];
-    if (mask[gy * w + gx] === 0) return [gx, gy];
+    if (gx < 0 || gy < 0 || gx >= w || gy >= h) return;
+    if (mask[gy * w + gx] === 0) return;
     const maxR = w > h ? w : h;
     for (let r = 1; r <= maxR; r++) {
       const x0 = gx - r < 0 ? 0 : gx - r;
@@ -2056,13 +2105,16 @@ export class Sim {
           const ddy = y - gy < 0 ? gy - y : y - gy;
           const cheb = ddx > ddy ? ddx : ddy;
           if (cheb !== r) continue;
-          if (mask[y * w + x] === 0) return [x, y];
+          if (mask[y * w + x] === 0) {
+            this.snapX = x;
+            this.snapY = y;
+            return;
+          }
         }
       }
     }
     // No open tile anywhere on the map -- cannot happen on any map that has
-    // a player on it, but a caller still needs a value.
-    return [gx, gy];
+    // a player on it, but a caller still needs a value: (gx, gy), as set.
   }
 
   /**
@@ -2119,6 +2171,29 @@ export class Sim {
           // the command (invariant 4 — commands flow IN), and mutating it is
           // observable outside the sim.
           cmd = withIds(cmd, kept);
+        }
+        // Any order that names a unit takes its fire order away: a focus is
+        // what the unit was last told to shoot, and "go there" or "stop" is
+        // a newer word. `attack` itself is the one that sets it (below). Done
+        // for every id the order names, refused or not, so a routed or
+        // carried unit cannot keep an old focus past a command that reached
+        // it. (`reveal` and `callStrike` carry no ids and name no unit.)
+        //
+        // The leg goes with it. While a focus stands, `moving` can only be
+        // stepFocus's chase (`attack` stopped the unit, and every other order
+        // releases the focus here), so a released focus must not leave that
+        // leg running: an order that does not move the unit itself (smoke,
+        // unload, any refusal) would otherwise walk it onto the enemy with its
+        // fire held, and an APPENDED move would queue behind the chase.
+        if (cmd.kind !== 'attack') {
+          for (const id of cmd.ids) {
+            if (this.focusTarget[id] >= 0) {
+              this.moving[id] = 0;
+              this.fieldRef[id] = -1;
+            }
+            this.focusTarget[id] = -1;
+            this.focusLost[id] = 0;
+          }
         }
       }
       if (cmd.kind === 'move' || cmd.kind === 'attackMove') {
@@ -2569,6 +2644,34 @@ export class Sim {
           this.sweepOrder[id] = 0;
           this.engaging[id] = 0;
           this.stance[id] = 0;
+        }
+      } else if (cmd.kind === 'attack') {
+        // BEFORE the bare `else` below, which is the halt branch: it touches
+        // only `cmd.ids`, so an `attack` placed after it compiles and halts.
+        for (const id of cmd.ids) {
+          if (!this.canFocus(id, cmd.target)) continue; // a refused id changes nothing
+          this.focusTarget[id] = cmd.target;
+          this.focusLost[id] = 0;
+          // What every order clears. NOT `leaveStructure`: a garrisoned
+          // shooter fires on its focus from the window and is never walked
+          // out by it (#577's direction -- an order must not empty a building
+          // by accident).
+          this.wpCount[id] = 0;
+          this.boardGoal[id] = -1;
+          this.garrisonGoal[id] = -1;
+          this.demolishOrder[id] = -1;
+          this.chargeOrder[id] = -1;
+          this.chargeTicks[id] = 0;
+          // The unit stops being an attack-mover and stops walking the leg it
+          // was on, as `halt` does: nothing reads the focus yet, so leaving
+          // `moving` set would keep an old leg running under an order that
+          // supersedes it. Whatever movement the focus needs is stepFocus's.
+          this.moving[id] = 0;
+          this.fieldRef[id] = -1;
+          this.attackMove[id] = 0;
+          this.sweepOrder[id] = 0;
+          this.engaging[id] = 0;
+          this.stance[id] = 0; // any order overrides a held stance
         }
       } else {
         for (const id of cmd.ids) {
@@ -3428,35 +3531,68 @@ export class Sim {
     return fx.normCdf(penZ(w.penetration, this.presentedArmor(t, px, py, w.cls))) >= PEN_HURTS_MIN;
   }
 
+  /** The squared distance the last `engageable` call measured, valid only
+   *  when it returned true. Scratch, read straight after the call that wrote
+   *  it -- a field rather than a returned pair, so the hot scan allocates
+   *  nothing (the `presentedArc` idiom). Never hashed, never read across
+   *  ticks. */
+  private engageDSq = 0;
+
+  /**
+   * May weapon `w`, on a shooter of side `sSide` standing at (px, py), take
+   * `t` as its target THIS tick? selectTarget's whole per-candidate filter,
+   * in its own order, and the ONE copy of it: the scan, the ordered-focus
+   * preference (GH-420, R-2) and stepFocus's reach test (R-3) all ask here,
+   * so what a slot may shoot and what an order may prefer cannot drift.
+   * Writes `engageDSq` when it returns true. Penetration is NOT part of it:
+   * the scan ranks an unhurtable target as a last resort rather than
+   * excluding it, and the focus paths add `weaponHurts` themselves.
+   */
+  private engageable(sSide: number, px: Fx, py: Fx, w: WeaponStats, t: number): boolean {
+    // Civilians (side 2) are never targets — collateral comes from
+    // ordnance, not aimpoints. That asymmetry is what ROE scores.
+    if (this.alive[t] === 0 || this.side[t] === sSide || this.side[t] > 1) return false;
+    // Men inside a building cannot be shot at: the building is in the way,
+    // and taking it down is the only way to reach them. A tunnel is the same
+    // idea a third time — the earth is in the way, and Yahalom is the way in.
+    if (this.garrisonedIn[t] >= 0 || this.carriedBy[t] >= 0 || this.tunnelIn[t] >= 0) return false;
+    if (this.contact[sSide * this.capacity + t] < IDENTIFIED_AT) return false;
+    // A weapon that cannot elevate does not get to pick a target it could
+    // never hit. Filtered here rather than at the hit roll so the shooter
+    // keeps looking and engages something it *can* hurt, instead of locking
+    // on to an aircraft and firing into the sky for the rest of the fight.
+    if (this.unitTypes[this.typeIdx[t]].isAir ? !w.canTargetAir : !w.canTargetGround) return false;
+    const dSq = distSqFx(fx.sub(this.posX[t], px), fx.sub(this.posY[t], py));
+    if (dSq > w.rangeSq || this.minRangeBlocks(w, dSq, t)) return false;
+    if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
+      if (this.losRay(px >> 16, py >> 16, this.posX[t] >> 16, this.posY[t] >> 16) < 0) return false;
+    }
+    this.engageDSq = dSq;
+    return true;
+  }
+
   private selectTarget(shooter: number, w: WeaponStats): number {
-    const cap = this.capacity;
     const sSide = this.side[shooter];
     const px = this.posX[shooter];
     const py = this.posY[shooter];
+    // An ORDERED target first (GH-420, ruling R-2): the focus wins this slot
+    // only if the slot could have picked it anyway AND can hurt it from here.
+    // A slot that cannot -- a rifle at a tank's front, a gun that cannot
+    // elevate at a helicopter, a target out of this slot's reach -- scans as
+    // it always has, so the order never turns a weapon into a waste of
+    // ammunition; the focus stays set and wins again the moment it can.
+    const focus = this.focusTarget[shooter];
+    if (focus >= 0 && this.engageable(sSide, px, py, w, focus) && this.weaponHurts(w, focus, px, py)) {
+      return focus;
+    }
     const antiArmor = (ANTI_ARMOR_MASK & (1 << w.cls)) !== 0;
     let best = -1;
     let bestHurts = false;
     // Ranked squared distance (see `rank` below), not always the raw one.
     let bestDistSq = 0x7fffffff;
     for (let t = 0; t < this.count; t++) {
-      // Civilians (side 2) are never targets — collateral comes from
-      // ordnance, not aimpoints. That asymmetry is what ROE scores.
-      if (this.alive[t] === 0 || this.side[t] === sSide || this.side[t] > 1) continue;
-      // Men inside a building cannot be shot at: the building is in the way,
-      // and taking it down is the only way to reach them. A tunnel is the same
-      // idea a third time — the earth is in the way, and Yahalom is the way in.
-      if (this.garrisonedIn[t] >= 0 || this.carriedBy[t] >= 0 || this.tunnelIn[t] >= 0) continue;
-      if (this.contact[sSide * cap + t] < IDENTIFIED_AT) continue;
-      // A weapon that cannot elevate does not get to pick a target it could
-      // never hit. Filtered here rather than at the hit roll so the shooter
-      // keeps looking and engages something it *can* hurt, instead of locking
-      // on to an aircraft and firing into the sky for the rest of the fight.
-      if (this.unitTypes[this.typeIdx[t]].isAir ? !w.canTargetAir : !w.canTargetGround) continue;
-      const dSq = distSqFx(fx.sub(this.posX[t], px), fx.sub(this.posY[t], py));
-      if (dSq > w.rangeSq || this.minRangeBlocks(w, dSq, t)) continue;
-      if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
-        if (this.losRay(px >> 16, py >> 16, this.posX[t] >> 16, this.posY[t] >> 16) < 0) continue;
-      }
+      if (!this.engageable(sSide, px, py, w, t)) continue;
+      const dSq = this.engageDSq;
       // "Can this weapon hurt that?" — the real penetration chance against the
       // face the target shows this shooter (weaponHurts). Suppressive fire at
       // armour it cannot defeat is a fallback, not a preference.
@@ -3696,6 +3832,10 @@ export class Sim {
    * ran west into the shooter's sight.
    */
   private startRout(i: number): void {
+    // Broken troops drop their fire order, on either exit below (flee or
+    // hold). Rally restores no order, so the focus is not coming back.
+    this.focusTarget[i] = -1;
+    this.focusLost[i] = 0;
     const mySide = this.side[i];
     let nx = 0;
     let ny = 0;
@@ -5397,6 +5537,225 @@ export class Sim {
   }
 
   /**
+   * Targeted fire (GH-420, Task 2): what a unit under an `attack` order does
+   * between shots. selectTarget is what makes it SHOOT the focus; this is
+   * whether the order still stands and where the unit stands.
+   *
+   * The order ENDS (T-D3, T-D4) when the target dies, boards, garrisons,
+   * goes under or stops being an enemy (`focusStillTargetable`, canFocus's
+   * own rule), or when it is lost (R-4): `focusLost` counts consecutive
+   * ticks with the side's confidence below IDENTIFIED_AT and resets on
+   * re-identification; the order ends when it reaches FOCUS_LOST_TICKS, or at
+   * once if the side holds no last-seen position to walk to. An ended order
+   * hands the unit back as an ARRIVED attack-mover where it stands: it holds
+   * and fights what comes inside its reach, and it does not sweep (#537), so
+   * a far contact does not pull it off its ground.
+   *
+   * A standing order MOVES the unit only if it can move: never a garrisoned
+   * (R-5), carried, buried, pinned, routed, mobility-killed or immobile unit.
+   * Those keep the order and are not touched -- a garrisoned one still fires
+   * on its focus from the window once it is in reach; a pinned one finishes
+   * crawling whatever leg it was on, as under any order. A firepower-killed
+   * one keeps the order too, and is STOPPED: there is nothing to walk into
+   * range with.
+   *
+   * Otherwise: in reach (`focusInReach`, R-3/R-3b; a stopped unit stays in
+   * reach half a tile past the plain edge, R-22), it stops (`moving = 0`;
+   * stepBrace kneels it next tick). Out of reach, or lost, it walks to the
+   * side's last-seen position (R-14) -- the target itself while someone sees
+   * it, the memory when nobody does -- and waits on that tile. The field is
+   * asked for only when that goal TILE changes or the unit has none (T-D6):
+   * a chase costs one field per tile the target crosses, not one per tick.
+   *
+   * A chaser runs with `attackMove = 0`, which is the plain-move posture
+   * everywhere else: stepBrace keeps it on its feet (a halt-to-fire unit
+   * holds its fire until stopped), stepMovement's attack-move halt does not
+   * apply (this step is what stops it), and isEffectivelyMoving counts it as
+   * moving until it stops.
+   */
+  private stepFocus(): void {
+    const cap = this.capacity;
+    for (let i = 0; i < this.count; i++) {
+      const t = this.focusTarget[i];
+      if (t < 0) continue;
+      if (this.alive[i] === 0) {
+        // A dead unit's order dies with it. Nothing else in the tick reads
+        // it, but the state view would still show it.
+        this.focusTarget[i] = -1;
+        this.focusLost[i] = 0;
+        continue;
+      }
+      const sSide = this.side[i];
+      const k = sSide * cap + t;
+      let lost = false;
+      let ended = !this.focusStillTargetable(sSide, t);
+      if (!ended) {
+        if (this.contact[k] < IDENTIFIED_AT) {
+          lost = true;
+          const n = this.focusLost[i] + 1;
+          if (this.lastSeenValid[k] === 0 || n >= FOCUS_LOST_TICKS) ended = true;
+          else this.focusLost[i] = n;
+        } else {
+          this.focusLost[i] = 0;
+        }
+      }
+      if (ended) {
+        this.focusTarget[i] = -1;
+        this.focusLost[i] = 0;
+        this.attackMove[i] = 1;
+        this.sweepOrder[i] = 0;
+        this.moving[i] = 0;
+        this.fieldRef[i] = -1;
+        continue;
+      }
+      if (
+        this.garrisonedIn[i] >= 0 ||
+        this.carriedBy[i] >= 0 ||
+        this.tunnelIn[i] >= 0 ||
+        this.pinned[i] === 1 ||
+        this.routed[i] === 1 ||
+        this.mobilityKilled[i] === 1 ||
+        this.unitTypes[this.typeIdx[i]].stepPerTick === 0
+      ) {
+        continue;
+      }
+      if (this.firepowerKilled[i] === 1) {
+        // Its guns are gone: the order stands (the target may still die, or
+        // be lost, and hand it back), but it is not walked a step closer to
+        // an enemy it can no longer shoot. A chase this step started stops
+        // here -- left alone, the leg would carry it onto the target's last
+        // tile.
+        this.moving[i] = 0;
+        this.fieldRef[i] = -1;
+        continue;
+      }
+      // Not lost and in reach: stop, and stepBrace kneels it next tick.
+      if (!lost && this.focusInReach(i, t)) {
+        this.moving[i] = 0;
+        this.fieldRef[i] = -1;
+        continue;
+      }
+      // Otherwise walk to where the side last saw it (R-14). While the target
+      // is observed that IS its position, updated every tick in
+      // stepDetection; in the ~3.6 s an identified contact takes to decay
+      // unobserved, and while lost, it is the memory -- the chase never
+      // follows a position nobody on the side can see. Identified with no
+      // valid memory (a sweeper searched the spot): nothing to walk to this
+      // tick; the unit waits, and still shoots if combat can.
+      if (this.lastSeenValid[k] === 0) {
+        this.moving[i] = 0;
+        this.fieldRef[i] = -1;
+        continue;
+      }
+      const rawX = this.lastSeenX[k];
+      const rawY = this.lastSeenY[k];
+      const rtx = rawX >> 16;
+      const rty = rawY >> 16;
+      // The goal snapped to ground this unit's domain can stand on: a vehicle
+      // chasing a man into a boulder field drives to the edge of it, where a
+      // raw goal gives it a straight-line final leg into the wall. Kept to
+      // the exact point when its own tile is open, as `move` keeps the point
+      // clicked; the tile centre otherwise. Air flies over everything and is
+      // never snapped. Allocation-free (snapOpenTile), since it runs per tick.
+      const domain = this.domainOf(i);
+      let gx = rawX;
+      let gy = rawY;
+      let gtx = rtx;
+      let gty = rty;
+      if (!this.unitTypes[this.typeIdx[i]].isAir) {
+        this.snapOpenTile(rtx, rty, this.maskFor(domain));
+        if (this.snapX !== rtx || this.snapY !== rty) {
+          gtx = this.snapX;
+          gty = this.snapY;
+          gx = fx.add(fx.fromInt(gtx), HALF);
+          gy = fx.add(fx.fromInt(gty), HALF);
+        }
+      }
+      // Already standing on the goal tile: wait there (for the lost counter,
+      // or for the side to see the target again). Walking "to" the tile it
+      // is on would re-issue the leg every tick and stepMovement would end it
+      // every tick -- a halt-to-fire man dropping and rising on the spot.
+      if (this.posX[i] >> 16 === gtx && this.posY[i] >> 16 === gty) {
+        this.moving[i] = 0;
+        this.fieldRef[i] = -1;
+        continue;
+      }
+      const newTile = this.goalX[i] >> 16 !== gtx || this.goalY[i] >> 16 !== gty;
+      this.goalX[i] = gx;
+      this.goalY[i] = gy;
+      // T-D6: a field per goal TILE, not per tick.
+      if (newTile || this.fieldRef[i] < 0) this.fieldRef[i] = this.fieldFor(gtx, gty, domain);
+      this.moving[i] = 1;
+    }
+  }
+
+  /**
+   * Is focus `t` inside the reach `i` should stop at? Ruling R-3, as amended
+   * by R-3b. Inside the EFFECTIVE range of any slot that can fire on it now
+   * -- engageable (domain, maximum and minimum range, sight or an indirect
+   * class) and weaponHurts -- the same OR over slots the `engaging` latch
+   * takes: a gunship whose Hellfire already hurts a tank stops at Hellfire
+   * range, not chain-gun range. Selection still reaches to `rangeSq`; this is
+   * only where the unit stops walking.
+   *
+   * When NO slot can fire on it, the unit holds only if closing could not
+   * fix that: some slot able to aim at the target's domain is inside its
+   * effective (and maximum) range with a sight line, or is indirect, and so
+   * fails on penetration or minimum range alone -- a rifle at a tank's front,
+   * a mortar with the enemy on top of it. Any other blocker (out of every
+   * slot's range, no sight line, a domain only an out-of-range slot can
+   * reach) is fixed by walking, so it keeps closing. Nothing parks an
+   * ordered unit for good behind a wall.
+   *
+   * Hysteresis (R-22): a unit that has already stopped (`moving` 0) is judged
+   * against `effectiveRange + FOCUS_REACH_SLACK` in both places above, a unit
+   * still walking against the plain effective range. A target on the edge
+   * therefore cannot make a halted man kneel and rise by turns: he stops at
+   * the plain edge, and it takes the target a clear half tile further to
+   * stand him up. Stateless -- it reads `moving`, which stepFocus itself
+   * writes. Only this decision moves: maximum range (`rangeSq`), and with it
+   * what a slot may fire at, is untouched.
+   */
+  private focusInReach(i: number, t: number): boolean {
+    const weapons = this.unitTypes[this.typeIdx[i]].weapons;
+    if (weapons.length === 0) return true; // nothing to close with (canFocus refuses these)
+    const sSide = this.side[i];
+    const px = this.posX[i];
+    const py = this.posY[i];
+    const air = this.unitTypes[this.typeIdx[t]].isAir;
+    const dSq = distSqFx(fx.sub(this.posX[t], px), fx.sub(this.posY[t], py));
+    const stopped = this.moving[i] === 0;
+    let anyCan = false;
+    let hold = false;
+    let los = 0; // 0 not yet traced, 1 clear, -1 blocked
+    for (let s = 0; s < weapons.length && s < 2; s++) {
+      const w = weapons[s];
+      if (air ? !w.canTargetAir : !w.canTargetGround) continue;
+      // The squared range this unit stops at, from where it stands (R-22).
+      let reachSq = w.effectiveRangeSq;
+      if (stopped) {
+        const r = fx.add(w.effectiveRange, FOCUS_REACH_SLACK);
+        reachSq = fx.mul(r, r);
+      }
+      if (this.engageable(sSide, px, py, w, t) && this.weaponHurts(w, t, px, py)) {
+        anyCan = true;
+        if (dSq <= reachSq) return true;
+        continue;
+      }
+      if (hold || dSq > reachSq || dSq > w.rangeSq) continue;
+      if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
+        if (los === 0) los = this.losRay(px >> 16, py >> 16, this.posX[t] >> 16, this.posY[t] >> 16) < 0 ? -1 : 1;
+        if (los < 0) continue;
+      }
+      // Domain, range, sight (or indirect) all pass, and the target is
+      // identified and in the open (stepFocus got here): what refused it is
+      // weaponHurts or the minimum range. Walking will not change either.
+      hold = true;
+    }
+    return !anyCan && hold;
+  }
+
+  /**
    * Attack-move without a contact: advance on the last place an enemy was
    * seen rather than standing still. Without this a single hidden defender
    * ends the fight in a staring contest that runs out the mission clock —
@@ -5510,6 +5869,80 @@ export class Sim {
     const tileCover = this.cover[(ty >> 16) * this.width + (tx >> 16)];
     const parapet = this.parapetCover(tx, ty, this.posX[shooter], this.posY[shooter]);
     return parapet > tileCover ? parapet : tileCover;
+  }
+
+  /**
+   * May `shooter` be ordered to fire on `target`? The single filter the
+   * `attack` command uses, public so the app can ask the same question before
+   * it sends one (no second copy to drift). Geometry-free on purpose: no
+   * range, no sight, no penetration -- `weaponHurts` flips with the target's
+   * facing, so the sim does not refuse on it.
+   *
+   * False when the shooter is dead, routed, carried, unarmed or a kamikaze
+   * (R-25: `stepKamikaze` steers a loitering munition itself, rewriting its
+   * goal and `attackMove` every tick, so a focus could only fight it; the app
+   * sends it the attack-move it had before); when the
+   * target is dead, on the shooter's side, a civilian, or inside a building,
+   * a vehicle or the earth; when the shooter's side holds less than
+   * IDENTIFIED_AT confidence on it (the test `selectTarget` applies -- the
+   * latched contact STATE is a wider band and is not what refuses a shot);
+   * or when no weapon of the shooter's could ever be aimed at it.
+   */
+  canFocus(shooter: number, target: number): boolean {
+    if (shooter < 0 || shooter >= this.count || target < 0 || target >= this.count) return false;
+    if (this.alive[shooter] === 0 || this.routed[shooter] === 1 || this.carriedBy[shooter] >= 0) return false;
+    const sType = this.unitTypes[this.typeIdx[shooter]];
+    if (sType.weapons.length === 0 || sType.isKamikaze) return false;
+    const sSide = this.side[shooter];
+    if (sSide > 1) return false; // contact is kept for sides 0 and 1 only
+    if (!this.focusStillTargetable(sSide, target)) return false;
+    if (this.contact[sSide * this.capacity + target] < IDENTIFIED_AT) return false;
+    return this.couldEngage(shooter, target);
+  }
+
+  /**
+   * The target half of canFocus, without the identification clause: is
+   * `target` still something side `sSide` may hold a fire order on? False
+   * once it is dead, on that side or a civilian, or inside a building, a
+   * vehicle or the earth. canFocus asks it at order time and stepFocus every
+   * tick after (T-D3, T-D4), so the rule is written once; identification is
+   * left out because losing sight of a focus is not the end of it -- R-4's
+   * lost counter decides that. `target` must be a spawned id.
+   */
+  private focusStillTargetable(sSide: number, target: number): boolean {
+    if (this.alive[target] === 0 || this.side[target] === sSide || this.side[target] > 1) return false;
+    return this.garrisonedIn[target] < 0 && this.carriedBy[target] < 0 && this.tunnelIn[target] < 0;
+  }
+
+  /**
+   * Could any of `shooter`'s weapon slots (0..1) that can aim at `target`'s
+   * domain hurt it from where both stand now? Public and read-only (ruling
+   * R-8): the app asks it before sending `attack`, to refuse an order that
+   * nothing selected can penetrate. Range, sight and identification aside --
+   * it is `weaponHurts`, the rule selectTarget ranks by and the focus
+   * preference gates on, over the slots, and nothing else. False for an id
+   * out of range or an unarmed shooter. It changes as facings change. It
+   * does NOT check `alive` on either side: a dead id answers from where its
+   * body lies; ask canFocus for whether the order may be given at all.
+   *
+   * Safe to call between ticks: the only thing it writes is the scratch
+   * `presentedArc`, and that has one reader (resolveHit), which reads it on
+   * the line straight after its own `presentedArmor` call. Every
+   * presentedArmor call assigns it on every path, so no value written here
+   * can reach that read.
+   */
+  focusHurts(shooter: number, target: number): boolean {
+    if (shooter < 0 || shooter >= this.count || target < 0 || target >= this.count) return false;
+    const air = this.unitTypes[this.typeIdx[target]].isAir;
+    const weapons = this.unitTypes[this.typeIdx[shooter]].weapons;
+    const px = this.posX[shooter];
+    const py = this.posY[shooter];
+    for (let s = 0; s < weapons.length && s < 2; s++) {
+      const w = weapons[s];
+      if (air ? !w.canTargetAir : !w.canTargetGround) continue;
+      if (this.weaponHurts(w, target, px, py)) return true;
+    }
+    return false;
   }
 
   /** Could any of `i`'s weapons ever be aimed at `t`, range and sight aside?
@@ -5891,6 +6324,8 @@ export class Sim {
     h = hashArray(h, this.brace);
     h = hashArray(h, this.braceTicks);
     h = hashArray(h, this.braceClock);
+    h = hashArray(h, this.focusTarget);
+    h = hashArray(h, this.focusLost);
     return h >>> 0;
   }
 }

@@ -19,13 +19,18 @@ import { ORDER_SIGHT, type SightOrderId } from '../ui/order-sight';
  *  read "Engaging: Militia Cell". The sight it draws was always the
  *  attack-move graphic; the key `cursorKey()` reports, and the fire panel's
  *  footer line that reads it (`hud.fire.clickAdvances`), now say the same
- *  thing: advance there and engage. When the Stage 4 targeted-fire order
- *  (GH-420) lands, a real `attack` name comes back with it, for that order. */
+ *  thing: advance there and engage. The Stage 4 targeted-fire order (GH-420)
+ *  brought a real `attack` back, for that order and only that order: the
+ *  resolution contains an `attack` intent, i.e. the click will make at least
+ *  one selected unit fire on THIS enemy. A suspected contact, or an enemy
+ *  nobody selected can aim at, stays `advance`. `attack` is drawn by the
+ *  `advance` art (`CURSOR_ALIAS`): the lead's call was to reuse, not to draw. */
 export type CursorName =
   | 'default'
   | 'move'
   | 'moveOnly'
   | 'advance'
+  | 'attack'
   | 'blocked'
   | 'costly'
   | 'protected'
@@ -97,7 +102,9 @@ export interface CursorAnimation {
 
 /** Which approved G1 order sight each wired cursor name draws (Q2). `advance`
  *  is the attackMove sight -- a plain order over a hostile is an attack-move
- *  -- and the other four share their order's own id. `load`, `unload` and
+ *  -- and the other four share their order's own id. `attack` (GH-420) is not a
+ *  key of its own here: like `moveOnly` it is a `CURSOR_ALIAS` and is drawn by
+ *  `advance`'s rule, so the plugin's sight table stays the five drawn sights. `load`, `unload` and
  *  `halt` are drawn by the plugin but reach no cursor name: halt is instant,
  *  and load/unload come only from the keyboard path, whose result never
  *  reaches the hover ticker. */
@@ -188,6 +195,7 @@ export const ANIMATED_CURSORS: Readonly<Partial<Record<CursorName, CursorAnimati
   move: anim('move'),
   moveOnly: anim('move'),
   advance: anim('attackMove'),
+  attack: anim('attackMove'),
   sweep: anim('sweep'),
   strike: anim('strike'),
   smoke: anim('smoke'),
@@ -198,9 +206,15 @@ export const ANIMATED_CURSORS: Readonly<Partial<Record<CursorName, CursorAnimati
 /** Cursor names that are drawn by ANOTHER name's rule. The armed plain Move
  *  (`moveOnly`, L1 reopened) shows the approved move sight -- no new art was
  *  signed off for it -- but reads its own key, so a test, a tool or a player's
- *  bug report can tell "Move is armed" from "hovering open ground". The
- *  plugin answers both keys with one rule (`vite-plugin-cursors.ts`). */
-export const CURSOR_ALIAS: Readonly<{ moveOnly: 'move' }> = { moveOnly: 'move' };
+ *  bug report can tell "Move is armed" from "hovering open ground". The same
+ *  goes for `attack` (GH-420): it draws as `advance`, badges included
+ *  (`attack-soft` is `advance-soft`'s image), and reads its own key so a
+ *  targeted order is told from an attack-move to the tile. The plugin answers
+ *  both keys with one rule (`vite-plugin-cursors.ts`). */
+export const CURSOR_ALIAS: Readonly<{ moveOnly: 'move'; attack: 'advance' }> = {
+  moveOnly: 'move',
+  attack: 'advance',
+};
 
 export { SIGHT_OF };
 
@@ -222,6 +236,8 @@ export function winningVerb(res: Resolution, hints: CursorHints): CursorName | n
   const has = (kind: string): boolean => res.intents.some((i) => i.kind === kind);
   if (has('demolish')) return 'demolish';
   if (has('chargeTunnel')) return 'charge';
+  // GH-420: a targeted order names the cursor over an attack-move to the tile.
+  if (has('attack')) return 'attack';
   if (has('order') && hints.hostile) return 'advance';
   if (has('garrison')) return 'garrison';
   if (has('mount')) return 'mount';
@@ -256,8 +272,14 @@ export function cursorFor(res: Resolution, hints: CursorHints): CursorName {
   // held Alt to override it: `intents` is empty here too, but for a second,
   // distinct reason from "nothing selected" -- this rung must come before
   // the empty-intents rung below, or the refusal reads as "nothing selected"
-  // and the X never appears for the one case it exists to warn about.
+  // and the X never appears for the one case it exists to warn about. It is
+  // the protected-site rung ONLY: the other two refusals (`cantPenetrate`,
+  // `groundRefused`) have flags and cursors of their own.
   if (res.refused) return 'protected';
+  // GH-420 (R-17): the enemy the click picked cannot be hurt by anybody
+  // selected. The dim X, the same look as K-08 below -- `protected` is the
+  // protected-site cursor and would tell the player to hold Alt.
+  if (res.cantPenetrate) return 'blocked';
   // K-08: ground nobody selected can enter reads `blocked`, rock or map edge.
   if (res.groundRefused) return 'blocked';
   // Nothing selected means nothing will happen. Warning about rules of
@@ -280,8 +302,9 @@ export function cursorFor(res: Resolution, hints: CursorHints): CursorName {
   // costly and blocked below, which describe the target rather than the
   // order. The order-intent check is belt and braces: `winningVerb` names
   // `advance` only for an order, and the final fallback is reached with one.
-  const wholeOrderPinned = hints.pinned === true && res.intents.some((i) => i.kind === 'order');
-  if (verb === 'advance' && wholeOrderPinned) return 'pinned';
+  // A targeted order (GH-420) goes nowhere either when its shooters are pinned.
+  const wholeOrderPinned = hints.pinned === true && res.intents.some((i) => i.kind === 'order' || i.kind === 'attack');
+  if ((verb === 'advance' || verb === 'attack') && wholeOrderPinned) return 'pinned';
   if (verb) return verb;
   if (res.roe === 'costly') return 'costly';
   if (hints.blocked) return 'blocked';
@@ -301,6 +324,7 @@ export function idsOf(intent: PlayerIntent): number[] {
   switch (intent.kind) {
     case 'select':
     case 'order':
+    case 'attack':
     case 'garrison':
     case 'demolish':
     case 'chargeTunnel':
@@ -334,6 +358,8 @@ function intentVerb(intent: PlayerIntent, hints: CursorHints): CursorName | null
       return 'charge';
     case 'order':
       return hints.hostile ? 'advance' : 'move';
+    case 'attack':
+      return 'attack';
     case 'garrison':
       return 'garrison';
     case 'mount':

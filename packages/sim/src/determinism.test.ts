@@ -480,7 +480,12 @@ describe('determinism (1000-tick replay)', () => {
     // 2026-10-13: SUPP_STAT_DIVISOR 700 -> 730 (lead ruling, the max-tier
     // smoke step): every weapon's suppression per near miss is 700/730 of
     // what it was. At 700 this replay reads 562186734 exactly. Was 562186734.
-    expect(a.hash()).toBe(916087385);
+    //
+    // 2026-10-14: Targeted fire (GH-420, lead 6 Oct): two per-unit columns,
+    // focusTarget and focusLost, join the hash. No behaviour moved: with their
+    // hashArray lines removed, all three replays (flat, relief, orders)
+    // reproduce the old value exactly. Was 916087385.
+    expect(a.hash()).toBe(4215479769);
   });
 
   it('the replay actually exercises halt to fire', () => {
@@ -641,6 +646,22 @@ describe('determinism (1000-tick replay)', () => {
     const sim = run(0x1310_0001, 20);
     const before = sim.hash();
     sim.state.suppFromSet[0] ^= 1;
+    expect(sim.hash()).not.toBe(before);
+  });
+
+  // GH-420: hash() folds the two targeted-fire columns. Same shape as the
+  // suppFrom tests: flip one element through the state view.
+  it('hash covers focusTarget', () => {
+    const sim = run(0x4200_0001, 20);
+    const before = sim.hash();
+    sim.state.focusTarget[0] += 1;
+    expect(sim.hash()).not.toBe(before);
+  });
+
+  it('hash covers focusLost', () => {
+    const sim = run(0x4200_0001, 20);
+    const before = sim.hash();
+    sim.state.focusLost[0] += 1;
     expect(sim.hash()).not.toBe(before);
   });
 
@@ -828,7 +849,12 @@ describe('determinism over relief (900-tick replay round a hill)', () => {
     //
     // 2026-10-13: SUPP_STAT_DIVISOR 700 -> 730, as at the flat pin; at 700
     // this replay reads 4031491985 exactly. Was 4031491985.
-    expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(373999871);
+    //
+    // 2026-10-14: Targeted fire (GH-420, lead 6 Oct): two per-unit columns,
+    // focusTarget and focusLost, join the hash. No behaviour moved: with their
+    // hashArray lines removed, all three replays (flat, relief, orders)
+    // reproduce the old value exactly. Was 373999871.
+    expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(2842924511);
   });
 
   it('the relief changes the route, not merely the hash', () => {
@@ -943,6 +969,11 @@ describe('determinism of an order once it is done (900-tick replay)', () => {
     // their hashArray lines removed, this replay reproduces the old value
     // exactly. It has 0 golden routs, so it cannot see the rout rule at all;
     // it moved for the columns alone. Was 2737216487.
-    expect(orders(ORDERS_SEED).sim.hash()).toBe(1736634855);
+    //
+    // 2026-10-14: Targeted fire (GH-420, lead 6 Oct): two per-unit columns,
+    // focusTarget and focusLost, join the hash. No behaviour moved: with their
+    // hashArray lines removed, all three replays (flat, relief, orders)
+    // reproduce the old value exactly. Was 1736634855.
+    expect(orders(ORDERS_SEED).sim.hash()).toBe(3272041047);
   });
 });

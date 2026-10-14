@@ -77,11 +77,17 @@
     {
       "id": "identify_then_shoot",
       "title": "Identify, then shoot",
-      "teach": "A squad on the move shoots badly, and nobody can shoot what is only suspected. Press H so your squad stands still, hold the cursor over an enemy until the panel gives odds, and let them take the shot.",
+      "teach": "A squad on the move shoots badly, and nobody can shoot what is only suspected. Hold the cursor over an enemy until the panel gives odds, then right-click it: your squad closes to range, stops and fires. Or press H to stand them still.",
       "await": {
         "kind": "all_of",
         "of": [
-          { "kind": "intent", "intent": "halt" },
+          {
+            "kind": "any_of",
+            "of": [
+              { "kind": "intent", "intent": "attack" },
+              { "kind": "intent", "intent": "halt" }
+            ]
+          },
           {
             "kind": "any_of",
             "of": [
@@ -95,7 +101,7 @@
       },
       "focus": { "kind": "none" },
       "nudge_after_s": 20,
-      "nudge": "Select the squad and press H. Then hold the cursor over an enemy: once the panel shows odds, your squad fires on its own."
+      "nudge": "Select the squad. Hold the cursor over an enemy until the panel shows odds, then right-click it: they close in, stop and fire. H stands them still."
     },
     {
       "id": "use_the_ground",
@@ -127,7 +133,7 @@
     {
       "id": "what_a_shot_costs",
       "title": "What a shot costs",
-      "teach": "The mortar fires at the nearest enemy it knows of, and you pay for where the round lands. Select it and press H so it fires from the road, then watch the invoice. Under the mission floor you lose.",
+      "teach": "The mortar fires at the nearest enemy it knows of, or the one you right-click, and you pay for where the round lands. Select it and press H so it fires from the road, then watch the invoice. Under the mission floor you lose.",
       "reveal": ["conduct"],
       "await": {
         "kind": "all_of",
@@ -136,7 +142,8 @@
             "kind": "any_of",
             "of": [
               { "kind": "intent", "intent": "halt" },
-              { "kind": "intent", "intent": "order" }
+              { "kind": "intent", "intent": "order" },
+              { "kind": "intent", "intent": "attack" }
             ]
           },
           { "kind": "mission", "event": "roe" },

@@ -44,6 +44,12 @@ export function validateCommand(cmd: Command, seat: Seat, world: SeatWorld): boo
       return cmd.ids.length > 0 && cmd.ids.every(own) && world.tunnelExists(cmd.tunnel);
     case 'load':
       return cmd.ids.length > 0 && cmd.ids.every(own) && own(cmd.carrier);
+    case 'attack': {
+      // The target must exist and be the OTHER side's: an order to fire on
+      // your own unit, or on an id that is nothing, vanishes on both machines.
+      const theirs = world.sideOfEntity(cmd.target);
+      return cmd.ids.length > 0 && cmd.ids.every(own) && theirs !== undefined && theirs !== side;
+    }
     case 'callStrike':
       return !world.versus && own(cmd.caller) && onMap(cmd.x, cmd.y);
     case 'reveal':

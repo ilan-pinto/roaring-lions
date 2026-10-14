@@ -22,6 +22,10 @@ export interface CommandSink {
 export type PlayerIntent =
   | { kind: 'select'; ids: number[]; via: 'click' | 'box' | 'group' }
   | { kind: 'order'; verb: 'move' | 'attackMove'; ids: number[]; x: number; y: number; append: boolean }
+  /** Targeted fire (GH-420): these units shoot THIS unit when they can, and
+   *  close on it until they can. Only the right-click on an identified enemy
+   *  makes one; the sim queues the `attack` command it names. */
+  | { kind: 'attack'; ids: number[]; target: number }
   | { kind: 'garrison'; ids: number[]; structure: number }
   | { kind: 'demolish'; ids: number[]; structure: number }
   | { kind: 'chargeTunnel'; ids: number[]; tunnel: number }
@@ -36,7 +40,7 @@ export type PlayerIntent =
 /** Every kind in the union. Kept as a value so data can be validated against
  *  it — a `type` alone cannot be iterated at runtime. */
 export const INTENT_KINDS = [
-  'select', 'order', 'garrison', 'demolish', 'chargeTunnel', 'mount', 'dismount',
+  'select', 'order', 'attack', 'garrison', 'demolish', 'chargeTunnel', 'mount', 'dismount',
   'smoke', 'halt', 'group', 'overlay', 'support',
 ] as const satisfies readonly PlayerIntent['kind'][];
 
@@ -81,6 +85,9 @@ export function applyIntent(sink: CommandSink, intent: PlayerIntent, map: MapSiz
         y: clampToMap(fx.from(intent.y), map.height),
         append: intent.append,
       });
+      return;
+    case 'attack':
+      sink.queueCommand({ kind: 'attack', ids: intent.ids, target: intent.target });
       return;
     case 'garrison':
       sink.queueCommand({ kind: 'garrison', ids: intent.ids, structure: intent.structure });
@@ -200,6 +207,17 @@ export interface IntentWorld {
   /** True for a unit that is not held to the ground (a drone), which a move
    *  order over a rock is still a good order for. */
   flies(id: number): boolean;
+  /** GH-420: may `id` be ordered to fire on `target` at all? The sim's own
+   *  `canFocus` -- target identified, hostile, reachable by some slot's
+   *  domain. Geometry-free. */
+  canFocus(id: number, target: number): boolean;
+  /** GH-420: could `id`, standing where it is now, hurt `target` (the sim's
+   *  `focusHurts`)? Facing-dependent, true for soft targets. */
+  focusHurts(id: number, target: number): boolean;
+  /** True for a unit inside a building. A click on an enemy never sends one
+   *  out (R-20): the sim's order branches all call `leaveStructure`, so an
+   *  attack-move would empty the building. The test `haltTargets` takes. */
+  garrisoned(id: number): boolean;
 }
 
 export type GroundState = 'open' | 'blocked' | 'offmap';
@@ -225,6 +243,25 @@ export interface PointerContext {
    *  raises the tier without refusing the order. Required rather than
    *  optional so typecheck names every call site when it changes. */
   confirm: boolean;
+  /**
+   * The enemy unit under the pointer (`Renderer.unitAtScreen` at the order
+   * radius, R-23, filtered to a living, visible, hostile-side unit by
+   * `pointerPoint`), or -1 / absent.
+   * It reaches the resolver so the hover cursor, the fire panel and the click
+   * all name ONE unit (GH-420, R-13). Optional because most callers (a
+   * minimap click, an armed support call) point at ground, never a body.
+   */
+  hostile?: number;
+  /**
+   * Where that enemy stands. Only the hostile rung reads it, and only once it
+   * resolves a focus: the T-D7 remainder's attack-move and the order marker go
+   * to the target's own tile (R-18). `x`/`y` stay the click's own point (the
+   * ground, or the building whose wall it shows, R-24), so an enemy that is
+   * picked but cannot be focused leaves every other rung (structure, tunnel,
+   * protected zone) exactly as it was without the pick.
+   * Absent: the rung falls back to `x`/`y`.
+   */
+  hostileAt?: { x: number; y: number };
 }
 
 /** Everything the click does, as data: the intents to dispatch in order, the
@@ -246,10 +283,13 @@ export interface Resolution {
   armed?: 'strike' | 'sweep';
   /**
    * Set when a protected structure gated part of the selection's click and
-   * the player did not hold Alt to override it -- i.e. `suppressed` below.
-   * `intents` alone cannot carry this: an empty `intents` array already means
-   * "nothing selected" (the `ids.length === 0` branch above), so the cursor
-   * needs an explicit signal to tell "nothing to do" apart from "refused."
+   * the player did not hold Alt to override it -- i.e. `suppressed` below --
+   * and ONLY then: it draws the `protected` cursor ("protected site, hold
+   * Alt"). `intents` alone cannot carry this: an empty `intents` array already
+   * means "nothing selected" (the `ids.length === 0` branch above), so the
+   * cursor needs an explicit signal to tell "nothing to do" apart from
+   * "refused." The other two refusals have flags of their own, because each
+   * draws a different cursor: `groundRefused` and `cantPenetrate`.
    */
   refused?: boolean;
   /**
@@ -259,6 +299,20 @@ export interface Resolution {
    * is the protected-site rung and draws the other cursor.
    */
   groundRefused?: 'blocked' | 'offmap';
+  /**
+   * GH-420 (R-1, R-17): the click picked an enemy somebody selected can aim at
+   * and NOBODY can hurt from where they stand. No intent, no marker, a short
+   * note, the deny cue (`orderDenied`: units were selected and no intent came
+   * of it) and the `blocked` cursor (`cursorFor`) -- the same dim X as K-08,
+   * not `protected`, which means a protected site.
+   */
+  cantPenetrate?: boolean;
+  /**
+   * Where the order's marker goes, when that is not the click's ground point:
+   * the target's own tile, set only when the hostile rung resolved a focus
+   * (R-18). `issueOrder` reads it.
+   */
+  at?: { x: number; y: number };
 }
 
 /**
@@ -269,8 +323,9 @@ export interface Resolution {
  * draws it. Written as two code paths they would drift, and the failure mode
  * is a cursor that confidently promises an order the click does not issue.
  *
- * Order matters and is preserved: structure, then identified tunnel, then
- * ordinary attack-move. A structure wins a tile it shares with a tunnel
+ * Order matters and is preserved: an enemy body the player picked (GH-420,
+ * `ctx.hostile`), then structure, then identified tunnel, then ordinary
+ * attack-move. A structure wins a tile it shares with a tunnel
  * because the structure branch returns first. An armed support call outranks
  * all of it — checked before the empty-selection and structure branches, so
  * that a click over a building or with nothing selected still reports the
@@ -281,6 +336,15 @@ export function resolvePointer(world: IntentWorld, ctx: PointerContext): Resolut
   const roe = roeTierAt(world, x, y);
   if (armed) return { intents: [], roe, marker: false, armed };
   if (ids.length === 0) return { intents: [], roe, marker: false };
+
+  // GH-420: a body-picked enemy is the player's explicit target, so this rung
+  // sits ABOVE the structure and ground rungs (R-12): an enemy in a doorway or
+  // on a boulder tile is still shootable.
+  const target = ctx.hostile ?? -1;
+  if (target >= 0 && !append) {
+    const focused = resolveFocus(world, ids, target, ctx.hostileAt ?? { x, y });
+    if (focused) return focused;
+  }
 
   const struct = world.structureAt(x, y);
   if (struct >= 0) {
@@ -357,11 +421,76 @@ export function resolvePointer(world: IntentWorld, ctx: PointerContext): Resolut
     // Nobody can charge: fall through to the ordinary order, as main.ts does.
   }
 
+  // The ordinary attack-move. When it came from a click on a picked enemy
+  // (a suspected contact, or one nobody selected can aim at), a garrisoned
+  // unit keeps its post (R-20): ONE note says so, and if nobody is left the
+  // click comes to nothing and `orderDenied` plays the deny cue.
+  const movers = target >= 0 ? haltTargets(ids, (i) => world.garrisoned(i)) : ids;
+  const held = movers.length < ids.length;
   return {
-    intents: [{ kind: 'order', verb: 'attackMove', ids, x, y, append }],
+    intents: movers.length > 0 ? [{ kind: 'order', verb: 'attackMove', ids: movers, x, y, append }] : [],
     roe,
-    marker: true,
+    marker: movers.length > 0,
+    ...(held ? { note: { text: t('intent.garrisonHolds'), tone: 'mute' as const } } : {}),
   };
+}
+
+/**
+ * The hostile rung of `resolvePointer` (GH-420): fire on THIS unit.
+ *
+ * Per selected unit, three outcomes. It can focus the target and could hurt it
+ * from where it stands: it gets the `attack`. It can focus it but would only
+ * bounce off (facing-dependent): it is not walked into an armoured target's
+ * guns on a click, it gets today's attack-move to the target's tile (T-D7).
+ * It cannot aim at the target's domain at all (rifles at a helicopter): the
+ * same attack-move. Both groups come back in one resolution.
+ *
+ * Two edges. NOBODY can focus the target (a suspected contact the side cannot
+ * yet shoot, or only the wrong weapons): null, so the caller falls through to
+ * the ordinary attack-move, which is what the fire panel's footer already
+ * promises. And somebody can focus it but NOBODY can hurt it (R-1): the click
+ * is refused outright (`cantPenetrate`) with a reason, the deny cue and the
+ * `blocked` cursor (R-17), rather than sending a squad to plink at a tank.
+ *
+ * `at` is the target's own position (R-18): the remainder's attack-move and
+ * the order marker go there, and only when a focus resolves. The ROE tier is
+ * read there too (M-1): once the rung answers, the order is about the target,
+ * so a target inside a flagged zone reads `protected` however far outside it
+ * the click's ground point landed, and one outside a zone does not borrow the
+ * tier of the ground the click happened to meet.
+ *
+ * Shift never reaches here (T-D9): a queued click keeps its appended
+ * attack-move.
+ */
+function resolveFocus(
+  world: IntentWorld,
+  ids: number[],
+  target: number,
+  at: { x: number; y: number }
+): Resolution | null {
+  const able = ids.filter((i) => world.canFocus(i, target));
+  if (able.length === 0) return null;
+  const roe = roeTierAt(world, at.x, at.y);
+  const firing = able.filter((i) => world.focusHurts(i, target));
+  if (firing.length === 0) {
+    return {
+      intents: [],
+      roe,
+      marker: false,
+      cantPenetrate: true,
+      note: { text: t('intent.cantPenetrate'), tone: 'mute' },
+    };
+  }
+  const firingSet = new Set(firing);
+  // The rest advance to the target's tile -- except those inside a building,
+  // which keep their post silently (R-20: the order would empty it).
+  const rest = haltTargets(
+    ids.filter((i) => !firingSet.has(i)),
+    (i) => world.garrisoned(i)
+  );
+  const intents: PlayerIntent[] = [{ kind: 'attack', ids: firing, target }];
+  if (rest.length > 0) intents.push({ kind: 'order', verb: 'attackMove', ids: rest, x: at.x, y: at.y, append: false });
+  return { intents, roe, marker: true, at };
 }
 
 /**
@@ -556,7 +685,7 @@ export function issueOrder(
   ids: number[],
   x: number,
   y: number,
-  mods: { append: boolean; confirm: boolean }
+  mods: { append: boolean; confirm: boolean; hostile?: number; hostileAt?: { x: number; y: number } }
 ): Resolution {
   const res = resolvePointer(world, {
     ids,
@@ -565,10 +694,12 @@ export function issueOrder(
     append: mods.append,
     armed: null,
     confirm: mods.confirm,
+    ...(mods.hostile !== undefined ? { hostile: mods.hostile } : {}),
+    ...(mods.hostileAt !== undefined ? { hostileAt: mods.hostileAt } : {}),
   });
   for (const intent of res.intents) sink.dispatch(intent);
   if (res.note) sink.note(res.note.text, res.note.tone);
-  if (res.marker) sink.marker(x, y);
+  if (res.marker) sink.marker(res.at?.x ?? x, res.at?.y ?? y);
   if (orderDenied(res, ids.length)) sink.deny();
   return res;
 }

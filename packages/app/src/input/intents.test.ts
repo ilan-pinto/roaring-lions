@@ -5,6 +5,7 @@ import {
   applyIntent,
   issueOrder,
   orderDenied,
+  resolvePointer,
   sortMount,
   sortStructureOrder,
   INTENT_KINDS,
@@ -95,7 +96,7 @@ describe('INTENT_KINDS', () => {
     // Task 5's step cross-check validates tutorial JSON against this list, so
     // a kind missing here becomes a step nobody can complete.
     const kinds: PlayerIntent['kind'][] = [
-      'select', 'order', 'garrison', 'demolish', 'chargeTunnel', 'mount', 'dismount',
+      'select', 'order', 'attack', 'garrison', 'demolish', 'chargeTunnel', 'mount', 'dismount',
       'smoke', 'halt', 'group', 'overlay', 'support',
     ];
     expect([...INTENT_KINDS].sort()).toEqual([...kinds].sort());
@@ -186,6 +187,9 @@ function world(over: Partial<IntentWorld> = {}): IntentWorld {
     inFlaggedZone: () => false,
     groundAt: () => 'open',
     flies: () => false,
+    canFocus: () => false,
+    focusHurts: () => false,
+    garrisoned: () => false,
     ...over,
   };
 }
@@ -348,6 +352,267 @@ describe('K-08: a click on ground nobody can enter', () => {
     const s = orderSink();
     issueOrder(world({ groundAt: () => 'blocked', structureAt: () => 7 }), s, [1], 4.5, 6.5, { append: false, confirm: false });
     expect(s.log.map((e) => e.did)).toEqual(['dispatch', 'marker']);
+  });
+});
+
+describe('applyIntent: attack (GH-420)', () => {
+  it('queues the sim attack command with the ids and the target, untouched', () => {
+    const s = sink();
+    applyIntent(s, { kind: 'attack', ids: [3, 4], target: 9 }, MAP);
+    expect(s.out).toEqual([{ kind: 'attack', ids: [3, 4], target: 9 }]);
+  });
+});
+
+// GH-420 Task 3: the hostile rung. Ids 1 and 2 are a rifle squad, id 3 an AA
+// team, id 4 a tank; the target is id 9. Each case builds the world it needs,
+// so "can focus" and "can hurt" are declared per unit, never assumed.
+describe('resolvePointer: the hostile rung (GH-420)', () => {
+  const ctx = (ids: number[], over: Partial<Parameters<typeof resolvePointer>[1]> = {}) => ({
+    ids,
+    x: 12.5,
+    y: 7.5,
+    append: false,
+    armed: null,
+    confirm: false,
+    hostile: 9,
+    ...over,
+  });
+  const everyoneHurts = world({ canFocus: () => true, focusHurts: () => true });
+
+  it('an identified enemy everybody can hurt: one attack naming it, no attack-move', () => {
+    const r = resolvePointer(everyoneHurts, ctx([1, 2]));
+    expect(r.intents).toEqual([{ kind: 'attack', ids: [1, 2], target: 9 }]);
+    expect(r.marker).toBe(true);
+    expect(r.refused).toBeUndefined();
+  });
+
+  it('T-D7: a rifle squad and an AA team on a helicopter: the AA fires, the rifles advance to its tile', () => {
+    // Rifles cannot aim at the air at all; the AA team can, and can hurt it.
+    const w = world({ canFocus: (i) => i === 3, focusHurts: (i) => i === 3 });
+    const r = resolvePointer(w, ctx([1, 2, 3]));
+    expect(r.intents).toEqual([
+      { kind: 'attack', ids: [3], target: 9 },
+      { kind: 'order', verb: 'attackMove', ids: [1, 2], x: 12.5, y: 7.5, append: false },
+    ]);
+    expect(r.marker).toBe(true);
+    expect(r.refused).toBeUndefined();
+  });
+
+  it('T-D7: a unit that can focus but would only bounce advances while the hurting one fires', () => {
+    const w = world({ canFocus: () => true, focusHurts: (i) => i === 4 });
+    const r = resolvePointer(w, ctx([1, 4]));
+    expect(r.intents).toEqual([
+      { kind: 'attack', ids: [4], target: 9 },
+      { kind: 'order', verb: 'attackMove', ids: [1], x: 12.5, y: 7.5, append: false },
+    ]);
+  });
+
+  it('nobody can focus it (a suspected contact): today\'s attack-move for the whole selection', () => {
+    const w = world({ canFocus: () => false, focusHurts: () => true });
+    const r = resolvePointer(w, ctx([1, 2, 3]));
+    expect(r.intents).toEqual([{ kind: 'order', verb: 'attackMove', ids: [1, 2, 3], x: 12.5, y: 7.5, append: false }]);
+    expect(r.refused).toBeUndefined();
+  });
+
+  it('R-1: somebody can aim at it and nobody can hurt it: refused, no intents, a reason, and a denial', () => {
+    const w = world({ canFocus: () => true, focusHurts: () => false });
+    const r = resolvePointer(w, ctx([1, 2]));
+    expect(r.intents).toEqual([]);
+    // Its own flag (R-17): `refused` is the protected-site refusal and draws
+    // another cursor. The deny cue needs no flag -- units were selected and no
+    // intent came of it.
+    expect(r.cantPenetrate).toBe(true);
+    expect(r.refused).toBeUndefined();
+    expect(r.marker).toBe(false);
+    expect(r.note).toEqual({ text: "Can't penetrate: nothing selected can hurt that armour", tone: 'mute' });
+    expect(orderDenied(r, 2)).toBe(true);
+    // Through the one carrying-out: the note, then the deny cue, no marker.
+    const s = orderSink();
+    issueOrder(w, s, [1, 2], 12.5, 7.5, { append: false, confirm: false, hostile: 9 });
+    expect(s.log).toEqual([
+      { did: 'note', text: "Can't penetrate: nothing selected can hurt that armour", tone: 'mute' },
+      { did: 'deny' },
+    ]);
+  });
+
+  it('R-1: a wrong-domain unit beside one that can aim but not hurt does not rescue the click', () => {
+    // Rifles (1) cannot aim at the helicopter, the AA team (3) can but cannot
+    // hurt it: somebody can focus and nobody can hurt, so it is refused.
+    const w = world({ canFocus: (i) => i === 3, focusHurts: () => false });
+    expect(resolvePointer(w, ctx([1, 3])).cantPenetrate).toBe(true);
+  });
+
+  // R-20: a click on an enemy never empties a building. Ids 1 and 2 are
+  // infantry squads, 3 an AT team; `held` names who is inside a building.
+  describe('R-20: garrisoned units keep their post', () => {
+    const held = (...ids: number[]) => (i: number) => ids.includes(i);
+
+    it('a garrisoned squad and a garrisoned AT team on a tank: one attack for the AT team, the squad in no intent', () => {
+      const w = world({ canFocus: () => true, focusHurts: (i) => i === 3, garrisoned: held(1, 3) });
+      const r = resolvePointer(w, ctx([1, 3]));
+      expect(r.intents).toEqual([{ kind: 'attack', ids: [3], target: 9 }]);
+      expect(JSON.stringify(r.intents)).not.toMatch(/"ids":\[[^\]]*\b1\b/);
+      expect(r.note).toBeUndefined(); // the remainder stays silent
+    });
+
+    it('a free squad that cannot hurt it still advances beside the garrisoned one that stays', () => {
+      const w = world({ canFocus: () => true, focusHurts: (i) => i === 3, garrisoned: held(1) });
+      const r = resolvePointer(w, ctx([1, 2, 3]));
+      expect(r.intents).toEqual([
+        { kind: 'attack', ids: [3], target: 9 },
+        { kind: 'order', verb: 'attackMove', ids: [2], x: 12.5, y: 7.5, append: false },
+      ]);
+    });
+
+    it('a garrisoned squad and a free squad on an unidentified enemy: the free one advances, one note', () => {
+      const w = world({ canFocus: () => false, garrisoned: held(1) });
+      const r = resolvePointer(w, ctx([1, 2]));
+      expect(r.intents).toEqual([{ kind: 'order', verb: 'attackMove', ids: [2], x: 12.5, y: 7.5, append: false }]);
+      expect(r.marker).toBe(true);
+      expect(r.note).toEqual({ text: 'Garrisoned units keep their post', tone: 'mute' });
+      const s = orderSink();
+      issueOrder(w, s, [1, 2], 12.5, 7.5, { append: false, confirm: false, hostile: 9 });
+      expect(s.log.filter((e) => e.did === 'note')).toHaveLength(1);
+      expect(s.log.some((e) => e.did === 'deny')).toBe(false);
+    });
+
+    it('an identified enemy nobody selected can aim at takes the same path', () => {
+      const w = world({ canFocus: () => false, focusHurts: () => true, garrisoned: held(1, 2) });
+      const r = resolvePointer(w, ctx([1, 2, 3]));
+      expect(r.intents).toEqual([{ kind: 'order', verb: 'attackMove', ids: [3], x: 12.5, y: 7.5, append: false }]);
+    });
+
+    it('an all-garrisoned selection on an unidentified enemy: no intents, the note, and the click is denied', () => {
+      const w = world({ canFocus: () => false, garrisoned: held(1, 2) });
+      const r = resolvePointer(w, ctx([1, 2]));
+      expect(r.intents).toEqual([]);
+      expect(r.marker).toBe(false);
+      expect(r.note?.text).toBe('Garrisoned units keep their post');
+      expect(orderDenied(r, 2)).toBe(true);
+      const s = orderSink();
+      issueOrder(w, s, [1, 2], 12.5, 7.5, { append: false, confirm: false, hostile: 9 });
+      expect(s.log).toEqual([
+        { did: 'note', text: 'Garrisoned units keep their post', tone: 'mute' },
+        { did: 'deny' },
+      ]);
+    });
+
+    it('Shift (the appended attack-move) on a picked enemy keeps the post too', () => {
+      const w = world({ canFocus: () => true, focusHurts: () => true, garrisoned: held(1) });
+      const r = resolvePointer(w, ctx([1, 2], { append: true }));
+      expect(r.intents).toEqual([{ kind: 'order', verb: 'attackMove', ids: [2], x: 12.5, y: 7.5, append: true }]);
+      // And says so, once, as the unqueued click does.
+      expect(r.note).toEqual({ text: 'Garrisoned units keep their post', tone: 'mute' });
+    });
+
+    it('a click on plain ground with no picked enemy is unchanged: the garrisoned unit is still ordered', () => {
+      const w = world({ garrisoned: held(1) });
+      const r = resolvePointer(w, ctx([1, 2], { hostile: -1 }));
+      expect(r.intents).toEqual([{ kind: 'order', verb: 'attackMove', ids: [1, 2], x: 12.5, y: 7.5, append: false }]);
+      expect(r.note).toBeUndefined();
+    });
+  });
+
+  it('R-18: the remainder\'s attack-move and the marker go to the target\'s tile, not the click\'s ground point', () => {
+    const w = world({ canFocus: (i) => i === 3, focusHurts: (i) => i === 3 });
+    const at = { x: 13.5, y: 8.5 };
+    const r = resolvePointer(w, ctx([1, 3], { hostileAt: at }));
+    expect(r.intents).toEqual([
+      { kind: 'attack', ids: [3], target: 9 },
+      { kind: 'order', verb: 'attackMove', ids: [1], x: 13.5, y: 8.5, append: false },
+    ]);
+    expect(r.at).toEqual(at);
+    const s = orderSink();
+    issueOrder(w, s, [1, 3], 12.5, 7.5, { append: false, confirm: false, hostile: 9, hostileAt: at });
+    expect(s.log.find((e) => e.did === 'marker')).toEqual({ did: 'marker', x: 13.5, y: 8.5 });
+  });
+
+  it('R-18: an enemy picked but not focusable leaves the structure, tunnel and ground rungs exactly as without the pick', () => {
+    // Nobody can focus it (a suspected contact). Its position is on the far
+    // side of the map from the click; none of the other rungs may notice it.
+    const far = { x: 40.5, y: 3.5 };
+    const rungs: Partial<IntentWorld>[] = [
+      { structureAt: () => 7, canGarrison: () => true, garrisonFree: () => 4 },
+      { tunnelAt: () => 2, canTunnelCharge: () => true },
+      { groundAt: () => 'blocked' },
+      { structureAt: () => 7, isProtected: () => true, structureRoePenalty: () => 5 },
+    ];
+    for (const over of rungs) {
+      const w = world({ canFocus: () => false, focusHurts: () => true, ...over });
+      const picked = resolvePointer(w, ctx([1, 2], { hostileAt: far }));
+      const unpicked = resolvePointer(w, ctx([1, 2], { hostile: -1 }));
+      expect(picked).toEqual(unpicked);
+      expect(picked.at).toBeUndefined();
+    }
+  });
+
+  // M-1: once the rung resolves, the order is about the target, so its ROE
+  // tier is read where the target stands, not where the click met the ground
+  // (with the body pick that can be most of a tile apart). The zone is one
+  // tile, so exactly one of the two points is inside it.
+  describe('M-1: a focused order reads the ROE tier at the target', () => {
+    const clickAt = { x: 12.5, y: 7.5 };
+    const targetAt = { x: 13.5, y: 8.5 };
+    const zoneOn = (p: { x: number; y: number }) => (x: number, y: number) =>
+      Math.floor(x) === Math.floor(p.x) && Math.floor(y) === Math.floor(p.y);
+
+    it('a target inside a flagged zone, clicked from outside it, reads protected', () => {
+      const w = world({ canFocus: () => true, focusHurts: () => true, inFlaggedZone: zoneOn(targetAt) });
+      const r = resolvePointer(w, ctx([1, 2], { ...clickAt, hostileAt: targetAt }));
+      expect(r.intents).toEqual([{ kind: 'attack', ids: [1, 2], target: 9 }]);
+      expect(r.roe).toBe('protected');
+    });
+
+    it('a target outside the zone, clicked from inside it, does not', () => {
+      const w = world({ canFocus: () => true, focusHurts: () => true, inFlaggedZone: zoneOn(clickAt) });
+      const r = resolvePointer(w, ctx([1, 2], { ...clickAt, hostileAt: targetAt }));
+      expect(r.intents).toEqual([{ kind: 'attack', ids: [1, 2], target: 9 }]);
+      expect(r.roe).toBe('free');
+      // The same click with no focus resolved is still the ground's to judge.
+      const ground = resolvePointer(world({ inFlaggedZone: zoneOn(clickAt) }), ctx([1, 2], { ...clickAt, hostileAt: targetAt }));
+      expect(ground.roe).toBe('protected');
+    });
+  });
+
+  it('T-D9: Shift keeps today\'s appended attack-move, no attack', () => {
+    const r = resolvePointer(everyoneHurts, ctx([1, 2], { append: true }));
+    expect(r.intents).toEqual([{ kind: 'order', verb: 'attackMove', ids: [1, 2], x: 12.5, y: 7.5, append: true }]);
+  });
+
+  it('R-12: it outranks the structure rung and the ground refusal', () => {
+    const onBuilding = world({ canFocus: () => true, focusHurts: () => true, structureAt: () => 7, groundAt: () => 'blocked' });
+    const r = resolvePointer(onBuilding, ctx([1, 2]));
+    expect(r.intents).toEqual([{ kind: 'attack', ids: [1, 2], target: 9 }]);
+    expect(r.groundRefused).toBeUndefined();
+    // And the same enemy click with no body picked is the structure rung as before.
+    expect(resolvePointer(onBuilding, ctx([1, 2], { hostile: -1 })).intents).toEqual([
+      { kind: 'order', verb: 'attackMove', ids: [1, 2], x: 12.5, y: 7.5, append: false },
+    ]);
+  });
+
+  it('an armed support call and an empty selection still come first', () => {
+    expect(resolvePointer(everyoneHurts, ctx([1], { armed: 'strike' })).intents).toEqual([]);
+    expect(resolvePointer(everyoneHurts, ctx([1], { armed: 'strike' })).armed).toBe('strike');
+    expect(resolvePointer(everyoneHurts, ctx([])).intents).toEqual([]);
+  });
+
+  it('no enemy picked: the ordinary attack-move, whatever the world would say about focus', () => {
+    const r = resolvePointer(everyoneHurts, ctx([1, 2], { hostile: undefined }));
+    expect(r.intents.map((i) => i.kind)).toEqual(['order']);
+  });
+
+  it('issueOrder carries the picked enemy through to the resolver', () => {
+    const s = orderSink();
+    issueOrder(everyoneHurts, s, [1, 2], 12.5, 7.5, { append: false, confirm: false, hostile: 9 });
+    expect(s.log.filter((e) => e.did === 'dispatch')).toEqual([
+      { did: 'dispatch', intent: { kind: 'attack', ids: [1, 2], target: 9 } },
+    ]);
+    const plain = orderSink();
+    issueOrder(everyoneHurts, plain, [1, 2], 12.5, 7.5, { append: false, confirm: false });
+    expect(plain.log.find((e) => e.did === 'dispatch')).toEqual({
+      did: 'dispatch',
+      intent: { kind: 'order', verb: 'attackMove', ids: [1, 2], x: 12.5, y: 7.5, append: false },
+    });
   });
 });
 

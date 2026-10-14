@@ -50,6 +50,7 @@ describe('parseClientMsg', () => {
       [{ kind: 'reveal', side: 0, x: 1, y: 2, pad }, { kind: 'reveal', side: 0, x: 1, y: 2 }],
       [{ kind: 'callStrike', caller: 3, x: 1, y: 2, pad }, { kind: 'callStrike', caller: 3, x: 1, y: 2 }],
       [{ kind: 'smoke', ids: [1], x: 1, y: 2, pad }, { kind: 'smoke', ids: [1], x: 1, y: 2 }],
+      [{ kind: 'attack', ids: [1, 2], target: 14, pad }, { kind: 'attack', ids: [1, 2], target: 14 }],
     ];
     for (const [sent, kept] of cases) {
       const parsed = parseClientMsg(JSON.stringify({ t: 'cmd', seq: 0, cmd: sent }));
@@ -65,6 +66,18 @@ describe('parseClientMsg', () => {
     expect(parseClientMsg(JSON.stringify({ t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: ids(MAX_CMD_IDS + 1) } }))).toBeNull();
     // Duplicates do not count against the cap: what is kept is what is bounded.
     expect(parseClientMsg(JSON.stringify({ t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [...ids(MAX_CMD_IDS), 0, 1, 2] } }))).not.toBeNull();
+  });
+  it('GH-420: accepts an attack with ids and an integer target, and refuses the rest', () => {
+    const ok = { kind: 'attack', ids: [1, 2], target: 14 };
+    expect(parseClientMsg(JSON.stringify({ t: 'cmd', seq: 0, cmd: ok }))).toEqual({ t: 'cmd', seq: 0, cmd: ok });
+    for (const bad of [
+      { kind: 'attack', ids: [1] },
+      { kind: 'attack', ids: [1], target: 1.5 },
+      { kind: 'attack', ids: [1], target: '14' },
+      { kind: 'attack', target: 14 },
+    ]) {
+      expect(parseClientMsg(JSON.stringify({ t: 'cmd', seq: 0, cmd: bad }))).toBeNull();
+    }
   });
   it('checks attack-move sweep as a boolean when present', () => {
     const ok = { kind: 'attackMove', ids: [1], x: 0, y: 0, sweep: true };

@@ -11,6 +11,33 @@ export const CONTACT_DECAY = 65209; // 0.99501
 export const SUSPECTED_AT = 16384; // 0.25
 export const IDENTIFIED_AT = 45875; // 0.70
 export const LOST_AT = 13107; // 0.20 (hysteresis below SUSPECTED_AT)
+/** Targeted fire (GH-420, ruling R-4): how many CONSECUTIVE ticks an ordered
+ *  focus may sit below IDENTIFIED_AT -- the confidence selectTarget itself
+ *  stops shooting at -- before the order is dropped. The unit spends them
+ *  walking to where its side last saw the target; re-identification resets
+ *  the count. 100 ticks is 5 s, the same order as the contact decay it
+ *  follows: from ONE, CONTACT_DECAY takes ln(0.70)/ln(0.99501) ~ 71 ticks
+ *  (3.6 s) unobserved to fall below 0.70, so the grace from the LAST
+ *  SIGHTING is ~171 ticks, about 8.6 s, not 5 s. Change this, not the decay,
+ *  to move it. Integer ticks, not Q16.16. */
+export const FOCUS_LOST_TICKS = 100; // 5 s
+/** Targeted fire (GH-420, ruling R-22): the hysteresis band at the edge of a
+ *  focused unit's reach. A unit that has STOPPED (`moving` 0) keeps its
+ *  stance until the target is more than `effectiveRange + FOCUS_REACH_SLACK`
+ *  away; one that is still walking stops at the plain effective range. So a
+ *  target sitting on the edge cannot make a halt-to-fire man kneel, rise,
+ *  kneel and rise again: it takes a clear half tile of retreat to stand him
+ *  up, and he has to walk back to the plain edge to sit down again.
+ *
+ *  A DESIGN constant, not a measured one. The reasoning: one drop plus one
+ *  rise is KNEEL_DROP_TICKS + KNEEL_RISE_TICKS = 8 ticks = 0.4 s, and 0.5
+ *  tile is more than a target crosses in that time at up to 1.25 tiles/s,
+ *  which covers every foot unit that walks (0.85-0.95; `charge_squad` at 1.9
+ *  does not fit) and the Lavi (1.1), while staying small enough that a unit
+ *  never holds visibly far beyond its weapon's effective range. It moves
+ *  only the stop/close decision (`focusInReach`): what a slot may FIRE at is
+ *  still `rangeSq`, via selectTarget. */
+export const FOCUS_REACH_SLACK = 32768; // 0.5 tile
 /** Signature multiplier while moving. */
 export const MOTION_SIG = 98304; // 1.5
 /** Signature multipliers by cover level 0-3 (concealment). */

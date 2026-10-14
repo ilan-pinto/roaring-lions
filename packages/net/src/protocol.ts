@@ -31,7 +31,7 @@ export const FORFEIT_MS = 60_000;
 
 /** `Command['kind']` as a value, so a wire command can be checked at runtime. */
 export const COMMAND_KINDS = [
-  'move', 'attackMove', 'halt', 'garrison', 'load', 'unload', 'reveal', 'callStrike', 'smoke', 'demolish', 'chargeTunnel',
+  'move', 'attackMove', 'halt', 'garrison', 'load', 'unload', 'reveal', 'callStrike', 'smoke', 'demolish', 'chargeTunnel', 'attack',
 ] as const satisfies readonly Command['kind'][];
 
 export interface SeatState { seat: Seat; callsign: string; connected: boolean; ready: boolean }
@@ -147,6 +147,8 @@ export function cleanCommand(v: unknown): Command | null {
       return ids === null || !isInt(c.carrier) ? null : { kind, ids, carrier: c.carrier };
     case 'chargeTunnel':
       return ids === null || !isInt(c.tunnel) ? null : { kind, ids, tunnel: c.tunnel };
+    case 'attack':
+      return ids === null || !isInt(c.target) ? null : { kind, ids, target: c.target };
     case 'reveal':
       return isInt(c.side) && isInt(c.x) && isInt(c.y) ? { kind, side: c.side, x: c.x, y: c.y } : null;
     case 'callStrike':

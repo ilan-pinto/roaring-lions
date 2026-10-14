@@ -37,6 +37,9 @@ import { groundLevelAt, type ElevationSource } from '../ground-height';
 import { screenToWorldThree, worldToScreenThree } from '../camera';
 import { ELEV_STEP, WORLD_Y_PER_LIFT_PIXEL, type Camera, type Viewport } from '../../project';
 
+/** A left-click's generosity, in tiles: see `pickUnit`'s "default radius". */
+export const PICK_RADIUS_TILES = 1.2;
+
 /**
  * Nearest living, surfaced unit within `radiusTiles` of a world point, or -1.
  *
@@ -63,7 +66,7 @@ export function pickUnit(
   alive: Uint8Array,
   tunnelIn: Int32Array,
   entityCount: number,
-  radiusTiles = 1.2,
+  radiusTiles = PICK_RADIUS_TILES,
   reachX = 0,
   reachY = 0,
   pickable: (i: number) => boolean = () => true
@@ -126,6 +129,11 @@ export const PICK_BODY_HEIGHT_TILES = 0.6;
  * every unit: the camera is orthographic, so it depends on the camera's
  * pitch and yaw and not on where the unit stands. Asked of the camera, never
  * re-derived here.
+ *
+ * `radiusTiles` is how far from that segment a click may land: a left-click's
+ * 1.2 by default. An ORDER asks a tighter radius of the same segment (GH-420,
+ * R-23), so a right-click on ground a tile from an enemy stays an order to
+ * that ground; one pick, two generosities.
  */
 export function pickUnitAtScreen(
   px: number,
@@ -140,12 +148,13 @@ export function pickUnitAtScreen(
   mapHeight: number,
   cam: Camera,
   vp: Viewport,
-  pickable: (i: number) => boolean = () => true
+  pickable: (i: number) => boolean = () => true,
+  radiusTiles: number = PICK_RADIUS_TILES
 ): number {
   const g = screenToWorldThree(px, py, cam, vp, elevation, mapWidth, mapHeight);
   const top = worldToScreenThree(cam.x, cam.y, cam, vp, PICK_BODY_HEIGHT_TILES / WORLD_Y_PER_LIFT_PIXEL);
   const behind = screenToWorldThree(top.x, top.y, cam, vp);
-  return pickUnit(g.x, g.y, curX, curY, alive, tunnelIn, entityCount, 1.2, behind.x - cam.x, behind.y - cam.y, pickable);
+  return pickUnit(g.x, g.y, curX, curY, alive, tunnelIn, entityCount, radiusTiles, behind.x - cam.x, behind.y - cam.y, pickable);
 }
 
 /**

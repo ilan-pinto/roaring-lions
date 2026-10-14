@@ -763,6 +763,7 @@
   "hud.fire.why.gunOut": "its gun is knocked out",
   "hud.fire.cannotPenetrate": "cannot penetrate",
   "hud.fire.clickMoves": "Click: just move there · nobody stops to fight on the way",
+  "hud.fire.clickTargets": "Right-click: fire on this target",
   "hud.fire.clickAdvances": "Right-click: advance and engage · each unit picks its own target",
   "hud.fire.heading": "Projected fire · {target}",
   "hud.fire.unidentifiedOnly": "Not identified · no firing solution",
@@ -854,6 +855,7 @@
   "hud.card.cap.none": "<span class=\"rl-dim\">none</span>",
   "hud.card.holdingPosition": "holding position",
   "hud.card.engaging": "Engaging: {target}",
+  "hud.card.ordered": "Ordered: {target}",
   "hud.card.armamentLabel": "Armament",
   "hud.card.capabilitiesLabel": "Capabilities",
 
@@ -875,6 +877,8 @@
   "hud.speaker.net": "NET",
   "hud.speaker.enemy": "ENEMY",
 
+  "intent.garrisonHolds": "Garrisoned units keep their post",
+  "intent.cantPenetrate": "Can't penetrate: nothing selected can hurt that armour",
   "intent.protectedSite": "protected site — hold Alt to order fire on it",
   "intent.move.armed": "move — click open ground (Esc cancels)",
   "intent.move.noSelection": "select units to move first",

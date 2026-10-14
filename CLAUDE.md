@@ -311,6 +311,35 @@ The combat model is the product. Everything else is scaffolding around it.
   why the pan keys are the one exemption from the modal's capture guard
   (`passesThroughModal`, `input/keymap.ts`: panning writes `renderer.camera` and
   nothing else). Objectives, a settings panel, restart and quit live in it.
+- **A right-click on an identified enemy is an `attack` order, not an attack-move**
+  (GH-420; `Command` `attack`, hashed `focusTarget`/`focusLost` columns). A slot
+  fires on the focus whenever it is in range, in sight (or indirect) and can hurt
+  it (`engageable` + `weaponHurts`); otherwise it picks as before. The unit closes
+  to the effective range of ANY slot that can fire, holds across a half-tile band
+  there (`FOCUS_REACH_SLACK`), and kneels if it `haltsToFire`. A target the side
+  stops identifying is walked to at its last-seen tile; the order ends after
+  `FOCUS_LOST_TICKS` (100) consecutive ticks below identified (re-identification
+  resets the count), at once if there is no last-seen point, and when the target
+  dies, garrisons, boards or goes underground. The unit is then an ARRIVED
+  attack-mover that holds (`sweepOrder` 0), so `stepSweep`, the closing rule, does
+  not sweep it on. Any other order naming it, or a rout, releases the focus; a
+  refused `attack` changes nothing. Not every enemy click is the order: Shift
+  keeps the appended attack-move, armed Move moves, and in a mixed selection the
+  units that cannot hurt or aim at it attack-move to its tile -- a loitering
+  munition always, since `canFocus` refuses kamikaze shooters (R-25:
+  `stepKamikaze` steers them). If someone can focus it and nobody can hurt it, the
+  click is refused (`intent.cantPenetrate`, the deny cue). The ROE tier is read at
+  the target. The order picks the enemy by `Renderer.unitAtScreen`'s body segment
+  at `ORDER_PICK_RADIUS_TILES` (0.5, R-23); the 1.2-tile default is the left-click's,
+  so ground a tile from an enemy is still an attack-move. A picked enemy does not
+  switch off PA-14's wall rule (R-24): only a focus beats the building. A
+  garrisoned unit keeps its post on an enemy click (R-20), but a click that
+  resolves to a building or tunnel tile, a wall pixel included, can still send it
+  an attack-move that walks it out (R-21). `__lions.cursorKey()` reads `attack-*`
+  when some selected unit can hurt the target, `advance-*` when nobody can focus
+  it, and `blocked` when nobody can penetrate it. The sim's public `canFocus` and
+  `focusHurts` are the app's only filter; do not re-derive "can it hurt that" in
+  `intents.ts`.
 - **The render quality preset** (`packages/render/src/three/quality.ts`) is
   `high` / `medium` / `low`, applied at the next mission's BOOT, not live.
   `high` is pinned to the constants that existed before the preset and every

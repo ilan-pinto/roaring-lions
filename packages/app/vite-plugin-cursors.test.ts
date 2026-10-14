@@ -683,7 +683,7 @@ describe('animated cursor frames', () => {
     // A silent eighth entry (or the loss of one) would otherwise only
     // surface as a visual difference nobody happened to look for.
     expect(Object.keys(ANIMATED_CURSORS).sort()).toEqual(
-      ['advance', 'charge', 'demolish', 'move', 'moveOnly', 'smoke', 'strike', 'sweep']
+      ['advance', 'attack', 'charge', 'demolish', 'move', 'moveOnly', 'smoke', 'strike', 'sweep']
     );
   });
 
@@ -1154,6 +1154,9 @@ describe('the composer and the plugin agree on every key -- Important 2', () => 
       inFlaggedZone: () => false,
       groundAt: () => 'open',
       flies: () => false,
+      canFocus: () => false,
+      focusHurts: () => false,
+      garrisoned: () => false,
       ...over,
     };
   }
@@ -1216,6 +1219,19 @@ describe('the composer and the plugin agree on every key -- Important 2', () => 
         }
       }
     }
+    // GH-420: a picked enemy body. Everyone can focus it; either everyone can
+    // hurt it, or only the even-numbered units can, so a pair of units is a
+    // mixed resolution (`attack` + `attackMove`) and single ones are pure.
+    for (const focusHurts of [() => true, (id: number) => id % 2 === 0]) {
+      const foe = fakeWorld({ canFocus: () => true, focusHurts });
+      for (const ids of selections) {
+        const res = resolvePointer(foe, { ids, x: 5, y: 5, append: false, armed: null, confirm: false, hostile: 7 });
+        for (const hints of HINT_COMBOS) {
+          const name = cursorFor(res, hints);
+          keys.add(cursorKey(name, badgeFor(res, hints, badges, name)));
+        }
+      }
+    }
     const openGround = SCENARIOS[0].world;
     for (const armed of ['strike', 'sweep'] as const) {
       const res = resolvePointer(openGround, { ids: [], x: 5, y: 5, append: false, armed, confirm: false });
@@ -1257,6 +1273,20 @@ describe('the composer and the plugin agree on every key -- Important 2', () => 
     // frame, and `moveOnly` never has a rule line of its own.
     expect(moveLines.every((l) => l.includes("canvas[data-cursor='moveOnly']"))).toBe(true);
     expect(css.split('\n').filter((l) => l.startsWith("canvas[data-cursor='moveOnly']"))).toEqual([]);
+  });
+
+  it('answers the attack keys (GH-420) with the advance rules, bare and badged, and gives them no rule of their own', () => {
+    expect(produced.has('attack')).toBe(true);
+    expect(produced.has('attack-soft')).toBe(true);
+    const lines = css.split('\n');
+    for (const suffix of ['', '-soft', '-armour']) {
+      const adv = lines.filter((l) => l.startsWith(`canvas[data-cursor='advance${suffix}']`));
+      expect(adv.length).toBeGreaterThan(0);
+      expect(adv.every((l) => l.includes(`canvas[data-cursor='attack${suffix}']`))).toBe(true);
+    }
+    expect(lines.filter((l) => l.startsWith("canvas[data-cursor='attack"))).toEqual([]);
+    // moveOnly stays bare-only: it never earns a badged key.
+    expect(css).not.toContain("canvas[data-cursor='moveOnly-");
   });
 
   it('emits a rule for every key the real cursorFor/badgeFor can compose', () => {

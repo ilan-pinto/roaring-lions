@@ -161,10 +161,57 @@ describe('cursorFor', () => {
   });
 });
 
+describe('attack (GH-420)', () => {
+  const targeted = (): Resolution => ({
+    intents: [{ kind: 'attack', ids: [1], target: 9 }],
+    roe: 'free',
+    marker: true,
+  });
+
+  it('a resolution carrying an attack intent reads attack over a hostile', () => {
+    expect(cursorFor(targeted(), { hostile: true, blocked: false })).toBe('attack');
+  });
+
+  it('a mixed resolution (attack + the rest advancing) also reads attack', () => {
+    const mixed: Resolution = {
+      intents: [...targeted().intents, { kind: 'order', verb: 'attackMove', ids: [2], x: 1, y: 1, append: false }],
+      roe: 'free',
+      marker: true,
+    };
+    expect(cursorFor(mixed, { hostile: true, blocked: false })).toBe('attack');
+  });
+
+  it('a plain order over a suspected contact still reads advance', () => {
+    expect(cursorFor(moving(), { hostile: true, blocked: false })).toBe('advance');
+  });
+
+  it('badges by the attack group\'s bucket, as advance does', () => {
+    const hints = { hostile: true, blocked: false };
+    const badges: BadgeHints = { bucketOf: () => 'soft' as RoleBucket };
+    expect(cursorKey('attack', badgeFor(targeted(), hints, badges, 'attack'))).toBe('attack-soft');
+  });
+
+  it('animates exactly as advance does', () => {
+    expect(ANIMATED_CURSORS.attack).toEqual(ANIMATED_CURSORS.advance);
+  });
+
+  it('R-17: a can\'t-penetrate refusal reads blocked, never protected', () => {
+    const refusal: Resolution = { intents: [], roe: 'free', marker: false, cantPenetrate: true };
+    expect(cursorFor(refusal, { hostile: true, blocked: false })).toBe('blocked');
+    // `refused` stays the protected-site rung and still reads protected.
+    expect(cursorFor({ ...refusal, cantPenetrate: undefined, refused: true }, { hostile: true, blocked: false })).toBe('protected');
+  });
+
+  it('I1: a wholly pinned targeted order reads pinned, as a pinned attack-move does', () => {
+    expect(cursorFor(targeted(), { hostile: true, blocked: false, pinned: true })).toBe('pinned');
+    expect(cursorFor(targeted(), { hostile: true, blocked: false, pinned: false })).toBe('attack');
+  });
+});
+
 describe('ANIMATED_CURSORS follows the approved sheet', () => {
   it('animates the wired sights at ORDER_SIGHT\'s own frame counts and rates, plus charge and demolish', () => {
     expect(Object.keys(ANIMATED_CURSORS).sort()).toEqual(
-      ['advance', 'charge', 'demolish', 'move', 'moveOnly', 'smoke', 'strike', 'sweep']
+      ['advance', 'attack', 'charge', 'demolish', 'move', 'moveOnly', 'smoke', 'strike', 'sweep']
     );
     for (const [name, id] of Object.entries(SIGHT_OF)) {
       const spec = ORDER_SIGHT[id];

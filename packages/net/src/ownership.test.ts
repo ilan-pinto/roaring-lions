@@ -67,6 +67,20 @@ describe('validateCommand: the map and the target', () => {
   });
 });
 
+describe('validateCommand: attack (GH-420)', () => {
+  it('accepts own units firing on an existing enemy', () => {
+    expect(validateCommand({ kind: 'attack', ids: [1, 2], target: 12 }, 0, world)).toBe(true);
+    expect(validateCommand({ kind: 'attack', ids: [12], target: 1 }, 1, world)).toBe(true);
+  });
+  it('drops an attack naming a foreign shooter, no shooter, or a target that is not an enemy', () => {
+    expect(validateCommand({ kind: 'attack', ids: [1, 12], target: 13 }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'attack', ids: [], target: 12 }, 0, world)).toBe(false);
+    // The target is the seat's own side, or an id that does not exist.
+    expect(validateCommand({ kind: 'attack', ids: [1], target: 2 }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'attack', ids: [1], target: 999999 }, 0, world)).toBe(false);
+  });
+});
+
 describe('applyFrame', () => {
   it('queues in canonical order and counts what it dropped', () => {
     const queued: Command[] = [];

@@ -108,7 +108,8 @@ describe('KDF vs Sarim (2026-10-14)', () => {
 
   it('the mirror is untouched: the same spawn, tick for tick, as before KDF vs Sarim existed', () => {
     // Pinned from the tree before this change (`versusSpawns` with no factions, 200 ticks).
-    const want: Record<string, number> = { beit_sahwan_outskirts: 873892333, tel_marum: 3176591845 };
+    // Re-pinned 2026-10-14 for targeted fire (GH-420): two per-unit columns, focusTarget and focusLost, join the sim hash. No behaviour moved: with their hashArray lines removed, both maps reproduce the old values. Was 873892333 / 3176591845.
+    const want: Record<string, number> = { beit_sahwan_outskirts: 580559085, tel_marum: 1260439781 };
     for (const mapId of ['beit_sahwan_outskirts', 'tel_marum'] as const) {
       for (const factions of [undefined, ['kdf', 'kdf'] as const]) {
         const { sim, typeOf, map } = buildWorld(mapId);

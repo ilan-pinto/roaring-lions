@@ -58,6 +58,7 @@ describe('one line per gesture, ranked by the cursor (N1, R-4)', () => {
   const POINTER: [string, PlayerIntent[], boolean, OrderVerb, string][] = [
     ['a plain order over open ground', [order(1)], false, 'move', 'he.infantry.move'],
     ['a plain order over a hostile', [order(1)], true, 'attack', 'he.infantry.attack'],
+    ['a targeted attack keeps the attack call', [{ kind: 'attack', ids: [1], target: 5 }], true, 'attack', 'he.infantry.attack'],
     ['attack outranks garrison', [{ kind: 'garrison', ids: [1], structure: 2 }, order(3)], true, 'attack', 'he.crew.attack'],
     ['garrison outranks a plain move', [{ kind: 'garrison', ids: [1], structure: 2 }, order(3)], false, 'garrison', 'he.common.garrison'],
     ['charge outranks attack', [{ kind: 'chargeTunnel', ids: [5], tunnel: 1 }, order(1)], true, 'charge', 'he.common.charge'],
