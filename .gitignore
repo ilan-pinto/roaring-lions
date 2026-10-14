@@ -4,28 +4,26 @@ node_modules/
 dist/
 .DS_Store
 
-# Rendered sprite output IS committed, for now. ART_PIPELINE.md §9 wants CI
-# to regenerate it from art/src/*.blend, but the .blend sources are too large
-# for git (see below) so CI has nothing to render from -- and without the PNGs
-# the deployed build falls back to procedural shapes. They are small (~3 MB),
-# and tools/quantize_sprites.py keeps them passing the art gate. Revisit when
-# sources move to LFS and the rig runs in CI.
-
-# Blender sources: mostly NOT in git, but the blanket rule was overstated.
-# The tank files genuinely cannot be tracked -- tiger_tank_clean is 404 MB and
-# Tiger_Tank_Rig 240 MB, past GitHub's 100 MB hard limit. But the vehicles added
-# since are 7-52 MB, and building shells are smaller still, so "hundreds of MB"
-# was never true of them.
+# The sprite sheets are retired (WP-A3.3, 5a08b70f, 2026-10-04): no rendered
+# sprite output is committed any more, and nothing waits on CI regenerating
+# sheets from art/src/*.blend (#28, closed). What ships is the meshes under
+# art/meshes/ (the source of record) and their Draco copies in assets/meshes/.
 #
-# ART_PIPELINE.md §8 requires sources to accompany contributed art, and CLAUDE.md
-# forbids committing rendered sprites without their .blend. Nothing has satisfied
-# that yet. Building sources are small enough to satisfy it in plain git, without
-# waiting on Git LFS (#28), so art/src/buildings/ is tracked.
+# Blender sources fall into two groups, and only the second is outside git:
 #
-# Vehicle and character sources stay out for now: several are over the hard
-# limit, and mixing tracked and untracked siblings by size would be arbitrary.
-# Their provenance travels in each render script's CREDIT string and the credit
-# field of every manifest.
+#  * AUTHORED in this repository (buildings, drones, vehicles, aircraft, and the
+#    campaign and UI art under art/src/): small, so tracked in plain git. The
+#    rule below matches only .blend files directly in art/src/; the negations
+#    name the subdirectories anyway, so tightening it cannot drop them silently.
+#
+#  * SUPPLIED Meshy exports in art/blend/ (the rule further down): untracked.
+#    The 2026-10-14 census found them held as a SINGLE copy in the main
+#    checkout, 51 files over GitHub's 100 MiB hard limit, about 6 GB still read
+#    by a current exporter and about 4 GB dead. Whether the live part goes under
+#    Git LFS or stays out under a documented exception with an off-repo backup
+#    is OPEN: #137, with the per-folder numbers in docs/ASSET_PROVENANCE.md
+#    (outstanding item 4). ART_PIPELINE.md §8, "source alongside output", is
+#    unmet for these until it is decided.
 art/src/*.blend
 art/src/*.blend1
 !art/src/buildings/
@@ -75,6 +73,8 @@ art/showcase/*.mp4
 # shared working tree can sweep a whole second copy into a commit.
 # `.claude/agents/` and the rest of `.claude/` stay tracked on purpose.
 .claude/worktrees/
+# The supplied Meshy sources: untracked on purpose, and a single copy. See the
+# header above and #137 before changing or "tidying" this line.
 art/blend/
 
 # Golden-image capture output. Both `ci.yml`'s `visual` job and
