@@ -1593,6 +1593,23 @@ const deirAmun2Plan: Plan = (sim, rt, ids, at) => {
   at(35, () => sim.queueCommand({ kind: 'chargeTunnel', ids: yahalom, tunnel: 0 }));
   at(50, () => sim.queueCommand({ kind: 'move', ids: yahalom, ...M(24, 40) }));
 
+  // Garrison overhaul (Task 9, L-3). Cause: the militia_cell garrisoned in the concrete pump
+  // house (17,27) shoots the Yahalom teams at the mouth from its window 3-4 tiles away (41
+  // rifle hits on seed 4, both teams routed or dead before the 8 s charge completes), and no
+  // weapon here brings that house down before ~125 s. So the mouth is SCREENED instead: a
+  // chain of smoke on (14,30), laid every eight or nine seconds from the Yahalom's approach
+  // through the end of the charge by units already there. Each screen blocks the window's line
+  // for ~5 s and thins it for ~13 s, and the next tops the tiles back up. That spot covers the
+  // lower half of every line from the house to the spoil, the only half a plume two levels
+  // tall can stop from an eye two floors up (G3).
+  const screens: [number, number[]][] = [
+    [15, yahalom.slice(0, 1)],
+    [24, yahalom.slice(1, 2)],
+    [32, eitan.slice(0, 1)],
+    [40, eitan.slice(1, 2)],
+  ];
+  for (const [when, who] of screens) at(when, () => sim.queueCommand({ kind: 'smoke', ids: who, ...M(14, 30) }));
+
   // Once the door is down, split the holding force: two at the gate, the
   // rest at the interior, so one kamikaze cannot reach everyone at once.
   at(55, () => {
