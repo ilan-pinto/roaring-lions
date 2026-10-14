@@ -25,6 +25,10 @@ export interface SandboxAnchors {
   hostile: Point;
 }
 
+/** The two seats of a versus map, by marker name: seat 0 is side 0's start
+ *  (the friendly anchor), seat 1 is side 1's (the hostile one). */
+export const VERSUS_SEAT_MARKERS = ['versus_0', 'versus_1'] as const;
+
 /** A marker that reads as a player start. Ordered: the first match wins. */
 const FRIENDLY_HINTS = [/^kdf[_-]/, /^player[_-]/, /^start[_-]/, /[_-]start$/];
 
@@ -76,6 +80,18 @@ export function sandboxAnchors(map: {
       hostile: [Math.round(map.width * 0.7), Math.round(map.height / 2)],
     };
   }
+
+  // A versus map NAMES its two seats, and they are read by name before any
+  // heuristic: the contact-range rule below picks whichever marker sits
+  // nearest 60% of the map from the friendly anchor, which on a
+  // point-symmetric map is some feature on the near side and never the other
+  // seat -- on wadi_tarfan it chose `farm_far_0` (6,38), on milh_flats the
+  // crown at (11,9). Both names, or neither: a map declaring only one seat
+  // falls through to the heuristic. No map before the versus maps declares
+  // either name, so every older pick stands (sandbox-anchors.pinned.json).
+  const seat0 = entries.find(([name]) => name === VERSUS_SEAT_MARKERS[0])?.[1];
+  const seat1 = entries.find(([name]) => name === VERSUS_SEAT_MARKERS[1])?.[1];
+  if (seat0 && seat1) return { friendly: seat0, hostile: seat1 };
 
   const friendly =
     FRIENDLY_HINTS.reduce<Point | null>(

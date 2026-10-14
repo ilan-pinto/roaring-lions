@@ -37,6 +37,11 @@ import telMarum from '../../../data/maps/tel_marum.json';
 import telMarum1 from '../../../data/maps/tel_marum_1.json';
 import telMarum2 from '../../../data/maps/tel_marum_2.json';
 import telMarum3 from '../../../data/maps/tel_marum_3.json';
+// The two dedicated 1v1 versus maps (2026-10-14): point-symmetric about the
+// map centre, each seat's start named `versus_0` / `versus_1` (read by name by
+// `sandboxAnchors`). No mission references either.
+import milhFlats from '../../../data/maps/milh_flats.json';
+import wadiTarfan from '../../../data/maps/wadi_tarfan.json';
 // The four tile-study sandboxes (2026-09-03). Not campaign ground and no
 // mission references any of them: each exists to put ONE of the ground
 // albedos in front of the player at gameplay zoom, reachable from the
@@ -229,6 +234,7 @@ export const maps = {
   deir_amun_2: deirAmun2Map,
   deir_amun_3: deirAmun3Map,
   marj_perimeter: marjPerimeter,
+  milh_flats: milhFlats,
   qarn_hadid: qarnHadid,
   qarn_hadid_2: qarnHadid2Map,
   qarn_hadid_3: qarnHadid3Map,
@@ -251,6 +257,7 @@ export const maps = {
   wadi_halam_3: wadiHalam3,
   wadi_halam_4: wadiHalam4,
   wadi_halam_5: wadiHalam5,
+  wadi_tarfan: wadiTarfan,
 } as const;
 
 export type MapId = keyof typeof maps;
