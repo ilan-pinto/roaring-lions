@@ -112,21 +112,21 @@ Builds on `main` `f4b3ea2b` or later: N0 #543, N1a #554, N1b #556/#558,
 
   N4b starts after N4a has merged.
 
-## Lead decisions this plan needs (recommendation first)
+## Lead decisions (recommendation first; all ruled 14 Oct)
 
-| # | Question | Recommendation |
+| # | Question | Recommendation and ruling |
 |---|---|---|
-| D1 | Who may invite an advisor, and is the opponent told? | Either seat invites its OWN advisor (the seat mints the advisor ticket from its own seat ticket); both seats see an "advisor: advise/assist" badge on each seat card and in the HUD. One advisor per seat. |
-| D2 | May a non-test tool (`tools/src/net/local-relay.ts`) import `packages/worker/src/**`? CLAUDE.md says of `worker/` "Nothing imports it". | Yes, from `tools/` only. The alternative is moving the room into `packages/net`, a large refactor of shipped code for a dev tool. A test (Task 11) pins that no file under `packages/app`, `render`, `net` or `sim` imports `packages/worker`. |
-| D3 | Two new tools-only devDependencies: `ws` and `@modelcontextprotocol/sdk`. | Yes, each at an exact version at least 14 days old, recorded in the commit. They live in `tools/package.json` only, and no shipped bundle gains a byte. The fallback for the SDK is a hand-rolled newline-delimited JSON-RPC server (~150 lines). |
-| D4 | A bot seat's order cadence. | At most one flush per 20 ticks (1 s), of at most 4 commands; a queue of 12. Above that `order` answers `queue_full`. This holds a bot at the 2.2 rows/s the lead accepted for a human. |
-| D5 | Paced mode rules. | The room mints `paced` only when at least one seat is `kind: 'bot'`; otherwise it mints `realtime`. Human seats are never waited for. `roundTicks` is clamped to 20–1,200 and `roundWallMs` to 1,000–600,000. |
-| D6 | Remote arena results: the D1 `matches` table and `/stats/arena` (spec §8.5). | Not now. The arena runs locally and writes a JSONL file and a markdown table. Task 15 is gated on a later "yes", because it costs one D1 row per versus match and a migration. |
-| D7 | Arena scoring with no `MissionRuntime` in versus (so no Conduct). | Each seed is played twice with seats swapped. Score = (wins + ½ draws) / non-void games. Report per side and per faction, plus the scoreboard (decision 25) in place of Conduct. Tokens are reported when the external client prints them, never scored. |
-| D8 | The built-in opponent until the doctrine commander (WP-G-G0) exists. | Two scripted, fog-respecting baselines: `passive` and `rush`. `rush` attack-moves on what it sees, else on the enemy camp, the anchor a human also knows from the map. They are the arena's controls, not a strong AI. |
-| D9 | The Node harness sends an `Origin` header. | It sends the server's own origin. The Origin check is a browser cross-site guard, not authentication; the seat ticket is the authentication. The run protocol says so in one line. |
-| D10 | An advisor's socket receives the full frame stream (like any client) while its `observe` view respects fog. | Accept, under the friends-only posture (decision 22). The harness enforces fog for the MODEL. A modified harness could see through fog, exactly as a modified browser can. |
-| D11 | The veto key for an `assist` proposal. | `X` (free since #535; `N` is move-only and `V` stays free). Enter or a click on Accept takes it at once. |
+| D1 | Who may invite an advisor, and is the opponent told? | Either seat invites its OWN advisor (the seat mints the advisor ticket from its own seat ticket); both seats see an "advisor: advise/assist" badge on each seat card and in the HUD. One advisor per seat. **Ruled 14 Oct (lead): accepted.** |
+| D2 | May a non-test tool (`tools/src/net/local-relay.ts`) import `packages/worker/src/**`? CLAUDE.md says of `worker/` "Nothing imports it". | Yes, from `tools/` only. The alternative is moving the room into `packages/net`, a large refactor of shipped code for a dev tool. A test (Task 11) pins that no file under `packages/app`, `render`, `net` or `sim` imports `packages/worker`. **Ruled 14 Oct (lead): accepted.** |
+| D3 | Two new tools-only devDependencies: `ws` and `@modelcontextprotocol/sdk`. | Yes, each at an exact version at least 14 days old, recorded in the commit. They live in `tools/package.json` only, and no shipped bundle gains a byte. The fallback for the SDK is a hand-rolled newline-delimited JSON-RPC server (~150 lines). **Ruled 14 Oct (lead): accepted.** |
+| D4 | A bot seat's order cadence. | At most one flush per 20 ticks (1 s), of at most 4 commands; a queue of 12. Above that `order` answers `queue_full`. This holds a bot at the 2.2 rows/s the lead accepted for a human. **Ruled 14 Oct (lead): accepted.** |
+| D5 | Paced mode rules. | The room mints `paced` only when at least one seat is `kind: 'bot'`; otherwise it mints `realtime`. Human seats are never waited for. `roundTicks` is clamped to 20–1,200 and `roundWallMs` to 1,000–600,000. **Ruled 14 Oct (lead): accepted.** |
+| D6 | Remote arena results: the D1 `matches` table and `/stats/arena` (spec §8.5). | Not now. The arena runs locally and writes a JSONL file and a markdown table. Task 15 is gated on a later "yes", because it costs one D1 row per versus match and a migration. **Ruled 14 Oct (lead): accepted — not now; Task 15 is deferred.** |
+| D7 | Arena scoring with no `MissionRuntime` in versus (so no Conduct). | Each seed is played twice with seats swapped. Score = (wins + ½ draws) / non-void games. Report per side and per faction, plus the scoreboard (decision 25) in place of Conduct. Tokens are reported when the external client prints them, never scored. **Ruled 14 Oct (lead): accepted.** |
+| D8 | The built-in opponent until the doctrine commander (WP-G-G0) exists. | Two scripted, fog-respecting baselines: `passive` and `rush`. `rush` attack-moves on what it sees, else on the enemy camp, the anchor a human also knows from the map. They are the arena's controls, not a strong AI. **Ruled 14 Oct (lead): accepted.** |
+| D9 | The Node harness sends an `Origin` header. | It sends the server's own origin. The Origin check is a browser cross-site guard, not authentication; the seat ticket is the authentication. The run protocol says so in one line. **Ruled 14 Oct (lead): accepted.** |
+| D10 | An advisor's socket receives the full frame stream (like any client) while its `observe` view respects fog. | Accept, under the friends-only posture (decision 22). The harness enforces fog for the MODEL. A modified harness could see through fog, exactly as a modified browser can. **Ruled 14 Oct (lead): accepted.** |
+| D11 | The veto key for an `assist` proposal. | `X` (free since #535; `N` is move-only and `V` stays free). Enter or a click on Accept takes it at once. **Ruled 14 Oct (lead): accepted.** |
 
 ## Review Focus
 
@@ -197,7 +197,7 @@ Builds on `main` `f4b3ea2b` or later: N0 #543, N1a #554, N1b #556/#558,
   `packages/app/src/i18n/en.json`, `packages/app/src/input/keymap.ts`.
 - `tools/package.json`, root `package.json` (`agent`, `arena` scripts),
   `pnpm-lock.yaml`.
-- Task 15 only, if D6 is a yes: `packages/worker/migrations/0006_matches.sql`,
+- Task 15 only, deferred (D6 ruled "not now", 14 Oct): `packages/worker/migrations/0006_matches.sql`,
   `packages/worker/src/stats.ts`, `packages/worker/QUERIES.sql`.
 
 ---
@@ -1382,10 +1382,17 @@ secret is minted in memory at start.
     guarantee lives in Tasks 2 and 8.
 - [ ] **Step 4: Commit.**
 
-### Task 15 (gated on D6): Remote results, D1 `matches` and `/stats/arena`
+### Task 15 (deferred, D6 ruled "not now" 14 Oct): Remote results, D1 `matches` and `/stats/arena`
 
-**Do not start without the lead's "yes" to D6.** If D6 is "not now", record
-the deferral in the N4b PR body and skip to Task 16.
+**Deferred. Ruled 14 Oct (lead): D6 "not now".** Do not start this task in
+N4b. Record the deferral in the N4b PR body and skip to Task 16. The task
+stays here as the design for when D6 is reopened.
+
+**Ruled 14 Oct (lead), the open point below: keep `over` unchanged in N4.**
+When this task is built, results are recorded from the room's own end state:
+its ending reason (`forfeit`, `surrender`, `left`, `void`, `expired`) and, for
+`over`, "result reached" with no winner. A `winner`/`by` field on `over` is a
+later protocol change, not part of N4.
 
 **Files:**
 - Create: `packages/worker/migrations/0006_matches.sql`
@@ -1402,13 +1409,13 @@ the deferral in the N4b PR body and skip to Task 16.
   - **No player ids, no callsigns, no tokens** (the Worker never learns
     them).
   - `winner` is −1 for a draw or void.
-  - The room learns `by` and `winner` from its own ending reason, or from the
-    seats' `over` reports, which today carry a tick but no result. **That
-    needs `over{tick, winner, by}`: a protocol change.** Decide it in this
-    task, or record only room-decided endings (forfeit, surrender, left,
-    void) and `over` as "result reached".
+  - The room records `by` and `winner` from its own ending reason only.
+    The seats' `over` reports carry a tick but no result, and **stay that
+    way in N4** (ruled 14 Oct, lead): an `over` ending is stored as
+    `by: 'over'`, `winner: -1` ("result reached"). `over{tick, winner, by}`
+    is a later protocol change.
 - [ ] Steps:
-  - the failing tests: one row per ended versus room, none for a sandbox
+  - the failing tests (when reopened): one row per ended versus room, none for a sandbox
     room; the daily budget refuses the 501st; `/stats/arena` 302s without a
     session;
   - red, implement, green;
@@ -1448,7 +1455,8 @@ the deferral in the N4b PR body and skip to Task 16.
 
 - [ ] **Step 1:** Write the doc and the spec section. The spec section
   records, as built: the advisor socket, paced mode, the desk cadence, the
-  local relay, the baselines, the scoring, and whether D6 shipped.
+  local relay, the baselines and the scoring. It also records that D6 was
+  ruled "not now" (Task 15 deferred).
 - [ ] **Step 2: Gates.** Run `pnpm test && pnpm typecheck && pnpm lint &&
   pnpm validate:ui && pnpm validate:data && pnpm test:determinism` (all
   green; determinism unmoved), then `pnpm arena -- --a rush --b passive

@@ -948,6 +948,34 @@ that plan revise this spec, and each one is a lead decision listed there:
 - **The built-in opponent is a scripted, fog-respecting baseline**, until the
   doctrine commander exists.
 
+**Ruled 14 Oct (lead): the N4 plan's eleven decisions, D1–D11, are accepted
+as recommended.**
+- **D1:** each seat may invite its own advisor, one per seat, and both seats
+  see a badge.
+- **D2:** `tools/` may import `packages/worker`, for the local relay only.
+- **D3:** `ws` and `@modelcontextprotocol/sdk` as tools-only devDependencies,
+  at exact versions.
+- **D4:** a bot's orders are coalesced to at most one flush of 4 commands per
+  20 ticks, with a queue of 12.
+- **D5:** paced mode is minted only when a seat is a bot, and human seats are
+  never waited for. `roundTicks` is clamped to 20–1,200 and `roundWallMs` to
+  1–600 s.
+- **D6 is "not now":** no D1 `matches` table and no `/stats/arena` in N4. The
+  arena reports locally.
+- **D7:** score = (wins + ½ draws) / non-void games, with seats swapped per
+  seed. The scoreboard is reported in place of Conduct, and tokens are
+  reported, never scored.
+- **D8:** the `passive` and `rush` scripted baselines stand in until the
+  doctrine commander exists. This answers decision 18 for now.
+- **D9:** the Node harness sends the server's own `Origin`.
+- **D10:** an advisor's socket receives the full frame stream while the
+  model's view is fogged, under the friends-only posture.
+- **D11:** X is the veto key.
+
+**Ruled 14 Oct (lead): `over` stays unchanged in N4.** Any result the room
+records comes from its own end state (its ending reason). A `winner` field on
+`over` is a later protocol change.
+
 ### 11b.4 N2's prerequisites (to be scheduled after the garrison overhaul and F1)
 
 N2 is sim work, and Lane C allows one sim plan in flight. It cannot start
