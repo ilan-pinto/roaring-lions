@@ -53,6 +53,7 @@ import {
   IDENTIFIED_AT,
   LOST_AT,
   FOCUS_LOST_TICKS,
+  FOCUS_REACH_SLACK,
   MOTION_SIG,
   COVER_SIG,
   OCCL_PER_COVER,
@@ -5558,7 +5559,8 @@ export class Sim {
    * one keeps the order too, and is STOPPED: there is nothing to walk into
    * range with.
    *
-   * Otherwise: in reach (`focusInReach`, R-3/R-3b), it stops (`moving = 0`;
+   * Otherwise: in reach (`focusInReach`, R-3/R-3b; a stopped unit stays in
+   * reach half a tile past the plain edge, R-22), it stops (`moving = 0`;
    * stepBrace kneels it next tick). Out of reach, or lost, it walks to the
    * side's last-seen position (R-14) -- the target itself while someone sees
    * it, the memory when nobody does -- and waits on that tile. The field is
@@ -5704,6 +5706,15 @@ export class Sim {
    * slot's range, no sight line, a domain only an out-of-range slot can
    * reach) is fixed by walking, so it keeps closing. Nothing parks an
    * ordered unit for good behind a wall.
+   *
+   * Hysteresis (R-22): a unit that has already stopped (`moving` 0) is judged
+   * against `effectiveRange + FOCUS_REACH_SLACK` in both places above, a unit
+   * still walking against the plain effective range. A target on the edge
+   * therefore cannot make a halted man kneel and rise by turns: he stops at
+   * the plain edge, and it takes the target a clear half tile further to
+   * stand him up. Stateless -- it reads `moving`, which stepFocus itself
+   * writes. Only this decision moves: maximum range (`rangeSq`), and with it
+   * what a slot may fire at, is untouched.
    */
   private focusInReach(i: number, t: number): boolean {
     const weapons = this.unitTypes[this.typeIdx[i]].weapons;
@@ -5713,18 +5724,25 @@ export class Sim {
     const py = this.posY[i];
     const air = this.unitTypes[this.typeIdx[t]].isAir;
     const dSq = distSqFx(fx.sub(this.posX[t], px), fx.sub(this.posY[t], py));
+    const stopped = this.moving[i] === 0;
     let anyCan = false;
     let hold = false;
     let los = 0; // 0 not yet traced, 1 clear, -1 blocked
     for (let s = 0; s < weapons.length && s < 2; s++) {
       const w = weapons[s];
       if (air ? !w.canTargetAir : !w.canTargetGround) continue;
+      // The squared range this unit stops at, from where it stands (R-22).
+      let reachSq = w.effectiveRangeSq;
+      if (stopped) {
+        const r = fx.add(w.effectiveRange, FOCUS_REACH_SLACK);
+        reachSq = fx.mul(r, r);
+      }
       if (this.engageable(sSide, px, py, w, t) && this.weaponHurts(w, t, px, py)) {
         anyCan = true;
-        if (dSq <= w.effectiveRangeSq) return true;
+        if (dSq <= reachSq) return true;
         continue;
       }
-      if (hold || dSq > w.effectiveRangeSq || dSq > w.rangeSq) continue;
+      if (hold || dSq > reachSq || dSq > w.rangeSq) continue;
       if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
         if (los === 0) los = this.losRay(px >> 16, py >> 16, this.posX[t] >> 16, this.posY[t] >> 16) < 0 ? -1 : 1;
         if (los < 0) continue;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
 import { BRACE_KNEELING, BRACE_NONE, Sim, TICKS_PER_SECOND, type SimEvent, type UnitTypeJson } from './sim';
-import { FOCUS_LOST_TICKS, IDENTIFIED_AT, KNEEL_DROP_TICKS, LOST_AT } from './tuning';
+import { FOCUS_LOST_TICKS, FOCUS_REACH_SLACK, IDENTIFIED_AT, KNEEL_DROP_TICKS, LOST_AT } from './tuning';
 
 // Targeted fire (GH-420), Task 1: the `attack` command and the two columns it
 // writes, `focusTarget` and `focusLost`. Nothing READS the focus yet; these
@@ -1038,5 +1038,100 @@ describe('focus fix: the stored goal is the snapped one', () => {
     expect(sim.state.posX[buggy] >> 16).toBe(gx >> 16);
     expect(sim.state.posY[buggy] >> 16).toBe(gy >> 16);
     expect(sim.state.focusTarget[buggy]).toBe(man);
+  });
+});
+
+// Task 2b (R-22): a hysteresis band at the effective-range edge. The rifleman
+// has an effective range of 6 tiles (GUN) and a maximum of 8; the slack is
+// half a tile. A target that steps from 6.0 to 6.4 tiles used to stand a
+// halted, kneeling man up (focusInReach false, moving 1) and sit him down
+// again when it stepped back: a drop and a rise for a tenth of a tile.
+describe('focus: a held stance across the reach edge (R-22)', () => {
+  it('a stopped focused unit does not rise for a target that steps just past its effective range', () => {
+    // The literals below are written for a half-tile band; this ties them to
+    // the constant, so retuning it points here instead of passing silently.
+    expect(fx.toNumber(FOCUS_REACH_SLACK)).toBe(0.5);
+    const { sim, me, foe } = world(); // the foe stands exactly 6.0 away: the edge
+    sim.queueCommand({ kind: 'attack', ids: [me], target: foe });
+    runCollect(sim, 2 * KNEEL_DROP_TICKS, () => sim.identifyTo(0, foe));
+    expect(sim.state.moving[me]).toBe(0);
+    expect(sim.state.brace[me]).toBe(BRACE_KNEELING);
+    const x = sim.state.posX[me];
+    const y = sim.state.posY[me];
+
+    // The target wanders across the plain edge and back, never to 6.5. Not
+    // one tick of it stands the man up, or sets him walking.
+    let upright = 0;
+    let walking = 0;
+    for (const d of [6.2, 6.4, 5.9, 6.45, 6.1, 6.4, 6.0]) {
+      sim.teleport(foe, fx.from(10.5 + d), fx.from(16.5));
+      for (let k = 0; k < 10; k++) {
+        sim.identifyTo(0, foe);
+        sim.tick();
+        if (sim.state.brace[me] !== BRACE_KNEELING) upright++;
+        if (sim.state.moving[me] !== 0) walking++;
+      }
+      expect(sim.state.focusTarget[me]).toBe(foe);
+    }
+    expect(upright).toBe(0);
+    expect(walking).toBe(0);
+    expect(sim.state.posX[me]).toBe(x);
+    expect(sim.state.posY[me]).toBe(y);
+
+    // Clearly beyond effective + slack: now he closes, and stands to do it.
+    sim.teleport(foe, fx.from(10.5 + 6.6), fx.from(16.5));
+    sim.identifyTo(0, foe);
+    sim.tick();
+    expect(sim.state.moving[me]).toBe(1);
+    runCollect(sim, TICKS_PER_SECOND, () => sim.identifyTo(0, foe));
+    expect(sim.state.posX[me]).toBeGreaterThan(x);
+    // Walking again, so he stops at the PLAIN edge, not half a tile short of it.
+    runCollect(sim, 5 * TICKS_PER_SECOND, () => sim.identifyTo(0, foe));
+    expect(sim.state.moving[me]).toBe(0);
+    expect(tiles(sim, me, foe)).toBeLessThanOrEqual(6);
+    expect(tiles(sim, me, foe)).toBeGreaterThan(5.9);
+  });
+
+  it('a moving focused unit still stops at the plain effective range', () => {
+    const { sim, me, post } = world();
+    const far = sim.spawn(post, 1, fx.from(24.5), fx.from(16.5));
+    sim.queueCommand({ kind: 'attack', ids: [me], target: far });
+    let stopped = false;
+    let inBand = 0; // ticks spent walking between 6.0 and 6.5 tiles off
+    for (let t = 0; t < 30 * TICKS_PER_SECOND && !stopped; t++) {
+      sim.identifyTo(0, far);
+      sim.tick();
+      if (t === 0) expect(sim.state.moving[me]).toBe(1);
+      if (t > 0 && sim.state.moving[me] === 0) stopped = true;
+      else if (tiles(sim, me, far) > 6 && tiles(sim, me, far) <= 6.5) inBand++;
+    }
+    expect(stopped).toBe(true);
+    // It walked THROUGH the band (a step is 0.05 tile, so about ten ticks) and
+    // stopped one step inside the plain edge, not at the slack edge.
+    expect(inBand).toBeGreaterThan(5);
+    const d = tiles(sim, me, far);
+    expect(d).toBeLessThanOrEqual(6);
+    expect(d).toBeGreaterThan(5.9);
+  });
+
+  it('a stopped unit holding on a front it cannot hurt keeps holding across the band', () => {
+    // R-3b's hold rule, which has its own effective-range comparison: a
+    // rifle at a tank's front, clear line, inside 6 tiles holds (it cannot be
+    // helped by walking). The tank backs off to 6.2: still holds.
+    const { sim, me, foe } = world();
+    sim.debugKill(foe);
+    const heavy = sim.spawn(sim.addUnitType(HEAVY), 1, fx.from(15.5), fx.from(16.5), 32768);
+    sim.identifyTo(0, heavy);
+    sim.queueCommand({ kind: 'attack', ids: [me], target: heavy });
+    runCollect(sim, 2 * KNEEL_DROP_TICKS, () => sim.identifyTo(0, heavy));
+    expect(sim.state.moving[me]).toBe(0);
+    expect(sim.state.brace[me]).toBe(BRACE_KNEELING);
+    const x = sim.state.posX[me];
+    sim.teleport(heavy, fx.from(10.5 + 6.3), fx.from(16.5));
+    runCollect(sim, 3 * TICKS_PER_SECOND, () => sim.identifyTo(0, heavy));
+    expect(sim.state.posX[me]).toBe(x);
+    expect(sim.state.moving[me]).toBe(0);
+    expect(sim.state.brace[me]).toBe(BRACE_KNEELING);
+    expect(sim.state.focusTarget[me]).toBe(heavy);
   });
 });
