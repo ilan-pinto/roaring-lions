@@ -2726,6 +2726,10 @@ export class Sim {
   }
 
   /** Smoke density crossed by a sight line (endpoints included).
+   *  `lift0`/`lift1` raise an end's eye by whole elevation levels, as in
+   *  `losRay`: a garrison's floors above the ground (`eyeLift`); 0 for
+   *  everyone else, which is every existing caller, so this is bit-identical
+   *  where nobody is garrisoned.
    *
    *  Elevation-aware, and it has to be: a screen is a column SMOKE_RISE levels
    *  tall standing on its OWN tile's ground, not an infinitely high curtain.
@@ -2751,7 +2755,7 @@ export class Sim {
    *  bit-identical to the height-blind version on every map without relief.
    *  That equivalence is what SMOKE_RISE > EYE_HEIGHT buys, and why the
    *  constant carries the warning it does. */
-  private raySmoke(x0: number, y0: number, x1: number, y1: number): number {
+  private raySmoke(x0: number, y0: number, x1: number, y1: number, lift0 = 0, lift1 = 0): number {
     const w = this.width;
     let dx = x1 - x0;
     let dy = y1 - y0;
@@ -2764,8 +2768,8 @@ export class Sim {
     // the cross-multiply below would degenerate to `0 > 0`. A man standing in
     // his own screen is in it.
     if (total === 0) return this.smoke[y0 * w + x0];
-    const h0 = this.elevation[y0 * w + x0] + EYE_HEIGHT;
-    const h1 = this.elevation[y1 * w + x1] + EYE_HEIGHT;
+    const h0 = this.elevation[y0 * w + x0] + EYE_HEIGHT + lift0;
+    const h1 = this.elevation[y1 * w + x1] + EYE_HEIGHT + lift1;
     let err = dx - dy;
     let x = x0;
     let y = y0;
@@ -2791,6 +2795,13 @@ export class Sim {
     }
   }
 
+  /** Elevation levels a unit's eye stands above its window tile's ground:
+   *  its building's floors above the ground, 0 in the open (G3). */
+  private eyeLift(i: number): number {
+    const s = this.garrisonedIn[i];
+    return s < 0 ? 0 : this.structureTypes[this.stTypeIdx[s]].floors - 1;
+  }
+
   /** Smoke density on a tile, for tests and presentation. */
   smokeAt(x: number, y: number): number {
     if (x < 0 || y < 0 || x >= this.width || y >= this.height) return 0;
@@ -2798,8 +2809,11 @@ export class Sim {
   }
 
   /** Bresenham over tiles: -1 if a blocked tile interrupts the ray, else the
-   *  number of cover tiles crossed (endpoints excluded, capped at 8). */
-  private losRay(x0: number, y0: number, x1: number, y1: number): number {
+   *  number of cover tiles crossed (endpoints excluded, capped at 8).
+   *  `lift0`/`lift1` raise an end's eye by whole elevation levels: a garrison's
+   *  floors above the ground (`eyeLift`); 0 for everyone else, which is every
+   *  existing caller, so this is bit-identical where nobody is garrisoned. */
+  private losRay(x0: number, y0: number, x1: number, y1: number, lift0 = 0, lift1 = 0): number {
     const w = this.width;
     // A building never blocks sight into or out of itself: men at the windows
     // can see and be seen. Only the structures at the ends of the ray are
@@ -2808,7 +2822,7 @@ export class Sim {
     const sTo = this.structureOfTile[y1 * w + x1];
     // A screen thick enough simply stops the sight line; thinner smoke
     // counts as obscuration below.
-    const smoke = this.raySmoke(x0, y0, x1, y1);
+    const smoke = this.raySmoke(x0, y0, x1, y1, lift0, lift1);
     if (smoke >= SMOKE_BLOCKS_AT) return -1;
     const smokeCover = smoke > 0 ? 1 + ((smoke / SMOKE_MAX) | 0) : 0;
     let dx = x1 - x0;
@@ -2827,8 +2841,8 @@ export class Sim {
     // early return rather than by a guard of its own -- a refactor that moved
     // the early return would divide this assumption out from under it.
     // Both ends, symmetrically: you see a body, and a body has height.
-    const h0 = this.elevation[y0 * w + x0] + EYE_HEIGHT;
-    const h1 = this.elevation[y1 * w + x1] + EYE_HEIGHT;
+    const h0 = this.elevation[y0 * w + x0] + EYE_HEIGHT + lift0;
+    const h1 = this.elevation[y1 * w + x1] + EYE_HEIGHT + lift1;
     const total = dx > dy ? dx : dy;
     let k = 0;
     let err = dx - dy;
@@ -2933,7 +2947,7 @@ export class Sim {
     const dSq = distSqFx(fx.sub(tx, ox), fx.sub(ty, oy));
     none.distSq = dSq;
     if (dSq > oType.sightSq) return none;
-    const cov = this.losRay(ox >> 16, oy >> 16, tx >> 16, ty >> 16);
+    const cov = this.losRay(ox >> 16, oy >> 16, tx >> 16, ty >> 16, this.eyeLift(obs), this.eyeLift(tgt));
     if (cov < 0) return none;
 
     let sig = tType.signature;
@@ -3065,7 +3079,7 @@ export class Sim {
     for (const w of type.weapons) {
       if (dSq > w.rangeSq || this.minRangeBlocks(w, dSq, target)) continue;
       if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
-        if (this.losRay(px >> 16, py >> 16, tx >> 16, ty >> 16) < 0) continue;
+        if (this.losRay(px >> 16, py >> 16, tx >> 16, ty >> 16, this.eyeLift(shooter), 0) < 0) continue;
       }
       const factors = this.hitFactors(shooter, w, target);
       if (factors.p <= bestP) continue;
@@ -3586,7 +3600,7 @@ export class Sim {
     const dSq = distSqFx(fx.sub(this.posX[t], px), fx.sub(this.posY[t], py));
     if (dSq > w.rangeSq || this.minRangeBlocks(w, dSq, t)) return false;
     if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
-      if (this.losRay(px >> 16, py >> 16, this.posX[t] >> 16, this.posY[t] >> 16) < 0) return false;
+      if (this.losRay(px >> 16, py >> 16, this.posX[t] >> 16, this.posY[t] >> 16, this.eyeLift(shooter), 0) < 0) return false;
     }
     this.engageDSq = dSq;
     this.engageOX = px;
@@ -3673,7 +3687,7 @@ export class Sim {
       if (dSq > w.rangeSq || dSq < w.minRangeSq || dSq >= bestDistSq) continue;
       if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
         const [tx, ty] = this.nearestStructTile(s, px, py);
-        if (this.losRay(px >> 16, py >> 16, tx >> 16, ty >> 16) < 0) continue;
+        if (this.losRay(px >> 16, py >> 16, tx >> 16, ty >> 16, this.eyeLift(shooter), 0) < 0) continue;
       }
       best = s;
       bestDistSq = dSq;
@@ -4291,7 +4305,7 @@ export class Sim {
     let coverMod = COVER_HIT[parapet > tileCover ? parapet : tileCover];
     // Shooting through a screen: every tile of it degrades the shot, with a
     // floor because blind fire still occasionally connects.
-    const smokeOnLine = this.raySmoke(px >> 16, py >> 16, tx >> 16, ty >> 16);
+    const smokeOnLine = this.raySmoke(px >> 16, py >> 16, tx >> 16, ty >> 16, this.eyeLift(shooter), 0);
     if (smokeOnLine > 0) {
       const tiles = 1 + ((smokeOnLine / SMOKE_MAX) | 0);
       let mult = ONE;

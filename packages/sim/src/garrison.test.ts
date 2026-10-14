@@ -279,3 +279,30 @@ describe('range and sight are measured from the window (G1, B6)', () => {
   });
 });
 
+
+describe('each floor above the ground adds to eye height (G3)', () => {
+  function sees(floors: number, blockX: number): boolean {
+    const { sim, t, u } = world();
+    const tower = rect(sim, sim.addStructureType({ ...HOUSE, id: `g_f${floors}`, floors }), 10, 10, 2, 2);
+    rect(sim, t.block, blockX, 10, 1, 1);
+    const holder = sim.spawn(u.rifles, 0, fx.from(9.5), fx.from(11.5));
+    garrison(sim, holder, tower);
+    // Window (11.5, 10.5) to the target's tile (18, 10): seven steps.
+    const target = sim.spawn(u.dummy, 1, fx.from(18.5), fx.from(10.5));
+    return sim.debugDetection(holder, target)?.visible ?? false;
+  }
+
+  it('one floor: a building on the line blocks the view', () => expect(sees(1, 14)).toBe(false));
+  it('three floors: it sees over a building in the nearer half of the line', () => expect(sees(3, 14)).toBe(true));
+  it('but not over one standing beside the target: dead ground stays dead', () => expect(sees(3, 17)).toBe(false));
+
+  it('and it is seen as far as it sees', () => {
+    const { sim, t, u } = world();
+    const tower = rect(sim, sim.addStructureType({ ...HOUSE, id: 'g_f3', floors: 3 }), 10, 10, 2, 2);
+    rect(sim, t.block, 14, 10, 1, 1);
+    const holder = sim.spawn(u.rifles, 1, fx.from(9.5), fx.from(11.5));
+    garrison(sim, holder, tower);
+    const obs = sim.spawn(u.rifles, 0, fx.from(18.5), fx.from(10.5));
+    expect(sim.debugDetection(obs, holder)?.visible).toBe(true);
+  });
+});
