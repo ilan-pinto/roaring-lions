@@ -91,8 +91,18 @@ const MOUNTED: readonly (readonly [string, string, readonly string[], readonly s
   // A3.1 stage 2 (2026-10-05): the Meshy ATGM post's four splayed legs reach
   // further than kit's three; at kit's own anchor 8 samples sat inside a
   // kneeling crewman, so the importer slides the mount forward until clear.
-  // atgm_cell has no `fire` clip.
-  ['atgm_cell.glb', 'the ATGM post vs its crew', ['idle'], ['weapon'], 'prop', /^atgm_crew(0|1)_/],
+  // Unit polish (14 Oct): the gunner sits ON the gun now, his eye at the
+  // sight and his hands closed on the grips (`crew_on_gun.test.ts` holds
+  // them there), so the post is held out of everything of his but his two
+  // forearms -- a hand on a grip touches it by design (3 samples). Measured
+  // before excluding them: head/neck 397 and torso 60 in `pinned` when the
+  // huddle folded him into the tube (`crew-fire.ts`'s applyCrewPinned).
+  ['atgm_cell.glb', 'the ATGM post vs its crew', ['idle', 'fire', 'pinned'], ['weapon'], 'prop', /^atgm_crew(1_|0_(?!forearm))/],
+  // Unit polish (14 Oct): the raised B8 mortar grafted in (`mortar-graft.ts`),
+  // slid from kit's x 0.22 until clear of both kneelers (94 samples inside at
+  // 0.22, 0 at +0.24) plus 0.05; the gunner's inboard hand closes on the
+  // handwheel (15 samples), so his forearms are out of the body set.
+  ['mortar_crew.glb', 'the raised mortar vs its crew', ['idle', 'fire', 'pinned'], ['weapon'], 'prop', /^emtr_crew(1_|0_(?!forearm))/],
 ];
 
 describe('a mounted kit part stays out of the body it rides', () => {

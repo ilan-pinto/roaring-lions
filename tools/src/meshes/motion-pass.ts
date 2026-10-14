@@ -42,6 +42,7 @@ import { applyGround } from './motion/ground';
 import { applyFormation } from './motion/formation';
 import { applyStride } from './motion/stride';
 import { tidyArms } from './motion/tidy';
+import { applyCrewFire, applyCrewPinned } from './motion/crew-fire';
 import { addFeet } from './motion/feet';
 import { MOTION_TEAMS, MOTION_VERSION, recoilOf, type MotionTeam } from './motion/teams';
 
@@ -67,10 +68,19 @@ export function runMotionPass(doc: Document, id: string, spec: MotionTeam, base:
   lines.push(...holds.map((h) => h.line));
   lines.push(...applyCarry(doc, id, spec));
   lines.push(...applyGround(doc, id, spec));
+  // AFTER the ground step: it raises a sunk kneeler's root by up to 37 mm,
+  // which would lift a gunner seated before it off his sight and grips.
+  // `fire` is built from the grounded idle and moves no leg, so it stays on
+  // the ground (`mesh_gait.test.ts`'s census reads it).
+  if (spec.crewFire) lines.push(...applyCrewFire(doc, id));
   if (spec.kneel) lines.push(...applyKneel(doc, id, spec, holds[0]?.ctx ?? []));
   if (needsPinned(doc)) lines.push(...applyPinned(doc, id));
+  if (spec.crewFire && needsPinned(doc)) lines.push(...applyCrewPinned(doc, id));
+  // Re-read: a step may have written its own extras (`crew-fire.ts`'s
+  // `rl_fire`, `pinned.ts`'s `rl_pinned`), and the copy taken at the top
+  // would silently drop them.
   scene.setExtras({
-    ...extras,
+    ...((scene.getExtras() ?? {}) as Record<string, unknown>),
     rl_motion: { version: MOTION_VERSION, base },
     // Read by the renderer (`units/squad-rig.ts`): who kicks on a shot, and
     // whether the team is drawn as a squad of separate men.
@@ -86,6 +96,9 @@ async function main(): Promise<void> {
   // --in/--out: one file, anywhere (a scratch preview); never with --from.
   const inFile = args.find((a) => a.startsWith('--in='))?.slice(5);
   const outFile = args.find((a) => a.startsWith('--out='))?.slice(6);
+  // --base=<label>: what `rl_motion.base` records for a working-tree input
+  // that is not plain git (mortar_crew: `13f667ff+mortar-graft`).
+  const baseLabel = args.find((a) => a.startsWith('--base='))?.slice(7);
   // --step=pinned: only the pinned huddle, on files already through the pass.
   const step = args.find((a) => a.startsWith('--step='))?.slice(7);
   if (step !== undefined && step !== 'pinned') throw new Error(`motion: unknown --step=${step} (only "pinned")`);
@@ -108,8 +121,8 @@ async function main(): Promise<void> {
     }
     const r =
       step === 'pinned'
-        ? { id, lines: applyPinned(doc, id) }
-        : runMotionPass(doc, id, spec, from ?? (inFile ? 'scratch' : 'working tree'));
+        ? { id, lines: [...applyPinned(doc, id), ...(spec.crewFire ? applyCrewPinned(doc, id) : [])] }
+        : runMotionPass(doc, id, spec, baseLabel ?? from ?? (inFile ? 'scratch' : 'working tree'));
     writeFileSync(outFile ?? file, await io.writeBinary(doc));
     console.log(`MOTION ${id}`);
     for (const l of r.lines) console.log(`  ${l}`);
