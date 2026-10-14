@@ -255,6 +255,7 @@ function endPause(st: RoomState, nowMs: number): Effect[] {
   for (const s of st.seats) if (s) s.lastSeenMs = nowMs;
   st.status = 'running';
   st.stall = null;
+  st.roundWait = null;   // the resume told clients the room runs: a wait still in force is announced again
   return [{ kind: 'send', to: 'all', msg: { t: 'resume' } }, ...recheckStall(st, nowMs)];
 }
 
@@ -494,6 +495,7 @@ function recheckStall(st: RoomState, nowMs: number, mayStall = true): Effect[] {
     st.status = 'running';
     st.stall = null;
     for (const seatState of st.seats) if (seatState) seatState.lastSeenMs = nowMs;   // the wait was not silence
+    st.roundWait = null;   // the resume told clients the room runs: a round wait still in force is announced again
     return [{ kind: 'send', to: 'all', msg: { t: 'resume' } }];
   }
   if (want && st.status === 'stalled' && (st.stall?.reason !== want.reason || st.stall.seat !== want.seat)) {

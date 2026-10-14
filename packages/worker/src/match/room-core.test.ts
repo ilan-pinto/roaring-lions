@@ -1157,6 +1157,55 @@ describe('paced rounds (N4a task 6)', () => {
     expect(persistKey(st)).toBe(before);
   });
 
+  describe('a pause or stall that comes and goes inside a wait re-announces it (review fix round 1)', () => {
+    const kinds = (fx: Effect[]) => sends(fx).map((s) => (s.msg.t === 'stall' ? `stall:${s.msg.reason}` : s.msg.t));
+
+    it('a pause entered and expired during a wait: resume then stall{round} on the same tick, one resume at release', () => {
+      const st = pacedRoom(['human', 'bot'], 600_000);
+      const closedAt = playRound0(st);
+      beat(st, closedAt + 50);
+      expect(st.roundWait).toBe(1);
+      seatMessage(st, 0, { t: 'pause' }, closedAt + 100, mint);
+      expect(st.status).toBe('stalled');
+      const at = closedAt + 100 + PAUSE_MS;
+      expect(kinds(clockTick(st, at))).toEqual(['resume', 'stall:round']);
+      expect(st.roundWait).toBe(1);
+      expect(kinds(beat(st, at + 50))).toEqual([]);
+      seatMessage(st, 1, { t: 'done', round: 0 }, at + 100, mint);
+      expect(kinds(beat(st, at + 150))).toEqual(['resume', 'frame']);
+    });
+
+    it('a pause ended early by its owner during a wait re-announces on the next tick', () => {
+      const st = pacedRoom(['human', 'bot'], 600_000);
+      const closedAt = playRound0(st);
+      beat(st, closedAt + 50);
+      seatMessage(st, 0, { t: 'pause' }, closedAt + 100, mint);
+      expect(kinds(seatMessage(st, 0, { t: 'resume' }, closedAt + 150, mint))).toEqual(['resume']);
+      expect(kinds(beat(st, closedAt + 200))).toEqual(['stall:round']);
+    });
+
+    it('a gone stall that begins and clears during a wait re-announces; one resume at release', () => {
+      const st = pacedRoom(['human', 'bot'], 600_000);
+      const closedAt = playRound0(st);
+      beat(st, closedAt + 50);
+      expect(kinds(seatGone(st, 0, closedAt + 100))).toContain('stall:gone');
+      expect(kinds(seatJoin(st, 0, 'p0', 'Host', closedAt + 150))).toContain('resume');
+      expect(kinds(beat(st, closedAt + 200))).toEqual(['stall:round']);
+      seatMessage(st, 1, { t: 'done', round: 0 }, closedAt + 250, mint);
+      expect(kinds(beat(st, closedAt + 300))).toEqual(['resume', 'frame']);
+    });
+
+    it('a behind stall that begins and clears during a wait re-announces', () => {
+      const st = pacedRoom(['human', 'bot'], 600_000);
+      const closedAt = playRound0(st);
+      beat(st, closedAt + 50);
+      st.seats[0]!.lastAck = st.tick - 1 - STALL_BEHIND_TICKS;
+      expect(kinds(clockTick(st, closedAt + 100))).toEqual(['stall:behind']);
+      expect(kinds(seatMessage(st, 0, { t: 'ack', tick: st.tick - 1 }, closedAt + 150, mint))).toEqual(['resume']);
+      expect(kinds(beat(st, closedAt + 200))).toEqual(['stall:round']);
+    });
+  });
+
   it('a woken room releases the round at once', () => {
     const st = pacedRoom();
     playRound0(st);
