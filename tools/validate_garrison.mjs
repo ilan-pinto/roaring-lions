@@ -19,3 +19,27 @@ export function garrisonWeaponFailures(unit, file) {
   }
   return out;
 }
+
+/** B2: every placement with a garrison stance, anywhere in the mission, names a unit that can
+ *  garrison. The runtime's `garrison` command silently skips a unit without the ability, so the
+ *  body stands where it spawned -- on the building's own blocked tile, three times in eight. */
+export function garrisonStanceFailures(mission, unitsById, file) {
+  const out = [];
+  const walk = (node) => {
+    if (Array.isArray(node)) {
+      for (const v of node) walk(v);
+    } else if (node && typeof node === 'object') {
+      if (typeof node.unit === 'string' && node.stance?.kind === 'garrison') {
+        if (!(unitsById.get(node.unit)?.abilities ?? []).includes('garrison')) {
+          out.push(
+            `${file}: "${node.unit}" has a garrison stance and no garrison ability -- the order is ` +
+              `silently refused and the unit stands where it spawned`
+          );
+        }
+      }
+      for (const v of Object.values(node)) walk(v);
+    }
+  };
+  walk(mission);
+  return out;
+}

@@ -3,7 +3,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { garrisonWeaponFailures } from '../validate_garrison.mjs';
+import { garrisonStanceFailures, garrisonWeaponFailures } from '../validate_garrison.mjs';
 
 const ROOT = join(__dirname, '..', '..');
 function unitsOnDisk(): Record<string, unknown>[] {
@@ -34,5 +34,33 @@ describe('garrisonWeaponFailures (G4)', () => {
     expect(all.flatMap((u) => garrisonWeaponFailures(u, String(u.id)))).toEqual([]);
     const mt = all.find((u) => u.id === 'mortar_team') as { weapons: { fires_from_building?: boolean }[] };
     expect(mt.weapons[0].fires_from_building).toBe(false);
+  });
+});
+
+function missionsOnDisk(): Record<string, unknown>[] {
+  return readdirSync(join(ROOT, 'data/missions'))
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => JSON.parse(readFileSync(join(ROOT, 'data/missions', f), 'utf8')));
+}
+
+describe('garrisonStanceFailures (B2)', () => {
+  const units = new Map<string, { abilities?: string[] }>([
+    ['can', { abilities: ['garrison'] }],
+    ['cannot', { abilities: [] }],
+  ]);
+  const at = (unit: string) => ({ unit, count: 1, at: [3, 3], stance: { kind: 'garrison', building: [3, 3] } });
+  it('refuses a garrison stance on a unit without the ability, wherever the placement sits', () => {
+    expect(garrisonStanceFailures({ enemy: { garrison: [at('cannot')] } }, units, 'm')).toHaveLength(1);
+    expect(garrisonStanceFailures({ enemy: { waves: [{ units: [at('cannot')] }] } }, units, 'm')).toHaveLength(1);
+    expect(garrisonStanceFailures({ triggers: [{ do: { kind: 'spawn', units: [at('cannot')] } }] }, units, 'm')).toHaveLength(1);
+    expect(garrisonStanceFailures({ starting_force: [at('cannot')] }, units, 'm')).toHaveLength(1);
+  });
+  it('passes one with it, and a placement with another stance', () => {
+    expect(garrisonStanceFailures({ enemy: { garrison: [at('can')] } }, units, 'm')).toEqual([]);
+    expect(garrisonStanceFailures({ enemy: { garrison: [{ ...at('cannot'), stance: { kind: 'hold_position' } }] } }, units, 'm')).toEqual([]);
+  });
+  it('every shipped mission passes', () => {
+    const byId = new Map(unitsOnDisk().map((u) => [String(u.id), u as { abilities?: string[] }]));
+    expect(missionsOnDisk().flatMap((m) => garrisonStanceFailures(m, byId, String(m.id)))).toEqual([]);
   });
 });
