@@ -1,3 +1,4 @@
+import { defineConfig } from 'eslint/config';
 import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import globals from 'globals';
@@ -9,7 +10,7 @@ const SIM_MSG =
 const TIME_MSG =
   'Banned in @lions/sim (invariant 1, CLAUDE.md): the sim runs a fixed 20 Hz tick and never reads wall time.';
 
-export default tseslint.config(
+export default defineConfig(
   {
     // `.claude/worktrees/` holds throwaway checkouts of this same repository.
     // Without this, eslint walks into them and lints a second copy of the tree

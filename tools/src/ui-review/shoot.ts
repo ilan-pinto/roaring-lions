@@ -331,7 +331,7 @@ async function versusStates(browser: Browser, res: { width: number; height: numb
     });
     await ctx.routeWebSocket(/\/api\/match\/[A-Z0-9]+\/ws$/, (ws) => {
       ws.onMessage((raw) => {
-        let msg: { t?: unknown } = {};
+        let msg: { t?: unknown };
         try {
           msg = JSON.parse(typeof raw === 'string' ? raw : raw.toString('utf8')) as { t?: unknown };
         } catch {

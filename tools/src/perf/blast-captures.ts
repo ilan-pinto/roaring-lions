@@ -1361,7 +1361,7 @@ async function main(): Promise<void> {
   // the same resolver `ui:shots` uses). The backend is recorded in the sheet
   // either way (`readUnmaskedRenderer`), so a sheet always says which it was.
   const browser = await chromium.launch({ headless: true, args: gpuLaunchArgs(resolveGpuBackend(process.argv, process.platform)) });
-  let gl = 'unknown';
+  let gl: string;
   let firstStepJumpMs = 0;
   try {
     gl = await readUnmaskedRenderer(browser);
@@ -2025,16 +2025,15 @@ async function triggerTriggerFx(page: import('playwright').Page, p: Placed, note
       // side-0 eye on the target once the munition that was watching it is
       // gone (see `spotterAt`).
       if (decoy >= 0 && !(row.mode === 'kamikaze' && row.spotterAt !== undefined)) L.sim.removeFromPlay(decoy);
-      let hostile = -1;
       let shooter = friendly;
       let target = ownEntity;
       if (row.mode === 'strike' || row.mode === 'charge' || row.mode === 'kamikaze') {
         const hostileId = row.typeId ?? row.id;
-        hostile = L.sim.spawn(L.sim.unitTypes.findIndex((t) => t.id === hostileId), 1, row.x * fixed, row.y * fixed);
+        const hostile = L.sim.spawn(L.sim.unitTypes.findIndex((t) => t.id === hostileId), 1, row.x * fixed, row.y * fixed);
         target = hostile;
       } else if (row.mode === 'aps') {
         const launcherId = row.shooterId;
-        hostile = L.sim.spawn(L.sim.unitTypes.findIndex((t) => t.id === launcherId), 1, (row.x + (row.standoffTiles ?? 9)) * fixed, row.y * fixed);
+        const hostile = L.sim.spawn(L.sim.unitTypes.findIndex((t) => t.id === launcherId), 1, (row.x + (row.standoffTiles ?? 9)) * fixed, row.y * fixed);
         shooter = hostile;
       } else if (row.mode === 'smoke') {
         const at = row.smokeAt ?? [3, 0];

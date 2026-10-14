@@ -1200,12 +1200,11 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
     await vi.advanceTimersByTimeAsync(1234);
     const closeAt = await bothOver(room, ws0, ws1);
     expect((closeAt - NOW) % WATCHDOG_MS).not.toBe(0);
-    let instance = room;
     const wakes: number[] = [];
     // The isolate dies after every wake: only the storage alarm brings the room back.
     for (let i = 0; i < 100 && state.storage.alarmAt !== null && ofType(ws0, 'ended').length === 0; i++) {
       evict();
-      instance = new MatchRoom(state, env);
+      const instance = new MatchRoom(state, env);
       vi.setSystemTime(state.storage.alarmAt);
       wakes.push(Date.now());
       await deliverAlarm(instance, state.storage);

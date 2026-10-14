@@ -138,14 +138,12 @@ export function buildDecorMesh(
   const live: DecorPlacement[] = [];
   for (const p of placements) {
     const key = `${p.family}_${p.variant}`;
-    let parts = used.get(key);
-    if (parts === undefined) {
+    if (!used.has(key)) {
       const found = set.parts.get(key);
       // A family whose GLB failed to fetch loses its objects. Losing a bush
       // is acceptable; throwing here would lose the whole frame.
       if (!found) continue;
       used.set(key, found);
-      parts = found;
     }
     live.push(p);
   }
