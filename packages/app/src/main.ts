@@ -261,7 +261,7 @@ import { NetStatusLine, lineOverMatchEnd, matchClock } from './ui/net-status';
 import { NetChat, chatFeedLine, chatOpens } from './ui/net-chat';
 import { showNetEnd } from './ui/net-end';
 import { describeCommand, mountAdvisorPanel, type AdvisorPanel } from './ui/advisor';
-import { NetScoreboard } from './ui/net-score';
+import { NetScoreboard, advisorPresenceHook } from './ui/net-score';
 import { scoreOf, showsScoreboard } from './net/scoreboard';
 import { decideOnHashTick, matchResult, reportOver, roomEndingOutcome, type LocalDecision, type MatchResult } from './net/outcome';
 import { lightOverrideOf, timeOfDayOf } from './time-of-day';
@@ -3183,8 +3183,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   if (room !== null && blockedNotes !== null) room.setHooks({ onCmdRefused: () => blockedNotes.refused() });
   /** The advisor's panel and proposal strip (N4a task 10), a versus room only.
    *  Mounted hidden and shown while the room says an advisor sits beside THIS
-   *  seat (`onAdvisors`, which a hook installed here also hears for what the
-   *  lobby already heard). A proposal the human lets stand is queued through
+   *  seat (`onAdvisors`, installed with the scoreboard below, which hears
+   *  what the lobby already heard). A proposal the human lets stand is queued through
    *  the same order sink a click uses, as this seat's own `cmd`; `validate` is
    *  the ownership check on the live sim, and refuses while the room is paused
    *  (a paused room would drop the order, and the advisor must be told no). */
@@ -3206,10 +3206,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       },
     });
     advisorPanel = panel;
-    room.setHooks({
-      onAdvisor: (from, a) => panel.onAdvisor(from, a),
-      onAdvisors: (present) => { if (netEnd === null) panel.onPresence(present[myNetSeat]); },
-    });
+    room.setHooks({ onAdvisor: (from, a) => panel.onAdvisor(from, a) });
     onDispose(() => panel.dispose());
   }
   // Pass K: a /free-play/<id> link naming no shipped map still loads the
@@ -5511,6 +5508,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const scoreNames = { theirs: netConfig?.seats[otherSeat].callsign ?? '' };
   const netScore = showsScoreboard(netConfig) ? new NetScoreboard(document.body, me, scoreNames) : null;
   if (netScore !== null) onDispose(() => netScore.dispose());
+  /** Who has an advisor (decision D1): this seat's own to its panel, both
+   *  seats' to the board, so an advisor admitted into the running room shows
+   *  to the friend as well as in the lobby. Installed here, after both exist:
+   *  `setHooks` replays the room's last `advisors` at once, and clears to
+   *  none on a relink. */
+  if (room !== null && netSeat !== null && versusRoom) {
+    room.setHooks({ onAdvisors: advisorPresenceHook(netSeat, { panel: advisorPanel, board: netScore }, () => netEnd === null) });
+  }
   /** The match is over on this screen (N1b task 10). The sim is stepped no
    *  more; the transport is NOT closed (R-B11) -- the panel's buttons
    *  navigate, and this battlefield's disposer sends the room its `bye`. The

@@ -8106,6 +8106,33 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-net-score[hidden] {
   display: none;
 }
+/* N4a (decision D1): each seat's advisor, under the running table, so the
+   friend sees an advisor admitted mid-match as well as in the lobby. */
+.rl-net-score__advisors {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--s1);
+  padding-top: var(--s1);
+  color: var(--ink-dim);
+  font: 600 var(--t-s) var(--font-body);
+}
+.rl-net-score__advisors[hidden] {
+  display: none;
+}
+.rl-net-score__advisor {
+  display: flex;
+  gap: var(--s2);
+  white-space: nowrap;
+}
+.rl-net-score__who {
+  max-width: 10rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rl-net-score__advisor[data-row='mine'] .rl-net-score__who {
+  color: var(--good);
+}
 .rl-net-board {
   border-collapse: collapse;
   color: var(--ink);
