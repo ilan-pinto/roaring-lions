@@ -10,6 +10,7 @@
 
 import { CivilianFlight, missionShepherds } from './civilians';
 import { fx, HALF, type Fx } from './fixed';
+import { HASH_SEED, hashWord } from './hash';
 import { starsFor, betterResult, type Stars, type MissionResult } from './grade';
 import { TICKS_PER_SECOND, type Sim, type SimEvent } from './sim';
 import type { TunnelRouteJson } from './tunnels';
@@ -591,6 +592,28 @@ export class MissionRuntime {
 
   get intel(): number {
     return this.intelValue - (this.intelValue % 1);
+  }
+
+  /** A 32-bit hash over every piece of runtime economy state: the floored purse
+   *  (logistics, intel), the build queue, and, from F2/F4 on, the zone owners and
+   *  production lines. Uses the sim's own hashWord, so the two hashes compose.
+   *
+   *  Read-only, and integer-only on purpose: the purse accrues in JS number
+   *  arithmetic (`rate / 1200`), so only its floor is hashed (`| 0` truncates a
+   *  non-negative number to its floor), and every word folded in is an int32.
+   *  The build queue goes in array order (the order `requestBuild` pushed it),
+   *  each entry as its unit id's characters, then its start and ready ticks. */
+  economyHash(): number {
+    let h = HASH_SEED;
+    h = hashWord(h, this.logisticsValue | 0);
+    h = hashWord(h, this.intelValue | 0);
+    h = hashWord(h, this.buildQueue.length);
+    for (const b of this.buildQueue) {
+      for (let i = 0; i < b.unit.length; i++) h = hashWord(h, b.unit.charCodeAt(i));
+      h = hashWord(h, b.startTick | 0);
+      h = hashWord(h, b.readyTick | 0);
+    }
+    return h >>> 0;
   }
 
   /** Field production: spend logistics/intel, deploy at player_start after

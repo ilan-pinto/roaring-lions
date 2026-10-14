@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
+import { MissionRuntime, type MissionJson } from './mission';
 import { BRACE_DROPPING, BRACE_KNEELING, BRACE_RISING, Sim, type SimEvent, type UnitTypeJson } from './sim';
 
 // The canary for invariants 2 and 3 (CLAUDE.md): replay 1000 ticks from a
@@ -981,5 +982,238 @@ describe('determinism of an order once it is done (900-tick replay)', () => {
     // hashArray lines removed, all three replays (flat, relief, orders)
     // reproduce the old value exactly. Was 1736634855.
     expect(orders(ORDERS_SEED).sim.hash()).toBe(3272041047);
+  });
+});
+
+// --- the economy replay -----------------------------------------------------
+// No other replay in this file constructs a MissionRuntime, so the mission
+// economy -- the purse, the build queue -- was the one piece of runtime state
+// with no canary for invariants 2 and 3. It lives in JS number arithmetic
+// (`rate / 1200`, mission.ts' income block), which is legal there only because
+// nothing hashed it. `economyHash()` hashes its FLOOR, plus the queue; this
+// replay pins it BEFORE the Stage 4 economy plans (F1 first) change it, so the
+// first thing the pin has to explain is a deliberate change.
+//
+// The types mirror the shipped data (data/units/kdf/inf_squad.json, recon_drone,
+// data/units/enemy/militia_cell.json) in the fields that decide behaviour: an
+// in-test type with no `role` derives wheeled and never braces (halt to fire,
+// 6 Oct), so the squads carry `role: 'infantry'`.
+
+const ECONOMY_SEED = 0x0e_c0_0001;
+const ECONOMY_TICKS = 2400; // two minutes
+// ECONOMY_PIN: born 2026-10-14 at da74f887 (F1 Task 1, before any economy
+// change). There is no earlier value. Move it deliberately, in the commit that
+// moves the economy, and say why; each Stage 4 economy plan (F1, F2, F4) that
+// adds a column to economyHash() moves it once, with a comment here.
+const ECONOMY_PIN = 3286554442;
+const ECONOMY_EXTRA_BUILD_TICK = 1000;
+// Still building when the replay ends (15 s = 300 ticks to deliver), so the
+// pinned hash carries a non-empty queue and not just a purse.
+const ECONOMY_LATE_BUILD_TICK = 2300;
+
+const ECO_SQUAD: UnitTypeJson = {
+  id: 'inf_squad',
+  role: 'infantry',
+  abilities: ['garrison', 'mark_target'],
+  hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 }, crew: 8, suppression_resistance: 0.5 },
+  mobility: { speed_tiles_s: 0.9 },
+  sensors: { optics: 1.0, sight_tiles: 8, signature: 0.6, firing_signature_mult: 3.0 },
+  weapons: [
+    {
+      id: 'rifles',
+      type: 'small_arms',
+      range_tiles: 8,
+      effective_range_tiles: 6.4,
+      accuracy: 0.6,
+      penetration: 8,
+      damage: 15,
+      suppression: 50,
+      rof_per_min: 300,
+    },
+  ],
+};
+
+const ECO_DRONE: UnitTypeJson = {
+  id: 'recon_drone',
+  role: 'drone',
+  abilities: ['mark_target', 'mark_tunnel'],
+  hull: { hp: 120, armor: { front: 0, side: 0, rear: 0 }, crew: 0, suppression_resistance: 1.0 },
+  mobility: { speed_tiles_s: 2.2, turn_rate_deg_s: 180, domain: 'air' },
+  sensors: { optics: 2.0, sight_tiles: 16, signature: 0.3, firing_signature_mult: 1.0 },
+};
+
+const ECO_MILITIA: UnitTypeJson = {
+  id: 'militia_cell',
+  role: 'infantry',
+  abilities: ['garrison'],
+  hull: { hp: 360, armor: { front: 10, side: 10, rear: 10 }, crew: 6, suppression_resistance: 0.4 },
+  mobility: { speed_tiles_s: 0.95 },
+  sensors: { optics: 0.85, sight_tiles: 7, signature: 0.45, firing_signature_mult: 3.5 },
+  weapons: [
+    {
+      id: 'rifles',
+      type: 'small_arms',
+      range_tiles: 7,
+      effective_range_tiles: 5.5,
+      accuracy: 0.5,
+      penetration: 8,
+      damage: 14,
+      suppression: 45,
+      rof_per_min: 320,
+    },
+  ],
+};
+
+/** The extra build of the "covers the purse" property: a wheeled, unarmed hull
+ *  that earns no intel (neither a drone nor a marker), so buying one moves the
+ *  LOGISTICS purse and nothing else once its queue entry has been delivered. */
+const ECO_TRUCK: UnitTypeJson = {
+  id: 'supply_truck',
+  hull: { hp: 300, armor: { front: 5, side: 5, rear: 5 } },
+  mobility: { speed_tiles_s: 1.5 },
+  sensors: { optics: 1.0, sight_tiles: 6, signature: 0.7 },
+};
+
+const ECO_CAMP = {
+  id: 'camp',
+  name: 'Field Camp',
+  hp_per_tile: 300,
+  garrison_slots: 3,
+  rubble_cover: 2,
+  produces_for: 0,
+};
+
+const ECO_MISSION: MissionJson = {
+  id: 'economy_replay',
+  map: { file: 'beit_sahwan_outskirts', player_start: [6, 23] },
+  ledger: { requires: [], produces: [] },
+  structures: [{ type: 'camp', at: [6, 30], size: [2, 2] }],
+  resources: { logistics_start: 400, logistics_rate_per_min: 120, intel_start: 0 },
+  // No time_limit_s: the fixture must not withdraw.
+  objectives: [
+    { id: 'hold_assembly', type: 'hold_for', primary: true, target: 'assembly', seconds: 600 },
+    { id: 'clear', type: 'destroy_all', primary: false },
+  ],
+  starting_force: [
+    { unit: 'recon_drone', count: 1, at: [8, 22] },
+    { unit: 'inf_squad', count: 1, at: [4, 23] },
+  ],
+  enemy: {
+    faction: 'ashwar',
+    garrison: [
+      { unit: 'militia_cell', count: 1, at: [20, 22], group: 'north', stance: { kind: 'hold_position' } },
+      { unit: 'militia_cell', count: 1, at: [20, 26], group: 'south', stance: { kind: 'hold_position' } },
+    ],
+  },
+};
+
+interface EconomyRun {
+  sim: Sim;
+  rt: MissionRuntime;
+  built: number;
+  identified: number;
+  secondaryDone: boolean;
+}
+
+/** `extraBuild` buys one `supply_truck` at ECONOMY_EXTRA_BUILD_TICK: delivered
+ *  (15 s) long before the end, so it differs from the base run in the purse
+ *  alone. `leadType` swaps the drone for another type (the mutation probe). */
+function economyReplay(seed: number, extraBuild = false, leadType = 'recon_drone'): EconomyRun {
+  const sim = new Sim({ seed, width: 48, height: 48, capacity: 32 });
+  const ids = new Map<string, number>();
+  for (const t of [ECO_SQUAD, ECO_DRONE, ECO_MILITIA, ECO_TRUCK]) ids.set(t.id, sim.addUnitType(t));
+  sim.addStructureType(ECO_CAMP);
+  const info: Record<string, { logistics: number; buildTimeS: number }> = {
+    // The shipped squad costs 292; at 120/min a second one is out of reach at
+    // tick 800 (see the note in the commit), so the fixture prices it at 180.
+    inf_squad: { logistics: 180, buildTimeS: 15 },
+    supply_truck: { logistics: 100, buildTimeS: 15 },
+  };
+  const mission: MissionJson =
+    leadType === 'recon_drone'
+      ? ECO_MISSION
+      : {
+          ...ECO_MISSION,
+          starting_force: (ECO_MISSION.starting_force ?? []).map((p) =>
+            p.unit === 'recon_drone' ? { ...p, unit: leadType } : p
+          ),
+        };
+  const rt = new MissionRuntime(sim, mission, {
+    typeIdOf: (u) => {
+      const t = ids.get(u);
+      if (t === undefined) throw new Error(`unknown unit ${u}`);
+      return t;
+    },
+    markers: {},
+    zones: { assembly: [2, 20, 10, 26] },
+    unitInfo: (u) => info[u] ?? null,
+  });
+  rt.start();
+  const run: EconomyRun = { sim, rt, built: 0, identified: 0, secondaryDone: false };
+  const living = (type: string): number[] => {
+    const out: number[] = [];
+    for (let id = 0; id < sim.entityCount; id++) {
+      if (sim.state.side[id] === 0 && sim.state.alive[id] === 1 && sim.unitTypes[sim.state.typeIdx[id]].id === type) {
+        out.push(id);
+      }
+    }
+    return out;
+  };
+  for (let t = 0; t < ECONOMY_TICKS; t++) {
+    if (t === 400 || t === 800) rt.requestBuild('inf_squad');
+    if (extraBuild && t === ECONOMY_EXTRA_BUILD_TICK) rt.requestBuild('supply_truck');
+    if (t === ECONOMY_LATE_BUILD_TICK) rt.requestBuild('supply_truck');
+    // The lead unit goes forward to a post that sees both garrison groups (a
+    // drone's sight is 16), and the starting squad stays where it stands, a
+    // marker at rest. A plain move: it holds fire on the way (6 Oct).
+    if (t === 5) sim.queueCommand({ kind: 'move', ids: living(leadType), x: fx.fromInt(12), y: fx.fromInt(24) });
+    // Once both reinforcements have landed (ready at ticks 700 and 1100) the
+    // whole force attack-moves in together. `sweep` so that a squad which
+    // arrives with a contact still remembered walks on to it (6 Oct, #402).
+    if (t === 1150) {
+      sim.queueCommand({ kind: 'attackMove', ids: living('inf_squad'), x: fx.fromInt(19), y: fx.fromInt(24), sweep: true });
+    }
+    const simEvents = sim.tick();
+    for (const e of simEvents) {
+      if (e.kind === 'contact' && e.side === 0 && e.level === 'identified') run.identified++;
+    }
+    for (const e of rt.step(simEvents)) {
+      if (e.kind === 'built') run.built++;
+    }
+  }
+  run.secondaryDone = rt.objectiveList.find((o) => o.id === 'clear')?.status === 'complete';
+  return run;
+}
+
+describe('economy replay (2400 ticks of MissionRuntime on a flat map)', () => {
+  it('two runs of the economy replay agree', () => {
+    expect(economyReplay(ECONOMY_SEED).rt.economyHash()).toBe(economyReplay(ECONOMY_SEED).rt.economyHash());
+  });
+
+  it('the economy hash covers the purse', () => {
+    const base = economyReplay(ECONOMY_SEED);
+    const spent = economyReplay(ECONOMY_SEED, true);
+    // Both queues hold the same late truck at the end, so the purse is the
+    // whole difference.
+    expect(spent.built).toBe(base.built + 1);
+    expect(spent.rt.logistics).toBeLessThan(base.rt.logistics);
+    expect(spent.rt.intel).toBe(base.rt.intel);
+    expect(spent.rt.economyHash()).not.toBe(base.rt.economyHash());
+  });
+
+  it('reaches the states the hash claims to cover', () => {
+    const r = economyReplay(ECONOMY_SEED);
+    expect(r.rt.intel).toBeGreaterThan(0);
+    expect(r.built).toBeGreaterThanOrEqual(1);
+    expect(r.identified).toBeGreaterThanOrEqual(1);
+    expect(r.secondaryDone).toBe(true);
+    // The queue the hash walks is not empty at the end: one truck in flight.
+    expect(r.rt.production.map((p) => p.unit)).toEqual(['supply_truck']);
+    // And the run did not end: the fixture is not allowed to withdraw or win.
+    expect(r.rt.result).toBe('ongoing');
+  });
+
+  it('the economy replay pins its hash', () => {
+    expect(economyReplay(ECONOMY_SEED).rt.economyHash()).toBe(ECONOMY_PIN);
   });
 });
