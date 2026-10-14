@@ -8,7 +8,7 @@
  */
 import {
   canonicalOrder, cleanChat, FORFEIT_MS, LOG_PART_CHARS, MAX_CMDS_PER_SEAT_PER_FRAME, PAUSE_MS, PAUSES_PER_SEAT, OVER_CLOSE_MS,
-  type ClientMsg, type EndedReason, type Frame, type MatchConfig, type Seat, type ServerMsg, type Stamped, type SeatState,
+  type ClientMsg, type EndedReason, type Faction, type Frame, type MatchConfig, type Seat, type ServerMsg, type Stamped, type SeatState,
 } from '@lions/net';
 
 export type RoomStatus = 'lobby' | 'running' | 'stalled' | 'ended';
@@ -49,6 +49,10 @@ export interface RoomState {
   surrendered: Seat | null;
   /** The map id the lobby shows; '' until the room is given one (Task 3). */
   map: string;
+  /** Each seat's faction, by seat (2026-10-14): what the host picked at
+   *  `/create`, shown in the lobby and minted into the config. A room from
+   *  before it, and every sandbox room, is the KDF mirror. */
+  factions: [Faction, Faction];
   /** The tick each seat's sim decided the match on (`over`, L-1), -1 (JSON-safe) before it reports. First report only. */
   over: [number, number];
   /** When the room closes itself after the result (L-1, R-B26), once armed; null before. */
@@ -103,8 +107,8 @@ export const MAX_LOG_CMD_CHARS = 2_000_000;
 /** Hash ticks only one seat has reported, kept at most this many (forged ticks cannot grow the table). */
 const MAX_OPEN_HASHES = 16;
 
-export function createRoom(code: string, matchId: string, nowMs: number, map = ''): RoomState {
-  return { code, matchId, createdMs: nowMs, status: 'lobby', config: null, seats: [null, null], tick: 0, pending: [], hashes: {}, lastHashTick: -1, stall: null, endedReason: null, pause: null, pausesLeft: [PAUSES_PER_SEAT, PAUSES_PER_SEAT], lastChatMs: [-1, -1], surrendered: null, map, over: [-1, -1], closeAtMs: null, cmdTokens: [CMD_BUDGET.burst, CMD_BUDGET.burst], cmdTokensAtMs: [nowMs, nowMs], cmdChars: 0, endedAtMs: null };
+export function createRoom(code: string, matchId: string, nowMs: number, map = '', factions: [Faction, Faction] = ['kdf', 'kdf']): RoomState {
+  return { code, matchId, createdMs: nowMs, status: 'lobby', config: null, seats: [null, null], tick: 0, pending: [], hashes: {}, lastHashTick: -1, stall: null, endedReason: null, pause: null, pausesLeft: [PAUSES_PER_SEAT, PAUSES_PER_SEAT], lastChatMs: [-1, -1], surrendered: null, map, factions, over: [-1, -1], closeAtMs: null, cmdTokens: [CMD_BUDGET.burst, CMD_BUDGET.burst], cmdTokensAtMs: [nowMs, nowMs], cmdChars: 0, endedAtMs: null };
 }
 
 /** Every way a room ends goes through here, so the end is dated (#559 H-1). */
@@ -118,7 +122,7 @@ const seatStates = (st: RoomState): SeatState[] =>
   st.seats.flatMap((s) => (s ? [{ seat: s.seat, callsign: s.callsign, connected: s.connected, ready: s.ready }] : []));
 
 export function lobbyMsg(st: RoomState, you: Seat): ServerMsg {
-  return { t: 'lobby', config: st.config, seats: seatStates(st), you, map: st.map };
+  return { t: 'lobby', config: st.config, seats: seatStates(st), you, map: st.map, factions: st.factions };
 }
 
 /** What a seat is told when the room is over (also to a socket that arrives after it ended):
@@ -503,6 +507,7 @@ export function revive(st: RoomState, tick: number, nowMs: number): void {
   st.lastChatMs = stored.lastChatMs ?? [-1, -1];
   st.surrendered = stored.surrendered ?? null;
   st.map = stored.map ?? '';
+  st.factions = stored.factions ?? ['kdf', 'kdf'];
   st.over = stored.over ?? [-1, -1];
   st.closeAtMs = stored.closeAtMs ?? null;
   st.cmdTokens = stored.cmdTokens ?? [CMD_BUDGET.burst, CMD_BUDGET.burst];

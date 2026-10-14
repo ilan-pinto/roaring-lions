@@ -269,6 +269,10 @@ export interface HudDeps {
    *  rather than the game. Absent (tests, or nothing to name) keeps the
    *  game's name. */
   placeName?: string;
+  /** A versus room's own faction (2026-10-14, KDF vs Sarim): the strip's
+   *  objective slot names the force this seat commands instead of the Free
+   *  Play line. Absent everywhere else, which keeps the strip as it was. */
+  versusFaction?: 'kdf' | 'sarim';
   /** Shai's rank/plate for the mission in play, and Idit's static plate --
    *  see `HudCommanderInfo`'s own doc comment. */
   commander: HudCommanderInfo;
@@ -1522,8 +1526,13 @@ export class Hud {
       // is set only then). Its objective slot says so, and how to leave,
       // rather than standing empty -- an empty slot read as a mission that
       // had failed to load. Dim, and no glyph: it is not an objective.
+      const versus = this.deps.versusFaction;
       if (place && this.shown('objective')) {
-        rows.push(`<span class="rl-strip__obj rl-dim" data-free-play>${escapeHtml(t('hud.strip.freePlay'))}</span>`);
+        rows.push(
+          versus !== undefined
+            ? `<span class="rl-strip__obj rl-dim" data-versus="${versus}">${escapeHtml(t('hud.strip.versus', { f: versus }))}</span>`
+            : `<span class="rl-strip__obj rl-dim" data-free-play>${escapeHtml(t('hud.strip.freePlay'))}</span>`
+        );
       }
     }
 

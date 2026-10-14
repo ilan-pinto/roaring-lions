@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { versusSpawns, campOf, VERSUS_KDF } from './versus-force';
+import { units } from '@lions/data';
+import type { MatchConfig } from '@lions/net';
+import { versusSpawns, campOf, factionsBySide, versusForceOf, versusUnitTypes, VERSUS_KDF, VERSUS_SARIM } from './versus-force';
+import { unitCost } from './outcome';
 import { SANDBOX_KDF } from '../sandbox-force';
 import { sandboxAnchors } from '../sandbox-anchors';
 import { buildWorld } from './versus-world.test-helper';
@@ -96,5 +99,82 @@ describe('versusSpawns', () => {
     const anchors = { friendly: [5, 24] as const, hostile: [40, 24] as const };
     expect(campOf(anchors, 0)).toEqual([5, 24]);
     expect(campOf(anchors, 1)).toEqual([40, 24]);
+  });
+});
+
+describe('KDF vs Sarim (2026-10-14)', () => {
+  const value = (force: readonly (readonly [string, number, number])[]): number => force.reduce((sum, [id]) => sum + unitCost(id), 0);
+  const factionOf = (id: string): string => (units as Record<string, { faction: string }>)[id].faction;
+
+  it('the mirror is untouched: the same spawn, tick for tick, as before KDF vs Sarim existed', () => {
+    // Pinned from the tree before this change (`versusSpawns` with no factions, 200 ticks).
+    const want: Record<string, number> = { beit_sahwan_outskirts: 873892333, tel_marum: 3176591845 };
+    for (const mapId of ['beit_sahwan_outskirts', 'tel_marum'] as const) {
+      for (const factions of [undefined, ['kdf', 'kdf'] as const]) {
+        const { sim, typeOf, map } = buildWorld(mapId);
+        versusSpawns(sim, typeOf, sandboxAnchors(map), factions);
+        for (let i = 0; i < 200; i++) sim.tick();
+        expect(sim.hash()).toBe(want[mapId]);
+      }
+    }
+  });
+
+  it('the Sarim force is opposition units only, worth the KDF force to within 5%', () => {
+    for (const [id] of VERSUS_SARIM) expect(['sarim', 'rif', 'ashwar']).toContain(factionOf(id));
+    const kdf = value(VERSUS_KDF);
+    const sarim = value(VERSUS_SARIM);
+    expect(Math.abs(sarim - kdf) / kdf).toBeLessThan(0.05);
+    const spots = VERSUS_SARIM.map(([, dx, dy]) => `${dx},${dy}`);
+    expect(new Set(spots).size).toBe(spots.length);
+  });
+
+  it('is the force the probe measured: a change here re-runs the probe and the PR table', () => {
+    const counts: Record<string, number> = {};
+    for (const [id] of VERSUS_SARIM) counts[id] = (counts[id] ?? 0) + 1;
+    expect(counts).toEqual({ sarim_rifles: 2, atgm_cell: 14, gun_truck: 6, manpad_team: 2, rocket_battery: 2 });
+    expect(value(VERSUS_SARIM)).toBe(6736);
+    expect(value(VERSUS_KDF)).toBe(6664);
+  });
+
+  it('a faction fields its own force', () => {
+    expect(versusForceOf('kdf')).toBe(VERSUS_KDF);
+    expect(versusForceOf('sarim')).toBe(VERSUS_SARIM);
+  });
+
+  for (const factions of [['sarim', 'kdf'], ['kdf', 'sarim']] as const) {
+    it(`each side spawns its faction's force on open ground (${factions.join(' vs ')}, tel_marum)`, () => {
+      const { sim, typeOf, map } = buildWorld('tel_marum');
+      const force = versusSpawns(sim, typeOf, sandboxAnchors(map), factions);
+      for (const side of [0, 1] as const) {
+        const want = versusForceOf(factions[side]).map(([id]) => id);
+        expect(force.bySide[side].map((i) => sim.unitTypes[sim.state.typeIdx[i]].id)).toEqual(want);
+        for (const i of force.bySide[side]) {
+          expect(sim.state.side[i]).toBe(side);
+          expect(sim.blocked[(sim.state.posY[i] >> 16) * sim.width + (sim.state.posX[i] >> 16)]).toBe(0);
+        }
+      }
+    });
+  }
+
+  it('factions are read by SIDE from the shared config; no config is the mirror', () => {
+    const cfg = (a: 'kdf' | 'sarim', b: 'kdf' | 'sarim') => ({ seats: [{ side: 0, faction: a }, { side: 1, faction: b }] }) as unknown as MatchConfig;
+    expect(factionsBySide(cfg('sarim', 'kdf'))).toEqual(['sarim', 'kdf']);
+    expect(factionsBySide({ seats: [{ side: 1, faction: 'sarim' }, { side: 0, faction: 'kdf' }] } as unknown as MatchConfig)).toEqual(['kdf', 'sarim']);
+    expect(factionsBySide(null)).toEqual(['kdf', 'kdf']);
+  });
+
+  it('the mesh roster is both factions\' forces', () => {
+    const roster = versusUnitTypes(['kdf', 'sarim']);
+    for (const [id] of [...VERSUS_KDF, ...VERSUS_SARIM]) expect(roster.has(id)).toBe(true);
+    expect(versusUnitTypes(['kdf', 'kdf']).has('atgm_cell')).toBe(false);
+  });
+
+  it('both seats of one KDF-vs-Sarim room spawn the same world', () => {
+    const a = buildWorld('tel_marum');
+    const b = buildWorld('tel_marum');
+    versusSpawns(a.sim, a.typeOf, sandboxAnchors(a.map), ['sarim', 'kdf']);
+    versusSpawns(b.sim, b.typeOf, sandboxAnchors(b.map), ['sarim', 'kdf']);
+    for (let i = 0; i < 100; i++) { a.sim.tick(); b.sim.tick(); }
+    expect(a.sim.hash()).toBe(b.sim.hash());
   });
 });

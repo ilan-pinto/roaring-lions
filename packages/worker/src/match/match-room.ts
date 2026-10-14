@@ -63,7 +63,7 @@
  * `connected`) flushes the open batch with its write, so an eviction while
  * waiting for a reconnect re-sends nothing.
  */
-import { parseClientMsg, validateConfig, REPLACED_CLOSE_CODE, type ClientMsg, type Frame, type MatchConfig, type Seat, type SeatConfig, type ServerMsg } from '@lions/net';
+import { factionsOfMatchup, matchupAllowed, matchupField, parseClientMsg, validateConfig, REPLACED_CLOSE_CODE, type ClientMsg, type Frame, type MatchConfig, type Seat, type SeatConfig, type ServerMsg } from '@lions/net';
 import type { Env } from '../d1';
 import type { DurableStateLike, HibernatingSocket, UpgradeInit } from '../do-types';
 import { createRoom, endedMsg, logParts, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, forfeitDueAt, forfeitIfDue, persistKey, revive, ROOM_TTL_MS, type Effect, type RoomState } from './room-core';
@@ -338,7 +338,7 @@ export class MatchRoom {
     const mode = this.meta?.mode ?? 'sandbox';
     const seatConfig = (seat: Seat): SeatConfig => {
       const s = st.seats[seat];
-      return { seat, side: mode === 'versus' ? seat : 0, faction: 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: tokens[seat], callsign: this.meta?.callsigns[seat] ?? s?.callsign ?? '', kind: 'human' };
+      return { seat, side: mode === 'versus' ? seat : 0, faction: mode === 'versus' ? st.factions[seat] : 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: tokens[seat], callsign: this.meta?.callsigns[seat] ?? s?.callsign ?? '', kind: 'human' };
     };
     const config = validateConfig({
       matchId: st.matchId, code: st.code, seed: this.meta?.seed ?? SIM_SEED_N0, map: this.meta?.map ?? DEFAULT_MAP, mode,
@@ -511,7 +511,12 @@ export class MatchRoom {
       const seed = mode === 'versus' ? crypto.getRandomValues(new Uint32Array(1))[0] | 0 : SIM_SEED_N0;
       const map = mapField(body.map);
       if (map === null) return new Response('unknown map', { status: 400 });
-      this.st = createRoom(body.code, body.matchId, Date.now(), map);
+      // The host's matchup (2026-10-14): a versus room's only; a sandbox room is the mirror.
+      // KDF vs Sarim is Tel Marum only (the lead's ruling): refused here as the route refuses it.
+      const matchup = mode === 'versus' ? matchupField(body.matchup) : 'mirror';
+      if (!matchupAllowed(matchup, map)) return new Response('matchup not offered on this map', { status: 400 });
+      const factions = factionsOfMatchup(matchup);
+      this.st = createRoom(body.code, body.matchId, Date.now(), map, factions);
       this.meta = { map, build, mode, seed, callsigns: [callsignField(body.callsign), ''], seat1Reserved: false, tokens: mintTokens() };
       // The table, the keys and the TTL alarm exist from here, and only from here (#559 H-1).
       this.ctx.storage.sql.exec(CREATE_SQL);

@@ -50,7 +50,7 @@ function deps(overrides: Partial<VersusDeps> = {}): VersusDeps & { saved: string
 }
 
 const opened = (transport: WsTransport, over: Partial<OpenedRoom> = {}): OpenedRoom => ({
-  code: 'ABCDEF', seat: 0, transport, lobby: { seats: [SEATS_TWO[0]!], map: 'tel_marum' }, ...over,
+  code: 'ABCDEF', seat: 0, transport, lobby: { seats: [SEATS_TWO[0]!], map: 'tel_marum', factions: ['kdf', 'kdf'] }, ...over,
 });
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -182,8 +182,61 @@ describe('showVersus (/versus)', () => {
     stage.querySelector<HTMLButtonElement>('.rl-versus__open')!.click();
     await flush();
     expect(open).toHaveBeenCalledTimes(1);
-    expect((open.mock.calls[0] as [RoomRequest])[0]).toEqual({ kind: 'create', map: 'qarn_hadid', callsign: 'Dov' });
+    expect((open.mock.calls[0] as [RoomRequest])[0]).toEqual({ kind: 'create', map: 'qarn_hadid', matchup: 'mirror', callsign: 'Dov' });
     expect(d.navigated).toEqual([['/versus/ABCDEF', undefined]]);
+  });
+
+  it('the host picks its side: the mirror by default, KDF or Sarim, and the create carries it (2026-10-14)', async () => {
+    const stage = document.createElement('div');
+    const { transport } = fakeTransport();
+    const open = vi.fn().mockResolvedValue(opened(transport));
+    showVersus(stage, deps({ open }));
+    const side = stage.querySelector<HTMLSelectElement>('.rl-versus__faction')!;
+    expect(side.value).toBe('mirror');
+    expect([...side.options].map((o) => o.value)).toEqual(['mirror', 'kdf', 'sarim']);
+    expect([...side.options].map((o) => o.textContent)).toEqual([
+      'Mirror — KDF against KDF',
+      'KDF — your friend plays Sarim',
+      'Sarim — your friend plays KDF',
+    ]);
+    side.value = 'sarim';
+    stage.querySelector<HTMLButtonElement>('.rl-versus__open')!.click();
+    await flush();
+    expect((open.mock.calls[0] as [RoomRequest])[0]).toMatchObject({ kind: 'create', matchup: 'sarim' });
+  });
+
+  it('KDF vs Sarim is Tel Marum only: a side narrows the map list and says so; the mirror opens every map (the lead, 2026-10-14)', async () => {
+    const stage = document.createElement('div');
+    const { transport } = fakeTransport();
+    const open = vi.fn().mockResolvedValue(opened(transport));
+    showVersus(stage, deps({ open }));
+    const map = stage.querySelector<HTMLSelectElement>('.rl-versus__map')!;
+    const side = stage.querySelector<HTMLSelectElement>('.rl-versus__faction')!;
+    const note = stage.querySelector<HTMLElement>('.rl-versus__side-note')!;
+    const enabled = () => [...map.options].filter((o) => !o.disabled).map((o) => o.value);
+    expect(note.hidden).toBe(true);
+    expect(enabled()).toEqual(['beit_sahwan_outskirts', 'tel_marum', 'qarn_hadid']);
+    map.value = 'qarn_hadid';
+    side.value = 'sarim';
+    side.dispatchEvent(new Event('change'));
+    expect(enabled()).toEqual(['tel_marum']);
+    expect(map.value).toBe('tel_marum');
+    expect(note.hidden).toBe(false);
+    expect(note.textContent).toBe('KDF against Sarim is played on Tel Marum only');
+    stage.querySelector<HTMLButtonElement>('.rl-versus__open')!.click();
+    await flush();
+    expect((open.mock.calls[0] as [RoomRequest])[0]).toMatchObject({ kind: 'create', map: 'tel_marum', matchup: 'sarim' });
+    side.value = 'mirror';
+    side.dispatchEvent(new Event('change'));
+    expect(enabled()).toEqual(['beit_sahwan_outskirts', 'tel_marum', 'qarn_hadid']);
+    expect(note.hidden).toBe(true);
+  });
+
+  it('a build that ships no Tel Marum offers the mirror alone', () => {
+    const stage = document.createElement('div');
+    showVersus(stage, deps({ maps: [MAPS[0]!, MAPS[2]!] }));
+    const side = stage.querySelector<HTMLSelectElement>('.rl-versus__faction')!;
+    expect([...side.options].filter((o) => !o.disabled).map((o) => o.value)).toEqual(['mirror']);
   });
 
   it('the code field upper-cases and drops 0, O, 1 and I as typed; Join opens a join for it', async () => {
@@ -275,6 +328,15 @@ describe('showVersusRoom (/versus/:code) with the lobby handed from /versus', ()
     expect(cards()[1]!.textContent).toContain('Bo');
     expect(cards()[1]!.textContent).toContain('Ready');
     expect(stage.querySelector('.rl-versus__room-map')?.textContent).toContain('Tel Marum');
+  });
+
+  it('each seat card names the force that seat commands, from the lobby\'s factions', async () => {
+    const { fake, stage } = await hostedRoom();
+    const forces = () => [...stage.querySelectorAll('.rl-versus__seat .rl-versus__force')].map((e) => e.textContent);
+    fake.hooks.onLobby?.(SEATS_TWO, 0, 'tel_marum', ['sarim', 'kdf']);
+    expect(forces()).toEqual(['Sarim', 'KDF']);
+    fake.hooks.onLobby?.(SEATS_TWO, 0, 'tel_marum', ['kdf', 'kdf']);
+    expect(forces()).toEqual(['KDF', 'KDF']);
   });
 
   it('renders an untrusted callsign as text, never as markup', async () => {
@@ -512,7 +574,7 @@ describe('a lobby reload into a room that has already started (Task 7 review (g)
 describe('showVersusRoom by a direct link (the guest\'s path)', () => {
   it('asks for a callsign, joins this code, then shows the lobby on the same transport', async () => {
     const { fake, transport } = fakeTransport();
-    const open = vi.fn().mockResolvedValue(opened(transport, { seat: 1, lobby: { seats: SEATS_TWO, map: 'tel_marum' } }));
+    const open = vi.fn().mockResolvedValue(opened(transport, { seat: 1, lobby: { seats: SEATS_TWO, map: 'tel_marum', factions: ['kdf', 'kdf'] } }));
     const d = deps({ open, callsign: { get: () => '', set: () => {} } });
     const stage = document.createElement('div');
     const dispose = room(stage, 'ABCDEF', d);

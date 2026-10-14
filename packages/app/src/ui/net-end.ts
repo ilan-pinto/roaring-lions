@@ -8,6 +8,7 @@
 // beside this file spies on storage to hold that.
 
 import { t } from '../i18n/t';
+import type { Faction } from '@lions/net';
 import type { MatchResult } from '../net/outcome';
 import type { MatchScore } from '../net/scoreboard';
 import type { Disposer } from '../shell/router';
@@ -24,6 +25,10 @@ export interface NetEndDeps {
   /** The match's scoreboard as it stood when the result was decided
    *  (`net/scoreboard.ts`): the full table under the reason line. */
   score?: { readonly score: MatchScore; readonly names: ScoreNames };
+  /** Each SIDE's faction (index 0 is side 0), in a KDF-vs-Sarim room: the
+   *  panel names the force this seat commanded and the one it fought. Absent
+   *  or the mirror, nothing is added. */
+  factions?: readonly [Faction, Faction];
 }
 
 /** Won, lost or drawn, as `viewer` sees `o`. */
@@ -56,6 +61,13 @@ export function showNetEnd(host: HTMLElement, o: MatchResult, viewer: 0 | 1, dep
   reason.className = 'rl-net-end__reason';
   reason.textContent = netEndReason(o, viewer);
   p.body.appendChild(reason);
+  const factions = deps.factions;
+  if (factions !== undefined && factions[0] !== factions[1]) {
+    const played = document.createElement('p');
+    played.className = 'rl-net-end__played';
+    played.textContent = t('versus.end.played', { f: factions[viewer], them: factions[viewer === 0 ? 1 : 0] });
+    p.body.appendChild(played);
+  }
   if (deps.score !== undefined) p.body.appendChild(scoreTable(deps.score.score, viewer, deps.score.names, { remaining: true }));
 
   const foot = screenFoot();

@@ -7156,6 +7156,16 @@ button.rl-menu__item[data-kind='aside'] {
   font-size: var(--t-s);
   color: var(--bad-text);
 }
+/* KDF vs Sarim is Tel Marum only (2026-10-14): said under the side picker
+   while a side other than the mirror narrows the map list. */
+.rl-versus__side-note {
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+}
+.rl-versus__side-note[hidden] {
+  display: none;
+}
 .rl-versus__share {
   font-family: var(--font-body);
   font-size: var(--t-s);
@@ -7955,6 +7965,10 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-net-board tr[data-row='mine'] th {
   color: var(--good);
+}
+/* KDF vs Sarim (2026-10-14): which force this seat commanded, under the reason. */
+.rl-net-end__played {
+  color: var(--ink-dim);
 }
 .rl-net-end .rl-net-board {
   margin: var(--s3) auto 0;
