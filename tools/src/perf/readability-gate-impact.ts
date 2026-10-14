@@ -10,9 +10,12 @@
  * `off` with the baseline's own thresholds beside them, and the bounding box
  * of what changed, so a bless can be planned before the gate goes red.
  *
- *   cd tools && npx tsx src/perf/readability-gate-impact.ts --base-port=5272 --port=5271 --out=<dir>
+ *   cd tools && npx tsx src/perf/readability-gate-impact.ts --base-port=5272 --port=5271 --out=<dir> --attach
  *
- * Runs against dev servers you started; never starts or stops one.
+ * Runs against dev servers you started; never starts or stops one. So
+ * `--attach` is required and both ports must be listening (`ui-review/port.ts`
+ * `requireAttach`): its defaults would otherwise diff whatever two servers
+ * happened to answer there.
  */
 import { mkdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -22,12 +25,14 @@ import { capture, launchCaptureBrowser } from '../golden-diff/browser';
 import { computeDiff } from '../golden-diff/diff';
 import { specFor } from '../golden-diff/baseline';
 import { SILENT_AUDIO, musicOffInitScript } from '../ui-review/music-off';
+import { requireAttach } from '../ui-review/port';
 
 const args = process.argv.slice(2);
 const arg = (k: string, d: string): string => args.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3) ?? d;
 const PORT = Number(arg('port', '5271'));
 const BASE_PORT = Number(arg('base-port', '5272'));
 if (PORT === 5177 || BASE_PORT === 5177) throw new Error('5177 is the lead’s dev server; use another port');
+await requireAttach('gate-impact', [BASE_PORT, PORT]);
 const OUT = resolve(arg('out', '.superpowers/readability-gate'));
 mkdirSync(OUT, { recursive: true });
 

@@ -1,8 +1,12 @@
 // GH-470 mock instrument: photographs an objective zone over a town centre,
 // on the LIVE renderer, once per zone-drawing variant, on the SAME frame.
 //
-// Usage (an already-running dev server of THIS tree, never :5177):
+// Usage (its own dev server of THIS tree; never :5177):
 //   pnpm --filter @lions/tools exec tsx src/perf/zone-tint-captures.ts --port=5193 --out=<dir>
+// The port is `--port=<n>`, else ZONE_TINT_CAPTURE_PORT, else 5193, and a port
+// something already holds is refused (`ui-review/port.ts`); `--attach` drives
+// a server you started on `--port` instead. It used to attach to whatever
+// answered there, always, with no error.
 //
 // One Metal browser, music off, frame loop frozen before anything is stepped,
 // so every variant of a scene is the same sim tick and the same camera --
@@ -14,10 +18,13 @@
 import { mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { chromium } from 'playwright';
+import { fileURLToPath } from 'node:url';
+import { ensureDevServer, stopDevServer } from '../golden-diff/browser';
 import { dismissDeployGate } from '../golden-diff/capture-guard';
 import { FREEZE_FRAME_LOOP_STATEMENTS, hideHudExceptCanvas } from '../golden-diff/capture-protocol';
 import { gpuLaunchArgs } from '../ui-review/gpu';
 import { musicOffInitScript } from '../ui-review/music-off';
+import { claimPortOrAttach } from '../ui-review/port';
 
 interface Scene {
   id: string;
@@ -94,8 +101,8 @@ function arg(name: string, fallback: string): string {
 }
 
 async function main(): Promise<void> {
-  const port = Number(arg('port', '5193'));
-  if (port === 5177) throw new Error('5177 is the lead’s server; pick another port');
+  if (arg('port', '') === '5177') throw new Error('5177 is the lead’s server; pick another port');
+  const { port } = await claimPortOrAttach('zone-tint', 'ZONE_TINT_CAPTURE_PORT', 5193);
   const outDir = resolve(arg('out', 'zone-tint-out'));
   const only = arg('only', '');
   // The label a non-mock tree's frames are written under: `today` on main,
@@ -103,6 +110,7 @@ async function main(): Promise<void> {
   const tag = arg('tag', 'today');
   mkdirSync(outDir, { recursive: true });
 
+  const server = await ensureDevServer(port, resolve(fileURLToPath(new URL('../../../', import.meta.url))), 'zone-tint');
   const browser = await chromium.launch({ headless: true, args: gpuLaunchArgs('metal') });
   try {
     const context = await browser.newContext({ viewport: { width: 1400, height: 900 }, deviceScaleFactor: 1 });
@@ -175,6 +183,7 @@ async function main(): Promise<void> {
     }
   } finally {
     await browser.close();
+    stopDevServer(server, 'zone-tint');
   }
 }
 

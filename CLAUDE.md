@@ -2300,7 +2300,7 @@ the paragraph above, ~:306) -- nothing new here.
   material for a textured one — so **`pnpm validate:meshes` cannot see it**: that
   gate repaints every vehicle from the palette tables before rendering and says so
   on its passing path. It judges the SHAPE, two ways, against a measured floor.
-  **Real damaged GEOMETRY ships for four, since 2026-10-14** (`pnpm
+  **Real damaged GEOMETRY ships for twelve, since 2026-10-14** (`pnpm
   damage:meshes`, `tools/src/meshes/damage-pass.ts`; design and record
   `docs/superpowers/specs/2026-10-14-wreck-damage-design.md`, which closes the
   wreck spec's D1). **The rule is OUTLINE damage only** -- a thrown track on the

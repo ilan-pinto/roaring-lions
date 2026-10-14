@@ -1,0 +1,41 @@
+{
+  "commit": "f4b3ea2b",
+  "gpu": "metal",
+  "gpuRenderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified Version)",
+  "map": "beit_sahwan_outskirts",
+  "vehiclesInView": 14,
+  "clean": {
+    "calls": 321,
+    "triangles": 2712194,
+    "programs": 47,
+    "textures": 106,
+    "geometries": 165,
+    "scarMaterials": 0
+  },
+  "scarred": {
+    "calls": 321,
+    "triangles": 2712194,
+    "programs": 47,
+    "textures": 106,
+    "geometries": 165,
+    "scarMaterials": 13
+  },
+  "bandChange": {
+    "firstFrameMs": 3.5,
+    "nextFrameMs": 3.5
+  },
+  "frameMs": {
+    "clean": [
+      4.080833333358169,
+      4.945833333333334,
+      4.883333333333334,
+      4.900833333283662
+    ],
+    "scarred": [
+      5.191666666666666,
+      4.949166666592161,
+      4.926666666691502,
+      5.035833333308498
+    ]
+  }
+}

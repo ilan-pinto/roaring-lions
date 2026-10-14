@@ -16,8 +16,12 @@
  * is built from the REAL frame times, so its playback speed is the game's.
  *
  * It never starts or stops a dev server: serve the trees yourself, music off
- * is seeded here (`music-off.ts`), and port 5177 is refused.
- *   cd tools && npx tsx src/perf/camera-captures.ts --targets=before@5291 --out=<dir> [--gpu=metal]
+ * is seeded here (`music-off.ts`), and port 5177 is refused. Because it only
+ * ever drives servers someone else started, it says so out loud: `--attach`
+ * is required, and every target's port must be listening (`ui-review/port.ts`
+ * `requireAttach`) -- a default target it would silently photograph is the
+ * failure that check exists for.
+ *   cd tools && npx tsx src/perf/camera-captures.ts --targets=before@5291 --out=<dir> --attach [--gpu=metal]
  */
 import { chromium, type Page } from 'playwright';
 import { execFileSync } from 'node:child_process';
@@ -25,6 +29,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { SILENT_AUDIO, musicOffInitScript } from '../ui-review/music-off';
 import { gpuLaunchArgs, resolveGpuBackend } from '../ui-review/gpu';
+import { requireAttach } from '../ui-review/port';
 
 const args = process.argv.slice(2);
 const arg = (k: string, d: string): string => args.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3) ?? d;
@@ -35,6 +40,7 @@ const TARGETS = arg('targets', 'after@5291')
     if (Number(port) === 5177) throw new Error('5177 is the lead’s dev server; use another port');
     return { name, port: Number(port) };
   });
+await requireAttach('camera-captures', TARGETS.map((t) => t.port));
 const OUT = resolve(arg('out', '.superpowers/camera'));
 const MAP = arg('map', 'beit_sahwan_outskirts');
 const VIEW = { width: 1280, height: 720 };
