@@ -88,6 +88,79 @@ landed, each on a seam this plan uses.
 3. **Ruling (lead, 2026-10-11): the branch is cut after #291 (and #247, if it re-pins) and #540**, on
    Thu 5 Nov; it no longer waits for Hold.
 
+## Pre-flight 3 (2026-10-14, against be8fa2b1)
+
+Read, grepped and measured against the tree the branch was cut from (`be8fa2b1`, after #570, #577, #580, #584
+and #585). Facts: `.superpowers/sdd/2026-10-11-targeted-fire/preflight-facts.md`. The tasks below are
+unchanged; where one disagrees with a ruling here, the ruling wins. Tasks 1-4 and a small 2b landed on
+`feat/targeted-fire` (Task 5 is the ledger); the PR is pending.
+
+| where | plan said | today (`be8fa2b1`) | consequence |
+|---|---|---|---|
+| Sim pins | flat 1202444260, relief 3354895120, orders 2737216487 | 916087385, 373999871, 1736634855 (`determinism.test.ts`) | Task 1 re-pins from today's values: 4215479769, 2842924511, 3272041047 |
+| Credits | `LADDER_CREDITS`/`CAMPAIGN_CREDITS` 5917, `ROSTER_MAX` 30 | 6025 and 31 | must stay 6025/31; they did |
+| Line refs | `tick()` ~L1864, `selectTarget` ~L3339, ... | `tick()` 1907, `applyCommands` 2090, `selectTarget` 3431, `stepCombat` 3794, `stepSweep` 5409, `startRout` 3698, `couldEngage` 5518, `hash` 5765 | locate by symbol |
+| T-D5 | a `hurts` heuristic | `weaponHurts(w, t, px, py)` (#570): P(pen) against the face shown >= `PEN_HURTS_MIN`; soft always true; depends on facing | focus goes through it (R-1, R-2, R-3) |
+| Command union | sim only | `packages/net` `protocol.ts` (`COMMAND_KINDS`, `cleanCommand`) and `ownership.ts` (`validateCommand`, exhaustive) | Task 1 adds `attack` there (R-7) |
+| `applyCommands` | | the final bare `else` is `halt` | the `attack` branch goes BEFORE it |
+| "Identified" | `contactState` | `selectTarget` tests contact confidence >= `IDENTIFIED_AT`, not `contactState` | focus uses confidence |
+| Engaging latch | "slot 0 decides" | the latch is an OR over both slots' effective ranges; selection uses `rangeSq` | R-3 |
+| Lost counter | "if T-D3 needs one" | needed (T-D3 kept) | `focusLost` added and hashed in Task 1, so Task 2 is hash-neutral (R-11) |
+| Garrisoned shooter | unspecified | every order branch calls `leaveStructure`; #577: H never empties a building | R-5 |
+| Pinned / mobility-killed focus | unspecified | pinned units skip combat | `stepFocus` skips them (R-6) |
+| `intents.ts` | "a hostile branch" | no hostile rung; `IntentWorld` has no engage query; `PointerView` has no `unitAtScreen`; hover uses `hostileUnder` | R-8, R-12, R-13 |
+| New `CursorName` | `cursor.ts` only | also `SIGHT_OF`, the animation tables, `vite-plugin-cursors.ts` (+ its test), `idsOf`/`intentVerb`, `voice/director.ts` `gestureVerb`, telemetry `orderVerbOf`, `hud.ts` | Task 3 scope widened (R-9) |
+| Telemetry rows | | generated from `TELEMETRY_ORDER_VERBS` | schema + `telemetry.ts` only |
+| Tutorial await | `fire` on the named enemy | not expressible; `{intent:'attack'}` is, once `INTENT_KINDS` has it; beat 6 is pinned by `lessons.test.ts` and `tutorial_lessons_world.test.ts` | R-10 |
+| #580 routed hold, #584, #585 | | rally restores no order; neither #584 nor #585 touches the tick, `applyCommands` or `selectTarget` | focus cleared at rout, not restored; no other change |
+
+Task-pair scan: T1 must add BOTH columns or T2 re-pins (R-11); T3 needs `canFocus` (T1) and `focusHurts` (T2) as
+public read-only queries (R-8); T3's refusal and T2's focus preference share `weaponHurts` (R-1, R-2); T4 awaits
+`{intent:'attack'}`, which T3 must add to `INTENT_KINDS`.
+
+### Rulings (controller, 2026-10-14)
+
+R-1 to R-13 were taken at pre-flight; R-3b and R-14 to R-22 came out of implementation, review and the fix rounds. Each line
+ends with what it costs if the lead wants it the other way.
+
+- **R-1 (can't penetrate).** The APP refuses it: a unit none of whose slots `weaponHurts` the target gets no `attack`, only today's attack-move to the tile (T-D7); if NO selected unit can hurt it the click is refused with `intent.cantPenetrate` and the deny cue. The sim accepts `attack` on geometry-free grounds only. *Wrong:* a player who wants to pin a tank with rifles uses the Attack-move chip; reversing is app-only.
+- **R-2 (focus preference).** `selectTarget` returns the focus for a slot only if it passes the scan's filters AND `weaponHurts`, both slots; otherwise it scans as before. *Wrong:* an ordered unit can shoot something else for a while; one line ungates slot 0.
+- **R-3 (reach).** "In reach" = inside `effectiveRange` of ANY slot that can currently fire on the focus; with none, slot 0's. *Wrong:* ATGM teams still close from 13 to 7.2 tiles; standoff at maximum range is a later tuning call.
+- **R-3b (amends R-3, from review).** With no slot able to fire, the unit HOLDS only if a domain-capable slot is inside its effective and maximum range with a sight line (or is indirect) and fails on `weaponHurts` or minimum range alone; otherwise it keeps closing. *Wrong:* a unit may close further than wanted; the rule is one function.
+- **R-4 (T-D3 timing).** `FOCUS_LOST_TICKS` = 100 counts ticks the issuer side's confidence is below `IDENTIFIED_AT`; the walk goes to the side's `lastSeenX/Y`; `lastSeenValid` 0 ends the focus at once. *Wrong:* grace from the last sighting is ~8.6 s (3.6 s decay + 5 s), not 5; change the constant.
+- **R-5 (garrisoned shooter).** `attack` does NOT leave the structure; a garrisoned focused unit fires from the building when in reach, is never moved, and waits out of reach. *Wrong:* an ordered garrison out of reach does nothing visible; the app could send it an attack-move instead.
+- **R-6 (refusals).** `stepFocus` skips pinned (focus kept), mobility-killed, garrisoned and carried units; the branch refuses dead, routed and carried shooters; `startRout` clears the focus at its top. *Wrong:* none known.
+- **R-7 (net).** Task 1 adds `attack` to `COMMAND_KINDS`, `cleanCommand` and `validateCommand` (own ids, target on the other side), with tests. *Wrong:* versus cannot carry the order.
+- **R-8 (app queries).** Two public read-only sim queries, `canFocus` (Task 1; the branch uses the same function) and `focusHurts` (Task 2), reached through `IntentWorld`. *Wrong:* only if `presentedArmor`'s scratch write mattered across calls (checked in Task 2).
+- **R-9 (cursor).** A real `attack` `CursorName` reusing the advance art, every table updated; the armed Attack-move chip's left-click on an identified enemy issues `attack`; armed Move still wins. *Wrong:* a distinct sight is a later art call.
+- **R-10 (tutorial).** Beat 6 teaches the right-click; its await is `all_of[ any_of[attack, halt], the hover any_of, fire at side 1 ]`, so the old path still completes; beat 9 gets one optional sentence. *Wrong:* none.
+- **R-11 (pins).** Task 1 adds and hashes BOTH columns (`focusTarget` Int32, `focusLost` Uint16) in one re-pin commit; Task 2 is hash-neutral. *Wrong:* a second re-pin.
+- **R-12 (rung order).** The hostile rung sits after armed support and the empty selection, BEFORE the structure rung and K-08. *Wrong:* none (garrisoned enemies are not targets, T-D2).
+- **R-13 (one enemy id).** `pointerPoint` takes it from `Renderer.unitAtScreen`, filtered to living, visible, hostile units; `hostileUnder` is retired from the hover and click path. *Wrong:* the hover panel picks by body (intended).
+- **R-14 (chase goal, from review).** The chase goal is always the issuer side's `lastSeenX/Y`, never the hidden true position. *Wrong:* none.
+- **R-15 (no memory).** An identified target with `lastSeenValid` 0: the unit waits, focus kept, for ~3.6 s until confidence decays. *Wrong:* a brief mid-chase stop.
+- **R-16 (fixtures).** The `move-order.test.ts` edit is kept: it adds the two new `IntentWorld`/`PointerView` members to its fixtures and changes no assertion. *Wrong:* none.
+- **R-17 (refusal cursor).** A can't-penetrate refusal shows the `blocked` cursor (its own resolution flag), not `protected`. *Wrong:* a dedicated cursor is a later art call.
+- **R-18 (ground point).** `x/y` stays the click's ground point unless the hostile rung resolves a focus; the T-D7 remainder's attack-move goes to the target's tile. *Wrong:* none.
+- **R-19 (beat 9).** Beat 9's order `any_of` also accepts `{intent:'attack'}`, since its new sentence invites the click. *Wrong:* none.
+- **R-20 (garrison audit).** Every attack-move a click on a picked enemy produces excludes garrisoned ids: silently in the T-D7 remainder, and in the paths with no focus one `intent.garrisonHolds` note per click (all-garrisoned: the deny cue). *Wrong:* a garrison cannot be sent at a suspected enemy by right-click (the chip follows the same rule).
+- **R-21 (residual).** The structure and tunnel rungs' own attack-move remainders stay unfiltered: ground-point clicks, today's behaviour. *Wrong:* a garrison clicking a building still leaves it, as before the branch.
+- **R-22 (hysteresis, Task 2b).** A STOPPED focused unit stays in reach until the target is beyond reach + `FOCUS_REACH_SLACK` (0.5 tile); a moving one stops at the plain range. Stateless, hash-neutral. *Wrong:* a unit holds up to half a tile beyond its effective range; one constant.
+
+### Coordinator rulings (provisional, open to the lead, listed in the PR body)
+
+- (a) Another order, smoke included, drops the fire order.
+- (b) A halt-to-fire chaser holds its fire while closing from maximum to effective range (attack-move would bound-and-fire).
+- (c) ATGM teams closing to their effective range is accepted (R-3's cost).
+- (d) A small deterministic hysteresis band at the effective-range edge, if cheap: it was, and landed as R-22.
+
+### Outcome
+
+Landed on `feat/targeted-fire` (`babb44e4` .. `311c00f3`). Pins moved once, in Task 1 (the two columns):
+flat 916087385 -> 4215479769, relief 373999871 -> 2842924511, orders 1736634855 -> 3272041047. `pnpm balance` and
+`pnpm playtest` are byte-identical to `be8fa2b1`; `LADDER_CREDITS` 6025 and `ROSTER_MAX` 31 unchanged. Not run
+here: `pnpm ui:routes` and `pnpm golden-baseline` (CI runs them; no gated scenario issues an order).
+
 ---
 
 ## Decisions

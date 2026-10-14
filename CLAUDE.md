@@ -311,6 +311,25 @@ The combat model is the product. Everything else is scaffolding around it.
   why the pan keys are the one exemption from the modal's capture guard
   (`passesThroughModal`, `input/keymap.ts`: panning writes `renderer.camera` and
   nothing else). Objectives, a settings panel, restart and quit live in it.
+- **A right-click on an identified enemy is an `attack` order, not an attack-move**
+  (GH-420, Stage 4 targeted fire; `Command` `attack`, `focusTarget`/`focusLost`
+  columns, both hashed). A selected unit that can hurt the target gets
+  `focusTarget`; it fires on it whenever a weapon of its can hurt it, closes to
+  the effective range of ANY slot that can fire (the engaging latch's own OR,
+  not slot 0 alone), holds across a half-tile band at that edge
+  (`FOCUS_REACH_SLACK`, so a kneeling man is not stood up and sat down by a
+  target on the line), and kneels. A target the side stops identifying is walked
+  to at the side's last-seen tile, and the order ends after `FOCUS_LOST_TICKS`
+  (100) below identified. When it ends the unit becomes an ARRIVED attack-mover
+  that holds (`sweepOrder` 0), so the closing rule does not sweep it on to the
+  next contact. Any other order naming the unit releases the focus. The app
+  refuses an order nothing selected can penetrate (`intent.cantPenetrate`, the
+  `blocked` cursor, the deny cue), and a garrisoned unit never leaves its
+  building for a click on an enemy (a click on the building or tunnel tile
+  itself still does, as before). `__lions.cursorKey()` reads `attack-*` over
+  a focusable enemy again (`advance-*` over one nobody selected can aim at). The
+  sim's public `canFocus` and `focusHurts` are the app's only filter; do not
+  re-derive "can it hurt that" in `intents.ts`.
 - **The render quality preset** (`packages/render/src/three/quality.ts`) is
   `high` / `medium` / `low`, applied at the next mission's BOOT, not live.
   `high` is pinned to the constants that existed before the preset and every
