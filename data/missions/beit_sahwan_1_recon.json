@@ -4,6 +4,7 @@
   "town": "beit_sahwan",
   "phase": "recon",
   "target_minutes": 7,
+  "time_limit_s": 840,
   "debrief": {
     "victory": {
       "speaker": "idit",

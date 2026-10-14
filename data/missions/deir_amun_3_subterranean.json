@@ -4,6 +4,7 @@
   "town": "deir_amun",
   "phase": "subterranean",
   "target_minutes": 7,
+  "time_limit_s": 840,
   "map": { "file": "deir_amun_3", "player_start": [24, 4] },
   "ledger": {
     "requires": ["roster.surviving_units", "intel.marked_positions"],

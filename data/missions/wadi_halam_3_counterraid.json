@@ -4,6 +4,7 @@
   "town": "wadi_halam",
   "phase": "buildup",
   "target_minutes": 6,
+  "time_limit_s": 720,
   "briefing": "The pasture is ours; now we raid back. Intel puts the local commander at the north hide — Jubran Hallaq's man on this ground, riding a technical he will not hesitate to run in if he has to. A second position dug in to the south covers the cattle track. Kill the commander, get eyes on the southern hide, and hold the bunds for five minutes. What is left of the local cell will not wait for him to fall — they come back at the bunds a truck or two at a time, every half minute or so, for as long as you sit on them. Catching the commander himself is a mobility problem, not a firepower one.",
   "briefing_sections": [
     {"id": "situation", "text": "The pasture is ours; now we raid back. Intel puts the local commander at the north hide — Jubran Hallaq's man on this ground, riding a technical he will not hesitate to run in if he has to. A second position dug in to the south covers the cattle track."},

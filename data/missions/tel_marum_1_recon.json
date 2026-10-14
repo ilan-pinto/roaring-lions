@@ -5,6 +5,7 @@
   "town": "tel_marum",
   "phase": "recon",
   "target_minutes": 7,
+  "time_limit_s": 840,
   "debrief": {
     "victory": {
       "speaker": "shai",

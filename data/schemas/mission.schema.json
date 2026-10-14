@@ -10,7 +10,8 @@
     "phase",
     "map",
     "objectives",
-    "ledger"
+    "ledger",
+    "time_limit_s"
   ],
   "additionalProperties": false,
   "if": {
@@ -79,6 +80,11 @@
       "minimum": 5,
       "default": 6,
       "description": "Design intent for how long a competent player takes, in minutes. Nothing in the runtime reads this field -- it is a claim, and the only instrument that can check it is tools/src/backtest/playtest.ts, whose scripted plans are optimal-play LOWER bounds. The 5-7 ceiling is enforced by the if/then/else at the root of this schema, with one named exemption; see its description."
+    },
+    "time_limit_s": {
+      "type": "integer",
+      "minimum": 600,
+      "description": "#540: seconds of sim time before a mission with a primary still open ends as a defeat whose cause is 'withdrawn' (MissionRuntime.checkEnd). The house rule is 120 x target_minutes, a floor enforced by tools/validate_time_limit.mjs together with a 60 s clearance over every primary deadline; pnpm playtest holds a 120 s and 20% margin over the slowest 30-seed win. 600 is twice the smallest target (5)."
     },
     "briefing": {
       "type": "string"
