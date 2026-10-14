@@ -5,11 +5,11 @@
  * `WebSocketPair` and a 101 `Response` exist only in workerd.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { OVER_CLOSE_MS, validateConfig, type ServerMsg, type Seat } from '@lions/net';
+import { OVER_CLOSE_MS, validateConfig, type AdvisorMsg, type AdvisorScope, type ServerMsg, type Seat } from '@lions/net';
 import type { D1Like, Env } from '../d1';
 import { openTestD1 } from '../test-d1';
 import { FakeState, deliverAlarm, deliverClose, deliverError, openSocket, type FakeSocket } from './fake-do';
-import { BATCH_TICKS, HELLO_TIMEOUT_MS, MAX_ROOM_SOCKETS, MatchRoom, PURGE_AFTER_MS, SOCKET_BUDGET, TICK_MS, WATCHDOG_MS } from './match-room';
+import { ADVISOR_MIN_GAP_MS, BATCH_TICKS, HELLO_TIMEOUT_MS, MAX_ROOM_SOCKETS, MatchRoom, PURGE_AFTER_MS, SOCKET_BUDGET, TICK_MS, WATCHDOG_MS } from './match-room';
 import { ROOM_TTL_MS } from './room-core';
 import type { RoomState } from './room-core';
 import { signTicket } from './ticket';
@@ -30,17 +30,17 @@ const last = (ws: FakeSocket): ServerMsg | undefined => msgs(ws).at(-1);
 const ofType = <T extends ServerMsg['t']>(ws: FakeSocket, t: T): Extract<ServerMsg, { t: T }>[] =>
   msgs(ws).filter((m): m is Extract<ServerMsg, { t: T }> => m.t === t);
 
-interface CreateOpts { mode?: string; join?: boolean; code?: string; db?: D1Like; matchup?: string }
+interface CreateOpts { mode?: string; join?: boolean; code?: string; db?: D1Like; matchup?: string; kind?: string; pace?: unknown; joinKind?: string }
 /** Creates the room and, unless `join: false`, has the guest reserve seat 1 as the Worker does. */
 async function created(state = new FakeState(), opts: CreateOpts = {}): Promise<{ state: FakeState; room: MatchRoom }> {
   const room = new MatchRoom(state, opts.db ? ({ ...env, DB: opts.db } as Env) : env);
   const res = await room.fetch(new Request('https://room/create', {
     method: 'POST',
-    body: JSON.stringify({ code: opts.code ?? CODE, matchId: opts.code ?? CODE, map: 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', ...(opts.mode ? { mode: opts.mode } : {}), ...(opts.matchup ? { matchup: opts.matchup } : {}) }),
+    body: JSON.stringify({ code: opts.code ?? CODE, matchId: opts.code ?? CODE, map: 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', ...(opts.mode ? { mode: opts.mode } : {}), ...(opts.matchup ? { matchup: opts.matchup } : {}), ...(opts.kind ? { kind: opts.kind } : {}), ...(opts.pace ? { pace: opts.pace } : {}) }),
   }));
   expect(res.status).toBe(200);
   if (opts.join !== false) {
-    const join = await room.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player: 'p-guest', callsign: 'Guest' }) }));
+    const join = await room.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player: 'p-guest', callsign: 'Guest', ...(opts.joinKind ? { kind: opts.joinKind } : {}) }) }));
     expect(join.status).toBe(200);
   }
   return { state, room };
@@ -183,15 +183,6 @@ describe('MatchRoom', () => {
   it('refuses a ticket signed for another match, and seats nobody', async () => {
     const { state, room } = await created();
     const ws = await hello(room, 0, await ticket(0, 'ZZZZZZ'));
-    expect(msgs(ws)).toEqual([{ t: 'error', code: 'bad_ticket' }]);
-    expect(ws.closed?.code).toBe(4001);
-    expect((await persisted(state)).seats).toEqual([null, null]);
-  });
-
-  it('refuses an advisor ticket until the room seats advisors (N4a task 7): it never takes the seat it advises', async () => {
-    const { state, room } = await created();
-    const adv = await signTicket(SECRET, { matchId: CODE, seat: 0, player: 'p-host', exp: NOW + 3600 * 1000, role: 'advisor', scope: 'assist' });
-    const ws = await hello(room, 0, adv);
     expect(msgs(ws)).toEqual([{ t: 'error', code: 'bad_ticket' }]);
     expect(ws.closed?.code).toBe(4001);
     expect((await persisted(state)).seats).toEqual([null, null]);
@@ -1252,5 +1243,306 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
     expect(vi.getTimerCount()).toBe(0);
     const late = await hello(revived, 0);
     expect(last(late)).toEqual({ t: 'ended', reason: 'over' });
+  });
+});
+
+/** N4a task 7: a seat's advisor rides a third socket that relays to its own seat only, and is never a seat. */
+describe('advisor sockets (N4a task 7)', () => {
+  const advisorTicket = (seat: Seat, scope: AdvisorScope, matchId = CODE): Promise<string> =>
+    signTicket(SECRET, { matchId, seat, player: 'advisor', exp: NOW + 3600 * 1000, role: 'advisor', scope });
+  const advisorHello = async (room: MatchRoom, seat: Seat, scope: AdvisorScope): Promise<FakeSocket> => hello(room, seat, await advisorTicket(seat, scope));
+  const relays = (ws: FakeSocket): Extract<ServerMsg, { t: 'advisor' }>[] => ofType(ws, 'advisor');
+  const PROPOSAL: AdvisorMsg = { kind: 'proposal', id: 1, cmd: { kind: 'halt', ids: [3] }, note: 'hold' };
+
+  it('an advisor hello in a running match gets the log, leaves the seat\'s socket alone, writes nothing, and both seats see the badge', async () => {
+    const { state, room, ws0, ws1 } = await running({ mode: 'versus' });
+    await vi.advanceTimersByTimeAsync(3 * TICK_MS);
+    const before = state.storage.rowsWritten;
+    const seatsBefore = (await persisted(state)).seats;
+    const adv = await advisorHello(room, 0, 'assist');
+    expect(adv.closed).toBeNull();
+    const [log] = ofType(adv, 'log');
+    expect(log.frames.map((f) => f.tick)).toEqual([0, 1, 2]);
+    expect(log.config.seats[0].kind).toBe('human');
+    expect(ws0.closed).toBeNull();
+    expect(ofType(ws0, 'log')).toEqual([]);
+    for (const ws of [ws0, ws1, adv]) expect(last(ws)).toEqual({ t: 'advisors', present: ['assist', null] });
+    expect(state.storage.rowsWritten).toBe(before);
+    expect((await persisted(state)).seats).toEqual(seatsBefore);
+    // ...and the advisor hears what both seats hear: the next frame.
+    await vi.advanceTimersByTimeAsync(TICK_MS);
+    expect(last(adv)).toMatchObject({ t: 'frame', tick: 3 });
+    expect(last(ws0)).toMatchObject({ t: 'frame', tick: 3 });
+  });
+
+  it('a seat that rejoins gets its log alone: its advisor neither hears it again nor is replaced with the seat', async () => {
+    const { room, ws1 } = await running({ mode: 'versus' });
+    await vi.advanceTimersByTimeAsync(2 * TICK_MS);
+    const adv = await advisorHello(room, 1, 'advise');
+    const again = await hello(room, 1);
+    expect(ws1.closed?.code).toBe(4000);
+    expect(adv.closed).toBeNull();
+    expect(ofType(adv, 'log')).toHaveLength(1);
+    expect(ofType(again, 'log')).toHaveLength(1);
+    // The rejoined seat is told the badge it already wears.
+    expect(last(again)).toEqual({ t: 'advisors', present: [null, 'advise'] });
+  });
+
+  it('an advisor in the lobby is told the lobby as its seat, and its ready readies nobody', async () => {
+    const { state, room } = await created();
+    const ws0 = await hello(room, 0);
+    const ws1 = await hello(room, 1);
+    const adv = await advisorHello(room, 1, 'advise');
+    expect(ofType(adv, 'lobby').at(-1)?.you).toBe(1);
+    await say(room, ws0, { t: 'ready' });
+    await say(room, adv, { t: 'ready' });
+    expect((await persisted(state)).seats[1]?.ready).toBe(false);
+    expect(ofType(ws0, 'start')).toEqual([]);
+    expect(ofType(ws1, 'start')).toEqual([]);
+  });
+
+  it('an advisor\'s cmd, ready, pause, resume, surrender, chat, hash, ack, over, done and bye each change nothing', async () => {
+    const { state, room, ws0, ws1 } = await running({ mode: 'versus' });
+    await vi.advanceTimersByTimeAsync(25 * TICK_MS);
+    const adv = await advisorHello(room, 0, 'assist');
+    const before = state.storage.rowsWritten;
+    const stBefore = await persisted(state);
+    for (const m of [
+      { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [1] } }, { t: 'ready' }, { t: 'pause' }, { t: 'resume' }, { t: 'surrender' },
+      { t: 'chat', text: 'gg' }, { t: 'hash', tick: 19, h: 1 }, { t: 'ack', tick: 20 }, { t: 'over', tick: 10 }, { t: 'done', round: 0 }, { t: 'bye' },
+    ]) await say(room, adv, m);
+    expect(adv.closed).toBeNull();
+    expect(state.storage.rowsWritten).toBe(before);
+    await vi.advanceTimersByTimeAsync(10 * TICK_MS);
+    const after = await persisted(state);
+    expect(after.status).toBe('running');
+    expect(after.pausesLeft).toEqual(stBefore.pausesLeft);
+    expect(after.over).toEqual([-1, -1]);
+    expect(after.surrendered).toBeNull();
+    for (const ws of [ws0, ws1, adv]) {
+      expect(ofType(ws, 'frame').every((f) => f.cmds.length === 0)).toBe(true);
+      expect(ofType(ws, 'frame').at(-1)?.tick).toBe(34);
+      for (const t of ['ended', 'paused', 'chat', 'desync', 'cmdRefused', 'error'] as const) expect(ofType(ws, t), t).toEqual([]);
+    }
+  });
+
+  it('an assist advisor\'s proposal reaches its own seat alone; an advise advisor\'s reaches nobody; the human\'s accept reaches its advisor alone', async () => {
+    const { room, ws0, ws1 } = await running({ mode: 'versus' });
+    const adv0 = await advisorHello(room, 0, 'assist');
+    const adv1 = await advisorHello(room, 1, 'advise');
+    await say(room, adv0, { t: 'advisor', a: PROPOSAL });
+    expect(relays(ws0)).toEqual([{ t: 'advisor', from: 'advisor', a: PROPOSAL }]);
+    for (const ws of [ws1, adv0, adv1]) expect(relays(ws)).toEqual([]);
+    await say(room, adv1, { t: 'advisor', a: PROPOSAL });
+    for (const ws of [ws1, adv1, adv0]) expect(relays(ws)).toEqual([]);
+    expect(relays(ws0)).toHaveLength(1);
+    await say(room, ws0, { t: 'advisor', a: { kind: 'accept', id: 1 } });
+    expect(relays(adv0)).toEqual([{ t: 'advisor', from: 'human', a: { kind: 'accept', id: 1 } }]);
+    expect(relays(ws0)).toHaveLength(1);   // no echo to the human
+    for (const ws of [ws1, adv1]) expect(relays(ws)).toEqual([]);
+    // A seat's own proposal is relayed to nobody, and an advisor's accept is not relayed either.
+    await say(room, ws1, { t: 'advisor', a: PROPOSAL });
+    expect(relays(adv1)).toEqual([]);
+    await vi.advanceTimersByTimeAsync(300);
+    await say(room, adv0, { t: 'advisor', a: { kind: 'veto', id: 1 } });
+    expect(relays(ws0)).toHaveLength(1);
+    // Text goes both ways at either scope, to the pair only.
+    await say(room, adv1, { t: 'advisor', a: { kind: 'text', text: 'ridge' } });
+    expect(relays(ws1)).toEqual([{ t: 'advisor', from: 'advisor', a: { kind: 'text', text: 'ridge' } }]);
+    expect(relays(ws0)).toHaveLength(1);
+  });
+
+  it('an advisor relays at most one message per ADVISOR_MIN_GAP_MS; a quicker one is dropped, not queued', async () => {
+    const { room, ws0 } = await running({ mode: 'versus' });
+    const adv = await advisorHello(room, 0, 'advise');
+    const text = (n: number): unknown => ({ t: 'advisor', a: { kind: 'text', text: `t${n}` } });
+    await say(room, adv, text(1));
+    await say(room, adv, text(2));
+    vi.setSystemTime(Date.now() + ADVISOR_MIN_GAP_MS - 1);
+    await say(room, adv, text(3));
+    vi.setSystemTime(Date.now() + 1);
+    await say(room, adv, text(4));
+    expect(relays(ws0).map((m) => (m.a.kind === 'text' ? m.a.text : ''))).toEqual(['t1', 't4']);
+    expect(adv.closed).toBeNull();
+  });
+
+  it('closing an advisor mid-match stalls nothing, drops nobody, forfeits nothing, writes nothing, and clears the badge', async () => {
+    const { state, room, ws0, ws1 } = await running({ mode: 'versus' });
+    await vi.advanceTimersByTimeAsync(5 * TICK_MS);
+    const adv = await advisorHello(room, 1, 'assist');
+    const before = state.storage.rowsWritten;
+    await deliverClose(room, adv, 1006, 'gone');
+    expect(state.storage.rowsWritten).toBe(before);
+    for (const ws of [ws0, ws1]) expect(last(ws)).toEqual({ t: 'advisors', present: [null, null] });
+    // No forfeit clock started (`dropped` is its start), and the match runs on.
+    await vi.advanceTimersByTimeAsync(10 * TICK_MS);
+    expect(state.storage.alarmAt).not.toBeNull();
+    for (const ws of [ws0, ws1]) {
+      expect(ofType(ws, 'frame').at(-1)?.tick).toBe(14);
+      for (const t of ['stall', 'dropped', 'ended'] as const) expect(ofType(ws, t), t).toEqual([]);
+    }
+    expect((await persisted(state)).seats.map((s) => s?.connected)).toEqual([true, true]);
+  });
+
+  it('a second advisor hello for a seat retires the first (4000); the retired one\'s late close changes nothing', async () => {
+    const { room, ws0, ws1 } = await running({ mode: 'versus' });
+    const first = await advisorHello(room, 0, 'assist');
+    const second = await advisorHello(room, 0, 'advise');
+    expect(first.closed).toEqual({ code: 4000, reason: 'replaced' });
+    expect(second.closed).toBeNull();
+    expect(last(ws1)).toEqual({ t: 'advisors', present: ['advise', null] });
+    await deliverClose(room, first, 4000, 'replaced');
+    expect(last(ws1)).toEqual({ t: 'advisors', present: ['advise', null] });
+    // The live one is the advise advisor: its proposal is relayed to nobody, its text to the seat.
+    await say(room, second, { t: 'advisor', a: PROPOSAL });
+    expect(relays(ws0)).toEqual([]);
+    await vi.advanceTimersByTimeAsync(300);
+    await say(room, second, { t: 'advisor', a: { kind: 'text', text: 'here' } });
+    expect(relays(ws0)).toHaveLength(1);
+    expect(first.sendsAfterClose).toBe(0);
+  });
+
+  it('through an eviction the advisor still relays: who it is lives in its attachment, not in storage', async () => {
+    const { state, room, ws0 } = await running({ mode: 'versus' });
+    const adv = await advisorHello(room, 0, 'assist');
+    evict();
+    const revived = new MatchRoom(state, env);
+    await say(revived, adv, { t: 'advisor', a: PROPOSAL });
+    expect(relays(ws0)).toEqual([{ t: 'advisor', from: 'advisor', a: PROPOSAL }]);
+    await say(revived, ws0, { t: 'advisor', a: { kind: 'veto', id: 1 } });
+    expect(relays(adv)).toEqual([{ t: 'advisor', from: 'human', a: { kind: 'veto', id: 1 } }]);
+    await deliverClose(revived, adv);
+    expect(last(ws0)).toEqual({ t: 'advisors', present: [null, null] });
+  });
+
+  it('after a deploy drops the seat\'s socket, its surviving advisor does not hold the seat: the revived room marks it gone', async () => {
+    const { state, room, ws0, ws1 } = await running({ mode: 'versus' });
+    await advisorHello(room, 0, 'assist');
+    evict();
+    state.vanish(ws0);
+    const revived = new MatchRoom(state, env);
+    await say(revived, ws1, { t: 'ack', tick: 0 });
+    expect((await persisted(state)).seats[0]?.connected).toBe(false);
+    expect(ofType(ws1, 'dropped').map((m) => m.seat)).toEqual([0]);
+  });
+
+  it('an advisor counts toward the 8: two seats, two advisors and four in flight fill the room, and the ninth is closed 1008', async () => {
+    const { room } = await running({ mode: 'versus' });
+    const a0 = await advisorHello(room, 0, 'assist');
+    const a1 = await advisorHello(room, 1, 'advise');
+    const flight = Array.from({ length: MAX_ROOM_SOCKETS - 4 }, () => openSocket(room));
+    expect([a0, a1, ...flight].every((w) => w.closed === null)).toBe(true);
+    expect(openSocket(room).closed).toEqual({ code: 1008, reason: 'too many sockets' });
+  });
+
+  it('an advisor floods its own socket\'s budget like any socket: closed 1008, and the seat plays on', async () => {
+    const { room, ws0 } = await running({ mode: 'versus' });
+    const adv = await advisorHello(room, 0, 'advise');   // its hello spent one
+    for (let i = 0; i < SOCKET_BUDGET.burst - 1; i++) await say(room, adv, { t: 'ack', tick: 0 });
+    expect(adv.closed).toBeNull();
+    await say(room, adv, { t: 'ack', tick: 0 });
+    expect(adv.closed).toEqual({ code: 1008, reason: 'rate' });
+    expect(ws0.closed).toBeNull();
+  });
+
+  it('an advisor ticket never replays an ended match as its seat: it hears the ending alone, while the seat\'s own ticket still gets the log', async () => {
+    const { state, room, ws0 } = await running({ mode: 'versus' });
+    await vi.advanceTimersByTimeAsync(3 * TICK_MS);
+    await say(room, ws0, { t: 'surrender' });
+    evict();
+    const revived = new MatchRoom(state, env);
+    const adv = await advisorHello(revived, 0, 'assist');
+    expect(msgs(adv)).toEqual([{ t: 'ended', reason: 'surrender', seat: 0 }]);
+    const seat = await hello(revived, 0);
+    expect(ofType(seat, 'log')).toHaveLength(1);
+    expect(last(seat)).toEqual({ t: 'ended', reason: 'surrender', seat: 0 });
+  });
+
+  it('when the room closes itself after the result, the advisor is told and closed with the seats; its late close writes nothing', async () => {
+    const { state, room, ws0, ws1 } = await running({ mode: 'versus' });
+    const adv = await advisorHello(room, 1, 'assist');
+    await vi.advanceTimersByTimeAsync(10 * TICK_MS);
+    await say(room, ws0, { t: 'over', tick: 5 });
+    await say(room, ws1, { t: 'over', tick: 5 });
+    await vi.advanceTimersByTimeAsync(OVER_CLOSE_MS + TICK_MS);
+    expect(last(adv)).toEqual({ t: 'ended', reason: 'over' });
+    expect(adv.closed).toEqual({ code: 1000, reason: 'ended' });
+    const rows = state.storage.rowsWritten;
+    const sent = ws0.sent.length;
+    await deliverClose(room, adv);
+    expect(state.storage.rowsWritten).toBe(rows);
+    expect(ws0.sent.length).toBe(sent);
+  });
+
+  it('refuses an advisor ticket for another match or another build, and seats nobody', async () => {
+    const { room, ws0 } = await running({ mode: 'versus' });
+    const other = await hello(room, 0, await advisorTicket(0, 'assist', 'ZZZZZZ'));
+    expect(other.closed?.code).toBe(4001);
+    const old = await hello(room, 0, await advisorTicket(0, 'assist'), 'b0');
+    expect(old.closed?.code).toBe(4002);
+    expect(ofType(ws0, 'advisors')).toEqual([]);
+  });
+});
+
+describe('bot seats and the paced config (N4a task 7, D5)', () => {
+  const PACED = { kind: 'paced', roundTicks: 5, roundWallMs: 2000 };
+  it('a paced versus room with a bot join mints paced, with roundTicks clamped to 20; the same room with no bot mints realtime', async () => {
+    const bot = await running({ mode: 'versus', pace: PACED, joinKind: 'bot' });
+    const [start] = ofType(bot.ws0, 'start');
+    expect(start.config.pace).toEqual({ kind: 'paced', roundTicks: 20, roundWallMs: 2000 });
+    expect(start.config.seats.map((s) => s.kind)).toEqual(['human', 'bot']);
+    const humans = await running({ mode: 'versus', pace: PACED });
+    expect(ofType(humans.ws0, 'start')[0].config.pace).toEqual({ kind: 'realtime' });
+    expect(ofType(humans.ws0, 'start')[0].config.seats.map((s) => s.kind)).toEqual(['human', 'human']);
+    const host = await running({ mode: 'versus', kind: 'bot' });
+    expect(ofType(host.ws0, 'start')[0].config.seats.map((s) => s.kind)).toEqual(['bot', 'human']);
+    expect(ofType(host.ws0, 'start')[0].config.pace).toEqual({ kind: 'realtime' });
+  });
+
+  it('a room persisted before seat kinds and pace existed revives with two humans, realtime', async () => {
+    const { state } = await created(new FakeState(), { mode: 'versus' });
+    const meta = await state.storage.get<Record<string, unknown>>('meta');
+    delete meta?.kinds;
+    delete meta?.pace;
+    await state.storage.put('meta', meta);
+    const room = new MatchRoom(state, env);
+    const ws0 = await hello(room, 0);
+    const ws1 = await hello(room, 1);
+    await say(room, ws0, { t: 'ready' });
+    await say(room, ws1, { t: 'ready' });
+    const [start] = ofType(ws0, 'start');
+    expect(start.config.pace).toEqual({ kind: 'realtime' });
+    expect(start.config.seats.map((s) => s.kind)).toEqual(['human', 'human']);
+  });
+
+  it('a bot that never sends done: the clock and the watchdog keep running through the wait, and roundWallMs releases the round (Review Focus 5)', async () => {
+    const { state, ws0 } = await running({ mode: 'versus', pace: { kind: 'paced', roundTicks: 20, roundWallMs: 1000 }, joinKind: 'bot' });
+    await vi.advanceTimersByTimeAsync(20 * TICK_MS);
+    expect(ofType(ws0, 'frame').at(-1)?.tick).toBe(19);
+    await vi.advanceTimersByTimeAsync(10 * TICK_MS);
+    expect(ofType(ws0, 'frame').at(-1)?.tick).toBe(19);
+    expect(ofType(ws0, 'stall')).toEqual([{ t: 'stall', reason: 'round', seat: 1 }]);
+    expect(vi.getTimerCount()).toBeGreaterThan(0);   // the 50 ms clock still runs
+    expect(state.storage.alarmAt).not.toBeNull();     // and so does the watchdog
+    const before = state.storage.rowsWritten;
+    await vi.advanceTimersByTimeAsync(5 * TICK_MS);
+    expect(state.storage.rowsWritten).toBe(before);   // the wait writes nothing
+    await vi.advanceTimersByTimeAsync(10 * TICK_MS);
+    expect(ofType(ws0, 'frame').at(-1)?.tick).toBeGreaterThanOrEqual(20);
+    expect(ofType(ws0, 'resume')).toHaveLength(1);
+  });
+
+  it('evicted mid-wait, the watchdog alarm alone restarts the clock and the revived room releases the round', async () => {
+    const { state, ws0 } = await running({ mode: 'versus', pace: { kind: 'paced', roundTicks: 20, roundWallMs: 600_000 }, joinKind: 'bot' });
+    await vi.advanceTimersByTimeAsync(25 * TICK_MS);
+    expect(ofType(ws0, 'stall')).toEqual([{ t: 'stall', reason: 'round', seat: 1 }]);
+    const at = state.storage.alarmAt;
+    expect(at).not.toBeNull();
+    evict();
+    const revived = new MatchRoom(state, env);
+    vi.setSystemTime(at ?? 0);
+    await deliverAlarm(revived, state.storage);
+    await vi.advanceTimersByTimeAsync(3 * TICK_MS);
+    expect(ofType(ws0, 'frame').at(-1)?.tick).toBeGreaterThanOrEqual(20);
   });
 });

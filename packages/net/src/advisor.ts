@@ -30,6 +30,8 @@ export type AdvisorMsg =
 
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
 const isTile = (v: unknown): v is number => isInt(v) && v >= 0 && v <= PING_MAX;
+/** A proposal's id, as accept and veto name it: a safe non-negative integer, so it round-trips exactly. */
+const isId = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
 
 /** `cleanChat`'s rule, cut at `ADVISOR_NOTE_MAX` without splitting a character. */
 function cleanNote(raw: unknown): string | null {
@@ -54,13 +56,13 @@ export function cleanAdvisorMsg(v: unknown): AdvisorMsg | null {
     case 'ping':
       return isTile(m.x) && isTile(m.y) ? { kind: 'ping', x: m.x, y: m.y } : null;
     case 'proposal': {
-      if (!isInt(m.id)) return null;
+      if (!isId(m.id)) return null;
       const cmd = cleanCommand(m.cmd);
       const note = cleanNote(m.note);
       return cmd === null || note === null ? null : { kind: 'proposal', id: m.id, cmd, note };
     }
-    case 'accept': return isInt(m.id) ? { kind: 'accept', id: m.id } : null;
-    case 'veto': return isInt(m.id) ? { kind: 'veto', id: m.id } : null;
+    case 'accept': return isId(m.id) ? { kind: 'accept', id: m.id } : null;
+    case 'veto': return isId(m.id) ? { kind: 'veto', id: m.id } : null;
     default: return null;
   }
 }

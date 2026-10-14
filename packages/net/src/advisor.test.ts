@@ -55,6 +55,16 @@ describe('cleanAdvisorMsg', () => {
     expect(cleanAdvisorMsg([])).toBeNull();
   });
 
+  it('a proposal, accept or veto id is a safe non-negative integer: negative, unsafe and huge ids are null (N4a task 7)', () => {
+    for (const id of [-1, -7, Number.MAX_SAFE_INTEGER + 1, 1e300]) {
+      expect(cleanAdvisorMsg({ kind: 'accept', id }), `accept ${id}`).toBeNull();
+      expect(cleanAdvisorMsg({ kind: 'veto', id }), `veto ${id}`).toBeNull();
+      expect(cleanAdvisorMsg({ kind: 'proposal', id, cmd: MOVE, note: '' }), `proposal ${id}`).toBeNull();
+    }
+    expect(cleanAdvisorMsg({ kind: 'accept', id: 0 })).toEqual({ kind: 'accept', id: 0 });
+    expect(cleanAdvisorMsg({ kind: 'veto', id: Number.MAX_SAFE_INTEGER })).toEqual({ kind: 'veto', id: Number.MAX_SAFE_INTEGER });
+  });
+
   it('rebuilds the message: extra fields do not ride through', () => {
     expect(cleanAdvisorMsg({ kind: 'accept', id: 2, pad: 'x'.repeat(3000) })).toEqual({ kind: 'accept', id: 2 });
     expect(cleanAdvisorMsg({ kind: 'ping', x: 1, y: 2, pad: 'x' })).toEqual({ kind: 'ping', x: 1, y: 2 });

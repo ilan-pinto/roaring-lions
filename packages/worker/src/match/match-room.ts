@@ -63,12 +63,12 @@
  * `connected`) flushes the open batch with its write, so an eviction while
  * waiting for a reconnect re-sends nothing.
  */
-import { factionsOfMatchup, matchupAllowed, matchupField, parseClientMsg, versusMapAllowed, validateConfig, REPLACED_CLOSE_CODE, type ClientMsg, type Frame, type MatchConfig, type Seat, type SeatConfig, type ServerMsg } from '@lions/net';
+import { advisorMayRelay, factionsOfMatchup, matchupAllowed, matchupField, parseClientMsg, versusMapAllowed, validateConfig, REPLACED_CLOSE_CODE, type AdvisorScope, type ClientMsg, type Frame, type MatchConfig, type Pace, type Seat, type SeatConfig, type ServerMsg } from '@lions/net';
 import type { Env } from '../d1';
 import type { DurableStateLike, HibernatingSocket, UpgradeInit } from '../do-types';
-import { createRoom, endedMsg, logParts, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, forfeitDueAt, forfeitIfDue, persistKey, revive, ROOM_TTL_MS, type Effect, type RoomState } from './room-core';
+import { createRoom, endedMsg, lobbyMsg, logParts, pausedMsg, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, forfeitDueAt, forfeitIfDue, persistKey, revive, ROOM_TTL_MS, type Effect, type RoomState } from './room-core';
 import { verifyTicket } from './ticket';
-import { DEFAULT_MAP, callsignField, mapField, textField } from './room-fields';
+import { DEFAULT_MAP, callsignField, mapField, paceField, seatKindField, textField, type SeatKind } from './room-fields';
 import { compactLog, writeDesync } from './desync-log';
 
 export const TICK_MS = 50;
@@ -107,6 +107,10 @@ interface RoomMeta {
   /** Per-match seat tokens (N1b task 12): what `start`/`log` carry as `seats[i].player`, so
    *  a friend never learns the other seat's persistent anonymous id. Minted at `/create`. */
   tokens: [string, string];
+  /** Each seat's kind (N4a), from `/create` and `/join`: a bot seat is what makes a paced room pace. */
+  kinds: [SeatKind, SeatKind];
+  /** The pace `/create` asked for, clamped (D5). `mintConfig` mints it only when a seat is a bot. */
+  pace: Pace;
 }
 /** 16 random hex characters: 64 bits from `crypto.getRandomValues`. */
 function mintToken(): string {
@@ -129,11 +133,19 @@ function legacyMeta(m: Partial<RoomMeta>, st: RoomState | null): RoomMeta {
     // A room created before tokens existed mints them here, at wake. They only become visible
     // when `mintConfig` runs (once, at start); `st.config` then holds them for every `log`.
     tokens: Array.isArray(m.tokens) && m.tokens.length === 2 && isToken(m.tokens[0]) && isToken(m.tokens[1]) ? [m.tokens[0], m.tokens[1]] : mintTokens(),
+    // A room from before N4a: two humans, realtime.
+    kinds: Array.isArray(m.kinds) && m.kinds.length === 2 ? [seatKindField(m.kinds[0]), seatKindField(m.kinds[1])] : ['human', 'human'],
+    pace: paceField(m.pace),
   };
 }
 /** A socket's seat; `at`, while it has none, is when it was accepted, for the
- *  hello deadline (#559 M-1). A socket the room has closed has neither. */
-interface SocketAttachment { seat: Seat | null; at?: number }
+ *  hello deadline (#559 M-1). A socket the room has closed has neither.
+ *  `role: 'advisor'` (N4a) is that seat's ADVISOR, never the seat: it is
+ *  counted as a live socket and sent what the room sends everyone, and it is
+ *  never one of `socketsFor(seat)`, so it holds no seat, gets no seat-targeted
+ *  message, and its close marks nobody gone. Who it is lives here and nowhere
+ *  else, so the advisor survives an eviction with no row written. */
+interface SocketAttachment { seat: Seat | null; at?: number; role?: 'advisor'; scope?: AdvisorScope }
 /**
  * #559 M-1: what one room lets sockets do.
  * - `HELLO_TIMEOUT_MS`: a socket with no seat after 10 s is closed, and so is
@@ -150,6 +162,9 @@ interface SocketAttachment { seat: Seat | null; at?: number }
 export const HELLO_TIMEOUT_MS = 10_000;
 export const MAX_ROOM_SOCKETS = 8;
 export const SOCKET_BUDGET = { burst: 160, perSecond: 80 } as const;
+/** N4a: the least gap between two advisor messages one advisor socket may have relayed;
+ *  a quicker one is dropped. Memory only, like the socket budget it sits beside. */
+export const ADVISOR_MIN_GAP_MS = 250;
 /** Policy violation: the close code for a socket the room will not serve. */
 const POLICY_CLOSE = 1008;
 interface SocketMeter { tokens: number; atMs: number; ack: number; hash: number }
@@ -159,9 +174,15 @@ const cmdCharsOf = (frames: Frame[]): number => frames.reduce((n, f) => n + f.cm
 function attachmentOf(ws: WebSocket): SocketAttachment | null {
   try { return (ws as HibernatingSocket).deserializeAttachment() as SocketAttachment | null; } catch { return null; }
 }
+/** The seat this socket SPEAKS FOR: null for a seatless socket and for an advisor. */
 function seatOf(ws: WebSocket): Seat | null {
   const a = attachmentOf(ws);
-  return a === null ? null : a.seat;
+  return a === null || a.role === 'advisor' ? null : a.seat;
+}
+/** The seat this socket advises, and how, or null when it is not an advisor. */
+function advisorOf(ws: WebSocket): { seat: Seat; scope: AdvisorScope } | null {
+  const a = attachmentOf(ws);
+  return a !== null && a.role === 'advisor' && a.seat !== null && a.scope !== undefined ? { seat: a.seat, scope: a.scope } : null;
 }
 function reply(ws: WebSocket, msg: ServerMsg): void {
   try { ws.send(JSON.stringify(msg)); } catch { /* closing */ }
@@ -222,6 +243,8 @@ export class MatchRoom {
   private open: Frame[] = [];
   /** Each socket's message budget (#559 M-1): memory only, so a woken room starts every socket full. */
   private readonly meters = new WeakMap<WebSocket, SocketMeter>();
+  /** When each advisor socket last had a message relayed (N4a, `ADVISOR_MIN_GAP_MS`): memory only. */
+  private readonly advisorRelayedAt = new WeakMap<WebSocket, number>();
   /** The alarm this instance last set, or null when it set none (or the runtime consumed it). */
   private alarmAt: number | null = null;
   /** `persistKey` of the state as last written (or loaded). */
@@ -336,27 +359,49 @@ export class MatchRoom {
     // The seat's real id (`RoomSeat.player`) stays in the room; the config carries a per-match token.
     const tokens = this.meta?.tokens ?? mintTokens();
     const mode = this.meta?.mode ?? 'sandbox';
+    const kinds = this.meta?.kinds ?? ['human', 'human'];
+    // D5: a room paces only when a seat is a bot; two humans are never waited for.
+    const pace: Pace = this.meta?.pace.kind === 'paced' && kinds.includes('bot') ? this.meta.pace : { kind: 'realtime' };
     const seatConfig = (seat: Seat): SeatConfig => {
       const s = st.seats[seat];
-      return { seat, side: mode === 'versus' ? seat : 0, faction: mode === 'versus' ? st.factions[seat] : 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: tokens[seat], callsign: this.meta?.callsigns[seat] ?? s?.callsign ?? '', kind: 'human' };
+      return { seat, side: mode === 'versus' ? seat : 0, faction: mode === 'versus' ? st.factions[seat] : 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: tokens[seat], callsign: this.meta?.callsigns[seat] ?? s?.callsign ?? '', kind: kinds[seat] };
     };
     const config = validateConfig({
       matchId: st.matchId, code: st.code, seed: this.meta?.seed ?? SIM_SEED_N0, map: this.meta?.map ?? DEFAULT_MAP, mode,
       seats: [seatConfig(0), seatConfig(1)],
-      pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: this.meta?.build ?? '', dataDigest: 0,
+      pace, hashEveryTicks: 20, bufferTicks: 2, build: this.meta?.build ?? '', dataDigest: 0,
     });
     if (config === null) throw new Error('MatchRoom minted a config its own validator refuses');
     return config;
   }
+  /** The sockets that speak for `seat`: never its advisor. */
   private socketsFor(seat: Seat): WebSocket[] {
     return this.ctx.getWebSockets().filter((ws) => seatOf(ws) === seat);
   }
+  /** `seat`'s advisor sockets: one at most while the room is healthy (a retired one is disowned). */
+  private advisorsFor(seat: Seat): WebSocket[] {
+    return this.ctx.getWebSockets().filter((ws) => advisorOf(ws)?.seat === seat);
+  }
+  /** `'all'` reaches every seated socket, advisors included, each `lobby` naming
+   *  the socket's own seat; a seat-targeted message reaches that seat's own
+   *  sockets and never its advisor. */
   private send(to: Seat | 'all', msg: ServerMsg): void {
     const seats: Seat[] = to === 'all' ? [0, 1] : [to];
     for (const seat of seats) {
       const text = JSON.stringify(msg.t === 'lobby' ? { ...msg, you: seat } : msg);
-      for (const ws of this.socketsFor(seat)) { try { ws.send(text); } catch { /* closing */ } }
+      const targets = to === 'all' ? [...this.socketsFor(seat), ...this.advisorsFor(seat)] : this.socketsFor(seat);
+      for (const ws of targets) { try { ws.send(text); } catch { /* closing */ } }
     }
+  }
+  /** Which scope each seat's advisor has, read from the sockets' attachments:
+   *  no state and no row, and it survives hibernation as the sockets do. */
+  private advisorsPresent(): Extract<ServerMsg, { t: 'advisors' }> {
+    const present: [AdvisorScope | null, AdvisorScope | null] = [null, null];
+    for (const ws of this.ctx.getWebSockets()) {
+      const a = advisorOf(ws);
+      if (a !== null) present[a.seat] = a.scope;
+    }
+    return { t: 'advisors', present };
   }
   /** `keep` is the socket whose hello produced these effects: a `close` for
    *  its seat closes every OTHER socket on that seat. The state is written
@@ -371,7 +416,7 @@ export class MatchRoom {
       } else if (e.kind === 'shut') {
         // The room is over (L-1): each socket gives up its seat, so its close
         // (from either end) finds no seat to mark gone and writes nothing.
-        for (const ws of this.socketsFor(e.seat)) { disown(ws); shut(ws, 1000, 'ended'); }
+        for (const ws of [...this.socketsFor(e.seat), ...this.advisorsFor(e.seat)]) { disown(ws); shut(ws, 1000, 'ended'); }
       } else for (const ws of this.socketsFor(e.seat)) if (ws !== keep) retire(ws);
     }
     await this.saveIfChanged();
@@ -520,7 +565,7 @@ export class MatchRoom {
       if (!matchupAllowed(matchup, map)) return new Response('matchup not offered on this map', { status: 400 });
       const factions = factionsOfMatchup(matchup);
       this.st = createRoom(body.code, body.matchId, Date.now(), map, factions);
-      this.meta = { map, build, mode, seed, callsigns: [callsignField(body.callsign), ''], seat1Reserved: false, tokens: mintTokens() };
+      this.meta = { map, build, mode, seed, callsigns: [callsignField(body.callsign), ''], seat1Reserved: false, tokens: mintTokens(), kinds: [seatKindField(body.kind), 'human'], pace: paceField(body.pace) };
       // The table, the keys and the TTL alarm exist from here, and only from here (#559 H-1).
       this.ctx.storage.sql.exec(CREATE_SQL);
       await this.ctx.storage.put('meta', this.meta);
@@ -551,7 +596,7 @@ export class MatchRoom {
       if (st.status === 'ended') return new Response('ended', { status: 410 });
       const meta = this.meta ?? legacyMeta({}, st);
       if (st.seats[1] !== null || meta.seat1Reserved) return new Response('full', { status: 409 });
-      this.meta = { ...meta, callsigns: [meta.callsigns[0], callsignField(body.callsign)], seat1Reserved: true };
+      this.meta = { ...meta, callsigns: [meta.callsigns[0], callsignField(body.callsign)], seat1Reserved: true, kinds: [meta.kinds[0], seatKindField(body.kind)] };
       await this.ctx.storage.put('meta', this.meta);
       return Response.json({ seat: 1 });
     }
@@ -614,17 +659,40 @@ export class MatchRoom {
       this.closeStaleSockets(now);
       if (!this.spend(ws, msg, st, now)) { disown(ws); shut(ws, POLICY_CLOSE, 'rate'); return; }
       const seat = seatOf(ws);
+      const advisor = advisorOf(ws);
       if (msg === null) {
         reply(ws, { t: 'error', code: 'bad_message' });
         // A socket with no seat has nothing to lose by a bad first message but its socket (#559 M-1).
-        if (seat === null) { disown(ws); shut(ws, POLICY_CLOSE, 'bad message'); }
+        if (seat === null && advisor === null) { disown(ws); shut(ws, POLICY_CLOSE, 'bad message'); }
         return;
       }
+      if (advisor !== null) { this.advisorMessage(ws, advisor, msg, now); return; }
       if (seat === null) { await this.hello(ws, st, msg); return; }
-      await this.apply(seatMessage(st, seat, msg, Date.now(), () => this.mintConfig(st)));
+      const effects = seatMessage(st, seat, msg, Date.now(), () => this.mintConfig(st));
+      // The human's half of its pair: to its own advisor, never the other seat; nothing stored.
+      if (msg.t === 'advisor') {
+        for (const ws2 of this.advisorsFor(seat)) {
+          const scope = advisorOf(ws2)?.scope;
+          if (scope !== undefined && advisorMayRelay('human', scope, msg.a)) reply(ws2, { t: 'advisor', from: 'human', a: msg.a });
+        }
+      }
+      await this.apply(effects);
     } finally {
       this.ensureClock();
     }
+  }
+
+  /** An advisor socket's message (N4a), after its budget was spent: only
+   *  `advisor` is acted on, relayed to the seat it advises when its scope
+   *  allows, at most one per `ADVISOR_MIN_GAP_MS`. Every other kind is ignored:
+   *  an advisor never orders, readies, pauses, ends or reports anything. The
+   *  room's state is not touched, so this writes no row. */
+  private advisorMessage(ws: WebSocket, advisor: { seat: Seat; scope: AdvisorScope }, msg: ClientMsg, now: number): void {
+    if (msg.t !== 'advisor' || !advisorMayRelay('advisor', advisor.scope, msg.a)) return;
+    const lastMs = this.advisorRelayedAt.get(ws);
+    if (lastMs !== undefined && now - lastMs < ADVISOR_MIN_GAP_MS) return;
+    this.advisorRelayedAt.set(ws, now);
+    for (const seatWs of this.socketsFor(advisor.seat)) reply(seatWs, { t: 'advisor', from: 'advisor', a: msg.a });
   }
 
   private async hello(ws: WebSocket, st: RoomState, msg: ClientMsg): Promise<void> {
@@ -644,14 +712,32 @@ export class MatchRoom {
     if (msg.t !== 'hello') { reply(ws, { t: 'error', code: 'bad_ticket' }); shut(ws, 4001, 'hello first'); return; }
     const secret = this.env.TICKET_SECRET;
     const ticket = secret ? await verifyTicket(secret, msg.ticket, Date.now()) : null;
-    // An advisor ticket is not a seat's (N4a): until the room seats advisors it fails closed
-    // rather than taking over the seat it names.
-    if (!ticket || ticket.role !== 'seat' || ticket.matchId !== st.matchId) { reply(ws, { t: 'error', code: 'bad_ticket' }); shut(ws, 4001, 'bad ticket'); return; }
+    if (!ticket || ticket.matchId !== st.matchId) { reply(ws, { t: 'error', code: 'bad_ticket' }); shut(ws, 4001, 'bad ticket'); return; }
     // /create refuses an empty build, so `''` here means meta was never written: fail closed.
     const build = this.meta?.build ?? '';
     if (build === '' || msg.build !== build) { reply(ws, { t: 'error', code: 'build_mismatch' }); shut(ws, 4002, 'build'); return; }
+    if (ticket.role === 'advisor' && ticket.scope !== undefined) { this.advisorHello(ws, st, ticket.seat, ticket.scope); return; }
+    if (ticket.role !== 'seat') { reply(ws, { t: 'error', code: 'bad_ticket' }); shut(ws, 4001, 'bad ticket'); return; }
     (ws as HibernatingSocket).serializeAttachment({ seat: ticket.seat } satisfies SocketAttachment);
     await this.apply(seatJoin(st, ticket.seat, ticket.player, this.meta?.callsigns[ticket.seat] ?? '', Date.now(), () => this.readLog()), ws);
+    // A seat that (re)joins is told the advisor badges it would otherwise have missed.
+    const present = this.advisorsPresent();
+    if (present.present.some((p) => p !== null)) reply(ws, present);
+  }
+
+  /** An advisor's hello (N4a, decision D1): one per seat, so an earlier one
+   *  for the same seat is retired; it is told the lobby, or the log and a pause
+   *  in force, as its seat would be; and everyone learns the badge. It never
+   *  joins the seat: no `seatJoin`, no state change, no row. */
+  private advisorHello(ws: WebSocket, st: RoomState, seat: Seat, scope: AdvisorScope): void {
+    for (const old of this.advisorsFor(seat)) if (old !== ws) retire(old);
+    (ws as HibernatingSocket).serializeAttachment({ seat, role: 'advisor', scope } satisfies SocketAttachment);
+    if (st.status === 'lobby') reply(ws, lobbyMsg(st, seat));
+    else if (st.config !== null) {
+      for (const part of logParts(st.config, this.readLog())) reply(ws, part);
+      if (st.pause !== null) reply(ws, pausedMsg(st, Date.now(), st.pause));
+    }
+    this.send('all', this.advisorsPresent());
   }
 
   /** Whether a hello to an ENDED room may have the log: the ending names a
@@ -678,9 +764,13 @@ export class MatchRoom {
       // may not be sent. `shut` swallows the throw from a socket already closed.
       shut(ws, 1000, 'closed');
       const seat = seatOf(ws);
+      const advisor = advisorOf(ws);
       disown(ws);
       const st = await this.begin();
-      if (!st || seat === null) return;
+      if (!st) return;
+      // An advisor going is only a badge going: no seat is gone, nothing stalls, nothing is written.
+      if (advisor !== null) { this.send('all', this.advisorsPresent()); return; }
+      if (seat === null) return;
       await this.apply(seatGone(st, seat, Date.now()));
     } finally {
       this.ensureClock();

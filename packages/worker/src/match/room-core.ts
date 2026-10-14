@@ -244,7 +244,7 @@ export function logParts(config: MatchConfig, frames: readonly Frame[], maxChars
   return runs.map((run, part) => ({ t: 'log', config, frames: run, part, parts: runs.length }));
 }
 
-function pausedMsg(st: RoomState, nowMs: number, pause: { seat: Seat; untilMs: number }): ServerMsg {
+export function pausedMsg(st: RoomState, nowMs: number, pause: { seat: Seat; untilMs: number }): ServerMsg {
   return { t: 'paused', seat: pause.seat, remainingMs: Math.max(0, pause.untilMs - nowMs), pausesLeft: [st.pausesLeft[0], st.pausesLeft[1]] };
 }
 
@@ -313,7 +313,8 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
   s.lastSeenMs = nowMs;
   switch (msg.t) {
     case 'hello': return [];   // handled by the DO before seatJoin
-    // N4a: a seat's pair is parsed (protocol.ts) but not yet acted on; the room wires it in a later task.
+    // N4a: the DO relays a seat's advisor message to that seat's advisor socket
+    // (`match-room.ts`); the room's state takes nothing from it, so it writes nothing.
     case 'advisor': return [];
     case 'done': {
       // Only a bot seat in a paced room, and only for a round that has CLOSED:
