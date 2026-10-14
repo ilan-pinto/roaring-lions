@@ -114,7 +114,7 @@
     "count": { "type": "integer", "minimum": 0, "maximum": 100000 },
     "unitId": { "type": "string", "pattern": "^[a-z0-9_]{1,32}$" },
     "tier": { "type": "string", "pattern": "^[a-z0-9_]{1,32}\\.[a-z0-9_]{1,32}\\.[1-9]$" },
-    "orderVerb": { "enum": ["move", "attackMove", "garrison", "demolish", "chargeTunnel", "mount", "dismount", "smoke", "halt", "strike", "sweep"] },
+    "orderVerb": { "enum": ["move", "attackMove", "attack", "garrison", "demolish", "chargeTunnel", "mount", "dismount", "smoke", "halt", "strike", "sweep"] },
     "unitCounts": {
       "type": "object",
       "maxProperties": 64,

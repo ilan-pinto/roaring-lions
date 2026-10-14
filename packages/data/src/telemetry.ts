@@ -29,6 +29,7 @@ export type TelemetryEventType = (typeof TELEMETRY_EVENT_TYPES)[number];
 export const TELEMETRY_ORDER_VERBS = [
   'move',
   'attackMove',
+  'attack',
   'garrison',
   'demolish',
   'chargeTunnel',
