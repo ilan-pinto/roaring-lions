@@ -345,15 +345,15 @@ shape — four recons across the game should give the same order the same way.
 drive to `failed`, so a `say_on_fail` on it would never fire and must not be
 authored.
 
-### 1.5 `debrief` — victory 140 chars, defeat 149 chars
+### 1.5 `debrief` — victory 140 chars, defeat 161 chars
 
 > **victory** · Shai — *Two into the ward and two still in the alley. Four seats,
 > one street and thirty tiles — that arithmetic does not get better by being
 > braver.*
 
-> **defeat** · Idit — *Nothing of ours was within four tiles of those alleys in
-> four minutes. The picture we did bring back is of a town that still has people
-> living in it.*
+> **defeat** · Idit — *No one on the ground reached those alleys in time, and the
+> drone walks nobody out. The picture we did bring back is of a town that still
+> has people living in it.*
 
 Shai's victory line is a **report on a win that is also a shortfall**, which is
 the arc's whole register and the reason `evacuate_before` is a primary three
@@ -363,8 +363,10 @@ about it, and *"does not get better by being braver"* is the closest he comes �
 a statement about a plan. It also sets up KR II and KR III, where the arithmetic
 genuinely does change, because the force grows to eleven seats.
 
-Idit's defeat line states the boarding rule as the failure (*within four tiles*)
-and then does the thing only she does: reports what was learned anyway. Status
+Idit's defeat line states the ground rule as the failure (*no one on the
+ground*, and *the drone walks nobody out*: since GH-279 an aircraft shepherds
+nobody, so the drone over the alleys does not count) and then does the thing
+only she does: reports what was learned anyway. Status
 **`live`**.
 
 ### 1.6 The thread in, from `beit_sahwan_4_subterranean`
@@ -407,7 +409,7 @@ and every id is proposed as prose, because `main.ts:276` prints it verbatim as
 | `objective(get_two_in, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Get two families into the ward inside four minutes` | shipped | live |
 | `objective(get_two_in, complete)` | `radio` | **Shai** | "Two inside the wall. Whatever is still in that alley is not worth a second run across the street." | `objectives[].say`; **the order stops at two**, which is what makes the other two a cost rather than a task | live |
 | `objective(get_two_in, failed)` @240 s | `toast` | system | `OBJECTIVE FAILED — Get two families into the ward inside four minutes` | **the only way to lose this mission**; a failed primary loses it in `checkEnd` | live |
-| `objective(get_two_in, failed)` @240 s | `radio` | **Shai** | "Four minutes, and nothing of ours got within four tiles of them. They are somebody else's problem now, and there is nobody left in this town whose problem that is." | `objectives[].say_on_fail`; the boarding rule stated as the failure, and the last clause is the absence doing work at the worst possible moment | live |
+| `objective(get_two_in, failed)` @240 s | `radio` | **Shai** | "Four minutes, and no one on the ground reached them in time. They are somebody else's problem now, and there is nobody left in this town whose problem that is." | `objectives[].say_on_fail`; the ground rule stated as the failure (an aircraft walks nobody out, GH-279), and the last clause is the absence doing work at the worst possible moment | live |
 | wave t=150 s (2 `militia_cell`, `north_road` → `souk_alley`) | `toast` | system | `enemy reinforcements — 2 unit(s) inbound` | hard-coded string | live |
 | wave t=150 s | `radio` | **Idit** | "Two sections down the north road into the souk alleys. Nobody called for them — that is a standing order arriving on time, from before anybody was on this road to call it off." | `enemy.waves[].say`, live since 2026-09-06. **§0.3 job 2 as a mechanic**: a wave on a clock is exactly what a plan with no author looks like | live |
 | wave t=260 s (1 `technical`, `kr_east_edge` → `main_street`) | `toast` | system | `enemy reinforcements — 1 unit(s) inbound` | hard-coded; **no `say`, deliberately** — the road being his is beat 3's job and Idit saying it twice makes it a theme instead of a fact | live |

@@ -440,7 +440,7 @@ civ.settlements_evacuated`.
 | East lane found | `locate(kr_lane_east)` completes | toast + `say` | idit: "The east lane is the mirror of it. Two lanes, two teams, and the only third way north runs through the compound we are not allowed to fight in." | live |
 | Block commander found | `locate(kr_hvt_ward)` completes | toast + `say` | idit: "That is the man giving the orders in this block, and he has not been given one himself since the shaft head. He is holding a town to a plan nobody is still writing." | live |
 | Two families in | `evacuate_before(ward, 2, 240s)` completes | toast + `say` | shai: "Two inside the wall. Whatever is still in that alley is not worth a second run across the street." | live |
-| Clock runs out | `evacuate_before(ward, 2, 240s)` fails @240s | toast `OBJECTIVE FAILED —…` + `say_on_fail` — **the only way to lose this mission** | shai: "Four minutes, and nothing of ours got within four tiles of them. They are somebody else's problem now, and there is nobody left in this town whose problem that is." | live |
+| Clock runs out | `evacuate_before(ward, 2, 240s)` fails @240s | toast `OBJECTIVE FAILED —…` + `say_on_fail` — **the only way to lose this mission** | shai: "Four minutes, and no one on the ground reached them in time. They are somebody else's problem now, and there is nobody left in this town whose problem that is." | live |
 | Five minutes screened | `survive_until(300)` completes | toast | shipped shape, no `say` | live |
 | Wave 1 | `at_seconds:150`, `from:"north_road"`, `to:"souk_alley"`, 2 `militia_cell` | toast + `say` | idit: "Two sections down the north road into the souk alleys. Nobody called for them — that is a standing order arriving on time, from before anybody was on this road to call it off." | live |
 | Wave 2 | `at_seconds:260`, `from:"kr_east_edge"`, `to:"main_street"`, 1 `technical` | toast only, no `say` | — | live |
@@ -522,9 +522,9 @@ those already listed.
 > seats, one street and thirty tiles — that arithmetic does not get better by
 > being braver."* (149 chars)
 
-> **defeat** · idit — *"Nothing of ours was within four tiles of those alleys in
-> four minutes. The picture we did bring back is of a town that still has
-> people living in it."* (156 chars)
+> **defeat** · idit — *"No one on the ground reached those alleys in time, and
+> the drone walks nobody out. The picture we did bring back is of a town that
+> still has people living in it."* (161 chars)
 
 ### 2.7 Passive-player loss
 
@@ -571,7 +571,7 @@ not `ongoing`.**
     { "id": "get_two_in", "type": "evacuate_before", "primary": true, "target": "ward", "count": 2, "seconds": 240,
       "text": "Get two families into the ward inside four minutes",
       "say": { "speaker": "shai", "text": "Two inside the wall. Whatever is still in that alley is not worth a second run across the street." },
-      "say_on_fail": { "speaker": "shai", "text": "Four minutes, and nothing of ours got within four tiles of them. They are somebody else's problem now, and there is nobody left in this town whose problem that is." } },
+      "say_on_fail": { "speaker": "shai", "text": "Four minutes, and no one on the ground reached them in time. They are somebody else's problem now, and there is nobody left in this town whose problem that is." } },
     { "id": "find_the_west_lane", "type": "locate", "primary": false, "target": "kr_lane_west",
       "text": "Identify the rocket team in the west lane",
       "say": { "speaker": "idit", "text": "Rocket team in the west lane, in a road one tile wide with houses on both sides. He is on the board now and he does not get a first shot next week." } },
@@ -629,7 +629,7 @@ not `ongoing`.**
   ],
   "debrief": {
     "victory": { "speaker": "shai", "text": "Two into the ward and two still in the alley. Four seats, one street and thirty tiles — that arithmetic does not get better by being braver." },
-    "defeat": { "speaker": "idit", "text": "Nothing of ours was within four tiles of those alleys in four minutes. The picture we did bring back is of a town that still has people living in it." }
+    "defeat": { "speaker": "idit", "text": "No one on the ground reached those alleys in time, and the drone walks nobody out. The picture we did bring back is of a town that still has people living in it." }
   }
 }
 ```

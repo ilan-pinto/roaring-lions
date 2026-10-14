@@ -56,7 +56,7 @@
     { "id": "get_the_road_party_clear", "type": "evacuate_before", "primary": true, "target": "south_staging", "count": 2, "seconds": 240,
       "text": "Get two families off the pass road inside four minutes",
       "say": { "speaker": "shai", "text": "Two into the staging ground. Whatever is still on that road is not worth a second run east." },
-      "say_on_fail": { "speaker": "shai", "text": "Four minutes, and nothing of ours got within four tiles of that road. They will be moved by somebody else now." } },
+      "say_on_fail": { "speaker": "shai", "text": "Four minutes, and no one on the ground reached that road in time. They will be moved by somebody else now." } },
     { "id": "find_the_tube", "type": "locate", "primary": false, "carries": true, "target": "qh_hvt_tube",
       "text": "Find the rocket battery in the hollow behind the start line",
       "say": { "speaker": "idit", "text": "The battery is on the floor of the bowl behind you, on your own side of the wall. Nothing here can see into that hollow and it does not need to: its eyes are eight tiles forward, on the boulder bench." } },
