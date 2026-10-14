@@ -54,6 +54,7 @@ import {
   LOST_AT,
   FOCUS_LOST_TICKS,
   FOCUS_REACH_SLACK,
+  GARRISON_RANGE_BONUS,
   MOTION_SIG,
   COVER_SIG,
   OCCL_PER_COVER,
@@ -157,6 +158,8 @@ export interface WeaponJson {
   min_range_tiles?: number;
   can_target?: string[];
   collateral_risk?: number;
+  /** Fires while its unit is garrisoned; default true. False for indirect fire (G4). */
+  fires_from_building?: boolean;
 }
 
 export interface UnitTypeJson {
@@ -328,6 +331,14 @@ export interface WeaponStats {
    */
   canTargetGround: boolean;
   canTargetAir: boolean;
+  /** Fires while its unit is garrisoned. From `fires_from_building`, default
+   *  true; false for indirect fire (G4, ruling 2026-10-14). */
+  firesFromBuilding: boolean;
+  /** Range, effective range and its square from inside a building:
+   *  GARRISON_RANGE_BONUS longer (ruling 4, 2026-10-14). */
+  garrisonRangeSq: Fx;
+  garrisonEffRange: Fx;
+  garrisonEffRangeSq: Fx;
 }
 
 /** Every multiplier behind one shot's hit probability, and their product.
@@ -495,6 +506,8 @@ function weaponFromJson(w: WeaponJson): WeaponStats {
   const range = fx.from(w.range_tiles);
   const minRange = fx.from(w.min_range_tiles ?? 0);
   const effRange = fx.from(w.effective_range_tiles ?? w.range_tiles);
+  const gRange = fx.add(range, GARRISON_RANGE_BONUS);
+  const gEff = fx.add(effRange, GARRISON_RANGE_BONUS);
   return {
     id: w.id,
     cls,
@@ -513,6 +526,10 @@ function weaponFromJson(w: WeaponJson): WeaponStats {
     // Absent -> ground only. See the field comment on WeaponStats.
     canTargetGround: w.can_target === undefined || w.can_target.includes('ground'),
     canTargetAir: w.can_target?.includes('air') ?? false,
+    firesFromBuilding: w.fires_from_building ?? true,
+    garrisonRangeSq: fx.mul(gRange, gRange),
+    garrisonEffRange: gEff,
+    garrisonEffRangeSq: fx.mul(gEff, gEff),
   };
 }
 
@@ -1862,13 +1879,16 @@ export class Sim {
    * difference. Deliberately does not call `destroy()`: no passenger
    * eject, no hp/moving reset, no `destroyed` event — none of combat's
    * bookkeeping applies, because nothing here was combat. A no-op if the
-   * unit is not currently alive (already dead, or already removed).
+   * unit is not currently alive (already dead, or already removed). A unit
+   * taken out of a building frees its garrison slot (`releaseSlot`), so an
+   * overflow unit waiting at the door can take it.
    */
   removeFromPlay(id: number): void {
     if (this.alive[id] !== 1) return;
     const side = this.side[id];
     this.alive[id] = 0;
     this.removed[id] = 1;
+    this.releaseSlot(id);
     this.pendingEvents.push({ kind: 'removed', tick: this.tickCount, entity: id, side });
   }
 
@@ -2725,6 +2745,10 @@ export class Sim {
   }
 
   /** Smoke density crossed by a sight line (endpoints included).
+   *  `lift0`/`lift1` raise an end's eye by whole elevation levels, as in
+   *  `losRay`: a garrison's floors above the ground (`eyeLift`); 0 for
+   *  everyone else, which is every existing caller, so this is bit-identical
+   *  where nobody is garrisoned.
    *
    *  Elevation-aware, and it has to be: a screen is a column SMOKE_RISE levels
    *  tall standing on its OWN tile's ground, not an infinitely high curtain.
@@ -2750,7 +2774,7 @@ export class Sim {
    *  bit-identical to the height-blind version on every map without relief.
    *  That equivalence is what SMOKE_RISE > EYE_HEIGHT buys, and why the
    *  constant carries the warning it does. */
-  private raySmoke(x0: number, y0: number, x1: number, y1: number): number {
+  private raySmoke(x0: number, y0: number, x1: number, y1: number, lift0 = 0, lift1 = 0): number {
     const w = this.width;
     let dx = x1 - x0;
     let dy = y1 - y0;
@@ -2763,8 +2787,8 @@ export class Sim {
     // the cross-multiply below would degenerate to `0 > 0`. A man standing in
     // his own screen is in it.
     if (total === 0) return this.smoke[y0 * w + x0];
-    const h0 = this.elevation[y0 * w + x0] + EYE_HEIGHT;
-    const h1 = this.elevation[y1 * w + x1] + EYE_HEIGHT;
+    const h0 = this.elevation[y0 * w + x0] + EYE_HEIGHT + lift0;
+    const h1 = this.elevation[y1 * w + x1] + EYE_HEIGHT + lift1;
     let err = dx - dy;
     let x = x0;
     let y = y0;
@@ -2790,6 +2814,28 @@ export class Sim {
     }
   }
 
+  /** Elevation levels a unit's eye stands above its window tile's ground:
+   *  its building's floors above the ground, 0 in the open (G3). */
+  private eyeLift(i: number): number {
+    const s = this.garrisonedIn[i];
+    return s < 0 ? 0 : this.structureTypes[this.stTypeIdx[s]].floors - 1;
+  }
+
+  /** `w`'s maximum range squared for unit `i`: longer from inside (ruling 4). */
+  private reachSq(i: number, w: WeaponStats): Fx {
+    return this.garrisonedIn[i] >= 0 ? w.garrisonRangeSq : w.rangeSq;
+  }
+
+  /** `w`'s effective range squared for unit `i`. */
+  private effSq(i: number, w: WeaponStats): Fx {
+    return this.garrisonedIn[i] >= 0 ? w.garrisonEffRangeSq : w.effectiveRangeSq;
+  }
+
+  /** `w`'s effective range for unit `i`, the hit-falloff scale. */
+  private effRange(i: number, w: WeaponStats): Fx {
+    return this.garrisonedIn[i] >= 0 ? w.garrisonEffRange : w.effectiveRange;
+  }
+
   /** Smoke density on a tile, for tests and presentation. */
   smokeAt(x: number, y: number): number {
     if (x < 0 || y < 0 || x >= this.width || y >= this.height) return 0;
@@ -2797,8 +2843,11 @@ export class Sim {
   }
 
   /** Bresenham over tiles: -1 if a blocked tile interrupts the ray, else the
-   *  number of cover tiles crossed (endpoints excluded, capped at 8). */
-  private losRay(x0: number, y0: number, x1: number, y1: number): number {
+   *  number of cover tiles crossed (endpoints excluded, capped at 8).
+   *  `lift0`/`lift1` raise an end's eye by whole elevation levels: a garrison's
+   *  floors above the ground (`eyeLift`); 0 for everyone else, which is every
+   *  existing caller, so this is bit-identical where nobody is garrisoned. */
+  private losRay(x0: number, y0: number, x1: number, y1: number, lift0 = 0, lift1 = 0): number {
     const w = this.width;
     // A building never blocks sight into or out of itself: men at the windows
     // can see and be seen. Only the structures at the ends of the ray are
@@ -2807,7 +2856,7 @@ export class Sim {
     const sTo = this.structureOfTile[y1 * w + x1];
     // A screen thick enough simply stops the sight line; thinner smoke
     // counts as obscuration below.
-    const smoke = this.raySmoke(x0, y0, x1, y1);
+    const smoke = this.raySmoke(x0, y0, x1, y1, lift0, lift1);
     if (smoke >= SMOKE_BLOCKS_AT) return -1;
     const smokeCover = smoke > 0 ? 1 + ((smoke / SMOKE_MAX) | 0) : 0;
     let dx = x1 - x0;
@@ -2826,8 +2875,8 @@ export class Sim {
     // early return rather than by a guard of its own -- a refactor that moved
     // the early return would divide this assumption out from under it.
     // Both ends, symmetrically: you see a body, and a body has height.
-    const h0 = this.elevation[y0 * w + x0] + EYE_HEIGHT;
-    const h1 = this.elevation[y1 * w + x1] + EYE_HEIGHT;
+    const h0 = this.elevation[y0 * w + x0] + EYE_HEIGHT + lift0;
+    const h1 = this.elevation[y1 * w + x1] + EYE_HEIGHT + lift1;
     const total = dx > dy ? dx : dy;
     let k = 0;
     let err = dx - dy;
@@ -2920,17 +2969,19 @@ export class Sim {
     };
     const oType = this.unitTypes[this.typeIdx[obs]];
     const tType = this.unitTypes[this.typeIdx[tgt]];
-    const dx = fx.sub(this.posX[tgt], this.posX[obs]);
-    const dy = fx.sub(this.posY[tgt], this.posY[obs]);
-    const dSq = distSqFx(dx, dy);
+    // Both ends at their windows (G1, B6): a garrisoned observer looks out of
+    // the tile nearest the target, and a garrisoned target is seen at the tile
+    // nearest the observer's own eye.
+    this.eyePoint(obs, this.posX[tgt], this.posY[tgt]);
+    const ox = this.eyeX;
+    const oy = this.eyeY;
+    this.eyePoint(tgt, ox, oy);
+    const tx = this.eyeX;
+    const ty = this.eyeY;
+    const dSq = distSqFx(fx.sub(tx, ox), fx.sub(ty, oy));
     none.distSq = dSq;
     if (dSq > oType.sightSq) return none;
-    const cov = this.losRay(
-      this.posX[obs] >> 16,
-      this.posY[obs] >> 16,
-      this.posX[tgt] >> 16,
-      this.posY[tgt] >> 16
-    );
+    const cov = this.losRay(ox >> 16, oy >> 16, tx >> 16, ty >> 16, this.eyeLift(obs), this.eyeLift(tgt));
     if (cov < 0) return none;
 
     let sig = tType.signature;
@@ -2939,7 +2990,14 @@ export class Sim {
     if (this.tickCount - this.lastFired[tgt] < FIRING_SIG_TICKS) {
       sig = fx.mul(sig, tType.firingSigMult);
     }
-    sig = fx.mul(sig, COVER_SIG[this.cover[(this.posY[tgt] >> 16) * this.width + (this.posX[tgt] >> 16)]]);
+    // A man at a window is as hard to pick out as a man in heavy cover: the
+    // building's garrison cover, as for suppression (G2, ruling 2026-10-14).
+    const gIn = this.garrisonedIn[tgt];
+    const tCover =
+      gIn >= 0
+        ? this.structureTypes[this.stTypeIdx[gIn]].garrisonCover
+        : this.cover[(this.posY[tgt] >> 16) * this.width + (this.posX[tgt] >> 16)];
+    sig = fx.mul(sig, COVER_SIG[tCover]);
 
     const occl = fx.add(ONE, cov * OCCL_PER_COVER);
     const denom = fx.mul(fx.max(dSq, MIN_DETECT_DIST_SQ), occl);
@@ -3042,19 +3100,21 @@ export class Sim {
     }
     if (this.contact[sSide * cap + target] < IDENTIFIED_AT) return { kind: 'unidentified' };
 
-    const px = this.posX[shooter];
-    const py = this.posY[shooter];
     const tx = this.posX[target];
     const ty = this.posY[target];
+    this.eyePoint(shooter, tx, ty);
+    const px = this.eyeX;
+    const py = this.eyeY;
     const dSq = distSqFx(fx.sub(tx, px), fx.sub(ty, py));
     const type = this.unitTypes[this.typeIdx[shooter]];
 
     let best: HitProjection = { kind: 'noSolution' };
     let bestP = -1;
     for (const w of type.weapons) {
-      if (dSq > w.rangeSq || this.minRangeBlocks(w, dSq, target)) continue;
+      if (this.garrisonedIn[shooter] >= 0 && !w.firesFromBuilding) continue;
+      if (dSq > this.reachSq(shooter, w) || this.minRangeBlocks(w, dSq, target)) continue;
       if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
-        if (this.losRay(px >> 16, py >> 16, tx >> 16, ty >> 16) < 0) continue;
+        if (this.losRay(px >> 16, py >> 16, tx >> 16, ty >> 16, this.eyeLift(shooter), 0) < 0) continue;
       }
       const factors = this.hitFactors(shooter, w, target);
       if (factors.p <= bestP) continue;
@@ -3537,18 +3597,24 @@ export class Sim {
    *  nothing (the `presentedArc` idiom). Never hashed, never read across
    *  ticks. */
   private engageDSq = 0;
+  /** Where the last `engageable` call measured from (the shooter, or its
+   *  window), valid only when it returned true. Scratch like engageDSq. */
+  private engageOX: Fx = 0;
+  private engageOY: Fx = 0;
 
   /**
-   * May weapon `w`, on a shooter of side `sSide` standing at (px, py), take
-   * `t` as its target THIS tick? selectTarget's whole per-candidate filter,
+   * May weapon `w` of `shooter` take `t` as its target THIS tick, measured
+   * from `eyePoint`? selectTarget's whole per-candidate filter,
    * in its own order, and the ONE copy of it: the scan, the ordered-focus
    * preference (GH-420, R-2) and stepFocus's reach test (R-3) all ask here,
    * so what a slot may shoot and what an order may prefer cannot drift.
-   * Writes `engageDSq` when it returns true. Penetration is NOT part of it:
+   * Writes `engageDSq`, `engageOX` and `engageOY` when it returns true.
+   * Penetration is NOT part of it:
    * the scan ranks an unhurtable target as a last resort rather than
    * excluding it, and the focus paths add `weaponHurts` themselves.
    */
-  private engageable(sSide: number, px: Fx, py: Fx, w: WeaponStats, t: number): boolean {
+  private engageable(shooter: number, w: WeaponStats, t: number): boolean {
+    const sSide = this.side[shooter];
     // Civilians (side 2) are never targets — collateral comes from
     // ordnance, not aimpoints. That asymmetry is what ROE scores.
     if (this.alive[t] === 0 || this.side[t] === sSide || this.side[t] > 1) return false;
@@ -3562,19 +3628,22 @@ export class Sim {
     // keeps looking and engages something it *can* hurt, instead of locking
     // on to an aircraft and firing into the sky for the rest of the fight.
     if (this.unitTypes[this.typeIdx[t]].isAir ? !w.canTargetAir : !w.canTargetGround) return false;
+    // From the window, for a man inside (G1).
+    this.eyePoint(shooter, this.posX[t], this.posY[t]);
+    const px = this.eyeX;
+    const py = this.eyeY;
     const dSq = distSqFx(fx.sub(this.posX[t], px), fx.sub(this.posY[t], py));
-    if (dSq > w.rangeSq || this.minRangeBlocks(w, dSq, t)) return false;
+    if (dSq > this.reachSq(shooter, w) || this.minRangeBlocks(w, dSq, t)) return false;
     if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
-      if (this.losRay(px >> 16, py >> 16, this.posX[t] >> 16, this.posY[t] >> 16) < 0) return false;
+      if (this.losRay(px >> 16, py >> 16, this.posX[t] >> 16, this.posY[t] >> 16, this.eyeLift(shooter), 0) < 0) return false;
     }
     this.engageDSq = dSq;
+    this.engageOX = px;
+    this.engageOY = py;
     return true;
   }
 
   private selectTarget(shooter: number, w: WeaponStats): number {
-    const sSide = this.side[shooter];
-    const px = this.posX[shooter];
-    const py = this.posY[shooter];
     // An ORDERED target first (GH-420, ruling R-2): the focus wins this slot
     // only if the slot could have picked it anyway AND can hurt it from here.
     // A slot that cannot -- a rifle at a tank's front, a gun that cannot
@@ -3582,7 +3651,7 @@ export class Sim {
     // it always has, so the order never turns a weapon into a waste of
     // ammunition; the focus stays set and wins again the moment it can.
     const focus = this.focusTarget[shooter];
-    if (focus >= 0 && this.engageable(sSide, px, py, w, focus) && this.weaponHurts(w, focus, px, py)) {
+    if (focus >= 0 && this.engageable(shooter, w, focus) && this.weaponHurts(w, focus, this.engageOX, this.engageOY)) {
       return focus;
     }
     const antiArmor = (ANTI_ARMOR_MASK & (1 << w.cls)) !== 0;
@@ -3591,12 +3660,12 @@ export class Sim {
     // Ranked squared distance (see `rank` below), not always the raw one.
     let bestDistSq = 0x7fffffff;
     for (let t = 0; t < this.count; t++) {
-      if (!this.engageable(sSide, px, py, w, t)) continue;
+      if (!this.engageable(shooter, w, t)) continue;
       const dSq = this.engageDSq;
       // "Can this weapon hurt that?" — the real penetration chance against the
       // face the target shows this shooter (weaponHurts). Suppressive fire at
       // armour it cannot defeat is a fallback, not a preference.
-      const hurts = this.weaponHurts(w, t, px, py);
+      const hurts = this.weaponHurts(w, t, this.engageOX, this.engageOY);
       // Nearest first — except that an anti-armour weapon counts a soft or
       // unarmed target as further off than it is, so a Spike spends its
       // missile on the tank and not the rifle squad beside it.
@@ -3629,8 +3698,6 @@ export class Sim {
   private selectStructureTarget(shooter: number, w: WeaponStats): number {
     const cap = this.capacity;
     const sSide = this.side[shooter];
-    const px = this.posX[shooter];
-    const py = this.posY[shooter];
     let best = -1;
     let bestDistSq = 0x7fffffff;
     for (let s = 0; s < this.structureCount_; s++) {
@@ -3647,11 +3714,15 @@ export class Sim {
         }
       }
       if (!hostileInside) continue;
+      // From the window toward that building, for a man inside (G1).
+      this.eyePoint(shooter, this.stCx[s], this.stCy[s]);
+      const px = this.eyeX;
+      const py = this.eyeY;
       const dSq = this.structDistSq(s, px, py);
-      if (dSq > w.rangeSq || dSq < w.minRangeSq || dSq >= bestDistSq) continue;
+      if (dSq > this.reachSq(shooter, w) || dSq < w.minRangeSq || dSq >= bestDistSq) continue;
       if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
         const [tx, ty] = this.nearestStructTile(s, px, py);
-        if (this.losRay(px >> 16, py >> 16, tx >> 16, ty >> 16) < 0) continue;
+        if (this.losRay(px >> 16, py >> 16, tx >> 16, ty >> 16, this.eyeLift(shooter), 0) < 0) continue;
       }
       best = s;
       bestDistSq = dSq;
@@ -3991,25 +4062,29 @@ export class Sim {
       // fire; a unit that halts to fire closes with its weapon held.)
       let engagedClose = false;
       this.curStructure[i] = -1;
+      const inside = this.garrisonedIn[i] >= 0;
       for (let slot = 0; slot < type.weapons.length && slot < 2; slot++) {
         const w = type.weapons[slot];
+        // Indirect fire does not go out of a window (G4).
+        if (inside && !w.firesFromBuilding) {
+          if (slot === 0) this.curTarget[i] = -1;
+          continue;
+        }
         const target = this.selectTarget(i, w);
         if (slot === 0) this.curTarget[i] = target;
         if (target < 0) continue;
         anyTarget = true;
-        const dSq = distSqFx(
-          fx.sub(this.posX[target], this.posX[i]),
-          fx.sub(this.posY[target], this.posY[i])
-        );
-        if (dSq <= w.effectiveRangeSq) engagedClose = true;
+        // From the window, for a man inside (G1).
+        this.eyePoint(i, this.posX[target], this.posY[target]);
+        const ox = this.eyeX;
+        const oy = this.eyeY;
+        const dSq = distSqFx(fx.sub(this.posX[target], ox), fx.sub(this.posY[target], oy));
+        if (dSq <= this.effSq(i, w)) engagedClose = true;
 
         // Hull turns toward the primary threat. Stationary, always; on the
         // move, only where facing cannot cost anything — see aimHullAt.
         if (slot === 0) {
-          this.aimHullAt(
-            i,
-            fx.atan2(fx.sub(this.posY[target], this.posY[i]), fx.sub(this.posX[target], this.posX[i]))
-          );
+          this.aimHullAt(i, fx.atan2(fx.sub(this.posY[target], oy), fx.sub(this.posX[target], ox)));
         }
 
         if (this.cooldown[i * 2 + slot] > 0 || holdFire) continue;
@@ -4022,6 +4097,7 @@ export class Sim {
         for (let slot = 0; slot < type.weapons.length && slot < 2; slot++) {
           const w = type.weapons[slot];
           if (STRUCT_DAMAGE[w.cls] === 0) continue;
+          if (inside && !w.firesFromBuilding) continue;
           const s = this.selectStructureTarget(i, w);
           if (s < 0) continue;
           anyTarget = true;
@@ -4031,13 +4107,16 @@ export class Sim {
           // all, to shell it from outside its own effective range. Measured to
           // the nearest footprint tile, which is what selectStructureTarget
           // ranged against.
-          if (this.structDistSq(s, this.posX[i], this.posY[i]) <= w.effectiveRangeSq) {
+          this.eyePoint(i, this.stCx[s], this.stCy[s]);
+          const sox = this.eyeX;
+          const soy = this.eyeY;
+          if (this.structDistSq(s, sox, soy) <= this.effSq(i, w)) {
             engagedClose = true;
           }
           if (slot === 0) this.curStructure[i] = s;
-          const [tx, ty] = this.nearestStructTile(s, this.posX[i], this.posY[i]);
+          const [tx, ty] = this.nearestStructTile(s, sox, soy);
           if (slot === 0) {
-            this.aimHullAt(i, fx.atan2(fx.sub(ty, this.posY[i]), fx.sub(tx, this.posX[i])));
+            this.aimHullAt(i, fx.atan2(fx.sub(ty, soy), fx.sub(tx, sox)));
           }
           if (this.cooldown[i * 2 + slot] > 0 || holdFire) continue;
           this.fireAtStructure(i, slot, w, s, tx, ty);
@@ -4066,8 +4145,9 @@ export class Sim {
             for (let slot = 0; slot < type.weapons.length && slot < 2; slot++) {
               const w = type.weapons[slot];
               if (STRUCT_DAMAGE[w.cls] === 0) continue;
+              if (inside && !w.firesFromBuilding) continue;
               const dSq = this.structDistSq(s, this.posX[i], this.posY[i]);
-              if (dSq > w.rangeSq || dSq < w.minRangeSq) continue;
+              if (dSq > this.reachSq(i, w) || dSq < w.minRangeSq) continue;
               engagedClose = true;
               breaching = true;
               if (slot === 0) this.curStructure[i] = s;
@@ -4243,10 +4323,11 @@ export class Sim {
    * rolls; `projectHit` does not.
    */
   private hitFactors(shooter: number, w: WeaponStats, target: number): HitFactors {
-    const px = this.posX[shooter];
-    const py = this.posY[shooter];
     const tx = this.posX[target];
     const ty = this.posY[target];
+    this.eyePoint(shooter, tx, ty);
+    const px = this.eyeX;
+    const py = this.eyeY;
     const dSq = distSqFx(fx.sub(tx, px), fx.sub(ty, py));
     const dist = fx.sqrt(dSq);
 
@@ -4256,7 +4337,7 @@ export class Sim {
       fx.mul(w.accuracy, fx.add(ONE, this.veterancy[shooter] * VET_ACC_BONUS)),
       ONE
     );
-    const ratio = fx.div(dist, w.effectiveRange);
+    const ratio = fx.div(dist, this.effRange(shooter, w));
     const rangeFalloff = fx.expNeg(fx.mul(FALLOFF_SCALE[w.cls], fx.mul(ratio, ratio)));
     // Cover is the target's own tile, or the parapet he is fighting from
     // behind, whichever is better. Taking the max rather than stacking them
@@ -4267,7 +4348,7 @@ export class Sim {
     let coverMod = COVER_HIT[parapet > tileCover ? parapet : tileCover];
     // Shooting through a screen: every tile of it degrades the shot, with a
     // floor because blind fire still occasionally connects.
-    const smokeOnLine = this.raySmoke(px >> 16, py >> 16, tx >> 16, ty >> 16);
+    const smokeOnLine = this.raySmoke(px >> 16, py >> 16, tx >> 16, ty >> 16, this.eyeLift(shooter), 0);
     if (smokeOnLine > 0) {
       const tiles = 1 + ((smokeOnLine / SMOKE_MAX) | 0);
       let mult = ONE;
@@ -4286,10 +4367,11 @@ export class Sim {
   }
 
   private fireAt(shooter: number, slot: number, w: WeaponStats, target: number): void {
-    const px = this.posX[shooter];
-    const py = this.posY[shooter];
     const tx = this.posX[target];
     const ty = this.posY[target];
+    this.eyePoint(shooter, tx, ty);
+    const px = this.eyeX;
+    const py = this.eyeY;
     const dSq = distSqFx(fx.sub(tx, px), fx.sub(ty, py));
     const dist = fx.sqrt(dSq);
     const { p, accuracy, rangeFalloff, coverMod, motionMod, stanceMod, suppressionMod } =
@@ -4370,10 +4452,11 @@ export class Sim {
    * whether the round is the sort that hurts masonry.
    */
   private fireAtStructure(shooter: number, slot: number, w: WeaponStats, s: number, tx: Fx, ty: Fx): void {
-    const px = this.posX[shooter];
-    const py = this.posY[shooter];
+    this.eyePoint(shooter, tx, ty);
+    const px = this.eyeX;
+    const py = this.eyeY;
     const dist = fx.sqrt(distSqFx(fx.sub(tx, px), fx.sub(ty, py)));
-    const ratio = fx.div(dist, w.effectiveRange);
+    const ratio = fx.div(dist, this.effRange(shooter, w));
     const rangeFalloff = fx.expNeg(fx.mul(FALLOFF_SCALE[w.cls], fx.mul(ratio, ratio)));
     const suppressionMod = fx.div(ONE, fx.add(ONE, fx.mul(SUPP_K, this.suppression[shooter])));
     let p = fx.mul(STRUCT_BASE_ACCURACY, rangeFalloff);
@@ -4800,7 +4883,14 @@ export class Sim {
     const vet = this.veterancy[target];
     if (vet > 0) a = fx.mul(a, fx.sub(ONE, vet * VET_SUPP_BONUS));
     if (coverProtects) {
-      const cov = this.cover[(this.posY[target] >> 16) * this.width + (this.posX[target] >> 16)];
+      // A man inside a building fights with the building's cover, not the
+      // cover of the tile under its centroid -- which is a building tile, 0
+      // (B1, GH-280: every near miss on a 2x2 house pinned its garrison).
+      const s = this.garrisonedIn[target];
+      const cov =
+        s >= 0
+          ? this.structureTypes[this.stTypeIdx[s]].garrisonCover
+          : this.cover[(this.posY[target] >> 16) * this.width + (this.posX[target] >> 16)];
       a = fx.mul(a, COVER_SUPP[cov]);
     }
     const s = fx.add(this.suppression[target], a);
@@ -4847,6 +4937,48 @@ export class Sim {
       if (type.standingCover > best) best = type.standingCover;
     }
     return best;
+  }
+
+  /** Scratch written by `eyePoint` and read straight after it: the hot loops
+   *  allocate nothing (the `presentedArc` idiom). Never hashed. */
+  private eyeX: Fx = 0;
+  private eyeY: Fx = 0;
+
+  /**
+   * Where unit `i` looks and shoots from toward (tx, ty) (G1, B6; lead
+   * ruling 2026-10-14). In the open: where it stands. Garrisoned: the centre
+   * of its building's footprint tile nearest (tx, ty) -- the window on that
+   * side. Its POSITION stays the centroid (where it is drawn, and where a
+   * near miss is measured to); only range, sight and the line of fire start
+   * at the window. Ties go to the first tile in footprint order. A footprint
+   * tile is always inside the building, so a centroid that falls on open
+   * ground (two khan_rafid_3 shanties) no longer blinds the men inside.
+   */
+  private eyePoint(i: number, tx: Fx, ty: Fx): void {
+    const s = this.garrisonedIn[i];
+    if (s < 0) {
+      this.eyeX = this.posX[i];
+      this.eyeY = this.posY[i];
+      return;
+    }
+    let best = 0x7fffffff;
+    let bx = this.stCx[s];
+    let by = this.stCy[s];
+    const w = this.width;
+    for (const t of this.stTiles[s]) {
+      const x = t % w;
+      const y = (t - x) / w;
+      const cx = fx.add(fx.fromInt(x), HALF);
+      const cy = fx.add(fx.fromInt(y), HALF);
+      const d = distSqFx(fx.sub(cx, tx), fx.sub(cy, ty));
+      if (d < best) {
+        best = d;
+        bx = cx;
+        by = cy;
+      }
+    }
+    this.eyeX = bx;
+    this.eyeY = by;
   }
 
   private structDistSq(s: number, px: Fx, py: Fx): number {
@@ -4924,6 +5056,21 @@ export class Sim {
       structure: s,
       entered: true,
     });
+  }
+
+  /**
+   * Free the slot of a unit that dies or is removed inside a building (B5,
+   * ruling 2026-10-14). `stOccupants` is the count of LIVING units with
+   * `garrisonedIn === s`; before this a body kept its slot until the
+   * building fell, so the man waiting at the door never got in. No exit move
+   * and no `garrison` event: nobody walked out. Clearing `garrisonedIn` is
+   * what destroyStructure already does for the men it kills.
+   */
+  private releaseSlot(id: number): void {
+    const s = this.garrisonedIn[id];
+    if (s < 0) return;
+    this.garrisonedIn[id] = -1;
+    if (this.stOccupants[s] > 0) this.stOccupants[s]--;
   }
 
   private leaveStructure(id: number): void {
@@ -5191,10 +5338,20 @@ export class Sim {
         continue;
       }
       const type = this.structureTypes[this.stTypeIdx[s]];
-      if (this.stOccupants[s] >= type.garrisonSlots) continue; // wait outside
-      if (this.structDistSq(s, this.posX[i], this.posY[i]) <= GARRISON_ENTER_RANGE_SQ) {
-        this.enterStructure(i, s);
+      const atDoor = this.structDistSq(s, this.posX[i], this.posY[i]) <= GARRISON_ENTER_RANGE_SQ;
+      if (this.stOccupants[s] >= type.garrisonSlots) {
+        // Full: wait at the door, stopped, with the order kept (B3, ruling
+        // 2026-10-14). A unit left `moving` pressed on the wall for good --
+        // a halt-to-fire man never knelt, so never fired. Stopped, stepBrace
+        // kneels him and stepCombat lets him shoot; this loop still runs
+        // every tick, so he walks in the tick a slot frees.
+        if (atDoor && this.moving[i] === 1) {
+          this.moving[i] = 0;
+          this.fieldRef[i] = -1;
+        }
+        continue;
       }
+      if (atDoor) this.enterStructure(i, s);
     }
   }
 
@@ -5528,6 +5685,7 @@ export class Sim {
       }
     }
     this.alive[target] = 0;
+    this.releaseSlot(target);
     for (let s = 0; s < 2; s++) this.lastSeenValid[s * this.capacity + target] = 0;
     this.hp[target] = 0;
     this.moving[target] = 0;
@@ -5715,11 +5873,16 @@ export class Sim {
    * stand him up. Stateless -- it reads `moving`, which stepFocus itself
    * writes. Only this decision moves: maximum range (`rangeSq`), and with it
    * what a slot may fire at, is untouched.
+   *
+   * A garrisoned unit never reaches this: stepFocus `continue`s on
+   * `garrisonedIn >= 0` before calling it. So the centroid `dSq` and the
+   * lift-0 `losRay` below are not a garrison path (the window and the floor
+   * lift live in `eyePoint` / `eyeLift`). The garrison-aware `effSq` /
+   * `effRange` / `reachSq` reads are kept so the range rule is written once.
    */
   private focusInReach(i: number, t: number): boolean {
     const weapons = this.unitTypes[this.typeIdx[i]].weapons;
     if (weapons.length === 0) return true; // nothing to close with (canFocus refuses these)
-    const sSide = this.side[i];
     const px = this.posX[i];
     const py = this.posY[i];
     const air = this.unitTypes[this.typeIdx[t]].isAir;
@@ -5732,17 +5895,17 @@ export class Sim {
       const w = weapons[s];
       if (air ? !w.canTargetAir : !w.canTargetGround) continue;
       // The squared range this unit stops at, from where it stands (R-22).
-      let reachSq = w.effectiveRangeSq;
+      let reachSq = this.effSq(i, w);
       if (stopped) {
-        const r = fx.add(w.effectiveRange, FOCUS_REACH_SLACK);
+        const r = fx.add(this.effRange(i, w), FOCUS_REACH_SLACK);
         reachSq = fx.mul(r, r);
       }
-      if (this.engageable(sSide, px, py, w, t) && this.weaponHurts(w, t, px, py)) {
+      if (this.engageable(i, w, t) && this.weaponHurts(w, t, this.engageOX, this.engageOY)) {
         anyCan = true;
         if (dSq <= reachSq) return true;
         continue;
       }
-      if (hold || dSq > reachSq || dSq > w.rangeSq) continue;
+      if (hold || dSq > reachSq || dSq > this.reachSq(i, w)) continue;
       if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
         if (los === 0) los = this.losRay(px >> 16, py >> 16, this.posX[t] >> 16, this.posY[t] >> 16) < 0 ? -1 : 1;
         if (los < 0) continue;
@@ -5925,20 +6088,25 @@ export class Sim {
    * does NOT check `alive` on either side: a dead id answers from where its
    * body lies; ask canFocus for whether the order may be given at all.
    *
-   * Safe to call between ticks: the only thing it writes is the scratch
-   * `presentedArc`, and that has one reader (resolveHit), which reads it on
-   * the line straight after its own `presentedArmor` call. Every
-   * presentedArmor call assigns it on every path, so no value written here
-   * can reach that read.
+   * Safe to call between ticks: the only things it writes are the scratch
+   * `presentedArc` and, through `eyePoint`, `eyeX`/`eyeY`. `presentedArc` has
+   * one reader (resolveHit), which reads it on the line straight after its
+   * own `presentedArmor` call; every presentedArmor call assigns it on every
+   * path, so no value written here can reach that read. Every `eyePoint`
+   * reader copies `eyeX`/`eyeY` into locals on the line straight after its
+   * call, before the next `eyePoint` call, so a value left here is
+   * overwritten before anything reads it.
    */
   focusHurts(shooter: number, target: number): boolean {
     if (shooter < 0 || shooter >= this.count || target < 0 || target >= this.count) return false;
     const air = this.unitTypes[this.typeIdx[target]].isAir;
     const weapons = this.unitTypes[this.typeIdx[shooter]].weapons;
-    const px = this.posX[shooter];
-    const py = this.posY[shooter];
+    this.eyePoint(shooter, this.posX[target], this.posY[target]);
+    const px = this.eyeX;
+    const py = this.eyeY;
     for (let s = 0; s < weapons.length && s < 2; s++) {
       const w = weapons[s];
+      if (this.garrisonedIn[shooter] >= 0 && !w.firesFromBuilding) continue;
       if (air ? !w.canTargetAir : !w.canTargetGround) continue;
       if (this.weaponHurts(w, target, px, py)) return true;
     }
@@ -5947,12 +6115,15 @@ export class Sim {
 
   /** Could any of `i`'s weapons ever be aimed at `t`, range and sight aside?
    *  The domain and containment half of selectTarget's filter, for stepSweep:
-   *  worth walking toward only if, once there, combat could take the shot. */
+   *  worth walking toward only if, once there, combat could take the shot.
+   *  A weapon that does not fire from a building does not count for a
+   *  garrisoned unit. */
   private couldEngage(i: number, t: number): boolean {
     if (this.garrisonedIn[t] >= 0 || this.carriedBy[t] >= 0 || this.tunnelIn[t] >= 0) return false;
     const air = this.unitTypes[this.typeIdx[t]].isAir;
     const weapons = this.unitTypes[this.typeIdx[i]].weapons;
     for (let s = 0; s < weapons.length && s < 2; s++) {
+      if (this.garrisonedIn[i] >= 0 && !weapons[s].firesFromBuilding) continue;
       if (air ? weapons[s].canTargetAir : weapons[s].canTargetGround) return true;
     }
     return false;
