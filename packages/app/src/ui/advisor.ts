@@ -17,9 +17,13 @@
  * which are bookkeeping for the advisor.
  *
  * There are no real timers here: `frame()` runs from the battlefield's frame
- * loop and reads `deps.now()`, so a hidden tab cannot fire a proposal late
- * behind the player's back, a test drives time by hand, and `dispose` has
- * nothing to forget to cancel except its own state.
+ * loop. The two seconds are the sum of the frames that RAN, each counted at
+ * most `FRAME_CLAMP_MS` (as the renderer's own `frameDtMs` does), not the wall
+ * clock since the proposal came up: a room pause (the loop skips `frame()`)
+ * or a hidden tab (rAF stops) leaves the countdown where it was, and the first
+ * frame back adds one clamped slice, so an order never fires the instant the
+ * player returns with no chance to veto it. A test drives time by hand, and
+ * `dispose` has nothing to forget to cancel except its own state.
  *
  * Everything the advisor writes is untrusted text and reaches the DOM through
  * `textContent` only.
@@ -32,6 +36,8 @@ import { t } from '../i18n/t';
 export const PROPOSAL_MS = 2000;
 /** Proposals held at once, the showing one included; a 4th vetoes the oldest WAITING. */
 export const PROPOSAL_QUEUE = 3;
+/** The most one frame may add to the countdown (the renderer's `frameDtMs` clamp). */
+export const FRAME_CLAMP_MS = 100;
 /** Lines the feed keeps. */
 export const ADVISOR_FEED_LINES = 30;
 /** The box's cap: the room's own chat cap, which `cleanChat` applies to advisor text too. */
@@ -115,7 +121,10 @@ export function mountAdvisorPanel(host: HTMLElement, deps: AdvisorPanelDeps): Ad
   let disposed = false;
   /** The showing proposal first, then those waiting, oldest first. */
   let queue: Pending[] = [];
-  let shownAt = 0;
+  /** How much of the showing proposal's PROPOSAL_MS the running frames have used. */
+  let elapsed = 0;
+  /** `now()` at the last frame (or when the proposal came up) - the baseline for the next slice. */
+  let lastAt = 0;
 
   // The strip's parts, rebuilt each time a proposal comes up.
   let noteEl: HTMLElement | null = null;
@@ -132,7 +141,7 @@ export function mountAdvisorPanel(host: HTMLElement, deps: AdvisorPanelDeps): Ad
 
   const paintCount = (): void => {
     if (countEl === null) return;
-    const left = Math.max(0, PROPOSAL_MS - (deps.now() - shownAt));
+    const left = Math.max(0, PROPOSAL_MS - elapsed);
     countEl.textContent = t('net.advisor.countdown', { s: (left / 1000).toFixed(1) });
   };
 
@@ -155,6 +164,11 @@ export function mountAdvisorPanel(host: HTMLElement, deps: AdvisorPanelDeps): Ad
     accept.className = 'rl-advisor__accept';
     accept.textContent = t('net.advisor.accept');
     accept.addEventListener('click', () => { api.accept(); });
+    const veto = document.createElement('button');
+    veto.type = 'button';
+    veto.className = 'rl-advisor__veto';
+    veto.textContent = t('net.advisor.veto');
+    veto.addEventListener('click', () => { api.veto(); });
     const hint = document.createElement('span');
     hint.className = 'rl-advisor__hint';
     hint.textContent = t('net.advisor.vetoHint');
@@ -162,15 +176,18 @@ export function mountAdvisorPanel(host: HTMLElement, deps: AdvisorPanelDeps): Ad
     countEl.className = 'rl-advisor__count';
     const row = document.createElement('div');
     row.className = 'rl-advisor__row';
-    row.append(accept, hint, countEl);
+    row.append(accept, veto, hint, countEl);
     strip.append(noteEl, what, row);
     paintCount();
   };
 
+  /** A proposal comes up: its two seconds start from nothing. */
+  const restart = (): void => { elapsed = 0; lastAt = deps.now(); };
+
   /** The showing proposal is done; the next one starts its own clock. */
   const advance = (): void => {
     queue.shift();
-    shownAt = deps.now();
+    restart();
     paintStrip();
   };
 
@@ -211,7 +228,7 @@ export function mountAdvisorPanel(host: HTMLElement, deps: AdvisorPanelDeps): Ad
           // Only an `assist` advisor proposes; the room already filters, and this is the second line.
           if (scope !== 'assist') return;
           queue.push({ id: a.id, cmd: a.cmd, note: a.note });
-          if (queue.length === 1) { shownAt = deps.now(); paintStrip(); }
+          if (queue.length === 1) { restart(); paintStrip(); }
           else if (queue.length > PROPOSAL_QUEUE) {
             // The oldest WAITING one goes, never the one the human is reading.
             const [dropped] = queue.splice(1, 1);
@@ -226,7 +243,10 @@ export function mountAdvisorPanel(host: HTMLElement, deps: AdvisorPanelDeps): Ad
     },
     frame() {
       if (disposed || queue.length === 0) return;
-      if (deps.now() - shownAt >= PROPOSAL_MS) take();
+      const at = deps.now();
+      elapsed += Math.min(Math.max(at - lastAt, 0), FRAME_CLAMP_MS);
+      lastAt = at;
+      if (elapsed >= PROPOSAL_MS) take();
       else paintCount();
     },
     veto() {
@@ -263,6 +283,9 @@ export function mountAdvisorPanel(host: HTMLElement, deps: AdvisorPanelDeps): Ad
       input.value = '';
     } else if (ev.key === 'Escape') {
       ev.preventDefault();
+      // X types an x here, so the box has its own way to refuse: Escape vetoes
+      // a showing proposal, and is the old Escape (clear and leave) otherwise.
+      if (api.veto()) return;
       input.value = '';
       input.blur();
     }

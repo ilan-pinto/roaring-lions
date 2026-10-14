@@ -27,7 +27,12 @@ function mount(opts: { valid?: (cmd: Command) => boolean } = {}) {
   panel.onPresence('assist');
   return {
     host, panel, sent, queued, pinged,
-    at: (ms: number) => { clock = ms; panel.frame(); },
+    // Time passes the way a running game gives it: a frame every 50 ms up to `ms`.
+    at: (ms: number) => { while (clock < ms) { clock = Math.min(clock + 50, ms); panel.frame(); } },
+    // Time the frame loop did not see (a room pause, a hidden tab): the clock moves, no frame runs.
+    skip: (ms: number) => { clock += ms; },
+    now: () => clock,
+    frameNow: () => panel.frame(),
     vetoes: () => sent.filter((m) => m.kind === 'veto'),
     feed: () => [...host.querySelectorAll('.rl-advisor__line')].map((li) => li.textContent),
   };
@@ -96,6 +101,22 @@ describe('advisor panel: the proposal strip', () => {
     expect(m.sent.filter((s) => s.kind === 'accept').map((s) => (s as { id: number }).id)).toEqual([1, 3, 4]);
   });
 
+  it('time the frame loop never saw (a pause, a hidden tab) does not count: no order fires on the first frame back', () => {
+    const m = mount();
+    m.panel.onAdvisor('advisor', proposal(7));
+    m.at(300);
+    m.skip(60_000);
+    m.frameNow();
+    expect(m.queued).toHaveLength(0);
+    expect(m.vetoes()).toHaveLength(0);
+    // The countdown resumes from where it was (~1.6 s left, less the one clamped frame).
+    const back = m.now();
+    m.at(back + 1500);
+    expect(m.queued).toHaveLength(0);
+    m.at(back + 1600);
+    expect(m.queued).toEqual([move([1, 2, 3])]);
+  });
+
   it('dispose stops the timers: time after it queues and sends nothing', () => {
     const m = mount();
     m.panel.onAdvisor('advisor', proposal(7));
@@ -125,6 +146,35 @@ describe('advisor panel: the proposal strip', () => {
     m.panel.onAdvisor('advisor', proposal(5));
     expect(m.panel.accept()).toBe(true);
     expect(m.sent).toEqual([{ kind: 'accept', id: 4 }, { kind: 'accept', id: 5 }]);
+  });
+
+  it('a Veto button refuses the showing proposal, for a player with only a mouse', () => {
+    const m = mount();
+    m.panel.onAdvisor('advisor', proposal(6));
+    m.host.querySelector<HTMLButtonElement>('.rl-advisor__veto')!.click();
+    expect(m.vetoes()).toEqual([{ kind: 'veto', id: 6 }]);
+    m.at(PROPOSAL_MS * 2);
+    expect(m.queued).toHaveLength(0);
+    expect(m.panel.showing).toBe(false);
+  });
+
+  it('Escape inside the answer box vetoes a showing proposal, and is the old Escape (clear and leave) otherwise', () => {
+    const m = mount();
+    const input = m.host.querySelector<HTMLInputElement>('.rl-advisor__input')!;
+    const esc = (): KeyboardEvent => {
+      const ev = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+      input.dispatchEvent(ev);
+      return ev;
+    };
+    input.value = 'half a thought';
+    expect(esc().defaultPrevented).toBe(true);
+    expect(m.sent).toEqual([]);
+    expect(input.value).toBe('');
+    m.panel.onAdvisor('advisor', proposal(8));
+    input.value = 'keep this';
+    esc();
+    expect(m.vetoes()).toEqual([{ kind: 'veto', id: 8 }]);
+    expect(input.value).toBe('keep this');
   });
 
   it('shows the note and a description of the order, and counts down', () => {

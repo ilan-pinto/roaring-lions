@@ -283,6 +283,7 @@
   "net.advisor.feed.you": "You: {text}",
   "net.advisor.feed.ping": "Advisor pings ({x}, {y})",
   "net.advisor.accept": "Accept",
+  "net.advisor.veto": "Veto",
   "net.advisor.vetoHint": "X to veto",
   "net.advisor.countdown": "{s} s",
   "net.advisor.stale": "A proposal went stale and was dropped.",

@@ -69,14 +69,18 @@ veto it; the other seat is told you have an advisor.
    ground); type in its box to answer, and Enter sends. For an **Assist**
    proposal the strip shows the note, the order in plain words ("Move 3 units
    to (24, 31)") and a countdown:
-   - **X** vetoes it. **Enter** (or the **Accept** button) takes it at once.
-   - Left alone, it is taken at two seconds, **if it still makes sense**: an
-     order naming a unit that has since died, or any order while the room is
-     paused, is dropped and the feed says so.
+   - **X**, the **Veto** button, or **Escape** while typing in the advisor's
+     box vetoes it. **Enter** (or the **Accept** button) takes it at once.
+   - Left alone, it is taken after two seconds of play, **if it still makes
+     sense**: an order naming a unit that has since died is dropped, and the
+     feed says so. The two seconds count only frames that run, so a pause or a
+     background tab holds the countdown where it was, and you always get a
+     moment to veto after coming back. Accepting while the room is paused is
+     refused the same way, since a paused room takes no orders.
    - Up to three proposals wait; a fourth drops the oldest one still waiting,
      never the one you are reading.
 
-   X only does this while a proposal shows; with none it does nothing, and Enter
+   X only vetoes while a proposal shows; with none it does nothing, and Enter
    then opens the chat as before.
 
 If the room refuses the agent with `build_mismatch`, the agent is on a different
