@@ -35,6 +35,7 @@
   "weapons": [
     {
       "id": "mortar_60",
+      "fires_from_building": false,
       "type": "mortar",
       "range_tiles": 18,
       "effective_range_tiles": 14,
