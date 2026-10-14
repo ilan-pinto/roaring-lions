@@ -61,6 +61,9 @@ export interface MissionView {
    *  only -- `mission.ts`'s own doc comment on the field: "Shown on the
    *  victory banner." */
   aftermath?: string;
+  /** GH-540: `MissionRuntime.timeLimitTicksLeft`. The strip reads it only in the last minute
+   *  (`limitClock`); absent where the mission has no limit. */
+  limitTicksLeft?: number;
 }
 
 /** Semantic tone for a notice or a value. Never a colour — the mapping from
@@ -114,6 +117,23 @@ export function holdClock(m: MissionView | null): HoldClock | null {
     tone:
       timed.paused === 'contested' ? 'bad' : timed.paused === 'unheld' || secs <= 60 ? 'warn' : '',
     contested: timed.paused === 'contested',
+  };
+}
+
+/** GH-540: the strip counts the time limit down in its LAST MINUTE ONLY (Ruling (lead, 2026-10-13),
+ *  D2). Before that the limit is a backstop at twice the target, and a clock from the first second
+ *  would make every mission a timed one. The same window as the feed's one-minute line
+ *  (`DEADLINE_WARN_TICKS`; a test holds the two equal, since importing it here would be a cycle). */
+export const LIMIT_CLOCK_TICKS = 60 * TICKS_PER_SECOND;
+
+/** The strip's time-limit segment, or null: no limit, more than a minute left, none left, or the
+ *  mission already over (the end screen says why). Amber, red from 0:30, as the deadline line. */
+export function limitClock(m: MissionView | null): { text: string; tone: 'warn' | 'bad' } | null {
+  const left = m?.limitTicksLeft;
+  if (!m || m.result !== 'ongoing' || left === undefined || left <= 0 || left > LIMIT_CLOCK_TICKS) return null;
+  return {
+    text: t('hud.limit.clock', { left: clockText(left) }),
+    tone: left <= 30 * TICKS_PER_SECOND ? 'bad' : 'warn',
   };
 }
 

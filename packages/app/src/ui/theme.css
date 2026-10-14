@@ -2160,8 +2160,10 @@ body[data-outcome-beat] .rl-aar {
 }
 /* A failable primary's clock running while the strip shows another primary
    (Tel Marum II, 2026-09-06). Same shrink rule as the objective it rides
-   beside; the rule keeps the two from reading as one sentence. */
-.rl-strip__deadline {
+   beside; the rule keeps the two from reading as one sentence. Also the time
+   limit's last minute (GH-540). */
+.rl-strip__deadline,
+.rl-strip__limit {
   border-left: 1px solid var(--panel-frame);
   padding-left: var(--s3);
 }

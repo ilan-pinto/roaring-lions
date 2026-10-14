@@ -850,6 +850,7 @@
   "hud.clock.failed": "MISSION FAILED",
   "hud.deadline.warn": "{left} left — {text}",
   "hud.limit.warn": "One minute left to finish the mission",
+  "hud.limit.clock": "Time left {left}",
   "hud.stall.locate": "A position is still unseen. Any unit can spot it.",
   "hud.stall.ground": "The ground isn't taken. Clear it and stand on it.",
   "hud.stall.ground.unheld": "The ground isn't taken. Move a unit onto it.",

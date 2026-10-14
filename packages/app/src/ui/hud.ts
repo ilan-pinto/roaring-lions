@@ -58,6 +58,7 @@ import {
   conductDefinition,
   countSuppressed,
   holdClock,
+  limitClock,
   objectiveGlyph,
   roeTone,
   speakerPlate,
@@ -1480,6 +1481,15 @@ export class Hud {
             `${objectiveGlyph(deadline.objective.status)} ` +
             `<b class="${textToneClass(deadline.tone)}">${escapeHtml(deadline.text)}</b> ` +
             `${escapeHtml(deadline.objective.text)}</span>`
+        );
+      }
+      // GH-540: the time limit's last minute (Ruling (lead, 2026-10-13), D2). Its own segment, after
+      // the deadline line, so it never displaces an objective's clock.
+      const limit = this.shown('clock') ? limitClock(m) : null;
+      if (limit) {
+        rows.push(
+          `<span class="rl-strip__obj rl-strip__limit" tabindex="0">` +
+            `<b class="${textToneClass(limit.tone)}">${escapeHtml(limit.text)}</b></span>`
         );
       }
       // Task 6: the two `+N` counts above (primaries/secondaries the inline

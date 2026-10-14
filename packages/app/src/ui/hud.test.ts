@@ -20,6 +20,7 @@ import { units, type KitLevel } from '@lions/data';
 import { Sim, fx, type HitProjection, type UnitTypeJson } from '@lions/sim';
 import { Hud as HudClass, type HudCommanderInfo, type HudDeps, type MissionView } from './hud';
 import type { KitSummary } from './kit-sign';
+import { textToneClass } from './hud-model';
 import { alertNotice } from './mission-notice';
 import { closeTip } from './tooltip';
 import type { CursorName } from '../input/cursor';
@@ -2412,6 +2413,15 @@ describe('the strip does not eat the keyboard', () => {
       expect(after, `${sel} was rebuilt`).not.toBe(before);
       expect(document.activeElement, `${sel} still has focus`).toBe(after);
     }
+  });
+
+  it('draws the time limit only in the last minute, as a label and a clock (GH-540)', () => {
+    const early = rig(mission({ limitTicksLeft: 61 * 20 }));
+    expect(early.host.querySelector('.rl-strip__limit')).toBeNull();
+    const late = rig(mission({ limitTicksLeft: 59 * 20 }));
+    const seg = late.host.querySelector('.rl-strip__limit');
+    expect(seg?.textContent?.trim()).toBe('Time left 0:59');
+    expect(seg?.querySelector('b')?.className).toBe(textToneClass('warn'));
   });
 
   // M8. Two primaries, the second a failable deadline. The strip shows the

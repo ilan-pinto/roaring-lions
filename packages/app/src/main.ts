@@ -2682,6 +2682,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           // mission JSON, like `name`/`briefing` already are. The sim never
           // sees this field either (`mission.ts`'s own doc comment).
           aftermath: mission.aftermath,
+          // GH-540: the strip's last-minute countdown reads this (`limitClock`).
+          limitTicksLeft: runtime.timeLimitTicksLeft,
         }
       : null;
   // Wall-clock pacing, not sim pacing: this multiplies how much real time the
