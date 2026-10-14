@@ -1,5 +1,5 @@
 /**
- * `pnpm banner:capture -- --out=<dir> [--port=5198] [--attach] [--label=after]
+ * `pnpm banner:capture -- --out=<dir> [--port=5198 | BANNER_CAPTURE_PORT] [--attach] [--label=after]
  *    [--only=types,evidence,hud,scenarios]`
  *
  * The held-building banner's instrument (lead ruling 2026-10-14; the banner
@@ -42,7 +42,7 @@ import { join, resolve } from 'node:path';
 import { PNG } from 'pngjs';
 import { gpuLaunchArgs } from '../ui-review/gpu';
 import { musicOffInitScript } from '../ui-review/music-off';
-import { portBusy } from '../ui-review/port';
+import { claimPortOrAttach } from '../ui-review/port';
 import {
   CAPTURE_VIEWPORT,
   FREEZE_FRAME_LOOP_STATEMENTS,
@@ -57,12 +57,14 @@ import { capture } from '../golden-diff/browser';
 import { computeDiff } from '../golden-diff/diff';
 
 const arg = (k: string, d: string): string => process.argv.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3) ?? d;
-const PORT = Number(arg('port', '5198'));
-if (PORT === 5177) {
+if (arg('port', '') === '5177') {
   console.error("[banner] refusing port 5177: it is the lead's dev server");
   process.exit(2);
 }
-const ATTACH = process.argv.includes('--attach');
+// `--port=<n>`, else BANNER_CAPTURE_PORT, else 5198 (`ui-review/port.ts`): a
+// held port is refused, and with `--attach` an EMPTY one is -- there is
+// nothing there to photograph.
+const { port: PORT, attach: ATTACH } = await claimPortOrAttach('banner', 'BANNER_CAPTURE_PORT', 5198);
 const LABEL = arg('label', 'after');
 const ONLY = arg('only', 'types,evidence,hud,scenarios').split(',');
 const SCENE = arg('scene', '');
@@ -686,10 +688,6 @@ async function hudPass(page: Page): Promise<void> {
 async function main(): Promise<void> {
   let server: ChildProcess | null = null;
   if (!ATTACH) {
-    if (await portBusy(PORT)) {
-      console.error(`[banner] port ${PORT} is already taken -- refusing to photograph someone else's server (use --attach to mean it)`);
-      process.exit(2);
-    }
     say(`[banner] starting vite on :${PORT} in ${ROOT}`);
     server = spawn('pnpm', ['--filter', '@lions/app', 'exec', 'vite', '--port', String(PORT), '--strictPort'], {
       cwd: ROOT,

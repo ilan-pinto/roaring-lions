@@ -144,6 +144,25 @@ export function stopDevServer(child: ChildProcess | null, tag: string): void {
   console.log(`[${tag}] dev server process group stopped.`);
 }
 
+/**
+ * `stopDevServer` for a top-level script with no `try`/`finally` around its
+ * body: an idempotent stop to call at the end, which ALSO runs on process exit
+ * -- an uncaught throw out of a top-level await included -- so a crashed
+ * capture never leaves its server's process group running. A `null` child (a
+ * server the caller attached to) is never touched, as with `stopDevServer`.
+ */
+export function devServerStopper(child: ChildProcess | null, tag: string): () => void {
+  let stopped = false;
+  const stop = (): void => {
+    if (stopped) return;
+    stopped = true;
+    process.removeListener('exit', stop);
+    stopDevServer(child, tag);
+  };
+  if (child !== null) process.once('exit', stop);
+  return stop;
+}
+
 /** Navigates, boots, steps to the scenario's tick, and screenshots the canvas
  *  rect. Up to 3 attempts: the dev server's module graph has been observed
  *  intermittently failing a dynamically-imported module, resolved only by a

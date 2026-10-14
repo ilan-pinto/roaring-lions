@@ -4,7 +4,7 @@
  * protocol"): ten seconds of a guided or unguided round leaving the launcher,
  * flying, and landing, judged IN MOTION through a flip page -- never a still.
  *
- *   pnpm atgm:capture -- --label=before --port=5197
+ *   pnpm atgm:capture -- --label=before --port=5197   (or ATGM_CAPTURE_PORT; default 5197; a held port is refused)
  *   pnpm atgm:capture -- --label=after --port=5198 --only=spike,rpg
  *
  * A retarget of `blast-captures.ts`, and it keeps that file's three paid-for
@@ -24,6 +24,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { musicOffInitScript } from '../ui-review/music-off';
+import { claimPort } from '../ui-review/port';
 
 // ---------------------------------------------------------------------------
 // The pure half, imported by the spec. Nothing here may pull in playwright.
@@ -442,9 +443,13 @@ async function main(): Promise<void> {
 
   const label = arg('label');
   if (label !== 'before' && label !== 'after') throw new Error('--label=before|after is required');
-  const port = Number(arg('port'));
-  if (port === 5173 || !PORTS.includes(port)) {
-    throw new Error(`--port must be one of ${PORTS.join('/')} (got "${arg('port')}"); 5173 and every other port are someone else's`);
+  // `--port=<n>`, else ATGM_CAPTURE_PORT, else 5197, and a port something
+  // already holds is REFUSED (exit 2, `ui-review/port.ts`) before the server
+  // starts -- `ensureDevServer`'s own HTTP probe below misses a listener that
+  // is slow or not HTTP, and Vite would then quietly take the next port up.
+  const port = await claimPort('atgm-captures', 'ATGM_CAPTURE_PORT', 5197);
+  if (!PORTS.includes(port)) {
+    throw new Error(`--port must be one of ${PORTS.join('/')} (got ${port}); 5173 and every other port are someone else's`);
   }
   const onlyIds = arg('only').split(',').map((s) => s.trim()).filter((s) => s.length > 0);
   for (const id of onlyIds) {

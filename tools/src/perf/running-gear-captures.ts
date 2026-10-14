@@ -5,7 +5,7 @@
  * choreography, under the same command:
  *
  *   pnpm weight:capture -- --running-gear [--only=jeep_shoded,ifv_namer]
- *       [--out=<dir>] [--port=<n>] [--gpu=metal|swiftshader] [--frames=24]
+ *       [--out=<dir>] [--port=<n> | RUNNING_GEAR_PORT] [--gpu=metal|swiftshader] [--frames=24]
  *
  * **Why this exists at all: no gated golden scenario moves a vehicle.**
  * `vehicle` and `kitted` park the sandbox force, `relief` recoils two Lavis
@@ -38,13 +38,13 @@
  * port of their own that is refused if anything already holds it.
  */
 import fs from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PNG } from 'pngjs';
 import pixelmatch from 'pixelmatch';
 import { musicOffInitScript } from '../ui-review/music-off';
 import { gpuLaunchArgs, resolveGpuBackend } from '../ui-review/gpu';
+import { decidePort } from '../ui-review/port';
 import { beginPhase, settleTickFloor, spawnBare, waitForMesh, type LionsWindow, type WeightPhase, type WeightSubject } from './weight-captures';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -155,15 +155,6 @@ function arg(argv: readonly string[], name: string, fallback: string): string {
   return hit ? hit.slice(name.length + 3) : fallback;
 }
 
-function portInUse(port: number): boolean {
-  try {
-    const out = execFileSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN'], { encoding: 'utf8' });
-    return out.trim().length > 0;
-  } catch {
-    return false;
-  }
-}
-
 function crop(png: PNG, cx: number, cy: number, w: number, h: number): PNG {
   const out = new PNG({ width: w, height: h });
   const x0 = Math.round(Math.min(Math.max(0, cx - w / 2), png.width - w));
@@ -231,9 +222,19 @@ export async function runRunningGearCaptures(argv: readonly string[]): Promise<v
   const { ensureDevServer, stopDevServer, readUnmaskedRenderer } = await import('../golden-diff/browser');
   const { FREEZE_FRAME_LOOP_SCRIPT } = await import('../golden-diff/capture-protocol');
 
-  const port = Number(arg(argv, 'port', String(PORT)));
-  if (port === 5177 || port === 5173) throw new Error(`refusing --port=${port}: a human's own dev server lives there`);
-  if (portInUse(port)) throw new Error(`port ${port} is already in use -- refusing to attach to someone else's server`);
+  const rawPort = arg(argv, 'port', '');
+  if (rawPort === '5177' || rawPort === '5173') throw new Error(`refusing --port=${rawPort}: a human's own dev server lives there`);
+  // `--port=<n>`, else RUNNING_GEAR_PORT, else 5196, and a port something
+  // already holds is REFUSED, exit 2 (`ui-review/port.ts`). It read `lsof`
+  // here before, which reports nothing at all where `lsof` is missing or
+  // denied -- a probe that fails open. port.ts connects on both loopbacks.
+  const claim = await decidePort('running-gear-captures', 'RUNNING_GEAR_PORT', PORT, argv, process.env, 'own');
+  if (!claim.ok) {
+    console.error(claim.message);
+    process.exit(2);
+  }
+  const port = claim.port;
+  console.log(`[running-gear-captures] serving on :${port} (${claim.source})`);
   const outRoot = path.resolve(REPO, arg(argv, 'out', path.join('.superpowers', 'art-captures', 'running-gear')));
   const nFrames = Number(arg(argv, 'frames', '24'));
   const calibrating = argv.includes('--calibrate');

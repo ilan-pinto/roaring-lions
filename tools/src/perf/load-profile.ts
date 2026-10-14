@@ -1,6 +1,7 @@
 // Where does a level's load time go?
 //
-//   pnpm perf:load -- --mission=beit_sahwan_1_recon            # dev server (started if needed)
+//   pnpm perf:load -- --mission=beit_sahwan_1_recon            # its own dev server, on a free port
+//   (--port=<n> or PERF_LOAD_PORT; default 5187 dev / 5188 preview; a held port is refused)
 //   pnpm perf:load -- --sandbox=tel_marum --mbps=20            # throttled to a 20 Mbit/s downlink
 //   pnpm perf:load -- --mission=tel_marum_2_foothold --serve=preview   # the production build in dist/
 //   pnpm perf:load -- --mission=... --warm                     # HTTP cache AND service worker ON (a second visit)
@@ -46,8 +47,9 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { chromium, type CDPSession } from 'playwright';
 import { driveBoot, startPreview } from './boot';
-import { ensureDevServer, isServerUp, readUnmaskedRenderer, stopDevServer } from '../golden-diff/browser';
+import { ensureDevServer, readUnmaskedRenderer, stopDevServer } from '../golden-diff/browser';
 import { musicOffInitScript } from '../ui-review/music-off';
+import { claimPort } from '../ui-review/port';
 import { gpuLaunchArgs, resolveGpuBackend, type GpuBackend } from '../ui-review/gpu';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -86,7 +88,9 @@ function parseArgs(argv: string[]): Args {
   return {
     mission,
     sandbox,
-    port: Number(get('port') ?? (serve === 'preview' ? 5188 : 5187)),
+    // The DEFAULT only: `main` hands it to `claimPort`, which reads `--port=`
+    // and PERF_LOAD_PORT itself and refuses a held port.
+    port: serve === 'preview' ? 5188 : 5187,
     serve,
     mbps: get('mbps') ? Number(get('mbps')) : null,
     warm: has('warm'),
@@ -185,14 +189,15 @@ function fmtMs(v: number | null): string {
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  let server: ChildProcess | null = null;
-  if (args.serve === 'preview') {
-    if (!(await isServerUp(args.port))) server = await startPreview(args.port, REPO_ROOT, TAG);
-  } else {
-    server = await ensureDevServer(args.port, REPO_ROOT, TAG);
-  }
+  // `--port=<n>`, else PERF_LOAD_PORT, else 5187 (dev) / 5188 (preview), and a
+  // port something already holds is REFUSED (exit 2, `ui-review/port.ts`):
+  // this used to measure whatever answered there -- in preview mode any server
+  // at all -- which is another checkout's load profile, or not a build at all.
+  const port = await claimPort(TAG, 'PERF_LOAD_PORT', args.port);
+  const server: ChildProcess | null =
+    args.serve === 'preview' ? await startPreview(port, REPO_ROOT, TAG) : await ensureDevServer(port, REPO_ROOT, TAG);
   const query = args.mission ? `?mission=${args.mission}` : `?sandbox=${args.sandbox}`;
-  const url = `http://localhost:${args.port}/${query}`;
+  const url = `http://localhost:${port}/${query}`;
   console.log(
     `[${TAG}] ${url}  serve=${args.serve}  ` +
       `cache=${args.warm ? 'ON, service worker ON (warm -- a returning player)' : 'OFF, service worker BYPASSED (cold -- a first visit)'}  ` +

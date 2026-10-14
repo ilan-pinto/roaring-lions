@@ -3,9 +3,13 @@
  * photographed WALKING and FIRING, before and after, at gameplay zoom and at
  * the top of the zoom band.
  *
- *     npx tsx tools/src/perf/gait-captures.ts            # dev server on 5178
- *     npx tsx tools/src/perf/gait-captures.ts <base> <out> --only=inf_squad
- *     npx tsx tools/src/perf/gait-captures.ts <base> <out> --revisions=after --phases=move
+ *     npx tsx tools/src/perf/gait-captures.ts            # its own dev server on 5178
+ *     npx tsx tools/src/perf/gait-captures.ts <out> --only=inf_squad
+ *     npx tsx tools/src/perf/gait-captures.ts <out> --revisions=after --phases=move
+ *     (port: --port=<n>, else GAIT_CAPTURE_PORT, else 5178; a port something
+ *     already holds is refused, `ui-review/port.ts`; `--attach` drives a
+ *     server you started there instead. It used to take that server's URL as
+ *     its first argument and photograph whatever answered, with no error.)
  *     (phases: idle, fire, movefire, move -- `idle` photographs the parade as spawned)
  *
  * 12 subjects x {move, fire, moveFire} x {1.0, 2.5} x {before, after} = **96
@@ -121,7 +125,7 @@
  * (reading 'step')`, because the harness was writing its own PNGs into
  * `.superpowers/` inside the worktree and reloading the page it was
  * photographing, once per screenshot. The default `out` is the session
- * scratchpad; pass a second positional argument to override it, and if you
+ * scratchpad; pass a positional argument to override it, and if you
  * point it back inside the tree, expect this.
  *
  * **HMR keeps working; its RELOAD is removed.** Vite's own client module is
@@ -171,9 +175,12 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { devServerStopper, ensureDevServer } from '../golden-diff/browser';
 import { FREEZE_FRAME_LOOP_SCRIPT, REPAINT_SCRIPT } from '../golden-diff/capture-protocol';
 import { musicOffInitScript } from '../ui-review/music-off';
 import { gpuLaunchArgs, resolveGpuBackend } from '../ui-review/gpu';
+import { claimPortOrAttach, refuseRetiredBaseUrl } from '../ui-review/port';
 
 // ---------------------------------------------------------------- the sheet
 
@@ -391,21 +398,28 @@ function arg(name: string, fallback: string): string {
   return hit ? hit.slice(name.length + 3) : fallback;
 }
 
+const TAG = 'gait-captures';
+refuseRetiredBaseUrl(TAG, process.argv.slice(2));
 const positional = process.argv.slice(2).filter((a) => !a.startsWith('--'));
-/** The dev server. IPv6 loopback by default because that is what a bare
- *  `vite` binds here (`[::1]:5178`), and `127.0.0.1` gets connection
- *  refused against it. */
-const base = positional[0] ?? 'http://localhost:5178';
+const { port } = await claimPortOrAttach(TAG, 'GAIT_CAPTURE_PORT', 5178);
+const stopServer = devServerStopper(
+  await ensureDevServer(port, path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..'), TAG),
+  TAG
+);
+/** The dev server. `localhost`, which reaches the IPv6 loopback a bare
+ *  `vite` binds here (`[::1]:5178`); `127.0.0.1` gets connection refused
+ *  against it. */
+const base = `http://localhost:${port}`;
 /**
  * Where the sheet lands. **Outside the repository by default** -- see the
  * header: a write inside the tree reloads the page this harness is
  * photographing. `CLAUDE_SCRATCHPAD` if the session exports one, else the OS
- * temp directory; a second positional argument overrides it, and moving the
+ * temp directory; a positional argument overrides it, and moving the
  * finished directory into the tree afterwards is safe because the browser is
  * closed by then.
  */
 const out =
-  positional[1] ??
+  positional[0] ??
   path.join(process.env.CLAUDE_SCRATCHPAD ?? os.tmpdir(), 'gait-captures');
 const only = arg('only', '');
 const tag = arg('tag', '');
@@ -565,6 +579,7 @@ try {
 await browser.close();
 writeIndex();
 console.log(`done -- ${cells.length} PNG(s) under ${out}`);
+stopServer();
 
 // --------------------------------------------------------------- functions
 

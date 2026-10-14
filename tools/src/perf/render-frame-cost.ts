@@ -4,8 +4,13 @@
  * that) -- a before/after instrument for a renderer change. Prints median
  * and p95 of `renderer.frame(1, 16)` in ms over 240 frames per view.
  *
- * Run against a dev server you started yourself:
- *   npx tsx tools/src/perf/render-frame-cost.ts http://127.0.0.1:5178 '?sandbox=beit_sahwan_outskirts&sur&civ'
+ * It serves its own tree on `--port=<n>` (else RENDER_FRAME_COST_PORT, else
+ * 5178), and a port something already holds is refused (`ui-review/port.ts`):
+ *   npx tsx tools/src/perf/render-frame-cost.ts '?sandbox=beit_sahwan_outskirts&sur&civ' [--port=5178]
+ * `--attach` drives a dev server you started on `--port` instead -- the
+ * "before" half of a before/after, on a tree that has no copy of this file.
+ * It used to take that server's URL as its first argument and time whatever
+ * answered there, with no error.
  *
  * `--select-all` (anywhere in the arguments; A4, GH-186) selects every living
  * side-0 unit through `__lions.sel` before timing, so the selection's own
@@ -15,7 +20,7 @@
  * (`renderer.info.render.calls` over one `frame()`), so the ring's promise of
  * exactly one extra draw call while anything is selected can be read off.
  *
- * The optional third argument is the CSS viewport, `WIDTHxHEIGHT`, default
+ * The optional second argument is the CSS viewport, `WIDTHxHEIGHT`, default
  * `1440x900`. It exists for one job: the drawing buffer is that times the
  * renderer's pixel ratio (capped at 2), so doubling it quadruples the fill.
  * That is the positive control for the `gpu` figure below -- see "Is `gpu`
@@ -78,17 +83,25 @@
  * file does not use.
  */
 import { chromium } from 'playwright';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { devServerStopper, ensureDevServer } from '../golden-diff/browser';
 import { musicOffInitScript } from '../ui-review/music-off';
+import { claimPortOrAttach, refuseRetiredBaseUrl } from '../ui-review/port';
 
+const TAG = 'render-frame-cost';
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const args = process.argv.slice(2);
+refuseRetiredBaseUrl(TAG, args);
 const selectAll = args.includes('--select-all');
-const [base = 'http://127.0.0.1:5178', query = '?sandbox=beit_sahwan_outskirts&sur&civ', size = '1440x900'] = args.filter(
-  (a) => !a.startsWith('--')
-);
+const [query = '?sandbox=beit_sahwan_outskirts&sur&civ', size = '1440x900'] = args.filter((a) => !a.startsWith('--'));
 const [viewportWidth, viewportHeight] = size.split('x').map(Number);
 if (!Number.isFinite(viewportWidth) || !Number.isFinite(viewportHeight)) {
-  throw new Error(`third argument must be WIDTHxHEIGHT, got ${JSON.stringify(size)}`);
+  throw new Error(`second argument must be WIDTHxHEIGHT, got ${JSON.stringify(size)}`);
 }
+const { port } = await claimPortOrAttach(TAG, 'RENDER_FRAME_COST_PORT', 5178);
+const stopServer = devServerStopper(await ensureDevServer(port, REPO_ROOT, TAG), TAG);
+const base = `http://localhost:${port}`;
 const VIEWS: [number, number, number][] = [
   [5, 22, 2.5],
   [22, 24, 0.5],
@@ -207,3 +220,4 @@ for (const [x, y, zoom] of VIEWS) {
   );
 }
 await browser.close();
+stopServer();
