@@ -8012,6 +8012,83 @@ button.rl-menu__item[data-kind='aside'] {
   font-size: var(--t-s);
 }
 
+/* The advisor's panel and proposal strip (ui/advisor.ts, N4a task 10): a small
+   docked feed with a box to answer it, and the strip that shows one proposed
+   order for two seconds. Every line is text an advisor wrote, drawn as text. */
+.rl-advisor {
+  position: fixed;
+  top: calc(var(--hud-strip-h) + var(--s3));
+  left: var(--s3);
+  width: 22rem;
+  max-width: calc(100vw - var(--s6));
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  z-index: 20;
+}
+.rl-advisor[hidden],
+.rl-advisor__strip[hidden],
+.rl-advisor__note[hidden] {
+  display: none;
+}
+.rl-advisor__feed {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 7rem;
+  overflow-y: auto;
+}
+.rl-advisor__feed:empty {
+  display: none;
+}
+.rl-advisor__line {
+  overflow-wrap: anywhere;
+}
+.rl-advisor__strip {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  padding: var(--s2);
+  border: 1px solid var(--selected); /* px-ok */
+  background: var(--selected-fill);
+}
+.rl-advisor__note,
+.rl-advisor__what {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.rl-advisor__what {
+  font-weight: 600;
+}
+.rl-advisor__row {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+}
+.rl-advisor__hint,
+.rl-advisor__count {
+  color: var(--ink-mute);
+}
+.rl-advisor__count {
+  margin-left: auto;
+}
+.rl-advisor__input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--panel-bg-solid);
+  color: var(--ink);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  padding: var(--s1) var(--s2);
+}
+
 /* The versus scoreboard (ui/net-score.ts, 2026-10-14): each side's destroyed
    and lost, with their value, under the strip's right end while the match
    runs; the full table, with the force left, on the match-over panel. The

@@ -116,6 +116,8 @@ export class WsTransport implements MatchTransport {
   private ending: { reason: string; seat?: Seat } | null = null;
   /** Each seat's pauses left, from the last `paused`: what `setHooks` replays with it. */
   private pausesLeft: [number, number] | null = null;
+  /** The advisors the room last named (or this seat cleared on a relink): what `setHooks` replays to a new `onAdvisors`. */
+  private advisorsNow: [AdvisorScope | null, AdvisorScope | null] | null = null;
   /** The tick this seat's sim decided the match on, once reported (`over`, L-1). */
   private overTick: number | null = null;
   /** The other seat's forfeit clock while it is disconnected (`dropped`), on this machine's wall clock. */
@@ -154,6 +156,13 @@ export class WsTransport implements MatchTransport {
       hooks.onPaused(this.st.seat, Math.max(0, this.st.untilMs - this.now()), [this.pausesLeft[0], this.pausesLeft[1]]);
     }
     if (hooks.onEnded && this.ending !== null) hooks.onEnded(this.ending.reason, this.ending.seat);
+    // The battlefield's hook arrives after the lobby heard the badges: it must hear them too (N4a task 10).
+    if (hooks.onAdvisors && this.advisorsNow !== null) hooks.onAdvisors([this.advisorsNow[0], this.advisorsNow[1]]);
+  }
+
+  private setAdvisors(present: [AdvisorScope | null, AdvisorScope | null]): void {
+    this.advisorsNow = present;
+    this.hooks.onAdvisors?.(present);
   }
 
   /** Every write of the stall goes through here, so the counters see each
@@ -242,7 +251,7 @@ export class WsTransport implements MatchTransport {
           // A seat that dropped may have missed the room's `advisors` while away:
           // clear its badges so the room's next `advisors` (sent behind a hello
           // when any advisor is seated) is the whole truth, never a stale badge.
-          if (this.droppedAt !== null) this.hooks.onAdvisors?.([null, null]);
+          if (this.droppedAt !== null) this.setAdvisors([null, null]);
           this.relinked(); this.setStalled(null); this.st = { kind: 'waiting' };
         }
         this.hooks.onLobby?.(msg.seats, msg.you, msg.map, msg.factions);
@@ -263,7 +272,7 @@ export class WsTransport implements MatchTransport {
         // Whatever this seat heard of a forfeit clock before it dropped is stale:
         // the room re-sends `dropped` behind the log while the other seat is still gone.
         this.forfeit = null;
-        if (this.droppedAt !== null) { this.hooks.onAdvisors?.([null, null]); this.relinked(); this.replayFrom = this.now(); }
+        if (this.droppedAt !== null) { this.setAdvisors([null, null]); this.relinked(); this.replayFrom = this.now(); }
         this.setStalled(null);
         this.st = { kind: 'live', behind: this.clock.behind() };
         // A report sent while the link was down was lost with it: the room has
@@ -293,7 +302,7 @@ export class WsTransport implements MatchTransport {
       case 'back': if (this.forfeit?.seat === msg.seat) this.forfeit = null; return;
       case 'cmdRefused': this.hooks.onCmdRefused?.(); return;
       case 'advisor': this.hooks.onAdvisor?.(msg.from, msg.a); return;
-      case 'advisors': this.hooks.onAdvisors?.(msg.present); return;
+      case 'advisors': this.setAdvisors(msg.present); return;
       case 'resume': this.setStalled(null); this.st = { kind: 'live', behind: this.clock.behind() }; return;
       case 'hashOk': this.counts.hashOk.count++; this.counts.hashOk.lastTick = msg.tick; return;
       case 'desync':

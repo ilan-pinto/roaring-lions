@@ -666,6 +666,19 @@ describe('N4a: the advisor role, advisor and done messages, the round stall', ()
       ['advisors', [null, 'assist']],
     ]);
   });
+  it('setHooks replays the advisors the room last named to an onAdvisors it installs (the lobby hands over before the battlefield hooks)', () => {
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} });
+    sock.open();
+    const seen: unknown[] = [];
+    t.setHooks({ onAdvisors: (p) => { seen.push(p); } });
+    expect(seen).toEqual([]);   // the room has said nothing yet
+    sock.recv({ t: 'advisors', present: ['assist', null] });
+    expect(seen).toEqual([['assist', null]]);
+    const late: unknown[] = [];
+    t.setHooks({ onAdvisors: (p) => { late.push(p); } });
+    expect(late).toEqual([['assist', null]]);
+  });
   it('a reconnect clears the advisor badges before the room names them again (N4a Task 9: a seat that missed a [null, null] while away)', () => {
     vi.useFakeTimers();
     const sock = fakeSocket();

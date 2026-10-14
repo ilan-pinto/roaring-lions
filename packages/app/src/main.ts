@@ -243,7 +243,7 @@ import { bindLiveTeamColors } from './live-team-colors';
 import { garageColors, garageGroundTexture, garageModelSource } from './garage-model-source';
 import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
-import { PAUSES_PER_SEAT, WsTransport, type Seat, type TransportStatus } from '@lions/net';
+import { PAUSES_PER_SEAT, WsTransport, validateCommand, type Seat, type TransportStatus } from '@lions/net';
 import { JoinNeedsConfirmation, connectMatch, inviteAdvisor, openRoom, type Connected } from './net/connect';
 import { desyncReportDraft, withoutReplay } from './net/desync-report';
 import { blockedOrderNotes, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
@@ -260,6 +260,7 @@ import { garrisonRoomShown } from './net/hover-garrison';
 import { NetStatusLine, lineOverMatchEnd, matchClock } from './ui/net-status';
 import { NetChat, chatFeedLine, chatOpens } from './ui/net-chat';
 import { showNetEnd } from './ui/net-end';
+import { describeCommand, mountAdvisorPanel, type AdvisorPanel } from './ui/advisor';
 import { NetScoreboard } from './ui/net-score';
 import { scoreOf, showsScoreboard } from './net/scoreboard';
 import { decideOnHashTick, matchResult, reportOver, roomEndingOutcome, type LocalDecision, type MatchResult } from './net/outcome';
@@ -3180,6 +3181,37 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       )
     : null;
   if (room !== null && blockedNotes !== null) room.setHooks({ onCmdRefused: () => blockedNotes.refused() });
+  /** The advisor's panel and proposal strip (N4a task 10), a versus room only.
+   *  Mounted hidden and shown while the room says an advisor sits beside THIS
+   *  seat (`onAdvisors`, which a hook installed here also hears for what the
+   *  lobby already heard). A proposal the human lets stand is queued through
+   *  the same order sink a click uses, as this seat's own `cmd`; `validate` is
+   *  the ownership check on the live sim, and refuses while the room is paused
+   *  (a paused room would drop the order, and the advisor must be told no). */
+  let advisorPanel: AdvisorPanel | null = null;
+  if (room !== null && netConfig !== null && netSeat !== null && versusRoom) {
+    const myNetSeat: Seat = netSeat;
+    const orderSink = roomOrderSink(() => room.status(), transport, () => blockedNotes?.blocked());
+    const panel = mountAdvisorPanel(document.body, {
+      send: (a) => room.advisor(a),
+      queueCommand: (cmd) => orderSink.queueCommand(cmd),
+      validate: (cmd) => !ordersWait(room.status()) && validateCommand(cmd, myNetSeat, seatWorld),
+      now: () => performance.now(),
+      describe: describeCommand,
+      // The field's own ping (R-10): a minimap flash and a marker on the ground.
+      ping: (x, y) => {
+        if (x >= map.width || y >= map.height) return;
+        minimap.ping(x, y, performance.now());
+        renderer.addOrderMarker(x, y);
+      },
+    });
+    advisorPanel = panel;
+    room.setHooks({
+      onAdvisor: (from, a) => panel.onAdvisor(from, a),
+      onAdvisors: (present) => { if (netEnd === null) panel.onPresence(present[myNetSeat]); },
+    });
+    onDispose(() => panel.dispose());
+  }
   // Pass K: a /free-play/<id> link naming no shipped map still loads the
   // default ground (a typo in a dev URL should not look like a broken build),
   // but the PLAYER is told, by name -- it used to be a console line only, and
@@ -4339,6 +4371,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // N1b task 9 (R-B12): in a room, a bare Enter opens the chat. Not a keymap
     // action, so single-player's Controls and F1 card are unchanged; never over
     // a dialog or the pause menu.
+    // N4a (D11): while an advisor's proposal shows, a bare Enter takes it at
+    // once; with nothing showing `accept()` answers false and Enter opens the chat below.
+    if (advisorPanel !== null && ev.key === 'Enter' && !ev.repeat && !ev.ctrlKey && !ev.metaKey && !ev.altKey
+        && !(isDialogOpen() || pauseHandle !== null || netEnd !== null) && advisorPanel.accept()) {
+      ev.preventDefault();
+      return;
+    }
     if (netChat !== null && chatOpens(ev, { inRoom: true, modalOpen: isDialogOpen() || pauseHandle !== null || netEnd !== null })) {
       ev.preventDefault();
       netChat.open();
@@ -4523,6 +4562,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // `paintMute`, `hud.mute.muted`/`hud.mute.unmuted`): the key and the
         // chip say the same thing about the same state.
         hud.note(t(audioMuted ? 'hud.mute.muted' : 'hud.mute.unmuted'), 'mute');
+        break;
+      case 'veto':
+        // N4a (D11): X vetoes the advisor's proposal that shows. Nothing showing
+        // (or no advisor at all) and the key does nothing, as it always did.
+        if (advisorPanel?.veto()) ev.preventDefault();
         break;
       case 'pause': {
         // Fix wave I1: the in-mission objectives tracker (the strip's `+N`
@@ -5484,6 +5528,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     closeOpenDialog();
     netStatus?.hide();
     netScore?.hide();
+    advisorPanel?.onPresence(null);
     netEnd = showNetEnd(document.body, result, me, {
       again: () => req.navigate(routes.versus()),
       menu: () => req.navigate(routes.menu()),
@@ -5905,6 +5950,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       }
     }
     if (netEnd === null) netScore?.update(scoreOf(sim));
+    // The advisor's 2 s deadline runs on this frame loop, and waits out a pause (orders do).
+    if (netEnd === null && room !== null && !ordersWait(room.status())) advisorPanel?.frame();
     if (netEnd === null || lineOverMatchEnd(transport.status())) netStatus?.paint(transport.status(), Date.now(), room?.forfeitClock() ?? null);
     // A room's pause (either seat's) quiets the mix and dims the strip as a
     // local pause does; the room's status is the only thing that says so.

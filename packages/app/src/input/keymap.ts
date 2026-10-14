@@ -12,7 +12,7 @@
 export type Action =
   | 'halt' | 'move' | 'smoke' | 'load' | 'unload' | 'overlay' | 'production' | 'mute'
   | 'selectAll' | 'cycleChips' | 'jumpToAlert' | 'keysOverlay' | 'idleNext'
-  | 'panUp' | 'panDown' | 'panLeft' | 'panRight' | 'pause';
+  | 'panUp' | 'panDown' | 'panLeft' | 'panRight' | 'pause' | 'veto';
 
 export interface ActionSpec {
   id: Action;
@@ -76,6 +76,12 @@ export const ACTIONS: readonly ActionSpec[] = [
   { id: 'panLeft', label: 'keymap.panLeft', key: 'a', rebindable: true },
   { id: 'panRight', label: 'keymap.panRight', key: 'd', rebindable: true },
   { id: 'pause', label: 'keymap.pause', key: 'escape', rebindable: false },
+  // N4a (D11): the veto for an advisor's `assist` proposal, while one shows.
+  // `x` was free (PR 535; `n` is move-only). Hidden because it means
+  // nothing outside a versus room with an advisor beside you, so single-player's
+  // Controls list and F1 card are unchanged; rebindable all the same, and the
+  // key falls through (`AdvisorPanel.veto()` answers false) when nothing shows.
+  { id: 'veto', label: 'keymap.veto', key: 'x', rebindable: true, hidden: true },
 ];
 
 /** The actions a player is SHOWN -- F1's card and the Controls settings
