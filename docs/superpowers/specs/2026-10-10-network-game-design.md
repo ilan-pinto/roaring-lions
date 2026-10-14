@@ -697,7 +697,7 @@ Answered by Ilan, 10–11 Oct 2026:
 | 3 | Where does the relay run? | A Durable Object in the existing Worker. Colyseus (G5 default) withdrawn; WebRTC rejected |
 | 4 | Invite and identity | Room code plus link, no accounts; ticket shaped so ST5's Steam id slots into `player` |
 | 5 | What each player brings | Matched kit by default; "bring your brigade" a friends-only lobby toggle that brings anything the player owns, earned or bought (11 Oct ruling; never in a public or ranked room); Sarim has no tier ladder yet |
-| 6 | Lag, pause, disconnect | Friendly: stall everyone with a banner, three 90-s pauses each, 120-s reconnect from the log, quit is surrender |
+| 6 | Lag, pause, disconnect | Friendly: stall everyone with a banner, three 90-s pauses each, 120-s reconnect from the log, quit is surrender. **Disconnect half superseded 13 Oct by decision 23** (§11b) |
 | 7 | How an AI connects | A headless harness serving MCP over a documented JSON protocol, with the game UI as the advisor's face |
 | 8 | AI versus AI | Real time and paced, a `pace` field; arena scores win rate with sides swapped, Conduct and tokens reported |
 | 9 | How much Sarim seat | Minimal now (KDF verbs + `setStance` + `build`); the insurgent toolkit as a named follow-on |
@@ -708,14 +708,14 @@ Defaults recorded with the recommendation; overturn any in review:
 |---|---|---|
 | 10 | Desync policy | hash every 20 ticks (`sim.hash()` + runtime digest + data digest); halt, name the tick, store both logs in D1, one-click report; never resync |
 | 11 | Clock model | the room is the metronome at 20 Hz; clients run 2 frames behind; stall at 40 ticks behind or 2 s silent |
-| 12 | Win rule, version one | annihilation or surrender; 25-minute cap settled by held-ground seconds; tie is a draw |
+| 12 | Win rule, version one | annihilation or surrender; 25-minute cap settled by held-ground seconds; tie is a draw. **Tiebreak superseded 13 Oct by decision 24** (§11b) |
 | 13 | Pause budget | 3 × 90 s per seat; only the pauser resumes early |
-| 14 | Reconnect | 120 s, then the other seat may claim or wait |
+| 14 | Reconnect | 120 s, then the other seat may claim or wait. **Superseded 13 Oct by decision 23** (§11b): 60 s, then an automatic forfeit, no claim |
 | 15 | Pings | sender and sender's advisor only |
 | 16 | Chat | text, 280 characters, relay only, in version one |
 | 17 | Speed | host-set in the lobby, applied by the room; never local |
-| 18 | Unattended bot seat | the doctrine commander |
-| 19 | Arena scoring | win rate over the seed set with sides swapped; Conduct and tokens reported only |
+| 18 | Unattended bot seat | the doctrine commander. **Not built yet** (WP-G-G0 has not landed); N4 ships scripted baseline bots instead (§11b, N4 plan) |
+| 19 | Arena scoring | win rate over the seed set with sides swapped; Conduct and tokens reported only. A versus room runs no `MissionRuntime`, so there is no Conduct to report until N2/N3; the arena reports the scoreboard (decision 25) in its place (§11b) |
 | 20 | Skirmish payout | none in version one; earned credits for a result is a later ST/G-G question |
 | 21 | Storage | Durable Object SQLite for the room, D1 for results and desync logs; nothing in R2 |
 | 22 | Cheat posture | friends only, stated in the lobby; no authoritative sim in this design |
@@ -781,6 +781,266 @@ by this design:
 - **Headless Firefox on CI has no WebGL2**, so the three-engine check reports
   Chromium and WebKit only; a Firefox reading needs either a software GL flag
   or a headed runner, and until then the cross-engine claim is two engines.
+
+## 11b. The lead's rulings of 13–14 Oct, N1 as built, and what N4 and N2 inherit (14 Oct 2026)
+
+Recorded here rather than in `docs/HANDOVER.md`, which a routine rewrites
+twice a day. Read against `main` `f4b3ea2b` (14 Oct). Everything below is
+what the code does; where it differs from the ruling as it was put, the
+difference is named.
+
+### 11b.1 Rulings (decisions 23–27)
+
+| # | Ruling (the lead) | When | Landed in |
+|---|---|---|---|
+| 23 | **The player who drops loses**, after 60 s of grace; **leaving a started match is a surrender** | 13 Oct | #579 |
+| 24 | **Stalemate and the cap are settled by force value**: when neither side can move any unit, or at 25 minutes, the side with the higher total surviving unit value wins; equal value is a draw | 13 Oct | #579 |
+| 25 | **A scoreboard**: kills and losses, each with its value | 14 Oct | #587 |
+| 26 | **KDF vs Sarim is allowed in friend matches** on the fair-map list | 14 Oct | #589, narrowed by #596 and #600 (below) |
+| 27 | **Dedicated versus maps**, Wadi Tarfan and Milh Flats; **Milh Flats is mirror-only** | 14 Oct | #600 |
+
+Decision 23 supersedes decision 14 and the disconnect half of decision 6;
+decision 24 supersedes decision 12's held-ground tiebreak. Both are marked in
+§10's tables.
+
+### 11b.2 As built
+
+**#579, dropping and leaving (decision 23).**
+- A versus seat disconnected for `FORFEIT_MS` = 60,000 ms of WALL time loses:
+  the room ends `forfeit` naming it (`room-core.ts` `forfeitIfDue`). A
+  reconnect inside 60 s cancels the clock completely, the ~4 s reload rejoin
+  included; a later drop starts a fresh 60 s. Both seats see
+  `dropped{seat, remainingMs}` and `back{seat}`.
+- A pause does not shelter a dropped seat: the forfeit is asked before the
+  pause in `clockTick`.
+- Both seats gone: the one gone LONGER loses; both gone at the same instant
+  (a deploy dropping every socket) voids the match. The check runs before any
+  hello, so who reconnects first does not change the answer.
+- `bye` in a started match ends it `left` naming the leaver, who loses at
+  once; closing the tab is a disconnect (the 60 s rule), not a `bye`. A `bye`
+  in the lobby closes the room for both and names nobody.
+- Not applied to a sandbox room (both seats on one side), to the lobby, or once
+  the result is settled (the `over` close is armed).
+- Cost: no alarm of its own; 0.28 rows/s over the 60 s wait, measured.
+- **Differs from §3.2.6**, which said 120 s and then the remaining seat may
+  `claim` or `wait`: there is no claim; the room decides at 60 s.
+
+**#579, stalemate and the cap (decision 24).** `packages/app/src/net/outcome.ts`,
+read from hashed sim state only and asked only on hash ticks, so both seats
+decide on the same tick:
+- **Annihilation:** a side with no living ARMED unit (a weapon, and
+  `firepowerKilled` not set) has lost; both on one tick is `draw mutual`. There
+  is no production clause, because a versus room has no production.
+- **Stalemate:** every living unit of sides 0 and 1 is permanently immobile
+  (`mobilityKilled[i] === 1`, or a type whose `stepPerTick` is 0). Pinned,
+  garrisoned, carried, buried, braced and halted units are NOT immobile. So
+  "neither side can move any unit" is read as *can never move again*, not
+  *is not moving now*.
+- **Cap:** `MATCH_CAP_TICKS` = 25 × 60 × 20 = 30,000 sim ticks.
+- **Value:** each side's sum of `cost.logistics` over its living units
+  (`unitCost`; a type the data does not know counts 0). Higher wins, equal
+  draws. The end panel prints "won on remaining forces (x vs y)".
+
+**#587, the scoreboard (decision 25).** `packages/app/src/net/scoreboard.ts`.
+- Per side: units **lost** (count and value, a mission's `removed` excluded),
+  units **destroyed**, and **force left** (`forcesOf`, the number decision 24
+  settles on).
+- **"Kills" are not attributed to a shooter.** A side's destroyed is the other
+  side's lost, read from state, so a rejoin replays into the same board. A unit
+  killed by its own side's splash therefore counts as a kill for the enemy, on
+  both screens alike. (Sim `destroyed` events do carry `by`; the board does not
+  read events, on purpose.)
+- HUD table under the strip in versus rooms only; the full table on the
+  match-over panel; nothing mounted in single-player or a sandbox room.
+
+**#589 + #596 + #600, KDF vs Sarim (decision 26).**
+- The host picks a **matchup** at `/create`: `mirror` (KDF v KDF, the default),
+  `kdf` (host KDF, guest Sarim) or `sarim`. The room keeps `factions` by seat
+  and mints them into `SeatConfig.faction`. There is no in-lobby side change
+  after creation (no `lobby.set`).
+- The Sarim force is placed, with no production: `VERSUS_SARIM`, 14
+  `atgm_cell`, 6 `gun_truck`, 2 `manpad_team`, 2 `rocket_battery`, 2
+  `sarim_rifles`. Its value is 6,736, against the KDF versus force's 6,664.
+  No unit stat was touched and there was no sim change.
+- **Narrower than the ruling as put.** KDF vs Sarim is not offered on the whole
+  fair-map list. It is offered on `FACTION_MATCHUP_MAPS` = `tel_marum`,
+  `wadi_tarfan` only. `beit_sahwan_outskirts` leans KDF (~69%) and
+  `milh_flats` is mirror-only. The route AND the room's `/create` answer 400 to
+  a non-mirror matchup anywhere else (`matchupAllowed`).
+- Both offered maps read **Sarim 60.4% (29 of 48) in the KDF-west spawn
+  order**. That is outside the probe's strict 60/40 bar by one game, and the
+  ruling stands on that reading (#596, #600).
+
+**#596, the fair-map list.**
+- A versus room is offered only on `VERSUS_FAIR_MAPS` =
+  `beit_sahwan_outskirts`, `tel_marum`, `wadi_tarfan`, `milh_flats`. The
+  route and the room's `/create` refuse others with 400.
+- A sandbox room is not limited. A room already open keeps playing.
+- The bar for re-opening a map: per-map fair start points, measured within
+  60/40 at 48 seeds per spawn order by `pnpm versus:probe`. The probe is
+  report-only and exits 2 only on its own failed self-check. #561 stays open.
+
+**#600, the dedicated maps (decision 27).**
+- `wadi_tarfan` (The Three Fords) and `milh_flats` (Bir Milh): 48×48 and
+  point-symmetric. Their seats are the markers `versus_0`/`versus_1`, which
+  `sandboxAnchors` reads by name.
+- Mirror reads: wadi_tarfan west 22 / east 25 / 1 draw; milh_flats 24 / 24.
+- Milh Flats is mirror-only: with Sarim on the west seat, KDF wins 33 of 48.
+
+**What N1 left differently from §2.1 and §3.2.3. N4 builds on these as they
+are, not as the spec drew them.**
+- `MatchConfig` has no `rules`, `commit`, `inputDelayTicks` or per-seat
+  `advisor`.
+- The room mints `dataDigest: 0`. The lobby compares only the build string
+  (`<package version>+<commit>`, `hello.build`), and a mismatch is
+  `build_mismatch`, close code 4002.
+- `pace` is always minted `realtime`, and **paced mode is not implemented**:
+  `room-core.ts` reads no `pace`.
+- Seat `kind` is always `human`. `/join` hands out seat 1 only; there is no bot
+  or advisor ticket.
+- Client messages are `hello`, `ready`, `cmd`, `ack`, `hash`, `bye`, `pause`,
+  `resume`, `surrender`, `chat`, `over`. There is **no** `lobby.set`, `ping`,
+  `advisor` or `done`.
+- Server messages add `cmdRefused`, `dropped`, `back` and a chunked `log`.
+- There is no `GET /api/match/:code/log` route: a rejoin is a `hello` with
+  the same ticket.
+- `start`/`log` carry per-match seat tokens in `seats[i].player`, never the
+  persistent anonymous id.
+- **Security caps from #566** that every new client (the harness included)
+  meets:
+  - messages ≤ 4,096 bytes;
+  - ≤ 4 of a seat's commands per frame, ≤ 12 pending, and a token bucket of
+    20 at once and 20 a second;
+  - ≤ 256 ids per command;
+  - ≤ 2,000,000 characters of command JSON per room, past which the match is
+    void;
+  - per socket: 160 messages at once and 80 a second, with advancing acks and
+    hashes free;
+  - ≤ 8 live sockets a room; a hello within 10 s or the socket is closed (1008);
+  - `WS_LIMIT` 60 upgrades a minute per IP; `ROOM_LIMIT` on create and join;
+  - `Origin` required on every route, the upgrade included;
+  - `callStrike` and `reveal` dropped in versus (`SeatWorld.versus`);
+  - commands rebuilt field by field (`cleanCommand`); chat and callsigns
+    cleaned (`cleanChat`, `cleanCallsign`).
+- **Row budget** (R-N12, accepted): a command frame closes its batch, which is
+  one row. So a match writes `max(command frames a second, 1)` rows a second,
+  plus 0.2 for the watchdog: about 1.2 idle and **2.2 with one order a second
+  from each seat**.
+
+### 11b.3 What N4 inherits, and the shape its plan takes
+
+N4 needs no sim change and starts now
+(`docs/superpowers/plans/2026-10-14-net-n4-ai-harness.md`). Four points of
+that plan revise this spec, and each one is a lead decision listed there:
+
+- **The advisor is a third socket of its seat**, admitted by an advisor ticket
+  that the seat itself mints. It is not a seat. An `assist` proposal travels to
+  the human's browser, and the browser sends it as its own `cmd` after two
+  seconds unless vetoed. The room never stamps an order from an advisor, so
+  ownership stays per seat.
+- **The arena runs on a local relay**: `room-core.ts` hosted in Node on
+  127.0.0.1, with an in-memory ticket secret. It writes no Durable Object or D1
+  rows and needs no secret and no network. A remote arena against the Worker,
+  and `/stats/arena`, are a separate gated step.
+- **A bot's orders are coalesced** to at most one command frame a second and
+  4 commands a flush. A bot seat therefore costs the same rows as the human the
+  2.2 rows/s budget assumes.
+- **The built-in opponent is a scripted, fog-respecting baseline**, until the
+  doctrine commander exists.
+
+**Ruled 14 Oct (lead): the N4 plan's eleven decisions, D1–D11, are accepted
+as recommended.**
+- **D1:** each seat may invite its own advisor, one per seat, and both seats
+  see a badge.
+- **D2:** `tools/` may import `packages/worker`, for the local relay only.
+- **D3:** `ws` and `@modelcontextprotocol/sdk` as tools-only devDependencies,
+  at exact versions.
+- **D4:** a bot's orders are coalesced to at most one flush of 4 commands per
+  20 ticks, with a queue of 12.
+- **D5:** paced mode is minted only when a seat is a bot, and human seats are
+  never waited for. `roundTicks` is clamped to 20–1,200 and `roundWallMs` to
+  1–600 s.
+- **D6 is "not now":** no D1 `matches` table and no `/stats/arena` in N4. The
+  arena reports locally.
+- **D7:** score = (wins + ½ draws) / non-void games, with seats swapped per
+  seed. The scoreboard is reported in place of Conduct, and tokens are
+  reported, never scored.
+- **D8:** the `passive` and `rush` scripted baselines stand in until the
+  doctrine commander exists. This answers decision 18 for now.
+- **D9:** the Node harness sends the server's own `Origin`.
+- **D10:** an advisor's socket receives the full frame stream while the
+  model's view is fogged, under the friends-only posture.
+- **D11:** X is the veto key.
+
+**Ruled 14 Oct (lead): `over` stays unchanged in N4.** Any result the room
+records comes from its own end state (its ending reason). A `winner` field on
+`over` is a later protocol change.
+
+### 11b.4 N2's prerequisites (to be scheduled after the garrison overhaul and F1)
+
+N2 is sim work, and Lane C allows one sim plan in flight. It cannot start
+until all of these hold:
+
+1. **The garrison overhaul has landed**
+   (`docs/superpowers/plans/2026-10-14-garrison-overhaul.md`). **Met: it
+   landed on 14 Oct as #606**, and the versus mirror pins did not move. It rewrites
+   `losRay`/`raySmoke`, `applySuppression`, `detectionPair` and
+   `stepGarrison` in `sim.ts`, and moves the three sim pins.
+2. **WP-G-F1 has landed** (`2026-10-04-gf1-fire-support-intel.md`). Its Task 1
+   adds `MissionRuntime.economyHash()`, which N2's `runtime.digest()` must
+   compose with rather than duplicate. Its Task 8 reshapes
+   `requestSweep`/`requestStrike` around `SupportKind`. N2 turns those calls
+   into `Command`s, so it must start from F1's shape, not today's.
+3. **F2 Task 1 (the integer purse) lands with or before N2.** §7.1 already
+   ties them: `logisticsValue += rate / 1200` is a float accrual that a
+   network hash must not see.
+4. **No other Lane C plan is adding a `Command` kind at the same time.**
+   Targeted fire (`attack`, #591) has landed, and Hold's sim command was
+   retired by the lead's ruling of 11 Oct (stage 4 order, ruling 1). Any new
+   kind that lands in the meantime must be in `@lions/net`'s whitelist and
+   ownership check before N2 adds its four.
+5. **A decision on whether a versus room runs a `MissionRuntime` at all.**
+   Today it runs none: no economy, no ROE, no Conduct. Without one, N2's
+   seat rules have nothing to act on until N3. N2 either builds a minimal
+   versus runtime or only re-keys the side-0 rules for N3 to use.
+
+**Sim surfaces N2 touches.** Locate them by symbol; line numbers are as of
+`f4b3ea2b`.
+
+- **`MissionRuntime.step`, `unitLost`** (`mission.ts` ~L1071) is emitted for
+  side 0 only, with `side: 0` hard-coded. It becomes per side, or per seat.
+- **The same digest loop:**
+  - `identified`/`identifiedBy` count only side-0 observers of side-1 targets
+    (~L1044);
+  - `routeFoundBy` counts only side 0's tunnel identifications (~L1058);
+  - `kills`/`contributed` credit only side-0 killers (~L1061–1064).
+- **Conduct and ROE scoring** judge only side-0 actors (~L1453–1511:
+  `structureDestroyed`, `destroyed`, `nearMiss`, `strike`, `fire`). Per §6.1,
+  Conduct stays a KDF doctrine: it becomes "the KDF seat's side", not
+  literally 0.
+- **Zone presence and contest** count side 1 against side 0 (~L1600–1614).
+- **Placement:** `from_ledger` applies to side 0 only (~L1309), and
+  `playerIds`/`enemyIds`/`civIds` are bucketed by side (~L1360).
+- **The direct runtime calls** `requestSweep`, `requestStrike` and
+  `requestBuild` (~L664–690) become tick-stamped `Command`s (§7.1).
+- **`sim.ts` `selectBreachTarget`**: "side 0 never auto-breaches" (~L3694;
+  the spec's L3415 has drifted) becomes a per-seat rule.
+- **The `Command` union** (`sim.ts` ~L606) gains `build`, `sweep`, `strike`
+  and `setStance`. In `@lions/net`, `COMMAND_KINDS` and `cleanCommand` (whose
+  `never` default makes `tsc` fail until the kind is handled) and
+  `validateCommand` (an exhaustive switch) must each handle them in the same
+  PR. `SeatWorld.versus`'s blanket drop of `callStrike`/`reveal` is
+  re-decided once a runtime prices them in versus.
+- **The network hash:** `frame-step.ts` passes `runtimeDigest = 0` to
+  `matchDigest` (~L51). N2 supplies `runtime.digest()` there, and the room's
+  `dataDigest: 0` becomes a real digest.
+- **Per-seat unit types:** `main.ts` builds every room with `bootKit = {}`
+  (~L1476). "Bring your brigade" needs per-seat registration (§7.1).
+- **`humanHeld[side]`:** triggers, waves and the commander skip a human-held
+  side.
+- **The pins:** the three sim pins in `determinism.test.ts`, F1's economy pin,
+  and the versus-force mirror pins (`versus-force.test.ts`) each move once, and
+  the commit says why.
 
 ## 12. Testing and gates
 

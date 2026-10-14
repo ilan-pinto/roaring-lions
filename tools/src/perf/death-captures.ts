@@ -12,7 +12,7 @@
  * at the branch base with `--label=before` and once at the head with
  * `--label=after`.
  *
- *   npx tsx tools/src/perf/death-captures.ts --label=before
+ *   npx tsx tools/src/perf/death-captures.ts --label=before   [--port=5179 | DEATH_CAPTURE_PORT; a held port is refused]
  *   npx tsx tools/src/perf/death-captures.ts --label=after --only=militia_cell:killed
  *
  * `--only` takes a subject id (`inf_squad`), or `id:mode` (`militia_cell:killed`)
@@ -27,7 +27,10 @@ import path from 'node:path';
 import { ensureDevServer, stopDevServer } from '../golden-diff/browser';
 import { FREEZE_FRAME_LOOP_SCRIPT } from '../golden-diff/capture-protocol';
 import { musicOffInitScript } from '../ui-review/music-off';
+import { claimPort } from '../ui-review/port';
 
+/** The default port: `--port=<n>`, else DEATH_CAPTURE_PORT, else this. A port
+ *  something already holds is refused (exit 2, `ui-review/port.ts`). */
 const PORT = 5179;
 const VIEWPORT = { width: 1400, height: 900 } as const;
 const ZOOMS = [1.0, 2.5] as const;
@@ -349,14 +352,15 @@ function writeIndex(): void {
 }
 
 async function main(): Promise<void> {
-  const server = await ensureDevServer(PORT, process.cwd(), 'death-captures');
+  const port = await claimPort('death-captures', 'DEATH_CAPTURE_PORT', PORT);
+  const server = await ensureDevServer(port, process.cwd(), 'death-captures');
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage({ viewport: { ...VIEWPORT }, deviceScaleFactor: 1 });
     await page.addInitScript(musicOffInitScript());
     page.setDefaultTimeout(STEP_TIMEOUT_MS);
     page.on('pageerror', (err) => console.log('  page error:', err.message));
-    await page.goto(`http://localhost:${PORT}/?sandbox=beit_sahwan_outskirts`, { waitUntil: 'load' });
+    await page.goto(`http://localhost:${port}/?sandbox=beit_sahwan_outskirts`, { waitUntil: 'load' });
     await page.waitForFunction(() => !!(window as unknown as LionsWindow).__lions?.renderer);
     await page.evaluate(FREEZE_FRAME_LOOP_SCRIPT);
     const placed = await spawnAll(page);

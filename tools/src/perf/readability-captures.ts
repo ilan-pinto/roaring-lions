@@ -6,8 +6,10 @@
  * after is two trees served side by side (`main@5272,branch@5271`).
  *
  * Run against dev servers you started yourself (it never starts or stops
- * one), music off:
- *   cd tools && npx tsx src/perf/readability-captures.ts --targets=main@5272,branch@5271 --out=<dir>
+ * one), music off, and say so with `--attach`: it is required, and every
+ * target's port must be listening (`ui-review/port.ts` `requireAttach`), so a
+ * default target is never photographed by accident:
+ *   cd tools && npx tsx src/perf/readability-captures.ts --targets=main@5272,branch@5271 --out=<dir> --attach
  *     [--maps=beit_sahwan_outskirts,tel_marum,wadi_halam_basin]
  * A target may carry flags after a `+`: `ditch@5271+&ditch`.
  *
@@ -37,6 +39,7 @@ import { PNG } from 'pngjs';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { SILENT_AUDIO, musicOffInitScript } from '../ui-review/music-off';
+import { requireAttach } from '../ui-review/port';
 
 const args = process.argv.slice(2);
 const arg = (k: string, d: string): string => args.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3) ?? d;
@@ -51,6 +54,7 @@ const TARGETS: Record<string, { port: number; flags: string }> = Object.fromEntr
       return [name, { port: Number(port), flags }];
     })
 );
+await requireAttach('readability', Object.values(TARGETS).map((t) => t.port));
 const OUT = resolve(arg('out', '.superpowers/readability'));
 const MAPS = arg('maps', 'beit_sahwan_outskirts,tel_marum,wadi_halam_basin').split(',');
 const WANT = Object.keys(TARGETS);

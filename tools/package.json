@@ -49,14 +49,14 @@
     "@lions/sim": "workspace:*"
   },
   "devDependencies": {
-    "@gltf-transform/core": "^4.5.0",
-    "@gltf-transform/extensions": "^4.5.0",
-    "@gltf-transform/functions": "^4.5.0",
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
+    "@gltf-transform/functions": "^4.5.1",
     "@types/pngjs": "^6.0.5",
     "draco3dgltf": "^1.5.7",
     "pixelmatch": "^7.2.0",
-    "playwright": "^1.55.0",
+    "playwright": "^1.64.0",
     "pngjs": "^7.0.0",
-    "tsx": "^4.19.2"
+    "tsx": "^4.23.15"
   }
 }
