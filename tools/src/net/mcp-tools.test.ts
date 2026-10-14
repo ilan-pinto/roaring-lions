@@ -4,6 +4,7 @@
 // (`run(ctx, args)`), and reads back what reached the room from the sockets.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ClientMsg, ServerMsg, SocketLike } from '@lions/net';
+import { fx } from '@lions/sim';
 import type { MatchWorld } from '../../../packages/app/src/net/match-world';
 import { AgentClient } from './agent-client';
 import { createContext, toolsFor, TOOLS, type Scope, type ToolContext, type ToolResult } from './mcp-tools';
@@ -159,6 +160,60 @@ describe('observe respects the seat\'s fog (case 4)', () => {
     expect(named.length).toBeGreaterThan(sideIds(w, 0).length);
     for (const id of named) expect(listed.has(id), `observe named id ${id}`).toBe(true);
     for (const id of hidden) expect(text).not.toMatch(new RegExp(`"id":${id}[,}]`));
+  });
+});
+
+describe('an order record hides what the seat can no longer see', () => {
+  it('a unit that died since the order is no longer named (gone), and an attack target that left sight reads out of sight', async () => {
+    const { loop, a, c } = await twoSeats();
+    const ctx = createContext(a.client, 'command');
+    await play(loop, 10, [a.client, c.client], () => a.client.tick() >= 5 && c.client.tick() >= 5);
+    expect(c.client.tick()).toBe(a.client.tick());
+    const sims = [a.client, c.client].map((cl) => (cl.world() as MatchWorld).sim);
+    const w = a.client.world() as MatchWorld;
+    // The room mints the seed, so pick by state rather than by index: units in
+    // the open, on foot or wheels, not inside a building, carrier or tunnel.
+    const st = w.sim.state;
+    const inOpen = (id: number): boolean => st.garrisonedIn[id] < 0 && st.carriedBy[id] < 0 && st.tunnelIn[id] < 0;
+    const [mine, spare] = a.client.view().units.filter((u) => u.flags.length === 0).map((u) => u.id);
+    const enemy = sideIds(w, 1).filter(inOpen)[0];
+    expect([mine, spare, enemy].every((id) => id !== undefined)).toBe(true);
+    // The sim's own dev hooks, identically on both machines between the same
+    // two frames: an enemy steps onto our unit's own ground, so it is a
+    // contact, and nobody's weapons work, so nobody dies of anything but
+    // `debugKill` (the room's seed varies, and a point-blank duel with it).
+    for (const sim of sims) {
+      for (let id = 0; id < sim.entityCount; id++) sim.debugDisableFirepower(id);
+      sim.teleport(enemy, sim.state.posX[mine], sim.state.posY[mine]);
+    }
+    // Fog refreshes every fourth tick (the renderer's cadence): five ticks see it.
+    const met = a.client.tick();
+    await play(loop, 20, [a.client, c.client], () => a.client.tick() >= met + 5 && c.client.tick() >= met + 5);
+    expect(a.client.view().contacts.map((u) => u.id)).toContain(enemy);
+    const r = await call(ctx, 'order', { verb: 'attack', ids: [mine, spare], target: enemy });
+    expect(r.ok).toBe(true);
+    const ref = (body(r) as { ref: number }).ref;
+    const record = async (): Promise<Record<string, unknown> | undefined> =>
+      (body(await call(ctx, 'observe')).orders as Record<string, unknown>[]).find((o) => o.ref === ref);
+    // Control: while both are listed, the record names them.
+    expect(await record()).toMatchObject({ ids: [mine, spare], target: enemy });
+    expect((await record())?.gone).toBeUndefined();
+    // Our second unit dies, and the enemy goes back into the fog at its own camp.
+    expect(c.client.tick()).toBe(a.client.tick());
+    const camp = a.client.view().enemyCamp;
+    for (const sim of sims) {
+      sim.debugKill(spare);
+      sim.teleport(enemy, fx.from(camp[0] + 0.5), fx.from(camp[1] + 0.5));
+    }
+    const at = a.client.tick();
+    await play(loop, 20, [a.client, c.client], () => a.client.tick() >= at + 5 && c.client.tick() >= at + 5);
+    const view = a.client.view();
+    expect(w.sim.state.alive[enemy]).toBe(1);
+    expect(view.contacts.map((u) => u.id)).not.toContain(enemy);
+    const after = await record();
+    expect(after).toMatchObject({ ids: [mine], gone: 1, target: 'out of sight' });
+    expect(idsIn(after)).toEqual([mine]);   // no id-naming key carries the dead unit or the fogged target
+    expect(a.client.transport.stats().desyncTick).toBeNull();
   });
 });
 
