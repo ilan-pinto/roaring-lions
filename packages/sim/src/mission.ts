@@ -13,7 +13,13 @@ import { fx, HALF, type Fx } from './fixed';
 import { HASH_SEED, hashWord } from './hash';
 import { starsFor, betterResult, type Stars, type MissionResult } from './grade';
 import { TICKS_PER_SECOND, type Sim, type SimEvent } from './sim';
-import { INTEL_PER_IDENTIFIED, INTEL_PER_OBJECTIVE } from './tuning';
+import { highGroundRises } from './intel-earn';
+import {
+  HIGH_GROUND_HOLD_TICKS,
+  INTEL_PER_IDENTIFIED,
+  INTEL_PER_OBJECTIVE,
+  INTEL_PER_RISE,
+} from './tuning';
 import type { TunnelRouteJson } from './tunnels';
 import { unlockReason, type UnlockGate } from './unlock';
 
@@ -377,7 +383,7 @@ export type MissionEvent =
    * completion. `at` is the integer tile the feed line names (#428: a feed line
    * says where): the identified enemy's tile, the objective's zone centre (or,
    * for a zoneless objective, the tile of the first living player unit), the
-   * rise's tile for `highGround`. `ref` is the enemy entity id, the objective id
+   * tile the paying unit stands on for `highGround`. `ref` is the enemy entity id, the objective id
    * or the rise index.
    */
   | {
@@ -438,6 +444,13 @@ const ZONE_DEDUCT_COOLDOWN = 200;
  *  squared, in Q16.16. Objective zones are big — 'no enemy anywhere in the
  *  zone' let one routed survivor in a far corner freeze a hold forever. */
 const CONTEST_RADIUS_SQ = 2359296;
+
+/** Is entity `i`'s tile inside the zone rectangle `[x, y, w, h]`? */
+function tileInZone(st: Sim['state'], i: number, zone: readonly number[]): boolean {
+  const tx = st.posX[i] >> 16;
+  const ty = st.posY[i] >> 16;
+  return tx >= zone[0] && tx < zone[0] + zone[2] && ty >= zone[1] && ty < zone[1] + zone[3];
+}
 /** Intel prices, GDD §3. */
 const SWEEP_COST = 150;
 const STRIKE_COST = 250;
@@ -563,6 +576,27 @@ export class MissionRuntime {
   /** `intelEarned` events owed to the HUD from outside `step` (a forced
    *  `completeObjective`), drained into the next step's output. */
   private readonly pendingIntelEvents: MissionEvent[] = [];
+  // --- high ground (F1 Task 5, D4) -------------------------------------------
+  // Runtime-only, all folded into `economyHash` (F-R2). The rise tables are
+  // built once, at the end of the structure raising in `start()` rather than in
+  // the constructor: a mission's own buildings block tiles, and the median and
+  // the 4-connected components must be read from the map as it will be played.
+  // Every array below is allocated there (or here, for the per-entity one), never
+  // per tick.
+  /** Tile -> rise id, -1 where the tile is not on a rise. Empty until `start()`. */
+  private riseOf: Int16Array = new Int16Array(0);
+  /** Number of rises; 0 on a flat map, where the whole pass is skipped. */
+  private riseCount = 0;
+  /** Consecutive ticks a qualifying uncontested unit has stood on each rise. */
+  private riseHold: Int32Array = new Int32Array(0);
+  /** 1 once a rise has paid: once per rise per mission. */
+  private risePaid: Uint8Array = new Uint8Array(0);
+  /** Scratch, per rise per tick: the first qualifying unit's id + 1, 0 for none. */
+  private riseHolder: Int32Array = new Int32Array(0);
+  /** Per player entity: the rise it stood on when first seen (-1 = none, -2 =
+   *  not seen yet). Cleared to -1 the first time a qualifying unit is seen
+   *  anywhere else, which is when a rise starts to pay it (D4, ruled 6 Oct). */
+  private readonly spawnRise: Int16Array;
   /** Which player entity identified each enemy entity, from `contact.observer`. */
   private readonly identifiedBy = new Map<number, number>();
   /** Which player entity found each route, from the route event's observer. */
@@ -605,6 +639,7 @@ export class MissionRuntime {
     this.marked = new Set(ctx.ledger?.['intel.marked_positions'] ?? []);
     this.logisticsValue = mission.resources?.logistics_start ?? 0;
     this.intelValue = mission.resources?.intel_start ?? 0;
+    this.spawnRise = new Int16Array(sim.capacity).fill(-2);
   }
 
   /** Spendable logistics, floored for display. */
@@ -641,6 +676,20 @@ export class MissionRuntime {
     h = hashWord(h, this.paidIdentified.size);
     const settled = [...this.paidIdentified].sort((a, b) => a - b);
     for (const id of settled) h = hashWord(h, id);
+    // F1 Task 5 (F-R2): the high-ground state. A loop over `count` with NO length
+    // word, so a flat map (count 0, and no unit ever records a rise) adds nothing
+    // and ECONOMY_PIN does not move. Per rise: the hold counter and the paid flag;
+    // then, per player entity that has a spawn rise recorded, its id and that rise.
+    for (let r = 0; r < this.riseCount; r++) {
+      h = hashWord(h, this.riseHold[r]);
+      h = hashWord(h, this.risePaid[r]);
+    }
+    for (let i = 0; i < this.playerIds.length; i++) {
+      const id = this.playerIds[i];
+      if (this.spawnRise[id] < 0) continue;
+      h = hashWord(h, id);
+      h = hashWord(h, this.spawnRise[id]);
+    }
     return h >>> 0;
   }
 
@@ -967,6 +1016,14 @@ export class MissionRuntime {
     // Mission-placed buildings go up BEFORE any force spawns, so a placement
     // can never land inside one.
     this.raiseMissionStructures();
+    // High ground (D4): read once, from the map with the mission's own buildings
+    // standing. A flat map has no rise and the per-tick pass never runs.
+    const rises = highGroundRises(this.sim.elevation, this.sim.blocked, this.sim.width, this.sim.height);
+    this.riseOf = rises.riseOf;
+    this.riseCount = rises.count;
+    this.riseHold = new Int32Array(rises.count);
+    this.risePaid = new Uint8Array(rises.count);
+    this.riseHolder = new Int32Array(rises.count);
     for (const p of this.mission.starting_force ?? []) this.spawnPlacement(p, 0);
     for (const p of this.mission.enemy?.garrison ?? []) this.spawnPlacement(p, 1);
     for (const p of this.mission.civilians?.groups ?? []) this.spawnPlacement(p, 2);
@@ -1079,6 +1136,9 @@ export class MissionRuntime {
     // spawns all land through step(), which runs after start() returns. See
     // startingIds above.
     this.startingIds = [...this.playerIds];
+    // Where the starting force stood at tick zero: a unit on a rise from the
+    // start earns nothing there until it has stood elsewhere (D4, ruled 6 Oct).
+    this.noteSpawnRises();
   }
 
   /** Advance the mission one tick. Call immediately after sim.tick(). */
@@ -1177,7 +1237,11 @@ export class MissionRuntime {
     this.stepPatrols();
     this.stepTriggers(tick, out);
     this.stepWaves(tick, out);
-    for (const ev of this.pendingIntelEvents.splice(0)) out.push(ev);
+    this.stepHighGround(tick, out);
+    // Guarded: `splice(0)` allocates an array every call, and this runs every tick.
+    if (this.pendingIntelEvents.length > 0) {
+      for (const ev of this.pendingIntelEvents.splice(0)) out.push(ev);
+    }
     for (const id of this.externallyCompleted.splice(0)) {
       out.push({ kind: 'objective', tick, id, status: 'complete' });
     }
@@ -1655,27 +1719,112 @@ export class MissionRuntime {
    */
   private contestedIn(zone: readonly number[]): boolean {
     const st = this.sim.state;
-    const inZone = (i: number): boolean => {
-      const tx = st.posX[i] >> 16;
-      const ty = st.posY[i] >> 16;
-      return tx >= zone[0] && tx < zone[0] + zone[2] && ty >= zone[1] && ty < zone[1] + zone[3];
-    };
-    for (let e = 0; e < this.sim.entityCount; e++) {
-      if (st.alive[e] === 0 || st.side[e] !== 1 || !inZone(e)) continue;
-      // A buried unit contests nothing and anchors no contest — either side.
-      // Without this, a stocked route whose spawn point sits inside the zone
-      // holds a capture hostage from underground, with nothing on the map
-      // for the player to shoot.
-      if (st.tunnelIn[e] >= 0) continue;
-      for (let f = 0; f < this.sim.entityCount; f++) {
-        if (st.alive[f] === 0 || st.side[f] !== 0 || !inZone(f)) continue;
-        if (st.tunnelIn[f] >= 0) continue;
-        const dx = (fx.sub(st.posX[e], st.posX[f]) >> 8) | 0;
-        const dy = (fx.sub(st.posY[e], st.posY[f]) >> 8) | 0;
-        if (dx * dx + dy * dy <= CONTEST_RADIUS_SQ) return true;
-      }
+    for (let f = 0; f < this.sim.entityCount; f++) {
+      if (st.alive[f] === 0 || st.side[f] !== 0 || !tileInZone(st, f, zone)) continue;
+      if (st.tunnelIn[f] >= 0) continue;
+      if (this.enemyNear(f, zone)) return true;
     }
     return false;
+  }
+
+  /**
+   * Is a living enemy within CONTEST_RADIUS_SQ of player unit `f`? The hold rule's
+   * own test, shared with the high-ground pass so there is one copy of the number
+   * and of what counts. It counts ANY living side-1 unit that is not buried (a
+   * garrisoned or carried one included, as the hold rule always has), and with a
+   * `zone` only those standing inside it. A buried enemy contests nothing and
+   * anchors no contest -- either side. Without this, a stocked route whose spawn
+   * point sits inside the zone holds a capture hostage from underground, with
+   * nothing on the map for the player to shoot.
+   */
+  private enemyNear(f: number, zone?: readonly number[]): boolean {
+    const st = this.sim.state;
+    for (let e = 0; e < this.sim.entityCount; e++) {
+      if (st.alive[e] === 0 || st.side[e] !== 1) continue;
+      if (zone !== undefined && !tileInZone(st, e, zone)) continue;
+      if (st.tunnelIn[e] >= 0) continue;
+      const dx = (fx.sub(st.posX[e], st.posX[f]) >> 8) | 0;
+      const dy = (fx.sub(st.posY[e], st.posY[f]) >> 8) | 0;
+      if (dx * dx + dy * dy <= CONTEST_RADIUS_SQ) return true;
+    }
+    return false;
+  }
+
+  /** The rise a unit's tile belongs to, or -1 (off the map counts as none). */
+  private riseUnder(id: number): number {
+    const st = this.sim.state;
+    const tx = st.posX[id] >> 16;
+    const ty = st.posY[id] >> 16;
+    if (tx < 0 || ty < 0 || tx >= this.sim.width || ty >= this.sim.height) return -1;
+    return this.riseOf[ty * this.sim.width + tx];
+  }
+
+  /** Record, for every player entity not yet seen, the rise it stands on now. */
+  private noteSpawnRises(): void {
+    if (this.riseCount === 0) return;
+    for (let i = 0; i < this.playerIds.length; i++) {
+      const id = this.playerIds[i];
+      if (this.spawnRise[id] === -2 && this.sim.state.alive[id] === 1) {
+        this.spawnRise[id] = this.riseUnder(id);
+      }
+    }
+  }
+
+  /**
+   * High ground pays intel (F1, D4): a rise pays INTEL_PER_RISE once per mission to
+   * the first surface unit to stand on it for HIGH_GROUND_HOLD_TICKS in a row with
+   * no enemy inside CONTEST_RADIUS_SQ. Holding ground is a ground act, so a unit
+   * qualifies only when it is alive, not buried, not an aircraft, not garrisoned
+   * (a garrison's position is its building's centroid, which can be an open tile
+   * on a rise -- F-R7) and not carried (it rides its carrier's tile). A unit also
+   * earns nothing on the rise it started on until it has been seen elsewhere.
+   * The counter is per rise and resets on any tick no qualifying unit holds it;
+   * a unit that leaves and returns starts again. No allocation: the tables are
+   * fixed in `start()`.
+   */
+  private stepHighGround(tick: number, out: MissionEvent[]): void {
+    const rises = this.riseCount;
+    if (rises === 0) return;
+    this.noteSpawnRises();
+    const st = this.sim.state;
+    const holders = this.riseHolder;
+    holders.fill(0);
+    for (let i = 0; i < this.playerIds.length; i++) {
+      const id = this.playerIds[i];
+      if (st.alive[id] === 0) continue;
+      if (st.tunnelIn[id] >= 0) continue;
+      if (this.sim.unitTypes[st.typeIdx[id]].isAir) continue;
+      if (st.garrisonedIn[id] >= 0) continue;
+      if (st.carriedBy[id] >= 0) continue;
+      const rise = this.riseUnder(id);
+      // Seen anywhere but the rise it started on: from here on it can earn.
+      if (this.spawnRise[id] !== rise) this.spawnRise[id] = -1;
+      if (rise < 0 || this.risePaid[rise] === 1 || this.spawnRise[id] === rise) continue;
+      if (holders[rise] !== 0) continue; // a second unit adds nothing to a count
+      if (this.enemyNear(id)) continue;
+      holders[rise] = id + 1;
+    }
+    for (let r = 0; r < rises; r++) {
+      if (this.risePaid[r] === 1) continue;
+      if (holders[r] === 0) {
+        this.riseHold[r] = 0;
+        continue;
+      }
+      this.riseHold[r]++;
+      if (this.riseHold[r] < HIGH_GROUND_HOLD_TICKS) continue;
+      this.risePaid[r] = 1;
+      this.riseHold[r] = 0;
+      this.intelValue += INTEL_PER_RISE;
+      const id = holders[r] - 1;
+      out.push({
+        kind: 'intelEarned',
+        tick,
+        amount: INTEL_PER_RISE,
+        cause: 'highGround',
+        ref: r,
+        at: { x: st.posX[id] >> 16, y: st.posY[id] >> 16 },
+      });
+    }
   }
 
   private livingIn(zone: readonly number[], side: number): number {

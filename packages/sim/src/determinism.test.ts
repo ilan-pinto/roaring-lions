@@ -1212,3 +1212,232 @@ describe('economy replay (2400 ticks of MissionRuntime on a flat map)', () => {
     expect(economyReplay(ECONOMY_SEED).rt.economyHash()).toBe(ECONOMY_PIN);
   });
 });
+
+/** `data/maps/tel_marum.json` at 2026-10-15 (F1 Task 5), as a snapshot: 1 = a tile the sim
+ *  blocks (`^` rock ridge and `#` building), 0 = open on foot (`b` boulders included).
+ *  A copy on purpose: sim imports nothing, and a pin must not move when the map is edited. */
+const RELIEF_ECO_BLOCKED: readonly string[] = [
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000111000000000000000111111',
+  '111111000000000000000000111000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000011111000000000000000000000000111111',
+  '111111000000011111000000000000000000000000111111',
+  '111111111100111111111100000111111111111111111111',
+  '111111111100111111111100000111111111111111111111',
+  '111111111100111111111100000111111111111111111111',
+  '111111111100111111100000000000111111111111111111',
+  '111111111100111111100000000000111111111111111111',
+  '111111111100111111100000000000111111111111111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000001110000000000000000111111',
+  '111111000000000000000001110000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+  '111111000000000000000000000000000000000000111111',
+];
+
+/** The same map's `elevation` grid, one digit per tile (0-4). */
+const RELIEF_ECO_ELEVATION: readonly string[] = [
+  '333333111111111111111111111111111111111111333333',
+  '333333111111111111111111111111111111111111333333',
+  '333333111111111111111111111111111111111111333333',
+  '333333111111111111111111111111111111111111333333',
+  '333333111111111111111111111111111111111111333333',
+  '333333111111111111111111111111111111111111333333',
+  '333333111111111111111111111111111111111111333333',
+  '333333111111111111111111111111111111111111333333',
+  '333333111111111111111111111111111111111111333333',
+  '333333111111111111111111111111111111111111333333',
+  '333333111111144444111111111111111111111111333333',
+  '333333111111144444111111111111111111111111333333',
+  '333333444433444444444422222444444444444444333333',
+  '333333444433444444444422222444444444444444333333',
+  '333333444433444444444422222444444444444444333333',
+  '333333444433444444433322222333444444444444333333',
+  '333333444433444444433322222333444444444444333333',
+  '333333444433444444433322222333444444444444333333',
+  '333333000000000000000000000000000000000000333333',
+  '333333000000000000000000000000000000000000333333',
+  '333333000000000000000001110000000000000000333333',
+  '333333000000000000000001110000000000000000333333',
+  '333333000000000000000000000000000000000000333333',
+  '333333000000000000000000000000000000000000333333',
+  '333333000000000000000000000000000000000000333333',
+  '333333000000000000222222222222200000000000333333',
+  '333333000000000000222222222222200000000000333333',
+  '333333000000000000000000000000000000000000333333',
+  '333333000000000000000000000000000000000000333333',
+  '333333000000000000000000000000000000000000333333',
+  '333333000000000000000000000000000000000000333333',
+  '333333000000000000000000000000000000000000333333',
+  '333333000000000000000000000000000000000000333333',
+  '333333000000000000000000000000000000000000333333',
+  '333333000000000000000000000000000000000000333333',
+  '333333000000000000000000000000000000000000333333',
+  '333333000000000000000000000000000000000000333333',
+  '333333000000000000000000000000000000000000333333',
+  '333333000000000000000000000000000000000000333333',
+  '333333000000000000000000000000000000000000333333',
+  '333333000000000000000000000000000000000000333333',
+  '333333000000000000000000000000000000000000333333',
+  '333333000000000000000000000000000000000000333333',
+  '333333000000000000000000000000000000000000333333',
+  '333333000000000000000000000000000000000000333333',
+  '333333000000000000000000000000000000000000333333',
+  '333333000000000000000000000000000000000000333333',
+  '333333000000000000000000000000000000000000333333',
+];
+
+// --- the economy replay over relief ---------------------------------------------
+// The flat economy replay above has no high ground (`count` 0 rises), so the
+// rise state `economyHash()` folds in at F1 Task 5 -- the per-rise hold counters,
+// the paid flags, the per-unit spawn rise -- is arithmetically absent from
+// ECONOMY_PIN. That is correct and it is a blind spot: this is the other half,
+// the way the relief replay is the other half of the flat sim replay.
+//
+// The ground is `tel_marum` (snapshotted below; the map has three rises: the
+// boulder corridor, the pass, the bench). Three squads, all given a PLAIN move
+// (a plain order stops where it was sent, #402/#537):
+//   A  walks from the start line onto the bench (rise 2) and holds it: pays once.
+//   B  is sent late up to the pass (rise 1) and is still counting when the run
+//      ends, so the hash carries a live hold counter and not only a paid flag.
+//   C  STARTS on the bench and never leaves it: the spawn rule means it earns
+//      nothing, and the hash carries its spawn rise.
+const RELIEF_ECO_SEED = 0x0e_c0_0005;
+const RELIEF_ECO_TICKS = 2400;
+const RELIEF_ECO_B_ORDER_TICK = 1700;
+// ECONOMY_PIN_RELIEF: born 2026-10-15 at F1 Task 5 (the rise state joined
+// economyHash; there is no earlier value, so this is a birth, not a re-pin).
+// ECONOMY_PIN above did not move for the same change: the flat map has no
+// rise, and the fold is a loop over `count` with no length word (F-R2).
+const ECONOMY_PIN_RELIEF = 2992706492;
+
+const RELIEF_ECO_MISSION: MissionJson = {
+  id: 'economy_replay_relief',
+  map: { file: 'tel_marum', player_start: [24, 44] },
+  ledger: { requires: [], produces: [] },
+  resources: { logistics_start: 400, logistics_rate_per_min: 120, intel_start: 0 },
+  // No time_limit_s, and one objective nothing here can complete: the fixture must not end.
+  objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+  starting_force: [
+    { unit: 'inf_squad', count: 1, at: [24, 40] },
+    { unit: 'inf_squad', count: 1, at: [26, 41] },
+    { unit: 'inf_squad', count: 1, at: [20, 25.5] },
+  ],
+};
+
+interface ReliefEconomyRun {
+  rt: MissionRuntime;
+  /** Every `intelEarned` the runtime emitted for a rise: tick, rise id, tile. */
+  paid: { tick: number; ref: number | string; x: number; y: number }[];
+}
+
+/** `bAt` is the tick B is ordered up to the pass; null leaves it where it stands. */
+function reliefEconomyReplay(seed: number, opts: { aOrdered?: boolean; bAt?: number | null } = {}): ReliefEconomyRun {
+  const aOrdered = opts.aOrdered ?? true;
+  const bAt = opts.bAt === undefined ? RELIEF_ECO_B_ORDER_TICK : opts.bAt;
+  const sim = new Sim({ seed, width: 48, height: 48, capacity: 32 });
+  for (let y = 0; y < 48; y++) {
+    for (let x = 0; x < 48; x++) {
+      if (RELIEF_ECO_BLOCKED[y][x] === '1') sim.setBlocked(x, y, true);
+      const level = RELIEF_ECO_ELEVATION[y].charCodeAt(x) - 48;
+      if (level !== 0) sim.setElevation(x, y, level);
+    }
+  }
+  const ids = new Map<string, number>();
+  ids.set(ECO_SQUAD.id, sim.addUnitType(ECO_SQUAD));
+  const rt = new MissionRuntime(sim, RELIEF_ECO_MISSION, {
+    typeIdOf: (u) => {
+      const t = ids.get(u);
+      if (t === undefined) throw new Error(`unknown unit ${u}`);
+      return t;
+    },
+    markers: {},
+    zones: {},
+  });
+  rt.start();
+  const paid: ReliefEconomyRun['paid'] = [];
+  for (let t = 0; t < RELIEF_ECO_TICKS; t++) {
+    // A: up to the middle of the bench (tiles y 25-26), at tick 5.
+    if (aOrdered && t === 5) sim.queueCommand({ kind: 'move', ids: [0], x: fx.from(24.5), y: fx.from(25.5) });
+    // B: up the valley to the pass (tiles x 19-29, y 12-17), late.
+    if (bAt !== null && t === bAt) sim.queueCommand({ kind: 'move', ids: [1], x: fx.from(24.5), y: fx.from(15.5) });
+    const simEvents = sim.tick();
+    for (const e of rt.step(simEvents)) {
+      if (e.kind === 'intelEarned' && e.cause === 'highGround') {
+        paid.push({ tick: e.tick, ref: e.ref, x: e.at.x, y: e.at.y });
+      }
+    }
+  }
+  return { rt, paid };
+}
+
+describe('economy replay over relief (2400 ticks of MissionRuntime on tel_marum)', () => {
+  it('two runs of the relief economy replay agree', () => {
+    const a = reliefEconomyReplay(RELIEF_ECO_SEED);
+    const b = reliefEconomyReplay(RELIEF_ECO_SEED);
+    expect(a.rt.economyHash()).toBe(b.rt.economyHash());
+    expect(a.paid).toEqual(b.paid);
+  });
+
+  it('reaches the states the hash claims to cover', () => {
+    const r = reliefEconomyReplay(RELIEF_ECO_SEED);
+    // At least one rise paid, and exactly the one A held: the bench, rise 2 in
+    // row-major order, on A's tile (x 24), and not C, which started on it.
+    expect(r.paid.length).toBeGreaterThanOrEqual(1);
+    expect(r.paid).toHaveLength(1);
+    expect(r.paid[0].ref).toBe(2);
+    expect(r.paid[0].x).toBe(24);
+    expect(r.rt.intel).toBe(30);
+    // And the run did not end.
+    expect(r.rt.result).toBe('ongoing');
+  });
+
+  it('the economy hash covers the rise state', () => {
+    const base = reliefEconomyReplay(RELIEF_ECO_SEED).rt.economyHash();
+    // A never sent: the bench is never paid (a paid flag and the purse differ).
+    const noA = reliefEconomyReplay(RELIEF_ECO_SEED, { aOrdered: false });
+    expect(noA.paid).toHaveLength(0);
+    expect(noA.rt.economyHash()).not.toBe(base);
+    // B sent 60 ticks later: nothing is paid in either run, so the whole
+    // difference is B's live hold counter at the end of the run.
+    const late = reliefEconomyReplay(RELIEF_ECO_SEED, { bAt: RELIEF_ECO_B_ORDER_TICK + 60 });
+    expect(late.paid).toEqual(reliefEconomyReplay(RELIEF_ECO_SEED).paid);
+    expect(late.rt.economyHash()).not.toBe(base);
+  });
+
+  it('the relief economy replay pins its hash', () => {
+    expect(reliefEconomyReplay(RELIEF_ECO_SEED).rt.economyHash()).toBe(ECONOMY_PIN_RELIEF);
+  });
+});
