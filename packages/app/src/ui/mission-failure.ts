@@ -10,7 +10,7 @@
  *     and when ("Objective failed: Level the post … · 5:00"), in the feed and on the
  *     outcome card. The cause is `MissionRuntime.defeatCause`, the read
  *     telemetry already uses, never re-derived here. A mission the time limit
- *     ends (#540) says "Out of time" and names the first primary still open.
+ *     ends (GH-540) says "Out of time" and names the first primary still open.
  *  2. `FAILED_CLOCK` (`hud-model.ts`): once the mission is lost, every running
  *     clock reads "MISSION FAILED" instead of a frozen count.
  *  3. `deadlineWarnings`: one feed line a minute before a deadline that loses
@@ -32,7 +32,7 @@ export function failureReason(
   if (cause === 'force_destroyed') return t('outcome.failed.force', { at });
   if (cause === 'roe_collapse') return t('outcome.failed.conduct', { at });
   if (cause === 'withdrawn') {
-    // #540: the limit ends the mission with its primaries still active; name the first one, so the
+    // GH-540: the limit ends the mission with its primaries still active; name the first one, so the
     // debrief says what was left undone and not just that time ran out. Plain words, no "{at}"
     // (Ruling (lead, 2026-10-13), D1); `withdrawn` is the internal id only.
     const open = objectives.find((o) => o.primary === true && o.status === 'active');
