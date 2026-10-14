@@ -1879,7 +1879,9 @@ export class Sim {
    * difference. Deliberately does not call `destroy()`: no passenger
    * eject, no hp/moving reset, no `destroyed` event — none of combat's
    * bookkeeping applies, because nothing here was combat. A no-op if the
-   * unit is not currently alive (already dead, or already removed).
+   * unit is not currently alive (already dead, or already removed). A unit
+   * taken out of a building frees its garrison slot (`releaseSlot`), so an
+   * overflow unit waiting at the door can take it.
    */
   removeFromPlay(id: number): void {
     if (this.alive[id] !== 1) return;
@@ -5871,6 +5873,12 @@ export class Sim {
    * stand him up. Stateless -- it reads `moving`, which stepFocus itself
    * writes. Only this decision moves: maximum range (`rangeSq`), and with it
    * what a slot may fire at, is untouched.
+   *
+   * A garrisoned unit never reaches this: stepFocus `continue`s on
+   * `garrisonedIn >= 0` before calling it. So the centroid `dSq` and the
+   * lift-0 `losRay` below are not a garrison path (the window and the floor
+   * lift live in `eyePoint` / `eyeLift`). The garrison-aware `effSq` /
+   * `effRange` / `reachSq` reads are kept so the range rule is written once.
    */
   private focusInReach(i: number, t: number): boolean {
     const weapons = this.unitTypes[this.typeIdx[i]].weapons;
@@ -6080,11 +6088,14 @@ export class Sim {
    * does NOT check `alive` on either side: a dead id answers from where its
    * body lies; ask canFocus for whether the order may be given at all.
    *
-   * Safe to call between ticks: the only thing it writes is the scratch
-   * `presentedArc`, and that has one reader (resolveHit), which reads it on
-   * the line straight after its own `presentedArmor` call. Every
-   * presentedArmor call assigns it on every path, so no value written here
-   * can reach that read.
+   * Safe to call between ticks: the only things it writes are the scratch
+   * `presentedArc` and, through `eyePoint`, `eyeX`/`eyeY`. `presentedArc` has
+   * one reader (resolveHit), which reads it on the line straight after its
+   * own `presentedArmor` call; every presentedArmor call assigns it on every
+   * path, so no value written here can reach that read. Every `eyePoint`
+   * reader copies `eyeX`/`eyeY` into locals on the line straight after its
+   * call, before the next `eyePoint` call, so a value left here is
+   * overwritten before anything reads it.
    */
   focusHurts(shooter: number, target: number): boolean {
     if (shooter < 0 || shooter >= this.count || target < 0 || target >= this.count) return false;

@@ -299,9 +299,16 @@ The combat model is the product. Everything else is scaffolding around it.
   `garrison_cover` (structure JSON, default 3) against suppression and detection, not the tile's cover.
   Range, sight and the line of fire start at the window -- `eyePoint`, the footprint tile centre nearest
   the target -- while position stays the centroid (where it is drawn, where a near miss is measured to).
-  `floors` (`data/structures.json`) lifts that eye one elevation level per floor above the ground.
-  `fires_from_building` is a weapon flag, default true; it is `false` on indirect weapons, and
-  `validate_data` holds that (`tools/validate_garrison.mjs`, which also refuses a garrison stance on a
+  `floors` (`data/structures.json`) lifts that eye one elevation level per floor above the first
+  (`floors - 1`, `eyeLift`; a one-floor building adds nothing). **Not everything measures from the
+  window:** tunnel and route spotting (`trailStrengthFor`, `markerSeeingRoute`, `seesTile`), the
+  breach-target reach in `stepCombat` (`selectBreachTarget`'s `structDistSq`/`reachSq` read) and the
+  ambush spring (`checkAmbushSpring`) still measure from the centroid at ground level, with no floor
+  lift; and a garrisoned unit can still lay smoke, because `smoke` is an ability and not its weapon.
+  `fires_from_building` is a weapon flag, default true; `validate_data` requires `false` on a mortar or
+  rocket weapon of a unit that can garrison (`mortar_team` carries it; `mortar_crew` and `rocket_battery`
+  have no `garrison` ability and carry no flag), and it is not required elsewhere
+  (`tools/validate_garrison.mjs`, which also refuses a garrison stance on a
   unit without the `garrison` ability -- the runtime would silently skip it). `GARRISON_RANGE_BONUS`
   (`tuning.ts`, +1 tile) lengthens max and effective range from inside, not sight and not min range. A
   dead or removed occupant frees its slot; an overflow unit waits at the door, stopped, and fights.
