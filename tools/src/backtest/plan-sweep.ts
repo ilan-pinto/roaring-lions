@@ -24,7 +24,9 @@
 import { fork, type ChildProcess } from 'node:child_process';
 import { availableParallelism } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { missions } from '@lions/data';
 import { outcomeName, runLog, type RunRecord } from './playtest-run';
+import { limitHeadroom, type WinTime } from './time-limit';
 import { SWEEP_SEEDS } from './passive-sweep';
 
 /** True inside a seed's child process. */
@@ -105,6 +107,19 @@ export function reportToParent(gates: GateRecord[]): void {
   process.send({ seed: Number(process.env.PT_SEED), runs: runLog, gates } satisfies ChildReply);
 }
 
+/** #540: one line per mission with a winning plan, and exit 1 if a limit sits too close to a win. */
+function reportLimitHeadroom(runSets: Iterable<readonly RunRecord[]>): void {
+  const wins: WinTime[] = [];
+  for (const runs of runSets) {
+    for (const r of runs) if (r.result === 'victory') wins.push({ id: r.id, label: r.label, seconds: r.minutes * 60 });
+  }
+  const limits = missions as Record<string, { time_limit_s?: number } | undefined>;
+  const { lines, failures } = limitHeadroom(wins, (id) => limits[id]?.time_limit_s);
+  for (const l of lines) console.log(l);
+  for (const f of failures) console.error(f);
+  if (failures.length > 0) process.exitCode = 1;
+}
+
 /**
  * Waits for every seed, then prints one line per winning plan and one per unlock gate.
  *
@@ -115,7 +130,11 @@ export function reportToParent(gates: GateRecord[]): void {
  * campaign says", not a re-reading of the 424242 numbers.
  */
 export async function drainPlanSweeps(seeds: readonly number[], gates424242: GateRecord[]): Promise<void> {
-  if (PLAN_CHILD || process.env.PT_PLAN_SWEEP === '0') return;
+  if (PLAN_CHILD) return;
+  if (process.env.PT_PLAN_SWEEP === '0') {
+    reportLimitHeadroom([runLog]);
+    return;
+  }
   if (pending > 0) await new Promise<void>((resolve) => (onIdle = resolve));
   const bySeed = new Map<number, RunRecord[]>([[seeds[0], runLog.slice()]]);
   for (const [seed, r] of replies) bySeed.set(seed, r.runs);
@@ -156,4 +175,5 @@ export async function drainPlanSweeps(seeds: readonly number[], gates424242: Gat
       process.exitCode = 1;
     }
   }
+  reportLimitHeadroom(bySeed.values());
 }

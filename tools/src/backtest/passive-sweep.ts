@@ -19,13 +19,13 @@ import { fork, type ChildProcess } from 'node:child_process';
 import { availableParallelism } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import type { LedgerData } from '@lions/sim';
-import { run, setSweep } from './playtest-run';
+import { run, setSweep, sweepOutcome } from './playtest-run';
 import type { SweepJob, SweepReply } from './passive-sweep-worker';
 
 /** The seeds a swept control runs on: the pinned 424242 first, then 1..29 (PR #533's set). */
 export const SWEEP_SEEDS: readonly number[] = [424242, ...Array.from({ length: 29 }, (_, k) => k + 1)];
 
-type Expect = 'defeat' | 'ongoing';
+type Expect = 'defeat' | 'ongoing' | 'withdrawn';
 
 interface Control {
   label: string;
@@ -65,11 +65,11 @@ function runInline(id: string, label: string, expect: Expect, ledger: LedgerData
   const m = { result: 'ongoing', stars: 0, roeScore: 0, credits: 0 } as NonNullable<Parameters<typeof run>[10]>;
   try {
     setSweep(seed, quiet);
-    run(id as Parameters<typeof run>[0], () => {}, ledger, expect, label, 0, undefined, new Set(), undefined, undefined, m);
+    run(id as Parameters<typeof run>[0], () => {}, ledger, expect === 'withdrawn' ? 'defeat' : expect, label, 0, undefined, new Set(), undefined, undefined, m);
   } finally {
     setSweep(undefined, false);
   }
-  return m.result;
+  return sweepOutcome(m.result, m.cause);
 }
 
 function spawnWorkers(n: number): void {
