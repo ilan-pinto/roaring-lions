@@ -982,7 +982,8 @@ N2 is sim work, and Lane C allows one sim plan in flight. It cannot start
 until all of these hold:
 
 1. **The garrison overhaul has landed**
-   (`docs/superpowers/plans/2026-10-14-garrison-overhaul.md`). It rewrites
+   (`docs/superpowers/plans/2026-10-14-garrison-overhaul.md`). **Met: it
+   landed on 14 Oct as #606**, and the versus mirror pins did not move. It rewrites
    `losRay`/`raySmoke`, `applySuppression`, `detectionPair` and
    `stepGarrison` in `sim.ts`, and moves the three sim pins.
 2. **WP-G-F1 has landed** (`2026-10-04-gf1-fire-support-intel.md`). Its Task 1
