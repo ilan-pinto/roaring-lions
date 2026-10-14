@@ -3569,7 +3569,19 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // the old script read 249 on the new model. The other three re-plans (Qarn Hadid III, Khan Rafid
 // III, Wadi Halam V) leave the pinned seed's credits where the model put them. No star moved, and
 // every gate opens on time on 30/30 seeds.
-const LADDER_CREDITS = 6025;
+// 2026-10-14, the garrison overhaul (a garrison fires from its windows, reaches further and sees
+// from its floor; sarim_rifles can garrison): 6025 -> 5940, -85, read off the printed per-mission
+// credits (10 a surviving unit, plus ROE):
+// - Wadi Halam IV 170 -> 204: the plan now levels only the cache house from the NE corner, ROE 94
+//   (was 70) with no unit lost; Wadi Halam V 190 -> 210: roster out 18 -> 19, following that ledger;
+// - Beit Sahwan IV 200 -> 144: ROE 100 -> 94 and roster out 19 -> 14 against the garrisons there;
+// - Khan Rafid III 260 -> 236: ROE 90 -> 86, roster out 14 -> 12;
+// - Deir Amun II 257 -> 217: roster out 15 -> 11 (the plan smokes the pump house for the tunnel charge);
+// - Qarn Hadid II 210 -> 190: its Sarim rifles now garrison and shoot back, roster out 17 -> 15;
+// - Qarn Hadid III 235 -> 216: ROE 100 -> 91, roster out 23 -> 22, find_the_grove_post left open;
+// - Umm Zeitoun IV 245 -> 265: the plan drives in on the warehouse once no AT gun is seen, roster out 31 -> 33.
+// Every plan, control and gate holds on 30 seeds; no star moved.
+const LADDER_CREDITS = 5940;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
