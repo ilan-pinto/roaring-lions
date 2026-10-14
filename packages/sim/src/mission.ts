@@ -785,6 +785,9 @@ export class MissionRuntime {
   /** What one fire-support call costs, in intel. A method, unlike the two
    *  getters above, which the app reads as properties (F-R10). */
   supportCost(kind: SupportKind): number {
+    // An unknown kind (an untyped caller) must not read as free or as undefined:
+    // positive infinity is unaffordable by construction, and the sim does not throw.
+    if (!FIRE_SUPPORT_KINDS.includes(kind)) return Number.POSITIVE_INFINITY;
     return SUPPORT_COST[kind];
   }
 
@@ -798,6 +801,9 @@ export class MissionRuntime {
    * player focus is touched (F-R6).
    */
   requestSupport(kind: SupportKind, x: Fx, y: Fx): boolean {
+    // A kind outside the menu (a JS or untyped caller) has no price: refuse before
+    // the affordability test, where `intel < undefined` is false and would pass.
+    if (!FIRE_SUPPORT_KINDS.includes(kind)) return false;
     const cost = SUPPORT_COST[kind];
     if (this.ended || this.intelValue < cost) return false;
     if (kind === 'drone_sweep') {

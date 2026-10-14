@@ -2396,9 +2396,12 @@ describe('the fire-support menu (F1 Task 8, GH-183)', () => {
       expect(cmd.kind).toBe('callStrike');
       if (cmd.kind !== 'callStrike') return;
       expect(cmd.caller).toBe(0);
-      expect(cmd.profile).toBe(
-        kind === 'smoke_screen' ? FS_SMOKE_SCREEN : kind === 'mortar_barrage' ? FS_MORTAR_BARRAGE : undefined,
-      );
+      if (kind === 'air_strike') {
+        // toBe(undefined) passes for an absent key and a present-undefined one alike.
+        expect('profile' in cmd).toBe(false);
+      } else {
+        expect(cmd.profile).toBe(kind === 'smoke_screen' ? FS_SMOKE_SCREEN : FS_MORTAR_BARRAGE);
+      }
     }
   });
 
@@ -2442,10 +2445,27 @@ describe('the fire-support menu (F1 Task 8, GH-183)', () => {
     expect(w.runtime.requestSweep(AT.x, AT.y)).toBe(true);
     expect(w.runtime.requestStrike(AT.x, AT.y)).toBe(true);
     expect(w.runtime.intel).toBe(1000 - 150 - 250);
-    expect(spy.mock.calls.map(([c]) => c)).toEqual([
+    // toStrictEqual: a present `profile: undefined` is not an absent key.
+    expect(spy.mock.calls.map(([c]) => c)).toStrictEqual([
       { kind: 'reveal', side: 0, x: AT.x, y: AT.y },
       { kind: 'callStrike', caller: 0, x: AT.x, y: AT.y }, // no profile key: the air strike, as it was
     ]);
+  });
+
+  it('an unknown kind is refused: no charge, no command, intel stays a number', () => {
+    const w = menuWorld(1000);
+    const spy = vi.spyOn(w.sim, 'queueCommand');
+    for (const bogus of ['bogus', 'toString', '__proto__', '']) {
+      expect(w.runtime.requestSupport(bogus as SupportKind, AT.x, AT.y)).toBe(false);
+      expect(w.runtime.supportCost(bogus as SupportKind)).toBe(Number.POSITIVE_INFINITY);
+    }
+    expect(w.runtime.intel).toBe(1000);
+    expect(spy).not.toHaveBeenCalled();
+    // Nothing was corrupted: a real call still charges its price exactly.
+    expect(w.runtime.requestSupport('air_strike', AT.x, AT.y)).toBe(true);
+    expect(w.runtime.intel).toBe(750);
+    expect(w.runtime.requestSupport('bogus' as SupportKind, AT.x, AT.y)).toBe(false);
+    expect(w.runtime.intel).toBe(750);
   });
 
   describe('a drone sweep and the player\'s orders (#402, #537, #591, F-R6)', () => {
