@@ -17,7 +17,7 @@ confirmation on the PR.** (Ruling C-R1: nothing was posted on #183; this table r
 | term | today | proposed | why |
 |---|---|---|---|
 | per enemy first identified, with an observer (D3) | 8/min a drone, 5/min a still scout (the trickle) | **10** | unchanged from D1 |
-| per objective completed, primary or secondary (D5) | — | **30** (D1 said 25) | 10 + 25 (+30) no longer passes the G3 bar; 10 + 30 + 30 is the cheapest row that does (§1.3) |
+| per objective completed, primary or secondary (D5) | — | **30** (D1 said 25) | 10 + 25 (+30) no longer passes; 30 is the least objective term at which every plain winner that can reach 150 does, with D1's 10 and 30 held (§1.3) |
 | per high-ground rise held 10 s (D4) | — | **30** | unchanged from D1 (R); the census does not constrain it (§1.4) |
 
 | item | price | profile (Q16.16 where it is a constant) |
@@ -59,11 +59,12 @@ emit, per run, it records:
 - **objectives:** every `objective` mission event with status `complete`, primary or secondary,
   never a failure (D5).
 - **rises (D4):** open tiles (`sim.blocked === 0`) at or above the map's median open-tile level
-  + 2, 4-connected (median = `sorted[n >> 1]` of the open tiles' levels). A rise pays once, on the
+  + 2, 4-connected (median = the LOWER median of the open tiles' levels on an even count, `sorted[(n - 1) >> 1]`, as Task 4's `medianOpenLevel` is specified). The census was first taken with the upper median and re-run with the lower one (fix round 1): on every economy map the median, the rise count and every paid rise in all 1,856 runs are identical, so the counts below are valid for Tasks 4 and 5. A rise pays once, on the
   200th consecutive tick (10 s) that at least one qualifying side-0 unit stands on it; the counter
   resets on any tick with none. Qualifying: alive, `garrisonedIn < 0`, `carriedBy < 0`,
-  `tunnelIn < 0`, not `isAir`, no living surface side-1 unit within `CONTEST_RADIUS_SQ` (6 tiles)
-  of it, and not standing on the rise it was first seen on (a unit seen first on a rise is cleared
+  `tunnelIn < 0`, not `isAir`, no living side-1 unit outside a tunnel within `CONTEST_RADIUS_SQ` (6 tiles)
+  of it (air units included, as the runtime's own `contestedIn` counts them; no control earned a
+  rise either way, so the choice moves no number here), and not standing on the rise it was first seen on (a unit seen first on a rise is cleared
   for it once it stands anywhere else: the 6 Oct spawn ruling). Units built or spawned later are
   first seen the tick after they appear.
 
@@ -84,7 +85,7 @@ Columns: counts on 424242; the total under the old row and the proposed one; whe
 point arrives (`intel_start` excluded; the two missions that grant one are marked, and can afford a
 sweep from t = 0 anyway); the victory tick; the mission's `time_limit_s`; then 30 seeds.
 
-| winning plan | identified (by a garrison) | objectives | rises | 10/25/30 | **10/30/30** | 150th point, s | victory, s | `time_limit_s` | 30 seeds: median / min (10/30/30) | seeds ≥ 150 | median 150th, s |
+| winning plan | identified (by a garrison) | objectives | rises | 10/25/30 | **10/30/30** | 150th point at 10/30/30, s | victory, s | `time_limit_s` | 30 seeds: median / min (10/30/30) | seeds ≥ 150 | median 150th at 10/30/30, s |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | `beit_sahwan_breach` | 34 (0) | 2 | 0 | 390 | **400** | 133 | 300 | 600 | 380 / 350 | 30/30 | 134 |
 | `beit_sahwan_1_recon` | 6 (0) | 3 | 0 | 135 | **150** | 31 | 31 | 840 | 150 / 150 | 30/30 | 31 |
@@ -147,33 +148,33 @@ Read across it:
 
 ### 1.3 Controls, pairs, and the row
 
-| control | identified | objectives | rises | 10/25/30 | **10/30/30** | end, s | how it ended | 30 seeds: max (10/30/30) | seeds ≥ 150 |
+| control | identified (by a garrison) | objectives | rises | 10/25/30 | **10/30/30** | end, s | how it ended | 30 seeds: max (10/30/30) | seeds ≥ 150 |
 |---|---|---|---|---|---|---|---|---|---|
-| `beit_sahwan_breach (passive control)` | 34 | 0 | 0 | 340 | **340** | 270 | objective:evac_settlements | 340 | 30/30 |
-| `beit_sahwan_1_recon (no orders)` | 3 | 0 | 0 | 30 | **30** | 840 | withdrawn | 30 | 0/30 |
-| `beit_sahwan_3_clearance (no orders)` | 1 | 0 | 0 | 10 | **10** | 840 | withdrawn | 10 | 0/30 |
-| `wadi_halam_1_fords (no orders)` | 13 | 2 | 0 | 180 | **190** | 300 | objective:get_the_carriers_out | 190 | 30/30 |
-| `wadi_halam_2_laager (no orders)` | 0 | 0 | 0 | 0 | **0** | 300 | objective:burn_store | 0 | 0/30 |
-| `wadi_halam_3_counterraid (no orders)` | 0 | 1 | 0 | 25 | **30** | 300 | objective:get_the_herders_out | 30 | 0/30 |
-| `wadi_halam_4_village (no orders)` | 0 | 0 | 0 | 0 | **0** | 300 | objective:evac_families | 0 | 0/30 |
-| `wadi_halam_5_depot (no orders)` | 0 | 1 | 0 | 25 | **30** | 300 | objective:raze_depot | 30 | 0/30 |
-| `beit_sahwan_4_subterranean (no orders)` | 5 | 0 | 0 | 50 | **50** | 240 | objective:get_them_out | 50 | 0/30 |
-| `khan_rafid_1_recon (passive control)` | 0 | 0 | 0 | 0 | **0** | 240 | objective:get_two_in | 0 | 0/30 |
-| `khan_rafid_2_foothold (passive control)` | 3 | 0 | 0 | 30 | **30** | 300 | objective:get_four_in | 30 | 0/30 |
-| `khan_rafid_3_clearance (passive control)` | 1 | 0 | 0 | 10 | **10** | 300 | objective:get_six_in | 10 | 0/30 |
-| `deir_amun_1_recon (passive control)` | 0 | 0 | 0 | 0 | **0** | 240 | objective:bring_down_the_west | 0 | 0/30 |
-| `deir_amun_2_foothold (passive control)` | 3 | 0 | 0 | 30 | **30** | 240 | objective:shut_the_door | 30 | 0/30 |
-| `deir_amun_3_subterranean (passive control)` | 0 | 1 | 0 | 25 | **30** | 300 | objective:all_four | 30 | 0/30 |
-| `tel_marum_1_recon (passive control)` | 3 | 1 | 0 | 55 | **60** | 300 | objective:clear_the_valley_floor | 60 | 0/30 |
-| `tel_marum_2_foothold (passive control)` | 0 | 0 | 0 | 0 | **0** | 300 | objective:burn_the_ammo_point | 0 | 0/30 |
-| `tel_marum_3_clearance (passive control)` | 0 | 0 | 0 | 0 | **0** | 300 | objective:get_the_block_out | 0 | 0/30 |
-| `qarn_hadid_1_recon (passive control)` | 0 | 0 | 0 | 0 | **0** | 240 | objective:get_the_road_party_clear | 0 | 0/30 |
-| `qarn_hadid_2_foothold (passive control)` | 2 | 0 | 0 | 20 | **20** | 300 | objective:open_the_shoulder | 20 | 0/30 |
-| `qarn_hadid_3_clearance (passive control)` | 3 | 0 | 0 | 30 | **30** | 300 | objective:get_the_families_clear | 30 | 0/30 |
-| `umm_zeitoun_1_recon (no orders)` | 0 | 1 | 0 | 25 | **30** | 240 | objective:get_the_wells_clear | 30 | 0/30 |
-| `umm_zeitoun_2_buildup (no orders)` | 4 | 0 | 0 | 40 | **40** | 300 | objective:level_the_stone_post | 40 | 0/30 |
-| `umm_zeitoun_3_clearance (no orders)` | 0 | 0 | 0 | 0 | **0** | 300 | objective:get_the_hamlet_out | 0 | 0/30 |
-| `umm_zeitoun_4_clearance (no orders)` | 0 | 0 | 0 | 0 | **0** | 300 | objective:raze_the_stockpile | 0 | 0/30 |
+| `beit_sahwan_breach (passive control)` | 34 (0) | 0 | 0 | 340 | **340** | 270 | objective:evac_settlements | 340 | 30/30 |
+| `beit_sahwan_1_recon (no orders)` | 3 (0) | 0 | 0 | 30 | **30** | 840 | withdrawn | 30 | 0/30 |
+| `beit_sahwan_3_clearance (no orders)` | 1 (0) | 0 | 0 | 10 | **10** | 840 | withdrawn | 10 | 0/30 |
+| `wadi_halam_1_fords (no orders)` | 13 (0) | 2 | 0 | 180 | **190** | 300 | objective:get_the_carriers_out | 190 | 30/30 |
+| `wadi_halam_2_laager (no orders)` | 0 (0) | 0 | 0 | 0 | **0** | 300 | objective:burn_store | 0 | 0/30 |
+| `wadi_halam_3_counterraid (no orders)` | 0 (0) | 1 | 0 | 25 | **30** | 300 | objective:get_the_herders_out | 30 | 0/30 |
+| `wadi_halam_4_village (no orders)` | 0 (0) | 0 | 0 | 0 | **0** | 300 | objective:evac_families | 0 | 0/30 |
+| `wadi_halam_5_depot (no orders)` | 0 (0) | 1 | 0 | 25 | **30** | 300 | objective:raze_depot | 30 | 0/30 |
+| `beit_sahwan_4_subterranean (no orders)` | 5 (0) | 0 | 0 | 50 | **50** | 240 | objective:get_them_out | 50 | 0/30 |
+| `khan_rafid_1_recon (passive control)` | 0 (0) | 0 | 0 | 0 | **0** | 240 | objective:get_two_in | 0 | 0/30 |
+| `khan_rafid_2_foothold (passive control)` | 3 (0) | 0 | 0 | 30 | **30** | 300 | objective:get_four_in | 30 | 0/30 |
+| `khan_rafid_3_clearance (passive control)` | 1 (0) | 0 | 0 | 10 | **10** | 300 | objective:get_six_in | 10 | 0/30 |
+| `deir_amun_1_recon (passive control)` | 0 (0) | 0 | 0 | 0 | **0** | 240 | objective:bring_down_the_west | 0 | 0/30 |
+| `deir_amun_2_foothold (passive control)` | 3 (0) | 0 | 0 | 30 | **30** | 240 | objective:shut_the_door | 30 | 0/30 |
+| `deir_amun_3_subterranean (passive control)` | 0 (0) | 1 | 0 | 25 | **30** | 300 | objective:all_four | 30 | 0/30 |
+| `tel_marum_1_recon (passive control)` | 3 (0) | 1 | 0 | 55 | **60** | 300 | objective:clear_the_valley_floor | 60 | 0/30 |
+| `tel_marum_2_foothold (passive control)` | 0 (0) | 0 | 0 | 0 | **0** | 300 | objective:burn_the_ammo_point | 0 | 0/30 |
+| `tel_marum_3_clearance (passive control)` | 0 (0) | 0 | 0 | 0 | **0** | 300 | objective:get_the_block_out | 0 | 0/30 |
+| `qarn_hadid_1_recon (passive control)` | 0 (0) | 0 | 0 | 0 | **0** | 240 | objective:get_the_road_party_clear | 0 | 0/30 |
+| `qarn_hadid_2_foothold (passive control)` | 2 (0) | 0 | 0 | 20 | **20** | 300 | objective:open_the_shoulder | 20 | 0/30 |
+| `qarn_hadid_3_clearance (passive control)` | 3 (0) | 0 | 0 | 30 | **30** | 300 | objective:get_the_families_clear | 30 | 0/30 |
+| `umm_zeitoun_1_recon (no orders)` | 0 (0) | 1 | 0 | 25 | **30** | 240 | objective:get_the_wells_clear | 30 | 0/30 |
+| `umm_zeitoun_2_buildup (no orders)` | 4 (0) | 0 | 0 | 40 | **40** | 300 | objective:level_the_stone_post | 40 | 0/30 |
+| `umm_zeitoun_3_clearance (no orders)` | 0 (0) | 0 | 0 | 0 | **0** | 300 | objective:get_the_hamlet_out | 0 | 0/30 |
+| `umm_zeitoun_4_clearance (no orders)` | 0 (0) | 0 | 0 | 0 | **0** | 300 | objective:raze_the_stockpile | 0 | 0/30 |
 
 Pairs (F-Q12, ruled 14 Oct: compared at the earlier of the two end ticks):
 
@@ -205,46 +206,55 @@ Pairs (F-Q12, ruled 14 Oct: compared at the earlier of the two end ticks):
 | `umm_zeitoun_3_clearance` | 63 | 300 / 0 | 300 / 0 | 0, 0 |
 | `umm_zeitoun_4_clearance` | 220 | 360 / 0 | 360 / 0 | 0, 0 |
 
-The row search, all on the same 1,830 runs (integer rates; the identification term in {8, 10, 12, 15},
-the objective term in steps of 5, the rise term in {0, 20, 30, 40}):
+Candidate rows, all on the same 1,830 runs (the last column is the cost measure used below):
 
-| row (identified / objective / rise) | plain winners ≥ 150 (of 26) | all winners ≥ 150 (of 36) | controls ≥ 150 (of 25) | pairs passive > winner, 424242 (of 25) | seed-pairs passive > winner (of 750) | intel paid to the 26 plain winners, 424242 |
-|---|---|---|---|---|---|---|
-| 10 / 25 / 30 | 23 | 33 | 2 | 0 | 16 | 6070 |
-| 10 / 25 / 0 | 22 | 31 | 2 | 0 | 16 | 5470 |
-| 12 / 25 / 30 | 24 | 34 | 2 | 0 | 16 | 6694 |
-| 10 / 30 / 20 | 25 | 35 | 2 | 0 | 16 | 6340 |
-| 10 / 30 / 30 | 25 | 35 | 2 | 0 | 16 | 6540 |
-| 10 / 35 / 30 | 25 | 35 | 2 | 0 | 16 | 7010 |
-| 15 / 25 / 30 | 26 | 36 | 2 | 0 | 19 | 7630 |
-| 15 / 30 / 30 | 26 | 36 | 2 | 0 | 16 | 8100 |
-| 8 / 40 / 30 | 25 | 35 | 2 | 0 | 1 | 6856 |
-| 8 / 50 / 30 | 25 | 35 | 2 | 0 | 0 | 7796 |
+| row (identified / objective / rise) | plain winners ≥ 150 (of 26) | all winners ≥ 150 (of 36) | controls ≥ 150 (of 25) | pairs passive > winner, 424242 (of 25) | seed-pairs passive > winner (of 750) | of which `beit_sahwan_breach` (of 30) | intel paid to the 26 plain winners, 424242 |
+|---|---|---|---|---|---|---|---|
+| 10 / 25 / 30 | 23 | 33 | 2 | 0 | 16 | 16 | 6070 |
+| 10 / 25 / 0 | 22 | 31 | 2 | 0 | 16 | 16 | 5470 |
+| 12 / 25 / 30 | 24 | 34 | 2 | 0 | 16 | 16 | 6694 |
+| 10 / 30 / 0 | 25 | 35 | 2 | 0 | 16 | 16 | 5940 |
+| 10 / 30 / 20 | 25 | 35 | 2 | 0 | 16 | 16 | 6340 |
+| 10 / 30 / 30 | 25 | 35 | 2 | 0 | 16 | 16 | 6540 |
+| 10 / 35 / 30 | 25 | 35 | 2 | 0 | 16 | 16 | 7010 |
+| 10 / 40 / 30 | 25 | 35 | 2 | 0 | 12 | 12 | 7480 |
+| 15 / 25 / 30 | 26 | 36 | 2 | 0 | 19 | 19 | 7630 |
+| 15 / 30 / 30 | 26 | 36 | 2 | 0 | 16 | 16 | 8100 |
+| 8 / 35 / 30 | 25 | 35 | 2 | 0 | 12 | 12 | 6386 |
+| 8 / 40 / 30 | 25 | 35 | 2 | 0 | 1 | 1 | 6856 |
+| 8 / 50 / 30 | 25 | 35 | 2 | 0 | 0 | 0 | 7796 |
 
-**What "passes" means here.** The G3 sheet chose 10 + 25 as "the cheapest row that gives nearly
-every winning plan one sweep and gives a passive player none", at 24 of 26 winners. This doc holds
-the same three tests, plus the ruling the sheet did not have:
+**The criterion (controller ruling C-R4, 14 Oct), stated once and used throughout:** every plain
+winning plan that can reach 150 does (25 of 26; `beit_sahwan_2_foothold` cannot below 15 per
+identification), with the identification term held at D1's 10 and the rise term at D1's 30, at the
+least total paid; and no pair in which the passive control out-earns the winner at the earlier end
+tick, judged on the 424242 ledger seed, as Task 9's `INTEL_PASSIVE_BEATS_WINNER` runs it (F-Q12).
+Passive controls at or over 150 are reported, not gated (below). The G3 sheet's bar was 24 of 26
+"nearly every"; this one is stricter, and it is the controller's.
 
-1. **No pair where the passive control out-earns the winner** at the earlier end tick, on 424242
-   (F-Q12; Task 9's `INTEL_PASSIVE_BEATS_WINNER = 0`).
-2. **At least 24 of the 26 plain winning plans reach 150** on 424242 (the bar 10 + 25 cleared at
-   `751b6742`; Task 9's `INTEL_WINNERS_ONE_SWEEP`).
-3. **Passive controls at or over 150** are reported, not gated: the two that get there do so by
-   content, not by the rule (below), and no row can remove them without failing test 2.
+**10 / 30 / 30 is the row that meets it.** With 10 and 30 held, the objective term must be at least
+30: `beit_sahwan_1_recon` (6 identified, 3 objectives) needs 30 and `tel_marum_3_clearance` (7, 3)
+needs 27, so 30 is the least integer that lets both through. It gives 25 of 26 plain winners a sweep
+(35 of 36 with the probes), 0 of 25 pairs on 424242, and pays the 26 plain winners 6,540 on 424242.
 
-**10 + 25 + 30 does not pass.** It clears test 1 (0 of 25 pairs) but gives only **23 of 26** plain
-winners a sweep: `beit_sahwan_1_recon` (135), `beit_sahwan_2_foothold` (115) and
-`tel_marum_3_clearance` (145) fall short. None of the three has a rise paid, so the rise term cannot
-rescue them; only the identification or objective term can.
+**The candidates, and why each is not proposed:**
 
-**10 + 30 + 30 is the cheapest row that passes**: 25 of 26 (only `beit_sahwan_2_foothold`, which no
-row under 15 per identification reaches), 35 of 36 including the probes, 0 of 25 pairs. "Cheapest" is
-the intel paid to the 26 plain winners on 424242: 6,540, against 6,694 for 12 + 25 + 30 (which
-reaches only 24 of 26) and 7,630 for 15 + 25 + 30. Lowering the rise term to 20 (6,340) or 0
-(5,940) passes too, because no plan short of 150 holds a rise; the rise term is kept at D1's 30
-because the census does not price it, not because it was fitted (§1.4). A +5 on the objective term
-is the smallest change that passes, and it rewards completing the mission, which is the point of
-"earned by doing".
+| row | what it does | why not proposed |
+|---|---|---|
+| 10 / 25 / 30 (D1) | 23 of 26; 0 pairs | `beit_sahwan_1_recon` (135) and `tel_marum_3_clearance` (145) can reach 150 and do not; neither holds a rise, so the rise term cannot help |
+| 12 / 25 / 30 | 24 of 26 (G3's own bar); 0 pairs; 6,694 | dearer than 10/30/30 and leaves `beit_sahwan_1_recon` (147) short; moves the identification term off D1's 10 |
+| 10 / 30 / 20 | 25 of 26; 0 pairs; 6,340 | cheaper only by paying the rise less; D1's 30 is held because the census cannot price it (§1.4: no plan short of 150 holds a rise, no control earns one) |
+| 10 / 30 / 0 | 25 of 26; 0 pairs; 5,940 | deletes the high-ground term the lead ruled in (D4 stands, 6 Oct) |
+| 8 / 35 / 30 | 25 of 26; 0 pairs; 6,386 | cheaper in total, by paying spotting less; moves D1's identification term; breach still 12 of 30 |
+| **8 / 40 / 30** | 25 of 26; 0 pairs; 6,856; **breach 1 of 30 seeds** | **the seed-robust alternative, for the lead**: 316 more than 10/30/30 (+4.8%), pays spotting 20% less and objectives a third more; on 424242 it pays `beit_sahwan_1_recon` 168 |
+| 8 / 50 / 30 | 25 of 26; 0 pairs; 7,796; breach 0 of 30 | the only row in this table at 0 of 750 seed-pairs (5/40/30, below, is the other); 19% dearer than 10/30/30 |
+
+One thing the lead should see: if "least total paid" were the whole criterion, with no term held,
+it would push the identification term down, not the objective term up. Searching every integer row
+with the rise at 30 (identification 5-15, objective 20-60), the cheapest that gives 25 of 26 with 0
+pairs is **5 / 40 / 30** (5,920 on 424242), and it is also seed-robust (breach 0 of 30). Spotting
+would then pay half of D1. That is a design choice about what "earned by doing" rewards, not a
+measurement, so it is listed and not proposed.
 
 **Step 4: `khan_rafid_3_clearance`'s passive control reads 10, not 0, on all 30 seeds.** Cause: one
 `moto_rpg`, a side-1 attack-mover, rides into the sight of the parked `recon_drone` at 267 s and is
@@ -258,15 +268,16 @@ that is worth 10.
 
 **Two seed-level facts the 424242 gate cannot see.**
 
-- **`beit_sahwan_breach`: the passive control out-earns the winner on 16 of 30 seeds**, at every row
-  in the search with the objective term at 40 or below. At 270 s (the control's own defeat) it has
-  identified all 34 attackers (340); the winning plan, whose jeep and APC are out fetching families,
-  has identified 28-30 and completed one objective (310-330). On 424242 the winner leads 370 to 340,
-  a margin of 30, so `INTEL_PASSIVE_BEATS_WINNER` passes there. This is the G3 sheet's breach
-  outlier ("the enemy walks into the compound; that is correct for a breach"), but it is now a
-  majority of seeds, so I recommend Task 9 print the seed count beside the 424242 line. Only an
-  objective term of 50 with 8 per identification (8 + 50 + 30, 7,796) takes it to 0 of 750, and that
-  row is 19% dearer and pays the 31-second `beit_sahwan_1_recon` 198. Not proposed.
+- **`beit_sahwan_breach`: the passive control out-earns the winner on 16 of 30 seeds** under
+  10/30/30. At 270 s (the control's own defeat) it has identified all 34 attackers (340); the
+  winning plan, whose jeep and APC are out fetching families, has identified 28-30 and completed one
+  objective (310-330). On 424242 the winner leads 370 to 340, a margin of 30, so
+  `INTEL_PASSIVE_BEATS_WINNER` passes there. The count by row (table above): **16 of 30** at 10/25/30,
+  10/25/0, 12/25/30, 10/30/0, 10/30/20, 10/30/30, 10/35/30 and 15/30/30; 19 at 15/25/30; 12 at
+  10/40/30 and 8/35/30; **1 at 8/40/30**; 0 at 8/50/30 and 5/40/30. Every seed-pair in the 750 that
+  goes the passive force's way is a breach pair. This is the G3 sheet's breach outlier ("the enemy
+  walks into the compound; that is correct for a breach"), but under the proposed row it is a
+  majority of seeds, so I recommend Task 9 print the seed count beside the 424242 line.
 - **`wadi_halam_1_fords` (no orders) earns 190 on all 30 seeds**: its parked `recon_drone`
   identifies 13 enemies (11 `moto_rpg`) riding past, and two objectives complete with no orders,
   `picture` at 120 s and the `screen_out` secondary at 200 s. A passive force can afford a sweep
@@ -312,9 +323,14 @@ TM I, UZ I, WH V's `no_bleed`) completes passively at its clock, which is why se
 
 A scratch copy of `targets.ts`'s `urbanAssault` (same town, same six `militia_cell` defenders in the
 cover-2 ring, same three-group clearing plan, the gate's seeds 60000 + ratio·1000 + s, s < 60, base
-roster). Its no-support arm reproduces `pnpm balance` exactly (1:1 0%, **2:1 22%**, 3:1 100%, 4:1
-100%; base 2:1 reads 22% on this base, where the plan's 6 Oct note had 37%), and its laid-smoke arm reproduces
-`urbanSmokeStep` (1:1 0%, 2:1 98%). A support call is placed on a group's block front (the same
+roster). `pnpm balance` was not re-run for this doc (nothing tracked changed); the comparison is
+with `scratchpad/s4-f1/balance-base.txt`, printed at `da74f887`, whose sim is the same: "win rates by
+attacker:defender — 1:1=0% 2:1=22% 3:1=100% 4:1=100%" and "1:1=0% 2:1=98% · 3.00 screens/run". The
+probe's no-support arm reads the same four numbers and its laid-smoke arm the same two. Why base
+2:1 reads 22% where the plan's 6 Oct note had 37%: cause not established by bisect. The first
+commit that records 22% is #584 (`d7bb5f1d`, 14 Oct: hit, bounce and splash suppression now apply,
+`SUPP_STAT_DIVISOR` 730), and #537's message says `pnpm balance` stayed byte-identical, so #584 is
+the likely cause (R). A support call is placed on a group's block front (the same
 `URBAN_FRONTS` the smoke gate screens) the first moment that group's lead squad is within 9 tiles of
 it, the smoke gate's own trigger; the caller is the group's first living squad. "Middle" is the
 centre block's front.
@@ -344,8 +360,8 @@ screen strong.
   carrier. Per point it is the strongest item on the menu by far (one step for 60 against 250 for
   the strike), and that is the one price I would ask the lead to look at. I have not changed it:
   the step it buys is exactly the step the lead ruled smoke may buy.
-- **The barrage buys a third of a step per call**, and a step for three (360), while leaving 1:1
-  at 0-5%: doctrine intact. Most of what it does here is damage spread over the block (about 40 a
+- **One barrage call moves 2:1 by 11 points (22% to 33%); three calls (360) buy the full step**
+  (98%) while leaving 1:1 at 0-5%: doctrine intact. Most of what it does here is damage spread over the block (about 40 a
   round to defenders), not kills (0.17 a call) and not suppression, because the defenders sit in
   cover 2 and the barrage honours cover.
 - **The strike buys a step per call** (it kills the one defender on the middle front, 1.00 a call),
@@ -396,12 +412,12 @@ One call on the building's centroid, 200 seeds, one rifle team inside (`garrison
 
 | building | item | building damage | building down | man inside | peak suppression on him | seconds pinned |
 |---|---|---|---|---|---|---|
-| house 2×2 (1,040) | barrage, cover honoured (**ruled**) | 1,040 | **always**, ~13 s after the call | killed when it falls | 0.05 | 0 |
-| | barrage, cover ignored (record) | 1,040 | always | killed when it falls | 0.58 | 0.24 |
-| | air strike | 1,040 | always, 3 s | killed when it falls | — | — |
-| concrete 2×2 (2,800) | barrage, cover honoured (**ruled**) | 1,428 | never | unhurt (`applyDamage` returns for a garrison) | **0.058** | 0 |
-| | barrage, cover ignored (record) | 1,428 | never | unhurt | 0.647 | 0.75 |
-| | air strike | 1,200 | never | unhurt | 0.887 | 1.59 |
+| house 2×2 (1,040) | barrage, cover honoured (**ruled**) | 1,040 | **200 of 200 seeds**, ~13 s after the call | killed when it falls | 0.05 | 0 |
+| | barrage, cover ignored (record) | 1,040 | 200 of 200 | killed when it falls | 0.58 | 0.24 |
+| | air strike | 1,040 | 200 of 200, 3 s | killed when it falls | — | — |
+| concrete 2×2 (2,800) | barrage, cover honoured (**ruled**) | 1,428 | 0 of 200 | unhurt (`applyDamage` returns for a garrison) | **0.058** | 0 |
+| | barrage, cover ignored (record) | 1,428 | 0 of 200 | unhurt | 0.647 | 0.75 |
+| | air strike | 1,200 | 0 of 200 | unhurt | 0.887 | 1.59 |
 
 `sarim_rifles` inside read the same shape (0.046 honoured, 0.518 ignored, strike 0.709). With cover
 honoured, a barrage does nothing to the men in a building it does not bring down, and brings down
@@ -424,7 +440,7 @@ the tick the plan has earned 120 under 10/30/30 (what a player could really do).
 All 120 runs won, ROE unchanged (100 and 98: #431, nothing charged on a raze target). Neither mission
 gets shorter: each ends on a `hold_for` clock (`hold_depot`, `hold_approach`) that the raze does not
 set. On Wadi Halam V one barrage cannot level the strongest depot building at all; on Tel Marum II it
-does the plan's demolition job 22 s earlier at a realistic call, or 2.4 minutes earlier at the
+does the plan's demolition job 21.7 s earlier at a realistic call (median 153.4 s → 131.75 s), or 2.4 minutes earlier at the
 earliest possible one, and the cache is a 2-round target. **F-Q9 needs nothing from the lead: no
 mission's length collapses.**
 
@@ -435,7 +451,7 @@ mission's length collapses.**
 - **No §5.7 target moves under anything proposed here.** `targets.ts` issues no support call and
   builds no `MissionRuntime`; every §5.7 line is measured without fire support (the file's own
   header). `pnpm balance` was not re-run because nothing tracked changed; the scratch copy's
-  un-supported arm reproduces the base line exactly.
+  un-supported arm reads the same four urban numbers `balance-base.txt` printed at `da74f887`.
 - What the menu can do *inside a mission* beyond §5.7's doctrine is in §2.2: three strikes (750)
   carry 1:1. That is not a target move; it is a price the lead set (D2) and no plan earns it.
 - `pnpm playtest`: the probe's outcome lines matched the base byte for byte (it reads, it does not
@@ -443,7 +459,9 @@ mission's length collapses.**
 
 ## 4. What the lead is asked to confirm (on the PR)
 
-1. The earn row **10 / 30 / 30** (identified / objective / rise) in place of 10 / 25 / 30.
+1. The earn row **10 / 30 / 30** (identified / objective / rise) in place of 10 / 25 / 30, or the
+   seed-robust alternative **8 / 40 / 30** (breach pair 1 of 30 seeds instead of 16; 6,856 paid to the
+   26 plain winners on 424242 against 6,540).
 2. The four prices **60 / 120 / 150 / 250**, with the smoke screen's per-point strength (§2.2) seen.
 3. The two filled-in readings: smoke-screen scatter 1.5 tiles; "over N s" as first-to-last round.
 4. That a passive force paid for enemies walking into its sight (KR III: 10; WH I: 190) is
