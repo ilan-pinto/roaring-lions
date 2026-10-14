@@ -650,7 +650,16 @@ export type Command =
    * identified by the team's own side before the clock runs (suspected is a
    * blip, not a firing solution), and the collapse kills everyone below.
    */
-  | { kind: 'chargeTunnel'; ids: number[]; tunnel: number };
+  | { kind: 'chargeTunnel'; ids: number[]; tunnel: number }
+  /**
+   * Fire on THIS enemy (Stage 4 targeted fire, GH-420). Sets the unit's
+   * `focusTarget`; any other order that names the unit releases it. The sim
+   * accepts the order on geometry-free grounds only (`canFocus`): whether a
+   * given weapon can hurt the target from where it stands flips with the
+   * target's facing, so that judgement is the app's to show and the combat
+   * step's to apply. A refused id is a no-op.
+   */
+  | { kind: 'attack'; ids: number[]; target: number };
 
 /** The same command aimed at fewer units. A generic copy rather than an
  *  in-place splice, because the queued object belongs to the sender. */
@@ -930,6 +939,17 @@ export class Sim {
   private readonly lastFired: Int32Array;
   private readonly engaging: Uint8Array;
   private readonly curTarget: Int32Array;
+  /** The entity this unit was ORDERED to fire on (`attack`), -1 when none.
+   *  Hashed: it will decide whom the unit shoots and where it walks. Set by
+   *  the `attack` command, cleared by any other order that names the unit and
+   *  by a rout; ids are never recycled, so a stale value cannot alias a new
+   *  unit. */
+  private readonly focusTarget: Int32Array;
+  /** Ticks the issuer's side has gone without a firing solution on
+   *  `focusTarget` (the T-D3 lost counter). Zero whenever there is no focus or
+   *  the focus is held. Hashed, and added with the column above so the focus
+   *  behaviour that follows is hash-neutral. */
+  private readonly focusLost: Uint16Array;
   /** Structure this unit is currently engaging, -1 when none. */
   private readonly curStructure: Int32Array;
   private readonly mobilityKilled: Uint8Array;
@@ -1172,6 +1192,10 @@ export class Sim {
     readonly brace: Uint8Array;
     /** Ticks left in a DROPPING or RISING transition, 0 otherwise. */
     readonly braceTicks: Int32Array;
+    /** The entity this unit was ordered to fire on, -1 when none. */
+    readonly focusTarget: Int32Array;
+    /** Ticks without a firing solution on the focus. */
+    readonly focusLost: Uint16Array;
   };
 
   /** Read-only structure view for the renderer and HUD. */
@@ -1251,6 +1275,8 @@ export class Sim {
     this.lastFired = new Int32Array(n).fill(-100000);
     this.engaging = new Uint8Array(n);
     this.curTarget = new Int32Array(n).fill(-1);
+    this.focusTarget = new Int32Array(n).fill(-1);
+    this.focusLost = new Uint16Array(n);
     this.curStructure = new Int32Array(n).fill(-1);
     this.mobilityKilled = new Uint8Array(n);
     this.firepowerKilled = new Uint8Array(n);
@@ -1360,6 +1386,8 @@ export class Sim {
       tunnelIn: this.tunnelIn,
       brace: this.brace,
       braceTicks: this.braceTicks,
+      focusTarget: this.focusTarget,
+      focusLost: this.focusLost,
     };
     this.structures = {
       alive: this.stAlive,
@@ -2120,6 +2148,18 @@ export class Sim {
           // observable outside the sim.
           cmd = withIds(cmd, kept);
         }
+        // Any order that names a unit takes its fire order away: a focus is
+        // what the unit was last told to shoot, and "go there" or "stop" is
+        // a newer word. `attack` itself is the one that sets it (below). Done
+        // for every id the order names, refused or not, so a routed or
+        // carried unit cannot keep an old focus past a command that reached
+        // it. (`reveal` and `callStrike` carry no ids and name no unit.)
+        if (cmd.kind !== 'attack') {
+          for (const id of cmd.ids) {
+            this.focusTarget[id] = -1;
+            this.focusLost[id] = 0;
+          }
+        }
       }
       if (cmd.kind === 'move' || cmd.kind === 'attackMove') {
         const gx = this.clampX(cmd.x);
@@ -2569,6 +2609,34 @@ export class Sim {
           this.sweepOrder[id] = 0;
           this.engaging[id] = 0;
           this.stance[id] = 0;
+        }
+      } else if (cmd.kind === 'attack') {
+        // BEFORE the bare `else` below, which is the halt branch: it touches
+        // only `cmd.ids`, so an `attack` placed after it compiles and halts.
+        for (const id of cmd.ids) {
+          if (!this.canFocus(id, cmd.target)) continue; // a refused id changes nothing
+          this.focusTarget[id] = cmd.target;
+          this.focusLost[id] = 0;
+          // What every order clears. NOT `leaveStructure`: a garrisoned
+          // shooter fires on its focus from the window and is never walked
+          // out by it (#577's direction -- an order must not empty a building
+          // by accident).
+          this.wpCount[id] = 0;
+          this.boardGoal[id] = -1;
+          this.garrisonGoal[id] = -1;
+          this.demolishOrder[id] = -1;
+          this.chargeOrder[id] = -1;
+          this.chargeTicks[id] = 0;
+          // The unit stops being an attack-mover and stops walking the leg it
+          // was on, as `halt` does: nothing reads the focus yet, so leaving
+          // `moving` set would keep an old leg running under an order that
+          // supersedes it. Whatever movement the focus needs is stepFocus's.
+          this.moving[id] = 0;
+          this.fieldRef[id] = -1;
+          this.attackMove[id] = 0;
+          this.sweepOrder[id] = 0;
+          this.engaging[id] = 0;
+          this.stance[id] = 0; // any order overrides a held stance
         }
       } else {
         for (const id of cmd.ids) {
@@ -3696,6 +3764,10 @@ export class Sim {
    * ran west into the shooter's sight.
    */
   private startRout(i: number): void {
+    // Broken troops drop their fire order, on either exit below (flee or
+    // hold). Rally restores no order, so the focus is not coming back.
+    this.focusTarget[i] = -1;
+    this.focusLost[i] = 0;
     const mySide = this.side[i];
     let nx = 0;
     let ny = 0;
@@ -5510,6 +5582,32 @@ export class Sim {
     const tileCover = this.cover[(ty >> 16) * this.width + (tx >> 16)];
     const parapet = this.parapetCover(tx, ty, this.posX[shooter], this.posY[shooter]);
     return parapet > tileCover ? parapet : tileCover;
+  }
+
+  /**
+   * May `shooter` be ordered to fire on `target`? The single filter the
+   * `attack` command uses, public so the app can ask the same question before
+   * it sends one (no second copy to drift). Geometry-free on purpose: no
+   * range, no sight, no penetration -- `weaponHurts` flips with the target's
+   * facing, so the sim does not refuse on it.
+   *
+   * False when the shooter is dead, routed, carried or unarmed; when the
+   * target is dead, on the shooter's side, a civilian, or inside a building,
+   * a vehicle or the earth; when the shooter's side holds less than
+   * IDENTIFIED_AT confidence on it (the test `selectTarget` applies -- the
+   * latched contact STATE is a wider band and is not what refuses a shot);
+   * or when no weapon of the shooter's could ever be aimed at it.
+   */
+  canFocus(shooter: number, target: number): boolean {
+    if (shooter < 0 || shooter >= this.count || target < 0 || target >= this.count) return false;
+    if (this.alive[shooter] === 0 || this.routed[shooter] === 1 || this.carriedBy[shooter] >= 0) return false;
+    if (this.unitTypes[this.typeIdx[shooter]].weapons.length === 0) return false;
+    const sSide = this.side[shooter];
+    if (sSide > 1) return false; // contact is kept for sides 0 and 1 only
+    if (this.alive[target] === 0 || this.side[target] === sSide || this.side[target] > 1) return false;
+    if (this.garrisonedIn[target] >= 0 || this.carriedBy[target] >= 0 || this.tunnelIn[target] >= 0) return false;
+    if (this.contact[sSide * this.capacity + target] < IDENTIFIED_AT) return false;
+    return this.couldEngage(shooter, target);
   }
 
   /** Could any of `i`'s weapons ever be aimed at `t`, range and sight aside?
