@@ -2569,6 +2569,30 @@ const ummZeitoun3Plan: Plan = (sim, rt, ids, at) => {
   // Families that board the second Eitan ride wherever it goes, so it is ordered to the wadi once
   // they are aboard (a `move`, which does not chase) instead of being left on its attackMove.
   at(25, () => sim.queueCommand({ kind: 'move', ids: apcs.slice(1), ...M(23, 37) }));
+  // Garrison overhaul (B2): the two hamlet rifles now really sit in (18,20) and (26,19) and come out
+  // at their doors when the zone trigger fires, so on four seeds of thirty they killed the lone
+  // street squad before it came within 4 tiles of the south families (25.5-28,22.5); the second
+  // Eitan, idle at the wadi, still counted as the street party, so the relief below never fired and
+  // only three families were out at 300 s. The Eitan goes back for whoever is still in the hamlet:
+  // (24.5,23.5) is within 4 tiles of all three south families and 10 or more from both ambush ATGM
+  // posts, and rifles do not hurt it. A hull with live riders drives them to the wadi. Riders are
+  // counted, not `passengerCount`, which keeps the families already collected at the wadi.
+  const shuttle = apcs.slice(1);
+  for (let when = 40; when <= 280; when += 5)
+    at(when, () => {
+      if (rt.objectiveStatus('get_the_hamlet_out') !== 'active') return;
+      const hull = shuttle.find((i) => sim.state.alive[i] === 1 && sim.state.mobilityKilled[i] !== 1);
+      if (hull === undefined) return;
+      let riding = false;
+      let waiting = false;
+      for (let c = 0; c < sim.entityCount; c++) {
+        if (sim.state.alive[c] !== 1 || sim.unitTypes[sim.state.typeIdx[c]].id !== 'civilians') continue;
+        if (sim.state.carriedBy[c] === hull) riding = true;
+        else if (sim.state.carriedBy[c] < 0 && sim.state.posY[c] < fx.from(30)) waiting = true;
+      }
+      if (riding) sim.queueCommand({ kind: 'move', ids: [hull], ...M(23, 37) });
+      else if (waiting) sim.queueCommand({ kind: 'move', ids: [hull], ...M(24.5, 23.5), exact: true });
+    });
   // GH-382: a flank that has lost its party is not left to the clock. Whatever still stands, the drone
   // aside, is sent to the post still alive (one seed of twelve left the west horn standing for twenty
   // minutes when its four bodies died and nobody was told).
