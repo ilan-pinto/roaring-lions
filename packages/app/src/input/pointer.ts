@@ -55,6 +55,8 @@ export function simIntentWorld(sim: Sim, inFlaggedZone: (x: number, y: number) =
     // sim's refusal cannot drift (R-8). Read-only queries.
     canFocus: (i, target) => sim.canFocus(i, target),
     focusHurts: (i, target) => sim.focusHurts(i, target),
+    // The same test H uses (`haltTargets`): a unit inside a building holds.
+    garrisoned: (i) => sim.state.garrisonedIn[i] >= 0,
   };
 }
 

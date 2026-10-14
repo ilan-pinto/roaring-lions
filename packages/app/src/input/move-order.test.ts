@@ -33,6 +33,7 @@ function world(over: Partial<IntentWorld> = {}): IntentWorld {
     flies: () => false,
     canFocus: () => false,
     focusHurts: () => false,
+    garrisoned: () => false,
     ...over,
   };
 }

@@ -189,6 +189,7 @@ function world(over: Partial<IntentWorld> = {}): IntentWorld {
     flies: () => false,
     canFocus: () => false,
     focusHurts: () => false,
+    garrisoned: () => false,
     ...over,
   };
 }
@@ -439,6 +440,75 @@ describe('resolvePointer: the hostile rung (GH-420)', () => {
     // hurt it: somebody can focus and nobody can hurt, so it is refused.
     const w = world({ canFocus: (i) => i === 3, focusHurts: () => false });
     expect(resolvePointer(w, ctx([1, 3])).cantPenetrate).toBe(true);
+  });
+
+  // R-20: a click on an enemy never empties a building. Ids 1 and 2 are
+  // infantry squads, 3 an AT team; `held` names who is inside a building.
+  describe('R-20: garrisoned units keep their post', () => {
+    const held = (...ids: number[]) => (i: number) => ids.includes(i);
+
+    it('a garrisoned squad and a garrisoned AT team on a tank: one attack for the AT team, the squad in no intent', () => {
+      const w = world({ canFocus: () => true, focusHurts: (i) => i === 3, garrisoned: held(1, 3) });
+      const r = resolvePointer(w, ctx([1, 3]));
+      expect(r.intents).toEqual([{ kind: 'attack', ids: [3], target: 9 }]);
+      expect(JSON.stringify(r.intents)).not.toMatch(/"ids":\[[^\]]*\b1\b/);
+      expect(r.note).toBeUndefined(); // the remainder stays silent
+    });
+
+    it('a free squad that cannot hurt it still advances beside the garrisoned one that stays', () => {
+      const w = world({ canFocus: () => true, focusHurts: (i) => i === 3, garrisoned: held(1) });
+      const r = resolvePointer(w, ctx([1, 2, 3]));
+      expect(r.intents).toEqual([
+        { kind: 'attack', ids: [3], target: 9 },
+        { kind: 'order', verb: 'attackMove', ids: [2], x: 12.5, y: 7.5, append: false },
+      ]);
+    });
+
+    it('a garrisoned squad and a free squad on an unidentified enemy: the free one advances, one note', () => {
+      const w = world({ canFocus: () => false, garrisoned: held(1) });
+      const r = resolvePointer(w, ctx([1, 2]));
+      expect(r.intents).toEqual([{ kind: 'order', verb: 'attackMove', ids: [2], x: 12.5, y: 7.5, append: false }]);
+      expect(r.marker).toBe(true);
+      expect(r.note).toEqual({ text: 'Garrisoned units keep their post', tone: 'mute' });
+      const s = orderSink();
+      issueOrder(w, s, [1, 2], 12.5, 7.5, { append: false, confirm: false, hostile: 9 });
+      expect(s.log.filter((e) => e.did === 'note')).toHaveLength(1);
+      expect(s.log.some((e) => e.did === 'deny')).toBe(false);
+    });
+
+    it('an identified enemy nobody selected can aim at takes the same path', () => {
+      const w = world({ canFocus: () => false, focusHurts: () => true, garrisoned: held(1, 2) });
+      const r = resolvePointer(w, ctx([1, 2, 3]));
+      expect(r.intents).toEqual([{ kind: 'order', verb: 'attackMove', ids: [3], x: 12.5, y: 7.5, append: false }]);
+    });
+
+    it('an all-garrisoned selection on an unidentified enemy: no intents, the note, and the click is denied', () => {
+      const w = world({ canFocus: () => false, garrisoned: held(1, 2) });
+      const r = resolvePointer(w, ctx([1, 2]));
+      expect(r.intents).toEqual([]);
+      expect(r.marker).toBe(false);
+      expect(r.note?.text).toBe('Garrisoned units keep their post');
+      expect(orderDenied(r, 2)).toBe(true);
+      const s = orderSink();
+      issueOrder(w, s, [1, 2], 12.5, 7.5, { append: false, confirm: false, hostile: 9 });
+      expect(s.log).toEqual([
+        { did: 'note', text: 'Garrisoned units keep their post', tone: 'mute' },
+        { did: 'deny' },
+      ]);
+    });
+
+    it('Shift (the appended attack-move) on a picked enemy keeps the post too', () => {
+      const w = world({ canFocus: () => true, focusHurts: () => true, garrisoned: held(1) });
+      const r = resolvePointer(w, ctx([1, 2], { append: true }));
+      expect(r.intents).toEqual([{ kind: 'order', verb: 'attackMove', ids: [2], x: 12.5, y: 7.5, append: true }]);
+    });
+
+    it('a click on plain ground with no picked enemy is unchanged: the garrisoned unit is still ordered', () => {
+      const w = world({ garrisoned: held(1) });
+      const r = resolvePointer(w, ctx([1, 2], { hostile: -1 }));
+      expect(r.intents).toEqual([{ kind: 'order', verb: 'attackMove', ids: [1, 2], x: 12.5, y: 7.5, append: false }]);
+      expect(r.note).toBeUndefined();
+    });
   });
 
   it('R-18: the remainder\'s attack-move and the marker go to the target\'s tile, not the click\'s ground point', () => {

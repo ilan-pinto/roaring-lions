@@ -214,6 +214,10 @@ export interface IntentWorld {
   /** GH-420: could `id`, standing where it is now, hurt `target` (the sim's
    *  `focusHurts`)? Facing-dependent, true for soft targets. */
   focusHurts(id: number, target: number): boolean;
+  /** True for a unit inside a building. A click on an enemy never sends one
+   *  out (R-20): the sim's order branches all call `leaveStructure`, so an
+   *  attack-move would empty the building. The test `haltTargets` takes. */
+  garrisoned(id: number): boolean;
 }
 
 export type GroundState = 'open' | 'blocked' | 'offmap';
@@ -415,10 +419,17 @@ export function resolvePointer(world: IntentWorld, ctx: PointerContext): Resolut
     // Nobody can charge: fall through to the ordinary order, as main.ts does.
   }
 
+  // The ordinary attack-move. When it came from a click on a picked enemy
+  // (a suspected contact, or one nobody selected can aim at), a garrisoned
+  // unit keeps its post (R-20): ONE note says so, and if nobody is left the
+  // click comes to nothing and `orderDenied` plays the deny cue.
+  const movers = target >= 0 ? haltTargets(ids, (i) => world.garrisoned(i)) : ids;
+  const held = movers.length < ids.length;
   return {
-    intents: [{ kind: 'order', verb: 'attackMove', ids, x, y, append }],
+    intents: movers.length > 0 ? [{ kind: 'order', verb: 'attackMove', ids: movers, x, y, append }] : [],
     roe,
-    marker: true,
+    marker: movers.length > 0,
+    ...(held ? { note: { text: t('intent.garrisonHolds'), tone: 'mute' as const } } : {}),
   };
 }
 
@@ -465,7 +476,12 @@ function resolveFocus(
     };
   }
   const firingSet = new Set(firing);
-  const rest = ids.filter((i) => !firingSet.has(i));
+  // The rest advance to the target's tile -- except those inside a building,
+  // which keep their post silently (R-20: the order would empty it).
+  const rest = haltTargets(
+    ids.filter((i) => !firingSet.has(i)),
+    (i) => world.garrisoned(i)
+  );
   const intents: PlayerIntent[] = [{ kind: 'attack', ids: firing, target }];
   if (rest.length > 0) intents.push({ kind: 'order', verb: 'attackMove', ids: rest, x: at.x, y: at.y, append: false });
   return { intents, roe, marker: true, at };

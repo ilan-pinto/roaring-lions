@@ -865,6 +865,7 @@
   "hud.speaker.net": "NET",
   "hud.speaker.enemy": "ENEMY",
 
+  "intent.garrisonHolds": "Garrisoned units keep their post",
   "intent.cantPenetrate": "Can't penetrate: nothing selected can hurt that armour",
   "intent.protectedSite": "protected site — hold Alt to order fire on it",
   "intent.move.armed": "move — click open ground (Esc cancels)",

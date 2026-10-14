@@ -1156,6 +1156,7 @@ describe('the composer and the plugin agree on every key -- Important 2', () => 
       flies: () => false,
       canFocus: () => false,
       focusHurts: () => false,
+      garrisoned: () => false,
       ...over,
     };
   }

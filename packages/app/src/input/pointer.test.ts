@@ -165,6 +165,14 @@ describe('PA-08 / GH-420: the cursor over an enemy says what the click does', ()
     expect(c.name).toBe('blocked');
   });
 
+  it('R-20: simIntentWorld reads a unit inside a building as garrisoned (the test H uses)', () => {
+    const { sim, squad } = setup(true);
+    const w = simIntentWorld(sim, () => false);
+    expect(w.garrisoned(squad)).toBe(false);
+    sim.state.garrisonedIn[squad] = 0;
+    expect(w.garrisoned(squad)).toBe(true);
+  });
+
   it('I1: a wholly pinned squad over a focusable enemy reads pinned, with the hint set', () => {
     const { sim, squad, cam } = setup(true);
     sim.state.pinned[squad] = 1;
