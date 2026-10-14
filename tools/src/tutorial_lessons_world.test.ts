@@ -357,10 +357,12 @@ describe('tutorial beat 6 in the world (PA-12, GH-420)', () => {
     expect(after.length, 'the ordered squad never fired').toBeGreaterThan(0);
     for (const f of after) expect(f.target, 'the squad fired on someone it was not ordered onto').toBe(ordered);
     // In reach already, it did not walk on: the order stops an attack-move.
-    // These two checks CARRY THE DISCRIMINATION for the click. The shots above
-    // do not: an attack-moving squad is already firing on the man nearest it,
-    // so with `applyIntent` deleted from `rightClick` they stay green, while
-    // `moving` stays 1 (the attack-move runs on) and the squad walks away.
+    // `moving` CARRIES THE DISCRIMINATION for the click, and it is the only
+    // check here seen red: with `applyIntent` deleted from `rightClick` it
+    // stays 1 (the attack-move runs on). The shots above do not discriminate
+    // (an attack-moving squad is already firing on the man nearest it), and
+    // the position checks below were never seen red on their own, so they
+    // are not claimed to.
     expect(w.sim.state.moving[squad]).toBe(0);
     expect(w.sim.state.posX[squad]).toBe((at as unknown as { x: number }).x);
     expect(w.sim.state.posY[squad]).toBe((at as unknown as { y: number }).y);

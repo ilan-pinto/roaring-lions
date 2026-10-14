@@ -120,7 +120,7 @@ public read-only queries (R-8); T3's refusal and T2's focus preference share `we
 
 ### Rulings (controller, 2026-10-14)
 
-R-1 to R-13 were taken at pre-flight; R-3b and R-14 to R-22 came out of implementation, review and the fix rounds. Each line
+R-1 to R-13 were taken at pre-flight; R-3b and R-14 to R-22 came out of implementation, review and the fix rounds, and R-23 to R-25 out of the final whole-branch review. Each line
 ends with what it costs if the lead wants it the other way.
 
 - **R-1 (can't penetrate).** The APP refuses it: a unit none of whose slots `weaponHurts` the target gets no `attack`, only today's attack-move to the tile (T-D7); if NO selected unit can hurt it the click is refused with `intent.cantPenetrate` and the deny cue. The sim accepts `attack` on geometry-free grounds only. *Wrong:* a player who wants to pin a tank with rifles uses the Attack-move chip; reversing is app-only.
@@ -146,6 +146,9 @@ ends with what it costs if the lead wants it the other way.
 - **R-20 (garrison audit).** Every attack-move a click on a picked enemy produces excludes garrisoned ids: silently in the T-D7 remainder, and in the paths with no focus one `intent.garrisonHolds` note per click (all-garrisoned: the deny cue). *Wrong:* a garrison cannot be sent at a suspected enemy by right-click (the chip follows the same rule).
 - **R-21 (residual).** The structure and tunnel rungs' own attack-move remainders stay unfiltered: ground-point clicks, today's behaviour. *Wrong:* a garrison clicking a building still leaves it, as before the branch.
 - **R-22 (hysteresis, Task 2b).** A STOPPED focused unit stays in reach until the target is beyond reach + `FOCUS_REACH_SLACK` (0.5 tile); a moving one stops at the plain range. Stateless, hash-neutral. *Wrong:* a unit holds up to half a tile beyond its effective range; one constant.
+- **R-23 (order pick, final review I-2).** The order's enemy is `unitAtScreen`'s body segment at `ORDER_PICK_RADIUS_TILES` (0.5 tile, `hostileUnder`'s old generosity); the left-click keeps 1.2. *Wrong:* a player must click closer to the body to target it; one constant.
+- **R-24 (facade, final review I-1).** `pointerPoint` always applies PA-14's wall-to-building substitution; the enemy travels only as `hostile`/`hostileAt`, so only a focus beats the building. *Wrong:* a click on a SUSPECTED enemy at a wall resolves to the building (main: an attack-move to ground within 0.5 tile).
+- **R-25 (kamikaze, final review M-2).** `canFocus` refuses a kamikaze shooter (`attack_drone`); the app splits it to the attack-move. Hash-neutral. *Wrong:* a munition cannot be aimed at one target; it flies at the nearest identified one, as on main.
 
 ### Coordinator rulings (provisional, open to the lead, listed in the PR body)
 
