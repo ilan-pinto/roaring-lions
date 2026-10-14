@@ -1,6 +1,6 @@
 {
   "name": "roaring-lions",
-  "version": "0.123.15",
+  "version": "0.123.17",
   "private": true,
   "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
@@ -18,6 +18,7 @@
     "validate:audio": "python3 tools/validate_audio.py && python3 tools/test_gen_audio_args.py && python3 tools/test_validate_audio_voices.py && python3 tools/test_validate_audio_ui.py && python3 tools/test_validate_audio_mix.py && python3 tools/test_validate_audio_ambience.py && python3 tools/test_validate_audio_music.py",
     "balance": "pnpm --filter @lions/tools balance",
     "playtest": "pnpm --filter @lions/tools playtest",
+    "versus:probe": "pnpm --filter @lions/tools versus:probe",
     "perf:units": "pnpm --filter @lions/tools perf:units",
     "perf:load": "pnpm --filter @lions/tools perf:load",
     "perf:memory": "pnpm --filter @lions/tools perf:memory",
@@ -36,6 +37,7 @@
     "blast:capture": "pnpm --filter @lions/tools blast:capture",
     "atgm:capture": "pnpm --filter @lions/tools atgm:capture",
     "tunnel:capture": "pnpm --filter @lions/tools tunnel:capture",
+    "banner:capture": "pnpm --filter @lions/tools banner:capture",
     "radio:clips": "pnpm --filter @lions/tools radio:clips",
     "audio:mix": "pnpm --filter @lions/tools audio:mix",
     "weight:capture": "pnpm --filter @lions/tools weight:capture",

@@ -3143,6 +3143,28 @@ body[data-outcome-beat] .rl-aar {
   pointer-events: none;
   z-index: 5;
 }
+/* The held tag (lead ruling 2026-10-14): "House · 2 / 4 inside" beside a
+   hovered held building -- the count the retired world badge drew as pips.
+   The fire panel's box, right-aligned on its anchor so it sits LEFT of the
+   building while the fire panel sits right of a hovered unit, and edged in
+   the holder's relation colour (the banner on the wall says the same). */
+.rl-held {
+  position: absolute;
+  transform: translateX(-100%);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  border-left: 3px solid var(--panel-frame);
+  padding: var(--s1) var(--s2);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 5;
+}
+.rl-held[data-side='own'] {
+  border-left-color: var(--friendly);
+}
+.rl-held[data-side='hostile'] {
+  border-left-color: var(--bad);
+}
 /* GH-345: the Conduct invoice pinned open under the strip's Conduct field. */
 .rl-invoice {
   position: absolute;
@@ -7156,7 +7178,7 @@ button.rl-menu__item[data-kind='aside'] {
   font-size: var(--t-s);
   color: var(--bad-text);
 }
-/* KDF vs Sarim is Tel Marum only (2026-10-14): said under the side picker
+/* KDF vs Sarim plays on a few maps only (2026-10-14): said under the side picker
    while a side other than the mirror narrows the map list. */
 .rl-versus__side-note {
   font-family: var(--font-body);

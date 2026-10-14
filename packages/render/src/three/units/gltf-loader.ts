@@ -115,7 +115,7 @@ export function releaseImageAfterUpload(texture: THREE.Texture): void {
   const previous = texture.onUpdate;
   const t = texture;
   texture.onUpdate = (): void => {
-    previous?.call(t);
+    previous?.call(t, t);
     const img: unknown = t.image;
     const released = t.userData[RELEASED_IMAGE_KEY] as { width: number; height: number } | undefined;
     if (released && released.width > 0 && isClosable(img) && img.width === 0) {
@@ -173,7 +173,7 @@ function releaseImagesPlugin(): GLTFLoaderPlugin {
  * `templateCold` guards); this module only answers "is this cold" and
  * "warm it", and an upload of a still-cold texture logs an error by name.
  */
-const coldSources = new WeakMap<THREE.Source, Blob>();
+const coldSources = new WeakMap<THREE.TextureSource<unknown>, Blob>();
 
 /** Hold `texture`'s pixels encoded as `blob` until `warmColdTextures`. The
  *  cold plugin's one write; exported so tests can build a cold template. */
@@ -215,7 +215,7 @@ const decodeLikeThree: ImageDecoder = (blob) =>
  */
 export async function warmColdTextures(root: THREE.Object3D, decode: ImageDecoder = decodeLikeThree): Promise<void> {
   const textures = texturesUnder(root).filter(isColdTexture);
-  const bySource = new Map<THREE.Source, THREE.Texture[]>();
+  const bySource = new Map<THREE.TextureSource<unknown>, THREE.Texture[]>();
   for (const t of textures) bySource.set(t.source, [...(bySource.get(t.source) ?? []), t]);
   await Promise.all(
     [...bySource].map(async ([source, ts]) => {
@@ -239,7 +239,7 @@ export async function warmColdTextures(root: THREE.Object3D, decode: ImageDecode
     })
   );
 }
-const warming = new WeakMap<THREE.Source, Promise<void>>();
+const warming = new WeakMap<THREE.TextureSource<unknown>, Promise<void>>();
 
 /** The 1x1 stand-in a cold texture holds until it is warmed. */
 function placeholderImage(): unknown {

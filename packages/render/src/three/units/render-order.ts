@@ -382,3 +382,15 @@ export const SELECTION_RING_RENDER_ORDER = 0.5;
 export const TUNNEL_XRAY_RENDER_ORDER = 0.25;
 export const TUNNEL_XRAY_FIGURE_RENDER_ORDER = 0.3;
 export const TUNNEL_XRAY_BEAM_RENDER_ORDER = 0.35;
+
+/**
+ * The held-building banner (`garrison-banner.ts`, lead ruling 2026-10-14) --
+ * an alias of `WORLD_RENDER_ORDER`, the band of the building it hangs on. It
+ * is opaque, depth-writing cloth and steel fixed to a facade, so it is world
+ * geometry for every purpose this table has: a unit walking in front of the
+ * wall must occlude it through the depth buffer, and a unit behind the
+ * building must outline through it exactly as through the wall
+ * (`silhouette.ts`). Set by name so a later edit cannot drift it into a
+ * translucent band where it would paint over the unit standing before it.
+ */
+export const GARRISON_BANNER_RENDER_ORDER = WORLD_RENDER_ORDER;

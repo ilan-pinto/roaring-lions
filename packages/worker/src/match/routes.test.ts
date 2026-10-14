@@ -72,19 +72,45 @@ describe('/api/match', () => {
     await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-1', build: 'b1', mode: 'versus', map: 'tel_marum' }), env, NOW);
     expect(createBodies.map((b) => (b as { matchup?: string }).matchup)).toEqual(['sarim', 'mirror', 'mirror']);
   });
-  it('KDF vs Sarim is Tel Marum only: any other map refuses a non-mirror matchup before a room is made; the mirror plays anywhere (the lead, 2026-10-14)', async () => {
+  it('KDF vs Sarim is Tel Marum and Wadi Tarfan only: any other map refuses a non-mirror matchup before a room is made; the mirror plays anywhere (the lead, 2026-10-14)', async () => {
     const { env, createBodies } = fakeRooms();
-    for (const matchup of ['kdf', 'sarim']) {
-      const res = await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-1', build: 'b1', mode: 'versus', map: 'beit_sahwan_outskirts', matchup }), env, NOW);
-      expect(res.status).toBe(400);
+    for (const map of ['beit_sahwan_outskirts', 'milh_flats']) {
+      for (const matchup of ['kdf', 'sarim']) {
+        const res = await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-1', build: 'b1', mode: 'versus', map, matchup }), env, NOW);
+        expect(res.status, `${map} ${matchup}`).toBe(400);
+      }
     }
     // No map named is the default map, which is not Tel Marum.
     expect((await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-1', build: 'b1', mode: 'versus', matchup: 'kdf' }), env, NOW)).status).toBe(400);
     expect(createBodies).toHaveLength(0);
     expect((await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-1', build: 'b1', mode: 'versus', map: 'beit_sahwan_outskirts', matchup: 'mirror' }), env, NOW)).status).toBe(201);
     expect((await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-1', build: 'b1', mode: 'versus', map: 'tel_marum', matchup: 'kdf' }), env, NOW)).status).toBe(201);
+    expect((await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-1', build: 'b1', mode: 'versus', map: 'wadi_tarfan', matchup: 'sarim' }), env, NOW)).status).toBe(201);
+    expect((await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-1', build: 'b1', mode: 'versus', map: 'milh_flats', matchup: 'mirror' }), env, NOW)).status).toBe(201);
     // A sandbox room ignores the matchup altogether.
     expect((await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-1', build: 'b1', map: 'beit_sahwan_outskirts', matchup: 'sarim' }), env, NOW)).status).toBe(201);
+  });
+  it('a versus room is offered only on the maps measured fair: any other map is a 400 before a room is made; a sandbox room is not limited (#561, the lead, 2026-10-14)', async () => {
+    const { env, createBodies, created } = fakeRooms();
+    for (const map of ['qarn_hadid', 'wadi_halam_basin', 'deir_amun', 'umm_zeitoun', 'khan_rafid', 'tel_marum_3']) {
+      for (const matchup of ['mirror', undefined]) {
+        const res = await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-1', build: 'b1', mode: 'versus', map, ...(matchup ? { matchup } : {}) }), env, NOW);
+        expect(res.status, `${map} ${matchup}`).toBe(400);
+        expect(await res.text()).toBe('map not offered for versus');
+      }
+    }
+    expect(createBodies).toEqual([]);
+    expect(created).toEqual([]);
+    for (const map of ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats']) {
+      expect((await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-1', build: 'b1', mode: 'versus', map }), env, NOW)).status, map).toBe(201);
+    }
+    expect(createBodies).toHaveLength(4);
+    // A sandbox room is two humans on one side, not a contest: no fairness to measure, any shipped map.
+    expect((await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-1', build: 'b1', map: 'qarn_hadid' }), env, NOW)).status).toBe(201);
+    // An unknown map is still its own refusal.
+    const unknown = await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-1', build: 'b1', mode: 'versus', map: 'nope' }), env, NOW);
+    expect(unknown.status).toBe(400);
+    expect(await unknown.text()).toBe('unknown map');
   });
   // N1b follow-up: a callsign is cleaned the way the client cleans it
   // (`cleanCallsign`, @lions/net) before the room ever sees it -- the Worker

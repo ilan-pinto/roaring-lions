@@ -328,5 +328,25 @@
       40,
       44
     ]
+  },
+  "milh_flats": {
+    "friendly": [
+      9,
+      38
+    ],
+    "hostile": [
+      38,
+      9
+    ]
+  },
+  "wadi_tarfan": {
+    "friendly": [
+      10,
+      10
+    ],
+    "hostile": [
+      37,
+      37
+    ]
   }
 }

@@ -184,16 +184,16 @@ one directory, `**` crosses directories).
 
 | Files | What it is | Made from | Tool | AI-generated | Rights | Record |
 |---|---|---|---|---|---|---|
-| `art/meshes/vehicles/apc_eitan.glb` | Eitan 8x8 APC | Ledger `apc_eitan` (text-to-3D, refine 2k, remesh), own bake re-toned to the fleet olive and given the metal texel (A3.2 phase 2, section below); kit RWS on the roof ring | Meshy CLI; Blender, `export_meshy_apc.py`; wreck pass; kit_* nodes grafted by `pnpm kit:meshes` (GH-238) | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | Batch B0a units (GH-286); kit_* nodes: GH-238 plan 3, section "Kitted vehicles" |
-| `art/meshes/vehicles/apc_kipod.glb` | Kipod 6x6 screen carrier | Ledger `apc_kipod` (text-to-3D, refine 2k, remesh), own bake, the fleet's reference tone, given the metal texel (A3.2 phase 2); kit RWS on the roof ring | Meshy CLI; Blender, `export_meshy_apc.py`; wreck pass; kit_* nodes grafted by `pnpm kit:meshes` (GH-238) | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | Batch B0a units (GH-286); kit_* nodes: GH-238 plan 3, section "Kitted vehicles" |
+| `art/meshes/vehicles/apc_eitan.glb` | Eitan 8x8 APC | Ledger `apc_eitan` (text-to-3D, refine 2k, remesh), own bake re-toned to the fleet olive and given the metal texel (A3.2 phase 2, section below); kit RWS on the roof ring | Meshy CLI; Blender, `export_meshy_apc.py`; wreck pass; kit_* nodes grafted by `pnpm kit:meshes` (GH-238) | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | Batch B0a units (GH-286); kit_* nodes: GH-238 plan 3, section "Kitted vehicles"; unit polish (14 Oct): the Meshy RWS `art/parts/rws/` replaces the kit box on `turret_pivot` (`rws-swap.ts`, no hull re-export) |
+| `art/meshes/vehicles/apc_kipod.glb` | Kipod 6x6 screen carrier | Ledger `apc_kipod` (text-to-3D, refine 2k, remesh), own bake, the fleet's reference tone, given the metal texel (A3.2 phase 2); kit RWS on the roof ring | Meshy CLI; Blender, `export_meshy_apc.py`; wreck pass; kit_* nodes grafted by `pnpm kit:meshes` (GH-238) | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | Batch B0a units (GH-286); kit_* nodes: GH-238 plan 3, section "Kitted vehicles"; unit polish (14 Oct): the Meshy RWS `art/parts/rws/` replaces the kit box on `turret_pivot` (`rws-swap.ts`, no hull re-export) |
 | `art/meshes/vehicles/attack_drone.glb` | KDF loitering munition | Ledger `attack_drone` (stage 2: preview, refine 8k, remesh) | Meshy CLI; Blender, `export_meshy_drones.py`; wreck pass | Yes: Meshy | ARR; Meshy terms pending (item 1) | WP-A3.1 stage 2, the drones and the bike |
 | `art/meshes/vehicles/recon_drone.glb` | KDF recon drone | Ledger `recon_drone` (stage 2: preview, refine 8k, remesh); guard rings added in Blender | Meshy CLI; Blender, `export_meshy_drones.py`; wreck pass | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | WP-A3.1 stage 2, the drones and the bike |
 | `art/meshes/vehicles/loiter_drone.glb` | Sarim loitering munition | Ledger `loiter_drone` (B2: preview, remesh 800) | Meshy CLI; Blender, `export_meshy_loiter_drone.py`; wreck pass | Yes: Meshy | ARR; Meshy terms pending (item 1) | WP-A3.1 batch B2 |
 | `art/meshes/vehicles/demo_tzav.glb` | Shiryonan Demolition Carrier (held) | Ledger `demo_tzav` (text-to-3D, refine 2k, remesh), own bake; kit RWS | Meshy CLI; Blender, `export_meshy_tzav.py`; wreck pass | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | E5 part 2 |
 | `art/meshes/vehicles/dozer_d9.glb` | D9 dozer | Ledger `dozer_d9` (ramp set), own bake with the refine's white star painted out, saturation x0.85 and the metal texel (A3.2 phase 2) | Meshy CLI; Blender, `export_meshy_ramp.py`; wreck pass; kit_* nodes grafted by `pnpm kit:meshes` (GH-238) | Yes: Meshy | ARR; Meshy terms pending (item 1) | The A3.2 ramp set and the tunnel props; kit_* nodes: GH-238 plan 3, section "Kitted vehicles" |
-| `art/meshes/vehicles/scout_shachaf.glb` | Shachaf scout car | Ledger `scout_shachaf` (ramp set), own bake, given the metal texel (A3.2 phase 2); kit RWS | Meshy CLI; Blender, `export_meshy_ramp.py`; wreck pass; kit_* nodes grafted by `pnpm kit:meshes` (GH-238) | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | The A3.2 ramp set and the tunnel props; kit_* nodes: GH-238 plan 3, section "Kitted vehicles" |
+| `art/meshes/vehicles/scout_shachaf.glb` | Shachaf scout car | Ledger `scout_shachaf` (ramp set), own bake, given the metal texel (A3.2 phase 2); kit RWS | Meshy CLI; Blender, `export_meshy_ramp.py`; wreck pass; kit_* nodes grafted by `pnpm kit:meshes` (GH-238) | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | The A3.2 ramp set and the tunnel props; kit_* nodes: GH-238 plan 3, section "Kitted vehicles"; unit polish (14 Oct): the Meshy RWS `art/parts/rws/` replaces the kit box on `turret_pivot` (`rws-swap.ts`, no hull re-export) |
 | `art/meshes/vehicles/gun_truck.glb` | AA gun truck (enemy) | Ledger `gun_truck` (B2: text-to-3D, refine 2k, remesh), own bake | Meshy CLI; Blender, `export_meshy_gun_truck.py`; wreck pass | Yes: Meshy | ARR; Meshy terms pending (item 1) | WP-A3.1 batch B2 |
-| `art/meshes/vehicles/ifv_namer.glb` | Namer IFV (v2) | Ledger `ifv_namer` (B8 v2: `01a0fb1d` preview, 8k refine, remesh), given the metal texel in its shipped images (A3.2 phase 2, section below); kit RWS | Meshy CLI; Blender, `export_meshy_ramp.py`; wreck pass; kit_* nodes grafted by `pnpm kit:meshes` (GH-238) | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | WP-A3.1 batch B8 v2; kit_* nodes: GH-238 plan 3, section "Kitted vehicles" |
+| `art/meshes/vehicles/ifv_namer.glb` | Namer IFV (v2) | Ledger `ifv_namer` (B8 v2: `01a0fb1d` preview, 8k refine, remesh), given the metal texel in its shipped images (A3.2 phase 2, section below); kit RWS | Meshy CLI; Blender, `export_meshy_ramp.py`; wreck pass; kit_* nodes grafted by `pnpm kit:meshes` (GH-238) | Yes: Meshy hull or shell; kit parts and passes are code | ARR; Meshy terms pending (item 1) | WP-A3.1 batch B8 v2; kit_* nodes: GH-238 plan 3, section "Kitted vehicles"; unit polish (14 Oct): the Meshy RWS `art/parts/rws/` replaces the kit box on `turret_pivot` (`rws-swap.ts`, no hull re-export) |
 | `art/meshes/vehicles/mbt_lavi.glb` | Lavi MBT | Supplied Meshy export `Meshy_AI_A_3D_low_poly_futuris_0829201559_texture.blend` (no task id kept) | Meshy web export; Blender, `export_meshy_tank.py`; wreck pass; kit_* nodes grafted by `pnpm kit:meshes` (GH-238) | Yes: Meshy | ARR; Meshy terms pending (item 1) | The supplied Meshy assets; kit_* nodes: GH-238 plan 3, section "Kitted vehicles" |
 | `art/meshes/vehicles/technical.glb` | Armed technical (enemy) | Supplied Meshy exports `Technical_Truck_Body_0829203857` and `Pintle_Mount_Machine__0829203951` | Meshy web export; Blender, `export_meshy_truck.py`; wreck pass | Yes: Meshy | ARR; Meshy terms pending (item 1) | The supplied Meshy assets |
 | `art/meshes/vehicles/jeep_shoded.glb` | Shoded jeep | Supplied Meshy exports `military_utility_vehi_0907064115` (image-to-3D) and `military_vehicle_spli_0830115629` (part-segmentation) | Meshy web export; Blender, `export_meshy_jeep.py`; wreck pass; kit_* nodes grafted by `pnpm kit:meshes` (GH-238) | Yes: Meshy | ARR; Meshy terms pending (item 1) | The supplied Meshy assets; kit_* nodes: GH-238 plan 3, section "Kitted vehicles" |
@@ -274,6 +274,7 @@ one directory, `**` crosses directories).
 | `art/meshy/**/model.glb` | Meshy remesh sources the importers read (27) and the coin relief preview (1) | Downloaded remesh or preview output | Meshy CLI | Yes: Meshy | ARR; Meshy terms pending (item 1) | each batch's section; the preview and refine downloads are not committed |
 | `art/mocap/{meshy_soldier,sarim_rifles,yahalom_engineer}.json` | Bone rotations of the supplied Meshy bipeds' own clips | `git show e31ebdf3:art/meshes/<name>.glb`, rotations only, by `tools/units/extract_mocap.py`; no geometry | Python (`extract_mocap.py`) | Yes: Meshy animation library | ARR; Meshy terms pending (item 1) | The captured clips, restored |
 | `art/parts/mortar_crew/mortar.glb` (+ `mortar.blend`, `atlas.jpg`, `points.json`) | mortar_crew's 82 mm mortar | Ledger `mortar_team_mortar` remesh `01a0fae4` (B8, text-to-3D, 8k refine), source of record `~/dev/roaring-lions-art-backup/` (gitignored here) | Blender, `tools/units/mortar_crew_part.py`: tube raised 13 -> 60 deg about its breech, seated in the baseplate socket, struts deleted, bipod legs re-reached; bake faded (saturation x0.55) and dusted with `dust.3` by a hand-rolled fbm mask; 0 credits | Yes: Meshy part, edited in Blender | ARR; Meshy terms pending (item 1) | Unit polish (14 Oct), the lead's ruling 2 |
+| `art/parts/rws/rws_50.glb`, `rws_30.glb` (+ `rws.blend`, `slot_*.png`, `points.json`) | the KDF remote weapon station on apc_eitan, apc_kipod, ifv_namer (30 mm barrel) and scout_shachaf | Ledger `rws_50`: preview `01a13a79` (the second of two previews; `01a13a76` was a miss), refine `01a13a7d` at 8k, remesh `01a13a83` at 1,200 -- 60 credits; the refine and remesh sources are gitignored, copies of record in `~/dev/roaring-lions-art-backup/` | Meshy CLI (text-to-3D); Blender, `tools/vehicles/rws_part.py`: the domed base disc cut to a thin turntable ring, the housing box shrunk to 0.22 m, the Namer's barrel lengthened to 1.2 m and thickened; `rws_atlas.py` + `rws-swap.ts` onto each hull's atlas, no hull re-export | Yes: Meshy part, edited in Blender | ARR; Meshy terms pending (item 1) | Unit polish (14 Oct), the lead's rulings 3 and 5 |
 | `art/parts/rpg7.glb` | RPG-7 launcher part | Supplied Meshy export `RPG_7_launcher_0903143528` (image-to-3D, 3 Sep), decimated to 559 tris | Meshy web export; Blender, `export_meshy_rpg.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | WP-A3.1 stage 2, the hand weapons |
 | `art/parts/kit/*.glb` | Kit parts for the eight KDF vehicles (GH-238 plan 3): `kit_<track>_<tier>_<host>` nodes, the SOURCE the graft reads | Modelled in Blender at real metres by `tools/vehicles/kit_parts.py` and `kit_vehicles.py` to the numbers of `kit_blockout.py`'s approved mock; no import, no Meshy credit (K12) | Blender, `tools/vehicles/export_vehicle_kit.py` (UVs pinned to texels of each vehicle's existing Meshy bake; clash-checked by `kit_clash.py`) | No: hand-built by code, no generative art tool | ARR, project original | GH-238 plan 3, section "Kitted vehicles" |
 | `art/spike/inf_squad_rigged.glb` | R0 rigging spike (throwaway; used only by `tools/src/perf/three-units.ts`) | `kit.figure()` rigged in code; no model imported | Blender, `tools/spike_rig_infantry.py` | No | ARR, project original; CC BY-SA 4.0 window (1 of 1) | `tools/spike_rig_infantry.py` docstring |
@@ -535,7 +536,8 @@ Ten, all AI-generated with Meshy, all disclosed per `CONTRIBUTING.md`:
 | `art/meshes/vfx/explosion_burst.glb` | `structure_collapse` | `art/blend/explosion burst /` |
 
 `art/blend/` is **gitignored** (4.8 GB as of 2026-09-01, not the 465 MB this
-line recorded until then — it grew roughly tenfold as assets were supplied), so
+line recorded until then — it grew roughly tenfold as assets were supplied;
+**10.43 GB on 2026-10-14**, see outstanding item 4), so
 none of their sources are in version
 control. `ART_PIPELINE.md` §8 requires source alongside rendered output — "no
 binary-only art" — for the practical reason that an asset without source cannot
@@ -1140,71 +1142,124 @@ depends on someone remembering is provenance that eventually fails.
    now all rights reserved. Everything published under CC BY-SA 4.0 between
    2026-08-04 and that date remains licensed under it to whoever took a copy;
    the change stops adding to that set and cannot undo it.
-4. **Decide the `art/blend/` question deliberately** ([#137](https://github.com/ilan-pinto/roaring-lions/issues/137),
-   queued behind the T1 terrain milestone) — measured **2026-09-01: 5.16 GB**
-   in the main checkout (both prior figures were wrong: 4.8 GB is stale, and
-   the issue's own ~5.4 GB estimate ran high — re-measure before quoting
-   either again; `art/blend/` is gitignored, per-checkout, and does not exist
-   in a fresh worktree, so the number moves independently of `main`'s own
-   history). Git LFS, a decimated in-repo source, or a documented exception.
-   Currently it is an omission rather than a decision.
+4. **Decide the `art/blend/` question deliberately** ([#137](https://github.com/ilan-pinto/roaring-lions/issues/137))
+   -- **still open; the census below is the input, not the decision.**
+   `art/blend/` is gitignored and exists only in the main checkout
+   (`git ls-files art/blend` is empty; no worktree carries it, bar a stale
+   325 MB `civilian/` fragment). It is a **single copy**: the off-repo art
+   backup (`roaring-lions-art-backup`, 1.33 GB) holds the untracked Meshy-CLI
+   sources and contains no `art/blend` and no `.blend` file. Currently it is an
+   omission rather than a decision.
 
-   **The "texture is discarded by construction" hypothesis was tested, not
-   assumed — and it splits cleanly by asset class, not uniformly.** It holds
-   for vehicles, buildings, terrain and effects (3.46 GB of the 5.16 GB):
-   grepping every `export_meshy_*`/`import_meshy_*` script for a base-color
-   pixel read finds none in that group — classification there is pure
-   geometry (Z/X/Y histograms). Proven concretely on one representative
-   vehicle, `ifv_namer` (992,444-vert single mesh, 189 MB source): a
-   materials-stripped copy (geometry untouched, 94 MB, 50% retained) ran
-   through the real `export_meshy_namer.py` unmodified and produced a GLB
-   with the shipped one's exact bounding box and vertex counts within 0.3%.
-   Pre-*decimating* the source on top of that is a different question and
-   the answer is no — the exporter applies its own fixed 0.02-ratio decimate
-   to whatever mesh it's handed, so a pre-decimated input compounds and
-   undershoots the calibrated target by roughly half (measured: 10,369 hull
-   polys vs. the real 19,179). The geometric cuts still land correctly
-   (they're absolute coordinates, not vertex-relative), but the shipped
-   resolution changes — so **materials-only stripping, not decimation, is
-   the safe operation for this class.**
+   **Census, 2026-10-14, against `origin/main` `e4d0af67`: 10.43 GB (9.71 GiB)
+   in 153 files -- 6.12 GB live, 4.30 GB dead.** (GB here is 10^9 bytes, from
+   `stat`, not `du`; it was 5.16 GB on 2026-09-01 and 465 MB before that.)
+   **51 files are over GitHub's 100 MiB hard limit** (32 live, 19 dead), the
+   largest being 198 MB; a 52nd, the 96 MiB `KDF/Shai Hammi` zip, is over
+   100 MB decimal and under the limit.
 
-   The hypothesis does **not** hold for the rigged-figure class
-   (`KDF/sniper`, `KDF/mortor team`, `KDF/soldier`, `KDF/Yaalom`,
-   `enemy/Sarim irregular` — 1.70 GB): four of those five import scripts
-   read a base-color pixel array to classify vertices into roles
-   (`webbing`/`boot`/`uniform`/…) *before* clearing materials, not after.
-   Proven concretely, not inferred: stripping the texture from the
-   representative rigged biped's base clip (`Sarim irregular`) and running
-   the real `import_meshy_soldier_irregular.py` against it crashed —
-   `IndexError: … materials[0] … index 0 out of range, size 0` inside
-   `classify_vertex_roles`. Two sub-patterns live inside this class and
-   extrapolate very differently: `soldier`/`Yaalom`/`Sarim irregular` each
-   ship one texture-load-bearing base clip plus several animation-only clips
-   whose own mesh is discarded either way (only the action curve survives
-   `import_clip`) — stripping those is provably free (a partial-strip run
-   reproduced the shipped `sarim_rifles.glb`'s vertex count exactly, 58,725
-   both times) — and each of those three families also carries a redundant
-   delivery `.zip`, byte-for-byte duplicating a folder already unzipped
-   beside it (462 MB total, a zero-risk deletion available today,
-   independent of this whole question). `sniper` and `mortor team`, though,
-   are each two independently-classified static poses with no disposable
-   clip at all — every byte of their texture is load-bearing.
+   *Live* means a current exporter or tool on `main` opens the file by name
+   and the shipped output it feeds is still produced by it (the register above,
+   the credit string embedded in the shipped GLB, and `TEAM_MESH_OWNER` in
+   `tools/units/rig.py`). It is a reading of the code, not of CI: no exporter
+   runs in CI, they are run by hand, so "live" means "would be read by the next
+   re-export". *Dead* is everything else. Sizes are rounded to 0.01 GB, so the
+   rows do not add exactly.
 
-   **Extrapolated best case sits around 2.6 GB, not "ordinary git."**
-   Applying the Namer ratio to the rest of the geometry-only class
-   (3.46 GB → ~1.7 GB) and the measured per-family ratios to the figure
-   class (1.70 GB → ~0.9 GB, almost all of the saving from
-   `soldier`/`Yaalom`/`Sarim irregular` collapsing roughly 6:1 while
-   `sniper`/`mortor team` stay full-size) totals **~2.6 GB retained** —
-   about half of 5.16 GB, not the order-of-magnitude cut "texture is pure
-   waste" implied. 2.6 GB of binary sources that get replaced wholesale on
-   every re-export (nothing here deltas) is still well past what plain git
-   carries gracefully. **This measurement rules out "strip and commit
-   plainly" as a full fix on its own; it does not resolve the choice between
-   Git LFS, a class-aware partial in-repo source, and a documented
-   exception** — that remains the project lead's call. Full method, per-file
-   numbers, and the Blender scripts used are in
-   `.superpowers/queue/blend-size-report.md`.
+   | Folder under `art/blend/` | Live GB | Dead GB | Live: what reads it. Dead: why |
+   |---|---:|---:|---|
+   | **`KDF/`** | **0.97** | **1.71** | |
+   | `KDF/AH-64 attack helicopter` | 0.27 | 0 | `export_meshy_apache.py` (both blends) |
+   | `KDF/Shodeed jeep` | 0.33 | 0 | `export_meshy_jeep.py` (both blends) |
+   | `KDF/tank` | <0.01 | 0 | `export_meshy_tank.py` (`officer_armour` is cut from its GLB) |
+   | `KDF/Shai Hammi` | 0.01 | 0.10 | `render_portrait.py` (remesh blend and concept PNG). Dead: a 4-clip rig `.zip`, the delivery behind `enemy/Suicide Squad` (2 of its 4 clips are identical to that folder's, 2 exist nowhere else) |
+   | `KDF/idit zohar` | 0.34 | 0 | `render_portrait.py` (two image-to-3D blends and the concept PNG; which one was rendered is not recorded) |
+   | `KDF/Namer IFV` | 0 | 0.19 | `ifv_namer` is a Meshy-CLI generation (B8 v2); nothing reads this |
+   | `KDF/soldier`, `KDF/sniper`, `KDF/mortor team`, `KDF/Yaalom` | 0 | 1.41 | 0.30 + 0.38 + 0.38 + 0.35. The four teams are Meshy-CLI generations driven by `import_meshy_crew_team.py` (`TEAM_MESH_OWNER`); their old importers write files that no longer ship; the mocap clips come from git history (`e31ebdf3`), not from here. Includes the `soldier` and `Yaalom` delivery zips |
+   | `KDF/KDF camp`, `KDF/d9` | 0 | <0.01 | `camp` and `dozer_d9` are Meshy-CLI generations; their old exporters refuse to overwrite them |
+   | **`enemy/`** | **3.72** | **1.73** | |
+   | `enemy/enemy building 1` (house) | 0.38 | 0 | `export_meshy_house.py` |
+   | `enemy/enemy building 2` (apartment) | 0.39 | 0.20 | `export_meshy_apartment.py`. Dead: an interrupted Chrome download (`Unconfirmed 986157.crdownload`, a `.blend` header, not a prefix of either sibling) |
+   | `enemy/building 3` (warehouse) | 0.36 | 0 | `export_meshy_warehouse.py` |
+   | `enemy/clinic` | 0.38 | 0.14 | `export_meshy_clinic.py`. Dead: the part-segmentation blend, its "third source, rejected" |
+   | `enemy/civic hall` | 0.39 | 0.14 | `export_meshy_hall.py`. Dead: the part-segmentation blend, never opened |
+   | `enemy/paramotor` | 0.38 | 0 | `export_meshy_paramotor.py` (both) |
+   | `enemy/truck` | 0.38 | 0 | `export_meshy_truck.py` (both) |
+   | `enemy/truck mortor` | 0.33 | 0 | `export_meshy_rocket_battery.py` (both) |
+   | `enemy/wepons` | 0.19 | 0.15 | `export_meshy_rpg.py` -> `art/parts/rpg7.glb`. Dead: the part-segmentation blend ("used in September; not now") |
+   | `enemy/Nadir Sahim`, `enemy/Karim Adhal`, `enemy/Jubran Hallaq` | 0.54 | 0 | `render_portrait.py` (a remesh and a standing blend each; `docs/art/meshy-prompts-characters.md` names one per character, and both are counted live) |
+   | `enemy/RPG team`, `enemy/Sarim irregular`, `enemy/Suicide Squad` | 0 | 1.10 | 0.61 + 0.39 + 0.10. `rpg_team`, `sarim_rifles` and `charge_squad` are Meshy-CLI generations; `import_meshy_rpg_team.py` is a work in progress whose output never shipped. Includes three delivery zips |
+   | **`terrain object/`** | **0.75** | **0.58** | |
+   | `terrain object/` (23 flat decor files) | 0.01 | <0.01 | `export_meshy_decor.py`. Dead: four sources it does not use and one byte-identical `(1)` copy |
+   | `terrain object/olive tree` | 0.38 | 0 | `export_meshy_decor.py` (both) |
+   | `terrain object/ditch` | 0.17 | 0 | `export_meshy_ditch.py` |
+   | `terrain object/fences` | 0.19 | 0.38 | `export_meshy_fence.py` reads `v1` only. Dead: candidates `v2` and `v3` |
+   | `terrain object/stone` | <0.01 | 0.20 | Live: the concept PNG. Dead: the blend, which "supplies nothing this script uses" |
+   | **`civilian/`** | **0.24** | **0.10** | `import_meshy_civilians.py` (Idle, Running, Crawl; the child's Running). Dead: the four `Walking` clips, "read by nothing" since 2026-09-16 |
+   | **`map/`** | **0.34** | 0 | `export_meshy_world.py` (both blends) |
+   | **`effects/`** | **0.07** | 0 | `export_mesh_vfx.py` (muzzle flash, explosion burst, smoke plume) |
+   | **`desert tile/`** | <0.01 | 0.19 | Live: the tile PNG, the image fed to Meshy. Dead: the 180 MB blend, which bakes a scrambled atlas and has no reader |
+   | **`terrain tiles/`**, **`rock tile/`** | 0.02 | 0 | six and one PNGs; `author_highland_tile.py` reads `image_rock.png` by md5 |
+   | **Total** | **6.12** | **4.30** | 153 files; 32 live and 19 dead over 100 MiB |
+
+   Where the 4.30 GB of dead goes: 2.51 GB is the seven superseded rigged-figure
+   folders (of which five delivery `.zip`s, 0.65 GB, are CRC-identical copies of
+   the unzipped folder beside them -- the 462 MB this item once recorded for three
+   families); 0.19 GB `Namer IFV`; 0.10 GB the `Shai Hammi` zip; 0.38 GB fence
+   candidates `v2`/`v3`; 0.43 GB three unread part-segmentation blends (`clinic`,
+   `civic hall`, `wepons`); 0.20 GB the `stone` blend; 0.19 GB the `desert tile`
+   blend; 0.20 GB the partial download; 0.10 GB the `Walking` clips. Nothing
+   here is deleted, moved or compressed: this is the only copy, and a "dead"
+   source is still the only record of Meshy credits already spent. Dead means no
+   current exporter reads it, not that it is worthless.
+
+   **Material stripping is ruled out for the live set -- the 2026-09-01 premise
+   was overtaken.** That test (kept below) found vehicles, buildings, terrain
+   and effects to be geometry-only and strippable to about half. Since then the
+   lead's "used as is" ruling has the exporters ship the source's own
+   `base_color` bake (vehicles named 2026-09-07 in `tools/vehicles/textured.py`,
+   the three buildings before that; 2026-09-14 added the metallic-roughness and
+   normal maps), so those exporters now read the texture. Checked in the code on `e4d0af67`:
+   `export_meshy_tank.py` ships the bake through `vehicles/textured.py`;
+   `export_meshy_house.py` ships it through `buildings/textured.py` and samples
+   `base_color` pixels to find the glass; `import_meshy_civilians.py` samples
+   base-colour pixels per vertex to find the roles and keeps the 4096 bake; the
+   same `textured` path is imported by the apartment, warehouse, clinic, hall,
+   fence, ditch, jeep, truck, paramotor, rocket-battery, Apache and
+   campaign-world exporters; and `render_portrait.py` renders the Meshy material
+   untouched. A material-stripped copy of any of them would not rebuild the
+   shipped GLB (and the 2026-09-01 test had already shown the rigged-figure
+   class needs its texture: `classify_vertex_roles` crashed on a stripped Sarim
+   source). The exception is `export_meshy_decor.py`, which
+   strips materials itself (olive trees split by geometry, shrubs by per-object
+   `Color` attributes), so the two olive-tree blends (0.38 GB) could be stripped;
+   it would save well under 0.2 GB. [#137](https://github.com/ilan-pinto/roaring-lions/issues/137)'s
+   own premise, "every export script strips materials", is out of date for the
+   same reason.
+
+   **What is left to decide, and it is the lead's call.** Plain git is out:
+   32 live files exceed the 100 MiB limit. The two candidates are *Git LFS for
+   the live subset only* (6.12 GB, 5.70 GiB: inside the 10 GiB of LFS storage
+   GitHub gives a Free or Pro account, but every full `git lfs pull` is 5.7 GiB against
+   10 GiB of bandwidth a month, downloads by CI, forks and archives all count
+   against the owner, overage is metered per GiB with no data packs, and with the
+   repository public it publishes the Meshy sources, which waits on the
+   redistribution terms in Status item 1) or *a documented exception to
+   `ART_PIPELINE.md` §8 plus an off-repo backup* (an external drive or a private
+   bucket; nothing public, nothing to bill, but a contributor still cannot re-run
+   an exporter from a clone). The 2026-09-01 record follows; its method and
+   per-file numbers are in `.superpowers/queue/blend-size-report.md`.
+
+   *Record, 2026-09-01 (5.16 GB then; stale).* The stripping hypothesis was
+   tested rather than assumed, and split by asset class: it held for vehicles,
+   buildings, terrain and effects (3.46 GB of the 5.16 GB), proven on
+   `ifv_namer` (a materials-stripped copy kept 50% of the bytes and rebuilt the
+   shipped GLB's bounding box and vertex counts within 0.3%; pre-decimating
+   compounds with the exporter's own decimate, so stripping and not decimating
+   is the safe operation); it did not hold for the rigged-figure class
+   (1.70 GB: four of five importers read a base-colour pixel array to classify
+   vertices before clearing materials). The extrapolated best case was about
+   2.6 GB retained, "well past what plain git carries gracefully".
 
 ---
 

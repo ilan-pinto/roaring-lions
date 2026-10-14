@@ -143,7 +143,7 @@ export const AO_RESOLUTION_SCALE = 0.5;
  *    behind it must not darken it either.
  *
  * Non-meshes pass: only meshes are drawn by the override material, and
- * `GTAOPass.overrideVisibility` already hides points and lines itself.
+ * `GTAOPass` already hides points and lines itself.
  *
  * Nothing opaque in this scene is caught by any of the three -- terrain,
  * decor, buildings, mesh units and their wrecks all carry normals and draw
@@ -174,7 +174,7 @@ export function isAoOccluder(object: THREE.Object3D): boolean {
  * a half-res AO is.
  *
  * The constructor does not call `setSize`, so the subclass field is safe to
- * read by the time anything calls it -- verified against r170's source
+ * read by the time anything calls it -- verified against r170 and r186 source
  * rather than assumed, because a constructor that DID call it would read
  * `resolutionScale` as `undefined` and size every target NaN.
  */
@@ -218,24 +218,70 @@ function seededRandomSource(seed: number): { random(): number } {
   };
 }
 
+/**
+ * The seeded Poisson-denoise noise texture -- r170's own noise loop with a
+ * SEEDED simplex. See `AO_NOISE_SEED` for the measurement that made it
+ * necessary.
+ *
+ * The loop is copied rather than delegated because `GTAOPass` builds its
+ * `SimplexNoise` inline, so there is no seam to inject through short of
+ * swapping the global `Math.random` around a `super` call. The output
+ * contract is the part that matters and it is narrow: a 64x64 RGBA
+ * `DataTexture`, repeat-wrapped, sampled by the Poisson denoise for a
+ * per-pixel kernel rotation. Any noise field satisfies it; only
+ * REPEATABILITY is at stake here.
+ */
+export function seededAoNoiseTexture(size = 64): THREE.DataTexture {
+  const simplex = new SimplexNoise(seededRandomSource(AO_NOISE_SEED));
+  const data = new Uint8Array(size * size * 4);
+  for (let i = 0; i < size; i++) {
+    for (let j = 0; j < size; j++) {
+      const at = (i * size + j) * 4;
+      data[at] = (simplex.noise(i, j) * 0.5 + 0.5) * 255;
+      data[at + 1] = (simplex.noise(i + size, j) * 0.5 + 0.5) * 255;
+      data[at + 2] = (simplex.noise(i, j + size) * 0.5 + 0.5) * 255;
+      data[at + 3] = (simplex.noise(i + size, j + size) * 0.5 + 0.5) * 255;
+    }
+  }
+  const noiseTexture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat, THREE.UnsignedByteType);
+  noiseTexture.wrapS = THREE.RepeatWrapping;
+  noiseTexture.wrapT = THREE.RepeatWrapping;
+  noiseTexture.needsUpdate = true;
+  return noiseTexture;
+}
+
+/**
+ * **This subclass overrides NO base-class helper, and that is the r186
+ * lesson.** Until three r186 it overrode `generateNoise`,
+ * `overrideVisibility` and `restoreVisibility`. r186 renamed all three (and
+ * `renderOverride`/`renderPass`) to `_`-prefixed internals, while
+ * `@types/three` 0.186 still declares the old public names -- so every
+ * override still type-checked, `override` keyword and all, and the base
+ * class simply stopped calling any of them. Measured on dependabot's #569:
+ * the denoise noise went back to `Math.random()` (the cross-process drift
+ * `AO_NOISE_SEED` exists to stop) and every outline hull, decal pool,
+ * overlay and transparent FX quad went back into the AO G-buffer -- the
+ * decal showcase alone moved 367,201 px / 23.34 on `aftermath`.
+ *
+ * So both jobs are done from the two seams a rename cannot move: the
+ * CONSTRUCTOR (the noise texture is swapped onto `pdMaterial` after
+ * `super()` returns) and `render()` (the pass's own public entry, which
+ * `EffectComposer` calls by name). Hiding non-occluders across the whole of
+ * `render` rather than only the G-buffer pre-pass is equivalent: every other
+ * draw in it is a full-screen quad in the pass's own private scene.
+ */
 class WorldGTAOPass extends GTAOPass {
   private readonly resolutionScale: number;
-  /**
-   * Whether `overrideVisibility` has run without its matching restore.
-   *
-   * A flag rather than an unconditional restore in the `finally` below, and
-   * the reason is a trap in r170: `restoreVisibility` is **not idempotent**.
-   * It traverses the scene writing `object.visible = cache.get(object)` and
-   * then clears the cache -- so a second call reads `undefined` out of the
-   * empty cache and assigns it to EVERY object in the scene. `undefined` is
-   * falsy, so calling it twice does not "restore twice", it blanks the
-   * frame. Verified in `GTAOPass.js`, not assumed.
-   */
-  private visibilityOverridden = false;
 
   constructor(scene: THREE.Scene, camera: THREE.Camera, width: number, height: number, resolutionScale: number) {
     super(scene, camera, Math.max(1, Math.round(width * resolutionScale)), Math.max(1, Math.round(height * resolutionScale)));
     this.resolutionScale = resolutionScale;
+    // The base constructor has already built a `Math.random()` texture and
+    // bound it; it was never uploaded, so disposing it frees nothing on the
+    // GPU and only keeps the bookkeeping honest.
+    this.pdNoiseTexture.dispose();
+    this.pdNoiseTexture = seededAoNoiseTexture();
+    this.pdMaterial.uniforms.tNoise.value = this.pdNoiseTexture;
   }
 
   override setSize(width: number, height: number): void {
@@ -246,96 +292,36 @@ class WorldGTAOPass extends GTAOPass {
   }
 
   /**
-   * r170's own noise loop with a SEEDED simplex -- see `AO_NOISE_SEED` for
-   * the measurement that made it necessary.
+   * Three things wrapped around the base render.
    *
-   * The loop is copied rather than delegated because `generateNoise` builds
-   * its `SimplexNoise` inline, so there is no seam to inject through short
-   * of swapping the global `Math.random` around a `super` call. The output
-   * contract is the part that matters and it is narrow: a 64x64 RGBA
-   * `DataTexture`, repeat-wrapped, sampled by the Poisson denoise for a
-   * per-pixel kernel rotation. Any noise field satisfies it; only
-   * REPEATABILITY is at stake here.
+   * **Only the opaque world reaches the G-buffer** (`isAoOccluder`). Every
+   * mesh that fails it is hidden for the duration of the base render and put
+   * back in `finally` -- only the ones THIS call hid, so a mesh that was
+   * already invisible stays that way, and a second restore cannot happen
+   * because the list is local. The base pass still hides points and lines
+   * itself; `isAoOccluder` passes every non-mesh, so the two sets are
+   * disjoint and neither restore can undo the other.
    *
-   * Called from the BASE constructor (`this.pdNoiseTexture =
-   * this.generateNoise()`), which is before this subclass's own field
-   * initialisers run -- so it must touch no instance state, and does not.
-   */
-  override generateNoise(size = 64): THREE.DataTexture {
-    const simplex = new SimplexNoise(seededRandomSource(AO_NOISE_SEED));
-    const data = new Uint8Array(size * size * 4);
-    for (let i = 0; i < size; i++) {
-      for (let j = 0; j < size; j++) {
-        const at = (i * size + j) * 4;
-        data[at] = (simplex.noise(i, j) * 0.5 + 0.5) * 255;
-        data[at + 1] = (simplex.noise(i + size, j) * 0.5 + 0.5) * 255;
-        data[at + 2] = (simplex.noise(i, j + size) * 0.5 + 0.5) * 255;
-        data[at + 3] = (simplex.noise(i + size, j + size) * 0.5 + 0.5) * 255;
-      }
-    }
-    const noiseTexture = new THREE.DataTexture(
-      data,
-      size,
-      size,
-      THREE.RGBAFormat,
-      THREE.UnsignedByteType
-    );
-    noiseTexture.wrapS = THREE.RepeatWrapping;
-    noiseTexture.wrapT = THREE.RepeatWrapping;
-    noiseTexture.needsUpdate = true;
-    return noiseTexture;
-  }
-
-  /**
-   * A second traversal rather than a re-implementation: the base method
-   * caches the visibility of EVERY object (not only the ones it hides), and
-   * the inherited `restoreVisibility` puts back whatever that cache holds --
-   * so anything hidden after `super` returns is restored for free, while
-   * reaching into `_visibilityCache` to save a pass would mean reaching
-   * through the type declarations at every three upgrade.
-   */
-  override overrideVisibility(): void {
-    super.overrideVisibility();
-    this.scene.traverse((object) => {
-      if (!isAoOccluder(object)) object.visible = false;
-    });
-    this.visibilityOverridden = true;
-  }
-
-  override restoreVisibility(): void {
-    super.restoreVisibility();
-    this.visibilityOverridden = false;
-  }
-
-  /**
-   * Two things wrapped around the base render, both of which cost nothing
-   * and one of which was costing a whole shadow pass a frame.
-   *
-   * **The G-buffer pre-pass must not re-render the sun's shadow map.**
-   * `renderOverride` is a full `renderer.render(scene, camera)`, and
+   * **The G-buffer pre-pass must not re-render the sun's shadow map.** The
+   * pre-pass is a full `renderer.render(scene, camera)`, and
    * `WebGLShadowMap.render` runs on every one of those unless it is told
    * otherwise (`autoUpdate === false && needsUpdate === false` is its only
    * early return besides `enabled === false`). So a second 4096 map was
    * being drawn for the whole scene each frame and thrown away: the pre-pass
    * draws through `MeshNormalMaterial`, which consumes no shadows at all.
    * Measured at **0.7-0.9 ms a frame** across the three views of
-   * `docs/PERFORMANCE.md`'s own table -- a tenth of the lit renderer's whole
-   * frame, bought back for four lines.
+   * `docs/PERFORMANCE.md`'s own table. The flag is saved, cleared and
+   * restored around this ONE nested render; the composer's `RenderPass` has
+   * already drawn this frame's shadows by the time the AO pass runs, with
+   * `autoUpdate` untouched, and finds it untouched again next frame -- this
+   * is not the frame-level freeze that would pin shadows under moving units.
    *
-   * **This is not the frame-level `shadowMap.autoUpdate = false` that would
-   * freeze shadows on moving units** -- that was considered for this branch
-   * and ruled out, correctly. The flag is saved, cleared and restored around
-   * this ONE nested render; the composer's `RenderPass` has already drawn
-   * this frame's shadows by the time the AO pass runs, with `autoUpdate`
-   * untouched, and finds it untouched again next frame.
-   *
-   * **And the `finally` is not defensive decoration.** Between
-   * `overrideVisibility` and `restoreVisibility` the base pass has every
-   * billboard, tracer, decal, overlay and outline hull in this scene set
-   * invisible (this subclass widened that set from three's own points and
-   * lines). A throw in there -- a shader compile failure, a lost context, a
-   * bad uniform -- would leave them that way for the rest of the session,
-   * turning a transient GL error into a permanently half-drawn game.
+   * **And the `finally` is not defensive decoration.** A throw in the base
+   * render -- a shader compile failure, a lost context, a bad uniform --
+   * would otherwise leave every billboard, decal, overlay and outline hull
+   * invisible for the rest of the session, and (since the base pass sets
+   * `scene.overrideMaterial` with no `finally` of its own) the whole scene
+   * drawing through `MeshNormalMaterial`.
    */
   override render(
     renderer: THREE.WebGLRenderer,
@@ -345,15 +331,21 @@ class WorldGTAOPass extends GTAOPass {
     maskActive: boolean
   ): void {
     const shadowAutoUpdate = renderer.shadowMap.autoUpdate;
+    const overrideMaterial = this.scene.overrideMaterial;
+    const hidden: THREE.Object3D[] = [];
+    this.scene.traverse((object) => {
+      if (object.visible && !isAoOccluder(object)) {
+        object.visible = false;
+        hidden.push(object);
+      }
+    });
     renderer.shadowMap.autoUpdate = false;
     try {
       super.render(renderer, writeBuffer, readBuffer, deltaTime, maskActive);
     } finally {
       renderer.shadowMap.autoUpdate = shadowAutoUpdate;
-      // Only if the base pass did not get as far as its own restore -- see
-      // `visibilityOverridden` for why calling it a second time would blank
-      // the scene rather than do nothing.
-      if (this.visibilityOverridden) this.restoreVisibility();
+      this.scene.overrideMaterial = overrideMaterial;
+      for (const object of hidden) object.visible = true;
     }
   }
 }
@@ -522,7 +514,7 @@ export function createPostChain(
   // `quality.smaa` gates construction, not merely whether it is slotted --
   // building an SMAAPass nobody adds would still fetch its two lookup
   // textures (`new Image()`, a base64 `src`) for a pass `low` never runs.
-  const smaa = quality.smaa ? new SMAAPass(w, h) : null;
+  const smaa = quality.smaa ? new SMAAPass() : null;
   let fogPass: Pass | null = null;
   let aoPass: Pass | null = null;
   let vignettePass: Pass | null = null;

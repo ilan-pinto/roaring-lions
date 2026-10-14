@@ -53,6 +53,7 @@ import { aimPenaltyPct, breakSeconds, combatBand, hpWord, recoverySeconds, suppr
 import { bindDelegatedTip, bindTip } from './tooltip';
 import { VoiceCaption } from './voice-caption';
 import { weaponName } from './weapon-name';
+import { heldHoverTarget, heldReadout, type HeldReadout } from './held-readout';
 import {
   beatDwellMs,
   conductDefinition,
@@ -137,6 +138,9 @@ const FEED_DWELL_MS: Readonly<Record<AlertTier | 'none', number>> = {
 /** How far the projected-fire panel sits from the target it describes. Right
  *  and slightly up, so it never covers the unit the player is aiming at. */
 const FIRE_OFFSET = { x: 36, y: -8 };
+/** The held tag's anchor offset: it ends this far LEFT of the building's
+ *  centre (its CSS right-aligns it on `left`), mirroring the fire panel. */
+const HELD_OFFSET = { x: 36, y: -8 };
 
 /** Task 9: consecutive HUD ticks the projected-fire panel must stay visible
  *  before `deps.onProjectedFireShown` fires -- 3 ticks at the 4Hz
@@ -406,6 +410,15 @@ export interface HudDeps {
    *  and when absent: the orders, the own-unit card, the kit and the
    *  suppression count are that side's. */
   viewer?: number;
+  /** Fog: is this world point in the viewer's sight right now
+   *  (`Renderer.isVisible`). The held readout ("2 / 4 inside") follows the
+   *  banner's rule through it -- another side's building only while in
+   *  sight. Absent reads nothing as in sight, so only the viewer's own
+   *  buildings are counted. */
+  isVisible?: (wx: number, wy: number) => boolean;
+  /** The friendly unit under the pointer (`Renderer.rangeRingPreview`), -1
+   *  for none: hovering one inside a building shows that building's count. */
+  hoverFriendly?: () => number;
 }
 
 export class Hud {
@@ -472,6 +485,11 @@ export class Hud {
    *  target has died since, on that tick rather than the next 4 Hz one --
    *  a killed tank's name hung over its own fireball for up to 250 ms. */
   private fireShownFor = -1;
+  /** The held tag (lead ruling 2026-10-14): "House · 2 / 4 inside" beside a
+   *  hovered held building, placed from the frame loop like the fire panel. */
+  private readonly held: HTMLDivElement;
+  /** The structure the held tag is showing, -1 when it is hidden. */
+  private heldShownFor = -1;
   private engagingShownFor = -1;
 
   /** Fix round 1 (task 6 review, I1/I3): whether the in-mission tracker is
@@ -841,6 +859,10 @@ export class Hud {
     this.fire.className = 'rl-fire';
     this.fire.style.display = 'none';
 
+    this.held = document.createElement('div');
+    this.held.className = 'rl-held';
+    this.held.style.display = 'none';
+
     // --- commander ---------------------------------------------------------
     this.cmd = document.createElement('div');
     this.cmd.className = 'rl-cmd';
@@ -936,7 +958,7 @@ export class Hud {
     // The six panes this HUD owns on the host. Recorded as they are appended
     // -- `destroy()` walks `roots`, so a seventh pane added here is torn down
     // by construction rather than by remembering to name it twice.
-    this.roots.push(this.strip, this.cmd, this.clock, this.sel, this.fire, this.banner, this.invoice);
+    this.roots.push(this.strip, this.cmd, this.clock, this.sel, this.fire, this.held, this.banner, this.invoice);
     host.append(...this.roots);
   }
 
@@ -1085,6 +1107,8 @@ export class Hud {
     set(this.cluster, this.shown('card'));
     set(this.clock, this.shown('clock'));
     set(this.fire, this.shown('fire'));
+    // Building information, revealed with the card it complements.
+    set(this.held, this.shown('card'));
   }
 
   /**
@@ -1160,6 +1184,7 @@ export class Hud {
     this.renderClock();
     this.renderHint();
     this.renderFire();
+    this.renderHeld();
   }
 
   /**
@@ -1173,6 +1198,45 @@ export class Hud {
   placeFire(x: number, y: number): void {
     this.fire.style.left = `${Math.round(x + FIRE_OFFSET.x)}px`;
     this.fire.style.top = `${Math.round(y + FIRE_OFFSET.y)}px`;
+  }
+
+  /** The structure the held tag describes, -1 when it is hidden: `main.ts`
+   *  places the tag beside it every frame (`placeHeld`). */
+  get heldTarget(): number {
+    return this.heldShownFor;
+  }
+
+  /** Put the held tag beside the building it describes -- left of the
+   *  anchor, so it never lands under the fire panel, which sits right of a
+   *  hovered unit. Per frame, for `placeFire`'s reason. */
+  placeHeld(x: number, y: number): void {
+    this.held.style.left = `${Math.round(x - HELD_OFFSET.x)}px`;
+    this.held.style.top = `${Math.round(y + HELD_OFFSET.y)}px`;
+  }
+
+  /** What the viewer may know about structure `s` (`held-readout.ts`). */
+  private heldOf(s: number): HeldReadout | null {
+    const sim = this.deps.sim;
+    return heldReadout(sim, s, sim.entityCount, this.viewer, this.deps.isVisible ?? (() => false));
+  }
+
+  /** The held tag: the building under the pointer, or the one a hovered unit
+   *  is inside, when the viewer may know it is held (lead ruling 2026-10-14:
+   *  the count left the world with the badge). */
+  private renderHeld(): void {
+    const target = heldHoverTarget(this.deps.sim.state.garrisonedIn, this.deps.hoverStructure(), [
+      this.deps.hoverEntity(),
+      this.deps.hoverFriendly?.() ?? -1,
+    ]);
+    const r = target >= 0 ? this.heldOf(target) : null;
+    this.heldShownFor = r ? r.s : -1;
+    if (!r) {
+      this.held.style.display = 'none';
+      return;
+    }
+    this.held.dataset.side = r.own ? 'own' : 'hostile';
+    this.held.innerHTML = `<b>${escapeHtml(r.name)}</b> · ${t('hud.held.inside', { n: r.n, cap: r.cap })}`;
+    this.held.style.display = '';
   }
 
   /** Mirror the audio state the `m` key just changed. */
@@ -2341,7 +2405,13 @@ export class Hud {
       flags.push(state('rl-bad-text', word, symbolSvg(damage === 'immobilised' ? 'immobilised' : 'gunOut', STRIP_GLYPH_PX)));
       flags.push(`<span class="rl-dim">${what}</span>`);
     }
-    if (st.garrisonedIn[id] >= 0) flags.push(`<span class="rl-live">${t('hud.card.inBuilding')}</span>`);
+    if (st.garrisonedIn[id] >= 0) {
+      flags.push(`<span class="rl-live">${t('hud.card.inBuilding')}</span>`);
+      // How full it is (lead ruling 2026-10-14): the count the retired
+      // world badge drew as pips, under the banner's own fog rule.
+      const held = this.heldOf(st.garrisonedIn[id]);
+      if (held) flags.push(t('hud.held.inside', { n: held.n, cap: held.cap }));
+    }
     if (st.moving[id] === 1 && band !== 'broken') flags.push(t('hud.card.moving'));
     if (type.hasAps) flags.push(`<span class="rl-info">${t('selection.chip.aps', { ammo: st.apsAmmo[id], magazine: type.apsMagazine })}</span>`);
     const wp = sim.waypointCount(id);

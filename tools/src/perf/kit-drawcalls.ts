@@ -147,7 +147,7 @@ K.setDracoDecoderPath('${ORIGIN}/draco/');
 const renderer = new THREE.WebGLRenderer({ antialias: false });
 renderer.setSize(800, 600);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 let consoleErrors = 0;
 window.run = async (id, level, n, synthetic, rg) => {
   const gltf = await K.gltfLoader().loadAsync('${ORIGIN}/glb/' + id + '.glb');

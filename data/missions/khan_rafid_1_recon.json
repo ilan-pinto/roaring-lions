@@ -33,7 +33,7 @@
     { "id": "get_two_in", "type": "evacuate_before", "primary": true, "target": "ward", "count": 2, "seconds": 240,
       "text": "Get two families into the ward inside four minutes",
       "say": { "speaker": "shai", "text": "Two inside the wall. Whatever is still in that alley is not worth a second run across the street." },
-      "say_on_fail": { "speaker": "shai", "text": "Four minutes, and nothing of ours got within four tiles of them. They are somebody else's problem now, and there is nobody left in this town whose problem that is." } },
+      "say_on_fail": { "speaker": "shai", "text": "Four minutes, and no one on the ground reached them in time. They are somebody else's problem now, and there is nobody left in this town whose problem that is." } },
     { "id": "find_the_west_lane", "type": "locate", "primary": false, "carries": true, "target": "kr_lane_west",
       "text": "Identify the rocket team in the west lane",
       "say": { "speaker": "idit", "text": "Rocket team in the west lane, in a road one tile wide with houses on both sides. He is on the board now and he does not get a first shot next week." } },
@@ -93,6 +93,6 @@
   ],
   "debrief": {
     "victory": { "speaker": "shai", "text": "Two into the ward and two still in the alley. Four seats, one street and thirty tiles — that arithmetic does not get better by being braver." },
-    "defeat": { "speaker": "idit", "text": "Nothing of ours was within four tiles of those alleys in four minutes. The picture we did bring back is of a town that still has people living in it." }
+    "defeat": { "speaker": "idit", "text": "No one on the ground reached those alleys in time, and the drone walks nobody out. The picture we did bring back is of a town that still has people living in it." }
   }
 }
