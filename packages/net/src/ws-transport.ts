@@ -6,7 +6,7 @@
  * the browser passes `() => new WebSocket(url)`.
  */
 import type { Command } from '@lions/sim';
-import type { MatchConfig, Seat } from './config';
+import type { Faction, MatchConfig, Seat } from './config';
 import type { Frame } from './frames';
 import { LockstepClock } from './lockstep';
 import { parseServerMsg, type ClientMsg, type SeatState, type ServerMsg } from './protocol';
@@ -38,7 +38,8 @@ export interface SocketLike {
 }
 
 export interface WsTransportHooks {
-  onLobby?(seats: SeatState[], you: Seat, map: string): void;
+  /** `factions`, by seat: the room's matchup (absent from an older room: the mirror). */
+  onLobby?(seats: SeatState[], you: Seat, map: string, factions?: [Faction, Faction]): void;
   onStart(config: MatchConfig): void;
   onDesync?(tick: number, hashes: [number, number]): void;
   onEnded?(reason: string, seat?: Seat): void;
@@ -228,7 +229,7 @@ export class WsTransport implements MatchTransport {
       case 'lobby':
         // A reconnect before the start lands back in the lobby, not in a stall.
         if (this.config === null) { this.relinked(); this.setStalled(null); this.st = { kind: 'waiting' }; }
-        this.hooks.onLobby?.(msg.seats, msg.you, msg.map);
+        this.hooks.onLobby?.(msg.seats, msg.you, msg.map, msg.factions);
         return;
       case 'start':
         this.begin(msg.config);

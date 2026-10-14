@@ -139,6 +139,13 @@ describe('N1b messages', () => {
     expect(parseServerMsg(JSON.stringify({ t: 'ended', reason: 'surrender', seat: 1 }))).toEqual({ t: 'ended', reason: 'surrender', seat: 1 });
     expect(parseServerMsg(JSON.stringify({ t: 'ended', reason: 'boredom' }))).toBeNull();
   });
+  it('a lobby carries the factions by seat when it has them, and refuses a malformed pair (2026-10-14)', () => {
+    const lobby = { t: 'lobby', config: null, seats: [], you: 1, map: 'tel_marum', factions: ['sarim', 'kdf'] };
+    expect(parseServerMsg(JSON.stringify(lobby))).toEqual(lobby);
+    expect(parseServerMsg(JSON.stringify({ ...lobby, factions: ['sarim'] }))).toBeNull();
+    expect(parseServerMsg(JSON.stringify({ ...lobby, factions: ['sarim', 'rif'] }))).toBeNull();
+  });
+
   it('refuses a lobby with no map, and malformed paused, chat and ended seats', () => {
     expect(parseServerMsg(JSON.stringify({ t: 'lobby', config: null, seats: [], you: 0 }))).toBeNull();
     expect(parseServerMsg(JSON.stringify({ t: 'lobby', config: null, seats: [], you: 0, map: 3 }))).toBeNull();

@@ -7,10 +7,13 @@
 // match is not a campaign mission and pays nothing (spec §2.3); the test
 // beside this file spies on storage to hold that.
 
-import { currentLocale, t } from '../i18n/t';
+import { t } from '../i18n/t';
+import type { Faction } from '@lions/net';
 import type { MatchResult } from '../net/outcome';
+import type { MatchScore } from '../net/scoreboard';
 import type { Disposer } from '../shell/router';
 import { mountEndPanel } from './end-panel';
+import { amount, scoreTable, type ScoreNames } from './net-score';
 import { focusTrap } from './focus-trap';
 import { screenFoot } from './foot';
 import { panel } from './panel';
@@ -19,21 +22,19 @@ import { symbolLabel } from './symbol';
 export interface NetEndDeps {
   again(): void;
   menu(): void;
+  /** The match's scoreboard as it stood when the result was decided
+   *  (`net/scoreboard.ts`): the full table under the reason line. */
+  score?: { readonly score: MatchScore; readonly names: ScoreNames };
+  /** Each SIDE's faction (index 0 is side 0), in a KDF-vs-Sarim room: the
+   *  panel names the force this seat commanded and the one it fought. Absent
+   *  or the mirror, nothing is added. */
+  factions?: readonly [Faction, Faction];
 }
 
 /** Won, lost or drawn, as `viewer` sees `o`. */
 function verdictOf(o: MatchResult, viewer: 0 | 1): 'won' | 'lost' | 'draw' {
   if (o.kind === 'draw') return 'draw';
   return o.side === viewer ? 'won' : 'lost';
-}
-
-/** A force value as the player's locale writes a number (2,450). */
-function amount(n: number): string {
-  try {
-    return new Intl.NumberFormat(currentLocale()).format(n);
-  } catch {
-    return String(n);
-  }
 }
 
 /** The reason line, from `viewer`'s side. A result on surviving value (a
@@ -60,6 +61,14 @@ export function showNetEnd(host: HTMLElement, o: MatchResult, viewer: 0 | 1, dep
   reason.className = 'rl-net-end__reason';
   reason.textContent = netEndReason(o, viewer);
   p.body.appendChild(reason);
+  const factions = deps.factions;
+  if (factions !== undefined && factions[0] !== factions[1]) {
+    const played = document.createElement('p');
+    played.className = 'rl-net-end__played';
+    played.textContent = t('versus.end.played', { f: factions[viewer], them: factions[viewer === 0 ? 1 : 0] });
+    p.body.appendChild(played);
+  }
+  if (deps.score !== undefined) p.body.appendChild(scoreTable(deps.score.score, viewer, deps.score.names, { remaining: true }));
 
   const foot = screenFoot();
   const menu = document.createElement('button');

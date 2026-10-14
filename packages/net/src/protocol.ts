@@ -4,7 +4,7 @@
  * position: the only battle facts here are `Command`s and hashes.
  */
 import type { Command } from '@lions/sim';
-import { validateConfig, type MatchConfig, type Seat } from './config';
+import { isFactionPair, validateConfig, type Faction, type MatchConfig, type Seat } from './config';
 import type { Frame, Stamped } from './frames';
 
 export const MAX_MESSAGE_BYTES = 4096;
@@ -60,7 +60,9 @@ export const ENDED_REASONS = ['left', 'void', 'expired', 'surrender', 'over', 'f
 export type EndedReason = (typeof ENDED_REASONS)[number];
 
 export type ServerMsg =
-  | { t: 'lobby'; config: MatchConfig | null; seats: SeatState[]; you: Seat; map: string }
+  /** `factions`, by seat: what the host picked (KDF vs Sarim, or the mirror).
+   *  Absent from a room made before it existed, which is the mirror. */
+  | { t: 'lobby'; config: MatchConfig | null; seats: SeatState[]; you: Seat; map: string; factions?: [Faction, Faction] }
   | { t: 'start'; config: MatchConfig }
   | { t: 'frame'; tick: number; cmds: Stamped[] }
   | { t: 'stall'; reason: StallReason; seat: Seat }
@@ -243,8 +245,9 @@ export function parseServerMsg(raw: string): ServerMsg | null {
       // A lobby has no config until the host has set one; a config that is present must be valid.
       const c = m.config === null || m.config === undefined ? null : validateConfig(m.config);
       if (c === null && m.config !== null && m.config !== undefined) return null;
+      if (m.factions !== undefined && !isFactionPair(m.factions)) return null;
       return Array.isArray(m.seats) && m.seats.every(isSeatState) && isSeat(m.you) && isStr(m.map)
-        ? { t: 'lobby', config: c, seats: m.seats, you: m.you, map: m.map } : null;
+        ? { t: 'lobby', config: c, seats: m.seats, you: m.you, map: m.map, ...(m.factions !== undefined ? { factions: m.factions } : {}) } : null;
     }
     case 'start': { const c = validateConfig(m.config); return c ? { t: 'start', config: c } : null; }
     case 'frame': return isInt(m.tick) && Array.isArray(m.cmds) && m.cmds.every(isStamped) ? { t: 'frame', tick: m.tick, cmds: m.cmds } : null;

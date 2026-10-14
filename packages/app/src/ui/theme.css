@@ -7156,6 +7156,16 @@ button.rl-menu__item[data-kind='aside'] {
   font-size: var(--t-s);
   color: var(--bad-text);
 }
+/* KDF vs Sarim is Tel Marum only (2026-10-14): said under the side picker
+   while a side other than the mirror narrows the map list. */
+.rl-versus__side-note {
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+}
+.rl-versus__side-note[hidden] {
+  display: none;
+}
 .rl-versus__share {
   font-family: var(--font-body);
   font-size: var(--t-s);
@@ -7910,4 +7920,57 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-net-status__report {
   margin-left: var(--s3);
   font-size: var(--t-s);
+}
+
+/* The versus scoreboard (ui/net-score.ts, 2026-10-14): each side's destroyed
+   and lost, with their value, under the strip's right end while the match
+   runs; the full table, with the force left, on the match-over panel. The
+   running board is click-through, like the status line beside it. */
+.rl-net-score {
+  position: fixed;
+  top: calc(var(--hud-strip-h) + var(--s3));
+  right: var(--s3);
+  padding: var(--s1) var(--s3);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  pointer-events: none;
+  z-index: 19;
+}
+.rl-net-score[hidden] {
+  display: none;
+}
+.rl-net-board {
+  border-collapse: collapse;
+  color: var(--ink);
+  font: 600 var(--t-s) var(--font-body);
+  font-variant-numeric: tabular-nums;
+}
+.rl-net-board th,
+.rl-net-board td {
+  padding: var(--s1) var(--s2);
+  text-align: right;
+  white-space: nowrap;
+}
+.rl-net-board thead th {
+  color: var(--ink-dim);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.rl-net-board tbody th {
+  text-align: left;
+  max-width: 10rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rl-net-board tr[data-row='mine'] th {
+  color: var(--good);
+}
+/* KDF vs Sarim (2026-10-14): which force this seat commanded, under the reason. */
+.rl-net-end__played {
+  color: var(--ink-dim);
+}
+.rl-net-end .rl-net-board {
+  margin: var(--s3) auto 0;
+  font-size: var(--t-m);
 }

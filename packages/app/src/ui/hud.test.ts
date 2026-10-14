@@ -3144,6 +3144,18 @@ describe('the strip with no mission (PA-25)', () => {
     expect(line!.textContent).not.toBe('hud.strip.freePlay');
     expect(r.strip()).toContain('Tel Marum');
   });
+  it('a versus room names the force this seat commands, not free play (2026-10-14)', () => {
+    for (const f of ['sarim', 'kdf'] as const) {
+      const r = rig(null, { placeName: 'Tel Marum', versusFaction: f });
+      expect(r.stripEl().querySelector('[data-free-play]')).toBeNull();
+      const line = r.stripEl().querySelector<HTMLElement>('[data-versus]');
+      expect(line?.dataset.versus).toBe(f);
+      expect(line?.textContent).toBe(f === 'sarim'
+        ? 'You command Sarim — destroy their force · Escape for the menu'
+        : 'You command the KDF — destroy their force · Escape for the menu');
+    }
+    expect(rig(null, { placeName: 'Tel Marum' }).stripEl().querySelector('[data-versus]')).toBeNull();
+  });
   it('says nothing of free play in a mission, or with no place to name', () => {
     expect(rig(mission()).stripEl().querySelector('[data-free-play]')).toBeNull();
     expect(rig(null).stripEl().querySelector('[data-free-play]')).toBeNull();

@@ -30,13 +30,13 @@ const last = (ws: FakeSocket): ServerMsg | undefined => msgs(ws).at(-1);
 const ofType = <T extends ServerMsg['t']>(ws: FakeSocket, t: T): Extract<ServerMsg, { t: T }>[] =>
   msgs(ws).filter((m): m is Extract<ServerMsg, { t: T }> => m.t === t);
 
-interface CreateOpts { mode?: string; join?: boolean; code?: string; db?: D1Like }
+interface CreateOpts { mode?: string; join?: boolean; code?: string; db?: D1Like; matchup?: string }
 /** Creates the room and, unless `join: false`, has the guest reserve seat 1 as the Worker does. */
 async function created(state = new FakeState(), opts: CreateOpts = {}): Promise<{ state: FakeState; room: MatchRoom }> {
   const room = new MatchRoom(state, opts.db ? ({ ...env, DB: opts.db } as Env) : env);
   const res = await room.fetch(new Request('https://room/create', {
     method: 'POST',
-    body: JSON.stringify({ code: opts.code ?? CODE, matchId: opts.code ?? CODE, map: 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', ...(opts.mode ? { mode: opts.mode } : {}) }),
+    body: JSON.stringify({ code: opts.code ?? CODE, matchId: opts.code ?? CODE, map: 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', ...(opts.mode ? { mode: opts.mode } : {}), ...(opts.matchup ? { matchup: opts.matchup } : {}) }),
   }));
   expect(res.status).toBe(200);
   if (opts.join !== false) {
@@ -87,11 +87,11 @@ describe('MatchRoom', () => {
   it('a hello with a valid ticket joins the lobby, and each socket is told its own seat', async () => {
     const { room } = await created();
     const ws0 = await hello(room, 0);
-    expect(last(ws0)).toEqual({ t: 'lobby', config: null, seats: [{ seat: 0, callsign: 'Host', connected: true, ready: false }], you: 0, map: 'tel_marum' });
+    expect(last(ws0)).toEqual({ t: 'lobby', config: null, seats: [{ seat: 0, callsign: 'Host', connected: true, ready: false }], you: 0, map: 'tel_marum', factions: ['kdf', 'kdf'] });
     const ws1 = await hello(room, 1);
     const seats = [{ seat: 0, callsign: 'Host', connected: true, ready: false }, { seat: 1, callsign: 'Guest', connected: true, ready: false }];
-    expect(last(ws0)).toEqual({ t: 'lobby', config: null, seats, you: 0, map: 'tel_marum' });
-    expect(last(ws1)).toEqual({ t: 'lobby', config: null, seats, you: 1, map: 'tel_marum' });
+    expect(last(ws0)).toEqual({ t: 'lobby', config: null, seats, you: 0, map: 'tel_marum', factions: ['kdf', 'kdf'] });
+    expect(last(ws1)).toEqual({ t: 'lobby', config: null, seats, you: 1, map: 'tel_marum', factions: ['kdf', 'kdf'] });
   });
 
   it('answers a seated socket\'s malformed message with one bad_message and carries on', async () => {
@@ -214,6 +214,53 @@ describe('MatchRoom', () => {
       expect(start.config.seats.map((s) => s.faction)).toEqual(['kdf', 'kdf']);
       expect(start.config.seats.map((s) => s.callsign)).toEqual(['Host', 'Guest']);
     }
+  });
+
+  it('the host picks its side: sarim puts seat 0 on Sarim and seat 1 on the KDF, in the lobby and in the config (2026-10-14)', async () => {
+    for (const [matchup, factions] of [['sarim', ['sarim', 'kdf']], ['kdf', ['kdf', 'sarim']], ['mirror', ['kdf', 'kdf']], ['nonsense', ['kdf', 'kdf']]] as const) {
+      const { room } = await created(new FakeState(), { mode: 'versus', matchup });
+      const ws0 = await hello(room, 0);
+      const ws1 = await hello(room, 1);
+      expect(ofType(ws1, 'lobby').at(-1)?.factions).toEqual(factions);
+      await say(room, ws0, { t: 'ready' });
+      await say(room, ws1, { t: 'ready' });
+      for (const ws of [ws0, ws1]) {
+        const [start] = ofType(ws, 'start');
+        expect(start.config.seats.map((s) => s.faction)).toEqual(factions);
+        expect(start.config.seats.map((s) => s.side)).toEqual([0, 1]);
+      }
+    }
+  });
+
+  it('the room refuses a non-mirror matchup on any map but Tel Marum, and makes no room (the lead, 2026-10-14)', async () => {
+    for (const [map, matchup, status] of [['beit_sahwan_outskirts', 'sarim', 400], ['qarn_hadid', 'kdf', 400], ['beit_sahwan_outskirts', 'mirror', 200], ['tel_marum', 'sarim', 200]] as const) {
+      const state = new FakeState();
+      const room = new MatchRoom(state, env);
+      const res = await room.fetch(new Request('https://room/create', {
+        method: 'POST',
+        body: JSON.stringify({ code: CODE, matchId: CODE, map, build: BUILD, player: 'p-host', callsign: 'Host', mode: 'versus', matchup }),
+      }));
+      expect(res.status).toBe(status);
+      expect((await state.storage.get('state')) === undefined).toBe(status === 400);
+    }
+  });
+
+  it('a sandbox room is the KDF mirror whatever the create asked for', async () => {
+    const { ws0 } = await running({ matchup: 'sarim' });
+    expect(ofType(ws0, 'lobby').at(-1)?.factions).toEqual(['kdf', 'kdf']);
+    expect(ofType(ws0, 'start')[0].config.seats.map((s) => s.faction)).toEqual(['kdf', 'kdf']);
+  });
+
+  it('a room persisted before the matchup existed revives as the mirror', async () => {
+    const { state, room } = await created(new FakeState(), { mode: 'versus', matchup: 'sarim' });
+    await hello(room, 0);
+    const stored = (await state.storage.get<Record<string, unknown>>('state')) ?? {};
+    delete stored.factions;
+    await state.storage.put('state', stored);
+    evict();
+    const revived = new MatchRoom(state, env);
+    const ws = await hello(revived, 1);
+    expect(ofType(ws, 'lobby').at(-1)?.factions).toEqual(['kdf', 'kdf']);
   });
 
   it('start carries per-match seat tokens: 16 hex, one per seat, never either player id (N1b task 12)', async () => {

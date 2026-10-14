@@ -31,6 +31,40 @@ export interface MatchConfig {
   dataDigest: number;
 }
 
+/** What the host of a versus room picks (2026-10-14, the quick version before
+ *  N3): `mirror` is KDF against KDF, as every room was before; `kdf` and
+ *  `sarim` are the HOST's faction, and the guest gets the other. */
+export type Matchup = 'mirror' | 'kdf' | 'sarim';
+export const MATCHUPS: readonly Matchup[] = ['mirror', 'kdf', 'sarim'];
+
+/** A matchup from anything a client sent: unknown reads as the mirror. */
+export function matchupField(v: unknown): Matchup {
+  return v === 'kdf' || v === 'sarim' ? v : 'mirror';
+}
+
+/** Each SEAT's faction for a matchup (index 0 is the host's seat). */
+export function factionsOfMatchup(m: Matchup): [Faction, Faction] {
+  if (m === 'kdf') return ['kdf', 'sarim'];
+  if (m === 'sarim') return ['sarim', 'kdf'];
+  return ['kdf', 'kdf'];
+}
+
+/** The maps a KDF-vs-Sarim matchup is offered on (the lead's ruling,
+ *  2026-10-14): Tel Marum only -- the one map the versus probe balanced the
+ *  Sarim force on. The mirror plays on every map. The lobby offers no other
+ *  pairing and the room refuses one (`matchupAllowed`). */
+export const FACTION_MATCHUP_MAPS: readonly string[] = ['tel_marum'];
+
+/** Whether `m` may be played on `map`. */
+export function matchupAllowed(m: Matchup, map: string): boolean {
+  return m === 'mirror' || FACTION_MATCHUP_MAPS.includes(map);
+}
+
+/** Whether `v` is a faction pair, by seat. */
+export function isFactionPair(v: unknown): v is [Faction, Faction] {
+  return Array.isArray(v) && v.length === 2 && v.every((f) => f === 'kdf' || f === 'sarim');
+}
+
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
 const isStr = (v: unknown): v is string => typeof v === 'string';
 

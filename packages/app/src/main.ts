@@ -253,12 +253,14 @@ import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
 import { roomFlags } from './net/room-flags';
 import { netReport } from './net/net-report';
 import { viewerSideOf } from './net/viewer';
-import { campOf, versusSpawns } from './net/versus-force';
+import { campOf, factionsBySide, versusSpawns, versusUnitTypes } from './net/versus-force';
 import { pruneHiddenHostiles, type SeatSight } from './net/hidden-selection';
 import { garrisonRoomShown } from './net/hover-garrison';
 import { NetStatusLine, lineOverMatchEnd, matchClock } from './ui/net-status';
 import { NetChat, chatFeedLine, chatOpens } from './ui/net-chat';
 import { showNetEnd } from './ui/net-end';
+import { NetScoreboard } from './ui/net-score';
+import { scoreOf, showsScoreboard } from './net/scoreboard';
 import { decideOnHashTick, matchResult, reportOver, roomEndingOutcome, type LocalDecision, type MatchResult } from './net/outcome';
 import { lightOverrideOf, timeOfDayOf } from './time-of-day';
 import { buildingFitOf } from './building-fit-flag';
@@ -1742,6 +1744,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const me = viewerSideOf(netConfig, netSeat);
   /** A versus room: fog is private to this seat (network design §5.1). */
   const versusRoom = netConfig?.mode === 'versus';
+  /** Each side's faction in a versus room (2026-10-14): KDF against KDF -- the
+   *  mirror -- or KDF against Sarim, as the host picked. From the config both
+   *  seats share, so both spawn the same world. */
+  const versusFactions = factionsBySide(versusRoom ? netConfig : null);
   /** A versus room's own ending (N1b task 10): a surrender or a leave, as a
    *  result for this seat. Hooked here, before the first await, so an ending
    *  that arrives while the battlefield boots is not lost. It is only
@@ -1952,7 +1958,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // team, `VERSUS_EXTRA`) on EACH side, mirrored through the hostile anchor,
     // no Sarim and no civilians. `sandboxForce`
     // keeps its meaning -- the seat's own units -- and has no crowd.
-    sandboxForce = { player: versusSpawns(sim, typeOf, anchors).bySide[me], civilians: [] };
+    sandboxForce = { player: versusSpawns(sim, typeOf, anchors, versusFactions).bySide[me], civilians: [] };
   } else {
     sandboxForce = sandboxSpawns(sim, typeOf, anchors, {
       tunnel: wantTunnel,
@@ -2029,7 +2035,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // still buildable, and so lands in `meshDeferred` below like any other.
   const meshRoster = mission
     ? missionUnitTypes(resolvedMission ?? mission, new Set(Object.keys(units)))
-    : sandboxUnitTypes({ tunnel: wantTunnel, sur: wantSur, civ: wantCiv });
+    : versusRoom
+      // A versus room fields its two factions' forces and nothing else.
+      ? versusUnitTypes(versusFactions)
+      : sandboxUnitTypes({ tunnel: wantTunnel, sur: wantSur, civ: wantCiv });
   // Only the roster's languages decode (N16). The roster is the one the mesh
   // plan already trusts; a unit it misses still plays -- as `missing` -- and
   // the dev note names the key. Set here, before the deploy gate's click, so
@@ -3023,6 +3032,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // PA-25: a sandbox's strip names the map it walks, as a mission's names
     // the mission; the same name the Free Play picker lists it by.
     placeName: mission ? undefined : mapJson.name,
+    ...(versusRoom ? { versusFaction: versusFactions[me] } : {}),
     commander: hudCommander,
     orders,
     armedOrder: () => armedOrder,
@@ -5432,6 +5442,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       })
     : null;
   if (netStatus !== null) onDispose(() => netStatus.dispose());
+  /** The versus scoreboard (2026-10-14): each side's destroyed and lost, and
+   *  their value, read from sim state alone (`net/scoreboard.ts`) so both seats
+   *  show the same board. A versus room only: single-player and a sandbox room
+   *  mount nothing. */
+  const otherSeat = netSeat === 0 ? 1 : 0;
+  const scoreNames = { theirs: netConfig?.seats[otherSeat].callsign ?? '' };
+  const netScore = showsScoreboard(netConfig) ? new NetScoreboard(document.body, me, scoreNames) : null;
+  if (netScore !== null) onDispose(() => netScore.dispose());
   /** The match is over on this screen (N1b task 10). The sim is stepped no
    *  more; the transport is NOT closed (R-B11) -- the panel's buttons
    *  navigate, and this battlefield's disposer sends the room its `bye`. The
@@ -5448,9 +5466,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     pauseHandle = null;
     closeOpenDialog();
     netStatus?.hide();
+    netScore?.hide();
     netEnd = showNetEnd(document.body, result, me, {
       again: () => req.navigate(routes.versus()),
       menu: () => req.navigate(routes.menu()),
+      // No frame runs after the tick that decided the match, so this is the
+      // board both seats stopped on.
+      score: { score: scoreOf(sim), names: scoreNames },
+      factions: versusFactions,
     });
   };
   onDispose(() => netEnd?.());
@@ -5856,6 +5879,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         if (result !== null) showMatchEnd(result);
       }
     }
+    if (netEnd === null) netScore?.update(scoreOf(sim));
     if (netEnd === null || lineOverMatchEnd(transport.status())) netStatus?.paint(transport.status(), Date.now(), room?.forfeitClock() ?? null);
     // A room's pause (either seat's) quiets the mix and dims the strip as a
     // local pause does; the room's status is the only thing that says so.
