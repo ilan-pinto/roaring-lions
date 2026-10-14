@@ -145,7 +145,8 @@ Bytes are measured against `origin/main` (`0949d222`) and read back by the gate.
 ## 7. The rest of the rollout (`art/wreck-damage-2`)
 
 Shipped in the second PR: the wheel-off corner drop on six wheeled hulls, the gun truck's glass,
-and the Petens' snapped rotor. **Not done: `rocket_battery`** (§7.5).
+and the Petens' snapped rotor. The third PR adds `rocket_battery` (§7.5) and fixes the pivot on
+multi-axle hulls (§7.6).
 
 ### 7.1 The corner drop: the WRECK pass
 
@@ -239,8 +240,68 @@ whole body. That is why the lean test exists.
 **A bisection that grew the tip until the corner rested was written and removed.** It never ran
 on a shipped file; the fault it was for was the centroid cut.
 
-### 7.5 Not done: `rocket_battery`
+### 7.5 The rocket battery: a damaged copy simplified to the cap (`art/wreck-damage-3`)
 
-Its `hull_rubber` is 77,049 Draco bytes live. A rubber copy alone would break the 64 KiB cap, so
-it needs a damaged copy simplified to the budget (R4 allows it). That means `meshoptimizer` as a
-tools dependency and a measured ratio. Its rims are in `hull_plate`, at 0.8–0.9 r.
+**Why it needs simplifying.** The rocket battery's `hull_rubber` is 77,049 Draco bytes live, so
+even an unsimplified rubber copy is 77,756 Draco / 766,776 raw bytes: 119% / 146% of the cap.
+Ruling R4 lets a big truck's copy be simplified to fit.
+
+**How it is simplified:**
+
+- `meshoptimizer` 1.1.1 is now an exact tools devDependency. It was already in the lockfile,
+  under `@gltf-transform`.
+- The `simplify` verb (`MeshoptSimplifier.simplify`) runs FIRST on its mesh, so its collapse
+  decisions run on the shipped bytes. They cannot be tipped by the last-bit float differences the
+  later verbs' trigonometry shows across Node versions (§5).
+- The rocket battery then loses its rear +Z tyre (wheel 2 of six), the same corner drop as §7.1.
+
+**The ratio is the largest on a 0.01 grid that fits both caps, and the raw cap binds.**
+
+| ratio | copy Draco | copy raw | triangles (of 10,839) | meshopt error (of extent) |
+|---|---:|---:|---:|---:|
+| 0.78 | 65,392 (100%) | 551,374 (105%) | 8,399 | 1.54e-3 |
+| 0.75 | 63,806 (97%) | 525,091 (100%, 803 B over) | 8,070 | 1.76e-3 |
+| **0.74, shipped** | **63,247 (97%)** | **517,561 (99%)** | **7,962** | **1.85e-3 (~1.3 cm on 6.9 m)** |
+| 0.70 | 60,817 (93%) | 484,483 (92%) | 7,518 | 2.18e-3 |
+
+**`Permissive` is required.** Without it, simplification stalls at 8,672 triangles whatever the
+ratio (102% / 128% of the cap). The bake splits 5,015 positions into 18,851 vertices, none of them
+exact duplicates, and every split is a seam meshopt will not collapse across.
+
+**A named outlier in the drop test.** The slump already rests the rocket battery on the launcher's
+rear overhang, 0.66 m behind its rear axle, so its rear tyres were in the air before one was lost.
+After the tip, the lost axle ends 0.09 m HIGHER, while the hull leans 0.18 m onto that quarter and
+the quarter rests on the sand. A demotion assertion fails, and says to delete the exemption, the
+day that axle comes down.
+
+**Falsified** (each red, then restored):
+
+- ratio 0.60, over-simplified: the "next 0.01 up does not fit" budget test;
+- ratio 0.80: the budget test and the Python raw cap;
+- no `Permissive`: both;
+- `simplify` after the tyre cut: the order test;
+- the rocket battery with no `lostWheel`: the table test.
+
+### 7.6 Fix: the corner-drop pivot on multi-axle hulls
+
+**#616 pivoted about the line to the NEAREST same-side wheel.** On a 6x6 or an 8x8 that is a short
+diagonal passing close to the lost axle. The tip came out near 17°, and the far end of the hull
+rose more than a metre: the rocket battery's cab hung in the air with its shadow detached.
+
+**It now runs to the FARTHEST same-side wheel.** The line spans the hull, and the opposite corner
+rises by about the drop. On a 4x4 the two choices are the same wheel, so the four 4x4s are
+unchanged.
+
+**Readings after the fix:**
+
+| vehicle | drop | lean |
+|---|---:|---:|
+| Eitan | 0.243 | 0.252 |
+| Kipod | 0.322 | 0.292 |
+| rocket battery | −0.091 | 0.182 |
+
+**Only these three files were regenerated.** A re-run under `@gltf-transform` 4.5.1 (bumped on
+main by #575) rewrites all eighteen vehicle files: same sizes, different bytes. That churn was
+reverted, not shipped.
+
+**No vehicle in the rollout is left undone.**

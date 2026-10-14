@@ -48,8 +48,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NodeIO, type Accessor, type Document, type Mesh, type Node, type Primitive, type mat4 } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
+import { MeshoptSimplifier } from 'meshoptimizer';
 import { inLostTyre, lostTyre } from './lost-tyre';
-import { DAMAGE_RECIPES, type BreakBarrel, type DamageOp, type BlowOut, type DropTyre, type PeelPlate, type SnapRotor, type ThrowTrack } from './damage-recipes';
+import { DAMAGE_RECIPES, type BreakBarrel, type DamageOp, type BlowOut, type DropTyre, type PeelPlate, type Simplify, type SnapRotor, type ThrowTrack } from './damage-recipes';
 
 const REPO = fileURLToPath(new URL('../../../', import.meta.url));
 const VEHICLES = path.join(REPO, 'art', 'meshes', 'vehicles');
@@ -570,6 +571,28 @@ function snapRotor(g: Geo, op: SnapRotor, frame: Frame): number {
   return all.length;
 }
 
+/** Resolves once meshoptimizer's WASM is up; `applyDamagePass` refuses a `simplify` before it. */
+let simplifierUp = false;
+export const damagePassReady: Promise<void> = MeshoptSimplifier.ready.then(() => {
+  simplifierUp = true;
+});
+
+/** What the last `simplify` achieved, for the log and the tests: the error meshopt reports, relative to the mesh extent. */
+export const simplifyReadings: { mesh: string; before: number; after: number; error: number }[] = [];
+
+function simplify(g: Geo, op: Simplify): number {
+  if (!simplifierUp) throw new Error('simplify: await damagePassReady before applyDamagePass');
+  if (!(op.ratio > 0 && op.ratio <= 1)) throw new Error(`simplify: ratio ${op.ratio} is not in (0, 1]`);
+  const before = g.faces;
+  const pos = new Float32Array(g.count * 3);
+  for (let i = 0; i < g.count; i++) pos.set(g.pos(i), 3 * i);
+  const target = Math.floor((g.idx.length * op.ratio) / 3) * 3;
+  const [out, error] = MeshoptSimplifier.simplify(new Uint32Array(g.idx), pos, 3, target, op.maxError, op.flags ? [...op.flags] : undefined);
+  g.idx = Array.from(out);
+  simplifyReadings.push({ mesh: op.mesh, before, after: g.faces, error });
+  return before - g.faces;
+}
+
 // ---------------------------------------------------------------------------
 // The pass
 // ---------------------------------------------------------------------------
@@ -685,7 +708,9 @@ export function applyDamagePass(doc: Document, vehicleId: string, ops: readonly 
                 ? dropTyre(g, op, frame, wheels, liveRubber())
                 : op.verb === 'snapRotor'
                   ? snapRotor(g, op, frame)
-                  : blowOut(g, op);
+                  : op.verb === 'simplify'
+                    ? simplify(g, op)
+                    : blowOut(g, op);
       reports.push({ verb: op.verb, mesh: source, faces });
     }
     g.compact();
@@ -723,6 +748,7 @@ export async function runDamagePass(ids: readonly string[] | 'all', dir = VEHICL
   for (const id of wanted) {
     if (!Object.prototype.hasOwnProperty.call(DAMAGE_RECIPES, id)) throw new Error(`no damage recipe for "${id}" -- known: ${KNOWN()}`);
   }
+  await damagePassReady;
   const io = new NodeIO().registerExtensions(ALL_EXTENSIONS);
   for (const id of wanted) {
     const file = path.join(dir, `${id}.glb`);
@@ -732,6 +758,9 @@ export async function runDamagePass(ids: readonly string[] | 'all', dir = VEHICL
     await io.write(file, doc);
     const after = statSync(file).size;
     console.log(`DAMAGE_PASS_OK ${id} ${after - before >= 0 ? '+' : ''}${after - before} bytes: ${reports.map((r) => `${r.verb}(${r.mesh}, ${r.faces} faces)`).join(', ')}`);
+    for (const r of simplifyReadings.splice(0)) {
+      console.log(`  simplify ${r.mesh}: ${r.before} -> ${r.after} triangles (${((100 * r.after) / r.before).toFixed(1)}%), meshopt error ${r.error.toExponential(3)}`);
+    }
   }
 }
 

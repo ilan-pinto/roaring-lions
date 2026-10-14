@@ -72,7 +72,8 @@ export const WRECK_RECIPES: Readonly<Record<string, WreckRecipe>> = {
   // art (HELD_MESH_FILES) until Stage 5 wires the unit.
   officer_armour: { hull: 'tracked', turretPivot: 'turret_pivot' },
   paramotor: { hull: 'air', canopy: 'hull_hull' },
-  rocket_battery: { hull: 'wheeled' },
+  // 6x6: wheel 2 is the rear +Z tyre.
+  rocket_battery: { hull: 'wheeled', lostWheel: 2 },
   // The Meshy Shachaf (GH-185, 2026-09-30) carries a `turret_pivot` on its
   // roof ring for the kit RWS (`cupola_mg`); the kit build had none.
   scout_shachaf: { hull: 'wheeled', turretPivot: 'turret_pivot', lostWheel: 1 },

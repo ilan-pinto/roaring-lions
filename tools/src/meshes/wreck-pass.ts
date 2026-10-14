@@ -438,10 +438,19 @@ function gearWheels(scene: Scene, vehicleId: string): GearWheel[] {
  *
  * The tyre is gone, so that corner comes down by the tyre's own thickness:
  * `(1 - LOST_WHEEL_RIM_FRAC)` of its radius (see that constant for why it is
- * not measured). The body pivots about the line through the two wheels that
- * still hold it up on that end and side -- the other wheel on the same axle
- * and the nearest wheel on the same side -- by the angle that lowers the lost
- * axle by exactly that much.
+ * not measured). The body pivots about the line through the other wheel on
+ * the same axle and the FARTHEST wheel on the same side, by the angle that
+ * lowers the lost axle by exactly that much.
+ *
+ * Farthest, not nearest, and that was measured on the sheet (2026-10-15). On
+ * a 4x4 the two are the same wheel. On a 6x6 or an 8x8 the nearest same-side
+ * wheel makes a short diagonal that passes close to the lost axle: the angle
+ * came out near 17 degrees, and the far end of the hull rose more than a
+ * metre (the rocket battery's cab hung in the air with its shadow detached,
+ * and the Eitan's and the Kipod's front wheels lifted well clear). Through
+ * the far wheel the line runs the length of the hull, and the same drop is
+ * about 7 degrees on the Eitan, with the opposite corner rising by the drop
+ * and no more.
  *
  * The tyre's own vertices -- `lost-tyre.ts`'s volume about the axle, in ANY
  * mesh -- are returned for the seat to ignore: the rubber ones are not in the
@@ -459,7 +468,7 @@ function cornerDrop(scene: Scene, parts: readonly Part[], groundY: number, wheel
   const sameSide = wheels.filter((w) => w.side === lost.side && w !== lost);
   if (sameSide.length === 0) throw new Error(`${vehicleId}: lostWheel ${wheelIndex} has no other wheel on its side`);
   const nextOnSide = sameSide.reduce((a, b) =>
-    Math.abs(b.centre[0] - lost.centre[0]) < Math.abs(a.centre[0] - lost.centre[0]) ? b : a
+    Math.abs(b.centre[0] - lost.centre[0]) > Math.abs(a.centre[0] - lost.centre[0]) ? b : a
   );
   const rubber = parts.find((p) => roleOf(p.node) === 'rubber');
   if (!rubber) throw new Error(`${vehicleId}: lostWheel needs a rubber mesh to measure the tyre on`);
