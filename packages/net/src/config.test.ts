@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { factionsOfMatchup, isFactionPair, matchupAllowed, matchupField, validateConfig, fnv1a32, type MatchConfig } from './config';
+import { FACTION_MATCHUP_MAPS, VERSUS_FAIR_MAPS, factionsOfMatchup, isFactionPair, matchupAllowed, matchupField, validateConfig, fnv1a32, versusMapAllowed, type MatchConfig } from './config';
 
 export const CONFIG: MatchConfig = {
   matchId: 'm1', code: 'ABCDEF', seed: 20260727, map: 'beit_sahwan_outskirts', mode: 'sandbox',
@@ -58,5 +58,18 @@ describe('the versus matchup (2026-10-14, KDF vs Sarim)', () => {
       expect(matchupAllowed('sarim', map)).toBe(false);
       expect(matchupAllowed('mirror', map)).toBe(true);
     }
+  });
+
+  it('a versus room is offered only on the two maps measured close to even (the lead, 2026-10-14, #561)', () => {
+    expect([...VERSUS_FAIR_MAPS]).toEqual(['beit_sahwan_outskirts', 'tel_marum']);
+    for (const map of VERSUS_FAIR_MAPS) expect(versusMapAllowed(map)).toBe(true);
+    // Every other shipped map, a tile study, and things that are not a map id at all.
+    for (const map of ['qarn_hadid', 'wadi_halam_basin', 'deir_amun', 'umm_zeitoun', 'khan_rafid', 'marj_perimeter', 'tel_marum_3', 'tile_road', 'tutorial_ground', '', '__proto__', 'Tel_Marum']) {
+      expect(versusMapAllowed(map), map).toBe(false);
+    }
+  });
+
+  it('a map KDF can face Sarim on is a fair map too: the narrower rule sits inside the wider one', () => {
+    for (const map of FACTION_MATCHUP_MAPS) expect(VERSUS_FAIR_MAPS).toContain(map);
   });
 });

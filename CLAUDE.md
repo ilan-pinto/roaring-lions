@@ -67,6 +67,7 @@ pnpm kit:capture      # in-game kitted-vehicle sheets, the `kit` toggle reading,
 pnpm validate:ui      # no colour literals AND no bare chrome strings in UI source
 pnpm ui:routes        # drive the shell: one JS realm, two missions, no reload (60-74 s local, ~130 s on CI: no GPU there)
 pnpm balance          # headless battle sim, prints win rates
+pnpm versus:probe     # report-only: who wins a versus map when both seats attack-move (west/east, KDF/Sarim); the bar for opening a map (#561)
 ```
 
 `pnpm test:determinism` must pass before any commit touching `@lions/sim`. It is the canary for invariants 2 and 3.
