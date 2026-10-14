@@ -19,6 +19,7 @@
     "golden-baseline:bless": "tsx src/ci/three-baseline-gate.ts --bless",
     "encode:meshes": "tsx src/meshes/encode-meshes.ts",
     "wreck:meshes": "tsx src/meshes/wreck-pass.ts",
+    "damage:meshes": "tsx src/meshes/damage-pass.ts",
     "kit:meshes": "tsx src/meshes/kit-pass.ts",
     "running-gear:meshes": "tsx src/meshes/running-gear-pass.ts",
     "ui:shots": "tsx src/ui-review/shoot.ts",

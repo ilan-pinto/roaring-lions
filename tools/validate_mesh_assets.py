@@ -1697,7 +1697,123 @@ def _wreck_subtree(nodes, root_index):
     return out
 
 
-def check_vehicle_wrecks(vehicle_roots):
+DAMAGE_RECIPES_TS = os.path.join(REPO, "tools", "src", "meshes", "damage-recipes.ts")
+DAMAGE_EXTRAS_KEY = "rl_damage"
+_GLTF_COMPONENT_BYTES = {5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4}
+_GLTF_TYPE_SIZE = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4, "MAT4": 16}
+
+
+def _ts_int(path, name):
+    """One `export const NAME = <integer>;` out of a TypeScript file, so the
+    damage pass and this gate cannot disagree about the cap. Raises rather
+    than defaulting, `_ts_list`'s rule."""
+    import re
+    with open(path) as fh:
+        src = fh.read()
+    m = re.search(r"export const " + name + r"\b[^=]*=\s*([0-9_]+)\s*;", src)
+    if not m:
+        raise SystemExit(f"{path}: no `export const {name} = <integer>;` to read")
+    return int(m.group(1).replace("_", ""))
+
+
+def damage_caps(path=DAMAGE_RECIPES_TS):
+    """(Draco cap, raw cap) in bytes, read out of `damage-recipes.ts`."""
+    return _ts_int(path, "DAMAGE_CAP_DRACO_BYTES"), _ts_int(path, "DAMAGE_CAP_RAW_BYTES")
+
+
+def _primitive_bytes(gltf, prim):
+    """(bytes, is_draco) one primitive costs in its file: the Draco
+    `bufferView` when it is compressed, else every attribute and index
+    accessor's own payload. What the DAMAGE cap is measured in."""
+    draco = (prim.get("extensions") or {}).get("KHR_draco_mesh_compression")
+    if draco is not None:
+        return gltf["bufferViews"][draco["bufferView"]]["byteLength"], True
+    total = 0
+    refs = list(prim.get("attributes", {}).values())
+    if "indices" in prim:
+        refs.append(prim["indices"])
+    for a in refs:
+        acc = gltf["accessors"][a]
+        total += acc["count"] * _GLTF_COMPONENT_BYTES[acc["componentType"]] * _GLTF_TYPE_SIZE[acc["type"]]
+    return total, False
+
+
+def _attribute_shape(gltf, prim):
+    """{semantic: (componentType, type, normalized)} -- what a damaged copy
+    must match on its source. Read off the ACCESSORS, which Draco keeps in
+    the JSON (it compresses the data, not the declaration)."""
+    out = {}
+    for sem, a in prim.get("attributes", {}).items():
+        acc = gltf["accessors"][a]
+        out[sem] = (acc["componentType"], acc["type"], bool(acc.get("normalized", False)))
+    return out
+
+
+def _check_damaged_twin(name, gltf, nodes, node, node_name, live_by_name, wreck_mesh_users, failures):
+    """Clause 3's other branch (2026-10-14, the damage pass): a wreck node
+    that does NOT share a live mesh is legal only as a DECLARED damaged copy.
+    Returns the bytes its mesh costs, for the cap, or 0 when it is refused."""
+    dmg = (node.get("extras") or {}).get(DAMAGE_EXTRAS_KEY)
+    source = dmg.get("source") if isinstance(dmg, dict) else None
+    if not isinstance(source, str) or not source:
+        failures.append(
+            f"{name}: node {node_name!r} references mesh {node['mesh']}, which no live "
+            f"node references, and declares no extras.{DAMAGE_EXTRAS_KEY}.source -- a wreck "
+            f"either SHARES its twin's mesh or is a damaged copy that names its source "
+            f"(`pnpm damage:meshes`); an undeclared copy is the duplication the contract "
+            f"exists to avoid"
+        )
+        return 0
+    if node_name != f"{WRECK_NODE_PREFIX}{source}":
+        failures.append(
+            f"{name}: node {node_name!r} declares {DAMAGE_EXTRAS_KEY}.source {source!r}, but a "
+            f"twin's source is the live node its own name twins ({node_name[len(WRECK_NODE_PREFIX):]!r})"
+        )
+        return 0
+    src_mesh_i = live_by_name.get(source)
+    if src_mesh_i is None:
+        failures.append(
+            f"{name}: node {node_name!r} declares {DAMAGE_EXTRAS_KEY}.source {source!r}, which "
+            f"is no live mesh node in this file"
+        )
+        return 0
+    meshes = gltf.get("meshes", [])
+    copy, src = meshes[node["mesh"]], meshes[src_mesh_i]
+    mesh_dmg = (copy.get("extras") or {}).get(DAMAGE_EXTRAS_KEY)
+    if not isinstance(mesh_dmg, dict) or mesh_dmg.get("source") != source:
+        failures.append(
+            f"{name}: {node_name!r}'s mesh does not itself carry extras.{DAMAGE_EXTRAS_KEY}.source "
+            f"= {source!r} -- the pass marks the MESH too, and stripping (wreck or damage pass) "
+            f"finds the copy by it; an unmarked copy survives a re-wreck as dead weight"
+        )
+    if wreck_mesh_users.get(node["mesh"], 0) != 1:
+        failures.append(
+            f"{name}: {node_name!r}'s damaged mesh is referenced by "
+            f"{wreck_mesh_users.get(node['mesh'], 0)} nodes -- a damaged copy belongs to its one twin"
+        )
+    cp, sp = copy.get("primitives", []), src.get("primitives", [])
+    if len(cp) != 1 or len(sp) != 1:
+        failures.append(
+            f"{name}: {node_name!r} has {len(cp)} primitive(s) over a source of {len(sp)} -- the "
+            f"contract is one primitive a part, and one more would be a draw call per wreck"
+        )
+        return 0
+    if cp[0].get("material") != sp[0].get("material"):
+        failures.append(
+            f"{name}: {node_name!r}'s damaged copy uses material {cp[0].get('material')}, its "
+            f"source {source!r} uses {sp[0].get('material')} -- a copy wears its twin's bake"
+        )
+    got, want = _attribute_shape(gltf, cp[0]), _attribute_shape(gltf, sp[0])
+    if got != want:
+        failures.append(
+            f"{name}: {node_name!r}'s damaged copy has attributes {sorted(got.items())}, its "
+            f"source {source!r} has {sorted(want.items())} -- exactly the same set, component "
+            f"types and normalisation, so the runtime treats the two alike"
+        )
+    return _primitive_bytes(gltf, cp[0])
+
+
+def check_vehicle_wrecks(vehicle_roots, damage_report=None):
     """Every vehicle GLB against the wreck contract, read straight out of the
     raw GLB bytes -- see this module's docstring, "Vehicles are checked a
     FIFTH way", for why no render can see this.
@@ -1728,7 +1844,17 @@ def check_vehicle_wrecks(vehicle_roots):
          reads (spec §4.3); the name is what a human reads in Blender.
       3. Every wreck node's `mesh` index is one a LIVE node also references
          -- the sharing that keeps this whole feature a couple of KB per
-         file instead of a second copy of a 3.4 MiB buffer.
+         file instead of a second copy of a 3.4 MiB buffer -- OR (since
+         2026-10-14, `pnpm damage:meshes`) the node is a DECLARED damaged
+         copy: `extras.rl_damage.source` names the live node its own name
+         twins, the mesh carries the same mark, it has one primitive with
+         its source's material and exactly its source's attribute
+         declarations, and no other node uses it. A shared mesh carrying
+         the mark is a stale flag and fails too.
+      3c. The damaged copies together stay under the per-file cap the lead
+         set (64 KiB Draco / 512 KiB raw, read from `damage-recipes.ts`),
+         measured in the form each root ships: Draco `bufferView`s in the
+         mirror, accessor payloads in the source.
       3b. ONE wreck child per live mesh node, matched BY NAME
          (`WRECK_<live name>`, which is what `wreck-pass.ts` writes). Clause
          3 is a containment test and it passes a death root that is MISSING
@@ -1764,16 +1890,19 @@ def check_vehicle_wrecks(vehicle_roots):
     counts = []
     for vehicles_root in vehicle_roots:
         counts.append((os.path.relpath(vehicles_root, REPO),
-                       _check_vehicle_wreck_dir(vehicles_root, failures)))
+                       _check_vehicle_wreck_dir(vehicles_root, failures, damage_report)))
     return failures, counts
 
 
-def _check_vehicle_wreck_dir(vehicles_root, failures):
+def _check_vehicle_wreck_dir(vehicles_root, failures, damage_report=None):
     """One directory's worth of `check_vehicle_wrecks`, appending to
     `failures` and returning how many files were checked. Split out only so
     the loop over the two roots reads as a loop; every clause and every
     message lives here."""
     n_checked = 0
+    draco_cap, raw_cap = damage_caps()
+    if damage_report is None:
+        damage_report = []
     for path in sorted(glob.glob(os.path.join(vehicles_root, "*.glb"))):
         # The RELATIVE path, not the basename: two directories are walked now
         # and `mbt_lavi.glb` alone would not say which of them failed. A root
@@ -1816,6 +1945,13 @@ def _check_vehicle_wreck_dir(vehicles_root, failures):
             node["mesh"] for i, node in enumerate(nodes)
             if "mesh" in node and i not in wreck_set and i not in kit_set
         }
+        live_by_name = {
+            node.get("name"): node["mesh"] for i, node in enumerate(nodes)
+            if "mesh" in node and i not in wreck_set and i not in kit_set
+        }
+        wreck_mesh_users = Counter(node["mesh"] for node in nodes if "mesh" in node)
+        damage_bytes = {True: 0, False: 0}
+        damaged = []
         for i in wreck_nodes:
             node = nodes[i]
             node_name = node.get("name") or f"<node {i}>"
@@ -1832,13 +1968,32 @@ def _check_vehicle_wreck_dir(vehicles_root, failures):
                 )
             if "mesh" not in node:
                 continue  # a grouping empty is legitimate; it just draws nothing
-            if node["mesh"] not in live_meshes:
+            if node["mesh"] in live_meshes:
+                if DAMAGE_EXTRAS_KEY in (node.get("extras") or {}):
+                    failures.append(
+                        f"{name}: node {node_name!r} declares extras.{DAMAGE_EXTRAS_KEY} but "
+                        f"SHARES a live mesh -- a stale flag; `stripDamage` removes both together"
+                    )
+                continue
+            cost = _check_damaged_twin(name, gltf, nodes, node, node_name, live_by_name,
+                                       wreck_mesh_users, failures)
+            if cost:
+                damage_bytes[cost[1]] += cost[0]
+                damaged.append(node_name)
+
+        # Clause 3c, the cap (the lead's ruling, 2026-10-14): what the
+        # damaged copies add, measured in the form this root ships them.
+        for is_draco, total in damage_bytes.items():
+            cap = draco_cap if is_draco else raw_cap
+            if total > cap:
                 failures.append(
-                    f"{name}: node {node_name!r} references mesh {node['mesh']}, which no live "
-                    f"node references -- the wreck must SHARE its twin's mesh, not carry a copy "
-                    f"(this file's buffer is {len(binary or b''):,} bytes; duplicating it is the "
-                    f"cost the contract exists to avoid)"
+                    f"{name}: the damaged wreck copies ({', '.join(sorted(damaged))}) cost "
+                    f"{total:,} {'Draco' if is_draco else 'raw'} bytes against a cap of {cap:,} "
+                    f"(DAMAGE_CAP_{'DRACO' if is_draco else 'RAW'}_BYTES, damage-recipes.ts) -- "
+                    f"cut fewer meshes, or simplify the damaged copy to the budget"
                 )
+        if damaged:
+            damage_report.append((name, sorted(damaged), dict(damage_bytes)))
 
         # Clause 3b. The loop above is a CONTAINMENT test -- every wreck node
         # it sees must point at a shared mesh -- and a death root that is
@@ -2067,11 +2222,23 @@ def main():
         for line in rg_lines:
             print(f"    {line}")
 
+        damage_report = []
         wreck_failures, wreck_counts = check_vehicle_wrecks((
             vehicles_dir,
             os.path.join(REPO, "assets", "meshes", "vehicles"),
-        ))
+        ), damage_report)
         failures.extend(wreck_failures)
+        # The damage pass's copies, one line per file per root, on BOTH paths:
+        # a cap that only speaks when exceeded reads the same as one that
+        # never ran.
+        draco_cap, raw_cap = damage_caps()
+        print(f"  wreck damage: {len(damage_report)} file(s) carry damaged wreck copies "
+              f"(cap {draco_cap:,} Draco / {raw_cap:,} raw bytes) --")
+        for dname, parts, costs in damage_report:
+            spent = ", ".join(
+                f"{v:,} {'Draco' if k else 'raw'} ({100 * v / (draco_cap if k else raw_cap):.0f}%)"
+                for k, v in sorted(costs.items()) if v)
+            print(f"    {dname}: {', '.join(parts)} -- {spent}")
 
         if failures:
             print(f"\nMESH GATE FAILED -- {len(failures)} issue(s):\n")

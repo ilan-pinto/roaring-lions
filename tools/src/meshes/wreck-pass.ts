@@ -504,6 +504,19 @@ function stripWreck(doc: Document): void {
   for (const node of doc.getRoot().listNodes()) {
     if (node.getName() === DEATH_ROOT) disposeSubtree(node);
   }
+  // A damaged twin's OWN mesh (`damage-pass.ts`, `extras.rl_damage`) was held
+  // only by the node just disposed. Left on the Root, the writer would still
+  // emit it -- a file re-wrecked after `damage:meshes` would keep every copy
+  // as dead weight and stop being byte-stable. Its accessors go with it.
+  for (const mesh of doc.getRoot().listMeshes()) {
+    if (!('rl_damage' in (mesh.getExtras() ?? {}))) continue;
+    const accessors = mesh
+      .listPrimitives()
+      .flatMap((p) => [...p.listAttributes(), ...(p.getIndices() ? [p.getIndices() as Accessor] : [])]);
+    for (const p of mesh.listPrimitives()) p.dispose();
+    mesh.dispose();
+    for (const a of accessors) disposeIfOrphan(a);
+  }
   for (const animation of doc.getRoot().listAnimations()) {
     if (animation.getName() !== CLIP_IDLE && animation.getName() !== CLIP_WRECK) continue;
     const accessors: Accessor[] = [];
