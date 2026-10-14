@@ -29,8 +29,10 @@ veto it; the other seat is told you have an advisor.
    chmod 600 ~/.roaring-lions/advisor-ticket
    ```
 
-3. Check out the **commit the deployed build was made from** (the lobby shows
-   the build), then run the command the lobby printed:
+3. Check out the **commit the deployed build was made from**: the foot of the
+   Settings and Credits screens (and the pause menu) reads `Build
+   <version>+<commit>`, and the part after `+` is the commit. Then run the
+   command the lobby printed:
 
    ```sh
    pnpm --silent agent -- --server https://<your-worker> --code ABC123 \
