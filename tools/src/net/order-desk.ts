@@ -1,4 +1,4 @@
-import { MAX_CMDS_PER_SEAT_PER_FRAME } from '@lions/net';
+import { MAX_CMDS_PER_SEAT_PER_FRAME, cleanCommand } from '@lions/net';
 import type { Command } from '@lions/sim';
 
 /**
@@ -35,10 +35,17 @@ export class OrderDesk {
 
   constructor(private readonly send: (cmd: Command) => void) {}
 
-  submit(cmd: Command, tick: number): OrderRecord | { error: 'queue_full' } {
+  /** The command is rebuilt by the room's own `cleanCommand` before it is
+   *  queued: the room stamps that form into the frame, and `onOwnCommands`
+   *  matches the echo by its JSON, so a command with its keys in another
+   *  order or an id twice would otherwise never settle. One the room would
+   *  refuse is refused here (`invalid`), and nothing is sent. */
+  submit(cmd: Command, tick: number): OrderRecord | { error: 'queue_full' | 'invalid' } {
+    const clean = cleanCommand(cmd);
+    if (clean === null) return { error: 'invalid' };
     const queued = this.ring.filter((r) => r.status === 'queued').length;
     if (queued >= DESK_MAX_QUEUE) return { error: 'queue_full' };
-    const rec: OrderRecord = { ref: this.nextRef++, cmd, status: 'queued', queuedTick: tick, sentTick: null, settledTick: null };
+    const rec: OrderRecord = { ref: this.nextRef++, cmd: clean, status: 'queued', queuedTick: tick, sentTick: null, settledTick: null };
     this.ring.push(rec);
     if (this.ring.length > RING_SIZE) this.ring.shift();
     return rec;

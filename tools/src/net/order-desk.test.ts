@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_CMDS_PER_SEAT_PER_FRAME } from '@lions/net';
+import { MAX_CMDS_PER_SEAT_PER_FRAME, cleanCommand } from '@lions/net';
 import { CMD_BUDGET, MAX_PENDING_CMDS_PER_SEAT, STALL_BEHIND_TICKS } from '../../../packages/worker/src/match/room-core';
 import { DESK_FLUSH_TICKS, DESK_LOST_AFTER_TICKS, DESK_MAX_QUEUE, OrderDesk } from './order-desk';
 import type { Command } from '@lions/sim';
@@ -51,5 +51,20 @@ describe('OrderDesk', () => {
     desk.onOwnCommands([{ cmd: halt(1), valid: true }], 21);
     const byRef = new Map(desk.records(10).map((r) => [r.ref, r.status]));
     expect([byRef.get(a.ref), byRef.get(b.ref)]).toEqual(['applied', 'sent']);
+  });
+  it('matches the room\'s cleaned echo: shuffled keys and repeated ids still settle applied; a malformed command is refused', () => {
+    const sent: Command[] = [];
+    const desk = new OrderDesk((c) => sent.push(c));
+    // What a model may hand over: keys in any order, an id twice.
+    const raw = { ids: [7, 7, 8], x: 5 * 65536, kind: 'move', y: 6 * 65536 } as unknown as Command;
+    const a = desk.submit(raw, 0) as { ref: number };
+    expect(desk.submit({ kind: 'halt', ids: [1.5] } as Command, 0)).toEqual({ error: 'invalid' });
+    desk.onTick(0);
+    // The room stamps `cleanCommand`'s output into the frame, and that is what comes back.
+    const echo = cleanCommand(raw);
+    expect(echo).not.toBeNull();
+    expect(sent).toEqual([echo]);
+    desk.onOwnCommands([{ cmd: echo as Command, valid: true }], 3);
+    expect(desk.records(10).map((r) => [r.ref, r.status])).toEqual([[a.ref, 'applied']]);
   });
 });
