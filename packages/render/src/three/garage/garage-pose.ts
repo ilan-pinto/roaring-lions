@@ -251,13 +251,11 @@ export function visiblePoints(
     let dead: boolean[] = [];
     let boneOwner: number[] = [];
     if (skinned) {
+      // Column length, not `decompose`: since three r186 `decompose` answers
+      // a SINGULAR matrix -- exactly the scale-0 death root this asks about --
+      // with scale (1, 1, 1), so a hidden corpse read as alive.
       const s = new THREE.Vector3();
-      const scratchP = new THREE.Vector3();
-      const scratchQ = new THREE.Quaternion();
-      dead = skinned.skeleton.bones.map((b) => {
-        b.matrixWorld.decompose(scratchP, scratchQ, s);
-        return Math.abs(s.x) < 1e-4;
-      });
+      dead = skinned.skeleton.bones.map((b) => Math.abs(s.setFromMatrixScale(b.matrixWorld).x) < 1e-4);
       boneOwner = skinned.skeleton.bones.map((b) => ownerOf(b));
     }
     const meshOwner = ownerOf(mesh);
