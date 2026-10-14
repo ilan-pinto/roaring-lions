@@ -1,0 +1,34 @@
+{
+  "id": "mortar_base_dust",
+  "trigger": "weapon_fire",
+  "layer": "above_units",
+  "budget_priority": 4,
+  "particles": [
+    {
+      "sprite": "smoke_puff",
+      "count": [6, 9],
+      "lifetime_ms": [500, 800],
+      "speed_tiles_s": [0.8, 1.6],
+      "cone_deg": 360,
+      "drag": 0.8,
+      "gravity_tiles_s2": -0.2,
+      "size_px": [5, 9],
+      "size_over_life": [0.6, 1.8],
+      "color_over_life": ["dust.2", "dust.4"],
+      "alpha_over_life": [0.6, 0.0]
+    },
+    {
+      "sprite": "soft_dot",
+      "count": [4, 6],
+      "lifetime_ms": [250, 400],
+      "speed_tiles_s": [1.2, 2.2],
+      "cone_deg": 360,
+      "drag": 0.5,
+      "gravity_tiles_s2": 2.0,
+      "size_px": [2, 3],
+      "size_over_life": [1.0, 0.6],
+      "color_over_life": ["dust.4", "dust.5"],
+      "alpha_over_life": [0.9, 0.0]
+    }
+  ]
+}
