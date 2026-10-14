@@ -31,6 +31,29 @@ export interface MatchConfig {
   dataDigest: number;
 }
 
+/** What the host of a versus room picks (2026-10-14, the quick version before
+ *  N3): `mirror` is KDF against KDF, as every room was before; `kdf` and
+ *  `sarim` are the HOST's faction, and the guest gets the other. */
+export type Matchup = 'mirror' | 'kdf' | 'sarim';
+export const MATCHUPS: readonly Matchup[] = ['mirror', 'kdf', 'sarim'];
+
+/** A matchup from anything a client sent: unknown reads as the mirror. */
+export function matchupField(v: unknown): Matchup {
+  return v === 'kdf' || v === 'sarim' ? v : 'mirror';
+}
+
+/** Each SEAT's faction for a matchup (index 0 is the host's seat). */
+export function factionsOfMatchup(m: Matchup): [Faction, Faction] {
+  if (m === 'kdf') return ['kdf', 'sarim'];
+  if (m === 'sarim') return ['sarim', 'kdf'];
+  return ['kdf', 'kdf'];
+}
+
+/** Whether `v` is a faction pair, by seat. */
+export function isFactionPair(v: unknown): v is [Faction, Faction] {
+  return Array.isArray(v) && v.length === 2 && v.every((f) => f === 'kdf' || f === 'sarim');
+}
+
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
 const isStr = (v: unknown): v is string => typeof v === 'string';
 

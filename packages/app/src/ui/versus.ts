@@ -28,7 +28,7 @@
  * `NetChat`, which keeps to that too).
  */
 import { maps } from '@lions/data';
-import { MAX_CALLSIGN_CHARS, callsignOrDefault, cleanCallsign, type Seat, type SeatState, type WsTransport } from '@lions/net';
+import { MATCHUPS, MAX_CALLSIGN_CHARS, callsignOrDefault, cleanCallsign, matchupField, type Faction, type Matchup, type Seat, type SeatState, type WsTransport } from '@lions/net';
 import { t } from '../i18n/t';
 import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';
 import { handOver } from '../net/handoff';
@@ -52,6 +52,9 @@ export const CODE_LENGTH = 6;
 export const CALLSIGN_MAX = MAX_CALLSIGN_CHARS;
 /** The map a host is offered first, when it ships. */
 const DEFAULT_MAP = 'tel_marum';
+/** The host's side picker, in the order it lists them: the mirror first, as
+ *  every room was before the matchup existed. */
+const MATCHUP_ORDER: readonly Matchup[] = MATCHUPS;
 /** The two seats, in the order their cards are drawn. */
 const SEAT_ORDER: readonly Seat[] = [0, 1];
 /** How long a room opened on `/versus` waits for its lobby to take it, like
@@ -93,6 +96,8 @@ interface Room {
   readonly transport: WsTransport;
   seats: SeatState[];
   map: string;
+  /** Each seat's faction, by seat (the host's matchup). */
+  factions: [Faction, Faction];
   /** `closed`: this tab left (and said `bye`). `ended`: the room ended under it. */
   phase: 'lobby' | 'started' | 'ended' | 'closed';
   /** An i18n key for a refusal the room sent after the lobby opened. */
@@ -150,13 +155,14 @@ function startedElsewhere(err: unknown, deps: VersusDeps): boolean {
 function adopt(o: OpenedRoom, deps: VersusDeps): Room {
   const room: Room = {
     code: o.code, seat: o.seat, transport: o.transport,
-    seats: o.lobby.seats, map: o.lobby.map,
+    seats: o.lobby.seats, map: o.lobby.map, factions: o.lobby.factions,
     phase: 'lobby', error: null, repaint: null, chat: null,
   };
   o.transport.setHooks({
-    onLobby: (seats, _you, map) => {
+    onLobby: (seats, _you, map, factions) => {
       room.seats = seats;
       room.map = map;
+      if (factions !== undefined) room.factions = factions;
       room.repaint?.();
     },
     onStart: (config) => {
@@ -272,6 +278,24 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
   if (deps.maps.some((m) => m.id === DEFAULT_MAP)) select.value = DEFAULT_MAP;
   mapField.append(mapName, select);
   body.appendChild(mapField);
+  // The host's side (2026-10-14): KDF or Sarim, the guest getting the other,
+  // or the mirror every room was before.
+  const sideField = document.createElement('label');
+  sideField.className = 'rl-versus__field';
+  const sideName = document.createElement('span');
+  sideName.className = 'rl-versus__label';
+  sideName.textContent = t('versus.host.side');
+  const side = document.createElement('select');
+  side.className = 'rl-versus__faction';
+  for (const m of MATCHUP_ORDER) {
+    const o = document.createElement('option');
+    o.value = m;
+    o.textContent = t('versus.host.side.option', { m });
+    side.appendChild(o);
+  }
+  side.value = 'mirror';
+  sideField.append(sideName, side);
+  body.appendChild(sideField);
   const openBtn = button(t('versus.host.open'), 'rl-versus__open');
   markConfirm(openBtn);
   body.appendChild(openBtn);
@@ -322,7 +346,7 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
       },
     );
   };
-  openBtn.addEventListener('click', () => start({ kind: 'create', map: select.value, callsign: callsignOrDefault(callsign.input.value) }));
+  openBtn.addEventListener('click', () => start({ kind: 'create', map: select.value, matchup: matchupField(side.value), callsign: callsignOrDefault(callsign.input.value) }));
   const join = (): void => {
     if (code.value.length !== CODE_LENGTH) return;
     start({ kind: 'join', code: code.value, callsign: callsignOrDefault(callsign.input.value) });
@@ -452,7 +476,12 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
       const name = document.createElement('span');
       name.className = 'rl-versus__name';
       name.textContent = s.callsign;
-      el.append(dot, name);
+      // The force this seat commands: KDF or Sarim.
+      const force = document.createElement('span');
+      force.className = 'rl-versus__force';
+      force.dataset.faction = r.factions[n];
+      force.textContent = t('versus.faction', { f: r.factions[n] });
+      el.append(dot, name, force);
       if (n === r.seat) {
         el.dataset.you = '1';
         const you = document.createElement('span');

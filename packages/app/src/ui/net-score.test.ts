@@ -90,3 +90,23 @@ describe('the match-over panel carries the full board', () => {
     expect(document.querySelector('.rl-net-end table')).toBeNull();
   });
 });
+
+describe('the match-over panel names the factions in a KDF-vs-Sarim room (2026-10-14)', () => {
+  const played = (): string | null => document.querySelector('.rl-net-end__played')?.textContent ?? null;
+  it('each seat reads the force it commanded and the one it fought', () => {
+    const deps = { again: vi.fn(), menu: vi.fn(), factions: ['sarim', 'kdf'] as const };
+    showNetEnd(document.body, { kind: 'won', side: 0, by: 'annihilation' }, 0, deps);
+    expect(played()).toBe('You commanded Sarim against the KDF');
+    document.body.innerHTML = '';
+    showNetEnd(document.body, { kind: 'won', side: 0, by: 'annihilation' }, 1, deps);
+    expect(played()).toBe('You commanded the KDF against Sarim');
+  });
+
+  it('the mirror, or no factions at all, adds nothing', () => {
+    showNetEnd(document.body, { kind: 'draw', by: 'mutual' }, 0, { again: vi.fn(), menu: vi.fn(), factions: ['kdf', 'kdf'] });
+    expect(played()).toBeNull();
+    document.body.innerHTML = '';
+    showNetEnd(document.body, { kind: 'draw', by: 'mutual' }, 0, { again: vi.fn(), menu: vi.fn() });
+    expect(played()).toBeNull();
+  });
+});

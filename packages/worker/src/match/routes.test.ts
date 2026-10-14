@@ -65,6 +65,13 @@ describe('/api/match', () => {
     await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-3', build: 'b1', mode: 'conquest' }), env, NOW);
     expect(createBodies[1]).toMatchObject({ mode: 'sandbox', callsign: 'Lion' });
   });
+  it('the host\'s matchup reaches the room, cleaned: anything unknown is the mirror (2026-10-14)', async () => {
+    const { env, createBodies } = fakeRooms();
+    await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-1', build: 'b1', mode: 'versus', matchup: 'sarim' }), env, NOW);
+    await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-1', build: 'b1', mode: 'versus', matchup: '<rif>' }), env, NOW);
+    await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-1', build: 'b1', mode: 'versus' }), env, NOW);
+    expect(createBodies.map((b) => (b as { matchup?: string }).matchup)).toEqual(['sarim', 'mirror', 'mirror']);
+  });
   // N1b follow-up: a callsign is cleaned the way the client cleans it
   // (`cleanCallsign`, @lions/net) before the room ever sees it -- the Worker
   // trusts nothing a client sent.

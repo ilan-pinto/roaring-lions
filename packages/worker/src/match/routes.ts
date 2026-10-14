@@ -7,12 +7,13 @@ import type { Env, RateLimiter } from '../d1';
 import { originAllowed } from '../origin';
 import { signTicket } from './ticket';
 import { mintCode, isCode } from './code';
+import { matchupField } from '@lions/net';
 import { callsignField, mapField, textField } from './room-fields';
 
 const TICKET_MS = 6 * 3600 * 1000;
 const CODE_ATTEMPTS = 5;
 
-interface CreateBody { player?: unknown; callsign?: unknown; map?: unknown; build?: unknown; mode?: unknown }
+interface CreateBody { player?: unknown; callsign?: unknown; map?: unknown; build?: unknown; mode?: unknown; matchup?: unknown }
 
 async function readBody(req: Request): Promise<CreateBody> {
   try {
@@ -60,7 +61,7 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
     for (let attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
       const c = mintCode();
       const res = await rooms.get(rooms.idFromName(c)).fetch(new Request('https://room/create', {
-        method: 'POST', body: JSON.stringify({ code: c, matchId: c, map, build, mode, player, callsign }),
+        method: 'POST', body: JSON.stringify({ code: c, matchId: c, map, build, mode, player, callsign, matchup: matchupField(body.matchup) }),
       }));
       if (res.status === 409) continue;   // that code is taken
       if (!res.ok) return new Response('room', { status: 502 });

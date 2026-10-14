@@ -28,7 +28,7 @@ import { playerId } from './player-id';
 import { takeHanded } from './handoff';
 import { forgetSeat, loadSeat, saveSeat } from './ticket-store';
 import type { StorageLike } from '../telemetry/identity';
-import { LocalTransport, WsTransport, callsignOrDefault, type MatchConfig, type MatchTransport, type Seat, type SeatState, type SocketLike } from '@lions/net';
+import { LocalTransport, WsTransport, callsignOrDefault, type Faction, type Matchup, type MatchConfig, type MatchTransport, type Seat, type SeatState, type SocketLike } from '@lions/net';
 
 export interface ConnectDeps {
   fetch: typeof fetch;
@@ -196,11 +196,17 @@ function awaitStart(code: string, seat: Seat, ticket: string, build: string, dep
 
 /** What the `/versus` screens ask for. */
 export type RoomRequest =
-  | { kind: 'create'; map: string; callsign: string }
+  /** `matchup`: the host's pick -- KDF or Sarim for itself, or the mirror. */
+  | { kind: 'create'; map: string; callsign: string; matchup?: Matchup }
   | { kind: 'join'; code: string; callsign: string };
 
 /** The room as its first `lobby` message described it. */
-export interface LobbyState { seats: SeatState[]; map: string }
+export interface LobbyState {
+  seats: SeatState[];
+  map: string;
+  /** Each seat's faction, by seat; the KDF mirror for a room that names none. */
+  factions: [Faction, Faction];
+}
 
 /** An open room: its code, this tab's seat, the live transport (nothing said
  *  but `hello`), and the lobby it first answered with. */
@@ -265,7 +271,7 @@ export async function openRoom(req: RoomRequest, build: string, deps: OpenDeps):
   const url = creating ? `${deps.origin}/api/match` : `${deps.origin}/api/match/${encodeURIComponent(req.code.toUpperCase())}/join`;
   const player = playerId(deps.store);
   const body = creating
-    ? { player, callsign: callsignOrDefault(req.callsign), map: req.map, build, mode: 'versus' }
+    ? { player, callsign: callsignOrDefault(req.callsign), map: req.map, build, mode: 'versus', matchup: req.matchup ?? 'mirror' }
     : { player, callsign: callsignOrDefault(req.callsign), build };
   let res: Response;
   try {
@@ -313,11 +319,11 @@ function awaitLobby(code: string, seat: Seat, ticket: string, build: string, dep
     };
     const onAbort = (): void => fail(aborted());
     const transport: WsTransport = new WsTransport(() => deps.openSocket(wsUrl), ticket, build, {
-      onLobby: (seats, _you, map) => {
+      onLobby: (seats, _you, map, factions) => {
         if (settled) return;
         settled = true;
         deps.signal?.removeEventListener('abort', onAbort);
-        resolve({ code, seat, transport, lobby: { seats, map } });
+        resolve({ code, seat, transport, lobby: { seats, map, factions: factions ?? ['kdf', 'kdf'] } });
       },
       onStart: (config) => fail(new RoomStarted(config.map, code), false),
       onError: (c) => {

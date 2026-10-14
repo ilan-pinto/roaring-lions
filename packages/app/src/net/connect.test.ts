@@ -450,17 +450,29 @@ describe('openRoom: the lobby\'s create and join (N1b task 6, R-B8)', () => {
     const session = memory();
     const p = openRoom({ kind: 'create', map: 'qarn_hadid', callsign: 'Ari' }, 'b', deps({ fetch: f, openSocket: () => sock, session }));
     await tick();
-    expect(calls).toEqual([{ url: 'http://x/api/match', body: { player: 'pid-o', callsign: 'Ari', map: 'qarn_hadid', build: 'b', mode: 'versus' } }]);
+    expect(calls).toEqual([{ url: 'http://x/api/match', body: { player: 'pid-o', callsign: 'Ari', map: 'qarn_hadid', build: 'b', mode: 'versus', matchup: 'mirror' } }]);
     expect(loadSeat(session, 'ABCDEF')).toEqual({ ticket: 'tk-o', seat: 0 });
     sock.onopen?.({});
     sock.onmessage?.({ data: JSON.stringify(LOBBY_TWO) });
     const r = await p;
     expect(r.code).toBe('ABCDEF');
     expect(r.seat).toBe(0);
-    expect(r.lobby).toEqual({ seats: LOBBY_TWO.seats, map: 'qarn_hadid' });
+    // A lobby that names no factions is the mirror.
+    expect(r.lobby).toEqual({ seats: LOBBY_TWO.seats, map: 'qarn_hadid', factions: ['kdf', 'kdf'] });
     expect(r.transport).toBeInstanceOf(WsTransport);
     // Both seats connected, and still only the hello: the lobby's Ready is the player's.
     expect(sock.sent.map((s) => (JSON.parse(s) as { t: string }).t)).toEqual(['hello']);
+  });
+
+  it('a create sends the host\'s matchup, and the lobby\'s factions come back by seat (2026-10-14)', async () => {
+    const { f, calls } = answering(201);
+    const sock = fakeSocket();
+    const p = openRoom({ kind: 'create', map: 'tel_marum', callsign: 'Ari', matchup: 'sarim' }, 'b', deps({ fetch: f, openSocket: () => sock, session: memory() }));
+    await tick();
+    expect((calls[0].body as { matchup: string }).matchup).toBe('sarim');
+    sock.onopen?.({});
+    sock.onmessage?.({ data: JSON.stringify({ ...LOBBY_TWO, factions: ['sarim', 'kdf'] }) });
+    expect((await p).lobby.factions).toEqual(['sarim', 'kdf']);
   });
 
   it('cleans the callsign it sends, on create and on join (N1b follow-up): the same function the room runs', async () => {
