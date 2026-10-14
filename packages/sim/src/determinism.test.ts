@@ -1005,7 +1005,11 @@ const ECONOMY_TICKS = 2400; // two minutes
 // change). There is no earlier value. Move it deliberately, in the commit that
 // moves the economy, and say why; each Stage 4 economy plan (F1, F2, F4) that
 // adds a column to economyHash() moves it once, with a comment here.
-const ECONOMY_PIN = 3286554442;
+// re-pinned 2026-10-15, F1 Task 3: intel now accrues from first identification
+// (10 each) and objective completion (30 each) instead of per minute (G3 Q1,
+// lead 4 Oct), and economyHash() folds the settled first identifications
+// (size, then ids ascending); was 3286554442.
+const ECONOMY_PIN = 331788258;
 const ECONOMY_EXTRA_BUILD_TICK = 1000;
 // Still building when the replay ends (15 s = 300 ticks to deliver), so the
 // pinned hash carries a non-empty queue and not just a purse.
