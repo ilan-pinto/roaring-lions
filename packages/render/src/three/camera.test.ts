@@ -9,7 +9,7 @@
  */
 import * as THREE from 'three';
 import { describe, it, expect } from 'vitest';
-import { worldToScreen, screenToWorldFlat, isoX, isoY, ELEV_STEP, type Camera, type Viewport } from '../project';
+import { worldToScreen, screenToWorldFlat, isoX, isoY, ELEV_STEP, WORLD_Y_PER_LIFT_PIXEL, type Camera, type Viewport } from '../project';
 import { worldToScreenThree, screenToWorldThree, dimetricCamera, updateDimetricCamera, CAMERA_NEAR, CAMERA_FAR } from './camera';
 import { groundLevelAt } from './ground-height';
 
@@ -351,4 +351,158 @@ describe('updateDimetricCamera', () => {
       }
     }
   });
+});
+
+/**
+ * Very tall viewports (#571's "Known remaining issues"). An orthographic
+ * ray starts on the CAMERA's own plane (three's `setFromCamera`: "set origin
+ * in plane of camera"), so a row reaches the plane `y = h` only while that
+ * row's start stands above `h`:
+ *
+ *   D * sin(EL) + ndcY * halfHeight * cos(EL) >= h
+ *
+ * At the old fixed distance of 120 that failed on the bottom rows of any
+ * frustum taller than about 2,190 CSS px at the 0.35 zoom floor (a 5K
+ * display at DPR 1, or a 1440p screen at 50% browser zoom), and a pointer
+ * over those rows threw out of `screenToWorldThree`. Raised ground fails
+ * sooner, which is why 3840x2160 is here at all: its flat ground resolved
+ * on the old camera and its level-9 ground did not.
+ *
+ * The oracle is `project.ts`'s own arithmetic (`worldToScreen` with Pixi's
+ * `lift`), which has no camera and so nothing to clip.
+ */
+describe('the camera reaches the ground on very tall viewports (#571 follow-up)', () => {
+  /** `main.ts`'s zoom clamp floor: the tallest frustum a viewport can ask for. */
+  const ZOOM_FLOOR = 0.35;
+  /** Elevation is one digit a tile (map.schema.json): 9 is the top level. */
+  const TOP_LEVEL = 9;
+  /** A roof stands under 8 world units above its own ground (camera.ts). */
+  const ROOF = 8;
+  /** World-Y of a roof on level-9 ground, via project.ts's lift conversion. */
+  const ROOF_Y = TOP_LEVEL * ELEV_STEP * WORLD_Y_PER_LIFT_PIXEL + ROOF;
+
+  // A uniform level-9 grid wide enough that no probe below lands off it:
+  // `groundLevelAt` reads 0 past the edge, which would quietly turn the
+  // raised case back into the flat one.
+  const N = 1024;
+  const NINES = new Uint8Array(N * N).fill(TOP_LEVEL);
+  const CENTRE: Camera = { x: N / 2, y: N / 2, zoom: ZOOM_FLOOR };
+
+  /** The four corners, plus three more points along the bottom row. */
+  function probes(vp: Viewport): [number, number][] {
+    const right = vp.width - 1;
+    const bottom = vp.height - 1;
+    return [
+      [0, 0],
+      [right, 0],
+      [0, bottom],
+      [right, bottom],
+      [Math.floor(vp.width / 4), bottom],
+      [Math.floor(vp.width / 2), bottom],
+      [Math.floor((3 * vp.width) / 4), bottom],
+    ];
+  }
+
+  const CASES: { label: string; vp: Viewport; raised: boolean }[] = [
+    { label: '5120x2880, flat ground', vp: { width: 5120, height: 2880 }, raised: false },
+    { label: '5120x2880, level-9 ground', vp: { width: 5120, height: 2880 }, raised: true },
+    { label: '2560x2560, flat ground', vp: { width: 2560, height: 2560 }, raised: false },
+    { label: '2560x2560, level-9 ground', vp: { width: 2560, height: 2560 }, raised: true },
+    // The control: this one resolved on the old camera too.
+    { label: '3840x2160, flat ground', vp: { width: 3840, height: 2160 }, raised: false },
+    { label: '3840x2160, level-9 ground', vp: { width: 3840, height: 2160 }, raised: true },
+  ];
+  const VIEWPORTS = [...new Map(CASES.map(({ vp }) => [`${vp.width}x${vp.height}`, vp])).entries()];
+
+  it.each(CASES)('screenToWorldThree resolves every corner and the bottom row at zoom 0.35: $label', ({ vp, raised }) => {
+    const lift = raised ? TOP_LEVEL * ELEV_STEP : 0;
+    const missed: string[] = [];
+    for (const [px, py] of probes(vp)) {
+      let hit: { x: number; y: number };
+      try {
+        hit = raised ? screenToWorldThree(px, py, CENTRE, vp, NINES, N, N) : screenToWorldThree(px, py, CENTRE, vp);
+      } catch {
+        missed.push(`(${px}, ${py})`);
+        continue;
+      }
+      // Resolving is not enough: it must resolve to the point project.ts
+      // draws at that pixel.
+      const back = worldToScreen(hit.x, hit.y, CENTRE, vp, lift);
+      expect(back.x, `x at (${px}, ${py})`).toBeCloseTo(px, 3);
+      expect(back.y, `y at (${px}, ${py})`).toBeCloseTo(py, 3);
+    }
+    expect(missed, 'pixels whose ray never met the ground').toEqual([]);
+  });
+
+  it.each(VIEWPORTS)('the ground and a level-9 roof under every probe lie inside [near, far] at zoom 0.35: %s', (_, vp) => {
+    // Picking is the half of this that threw; drawing is the other half. A
+    // roof the bottom row looks at must be in front of the near plane, and
+    // the ground the top row looks at must be inside the far one.
+    const camera = dimetricCamera(CENTRE, vp);
+    const outside: string[] = [];
+    for (const [px, py] of probes(vp)) {
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(new THREE.Vector2((px / vp.width) * 2 - 1, 1 - (py / vp.height) * 2), camera);
+      for (const y of [0, ROOF_Y]) {
+        const hit = raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -y), new THREE.Vector3());
+        const z = hit ? hit.project(camera).z : NaN;
+        if (!(Math.abs(z) < 1)) outside.push(`(${px}, ${py}) at y=${y.toFixed(2)}: ndc.z ${z}`);
+      }
+    }
+    expect(outside).toEqual([]);
+  });
+});
+
+describe('every ordinary viewport keeps the fixed-distance camera, to the bit', () => {
+  /**
+   * The camera as it was built before the tall-viewport fit, with every
+   * constant spelled out as a literal (TILE_W 64, TILE_H 32, distance 120,
+   * near 1, far 300) rather than imported from the module under test. The
+   * golden gate captures at 1400x900 and `ui:shots` tops out at 2560x1440,
+   * so if both stay bit-identical across the whole zoom clamp, nothing the
+   * gates photograph can move.
+   */
+  function fixedDistanceCamera(cam: Camera, vp: Viewport): THREE.OrthographicCamera {
+    const el = Math.asin(32 / 64);
+    const sinEl = Math.sin(el);
+    const dir = new THREE.Vector3(Math.cos(el) * Math.SQRT1_2, sinEl, Math.cos(el) * Math.SQRT1_2);
+    const halfWidth = vp.width / (64 * cam.zoom * Math.SQRT2);
+    const halfHeight = (vp.height * sinEl) / (32 * cam.zoom * Math.SQRT2);
+    const c = new THREE.OrthographicCamera(-halfWidth, halfWidth, halfHeight, -halfHeight, 1, 300);
+    const target = new THREE.Vector3(cam.x, 0, cam.y);
+    c.position.copy(target).addScaledVector(dir, 120);
+    c.up.set(0, 1, 0);
+    c.lookAt(target);
+    c.updateProjectionMatrix();
+    c.updateMatrixWorld(true);
+    return c;
+  }
+
+  // 0.35 to 2.5 in steps of 0.05, both clamp ends exact.
+  const ZOOMS = [...Array.from({ length: 43 }, (_, i) => 0.35 + i * 0.05), 2.5];
+
+  for (const vp of [
+    { width: 1400, height: 900 },
+    { width: 2560, height: 1440 },
+  ]) {
+    it(`${vp.width}x${vp.height}: position and projection equal the distance-120 build at every zoom from 0.35 to 2.5`, () => {
+      for (const zoom of ZOOMS) {
+        for (const [x, y] of [
+          [24, 24],
+          [0, 0],
+          [64, 64],
+          [5.5, 40.25],
+        ]) {
+          const cam: Camera = { x, y, zoom };
+          const want = fixedDistanceCamera(cam, vp);
+          const got = dimetricCamera(cam, vp);
+          const at = `zoom ${zoom} at (${x}, ${y})`;
+          expect(got.position.toArray(), at).toEqual(want.position.toArray());
+          expect(got.projectionMatrix.toArray(), at).toEqual(want.projectionMatrix.toArray());
+          expect(got.matrixWorld.toArray(), at).toEqual(want.matrixWorld.toArray());
+          expect([got.near, got.far], at).toEqual([1, 300]);
+        }
+      }
+    });
+  }
 });
