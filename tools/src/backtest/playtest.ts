@@ -2751,27 +2751,50 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
   at(50, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(33.5, 8.5) }));
   // GH-382: each party takes the first of its own list still standing, re-sent every 15 s, so a party
   // that dies on the shelf hands its door to the other instead of leaving it standing at the deadline.
+  // Garrison overhaul (B2, task 9). Cause: the sarim_rifles in the warehouse (30,4) now really sits
+  // inside it, so it is a contact the yard check below never clears; the parties waited to the old
+  // 200 s fallback and then walked onto its door inside its window's reach (rifles 8 + 1 from inside)
+  // and died there (424242: demo_squad#10 killed by the garrison at 225 s), while the escort's
+  // attack-move halted at y=15 to duel it from ~10 tiles, where a Lavi's gun hits masonry about once
+  // a minute, so the warehouse stood until 272 s and the stockpile was not down at 300 s (10/30).
+  // A man inside dies only with his building, and no party can stand off it (every door is within
+  // 6 tiles of a warehouse window). So the guns take the warehouse down and the parties take the
+  // other two. Party 0 now starts at the shed (34,9), the nearer door from the ramp, because the
+  // warehouse is normally rubble by the time either party moves.
   const doors: [number, number][][] = [
-    [[30, 4], [36, 3], [34, 9]],
+    [[34, 9], [30, 4], [36, 3]],
     [[36, 3], [30, 4], [34, 9]],
   ];
   // Since a hit suppresses (2026-10-13) a demolition party that walks onto the shelf while the depot's
   // garrison still stands is pinned at the first door and dies there: on seed 2 the parties overtook
   // an escort halted at y=17-21 and both were dead by t=115, the stockpile untouched. So the parties
-  // wait behind the escort at (33,22) until the player's own picture says the yard is his: armour
-  // standing in it, and nothing he has seen still standing around the doors. If that has not
-  // happened by t=200 they go anyway -- the clock is 300 s.
+  // wait behind the escort until the player's own picture says the yard is his: armour standing in
+  // it, and nothing he has seen still standing around the doors -- which, with the warehouse
+  // garrisoned, means the warehouse is down.
   const DEPOT = [26, 1, 15, 14] as const;
   const yardHeld = (): boolean =>
     depotEscort.some((u) => sim.state.alive[u] === 1 && (fx.toNumber(sim.state.posX[u]) - 33) ** 2 + (fx.toNumber(sim.state.posY[u]) - 8) ** 2 <= 25);
+  // Garrison overhaul (B2): the warehouse, and whether the player has seen an anti-armour gun still
+  // standing in the yard proper (x > 27.5, y < 14; an ATGM that has slipped west into the ravine at
+  // x 26 cannot see the yard and kept the armour out until 220 s on seed 13 when it counted).
+  const warehouse = (): number => sim.structureAt(30, 4);
+  const yardGuns = (): boolean =>
+    [...pic.identified('recoilless_team'), ...pic.identified('atgm_cell')].some((c) => c.y < 14 && c.x > 27.5);
   for (let when = 45; when <= 285; when += 5)
     at(when, () => {
       if (rt.objectiveStatus('raze_the_stockpile') !== 'active') return;
-      const go = (yardHeld() && pic.contacts(DEPOT).length === 0) || when >= 200;
+      // Garrison overhaul (B2): the fallback moves from 200 to 250 s. At 200 the warehouse was still
+      // standing on most seeds and the parties walked into its reach; the guns now drop it by 215 s
+      // at the latest (30 seeds, every row), and two doors take a party 25 s from the ramp.
+      const go = (yardHeld() && pic.contacts(DEPOT).length === 0) || when >= 250;
       demo.forEach((u, k) => {
         if (sim.state.alive[u] !== 1) return;
         if (!go) {
-          if (when % 15 === 0) sim.queueCommand({ kind: 'move', ids: [u], ...M(32.5 + k, 22) });
+          // Garrison overhaul (B2): once the yard's guns are gone the parties wait on the ramp at
+          // y=15.5, 10 tiles from the nearest warehouse window (reach 8 + 1 + 0.5), 6.5 tiles
+          // nearer the doors than (33,22), so they are at work soon after the warehouse falls.
+          const stage: [number, number] = when < 100 || yardGuns() ? [32.5 + k, 22] : [33.5 + k, 15.5];
+          if (when % 15 === 0) sim.queueCommand({ kind: 'move', ids: [u], ...M(...stage) });
           return;
         }
         if (when % 15 !== 0 && sim.state.moving[u] === 1) return;
@@ -2782,7 +2805,27 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
   // The escort holds the depot: an attackMove does not stop at its destination while a contact is
   // still ahead, and a Lavi that has chased a picket off the shelf leaves the parties under the
   // first wave. Re-anchored on the yard every 30 s.
-  for (let when = 60; when <= 280; when += 30) at(when, () => { if (rt.objectiveStatus('raze_the_stockpile') === 'active') sim.queueCommand({ kind: 'attackMove', ids: depotEscort, ...M(33, 8) }); });
+  // Garrison overhaul (B2): from 100 s, once no anti-armour gun is seen in the yard, the armour and
+  // the Namer drive INTO the yard with a plain `move` (an attack-move halts at y=15 for the warehouse
+  // garrison) and shoot the warehouse from 3-5 tiles, where its rifles cannot hurt them. Measured on
+  // 30 seeds and every row: the warehouse falls at 152-215 s (272 s on 424242 before, after the
+  // deadline on most seeds). The Namer's cannon is the second gun that hurts masonry (1,090 of the
+  // warehouse's 3,060 on seed 4 at max tier) and carries no heavy collateral, so it costs no ROE
+  // beside the porters. The spots stay off the porters' way to the shelf (x 32-34, y 2-7): a Lavi
+  // parked at (33.5,6.5) blocked one, which then walked along the warehouse wall for 40 s under the
+  // Lavis' guns (seed 19 bought: ROE 64, one star).
+  const yardSpots: [number, number][] = [[30.5, 8.5], [32.5, 9.5], [33.5, 10.5], [36.5, 8.5], [31.5, 10.5]];
+  const closers = [...depotEscort, ...ids('ifv_namer')];
+  for (let when = 60; when <= 280; when += 10)
+    at(when, () => {
+      if (rt.objectiveStatus('raze_the_stockpile') !== 'active') return;
+      if (warehouse() >= 0 && when >= 100 && !yardGuns()) {
+        closers.forEach((u, k) => {
+          const spot = yardSpots[k];
+          if (spot && sim.state.alive[u] === 1) sim.queueCommand({ kind: 'move', ids: [u], ...M(...spot), exact: true });
+        });
+      } else if (when % 30 === 0) sim.queueCommand({ kind: 'attackMove', ids: depotEscort, ...M(33, 8) });
+    });
   // The stockpile is down, so everything left goes for Adhal: the nearest hostile the player has seen,
   // else the crest. Since #537 the escort no longer walks on from the yard by itself, and three seeds
   // of thirty ended with Adhal's party alive and the armour parked 22 tiles away.
@@ -2802,7 +2845,9 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
   at(90, () => {
     sim.queueCommand({
       kind: 'attackMove',
-      ids: [...ids('at_team'), ...ids('mortar_team'), ...ids('sniper_team'), ...ids('inf_squad'), ...ids('ifv_namer')],
+      // Garrison overhaul (B2): the Namer stays at the depot to shoot the warehouse (above); it joins
+      // the push for Adhal with everything else once the stockpile is down.
+      ids: [...ids('at_team'), ...ids('mortar_team'), ...ids('sniper_team'), ...ids('inf_squad')],
       ...M(17, 7),
     });
   });
