@@ -71,7 +71,7 @@
         "type": { "const": "mission_end" },
         "mission": { "$ref": "#/$defs/mission" },
         "result": { "enum": ["victory", "defeat", "abandoned"] },
-        "cause": { "type": "string", "pattern": "^(force_destroyed|roe_collapse|objective:[A-Za-z0-9_.-]{1,64})$" },
+        "cause": { "type": "string", "pattern": "^(force_destroyed|roe_collapse|withdrawn|objective:[A-Za-z0-9_.-]{1,64})$" },
         "tick": { "$ref": "#/$defs/tick" },
         "roe": { "type": "integer", "minimum": 0, "maximum": 100 },
         "fielded": { "$ref": "#/$defs/count" },
