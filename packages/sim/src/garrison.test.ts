@@ -479,7 +479,8 @@ describe('a mortar does not fire from inside; a Spike does (G4)', () => {
     // only way into the breach loop. No min range, or min_range 4 would exceed BREACH_RANGE (2.5).
     const breacher = (flag: boolean | undefined): number => {
       const { sim, t } = world();
-      const w = MORTAR.weapons[0];
+      const w = MORTAR.weapons?.[0];
+      if (!w) throw new Error('MORTAR has no weapon');
       const { min_range_tiles: _min, fires_from_building: _flag, ...rest } = w;
       void _min;
       void _flag;
