@@ -87,6 +87,20 @@
             "default": 2,
             "description": "Cover level for a unit fighting from immediately behind this while it stands -- the companion to rubble_cover, which is what remains once it does not. Only consulted for a low_profile type."
           },
+          "garrison_cover": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3,
+            "default": 3,
+            "description": "Cover level 0-3 a unit INSIDE this building fights with: what incoming suppression is scaled by (COVER_SUPP) and what its detection signature is scaled by (COVER_SIG). Default 3, full building cover (lead ruling 2026-10-14, GH-280). Only read for a garrisoned unit."
+          },
+          "floors": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9,
+            "default": 1,
+            "description": "Storeys a garrison fights from. Each floor above the ground adds one elevation level to the eye height of a unit inside it, for line of sight, the way ground elevation does (lead ruling 2026-10-14, G3). Derived from the drawn height: round(height_px / 10), at least 1."
+          },
           "produces_for": {
             "type": "integer",
             "minimum": 0,

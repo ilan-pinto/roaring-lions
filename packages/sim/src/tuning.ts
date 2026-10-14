@@ -74,6 +74,13 @@ export const FALLOFF_SCALE = new Int32Array([
  *  the defensive advantage was an artefact rather than the model. With
  *  attackers pressing properly, cover has to carry it. */
 export const COVER_HIT = new Int32Array([65536, 24576, 9011, 5898]); // 1, .375, .1375, .09
+/** Weapon range a unit gains from inside a building, Q16.16 tiles, on top of
+ *  measuring from the window (lead ruling 2026-10-14, GH-34). Maximum and
+ *  effective range both; not sight, not minimum range. +1 by the lead's ruling
+ *  of 2026-10-14 (L-2), from a measured +1/+2 table
+ *  (docs/superpowers/plans/2026-10-14-garrison-overhaul.md): §5.7 identical for
+ *  both; +2 broke two more missions and two unlock gates. */
+export const GARRISON_RANGE_BONUS = 65536; // 1 tile
 export const TARGET_MOTION_MOD = 45875; // 0.7
 export const MOVING_STANCE_MOD = 36045; // 0.55
 /** k in accuracy_mult = 1 / (1 + k * S). */
