@@ -2,7 +2,72 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task by task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-## Changed since 4 Oct
+## Changed since 4 Oct (refreshed 14 Oct)
+
+A quick staleness pass, read and grepped against `main` `f4b3ea2b` (14 Oct) and the garrison
+overhaul's branch (`origin/feat/garrison-overhaul` at `fb3174c8`). Docs only; nothing run. It governs
+where it disagrees with the older dated sections below. F3 is cut **after F1 lands**, and F1 after
+the garrison overhaul; Stage 4 started early (13 Oct), so the November dates are history.
+
+**Pins: named, never copied.** Global Constraints and Re-pins now say "main's current pins": the
+three sim pins (`determinism.test.ts` ~L488 flat, ~L857 relief, ~L977 orders on `f4b3ea2b`),
+`LADDER_CREDITS` (`playtest.ts` ~L3431) with `CAMPAIGN_CREDITS` (`stores-model.ts` L63),
+`ROSTER_MAX` (~L3566), `GATES` (~L3121), and F1's `ECONOMY_PIN`/`ECONOMY_PIN_RELIEF` (still not in
+the tree; F1 Tasks 1 and 5 create them). Targeted fire (#591) moved the sim pins; the garrison
+overhaul moves them again and moves `LADDER_CREDITS`/`CAMPAIGN_CREDITS` and `ROSTER_MAX`
+(`e8cdab88`, `53b020ba`). Read every one on the branch base.
+
+**What landed and what it does to F3.**
+- **#585, the mission time limit (#540).** Every mission declares `time_limit_s`; a stall ends as a
+  `'withdrawn'` defeat in `checkEnd` (~L1925-1947). Task 7's roster skip sits in the same `checkEnd`
+  and is unaffected. Task 7 Step 1's measurement must also keep every `time limit` headroom line
+  clear (`tools/src/backtest/time-limit.ts`). `tools/validate_time_limit.mjs` and its spec are a
+  second precedent for Task 2's pure validator module.
+- **#580 (#291, #279, #247), #584, #570, #572.** Routs, civilian flight, `manpad_team` on foot,
+  working splash suppression, anti-armour target choice. They change who survives, so Task 7's L-1
+  footprint (R) is a fresh reading, not the 11 Oct one.
+- **The garrison overhaul (not merged).** D1 already counts a garrisoned unit; the overhaul adds two
+  states D1 must keep counting: an overflow unit **waiting at the door** of a full building (B3:
+  alive, `moving` 0, not garrisoned) and a slot freed on `removeFromPlay` or death (B5). Neither
+  changes the count (a waiting unit is alive; a removed one is not). `sarim_rifles` gains the
+  `garrison` ability. It re-scripts five plans, including `umm_zeitoun_4_clearance`, where
+  `ROSTER_MAX` is measured: Task 7 Step 1 reads L-1's footprint on the post-merge plans only.
+- **#591 targeted fire, #577 H skips a garrison.** No F3 interaction: population counts units, not
+  orders.
+- **Versus (N0/N1a/N1b).** A room runs Free Play only and builds no `MissionRuntime`
+  (`main.ts` ~L1458), and has no production. `MissionContext.popCaps`, the door the plan names for
+  "on in skirmish and co-op", therefore cannot reach a versus room. Nothing to build in F3: a versus
+  cap would be a `MatchConfig` field once versus has production (Q10, below, taken default).
+- **F1 (not landed; F3 waits on it).** F3 Task 4 re-pins **both** economy pins once: folding
+  population into `economyHash` moves the flat pin and the relief pin alike, so Task 4's commit names
+  both, and the relief fixture needs the same coverage check (a cap that really refuses a build).
+
+**Stale items fixed in place.**
+
+| where | was | now (`f4b3ea2b`) |
+|---|---|---|
+| Global Constraints, Re-pins | sim pin, ladder and roster values | named pins, "main's current pins" |
+| File structure, Task 3 | harness `unitInfo` at `playtest.ts` ~L259; `main.ts` ~L2332 | `tools/src/backtest/playtest-run.ts` ~L303; `main.ts` ~L2557 |
+| Task 1 | `UnitTypeJson` ~L158, `unitTypeFromJson` ~L494, `addUnitType` ~L1327, `haltsToFire` parse ~L540 | ~L162, ~L519, ~L1413, ~L565 (`UnitTypeJson` still has no `cost` field) |
+| Task 2 | `resources` ~L280-302; `validate_briefing.mjs` wired ~L1080 | `resources` ~L286; imported L24, used ~L1083 |
+| Task 3 | `buildBlockedReason` ~L609, camp return ~L619, `requestBuild` ~L679, `buildQueue` ~L525 | ~L620, ~L630, ~L690, ~L531 |
+| D5 | fresh remnant `drawn = [null]` ~L1295 | ~L1317 |
+| Task 6 | `resolvedMission` built at `main.ts` ~L1746-1754 | ~L1952 (`startMission` ~L2547) |
+| Task 7 | `checkEnd` ~L1897, survivor loop ~L1920-1939, unfielded append ~L1942; `main.ts` survivor count ~L516; `CONDUCT_GATES` ~L3007, `conductLedgerAfter` ~L2886 | `checkEnd` ~L1925; `survivors.push` ~L1958, `roster.push` ~L1972, unfielded append ~L1977; `main.ts` ~L534; `CONDUCT_GATES` ~L3188, `conductLedgerAfter` ~L3063 |
+| Task 8 | `chipArtHtml` ~L213; `broughtFor` ~L136; `deploySpread` ~L240; `FieldOrder.attached` ~L2143 | ~L219; ~L139; ~L243; ~L2365 |
+| Lane A | `getMission` ~L2462; deny cue wired at the order sink ~L3483 and support ~L3625 | `getMission` ~L2674; order sink `deny` ~L3939, support refusal ~L4089 (and a room's paused-order note ~L3163); `ui/production.ts` still plays none |
+| D5 | the harness's gate copy `playtest.ts` ~L119/~L238 | `kdfUnlockGate` `playtest-run.ts` ~L112, `withBought` ~L282 |
+| Census | 34 of 35 unit JSONs declare `cost.population`; `wadi_halam_5_depot` placements 4 (`dozer_d9`, Conduct 87) and 5 (`demo_squad`, 77) | re-verified, unchanged |
+
+**Pre-flight decisions still open.** Q4-Q9 (11 Oct) carry no ruling in this file or in
+`2026-10-04-stage4-order.md`; they still go to the lead before Task 8 and the Lane A rows. One more,
+found here:
+
+10. **A population cap in versus.** Taken default: none in F3. Versus has no production yet, and a
+    room has no `MissionRuntime`; when it gains production, the cap is a `MatchConfig` field checked
+    the same on both machines, in its own plan. Overrule only if the lead wants F3 to ship that door.
+
+## Changed since 4 Oct (refreshed 6 Oct)
 
 Refreshed against `main` `b44df7aa` (v0.121.4, 6 Oct). F1 has not landed (`economyHash` and the
 `ECONOMY_PIN*` constants are not in the tree), so Task 4 still waits on it.
@@ -183,8 +248,8 @@ Landed since `b44df7aa`, touching F3:
   `ui/kit-sign.ts` (`kitIconSignHtml`, the DOM sign the mark sits beside): where the mark goes since
   the 6 Oct ruling.
 
-**Base:** read against `main` `067fab9a`, refreshed against `b44df7aa` (6 Oct), pre-flighted against `f2d5d9e8` (11 Oct). Branch `feat/gf3-popcap`,
-cut from `main` after F1 lands. Nothing measured yet: (M) is quoted from the G3 sheet, (R) is reasoned.
+**Base:** read against `main` `067fab9a`, refreshed against `b44df7aa` (6 Oct), pre-flighted against `f2d5d9e8` (11 Oct) and `f4b3ea2b` (14 Oct). Branch `feat/gf3-popcap`,
+cut from `main` after F1 lands (F1 is cut after the garrison overhaul merges). Nothing measured yet: (M) is quoted from the G3 sheet, (R) is reasoned.
 
 ---
 
@@ -216,9 +281,10 @@ cut from `main` after F1 lands. Nothing measured yet: (M) is quoted from the G3 
   - **L-1. A loaned survivor goes back to the lender.** "For that mission" (the lead's Q5 wording)
     means the unit does not join `roster.surviving_units` at mission end. Today every starting-force
     survivor without `from_ledger` appends a new roster entry, so a lent Lavi would become the
-    brigade's permanently, gate or no gate. **This can move the playtest roster lines (`ROSTER_MAX`,
-    31 on `b44df7aa`, 30 on 4 Oct) and, through later `from_ledger` draws, outcomes and
-    `LADDER_CREDITS` (5870 on `f2d5d9e8`, 5830 on `b44df7aa`, 5736 on 4 Oct), and with it `CAMPAIGN_CREDITS` (GH-330).**
+    brigade's permanently, gate or no gate. **This can move the playtest roster lines (`ROSTER_MAX`)
+    and, through later `from_ledger` draws, outcomes and `LADDER_CREDITS`, and with it
+    `CAMPAIGN_CREDITS` (GH-330), each from main's current pin (14 Oct: never from a number in this
+    plan).**
     It halts at Task 7 for the lead's confirmation. **R-2 (#441) does not make L-1 redundant.**
     R-2 only replaces a mission's OWN unfielded fresh bodies on a replay (`isReplayed`: `enlisted` stamp,
     `missions <= 1`, unfielded). The first win of a lending mission still enlists the lent Lavi for good, and
@@ -236,16 +302,16 @@ cut from `main` after F1 lands. Nothing measured yet: (M) is quoted from the G3 
 
 - **The four invariants hold.** Population sums are integers. No `rng`. The sim gains one parsed,
   unhashed, unread field (`UnitType.population`); no sim system reads it.
-- **Sim pins unmoved** by every task (flat 922714084, relief 3200430224, unchanged on `f2d5d9e8`,
-  `determinism.test.ts` L427/L721; they were 2109596329 and 1425295494 on 4 Oct, moved by #402). A
-  move is a defect. *Pre-flight 2 (2026-10-11): three on `49715ff9`, flat 1202444260, relief
-  3354895120, orders 2737216487 (#537).*
-- **The economy pins move once**, in Task 4, with the reason.
+- **The three sim pins stay unmoved** by every task: main's current flat, relief and orders pins
+  (`determinism.test.ts` ~L488, ~L857, ~L977 on `f4b3ea2b`), read on the branch base, never copied
+  from this plan. A move is a defect.
+- **The economy pins move once**, in Task 4, with the reason: both `ECONOMY_PIN` and
+  `ECONOMY_PIN_RELIEF` (F1 births them).
 - **`pnpm balance`** byte-identical (R).
 - **`pnpm playtest`** byte-identical through Task 6 (R: no campaign mission sets a cap, and the
   predicate changes nothing it does not mark). Task 7 (L-1) moves roster lines by design; anything
   downstream is measured and named. *(Pre-flight 2, 2026-10-11: on all 30 seeds; every plan still wins
-  30/30, #539/#542.)*
+  30/30, #539/#542.)* *(14 Oct: and every `time limit` headroom line stays clear, #540.)*
 - **Every check seen red**, by a one-line mutation, quoted in the commit.
 - **Gates before every commit**: as F1, plus `pnpm validate:ui` for Task 8.
 - **Git, TypeScript:** as F1. Task 8 is **Lane A** (`packages/app`), done by the lane A agent and
@@ -261,7 +327,7 @@ cut from `main` after F1 lands. Nothing measured yet: (M) is quoted from the G3 
 | `tools/src/` (a shipped-roster spec, beside `halt_to_fire_roster.test.ts`) | The shipped-JSON assertions of Tasks 1 and 6 | 1, 6 |
 | `data/schemas/mission.schema.json`, `tools/validate_data.mjs` + a new pure rule module and its `tools/src/*.test.ts` | `resources.pop_cap`; the campaign refusal | 2 |
 | `packages/sim/src/mission.ts` (+ test) | `population(side)`, `popCap(side)`, `populationView()`, the build refusal | 3, 4, 7 |
-| `packages/app/src/main.ts` (~L2332), `tools/src/backtest/playtest.ts` (~L259) | The two runtime `unitInfo` builders gain `population` | 3 |
+| `packages/app/src/main.ts` (~L2557 on `f4b3ea2b`), `tools/src/backtest/playtest-run.ts` (~L303) | The two runtime `unitInfo` builders gain `population` | 3 |
 | `packages/sim/src/determinism.test.ts` | The economy re-pin | 4 |
 | `tools/src/backtest/playtest.ts` | The population census line; Task 7's pins | 5, 7 |
 | `packages/app/src/ui/stores-model.ts` (`CAMPAIGN_CREDITS`) | Moves with `LADDER_CREDITS` if Task 7 moves it (GH-330) | 7 |
@@ -509,9 +575,9 @@ ruled 6 Oct: inside the L-1 confirmation, no separate word needed).
   ~L1942's unfielded-pool append). Skip only the `roster.push(entry)`: leave `survivors.push` (it feeds
   `missionEnd.survivors`, which `main.ts` ~L516 prints as the survivor count) and the veterancy/`promotedValue`
   lines alone, and `startingHome` is untouched (credits). A loaned unit that earned a stripe loses it on return.
-- [ ] **Step 4: Re-pin, if Step 1 said so.** Each moved `LADDER_CREDITS` (5870 on `f2d5d9e8`, ~L3195) /
-  `GATES` (~L2944) / `ROSTER_MAX` (31, ~L3322) *(Pre-flight 2, 2026-10-11: 5917 ~L3096 / ~L2820 / 30
-  ~L3228 on `49715ff9`)* pin gets the house-style comment: the term, per mission,
+- [ ] **Step 4: Re-pin, if Step 1 said so.** Each moved `LADDER_CREDITS` (~L3431 on `f4b3ea2b`) /
+  `GATES` (~L3121) / `ROSTER_MAX` (~L3566) pin, starting from main's current value, gets the
+  house-style comment: the term, per mission,
   before and after, summing to the delta. A moved `LADDER_CREDITS` moves `CAMPAIGN_CREDITS` in the same
   commit, or `tools/src/campaign_credits.test.ts` goes red (GH-330).
 - [ ] **Step 5: See it red.** Remove the skip: the roster test fails, listing the loaned unit.
@@ -610,12 +676,12 @@ and `hud.onLoan.some` coexist. The dock tile is never marked (Pre-flight Q7).
 
 | pin | expected | the reason, for the commit |
 |---|---|---|
-| sim pins, flat, relief and orders (three since #537) | **unmoved** (R): 1202444260 / 3354895120 / 2737216487 on `49715ff9` (Pre-flight 2); 922714084 / 3200430224 on `f2d5d9e8` (2109596329 / 1425295494 on 4 Oct, moved by #402) | — |
+| sim pins, flat, relief and orders (`determinism.test.ts` ~L488, ~L857, ~L977 on `f4b3ea2b`) | **unmoved** (R): main's current pins, read on the branch base | — |
 | `ECONOMY_PIN`, `ECONOMY_PIN_RELIEF` | **re-pinned once**, Task 4 (born in F1; not in the tree on `b44df7aa`) | population and the cap are economy state (G3 Q4) |
 | `pnpm balance` | byte-identical (R) | — |
 | `pnpm playtest` | byte-identical through Task 6; Task 7 moves roster lines (L-1) | new census lines (Task 5) |
-| `ROSTER_MAX` | **30** on `49715ff9` (Pre-flight 2: #537 → 32, #542 → 30); 31 on `f2d5d9e8` (30 on 4 Oct; GH-382 → 33, #402 → 31), at `umm_zeitoun_4_clearance`; may move in Task 7 (R) | "a loaned survivor returns to the lender (G3 Q5, L-1)" |
-| `LADDER_CREDITS` | **5917** on `49715ff9` (Pre-flight 2); 5870 on `f2d5d9e8` (5830 on `b44df7aa`, 5736 on 4 Oct; #431, #444); unchanged unless L-1's smaller pools change a later outcome (R: small, measured in Task 7 Step 1) | "a loaned survivor returns to the lender (G3 Q5, L-1)", per mission |
+| `ROSTER_MAX` (`playtest.ts` ~L3566 on `f4b3ea2b`) | main's current pin, measured at `umm_zeitoun_4_clearance` (the garrison overhaul re-scripts that plan and re-pins it); may move in Task 7 (R) | "a loaned survivor returns to the lender (G3 Q5, L-1)" |
+| `LADDER_CREDITS` (`playtest.ts` ~L3431) | main's current pin, whatever the garrison overhaul leaves it at; unchanged unless L-1's smaller pools change a later outcome (R: small, measured in Task 7 Step 1) | "a loaned survivor returns to the lender (G3 Q5, L-1)", per mission |
 | `CAMPAIGN_CREDITS` (`stores-model.ts` L63) | equal to `LADDER_CREDITS` (GH-330, `campaign_credits.test.ts`); moves with it, same commit | as `LADDER_CREDITS` |
 
 ## Lane A needs (WP-S-F #184)
