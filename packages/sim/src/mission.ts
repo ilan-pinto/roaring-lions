@@ -15,6 +15,8 @@ import { starsFor, betterResult, type Stars, type MissionResult } from './grade'
 import { TICKS_PER_SECOND, type Sim, type SimEvent } from './sim';
 import { highGroundRises } from './intel-earn';
 import {
+  FS_MORTAR_BARRAGE,
+  FS_SMOKE_SCREEN,
   HIGH_GROUND_HOLD_TICKS,
   INTEL_PER_IDENTIFIED,
   INTEL_PER_OBJECTIVE,
@@ -455,6 +457,30 @@ function tileInZone(st: Sim['state'], i: number, zone: readonly number[]): boole
 const SWEEP_COST = 150;
 const STRIKE_COST = 250;
 
+/** The fire-support menu (F1, GH-183): four calls, one entry point. */
+export type SupportKind = 'smoke_screen' | 'mortar_barrage' | 'drone_sweep' | 'air_strike';
+export const FIRE_SUPPORT_KINDS: readonly SupportKind[] = [
+  'smoke_screen',
+  'mortar_barrage',
+  'drone_sweep',
+  'air_strike',
+];
+/** The one price table, keyed by kind. The sweep and the strike are today's two
+ *  constants by reference; the smoke screen (60) and the barrage (120) are the
+ *  approved row, PROVISIONAL until the lead confirms the G-NUM table
+ *  (docs/campaign/economy/fire-support-numbers.md). */
+const SUPPORT_COST: Readonly<Record<SupportKind, number>> = {
+  smoke_screen: 60,
+  mortar_barrage: 120,
+  drone_sweep: SWEEP_COST,
+  air_strike: STRIKE_COST,
+};
+/** `callStrike.profile` for the two new rounds that fire. */
+const SUPPORT_PROFILE: Readonly<Record<'smoke_screen' | 'mortar_barrage', number>> = {
+  smoke_screen: FS_SMOKE_SCREEN,
+  mortar_barrage: FS_MORTAR_BARRAGE,
+};
+
 interface ObjectiveState {
   def: ObjectiveJson;
   status: ObjectiveStatus;
@@ -750,10 +776,47 @@ export class MissionRuntime {
 
   /** What a satellite sweep and a precision strike cost, for the HUD. */
   get sweepCost(): number {
-    return SWEEP_COST;
+    return SUPPORT_COST.drone_sweep;
   }
   get strikeCost(): number {
-    return STRIKE_COST;
+    return SUPPORT_COST.air_strike;
+  }
+
+  /** What one fire-support call costs, in intel. A method, unlike the two
+   *  getters above, which the app reads as properties (F-R10). */
+  supportCost(kind: SupportKind): number {
+    return SUPPORT_COST[kind];
+  }
+
+  /**
+   * The fire-support menu's one entry (F1, GH-183). Not ended, affordable, and
+   * for the three that fire, a living SURFACE caller who owns the ROE bill: a
+   * buried unit can neither observe the round nor own its bill, and drawing
+   * scatter from its RNG stream would consume a stream the containment rule
+   * says is idle down there. The drone sweep names no caller (today's sweep).
+   * Refusal charges nothing. None of these commands names a unit, so no
+   * player focus is touched (F-R6).
+   */
+  requestSupport(kind: SupportKind, x: Fx, y: Fx): boolean {
+    const cost = SUPPORT_COST[kind];
+    if (this.ended || this.intelValue < cost) return false;
+    if (kind === 'drone_sweep') {
+      this.intelValue -= cost;
+      this.sim.queueCommand({ kind: 'reveal', side: 0, x, y });
+      return true;
+    }
+    const caller = this.playerIds.find(
+      (id) => this.sim.state.alive[id] === 1 && this.sim.state.tunnelIn[id] < 0,
+    );
+    if (caller === undefined) return false;
+    this.intelValue -= cost;
+    if (kind === 'air_strike') {
+      // No `profile`: absent is the air strike, and the command stays as it was.
+      this.sim.queueCommand({ kind: 'callStrike', caller, x, y });
+    } else {
+      this.sim.queueCommand({ kind: 'callStrike', caller, x, y, profile: SUPPORT_PROFILE[kind] });
+    }
+    return true;
   }
 
   /**
@@ -762,10 +825,7 @@ export class MissionRuntime {
    * to do yourself (GDD §3).
    */
   requestSweep(x: Fx, y: Fx): boolean {
-    if (this.ended || this.intelValue < SWEEP_COST) return false;
-    this.intelValue -= SWEEP_COST;
-    this.sim.queueCommand({ kind: 'reveal', side: 0, x, y });
-    return true;
+    return this.requestSupport('drone_sweep', x, y);
   }
 
   /**
@@ -774,17 +834,7 @@ export class MissionRuntime {
    * civilian block is meant to be a decision, not a reflex.
    */
   requestStrike(x: Fx, y: Fx): boolean {
-    if (this.ended || this.intelValue < STRIKE_COST) return false;
-    // Living AND on the surface: a buried unit can neither observe the
-    // strike nor own its ROE bill, and drawing scatter from its RNG stream
-    // would consume a stream the containment rule says is idle down there.
-    const caller = this.playerIds.find(
-      (id) => this.sim.state.alive[id] === 1 && this.sim.state.tunnelIn[id] < 0,
-    );
-    if (caller === undefined) return false;
-    this.intelValue -= STRIKE_COST;
-    this.sim.queueCommand({ kind: 'callStrike', caller, x, y });
-    return true;
+    return this.requestSupport('air_strike', x, y);
   }
 
   requestBuild(unitId: string): boolean {

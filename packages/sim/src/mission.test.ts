@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fx } from './fixed';
 import { Sim, TICKS_PER_SECOND, type SimEvent, type UnitTypeJson } from './sim';
-import { STRIKE_DELAY_TICKS } from './tuning';
+import { FS_MORTAR_BARRAGE, FS_SMOKE_SCREEN, STRIKE_DELAY_TICKS } from './tuning';
 import {
+  FIRE_SUPPORT_KINDS,
   MissionRuntime,
+  type SupportKind,
   type LedgerData,
   type LedgerRosterEntry,
   type MissionContext,
@@ -2349,6 +2351,180 @@ describe('intel: earned by watching, spent on certainty (GDD §3)', () => {
   });
 });
 
+describe('the fire-support menu (F1 Task 8, GH-183)', () => {
+  // Approved row, PROVISIONAL until the lead confirms it (fire-support-numbers.md).
+  // Literals on purpose: the test must not read the table it checks.
+  const PRICE: Record<SupportKind, number> = {
+    smoke_screen: 60,
+    mortar_barrage: 120,
+    drone_sweep: 150,
+    air_strike: 250,
+  };
+  const AT = { x: fx.from(20.5), y: fx.from(6.5) };
+
+  function menuWorld(intelStart: number, partial: Partial<MissionJson> = {}): World {
+    return makeWorld(
+      baseMission({
+        map: { file: 'none', player_start: [4, 6] },
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+        starting_force: [{ unit: 'm_squad', count: 1, at: [3, 3] }],
+        enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [24, 10], facing_deg: 180 }] },
+        resources: { intel_start: intelStart },
+        ...partial,
+      }),
+    );
+  }
+
+  it('lists the four kinds, each at its price', () => {
+    expect([...FIRE_SUPPORT_KINDS].sort()).toEqual(Object.keys(PRICE).sort());
+    const w = menuWorld(0);
+    for (const k of FIRE_SUPPORT_KINDS) expect(w.runtime.supportCost(k)).toBe(PRICE[k]);
+    expect(w.runtime.sweepCost).toBe(150); // still getters (F-R10)
+    expect(w.runtime.strikeCost).toBe(250);
+  });
+
+  it.each(FIRE_SUPPORT_KINDS)('%s deducts its price and queues its command', (kind) => {
+    const w = menuWorld(500);
+    const spy = vi.spyOn(w.sim, 'queueCommand');
+    expect(w.runtime.requestSupport(kind, AT.x, AT.y)).toBe(true);
+    expect(w.runtime.intel).toBe(500 - PRICE[kind]);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const cmd = spy.mock.calls[0][0];
+    if (kind === 'drone_sweep') {
+      expect(cmd).toEqual({ kind: 'reveal', side: 0, x: AT.x, y: AT.y });
+    } else {
+      expect(cmd.kind).toBe('callStrike');
+      if (cmd.kind !== 'callStrike') return;
+      expect(cmd.caller).toBe(0);
+      expect(cmd.profile).toBe(
+        kind === 'smoke_screen' ? FS_SMOKE_SCREEN : kind === 'mortar_barrage' ? FS_MORTAR_BARRAGE : undefined,
+      );
+    }
+  });
+
+  it.each(FIRE_SUPPORT_KINDS)('%s refuses when short by 1 intel, and charges nothing', (kind) => {
+    const w = menuWorld(PRICE[kind] - 1);
+    const spy = vi.spyOn(w.sim, 'queueCommand');
+    expect(w.runtime.requestSupport(kind, AT.x, AT.y)).toBe(false);
+    expect(w.runtime.intel).toBe(PRICE[kind] - 1);
+    expect(spy).not.toHaveBeenCalled();
+    // The control: exactly the price is enough.
+    const exact = menuWorld(PRICE[kind]);
+    expect(exact.runtime.requestSupport(kind, AT.x, AT.y)).toBe(true);
+    expect(exact.runtime.intel).toBe(0);
+  });
+
+  it('a barrage and a smoke screen refuse with no living caller, like the strike; the sweep needs none', () => {
+    const w = menuWorld(1000);
+    w.sim.debugKill(0); // the only player unit; nothing has stepped, so the mission is not ended
+    const spy = vi.spyOn(w.sim, 'queueCommand');
+    for (const k of ['smoke_screen', 'mortar_barrage', 'air_strike'] as const) {
+      expect(w.runtime.requestSupport(k, AT.x, AT.y)).toBe(false);
+    }
+    expect(w.runtime.intel).toBe(1000);
+    expect(spy).not.toHaveBeenCalled();
+    expect(w.runtime.requestSupport('drone_sweep', AT.x, AT.y)).toBe(true);
+    expect(w.runtime.intel).toBe(850);
+  });
+
+  it('a refusal on the end of a mission charges nothing', () => {
+    const w = menuWorld(1000, { objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 1 }] });
+    w.step(3 * TICKS_PER_SECOND);
+    const intel = w.runtime.intel; // the objective's own 30 landed on the way
+    expect(intel).toBeGreaterThanOrEqual(1000);
+    for (const k of FIRE_SUPPORT_KINDS) expect(w.runtime.requestSupport(k, AT.x, AT.y)).toBe(false);
+    expect(w.runtime.intel).toBe(intel);
+  });
+
+  it('requestSweep and requestStrike are the same calls as before', () => {
+    const w = menuWorld(1000);
+    const spy = vi.spyOn(w.sim, 'queueCommand');
+    expect(w.runtime.requestSweep(AT.x, AT.y)).toBe(true);
+    expect(w.runtime.requestStrike(AT.x, AT.y)).toBe(true);
+    expect(w.runtime.intel).toBe(1000 - 150 - 250);
+    expect(spy.mock.calls.map(([c]) => c)).toEqual([
+      { kind: 'reveal', side: 0, x: AT.x, y: AT.y },
+      { kind: 'callStrike', caller: 0, x: AT.x, y: AT.y }, // no profile key: the air strike, as it was
+    ]);
+  });
+
+  describe('a drone sweep and the player\'s orders (#402, #537, #591, F-R6)', () => {
+    // Enemy at [24,10] stands beyond every sight on the board, so the sweep is what
+    // identifies him. Player units: 0 a plain arrived attack-mover, 1 a halted one.
+    const sweepWorld = (): World =>
+      menuWorld(500, {
+        starting_force: [
+          { unit: 'm_squad', count: 1, at: [3, 3] },
+          { unit: 'm_squad', count: 1, at: [3, 8] },
+        ],
+      });
+    const ENEMY = 2;
+    const tile = (w: World, i: number): [number, number] => [w.sim.state.posX[i], w.sim.state.posY[i]];
+
+    it('a drone sweep moves no player unit without a focus', () => {
+      const w = sweepWorld();
+      w.sim.queueCommand({ kind: 'attackMove', ids: [0], x: fx.from(5.5), y: fx.from(3.5) });
+      w.sim.queueCommand({ kind: 'halt', ids: [1] });
+      w.step(4 * TICKS_PER_SECOND); // arrived
+      expect(w.sim.contactLevel(0, ENEMY)).toBe(0);
+      const before = [tile(w, 0), tile(w, 1)];
+      expect(w.runtime.requestSupport('drone_sweep', fx.from(24.5), fx.from(10.5))).toBe(true);
+      w.step(10 * TICKS_PER_SECOND);
+      expect(w.sim.contactLevel(0, ENEMY)).toBe(2); // it did reveal him
+      expect([tile(w, 0), tile(w, 1)]).toEqual(before);
+    });
+
+    it('an attack-mover ordered with sweep: true walks toward what the sweep reveals', () => {
+      const w = sweepWorld();
+      w.sim.queueCommand({ kind: 'attackMove', ids: [0], x: fx.from(5.5), y: fx.from(3.5), sweep: true });
+      w.step(4 * TICKS_PER_SECOND);
+      const before = tile(w, 0);
+      expect(w.runtime.requestSupport('drone_sweep', fx.from(24.5), fx.from(10.5))).toBe(true);
+      w.step(10 * TICKS_PER_SECOND);
+      expect(w.sim.contactLevel(0, ENEMY)).toBe(2);
+      expect(w.sim.state.posX[0] - before[0]).toBeGreaterThan(fx.from(3));
+    });
+
+    it('a focused unit whose lost target a sweep re-identifies keeps its chase', () => {
+      const lostFor = (sweepAt: number | null): { target: number; lost: number } => {
+        const w = sweepWorld();
+        w.sim.identifyTo(0, ENEMY);
+        w.sim.queueCommand({ kind: 'attack', ids: [0], target: ENEMY });
+        w.step(1);
+        expect(w.sim.state.focusTarget[0]).toBe(ENEMY);
+        // Nobody sees him from here: the contact only decays.
+        for (let t = 0; w.sim.state.focusLost[0] < 60 && t < 600; t++) w.step(1);
+        expect(w.sim.state.focusLost[0]).toBe(60);
+        if (sweepAt !== null) {
+          expect(w.runtime.requestSupport('drone_sweep', fx.from(24.5), fx.from(10.5))).toBe(true);
+        }
+        // Past where an uninterrupted count (100 ticks) would have ended it.
+        w.step(60);
+        return { target: w.sim.state.focusTarget[0], lost: w.sim.state.focusLost[0] };
+      };
+      // The control: no sweep, and the order ends.
+      expect(lostFor(null).target).toBe(-1);
+      // With the sweep the count restarts and the chase stands.
+      const swept = lostFor(0);
+      expect(swept.target).toBe(ENEMY);
+      expect(swept.lost).toBeLessThan(60);
+    });
+
+    it.each(FIRE_SUPPORT_KINDS)('calling %s leaves every focus standing', (kind) => {
+      const w = sweepWorld();
+      w.sim.identifyTo(0, ENEMY);
+      // Unit 0 is also the first living surface unit, i.e. the caller.
+      w.sim.queueCommand({ kind: 'attack', ids: [0, 1], target: ENEMY });
+      w.step(1);
+      expect(w.runtime.requestSupport(kind, fx.from(14.5), fx.from(6.5))).toBe(true);
+      w.step(1);
+      expect([w.sim.state.focusTarget[0], w.sim.state.focusTarget[1]]).toEqual([ENEMY, ENEMY]);
+      w.step(TICKS_PER_SECOND);
+      expect([w.sim.state.focusTarget[0], w.sim.state.focusTarget[1]]).toEqual([ENEMY, ENEMY]);
+    });
+  });
+});
+
 describe('intel by doing (F1: first identification and objective completion; no trickle)', () => {
   function doingWorld(partial: Partial<MissionJson>, ctx?: Partial<MissionContext>): World {
     return makeWorld(
@@ -4339,6 +4515,23 @@ describe('containment is structural: mission predicates ignore buried bodies', (
     const strike = out.sim.find((e) => e.kind === 'strike');
     expect(strike).toBeDefined();
     expect(strike?.kind === 'strike' && strike.by).toBe(1); // the surface unit owns it
+  });
+
+  it('a barrage and a smoke screen are called by the first LIVING SURFACE unit too', () => {
+    for (const kind of ['mortar_barrage', 'smoke_screen'] as const) {
+      const w = world16({
+        starting_force: [
+          { unit: 'm_squad', count: 1, at: [3, 3], in_tunnel: 'tn_a' }, // playerIds[0], buried
+          { unit: 'm_squad', count: 1, at: [10, 5] },
+        ],
+        objectives: [SURVIVE],
+        resources: { intel_start: 250 },
+      });
+      const spy = vi.spyOn(w.sim, 'queueCommand');
+      expect(w.runtime.requestSupport(kind, fx.from(20.5), fx.from(5.5))).toBe(true);
+      const cmd = spy.mock.calls[0][0];
+      expect(cmd.kind === 'callStrike' && cmd.caller).toBe(1);
+    }
   });
 
   it('a buried drone observes nothing and earns nothing', () => {

@@ -10,6 +10,8 @@ export { FlowField } from './flowfield';
 export {
   MissionRuntime,
   MISSION_EVENT_KINDS,
+  FIRE_SUPPORT_KINDS,
+  type SupportKind,
   zoneContains,
   type MissionJson,
   type MissionContext,
