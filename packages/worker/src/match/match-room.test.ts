@@ -1435,14 +1435,21 @@ describe('advisor sockets (N4a task 7)', () => {
     expect(openSocket(room).closed).toEqual({ code: 1008, reason: 'too many sockets' });
   });
 
-  it('an advisor floods its own socket\'s budget like any socket: closed 1008, and the seat plays on', async () => {
-    const { room, ws0 } = await running({ mode: 'versus' });
+  it('an advisor floods its own socket\'s budget like any socket: closed 1008, the badge clears, and the seat plays on', async () => {
+    const { state, room, ws0, ws1 } = await running({ mode: 'versus' });
     const adv = await advisorHello(room, 0, 'advise');   // its hello spent one
+    for (const ws of [ws0, ws1]) expect(last(ws)).toEqual({ t: 'advisors', present: ['advise', null] });
+    const before = state.storage.rowsWritten;
     for (let i = 0; i < SOCKET_BUDGET.burst - 1; i++) await say(room, adv, { t: 'ack', tick: 0 });
     expect(adv.closed).toBeNull();
     await say(room, adv, { t: 'ack', tick: 0 });
     expect(adv.closed).toEqual({ code: 1008, reason: 'rate' });
     expect(ws0.closed).toBeNull();
+    // The rate close disowns the socket first, so its own close cannot clear the badge: the close here does.
+    for (const ws of [ws0, ws1]) expect(last(ws)).toEqual({ t: 'advisors', present: [null, null] });
+    await deliverClose(room, adv, 1008, 'rate');
+    for (const ws of [ws0, ws1]) expect(last(ws)).toEqual({ t: 'advisors', present: [null, null] });
+    expect(state.storage.rowsWritten).toBe(before);
   });
 
   it('an advisor ticket never replays an ended match as its seat: it hears the ending alone, while the seat\'s own ticket still gets the log', async () => {

@@ -657,7 +657,14 @@ export class MatchRoom {
       const msg = parseClientMsg(typeof message === 'string' ? message : new TextDecoder().decode(message));
       const now = Date.now();
       this.closeStaleSockets(now);
-      if (!this.spend(ws, msg, st, now)) { disown(ws); shut(ws, POLICY_CLOSE, 'rate'); return; }
+      if (!this.spend(ws, msg, st, now)) {
+        // Read before `disown`: the close that follows finds the socket seatless and cannot clear the badge.
+        const advising = advisorOf(ws);
+        disown(ws);
+        shut(ws, POLICY_CLOSE, 'rate');
+        if (advising !== null) this.send('all', this.advisorsPresent());
+        return;
+      }
       const seat = seatOf(ws);
       const advisor = advisorOf(ws);
       if (msg === null) {
