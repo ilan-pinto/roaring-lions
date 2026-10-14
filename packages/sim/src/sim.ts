@@ -157,6 +157,8 @@ export interface WeaponJson {
   min_range_tiles?: number;
   can_target?: string[];
   collateral_risk?: number;
+  /** Fires while its unit is garrisoned; default true. False for indirect fire (G4). */
+  fires_from_building?: boolean;
 }
 
 export interface UnitTypeJson {
@@ -328,6 +330,9 @@ export interface WeaponStats {
    */
   canTargetGround: boolean;
   canTargetAir: boolean;
+  /** Fires while its unit is garrisoned. From `fires_from_building`, default
+   *  true; false for indirect fire (G4, ruling 2026-10-14). */
+  firesFromBuilding: boolean;
 }
 
 /** Every multiplier behind one shot's hit probability, and their product.
@@ -513,6 +518,7 @@ function weaponFromJson(w: WeaponJson): WeaponStats {
     // Absent -> ground only. See the field comment on WeaponStats.
     canTargetGround: w.can_target === undefined || w.can_target.includes('ground'),
     canTargetAir: w.can_target?.includes('air') ?? false,
+    firesFromBuilding: w.fires_from_building ?? true,
   };
 }
 
@@ -3077,6 +3083,7 @@ export class Sim {
     let best: HitProjection = { kind: 'noSolution' };
     let bestP = -1;
     for (const w of type.weapons) {
+      if (this.garrisonedIn[shooter] >= 0 && !w.firesFromBuilding) continue;
       if (dSq > w.rangeSq || this.minRangeBlocks(w, dSq, target)) continue;
       if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
         if (this.losRay(px >> 16, py >> 16, tx >> 16, ty >> 16, this.eyeLift(shooter), 0) < 0) continue;
@@ -4027,8 +4034,14 @@ export class Sim {
       // fire; a unit that halts to fire closes with its weapon held.)
       let engagedClose = false;
       this.curStructure[i] = -1;
+      const inside = this.garrisonedIn[i] >= 0;
       for (let slot = 0; slot < type.weapons.length && slot < 2; slot++) {
         const w = type.weapons[slot];
+        // Indirect fire does not go out of a window (G4).
+        if (inside && !w.firesFromBuilding) {
+          if (slot === 0) this.curTarget[i] = -1;
+          continue;
+        }
         const target = this.selectTarget(i, w);
         if (slot === 0) this.curTarget[i] = target;
         if (target < 0) continue;
@@ -4056,6 +4069,7 @@ export class Sim {
         for (let slot = 0; slot < type.weapons.length && slot < 2; slot++) {
           const w = type.weapons[slot];
           if (STRUCT_DAMAGE[w.cls] === 0) continue;
+          if (inside && !w.firesFromBuilding) continue;
           const s = this.selectStructureTarget(i, w);
           if (s < 0) continue;
           anyTarget = true;
@@ -6054,6 +6068,7 @@ export class Sim {
     const py = this.eyeY;
     for (let s = 0; s < weapons.length && s < 2; s++) {
       const w = weapons[s];
+      if (this.garrisonedIn[shooter] >= 0 && !w.firesFromBuilding) continue;
       if (air ? !w.canTargetAir : !w.canTargetGround) continue;
       if (this.weaponHurts(w, target, px, py)) return true;
     }
@@ -6062,12 +6077,15 @@ export class Sim {
 
   /** Could any of `i`'s weapons ever be aimed at `t`, range and sight aside?
    *  The domain and containment half of selectTarget's filter, for stepSweep:
-   *  worth walking toward only if, once there, combat could take the shot. */
+   *  worth walking toward only if, once there, combat could take the shot.
+   *  A weapon that does not fire from a building does not count for a
+   *  garrisoned unit. */
   private couldEngage(i: number, t: number): boolean {
     if (this.garrisonedIn[t] >= 0 || this.carriedBy[t] >= 0 || this.tunnelIn[t] >= 0) return false;
     const air = this.unitTypes[this.typeIdx[t]].isAir;
     const weapons = this.unitTypes[this.typeIdx[i]].weapons;
     for (let s = 0; s < weapons.length && s < 2; s++) {
+      if (this.garrisonedIn[i] >= 0 && !weapons[s].firesFromBuilding) continue;
       if (air ? weapons[s].canTargetAir : weapons[s].canTargetGround) return true;
     }
     return false;

@@ -417,3 +417,76 @@ describe('each floor above the ground adds to eye height (G3)', () => {
     expect(pOf(3, true)).toBe(pOf(3, false)); // and three floors are over it
   });
 });
+
+describe('a mortar does not fire from inside; a Spike does (G4)', () => {
+  const MORTAR: UnitTypeJson = {
+    id: 'g_mortar', role: 'artillery',
+    hull: { hp: 300, armor: { front: 10, side: 10, rear: 10 } },
+    mobility: { speed_tiles_s: 1 },
+    sensors: { optics: 1, sight_tiles: 10, signature: 0.6 },
+    abilities: ['garrison'],
+    weapons: [{
+      id: 'g_mortar_60', type: 'mortar', range_tiles: 18, effective_range_tiles: 14, min_range_tiles: 4,
+      accuracy: 0.3, damage: 150, splash_tiles: 1.5, suppression: 90, rof_per_min: 12, fires_from_building: false,
+    }],
+  };
+  const SPIKE: UnitTypeJson = {
+    id: 'g_spike', role: 'at_team',
+    hull: { hp: 300, armor: { front: 10, side: 10, rear: 10 } },
+    mobility: { speed_tiles_s: 1 },
+    sensors: { optics: 1, sight_tiles: 10, signature: 0.6 },
+    abilities: ['garrison'],
+    weapons: [{
+      id: 'g_spike_atgm', type: 'atgm', range_tiles: 13, effective_range_tiles: 7.2, min_range_tiles: 1,
+      accuracy: 0.9, penetration: 700, damage: 500, suppression: 60, rof_per_min: 3,
+    }],
+  };
+  function setup(json: UnitTypeJson, inside: boolean) {
+    const { sim, t } = world();
+    const ut = sim.addUnitType(json);
+    const dummy = sim.addUnitType(DUMMY);
+    const house = rect(sim, t.house, 20, 14, 2, 2);
+    const id = sim.spawn(ut, 0, fx.from(19.5), fx.from(14.5));
+    if (inside) garrison(sim, id, house);
+    const target = sim.spawn(dummy, 1, fx.from(28.5), fx.from(14.5));
+    sim.identifyTo(0, target);
+    return { sim, id, target };
+  }
+  function shots(json: UnitTypeJson, inside: boolean): number {
+    const { sim, id, target } = setup(json, inside);
+    let n = 0;
+    for (let k = 0; k < 30 * TICKS_PER_SECOND; k++) {
+      sim.identifyTo(0, target);
+      for (const e of sim.tick()) if (e.kind === 'fire' && e.shooter === id) n++;
+    }
+    return n;
+  }
+  it('the mortar fires in the open (the control arm)', () => expect(shots(MORTAR, false)).toBeGreaterThan(0));
+  it('and holds fire inside', () => expect(shots(MORTAR, true)).toBe(0));
+  it('the Spike fires from inside', () => expect(shots(SPIKE, true)).toBeGreaterThan(0));
+  it('the fire panel and the fire order agree: no shot, and no order, for the mortar inside', () => {
+    const m = setup(MORTAR, true);
+    expect(m.sim.projectHit(m.id, m.target).kind).toBe('noSolution');
+    expect(m.sim.canFocus(m.id, m.target)).toBe(false);
+    expect(m.sim.focusHurts(m.id, m.target)).toBe(false);
+    const s = setup(SPIKE, true);
+    expect(s.sim.canFocus(s.id, s.target)).toBe(true);
+    expect(s.sim.focusHurts(s.id, s.target)).toBe(true);
+  });
+  it('and it does not shell the building the enemy hides in either', () => {
+    const { sim, t } = world();
+    const ut = sim.addUnitType(MORTAR);
+    const dummy = sim.addUnitType({ ...DUMMY, id: 'g_dummy_garrison', abilities: ['garrison'] });
+    const mine = rect(sim, t.house, 20, 14, 2, 2);
+    const theirs = rect(sim, t.house, 28, 14, 2, 2);
+    const id = sim.spawn(ut, 0, fx.from(19.5), fx.from(14.5));
+    garrison(sim, id, mine);
+    const foe = sim.spawn(dummy, 1, fx.from(28.5), fx.from(14.5));
+    garrison(sim, foe, theirs);
+    let n = 0;
+    for (let k = 0; k < 30 * TICKS_PER_SECOND; k++) {
+      for (const e of sim.tick()) if (e.kind === 'fire' && e.shooter === id) n++;
+    }
+    expect(n).toBe(0);
+  });
+});
