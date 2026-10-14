@@ -36,6 +36,7 @@
     "stills:cinematics": "tsx src/perf/cinematic-stills.ts",
     "plates:units": "tsx src/perf/unit-plates.ts",
     "kit:capture": "tsx src/perf/kit-captures.ts",
+    "vdmg:capture": "tsx src/perf/vehicle-damage-captures.ts",
     "closeups:garage": "tsx src/perf/garage-closeups.ts",
     "gait:meshes": "tsx src/meshes/gait-pass.ts",
     "motion:meshes": "tsx src/meshes/motion-pass.ts",
