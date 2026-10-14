@@ -272,8 +272,14 @@ export function cursorFor(res: Resolution, hints: CursorHints): CursorName {
   // held Alt to override it: `intents` is empty here too, but for a second,
   // distinct reason from "nothing selected" -- this rung must come before
   // the empty-intents rung below, or the refusal reads as "nothing selected"
-  // and the X never appears for the one case it exists to warn about.
+  // and the X never appears for the one case it exists to warn about. It is
+  // the protected-site rung ONLY: the other two refusals (`cantPenetrate`,
+  // `groundRefused`) have flags and cursors of their own.
   if (res.refused) return 'protected';
+  // GH-420 (R-17): the enemy the click picked cannot be hurt by anybody
+  // selected. The dim X, the same look as K-08 below -- `protected` is the
+  // protected-site cursor and would tell the player to hold Alt.
+  if (res.cantPenetrate) return 'blocked';
   // K-08: ground nobody selected can enter reads `blocked`, rock or map edge.
   if (res.groundRefused) return 'blocked';
   // Nothing selected means nothing will happen. Warning about rules of
@@ -296,8 +302,9 @@ export function cursorFor(res: Resolution, hints: CursorHints): CursorName {
   // costly and blocked below, which describe the target rather than the
   // order. The order-intent check is belt and braces: `winningVerb` names
   // `advance` only for an order, and the final fallback is reached with one.
-  const wholeOrderPinned = hints.pinned === true && res.intents.some((i) => i.kind === 'order');
-  if (verb === 'advance' && wholeOrderPinned) return 'pinned';
+  // A targeted order (GH-420) goes nowhere either when its shooters are pinned.
+  const wholeOrderPinned = hints.pinned === true && res.intents.some((i) => i.kind === 'order' || i.kind === 'attack');
+  if ((verb === 'advance' || verb === 'attack') && wholeOrderPinned) return 'pinned';
   if (verb) return verb;
   if (res.roe === 'costly') return 'costly';
   if (hints.blocked) return 'blocked';

@@ -158,9 +158,42 @@ describe('PA-08 / GH-420: the cursor over an enemy says what the click does', ()
     const p = pointerPoint(view, sim, CENTRE.x, CENTRE.y);
     expect(p.hostile).toBe(tank);
     const c = cursorAt(sim, simIntentWorld(sim, () => false), p, { ids: [squad], armed: null, confirm: false, armedSmoke: false });
-    expect(c.res.refused).toBe(true);
+    expect(c.res.cantPenetrate).toBe(true);
     expect(c.res.intents).toEqual([]);
     expect(c.res.note?.text).toBe("Can't penetrate: nothing selected can hurt that armour");
+    // R-17: the dim X (K-08's look), not `protected` ("hold Alt").
+    expect(c.name).toBe('blocked');
+  });
+
+  it('I1: a wholly pinned squad over a focusable enemy reads pinned, with the hint set', () => {
+    const { sim, squad, cam } = setup(true);
+    sim.state.pinned[squad] = 1;
+    const r = read(sim, cam, [squad], CENTRE.x, CENTRE.y);
+    expect(r.res.intents.map((i) => i.kind)).toEqual(['attack']);
+    expect(r.hints.pinned).toBe(true);
+    expect(r.name).toBe('pinned');
+    sim.state.pinned[squad] = 0;
+    expect(read(sim, cam, [squad], CENTRE.x, CENTRE.y).name).toBe('attack');
+  });
+
+  it('R-18: the picked enemy\'s tile reaches the resolver; the click\'s point stays the ground point', () => {
+    const { sim, spawn, squad, militia, cam } = setup(true);
+    const manpad = spawn('manpad_team', 0, 11.5, 24.4); // cannot aim at ground: the remainder
+    const view = viewOf(sim, cam);
+    const px = CENTRE.x + 8;
+    const py = CENTRE.y + 8;
+    const p = pointerPoint(view, sim, px, py);
+    expect(p.hostile).toBe(militia);
+    expect(p.hostileAt?.x).toBeCloseTo(26.5, 5);
+    expect(p.hostileAt?.y).toBeCloseTo(24.5, 5);
+    // x/y is where the pixel meets the ground, NOT the enemy.
+    expect(p.x).toBeCloseTo(p.ground.x, 9);
+    expect(Math.hypot(p.x - 26.5, p.y - 24.5)).toBeGreaterThan(0.05);
+    const c = cursorAt(sim, simIntentWorld(sim, () => false), p, { ids: [squad, manpad], armed: null, confirm: false, armedSmoke: false });
+    expect(c.res.intents).toEqual([
+      { kind: 'attack', ids: [squad], target: militia },
+      { kind: 'order', verb: 'attackMove', ids: [manpad], x: p.hostileAt?.x, y: p.hostileAt?.y, append: false },
+    ]);
   });
 });
 
@@ -232,6 +265,26 @@ describe('PA-14: a click on the house wall is a click on the house', () => {
     expect(r.p.facade).toBe(-1);
     expect(r.name).toBe('advance');
     expect(house).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('R-18: an enemy that is picked but cannot be focused changes no other rung', () => {
+  it('a suspected militia whose body is picked, beside the house: the click is still the house\'s', () => {
+    const { sim, spawn, house } = world();
+    const squad = spawn('inf_squad', 0, 25.5, 21.5);
+    const st = sim.structures;
+    // Outside the footprint, well away from the click's ground point.
+    const militia = spawn('militia_cell', 1, st.minX[house] - 0.7, (st.minY[house] + st.maxY[house] + 1) / 2);
+    expect(sim.structureAt(Math.floor(st.minX[house] - 0.7), st.minY[house])).toBe(-1);
+    const cam: Camera = { x: 25, y: 16, zoom: 1 };
+    const onFootprint = worldToScreenThree(24.5, 15.5, cam, VP);
+    const picked: PointerView = { ...viewOf(sim, cam), unitAtScreen: () => militia };
+    const plain: PointerView = { ...viewOf(sim, cam), unitAtScreen: () => -1 };
+    const ctx = { ids: [squad], armed: null, confirm: false, armedSmoke: false };
+    const withPick = cursorAt(sim, simIntentWorld(sim, () => false), pointerPoint(picked, sim, onFootprint.x, onFootprint.y), ctx);
+    const without = cursorAt(sim, simIntentWorld(sim, () => false), pointerPoint(plain, sim, onFootprint.x, onFootprint.y), ctx);
+    expect(withPick.res.intents).toEqual([{ kind: 'garrison', ids: [squad], structure: house }]);
+    expect(withPick.res).toEqual(without.res);
   });
 });
 

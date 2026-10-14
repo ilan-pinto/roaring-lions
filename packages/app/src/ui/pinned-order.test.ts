@@ -8,7 +8,17 @@ const W = (pinned: number[], routed: number[] = [], soft: number[] = []): Pinned
 });
 const move = (...ids: number[]) => ({ kind: 'order' as const, verb: 'move' as const, ids, x: 1, y: 1, append: false });
 
+const attack = (target: number, ...ids: number[]) => ({ kind: 'attack' as const, ids, target });
+
 describe('an order to a pinned unit says why it waits (GH-262)', () => {
+  it('a targeted order (GH-420) to pinned shooters says so too', () => {
+    expect(pinnedOrderNote(INITIAL_PINNED_NOTE, attack(9, 1, 2, 3), W([2, 3]), 0).line).toEqual({
+      key: 'order.pinned.note',
+      params: { n: 2 },
+      tone: 'warn',
+    });
+    expect(pinnedOrderNote(INITIAL_PINNED_NOTE, attack(9, 1), W([]), 0).line).toBeNull();
+  });
   it('says nothing when nobody is pinned', () => {
     expect(pinnedOrderNote(INITIAL_PINNED_NOTE, move(1, 2), W([]), 0).line).toBeNull();
   });

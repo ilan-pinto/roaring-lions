@@ -417,7 +417,11 @@ describe('resolvePointer: the hostile rung (GH-420)', () => {
     const w = world({ canFocus: () => true, focusHurts: () => false });
     const r = resolvePointer(w, ctx([1, 2]));
     expect(r.intents).toEqual([]);
-    expect(r.refused).toBe(true);
+    // Its own flag (R-17): `refused` is the protected-site refusal and draws
+    // another cursor. The deny cue needs no flag -- units were selected and no
+    // intent came of it.
+    expect(r.cantPenetrate).toBe(true);
+    expect(r.refused).toBeUndefined();
     expect(r.marker).toBe(false);
     expect(r.note).toEqual({ text: "Can't penetrate: nothing selected can hurt that armour", tone: 'mute' });
     expect(orderDenied(r, 2)).toBe(true);
@@ -434,7 +438,40 @@ describe('resolvePointer: the hostile rung (GH-420)', () => {
     // Rifles (1) cannot aim at the helicopter, the AA team (3) can but cannot
     // hurt it: somebody can focus and nobody can hurt, so it is refused.
     const w = world({ canFocus: (i) => i === 3, focusHurts: () => false });
-    expect(resolvePointer(w, ctx([1, 3])).refused).toBe(true);
+    expect(resolvePointer(w, ctx([1, 3])).cantPenetrate).toBe(true);
+  });
+
+  it('R-18: the remainder\'s attack-move and the marker go to the target\'s tile, not the click\'s ground point', () => {
+    const w = world({ canFocus: (i) => i === 3, focusHurts: (i) => i === 3 });
+    const at = { x: 13.5, y: 8.5 };
+    const r = resolvePointer(w, ctx([1, 3], { hostileAt: at }));
+    expect(r.intents).toEqual([
+      { kind: 'attack', ids: [3], target: 9 },
+      { kind: 'order', verb: 'attackMove', ids: [1], x: 13.5, y: 8.5, append: false },
+    ]);
+    expect(r.at).toEqual(at);
+    const s = orderSink();
+    issueOrder(w, s, [1, 3], 12.5, 7.5, { append: false, confirm: false, hostile: 9, hostileAt: at });
+    expect(s.log.find((e) => e.did === 'marker')).toEqual({ did: 'marker', x: 13.5, y: 8.5 });
+  });
+
+  it('R-18: an enemy picked but not focusable leaves the structure, tunnel and ground rungs exactly as without the pick', () => {
+    // Nobody can focus it (a suspected contact). Its position is on the far
+    // side of the map from the click; none of the other rungs may notice it.
+    const far = { x: 40.5, y: 3.5 };
+    const rungs: Partial<IntentWorld>[] = [
+      { structureAt: () => 7, canGarrison: () => true, garrisonFree: () => 4 },
+      { tunnelAt: () => 2, canTunnelCharge: () => true },
+      { groundAt: () => 'blocked' },
+      { structureAt: () => 7, isProtected: () => true, structureRoePenalty: () => 5 },
+    ];
+    for (const over of rungs) {
+      const w = world({ canFocus: () => false, focusHurts: () => true, ...over });
+      const picked = resolvePointer(w, ctx([1, 2], { hostileAt: far }));
+      const unpicked = resolvePointer(w, ctx([1, 2], { hostile: -1 }));
+      expect(picked).toEqual(unpicked);
+      expect(picked.at).toBeUndefined();
+    }
   });
 
   it('T-D9: Shift keeps today\'s appended attack-move, no attack', () => {

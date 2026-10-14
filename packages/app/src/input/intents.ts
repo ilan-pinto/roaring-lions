@@ -247,6 +247,15 @@ export interface PointerContext {
    * minimap click, an armed support call) point at ground, never a body.
    */
   hostile?: number;
+  /**
+   * Where that enemy stands. Only the hostile rung reads it, and only once it
+   * resolves a focus: the T-D7 remainder's attack-move and the order marker go
+   * to the target's own tile (R-18). `x`/`y` stay the click's GROUND point, so
+   * an enemy that is picked but cannot be focused leaves every other rung
+   * (structure, tunnel, protected zone) exactly as it was without the pick.
+   * Absent: the rung falls back to `x`/`y`.
+   */
+  hostileAt?: { x: number; y: number };
 }
 
 /** Everything the click does, as data: the intents to dispatch in order, the
@@ -268,10 +277,13 @@ export interface Resolution {
   armed?: 'strike' | 'sweep';
   /**
    * Set when a protected structure gated part of the selection's click and
-   * the player did not hold Alt to override it -- i.e. `suppressed` below.
-   * `intents` alone cannot carry this: an empty `intents` array already means
-   * "nothing selected" (the `ids.length === 0` branch above), so the cursor
-   * needs an explicit signal to tell "nothing to do" apart from "refused."
+   * the player did not hold Alt to override it -- i.e. `suppressed` below --
+   * and ONLY then: it draws the `protected` cursor ("protected site, hold
+   * Alt"). `intents` alone cannot carry this: an empty `intents` array already
+   * means "nothing selected" (the `ids.length === 0` branch above), so the
+   * cursor needs an explicit signal to tell "nothing to do" apart from
+   * "refused." The other two refusals have flags of their own, because each
+   * draws a different cursor: `groundRefused` and `cantPenetrate`.
    */
   refused?: boolean;
   /**
@@ -281,6 +293,20 @@ export interface Resolution {
    * is the protected-site rung and draws the other cursor.
    */
   groundRefused?: 'blocked' | 'offmap';
+  /**
+   * GH-420 (R-1, R-17): the click picked an enemy somebody selected can aim at
+   * and NOBODY can hurt from where they stand. No intent, no marker, a short
+   * note, the deny cue (`orderDenied`: units were selected and no intent came
+   * of it) and the `blocked` cursor (`cursorFor`) -- the same dim X as K-08,
+   * not `protected`, which means a protected site.
+   */
+  cantPenetrate?: boolean;
+  /**
+   * Where the order's marker goes, when that is not the click's ground point:
+   * the target's own tile, set only when the hostile rung resolved a focus
+   * (R-18). `issueOrder` reads it.
+   */
+  at?: { x: number; y: number };
 }
 
 /**
@@ -310,7 +336,7 @@ export function resolvePointer(world: IntentWorld, ctx: PointerContext): Resolut
   // on a boulder tile is still shootable.
   const target = ctx.hostile ?? -1;
   if (target >= 0 && !append) {
-    const focused = resolveFocus(world, ids, target, x, y, roe);
+    const focused = resolveFocus(world, ids, target, ctx.hostileAt ?? { x, y }, roe);
     if (focused) return focused;
   }
 
@@ -410,8 +436,11 @@ export function resolvePointer(world: IntentWorld, ctx: PointerContext): Resolut
  * yet shoot, or only the wrong weapons): null, so the caller falls through to
  * the ordinary attack-move, which is what the fire panel's footer already
  * promises. And somebody can focus it but NOBODY can hurt it (R-1): the click
- * is refused outright with a reason and the deny cue, rather than sending a
- * squad to plink at a tank.
+ * is refused outright (`cantPenetrate`) with a reason, the deny cue and the
+ * `blocked` cursor (R-17), rather than sending a squad to plink at a tank.
+ *
+ * `at` is the target's own position (R-18): the remainder's attack-move and
+ * the order marker go there, and only when a focus resolves.
  *
  * Shift never reaches here (T-D9): a queued click keeps its appended
  * attack-move.
@@ -420,8 +449,7 @@ function resolveFocus(
   world: IntentWorld,
   ids: number[],
   target: number,
-  x: number,
-  y: number,
+  at: { x: number; y: number },
   roe: RoeTier
 ): Resolution | null {
   const able = ids.filter((i) => world.canFocus(i, target));
@@ -432,15 +460,15 @@ function resolveFocus(
       intents: [],
       roe,
       marker: false,
-      refused: true,
+      cantPenetrate: true,
       note: { text: t('intent.cantPenetrate'), tone: 'mute' },
     };
   }
   const firingSet = new Set(firing);
   const rest = ids.filter((i) => !firingSet.has(i));
   const intents: PlayerIntent[] = [{ kind: 'attack', ids: firing, target }];
-  if (rest.length > 0) intents.push({ kind: 'order', verb: 'attackMove', ids: rest, x, y, append: false });
-  return { intents, roe, marker: true };
+  if (rest.length > 0) intents.push({ kind: 'order', verb: 'attackMove', ids: rest, x: at.x, y: at.y, append: false });
+  return { intents, roe, marker: true, at };
 }
 
 /**
@@ -635,7 +663,7 @@ export function issueOrder(
   ids: number[],
   x: number,
   y: number,
-  mods: { append: boolean; confirm: boolean; hostile?: number }
+  mods: { append: boolean; confirm: boolean; hostile?: number; hostileAt?: { x: number; y: number } }
 ): Resolution {
   const res = resolvePointer(world, {
     ids,
@@ -645,10 +673,11 @@ export function issueOrder(
     armed: null,
     confirm: mods.confirm,
     ...(mods.hostile !== undefined ? { hostile: mods.hostile } : {}),
+    ...(mods.hostileAt !== undefined ? { hostileAt: mods.hostileAt } : {}),
   });
   for (const intent of res.intents) sink.dispatch(intent);
   if (res.note) sink.note(res.note.text, res.note.tone);
-  if (res.marker) sink.marker(x, y);
+  if (res.marker) sink.marker(res.at?.x ?? x, res.at?.y ?? y);
   if (orderDenied(res, ids.length)) sink.deny();
   return res;
 }

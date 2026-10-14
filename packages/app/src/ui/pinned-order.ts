@@ -40,7 +40,8 @@ export function pinnedOrderNote(
   w: PinnedOrderWorld,
   nowMs: number
 ): { state: PinnedNoteState; line: AlertLine | null } {
-  if (intent.kind !== 'order') return { state: s, line: null };
+  // A targeted order (GH-420) is held by a pinned shooter just as a move is.
+  if (intent.kind !== 'order' && intent.kind !== 'attack') return { state: s, line: null };
 
   const routedIds = intent.ids.filter((id) => w.routed(id));
   if (routedIds.length > 0) {

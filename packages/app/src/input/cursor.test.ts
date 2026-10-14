@@ -194,6 +194,18 @@ describe('attack (GH-420)', () => {
   it('animates exactly as advance does', () => {
     expect(ANIMATED_CURSORS.attack).toEqual(ANIMATED_CURSORS.advance);
   });
+
+  it('R-17: a can\'t-penetrate refusal reads blocked, never protected', () => {
+    const refusal: Resolution = { intents: [], roe: 'free', marker: false, cantPenetrate: true };
+    expect(cursorFor(refusal, { hostile: true, blocked: false })).toBe('blocked');
+    // `refused` stays the protected-site rung and still reads protected.
+    expect(cursorFor({ ...refusal, cantPenetrate: undefined, refused: true }, { hostile: true, blocked: false })).toBe('protected');
+  });
+
+  it('I1: a wholly pinned targeted order reads pinned, as a pinned attack-move does', () => {
+    expect(cursorFor(targeted(), { hostile: true, blocked: false, pinned: true })).toBe('pinned');
+    expect(cursorFor(targeted(), { hostile: true, blocked: false, pinned: false })).toBe('attack');
+  });
 });
 
 describe('ANIMATED_CURSORS follows the approved sheet', () => {

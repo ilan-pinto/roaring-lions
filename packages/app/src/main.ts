@@ -183,7 +183,6 @@ import {
   issueOrder,
   haltNote,
   haltTargets,
-  orderDenied,
   resolvePointer,
   resolveKeyVerb,
   type OrderSink,
@@ -4102,28 +4101,18 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           voice.hint({ hostile: false });
           issueMove(intentWorld, orderSink, myLiving(), at.x, at.y, { append: ev.shiftKey });
         } else {
-          const mine = myLiving();
-          if (mine.length > 0) {
-            // The right-click's own point (PA-14): a building's wall is the
-            // building, here as on the contextmenu path.
-            const at = pointerPoint(pointerView, sim, p.x, p.y);
-            const move = resolvePointer(intentWorld, {
-              ids: mine,
-              x: at.x,
-              y: at.y,
-              append: ev.shiftKey,
-              armed: null,
-              confirm: ev.altKey,
-              // The enemy body under the pixel (R-9, R-13): the armed chip's
-              // left click and the right click are the same order.
-              hostile: at.hostile,
-            });
-            voice.hint({ hostile: at.hostile >= 0 });
-            for (const intent of move.intents) dispatch(intent);
-            if (move.note) hud.note(move.note.text, move.note.tone);
-            if (move.marker) orderMarker(at.x, at.y);
-            if (orderDenied(move, mine.length)) audio.playCue(CRITICAL_CUES.uiDeny);
-          }
+          // The right-click's own point (PA-14): a building's wall is the
+          // building, and an enemy body is that enemy (R-9, R-13). It is the
+          // right click's own `issueOrder`, so the armed chip's left click
+          // and the right click are the same order by construction.
+          const at = pointerPoint(pointerView, sim, p.x, p.y);
+          voice.hint({ hostile: at.hostile >= 0 });
+          issueOrder(intentWorld, orderSink, myLiving(), at.x, at.y, {
+            append: ev.shiftKey,
+            confirm: ev.altKey,
+            hostile: at.hostile,
+            ...(at.hostileAt ? { hostileAt: at.hostileAt } : {}),
+          });
         }
         dragStart = null;
         dragBox.style.display = 'none';
@@ -4224,6 +4213,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       confirm: ev.altKey,
       // The same enemy id the hover cursor and the fire panel read (R-13).
       hostile: w.hostile,
+      ...(w.hostileAt ? { hostileAt: w.hostileAt } : {}),
     });
   });
   // The keyboard, as data (Task 5): `resolveKey` is the one place a raw
@@ -5653,7 +5643,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     );
 
   // The enemy the pixel shows (`unitAtScreen`), alive, hostile and fog-gated --
-  // `hostileAt`'s own comment in input/pointer.ts has the rule.
+  // `enemyAt`'s own comment in input/pointer.ts has the rule.
   const he = pp.hostile;
   renderer.hoverEntity = he;
 

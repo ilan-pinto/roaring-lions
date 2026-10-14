@@ -83,7 +83,7 @@ export interface PointerView {
  * `hostileUnder` carried: in a versus room sweeping the cursor over fog must
  * not locate a hidden defender through the fire panel.
  */
-function hostileAt(view: PointerView, sim: Sim, px: number, py: number): number {
+function enemyAt(view: PointerView, sim: Sim, px: number, py: number): number {
   const hit = view.unitAtScreen(px, py);
   if (hit < 0 || hit >= sim.entityCount) return -1;
   if (sim.state.alive[hit] === 0 || !isHostileSide(sim.state.side[hit], view.viewer)) return -1;
@@ -95,12 +95,16 @@ export interface PointerPoint {
   /** Where the pixel's ray meets the ground (`screenToWorld`). */
   readonly ground: { x: number; y: number };
   /** The point an order resolves at: `ground`, or the centre of the building
-   *  whose wall the pixel shows, or -- over an enemy -- that enemy's own
-   *  position, since the ground under a picked body is somewhere behind it. */
+   *  whose wall the pixel shows. NEVER the picked enemy's position (R-18): an
+   *  enemy that cannot be focused must leave the structure, tunnel and zone
+   *  rungs, and the armed Move, exactly as they are without the pick. */
   readonly x: number;
   readonly y: number;
   /** The enemy the pixel shows (`unitAtScreen`), or -1. */
   readonly hostile: number;
+  /** Where that enemy stands, or null. Only the hostile rung reads it, once
+   *  it resolves a focus (`PointerContext.hostileAt`). */
+  readonly hostileAt: { x: number; y: number } | null;
   /** The building the pixel shows above its footprint, or -1 when the click
    *  is on the ground (including on a footprint the ground pick reached). */
   readonly facade: number;
@@ -119,22 +123,15 @@ export interface PointerPoint {
  */
 export function pointerPoint(view: PointerView, sim: Sim, px: number, py: number): PointerPoint {
   const ground = view.screenToWorld(px, py);
-  const hostile = hostileAt(view, sim, px, py);
-  if (hostile >= 0) {
-    // The order goes to the body the player picked, not the ground under the
-    // pixel behind it: the attack-move that a suspected contact falls back to
-    // and the T-D7 remainder both aim at the enemy's tile.
-    return {
-      ground,
-      x: fx.toNumber(sim.state.posX[hostile]),
-      y: fx.toNumber(sim.state.posY[hostile]),
-      hostile,
-      facade: -1,
-    };
-  }
-  const s = view.structureAtScreen(px, py);
+  const hostile = enemyAt(view, sim, px, py);
+  const hostileAt =
+    hostile >= 0 ? { x: fx.toNumber(sim.state.posX[hostile]), y: fx.toNumber(sim.state.posY[hostile]) } : null;
+  // An enemy under the pixel wins over the wall (PA-14, below), and the click's
+  // point stays the ground point: only a resolved focus moves an order to the
+  // enemy's own tile, and the hostile rung does that from `hostileAt`.
+  const s = hostile >= 0 ? -1 : view.structureAtScreen(px, py);
   if (s < 0 || sim.structures.alive[s] !== 1 || sim.structureAt(Math.floor(ground.x), Math.floor(ground.y)) === s) {
-    return { ground, x: ground.x, y: ground.y, hostile, facade: -1 };
+    return { ground, x: ground.x, y: ground.y, hostile, hostileAt, facade: -1 };
   }
   const st = sim.structures;
   return {
@@ -142,6 +139,7 @@ export function pointerPoint(view: PointerView, sim: Sim, px: number, py: number
     x: (st.minX[s] + st.maxX[s] + 1) / 2,
     y: (st.minY[s] + st.maxY[s] + 1) / 2,
     hostile,
+    hostileAt,
     facade: s,
   };
 }
@@ -186,6 +184,7 @@ export function cursorAt(sim: Sim, world: IntentWorld, p: PointerPoint, ctx: Cur
         armed: ctx.armed,
         confirm: ctx.confirm,
         hostile: p.hostile,
+        ...(p.hostileAt ? { hostileAt: p.hostileAt } : {}),
       });
   const tx = Math.floor(p.x);
   const ty = Math.floor(p.y);
@@ -194,7 +193,9 @@ export function cursorAt(sim: Sim, world: IntentWorld, p: PointerPoint, ctx: Cur
   // move -- so the click is accepted and nobody goes. Read from the order
   // intent's ids rather than the selection, so a pinned unit in a demolish
   // or garrison group never speaks for it.
-  const orderIds = res.intents.find((i) => i.kind === 'order')?.ids ?? [];
+  // A targeted order (GH-420) is moved by the same pinned units: the intents
+  // that send someone somewhere or open fire are `order` and `attack`.
+  const orderIds = res.intents.flatMap((i) => (i.kind === 'order' || i.kind === 'attack' ? i.ids : []));
   const hints: CursorHints = {
     hostile: p.hostile >= 0,
     blocked: inBounds && sim.blocked[ty * sim.width + tx] !== 0,
